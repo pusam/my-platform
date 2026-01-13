@@ -19,11 +19,11 @@ public class PasswordResetController {
         this.passwordResetService = passwordResetService;
     }
 
-    @Operation(summary = "비밀번호 재설정 인증번호 발송", description = "이메일로 6자리 인증번호를 발송합니다.")
+    @Operation(summary = "비밀번호 재설정 인증번호 발송", description = "아이디와 이메일로 6자리 인증번호를 발송합니다.")
     @PostMapping("/reset/send")
     public ResponseEntity<ApiResponse<String>> sendResetToken(@RequestBody PasswordResetRequest request) {
         try {
-            passwordResetService.sendResetToken(request.getEmail());
+            passwordResetService.sendResetToken(request.getUsername(), request.getEmail());
             return ResponseEntity.ok(ApiResponse.success("인증번호가 이메일로 발송되었습니다.", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail(e.getMessage()));
@@ -49,7 +49,7 @@ public class PasswordResetController {
     @PostMapping("/reset/confirm")
     public ResponseEntity<ApiResponse<String>> resetPassword(@RequestBody ResetPasswordRequest request) {
         try {
-            passwordResetService.resetPassword(request.getEmail(), request.getToken(), request.getNewPassword());
+            passwordResetService.resetPassword(request.getUsername(), request.getEmail(), request.getToken(), request.getNewPassword());
             return ResponseEntity.ok(ApiResponse.success("비밀번호가 변경되었습니다.", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail(e.getMessage()));

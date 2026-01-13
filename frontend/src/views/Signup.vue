@@ -59,13 +59,14 @@
         </div>
 
         <div class="form-group">
-          <label for="phone">핸드폰번호 (선택)</label>
+          <label for="phone">핸드폰번호</label>
           <input
             type="tel"
             id="phone"
             v-model="formData.phone"
             placeholder="010-1234-5678"
             pattern="[0-9]{3}-[0-9]{4}-[0-9]{4}"
+            required
           />
           <small class="hint">형식: 010-1234-5678</small>
         </div>

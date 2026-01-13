@@ -9,7 +9,6 @@ import java.util.Optional;
 @Repository
 public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
 
+    // 특정 종목의 가장 최근 시세 조회
     Optional<StockPrice> findTopByStockCodeOrderByFetchedAtDesc(String stockCode);
-
-    Optional<StockPrice> findByStockCode(String stockCode);
 }

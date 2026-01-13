@@ -1,72 +1,95 @@
 <template>
-  <div class="settings-page">
-    <div class="header">
-      <h1>내 설정</h1>
-      <div class="header-actions">
-        <button @click="goBack" class="back-btn">← 돌아가기</button>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
-
+  <div class="page-container">
     <div class="page-content">
-      <!-- 프로필 섹션 -->
-      <div class="settings-section">
-        <h2>프로필 정보</h2>
-
-        <div class="form-group">
-          <label>아이디</label>
-          <input type="text" :value="profile.username" disabled class="disabled-input" />
-          <span class="hint">아이디는 변경할 수 없습니다.</span>
+      <!-- 헤더 -->
+      <header class="common-header">
+        <h1>내 설정</h1>
+        <div class="header-actions">
+          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
+      </header>
 
-        <div class="form-group">
-          <label>이름</label>
-          <input type="text" v-model="profileForm.name" placeholder="이름을 입력하세요" />
-        </div>
+      <div class="settings-grid">
+        <!-- 프로필 섹션 -->
+        <section class="settings-card">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </div>
+            <h2>프로필 정보</h2>
+          </div>
 
-        <div class="form-group">
-          <label>역할</label>
-          <input type="text" :value="profile.role === 'ADMIN' ? '관리자' : '일반 사용자'" disabled class="disabled-input" />
-        </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label>아이디</label>
+              <input type="text" :value="profile.username" disabled class="disabled-input" />
+              <span class="input-hint">아이디는 변경할 수 없습니다.</span>
+            </div>
 
-        <div class="form-group">
-          <label>가입일</label>
-          <input type="text" :value="formatDate(profile.createdAt)" disabled class="disabled-input" />
-        </div>
+            <div class="form-group">
+              <label>이름</label>
+              <input type="text" v-model="profileForm.name" placeholder="이름을 입력하세요" />
+            </div>
 
-        <button @click="updateProfile" class="save-btn" :disabled="saving">
-          {{ saving ? '저장 중...' : '프로필 저장' }}
-        </button>
+            <div class="form-group">
+              <label>역할</label>
+              <input type="text" :value="profile.role === 'ADMIN' ? '관리자' : '일반 사용자'" disabled class="disabled-input" />
+            </div>
 
-        <div class="message success" v-if="profileMessage">{{ profileMessage }}</div>
-        <div class="message error" v-if="profileError">{{ profileError }}</div>
-      </div>
+            <div class="form-group">
+              <label>가입일</label>
+              <input type="text" :value="formatDate(profile.createdAt)" disabled class="disabled-input" />
+            </div>
 
-      <!-- 비밀번호 변경 섹션 -->
-      <div class="settings-section">
-        <h2>비밀번호 변경</h2>
+            <button @click="updateProfile" class="btn btn-primary full-width" :disabled="saving">
+              {{ saving ? '저장 중...' : '프로필 저장' }}
+            </button>
 
-        <div class="form-group">
-          <label>현재 비밀번호</label>
-          <input type="password" v-model="passwordForm.currentPassword" placeholder="현재 비밀번호" />
-        </div>
+            <div class="alert alert-success" v-if="profileMessage">{{ profileMessage }}</div>
+            <div class="alert alert-error" v-if="profileError">{{ profileError }}</div>
+          </div>
+        </section>
 
-        <div class="form-group">
-          <label>새 비밀번호</label>
-          <input type="password" v-model="passwordForm.newPassword" placeholder="새 비밀번호 (4자 이상)" />
-        </div>
+        <!-- 비밀번호 변경 섹션 -->
+        <section class="settings-card">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0110 0v4"/>
+              </svg>
+            </div>
+            <h2>비밀번호 변경</h2>
+          </div>
 
-        <div class="form-group">
-          <label>새 비밀번호 확인</label>
-          <input type="password" v-model="passwordForm.confirmPassword" placeholder="새 비밀번호 확인" />
-        </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label>현재 비밀번호</label>
+              <input type="password" v-model="passwordForm.currentPassword" placeholder="현재 비밀번호" />
+            </div>
 
-        <button @click="changePassword" class="save-btn" :disabled="changingPassword">
-          {{ changingPassword ? '변경 중...' : '비밀번호 변경' }}
-        </button>
+            <div class="form-group">
+              <label>새 비밀번호</label>
+              <input type="password" v-model="passwordForm.newPassword" placeholder="새 비밀번호 (4자 이상)" />
+            </div>
 
-        <div class="message success" v-if="passwordMessage">{{ passwordMessage }}</div>
-        <div class="message error" v-if="passwordError">{{ passwordError }}</div>
+            <div class="form-group">
+              <label>새 비밀번호 확인</label>
+              <input type="password" v-model="passwordForm.confirmPassword" placeholder="새 비밀번호 확인" />
+            </div>
+
+            <button @click="changePassword" class="btn btn-primary full-width" :disabled="changingPassword">
+              {{ changingPassword ? '변경 중...' : '비밀번호 변경' }}
+            </button>
+
+            <div class="alert alert-success" v-if="passwordMessage">{{ passwordMessage }}</div>
+            <div class="alert alert-error" v-if="passwordError">{{ passwordError }}</div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -140,7 +163,6 @@ const updateProfile = async () => {
     if (response.data.success) {
       profile.value = response.data.data
       profileMessage.value = '프로필이 저장되었습니다.'
-      // localStorage 업데이트
       localStorage.setItem('username', profileForm.name)
     } else {
       profileError.value = response.data.message
@@ -212,88 +234,51 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.settings-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: white;
-  padding: 20px 30px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  flex-wrap: nowrap;
-}
-
-.header h1 {
-  margin: 0;
-  color: #333;
-  font-size: 28px;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.back-btn {
-  padding: 10px 20px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.back-btn:hover {
-  background: #0056b3;
-}
-
-.logout-btn {
-  padding: 10px 20px;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.page-content {
-  max-width: 600px;
+.settings-grid {
+  max-width: 700px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
-.settings-section {
-  background: white;
-  border-radius: 10px;
-  padding: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+.settings-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
-.settings-section h2 {
-  margin: 0 0 25px 0;
-  color: #333;
+.settings-card .card-header {
+  padding: 24px 28px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 2px solid var(--border-light);
+}
+
+.settings-card .card-header .card-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--primary-gradient);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.settings-card .card-header h2 {
+  margin: 0;
   font-size: 20px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid #eee;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.settings-card .card-body {
+  padding: 28px;
 }
 
 .form-group {
@@ -304,72 +289,72 @@ onMounted(() => {
   display: block;
   margin-bottom: 8px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .form-group input {
   width: 100%;
-  padding: 12px 15px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
-  font-size: 14px;
+  padding: 14px 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 15px;
   box-sizing: border-box;
+  transition: all 0.3s ease;
 }
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--primary-start);
+  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
 }
 
 .disabled-input {
-  background: #f5f5f5;
-  color: #666;
-}
-
-.hint {
-  display: block;
-  margin-top: 5px;
-  font-size: 12px;
-  color: #888;
-}
-
-.save-btn {
-  width: 100%;
-  padding: 14px;
-  background: #667eea;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background 0.3s;
-}
-
-.save-btn:hover:not(:disabled) {
-  background: #5a67d8;
-}
-
-.save-btn:disabled {
-  background: #ccc;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
-.message {
-  margin-top: 15px;
-  padding: 12px;
-  border-radius: 5px;
+.input-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.btn.full-width {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.alert {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 12px;
   font-size: 14px;
   text-align: center;
 }
 
-.message.success {
-  background: #e8f5e9;
-  color: #2e7d32;
+.alert-success {
+  background: linear-gradient(135deg, rgba(72, 187, 120, 0.1) 0%, rgba(56, 161, 105, 0.1) 100%);
+  color: var(--success);
+  border: 1px solid rgba(72, 187, 120, 0.3);
 }
 
-.message.error {
-  background: #ffebee;
-  color: #c62828;
+.alert-error {
+  background: linear-gradient(135deg, rgba(252, 92, 125, 0.1) 0%, rgba(231, 76, 60, 0.1) 100%);
+  color: var(--danger);
+  border: 1px solid rgba(252, 92, 125, 0.3);
+}
+
+@media (max-width: 768px) {
+  .settings-grid {
+    gap: 16px;
+  }
+
+  .settings-card .card-body {
+    padding: 20px;
+  }
 }
 </style>

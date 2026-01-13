@@ -87,7 +87,49 @@ jwt.secret=<매우_긴_무작위_JWT_비밀_키> # 보안을 위해 길고 복�
 ```
 > **⚠️ 중요**: `application-local.properties`와 같이 민감한 정보가 포함된 파일은 Git에 커밋해서는 안 됩니다. `.gitignore`에 반드시 추가하세요.
 
-### 4. 의존성 설치 및 실행
+### 4. 환경 변수 설정 (이메일 발송 기능)
+
+비밀번호 찾기 기능을 사용하려면 Gmail SMTP 설정이 필요합니다.
+
+#### Gmail 앱 비밀번호 생성 방법:
+1. Google 계정 → 보안 → 2단계 인증 활성화
+2. 보안 → 앱 비밀번호 → "기타(맞춤 이름)" 선택
+3. 이름 입력 후 생성 → **16자리 비밀번호 복사** (띄어쓰기 제거)
+
+#### 환경 변수 설정:
+
+**Windows (PowerShell):**
+```powershell
+$env:MAIL_USERNAME="yourname@gmail.com"
+$env:MAIL_PASSWORD="abcdefghijklmnop"  # 16자리 앱 비밀번호 (띄어쓰기 없이)
+```
+
+**Windows (영구 설정):**
+```powershell
+# 시스템 환경 변수 설정 (관리자 권한)
+[System.Environment]::SetEnvironmentVariable("MAIL_USERNAME", "yourname@gmail.com", "User")
+[System.Environment]::SetEnvironmentVariable("MAIL_PASSWORD", "abcdefghijklmnop", "User")
+```
+
+**Linux/macOS:**
+```bash
+export MAIL_USERNAME="yourname@gmail.com"
+export MAIL_PASSWORD="abcdefghijklmnop"
+
+# 영구 설정 (~/.bashrc 또는 ~/.zshrc에 추가)
+echo 'export MAIL_USERNAME="yourname@gmail.com"' >> ~/.bashrc
+echo 'export MAIL_PASSWORD="abcdefghijklmnop"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**IntelliJ IDEA 실행 설정:**
+1. Run → Edit Configurations
+2. Environment variables 입력:
+   ```
+   MAIL_USERNAME=yourname@gmail.com;MAIL_PASSWORD=abcdefghijklmnop
+   ```
+
+### 5. 의존성 설치 및 실행
 
 **터미널 1: 백엔드 실행**
 ```bash
@@ -106,7 +148,7 @@ cd frontend
 npm run dev
 ```
 
-### 5. 접속 정보
+### 6. 접속 정보
 
 | 서비스 | URL | 설명 |
 |---|---|---|

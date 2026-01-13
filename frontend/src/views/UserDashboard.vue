@@ -1,83 +1,167 @@
 <template>
-  <div class="user-dashboard">
-    <div class="header">
-      <h1>사용자 대시보드</h1>
-      <div class="user-info">
-        <span>{{ username }}</span>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
+  <div class="page-container">
+    <div class="page-content">
+      <!-- 헤더 -->
+      <header class="common-header">
+        <h1>대시보드</h1>
+        <div class="header-actions">
+          <div class="header-user">
+            <div class="user-avatar">{{ username.charAt(0) }}</div>
+            <span>{{ username }}</span>
+          </div>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
+        </div>
+      </header>
 
-    <div class="dashboard-content">
-      <div class="welcome-section">
-        <h2>환영합니다, {{ username }}님!</h2>
-        <p>플랫폼에 접속하셨습니다.</p>
-      </div>
+      <!-- 환영 메시지 -->
+      <section class="welcome-card">
+        <div class="welcome-content">
+          <h2>환영합니다, <span class="highlight">{{ username }}</span>님!</h2>
+          <p>플랫폼에 접속하셨습니다. 아래 메뉴에서 원하는 기능을 선택하세요.</p>
+        </div>
+        <div class="welcome-decoration">
+          <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <path fill="rgba(102, 126, 234, 0.1)" d="M45.7,-51.9C59.1,-41.5,69.7,-26.2,71.8,-9.8C73.9,6.6,67.5,24.2,56.4,37.2C45.3,50.3,29.5,58.8,12.4,62.8C-4.7,66.8,-23.1,66.3,-38.4,58.5C-53.7,50.7,-65.9,35.6,-70.3,18.5C-74.7,1.4,-71.3,-17.7,-61.5,-32.1C-51.7,-46.5,-35.5,-56.2,-19.1,-65.1C-2.7,-74,14,-82.1,28.6,-77.3C43.2,-72.5,55.7,-54.8,45.7,-51.9Z" transform="translate(100 100)" />
+          </svg>
+        </div>
+      </section>
 
-      <div class="user-sections">
-        <div class="section">
-          <div class="section-icon">📋</div>
-          <h2>게시판</h2>
+      <!-- 메뉴 그리드 -->
+      <section class="menu-grid">
+        <article class="menu-card" @click="goToBoard">
+          <div class="card-icon board">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+              <polyline points="14,2 14,8 20,8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10,9 9,9 8,9"/>
+            </svg>
+          </div>
+          <h3>게시판</h3>
           <p>자유롭게 글을 작성하고 파일을 공유할 수 있습니다.</p>
-          <button @click="goToBoard" class="action-btn">게시판 이동</button>
-        </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <div class="section">
-          <div class="section-icon">📝</div>
-          <h2>내 콘텐츠</h2>
+        <article class="menu-card" @click="goToMyContent">
+          <div class="card-icon content">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </div>
+          <h3>내 콘텐츠</h3>
           <p>작성한 글과 파일을 확인하고 관리합니다.</p>
-          <button @click="goToMyContent" class="action-btn">콘텐츠 보기</button>
-        </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <div class="section">
-          <div class="section-icon">💰</div>
-          <h2>자산 관리</h2>
+        <article class="menu-card" @click="goToAsset">
+          <div class="card-icon asset">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <line x1="12" y1="1" x2="12" y2="23"/>
+              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+            </svg>
+          </div>
+          <h3>자산 관리</h3>
           <p>보유한 금/은 자산을 관리하고 손익을 확인합니다.</p>
-          <button @click="goToAsset" class="action-btn asset-btn">자산 보기</button>
-        </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <div class="section">
-          <div class="section-icon">⚙️</div>
-          <h2>내 설정</h2>
+        <article class="menu-card" @click="goToSettings">
+          <div class="card-icon settings">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </div>
+          <h3>내 설정</h3>
           <p>개인 정보 및 비밀번호를 관리합니다.</p>
-          <button @click="goToSettings" class="action-btn">설정 열기</button>
-        </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <div class="section gold-section">
-          <div class="section-icon">🪙</div>
-          <h2>금 시세</h2>
+        <article class="menu-card gold" @click="goToGold">
+          <div class="card-icon gold-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v12"/>
+              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+            </svg>
+          </div>
+          <h3>금 시세</h3>
           <p>실시간 금 시세 정보를 확인합니다.</p>
-          <button @click="goToGold" class="action-btn gold-btn">시세 확인</button>
-        </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <div class="section silver-section">
-          <div class="section-icon">🥈</div>
-          <h2>은 시세</h2>
+        <article class="menu-card silver" @click="goToSilver">
+          <div class="card-icon silver-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v12"/>
+              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+            </svg>
+          </div>
+          <h3>은 시세</h3>
           <p>실시간 은 시세 정보를 확인합니다.</p>
-          <button @click="goToSilver" class="action-btn silver-btn">시세 확인</button>
-        </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <div class="section files-section">
-          <div class="section-icon">📁</div>
-          <h2>내 파일</h2>
+        <article class="menu-card" @click="goToFiles">
+          <div class="card-icon files">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+            </svg>
+          </div>
+          <h3>내 파일</h3>
           <p>개인 파일과 폴더를 관리합니다.</p>
-          <button @click="goToFiles" class="action-btn files-btn">파일 관리</button>
-        </div>
-      </div>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+      </section>
 
-      <div class="info-section">
+      <!-- 시스템 정보 -->
+      <section class="info-card">
         <h3>시스템 정보</h3>
-        <div class="info-grid">
+        <div class="info-items">
           <div class="info-item">
-            <span class="info-label">계정 유형:</span>
+            <span class="info-label">계정 유형</span>
             <span class="info-value">일반 사용자</span>
           </div>
           <div class="info-item">
-            <span class="info-label">상태:</span>
-            <span class="info-value status-active">활성</span>
+            <span class="info-label">상태</span>
+            <span class="info-value status-active">
+              <span class="status-dot"></span>
+              활성
+            </span>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   </div>
 </template>
@@ -126,247 +210,297 @@ export default {
 </script>
 
 <style scoped>
-.user-dashboard {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-  padding: 20px;
-}
-
-.header {
+/* 환영 카드 */
+.welcome-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 40px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
-  padding: 20px 30px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  position: relative;
 }
 
-.header h1 {
-  margin: 0;
-  color: #3a7bd5;
+.welcome-content {
+  position: relative;
+  z-index: 1;
+}
+
+.welcome-content h2 {
   font-size: 28px;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
 }
 
-.user-info {
+.welcome-content .highlight {
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.welcome-content p {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.welcome-decoration {
+  position: absolute;
+  right: -50px;
+  top: -50px;
+  width: 300px;
+  height: 300px;
+  opacity: 0.5;
+}
+
+/* 사용자 아바타 */
+.user-avatar {
+  width: 36px;
+  height: 36px;
+  background: var(--primary-gradient);
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 15px;
-}
-
-.user-info span {
-  font-weight: 600;
-  color: #333;
-}
-
-.logout-btn {
-  padding: 10px 20px;
-  background: #f44336;
+  justify-content: center;
   color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
-}
-
-.logout-btn:hover {
-  background: #d32f2f;
-}
-
-.dashboard-content {
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.welcome-section {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  text-align: center;
-}
-
-.welcome-section h2 {
-  margin: 0 0 10px 0;
-  color: #333;
-  font-size: 24px;
-}
-
-.welcome-section p {
-  color: #666;
-  margin: 0;
+  font-weight: 700;
   font-size: 16px;
 }
 
-.user-sections {
+/* 메뉴 그리드 */
+.menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
   margin-bottom: 30px;
 }
 
-.section {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  text-align: center;
-  transition: transform 0.3s;
-}
-
-.section:hover {
-  transform: translateY(-5px);
-}
-
-.section-icon {
-  font-size: 48px;
-  margin-bottom: 15px;
-}
-
-.section h2 {
-  margin: 0 0 15px 0;
-  color: #333;
-  font-size: 22px;
-}
-
-.section p {
-  color: #666;
-  line-height: 1.6;
-  margin-bottom: 20px;
-  min-height: 48px;
-}
-
-.action-btn {
-  padding: 12px 24px;
-  background: #3a7bd5;
-  color: white;
-  border: none;
-  border-radius: 5px;
+.menu-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 28px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
-  width: 100%;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+  position: relative;
+  overflow: hidden;
 }
 
-.action-btn.silver-btn {
-  background: linear-gradient(135deg, #c0c0c0 0%, #808080 100%);
+.menu-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  border-color: var(--primary-start);
 }
 
-.action-btn.asset-btn {
-  background: linear-gradient(135deg, #f7b733 0%, #fc4a1a 100%);
+.menu-card:hover .card-arrow {
+  opacity: 1;
+  transform: translateX(0);
 }
 
-.action-btn.files-btn {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+.card-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  transition: transform 0.3s ease;
 }
 
-.info-section {
-  background: white;
-  padding: 25px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+.menu-card:hover .card-icon {
+  transform: scale(1.1);
 }
 
-.info-section h3 {
-  margin: 0 0 20px 0;
-  color: #333;
+.card-icon.board {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  color: var(--primary-start);
+}
+
+.card-icon.content {
+  background: linear-gradient(135deg, rgba(79, 172, 254, 0.15) 0%, rgba(0, 242, 254, 0.15) 100%);
+  color: #4facfe;
+}
+
+.card-icon.asset {
+  background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
+  color: #f7b733;
+}
+
+.card-icon.settings {
+  background: linear-gradient(135deg, rgba(108, 117, 125, 0.15) 0%, rgba(73, 80, 87, 0.15) 100%);
+  color: #6c757d;
+}
+
+.card-icon.gold-icon {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
+  color: #daa520;
+}
+
+.card-icon.silver-icon {
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(128, 128, 128, 0.2) 100%);
+  color: #808080;
+}
+
+.card-icon.files {
+  background: linear-gradient(135deg, rgba(93, 173, 226, 0.15) 0%, rgba(52, 152, 219, 0.15) 100%);
+  color: #3498db;
+}
+
+.menu-card h3 {
   font-size: 20px;
+  color: var(--text-primary);
+  margin: 0 0 10px 0;
+  font-weight: 600;
 }
 
-.info-grid {
-  display: grid;
-  gap: 15px;
+.menu-card p {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.card-arrow {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateX(10px) translateY(-50%);
+  opacity: 0;
+  transition: all 0.3s ease;
+  color: var(--primary-start);
+}
+
+/* 금/은 특별 스타일 */
+.menu-card.gold {
+  background: linear-gradient(135deg, rgba(255, 249, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(255, 215, 0, 0.3);
+}
+
+.menu-card.gold:hover {
+  border-color: #ffd700;
+  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.2);
+}
+
+.menu-card.gold h3 {
+  color: #b8860b;
+}
+
+.menu-card.silver {
+  background: linear-gradient(135deg, rgba(248, 249, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(192, 192, 192, 0.3);
+}
+
+.menu-card.silver:hover {
+  border-color: #c0c0c0;
+  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.2);
+}
+
+.menu-card.silver h3 {
+  color: #708090;
+}
+
+/* 정보 카드 */
+.info-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 28px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.info-card h3 {
+  font-size: 18px;
+  color: var(--text-primary);
+  margin: 0 0 20px 0;
+  font-weight: 600;
+}
+
+.info-items {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
 }
 
 .info-item {
+  flex: 1;
+  min-width: 200px;
   display: flex;
   justify-content: space-between;
-  padding: 12px;
-  background: #f5f5f5;
-  border-radius: 5px;
+  align-items: center;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border-radius: 12px;
 }
 
 .info-label {
   font-weight: 600;
-  color: #666;
+  color: var(--text-muted);
+  font-size: 14px;
 }
 
 .info-value {
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .status-active {
-  color: #4caf50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success);
   font-weight: 600;
 }
 
-.gold-section {
-  background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
-  border: 2px solid #ffd700;
+.status-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--success);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
 }
 
-.gold-section .section-icon {
-  filter: drop-shadow(0 2px 4px rgba(255, 215, 0, 0.4));
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(1.2);
+  }
 }
 
-.gold-section h2 {
-  color: #b8860b;
-}
+/* 반응형 */
+@media (max-width: 768px) {
+  .welcome-card {
+    padding: 28px;
+  }
 
-.gold-btn {
-  background: linear-gradient(135deg, #ffd700, #daa520);
-  color: #333;
-}
+  .welcome-content h2 {
+    font-size: 22px;
+  }
 
-.gold-btn:hover {
-  background: linear-gradient(135deg, #ffed4a, #ffd700);
-}
+  .welcome-decoration {
+    display: none;
+  }
 
-.silver-section {
-  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-  border: 2px solid #c0c0c0;
-}
+  .menu-grid {
+    grid-template-columns: 1fr;
+  }
 
-.silver-section .section-icon {
-  filter: drop-shadow(0 2px 4px rgba(192, 192, 192, 0.4));
-}
+  .info-items {
+    flex-direction: column;
+  }
 
-.silver-section h2 {
-  color: #708090;
-}
-
-.silver-btn {
-  background: linear-gradient(135deg, #c0c0c0, #a8a8a8);
-  color: #333;
-}
-
-.silver-btn:hover {
-  background: linear-gradient(135deg, #d0d0d0, #c0c0c0);
-}
-
-.files-section {
-  background: linear-gradient(135deg, #e8f4f8 0%, #ffffff 100%);
-  border: 2px solid #5dade2;
-}
-
-.files-section .section-icon {
-  filter: drop-shadow(0 2px 4px rgba(93, 173, 226, 0.4));
-}
-
-.files-section h2 {
-  color: #2980b9;
-}
-
-.files-btn {
-  background: linear-gradient(135deg, #5dade2, #3498db);
-  color: white;
-}
-
-.files-btn:hover {
-  background: linear-gradient(135deg, #7ec8e3, #5dade2);
+  .info-item {
+    min-width: 100%;
+  }
 }
 </style>
-

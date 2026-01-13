@@ -34,10 +34,14 @@ public class PasswordResetService {
     /**
      * 비밀번호 재설정 인증번호 발송
      */
-    public void sendResetToken(String email) {
-        // 이메일로 사용자 확인
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("등록된 이메일이 아닙니다."));
+    public void sendResetToken(String username, String email) {
+        // 아이디와 이메일로 사용자 확인
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("존재하지 않는 아이디입니다."));
+
+        if (!email.equals(user.getEmail())) {
+            throw new RuntimeException("아이디와 이메일이 일치하지 않습니다.");
+        }
 
         // 기존 토큰 삭제
         tokenRepository.deleteByEmail(email);
@@ -69,7 +73,7 @@ public class PasswordResetService {
     /**
      * 비밀번호 재설정
      */
-    public void resetPassword(String email, String token, String newPassword) {
+    public void resetPassword(String username, String email, String token, String newPassword) {
         // 토큰 확인
         PasswordResetToken resetToken = tokenRepository
                 .findByEmailAndTokenAndUsedFalseAndExpiresAtAfter(
@@ -77,9 +81,13 @@ public class PasswordResetService {
                 )
                 .orElseThrow(() -> new RuntimeException("유효하지 않거나 만료된 인증번호입니다."));
 
-        // 사용자 확인
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+        // 사용자 확인 (아이디 + 이메일)
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("존재하지 않는 아이디입니다."));
+
+        if (!email.equals(user.getEmail())) {
+            throw new RuntimeException("아이디와 이메일이 일치하지 않습니다.");
+        }
 
         // 비밀번호 변경
         user.setPassword(passwordEncoder.encode(newPassword));

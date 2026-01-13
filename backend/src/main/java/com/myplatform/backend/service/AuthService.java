@@ -77,6 +77,9 @@ public class AuthService {
         if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
             return new SignupResponse(false, "이메일을 입력해주세요.");
         }
+        if (request.getPhone() == null || request.getPhone().trim().isEmpty()) {
+            return new SignupResponse(false, "핸드폰번호를 입력해주세요.");
+        }
         if (!request.getPassword().equals(request.getPasswordConfirm())) {
             return new SignupResponse(false, "비밀번호가 일치하지 않습니다.");
         }

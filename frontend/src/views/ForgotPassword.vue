@@ -3,8 +3,19 @@
     <div class="forgot-password-box">
       <h2>비밀번호 찾기</h2>
 
-      <!-- 단계 1: 이메일 입력 -->
+      <!-- 단계 1: 아이디 + 이메일 입력 -->
       <form v-if="step === 1" @submit.prevent="sendVerificationCode">
+        <div class="form-group">
+          <label for="username">아이디</label>
+          <input
+            type="text"
+            id="username"
+            v-model="username"
+            placeholder="아이디를 입력하세요"
+            required
+          />
+        </div>
+
         <div class="form-group">
           <label for="email">이메일</label>
           <input
@@ -36,7 +47,7 @@
       <!-- 단계 2: 인증번호 입력 -->
       <form v-if="step === 2" @submit.prevent="verifyCode">
         <div class="info-message">
-          <p>{{ email }}로 인증번호가 발송되었습니다.</p>
+          <p>{{ username }} ({{ email }})로 인증번호가 발송되었습니다.</p>
           <p>이메일을 확인해주세요. (10분간 유효)</p>
         </div>
 
@@ -62,7 +73,7 @@
         </button>
 
         <div class="back-link">
-          <a href="#" @click.prevent="goBackToStep1">이메일 다시 입력</a>
+          <a href="#" @click.prevent="goBackToStep1">아이디/이메일 다시 입력</a>
         </div>
       </form>
 
@@ -118,6 +129,7 @@ import axios from 'axios'
 const router = useRouter()
 
 const step = ref(1)
+const username = ref('')
 const email = ref('')
 const verificationCode = ref('')
 const newPassword = ref('')
@@ -133,6 +145,7 @@ const sendVerificationCode = async () => {
 
   try {
     const response = await axios.post('/api/password/reset/send', {
+      username: username.value,
       email: email.value
     })
 
@@ -158,6 +171,7 @@ const verifyCode = async () => {
 
   try {
     const response = await axios.post('/api/password/reset/verify', {
+      username: username.value,
       email: email.value,
       token: verificationCode.value
     })
@@ -192,6 +206,7 @@ const resetPassword = async () => {
 
   try {
     const response = await axios.post('/api/password/reset/confirm', {
+      username: username.value,
       email: email.value,
       token: verificationCode.value,
       newPassword: newPassword.value
@@ -214,6 +229,7 @@ const resetPassword = async () => {
 
 const goBackToStep1 = () => {
   step.value = 1
+  username.value = ''
   verificationCode.value = ''
   errorMessage.value = ''
   successMessage.value = ''
