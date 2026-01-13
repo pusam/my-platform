@@ -9,14 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.4.0",
-    "vue-router": "^4.2.5",
+    "@vueup/vue-quill": "^1.2.0",
     "axios": "^1.6.0",
-    "@vueup/vue-quill": "^1.2.0"
+    "chart.js": "^4.5.1",
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.5"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.0",
     "vite": "^5.0.0"
   }
 }
-

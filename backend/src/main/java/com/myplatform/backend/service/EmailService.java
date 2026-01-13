@@ -68,5 +68,50 @@ public class EmailService {
             throw new RuntimeException("이메일 전송에 실패했습니다.");
         }
     }
+
+    public void sendApprovalEmail(String toEmail, String name) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(toEmail);
+            message.setSubject("[My Platform] 회원가입이 승인되었습니다");
+            message.setText(
+                "안녕하세요, " + name + "님.\n\n" +
+                "My Platform 회원가입이 승인되었습니다!\n\n" +
+                "이제 로그인하여 서비스를 이용하실 수 있습니다.\n\n" +
+                "로그인 페이지: http://localhost:5173/login\n\n" +
+                "감사합니다.\n" +
+                "My Platform 팀"
+            );
+
+            mailSender.send(message);
+            log.info("Approval email sent to: {}", toEmail);
+        } catch (Exception e) {
+            log.error("Failed to send approval email to: {}", toEmail, e);
+            throw new RuntimeException("이메일 전송에 실패했습니다.");
+        }
+    }
+
+    public void sendRejectionEmail(String toEmail, String name) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(toEmail);
+            message.setSubject("[My Platform] 회원가입 심사 결과");
+            message.setText(
+                "안녕하세요, " + name + "님.\n\n" +
+                "죄송하지만 회원가입 승인이 거부되었습니다.\n\n" +
+                "자세한 사항은 고객센터로 문의해주시기 바랍니다.\n\n" +
+                "감사합니다.\n" +
+                "My Platform 팀"
+            );
+
+            mailSender.send(message);
+            log.info("Rejection email sent to: {}", toEmail);
+        } catch (Exception e) {
+            log.error("Failed to send rejection email to: {}", toEmail, e);
+            throw new RuntimeException("이메일 전송에 실패했습니다.");
+        }
+    }
 }
 

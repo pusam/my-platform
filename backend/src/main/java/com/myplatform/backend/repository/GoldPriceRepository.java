@@ -22,6 +22,9 @@ public interface GoldPriceRepository extends JpaRepository<GoldPrice, Long> {
     // 특정 기간 히스토리 조회
     List<GoldPrice> findByFetchedAtBetweenOrderByFetchedAtDesc(LocalDateTime start, LocalDateTime end);
 
+    // 특정 날짜 이후 데이터 조회 (오름차순)
+    List<GoldPrice> findByFetchedAtAfterOrderByFetchedAtAsc(LocalDateTime start);
+
     // 특정 날짜 데이터 조회
     List<GoldPrice> findByBaseDateOrderByFetchedAtDesc(String baseDate);
 }

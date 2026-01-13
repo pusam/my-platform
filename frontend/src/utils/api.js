@@ -74,6 +74,10 @@ export const goldAPI = {
   // 금 시세 조회
   getPrice() {
     return apiClient.get('/gold/price');
+  },
+  // 최근 30일 금 시세 조회 (차트용)
+  getMonthlyHistory() {
+    return apiClient.get('/gold/history/month');
   }
 };
 
@@ -82,6 +86,10 @@ export const silverAPI = {
   // 은 시세 조회
   getPrice() {
     return apiClient.get('/silver/price');
+  },
+  // 최근 30일 은 시세 조회 (차트용)
+  getMonthlyHistory() {
+    return apiClient.get('/silver/history/month');
   }
 };
 

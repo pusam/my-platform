@@ -12,6 +12,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Tag(name = "은 시세", description = "은 시세 정보 API")
 @RestController
 @RequestMapping("/api/silver")
@@ -41,6 +43,13 @@ public class SilverPriceController {
             return ResponseEntity.ok(ApiResponse.fail("은 시세 정보를 가져올 수 없습니다. API 키를 확인하세요."));
         }
         return ResponseEntity.ok(ApiResponse.success("은 시세 조회 성공", silverPrice));
+    }
+
+    @Operation(summary = "최근 30일 은 시세 조회", description = "차트용 최근 30일 은 시세 데이터를 조회합니다")
+    @GetMapping("/history/month")
+    public ResponseEntity<ApiResponse<List<SilverPriceDto>>> getMonthlyHistory() {
+        List<SilverPriceDto> history = silverPriceService.getMonthlyHistory();
+        return ResponseEntity.ok(ApiResponse.success("조회 성공", history));
     }
 
 }

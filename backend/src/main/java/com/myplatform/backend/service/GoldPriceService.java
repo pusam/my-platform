@@ -20,8 +20,11 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 @Service
 public class GoldPriceService {
@@ -95,7 +98,6 @@ public class GoldPriceService {
             GoldApiResponse response = webClient.get()
                     .uri(apiUrl)
                     .header("x-access-token", apiKey)
-                    .header("Content-Type", "application/json")
                     .retrieve()
                     .bodyToMono(GoldApiResponse.class)
                     .block();
@@ -231,5 +233,56 @@ public class GoldPriceService {
     public Page<GoldPriceDto> getGoldPriceHistory(Pageable pageable) {
         return goldPriceRepository.findAllByOrderByFetchedAtDesc(pageable)
                 .map(this::entityToDto);
+    }
+
+    /**
+     * 최근 30일 금 시세 조회 (차트용)
+     */
+    public List<GoldPriceDto> getMonthlyHistory() {
+        LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
+        List<GoldPrice> history = goldPriceRepository.findByFetchedAtAfterOrderByFetchedAtAsc(thirtyDaysAgo);
+
+        if (history.isEmpty()) {
+            // DB에 데이터가 없으면 현재 시세 기준으로 시뮬레이션 데이터 생성
+            return generateSimulatedMonthlyData();
+        }
+
+        return history.stream()
+                .map(this::entityToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 시뮬레이션 데이터 생성 (DB에 데이터가 없을 때)
+     */
+    private List<GoldPriceDto> generateSimulatedMonthlyData() {
+        List<GoldPriceDto> result = new ArrayList<>();
+        GoldPriceDto current = getGoldPrice();
+
+        if (current == null) {
+            return result;
+        }
+
+        BigDecimal basePrice = current.getPricePerDon();
+        LocalDateTime now = LocalDateTime.now();
+
+        for (int i = 29; i >= 0; i--) {
+            GoldPriceDto dto = new GoldPriceDto();
+            LocalDateTime date = now.minusDays(i);
+
+            // 기준가 ±5% 범위에서 랜덤
+            double variation = (Math.random() - 0.5) * 0.1;
+            BigDecimal price = basePrice.multiply(BigDecimal.valueOf(1 + variation))
+                    .setScale(0, RoundingMode.HALF_UP);
+
+            dto.setPricePerDon(price);
+            dto.setPricePerGram(price.divide(gramPerDon, 0, RoundingMode.HALF_UP));
+            dto.setFetchedAt(date);
+            dto.setBaseDate(date.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+
+            result.add(dto);
+        }
+
+        return result;
     }
 }

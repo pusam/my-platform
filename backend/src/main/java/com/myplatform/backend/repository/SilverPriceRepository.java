@@ -24,4 +24,7 @@ public interface SilverPriceRepository extends JpaRepository<SilverPrice, Long> 
 
     // 특정 날짜 데이터 조회
     List<SilverPrice> findByBaseDateOrderByFetchedAtDesc(String baseDate);
+
+    // 특정 날짜 이후 데이터 조회 (오름차순) - 차트용
+    List<SilverPrice> findByFetchedAtAfterOrderByFetchedAtAsc(LocalDateTime start);
 }

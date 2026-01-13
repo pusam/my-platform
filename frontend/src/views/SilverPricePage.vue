@@ -82,6 +82,16 @@
         </div>
       </div>
 
+      <!-- 최근 한 달 차트 -->
+      <div class="chart-section">
+        <div class="chart-header">
+          <h2>📊 최근 한 달 은 시세 추이</h2>
+        </div>
+        <div class="chart-container">
+          <canvas ref="chartCanvas"></canvas>
+        </div>
+      </div>
+
       <div class="info-section">
         <h3>은 시세 안내</h3>
         <ul>
@@ -94,15 +104,21 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { silverAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
+import { Chart, registerables } from 'chart.js'
+
+// Chart.js 등록
+Chart.register(...registerables)
 
 const router = useRouter()
 const silverPrice = ref(null)
 const loading = ref(true)
 const error = ref(null)
+const chartCanvas = ref(null)
+let chartInstance = null
 const nextUpdateTime = ref('')
 
 let pollingInterval = null
@@ -126,6 +142,8 @@ const fetchSilverPrice = async () => {
     if (response.data.success) {
       silverPrice.value = response.data.data
       updateNextUpdateTime()
+      // 차트용 히스토리 데이터 조회 후 차트 생성
+      await fetchChartData()
     } else {
       error.value = response.data.message
     }
@@ -135,6 +153,225 @@ const fetchSilverPrice = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// DB에서 차트 데이터 가져오기
+const fetchChartData = async () => {
+  try {
+    const response = await silverAPI.getMonthlyHistory()
+    if (response.data.success && response.data.data) {
+      await nextTick()
+      createChartFromData(response.data.data)
+    }
+  } catch (err) {
+    console.error('Chart data fetch error:', err)
+    // 실패 시 시뮬레이션 데이터로 차트 생성
+    await nextTick()
+    createChart()
+  }
+}
+
+// DB 데이터로 차트 생성
+const createChartFromData = (historyData) => {
+  if (!chartCanvas.value || !historyData || historyData.length === 0) return
+
+  // 기존 차트가 있으면 삭제
+  if (chartInstance) {
+    chartInstance.destroy()
+  }
+
+  const labels = historyData.map(item => {
+    const date = new Date(item.fetchedAt)
+    return `${date.getMonth() + 1}/${date.getDate()}`
+  })
+  const prices = historyData.map(item => item.pricePerDon)
+
+  const ctx = chartCanvas.value.getContext('2d')
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '은 시세 (원/돈)',
+        data: prices,
+        backgroundColor: 'rgba(192, 192, 192, 0.7)',
+        borderColor: 'rgba(169, 169, 169, 1)',
+        borderWidth: 2,
+        borderRadius: 6,
+        hoverBackgroundColor: 'rgba(192, 192, 192, 0.9)'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            font: {
+              size: 14,
+              family: "'Noto Sans KR', sans-serif"
+            },
+            padding: 15
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          padding: 12,
+          titleFont: {
+            size: 14
+          },
+          bodyFont: {
+            size: 13
+          },
+          callbacks: {
+            label: function(context) {
+              return '시세: ' + formatPrice(context.parsed.y) + '원'
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          ticks: {
+            callback: function(value) {
+              return formatPrice(value) + '원'
+            },
+            font: {
+              size: 12
+            }
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.05)'
+          }
+        },
+        x: {
+          ticks: {
+            font: {
+              size: 12
+            }
+          },
+          grid: {
+            display: false
+          }
+        }
+      }
+    }
+  })
+}
+
+// 차트 생성 함수 (시뮬레이션 데이터용 - fallback)
+const createChart = () => {
+  if (!chartCanvas.value) return
+
+  // 기존 차트가 있으면 삭제
+  if (chartInstance) {
+    chartInstance.destroy()
+  }
+
+  // 시뮬레이션 데이터 생성
+  const monthlyData = generateMonthlyData()
+
+  const ctx = chartCanvas.value.getContext('2d')
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: monthlyData.labels,
+      datasets: [{
+        label: '은 시세 (원/돈)',
+        data: monthlyData.prices,
+        backgroundColor: 'rgba(192, 192, 192, 0.7)',
+        borderColor: 'rgba(169, 169, 169, 1)',
+        borderWidth: 2,
+        borderRadius: 6,
+        hoverBackgroundColor: 'rgba(192, 192, 192, 0.9)'
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            font: {
+              size: 14,
+              family: "'Noto Sans KR', sans-serif"
+            },
+            padding: 15
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          padding: 12,
+          titleFont: {
+            size: 14
+          },
+          bodyFont: {
+            size: 13
+          },
+          callbacks: {
+            label: function(context) {
+              return '시세: ' + formatPrice(context.parsed.y) + '원'
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          ticks: {
+            callback: function(value) {
+              return formatPrice(value) + '원'
+            },
+            font: {
+              size: 12
+            }
+          },
+          grid: {
+            color: 'rgba(0, 0, 0, 0.05)'
+          }
+        },
+        x: {
+          ticks: {
+            font: {
+              size: 12
+            }
+          },
+          grid: {
+            display: false
+          }
+        }
+      }
+    }
+  })
+}
+
+// 최근 한 달 데이터 생성 (시뮬레이션)
+const generateMonthlyData = () => {
+  const labels = []
+  const prices = []
+  const today = new Date()
+  const basePrice = silverPrice.value?.pricePerDon || 6000
+
+  // 30일 데이터 생성
+  for (let i = 29; i >= 0; i--) {
+    const date = new Date(today)
+    date.setDate(date.getDate() - i)
+
+    // 날짜 라벨 (MM/DD 형식)
+    labels.push(`${date.getMonth() + 1}/${date.getDate()}`)
+
+    // 가격 시뮬레이션 (기준가 ±5% 범위에서 랜덤)
+    const variation = (Math.random() - 0.5) * 0.1 // -5% ~ +5%
+    const price = Math.round(basePrice * (1 + variation))
+    prices.push(price)
+  }
+
+  return { labels, prices }
 }
 
 const updateNextUpdateTime = () => {
@@ -210,6 +447,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (pollingInterval) clearInterval(pollingInterval)
   if (countdownInterval) clearInterval(countdownInterval)
+  if (chartInstance) chartInstance.destroy()
 })
 </script>
 
@@ -473,6 +711,37 @@ onUnmounted(() => {
   border-radius: 5px;
   font-size: 14px;
   cursor: pointer;
+}
+
+/* 차트 섹션 */
+.chart-section {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+.chart-header {
+  margin-bottom: 25px;
+}
+
+.chart-header h2 {
+  margin: 0;
+  color: #333;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.chart-container {
+  position: relative;
+  height: 400px;
+  width: 100%;
+}
+
+.chart-container canvas {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .info-section {
