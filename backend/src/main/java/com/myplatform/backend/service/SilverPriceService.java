@@ -221,13 +221,19 @@ public class SilverPriceService {
         Optional<SilverPrice> latest = silverPriceRepository.findTopByOrderByFetchedAtDesc();
         if (latest.isPresent()) {
             SilverPriceDto dto = entityToDto(latest.get());
-            cachedSilverPrice.set(dto);
-            return dto;
+            if (dto != null) {
+                cachedSilverPrice.set(dto);
+                return dto;
+            }
         }
 
-        // DB에도 없으면 API 호출
+        // DB에도 없거나 변환 실패 시 API 호출
         fetchAndCacheSilverPrice();
-        return cachedSilverPrice.get();
+        SilverPriceDto result = cachedSilverPrice.get();
+        if (result == null) {
+            log.error("은 시세 조회 실패: 캐시, DB, API 모두에서 데이터를 가져올 수 없습니다.");
+        }
+        return result;
     }
 
     /**
