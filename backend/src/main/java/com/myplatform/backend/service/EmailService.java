@@ -44,5 +44,29 @@ public class EmailService {
             throw new RuntimeException("이메일 전송에 실패했습니다.");
         }
     }
+
+    public void sendVerificationEmail(String toEmail, String token) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(toEmail);
+            message.setSubject("[My Platform] 회원가입 이메일 인증");
+            message.setText(
+                "안녕하세요.\n\n" +
+                "My Platform 회원가입을 위한 인증번호는 다음과 같습니다:\n\n" +
+                "인증번호: " + token + "\n\n" +
+                "이 인증번호는 10분간 유효합니다.\n" +
+                "본인이 요청하지 않았다면 이 이메일을 무시해주세요.\n\n" +
+                "감사합니다.\n" +
+                "My Platform 팀"
+            );
+
+            mailSender.send(message);
+            log.info("Verification email sent to: {}", toEmail);
+        } catch (Exception e) {
+            log.error("Failed to send verification email to: {}", toEmail, e);
+            throw new RuntimeException("이메일 전송에 실패했습니다.");
+        }
+    }
 }
 

@@ -174,6 +174,19 @@ CREATE TABLE IF NOT EXISTS password_reset_token (
     INDEX idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 이메일 인증 토큰 테이블 생성 (회원가입용)
+CREATE TABLE IF NOT EXISTS email_verification_token (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(100) NOT NULL COMMENT '이메일',
+    token VARCHAR(6) NOT NULL COMMENT '6자리 인증번호',
+    expires_at TIMESTAMP NOT NULL COMMENT '만료시간',
+    verified BOOLEAN DEFAULT FALSE COMMENT '인증 여부',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_email (email),
+    INDEX idx_token (token),
+    INDEX idx_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 완료 메시지
 SELECT '데이터베이스 설정 완료!' as 'Status';
 SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file' as 'Info';

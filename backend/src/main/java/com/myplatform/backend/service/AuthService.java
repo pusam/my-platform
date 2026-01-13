@@ -21,15 +21,18 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final Optional<RedisTokenService> redisTokenService;
+    private final EmailVerificationService emailVerificationService;
 
     public AuthService(UserRepository userRepository,
                       PasswordEncoder passwordEncoder,
                       JwtTokenProvider jwtTokenProvider,
-                      @Autowired(required = false) RedisTokenService redisTokenService) {
+                      @Autowired(required = false) RedisTokenService redisTokenService,
+                      EmailVerificationService emailVerificationService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtTokenProvider = jwtTokenProvider;
         this.redisTokenService = Optional.ofNullable(redisTokenService);
+        this.emailVerificationService = emailVerificationService;
     }
 
     public LoginResponse login(LoginRequest request) {
@@ -64,12 +67,15 @@ public class AuthService {
     }
 
     public SignupResponse signup(SignupRequest request) {
-        // 유효성 검증
+        // 1. 필수 입력 필드 검증
         if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
             return new SignupResponse(false, "아이디를 입력해주세요.");
         }
         if (request.getPassword() == null || request.getPassword().trim().isEmpty()) {
             return new SignupResponse(false, "비밀번호를 입력해주세요.");
+        }
+        if (request.getPasswordConfirm() == null || request.getPasswordConfirm().trim().isEmpty()) {
+            return new SignupResponse(false, "비밀번호 확인을 입력해주세요.");
         }
         if (request.getName() == null || request.getName().trim().isEmpty()) {
             return new SignupResponse(false, "이름을 입력해주세요.");
@@ -80,19 +86,48 @@ public class AuthService {
         if (request.getPhone() == null || request.getPhone().trim().isEmpty()) {
             return new SignupResponse(false, "핸드폰번호를 입력해주세요.");
         }
-        if (!request.getPassword().equals(request.getPasswordConfirm())) {
-            return new SignupResponse(false, "비밀번호가 일치하지 않습니다.");
+        if (request.getVerificationToken() == null || request.getVerificationToken().trim().isEmpty()) {
+            return new SignupResponse(false, "이메일 인증번호를 입력해주세요.");
         }
 
-        // 중복 체크
+        // 2. 비밀번호 일치 검증
+        if (!request.getPassword().equals(request.getPasswordConfirm())) {
+            return new SignupResponse(false, "비밀번호가 일치하지 않습니다. 다시 확인해주세요.");
+        }
+
+        // 3. 비밀번호 길이 검증
+        if (request.getPassword().length() < 4) {
+            return new SignupResponse(false, "비밀번호는 최소 4자 이상이어야 합니다.");
+        }
+
+        // 4. 이메일 형식 검증
+        if (!request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+            return new SignupResponse(false, "올바른 이메일 형식이 아닙니다.");
+        }
+
+        // 5. 핸드폰번호 형식 검증
+        if (!request.getPhone().matches("^01[0-9]-[0-9]{4}-[0-9]{4}$")) {
+            return new SignupResponse(false, "핸드폰번호 형식이 올바르지 않습니다. (예: 010-1234-5678)");
+        }
+
+        // 6. 이메일 인증 확인
+        boolean isVerified = emailVerificationService.verifyToken(
+            request.getEmail(),
+            request.getVerificationToken()
+        );
+        if (!isVerified) {
+            return new SignupResponse(false, "이메일 인증번호가 올바르지 않거나 만료되었습니다.");
+        }
+
+        // 7. 중복 체크
         if (userRepository.existsByUsername(request.getUsername())) {
-            return new SignupResponse(false, "이미 사용 중인 아이디입니다.");
+            return new SignupResponse(false, "이미 사용 중인 아이디입니다. 다른 아이디를 사용해주세요.");
         }
         if (userRepository.existsByEmail(request.getEmail())) {
-            return new SignupResponse(false, "이미 사용 중인 이메일입니다.");
+            return new SignupResponse(false, "이미 가입된 이메일입니다. 다른 이메일을 사용하거나 로그인해주세요.");
         }
 
-        // 사용자 생성
+        // 8. 사용자 생성
         User user = new User();
         user.setUsername(request.getUsername());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -104,7 +139,7 @@ public class AuthService {
 
         userRepository.save(user);
 
-        return new SignupResponse(true, "회원가입이 완료되었습니다. 관리자 승인 후 로그인할 수 있습니다.");
+        return new SignupResponse(true, "✅ 회원가입이 완료되었습니다!\n관리자 승인 후 로그인하실 수 있습니다.\n승인 완료 시 이메일로 알림을 보내드리겠습니다.");
     }
 
     public void logout(String username) {

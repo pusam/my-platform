@@ -23,6 +23,9 @@ public class SignupRequest {
     @Schema(description = "핸드폰번호", example = "010-1234-5678")
     private String phone;
 
+    @Schema(description = "이메일 인증번호", example = "123456")
+    private String verificationToken;
+
     public String getUsername() {
         return username;
     }
@@ -69,6 +72,14 @@ public class SignupRequest {
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getVerificationToken() {
+        return verificationToken;
+    }
+
+    public void setVerificationToken(String verificationToken) {
+        this.verificationToken = verificationToken;
     }
 }
 

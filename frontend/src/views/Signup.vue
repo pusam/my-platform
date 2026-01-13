@@ -49,13 +49,47 @@
 
         <div class="form-group">
           <label for="email">이메일</label>
-          <input
-            type="email"
-            id="email"
-            v-model="formData.email"
-            placeholder="이메일을 입력하세요"
-            required
-          />
+          <div class="email-verification">
+            <input
+              type="email"
+              id="email"
+              v-model="formData.email"
+              placeholder="이메일을 입력하세요"
+              required
+              :disabled="emailVerified"
+            />
+            <button
+              type="button"
+              @click="sendVerificationCode"
+              class="btn-verify"
+              :disabled="!formData.email || emailSending || emailVerified"
+            >
+              {{ emailVerified ? '✓ 인증완료' : (emailSending ? '발송 중...' : '인증번호 발송') }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="verificationSent && !emailVerified" class="form-group">
+          <label for="verificationToken">이메일 인증번호</label>
+          <div class="email-verification">
+            <input
+              type="text"
+              id="verificationToken"
+              v-model="formData.verificationToken"
+              placeholder="6자리 인증번호"
+              maxlength="6"
+              required
+            />
+            <button
+              type="button"
+              @click="verifyEmail"
+              class="btn-verify"
+              :disabled="!formData.verificationToken || verifying"
+            >
+              {{ verifying ? '확인 중...' : '인증 확인' }}
+            </button>
+          </div>
+          <small class="hint">이메일로 발송된 6자리 인증번호를 입력하세요 (10분간 유효)</small>
         </div>
 
         <div class="form-group">
@@ -94,6 +128,7 @@
 <script setup>
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
+import axios from 'axios';
 import { signup } from '../utils/api';
 
 const router = useRouter();
@@ -104,16 +139,90 @@ const formData = ref({
   passwordConfirm: '',
   name: '',
   email: '',
-  phone: ''
+  phone: '',
+  verificationToken: ''
 });
 
 const errorMessage = ref('');
 const successMessage = ref('');
 const loading = ref(false);
+const emailSending = ref(false);
+const verifying = ref(false);
+const verificationSent = ref(false);
+const emailVerified = ref(false);
+
+// 이메일 인증번호 발송
+const sendVerificationCode = async () => {
+  if (!formData.value.email) {
+    errorMessage.value = '이메일을 입력해주세요.';
+    return;
+  }
+
+  emailSending.value = true;
+  errorMessage.value = '';
+
+  try {
+    const response = await axios.post('/api/auth/send-verification', {
+      email: formData.value.email
+    });
+
+    if (response.data.success) {
+      successMessage.value = '인증번호가 이메일로 발송되었습니다.';
+      verificationSent.value = true;
+      setTimeout(() => {
+        successMessage.value = '';
+      }, 3000);
+    } else {
+      errorMessage.value = response.data.message;
+    }
+  } catch (error) {
+    errorMessage.value = '인증번호 발송에 실패했습니다.';
+  } finally {
+    emailSending.value = false;
+  }
+};
+
+// 이메일 인증번호 확인
+const verifyEmail = async () => {
+  if (!formData.value.verificationToken) {
+    errorMessage.value = '인증번호를 입력해주세요.';
+    return;
+  }
+
+  verifying.value = true;
+  errorMessage.value = '';
+
+  try {
+    const response = await axios.post('/api/auth/verify-email', {
+      email: formData.value.email,
+      token: formData.value.verificationToken
+    });
+
+    if (response.data.success) {
+      successMessage.value = '✓ 이메일 인증이 완료되었습니다!';
+      emailVerified.value = true;
+      setTimeout(() => {
+        successMessage.value = '';
+      }, 3000);
+    } else {
+      errorMessage.value = response.data.message;
+    }
+  } catch (error) {
+    errorMessage.value = '인증 확인에 실패했습니다.';
+  } finally {
+    verifying.value = false;
+  }
+};
 
 const handleSignup = async () => {
   errorMessage.value = '';
   successMessage.value = '';
+
+  // 이메일 인증 확인
+  if (!emailVerified.value) {
+    errorMessage.value = '이메일 인증을 완료해주세요.';
+    return;
+  }
 
   // 클라이언트 측 유효성 검증
   if (!formData.value.username || !formData.value.password || !formData.value.name) {
@@ -137,6 +246,8 @@ const handleSignup = async () => {
 
     if (response.success) {
       successMessage.value = response.message;
+      // 성공 메시지를 alert로도 표시
+      alert(response.message);
       // 3초 후 로그인 페이지로 이동
       setTimeout(() => {
         router.push('/login');
@@ -145,8 +256,8 @@ const handleSignup = async () => {
       errorMessage.value = response.message || '회원가입에 실패했습니다.';
     }
   } catch (error) {
-    console.error('Signup error:', error);
-    errorMessage.value = error.response?.data?.message || '회원가입 중 오류가 발생했습니다.';
+    console.error('Signup failed:', error);
+    errorMessage.value = '회원가입 중 오류가 발생했습니다.';
   } finally {
     loading.value = false;
   }
@@ -210,6 +321,39 @@ const handleSignup = async () => {
   font-style: italic;
 }
 
+.email-verification {
+  display: flex;
+  gap: 8px;
+}
+
+.email-verification input {
+  flex: 1;
+}
+
+.btn-verify {
+  padding: 12px 20px;
+  background: #667eea;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+
+.btn-verify:hover:not(:disabled) {
+  background: #5568d3;
+  transform: translateY(-1px);
+}
+
+.btn-verify:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .form-group input:focus {
   outline: none;
   border-color: #667eea;
@@ -227,12 +371,17 @@ const handleSignup = async () => {
 
 .success-message {
   background-color: #efe;
-  color: #3c3;
+  color: #2a2;
   padding: 12px;
   border-radius: 6px;
   margin-bottom: 20px;
   font-size: 14px;
   text-align: center;
+  white-space: pre-line;
+  line-height: 1.6;
+}
+
+.btn {
 }
 
 .btn {
