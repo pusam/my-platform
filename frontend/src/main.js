@@ -13,6 +13,7 @@ import MyContentPage from './views/MyContentPage.vue'
 import SettingsPage from './views/SettingsPage.vue'
 import UserApproval from './views/UserApproval.vue'
 import AssetManagement from './views/AssetManagement.vue'
+import FileManager from './views/FileManager.vue'
 
 const router = createRouter({
   history: createWebHistory(),
