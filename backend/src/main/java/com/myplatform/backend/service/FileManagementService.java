@@ -181,6 +181,19 @@ public class FileManagementService {
         fileRepository.delete(file);
     }
 
+    @Transactional(readOnly = true)
+    public void validateFileOwnership(String username, Long fileId) {
+        var user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+
+        UserFile file = fileRepository.findById(fileId)
+                .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
+
+        if (!file.getUserId().equals(user.getId())) {
+            throw new RuntimeException("권한이 없습니다.");
+        }
+    }
+
     private FolderDto convertFolderToDto(UserFolder folder) {
         FolderDto dto = new FolderDto();
         dto.setId(folder.getId());

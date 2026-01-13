@@ -108,10 +108,16 @@ public class FileManagementController {
 
     @Operation(summary = "파일 다운로드", description = "파일을 다운로드합니다.")
     @GetMapping("/download/{fileId}")
-    public ResponseEntity<Resource> downloadFile(@PathVariable Long fileId) {
+    public ResponseEntity<Resource> downloadFile(
+            Authentication authentication,
+            @PathVariable Long fileId) {
         try {
+            String username = ((UserDetails) authentication.getPrincipal()).getUsername();
             UserFile file = userFileRepository.findById(fileId)
                     .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
+
+            // 파일 소유자 권한 검증
+            fileManagementService.validateFileOwnership(username, fileId);
 
             Path filePath = Paths.get(file.getFilePath());
             Resource resource = new UrlResource(filePath.toUri());

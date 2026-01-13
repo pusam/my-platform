@@ -146,6 +146,17 @@
         <div class="image-info">{{ imageViewer.name }}</div>
       </div>
     </div>
+
+    <!-- 비디오 뷰어 모달 -->
+    <div v-if="videoViewer.show" class="modal-overlay" @click="closeVideoViewer">
+      <div class="video-viewer" @click.stop>
+        <button @click="closeVideoViewer" class="close-btn">✕</button>
+        <video :src="videoViewer.url" controls autoplay>
+          브라우저가 비디오 재생을 지원하지 않습니다.
+        </video>
+        <div class="video-info">{{ videoViewer.name }}</div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -175,6 +186,12 @@ const contextMenu = ref({
 });
 
 const imageViewer = ref({
+  show: false,
+  url: '',
+  name: ''
+});
+
+const videoViewer = ref({
   show: false,
   url: '',
   name: ''
@@ -306,6 +323,12 @@ const viewFile = (file) => {
       url: `http://localhost:8080${file.downloadUrl}`,
       name: file.originalName
     };
+  } else if (file.fileType && file.fileType.startsWith('video/')) {
+    videoViewer.value = {
+      show: true,
+      url: `http://localhost:8080${file.downloadUrl}`,
+      name: file.originalName
+    };
   } else {
     // 다운로드
     window.open(`http://localhost:8080${file.downloadUrl}`, '_blank');
@@ -314,6 +337,10 @@ const viewFile = (file) => {
 
 const closeImageViewer = () => {
   imageViewer.value.show = false;
+};
+
+const closeVideoViewer = () => {
+  videoViewer.value.show = false;
 };
 
 const closeCreateFolderModal = () => {
@@ -659,6 +686,30 @@ onMounted(() => {
 
 .close-btn:hover {
   background: #c0392b;
+}
+
+.video-viewer {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.video-viewer video {
+  max-width: 100%;
+  max-height: 80vh;
+  display: block;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+
+.video-info {
+  text-align: center;
+  margin-top: 15px;
+  color: #333;
+  font-weight: 500;
 }
 </style>
 

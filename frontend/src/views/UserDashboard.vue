@@ -56,6 +56,13 @@
           <p>실시간 은 시세 정보를 확인합니다.</p>
           <button @click="goToSilver" class="action-btn silver-btn">시세 확인</button>
         </div>
+
+        <div class="section files-section">
+          <div class="section-icon">📁</div>
+          <h2>내 파일</h2>
+          <p>개인 파일과 폴더를 관리합니다.</p>
+          <button @click="goToFiles" class="action-btn files-btn">파일 관리</button>
+        </div>
       </div>
 
       <div class="info-section">
@@ -104,6 +111,9 @@ export default {
     },
     goToSilver() {
       this.$router.push('/silver')
+    },
+    goToFiles() {
+      this.$router.push('/files')
     },
     logout() {
       localStorage.removeItem('jwt_token')
@@ -335,6 +345,28 @@ export default {
 
 .silver-btn:hover {
   background: linear-gradient(135deg, #d0d0d0, #c0c0c0);
+}
+
+.files-section {
+  background: linear-gradient(135deg, #e8f4f8 0%, #ffffff 100%);
+  border: 2px solid #5dade2;
+}
+
+.files-section .section-icon {
+  filter: drop-shadow(0 2px 4px rgba(93, 173, 226, 0.4));
+}
+
+.files-section h2 {
+  color: #2980b9;
+}
+
+.files-btn {
+  background: linear-gradient(135deg, #5dade2, #3498db);
+  color: white;
+}
+
+.files-btn:hover {
+  background: linear-gradient(135deg, #7ec8e3, #5dade2);
 }
 </style>
 
