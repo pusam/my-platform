@@ -51,6 +51,10 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+
+    env_file:
+      - .env
+
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
       - DB_URL=jdbc:mariadb://mariadb:3306/myplatform
