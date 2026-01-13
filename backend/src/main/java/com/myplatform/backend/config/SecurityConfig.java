@@ -68,7 +68,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 인증 API (로그인, 회원가입 등)
                         .requestMatchers("/api/auth/**").permitAll()
-                        
+
                         // 비밀번호 재설정 API
                         .requestMatchers("/api/password/**").permitAll()
 
@@ -82,14 +82,6 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
                         
-                        // 정적 리소스 (Vue.js SPA)
-                        .requestMatchers("/", "/index.html").permitAll()
-                        .requestMatchers("/assets/**", "/src/**").permitAll()
-                        .requestMatchers("/*.js", "/*.css", "/*.ico", "/*.png", "/*.jpg", "/*.svg").permitAll()
-                        
-                        // Error 페이지
-                        .requestMatchers("/error").permitAll()
-                        
                         // Admin API는 ADMIN 권한 필요
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/test/admin").hasRole("ADMIN")
@@ -97,7 +89,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/user/pending", "/api/user/*/approval").hasRole("ADMIN")
 
                         // 나머지 API는 인증 필요
-                        .anyRequest().authenticated()
+                        .requestMatchers("/api/**").authenticated()
+
+                        // API가 아닌 모든 경로는 허용 (Vue.js SPA)
+                        // WebMvcConfig가 이들을 index.html로 포워딩하고
+                        // Vue Router의 beforeEach가 클라이언트에서 인증 체크함
+                        .anyRequest().permitAll()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
