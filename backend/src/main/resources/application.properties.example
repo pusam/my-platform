@@ -1,0 +1,66 @@
+# Application Configuration Template
+# 이 파일은 커밋용 템플릿입니다.
+# 실제 사용시 application-local.properties를 생성하여 사용하세요.
+
+spring.application.name=my-platform-backend
+server.port=8080
+
+# MariaDB Database
+# 환경변수 또는 application-local.properties에서 설정
+spring.datasource.url=${DB_URL:jdbc:mariadb://localhost:3307/myplatform}
+spring.datasource.driverClassName=org.mariadb.jdbc.Driver
+spring.datasource.username=${DB_USERNAME:myplatform}
+spring.datasource.password=${DB_PASSWORD:}
+
+# JPA
+spring.jpa.database-platform=org.hibernate.dialect.MariaDBDialect
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.format_sql=true
+spring.jpa.properties.hibernate.use_sql_comments=true
+spring.jpa.properties.hibernate.jdbc.batch_size=20
+spring.jpa.properties.hibernate.order_inserts=true
+spring.jpa.properties.hibernate.order_updates=true
+spring.jpa.open-in-view=false
+
+# SQL Scripts
+spring.sql.init.mode=never
+
+# Spring Boot Auto-configuration Exclusions (Redis는 선택사항)
+spring.autoconfigure.exclude=\
+  org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration,\
+  org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+# JWT
+# 환경변수 또는 application-local.properties에서 설정
+jwt.secret=${JWT_SECRET:}
+jwt.expiration=${JWT_EXPIRATION:86400000}
+
+# Static Resources (Vue.js SPA)
+spring.web.resources.static-locations=classpath:/static/
+spring.web.resources.add-mappings=true
+
+# Swagger/OpenAPI
+springdoc.api-docs.path=/v3/api-docs
+springdoc.swagger-ui.path=/swagger-ui.html
+springdoc.swagger-ui.tags-sorter=alpha
+springdoc.swagger-ui.operations-sorter=alpha
+springdoc.default-consumes-media-type=application/json
+springdoc.default-produces-media-type=application/json
+
+# File Upload
+spring.servlet.multipart.enabled=true
+spring.servlet.multipart.max-file-size=10MB
+spring.servlet.multipart.max-request-size=50MB
+file.upload.dir=uploads
+
+# Logging
+logging.level.root=INFO
+logging.level.com.myplatform=DEBUG
+logging.level.com.myplatform.jwtredis=DEBUG
+logging.level.org.springframework.security=DEBUG
+logging.level.org.springframework.web=DEBUG
+logging.level.org.hibernate.SQL=DEBUG
+logging.level.org.hibernate.type.descriptor.sql.BasicBinder=TRACE
+logging.pattern.console=%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n
+

@@ -1,0 +1,35 @@
+plugins {
+    id 'base'
+    id 'com.github.node-gradle.node' version '7.0.1'
+}
+
+node {
+    version = '20.10.0'
+    npmVersion = '10.2.3'
+    download = true
+    nodeProjectDir = file("${project.projectDir}")
+}
+
+task installDependencies(type: NpmTask) {
+    args = ['install']
+}
+
+task buildVue(type: NpmTask) {
+    dependsOn installDependencies
+    args = ['run', 'build']
+}
+
+task copyToBackend(type: Copy) {
+    dependsOn buildVue
+    from 'dist'
+    into '../backend/src/main/resources/static'
+}
+
+build.dependsOn copyToBackend
+
+clean {
+    delete 'dist'
+    delete 'node_modules'
+}
+
+

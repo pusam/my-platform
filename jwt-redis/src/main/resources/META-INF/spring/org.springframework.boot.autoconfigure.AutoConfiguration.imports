@@ -1,0 +1,3 @@
+com.myplatform.jwtredis.config.JwtRedisAutoConfiguration
+com.myplatform.jwtredis.config.RedisTokenAutoConfiguration
+

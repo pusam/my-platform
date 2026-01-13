@@ -1,0 +1,27 @@
+dependencies {
+    // Spring Boot Starter
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // Redis (Optional)
+    compileOnly 'org.springframework.boot:spring-boot-starter-data-redis'
+    compileOnly 'io.lettuce:lettuce-core'
+
+    // JWT
+    implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+
+
+    // Servlet API
+    compileOnly 'jakarta.servlet:jakarta.servlet-api:6.0.0'
+}
+
+// JWT-Redis 모듈은 라이브러리이므로 bootJar 비활성화
+bootJar {
+    enabled = false
+}
+
+jar {
+    enabled = true
+}
+

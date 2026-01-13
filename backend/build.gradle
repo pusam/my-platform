@@ -1,0 +1,53 @@
+dependencies {
+    // Core 모듈
+    implementation project(':core')
+
+    // JWT-Redis 모듈
+    implementation project(':jwt-redis')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // Swagger (Springdoc OpenAPI)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+
+    // JWT 의존성은 jwt-redis 모듈에서 제공
+
+    // MariaDB Driver
+    runtimeOnly 'org.mariadb.jdbc:mariadb-java-client:3.3.1'
+
+    // WebClient for external API calls
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+}
+
+// 프론트엔드 빌드 태스크
+task buildFrontend(type: Exec) {
+    workingDir '../frontend'
+
+    if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+        commandLine 'cmd', '/c', 'npm install && npm run build'
+    } else {
+        commandLine 'sh', '-c', 'npm install && npm run build'
+    }
+}
+
+// 프론트엔드 정적 파일 복사
+task copyFrontend(type: Copy) {
+    dependsOn buildFrontend
+    from '../frontend/dist'
+    into 'build/resources/main/static'
+}
+
+// bootJar 전에 프론트엔드 빌드 실행
+bootJar {
+    dependsOn copyFrontend
+}
+
+// processResources에도 의존성 추가
+processResources {
+    dependsOn copyFrontend
+}
+

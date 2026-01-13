@@ -1,0 +1,3 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+com.myplatform.core.config.CoreAutoConfiguration
+

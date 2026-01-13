@@ -1,0 +1,10 @@
+rootProject.name = 'my-platform'
+
+include 'backend'
+include 'frontend'
+include 'jwt-redis'
+include 'core'
+
+// frontend는 순수 Vue.js 프로젝트이므로 Spring Boot 적용 제외
+project(':frontend').buildFileName = 'build.gradle'
+

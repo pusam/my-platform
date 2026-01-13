@@ -1,0 +1,13 @@
+@echo off
+REM 배포 설정 파일 예제
+REM 이 파일을 deploy-config.bat으로 복사하고 실제 값을 입력하세요
+
+REM 서버 접속 정보
+set SERVER_USER=your_username
+set SERVER_HOST=your_server_ip
+set SERVER_PORT=22
+set SSH_KEY=C:\Users\yourname\.ssh\id_ed25519
+set REMOTE_DIR=/home/your_username/my-platform
+
+REM 서버 URL (선택사항 - 배포 완료 메시지에 표시)
+set SERVER_URL=http://your-domain.com
