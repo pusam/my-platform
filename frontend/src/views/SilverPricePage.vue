@@ -22,14 +22,18 @@
 
         <div class="widget-body" v-if="silverPrice">
           <div class="price-main">
-            <div class="price-label">1돈 (3.75g)</div>
-            <div class="price-value">{{ formatPrice(silverPrice.pricePerDon) }}원</div>
+            <div class="price-label">1kg</div>
+            <div class="price-value">{{ formatPrice(silverPrice.pricePerKg) }}원</div>
           </div>
 
           <div class="price-details">
             <div class="detail-item">
               <span class="label">1g 가격</span>
               <span class="value">{{ formatPrice(silverPrice.pricePerGram) }}원</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">1돈 (3.75g)</span>
+              <span class="value">{{ formatPrice(silverPrice.pricePerDon) }}원</span>
             </div>
             <div class="detail-item">
               <span class="label">기준일</span>
@@ -333,7 +337,7 @@ onUnmounted(() => {
 
 .price-details {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 20px;
   padding: 16px;

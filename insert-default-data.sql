@@ -13,7 +13,7 @@ DELETE FROM users;
 INSERT INTO users (username, password, name, role, status)
 VALUES (
     'admin',
-    '$2a$10$rDkPvvAFV8kqwvKJzwlJAOVuBen1F0WTfwCb/LzMnhPSC3ZFUBfjS',
+    '$2a$10$MICn2deUJNhh/4L1ntVTuOxkeuFnKk/6SgzTIg2ja.Q5Usf4yrwbS',
     '관리자',
     'ADMIN',
     'APPROVED'
@@ -27,7 +27,7 @@ VALUES (
 INSERT INTO users (username, password, name, role, status)
 VALUES (
     'user',
-    '$2a$10$ixlPY3AAd4ty1l6E2IsQ9OFZi2ba9ZQE0bP7RFcGIWNhyFrrT3YUi',
+    '$2a$10$26A.FAj11yLQh.Rv9K6wRu8IVj8629qer7QJZgQzUWciTLPIU3XO.',
     '사용자',
     'USER',
     'APPROVED'

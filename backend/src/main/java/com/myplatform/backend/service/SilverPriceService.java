@@ -132,6 +132,7 @@ public class SilverPriceService {
         BigDecimal pricePerGram = response.getPriceGram24k().setScale(0, RoundingMode.HALF_UP);
         dto.setPricePerGram(pricePerGram);
         dto.setPricePerDon(pricePerGram.multiply(gramPerDon).setScale(0, RoundingMode.HALF_UP));
+        dto.setPricePerKg(pricePerGram.multiply(new BigDecimal("1000")).setScale(0, RoundingMode.HALF_UP));
 
         // 시가, 고가, 저가, 종가 (1돈 기준으로 환산)
         BigDecimal pricePerDon = dto.getPricePerDon();
@@ -193,6 +194,7 @@ public class SilverPriceService {
         SilverPriceDto dto = new SilverPriceDto();
         dto.setPricePerGram(entity.getPricePerGram());
         dto.setPricePerDon(entity.getPricePerDon());
+        dto.setPricePerKg(entity.getPricePerGram().multiply(new BigDecimal("1000")).setScale(0, RoundingMode.HALF_UP));
         dto.setOpenPrice(entity.getOpenPrice());
         dto.setHighPrice(entity.getHighPrice());
         dto.setLowPrice(entity.getLowPrice());

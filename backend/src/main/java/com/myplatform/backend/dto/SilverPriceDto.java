@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 public class SilverPriceDto {
     private BigDecimal pricePerGram;       // 1g 가격
     private BigDecimal pricePerDon;        // 1돈 가격 (3.75g)
+    private BigDecimal pricePerKg;         // 1kg 가격
     private BigDecimal openPrice;          // 시가
     private BigDecimal highPrice;          // 고가
     private BigDecimal lowPrice;           // 저가
@@ -29,6 +30,14 @@ public class SilverPriceDto {
 
     public void setPricePerDon(BigDecimal pricePerDon) {
         this.pricePerDon = pricePerDon;
+    }
+
+    public BigDecimal getPricePerKg() {
+        return pricePerKg;
+    }
+
+    public void setPricePerKg(BigDecimal pricePerKg) {
+        this.pricePerKg = pricePerKg;
     }
 
     public BigDecimal getOpenPrice() {
