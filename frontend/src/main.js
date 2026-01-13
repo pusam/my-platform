@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import Login from './views/Login.vue'
 import Signup from './views/Signup.vue'
+import ForgotPassword from './views/ForgotPassword.vue'
 import Dashboard from './views/Dashboard.vue'
 import AdminDashboard from './views/AdminDashboard.vue'
 import UserDashboard from './views/UserDashboard.vue'
@@ -31,6 +32,11 @@ const router = createRouter({
       path: '/signup',
       name: 'Signup',
       component: Signup
+    },
+    {
+      path: '/forgot-password',
+      name: 'ForgotPassword',
+      component: ForgotPassword
     },
     {
       path: '/dashboard',

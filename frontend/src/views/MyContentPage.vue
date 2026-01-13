@@ -177,12 +177,20 @@ onMounted(() => {
   border-radius: 10px;
   margin-bottom: 30px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  flex-wrap: nowrap;
 }
 
 .header h1 {
   margin: 0;
   color: #333;
   font-size: 28px;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .header-actions {
@@ -192,16 +200,17 @@ onMounted(() => {
 
 .back-btn {
   padding: 10px 20px;
-  background: #667eea;
+  background: #007bff;
   color: white;
   border: none;
   border-radius: 5px;
   cursor: pointer;
   font-size: 14px;
+  white-space: nowrap;
 }
 
 .back-btn:hover {
-  background: #5a67d8;
+  background: #0056b3;
 }
 
 .logout-btn {

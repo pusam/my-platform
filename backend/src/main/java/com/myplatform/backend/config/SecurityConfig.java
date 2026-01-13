@@ -69,6 +69,9 @@ public class SecurityConfig {
                         // 인증 API (로그인, 회원가입 등)
                         .requestMatchers("/api/auth/**").permitAll()
                         
+                        // 비밀번호 재설정 API
+                        .requestMatchers("/api/password/**").permitAll()
+
                         // Actuator health check
                         .requestMatchers("/actuator/health/**").permitAll()
 

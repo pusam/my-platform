@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
     username VARCHAR(50) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
     name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE,
+    email VARCHAR(100) NOT NULL UNIQUE COMMENT '이메일 (필수)',
+    phone VARCHAR(20) COMMENT '핸드폰번호',
     role VARCHAR(20) NOT NULL DEFAULT 'USER',
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -28,7 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_username (username),
     INDEX idx_role (role),
     INDEX idx_status (status),
-    INDEX idx_email (email)
+    INDEX idx_email (email),
+    INDEX idx_phone (phone)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 게시판 테이블 생성
@@ -101,7 +103,10 @@ CREATE TABLE IF NOT EXISTS silver_price (
 CREATE TABLE IF NOT EXISTS user_asset (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL COMMENT '사용자 ID',
-    asset_type VARCHAR(10) NOT NULL COMMENT '자산 유형 (GOLD, SILVER)',
+    asset_type VARCHAR(10) NOT NULL COMMENT '자산 유형 (GOLD, SILVER, STOCK, OTHER)',
+    stock_code VARCHAR(20) COMMENT '종목코드 (주식인 경우)',
+    stock_name VARCHAR(100) COMMENT '종목명 (주식인 경우)',
+    other_name VARCHAR(100) COMMENT '기타 자산명 (기타인 경우)',
     quantity DECIMAL(15, 4) NOT NULL COMMENT '보유량 (그램)',
     purchase_price DECIMAL(15, 2) NOT NULL COMMENT '구매 당시 그램당 가격',
     purchase_date DATE NOT NULL COMMENT '구매일',
@@ -154,6 +159,19 @@ CREATE TABLE IF NOT EXISTS user_file (
     INDEX idx_folder_id (folder_id),
     INDEX idx_upload_date (upload_date),
     INDEX idx_file_type (file_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 비밀번호 재설정 토큰 테이블 생성
+CREATE TABLE IF NOT EXISTS password_reset_token (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(100) NOT NULL COMMENT '이메일',
+    token VARCHAR(6) NOT NULL COMMENT '6자리 인증번호',
+    expires_at TIMESTAMP NOT NULL COMMENT '만료시간',
+    used BOOLEAN DEFAULT FALSE COMMENT '사용 여부',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_email (email),
+    INDEX idx_token (token),
+    INDEX idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 완료 메시지

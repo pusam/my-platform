@@ -1,6 +1,12 @@
 <template>
   <div class="file-manager">
-    <h1>📁 파일 관리</h1>
+    <div class="header">
+      <h1>📁 파일 관리</h1>
+      <div class="header-actions">
+        <button @click="goBack" class="back-btn">← 돌아가기</button>
+        <button @click="logout" class="logout-btn">로그아웃</button>
+      </div>
+    </div>
 
     <!-- Breadcrumb 경로 -->
     <div class="breadcrumb" v-if="content">
@@ -103,6 +109,7 @@
               @change="onFileSelected"
               required
             />
+            <p class="file-info">※ 최대 100MB까지 업로드 가능 (이미지, 영상, 문서 등)</p>
           </div>
           <div class="form-group">
             <label>업로드 날짜 (선택)</label>
@@ -162,7 +169,11 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
+import { UserManager } from '../utils/auth';
+
+const router = useRouter();
 
 const content = ref(null);
 const loading = ref(true);
@@ -248,7 +259,15 @@ const createFolder = async () => {
 const onFileSelected = (event) => {
   const file = event.target.files[0];
   if (file) {
+    // 100MB = 100 * 1024 * 1024 bytes
+    const maxSize = 100 * 1024 * 1024;
+    if (file.size > maxSize) {
+      modalError.value = '파일 크기는 100MB를 초과할 수 없습니다.';
+      event.target.value = ''; // 파일 선택 초기화
+      return;
+    }
     selectedFile.value = file;
+    modalError.value = '';
   }
 };
 
@@ -390,6 +409,15 @@ const getFileIcon = (extension) => {
   return iconMap[ext] || '📄';
 };
 
+const goBack = () => {
+  router.back();
+};
+
+const logout = () => {
+  UserManager.logout();
+  router.push('/login');
+};
+
 // 전역 클릭 이벤트로 컨텍스트 메뉴 닫기
 onMounted(() => {
   loadFolder();
@@ -402,6 +430,57 @@ onMounted(() => {
   padding: 30px;
   max-width: 1400px;
   margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+  flex-wrap: nowrap;
+}
+
+.header h1 {
+  margin: 0;
+  color: #333;
+  font-size: 28px;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.back-btn, .logout-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.back-btn {
+  background: #007bff;
+  color: white;
+}
+
+.back-btn:hover {
+  background: #0056b3;
+}
+
+.logout-btn {
+  background: #dc3545;
+  color: white;
+}
+
+.logout-btn:hover {
+  background: #c82333;
 }
 
 .file-manager h1 {
@@ -593,6 +672,13 @@ onMounted(() => {
   margin-bottom: 8px;
   font-weight: 500;
   color: #555;
+}
+
+.file-info {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
 }
 
 .form-group input {

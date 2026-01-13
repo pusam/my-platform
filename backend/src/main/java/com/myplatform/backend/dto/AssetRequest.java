@@ -8,7 +8,7 @@ import java.time.LocalDate;
 @Schema(description = "자산 등록 요청")
 public class AssetRequest {
 
-    @Schema(description = "자산 유형 (GOLD, SILVER, STOCK)", example = "GOLD")
+    @Schema(description = "자산 유형 (GOLD, SILVER, STOCK, OTHER)", example = "GOLD")
     private String assetType;
 
     @Schema(description = "종목코드 (주식인 경우)", example = "005930")
@@ -16,6 +16,9 @@ public class AssetRequest {
 
     @Schema(description = "종목명 (주식인 경우)", example = "삼성전자")
     private String stockName;
+
+    @Schema(description = "기타 자산명 (기타인 경우)", example = "비트코인")
+    private String otherName;
 
     @Schema(description = "보유량 (그램 또는 주)", example = "10.5")
     private BigDecimal quantity;
@@ -51,6 +54,14 @@ public class AssetRequest {
 
     public void setStockName(String stockName) {
         this.stockName = stockName;
+    }
+
+    public String getOtherName() {
+        return otherName;
+    }
+
+    public void setOtherName(String otherName) {
+        this.otherName = otherName;
     }
 
     public BigDecimal getQuantity() {

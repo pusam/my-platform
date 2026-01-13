@@ -82,7 +82,6 @@
         <h3>금 시세 안내</h3>
         <ul>
           <li>금 시세는 GoldAPI.io를 통해 실시간으로 제공됩니다.</li>
-          <li>1돈 = 3.75g 기준으로 환산됩니다.</li>
           <li>24K 순금 국제 시세 기준 (XAU/KRW)입니다.</li>
         </ul>
       </div>
@@ -237,33 +236,37 @@ onUnmounted(() => {
   border-radius: 10px;
   margin-bottom: 30px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  flex-wrap: nowrap;
 }
 
 .header h1 {
   margin: 0;
   color: #b8860b;
   font-size: 28px;
+  white-space: nowrap;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .back-btn {
   padding: 10px 20px;
-  background: #3a7bd5;
+  background: #007bff;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.3s;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .back-btn:hover {
-  background: #2c5fb3;
+  background: #0056b3;
 }
 
 .logout-btn {

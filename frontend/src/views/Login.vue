@@ -73,7 +73,7 @@
             <span class="checkbox-custom"></span>
             <span class="checkbox-text">로그인 상태 유지</span>
           </label>
-          <a href="#" class="forgot-link">비밀번호 찾기</a>
+          <router-link to="/forgot-password" class="forgot-link">비밀번호 찾기</router-link>
         </div>
 
         <button type="submit" class="login-btn" :disabled="loading">

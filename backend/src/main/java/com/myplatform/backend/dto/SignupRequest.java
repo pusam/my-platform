@@ -20,6 +20,9 @@ public class SignupRequest {
     @Schema(description = "이메일", example = "test@example.com")
     private String email;
 
+    @Schema(description = "핸드폰번호", example = "010-1234-5678")
+    private String phone;
+
     public String getUsername() {
         return username;
     }
@@ -58,6 +61,14 @@ public class SignupRequest {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
 }
 

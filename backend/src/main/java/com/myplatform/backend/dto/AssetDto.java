@@ -12,7 +12,7 @@ public class AssetDto {
     @Schema(description = "자산 ID")
     private Long id;
 
-    @Schema(description = "자산 유형 (GOLD, SILVER, STOCK)")
+    @Schema(description = "자산 유형 (GOLD, SILVER, STOCK, OTHER)")
     private String assetType;
 
     @Schema(description = "종목코드 (주식인 경우)")
@@ -20,6 +20,9 @@ public class AssetDto {
 
     @Schema(description = "종목명 (주식인 경우)")
     private String stockName;
+
+    @Schema(description = "기타 자산명 (기타인 경우)")
+    private String otherName;
 
     @Schema(description = "보유량 (그램 또는 주)")
     private BigDecimal quantity;
@@ -70,6 +73,14 @@ public class AssetDto {
 
     public void setStockName(String stockName) {
         this.stockName = stockName;
+    }
+
+    public String getOtherName() {
+        return otherName;
+    }
+
+    public void setOtherName(String otherName) {
+        this.otherName = otherName;
     }
 
     public BigDecimal getQuantity() {

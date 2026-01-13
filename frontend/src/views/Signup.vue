@@ -48,13 +48,26 @@
         </div>
 
         <div class="form-group">
-          <label for="email">이메일 (선택)</label>
+          <label for="email">이메일</label>
           <input
             type="email"
             id="email"
             v-model="formData.email"
             placeholder="이메일을 입력하세요"
+            required
           />
+        </div>
+
+        <div class="form-group">
+          <label for="phone">핸드폰번호 (선택)</label>
+          <input
+            type="tel"
+            id="phone"
+            v-model="formData.phone"
+            placeholder="010-1234-5678"
+            pattern="[0-9]{3}-[0-9]{4}-[0-9]{4}"
+          />
+          <small class="hint">형식: 010-1234-5678</small>
         </div>
 
         <div v-if="errorMessage" class="error-message">
@@ -89,7 +102,8 @@ const formData = ref({
   password: '',
   passwordConfirm: '',
   name: '',
-  email: ''
+  email: '',
+  phone: ''
 });
 
 const errorMessage = ref('');
@@ -185,6 +199,14 @@ const handleSignup = async () => {
   font-size: 14px;
   transition: border-color 0.3s;
   box-sizing: border-box;
+}
+
+.form-group .hint {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: #888;
+  font-style: italic;
 }
 
 .form-group input:focus {

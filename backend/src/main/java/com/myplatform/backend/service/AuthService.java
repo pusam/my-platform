@@ -74,6 +74,9 @@ public class AuthService {
         if (request.getName() == null || request.getName().trim().isEmpty()) {
             return new SignupResponse(false, "이름을 입력해주세요.");
         }
+        if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
+            return new SignupResponse(false, "이메일을 입력해주세요.");
+        }
         if (!request.getPassword().equals(request.getPasswordConfirm())) {
             return new SignupResponse(false, "비밀번호가 일치하지 않습니다.");
         }
@@ -82,8 +85,7 @@ public class AuthService {
         if (userRepository.existsByUsername(request.getUsername())) {
             return new SignupResponse(false, "이미 사용 중인 아이디입니다.");
         }
-        if (request.getEmail() != null && !request.getEmail().isEmpty()
-                && userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmail(request.getEmail())) {
             return new SignupResponse(false, "이미 사용 중인 이메일입니다.");
         }
 
@@ -93,6 +95,7 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setName(request.getName());
         user.setEmail(request.getEmail());
+        user.setPhone(request.getPhone());
         user.setRole("USER");
         user.setStatus("PENDING"); // 승인 대기 상태
 

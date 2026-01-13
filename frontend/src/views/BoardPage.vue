@@ -411,21 +411,28 @@ export default {
   border-radius: 10px;
   margin-bottom: 20px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
 }
 
 .board-header h1 {
-  margin: 0 0 15px 0;
+  margin: 0;
   color: #333;
+  white-space: nowrap;
 }
 
 .header-actions {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .search-input {
-  flex: 1;
+  min-width: 200px;
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 5px;
@@ -439,6 +446,7 @@ export default {
   cursor: pointer;
   font-size: 14px;
   transition: all 0.3s;
+  white-space: nowrap;
 }
 
 .search-btn {
@@ -452,8 +460,12 @@ export default {
 }
 
 .back-btn {
-  background: #9e9e9e;
+  background: #007bff;
   color: white;
+}
+
+.back-btn:hover {
+  background: #0056b3;
 }
 
 .board-list {

@@ -17,13 +17,16 @@ public class UserAsset {
     private Long userId;
 
     @Column(name = "asset_type", nullable = false, length = 10)
-    private String assetType; // GOLD, SILVER, STOCK
+    private String assetType; // GOLD, SILVER, STOCK, OTHER
 
     @Column(name = "stock_code", length = 20)
     private String stockCode;
 
     @Column(name = "stock_name", length = 100)
     private String stockName;
+
+    @Column(name = "other_name", length = 100)
+    private String otherName;
 
     @Column(nullable = false, precision = 15, scale = 4)
     private BigDecimal quantity;
@@ -102,6 +105,14 @@ public class UserAsset {
 
     public void setStockName(String stockName) {
         this.stockName = stockName;
+    }
+
+    public String getOtherName() {
+        return otherName;
+    }
+
+    public void setOtherName(String otherName) {
+        this.otherName = otherName;
     }
 
     public BigDecimal getQuantity() {

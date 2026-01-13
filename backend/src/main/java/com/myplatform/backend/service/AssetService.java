@@ -62,6 +62,11 @@ public class AssetService {
             asset.setStockName(request.getStockName());
         }
 
+        // 기타 자산인 경우 자산명 저장
+        if ("OTHER".equals(request.getAssetType())) {
+            asset.setOtherName(request.getOtherName());
+        }
+
         UserAsset saved = userAssetRepository.save(asset);
         return convertToDto(saved);
     }
@@ -242,6 +247,7 @@ public class AssetService {
         dto.setAssetType(asset.getAssetType());
         dto.setStockCode(asset.getStockCode());
         dto.setStockName(asset.getStockName());
+        dto.setOtherName(asset.getOtherName());
         dto.setQuantity(asset.getQuantity());
         dto.setPurchasePrice(asset.getPurchasePrice());
         dto.setPurchaseDate(asset.getPurchaseDate());

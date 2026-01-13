@@ -1,6 +1,12 @@
 <template>
   <div class="asset-page">
-    <h1>내 자산 관리</h1>
+    <div class="header">
+      <h1>내 자산 관리</h1>
+      <div class="header-actions">
+        <button @click="goBack" class="back-btn">← 돌아가기</button>
+        <button @click="logout" class="logout-btn">로그아웃</button>
+      </div>
+    </div>
 
     <!-- 자산 요약 -->
     <div v-if="summary" class="summary-section">
@@ -163,34 +169,62 @@
               <option value="GOLD">금 (Gold)</option>
               <option value="SILVER">은 (Silver)</option>
               <option value="STOCK">주식 (Stock)</option>
+              <option value="OTHER">기타 (Other)</option>
             </select>
+          </div>
+
+          <!-- 기타 자산명 입력 (기타 선택시만 표시) -->
+          <div v-if="newAsset.assetType === 'OTHER'" class="form-group">
+            <label>자산명</label>
+            <input
+              type="text"
+              v-model="newAsset.otherName"
+              placeholder="예: 비트코인, 달러, 부동산 등"
+              required
+            />
           </div>
 
           <!-- 주식 검색 (주식 선택시만 표시) -->
           <div v-if="newAsset.assetType === 'STOCK'" class="form-group">
             <label>종목 검색</label>
-            <div class="stock-search">
-              <input
-                type="text"
-                v-model="stockSearchKeyword"
-                placeholder="종목명 또는 종목코드 입력"
-                @input="searchStocksDebounced"
-              />
-              <div v-if="stockSearchResults.length > 0" class="search-results">
-                <div
-                  v-for="stock in stockSearchResults"
-                  :key="stock.stockCode"
-                  class="search-result-item"
-                  @click="selectStock(stock)"
-                >
+            <input
+              type="text"
+              v-model="stockSearchKeyword"
+              placeholder="종목명 또는 종목코드 입력 (2글자 이상)"
+              @input="searchStocksDebounced"
+            />
+            <p class="search-hint">※ 검색어를 입력하면 관련 종목이 아래에 표시됩니다</p>
+          </div>
+
+          <!-- 검색 결과 리스트 (스크롤 가능) -->
+          <div v-if="newAsset.assetType === 'STOCK' && stockSearchResults.length > 0" class="form-group">
+            <label>검색 결과 ({{ stockSearchResults.length }}개)</label>
+            <div class="stock-results-list">
+              <div
+                v-for="stock in stockSearchResults"
+                :key="stock.stockCode"
+                class="stock-result-item"
+                :class="{ selected: newAsset.stockCode === stock.stockCode }"
+                @click="selectStock(stock)"
+              >
+                <div class="stock-info">
                   <span class="stock-name">{{ stock.stockName }}</span>
                   <span class="stock-code">{{ stock.stockCode }}</span>
-                  <span class="stock-price">{{ formatCurrency(stock.currentPrice) }}</span>
                 </div>
+                <span class="stock-price">{{ formatCurrency(stock.currentPrice) }}</span>
               </div>
             </div>
-            <div v-if="newAsset.stockCode" class="selected-stock">
-              선택됨: {{ newAsset.stockName }} ({{ newAsset.stockCode }})
+          </div>
+
+          <!-- 선택된 종목 표시 -->
+          <div v-if="newAsset.assetType === 'STOCK' && newAsset.stockCode" class="form-group">
+            <label>선택된 종목</label>
+            <div class="selected-stock-box">
+              <div class="selected-info">
+                <strong>{{ newAsset.stockName }}</strong>
+                <span class="selected-code">({{ newAsset.stockCode }})</span>
+              </div>
+              <button type="button" @click="clearStockSelection" class="btn-clear">✕ 취소</button>
             </div>
           </div>
 
@@ -200,12 +234,12 @@
           </div>
 
           <div class="form-group">
-            <label>{{ newAsset.assetType === 'STOCK' ? '보유 주수' : '보유량 (그램)' }}</label>
+            <label>{{ getQuantityLabel() }}</label>
             <input type="number" step="0.0001" v-model="newAsset.quantity" required />
           </div>
 
           <div class="form-group">
-            <label>{{ newAsset.assetType === 'STOCK' ? '주당 구매가격 (원)' : '구매 당시 그램당 가격 (원)' }}</label>
+            <label>{{ getPriceLabel() }}</label>
             <input type="number" step="0.01" v-model="newAsset.purchasePrice" required />
           </div>
 
@@ -228,7 +262,11 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { assetAPI, stockAPI } from '../utils/api';
+import { UserManager } from '../utils/auth';
+
+const router = useRouter();
 
 const summary = ref(null);
 const assets = ref([]);
@@ -242,6 +280,7 @@ const newAsset = ref({
   assetType: 'GOLD',
   stockCode: '',
   stockName: '',
+  otherName: '',
   quantity: '',
   purchasePrice: '',
   purchaseDate: new Date().toISOString().split('T')[0],
@@ -261,8 +300,10 @@ const loadData = async () => {
 const onAssetTypeChange = () => {
   newAsset.value.stockCode = '';
   newAsset.value.stockName = '';
+  newAsset.value.otherName = '';
   stockSearchKeyword.value = '';
   stockSearchResults.value = [];
+  selectedStockCode.value = '';
 };
 
 const searchStocksDebounced = () => {
@@ -291,8 +332,14 @@ const selectStock = (stock) => {
   newAsset.value.stockCode = stock.stockCode;
   newAsset.value.stockName = stock.stockName;
   newAsset.value.purchasePrice = stock.currentPrice;
-  stockSearchKeyword.value = '';
-  stockSearchResults.value = [];
+  // 검색 결과는 유지하여 다른 종목도 볼 수 있도록 함
+};
+
+const clearStockSelection = () => {
+  newAsset.value.stockCode = '';
+  newAsset.value.stockName = '';
+  newAsset.value.purchasePrice = '';
+  selectedStockCode.value = '';
 };
 
 const addAsset = async () => {
@@ -301,6 +348,11 @@ const addAsset = async () => {
 
     if (newAsset.value.assetType === 'STOCK' && !newAsset.value.stockCode) {
       errorMessage.value = '종목을 선택해주세요.';
+      return;
+    }
+
+    if (newAsset.value.assetType === 'OTHER' && !newAsset.value.otherName) {
+      errorMessage.value = '자산명을 입력해주세요.';
       return;
     }
 
@@ -332,10 +384,12 @@ const closeModal = () => {
   errorMessage.value = '';
   stockSearchKeyword.value = '';
   stockSearchResults.value = [];
+  selectedStockCode.value = '';
   newAsset.value = {
     assetType: 'GOLD',
     stockCode: '',
     stockName: '',
+    otherName: '',
     quantity: '',
     purchasePrice: '',
     purchaseDate: new Date().toISOString().split('T')[0],
@@ -347,7 +401,20 @@ const getAssetTypeLabel = (asset) => {
   if (asset.assetType === 'GOLD') return '금';
   if (asset.assetType === 'SILVER') return '은';
   if (asset.assetType === 'STOCK') return `${asset.stockName}`;
+  if (asset.assetType === 'OTHER') return asset.otherName || '기타';
   return asset.assetType;
+};
+
+const getQuantityLabel = () => {
+  if (newAsset.value.assetType === 'STOCK') return '보유 주수';
+  if (newAsset.value.assetType === 'OTHER') return '보유량';
+  return '보유량 (그램)';
+};
+
+const getPriceLabel = () => {
+  if (newAsset.value.assetType === 'STOCK') return '주당 구매가격 (원)';
+  if (newAsset.value.assetType === 'OTHER') return '단위당 구매가격 (원)';
+  return '구매 당시 그램당 가격 (원)';
 };
 
 const formatCurrency = (value) => {
@@ -377,6 +444,15 @@ const getProfitClass = (profitLoss) => {
   return profitLoss > 0 ? 'positive' : profitLoss < 0 ? 'negative' : '';
 };
 
+const goBack = () => {
+  router.back();
+};
+
+const logout = () => {
+  UserManager.logout();
+  router.push('/login');
+};
+
 onMounted(() => {
   loadData();
 });
@@ -387,6 +463,57 @@ onMounted(() => {
   padding: 30px;
   max-width: 1400px;
   margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid #e0e0e0;
+  flex-wrap: nowrap;
+}
+
+.header h1 {
+  margin: 0;
+  color: #333;
+  font-size: 28px;
+  white-space: nowrap;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.back-btn, .logout-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.back-btn {
+  background: #007bff;
+  color: white;
+}
+
+.back-btn:hover {
+  background: #0056b3;
+}
+
+.logout-btn {
+  background: #dc3545;
+  color: white;
+}
+
+.logout-btn:hover {
+  background: #c82333;
 }
 
 .asset-page h1 {
@@ -591,43 +718,54 @@ td {
   box-sizing: border-box;
 }
 
-.stock-search {
-  position: relative;
+.search-hint {
+  margin-top: 5px;
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
 }
 
-.search-results {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: white;
+.stock-results-list {
+  max-height: 300px;
+  overflow-y: auto;
   border: 1px solid #ddd;
   border-radius: 6px;
-  max-height: 200px;
-  overflow-y: auto;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: white;
 }
 
-.search-result-item {
-  padding: 12px;
-  cursor: pointer;
+.stock-result-item {
+  padding: 12px 15px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s;
 }
 
-.search-result-item:hover {
-  background: #f5f5f5;
-}
-
-.search-result-item:last-child {
+.stock-result-item:last-child {
   border-bottom: none;
 }
 
+.stock-result-item:hover {
+  background-color: #f8f9fa;
+}
+
+.stock-result-item.selected {
+  background-color: #e3f2fd;
+  border-left: 3px solid #2196f3;
+}
+
+.stock-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .stock-name {
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
 }
 
 .stock-code {
@@ -636,17 +774,50 @@ td {
 }
 
 .stock-price {
-  color: #667eea;
-  font-weight: 500;
+  color: #2196f3;
+  font-weight: 600;
+  font-size: 14px;
 }
 
-.selected-stock {
-  margin-top: 10px;
-  padding: 10px;
-  background: #e8f4f8;
-  border-radius: 6px;
-  color: #2980b9;
-  font-weight: 500;
+.selected-stock-box {
+  padding: 15px;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border: 2px solid #2196f3;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.selected-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1976d2;
+}
+
+.selected-info strong {
+  font-size: 16px;
+}
+
+.selected-code {
+  font-size: 13px;
+  color: #666;
+}
+
+.btn-clear {
+  background: #f44336;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.btn-clear:hover {
+  background: #d32f2f;
 }
 
 .error-message {
