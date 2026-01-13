@@ -1,12 +1,12 @@
 <template>
   <div class="asset-page">
-    <h1>💰 내 자산 관리</h1>
+    <h1>내 자산 관리</h1>
 
     <!-- 자산 요약 -->
     <div v-if="summary" class="summary-section">
       <div class="summary-card gold">
         <div class="card-header">
-          <h2>🥇 금 (Gold)</h2>
+          <h2>금 (Gold)</h2>
         </div>
         <div class="card-body">
           <div class="stat-row">
@@ -41,7 +41,7 @@
 
       <div class="summary-card silver">
         <div class="card-header">
-          <h2>🥈 은 (Silver)</h2>
+          <h2>은 (Silver)</h2>
         </div>
         <div class="card-body">
           <div class="stat-row">
@@ -73,12 +73,48 @@
           </div>
         </div>
       </div>
+
+      <!-- 주식 카드들 -->
+      <div v-for="stock in summary.stocks" :key="stock.stockCode" class="summary-card stock">
+        <div class="card-header">
+          <h2>{{ stock.stockName }} ({{ stock.stockCode }})</h2>
+        </div>
+        <div class="card-body">
+          <div class="stat-row">
+            <span class="label">보유량:</span>
+            <span class="value">{{ formatNumber(stock.totalQuantity) }} 주</span>
+          </div>
+          <div class="stat-row">
+            <span class="label">평균 구매가:</span>
+            <span class="value">{{ formatCurrency(stock.averagePurchasePrice) }}</span>
+          </div>
+          <div class="stat-row">
+            <span class="label">현재 주가:</span>
+            <span class="value">{{ formatCurrency(stock.currentPrice) }}</span>
+          </div>
+          <div class="stat-row total">
+            <span class="label">총 투자금액:</span>
+            <span class="value">{{ formatCurrency(stock.totalInvestment) }}</span>
+          </div>
+          <div class="stat-row total">
+            <span class="label">현재 평가금액:</span>
+            <span class="value">{{ formatCurrency(stock.currentValue) }}</span>
+          </div>
+          <div class="stat-row profit" :class="getProfitClass(stock.profitLoss)">
+            <span class="label">손익:</span>
+            <span class="value">
+              {{ formatCurrency(stock.profitLoss) }}
+              ({{ formatNumber(stock.profitRate) }}%)
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- 자산 등록 버튼 -->
     <div class="action-bar">
       <button @click="showAddModal = true" class="btn btn-primary">
-        ➕ 자산 등록
+        + 자산 등록
       </button>
     </div>
 
@@ -102,9 +138,9 @@
         </thead>
         <tbody>
           <tr v-for="asset in assets" :key="asset.id">
-            <td>{{ asset.assetType === 'GOLD' ? '🥇 금' : '🥈 은' }}</td>
+            <td>{{ getAssetTypeLabel(asset) }}</td>
             <td>{{ formatDate(asset.purchaseDate) }}</td>
-            <td>{{ formatNumber(asset.quantity) }} g</td>
+            <td>{{ formatNumber(asset.quantity) }} {{ asset.assetType === 'STOCK' ? '주' : 'g' }}</td>
             <td>{{ formatCurrency(asset.purchasePrice) }}</td>
             <td>{{ formatCurrency(asset.totalAmount) }}</td>
             <td>{{ asset.memo || '-' }}</td>
@@ -123,10 +159,39 @@
         <form @submit.prevent="addAsset">
           <div class="form-group">
             <label>종류</label>
-            <select v-model="newAsset.assetType" required>
-              <option value="GOLD">🥇 금 (Gold)</option>
-              <option value="SILVER">🥈 은 (Silver)</option>
+            <select v-model="newAsset.assetType" required @change="onAssetTypeChange">
+              <option value="GOLD">금 (Gold)</option>
+              <option value="SILVER">은 (Silver)</option>
+              <option value="STOCK">주식 (Stock)</option>
             </select>
+          </div>
+
+          <!-- 주식 검색 (주식 선택시만 표시) -->
+          <div v-if="newAsset.assetType === 'STOCK'" class="form-group">
+            <label>종목 검색</label>
+            <div class="stock-search">
+              <input
+                type="text"
+                v-model="stockSearchKeyword"
+                placeholder="종목명 또는 종목코드 입력"
+                @input="searchStocksDebounced"
+              />
+              <div v-if="stockSearchResults.length > 0" class="search-results">
+                <div
+                  v-for="stock in stockSearchResults"
+                  :key="stock.stockCode"
+                  class="search-result-item"
+                  @click="selectStock(stock)"
+                >
+                  <span class="stock-name">{{ stock.stockName }}</span>
+                  <span class="stock-code">{{ stock.stockCode }}</span>
+                  <span class="stock-price">{{ formatCurrency(stock.currentPrice) }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="newAsset.stockCode" class="selected-stock">
+              선택됨: {{ newAsset.stockName }} ({{ newAsset.stockCode }})
+            </div>
           </div>
 
           <div class="form-group">
@@ -135,24 +200,24 @@
           </div>
 
           <div class="form-group">
-            <label>보유량 (그램)</label>
+            <label>{{ newAsset.assetType === 'STOCK' ? '보유 주수' : '보유량 (그램)' }}</label>
             <input type="number" step="0.0001" v-model="newAsset.quantity" required />
           </div>
 
           <div class="form-group">
-            <label>구매 당시 그램당 가격 (원)</label>
+            <label>{{ newAsset.assetType === 'STOCK' ? '주당 구매가격 (원)' : '구매 당시 그램당 가격 (원)' }}</label>
             <input type="number" step="0.01" v-model="newAsset.purchasePrice" required />
           </div>
 
           <div class="form-group">
             <label>메모 (선택)</label>
-            <input type="text" v-model="newAsset.memo" placeholder="예: 결혼반지" />
+            <input type="text" v-model="newAsset.memo" placeholder="예: 장기 투자용" />
           </div>
 
           <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
 
           <div class="modal-actions">
-            <button type="submit" class="btn btn-primary">등록</button>
+            <button type="submit" class="btn btn-primary" :disabled="newAsset.assetType === 'STOCK' && !newAsset.stockCode">등록</button>
             <button type="button" @click="closeModal" class="btn btn-secondary">취소</button>
           </div>
         </form>
@@ -163,15 +228,20 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { assetAPI } from '../utils/api';
+import { assetAPI, stockAPI } from '../utils/api';
 
 const summary = ref(null);
 const assets = ref([]);
 const showAddModal = ref(false);
 const errorMessage = ref('');
+const stockSearchKeyword = ref('');
+const stockSearchResults = ref([]);
+let searchTimeout = null;
 
 const newAsset = ref({
   assetType: 'GOLD',
+  stockCode: '',
+  stockName: '',
   quantity: '',
   purchasePrice: '',
   purchaseDate: new Date().toISOString().split('T')[0],
@@ -188,9 +258,52 @@ const loadData = async () => {
   }
 };
 
+const onAssetTypeChange = () => {
+  newAsset.value.stockCode = '';
+  newAsset.value.stockName = '';
+  stockSearchKeyword.value = '';
+  stockSearchResults.value = [];
+};
+
+const searchStocksDebounced = () => {
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+  }
+  searchTimeout = setTimeout(searchStocks, 500);
+};
+
+const searchStocks = async () => {
+  if (!stockSearchKeyword.value || stockSearchKeyword.value.length < 2) {
+    stockSearchResults.value = [];
+    return;
+  }
+
+  try {
+    const response = await stockAPI.searchStocks(stockSearchKeyword.value);
+    stockSearchResults.value = response.data.data || [];
+  } catch (error) {
+    console.error('Stock search failed:', error);
+    stockSearchResults.value = [];
+  }
+};
+
+const selectStock = (stock) => {
+  newAsset.value.stockCode = stock.stockCode;
+  newAsset.value.stockName = stock.stockName;
+  newAsset.value.purchasePrice = stock.currentPrice;
+  stockSearchKeyword.value = '';
+  stockSearchResults.value = [];
+};
+
 const addAsset = async () => {
   try {
     errorMessage.value = '';
+
+    if (newAsset.value.assetType === 'STOCK' && !newAsset.value.stockCode) {
+      errorMessage.value = '종목을 선택해주세요.';
+      return;
+    }
+
     await assetAPI.addAsset(newAsset.value);
     closeModal();
     await loadData();
@@ -217,13 +330,24 @@ const deleteAsset = async (assetId) => {
 const closeModal = () => {
   showAddModal.value = false;
   errorMessage.value = '';
+  stockSearchKeyword.value = '';
+  stockSearchResults.value = [];
   newAsset.value = {
     assetType: 'GOLD',
+    stockCode: '',
+    stockName: '',
     quantity: '',
     purchasePrice: '',
     purchaseDate: new Date().toISOString().split('T')[0],
     memo: ''
   };
+};
+
+const getAssetTypeLabel = (asset) => {
+  if (asset.assetType === 'GOLD') return '금';
+  if (asset.assetType === 'SILVER') return '은';
+  if (asset.assetType === 'STOCK') return `${asset.stockName}`;
+  return asset.assetType;
 };
 
 const formatCurrency = (value) => {
@@ -272,7 +396,7 @@ onMounted(() => {
 
 .summary-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
   gap: 20px;
   margin-bottom: 30px;
 }
@@ -292,6 +416,10 @@ onMounted(() => {
   background: linear-gradient(135deg, #c0c0c0 0%, #808080 100%);
 }
 
+.summary-card.stock .card-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
 .card-header {
   padding: 20px;
   color: white;
@@ -299,7 +427,7 @@ onMounted(() => {
 
 .card-header h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 20px;
 }
 
 .card-body {
@@ -394,9 +522,14 @@ td {
   color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
@@ -458,6 +591,64 @@ td {
   box-sizing: border-box;
 }
 
+.stock-search {
+  position: relative;
+}
+
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.search-result-item {
+  padding: 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #eee;
+}
+
+.search-result-item:hover {
+  background: #f5f5f5;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.stock-name {
+  font-weight: 500;
+}
+
+.stock-code {
+  color: #888;
+  font-size: 12px;
+}
+
+.stock-price {
+  color: #667eea;
+  font-weight: 500;
+}
+
+.selected-stock {
+  margin-top: 10px;
+  padding: 10px;
+  background: #e8f4f8;
+  border-radius: 6px;
+  color: #2980b9;
+  font-weight: 500;
+}
+
 .error-message {
   background: #fee;
   color: #c33;
@@ -472,4 +663,3 @@ td {
   justify-content: flex-end;
 }
 </style>
-

@@ -17,7 +17,13 @@ public class UserAsset {
     private Long userId;
 
     @Column(name = "asset_type", nullable = false, length = 10)
-    private String assetType; // GOLD, SILVER
+    private String assetType; // GOLD, SILVER, STOCK
+
+    @Column(name = "stock_code", length = 20)
+    private String stockCode;
+
+    @Column(name = "stock_name", length = 100)
+    private String stockName;
 
     @Column(nullable = false, precision = 15, scale = 4)
     private BigDecimal quantity;
@@ -80,6 +86,22 @@ public class UserAsset {
 
     public void setAssetType(String assetType) {
         this.assetType = assetType;
+    }
+
+    public String getStockCode() {
+        return stockCode;
+    }
+
+    public void setStockCode(String stockCode) {
+        this.stockCode = stockCode;
+    }
+
+    public String getStockName() {
+        return stockName;
+    }
+
+    public void setStockName(String stockName) {
+        this.stockName = stockName;
     }
 
     public BigDecimal getQuantity() {

@@ -184,6 +184,18 @@ export const fileAPI = {
   }
 };
 
+// Stock Price API
+export const stockAPI = {
+  // 종목 검색
+  searchStocks(keyword) {
+    return apiClient.get('/stock/search', { params: { keyword } });
+  },
+  // 종목 시세 조회
+  getStockPrice(stockCode) {
+    return apiClient.get(`/stock/${stockCode}`);
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
