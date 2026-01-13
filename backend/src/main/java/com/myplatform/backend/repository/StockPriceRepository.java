@@ -10,4 +10,6 @@ import java.util.Optional;
 public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
 
     Optional<StockPrice> findTopByStockCodeOrderByFetchedAtDesc(String stockCode);
+
+    Optional<StockPrice> findByStockCode(String stockCode);
 }

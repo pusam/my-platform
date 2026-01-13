@@ -13,7 +13,7 @@ public class WebClientConfig {
         return WebClient.builder()
                 .codecs(configurer -> configurer
                         .defaultCodecs()
-                        .maxInMemorySize(1024 * 1024))  // 1MB
+                        .maxInMemorySize(10 * 1024 * 1024))  // 10MB (API 응답용)
                 .build();
     }
 
