@@ -5,15 +5,15 @@
 USE myplatform;
 
 -- 기존 데이터 삭제 (선택사항 - 필요시 주석 해제)
--- DELETE FROM board_file;
--- DELETE FROM board;
--- DELETE FROM users;
+DELETE FROM board_file;
+DELETE FROM board;
+DELETE FROM users;
 
--- 관리자 계정 (비밀번호: admin)
+-- 관리자 계정 (비밀번호: admin123)
 INSERT INTO users (username, password, name, role, status)
 VALUES (
     'admin',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    '$2a$10$rDkPvvAFV8kqwvKJzwlJAOVuBen1F0WTfwCb/LzMnhPSC3ZFUBfjS',
     '관리자',
     'ADMIN',
     'APPROVED'
@@ -23,26 +23,12 @@ VALUES (
     role = VALUES(role),
     status = VALUES(status);
 
--- 일반 사용자 계정 (비밀번호: admin)
+-- 일반 사용자 계정 (비밀번호: user123)
 INSERT INTO users (username, password, name, role, status)
 VALUES (
     'user',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
+    '$2a$10$ixlPY3AAd4ty1l6E2IsQ9OFZi2ba9ZQE0bP7RFcGIWNhyFrrT3YUi',
     '사용자',
-    'USER',
-    'APPROVED'
-) ON DUPLICATE KEY UPDATE
-    password = VALUES(password),
-    name = VALUES(name),
-    role = VALUES(role),
-    status = VALUES(status);
-
--- 테스트 계정 (비밀번호: admin)
-INSERT INTO users (username, password, name, role, status)
-VALUES (
-    'test',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy',
-    '테스트',
     'USER',
     'APPROVED'
 ) ON DUPLICATE KEY UPDATE
@@ -79,6 +65,5 @@ SELECT id, title, author_name, views, created_at FROM board;
 -- 완료 메시지
 SELECT '✅ 기본 데이터가 성공적으로 삽입되었습니다!' as Result;
 SELECT '📝 기본 계정 정보:' as Info;
-SELECT '   - admin/admin (관리자)' as Account1;
-SELECT '   - user/admin (일반 사용자)' as Account2;
-SELECT '   - test/admin (테스트 사용자)' as Account3;
+SELECT '   - admin/admin123 (관리자)' as Account1;
+SELECT '   - user/user123 (일반 사용자)' as Account2;
