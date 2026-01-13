@@ -3,7 +3,7 @@ import { TokenManager, UserManager } from './auth';
 
 // Axios 인스턴스 생성
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8080/api',
+  baseURL: '/api',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
@@ -45,7 +45,7 @@ export default apiClient;
 export const authAPI = {
   // 로그인
   login(username, password) {
-    return axios.post('http://localhost:8080/api/auth/login', {
+    return axios.post('/api/auth/login', {
       username,
       password
     });
@@ -53,7 +53,7 @@ export const authAPI = {
 
   // 회원가입
   signup(signupData) {
-    return axios.post('http://localhost:8080/api/auth/signup', signupData);
+    return axios.post('/api/auth/signup', signupData);
   }
 };
 
@@ -180,7 +180,7 @@ export const fileAPI = {
   },
   // 파일 다운로드 URL
   getDownloadUrl(fileId) {
-    return `http://localhost:8080/api/files/download/${fileId}`;
+    return `/api/files/download/${fileId}`;
   }
 };
 
