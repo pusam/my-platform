@@ -10,32 +10,42 @@ DELETE FROM board;
 DELETE FROM users;
 
 -- 관리자 계정 (비밀번호: admin123)
-INSERT INTO users (username, password, name, role, status)
+INSERT INTO users (username, password, name, role, status, email, phone)
 VALUES (
     'admin',
     '$2a$10$MICn2deUJNhh/4L1ntVTuOxkeuFnKk/6SgzTIg2ja.Q5Usf4yrwbS',
     '관리자',
     'ADMIN',
-    'APPROVED'
+    'APPROVED',
+    'admin@test.com',
+    '010-1234-5678'
 ) ON DUPLICATE KEY UPDATE
     password = VALUES(password),
     name = VALUES(name),
     role = VALUES(role),
-    status = VALUES(status);
+    status = VALUES(status),
+    email = VALUES(email),
+    phone = VALUES(phone)
+    ;
 
 -- 일반 사용자 계정 (비밀번호: user123)
-INSERT INTO users (username, password, name, role, status)
+INSERT INTO users (username, password, name, role, status, email, phone)
 VALUES (
     'user',
     '$2a$10$26A.FAj11yLQh.Rv9K6wRu8IVj8629qer7QJZgQzUWciTLPIU3XO.',
     '사용자',
     'USER',
-    'APPROVED'
+    'APPROVED',
+    'test@test.com',
+    '010-1111-5678'
 ) ON DUPLICATE KEY UPDATE
     password = VALUES(password),
     name = VALUES(name),
     role = VALUES(role),
-    status = VALUES(status);
+    status = VALUES(status),
+    email = VALUES(email),
+    phone = VALUES(phone)
+    ;
 
 -- 샘플 게시글 (선택사항)
 INSERT INTO board (title, content, author, author_name, views)
