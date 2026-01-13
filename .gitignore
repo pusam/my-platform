@@ -68,3 +68,4 @@ nginx_logs/
 deploy-config.bat
 deploy-config.sh
 
+.claude/
