@@ -66,12 +66,6 @@ public class SecurityConfig {
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // 정적 리소스는 무조건 허용
-                        .requestMatchers(
-                                "/", "/index.html", "/favicon.ico",
-                                "/assets/**",  // Vite 빌드 결과물
-                                "/css/**", "/js/**", "/images/**"
-                        ).permitAll()
                         // 인증 API (로그인, 회원가입 등)
                         .requestMatchers("/api/auth/**").permitAll()
 
