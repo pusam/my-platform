@@ -7,12 +7,13 @@ import com.myplatform.backend.entity.StockPrice;
 import com.myplatform.backend.repository.StockPriceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.reactive.function.client.WebClient;
-import org.springframework.web.reactive.function.client.WebClientResponseException;
-
-import java.time.Duration;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.net.URLEncoder;
@@ -37,15 +38,15 @@ public class StockPriceService {
     private static final String NAVER_STOCK_API = "https://m.stock.naver.com/api/stock/%s/basic";
     private static final String NAVER_SEARCH_API = "https://m.stock.naver.com/front-api/search/autoComplete?query=%s&target=stock";
 
-    private final WebClient webClient;
+    private final RestTemplate restTemplate;
     private final StockPriceRepository stockPriceRepository;
     private final ObjectMapper objectMapper;
 
     // 캐시 (종목코드 -> 시세)
     private final ConcurrentHashMap<String, StockPriceDto> priceCache = new ConcurrentHashMap<>();
 
-    public StockPriceService(WebClient webClient, StockPriceRepository stockPriceRepository, ObjectMapper objectMapper) {
-        this.webClient = webClient;
+    public StockPriceService(RestTemplate restTemplate, StockPriceRepository stockPriceRepository, ObjectMapper objectMapper) {
+        this.restTemplate = restTemplate;
         this.stockPriceRepository = stockPriceRepository;
         this.objectMapper = objectMapper;
     }
@@ -92,24 +93,19 @@ public class StockPriceService {
             String url = String.format(NAVER_SEARCH_API, encodedKeyword);
             log.info("종목 검색: {} - URL: {}", keyword, url);
 
-            String response = webClient.get()
-                    .uri(url)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .header("Referer", "https://m.stock.naver.com")
-                    .header("Accept", "application/json")
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(10))
-                    .onErrorResume(e -> {
-                        log.error("WebClient 에러: {} - {}", e.getClass().getSimpleName(), e.getMessage());
-                        return reactor.core.publisher.Mono.empty();
-                    })
-                    .block();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            headers.set("Referer", "https://m.stock.naver.com");
+            headers.set("Accept", "application/json");
 
-            log.info("종목 검색 응답 길이: {}", response != null ? response.length() : 0);
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
 
-            if (response != null) {
-                JsonNode root = objectMapper.readTree(response);
+            String responseBody = response.getBody();
+            log.info("종목 검색 응답 길이: {}", responseBody != null ? responseBody.length() : 0);
+
+            if (responseBody != null) {
+                JsonNode root = objectMapper.readTree(responseBody);
 
                 // 새로운 API 응답 형식: { "isSuccess": true, "result": { "items": [...] } }
                 JsonNode resultNode = root.get("result");
@@ -169,16 +165,16 @@ public class StockPriceService {
         try {
             String url = String.format(NAVER_STOCK_API, stockCode);
 
-            String response = webClient.get()
-                    .uri(url)
-                    .header("User-Agent", "Mozilla/5.0")
-                    .header("Referer", "https://m.stock.naver.com")
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            headers.set("Referer", "https://m.stock.naver.com");
 
-            if (response != null) {
-                JsonNode root = objectMapper.readTree(response);
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+            String responseBody = response.getBody();
+            if (responseBody != null) {
+                JsonNode root = objectMapper.readTree(responseBody);
                 return parseNaverStockDetail(root, stockCode);
             }
 
@@ -275,4 +271,3 @@ public class StockPriceService {
         return entity;
     }
 }
-

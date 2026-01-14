@@ -10,9 +10,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.client.RestTemplate;
 
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
@@ -32,7 +36,7 @@ public class GoldPriceService {
 
     private static final Logger log = LoggerFactory.getLogger(GoldPriceService.class);
 
-    private final WebClient webClient;
+    private final RestTemplate restTemplate;
     private final GoldPriceRepository goldPriceRepository;
 
     @Value("${gold.api.url}")
@@ -47,8 +51,8 @@ public class GoldPriceService {
     // 캐시된 금 시세 데이터
     private final AtomicReference<GoldPriceDto> cachedGoldPrice = new AtomicReference<>();
 
-    public GoldPriceService(WebClient webClient, GoldPriceRepository goldPriceRepository) {
-        this.webClient = webClient;
+    public GoldPriceService(RestTemplate restTemplate, GoldPriceRepository goldPriceRepository) {
+        this.restTemplate = restTemplate;
         this.goldPriceRepository = goldPriceRepository;
     }
 
@@ -98,12 +102,13 @@ public class GoldPriceService {
         try {
             log.debug("금 시세 API 호출: {}", apiUrl);
 
-            GoldApiResponse response = webClient.get()
-                    .uri(apiUrl)
-                    .header("x-access-token", apiKey)
-                    .retrieve()
-                    .bodyToMono(GoldApiResponse.class)
-                    .block();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("x-access-token", apiKey);
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<GoldApiResponse> responseEntity = restTemplate.exchange(
+                    apiUrl, HttpMethod.GET, entity, GoldApiResponse.class);
+            GoldApiResponse response = responseEntity.getBody();
 
             if (response != null && response.getError() == null && response.getPriceGram24k() != null) {
                 GoldPriceDto dto = convertToDto(response);

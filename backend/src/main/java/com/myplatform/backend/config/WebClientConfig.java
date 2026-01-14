@@ -3,18 +3,18 @@ package com.myplatform.backend.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.RestTemplate;
 
 @Configuration
 public class WebClientConfig {
 
     @Bean
-    public WebClient webClient() {
-        return WebClient.builder()
-                .codecs(configurer -> configurer
-                        .defaultCodecs()
-                        .maxInMemorySize(10 * 1024 * 1024))  // 10MB (API 응답용)
-                .build();
+    public RestTemplate restTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(10000);  // 10초
+        factory.setReadTimeout(10000);     // 10초
+        return new RestTemplate(factory);
     }
 
     @Bean

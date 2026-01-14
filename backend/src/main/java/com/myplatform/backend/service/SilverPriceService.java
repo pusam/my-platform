@@ -10,9 +10,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.client.RestTemplate;
 
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
@@ -32,7 +36,7 @@ public class SilverPriceService {
 
     private static final Logger log = LoggerFactory.getLogger(SilverPriceService.class);
 
-    private final WebClient webClient;
+    private final RestTemplate restTemplate;
     private final SilverPriceRepository silverPriceRepository;
 
     @Value("${silver.api.url}")
@@ -47,8 +51,8 @@ public class SilverPriceService {
     // 캐시된 은 시세 데이터
     private final AtomicReference<SilverPriceDto> cachedSilverPrice = new AtomicReference<>();
 
-    public SilverPriceService(WebClient webClient, SilverPriceRepository silverPriceRepository) {
-        this.webClient = webClient;
+    public SilverPriceService(RestTemplate restTemplate, SilverPriceRepository silverPriceRepository) {
+        this.restTemplate = restTemplate;
         this.silverPriceRepository = silverPriceRepository;
     }
 
@@ -98,13 +102,13 @@ public class SilverPriceService {
         try {
             log.debug("은 시세 API 호출: {}", apiUrl);
 
-            // GoldAPI.io의 응답 형식은 금/은 동일
-            GoldApiResponse response = webClient.get()
-                    .uri(apiUrl)
-                    .header("x-access-token", apiKey)
-                    .retrieve()
-                    .bodyToMono(GoldApiResponse.class)
-                    .block();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("x-access-token", apiKey);
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<GoldApiResponse> responseEntity = restTemplate.exchange(
+                    apiUrl, HttpMethod.GET, entity, GoldApiResponse.class);
+            GoldApiResponse response = responseEntity.getBody();
 
             if (response != null && response.getError() == null && response.getPriceGram24k() != null) {
                 SilverPriceDto dto = convertToDto(response);
@@ -113,8 +117,8 @@ public class SilverPriceService {
                 cachedSilverPrice.set(dto);
 
                 // DB 저장 (히스토리)
-                SilverPrice entity = dtoToEntity(dto);
-                silverPriceRepository.save(entity);
+                SilverPrice priceEntity = dtoToEntity(dto);
+                silverPriceRepository.save(priceEntity);
 
                 log.info("은 시세 갱신 완료: 1돈 = {}원, 1g = {}원 (기준: {})",
                         dto.getPricePerDon(), dto.getPricePerGram(), dto.getBaseDate());

@@ -341,6 +341,9 @@ const deleteItem = async () => {
 };
 
 const viewFile = async (file) => {
+  console.log('viewFile called:', file);
+  console.log('fileType:', file.fileType, 'downloadUrl:', file.downloadUrl);
+
   if (file.fileType && file.fileType.startsWith('image/')) {
     try {
       const blobUrl = await fetchFileAsBlob(file.downloadUrl);
@@ -351,7 +354,7 @@ const viewFile = async (file) => {
       };
     } catch (e) {
       console.error('이미지 로드 실패:', e);
-      alert('이미지를 불러올 수 없습니다.');
+      alert('이미지를 불러올 수 없습니다: ' + e.message);
     }
   } else if (file.fileType && file.fileType.startsWith('video/')) {
     try {
@@ -363,25 +366,35 @@ const viewFile = async (file) => {
       };
     } catch (e) {
       console.error('비디오 로드 실패:', e);
-      alert('비디오를 불러올 수 없습니다.');
+      alert('비디오를 불러올 수 없습니다: ' + e.message);
     }
   } else {
     // 다운로드
+    console.log('Downloading file (not image/video):', file.fileType);
     downloadFile(file);
   }
 };
 
 const fetchFileAsBlob = async (url) => {
   const token = localStorage.getItem('jwt_token');
+  console.log('Fetching file:', url, 'Token exists:', !!token);
+
   const response = await fetch(url, {
     headers: {
       'Authorization': `Bearer ${token}`
     }
   });
+
+  console.log('Response status:', response.status, response.statusText);
+
   if (!response.ok) {
-    throw new Error('파일 로드 실패');
+    const errorText = await response.text().catch(() => 'Unknown error');
+    console.error('File fetch error:', response.status, errorText);
+    throw new Error(`파일 로드 실패: ${response.status}`);
   }
+
   const blob = await response.blob();
+  console.log('Blob created:', blob.type, blob.size);
   return URL.createObjectURL(blob);
 };
 
