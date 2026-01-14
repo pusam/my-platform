@@ -98,9 +98,16 @@ public class StockPriceService {
 
                 if (items != null && items.isArray()) {
                     for (JsonNode item : items) {
-                        // 한국 주식만 필터링 (거래소 코드 확인)
-                        JsonNode cd = item.get("cd");
-                        if (cd != null && cd.asText().matches("\\d{6}")) {
+                        // 종목코드 추출 (배열 또는 객체 형식 지원)
+                        String stockCode = null;
+                        if (item.isArray() && item.size() >= 2) {
+                            stockCode = item.get(1).asText();
+                        } else if (item.has("cd")) {
+                            stockCode = item.get("cd").asText();
+                        }
+
+                        // 한국 주식만 필터링 (6자리 숫자 종목코드)
+                        if (stockCode != null && stockCode.matches("\\d{6}")) {
                             StockPriceDto dto = parseNaverSearchResult(item);
                             if (dto != null) {
                                 results.add(dto);
@@ -149,13 +156,29 @@ public class StockPriceService {
 
     /**
      * 네이버 자동완성 API 응답 파싱 (검색 결과)
+     * 네이버 API는 배열 형식: ["종목명", "종목코드", "시장", ...]
      */
     private StockPriceDto parseNaverSearchResult(JsonNode item) {
         try {
             StockPriceDto dto = new StockPriceDto();
 
-            String stockCode = item.get("cd").asText();
-            String stockName = item.get("nm").asText();
+            String stockCode;
+            String stockName;
+
+            // 배열 형식인 경우 (네이버 자동완성 API 실제 응답)
+            if (item.isArray() && item.size() >= 2) {
+                stockName = item.get(0).asText();
+                stockCode = item.get(1).asText();
+            }
+            // 객체 형식인 경우 (이전 API 호환)
+            else if (item.has("cd") && item.has("nm")) {
+                stockCode = item.get("cd").asText();
+                stockName = item.get("nm").asText();
+            }
+            else {
+                log.warn("알 수 없는 검색 결과 형식: {}", item);
+                return null;
+            }
 
             dto.setStockCode(stockCode);
             dto.setStockName(stockName);

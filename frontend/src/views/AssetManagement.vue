@@ -10,6 +10,17 @@
         </div>
       </header>
 
+      <!-- 자산 등록 버튼 -->
+      <div class="action-bar">
+        <button @click="showAddModal = true" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          자산 등록
+        </button>
+      </div>
+
       <!-- 자산 요약 카드들 -->
       <section v-if="summary" class="summary-grid">
         <article class="summary-card gold">
@@ -142,17 +153,6 @@
           </div>
         </article>
       </section>
-
-      <!-- 자산 등록 버튼 -->
-      <div class="action-bar">
-        <button @click="showAddModal = true" class="btn btn-primary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          자산 등록
-        </button>
-      </div>
 
       <!-- 구매 내역 -->
       <section class="history-section">

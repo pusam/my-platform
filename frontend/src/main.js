@@ -18,6 +18,14 @@ import FileManager from './views/FileManager.vue'
 
 const router = createRouter({
   history: createWebHistory(),
+  scrollBehavior(to, from, savedPosition) {
+    // 브라우저 뒤로가기 시 이전 스크롤 위치 복원
+    if (savedPosition) {
+      return savedPosition
+    }
+    // 그 외에는 항상 맨 위로
+    return { top: 0, behavior: 'smooth' }
+  },
   routes: [
     {
       path: '/',

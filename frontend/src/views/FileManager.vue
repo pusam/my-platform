@@ -344,18 +344,18 @@ const viewFile = (file) => {
   if (file.fileType && file.fileType.startsWith('image/')) {
     imageViewer.value = {
       show: true,
-      url: `http://localhost:8080${file.downloadUrl}`,
+      url: file.downloadUrl,
       name: file.originalName
     };
   } else if (file.fileType && file.fileType.startsWith('video/')) {
     videoViewer.value = {
       show: true,
-      url: `http://localhost:8080${file.downloadUrl}`,
+      url: file.downloadUrl,
       name: file.originalName
     };
   } else {
     // 다운로드
-    window.open(`http://localhost:8080${file.downloadUrl}`, '_blank');
+    window.open(file.downloadUrl, '_blank');
   }
 };
 
