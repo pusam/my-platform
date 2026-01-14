@@ -89,6 +89,8 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # GitHub Actions가 갖다놓은 default.conf를 로드
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      # 프론트엔드 빌드 파일
+      - ./frontend/dist:/usr/share/nginx/html:ro
       - nginx_logs:/var/log/nginx
     depends_on:
       - backend
