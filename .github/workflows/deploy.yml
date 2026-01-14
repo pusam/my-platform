@@ -46,57 +46,26 @@ jobs:
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/my-server:${{ env.DOCKER_TAG }}
 
-      # ----------------------------------------------------------------
-      # 1. 설정 파일 전송 (브랜치에 따라 다른 Nginx 파일 전송)
-      # ----------------------------------------------------------------
+      # ================================================================
+      # 1. 설정 파일 전송 (조건: develop 브랜치일 때만 실행)
+      # ================================================================
       - name: Copy config files to server
+        if: github.ref == 'refs/heads/develop'  # 개발 브랜치만 실행
         uses: appleboy/scp-action@master
         with:
-          # main -> Prod서버 / develop -> Dev서버
+          # 지금은 Dev만 실행되지만, 나중에 if문 지울 때를 대비해 로직 유지
           host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
           username: ${{ github.ref == 'refs/heads/main' && secrets.USERNAME_PROD || secrets.USERNAME_DEV }}
           key: ${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}
           port: ${{ secrets.PORT }}
 
-          # [핵심] main이면 prod.conf, develop이면 dev.conf를 보냄
+          # develop이면 dev.conf만 전송됨
           source: "docker-compose.yml, nginx/${{ github.ref == 'refs/heads/main' && 'prod.conf' || 'dev.conf' }}"
           target: "/home/dev/my-platform"
 
-      # ----------------------------------------------------------------
-      # 2. 서버 접속 및 실행 (파일 이름 변경 + 도커 재실행)
-      # ----------------------------------------------------------------
+      # ================================================================
+      # 2. 서버 접속 및 실행 (조건: develop 브랜치일 때만 실행)
+      # ================================================================
       - name: Deploy to Server
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
-          username: ${{ github.ref == 'refs/heads/main' && secrets.USERNAME_PROD || secrets.USERNAME_DEV }}
-          key: ${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}
-          port: ${{ secrets.PORT }}
-          script: |
-            cd /home/dev/my-platform/nginx
-            
-            # 전송된 파일을 default.conf로 이름 변경 (덮어쓰기)
-            if [ -f "prod.conf" ]; then
-              mv prod.conf default.conf
-            elif [ -f "dev.conf" ]; then
-              mv dev.conf default.conf
-            fi
-            
-            cd ..
-            
-            # Docker Hub 로그인
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
-            
-            # 현재 브랜치에 맞는 태그 결정
-            TAG=${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
-            echo "🚀 배포 시작: $TAG 환경"
-            
-            # 최신 이미지 Pull
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:$TAG
-            
-            # 컨테이너 재실행 (.env 파일은 서버에 이미 있다고 가정)
-            docker compose down
-            docker compose up -d
-            
-            # 찌꺼기 이미지 정리
-            docker image prune -f
+        if: github.ref == 'refs/heads/develop'  # 개발 브랜치만 실행
+        uses: appleboy/ssh-action@
