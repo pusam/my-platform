@@ -38,6 +38,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew bootJar -x test
+          mv build/libs/*.jar app.jar
 
       # 2. Docker Hub 로그인 & 이미지 Push (기존 동일)
       - name: Log in to Docker Hub
