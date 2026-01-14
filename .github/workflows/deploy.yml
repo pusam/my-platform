@@ -51,7 +51,7 @@ jobs:
       # ================================================================
       - name: Copy config files to server
         if: github.ref == 'refs/heads/develop'
-        # [수정] @master -> @v0.1.7 (버전 명시)
+        # 👇 [수정] 버전 번호 v0.1.7 명시 (scp-action)
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
@@ -66,7 +66,7 @@ jobs:
       # ================================================================
       - name: Deploy to Server
         if: github.ref == 'refs/heads/develop'
-        # [수정] @master -> @v1.0.3 (버전 명시)
+        # 👇 [수정] 버전 번호 v1.0.3 명시 (ssh-action)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
