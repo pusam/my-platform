@@ -7,6 +7,7 @@ import com.myplatform.backend.repository.GoldPriceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -75,7 +76,9 @@ public class GoldPriceService {
 
     /**
      * 평일 9시, 12시, 15시30분, 18시 금 시세 갱신 (무료 플랜 월 100회 제한 고려: 하루 4회 × 약 22일 = 88회)
+     * prod 환경에서만 실행
      */
+    @Profile("dev")
     @Scheduled(cron = "0 0 9,12,18 * * MON-FRI")
     @Scheduled(cron = "0 30 15 * * MON-FRI")
     public void scheduledFetchGoldPrice() {

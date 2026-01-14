@@ -1,8 +1,8 @@
-name: Deploy with Docker Hub
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
 
 jobs:
   build-and-deploy:
@@ -12,94 +12,91 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 1. 프론트엔드 빌드
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Build Frontend and Copy to Backend
-        run: |
-          cd frontend
-          npm install
-          npm run build
-          if [ -d "dist" ]; then BUILD_DIR="dist"; elif [ -d "build" ]; then BUILD_DIR="build"; else exit 1; fi
-          mkdir -p ../backend/src/main/resources/static
-          rm -rf ../backend/src/main/resources/static/*
-          cp -r $BUILD_DIR/* ../backend/src/main/resources/static/
-
-      # 2. JDK 설정
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 3. Gradle 빌드 (수정된 부분 ⭐)
-      # 경로가 어디든(backend/build/libs 등) 실행 가능한 jar를 찾아서 app.jar로 바꿉니다.
       - name: Build with Gradle
         run: |
           chmod +x gradlew
           ./gradlew bootJar -x test
-          
-          echo "🔍 빌드된 JAR 파일 찾는 중..."
-          # build/libs 경로를 포함하고, plain(껍데기) 파일이 아닌 것을 찾음
           JAR_FILE=$(find . -name "*.jar" | grep "build/libs" | grep -v "plain" | head -n 1)
-          
-          if [ -z "$JAR_FILE" ]; then
-            echo "❌ 에러: JAR 파일을 찾을 수 없습니다!"
-            find . -name "*.jar"
-            exit 1
-          fi
-          
-          echo "✅ 찾은 파일: $JAR_FILE"
           mv "$JAR_FILE" app.jar
-          echo "📦 app.jar 생성 완료"
 
-      # 4. Docker Hub 로그인
+      - name: Set Docker Tag
+        run: |
+          if [[ "${{ github.ref_name }}" == "main" ]]; then
+            echo "DOCKER_TAG=prod" >> $GITHUB_ENV
+          else
+            echo "DOCKER_TAG=dev" >> $GITHUB_ENV
+          fi
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      # 5. 이미지 빌드 및 Push
       - name: Build and Push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/my-server:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/my-server:${{ env.DOCKER_TAG }}
 
-      # 6. 설정 파일 전송 (SCP)
+      # ----------------------------------------------------------------
+      # 1. 설정 파일 전송 (브랜치에 따라 다른 Nginx 파일 전송)
+      # ----------------------------------------------------------------
       - name: Copy config files to server
         uses: appleboy/scp-action@master
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
+          # main -> Prod서버 / develop -> Dev서버
+          host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
+          username: ${{ github.ref == 'refs/heads/main' && secrets.USERNAME_PROD || secrets.USERNAME_DEV }}
+          key: ${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}
           port: ${{ secrets.PORT }}
-          key: ${{ secrets.KEY }}
-          # docker-compose.yml 및 설정 파일들 전송
-          source: "docker-compose.yml,nginx,setup-database.sql,insert-default-data.sql"
-          target: "/home/dev/my-platform"
-          strip_components: 0
 
-      # 7. 서버 배포 실행
+          # [핵심] main이면 prod.conf, develop이면 dev.conf를 보냄
+          source: "docker-compose.yml, nginx/${{ github.ref == 'refs/heads/main' && 'prod.conf' || 'dev.conf' }}"
+          target: "/home/dev/my-platform"
+
+      # ----------------------------------------------------------------
+      # 2. 서버 접속 및 실행 (파일 이름 변경 + 도커 재실행)
+      # ----------------------------------------------------------------
       - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
+          host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
+          username: ${{ github.ref == 'refs/heads/main' && secrets.USERNAME_PROD || secrets.USERNAME_DEV }}
+          key: ${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}
           port: ${{ secrets.PORT }}
-          key: ${{ secrets.KEY }}
           script: |
-            # 도커 허브 로그인 (Private 이미지일 경우 대비)
+            cd /home/dev/my-platform/nginx
+            
+            # 전송된 파일을 default.conf로 이름 변경 (덮어쓰기)
+            if [ -f "prod.conf" ]; then
+              mv prod.conf default.conf
+            elif [ -f "dev.conf" ]; then
+              mv dev.conf default.conf
+            fi
+            
+            cd ..
+            
+            # Docker Hub 로그인
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
             
-            cd /home/dev/my-platform
+            # 현재 브랜치에 맞는 태그 결정
+            TAG=${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+            echo "🚀 배포 시작: $TAG 환경"
             
-            # 최신 이미지 당겨오기 & 재실행
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:latest
+            # 최신 이미지 Pull
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:$TAG
+            
+            # 컨테이너 재실행 (.env 파일은 서버에 이미 있다고 가정)
             docker compose down
             docker compose up -d
+            
+            # 찌꺼기 이미지 정리
             docker image prune -f

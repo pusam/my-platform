@@ -7,6 +7,7 @@ import com.myplatform.backend.repository.SilverPriceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -75,7 +76,9 @@ public class SilverPriceService {
 
     /**
      * 평일 9시, 12시, 15시30분, 18시 은 시세 갱신 (금 시세와 동일한 스케줄)
+     * prod 환경에서만 실행
      */
+    @Profile("dev")
     @Scheduled(cron = "0 1 9,12,18 * * MON-FRI")
     @Scheduled(cron = "0 31 15 * * MON-FRI")
     public void scheduledFetchSilverPrice() {
