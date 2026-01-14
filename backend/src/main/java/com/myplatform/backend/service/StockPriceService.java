@@ -117,10 +117,24 @@ public class StockPriceService {
                             dto.setCurrentPrice(BigDecimal.ZERO);
                             dto.setChangeRate(BigDecimal.ZERO);
                             dto.setFetchedAt(LocalDateTime.now());
+
+                            // 상위 10개 종목만 현재가 조회 (성능 고려)
+                            if (results.size() < 10) {
+                                try {
+                                    StockPriceDto priceInfo = fetchFromNaver(stockCode);
+                                    if (priceInfo != null) {
+                                        dto.setCurrentPrice(priceInfo.getCurrentPrice());
+                                        dto.setChangeRate(priceInfo.getChangeRate());
+                                    }
+                                } catch (Exception e) {
+                                    log.warn("검색 중 시세 조회 실패: {}", stockCode);
+                                }
+                            }
+
                             results.add(dto);
 
-                            // 최대 50개까지만
-                            if (results.size() >= 50) {
+                            // 최대 20개까지만
+                            if (results.size() >= 20) {
                                 break;
                             }
                         }

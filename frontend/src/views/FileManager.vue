@@ -340,31 +340,91 @@ const deleteItem = async () => {
   }
 };
 
-const viewFile = (file) => {
+const viewFile = async (file) => {
   if (file.fileType && file.fileType.startsWith('image/')) {
-    imageViewer.value = {
-      show: true,
-      url: file.downloadUrl,
-      name: file.originalName
-    };
+    try {
+      const blobUrl = await fetchFileAsBlob(file.downloadUrl);
+      imageViewer.value = {
+        show: true,
+        url: blobUrl,
+        name: file.originalName
+      };
+    } catch (e) {
+      console.error('이미지 로드 실패:', e);
+      alert('이미지를 불러올 수 없습니다.');
+    }
   } else if (file.fileType && file.fileType.startsWith('video/')) {
-    videoViewer.value = {
-      show: true,
-      url: file.downloadUrl,
-      name: file.originalName
-    };
+    try {
+      const blobUrl = await fetchFileAsBlob(file.downloadUrl);
+      videoViewer.value = {
+        show: true,
+        url: blobUrl,
+        name: file.originalName
+      };
+    } catch (e) {
+      console.error('비디오 로드 실패:', e);
+      alert('비디오를 불러올 수 없습니다.');
+    }
   } else {
     // 다운로드
-    window.open(file.downloadUrl, '_blank');
+    downloadFile(file);
+  }
+};
+
+const fetchFileAsBlob = async (url) => {
+  const token = localStorage.getItem('jwt_token');
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error('파일 로드 실패');
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+};
+
+const downloadFile = async (file) => {
+  try {
+    const token = localStorage.getItem('jwt_token');
+    const response = await fetch(file.downloadUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    if (!response.ok) {
+      throw new Error('다운로드 실패');
+    }
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.originalName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error('다운로드 실패:', e);
+    alert('파일을 다운로드할 수 없습니다.');
   }
 };
 
 const closeImageViewer = () => {
+  if (imageViewer.value.url) {
+    URL.revokeObjectURL(imageViewer.value.url);
+  }
   imageViewer.value.show = false;
+  imageViewer.value.url = '';
 };
 
 const closeVideoViewer = () => {
+  if (videoViewer.value.url) {
+    URL.revokeObjectURL(videoViewer.value.url);
+  }
   videoViewer.value.show = false;
+  videoViewer.value.url = '';
 };
 
 const closeCreateFolderModal = () => {
