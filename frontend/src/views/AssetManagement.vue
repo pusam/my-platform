@@ -152,6 +152,35 @@
             </div>
           </div>
         </article>
+
+        <!-- 기타 자산 카드들 -->
+        <article v-for="other in summary.others" :key="other.otherName" class="summary-card other">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="12" y1="8" x2="12" y2="16"/>
+                <line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+            </div>
+            <h2>{{ other.otherName }}</h2>
+          </div>
+          <div class="card-body">
+            <div class="stat-row">
+              <span class="label">보유량</span>
+              <span class="value">{{ formatNumber(other.totalQuantity) }}</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">평균 구매가</span>
+              <span class="value">{{ formatCurrency(other.averagePurchasePrice) }}</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-row highlight">
+              <span class="label">총 투자금액</span>
+              <span class="value">{{ formatCurrency(other.totalInvestment) }}</span>
+            </div>
+          </div>
+        </article>
       </section>
 
       <!-- 구매 내역 -->
@@ -544,6 +573,10 @@ onMounted(() => {
 
 .summary-card.stock .card-header {
   background: var(--primary-gradient);
+}
+
+.summary-card.other .card-header {
+  background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
 }
 
 .summary-card .card-header .card-icon {

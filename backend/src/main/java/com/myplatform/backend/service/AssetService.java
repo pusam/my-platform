@@ -96,6 +96,9 @@ public class AssetService {
         List<UserAsset> stockAssets = allAssets.stream()
                 .filter(a -> "STOCK".equals(a.getAssetType()))
                 .toList();
+        List<UserAsset> otherAssets = allAssets.stream()
+                .filter(a -> "OTHER".equals(a.getAssetType()))
+                .toList();
 
         // 현재 시세 조회
         BigDecimal currentGoldPrice = getCurrentGoldPrice();
@@ -105,6 +108,7 @@ public class AssetService {
         summary.setGold(calculateAssetTypeInfo(goldAssets, currentGoldPrice));
         summary.setSilver(calculateAssetTypeInfo(silverAssets, currentSilverPrice));
         summary.setStocks(calculateStockAssetInfo(stockAssets));
+        summary.setOthers(calculateOtherAssetInfo(otherAssets));
         summary.setAssets(allAssets.stream().map(this::convertToDto).toList());
 
         return summary;
@@ -165,6 +169,46 @@ public class AssetService {
             info.setCurrentValue(currentValue);
             info.setProfitLoss(profitLoss);
             info.setProfitRate(profitRate);
+
+            result.add(info);
+        }
+
+        return result;
+    }
+
+    private List<AssetSummaryDto.OtherAssetInfo> calculateOtherAssetInfo(List<UserAsset> otherAssets) {
+        if (otherAssets.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        // 자산명별로 그룹핑
+        Map<String, List<UserAsset>> groupedByName = otherAssets.stream()
+                .collect(Collectors.groupingBy(a -> a.getOtherName() != null ? a.getOtherName() : "기타"));
+
+        List<AssetSummaryDto.OtherAssetInfo> result = new ArrayList<>();
+
+        for (Map.Entry<String, List<UserAsset>> entry : groupedByName.entrySet()) {
+            String otherName = entry.getKey();
+            List<UserAsset> assets = entry.getValue();
+
+            AssetSummaryDto.OtherAssetInfo info = new AssetSummaryDto.OtherAssetInfo();
+            info.setOtherName(otherName);
+
+            BigDecimal totalQuantity = assets.stream()
+                    .map(UserAsset::getQuantity)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal totalInvestment = assets.stream()
+                    .map(UserAsset::getTotalAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal averagePurchasePrice = totalQuantity.compareTo(BigDecimal.ZERO) > 0
+                    ? totalInvestment.divide(totalQuantity, 2, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO;
+
+            info.setTotalQuantity(totalQuantity);
+            info.setAveragePurchasePrice(averagePurchasePrice);
+            info.setTotalInvestment(totalInvestment);
 
             result.add(info);
         }

@@ -17,6 +17,9 @@ public class AssetSummaryDto {
     @Schema(description = "주식 자산 정보 (종목별)")
     private List<StockAssetInfo> stocks;
 
+    @Schema(description = "기타 자산 정보 (자산명별)")
+    private List<OtherAssetInfo> others;
+
     @Schema(description = "전체 자산 목록")
     private List<AssetDto> assets;
 
@@ -202,6 +205,53 @@ public class AssetSummaryDto {
         }
     }
 
+    public static class OtherAssetInfo {
+        @Schema(description = "자산명")
+        private String otherName;
+
+        @Schema(description = "총 보유량")
+        private BigDecimal totalQuantity;
+
+        @Schema(description = "평균 구매가")
+        private BigDecimal averagePurchasePrice;
+
+        @Schema(description = "총 투자금액")
+        private BigDecimal totalInvestment;
+
+        // Getters and Setters
+        public String getOtherName() {
+            return otherName;
+        }
+
+        public void setOtherName(String otherName) {
+            this.otherName = otherName;
+        }
+
+        public BigDecimal getTotalQuantity() {
+            return totalQuantity;
+        }
+
+        public void setTotalQuantity(BigDecimal totalQuantity) {
+            this.totalQuantity = totalQuantity;
+        }
+
+        public BigDecimal getAveragePurchasePrice() {
+            return averagePurchasePrice;
+        }
+
+        public void setAveragePurchasePrice(BigDecimal averagePurchasePrice) {
+            this.averagePurchasePrice = averagePurchasePrice;
+        }
+
+        public BigDecimal getTotalInvestment() {
+            return totalInvestment;
+        }
+
+        public void setTotalInvestment(BigDecimal totalInvestment) {
+            this.totalInvestment = totalInvestment;
+        }
+    }
+
     public AssetTypeInfo getGold() {
         return gold;
     }
@@ -224,6 +274,14 @@ public class AssetSummaryDto {
 
     public void setStocks(List<StockAssetInfo> stocks) {
         this.stocks = stocks;
+    }
+
+    public List<OtherAssetInfo> getOthers() {
+        return others;
+    }
+
+    public void setOthers(List<OtherAssetInfo> others) {
+        this.others = others;
     }
 
     public List<AssetDto> getAssets() {
