@@ -1,0 +1,14 @@
+server:
+  port: 8081
+spring:
+  config:
+    activate:
+      on-profile: prod
+  jpa:
+    hibernate:
+      ddl-auto: validate # DB 변경 금지
+    show-sql: false
+logging:
+  level:
+    root: WARN
+    com.myplatform: INFO

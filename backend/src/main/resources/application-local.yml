@@ -1,0 +1,22 @@
+server:
+  port: 8080
+
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  jpa:
+    hibernate:
+      ddl-auto: update  # 로컬 편의 기능 (테이블 자동 생성)
+    show-sql: true      # 쿼리 보기
+
+# 로컬 개발용 상세 로그
+logging:
+  level:
+    root: INFO
+    com.myplatform: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"

@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: my-platform-backend
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+  # 1. DB 설정 (모두 변수로 처리 -> IntelliJ나 서버가 채워줌)
+  datasource:
+    driverClassName: org.mariadb.jdbc.Driver
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  # 2. JPA 기본 설정
+  jpa:
+    database-platform: org.hibernate.dialect.MariaDBDialect
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+  # 3. 메일 설정
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+            connectiontimeout: 5000
+            timeout: 5000
+            writetimeout: 5000
+
+  # 4. 기타 설정
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+  web:
+    resources:
+      static-locations: classpath:/static/
+      add-mappings: true
+  sql:
+    init:
+      mode: never
+
+# 5. 커스텀 설정
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: 86400000
+
+file:
+  upload:
+    dir: ${FILE_UPLOAD_DIR}
+
+gold:
+  api:
+    url: https://www.goldapi.io/api/XAU/KRW
+    key: ${GOLD_API_KEY}
+    gram-per-don: 3.75
+silver:
+  api:
+    url: https://www.goldapi.io/api/XAG/KRW
+    key: ${SILVER_API_KEY}
+    gram-per-don: 3.75
+
+# 6. Swagger
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha

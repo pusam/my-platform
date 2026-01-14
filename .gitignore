@@ -40,12 +40,6 @@ out/
 tmpclaude-*-cwd
 
 ### Security - Sensitive Configuration Files ###
-**/application-local.properties
-**/application-local.yml
-**/application-dev.properties
-**/application-dev.yml
-**/application-prod.properties
-**/application-prod.yml
 **/.env
 **/.env.local
 
