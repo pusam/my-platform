@@ -28,9 +28,9 @@ public class StockPriceService {
 
     private static final Logger log = LoggerFactory.getLogger(StockPriceService.class);
 
-    // 네이버 증권 API (실제 동작하는 엔드포인트)
-    private static final String NAVER_STOCK_API = "https://api.stock.naver.com/stock/%s/basic";
-    private static final String NAVER_SEARCH_API = "https://ac.stock.naver.com/ac?q=%s&q_enc=utf-8";
+    // 네이버 증권 API (모바일 API 사용)
+    private static final String NAVER_STOCK_API = "https://m.stock.naver.com/api/stock/%s/basic";
+    private static final String NAVER_SEARCH_API = "https://m.stock.naver.com/front-api/search/autoComplete?query=%s&target=stock";
 
     private final WebClient webClient;
     private final StockPriceRepository stockPriceRepository;
@@ -88,30 +88,36 @@ public class StockPriceService {
 
             String response = webClient.get()
                     .uri(url)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .header("Referer", "https://m.stock.naver.com")
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
 
+            log.info("종목 검색 응답: {}", response);
+
             if (response != null) {
                 JsonNode root = objectMapper.readTree(response);
-                JsonNode items = root.get("items");
+
+                // 새로운 API 응답 형식: { "isSuccess": true, "result": { "items": [...] } }
+                JsonNode resultNode = root.get("result");
+                JsonNode items = resultNode != null ? resultNode.get("items") : null;
 
                 if (items != null && items.isArray()) {
                     for (JsonNode item : items) {
-                        // 종목코드 추출 (배열 또는 객체 형식 지원)
-                        String stockCode = null;
-                        if (item.isArray() && item.size() >= 2) {
-                            stockCode = item.get(1).asText();
-                        } else if (item.has("cd")) {
-                            stockCode = item.get("cd").asText();
-                        }
+                        // 새로운 API 형식: { "code": "005930", "name": "삼성전자", ... }
+                        String stockCode = item.has("code") ? item.get("code").asText() : null;
+                        String stockName = item.has("name") ? item.get("name").asText() : null;
 
-                        // 한국 주식만 필터링 (6자리 숫자 종목코드)
-                        if (stockCode != null && stockCode.matches("\\d{6}")) {
-                            StockPriceDto dto = parseNaverSearchResult(item);
-                            if (dto != null) {
-                                results.add(dto);
-                            }
+                        // 한국 주식만 필터링 (6자리 종목코드)
+                        if (stockCode != null && stockCode.matches("[0-9A-Z]{6}")) {
+                            StockPriceDto dto = new StockPriceDto();
+                            dto.setStockCode(stockCode);
+                            dto.setStockName(stockName);
+                            dto.setCurrentPrice(BigDecimal.ZERO);
+                            dto.setChangeRate(BigDecimal.ZERO);
+                            dto.setFetchedAt(LocalDateTime.now());
+                            results.add(dto);
 
                             // 최대 50개까지만
                             if (results.size() >= 50) {
@@ -138,6 +144,8 @@ public class StockPriceService {
 
             String response = webClient.get()
                     .uri(url)
+                    .header("User-Agent", "Mozilla/5.0")
+                    .header("Referer", "https://m.stock.naver.com")
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
@@ -155,50 +163,8 @@ public class StockPriceService {
     }
 
     /**
-     * 네이버 자동완성 API 응답 파싱 (검색 결과)
-     * 네이버 API는 배열 형식: ["종목명", "종목코드", "시장", ...]
-     */
-    private StockPriceDto parseNaverSearchResult(JsonNode item) {
-        try {
-            StockPriceDto dto = new StockPriceDto();
-
-            String stockCode;
-            String stockName;
-
-            // 배열 형식인 경우 (네이버 자동완성 API 실제 응답)
-            if (item.isArray() && item.size() >= 2) {
-                stockName = item.get(0).asText();
-                stockCode = item.get(1).asText();
-            }
-            // 객체 형식인 경우 (이전 API 호환)
-            else if (item.has("cd") && item.has("nm")) {
-                stockCode = item.get("cd").asText();
-                stockName = item.get("nm").asText();
-            }
-            else {
-                log.warn("알 수 없는 검색 결과 형식: {}", item);
-                return null;
-            }
-
-            dto.setStockCode(stockCode);
-            dto.setStockName(stockName);
-
-            // 현재가는 별도 API 호출 필요 (검색 결과에는 없음)
-            // 임시로 0 설정
-            dto.setCurrentPrice(BigDecimal.ZERO);
-            dto.setChangeRate(BigDecimal.ZERO);
-            dto.setFetchedAt(LocalDateTime.now());
-
-            // 실제 시세는 선택 시 fetchFromNaver로 조회
-            return dto;
-        } catch (Exception e) {
-            log.error("네이버 검색 결과 파싱 실패: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * 네이버 금융 API 응답 파싱 (상세 정보)
+     * 모바일 API 응답 형식: closePrice = "140,300" (콤마 포함)
      */
     private StockPriceDto parseNaverStockDetail(JsonNode root, String stockCode) {
         try {
@@ -206,18 +172,35 @@ public class StockPriceService {
 
             dto.setStockCode(stockCode);
             dto.setStockName(root.get("stockName").asText());
-            dto.setCurrentPrice(new BigDecimal(root.get("closePrice").asText()));
-            dto.setOpenPrice(new BigDecimal(root.get("openPrice").asText()));
-            dto.setHighPrice(new BigDecimal(root.get("highPrice").asText()));
-            dto.setLowPrice(new BigDecimal(root.get("lowPrice").asText()));
-            dto.setChangeRate(new BigDecimal(root.get("fluctuationsRatio").asText()));
-            dto.setVolume(BigDecimal.valueOf(root.get("accumulatedTradingVolume").asLong()));
+            dto.setCurrentPrice(parsePrice(root.get("closePrice")));
+            dto.setOpenPrice(parsePrice(root.has("openPrice") ? root.get("openPrice") : null));
+            dto.setHighPrice(parsePrice(root.has("highPrice") ? root.get("highPrice") : null));
+            dto.setLowPrice(parsePrice(root.has("lowPrice") ? root.get("lowPrice") : null));
+            dto.setChangeRate(parsePrice(root.get("fluctuationsRatio")));
+            dto.setVolume(root.has("accumulatedTradingVolume")
+                    ? BigDecimal.valueOf(root.get("accumulatedTradingVolume").asLong())
+                    : BigDecimal.ZERO);
             dto.setFetchedAt(LocalDateTime.now());
 
             return dto;
         } catch (Exception e) {
-            log.error("네이버 주식 상세 데이터 파싱 실패: {}", e.getMessage());
+            log.error("네이버 주식 상세 데이터 파싱 실패: {}", e.getMessage(), e);
             return null;
+        }
+    }
+
+    /**
+     * 가격 문자열 파싱 (콤마 제거)
+     */
+    private BigDecimal parsePrice(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return BigDecimal.ZERO;
+        }
+        String value = node.asText().replace(",", "");
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO;
         }
     }
 

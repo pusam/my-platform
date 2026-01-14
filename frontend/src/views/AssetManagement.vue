@@ -109,7 +109,39 @@
           </div>
         </article>
 
-        <!-- 주식 카드들 -->
+        <!-- 주식 카드 (기본) -->
+        <article v-if="!summary.stocks || summary.stocks.length === 0" class="summary-card stock">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
+                <polyline points="16,7 22,7 22,13"/>
+              </svg>
+            </div>
+            <h2>주식 (Stock)</h2>
+          </div>
+          <div class="card-body">
+            <div class="stat-row">
+              <span class="label">보유 종목</span>
+              <span class="value">0 종목</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">총 투자금액</span>
+              <span class="value">{{ formatCurrency(0) }}</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">현재 평가금액</span>
+              <span class="value">{{ formatCurrency(0) }}</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-row profit">
+              <span class="label">손익</span>
+              <span class="value">{{ formatCurrency(0) }} <small>(0%)</small></span>
+            </div>
+          </div>
+        </article>
+
+        <!-- 주식 카드들 (데이터 있을 때) -->
         <article v-for="stock in summary.stocks" :key="stock.stockCode" class="summary-card stock">
           <div class="card-header">
             <div class="card-icon">
@@ -153,7 +185,31 @@
           </div>
         </article>
 
-        <!-- 기타 자산 카드들 -->
+        <!-- 기타 자산 카드 (기본) -->
+        <article v-if="!summary.others || summary.others.length === 0" class="summary-card other">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                <line x1="12" y1="8" x2="12" y2="16"/>
+                <line x1="8" y1="12" x2="16" y2="12"/>
+              </svg>
+            </div>
+            <h2>기타 (Other)</h2>
+          </div>
+          <div class="card-body">
+            <div class="stat-row">
+              <span class="label">보유 자산</span>
+              <span class="value">0 종류</span>
+            </div>
+            <div class="stat-row">
+              <span class="label">총 투자금액</span>
+              <span class="value">{{ formatCurrency(0) }}</span>
+            </div>
+          </div>
+        </article>
+
+        <!-- 기타 자산 카드들 (데이터 있을 때) -->
         <article v-for="other in summary.others" :key="other.otherName" class="summary-card other">
           <div class="card-header">
             <div class="card-icon">
