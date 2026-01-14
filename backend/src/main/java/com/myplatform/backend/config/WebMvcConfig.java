@@ -14,8 +14,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // Vue.js SPA를 위한 설정
-        // 모든 경로(API 제외)는 index.html로 포워딩하여 Vue Router가 처리하도록 함
+        registry.addResourceHandler("/assets/**")
+                .addResourceLocations("classpath:/static/assets/")
+                .setCachePeriod(3600)
+                .resourceChain(true);
+
         registry.addResourceHandler("/**")
                 .addResourceLocations("classpath:/static/")
                 .resourceChain(true)
@@ -24,20 +27,25 @@ public class WebMvcConfig implements WebMvcConfigurer {
                     protected Resource getResource(String resourcePath, Resource location) throws IOException {
                         Resource requestedResource = location.createRelative(resourcePath);
 
-                        // 실제 파일이 존재하면 반환
+                        // 파일이 진짜 있으면 반환 (index.html, favicon.ico 등)
                         if (requestedResource.exists() && requestedResource.isReadable()) {
                             return requestedResource;
                         }
 
-                        // API 요청이면 null 반환 (Spring Security가 처리)
+                        // API 요청은 제외
                         if (resourcePath.startsWith("api/")) {
                             return null;
                         }
 
-                        // 그 외의 경우 index.html 반환 (Vue Router가 처리)
+                        // /assets/ 로 시작하는 요청이 여기까지 왔다면 파일이 없는 것임 -> null 반환 (404 발생)
+                        // 이렇게 해야 브라우저가 html을 css로 착각하지 않음
+                        if (resourcePath.startsWith("assets/")) {
+                            return null;
+                        }
+
+                        // 그 외(프론트엔드 라우트 경로)는 index.html 반환
                         return new ClassPathResource("/static/index.html");
                     }
                 });
     }
 }
-
