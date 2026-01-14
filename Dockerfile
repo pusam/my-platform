@@ -1,21 +1,18 @@
-# [수정] 빌드 과정(FROM gradle...) 삭제함!
-# 이미 윈도우에서 만들어진 JAR를 실행만 하는 이미지입니다.
+# GitHub Actions 워크플로우에서 빌드된 결과물을 이미지화하는 설정
 
 FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
-# 1. 업로드 폴더 생성 및 권한 설정
+# 1. 필요한 패키지 설치 및 사용자 설정
 RUN mkdir -p /app/uploads && \
     addgroup -S spring && \
     adduser -S spring -G spring && \
-    chown -R spring:spring /app
+    chown -R spring:spring /app && \
+    apk add --no-cache curl
 
-# 2. 헬스체크용 curl 설치
-RUN apk add --no-cache curl
-
-# [수정] 빌더(builder)에서 복사하는 게 아니라,
-# 윈도우에서 보내준 app.jar를 바로 복사합니다.
+# 2. JAR 파일 복사
+# GitHub Actions가 빌드한 'app.jar'를 이미지 안으로 복사합니다.
 COPY app.jar app.jar
 
 # 3. 권한 변경
@@ -25,11 +22,11 @@ USER spring
 
 EXPOSE 8080
 
-# 4. 헬스체크 (기존과 동일)
+# 4. 헬스체크
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/actuator/health || exit 1
 
-# 5. 실행 (기존과 동일)
+# 5. 실행
 ENTRYPOINT ["java", \
     "-Djava.security.egd=file:/dev/./urandom", \
     "-XX:+UseContainerSupport", \

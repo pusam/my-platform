@@ -43,18 +43,24 @@ services:
       retries: 5
 
   backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: myplatform-backend:latest
+    # [변경] 이제 서버에서 빌드하지 않으므로 build 섹션 삭제
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    # [중요] 아래 '본인_도커_아이디' 부분을 실제 Docker Hub 아이디로 꼭 바꿔주세요!
+    # 예: image: gildong/my-server:latest
+    image: 본인_도커_아이디/my-server:latest
+
+    # [추가] 실행할 때마다 최신 이미지가 있는지 확인해서 다운로드함
+    pull_policy: always
+
     container_name: myplatform-backend
     restart: unless-stopped
     ports:
       - "8080:8080"
-
     env_file:
       - .env
-
     environment:
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
       - DB_URL=jdbc:mariadb://mariadb:3306/myplatform

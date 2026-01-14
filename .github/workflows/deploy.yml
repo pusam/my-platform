@@ -1,84 +1,75 @@
-name: Deploy to Production
+name: Deploy with Docker Hub
 
 on:
   push:
     branches: [ "main" ]
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      # 1. Node.js 세팅
+      # 1. 프론트/백엔드 빌드 (기존 동일)
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      # 2. 프론트엔드 빌드 및 강제 복사 (수정된 부분 ⭐)
       - name: Build Frontend and Copy to Backend
         run: |
-          echo "🚧 프론트엔드 빌드 시작..."
           cd frontend
           npm install
           npm run build
-          
-          echo "📂 빌드 결과 확인 중..."
-          # dist 폴더가 있으면 dist를 쓰고, build가 있으면 build를 씀 (자동 감지)
-          if [ -d "dist" ]; then
-            BUILD_DIR="dist"
-          elif [ -d "build" ]; then
-            BUILD_DIR="build"
-          else
-            echo "❌ 에러: 빌드 폴더(dist 또는 build)가 없습니다! 빌드 실패."
-            exit 1
-          fi
-          
-          echo "✅ 감지된 빌드 폴더: $BUILD_DIR"
-          
-          # 백엔드 static 폴더 만들기
+          if [ -d "dist" ]; then BUILD_DIR="dist"; elif [ -d "build" ]; then BUILD_DIR="build"; else exit 1; fi
           mkdir -p ../backend/src/main/resources/static
-          
-          # 기존 파일 삭제 (깨끗하게)
           rm -rf ../backend/src/main/resources/static/*
-          
-          # 파일 복사
           cp -r $BUILD_DIR/* ../backend/src/main/resources/static/
-          
-          # 복사 잘 됐는지 눈으로 확인 (로그에 찍힘)
-          echo "📦 복사된 파일 목록 확인:"
-          ls -F ../backend/src/main/resources/static/
 
-      # 3. 자바 세팅
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      # 4. Gradle 빌드
       - name: Build with Gradle
         run: |
           chmod +x gradlew
           ./gradlew bootJar -x test
 
-      # 5. 파일 전송
-      - name: Copy files to server
+      # 2. Docker Hub 로그인 & 이미지 Push (기존 동일)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and Push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/my-server:latest
+
+      # -------------------------------------------------------------
+      # 이미지는 도커 허브에서 받지만, 설정 파일은 직접 덮어씌워야 합니다.
+      # -------------------------------------------------------------
+      - name: Copy config files to server
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           port: ${{ secrets.PORT }}
           key: ${{ secrets.KEY }}
-          source: "backend/build/libs/*.jar,docker-compose.yml,Dockerfile,nginx,setup-database.sql,insert-default-data.sql"
+          # JAR 파일은 이제 안 보냅니다! 설정 파일만 보냅니다.
+          source: "docker-compose.yml,nginx,setup-database.sql,insert-default-data.sql"
           target: "/home/dev/my-platform"
           strip_components: 0
 
-      # 6. 서버 재시작
-      - name: Restart Docker Server
+      # 4. 서버 배포 실행 (기존 동일)
+      - name: Deploy to Server
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.HOST }}
@@ -86,9 +77,12 @@ jobs:
           port: ${{ secrets.PORT }}
           key: ${{ secrets.KEY }}
           script: |
+            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+            
+            # 이제 방금 SCP로 덮어쓴 docker-compose.yml을 사용합니다.
             cd /home/dev/my-platform
-            mv backend/build/libs/*.jar app.jar 2>/dev/null || true
-            rm -rf backend
+            
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:latest
             docker compose down
-            docker compose up -d --build
+            docker compose up -d
             docker image prune -f
