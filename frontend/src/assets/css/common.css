@@ -542,25 +542,75 @@ tr:hover {
    ======================================== */
 @media (max-width: 768px) {
   .page-container {
-    padding: var(--spacing-md);
+    padding: var(--spacing-sm);
   }
 
   .common-header {
     flex-direction: column;
-    gap: 15px;
+    gap: 12px;
     text-align: center;
+    padding: 16px;
   }
 
   .common-header h1 {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .header-actions {
     width: 100%;
     justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .header-user {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  .btn {
+    padding: 10px 16px;
+    font-size: 13px;
+  }
+
+  .btn-back,
+  .btn-logout {
+    padding: 8px 14px;
+    font-size: 12px;
   }
 
   .card {
     padding: var(--spacing-md);
+  }
+}
+
+@media (max-width: 480px) {
+  .page-container {
+    padding: 10px;
+  }
+
+  .common-header {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .common-header h1 {
+    font-size: 18px;
+  }
+
+  .header-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .header-user {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btn-back,
+  .btn-logout {
+    width: 100%;
+    justify-content: center;
   }
 }

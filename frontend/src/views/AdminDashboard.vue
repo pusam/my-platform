@@ -1,12 +1,15 @@
 <template>
-  <div class="admin-dashboard">
-    <div class="header">
-      <h1>관리자 대시보드</h1>
-      <div class="user-info">
-        <span>{{ username }}</span>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
+  <div class="page-container">
+    <div class="page-content">
+      <header class="common-header">
+        <h1>관리자 대시보드</h1>
+        <div class="header-actions">
+          <div class="header-user">
+            <span>{{ username }}</span>
+          </div>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
+        </div>
+      </header>
 
     <div class="dashboard-content">
       <div class="stats-grid">
@@ -59,6 +62,7 @@
           <button class="action-btn">로그 보기</button>
         </div>
       </div>
+      </div>
     </div>
   </div>
 </template>
@@ -102,54 +106,7 @@ export default {
 </script>
 
 <style scoped>
-.admin-dashboard {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: white;
-  padding: 20px 30px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.header h1 {
-  margin: 0;
-  color: #667eea;
-  font-size: 28px;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.user-info span {
-  font-weight: 600;
-  color: #333;
-}
-
-.logout-btn {
-  padding: 10px 20px;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
-}
-
-.logout-btn:hover {
-  background: #d32f2f;
-}
+@import '../assets/css/common.css';
 
 .dashboard-content {
   max-width: 1200px;

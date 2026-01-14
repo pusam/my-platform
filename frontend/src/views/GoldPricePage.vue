@@ -1,14 +1,15 @@
 <template>
-  <div class="gold-price-page">
-    <div class="header">
-      <h1>금 시세</h1>
-      <div class="header-actions">
-        <button @click="goBack" class="back-btn">← 돌아가기</button>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
-
+  <div class="page-container gold-theme">
     <div class="page-content">
+      <header class="common-header">
+        <h1>🪙 금 시세</h1>
+        <div class="header-actions">
+          <button @click="goBack" class="btn btn-back">← 돌아가기</button>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
+        </div>
+      </header>
+
+    <div class="gold-content">
       <div class="gold-price-widget">
         <div class="widget-header">
           <div class="widget-title">
@@ -94,6 +95,7 @@
           <li>금 시세는 GoldAPI.io를 통해 실시간으로 제공됩니다.</li>
           <li>24K 순금 국제 시세 기준 (XAU/KRW)입니다.</li>
         </ul>
+      </div>
       </div>
     </div>
   </div>
@@ -459,70 +461,20 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.gold-price-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%);
-  padding: 20px;
+@import '../assets/css/common.css';
+
+.gold-theme {
+  background: linear-gradient(135deg, #f7b733 0%, #fc4a1a 100%);
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: white;
-  padding: 20px 30px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  flex-wrap: nowrap;
+.gold-theme .common-header h1 {
+  background: linear-gradient(135deg, #b8860b 0%, #daa520 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.header h1 {
-  margin: 0;
-  color: #b8860b;
-  font-size: 28px;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.back-btn {
-  padding: 10px 20px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.back-btn:hover {
-  background: #0056b3;
-}
-
-.logout-btn {
-  padding: 10px 20px;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
-}
-
-.logout-btn:hover {
-  background: #d32f2f;
-}
-
-.page-content {
+.gold-content {
   max-width: 800px;
   margin: 0 auto;
 }

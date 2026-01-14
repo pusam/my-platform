@@ -1,12 +1,15 @@
 <template>
-  <div class="file-manager">
-    <div class="header">
-      <h1>📁 파일 관리</h1>
-      <div class="header-actions">
-        <button @click="goBack" class="back-btn">← 돌아가기</button>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
+  <div class="page-container">
+    <div class="page-content">
+      <header class="common-header">
+        <h1>📁 파일 관리</h1>
+        <div class="header-actions">
+          <button @click="goBack" class="btn btn-back">← 돌아가기</button>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
+        </div>
+      </header>
+
+    <div class="file-manager-content">
 
     <!-- Breadcrumb 경로 -->
     <div class="breadcrumb" v-if="content">
@@ -163,6 +166,8 @@
         </video>
         <div class="video-info">{{ videoViewer.name }}</div>
       </div>
+    </div>
+    </div>
     </div>
   </div>
 </template>
@@ -426,66 +431,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.file-manager {
-  padding: 30px;
+@import '../assets/css/common.css';
+
+.file-manager-content {
   max-width: 1400px;
   margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
-  border-bottom: 2px solid #e0e0e0;
-  flex-wrap: nowrap;
-}
-
-.header h1 {
-  margin: 0;
-  color: #333;
-  font-size: 28px;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.back-btn, .logout-btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.back-btn {
-  background: #007bff;
-  color: white;
-}
-
-.back-btn:hover {
-  background: #0056b3;
-}
-
-.logout-btn {
-  background: #dc3545;
-  color: white;
-}
-
-.logout-btn:hover {
-  background: #c82333;
-}
-
-.file-manager h1 {
-  margin-bottom: 20px;
-  color: #333;
 }
 
 .breadcrumb {

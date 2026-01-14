@@ -1,14 +1,15 @@
 <template>
-  <div class="my-content-page">
-    <div class="header">
-      <h1>내 콘텐츠</h1>
-      <div class="header-actions">
-        <button @click="goBack" class="back-btn">← 돌아가기</button>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
-
+  <div class="page-container">
     <div class="page-content">
+      <header class="common-header">
+        <h1>내 콘텐츠</h1>
+        <div class="header-actions">
+          <button @click="goBack" class="btn btn-back">← 돌아가기</button>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
+        </div>
+      </header>
+
+    <div class="content-area">
       <div class="content-section">
         <div class="section-header">
           <h2>내가 작성한 게시글</h2>
@@ -67,6 +68,7 @@
           <button @click="showDeleteModal = false" class="cancel-btn">취소</button>
           <button @click="deleteBoard" class="confirm-btn">삭제</button>
         </div>
+      </div>
       </div>
     </div>
   </div>
@@ -162,65 +164,11 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.my-content-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
-}
+@import '../assets/css/common.css';
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: white;
-  padding: 20px 30px;
-  border-radius: 10px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  flex-wrap: nowrap;
-}
-
-.header h1 {
-  margin: 0;
-  color: #333;
-  font-size: 28px;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.back-btn {
-  padding: 10px 20px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.back-btn:hover {
-  background: #0056b3;
-}
-
-.logout-btn {
-  padding: 10px 20px;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
+.content-area {
+  max-width: 1000px;
+  margin: 0 auto;
 }
 
 .page-content {

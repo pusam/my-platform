@@ -1,14 +1,15 @@
 <template>
-  <div class="silver-price-page">
-    <div class="header">
-      <h1>은 시세</h1>
-      <div class="header-actions">
-        <button @click="goBack" class="back-btn">← 돌아가기</button>
-        <button @click="logout" class="logout-btn">로그아웃</button>
-      </div>
-    </div>
-
+  <div class="page-container silver-theme">
     <div class="page-content">
+      <header class="common-header">
+        <h1>🥈 은 시세</h1>
+        <div class="header-actions">
+          <button @click="goBack" class="btn btn-back">← 돌아가기</button>
+          <button @click="logout" class="btn btn-logout">로그아웃</button>
+        </div>
+      </header>
+
+    <div class="silver-content">
       <div class="silver-price-widget">
         <div class="widget-header">
           <div class="widget-title">
@@ -98,6 +99,7 @@
           <li>은 시세는 GoldAPI.io를 통해 실시간으로 제공됩니다.</li>
           <li>순은 국제 시세 기준 (XAG/KRW)입니다.</li>
         </ul>
+      </div>
       </div>
     </div>
   </div>
@@ -452,56 +454,37 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.silver-price-page {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 20px;
+@import '../assets/css/common.css';
+
+.silver-theme {
+  background: linear-gradient(135deg, #c0c0c0 0%, #708090 100%);
 }
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: white;
-  padding: 20px 30px;
+.silver-theme .common-header h1 {
+  background: linear-gradient(135deg, #708090 0%, #c0c0c0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.silver-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.silver-price-widget {
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+  border: 2px solid #c0c0c0;
   border-radius: 10px;
+  padding: 30px;
   margin-bottom: 30px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  flex-wrap: nowrap;
 }
 
-.header h1 {
-  margin: 0;
-  color: #708090;
-  font-size: 28px;
-  white-space: nowrap;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.back-btn {
-  padding: 10px 20px;
-  background: #007bff;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-  white-space: nowrap;
-}
-
-.back-btn:hover {
-  background: #0056b3;
-}
-
-.logout-btn {
-  padding: 10px 20px;
+/* Keep remaining widget styles - remove duplicate header styles */
+.logout-btn-placeholder {
+  /* placeholder to maintain file structure */
+  display: none;
   background: #f44336;
   color: white;
   border: none;
