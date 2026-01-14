@@ -43,17 +43,10 @@ services:
       retries: 5
 
   backend:
-    # [변경] 이제 서버에서 빌드하지 않으므로 build 섹션 삭제
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    # 기본값(:-latest)을 둬서 변수가 없을 때도 에러 안 나게 함
+    image: kdhgla/my-server:${DOCKER_TAG:-latest}
 
-    # [중요] 아래 '본인_도커_아이디'
-    image: kdhgla/my-server:latest
-
-    # [추가] 실행할 때마다 최신 이미지가 있는지 확인해서 다운로드함
     pull_policy: always
-
     container_name: myplatform-backend
     restart: unless-stopped
     ports:
@@ -92,11 +85,16 @@ services:
     container_name: myplatform-nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      # 내부는 Nginx 설정에 맞춰 80으로 고정
+      - "${NGINX_PORT}:80"
+
+      # - "443:443"  <-- SSL 인증서 설정 안 하셨으면 에러 나니까 일단 주석 처리
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+
+      # 기존: - ./nginx/conf.d:/etc/nginx/conf.d:ro (이것도 되긴 하는데 잡동사니 파일 들어갈까봐)
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
       - nginx_logs:/var/log/nginx
     depends_on:
       - backend
