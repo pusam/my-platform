@@ -29,8 +29,12 @@ public class StockPriceController {
     public ResponseEntity<ApiResponse<List<StockPriceDto>>> searchStocks(
             @Parameter(description = "검색 키워드 (종목명 또는 종목코드)")
             @RequestParam String keyword) {
-        List<StockPriceDto> results = stockPriceService.searchStocks(keyword);
-        return ResponseEntity.ok(ApiResponse.success("종목 검색 완료", results));
+        try {
+            List<StockPriceDto> results = stockPriceService.searchStocks(keyword);
+            return ResponseEntity.ok(ApiResponse.success("종목 검색 완료", results));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("종목 검색 실패: " + e.getMessage()));
+        }
     }
 
     @Operation(summary = "종목 시세 조회", description = "종목코드로 시세를 조회합니다.")

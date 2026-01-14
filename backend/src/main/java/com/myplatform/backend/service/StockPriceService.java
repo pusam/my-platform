@@ -10,8 +10,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
+
+import java.time.Duration;
 
 import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -83,18 +88,25 @@ public class StockPriceService {
         List<StockPriceDto> results = new ArrayList<>();
 
         try {
-            String url = String.format(NAVER_SEARCH_API, keyword);
+            String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
+            String url = String.format(NAVER_SEARCH_API, encodedKeyword);
             log.info("종목 검색: {} - URL: {}", keyword, url);
 
             String response = webClient.get()
                     .uri(url)
-                    .header("User-Agent", "Mozilla/5.0")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                     .header("Referer", "https://m.stock.naver.com")
+                    .header("Accept", "application/json")
                     .retrieve()
                     .bodyToMono(String.class)
+                    .timeout(Duration.ofSeconds(10))
+                    .onErrorResume(e -> {
+                        log.error("WebClient 에러: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+                        return reactor.core.publisher.Mono.empty();
+                    })
                     .block();
 
-            log.info("종목 검색 응답: {}", response);
+            log.info("종목 검색 응답 길이: {}", response != null ? response.length() : 0);
 
             if (response != null) {
                 JsonNode root = objectMapper.readTree(response);
@@ -143,7 +155,8 @@ public class StockPriceService {
             }
 
         } catch (Exception e) {
-            log.error("종목 검색 실패: {}", e.getMessage(), e);
+            log.error("종목 검색 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            // 에러 발생 시 빈 목록 반환 (500 에러 방지)
         }
 
         return results;
