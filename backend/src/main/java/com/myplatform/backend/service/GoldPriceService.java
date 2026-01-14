@@ -117,8 +117,8 @@ public class GoldPriceService {
                 cachedGoldPrice.set(dto);
 
                 // DB 저장 (히스토리)
-                GoldPrice entity = dtoToEntity(dto);
-                goldPriceRepository.save(entity);
+                GoldPrice priceEntity = dtoToEntity(dto);
+                goldPriceRepository.save(priceEntity);
 
                 log.info("금 시세 갱신 완료: 1돈 = {}원, 1g = {}원 (기준: {})",
                         dto.getPricePerDon(), dto.getPricePerGram(), dto.getBaseDate());
