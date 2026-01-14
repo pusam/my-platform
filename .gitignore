@@ -47,7 +47,6 @@ tmpclaude-*-cwd
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
-frontend/package-lock.json
 
 ### File Uploads ###
 uploads/
