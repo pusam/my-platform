@@ -10,19 +10,24 @@
         </div>
       </header>
 
-      <!-- 자산 등록 버튼 -->
-      <div class="action-bar">
-        <button @click="showAddModal = true" class="btn btn-primary">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19"/>
-            <line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          자산 등록
-        </button>
-      </div>
+      <!-- 컨텐츠 영역 -->
+      <div class="asset-content">
+        <!-- 자산 등록 버튼 -->
+        <div class="action-bar">
+          <button @click="showAddModal = true" class="btn btn-primary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            자산 등록
+          </button>
+        </div>
 
-      <!-- 자산 요약 카드들 -->
-      <section v-if="summary" class="summary-grid">
+        <!-- 로딩 상태 -->
+        <LoadingSpinner v-if="loading" message="자산 정보를 불러오는 중..." />
+
+        <!-- 자산 요약 카드들 -->
+        <section v-else-if="summary" class="summary-grid">
         <article class="summary-card gold">
           <div class="card-header">
             <div class="card-icon">
@@ -290,6 +295,7 @@
           </table>
         </div>
       </section>
+      </div>
 
       <!-- 자산 등록 모달 -->
       <div v-if="showAddModal" class="modal-overlay" @click="closeModal">
@@ -384,10 +390,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { assetAPI, stockAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 
 const router = useRouter();
 
@@ -397,6 +404,7 @@ const showAddModal = ref(false);
 const errorMessage = ref('');
 const stockSearchKeyword = ref('');
 const stockSearchResults = ref([]);
+const loading = ref(false);
 let searchTimeout = null;
 
 const newAsset = ref({
@@ -412,11 +420,14 @@ const newAsset = ref({
 
 const loadData = async () => {
   try {
+    loading.value = true;
     const summaryResponse = await assetAPI.getAssetSummary();
     summary.value = summaryResponse.data.data;
     assets.value = summary.value.assets || [];
   } catch (error) {
     console.error('Failed to load data:', error);
+  } finally {
+    loading.value = false;
   }
 };
 
@@ -590,6 +601,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 컨텐츠 영역 */
+.asset-content {
+  position: relative;
+  min-height: 300px;
+}
+
 /* 요약 그리드 */
 .summary-grid {
   display: grid;

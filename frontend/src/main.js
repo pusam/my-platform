@@ -15,6 +15,7 @@ import SettingsPage from './views/SettingsPage.vue'
 import UserApproval from './views/UserApproval.vue'
 import AssetManagement from './views/AssetManagement.vue'
 import FileManager from './views/FileManager.vue'
+import FinanceManagement from './views/FinanceManagement.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -104,6 +105,12 @@ const router = createRouter({
       path: '/files',
       name: 'FileManager',
       component: FileManager,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/finance',
+      name: 'FinanceManagement',
+      component: FinanceManagement,
       meta: { requiresAuth: true }
     },
     {

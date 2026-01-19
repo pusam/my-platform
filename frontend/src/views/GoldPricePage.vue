@@ -21,7 +21,9 @@
           </span>
         </div>
 
-        <div class="widget-body" v-if="goldPrice">
+        <LoadingSpinner v-if="loading" message="금 시세를 불러오는 중..." />
+
+        <div class="widget-body" v-else-if="goldPrice">
           <div class="price-main">
             <div class="price-label">1돈 (3.75g)</div>
             <div class="price-value">{{ formatPrice(goldPrice.pricePerDon) }}원</div>
@@ -107,6 +109,7 @@ import { useRouter } from 'vue-router'
 import { goldAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
 import { Chart, registerables } from 'chart.js'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
 
 // Chart.js 등록
 Chart.register(...registerables)
@@ -477,6 +480,8 @@ onUnmounted(() => {
 .gold-content {
   max-width: 800px;
   margin: 0 auto;
+  position: relative;
+  min-height: 300px;
 }
 
 .gold-price-widget {
@@ -485,6 +490,8 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 30px;
   margin-bottom: 30px;
+  position: relative;
+  min-height: 200px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 

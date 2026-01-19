@@ -192,6 +192,26 @@ export const fileAPI = {
   }
 };
 
+// Finance API
+export const financeAPI = {
+  // 월별 거래 내역 조회
+  getMonthlyTransactions(year, month) {
+    return apiClient.get(`/finance/transactions?year=${year}&month=${month}`);
+  },
+  // 전체 거래 내역 조회
+  getAllTransactions() {
+    return apiClient.get('/finance/transactions/all');
+  },
+  // 거래 등록
+  addTransaction(data) {
+    return apiClient.post('/finance/transactions', data);
+  },
+  // 거래 삭제
+  deleteTransaction(id) {
+    return apiClient.delete(`/finance/transactions/${id}`);
+  }
+};
+
 // Stock Price API
 export const stockAPI = {
   // 종목 검색

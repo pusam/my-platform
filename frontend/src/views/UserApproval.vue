@@ -23,7 +23,7 @@
 
     <!-- 승인 대기 탭 -->
     <div v-if="activeTab === 'pending'" class="tab-content">
-      <div v-if="loading" class="loading">⏳ 로딩 중...</div>
+      <LoadingSpinner v-if="loading" message="사용자 정보를 불러오는 중..." />
 
       <div v-else-if="pendingUsers.length === 0" class="empty-state">
         <div class="empty-icon">✅</div>
@@ -59,7 +59,7 @@
 
     <!-- 전체 사용자 탭 -->
     <div v-if="activeTab === 'all'" class="tab-content">
-      <div v-if="loading" class="loading">⏳ 로딩 중...</div>
+      <LoadingSpinner v-if="loading" message="사용자 목록을 불러오는 중..." />
 
       <div v-else class="users-table-container">
         <table class="users-table">
@@ -168,6 +168,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 
 const router = useRouter();
 const activeTab = ref('pending');
@@ -423,6 +424,11 @@ const goBack = () => {
   display: flex;
   gap: 10px;
   margin-bottom: 30px;
+}
+
+.tab-content {
+  position: relative;
+  min-height: 200px;
 }
 
 .tab {

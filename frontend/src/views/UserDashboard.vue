@@ -143,6 +143,24 @@
             </svg>
           </span>
         </article>
+
+        <article class="menu-card finance" @click="goToFinance">
+          <div class="card-icon finance-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </div>
+          <h3>가계부</h3>
+          <p>월별 수입과 지출을 기록하고 관리합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
       </section>
 
       <!-- 시스템 정보 -->
@@ -198,6 +216,9 @@ export default {
     },
     goToFiles() {
       this.$router.push('/files')
+    },
+    goToFinance() {
+      this.$router.push('/finance')
     },
     logout() {
       localStorage.removeItem('jwt_token')
@@ -352,6 +373,12 @@ export default {
   background: linear-gradient(135deg, rgba(93, 173, 226, 0.15) 0%, rgba(52, 152, 219, 0.15) 100%);
   color: #3498db;
 }
+
+.card-icon.finance-icon {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(26, 188, 156, 0.15) 100%);
+  color: #2ecc71;
+}
+
 
 .menu-card h3 {
   font-size: 20px;

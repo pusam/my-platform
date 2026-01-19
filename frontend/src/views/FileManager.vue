@@ -35,13 +35,13 @@
     </div>
 
     <!-- 로딩 -->
-    <div v-if="loading" class="loading">로딩 중...</div>
+    <LoadingSpinner v-if="loading" message="파일을 불러오는 중..." />
 
     <!-- 에러 메시지 -->
-    <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
+    <div v-else-if="errorMessage" class="error-message">{{ errorMessage }}</div>
 
     <!-- 폴더 및 파일 목록 -->
-    <div v-if="!loading && content" class="file-grid">
+    <div v-else-if="content" class="file-grid">
       <!-- 폴더 목록 -->
       <div
         v-for="folder in content.folders"
@@ -177,7 +177,7 @@ import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
-
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 const router = useRouter();
 
 const content = ref(null);
@@ -509,6 +509,8 @@ onMounted(() => {
 .file-manager-content {
   max-width: 1400px;
   margin: 0 auto;
+  position: relative;
+  min-height: 300px;
 }
 
 .breadcrumb {
@@ -550,12 +552,6 @@ onMounted(() => {
   gap: 10px;
 }
 
-.loading {
-  text-align: center;
-  padding: 60px;
-  font-size: 18px;
-  color: #666;
-}
 
 .error-message {
   background: #fee;

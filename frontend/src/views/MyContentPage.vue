@@ -37,10 +37,7 @@
           <button @click="goToBoard()" class="action-btn">게시글 작성하기</button>
         </div>
 
-        <div class="loading" v-if="loading">
-          <div class="spinner"></div>
-          <p>불러오는 중...</p>
-        </div>
+        <LoadingSpinner v-if="loading" message="게시글을 불러오는 중..." />
 
         <!-- 페이지네이션 -->
         <div class="pagination" v-if="totalPages > 1">
@@ -79,6 +76,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { boardAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
 
 const router = useRouter()
 const boards = ref([])
@@ -169,6 +167,8 @@ onMounted(() => {
 .content-area {
   max-width: 1000px;
   margin: 0 auto;
+  position: relative;
+  min-height: 300px;
 }
 
 .page-content {
@@ -181,6 +181,8 @@ onMounted(() => {
   border-radius: 10px;
   padding: 30px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  position: relative;
+  min-height: 200px;
 }
 
 .section-header {
@@ -276,24 +278,6 @@ onMounted(() => {
   font-size: 14px;
 }
 
-.loading {
-  text-align: center;
-  padding: 40px;
-}
-
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #eee;
-  border-top-color: #667eea;
-  border-radius: 50%;
-  margin: 0 auto 16px;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 .pagination {
   display: flex;

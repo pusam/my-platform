@@ -42,7 +42,9 @@
 
       <!-- 게시글 목록 -->
       <div v-if="!isWriting && !selectedBoard" class="board-section">
-        <div v-if="boards.length === 0" class="empty-state">
+        <LoadingSpinner v-if="loading" message="게시글을 불러오는 중..." />
+
+        <div v-else-if="boards.length === 0" class="empty-state">
           <div class="empty-icon">
             <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
@@ -275,11 +277,13 @@
 import axios from 'axios';
 import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
+import LoadingSpinner from '../components/LoadingSpinner.vue';
 
 export default {
   name: 'BoardPage',
   components: {
-    QuillEditor
+    QuillEditor,
+    LoadingSpinner
   },
   data() {
     return {
@@ -292,6 +296,7 @@ export default {
       totalPages: 0,
       totalElements: 0,
       pageSize: 10,
+      loading: false,
       form: {
         title: '',
         content: ''
@@ -316,6 +321,7 @@ export default {
   methods: {
     async loadBoards(page = 0) {
       try {
+        this.loading = true;
         const token = localStorage.getItem('jwt_token');
         const response = await axios.get(`/api/board?page=${page}&size=${this.pageSize}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -330,6 +336,8 @@ export default {
       } catch (error) {
         console.error('게시글 로드 실패:', error);
         alert('게시글을 불러오는데 실패했습니다.');
+      } finally {
+        this.loading = false;
       }
     },
     async searchBoards() {
@@ -339,6 +347,7 @@ export default {
       }
 
       try {
+        this.loading = true;
         const token = localStorage.getItem('jwt_token');
         const response = await axios.get(
           `/api/board/search?keyword=${encodeURIComponent(this.searchKeyword)}&page=${this.currentPage}&size=${this.pageSize}`,
@@ -353,6 +362,8 @@ export default {
       } catch (error) {
         console.error('검색 실패:', error);
         alert('검색에 실패했습니다.');
+      } finally {
+        this.loading = false;
       }
     },
     async viewBoard(id) {
@@ -622,6 +633,8 @@ export default {
 /* 게시글 그리드 */
 .board-section {
   animation: fadeIn 0.4s ease;
+  position: relative;
+  min-height: 200px;
 }
 
 @keyframes fadeIn {

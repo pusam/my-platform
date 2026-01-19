@@ -21,7 +21,9 @@
           </span>
         </div>
 
-        <div class="widget-body" v-if="silverPrice">
+        <LoadingSpinner v-if="loading" message="은 시세를 불러오는 중..." />
+
+        <div class="widget-body" v-else-if="silverPrice">
           <div class="price-main">
             <div class="price-label">1kg</div>
             <div class="price-value">{{ formatPrice(silverPrice.pricePerKg) }}원</div>
@@ -111,6 +113,7 @@ import { useRouter } from 'vue-router'
 import { silverAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
 import { Chart, registerables } from 'chart.js'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
 
 // Chart.js 등록
 Chart.register(...registerables)
@@ -470,6 +473,8 @@ onUnmounted(() => {
 .silver-content {
   max-width: 800px;
   margin: 0 auto;
+  position: relative;
+  min-height: 300px;
 }
 
 .silver-price-widget {
@@ -478,6 +483,8 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 30px;
   margin-bottom: 30px;
+  position: relative;
+  min-height: 200px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
@@ -509,6 +516,8 @@ onUnmounted(() => {
   border-radius: 10px;
   padding: 30px;
   margin-bottom: 30px;
+  position: relative;
+  min-height: 200px;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 

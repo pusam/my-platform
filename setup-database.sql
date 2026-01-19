@@ -187,7 +187,47 @@ CREATE TABLE IF NOT EXISTS email_verification_token (
     INDEX idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 재무 기록 테이블 생성 (급여 및 고정지출) - 구버전 호환용
+CREATE TABLE IF NOT EXISTS finance_records (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL COMMENT '사용자명',
+    year INT NOT NULL COMMENT '년도',
+    month INT NOT NULL COMMENT '월',
+    salary DECIMAL(15, 2) DEFAULT 0 COMMENT '급여',
+    bonus DECIMAL(15, 2) DEFAULT 0 COMMENT '보너스/기타 수입',
+    rent DECIMAL(15, 2) DEFAULT 0 COMMENT '월세/주거비',
+    utilities DECIMAL(15, 2) DEFAULT 0 COMMENT '공과금',
+    insurance DECIMAL(15, 2) DEFAULT 0 COMMENT '보험',
+    loan DECIMAL(15, 2) DEFAULT 0 COMMENT '대출 상환',
+    subscription DECIMAL(15, 2) DEFAULT 0 COMMENT '구독료',
+    transportation DECIMAL(15, 2) DEFAULT 0 COMMENT '교통비',
+    food DECIMAL(15, 2) DEFAULT 0 COMMENT '식비',
+    etc DECIMAL(15, 2) DEFAULT 0 COMMENT '기타',
+    memo VARCHAR(500) COMMENT '메모',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_year_month (year, month),
+    UNIQUE KEY unique_user_month (username, year, month)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 가계부 거래 내역 테이블 생성 (새버전)
+CREATE TABLE IF NOT EXISTS finance_transactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL COMMENT '사용자명',
+    type VARCHAR(10) NOT NULL COMMENT '거래 유형 (INCOME, EXPENSE)',
+    category VARCHAR(50) NOT NULL COMMENT '카테고리',
+    amount DECIMAL(15, 2) NOT NULL COMMENT '금액',
+    transaction_date DATE NOT NULL COMMENT '거래일',
+    memo VARCHAR(500) COMMENT '메모',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_type (type),
+    INDEX idx_transaction_date (transaction_date),
+    INDEX idx_username_date (username, transaction_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 완료 메시지
 SELECT '데이터베이스 설정 완료!' as 'Status';
-SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file' as 'Info';
+SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions' as 'Info';
 
