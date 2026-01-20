@@ -42,15 +42,15 @@
           <div class="card-body">
             <div class="stat-row">
               <span class="label">보유량</span>
-              <span class="value">{{ formatNumber(summary.gold?.totalQuantity) }} g</span>
+              <span class="value">{{ formatGoldDon(summary.gold?.totalQuantity) }} 돈</span>
             </div>
             <div class="stat-row">
               <span class="label">평균 구매가</span>
-              <span class="value">{{ formatCurrency(summary.gold?.averagePurchasePrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToDonPrice(summary.gold?.averagePurchasePrice)) }}/돈</span>
             </div>
             <div class="stat-row">
               <span class="label">현재 시세</span>
-              <span class="value">{{ formatCurrency(summary.gold?.currentPrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToDonPrice(summary.gold?.currentPrice)) }}/돈</span>
             </div>
             <div class="stat-divider"></div>
             <div class="stat-row highlight">
@@ -85,15 +85,15 @@
           <div class="card-body">
             <div class="stat-row">
               <span class="label">보유량</span>
-              <span class="value">{{ formatNumber(summary.silver?.totalQuantity) }} g</span>
+              <span class="value">{{ formatSilverKg(summary.silver?.totalQuantity) }} kg</span>
             </div>
             <div class="stat-row">
               <span class="label">평균 구매가</span>
-              <span class="value">{{ formatCurrency(summary.silver?.averagePurchasePrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToKgPrice(summary.silver?.averagePurchasePrice)) }}/kg</span>
             </div>
             <div class="stat-row">
               <span class="label">현재 시세</span>
-              <span class="value">{{ formatCurrency(summary.silver?.currentPrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToKgPrice(summary.silver?.currentPrice)) }}/kg</span>
             </div>
             <div class="stat-divider"></div>
             <div class="stat-row highlight">
@@ -283,8 +283,8 @@
                   </span>
                 </td>
                 <td>{{ formatDate(asset.purchaseDate) }}</td>
-                <td>{{ formatNumber(asset.quantity) }} {{ asset.assetType === 'STOCK' ? '주' : 'g' }}</td>
-                <td>{{ formatCurrency(asset.purchasePrice) }}</td>
+                <td>{{ formatAssetQuantity(asset) }}</td>
+                <td>{{ formatAssetPrice(asset) }}</td>
                 <td class="amount">{{ formatCurrency(asset.totalAmount) }}</td>
                 <td>{{ asset.memo || '-' }}</td>
                 <td>
@@ -499,7 +499,18 @@ const addAsset = async () => {
       return;
     }
 
-    await assetAPI.addAsset(newAsset.value);
+    // 단위 변환: 금은 돈->그램, 은은 kg->그램으로 변환하여 저장
+    const assetData = { ...newAsset.value };
+
+    if (assetData.assetType === 'GOLD') {
+      assetData.quantity = donToGram(assetData.quantity);
+      assetData.purchasePrice = donToGramPrice(assetData.purchasePrice);
+    } else if (assetData.assetType === 'SILVER') {
+      assetData.quantity = kgToGram(assetData.quantity);
+      assetData.purchasePrice = kgToGramPrice(assetData.purchasePrice);
+    }
+
+    await assetAPI.addAsset(assetData);
     closeModal();
     await loadData();
   } catch (error) {
@@ -550,13 +561,101 @@ const getAssetTypeLabel = (asset) => {
 const getQuantityLabel = () => {
   if (newAsset.value.assetType === 'STOCK') return '보유 주수';
   if (newAsset.value.assetType === 'OTHER') return '보유량';
-  return '보유량 (그램)';
+  if (newAsset.value.assetType === 'GOLD') return '보유량 (돈)';
+  if (newAsset.value.assetType === 'SILVER') return '보유량 (kg)';
+  return '보유량';
 };
 
 const getPriceLabel = () => {
   if (newAsset.value.assetType === 'STOCK') return '주당 구매가격 (원)';
   if (newAsset.value.assetType === 'OTHER') return '단위당 구매가격 (원)';
-  return '구매 당시 그램당 가격 (원)';
+  if (newAsset.value.assetType === 'GOLD') return '구매 당시 돈당 가격 (원)';
+  if (newAsset.value.assetType === 'SILVER') return '구매 당시 kg당 가격 (원)';
+  return '구매 가격 (원)';
+};
+
+// 금: 돈 -> 그램 변환 (저장용)
+const donToGram = (don) => {
+  if (!don) return 0;
+  return don * 3.75;
+};
+
+// 금: 그램 -> 돈 변환 (표시용)
+const gramToDon = (gram) => {
+  if (!gram) return 0;
+  return gram / 3.75;
+};
+
+// 금: 그램당 가격 -> 돈당 가격 변환
+const gramToDonPrice = (pricePerGram) => {
+  if (!pricePerGram) return 0;
+  return pricePerGram * 3.75;
+};
+
+// 금: 돈당 가격 -> 그램당 가격 변환 (저장용)
+const donToGramPrice = (pricePerDon) => {
+  if (!pricePerDon) return 0;
+  return pricePerDon / 3.75;
+};
+
+// 은: kg -> 그램 변환 (저장용)
+const kgToGram = (kg) => {
+  if (!kg) return 0;
+  return kg * 1000;
+};
+
+// 은: 그램 -> kg 변환 (표시용)
+const gramToKg = (gram) => {
+  if (!gram) return 0;
+  return gram / 1000;
+};
+
+// 은: 그램당 가격 -> kg당 가격 변환
+const gramToKgPrice = (pricePerGram) => {
+  if (!pricePerGram) return 0;
+  return pricePerGram * 1000;
+};
+
+// 은: kg당 가격 -> 그램당 가격 변환 (저장용)
+const kgToGramPrice = (pricePerKg) => {
+  if (!pricePerKg) return 0;
+  return pricePerKg / 1000;
+};
+
+// 금 보유량 포맷 (돈 단위)
+const formatGoldDon = (gram) => {
+  if (!gram) return '0';
+  return formatNumber(gramToDon(gram));
+};
+
+// 은 보유량 포맷 (kg 단위)
+const formatSilverKg = (gram) => {
+  if (!gram) return '0';
+  return formatNumber(gramToKg(gram));
+};
+
+// 자산별 수량 포맷 (테이블용)
+const formatAssetQuantity = (asset) => {
+  if (asset.assetType === 'GOLD') {
+    return formatNumber(gramToDon(asset.quantity)) + ' 돈';
+  } else if (asset.assetType === 'SILVER') {
+    return formatNumber(gramToKg(asset.quantity)) + ' kg';
+  } else if (asset.assetType === 'STOCK') {
+    return formatNumber(asset.quantity) + ' 주';
+  }
+  return formatNumber(asset.quantity);
+};
+
+// 자산별 구매가 포맷 (테이블용)
+const formatAssetPrice = (asset) => {
+  if (asset.assetType === 'GOLD') {
+    return formatCurrency(gramToDonPrice(asset.purchasePrice)) + '/돈';
+  } else if (asset.assetType === 'SILVER') {
+    return formatCurrency(gramToKgPrice(asset.purchasePrice)) + '/kg';
+  } else if (asset.assetType === 'STOCK') {
+    return formatCurrency(asset.purchasePrice) + '/주';
+  }
+  return formatCurrency(asset.purchasePrice);
 };
 
 const formatCurrency = (value) => {

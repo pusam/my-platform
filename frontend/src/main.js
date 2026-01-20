@@ -16,6 +16,7 @@ import UserApproval from './views/UserApproval.vue'
 import AssetManagement from './views/AssetManagement.vue'
 import FileManager from './views/FileManager.vue'
 import FinanceManagement from './views/FinanceManagement.vue'
+import CarManagement from './views/CarManagement.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -111,6 +112,12 @@ const router = createRouter({
       path: '/finance',
       name: 'FinanceManagement',
       component: FinanceManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/car',
+      name: 'CarManagement',
+      component: CarManagement,
       meta: { requiresAuth: true }
     },
     {

@@ -161,24 +161,48 @@
             </svg>
           </span>
         </article>
+
+        <article class="menu-card car" @click="goToCar">
+          <div class="card-icon car-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-3.6c-.4-.5-1-.9-1.6-.9H10c-.7 0-1.3.4-1.6.9L5.5 10l-2 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>
+              <circle cx="7" cy="17" r="2"/>
+              <circle cx="17" cy="17" r="2"/>
+            </svg>
+          </div>
+          <h3>자동차 관리</h3>
+          <p>정비 기록과 주행거리를 관리합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
       </section>
 
-      <!-- 시스템 정보 -->
-      <section class="info-card">
-        <h3>시스템 정보</h3>
-        <div class="info-items">
-          <div class="info-item">
-            <span class="info-label">계정 유형</span>
-            <span class="info-value">일반 사용자</span>
+      <!-- AI 상담 배너 -->
+      <section class="ai-banner" @click="openAiChat">
+        <div class="ai-banner-content">
+          <div class="ai-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z"/>
+              <circle cx="8.5" cy="14.5" r="1.5"/>
+              <circle cx="15.5" cy="14.5" r="1.5"/>
+              <path d="M9 18h6"/>
+            </svg>
           </div>
-          <div class="info-item">
-            <span class="info-label">상태</span>
-            <span class="info-value status-active">
-              <span class="status-dot"></span>
-              활성
-            </span>
+          <div class="ai-text">
+            <h3>AI 재무 상담사</h3>
+            <p>자산 관리, 가계부, 투자에 대한 맞춤형 상담을 받아보세요</p>
+          </div>
+          <div class="ai-arrow">
+            <span>상담 시작</span>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
           </div>
         </div>
+        <div class="ai-decoration"></div>
       </section>
     </div>
   </div>
@@ -219,6 +243,13 @@ export default {
     },
     goToFinance() {
       this.$router.push('/finance')
+    },
+    goToCar() {
+      this.$router.push('/car')
+    },
+    openAiChat() {
+      // 챗봇 열기 이벤트 발생
+      window.dispatchEvent(new CustomEvent('open-chatbot'))
     },
     logout() {
       localStorage.removeItem('jwt_token')
@@ -379,6 +410,25 @@ export default {
   color: #2ecc71;
 }
 
+.card-icon.car-icon {
+  background: linear-gradient(135deg, rgba(52, 73, 94, 0.15) 0%, rgba(44, 62, 80, 0.15) 100%);
+  color: #34495e;
+}
+
+.menu-card.car {
+  background: linear-gradient(135deg, rgba(245, 247, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(52, 73, 94, 0.2);
+}
+
+.menu-card.car:hover {
+  border-color: #34495e;
+  box-shadow: 0 20px 40px rgba(52, 73, 94, 0.15);
+}
+
+.menu-card.car h3 {
+  color: #2c3e50;
+}
+
 
 .menu-card h3 {
   font-size: 20px;
@@ -433,75 +483,104 @@ export default {
   color: #708090;
 }
 
-/* 정보 카드 */
-.info-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
+/* AI 상담 배너 */
+.ai-banner {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 20px;
-  padding: 28px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  padding: 32px 40px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
 }
 
-.info-card h3 {
-  font-size: 18px;
-  color: var(--text-primary);
-  margin: 0 0 20px 0;
-  font-weight: 600;
+.ai-banner:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 50px rgba(102, 126, 234, 0.4);
 }
 
-.info-items {
+.ai-banner:hover .ai-arrow svg {
+  transform: translateX(4px);
+}
+
+.ai-banner-content {
   display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.info-item {
-  flex: 1;
-  min-width: 200px;
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-radius: 12px;
+  gap: 24px;
+  position: relative;
+  z-index: 1;
 }
 
-.info-label {
-  font-weight: 600;
-  color: var(--text-muted);
-  font-size: 14px;
+.ai-icon {
+  width: 80px;
+  height: 80px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
 }
 
-.info-value {
-  color: var(--text-primary);
-  font-weight: 500;
+.ai-text {
+  flex: 1;
 }
 
-.status-active {
+.ai-text h3 {
+  font-size: 24px;
+  color: white;
+  margin: 0 0 8px 0;
+  font-weight: 700;
+}
+
+.ai-text p {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+}
+
+.ai-arrow {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--success);
+  background: rgba(255, 255, 255, 0.2);
+  padding: 12px 20px;
+  border-radius: 12px;
+  color: white;
   font-weight: 600;
+  font-size: 15px;
+  transition: all 0.3s ease;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--success);
+.ai-arrow:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.ai-arrow svg {
+  transition: transform 0.3s ease;
+}
+
+.ai-decoration {
+  position: absolute;
+  right: -100px;
+  top: -100px;
+  width: 300px;
+  height: 300px;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 50%;
-  animation: pulse 2s infinite;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.2);
-  }
+.ai-decoration::after {
+  content: '';
+  position: absolute;
+  right: 150px;
+  bottom: -50px;
+  width: 200px;
+  height: 200px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
 }
 
 /* 반응형 */
@@ -522,12 +601,41 @@ export default {
     grid-template-columns: 1fr;
   }
 
-  .info-items {
-    flex-direction: column;
+  .ai-banner {
+    padding: 24px;
   }
 
-  .info-item {
-    min-width: 100%;
+  .ai-banner-content {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
+  }
+
+  .ai-icon {
+    width: 64px;
+    height: 64px;
+  }
+
+  .ai-icon svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ai-text h3 {
+    font-size: 20px;
+  }
+
+  .ai-text p {
+    font-size: 14px;
+  }
+
+  .ai-arrow {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ai-decoration {
+    display: none;
   }
 }
 </style>

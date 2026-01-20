@@ -227,6 +227,28 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     INDEX idx_username_date (username, transaction_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 자동차 정비 기록 테이블 생성
+CREATE TABLE IF NOT EXISTS car_record (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL COMMENT '사용자 ID',
+    car_name VARCHAR(100) COMMENT '차량명',
+    plate_number VARCHAR(20) COMMENT '차량번호',
+    record_type VARCHAR(30) NOT NULL COMMENT '정비 유형 (ENGINE_OIL, TIRE, BRAKE, FILTER, BATTERY, INSPECTION, WIPER, COOLANT, TRANSMISSION, OTHER)',
+    record_date DATE NOT NULL COMMENT '정비일',
+    mileage INT NOT NULL COMMENT '정비 시 주행거리 (km)',
+    next_mileage INT COMMENT '다음 정비 예정 주행거리 (km)',
+    cost DECIMAL(10, 0) COMMENT '비용',
+    shop VARCHAR(100) COMMENT '정비소',
+    memo VARCHAR(500) COMMENT '메모',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
+    INDEX idx_record_type (record_type),
+    INDEX idx_record_date (record_date),
+    INDEX idx_mileage (mileage)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 완료 메시지
 SELECT '데이터베이스 설정 완료!' as 'Status';
 SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions' as 'Info';

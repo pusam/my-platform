@@ -236,6 +236,27 @@ export const aiAPI = {
   }
 };
 
+// Car Record API
+export const carAPI = {
+  // 정비 기록 목록 조회
+  getRecords(type = null) {
+    const params = type ? { type } : {};
+    return apiClient.get('/car/records', { params });
+  },
+  // 정비 기록 등록
+  addRecord(data) {
+    return apiClient.post('/car/records', data);
+  },
+  // 정비 기록 삭제
+  deleteRecord(id) {
+    return apiClient.delete(`/car/records/${id}`);
+  },
+  // 정비 요약 정보
+  getSummary() {
+    return apiClient.get('/car/summary');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
