@@ -249,7 +249,23 @@ CREATE TABLE IF NOT EXISTS car_record (
     INDEX idx_mileage (mileage)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 뉴스 요약 테이블 생성
+CREATE TABLE IF NOT EXISTS news_summary (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(500) NOT NULL COMMENT '뉴스 제목',
+    original_content TEXT COMMENT '원문 내용',
+    summary TEXT NOT NULL COMMENT 'AI 요약',
+    source_name VARCHAR(100) COMMENT '출처 (연합뉴스, 한경 등)',
+    source_url VARCHAR(1000) COMMENT '원문 URL',
+    published_at TIMESTAMP COMMENT '기사 발행일',
+    summarized_at TIMESTAMP NOT NULL COMMENT '요약 생성일',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_summarized_at (summarized_at),
+    INDEX idx_published_at (published_at),
+    INDEX idx_source_name (source_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 완료 메시지
 SELECT '데이터베이스 설정 완료!' as 'Status';
-SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions' as 'Info';
+SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions, car_record, news_summary' as 'Info';
 

@@ -257,6 +257,22 @@ export const carAPI = {
   }
 };
 
+// News Summary API
+export const newsAPI = {
+  // 오늘의 뉴스 조회
+  getTodayNews() {
+    return apiClient.get('/news/today');
+  },
+  // 최근 뉴스 조회
+  getRecentNews() {
+    return apiClient.get('/news/recent');
+  },
+  // 뉴스 수동 수집 (관리자용)
+  fetchNews() {
+    return apiClient.post('/news/fetch', {}, { timeout: 120000 });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

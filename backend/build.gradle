@@ -26,6 +26,9 @@ dependencies {
 
     // WebClient for external API calls
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    // RSS Feed parsing (for news)
+    implementation 'com.rometools:rome:2.1.0'
 }
 
 // 프론트엔드 빌드 태스크

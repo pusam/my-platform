@@ -180,6 +180,37 @@
         </article>
       </section>
 
+      <!-- 오늘의 경제 뉴스 -->
+      <section class="news-section" v-if="newsList.length > 0">
+        <div class="news-header">
+          <div class="news-title">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+              <path d="M7 7h10M7 11h10M7 15h7"/>
+            </svg>
+            <h3>오늘의 경제 뉴스</h3>
+          </div>
+          <span class="news-badge">AI 요약</span>
+        </div>
+        <div class="news-list">
+          <article v-for="news in newsList" :key="news.id" class="news-item" @click="openNewsUrl(news.sourceUrl)">
+            <div class="news-content">
+              <h4>{{ news.title }}</h4>
+              <p>{{ news.summary }}</p>
+              <div class="news-meta">
+                <span class="news-source">{{ news.sourceName }}</span>
+                <span class="news-time">{{ formatNewsTime(news.summarizedAt) }}</span>
+              </div>
+            </div>
+            <div class="news-arrow">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <!-- AI 상담 배너 -->
       <section class="ai-banner" @click="openAiChat">
         <div class="ai-banner-content">
@@ -209,17 +240,50 @@
 </template>
 
 <script>
+import { newsAPI } from '../utils/api';
+
 export default {
   name: 'UserDashboard',
   data() {
     return {
-      username: ''
+      username: '',
+      newsList: []
     }
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'User'
+    this.loadNews()
   },
   methods: {
+    async loadNews() {
+      try {
+        // 오늘 뉴스가 없으면 최근 뉴스 조회
+        let response = await newsAPI.getTodayNews()
+        if (response.data.data && response.data.data.length > 0) {
+          this.newsList = response.data.data.slice(0, 5)
+        } else {
+          response = await newsAPI.getRecentNews()
+          this.newsList = response.data.data ? response.data.data.slice(0, 5) : []
+        }
+      } catch (error) {
+        console.error('뉴스 로드 실패:', error)
+        this.newsList = []
+      }
+    },
+    openNewsUrl(url) {
+      if (url) {
+        window.open(url, '_blank')
+      }
+    },
+    formatNewsTime(dateStr) {
+      if (!dateStr) return ''
+      const date = new Date(dateStr)
+      const now = new Date()
+      const diffHours = Math.floor((now - date) / (1000 * 60 * 60))
+      if (diffHours < 1) return '방금 전'
+      if (diffHours < 24) return `${diffHours}시간 전`
+      return date.toLocaleDateString('ko-KR')
+    },
     goToBoard() {
       this.$router.push('/board')
     },
@@ -483,6 +547,128 @@ export default {
   color: #708090;
 }
 
+/* 뉴스 섹션 */
+.news-section {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 28px;
+  margin-bottom: 30px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.news-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.news-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+}
+
+.news-title svg {
+  color: var(--primary-start);
+}
+
+.news-title h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.news-badge {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.news-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid var(--border-light);
+}
+
+.news-item:hover {
+  border-color: var(--primary-start);
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
+  transform: translateX(4px);
+}
+
+.news-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.news-content h4 {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-content p {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.news-source {
+  color: var(--primary-start);
+  font-weight: 500;
+}
+
+.news-time {
+  color: #adb5bd;
+}
+
+.news-arrow {
+  color: #ced4da;
+  transition: color 0.2s;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.news-item:hover .news-arrow {
+  color: var(--primary-start);
+}
+
 /* AI 상담 배너 */
 .ai-banner {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -636,6 +822,29 @@ export default {
 
   .ai-decoration {
     display: none;
+  }
+
+  .news-section {
+    padding: 20px;
+  }
+
+  .news-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .news-item {
+    padding: 14px 16px;
+  }
+
+  .news-content h4 {
+    font-size: 14px;
+  }
+
+  .news-content p {
+    font-size: 12px;
+    -webkit-line-clamp: 3;
   }
 }
 </style>
