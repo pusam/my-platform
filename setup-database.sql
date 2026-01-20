@@ -249,6 +249,40 @@ CREATE TABLE IF NOT EXISTS car_record (
     INDEX idx_mileage (mileage)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 고정 수입/지출 테이블 생성
+CREATE TABLE IF NOT EXISTS recurring_finance (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL COMMENT '사용자명',
+    type VARCHAR(10) NOT NULL COMMENT '유형 (INCOME, EXPENSE)',
+    category VARCHAR(50) NOT NULL COMMENT '카테고리',
+    name VARCHAR(100) NOT NULL COMMENT '항목명 (예: 회사급여, 월세)',
+    amount DECIMAL(15, 2) NOT NULL COMMENT '금액',
+    day_of_month INT DEFAULT 1 COMMENT '매월 적용일 (1-28)',
+    start_date DATE NOT NULL COMMENT '시작일',
+    end_date DATE COMMENT '종료일 (NULL이면 계속)',
+    is_active BOOLEAN DEFAULT TRUE COMMENT '활성 여부',
+    memo VARCHAR(500) COMMENT '메모',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_type (type),
+    INDEX idx_is_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 고정 수입/지출 변경 이력 테이블
+CREATE TABLE IF NOT EXISTS recurring_finance_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    recurring_id BIGINT NOT NULL COMMENT '고정 수입/지출 ID',
+    previous_amount DECIMAL(15, 2) NOT NULL COMMENT '이전 금액',
+    new_amount DECIMAL(15, 2) NOT NULL COMMENT '변경 금액',
+    effective_date DATE NOT NULL COMMENT '적용일',
+    change_reason VARCHAR(200) COMMENT '변경 사유',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (recurring_id) REFERENCES recurring_finance(id) ON DELETE CASCADE,
+    INDEX idx_recurring_id (recurring_id),
+    INDEX idx_effective_date (effective_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 뉴스 요약 테이블 생성
 CREATE TABLE IF NOT EXISTS news_summary (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

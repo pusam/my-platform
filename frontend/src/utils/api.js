@@ -209,6 +209,27 @@ export const financeAPI = {
   // 거래 삭제
   deleteTransaction(id) {
     return apiClient.delete(`/finance/transactions/${id}`);
+  },
+  // 고정 수입/지출 목록 조회
+  getRecurring(type = null) {
+    const params = type ? { type } : {};
+    return apiClient.get('/finance/recurring', { params });
+  },
+  // 고정 수입/지출 등록
+  addRecurring(data) {
+    return apiClient.post('/finance/recurring', data);
+  },
+  // 고정 수입/지출 수정 (금액 변경 시 히스토리 기록)
+  updateRecurring(id, data) {
+    return apiClient.put(`/finance/recurring/${id}`, data);
+  },
+  // 고정 수입/지출 비활성화
+  deactivateRecurring(id) {
+    return apiClient.put(`/finance/recurring/${id}/deactivate`);
+  },
+  // 고정 수입/지출 삭제
+  deleteRecurring(id) {
+    return apiClient.delete(`/finance/recurring/${id}`);
   }
 };
 
