@@ -60,10 +60,23 @@
         v-for="file in content.files"
         :key="'file-' + file.id"
         class="file-item"
+        :class="{ 'image-file': isImageFile(file) }"
         @click="viewFile(file)"
         @contextmenu.prevent="showFileContextMenu(file, $event)"
       >
-        <div class="icon">{{ getFileIcon(file.fileExtension) }}</div>
+        <!-- 이미지 파일인 경우 썸네일 미리보기 -->
+        <div v-if="isImageFile(file)" class="thumbnail-container">
+          <img
+            v-if="thumbnailCache[file.id]"
+            :src="thumbnailCache[file.id]"
+            :alt="file.originalName"
+            class="thumbnail-image"
+            @error="onThumbnailError($event, file)"
+          />
+          <span v-else class="thumbnail-loading">로딩...</span>
+        </div>
+        <!-- 이미지가 아닌 경우 아이콘 표시 -->
+        <div v-else class="icon">{{ getFileIcon(file.fileExtension) }}</div>
         <div class="name">{{ file.originalName }}</div>
         <div class="meta">
           {{ formatFileSize(file.fileSize) }} · {{ formatDate(file.uploadDate) }}
@@ -113,14 +126,6 @@
               required
             />
             <p class="file-info">※ 최대 100MB까지 업로드 가능 (이미지, 영상, 문서 등)</p>
-          </div>
-          <div class="form-group">
-            <label>업로드 날짜 (선택)</label>
-            <input
-              type="date"
-              v-model="uploadDate"
-              :max="today"
-            />
           </div>
           <div v-if="selectedFile" class="file-preview">
             <strong>선택된 파일:</strong> {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})
@@ -173,7 +178,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, reactive, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
@@ -189,7 +194,6 @@ const showCreateFolderModal = ref(false);
 const showUploadModal = ref(false);
 const newFolderName = ref('');
 const selectedFile = ref(null);
-const uploadDate = ref('');
 const modalError = ref('');
 const processing = ref(false);
 
@@ -213,10 +217,9 @@ const videoViewer = ref({
   name: ''
 });
 
-const today = computed(() => {
-  const date = new Date();
-  return date.toISOString().split('T')[0];
-});
+// 파일 뷰어 로딩 상태 (중복 클릭 방지)
+const viewerLoading = ref(false);
+
 
 const loadFolder = async (folderId = null) => {
   try {
@@ -285,7 +288,7 @@ const uploadFile = async () => {
   try {
     processing.value = true;
     modalError.value = '';
-    await fileAPI.uploadFile(currentFolderId.value, selectedFile.value, uploadDate.value);
+    await fileAPI.uploadFile(currentFolderId.value, selectedFile.value, null);
     closeUploadModal();
     await loadFolder(currentFolderId.value);
   } catch (error) {
@@ -341,11 +344,14 @@ const deleteItem = async () => {
 };
 
 const viewFile = async (file) => {
-  console.log('viewFile called:', file);
-  console.log('fileType:', file.fileType, 'downloadUrl:', file.downloadUrl);
+  // 이미 로딩 중이거나 뷰어가 열려있으면 무시
+  if (viewerLoading.value || imageViewer.value.show || videoViewer.value.show) {
+    return;
+  }
 
   if (file.fileType && file.fileType.startsWith('image/')) {
     try {
+      viewerLoading.value = true;
       const blobUrl = await fetchFileAsBlob(file.downloadUrl);
       imageViewer.value = {
         show: true,
@@ -355,9 +361,12 @@ const viewFile = async (file) => {
     } catch (e) {
       console.error('이미지 로드 실패:', e);
       alert('이미지를 불러올 수 없습니다: ' + e.message);
+    } finally {
+      viewerLoading.value = false;
     }
   } else if (file.fileType && file.fileType.startsWith('video/')) {
     try {
+      viewerLoading.value = true;
       const blobUrl = await fetchFileAsBlob(file.downloadUrl);
       videoViewer.value = {
         show: true,
@@ -367,10 +376,11 @@ const viewFile = async (file) => {
     } catch (e) {
       console.error('비디오 로드 실패:', e);
       alert('비디오를 불러올 수 없습니다: ' + e.message);
+    } finally {
+      viewerLoading.value = false;
     }
   } else {
     // 다운로드
-    console.log('Downloading file (not image/video):', file.fileType);
     downloadFile(file);
   }
 };
@@ -449,7 +459,6 @@ const closeCreateFolderModal = () => {
 const closeUploadModal = () => {
   showUploadModal.value = false;
   selectedFile.value = null;
-  uploadDate.value = '';
   modalError.value = '';
 };
 
@@ -486,6 +495,58 @@ const getFileIcon = (extension) => {
 
   return iconMap[ext] || '📄';
 };
+
+// 이미지 파일인지 확인
+const isImageFile = (file) => {
+  if (!file.fileType) return false;
+  return file.fileType.startsWith('image/');
+};
+
+// 썸네일 캐시 (reactive로 변경하여 반응성 확보)
+const thumbnailCache = reactive({});
+
+// 폴더 내 이미지 파일들의 썸네일 로드
+const loadThumbnails = () => {
+  if (!content.value || !content.value.files) return;
+
+  content.value.files.forEach(file => {
+    if (isImageFile(file) && !thumbnailCache[file.id]) {
+      loadThumbnail(file);
+    }
+  });
+};
+
+const loadThumbnail = async (file) => {
+  if (thumbnailCache[file.id]) return;
+
+  try {
+    const token = localStorage.getItem('jwt_token');
+    const response = await fetch(file.downloadUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (response.ok) {
+      const blob = await response.blob();
+      thumbnailCache[file.id] = URL.createObjectURL(blob);
+    }
+  } catch (e) {
+    console.error('썸네일 로드 실패:', file.originalName, e);
+  }
+};
+
+const onThumbnailError = (event, file) => {
+  // 이미지 로드 실패 시 아이콘으로 대체
+  event.target.style.display = 'none';
+  const container = event.target.parentElement;
+  container.innerHTML = '<span class="icon">🖼️</span>';
+};
+
+// content가 변경될 때마다 썸네일 로드
+watch(content, () => {
+  loadThumbnails();
+}, { deep: true });
 
 const goBack = () => {
   router.back();
@@ -591,6 +652,38 @@ onMounted(() => {
 .file-item .icon {
   font-size: 48px;
   margin-bottom: 10px;
+}
+
+.file-item.image-file {
+  padding: 10px;
+}
+
+.thumbnail-container {
+  width: 100%;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  background: #f5f5f5;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.thumbnail-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.thumbnail-container .icon {
+  font-size: 48px;
+}
+
+.thumbnail-loading {
+  color: #999;
+  font-size: 12px;
 }
 
 .file-item .name {

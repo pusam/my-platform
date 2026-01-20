@@ -224,6 +224,18 @@ export const stockAPI = {
   }
 };
 
+// AI Chat API
+export const aiAPI = {
+  // AI 채팅 (타임아웃 60초로 설정 - AI 응답이 느릴 수 있음)
+  chat(message, useContext = false) {
+    return apiClient.post('/ai/chat', { message, useContext }, { timeout: 60000 });
+  },
+  // AI 서버 상태 확인
+  checkStatus() {
+    return apiClient.get('/ai/status');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

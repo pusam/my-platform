@@ -78,7 +78,12 @@ silver:
     key: ${SILVER_API_KEY}
     gram-per-don: 3.75
 
-# 6. Swagger
+# 6. Ollama AI 설정
+ollama:
+  url: ${OLLAMA_URL:http://localhost:11434}
+  model: ${OLLAMA_MODEL:gemma2:2b}
+
+# 7. Swagger
 springdoc:
   api-docs:
     path: /v3/api-docs
