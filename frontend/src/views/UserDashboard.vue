@@ -181,7 +181,7 @@
       </section>
 
       <!-- 오늘의 경제 뉴스 -->
-      <section class="news-section" v-if="newsList.length > 0">
+      <section class="news-section">
         <div class="news-header">
           <div class="news-title">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -190,9 +190,19 @@
             </svg>
             <h3>오늘의 경제 뉴스</h3>
           </div>
-          <span class="news-badge">AI 요약</span>
+          <div class="news-actions">
+            <span class="news-badge">AI 요약</span>
+            <button v-if="newsList.length === 0" @click="fetchNews" :disabled="fetchingNews" class="btn-fetch-news">
+              <svg v-if="!fetchingNews" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M23 4v6h-6M1 20v-6h6"/>
+                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+              </svg>
+              <span v-if="fetchingNews" class="loading-spinner"></span>
+              {{ fetchingNews ? '수집 중...' : '뉴스 가져오기' }}
+            </button>
+          </div>
         </div>
-        <div class="news-list">
+        <div v-if="newsList.length > 0" class="news-list">
           <article v-for="news in newsList" :key="news.id" class="news-item" @click="openNewsUrl(news.sourceUrl)">
             <div class="news-content">
               <h4>{{ news.title }}</h4>
@@ -208,6 +218,11 @@
               </svg>
             </div>
           </article>
+        </div>
+        <div v-else class="news-empty">
+          <div class="empty-icon">📰</div>
+          <p>아직 수집된 뉴스가 없습니다.</p>
+          <small>매일 아침 8시에 자동으로 수집되거나, 위 버튼을 눌러 수동으로 가져올 수 있습니다.</small>
         </div>
       </section>
 
@@ -247,7 +262,8 @@ export default {
   data() {
     return {
       username: '',
-      newsList: []
+      newsList: [],
+      fetchingNews: false
     }
   },
   mounted() {
@@ -283,6 +299,18 @@ export default {
       if (diffHours < 1) return '방금 전'
       if (diffHours < 24) return `${diffHours}시간 전`
       return date.toLocaleDateString('ko-KR')
+    },
+    async fetchNews() {
+      this.fetchingNews = true
+      try {
+        await newsAPI.fetchNews()
+        await this.loadNews()
+      } catch (error) {
+        console.error('뉴스 수집 실패:', error)
+        alert('뉴스 수집에 실패했습니다. AI 서버(Ollama)가 실행 중인지 확인해주세요.')
+      } finally {
+        this.fetchingNews = false
+      }
     },
     goToBoard() {
       this.$router.push('/board')
@@ -667,6 +695,72 @@ export default {
 
 .news-item:hover .news-arrow {
   color: var(--primary-start);
+}
+
+.news-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-fetch-news {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-fetch-news:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.btn-fetch-news:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.news-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+
+.news-empty .empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.news-empty p {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.news-empty small {
+  font-size: 13px;
+  color: #adb5bd;
 }
 
 /* AI 상담 배너 */
