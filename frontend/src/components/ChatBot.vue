@@ -302,7 +302,10 @@ const updateQuickReplies = (lastMessage) => {
 
 onMounted(() => {
   checkLoginStatus();
-  checkAiStatus();
+  // 로그인 상태에서만 AI 상태 확인 (401 무한 루프 방지)
+  if (isLoggedIn.value) {
+    checkAiStatus();
+  }
   window.addEventListener('storage', handleStorageChange);
   window.addEventListener('open-chatbot', handleOpenChatbot);
 });
