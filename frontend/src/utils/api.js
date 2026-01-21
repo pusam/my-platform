@@ -24,16 +24,20 @@ apiClient.interceptors.request.use(
   }
 );
 
+// 401 리다이렉트 중복 방지 플래그
+let isRedirecting = false;
+
 // 응답 인터셉터 - 401 에러 시 로그아웃 처리
 apiClient.interceptors.response.use(
   (response) => {
     return response;
   },
   (error) => {
-    if (error.response && error.response.status === 401) {
+    if (error.response && error.response.status === 401 && !isRedirecting) {
       // 토큰이 만료되었거나 유효하지 않은 경우
+      isRedirecting = true;
       UserManager.logout();
-      window.location.href = '/';
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }

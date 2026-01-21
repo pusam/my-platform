@@ -141,25 +141,42 @@ router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('jwt_token')
   const role = localStorage.getItem('role')
 
+  // 인증이 필요한 페이지인데 토큰이 없는 경우
   if (to.meta.requiresAuth && !token) {
     next('/login')
-  } else if (to.path === '/login' && token) {
-    // 로그인된 상태에서 로그인 페이지 접근 시 역할별 대시보드로 이동
+    return
+  }
+
+  // 로그인된 상태에서 로그인 페이지 접근 시 역할별 대시보드로 이동
+  if (to.path === '/login' && token) {
     if (role === 'ADMIN') {
       next('/admin')
     } else {
       next('/user')
     }
-  } else if (to.meta.role && to.meta.role !== role) {
+    return
+  }
+
+  // 특정 역할이 필요한 페이지 접근 시 권한 체크
+  if (to.meta.role && role && to.meta.role !== role) {
     // 권한이 없는 페이지 접근 시 자신의 대시보드로 이동
     if (role === 'ADMIN') {
       next('/admin')
     } else {
       next('/user')
     }
-  } else {
-    next()
+    return
   }
+
+  // role이 필요한데 role이 없는 경우 (비정상 상태) - 로그인 페이지로
+  if (to.meta.role && !role) {
+    localStorage.removeItem('jwt_token')
+    localStorage.removeItem('role')
+    next('/login')
+    return
+  }
+
+  next()
 })
 
 const app = createApp(App)

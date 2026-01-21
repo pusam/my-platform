@@ -49,6 +49,7 @@ export const UserManager = {
   logout() {
     TokenManager.removeToken();
     this.removeUser();
+    localStorage.removeItem('role');
   }
 };
 
