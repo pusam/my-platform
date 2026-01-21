@@ -263,9 +263,9 @@ export const stockAPI = {
 
 // Sector Trading API
 export const sectorAPI = {
-  // 섹터별 거래대금 조회
-  getSectorTrading() {
-    return apiClient.get('/sector/trading');
+  // 섹터별 거래대금 조회 (period: TODAY, MIN_5, MIN_30)
+  getSectorTrading(period = 'TODAY') {
+    return apiClient.get('/sector/trading', { params: { period } });
   },
   // 특정 섹터 상세 조회
   getSectorDetail(sectorCode) {

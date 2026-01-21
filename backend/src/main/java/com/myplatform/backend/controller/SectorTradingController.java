@@ -24,11 +24,13 @@ public class SectorTradingController {
         this.sectorTradingService = sectorTradingService;
     }
 
-    @Operation(summary = "전체 섹터 거래대금 조회", description = "모든 섹터의 거래대금을 조회합니다.")
+    @Operation(summary = "전체 섹터 거래대금 조회", description = "모든 섹터의 거래대금을 조회합니다. period 파라미터: TODAY(오늘누적), MIN_5(5분파워), MIN_30(30분파워)")
     @GetMapping("/trading")
-    public ResponseEntity<ApiResponse<List<SectorTradingDto>>> getAllSectorTrading() {
+    public ResponseEntity<ApiResponse<List<SectorTradingDto>>> getAllSectorTrading(
+            @Parameter(description = "조회 기간 (TODAY: 오늘누적, MIN_5: 5분파워, MIN_30: 30분파워)")
+            @RequestParam(value = "period", defaultValue = "TODAY") String period) {
         try {
-            List<SectorTradingDto> results = sectorTradingService.getAllSectorTrading();
+            List<SectorTradingDto> results = sectorTradingService.getAllSectorTradingByPeriod(period);
             return ResponseEntity.ok(ApiResponse.success("섹터별 거래대금 조회 성공", results));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("섹터별 거래대금 조회 실패: " + e.getMessage()));

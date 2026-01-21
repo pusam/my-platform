@@ -27,6 +27,19 @@
         <span>오늘의 테마/섹터별 누적 거래대금을 확인하세요. 데이터는 5분마다 자동 갱신됩니다.</span>
       </div>
 
+      <!-- 기간 선택 탭 -->
+      <div class="period-tabs">
+        <button
+          v-for="tab in periodTabs"
+          :key="tab.value"
+          :class="['period-tab', { active: selectedPeriod === tab.value }]"
+          @click="changePeriod(tab.value)"
+        >
+          <span class="tab-icon">{{ tab.icon }}</span>
+          <span class="tab-label">{{ tab.label }}</span>
+        </button>
+      </div>
+
       <!-- 로딩 상태 -->
       <LoadingSpinner v-if="loading && !sectors.length" message="섹터별 거래대금을 불러오는 중..." />
 
@@ -50,15 +63,20 @@
                 <span class="stock-count">{{ sector.stockCount }}종목</span>
               </div>
             </div>
-            <div class="sector-value">
-              <span class="trading-value">{{ formatTradingValue(sector.totalTradingValue) }}</span>
-              <span class="percentage" :style="{ color: sector.color }">{{ sector.percentage?.toFixed(1) || 0 }}%</span>
+            <div class="sector-badge" :style="{ background: sector.color + '20', color: sector.color }">
+              전체 대비 {{ sector.percentage?.toFixed(1) || 0 }}%
             </div>
           </div>
 
-          <!-- 프로그레스바 -->
-          <div class="progress-container">
-            <div class="progress-bar" :style="{ width: sector.percentage + '%', background: sector.color }"></div>
+          <!-- 섹터 총 거래대금 강조 박스 -->
+          <div class="sector-total-box" :style="{ borderColor: sector.color + '40', background: sector.color + '08' }">
+            <div class="total-info">
+              <span class="total-label">{{ sector.sectorName }} 거래대금</span>
+              <span class="total-value" :style="{ color: sector.color }">{{ formatTradingValue(sector.totalTradingValue) }}</span>
+            </div>
+            <div class="total-chart">
+              <div class="mini-bar" :style="{ width: sector.percentage + '%', background: sector.color }"></div>
+            </div>
           </div>
 
           <!-- 확장 시 상위 종목 표시 -->
@@ -115,7 +133,15 @@ const sectors = ref([]);
 const loading = ref(false);
 const expandedSector = ref(null);
 const lastUpdate = ref('-');
+const selectedPeriod = ref('TODAY');
 let refreshInterval = null;
+
+// 기간 선택 탭
+const periodTabs = [
+  { value: 'TODAY', label: '오늘누적', icon: '📊' },
+  { value: 'MIN_5', label: '5분파워', icon: '⚡' },
+  { value: 'MIN_30', label: '30분파워', icon: '🔥' }
+];
 
 const totalTradingValue = computed(() => {
   return sectors.value.reduce((sum, s) => {
@@ -127,7 +153,7 @@ const totalTradingValue = computed(() => {
 const loadData = async () => {
   try {
     loading.value = true;
-    const response = await sectorAPI.getSectorTrading();
+    const response = await sectorAPI.getSectorTrading(selectedPeriod.value);
     if (response.data.success) {
       sectors.value = response.data.data || [];
       lastUpdate.value = new Date().toLocaleTimeString('ko-KR');
@@ -137,6 +163,11 @@ const loadData = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+const changePeriod = async (period) => {
+  selectedPeriod.value = period;
+  await loadData();
 };
 
 const refreshData = async () => {
@@ -222,6 +253,51 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+/* 기간 선택 탭 */
+.period-tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 8px;
+  background: var(--background-secondary);
+  border-radius: 16px;
+  justify-content: center;
+}
+
+.period-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.period-tab:hover {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--text-primary);
+}
+
+.period-tab.active {
+  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  color: white;
+  box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
+}
+
+.tab-icon {
+  font-size: 18px;
+}
+
+.tab-label {
+  font-weight: 600;
+}
+
 /* 섹터 그리드 */
 .sector-grid {
   display: flex;
@@ -292,31 +368,51 @@ onUnmounted(() => {
   color: var(--text-muted);
 }
 
-.sector-value {
-  text-align: right;
-}
-
-.trading-value {
-  display: block;
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.percentage {
-  font-size: 14px;
+.sector-badge {
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
   font-weight: 600;
 }
 
-/* 프로그레스바 */
-.progress-container {
+/* 섹터 총 거래대금 강조 박스 */
+.sector-total-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px;
+  border-radius: 14px;
+  border: 2px solid;
+  margin-bottom: 16px;
+}
+
+.total-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.total-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.total-value {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+}
+
+.total-chart {
+  width: 120px;
   height: 8px;
   background: var(--border-light);
   border-radius: 4px;
   overflow: hidden;
 }
 
-.progress-bar {
+.mini-bar {
   height: 100%;
   border-radius: 4px;
   transition: width 0.5s ease;
@@ -470,12 +566,18 @@ onUnmounted(() => {
     gap: 12px;
   }
 
-  .sector-value {
-    text-align: left;
+  .sector-total-box {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
 
-  .trading-value {
-    font-size: 20px;
+  .total-value {
+    font-size: 24px;
+  }
+
+  .total-chart {
+    width: 100%;
   }
 
   .summary-bar {

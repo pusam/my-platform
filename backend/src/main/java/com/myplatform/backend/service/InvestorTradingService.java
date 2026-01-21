@@ -160,6 +160,13 @@ public class InvestorTradingService {
      * 수급 신호 분석
      */
     private void analyzeSignal(InvestorTradingDto dto) {
+        // API 미연결 시 처리
+        if (dto.getForeignNetBuy() == null && dto.getInstitutionNetBuy() == null) {
+            dto.setSignal("NEUTRAL");
+            dto.setSignalReason("API 연결 안됨 - 데이터를 가져올 수 없습니다");
+            return;
+        }
+
         BigDecimal foreign = dto.getForeignNetBuy() != null ? dto.getForeignNetBuy() : BigDecimal.ZERO;
         BigDecimal institution = dto.getInstitutionNetBuy() != null ? dto.getInstitutionNetBuy() : BigDecimal.ZERO;
         BigDecimal program = dto.getProgramNetBuy() != null ? dto.getProgramNetBuy() : BigDecimal.ZERO;

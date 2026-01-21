@@ -365,4 +365,57 @@ public class StockPriceService {
     public String getCurrentApiSource() {
         return kisService.isConfigured() ? "한국투자증권 (실시간)" : "네이버 증권 (15분 지연)";
     }
+
+    /**
+     * 특정 기간 동안의 거래대금 조회
+     * @param stockCode 종목코드
+     * @param minutes 조회 기간 (분) - 5, 30 등
+     * @return 해당 기간 거래대금 (null이면 데이터 없음)
+     */
+    public BigDecimal getTradingValueForMinutes(String stockCode, int minutes) {
+        if (!kisService.isConfigured()) {
+            return null; // 분봉 데이터는 한투 API만 지원
+        }
+
+        try {
+            JsonNode response = kisService.getStockMinuteChart(stockCode);
+            if (response == null) {
+                return null;
+            }
+
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                return null;
+            }
+
+            JsonNode output2 = response.get("output2");
+            if (output2 == null || !output2.isArray()) {
+                return null;
+            }
+
+            BigDecimal totalTradingValue = BigDecimal.ZERO;
+            int count = 0;
+            int maxCount = minutes; // 1분봉 기준으로 minutes개 수집
+
+            // output2는 최신 데이터가 먼저 옴
+            for (JsonNode item : output2) {
+                if (count >= maxCount) break;
+
+                BigDecimal price = getBigDecimalValue(item, "stck_prpr"); // 현재가
+                BigDecimal volume = getBigDecimalValue(item, "cntg_vol"); // 체결거래량
+
+                if (price != null && volume != null) {
+                    BigDecimal tradingValue = price.multiply(volume);
+                    totalTradingValue = totalTradingValue.add(tradingValue);
+                }
+                count++;
+            }
+
+            return totalTradingValue;
+
+        } catch (Exception e) {
+            log.error("분봉 거래대금 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
 }
