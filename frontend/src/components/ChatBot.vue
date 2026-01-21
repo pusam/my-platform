@@ -58,7 +58,7 @@
             :class="msg.sender"
           >
             <div class="message-bubble">
-              <p v-html="formatMessage(msg.text)"></p>
+              <p class="message-text">{{ msg.text }}</p>
               <span class="message-time">{{ msg.time }}</span>
             </div>
           </div>
@@ -130,10 +130,6 @@ const getCurrentTime = () => {
   return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 };
 
-const formatMessage = (text) => {
-  // 줄바꿈을 <br>로 변환
-  return text.replace(/\n/g, '<br>');
-};
 
 const scrollToBottom = async () => {
   await nextTick();
