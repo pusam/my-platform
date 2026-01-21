@@ -83,6 +83,14 @@ ollama:
   url: ${OLLAMA_URL:http://localhost:11434}
   model: ${OLLAMA_MODEL:gemma2:2b}
 
+# 7. 한국투자증권 API 설정
+kis:
+  api:
+    app-key: ${KIS_APP_KEY:}
+    app-secret: ${KIS_APP_SECRET:}
+    base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+    # 모의투자: https://openapivts.koreainvestment.com:29443
+
 # 7. Swagger
 springdoc:
   api-docs:

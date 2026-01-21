@@ -184,6 +184,57 @@
             </svg>
           </span>
         </article>
+
+        <article class="menu-card sector" @click="goToSector">
+          <div class="card-icon sector-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
+              <polyline points="16,7 22,7 22,13"/>
+            </svg>
+          </div>
+          <h3>섹터별 거래대금</h3>
+          <p>반도체, 2차전지, 로봇 등 섹터별 거래대금을 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article class="menu-card investor" @click="goToInvestor">
+          <div class="card-icon investor-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+              <path d="M16 3.13a4 4 0 010 7.75"/>
+            </svg>
+          </div>
+          <h3>수급 탐지기</h3>
+          <p>외국인/기관/프로그램 순매수를 추적하고 매수 신호를 포착합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article class="menu-card chart" @click="goToChart">
+          <div class="card-icon chart-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 3v18h18"/>
+              <path d="M7 16l4-4 4 4 6-6"/>
+              <path d="M17 10h4v4"/>
+            </svg>
+          </div>
+          <h3>지수 vs 종목 비교</h3>
+          <p>코스닥/코스피 지수와 내 종목을 오버레이하여 상대강도를 분석합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
       </section>
 
       <!-- 오늘의 경제 뉴스 -->
@@ -431,6 +482,15 @@ export default {
     goToCar() {
       this.$router.push('/car')
     },
+    goToSector() {
+      this.$router.push('/sector')
+    },
+    goToInvestor() {
+      this.$router.push('/investor')
+    },
+    goToChart() {
+      this.$router.push('/chart')
+    },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
       window.dispatchEvent(new CustomEvent('open-chatbot'))
@@ -599,6 +659,16 @@ export default {
   color: #34495e;
 }
 
+.card-icon.sector-icon {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+  color: #4F46E5;
+}
+
+.card-icon.investor-icon {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
+  color: #10B981;
+}
+
 .menu-card.car {
   background: linear-gradient(135deg, rgba(245, 247, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
   border: 2px solid rgba(52, 73, 94, 0.2);
@@ -613,6 +683,52 @@ export default {
   color: #2c3e50;
 }
 
+.menu-card.sector {
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(79, 70, 229, 0.2);
+}
+
+.menu-card.sector:hover {
+  border-color: #4F46E5;
+  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+}
+
+.menu-card.sector h3 {
+  color: #4F46E5;
+}
+
+.menu-card.investor {
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(16, 185, 129, 0.2);
+}
+
+.menu-card.investor:hover {
+  border-color: #10B981;
+  box-shadow: 0 20px 40px rgba(16, 185, 129, 0.15);
+}
+
+.menu-card.investor h3 {
+  color: #059669;
+}
+
+.card-icon.chart-icon {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%);
+  color: #F59E0B;
+}
+
+.menu-card.chart {
+  background: linear-gradient(135deg, rgba(254, 252, 232, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(245, 158, 11, 0.2);
+}
+
+.menu-card.chart:hover {
+  border-color: #F59E0B;
+  box-shadow: 0 20px 40px rgba(245, 158, 11, 0.15);
+}
+
+.menu-card.chart h3 {
+  color: #D97706;
+}
 
 .menu-card h3 {
   font-size: 20px;

@@ -261,6 +261,54 @@ export const stockAPI = {
   }
 };
 
+// Sector Trading API
+export const sectorAPI = {
+  // 섹터별 거래대금 조회
+  getSectorTrading() {
+    return apiClient.get('/sector/trading');
+  },
+  // 특정 섹터 상세 조회
+  getSectorDetail(sectorCode) {
+    return apiClient.get(`/sector/trading/${sectorCode}`);
+  },
+  // 캐시 새로고침
+  refreshSectorTrading() {
+    return apiClient.post('/sector/trading/refresh');
+  }
+};
+
+// Investor Trading API (수급 탐지기)
+export const investorAPI = {
+  // 종목별 투자자 동향 조회
+  getInvestorTrading(stockCode) {
+    return apiClient.get(`/investor/${stockCode}`);
+  },
+  // 주요 종목 수급 현황
+  getTopStocks() {
+    return apiClient.get('/investor/top');
+  },
+  // 관심 종목 수급 조회
+  getWatchlist(stockCodes) {
+    return apiClient.post('/investor/watchlist', stockCodes);
+  }
+};
+
+// Chart Compare API (지수 vs 종목 비교)
+export const chartAPI = {
+  // 지수 vs 종목 비교 차트
+  getCompareChart(stockCode, indexCode = '1001') {
+    return apiClient.get(`/chart/compare/${stockCode}`, { params: { indexCode } });
+  },
+  // 코스피 비교
+  getKospiCompare(stockCode) {
+    return apiClient.get(`/chart/compare/${stockCode}/kospi`);
+  },
+  // 코스닥 비교
+  getKosdaqCompare(stockCode) {
+    return apiClient.get(`/chart/compare/${stockCode}/kosdaq`);
+  }
+};
+
 // AI Chat API
 export const aiAPI = {
   // AI 채팅 (타임아웃 60초로 설정 - AI 응답이 느릴 수 있음)

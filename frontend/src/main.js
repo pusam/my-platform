@@ -18,6 +18,9 @@ import FinanceManagement from './views/FinanceManagement.vue'
 import CarManagement from './views/CarManagement.vue'
 import UserManagement from './views/UserManagement.vue'
 import ActivityLogs from './views/ActivityLogs.vue'
+import SectorTradingPage from './views/SectorTradingPage.vue'
+import InvestorTradingPage from './views/InvestorTradingPage.vue'
+import ChartComparePage from './views/ChartComparePage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -119,6 +122,24 @@ const router = createRouter({
       path: '/car',
       name: 'CarManagement',
       component: CarManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/sector',
+      name: 'SectorTrading',
+      component: SectorTradingPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/investor',
+      name: 'InvestorTrading',
+      component: InvestorTradingPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/chart',
+      name: 'ChartCompare',
+      component: ChartComparePage,
       meta: { requiresAuth: true }
     },
     {

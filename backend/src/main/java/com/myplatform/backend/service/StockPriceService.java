@@ -26,7 +26,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 주식 시세 조회 서비스
- * 네이버 증권 API 사용 (공개 API, 무료, 키 불필요, 15분 지연)
+ * - 한국투자증권 API 우선 사용 (실시간)
+ * - API 키 미설정 시 네이버 증권 API 폴백 (15분 지연)
  */
 @Service
 @Transactional
@@ -34,45 +35,51 @@ public class StockPriceService {
 
     private static final Logger log = LoggerFactory.getLogger(StockPriceService.class);
 
-    // 네이버 증권 API (모바일 API 사용)
+    // 네이버 증권 API (폴백용)
     private static final String NAVER_STOCK_API = "https://m.stock.naver.com/api/stock/%s/basic";
     private static final String NAVER_SEARCH_API = "https://m.stock.naver.com/front-api/search/autoComplete?query=%s&target=stock";
 
     private final RestTemplate restTemplate;
     private final StockPriceRepository stockPriceRepository;
     private final ObjectMapper objectMapper;
+    private final KoreaInvestmentService kisService;
 
     // 캐시 (종목코드 -> 시세)
     private final ConcurrentHashMap<String, StockPriceDto> priceCache = new ConcurrentHashMap<>();
 
-    public StockPriceService(RestTemplate restTemplate, StockPriceRepository stockPriceRepository, ObjectMapper objectMapper) {
+    public StockPriceService(RestTemplate restTemplate,
+                             StockPriceRepository stockPriceRepository,
+                             ObjectMapper objectMapper,
+                             KoreaInvestmentService kisService) {
         this.restTemplate = restTemplate;
         this.stockPriceRepository = stockPriceRepository;
         this.objectMapper = objectMapper;
+        this.kisService = kisService;
     }
 
     /**
      * 종목코드로 주식 시세 조회
      */
     public StockPriceDto getStockPrice(String stockCode) {
-        // 캐시 확인
+        // 캐시 확인 (한투 API는 1분, 네이버는 10분)
         StockPriceDto cached = priceCache.get(stockCode);
-        if (cached != null && isValidCache(cached)) {
+        int cacheMinutes = kisService.isConfigured() ? 1 : 10;
+        if (cached != null && isValidCache(cached, cacheMinutes)) {
             return cached;
         }
 
-        // DB에서 최근 데이터 조회 (최근 10분 이내)
+        // DB에서 최근 데이터 조회
         Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode);
         if (dbPrice.isPresent()) {
             StockPriceDto dto = entityToDto(dbPrice.get());
-            if (isValidCache(dto)) {
+            if (isValidCache(dto, cacheMinutes)) {
                 priceCache.put(stockCode, dto);
                 return dto;
             }
         }
 
-        // 네이버 증권 API에서 조회
-        StockPriceDto fetched = fetchFromNaver(stockCode);
+        // API에서 조회
+        StockPriceDto fetched = fetchStockPrice(stockCode);
         if (fetched != null) {
             // DB 저장
             stockPriceRepository.save(dtoToEntity(fetched));
@@ -83,7 +90,69 @@ public class StockPriceService {
     }
 
     /**
+     * API에서 주식 시세 조회 (한투 우선, 네이버 폴백)
+     */
+    private StockPriceDto fetchStockPrice(String stockCode) {
+        // 한국투자증권 API 우선 사용
+        if (kisService.isConfigured()) {
+            StockPriceDto kisPrice = fetchFromKoreaInvestment(stockCode);
+            if (kisPrice != null) {
+                return kisPrice;
+            }
+            log.warn("한국투자증권 API 조회 실패, 네이버로 폴백: {}", stockCode);
+        }
+
+        // 네이버 증권 API 폴백
+        return fetchFromNaver(stockCode);
+    }
+
+    /**
+     * 한국투자증권 API에서 시세 조회
+     */
+    private StockPriceDto fetchFromKoreaInvestment(String stockCode) {
+        try {
+            JsonNode response = kisService.getStockPrice(stockCode);
+            if (response == null) {
+                return null;
+            }
+
+            // 응답 코드 확인
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                String msg = response.has("msg1") ? response.get("msg1").asText() : "Unknown error";
+                log.warn("한투 API 응답 오류: {} - {}", rtCd, msg);
+                return null;
+            }
+
+            JsonNode output = response.get("output");
+            if (output == null) {
+                return null;
+            }
+
+            StockPriceDto dto = new StockPriceDto();
+            dto.setStockCode(stockCode);
+            dto.setStockName(getTextValue(output, "hts_kor_isnm")); // 종목명
+            dto.setCurrentPrice(getBigDecimalValue(output, "stck_prpr")); // 현재가
+            dto.setOpenPrice(getBigDecimalValue(output, "stck_oprc")); // 시가
+            dto.setHighPrice(getBigDecimalValue(output, "stck_hgpr")); // 고가
+            dto.setLowPrice(getBigDecimalValue(output, "stck_lwpr")); // 저가
+            dto.setChangeRate(getBigDecimalValue(output, "prdy_ctrt")); // 전일대비율
+            dto.setVolume(getBigDecimalValue(output, "acml_vol")); // 누적거래량
+            dto.setFetchedAt(LocalDateTime.now());
+            dto.setDataSource("KIS"); // 데이터 출처
+
+            log.debug("한투 API 시세 조회 성공: {} - {}원", dto.getStockName(), dto.getCurrentPrice());
+            return dto;
+
+        } catch (Exception e) {
+            log.error("한투 API 시세 파싱 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 종목 검색 (종목명 또는 종목코드로 검색)
+     * - 한투 API는 종목 검색 API가 별도로 없어서 네이버 사용
      */
     public List<StockPriceDto> searchStocks(String keyword) {
         List<StockPriceDto> results = new ArrayList<>();
@@ -106,14 +175,11 @@ public class StockPriceService {
 
             if (responseBody != null) {
                 JsonNode root = objectMapper.readTree(responseBody);
-
-                // 새로운 API 응답 형식: { "isSuccess": true, "result": { "items": [...] } }
                 JsonNode resultNode = root.get("result");
                 JsonNode items = resultNode != null ? resultNode.get("items") : null;
 
                 if (items != null && items.isArray()) {
                     for (JsonNode item : items) {
-                        // 새로운 API 형식: { "code": "005930", "name": "삼성전자", ... }
                         String stockCode = item.has("code") ? item.get("code").asText() : null;
                         String stockName = item.has("name") ? item.get("name").asText() : null;
 
@@ -129,10 +195,11 @@ public class StockPriceService {
                             // 상위 10개 종목만 현재가 조회 (성능 고려)
                             if (results.size() < 10) {
                                 try {
-                                    StockPriceDto priceInfo = fetchFromNaver(stockCode);
+                                    StockPriceDto priceInfo = fetchStockPrice(stockCode);
                                     if (priceInfo != null) {
                                         dto.setCurrentPrice(priceInfo.getCurrentPrice());
                                         dto.setChangeRate(priceInfo.getChangeRate());
+                                        dto.setDataSource(priceInfo.getDataSource());
                                     }
                                 } catch (Exception e) {
                                     log.warn("검색 중 시세 조회 실패: {}", stockCode);
@@ -152,14 +219,13 @@ public class StockPriceService {
 
         } catch (Exception e) {
             log.error("종목 검색 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
-            // 에러 발생 시 빈 목록 반환 (500 에러 방지)
         }
 
         return results;
     }
 
     /**
-     * 네이버 증권 API에서 개별 종목 시세 조회
+     * 네이버 증권 API에서 개별 종목 시세 조회 (폴백)
      */
     private StockPriceDto fetchFromNaver(String stockCode) {
         try {
@@ -186,8 +252,7 @@ public class StockPriceService {
     }
 
     /**
-     * 네이버 금융 API 응답 파싱 (상세 정보)
-     * 모바일 API 응답 형식: closePrice = "140,300" (콤마 포함)
+     * 네이버 금융 API 응답 파싱
      */
     private StockPriceDto parseNaverStockDetail(JsonNode root, String stockCode) {
         try {
@@ -204,6 +269,7 @@ public class StockPriceService {
                     ? BigDecimal.valueOf(root.get("accumulatedTradingVolume").asLong())
                     : BigDecimal.ZERO);
             dto.setFetchedAt(LocalDateTime.now());
+            dto.setDataSource("NAVER"); // 데이터 출처
 
             return dto;
         } catch (Exception e) {
@@ -228,13 +294,35 @@ public class StockPriceService {
     }
 
     /**
-     * 캐시 유효성 확인 (10분)
+     * JsonNode에서 문자열 값 추출
      */
-    private boolean isValidCache(StockPriceDto dto) {
+    private String getTextValue(JsonNode node, String field) {
+        return node.has(field) ? node.get(field).asText() : "";
+    }
+
+    /**
+     * JsonNode에서 BigDecimal 값 추출
+     */
+    private BigDecimal getBigDecimalValue(JsonNode node, String field) {
+        if (!node.has(field)) {
+            return BigDecimal.ZERO;
+        }
+        String value = node.get(field).asText().replace(",", "");
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * 캐시 유효성 확인
+     */
+    private boolean isValidCache(StockPriceDto dto, int minutes) {
         if (dto == null || dto.getFetchedAt() == null) {
             return false;
         }
-        return dto.getFetchedAt().isAfter(LocalDateTime.now().minusMinutes(10));
+        return dto.getFetchedAt().isAfter(LocalDateTime.now().minusMinutes(minutes));
     }
 
     /**
@@ -269,5 +357,12 @@ public class StockPriceService {
         entity.setVolume(dto.getVolume());
         entity.setFetchedAt(dto.getFetchedAt());
         return entity;
+    }
+
+    /**
+     * 현재 사용 중인 API 소스 확인
+     */
+    public String getCurrentApiSource() {
+        return kisService.isConfigured() ? "한국투자증권 (실시간)" : "네이버 증권 (15분 지연)";
     }
 }
