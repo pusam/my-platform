@@ -107,8 +107,14 @@
             </div>
           </div>
 
+          <!-- API 연결 안됨 -->
+          <div v-if="stock.foreignNetBuy == null && stock.institutionNetBuy == null" class="api-error-msg">
+            <span class="error-icon">🔌</span>
+            <span>API 연결 안됨</span>
+          </div>
+
           <!-- 수급 바 차트 -->
-          <div class="supply-bars">
+          <div v-else class="supply-bars">
             <div class="bar-row">
               <span class="bar-label">외국인</span>
               <div class="bar-container">
@@ -151,10 +157,10 @@
           </div>
 
           <!-- 신호 -->
-          <div v-if="stock.signal !== 'NEUTRAL'" class="signal-badge" :class="stock.signal.toLowerCase().replace('_', '-')">
+          <div v-if="stock.signal && stock.signal !== 'NEUTRAL'" class="signal-badge" :class="stock.signal.toLowerCase().replace('_', '-')">
             {{ stock.signal === 'BUY_SIGNAL' ? '🚀 매수 신호' : '⚠️ 매도 신호' }}
           </div>
-          <div class="signal-reason">{{ stock.signalReason }}</div>
+          <div v-if="stock.signalReason" class="signal-reason">{{ stock.signalReason }}</div>
 
           <!-- 삭제 버튼 -->
           <button class="btn-remove" @click.stop="removeFromWatchlist(stock.stockCode)">
@@ -787,6 +793,25 @@ watch(selectedStock, () => {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;
+}
+
+/* API 연결 안됨 메시지 */
+.api-error-msg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  background: rgba(239, 68, 68, 0.05);
+  border: 1px dashed rgba(239, 68, 68, 0.3);
+  border-radius: 12px;
+  color: #EF4444;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.api-error-msg .error-icon {
+  font-size: 20px;
 }
 
 /* 삭제 버튼 */

@@ -73,8 +73,20 @@
       <!-- 로딩 -->
       <LoadingSpinner v-if="loading" message="차트 데이터를 불러오는 중..." />
 
+      <!-- API 연결 안됨 -->
+      <div v-if="chartData && !loading && (!chartData.chartData || chartData.chartData.length === 0)" class="no-data-card">
+        <div class="no-data-icon">🔌</div>
+        <h3>API 연결 안됨</h3>
+        <p>한국투자증권 API에 연결할 수 없습니다.</p>
+        <ul>
+          <li>application.yml에 API 키가 설정되어 있는지 확인하세요</li>
+          <li>장 운영 시간(09:00~15:30)에만 분봉 데이터가 제공됩니다</li>
+          <li>API 호출 한도를 초과했을 수 있습니다</li>
+        </ul>
+      </div>
+
       <!-- 메인 차트 영역 -->
-      <div v-if="chartData && !loading" class="chart-section">
+      <div v-if="chartData && !loading && chartData.chartData && chartData.chartData.length > 0" class="chart-section">
         <!-- 분석 결과 카드 -->
         <div class="analysis-card" :class="chartData.analysis?.toLowerCase()">
           <div class="analysis-header">
@@ -695,6 +707,44 @@ watch([selectedStock, selectedIndex], () => {
   margin: 0 0 16px 0;
   font-size: 14px;
   color: var(--text-muted);
+}
+
+/* API 연결 안됨 */
+.no-data-card {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, rgba(255, 255, 255, 1) 100%);
+  border: 2px solid rgba(239, 68, 68, 0.2);
+  border-radius: 16px;
+  padding: 40px;
+  text-align: center;
+}
+
+.no-data-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+}
+
+.no-data-card h3 {
+  font-size: 24px;
+  color: #EF4444;
+  margin: 0 0 12px 0;
+}
+
+.no-data-card p {
+  color: var(--text-secondary);
+  margin: 0 0 20px 0;
+}
+
+.no-data-card ul {
+  text-align: left;
+  max-width: 400px;
+  margin: 0 auto;
+  padding-left: 20px;
+}
+
+.no-data-card li {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 /* 빈 상태 */

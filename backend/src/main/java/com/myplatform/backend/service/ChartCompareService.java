@@ -11,7 +11,11 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -32,9 +36,9 @@ public class ChartCompareService {
     private final StockPriceService stockPriceService;
     private final RealTimeDataCache dataCache;
 
-    // 분봉 캐시 (2분간 유효)
+    // 분봉 캐시 (5분간 유효 - API 호출 빈도 제한)
     private final Map<String, CachedMinuteData> minuteCache = new ConcurrentHashMap<>();
-    private static final long CACHE_DURATION_MS = 2 * 60 * 1000;
+    private static final long CACHE_DURATION_MS = 5 * 60 * 1000;
 
     private static class CachedMinuteData {
         List<MinuteData> data;
@@ -162,11 +166,7 @@ public class ChartCompareService {
             }
         }
 
-        // API 실패 시 더미 데이터
-        if (result.isEmpty()) {
-            result = generateDummyMinuteData();
-        }
-
+        // API 미설정 또는 실패 시 빈 리스트 반환
         return result;
     }
 
@@ -231,11 +231,7 @@ public class ChartCompareService {
             }
         }
 
-        // API 실패 시 더미 데이터
-        if (result.isEmpty()) {
-            result = generateDummyMinuteData();
-        }
-
+        // API 미설정 또는 실패 시 빈 리스트 반환
         return result;
     }
 
@@ -323,40 +319,6 @@ public class ChartCompareService {
                 dto.setAnalysisReason("지수와 유사한 흐름");
             }
         }
-    }
-
-    /**
-     * 더미 분봉 데이터 생성 (API 미설정 시)
-     */
-    private List<MinuteData> generateDummyMinuteData() {
-        List<MinuteData> result = new ArrayList<>();
-        Random random = new Random();
-
-        // 09:00 ~ 현재 시간까지 분봉 생성
-        int minutes = 0;
-        BigDecimal cumRate = BigDecimal.ZERO;
-
-        for (int h = 9; h <= 15; h++) {
-            int maxMin = (h == 15) ? 30 : 60;
-            for (int m = 0; m < maxMin; m += 5) {
-                MinuteData md = new MinuteData();
-                md.time = String.format("%02d:%02d", h, m);
-
-                // 랜덤 등락
-                double change = (random.nextDouble() - 0.5) * 0.3;
-                cumRate = cumRate.add(BigDecimal.valueOf(change));
-                md.rate = cumRate.setScale(2, RoundingMode.HALF_UP);
-                md.price = BigDecimal.valueOf(50000).multiply(BigDecimal.ONE.add(cumRate.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)));
-
-                result.add(md);
-                minutes++;
-
-                if (minutes > 60) break; // 최대 60개
-            }
-            if (minutes > 60) break;
-        }
-
-        return result;
     }
 
     private String getTextValue(JsonNode node, String field) {

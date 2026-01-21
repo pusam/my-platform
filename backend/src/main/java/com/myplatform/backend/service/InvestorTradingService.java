@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -31,10 +33,10 @@ public class InvestorTradingService {
     // 관심종목별 시계열 데이터 캐시 (종목코드 -> 시간대별 데이터)
     private final Map<String, List<TimeSeriesData>> timeSeriesCache = new ConcurrentHashMap<>();
 
-    // 캐시 (1분)
+    // 캐시 (5분 - API 호출 빈도 제한)
     private final Map<String, InvestorTradingDto> cache = new ConcurrentHashMap<>();
     private final Map<String, Long> cacheTime = new ConcurrentHashMap<>();
-    private static final long CACHE_DURATION_MS = 60 * 1000;
+    private static final long CACHE_DURATION_MS = 5 * 60 * 1000;
 
     public InvestorTradingService(KoreaInvestmentService kisService, StockPriceService stockPriceService) {
         this.kisService = kisService;
@@ -67,10 +69,8 @@ public class InvestorTradingService {
         if (kisService.isConfigured()) {
             fetchInvestorData(stockCode, dto);
             fetchProgramData(stockCode, dto);
-        } else {
-            // API 미설정 시 더미 데이터
-            setDummyData(dto);
         }
+        // API 미설정 시 데이터 없음 상태로 유지
 
         // 3. 수급 신호 판단
         analyzeSignal(dto);
@@ -238,21 +238,6 @@ public class InvestorTradingService {
         while (series.size() > 60) {
             series.remove(0);
         }
-    }
-
-    /**
-     * API 미설정 시 더미 데이터
-     */
-    private void setDummyData(InvestorTradingDto dto) {
-        Random random = new Random();
-        dto.setForeignNetBuy(BigDecimal.valueOf(random.nextInt(100) - 50));
-        dto.setInstitutionNetBuy(BigDecimal.valueOf(random.nextInt(60) - 30));
-        dto.setIndividualNetBuy(BigDecimal.valueOf(random.nextInt(80) - 40));
-        dto.setProgramNetBuy(BigDecimal.valueOf(random.nextInt(40) - 20));
-        dto.setForeignNetVolume((long) (random.nextInt(1000000) - 500000));
-        dto.setInstitutionNetVolume((long) (random.nextInt(500000) - 250000));
-        dto.setIndividualNetVolume((long) (random.nextInt(800000) - 400000));
-        dto.setProgramNetVolume((long) (random.nextInt(300000) - 150000));
     }
 
     /**
