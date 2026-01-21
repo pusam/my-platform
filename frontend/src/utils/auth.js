@@ -32,6 +32,10 @@ export const UserManager = {
   // 사용자 정보 저장
   setUser(user) {
     localStorage.setItem('user_info', JSON.stringify(user));
+    // 역할 정보도 별도로 저장 (라우터 가드에서 빠른 접근)
+    if (user && user.role) {
+      localStorage.setItem('role', user.role);
+    }
   },
 
   // 사용자 정보 가져오기
@@ -40,9 +44,15 @@ export const UserManager = {
     return userStr ? JSON.parse(userStr) : null;
   },
 
+  // 역할 정보 가져오기
+  getRole() {
+    return localStorage.getItem('role');
+  },
+
   // 사용자 정보 삭제
   removeUser() {
     localStorage.removeItem('user_info');
+    localStorage.removeItem('role');
   },
 
   // 로그아웃 (토큰 및 사용자 정보 모두 삭제)

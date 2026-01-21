@@ -72,6 +72,10 @@ public class SecurityConfig {
                         // 비밀번호 재설정 API
                         .requestMatchers("/api/password/**").permitAll()
 
+                        // 금/은 시세 조회 API (공개)
+                        .requestMatchers("/api/gold/price", "/api/silver/price").permitAll()
+                        .requestMatchers("/api/gold/history/**", "/api/silver/history/**").permitAll()
+
                         // Actuator health check
                         .requestMatchers("/actuator/health/**").permitAll()
 

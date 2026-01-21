@@ -121,14 +121,12 @@ const handleLogin = async () => {
       // JWT 토큰 저장
       TokenManager.setToken(data.token)
 
-      // 사용자 정보 저장
+      // 사용자 정보 저장 (role 포함)
       UserManager.setUser({
         username: data.username,
-        name: data.name
+        name: data.name,
+        role: data.role
       })
-
-      // 역할 저장
-      localStorage.setItem('role', data.role)
 
       // 역할별 대시보드로 이동
       if (data.role === 'ADMIN') {

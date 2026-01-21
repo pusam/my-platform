@@ -87,38 +87,99 @@ jwt.secret=<매우_긴_무작위_JWT_비밀_키> # 보안을 위해 길고 복�
 ```
 > **⚠️ 중요**: `application-local.properties`와 같이 민감한 정보가 포함된 파일은 Git에 커밋해서는 안 됩니다. `.gitignore`에 반드시 추가하세요.
 
-### 4. 환경 변수 설정 (이메일 발송 기능)
+### 4. 환경 변수 설정
 
-비밀번호 찾기 기능을 사용하려면 Gmail SMTP 설정이 필요합니다.
+프로젝트에서는 다음과 같은 환경 변수가 필요합니다:
+
+#### 필수 환경 변수
+
+| 환경 변수 | 설명 | 예시 |
+|-----------|------|------|
+| `DB_URL` | 데이터베이스 접속 URL | `jdbc:mariadb://localhost:3306/myplatform` |
+| `DB_USERNAME` | 데이터베이스 사용자명 | `myplatform` |
+| `DB_PASSWORD` | 데이터베이스 비밀번호 | `your_db_password` |
+| `JWT_SECRET` | JWT 서명 비밀키 (최소 32자) | `your_very_long_secret_key_here_at_least_32_chars` |
+| `FILE_UPLOAD_DIR` | 파일 업로드 경로 | `C:/uploads` (Windows) 또는 `/var/uploads` (Linux) |
+| `MAIL_USERNAME` | Gmail SMTP 사용자명 | `yourname@gmail.com` |
+| `MAIL_PASSWORD` | Gmail 앱 비밀번호 (16자리) | `abcdefghijklmnop` |
+
+#### 선택 환경 변수 (API 기능 사용 시)
+
+| 환경 변수 | 설명 | 비고 |
+|-----------|------|------|
+| `GOLD_API_KEY` | GoldAPI.io API 키 | 금 시세 조회 기능 |
+| `SILVER_API_KEY` | GoldAPI.io API 키 | 은 시세 조회 기능 |
+| `KIS_APP_KEY` | 한국투자증권 API 앱키 | 주식 거래 기능 |
+| `KIS_APP_SECRET` | 한국투자증권 API 앱시크릿 | 주식 거래 기능 |
+| `KIS_BASE_URL` | 한국투자증권 API URL | 기본값: `https://openapi.koreainvestment.com:9443` |
+| `KIS_ACCOUNT_NUMBER` | 한국투자증권 계좌번호 | 주식 거래 기능 |
+| `KIS_ACCOUNT_PRODUCT_CODE` | 한국투자증권 상품코드 | 주식 거래 기능 |
+| `OLLAMA_URL` | Ollama AI 서버 URL | 기본값: `http://localhost:11434` |
+| `OLLAMA_MODEL` | Ollama 모델명 | 기본값: `gemma2:2b` |
 
 #### Gmail 앱 비밀번호 생성 방법:
 1. Google 계정 → 보안 → 2단계 인증 활성화
 2. 보안 → 앱 비밀번호 → "기타(맞춤 이름)" 선택
 3. 이름 입력 후 생성 → **16자리 비밀번호 복사** (띄어쓰기 제거)
 
-#### 환경 변수 설정:
+#### 한국투자증권 API 키 발급 방법:
+1. [한국투자증권 오픈API](https://apiportal.koreainvestment.com/) 접속
+2. 회원가입 및 로그인
+3. API 신청 → 앱 등록
+4. 발급된 `앱키(App Key)`와 `앱시크릿(App Secret)` 복사
 
-**Windows (PowerShell):**
+#### 환경 변수 설정 방법:
+
+**Windows (PowerShell - 임시):**
 ```powershell
+$env:DB_URL="jdbc:mariadb://localhost:3306/myplatform"
+$env:DB_USERNAME="myplatform"
+$env:DB_PASSWORD="your_password"
+$env:JWT_SECRET="your_very_long_secret_key_here_at_least_32_chars"
+$env:FILE_UPLOAD_DIR="C:/uploads"
 $env:MAIL_USERNAME="yourname@gmail.com"
-$env:MAIL_PASSWORD="abcdefghijklmnop"  # 16자리 앱 비밀번호 (띄어쓰기 없이)
+$env:MAIL_PASSWORD="abcdefghijklmnop"
+$env:GOLD_API_KEY="your_gold_api_key"
+$env:SILVER_API_KEY="your_silver_api_key"
+$env:KIS_APP_KEY="your_kis_app_key"
+$env:KIS_APP_SECRET="your_kis_app_secret"
+$env:KIS_ACCOUNT_NUMBER="12345678"
+$env:KIS_ACCOUNT_PRODUCT_CODE="01"
 ```
 
-**Windows (영구 설정):**
+**Windows (영구 설정 - 관리자 권한 필요):**
 ```powershell
-# 시스템 환경 변수 설정 (관리자 권한)
+[System.Environment]::SetEnvironmentVariable("DB_URL", "jdbc:mariadb://localhost:3306/myplatform", "User")
+[System.Environment]::SetEnvironmentVariable("DB_USERNAME", "myplatform", "User")
+[System.Environment]::SetEnvironmentVariable("DB_PASSWORD", "your_password", "User")
+[System.Environment]::SetEnvironmentVariable("JWT_SECRET", "your_very_long_secret_key", "User")
+[System.Environment]::SetEnvironmentVariable("FILE_UPLOAD_DIR", "C:/uploads", "User")
 [System.Environment]::SetEnvironmentVariable("MAIL_USERNAME", "yourname@gmail.com", "User")
 [System.Environment]::SetEnvironmentVariable("MAIL_PASSWORD", "abcdefghijklmnop", "User")
+[System.Environment]::SetEnvironmentVariable("GOLD_API_KEY", "your_gold_api_key", "User")
+[System.Environment]::SetEnvironmentVariable("SILVER_API_KEY", "your_silver_api_key", "User")
+[System.Environment]::SetEnvironmentVariable("KIS_APP_KEY", "your_kis_app_key", "User")
+[System.Environment]::SetEnvironmentVariable("KIS_APP_SECRET", "your_kis_app_secret", "User")
 ```
 
 **Linux/macOS:**
 ```bash
+export DB_URL="jdbc:mariadb://localhost:3306/myplatform"
+export DB_USERNAME="myplatform"
+export DB_PASSWORD="your_password"
+export JWT_SECRET="your_very_long_secret_key"
+export FILE_UPLOAD_DIR="/var/uploads"
 export MAIL_USERNAME="yourname@gmail.com"
 export MAIL_PASSWORD="abcdefghijklmnop"
+export GOLD_API_KEY="your_gold_api_key"
+export SILVER_API_KEY="your_silver_api_key"
+export KIS_APP_KEY="your_kis_app_key"
+export KIS_APP_SECRET="your_kis_app_secret"
 
 # 영구 설정 (~/.bashrc 또는 ~/.zshrc에 추가)
-echo 'export MAIL_USERNAME="yourname@gmail.com"' >> ~/.bashrc
-echo 'export MAIL_PASSWORD="abcdefghijklmnop"' >> ~/.bashrc
+echo 'export DB_URL="jdbc:mariadb://localhost:3306/myplatform"' >> ~/.bashrc
+echo 'export DB_USERNAME="myplatform"' >> ~/.bashrc
+# ... (나머지 변수들도 동일하게 추가)
 source ~/.bashrc
 ```
 
@@ -126,8 +187,13 @@ source ~/.bashrc
 1. Run → Edit Configurations
 2. Environment variables 입력:
    ```
-   MAIL_USERNAME=yourname@gmail.com;MAIL_PASSWORD=abcdefghijklmnop
+   DB_URL=jdbc:mariadb://localhost:3306/myplatform;DB_USERNAME=myplatform;DB_PASSWORD=your_password;JWT_SECRET=your_secret;FILE_UPLOAD_DIR=C:/uploads;MAIL_USERNAME=yourname@gmail.com;MAIL_PASSWORD=abcdefghijklmnop;GOLD_API_KEY=your_gold_api_key;SILVER_API_KEY=your_silver_api_key;KIS_APP_KEY=your_kis_app_key;KIS_APP_SECRET=your_kis_app_secret
    ```
+
+> **⚠️ 보안 주의사항:**
+> - 환경 변수에 설정한 값은 절대 Git에 커밋하지 마세요.
+> - 프로덕션 환경에서는 시스템 환경 변수나 비밀 관리 도구를 사용하세요.
+> - JWT_SECRET은 최소 32자 이상의 복잡한 문자열을 사용하세요.
 
 ### 5. 의존성 설치 및 실행
 

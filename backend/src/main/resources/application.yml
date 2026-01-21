@@ -2,10 +2,6 @@ spring:
   application:
     name: my-platform-backend
 
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
 
   # 1. DB 설정 (모두 변수로 처리 -> IntelliJ나 서버가 채워줌)
   datasource:
@@ -77,6 +73,13 @@ silver:
     url: https://www.goldapi.io/api/XAG/KRW
     key: ${SILVER_API_KEY}
     gram-per-don: 3.75
+
+# 한국투자증권 API 설정
+kis:
+  api:
+    app-key: ${KIS_APP_KEY}
+    app-secret: ${KIS_APP_SECRET}
+    base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
 
 # 6. Ollama AI 설정
 ollama:

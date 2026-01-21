@@ -95,7 +95,7 @@ public class SilverPriceService {
      */
     private void fetchAndCacheSilverPrice() {
         if (apiKey == null || apiKey.isBlank()) {
-            log.warn("은 시세 API 키가 설정되지 않았습니다. GOLD_API_KEY 환경변수를 설정하세요.");
+            log.warn("은 시세 API 키가 설정되지 않았습니다. SILVER_API_KEY 환경변수를 설정하세요.");
             return;
         }
 
