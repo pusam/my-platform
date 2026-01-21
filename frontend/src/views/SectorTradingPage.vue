@@ -85,7 +85,7 @@
             <div class="top-stocks">
               <div v-for="stock in sector.topStocks" :key="stock.stockCode" class="stock-row">
                 <div class="stock-info">
-                  <span class="stock-name">{{ stock.stockName }}</span>
+                  <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                   <span class="stock-code">{{ stock.stockCode }}</span>
                 </div>
                 <div class="stock-data">
@@ -244,7 +244,7 @@ onUnmounted(() => {
   border: 1px solid rgba(59, 130, 246, 0.2);
   border-radius: 12px;
   margin-bottom: 24px;
-  color: var(--text-secondary);
+  color: #4b5563;
   font-size: 14px;
 }
 
@@ -259,7 +259,7 @@ onUnmounted(() => {
   gap: 12px;
   margin-bottom: 24px;
   padding: 8px;
-  background: var(--background-secondary);
+  background: #f3f4f6;
   border-radius: 16px;
   justify-content: center;
 }
@@ -276,12 +276,12 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: #4b5563;
 }
 
 .period-tab:hover {
   background: rgba(59, 130, 246, 0.1);
-  color: var(--text-primary);
+  color: #1f2937;
 }
 
 .period-tab.active {
@@ -323,7 +323,7 @@ onUnmounted(() => {
 }
 
 .sector-card.expanded {
-  border-color: var(--primary-start);
+  border-color: #3b82f6;
 }
 
 [data-theme="dark"] .sector-card {
@@ -360,12 +360,12 @@ onUnmounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: #1f2937;
 }
 
 .stock-count {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 .sector-badge {
@@ -395,7 +395,7 @@ onUnmounted(() => {
 .total-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 .total-value {
@@ -407,7 +407,7 @@ onUnmounted(() => {
 .total-chart {
   width: 120px;
   height: 8px;
-  background: var(--border-light);
+  background: #f3f4f6;
   border-radius: 4px;
   overflow: hidden;
 }
@@ -422,14 +422,14 @@ onUnmounted(() => {
 .sector-detail {
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid var(--border-light);
+  border-top: 1px solid #f3f4f6;
 }
 
 .sector-detail h4 {
   margin: 0 0 16px 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -445,7 +445,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: var(--background-secondary);
+  background: #f3f4f6;
   border-radius: 10px;
 }
 
@@ -457,13 +457,13 @@ onUnmounted(() => {
 
 .stock-row .stock-name {
   font-weight: 600;
-  color: var(--text-primary);
+  color: #1f2937;
   font-size: 14px;
 }
 
 .stock-row .stock-code {
   font-size: 12px;
-  color: var(--text-muted);
+  color: #9ca3af;
 }
 
 .stock-row .stock-data {
@@ -474,7 +474,7 @@ onUnmounted(() => {
 
 .stock-price {
   font-weight: 600;
-  color: var(--text-primary);
+  color: #1f2937;
 }
 
 .stock-change {
@@ -492,7 +492,7 @@ onUnmounted(() => {
 
 .stock-trading {
   font-weight: 500;
-  color: var(--text-secondary);
+  color: #4b5563;
   font-size: 13px;
 }
 
@@ -514,14 +514,14 @@ onUnmounted(() => {
 .summary-label {
   display: block;
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
   margin-bottom: 8px;
 }
 
 .summary-value {
   font-size: 20px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #1f2937;
 }
 
 /* 버튼 */

@@ -47,7 +47,7 @@
             class="search-item"
             @click="addToWatchlist(stock)"
           >
-            <span class="stock-name">{{ stock.stockName }}</span>
+            <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
             <span class="stock-code">{{ stock.stockCode }}</span>
           </div>
         </div>
@@ -182,7 +182,7 @@
       <div v-if="selectedStock" class="modal-overlay" @click="selectedStock = null">
         <div class="modal-content chart-modal" @click.stop>
           <div class="modal-header">
-            <h2>{{ selectedStock.stockName }} 수급 추이</h2>
+            <h2>{{ selectedStock.stockName || selectedStock.stockCode }} 수급 추이</h2>
             <button @click="selectedStock = null" class="modal-close">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="18" y1="6" x2="6" y2="18"/>
@@ -518,14 +518,14 @@ watch(selectedStock, () => {
 .banner-text strong {
   display: block;
   font-size: 18px;
-  color: var(--text-primary);
+  color: #1f2937;
   margin-bottom: 4px;
 }
 
 .banner-text p {
   margin: 0;
   font-size: 14px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* 검색 */
@@ -540,13 +540,13 @@ watch(selectedStock, () => {
   gap: 12px;
   padding: 14px 20px;
   background: rgba(255, 255, 255, 0.95);
-  border: 2px solid var(--border-color);
+  border: 2px solid #e5e7eb;
   border-radius: 14px;
   transition: all 0.3s;
 }
 
 .search-box:focus-within {
-  border-color: var(--primary-start);
+  border-color: #3b82f6;
   box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
 }
 
@@ -577,7 +577,7 @@ watch(selectedStock, () => {
   justify-content: space-between;
   padding: 14px 20px;
   cursor: pointer;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid #f3f4f6;
   transition: background 0.2s;
 }
 
@@ -587,10 +587,11 @@ watch(selectedStock, () => {
 
 .search-item .stock-name {
   font-weight: 600;
+  color: #1f2937;
 }
 
 .search-item .stock-code {
-  color: var(--text-muted);
+  color: #9ca3af;
   font-size: 13px;
 }
 
@@ -669,13 +670,13 @@ watch(selectedStock, () => {
   margin: 0 0 4px 0;
   font-size: 18px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #1f2937;
 }
 
 .tracking-header p {
   margin: 0;
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* 종목 그리드 */
@@ -722,11 +723,12 @@ watch(selectedStock, () => {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
+  color: #1f2937;
 }
 
 .stock-info .code {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #9ca3af;
 }
 
 .price-info {
@@ -765,13 +767,13 @@ watch(selectedStock, () => {
   width: 60px;
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-secondary);
+  color: #4b5563;
 }
 
 .bar-container {
   flex: 1;
   height: 8px;
-  background: var(--border-light);
+  background: #f3f4f6;
   border-radius: 4px;
   overflow: hidden;
 }
@@ -819,7 +821,7 @@ watch(selectedStock, () => {
 
 .signal-reason {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
   line-height: 1.5;
 }
 
@@ -856,7 +858,7 @@ watch(selectedStock, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  color: #9ca3af;
   opacity: 0;
   transition: all 0.2s;
 }
@@ -891,7 +893,7 @@ watch(selectedStock, () => {
 }
 
 .detail-item {
-  background: var(--background-secondary);
+  background: #f3f4f6;
   padding: 16px;
   border-radius: 12px;
 }
@@ -899,7 +901,7 @@ watch(selectedStock, () => {
 .detail-label {
   display: block;
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
   margin-bottom: 8px;
 }
 
@@ -933,7 +935,7 @@ watch(selectedStock, () => {
 .signal-detail p {
   margin: 0;
   font-size: 14px;
-  color: var(--text-secondary);
+  color: #4b5563;
 }
 
 /* 새로고침 버튼 */
@@ -972,11 +974,12 @@ watch(selectedStock, () => {
 .empty-state h3 {
   margin: 0 0 8px 0;
   font-size: 20px;
+  color: #1f2937;
 }
 
 .empty-state p {
   margin: 0;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* 반응형 */

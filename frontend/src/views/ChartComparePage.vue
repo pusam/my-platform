@@ -65,7 +65,7 @@
           class="search-item"
           @click="selectStock(stock)"
         >
-          <span class="stock-name">{{ stock.stockName }}</span>
+          <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
           <span class="stock-code">{{ stock.stockCode }}</span>
         </div>
       </div>
@@ -106,7 +106,7 @@
         <!-- 현재가 정보 -->
         <div class="price-info-grid">
           <div class="price-card stock">
-            <div class="price-label">{{ chartData.stockName }}</div>
+            <div class="price-label">{{ chartData.stockName || chartData.stockCode }}</div>
             <div class="price-value">{{ formatCurrency(chartData.stockPrice) }}</div>
             <div class="price-change" :class="chartData.stockChangeRate >= 0 ? 'positive' : 'negative'">
               {{ chartData.stockChangeRate >= 0 ? '+' : '' }}{{ chartData.stockChangeRate?.toFixed(2) }}%
@@ -125,8 +125,8 @@
         <!-- 오버레이 차트 -->
         <div class="chart-container">
           <div class="chart-legend">
-            <span class="legend-item stock"><span class="legend-color"></span>{{ chartData.stockName }}</span>
-            <span class="legend-item index"><span class="legend-color"></span>{{ chartData.indexName }}</span>
+            <span class="legend-item stock"><span class="legend-color"></span>{{ chartData.stockName || chartData.stockCode }}</span>
+            <span class="legend-item index"><span class="legend-color"></span>{{ chartData.indexName || '지수' }}</span>
             <span class="legend-item zero"><span class="legend-color"></span>기준선 (시초가)</span>
           </div>
           <canvas ref="chartCanvas"></canvas>
@@ -454,14 +454,14 @@ watch([selectedStock, selectedIndex], () => {
 .banner-text strong {
   display: block;
   font-size: 18px;
-  color: var(--text-primary);
+  color: #1f2937;
   margin-bottom: 8px;
 }
 
 .banner-text p {
   margin: 0;
   font-size: 14px;
-  color: var(--text-secondary);
+  color: #4b5563;
   line-height: 1.6;
 }
 
@@ -489,7 +489,7 @@ watch([selectedStock, selectedIndex], () => {
   gap: 12px;
   padding: 12px 20px;
   background: white;
-  border: 2px solid var(--border-color);
+  border: 2px solid #e5e7eb;
   border-radius: 12px;
 }
 
@@ -508,9 +508,10 @@ watch([selectedStock, selectedIndex], () => {
 .index-selector button {
   padding: 12px 24px;
   background: white;
-  border: 2px solid var(--border-color);
+  border: 2px solid #e5e7eb;
   border-radius: 12px;
   font-weight: 600;
+  color: #4b5563;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -536,7 +537,17 @@ watch([selectedStock, selectedIndex], () => {
   justify-content: space-between;
   padding: 14px 20px;
   cursor: pointer;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.search-item .stock-name {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.search-item .stock-code {
+  color: #9ca3af;
+  font-size: 13px;
 }
 
 .search-item:hover {
@@ -599,7 +610,7 @@ watch([selectedStock, selectedIndex], () => {
 .analysis-reason {
   margin: 0;
   font-size: 15px;
-  color: var(--text-secondary);
+  color: #4b5563;
   line-height: 1.5;
 }
 
@@ -630,14 +641,14 @@ watch([selectedStock, selectedIndex], () => {
 
 .price-label {
   font-size: 14px;
-  color: var(--text-muted);
+  color: #6b7280;
   margin-bottom: 8px;
 }
 
 .price-value {
   font-size: 24px;
   font-weight: 700;
-  color: var(--text-primary);
+  color: #1f2937;
 }
 
 .price-change {
@@ -652,7 +663,7 @@ watch([selectedStock, selectedIndex], () => {
 .vs-badge {
   font-size: 20px;
   font-weight: 700;
-  color: var(--text-muted);
+  color: #9ca3af;
 }
 
 /* 차트 */
@@ -675,6 +686,7 @@ watch([selectedStock, selectedIndex], () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #4b5563;
 }
 
 .legend-color {
@@ -706,7 +718,7 @@ watch([selectedStock, selectedIndex], () => {
 .gap-chart-container h4 {
   margin: 0 0 16px 0;
   font-size: 14px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* API 연결 안됨 */
@@ -730,7 +742,7 @@ watch([selectedStock, selectedIndex], () => {
 }
 
 .no-data-card p {
-  color: var(--text-secondary);
+  color: #4b5563;
   margin: 0 0 20px 0;
 }
 
@@ -742,7 +754,7 @@ watch([selectedStock, selectedIndex], () => {
 }
 
 .no-data-card li {
-  color: var(--text-muted);
+  color: #6b7280;
   font-size: 14px;
   line-height: 1.8;
 }
