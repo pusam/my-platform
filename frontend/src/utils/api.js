@@ -294,6 +294,45 @@ export const newsAPI = {
   }
 };
 
+// Admin API
+export const adminAPI = {
+  // 서버 상태 조회
+  getServerStatus() {
+    return apiClient.get('/admin/server/status');
+  },
+
+  // 사용자 관리
+  getAllUsers() {
+    return apiClient.get('/admin/users');
+  },
+  getUser(id) {
+    return apiClient.get(`/admin/users/${id}`);
+  },
+  updateUserRole(id, role) {
+    return apiClient.put(`/admin/users/${id}/role`, { role });
+  },
+  updateUserStatus(id, status) {
+    return apiClient.put(`/admin/users/${id}/status`, { status });
+  },
+  deleteUser(id) {
+    return apiClient.delete(`/admin/users/${id}`);
+  },
+  getUserStats() {
+    return apiClient.get('/admin/users/stats');
+  },
+
+  // 활동 로그
+  getLogs(page = 0, size = 20, username = null, actionType = null) {
+    const params = { page, size };
+    if (username) params.username = username;
+    if (actionType) params.actionType = actionType;
+    return apiClient.get('/admin/logs', { params });
+  },
+  getRecentLogs() {
+    return apiClient.get('/admin/logs/recent');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

@@ -299,6 +299,19 @@ CREATE TABLE IF NOT EXISTS news_summary (
     INDEX idx_source_name (source_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 활동 로그 테이블 생성
+CREATE TABLE IF NOT EXISTS activity_logs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL COMMENT '사용자명',
+    action_type VARCHAR(50) NOT NULL COMMENT '액션 유형 (LOGIN, LOGOUT, ROLE_CHANGE, STATUS_CHANGE, USER_DELETE 등)',
+    description VARCHAR(500) COMMENT '상세 설명',
+    ip_address VARCHAR(50) COMMENT 'IP 주소',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_username (username),
+    INDEX idx_action_type (action_type),
+    INDEX idx_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 완료 메시지
 SELECT '데이터베이스 설정 완료!' as 'Status';
 SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions, car_record, news_summary' as 'Info';

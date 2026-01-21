@@ -17,6 +17,8 @@ import AssetManagement from './views/AssetManagement.vue'
 import FileManager from './views/FileManager.vue'
 import FinanceManagement from './views/FinanceManagement.vue'
 import CarManagement from './views/CarManagement.vue'
+import UserManagement from './views/UserManagement.vue'
+import ActivityLogs from './views/ActivityLogs.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -124,6 +126,18 @@ const router = createRouter({
       path: '/user-approval',
       name: 'UserApproval',
       component: UserApproval,
+      meta: { requiresAuth: true, role: 'ADMIN' }
+    },
+    {
+      path: '/admin/users',
+      name: 'UserManagement',
+      component: UserManagement,
+      meta: { requiresAuth: true, role: 'ADMIN' }
+    },
+    {
+      path: '/admin/logs',
+      name: 'ActivityLogs',
+      component: ActivityLogs,
       meta: { requiresAuth: true, role: 'ADMIN' }
     }
   ]

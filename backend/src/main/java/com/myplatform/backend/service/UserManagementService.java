@@ -1,150 +1,86 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.dto.UserManagementDto;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 @Transactional
 public class UserManagementService {
 
     private final UserRepository userRepository;
-    private final EmailService emailService;
+    private final ActivityLogService activityLogService;
 
-    public UserManagementService(UserRepository userRepository, EmailService emailService) {
-        this.userRepository = userRepository;
-        this.emailService = emailService;
-    }
-
-    /**
-     * 승인 대기 중인 사용자 목록 조회
-     */
-    public List<Map<String, Object>> getPendingUsers() {
-        return userRepository.findByStatus("PENDING").stream()
-                .map(this::convertToMap)
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * 전체 사용자 목록 조회
-     */
-    public List<Map<String, Object>> getAllUsers() {
+    @Transactional(readOnly = true)
+    public List<UserManagementDto> getAllUsers() {
         return userRepository.findAll().stream()
-                .map(this::convertToMap)
+                .map(UserManagementDto::fromEntity)
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 회원가입 승인
-     */
-    public void approveUser(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
-
-        if (!"PENDING".equals(user.getStatus())) {
-            throw new RuntimeException("승인 대기 중인 사용자가 아닙니다.");
-        }
-
-        user.setStatus("ACTIVE");
-        userRepository.save(user);
-
-        // 승인 완료 이메일 발송
-        try {
-            emailService.sendApprovalEmail(user.getEmail(), user.getName());
-        } catch (Exception e) {
-            // 이메일 발송 실패해도 승인은 완료
-            System.err.println("승인 이메일 발송 실패: " + e.getMessage());
-        }
+    @Transactional(readOnly = true)
+    public UserManagementDto getUserById(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        return UserManagementDto.fromEntity(user);
     }
 
-    /**
-     * 회원가입 거부 (계정 삭제)
-     */
-    public void rejectUser(Long userId) {
+    public UserManagementDto updateUserRole(Long userId, String newRole, String adminUsername) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        if (!"PENDING".equals(user.getStatus())) {
-            throw new RuntimeException("승인 대기 중인 사용자가 아닙니다.");
-        }
+        String oldRole = user.getRole();
+        user.setRole(newRole);
+        User saved = userRepository.save(user);
 
+        // 활동 로그 기록
+        activityLogService.log(adminUsername, "ROLE_CHANGE",
+                String.format("사용자 '%s'의 권한 변경: %s -> %s", user.getUsername(), oldRole, newRole));
+
+        return UserManagementDto.fromEntity(saved);
+    }
+
+    public UserManagementDto updateUserStatus(Long userId, String newStatus, String adminUsername) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        String oldStatus = user.getStatus();
+        user.setStatus(newStatus);
+        User saved = userRepository.save(user);
+
+        // 활동 로그 기록
+        activityLogService.log(adminUsername, "STATUS_CHANGE",
+                String.format("사용자 '%s'의 상태 변경: %s -> %s", user.getUsername(), oldStatus, newStatus));
+
+        return UserManagementDto.fromEntity(saved);
+    }
+
+    public void deleteUser(Long userId, String adminUsername) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        String username = user.getUsername();
         userRepository.delete(user);
 
-        // 거부 이메일 발송
-        try {
-            emailService.sendRejectionEmail(user.getEmail(), user.getName());
-        } catch (Exception e) {
-            System.err.println("거부 이메일 발송 실패: " + e.getMessage());
-        }
+        // 활동 로그 기록
+        activityLogService.log(adminUsername, "USER_DELETE",
+                String.format("사용자 '%s' 삭제", username));
     }
 
-    /**
-     * 계정 비활성화
-     */
-    public void deactivateUser(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
-
-        user.setStatus("INACTIVE");
-        userRepository.save(user);
+    @Transactional(readOnly = true)
+    public long getTotalUserCount() {
+        return userRepository.count();
     }
 
-    /**
-     * 계정 활성화
-     */
-    public void activateUser(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
-
-        user.setStatus("ACTIVE");
-        userRepository.save(user);
-    }
-
-    /**
-     * 사용자 삭제
-     */
-    public void deleteUser(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
-
-        if ("ADMIN".equals(user.getRole())) {
-            throw new RuntimeException("관리자 계정은 삭제할 수 없습니다.");
-        }
-
-        userRepository.delete(user);
-    }
-
-    /**
-     * 사용자 권한 변경
-     */
-    public void changeUserRole(Long userId, String role) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
-
-        user.setRole(role);
-        userRepository.save(user);
-    }
-
-    /**
-     * User Entity를 Map으로 변환 (비밀번호 제외)
-     */
-    private Map<String, Object> convertToMap(User user) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("id", user.getId());
-        map.put("username", user.getUsername());
-        map.put("name", user.getName());
-        map.put("email", user.getEmail());
-        map.put("phone", user.getPhone());
-        map.put("role", user.getRole());
-        map.put("status", user.getStatus());
-        map.put("createdAt", user.getCreatedAt());
-        return map;
+    @Transactional(readOnly = true)
+    public long getActiveUserCount() {
+        return userRepository.findByStatus("APPROVED").size();
     }
 }
-
