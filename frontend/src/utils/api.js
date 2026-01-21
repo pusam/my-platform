@@ -290,6 +290,14 @@ export const investorAPI = {
   // 관심 종목 수급 조회
   getWatchlist(stockCodes) {
     return apiClient.post('/investor/watchlist', stockCodes);
+  },
+  // 수급 순위 조회 (외국인+기관 순매수 상위)
+  getRanking(sector = '', sortBy = 'TOTAL') {
+    return apiClient.get('/investor/ranking', { params: { sector, sortBy } });
+  },
+  // 수급 이상 종목 탐지 (프로그램 순매수 쌓이는데 주가 횡보 등)
+  getAnomalyStocks() {
+    return apiClient.get('/investor/anomaly');
   }
 };
 

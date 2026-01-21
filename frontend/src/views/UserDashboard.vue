@@ -235,6 +235,24 @@
             </svg>
           </span>
         </article>
+
+        <article class="menu-card supply-chart" @click="goToSupplyChart">
+          <div class="card-icon supply-chart-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="12" x2="16" y2="14"/>
+              <path d="M8 14l2-4 2 4 2-6"/>
+            </svg>
+          </div>
+          <h3>수급 차트</h3>
+          <p>"얘네 왜 이렇게 사지?" 종목 발견! 외국인/기관 순매수 순위와 이상 패턴을 탐지합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
       </section>
 
       <!-- 오늘의 경제 뉴스 -->
@@ -491,6 +509,9 @@ export default {
     goToChart() {
       this.$router.push('/chart')
     },
+    goToSupplyChart() {
+      this.$router.push('/supply-chart')
+    },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
       window.dispatchEvent(new CustomEvent('open-chatbot'))
@@ -728,6 +749,25 @@ export default {
 
 .menu-card.chart h3 {
   color: #D97706;
+}
+
+.card-icon.supply-chart-icon {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
+  color: #EF4444;
+}
+
+.menu-card.supply-chart {
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(239, 68, 68, 0.2);
+}
+
+.menu-card.supply-chart:hover {
+  border-color: #EF4444;
+  box-shadow: 0 20px 40px rgba(239, 68, 68, 0.15);
+}
+
+.menu-card.supply-chart h3 {
+  color: #DC2626;
 }
 
 .menu-card h3 {
