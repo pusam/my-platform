@@ -29,7 +29,7 @@ public class UserManagementController {
     @Operation(summary = "전체 사용자 목록", description = "모든 사용자 목록을 조회합니다.")
     @GetMapping
     public ResponseEntity<ApiResponse<List<UserManagementDto>>> getAllUsers() {
-        List<UserManagementDto> users = userManagementService.getAllUsers();
+        List<UserManagementDto> users = userManagementService.getAllUsersDto();
         return ResponseEntity.ok(ApiResponse.success("조회 성공", users));
     }
 
