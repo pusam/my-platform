@@ -5,6 +5,12 @@
       <header class="common-header">
         <h1>대시보드</h1>
         <div class="header-actions">
+          <button @click="showWidgetSettings = true" class="btn-widget-settings" title="위젯 설정">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </button>
           <div class="header-user">
             <div class="user-avatar">{{ username.charAt(0) }}</div>
             <span>{{ username }}</span>
@@ -181,7 +187,7 @@
       </section>
 
       <!-- 오늘의 경제 뉴스 -->
-      <section class="news-section">
+      <section v-if="widgetSettings.news" class="news-section">
         <div class="news-header">
           <div class="news-title">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -226,6 +232,36 @@
         </div>
       </section>
 
+      <!-- 가계부 요약 위젯 -->
+      <section v-if="widgetSettings.financeSummary" class="finance-summary-widget">
+        <div class="widget-header">
+          <div class="widget-title">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <h3>이번 달 가계부</h3>
+          </div>
+          <button @click="goToFinance" class="btn-view-all">자세히 보기</button>
+        </div>
+        <div class="finance-summary-content">
+          <div class="finance-stat income">
+            <span class="stat-label">수입</span>
+            <span class="stat-value">{{ formatCurrency(financeSummary.totalIncome) }}</span>
+          </div>
+          <div class="finance-stat expense">
+            <span class="stat-label">지출</span>
+            <span class="stat-value">{{ formatCurrency(financeSummary.totalExpense) }}</span>
+          </div>
+          <div class="finance-stat balance" :class="financeSummary.balance >= 0 ? 'positive' : 'negative'">
+            <span class="stat-label">잔액</span>
+            <span class="stat-value">{{ formatCurrency(financeSummary.balance) }}</span>
+          </div>
+        </div>
+      </section>
+
       <!-- AI 상담 배너 -->
       <section class="ai-banner" @click="openAiChat">
         <div class="ai-banner-content">
@@ -250,27 +286,83 @@
         </div>
         <div class="ai-decoration"></div>
       </section>
+
+      <!-- 위젯 설정 모달 -->
+      <WidgetSettingsModal
+        :visible="showWidgetSettings"
+        :settings="widgetSettings"
+        @close="showWidgetSettings = false"
+        @update:settings="updateWidgetSettings"
+      />
     </div>
   </div>
 </template>
 
 <script>
-import { newsAPI } from '../utils/api';
+import { newsAPI, financeAPI } from '../utils/api';
+import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
 
 export default {
   name: 'UserDashboard',
+  components: {
+    WidgetSettingsModal
+  },
   data() {
     return {
       username: '',
       newsList: [],
-      fetchingNews: false
+      fetchingNews: false,
+      showWidgetSettings: false,
+      widgetSettings: {
+        goldPrice: true,
+        silverPrice: true,
+        assetSummary: true,
+        news: true,
+        financeSummary: true
+      },
+      financeSummary: {
+        totalIncome: 0,
+        totalExpense: 0,
+        balance: 0
+      }
     }
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'User'
+    this.loadWidgetSettings()
     this.loadNews()
+    this.loadFinanceSummary()
   },
   methods: {
+    loadWidgetSettings() {
+      const saved = localStorage.getItem('dashboardWidgets')
+      if (saved) {
+        this.widgetSettings = { ...this.widgetSettings, ...JSON.parse(saved) }
+      }
+    },
+    updateWidgetSettings(settings) {
+      this.widgetSettings = { ...this.widgetSettings, ...settings }
+    },
+    async loadFinanceSummary() {
+      try {
+        const now = new Date()
+        const response = await financeAPI.getMonthlyTransactions(now.getFullYear(), now.getMonth() + 1)
+        if (response.data.success) {
+          const data = response.data.data
+          this.financeSummary = {
+            totalIncome: data.totalIncome || 0,
+            totalExpense: data.totalExpense || 0,
+            balance: data.balance || 0
+          }
+        }
+      } catch (error) {
+        console.error('가계부 요약 로드 실패:', error)
+      }
+    },
+    formatCurrency(value) {
+      if (!value) return '0원'
+      return new Intl.NumberFormat('ko-KR').format(value) + '원'
+    },
     async loadNews() {
       try {
         // 오늘 뉴스가 없으면 최근 뉴스 조회
@@ -359,8 +451,8 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 40px;
-  margin-bottom: 30px;
+  padding: var(--card-padding);
+  margin-bottom: var(--section-gap);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
   display: flex;
   justify-content: space-between;
@@ -421,14 +513,14 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
-  margin-bottom: 30px;
+  margin-bottom: var(--section-gap);
 }
 
 .menu-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 28px;
+  padding: var(--card-padding);
   cursor: pointer;
   transition: all 0.3s ease;
   border: 2px solid transparent;
@@ -580,8 +672,8 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 28px;
-  margin-bottom: 30px;
+  padding: var(--card-padding);
+  margin-bottom: var(--section-gap);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
@@ -866,7 +958,7 @@ export default {
 /* 반응형 */
 @media (max-width: 768px) {
   .welcome-card {
-    padding: 28px;
+    padding: var(--card-padding);
   }
 
   .welcome-content h2 {
@@ -939,6 +1031,175 @@ export default {
   .news-content p {
     font-size: 12px;
     -webkit-line-clamp: 3;
+  }
+}
+
+/* 위젯 설정 버튼 */
+.btn-widget-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-widget-settings:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  color: var(--primary-start);
+}
+
+[data-theme="dark"] .btn-widget-settings {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-widget-settings:hover {
+  color: var(--primary-start);
+}
+
+/* 가계부 요약 위젯 */
+.finance-summary-widget {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: var(--card-padding);
+  margin-bottom: var(--section-gap);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] .finance-summary-widget {
+  background: var(--card-bg);
+}
+
+.widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.widget-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
+}
+
+.widget-title svg {
+  color: #2ecc71;
+}
+
+.widget-title h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.btn-view-all {
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-view-all:hover {
+  background: var(--primary-gradient);
+  color: white;
+}
+
+[data-theme="dark"] .btn-view-all {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+}
+
+.finance-summary-content {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.finance-stat {
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border-radius: 14px;
+  padding: 20px;
+  text-align: center;
+  border-left: 4px solid transparent;
+}
+
+[data-theme="dark"] .finance-stat {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+}
+
+.finance-stat.income {
+  border-left-color: #4caf50;
+}
+
+.finance-stat.expense {
+  border-left-color: #f44336;
+}
+
+.finance-stat.balance {
+  border-left-color: var(--primary-start);
+}
+
+.finance-stat.balance.positive {
+  border-left-color: #4caf50;
+}
+
+.finance-stat.balance.negative {
+  border-left-color: #f44336;
+}
+
+.finance-stat .stat-label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.finance-stat .stat-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.finance-stat.income .stat-value {
+  color: #4caf50;
+}
+
+.finance-stat.expense .stat-value {
+  color: #f44336;
+}
+
+.finance-stat.balance .stat-value {
+  color: var(--primary-start);
+}
+
+.finance-stat.balance.positive .stat-value {
+  color: #4caf50;
+}
+
+.finance-stat.balance.negative .stat-value {
+  color: #f44336;
+}
+
+@media (max-width: 768px) {
+  .finance-summary-content {
+    grid-template-columns: 1fr;
+  }
+
+  .finance-stat {
+    padding: 16px;
   }
 }
 </style>

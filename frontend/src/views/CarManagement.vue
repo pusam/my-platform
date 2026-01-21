@@ -427,7 +427,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 20px;
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
 }
 
 .summary-card {
@@ -519,7 +519,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   padding: 16px 20px;
   background: rgba(255, 255, 255, 0.95);
   border-radius: 12px;
@@ -550,12 +550,12 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 28px;
+  padding: var(--card-padding);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
 .section-header {
-  margin-bottom: 24px;
+  margin-bottom: var(--section-gap);
 }
 
 .section-header h2 {
@@ -597,7 +597,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 16px;
-  padding: 20px;
+  padding: var(--card-padding);
   background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
   border-radius: 16px;
   border: 1px solid var(--border-light);
@@ -718,7 +718,7 @@ onMounted(() => {
 .action-bar {
   display: flex;
   justify-content: flex-end;
-  margin-bottom: 24px;
+  margin-bottom: var(--section-gap);
 }
 
 /* 모달 폼 */

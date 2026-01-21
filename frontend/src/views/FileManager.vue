@@ -628,7 +628,7 @@ onMounted(() => {
 @import '../assets/css/common.css';
 
 .file-manager-content {
-  max-width: 1400px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   position: relative;
   min-height: 300px;
@@ -638,7 +638,7 @@ onMounted(() => {
   background: #f5f5f5;
   padding: 12px 20px;
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -668,7 +668,7 @@ onMounted(() => {
 }
 
 .action-bar {
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -730,7 +730,7 @@ onMounted(() => {
   color: #c33;
   padding: 15px;
   border-radius: 6px;
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   text-align: center;
 }
 
@@ -744,7 +744,7 @@ onMounted(() => {
   background: white;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
-  padding: 20px;
+  padding: var(--card-padding);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -882,12 +882,12 @@ onMounted(() => {
 }
 
 .modal-content h2 {
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   color: #333;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
 }
 
 .form-group label {
@@ -958,7 +958,7 @@ onMounted(() => {
   max-height: 90vh;
   background: white;
   border-radius: 12px;
-  padding: 20px;
+  padding: var(--card-padding);
 }
 
 .image-viewer img {
@@ -1003,7 +1003,7 @@ onMounted(() => {
   max-height: 90vh;
   background: white;
   border-radius: 12px;
-  padding: 20px;
+  padding: var(--card-padding);
 }
 
 .video-viewer video {

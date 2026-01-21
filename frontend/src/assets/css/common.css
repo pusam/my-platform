@@ -49,9 +49,133 @@
   --spacing-lg: 30px;
   --spacing-xl: 40px;
 
+  /* Layout - 페이지 레이아웃 표준값 */
+  --content-max-width: 1200px;
+  --content-padding: 24px;
+  --section-gap: 24px;
+  --card-padding: 24px;
+  --header-margin-bottom: 24px;
+
   /* Animation */
   --transition-fast: 0.2s ease;
   --transition-normal: 0.3s ease;
+}
+
+/* ========================================
+   Dark Mode Variables
+   ======================================== */
+[data-theme="dark"] {
+  /* Primary Colors - 다크모드에서 약간 밝게 */
+  --primary-start: #818cf8;
+  --primary-end: #a78bfa;
+
+  /* Background */
+  --bg-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  --bg-page: #121212;
+
+  /* Text Colors */
+  --text-primary: #e4e4e7;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --text-light: #52525b;
+
+  /* Card & Surface */
+  --card-bg: rgba(30, 30, 45, 0.95);
+  --card-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+
+  /* Border */
+  --border-color: #3f3f46;
+  --border-light: #27272a;
+
+  /* Status Colors - 다크모드에서 약간 조정 */
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --info: #60a5fa;
+
+  /* Gold & Silver */
+  --gold-primary: #fcd34d;
+  --gold-secondary: #f59e0b;
+  --silver-primary: #d4d4d8;
+  --silver-secondary: #a1a1aa;
+}
+
+/* Dark mode specific overrides */
+[data-theme="dark"] body {
+  background: var(--bg-gradient);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .page-container::before {
+  background:
+    radial-gradient(circle at 20% 80%, rgba(99, 102, 241, 0.2) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.2) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(167, 139, 250, 0.1) 0%, transparent 40%);
+}
+
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea {
+  background: #27272a;
+  color: var(--text-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] input::placeholder {
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .modal-content {
+  background: #1f1f23;
+}
+
+[data-theme="dark"] thead {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+}
+
+[data-theme="dark"] tr:hover {
+  background: rgba(139, 92, 246, 0.05);
+}
+
+[data-theme="dark"] .btn-secondary {
+  background: #27272a;
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .btn-secondary:hover {
+  background: #3f3f46;
+  border-color: var(--primary-start);
+  color: var(--primary-start);
+}
+
+[data-theme="dark"] .btn-back {
+  background: rgba(39, 39, 42, 0.9);
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .btn-back:hover {
+  background: #3f3f46;
+  border-color: var(--primary-start);
+  color: var(--primary-start);
+}
+
+[data-theme="dark"] .header-user {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+}
+
+[data-theme="dark"] .disabled-input {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+  color: var(--text-muted);
+}
+
+[data-theme="dark"] .modal-close {
+  background: #27272a;
+}
+
+[data-theme="dark"] .modal-close:hover {
+  background: #3f3f46;
 }
 
 /* Reset and Common Styles */
@@ -96,7 +220,7 @@ body {
 .page-content {
   position: relative;
   z-index: 1;
-  max-width: 1400px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
 }
 
@@ -109,9 +233,9 @@ body {
   align-items: center;
   background: var(--card-bg);
   backdrop-filter: blur(20px);
-  padding: 20px 30px;
+  padding: 20px var(--card-padding);
   border-radius: var(--card-radius);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--header-margin-bottom);
   box-shadow: var(--card-shadow);
 }
 

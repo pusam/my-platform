@@ -12,15 +12,33 @@
 
       <!-- 컨텐츠 영역 -->
       <div class="asset-content">
-        <!-- 자산 등록 버튼 -->
+        <!-- 자산 등록 및 내보내기 버튼 -->
         <div class="action-bar">
-          <button @click="showAddModal = true" class="btn btn-primary">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            자산 등록
-          </button>
+          <div class="action-left">
+            <button @click="showAddModal = true" class="btn btn-primary">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              자산 등록
+            </button>
+          </div>
+          <div class="action-right">
+            <div class="export-dropdown" v-if="assets.length > 0">
+              <button @click="showExportMenu = !showExportMenu" class="btn btn-export">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                내보내기
+              </button>
+              <div v-if="showExportMenu" class="export-menu">
+                <button @click="exportData('xlsx')">Excel (.xlsx)</button>
+                <button @click="exportData('csv')">CSV (.csv)</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 로딩 상태 -->
@@ -392,7 +410,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { assetAPI, stockAPI } from '../utils/api';
+import { assetAPI, stockAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 
@@ -405,6 +423,7 @@ const errorMessage = ref('');
 const stockSearchKeyword = ref('');
 const stockSearchResults = ref([]);
 const loading = ref(false);
+const showExportMenu = ref(false);
 let searchTimeout = null;
 
 const newAsset = ref({
@@ -694,6 +713,32 @@ const logout = () => {
   router.push('/login');
 };
 
+const exportData = async (format) => {
+  showExportMenu.value = false;
+  try {
+    let response;
+    if (format === 'xlsx') {
+      response = await exportAPI.exportAssetsExcel();
+    } else {
+      response = await exportAPI.exportAssetsCsv();
+    }
+
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    link.download = `자산목록_${date}.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('내보내기에 실패했습니다.');
+  }
+};
+
 onMounted(() => {
   loadData();
 });
@@ -711,7 +756,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 24px;
-  margin-bottom: 30px;
+  margin-bottom: var(--section-gap);
 }
 
 .summary-card {
@@ -729,7 +774,7 @@ onMounted(() => {
 }
 
 .summary-card .card-header {
-  padding: 24px;
+  padding: var(--card-padding);
   display: flex;
   align-items: center;
   gap: 16px;
@@ -779,7 +824,7 @@ onMounted(() => {
 }
 
 .summary-card .card-body {
-  padding: 24px;
+  padding: var(--card-padding);
 }
 
 .stat-row {
@@ -843,8 +888,80 @@ onMounted(() => {
 /* 액션 바 */
 .action-bar {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 24px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--section-gap);
+}
+
+.action-left, .action-right {
+  display: flex;
+  gap: 10px;
+}
+
+/* 내보내기 드롭다운 */
+.export-dropdown {
+  position: relative;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-export:hover {
+  border-color: var(--primary-start);
+  color: var(--primary-start);
+}
+
+[data-theme="dark"] .btn-export {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  z-index: 100;
+  min-width: 150px;
+}
+
+[data-theme="dark"] .export-menu {
+  background: #1f1f23;
+}
+
+.export-menu button {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.export-menu button:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.export-menu button:not(:last-child) {
+  border-bottom: 1px solid var(--border-light);
 }
 
 /* 히스토리 섹션 */
@@ -852,12 +969,12 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 28px;
+  padding: var(--card-padding);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
 .section-header {
-  margin-bottom: 24px;
+  margin-bottom: var(--section-gap);
 }
 
 .section-header h2 {

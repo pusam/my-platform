@@ -5,11 +5,18 @@ import com.myplatform.backend.dto.UpdateProfileRequest;
 import com.myplatform.backend.dto.UserDto;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @Transactional
@@ -17,6 +24,9 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+
+    @Value("${file.upload-dir:uploads}")
+    private String uploadDir;
 
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
@@ -38,8 +48,79 @@ public class UserService {
             user.setName(request.getName());
         }
 
+        if (request.getEmail() != null && !request.getEmail().isBlank()) {
+            // 다른 사용자가 같은 이메일을 사용하는지 확인
+            userRepository.findByEmail(request.getEmail())
+                    .filter(u -> !u.getId().equals(user.getId()))
+                    .ifPresent(u -> {
+                        throw new RuntimeException("이미 사용 중인 이메일입니다.");
+                    });
+            user.setEmail(request.getEmail());
+        }
+
+        if (request.getPhone() != null && !request.getPhone().isBlank()) {
+            user.setPhone(request.getPhone());
+        }
+
         User savedUser = userRepository.save(user);
         return convertToDto(savedUser);
+    }
+
+    public UserDto uploadProfileImage(String username, MultipartFile file) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+
+        try {
+            // 업로드 디렉토리 생성
+            Path profileDir = Paths.get(uploadDir, "profiles");
+            if (!Files.exists(profileDir)) {
+                Files.createDirectories(profileDir);
+            }
+
+            // 기존 프로필 이미지 삭제
+            if (user.getProfileImage() != null) {
+                Path oldFile = Paths.get(uploadDir, user.getProfileImage());
+                Files.deleteIfExists(oldFile);
+            }
+
+            // 새 파일명 생성
+            String originalFilename = file.getOriginalFilename();
+            String extension = originalFilename != null && originalFilename.contains(".")
+                    ? originalFilename.substring(originalFilename.lastIndexOf("."))
+                    : ".jpg";
+            String newFilename = "profile_" + user.getId() + "_" + UUID.randomUUID().toString().substring(0, 8) + extension;
+            String relativePath = "profiles/" + newFilename;
+
+            // 파일 저장
+            Path targetPath = profileDir.resolve(newFilename);
+            Files.copy(file.getInputStream(), targetPath);
+
+            // DB 업데이트
+            user.setProfileImage(relativePath);
+            User savedUser = userRepository.save(user);
+            return convertToDto(savedUser);
+
+        } catch (IOException e) {
+            throw new RuntimeException("프로필 이미지 업로드에 실패했습니다.", e);
+        }
+    }
+
+    public UserDto deleteProfileImage(String username) {
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+
+        if (user.getProfileImage() != null) {
+            try {
+                Path filePath = Paths.get(uploadDir, user.getProfileImage());
+                Files.deleteIfExists(filePath);
+            } catch (IOException e) {
+                // 파일 삭제 실패해도 계속 진행
+            }
+            user.setProfileImage(null);
+            userRepository.save(user);
+        }
+
+        return convertToDto(user);
     }
 
     public void changePassword(String username, ChangePasswordRequest request) {
@@ -86,6 +167,9 @@ public class UserService {
         dto.setId(user.getId());
         dto.setUsername(user.getUsername());
         dto.setName(user.getName());
+        dto.setEmail(user.getEmail());
+        dto.setPhone(user.getPhone());
+        dto.setProfileImage(user.getProfileImage());
         dto.setRole(user.getRole());
         dto.setCreatedAt(user.getCreatedAt());
         dto.setUpdatedAt(user.getUpdatedAt());

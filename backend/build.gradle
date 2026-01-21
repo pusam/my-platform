@@ -29,6 +29,9 @@ dependencies {
 
     // RSS Feed parsing (for news)
     implementation 'com.rometools:rome:2.1.0'
+
+    // Excel export (Apache POI)
+    implementation 'org.apache.poi:poi-ooxml:5.2.5'
 }
 
 // 프론트엔드 빌드 태스크

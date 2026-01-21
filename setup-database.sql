@@ -33,6 +33,21 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_phone (phone)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 알림 테이블 생성
+CREATE TABLE IF NOT EXISTS notifications (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    type VARCHAR(30) NOT NULL DEFAULT 'INFO' COMMENT '알림 유형 (INFO, WARNING, SUCCESS, ERROR)',
+    title VARCHAR(200) NOT NULL,
+    message TEXT,
+    link VARCHAR(500) COMMENT '클릭 시 이동할 링크',
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_notifications_user_read (user_id, is_read),
+    INDEX idx_notifications_created (created_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 게시판 테이블 생성
 CREATE TABLE IF NOT EXISTS board (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

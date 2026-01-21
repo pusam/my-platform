@@ -127,6 +127,18 @@ export const userSettingsAPI = {
   changePassword(data) {
     return apiClient.put('/user/password', data);
   },
+  // 프로필 이미지 업로드
+  uploadProfileImage(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.post('/user/profile/image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  // 프로필 이미지 삭제
+  deleteProfileImage() {
+    return apiClient.delete('/user/profile/image');
+  },
   // 승인 대기 사용자 목록 (관리자용)
   getPendingUsers() {
     return apiClient.get('/user/pending');
@@ -330,6 +342,54 @@ export const adminAPI = {
   },
   getRecentLogs() {
     return apiClient.get('/admin/logs/recent');
+  }
+};
+
+// Notification API
+export const notificationAPI = {
+  // 알림 목록 조회
+  getNotifications(page = 0, size = 20) {
+    return apiClient.get('/notifications', { params: { page, size } });
+  },
+  // 읽지 않은 알림 수 조회
+  getUnreadCount() {
+    return apiClient.get('/notifications/unread-count');
+  },
+  // 알림 읽음 처리
+  markAsRead(notificationId) {
+    return apiClient.put(`/notifications/${notificationId}/read`);
+  },
+  // 모든 알림 읽음 처리
+  markAllAsRead() {
+    return apiClient.put('/notifications/read-all');
+  }
+};
+
+// Export API
+export const exportAPI = {
+  // 자산 Excel 내보내기
+  exportAssetsExcel() {
+    return apiClient.get('/export/assets?format=xlsx', { responseType: 'blob' });
+  },
+  // 자산 CSV 내보내기
+  exportAssetsCsv() {
+    return apiClient.get('/export/assets?format=csv', { responseType: 'blob' });
+  },
+  // 가계부 Excel 내보내기
+  exportFinanceExcel(year = null, month = null) {
+    let url = '/export/finance?format=xlsx';
+    if (year && month) {
+      url += `&year=${year}&month=${month}`;
+    }
+    return apiClient.get(url, { responseType: 'blob' });
+  },
+  // 가계부 CSV 내보내기
+  exportFinanceCsv(year = null, month = null) {
+    let url = '/export/finance?format=csv';
+    if (year && month) {
+      url += `&year=${year}&month=${month}`;
+    }
+    return apiClient.get(url, { responseType: 'blob' });
   }
 };
 
