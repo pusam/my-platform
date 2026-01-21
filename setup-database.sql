@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100) NOT NULL UNIQUE COMMENT '이메일 (필수)',
     phone VARCHAR(20) NOT NULL COMMENT '핸드폰번호 (필수)',
+    profile_image VARCHAR(500) COMMENT '프로필 이미지 경로',
     role VARCHAR(20) NOT NULL DEFAULT 'USER',
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -327,7 +328,15 @@ CREATE TABLE IF NOT EXISTS activity_logs (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 기존 데이터베이스 업데이트용 ALTER TABLE (이미 컬럼이 있으면 무시됨)
+-- users 테이블에 profile_image 컬럼 추가
+SET @column_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = 'myplatform' AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_image');
+SET @sql = IF(@column_exists = 0, 'ALTER TABLE users ADD COLUMN profile_image VARCHAR(500) COMMENT ''프로필 이미지 경로'' AFTER phone', 'SELECT ''profile_image column already exists''');
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
 -- 완료 메시지
 SELECT '데이터베이스 설정 완료!' as 'Status';
-SELECT '생성된 테이블: users, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions, car_record, news_summary' as 'Info';
+SELECT '생성된 테이블: users, notifications, board, board_file, gold_price, silver_price, user_asset, user_folder, user_file, password_reset_token, email_verification_token, finance_records, finance_transactions, car_record, recurring_finance, recurring_finance_history, news_summary, activity_logs' as 'Info';
 
