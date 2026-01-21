@@ -66,7 +66,7 @@
           </div>
           <div class="signal-stocks">
             <span v-for="s in buySignals.slice(0, 5)" :key="s.stockCode" class="signal-tag">
-              {{ s.stockName }}
+              {{ s.stockName || s.stockCode }}
             </span>
           </div>
         </div>
@@ -78,10 +78,16 @@
           </div>
           <div class="signal-stocks">
             <span v-for="s in sellSignals.slice(0, 5)" :key="s.stockCode" class="signal-tag">
-              {{ s.stockName }}
+              {{ s.stockName || s.stockCode }}
             </span>
           </div>
         </div>
+      </div>
+
+      <!-- 추적 중인 종목 헤더 -->
+      <div v-if="stocks.length > 0" class="tracking-header">
+        <h2>추적 중인 종목 ({{ stocks.length }}개)</h2>
+        <p>종목을 클릭하면 상세 수급 추이를 볼 수 있습니다.</p>
       </div>
 
       <!-- 종목별 수급 카드 -->
@@ -648,6 +654,28 @@ watch(selectedStock, () => {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
+}
+
+/* 추적 종목 헤더 */
+.tracking-header {
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.05) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border-radius: 12px;
+  border-left: 4px solid #4F46E5;
+}
+
+.tracking-header h2 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.tracking-header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 /* 종목 그리드 */

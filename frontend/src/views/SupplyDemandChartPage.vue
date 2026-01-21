@@ -68,8 +68,8 @@
             <span class="col-total">합계</span>
           </div>
           <div
-            v-for="(stock, index) in rankingData"
-            :key="stock.stockCode"
+            v-for="(stock, index) in filteredRankingData"
+            :key="stock.stockCode || index"
             class="table-row"
             :class="{ 'buy-highlight': getTotalNetBuy(stock) > 10, 'sell-highlight': getTotalNetBuy(stock) < -10 }"
           >
@@ -77,7 +77,7 @@
               <span class="rank-badge" :class="getRankClass(index)">{{ index + 1 }}</span>
             </span>
             <span class="col-name">
-              <strong>{{ stock.stockName }}</strong>
+              <strong>{{ stock.stockName || stock.stockCode }}</strong>
               <small>{{ stock.stockCode }}</small>
             </span>
             <span class="col-price">{{ formatCurrency(stock.currentPrice) }}</span>
@@ -107,9 +107,9 @@
             <span class="section-desc">프로그램 순매수가 쌓이는데 주가가 아직 안 움직임 → 조만간 터질 수 있음!</span>
           </div>
           <div class="stock-cards">
-            <div v-for="stock in anomalyData.programAccumulating" :key="stock.stockCode" class="anomaly-card program">
+            <div v-for="(stock, idx) in anomalyData.programAccumulating" :key="stock?.stockCode || idx" class="anomaly-card program">
               <div class="card-top">
-                <span class="stock-name">{{ stock.stockName }}</span>
+                <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                 <span class="change-badge" :class="getChangeClass(stock.changeRate)">
                   {{ stock.changeRate?.toFixed(2) || 0 }}%
                 </span>
@@ -133,9 +133,9 @@
             <span class="section-desc">큰 손들이 동시에 매수 중인 종목</span>
           </div>
           <div class="stock-cards">
-            <div v-for="stock in anomalyData.dualBuying" :key="stock.stockCode" class="anomaly-card dual">
+            <div v-for="(stock, idx) in anomalyData.dualBuying" :key="stock?.stockCode || idx" class="anomaly-card dual">
               <div class="card-top">
-                <span class="stock-name">{{ stock.stockName }}</span>
+                <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                 <span class="change-badge" :class="getChangeClass(stock.changeRate)">
                   {{ stock.changeRate > 0 ? '+' : '' }}{{ stock.changeRate?.toFixed(2) || 0 }}%
                 </span>
@@ -162,9 +162,9 @@
             <span class="section-desc">외국인 순매수 20억 이상</span>
           </div>
           <div class="stock-cards">
-            <div v-for="stock in anomalyData.foreignHeavy" :key="stock.stockCode" class="anomaly-card foreign">
+            <div v-for="(stock, idx) in anomalyData.foreignHeavy" :key="stock?.stockCode || idx" class="anomaly-card foreign">
               <div class="card-top">
-                <span class="stock-name">{{ stock.stockName }}</span>
+                <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                 <span class="change-badge" :class="getChangeClass(stock.changeRate)">
                   {{ stock.changeRate > 0 ? '+' : '' }}{{ stock.changeRate?.toFixed(2) || 0 }}%
                 </span>
@@ -184,9 +184,9 @@
             <span class="section-desc">개인은 던지는데 기관/외국인이 받는 종목 → 개미 털기?</span>
           </div>
           <div class="stock-cards">
-            <div v-for="stock in anomalyData.retailContrarian" :key="stock.stockCode" class="anomaly-card contrarian">
+            <div v-for="(stock, idx) in anomalyData.retailContrarian" :key="stock?.stockCode || idx" class="anomaly-card contrarian">
               <div class="card-top">
-                <span class="stock-name">{{ stock.stockName }}</span>
+                <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                 <span class="change-badge" :class="getChangeClass(stock.changeRate)">
                   {{ stock.changeRate > 0 ? '+' : '' }}{{ stock.changeRate?.toFixed(2) || 0 }}%
                 </span>
@@ -253,25 +253,44 @@ const hasAnomalyData = computed(() => {
   return Object.values(anomalyData.value).some(arr => arr && arr.length > 0);
 });
 
+// null 데이터 필터링
+const filteredRankingData = computed(() => {
+  return (rankingData.value || []).filter(stock => stock && stock.stockCode);
+});
+
 const loadRankingData = async () => {
   try {
     const response = await investorAPI.getRanking('', sortBy.value);
-    if (response.data.success) {
-      rankingData.value = response.data.data || [];
+    if (response.data.success && response.data.data) {
+      // null과 stockCode가 없는 항목 필터링
+      rankingData.value = response.data.data.filter(item => item && item.stockCode);
+    } else {
+      rankingData.value = [];
     }
   } catch (error) {
     console.error('수급 순위 로드 실패:', error);
+    rankingData.value = [];
   }
 };
 
 const loadAnomalyData = async () => {
   try {
     const response = await investorAPI.getAnomalyStocks();
-    if (response.data.success) {
-      anomalyData.value = response.data.data || {};
+    if (response.data.success && response.data.data) {
+      // 각 카테고리별로 null 필터링
+      const data = response.data.data;
+      anomalyData.value = {
+        programAccumulating: (data.programAccumulating || []).filter(s => s && s.stockCode),
+        dualBuying: (data.dualBuying || []).filter(s => s && s.stockCode),
+        foreignHeavy: (data.foreignHeavy || []).filter(s => s && s.stockCode),
+        retailContrarian: (data.retailContrarian || []).filter(s => s && s.stockCode)
+      };
+    } else {
+      anomalyData.value = {};
     }
   } catch (error) {
     console.error('이상 종목 로드 실패:', error);
+    anomalyData.value = {};
   }
 };
 
@@ -365,14 +384,15 @@ onUnmounted(() => {
 .banner-text strong {
   display: block;
   font-size: 18px;
-  color: var(--text-primary);
+  color: #1f2937;
   margin-bottom: 4px;
 }
 
 .banner-text p {
   margin: 0;
   font-size: 14px;
-  color: var(--text-muted);
+  color: #4b5563;
+  line-height: 1.5;
 }
 
 /* 탭 메뉴 */
@@ -380,7 +400,7 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   margin-bottom: 24px;
-  background: var(--background-secondary);
+  background: #f3f4f6;
   padding: 8px;
   border-radius: 16px;
 }
@@ -397,7 +417,7 @@ onUnmounted(() => {
   background: transparent;
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: #4b5563;
   cursor: pointer;
   transition: all 0.3s;
 }
@@ -425,18 +445,18 @@ onUnmounted(() => {
 
 .sort-btn {
   padding: 10px 20px;
-  border: 2px solid var(--border-color);
+  border: 2px solid #e5e7eb;
   border-radius: 10px;
   background: white;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: #4b5563;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .sort-btn:hover {
-  border-color: var(--primary-start);
-  color: var(--primary-start);
+  border-color: #3b82f6;
+  color: #3b82f6;
 }
 
 .sort-btn.active {
@@ -460,7 +480,7 @@ onUnmounted(() => {
   background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   font-weight: 700;
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -469,7 +489,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 60px 1fr 100px 80px 90px 90px 100px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid #f3f4f6;
   align-items: center;
   transition: background 0.2s;
 }
@@ -496,7 +516,7 @@ onUnmounted(() => {
   font-weight: 700;
   font-size: 14px;
   background: #f1f5f9;
-  color: var(--text-secondary);
+  color: #4b5563;
 }
 
 .rank-badge.gold {
@@ -522,15 +542,17 @@ onUnmounted(() => {
 
 .col-name strong {
   font-size: 15px;
+  color: #1f2937;
 }
 
 .col-name small {
   font-size: 12px;
-  color: var(--text-muted);
+  color: #9ca3af;
 }
 
 .col-price {
   font-weight: 600;
+  color: #1f2937;
 }
 
 .col-change, .col-foreign, .col-inst, .col-total {
@@ -562,13 +584,14 @@ onUnmounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 700;
+  color: #1f2937;
 }
 
 .section-desc {
   width: 100%;
   margin-left: 40px;
   font-size: 14px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* 이상 종목 카드 */
@@ -617,6 +640,7 @@ onUnmounted(() => {
 .stock-name {
   font-weight: 700;
   font-size: 16px;
+  color: #1f2937;
 }
 
 .change-badge {
@@ -643,12 +667,13 @@ onUnmounted(() => {
 
 .card-value .label {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 .card-value .value {
   font-size: 20px;
   font-weight: 700;
+  color: #1f2937;
 }
 
 .card-value.big .value {
@@ -657,7 +682,7 @@ onUnmounted(() => {
 
 .card-bar {
   height: 8px;
-  background: var(--border-light);
+  background: #f3f4f6;
   border-radius: 4px;
   overflow: hidden;
 }
@@ -682,11 +707,12 @@ onUnmounted(() => {
 
 .bar-item .label {
   font-size: 13px;
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 .bar-item .value {
   font-weight: 600;
+  color: #1f2937;
 }
 
 .contrarian-info {
@@ -713,17 +739,19 @@ onUnmounted(() => {
 .info-row .label {
   font-size: 13px;
   font-weight: 500;
+  color: #374151;
 }
 
 .info-row .value {
   font-weight: 700;
+  color: inherit;
 }
 
 /* 빈 상태 */
 .empty-anomaly {
   text-align: center;
   padding: 60px 20px;
-  background: var(--background-secondary);
+  background: #f3f4f6;
   border-radius: 16px;
 }
 
@@ -736,17 +764,18 @@ onUnmounted(() => {
   margin: 0 0 8px 0;
   font-size: 16px;
   font-weight: 600;
+  color: #374151;
 }
 
 .empty-anomaly small {
-  color: var(--text-muted);
+  color: #6b7280;
 }
 
 /* 업데이트 정보 */
 .update-info {
   text-align: center;
   padding: 16px;
-  color: var(--text-muted);
+  color: #6b7280;
   font-size: 13px;
 }
 
