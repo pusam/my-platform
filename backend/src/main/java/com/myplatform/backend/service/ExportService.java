@@ -1,8 +1,8 @@
 package com.myplatform.backend.service;
 
-import com.myplatform.backend.entity.Asset;
+import com.myplatform.backend.entity.UserAsset;
 import com.myplatform.backend.entity.FinanceTransaction;
-import com.myplatform.backend.repository.AssetRepository;
+import com.myplatform.backend.repository.UserAssetRepository;
 import com.myplatform.backend.repository.FinanceTransactionRepository;
 import com.myplatform.backend.repository.UserRepository;
 import org.apache.poi.ss.usermodel.*;
@@ -15,26 +15,28 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 import java.util.List;
 
 @Service
 public class ExportService {
 
-    private final AssetRepository assetRepository;
+    private final UserAssetRepository userAssetRepository;
     private final FinanceTransactionRepository financeTransactionRepository;
     private final UserRepository userRepository;
 
-    public ExportService(AssetRepository assetRepository,
+    public ExportService(UserAssetRepository userAssetRepository,
                         FinanceTransactionRepository financeTransactionRepository,
                         UserRepository userRepository) {
-        this.assetRepository = assetRepository;
+        this.userAssetRepository = userAssetRepository;
         this.financeTransactionRepository = financeTransactionRepository;
         this.userRepository = userRepository;
     }
 
     public byte[] exportAssetsToExcel(String username) throws IOException {
         Long userId = getUserId(username);
-        List<Asset> assets = assetRepository.findByUserIdOrderByPurchaseDateDesc(userId);
+        List<UserAsset> assets = userAssetRepository.findByUserId(userId);
+        assets.sort(Comparator.comparing(UserAsset::getPurchaseDate).reversed());
 
         try (Workbook workbook = new XSSFWorkbook();
              ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -62,7 +64,7 @@ public class ExportService {
             // 데이터 행 생성
             DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
             int rowNum = 1;
-            for (Asset asset : assets) {
+            for (UserAsset asset : assets) {
                 Row row = sheet.createRow(rowNum++);
                 row.createCell(0).setCellValue(getAssetTypeLabel(asset.getAssetType()));
                 row.createCell(1).setCellValue(getAssetName(asset));
@@ -86,7 +88,8 @@ public class ExportService {
 
     public byte[] exportAssetsToCsv(String username) throws IOException {
         Long userId = getUserId(username);
-        List<Asset> assets = assetRepository.findByUserIdOrderByPurchaseDateDesc(userId);
+        List<UserAsset> assets = userAssetRepository.findByUserId(userId);
+        assets.sort(Comparator.comparing(UserAsset::getPurchaseDate).reversed());
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         // BOM for Excel UTF-8 compatibility
@@ -99,7 +102,7 @@ public class ExportService {
             writer.println("종류,종목명/자산명,수량,구매가격,총액,구매일,메모");
 
             DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
-            for (Asset asset : assets) {
+            for (UserAsset asset : assets) {
                 writer.println(String.format("%s,%s,%s,%s,%s,%s,%s",
                         escapeCsv(getAssetTypeLabel(asset.getAssetType())),
                         escapeCsv(getAssetName(asset)),
@@ -116,13 +119,12 @@ public class ExportService {
     }
 
     public byte[] exportFinanceToExcel(String username, Integer year, Integer month) throws IOException {
-        Long userId = getUserId(username);
         List<FinanceTransaction> transactions;
 
         if (year != null && month != null) {
-            transactions = financeTransactionRepository.findByUserIdAndYearAndMonth(userId, year, month);
+            transactions = financeTransactionRepository.findByUsernameAndYearMonth(username, year, month);
         } else {
-            transactions = financeTransactionRepository.findByUserIdOrderByTransactionDateDesc(userId);
+            transactions = financeTransactionRepository.findByUsernameOrderByTransactionDateDesc(username);
         }
 
         try (Workbook workbook = new XSSFWorkbook();
@@ -153,7 +155,7 @@ public class ExportService {
             int rowNum = 1;
             for (FinanceTransaction tx : transactions) {
                 Row row = sheet.createRow(rowNum++);
-                row.createCell(0).setCellValue("INCOME".equals(tx.getType()) ? "수입" : "지출");
+                row.createCell(0).setCellValue(tx.getType() == FinanceTransaction.TransactionType.INCOME ? "수입" : "지출");
                 row.createCell(1).setCellValue(tx.getCategory());
                 row.createCell(2).setCellValue(tx.getAmount().doubleValue());
                 row.createCell(3).setCellValue(tx.getTransactionDate() != null
@@ -172,13 +174,12 @@ public class ExportService {
     }
 
     public byte[] exportFinanceToCsv(String username, Integer year, Integer month) throws IOException {
-        Long userId = getUserId(username);
         List<FinanceTransaction> transactions;
 
         if (year != null && month != null) {
-            transactions = financeTransactionRepository.findByUserIdAndYearAndMonth(userId, year, month);
+            transactions = financeTransactionRepository.findByUsernameAndYearMonth(username, year, month);
         } else {
-            transactions = financeTransactionRepository.findByUserIdOrderByTransactionDateDesc(userId);
+            transactions = financeTransactionRepository.findByUsernameOrderByTransactionDateDesc(username);
         }
 
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -194,7 +195,7 @@ public class ExportService {
             DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
             for (FinanceTransaction tx : transactions) {
                 writer.println(String.format("%s,%s,%s,%s,%s",
-                        "INCOME".equals(tx.getType()) ? "수입" : "지출",
+                        tx.getType() == FinanceTransaction.TransactionType.INCOME ? "수입" : "지출",
                         escapeCsv(tx.getCategory()),
                         tx.getAmount(),
                         tx.getTransactionDate() != null ? tx.getTransactionDate().format(dateFormatter) : "",
@@ -222,7 +223,7 @@ public class ExportService {
         };
     }
 
-    private String getAssetName(Asset asset) {
+    private String getAssetName(UserAsset asset) {
         if ("STOCK".equals(asset.getAssetType())) {
             return asset.getStockName() != null ? asset.getStockName() : asset.getStockCode();
         } else if ("OTHER".equals(asset.getAssetType())) {
