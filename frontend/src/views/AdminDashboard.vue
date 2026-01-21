@@ -197,12 +197,6 @@
         </div>
 
         <div class="section">
-          <h2>✅ 회원가입 승인</h2>
-          <p>승인 대기 중인 사용자를 관리할 수 있습니다.</p>
-          <button @click="goToUserApproval" class="action-btn">승인 관리</button>
-        </div>
-
-        <div class="section">
           <h2>👥 사용자 관리</h2>
           <p>모든 사용자의 권한과 상태를 관리할 수 있습니다.</p>
           <button @click="goToUserManagement" class="action-btn">사용자 관리</button>

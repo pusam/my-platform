@@ -12,7 +12,6 @@ import GoldPricePage from './views/GoldPricePage.vue'
 import SilverPricePage from './views/SilverPricePage.vue'
 import MyContentPage from './views/MyContentPage.vue'
 import SettingsPage from './views/SettingsPage.vue'
-import UserApproval from './views/UserApproval.vue'
 import AssetManagement from './views/AssetManagement.vue'
 import FileManager from './views/FileManager.vue'
 import FinanceManagement from './views/FinanceManagement.vue'
@@ -121,12 +120,6 @@ const router = createRouter({
       name: 'CarManagement',
       component: CarManagement,
       meta: { requiresAuth: true }
-    },
-    {
-      path: '/user-approval',
-      name: 'UserApproval',
-      component: UserApproval,
-      meta: { requiresAuth: true, role: 'ADMIN' }
     },
     {
       path: '/admin/users',
