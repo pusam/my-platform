@@ -253,6 +253,97 @@
             </svg>
           </span>
         </article>
+
+        <article class="menu-card reddit" @click="goToReddit">
+          <div class="card-icon reddit-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M16.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+              <path d="M10.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+              <path d="M15 15.5c-1 1-2 1.5-3 1.5s-2-.5-3-1.5"/>
+              <path d="M17 8l2-2M19 6a1 1 0 100-2 1 1 0 000 2z"/>
+              <path d="M17.5 9c1.5 0 2.5 1 2.5 2"/>
+            </svg>
+          </div>
+          <h3>Reddit 주식 정보</h3>
+          <p>해외 주식 커뮤니티(WSB, stocks 등)의 실시간 트렌드와 인기 게시물을 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+      </section>
+
+      <!-- 시세 위젯 그리드 -->
+      <section v-if="widgetSettings.goldPrice || widgetSettings.silverPrice || widgetSettings.assetSummary" class="price-widgets-grid">
+        <!-- 금 시세 위젯 -->
+        <div v-if="widgetSettings.goldPrice" class="price-widget gold-widget" @click="goToGold">
+          <div class="widget-header">
+            <div class="widget-icon gold">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 6v12"/>
+                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+              </svg>
+            </div>
+            <span class="widget-label">금 시세</span>
+          </div>
+          <div v-if="goldPrice" class="widget-body">
+            <div class="price-main">{{ formatCurrency(goldPrice.price) }}<small>/g</small></div>
+            <div class="price-change" :class="goldPrice.changeRate >= 0 ? 'positive' : 'negative'">
+              {{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%
+            </div>
+          </div>
+          <div v-else class="widget-body loading">
+            <span v-if="loadingPrices">로딩 중...</span>
+            <span v-else>데이터 없음</span>
+          </div>
+        </div>
+
+        <!-- 은 시세 위젯 -->
+        <div v-if="widgetSettings.silverPrice" class="price-widget silver-widget" @click="goToSilver">
+          <div class="widget-header">
+            <div class="widget-icon silver">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 6v12"/>
+                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+              </svg>
+            </div>
+            <span class="widget-label">은 시세</span>
+          </div>
+          <div v-if="silverPrice" class="widget-body">
+            <div class="price-main">{{ formatCurrency(silverPrice.price) }}<small>/g</small></div>
+            <div class="price-change" :class="silverPrice.changeRate >= 0 ? 'positive' : 'negative'">
+              {{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%
+            </div>
+          </div>
+          <div v-else class="widget-body loading">
+            <span v-if="loadingPrices">로딩 중...</span>
+            <span v-else>데이터 없음</span>
+          </div>
+        </div>
+
+        <!-- 자산 요약 위젯 -->
+        <div v-if="widgetSettings.assetSummary" class="price-widget asset-widget" @click="goToAsset">
+          <div class="widget-header">
+            <div class="widget-icon asset">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="12" y1="1" x2="12" y2="23"/>
+                <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+              </svg>
+            </div>
+            <span class="widget-label">자산 요약</span>
+          </div>
+          <div class="widget-body">
+            <div class="price-main">{{ formatCurrency(assetSummary.totalAssets) }}</div>
+            <div class="price-change" :class="assetSummary.totalProfit >= 0 ? 'positive' : 'negative'">
+              {{ assetSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(assetSummary.totalProfit) }}
+              ({{ assetSummary.profitRate >= 0 ? '+' : '' }}{{ assetSummary.profitRate?.toFixed(2) || 0 }}%)
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 오늘의 경제 뉴스 -->
@@ -368,7 +459,7 @@
 </template>
 
 <script>
-import { newsAPI, financeAPI } from '../utils/api';
+import { newsAPI, financeAPI, goldAPI, silverAPI, assetAPI } from '../utils/api';
 import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
 
 export default {
@@ -393,7 +484,15 @@ export default {
         totalIncome: 0,
         totalExpense: 0,
         balance: 0
-      }
+      },
+      goldPrice: null,
+      silverPrice: null,
+      assetSummary: {
+        totalAssets: 0,
+        totalProfit: 0,
+        profitRate: 0
+      },
+      loadingPrices: false
     }
   },
   mounted() {
@@ -401,6 +500,8 @@ export default {
     this.loadWidgetSettings()
     this.loadNews()
     this.loadFinanceSummary()
+    this.loadPrices()
+    this.loadAssetSummary()
   },
   methods: {
     loadWidgetSettings() {
@@ -411,6 +512,19 @@ export default {
     },
     updateWidgetSettings(settings) {
       this.widgetSettings = { ...this.widgetSettings, ...settings }
+      // 위젯 데이터 다시 로드
+      if (settings.goldPrice || settings.silverPrice) {
+        this.loadPrices()
+      }
+      if (settings.assetSummary) {
+        this.loadAssetSummary()
+      }
+      if (settings.financeSummary) {
+        this.loadFinanceSummary()
+      }
+      if (settings.news) {
+        this.loadNews()
+      }
     },
     async loadFinanceSummary() {
       try {
@@ -426,6 +540,40 @@ export default {
         }
       } catch (error) {
         console.error('가계부 요약 로드 실패:', error)
+      }
+    },
+    async loadPrices() {
+      this.loadingPrices = true
+      try {
+        const [goldRes, silverRes] = await Promise.all([
+          goldAPI.getPrice(),
+          silverAPI.getPrice()
+        ])
+        if (goldRes.data.success) {
+          this.goldPrice = goldRes.data.data
+        }
+        if (silverRes.data.success) {
+          this.silverPrice = silverRes.data.data
+        }
+      } catch (error) {
+        console.error('시세 로드 실패:', error)
+      } finally {
+        this.loadingPrices = false
+      }
+    },
+    async loadAssetSummary() {
+      try {
+        const response = await assetAPI.getAssetSummary()
+        if (response.data.success) {
+          const data = response.data.data
+          this.assetSummary = {
+            totalAssets: data.totalCurrentValue || 0,
+            totalProfit: data.totalProfit || 0,
+            profitRate: data.profitRate || 0
+          }
+        }
+      } catch (error) {
+        console.error('자산 요약 로드 실패:', error)
       }
     },
     formatCurrency(value) {
@@ -511,6 +659,9 @@ export default {
     },
     goToSupplyChart() {
       this.$router.push('/supply-chart')
+    },
+    goToReddit() {
+      this.$router.push('/reddit')
     },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
@@ -768,6 +919,25 @@ export default {
 
 .menu-card.supply-chart h3 {
   color: #DC2626;
+}
+
+.card-icon.reddit-icon {
+  background: linear-gradient(135deg, rgba(255, 69, 0, 0.15) 0%, rgba(255, 87, 34, 0.15) 100%);
+  color: #FF4500;
+}
+
+.menu-card.reddit {
+  background: linear-gradient(135deg, rgba(255, 247, 237, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(255, 69, 0, 0.2);
+}
+
+.menu-card.reddit:hover {
+  border-color: #FF4500;
+  box-shadow: 0 20px 40px rgba(255, 69, 0, 0.15);
+}
+
+.menu-card.reddit h3 {
+  color: #EA580C;
 }
 
 .menu-card h3 {
@@ -1356,6 +1526,153 @@ export default {
 
   .finance-stat {
     padding: 16px;
+  }
+}
+
+/* 시세 위젯 그리드 */
+.price-widgets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin-bottom: var(--section-gap);
+}
+
+.price-widget {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.price-widget:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+}
+
+.price-widget .widget-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.price-widget .widget-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.price-widget .widget-icon.gold {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
+  color: #daa520;
+}
+
+.price-widget .widget-icon.silver {
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(128, 128, 128, 0.2) 100%);
+  color: #708090;
+}
+
+.price-widget .widget-icon.asset {
+  background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
+  color: #f7b733;
+}
+
+.price-widget .widget-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.price-widget .widget-body {
+  padding-left: 60px;
+}
+
+.price-widget .widget-body.loading {
+  color: #9ca3af;
+  font-size: 14px;
+}
+
+.price-widget .price-main {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 4px;
+}
+
+.price-widget .price-main small {
+  font-size: 14px;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.price-widget .price-change {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.price-widget .price-change.positive {
+  color: #ef4444;
+}
+
+.price-widget .price-change.negative {
+  color: #3b82f6;
+}
+
+.gold-widget {
+  border-color: rgba(255, 215, 0, 0.3);
+}
+
+.gold-widget:hover {
+  border-color: #ffd700;
+}
+
+.silver-widget {
+  border-color: rgba(192, 192, 192, 0.3);
+}
+
+.silver-widget:hover {
+  border-color: #c0c0c0;
+}
+
+.asset-widget {
+  border-color: rgba(247, 183, 51, 0.3);
+}
+
+.asset-widget:hover {
+  border-color: #f7b733;
+}
+
+[data-theme="dark"] .price-widget {
+  background: var(--card-bg);
+}
+
+[data-theme="dark"] .price-widget .widget-label {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .price-widget .price-main {
+  color: var(--text-primary);
+}
+
+@media (max-width: 768px) {
+  .price-widgets-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .price-widget .widget-body {
+    padding-left: 0;
+    margin-top: 12px;
+  }
+
+  .price-widget .price-main {
+    font-size: 24px;
   }
 }
 </style>

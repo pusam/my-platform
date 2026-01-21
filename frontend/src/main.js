@@ -22,6 +22,7 @@ import SectorTradingPage from './views/SectorTradingPage.vue'
 import InvestorTradingPage from './views/InvestorTradingPage.vue'
 import ChartComparePage from './views/ChartComparePage.vue'
 import SupplyDemandChartPage from './views/SupplyDemandChartPage.vue'
+import RedditPage from './views/RedditPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -147,6 +148,12 @@ const router = createRouter({
       path: '/supply-chart',
       name: 'SupplyDemandChart',
       component: SupplyDemandChartPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/reddit',
+      name: 'RedditPage',
+      component: RedditPage,
       meta: { requiresAuth: true }
     },
     {

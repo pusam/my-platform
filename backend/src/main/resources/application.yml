@@ -91,6 +91,15 @@ kis:
     base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
     # 모의투자: https://openapivts.koreainvestment.com:29443
 
+# 8. Reddit API 설정
+reddit:
+  api:
+    client-id: ${REDDIT_CLIENT_ID:}
+    client-secret: ${REDDIT_CLIENT_SECRET:}
+    user-agent: ${REDDIT_USER_AGENT:my-platform/1.0}
+    username: ${REDDIT_USERNAME:}
+    password: ${REDDIT_PASSWORD:}
+
 # 7. Swagger
 springdoc:
   api-docs:

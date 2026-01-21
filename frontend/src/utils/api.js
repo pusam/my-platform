@@ -453,6 +453,34 @@ export const exportAPI = {
   }
 };
 
+// Reddit API
+export const redditAPI = {
+  // API 상태 확인
+  getStatus() {
+    return apiClient.get('/reddit/status');
+  },
+  // 주식 관련 인기 게시물
+  getStockPosts(limit = 10) {
+    return apiClient.get('/reddit/posts', { params: { limit } });
+  },
+  // 특정 서브레딧 게시물
+  getSubredditPosts(subreddit, sort = 'hot', limit = 25) {
+    return apiClient.get(`/reddit/subreddit/${subreddit}`, { params: { sort, limit } });
+  },
+  // 주식 관련 검색
+  searchPosts(query, limit = 25) {
+    return apiClient.get('/reddit/search', { params: { query, limit } });
+  },
+  // 트렌딩 티커
+  getTrendingTickers(postLimit = 15) {
+    return apiClient.get('/reddit/trending', { params: { postLimit } });
+  },
+  // 지원 서브레딧 목록
+  getSubreddits() {
+    return apiClient.get('/reddit/subreddits');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
