@@ -76,6 +76,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/gold/price", "/api/silver/price").permitAll()
                         .requestMatchers("/api/gold/history/**", "/api/silver/history/**").permitAll()
 
+                        // AI 서버 상태 확인 API (공개)
+                        .requestMatchers("/api/ai/status").permitAll()
+
                         // Actuator health check
                         .requestMatchers("/actuator/health/**").permitAll()
 

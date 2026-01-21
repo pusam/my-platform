@@ -147,7 +147,9 @@ const checkAiStatus = async () => {
     const response = await aiAPI.checkStatus();
     aiAvailable.value = response.data.data === true;
   } catch (e) {
+    // 에러 발생 시 (401 포함) AI를 사용할 수 없는 것으로 처리
     aiAvailable.value = false;
+    // 콘솔에 에러를 출력하지 않음 (불필요한 로그 방지)
   }
 };
 
