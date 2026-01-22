@@ -171,124 +171,98 @@
             </svg>
           </span>
         </article>
-      </section>
 
-      <!-- 위젯 그리드 -->
-      <section class="price-widgets-grid">
-        <!-- 금 시세 위젯 -->
-        <div v-if="widgetSettings.goldPrice" class="price-widget gold-widget" @click="goToGold">
-          <div class="widget-header">
-            <div class="widget-icon gold">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v12"/>
-                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-              </svg>
-            </div>
-            <span class="widget-label">금 시세</span>
+        <!-- 금 시세 -->
+        <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
+          <div class="card-icon gold-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v12"/>
+              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+            </svg>
           </div>
-          <div v-if="goldPrice" class="widget-body">
-            <div class="price-main">{{ formatCurrency(goldPrice.price) }}<small>/g</small></div>
-            <div class="price-change" :class="goldPrice.changeRate >= 0 ? 'positive' : 'negative'">
-              {{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%
-            </div>
-          </div>
-          <div v-else class="widget-body loading">
-            <span v-if="loadingPrices">로딩 중...</span>
-            <span v-else>데이터 없음</span>
-          </div>
-        </div>
+          <h3>금 시세</h3>
+          <p v-if="goldPrice">{{ formatCurrency(goldPrice.price) }}/g <span :class="goldPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
+          <p v-else>금 시세를 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <!-- 은 시세 위젯 -->
-        <div v-if="widgetSettings.silverPrice" class="price-widget silver-widget" @click="goToSilver">
-          <div class="widget-header">
-            <div class="widget-icon silver">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v12"/>
-                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-              </svg>
-            </div>
-            <span class="widget-label">은 시세</span>
+        <!-- 은 시세 -->
+        <article v-if="widgetSettings.silverPrice" class="menu-card silver" @click="goToSilver">
+          <div class="card-icon silver-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v12"/>
+              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+            </svg>
           </div>
-          <div v-if="silverPrice" class="widget-body">
-            <div class="price-main">{{ formatCurrency(silverPrice.price) }}<small>/g</small></div>
-            <div class="price-change" :class="silverPrice.changeRate >= 0 ? 'positive' : 'negative'">
-              {{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%
-            </div>
-          </div>
-          <div v-else class="widget-body loading">
-            <span v-if="loadingPrices">로딩 중...</span>
-            <span v-else>데이터 없음</span>
-          </div>
-        </div>
+          <h3>은 시세</h3>
+          <p v-if="silverPrice">{{ formatCurrency(silverPrice.price) }}/g <span :class="silverPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
+          <p v-else>은 시세를 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <!-- 자산 요약 위젯 -->
-        <div v-if="widgetSettings.assetSummary" class="price-widget asset-widget" @click="goToAsset">
-          <div class="widget-header">
-            <div class="widget-icon asset">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <line x1="12" y1="1" x2="12" y2="23"/>
-                <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-              </svg>
-            </div>
-            <span class="widget-label">자산 요약</span>
+        <!-- 자산 관리 -->
+        <article v-if="widgetSettings.assetSummary" class="menu-card asset" @click="goToAsset">
+          <div class="card-icon asset-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <line x1="12" y1="1" x2="12" y2="23"/>
+              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+            </svg>
           </div>
-          <div class="widget-body">
-            <div class="price-main">{{ formatCurrency(assetSummary.totalAssets) }}</div>
-            <div class="price-change" :class="assetSummary.totalProfit >= 0 ? 'positive' : 'negative'">
-              {{ assetSummary.totalProfit >= 0 ? '+' : '' }}{{ formatCurrency(assetSummary.totalProfit) }}
-              ({{ assetSummary.profitRate >= 0 ? '+' : '' }}{{ assetSummary.profitRate?.toFixed(2) || 0 }}%)
-            </div>
-          </div>
-        </div>
+          <h3>자산 관리</h3>
+          <p>총 자산 {{ formatCurrency(assetSummary.totalAssets) }} <span :class="assetSummary.totalProfit >= 0 ? 'text-positive' : 'text-negative'">({{ assetSummary.totalProfit >= 0 ? '+' : '' }}{{ assetSummary.profitRate?.toFixed(2) || 0 }}%)</span></p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <!-- 가계부 위젯 -->
-        <div v-if="widgetSettings.financeSummary" class="price-widget finance-widget" @click="goToFinance">
-          <div class="widget-header">
-            <div class="widget-icon finance">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                <line x1="16" y1="2" x2="16" y2="6"/>
-                <line x1="8" y1="2" x2="8" y2="6"/>
-                <line x1="3" y1="10" x2="21" y2="10"/>
-              </svg>
-            </div>
-            <span class="widget-label">이번 달 가계부</span>
+        <!-- 가계부 -->
+        <article v-if="widgetSettings.financeSummary" class="menu-card finance" @click="goToFinance">
+          <div class="card-icon finance-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
           </div>
-          <div class="widget-body">
-            <div class="price-main" :class="financeSummary.balance >= 0 ? 'positive' : 'negative'">
-              {{ formatCurrency(financeSummary.balance) }}
-            </div>
-            <div class="finance-detail">
-              <span class="income">+{{ formatCurrency(financeSummary.totalIncome) }}</span>
-              <span class="expense">-{{ formatCurrency(financeSummary.totalExpense) }}</span>
-            </div>
-          </div>
-        </div>
+          <h3>가계부</h3>
+          <p>이번 달 <span :class="financeSummary.balance >= 0 ? 'text-positive' : 'text-negative'">{{ formatCurrency(financeSummary.balance) }}</span></p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
-        <!-- 경제 뉴스 위젯 -->
-        <div v-if="widgetSettings.news" class="price-widget news-widget" @click="goToNews">
-          <div class="widget-header">
-            <div class="widget-icon news">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
-                <path d="M7 7h10M7 11h10M7 15h7"/>
-              </svg>
-            </div>
-            <span class="widget-label">경제 뉴스</span>
-            <span class="ai-badge">AI</span>
+        <!-- 경제 뉴스 -->
+        <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
+          <div class="card-icon news-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+              <path d="M7 7h10M7 11h10M7 15h7"/>
+            </svg>
           </div>
-          <div class="widget-body">
-            <div v-if="newsList.length > 0" class="news-preview">
-              <div class="news-count">{{ newsList.length }}개의 뉴스</div>
-              <div class="news-latest">{{ newsList[0]?.title }}</div>
-            </div>
-            <div v-else class="news-preview empty">
-              <span>뉴스 없음</span>
-            </div>
-          </div>
-        </div>
+          <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
+          <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
+          <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
       </section>
 
       <!-- AI 상담 배너 -->
@@ -753,6 +727,128 @@ export default {
   color: #2563EB;
 }
 
+/* 금 시세 카드 */
+.card-icon.gold-icon {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
+  color: #daa520;
+}
+
+.menu-card.gold {
+  background: linear-gradient(135deg, rgba(255, 250, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(255, 215, 0, 0.3);
+}
+
+.menu-card.gold:hover {
+  border-color: #ffd700;
+  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.15);
+}
+
+.menu-card.gold h3 {
+  color: #b8860b;
+}
+
+/* 은 시세 카드 */
+.card-icon.silver-icon {
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(169, 169, 169, 0.2) 100%);
+  color: #708090;
+}
+
+.menu-card.silver {
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(192, 192, 192, 0.3);
+}
+
+.menu-card.silver:hover {
+  border-color: #c0c0c0;
+  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.15);
+}
+
+.menu-card.silver h3 {
+  color: #5a6a7a;
+}
+
+/* 자산 관리 카드 */
+.card-icon.asset-icon {
+  background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
+  color: #f7b733;
+}
+
+.menu-card.asset {
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(247, 183, 51, 0.3);
+}
+
+.menu-card.asset:hover {
+  border-color: #f7b733;
+  box-shadow: 0 20px 40px rgba(247, 183, 51, 0.15);
+}
+
+.menu-card.asset h3 {
+  color: #d97706;
+}
+
+/* 가계부 카드 */
+.card-icon.finance-icon {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
+  color: #2ecc71;
+}
+
+.menu-card.finance {
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(46, 204, 113, 0.3);
+}
+
+.menu-card.finance:hover {
+  border-color: #2ecc71;
+  box-shadow: 0 20px 40px rgba(46, 204, 113, 0.15);
+}
+
+.menu-card.finance h3 {
+  color: #16a34a;
+}
+
+/* 뉴스 카드 */
+.card-icon.news-icon {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+  color: #3b82f6;
+}
+
+.menu-card.news {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(59, 130, 246, 0.3);
+}
+
+.menu-card.news:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
+}
+
+.menu-card.news h3 {
+  color: #2563eb;
+}
+
+/* AI 뱃지 (메뉴 카드용) */
+.menu-ai-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* 텍스트 색상 유틸리티 */
+.text-positive {
+  color: #ef4444;
+}
+
+.text-negative {
+  color: #3b82f6;
+}
+
 .menu-card h3 {
   font-size: 20px;
   color: var(--text-primary);
@@ -984,245 +1080,5 @@ export default {
 
 [data-theme="dark"] .btn-widget-settings:hover {
   color: var(--primary-start);
-}
-
-/* 시세 위젯 그리드 */
-.price-widgets-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  margin-bottom: var(--section-gap);
-}
-
-.price-widget {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: 24px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: 2px solid transparent;
-}
-
-.price-widget:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-}
-
-.price-widget .widget-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.price-widget .widget-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.price-widget .widget-icon.gold {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
-  color: #daa520;
-}
-
-.price-widget .widget-icon.silver {
-  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(128, 128, 128, 0.2) 100%);
-  color: #708090;
-}
-
-.price-widget .widget-icon.asset {
-  background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
-  color: #f7b733;
-}
-
-.price-widget .widget-label {
-  font-size: 16px;
-  font-weight: 600;
-  color: #374151;
-}
-
-.price-widget .widget-body {
-  padding-left: 60px;
-}
-
-.price-widget .widget-body.loading {
-  color: #9ca3af;
-  font-size: 14px;
-}
-
-.price-widget .price-main {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1f2937;
-  margin-bottom: 4px;
-}
-
-.price-widget .price-main small {
-  font-size: 14px;
-  font-weight: 400;
-  color: #6b7280;
-}
-
-.price-widget .price-change {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.price-widget .price-change.positive {
-  color: #ef4444;
-}
-
-.price-widget .price-change.negative {
-  color: #3b82f6;
-}
-
-.gold-widget {
-  border-color: rgba(255, 215, 0, 0.3);
-}
-
-.gold-widget:hover {
-  border-color: #ffd700;
-}
-
-.silver-widget {
-  border-color: rgba(192, 192, 192, 0.3);
-}
-
-.silver-widget:hover {
-  border-color: #c0c0c0;
-}
-
-.asset-widget {
-  border-color: rgba(247, 183, 51, 0.3);
-}
-
-.asset-widget:hover {
-  border-color: #f7b733;
-}
-
-.price-widget .widget-icon.finance {
-  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
-  color: #2ecc71;
-}
-
-.finance-widget {
-  border-color: rgba(46, 204, 113, 0.3);
-}
-
-.finance-widget:hover {
-  border-color: #2ecc71;
-}
-
-.price-widget .price-main.positive {
-  color: #2ecc71;
-}
-
-.price-widget .price-main.negative {
-  color: #e74c3c;
-}
-
-.finance-detail {
-  display: flex;
-  gap: 12px;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.finance-detail .income {
-  color: #2ecc71;
-}
-
-.finance-detail .expense {
-  color: #e74c3c;
-}
-
-/* 뉴스 위젯 */
-.price-widget .widget-icon.news {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
-  color: #3b82f6;
-}
-
-.news-widget {
-  border-color: rgba(59, 130, 246, 0.3);
-}
-
-.news-widget:hover {
-  border-color: #3b82f6;
-}
-
-.news-widget .widget-header {
-  position: relative;
-}
-
-.ai-badge {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.news-preview {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.news-preview .news-count {
-  font-size: 24px;
-  font-weight: 700;
-  color: #3b82f6;
-}
-
-.news-preview .news-latest {
-  font-size: 13px;
-  color: #6b7280;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
-}
-
-.news-preview.empty {
-  color: #9ca3af;
-  font-size: 14px;
-}
-
-[data-theme="dark"] .price-widget {
-  background: var(--card-bg);
-}
-
-[data-theme="dark"] .price-widget .widget-label {
-  color: var(--text-primary);
-}
-
-[data-theme="dark"] .price-widget .price-main {
-  color: var(--text-primary);
-}
-
-@media (max-width: 768px) {
-  .price-widgets-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .price-widget .widget-body {
-    padding-left: 0;
-    margin-top: 12px;
-  }
-
-  .price-widget .price-main {
-    font-size: 24px;
-  }
 }
 </style>

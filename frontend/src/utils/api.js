@@ -471,6 +471,68 @@ export const marketInvestorAPI = {
   }
 };
 
+// Investor Daily Trade API (투자자별 일별 상위 종목)
+export const investorTradeAPI = {
+  // 데이터 수집 (당일)
+  collect() {
+    return apiClient.post('/investor-trades/collect');
+  },
+  // 데이터 수집 (특정일)
+  collectByDate(date) {
+    return apiClient.post(`/investor-trades/collect/${date}`);
+  },
+  // 일자별 전체 조회
+  getByDate(date) {
+    return apiClient.get('/investor-trades', { params: { date } });
+  },
+  // 시장별 조회
+  getByMarket(marketType, date) {
+    return apiClient.get(`/investor-trades/market/${marketType}`, { params: { date } });
+  },
+  // 투자자별 조회
+  getByInvestor(investorType, date) {
+    return apiClient.get(`/investor-trades/investor/${investorType}`, { params: { date } });
+  },
+  // 시장 + 투자자별 조회
+  getByMarketAndInvestor(marketType, investorType, date) {
+    return apiClient.get(`/investor-trades/market/${marketType}/investor/${investorType}`, { params: { date } });
+  },
+  // 연기금 코스피 조회
+  getPensionKospi(date) {
+    return apiClient.get('/investor-trades/pension/kospi', { params: { date } });
+  },
+  // 연기금 코스닥 조회
+  getPensionKosdaq(date) {
+    return apiClient.get('/investor-trades/pension/kosdaq', { params: { date } });
+  },
+  // 기간별 투자자 조회
+  getByInvestorRange(investorType, startDate, endDate) {
+    return apiClient.get(`/investor-trades/investor/${investorType}/range`, {
+      params: { startDate, endDate }
+    });
+  },
+  // 기간별 종목 조회
+  getByStockRange(stockCode, startDate, endDate) {
+    return apiClient.get(`/investor-trades/stock/${stockCode}/range`, {
+      params: { startDate, endDate }
+    });
+  },
+  // 누적 통계 조회
+  getStats(investorType, marketType, startDate, endDate) {
+    return apiClient.get(`/investor-trades/stats/${investorType}/${marketType}`, {
+      params: { startDate, endDate }
+    });
+  },
+  // 데이터 있는 날짜 목록
+  getAvailableDates(marketType, investorType) {
+    return apiClient.get(`/investor-trades/dates/${marketType}/${investorType}`);
+  },
+  // 데이터 재수집
+  recollect(marketType, investorType, date) {
+    return apiClient.post(`/investor-trades/recollect/${marketType}/${investorType}/${date}`);
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
