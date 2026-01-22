@@ -19,8 +19,6 @@ import CarManagement from './views/CarManagement.vue'
 import UserManagement from './views/UserManagement.vue'
 import ActivityLogs from './views/ActivityLogs.vue'
 import SectorTradingPage from './views/SectorTradingPage.vue'
-import InvestorTradingPage from './views/InvestorTradingPage.vue'
-import SupplyDemandChartPage from './views/SupplyDemandChartPage.vue'
 import RedditPage from './views/RedditPage.vue'
 import MarketInvestorPage from './views/MarketInvestorPage.vue'
 
@@ -130,18 +128,6 @@ const router = createRouter({
       path: '/sector',
       name: 'SectorTrading',
       component: SectorTradingPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/investor',
-      name: 'InvestorTrading',
-      component: InvestorTradingPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/supply-chart',
-      name: 'SupplyDemandChart',
-      component: SupplyDemandChartPage,
       meta: { requiresAuth: true }
     },
     {

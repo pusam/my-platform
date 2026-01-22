@@ -277,30 +277,6 @@ export const sectorAPI = {
   }
 };
 
-// Investor Trading API (수급 탐지기)
-export const investorAPI = {
-  // 종목별 투자자 동향 조회
-  getInvestorTrading(stockCode) {
-    return apiClient.get(`/investor/${stockCode}`);
-  },
-  // 주요 종목 수급 현황
-  getTopStocks() {
-    return apiClient.get('/investor/top');
-  },
-  // 관심 종목 수급 조회
-  getWatchlist(stockCodes) {
-    return apiClient.post('/investor/watchlist', stockCodes);
-  },
-  // 수급 순위 조회 (외국인+기관 순매수 상위)
-  getRanking(sector = '', sortBy = 'TOTAL') {
-    return apiClient.get('/investor/ranking', { params: { sector, sortBy } });
-  },
-  // 수급 이상 종목 탐지 (프로그램 순매수 쌓이는데 주가 횡보 등)
-  getAnomalyStocks() {
-    return apiClient.get('/investor/anomaly');
-  }
-};
-
 // AI Chat API
 export const aiAPI = {
   // AI 채팅 (타임아웃 60초로 설정 - AI 응답이 느릴 수 있음)

@@ -133,42 +133,6 @@
           </span>
         </article>
 
-        <article class="menu-card investor" @click="goToInvestor">
-          <div class="card-icon investor-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-              <circle cx="9" cy="7" r="4"/>
-              <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-              <path d="M16 3.13a4 4 0 010 7.75"/>
-            </svg>
-          </div>
-          <h3>수급 탐지기</h3>
-          <p>외국인/기관/프로그램 순매수를 추적하고 매수 신호를 포착합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card supply-chart" @click="goToSupplyChart">
-          <div class="card-icon supply-chart-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="12" x2="16" y2="14"/>
-              <path d="M8 14l2-4 2 4 2-6"/>
-            </svg>
-          </div>
-          <h3>수급 차트</h3>
-          <p>"얘네 왜 이렇게 사지?" 종목 발견! 외국인/기관 순매수 순위와 이상 패턴을 탐지합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
         <article class="menu-card reddit" @click="goToReddit">
           <div class="card-icon reddit-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -210,7 +174,7 @@
       </section>
 
       <!-- 시세 위젯 그리드 -->
-      <section v-if="widgetSettings.goldPrice || widgetSettings.silverPrice || widgetSettings.assetSummary" class="price-widgets-grid">
+      <section v-if="widgetSettings.goldPrice || widgetSettings.silverPrice || widgetSettings.assetSummary || widgetSettings.financeSummary" class="price-widgets-grid">
         <!-- 금 시세 위젯 -->
         <div v-if="widgetSettings.goldPrice" class="price-widget gold-widget" @click="goToGold">
           <div class="widget-header">
@@ -278,6 +242,30 @@
             </div>
           </div>
         </div>
+
+        <!-- 가계부 위젯 -->
+        <div v-if="widgetSettings.financeSummary" class="price-widget finance-widget" @click="goToFinance">
+          <div class="widget-header">
+            <div class="widget-icon finance">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <span class="widget-label">이번 달 가계부</span>
+          </div>
+          <div class="widget-body">
+            <div class="price-main" :class="financeSummary.balance >= 0 ? 'positive' : 'negative'">
+              {{ formatCurrency(financeSummary.balance) }}
+            </div>
+            <div class="finance-detail">
+              <span class="income">+{{ formatCurrency(financeSummary.totalIncome) }}</span>
+              <span class="expense">-{{ formatCurrency(financeSummary.totalExpense) }}</span>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- 오늘의 경제 뉴스 -->
@@ -323,36 +311,6 @@
           <div class="empty-icon">📰</div>
           <p>아직 수집된 뉴스가 없습니다.</p>
           <small>매일 아침 8시에 자동으로 수집되거나, 위 버튼을 눌러 수동으로 가져올 수 있습니다.</small>
-        </div>
-      </section>
-
-      <!-- 가계부 요약 위젯 -->
-      <section v-if="widgetSettings.financeSummary" class="finance-summary-widget">
-        <div class="widget-header">
-          <div class="widget-title">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
-            <h3>이번 달 가계부</h3>
-          </div>
-          <button @click="goToFinance" class="btn-view-all">자세히 보기</button>
-        </div>
-        <div class="finance-summary-content">
-          <div class="finance-stat income">
-            <span class="stat-label">수입</span>
-            <span class="stat-value">{{ formatCurrency(financeSummary.totalIncome) }}</span>
-          </div>
-          <div class="finance-stat expense">
-            <span class="stat-label">지출</span>
-            <span class="stat-value">{{ formatCurrency(financeSummary.totalExpense) }}</span>
-          </div>
-          <div class="finance-stat balance" :class="financeSummary.balance >= 0 ? 'positive' : 'negative'">
-            <span class="stat-label">잔액</span>
-            <span class="stat-value">{{ formatCurrency(financeSummary.balance) }}</span>
-          </div>
         </div>
       </section>
 
@@ -585,12 +543,6 @@ export default {
     goToSector() {
       this.$router.push('/sector')
     },
-    goToInvestor() {
-      this.$router.push('/investor')
-    },
-    goToSupplyChart() {
-      this.$router.push('/supply-chart')
-    },
     goToReddit() {
       this.$router.push('/reddit')
     },
@@ -755,11 +707,6 @@ export default {
   color: #4F46E5;
 }
 
-.card-icon.investor-icon {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
-  color: #10B981;
-}
-
 .menu-card.car {
   background: linear-gradient(135deg, rgba(245, 247, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
   border: 2px solid rgba(52, 73, 94, 0.2);
@@ -786,39 +733,6 @@ export default {
 
 .menu-card.sector h3 {
   color: #4F46E5;
-}
-
-.menu-card.investor {
-  background: linear-gradient(135deg, rgba(236, 253, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(16, 185, 129, 0.2);
-}
-
-.menu-card.investor:hover {
-  border-color: #10B981;
-  box-shadow: 0 20px 40px rgba(16, 185, 129, 0.15);
-}
-
-.menu-card.investor h3 {
-  color: #059669;
-}
-
-.card-icon.supply-chart-icon {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
-  color: #EF4444;
-}
-
-.menu-card.supply-chart {
-  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(239, 68, 68, 0.2);
-}
-
-.menu-card.supply-chart:hover {
-  border-color: #EF4444;
-  box-shadow: 0 20px 40px rgba(239, 68, 68, 0.15);
-}
-
-.menu-card.supply-chart h3 {
-  color: #DC2626;
 }
 
 .card-icon.reddit-icon {
@@ -1280,145 +1194,6 @@ export default {
   color: var(--primary-start);
 }
 
-/* 가계부 요약 위젯 */
-.finance-summary-widget {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: var(--card-padding);
-  margin-bottom: var(--section-gap);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-}
-
-[data-theme="dark"] .finance-summary-widget {
-  background: var(--card-bg);
-}
-
-.widget-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.widget-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--text-primary);
-}
-
-.widget-title svg {
-  color: #2ecc71;
-}
-
-.widget-title h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.btn-view-all {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border: none;
-  padding: 8px 16px;
-  border-radius: 8px;
-  color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-view-all:hover {
-  background: var(--primary-gradient);
-  color: white;
-}
-
-[data-theme="dark"] .btn-view-all {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
-}
-
-.finance-summary-content {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-.finance-stat {
-  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
-  border-radius: 14px;
-  padding: 20px;
-  text-align: center;
-  border-left: 4px solid transparent;
-}
-
-[data-theme="dark"] .finance-stat {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
-}
-
-.finance-stat.income {
-  border-left-color: #4caf50;
-}
-
-.finance-stat.expense {
-  border-left-color: #f44336;
-}
-
-.finance-stat.balance {
-  border-left-color: var(--primary-start);
-}
-
-.finance-stat.balance.positive {
-  border-left-color: #4caf50;
-}
-
-.finance-stat.balance.negative {
-  border-left-color: #f44336;
-}
-
-.finance-stat .stat-label {
-  display: block;
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
-
-.finance-stat .stat-value {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.finance-stat.income .stat-value {
-  color: #4caf50;
-}
-
-.finance-stat.expense .stat-value {
-  color: #f44336;
-}
-
-.finance-stat.balance .stat-value {
-  color: var(--primary-start);
-}
-
-.finance-stat.balance.positive .stat-value {
-  color: #4caf50;
-}
-
-.finance-stat.balance.negative .stat-value {
-  color: #f44336;
-}
-
-@media (max-width: 768px) {
-  .finance-summary-content {
-    grid-template-columns: 1fr;
-  }
-
-  .finance-stat {
-    padding: 16px;
-  }
-}
-
 /* 시세 위젯 그리드 */
 .price-widgets-grid {
   display: grid;
@@ -1537,6 +1312,42 @@ export default {
 
 .asset-widget:hover {
   border-color: #f7b733;
+}
+
+.price-widget .widget-icon.finance {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
+  color: #2ecc71;
+}
+
+.finance-widget {
+  border-color: rgba(46, 204, 113, 0.3);
+}
+
+.finance-widget:hover {
+  border-color: #2ecc71;
+}
+
+.price-widget .price-main.positive {
+  color: #2ecc71;
+}
+
+.price-widget .price-main.negative {
+  color: #e74c3c;
+}
+
+.finance-detail {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.finance-detail .income {
+  color: #2ecc71;
+}
+
+.finance-detail .expense {
+  color: #e74c3c;
 }
 
 [data-theme="dark"] .price-widget {
