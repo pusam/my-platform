@@ -365,4 +365,74 @@ public class KoreaInvestmentService {
     public String getAppSecret() {
         return appSecret;
     }
+
+    /**
+     * 국내기관_외국인 매매종목가집계 조회
+     * 외국인/기관 순매수/순매도 상위 종목 조회
+     *
+     * @param investorType 투자자 구분 (1=외국인, 2=기관계)
+     * @param isBuy true=순매수상위, false=순매도상위
+     * @param sortByAmount true=금액정렬, false=수량정렬
+     * @return API 응답 JsonNode
+     */
+    public JsonNode getForeignInstitutionTotal(String investorType, boolean isBuy, boolean sortByAmount) {
+        String token = getAccessToken();
+        if (token == null) {
+            return null;
+        }
+
+        try {
+            // 국내기관_외국인 매매종목가집계 API (FHPTJ04400000)
+            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+                    + "?FID_COND_MRKT_DIV_CODE=V"
+                    + "&FID_COND_SCR_DIV_CODE=16449"
+                    + "&FID_INPUT_ISCD=0000"  // 전체
+                    + "&FID_DIV_CLS_CODE=" + (sortByAmount ? "1" : "0")  // 0=수량, 1=금액
+                    + "&FID_RANK_SORT_CLS_CODE=" + (isBuy ? "0" : "1")   // 0=순매수상위, 1=순매도상위
+                    + "&FID_ETC_CLS_CODE=" + investorType;  // 1=외국인, 2=기관계
+
+            HttpHeaders headers = createHeaders(token, "FHPTJ04400000");
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                return objectMapper.readTree(response.getBody());
+            }
+        } catch (Exception e) {
+            log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
+                    investorType, isBuy, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 외국인 순매수 상위 종목 조회 (편의 메서드)
+     */
+    public JsonNode getForeignNetBuyTop() {
+        return getForeignInstitutionTotal("1", true, true);
+    }
+
+    /**
+     * 외국인 순매도 상위 종목 조회 (편의 메서드)
+     */
+    public JsonNode getForeignNetSellTop() {
+        return getForeignInstitutionTotal("1", false, true);
+    }
+
+    /**
+     * 기관 순매수 상위 종목 조회 (편의 메서드)
+     */
+    public JsonNode getInstitutionNetBuyTop() {
+        return getForeignInstitutionTotal("2", true, true);
+    }
+
+    /**
+     * 기관 순매도 상위 종목 조회 (편의 메서드)
+     */
+    public JsonNode getInstitutionNetSellTop() {
+        return getForeignInstitutionTotal("2", false, true);
+    }
 }

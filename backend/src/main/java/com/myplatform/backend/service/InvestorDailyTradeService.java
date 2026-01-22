@@ -20,6 +20,7 @@ import java.util.*;
 /**
  * 투자자별 일별 상위 매수/매도 종목 서비스
  * - 외국인, 기관, 연기금 등 투자자별 상위 종목 데이터 수집 및 저장
+ * - 한국투자증권 Open API 사용
  */
 @Service
 @Transactional
@@ -27,11 +28,10 @@ public class InvestorDailyTradeService {
 
     private static final Logger log = LoggerFactory.getLogger(InvestorDailyTradeService.class);
 
-    // 네이버 금융 API - 투자자별 상위 종목
-    private static final String NAVER_TOP_STOCKS_API = "https://m.stock.naver.com/api/index/%s/investorNetTopN?investorType=%s&netType=%s";
-
-    // KRX 투자자별 거래실적 API
+    // KRX 투자자별 거래실적 API (연기금 데이터용)
     private static final String KRX_INVESTOR_API = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+
+    private final KoreaInvestmentService kisService;
 
     // 투자자 유형 매핑
     public static final String INVESTOR_FOREIGN = "FOREIGN";
@@ -52,10 +52,12 @@ public class InvestorDailyTradeService {
     private final InvestorDailyTradeRepository tradeRepository;
 
     public InvestorDailyTradeService(RestTemplate restTemplate, ObjectMapper objectMapper,
-                                      InvestorDailyTradeRepository tradeRepository) {
+                                      InvestorDailyTradeRepository tradeRepository,
+                                      KoreaInvestmentService kisService) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.tradeRepository = tradeRepository;
+        this.kisService = kisService;
     }
 
     /**
@@ -67,22 +69,22 @@ public class InvestorDailyTradeService {
 
     /**
      * 모든 투자자 유형의 상위 종목 데이터 수집 및 저장 (지정일)
+     * 한국투자증권 API 사용
      */
     public Map<String, Integer> collectAllInvestorTrades(LocalDate tradeDate) {
         Map<String, Integer> result = new HashMap<>();
 
-        // 네이버 API에서 수집 가능한 투자자 유형
-        String[] naverInvestorTypes = {INVESTOR_FOREIGN, INVESTOR_INSTITUTION};
-        String[] markets = {"KOSPI", "KOSDAQ"};
+        // 한국투자증권 API에서 수집 가능한 투자자 유형 (외국인, 기관)
+        String[] investorTypes = {INVESTOR_FOREIGN, INVESTOR_INSTITUTION};
 
-        for (String market : markets) {
-            for (String investorType : naverInvestorTypes) {
-                int count = collectFromNaverApi(market, investorType, tradeDate);
-                result.put(market + "_" + investorType, count);
-            }
+        for (String investorType : investorTypes) {
+            int count = collectFromKisApi(investorType, tradeDate);
+            // 한투 API는 시장 구분 없이 전체 조회 (KOSPI로 통합 저장)
+            result.put("KOSPI_" + investorType, count);
         }
 
         // KRX API에서 연기금 등 세부 투자자 데이터 수집
+        String[] markets = {"KOSPI", "KOSDAQ"};
         for (String market : markets) {
             int count = collectPensionFromKrx(market, tradeDate);
             result.put(market + "_" + INVESTOR_PENSION, count);
@@ -93,96 +95,102 @@ public class InvestorDailyTradeService {
     }
 
     /**
-     * 네이버 API에서 투자자별 상위 종목 수집
+     * 한국투자증권 API에서 투자자별 상위 종목 수집
      */
-    public int collectFromNaverApi(String marketType, String investorType, LocalDate tradeDate) {
+    public int collectFromKisApi(String investorType, LocalDate tradeDate) {
         // 이미 데이터가 있으면 스킵
-        if (tradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate(marketType, investorType, tradeDate)) {
-            log.info("이미 수집됨: {} {} {}", marketType, investorType, tradeDate);
+        if (tradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate("KOSPI", investorType, tradeDate)) {
+            log.info("이미 수집됨: {} {}", investorType, tradeDate);
             return 0;
         }
 
-        String naverInvestorType = mapToNaverInvestorType(investorType);
-        if (naverInvestorType == null) {
+        if (!kisService.isConfigured()) {
+            log.warn("한국투자증권 API 키가 설정되지 않았습니다. 수집을 건너뜁니다.");
             return 0;
         }
 
         int savedCount = 0;
 
-        // 매수 상위 종목 수집
-        savedCount += fetchAndSaveTopStocks(marketType, investorType, naverInvestorType, TRADE_BUY, tradeDate);
+        // 순매수 상위 종목 수집
+        savedCount += fetchAndSaveFromKis(investorType, TRADE_BUY, tradeDate);
 
-        // 매도 상위 종목 수집
-        savedCount += fetchAndSaveTopStocks(marketType, investorType, naverInvestorType, TRADE_SELL, tradeDate);
+        // 순매도 상위 종목 수집
+        savedCount += fetchAndSaveFromKis(investorType, TRADE_SELL, tradeDate);
 
         return savedCount;
     }
 
     /**
-     * 상위 종목 조회 및 저장
+     * 한국투자증권 API에서 상위 종목 조회 및 저장
      */
-    private int fetchAndSaveTopStocks(String marketType, String investorType,
-                                       String naverInvestorType, String tradeType, LocalDate tradeDate) {
+    private int fetchAndSaveFromKis(String investorType, String tradeType, LocalDate tradeDate) {
         List<InvestorDailyTrade> trades = new ArrayList<>();
 
         try {
-            String netType = TRADE_BUY.equals(tradeType) ? "buy" : "sell";
-            String url = String.format(NAVER_TOP_STOCKS_API, marketType, naverInvestorType, netType);
+            // 투자자 구분: 1=외국인, 2=기관계
+            String kisInvestorCode = INVESTOR_FOREIGN.equals(investorType) ? "1" : "2";
+            boolean isBuy = TRADE_BUY.equals(tradeType);
 
-            HttpEntity<String> entity = createHttpEntity();
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            JsonNode response = kisService.getForeignInstitutionTotal(kisInvestorCode, isBuy, true);
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                JsonNode root = objectMapper.readTree(response.getBody());
+            if (response != null && response.has("output")) {
+                JsonNode output = response.get("output");
                 BigDecimal divider = BigDecimal.valueOf(100000000); // 1억
 
-                if (root.isArray()) {
+                if (output.isArray()) {
                     int rank = 1;
-                    for (JsonNode stockNode : root) {
+                    for (JsonNode stockNode : output) {
                         if (rank > 20) break; // 상위 20개만
 
                         InvestorDailyTrade trade = new InvestorDailyTrade();
-                        trade.setMarketType(marketType);
+                        trade.setMarketType("KOSPI"); // 한투 API는 전체 시장 (KOSPI로 통합)
                         trade.setTradeDate(tradeDate);
                         trade.setInvestorType(investorType);
                         trade.setTradeType(tradeType);
                         trade.setRankNum(rank);
-                        trade.setStockCode(getStringValue(stockNode, "itemCode"));
-                        trade.setStockName(getStringValue(stockNode, "stockName"));
+
+                        // 종목코드, 종목명
+                        trade.setStockCode(getStringValue(stockNode, "mksc_shrn_iscd"));
+                        trade.setStockName(getStringValue(stockNode, "hts_kor_isnm"));
 
                         // 순매수 금액 (억원 단위)
-                        BigDecimal netBuyAmount = getBigDecimalValue(stockNode, "netBuyingAmount");
+                        BigDecimal netBuyAmount = getBigDecimalValue(stockNode, "ntby_tr_pbmn");
                         trade.setNetBuyAmount(netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP));
 
                         // 매수/매도 금액
-                        BigDecimal buyAmount = getBigDecimalValue(stockNode, "buyingAmount");
-                        BigDecimal sellAmount = getBigDecimalValue(stockNode, "sellingAmount");
+                        BigDecimal buyAmount = getBigDecimalValue(stockNode, "total_seln_tr_pbmn");
+                        BigDecimal sellAmount = getBigDecimalValue(stockNode, "total_shnu_tr_pbmn");
                         trade.setBuyAmount(buyAmount.divide(divider, 2, RoundingMode.HALF_UP));
                         trade.setSellAmount(sellAmount.divide(divider, 2, RoundingMode.HALF_UP));
 
                         // 현재가, 등락률
-                        trade.setCurrentPrice(getBigDecimalValue(stockNode, "closePrice"));
-                        trade.setChangeRate(getBigDecimalValue(stockNode, "fluctuationsRatio"));
+                        trade.setCurrentPrice(getBigDecimalValue(stockNode, "stck_prpr"));
+                        trade.setChangeRate(getBigDecimalValue(stockNode, "prdy_ctrt"));
 
                         // 거래량
-                        if (stockNode.has("accumulatedTradingVolume")) {
-                            trade.setTradeVolume(stockNode.get("accumulatedTradingVolume").asLong());
+                        String volumeStr = getStringValue(stockNode, "acml_vol");
+                        if (!volumeStr.isEmpty()) {
+                            try {
+                                trade.setTradeVolume(Long.parseLong(volumeStr.replace(",", "")));
+                            } catch (NumberFormatException ignored) {}
                         }
 
                         trades.add(trade);
                         rank++;
                     }
                 }
+            } else {
+                log.warn("한국투자증권 API 응답이 없거나 output이 없습니다: {} {}", investorType, tradeType);
             }
 
             if (!trades.isEmpty()) {
                 tradeRepository.saveAll(trades);
-                log.info("저장 완료: {} {} {} {} - {}건", marketType, investorType, tradeType, tradeDate, trades.size());
+                log.info("한투API 저장 완료: {} {} {} - {}건", investorType, tradeType, tradeDate, trades.size());
             }
 
         } catch (Exception e) {
-            log.error("상위 종목 수집 실패 [{}/{}/{}/{}]: {}",
-                    marketType, investorType, tradeType, tradeDate, e.getMessage());
+            log.error("한투API 상위 종목 수집 실패 [{}/{}/{}]: {}",
+                    investorType, tradeType, tradeDate, e.getMessage());
         }
 
         return trades.size();
@@ -412,31 +420,9 @@ public class InvestorDailyTradeService {
         if (INVESTOR_PENSION.equals(investorType)) {
             return collectPensionFromKrx(marketType, tradeDate);
         } else {
-            return collectFromNaverApi(marketType, investorType, tradeDate);
+            // 한국투자증권 API 사용
+            return collectFromKisApi(investorType, tradeDate);
         }
-    }
-
-    /**
-     * 투자자 유형 매핑 (내부 -> 네이버 API)
-     */
-    private String mapToNaverInvestorType(String investorType) {
-        return switch (investorType) {
-            case INVESTOR_FOREIGN -> "foreigner";
-            case INVESTOR_INSTITUTION -> "organ";
-            case INVESTOR_INDIVIDUAL -> "individual";
-            default -> null;
-        };
-    }
-
-    /**
-     * HTTP Entity 생성
-     */
-    private HttpEntity<String> createHttpEntity() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-        headers.set("Referer", "https://m.stock.naver.com");
-        headers.set("Accept", "application/json");
-        return new HttpEntity<>(headers);
     }
 
     /**
