@@ -172,6 +172,24 @@
           </span>
         </article>
 
+        <article class="menu-card investor-trade" @click="goToInvestorTrade">
+          <div class="card-icon investor-trade-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 21h18"/>
+              <path d="M5 21V7l8-4 8 4v14"/>
+              <path d="M9 9h1M14 9h1M9 13h1M14 13h1M9 17h1M14 17h1"/>
+              <path d="M12 21v-6"/>
+            </svg>
+          </div>
+          <h3>투자자별 상위 종목</h3>
+          <p>연기금, 외국인, 기관의 일별 매수/매도 상위 20종목을 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
         <!-- 금 시세 -->
         <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
           <div class="card-icon gold-icon">
@@ -500,6 +518,9 @@ export default {
     goToMarketInvestor() {
       this.$router.push('/market-investor')
     },
+    goToInvestorTrade() {
+      this.$router.push('/investor-trades')
+    },
     goToNews() {
       this.$router.push('/news')
     },
@@ -725,6 +746,26 @@ export default {
 
 .menu-card.market-investor h3 {
   color: #2563EB;
+}
+
+/* 투자자별 상위 종목 카드 */
+.card-icon.investor-trade-icon {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15) 0%, rgba(5, 150, 105, 0.15) 100%);
+  color: #10b981;
+}
+
+.menu-card.investor-trade {
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(16, 185, 129, 0.2);
+}
+
+.menu-card.investor-trade:hover {
+  border-color: #10b981;
+  box-shadow: 0 20px 40px rgba(16, 185, 129, 0.15);
+}
+
+.menu-card.investor-trade h3 {
+  color: #059669;
 }
 
 /* 금 시세 카드 */
