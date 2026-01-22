@@ -140,13 +140,44 @@
                   </svg>
               </div>
               <h3>투자자 매매 동향</h3>
-              <p>외국인·기관·개인 매매 상위 종목을 확인합니다</p>
+              <p>외국인·기관 매매 상위 종목을 확인합니다</p>
               <span class="card-arrow">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9,6 15,12 9,18"/>
             </svg>
           </span>
           </article>
+
+        <article v-if="widgetSettings.investorTrades" class="menu-card consecutive" @click="goToConsecutiveBuy">
+          <div class="card-icon consecutive-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M13 17l5-5-5-5"/>
+              <path d="M6 17l5-5-5-5"/>
+            </svg>
+          </div>
+          <h3>연속 매수 종목</h3>
+          <p>외국인·기관이 연속 순매수 중인 종목</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article v-if="widgetSettings.investorTrades" class="menu-card surge" @click="goToInvestorSurge">
+          <div class="card-icon surge-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </div>
+          <h3>수급 급증</h3>
+          <p>장중 외국인·기관 순매수 급증 종목</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
 
         <article class="menu-card reddit" @click="goToReddit">
           <div class="card-icon reddit-icon">
@@ -497,6 +528,12 @@ export default {
     goToInvestorTrade() {
       this.$router.push('/investor-trades')
     },
+    goToConsecutiveBuy() {
+      this.$router.push('/consecutive-buy')
+    },
+    goToInvestorSurge() {
+      this.$router.push('/investor-surge')
+    },
     goToNews() {
       this.$router.push('/news')
     },
@@ -823,6 +860,46 @@ export default {
 
 .menu-card.investor h3 {
   color: #5568d3;
+}
+
+/* 연속 매수 카드 */
+.card-icon.consecutive-icon {
+  background: linear-gradient(135deg, rgba(237, 137, 54, 0.15) 0%, rgba(221, 107, 32, 0.15) 100%);
+  color: #ed8936;
+}
+
+.menu-card.consecutive {
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(237, 137, 54, 0.3);
+}
+
+.menu-card.consecutive:hover {
+  border-color: #ed8936;
+  box-shadow: 0 20px 40px rgba(237, 137, 54, 0.15);
+}
+
+.menu-card.consecutive h3 {
+  color: #dd6b20;
+}
+
+/* 수급 급증 카드 */
+.card-icon.surge-icon {
+  background: linear-gradient(135deg, rgba(229, 62, 62, 0.15) 0%, rgba(197, 48, 48, 0.15) 100%);
+  color: #e53e3e;
+}
+
+.menu-card.surge {
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(229, 62, 62, 0.3);
+}
+
+.menu-card.surge:hover {
+  border-color: #e53e3e;
+  box-shadow: 0 20px 40px rgba(229, 62, 62, 0.15);
+}
+
+.menu-card.surge h3 {
+  color: #c53030;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
