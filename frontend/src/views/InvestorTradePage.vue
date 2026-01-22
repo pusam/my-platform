@@ -87,7 +87,7 @@ const changeTradeType = (type) => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/api/investor/all-top-trades', {
+    const response = await api.get('/investor/all-top-trades', {
       params: {
         tradeType: tradeType.value,
         limit: 50
@@ -106,7 +106,7 @@ const collectData = async () => {
   if (collecting.value) return;
   collecting.value = true;
   try {
-    const response = await api.post('/api/investor/collect/recent', null, {
+    const response = await api.post('/investor/collect/recent', null, {
       params: { days: 5 }
     });
     if (response.data.success) {
@@ -133,7 +133,7 @@ const formatNumber = (value) => {
 const formatRate = (value) => {
   if (!value) return '0.00%';
   const sign = value > 0 ? '+' : '';
-  return ${sign}%;
+  return `${sign}${value.toFixed(2)}%`;
 };
 onMounted(() => {
   fetchData();

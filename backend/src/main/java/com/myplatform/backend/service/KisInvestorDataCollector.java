@@ -88,39 +88,56 @@ public class KisInvestorDataCollector {
 
     /**
      * 특정 투자자 유형의 순위 데이터 수집
+     * 한국투자증권 API: 국내기관_외국인 매매종목가집계 (FHPTJ04400000)
+     *
+     * 주의: 이 API는 외국인(1)과 기관(2)만 지원합니다.
+     *       개인(INDIVIDUAL)은 별도 처리가 필요합니다.
      */
     private int collectInvestorRanking(String market, String investorType, String tradeType,
                                        String dateStr, int limit) {
+        // 개인(INDIVIDUAL)은 이 API에서 지원하지 않음
+        if ("INDIVIDUAL".equals(investorType)) {
+            log.info("개인 투자자 데이터는 foreign-institution-total API에서 지원하지 않습니다. 건너뜁니다.");
+            return 0;
+        }
+
         try {
-            String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/ranking/investor-volume-rank";
+            // 국내기관_외국인 매매종목가집계 API
+            String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/quotations/foreign-institution-total";
 
             HttpHeaders headers = createHeaders();
-            headers.set("tr_id", "FHPST01730000"); // 투자자별 순위 조회 TR_ID
+            headers.set("tr_id", "FHPTJ04400000");
 
-            // 쿼리 파라미터 설정
-            Map<String, String> params = new HashMap<>();
-            params.put("fid_cond_mrkt_div_code", "J"); // KOSPI
-            params.put("fid_cond_scr_div_code", getTradeTypeCode(investorType, tradeType));
-            params.put("fid_input_iscd", "0000"); // 전체
-            params.put("fid_div_cls_code", "0"); // 전체
-            params.put("fid_input_date_1", dateStr);
-            params.put("fid_rank_sort_cls_code", "0"); // 순매수 기준
+            // 투자자 구분: 1=외국인, 2=기관계
+            String investorCode = "FOREIGN".equals(investorType) ? "1" : "2";
+            // 순매수/순매도: 0=순매수상위, 1=순매도상위
+            String rankSortCode = "BUY".equals(tradeType) ? "0" : "1";
 
-            StringBuilder urlBuilder = new StringBuilder(url);
-            urlBuilder.append("?");
-            params.forEach((key, value) -> urlBuilder.append(key).append("=").append(value).append("&"));
+            String urlWithParams = url +
+                "?FID_COND_MRKT_DIV_CODE=V" +       // V: 전체
+                "&FID_COND_SCR_DIV_CODE=16449" +   // 화면 구분 코드
+                "&FID_INPUT_ISCD=0000" +            // 전체 종목
+                "&FID_DIV_CLS_CODE=1" +             // 1=금액정렬, 0=수량정렬
+                "&FID_RANK_SORT_CLS_CODE=" + rankSortCode +  // 0=순매수상위, 1=순매도상위
+                "&FID_ETC_CLS_CODE=" + investorCode;         // 1=외국인, 2=기관계
+
+            log.info("API 호출: {} {} - {}", investorType, tradeType, urlWithParams);
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                    urlBuilder.toString(), HttpMethod.GET, entity, String.class);
+                    urlWithParams, HttpMethod.GET, entity, String.class);
 
             if (response.getStatusCode() == HttpStatus.OK) {
-                return parseAndSaveRankingData(response.getBody(), market, investorType, tradeType,
+                String responseBody = response.getBody();
+                log.info("API 응답: {}", responseBody != null && responseBody.length() > 300 ?
+                    responseBody.substring(0, 300) + "..." : responseBody);
+
+                return parseAndSaveRankingData(responseBody, market, investorType, tradeType,
                         LocalDate.parse(dateStr, DATE_FORMATTER), limit);
             }
 
         } catch (Exception e) {
-            log.error("투자자 순위 데이터 수집 실패: {} {} {}", market, investorType, tradeType, e);
+            log.error("순위 데이터 수집 실패: {} {} {} - {}", market, investorType, tradeType, e.getMessage());
         }
 
         return 0;
@@ -132,13 +149,26 @@ public class KisInvestorDataCollector {
     private int parseAndSaveRankingData(String responseBody, String market, String investorType,
                                         String tradeType, LocalDate tradeDate, int limit) {
         try {
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode output = root.get("output");
+            log.debug("파싱 시작 - 응답 길이: {}", responseBody != null ? responseBody.length() : 0);
 
-            if (output == null || !output.isArray()) {
-                log.warn("응답 데이터가 없습니다: {} {} {}", market, investorType, tradeType);
+            JsonNode root = objectMapper.readTree(responseBody);
+
+            // 응답 코드 확인
+            String rtCd = root.has("rt_cd") ? root.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                log.error("API 오류: {} - {}", rtCd, root.has("msg1") ? root.get("msg1").asText() : "");
                 return 0;
             }
+
+            JsonNode output = root.get("output");
+
+            if (output == null || !output.isArray() || output.size() == 0) {
+                log.warn("응답 데이터가 비어있습니다: {} {} {} (output size: {})",
+                    market, investorType, tradeType, output != null ? output.size() : 0);
+                return 0;
+            }
+
+            log.info("파싱할 데이터 개수: {}", output.size());
 
             List<InvestorDailyTrade> trades = new ArrayList<>();
             int rank = 1;
@@ -147,34 +177,60 @@ public class KisInvestorDataCollector {
                 if (rank > limit) break;
 
                 try {
+                    // foreign-institution-total API 필드명
+                    String stockCode = getJsonValue(item, "mksc_shrn_iscd", "stck_shrn_iscd");
+                    String stockName = getJsonValue(item, "hts_kor_isnm");
+
+                    if (stockCode == null || stockName == null) {
+                        log.debug("필수 필드 누락: rank {} - 사용 가능 필드: {}", rank,
+                            item.fieldNames().hasNext() ? String.join(", ",
+                                java.util.stream.StreamSupport.stream(
+                                    java.util.Spliterators.spliteratorUnknownSize(item.fieldNames(), 0), false)
+                                .limit(10).toArray(String[]::new)) : "없음");
+                        continue;
+                    }
+
+                    // 순매수대금 (백만원 단위)
+                    BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn", "total_tr_pbmn");
+                    // 순매수수량
+                    Long netBuyQty = getJsonLong(item, "ntby_qty", "total_qty");
+                    // 현재가
+                    BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
+                    // 등락률
+                    BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
+                    // 누적거래량
+                    Long tradeVolume = getJsonLong(item, "acml_vol");
+
                     InvestorDailyTrade trade = InvestorDailyTrade.builder()
                             .marketType(market)
                             .tradeDate(tradeDate)
                             .investorType(investorType)
                             .tradeType(tradeType)
                             .rankNum(rank)
-                            .stockCode(item.get("mksc_shrn_iscd").asText()) // 종목코드
-                            .stockName(item.get("hts_kor_isnm").asText())   // 종목명
-                            .netBuyAmount(parseBigDecimal(item.get("ntby_qty")))  // 순매수량
-                            .buyAmount(parseBigDecimal(item.get("shnu_vol")))     // 매수량
-                            .sellAmount(parseBigDecimal(item.get("shnu_sll_vol"))) // 매도량
-                            .currentPrice(parseBigDecimal(item.get("stck_prpr")))  // 현재가
-                            .changeRate(parseBigDecimal(item.get("prdy_vrss_sign"))) // 등락률
-                            .tradeVolume(item.get("acml_vol").asLong())  // 거래량
+                            .stockCode(stockCode)
+                            .stockName(stockName)
+                            .netBuyAmount(netBuyAmount)
+                            .buyAmount(BigDecimal.ZERO)
+                            .sellAmount(BigDecimal.ZERO)
+                            .currentPrice(currentPrice)
+                            .changeRate(changeRate)
+                            .tradeVolume(tradeVolume)
                             .build();
 
                     trades.add(trade);
                     rank++;
 
                 } catch (Exception e) {
-                    log.warn("데이터 파싱 실패", e);
+                    log.warn("데이터 파싱 실패: rank {} - {}", rank, e.getMessage());
                 }
             }
 
             if (!trades.isEmpty()) {
                 investorTradeRepository.saveAll(trades);
-                log.info("저장 완료: {} {} {} - {}건", market, investorType, tradeType, trades.size());
+                log.info("✅ 저장 완료: {} {} {} - {}건", market, investorType, tradeType, trades.size());
                 return trades.size();
+            } else {
+                log.warn("⚠️ 파싱된 데이터가 없습니다: {} {} {}", market, investorType, tradeType);
             }
 
         } catch (Exception e) {
@@ -235,32 +291,75 @@ public class KisInvestorDataCollector {
     }
 
     /**
-     * 투자자 유형과 거래 유형에 따른 조회 코드 반환
+     * JSON 필드값 가져오기 (여러 필드명 시도)
      */
-    private String getTradeTypeCode(String investorType, String tradeType) {
-        // 한국투자증권 API의 투자자별 조회 코드
-        String base = "";
+    private String getJsonValue(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+                return node.get(fieldName).asText();
+            }
+        }
+        return null;
+    }
 
+    /**
+     * JSON BigDecimal 값 가져오기
+     */
+    private BigDecimal getJsonBigDecimal(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+                return parseBigDecimal(node.get(fieldName));
+            }
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * JSON Long 값 가져오기
+     */
+    private Long getJsonLong(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+                try {
+                    return node.get(fieldName).asLong();
+                } catch (Exception e) {
+                    // 문자열인 경우 파싱 시도
+                    try {
+                        return Long.parseLong(node.get(fieldName).asText().replaceAll("[^0-9]", ""));
+                    } catch (Exception ex) {
+                        return 0L;
+                    }
+                }
+            }
+        }
+        return 0L;
+    }
+
+    /**
+     * 투자자 유형 코드 반환
+     */
+    private String getInvestorCode(String investorType) {
         switch (investorType) {
             case "FOREIGN":
-                base = "20"; // 외국인
-                break;
+                return "1"; // 외국인
             case "INSTITUTION":
-                base = "30"; // 기관
-                break;
+                return "2"; // 기관
             case "INDIVIDUAL":
-                base = "10"; // 개인
-                break;
+                return "3"; // 개인
+            default:
+                return "1";
         }
+    }
 
-        // 매수/매도 구분
+    /**
+     * 거래 유형 코드 반환
+     */
+    private String getTradeCode(String tradeType) {
         if ("BUY".equals(tradeType)) {
-            base += "1"; // 순매수
+            return "1"; // 매수
         } else {
-            base += "2"; // 순매도
+            return "2"; // 매도
         }
-
-        return base;
     }
 
     /**
