@@ -130,7 +130,7 @@ const currentStocks = computed(() => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/api/investor/surge/all', {
+    const response = await api.get('/investor/surge/all', {
       params: { minChange: minChange.value }
     });
     if (response.data.success) {
@@ -148,7 +148,7 @@ const collectSnapshot = async () => {
   if (collecting.value) return;
   collecting.value = true;
   try {
-    const response = await api.post('/api/investor/surge/collect');
+    const response = await api.post('/investor/surge/collect');
     if (response.data.success) {
       alert('스냅샷 수집이 완료되었습니다!');
       await fetchData();

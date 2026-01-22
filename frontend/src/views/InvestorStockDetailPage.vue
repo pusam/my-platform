@@ -88,7 +88,7 @@ const stockData = ref(null);
 const fetchStockDetail = async () => {
   loading.value = true;
   try {
-    const response = await api.get(`/api/investor/stock/${stockCode.value}`, {
+    const response = await api.get(`/investor/stock/${stockCode.value}`, {
       params: { days: 30 }
     });
 

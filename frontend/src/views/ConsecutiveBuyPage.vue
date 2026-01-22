@@ -106,7 +106,7 @@ const currentStocks = computed(() => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/api/investor/consecutive-buy/all', {
+    const response = await api.get('/investor/consecutive-buy/all', {
       params: { minDays: minDays.value }
     });
     if (response.data.success) {
