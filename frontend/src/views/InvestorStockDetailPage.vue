@@ -62,28 +62,6 @@
               </div>
             </div>
 
-            <div class="investor-item individual">
-              <div class="investor-label">
-                <span class="icon">👤</span>
-                <span class="name">개인</span>
-              </div>
-              <div class="amounts">
-                <div class="amount-row">
-                  <span class="label">매수:</span>
-                  <span class="value">{{ formatAmount(day.individual?.buyAmount) }}</span>
-                </div>
-                <div class="amount-row">
-                  <span class="label">매도:</span>
-                  <span class="value">{{ formatAmount(day.individual?.sellAmount) }}</span>
-                </div>
-                <div class="amount-row net">
-                  <span class="label">순매수:</span>
-                  <span class="value" :class="getAmountClass(day.individual?.netBuyAmount)">
-                    {{ formatAmount(day.individual?.netBuyAmount) }}
-                  </span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -234,7 +212,7 @@ onMounted(() => {
 
 .investor-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
 }
 
@@ -251,10 +229,6 @@ onMounted(() => {
 
 .investor-item.institution {
   border-color: #48bb78;
-}
-
-.investor-item.individual {
-  border-color: #ed8936;
 }
 
 .investor-label {

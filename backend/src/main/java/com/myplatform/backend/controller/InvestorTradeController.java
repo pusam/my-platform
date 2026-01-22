@@ -1,5 +1,6 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
 import com.myplatform.backend.dto.StockInvestorDetailDto;
 import com.myplatform.backend.service.InvestorTradeService;
@@ -80,9 +81,31 @@ public class InvestorTradeController {
     @PostMapping("/collect/recent")
     public ResponseEntity<ApiResponse<Map<String, Object>>> collectRecentData(
             @RequestParam(required = false, defaultValue = "5") Integer days) {
-        
+
         Map<String, Object> result = investorTradeService.collectRecentData(days);
-        
+
         return ResponseEntity.ok(ApiResponse.success("최근 데이터 수집 완료", result));
+    }
+
+    @Operation(summary = "연속 매수 종목 조회", description = "특정 투자자가 N일 연속 순매수 상위에 오른 종목을 조회합니다.")
+    @GetMapping("/consecutive-buy")
+    public ResponseEntity<ApiResponse<List<ConsecutiveBuyDto>>> getConsecutiveBuyStocks(
+            @RequestParam String investorType,
+            @RequestParam(required = false, defaultValue = "3") Integer minDays) {
+
+        List<ConsecutiveBuyDto> stocks = investorTradeService.getConsecutiveBuyStocks(
+                investorType.toUpperCase(), minDays);
+
+        return ResponseEntity.ok(ApiResponse.success(stocks));
+    }
+
+    @Operation(summary = "전체 투자자 연속 매수 종목 조회", description = "외국인, 기관의 연속 매수 종목을 모두 조회합니다.")
+    @GetMapping("/consecutive-buy/all")
+    public ResponseEntity<ApiResponse<Map<String, List<ConsecutiveBuyDto>>>> getAllConsecutiveBuyStocks(
+            @RequestParam(required = false, defaultValue = "3") Integer minDays) {
+
+        Map<String, List<ConsecutiveBuyDto>> stocks = investorTradeService.getAllConsecutiveBuyStocks(minDays);
+
+        return ResponseEntity.ok(ApiResponse.success(stocks));
     }
 }

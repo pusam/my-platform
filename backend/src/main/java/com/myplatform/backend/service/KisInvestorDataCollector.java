@@ -69,14 +69,6 @@ public class KisInvestorDataCollector {
             int institutionSell = collectInvestorRanking("KOSPI", "INSTITUTION", "SELL", dateStr, 50);
             result.put("KOSPI_INSTITUTION_SELL", institutionSell);
 
-            // 개인 순매수 상위
-            int individualBuy = collectInvestorRanking("KOSPI", "INDIVIDUAL", "BUY", dateStr, 50);
-            result.put("KOSPI_INDIVIDUAL_BUY", individualBuy);
-
-            // 개인 순매도 상위
-            int individualSell = collectInvestorRanking("KOSPI", "INDIVIDUAL", "SELL", dateStr, 50);
-            result.put("KOSPI_INDIVIDUAL_SELL", individualSell);
-
             log.info("투자자별 매매 데이터 수집 완료: {}", result);
 
         } catch (Exception e) {

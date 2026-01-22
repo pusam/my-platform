@@ -99,4 +99,24 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
             @Param("marketType") String marketType,
             @Param("startDate") LocalDate startDate,
             @Param("endDate") LocalDate endDate);
+
+    /**
+     * 특정 투자자의 매수 상위 종목 조회 (연속 매수 분석용)
+     */
+    @Query("SELECT t FROM InvestorDailyTrade t " +
+           "WHERE t.investorType = :investorType AND t.tradeType = 'BUY' " +
+           "AND t.tradeDate BETWEEN :startDate AND :endDate " +
+           "ORDER BY t.tradeDate DESC, t.rankNum ASC")
+    List<InvestorDailyTrade> findBuyTradesForConsecutiveAnalysis(
+            @Param("investorType") String investorType,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate);
+
+    /**
+     * 거래일 목록 조회 (최근 N일)
+     */
+    @Query("SELECT DISTINCT t.tradeDate FROM InvestorDailyTrade t " +
+           "WHERE t.investorType = :investorType AND t.tradeType = 'BUY' " +
+           "ORDER BY t.tradeDate DESC")
+    List<LocalDate> findDistinctTradeDates(@Param("investorType") String investorType);
 }

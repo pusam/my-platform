@@ -22,6 +22,7 @@ import SectorTradingPage from './views/SectorTradingPage.vue'
 import RedditPage from './views/RedditPage.vue'
 import InvestorTradePage from './views/InvestorTradePage.vue'
 import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
+import ConsecutiveBuyPage from './views/ConsecutiveBuyPage.vue'
 import NewsPage from './views/NewsPage.vue'
 
 const router = createRouter({
@@ -154,6 +155,12 @@ const router = createRouter({
       path: '/investor-stock/:stockCode',
       name: 'InvestorStockDetail',
       component: InvestorStockDetailPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/consecutive-buy',
+      name: 'ConsecutiveBuy',
+      component: ConsecutiveBuyPage,
       meta: { requiresAuth: true }
     },
     {

@@ -5,7 +5,7 @@
       <div class="page-header">
         <button @click="goBack" class="back-button">← 돌아가기</button>
         <h1>투자자별 매매 동향</h1>
-        <p class="subtitle">외국인, 기관, 개인의 상위 매매 종목을 확인하세요</p>
+        <p class="subtitle">외국인, 기관의 상위 매매 종목을 확인하세요</p>
       </div>
       <div class="trade-type-selector">
         <button :class="['trade-type-btn', { active: tradeType === 'BUY' }]" @click="changeTradeType('BUY')">
@@ -13,6 +13,9 @@
         </button>
         <button :class="['trade-type-btn', { active: tradeType === 'SELL' }]" @click="changeTradeType('SELL')">
           📉 매도 TOP 50
+        </button>
+        <button class="consecutive-btn" @click="goToConsecutive">
+          🔥 연속 매수 종목
         </button>
       </div>
       <div class="investor-tabs">
@@ -74,8 +77,7 @@ const selectedInvestor = ref('FOREIGN');
 const allTrades = ref({});
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
-  { value: 'INSTITUTION', label: '기관', icon: '🏢' },
-  { value: 'INDIVIDUAL', label: '개인', icon: '👤' }
+  { value: 'INSTITUTION', label: '기관', icon: '🏢' }
 ];
 const currentTrades = computed(() => {
   return allTrades.value[selectedInvestor.value] || [];
@@ -121,7 +123,10 @@ const collectData = async () => {
   }
 };
 const goToDetail = (stockCode) => {
-  router.push(/investor-stock/);
+  router.push(`/investor-stock/${stockCode}`);
+};
+const goToConsecutive = () => {
+  router.push('/consecutive-buy');
 };
 const goBack = () => {
   router.back();
@@ -207,6 +212,21 @@ onMounted(() => {
 .trade-type-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+}
+.consecutive-btn {
+  padding: 1rem 2rem;
+  border: 2px solid #ed8936;
+  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+  color: white;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+.consecutive-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(237, 137, 54, 0.4);
 }
 .investor-tabs {
   display: flex;
