@@ -46,6 +46,46 @@ public class MarketInvestorDto {
     // 최근 N일 추이 데이터
     private List<DailyTrend> dailyTrends;
 
+    // 투자자별 상위 매수/매도 종목
+    private List<TopStock> foreignTopBuy;      // 외국인 상위 매수
+    private List<TopStock> foreignTopSell;     // 외국인 상위 매도
+    private List<TopStock> institutionTopBuy;  // 기관 상위 매수
+    private List<TopStock> institutionTopSell; // 기관 상위 매도
+
+    /**
+     * 상위 종목 정보
+     */
+    public static class TopStock {
+        private String stockCode;      // 종목코드
+        private String stockName;      // 종목명
+        private BigDecimal netBuyAmount;  // 순매수 금액 (억원)
+        private BigDecimal currentPrice;  // 현재가
+        private BigDecimal changeRate;    // 등락률
+
+        public TopStock() {}
+
+        public TopStock(String stockCode, String stockName, BigDecimal netBuyAmount,
+                        BigDecimal currentPrice, BigDecimal changeRate) {
+            this.stockCode = stockCode;
+            this.stockName = stockName;
+            this.netBuyAmount = netBuyAmount;
+            this.currentPrice = currentPrice;
+            this.changeRate = changeRate;
+        }
+
+        // Getters and Setters
+        public String getStockCode() { return stockCode; }
+        public void setStockCode(String stockCode) { this.stockCode = stockCode; }
+        public String getStockName() { return stockName; }
+        public void setStockName(String stockName) { this.stockName = stockName; }
+        public BigDecimal getNetBuyAmount() { return netBuyAmount; }
+        public void setNetBuyAmount(BigDecimal netBuyAmount) { this.netBuyAmount = netBuyAmount; }
+        public BigDecimal getCurrentPrice() { return currentPrice; }
+        public void setCurrentPrice(BigDecimal currentPrice) { this.currentPrice = currentPrice; }
+        public BigDecimal getChangeRate() { return changeRate; }
+        public void setChangeRate(BigDecimal changeRate) { this.changeRate = changeRate; }
+    }
+
     /**
      * 일별 추이 데이터
      */
@@ -159,4 +199,16 @@ public class MarketInvestorDto {
 
     public List<DailyTrend> getDailyTrends() { return dailyTrends; }
     public void setDailyTrends(List<DailyTrend> dailyTrends) { this.dailyTrends = dailyTrends; }
+
+    public List<TopStock> getForeignTopBuy() { return foreignTopBuy; }
+    public void setForeignTopBuy(List<TopStock> foreignTopBuy) { this.foreignTopBuy = foreignTopBuy; }
+
+    public List<TopStock> getForeignTopSell() { return foreignTopSell; }
+    public void setForeignTopSell(List<TopStock> foreignTopSell) { this.foreignTopSell = foreignTopSell; }
+
+    public List<TopStock> getInstitutionTopBuy() { return institutionTopBuy; }
+    public void setInstitutionTopBuy(List<TopStock> institutionTopBuy) { this.institutionTopBuy = institutionTopBuy; }
+
+    public List<TopStock> getInstitutionTopSell() { return institutionTopSell; }
+    public void setInstitutionTopSell(List<TopStock> institutionTopSell) { this.institutionTopSell = institutionTopSell; }
 }

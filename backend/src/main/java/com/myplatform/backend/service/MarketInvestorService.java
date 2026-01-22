@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.MarketInvestorDto;
 import com.myplatform.backend.dto.MarketInvestorDto.DailyTrend;
+import com.myplatform.backend.dto.MarketInvestorDto.TopStock;
 import com.myplatform.backend.entity.MarketInvestorHistory;
 import com.myplatform.backend.repository.MarketInvestorHistoryRepository;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ public class MarketInvestorService {
     private static final String NAVER_INVESTOR_API = "https://m.stock.naver.com/api/index/%s/investorTrend";
     private static final String NAVER_INVESTOR_DAILY_API = "https://m.stock.naver.com/api/index/%s/investorTrendDaily";
     private static final String NAVER_INDEX_API = "https://m.stock.naver.com/api/index/%s/basic";
+    private static final String NAVER_TOP_STOCKS_API = "https://m.stock.naver.com/api/index/%s/investorNetTopN?investorType=%s&netType=%s";
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -92,7 +94,10 @@ public class MarketInvestorService {
             // 2. 당일 투자자별 매매동향 조회
             fetchInvestorTrend(marketType, dto);
 
-            // 3. 일별 추이 조회 (DB + API)
+            // 3. 투자자별 상위 종목 조회
+            fetchTopStocks(marketType, dto);
+
+            // 4. 일별 추이 조회 (DB + API)
             fetchDailyTrends(marketType, dto);
 
             // 캐시 저장
@@ -218,6 +223,73 @@ public class MarketInvestorService {
                 dto.setIndividualRatio(dto.getIndividualBuy().multiply(BigDecimal.valueOf(100)).divide(totalBuy, 2, RoundingMode.HALF_UP));
             }
         }
+    }
+
+    /**
+     * 투자자별 상위 종목 조회
+     */
+    private void fetchTopStocks(String marketType, MarketInvestorDto dto) {
+        // 외국인 상위 매수
+        dto.setForeignTopBuy(fetchTopStockList(marketType, "foreigner", "buy"));
+        // 외국인 상위 매도
+        dto.setForeignTopSell(fetchTopStockList(marketType, "foreigner", "sell"));
+        // 기관 상위 매수
+        dto.setInstitutionTopBuy(fetchTopStockList(marketType, "organ", "buy"));
+        // 기관 상위 매도
+        dto.setInstitutionTopSell(fetchTopStockList(marketType, "organ", "sell"));
+    }
+
+    /**
+     * 상위 종목 리스트 조회
+     */
+    private List<TopStock> fetchTopStockList(String marketType, String investorType, String netType) {
+        List<TopStock> stocks = new ArrayList<>();
+        try {
+            String url = String.format(NAVER_TOP_STOCKS_API, marketType, investorType, netType);
+            HttpEntity<String> entity = createHttpEntity();
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                BigDecimal divider = BigDecimal.valueOf(100000000); // 1억
+
+                if (root.isArray()) {
+                    int count = 0;
+                    for (JsonNode stockNode : root) {
+                        if (count >= 5) break; // 상위 5개만
+
+                        TopStock stock = new TopStock();
+                        stock.setStockCode(getStringValue(stockNode, "itemCode"));
+                        stock.setStockName(getStringValue(stockNode, "stockName"));
+
+                        // 순매수 금액 (억원 단위)
+                        BigDecimal netBuyAmount = getBigDecimalValue(stockNode, "netBuyingAmount");
+                        stock.setNetBuyAmount(netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP));
+
+                        // 현재가
+                        stock.setCurrentPrice(getBigDecimalValue(stockNode, "closePrice"));
+                        // 등락률
+                        stock.setChangeRate(getBigDecimalValue(stockNode, "fluctuationsRatio"));
+
+                        stocks.add(stock);
+                        count++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("상위 종목 조회 실패 [{}/{}/{}]: {}", marketType, investorType, netType, e.getMessage());
+        }
+        return stocks;
+    }
+
+    /**
+     * JsonNode에서 String 값 추출
+     */
+    private String getStringValue(JsonNode node, String field) {
+        if (node == null || !node.has(field) || node.get(field).isNull()) {
+            return "";
+        }
+        return node.get(field).asText();
     }
 
     /**

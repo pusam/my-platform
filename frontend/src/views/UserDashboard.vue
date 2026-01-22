@@ -173,8 +173,8 @@
         </article>
       </section>
 
-      <!-- 시세 위젯 그리드 -->
-      <section v-if="widgetSettings.goldPrice || widgetSettings.silverPrice || widgetSettings.assetSummary || widgetSettings.financeSummary" class="price-widgets-grid">
+      <!-- 위젯 그리드 -->
+      <section class="price-widgets-grid">
         <!-- 금 시세 위젯 -->
         <div v-if="widgetSettings.goldPrice" class="price-widget gold-widget" @click="goToGold">
           <div class="widget-header">
@@ -266,51 +266,28 @@
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- 오늘의 경제 뉴스 -->
-      <section v-if="widgetSettings.news" class="news-section">
-        <div class="news-header">
-          <div class="news-title">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
-              <path d="M7 7h10M7 11h10M7 15h7"/>
-            </svg>
-            <h3>오늘의 경제 뉴스</h3>
-          </div>
-          <div class="news-actions">
-            <span class="news-badge">AI 요약</span>
-            <button v-if="newsList.length === 0" @click="fetchNews" :disabled="fetchingNews" class="btn-fetch-news">
-              <svg v-if="!fetchingNews" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M23 4v6h-6M1 20v-6h6"/>
-                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-              </svg>
-              <span v-if="fetchingNews" class="loading-spinner"></span>
-              {{ fetchingNews ? '수집 중...' : '뉴스 가져오기' }}
-            </button>
-          </div>
-        </div>
-        <div v-if="newsList.length > 0" class="news-list">
-          <article v-for="news in newsList" :key="news.id" class="news-item" @click="openNewsUrl(news.sourceUrl)">
-            <div class="news-content">
-              <h4>{{ news.title }}</h4>
-              <p>{{ news.summary }}</p>
-              <div class="news-meta">
-                <span class="news-source">{{ news.sourceName }}</span>
-                <span class="news-time">{{ formatNewsTime(news.summarizedAt) }}</span>
-              </div>
-            </div>
-            <div class="news-arrow">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
+        <!-- 경제 뉴스 위젯 -->
+        <div v-if="widgetSettings.news" class="price-widget news-widget" @click="goToNews">
+          <div class="widget-header">
+            <div class="widget-icon news">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                <path d="M7 7h10M7 11h10M7 15h7"/>
               </svg>
             </div>
-          </article>
-        </div>
-        <div v-else class="news-empty">
-          <div class="empty-icon">📰</div>
-          <p>아직 수집된 뉴스가 없습니다.</p>
-          <small>매일 아침 8시에 자동으로 수집되거나, 위 버튼을 눌러 수동으로 가져올 수 있습니다.</small>
+            <span class="widget-label">경제 뉴스</span>
+            <span class="ai-badge">AI</span>
+          </div>
+          <div class="widget-body">
+            <div v-if="newsList.length > 0" class="news-preview">
+              <div class="news-count">{{ newsList.length }}개의 뉴스</div>
+              <div class="news-latest">{{ newsList[0]?.title }}</div>
+            </div>
+            <div v-else class="news-preview empty">
+              <span>뉴스 없음</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -548,6 +525,9 @@ export default {
     },
     goToMarketInvestor() {
       this.$router.push('/market-investor')
+    },
+    goToNews() {
+      this.$router.push('/news')
     },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
@@ -795,194 +775,6 @@ export default {
   opacity: 0;
   transition: all 0.3s ease;
   color: var(--primary-start);
-}
-
-/* 뉴스 섹션 */
-.news-section {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 20px;
-  padding: var(--card-padding);
-  margin-bottom: var(--section-gap);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
-}
-
-.news-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.news-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  color: var(--text-primary);
-}
-
-.news-title svg {
-  color: var(--primary-start);
-}
-
-.news-title h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.news-badge {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 6px 14px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.news-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.news-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
-  border-radius: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  border: 1px solid var(--border-light);
-}
-
-.news-item:hover {
-  border-color: var(--primary-start);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
-  transform: translateX(4px);
-}
-
-.news-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.news-content h4 {
-  margin: 0 0 8px 0;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.news-content p {
-  margin: 0 0 10px 0;
-  font-size: 13px;
-  color: var(--text-muted);
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.news-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 12px;
-}
-
-.news-source {
-  color: var(--primary-start);
-  font-weight: 500;
-}
-
-.news-time {
-  color: #adb5bd;
-}
-
-.news-arrow {
-  color: #ced4da;
-  transition: color 0.2s;
-  flex-shrink: 0;
-  padding-top: 4px;
-}
-
-.news-item:hover .news-arrow {
-  color: var(--primary-start);
-}
-
-.news-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.btn-fetch-news {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-fetch-news:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.btn-fetch-news:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.loading-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.news-empty {
-  text-align: center;
-  padding: 40px 20px;
-  color: var(--text-muted);
-}
-
-.news-empty .empty-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-
-.news-empty p {
-  margin: 0 0 8px 0;
-  font-size: 15px;
-  color: var(--text-primary);
-}
-
-.news-empty small {
-  font-size: 13px;
-  color: #adb5bd;
 }
 
 /* AI 상담 배너 */
@@ -1348,6 +1140,63 @@ export default {
 
 .finance-detail .expense {
   color: #e74c3c;
+}
+
+/* 뉴스 위젯 */
+.price-widget .widget-icon.news {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+  color: #3b82f6;
+}
+
+.news-widget {
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.news-widget:hover {
+  border-color: #3b82f6;
+}
+
+.news-widget .widget-header {
+  position: relative;
+}
+
+.ai-badge {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.news-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.news-preview .news-count {
+  font-size: 24px;
+  font-weight: 700;
+  color: #3b82f6;
+}
+
+.news-preview .news-latest {
+  font-size: 13px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.news-preview.empty {
+  color: #9ca3af;
+  font-size: 14px;
 }
 
 [data-theme="dark"] .price-widget {

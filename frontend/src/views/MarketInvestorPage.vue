@@ -173,6 +173,105 @@
           </div>
         </div>
 
+        <!-- 투자자별 상위 종목 -->
+        <div class="top-stocks-section">
+          <h3>투자자별 상위 종목</h3>
+          <div class="top-stocks-grid">
+            <!-- 외국인 -->
+            <div class="top-stocks-card">
+              <div class="card-title foreign">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="2" y1="12" x2="22" y2="12"/>
+                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+                외국인
+              </div>
+              <div class="stock-lists">
+                <div class="stock-list buy">
+                  <div class="list-header">
+                    <span class="buy-badge">매수</span>
+                  </div>
+                  <div v-if="currentData.foreignTopBuy?.length > 0" class="stock-items">
+                    <div v-for="stock in currentData.foreignTopBuy" :key="stock.stockCode" class="stock-item">
+                      <div class="stock-info">
+                        <span class="stock-name">{{ stock.stockName }}</span>
+                        <span class="stock-change" :class="getNetBuyClass(stock.changeRate)">{{ formatChangeRate(stock.changeRate) }}</span>
+                      </div>
+                      <span class="stock-amount positive">+{{ formatStockAmount(stock.netBuyAmount) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="no-data">데이터 없음</div>
+                </div>
+                <div class="stock-list sell">
+                  <div class="list-header">
+                    <span class="sell-badge">매도</span>
+                  </div>
+                  <div v-if="currentData.foreignTopSell?.length > 0" class="stock-items">
+                    <div v-for="stock in currentData.foreignTopSell" :key="stock.stockCode" class="stock-item">
+                      <div class="stock-info">
+                        <span class="stock-name">{{ stock.stockName }}</span>
+                        <span class="stock-change" :class="getNetBuyClass(stock.changeRate)">{{ formatChangeRate(stock.changeRate) }}</span>
+                      </div>
+                      <span class="stock-amount negative">-{{ formatStockAmount(Math.abs(stock.netBuyAmount)) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="no-data">데이터 없음</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 기관 -->
+            <div class="top-stocks-card">
+              <div class="card-title institution">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 21h18"/>
+                  <path d="M5 21V7l8-4 8 4v14"/>
+                  <path d="M9 9h1"/>
+                  <path d="M14 9h1"/>
+                  <path d="M9 13h1"/>
+                  <path d="M14 13h1"/>
+                  <path d="M9 17h1"/>
+                  <path d="M14 17h1"/>
+                </svg>
+                기관
+              </div>
+              <div class="stock-lists">
+                <div class="stock-list buy">
+                  <div class="list-header">
+                    <span class="buy-badge">매수</span>
+                  </div>
+                  <div v-if="currentData.institutionTopBuy?.length > 0" class="stock-items">
+                    <div v-for="stock in currentData.institutionTopBuy" :key="stock.stockCode" class="stock-item">
+                      <div class="stock-info">
+                        <span class="stock-name">{{ stock.stockName }}</span>
+                        <span class="stock-change" :class="getNetBuyClass(stock.changeRate)">{{ formatChangeRate(stock.changeRate) }}</span>
+                      </div>
+                      <span class="stock-amount positive">+{{ formatStockAmount(stock.netBuyAmount) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="no-data">데이터 없음</div>
+                </div>
+                <div class="stock-list sell">
+                  <div class="list-header">
+                    <span class="sell-badge">매도</span>
+                  </div>
+                  <div v-if="currentData.institutionTopSell?.length > 0" class="stock-items">
+                    <div v-for="stock in currentData.institutionTopSell" :key="stock.stockCode" class="stock-item">
+                      <div class="stock-info">
+                        <span class="stock-name">{{ stock.stockName }}</span>
+                        <span class="stock-change" :class="getNetBuyClass(stock.changeRate)">{{ formatChangeRate(stock.changeRate) }}</span>
+                      </div>
+                      <span class="stock-amount negative">-{{ formatStockAmount(Math.abs(stock.netBuyAmount)) }}</span>
+                    </div>
+                  </div>
+                  <div v-else class="no-data">데이터 없음</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 일별 추이 차트 -->
         <div class="trends-section" v-if="currentData.dailyTrends && currentData.dailyTrends.length > 0">
           <h3>최근 투자자별 순매수 추이</h3>
@@ -383,6 +482,22 @@ const getMaxTrendValue = () => {
     max = Math.max(max, Math.abs(trend.individualNetBuy || 0));
   }
   return max || 1000;
+};
+
+const formatStockAmount = (value) => {
+  if (value === null || value === undefined) return '-';
+  const num = Math.abs(Number(value));
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + '천억';
+  }
+  return num.toFixed(0) + '억';
+};
+
+const formatChangeRate = (value) => {
+  if (value === null || value === undefined) return '-';
+  const num = Number(value);
+  const sign = num >= 0 ? '+' : '';
+  return sign + num.toFixed(2) + '%';
 };
 
 const goBack = () => {
@@ -705,6 +820,159 @@ onUnmounted(() => {
   color: #3B82F6;
 }
 
+/* 투자자별 상위 종목 */
+.top-stocks-section {
+  margin-bottom: 24px;
+}
+
+.top-stocks-section h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.top-stocks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.top-stocks-card {
+  background: white;
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.card-title.foreign {
+  color: #EF4444;
+}
+
+.card-title.institution {
+  color: #3B82F6;
+}
+
+.card-title svg {
+  width: 20px;
+  height: 20px;
+}
+
+.stock-lists {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-header {
+  margin-bottom: 8px;
+}
+
+.buy-badge {
+  background: linear-gradient(135deg, #EF4444 0%, #F97316 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sell-badge {
+  background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stock-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stock-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+
+.stock-item:hover {
+  background: #f3f4f6;
+}
+
+.stock-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stock-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.stock-change {
+  font-size: 11px;
+}
+
+.stock-change.positive {
+  color: #EF4444;
+}
+
+.stock-change.negative {
+  color: #3B82F6;
+}
+
+.stock-amount {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stock-amount.positive {
+  color: #EF4444;
+}
+
+.stock-amount.negative {
+  color: #3B82F6;
+}
+
+.no-data {
+  padding: 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+  background: #f9fafb;
+  border-radius: 10px;
+}
+
 /* 일별 추이 차트 */
 .trends-section {
   background: white;
@@ -949,6 +1217,14 @@ onUnmounted(() => {
     gap: 12px;
   }
 
+  .top-stocks-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-lists {
+    grid-template-columns: 1fr;
+  }
+
   .chart-content {
     overflow-x: auto;
     justify-content: flex-start;
@@ -986,5 +1262,34 @@ onUnmounted(() => {
 
 [data-theme="dark"] .sub-investors {
   background: rgba(31, 31, 35, 0.6);
+}
+
+[data-theme="dark"] .top-stocks-section h3 {
+  color: #f9fafb;
+}
+
+[data-theme="dark"] .top-stocks-card {
+  background: rgba(31, 31, 35, 0.95);
+}
+
+[data-theme="dark"] .card-title {
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .stock-item {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+[data-theme="dark"] .stock-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .stock-name {
+  color: #f9fafb;
+}
+
+[data-theme="dark"] .no-data {
+  background: rgba(255, 255, 255, 0.05);
+  color: #9ca3af;
 }
 </style>

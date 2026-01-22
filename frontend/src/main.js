@@ -21,6 +21,7 @@ import ActivityLogs from './views/ActivityLogs.vue'
 import SectorTradingPage from './views/SectorTradingPage.vue'
 import RedditPage from './views/RedditPage.vue'
 import MarketInvestorPage from './views/MarketInvestorPage.vue'
+import NewsPage from './views/NewsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -140,6 +141,12 @@ const router = createRouter({
       path: '/market-investor',
       name: 'MarketInvestor',
       component: MarketInvestorPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/news',
+      name: 'NewsPage',
+      component: NewsPage,
       meta: { requiresAuth: true }
     },
     {
