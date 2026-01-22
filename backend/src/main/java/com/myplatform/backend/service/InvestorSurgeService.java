@@ -1,0 +1,415 @@
+package com.myplatform.backend.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.config.KisApiProperties;
+import com.myplatform.backend.dto.InvestorSurgeDto;
+import com.myplatform.backend.entity.InvestorIntradaySnapshot;
+import com.myplatform.backend.repository.InvestorIntradaySnapshotRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * 외국인/기관 수급 급증 감지 서비스
+ * - 장중 10분 단위로 순매수 데이터 수집
+ * - 이전 스냅샷 대비 변화량 계산
+ * - 급증 종목 감지
+ */
+@Service
+@Transactional
+@RequiredArgsConstructor
+@Slf4j
+public class InvestorSurgeService {
+
+    private final KisApiProperties kisApiProperties;
+    private final InvestorIntradaySnapshotRepository snapshotRepository;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
+
+    // 급증 기준값 (억원)
+    private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
+    private static final BigDecimal SURGE_THRESHOLD_WARM = new BigDecimal("50");   // 50억 이상
+
+    // 액세스 토큰 캐시
+    private String accessToken;
+    private long tokenExpiryTime;
+
+    /**
+     * 장중 10분마다 외국인/기관 순매수 데이터 수집
+     * 평일 09:10 ~ 15:20 사이에만 실행
+     */
+    @Scheduled(cron = "0 0/10 9-15 * * MON-FRI")
+    public void collectIntradaySnapshot() {
+        LocalTime now = LocalTime.now();
+
+        // 09:00 이전, 15:30 이후는 수집하지 않음
+        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 25))) {
+            return;
+        }
+
+        log.info("장중 스냅샷 수집 시작: {}", now);
+
+        try {
+            // 외국인, 기관 순서로 수집
+            collectAndSaveSnapshot("FOREIGN");
+            Thread.sleep(1000); // API 호출 간격
+            collectAndSaveSnapshot("INSTITUTION");
+
+            log.info("장중 스냅샷 수집 완료");
+        } catch (Exception e) {
+            log.error("장중 스냅샷 수집 실패", e);
+        }
+    }
+
+    /**
+     * 특정 투자자 유형의 스냅샷 수집 및 저장
+     */
+    private void collectAndSaveSnapshot(String investorType) {
+        try {
+            ensureAccessToken();
+
+            LocalDate today = LocalDate.now();
+            // 10분 단위로 정규화
+            LocalTime snapshotTime = LocalTime.now()
+                    .withSecond(0).withNano(0)
+                    .withMinute((LocalTime.now().getMinute() / 10) * 10);
+
+            // 직전 스냅샷 시간 조회
+            Optional<LocalTime> prevTimeOpt = snapshotRepository.findPreviousSnapshotTime(
+                    today, investorType, snapshotTime);
+
+            // 직전 스냅샷 데이터 맵 (종목코드 -> 스냅샷)
+            Map<String, InvestorIntradaySnapshot> prevSnapshots = new HashMap<>();
+            if (prevTimeOpt.isPresent()) {
+                List<InvestorIntradaySnapshot> prevList = snapshotRepository
+                        .findBySnapshotDateAndSnapshotTimeAndInvestorTypeOrderByRankNumAsc(
+                                today, prevTimeOpt.get(), investorType);
+                prevSnapshots = prevList.stream()
+                        .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s));
+            }
+
+            // API 호출하여 현재 데이터 수집
+            List<InvestorIntradaySnapshot> snapshots = fetchCurrentRanking(investorType, today, snapshotTime);
+
+            // 변화량 계산
+            for (InvestorIntradaySnapshot snapshot : snapshots) {
+                InvestorIntradaySnapshot prev = prevSnapshots.get(snapshot.getStockCode());
+                if (prev != null) {
+                    BigDecimal amountChange = snapshot.getNetBuyAmount()
+                            .subtract(prev.getNetBuyAmount());
+                    snapshot.setAmountChange(amountChange);
+
+                    Integer rankChange = prev.getRankNum() - snapshot.getRankNum(); // 양수면 순위 상승
+                    snapshot.setRankChange(rankChange);
+                } else {
+                    snapshot.setAmountChange(snapshot.getNetBuyAmount());
+                    snapshot.setRankChange(0);
+                }
+            }
+
+            // 저장
+            snapshotRepository.saveAll(snapshots);
+            log.info("스냅샷 저장 완료: {} - {}건", investorType, snapshots.size());
+
+        } catch (Exception e) {
+            log.error("스냅샷 수집 실패: {}", investorType, e);
+        }
+    }
+
+    /**
+     * 현재 순매수 순위 조회 (API 호출)
+     */
+    private List<InvestorIntradaySnapshot> fetchCurrentRanking(
+            String investorType, LocalDate date, LocalTime time) {
+
+        List<InvestorIntradaySnapshot> snapshots = new ArrayList<>();
+
+        try {
+            String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/quotations/foreign-institution-total";
+
+            HttpHeaders headers = createHeaders();
+            headers.set("tr_id", "FHPTJ04400000");
+
+            String investorCode = "FOREIGN".equals(investorType) ? "1" : "2";
+
+            String urlWithParams = url +
+                    "?FID_COND_MRKT_DIV_CODE=V" +
+                    "&FID_COND_SCR_DIV_CODE=16449" +
+                    "&FID_INPUT_ISCD=0000" +
+                    "&FID_DIV_CLS_CODE=1" +
+                    "&FID_RANK_SORT_CLS_CODE=0" +  // 순매수 상위
+                    "&FID_ETC_CLS_CODE=" + investorCode;
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    urlWithParams, HttpMethod.GET, entity, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+
+                if (!"0".equals(root.path("rt_cd").asText())) {
+                    log.warn("API 오류: {}", root.path("msg1").asText());
+                    return snapshots;
+                }
+
+                JsonNode output = root.get("output");
+                if (output != null && output.isArray()) {
+                    int rank = 1;
+                    for (JsonNode item : output) {
+                        if (rank > 50) break;
+
+                        String stockCode = getJsonValue(item, "mksc_shrn_iscd", "stck_shrn_iscd");
+                        String stockName = getJsonValue(item, "hts_kor_isnm");
+
+                        if (stockCode == null || stockName == null) continue;
+
+                        BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn");
+                        BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
+                        BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
+
+                        InvestorIntradaySnapshot snapshot = InvestorIntradaySnapshot.builder()
+                                .snapshotDate(date)
+                                .snapshotTime(time)
+                                .stockCode(stockCode)
+                                .stockName(stockName)
+                                .investorType(investorType)
+                                .netBuyAmount(netBuyAmount)
+                                .currentPrice(currentPrice)
+                                .changeRate(changeRate)
+                                .rankNum(rank)
+                                .build();
+
+                        snapshots.add(snapshot);
+                        rank++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("순위 조회 실패", e);
+        }
+
+        return snapshots;
+    }
+
+    /**
+     * 수급 급증 종목 조회
+     */
+    @Transactional(readOnly = true)
+    public List<InvestorSurgeDto> getSurgeStocks(String investorType, BigDecimal minChange) {
+        LocalDate today = LocalDate.now();
+
+        // 주말이면 금요일 데이터 조회
+        if (today.getDayOfWeek() == DayOfWeek.SATURDAY) {
+            today = today.minusDays(1);
+        } else if (today.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            today = today.minusDays(2);
+        }
+
+        Optional<LocalTime> latestTimeOpt = snapshotRepository.findLatestSnapshotTime(today, investorType);
+        if (latestTimeOpt.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        LocalTime latestTime = latestTimeOpt.get();
+
+        if (minChange == null) {
+            minChange = SURGE_THRESHOLD_WARM;
+        }
+
+        List<InvestorIntradaySnapshot> surgeSnapshots = snapshotRepository.findSurgeStocks(
+                today, latestTime, investorType, minChange);
+
+        return surgeSnapshots.stream()
+                .map(this::toSurgeDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 전체 투자자 수급 급증 종목 조회
+     */
+    @Transactional(readOnly = true)
+    public Map<String, List<InvestorSurgeDto>> getAllSurgeStocks(BigDecimal minChange) {
+        Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
+
+        result.put("FOREIGN", getSurgeStocks("FOREIGN", minChange));
+        result.put("INSTITUTION", getSurgeStocks("INSTITUTION", minChange));
+
+        return result;
+    }
+
+    /**
+     * 특정 종목의 당일 수급 추이 조회
+     */
+    @Transactional(readOnly = true)
+    public List<InvestorSurgeDto> getStockIntradayTrend(String stockCode, String investorType) {
+        LocalDate today = LocalDate.now();
+
+        if (today.getDayOfWeek() == DayOfWeek.SATURDAY) {
+            today = today.minusDays(1);
+        } else if (today.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            today = today.minusDays(2);
+        }
+
+        List<InvestorIntradaySnapshot> snapshots = snapshotRepository
+                .findByStockCodeAndSnapshotDateAndInvestorTypeOrderBySnapshotTimeAsc(
+                        stockCode, today, investorType);
+
+        return snapshots.stream()
+                .map(this::toSurgeDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 수동으로 스냅샷 수집 트리거
+     */
+    public Map<String, Integer> collectSnapshotManually() {
+        Map<String, Integer> result = new HashMap<>();
+
+        try {
+            collectAndSaveSnapshot("FOREIGN");
+            result.put("FOREIGN", 1);
+
+            Thread.sleep(1000);
+
+            collectAndSaveSnapshot("INSTITUTION");
+            result.put("INSTITUTION", 1);
+        } catch (Exception e) {
+            log.error("수동 스냅샷 수집 실패", e);
+        }
+
+        return result;
+    }
+
+    /**
+     * 오래된 스냅샷 정리 (7일 이전)
+     */
+    @Scheduled(cron = "0 0 6 * * *")
+    public void cleanupOldSnapshots() {
+        LocalDate cutoffDate = LocalDate.now().minusDays(7);
+        snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);
+        log.info("오래된 스냅샷 정리 완료: {} 이전", cutoffDate);
+    }
+
+    private InvestorSurgeDto toSurgeDto(InvestorIntradaySnapshot snapshot) {
+        String surgeLevel = "NORMAL";
+        if (snapshot.getAmountChange() != null) {
+            if (snapshot.getAmountChange().compareTo(SURGE_THRESHOLD_HOT) >= 0) {
+                surgeLevel = "HOT";
+            } else if (snapshot.getAmountChange().compareTo(SURGE_THRESHOLD_WARM) >= 0) {
+                surgeLevel = "WARM";
+            }
+        }
+
+        Double changePercent = null;
+        if (snapshot.getAmountChange() != null && snapshot.getNetBuyAmount() != null) {
+            BigDecimal prevAmount = snapshot.getNetBuyAmount().subtract(snapshot.getAmountChange());
+            if (prevAmount.compareTo(BigDecimal.ZERO) != 0) {
+                changePercent = snapshot.getAmountChange()
+                        .divide(prevAmount.abs(), 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .doubleValue();
+            }
+        }
+
+        return InvestorSurgeDto.builder()
+                .stockCode(snapshot.getStockCode())
+                .stockName(snapshot.getStockName())
+                .investorType(snapshot.getInvestorType())
+                .investorTypeName(getInvestorTypeName(snapshot.getInvestorType()))
+                .snapshotTime(snapshot.getSnapshotTime())
+                .netBuyAmount(snapshot.getNetBuyAmount())
+                .amountChange(snapshot.getAmountChange())
+                .changePercent(changePercent)
+                .currentRank(snapshot.getRankNum())
+                .rankChange(snapshot.getRankChange())
+                .currentPrice(snapshot.getCurrentPrice())
+                .changeRate(snapshot.getChangeRate())
+                .surgeLevel(surgeLevel)
+                .build();
+    }
+
+    private String getInvestorTypeName(String investorType) {
+        switch (investorType) {
+            case "FOREIGN": return "외국인";
+            case "INSTITUTION": return "기관";
+            default: return investorType;
+        }
+    }
+
+    private void ensureAccessToken() {
+        if (accessToken != null && System.currentTimeMillis() < tokenExpiryTime) {
+            return;
+        }
+
+        try {
+            String url = kisApiProperties.getBaseUrl() + "/oauth2/tokenP";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, String> body = new HashMap<>();
+            body.put("grant_type", "client_credentials");
+            body.put("appkey", kisApiProperties.getAppKey());
+            body.put("appsecret", kisApiProperties.getAppSecret());
+
+            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
+            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                accessToken = root.get("access_token").asText();
+                int expiresIn = root.get("expires_in").asInt();
+                tokenExpiryTime = System.currentTimeMillis() + (expiresIn * 1000L) - 60000;
+            }
+        } catch (Exception e) {
+            log.error("액세스 토큰 발급 실패", e);
+            throw new RuntimeException("KIS API 인증 실패", e);
+        }
+    }
+
+    private HttpHeaders createHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("content-type", "application/json; charset=utf-8");
+        headers.set("authorization", "Bearer " + accessToken);
+        headers.set("appkey", kisApiProperties.getAppKey());
+        headers.set("appsecret", kisApiProperties.getAppSecret());
+        headers.set("custtype", "P");
+        return headers;
+    }
+
+    private String getJsonValue(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+                return node.get(fieldName).asText();
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal getJsonBigDecimal(JsonNode node, String... fieldNames) {
+        for (String fieldName : fieldNames) {
+            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+                try {
+                    String value = node.get(fieldName).asText().replaceAll("[^0-9.-]", "");
+                    return new BigDecimal(value);
+                } catch (Exception e) {
+                    return BigDecimal.ZERO;
+                }
+            }
+        }
+        return BigDecimal.ZERO;
+    }
+}

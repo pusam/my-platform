@@ -1,8 +1,10 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
+import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
 import com.myplatform.backend.dto.StockInvestorDetailDto;
+import com.myplatform.backend.service.InvestorSurgeService;
 import com.myplatform.backend.service.InvestorTradeService;
 import com.myplatform.core.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +27,7 @@ import java.util.Map;
 public class InvestorTradeController {
 
     private final InvestorTradeService investorTradeService;
+    private final InvestorSurgeService investorSurgeService;
 
     @Operation(summary = "투자자별 상위 매수/매도 종목 조회")
     @GetMapping("/top-trades")
@@ -107,5 +111,50 @@ public class InvestorTradeController {
         Map<String, List<ConsecutiveBuyDto>> stocks = investorTradeService.getAllConsecutiveBuyStocks(minDays);
 
         return ResponseEntity.ok(ApiResponse.success(stocks));
+    }
+
+    // ========== 수급 급증 관련 API ==========
+
+    @Operation(summary = "수급 급증 종목 조회", description = "장중 외국인/기관 순매수 급증 종목을 조회합니다.")
+    @GetMapping("/surge")
+    public ResponseEntity<ApiResponse<List<InvestorSurgeDto>>> getSurgeStocks(
+            @RequestParam String investorType,
+            @RequestParam(required = false) BigDecimal minChange) {
+
+        List<InvestorSurgeDto> stocks = investorSurgeService.getSurgeStocks(
+                investorType.toUpperCase(), minChange);
+
+        return ResponseEntity.ok(ApiResponse.success(stocks));
+    }
+
+    @Operation(summary = "전체 투자자 수급 급증 종목 조회", description = "외국인, 기관의 수급 급증 종목을 모두 조회합니다.")
+    @GetMapping("/surge/all")
+    public ResponseEntity<ApiResponse<Map<String, List<InvestorSurgeDto>>>> getAllSurgeStocks(
+            @RequestParam(required = false) BigDecimal minChange) {
+
+        Map<String, List<InvestorSurgeDto>> stocks = investorSurgeService.getAllSurgeStocks(minChange);
+
+        return ResponseEntity.ok(ApiResponse.success(stocks));
+    }
+
+    @Operation(summary = "종목 장중 수급 추이", description = "특정 종목의 당일 시간대별 수급 변화를 조회합니다.")
+    @GetMapping("/surge/trend/{stockCode}")
+    public ResponseEntity<ApiResponse<List<InvestorSurgeDto>>> getStockIntradayTrend(
+            @PathVariable String stockCode,
+            @RequestParam(required = false, defaultValue = "FOREIGN") String investorType) {
+
+        List<InvestorSurgeDto> trend = investorSurgeService.getStockIntradayTrend(
+                stockCode, investorType.toUpperCase());
+
+        return ResponseEntity.ok(ApiResponse.success(trend));
+    }
+
+    @Operation(summary = "장중 스냅샷 수동 수집", description = "수동으로 현재 시점의 수급 스냅샷을 수집합니다.")
+    @PostMapping("/surge/collect")
+    public ResponseEntity<ApiResponse<Map<String, Integer>>> collectSurgeSnapshot() {
+
+        Map<String, Integer> result = investorSurgeService.collectSnapshotManually();
+
+        return ResponseEntity.ok(ApiResponse.success("스냅샷 수집 완료", result));
     }
 }

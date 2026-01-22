@@ -17,6 +17,9 @@
         <button class="consecutive-btn" @click="goToConsecutive">
           🔥 연속 매수 종목
         </button>
+        <button class="surge-btn" @click="goToSurge">
+          ⚡ 수급 급증
+        </button>
       </div>
       <div class="investor-tabs">
         <button v-for="type in investorTypes" :key="type.value" :class="['tab-btn', { active: selectedInvestor === type.value }]" @click="selectedInvestor = type.value">
@@ -128,6 +131,9 @@ const goToDetail = (stockCode) => {
 const goToConsecutive = () => {
   router.push('/consecutive-buy');
 };
+const goToSurge = () => {
+  router.push('/investor-surge');
+};
 const goBack = () => {
   router.back();
 };
@@ -227,6 +233,21 @@ onMounted(() => {
 .consecutive-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(237, 137, 54, 0.4);
+}
+.surge-btn {
+  padding: 1rem 2rem;
+  border: 2px solid #e53e3e;
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: white;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+.surge-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(229, 62, 62, 0.4);
 }
 .investor-tabs {
   display: flex;
