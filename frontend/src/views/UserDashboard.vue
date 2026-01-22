@@ -219,23 +219,6 @@
           </span>
         </article>
 
-        <article class="menu-card chart" @click="goToChart">
-          <div class="card-icon chart-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M3 3v18h18"/>
-              <path d="M7 16l4-4 4 4 6-6"/>
-              <path d="M17 10h4v4"/>
-            </svg>
-          </div>
-          <h3>지수 vs 종목 비교</h3>
-          <p>코스닥/코스피 지수와 내 종목을 오버레이하여 상대강도를 분석합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
         <article class="menu-card supply-chart" @click="goToSupplyChart">
           <div class="card-icon supply-chart-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -654,9 +637,6 @@ export default {
     goToInvestor() {
       this.$router.push('/investor')
     },
-    goToChart() {
-      this.$router.push('/chart')
-    },
     goToSupplyChart() {
       this.$router.push('/supply-chart')
     },
@@ -881,25 +861,6 @@ export default {
 
 .menu-card.investor h3 {
   color: #059669;
-}
-
-.card-icon.chart-icon {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%);
-  color: #F59E0B;
-}
-
-.menu-card.chart {
-  background: linear-gradient(135deg, rgba(254, 252, 232, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(245, 158, 11, 0.2);
-}
-
-.menu-card.chart:hover {
-  border-color: #F59E0B;
-  box-shadow: 0 20px 40px rgba(245, 158, 11, 0.15);
-}
-
-.menu-card.chart h3 {
-  color: #D97706;
 }
 
 .card-icon.supply-chart-icon {

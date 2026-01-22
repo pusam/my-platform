@@ -20,7 +20,6 @@ import UserManagement from './views/UserManagement.vue'
 import ActivityLogs from './views/ActivityLogs.vue'
 import SectorTradingPage from './views/SectorTradingPage.vue'
 import InvestorTradingPage from './views/InvestorTradingPage.vue'
-import ChartComparePage from './views/ChartComparePage.vue'
 import SupplyDemandChartPage from './views/SupplyDemandChartPage.vue'
 import RedditPage from './views/RedditPage.vue'
 
@@ -136,12 +135,6 @@ const router = createRouter({
       path: '/investor',
       name: 'InvestorTrading',
       component: InvestorTradingPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/chart',
-      name: 'ChartCompare',
-      component: ChartComparePage,
       meta: { requiresAuth: true }
     },
     {

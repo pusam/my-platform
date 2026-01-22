@@ -301,22 +301,6 @@ export const investorAPI = {
   }
 };
 
-// Chart Compare API (지수 vs 종목 비교)
-export const chartAPI = {
-  // 지수 vs 종목 비교 차트
-  getCompareChart(stockCode, indexCode = '1001') {
-    return apiClient.get(`/chart/compare/${stockCode}`, { params: { indexCode } });
-  },
-  // 코스피 비교
-  getKospiCompare(stockCode) {
-    return apiClient.get(`/chart/compare/${stockCode}/kospi`);
-  },
-  // 코스닥 비교
-  getKosdaqCompare(stockCode) {
-    return apiClient.get(`/chart/compare/${stockCode}/kosdaq`);
-  }
-};
-
 // AI Chat API
 export const aiAPI = {
   // AI 채팅 (타임아웃 60초로 설정 - AI 응답이 느릴 수 있음)

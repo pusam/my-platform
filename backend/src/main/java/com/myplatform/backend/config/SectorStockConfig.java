@@ -131,6 +131,18 @@ public class SectorStockConfig {
         stockNameMap.put("053800", "안랩");
         stockNameMap.put("293490", "카카오게임즈");
         stockNameMap.put("263750", "펄어비스");
+
+        // 기타 주요 종목 (수급탐지기 기본 종목)
+        stockNameMap.put("005380", "현대차");
+        stockNameMap.put("000270", "기아");
+        stockNameMap.put("066570", "LG전자");
+        stockNameMap.put("055550", "신한지주");
+        stockNameMap.put("105560", "KB금융");
+        stockNameMap.put("051900", "LG생활건강");
+        stockNameMap.put("017670", "SK텔레콤");
+        stockNameMap.put("030200", "KT");
+        stockNameMap.put("032830", "삼성생명");
+        stockNameMap.put("086790", "하나금융지주");
     }
 
     private void initSectors() {
