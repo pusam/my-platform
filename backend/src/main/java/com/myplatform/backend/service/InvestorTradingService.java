@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.dto.InvestorTradingDto;
 import com.myplatform.backend.dto.InvestorTradingDto.TimeSeriesData;
 import com.myplatform.backend.dto.StockPriceDto;
@@ -29,6 +30,7 @@ public class InvestorTradingService {
 
     private final KoreaInvestmentService kisService;
     private final StockPriceService stockPriceService;
+    private final SectorStockConfig sectorStockConfig;
 
     // 관심종목별 시계열 데이터 캐시 (종목코드 -> 시간대별 데이터)
     private final Map<String, List<TimeSeriesData>> timeSeriesCache = new ConcurrentHashMap<>();
@@ -38,9 +40,11 @@ public class InvestorTradingService {
     private final Map<String, Long> cacheTime = new ConcurrentHashMap<>();
     private static final long CACHE_DURATION_MS = 5 * 60 * 1000;
 
-    public InvestorTradingService(KoreaInvestmentService kisService, StockPriceService stockPriceService) {
+    public InvestorTradingService(KoreaInvestmentService kisService, StockPriceService stockPriceService,
+                                   SectorStockConfig sectorStockConfig) {
         this.kisService = kisService;
         this.stockPriceService = stockPriceService;
+        this.sectorStockConfig = sectorStockConfig;
     }
 
     /**
@@ -60,9 +64,17 @@ public class InvestorTradingService {
         // 1. 현재가 정보 조회
         StockPriceDto priceInfo = stockPriceService.getStockPrice(stockCode);
         if (priceInfo != null) {
-            dto.setStockName(priceInfo.getStockName());
+            // API에서 종목명을 못 가져오면 SectorStockConfig의 매핑 사용
+            String stockName = priceInfo.getStockName();
+            if (stockName == null || stockName.isEmpty()) {
+                stockName = sectorStockConfig.getStockName(stockCode);
+            }
+            dto.setStockName(stockName);
             dto.setCurrentPrice(priceInfo.getCurrentPrice());
             dto.setChangeRate(priceInfo.getChangeRate());
+        } else {
+            // 시세 조회 실패해도 종목명은 표시
+            dto.setStockName(sectorStockConfig.getStockName(stockCode));
         }
 
         // 2. 투자자별 매매동향 조회 (한투 API)

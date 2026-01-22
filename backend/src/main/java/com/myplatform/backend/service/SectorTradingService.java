@@ -196,7 +196,12 @@ public class SectorTradingService {
 
             StockTradingInfo info = new StockTradingInfo();
             info.setStockCode(stockCode);
-            info.setStockName(price.getStockName());
+            // API에서 종목명을 못 가져오면 SectorStockConfig의 매핑 사용
+            String stockName = price.getStockName();
+            if (stockName == null || stockName.isEmpty()) {
+                stockName = sectorConfig.getStockName(stockCode);
+            }
+            info.setStockName(stockName);
             info.setCurrentPrice(price.getCurrentPrice());
             info.setChangeRate(price.getChangeRate());
 
