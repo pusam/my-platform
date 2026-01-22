@@ -60,7 +60,8 @@ const defaultWidgets = [
   { id: 'silverPrice', name: '은 시세', description: '실시간 은 시세를 표시합니다', iconClass: 'silver', enabled: true },
   { id: 'assetSummary', name: '자산 요약', description: '보유 자산 요약 정보를 표시합니다', iconClass: 'asset', enabled: true },
   { id: 'news', name: '경제 뉴스', description: '오늘의 경제 뉴스를 표시합니다', iconClass: 'news', enabled: true },
-  { id: 'financeSummary', name: '가계부 요약', description: '이번 달 수입/지출 요약을 표시합니다', iconClass: 'finance', enabled: true }
+  { id: 'financeSummary', name: '가계부 요약', description: '이번 달 수입/지출 요약을 표시합니다', iconClass: 'finance', enabled: true },
+  { id: 'investorTrades', name: '투자자 매매 동향', description: '외국인·기관·개인 매매 상위 종목을 표시합니다', iconClass: 'investor', enabled: true }
 ];
 
 const widgets = ref([...defaultWidgets]);
@@ -275,6 +276,11 @@ watch(() => props.visible, (newVal) => {
 .widget-icon.asset {
   background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
   color: #f7b733;
+}
+
+.widget-icon.investor {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  color: #667eea;
 }
 
 .widget-icon.news {

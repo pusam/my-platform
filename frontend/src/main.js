@@ -22,6 +22,7 @@ import SectorTradingPage from './views/SectorTradingPage.vue'
 import RedditPage from './views/RedditPage.vue'
 import MarketInvestorPage from './views/MarketInvestorPage.vue'
 import InvestorTradePage from './views/InvestorTradePage.vue'
+import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
 import NewsPage from './views/NewsPage.vue'
 
 const router = createRouter({
@@ -154,6 +155,12 @@ const router = createRouter({
       path: '/investor-trades',
       name: 'InvestorTrade',
       component: InvestorTradePage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/investor-stock/:stockCode',
+      name: 'InvestorStockDetail',
+      component: InvestorStockDetailPage,
       meta: { requiresAuth: true }
     },
     {

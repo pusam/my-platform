@@ -264,6 +264,22 @@
           </span>
         </article>
 
+        <!-- 투자자 매매 동향 -->
+        <article v-if="widgetSettings.investorTrades" class="menu-card investor" @click="goToInvestorTrade">
+          <div class="card-icon investor-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <h3>투자자 매매 동향</h3>
+          <p>외국인·기관·개인 매매 상위 종목을 확인합니다</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
         <!-- 경제 뉴스 -->
         <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
           <div class="card-icon news-icon">
@@ -339,7 +355,8 @@ export default {
         silverPrice: true,
         assetSummary: true,
         news: true,
-        financeSummary: true
+        financeSummary: true,
+        investorTrades: true
       },
       financeSummary: {
         totalIncome: 0,
@@ -866,6 +883,26 @@ export default {
 
 .menu-card.news h3 {
   color: #2563eb;
+}
+
+/* 투자자 매매 동향 카드 */
+.card-icon.investor-icon {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  color: #667eea;
+}
+
+.menu-card.investor {
+  background: linear-gradient(135deg, rgba(243, 244, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(102, 126, 234, 0.3);
+}
+
+.menu-card.investor:hover {
+  border-color: #667eea;
+  box-shadow: 0 20px 40px rgba(102, 126, 234, 0.15);
+}
+
+.menu-card.investor h3 {
+  color: #5568d3;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
