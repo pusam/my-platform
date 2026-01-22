@@ -1,6 +1,8 @@
 package com.myplatform.backend.entity;
 
 import jakarta.persistence.*;
+import lombok.*;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -12,10 +14,15 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "investor_daily_trade",
        indexes = {
-           @Index(name = "idx_investor_trade_date", columnNames = {"trade_date"}),
-           @Index(name = "idx_investor_trade_market", columnNames = {"market_type", "trade_date"}),
-           @Index(name = "idx_investor_trade_type", columnNames = {"investor_type", "trade_date"})
+           @Index(name = "idx_investor_trade_date", columnList = "trade_date"),
+           @Index(name = "idx_investor_trade_market", columnList = "market_type, trade_date"),
+           @Index(name = "idx_investor_trade_type", columnList = "investor_type, trade_date")
        })
+@Getter
+@Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class InvestorDailyTrade {
 
     @Id
@@ -68,50 +75,4 @@ public class InvestorDailyTrade {
     protected void onCreate() {
         createdAt = LocalDateTime.now();
     }
-
-    // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-
-    public String getMarketType() { return marketType; }
-    public void setMarketType(String marketType) { this.marketType = marketType; }
-
-    public LocalDate getTradeDate() { return tradeDate; }
-    public void setTradeDate(LocalDate tradeDate) { this.tradeDate = tradeDate; }
-
-    public String getInvestorType() { return investorType; }
-    public void setInvestorType(String investorType) { this.investorType = investorType; }
-
-    public String getTradeType() { return tradeType; }
-    public void setTradeType(String tradeType) { this.tradeType = tradeType; }
-
-    public Integer getRankNum() { return rankNum; }
-    public void setRankNum(Integer rankNum) { this.rankNum = rankNum; }
-
-    public String getStockCode() { return stockCode; }
-    public void setStockCode(String stockCode) { this.stockCode = stockCode; }
-
-    public String getStockName() { return stockName; }
-    public void setStockName(String stockName) { this.stockName = stockName; }
-
-    public BigDecimal getNetBuyAmount() { return netBuyAmount; }
-    public void setNetBuyAmount(BigDecimal netBuyAmount) { this.netBuyAmount = netBuyAmount; }
-
-    public BigDecimal getBuyAmount() { return buyAmount; }
-    public void setBuyAmount(BigDecimal buyAmount) { this.buyAmount = buyAmount; }
-
-    public BigDecimal getSellAmount() { return sellAmount; }
-    public void setSellAmount(BigDecimal sellAmount) { this.sellAmount = sellAmount; }
-
-    public BigDecimal getCurrentPrice() { return currentPrice; }
-    public void setCurrentPrice(BigDecimal currentPrice) { this.currentPrice = currentPrice; }
-
-    public BigDecimal getChangeRate() { return changeRate; }
-    public void setChangeRate(BigDecimal changeRate) { this.changeRate = changeRate; }
-
-    public Long getTradeVolume() { return tradeVolume; }
-    public void setTradeVolume(Long tradeVolume) { this.tradeVolume = tradeVolume; }
-
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

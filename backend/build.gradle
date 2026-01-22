@@ -20,6 +20,10 @@ dependencies {
     // MariaDB Driver
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client:3.3.1'
 
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
     // WebClient for external API calls
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
 
