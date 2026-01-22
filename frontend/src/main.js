@@ -22,6 +22,7 @@ import SectorTradingPage from './views/SectorTradingPage.vue'
 import InvestorTradingPage from './views/InvestorTradingPage.vue'
 import SupplyDemandChartPage from './views/SupplyDemandChartPage.vue'
 import RedditPage from './views/RedditPage.vue'
+import MarketInvestorPage from './views/MarketInvestorPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -147,6 +148,12 @@ const router = createRouter({
       path: '/reddit',
       name: 'RedditPage',
       component: RedditPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/market-investor',
+      name: 'MarketInvestor',
+      component: MarketInvestorPage,
       meta: { requiresAuth: true }
     },
     {

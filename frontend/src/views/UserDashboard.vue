@@ -69,22 +69,6 @@
           </span>
         </article>
 
-        <article class="menu-card" @click="goToAsset">
-          <div class="card-icon asset">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="12" y1="1" x2="12" y2="23"/>
-              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-            </svg>
-          </div>
-          <h3>자산 관리</h3>
-          <p>보유한 금/은 자산을 관리하고 손익을 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
         <article class="menu-card" @click="goToSettings">
           <div class="card-icon settings">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -101,40 +85,6 @@
           </span>
         </article>
 
-        <article class="menu-card gold" @click="goToGold">
-          <div class="card-icon gold-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v12"/>
-              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-            </svg>
-          </div>
-          <h3>금 시세</h3>
-          <p>실시간 금 시세 정보를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card silver" @click="goToSilver">
-          <div class="card-icon silver-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v12"/>
-              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-            </svg>
-          </div>
-          <h3>은 시세</h3>
-          <p>실시간 은 시세 정보를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
         <article class="menu-card" @click="goToFiles">
           <div class="card-icon files">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -143,24 +93,6 @@
           </div>
           <h3>내 파일</h3>
           <p>개인 파일과 폴더를 관리합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card finance" @click="goToFinance">
-          <div class="card-icon finance-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
-          </div>
-          <h3>가계부</h3>
-          <p>월별 수입과 지출을 기록하고 관리합니다.</p>
           <span class="card-arrow">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9,6 15,12 9,18"/>
@@ -250,6 +182,25 @@
           </div>
           <h3>Reddit 주식 정보</h3>
           <p>해외 주식 커뮤니티(WSB, stocks 등)의 실시간 트렌드와 인기 게시물을 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article class="menu-card market-investor" @click="goToMarketInvestor">
+          <div class="card-icon market-investor-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="2" y1="12" x2="22" y2="12"/>
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+              <path d="M8 6l4 4 4-4"/>
+              <path d="M8 18l4-4 4 4"/>
+            </svg>
+          </div>
+          <h3>시장 투자자 동향</h3>
+          <p>코스피/코스닥 외국인, 기관, 개인 투자자의 순매수 동향과 일별 추이를 확인합니다.</p>
           <span class="card-arrow">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9,6 15,12 9,18"/>
@@ -643,6 +594,9 @@ export default {
     goToReddit() {
       this.$router.push('/reddit')
     },
+    goToMarketInvestor() {
+      this.$router.push('/market-investor')
+    },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
       window.dispatchEvent(new CustomEvent('open-chatbot'))
@@ -786,24 +740,9 @@ export default {
   color: #6c757d;
 }
 
-.card-icon.gold-icon {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
-  color: #daa520;
-}
-
-.card-icon.silver-icon {
-  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(128, 128, 128, 0.2) 100%);
-  color: #808080;
-}
-
 .card-icon.files {
   background: linear-gradient(135deg, rgba(93, 173, 226, 0.15) 0%, rgba(52, 152, 219, 0.15) 100%);
   color: #3498db;
-}
-
-.card-icon.finance-icon {
-  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(26, 188, 156, 0.15) 100%);
-  color: #2ecc71;
 }
 
 .card-icon.car-icon {
@@ -901,6 +840,25 @@ export default {
   color: #EA580C;
 }
 
+.card-icon.market-investor-icon {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+  color: #3B82F6;
+}
+
+.menu-card.market-investor {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(59, 130, 246, 0.2);
+}
+
+.menu-card.market-investor:hover {
+  border-color: #3B82F6;
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
+}
+
+.menu-card.market-investor h3 {
+  color: #2563EB;
+}
+
 .menu-card h3 {
   font-size: 20px;
   color: var(--text-primary);
@@ -923,35 +881,6 @@ export default {
   opacity: 0;
   transition: all 0.3s ease;
   color: var(--primary-start);
-}
-
-/* 금/은 특별 스타일 */
-.menu-card.gold {
-  background: linear-gradient(135deg, rgba(255, 249, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(255, 215, 0, 0.3);
-}
-
-.menu-card.gold:hover {
-  border-color: #ffd700;
-  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.2);
-}
-
-.menu-card.gold h3 {
-  color: #b8860b;
-}
-
-.menu-card.silver {
-  background: linear-gradient(135deg, rgba(248, 249, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(192, 192, 192, 0.3);
-}
-
-.menu-card.silver:hover {
-  border-color: #c0c0c0;
-  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.2);
-}
-
-.menu-card.silver h3 {
-  color: #708090;
 }
 
 /* 뉴스 섹션 */
