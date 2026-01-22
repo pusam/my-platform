@@ -168,25 +168,6 @@
           </span>
         </article>
 
-        <article class="menu-card market-investor" @click="goToMarketInvestor">
-          <div class="card-icon market-investor-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="2" y1="12" x2="22" y2="12"/>
-              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-              <path d="M8 6l4 4 4-4"/>
-              <path d="M8 18l4-4 4 4"/>
-            </svg>
-          </div>
-          <h3>시장 투자자 동향</h3>
-          <p>코스피/코스닥 외국인, 기관, 개인 투자자의 순매수 동향과 일별 추이를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
         <!-- 금 시세 -->
         <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
           <div class="card-icon gold-icon">
@@ -513,9 +494,6 @@ export default {
     goToReddit() {
       this.$router.push('/reddit')
     },
-    goToMarketInvestor() {
-      this.$router.push('/market-investor')
-    },
     goToInvestorTrade() {
       this.$router.push('/investor-trades')
     },
@@ -725,25 +703,6 @@ export default {
 
 .menu-card.reddit h3 {
   color: #EA580C;
-}
-
-.card-icon.market-investor-icon {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
-  color: #3B82F6;
-}
-
-.menu-card.market-investor {
-  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(59, 130, 246, 0.2);
-}
-
-.menu-card.market-investor:hover {
-  border-color: #3B82F6;
-  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
-}
-
-.menu-card.market-investor h3 {
-  color: #2563EB;
 }
 
 /* 금 시세 카드 */

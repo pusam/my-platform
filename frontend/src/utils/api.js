@@ -441,36 +441,6 @@ export const redditAPI = {
   }
 };
 
-// Market Investor Trend API (시장 투자자 매매동향)
-export const marketInvestorAPI = {
-  // 코스피 투자자 매매동향
-  getKospi() {
-    return apiClient.get('/market-investor/kospi');
-  },
-  // 코스닥 투자자 매매동향
-  getKosdaq() {
-    return apiClient.get('/market-investor/kosdaq');
-  },
-  // 양 시장 매매동향 한번에 조회
-  getAll() {
-    return apiClient.get('/market-investor/all');
-  },
-  // 과거 데이터 조회
-  getHistory(marketType, startDate, endDate) {
-    return apiClient.get(`/market-investor/history/${marketType}`, {
-      params: { startDate, endDate }
-    });
-  },
-  // 수동 저장 (관리자용)
-  saveManually() {
-    return apiClient.post('/market-investor/save');
-  },
-  // 캐시 초기화
-  clearCache() {
-    return apiClient.post('/market-investor/cache/clear');
-  }
-};
-
 // Investor Daily Trade API (투자자별 일별 상위 종목)
 export const investorTradeAPI = {
   // 데이터 수집 (당일)

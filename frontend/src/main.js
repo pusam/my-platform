@@ -20,7 +20,6 @@ import UserManagement from './views/UserManagement.vue'
 import ActivityLogs from './views/ActivityLogs.vue'
 import SectorTradingPage from './views/SectorTradingPage.vue'
 import RedditPage from './views/RedditPage.vue'
-import MarketInvestorPage from './views/MarketInvestorPage.vue'
 import InvestorTradePage from './views/InvestorTradePage.vue'
 import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
 import NewsPage from './views/NewsPage.vue'
@@ -137,12 +136,6 @@ const router = createRouter({
       path: '/reddit',
       name: 'RedditPage',
       component: RedditPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/market-investor',
-      name: 'MarketInvestor',
-      component: MarketInvestorPage,
       meta: { requiresAuth: true }
     },
     {
