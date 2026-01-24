@@ -21,21 +21,19 @@ public class AdminStatsService {
 
     private final UserRepository userRepository;
     private final BoardRepository boardRepository;
-    private final FileMetadataRepository fileMetadataRepository;
-    private final AssetRepository assetRepository;
+    private final UserFileRepository userFileRepository;
+    private final UserAssetRepository userAssetRepository;
     private final FinanceTransactionRepository financeTransactionRepository;
-
-    private final LocalDateTime serverStartTime = LocalDateTime.now();
 
     public AdminStatsService(UserRepository userRepository,
                             BoardRepository boardRepository,
-                            FileMetadataRepository fileMetadataRepository,
-                            AssetRepository assetRepository,
+                            UserFileRepository userFileRepository,
+                            UserAssetRepository userAssetRepository,
                             FinanceTransactionRepository financeTransactionRepository) {
         this.userRepository = userRepository;
         this.boardRepository = boardRepository;
-        this.fileMetadataRepository = fileMetadataRepository;
-        this.assetRepository = assetRepository;
+        this.userFileRepository = userFileRepository;
+        this.userAssetRepository = userAssetRepository;
         this.financeTransactionRepository = financeTransactionRepository;
     }
 
@@ -57,8 +55,8 @@ public class AdminStatsService {
         stats.setTodayBoards(boardRepository.countByCreatedAtAfter(todayStart));
 
         // 파일 통계
-        stats.setTotalFiles(fileMetadataRepository.count());
-        Long totalSize = fileMetadataRepository.sumFileSize();
+        stats.setTotalFiles(userFileRepository.count());
+        Long totalSize = userFileRepository.sumFileSize();
         if (totalSize != null) {
             stats.setTotalFileSize(totalSize / (1024.0 * 1024.0)); // MB 단위
         } else {
@@ -66,12 +64,12 @@ public class AdminStatsService {
         }
 
         // 자산 & 거래 통계
-        stats.setTotalAssets(assetRepository.count());
+        stats.setTotalAssets(userAssetRepository.count());
         stats.setTotalTransactions(financeTransactionRepository.count());
 
         // 최근 가입일
         stats.setLastSignupDate(userRepository.findTopByOrderByCreatedAtDesc()
-            .map(user -> user.getCreatedAt())
+            .map(User::getCreatedAt)
             .orElse(null));
 
         // 서버 가동 시간
@@ -97,13 +95,14 @@ public class AdminStatsService {
         stats.put("boardCount", boardRepository.countByUserId(userId));
 
         // 사용자 파일 수
-        stats.put("fileCount", fileMetadataRepository.countByUploaderId(userId));
+        stats.put("fileCount", userFileRepository.countByUserId(userId));
 
         // 사용자 자산 수
-        stats.put("assetCount", assetRepository.countByUserId(userId));
+        stats.put("assetCount", userAssetRepository.countByUserId(userId));
 
-        // 사용자 거래 내역 수
-        stats.put("transactionCount", financeTransactionRepository.countByUserId(userId));
+        // 사용자 거래 내역 수 - userId로 username 조회 필요
+        // TODO: User 엔티티에서 username 가져와서 financeTransactionRepository.countByUsername(username) 호출
+        stats.put("transactionCount", 0L);
 
         return stats;
     }
