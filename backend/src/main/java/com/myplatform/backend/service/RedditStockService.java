@@ -196,8 +196,8 @@ public class RedditStockService {
             }
 
             String[] tickers = post.getTickers().split(", ");
-            for (String ticker : tickers) {
-                ticker = ticker.trim();
+            for (String tickerTemp : tickers) {
+                final String ticker = tickerTemp.trim();
                 if (ticker.length() < 2 || ticker.length() > 5) {
                     continue;
                 }
