@@ -107,7 +107,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, onMounted } from 'vue';
+import { ref, nextTick } from 'vue';
 import { aiAPI } from '../utils/api';
 
 const isOpen = ref(false);
@@ -255,9 +255,10 @@ const updateQuickReplies = (lastMessage) => {
   }
 };
 
-onMounted(() => {
-  checkAiStatus();
-});
+// onMounted에서 AI 상태 체크 제거 - 채팅창 열 때만 체크
+// onMounted(() => {
+//   checkAiStatus();
+// });
 </script>
 
 <style scoped>

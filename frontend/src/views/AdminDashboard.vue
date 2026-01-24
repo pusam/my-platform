@@ -241,12 +241,52 @@ export default {
     viewBoardStats() {
       alert('게시판 통계 페이지 (개발 예정)')
     },
-    viewApiStats() {
-      alert('API 통계 페이지 (개발 예정)')
+    async viewApiStats() {
+      try {
+        const response = await apiClient.get('/admin/api-stats')
+        if (response.data.success) {
+          const stats = response.data.data
+          const caches = stats.caches
+
+          let message = '=== API 캐시 상태 ===\n\n'
+          message += '📊 투자 정보 API:\n'
+          message += `- 투자자 매매동향: ${caches.investorTrend || '비활성'}\n`
+          message += `- 연속 매수 종목: ${caches.continuousBuy || '비활성'}\n`
+          message += `- 수급 급등 종목: ${caches.supplySurge || '비활성'}\n\n`
+
+          message += '🌐 Reddit 주식 정보:\n'
+          message += `- 미국 주식: ${caches.redditUSStocks || '비활성'}\n`
+          message += `- 한국 주식: ${caches.redditKRStocks || '비활성'}\n`
+          message += `- 게시글: ${caches.redditPosts || '비활성'}\n\n`
+
+          message += '💰 금/은 시세:\n'
+          message += `- 금 시세: ${caches.goldPrice || '비활성'}\n`
+          message += `- 은 시세: ${caches.silverPrice || '비활성'}\n\n`
+
+          message += `총 ${stats.totalCaches}개의 캐시 활성\n\n`
+          message += `💡 ${stats.message}`
+
+          alert(message)
+        }
+      } catch (error) {
+        console.error('API 통계 로딩 실패:', error)
+        alert('API 통계를 불러올 수 없습니다.')
+      }
     },
-    clearCache() {
-      if (confirm('모든 캐시를 초기화하시겠습니까?')) {
-        alert('캐시 초기화 기능 (개발 예정)')
+    async clearCache() {
+      if (confirm('모든 API 캐시를 초기화하시겠습니까?\n\n다음 API 호출 시 외부 서버에서 최신 데이터를 가져옵니다.\n- KIS API (투자자 매매동향, 연속 매수, 수급 급등)\n- Reddit API (미국/한국 주식 트렌드)\n- 금/은 시세')) {
+        try {
+          const response = await apiClient.post('/admin/clear-cache')
+          if (response.data.success) {
+            alert(response.data.message || '캐시가 초기화되었습니다.')
+            this.loadStats() // 통계 새로고침
+          } else {
+            alert(response.data.message || '캐시 초기화에 실패했습니다.')
+          }
+        } catch (error) {
+          console.error('캐시 초기화 실패:', error)
+          alert('캐시 초기화에 실패했습니다.')
+        }
       }
     },
     viewFileManager() {

@@ -153,8 +153,6 @@ $env:GOLD_API_KEY="your_gold_api_key"
 $env:SILVER_API_KEY="your_silver_api_key"
 $env:KIS_APP_KEY="your_kis_app_key"
 $env:KIS_APP_SECRET="your_kis_app_secret"
-$env:KIS_ACCOUNT_NUMBER="12345678"
-$env:KIS_ACCOUNT_PRODUCT_CODE="01"
 ```
 
 **Windows (영구 설정 - 관리자 권한 필요):**
@@ -278,7 +276,10 @@ myplatform/
 - **관리자 기능**
   - 회원가입 승인/거부 관리
   - 전체 게시글 관리
-  - 시스템 통계
+  - 시스템 통계 및 모니터링
+  - **API 캐시 관리**: KIS API, Reddit API, 금/은 시세 캐시 조회 및 초기화
+  - **API 통계**: 각 API의 캐시 상태 실시간 확인
+  - 사용자 권한 관리 (USER/ADMIN)
 
 - **개발 환경**
   - 멀티 모듈 Gradle 프로젝트 아키텍처
@@ -302,7 +303,10 @@ myplatform/
 
 **원인**: ChatBot 컴포넌트가 페이지 로드 시마다 AI 상태를 체크하여 무한 루프 발생
 
-**해결**: ChatBot이 채팅창을 열 때만 AI 상태를 체크하도록 수정되었습니다.
+**해결**: ChatBot의 `onMounted`에서 AI 상태 체크를 주석 처리했습니다. 이제 채팅창을 열 때만 AI 상태를 체크합니다.
+- 로그인하지 않은 상태에서는 ChatBot이 렌더링되지 않음
+- 채팅 버튼 클릭 시에만 AI 서버 상태 확인
+- 불필요한 401 에러 로그 제거
 
 ### 3. 은 시세 500 에러
 **증상**: `http://dhkim.iptime.org/api/silver/price` 호출 시 500 에러
@@ -374,6 +378,27 @@ export KIS_BASE_URL="https://openapi.koreainvestment.com:9443"
 .requestMatchers("/api/**").authenticated()         // 나머지 API는 인증 필요
 .anyRequest().permitAll()                           // 프론트엔드 라우트는 허용
 ```
+
+### 8. Reddit 주식 정보 API
+**기능**: Reddit에서 실시간 주식 트렌드 수집
+
+**상세 가이드**: [Reddit 주식 정보 API 가이드](./REDDIT_STOCK_API.md) 참조
+
+**주요 기능**:
+- 미국 주식 인기 종목 (wallstreetbets, stocks, investing)
+- 한국 주식 관련 정보 (삼성, 현대, SK, LG, 네이버, 카카오)
+- 감성 분석 (긍정/부정/중립)
+- 캐시: 10분
+
+**데이터가 수집되지 않는 경우**:
+1. Reddit API 접근 가능 여부 확인
+2. 캐시 초기화 (관리자 대시보드 → API 통계 → 캐시 초기화)
+3. 백엔드 로그 확인: `[RedditStockService]` 관련 메시지
+
+**참고**: 
+- API 키 불필요 (공개 Reddit JSON 엔드포인트 사용)
+- User-Agent 헤더 필수: `MyPlatform/1.0`
+- 과도한 요청 시 429 에러 발생 가능
 
 ---
 

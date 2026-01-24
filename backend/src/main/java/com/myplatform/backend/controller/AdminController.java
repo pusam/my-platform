@@ -6,10 +6,12 @@ import com.myplatform.backend.service.UserManagementService;
 import com.myplatform.core.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -21,11 +23,14 @@ public class AdminController {
 
     private final UserManagementService userManagementService;
     private final AdminStatsService adminStatsService;
+    private final CacheManager cacheManager;
 
     public AdminController(UserManagementService userManagementService,
-                          AdminStatsService adminStatsService) {
+                          AdminStatsService adminStatsService,
+                          CacheManager cacheManager) {
         this.userManagementService = userManagementService;
         this.adminStatsService = adminStatsService;
+        this.cacheManager = cacheManager;
     }
 
     @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
@@ -141,6 +146,77 @@ public class AdminController {
             return ResponseEntity.ok(ApiResponse.success("권한이 변경되었습니다.", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("권한 변경 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "API 통계 조회", description = "KIS API, Reddit API 등의 사용 통계 및 캐시 상태를 조회합니다.")
+    @GetMapping("/api-stats")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getApiStats() {
+        try {
+            Map<String, Object> stats = new HashMap<>();
+
+            // 캐시 통계
+            Map<String, Object> cacheStats = new HashMap<>();
+            String[] cacheNames = {"investorTrend", "continuousBuy", "supplySurge",
+                                   "redditUSStocks", "redditKRStocks", "redditPosts",
+                                   "goldPrice", "silverPrice"};
+
+            for (String cacheName : cacheNames) {
+                var cache = cacheManager.getCache(cacheName);
+                if (cache != null) {
+                    cacheStats.put(cacheName, "활성");
+                } else {
+                    cacheStats.put(cacheName, "비활성");
+                }
+            }
+
+            stats.put("caches", cacheStats);
+            stats.put("totalCaches", cacheNames.length);
+            stats.put("message", "캐시는 API 응답 속도를 개선하고 외부 API 호출을 줄입니다.");
+
+            return ResponseEntity.ok(ApiResponse.success("API 통계 조회 성공", stats));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "캐시 초기화", description = "모든 API 캐시를 초기화합니다. (KIS API, Reddit API, 금/은 시세 등)")
+    @PostMapping("/clear-cache")
+    public ResponseEntity<ApiResponse<String>> clearAllCaches() {
+        try {
+            int clearedCount = 0;
+            for (String cacheName : cacheManager.getCacheNames()) {
+                var cache = cacheManager.getCache(cacheName);
+                if (cache != null) {
+                    cache.clear();
+                    clearedCount++;
+                }
+            }
+            return ResponseEntity.ok(ApiResponse.success(
+                String.format("%d개의 캐시가 초기화되었습니다. 다음 API 호출 시 최신 데이터를 가져옵니다.", clearedCount),
+                null
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("캐시 초기화 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "특정 캐시 초기화", description = "특정 API의 캐시만 초기화합니다.")
+    @PostMapping("/clear-cache/{cacheName}")
+    public ResponseEntity<ApiResponse<String>> clearSpecificCache(@PathVariable String cacheName) {
+        try {
+            var cache = cacheManager.getCache(cacheName);
+            if (cache != null) {
+                cache.clear();
+                return ResponseEntity.ok(ApiResponse.success(
+                    String.format("%s 캐시가 초기화되었습니다.", cacheName),
+                    null
+                ));
+            } else {
+                return ResponseEntity.ok(ApiResponse.fail("존재하지 않는 캐시입니다: " + cacheName));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("캐시 초기화 실패: " + e.getMessage()));
         }
     }
 }

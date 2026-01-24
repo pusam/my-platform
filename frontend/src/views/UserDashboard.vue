@@ -379,6 +379,25 @@ export default {
   color: #2ecc71;
 }
 
+.card-icon.stock-icon {
+  background: linear-gradient(135deg, rgba(231, 76, 60, 0.15) 0%, rgba(192, 57, 43, 0.15) 100%);
+  color: #e74c3c;
+}
+
+.menu-card.stock {
+  background: linear-gradient(135deg, rgba(255, 245, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(231, 76, 60, 0.3);
+}
+
+.menu-card.stock:hover {
+  border-color: #e74c3c;
+  box-shadow: 0 20px 40px rgba(231, 76, 60, 0.2);
+}
+
+.menu-card.stock h3 {
+  color: #c0392b;
+}
+
 
 .menu-card h3 {
   font-size: 20px;
