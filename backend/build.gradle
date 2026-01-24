@@ -12,6 +12,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
     implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'org.springframework.boot:spring-boot-starter-batch'
 
     // Lombok
     compileOnly 'org.projectlombok:lombok'
@@ -27,6 +28,12 @@ dependencies {
 
     // WebClient for external API calls
     implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+    // Technical Analysis Library (ta4j)
+    implementation 'org.ta4j:ta4j-core:0.15'
+
+    // Web Scraping (Jsoup)
+    implementation 'org.jsoup:jsoup:1.17.2'
 }
 
 // 프론트엔드 빌드 태스크

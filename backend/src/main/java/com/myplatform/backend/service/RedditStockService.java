@@ -197,15 +197,15 @@ public class RedditStockService {
 
             String[] tickers = post.getTickers().split(", ");
             for (String tickerTemp : tickers) {
-                final String ticker = tickerTemp.trim();
+                String ticker = tickerTemp.trim();
                 if (ticker.length() < 2 || ticker.length() > 5) {
                     continue;
                 }
 
                 RedditStockMentionDto mention = stockMap.computeIfAbsent(ticker, k -> {
                     RedditStockMentionDto dto = new RedditStockMentionDto();
-                    dto.setTicker(ticker);
-                    dto.setStockName(ticker);
+                    dto.setTicker(k);
+                    dto.setStockName(k);
                     dto.setMentionCount(0);
                     dto.setPositiveCount(0);
                     dto.setNegativeCount(0);
