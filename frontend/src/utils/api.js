@@ -236,6 +236,38 @@ export const aiAPI = {
   }
 };
 
+// KIS API (한국투자증권 시장 데이터)
+export const kisAPI = {
+  // 투자자 매매동향 조회
+  getInvestorTrend() {
+    return apiClient.get('/kis/investor-trend');
+  },
+  // 연속 매수 종목 조회
+  getContinuousBuyStocks() {
+    return apiClient.get('/kis/continuous-buy');
+  },
+  // 수급 급등 종목 조회
+  getSupplySurgeStocks() {
+    return apiClient.get('/kis/supply-surge');
+  }
+};
+
+// Reddit 주식 정보 API
+export const redditAPI = {
+  // 미국 주식 인기 종목
+  getTrendingUSStocks() {
+    return apiClient.get('/reddit/trending/us');
+  },
+  // 한국 주식 관련 정보
+  getTrendingKRStocks() {
+    return apiClient.get('/reddit/trending/kr');
+  },
+  // 서브레딧 인기 게시글
+  getHotPosts(subreddit) {
+    return apiClient.get(`/reddit/posts/${subreddit}`);
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

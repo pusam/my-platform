@@ -2,6 +2,8 @@
 
 Spring Boot와 Vue.js 기반의 풀스택 웹 플랫폼입니다.
 
+> 📊 **[Reddit 주식 정보 API 가이드](./REDDIT_STOCK_API.md)** - Reddit에서 실시간 주식 트렌드 수집
+
 ## 🛠️ 기술 스택
 
 ### 백엔드
@@ -109,11 +111,9 @@ jwt.secret=<매우_긴_무작위_JWT_비밀_키> # 보안을 위해 길고 복�
 |-----------|------|------|
 | `GOLD_API_KEY` | GoldAPI.io API 키 | 금 시세 조회 기능 |
 | `SILVER_API_KEY` | GoldAPI.io API 키 | 은 시세 조회 기능 |
-| `KIS_APP_KEY` | 한국투자증권 API 앱키 | 주식 거래 기능 |
-| `KIS_APP_SECRET` | 한국투자증권 API 앱시크릿 | 주식 거래 기능 |
+| `KIS_APP_KEY` | 한국투자증권 API 앱키 | 시장 데이터 조회 |
+| `KIS_APP_SECRET` | 한국투자증권 API 앱시크릿 | 시장 데이터 조회 |
 | `KIS_BASE_URL` | 한국투자증권 API URL | 기본값: `https://openapi.koreainvestment.com:9443` |
-| `KIS_ACCOUNT_NUMBER` | 한국투자증권 계좌번호 | 주식 거래 기능 |
-| `KIS_ACCOUNT_PRODUCT_CODE` | 한국투자증권 상품코드 | 주식 거래 기능 |
 | `OLLAMA_URL` | Ollama AI 서버 URL | 기본값: `http://localhost:11434` |
 | `OLLAMA_MODEL` | Ollama 모델명 | 기본값: `gemma2:2b` |
 
@@ -127,6 +127,16 @@ jwt.secret=<매우_긴_무작위_JWT_비밀_키> # 보안을 위해 길고 복�
 2. 회원가입 및 로그인
 3. API 신청 → 앱 등록
 4. 발급된 `앱키(App Key)`와 `앱시크릿(App Secret)` 복사
+
+#### KIS API 기능:
+- **투자자 매매동향**: 외국인/기관 순매수 상위 종목
+- **연속 매수 종목**: N일 연속 매수 상위 종목  
+- **수급 급등 종목**: 거래량 급증 종목
+
+> **참고**: 
+> - 앱키와 앱시크릿만으로 시장 데이터 조회 가능
+> - 실계좌 거래가 아닌 시장 정보 조회용
+> - KIS API는 실시간 데이터를 제공하며, 5분마다 자동으로 캐시됩니다.
 
 #### 환경 변수 설정 방법:
 
@@ -251,6 +261,15 @@ myplatform/
   - 파일 첨부 기능
   - Rich Text 에디터 지원
 
+- **주식 정보**
+  - **Reddit 주식 트렌드**: wallstreetbets, stocks 등에서 인기 종목 수집
+    - 미국 주식 인기 종목 TOP 50
+    - 한국 주식 관련 정보 (삼성, 현대, SK, LG, 네이버, 카카오 등)
+    - 언급 횟수, 감성 분석 (긍정/부정/중립)
+    - 실시간 Reddit 게시글 조회
+  - **한국투자증권 API**: 투자자 매매동향, 연속 매수 종목, 수급 급등 종목
+  - **네이버 증권 API**: 종목 검색 및 시세 조회 (15분 지연)
+
 - **관리자 기능**
   - 회원가입 승인/거부 관리
   - 전체 게시글 관리
@@ -261,6 +280,95 @@ myplatform/
   - Vite 기반의 빠른 프론트엔드 개발 환경
   - Swagger UI를 통한 API 문서 자동화
   - 데이터베이스 스키마 및 데이터 초기화 스크립트 제공
+
+---
+
+## 🔧 문제 해결
+
+### 1. 로그인/회원가입 페이지 401 에러
+**증상**: 개발 서버에서 새로고침하면 `{"error":"Unauthorized","message":"Full authentication is required"}`
+
+**원인**: Spring Security 설정에서 해당 경로가 `permitAll()` 처리되지 않음
+
+**해결**: 이미 `/api/auth/**` 경로는 인증 없이 접근 가능하도록 설정되어 있습니다. API 경로가 아닌 프론트엔드 라우트는 Vue Router가 처리합니다.
+
+### 2. 페이지가 계속 새로고침되는 문제
+**증상**: 로그인 후 계속 새로고침되며 `GET /api/ai/status 401` 에러 로그 반복
+
+**원인**: ChatBot 컴포넌트가 페이지 로드 시마다 AI 상태를 체크하여 무한 루프 발생
+
+**해결**: ChatBot이 채팅창을 열 때만 AI 상태를 체크하도록 수정되었습니다.
+
+### 3. 은 시세 500 에러
+**증상**: `http://dhkim.iptime.org/api/silver/price` 호출 시 500 에러
+
+**원인**: 
+- API 키가 설정되지 않았거나
+- API 호출 한도 초과
+- GoldAPI.io 서버 문제
+
+**해결**: 
+1. `SILVER_API_KEY` 환경변수가 올바르게 설정되었는지 확인
+2. GoldAPI.io 계정의 API 호출 한도 확인
+3. 로그를 확인하여 정확한 에러 원인 파악
+
+### 4. 한국투자증권 API 키 설정
+**위치**: 환경 변수로 설정
+
+```bash
+# Windows (PowerShell)
+$env:KIS_APP_KEY="your_app_key"
+$env:KIS_APP_SECRET="your_app_secret"
+$env:KIS_BASE_URL="https://openapi.koreainvestment.com:9443"
+
+# Linux/macOS
+export KIS_APP_KEY="your_app_key"
+export KIS_APP_SECRET="your_app_secret"
+export KIS_BASE_URL="https://openapi.koreainvestment.com:9443"
+```
+
+> **참고**: 계좌번호나 상품코드는 필요하지 않습니다. 앱키와 앱시크릿만으로 시장 데이터 조회가 가능합니다.
+
+### 5. 투자자 매매동향/연속매수/수급급등 데이터가 안 나오는 경우
+**원인**: 
+- KIS API 키가 설정되지 않음
+- 액세스 토큰 발급 실패
+- API 호출 한도 초과
+
+**해결**:
+1. KIS API 키 환경변수 확인
+2. 백엔드 로그에서 "KIS API 토큰 발급" 관련 메시지 확인
+3. KIS API 포털에서 API 호출 한도 확인
+4. 캐시가 5분간 유지되므로 즉시 반영되지 않을 수 있음
+
+### 6. 보안상 문제
+**질문**: User-Agent에서 내 정보가 노출되는 것은 문제 없나요?
+
+**답변**: User-Agent는 브라우저가 자동으로 전송하는 표준 HTTP 헤더로, 다음 정보를 포함합니다:
+- 브라우저 종류 (Chrome, Firefox 등)
+- 운영체제 (Windows, macOS, Linux)
+- 브라우저 버전
+
+이는 **개인 식별 정보가 아니며**, 웹 호환성과 통계를 위해 모든 웹 요청에 포함됩니다. 보안상 문제가 없습니다.
+
+### 7. 페이지 추가 시 Spring Security 설정
+**질문**: 페이지 추가할 때마다 `.requestMatchers("/path").permitAll()` 추가해야 하나요?
+
+**답변**: 
+- **API 엔드포인트 (`/api/**`)**: 인증이 필요하므로 추가 설정 불필요
+- **공개 API (`/api/auth/**`, `/api/gold/price` 등)**: `permitAll()` 필요
+- **프론트엔드 라우트 (`/dashboard`, `/login` 등)**: Spring Security가 아닌 Vue Router가 처리하므로 설정 불필요
+
+현재 설정:
+```java
+.requestMatchers("/api/auth/**").permitAll()        // 로그인, 회원가입
+.requestMatchers("/api/password/**").permitAll()    // 비밀번호 재설정
+.requestMatchers("/api/gold/price").permitAll()     // 금 시세
+.requestMatchers("/api/silver/price").permitAll()   // 은 시세
+.requestMatchers("/api/ai/status").permitAll()      // AI 상태 체크
+.requestMatchers("/api/**").authenticated()         // 나머지 API는 인증 필요
+.anyRequest().permitAll()                           // 프론트엔드 라우트는 허용
+```
 
 ---
 
