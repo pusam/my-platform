@@ -20,7 +20,13 @@ public class CacheConfig {
             "silverPrice",        // 은 시세 (30초 캐시)
             "redditUSStocks",     // Reddit 미국 주식 (10분 캐시)
             "redditKRStocks",     // Reddit 한국 주식 (10분 캐시)
-            "redditPosts"         // Reddit 게시글 (10분 캐시)
+            "redditPosts",        // Reddit 게시글 (10분 캐시)
+            "week52High",         // 52주 신고가 (5분 캐시)
+            "week52Low",          // 52주 신저가 (5분 캐시)
+            "marketCapHigh",      // 시가총액 상위 (5분 캐시)
+            "tradingValue",       // 거래대금 상위 (5분 캐시)
+            "priceRiseTop",       // 급등주 (5분 캐시)
+            "priceFallTop"        // 급락주 (5분 캐시)
         );
     }
 }

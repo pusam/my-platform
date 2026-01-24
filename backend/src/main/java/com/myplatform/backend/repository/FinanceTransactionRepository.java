@@ -26,4 +26,7 @@ public interface FinanceTransactionRepository extends JpaRepository<FinanceTrans
            "FROM FinanceTransaction t WHERE t.username = :username " +
            "ORDER BY year DESC, month DESC")
     List<Object[]> findDistinctYearMonthByUsername(@Param("username") String username);
+
+    // 관리자 통계용
+    Long countByUsername(String username);
 }

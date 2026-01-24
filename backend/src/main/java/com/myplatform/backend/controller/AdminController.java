@@ -1,5 +1,7 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.SystemStatsDto;
+import com.myplatform.backend.service.AdminStatsService;
 import com.myplatform.backend.service.UserManagementService;
 import com.myplatform.core.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,9 +20,34 @@ import java.util.Map;
 public class AdminController {
 
     private final UserManagementService userManagementService;
+    private final AdminStatsService adminStatsService;
 
-    public AdminController(UserManagementService userManagementService) {
+    public AdminController(UserManagementService userManagementService,
+                          AdminStatsService adminStatsService) {
         this.userManagementService = userManagementService;
+        this.adminStatsService = adminStatsService;
+    }
+
+    @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
+    @GetMapping("/stats")
+    public ResponseEntity<ApiResponse<SystemStatsDto>> getSystemStats() {
+        try {
+            SystemStatsDto stats = adminStatsService.getSystemStats();
+            return ResponseEntity.ok(ApiResponse.success("통계 조회 성공", stats));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "사용자별 통계 조회", description = "특정 사용자의 활동 통계를 조회합니다.")
+    @GetMapping("/users/{userId}/stats")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getUserStats(@PathVariable Long userId) {
+        try {
+            Map<String, Object> stats = adminStatsService.getUserStats(userId);
+            return ResponseEntity.ok(ApiResponse.success("사용자 통계 조회 성공", stats));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+        }
     }
 
     @Operation(summary = "승인 대기 중인 사용자 목록 조회", description = "회원가입 승인 대기 중인 사용자 목록을 조회합니다.")

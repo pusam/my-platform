@@ -268,6 +268,78 @@ export const redditAPI = {
   }
 };
 
+// 시장 지표 API
+export const marketAPI = {
+  // 52주 신고가 종목
+  get52WeekHigh() {
+    return apiClient.get('/market/52week-high');
+  },
+  // 52주 신저가 종목
+  get52WeekLow() {
+    return apiClient.get('/market/52week-low');
+  },
+  // 시가총액 상위
+  getMarketCap() {
+    return apiClient.get('/market/market-cap');
+  },
+  // 거래대금 상위
+  getTradingValue() {
+    return apiClient.get('/market/trading-value');
+  },
+  // 급등주
+  getPriceRise() {
+    return apiClient.get('/market/price-rise');
+  },
+  // 급락주
+  getPriceFall() {
+    return apiClient.get('/market/price-fall');
+  }
+};
+
+// 관리자 API
+export const adminAPI = {
+  // 시스템 통계
+  getSystemStats() {
+    return apiClient.get('/admin/stats');
+  },
+  // 사용자별 통계
+  getUserStats(userId) {
+    return apiClient.get(`/admin/users/${userId}/stats`);
+  },
+  // 전체 사용자 목록
+  getAllUsers() {
+    return apiClient.get('/admin/users');
+  },
+  // 승인 대기 사용자
+  getPendingUsers() {
+    return apiClient.get('/admin/users/pending');
+  },
+  // 사용자 승인
+  approveUser(userId) {
+    return apiClient.post(`/admin/users/${userId}/approve`);
+  },
+  // 사용자 거부
+  rejectUser(userId) {
+    return apiClient.post(`/admin/users/${userId}/reject`);
+  },
+  // 계정 비활성화
+  deactivateUser(userId) {
+    return apiClient.post(`/admin/users/${userId}/deactivate`);
+  },
+  // 계정 활성화
+  activateUser(userId) {
+    return apiClient.post(`/admin/users/${userId}/activate`);
+  },
+  // 사용자 삭제
+  deleteUser(userId) {
+    return apiClient.delete(`/admin/users/${userId}`);
+  },
+  // 권한 변경
+  changeUserRole(userId, role) {
+    return apiClient.put(`/admin/users/${userId}/role`, { role });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

@@ -17,4 +17,7 @@ public interface UserAssetRepository extends JpaRepository<UserAsset, Long> {
     
     @Query("SELECT COALESCE(SUM(ua.quantity), 0) FROM UserAsset ua WHERE ua.userId = :userId AND ua.assetType = :assetType")
     Double getTotalQuantityByUserIdAndAssetType(@Param("userId") Long userId, @Param("assetType") String assetType);
+
+    // 관리자 통계용
+    Long countByUserId(Long userId);
 }
