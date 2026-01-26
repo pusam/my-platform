@@ -460,6 +460,7 @@ export default {
       if (!isoString) return ''
       const date = new Date(isoString)
       return date.toLocaleString('ko-KR')
+    },
     async loadStats() {
       this.loading = true
       try {

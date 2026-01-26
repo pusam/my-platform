@@ -10,6 +10,9 @@ public class RedditPostDto {
     @Schema(description = "게시글 ID")
     private String id;
 
+    @Schema(description = "게시글 ID (별칭)")
+    private String postId;
+
     @Schema(description = "제목")
     private String title;
 
@@ -31,17 +34,29 @@ public class RedditPostDto {
     @Schema(description = "점수")
     private int score;
 
+    @Schema(description = "업보트 수")
+    private Integer upvotes;
+
     @Schema(description = "업보트 비율")
     private int upvoteRatio;
 
     @Schema(description = "댓글 수")
     private int numComments;
 
+    @Schema(description = "댓글 수 (별칭)")
+    private Integer commentCount;
+
     @Schema(description = "작성 시간")
     private LocalDateTime createdAt;
 
     @Schema(description = "언급된 티커 목록")
     private List<String> mentionedTickers;
+
+    @Schema(description = "티커 문자열")
+    private String tickers;
+
+    @Schema(description = "감성 분석 결과")
+    private String sentiment;
 
     @Schema(description = "플레어")
     private String flair;
@@ -62,6 +77,14 @@ public class RedditPostDto {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getPostId() {
+        return postId;
+    }
+
+    public void setPostId(String postId) {
+        this.postId = postId;
     }
 
     public String getTitle() {
@@ -120,6 +143,14 @@ public class RedditPostDto {
         this.score = score;
     }
 
+    public Integer getUpvotes() {
+        return upvotes;
+    }
+
+    public void setUpvotes(Integer upvotes) {
+        this.upvotes = upvotes;
+    }
+
     public int getUpvoteRatio() {
         return upvoteRatio;
     }
@@ -136,6 +167,14 @@ public class RedditPostDto {
         this.numComments = numComments;
     }
 
+    public Integer getCommentCount() {
+        return commentCount;
+    }
+
+    public void setCommentCount(Integer commentCount) {
+        this.commentCount = commentCount;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -150,6 +189,22 @@ public class RedditPostDto {
 
     public void setMentionedTickers(List<String> mentionedTickers) {
         this.mentionedTickers = mentionedTickers;
+    }
+
+    public String getTickers() {
+        return tickers;
+    }
+
+    public void setTickers(String tickers) {
+        this.tickers = tickers;
+    }
+
+    public String getSentiment() {
+        return sentiment;
+    }
+
+    public void setSentiment(String sentiment) {
+        this.sentiment = sentiment;
     }
 
     public String getFlair() {
