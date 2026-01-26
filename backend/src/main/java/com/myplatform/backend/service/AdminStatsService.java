@@ -91,8 +91,20 @@ public class AdminStatsService {
     public Map<String, Object> getUserStats(Long userId) {
         Map<String, Object> stats = new HashMap<>();
 
-        // 사용자 게시글 수
-        stats.put("boardCount", boardRepository.countByUserId(userId));
+        // 사용자 정보 조회
+        User user = userRepository.findById(userId).orElse(null);
+        if (user == null) {
+            stats.put("boardCount", 0L);
+            stats.put("fileCount", 0L);
+            stats.put("assetCount", 0L);
+            stats.put("transactionCount", 0L);
+            return stats;
+        }
+
+        String username = user.getUsername();
+
+        // 사용자 게시글 수 (author는 username)
+        stats.put("boardCount", boardRepository.countByAuthor(username));
 
         // 사용자 파일 수
         stats.put("fileCount", userFileRepository.countByUserId(userId));
@@ -100,9 +112,8 @@ public class AdminStatsService {
         // 사용자 자산 수
         stats.put("assetCount", userAssetRepository.countByUserId(userId));
 
-        // 사용자 거래 내역 수 - userId로 username 조회 필요
-        // TODO: User 엔티티에서 username 가져와서 financeTransactionRepository.countByUsername(username) 호출
-        stats.put("transactionCount", 0L);
+        // 사용자 거래 내역 수
+        stats.put("transactionCount", financeTransactionRepository.countByUsername(username));
 
         return stats;
     }

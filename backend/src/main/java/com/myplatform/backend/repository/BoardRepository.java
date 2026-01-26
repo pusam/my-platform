@@ -23,6 +23,5 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
     // 관리자 통계용
     Long countByAuthor(String author);
     Long countByCreatedAtAfter(LocalDateTime dateTime);
-    Long countByUserId(Long userId);
 }
 
