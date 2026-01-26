@@ -16,13 +16,13 @@ public interface TechnicalSignalRepository extends JpaRepository<TechnicalSignal
 
     List<TechnicalSignal> findBySignalTypeOrderByCreatedAtDesc(TechnicalSignal.SignalType signalType);
 
-    List<TechnicalSignal> findBySignalDirectionOrderByCreatedAtDesc(TechnicalSignal.SignalDirection direction);
+    List<TechnicalSignal> findByDirectionOrderByCreatedAtDesc(TechnicalSignal.SignalDirection direction);
 
     @Query("SELECT t FROM TechnicalSignal t WHERE t.isActive = true AND t.createdAt >= :since ORDER BY t.createdAt DESC")
     List<TechnicalSignal> findActiveSignalsSince(@Param("since") LocalDateTime since);
 
     @Query("SELECT t FROM TechnicalSignal t WHERE " +
-           "t.signalDirection = :direction " +
+           "t.direction = :direction " +
            "AND t.signalStrength >= :minStrength " +
            "AND t.createdAt >= :since " +
            "ORDER BY t.signalStrength DESC, t.createdAt DESC")
@@ -34,7 +34,7 @@ public interface TechnicalSignalRepository extends JpaRepository<TechnicalSignal
 
     // 최근 24시간 매수 신호
     @Query("SELECT t FROM TechnicalSignal t WHERE " +
-           "t.signalDirection = 'BUY' " +
+           "t.direction = 'BUY' " +
            "AND t.createdAt >= :since " +
            "ORDER BY t.signalStrength DESC, t.createdAt DESC")
     List<TechnicalSignal> findRecentBuySignals(@Param("since") LocalDateTime since);
