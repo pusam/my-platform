@@ -20,6 +20,12 @@
         <button class="surge-btn" @click="goToSurge">
           ⚡ 수급 급증
         </button>
+        <button class="refresh-btn" @click="collectData" :disabled="collecting">
+          🔄 {{ collecting ? '수집 중...' : '데이터 수집' }}
+        </button>
+        <button class="recollect-btn" @click="recollectData" :disabled="collecting">
+          🗑️ {{ collecting ? '처리 중...' : '삭제 후 재수집' }}
+        </button>
       </div>
       <div class="investor-tabs">
         <button v-for="type in investorTypes" :key="type.value" :class="['tab-btn', { active: selectedInvestor === type.value }]" @click="selectedInvestor = type.value">
@@ -121,6 +127,24 @@ const collectData = async () => {
   } catch (error) {
     console.error('데이터 수집 오류:', error);
     alert('데이터 수집에 실패했습니다.');
+  } finally {
+    collecting.value = false;
+  }
+};
+const recollectData = async () => {
+  if (collecting.value) return;
+  if (!confirm('기존 데이터를 모두 삭제하고 새로 수집합니다. 계속하시겠습니까?')) return;
+  collecting.value = true;
+  try {
+    const response = await api.post('/investor/recollect');
+    if (response.data.success) {
+      const data = response.data.data;
+      alert(`삭제: ${data.deletedCount}건, 수집: ${data.collectedCount}건 완료!`);
+      await fetchData();
+    }
+  } catch (error) {
+    console.error('재수집 오류:', error);
+    alert('재수집에 실패했습니다.');
   } finally {
     collecting.value = false;
   }
@@ -248,6 +272,44 @@ onMounted(() => {
 .surge-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(229, 62, 62, 0.4);
+}
+.refresh-btn {
+  padding: 1rem 2rem;
+  border: 2px solid #38a169;
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  color: white;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+.refresh-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
+}
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.recollect-btn {
+  padding: 1rem 2rem;
+  border: 2px solid #805ad5;
+  background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+  color: white;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+}
+.recollect-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(159, 122, 234, 0.4);
+}
+.recollect-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .investor-tabs {
   display: flex;

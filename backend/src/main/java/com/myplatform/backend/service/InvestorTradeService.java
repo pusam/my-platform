@@ -237,6 +237,36 @@ public class InvestorTradeService {
     }
 
     /**
+     * 전체 데이터 삭제 후 재수집
+     */
+    @Transactional
+    public Map<String, Object> deleteAllAndRecollect() {
+        Map<String, Object> result = new HashMap<>();
+
+        // 1. 기존 데이터 전체 삭제
+        long deletedCount = investorTradeRepository.count();
+        investorTradeRepository.deleteAll();
+        log.info("기존 데이터 삭제 완료: {}건", deletedCount);
+        result.put("deletedCount", deletedCount);
+
+        // 2. 새로 수집
+        LocalDate today = LocalDate.now();
+        if (today.getDayOfWeek().getValue() >= 6) {
+            result.put("message", "주말에는 데이터를 수집하지 않습니다.");
+            result.put("collectedCount", 0);
+            return result;
+        }
+
+        Map<String, Integer> collectResult = collectInvestorTradeData(today);
+        int collectedCount = collectResult.values().stream().mapToInt(Integer::intValue).sum();
+        result.put("collectResult", collectResult);
+        result.put("collectedCount", collectedCount);
+        log.info("재수집 완료: {}건", collectedCount);
+
+        return result;
+    }
+
+    /**
      * 연속 매수 종목 조회
      * 특정 투자자가 N일 연속으로 순매수 상위에 오른 종목 찾기
      *

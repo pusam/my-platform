@@ -91,6 +91,15 @@ public class InvestorTradeController {
         return ResponseEntity.ok(ApiResponse.success("최근 데이터 수집 완료", result));
     }
 
+    @Operation(summary = "전체 데이터 삭제 후 재수집", description = "기존 데이터를 모두 삭제하고 새로 수집합니다.")
+    @PostMapping("/recollect")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAndRecollect() {
+
+        Map<String, Object> result = investorTradeService.deleteAllAndRecollect();
+
+        return ResponseEntity.ok(ApiResponse.success("데이터 삭제 후 재수집 완료", result));
+    }
+
     @Operation(summary = "연속 매수 종목 조회", description = "특정 투자자가 N일 연속 순매수 상위에 오른 종목을 조회합니다.")
     @GetMapping("/consecutive-buy")
     public ResponseEntity<ApiResponse<List<ConsecutiveBuyDto>>> getConsecutiveBuyStocks(
