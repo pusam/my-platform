@@ -17,6 +17,7 @@ public class StockPriceDto {
     private BigDecimal marketCap;
     private String baseDate;
     private LocalDateTime fetchedAt;
+    private String dataSource; // 데이터 출처 (KIS: 한국투자증권, NAVER: 네이버)
 
     // Getters and Setters
     public String getStockCode() {
@@ -113,5 +114,13 @@ public class StockPriceDto {
 
     public void setFetchedAt(LocalDateTime fetchedAt) {
         this.fetchedAt = fetchedAt;
+    }
+
+    public String getDataSource() {
+        return dataSource;
+    }
+
+    public void setDataSource(String dataSource) {
+        this.dataSource = dataSource;
     }
 }

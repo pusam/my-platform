@@ -1,5 +1,5 @@
 <template>
-  <div class="chatbot-container">
+  <div class="chatbot-container" v-if="isLoggedIn">
     <!-- 플로팅 버튼 -->
     <button
       v-if="!isOpen"
@@ -107,8 +107,13 @@
 </template>
 
 <script setup>
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { ref, nextTick } from 'vue';
 import { aiAPI } from '../utils/api';
+import { TokenManager } from '../utils/auth';
+
+const router = useRouter();
 
 const isOpen = ref(false);
 const inputMessage = ref('');
@@ -118,12 +123,51 @@ const showQuickReplies = ref(true);
 const messagesContainer = ref(null);
 const useContext = ref(false);
 const aiAvailable = ref(true);
+const isLoggedIn = ref(false);
 
 const quickReplies = ref([
   '자산 현황 분석해줘',
   '이번 달 지출 분석',
   '절약 팁 알려줘'
 ]);
+
+// 로그인 상태 확인
+const checkLoginStatus = () => {
+  isLoggedIn.value = TokenManager.hasToken();
+  if (!isLoggedIn.value && isOpen.value) {
+    // 로그아웃 되면 채팅창 닫고 초기화
+    resetChat();
+  }
+};
+
+// 채팅 초기화
+const resetChat = () => {
+  isOpen.value = false;
+  messages.value = [];
+  inputMessage.value = '';
+  isTyping.value = false;
+  showQuickReplies.value = true;
+  useContext.value = false;
+};
+
+// localStorage 변경 감지 (다른 탭에서 로그아웃 시)
+const handleStorageChange = (e) => {
+  if (e.key === 'jwt_token') {
+    checkLoginStatus();
+  }
+};
+
+// 외부에서 챗봇 열기 이벤트 처리
+const handleOpenChatbot = () => {
+  if (isLoggedIn.value) {
+    openChat();
+  }
+};
+
+// 라우트 변경 감지
+watch(() => router.currentRoute.value.path, () => {
+  checkLoginStatus();
+});
 
 const getCurrentTime = () => {
   const now = new Date();
@@ -259,6 +303,20 @@ const updateQuickReplies = (lastMessage) => {
 // onMounted(() => {
 //   checkAiStatus();
 // });
+onMounted(() => {
+  checkLoginStatus();
+  // 로그인 상태에서만 AI 상태 확인 (401 무한 루프 방지)
+  if (isLoggedIn.value) {
+    checkAiStatus();
+  }
+  window.addEventListener('storage', handleStorageChange);
+  window.addEventListener('open-chatbot', handleOpenChatbot);
+});
+
+onUnmounted(() => {
+  window.removeEventListener('storage', handleStorageChange);
+  window.removeEventListener('open-chatbot', handleOpenChatbot);
+});
 </script>
 
 <style scoped>

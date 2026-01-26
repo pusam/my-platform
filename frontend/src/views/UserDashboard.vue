@@ -5,6 +5,12 @@
       <header class="common-header">
         <h1>대시보드</h1>
         <div class="header-actions">
+          <button @click="showWidgetSettings = true" class="btn-widget-settings" title="위젯 설정">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </button>
           <div class="header-user">
             <div class="user-avatar">{{ username.charAt(0) }}</div>
             <span>{{ username }}</span>
@@ -63,22 +69,6 @@
           </span>
         </article>
 
-        <article class="menu-card" @click="goToAsset">
-          <div class="card-icon asset">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="12" y1="1" x2="12" y2="23"/>
-              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-            </svg>
-          </div>
-          <h3>자산 관리</h3>
-          <p>보유한 금/은 자산을 관리하고 손익을 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
         <article class="menu-card" @click="goToSettings">
           <div class="card-icon settings">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -88,40 +78,6 @@
           </div>
           <h3>내 설정</h3>
           <p>개인 정보 및 비밀번호를 관리합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card gold" @click="goToGold">
-          <div class="card-icon gold-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v12"/>
-              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-            </svg>
-          </div>
-          <h3>금 시세</h3>
-          <p>실시간 금 시세 정보를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card silver" @click="goToSilver">
-          <div class="card-icon silver-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v12"/>
-              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-            </svg>
-          </div>
-          <h3>은 시세</h3>
-          <p>실시간 은 시세 정보를 확인합니다.</p>
           <span class="card-arrow">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9,6 15,12 9,18"/>
@@ -144,7 +100,162 @@
           </span>
         </article>
 
-        <article class="menu-card finance" @click="goToFinance">
+        <article class="menu-card car" @click="goToCar">
+          <div class="card-icon car-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-3.6c-.4-.5-1-.9-1.6-.9H10c-.7 0-1.3.4-1.6.9L5.5 10l-2 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>
+              <circle cx="7" cy="17" r="2"/>
+              <circle cx="17" cy="17" r="2"/>
+            </svg>
+          </div>
+          <h3>자동차 관리</h3>
+          <p>정비 기록과 주행거리를 관리합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article class="menu-card sector" @click="goToSector">
+          <div class="card-icon sector-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
+              <polyline points="16,7 22,7 22,13"/>
+            </svg>
+          </div>
+          <h3>섹터별 거래대금</h3>
+          <p>반도체, 2차전지, 로봇 등 섹터별 거래대금을 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+          <article v-if="widgetSettings.investorTrades" class="menu-card investor" @click="goToInvestorTrade">
+              <div class="card-icon investor-icon">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                  </svg>
+              </div>
+              <h3>투자자 매매 동향</h3>
+              <p>외국인·기관 매매 상위 종목을 확인합니다</p>
+              <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+          </article>
+
+        <article v-if="widgetSettings.investorTrades" class="menu-card consecutive" @click="goToConsecutiveBuy">
+          <div class="card-icon consecutive-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M13 17l5-5-5-5"/>
+              <path d="M6 17l5-5-5-5"/>
+            </svg>
+          </div>
+          <h3>연속 매수 종목</h3>
+          <p>외국인·기관이 연속 순매수 중인 종목</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article v-if="widgetSettings.investorTrades" class="menu-card surge" @click="goToInvestorSurge">
+          <div class="card-icon surge-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </div>
+          <h3>수급 급증</h3>
+          <p>장중 외국인·기관 순매수 급증 종목</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <article class="menu-card reddit" @click="goToReddit">
+          <div class="card-icon reddit-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M16.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+              <path d="M10.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+              <path d="M15 15.5c-1 1-2 1.5-3 1.5s-2-.5-3-1.5"/>
+              <path d="M17 8l2-2M19 6a1 1 0 100-2 1 1 0 000 2z"/>
+              <path d="M17.5 9c1.5 0 2.5 1 2.5 2"/>
+            </svg>
+          </div>
+          <h3>Reddit 주식 정보</h3>
+          <p>해외 주식 커뮤니티(WSB, stocks 등)의 실시간 트렌드와 인기 게시물을 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <!-- 금 시세 -->
+        <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
+          <div class="card-icon gold-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v12"/>
+              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+            </svg>
+          </div>
+          <h3>금 시세</h3>
+          <p v-if="goldPrice">{{ formatCurrency(goldPrice.price) }}/g <span :class="goldPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
+          <p v-else>금 시세를 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <!-- 은 시세 -->
+        <article v-if="widgetSettings.silverPrice" class="menu-card silver" @click="goToSilver">
+          <div class="card-icon silver-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 6v12"/>
+              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+            </svg>
+          </div>
+          <h3>은 시세</h3>
+          <p v-if="silverPrice">{{ formatCurrency(silverPrice.price) }}/g <span :class="silverPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
+          <p v-else>은 시세를 확인합니다.</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <!-- 자산 관리 -->
+        <article v-if="widgetSettings.assetSummary" class="menu-card asset" @click="goToAsset">
+          <div class="card-icon asset-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <line x1="12" y1="1" x2="12" y2="23"/>
+              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+            </svg>
+          </div>
+          <h3>자산 관리</h3>
+          <p>총 자산 {{ formatCurrency(assetSummary.totalAssets) }} <span :class="assetSummary.totalProfit >= 0 ? 'text-positive' : 'text-negative'">({{ assetSummary.totalProfit >= 0 ? '+' : '' }}{{ assetSummary.profitRate?.toFixed(2) || 0 }}%)</span></p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <!-- 가계부 -->
+        <article v-if="widgetSettings.financeSummary" class="menu-card finance" @click="goToFinance">
           <div class="card-icon finance-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -154,7 +265,25 @@
             </svg>
           </div>
           <h3>가계부</h3>
-          <p>월별 수입과 지출을 기록하고 관리합니다.</p>
+          <p>이번 달 <span :class="financeSummary.balance >= 0 ? 'text-positive' : 'text-negative'">{{ formatCurrency(financeSummary.balance) }}</span></p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
+        <!-- 경제 뉴스 -->
+        <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
+          <div class="card-icon news-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+              <path d="M7 7h10M7 11h10M7 15h7"/>
+            </svg>
+          </div>
+          <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
+          <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
+          <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
           <span class="card-arrow">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="9,6 15,12 9,18"/>
@@ -163,39 +292,206 @@
         </article>
       </section>
 
-      <!-- 시스템 정보 -->
-      <section class="info-card">
-        <h3>시스템 정보</h3>
-        <div class="info-items">
-          <div class="info-item">
-            <span class="info-label">계정 유형</span>
-            <span class="info-value">일반 사용자</span>
+      <!-- AI 상담 배너 -->
+      <section class="ai-banner" @click="openAiChat">
+        <div class="ai-banner-content">
+          <div class="ai-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z"/>
+              <circle cx="8.5" cy="14.5" r="1.5"/>
+              <circle cx="15.5" cy="14.5" r="1.5"/>
+              <path d="M9 18h6"/>
+            </svg>
           </div>
-          <div class="info-item">
-            <span class="info-label">상태</span>
-            <span class="info-value status-active">
-              <span class="status-dot"></span>
-              활성
-            </span>
+          <div class="ai-text">
+            <h3>AI 재무 상담사</h3>
+            <p>자산 관리, 가계부, 투자에 대한 맞춤형 상담을 받아보세요</p>
+          </div>
+          <div class="ai-arrow">
+            <span>상담 시작</span>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
           </div>
         </div>
+        <div class="ai-decoration"></div>
       </section>
+
+      <!-- 위젯 설정 모달 -->
+      <WidgetSettingsModal
+        :visible="showWidgetSettings"
+        :settings="widgetSettings"
+        @close="showWidgetSettings = false"
+        @update:settings="updateWidgetSettings"
+      />
     </div>
   </div>
 </template>
 
 <script>
+import { newsAPI, financeAPI, goldAPI, silverAPI, assetAPI } from '../utils/api';
+import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
+
 export default {
   name: 'UserDashboard',
+  components: {
+    WidgetSettingsModal
+  },
   data() {
     return {
-      username: ''
+      username: '',
+      newsList: [],
+      fetchingNews: false,
+      showWidgetSettings: false,
+      widgetSettings: {
+        goldPrice: true,
+        silverPrice: true,
+        assetSummary: true,
+        news: true,
+        financeSummary: true,
+        investorTrades: true
+      },
+      financeSummary: {
+        totalIncome: 0,
+        totalExpense: 0,
+        balance: 0
+      },
+      goldPrice: null,
+      silverPrice: null,
+      assetSummary: {
+        totalAssets: 0,
+        totalProfit: 0,
+        profitRate: 0
+      },
+      loadingPrices: false
     }
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'User'
+    this.loadWidgetSettings()
+    this.loadNews()
+    this.loadFinanceSummary()
+    this.loadPrices()
+    this.loadAssetSummary()
   },
   methods: {
+    loadWidgetSettings() {
+      const saved = localStorage.getItem('dashboardWidgets')
+      if (saved) {
+        this.widgetSettings = { ...this.widgetSettings, ...JSON.parse(saved) }
+      }
+    },
+    updateWidgetSettings(settings) {
+      this.widgetSettings = { ...this.widgetSettings, ...settings }
+      // 위젯 데이터 다시 로드
+      if (settings.goldPrice || settings.silverPrice) {
+        this.loadPrices()
+      }
+      if (settings.assetSummary) {
+        this.loadAssetSummary()
+      }
+      if (settings.financeSummary) {
+        this.loadFinanceSummary()
+      }
+      if (settings.news) {
+        this.loadNews()
+      }
+    },
+    async loadFinanceSummary() {
+      try {
+        const now = new Date()
+        const response = await financeAPI.getMonthlyTransactions(now.getFullYear(), now.getMonth() + 1)
+        if (response.data.success) {
+          const data = response.data.data
+          this.financeSummary = {
+            totalIncome: data.totalIncome || 0,
+            totalExpense: data.totalExpense || 0,
+            balance: data.balance || 0
+          }
+        }
+      } catch (error) {
+        console.error('가계부 요약 로드 실패:', error)
+      }
+    },
+    async loadPrices() {
+      this.loadingPrices = true
+      try {
+        const [goldRes, silverRes] = await Promise.all([
+          goldAPI.getPrice(),
+          silverAPI.getPrice()
+        ])
+        if (goldRes.data.success) {
+          this.goldPrice = goldRes.data.data
+        }
+        if (silverRes.data.success) {
+          this.silverPrice = silverRes.data.data
+        }
+      } catch (error) {
+        console.error('시세 로드 실패:', error)
+      } finally {
+        this.loadingPrices = false
+      }
+    },
+    async loadAssetSummary() {
+      try {
+        const response = await assetAPI.getAssetSummary()
+        if (response.data.success) {
+          const data = response.data.data
+          this.assetSummary = {
+            totalAssets: data.totalCurrentValue || 0,
+            totalProfit: data.totalProfit || 0,
+            profitRate: data.profitRate || 0
+          }
+        }
+      } catch (error) {
+        console.error('자산 요약 로드 실패:', error)
+      }
+    },
+    formatCurrency(value) {
+      if (!value) return '0원'
+      return new Intl.NumberFormat('ko-KR').format(value) + '원'
+    },
+    async loadNews() {
+      try {
+        // 오늘 뉴스가 없으면 최근 뉴스 조회
+        let response = await newsAPI.getTodayNews()
+        if (response.data.data && response.data.data.length > 0) {
+          this.newsList = response.data.data.slice(0, 5)
+        } else {
+          response = await newsAPI.getRecentNews()
+          this.newsList = response.data.data ? response.data.data.slice(0, 5) : []
+        }
+      } catch (error) {
+        console.error('뉴스 로드 실패:', error)
+        this.newsList = []
+      }
+    },
+    openNewsUrl(url) {
+      if (url) {
+        window.open(url, '_blank')
+      }
+    },
+    formatNewsTime(dateStr) {
+      if (!dateStr) return ''
+      const date = new Date(dateStr)
+      const now = new Date()
+      const diffHours = Math.floor((now - date) / (1000 * 60 * 60))
+      if (diffHours < 1) return '방금 전'
+      if (diffHours < 24) return `${diffHours}시간 전`
+      return date.toLocaleDateString('ko-KR')
+    },
+    async fetchNews() {
+      this.fetchingNews = true
+      try {
+        await newsAPI.fetchNews()
+        await this.loadNews()
+      } catch (error) {
+        console.error('뉴스 수집 실패:', error)
+        alert('뉴스 수집에 실패했습니다. AI 서버(Ollama)가 실행 중인지 확인해주세요.')
+      } finally {
+        this.fetchingNews = false
+      }
+    },
     goToBoard() {
       this.$router.push('/board')
     },
@@ -220,6 +516,31 @@ export default {
     goToFinance() {
       this.$router.push('/finance')
     },
+    goToCar() {
+      this.$router.push('/car')
+    },
+    goToSector() {
+      this.$router.push('/sector')
+    },
+    goToReddit() {
+      this.$router.push('/reddit')
+    },
+    goToInvestorTrade() {
+      this.$router.push('/investor-trades')
+    },
+    goToConsecutiveBuy() {
+      this.$router.push('/consecutive-buy')
+    },
+    goToInvestorSurge() {
+      this.$router.push('/investor-surge')
+    },
+    goToNews() {
+      this.$router.push('/news')
+    },
+    openAiChat() {
+      // 챗봇 열기 이벤트 발생
+      window.dispatchEvent(new CustomEvent('open-chatbot'))
+    },
     logout() {
       localStorage.removeItem('jwt_token')
       localStorage.removeItem('username')
@@ -236,8 +557,8 @@ export default {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 40px;
-  margin-bottom: 30px;
+  padding: var(--card-padding);
+  margin-bottom: var(--section-gap);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
   display: flex;
   justify-content: space-between;
@@ -298,14 +619,14 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
-  margin-bottom: 30px;
+  margin-bottom: var(--section-gap);
 }
 
 .menu-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 28px;
+  padding: var(--card-padding);
   cursor: pointer;
   transition: all 0.3s ease;
   border: 2px solid transparent;
@@ -359,23 +680,131 @@ export default {
   color: #6c757d;
 }
 
-.card-icon.gold-icon {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
-  color: #daa520;
-}
-
-.card-icon.silver-icon {
-  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(128, 128, 128, 0.2) 100%);
-  color: #808080;
-}
-
 .card-icon.files {
   background: linear-gradient(135deg, rgba(93, 173, 226, 0.15) 0%, rgba(52, 152, 219, 0.15) 100%);
   color: #3498db;
 }
 
+.card-icon.car-icon {
+  background: linear-gradient(135deg, rgba(52, 73, 94, 0.15) 0%, rgba(44, 62, 80, 0.15) 100%);
+  color: #34495e;
+}
+
+.card-icon.sector-icon {
+  background: linear-gradient(135deg, rgba(79, 70, 229, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+  color: #4F46E5;
+}
+
+.menu-card.car {
+  background: linear-gradient(135deg, rgba(245, 247, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(52, 73, 94, 0.2);
+}
+
+.menu-card.car:hover {
+  border-color: #34495e;
+  box-shadow: 0 20px 40px rgba(52, 73, 94, 0.15);
+}
+
+.menu-card.car h3 {
+  color: #2c3e50;
+}
+
+.menu-card.sector {
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(79, 70, 229, 0.2);
+}
+
+.menu-card.sector:hover {
+  border-color: #4F46E5;
+  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+}
+
+.menu-card.sector h3 {
+  color: #4F46E5;
+}
+
+.card-icon.reddit-icon {
+  background: linear-gradient(135deg, rgba(255, 69, 0, 0.15) 0%, rgba(255, 87, 34, 0.15) 100%);
+  color: #FF4500;
+}
+
+.menu-card.reddit {
+  background: linear-gradient(135deg, rgba(255, 247, 237, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(255, 69, 0, 0.2);
+}
+
+.menu-card.reddit:hover {
+  border-color: #FF4500;
+  box-shadow: 0 20px 40px rgba(255, 69, 0, 0.15);
+}
+
+.menu-card.reddit h3 {
+  color: #EA580C;
+}
+
+/* 금 시세 카드 */
+.card-icon.gold-icon {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
+  color: #daa520;
+}
+
+.menu-card.gold {
+  background: linear-gradient(135deg, rgba(255, 250, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(255, 215, 0, 0.3);
+}
+
+.menu-card.gold:hover {
+  border-color: #ffd700;
+  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.15);
+}
+
+.menu-card.gold h3 {
+  color: #b8860b;
+}
+
+/* 은 시세 카드 */
+.card-icon.silver-icon {
+  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(169, 169, 169, 0.2) 100%);
+  color: #708090;
+}
+
+.menu-card.silver {
+  background: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(192, 192, 192, 0.3);
+}
+
+.menu-card.silver:hover {
+  border-color: #c0c0c0;
+  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.15);
+}
+
+.menu-card.silver h3 {
+  color: #5a6a7a;
+}
+
+/* 자산 관리 카드 */
+.card-icon.asset-icon {
+  background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
+  color: #f7b733;
+}
+
+.menu-card.asset {
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(247, 183, 51, 0.3);
+}
+
+.menu-card.asset:hover {
+  border-color: #f7b733;
+  box-shadow: 0 20px 40px rgba(247, 183, 51, 0.15);
+}
+
+.menu-card.asset h3 {
+  color: #d97706;
+}
+
+/* 가계부 카드 */
 .card-icon.finance-icon {
-  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(26, 188, 156, 0.15) 100%);
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
   color: #2ecc71;
 }
 
@@ -398,6 +827,121 @@ export default {
   color: #c0392b;
 }
 
+.menu-card.finance {
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(46, 204, 113, 0.3);
+}
+
+.menu-card.finance:hover {
+  border-color: #2ecc71;
+  box-shadow: 0 20px 40px rgba(46, 204, 113, 0.15);
+}
+
+.menu-card.finance h3 {
+  color: #16a34a;
+}
+
+/* 뉴스 카드 */
+.card-icon.news-icon {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+  color: #3b82f6;
+}
+
+.menu-card.news {
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(59, 130, 246, 0.3);
+}
+
+.menu-card.news:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
+}
+
+.menu-card.news h3 {
+  color: #2563eb;
+}
+
+/* 투자자 매매 동향 카드 */
+.card-icon.investor-icon {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  color: #667eea;
+}
+
+.menu-card.investor {
+  background: linear-gradient(135deg, rgba(243, 244, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(102, 126, 234, 0.3);
+}
+
+.menu-card.investor:hover {
+  border-color: #667eea;
+  box-shadow: 0 20px 40px rgba(102, 126, 234, 0.15);
+}
+
+.menu-card.investor h3 {
+  color: #5568d3;
+}
+
+/* 연속 매수 카드 */
+.card-icon.consecutive-icon {
+  background: linear-gradient(135deg, rgba(237, 137, 54, 0.15) 0%, rgba(221, 107, 32, 0.15) 100%);
+  color: #ed8936;
+}
+
+.menu-card.consecutive {
+  background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(237, 137, 54, 0.3);
+}
+
+.menu-card.consecutive:hover {
+  border-color: #ed8936;
+  box-shadow: 0 20px 40px rgba(237, 137, 54, 0.15);
+}
+
+.menu-card.consecutive h3 {
+  color: #dd6b20;
+}
+
+/* 수급 급증 카드 */
+.card-icon.surge-icon {
+  background: linear-gradient(135deg, rgba(229, 62, 62, 0.15) 0%, rgba(197, 48, 48, 0.15) 100%);
+  color: #e53e3e;
+}
+
+.menu-card.surge {
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(229, 62, 62, 0.3);
+}
+
+.menu-card.surge:hover {
+  border-color: #e53e3e;
+  box-shadow: 0 20px 40px rgba(229, 62, 62, 0.15);
+}
+
+.menu-card.surge h3 {
+  color: #c53030;
+}
+
+/* AI 뱃지 (메뉴 카드용) */
+.menu-ai-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* 텍스트 색상 유틸리티 */
+.text-positive {
+  color: #ef4444;
+}
+
+.text-negative {
+  color: #3b82f6;
+}
 
 .menu-card h3 {
   font-size: 20px;
@@ -423,110 +967,110 @@ export default {
   color: var(--primary-start);
 }
 
-/* 금/은 특별 스타일 */
-.menu-card.gold {
-  background: linear-gradient(135deg, rgba(255, 249, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(255, 215, 0, 0.3);
-}
-
-.menu-card.gold:hover {
-  border-color: #ffd700;
-  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.2);
-}
-
-.menu-card.gold h3 {
-  color: #b8860b;
-}
-
-.menu-card.silver {
-  background: linear-gradient(135deg, rgba(248, 249, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(192, 192, 192, 0.3);
-}
-
-.menu-card.silver:hover {
-  border-color: #c0c0c0;
-  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.2);
-}
-
-.menu-card.silver h3 {
-  color: #708090;
-}
-
-/* 정보 카드 */
-.info-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
+/* AI 상담 배너 */
+.ai-banner {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 20px;
-  padding: 28px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  padding: 32px 40px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(102, 126, 234, 0.3);
 }
 
-.info-card h3 {
-  font-size: 18px;
-  color: var(--text-primary);
-  margin: 0 0 20px 0;
-  font-weight: 600;
+.ai-banner:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 50px rgba(102, 126, 234, 0.4);
 }
 
-.info-items {
+.ai-banner:hover .ai-arrow svg {
+  transform: translateX(4px);
+}
+
+.ai-banner-content {
   display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.info-item {
-  flex: 1;
-  min-width: 200px;
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 16px 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-radius: 12px;
+  gap: 24px;
+  position: relative;
+  z-index: 1;
 }
 
-.info-label {
-  font-weight: 600;
-  color: var(--text-muted);
-  font-size: 14px;
+.ai-icon {
+  width: 80px;
+  height: 80px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  flex-shrink: 0;
 }
 
-.info-value {
-  color: var(--text-primary);
-  font-weight: 500;
+.ai-text {
+  flex: 1;
 }
 
-.status-active {
+.ai-text h3 {
+  font-size: 24px;
+  color: white;
+  margin: 0 0 8px 0;
+  font-weight: 700;
+}
+
+.ai-text p {
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+}
+
+.ai-arrow {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--success);
+  background: rgba(255, 255, 255, 0.2);
+  padding: 12px 20px;
+  border-radius: 12px;
+  color: white;
   font-weight: 600;
+  font-size: 15px;
+  transition: all 0.3s ease;
 }
 
-.status-dot {
-  width: 8px;
-  height: 8px;
-  background: var(--success);
+.ai-arrow:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.ai-arrow svg {
+  transition: transform 0.3s ease;
+}
+
+.ai-decoration {
+  position: absolute;
+  right: -100px;
+  top: -100px;
+  width: 300px;
+  height: 300px;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 50%;
-  animation: pulse 2s infinite;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scale(1.2);
-  }
+.ai-decoration::after {
+  content: '';
+  position: absolute;
+  right: 150px;
+  bottom: -50px;
+  width: 200px;
+  height: 200px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 50%;
 }
 
 /* 반응형 */
 @media (max-width: 768px) {
   .welcome-card {
-    padding: 28px;
+    padding: var(--card-padding);
   }
 
   .welcome-content h2 {
@@ -541,12 +1085,94 @@ export default {
     grid-template-columns: 1fr;
   }
 
-  .info-items {
-    flex-direction: column;
+  .ai-banner {
+    padding: 24px;
   }
 
-  .info-item {
-    min-width: 100%;
+  .ai-banner-content {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
   }
+
+  .ai-icon {
+    width: 64px;
+    height: 64px;
+  }
+
+  .ai-icon svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ai-text h3 {
+    font-size: 20px;
+  }
+
+  .ai-text p {
+    font-size: 14px;
+  }
+
+  .ai-arrow {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .ai-decoration {
+    display: none;
+  }
+
+  .news-section {
+    padding: 20px;
+  }
+
+  .news-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .news-item {
+    padding: 14px 16px;
+  }
+
+  .news-content h4 {
+    font-size: 14px;
+  }
+
+  .news-content p {
+    font-size: 12px;
+    -webkit-line-clamp: 3;
+  }
+}
+
+/* 위젯 설정 버튼 */
+.btn-widget-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-widget-settings:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  color: var(--primary-start);
+}
+
+[data-theme="dark"] .btn-widget-settings {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+  color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-widget-settings:hover {
+  color: var(--primary-start);
 }
 </style>

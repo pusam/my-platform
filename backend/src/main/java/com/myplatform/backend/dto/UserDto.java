@@ -6,6 +6,9 @@ public class UserDto {
     private Long id;
     private String username;
     private String name;
+    private String email;
+    private String phone;
+    private String profileImage;
     private String role;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -56,5 +59,29 @@ public class UserDto {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
+    }
+
+    public String getProfileImage() {
+        return profileImage;
+    }
+
+    public void setProfileImage(String profileImage) {
+        this.profileImage = profileImage;
     }
 }

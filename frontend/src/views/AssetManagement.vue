@@ -12,15 +12,33 @@
 
       <!-- 컨텐츠 영역 -->
       <div class="asset-content">
-        <!-- 자산 등록 버튼 -->
+        <!-- 자산 등록 및 내보내기 버튼 -->
         <div class="action-bar">
-          <button @click="showAddModal = true" class="btn btn-primary">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19"/>
-              <line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            자산 등록
-          </button>
+          <div class="action-left">
+            <button @click="showAddModal = true" class="btn btn-primary">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              자산 등록
+            </button>
+          </div>
+          <div class="action-right">
+            <div class="export-dropdown" v-if="assets.length > 0">
+              <button @click="showExportMenu = !showExportMenu" class="btn btn-export">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                내보내기
+              </button>
+              <div v-if="showExportMenu" class="export-menu">
+                <button @click="exportData('xlsx')">Excel (.xlsx)</button>
+                <button @click="exportData('csv')">CSV (.csv)</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- 로딩 상태 -->
@@ -42,15 +60,15 @@
           <div class="card-body">
             <div class="stat-row">
               <span class="label">보유량</span>
-              <span class="value">{{ formatNumber(summary.gold?.totalQuantity) }} g</span>
+              <span class="value">{{ formatGoldDon(summary.gold?.totalQuantity) }} 돈</span>
             </div>
             <div class="stat-row">
               <span class="label">평균 구매가</span>
-              <span class="value">{{ formatCurrency(summary.gold?.averagePurchasePrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToDonPrice(summary.gold?.averagePurchasePrice)) }}/돈</span>
             </div>
             <div class="stat-row">
               <span class="label">현재 시세</span>
-              <span class="value">{{ formatCurrency(summary.gold?.currentPrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToDonPrice(summary.gold?.currentPrice)) }}/돈</span>
             </div>
             <div class="stat-divider"></div>
             <div class="stat-row highlight">
@@ -85,15 +103,15 @@
           <div class="card-body">
             <div class="stat-row">
               <span class="label">보유량</span>
-              <span class="value">{{ formatNumber(summary.silver?.totalQuantity) }} g</span>
+              <span class="value">{{ formatSilverKg(summary.silver?.totalQuantity) }} kg</span>
             </div>
             <div class="stat-row">
               <span class="label">평균 구매가</span>
-              <span class="value">{{ formatCurrency(summary.silver?.averagePurchasePrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToKgPrice(summary.silver?.averagePurchasePrice)) }}/kg</span>
             </div>
             <div class="stat-row">
               <span class="label">현재 시세</span>
-              <span class="value">{{ formatCurrency(summary.silver?.currentPrice) }}</span>
+              <span class="value">{{ formatCurrency(gramToKgPrice(summary.silver?.currentPrice)) }}/kg</span>
             </div>
             <div class="stat-divider"></div>
             <div class="stat-row highlight">
@@ -283,8 +301,8 @@
                   </span>
                 </td>
                 <td>{{ formatDate(asset.purchaseDate) }}</td>
-                <td>{{ formatNumber(asset.quantity) }} {{ asset.assetType === 'STOCK' ? '주' : 'g' }}</td>
-                <td>{{ formatCurrency(asset.purchasePrice) }}</td>
+                <td>{{ formatAssetQuantity(asset) }}</td>
+                <td>{{ formatAssetPrice(asset) }}</td>
                 <td class="amount">{{ formatCurrency(asset.totalAmount) }}</td>
                 <td>{{ asset.memo || '-' }}</td>
                 <td>
@@ -392,7 +410,7 @@
 <script setup>
 import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { assetAPI, stockAPI } from '../utils/api';
+import { assetAPI, stockAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 
@@ -405,6 +423,7 @@ const errorMessage = ref('');
 const stockSearchKeyword = ref('');
 const stockSearchResults = ref([]);
 const loading = ref(false);
+const showExportMenu = ref(false);
 let searchTimeout = null;
 
 const newAsset = ref({
@@ -499,7 +518,18 @@ const addAsset = async () => {
       return;
     }
 
-    await assetAPI.addAsset(newAsset.value);
+    // 단위 변환: 금은 돈->그램, 은은 kg->그램으로 변환하여 저장
+    const assetData = { ...newAsset.value };
+
+    if (assetData.assetType === 'GOLD') {
+      assetData.quantity = donToGram(assetData.quantity);
+      assetData.purchasePrice = donToGramPrice(assetData.purchasePrice);
+    } else if (assetData.assetType === 'SILVER') {
+      assetData.quantity = kgToGram(assetData.quantity);
+      assetData.purchasePrice = kgToGramPrice(assetData.purchasePrice);
+    }
+
+    await assetAPI.addAsset(assetData);
     closeModal();
     await loadData();
   } catch (error) {
@@ -550,13 +580,101 @@ const getAssetTypeLabel = (asset) => {
 const getQuantityLabel = () => {
   if (newAsset.value.assetType === 'STOCK') return '보유 주수';
   if (newAsset.value.assetType === 'OTHER') return '보유량';
-  return '보유량 (그램)';
+  if (newAsset.value.assetType === 'GOLD') return '보유량 (돈)';
+  if (newAsset.value.assetType === 'SILVER') return '보유량 (kg)';
+  return '보유량';
 };
 
 const getPriceLabel = () => {
   if (newAsset.value.assetType === 'STOCK') return '주당 구매가격 (원)';
   if (newAsset.value.assetType === 'OTHER') return '단위당 구매가격 (원)';
-  return '구매 당시 그램당 가격 (원)';
+  if (newAsset.value.assetType === 'GOLD') return '구매 당시 돈당 가격 (원)';
+  if (newAsset.value.assetType === 'SILVER') return '구매 당시 kg당 가격 (원)';
+  return '구매 가격 (원)';
+};
+
+// 금: 돈 -> 그램 변환 (저장용)
+const donToGram = (don) => {
+  if (!don) return 0;
+  return don * 3.75;
+};
+
+// 금: 그램 -> 돈 변환 (표시용)
+const gramToDon = (gram) => {
+  if (!gram) return 0;
+  return gram / 3.75;
+};
+
+// 금: 그램당 가격 -> 돈당 가격 변환
+const gramToDonPrice = (pricePerGram) => {
+  if (!pricePerGram) return 0;
+  return pricePerGram * 3.75;
+};
+
+// 금: 돈당 가격 -> 그램당 가격 변환 (저장용)
+const donToGramPrice = (pricePerDon) => {
+  if (!pricePerDon) return 0;
+  return pricePerDon / 3.75;
+};
+
+// 은: kg -> 그램 변환 (저장용)
+const kgToGram = (kg) => {
+  if (!kg) return 0;
+  return kg * 1000;
+};
+
+// 은: 그램 -> kg 변환 (표시용)
+const gramToKg = (gram) => {
+  if (!gram) return 0;
+  return gram / 1000;
+};
+
+// 은: 그램당 가격 -> kg당 가격 변환
+const gramToKgPrice = (pricePerGram) => {
+  if (!pricePerGram) return 0;
+  return pricePerGram * 1000;
+};
+
+// 은: kg당 가격 -> 그램당 가격 변환 (저장용)
+const kgToGramPrice = (pricePerKg) => {
+  if (!pricePerKg) return 0;
+  return pricePerKg / 1000;
+};
+
+// 금 보유량 포맷 (돈 단위)
+const formatGoldDon = (gram) => {
+  if (!gram) return '0';
+  return formatNumber(gramToDon(gram));
+};
+
+// 은 보유량 포맷 (kg 단위)
+const formatSilverKg = (gram) => {
+  if (!gram) return '0';
+  return formatNumber(gramToKg(gram));
+};
+
+// 자산별 수량 포맷 (테이블용)
+const formatAssetQuantity = (asset) => {
+  if (asset.assetType === 'GOLD') {
+    return formatNumber(gramToDon(asset.quantity)) + ' 돈';
+  } else if (asset.assetType === 'SILVER') {
+    return formatNumber(gramToKg(asset.quantity)) + ' kg';
+  } else if (asset.assetType === 'STOCK') {
+    return formatNumber(asset.quantity) + ' 주';
+  }
+  return formatNumber(asset.quantity);
+};
+
+// 자산별 구매가 포맷 (테이블용)
+const formatAssetPrice = (asset) => {
+  if (asset.assetType === 'GOLD') {
+    return formatCurrency(gramToDonPrice(asset.purchasePrice)) + '/돈';
+  } else if (asset.assetType === 'SILVER') {
+    return formatCurrency(gramToKgPrice(asset.purchasePrice)) + '/kg';
+  } else if (asset.assetType === 'STOCK') {
+    return formatCurrency(asset.purchasePrice) + '/주';
+  }
+  return formatCurrency(asset.purchasePrice);
 };
 
 const formatCurrency = (value) => {
@@ -595,6 +713,32 @@ const logout = () => {
   router.push('/login');
 };
 
+const exportData = async (format) => {
+  showExportMenu.value = false;
+  try {
+    let response;
+    if (format === 'xlsx') {
+      response = await exportAPI.exportAssetsExcel();
+    } else {
+      response = await exportAPI.exportAssetsCsv();
+    }
+
+    const blob = new Blob([response.data]);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    link.download = `자산목록_${date}.${format}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('내보내기에 실패했습니다.');
+  }
+};
+
 onMounted(() => {
   loadData();
 });
@@ -612,7 +756,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 24px;
-  margin-bottom: 30px;
+  margin-bottom: var(--section-gap);
 }
 
 .summary-card {
@@ -630,7 +774,7 @@ onMounted(() => {
 }
 
 .summary-card .card-header {
-  padding: 24px;
+  padding: var(--card-padding);
   display: flex;
   align-items: center;
   gap: 16px;
@@ -680,7 +824,7 @@ onMounted(() => {
 }
 
 .summary-card .card-body {
-  padding: 24px;
+  padding: var(--card-padding);
 }
 
 .stat-row {
@@ -744,8 +888,80 @@ onMounted(() => {
 /* 액션 바 */
 .action-bar {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 24px;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--section-gap);
+}
+
+.action-left, .action-right {
+  display: flex;
+  gap: 10px;
+}
+
+/* 내보내기 드롭다운 */
+.export-dropdown {
+  position: relative;
+}
+
+.btn-export {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-export:hover {
+  border-color: var(--primary-start);
+  color: var(--primary-start);
+}
+
+[data-theme="dark"] .btn-export {
+  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
+}
+
+.export-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  z-index: 100;
+  min-width: 150px;
+}
+
+[data-theme="dark"] .export-menu {
+  background: #1f1f23;
+}
+
+.export-menu button {
+  display: block;
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.export-menu button:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.export-menu button:not(:last-child) {
+  border-bottom: 1px solid var(--border-light);
 }
 
 /* 히스토리 섹션 */
@@ -753,12 +969,12 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(20px);
   border-radius: 20px;
-  padding: 28px;
+  padding: var(--card-padding);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
 }
 
 .section-header {
-  margin-bottom: 24px;
+  margin-bottom: var(--section-gap);
 }
 
 .section-header h2 {

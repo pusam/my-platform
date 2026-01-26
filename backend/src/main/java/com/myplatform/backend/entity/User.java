@@ -32,6 +32,9 @@ public class User {
     @Column(nullable = false)
     private String status = "PENDING"; // PENDING, APPROVED, REJECTED
 
+    @Column(name = "profile_image", length = 500)
+    private String profileImage;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -127,6 +130,14 @@ public class User {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getProfileImage() {
+        return profileImage;
+    }
+
+    public void setProfileImage(String profileImage) {
+        this.profileImage = profileImage;
     }
 }
 

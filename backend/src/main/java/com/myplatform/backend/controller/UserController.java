@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -54,6 +55,24 @@ public class UserController {
         String username = ((UserDetails) authentication.getPrincipal()).getUsername();
         userService.changePassword(username, request);
         return ResponseEntity.ok(ApiResponse.success("비밀번호가 변경되었습니다.", null));
+    }
+
+    @Operation(summary = "프로필 이미지 업로드", description = "프로필 이미지를 업로드합니다.")
+    @PostMapping("/profile/image")
+    public ResponseEntity<ApiResponse<UserDto>> uploadProfileImage(
+            Authentication authentication,
+            @RequestParam("file") MultipartFile file) {
+        String username = ((UserDetails) authentication.getPrincipal()).getUsername();
+        UserDto user = userService.uploadProfileImage(username, file);
+        return ResponseEntity.ok(ApiResponse.success("프로필 이미지가 업로드되었습니다.", user));
+    }
+
+    @Operation(summary = "프로필 이미지 삭제", description = "프로필 이미지를 삭제합니다.")
+    @DeleteMapping("/profile/image")
+    public ResponseEntity<ApiResponse<UserDto>> deleteProfileImage(Authentication authentication) {
+        String username = ((UserDetails) authentication.getPrincipal()).getUsername();
+        UserDto user = userService.deleteProfileImage(username);
+        return ResponseEntity.ok(ApiResponse.success("프로필 이미지가 삭제되었습니다.", user));
     }
 
     @Operation(summary = "승인 대기 사용자 목록", description = "관리자가 승인 대기 중인 사용자 목록을 조회합니다.")

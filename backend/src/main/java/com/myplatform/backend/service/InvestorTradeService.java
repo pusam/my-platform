@@ -1,0 +1,369 @@
+package com.myplatform.backend.service;
+
+import com.myplatform.backend.dto.ConsecutiveBuyDto;
+import com.myplatform.backend.dto.InvestorTradeDto;
+import com.myplatform.backend.dto.StockInvestorDetailDto;
+import com.myplatform.backend.entity.InvestorDailyTrade;
+import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * 투자자별 매매 정보 조회 서비스
+ */
+@Service
+@Transactional(readOnly = true)
+@RequiredArgsConstructor
+@Slf4j
+public class InvestorTradeService {
+
+    private final InvestorDailyTradeRepository investorTradeRepository;
+    private final KisInvestorDataCollector kisInvestorDataCollector;
+
+    /**
+     * 투자자 유형별 상위 매수/매도 종목 조회 (최대 50개)
+     *
+     * @param investorType FOREIGN(외국인), INSTITUTION(기관), INDIVIDUAL(개인)
+     * @param tradeType BUY(매수), SELL(매도)
+     * @param limit 조회할 종목 수 (기본 50)
+     */
+    public List<InvestorTradeDto> getTopTradesByInvestor(String investorType, String tradeType, Integer limit) {
+        if (limit == null || limit <= 0) {
+            limit = 50;
+        }
+
+        // 최근 거래일의 데이터 조회
+        LocalDate latestDate = LocalDate.now().minusDays(1); // 전일 기준
+
+        List<InvestorDailyTrade> trades = investorTradeRepository
+                .findByInvestorTypeAndTradeDateOrderByTradeTypeAscRankNumAsc(investorType, latestDate);
+
+        return trades.stream()
+                .filter(t -> t.getTradeType().equalsIgnoreCase(tradeType))
+                .limit(limit)
+                .map(this::entityToDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 전체 투자자의 상위 매매 종목 조회 (외국인, 기관, 개인 각각 50개씩)
+     */
+    public Map<String, List<InvestorTradeDto>> getAllInvestorTopTrades(String tradeType, Integer limit) {
+        Map<String, List<InvestorTradeDto>> result = new HashMap<>();
+
+        result.put("FOREIGN", getTopTradesByInvestor("FOREIGN", tradeType, limit));
+        result.put("INSTITUTION", getTopTradesByInvestor("INSTITUTION", tradeType, limit));
+
+        return result;
+    }
+
+    /**
+     * 특정 종목의 투자자별 매매 이력 조회 (최근 30일)
+     */
+    public StockInvestorDetailDto getStockInvestorDetail(String stockCode, Integer days) {
+        if (days == null || days <= 0) {
+            days = 30;
+        }
+
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(days);
+
+        List<InvestorDailyTrade> trades = investorTradeRepository
+                .findByStockCodeAndDateRange(stockCode, startDate, endDate);
+
+        if (trades.isEmpty()) {
+            return null;
+        }
+
+        // 종목 정보
+        InvestorDailyTrade firstTrade = trades.get(0);
+        String stockName = firstTrade.getStockName();
+
+        // 일자별로 그룹화
+        Map<LocalDate, List<InvestorDailyTrade>> tradesByDate = trades.stream()
+                .collect(Collectors.groupingBy(InvestorDailyTrade::getTradeDate));
+
+        // 일자별 투자자별 매매 데이터 생성
+        List<StockInvestorDetailDto.DailyInvestorTrade> dailyTrades = tradesByDate.entrySet().stream()
+                .sorted(Map.Entry.<LocalDate, List<InvestorDailyTrade>>comparingByKey().reversed())
+                .map(entry -> {
+                    LocalDate date = entry.getKey();
+                    List<InvestorDailyTrade> dayTrades = entry.getValue();
+
+                    // 투자자별로 그룹화
+                    Map<String, List<InvestorDailyTrade>> tradesByInvestor = dayTrades.stream()
+                            .collect(Collectors.groupingBy(InvestorDailyTrade::getInvestorType));
+
+                    return StockInvestorDetailDto.DailyInvestorTrade.builder()
+                            .tradeDate(date)
+                            .foreign(buildInvestorSummary(tradesByInvestor.get("FOREIGN")))
+                            .institution(buildInvestorSummary(tradesByInvestor.get("INSTITUTION")))
+                            .individual(buildInvestorSummary(tradesByInvestor.get("INDIVIDUAL")))
+                            .build();
+                })
+                .collect(Collectors.toList());
+
+        return StockInvestorDetailDto.builder()
+                .stockCode(stockCode)
+                .stockName(stockName)
+                .dailyTrades(dailyTrades)
+                .build();
+    }
+
+    /**
+     * 투자자별 매매 요약 정보 생성
+     */
+    private StockInvestorDetailDto.InvestorTradeSummary buildInvestorSummary(List<InvestorDailyTrade> trades) {
+        if (trades == null || trades.isEmpty()) {
+            return StockInvestorDetailDto.InvestorTradeSummary.builder()
+                    .buyAmount(BigDecimal.ZERO)
+                    .sellAmount(BigDecimal.ZERO)
+                    .netBuyAmount(BigDecimal.ZERO)
+                    .build();
+        }
+
+        BigDecimal totalBuy = BigDecimal.ZERO;
+        BigDecimal totalSell = BigDecimal.ZERO;
+
+        for (InvestorDailyTrade trade : trades) {
+            if (trade.getBuyAmount() != null) {
+                totalBuy = totalBuy.add(trade.getBuyAmount());
+            }
+            if (trade.getSellAmount() != null) {
+                totalSell = totalSell.add(trade.getSellAmount());
+            }
+        }
+
+        BigDecimal netBuy = totalBuy.subtract(totalSell);
+
+        return StockInvestorDetailDto.InvestorTradeSummary.builder()
+                .buyAmount(totalBuy)
+                .sellAmount(totalSell)
+                .netBuyAmount(netBuy)
+                .build();
+    }
+
+    /**
+     * Entity -> DTO 변환
+     */
+    private InvestorTradeDto entityToDto(InvestorDailyTrade entity) {
+        return InvestorTradeDto.builder()
+                .stockCode(entity.getStockCode())
+                .stockName(entity.getStockName())
+                .tradeDate(entity.getTradeDate())
+                .investorType(entity.getInvestorType())
+                .investorTypeName(getInvestorTypeName(entity.getInvestorType()))
+                .netBuyAmount(entity.getNetBuyAmount())
+                .buyAmount(entity.getBuyAmount())
+                .sellAmount(entity.getSellAmount())
+                .currentPrice(entity.getCurrentPrice())
+                .changeRate(entity.getChangeRate())
+                .tradeVolume(entity.getTradeVolume())
+                .rankNum(entity.getRankNum())
+                .build();
+    }
+
+    /**
+     * 투자자 유형 한글명 반환
+     */
+    private String getInvestorTypeName(String investorType) {
+        switch (investorType) {
+            case "FOREIGN":
+                return "외국인";
+            case "INSTITUTION":
+                return "기관";
+            case "INDIVIDUAL":
+                return "개인";
+            case "PENSION":
+                return "연기금";
+            case "INVEST_TRUST":
+                return "투신";
+            default:
+                return investorType;
+        }
+    }
+
+    /**
+     * 특정 일자의 투자자별 매매 데이터 수집 (한국투자증권 API 호출)
+     */
+    @Transactional
+    public Map<String, Integer> collectInvestorTradeData(LocalDate tradeDate) {
+        log.info("투자자별 매매 데이터 수집 시작: {}", tradeDate);
+        return kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);
+    }
+
+    /**
+     * 최근 N일간의 데이터 수집
+     */
+    @Transactional
+    public Map<String, Object> collectRecentData(int days) {
+        Map<String, Object> result = new HashMap<>();
+        int totalCollected = 0;
+
+        for (int i = 0; i < days; i++) {
+            LocalDate date = LocalDate.now().minusDays(i + 1); // 오늘 제외, 전일부터
+
+            // 주말 제외
+            if (date.getDayOfWeek().getValue() >= 6) {
+                continue;
+            }
+
+            Map<String, Integer> dayResult = collectInvestorTradeData(date);
+            result.put(date.toString(), dayResult);
+
+            int dayTotal = dayResult.values().stream().mapToInt(Integer::intValue).sum();
+            totalCollected += dayTotal;
+        }
+
+        result.put("totalCollected", totalCollected);
+        log.info("최근 {}일 데이터 수집 완료: 총 {}건", days, totalCollected);
+
+        return result;
+    }
+
+    /**
+     * 연속 매수 종목 조회
+     * 특정 투자자가 N일 연속으로 순매수 상위에 오른 종목 찾기
+     *
+     * @param investorType 투자자 유형 (FOREIGN, INSTITUTION)
+     * @param minDays 최소 연속 일수 (기본 3일)
+     */
+    public List<ConsecutiveBuyDto> getConsecutiveBuyStocks(String investorType, Integer minDays) {
+        if (minDays == null || minDays < 2) {
+            minDays = 3;
+        }
+
+        // 최근 거래일 목록 조회 (최대 30일)
+        List<LocalDate> tradeDates = investorTradeRepository.findDistinctTradeDates(investorType);
+        if (tradeDates.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        // 최근 30일 데이터만 분석
+        int daysToAnalyze = Math.min(tradeDates.size(), 30);
+        LocalDate endDate = tradeDates.get(0);
+        LocalDate startDate = tradeDates.get(daysToAnalyze - 1);
+
+        // 해당 기간의 매수 데이터 조회
+        List<InvestorDailyTrade> buyTrades = investorTradeRepository
+                .findBuyTradesForConsecutiveAnalysis(investorType, startDate, endDate);
+
+        // 일자별로 종목 코드 집합 만들기
+        Map<LocalDate, Set<String>> dailyStocks = new LinkedHashMap<>();
+        Map<String, InvestorDailyTrade> latestTradeByStock = new HashMap<>();
+
+        for (InvestorDailyTrade trade : buyTrades) {
+            dailyStocks.computeIfAbsent(trade.getTradeDate(), k -> new HashSet<>())
+                    .add(trade.getStockCode());
+
+            // 최신 거래 정보 저장 (현재가, 등락률 등)
+            if (!latestTradeByStock.containsKey(trade.getStockCode())) {
+                latestTradeByStock.put(trade.getStockCode(), trade);
+            }
+        }
+
+        // 종목별 일별 순매수 금액 맵
+        Map<String, Map<LocalDate, BigDecimal>> stockDailyAmounts = buyTrades.stream()
+                .collect(Collectors.groupingBy(
+                        InvestorDailyTrade::getStockCode,
+                        Collectors.toMap(
+                                InvestorDailyTrade::getTradeDate,
+                                InvestorDailyTrade::getNetBuyAmount,
+                                (a, b) -> a
+                        )
+                ));
+
+        // 연속 매수 종목 찾기
+        List<ConsecutiveBuyDto> result = new ArrayList<>();
+        Set<String> processedStocks = new HashSet<>();
+
+        // 정렬된 거래일 리스트 (최신순)
+        List<LocalDate> sortedDates = new ArrayList<>(dailyStocks.keySet());
+        sortedDates.sort(Collections.reverseOrder());
+
+        for (String stockCode : latestTradeByStock.keySet()) {
+            if (processedStocks.contains(stockCode)) continue;
+
+            // 해당 종목의 연속 매수 일수 계산
+            int consecutiveDays = 0;
+            LocalDate consecutiveStartDate = null;
+            LocalDate consecutiveEndDate = null;
+            BigDecimal totalAmount = BigDecimal.ZERO;
+
+            for (LocalDate date : sortedDates) {
+                Set<String> stocksOnDate = dailyStocks.get(date);
+                if (stocksOnDate != null && stocksOnDate.contains(stockCode)) {
+                    if (consecutiveDays == 0) {
+                        consecutiveEndDate = date;
+                    }
+                    consecutiveDays++;
+                    consecutiveStartDate = date;
+
+                    Map<LocalDate, BigDecimal> amounts = stockDailyAmounts.get(stockCode);
+                    if (amounts != null && amounts.get(date) != null) {
+                        totalAmount = totalAmount.add(amounts.get(date));
+                    }
+                } else {
+                    // 연속 끊김
+                    break;
+                }
+            }
+
+            if (consecutiveDays >= minDays) {
+                InvestorDailyTrade latestTrade = latestTradeByStock.get(stockCode);
+
+                BigDecimal avgAmount = totalAmount.divide(
+                        BigDecimal.valueOf(consecutiveDays), 2, RoundingMode.HALF_UP);
+
+                ConsecutiveBuyDto dto = ConsecutiveBuyDto.builder()
+                        .stockCode(stockCode)
+                        .stockName(latestTrade.getStockName())
+                        .investorType(investorType)
+                        .investorTypeName(getInvestorTypeName(investorType))
+                        .consecutiveDays(consecutiveDays)
+                        .totalNetBuyAmount(totalAmount)
+                        .avgDailyAmount(avgAmount)
+                        .startDate(consecutiveStartDate)
+                        .endDate(consecutiveEndDate)
+                        .currentPrice(latestTrade.getCurrentPrice())
+                        .changeRate(latestTrade.getChangeRate())
+                        .build();
+
+                result.add(dto);
+                processedStocks.add(stockCode);
+            }
+        }
+
+        // 연속 일수 내림차순, 누적 금액 내림차순 정렬
+        result.sort((a, b) -> {
+            int dayCompare = b.getConsecutiveDays().compareTo(a.getConsecutiveDays());
+            if (dayCompare != 0) return dayCompare;
+            return b.getTotalNetBuyAmount().compareTo(a.getTotalNetBuyAmount());
+        });
+
+        log.info("연속 매수 종목 조회 완료: {} - {}개 (최소 {}일 연속)",
+                investorType, result.size(), minDays);
+
+        return result;
+    }
+
+    /**
+     * 전체 투자자의 연속 매수 종목 조회
+     */
+    public Map<String, List<ConsecutiveBuyDto>> getAllConsecutiveBuyStocks(Integer minDays) {
+        Map<String, List<ConsecutiveBuyDto>> result = new HashMap<>();
+
+        result.put("FOREIGN", getConsecutiveBuyStocks("FOREIGN", minDays));
+        result.put("INSTITUTION", getConsecutiveBuyStocks("INSTITUTION", minDays));
+
+        return result;
+    }
+}

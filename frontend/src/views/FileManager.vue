@@ -26,12 +26,27 @@
 
     <!-- 액션 바 -->
     <div class="action-bar">
-      <button @click="showCreateFolderModal = true" class="btn btn-primary">
-        📁 새 폴더
-      </button>
-      <button @click="showUploadModal = true" class="btn btn-success">
-        📤 파일 업로드
-      </button>
+      <div class="action-left">
+        <button @click="showCreateFolderModal = true" class="btn btn-primary">
+          📁 새 폴더
+        </button>
+        <button @click="showUploadModal = true" class="btn btn-success">
+          📤 파일 업로드
+        </button>
+      </div>
+      <div class="action-right">
+        <div class="sort-dropdown">
+          <label>정렬:</label>
+          <select v-model="sortOption">
+            <option value="name-asc">이름순 (ㄱ→ㅎ)</option>
+            <option value="name-desc">이름순 (ㅎ→ㄱ)</option>
+            <option value="date-desc">최신등록순</option>
+            <option value="date-asc">오래된순</option>
+            <option value="size-desc">크기 큰순</option>
+            <option value="size-asc">크기 작은순</option>
+          </select>
+        </div>
+      </div>
     </div>
 
     <!-- 로딩 -->
@@ -44,7 +59,7 @@
     <div v-else-if="content" class="file-grid">
       <!-- 폴더 목록 -->
       <div
-        v-for="folder in content.folders"
+        v-for="folder in sortedFolders"
         :key="'folder-' + folder.id"
         class="file-item folder-item"
         @click="navigateToFolder(folder.id)"
@@ -57,7 +72,7 @@
 
       <!-- 파일 목록 -->
       <div
-        v-for="file in content.files"
+        v-for="file in sortedFiles"
         :key="'file-' + file.id"
         class="file-item"
         :class="{ 'image-file': isImageFile(file) }"
@@ -178,7 +193,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
@@ -189,6 +204,7 @@ const content = ref(null);
 const loading = ref(true);
 const errorMessage = ref('');
 const currentFolderId = ref(null);
+const sortOption = ref('name-asc'); // 기본 정렬: 이름순
 
 const showCreateFolderModal = ref(false);
 const showUploadModal = ref(false);
@@ -220,6 +236,50 @@ const videoViewer = ref({
 // 파일 뷰어 로딩 상태 (중복 클릭 방지)
 const viewerLoading = ref(false);
 
+// 정렬된 폴더 목록
+const sortedFolders = computed(() => {
+  if (!content.value || !content.value.folders) return [];
+  const folders = [...content.value.folders];
+
+  const [sortBy, sortDir] = sortOption.value.split('-');
+  const multiplier = sortDir === 'asc' ? 1 : -1;
+
+  return folders.sort((a, b) => {
+    if (sortBy === 'name') {
+      return multiplier * a.name.localeCompare(b.name, 'ko');
+    } else if (sortBy === 'date') {
+      const dateA = new Date(a.createdAt || 0);
+      const dateB = new Date(b.createdAt || 0);
+      return multiplier * (dateA - dateB);
+    } else if (sortBy === 'size') {
+      // 폴더는 크기 정렬 시 이름순으로 정렬
+      return a.name.localeCompare(b.name, 'ko');
+    }
+    return 0;
+  });
+});
+
+// 정렬된 파일 목록
+const sortedFiles = computed(() => {
+  if (!content.value || !content.value.files) return [];
+  const files = [...content.value.files];
+
+  const [sortBy, sortDir] = sortOption.value.split('-');
+  const multiplier = sortDir === 'asc' ? 1 : -1;
+
+  return files.sort((a, b) => {
+    if (sortBy === 'name') {
+      return multiplier * a.originalName.localeCompare(b.originalName, 'ko');
+    } else if (sortBy === 'date') {
+      const dateA = new Date(a.uploadDate || a.createdAt || 0);
+      const dateB = new Date(b.uploadDate || b.createdAt || 0);
+      return multiplier * (dateA - dateB);
+    } else if (sortBy === 'size') {
+      return multiplier * ((a.fileSize || 0) - (b.fileSize || 0));
+    }
+    return 0;
+  });
+});
 
 const loadFolder = async (folderId = null) => {
   try {
@@ -568,7 +628,7 @@ onMounted(() => {
 @import '../assets/css/common.css';
 
 .file-manager-content {
-  max-width: 1400px;
+  max-width: var(--content-max-width);
   margin: 0 auto;
   position: relative;
   min-height: 300px;
@@ -578,7 +638,7 @@ onMounted(() => {
   background: #f5f5f5;
   padding: 12px 20px;
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -608,9 +668,60 @@ onMounted(() => {
 }
 
 .action-bar {
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 15px;
+}
+
+.action-left {
   display: flex;
   gap: 10px;
+}
+
+.action-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sort-dropdown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.sort-dropdown label {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
+}
+
+.sort-dropdown select {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #333;
+  background: white;
+  cursor: pointer;
+  outline: none;
+  min-width: 140px;
+}
+
+.sort-dropdown select:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.sort-dropdown select:hover {
+  border-color: #999;
 }
 
 
@@ -619,7 +730,7 @@ onMounted(() => {
   color: #c33;
   padding: 15px;
   border-radius: 6px;
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   text-align: center;
 }
 
@@ -633,7 +744,7 @@ onMounted(() => {
   background: white;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
-  padding: 20px;
+  padding: var(--card-padding);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -771,12 +882,12 @@ onMounted(() => {
 }
 
 .modal-content h2 {
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
   color: #333;
 }
 
 .form-group {
-  margin-bottom: 20px;
+  margin-bottom: var(--section-gap);
 }
 
 .form-group label {
@@ -847,7 +958,7 @@ onMounted(() => {
   max-height: 90vh;
   background: white;
   border-radius: 12px;
-  padding: 20px;
+  padding: var(--card-padding);
 }
 
 .image-viewer img {
@@ -892,7 +1003,7 @@ onMounted(() => {
   max-height: 90vh;
   background: white;
   border-radius: 12px;
-  padding: 20px;
+  padding: var(--card-padding);
 }
 
 .video-viewer video {
@@ -908,6 +1019,32 @@ onMounted(() => {
   margin-top: 15px;
   color: #333;
   font-weight: 500;
+}
+
+/* 반응형 */
+@media (max-width: 768px) {
+  .action-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .action-left {
+    justify-content: center;
+  }
+
+  .action-right {
+    justify-content: center;
+  }
+
+  .sort-dropdown {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .sort-dropdown select {
+    flex: 1;
+    max-width: 200px;
+  }
 }
 </style>
 

@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.FinanceSummaryDto;
 import com.myplatform.backend.dto.FinanceTransactionDto;
 import com.myplatform.backend.dto.FinanceTransactionRequest;
+import com.myplatform.backend.dto.RecurringFinanceDto;
 import com.myplatform.backend.entity.FinanceTransaction;
 import com.myplatform.backend.repository.FinanceTransactionRepository;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import java.util.stream.Collectors;
 public class FinanceTransactionService {
 
     private final FinanceTransactionRepository transactionRepository;
+    private final RecurringFinanceService recurringFinanceService;
 
     @Transactional(readOnly = true)
     public List<FinanceTransactionDto> getAllTransactions(String username) {
@@ -30,18 +32,31 @@ public class FinanceTransactionService {
 
     @Transactional(readOnly = true)
     public FinanceSummaryDto getMonthlyTransactions(String username, int year, int month) {
+        // 일반 거래 내역
         List<FinanceTransaction> transactions = transactionRepository
                 .findByUsernameAndYearMonth(username, year, month);
 
-        BigDecimal totalIncome = transactions.stream()
+        // 변동 수입/지출 (일반 거래)
+        BigDecimal variableIncome = transactions.stream()
                 .filter(t -> t.getType() == FinanceTransaction.TransactionType.INCOME)
                 .map(FinanceTransaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        BigDecimal totalExpense = transactions.stream()
+        BigDecimal variableExpense = transactions.stream()
                 .filter(t -> t.getType() == FinanceTransaction.TransactionType.EXPENSE)
                 .map(FinanceTransaction::getAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 고정 수입/지출
+        BigDecimal recurringIncome = recurringFinanceService.getRecurringIncomeForMonth(username, year, month);
+        BigDecimal recurringExpense = recurringFinanceService.getRecurringExpenseForMonth(username, year, month);
+
+        // 고정 항목 목록
+        List<RecurringFinanceDto> recurringItems = recurringFinanceService.getRecurringForMonth(username, year, month);
+
+        // 총계
+        BigDecimal totalIncome = variableIncome.add(recurringIncome);
+        BigDecimal totalExpense = variableExpense.add(recurringExpense);
 
         List<FinanceTransactionDto> transactionDtos = transactions.stream()
                 .map(FinanceTransactionDto::fromEntity)
@@ -53,7 +68,12 @@ public class FinanceTransactionService {
                 .totalIncome(totalIncome)
                 .totalExpense(totalExpense)
                 .balance(totalIncome.subtract(totalExpense))
+                .recurringIncome(recurringIncome)
+                .recurringExpense(recurringExpense)
+                .variableIncome(variableIncome)
+                .variableExpense(variableExpense)
                 .transactions(transactionDtos)
+                .recurringItems(recurringItems)
                 .build();
     }
 

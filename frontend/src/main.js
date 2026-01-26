@@ -12,10 +12,19 @@ import GoldPricePage from './views/GoldPricePage.vue'
 import SilverPricePage from './views/SilverPricePage.vue'
 import MyContentPage from './views/MyContentPage.vue'
 import SettingsPage from './views/SettingsPage.vue'
-import UserApproval from './views/UserApproval.vue'
 import AssetManagement from './views/AssetManagement.vue'
 import FileManager from './views/FileManager.vue'
 import FinanceManagement from './views/FinanceManagement.vue'
+import CarManagement from './views/CarManagement.vue'
+import UserManagement from './views/UserManagement.vue'
+import ActivityLogs from './views/ActivityLogs.vue'
+import SectorTradingPage from './views/SectorTradingPage.vue'
+import RedditPage from './views/RedditPage.vue'
+import InvestorTradePage from './views/InvestorTradePage.vue'
+import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
+import ConsecutiveBuyPage from './views/ConsecutiveBuyPage.vue'
+import InvestorSurgePage from './views/InvestorSurgePage.vue'
+import NewsPage from './views/NewsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -114,9 +123,63 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/user-approval',
-      name: 'UserApproval',
-      component: UserApproval,
+      path: '/car',
+      name: 'CarManagement',
+      component: CarManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/sector',
+      name: 'SectorTrading',
+      component: SectorTradingPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/reddit',
+      name: 'RedditPage',
+      component: RedditPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/news',
+      name: 'NewsPage',
+      component: NewsPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/investor-trades',
+      name: 'InvestorTrade',
+      component: InvestorTradePage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/investor-stock/:stockCode',
+      name: 'InvestorStockDetail',
+      component: InvestorStockDetailPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/consecutive-buy',
+      name: 'ConsecutiveBuy',
+      component: ConsecutiveBuyPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/investor-surge',
+      name: 'InvestorSurge',
+      component: InvestorSurgePage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/admin/users',
+      name: 'UserManagement',
+      component: UserManagement,
+      meta: { requiresAuth: true, role: 'ADMIN' }
+    },
+    {
+      path: '/admin/logs',
+      name: 'ActivityLogs',
+      component: ActivityLogs,
       meta: { requiresAuth: true, role: 'ADMIN' }
     }
   ]
@@ -128,6 +191,7 @@ router.beforeEach((to, from, next) => {
   const role = localStorage.getItem('role')
 
   // 인증이 필요한 페이지인데 토큰이 없으면 로그인으로
+  // 인증이 필요한 페이지인데 토큰이 없는 경우
   if (to.meta.requiresAuth && !token) {
     next('/login')
     return
@@ -135,11 +199,22 @@ router.beforeEach((to, from, next) => {
 
   // 로그인 페이지 접근 시 이미 로그인되어 있으면 역할별 대시보드로
   if (to.path === '/login' && token) {
+    return
+  }
+
+  // 로그인된 상태에서 로그인 페이지 접근 시 역할별 대시보드로 이동
+  if (to.path === '/login' && token) {
     if (role === 'ADMIN') {
       next('/admin')
     } else {
       next('/user')
     }
+    return
+  }
+
+  // 특정 역할이 필요한 페이지 접근 시 권한 체크
+  if (to.meta.role && role && to.meta.role !== role) {
+    // 권한이 없는 페이지 접근 시 자신의 대시보드로 이동
     return
   }
 
@@ -164,6 +239,18 @@ router.beforeEach((to, from, next) => {
   }
 
   // 모든 검사를 통과하면 이동 허용
+  next()
+    return
+  }
+
+  // role이 필요한데 role이 없는 경우 (비정상 상태) - 로그인 페이지로
+  if (to.meta.role && !role) {
+    localStorage.removeItem('jwt_token')
+    localStorage.removeItem('role')
+    next('/login')
+    return
+  }
+
   next()
 })
 

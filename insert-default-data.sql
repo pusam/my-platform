@@ -4,11 +4,6 @@
 
 USE myplatform;
 
--- 기존 데이터 삭제 (선택사항 - 필요시 주석 해제)
-DELETE FROM board_file;
-DELETE FROM board;
-DELETE FROM users;
-
 -- 관리자 계정 (비밀번호: admin123)
 INSERT INTO users (username, password, name, role, status, email, phone)
 VALUES (

@@ -24,16 +24,20 @@ apiClient.interceptors.request.use(
   }
 );
 
+// 401 리다이렉트 중복 방지 플래그
+let isRedirecting = false;
+
 // 응답 인터셉터 - 401 에러 시 로그아웃 처리
 apiClient.interceptors.response.use(
   (response) => {
     return response;
   },
   (error) => {
-    if (error.response && error.response.status === 401) {
+    if (error.response && error.response.status === 401 && !isRedirecting) {
       // 토큰이 만료되었거나 유효하지 않은 경우
+      isRedirecting = true;
       UserManager.logout();
-      window.location.href = '/';
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -127,6 +131,18 @@ export const userSettingsAPI = {
   changePassword(data) {
     return apiClient.put('/user/password', data);
   },
+  // 프로필 이미지 업로드
+  uploadProfileImage(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.post('/user/profile/image', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  // 프로필 이미지 삭제
+  deleteProfileImage() {
+    return apiClient.delete('/user/profile/image');
+  },
   // 승인 대기 사용자 목록 (관리자용)
   getPendingUsers() {
     return apiClient.get('/user/pending');
@@ -209,6 +225,27 @@ export const financeAPI = {
   // 거래 삭제
   deleteTransaction(id) {
     return apiClient.delete(`/finance/transactions/${id}`);
+  },
+  // 고정 수입/지출 목록 조회
+  getRecurring(type = null) {
+    const params = type ? { type } : {};
+    return apiClient.get('/finance/recurring', { params });
+  },
+  // 고정 수입/지출 등록
+  addRecurring(data) {
+    return apiClient.post('/finance/recurring', data);
+  },
+  // 고정 수입/지출 수정 (금액 변경 시 히스토리 기록)
+  updateRecurring(id, data) {
+    return apiClient.put(`/finance/recurring/${id}`, data);
+  },
+  // 고정 수입/지출 비활성화
+  deactivateRecurring(id) {
+    return apiClient.put(`/finance/recurring/${id}/deactivate`);
+  },
+  // 고정 수입/지출 삭제
+  deleteRecurring(id) {
+    return apiClient.delete(`/finance/recurring/${id}`);
   }
 };
 
@@ -221,6 +258,22 @@ export const stockAPI = {
   // 종목 시세 조회
   getStockPrice(stockCode) {
     return apiClient.get(`/stock/${stockCode}`);
+  }
+};
+
+// Sector Trading API
+export const sectorAPI = {
+  // 섹터별 거래대금 조회 (period: TODAY, MIN_5, MIN_30)
+  getSectorTrading(period = 'TODAY') {
+    return apiClient.get('/sector/trading', { params: { period } });
+  },
+  // 특정 섹터 상세 조회
+  getSectorDetail(sectorCode) {
+    return apiClient.get(`/sector/trading/${sectorCode}`);
+  },
+  // 캐시 새로고침
+  refreshSectorTrading() {
+    return apiClient.post('/sector/trading/refresh');
   }
 };
 
@@ -337,6 +390,220 @@ export const adminAPI = {
   // 권한 변경
   changeUserRole(userId, role) {
     return apiClient.put(`/admin/users/${userId}/role`, { role });
+  }
+};
+
+// Car Record API
+export const carAPI = {
+  // 정비 기록 목록 조회
+  getRecords(type = null) {
+    const params = type ? { type } : {};
+    return apiClient.get('/car/records', { params });
+  },
+  // 정비 기록 등록
+  addRecord(data) {
+    return apiClient.post('/car/records', data);
+  },
+  // 정비 기록 삭제
+  deleteRecord(id) {
+    return apiClient.delete(`/car/records/${id}`);
+  },
+  // 정비 요약 정보
+  getSummary() {
+    return apiClient.get('/car/summary');
+  }
+};
+
+// News Summary API
+export const newsAPI = {
+  // 오늘의 뉴스 조회
+  getTodayNews() {
+    return apiClient.get('/news/today');
+  },
+  // 최근 뉴스 조회
+  getRecentNews() {
+    return apiClient.get('/news/recent');
+  },
+  // 뉴스 수동 수집 (관리자용)
+  fetchNews() {
+    return apiClient.post('/news/fetch', {}, { timeout: 120000 });
+  }
+};
+
+// Admin API
+export const adminAPI = {
+  // 서버 상태 조회
+  getServerStatus() {
+    return apiClient.get('/admin/server/status');
+  },
+
+  // 사용자 관리
+  getAllUsers() {
+    return apiClient.get('/admin/users');
+  },
+  getUser(id) {
+    return apiClient.get(`/admin/users/${id}`);
+  },
+  updateUserRole(id, role) {
+    return apiClient.put(`/admin/users/${id}/role`, { role });
+  },
+  updateUserStatus(id, status) {
+    return apiClient.put(`/admin/users/${id}/status`, { status });
+  },
+  deleteUser(id) {
+    return apiClient.delete(`/admin/users/${id}`);
+  },
+  getUserStats() {
+    return apiClient.get('/admin/users/stats');
+  },
+
+  // 활동 로그
+  getLogs(page = 0, size = 20, username = null, actionType = null) {
+    const params = { page, size };
+    if (username) params.username = username;
+    if (actionType) params.actionType = actionType;
+    return apiClient.get('/admin/logs', { params });
+  },
+  getRecentLogs() {
+    return apiClient.get('/admin/logs/recent');
+  }
+};
+
+// Notification API
+export const notificationAPI = {
+  // 알림 목록 조회
+  getNotifications(page = 0, size = 20) {
+    return apiClient.get('/notifications', { params: { page, size } });
+  },
+  // 읽지 않은 알림 수 조회
+  getUnreadCount() {
+    return apiClient.get('/notifications/unread-count');
+  },
+  // 알림 읽음 처리
+  markAsRead(notificationId) {
+    return apiClient.put(`/notifications/${notificationId}/read`);
+  },
+  // 모든 알림 읽음 처리
+  markAllAsRead() {
+    return apiClient.put('/notifications/read-all');
+  }
+};
+
+// Export API
+export const exportAPI = {
+  // 자산 Excel 내보내기
+  exportAssetsExcel() {
+    return apiClient.get('/export/assets?format=xlsx', { responseType: 'blob' });
+  },
+  // 자산 CSV 내보내기
+  exportAssetsCsv() {
+    return apiClient.get('/export/assets?format=csv', { responseType: 'blob' });
+  },
+  // 가계부 Excel 내보내기
+  exportFinanceExcel(year = null, month = null) {
+    let url = '/export/finance?format=xlsx';
+    if (year && month) {
+      url += `&year=${year}&month=${month}`;
+    }
+    return apiClient.get(url, { responseType: 'blob' });
+  },
+  // 가계부 CSV 내보내기
+  exportFinanceCsv(year = null, month = null) {
+    let url = '/export/finance?format=csv';
+    if (year && month) {
+      url += `&year=${year}&month=${month}`;
+    }
+    return apiClient.get(url, { responseType: 'blob' });
+  }
+};
+
+// Reddit API
+export const redditAPI = {
+  // API 상태 확인
+  getStatus() {
+    return apiClient.get('/reddit/status');
+  },
+  // 주식 관련 인기 게시물
+  getStockPosts(limit = 10) {
+    return apiClient.get('/reddit/posts', { params: { limit } });
+  },
+  // 특정 서브레딧 게시물
+  getSubredditPosts(subreddit, sort = 'hot', limit = 25) {
+    return apiClient.get(`/reddit/subreddit/${subreddit}`, { params: { sort, limit } });
+  },
+  // 주식 관련 검색
+  searchPosts(query, limit = 25) {
+    return apiClient.get('/reddit/search', { params: { query, limit } });
+  },
+  // 트렌딩 티커
+  getTrendingTickers(postLimit = 15) {
+    return apiClient.get('/reddit/trending', { params: { postLimit } });
+  },
+  // 지원 서브레딧 목록
+  getSubreddits() {
+    return apiClient.get('/reddit/subreddits');
+  }
+};
+
+// Investor Daily Trade API (투자자별 일별 상위 종목)
+export const investorTradeAPI = {
+  // 데이터 수집 (당일)
+  collect() {
+    return apiClient.post('/investor-trades/collect');
+  },
+  // 데이터 수집 (특정일)
+  collectByDate(date) {
+    return apiClient.post(`/investor-trades/collect/${date}`);
+  },
+  // 일자별 전체 조회
+  getByDate(date) {
+    return apiClient.get('/investor-trades', { params: { date } });
+  },
+  // 시장별 조회
+  getByMarket(marketType, date) {
+    return apiClient.get(`/investor-trades/market/${marketType}`, { params: { date } });
+  },
+  // 투자자별 조회
+  getByInvestor(investorType, date) {
+    return apiClient.get(`/investor-trades/investor/${investorType}`, { params: { date } });
+  },
+  // 시장 + 투자자별 조회
+  getByMarketAndInvestor(marketType, investorType, date) {
+    return apiClient.get(`/investor-trades/market/${marketType}/investor/${investorType}`, { params: { date } });
+  },
+  // 연기금 코스피 조회
+  getPensionKospi(date) {
+    return apiClient.get('/investor-trades/pension/kospi', { params: { date } });
+  },
+  // 연기금 코스닥 조회
+  getPensionKosdaq(date) {
+    return apiClient.get('/investor-trades/pension/kosdaq', { params: { date } });
+  },
+  // 기간별 투자자 조회
+  getByInvestorRange(investorType, startDate, endDate) {
+    return apiClient.get(`/investor-trades/investor/${investorType}/range`, {
+      params: { startDate, endDate }
+    });
+  },
+  // 기간별 종목 조회
+  getByStockRange(stockCode, startDate, endDate) {
+    return apiClient.get(`/investor-trades/stock/${stockCode}/range`, {
+      params: { startDate, endDate }
+    });
+  },
+  // 누적 통계 조회
+  getStats(investorType, marketType, startDate, endDate) {
+    return apiClient.get(`/investor-trades/stats/${investorType}/${marketType}`, {
+      params: { startDate, endDate }
+    });
+  },
+  // 데이터 있는 날짜 목록
+  getAvailableDates(marketType, investorType) {
+    return apiClient.get(`/investor-trades/dates/${marketType}/${investorType}`);
+  },
+  // 데이터 재수집
+  recollect(marketType, investorType, date) {
+    return apiClient.post(`/investor-trades/recollect/${marketType}/${investorType}/${date}`);
   }
 };
 
