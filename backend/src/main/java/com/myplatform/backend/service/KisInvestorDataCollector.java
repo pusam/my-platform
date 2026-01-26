@@ -2,17 +2,15 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.myplatform.backend.config.KisApiProperties;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -22,6 +20,7 @@ import java.util.Map;
 
 /**
  * 한국투자증권 API를 통한 투자자별 매매 데이터 수집 서비스
+ * KoreaInvestmentService를 통해 API 호출
  */
 @Service
 @Transactional
@@ -29,28 +28,21 @@ import java.util.Map;
 @Slf4j
 public class KisInvestorDataCollector {
 
-    private final KisApiProperties kisApiProperties;
     private final InvestorDailyTradeRepository investorTradeRepository;
-    private final RestTemplate restTemplate;
+    private final KoreaInvestmentService koreaInvestmentService;
     private final ObjectMapper objectMapper;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
 
-    // 액세스 토큰 캐시
-    private String accessToken;
-    private long tokenExpiryTime;
-
     /**
      * 특정 일자의 투자자별 매매 데이터 수집
      * KOSPI 상위 50종목의 투자자별 매매 데이터를 수집합니다.
+     * KoreaInvestmentService를 통해 토큰 관리
      */
     public Map<String, Integer> collectDailyInvestorTrades(LocalDate tradeDate) {
         Map<String, Integer> result = new HashMap<>();
 
         try {
-            // 액세스 토큰 발급
-            ensureAccessToken();
-
             String dateStr = tradeDate.format(DATE_FORMATTER);
 
             // 외국인 순매수 상위
@@ -80,7 +72,7 @@ public class KisInvestorDataCollector {
 
     /**
      * 특정 투자자 유형의 순위 데이터 수집
-     * 한국투자증권 API: 국내기관_외국인 매매종목가집계 (FHPTJ04400000)
+     * KoreaInvestmentService를 통해 API 호출
      *
      * 주의: 이 API는 외국인(1)과 기관(2)만 지원합니다.
      *       개인(INDIVIDUAL)은 별도 처리가 필요합니다.
@@ -93,38 +85,23 @@ public class KisInvestorDataCollector {
             return 0;
         }
 
+        if (!koreaInvestmentService.isConfigured()) {
+            log.warn("한국투자증권 API 키가 설정되지 않았습니다. 수집을 건너뜁니다.");
+            return 0;
+        }
+
         try {
-            // 국내기관_외국인 매매종목가집계 API
-            String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/quotations/foreign-institution-total";
-
-            HttpHeaders headers = createHeaders();
-            headers.set("tr_id", "FHPTJ04400000");
-
             // 투자자 구분: 1=외국인, 2=기관계
             String investorCode = "FOREIGN".equals(investorType) ? "1" : "2";
-            // 순매수/순매도: 0=순매수상위, 1=순매도상위
-            String rankSortCode = "BUY".equals(tradeType) ? "0" : "1";
+            boolean isBuy = "BUY".equals(tradeType);
 
-            String urlWithParams = url +
-                "?FID_COND_MRKT_DIV_CODE=V" +       // V: 전체
-                "&FID_COND_SCR_DIV_CODE=16449" +   // 화면 구분 코드
-                "&FID_INPUT_ISCD=0000" +            // 전체 종목
-                "&FID_DIV_CLS_CODE=1" +             // 1=금액정렬, 0=수량정렬
-                "&FID_RANK_SORT_CLS_CODE=" + rankSortCode +  // 0=순매수상위, 1=순매도상위
-                "&FID_ETC_CLS_CODE=" + investorCode;         // 1=외국인, 2=기관계
+            log.info("API 호출: {} {} (isBuy={})", investorType, tradeType, isBuy);
 
-            log.info("API 호출: {} {} - {}", investorType, tradeType, urlWithParams);
+            // KoreaInvestmentService를 통해 API 호출
+            JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(investorCode, isBuy, true);
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-            ResponseEntity<String> response = restTemplate.exchange(
-                    urlWithParams, HttpMethod.GET, entity, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                String responseBody = response.getBody();
-                log.info("API 응답: {}", responseBody != null && responseBody.length() > 300 ?
-                    responseBody.substring(0, 300) + "..." : responseBody);
-
-                return parseAndSaveRankingData(responseBody, market, investorType, tradeType,
+            if (response != null) {
+                return parseAndSaveRankingData(response, market, investorType, tradeType,
                         LocalDate.parse(dateStr, DATE_FORMATTER), limit);
             }
 
@@ -137,22 +114,19 @@ public class KisInvestorDataCollector {
 
     /**
      * API 응답을 파싱하고 DB에 저장
+     * InvestorDailyTradeService와 동일한 필드명 사용
      */
-    private int parseAndSaveRankingData(String responseBody, String market, String investorType,
+    private int parseAndSaveRankingData(JsonNode response, String market, String investorType,
                                         String tradeType, LocalDate tradeDate, int limit) {
         try {
-            log.debug("파싱 시작 - 응답 길이: {}", responseBody != null ? responseBody.length() : 0);
-
-            JsonNode root = objectMapper.readTree(responseBody);
-
             // 응답 코드 확인
-            String rtCd = root.has("rt_cd") ? root.get("rt_cd").asText() : "";
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
             if (!"0".equals(rtCd)) {
-                log.error("API 오류: {} - {}", rtCd, root.has("msg1") ? root.get("msg1").asText() : "");
+                log.error("API 오류: {} - {}", rtCd, response.has("msg1") ? response.get("msg1").asText() : "");
                 return 0;
             }
 
-            JsonNode output = root.get("output");
+            JsonNode output = response.get("output");
 
             if (output == null || !output.isArray() || output.size() == 0) {
                 log.warn("응답 데이터가 비어있습니다: {} {} {} (output size: {})",
@@ -163,38 +137,47 @@ public class KisInvestorDataCollector {
             log.info("파싱할 데이터 개수: {}", output.size());
 
             List<InvestorDailyTrade> trades = new ArrayList<>();
+            BigDecimal divider = BigDecimal.valueOf(100000000); // 1억
             int rank = 1;
 
             for (JsonNode item : output) {
                 if (rank > limit) break;
 
                 try {
-                    // foreign-institution-total API 필드명
-                    String stockCode = getJsonValue(item, "mksc_shrn_iscd", "stck_shrn_iscd");
+                    // 첫 번째 항목에서 사용 가능한 필드 로깅
+                    if (rank == 1) {
+                        StringBuilder fields = new StringBuilder("API 응답 필드: ");
+                        item.fieldNames().forEachRemaining(f -> fields.append(f).append("=").append(item.get(f).asText()).append(", "));
+                        log.info(fields.toString());
+                    }
+
+                    // foreign-institution-total API 필드명 (InvestorDailyTradeService와 동일)
+                    String stockCode = getJsonValue(item, "mksc_shrn_iscd");
                     String stockName = getJsonValue(item, "hts_kor_isnm");
 
-                    if (stockCode == null || stockName == null) {
-                        log.debug("필수 필드 누락: rank {} - 사용 가능 필드: {}", rank,
-                            item.fieldNames().hasNext() ? String.join(", ",
-                                java.util.stream.StreamSupport.stream(
-                                    java.util.Spliterators.spliteratorUnknownSize(item.fieldNames(), 0), false)
-                                .limit(10).toArray(String[]::new)) : "없음");
+                    if (stockCode == null || stockCode.isEmpty() || stockName == null || stockName.isEmpty()) {
+                        log.debug("필수 필드 누락: rank {}", rank);
                         continue;
                     }
 
-                    // 순매수대금 (원 단위 -> 억원 단위로 변환)
-                    BigDecimal netBuyAmountRaw = getJsonBigDecimal(item, "ntby_tr_pbmn", "total_tr_pbmn");
-                    BigDecimal divider = new BigDecimal("100000000"); // 1억
-                    BigDecimal netBuyAmount = netBuyAmountRaw.divide(divider, 2, java.math.RoundingMode.HALF_UP);
+                    // 순매수 금액 (원 단위 -> 억원 단위로 변환)
+                    BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn");
+                    netBuyAmount = netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP);
 
-                    // 순매수수량
-                    Long netBuyQty = getJsonLong(item, "ntby_qty", "total_qty");
-                    // 현재가
+                    // 매도/매수 금액 (InvestorDailyTradeService와 동일한 필드)
+                    BigDecimal buyAmount = getJsonBigDecimal(item, "total_seln_tr_pbmn");
+                    BigDecimal sellAmount = getJsonBigDecimal(item, "total_shnu_tr_pbmn");
+                    buyAmount = buyAmount.divide(divider, 2, RoundingMode.HALF_UP);
+                    sellAmount = sellAmount.divide(divider, 2, RoundingMode.HALF_UP);
+
+                    // 현재가, 등락률
                     BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
-                    // 등락률
                     BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
-                    // 누적거래량
+
+                    // 거래량
                     Long tradeVolume = getJsonLong(item, "acml_vol");
+
+                    log.debug("종목 {}: netBuyAmount={} (억원)", stockCode, netBuyAmount);
 
                     InvestorDailyTrade trade = InvestorDailyTrade.builder()
                             .marketType(market)
@@ -205,8 +188,8 @@ public class KisInvestorDataCollector {
                             .stockCode(stockCode)
                             .stockName(stockName)
                             .netBuyAmount(netBuyAmount)
-                            .buyAmount(BigDecimal.ZERO)
-                            .sellAmount(BigDecimal.ZERO)
+                            .buyAmount(buyAmount)
+                            .sellAmount(sellAmount)
                             .currentPrice(currentPrice)
                             .changeRate(changeRate)
                             .tradeVolume(tradeVolume)
@@ -222,10 +205,10 @@ public class KisInvestorDataCollector {
 
             if (!trades.isEmpty()) {
                 investorTradeRepository.saveAll(trades);
-                log.info("✅ 저장 완료: {} {} {} - {}건", market, investorType, tradeType, trades.size());
+                log.info("저장 완료: {} {} {} - {}건", market, investorType, tradeType, trades.size());
                 return trades.size();
             } else {
-                log.warn("⚠️ 파싱된 데이터가 없습니다: {} {} {}", market, investorType, tradeType);
+                log.warn("파싱된 데이터가 없습니다: {} {} {}", market, investorType, tradeType);
             }
 
         } catch (Exception e) {
@@ -236,63 +219,11 @@ public class KisInvestorDataCollector {
     }
 
     /**
-     * 액세스 토큰 발급 및 갱신
+     * JSON 필드값 가져오기
      */
-    private void ensureAccessToken() {
-        if (accessToken != null && System.currentTimeMillis() < tokenExpiryTime) {
-            return;
-        }
-
-        try {
-            String url = kisApiProperties.getBaseUrl() + "/oauth2/tokenP";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            Map<String, String> body = new HashMap<>();
-            body.put("grant_type", "client_credentials");
-            body.put("appkey", kisApiProperties.getAppKey());
-            body.put("appsecret", kisApiProperties.getAppSecret());
-
-            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-                accessToken = root.get("access_token").asText();
-                int expiresIn = root.get("expires_in").asInt();
-                tokenExpiryTime = System.currentTimeMillis() + (expiresIn * 1000L) - 60000; // 1분 여유
-
-                log.info("KIS 액세스 토큰 발급 완료");
-            }
-
-        } catch (Exception e) {
-            log.error("액세스 토큰 발급 실패", e);
-            throw new RuntimeException("KIS API 인증 실패", e);
-        }
-    }
-
-    /**
-     * API 요청 헤더 생성
-     */
-    private HttpHeaders createHeaders() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.set("content-type", "application/json; charset=utf-8");
-        headers.set("authorization", "Bearer " + accessToken);
-        headers.set("appkey", kisApiProperties.getAppKey());
-        headers.set("appsecret", kisApiProperties.getAppSecret());
-        headers.set("custtype", "P"); // 개인
-        return headers;
-    }
-
-    /**
-     * JSON 필드값 가져오기 (여러 필드명 시도)
-     */
-    private String getJsonValue(JsonNode node, String... fieldNames) {
-        for (String fieldName : fieldNames) {
-            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
-                return node.get(fieldName).asText();
-            }
+    private String getJsonValue(JsonNode node, String fieldName) {
+        if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+            return node.get(fieldName).asText().trim();
         }
         return null;
     }
@@ -300,10 +231,16 @@ public class KisInvestorDataCollector {
     /**
      * JSON BigDecimal 값 가져오기
      */
-    private BigDecimal getJsonBigDecimal(JsonNode node, String... fieldNames) {
-        for (String fieldName : fieldNames) {
-            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
-                return parseBigDecimal(node.get(fieldName));
+    private BigDecimal getJsonBigDecimal(JsonNode node, String fieldName) {
+        if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+            String value = node.get(fieldName).asText().replace(",", "").trim();
+            if (value.isEmpty() || value.equals("-")) {
+                return BigDecimal.ZERO;
+            }
+            try {
+                return new BigDecimal(value);
+            } catch (NumberFormatException e) {
+                return BigDecimal.ZERO;
             }
         }
         return BigDecimal.ZERO;
@@ -312,37 +249,18 @@ public class KisInvestorDataCollector {
     /**
      * JSON Long 값 가져오기
      */
-    private Long getJsonLong(JsonNode node, String... fieldNames) {
-        for (String fieldName : fieldNames) {
-            if (node.has(fieldName) && !node.get(fieldName).isNull()) {
-                try {
-                    return node.get(fieldName).asLong();
-                } catch (Exception e) {
-                    // 문자열인 경우 파싱 시도
-                    try {
-                        return Long.parseLong(node.get(fieldName).asText().replaceAll("[^0-9]", ""));
-                    } catch (Exception ex) {
-                        return 0L;
-                    }
-                }
+    private Long getJsonLong(JsonNode node, String fieldName) {
+        if (node.has(fieldName) && !node.get(fieldName).isNull()) {
+            String value = node.get(fieldName).asText().replace(",", "").trim();
+            if (value.isEmpty()) {
+                return 0L;
+            }
+            try {
+                return Long.parseLong(value);
+            } catch (NumberFormatException e) {
+                return 0L;
             }
         }
         return 0L;
-    }
-
-    /**
-     * 문자열을 BigDecimal로 변환
-     */
-    private BigDecimal parseBigDecimal(JsonNode node) {
-        if (node == null || node.isNull()) {
-            return BigDecimal.ZERO;
-        }
-
-        try {
-            String value = node.asText().replaceAll("[^0-9.-]", "");
-            return new BigDecimal(value);
-        } catch (Exception e) {
-            return BigDecimal.ZERO;
-        }
     }
 }
