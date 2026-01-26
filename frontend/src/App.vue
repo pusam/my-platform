@@ -1,21 +1,20 @@
 <template>
-  <router-view />
-  <ChatBot v-if="isAuthenticated" />
   <div class="app-wrapper">
     <div class="global-controls">
       <NotificationBell />
       <ThemeToggle />
     </div>
     <router-view />
-    <ChatBot />
+    <ChatBot v-if="isAuthenticated" />
   </div>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { onMounted } from 'vue';
 import ChatBot from './components/ChatBot.vue';
+import ThemeToggle from './components/ThemeToggle.vue';
+import NotificationBell from './components/NotificationBell.vue';
 import { TokenManager } from './utils/auth';
 
 const router = useRouter();
@@ -28,8 +27,6 @@ watch(
     isAuthenticated.value = TokenManager.hasToken();
   }
 );
-import ThemeToggle from './components/ThemeToggle.vue';
-import NotificationBell from './components/NotificationBell.vue';
 
 // 앱 시작 시 저장된 테마 적용
 onMounted(() => {

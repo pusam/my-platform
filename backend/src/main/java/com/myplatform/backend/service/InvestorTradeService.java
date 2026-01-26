@@ -40,8 +40,12 @@ public class InvestorTradeService {
             limit = 50;
         }
 
-        // 최근 거래일의 데이터 조회
-        LocalDate latestDate = LocalDate.now().minusDays(1); // 전일 기준
+        // 가장 최근 거래일의 데이터 조회
+        LocalDate latestDate = investorTradeRepository.findLatestTradeDate();
+        if (latestDate == null) {
+            log.warn("투자자별 거래 데이터가 없습니다.");
+            return Collections.emptyList();
+        }
 
         List<InvestorDailyTrade> trades = investorTradeRepository
                 .findByInvestorTypeAndTradeDateOrderByTradeTypeAscRankNumAsc(investorType, latestDate);
@@ -201,30 +205,30 @@ public class InvestorTradeService {
     }
 
     /**
-     * 최근 N일간의 데이터 수집
+     * 당일 데이터 수집
+     * 주의: KIS API는 항상 당일 실시간 데이터만 반환합니다.
+     * 과거 날짜를 지정해도 당일 데이터가 반환되므로, 오늘 날짜로만 수집합니다.
      */
     @Transactional
     public Map<String, Object> collectRecentData(int days) {
         Map<String, Object> result = new HashMap<>();
-        int totalCollected = 0;
 
-        for (int i = 0; i < days; i++) {
-            LocalDate date = LocalDate.now().minusDays(i + 1); // 오늘 제외, 전일부터
+        LocalDate today = LocalDate.now();
 
-            // 주말 제외
-            if (date.getDayOfWeek().getValue() >= 6) {
-                continue;
-            }
-
-            Map<String, Integer> dayResult = collectInvestorTradeData(date);
-            result.put(date.toString(), dayResult);
-
-            int dayTotal = dayResult.values().stream().mapToInt(Integer::intValue).sum();
-            totalCollected += dayTotal;
+        // 주말이면 수집하지 않음
+        if (today.getDayOfWeek().getValue() >= 6) {
+            result.put("message", "주말에는 데이터를 수집하지 않습니다.");
+            result.put("totalCollected", 0);
+            return result;
         }
 
+        // 오늘 날짜로만 수집 (KIS API는 당일 데이터만 반환)
+        Map<String, Integer> dayResult = collectInvestorTradeData(today);
+        result.put(today.toString(), dayResult);
+
+        int totalCollected = dayResult.values().stream().mapToInt(Integer::intValue).sum();
         result.put("totalCollected", totalCollected);
-        log.info("최근 {}일 데이터 수집 완료: 총 {}건", days, totalCollected);
+        log.info("당일 데이터 수집 완료: {} - 총 {}건", today, totalCollected);
 
         return result;
     }

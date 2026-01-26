@@ -268,6 +268,34 @@ public class InvestorDailyTradeController {
     }
 
     /**
+     * 중복 데이터 정리
+     * POST /api/investor-trades/cleanup-duplicates
+     */
+    @PostMapping("/cleanup-duplicates")
+    public ResponseEntity<Map<String, Object>> cleanupDuplicates() {
+        int deleted = tradeService.cleanupDuplicates();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "중복 데이터 정리 완료",
+                "deletedCount", deleted
+        ));
+    }
+
+    /**
+     * 특정 날짜 데이터 삭제
+     * DELETE /api/investor-trades/{date}
+     */
+    @DeleteMapping("/{date}")
+    public ResponseEntity<Map<String, Object>> deleteByDate(
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        tradeService.deleteByDate(date);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", date + " 데이터 삭제 완료"
+        ));
+    }
+
+    /**
      * 투자자별로 그룹화
      */
     private Map<String, Object> groupTradesByInvestor(List<InvestorDailyTrade> trades) {

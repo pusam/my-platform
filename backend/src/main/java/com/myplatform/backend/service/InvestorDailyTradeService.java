@@ -433,6 +433,24 @@ public class InvestorDailyTradeService {
     }
 
     /**
+     * 중복 데이터 정리
+     * @return 삭제된 중복 데이터 개수
+     */
+    public int cleanupDuplicates() {
+        int deleted = tradeRepository.deleteDuplicates();
+        log.info("중복 데이터 정리 완료: {}건 삭제", deleted);
+        return deleted;
+    }
+
+    /**
+     * 특정 날짜의 모든 데이터 삭제
+     */
+    public void deleteByDate(LocalDate tradeDate) {
+        tradeRepository.deleteByTradeDate(tradeDate);
+        log.info("날짜별 데이터 삭제 완료: {}", tradeDate);
+    }
+
+    /**
      * JsonNode에서 String 값 추출
      */
     private String getStringValue(JsonNode node, String field) {

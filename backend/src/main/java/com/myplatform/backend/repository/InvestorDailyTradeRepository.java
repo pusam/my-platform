@@ -2,6 +2,7 @@ package com.myplatform.backend.repository;
 
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -125,4 +126,21 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
      */
     @Query("SELECT MAX(t.tradeDate) FROM InvestorDailyTrade t")
     LocalDate findLatestTradeDate();
+
+    /**
+     * 중복 데이터 삭제 (같은 날짜, 시장, 투자자, 거래유형, 순위의 중복 제거)
+     * 가장 최신 id만 남기고 삭제
+     */
+    @Modifying
+    @Query(value = "DELETE FROM investor_daily_trade WHERE id NOT IN (" +
+           "SELECT * FROM (SELECT MIN(id) FROM investor_daily_trade " +
+           "GROUP BY trade_date, market_type, investor_type, trade_type, rank_num) AS subquery)",
+           nativeQuery = true)
+    int deleteDuplicates();
+
+    /**
+     * 특정 날짜의 모든 데이터 삭제
+     */
+    @Modifying
+    void deleteByTradeDate(LocalDate tradeDate);
 }

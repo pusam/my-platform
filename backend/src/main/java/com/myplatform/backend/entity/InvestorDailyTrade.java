@@ -17,6 +17,12 @@ import java.time.LocalDateTime;
            @Index(name = "idx_investor_trade_date", columnList = "trade_date"),
            @Index(name = "idx_investor_trade_market", columnList = "market_type, trade_date"),
            @Index(name = "idx_investor_trade_type", columnList = "investor_type, trade_date")
+       },
+       uniqueConstraints = {
+           @UniqueConstraint(
+               name = "uk_investor_daily_trade",
+               columnNames = {"trade_date", "market_type", "investor_type", "trade_type", "rank_num"}
+           )
        })
 @Getter
 @Setter

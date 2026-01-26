@@ -71,29 +71,8 @@
             </div>
           </div>
         </div>
-    <div class="dashboard-content">
-      <div class="stats-grid">
-        <div class="stat-card">
-          <h3>총 사용자 수</h3>
-          <p class="stat-number">{{ stats.totalUsers }}</p>
-        </div>
-        <div class="stat-card">
-          <h3>활성 사용자</h3>
-          <p class="stat-number">{{ stats.activeUsers }}</p>
-        </div>
-        <div class="stat-card">
-          <h3>시스템 상태</h3>
-          <p class="stat-status" :class="serverStatus ? 'online' : 'offline'">
-            {{ serverStatus ? '정상' : '확인 중...' }}
-          </p>
-        </div>
-        <div class="stat-card">
-          <h3>권한</h3>
-          <p class="stat-role">관리자</p>
-        </div>
-      </div>
 
-      <!-- 서버 상태 모니터링 섹션 -->
+        <!-- 서버 상태 모니터링 섹션 -->
       <div class="server-monitor-section">
         <div class="section-header">
           <h2>서버 상태 모니터링</h2>
@@ -282,11 +261,6 @@
             </div>
           </div>
 
-        <div class="section">
-          <h2>👥 사용자 관리</h2>
-          <p>모든 사용자의 권한과 상태를 관리할 수 있습니다.</p>
-          <button @click="goToUserManagement" class="action-btn">사용자 관리</button>
-        </div>
           <div class="section">
             <div class="section-header">
               <h2>📊 주식 API 관리</h2>
@@ -298,12 +272,6 @@
             </div>
           </div>
 
-        <div class="section">
-          <h2>📝 활동 로그</h2>
-          <p>사용자 활동 내역과 시스템 이벤트를 확인합니다.</p>
-          <button @click="goToActivityLogs" class="action-btn">로그 보기</button>
-        </div>
-      </div>
           <div class="section">
             <div class="section-header">
               <h2>📁 파일 관리</h2>
@@ -352,8 +320,7 @@
 
 <script>
 import { adminAPI } from '../utils/api';
-
-import apiClient from '../utils/api'
+import apiClient from '../utils/api';
 
 export default {
   name: 'AdminDashboard',
@@ -460,19 +427,6 @@ export default {
       if (!isoString) return ''
       const date = new Date(isoString)
       return date.toLocaleString('ko-KR')
-    },
-    async loadStats() {
-      this.loading = true
-      try {
-        const response = await apiClient.get('/admin/stats')
-        if (response.data.success) {
-          this.stats = response.data.data
-        }
-      } catch (error) {
-        console.error('통계 로딩 실패:', error)
-      } finally {
-        this.loading = false
-      }
     },
     formatFileSize(sizeInMB) {
       if (!sizeInMB) return '0 MB'
