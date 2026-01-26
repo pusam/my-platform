@@ -8,10 +8,9 @@ import java.util.List;
 public class RedditPostDto {
 
     @Schema(description = "게시글 ID")
-    private String postId;
+    private String id;
 
     @Schema(description = "제목")
-    private String id;
     private String title;
 
     @Schema(description = "서브레딧")
@@ -20,48 +19,49 @@ public class RedditPostDto {
     @Schema(description = "작성자")
     private String author;
 
-    @Schema(description = "업보트 수")
-    private Integer upvotes;
-
-    @Schema(description = "댓글 수")
-    private Integer commentCount;
-
-    @Schema(description = "게시글 URL")
-    private String subreddit;
+    @Schema(description = "본문")
     private String selftext;
+
+    @Schema(description = "URL")
     private String url;
 
-    @Schema(description = "작성 시간")
+    @Schema(description = "퍼머링크")
     private String permalink;
+
+    @Schema(description = "점수")
     private int score;
+
+    @Schema(description = "업보트 비율")
     private int upvoteRatio;
+
+    @Schema(description = "댓글 수")
     private int numComments;
+
+    @Schema(description = "작성 시간")
     private LocalDateTime createdAt;
-    private List<String> mentionedTickers;
-    private String flair;
-    private boolean isStickied;
-    private String thumbnail;
 
     @Schema(description = "언급된 티커 목록")
-    private String tickers;
+    private List<String> mentionedTickers;
 
-    @Schema(description = "감성 (POSITIVE, NEGATIVE, NEUTRAL)")
-    private String sentiment;
+    @Schema(description = "플레어")
+    private String flair;
+
+    @Schema(description = "고정 여부")
+    private boolean isStickied;
+
+    @Schema(description = "썸네일")
+    private String thumbnail;
 
     // Constructors
     public RedditPostDto() {}
 
     // Getters and Setters
-    public String getPostId() {
-        return postId;
     public String getId() {
         return id;
     }
 
     public void setId(String id) {
         this.id = id;
-    public void setPostId(String postId) {
-        this.postId = postId;
     }
 
     public String getTitle() {
@@ -88,28 +88,12 @@ public class RedditPostDto {
         this.author = author;
     }
 
-    public String getSubreddit() {
-        return subreddit;
-    public Integer getUpvotes() {
-        return upvotes;
-    }
-
-    public void setSubreddit(String subreddit) {
-        this.subreddit = subreddit;
-    public void setUpvotes(Integer upvotes) {
-        this.upvotes = upvotes;
-    }
-
     public String getSelftext() {
         return selftext;
-    public Integer getCommentCount() {
-        return commentCount;
     }
 
     public void setSelftext(String selftext) {
         this.selftext = selftext;
-    public void setCommentCount(Integer commentCount) {
-        this.commentCount = commentCount;
     }
 
     public String getUrl() {
@@ -160,8 +144,6 @@ public class RedditPostDto {
         this.createdAt = createdAt;
     }
 
-    public String getTickers() {
-        return tickers;
     public List<String> getMentionedTickers() {
         return mentionedTickers;
     }
@@ -216,9 +198,6 @@ public class RedditPostDto {
             this.ticker = ticker;
         }
 
-    public void setTickers(String tickers) {
-        this.tickers = tickers;
-    }
         public int getMentionCount() {
             return mentionCount;
         }

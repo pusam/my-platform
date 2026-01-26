@@ -362,12 +362,6 @@ export default {
       username: '',
       stats: {
         totalUsers: 0,
-        activeUsers: 0
-      },
-      serverStatus: null,
-      loadingStatus: false,
-      autoRefresh: false,
-      refreshInterval: null
         activeUsers: 0,
         pendingUsers: 0,
         adminCount: 0,
@@ -382,6 +376,11 @@ export default {
         serverUptime: '0분',
         systemStatus: 'HEALTHY'
       },
+      serverStatus: null,
+      loadingStatus: false,
+      autoRefresh: false,
+      refreshInterval: null,
+      statsInterval: null,
       loading: false
     }
   },

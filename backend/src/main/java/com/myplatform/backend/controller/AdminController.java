@@ -34,13 +34,14 @@ public class AdminController {
 
     public AdminController(UserManagementService userManagementService,
                           AdminStatsService adminStatsService,
-                          CacheManager cacheManager) {
-    public AdminController(UserManagementService userManagementService,
+                          CacheManager cacheManager,
                           ServerStatusService serverStatusService,
                           ActivityLogService activityLogService) {
         this.userManagementService = userManagementService;
         this.adminStatsService = adminStatsService;
         this.cacheManager = cacheManager;
+        this.serverStatusService = serverStatusService;
+        this.activityLogService = activityLogService;
     }
 
     @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
@@ -63,8 +64,6 @@ public class AdminController {
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
         }
-        this.serverStatusService = serverStatusService;
-        this.activityLogService = activityLogService;
     }
 
     @Operation(summary = "승인 대기 중인 사용자 목록 조회", description = "회원가입 승인 대기 중인 사용자 목록을 조회합니다.")

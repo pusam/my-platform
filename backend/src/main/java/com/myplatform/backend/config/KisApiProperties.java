@@ -18,30 +18,3 @@ public class KisApiProperties {
     private String accountNumber;
     private String accountProductCode;
 }
-
-    // Getters and Setters
-    public String getAppKey() {
-        return appKey;
-    }
-
-    public void setAppKey(String appKey) {
-        this.appKey = appKey;
-    }
-
-    public String getAppSecret() {
-        return appSecret;
-    }
-
-    public void setAppSecret(String appSecret) {
-        this.appSecret = appSecret;
-    }
-
-    public String getBaseUrl() {
-        return baseUrl;
-    }
-
-    public void setBaseUrl(String baseUrl) {
-        this.baseUrl = baseUrl;
-    }
-}
-
