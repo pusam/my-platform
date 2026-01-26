@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class OllamaService {
 
@@ -50,7 +52,7 @@ public class OllamaService {
             return "죄송합니다. 응답을 생성하는데 문제가 발생했습니다.";
 
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Ollama AI 서버 연결 실패: {}", e.getMessage(), e);
             return "AI 서버에 연결할 수 없습니다. 잠시 후 다시 시도해주세요.";
         }
     }

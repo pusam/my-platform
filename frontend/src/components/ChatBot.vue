@@ -109,7 +109,6 @@
 <script setup>
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ref, nextTick } from 'vue';
 import { aiAPI } from '../utils/api';
 import { TokenManager } from '../utils/auth';
 

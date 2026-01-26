@@ -328,33 +328,6 @@ public class KisInvestorDataCollector {
     }
 
     /**
-     * 투자자 유형 코드 반환
-     */
-    private String getInvestorCode(String investorType) {
-        switch (investorType) {
-            case "FOREIGN":
-                return "1"; // 외국인
-            case "INSTITUTION":
-                return "2"; // 기관
-            case "INDIVIDUAL":
-                return "3"; // 개인
-            default:
-                return "1";
-        }
-    }
-
-    /**
-     * 거래 유형 코드 반환
-     */
-    private String getTradeCode(String tradeType) {
-        if ("BUY".equals(tradeType)) {
-            return "1"; // 매수
-        } else {
-            return "2"; // 매도
-        }
-    }
-
-    /**
      * 문자열을 BigDecimal로 변환
      */
     private BigDecimal parseBigDecimal(JsonNode node) {

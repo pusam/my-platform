@@ -389,9 +389,6 @@ export default {
     this.username = localStorage.getItem('username') || 'Admin'
     this.loadStats()
     this.loadServerStatus()
-  },
-  beforeUnmount() {
-    this.stopAutoRefresh()
 
     // 30초마다 자동 새로고침
     this.statsInterval = setInterval(() => {

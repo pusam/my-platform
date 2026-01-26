@@ -447,7 +447,6 @@ const viewFile = async (file) => {
 
 const fetchFileAsBlob = async (url) => {
   const token = localStorage.getItem('jwt_token');
-  console.log('Fetching file:', url, 'Token exists:', !!token);
 
   const response = await fetch(url, {
     headers: {
@@ -455,16 +454,11 @@ const fetchFileAsBlob = async (url) => {
     }
   });
 
-  console.log('Response status:', response.status, response.statusText);
-
   if (!response.ok) {
-    const errorText = await response.text().catch(() => 'Unknown error');
-    console.error('File fetch error:', response.status, errorText);
     throw new Error(`파일 로드 실패: ${response.status}`);
   }
 
   const blob = await response.blob();
-  console.log('Blob created:', blob.type, blob.size);
   return URL.createObjectURL(blob);
 };
 
