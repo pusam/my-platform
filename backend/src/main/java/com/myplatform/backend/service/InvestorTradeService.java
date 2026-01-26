@@ -50,8 +50,11 @@ public class InvestorTradeService {
         List<InvestorDailyTrade> trades = investorTradeRepository
                 .findByInvestorTypeAndTradeDateOrderByTradeTypeAscRankNumAsc(investorType, latestDate);
 
+        // 중복 종목 제거 (stockCode 기준, 첫 번째만 유지)
+        Set<String> seenStocks = new HashSet<>();
         return trades.stream()
                 .filter(t -> t.getTradeType().equalsIgnoreCase(tradeType))
+                .filter(t -> seenStocks.add(t.getStockCode())) // 중복 제거
                 .limit(limit)
                 .map(this::entityToDto)
                 .collect(Collectors.toList());
@@ -274,13 +277,13 @@ public class InvestorTradeService {
             }
         }
 
-        // 종목별 일별 순매수 금액 맵
+        // 종목별 일별 순매수 금액 맵 (null 처리)
         Map<String, Map<LocalDate, BigDecimal>> stockDailyAmounts = buyTrades.stream()
                 .collect(Collectors.groupingBy(
                         InvestorDailyTrade::getStockCode,
                         Collectors.toMap(
                                 InvestorDailyTrade::getTradeDate,
-                                InvestorDailyTrade::getNetBuyAmount,
+                                t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO,
                                 (a, b) -> a
                         )
                 ));

@@ -40,7 +40,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="trade in currentTrades" :key="trade.stockCode" class="trade-row">
+            <tr v-for="(trade, index) in currentTrades" :key="`${trade.stockCode}-${index}`" class="trade-row">
               <td class="rank">{{ trade.rankNum }}</td>
               <td class="stock-name">{{ trade.stockName }}</td>
               <td class="stock-code">{{ trade.stockCode }}</td>

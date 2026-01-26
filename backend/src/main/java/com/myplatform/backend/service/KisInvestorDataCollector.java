@@ -182,8 +182,11 @@ public class KisInvestorDataCollector {
                         continue;
                     }
 
-                    // 순매수대금 (백만원 단위)
-                    BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn", "total_tr_pbmn");
+                    // 순매수대금 (원 단위 -> 억원 단위로 변환)
+                    BigDecimal netBuyAmountRaw = getJsonBigDecimal(item, "ntby_tr_pbmn", "total_tr_pbmn");
+                    BigDecimal divider = new BigDecimal("100000000"); // 1억
+                    BigDecimal netBuyAmount = netBuyAmountRaw.divide(divider, 2, java.math.RoundingMode.HALF_UP);
+
                     // 순매수수량
                     Long netBuyQty = getJsonLong(item, "ntby_qty", "total_qty");
                     // 현재가
