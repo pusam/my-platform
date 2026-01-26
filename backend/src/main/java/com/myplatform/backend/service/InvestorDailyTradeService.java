@@ -334,6 +334,13 @@ public class InvestorDailyTradeService {
     }
 
     /**
+     * 가장 최근 거래일 조회
+     */
+    public LocalDate getLatestTradeDate() {
+        return tradeRepository.findLatestTradeDate();
+    }
+
+    /**
      * 특정 일자의 투자자별 거래 조회
      */
     public List<InvestorDailyTrade> getTradesByDate(LocalDate tradeDate) {

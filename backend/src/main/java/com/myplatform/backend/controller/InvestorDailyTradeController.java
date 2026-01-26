@@ -59,12 +59,21 @@ public class InvestorDailyTradeController {
     public ResponseEntity<Map<String, Object>> getTradesByDate(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         if (date == null) {
-            date = LocalDate.now();
+            // 가장 최근 데이터 날짜 조회
+            date = tradeService.getLatestTradeDate();
+            if (date == null) {
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "data", Map.of("trades", Map.of()),
+                        "message", "수집된 데이터가 없습니다."
+                ));
+            }
         }
 
         List<InvestorDailyTrade> trades = tradeService.getTradesByDate(date);
         return ResponseEntity.ok(Map.of(
                 "success", true,
+                "date", date.toString(),
                 "data", groupTradesByInvestor(trades)
         ));
     }

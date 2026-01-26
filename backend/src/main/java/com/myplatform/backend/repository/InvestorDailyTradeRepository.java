@@ -119,4 +119,10 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
            "WHERE t.investorType = :investorType AND t.tradeType = 'BUY' " +
            "ORDER BY t.tradeDate DESC")
     List<LocalDate> findDistinctTradeDates(@Param("investorType") String investorType);
+
+    /**
+     * 가장 최근 거래일 조회
+     */
+    @Query("SELECT MAX(t.tradeDate) FROM InvestorDailyTrade t")
+    LocalDate findLatestTradeDate();
 }
