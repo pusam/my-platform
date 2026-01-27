@@ -247,13 +247,11 @@ public class InvestorTradeService {
     /**
      * 전체 데이터 삭제 후 재수집
      */
-    @Transactional
     public Map<String, Object> deleteAllAndRecollect() {
         Map<String, Object> result = new HashMap<>();
 
         // 1. 기존 데이터 전체 삭제
-        long deletedCount = investorTradeRepository.count();
-        investorTradeRepository.deleteAll();
+        long deletedCount = deleteAllData();
         log.info("기존 데이터 삭제 완료: {}건", deletedCount);
         result.put("deletedCount", deletedCount);
 
@@ -272,6 +270,16 @@ public class InvestorTradeService {
         log.info("재수집 완료: {}건", collectedCount);
 
         return result;
+    }
+
+    /**
+     * 전체 데이터 삭제 (별도 트랜잭션)
+     */
+    @Transactional
+    public long deleteAllData() {
+        long count = investorTradeRepository.count();
+        investorTradeRepository.deleteAll();
+        return count;
     }
 
     /**

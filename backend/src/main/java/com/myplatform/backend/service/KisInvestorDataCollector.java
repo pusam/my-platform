@@ -23,7 +23,6 @@ import java.util.Map;
  * KoreaInvestmentService를 통해 API 호출
  */
 @Service
-@Transactional
 @RequiredArgsConstructor
 @Slf4j
 public class KisInvestorDataCollector {
