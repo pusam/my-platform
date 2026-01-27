@@ -378,6 +378,7 @@ public class KoreaInvestmentService {
     public JsonNode getForeignInstitutionTotal(String investorType, boolean isBuy, boolean sortByAmount) {
         String token = getAccessToken();
         if (token == null) {
+            log.error("토큰 발급 실패로 API 호출 불가");
             return null;
         }
 
@@ -391,18 +392,28 @@ public class KoreaInvestmentService {
                     + "&FID_RANK_SORT_CLS_CODE=" + (isBuy ? "0" : "1")   // 0=순매수상위, 1=순매도상위
                     + "&FID_ETC_CLS_CODE=" + investorType;  // 1=외국인, 2=기관계
 
+            log.info("KIS API 호출: {}", url);
+
             HttpHeaders headers = createHeaders(token, "FHPTJ04400000");
             HttpEntity<String> request = new HttpEntity<>(headers);
 
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.GET, request, String.class);
 
+            log.info("KIS API 응답 상태: {}", response.getStatusCode());
+
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+                JsonNode result = objectMapper.readTree(response.getBody());
+                log.info("KIS API 응답: rt_cd={}, output 크기={}",
+                        result.has("rt_cd") ? result.get("rt_cd").asText() : "없음",
+                        result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0);
+                return result;
+            } else {
+                log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
             }
         } catch (Exception e) {
             log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
-                    investorType, isBuy, e.getMessage());
+                    investorType, isBuy, e.getMessage(), e);
         }
 
         return null;

@@ -95,18 +95,26 @@ public class KisInvestorDataCollector {
             String investorCode = "FOREIGN".equals(investorType) ? "1" : "2";
             boolean isBuy = "BUY".equals(tradeType);
 
-            log.info("API 호출: {} {} (isBuy={})", investorType, tradeType, isBuy);
+            log.info("API 호출 시작: {} {} {} (investorCode={}, isBuy={})",
+                    market, investorType, tradeType, investorCode, isBuy);
 
             // KoreaInvestmentService를 통해 API 호출
             JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(investorCode, isBuy, true);
 
-            if (response != null) {
-                return parseAndSaveRankingData(response, market, investorType, tradeType,
-                        LocalDate.parse(dateStr, DATE_FORMATTER), limit);
+            if (response == null) {
+                log.error("API 응답이 null입니다: {} {} {}", market, investorType, tradeType);
+                return 0;
             }
 
+            log.info("API 응답 수신: rt_cd={}, msg1={}",
+                    response.has("rt_cd") ? response.get("rt_cd").asText() : "없음",
+                    response.has("msg1") ? response.get("msg1").asText() : "없음");
+
+            return parseAndSaveRankingData(response, market, investorType, tradeType,
+                    LocalDate.parse(dateStr, DATE_FORMATTER), limit);
+
         } catch (Exception e) {
-            log.error("순위 데이터 수집 실패: {} {} {} - {}", market, investorType, tradeType, e.getMessage());
+            log.error("순위 데이터 수집 실패: {} {} {} - {}", market, investorType, tradeType, e.getMessage(), e);
         }
 
         return 0;
