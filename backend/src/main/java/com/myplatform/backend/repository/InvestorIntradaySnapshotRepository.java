@@ -44,13 +44,13 @@ public interface InvestorIntradaySnapshotRepository extends JpaRepository<Invest
             String stockCode, LocalDate snapshotDate, LocalTime snapshotTime, String investorType);
 
     /**
-     * 금일 급증 종목 조회 (변화량 기준 정렬)
+     * 금일 급증 종목 조회 (순매수 금액 기준 정렬)
      */
     @Query("SELECT s FROM InvestorIntradaySnapshot s " +
            "WHERE s.snapshotDate = :date AND s.snapshotTime = :time " +
            "AND s.investorType = :investorType " +
-           "AND s.amountChange >= :minChange " +
-           "ORDER BY s.amountChange DESC")
+           "AND (s.amountChange >= :minChange OR s.netBuyAmount >= :minChange) " +
+           "ORDER BY s.netBuyAmount DESC")
     List<InvestorIntradaySnapshot> findSurgeStocks(
             @Param("date") LocalDate date,
             @Param("time") LocalTime time,

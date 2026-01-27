@@ -250,20 +250,19 @@ public class InvestorSurgeService {
         LocalTime latestTime = latestTimeOpt.get();
         log.info("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
 
-        List<InvestorIntradaySnapshot> surgeSnapshots;
+        // 전체 스냅샷을 가져와서 금액 기준 정렬
+        List<InvestorIntradaySnapshot> surgeSnapshots = snapshotRepository.findLatestSnapshots(
+                today, latestTime, investorType);
 
-        if (minChange != null) {
-            surgeSnapshots = snapshotRepository.findSurgeStocks(
-                    today, latestTime, investorType, minChange);
-        } else {
-            surgeSnapshots = snapshotRepository.findSurgeStocks(
-                    today, latestTime, investorType, SURGE_THRESHOLD_WARM);
-        }
+        log.info("스냅샷 조회 결과: {} 건, date={}, time={}, investorType={}",
+                surgeSnapshots.size(), today, latestTime, investorType);
 
-        // 급증 조건에 맞는 데이터가 없으면 전체 스냅샷 반환
-        if (surgeSnapshots.isEmpty()) {
-            log.info("급증 종목 없음, 전체 스냅샷 반환: date={}, time={}", today, latestTime);
-            surgeSnapshots = snapshotRepository.findLatestSnapshots(today, latestTime, investorType);
+        // minChange 필터 적용 (선택적)
+        if (minChange != null && minChange.compareTo(BigDecimal.ZERO) > 0) {
+            final BigDecimal filterAmount = minChange;
+            surgeSnapshots = surgeSnapshots.stream()
+                    .filter(s -> (s.getNetBuyAmount() != null && s.getNetBuyAmount().compareTo(filterAmount) >= 0))
+                    .collect(Collectors.toList());
         }
 
         return surgeSnapshots.stream()
@@ -338,20 +337,24 @@ public class InvestorSurgeService {
     }
 
     private InvestorSurgeDto toSurgeDto(InvestorIntradaySnapshot snapshot) {
+        // null 체크 및 기본값 설정
+        BigDecimal netBuyAmount = snapshot.getNetBuyAmount() != null ? snapshot.getNetBuyAmount() : BigDecimal.ZERO;
+        BigDecimal amountChange = snapshot.getAmountChange() != null ? snapshot.getAmountChange() : BigDecimal.ZERO;
+
+        // surgeLevel 계산 - netBuyAmount 또는 amountChange 기준
         String surgeLevel = "NORMAL";
-        if (snapshot.getAmountChange() != null) {
-            if (snapshot.getAmountChange().compareTo(SURGE_THRESHOLD_HOT) >= 0) {
-                surgeLevel = "HOT";
-            } else if (snapshot.getAmountChange().compareTo(SURGE_THRESHOLD_WARM) >= 0) {
-                surgeLevel = "WARM";
-            }
+        BigDecimal checkAmount = amountChange.compareTo(BigDecimal.ZERO) > 0 ? amountChange : netBuyAmount;
+        if (checkAmount.compareTo(SURGE_THRESHOLD_HOT) >= 0) {
+            surgeLevel = "HOT";
+        } else if (checkAmount.compareTo(SURGE_THRESHOLD_WARM) >= 0) {
+            surgeLevel = "WARM";
         }
 
         Double changePercent = null;
-        if (snapshot.getAmountChange() != null && snapshot.getNetBuyAmount() != null) {
-            BigDecimal prevAmount = snapshot.getNetBuyAmount().subtract(snapshot.getAmountChange());
+        if (amountChange.compareTo(BigDecimal.ZERO) != 0 && netBuyAmount.compareTo(BigDecimal.ZERO) != 0) {
+            BigDecimal prevAmount = netBuyAmount.subtract(amountChange);
             if (prevAmount.compareTo(BigDecimal.ZERO) != 0) {
-                changePercent = snapshot.getAmountChange()
+                changePercent = amountChange
                         .divide(prevAmount.abs(), 4, RoundingMode.HALF_UP)
                         .multiply(new BigDecimal("100"))
                         .doubleValue();
@@ -364,11 +367,11 @@ public class InvestorSurgeService {
                 .investorType(snapshot.getInvestorType())
                 .investorTypeName(getInvestorTypeName(snapshot.getInvestorType()))
                 .snapshotTime(snapshot.getSnapshotTime())
-                .netBuyAmount(snapshot.getNetBuyAmount())
-                .amountChange(snapshot.getAmountChange())
+                .netBuyAmount(netBuyAmount)
+                .amountChange(amountChange)
                 .changePercent(changePercent)
-                .currentRank(snapshot.getRankNum())
-                .rankChange(snapshot.getRankChange())
+                .currentRank(snapshot.getRankNum() != null ? snapshot.getRankNum() : 0)
+                .rankChange(snapshot.getRankChange() != null ? snapshot.getRankChange() : 0)
                 .currentPrice(snapshot.getCurrentPrice())
                 .changeRate(snapshot.getChangeRate())
                 .surgeLevel(surgeLevel)
