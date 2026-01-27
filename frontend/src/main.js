@@ -25,6 +25,7 @@ import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
 import ConsecutiveBuyPage from './views/ConsecutiveBuyPage.vue'
 import InvestorSurgePage from './views/InvestorSurgePage.vue'
 import NewsPage from './views/NewsPage.vue'
+import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -168,6 +169,12 @@ const router = createRouter({
       path: '/investor-surge',
       name: 'InvestorSurge',
       component: InvestorSurgePage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/earnings-screener',
+      name: 'EarningsScreener',
+      component: EarningsScreenerPage,
       meta: { requiresAuth: true }
     },
     {

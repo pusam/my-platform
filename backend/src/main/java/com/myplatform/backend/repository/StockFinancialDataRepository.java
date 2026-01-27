@@ -93,5 +93,44 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
            "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
            "GROUP BY s.sector")
     List<Object[]> getSectorStatistics();
+
+    // 마법의 공식용 - 영업이익률과 ROE가 있는 최신 데이터 조회
+    @Query("SELECT s FROM StockFinancialData s WHERE " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "AND s.operatingMargin IS NOT NULL AND s.operatingMargin > 0 " +
+           "AND s.roe IS NOT NULL AND s.roe > 0 " +
+           "AND s.per IS NOT NULL AND s.per > 0 " +
+           "AND (:minMarketCap IS NULL OR s.marketCap >= :minMarketCap) " +
+           "ORDER BY s.operatingMargin DESC, s.roe DESC")
+    List<StockFinancialData> findForMagicFormula(@Param("minMarketCap") BigDecimal minMarketCap);
+
+    // PEG 기준 저평가 종목 조회
+    @Query("SELECT s FROM StockFinancialData s WHERE " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "AND s.peg IS NOT NULL AND s.peg > 0 " +
+           "AND (:maxPeg IS NULL OR s.peg <= :maxPeg) " +
+           "AND s.epsGrowth IS NOT NULL " +
+           "AND (:minEpsGrowth IS NULL OR s.epsGrowth >= :minEpsGrowth) " +
+           "ORDER BY s.peg ASC")
+    List<StockFinancialData> findLowPegStocks(
+        @Param("maxPeg") BigDecimal maxPeg,
+        @Param("minEpsGrowth") BigDecimal minEpsGrowth
+    );
+
+    // 턴어라운드 종목용 - 순이익이 있는 모든 데이터 (분기별 비교를 위해)
+    @Query("SELECT s FROM StockFinancialData s WHERE " +
+           "s.stockCode = :stockCode " +
+           "ORDER BY s.reportDate DESC")
+    List<StockFinancialData> findByStockCodeOrderByReportDateDesc(@Param("stockCode") String stockCode);
+
+    // 최신 데이터가 있는 모든 종목 조회
+    @Query("SELECT DISTINCT s.stockCode FROM StockFinancialData s")
+    List<String> findAllStockCodes();
+
+    // 최신 재무 데이터만 조회
+    @Query("SELECT s FROM StockFinancialData s WHERE " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "AND s.netIncome IS NOT NULL")
+    List<StockFinancialData> findLatestDataWithNetIncome();
 }
 

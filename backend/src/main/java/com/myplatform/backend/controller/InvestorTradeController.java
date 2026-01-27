@@ -28,6 +28,7 @@ public class InvestorTradeController {
 
     private final InvestorTradeService investorTradeService;
     private final InvestorSurgeService investorSurgeService;
+    private final com.myplatform.backend.service.KoreaInvestmentService koreaInvestmentService;
 
     @Operation(summary = "투자자별 상위 매수/매도 종목 조회")
     @GetMapping("/top-trades")
@@ -69,16 +70,17 @@ public class InvestorTradeController {
         return ResponseEntity.ok(ApiResponse.success(detail));
     }
 
-    @Operation(summary = "투자자별 매매 데이터 수집", description = "한국투자증권 API를 통해 특정 일자의 투자자별 매매 데이터를 수집합니다.")
+    @Operation(summary = "투자자별 매매 데이터 수집", description = "한국투자증권 API를 통해 투자자별 매매 데이터를 수집합니다. KIS API는 당일 데이터만 반환합니다.")
     @PostMapping("/collect")
     public ResponseEntity<ApiResponse<Map<String, Integer>>> collectData(
             @RequestParam(required = false) String date) {
-        
-        LocalDate tradeDate = date != null ? LocalDate.parse(date) : LocalDate.now().minusDays(1);
-        
+
+        // KIS API는 당일 데이터만 반환하므로, date 파라미터는 무시하고 오늘 날짜 사용
+        LocalDate tradeDate = LocalDate.now();
+
         Map<String, Integer> result = investorTradeService.collectInvestorTradeData(tradeDate);
-        
-        return ResponseEntity.ok(ApiResponse.success("데이터 수집 완료", result));
+
+        return ResponseEntity.ok(ApiResponse.success("데이터 수집 완료 (" + tradeDate + ")", result));
     }
 
     @Operation(summary = "최근 N일 데이터 수집", description = "최근 N일간의 투자자별 매매 데이터를 수집합니다.")
@@ -165,5 +167,34 @@ public class InvestorTradeController {
         Map<String, Integer> result = investorSurgeService.collectSnapshotManually();
 
         return ResponseEntity.ok(ApiResponse.success("스냅샷 수집 완료", result));
+    }
+
+    @Operation(summary = "API 테스트", description = "KIS API 응답을 직접 확인합니다.")
+    @GetMapping("/test-api")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> testApi() {
+        Map<String, Object> result = new java.util.HashMap<>();
+
+        result.put("serverTime", java.time.LocalDateTime.now().toString());
+        result.put("serverDate", java.time.LocalDate.now().toString());
+        result.put("dayOfWeek", java.time.LocalDate.now().getDayOfWeek().toString());
+        result.put("apiConfigured", koreaInvestmentService.isConfigured());
+
+        try {
+            // 외국인 순매수 API 테스트
+            com.fasterxml.jackson.databind.JsonNode foreignBuy = koreaInvestmentService.getForeignInstitutionTotal("1", true, true);
+
+            if (foreignBuy != null) {
+                result.put("foreignBuy_rtCd", foreignBuy.has("rt_cd") ? foreignBuy.get("rt_cd").asText() : "없음");
+                result.put("foreignBuy_msg", foreignBuy.has("msg1") ? foreignBuy.get("msg1").asText() : "없음");
+                result.put("foreignBuy_count", foreignBuy.has("output") && foreignBuy.get("output").isArray()
+                        ? foreignBuy.get("output").size() : 0);
+            } else {
+                result.put("foreignBuy_error", "응답이 null입니다");
+            }
+        } catch (Exception e) {
+            result.put("foreignBuy_error", e.getMessage());
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

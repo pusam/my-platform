@@ -61,7 +61,8 @@ const defaultWidgets = [
   { id: 'assetSummary', name: '자산 요약', description: '보유 자산 요약 정보를 표시합니다', iconClass: 'asset', enabled: true },
   { id: 'news', name: '경제 뉴스', description: '오늘의 경제 뉴스를 표시합니다', iconClass: 'news', enabled: true },
   { id: 'financeSummary', name: '가계부 요약', description: '이번 달 수입/지출 요약을 표시합니다', iconClass: 'finance', enabled: true },
-  { id: 'investorTrades', name: '투자자 매매 동향', description: '외국인·기관·개인 매매 상위 종목을 표시합니다', iconClass: 'investor', enabled: true }
+  { id: 'investorTrades', name: '투자자 매매 동향', description: '외국인·기관·개인 매매 상위 종목을 표시합니다', iconClass: 'investor', enabled: true },
+  { id: 'earningsScreener', name: '실적 스크리너', description: '마법의 공식, PEG, 턴어라운드 종목을 스크리닝합니다', iconClass: 'screener', enabled: true }
 ];
 
 const widgets = ref([...defaultWidgets]);
@@ -291,6 +292,11 @@ watch(() => props.visible, (newVal) => {
 .widget-icon.finance {
   background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(26, 188, 156, 0.15) 100%);
   color: #2ecc71;
+}
+
+.widget-icon.screener {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.15) 0%, rgba(34, 197, 94, 0.15) 100%);
+  color: #4ade80;
 }
 
 .widget-details {

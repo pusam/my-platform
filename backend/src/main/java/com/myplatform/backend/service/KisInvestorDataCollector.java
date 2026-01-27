@@ -6,11 +6,13 @@ import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -32,6 +34,36 @@ public class KisInvestorDataCollector {
     private final ObjectMapper objectMapper;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * 장 마감 후 자동 수집 (평일 16:00)
+     * 15:30 장 마감 후 30분 여유를 두고 수집
+     */
+    @Scheduled(cron = "0 0 16 * * MON-FRI")
+    @Transactional
+    public void scheduledDailyCollection() {
+        LocalDate today = LocalDate.now();
+
+        // 주말 체크 (cron에서도 체크하지만 이중 확인)
+        if (today.getDayOfWeek() == DayOfWeek.SATURDAY || today.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            return;
+        }
+
+        log.info("=== 장 마감 후 자동 수집 시작 ===");
+
+        // 오늘 데이터가 이미 있는지 확인
+        boolean hasData = investorTradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate(
+                "KOSPI", "FOREIGN", today);
+
+        if (hasData) {
+            log.info("오늘({}) 데이터가 이미 존재합니다. 기존 데이터 삭제 후 재수집합니다.", today);
+            investorTradeRepository.deleteByTradeDate(today);
+        }
+
+        Map<String, Integer> result = collectDailyInvestorTrades(today);
+        int total = result.values().stream().mapToInt(Integer::intValue).sum();
+        log.info("=== 장 마감 후 자동 수집 완료: {}건 ===", total);
+    }
 
     /**
      * 특정 일자의 투자자별 매매 데이터 수집

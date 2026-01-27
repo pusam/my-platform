@@ -79,6 +79,12 @@ ollama:
   url: ${OLLAMA_URL:http://localhost:11434}
   model: ${OLLAMA_MODEL:gemma2:2b}
 
+# Gemini AI 설정
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
+
 # 7. 한국투자증권 API 설정
 kis:
   api:

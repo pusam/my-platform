@@ -23,7 +23,9 @@ import java.time.LocalDateTime;
     @Index(name = "idx_date", columnList = "reportDate"),
     @Index(name = "idx_per", columnList = "per"),
     @Index(name = "idx_roe", columnList = "roe"),
-    @Index(name = "idx_pbr", columnList = "pbr")
+    @Index(name = "idx_pbr", columnList = "pbr"),
+    @Index(name = "idx_peg", columnList = "peg"),
+    @Index(name = "idx_magic_formula_rank", columnList = "magicFormulaRank")
 })
 @Data
 @Builder
@@ -86,6 +88,19 @@ public class StockFinancialData {
 
     @Column(precision = 10, scale = 2)
     private BigDecimal profitGrowth; // 순이익 증가율 %
+
+    // EPS 관련 지표
+    @Column(precision = 15, scale = 2)
+    private BigDecimal eps; // 주당순이익
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal epsGrowth; // EPS 성장률 (%)
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal peg; // PEG = PER / EPS성장률
+
+    // 마법의 공식 순위
+    private Integer magicFormulaRank;
 
     // 안정성 지표
     @Column(precision = 10, scale = 2)

@@ -179,6 +179,23 @@
           </span>
         </article>
 
+        <article v-if="widgetSettings.earningsScreener" class="menu-card screener" @click="goToEarningsScreener">
+          <div class="card-icon screener-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 3v18h18"/>
+              <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
+              <circle cx="18.7" cy="8" r="2"/>
+            </svg>
+          </div>
+          <h3>실적 스크리너</h3>
+          <p>마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
         <article class="menu-card reddit" @click="goToReddit">
           <div class="card-icon reddit-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -349,7 +366,8 @@ export default {
         assetSummary: true,
         news: true,
         financeSummary: true,
-        investorTrades: true
+        investorTrades: true,
+        earningsScreener: true
       },
       financeSummary: {
         totalIncome: 0,
@@ -533,6 +551,9 @@ export default {
     },
     goToInvestorSurge() {
       this.$router.push('/investor-surge')
+    },
+    goToEarningsScreener() {
+      this.$router.push('/earnings-screener')
     },
     goToNews() {
       this.$router.push('/news')
@@ -919,6 +940,26 @@ export default {
 
 .menu-card.surge h3 {
   color: #c53030;
+}
+
+/* 실적 스크리너 카드 */
+.card-icon.screener-icon {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.15) 0%, rgba(34, 197, 94, 0.15) 100%);
+  color: #4ade80;
+}
+
+.menu-card.screener {
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(74, 222, 128, 0.3);
+}
+
+.menu-card.screener:hover {
+  border-color: #4ade80;
+  box-shadow: 0 20px 40px rgba(74, 222, 128, 0.15);
+}
+
+.menu-card.screener h3 {
+  color: #16a34a;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
