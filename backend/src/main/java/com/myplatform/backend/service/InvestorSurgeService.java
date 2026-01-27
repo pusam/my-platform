@@ -103,7 +103,8 @@ public class InvestorSurgeService {
                     Integer rankChange = prev.getRankNum() - snapshot.getRankNum(); // 양수면 순위 상승
                     snapshot.setRankChange(rankChange);
                 } else {
-                    snapshot.setAmountChange(snapshot.getNetBuyAmount());
+                    // 첫 번째 스냅샷은 비교 대상이 없으므로 변화량 0
+                    snapshot.setAmountChange(BigDecimal.ZERO);
                     snapshot.setRankChange(0);
                 }
             }

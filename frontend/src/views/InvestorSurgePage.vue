@@ -64,14 +64,16 @@
 
           <div class="stock-details">
             <div class="detail-row highlight">
-              <span class="label">변화량</span>
-              <span class="value amount positive">
-                +{{ formatAmount(stock.amountChange) }}
+              <span class="label">누적 순매수</span>
+              <span class="value amount" :class="getAmountClass(stock.netBuyAmount)">
+                {{ formatAmountWithSign(stock.netBuyAmount) }}
               </span>
             </div>
-            <div class="detail-row">
-              <span class="label">누적 순매수</span>
-              <span class="value">{{ formatAmount(stock.netBuyAmount) }}</span>
+            <div class="detail-row" v-if="hasAmountChange(stock.amountChange)">
+              <span class="label">변화량</span>
+              <span class="value" :class="getAmountClass(stock.amountChange)">
+                {{ formatAmountWithSign(stock.amountChange) }}
+              </span>
             </div>
             <div class="detail-row" v-if="stock.currentPrice">
               <span class="label">현재가</span>
@@ -181,6 +183,26 @@ const formatAmount = (value) => {
     return `${(num / 10000).toFixed(1)}조`;
   }
   return `${num.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}억`;
+};
+
+const formatAmountWithSign = (value) => {
+  if (!value) return '0억';
+  const num = Number(value);
+  const sign = num > 0 ? '+' : '';
+  if (Math.abs(num) >= 10000) {
+    return `${sign}${(num / 10000).toFixed(1)}조`;
+  }
+  return `${sign}${num.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}억`;
+};
+
+const getAmountClass = (value) => {
+  if (!value) return '';
+  return Number(value) > 0 ? 'positive' : Number(value) < 0 ? 'negative' : '';
+};
+
+const hasAmountChange = (value) => {
+  if (value === null || value === undefined) return false;
+  return Math.abs(Number(value)) > 0.01; // 0.01억 이상 변화가 있을 때만 표시
 };
 
 const formatRate = (value) => {
