@@ -168,6 +168,8 @@ public class InvestorSurgeService {
                 JsonNode output = root.get("output");
                 if (output != null && output.isArray()) {
                     int rank = 1;
+                    BigDecimal divider = BigDecimal.valueOf(100000000); // 1억 (원 -> 억원 변환)
+
                     for (JsonNode item : output) {
                         if (rank > 50) break;
 
@@ -176,7 +178,9 @@ public class InvestorSurgeService {
 
                         if (stockCode == null || stockName == null) continue;
 
-                        BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn");
+                        // 순매수 금액을 억원 단위로 변환
+                        BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn")
+                                .divide(divider, 2, RoundingMode.HALF_UP);
                         BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
                         BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
 
@@ -219,18 +223,48 @@ public class InvestorSurgeService {
         }
 
         Optional<LocalTime> latestTimeOpt = snapshotRepository.findLatestSnapshotTime(today, investorType);
+
+        // 오늘 데이터가 없으면 최근 영업일 데이터 조회
         if (latestTimeOpt.isEmpty()) {
+            // 최대 7일 전까지 데이터 찾기
+            for (int i = 1; i <= 7; i++) {
+                LocalDate prevDate = today.minusDays(i);
+                // 주말 스킵
+                if (prevDate.getDayOfWeek() == DayOfWeek.SATURDAY ||
+                    prevDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+                    continue;
+                }
+                latestTimeOpt = snapshotRepository.findLatestSnapshotTime(prevDate, investorType);
+                if (latestTimeOpt.isPresent()) {
+                    today = prevDate;
+                    break;
+                }
+            }
+        }
+
+        if (latestTimeOpt.isEmpty()) {
+            log.info("스냅샷 데이터 없음: investorType={}", investorType);
             return Collections.emptyList();
         }
 
         LocalTime latestTime = latestTimeOpt.get();
+        log.info("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
 
-        if (minChange == null) {
-            minChange = SURGE_THRESHOLD_WARM;
+        List<InvestorIntradaySnapshot> surgeSnapshots;
+
+        if (minChange != null) {
+            surgeSnapshots = snapshotRepository.findSurgeStocks(
+                    today, latestTime, investorType, minChange);
+        } else {
+            surgeSnapshots = snapshotRepository.findSurgeStocks(
+                    today, latestTime, investorType, SURGE_THRESHOLD_WARM);
         }
 
-        List<InvestorIntradaySnapshot> surgeSnapshots = snapshotRepository.findSurgeStocks(
-                today, latestTime, investorType, minChange);
+        // 급증 조건에 맞는 데이터가 없으면 전체 스냅샷 반환
+        if (surgeSnapshots.isEmpty()) {
+            log.info("급증 종목 없음, 전체 스냅샷 반환: date={}, time={}", today, latestTime);
+            surgeSnapshots = snapshotRepository.findLatestSnapshots(today, latestTime, investorType);
+        }
 
         return surgeSnapshots.stream()
                 .map(this::toSurgeDto)

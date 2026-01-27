@@ -58,6 +58,18 @@ public interface InvestorIntradaySnapshotRepository extends JpaRepository<Invest
             @Param("minChange") java.math.BigDecimal minChange);
 
     /**
+     * 최신 스냅샷 전체 조회 (순매수 금액 기준 정렬)
+     */
+    @Query("SELECT s FROM InvestorIntradaySnapshot s " +
+           "WHERE s.snapshotDate = :date AND s.snapshotTime = :time " +
+           "AND s.investorType = :investorType " +
+           "ORDER BY s.netBuyAmount DESC")
+    List<InvestorIntradaySnapshot> findLatestSnapshots(
+            @Param("date") LocalDate date,
+            @Param("time") LocalTime time,
+            @Param("investorType") String investorType);
+
+    /**
      * 당일 최신 스냅샷 시간 조회
      */
     @Query("SELECT MAX(s.snapshotTime) FROM InvestorIntradaySnapshot s " +
