@@ -168,7 +168,6 @@ public class InvestorSurgeService {
                 JsonNode output = root.get("output");
                 if (output != null && output.isArray()) {
                     int rank = 1;
-                    BigDecimal divider = BigDecimal.valueOf(100000000); // 1억 (원 -> 억원 변환)
 
                     for (JsonNode item : output) {
                         if (rank > 50) break;
@@ -178,9 +177,10 @@ public class InvestorSurgeService {
 
                         if (stockCode == null || stockName == null) continue;
 
-                        // 순매수 금액을 억원 단위로 변환
-                        BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn")
-                                .divide(divider, 2, RoundingMode.HALF_UP);
+                        // 순매수 금액 - 투자자 유형에 따라 다른 필드 사용 (백만원 단위)
+                        String netBuyField = "FOREIGN".equals(investorType) ? "frgn_ntby_tr_pbmn" : "orgn_ntby_tr_pbmn";
+                        BigDecimal netBuyAmount = getJsonBigDecimal(item, netBuyField)
+                                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP); // 백만원 -> 억원
                         BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
                         BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
 

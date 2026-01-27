@@ -168,15 +168,16 @@ public class KisInvestorDataCollector {
                         continue;
                     }
 
-                    // 순매수 금액 (원 단위 -> 억원 단위로 변환)
-                    BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn");
-                    netBuyAmount = netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP);
+                    // 순매수 금액 - 투자자 유형에 따라 다른 필드 사용
+                    // frgn_ntby_tr_pbmn: 외국인, orgn_ntby_tr_pbmn: 기관 (백만원 단위)
+                    String netBuyField = "FOREIGN".equals(investorType) ? "frgn_ntby_tr_pbmn" : "orgn_ntby_tr_pbmn";
+                    BigDecimal netBuyAmount = getJsonBigDecimal(item, netBuyField);
+                    // 백만원 단위 -> 억원 단위 (/100)
+                    netBuyAmount = netBuyAmount.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
-                    // 매수/매도 금액 (seln=sell매도, shnu=buy매수)
-                    BigDecimal buyAmount = getJsonBigDecimal(item, "total_shnu_tr_pbmn");  // 매수 금액
-                    BigDecimal sellAmount = getJsonBigDecimal(item, "total_seln_tr_pbmn"); // 매도 금액
-                    buyAmount = buyAmount.divide(divider, 2, RoundingMode.HALF_UP);
-                    sellAmount = sellAmount.divide(divider, 2, RoundingMode.HALF_UP);
+                    // 매수/매도 금액은 API에서 제공하지 않으므로 순매수 금액으로 대체
+                    BigDecimal buyAmount = netBuyAmount.compareTo(BigDecimal.ZERO) > 0 ? netBuyAmount : BigDecimal.ZERO;
+                    BigDecimal sellAmount = netBuyAmount.compareTo(BigDecimal.ZERO) < 0 ? netBuyAmount.abs() : BigDecimal.ZERO;
 
                     // 현재가, 등락률
                     BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");

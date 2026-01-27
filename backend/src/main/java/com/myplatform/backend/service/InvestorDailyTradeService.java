@@ -153,15 +153,17 @@ public class InvestorDailyTradeService {
                         trade.setStockCode(getStringValue(stockNode, "mksc_shrn_iscd"));
                         trade.setStockName(getStringValue(stockNode, "hts_kor_isnm"));
 
-                        // 순매수 금액 (억원 단위)
-                        BigDecimal netBuyAmount = getBigDecimalValue(stockNode, "ntby_tr_pbmn");
-                        trade.setNetBuyAmount(netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP));
+                        // 순매수 금액 - 투자자 유형에 따라 다른 필드 사용
+                        // frgn_ntby_tr_pbmn: 외국인, orgn_ntby_tr_pbmn: 기관 (백만원 단위)
+                        String netBuyField = INVESTOR_FOREIGN.equals(investorType) ? "frgn_ntby_tr_pbmn" : "orgn_ntby_tr_pbmn";
+                        BigDecimal netBuyAmount = getBigDecimalValue(stockNode, netBuyField);
+                        // 백만원 -> 억원 (/100)
+                        trade.setNetBuyAmount(netBuyAmount.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
 
-                        // 매수/매도 금액 (seln=sell매도, shnu=buy매수)
-                        BigDecimal buyAmount = getBigDecimalValue(stockNode, "total_shnu_tr_pbmn");  // 매수 금액
-                        BigDecimal sellAmount = getBigDecimalValue(stockNode, "total_seln_tr_pbmn"); // 매도 금액
-                        trade.setBuyAmount(buyAmount.divide(divider, 2, RoundingMode.HALF_UP));
-                        trade.setSellAmount(sellAmount.divide(divider, 2, RoundingMode.HALF_UP));
+                        // 매수/매도 금액은 API에서 제공하지 않으므로 순매수 금액으로 대체
+                        BigDecimal netBuyInBillion = netBuyAmount.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+                        trade.setBuyAmount(netBuyInBillion.compareTo(BigDecimal.ZERO) > 0 ? netBuyInBillion : BigDecimal.ZERO);
+                        trade.setSellAmount(netBuyInBillion.compareTo(BigDecimal.ZERO) < 0 ? netBuyInBillion.abs() : BigDecimal.ZERO);
 
                         // 현재가, 등락률
                         trade.setCurrentPrice(getBigDecimalValue(stockNode, "stck_prpr"));
