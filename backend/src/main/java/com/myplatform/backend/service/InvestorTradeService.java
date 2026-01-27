@@ -20,7 +20,6 @@ import java.util.stream.Collectors;
  * 투자자별 매매 정보 조회 서비스
  */
 @Service
-@Transactional(readOnly = true)
 @RequiredArgsConstructor
 @Slf4j
 public class InvestorTradeService {

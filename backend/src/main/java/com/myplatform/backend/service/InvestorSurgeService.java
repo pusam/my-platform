@@ -86,7 +86,7 @@ public class InvestorSurgeService {
                         .findBySnapshotDateAndSnapshotTimeAndInvestorTypeOrderByRankNumAsc(
                                 today, prevTimeOpt.get(), investorType);
                 prevSnapshots = prevList.stream()
-                        .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s));
+                        .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
             }
 
             // API 호출하여 현재 데이터 수집
