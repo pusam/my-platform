@@ -164,9 +164,9 @@ public class KisInvestorDataCollector {
                     BigDecimal netBuyAmount = getJsonBigDecimal(item, "ntby_tr_pbmn");
                     netBuyAmount = netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP);
 
-                    // 매도/매수 금액 (InvestorDailyTradeService와 동일한 필드)
-                    BigDecimal buyAmount = getJsonBigDecimal(item, "total_seln_tr_pbmn");
-                    BigDecimal sellAmount = getJsonBigDecimal(item, "total_shnu_tr_pbmn");
+                    // 매수/매도 금액 (seln=sell매도, shnu=buy매수)
+                    BigDecimal buyAmount = getJsonBigDecimal(item, "total_shnu_tr_pbmn");  // 매수 금액
+                    BigDecimal sellAmount = getJsonBigDecimal(item, "total_seln_tr_pbmn"); // 매도 금액
                     buyAmount = buyAmount.divide(divider, 2, RoundingMode.HALF_UP);
                     sellAmount = sellAmount.divide(divider, 2, RoundingMode.HALF_UP);
 

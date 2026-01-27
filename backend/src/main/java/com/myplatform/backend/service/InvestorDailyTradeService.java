@@ -157,9 +157,9 @@ public class InvestorDailyTradeService {
                         BigDecimal netBuyAmount = getBigDecimalValue(stockNode, "ntby_tr_pbmn");
                         trade.setNetBuyAmount(netBuyAmount.divide(divider, 2, RoundingMode.HALF_UP));
 
-                        // 매수/매도 금액
-                        BigDecimal buyAmount = getBigDecimalValue(stockNode, "total_seln_tr_pbmn");
-                        BigDecimal sellAmount = getBigDecimalValue(stockNode, "total_shnu_tr_pbmn");
+                        // 매수/매도 금액 (seln=sell매도, shnu=buy매수)
+                        BigDecimal buyAmount = getBigDecimalValue(stockNode, "total_shnu_tr_pbmn");  // 매수 금액
+                        BigDecimal sellAmount = getBigDecimalValue(stockNode, "total_seln_tr_pbmn"); // 매도 금액
                         trade.setBuyAmount(buyAmount.divide(divider, 2, RoundingMode.HALF_UP));
                         trade.setSellAmount(sellAmount.divide(divider, 2, RoundingMode.HALF_UP));
 

@@ -139,8 +139,13 @@ public class InvestorTradeService {
 
         BigDecimal totalBuy = BigDecimal.ZERO;
         BigDecimal totalSell = BigDecimal.ZERO;
+        BigDecimal totalNetBuy = BigDecimal.ZERO;
 
         for (InvestorDailyTrade trade : trades) {
+            // netBuyAmount를 직접 사용 (가장 신뢰할 수 있는 데이터)
+            if (trade.getNetBuyAmount() != null) {
+                totalNetBuy = totalNetBuy.add(trade.getNetBuyAmount());
+            }
             if (trade.getBuyAmount() != null) {
                 totalBuy = totalBuy.add(trade.getBuyAmount());
             }
@@ -149,7 +154,10 @@ public class InvestorTradeService {
             }
         }
 
-        BigDecimal netBuy = totalBuy.subtract(totalSell);
+        // netBuyAmount가 있으면 그것을 사용, 없으면 buy-sell 계산
+        BigDecimal netBuy = totalNetBuy.compareTo(BigDecimal.ZERO) != 0
+                ? totalNetBuy
+                : totalBuy.subtract(totalSell);
 
         return StockInvestorDetailDto.InvestorTradeSummary.builder()
                 .buyAmount(totalBuy)
