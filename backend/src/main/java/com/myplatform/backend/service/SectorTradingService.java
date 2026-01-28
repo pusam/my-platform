@@ -49,10 +49,10 @@ public class SectorTradingService {
     private final StockPriceService stockPriceService;
     private final ExecutorService executorService;
 
-    // 기간별 캐시 (5분간 유효)
+    // 기간별 캐시 (1분간 유효 - 실시간성 강화)
     private final Map<TradingPeriod, List<SectorTradingDto>> cachedSectorData = new ConcurrentHashMap<>();
     private final Map<TradingPeriod, Long> cacheTimestamps = new ConcurrentHashMap<>();
-    private static final long CACHE_DURATION_MS = 5 * 60 * 1000; // 5분
+    private static final long CACHE_DURATION_MS = 60 * 1000; // 1분 (주식 시장 실시간성 반영)
 
     public SectorTradingService(SectorStockConfig sectorConfig, StockPriceService stockPriceService) {
         this.sectorConfig = sectorConfig;
@@ -82,18 +82,25 @@ public class SectorTradingService {
         }
 
         List<SectorTradingDto> results = new ArrayList<>();
-        BigDecimal totalAllSectors = BigDecimal.ZERO;
 
-        // 각 섹터별 데이터 수집
+        // ========== [개선 1] 중복 종목 제거를 위한 Unique Stock 추적 ==========
+        // 삼성전자가 '반도체'와 '통신' 두 섹터에 포함되면 전체 합계에서 두 번 더해지는 Double Counting 방지
+        // 모든 종목을 추적 (상위 5개만이 아닌 전체 종목)
+        Map<String, BigDecimal> uniqueStockTradingValue = new HashMap<>();
+
+        // 각 섹터별 데이터 수집 (uniqueStockMap 전달하여 모든 종목 추적)
         for (SectorInfo sector : sectorConfig.getAllSectors()) {
-            SectorTradingDto dto = getSectorTradingData(sector, period);
+            SectorTradingDto dto = getSectorTradingData(sector, period, uniqueStockTradingValue);
             if (dto != null) {
                 results.add(dto);
-                totalAllSectors = totalAllSectors.add(dto.getTotalTradingValue());
             }
         }
 
-        // 비율 계산
+        // 전체 시장 거래대금 = Unique 종목들의 거래대금 합 (중복 제거됨)
+        BigDecimal totalAllSectors = uniqueStockTradingValue.values().stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 비율 계산 (각 섹터의 비율은 섹터 자체 합계 기준 유지)
         if (totalAllSectors.compareTo(BigDecimal.ZERO) > 0) {
             for (SectorTradingDto dto : results) {
                 BigDecimal percentage = dto.getTotalTradingValue()
@@ -109,6 +116,10 @@ public class SectorTradingService {
         // 캐시 저장
         cachedSectorData.put(period, results);
         cacheTimestamps.put(period, System.currentTimeMillis());
+
+        log.debug("섹터 거래대금 조회 완료 - 전체: {}억, Unique 종목 수: {}",
+                totalAllSectors.divide(BigDecimal.valueOf(100_000_000), 0, RoundingMode.HALF_UP),
+                uniqueStockTradingValue.size());
 
         return results;
     }
@@ -148,6 +159,18 @@ public class SectorTradingService {
      * 섹터의 거래대금 데이터 조회
      */
     private SectorTradingDto getSectorTradingData(SectorInfo sector, TradingPeriod period) {
+        return getSectorTradingData(sector, period, null);
+    }
+
+    /**
+     * 섹터의 거래대금 데이터 조회 (Unique Stock 추적 지원)
+     *
+     * @param sector 섹터 정보
+     * @param period 조회 기간
+     * @param uniqueStockMap 중복 제거용 Map (null이면 추적 안 함)
+     */
+    private SectorTradingDto getSectorTradingData(SectorInfo sector, TradingPeriod period,
+                                                   Map<String, BigDecimal> uniqueStockMap) {
         SectorTradingDto dto = new SectorTradingDto();
         dto.setSectorCode(sector.getCode());
         dto.setSectorName(sector.getName());
@@ -170,6 +193,15 @@ public class SectorTradingService {
                 if (info != null && info.getTradingValue() != null) {
                     stockInfos.add(info);
                     totalTradingValue = totalTradingValue.add(info.getTradingValue());
+
+                    // [개선 1] Unique Stock 추적 - 전체 시장 합계용
+                    if (uniqueStockMap != null && info.getStockCode() != null) {
+                        uniqueStockMap.merge(
+                                info.getStockCode(),
+                                info.getTradingValue(),
+                                BigDecimal::max  // 동일 종목이 여러 섹터에 있으면 큰 값 유지
+                        );
+                    }
                 }
             } catch (Exception e) {
                 log.warn("종목 정보 조회 실패: {}", e.getMessage());
@@ -186,6 +218,11 @@ public class SectorTradingService {
 
     /**
      * 개별 종목의 거래 정보 조회
+     *
+     * [개선 3] 390분 추정 로직 제거 - 장 초반/점심시간 왜곡 방지
+     * [개선 4] 거래대금 계산 우선순위:
+     *   1순위: API 제공 누적 거래대금 (accumulatedTradingValue)
+     *   2순위: 현재가 * 거래량 계산 (장 막판 왜곡 가능성 있음)
      */
     private StockTradingInfo fetchStockTradingInfo(String stockCode, TradingPeriod period) {
         try {
@@ -196,6 +233,7 @@ public class SectorTradingService {
 
             StockTradingInfo info = new StockTradingInfo();
             info.setStockCode(stockCode);
+
             // API에서 종목명을 못 가져오면 SectorStockConfig의 매핑 사용
             String stockName = price.getStockName();
             if (stockName == null || stockName.isEmpty()) {
@@ -208,23 +246,27 @@ public class SectorTradingService {
             BigDecimal tradingValue = BigDecimal.ZERO;
 
             if (period == TradingPeriod.TODAY) {
-                // 오늘 누적: 현재가 * 누적거래량
-                if (price.getCurrentPrice() != null && price.getVolume() != null) {
+                // ========== [개선 4] 오늘 누적 거래대금 ==========
+                // 1순위: API에서 직접 제공하는 누적 거래대금 사용
+                if (price.getAccumulatedTradingValue() != null
+                        && price.getAccumulatedTradingValue().compareTo(BigDecimal.ZERO) > 0) {
+                    tradingValue = price.getAccumulatedTradingValue();
+                }
+                // 2순위: 현재가 * 누적거래량 (장 막판 가격 변동 시 왜곡 가능)
+                else if (price.getCurrentPrice() != null && price.getVolume() != null) {
                     tradingValue = price.getCurrentPrice().multiply(price.getVolume());
+                    log.trace("종목 [{}] 거래대금 계산식 사용 (accumulatedTradingValue 미제공)", stockCode);
                 }
             } else {
-                // 5분/30분 파워: 분봉 기반 거래대금
+                // ========== [개선 3] 5분/30분 파워: 분봉 기반 거래대금만 사용 ==========
+                // 390분 추정 로직 완전 제거 - 장 초반/점심시간 왜곡이 심함
                 BigDecimal minuteTradingValue = stockPriceService.getTradingValueForMinutes(stockCode, period.getMinutes());
-                if (minuteTradingValue != null) {
+                if (minuteTradingValue != null && minuteTradingValue.compareTo(BigDecimal.ZERO) > 0) {
                     tradingValue = minuteTradingValue;
                 } else {
-                    // API 미지원 시 누적 거래대금의 비율로 추정
-                    if (price.getCurrentPrice() != null && price.getVolume() != null) {
-                        BigDecimal totalValue = price.getCurrentPrice().multiply(price.getVolume());
-                        // 장 운영시간 약 390분 기준 비율 추정
-                        tradingValue = totalValue.multiply(BigDecimal.valueOf(period.getMinutes()))
-                                .divide(BigDecimal.valueOf(390), 0, RoundingMode.HALF_UP);
-                    }
+                    // 분봉 데이터 미지원 시 추정하지 않고 0 반환 (정확한 데이터만 사용)
+                    tradingValue = BigDecimal.ZERO;
+                    log.debug("종목 [{}] {}분 분봉 데이터 미지원 - 거래대금 0 처리", stockCode, period.getMinutes());
                 }
             }
 

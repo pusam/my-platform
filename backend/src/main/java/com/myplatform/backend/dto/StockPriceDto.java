@@ -14,6 +14,7 @@ public class StockPriceDto {
     private BigDecimal highPrice;
     private BigDecimal lowPrice;
     private BigDecimal volume;
+    private BigDecimal accumulatedTradingValue;  // 누적 거래대금 (API에서 직접 제공 시)
     private BigDecimal marketCap;
     private String baseDate;
     private LocalDateTime fetchedAt;
@@ -90,6 +91,14 @@ public class StockPriceDto {
 
     public void setVolume(BigDecimal volume) {
         this.volume = volume;
+    }
+
+    public BigDecimal getAccumulatedTradingValue() {
+        return accumulatedTradingValue;
+    }
+
+    public void setAccumulatedTradingValue(BigDecimal accumulatedTradingValue) {
+        this.accumulatedTradingValue = accumulatedTradingValue;
     }
 
     public BigDecimal getMarketCap() {
