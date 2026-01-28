@@ -55,16 +55,18 @@ public class InvestorSurgeDto {
     private BigDecimal foreignNetBuy;      // 외국인 순매수 금액 (억원)
     private BigDecimal institutionNetBuy;  // 기관 순매수 금액 (억원)
 
-    // ========== 시간 표시 관련 ==========
+    // ========== 시간 표시 관련 (프론트엔드 UI용) ==========
 
     /**
-     * 스냅샷 시간을 "HH:mm (N분 전)" 형식으로 반환
-     * - 1분 미만: "11:20 (Live)"
-     * - 1분 이상: "11:20 (3분 전)"
+     * 스냅샷 시간을 직관적인 문자열로 반환
+     * - 1분 미만 차이: "11:50 (Live)"
+     * - 10분 미만 차이: "11:50 (3분 전)"
+     * - 10분 이상 차이: "11:50" (시간만 표시)
+     * - null이면 빈 문자열 반환
      */
     public String getDisplayTime() {
         if (snapshotTime == null) {
-            return "-";
+            return "";
         }
 
         String timeStr = snapshotTime.format(TIME_FORMATTER);
@@ -72,15 +74,16 @@ public class InvestorSurgeDto {
 
         if (minutesAgo < 1) {
             return timeStr + " (Live)";
-        } else {
+        } else if (minutesAgo < 10) {
             return timeStr + " (" + minutesAgo + "분 전)";
+        } else {
+            return timeStr;
         }
     }
 
     /**
-     * 데이터가 10분 이상 지났는지 여부
-     * - true: 오래된 데이터 (프론트에서 회색 처리용)
-     * - false: 신선한 데이터
+     * 데이터가 10분 이상 지났는지 여부 (프론트에서 회색 처리용)
+     * @return true: 오래된 데이터 (10분 이상 경과), false: 신선한 데이터
      */
     public boolean isOutdated() {
         return getMinutesAgo() >= 10;
