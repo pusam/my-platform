@@ -132,5 +132,8 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
            "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
            "AND s.netIncome IS NOT NULL")
     List<StockFinancialData> findLatestDataWithNetIncome();
+
+    // 종목코드와 날짜로 조회
+    Optional<StockFinancialData> findByStockCodeAndReportDate(String stockCode, LocalDate reportDate);
 }
 

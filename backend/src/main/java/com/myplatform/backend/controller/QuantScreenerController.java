@@ -3,6 +3,7 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.StockFinancialDataService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -31,6 +32,7 @@ public class QuantScreenerController {
 
     private final QuantScreenerService quantScreenerService;
     private final GeminiService geminiService;
+    private final StockFinancialDataService stockFinancialDataService;
 
     /**
      * 마법의 공식 스크리너
@@ -258,5 +260,77 @@ public class QuantScreenerController {
         response.put("aiEnabled", geminiService.isAvailable());
         response.put("message", geminiService.isAvailable() ? "AI 기능 활성화됨" : "AI 기능 비활성화 (API 키 미설정)");
         return ResponseEntity.ok(response);
+    }
+
+    // ========== 재무 데이터 수집 API ==========
+
+    /**
+     * 재무 데이터 수동 수집
+     */
+    @PostMapping("/collect")
+    @Operation(summary = "재무 데이터 수집", description = "외국인/기관 순매수 상위 종목의 재무 데이터를 수집합니다.")
+    public ResponseEntity<Map<String, Object>> collectFinancialData() {
+        log.info("재무 데이터 수동 수집 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Integer> result = stockFinancialDataService.collectManually();
+            response.put("success", true);
+            response.put("data", result);
+            response.put("message", "재무 데이터 수집 완료");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("재무 데이터 수집 오류", e);
+            response.put("success", false);
+            response.put("message", "수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 특정 종목 재무 데이터 수집
+     */
+    @PostMapping("/collect/{stockCode}")
+    @Operation(summary = "단일 종목 재무 데이터 수집", description = "특정 종목의 재무 데이터를 수집합니다.")
+    public ResponseEntity<Map<String, Object>> collectSingleStock(
+            @PathVariable String stockCode) {
+        log.info("단일 종목 재무 데이터 수집 API 호출: {}", stockCode);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            boolean result = stockFinancialDataService.collectSingleStock(stockCode);
+            response.put("success", result);
+            response.put("stockCode", stockCode);
+            response.put("message", result ? "재무 데이터 수집 완료" : "재무 데이터 수집 실패");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("단일 종목 재무 데이터 수집 오류: {}", stockCode, e);
+            response.put("success", false);
+            response.put("message", "수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 재무 데이터 삭제 후 재수집
+     */
+    @PostMapping("/recollect")
+    @Operation(summary = "재무 데이터 재수집", description = "기존 데이터를 삭제하고 새로 수집합니다.")
+    public ResponseEntity<Map<String, Object>> recollectFinancialData() {
+        log.info("재무 데이터 재수집 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> result = stockFinancialDataService.deleteAndRecollect();
+            response.put("success", true);
+            response.put("data", result);
+            response.put("message", "재무 데이터 재수집 완료");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("재무 데이터 재수집 오류", e);
+            response.put("success", false);
+            response.put("message", "재수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 }

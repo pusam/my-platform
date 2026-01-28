@@ -291,15 +291,40 @@ public class InvestorSurgeService {
     public List<InvestorSurgeDto> getStockIntradayTrend(String stockCode, String investorType) {
         LocalDate today = LocalDate.now();
 
+        // 주말 처리
         if (today.getDayOfWeek() == DayOfWeek.SATURDAY) {
             today = today.minusDays(1);
         } else if (today.getDayOfWeek() == DayOfWeek.SUNDAY) {
             today = today.minusDays(2);
         }
 
+        // 오늘 해당 종목 데이터가 있는지 확인
         List<InvestorIntradaySnapshot> snapshots = snapshotRepository
                 .findByStockCodeAndSnapshotDateAndInvestorTypeOrderBySnapshotTimeAsc(
                         stockCode, today, investorType);
+
+        // 오늘 데이터가 없으면 최근 7일간 데이터 찾기
+        if (snapshots.isEmpty()) {
+            for (int i = 1; i <= 7; i++) {
+                LocalDate prevDate = today.minusDays(i);
+                // 주말 스킵
+                if (prevDate.getDayOfWeek() == DayOfWeek.SATURDAY ||
+                    prevDate.getDayOfWeek() == DayOfWeek.SUNDAY) {
+                    continue;
+                }
+                snapshots = snapshotRepository
+                        .findByStockCodeAndSnapshotDateAndInvestorTypeOrderBySnapshotTimeAsc(
+                                stockCode, prevDate, investorType);
+                if (!snapshots.isEmpty()) {
+                    log.info("종목 수급 추이 조회: stockCode={}, investorType={}, date={} ({}건)",
+                            stockCode, investorType, prevDate, snapshots.size());
+                    break;
+                }
+            }
+        } else {
+            log.info("종목 수급 추이 조회: stockCode={}, investorType={}, date={} ({}건)",
+                    stockCode, investorType, today, snapshots.size());
+        }
 
         return snapshots.stream()
                 .map(this::toSurgeDto)
