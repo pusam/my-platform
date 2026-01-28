@@ -196,6 +196,21 @@
           </span>
         </article>
 
+        <article v-if="widgetSettings.investorTrades" class="menu-card short-squeeze" @click="goToShortSqueeze">
+          <div class="card-icon short-squeeze-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+            </svg>
+          </div>
+          <h3>공매도 분석</h3>
+          <p>숏스퀴즈 후보, 대차잔고/공매도 상위 종목</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
         <article class="menu-card reddit" @click="goToReddit">
           <div class="card-icon reddit-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -554,6 +569,9 @@ export default {
     },
     goToEarningsScreener() {
       this.$router.push('/earnings-screener')
+    },
+    goToShortSqueeze() {
+      this.$router.push('/short-squeeze')
     },
     goToNews() {
       this.$router.push('/news')
@@ -960,6 +978,26 @@ export default {
 
 .menu-card.screener h3 {
   color: #16a34a;
+}
+
+/* 공매도 분석 카드 */
+.card-icon.short-squeeze-icon {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  color: #8b5cf6;
+}
+
+.menu-card.short-squeeze {
+  background: linear-gradient(135deg, rgba(245, 243, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(139, 92, 246, 0.3);
+}
+
+.menu-card.short-squeeze:hover {
+  border-color: #8b5cf6;
+  box-shadow: 0 20px 40px rgba(139, 92, 246, 0.15);
+}
+
+.menu-card.short-squeeze h3 {
+  color: #7c3aed;
 }
 
 /* AI 뱃지 (메뉴 카드용) */

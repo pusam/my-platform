@@ -31,11 +31,20 @@ public class ShortSellingService {
     private final InvestorDailyTradeRepository investorTradeRepository;
 
     // 분석 기준 상수
-    private static final int ANALYSIS_DAYS = 20;           // 평균 계산 기간
+    private static final int ANALYSIS_DAYS = 20;           // 평균 계산 기간 (거래일 기준)
     private static final int SHORT_COVERING_DAYS = 5;      // 숏커버링 판단 기간
     private static final int FOREIGN_BUY_DAYS = 3;         // 외국인 수급 판단 기간
     private static final BigDecimal MIN_LOAN_RATIO = new BigDecimal("1.0");  // 최소 대차잔고 비율 (%)
     private static final BigDecimal PRICE_RISE_THRESHOLD = new BigDecimal("3.0");  // 주가 상승 기준 (%)
+
+    // 외국인 순매수 금액 기준 (억원 단위 - DB 저장 단위)
+    // - InvestorDailyTrade.netBuyAmount는 억원 단위로 저장됨
+    // - 예: 10.5 = 10억 5천만 원
+    private static final BigDecimal FOREIGN_NET_BUY_5B = new BigDecimal("5");   // 5억 원
+    private static final BigDecimal FOREIGN_NET_BUY_10B = new BigDecimal("10"); // 10억 원
+
+    // 조회 기간 여유 배수 (주말/공휴일 고려하여 넉넉하게)
+    private static final int QUERY_DATE_MULTIPLIER = 2;  // ANALYSIS_DAYS * 2 = 약 40일
 
     /**
      * 숏스퀴즈 후보 종목 조회
@@ -50,7 +59,9 @@ public class ShortSellingService {
         log.info("숏스퀴즈 후보 종목 분석 시작 - limit: {}", limit);
 
         LocalDate today = LocalDate.now();
-        LocalDate startDate = today.minusDays(ANALYSIS_DAYS + 5);  // 여유 있게 조회
+        // 주말/공휴일 고려하여 넉넉하게 조회 (20일 * 2 = 40일)
+        // 예: 20 거래일 확보를 위해 약 40일 조회 (주말/공휴일 제외)
+        LocalDate startDate = today.minusDays(ANALYSIS_DAYS * QUERY_DATE_MULTIPLIER);
 
         // 1. [성능 최적화] 최근 데이터 Bulk 조회 (N+1 방지)
         List<StockShortData> allRecentData = shortDataRepository.findAllWithLoanBalance(startDate);
@@ -201,13 +212,15 @@ public class ShortSellingService {
         }
 
         // 3. 외국인 순매수 (20점)
+        // foreignNetBuy는 억원 단위로 저장됨 (DB: InvestorDailyTrade.netBuyAmount)
+        // 예: foreignNetBuy = 10.5 → 10억 5천만 원
         if (isForeignBuying) {
             score += 10;
-            // 순매수 규모에 따라 추가 점수
-            if (foreignNetBuy.compareTo(new BigDecimal("10")) >= 0) {
-                score += 10;  // 10억 이상이면 추가
-            } else if (foreignNetBuy.compareTo(new BigDecimal("5")) >= 0) {
-                score += 5;   // 5억 이상이면 추가
+            // 순매수 규모에 따라 추가 점수 (억원 단위 비교)
+            if (foreignNetBuy.compareTo(FOREIGN_NET_BUY_10B) >= 0) {
+                score += 10;  // 10억 원 이상이면 추가 10점 (총 20점)
+            } else if (foreignNetBuy.compareTo(FOREIGN_NET_BUY_5B) >= 0) {
+                score += 5;   // 5억 원 이상이면 추가 5점 (총 15점)
             }
         }
 
