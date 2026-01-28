@@ -355,6 +355,32 @@
             </button>
           </div>
 
+          <!-- 분기별 재무제표 수집 (PEG, 턴어라운드용) -->
+          <div class="action-card highlight">
+            <div class="action-header">
+              <span class="action-icon">📊</span>
+              <h4>분기별 재무제표 수집</h4>
+              <span class="new-badge">NEW</span>
+            </div>
+            <p class="action-desc">
+              네이버 금융에서 최근 4개 분기의 매출액, 영업이익, 당기순이익, EPS를 크롤링합니다.
+              <strong>PEG 스크리너</strong>와 <strong>턴어라운드 스크리너</strong>에 필수!
+            </p>
+            <div class="action-info">
+              <span class="info-tag">⏱️ 약 20-25분 소요</span>
+              <span class="info-tag">📈 EPS 성장률 계산</span>
+              <span class="info-tag">🔄 턴어라운드 분석</span>
+            </div>
+            <button
+              @click="collectQuarterlyFinance"
+              class="action-btn primary"
+              :disabled="isCollecting || isCrawling || isCollectingQuarterly"
+            >
+              <span v-if="isCollectingQuarterly" class="spinner"></span>
+              {{ isCollectingQuarterly ? '수집 중...' : '분기별 재무제표 수집 시작' }}
+            </button>
+          </div>
+
           <!-- 단일 종목 테스트 -->
           <div class="action-card">
             <div class="action-header">
@@ -468,6 +494,7 @@ const collectStatus = ref(null);
 const isCollecting = ref(false);
 const isCrawling = ref(false);
 const isFixingNames = ref(false);
+const isCollectingQuarterly = ref(false);
 const collectProgress = ref('');
 
 // AI 분석 결과
@@ -576,6 +603,38 @@ const crawlOperatingMargin = async () => {
     collectProgress.value = '크롤링 중 오류 발생: ' + (error.response?.data?.message || error.message);
   } finally {
     isCrawling.value = false;
+  }
+};
+
+// 분기별 재무제표 수집 (PEG, 턴어라운드용)
+const collectQuarterlyFinance = async () => {
+  if (isCollectingQuarterly.value) return;
+
+  if (!confirm('분기별 재무제표 수집을 시작하시겠습니까?\n\n' +
+    '• 네이버 금융에서 최근 4개 분기 데이터를 크롤링합니다.\n' +
+    '• EPS 성장률이 계산되어 PEG 스크리너가 작동합니다.\n' +
+    '• 과거 분기 데이터로 턴어라운드 분석이 가능해집니다.\n\n' +
+    '약 20-25분 소요됩니다.')) {
+    return;
+  }
+
+  isCollectingQuarterly.value = true;
+  collectProgress.value = '분기별 재무제표 수집 시작...';
+
+  try {
+    const response = await api.post('/screener/collect/finance');
+    if (response.data.success) {
+      const data = response.data.data;
+      collectProgress.value = `분기별 재무제표 수집 완료! 성공: ${data.successCount}, 실패: ${data.failCount} (소요시간: ${data.elapsedSeconds}초)`;
+      await fetchCollectStatus();
+    } else {
+      collectProgress.value = '분기별 재무제표 수집 실패: ' + response.data.message;
+    }
+  } catch (error) {
+    console.error('분기별 재무제표 수집 오류:', error);
+    collectProgress.value = '분기별 재무제표 수집 중 오류 발생: ' + (error.response?.data?.message || error.message);
+  } finally {
+    isCollectingQuarterly.value = false;
   }
 };
 
@@ -856,20 +915,21 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* ========== 라이트 모드 (기본) ========== */
 .screener-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: var(--bg-gradient);
   padding: 2rem;
 }
 
 .content-wrapper {
   max-width: 1400px;
   margin: 0 auto;
-  background: #0f0f23;
+  background: var(--card-bg);
   border-radius: 20px;
   padding: 2rem;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  border: 1px solid #2a2a4a;
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-color);
 }
 
 .page-header {
@@ -882,7 +942,7 @@ onMounted(() => {
   position: absolute;
   left: 0;
   top: 0;
-  background: #4a4a8a;
+  background: var(--primary-gradient);
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -893,17 +953,17 @@ onMounted(() => {
 }
 
 .back-button:hover {
-  background: #5a5a9a;
   transform: translateX(-5px);
+  opacity: 0.9;
 }
 
 .page-header h1 {
-  color: #fff;
+  color: var(--text-primary);
   margin-bottom: 0.5rem;
 }
 
 .subtitle {
-  color: #888;
+  color: var(--text-muted);
   font-size: 1.1rem;
 }
 
@@ -912,14 +972,14 @@ onMounted(() => {
   justify-content: center;
   gap: 1rem;
   margin-bottom: 2rem;
-  border-bottom: 2px solid #2a2a4a;
+  border-bottom: 2px solid var(--border-color);
 }
 
 .tab-btn {
   padding: 1rem 2rem;
   background: none;
   border: none;
-  color: #666;
+  color: var(--text-muted);
   cursor: pointer;
   font-size: 1.1rem;
   font-weight: 600;
@@ -929,12 +989,12 @@ onMounted(() => {
 }
 
 .tab-btn.active {
-  color: #4ade80;
-  border-bottom-color: #4ade80;
+  color: var(--success);
+  border-bottom-color: var(--success);
 }
 
 .tab-btn:hover:not(.active) {
-  color: #aaa;
+  color: var(--text-secondary);
 }
 
 .tab-content {
@@ -952,7 +1012,7 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 1.5rem;
   padding: 1rem;
-  background: #1a1a3a;
+  background: var(--border-light);
   border-radius: 10px;
   flex-wrap: wrap;
 }
@@ -965,23 +1025,23 @@ onMounted(() => {
 
 .filter-item label {
   font-weight: 600;
-  color: #aaa;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .filter-item select {
   padding: 0.5rem 1rem;
-  border: 1px solid #3a3a5a;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   font-size: 1rem;
   cursor: pointer;
-  background: #2a2a4a;
-  color: #fff;
+  background: var(--card-bg);
+  color: var(--text-primary);
 }
 
 .refresh-btn {
   padding: 0.5rem 1rem;
-  background: #4a4a8a;
+  background: var(--primary-gradient);
   color: white;
   border: none;
   border-radius: 8px;
@@ -993,25 +1053,25 @@ onMounted(() => {
 }
 
 .refresh-btn:hover {
-  background: #5a5a9a;
+  opacity: 0.9;
 }
 
 .info-box {
-  background: #1a1a3a;
-  border-left: 4px solid #4ade80;
+  background: var(--border-light);
+  border-left: 4px solid var(--success);
   padding: 1rem 1.5rem;
   margin-bottom: 1.5rem;
   border-radius: 0 10px 10px 0;
 }
 
 .info-box strong {
-  color: #4ade80;
+  color: var(--success);
   display: block;
   margin-bottom: 0.5rem;
 }
 
 .info-box p {
-  color: #aaa;
+  color: var(--text-secondary);
   margin: 0;
   font-size: 0.95rem;
   line-height: 1.5;
@@ -1031,23 +1091,24 @@ onMounted(() => {
 .stocks-table td {
   padding: 1rem;
   text-align: left;
-  border-bottom: 1px solid #2a2a4a;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
 }
 
 .stocks-table th {
-  background: #1a1a3a;
-  color: #888;
+  background: var(--border-light);
+  color: var(--text-secondary);
   font-weight: 600;
   white-space: nowrap;
 }
 
 .stocks-table tbody tr:hover {
-  background: #1a1a3a;
+  background: var(--border-light);
 }
 
 .stocks-table .rank {
   font-weight: 700;
-  color: #4ade80;
+  color: var(--success);
   text-align: center;
 }
 
@@ -1058,23 +1119,23 @@ onMounted(() => {
 
 .stocks-table .stock-name {
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .stocks-table .stock-code {
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-muted);
   font-family: monospace;
 }
 
 .stocks-table .score {
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   text-align: center;
 }
 
 .positive {
-  color: #4ade80 !important;
+  color: var(--success) !important;
 }
 
 .very-positive {
@@ -1083,7 +1144,7 @@ onMounted(() => {
 }
 
 .negative {
-  color: #ef4444 !important;
+  color: var(--danger) !important;
 }
 
 /* 턴어라운드 카드 그리드 */
@@ -1094,27 +1155,27 @@ onMounted(() => {
 }
 
 .stock-card {
-  background: #1a1a3a;
+  background: var(--card-bg);
   border-radius: 15px;
   padding: 1.5rem;
-  border: 2px solid #2a2a4a;
+  border: 2px solid var(--border-color);
   transition: all 0.3s;
   position: relative;
 }
 
 .stock-card:hover {
   transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
 }
 
 .stock-card.loss-to-profit {
-  border-color: #4ade80;
-  background: linear-gradient(135deg, #1a1a3a 0%, #1a2a1a 100%);
+  border-color: var(--success);
+  background: linear-gradient(135deg, var(--card-bg) 0%, rgba(74, 222, 128, 0.1) 100%);
 }
 
 .stock-card.profit-growth {
-  border-color: #3b82f6;
-  background: linear-gradient(135deg, #1a1a3a 0%, #1a1a2a 100%);
+  border-color: var(--info);
+  background: linear-gradient(135deg, var(--card-bg) 0%, rgba(59, 130, 246, 0.1) 100%);
 }
 
 .turnaround-badge {
@@ -1142,7 +1203,7 @@ onMounted(() => {
   align-items: flex-start;
   margin-bottom: 1rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid #2a2a4a;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .stock-info-col {
@@ -1153,17 +1214,17 @@ onMounted(() => {
 .stock-info-col .stock-name {
   font-size: 1.2rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .stock-info-col .stock-code {
   font-size: 0.9rem;
-  color: #666;
+  color: var(--text-muted);
   font-family: monospace;
 }
 
 .rank-badge {
-  background: #4a4a8a;
+  background: var(--primary-gradient);
   color: white;
   padding: 0.3rem 0.8rem;
   border-radius: 15px;
@@ -1184,19 +1245,19 @@ onMounted(() => {
 }
 
 .detail-row.highlight {
-  background: #2a2a4a;
+  background: var(--border-light);
   padding: 0.5rem;
   border-radius: 8px;
 }
 
 .detail-row .label {
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.9rem;
 }
 
 .detail-row .value {
   font-weight: 600;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 /* AI 분석 섹션 */
@@ -1209,7 +1270,7 @@ onMounted(() => {
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--primary-gradient);
   color: white;
   border: none;
   border-radius: 10px;
@@ -1235,8 +1296,8 @@ onMounted(() => {
 
 .ai-result {
   margin-top: 1rem;
-  background: linear-gradient(135deg, #1a1a3a 0%, #2a1a4a 100%);
-  border: 1px solid #667eea;
+  background: var(--card-bg);
+  border: 1px solid var(--primary-start);
   border-radius: 15px;
   overflow: hidden;
   animation: fadeIn 0.3s ease;
@@ -1244,7 +1305,7 @@ onMounted(() => {
 
 .ai-result-header {
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--primary-gradient);
 }
 
 .ai-badge {
@@ -1255,19 +1316,19 @@ onMounted(() => {
 
 .ai-result-content {
   padding: 1.5rem;
-  color: #ddd;
+  color: var(--text-secondary);
   line-height: 1.8;
   font-size: 0.95rem;
 }
 
 .ai-result-content strong {
-  color: #4ade80;
+  color: var(--success);
 }
 
 .no-data {
   text-align: center;
   padding: 3rem;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .no-data p {
@@ -1276,19 +1337,19 @@ onMounted(() => {
 
 /* 데이터 관리 탭 스타일 */
 .info-box.warning {
-  border-left-color: #f59e0b;
+  border-left-color: var(--warning);
 }
 
 .info-box.warning strong {
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .status-card {
-  background: #1a1a3a;
+  background: var(--card-bg);
   border-radius: 15px;
   padding: 1.5rem;
   margin-bottom: 2rem;
-  border: 1px solid #2a2a4a;
+  border: 1px solid var(--border-color);
 }
 
 .status-header {
@@ -1299,7 +1360,7 @@ onMounted(() => {
 }
 
 .status-header h3 {
-  color: #fff;
+  color: var(--text-primary);
   margin: 0;
   font-size: 1.1rem;
 }
@@ -1316,7 +1377,7 @@ onMounted(() => {
 }
 
 .status-item {
-  background: #2a2a4a;
+  background: var(--border-light);
   padding: 1rem;
   border-radius: 10px;
   text-align: center;
@@ -1324,7 +1385,7 @@ onMounted(() => {
 
 .status-label {
   display: block;
-  color: #888;
+  color: var(--text-muted);
   font-size: 0.9rem;
   margin-bottom: 0.5rem;
 }
@@ -1333,20 +1394,20 @@ onMounted(() => {
   display: block;
   font-size: 1.5rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .status-value.positive {
-  color: #4ade80;
+  color: var(--success);
 }
 
 .status-value.warning-text {
-  color: #f59e0b;
+  color: var(--warning);
 }
 
 .status-loading {
   text-align: center;
-  color: #888;
+  color: var(--text-muted);
   padding: 1rem;
 }
 
@@ -1358,15 +1419,32 @@ onMounted(() => {
 }
 
 .action-card {
-  background: #1a1a3a;
+  background: var(--card-bg);
   border-radius: 15px;
   padding: 1.5rem;
-  border: 1px solid #2a2a4a;
+  border: 1px solid var(--border-color);
   transition: all 0.3s;
 }
 
 .action-card:hover {
-  border-color: #4a4a8a;
+  border-color: var(--primary-start);
+}
+
+.action-card.highlight {
+  background: linear-gradient(135deg, rgba(74, 144, 226, 0.08), rgba(80, 227, 194, 0.08));
+  border-color: var(--primary-start);
+}
+
+.new-badge {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 0.2rem 0.5rem;
+  border-radius: 10px;
+  margin-left: auto;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .action-header {
@@ -1381,13 +1459,13 @@ onMounted(() => {
 }
 
 .action-header h4 {
-  color: #fff;
+  color: var(--text-primary);
   margin: 0;
   font-size: 1.1rem;
 }
 
 .action-desc {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.5;
   margin-bottom: 1rem;
@@ -1401,11 +1479,11 @@ onMounted(() => {
 }
 
 .info-tag {
-  background: #2a2a4a;
+  background: var(--border-light);
   padding: 0.4rem 0.8rem;
   border-radius: 20px;
   font-size: 0.8rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .action-options {
@@ -1416,7 +1494,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #aaa;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 0.9rem;
 }
@@ -1476,7 +1554,7 @@ onMounted(() => {
   width: auto;
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
-  background: #4a4a8a;
+  background: var(--primary-gradient);
   color: #fff;
 }
 
@@ -1508,26 +1586,26 @@ onMounted(() => {
 .test-input {
   flex: 1;
   padding: 0.5rem 1rem;
-  border: 1px solid #3a3a5a;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
-  background: #2a2a4a;
-  color: #fff;
+  background: var(--card-bg);
+  color: var(--text-primary);
   font-size: 1rem;
 }
 
 .test-input::placeholder {
-  color: #666;
+  color: var(--text-muted);
 }
 
 .preview-result {
-  background: #2a2a4a;
+  background: var(--border-light);
   border-radius: 10px;
   overflow: hidden;
   margin-top: 1rem;
 }
 
 .preview-header {
-  background: #3a3a5a;
+  background: var(--primary-gradient);
   padding: 0.75rem 1rem;
   color: #fff;
   font-weight: 600;
@@ -1542,8 +1620,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   padding: 0.5rem 0;
-  border-bottom: 1px solid #3a3a5a;
-  color: #aaa;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .preview-item:last-child {
@@ -1551,33 +1629,33 @@ onMounted(() => {
 }
 
 .preview-item .value {
-  color: #4ade80;
+  color: var(--success);
   font-weight: 600;
 }
 
 .preview-empty {
   padding: 1rem;
   text-align: center;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .progress-log {
-  background: #1a1a3a;
+  background: var(--card-bg);
   border-radius: 15px;
   overflow: hidden;
-  border: 1px solid #2a2a4a;
+  border: 1px solid var(--border-color);
 }
 
 .progress-header {
-  background: #2a2a4a;
+  background: var(--border-light);
   padding: 0.75rem 1rem;
-  color: #fff;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
 .progress-content {
   padding: 1rem;
-  color: #4ade80;
+  color: var(--success);
   font-family: monospace;
   white-space: pre-wrap;
   line-height: 1.6;

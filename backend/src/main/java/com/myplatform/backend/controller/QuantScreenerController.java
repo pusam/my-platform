@@ -504,4 +504,72 @@ public class QuantScreenerController {
             return ResponseEntity.internalServerError().body(response);
         }
     }
+
+    // ========== 분기별 재무제표 수집 API (PEG, 턴어라운드용) ==========
+
+    /**
+     * 분기별 재무제표 수집
+     * - 네이버 금융에서 최근 4개 분기 데이터 크롤링
+     * - 매출액, 영업이익, 당기순이익, EPS 수집
+     * - EPS 성장률 계산 및 PEG 업데이트
+     * - 과거 분기 데이터 저장 (턴어라운드 분석 가능)
+     *
+     * Rate Limit 고려: 종목당 600ms 대기
+     * 약 2000개 종목 기준 20-25분 소요
+     */
+    @PostMapping("/collect/finance")
+    @Operation(summary = "분기별 재무제표 수집",
+               description = "네이버 금융에서 최근 4개 분기의 재무제표(매출액, 영업이익, 당기순이익, EPS)를 크롤링합니다.\n\n" +
+                           "**수집 데이터:**\n" +
+                           "- 매출액, 영업이익, 당기순이익, EPS (분기별)\n" +
+                           "- EPS 성장률 계산 (전년 동기 대비)\n" +
+                           "- PEG = PER / EPS성장률 자동 계산\n" +
+                           "- 순이익 증가율 계산 (직전 분기 대비)\n\n" +
+                           "**용도:**\n" +
+                           "- PEG 스크리너: EPS 성장률 기반 저평가 성장주 발굴\n" +
+                           "- 턴어라운드 스크리너: 과거 분기 데이터로 적자→흑자 전환 종목 발굴\n\n" +
+                           "**소요시간:** 종목당 600ms 대기, 약 2000개 종목 기준 20-25분")
+    public ResponseEntity<Map<String, Object>> collectQuarterlyFinance() {
+        log.info("분기별 재무제표 수집 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> result = financialDataCrawlerService.collectQuarterlyFinancialStatements();
+            response.put("success", true);
+            response.put("data", result);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("분기별 재무제표 수집 오류", e);
+            response.put("success", false);
+            response.put("message", "분기별 재무제표 수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 단일 종목 분기별 재무제표 수집
+     */
+    @PostMapping("/collect/finance/{stockCode}")
+    @Operation(summary = "단일 종목 분기별 재무제표 수집",
+               description = "특정 종목의 분기별 재무제표를 네이버 금융에서 크롤링합니다.")
+    public ResponseEntity<Map<String, Object>> collectSingleQuarterlyFinance(
+            @Parameter(description = "종목코드 (예: 005930)")
+            @PathVariable String stockCode) {
+
+        log.info("단일 종목 분기별 재무제표 수집 API 호출: {}", stockCode);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            boolean success = financialDataCrawlerService.collectSingleStockQuarterlyData(stockCode);
+            response.put("success", success);
+            response.put("stockCode", stockCode);
+            response.put("message", success ? "분기별 재무제표 수집 완료" : "분기별 재무제표 수집 실패 (데이터 없음)");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("단일 종목 분기별 재무제표 수집 오류: {}", stockCode, e);
+            response.put("success", false);
+            response.put("message", "수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 }
