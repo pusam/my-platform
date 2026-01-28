@@ -310,30 +310,62 @@ public class InvestorSurgeService {
 
     /**
      * 두 리스트에서 공통 종목 추출
+     * - Null Safety: BigDecimal 연산 시 null을 ZERO로 처리
+     * - Map 중복 키: 최신 값으로 덮어쓰기
+     * - 순위 재산정: 합산 금액 기준 내림차순 정렬 후 1위부터 순위 부여
      */
     private List<InvestorSurgeDto> getCommonStocks(List<InvestorSurgeDto> foreignStocks,
                                                     List<InvestorSurgeDto> institutionStocks) {
+        // Null Safety: 입력 리스트가 null이면 빈 리스트로 처리
+        if (foreignStocks == null || institutionStocks == null) {
+            return Collections.emptyList();
+        }
+
         // 기관 종목 코드 Set 생성
         Set<String> institutionCodes = institutionStocks.stream()
                 .map(InvestorSurgeDto::getStockCode)
+                .filter(code -> code != null)
                 .collect(Collectors.toSet());
 
-        // 기관 데이터 Map으로 변환
+        // 기관 데이터 Map으로 변환 (중복 키 발생 시 최신 값으로 덮어쓰기)
         Map<String, InvestorSurgeDto> institutionMap = institutionStocks.stream()
-                .collect(Collectors.toMap(InvestorSurgeDto::getStockCode, s -> s, (a, b) -> a));
+                .filter(s -> s.getStockCode() != null)
+                .collect(Collectors.toMap(
+                        InvestorSurgeDto::getStockCode,
+                        s -> s,
+                        (existing, replacement) -> replacement
+                ));
 
         // 외국인 종목 중 기관에도 있는 종목만 필터링하고, 합산 정보로 DTO 생성
-        return foreignStocks.stream()
+        List<InvestorSurgeDto> commonStocks = foreignStocks.stream()
+                .filter(foreign -> foreign.getStockCode() != null)
                 .filter(foreign -> institutionCodes.contains(foreign.getStockCode()))
                 .map(foreign -> {
                     InvestorSurgeDto institution = institutionMap.get(foreign.getStockCode());
 
-                    // 외국인 + 기관 합산 순매수 금액
-                    BigDecimal totalNetBuy = foreign.getNetBuyAmount().add(institution.getNetBuyAmount());
-                    BigDecimal totalChange = (foreign.getAmountChange() != null ? foreign.getAmountChange() : BigDecimal.ZERO)
-                            .add(institution.getAmountChange() != null ? institution.getAmountChange() : BigDecimal.ZERO);
+                    // Null Safety: BigDecimal 연산 시 null을 ZERO로 처리
+                    BigDecimal foreignNetBuy = foreign.getNetBuyAmount() != null
+                            ? foreign.getNetBuyAmount() : BigDecimal.ZERO;
+                    BigDecimal instNetBuy = institution.getNetBuyAmount() != null
+                            ? institution.getNetBuyAmount() : BigDecimal.ZERO;
+                    BigDecimal foreignChange = foreign.getAmountChange() != null
+                            ? foreign.getAmountChange() : BigDecimal.ZERO;
+                    BigDecimal instChange = institution.getAmountChange() != null
+                            ? institution.getAmountChange() : BigDecimal.ZERO;
 
-                    // 공통 종목용 DTO 생성
+                    // 외국인 + 기관 합산
+                    BigDecimal totalNetBuy = foreignNetBuy.add(instNetBuy);
+                    BigDecimal totalChange = foreignChange.add(instChange);
+
+                    // surgeLevel 결정
+                    String surgeLevel = "NORMAL";
+                    if (totalNetBuy.compareTo(SURGE_THRESHOLD_HOT) >= 0) {
+                        surgeLevel = "HOT";
+                    } else if (totalNetBuy.compareTo(SURGE_THRESHOLD_WARM) >= 0) {
+                        surgeLevel = "WARM";
+                    }
+
+                    // 공통 종목용 DTO 생성 (currentRank는 나중에 재산정)
                     return InvestorSurgeDto.builder()
                             .stockCode(foreign.getStockCode())
                             .stockName(foreign.getStockName())
@@ -344,16 +376,22 @@ public class InvestorSurgeService {
                             .amountChange(totalChange)
                             .currentPrice(foreign.getCurrentPrice())
                             .changeRate(foreign.getChangeRate())
-                            .currentRank(Math.min(foreign.getCurrentRank(), institution.getCurrentRank())) // 더 높은 순위 표시
+                            .currentRank(0) // 임시값, 아래에서 재산정
                             .rankChange(0)
-                            .foreignNetBuy(foreign.getNetBuyAmount())
-                            .institutionNetBuy(institution.getNetBuyAmount())
-                            .surgeLevel(totalNetBuy.compareTo(SURGE_THRESHOLD_HOT) >= 0 ? "HOT" :
-                                       totalNetBuy.compareTo(SURGE_THRESHOLD_WARM) >= 0 ? "WARM" : "NORMAL")
+                            .foreignNetBuy(foreignNetBuy)
+                            .institutionNetBuy(instNetBuy)
+                            .surgeLevel(surgeLevel)
                             .build();
                 })
-                .sorted((a, b) -> b.getNetBuyAmount().compareTo(a.getNetBuyAmount())) // 합산 금액 내림차순
+                .sorted((a, b) -> b.getNetBuyAmount().compareTo(a.getNetBuyAmount())) // 합산 금액 내림차순 정렬
                 .collect(Collectors.toList());
+
+        // 순위 재산정: 정렬된 리스트 기준으로 1위부터 순위 부여
+        for (int i = 0; i < commonStocks.size(); i++) {
+            commonStocks.get(i).setCurrentRank(i + 1);
+        }
+
+        return commonStocks;
     }
 
     /**
