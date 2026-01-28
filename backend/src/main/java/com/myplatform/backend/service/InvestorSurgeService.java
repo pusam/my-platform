@@ -497,6 +497,10 @@ public class InvestorSurgeService {
             }
         }
 
+        // trendStatus 계산 (누적금액 + 변화량 조합)
+        String trendStatus = calculateTrendStatus(netBuyAmount, amountChange);
+        String trendStatusName = getTrendStatusName(trendStatus);
+
         return InvestorSurgeDto.builder()
                 .stockCode(snapshot.getStockCode())
                 .stockName(snapshot.getStockName())
@@ -511,7 +515,46 @@ public class InvestorSurgeService {
                 .currentPrice(snapshot.getCurrentPrice())
                 .changeRate(snapshot.getChangeRate())
                 .surgeLevel(surgeLevel)
+                .trendStatus(trendStatus)
+                .trendStatusName(trendStatusName)
                 .build();
+    }
+
+    /**
+     * 추세 상태 계산
+     * - 누적 순매수 금액(currentTotal)과 변화량(changeAmount) 조합으로 결정
+     */
+    private String calculateTrendStatus(BigDecimal currentTotal, BigDecimal changeAmount) {
+        boolean isPositiveTotal = currentTotal.compareTo(BigDecimal.ZERO) > 0;
+        boolean isNegativeTotal = currentTotal.compareTo(BigDecimal.ZERO) < 0;
+        boolean isPositiveChange = changeAmount.compareTo(BigDecimal.ZERO) > 0;
+        boolean isNegativeChange = changeAmount.compareTo(BigDecimal.ZERO) < 0;
+
+        if (isPositiveTotal && isPositiveChange) {
+            return "ACCUMULATING";  // ★최고의 매수 타이밍 - 계속 사는 중
+        } else if (isPositiveTotal && isNegativeChange) {
+            return "PROFIT_TAKING"; // 많이 샀는데 차익 실현 중
+        } else if (isNegativeTotal && isPositiveChange) {
+            return "TURNAROUND";    // ★바닥 잡는 타이밍 - 팔다가 사기 시작
+        } else if (isNegativeTotal && isNegativeChange) {
+            return "SELLING";       // 계속 파는 중
+        } else {
+            return "NEUTRAL";       // 변화 없음
+        }
+    }
+
+    /**
+     * 추세 상태 한글명
+     */
+    private String getTrendStatusName(String trendStatus) {
+        switch (trendStatus) {
+            case "ACCUMULATING": return "★매수 집중";
+            case "PROFIT_TAKING": return "차익 실현";
+            case "TURNAROUND": return "★반전 신호";
+            case "SELLING": return "매도 지속";
+            case "NEUTRAL": return "관망";
+            default: return trendStatus;
+        }
     }
 
     private String getInvestorTypeName(String investorType) {

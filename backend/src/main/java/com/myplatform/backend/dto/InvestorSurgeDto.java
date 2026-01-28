@@ -36,6 +36,17 @@ public class InvestorSurgeDto {
 
     private String surgeLevel;             // 급등 레벨: HOT, WARM, NORMAL
 
+    /**
+     * 추세 상태 (누적금액 + 변화량 조합)
+     * - ACCUMULATING: 누적 양수 + 변화 양수 (★최고의 매수 타이밍 - 계속 사는 중)
+     * - PROFIT_TAKING: 누적 양수 + 변화 음수 (많이 샀는데 차익 실현 중)
+     * - TURNAROUND: 누적 음수 + 변화 양수 (★바닥 잡는 타이밍 - 팔다가 사기 시작)
+     * - SELLING: 누적 음수 + 변화 음수 (계속 파는 중)
+     * - NEUTRAL: 변화 없음
+     */
+    private String trendStatus;
+    private String trendStatusName;        // 추세 상태 한글명
+
     // 공통 종목용 필드
     private BigDecimal foreignNetBuy;      // 외국인 순매수 금액 (억원)
     private BigDecimal institutionNetBuy;  // 기관 순매수 금액 (억원)

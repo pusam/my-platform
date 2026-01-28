@@ -44,9 +44,14 @@
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode"
-             :class="['stock-card', stock.surgeLevel.toLowerCase(), { common: selectedInvestor === 'COMMON' }]">
+             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON' }]">
           <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()">
             {{ getSurgeLevelText(stock.surgeLevel) }}
+          </div>
+
+          <!-- 추세 상태 배지 -->
+          <div class="trend-badge" :class="getTrendClass(stock.trendStatus)" v-if="stock.trendStatus">
+            {{ getTrendIcon(stock.trendStatus) }} {{ stock.trendStatusName }}
           </div>
 
           <div class="stock-header">
@@ -256,6 +261,26 @@ const getSurgeLevelText = (level) => {
     case 'HOT': return '🔥 HOT';
     case 'WARM': return '⚡ WARM';
     default: return '';
+  }
+};
+
+const getTrendClass = (trendStatus) => {
+  switch (trendStatus) {
+    case 'ACCUMULATING': return 'trend-accumulating';
+    case 'PROFIT_TAKING': return 'trend-profit-taking';
+    case 'TURNAROUND': return 'trend-turnaround';
+    case 'SELLING': return 'trend-selling';
+    default: return 'trend-neutral';
+  }
+};
+
+const getTrendIcon = (trendStatus) => {
+  switch (trendStatus) {
+    case 'ACCUMULATING': return '🚀';
+    case 'PROFIT_TAKING': return '💰';
+    case 'TURNAROUND': return '🔄';
+    case 'SELLING': return '📉';
+    default: return '➖';
   }
 };
 
@@ -499,6 +524,59 @@ onMounted(() => {
 
 .stock-card.common .surge-badge.warm {
   background: linear-gradient(135deg, #b794f4 0%, #9f7aea 100%);
+}
+
+/* 추세 상태 배지 */
+.trend-badge {
+  position: absolute;
+  top: -10px;
+  left: 15px;
+  padding: 0.3rem 0.8rem;
+  border-radius: 15px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: white;
+}
+
+.trend-badge.trend-accumulating {
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+}
+
+.trend-badge.trend-profit-taking {
+  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+}
+
+.trend-badge.trend-turnaround {
+  background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+}
+
+.trend-badge.trend-selling {
+  background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+}
+
+.trend-badge.trend-neutral {
+  display: none;
+}
+
+/* 추세 상태별 카드 테두리 (ACCUMULATING, TURNAROUND 강조) */
+.stock-card.trend-accumulating {
+  border-color: #48bb78 !important;
+  box-shadow: 0 0 20px rgba(72, 187, 120, 0.3);
+}
+
+.stock-card.trend-turnaround {
+  border-color: #4299e1 !important;
+  box-shadow: 0 0 20px rgba(66, 153, 225, 0.3);
+}
+
+.stock-card.trend-accumulating:hover {
+  border-color: #38a169 !important;
+  box-shadow: 0 10px 30px rgba(72, 187, 120, 0.4);
+}
+
+.stock-card.trend-turnaround:hover {
+  border-color: #3182ce !important;
+  box-shadow: 0 10px 30px rgba(66, 153, 225, 0.4);
 }
 
 .stock-header {
