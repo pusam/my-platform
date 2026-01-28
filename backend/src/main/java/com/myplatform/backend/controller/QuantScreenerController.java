@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.service.FinancialDataCrawlerService;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
 import com.myplatform.backend.service.StockFinancialDataService;
@@ -33,6 +34,7 @@ public class QuantScreenerController {
     private final QuantScreenerService quantScreenerService;
     private final GeminiService geminiService;
     private final StockFinancialDataService stockFinancialDataService;
+    private final FinancialDataCrawlerService financialDataCrawlerService;
 
     /**
      * 마법의 공식 스크리너
@@ -372,16 +374,107 @@ public class QuantScreenerController {
         Map<String, Object> response = new HashMap<>();
         try {
             long totalCount = stockFinancialDataService.getDataCount();
+            long withOperatingMargin = financialDataCrawlerService.countWithOperatingMargin();
+            long missingOperatingMargin = financialDataCrawlerService.countMissingOperatingMargin();
+
             response.put("success", true);
             response.put("totalRecords", totalCount);
+            response.put("withOperatingMargin", withOperatingMargin);
+            response.put("missingOperatingMargin", missingOperatingMargin);
             response.put("message", totalCount > 0
-                    ? "재무 데이터 " + totalCount + "건 수집됨"
+                    ? String.format("재무 데이터 %d건 (영업이익률: %d건, 미수집: %d건)",
+                            totalCount, withOperatingMargin, missingOperatingMargin)
                     : "수집된 재무 데이터가 없습니다. POST /api/screener/collect-all을 호출하세요.");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("재무 데이터 상태 조회 오류", e);
             response.put("success", false);
             response.put("message", "상태 조회 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    // ========== 영업이익률 크롤링 API ==========
+
+    /**
+     * 전 종목 영업이익률 크롤링
+     * - 네이버 금융에서 영업이익률, 순이익률, ROE, 부채비율 크롤링
+     * - 2000개 종목 기준 약 15-20분 소요
+     */
+    @PostMapping("/crawl-operating-margin")
+    @Operation(summary = "영업이익률 크롤링",
+               description = "네이버 금융에서 영업이익률 등 재무 지표를 크롤링합니다. " +
+                           "Rate Limit 고려하여 종목당 500ms 대기합니다. " +
+                           "약 2000개 종목 기준 15-20분 소요됩니다.")
+    public ResponseEntity<Map<String, Object>> crawlOperatingMargin(
+            @Parameter(description = "기존 데이터 강제 업데이트 여부 (기본: false)")
+            @RequestParam(defaultValue = "false") boolean forceUpdate) {
+
+        log.info("영업이익률 크롤링 API 호출 - forceUpdate: {}", forceUpdate);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> result = financialDataCrawlerService.crawlAllOperatingMargin(forceUpdate);
+            response.put("success", true);
+            response.put("data", result);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("영업이익률 크롤링 오류", e);
+            response.put("success", false);
+            response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 단일 종목 영업이익률 크롤링
+     */
+    @PostMapping("/crawl-operating-margin/{stockCode}")
+    @Operation(summary = "단일 종목 영업이익률 크롤링",
+               description = "특정 종목의 영업이익률을 네이버 금융에서 크롤링합니다.")
+    public ResponseEntity<Map<String, Object>> crawlSingleOperatingMargin(
+            @PathVariable String stockCode) {
+
+        log.info("단일 종목 영업이익률 크롤링 API 호출: {}", stockCode);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            boolean success = financialDataCrawlerService.crawlSingleStock(stockCode);
+            response.put("success", success);
+            response.put("stockCode", stockCode);
+            response.put("message", success ? "크롤링 완료" : "크롤링 실패");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("단일 종목 영업이익률 크롤링 오류: {}", stockCode, e);
+            response.put("success", false);
+            response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 단일 종목 재무비율 조회 (크롤링만, 저장 안함)
+     */
+    @GetMapping("/crawl-preview/{stockCode}")
+    @Operation(summary = "크롤링 미리보기",
+               description = "특정 종목의 재무 지표를 크롤링하여 결과만 확인합니다 (저장 안함).")
+    public ResponseEntity<Map<String, Object>> previewCrawl(@PathVariable String stockCode) {
+        log.info("크롤링 미리보기 API 호출: {}", stockCode);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, BigDecimal> ratios = financialDataCrawlerService.crawlFinancialRatios(stockCode);
+            response.put("success", ratios != null && !ratios.isEmpty());
+            response.put("stockCode", stockCode);
+            response.put("data", ratios);
+            response.put("message", ratios != null && !ratios.isEmpty()
+                    ? "크롤링 성공"
+                    : "데이터를 찾을 수 없습니다");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("크롤링 미리보기 오류: {}", stockCode, e);
+            response.put("success", false);
+            response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }

@@ -319,11 +319,10 @@ public class InvestorTradeService {
 
         log.info("거래일 수: {} (투자자: {})", tradeDates.size(), investorType);
 
-        // 데이터가 minDays보다 적으면 자동으로 minDays를 조정
-        int actualMinDays = minDays;
+        // 데이터가 minDays보다 적으면 빈 결과 반환 (사용자가 요청한 기준을 낮추지 않음)
         if (tradeDates.size() < minDays) {
-            actualMinDays = Math.max(1, tradeDates.size());
-            log.info("데이터가 {}일뿐이므로 최소 연속일을 {}일로 조정", tradeDates.size(), actualMinDays);
+            log.info("데이터가 {}일뿐이므로 {}일 연속 매수 종목을 찾을 수 없습니다.", tradeDates.size(), minDays);
+            return Collections.emptyList();
         }
 
         // 최근 30일 데이터만 분석
@@ -413,7 +412,7 @@ public class InvestorTradeService {
                 }
             }
 
-            if (consecutiveDays >= actualMinDays) {
+            if (consecutiveDays >= minDays) {
                 InvestorDailyTrade latestTrade = latestTradeByStock.get(stockCode);
 
                 BigDecimal avgAmount = consecutiveDays > 0
@@ -445,8 +444,8 @@ public class InvestorTradeService {
             return b.getTotalNetBuyAmount().compareTo(a.getTotalNetBuyAmount());
         });
 
-        log.info("연속 매수 종목 조회 완료: {} - {}개 (후보군: {}, 최소 {}일, 실제적용 {}일)",
-                investorType, result.size(), candidateStocks.size(), minDays, actualMinDays);
+        log.info("연속 매수 종목 조회 완료: {} - {}개 (후보군: {}, 최소 {}일)",
+                investorType, result.size(), candidateStocks.size(), minDays);
 
         return result;
     }

@@ -268,6 +268,152 @@
           <p>턴어라운드 종목이 없습니다.</p>
         </div>
       </div>
+
+      <!-- 데이터 관리 탭 -->
+      <div v-if="selectedTab === 'data-management'" class="tab-content">
+        <div class="info-box warning">
+          <strong>데이터 수집 안내</strong>
+          <p>스크리너를 사용하려면 먼저 재무 데이터를 수집해야 합니다. 수집 순서: 1) 기본 재무 데이터 수집 → 2) 영업이익률 크롤링</p>
+        </div>
+
+        <!-- 수집 상태 카드 -->
+        <div class="status-card">
+          <div class="status-header">
+            <h3>📊 수집 현황</h3>
+            <button @click="fetchCollectStatus" class="refresh-btn small">새로고침</button>
+          </div>
+          <div v-if="collectStatus" class="status-grid">
+            <div class="status-item">
+              <span class="status-label">전체 데이터</span>
+              <span class="status-value">{{ collectStatus.totalRecords?.toLocaleString() || 0 }}건</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">영업이익률 있음</span>
+              <span class="status-value positive">{{ collectStatus.withOperatingMargin?.toLocaleString() || 0 }}건</span>
+            </div>
+            <div class="status-item">
+              <span class="status-label">영업이익률 없음</span>
+              <span class="status-value warning-text">{{ collectStatus.missingOperatingMargin?.toLocaleString() || 0 }}건</span>
+            </div>
+          </div>
+          <div v-else class="status-loading">
+            상태 조회 중...
+          </div>
+        </div>
+
+        <!-- 수집 버튼 영역 -->
+        <div class="collect-actions">
+          <!-- 기본 재무 데이터 수집 -->
+          <div class="action-card">
+            <div class="action-header">
+              <span class="action-icon">📥</span>
+              <h4>기본 재무 데이터 수집</h4>
+            </div>
+            <p class="action-desc">
+              KIS API를 통해 전 종목의 PER, PBR, EPS, ROE 등 기본 재무 지표를 수집합니다.
+            </p>
+            <div class="action-info">
+              <span class="info-tag">⏱️ 약 10-15분 소요</span>
+              <span class="info-tag">📈 2,000+ 종목</span>
+            </div>
+            <button
+              @click="collectAllFinancialData"
+              class="action-btn primary"
+              :disabled="isCollecting || isCrawling"
+            >
+              <span v-if="isCollecting" class="spinner"></span>
+              {{ isCollecting ? '수집 중...' : '기본 데이터 수집 시작' }}
+            </button>
+          </div>
+
+          <!-- 영업이익률 크롤링 -->
+          <div class="action-card">
+            <div class="action-header">
+              <span class="action-icon">🕷️</span>
+              <h4>영업이익률 크롤링</h4>
+            </div>
+            <p class="action-desc">
+              네이버 금융에서 영업이익률, 순이익률 등을 크롤링합니다. 마법의 공식에 필수!
+            </p>
+            <div class="action-info">
+              <span class="info-tag">⏱️ 약 15-20분 소요</span>
+              <span class="info-tag">🌐 네이버 금융</span>
+            </div>
+            <div class="action-options">
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="crawlForceUpdate">
+                기존 데이터도 강제 업데이트
+              </label>
+            </div>
+            <button
+              @click="crawlOperatingMargin"
+              class="action-btn secondary"
+              :disabled="isCollecting || isCrawling"
+            >
+              <span v-if="isCrawling" class="spinner"></span>
+              {{ isCrawling ? '크롤링 중...' : '영업이익률 크롤링 시작' }}
+            </button>
+          </div>
+
+          <!-- 단일 종목 테스트 -->
+          <div class="action-card">
+            <div class="action-header">
+              <span class="action-icon">🔍</span>
+              <h4>단일 종목 테스트</h4>
+            </div>
+            <p class="action-desc">
+              특정 종목의 크롤링 결과를 미리 확인합니다. (저장하지 않음)
+            </p>
+            <div class="test-input-group">
+              <input
+                v-model="testStockCode"
+                placeholder="종목코드 (예: 005930)"
+                class="test-input"
+                @keyup.enter="previewCrawl"
+              >
+              <button @click="previewCrawl" class="action-btn small" :disabled="!testStockCode">
+                미리보기
+              </button>
+            </div>
+            <div v-if="crawlPreview" class="preview-result">
+              <div class="preview-header">
+                <span>{{ crawlPreview.stockCode }} 크롤링 결과</span>
+              </div>
+              <div class="preview-data" v-if="crawlPreview.data">
+                <div class="preview-item" v-if="crawlPreview.data.operatingMargin">
+                  <span>영업이익률:</span>
+                  <span class="value">{{ crawlPreview.data.operatingMargin }}%</span>
+                </div>
+                <div class="preview-item" v-if="crawlPreview.data.netMargin">
+                  <span>순이익률:</span>
+                  <span class="value">{{ crawlPreview.data.netMargin }}%</span>
+                </div>
+                <div class="preview-item" v-if="crawlPreview.data.roe">
+                  <span>ROE:</span>
+                  <span class="value">{{ crawlPreview.data.roe }}%</span>
+                </div>
+                <div class="preview-item" v-if="crawlPreview.data.debtRatio">
+                  <span>부채비율:</span>
+                  <span class="value">{{ crawlPreview.data.debtRatio }}%</span>
+                </div>
+              </div>
+              <div v-else class="preview-empty">
+                데이터를 찾을 수 없습니다.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 진행 상황 -->
+        <div v-if="collectProgress" class="progress-log">
+          <div class="progress-header">
+            <span>📋 진행 상황</span>
+          </div>
+          <div class="progress-content">
+            {{ collectProgress }}
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -285,13 +431,20 @@ const selectedTab = ref('magic-formula');
 const tabs = [
   { value: 'magic-formula', label: '마법의 공식', icon: '✨' },
   { value: 'peg', label: 'PEG 스크리너', icon: '📈' },
-  { value: 'turnaround', label: '턴어라운드', icon: '🔄' }
+  { value: 'turnaround', label: '턴어라운드', icon: '🔄' },
+  { value: 'data-management', label: '데이터 관리', icon: '⚙️' }
 ];
 
 // 데이터
 const magicFormulaStocks = ref([]);
 const pegStocks = ref([]);
 const turnaroundStocks = ref([]);
+
+// 데이터 수집 상태
+const collectStatus = ref(null);
+const isCollecting = ref(false);
+const isCrawling = ref(false);
+const collectProgress = ref('');
 
 // AI 분석 결과
 const aiLoading = ref(false);
@@ -315,6 +468,11 @@ const turnaroundFilters = ref({
   limit: 30
 });
 
+// 크롤링 옵션
+const crawlForceUpdate = ref(false);
+const testStockCode = ref('');
+const crawlPreview = ref(null);
+
 const changeTab = (tab) => {
   selectedTab.value = tab;
   if (tab === 'magic-formula' && magicFormulaStocks.value.length === 0) {
@@ -323,6 +481,91 @@ const changeTab = (tab) => {
     fetchPegStocks();
   } else if (tab === 'turnaround' && turnaroundStocks.value.length === 0) {
     fetchTurnaroundStocks();
+  } else if (tab === 'data-management') {
+    fetchCollectStatus();
+  }
+};
+
+// ========== 데이터 수집 관련 함수 ==========
+
+const fetchCollectStatus = async () => {
+  try {
+    const response = await api.get('/screener/collect-status');
+    if (response.data.success) {
+      collectStatus.value = response.data;
+    }
+  } catch (error) {
+    console.error('수집 상태 조회 오류:', error);
+  }
+};
+
+const collectAllFinancialData = async () => {
+  if (isCollecting.value) return;
+
+  if (!confirm('전 종목 재무 데이터 수집을 시작하시겠습니까?\n약 10-15분 소요됩니다.')) {
+    return;
+  }
+
+  isCollecting.value = true;
+  collectProgress.value = '재무 데이터 수집 시작...';
+
+  try {
+    const response = await api.post('/screener/collect-all');
+    if (response.data.success) {
+      const data = response.data.data;
+      collectProgress.value = `수집 완료! 총 ${data.total}개 종목 중 성공: ${data.successCount}, 실패: ${data.failCount} (소요시간: ${data.elapsedSeconds}초)`;
+      await fetchCollectStatus();
+    } else {
+      collectProgress.value = '수집 실패: ' + response.data.message;
+    }
+  } catch (error) {
+    console.error('재무 데이터 수집 오류:', error);
+    collectProgress.value = '수집 중 오류 발생: ' + (error.response?.data?.message || error.message);
+  } finally {
+    isCollecting.value = false;
+  }
+};
+
+const crawlOperatingMargin = async () => {
+  if (isCrawling.value) return;
+
+  if (!confirm('영업이익률 크롤링을 시작하시겠습니까?\n약 15-20분 소요됩니다.')) {
+    return;
+  }
+
+  isCrawling.value = true;
+  collectProgress.value = '영업이익률 크롤링 시작...';
+
+  try {
+    const response = await api.post('/screener/crawl-operating-margin', null, {
+      params: { forceUpdate: crawlForceUpdate.value }
+    });
+    if (response.data.success) {
+      const data = response.data.data;
+      collectProgress.value = `크롤링 완료! 성공: ${data.successCount}, 실패: ${data.failCount}, 스킵: ${data.skipCount} (소요시간: ${data.elapsedSeconds}초)`;
+      await fetchCollectStatus();
+    } else {
+      collectProgress.value = '크롤링 실패: ' + response.data.message;
+    }
+  } catch (error) {
+    console.error('영업이익률 크롤링 오류:', error);
+    collectProgress.value = '크롤링 중 오류 발생: ' + (error.response?.data?.message || error.message);
+  } finally {
+    isCrawling.value = false;
+  }
+};
+
+const previewCrawl = async () => {
+  if (!testStockCode.value) return;
+
+  crawlPreview.value = null;
+
+  try {
+    const response = await api.get(`/screener/crawl-preview/${testStockCode.value}`);
+    crawlPreview.value = response.data;
+  } catch (error) {
+    console.error('크롤링 미리보기 오류:', error);
+    crawlPreview.value = { success: false, message: '오류 발생' };
   }
 };
 
@@ -980,6 +1223,305 @@ onMounted(() => {
   font-size: 1.2rem;
 }
 
+/* 데이터 관리 탭 스타일 */
+.info-box.warning {
+  border-left-color: #f59e0b;
+}
+
+.info-box.warning strong {
+  color: #f59e0b;
+}
+
+.status-card {
+  background: #1a1a3a;
+  border-radius: 15px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid #2a2a4a;
+}
+
+.status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.status-header h3 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.refresh-btn.small {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.status-item {
+  background: #2a2a4a;
+  padding: 1rem;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.status-label {
+  display: block;
+  color: #888;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.status-value {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.status-value.positive {
+  color: #4ade80;
+}
+
+.status-value.warning-text {
+  color: #f59e0b;
+}
+
+.status-loading {
+  text-align: center;
+  color: #888;
+  padding: 1rem;
+}
+
+.collect-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.action-card {
+  background: #1a1a3a;
+  border-radius: 15px;
+  padding: 1.5rem;
+  border: 1px solid #2a2a4a;
+  transition: all 0.3s;
+}
+
+.action-card:hover {
+  border-color: #4a4a8a;
+}
+
+.action-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.action-icon {
+  font-size: 1.5rem;
+}
+
+.action-header h4 {
+  color: #fff;
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.action-desc {
+  color: #aaa;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.action-info {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.info-tag {
+  background: #2a2a4a;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.action-options {
+  margin-bottom: 1rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.action-btn {
+  width: 100%;
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.action-btn.primary {
+  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+  color: #000;
+}
+
+.action-btn.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(74, 222, 128, 0.3);
+}
+
+.action-btn.secondary {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color: #fff;
+}
+
+.action-btn.secondary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
+}
+
+.action-btn.small {
+  width: auto;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  background: #4a4a8a;
+  color: #fff;
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.test-input-group {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.test-input {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: 1px solid #3a3a5a;
+  border-radius: 8px;
+  background: #2a2a4a;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.test-input::placeholder {
+  color: #666;
+}
+
+.preview-result {
+  background: #2a2a4a;
+  border-radius: 10px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.preview-header {
+  background: #3a3a5a;
+  padding: 0.75rem 1rem;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.preview-data {
+  padding: 1rem;
+}
+
+.preview-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #3a3a5a;
+  color: #aaa;
+}
+
+.preview-item:last-child {
+  border-bottom: none;
+}
+
+.preview-item .value {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.preview-empty {
+  padding: 1rem;
+  text-align: center;
+  color: #888;
+}
+
+.progress-log {
+  background: #1a1a3a;
+  border-radius: 15px;
+  overflow: hidden;
+  border: 1px solid #2a2a4a;
+}
+
+.progress-header {
+  background: #2a2a4a;
+  padding: 0.75rem 1rem;
+  color: #fff;
+  font-weight: 600;
+}
+
+.progress-content {
+  padding: 1rem;
+  color: #4ade80;
+  font-family: monospace;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
 @media (max-width: 768px) {
   .screener-page {
     padding: 1rem;
@@ -1028,6 +1570,22 @@ onMounted(() => {
   .stocks-table th,
   .stocks-table td {
     padding: 0.5rem;
+  }
+
+  .status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .collect-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .test-input-group {
+    flex-direction: column;
+  }
+
+  .action-btn.small {
+    width: 100%;
   }
 }
 </style>
