@@ -266,7 +266,16 @@ public class InvestorSurgeService {
                     .collect(Collectors.toList());
         }
 
-        return surgeSnapshots.stream()
+        // 종목코드 기준 중복 제거 (가장 최신 데이터만 유지)
+        Map<String, InvestorIntradaySnapshot> uniqueSnapshots = new LinkedHashMap<>();
+        for (InvestorIntradaySnapshot snapshot : surgeSnapshots) {
+            String key = snapshot.getStockCode();
+            if (!uniqueSnapshots.containsKey(key)) {
+                uniqueSnapshots.put(key, snapshot);
+            }
+        }
+
+        return uniqueSnapshots.values().stream()
                 .map(this::toSurgeDto)
                 .collect(Collectors.toList());
     }
