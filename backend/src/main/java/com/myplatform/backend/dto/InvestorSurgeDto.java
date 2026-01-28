@@ -7,6 +7,8 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -105,5 +107,73 @@ public class InvestorSurgeDto {
             return 0;
         }
         return duration.toMinutes();
+    }
+
+    // ========== 금액 포맷팅 관련 (프론트엔드 UI용) ==========
+
+    private static final DecimalFormat DECIMAL_FORMAT = new DecimalFormat("#,###");
+
+    /**
+     * 변화량(amountChange)을 포맷팅된 문자열로 반환
+     * - 값이 억원 단위로 저장됨 (예: 0.3 = 0.3억 = 3,000만원)
+     * - 절대값 < 1억: "3,000만" 또는 "-3,000만"
+     * - 절대값 >= 1억: "1.5억" 또는 "-1.5억"
+     * - 0이거나 null: "-"
+     */
+    public String getFormattedChangeAmount() {
+        return formatAmountInBillions(amountChange);
+    }
+
+    /**
+     * 순매수금액(netBuyAmount)을 포맷팅된 문자열로 반환
+     */
+    public String getFormattedNetBuyAmount() {
+        return formatAmountInBillions(netBuyAmount);
+    }
+
+    /**
+     * 외국인 순매수금액(foreignNetBuy)을 포맷팅된 문자열로 반환
+     */
+    public String getFormattedForeignNetBuy() {
+        return formatAmountInBillions(foreignNetBuy);
+    }
+
+    /**
+     * 기관 순매수금액(institutionNetBuy)을 포맷팅된 문자열로 반환
+     */
+    public String getFormattedInstitutionNetBuy() {
+        return formatAmountInBillions(institutionNetBuy);
+    }
+
+    /**
+     * 억원 단위 금액을 직관적인 문자열로 변환
+     * @param amountInBillions 억원 단위 금액 (예: 0.3 = 0.3억 = 3,000만원)
+     * @return 포맷팅된 문자열 (양수: +1,500만, 음수: -1,500만)
+     */
+    @JsonIgnore
+    private String formatAmountInBillions(BigDecimal amountInBillions) {
+        if (amountInBillions == null || amountInBillions.compareTo(BigDecimal.ZERO) == 0) {
+            return "-";
+        }
+
+        BigDecimal absValue = amountInBillions.abs();
+        String sign = amountInBillions.compareTo(BigDecimal.ZERO) < 0 ? "-" : "+";
+
+        // 절대값이 1억 미만인 경우 → 만원 단위로 표시
+        if (absValue.compareTo(BigDecimal.ONE) < 0) {
+            // 억원 → 만원 변환 (0.3억 → 3,000만)
+            long manwon = absValue.multiply(BigDecimal.valueOf(10000)).setScale(0, RoundingMode.HALF_UP).longValue();
+            return sign + DECIMAL_FORMAT.format(manwon) + "만";
+        }
+
+        // 절대값이 1억 이상인 경우 → 억원 단위로 표시
+        // 소수점 첫째자리까지만 표시 (1.5억, 2억 등)
+        BigDecimal rounded = absValue.setScale(1, RoundingMode.HALF_UP);
+
+        // 소수점이 .0인 경우 정수로 표시
+        if (rounded.stripTrailingZeros().scale() <= 0) {
+            return sign + rounded.setScale(0, RoundingMode.HALF_UP).toString() + "억";
+        }
+        return sign + rounded.toString() + "억";
     }
 }

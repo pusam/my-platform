@@ -72,7 +72,7 @@
             <div class="detail-row highlight">
               <span class="label">{{ selectedInvestor === 'COMMON' ? '합산 순매수' : '누적 순매수' }}</span>
               <span class="value amount" :class="getAmountClass(stock.netBuyAmount)">
-                {{ formatAmountWithSign(stock.netBuyAmount) }}
+                {{ stock.formattedNetBuyAmount || '-' }}
               </span>
             </div>
             <!-- 공통 종목일 때 외국인/기관 개별 금액 표시 -->
@@ -80,20 +80,20 @@
               <div class="detail-row foreign-row">
                 <span class="label">🌍 외국인</span>
                 <span class="value" :class="getAmountClass(stock.foreignNetBuy)">
-                  {{ formatAmountWithSign(stock.foreignNetBuy) }}
+                  {{ stock.formattedForeignNetBuy || '-' }}
                 </span>
               </div>
               <div class="detail-row institution-row">
                 <span class="label">🏢 기관</span>
                 <span class="value" :class="getAmountClass(stock.institutionNetBuy)">
-                  {{ formatAmountWithSign(stock.institutionNetBuy) }}
+                  {{ stock.formattedInstitutionNetBuy || '-' }}
                 </span>
               </div>
             </template>
-            <div class="detail-row" v-if="hasAmountChange(stock.amountChange) && selectedInvestor !== 'COMMON'">
+            <div class="detail-row" v-if="hasFormattedChange(stock.formattedChangeAmount) && selectedInvestor !== 'COMMON'">
               <span class="label">변화량</span>
               <span class="value" :class="getAmountClass(stock.amountChange)">
-                {{ formatAmountWithSign(stock.amountChange) }}
+                {{ stock.formattedChangeAmount }}
               </span>
             </div>
             <div class="detail-row" v-if="stock.currentPrice">
@@ -227,6 +227,11 @@ const getAmountClass = (value) => {
 const hasAmountChange = (value) => {
   if (value === null || value === undefined) return false;
   return Math.abs(Number(value)) > 0.01; // 0.01억 이상 변화가 있을 때만 표시
+};
+
+const hasFormattedChange = (formattedValue) => {
+  // 백엔드에서 null/0인 경우 "-"를 반환하므로 "-"가 아닌 경우에만 표시
+  return formattedValue && formattedValue !== '-';
 };
 
 const formatRate = (value) => {
