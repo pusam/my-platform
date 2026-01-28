@@ -135,5 +135,33 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
 
     // 종목코드와 날짜로 조회
     Optional<StockFinancialData> findByStockCodeAndReportDate(String stockCode, LocalDate reportDate);
+
+    // ========== [성능 최적화] 턴어라운드 스크리너용 Bulk 조회 ==========
+
+    /**
+     * 최근 N개월 내 데이터를 한 번에 조회 (N+1 방지)
+     * - 모든 종목의 최근 데이터를 한 번의 쿼리로 가져옴
+     * - 서비스에서 groupingBy로 종목별 처리
+     *
+     * @param minDate 최소 날짜 (이 날짜 이후 데이터만 조회)
+     * @return 모든 종목의 최근 데이터 목록
+     */
+    @Query("SELECT s FROM StockFinancialData s " +
+           "WHERE s.reportDate >= :minDate " +
+           "AND s.netIncome IS NOT NULL " +
+           "ORDER BY s.stockCode ASC, s.reportDate DESC")
+    List<StockFinancialData> findAllRecentData(@Param("minDate") LocalDate minDate);
+
+    /**
+     * 최근 2개 분기 데이터만 조회 (턴어라운드 분석 최적화)
+     * - 각 종목별 최신 2개 레코드만 필요
+     */
+    @Query(value = "SELECT * FROM (" +
+           "  SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.stock_code ORDER BY s.report_date DESC) as rn " +
+           "  FROM stock_financial_data s " +
+           "  WHERE s.net_income IS NOT NULL " +
+           ") ranked WHERE rn <= 2",
+           nativeQuery = true)
+    List<StockFinancialData> findLatestTwoQuartersPerStock();
 }
 

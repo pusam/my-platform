@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -17,6 +18,10 @@ import java.util.stream.Collectors;
  * - 마법의 공식 (Magic Formula) 스크리닝
  * - PEG 기반 저평가 성장주 스크리닝
  * - 분기 실적 턴어라운드 스크리닝
+ *
+ * [성능 최적화]
+ * - N+1 문제 해결: Bulk 조회 후 메모리에서 groupingBy 처리
+ * - 적자 기업 필터링: 마법의 공식에서 PER <= 0 기업 사전 제외
  */
 @Service
 @RequiredArgsConstructor
@@ -27,57 +32,55 @@ public class QuantScreenerService {
 
     /**
      * 마법의 공식 스크리너
-     * - (영업이익률 순위 + ROE 순위) 합산으로 종합 순위 계산
-     * - 저PER 필터 적용
+     * - (영업이익률 순위 + ROE 순위 + PER 순위) 합산으로 종합 순위 계산
+     *
+     * [개선 2] 적자 기업 필터링
+     * - PER <= 0 (적자 또는 비정상) 기업은 랭킹 산정 전에 제외
+     * - 마법의 공식은 우량주를 찾는 것이므로 적자 기업은 대상이 아님
      */
     public List<ScreenerResultDto> getMagicFormulaStocks(Integer limit, BigDecimal minMarketCap) {
         log.info("마법의 공식 스크리닝 시작 - limit: {}, minMarketCap: {}", limit, minMarketCap);
 
-        // 1. 조건에 맞는 종목 조회
-        List<StockFinancialData> stocks = stockFinancialDataRepository.findForMagicFormula(minMarketCap);
+        // 1. 조건에 맞는 종목 조회 (Repository에서 이미 PER > 0 필터 적용됨)
+        List<StockFinancialData> allStocks = stockFinancialDataRepository.findForMagicFormula(minMarketCap);
+
+        // 2. [개선] 적자 기업 확실히 제외 (PER > 0 재확인)
+        List<StockFinancialData> stocks = allStocks.stream()
+                .filter(s -> s.getPer() != null && s.getPer().compareTo(BigDecimal.ZERO) > 0)
+                .filter(s -> s.getOperatingMargin() != null && s.getOperatingMargin().compareTo(BigDecimal.ZERO) > 0)
+                .filter(s -> s.getRoe() != null && s.getRoe().compareTo(BigDecimal.ZERO) > 0)
+                .collect(Collectors.toList());
 
         if (stocks.isEmpty()) {
             log.info("마법의 공식 조건에 맞는 종목이 없습니다.");
             return Collections.emptyList();
         }
 
-        // 2. 영업이익률 순위 계산 (높을수록 좋음 = 낮은 순위)
-        List<StockFinancialData> byOperatingMargin = stocks.stream()
-                .sorted(Comparator.comparing(StockFinancialData::getOperatingMargin).reversed())
-                .collect(Collectors.toList());
-        Map<String, Integer> operatingMarginRanks = new HashMap<>();
-        for (int i = 0; i < byOperatingMargin.size(); i++) {
-            operatingMarginRanks.put(byOperatingMargin.get(i).getStockCode(), i + 1);
-        }
+        log.debug("마법의 공식 후보 종목 수: {} (필터링 전: {})", stocks.size(), allStocks.size());
 
-        // 3. ROE 순위 계산 (높을수록 좋음 = 낮은 순위)
-        List<StockFinancialData> byRoe = stocks.stream()
-                .sorted(Comparator.comparing(StockFinancialData::getRoe).reversed())
-                .collect(Collectors.toList());
-        Map<String, Integer> roeRanks = new HashMap<>();
-        for (int i = 0; i < byRoe.size(); i++) {
-            roeRanks.put(byRoe.get(i).getStockCode(), i + 1);
-        }
+        // 3. 각 지표별 순위 계산 (모두 양수인 종목만 대상)
+        int totalStocks = stocks.size();
 
-        // 4. PER 순위 계산 (낮을수록 좋음 = 낮은 순위)
-        List<StockFinancialData> byPer = stocks.stream()
-                .filter(s -> s.getPer() != null && s.getPer().compareTo(BigDecimal.ZERO) > 0)
-                .sorted(Comparator.comparing(StockFinancialData::getPer))
-                .collect(Collectors.toList());
-        Map<String, Integer> perRanks = new HashMap<>();
-        for (int i = 0; i < byPer.size(); i++) {
-            perRanks.put(byPer.get(i).getStockCode(), i + 1);
-        }
+        // 영업이익률 순위 (높을수록 좋음 = 낮은 순위)
+        Map<String, Integer> operatingMarginRanks = calculateRanks(stocks,
+                Comparator.comparing(StockFinancialData::getOperatingMargin).reversed());
 
-        // 5. 종합 순위 계산 (영업이익률 순위 + ROE 순위 + PER 순위, 낮을수록 좋음)
+        // ROE 순위 (높을수록 좋음 = 낮은 순위)
+        Map<String, Integer> roeRanks = calculateRanks(stocks,
+                Comparator.comparing(StockFinancialData::getRoe).reversed());
+
+        // PER 순위 (낮을수록 좋음 = 낮은 순위)
+        Map<String, Integer> perRanks = calculateRanks(stocks,
+                Comparator.comparing(StockFinancialData::getPer));
+
+        // 4. 종합 순위 계산 (영업이익률 순위 + ROE 순위 + PER 순위, 낮을수록 좋음)
         List<ScreenerResultDto> results = stocks.stream()
                 .map(stock -> {
-                    Integer opMarginRank = operatingMarginRanks.getOrDefault(stock.getStockCode(), stocks.size());
-                    Integer roeRank = roeRanks.getOrDefault(stock.getStockCode(), stocks.size());
-                    Integer perRank = perRanks.getOrDefault(stock.getStockCode(), stocks.size());
+                    Integer opMarginRank = operatingMarginRanks.getOrDefault(stock.getStockCode(), totalStocks);
+                    Integer roeRank = roeRanks.getOrDefault(stock.getStockCode(), totalStocks);
+                    Integer perRank = perRanks.getOrDefault(stock.getStockCode(), totalStocks);
 
-                    // 종합 점수 (낮을수록 좋음)
-                    int totalRank = opMarginRank + roeRank + perRank;
+                    int totalScore = opMarginRank + roeRank + perRank;
 
                     return ScreenerResultDto.builder()
                             .stockCode(stock.getStockCode())
@@ -94,7 +97,7 @@ public class QuantScreenerService {
                             .eps(stock.getEps())
                             .epsGrowth(stock.getEpsGrowth())
                             .peg(stock.getPeg())
-                            .magicFormulaScore(BigDecimal.valueOf(totalRank))
+                            .magicFormulaScore(BigDecimal.valueOf(totalScore))
                             .operatingMarginRank(opMarginRank)
                             .roeRank(roeRank)
                             .perRank(perRank)
@@ -105,18 +108,34 @@ public class QuantScreenerService {
                 .sorted(Comparator.comparing(ScreenerResultDto::getMagicFormulaScore))
                 .collect(Collectors.toList());
 
-        // 6. 종합 순위 부여
+        // 5. 최종 순위 부여
         for (int i = 0; i < results.size(); i++) {
             results.get(i).setMagicFormulaRank(i + 1);
         }
 
-        // 7. limit 적용
+        // 6. limit 적용
         if (limit != null && limit > 0) {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
         log.info("마법의 공식 스크리닝 완료 - 결과 {}건", results.size());
         return results;
+    }
+
+    /**
+     * 순위 계산 헬퍼 메서드
+     */
+    private Map<String, Integer> calculateRanks(List<StockFinancialData> stocks,
+                                                 Comparator<StockFinancialData> comparator) {
+        List<StockFinancialData> sorted = stocks.stream()
+                .sorted(comparator)
+                .collect(Collectors.toList());
+
+        Map<String, Integer> ranks = new HashMap<>();
+        for (int i = 0; i < sorted.size(); i++) {
+            ranks.put(sorted.get(i).getStockCode(), i + 1);
+        }
+        return ranks;
     }
 
     /**
@@ -170,23 +189,44 @@ public class QuantScreenerService {
      * 턴어라운드 스크리너
      * - 직전 분기 적자 → 당 분기 흑자 전환 종목
      * - 순이익 개선률 계산
+     *
+     * [개선 1] N+1 문제 해결
+     * - 기존: findAllStockCodes() 후 2,000번 개별 쿼리 (서버 뻗음)
+     * - 개선: findAllRecentData()로 한 번에 조회 → 메모리에서 groupingBy 처리
      */
     public List<ScreenerResultDto> getTurnaroundStocks(Integer limit) {
         log.info("턴어라운드 스크리닝 시작 - limit: {}", limit);
 
+        LocalDate minDate = LocalDate.now().minusMonths(12);
+        List<StockFinancialData> allRecentData = stockFinancialDataRepository.findAllRecentData(minDate);
+
+        if (allRecentData.isEmpty()) {
+            log.info("최근 데이터가 없습니다.");
+            return Collections.emptyList();
+        }
+
+        log.debug("턴어라운드 분석 대상 데이터: {}건", allRecentData.size());
+
+        // [성능 최적화] 메모리에서 종목별로 그룹화 (날짜 내림차순 정렬 유지)
+        Map<String, List<StockFinancialData>> stockDataMap = allRecentData.stream()
+                .collect(Collectors.groupingBy(
+                        StockFinancialData::getStockCode,
+                        LinkedHashMap::new,  // 순서 유지
+                        Collectors.toList()
+                ));
+
         List<ScreenerResultDto> results = new ArrayList<>();
 
-        // 모든 종목 코드 조회
-        List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
+        // 각 종목별로 턴어라운드 여부 판단
+        for (Map.Entry<String, List<StockFinancialData>> entry : stockDataMap.entrySet()) {
+            List<StockFinancialData> historicalData = entry.getValue();
 
-        for (String stockCode : stockCodes) {
-            List<StockFinancialData> historicalData = stockFinancialDataRepository
-                    .findByStockCodeOrderByReportDateDesc(stockCode);
-
+            // 최소 2개 분기 데이터 필요
             if (historicalData.size() < 2) {
-                continue; // 비교할 분기 데이터가 없음
+                continue;
             }
 
+            // 이미 날짜 내림차순 정렬되어 있음 (쿼리에서 ORDER BY)
             StockFinancialData current = historicalData.get(0);
             StockFinancialData previous = historicalData.get(1);
 
@@ -205,14 +245,13 @@ public class QuantScreenerService {
             if (previousNetIncome.compareTo(BigDecimal.ZERO) < 0 &&
                 currentNetIncome.compareTo(BigDecimal.ZERO) > 0) {
                 turnaroundType = "LOSS_TO_PROFIT";
-                // 변화율: 흑자전환은 특별 표기
-                changeRate = new BigDecimal("999.99");
+                changeRate = new BigDecimal("999.99"); // 흑자전환 특별 표기
             }
-            // 흑자 → 흑자 (이익 증가)
+            // 흑자 → 흑자 (이익 증가 50% 이상)
             else if (previousNetIncome.compareTo(BigDecimal.ZERO) > 0 &&
                      currentNetIncome.compareTo(BigDecimal.ZERO) > 0 &&
                      currentNetIncome.compareTo(previousNetIncome) > 0) {
-                // 순이익 50% 이상 증가한 경우만
+
                 changeRate = currentNetIncome.subtract(previousNetIncome)
                         .divide(previousNetIncome.abs(), 4, RoundingMode.HALF_UP)
                         .multiply(new BigDecimal("100"));
@@ -250,14 +289,12 @@ public class QuantScreenerService {
 
         // 적자→흑자 전환 우선, 그 다음 변화율 높은 순으로 정렬
         results.sort((a, b) -> {
-            // LOSS_TO_PROFIT가 우선
             if ("LOSS_TO_PROFIT".equals(a.getTurnaroundType()) && !"LOSS_TO_PROFIT".equals(b.getTurnaroundType())) {
                 return -1;
             }
             if (!"LOSS_TO_PROFIT".equals(a.getTurnaroundType()) && "LOSS_TO_PROFIT".equals(b.getTurnaroundType())) {
                 return 1;
             }
-            // 같은 타입 내에서는 변화율로 정렬
             return b.getNetIncomeChangeRate().compareTo(a.getNetIncomeChangeRate());
         });
 
@@ -265,7 +302,7 @@ public class QuantScreenerService {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
-        log.info("턴어라운드 스크리닝 완료 - 결과 {}건", results.size());
+        log.info("턴어라운드 스크리닝 완료 - 결과 {}건 (분석 종목: {}개)", results.size(), stockDataMap.size());
         return results;
     }
 
