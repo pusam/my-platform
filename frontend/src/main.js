@@ -26,6 +26,7 @@ import ConsecutiveBuyPage from './views/ConsecutiveBuyPage.vue'
 import InvestorSurgePage from './views/InvestorSurgePage.vue'
 import NewsPage from './views/NewsPage.vue'
 import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
+import ShortSqueezePage from './views/ShortSqueezePage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -175,6 +176,12 @@ const router = createRouter({
       path: '/earnings-screener',
       name: 'EarningsScreener',
       component: EarningsScreenerPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/short-squeeze',
+      name: 'ShortSqueeze',
+      component: ShortSqueezePage,
       meta: { requiresAuth: true }
     },
     {
