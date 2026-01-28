@@ -1,6 +1,7 @@
 package com.myplatform.backend.repository;
 
 import com.myplatform.backend.entity.InvestorDailyTrade;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -143,4 +144,45 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
      */
     @Modifying
     void deleteByTradeDate(LocalDate tradeDate);
+
+    // ========== [성능 최적화] Pageable 지원 쿼리 ==========
+
+    /**
+     * 투자자 유형별, 거래 유형별 상위 종목 조회 (Pageable로 쿼리 단계에서 limit)
+     *
+     * - DB 레벨에서 tradeType 필터링 + ORDER BY + LIMIT 처리
+     * - 메모리에서 stream.filter().limit() 하지 않아 대용량 데이터에서도 효율적
+     *
+     * @param investorType 투자자 유형 (FOREIGN, INSTITUTION, INDIVIDUAL)
+     * @param tradeType 거래 유형 (BUY, SELL)
+     * @param tradeDate 거래일
+     * @param pageable 페이징 정보 (limit 포함)
+     * @return 상위 N개 종목
+     */
+    @Query("SELECT t FROM InvestorDailyTrade t " +
+           "WHERE t.investorType = :investorType " +
+           "AND t.tradeType = :tradeType " +
+           "AND t.tradeDate = :tradeDate " +
+           "ORDER BY t.rankNum ASC")
+    List<InvestorDailyTrade> findTopTradesByInvestorAndTradeType(
+            @Param("investorType") String investorType,
+            @Param("tradeType") String tradeType,
+            @Param("tradeDate") LocalDate tradeDate,
+            Pageable pageable);
+
+    /**
+     * 투자자 유형별, 거래 유형별, 시장별 상위 종목 조회 (Pageable)
+     */
+    @Query("SELECT t FROM InvestorDailyTrade t " +
+           "WHERE t.investorType = :investorType " +
+           "AND t.tradeType = :tradeType " +
+           "AND t.marketType = :marketType " +
+           "AND t.tradeDate = :tradeDate " +
+           "ORDER BY t.rankNum ASC")
+    List<InvestorDailyTrade> findTopTradesByInvestorAndTradeTypeAndMarket(
+            @Param("investorType") String investorType,
+            @Param("tradeType") String tradeType,
+            @Param("marketType") String marketType,
+            @Param("tradeDate") LocalDate tradeDate,
+            Pageable pageable);
 }

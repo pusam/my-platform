@@ -7,6 +7,8 @@ import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +32,10 @@ public class InvestorTradeService {
     /**
      * 투자자 유형별 상위 매수/매도 종목 조회 (최대 50개)
      *
+     * [성능 최적화] DB 쿼리 단계에서 tradeType 필터링 + Pageable로 limit 처리
+     * - 기존: 전체 조회 → 메모리 filter → limit (비효율적)
+     * - 개선: WHERE tradeType + ORDER BY rankNum + LIMIT (DB 레벨 처리)
+     *
      * @param investorType FOREIGN(외국인), INSTITUTION(기관), INDIVIDUAL(개인)
      * @param tradeType BUY(매수), SELL(매도)
      * @param limit 조회할 종목 수 (기본 50)
@@ -46,27 +52,33 @@ public class InvestorTradeService {
             return Collections.emptyList();
         }
 
+        // [최적화] DB 쿼리에서 tradeType 필터 + Pageable로 limit 처리
+        // 중복 종목 가능성을 고려하여 limit보다 여유있게 조회
+        Pageable pageable = PageRequest.of(0, limit * 2);
         List<InvestorDailyTrade> trades = investorTradeRepository
-                .findByInvestorTypeAndTradeDateOrderByTradeTypeAscRankNumAsc(investorType, latestDate);
+                .findTopTradesByInvestorAndTradeType(investorType, tradeType.toUpperCase(), latestDate, pageable);
 
-        // 중복 종목 제거 (stockCode 기준, 첫 번째만 유지)
+        // 중복 종목 제거 (stockCode 기준, 첫 번째만 유지) 후 limit 적용
         Set<String> seenStocks = new HashSet<>();
+        final int finalLimit = limit;
         return trades.stream()
-                .filter(t -> t.getTradeType().equalsIgnoreCase(tradeType))
                 .filter(t -> seenStocks.add(t.getStockCode())) // 중복 제거
-                .limit(limit)
+                .limit(finalLimit)
                 .map(this::entityToDto)
                 .collect(Collectors.toList());
     }
 
     /**
      * 전체 투자자의 상위 매매 종목 조회 (외국인, 기관, 개인 각각 50개씩)
+     *
+     * [개선] INDIVIDUAL(개인) 투자자 추가
      */
     public Map<String, List<InvestorTradeDto>> getAllInvestorTopTrades(String tradeType, Integer limit) {
-        Map<String, List<InvestorTradeDto>> result = new HashMap<>();
+        Map<String, List<InvestorTradeDto>> result = new LinkedHashMap<>();  // 순서 유지
 
         result.put("FOREIGN", getTopTradesByInvestor("FOREIGN", tradeType, limit));
         result.put("INSTITUTION", getTopTradesByInvestor("INSTITUTION", tradeType, limit));
+        result.put("INDIVIDUAL", getTopTradesByInvestor("INDIVIDUAL", tradeType, limit));  // 개인 추가
 
         return result;
     }
