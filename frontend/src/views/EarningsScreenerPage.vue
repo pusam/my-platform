@@ -79,9 +79,10 @@
             <tbody>
               <tr v-for="stock in magicFormulaStocks" :key="stock.stockCode">
                 <td class="rank">{{ stock.magicFormulaRank }}</td>
-                <td class="stock-info">
+                <td class="stock-info clickable" @click="openDiagnosis(stock.stockCode, stock.stockName)">
                   <span class="stock-name">{{ stock.stockName }}</span>
                   <span class="stock-code">{{ stock.stockCode }}</span>
+                  <span class="detail-hint">클릭하여 상세 진단</span>
                 </td>
                 <td>{{ stock.market }}</td>
                 <td :class="getValueClass(stock.per, 'per')">{{ formatNumber(stock.per, 2) }}</td>
@@ -169,9 +170,10 @@
             <tbody>
               <tr v-for="(stock, index) in pegStocks" :key="stock.stockCode">
                 <td class="rank">{{ index + 1 }}</td>
-                <td class="stock-info">
+                <td class="stock-info clickable" @click="openDiagnosis(stock.stockCode, stock.stockName)">
                   <span class="stock-name">{{ stock.stockName }}</span>
                   <span class="stock-code">{{ stock.stockCode }}</span>
+                  <span class="detail-hint">클릭하여 상세 진단</span>
                 </td>
                 <td>{{ stock.market }}</td>
                 <td :class="getPegClass(stock.peg)">{{ formatNumber(stock.peg, 2) }}</td>
@@ -228,10 +230,11 @@
               {{ getTurnaroundLabel(stock.turnaroundType) }}
             </div>
 
-            <div class="stock-header">
+            <div class="stock-header clickable" @click="openDiagnosis(stock.stockCode, stock.stockName)">
               <div class="stock-info-col">
                 <span class="stock-name">{{ stock.stockName }}</span>
                 <span class="stock-code">{{ stock.stockCode }}</span>
+                <span class="detail-hint">클릭하여 상세 진단</span>
               </div>
               <span class="rank-badge">#{{ index + 1 }}</span>
             </div>
@@ -429,6 +432,44 @@
             </div>
           </div>
 
+          <!-- 단일 종목 분기별 재무제표 수집 -->
+          <div class="action-card">
+            <div class="action-header">
+              <span class="action-icon">📈</span>
+              <h4>단일 종목 분기별 수집</h4>
+            </div>
+            <p class="action-desc">
+              특정 종목의 분기별 재무제표(매출, 영업이익, 순이익, EPS)를 수집합니다. EPS 성장률과 PEG가 계산됩니다.
+            </p>
+            <div class="test-input-group">
+              <input
+                v-model="quarterlyStockCode"
+                placeholder="종목코드 (예: 005930)"
+                class="test-input"
+                @keyup.enter="collectSingleQuarterly"
+              >
+              <button
+                @click="collectSingleQuarterly"
+                class="action-btn small primary"
+                :disabled="!quarterlyStockCode || isCollectingSingleQuarterly"
+              >
+                <span v-if="isCollectingSingleQuarterly" class="spinner small"></span>
+                {{ isCollectingSingleQuarterly ? '수집중...' : '수집' }}
+              </button>
+            </div>
+            <div v-if="quarterlyResult" class="preview-result">
+              <div class="preview-header" :class="{ success: quarterlyResult.success, fail: !quarterlyResult.success }">
+                <span>{{ quarterlyResult.stockCode }} {{ quarterlyResult.success ? '수집 완료' : '수집 실패' }}</span>
+              </div>
+              <div class="preview-data" v-if="quarterlyResult.success">
+                <p class="success-message">✅ {{ quarterlyResult.message }}</p>
+              </div>
+              <div v-else class="preview-empty">
+                {{ quarterlyResult.message }}
+              </div>
+            </div>
+          </div>
+
           <!-- 종목명 수정 -->
           <div class="action-card">
             <div class="action-header">
@@ -464,6 +505,179 @@
         </div>
       </div>
     </div>
+
+    <!-- 종목 상세 진단 모달 -->
+    <div v-if="showDiagnosisModal" class="modal-overlay" @click.self="closeDiagnosis">
+      <div class="diagnosis-modal">
+        <div class="modal-header">
+          <h2>
+            <span class="modal-icon">🔍</span>
+            {{ diagnosisData?.stockName || selectedStockCode }} 상세 진단
+          </h2>
+          <button class="close-btn" @click="closeDiagnosis">&times;</button>
+        </div>
+
+        <div v-if="diagnosisLoading" class="modal-loading">
+          <div class="spinner large"></div>
+          <p>진단 중...</p>
+        </div>
+
+        <div v-else-if="diagnosisData" class="modal-content">
+          <!-- 종합 의견 -->
+          <div class="verdict-section" :class="getVerdictClass(diagnosisData.verdictLevel)">
+            <div class="verdict-header">
+              <span class="verdict-icon">{{ getVerdictIcon(diagnosisData.verdictLevel) }}</span>
+              <div class="verdict-info">
+                <span class="verdict-label">{{ diagnosisData.verdict }}</span>
+                <span class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 경고/긍정 요소 -->
+          <div class="alerts-section">
+            <div v-if="diagnosisData.warnings?.length" class="alert-box warning">
+              <div class="alert-header">⚠️ 주의 사항</div>
+              <ul>
+                <li v-for="(warning, idx) in diagnosisData.warnings" :key="idx">{{ warning }}</li>
+              </ul>
+            </div>
+            <div v-if="diagnosisData.positives?.length" class="alert-box positive">
+              <div class="alert-header">✅ 긍정적 요소</div>
+              <ul>
+                <li v-for="(positive, idx) in diagnosisData.positives" :key="idx">{{ positive }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- 3가지 분석 섹션 -->
+          <div class="analysis-grid">
+            <!-- 1. 재무 건전성 -->
+            <div class="analysis-card">
+              <div class="card-header">
+                <span class="card-icon">💰</span>
+                <h3>재무 건전성</h3>
+                <span class="card-score" :class="getScoreClass(diagnosisData.financialHealth?.score)">
+                  {{ diagnosisData.financialHealth?.score || 0 }}점
+                </span>
+              </div>
+              <div class="card-body" v-if="diagnosisData.financialHealth">
+                <div class="metric-row">
+                  <span class="metric-label">영업이익</span>
+                  <span class="metric-value">{{ formatBillion(diagnosisData.financialHealth.operatingProfit) }}</span>
+                </div>
+                <div class="metric-row">
+                  <span class="metric-label">당기순이익</span>
+                  <span class="metric-value">{{ formatBillion(diagnosisData.financialHealth.netIncome) }}</span>
+                </div>
+                <div class="metric-row" v-if="diagnosisData.financialHealth.profitGapRatio">
+                  <span class="metric-label">이익 차이</span>
+                  <span class="metric-value" :class="{ 'warning-text': diagnosisData.financialHealth.hasOneTimeGainWarning }">
+                    {{ formatPercent(diagnosisData.financialHealth.profitGapRatio) }}
+                  </span>
+                </div>
+                <div v-if="diagnosisData.financialHealth.hasOneTimeGainWarning" class="one-time-warning">
+                  ⚠️ {{ diagnosisData.financialHealth.oneTimeGainReason }}
+                </div>
+                <div class="metric-row">
+                  <span class="metric-label">영업이익률</span>
+                  <span class="metric-value">{{ formatPercent(diagnosisData.financialHealth.operatingMargin) }}</span>
+                </div>
+                <div class="metric-row">
+                  <span class="metric-label">ROE</span>
+                  <span class="metric-value">{{ formatPercent(diagnosisData.financialHealth.roe) }}</span>
+                </div>
+                <div class="card-assessment">{{ diagnosisData.financialHealth.assessment }}</div>
+              </div>
+            </div>
+
+            <!-- 2. 수급 현황 -->
+            <div class="analysis-card">
+              <div class="card-header">
+                <span class="card-icon">📊</span>
+                <h3>수급 현황 (5일)</h3>
+                <span class="card-score" :class="getScoreClass(diagnosisData.supplyDemand?.score)">
+                  {{ diagnosisData.supplyDemand?.score || 0 }}점
+                </span>
+              </div>
+              <div class="card-body" v-if="diagnosisData.supplyDemand">
+                <div class="supply-row">
+                  <span class="investor-type">외국인</span>
+                  <span class="net-amount" :class="{ positive: diagnosisData.supplyDemand.isForeignBuying, negative: !diagnosisData.supplyDemand.isForeignBuying }">
+                    {{ diagnosisData.supplyDemand.isForeignBuying ? '매수' : '매도' }}
+                    {{ formatBillion(diagnosisData.supplyDemand.foreignNet5Days) }}
+                  </span>
+                  <span class="buy-days">({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)</span>
+                </div>
+                <div class="supply-row">
+                  <span class="investor-type">기관</span>
+                  <span class="net-amount" :class="{ positive: diagnosisData.supplyDemand.isInstitutionBuying, negative: !diagnosisData.supplyDemand.isInstitutionBuying }">
+                    {{ diagnosisData.supplyDemand.isInstitutionBuying ? '매수' : '매도' }}
+                    {{ formatBillion(diagnosisData.supplyDemand.institutionNet5Days) }}
+                  </span>
+                  <span class="buy-days">({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)</span>
+                </div>
+                <div class="supply-summary">
+                  <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">🔥 외국인+기관 동반 매수!</span>
+                  <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">❄️ 외국인+기관 동반 매도</span>
+                </div>
+                <div class="card-assessment">{{ diagnosisData.supplyDemand.assessment }}</div>
+              </div>
+            </div>
+
+            <!-- 3. 기술적 분석 -->
+            <div class="analysis-card">
+              <div class="card-header">
+                <span class="card-icon">📈</span>
+                <h3>기술적 분석</h3>
+                <span class="card-score" :class="getScoreClass(diagnosisData.technicalAnalysis?.score)">
+                  {{ diagnosisData.technicalAnalysis?.score || 0 }}점
+                </span>
+              </div>
+              <div class="card-body" v-if="diagnosisData.technicalAnalysis">
+                <div class="tech-indicators">
+                  <div class="indicator-item">
+                    <span class="indicator-label">이평선 정배열</span>
+                    <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isArrangedUp }">
+                      {{ diagnosisData.technicalAnalysis.isArrangedUp ? '✅ 정배열' : '❌ 아님' }}
+                    </span>
+                  </div>
+                  <div class="indicator-item">
+                    <span class="indicator-label">20일선 위치</span>
+                    <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 }">
+                      {{ diagnosisData.technicalAnalysis.isAboveMa20 ? '✅ 20일선 위' : '❌ 20일선 아래' }}
+                    </span>
+                  </div>
+                  <div class="indicator-item">
+                    <span class="indicator-label">골든/데드크로스</span>
+                    <span class="indicator-status">
+                      <span v-if="diagnosisData.technicalAnalysis.isGoldenCross" class="golden">🌟 골든크로스</span>
+                      <span v-else-if="diagnosisData.technicalAnalysis.isDeadCross" class="dead">💀 데드크로스</span>
+                      <span v-else>-</span>
+                    </span>
+                  </div>
+                  <div class="indicator-item">
+                    <span class="indicator-label">RSI (14일)</span>
+                    <span class="indicator-status" :class="getRsiClass(diagnosisData.technicalAnalysis.rsiStatus)">
+                      {{ formatNumber(diagnosisData.technicalAnalysis.rsi14, 1) }} ({{ diagnosisData.technicalAnalysis.rsiStatus }})
+                    </span>
+                  </div>
+                </div>
+                <div class="tech-signal">
+                  <span class="signal-label">종합 신호:</span>
+                  <span class="signal-value">{{ diagnosisData.technicalAnalysis.overallSignal }}</span>
+                </div>
+                <div class="card-assessment">{{ diagnosisData.technicalAnalysis.assessment }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="modal-error">
+          <p>진단 데이터를 불러올 수 없습니다.</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -495,6 +709,9 @@ const isCollecting = ref(false);
 const isCrawling = ref(false);
 const isFixingNames = ref(false);
 const isCollectingQuarterly = ref(false);
+const isCollectingSingleQuarterly = ref(false);
+const quarterlyStockCode = ref('');
+const quarterlyResult = ref(null);
 const collectProgress = ref('');
 
 // AI 분석 결과
@@ -502,6 +719,12 @@ const aiLoading = ref(false);
 const magicFormulaAI = ref('');
 const pegAI = ref('');
 const turnaroundAI = ref('');
+
+// 종목 상세 진단 모달
+const showDiagnosisModal = ref(false);
+const diagnosisLoading = ref(false);
+const diagnosisData = ref(null);
+const selectedStockCode = ref('');
 
 // 필터
 const magicFormulaFilters = ref({
@@ -635,6 +858,32 @@ const collectQuarterlyFinance = async () => {
     collectProgress.value = '분기별 재무제표 수집 중 오류 발생: ' + (error.response?.data?.message || error.message);
   } finally {
     isCollectingQuarterly.value = false;
+  }
+};
+
+// 단일 종목 분기별 재무제표 수집
+const collectSingleQuarterly = async () => {
+  if (!quarterlyStockCode.value || isCollectingSingleQuarterly.value) return;
+
+  isCollectingSingleQuarterly.value = true;
+  quarterlyResult.value = null;
+
+  try {
+    const response = await api.post(`/screener/collect/finance/${quarterlyStockCode.value}`);
+    quarterlyResult.value = {
+      stockCode: quarterlyStockCode.value,
+      success: response.data.success,
+      message: response.data.message
+    };
+  } catch (error) {
+    console.error('단일 종목 분기별 수집 오류:', error);
+    quarterlyResult.value = {
+      stockCode: quarterlyStockCode.value,
+      success: false,
+      message: error.response?.data?.message || error.message
+    };
+  } finally {
+    isCollectingSingleQuarterly.value = false;
   }
 };
 
@@ -847,6 +1096,78 @@ const formatAmount = (value) => {
     return `${sign}${(num / 10000).toFixed(1)}조`;
   }
   return `${sign}${num.toLocaleString('ko-KR')}억`;
+};
+
+const formatBillion = (value) => {
+  if (value === null || value === undefined) return '-';
+  const num = Number(value);
+  if (Math.abs(num) >= 10000) {
+    return `${(num / 10000).toFixed(1)}조`;
+  }
+  if (Math.abs(num) >= 1) {
+    return `${num.toLocaleString('ko-KR')}억`;
+  }
+  return `${(num * 100).toFixed(0)}백만`;
+};
+
+// ========== 종목 상세 진단 (더블 체크) ==========
+const openDiagnosis = async (stockCode, stockName) => {
+  selectedStockCode.value = stockCode;
+  showDiagnosisModal.value = true;
+  diagnosisLoading.value = true;
+  diagnosisData.value = null;
+
+  try {
+    const response = await api.get(`/analysis/diagnosis/${stockCode}`);
+    if (response.data.success) {
+      diagnosisData.value = response.data.data;
+    } else {
+      console.error('진단 실패:', response.data.message);
+    }
+  } catch (error) {
+    console.error('진단 API 오류:', error);
+  } finally {
+    diagnosisLoading.value = false;
+  }
+};
+
+const closeDiagnosis = () => {
+  showDiagnosisModal.value = false;
+  diagnosisData.value = null;
+};
+
+const getVerdictClass = (level) => {
+  switch (level) {
+    case 'STRONG_BUY': return 'verdict-strong-buy';
+    case 'BUY': return 'verdict-buy';
+    case 'NEUTRAL': return 'verdict-neutral';
+    case 'CAUTION': return 'verdict-caution';
+    case 'AVOID': return 'verdict-avoid';
+    default: return 'verdict-neutral';
+  }
+};
+
+const getVerdictIcon = (level) => {
+  switch (level) {
+    case 'STRONG_BUY': return '🚀';
+    case 'BUY': return '👍';
+    case 'NEUTRAL': return '🤔';
+    case 'CAUTION': return '⚠️';
+    case 'AVOID': return '🛑';
+    default: return '❓';
+  }
+};
+
+const getScoreClass = (score) => {
+  if (score >= 70) return 'score-high';
+  if (score >= 40) return 'score-mid';
+  return 'score-low';
+};
+
+const getRsiClass = (status) => {
+  if (status === '과열') return 'rsi-overbought';
+  if (status === '침체') return 'rsi-oversold';
+  return 'rsi-neutral';
 };
 
 // 스타일 클래스 함수
@@ -1204,6 +1525,35 @@ onMounted(() => {
   margin-bottom: 1rem;
   padding-bottom: 1rem;
   border-bottom: 1px solid var(--border-color);
+}
+
+.stock-header.clickable {
+  cursor: pointer;
+  transition: all 0.2s;
+  border-radius: 8px;
+  margin: -0.5rem;
+  padding: 0.5rem;
+  padding-bottom: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.stock-header.clickable:hover {
+  background: var(--border-light);
+}
+
+.stock-header.clickable:hover .stock-name {
+  color: var(--primary-start);
+}
+
+.stock-info-col .detail-hint {
+  display: none;
+  font-size: 0.7rem;
+  color: var(--primary-start);
+  margin-top: 0.25rem;
+}
+
+.stock-header.clickable:hover .detail-hint {
+  display: block;
 }
 
 .stock-info-col {
@@ -1612,6 +1962,27 @@ onMounted(() => {
   font-size: 0.9rem;
 }
 
+.preview-header.success {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+}
+
+.preview-header.fail {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+}
+
+.success-message {
+  color: var(--success);
+  font-weight: 500;
+  margin: 0;
+}
+
+.spinner.small {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+  margin-right: 4px;
+}
+
 .preview-data {
   padding: 1rem;
 }
@@ -1725,6 +2096,480 @@ onMounted(() => {
 
   .action-btn.small {
     width: 100%;
+  }
+}
+
+/* ========== 종목 상세 진단 모달 ========== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.diagnosis-modal {
+  background: var(--card-bg);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  border-bottom: 1px solid var(--border-color);
+  position: sticky;
+  top: 0;
+  background: var(--card-bg);
+  z-index: 10;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.modal-icon {
+  font-size: 1.5rem;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: var(--text-primary);
+}
+
+.modal-loading {
+  padding: 4rem 2rem;
+  text-align: center;
+}
+
+.modal-loading p {
+  color: var(--text-secondary);
+  margin-top: 1rem;
+}
+
+.spinner.large {
+  width: 50px;
+  height: 50px;
+  border-width: 4px;
+  margin: 0 auto;
+}
+
+.modal-content {
+  padding: 1.5rem 2rem 2rem;
+}
+
+.modal-error {
+  padding: 3rem 2rem;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* 종합 의견 섹션 */
+.verdict-section {
+  border-radius: 15px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.verdict-strong-buy {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.2), rgba(39, 174, 96, 0.2));
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.verdict-buy {
+  background: linear-gradient(135deg, rgba(52, 152, 219, 0.2), rgba(41, 128, 185, 0.2));
+  border: 1px solid rgba(52, 152, 219, 0.3);
+}
+
+.verdict-neutral {
+  background: linear-gradient(135deg, rgba(149, 165, 166, 0.2), rgba(127, 140, 141, 0.2));
+  border: 1px solid rgba(149, 165, 166, 0.3);
+}
+
+.verdict-caution {
+  background: linear-gradient(135deg, rgba(241, 196, 15, 0.2), rgba(243, 156, 18, 0.2));
+  border: 1px solid rgba(241, 196, 15, 0.3);
+}
+
+.verdict-avoid {
+  background: linear-gradient(135deg, rgba(231, 76, 60, 0.2), rgba(192, 57, 43, 0.2));
+  border: 1px solid rgba(231, 76, 60, 0.3);
+}
+
+.verdict-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.verdict-icon {
+  font-size: 2.5rem;
+}
+
+.verdict-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.verdict-label {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.verdict-score {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+}
+
+/* 경고/긍정 요소 */
+.alerts-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.alert-box {
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+.alert-box.warning {
+  background: rgba(241, 196, 15, 0.1);
+  border: 1px solid rgba(241, 196, 15, 0.3);
+}
+
+.alert-box.positive {
+  background: rgba(46, 204, 113, 0.1);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+}
+
+.alert-header {
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+}
+
+.alert-box ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.alert-box li {
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+}
+
+/* 분석 그리드 */
+.analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.analysis-card {
+  background: var(--border-light);
+  border-radius: 15px;
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.card-icon {
+  font-size: 1.25rem;
+}
+
+.card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.card-score {
+  font-weight: 700;
+  padding: 0.3rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+}
+
+.card-score.score-high {
+  background: rgba(46, 204, 113, 0.2);
+  color: #27ae60;
+}
+
+.card-score.score-mid {
+  background: rgba(241, 196, 15, 0.2);
+  color: #f39c12;
+}
+
+.card-score.score-low {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+.card-body {
+  padding: 1rem 1.25rem;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.metric-row:last-of-type {
+  border-bottom: none;
+}
+
+.metric-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.metric-value {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.one-time-warning {
+  background: rgba(241, 196, 15, 0.15);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 0.75rem 0;
+  font-size: 0.85rem;
+  color: #f39c12;
+}
+
+.card-assessment {
+  margin-top: 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--card-bg);
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 수급 현황 */
+.supply-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.supply-row:last-of-type {
+  border-bottom: none;
+}
+
+.investor-type {
+  color: var(--text-secondary);
+  min-width: 50px;
+}
+
+.net-amount {
+  font-weight: 700;
+  flex: 1;
+}
+
+.net-amount.positive {
+  color: #e74c3c;
+}
+
+.net-amount.negative {
+  color: #3498db;
+}
+
+.buy-days {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.supply-summary {
+  padding: 0.75rem 0;
+  text-align: center;
+}
+
+.both-buying {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.both-selling {
+  color: #3498db;
+  font-weight: 600;
+}
+
+/* 기술적 분석 */
+.tech-indicators {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.indicator-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.indicator-item:last-child {
+  border-bottom: none;
+}
+
+.indicator-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.indicator-status {
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.indicator-status.active {
+  color: #27ae60;
+}
+
+.indicator-status .golden {
+  color: #f1c40f;
+}
+
+.indicator-status .dead {
+  color: #e74c3c;
+}
+
+.rsi-overbought {
+  color: #e74c3c;
+}
+
+.rsi-oversold {
+  color: #27ae60;
+}
+
+.rsi-neutral {
+  color: var(--text-secondary);
+}
+
+.tech-signal {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  background: var(--card-bg);
+  border-radius: 8px;
+}
+
+.signal-label {
+  color: var(--text-secondary);
+}
+
+.signal-value {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* 종목명 클릭 가능 스타일 */
+.stock-info.clickable {
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s;
+}
+
+.stock-info.clickable:hover {
+  background: var(--border-light);
+}
+
+.stock-info.clickable:hover .stock-name {
+  color: var(--primary-start);
+}
+
+.detail-hint {
+  display: none;
+  font-size: 0.7rem;
+  color: var(--primary-start);
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+}
+
+.stock-info.clickable:hover .detail-hint {
+  display: block;
+}
+
+/* 모달 반응형 */
+@media (max-width: 768px) {
+  .diagnosis-modal {
+    max-height: 95vh;
+    border-radius: 15px 15px 0 0;
+    margin-top: auto;
+  }
+
+  .modal-header {
+    padding: 1rem 1.5rem;
+  }
+
+  .modal-header h2 {
+    font-size: 1.1rem;
+  }
+
+  .modal-content {
+    padding: 1rem 1.5rem 1.5rem;
+  }
+
+  .verdict-icon {
+    font-size: 2rem;
+  }
+
+  .verdict-label {
+    font-size: 1.2rem;
+  }
+
+  .analysis-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>
