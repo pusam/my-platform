@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,7 @@ import java.util.*;
 public class StockFinancialDataService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final StockShortDataRepository stockShortDataRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -286,6 +288,13 @@ public class StockFinancialDataService {
     }
 
     /**
+     * 수집된 재무 데이터 건수 조회
+     */
+    public long getDataCount() {
+        return stockFinancialDataRepository.count();
+    }
+
+    /**
      * 전체 재무 데이터 삭제 후 재수집
      */
     public Map<String, Object> deleteAndRecollect() {
@@ -299,6 +308,220 @@ public class StockFinancialDataService {
         // 재수집
         Map<String, Integer> collectResult = collectFinancialDataFromTopStocks();
         result.putAll(collectResult);
+
+        return result;
+    }
+
+    // ========== 전 종목 재무 데이터 수집 ==========
+
+    /**
+     * 전 종목 재무 데이터 수집
+     * - StockShortData 테이블에 있는 모든 종목 대상
+     * - Rate Limit 고려하여 종목당 300ms 대기
+     * - ROE가 없으면 (EPS / BPS) * 100으로 계산
+     * - 영업이익률은 null로 저장 (별도 크롤링 필요)
+     *
+     * @return 수집 결과 (total, success, fail, elapsedTime)
+     */
+    public Map<String, Object> collectAllStocksFinancialData() {
+        Map<String, Object> result = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+
+        log.info("========== 전 종목 재무 데이터 수집 시작 ==========");
+
+        // 1. 전 종목 코드 조회
+        List<String> allStockCodes = stockShortDataRepository.findDistinctStockCodes();
+        int totalCount = allStockCodes.size();
+        log.info("수집 대상 종목 수: {}", totalCount);
+
+        if (totalCount == 0) {
+            result.put("success", false);
+            result.put("message", "수집할 종목이 없습니다. StockShortData 테이블에 데이터가 필요합니다.");
+            return result;
+        }
+
+        int successCount = 0;
+        int failCount = 0;
+        int progressInterval = Math.max(totalCount / 20, 1); // 5% 단위 진행률 로깅
+
+        // 2. 종목별 재무 데이터 수집
+        for (int i = 0; i < allStockCodes.size(); i++) {
+            String stockCode = allStockCodes.get(i);
+
+            try {
+                // Rate Limit: 종목당 300ms 대기
+                if (i > 0) {
+                    Thread.sleep(300);
+                }
+
+                boolean collected = collectStockFinancialDataSimple(stockCode);
+                if (collected) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+
+                // 진행률 로깅
+                if ((i + 1) % progressInterval == 0 || i == totalCount - 1) {
+                    int progress = (int) (((i + 1) * 100.0) / totalCount);
+                    log.info("진행률: {}/{} ({}%) - 성공: {}, 실패: {}",
+                            i + 1, totalCount, progress, successCount, failCount);
+                }
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("수집 중단됨");
+                break;
+            } catch (Exception e) {
+                log.error("종목 {} 수집 실패: {}", stockCode, e.getMessage());
+                failCount++;
+            }
+        }
+
+        long elapsedTime = System.currentTimeMillis() - startTime;
+        log.info("========== 전 종목 재무 데이터 수집 완료 ==========");
+        log.info("총 {}개 종목 중 성공: {}, 실패: {}, 소요시간: {}초",
+                totalCount, successCount, failCount, elapsedTime / 1000);
+
+        result.put("success", true);
+        result.put("total", totalCount);
+        result.put("successCount", successCount);
+        result.put("failCount", failCount);
+        result.put("elapsedSeconds", elapsedTime / 1000);
+        result.put("message", String.format("전 종목 수집 완료 (성공: %d, 실패: %d)", successCount, failCount));
+
+        return result;
+    }
+
+    /**
+     * 단일 종목 재무 데이터 수집 (간소화 버전)
+     * - PER, PBR, EPS, BPS만 수집
+     * - ROE가 없으면 (EPS / BPS) * 100으로 계산
+     * - 영업이익률은 null로 저장
+     *
+     * @param stockCode 종목코드
+     * @return 성공 여부
+     */
+    private boolean collectStockFinancialDataSimple(String stockCode) {
+        try {
+            // 주식 현재가 조회
+            JsonNode priceData = koreaInvestmentService.getStockPrice(stockCode);
+            if (priceData == null || !"0".equals(priceData.path("rt_cd").asText())) {
+                log.debug("주식 현재가 조회 실패: {}", stockCode);
+                return false;
+            }
+
+            JsonNode output = priceData.get("output");
+            if (output == null) {
+                return false;
+            }
+
+            // 종목명
+            String stockName = output.path("hts_kor_isnm").asText("");
+            if (stockName.isEmpty()) {
+                stockName = stockCode;
+            }
+
+            // 시장 구분 (기본값 KOSPI, 정확한 구분은 별도 API 필요)
+            String market = "KOSPI";
+
+            // 현재가, 시가총액
+            BigDecimal currentPrice = parseBigDecimal(output.path("stck_prpr").asText());
+            BigDecimal marketCapRaw = parseBigDecimal(output.path("hts_avls").asText());
+            BigDecimal marketCap = marketCapRaw.compareTo(BigDecimal.ZERO) > 0
+                    ? marketCapRaw.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP)
+                    : BigDecimal.ZERO; // 억원 단위
+
+            // PER, PBR, EPS, BPS
+            BigDecimal per = parseBigDecimal(output.path("per").asText());
+            BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
+            BigDecimal eps = parseBigDecimal(output.path("eps").asText());
+            BigDecimal bps = parseBigDecimal(output.path("bps").asText());
+
+            // ROE 계산: (EPS / BPS) * 100
+            // KIS API에서 ROE를 직접 제공하지 않으므로 계산
+            BigDecimal roe = BigDecimal.ZERO;
+            if (bps != null && bps.compareTo(BigDecimal.ZERO) > 0 && eps != null) {
+                roe = eps.divide(bps, 6, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+
+            // Entity 저장/업데이트
+            LocalDate today = LocalDate.now();
+            StockFinancialData financialData = stockFinancialDataRepository
+                    .findByStockCodeAndReportDate(stockCode, today)
+                    .orElse(new StockFinancialData());
+
+            financialData.setStockCode(stockCode);
+            financialData.setStockName(stockName);
+            financialData.setMarket(market);
+            financialData.setReportDate(today);
+            financialData.setCurrentPrice(currentPrice);
+            financialData.setMarketCap(marketCap);
+            financialData.setPer(per);
+            financialData.setPbr(pbr);
+            financialData.setEps(eps);
+            financialData.setBps(bps);
+            financialData.setRoe(roe);
+            // 영업이익률은 null로 저장 (별도 크롤링 필요)
+            financialData.setOperatingMargin(null);
+
+            stockFinancialDataRepository.save(financialData);
+            log.debug("재무 데이터 저장: {} ({})", stockName, stockCode);
+            return true;
+
+        } catch (Exception e) {
+            log.debug("재무 데이터 수집 실패 [{}]: {}", stockCode, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 특정 종목 목록의 재무 데이터 수집
+     * - 선택적으로 특정 종목들만 수집할 때 사용
+     *
+     * @param stockCodes 수집할 종목 코드 목록
+     * @return 수집 결과
+     */
+    public Map<String, Object> collectStocksFinancialData(List<String> stockCodes) {
+        Map<String, Object> result = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+
+        log.info("지정 종목 재무 데이터 수집 시작: {}개", stockCodes.size());
+
+        int successCount = 0;
+        int failCount = 0;
+
+        for (int i = 0; i < stockCodes.size(); i++) {
+            String stockCode = stockCodes.get(i);
+
+            try {
+                if (i > 0) {
+                    Thread.sleep(300);
+                }
+
+                if (collectStockFinancialDataSimple(stockCode)) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                failCount++;
+            }
+        }
+
+        long elapsedTime = System.currentTimeMillis() - startTime;
+
+        result.put("success", true);
+        result.put("total", stockCodes.size());
+        result.put("successCount", successCount);
+        result.put("failCount", failCount);
+        result.put("elapsedSeconds", elapsedTime / 1000);
 
         return result;
     }

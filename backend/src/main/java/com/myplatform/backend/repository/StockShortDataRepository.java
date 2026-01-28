@@ -278,4 +278,24 @@ public interface StockShortDataRepository extends JpaRepository<StockShortData, 
            "GROUP BY s.tradeDate " +
            "ORDER BY s.tradeDate DESC")
     List<Object[]> countByTradeDate();
+
+    // ========== 5. 전 종목 조회 ==========
+
+    /**
+     * 모든 종목 코드 조회 (중복 제거)
+     * - 전 종목 재무 데이터 수집에 사용
+     *
+     * @return 중복 제거된 종목 코드 목록
+     */
+    @Query("SELECT DISTINCT s.stockCode FROM StockShortData s ORDER BY s.stockCode ASC")
+    List<String> findDistinctStockCodes();
+
+    /**
+     * 종목 코드와 이름 조회 (최신 데이터 기준)
+     * - 재무 데이터 수집 시 종목명도 함께 필요할 때 사용
+     */
+    @Query("SELECT s.stockCode, s.stockName FROM StockShortData s " +
+           "WHERE s.tradeDate = (SELECT MAX(s2.tradeDate) FROM StockShortData s2) " +
+           "ORDER BY s.stockCode ASC")
+    List<Object[]> findAllStockCodesWithNames();
 }

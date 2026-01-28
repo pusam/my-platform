@@ -93,6 +93,9 @@ public class StockFinancialData {
     @Column(precision = 15, scale = 2)
     private BigDecimal eps; // 주당순이익
 
+    @Column(precision = 15, scale = 2)
+    private BigDecimal bps; // 주당순자산
+
     @Column(precision = 10, scale = 2)
     private BigDecimal epsGrowth; // EPS 성장률 (%)
 

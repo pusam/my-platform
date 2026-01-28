@@ -333,4 +333,56 @@ public class QuantScreenerController {
             return ResponseEntity.internalServerError().body(response);
         }
     }
+
+    /**
+     * 전 종목 재무 데이터 수집
+     * - StockShortData에 있는 모든 종목의 재무 데이터를 수집
+     * - 2000개 이상의 종목 대상, Rate Limit 고려
+     * - 소요시간: 약 10-15분 예상
+     */
+    @PostMapping("/collect-all")
+    @Operation(summary = "전 종목 재무 데이터 수집",
+               description = "StockShortData 테이블에 있는 모든 종목의 재무 데이터를 수집합니다. " +
+                           "KIS API Rate Limit 고려하여 종목당 300ms 대기합니다. " +
+                           "약 2000개 종목 기준 10-15분 소요됩니다.")
+    public ResponseEntity<Map<String, Object>> collectAllStocksFinancialData() {
+        log.info("전 종목 재무 데이터 수집 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> result = stockFinancialDataService.collectAllStocksFinancialData();
+            response.put("success", true);
+            response.put("data", result);
+            response.put("message", "전 종목 재무 데이터 수집 완료");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("전 종목 재무 데이터 수집 오류", e);
+            response.put("success", false);
+            response.put("message", "수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 재무 데이터 수집 상태 조회
+     */
+    @GetMapping("/collect-status")
+    @Operation(summary = "재무 데이터 수집 상태", description = "현재 수집된 재무 데이터 현황을 조회합니다.")
+    public ResponseEntity<Map<String, Object>> getCollectStatus() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            long totalCount = stockFinancialDataService.getDataCount();
+            response.put("success", true);
+            response.put("totalRecords", totalCount);
+            response.put("message", totalCount > 0
+                    ? "재무 데이터 " + totalCount + "건 수집됨"
+                    : "수집된 재무 데이터가 없습니다. POST /api/screener/collect-all을 호출하세요.");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("재무 데이터 상태 조회 오류", e);
+            response.put("success", false);
+            response.put("message", "상태 조회 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 }
