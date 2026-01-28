@@ -96,6 +96,12 @@ public interface InvestorIntradaySnapshotRepository extends JpaRepository<Invest
     void deleteBySnapshotDateBefore(LocalDate date);
 
     /**
+     * 특정 시점의 스냅샷 삭제 (중복 방지용)
+     */
+    void deleteBySnapshotDateAndSnapshotTimeAndInvestorType(
+            LocalDate snapshotDate, LocalTime snapshotTime, String investorType);
+
+    /**
      * 당일 스냅샷 시간 목록 조회
      */
     @Query("SELECT DISTINCT s.snapshotTime FROM InvestorIntradaySnapshot s " +

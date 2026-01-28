@@ -109,7 +109,8 @@ public class InvestorSurgeService {
                 }
             }
 
-            // 저장
+            // 중복 방지: 동일 시간대 기존 데이터 삭제 후 저장
+            snapshotRepository.deleteBySnapshotDateAndSnapshotTimeAndInvestorType(today, snapshotTime, investorType);
             snapshotRepository.saveAll(snapshots);
             log.info("스냅샷 저장 완료: {} - {}건", investorType, snapshots.size());
 
