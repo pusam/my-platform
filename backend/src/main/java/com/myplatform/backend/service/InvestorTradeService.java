@@ -297,7 +297,12 @@ public class InvestorTradeService {
      * 연속 매수 종목 조회
      * 특정 투자자가 N일 연속으로 순매수 상위에 오른 종목 찾기
      *
-     * @param investorType 투자자 유형 (FOREIGN, INSTITUTION)
+     * [성능 최적화]
+     * - 기존: 30일간 등장한 모든 종목을 전수 조사 (비효율적)
+     * - 개선: 가장 최근 거래일에 매수한 종목만 후보군으로 추려서 분석
+     *         (오늘 매수하지 않은 종목은 이미 연속이 끊긴 것이므로 제외)
+     *
+     * @param investorType 투자자 유형 (FOREIGN, INSTITUTION, INDIVIDUAL)
      * @param minDays 최소 연속 일수 (기본 3일)
      */
     public List<ConsecutiveBuyDto> getConsecutiveBuyStocks(String investorType, Integer minDays) {
@@ -323,30 +328,44 @@ public class InvestorTradeService {
 
         // 최근 30일 데이터만 분석
         int daysToAnalyze = Math.min(tradeDates.size(), 30);
-        LocalDate endDate = tradeDates.get(0);
+        LocalDate latestDate = tradeDates.get(0);  // 가장 최근 거래일
         LocalDate startDate = tradeDates.get(daysToAnalyze - 1);
 
         // 해당 기간의 매수 데이터 조회
         List<InvestorDailyTrade> buyTrades = investorTradeRepository
-                .findBuyTradesForConsecutiveAnalysis(investorType, startDate, endDate);
+                .findBuyTradesForConsecutiveAnalysis(investorType, startDate, latestDate);
 
         if (buyTrades.isEmpty()) {
-            log.info("매수 데이터가 없습니다. 투자자: {}, 기간: {} ~ {}", investorType, startDate, endDate);
+            log.info("매수 데이터가 없습니다. 투자자: {}, 기간: {} ~ {}", investorType, startDate, latestDate);
             return Collections.emptyList();
         }
 
+        // ========== [개선 1] 후보군 추출: 가장 최근 거래일에 매수한 종목만 ==========
+        // 오늘(latestDate) 매수하지 않은 종목은 이미 연속이 끊긴 것이므로 분석 대상에서 제외
+        Set<String> candidateStocks = buyTrades.stream()
+                .filter(t -> t.getTradeDate().equals(latestDate))
+                .map(InvestorDailyTrade::getStockCode)
+                .collect(Collectors.toSet());
+
+        log.debug("후보 종목 수: {} (최근 거래일 {} 매수 종목)", candidateStocks.size(), latestDate);
+
         // 일자별로 종목 코드 집합 만들기
         Map<LocalDate, Set<String>> dailyStocks = new LinkedHashMap<>();
+
+        // ========== [개선 3] 날짜 비교로 확실하게 최신 데이터 저장 ==========
         Map<String, InvestorDailyTrade> latestTradeByStock = new HashMap<>();
 
         for (InvestorDailyTrade trade : buyTrades) {
             dailyStocks.computeIfAbsent(trade.getTradeDate(), k -> new HashSet<>())
                     .add(trade.getStockCode());
 
-            // 최신 거래 정보 저장 (현재가, 등락률 등)
-            if (!latestTradeByStock.containsKey(trade.getStockCode())) {
-                latestTradeByStock.put(trade.getStockCode(), trade);
-            }
+            // merge로 날짜 비교하여 확실하게 최신 데이터 저장
+            latestTradeByStock.merge(
+                    trade.getStockCode(),
+                    trade,
+                    (existing, newTrade) -> newTrade.getTradeDate().isAfter(existing.getTradeDate())
+                            ? newTrade : existing
+            );
         }
 
         // 종목별 일별 순매수 금액 맵 (null 처리)
@@ -362,15 +381,13 @@ public class InvestorTradeService {
 
         // 연속 매수 종목 찾기
         List<ConsecutiveBuyDto> result = new ArrayList<>();
-        Set<String> processedStocks = new HashSet<>();
 
         // 정렬된 거래일 리스트 (최신순)
         List<LocalDate> sortedDates = new ArrayList<>(dailyStocks.keySet());
         sortedDates.sort(Collections.reverseOrder());
 
-        for (String stockCode : latestTradeByStock.keySet()) {
-            if (processedStocks.contains(stockCode)) continue;
-
+        // ========== [개선 1] 후보군만 순회 (성능 최적화) ==========
+        for (String stockCode : candidateStocks) {
             // 해당 종목의 연속 매수 일수 계산
             int consecutiveDays = 0;
             LocalDate consecutiveStartDate = null;
@@ -399,8 +416,9 @@ public class InvestorTradeService {
             if (consecutiveDays >= actualMinDays) {
                 InvestorDailyTrade latestTrade = latestTradeByStock.get(stockCode);
 
-                BigDecimal avgAmount = totalAmount.divide(
-                        BigDecimal.valueOf(consecutiveDays), 2, RoundingMode.HALF_UP);
+                BigDecimal avgAmount = consecutiveDays > 0
+                        ? totalAmount.divide(BigDecimal.valueOf(consecutiveDays), 2, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO;
 
                 ConsecutiveBuyDto dto = ConsecutiveBuyDto.builder()
                         .stockCode(stockCode)
@@ -417,7 +435,6 @@ public class InvestorTradeService {
                         .build();
 
                 result.add(dto);
-                processedStocks.add(stockCode);
             }
         }
 
@@ -428,20 +445,23 @@ public class InvestorTradeService {
             return b.getTotalNetBuyAmount().compareTo(a.getTotalNetBuyAmount());
         });
 
-        log.info("연속 매수 종목 조회 완료: {} - {}개 (최소 {}일 연속, 실제적용 {}일)",
-                investorType, result.size(), minDays, actualMinDays);
+        log.info("연속 매수 종목 조회 완료: {} - {}개 (후보군: {}, 최소 {}일, 실제적용 {}일)",
+                investorType, result.size(), candidateStocks.size(), minDays, actualMinDays);
 
         return result;
     }
 
     /**
      * 전체 투자자의 연속 매수 종목 조회
+     *
+     * [개선 2] INDIVIDUAL(개인) 투자자 추가
      */
     public Map<String, List<ConsecutiveBuyDto>> getAllConsecutiveBuyStocks(Integer minDays) {
-        Map<String, List<ConsecutiveBuyDto>> result = new HashMap<>();
+        Map<String, List<ConsecutiveBuyDto>> result = new LinkedHashMap<>();  // 순서 유지
 
         result.put("FOREIGN", getConsecutiveBuyStocks("FOREIGN", minDays));
         result.put("INSTITUTION", getConsecutiveBuyStocks("INSTITUTION", minDays));
+        result.put("INDIVIDUAL", getConsecutiveBuyStocks("INDIVIDUAL", minDays));  // 개인 추가
 
         return result;
     }
