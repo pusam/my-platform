@@ -44,7 +44,7 @@
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode"
-             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON' }]">
+             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON', outdated: stock.outdated }]">
           <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()">
             {{ getSurgeLevelText(stock.surgeLevel) }}
           </div>
@@ -108,7 +108,9 @@
             </div>
             <div class="detail-row">
               <span class="label">스냅샷 시간</span>
-              <span class="value time">{{ formatTime(stock.snapshotTime) }}</span>
+              <span class="value time" :class="{ 'live': stock.displayTime && stock.displayTime.includes('Live') }">
+                {{ stock.displayTime || '-' }}
+              </span>
             </div>
           </div>
 
@@ -493,6 +495,24 @@ onMounted(() => {
   background: linear-gradient(135deg, #1a1a3a 0%, #2a1a3a 100%);
 }
 
+/* 오래된 데이터 (10분 이상 경과) - 회색 처리 */
+.stock-card.outdated {
+  opacity: 0.5;
+  border-color: #4a4a6a !important;
+  box-shadow: none !important;
+  filter: grayscale(30%);
+}
+
+.stock-card.outdated:hover {
+  opacity: 0.7;
+  transform: translateY(-2px);
+}
+
+.stock-card.outdated .surge-badge,
+.stock-card.outdated .trend-badge {
+  opacity: 0.6;
+}
+
 .surge-badge {
   position: absolute;
   top: -10px;
@@ -664,6 +684,22 @@ onMounted(() => {
 
 .detail-row .value.time {
   color: #666;
+}
+
+.detail-row .value.time.live {
+  color: #48bb78;
+  font-weight: 700;
+}
+
+.detail-row .value.time.live::before {
+  content: '●';
+  margin-right: 0.3rem;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .positive {
