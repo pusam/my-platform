@@ -111,7 +111,8 @@ const dataStatus = ref(null);
 
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
-  { value: 'INSTITUTION', label: '기관', icon: '🏢' }
+  { value: 'INSTITUTION', label: '기관', icon: '🏢' },
+  { value: 'INDIVIDUAL', label: '개인', icon: '👤' }
 ];
 
 const currentStocks = computed(() => {
@@ -128,7 +129,8 @@ const fetchData = async () => {
       const data = response.data.data;
       allStocks.value = {
         FOREIGN: data.FOREIGN || [],
-        INSTITUTION: data.INSTITUTION || []
+        INSTITUTION: data.INSTITUTION || [],
+        INDIVIDUAL: data.INDIVIDUAL || []
       };
       dataStatus.value = data.dataStatus;
     }

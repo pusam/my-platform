@@ -5,7 +5,7 @@
       <div class="page-header">
         <button @click="goBack" class="back-button">← 돌아가기</button>
         <h1>투자자별 매매 동향</h1>
-        <p class="subtitle">외국인, 기관의 상위 매매 종목을 확인하세요</p>
+        <p class="subtitle">외국인, 기관, 개인의 상위 매매 종목을 확인하세요</p>
       </div>
       <div class="trade-type-selector">
         <button :class="['trade-type-btn', { active: tradeType === 'BUY' }]" @click="changeTradeType('BUY')">
@@ -86,7 +86,8 @@ const selectedInvestor = ref('FOREIGN');
 const allTrades = ref({});
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
-  { value: 'INSTITUTION', label: '기관', icon: '🏢' }
+  { value: 'INSTITUTION', label: '기관', icon: '🏢' },
+  { value: 'INDIVIDUAL', label: '개인', icon: '👤' }
 ];
 const currentTrades = computed(() => {
   return allTrades.value[selectedInvestor.value] || [];
