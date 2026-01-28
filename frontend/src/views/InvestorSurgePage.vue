@@ -50,7 +50,8 @@
           </div>
 
           <!-- 추세 상태 배지 -->
-          <div class="trend-badge" :class="getTrendClass(stock.trendStatus)" v-if="stock.trendStatus">
+          <div class="trend-badge" :class="getTrendClass(stock.trendStatus)"
+               v-if="stock.trendStatus && stock.trendStatus !== 'NORMAL' && stock.trendStatusName">
             {{ getTrendIcon(stock.trendStatus) }} {{ stock.trendStatusName }}
           </div>
 
@@ -266,11 +267,10 @@ const getSurgeLevelText = (level) => {
 
 const getTrendClass = (trendStatus) => {
   switch (trendStatus) {
-    case 'ACCUMULATING': return 'trend-accumulating';
-    case 'PROFIT_TAKING': return 'trend-profit-taking';
-    case 'TURNAROUND': return 'trend-turnaround';
-    case 'SELLING': return 'trend-selling';
-    default: return 'trend-neutral';
+    case 'ACCUMULATING': return 'trend-accumulating';  // 초록색
+    case 'PROFIT_TAKING': return 'trend-profit-taking'; // 주황색
+    case 'TURNAROUND': return 'trend-turnaround';       // 회색
+    default: return 'trend-normal';
   }
 };
 
@@ -279,8 +279,7 @@ const getTrendIcon = (trendStatus) => {
     case 'ACCUMULATING': return '🚀';
     case 'PROFIT_TAKING': return '💰';
     case 'TURNAROUND': return '🔄';
-    case 'SELLING': return '📉';
-    default: return '➖';
+    default: return '';
   }
 };
 
@@ -547,36 +546,22 @@ onMounted(() => {
 }
 
 .trend-badge.trend-turnaround {
-  background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
-}
-
-.trend-badge.trend-selling {
   background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
 }
 
-.trend-badge.trend-neutral {
+.trend-badge.trend-normal {
   display: none;
 }
 
-/* 추세 상태별 카드 테두리 (ACCUMULATING, TURNAROUND 강조) */
+/* 추세 상태별 카드 테두리 (ACCUMULATING만 강조) */
 .stock-card.trend-accumulating {
   border-color: #48bb78 !important;
   box-shadow: 0 0 20px rgba(72, 187, 120, 0.3);
 }
 
-.stock-card.trend-turnaround {
-  border-color: #4299e1 !important;
-  box-shadow: 0 0 20px rgba(66, 153, 225, 0.3);
-}
-
 .stock-card.trend-accumulating:hover {
   border-color: #38a169 !important;
   box-shadow: 0 10px 30px rgba(72, 187, 120, 0.4);
-}
-
-.stock-card.trend-turnaround:hover {
-  border-color: #3182ce !important;
-  box-shadow: 0 10px 30px rgba(66, 153, 225, 0.4);
 }
 
 .stock-header {

@@ -365,6 +365,10 @@ public class InvestorSurgeService {
                         surgeLevel = "WARM";
                     }
 
+                    // trendStatus 계산
+                    String trendStatus = calculateTrendStatus(totalNetBuy, totalChange);
+                    String trendStatusName = getTrendStatusName(trendStatus);
+
                     // 공통 종목용 DTO 생성 (currentRank는 나중에 재산정)
                     return InvestorSurgeDto.builder()
                             .stockCode(foreign.getStockCode())
@@ -381,6 +385,8 @@ public class InvestorSurgeService {
                             .foreignNetBuy(foreignNetBuy)
                             .institutionNetBuy(instNetBuy)
                             .surgeLevel(surgeLevel)
+                            .trendStatus(trendStatus)
+                            .trendStatusName(trendStatusName)
                             .build();
                 })
                 .sorted((a, b) -> b.getNetBuyAmount().compareTo(a.getNetBuyAmount())) // 합산 금액 내림차순 정렬
@@ -523,6 +529,10 @@ public class InvestorSurgeService {
     /**
      * 추세 상태 계산
      * - 누적 순매수 금액(currentTotal)과 변화량(changeAmount) 조합으로 결정
+     * - ACCUMULATING: 누적 양수 + 변화 양수 → 초록색 '매수 집중' (★최고의 매수 타이밍)
+     * - PROFIT_TAKING: 누적 양수 + 변화 음수 → 주황색 '차익 실현'
+     * - TURNAROUND: 누적 음수 + 변화 양수 → 회색 '수급 유입' (반등 시도)
+     * - NORMAL: 그 외 케이스
      */
     private String calculateTrendStatus(BigDecimal currentTotal, BigDecimal changeAmount) {
         boolean isPositiveTotal = currentTotal.compareTo(BigDecimal.ZERO) > 0;
@@ -535,11 +545,9 @@ public class InvestorSurgeService {
         } else if (isPositiveTotal && isNegativeChange) {
             return "PROFIT_TAKING"; // 많이 샀는데 차익 실현 중
         } else if (isNegativeTotal && isPositiveChange) {
-            return "TURNAROUND";    // ★바닥 잡는 타이밍 - 팔다가 사기 시작
-        } else if (isNegativeTotal && isNegativeChange) {
-            return "SELLING";       // 계속 파는 중
+            return "TURNAROUND";    // 반등 시도 - 수급 유입
         } else {
-            return "NEUTRAL";       // 변화 없음
+            return "NORMAL";        // 그 외 케이스
         }
     }
 
@@ -548,12 +556,11 @@ public class InvestorSurgeService {
      */
     private String getTrendStatusName(String trendStatus) {
         switch (trendStatus) {
-            case "ACCUMULATING": return "★매수 집중";
+            case "ACCUMULATING": return "매수 집중";
             case "PROFIT_TAKING": return "차익 실현";
-            case "TURNAROUND": return "★반전 신호";
-            case "SELLING": return "매도 지속";
-            case "NEUTRAL": return "관망";
-            default: return trendStatus;
+            case "TURNAROUND": return "수급 유입";
+            case "NORMAL": return "";
+            default: return "";
         }
     }
 
