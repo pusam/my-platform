@@ -76,7 +76,21 @@
 
       <div v-else class="no-data">
         <p>{{ minDays }}일 이상 연속 매수 중인 종목이 없습니다.</p>
-        <p class="hint">데이터 수집이 필요할 수 있습니다.</p>
+        <div v-if="dataStatus" class="data-status">
+          <p class="status-message">{{ dataStatus.message }}</p>
+          <div class="status-details">
+            <span v-if="dataStatus.foreignTradeDays !== undefined">
+              📊 외국인 데이터: {{ dataStatus.foreignTradeDays }}일
+            </span>
+            <span v-if="dataStatus.institutionTradeDays !== undefined">
+              📊 기관 데이터: {{ dataStatus.institutionTradeDays }}일
+            </span>
+            <span v-if="dataStatus.latestTradeDate">
+              📅 최신 데이터: {{ dataStatus.latestTradeDate }}
+            </span>
+          </div>
+        </div>
+        <p class="hint" v-else>데이터 수집이 필요할 수 있습니다.</p>
       </div>
     </div>
   </div>
@@ -93,6 +107,7 @@ const loading = ref(false);
 const minDays = ref(3);
 const selectedInvestor = ref('FOREIGN');
 const allStocks = ref({});
+const dataStatus = ref(null);
 
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
@@ -110,7 +125,12 @@ const fetchData = async () => {
       params: { minDays: minDays.value }
     });
     if (response.data.success) {
-      allStocks.value = response.data.data;
+      const data = response.data.data;
+      allStocks.value = {
+        FOREIGN: data.FOREIGN || [],
+        INSTITUTION: data.INSTITUTION || []
+      };
+      dataStatus.value = data.dataStatus;
     }
   } catch (error) {
     console.error('연속 매수 종목 조회 오류:', error);
@@ -407,6 +427,37 @@ onMounted(() => {
 .no-data .hint {
   font-size: 0.9rem;
   color: #a0aec0;
+}
+
+.data-status {
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+  background: #f0f4ff;
+  border-radius: 12px;
+  border: 1px solid #667eea;
+}
+
+.status-message {
+  color: #667eea;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  font-size: 1rem;
+}
+
+.status-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+  font-size: 0.9rem;
+  color: #4a5568;
+}
+
+.status-details span {
+  background: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
 }
 
 @media (max-width: 768px) {

@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -116,12 +117,18 @@ public class InvestorTradeController {
 
     @Operation(summary = "전체 투자자 연속 매수 종목 조회", description = "외국인, 기관의 연속 매수 종목을 모두 조회합니다.")
     @GetMapping("/consecutive-buy/all")
-    public ResponseEntity<ApiResponse<Map<String, List<ConsecutiveBuyDto>>>> getAllConsecutiveBuyStocks(
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAllConsecutiveBuyStocks(
             @RequestParam(required = false, defaultValue = "3") Integer minDays) {
 
         Map<String, List<ConsecutiveBuyDto>> stocks = investorTradeService.getAllConsecutiveBuyStocks(minDays);
 
-        return ResponseEntity.ok(ApiResponse.success(stocks));
+        // 데이터 상태 정보 추가
+        Map<String, Object> result = new HashMap<>();
+        result.put("FOREIGN", stocks.get("FOREIGN"));
+        result.put("INSTITUTION", stocks.get("INSTITUTION"));
+        result.put("dataStatus", investorTradeService.getDataStatus());
+
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     // ========== 수급 급증 관련 API ==========

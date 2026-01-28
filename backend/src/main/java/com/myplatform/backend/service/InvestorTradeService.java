@@ -289,14 +289,24 @@ public class InvestorTradeService {
      * @param minDays 최소 연속 일수 (기본 3일)
      */
     public List<ConsecutiveBuyDto> getConsecutiveBuyStocks(String investorType, Integer minDays) {
-        if (minDays == null || minDays < 2) {
+        if (minDays == null || minDays < 1) {
             minDays = 3;
         }
 
         // 최근 거래일 목록 조회 (최대 30일)
         List<LocalDate> tradeDates = investorTradeRepository.findDistinctTradeDates(investorType);
         if (tradeDates.isEmpty()) {
+            log.info("거래 데이터가 없습니다. 투자자: {}", investorType);
             return Collections.emptyList();
+        }
+
+        log.info("거래일 수: {} (투자자: {})", tradeDates.size(), investorType);
+
+        // 데이터가 minDays보다 적으면 자동으로 minDays를 조정
+        int actualMinDays = minDays;
+        if (tradeDates.size() < minDays) {
+            actualMinDays = Math.max(1, tradeDates.size());
+            log.info("데이터가 {}일뿐이므로 최소 연속일을 {}일로 조정", tradeDates.size(), actualMinDays);
         }
 
         // 최근 30일 데이터만 분석
@@ -307,6 +317,11 @@ public class InvestorTradeService {
         // 해당 기간의 매수 데이터 조회
         List<InvestorDailyTrade> buyTrades = investorTradeRepository
                 .findBuyTradesForConsecutiveAnalysis(investorType, startDate, endDate);
+
+        if (buyTrades.isEmpty()) {
+            log.info("매수 데이터가 없습니다. 투자자: {}, 기간: {} ~ {}", investorType, startDate, endDate);
+            return Collections.emptyList();
+        }
 
         // 일자별로 종목 코드 집합 만들기
         Map<LocalDate, Set<String>> dailyStocks = new LinkedHashMap<>();
@@ -369,7 +384,7 @@ public class InvestorTradeService {
                 }
             }
 
-            if (consecutiveDays >= minDays) {
+            if (consecutiveDays >= actualMinDays) {
                 InvestorDailyTrade latestTrade = latestTradeByStock.get(stockCode);
 
                 BigDecimal avgAmount = totalAmount.divide(
@@ -401,8 +416,8 @@ public class InvestorTradeService {
             return b.getTotalNetBuyAmount().compareTo(a.getTotalNetBuyAmount());
         });
 
-        log.info("연속 매수 종목 조회 완료: {} - {}개 (최소 {}일 연속)",
-                investorType, result.size(), minDays);
+        log.info("연속 매수 종목 조회 완료: {} - {}개 (최소 {}일 연속, 실제적용 {}일)",
+                investorType, result.size(), minDays, actualMinDays);
 
         return result;
     }
@@ -417,5 +432,36 @@ public class InvestorTradeService {
         result.put("INSTITUTION", getConsecutiveBuyStocks("INSTITUTION", minDays));
 
         return result;
+    }
+
+    /**
+     * 데이터 수집 상태 조회
+     */
+    public Map<String, Object> getDataStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        // 외국인 거래일 수
+        List<LocalDate> foreignDates = investorTradeRepository.findDistinctTradeDates("FOREIGN");
+        status.put("foreignTradeDays", foreignDates.size());
+        status.put("foreignLatestDate", foreignDates.isEmpty() ? null : foreignDates.get(0));
+        status.put("foreignOldestDate", foreignDates.isEmpty() ? null : foreignDates.get(foreignDates.size() - 1));
+
+        // 기관 거래일 수
+        List<LocalDate> instDates = investorTradeRepository.findDistinctTradeDates("INSTITUTION");
+        status.put("institutionTradeDays", instDates.size());
+        status.put("institutionLatestDate", instDates.isEmpty() ? null : instDates.get(0));
+
+        // 전체 최근 거래일
+        LocalDate latestDate = investorTradeRepository.findLatestTradeDate();
+        status.put("latestTradeDate", latestDate);
+
+        // 데이터 충분 여부 (최소 3일)
+        boolean hasEnoughData = foreignDates.size() >= 3 && instDates.size() >= 3;
+        status.put("hasEnoughData", hasEnoughData);
+        status.put("message", hasEnoughData
+                ? "충분한 데이터가 있습니다."
+                : "데이터 수집 중입니다. 매일 16:00에 자동 수집되며, 3일 이상 누적되면 연속 매수 패턴 분석이 가능합니다.");
+
+        return status;
     }
 }
