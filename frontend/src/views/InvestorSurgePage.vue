@@ -44,7 +44,7 @@
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode"
-             :class="['stock-card', stock.surgeLevel.toLowerCase()]">
+             :class="['stock-card', stock.surgeLevel.toLowerCase(), { common: selectedInvestor === 'COMMON' }]">
           <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()">
             {{ getSurgeLevelText(stock.surgeLevel) }}
           </div>
@@ -64,12 +64,27 @@
 
           <div class="stock-details">
             <div class="detail-row highlight">
-              <span class="label">누적 순매수</span>
+              <span class="label">{{ selectedInvestor === 'COMMON' ? '합산 순매수' : '누적 순매수' }}</span>
               <span class="value amount" :class="getAmountClass(stock.netBuyAmount)">
                 {{ formatAmountWithSign(stock.netBuyAmount) }}
               </span>
             </div>
-            <div class="detail-row" v-if="hasAmountChange(stock.amountChange)">
+            <!-- 공통 종목일 때 외국인/기관 개별 금액 표시 -->
+            <template v-if="selectedInvestor === 'COMMON'">
+              <div class="detail-row foreign-row">
+                <span class="label">🌍 외국인</span>
+                <span class="value" :class="getAmountClass(stock.foreignNetBuy)">
+                  {{ formatAmountWithSign(stock.foreignNetBuy) }}
+                </span>
+              </div>
+              <div class="detail-row institution-row">
+                <span class="label">🏢 기관</span>
+                <span class="value" :class="getAmountClass(stock.institutionNetBuy)">
+                  {{ formatAmountWithSign(stock.institutionNetBuy) }}
+                </span>
+              </div>
+            </template>
+            <div class="detail-row" v-if="hasAmountChange(stock.amountChange) && selectedInvestor !== 'COMMON'">
               <span class="label">변화량</span>
               <span class="value" :class="getAmountClass(stock.amountChange)">
                 {{ formatAmountWithSign(stock.amountChange) }}
@@ -122,7 +137,8 @@ const lastUpdateTime = ref('');
 
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
-  { value: 'INSTITUTION', label: '기관', icon: '🏢' }
+  { value: 'INSTITUTION', label: '기관', icon: '🏢' },
+  { value: 'COMMON', label: '공통', icon: '🤝' }
 ];
 
 const currentStocks = computed(() => {
@@ -407,6 +423,11 @@ onMounted(() => {
   border-bottom-color: #e53e3e;
 }
 
+.tab-btn:nth-child(3).active {
+  color: #9f7aea;
+  border-bottom-color: #9f7aea;
+}
+
 .stocks-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -428,6 +449,11 @@ onMounted(() => {
   transform: translateY(-5px);
 }
 
+.stock-card.common:hover {
+  border-color: #9f7aea;
+  box-shadow: 0 10px 30px rgba(159, 122, 234, 0.2);
+}
+
 .stock-card.hot {
   border-color: #e53e3e;
   background: linear-gradient(135deg, #1a1a3a 0%, #2a1a2a 100%);
@@ -436,6 +462,11 @@ onMounted(() => {
 .stock-card.warm {
   border-color: #ed8936;
   background: linear-gradient(135deg, #1a1a3a 0%, #2a2a1a 100%);
+}
+
+.stock-card.common {
+  border-color: #9f7aea;
+  background: linear-gradient(135deg, #1a1a3a 0%, #2a1a3a 100%);
 }
 
 .surge-badge {
@@ -460,6 +491,14 @@ onMounted(() => {
 
 .surge-badge.normal {
   display: none;
+}
+
+.stock-card.common .surge-badge.hot {
+  background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
+}
+
+.stock-card.common .surge-badge.warm {
+  background: linear-gradient(135deg, #b794f4 0%, #9f7aea 100%);
 }
 
 .stock-header {
@@ -529,6 +568,20 @@ onMounted(() => {
   background: #2a2a4a;
   padding: 0.5rem;
   border-radius: 8px;
+}
+
+.detail-row.foreign-row {
+  background: rgba(72, 187, 120, 0.1);
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border-left: 3px solid #48bb78;
+}
+
+.detail-row.institution-row {
+  background: rgba(66, 153, 225, 0.1);
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border-left: 3px solid #4299e1;
 }
 
 .detail-row .label {

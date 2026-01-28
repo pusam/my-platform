@@ -148,6 +148,16 @@ public class InvestorTradeController {
         return ResponseEntity.ok(ApiResponse.success(stocks));
     }
 
+    @Operation(summary = "외국인+기관 공통 순매수 종목 조회", description = "외국인과 기관이 동시에 순매수한 종목을 조회합니다.")
+    @GetMapping("/surge/common")
+    public ResponseEntity<ApiResponse<List<InvestorSurgeDto>>> getCommonSurgeStocks(
+            @RequestParam(required = false) BigDecimal minChange) {
+
+        List<InvestorSurgeDto> stocks = investorSurgeService.getCommonSurgeStocks(minChange);
+
+        return ResponseEntity.ok(ApiResponse.success(stocks));
+    }
+
     @Operation(summary = "종목 장중 수급 추이", description = "특정 종목의 당일 시간대별 수급 변화를 조회합니다.")
     @GetMapping("/surge/trend/{stockCode}")
     public ResponseEntity<ApiResponse<List<InvestorSurgeDto>>> getStockIntradayTrend(

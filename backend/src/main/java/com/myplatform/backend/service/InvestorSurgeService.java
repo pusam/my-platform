@@ -288,10 +288,72 @@ public class InvestorSurgeService {
     public Map<String, List<InvestorSurgeDto>> getAllSurgeStocks(BigDecimal minChange) {
         Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
 
-        result.put("FOREIGN", getSurgeStocks("FOREIGN", minChange));
-        result.put("INSTITUTION", getSurgeStocks("INSTITUTION", minChange));
+        List<InvestorSurgeDto> foreignStocks = getSurgeStocks("FOREIGN", minChange);
+        List<InvestorSurgeDto> institutionStocks = getSurgeStocks("INSTITUTION", minChange);
+
+        result.put("FOREIGN", foreignStocks);
+        result.put("INSTITUTION", institutionStocks);
+        result.put("COMMON", getCommonStocks(foreignStocks, institutionStocks));
 
         return result;
+    }
+
+    /**
+     * 외국인과 기관 공통 순매수 종목 조회
+     */
+    @Transactional(readOnly = true)
+    public List<InvestorSurgeDto> getCommonSurgeStocks(BigDecimal minChange) {
+        List<InvestorSurgeDto> foreignStocks = getSurgeStocks("FOREIGN", minChange);
+        List<InvestorSurgeDto> institutionStocks = getSurgeStocks("INSTITUTION", minChange);
+        return getCommonStocks(foreignStocks, institutionStocks);
+    }
+
+    /**
+     * 두 리스트에서 공통 종목 추출
+     */
+    private List<InvestorSurgeDto> getCommonStocks(List<InvestorSurgeDto> foreignStocks,
+                                                    List<InvestorSurgeDto> institutionStocks) {
+        // 기관 종목 코드 Set 생성
+        Set<String> institutionCodes = institutionStocks.stream()
+                .map(InvestorSurgeDto::getStockCode)
+                .collect(Collectors.toSet());
+
+        // 기관 데이터 Map으로 변환
+        Map<String, InvestorSurgeDto> institutionMap = institutionStocks.stream()
+                .collect(Collectors.toMap(InvestorSurgeDto::getStockCode, s -> s, (a, b) -> a));
+
+        // 외국인 종목 중 기관에도 있는 종목만 필터링하고, 합산 정보로 DTO 생성
+        return foreignStocks.stream()
+                .filter(foreign -> institutionCodes.contains(foreign.getStockCode()))
+                .map(foreign -> {
+                    InvestorSurgeDto institution = institutionMap.get(foreign.getStockCode());
+
+                    // 외국인 + 기관 합산 순매수 금액
+                    BigDecimal totalNetBuy = foreign.getNetBuyAmount().add(institution.getNetBuyAmount());
+                    BigDecimal totalChange = (foreign.getAmountChange() != null ? foreign.getAmountChange() : BigDecimal.ZERO)
+                            .add(institution.getAmountChange() != null ? institution.getAmountChange() : BigDecimal.ZERO);
+
+                    // 공통 종목용 DTO 생성
+                    return InvestorSurgeDto.builder()
+                            .stockCode(foreign.getStockCode())
+                            .stockName(foreign.getStockName())
+                            .investorType("COMMON")
+                            .investorTypeName("외국인+기관")
+                            .snapshotTime(foreign.getSnapshotTime())
+                            .netBuyAmount(totalNetBuy)
+                            .amountChange(totalChange)
+                            .currentPrice(foreign.getCurrentPrice())
+                            .changeRate(foreign.getChangeRate())
+                            .currentRank(Math.min(foreign.getCurrentRank(), institution.getCurrentRank())) // 더 높은 순위 표시
+                            .rankChange(0)
+                            .foreignNetBuy(foreign.getNetBuyAmount())
+                            .institutionNetBuy(institution.getNetBuyAmount())
+                            .surgeLevel(totalNetBuy.compareTo(SURGE_THRESHOLD_HOT) >= 0 ? "HOT" :
+                                       totalNetBuy.compareTo(SURGE_THRESHOLD_WARM) >= 0 ? "WARM" : "NORMAL")
+                            .build();
+                })
+                .sorted((a, b) -> b.getNetBuyAmount().compareTo(a.getNetBuyAmount())) // 합산 금액 내림차순
+                .collect(Collectors.toList());
     }
 
     /**

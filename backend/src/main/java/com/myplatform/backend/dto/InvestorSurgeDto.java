@@ -35,4 +35,8 @@ public class InvestorSurgeDto {
     private BigDecimal changeRate;         // 등락률
 
     private String surgeLevel;             // 급등 레벨: HOT, WARM, NORMAL
+
+    // 공통 종목용 필드
+    private BigDecimal foreignNetBuy;      // 외국인 순매수 금액 (억원)
+    private BigDecimal institutionNetBuy;  // 기관 순매수 금액 (억원)
 }
