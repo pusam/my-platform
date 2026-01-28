@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.ShortSqueezeDto;
+import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.entity.StockShortData;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
@@ -29,6 +30,7 @@ public class ShortSellingService {
 
     private final StockShortDataRepository shortDataRepository;
     private final InvestorDailyTradeRepository investorTradeRepository;
+    private final TechnicalIndicatorService technicalIndicatorService;
 
     // 분석 기준 상수
     private static final int ANALYSIS_DAYS = 20;           // 평균 계산 기간 (거래일 기준)
@@ -173,12 +175,33 @@ public class ShortSellingService {
                 .shortBalanceRatio(latest.getShortBalanceRatio())
                 .foreignNetBuy3Days(foreignNetBuy)
                 .isForeignBuying(isForeignBuying)
-                .ma20(ma20)
-                .isAboveMa20(isAboveMa20)
-                .isTrendReversal(isTrendReversal)
                 .squeezeScore(squeezeScore)
                 .analysisDate(latest.getTradeDate())
                 .build();
+
+        // ========== 6. 기술적 지표 분석 ==========
+        // 종가 리스트 추출 (최신 → 과거 순서 유지 - TechnicalIndicatorService 요구사항)
+        List<BigDecimal> prices = dataList.stream()
+                .map(StockShortData::getClosePrice)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        // 기술적 지표 계산 및 적용
+        if (prices.size() >= 5) {  // 최소 5일 데이터 필요
+            TechnicalIndicatorsDto technicalIndicators = technicalIndicatorService.calculate(prices);
+            dto.applyTechnicalIndicators(technicalIndicators);
+
+            // 기술적 신호에 따라 추세 전환 판단 업데이트
+            if (Boolean.TRUE.equals(technicalIndicators.getIsGoldenCross()) ||
+                Boolean.TRUE.equals(technicalIndicators.getIsAboveMa20())) {
+                dto.setIsTrendReversal(true);
+            }
+        } else {
+            // 데이터 부족 시 기본값 설정
+            dto.setMa20(ma20);
+            dto.setIsAboveMa20(isAboveMa20);
+            dto.setIsTrendReversal(isTrendReversal);
+        }
 
         dto.calculateSqueezeLevel();
 
@@ -360,7 +383,32 @@ public class ShortSellingService {
     }
 
     /**
-     * 간단 DTO 변환
+     * 특정 종목의 상세 분석 조회 (기술적 지표 포함)
+     */
+    public ShortSqueezeDto getStockDetailedAnalysis(String stockCode) {
+        log.info("종목 상세 분석 조회 - stockCode: {}", stockCode);
+
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = today.minusDays(ANALYSIS_DAYS * QUERY_DATE_MULTIPLIER);
+
+        // 해당 종목의 최근 데이터 조회
+        List<StockShortData> dataList = shortDataRepository.findByStockCodeAndDateRange(
+                stockCode, startDate, today);
+
+        if (dataList.isEmpty()) {
+            log.warn("종목 데이터 없음 - stockCode: {}", stockCode);
+            return null;
+        }
+
+        // 외국인 순매수 데이터 조회
+        Map<String, BigDecimal> foreignNetBuyMap = getForeignNetBuyMap(today);
+
+        // 상세 분석 수행
+        return analyzeStock(stockCode, dataList, foreignNetBuyMap);
+    }
+
+    /**
+     * 간단 DTO 변환 (단일 데이터 기준)
      */
     private ShortSqueezeDto toSimpleDto(StockShortData data) {
         return ShortSqueezeDto.builder()
@@ -374,6 +422,29 @@ public class ShortSellingService {
                 .shortBalanceRatio(data.getShortBalanceRatio())
                 .analysisDate(data.getTradeDate())
                 .build();
+    }
+
+    /**
+     * 상세 DTO 변환 (기술적 지표 포함)
+     */
+    private ShortSqueezeDto toDetailedDto(List<StockShortData> dataList) {
+        if (dataList.isEmpty()) return null;
+
+        StockShortData latest = dataList.get(0);
+        ShortSqueezeDto dto = toSimpleDto(latest);
+
+        // 기술적 지표 계산 (최신 → 과거 순서 유지)
+        List<BigDecimal> prices = dataList.stream()
+                .map(StockShortData::getClosePrice)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+
+        if (prices.size() >= 5) {
+            TechnicalIndicatorsDto technicalIndicators = technicalIndicatorService.calculate(prices);
+            dto.applyTechnicalIndicators(technicalIndicators);
+        }
+
+        return dto;
     }
 
     /**

@@ -114,6 +114,69 @@
                 </span>
               </div>
             </div>
+
+            <!-- 기술적 분석 섹션 -->
+            <div class="detail-section technical">
+              <div class="section-title">기술적 분석</div>
+
+              <!-- 기술적 신호 배지 -->
+              <div class="technical-signal-row" v-if="stock.technicalSignal">
+                <span class="tech-signal-badge" :class="getTechnicalSignalClass(stock.technicalSignal)">
+                  {{ getTechnicalSignalIcon(stock.technicalSignal) }} {{ stock.technicalSignalLabel || stock.technicalSignal }}
+                </span>
+                <span class="tech-score">{{ stock.technicalScore }}점</span>
+              </div>
+
+              <!-- 이동평균선 -->
+              <div class="ma-grid" v-if="stock.ma5 || stock.ma20">
+                <div class="ma-item">
+                  <span class="ma-label">MA5</span>
+                  <span class="ma-value" :class="stock.isAboveMa5 ? 'above' : 'below'">
+                    {{ formatNumber(stock.ma5) }}
+                  </span>
+                </div>
+                <div class="ma-item">
+                  <span class="ma-label">MA20</span>
+                  <span class="ma-value" :class="stock.isAboveMa20 ? 'above' : 'below'">
+                    {{ formatNumber(stock.ma20) }}
+                  </span>
+                </div>
+                <div class="ma-item" v-if="stock.ma60">
+                  <span class="ma-label">MA60</span>
+                  <span class="ma-value" :class="stock.isAboveMa60 ? 'above' : 'below'">
+                    {{ formatNumber(stock.ma60) }}
+                  </span>
+                </div>
+                <div class="ma-item" v-if="stock.ma120">
+                  <span class="ma-label">MA120</span>
+                  <span class="ma-value">
+                    {{ formatNumber(stock.ma120) }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- RSI -->
+              <div class="detail-row" v-if="stock.rsi14">
+                <span class="label">RSI (14)</span>
+                <span class="rsi-value" :class="getRsiClass(stock.rsiStatus)">
+                  {{ Number(stock.rsi14).toFixed(1) }}
+                  <span class="rsi-status">{{ stock.rsiStatusLabel || getRsiLabel(stock.rsiStatus) }}</span>
+                </span>
+              </div>
+
+              <!-- 시그널 태그들 -->
+              <div class="signal-tags">
+                <span v-if="stock.isGoldenCross" class="signal-tag golden">골든크로스</span>
+                <span v-if="stock.isDeadCross" class="signal-tag dead">데드크로스</span>
+                <span v-if="stock.isArrangedUp" class="signal-tag arranged-up">정배열</span>
+                <span v-if="stock.isArrangedDown" class="signal-tag arranged-down">역배열</span>
+              </div>
+
+              <!-- 기술적 설명 -->
+              <div class="tech-description" v-if="stock.technicalDescription">
+                {{ stock.technicalDescription }}
+              </div>
+            </div>
           </div>
 
           <button @click="goToDetail(stock.stockCode)" class="detail-btn">
@@ -134,6 +197,8 @@
               <th>등락률</th>
               <th>대차잔고 비율</th>
               <th>공매도 비중</th>
+              <th>RSI</th>
+              <th>신호</th>
             </tr>
           </thead>
           <tbody>
@@ -149,6 +214,17 @@
               </td>
               <td class="ratio highlight">{{ formatPercent(stock.loanBalanceRatio) }}</td>
               <td class="ratio">{{ formatPercent(stock.shortRatio) }}</td>
+              <td class="rsi" :class="getRsiClass(stock.rsiStatus)">
+                {{ stock.rsi14 ? Number(stock.rsi14).toFixed(1) : '-' }}
+              </td>
+              <td class="signal">
+                <span v-if="stock.technicalSignal"
+                      class="signal-badge-small"
+                      :class="getTechnicalSignalClass(stock.technicalSignal)">
+                  {{ stock.technicalSignalLabel || getTechnicalSignalLabel(stock.technicalSignal) }}
+                </span>
+                <span v-else>-</span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -165,7 +241,9 @@
               <th>현재가</th>
               <th>등락률</th>
               <th>공매도 비중</th>
-              <th>공매도 잔고 비율</th>
+              <th>공매도 잔고</th>
+              <th>RSI</th>
+              <th>신호</th>
             </tr>
           </thead>
           <tbody>
@@ -181,6 +259,17 @@
               </td>
               <td class="ratio highlight">{{ formatPercent(stock.shortRatio) }}</td>
               <td class="ratio">{{ formatPercent(stock.shortBalanceRatio) }}</td>
+              <td class="rsi" :class="getRsiClass(stock.rsiStatus)">
+                {{ stock.rsi14 ? Number(stock.rsi14).toFixed(1) : '-' }}
+              </td>
+              <td class="signal">
+                <span v-if="stock.technicalSignal"
+                      class="signal-badge-small"
+                      :class="getTechnicalSignalClass(stock.technicalSignal)">
+                  {{ stock.technicalSignalLabel || getTechnicalSignalLabel(stock.technicalSignal) }}
+                </span>
+                <span v-else>-</span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -372,6 +461,57 @@ const getSqueezeIcon = (level) => {
     case 'HIGH': return '⚡';
     case 'MEDIUM': return '📈';
     default: return '📊';
+  }
+};
+
+// 기술적 지표 관련 함수들
+const getTechnicalSignalClass = (signal) => {
+  switch (signal) {
+    case 'STRONG_BUY': return 'strong-buy';
+    case 'BUY': return 'buy';
+    case 'NEUTRAL': return 'neutral';
+    case 'SELL': return 'sell';
+    case 'STRONG_SELL': return 'strong-sell';
+    default: return 'neutral';
+  }
+};
+
+const getTechnicalSignalIcon = (signal) => {
+  switch (signal) {
+    case 'STRONG_BUY': return '🚀';
+    case 'BUY': return '📈';
+    case 'NEUTRAL': return '➡️';
+    case 'SELL': return '📉';
+    case 'STRONG_SELL': return '🔻';
+    default: return '➡️';
+  }
+};
+
+const getRsiClass = (status) => {
+  switch (status) {
+    case 'OVERBOUGHT': return 'overbought';
+    case 'OVERSOLD': return 'oversold';
+    default: return 'neutral';
+  }
+};
+
+const getRsiLabel = (status) => {
+  switch (status) {
+    case 'OVERBOUGHT': return '과열';
+    case 'OVERSOLD': return '침체';
+    case 'NEUTRAL': return '중립';
+    default: return '';
+  }
+};
+
+const getTechnicalSignalLabel = (signal) => {
+  switch (signal) {
+    case 'STRONG_BUY': return '강력매수';
+    case 'BUY': return '매수';
+    case 'NEUTRAL': return '중립';
+    case 'SELL': return '매도';
+    case 'STRONG_SELL': return '강력매도';
+    default: return '-';
   }
 };
 
@@ -786,6 +926,224 @@ onMounted(() => {
 
 .stocks-table .ratio.highlight {
   color: #ed8936;
+}
+
+.stocks-table .rsi {
+  font-weight: 600;
+}
+
+.stocks-table .rsi.overbought {
+  color: #e53e3e;
+}
+
+.stocks-table .rsi.oversold {
+  color: #3182ce;
+}
+
+.stocks-table .rsi.neutral {
+  color: #48bb78;
+}
+
+.stocks-table .signal {
+  text-align: center;
+}
+
+.signal-badge-small {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.signal-badge-small.strong-buy {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: white;
+}
+
+.signal-badge-small.buy {
+  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+  color: white;
+}
+
+.signal-badge-small.neutral {
+  background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+  color: white;
+}
+
+.signal-badge-small.sell {
+  background: linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%);
+  color: white;
+}
+
+.signal-badge-small.strong-sell {
+  background: linear-gradient(135deg, #2b6cb0 0%, #1a365d 100%);
+  color: white;
+}
+
+/* 기술적 분석 섹션 */
+.detail-section.technical {
+  background: #252540;
+  padding: 0.75rem;
+  border-radius: 10px;
+  margin-top: 1rem;
+}
+
+.technical-signal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.tech-signal-badge {
+  padding: 0.3rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.tech-signal-badge.strong-buy {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: white;
+}
+
+.tech-signal-badge.buy {
+  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+  color: white;
+}
+
+.tech-signal-badge.neutral {
+  background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+  color: white;
+}
+
+.tech-signal-badge.sell {
+  background: linear-gradient(135deg, #3182ce 0%, #2b6cb0 100%);
+  color: white;
+}
+
+.tech-signal-badge.strong-sell {
+  background: linear-gradient(135deg, #2b6cb0 0%, #1a365d 100%);
+  color: white;
+}
+
+.tech-score {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #ed8936;
+}
+
+/* 이동평균선 그리드 */
+.ma-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.ma-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.4rem;
+  background: #1a1a3a;
+  border-radius: 8px;
+}
+
+.ma-label {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ma-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.ma-value.above {
+  color: #e53e3e;
+}
+
+.ma-value.below {
+  color: #3182ce;
+}
+
+/* RSI */
+.rsi-value {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.rsi-value.overbought {
+  color: #e53e3e;
+}
+
+.rsi-value.oversold {
+  color: #3182ce;
+}
+
+.rsi-value.neutral {
+  color: #48bb78;
+}
+
+.rsi-status {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 시그널 태그들 */
+.signal-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.signal-tag {
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.signal-tag.golden {
+  background: linear-gradient(135deg, #ffd700 0%, #ffa500 100%);
+  color: #1a1a2e;
+}
+
+.signal-tag.dead {
+  background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);
+  color: #fff;
+}
+
+.signal-tag.arranged-up {
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  color: #fff;
+}
+
+.signal-tag.arranged-down {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: #fff;
+}
+
+/* 기술적 설명 */
+.tech-description {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #1a1a3a;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #aaa;
+  line-height: 1.4;
 }
 
 .no-data {

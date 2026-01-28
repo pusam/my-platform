@@ -27,6 +27,7 @@ import InvestorSurgePage from './views/InvestorSurgePage.vue'
 import NewsPage from './views/NewsPage.vue'
 import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 import ShortSqueezePage from './views/ShortSqueezePage.vue'
+import TechnicalAnalysisPage from './views/TechnicalAnalysisPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -182,6 +183,12 @@ const router = createRouter({
       path: '/short-squeeze',
       name: 'ShortSqueeze',
       component: ShortSqueezePage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/technical-analysis',
+      name: 'TechnicalAnalysis',
+      component: TechnicalAnalysisPage,
       meta: { requiresAuth: true }
     },
     {

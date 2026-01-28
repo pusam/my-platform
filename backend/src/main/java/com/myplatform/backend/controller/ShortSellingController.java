@@ -87,6 +87,22 @@ public class ShortSellingController {
         return ResponseEntity.ok(ApiResponse.success(history));
     }
 
+    @Operation(summary = "특정 종목 상세 분석",
+               description = "특정 종목의 숏스퀴즈 분석 및 기술적 지표(MA, RSI, 골든크로스 등)를 조회합니다.")
+    @GetMapping("/analysis/{stockCode}")
+    public ResponseEntity<ApiResponse<ShortSqueezeDto>> getStockDetailedAnalysis(
+            @Parameter(description = "종목코드")
+            @PathVariable String stockCode) {
+
+        ShortSqueezeDto analysis = shortSellingService.getStockDetailedAnalysis(stockCode);
+
+        if (analysis == null) {
+            return ResponseEntity.ok(ApiResponse.fail("해당 종목의 분석 데이터가 없습니다."));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(analysis));
+    }
+
     // ========== 데이터 수집 API ==========
 
     @Operation(summary = "공매도/대차잔고 데이터 수집",

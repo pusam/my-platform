@@ -211,6 +211,25 @@
           </span>
         </article>
 
+        <article v-if="widgetSettings.investorTrades" class="menu-card technical" @click="goToTechnicalAnalysis">
+          <div class="card-icon technical-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M3 3v18h18"/>
+              <path d="M18 9l-5 5-4-4-3 3"/>
+              <circle cx="18" cy="9" r="2"/>
+              <circle cx="13" cy="14" r="2"/>
+              <circle cx="9" cy="10" r="2"/>
+            </svg>
+          </div>
+          <h3>기술적 분석</h3>
+          <p>이동평균선, RSI, 골든크로스 등 매매 시그널</p>
+          <span class="card-arrow">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9,6 15,12 9,18"/>
+            </svg>
+          </span>
+        </article>
+
         <article class="menu-card reddit" @click="goToReddit">
           <div class="card-icon reddit-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -572,6 +591,9 @@ export default {
     },
     goToShortSqueeze() {
       this.$router.push('/short-squeeze')
+    },
+    goToTechnicalAnalysis() {
+      this.$router.push('/technical-analysis')
     },
     goToNews() {
       this.$router.push('/news')
@@ -998,6 +1020,26 @@ export default {
 
 .menu-card.short-squeeze h3 {
   color: #7c3aed;
+}
+
+/* 기술적 분석 카드 */
+.card-icon.technical-icon {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%);
+  color: #06b6d4;
+}
+
+.menu-card.technical {
+  background: linear-gradient(135deg, rgba(236, 254, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(6, 182, 212, 0.3);
+}
+
+.menu-card.technical:hover {
+  border-color: #06b6d4;
+  box-shadow: 0 20px 40px rgba(6, 182, 212, 0.15);
+}
+
+.menu-card.technical h3 {
+  color: #0891b2;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
