@@ -478,4 +478,30 @@ public class QuantScreenerController {
             return ResponseEntity.internalServerError().body(response);
         }
     }
+
+    /**
+     * 종목명 일괄 수정
+     * - 종목코드가 종목명으로 저장된 데이터 수정
+     * - StockShortData 또는 네이버 금융에서 종목명 조회
+     */
+    @PostMapping("/fix-stock-names")
+    @Operation(summary = "종목명 일괄 수정",
+               description = "종목코드가 종목명으로 잘못 저장된 데이터를 수정합니다. " +
+                           "StockShortData 또는 네이버 금융에서 종목명을 조회하여 업데이트합니다.")
+    public ResponseEntity<Map<String, Object>> fixAllStockNames() {
+        log.info("종목명 일괄 수정 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> result = financialDataCrawlerService.fixAllStockNames();
+            response.put("success", true);
+            response.put("data", result);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("종목명 일괄 수정 오류", e);
+            response.put("success", false);
+            response.put("message", "종목명 수정 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 }

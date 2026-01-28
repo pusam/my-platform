@@ -402,6 +402,29 @@
               </div>
             </div>
           </div>
+
+          <!-- 종목명 수정 -->
+          <div class="action-card">
+            <div class="action-header">
+              <span class="action-icon">🏷️</span>
+              <h4>종목명 일괄 수정</h4>
+            </div>
+            <p class="action-desc">
+              종목코드가 종목명으로 잘못 저장된 데이터를 수정합니다. (예: "005930" → "삼성전자")
+            </p>
+            <div class="action-info">
+              <span class="info-tag">📂 StockShortData 참조</span>
+              <span class="info-tag">🌐 네이버 금융 크롤링</span>
+            </div>
+            <button
+              @click="fixStockNames"
+              class="action-btn warning"
+              :disabled="isCollecting || isCrawling || isFixingNames"
+            >
+              <span v-if="isFixingNames" class="spinner"></span>
+              {{ isFixingNames ? '수정 중...' : '종목명 일괄 수정' }}
+            </button>
+          </div>
         </div>
 
         <!-- 진행 상황 -->
@@ -444,6 +467,7 @@ const turnaroundStocks = ref([]);
 const collectStatus = ref(null);
 const isCollecting = ref(false);
 const isCrawling = ref(false);
+const isFixingNames = ref(false);
 const collectProgress = ref('');
 
 // AI 분석 결과
@@ -566,6 +590,33 @@ const previewCrawl = async () => {
   } catch (error) {
     console.error('크롤링 미리보기 오류:', error);
     crawlPreview.value = { success: false, message: '오류 발생' };
+  }
+};
+
+const fixStockNames = async () => {
+  if (isFixingNames.value) return;
+
+  if (!confirm('종목명 일괄 수정을 시작하시겠습니까?\n종목코드가 종목명으로 저장된 데이터를 수정합니다.')) {
+    return;
+  }
+
+  isFixingNames.value = true;
+  collectProgress.value = '종목명 수정 시작...';
+
+  try {
+    const response = await api.post('/screener/fix-stock-names');
+    if (response.data.success) {
+      const data = response.data.data;
+      collectProgress.value = `종목명 수정 완료! 총 ${data.total}개 중 수정: ${data.fixedCount}, 실패: ${data.failCount}, 스킵: ${data.skipCount} (소요시간: ${data.elapsedSeconds}초)`;
+      await fetchCollectStatus();
+    } else {
+      collectProgress.value = '종목명 수정 실패: ' + response.data.message;
+    }
+  } catch (error) {
+    console.error('종목명 수정 오류:', error);
+    collectProgress.value = '종목명 수정 중 오류 발생: ' + (error.response?.data?.message || error.message);
+  } finally {
+    isFixingNames.value = false;
   }
 };
 
@@ -1409,6 +1460,16 @@ onMounted(() => {
 .action-btn.secondary:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow: 0 5px 20px rgba(59, 130, 246, 0.3);
+}
+
+.action-btn.warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #000;
+}
+
+.action-btn.warning:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 20px rgba(245, 158, 11, 0.3);
 }
 
 .action-btn.small {

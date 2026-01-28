@@ -12,6 +12,8 @@ import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.springframework.data.domain.PageRequest;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
@@ -111,6 +113,9 @@ public class FinancialDataCrawlerService {
                     if (financials.containsKey("debtRatio")) {
                         data.setDebtRatio(financials.get("debtRatio"));
                     }
+
+                    // 종목명이 없거나 종목코드와 같은 경우 수정
+                    fixStockNameIfNeeded(data);
 
                     stockFinancialDataRepository.save(data);
                     successCount++;
@@ -322,8 +327,12 @@ public class FinancialDataCrawlerService {
                 data.setDebtRatio(financials.get("debtRatio"));
             }
 
+            // 종목명이 없거나 종목코드와 같은 경우 수정
+            fixStockNameIfNeeded(data);
+
             stockFinancialDataRepository.save(data);
-            log.info("크롤링 저장 완료: {} - 영업이익률: {}%", stockCode, financials.get("operatingMargin"));
+            log.info("크롤링 저장 완료: {} ({}) - 영업이익률: {}%",
+                    data.getStockName(), stockCode, financials.get("operatingMargin"));
             return true;
 
         } catch (Exception e) {
@@ -378,5 +387,162 @@ public class FinancialDataCrawlerService {
         return allData.stream()
                 .filter(d -> d.getOperatingMargin() != null && d.getOperatingMargin().compareTo(BigDecimal.ZERO) != 0)
                 .count();
+    }
+
+    /**
+     * 종목명이 없거나 종목코드와 같은 경우 수정
+     * 1. StockShortData에서 조회
+     * 2. 네이버 금융에서 크롤링
+     */
+    private void fixStockNameIfNeeded(StockFinancialData data) {
+        String stockCode = data.getStockCode();
+        String stockName = data.getStockName();
+
+        // 종목명이 유효하면 스킵
+        if (stockName != null && !stockName.isEmpty()
+                && !stockName.equals(stockCode) && !stockName.matches("^\\d{6}$")) {
+            return;
+        }
+
+        // 1. StockShortData에서 조회
+        String nameFromShortData = stockShortDataRepository
+                .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1))
+                .stream()
+                .findFirst()
+                .map(s -> s.getStockName())
+                .orElse(null);
+
+        if (nameFromShortData != null && !nameFromShortData.isEmpty()
+                && !nameFromShortData.equals(stockCode)) {
+            data.setStockName(nameFromShortData);
+            log.debug("종목명 수정 (ShortData): {} -> {}", stockCode, nameFromShortData);
+            return;
+        }
+
+        // 2. 네이버 금융에서 크롤링
+        String nameFromNaver = crawlStockName(stockCode);
+        if (nameFromNaver != null && !nameFromNaver.isEmpty()) {
+            data.setStockName(nameFromNaver);
+            log.debug("종목명 수정 (네이버): {} -> {}", stockCode, nameFromNaver);
+        }
+    }
+
+    /**
+     * 네이버 금융에서 종목명 크롤링
+     */
+    public String crawlStockName(String stockCode) {
+        try {
+            String url = NAVER_FINANCE_URL + stockCode;
+            Document doc = Jsoup.connect(url)
+                    .userAgent(USER_AGENT)
+                    .timeout(10000)
+                    .get();
+
+            // 방법 1: 페이지 타이틀에서 추출 (예: "삼성전자 : 네이버 금융")
+            String title = doc.title();
+            if (title != null && title.contains(":")) {
+                String name = title.split(":")[0].trim();
+                if (!name.isEmpty() && !name.equals(stockCode)) {
+                    return name;
+                }
+            }
+
+            // 방법 2: wrap_company h2에서 추출
+            Element h2 = doc.selectFirst("div.wrap_company h2 a");
+            if (h2 != null) {
+                String name = h2.text().trim();
+                if (!name.isEmpty() && !name.equals(stockCode)) {
+                    return name;
+                }
+            }
+
+            // 방법 3: 종목명 span에서 추출
+            Element nameSpan = doc.selectFirst("div.rate_info span.blind");
+            if (nameSpan != null) {
+                String name = nameSpan.text().trim();
+                if (name.contains("현재가")) {
+                    // "삼성전자 현재가" 형태에서 종목명 추출
+                    name = name.replace("현재가", "").trim();
+                    if (!name.isEmpty() && !name.equals(stockCode)) {
+                        return name;
+                    }
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            log.debug("종목명 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 종목명이 잘못된(종목코드와 같은) 데이터 수정
+     * - 기존 데이터 일괄 수정용
+     */
+    public Map<String, Object> fixAllStockNames() {
+        Map<String, Object> result = new HashMap<>();
+        long startTime = System.currentTimeMillis();
+
+        log.info("========== 종목명 일괄 수정 시작 ==========");
+
+        List<StockFinancialData> allData = stockFinancialDataRepository.findAll();
+        int totalCount = allData.size();
+        int fixedCount = 0;
+        int failCount = 0;
+        int skipCount = 0;
+
+        for (int i = 0; i < allData.size(); i++) {
+            StockFinancialData data = allData.get(i);
+            String stockCode = data.getStockCode();
+            String stockName = data.getStockName();
+
+            // 종목명이 유효하면 스킵
+            if (stockName != null && !stockName.isEmpty()
+                    && !stockName.equals(stockCode) && !stockName.matches("^\\d{6}$")) {
+                skipCount++;
+                continue;
+            }
+
+            try {
+                // Rate limit
+                if (fixedCount > 0 && fixedCount % 10 == 0) {
+                    Thread.sleep(100);
+                }
+
+                fixStockNameIfNeeded(data);
+
+                if (data.getStockName() != null && !data.getStockName().equals(stockCode)) {
+                    stockFinancialDataRepository.save(data);
+                    fixedCount++;
+                } else {
+                    failCount++;
+                }
+
+                // 진행률
+                if ((i + 1) % 100 == 0) {
+                    log.info("진행률: {}/{} - 수정: {}, 실패: {}, 스킵: {}",
+                            i + 1, totalCount, fixedCount, failCount, skipCount);
+                }
+
+            } catch (Exception e) {
+                log.error("종목명 수정 실패 [{}]: {}", stockCode, e.getMessage());
+                failCount++;
+            }
+        }
+
+        long elapsedTime = System.currentTimeMillis() - startTime;
+        log.info("========== 종목명 일괄 수정 완료 ==========");
+        log.info("총 {}개 중 수정: {}, 실패: {}, 스킵: {}, 소요시간: {}초",
+                totalCount, fixedCount, failCount, skipCount, elapsedTime / 1000);
+
+        result.put("success", true);
+        result.put("total", totalCount);
+        result.put("fixedCount", fixedCount);
+        result.put("failCount", failCount);
+        result.put("skipCount", skipCount);
+        result.put("elapsedSeconds", elapsedTime / 1000);
+
+        return result;
     }
 }

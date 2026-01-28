@@ -8,6 +8,7 @@ import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -215,12 +216,14 @@ public class StockFinancialDataService {
 
     /**
      * 재무비율 조회 (KIS API)
+     * - FHKST66430200: 재무비율 조회
+     * - FHKST66430300: 손익계산서 조회 (순이익 등)
      */
     private Map<String, BigDecimal> getFinancialRatios(String token, String stockCode) {
         Map<String, BigDecimal> ratios = new HashMap<>();
 
         try {
-            // 국내주식 재무비율 조회 API (FHKST66430200)
+            // 1. 국내주식 재무비율 조회 API (FHKST66430200)
             String url = baseUrl + "/uapi/domestic-stock/v1/finance/financial-ratio"
                     + "?FID_DIV_CLS_CODE=0"
                     + "&fid_cond_mrkt_div_code=J"
@@ -249,6 +252,47 @@ public class StockFinancialDataService {
                         ratios.put("netMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
                         ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
                         ratios.put("epsGrowth", parseBigDecimal(latest.path("eps_cagr").asText()));
+                        // 성장률 관련
+                        ratios.put("revenueGrowth", parseBigDecimal(latest.path("sls_cagr").asText()));
+                        ratios.put("profitGrowth", parseBigDecimal(latest.path("ntin_cagr").asText()));
+                    }
+                }
+            }
+
+            // 2. 손익계산서 조회 API (FHKST66430300) - 순이익 금액
+            Thread.sleep(100);
+            String incomeUrl = baseUrl + "/uapi/domestic-stock/v1/finance/income-statement"
+                    + "?FID_DIV_CLS_CODE=0"
+                    + "&fid_cond_mrkt_div_code=J"
+                    + "&fid_input_iscd=" + stockCode;
+
+            headers.set("tr_id", "FHKST66430300");
+            request = new HttpEntity<>(headers);
+            response = restTemplate.exchange(incomeUrl, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                if ("0".equals(root.path("rt_cd").asText())) {
+                    JsonNode output = root.get("output");
+                    if (output != null && output.isArray() && output.size() > 0) {
+                        JsonNode latest = output.get(0);
+                        // 당기순이익 (억원 단위로 저장)
+                        BigDecimal netIncomeRaw = parseBigDecimal(latest.path("thtr_ntin").asText());
+                        if (netIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            // 백만원 단위 -> 억원 단위 변환 (API 응답이 백만원 단위일 경우)
+                            BigDecimal netIncome = netIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                            ratios.put("netIncome", netIncome);
+                        }
+                        // 매출액
+                        BigDecimal revenue = parseBigDecimal(latest.path("sale_account").asText());
+                        if (revenue.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("revenue", revenue.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        }
+                        // 영업이익
+                        BigDecimal operatingProfit = parseBigDecimal(latest.path("bsop_prti").asText());
+                        if (operatingProfit.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("operatingProfit", operatingProfit.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        }
                     }
                 }
             }
@@ -416,21 +460,55 @@ public class StockFinancialDataService {
                 return false;
             }
 
-            // 종목명
+            // 종목명: API에서 가져오고, 없으면 StockShortData에서 조회
             String stockName = output.path("hts_kor_isnm").asText("");
             if (stockName.isEmpty()) {
-                stockName = stockCode;
+                // StockShortData에서 종목명 조회
+                stockName = stockShortDataRepository.findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1))
+                        .stream()
+                        .findFirst()
+                        .map(s -> s.getStockName())
+                        .orElse(stockCode);
             }
 
-            // 시장 구분 (기본값 KOSPI, 정확한 구분은 별도 API 필요)
+            // 시장 구분: 코스피/코스닥 구분
+            // 코스닥 종목은 보통 A로 시작하거나 6자리 코드가 1, 2로 시작하지 않음
             String market = "KOSPI";
+            String rprs_mrkt_kor_name = output.path("rprs_mrkt_kor_name").asText("");
+            if (rprs_mrkt_kor_name.contains("코스닥") || rprs_mrkt_kor_name.contains("KOSDAQ")) {
+                market = "KOSDAQ";
+            } else if (stockCode.startsWith("3") || stockCode.startsWith("4") || stockCode.startsWith("9")) {
+                // 코스닥 종목코드는 주로 3, 4, 9로 시작
+                market = "KOSDAQ";
+            }
 
-            // 현재가, 시가총액
+            // 현재가
             BigDecimal currentPrice = parseBigDecimal(output.path("stck_prpr").asText());
+
+            // 시가총액: hts_avls는 이미 억원 단위이거나, stck_hgpr(상장주식수) * 현재가로 계산
             BigDecimal marketCapRaw = parseBigDecimal(output.path("hts_avls").asText());
-            BigDecimal marketCap = marketCapRaw.compareTo(BigDecimal.ZERO) > 0
-                    ? marketCapRaw.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP)
-                    : BigDecimal.ZERO; // 억원 단위
+            BigDecimal marketCap;
+
+            if (marketCapRaw.compareTo(BigDecimal.ZERO) > 0) {
+                // hts_avls가 있으면 사용 (이미 억원 단위일 수 있음)
+                // 값이 매우 크면(조 단위 이상) 원 단위로 판단하여 억원으로 변환
+                if (marketCapRaw.compareTo(new BigDecimal("100000000")) > 0) {
+                    // 원 단위 -> 억원 단위 변환
+                    marketCap = marketCapRaw.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
+                } else {
+                    // 이미 억원 단위
+                    marketCap = marketCapRaw;
+                }
+            } else {
+                // 시가총액이 없으면 상장주식수 * 현재가로 계산
+                BigDecimal lstgStcn = parseBigDecimal(output.path("lstn_stcn").asText()); // 상장주식수
+                if (lstgStcn.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    marketCap = lstgStcn.multiply(currentPrice)
+                            .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
+                } else {
+                    marketCap = BigDecimal.ZERO;
+                }
+            }
 
             // PER, PBR, EPS, BPS
             BigDecimal per = parseBigDecimal(output.path("per").asText());
@@ -446,6 +524,39 @@ public class StockFinancialDataService {
                         .multiply(new BigDecimal("100"))
                         .setScale(2, RoundingMode.HALF_UP);
             }
+
+            // 재무비율 API 호출 (epsGrowth, netIncome, profitGrowth 등)
+            String token = koreaInvestmentService.getAccessToken();
+            Map<String, BigDecimal> financialRatios = new HashMap<>();
+            if (token != null) {
+                try {
+                    Thread.sleep(100); // API 호출 간격
+                    financialRatios = getFinancialRatios(token, stockCode);
+                } catch (Exception e) {
+                    log.debug("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
+                }
+            }
+
+            // ROE가 API에서 제공되면 사용
+            BigDecimal roeFromApi = financialRatios.get("roe");
+            if (roeFromApi != null && roeFromApi.compareTo(BigDecimal.ZERO) > 0) {
+                roe = roeFromApi;
+            }
+
+            // EPS 성장률과 PEG
+            BigDecimal epsGrowth = financialRatios.getOrDefault("epsGrowth", null);
+            BigDecimal peg = null;
+            if (per != null && per.compareTo(BigDecimal.ZERO) > 0 &&
+                epsGrowth != null && epsGrowth.compareTo(BigDecimal.ZERO) > 0) {
+                peg = per.divide(epsGrowth, 2, RoundingMode.HALF_UP);
+            }
+
+            // 순이익 관련
+            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
+            BigDecimal profitGrowth = financialRatios.getOrDefault("profitGrowth", null);
+            BigDecimal revenueGrowth = financialRatios.getOrDefault("revenueGrowth", null);
+            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
+            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
             // Entity 저장/업데이트
             LocalDate today = LocalDate.now();
@@ -464,6 +575,13 @@ public class StockFinancialDataService {
             financialData.setEps(eps);
             financialData.setBps(bps);
             financialData.setRoe(roe);
+            financialData.setEpsGrowth(epsGrowth);
+            financialData.setPeg(peg);
+            financialData.setNetIncome(netIncome);
+            financialData.setProfitGrowth(profitGrowth);
+            financialData.setRevenueGrowth(revenueGrowth);
+            financialData.setRevenue(revenue);
+            financialData.setOperatingProfit(operatingProfit);
             // 영업이익률은 null로 저장 (별도 크롤링 필요)
             financialData.setOperatingMargin(null);
 
