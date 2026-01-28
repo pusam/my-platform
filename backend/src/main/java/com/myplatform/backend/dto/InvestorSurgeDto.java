@@ -1,12 +1,15 @@
 package com.myplatform.backend.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 외국인/기관 수급 급증 종목 DTO
@@ -16,6 +19,8 @@ import java.time.LocalTime;
 @NoArgsConstructor
 @AllArgsConstructor
 public class InvestorSurgeDto {
+
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private String stockCode;
     private String stockName;
@@ -49,4 +54,53 @@ public class InvestorSurgeDto {
     // 공통 종목용 필드
     private BigDecimal foreignNetBuy;      // 외국인 순매수 금액 (억원)
     private BigDecimal institutionNetBuy;  // 기관 순매수 금액 (억원)
+
+    // ========== 시간 표시 관련 ==========
+
+    /**
+     * 스냅샷 시간을 "HH:mm (N분 전)" 형식으로 반환
+     * - 1분 미만: "11:20 (Live)"
+     * - 1분 이상: "11:20 (3분 전)"
+     */
+    public String getDisplayTime() {
+        if (snapshotTime == null) {
+            return "-";
+        }
+
+        String timeStr = snapshotTime.format(TIME_FORMATTER);
+        long minutesAgo = getMinutesAgo();
+
+        if (minutesAgo < 1) {
+            return timeStr + " (Live)";
+        } else {
+            return timeStr + " (" + minutesAgo + "분 전)";
+        }
+    }
+
+    /**
+     * 데이터가 10분 이상 지났는지 여부
+     * - true: 오래된 데이터 (프론트에서 회색 처리용)
+     * - false: 신선한 데이터
+     */
+    public boolean isOutdated() {
+        return getMinutesAgo() >= 10;
+    }
+
+    /**
+     * 스냅샷 시간과 현재 시간의 차이 (분 단위)
+     */
+    @JsonIgnore
+    private long getMinutesAgo() {
+        if (snapshotTime == null) {
+            return Long.MAX_VALUE;
+        }
+        LocalTime now = LocalTime.now();
+        Duration duration = Duration.between(snapshotTime, now);
+
+        // 음수인 경우 (자정 넘어갈 때) 처리
+        if (duration.isNegative()) {
+            return 0;
+        }
+        return duration.toMinutes();
+    }
 }
