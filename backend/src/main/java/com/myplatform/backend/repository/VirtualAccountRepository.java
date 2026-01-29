@@ -13,9 +13,9 @@ import java.util.Optional;
 public interface VirtualAccountRepository extends JpaRepository<VirtualAccount, Long> {
 
     /**
-     * 활성화된 계좌 조회
+     * 활성화된 계좌 조회 (여러 개일 경우 가장 최근 것)
      */
-    Optional<VirtualAccount> findByIsActiveTrue();
+    Optional<VirtualAccount> findFirstByIsActiveTrueOrderByIdDesc();
 
     /**
      * 계좌명으로 조회

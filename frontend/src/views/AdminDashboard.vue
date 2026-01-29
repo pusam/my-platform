@@ -298,9 +298,22 @@
             <div class="section-header">
               <h2>🤖 투자 자동매매</h2>
             </div>
-            <p>모의투자 / 실전투자 자동매매 봇 운영</p>
-            <div class="action-group">
-              <button @click="goToPaperTrading" class="action-btn primary">트레이딩 대시보드</button>
+            <p>모의투자와 실전투자를 분리하여 운영</p>
+            <div class="trading-buttons">
+              <button @click="goToVirtualTrading" class="trading-btn virtual">
+                <span class="btn-icon">🤖</span>
+                <span class="btn-text">
+                  <strong>모의투자</strong>
+                  <small>가상 계좌로 전략 검증</small>
+                </span>
+              </button>
+              <button @click="goToRealTrading" class="trading-btn real">
+                <span class="btn-icon">🔴</span>
+                <span class="btn-text">
+                  <strong>실전투자</strong>
+                  <small>실제 계좌 자동매매</small>
+                </span>
+              </button>
             </div>
           </div>
 
@@ -494,8 +507,11 @@ export default {
     goToBoard() {
       this.$router.push('/board')
     },
-    goToPaperTrading() {
-      this.$router.push('/paper-trading')
+    goToVirtualTrading() {
+      this.$router.push('/paper-trading?tab=virtual')
+    },
+    goToRealTrading() {
+      this.$router.push('/paper-trading?tab=real')
     },
     goToUserApproval() {
       this.$router.push('/admin/users')
@@ -1050,6 +1066,69 @@ export default {
 .paper-trading-section {
   border-left: 4px solid #9f7aea;
   background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+}
+
+.trading-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.trading-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border: 2px solid;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: white;
+}
+
+.trading-btn .btn-icon {
+  font-size: 28px;
+}
+
+.trading-btn .btn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.trading-btn .btn-text strong {
+  font-size: 15px;
+}
+
+.trading-btn .btn-text small {
+  font-size: 12px;
+  color: #666;
+}
+
+.trading-btn.virtual {
+  border-color: #48bb78;
+  color: #276749;
+}
+
+.trading-btn.virtual:hover {
+  background: #f0fff4;
+  border-color: #38a169;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);
+}
+
+.trading-btn.real {
+  border-color: #e53e3e;
+  color: #c53030;
+}
+
+.trading-btn.real:hover {
+  background: #fff5f5;
+  border-color: #c53030;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);
 }
 
 /* 텔레그램 섹션 */

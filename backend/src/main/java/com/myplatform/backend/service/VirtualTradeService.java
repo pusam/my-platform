@@ -60,7 +60,7 @@ public class VirtualTradeService implements TradeService {
                 : INITIAL_BALANCE;
 
         // 기존 활성 계좌 비활성화
-        accountRepository.findByIsActiveTrue().ifPresent(account -> {
+        accountRepository.findFirstByIsActiveTrueOrderByIdDesc().ifPresent(account -> {
             account.setIsActive(false);
             accountRepository.save(account);
         });
@@ -85,7 +85,7 @@ public class VirtualTradeService implements TradeService {
      * 활성 계좌 조회 (없으면 자동 생성)
      */
     public VirtualAccount getOrCreateActiveAccount() {
-        return accountRepository.findByIsActiveTrue()
+        return accountRepository.findFirstByIsActiveTrueOrderByIdDesc()
                 .orElseGet(() -> {
                     log.info("활성 계좌가 없어 새로 생성합니다.");
                     VirtualAccount account = VirtualAccount.builder()

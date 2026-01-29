@@ -5,254 +5,447 @@
       <!-- 헤더 섹션 -->
       <div class="page-header">
         <button @click="goBack" class="back-button">← 돌아가기</button>
-        <h1>모의투자</h1>
-        <p class="subtitle">가상 계좌로 전략을 검증하세요</p>
+        <h1>자동매매</h1>
+        <p class="subtitle">모의투자와 실전투자를 관리하세요</p>
       </div>
 
-      <!-- 요약 카드 섹션 -->
-      <div class="summary-grid">
-        <!-- 가상 계좌 카드 -->
-        <div class="summary-card account-card">
-          <div class="card-icon">💰</div>
-          <h3>가상 계좌</h3>
-          <div class="card-content">
-            <div class="stat-row">
-              <span class="label">초기 자본</span>
-              <span class="value">{{ formatCurrency(account.initialBalance) }}</span>
-            </div>
-            <div class="stat-row">
-              <span class="label">현재 잔액</span>
-              <span class="value highlight">{{ formatCurrency(account.currentBalance) }}</span>
-            </div>
-            <div class="stat-row">
-              <span class="label">총 자산</span>
-              <span class="value" :class="getProfitClass(totalAsset - account.initialBalance)">
-                {{ formatCurrency(totalAsset) }}
-              </span>
-            </div>
-            <div class="stat-row profit-row">
-              <span class="label">총 손익</span>
-              <span class="value" :class="getProfitClass(account.totalProfitLoss)">
-                {{ formatProfitLoss(account.totalProfitLoss) }}
-                <small>({{ formatPercent(account.totalProfitRate) }})</small>
-              </span>
-            </div>
-          </div>
-          <button @click="showInitializeConfirm = true" class="reset-btn">
-            계좌 초기화
-          </button>
-        </div>
+      <!-- 탭 네비게이션 -->
+      <div class="tab-navigation">
+        <button
+          :class="['tab-btn', { active: activeTab === 'virtual' }]"
+          @click="activeTab = 'virtual'"
+        >
+          🤖 모의투자
+        </button>
+        <button
+          :class="['tab-btn real', { active: activeTab === 'real' }]"
+          @click="switchToRealTab"
+        >
+          🔴 실전투자
+        </button>
+      </div>
 
-        <!-- 포트폴리오 카드 -->
-        <div class="summary-card portfolio-card">
-          <div class="card-icon">📊</div>
-          <h3>포트폴리오</h3>
-          <div class="card-content">
-            <div class="stat-row">
-              <span class="label">보유 종목</span>
-              <span class="value">{{ account.holdingCount || 0 }}종목</span>
+      <!-- 모의투자 탭 -->
+      <div v-if="activeTab === 'virtual'" class="tab-content">
+        <!-- 요약 카드 섹션 -->
+        <div class="summary-grid">
+          <!-- 가상 계좌 카드 -->
+          <div class="summary-card account-card">
+            <div class="card-icon">💰</div>
+            <h3>가상 계좌</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">초기 자본</span>
+                <span class="value">{{ formatCurrency(account.initialBalance) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">현재 잔액</span>
+                <span class="value highlight">{{ formatCurrency(account.currentBalance) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">총 자산</span>
+                <span class="value" :class="getProfitClass(totalAsset - account.initialBalance)">
+                  {{ formatCurrency(totalAsset) }}
+                </span>
+              </div>
+              <div class="stat-row profit-row">
+                <span class="label">총 손익</span>
+                <span class="value" :class="getProfitClass(account.totalProfitLoss)">
+                  {{ formatProfitLoss(account.totalProfitLoss) }}
+                  <small>({{ formatPercent(account.totalProfitRate) }})</small>
+                </span>
+              </div>
             </div>
-            <div class="stat-row">
-              <span class="label">투자 금액</span>
-              <span class="value">{{ formatCurrency(account.totalInvested) }}</span>
-            </div>
-            <div class="stat-row">
-              <span class="label">평가 금액</span>
-              <span class="value">{{ formatCurrency(account.totalEvaluation) }}</span>
-            </div>
-            <div class="stat-row">
-              <span class="label">평가 손익</span>
-              <span class="value" :class="getProfitClass(account.unrealizedProfitLoss)">
-                {{ formatProfitLoss(account.unrealizedProfitLoss) }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 거래 현황 카드 -->
-        <div class="summary-card trade-card">
-          <div class="card-icon">📈</div>
-          <h3>거래 현황</h3>
-          <div class="card-content">
-            <div class="stat-row">
-              <span class="label">총 매도 수</span>
-              <span class="value">{{ account.totalTradeCount || 0 }}건</span>
-            </div>
-            <div class="stat-row">
-              <span class="label">승률</span>
-              <span class="value" :class="getWinRateClass(account.winRate)">
-                {{ formatPercent(account.winRate) }}
-              </span>
-            </div>
-            <div class="stat-row">
-              <span class="label">수익/손실</span>
-              <span class="value">
-                <span class="win">{{ account.winCount || 0 }}승</span> /
-                <span class="lose">{{ account.loseCount || 0 }}패</span>
-              </span>
-            </div>
-            <div class="stat-row">
-              <span class="label">실현 손익</span>
-              <span class="value" :class="getProfitClass(account.realizedProfitLoss)">
-                {{ formatProfitLoss(account.realizedProfitLoss) }}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 자동봇 카드 -->
-        <div class="summary-card bot-card" :class="{ active: botStatus.active, 'real-mode': botStatus.tradingMode === 'REAL' }">
-          <div class="card-icon">{{ botStatus.tradingMode === 'REAL' ? '🔴' : '🤖' }}</div>
-          <h3>자동 매매 봇</h3>
-          <div class="card-content">
-            <div class="stat-row">
-              <span class="label">상태</span>
-              <span class="value" :class="getBotStatusClass(botStatus.status)">
-                {{ getBotStatusText(botStatus.status) }}
-              </span>
-            </div>
-            <div class="stat-row" v-if="botStatus.active">
-              <span class="label">모드</span>
-              <span class="value" :class="{ 'real-mode-text': botStatus.tradingMode === 'REAL' }">
-                {{ botStatus.tradingModeName || '모의투자' }}
-              </span>
-            </div>
-            <div class="stat-row">
-              <span class="label">오늘 매수</span>
-              <span class="value">{{ botStatus.todayBuyCount || 0 }}건</span>
-            </div>
-            <div class="stat-row">
-              <span class="label">오늘 매도</span>
-              <span class="value">{{ botStatus.todaySellCount || 0 }}건</span>
-            </div>
-            <div class="stat-row" v-if="botStatus.lastTradeTime">
-              <span class="label">마지막 거래</span>
-              <span class="value time">{{ formatTime(botStatus.lastTradeTime) }}</span>
-            </div>
-            <div class="stat-row error" v-if="botStatus.lastError">
-              <span class="label">에러</span>
-              <span class="value">{{ botStatus.lastError }}</span>
-            </div>
-          </div>
-          <div class="bot-controls">
-            <template v-if="!botStatus.active">
-              <button @click="startBot('VIRTUAL')" class="start-btn virtual-btn" :disabled="botLoading">
-                {{ botLoading ? '처리 중...' : '🤖 모의투자 시작' }}
-              </button>
-              <button @click="startBot('REAL')" class="start-btn real-btn" :disabled="botLoading">
-                {{ botLoading ? '처리 중...' : '🔴 실전투자 시작' }}
-              </button>
-            </template>
-            <button v-else @click="stopBot" class="stop-btn" :disabled="botLoading">
-              {{ botLoading ? '처리 중...' : '봇 중지' }}
+            <button @click="showInitializeConfirm = true" class="reset-btn">
+              계좌 초기화
             </button>
           </div>
-        </div>
-      </div>
 
-      <!-- 포트폴리오 테이블 -->
-      <div class="section">
-        <div class="section-header">
-          <h2>보유 종목</h2>
-          <button @click="refreshPortfolio" class="refresh-btn" :disabled="portfolioLoading">
-            {{ portfolioLoading ? '새로고침 중...' : '새로고침' }}
-          </button>
-        </div>
+          <!-- 포트폴리오 카드 -->
+          <div class="summary-card portfolio-card">
+            <div class="card-icon">📊</div>
+            <h3>포트폴리오</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">보유 종목</span>
+                <span class="value">{{ account.holdingCount || 0 }}종목</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">투자 금액</span>
+                <span class="value">{{ formatCurrency(account.totalInvested) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">평가 금액</span>
+                <span class="value">{{ formatCurrency(account.totalEvaluation) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">평가 손익</span>
+                <span class="value" :class="getProfitClass(account.unrealizedProfitLoss)">
+                  {{ formatProfitLoss(account.unrealizedProfitLoss) }}
+                </span>
+              </div>
+            </div>
+          </div>
 
-        <div v-if="portfolio.length > 0" class="table-container">
-          <table class="portfolio-table">
-            <thead>
-              <tr>
-                <th>종목명</th>
-                <th>종목코드</th>
-                <th class="right">보유수량</th>
-                <th class="right">평균단가</th>
-                <th class="right">현재가</th>
-                <th class="right">평가금액</th>
-                <th class="right">손익</th>
-                <th class="right">손익률</th>
-                <th>매도</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in portfolio" :key="item.stockCode">
-                <td class="stock-name">{{ item.stockName }}</td>
-                <td class="stock-code">{{ item.stockCode }}</td>
-                <td class="right">{{ item.quantity }}주</td>
-                <td class="right">{{ formatNumber(item.averagePrice) }}원</td>
-                <td class="right">{{ formatNumber(item.currentPrice) }}원</td>
-                <td class="right">{{ formatCurrency(item.totalEvaluation) }}</td>
-                <td class="right" :class="getProfitClass(item.profitLoss)">
-                  {{ formatProfitLoss(item.profitLoss) }}
-                </td>
-                <td class="right" :class="getProfitClass(item.profitRate)">
-                  {{ formatPercent(item.profitRate) }}
-                </td>
-                <td>
-                  <button @click="openSellModal(item)" class="sell-btn">매도</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="no-data">
-          <p>보유 종목이 없습니다.</p>
-        </div>
-      </div>
+          <!-- 거래 현황 카드 -->
+          <div class="summary-card trade-card">
+            <div class="card-icon">📈</div>
+            <h3>거래 현황</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">총 매도 수</span>
+                <span class="value">{{ account.totalTradeCount || 0 }}건</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">승률</span>
+                <span class="value" :class="getWinRateClass(account.winRate)">
+                  {{ formatPercent(account.winRate) }}
+                </span>
+              </div>
+              <div class="stat-row">
+                <span class="label">수익/손실</span>
+                <span class="value">
+                  <span class="win">{{ account.winCount || 0 }}승</span> /
+                  <span class="lose">{{ account.loseCount || 0 }}패</span>
+                </span>
+              </div>
+              <div class="stat-row">
+                <span class="label">실현 손익</span>
+                <span class="value" :class="getProfitClass(account.realizedProfitLoss)">
+                  {{ formatProfitLoss(account.realizedProfitLoss) }}
+                </span>
+              </div>
+            </div>
+          </div>
 
-      <!-- 거래 내역 -->
-      <div class="section">
-        <div class="section-header">
-          <h2>거래 내역</h2>
-          <button @click="showTradeModal = true" class="trade-btn">수동 거래</button>
-        </div>
-
-        <div v-if="trades.length > 0" class="table-container">
-          <table class="trades-table">
-            <thead>
-              <tr>
-                <th>시간</th>
-                <th>종목명</th>
-                <th>유형</th>
-                <th class="right">수량</th>
-                <th class="right">가격</th>
-                <th class="right">금액</th>
-                <th class="right">손익</th>
-                <th>사유</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="trade in trades" :key="trade.id" :class="trade.tradeType.toLowerCase()">
-                <td class="time">{{ formatDateTime(trade.tradeDate) }}</td>
-                <td class="stock-name">{{ trade.stockName }}</td>
-                <td :class="trade.tradeType.toLowerCase()">{{ trade.tradeTypeName }}</td>
-                <td class="right">{{ trade.quantity }}주</td>
-                <td class="right">{{ formatNumber(trade.price) }}원</td>
-                <td class="right">{{ formatCurrency(trade.totalAmount) }}</td>
-                <td class="right" :class="getProfitClass(trade.profitLoss)">
-                  {{ trade.profitLoss ? formatProfitLoss(trade.profitLoss) : '-' }}
-                </td>
-                <td class="reason">{{ trade.tradeReasonName }}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <!-- 페이징 -->
-          <div class="pagination" v-if="totalPages > 1">
-            <button @click="changePage(currentPage - 1)" :disabled="currentPage === 0">이전</button>
-            <span>{{ currentPage + 1 }} / {{ totalPages }}</span>
-            <button @click="changePage(currentPage + 1)" :disabled="currentPage >= totalPages - 1">다음</button>
+          <!-- 자동봇 카드 (모의투자) -->
+          <div class="summary-card bot-card" :class="{ active: botStatus.active && botStatus.tradingMode === 'VIRTUAL' }">
+            <div class="card-icon">🤖</div>
+            <h3>모의투자 봇</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">상태</span>
+                <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'VIRTUAL' ? botStatus.status : 'STOPPED')">
+                  {{ botStatus.active && botStatus.tradingMode === 'VIRTUAL' ? '실행 중' : '중지됨' }}
+                </span>
+              </div>
+              <div class="stat-row">
+                <span class="label">오늘 매수</span>
+                <span class="value">{{ botStatus.tradingMode === 'VIRTUAL' ? (botStatus.todayBuyCount || 0) : 0 }}건</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">오늘 매도</span>
+                <span class="value">{{ botStatus.tradingMode === 'VIRTUAL' ? (botStatus.todaySellCount || 0) : 0 }}건</span>
+              </div>
+              <div class="stat-row" v-if="botStatus.active && botStatus.tradingMode === 'VIRTUAL' && botStatus.lastTradeTime">
+                <span class="label">마지막 거래</span>
+                <span class="value time">{{ formatTime(botStatus.lastTradeTime) }}</span>
+              </div>
+            </div>
+            <div class="bot-controls">
+              <button
+                v-if="!botStatus.active || botStatus.tradingMode !== 'VIRTUAL'"
+                @click="startBot('VIRTUAL')"
+                class="start-btn virtual-btn"
+                :disabled="botLoading || (botStatus.active && botStatus.tradingMode === 'REAL')"
+              >
+                {{ botLoading ? '처리 중...' : '🤖 모의투자 봇 시작' }}
+              </button>
+              <button
+                v-else
+                @click="stopBot"
+                class="stop-btn"
+                :disabled="botLoading"
+              >
+                {{ botLoading ? '처리 중...' : '봇 중지' }}
+              </button>
+            </div>
           </div>
         </div>
-        <div v-else class="no-data">
-          <p>거래 내역이 없습니다.</p>
+
+        <!-- 포트폴리오 테이블 -->
+        <div class="section">
+          <div class="section-header">
+            <h2>보유 종목</h2>
+            <button @click="refreshPortfolio" class="refresh-btn" :disabled="portfolioLoading">
+              {{ portfolioLoading ? '새로고침 중...' : '새로고침' }}
+            </button>
+          </div>
+
+          <div v-if="portfolio.length > 0" class="table-container">
+            <table class="portfolio-table">
+              <thead>
+                <tr>
+                  <th>종목명</th>
+                  <th>종목코드</th>
+                  <th class="right">보유수량</th>
+                  <th class="right">평균단가</th>
+                  <th class="right">현재가</th>
+                  <th class="right">평가금액</th>
+                  <th class="right">손익</th>
+                  <th class="right">손익률</th>
+                  <th>매도</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in portfolio" :key="item.stockCode">
+                  <td class="stock-name">{{ item.stockName }}</td>
+                  <td class="stock-code">{{ item.stockCode }}</td>
+                  <td class="right">{{ item.quantity }}주</td>
+                  <td class="right">{{ formatNumber(item.averagePrice) }}원</td>
+                  <td class="right">{{ formatNumber(item.currentPrice) }}원</td>
+                  <td class="right">{{ formatCurrency(item.totalEvaluation) }}</td>
+                  <td class="right" :class="getProfitClass(item.profitLoss)">
+                    {{ formatProfitLoss(item.profitLoss) }}
+                  </td>
+                  <td class="right" :class="getProfitClass(item.profitRate)">
+                    {{ formatPercent(item.profitRate) }}
+                  </td>
+                  <td>
+                    <button @click="openSellModal(item, 'virtual')" class="sell-btn">매도</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="no-data">
+            <p>보유 종목이 없습니다.</p>
+          </div>
+        </div>
+
+        <!-- 거래 내역 -->
+        <div class="section">
+          <div class="section-header">
+            <h2>거래 내역</h2>
+            <button @click="openTradeModal('virtual')" class="trade-btn">수동 거래</button>
+          </div>
+
+          <div v-if="trades.length > 0" class="table-container">
+            <table class="trades-table">
+              <thead>
+                <tr>
+                  <th>시간</th>
+                  <th>종목명</th>
+                  <th>유형</th>
+                  <th class="right">수량</th>
+                  <th class="right">가격</th>
+                  <th class="right">금액</th>
+                  <th class="right">손익</th>
+                  <th>사유</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="trade in trades" :key="trade.id" :class="trade.tradeType.toLowerCase()">
+                  <td class="time">{{ formatDateTime(trade.tradeDate) }}</td>
+                  <td class="stock-name">{{ trade.stockName }}</td>
+                  <td :class="trade.tradeType.toLowerCase()">{{ trade.tradeTypeName }}</td>
+                  <td class="right">{{ trade.quantity }}주</td>
+                  <td class="right">{{ formatNumber(trade.price) }}원</td>
+                  <td class="right">{{ formatCurrency(trade.totalAmount) }}</td>
+                  <td class="right" :class="getProfitClass(trade.profitLoss)">
+                    {{ trade.profitLoss ? formatProfitLoss(trade.profitLoss) : '-' }}
+                  </td>
+                  <td class="reason">{{ trade.tradeReasonName }}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <!-- 페이징 -->
+            <div class="pagination" v-if="totalPages > 1">
+              <button @click="changePage(currentPage - 1)" :disabled="currentPage === 0">이전</button>
+              <span>{{ currentPage + 1 }} / {{ totalPages }}</span>
+              <button @click="changePage(currentPage + 1)" :disabled="currentPage >= totalPages - 1">다음</button>
+            </div>
+          </div>
+          <div v-else class="no-data">
+            <p>거래 내역이 없습니다.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 실전투자 탭 -->
+      <div v-if="activeTab === 'real'" class="tab-content">
+        <!-- 경고 배너 -->
+        <div class="warning-banner">
+          <span class="warning-icon">⚠️</span>
+          <span>실전투자 모드입니다. 실제 계좌에서 주문이 체결되며 손실이 발생할 수 있습니다.</span>
+        </div>
+
+        <!-- 요약 카드 섹션 -->
+        <div class="summary-grid">
+          <!-- 실제 계좌 카드 -->
+          <div class="summary-card account-card real-account">
+            <div class="card-icon">💳</div>
+            <h3>실제 계좌</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">예수금</span>
+                <span class="value highlight">{{ formatCurrency(realAccount.cashBalance) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">총 평가금액</span>
+                <span class="value">{{ formatCurrency(realAccount.totalEvaluation) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">총 자산</span>
+                <span class="value" :class="getProfitClass(realAccount.totalAsset - realAccount.totalInvested)">
+                  {{ formatCurrency(realAccount.totalAsset) }}
+                </span>
+              </div>
+              <div class="stat-row profit-row">
+                <span class="label">평가 손익</span>
+                <span class="value" :class="getProfitClass(realAccount.unrealizedProfitLoss)">
+                  {{ formatProfitLoss(realAccount.unrealizedProfitLoss) }}
+                  <small>({{ formatPercent(realAccount.profitRate) }})</small>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 실전 포트폴리오 카드 -->
+          <div class="summary-card portfolio-card">
+            <div class="card-icon">📊</div>
+            <h3>실전 포트폴리오</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">보유 종목</span>
+                <span class="value">{{ realPortfolio.length || 0 }}종목</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">투자 금액</span>
+                <span class="value">{{ formatCurrency(realAccount.totalInvested) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">평가 금액</span>
+                <span class="value">{{ formatCurrency(realAccount.totalEvaluation) }}</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">수익률</span>
+                <span class="value" :class="getProfitClass(realAccount.profitRate)">
+                  {{ formatPercent(realAccount.profitRate) }}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 자동봇 카드 (실전투자) -->
+          <div class="summary-card bot-card real-mode" :class="{ active: botStatus.active && botStatus.tradingMode === 'REAL' }">
+            <div class="card-icon">🔴</div>
+            <h3>실전투자 봇</h3>
+            <div class="card-content">
+              <div class="stat-row">
+                <span class="label">상태</span>
+                <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'REAL' ? botStatus.status : 'STOPPED')">
+                  {{ botStatus.active && botStatus.tradingMode === 'REAL' ? '실행 중' : '중지됨' }}
+                </span>
+              </div>
+              <div class="stat-row">
+                <span class="label">오늘 매수</span>
+                <span class="value">{{ botStatus.tradingMode === 'REAL' ? (botStatus.todayBuyCount || 0) : 0 }}건</span>
+              </div>
+              <div class="stat-row">
+                <span class="label">오늘 매도</span>
+                <span class="value">{{ botStatus.tradingMode === 'REAL' ? (botStatus.todaySellCount || 0) : 0 }}건</span>
+              </div>
+              <div class="stat-row" v-if="botStatus.active && botStatus.tradingMode === 'REAL' && botStatus.lastTradeTime">
+                <span class="label">마지막 거래</span>
+                <span class="value time">{{ formatTime(botStatus.lastTradeTime) }}</span>
+              </div>
+              <div class="stat-row error" v-if="botStatus.lastError">
+                <span class="label">에러</span>
+                <span class="value">{{ botStatus.lastError }}</span>
+              </div>
+            </div>
+            <div class="bot-controls">
+              <button
+                v-if="!botStatus.active || botStatus.tradingMode !== 'REAL'"
+                @click="startBot('REAL')"
+                class="start-btn real-btn"
+                :disabled="botLoading || (botStatus.active && botStatus.tradingMode === 'VIRTUAL')"
+              >
+                {{ botLoading ? '처리 중...' : '🔴 실전투자 봇 시작' }}
+              </button>
+              <button
+                v-else
+                @click="stopBot"
+                class="stop-btn"
+                :disabled="botLoading"
+              >
+                {{ botLoading ? '처리 중...' : '봇 중지' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 실전 포트폴리오 테이블 -->
+        <div class="section">
+          <div class="section-header">
+            <h2>실전 보유 종목</h2>
+            <button @click="refreshRealPortfolio" class="refresh-btn" :disabled="realPortfolioLoading">
+              {{ realPortfolioLoading ? '새로고침 중...' : '새로고침' }}
+            </button>
+          </div>
+
+          <div v-if="realPortfolio.length > 0" class="table-container">
+            <table class="portfolio-table">
+              <thead>
+                <tr>
+                  <th>종목명</th>
+                  <th>종목코드</th>
+                  <th class="right">보유수량</th>
+                  <th class="right">평균단가</th>
+                  <th class="right">현재가</th>
+                  <th class="right">평가금액</th>
+                  <th class="right">손익</th>
+                  <th class="right">손익률</th>
+                  <th>매도</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in realPortfolio" :key="item.stockCode">
+                  <td class="stock-name">{{ item.stockName }}</td>
+                  <td class="stock-code">{{ item.stockCode }}</td>
+                  <td class="right">{{ item.quantity }}주</td>
+                  <td class="right">{{ formatNumber(item.averagePrice) }}원</td>
+                  <td class="right">{{ formatNumber(item.currentPrice) }}원</td>
+                  <td class="right">{{ formatCurrency(item.totalEvaluation) }}</td>
+                  <td class="right" :class="getProfitClass(item.profitLoss)">
+                    {{ formatProfitLoss(item.profitLoss) }}
+                  </td>
+                  <td class="right" :class="getProfitClass(item.profitRate)">
+                    {{ formatPercent(item.profitRate) }}
+                  </td>
+                  <td>
+                    <button @click="openSellModal(item, 'real')" class="sell-btn real-sell">매도</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="no-data">
+            <p>실전 보유 종목이 없습니다.</p>
+          </div>
+        </div>
+
+        <!-- 실전 수동 거래 -->
+        <div class="section">
+          <div class="section-header">
+            <h2>실전 수동 거래</h2>
+            <button @click="openTradeModal('real')" class="trade-btn real-trade-btn">수동 거래</button>
+          </div>
+          <div class="no-data">
+            <p>실전 거래는 신중하게 진행하세요.</p>
+          </div>
         </div>
       </div>
 
       <!-- 수동 거래 모달 -->
       <div v-if="showTradeModal" class="modal-overlay" @click.self="showTradeModal = false">
-        <div class="modal">
-          <h3>수동 거래</h3>
+        <div class="modal" :class="{ 'real-modal': tradeMode === 'real' }">
+          <h3>{{ tradeMode === 'real' ? '🔴 실전 수동 거래' : '수동 거래' }}</h3>
+          <div v-if="tradeMode === 'real'" class="modal-warning">
+            실제 계좌에서 주문이 체결됩니다!
+          </div>
           <div class="form-group">
             <label>종목코드</label>
             <input v-model="tradeForm.stockCode" placeholder="예: 005930" maxlength="6" />
@@ -278,7 +471,7 @@
           </div>
           <div class="modal-actions">
             <button @click="showTradeModal = false" class="cancel-btn">취소</button>
-            <button @click="executeTrade" class="submit-btn" :disabled="tradeLoading">
+            <button @click="executeTrade" class="submit-btn" :class="{ 'real-submit': tradeMode === 'real' }" :disabled="tradeLoading">
               {{ tradeLoading ? '처리 중...' : '거래 실행' }}
             </button>
           </div>
@@ -287,8 +480,11 @@
 
       <!-- 매도 모달 -->
       <div v-if="showSellModal" class="modal-overlay" @click.self="showSellModal = false">
-        <div class="modal">
-          <h3>{{ sellForm.stockName }} 매도</h3>
+        <div class="modal" :class="{ 'real-modal': sellMode === 'real' }">
+          <h3>{{ sellMode === 'real' ? '🔴 ' : '' }}{{ sellForm.stockName }} 매도</h3>
+          <div v-if="sellMode === 'real'" class="modal-warning">
+            실제 계좌에서 매도됩니다!
+          </div>
           <div class="sell-info">
             <p>보유 수량: <strong>{{ sellForm.maxQuantity }}주</strong></p>
             <p>현재가: <strong>{{ formatNumber(sellForm.currentPrice) }}원</strong></p>
@@ -303,7 +499,7 @@
           </div>
           <div class="modal-actions">
             <button @click="showSellModal = false" class="cancel-btn">취소</button>
-            <button @click="executeSell" class="submit-btn sell" :disabled="tradeLoading">
+            <button @click="executeSell" class="submit-btn sell" :class="{ 'real-submit': sellMode === 'real' }" :disabled="tradeLoading">
               {{ tradeLoading ? '처리 중...' : '매도 실행' }}
             </button>
           </div>
@@ -349,24 +545,40 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 
 const router = useRouter();
+const route = useRoute();
+
+// 탭 상태 (URL query parameter로 초기화)
+const activeTab = ref(route.query.tab === 'real' ? 'real' : 'virtual');
 
 // 상태
 const loading = ref(true);
 const portfolioLoading = ref(false);
+const realPortfolioLoading = ref(false);
 const botLoading = ref(false);
 const tradeLoading = ref(false);
 const initLoading = ref(false);
 
-// 데이터
+// 모의투자 데이터
 const account = ref({});
 const portfolio = ref([]);
 const trades = ref([]);
 const botStatus = ref({});
+
+// 실전투자 데이터
+const realAccount = ref({
+  cashBalance: 0,
+  totalEvaluation: 0,
+  totalAsset: 0,
+  totalInvested: 0,
+  unrealizedProfitLoss: 0,
+  profitRate: 0
+});
+const realPortfolio = ref([]);
 
 // 페이징
 const currentPage = ref(0);
@@ -377,6 +589,8 @@ const pageSize = 20;
 const showTradeModal = ref(false);
 const showSellModal = ref(false);
 const showInitializeConfirm = ref(false);
+const tradeMode = ref('virtual'); // 'virtual' or 'real'
+const sellMode = ref('virtual');
 
 // 폼
 const tradeForm = ref({
@@ -407,7 +621,13 @@ const totalAsset = computed(() => {
   return (account.value.currentBalance || 0) + (account.value.totalEvaluation || 0);
 });
 
-// 데이터 로드
+// 실전투자 탭 전환
+const switchToRealTab = () => {
+  activeTab.value = 'real';
+  loadRealData();
+};
+
+// 모의투자 데이터 로드
 const loadData = async () => {
   try {
     const [accountRes, portfolioRes, tradesRes, botRes] = await Promise.all([
@@ -437,6 +657,28 @@ const loadData = async () => {
   }
 };
 
+// 실전투자 데이터 로드
+const loadRealData = async () => {
+  realPortfolioLoading.value = true;
+  try {
+    const [accountRes, portfolioRes] = await Promise.all([
+      paperTradingAPI.getRealAccountSummary(),
+      paperTradingAPI.getRealPortfolio()
+    ]);
+
+    if (accountRes.data.success) {
+      realAccount.value = accountRes.data.data;
+    }
+    if (portfolioRes.data.success) {
+      realPortfolio.value = portfolioRes.data.data;
+    }
+  } catch (error) {
+    console.error('실전투자 데이터 로드 오류:', error);
+  } finally {
+    realPortfolioLoading.value = false;
+  }
+};
+
 // 포트폴리오 새로고침
 const refreshPortfolio = async () => {
   portfolioLoading.value = true;
@@ -457,6 +699,29 @@ const refreshPortfolio = async () => {
     alert('새로고침에 실패했습니다.');
   } finally {
     portfolioLoading.value = false;
+  }
+};
+
+// 실전 포트폴리오 새로고침
+const refreshRealPortfolio = async () => {
+  realPortfolioLoading.value = true;
+  try {
+    const [accountRes, portfolioRes] = await Promise.all([
+      paperTradingAPI.getRealAccountSummary(),
+      paperTradingAPI.getRealPortfolio()
+    ]);
+
+    if (accountRes.data.success) {
+      realAccount.value = accountRes.data.data;
+    }
+    if (portfolioRes.data.success) {
+      realPortfolio.value = portfolioRes.data.data;
+    }
+  } catch (error) {
+    console.error('실전 포트폴리오 새로고침 오류:', error);
+    alert('새로고침에 실패했습니다.');
+  } finally {
+    realPortfolioLoading.value = false;
   }
 };
 
@@ -520,6 +785,13 @@ const stopBot = async () => {
   }
 };
 
+// 거래 모달 열기
+const openTradeModal = (mode) => {
+  tradeMode.value = mode;
+  tradeForm.value = { stockCode: '', quantity: 1, price: 0, tradeType: 'BUY' };
+  showTradeModal.value = true;
+};
+
 // 수동 거래 실행
 const executeTrade = async () => {
   if (!tradeForm.value.stockCode || !tradeForm.value.quantity || !tradeForm.value.price) {
@@ -527,20 +799,33 @@ const executeTrade = async () => {
     return;
   }
 
+  if (tradeMode.value === 'real') {
+    const confirmed = confirm('실제 계좌에서 거래가 실행됩니다. 계속하시겠습니까?');
+    if (!confirmed) return;
+  }
+
   tradeLoading.value = true;
   try {
-    const res = await paperTradingAPI.placeTrade({
+    const tradeData = {
       stockCode: tradeForm.value.stockCode,
       quantity: tradeForm.value.quantity,
       price: tradeForm.value.price,
       tradeType: tradeForm.value.tradeType
-    });
+    };
+
+    const res = tradeMode.value === 'real'
+      ? await paperTradingAPI.placeRealTrade(tradeData)
+      : await paperTradingAPI.placeTrade(tradeData);
 
     if (res.data.success) {
       alert(res.data.message);
       showTradeModal.value = false;
       tradeForm.value = { stockCode: '', quantity: 1, price: 0, tradeType: 'BUY' };
-      await loadData();
+      if (tradeMode.value === 'real') {
+        await loadRealData();
+      } else {
+        await loadData();
+      }
     } else {
       alert(res.data.error || '거래 실패');
     }
@@ -553,7 +838,8 @@ const executeTrade = async () => {
 };
 
 // 매도 모달 열기
-const openSellModal = (item) => {
+const openSellModal = (item, mode) => {
+  sellMode.value = mode;
   sellForm.value = {
     stockCode: item.stockCode,
     stockName: item.stockName,
@@ -577,19 +863,32 @@ const executeSell = async () => {
     return;
   }
 
+  if (sellMode.value === 'real') {
+    const confirmed = confirm('실제 계좌에서 매도됩니다. 계속하시겠습니까?');
+    if (!confirmed) return;
+  }
+
   tradeLoading.value = true;
   try {
-    const res = await paperTradingAPI.placeTrade({
+    const tradeData = {
       stockCode: sellForm.value.stockCode,
       quantity: sellForm.value.quantity,
       price: sellForm.value.price,
       tradeType: 'SELL'
-    });
+    };
+
+    const res = sellMode.value === 'real'
+      ? await paperTradingAPI.placeRealTrade(tradeData)
+      : await paperTradingAPI.placeTrade(tradeData);
 
     if (res.data.success) {
       alert(res.data.message);
       showSellModal.value = false;
-      await loadData();
+      if (sellMode.value === 'real') {
+        await loadRealData();
+      } else {
+        await loadData();
+      }
     } else {
       alert(res.data.error || '매도 실패');
     }
@@ -685,24 +984,22 @@ const getBotStatusClass = (status) => {
   }
 };
 
-const getBotStatusText = (status) => {
-  switch (status) {
-    case 'RUNNING': return '실행 중';
-    case 'STOPPED': return '중지됨';
-    case 'ERROR': return '오류';
-    default: return '알 수 없음';
-  }
-};
-
 const goBack = () => {
   router.back();
 };
 
 onMounted(() => {
   loadData();
+  // URL에서 실전투자 탭으로 진입한 경우 실전 데이터도 로드
+  if (activeTab.value === 'real') {
+    loadRealData();
+  }
   // 30초마다 자동 새로고침
   refreshTimer = setInterval(() => {
     loadData();
+    if (activeTab.value === 'real') {
+      loadRealData();
+    }
   }, 30000);
 });
 
@@ -732,7 +1029,7 @@ onUnmounted(() => {
 
 .page-header {
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   position: relative;
 }
 
@@ -766,6 +1063,74 @@ onUnmounted(() => {
   font-size: 1.1rem;
 }
 
+/* 탭 네비게이션 */
+.tab-navigation {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 2px solid #2a2a4a;
+  padding-bottom: 0;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 1rem 2rem;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+}
+
+.tab-btn:hover {
+  color: #fff;
+  background: rgba(74, 74, 138, 0.2);
+}
+
+.tab-btn.active {
+  color: #4fd1c5;
+  border-bottom-color: #4fd1c5;
+}
+
+.tab-btn.real.active {
+  color: #e53e3e;
+  border-bottom-color: #e53e3e;
+}
+
+.tab-content {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 경고 배너 */
+.warning-banner {
+  background: linear-gradient(135deg, rgba(229, 62, 62, 0.2) 0%, rgba(197, 48, 48, 0.2) 100%);
+  border: 1px solid #e53e3e;
+  border-radius: 10px;
+  padding: 1rem 1.5rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.warning-banner .warning-icon {
+  font-size: 1.5rem;
+}
+
+.warning-banner span {
+  color: #fc8181;
+  font-weight: 500;
+}
+
 /* 요약 그리드 */
 .summary-grid {
   display: grid;
@@ -784,6 +1149,10 @@ onUnmounted(() => {
 
 .summary-card:hover {
   border-color: #4a4a8a;
+}
+
+.summary-card.real-account {
+  border-color: rgba(229, 62, 62, 0.5);
 }
 
 .summary-card .card-icon {
@@ -861,6 +1230,10 @@ onUnmounted(() => {
 }
 
 .bot-card.real-mode {
+  border-color: rgba(229, 62, 62, 0.5);
+}
+
+.bot-card.real-mode.active {
   border-color: #e53e3e;
   box-shadow: 0 0 20px rgba(229, 62, 62, 0.3);
 }
@@ -900,11 +1273,6 @@ onUnmounted(() => {
 .start-btn.real-btn:hover:not(:disabled) {
   background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
   box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
-}
-
-.real-mode-text {
-  color: #e53e3e !important;
-  font-weight: 700;
 }
 
 .stop-btn {
@@ -966,6 +1334,14 @@ onUnmounted(() => {
 
 .trade-btn:hover {
   background: #38a169;
+}
+
+.real-trade-btn {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+}
+
+.real-trade-btn:hover {
+  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
 }
 
 /* 테이블 */
@@ -1040,6 +1416,11 @@ onUnmounted(() => {
   background: #c53030;
 }
 
+.sell-btn.real-sell {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  border: 1px solid #ff6b6b;
+}
+
 /* 페이징 */
 .pagination {
   display: flex;
@@ -1091,10 +1472,26 @@ onUnmounted(() => {
   border: 2px solid #2a2a4a;
 }
 
+.modal.real-modal {
+  border-color: #e53e3e;
+  box-shadow: 0 0 30px rgba(229, 62, 62, 0.3);
+}
+
 .modal h3 {
   color: #fff;
   margin-bottom: 1.5rem;
   text-align: center;
+}
+
+.modal-warning {
+  background: rgba(229, 62, 62, 0.2);
+  border: 1px solid #e53e3e;
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  text-align: center;
+  color: #fc8181;
+  font-weight: 500;
 }
 
 .form-group {
@@ -1214,6 +1611,10 @@ onUnmounted(() => {
   background: #c53030;
 }
 
+.submit-btn.real-submit {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+}
+
 .submit-btn.danger {
   background: #e53e3e;
 }
@@ -1310,6 +1711,27 @@ onUnmounted(() => {
   .page-header h1 {
     margin-top: 3rem;
     font-size: 1.5rem;
+  }
+
+  .tab-navigation {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .tab-btn {
+    border-bottom: none;
+    border-left: 3px solid transparent;
+    text-align: left;
+    padding: 0.75rem 1rem;
+  }
+
+  .tab-btn.active {
+    border-left-color: #4fd1c5;
+    border-bottom-color: transparent;
+  }
+
+  .tab-btn.real.active {
+    border-left-color: #e53e3e;
   }
 
   .summary-grid {
