@@ -326,10 +326,6 @@ onUnmounted(() => {
   border-color: #3b82f6;
 }
 
-[data-theme="dark"] .sector-card {
-  background: rgba(31, 31, 35, 0.95);
-}
-
 /* 섹터 헤더 */
 .sector-header {
   display: flex;

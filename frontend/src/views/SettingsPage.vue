@@ -483,10 +483,6 @@ onMounted(() => {
   color: var(--text-muted);
 }
 
-[data-theme="dark"] .profile-image-placeholder {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
-}
-
 .profile-image-actions {
   display: flex;
   gap: 10px;
@@ -508,10 +504,6 @@ onMounted(() => {
 .btn-secondary:hover {
   border-color: var(--primary-start);
   color: var(--primary-start);
-}
-
-[data-theme="dark"] .btn-secondary {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
 }
 
 .btn-danger {

@@ -126,13 +126,13 @@ watch(() => props.visible, (newVal) => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fadeIn 0.3s ease;
+  animation: fadeIn 0.2s ease;
 }
 
 @keyframes fadeIn {
@@ -142,22 +142,19 @@ watch(() => props.visible, (newVal) => {
 
 .modal-content {
   background: white;
-  border-radius: 20px;
+  border-radius: 16px;
   width: 90%;
   max-width: 500px;
   max-height: 90vh;
   overflow-y: auto;
-  animation: slideUp 0.3s ease;
-}
-
-[data-theme="dark"] .modal-content {
-  background: #1f1f23;
+  animation: slideUp 0.25s ease;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
 }
 
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(20px);
   }
   to {
     opacity: 1;
@@ -170,7 +167,7 @@ watch(() => props.visible, (newVal) => {
   justify-content: space-between;
   align-items: center;
   padding: 24px 28px;
-  border-bottom: 2px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .modal-header h2 {
@@ -183,7 +180,7 @@ watch(() => props.visible, (newVal) => {
 .modal-close {
   width: 36px;
   height: 36px;
-  background: #f8f9fa;
+  background: var(--bg-page);
   border: none;
   border-radius: 50%;
   cursor: pointer;
@@ -195,16 +192,8 @@ watch(() => props.visible, (newVal) => {
 }
 
 .modal-close:hover {
-  background: #e9ecef;
+  background: var(--border-color);
   color: var(--text-primary);
-}
-
-[data-theme="dark"] .modal-close {
-  background: #27272a;
-}
-
-[data-theme="dark"] .modal-close:hover {
-  background: #3f3f46;
 }
 
 .modal-body {
@@ -228,20 +217,17 @@ watch(() => props.visible, (newVal) => {
   align-items: center;
   gap: 16px;
   padding: 16px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
-  border: 2px solid var(--border-light);
-  border-radius: 14px;
+  background: var(--bg-page);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
-}
-
-[data-theme="dark"] .widget-item {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
 }
 
 .widget-item:hover {
   border-color: var(--primary-start);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1);
 }
 
 .widget-item input[type="checkbox"] {
@@ -258,45 +244,45 @@ watch(() => props.visible, (newVal) => {
 .widget-icon {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .widget-icon.gold {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
-  color: #daa520;
+  background: var(--gold-light);
+  color: var(--gold-secondary);
 }
 
 .widget-icon.silver {
-  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(128, 128, 128, 0.2) 100%);
-  color: #808080;
+  background: var(--silver-light);
+  color: var(--silver-secondary);
 }
 
 .widget-icon.asset {
-  background: linear-gradient(135deg, rgba(247, 183, 51, 0.15) 0%, rgba(252, 74, 26, 0.15) 100%);
-  color: #f7b733;
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
 }
 
 .widget-icon.investor {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  background: rgba(102, 126, 234, 0.12);
   color: #667eea;
 }
 
 .widget-icon.news {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
-  color: var(--primary-start);
+  background: rgba(59, 130, 246, 0.12);
+  color: #3b82f6;
 }
 
 .widget-icon.finance {
-  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(26, 188, 156, 0.15) 100%);
-  color: #2ecc71;
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
 }
 
 .widget-icon.screener {
-  background: linear-gradient(135deg, rgba(74, 222, 128, 0.15) 0%, rgba(34, 197, 94, 0.15) 100%);
-  color: #4ade80;
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
 }
 
 .widget-details {
@@ -319,15 +305,11 @@ watch(() => props.visible, (newVal) => {
 .toggle-switch {
   width: 48px;
   height: 26px;
-  background: #e9ecef;
+  background: #d1d5db;
   border-radius: 13px;
   position: relative;
-  transition: background 0.3s;
+  transition: background 0.25s;
   flex-shrink: 0;
-}
-
-[data-theme="dark"] .toggle-switch {
-  background: #3f3f46;
 }
 
 .toggle-switch.active {
@@ -342,8 +324,8 @@ watch(() => props.visible, (newVal) => {
   position: absolute;
   top: 2px;
   left: 2px;
-  transition: transform 0.3s;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.25s;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
 .toggle-switch.active .toggle-knob {
@@ -361,7 +343,7 @@ watch(() => props.visible, (newVal) => {
 .btn {
   padding: 12px 24px;
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -371,30 +353,23 @@ watch(() => props.visible, (newVal) => {
 .btn-secondary {
   background: white;
   color: var(--text-secondary);
-  border: 2px solid var(--border-color);
-}
-
-[data-theme="dark"] .btn-secondary {
-  background: #27272a;
+  border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
-  background: #f8f9fa;
+  background: var(--bg-page);
   border-color: var(--primary-start);
   color: var(--primary-start);
-}
-
-[data-theme="dark"] .btn-secondary:hover {
-  background: #3f3f46;
 }
 
 .btn-primary {
   background: linear-gradient(135deg, var(--primary-start) 0%, var(--primary-end) 100%);
   color: white;
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
 }
 
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.45);
 }
 </style>

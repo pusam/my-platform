@@ -228,15 +228,6 @@ onUnmounted(() => {
   75% { transform: rotate(5deg); }
 }
 
-[data-theme="dark"] .notification-bell {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
-  color: #a1a1aa;
-}
-
-[data-theme="dark"] .notification-bell:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
 .notification-badge {
   position: absolute;
   top: -4px;
@@ -286,10 +277,6 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-[data-theme="dark"] .notification-dropdown {
-  background: #1f1f23;
 }
 
 .dropdown-header {

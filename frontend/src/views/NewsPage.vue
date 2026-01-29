@@ -325,22 +325,6 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
-[data-theme="dark"] .news-card {
-  background: rgba(31, 31, 35, 0.95);
-}
-
-[data-theme="dark"] .news-content h3 {
-  color: #f9fafb;
-}
-
-[data-theme="dark"] .news-empty {
-  background: rgba(31, 31, 35, 0.95);
-}
-
-[data-theme="dark"] .news-empty h3 {
-  color: #f9fafb;
-}
-
 @media (max-width: 768px) {
   .news-card {
     padding: 16px;

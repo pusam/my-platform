@@ -1384,13 +1384,4 @@ export default {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   color: var(--primary-start);
 }
-
-[data-theme="dark"] .btn-widget-settings {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
-  color: var(--text-secondary);
-}
-
-[data-theme="dark"] .btn-widget-settings:hover {
-  color: var(--primary-start);
-}
 </style>

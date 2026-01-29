@@ -1138,10 +1138,6 @@ onMounted(() => {
   color: var(--primary-start);
 }
 
-[data-theme="dark"] .btn-export {
-  background: linear-gradient(135deg, #27272a 0%, #1f1f23 100%);
-}
-
 .export-menu {
   position: absolute;
   top: 100%;
@@ -1153,10 +1149,6 @@ onMounted(() => {
   overflow: hidden;
   z-index: 100;
   min-width: 150px;
-}
-
-[data-theme="dark"] .export-menu {
-  background: #1f1f23;
 }
 
 .export-menu button {
@@ -1968,15 +1960,11 @@ onMounted(() => {
 }
 
 .chart-card {
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
+  background: rgba(255, 255, 255, 0.98);
   border-radius: 16px;
   padding: var(--card-padding);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-}
-
-[data-theme="dark"] .chart-card {
-  background: var(--card-bg);
+  border: 1px solid var(--border-light);
 }
 
 .chart-title {
