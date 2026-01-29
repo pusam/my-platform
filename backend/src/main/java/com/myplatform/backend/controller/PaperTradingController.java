@@ -2,6 +2,8 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.PaperTradingDto.*;
 import com.myplatform.backend.service.AutoTradingBotService;
+import com.myplatform.backend.service.AutoTradingBotService.TradingMode;
+import com.myplatform.backend.service.RealTradeService;
 import com.myplatform.backend.service.VirtualTradeService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,7 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 모의투자 (Paper Trading) API Controller
+ * 모의투자/실전투자 (Trading) API Controller
  */
 @RestController
 @RequestMapping("/api/paper-trading")
@@ -23,6 +25,7 @@ import java.util.Map;
 public class PaperTradingController {
 
     private final VirtualTradeService virtualTradeService;
+    private final RealTradeService realTradeService;
     private final AutoTradingBotService autoTradingBotService;
 
     /**
@@ -216,17 +219,29 @@ public class PaperTradingController {
     }
 
     /**
-     * 봇 시작
-     * POST /api/paper-trading/bot/start
+     * 봇 시작 (모드 지정)
+     * POST /api/paper-trading/bot/start?mode=VIRTUAL (기본) 또는 REAL
      */
     @PostMapping("/bot/start")
-    public ResponseEntity<Map<String, Object>> startBot() {
+    public ResponseEntity<Map<String, Object>> startBot(
+            @RequestParam(defaultValue = "VIRTUAL") String mode) {
         Map<String, Object> response = new HashMap<>();
         try {
-            BotStatusDto status = autoTradingBotService.startBot();
+            // 모드 파싱
+            TradingMode tradingMode;
+            try {
+                tradingMode = TradingMode.valueOf(mode.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                response.put("success", false);
+                response.put("error", "유효하지 않은 모드입니다. VIRTUAL 또는 REAL을 입력하세요.");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            BotStatusDto status = autoTradingBotService.startBot(tradingMode);
             response.put("success", true);
             response.put("data", status);
-            response.put("message", "자동매매 봇이 시작되었습니다.");
+            response.put("message", String.format("자동매매 봇이 %s 모드로 시작되었습니다.",
+                    tradingMode.getDisplayName()));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("봇 시작 실패", e);
@@ -273,6 +288,123 @@ public class PaperTradingController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("포트폴리오 업데이트 실패", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    // ========== 실전투자 API ==========
+
+    /**
+     * 실전투자 계좌 요약 조회
+     * GET /api/paper-trading/real/account/summary
+     */
+    @GetMapping("/real/account/summary")
+    public ResponseEntity<Map<String, Object>> getRealAccountSummary() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            AccountSummaryDto summary = realTradeService.getAccountSummary();
+            response.put("success", true);
+            response.put("data", summary);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("실전투자 계좌 조회 실패", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * 실전투자 포트폴리오 조회
+     * GET /api/paper-trading/real/portfolio
+     */
+    @GetMapping("/real/portfolio")
+    public ResponseEntity<Map<String, Object>> getRealPortfolio() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            realTradeService.updatePortfolioPrices();
+            List<PortfolioItemDto> portfolio = realTradeService.getPortfolio();
+            response.put("success", true);
+            response.put("data", portfolio);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("실전투자 포트폴리오 조회 실패", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
+    /**
+     * 실전투자 수동 매수/매도
+     * POST /api/paper-trading/real/trades
+     */
+    @PostMapping("/real/trades")
+    public ResponseEntity<Map<String, Object>> placeRealTrade(@RequestBody TradeRequestDto request) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            TradeHistoryDto result;
+
+            if ("BUY".equalsIgnoreCase(request.getTradeType())) {
+                result = realTradeService.buy(
+                        request.getStockCode(),
+                        request.getPrice(),
+                        request.getQuantity(),
+                        "MANUAL"
+                );
+                response.put("message", "실전 매수 주문이 체결되었습니다.");
+            } else if ("SELL".equalsIgnoreCase(request.getTradeType())) {
+                result = realTradeService.sell(
+                        request.getStockCode(),
+                        request.getPrice(),
+                        request.getQuantity(),
+                        "MANUAL"
+                );
+                response.put("message", "실전 매도 주문이 체결되었습니다.");
+            } else {
+                response.put("success", false);
+                response.put("error", "유효하지 않은 거래 유형입니다. BUY 또는 SELL을 입력하세요.");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            response.put("success", true);
+            response.put("data", result);
+            return ResponseEntity.ok(response);
+
+        } catch (IllegalStateException e) {
+            log.warn("실전 거래 실패: {}", e.getMessage());
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            return ResponseEntity.badRequest().body(response);
+        } catch (Exception e) {
+            log.error("실전 거래 처리 실패", e);
+            response.put("success", false);
+            response.put("error", "거래 처리 중 오류가 발생했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 현재 봇 모드 조회
+     * GET /api/paper-trading/bot/mode
+     */
+    @GetMapping("/bot/mode")
+    public ResponseEntity<Map<String, Object>> getBotMode() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            TradingMode mode = autoTradingBotService.getCurrentMode();
+            BotStatusDto status = autoTradingBotService.getBotStatus();
+
+            response.put("success", true);
+            response.put("mode", mode.name());
+            response.put("modeName", mode.getDisplayName());
+            response.put("active", status.getActive());
+            response.put("status", status.getStatus());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("봇 모드 조회 실패", e);
             response.put("success", false);
             response.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(response);

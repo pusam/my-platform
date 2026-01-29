@@ -103,6 +103,8 @@ public class PaperTradingDto {
         private String status;                  // RUNNING, STOPPED, ERROR
         private Integer todayBuyCount;
         private Integer todaySellCount;
+        private String tradingMode;             // VIRTUAL, REAL
+        private String tradingModeName;         // 모의투자, 실전투자
     }
 
     /**

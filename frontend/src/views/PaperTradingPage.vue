@@ -101,14 +101,20 @@
         </div>
 
         <!-- 자동봇 카드 -->
-        <div class="summary-card bot-card" :class="{ active: botStatus.active }">
-          <div class="card-icon">🤖</div>
+        <div class="summary-card bot-card" :class="{ active: botStatus.active, 'real-mode': botStatus.tradingMode === 'REAL' }">
+          <div class="card-icon">{{ botStatus.tradingMode === 'REAL' ? '🔴' : '🤖' }}</div>
           <h3>자동 매매 봇</h3>
           <div class="card-content">
             <div class="stat-row">
               <span class="label">상태</span>
               <span class="value" :class="getBotStatusClass(botStatus.status)">
                 {{ getBotStatusText(botStatus.status) }}
+              </span>
+            </div>
+            <div class="stat-row" v-if="botStatus.active">
+              <span class="label">모드</span>
+              <span class="value" :class="{ 'real-mode-text': botStatus.tradingMode === 'REAL' }">
+                {{ botStatus.tradingModeName || '모의투자' }}
               </span>
             </div>
             <div class="stat-row">
@@ -129,9 +135,14 @@
             </div>
           </div>
           <div class="bot-controls">
-            <button v-if="!botStatus.active" @click="startBot" class="start-btn" :disabled="botLoading">
-              {{ botLoading ? '처리 중...' : '봇 시작' }}
-            </button>
+            <template v-if="!botStatus.active">
+              <button @click="startBot('VIRTUAL')" class="start-btn virtual-btn" :disabled="botLoading">
+                {{ botLoading ? '처리 중...' : '🤖 모의투자 시작' }}
+              </button>
+              <button @click="startBot('REAL')" class="start-btn real-btn" :disabled="botLoading">
+                {{ botLoading ? '처리 중...' : '🔴 실전투자 시작' }}
+              </button>
+            </template>
             <button v-else @click="stopBot" class="stop-btn" :disabled="botLoading">
               {{ botLoading ? '처리 중...' : '봇 중지' }}
             </button>
@@ -464,18 +475,29 @@ const changePage = async (page) => {
   }
 };
 
-// 봇 시작
-const startBot = async () => {
+// 봇 시작 (모드 선택)
+const startBot = async (mode) => {
+  // 실전투자 모드일 경우 확인 다이얼로그
+  if (mode === 'REAL') {
+    const confirmed = confirm(
+      '⚠️ 실전투자 모드로 봇을 시작하시겠습니까?\n\n' +
+      '실제 계좌에서 주문이 체결됩니다.\n' +
+      '손실이 발생할 수 있습니다.'
+    );
+    if (!confirmed) return;
+  }
+
   botLoading.value = true;
   try {
-    const res = await paperTradingAPI.startBot();
+    const res = await paperTradingAPI.startBot(mode);
     if (res.data.success) {
       botStatus.value = res.data.data;
-      alert('자동매매 봇이 시작되었습니다.');
+      const modeName = mode === 'REAL' ? '실전투자' : '모의투자';
+      alert(`자동매매 봇이 ${modeName} 모드로 시작되었습니다.`);
     }
   } catch (error) {
     console.error('봇 시작 오류:', error);
-    alert('봇 시작에 실패했습니다.');
+    alert('봇 시작에 실패했습니다: ' + (error.response?.data?.error || error.message));
   } finally {
     botLoading.value = false;
   }
@@ -838,8 +860,16 @@ onUnmounted(() => {
   border-color: #48bb78;
 }
 
+.bot-card.real-mode {
+  border-color: #e53e3e;
+  box-shadow: 0 0 20px rgba(229, 62, 62, 0.3);
+}
+
 .bot-controls {
   margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .start-btn, .stop-btn {
@@ -852,13 +882,29 @@ onUnmounted(() => {
   transition: all 0.3s;
 }
 
-.start-btn {
+.start-btn.virtual-btn {
   background: #48bb78;
   color: white;
 }
 
-.start-btn:hover:not(:disabled) {
+.start-btn.virtual-btn:hover:not(:disabled) {
   background: #38a169;
+}
+
+.start-btn.real-btn {
+  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+  color: white;
+  border: 1px solid #ff6b6b;
+}
+
+.start-btn.real-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c53030 0%, #9b2c2c 100%);
+  box-shadow: 0 0 10px rgba(229, 62, 62, 0.5);
+}
+
+.real-mode-text {
+  color: #e53e3e !important;
+  font-weight: 700;
 }
 
 .stop-btn {

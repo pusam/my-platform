@@ -32,6 +32,12 @@ public class KoreaInvestmentService {
     @Value("${kis.api.base-url:https://openapi.koreainvestment.com:9443}")
     private String baseUrl;
 
+    @Value("${kis.api.account-prefix:}")
+    private String accountPrefix;  // CANO (계좌번호 앞 8자리)
+
+    @Value("${kis.api.account-suffix:01}")
+    private String accountSuffix;  // ACNT_PRDT_CD (계좌번호 뒤 2자리)
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -616,5 +622,262 @@ public class KoreaInvestmentService {
         private java.math.BigDecimal low;
         private java.math.BigDecimal close;
         private java.math.BigDecimal volume;
+    }
+
+    // ========== 실전 매매 API ==========
+
+    /**
+     * 실전 매매 API 사용 가능 여부 확인
+     */
+    public boolean isRealTradingConfigured() {
+        return isConfigured()
+            && accountPrefix != null && !accountPrefix.isEmpty()
+            && accountSuffix != null && !accountSuffix.isEmpty();
+    }
+
+    /**
+     * 주식 현금 매수 주문 (시장가)
+     * KIS API: TTTC0802U (국내주식 현금 매수)
+     *
+     * @param stockCode 종목코드 (6자리)
+     * @param quantity 매수수량
+     * @return 주문 결과 JsonNode (주문번호 포함)
+     */
+    public JsonNode buyStock(String stockCode, int quantity) {
+        return placeOrder(stockCode, quantity, "TTTC0802U", "buy");
+    }
+
+    /**
+     * 주식 현금 매도 주문 (시장가)
+     * KIS API: TTTC0801U (국내주식 현금 매도)
+     *
+     * @param stockCode 종목코드 (6자리)
+     * @param quantity 매도수량
+     * @return 주문 결과 JsonNode (주문번호 포함)
+     */
+    public JsonNode sellStock(String stockCode, int quantity) {
+        return placeOrder(stockCode, quantity, "TTTC0801U", "sell");
+    }
+
+    /**
+     * 주식 주문 공통 처리
+     */
+    private JsonNode placeOrder(String stockCode, int quantity, String trId, String orderType) {
+        String token = getAccessToken();
+        if (token == null) {
+            log.error("[실전매매] 토큰 발급 실패로 {} 불가", orderType);
+            return null;
+        }
+
+        if (!isRealTradingConfigured()) {
+            log.error("[실전매매] 계좌 정보가 설정되지 않았습니다.");
+            return null;
+        }
+
+        try {
+            String url = baseUrl + "/uapi/domestic-stock/v1/trading/order-cash";
+
+            HttpHeaders headers = createHeaders(token, trId);
+
+            // 요청 바디
+            Map<String, String> body = new HashMap<>();
+            body.put("CANO", accountPrefix);              // 계좌번호 앞 8자리
+            body.put("ACNT_PRDT_CD", accountSuffix);      // 계좌상품코드 (01)
+            body.put("PDNO", stockCode);                  // 종목코드
+            body.put("ORD_DVSN", "01");                   // 주문구분: 01=시장가
+            body.put("ORD_QTY", String.valueOf(quantity)); // 주문수량
+            body.put("ORD_UNPR", "0");                    // 주문단가 (시장가는 0)
+
+            HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+
+            log.info("[실전매매] {} 주문 요청: {} x {}", orderType.toUpperCase(), stockCode, quantity);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+
+                String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
+                String msg = result.has("msg1") ? result.get("msg1").asText() : "";
+
+                if ("0".equals(rtCd)) {
+                    String orderNo = result.has("output") && result.get("output").has("ODNO")
+                            ? result.get("output").get("ODNO").asText() : "";
+                    log.info("[실전매매] {} 주문 성공: {} x {}, 주문번호: {}",
+                            orderType.toUpperCase(), stockCode, quantity, orderNo);
+                } else {
+                    log.error("[실전매매] {} 주문 실패: {} - {}", orderType.toUpperCase(), stockCode, msg);
+                }
+
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("[실전매매] {} 주문 실패 [{}]: {}", orderType.toUpperCase(), stockCode, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 주식 잔고 조회 (보유종목 및 예수금)
+     * KIS API: TTTC8434R (국내주식 잔고조회)
+     *
+     * @return 잔고 정보 JsonNode
+     */
+    public JsonNode getBalance() {
+        String token = getAccessToken();
+        if (token == null) {
+            log.error("[실전매매] 토큰 발급 실패로 잔고조회 불가");
+            return null;
+        }
+
+        if (!isRealTradingConfigured()) {
+            log.error("[실전매매] 계좌 정보가 설정되지 않았습니다.");
+            return null;
+        }
+
+        try {
+            String url = baseUrl + "/uapi/domestic-stock/v1/trading/inquire-balance"
+                    + "?CANO=" + accountPrefix
+                    + "&ACNT_PRDT_CD=" + accountSuffix
+                    + "&AFHR_FLPR_YN=N"        // 시간외단일가여부
+                    + "&OFL_YN="               // 오프라인여부
+                    + "&INQR_DVSN=02"          // 조회구분: 02=일반조회
+                    + "&UNPR_DVSN=01"          // 단가구분
+                    + "&FUND_STTL_ICLD_YN=N"   // 펀드결제분포함여부
+                    + "&FNCG_AMT_AUTO_RDPT_YN=N" // 융자금액자동상환여부
+                    + "&PRCS_DVSN=00"          // 처리구분
+                    + "&CTX_AREA_FK100="       // 연속조회키
+                    + "&CTX_AREA_NK100=";      // 연속조회키
+
+            HttpHeaders headers = createHeaders(token, "TTTC8434R");
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            log.debug("[실전매매] 잔고 조회 요청");
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+
+                String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
+                if ("0".equals(rtCd)) {
+                    log.debug("[실전매매] 잔고 조회 성공");
+                } else {
+                    String msg = result.has("msg1") ? result.get("msg1").asText() : "";
+                    log.error("[실전매매] 잔고 조회 실패: {}", msg);
+                }
+
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("[실전매매] 잔고 조회 실패: {}", e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 주문 결과 DTO
+     */
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class OrderResult {
+        private boolean success;
+        private String orderNo;       // 주문번호
+        private String stockCode;
+        private int quantity;
+        private String message;
+        private String errorCode;
+    }
+
+    /**
+     * 잔고 정보 DTO
+     */
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class BalanceInfo {
+        private java.math.BigDecimal depositBalance;     // 예수금총액
+        private java.math.BigDecimal availableBalance;   // 출금가능금액
+        private java.math.BigDecimal totalEvaluation;    // 평가금액합계
+        private java.math.BigDecimal totalProfitLoss;    // 평가손익합계
+        private java.util.List<HoldingStock> holdings;   // 보유종목 목록
+    }
+
+    /**
+     * 보유종목 정보 DTO
+     */
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class HoldingStock {
+        private String stockCode;
+        private String stockName;
+        private int quantity;                            // 보유수량
+        private java.math.BigDecimal averagePrice;       // 평균매입가
+        private java.math.BigDecimal currentPrice;       // 현재가
+        private java.math.BigDecimal profitLoss;         // 평가손익
+        private java.math.BigDecimal profitRate;         // 수익률
+    }
+
+    /**
+     * 잔고 조회 결과를 BalanceInfo DTO로 변환
+     */
+    public BalanceInfo parseBalance(JsonNode balanceResponse) {
+        if (balanceResponse == null) {
+            return null;
+        }
+
+        try {
+            BalanceInfo info = BalanceInfo.builder()
+                    .holdings(new java.util.ArrayList<>())
+                    .build();
+
+            // output2에서 계좌 정보 추출
+            if (balanceResponse.has("output2") && balanceResponse.get("output2").isArray()) {
+                JsonNode output2 = balanceResponse.get("output2");
+                if (output2.size() > 0) {
+                    JsonNode account = output2.get(0);
+                    info.setDepositBalance(extractBigDecimal(account, "dnca_tot_amt"));      // 예수금총액
+                    info.setAvailableBalance(extractBigDecimal(account, "nxdy_excc_amt"));   // 익일정산금액
+                    info.setTotalEvaluation(extractBigDecimal(account, "tot_evlu_amt"));     // 총평가금액
+                    info.setTotalProfitLoss(extractBigDecimal(account, "evlu_pfls_smtl_amt")); // 평가손익합계
+                }
+            }
+
+            // output1에서 보유종목 추출
+            if (balanceResponse.has("output1") && balanceResponse.get("output1").isArray()) {
+                JsonNode output1 = balanceResponse.get("output1");
+                for (JsonNode stock : output1) {
+                    String stockCode = stock.has("pdno") ? stock.get("pdno").asText() : "";
+                    if (stockCode.isEmpty()) continue;
+
+                    HoldingStock holding = HoldingStock.builder()
+                            .stockCode(stockCode)
+                            .stockName(stock.has("prdt_name") ? stock.get("prdt_name").asText() : "")
+                            .quantity(stock.has("hldg_qty") ? stock.get("hldg_qty").asInt() : 0)
+                            .averagePrice(extractBigDecimal(stock, "pchs_avg_pric"))
+                            .currentPrice(extractBigDecimal(stock, "prpr"))
+                            .profitLoss(extractBigDecimal(stock, "evlu_pfls_amt"))
+                            .profitRate(extractBigDecimal(stock, "evlu_pfls_rt"))
+                            .build();
+
+                    if (holding.getQuantity() > 0) {
+                        info.getHoldings().add(holding);
+                    }
+                }
+            }
+
+            return info;
+        } catch (Exception e) {
+            log.error("[실전매매] 잔고 파싱 실패: {}", e.getMessage());
+            return null;
+        }
     }
 }

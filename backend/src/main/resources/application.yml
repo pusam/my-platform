@@ -103,6 +103,9 @@ kis:
     app-secret: ${KIS_APP_SECRET:}
     base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
     # 모의투자: https://openapivts.koreainvestment.com:29443
+    account-number: ${KIS_ACCOUNT_NUMBER:}  # 계좌번호 (예: 50012345-01)
+    account-prefix: ${KIS_ACCOUNT_PREFIX:}  # 계좌번호 앞 8자리 (CANO)
+    account-suffix: ${KIS_ACCOUNT_SUFFIX:01}  # 계좌번호 뒤 2자리 (ACNT_PRDT_CD)
 
 # 8. Reddit API 설정
 reddit:

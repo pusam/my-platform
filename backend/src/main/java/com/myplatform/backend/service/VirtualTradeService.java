@@ -27,16 +27,16 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * 가상 거래 서비스
+ * 가상 거래 서비스 (모의투자)
  * - 모의투자 매수/매도 처리
  * - 포트폴리오 관리
  * - 거래 내역 관리
  */
-@Service
+@Service("virtualTradeService")
 @Transactional
 @RequiredArgsConstructor
 @Slf4j
-public class VirtualTradeService {
+public class VirtualTradeService implements TradeService {
 
     private final VirtualAccountRepository accountRepository;
     private final VirtualPortfolioRepository portfolioRepository;
@@ -103,6 +103,7 @@ public class VirtualTradeService {
     /**
      * 매수 처리
      */
+    @Override
     public TradeHistoryDto buy(String stockCode, BigDecimal price, Integer quantity, String reason) {
         VirtualAccount account = getOrCreateActiveAccount();
 
@@ -184,6 +185,7 @@ public class VirtualTradeService {
     /**
      * 매도 처리
      */
+    @Override
     public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason) {
         VirtualAccount account = getOrCreateActiveAccount();
 
@@ -252,6 +254,7 @@ public class VirtualTradeService {
     /**
      * 계좌 요약 조회
      */
+    @Override
     @Transactional(readOnly = true)
     public AccountSummaryDto getAccountSummary() {
         VirtualAccount account = getOrCreateActiveAccount();
@@ -328,6 +331,7 @@ public class VirtualTradeService {
     /**
      * 포트폴리오 조회
      */
+    @Override
     @Transactional(readOnly = true)
     public List<PortfolioItemDto> getPortfolio() {
         VirtualAccount account = getOrCreateActiveAccount();
@@ -386,6 +390,7 @@ public class VirtualTradeService {
     /**
      * 포트폴리오 현재가 업데이트
      */
+    @Override
     public void updatePortfolioPrices() {
         VirtualAccount account = getOrCreateActiveAccount();
         List<VirtualPortfolio> portfolios = portfolioRepository.findByAccountId(account.getId());
@@ -598,5 +603,13 @@ public class VirtualTradeService {
     private String formatNumber(BigDecimal value) {
         if (value == null) return "0";
         return String.format("%,.0f", value);
+    }
+
+    /**
+     * 매매 모드 반환
+     */
+    @Override
+    public String getTradeMode() {
+        return "VIRTUAL";
     }
 }

@@ -583,9 +583,9 @@ export const paperTradingAPI = {
   getBotStatus() {
     return apiClient.get('/paper-trading/bot/status');
   },
-  // 봇 시작
-  startBot() {
-    return apiClient.post('/paper-trading/bot/start');
+  // 봇 시작 (모드 선택: VIRTUAL 또는 REAL)
+  startBot(mode = 'VIRTUAL') {
+    return apiClient.post(`/paper-trading/bot/start?mode=${mode}`);
   },
   // 봇 중지
   stopBot() {
@@ -594,6 +594,22 @@ export const paperTradingAPI = {
   // 포트폴리오 현재가 업데이트
   refreshPortfolio() {
     return apiClient.post('/paper-trading/portfolio/refresh');
+  },
+  // 봇 모드 조회
+  getBotMode() {
+    return apiClient.get('/paper-trading/bot/mode');
+  },
+  // 실전투자 계좌 요약 조회
+  getRealAccountSummary() {
+    return apiClient.get('/paper-trading/real/account/summary');
+  },
+  // 실전투자 포트폴리오 조회
+  getRealPortfolio() {
+    return apiClient.get('/paper-trading/real/portfolio');
+  },
+  // 실전투자 수동 매수/매도
+  placeRealTrade(data) {
+    return apiClient.post('/paper-trading/real/trades', data);
   }
 };
 
