@@ -734,23 +734,26 @@ export default {
   align-items: center;
   gap: 12px;
   margin-bottom: 1rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 2px solid rgba(102, 126, 234, 0.2);
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-left: 4px solid;
+  border-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%) 1;
 }
 
 .section-icon {
   font-size: 1.5rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
 }
 
 .section-header h2 {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--text-primary);
   margin: 0;
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #1a1a2e;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
 }
 
 /* 메뉴 그리드 */

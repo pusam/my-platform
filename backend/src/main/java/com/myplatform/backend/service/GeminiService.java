@@ -5,14 +5,21 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
  * Google Gemini AI 서비스
  * - 스크리너 결과 분석 및 AI 추천 제공
+ * - Rate Limit 처리 (지수 백오프 재시도)
+ * - Ollama 폴백 지원
  */
 @Slf4j
 @Service
@@ -24,10 +31,25 @@ public class GeminiService {
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}")
     private String apiUrl;
 
-    private final RestTemplate restTemplate;
+    @Value("${gemini.fallback.enabled:true}")
+    private boolean fallbackEnabled;
 
-    public GeminiService() {
+    private final RestTemplate restTemplate;
+    private final OllamaService ollamaService;
+
+    // Rate Limit 관리
+    private static final int MAX_RETRIES = 3;
+    private static final long DEFAULT_RETRY_DELAY_MS = 20000; // 20초
+    private static final long MIN_REQUEST_INTERVAL_MS = 2000; // 요청 간 최소 2초 간격
+    private static final Pattern RETRY_DELAY_PATTERN = Pattern.compile("retry in ([\\d.]+)s");
+
+    private volatile LocalDateTime lastRequestTime = null;
+    private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
+    private volatile LocalDateTime quotaResetTime = null;
+
+    public GeminiService(OllamaService ollamaService) {
         this.restTemplate = new RestTemplate();
+        this.ollamaService = ollamaService;
     }
 
     /**
@@ -68,7 +90,7 @@ public class GeminiService {
                 반드시 한국어로 답변하고, 300자 이내로 요약해주세요.
                 """, stockData);
 
-        return callGeminiApi(prompt);
+        return callWithFallback(prompt, "마법의 공식 분석");
     }
 
     /**
@@ -108,7 +130,7 @@ public class GeminiService {
                 반드시 한국어로 답변하고, 300자 이내로 요약해주세요.
                 """, stockData);
 
-        return callGeminiApi(prompt);
+        return callWithFallback(prompt, "PEG 분석");
     }
 
     /**
@@ -147,70 +169,196 @@ public class GeminiService {
                 반드시 한국어로 답변하고, 300자 이내로 요약해주세요.
                 """, stockData);
 
-        return callGeminiApi(prompt);
+        return callWithFallback(prompt, "턴어라운드 분석");
     }
 
     /**
-     * Gemini API 호출
+     * Gemini API 호출 (Rate Limit 처리 + Ollama 폴백)
      */
-    private String callGeminiApi(String prompt) {
-        if (apiKey == null || apiKey.isEmpty()) {
-            log.warn("Gemini API 키가 설정되지 않았습니다.");
-            return "AI 분석 기능을 사용하려면 Gemini API 키를 설정해주세요.";
+    private String callWithFallback(String prompt, String analysisType) {
+        // 1. 쿼터 리셋 시간 체크
+        if (quotaResetTime != null && LocalDateTime.now().isBefore(quotaResetTime)) {
+            log.warn("Gemini 쿼터 제한 중 (리셋: {}), Ollama 폴백 사용", quotaResetTime);
+            return callOllamaFallback(prompt, analysisType);
         }
 
-        try {
-            String url = apiUrl + "?key=" + apiKey;
+        // 2. Gemini API 호출 시도 (재시도 로직 포함)
+        String result = callGeminiApiWithRetry(prompt);
 
-            // Request body 구성
-            Map<String, Object> requestBody = new HashMap<>();
+        // 3. 실패 시 Ollama 폴백
+        if (result == null || result.startsWith("AI 서버") || result.startsWith("Rate Limit")) {
+            if (fallbackEnabled && ollamaService != null) {
+                log.info("Gemini 실패, Ollama 폴백 사용: {}", analysisType);
+                return callOllamaFallback(prompt, analysisType);
+            }
+        }
 
-            List<Map<String, Object>> contents = new ArrayList<>();
-            Map<String, Object> content = new HashMap<>();
-            List<Map<String, String>> parts = new ArrayList<>();
-            parts.add(Map.of("text", prompt));
-            content.put("parts", parts);
-            contents.add(content);
-            requestBody.put("contents", contents);
+        return result;
+    }
 
-            // Generation config
-            Map<String, Object> generationConfig = new HashMap<>();
-            generationConfig.put("temperature", 0.7);
-            generationConfig.put("maxOutputTokens", 1024);
-            requestBody.put("generationConfig", generationConfig);
+    /**
+     * Gemini API 호출 (지수 백오프 재시도)
+     */
+    private String callGeminiApiWithRetry(String prompt) {
+        if (apiKey == null || apiKey.isEmpty()) {
+            log.warn("Gemini API 키가 설정되지 않았습니다.");
+            return null;
+        }
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
+        // 요청 간 최소 간격 유지
+        enforceRateLimit();
 
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                String result = callGeminiApi(prompt);
+                consecutiveErrors.set(0); // 성공 시 에러 카운터 리셋
+                return result;
 
-            log.info("Gemini API 호출 시작");
-            ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+            } catch (HttpClientErrorException.TooManyRequests e) {
+                long retryDelay = parseRetryDelay(e.getMessage());
+                consecutiveErrors.incrementAndGet();
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                Map body = response.getBody();
-                List<Map> candidates = (List<Map>) body.get("candidates");
-                if (candidates != null && !candidates.isEmpty()) {
-                    Map candidate = candidates.get(0);
-                    Map contentMap = (Map) candidate.get("content");
-                    if (contentMap != null) {
-                        List<Map> partsList = (List<Map>) contentMap.get("parts");
-                        if (partsList != null && !partsList.isEmpty()) {
-                            String text = (String) partsList.get(0).get("text");
-                            log.info("Gemini API 응답 수신 완료");
-                            return text;
-                        }
+                log.warn("Gemini Rate Limit (시도 {}/{}), {}ms 후 재시도...",
+                        attempt + 1, MAX_RETRIES, retryDelay);
+
+                // 연속 에러가 많으면 쿼터 리셋 시간 설정 (1분)
+                if (consecutiveErrors.get() >= 3) {
+                    quotaResetTime = LocalDateTime.now().plusMinutes(1);
+                    log.warn("연속 Rate Limit 발생, {}까지 Gemini 일시 중단", quotaResetTime);
+                    return null;
+                }
+
+                try {
+                    Thread.sleep(retryDelay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+
+            } catch (Exception e) {
+                log.error("Gemini API 호출 실패: {}", e.getMessage());
+                return null;
+            }
+        }
+
+        return "Rate Limit 초과로 분석을 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해주세요.";
+    }
+
+    /**
+     * Gemini API 직접 호출
+     */
+    private String callGeminiApi(String prompt) {
+        String url = apiUrl + "?key=" + apiKey;
+
+        // Request body 구성
+        Map<String, Object> requestBody = new HashMap<>();
+
+        List<Map<String, Object>> contents = new ArrayList<>();
+        Map<String, Object> content = new HashMap<>();
+        List<Map<String, String>> parts = new ArrayList<>();
+        parts.add(Map.of("text", prompt));
+        content.put("parts", parts);
+        contents.add(content);
+        requestBody.put("contents", contents);
+
+        // Generation config
+        Map<String, Object> generationConfig = new HashMap<>();
+        generationConfig.put("temperature", 0.7);
+        generationConfig.put("maxOutputTokens", 1024);
+        requestBody.put("generationConfig", generationConfig);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+        log.info("Gemini API 호출 시작");
+        lastRequestTime = LocalDateTime.now();
+
+        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+
+        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+            Map body = response.getBody();
+            List<Map> candidates = (List<Map>) body.get("candidates");
+            if (candidates != null && !candidates.isEmpty()) {
+                Map candidate = candidates.get(0);
+                Map contentMap = (Map) candidate.get("content");
+                if (contentMap != null) {
+                    List<Map> partsList = (List<Map>) contentMap.get("parts");
+                    if (partsList != null && !partsList.isEmpty()) {
+                        String text = (String) partsList.get(0).get("text");
+                        log.info("Gemini API 응답 수신 완료");
+                        return text;
                     }
                 }
             }
-
-            log.warn("Gemini API 응답 파싱 실패");
-            return "AI 분석 결과를 가져오는데 실패했습니다.";
-
-        } catch (Exception e) {
-            log.error("Gemini API 호출 실패: {}", e.getMessage(), e);
-            return "AI 서버 연결에 실패했습니다: " + e.getMessage();
         }
+
+        log.warn("Gemini API 응답 파싱 실패");
+        return "AI 분석 결과를 가져오는데 실패했습니다.";
+    }
+
+    /**
+     * Ollama 폴백 호출
+     */
+    private String callOllamaFallback(String prompt, String analysisType) {
+        if (ollamaService == null) {
+            return "AI 분석 서비스가 일시적으로 사용 불가능합니다. (Gemini Rate Limit)";
+        }
+
+        try {
+            String systemPrompt = """
+                    당신은 한국 주식시장 전문 애널리스트입니다.
+                    주어진 종목 데이터를 분석하여 투자 조언을 제공합니다.
+                    반드시 한국어로 답변하세요.
+                    """;
+
+            String result = ollamaService.chat(prompt, systemPrompt);
+            if (result != null && !result.isEmpty()) {
+                log.info("Ollama 폴백 성공: {}", analysisType);
+                return "[Ollama AI 분석]\n" + result;
+            }
+        } catch (Exception e) {
+            log.error("Ollama 폴백 실패: {}", e.getMessage());
+        }
+
+        return "AI 분석 서비스가 일시적으로 사용 불가능합니다.";
+    }
+
+    /**
+     * 요청 간 최소 간격 유지
+     */
+    private void enforceRateLimit() {
+        if (lastRequestTime != null) {
+            long elapsed = java.time.Duration.between(lastRequestTime, LocalDateTime.now()).toMillis();
+            if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+                try {
+                    long waitTime = MIN_REQUEST_INTERVAL_MS - elapsed;
+                    log.debug("Rate limit 대기: {}ms", waitTime);
+                    Thread.sleep(waitTime);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
+
+    /**
+     * 에러 메시지에서 retry delay 파싱
+     */
+    private long parseRetryDelay(String errorMessage) {
+        if (errorMessage != null) {
+            Matcher matcher = RETRY_DELAY_PATTERN.matcher(errorMessage);
+            if (matcher.find()) {
+                try {
+                    double seconds = Double.parseDouble(matcher.group(1));
+                    return (long) (seconds * 1000) + 1000; // 여유 1초 추가
+                } catch (NumberFormatException e) {
+                    // 파싱 실패 시 기본값 사용
+                }
+            }
+        }
+        return DEFAULT_RETRY_DELAY_MS;
     }
 
     /**
@@ -218,5 +366,18 @@ public class GeminiService {
      */
     public boolean isAvailable() {
         return apiKey != null && !apiKey.isEmpty();
+    }
+
+    /**
+     * 현재 Rate Limit 상태 조회
+     */
+    public Map<String, Object> getRateLimitStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("available", isAvailable());
+        status.put("consecutiveErrors", consecutiveErrors.get());
+        status.put("quotaResetTime", quotaResetTime);
+        status.put("lastRequestTime", lastRequestTime);
+        status.put("fallbackEnabled", fallbackEnabled);
+        return status;
     }
 }

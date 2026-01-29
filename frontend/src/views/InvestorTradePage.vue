@@ -5,7 +5,8 @@
       <div class="page-header">
         <button @click="goBack" class="back-button">← 돌아가기</button>
         <h1>투자자별 매매 동향</h1>
-        <p class="subtitle">외국인, 기관, 연기금, 개인의 상위 매매 종목을 확인하세요</p>
+        <p class="subtitle">외국인, 기관, 연기금의 상위 매매 종목을 확인하세요</p>
+        <p v-if="collecting" class="collecting-status">🔄 데이터 수집 중...</p>
       </div>
       <div class="trade-type-selector">
         <button :class="['trade-type-btn', { active: tradeType === 'BUY' }]" @click="changeTradeType('BUY')">
@@ -13,18 +14,6 @@
         </button>
         <button :class="['trade-type-btn', { active: tradeType === 'SELL' }]" @click="changeTradeType('SELL')">
           📉 매도 TOP 50
-        </button>
-        <button class="consecutive-btn" @click="goToConsecutive">
-          🔥 연속 매수 종목
-        </button>
-        <button class="surge-btn" @click="goToSurge">
-          ⚡ 수급 급증
-        </button>
-        <button class="refresh-btn" @click="collectData" :disabled="collecting">
-          🔄 {{ collecting ? '수집 중...' : '데이터 수집' }}
-        </button>
-        <button class="recollect-btn" @click="recollectData" :disabled="collecting">
-          🗑️ {{ collecting ? '처리 중...' : '삭제 후 재수집' }}
         </button>
       </div>
       <div class="investor-tabs">
@@ -65,10 +54,8 @@
         </table>
       </div>
       <div v-else class="no-data">
-        <p>💡 데이터가 없습니다. 데이터를 수집해주세요.</p>
-        <button @click="collectData" class="collect-btn" :disabled="collecting">
-          {{ collecting ? '수집 중...' : '데이터 수집하기' }}
-        </button>
+        <p v-if="collecting">🔄 데이터를 수집하고 있습니다...</p>
+        <p v-else>💡 데이터가 없습니다.</p>
       </div>
     </div>
   </div>
@@ -87,8 +74,7 @@ const allTrades = ref({});
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
   { value: 'INSTITUTION', label: '기관', icon: '🏢' },
-  { value: 'PENSION', label: '연기금', icon: '💎' },
-  { value: 'INDIVIDUAL', label: '개인', icon: '👤' }
+  { value: 'PENSION', label: '연기금', icon: '💎' }
 ];
 const currentTrades = computed(() => {
   return allTrades.value[selectedInvestor.value] || [];
@@ -115,50 +101,20 @@ const fetchData = async () => {
     loading.value = false;
   }
 };
-const collectData = async () => {
-  if (collecting.value) return;
+const autoCollectAndFetch = async () => {
   collecting.value = true;
   try {
-    const response = await api.post('/investor/collect/recent', null, {
-      params: { days: 5 }
-    });
-    if (response.data.success) {
-      alert('데이터 수집이 완료되었습니다!');
-      await fetchData();
-    }
+    // 삭제 후 재수집
+    await api.post('/investor/recollect');
+    await fetchData();
   } catch (error) {
     console.error('데이터 수집 오류:', error);
-    alert('데이터 수집에 실패했습니다.');
-  } finally {
-    collecting.value = false;
-  }
-};
-const recollectData = async () => {
-  if (collecting.value) return;
-  if (!confirm('기존 데이터를 모두 삭제하고 새로 수집합니다. 계속하시겠습니까?')) return;
-  collecting.value = true;
-  try {
-    const response = await api.post('/investor/recollect');
-    if (response.data.success) {
-      const data = response.data.data;
-      alert(`삭제: ${data.deletedCount}건, 수집: ${data.collectedCount}건 완료!`);
-      await fetchData();
-    }
-  } catch (error) {
-    console.error('재수집 오류:', error);
-    alert('재수집에 실패했습니다.');
   } finally {
     collecting.value = false;
   }
 };
 const goToDetail = (stockCode) => {
   router.push(`/investor-stock/${stockCode}`);
-};
-const goToConsecutive = () => {
-  router.push('/consecutive-buy');
-};
-const goToSurge = () => {
-  router.push('/investor-surge');
 };
 const goBack = () => {
   router.back();
@@ -173,7 +129,7 @@ const formatRate = (value) => {
   return `${sign}${value.toFixed(2)}%`;
 };
 onMounted(() => {
-  fetchData();
+  autoCollectAndFetch();
 });
 </script>
 <style scoped>
@@ -245,73 +201,15 @@ onMounted(() => {
   transform: translateY(-2px);
   box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
 }
-.consecutive-btn {
-  padding: 1rem 2rem;
-  border: 2px solid #ed8936;
-  background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
-  color: white;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1.1rem;
+.collecting-status {
+  color: #667eea;
   font-weight: 600;
-  transition: all 0.3s;
+  margin-top: 0.5rem;
+  animation: pulse 1.5s infinite;
 }
-.consecutive-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(237, 137, 54, 0.4);
-}
-.surge-btn {
-  padding: 1rem 2rem;
-  border: 2px solid #e53e3e;
-  background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
-  color: white;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1.1rem;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-.surge-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(229, 62, 62, 0.4);
-}
-.refresh-btn {
-  padding: 1rem 2rem;
-  border: 2px solid #38a169;
-  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-  color: white;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1.1rem;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-.refresh-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(72, 187, 120, 0.4);
-}
-.refresh-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.recollect-btn {
-  padding: 1rem 2rem;
-  border: 2px solid #805ad5;
-  background: linear-gradient(135deg, #9f7aea 0%, #805ad5 100%);
-  color: white;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1.1rem;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-.recollect-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(159, 122, 234, 0.4);
-}
-.recollect-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 .investor-tabs {
   display: flex;
@@ -414,26 +312,6 @@ td {
   padding: 3rem;
   color: #718096;
   font-size: 1.2rem;
-}
-.collect-btn {
-  margin-top: 1.5rem;
-  background: #48bb78;
-  color: white;
-  border: none;
-  padding: 1rem 2rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1rem;
-  font-weight: 600;
-  transition: all 0.3s;
-}
-.collect-btn:hover:not(:disabled) {
-  background: #38a169;
-  transform: translateY(-2px);
-}
-.collect-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 @media (max-width: 768px) {
   .investor-trade-page {

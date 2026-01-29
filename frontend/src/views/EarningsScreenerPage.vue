@@ -47,6 +47,8 @@
           <p>영업이익률(수익성) + ROE(자기자본수익률) + 저PER(저평가) 순위를 합산하여 저평가된 우량주를 찾는 전략입니다.</p>
         </div>
 
+        <p v-if="magicFormulaCollecting" class="collecting-status">🔄 데이터 수집 중...</p>
+
         <!-- AI 분석 섹션 -->
         <div class="ai-section">
           <button @click="fetchMagicFormulaAI" class="ai-btn" :disabled="aiLoading">
@@ -816,6 +818,7 @@ const turnaroundStocks = ref([]);
 // 데이터 수집 상태
 const collectStatus = ref(null);
 const isCollecting = ref(false);
+const magicFormulaCollecting = ref(false);
 const isCrawling = ref(false);
 const isFixingNames = ref(false);
 const isCollectingQuarterly = ref(false);
@@ -872,14 +875,33 @@ const crawlPreview = ref(null);
 
 const changeTab = (tab) => {
   selectedTab.value = tab;
-  if (tab === 'magic-formula' && magicFormulaStocks.value.length === 0) {
-    fetchMagicFormula();
+  if (tab === 'magic-formula') {
+    autoCollectMagicFormula();
   } else if (tab === 'peg' && pegStocks.value.length === 0) {
     fetchPegStocks();
   } else if (tab === 'turnaround' && turnaroundStocks.value.length === 0) {
     fetchTurnaroundStocks();
   } else if (tab === 'data-management') {
     fetchCollectStatus();
+  }
+};
+
+// 마법의 공식 탭 진입 시 자동 수집 및 조회
+const autoCollectMagicFormula = async () => {
+  if (magicFormulaCollecting.value) return;
+
+  magicFormulaCollecting.value = true;
+  try {
+    // 재무 데이터 재수집 (삭제 후 수집)
+    await api.post('/screener/recollect');
+    // 수집 완료 후 데이터 조회
+    await fetchMagicFormula();
+  } catch (error) {
+    console.error('마법의 공식 데이터 수집 오류:', error);
+    // 수집 실패해도 기존 데이터 조회 시도
+    await fetchMagicFormula();
+  } finally {
+    magicFormulaCollecting.value = false;
   }
 };
 
@@ -1475,7 +1497,7 @@ const getTurnaroundLabel = (type) => {
 };
 
 onMounted(() => {
-  fetchMagicFormula();
+  autoCollectMagicFormula();
 });
 </script>
 
@@ -3006,6 +3028,14 @@ onMounted(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.6; }
+}
+
+.collecting-status {
+  text-align: center;
+  color: #667eea;
+  font-weight: 600;
+  margin: 1rem 0;
+  animation: pulse 1.5s infinite;
 }
 
 .tech-signal {
