@@ -10,6 +10,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -144,6 +145,22 @@ public class MarketTimingService {
         }
 
         return history;
+    }
+
+    /**
+     * 매일 장 마감 후 ADR 시장 지표 자동 수집 (평일 16:30)
+     * - 15:30 장 마감 후 1시간 여유를 두고 수집
+     */
+    @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Transactional
+    public void scheduledMarketDataCollection() {
+        log.info("=== ADR 시장 지표 자동 수집 시작 (16:30) ===");
+        try {
+            collectMarketData();
+            log.info("=== ADR 시장 지표 자동 수집 완료 ===");
+        } catch (Exception e) {
+            log.error("ADR 시장 지표 자동 수집 실패: {}", e.getMessage(), e);
+        }
     }
 
     /**

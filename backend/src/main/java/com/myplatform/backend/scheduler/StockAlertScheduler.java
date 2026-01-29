@@ -38,11 +38,12 @@ public class StockAlertScheduler {
     private boolean schedulerEnabled;
 
     /**
-     * 장 마감 후 알림 (평일 16:00)
+     * 장 마감 후 알림 (평일 16:45)
+     * - 16:00 투자자 데이터 수집, 16:30 ADR 수집이 완료된 후 실행
      * - 시장 상태 알림 (과열/공포 구간만)
      * - 숏스퀴즈 고점수 종목 알림
      */
-    @Scheduled(cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 45 16 * * MON-FRI", zone = "Asia/Seoul")
     public void afterMarketCloseAlert() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");
@@ -67,7 +68,8 @@ public class StockAlertScheduler {
 
     /**
      * 아침 알림 (평일 08:30)
-     * - 마법의 공식 상위 종목
+     * - 마법의 공식 Top 5 종목
+     * - 숏스퀴즈 후보 Top 3
      * - 턴어라운드 종목
      */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
@@ -77,13 +79,16 @@ public class StockAlertScheduler {
             return;
         }
 
-        log.info("=== 아침 알림 시작 ===");
+        log.info("=== 아침 알림 시작 (08:30) ===");
 
         try {
-            // 1. 마법의 공식 Top 3 알림
-            quantScreenerService.sendMagicFormulaAlerts(3);
+            // 1. 마법의 공식 Top 5 알림
+            quantScreenerService.sendMagicFormulaAlerts(5);
 
-            // 2. 턴어라운드 Top 2 알림
+            // 2. 숏스퀴즈 후보 Top 3 알림 (점수 60점 이상)
+            shortSellingService.sendHighScoreSqueezeAlerts(60, 3);
+
+            // 3. 턴어라운드 Top 2 알림
             quantScreenerService.sendTurnaroundAlerts(2);
 
             log.info("=== 아침 알림 완료 ===");

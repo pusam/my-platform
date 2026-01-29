@@ -47,12 +47,15 @@ public class StockFinancialDataService {
     private String appSecret;
 
     /**
-     * 매일 장 마감 후 재무 데이터 수집 (18:00)
+     * 매일 밤 재무 데이터 업데이트 체크 (23:00)
+     * - 재무 데이터는 실시간으로 변하지 않으므로 밤에 수집
+     * - 분기별 실적 발표 시기에 주로 업데이트
      */
-    @Scheduled(cron = "0 0 18 * * MON-FRI")
+    @Scheduled(cron = "0 0 23 * * MON-FRI", zone = "Asia/Seoul")
     public void collectDailyFinancialData() {
-        log.info("재무 데이터 일일 수집 시작");
+        log.info("=== 재무 데이터 일일 수집 시작 (23:00) ===");
         collectFinancialDataFromTopStocks();
+        log.info("=== 재무 데이터 일일 수집 완료 ===");
     }
 
     /**

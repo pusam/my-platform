@@ -49,10 +49,11 @@ public class ShortSellingDataCollector {
     private String kofiaBaseUrl;
 
     /**
-     * 장 마감 후 자동 수집 (평일 18:00)
-     * - 공매도 데이터는 장 마감 후 약 2시간 뒤에 확정됨
+     * 장 마감 후 자동 수집 (평일 19:00)
+     * - KRX 공매도/대차잔고 데이터는 18:00에 갱신되지 않는 경우가 있음
+     * - 안정적인 데이터 수집을 위해 19:00로 설정
      */
-    @Scheduled(cron = "0 0 18 * * MON-FRI")
+    @Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void scheduledDailyCollection() {
         LocalDate today = LocalDate.now();

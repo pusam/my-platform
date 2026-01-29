@@ -523,6 +523,30 @@ export const marketAPI = {
   }
 };
 
+// 텔레그램 알림 API
+export const telegramAPI = {
+  // 텔레그램 상태 확인
+  getStatus() {
+    return apiClient.get('/telegram/status');
+  },
+  // 테스트 메시지 발송
+  sendTest() {
+    return apiClient.post('/telegram/test');
+  },
+  // 주식 알림 테스트
+  sendStockAlertTest() {
+    return apiClient.post('/telegram/test-stock-alert');
+  },
+  // 숏스퀴즈 알림 테스트
+  sendSqueezeAlertTest() {
+    return apiClient.post('/telegram/test-squeeze-alert');
+  },
+  // 커스텀 메시지 발송
+  sendMessage(message) {
+    return apiClient.post('/telegram/send', null, { params: { message } });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

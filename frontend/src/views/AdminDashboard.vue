@@ -293,6 +293,43 @@
               <button @click="viewLogs" class="action-btn">로그</button>
             </div>
           </div>
+
+          <div class="section telegram-section">
+            <div class="section-header">
+              <h2>📱 텔레그램 알림</h2>
+              <span v-if="telegramStatus" class="status-badge" :class="telegramStatus.enabled ? 'active' : 'inactive'">
+                {{ telegramStatus.enabled ? '활성' : '비활성' }}
+              </span>
+            </div>
+            <div v-if="telegramStatus" class="telegram-info">
+              <div class="telegram-detail">
+                <span class="label">상태:</span>
+                <span :class="telegramStatus.configured ? 'text-positive' : 'text-negative'">
+                  {{ telegramStatus.configured ? '설정됨' : '미설정' }}
+                </span>
+              </div>
+              <div v-if="telegramStatus.botUsername" class="telegram-detail">
+                <span class="label">봇:</span>
+                <span>@{{ telegramStatus.botUsername }}</span>
+              </div>
+              <div v-if="telegramStatus.chatId" class="telegram-detail">
+                <span class="label">Chat ID:</span>
+                <span>{{ telegramStatus.chatId }}</span>
+              </div>
+            </div>
+            <p v-else>텔레그램 봇 상태를 확인 중...</p>
+            <div class="action-group">
+              <button @click="checkTelegramStatus" class="action-btn" :disabled="telegramLoading">
+                {{ telegramLoading ? '확인 중...' : '상태 확인' }}
+              </button>
+              <button @click="sendTelegramTest" class="action-btn" :disabled="telegramTestLoading || !telegramStatus?.enabled">
+                {{ telegramTestLoading ? '전송 중...' : '테스트 메시지' }}
+              </button>
+              <button @click="sendStockAlertTest" class="action-btn" :disabled="telegramTestLoading || !telegramStatus?.enabled">
+                종목 알림 테스트
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- 최근 활동 -->
@@ -319,7 +356,7 @@
 </template>
 
 <script>
-import { adminAPI } from '../utils/api';
+import { adminAPI, telegramAPI } from '../utils/api';
 import apiClient from '../utils/api';
 
 export default {
@@ -348,13 +385,17 @@ export default {
       autoRefresh: false,
       refreshInterval: null,
       statsInterval: null,
-      loading: false
+      loading: false,
+      telegramStatus: null,
+      telegramLoading: false,
+      telegramTestLoading: false
     }
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'Admin'
     this.loadStats()
     this.loadServerStatus()
+    this.checkTelegramStatus()
 
     // 30초마다 자동 새로고침
     this.statsInterval = setInterval(() => {
@@ -444,7 +485,7 @@ export default {
       this.$router.push('/board')
     },
     goToUserApproval() {
-      this.$router.push('/user-approval')
+      this.$router.push('/admin/users')
     },
     viewAllUsers() {
       alert('전체 사용자 관리 페이지 (개발 예정)')
@@ -501,7 +542,7 @@ export default {
       }
     },
     viewFileManager() {
-      this.$router.push('/file-manager')
+      this.$router.push('/files')
     },
     cleanupFiles() {
       alert('파일 정리 기능 (개발 예정)')
@@ -523,6 +564,52 @@ export default {
       localStorage.removeItem('username')
       localStorage.removeItem('role')
       this.$router.push('/login')
+    },
+    async checkTelegramStatus() {
+      try {
+        this.telegramLoading = true
+        const response = await telegramAPI.getStatus()
+        if (response.data.success) {
+          this.telegramStatus = response.data.data
+        }
+      } catch (error) {
+        console.error('텔레그램 상태 확인 실패:', error)
+        this.telegramStatus = { enabled: false, configured: false }
+      } finally {
+        this.telegramLoading = false
+      }
+    },
+    async sendTelegramTest() {
+      try {
+        this.telegramTestLoading = true
+        const response = await telegramAPI.sendTest()
+        if (response.data.success) {
+          alert('테스트 메시지가 전송되었습니다. 텔레그램을 확인해주세요.')
+        } else {
+          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+        }
+      } catch (error) {
+        console.error('텔레그램 테스트 실패:', error)
+        alert('텔레그램 메시지 전송에 실패했습니다.')
+      } finally {
+        this.telegramTestLoading = false
+      }
+    },
+    async sendStockAlertTest() {
+      try {
+        this.telegramTestLoading = true
+        const response = await telegramAPI.sendStockAlertTest()
+        if (response.data.success) {
+          alert('종목 알림 테스트 메시지가 전송되었습니다.')
+        } else {
+          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+        }
+      } catch (error) {
+        console.error('종목 알림 테스트 실패:', error)
+        alert('종목 알림 테스트에 실패했습니다.')
+      } finally {
+        this.telegramTestLoading = false
+      }
     }
   }
 }
@@ -944,6 +1031,58 @@ export default {
 
 .stat-status.offline {
   color: #ff9800;
+}
+
+/* 텔레그램 섹션 */
+.telegram-section {
+  border-left: 4px solid #0088cc;
+}
+
+.telegram-info {
+  background: #f8f9fa;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.telegram-detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  padding: 4px 0;
+}
+
+.telegram-detail .label {
+  color: #666;
+  min-width: 60px;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-badge.active {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.inactive {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.text-positive {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.text-negative {
+  color: #dc3545;
+  font-weight: 500;
 }
 
 /* 반응형 */
