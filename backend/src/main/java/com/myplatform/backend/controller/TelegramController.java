@@ -31,11 +31,18 @@ public class TelegramController {
     @Operation(summary = "텔레그램 상태 확인", description = "텔레그램 알림 서비스 활성화 여부를 확인합니다.")
     public ResponseEntity<Map<String, Object>> getTelegramStatus() {
         Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("enabled", telegramNotificationService.isEnabled());
-        response.put("message", telegramNotificationService.isEnabled()
+        Map<String, Object> data = new HashMap<>();
+
+        boolean isEnabled = telegramNotificationService.isEnabled();
+
+        data.put("enabled", isEnabled);
+        data.put("configured", isEnabled);
+        data.put("message", isEnabled
                 ? "텔레그램 알림 서비스가 활성화되어 있습니다."
                 : "텔레그램 알림 서비스가 비활성화되어 있습니다. 환경 변수를 확인해주세요.");
+
+        response.put("success", true);
+        response.put("data", data);
 
         return ResponseEntity.ok(response);
     }
