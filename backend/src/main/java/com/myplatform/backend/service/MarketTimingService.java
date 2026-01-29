@@ -32,6 +32,7 @@ import java.util.Optional;
 public class MarketTimingService {
 
     private final MarketDailyStatusRepository marketDailyStatusRepository;
+    private final TelegramNotificationService telegramNotificationService;
 
     // ADR 기준값
     private static final BigDecimal ADR_OVERHEATED = new BigDecimal("120");
@@ -483,5 +484,55 @@ public class MarketTimingService {
                 .diagnosis("시장 데이터가 없습니다. 먼저 데이터를 수집해주세요.")
                 .strategy("데이터 수집 후 분석을 이용해주세요.")
                 .build();
+    }
+
+    // ========== 텔레그램 알림 연동 메서드 ==========
+
+    /**
+     * 시장 상태 알림 발송
+     * - 시장이 과열 또는 공포 구간일 때 알림
+     * - 스케줄러에서 데이터 수집 후 호출 권장
+     *
+     * @param onlyExtreme true면 과열/극심한공포일 때만 알림, false면 항상 알림
+     * @return 알림 발송 여부
+     */
+    public boolean sendMarketStatusAlert(boolean onlyExtreme) {
+        log.info("시장 상태 알림 발송 시작 - onlyExtreme: {}", onlyExtreme);
+
+        MarketTimingDto timing = getCurrentMarketTiming();
+
+        if (timing.getCombinedAdr() == null || timing.getOverallCondition() == null) {
+            log.info("시장 데이터 부족으로 알림 발송 생략");
+            return false;
+        }
+
+        MarketCondition condition = timing.getOverallCondition();
+
+        // 극단적 상황만 알림하는 경우
+        if (onlyExtreme) {
+            if (condition != MarketCondition.OVERHEATED && condition != MarketCondition.EXTREME_FEAR) {
+                log.info("시장 상태가 정상 범위이므로 알림 발송 생략 - condition: {}", condition);
+                return false;
+            }
+        }
+
+        telegramNotificationService.sendMarketStatusAlert(
+                condition.name(),
+                timing.getCombinedAdr(),
+                timing.getDiagnosis()
+        );
+
+        log.info("시장 상태 알림 발송 완료 - condition: {}, ADR: {}", condition, timing.getCombinedAdr());
+        return true;
+    }
+
+    /**
+     * 데이터 수집 및 알림 발송 (통합)
+     * - 스케줄러에서 사용하기 좋은 통합 메서드
+     */
+    @Transactional
+    public void collectAndNotify() {
+        collectMarketData();
+        sendMarketStatusAlert(true);  // 극단적 상황만 알림
     }
 }

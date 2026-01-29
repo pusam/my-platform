@@ -29,6 +29,7 @@ import java.util.stream.Collectors;
 public class QuantScreenerService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final TelegramNotificationService telegramNotificationService;
 
     /**
      * 마법의 공식 스크리너
@@ -431,5 +432,76 @@ public class QuantScreenerService {
         summary.put("turnaroundCount", turnaround.size());
 
         return summary;
+    }
+
+    // ========== 텔레그램 알림 연동 메서드 ==========
+
+    /**
+     * 마법의 공식 상위 종목 알림 발송
+     * - 상위 N개 종목을 텔레그램으로 알림
+     * - 스케줄러나 외부에서 호출하여 사용
+     *
+     * @param topN 알림 발송할 종목 수 (기본 3)
+     * @return 알림 발송된 종목 수
+     */
+    public int sendMagicFormulaAlerts(Integer topN) {
+        if (topN == null) topN = 3;
+
+        log.info("마법의 공식 상위 종목 알림 발송 시작 - top: {}", topN);
+
+        List<ScreenerResultDto> topStocks = getMagicFormulaStocks(topN, null);
+
+        int sentCount = 0;
+        for (ScreenerResultDto stock : topStocks) {
+            telegramNotificationService.sendMagicFormulaAlert(
+                    stock.getStockName(),
+                    stock.getStockCode(),
+                    stock.getMagicFormulaRank(),
+                    stock.getPer(),
+                    stock.getRoe(),
+                    stock.getOperatingMargin(),
+                    stock.getCurrentPrice()
+            );
+            sentCount++;
+
+            log.info("마법의 공식 알림 발송 - {} ({}), 순위: #{}",
+                    stock.getStockName(), stock.getStockCode(), stock.getMagicFormulaRank());
+        }
+
+        log.info("마법의 공식 알림 발송 완료 - {}건", sentCount);
+        return sentCount;
+    }
+
+    /**
+     * 턴어라운드 종목 알림 발송
+     * - 적자→흑자 전환 또는 이익 급증 종목 알림
+     *
+     * @param topN 알림 발송할 종목 수 (기본 3)
+     * @return 알림 발송된 종목 수
+     */
+    public int sendTurnaroundAlerts(Integer topN) {
+        if (topN == null) topN = 3;
+
+        log.info("턴어라운드 종목 알림 발송 시작 - top: {}", topN);
+
+        List<ScreenerResultDto> turnaroundStocks = getTurnaroundStocks(topN);
+
+        int sentCount = 0;
+        for (ScreenerResultDto stock : turnaroundStocks) {
+            telegramNotificationService.sendTurnaroundAlert(
+                    stock.getStockName(),
+                    stock.getStockCode(),
+                    stock.getTurnaroundType(),
+                    stock.getNetIncomeChangeRate(),
+                    stock.getCurrentPrice()
+            );
+            sentCount++;
+
+            log.info("턴어라운드 알림 발송 - {} ({}), 유형: {}",
+                    stock.getStockName(), stock.getStockCode(), stock.getTurnaroundType());
+        }
+
+        log.info("턴어라운드 알림 발송 완료 - {}건", sentCount);
+        return sentCount;
     }
 }

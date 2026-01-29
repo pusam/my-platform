@@ -31,6 +31,7 @@ public class ShortSellingService {
     private final StockShortDataRepository shortDataRepository;
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
+    private final TelegramNotificationService telegramNotificationService;
 
     // 분석 기준 상수
     private static final int ANALYSIS_DAYS = 20;           // 평균 계산 기간 (거래일 기준)
@@ -452,5 +453,48 @@ public class ShortSellingService {
      */
     public LocalDate getLatestTradeDate() {
         return shortDataRepository.findLatestTradeDate();
+    }
+
+    // ========== 텔레그램 알림 연동 메서드 ==========
+
+    /**
+     * 고점수 숏스퀴즈 후보 알림 발송
+     * - 스퀴즈 점수 70점 이상인 종목 발견 시 텔레그램 알림
+     * - 스케줄러나 외부에서 호출하여 사용
+     *
+     * @param minScore 알림 발송 기준 최소 점수 (기본 70)
+     * @param limit 알림 발송할 최대 종목 수
+     * @return 알림 발송된 종목 수
+     */
+    public int sendHighScoreSqueezeAlerts(Integer minScore, Integer limit) {
+        if (minScore == null) minScore = 70;
+        if (limit == null) limit = 5;
+
+        log.info("고점수 숏스퀴즈 알림 발송 시작 - 기준점수: {}, 최대: {}건", minScore, limit);
+
+        List<ShortSqueezeDto> candidates = getShortSqueezeCandidates(limit * 2);
+
+        int sentCount = 0;
+        final int threshold = minScore;
+
+        for (ShortSqueezeDto candidate : candidates) {
+            if (candidate.getSqueezeScore() >= threshold && sentCount < limit) {
+                telegramNotificationService.sendShortSqueezeAlert(
+                        candidate.getStockName(),
+                        candidate.getStockCode(),
+                        candidate.getCurrentPrice(),
+                        candidate.getSqueezeScore(),
+                        candidate.getLoanBalanceChange5Days(),
+                        candidate.getIsForeignBuying()
+                );
+                sentCount++;
+
+                log.info("숏스퀴즈 알림 발송 - {} ({}), 점수: {}",
+                        candidate.getStockName(), candidate.getStockCode(), candidate.getSqueezeScore());
+            }
+        }
+
+        log.info("고점수 숏스퀴즈 알림 발송 완료 - {}건", sentCount);
+        return sentCount;
     }
 }
