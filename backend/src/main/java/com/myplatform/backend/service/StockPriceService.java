@@ -24,7 +24,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 주식 시세 조회 서비스
@@ -468,6 +471,110 @@ public class StockPriceService {
 
         } catch (Exception e) {
             log.error("분봉 거래대금 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * [개선] 여러 종목의 분봉 거래대금 일괄 조회 (병렬 처리)
+     *
+     * @param stockCodes 종목코드 리스트
+     * @param minutes    조회 기간 (분) - 5, 30 등
+     * @return 종목코드 -> 거래대금 Map
+     */
+    public Map<String, BigDecimal> getTradingValueForMinutesBatch(List<String> stockCodes, int minutes) {
+        if (stockCodes == null || stockCodes.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        if (!kisService.isConfigured()) {
+            log.warn("분봉 데이터 배치 조회 불가 - 한투 API 미설정");
+            return new HashMap<>();
+        }
+
+        log.debug("분봉 거래대금 배치 조회 시작 - 종목수: {}, 기간: {}분", stockCodes.size(), minutes);
+        long startTime = System.currentTimeMillis();
+
+        // 병렬 처리를 위한 CompletableFuture 리스트
+        Map<String, CompletableFuture<BigDecimal>> futures = new ConcurrentHashMap<>();
+
+        for (String stockCode : stockCodes) {
+            CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    // API 호출 간격 (동시 요청 제한 방지)
+                    Thread.sleep(30);
+                    return fetchMinuteTradingValue(stockCode, minutes);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                } catch (Exception e) {
+                    log.warn("분봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
+                    return null;
+                }
+            });
+            futures.put(stockCode, future);
+        }
+
+        // 모든 조회 완료 대기 (최대 60초)
+        Map<String, BigDecimal> result = new ConcurrentHashMap<>();
+        for (Map.Entry<String, CompletableFuture<BigDecimal>> entry : futures.entrySet()) {
+            try {
+                BigDecimal value = entry.getValue().get(60, TimeUnit.SECONDS);
+                if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
+                    result.put(entry.getKey(), value);
+                }
+            } catch (Exception e) {
+                log.warn("분봉 조회 타임아웃 [{}]", entry.getKey());
+            }
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.debug("분봉 거래대금 배치 조회 완료 - 성공: {}/{}, 소요: {}ms",
+                result.size(), stockCodes.size(), elapsed);
+
+        return result;
+    }
+
+    /**
+     * 분봉 거래대금 단건 조회 (내부용)
+     */
+    private BigDecimal fetchMinuteTradingValue(String stockCode, int minutes) {
+        try {
+            JsonNode response = kisService.getStockMinuteChart(stockCode);
+            if (response == null) {
+                return null;
+            }
+
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                return null;
+            }
+
+            JsonNode output2 = response.get("output2");
+            if (output2 == null || !output2.isArray()) {
+                return null;
+            }
+
+            BigDecimal totalTradingValue = BigDecimal.ZERO;
+            int count = 0;
+            int maxCount = minutes;
+
+            for (JsonNode item : output2) {
+                if (count >= maxCount) break;
+
+                BigDecimal price = getBigDecimalValue(item, "stck_prpr");
+                BigDecimal volume = getBigDecimalValue(item, "cntg_vol");
+
+                if (price != null && volume != null) {
+                    totalTradingValue = totalTradingValue.add(price.multiply(volume));
+                }
+                count++;
+            }
+
+            return totalTradingValue;
+
+        } catch (Exception e) {
+            log.debug("분봉 거래대금 파싱 실패 [{}]: {}", stockCode, e.getMessage());
             return null;
         }
     }

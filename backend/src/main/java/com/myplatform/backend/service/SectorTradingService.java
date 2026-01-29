@@ -84,13 +84,22 @@ public class SectorTradingService {
         Map<String, StockPriceDto> stockPriceMap = stockPriceService.getStockPrices(new ArrayList<>(allStockCodes));
         log.debug("Batch 시세 조회 완료 - 요청: {}, 응답: {}", allStockCodes.size(), stockPriceMap.size());
 
+        // ========== [개선 3] 분봉 데이터 Batch 조회 (MIN_5, MIN_30) ==========
+        Map<String, BigDecimal> minuteTradingValueMap = new HashMap<>();
+        if (period != TradingPeriod.TODAY) {
+            minuteTradingValueMap = stockPriceService.getTradingValueForMinutesBatch(
+                    new ArrayList<>(allStockCodes), period.getMinutes());
+            log.debug("분봉 거래대금 Batch 조회 완료 - 요청: {}, 응답: {}", allStockCodes.size(), minuteTradingValueMap.size());
+        }
+
         // ========== 중복 종목 제거용 Map (Thread-safe) ==========
         ConcurrentMap<String, BigDecimal> uniqueStockTradingValue = new ConcurrentHashMap<>();
 
         // ========== [개선 2] Spring TaskExecutor로 섹터별 병렬 처리 ==========
+        final Map<String, BigDecimal> finalMinuteTradingValueMap = minuteTradingValueMap;
         List<CompletableFuture<SectorTradingDto>> futures = sectorConfig.getAllSectors().stream()
                 .map(sector -> CompletableFuture.supplyAsync(
-                        () -> buildSectorTradingDto(sector, period, stockPriceMap, uniqueStockTradingValue),
+                        () -> buildSectorTradingDto(sector, period, stockPriceMap, uniqueStockTradingValue, finalMinuteTradingValueMap),
                         sectorTradingExecutor
                 ))
                 .collect(Collectors.toList());
@@ -165,7 +174,14 @@ public class SectorTradingService {
         // 해당 섹터 종목들만 Batch 조회
         Map<String, StockPriceDto> stockPriceMap = stockPriceService.getStockPrices(sector.getStockCodes());
 
-        return buildSectorTradingDto(sector, period, stockPriceMap, null);
+        // 분봉 데이터도 Batch 조회 (MIN_5, MIN_30인 경우)
+        Map<String, BigDecimal> minuteTradingValueMap = new HashMap<>();
+        if (period != TradingPeriod.TODAY) {
+            minuteTradingValueMap = stockPriceService.getTradingValueForMinutesBatch(
+                    sector.getStockCodes(), period.getMinutes());
+        }
+
+        return buildSectorTradingDto(sector, period, stockPriceMap, null, minuteTradingValueMap);
     }
 
     /**
@@ -175,12 +191,14 @@ public class SectorTradingService {
      * @param period 조회 기간
      * @param stockPriceMap 미리 조회한 시세 Map
      * @param uniqueStockMap 중복 제거용 Map (전체 조회 시 사용, null이면 추적 안 함)
+     * @param minuteTradingValueMap 미리 조회한 분봉 거래대금 Map (MIN_5, MIN_30용)
      */
     private SectorTradingDto buildSectorTradingDto(
             SectorInfo sector,
             TradingPeriod period,
             Map<String, StockPriceDto> stockPriceMap,
-            ConcurrentMap<String, BigDecimal> uniqueStockMap
+            ConcurrentMap<String, BigDecimal> uniqueStockMap,
+            Map<String, BigDecimal> minuteTradingValueMap
     ) {
         SectorTradingDto dto = new SectorTradingDto();
         dto.setSectorCode(sector.getCode());
@@ -192,7 +210,7 @@ public class SectorTradingService {
         BigDecimal totalTradingValue = BigDecimal.ZERO;
 
         for (String stockCode : sector.getStockCodes()) {
-            StockTradingInfo info = buildStockTradingInfo(stockCode, period, stockPriceMap);
+            StockTradingInfo info = buildStockTradingInfo(stockCode, period, stockPriceMap, minuteTradingValueMap);
             if (info != null && info.getTradingValue() != null) {
                 stockInfos.add(info);
                 totalTradingValue = totalTradingValue.add(info.getTradingValue());
@@ -222,7 +240,8 @@ public class SectorTradingService {
     private StockTradingInfo buildStockTradingInfo(
             String stockCode,
             TradingPeriod period,
-            Map<String, StockPriceDto> stockPriceMap
+            Map<String, StockPriceDto> stockPriceMap,
+            Map<String, BigDecimal> minuteTradingValueMap
     ) {
         StockPriceDto price = stockPriceMap.get(stockCode);
         if (price == null) {
@@ -241,17 +260,22 @@ public class SectorTradingService {
         info.setCurrentPrice(price.getCurrentPrice());
         info.setChangeRate(price.getChangeRate());
 
-        // 거래대금 계산
-        BigDecimal tradingValue = calculateTradingValue(stockCode, period, price);
+        // 거래대금 계산 (분봉 데이터 미리 조회된 것 사용)
+        BigDecimal tradingValue = calculateTradingValue(stockCode, period, price, minuteTradingValueMap);
         info.setTradingValue(tradingValue);
 
         return info;
     }
 
     /**
-     * 거래대금 계산
+     * 거래대금 계산 (분봉 데이터는 미리 조회된 Map 사용)
      */
-    private BigDecimal calculateTradingValue(String stockCode, TradingPeriod period, StockPriceDto price) {
+    private BigDecimal calculateTradingValue(
+            String stockCode,
+            TradingPeriod period,
+            StockPriceDto price,
+            Map<String, BigDecimal> minuteTradingValueMap
+    ) {
         if (period == TradingPeriod.TODAY) {
             // 1순위: API 제공 누적 거래대금
             if (price.getAccumulatedTradingValue() != null
@@ -263,8 +287,10 @@ public class SectorTradingService {
                 return price.getCurrentPrice().multiply(price.getVolume());
             }
         } else {
-            // 5분/30분 파워: 분봉 기반 거래대금
-            BigDecimal minuteTradingValue = stockPriceService.getTradingValueForMinutes(stockCode, period.getMinutes());
+            // 5분/30분 파워: 미리 조회된 분봉 거래대금 사용 (N+1 문제 해결)
+            BigDecimal minuteTradingValue = minuteTradingValueMap != null
+                    ? minuteTradingValueMap.get(stockCode)
+                    : null;
             if (minuteTradingValue != null && minuteTradingValue.compareTo(BigDecimal.ZERO) > 0) {
                 return minuteTradingValue;
             }

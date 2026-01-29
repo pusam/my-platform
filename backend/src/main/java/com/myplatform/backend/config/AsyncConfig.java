@@ -60,7 +60,7 @@ public class AsyncConfig {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(10);
         executor.setMaxPoolSize(20);
-        executor.setQueueCapacity(200);
+        executor.setQueueCapacity(500);
         executor.setKeepAliveSeconds(60);
         executor.setThreadNamePrefix("SectorTrading-");
         executor.setWaitForTasksToCompleteOnShutdown(true);
@@ -72,7 +72,7 @@ public class AsyncConfig {
         executor.initialize();
 
         log.info("섹터 거래대금 Executor 초기화 완료 - core: {}, max: {}, queue: {}",
-                executor.getCorePoolSize(), executor.getMaxPoolSize(), 200);
+                executor.getCorePoolSize(), executor.getMaxPoolSize(), 500);
 
         return executor;
     }
