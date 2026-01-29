@@ -72,16 +72,17 @@ public class InvestorTradeService {
     }
 
     /**
-     * 전체 투자자의 상위 매매 종목 조회 (외국인, 기관, 개인 각각 50개씩)
+     * 전체 투자자의 상위 매매 종목 조회 (외국인, 기관, 연기금, 개인 각각 50개씩)
      *
-     * [개선] INDIVIDUAL(개인) 투자자 추가
+     * [개선] PENSION(연기금) 투자자 추가
      */
     public Map<String, List<InvestorTradeDto>> getAllInvestorTopTrades(String tradeType, Integer limit) {
         Map<String, List<InvestorTradeDto>> result = new LinkedHashMap<>();  // 순서 유지
 
         result.put("FOREIGN", getTopTradesByInvestor("FOREIGN", tradeType, limit));
         result.put("INSTITUTION", getTopTradesByInvestor("INSTITUTION", tradeType, limit));
-        result.put("INDIVIDUAL", getTopTradesByInvestor("INDIVIDUAL", tradeType, limit));  // 개인 추가
+        result.put("PENSION", getTopTradesByInvestor("PENSION", tradeType, limit));  // 연기금 추가
+        result.put("INDIVIDUAL", getTopTradesByInvestor("INDIVIDUAL", tradeType, limit));
 
         return result;
     }
@@ -123,11 +124,20 @@ public class InvestorTradeService {
                     Map<String, List<InvestorDailyTrade>> tradesByInvestor = dayTrades.stream()
                             .collect(Collectors.groupingBy(InvestorDailyTrade::getInvestorType));
 
+                    // 종가 추출 (외국인/기관/연기금 중 하나에서)
+                    BigDecimal closePrice = dayTrades.stream()
+                            .filter(t -> t.getCurrentPrice() != null && t.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0)
+                            .map(InvestorDailyTrade::getCurrentPrice)
+                            .findFirst()
+                            .orElse(null);
+
                     return StockInvestorDetailDto.DailyInvestorTrade.builder()
                             .tradeDate(date)
+                            .closePrice(closePrice)
                             .foreign(buildInvestorSummary(tradesByInvestor.get("FOREIGN")))
                             .institution(buildInvestorSummary(tradesByInvestor.get("INSTITUTION")))
                             .individual(buildInvestorSummary(tradesByInvestor.get("INDIVIDUAL")))
+                            .pension(buildInvestorSummary(tradesByInvestor.get("PENSION")))
                             .build();
                 })
                 .collect(Collectors.toList());
@@ -465,14 +475,15 @@ public class InvestorTradeService {
     /**
      * 전체 투자자의 연속 매수 종목 조회
      *
-     * [개선 2] INDIVIDUAL(개인) 투자자 추가
+     * [개선] PENSION(연기금) 투자자 추가
      */
     public Map<String, List<ConsecutiveBuyDto>> getAllConsecutiveBuyStocks(Integer minDays) {
         Map<String, List<ConsecutiveBuyDto>> result = new LinkedHashMap<>();  // 순서 유지
 
         result.put("FOREIGN", getConsecutiveBuyStocks("FOREIGN", minDays));
         result.put("INSTITUTION", getConsecutiveBuyStocks("INSTITUTION", minDays));
-        result.put("INDIVIDUAL", getConsecutiveBuyStocks("INDIVIDUAL", minDays));  // 개인 추가
+        result.put("PENSION", getConsecutiveBuyStocks("PENSION", minDays));  // 연기금 추가
+        result.put("INDIVIDUAL", getConsecutiveBuyStocks("INDIVIDUAL", minDays));
 
         return result;
     }

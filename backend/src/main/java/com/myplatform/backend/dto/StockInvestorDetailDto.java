@@ -30,6 +30,9 @@ public class StockInvestorDetailDto {
     public static class DailyInvestorTrade {
         private LocalDate tradeDate;
 
+        // 종가 (차트용)
+        private java.math.BigDecimal closePrice;
+
         // 외국인 매매
         private InvestorTradeSummary foreign;
 
@@ -38,6 +41,9 @@ public class StockInvestorDetailDto {
 
         // 개인 매매
         private InvestorTradeSummary individual;
+
+        // 연기금 매매
+        private InvestorTradeSummary pension;
     }
 
     @Data

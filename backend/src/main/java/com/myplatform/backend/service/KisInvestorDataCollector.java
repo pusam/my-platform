@@ -92,6 +92,14 @@ public class KisInvestorDataCollector {
             int institutionSell = collectInvestorRanking("KOSPI", "INSTITUTION", "SELL", dateStr, 50);
             result.put("KOSPI_INSTITUTION_SELL", institutionSell);
 
+            // 연기금 순매수 상위 (기관 API 응답에서 연기금 필드 추출)
+            int pensionBuy = collectPensionRanking("KOSPI", "BUY", dateStr, 50);
+            result.put("KOSPI_PENSION_BUY", pensionBuy);
+
+            // 연기금 순매도 상위
+            int pensionSell = collectPensionRanking("KOSPI", "SELL", dateStr, 50);
+            result.put("KOSPI_PENSION_SELL", pensionSell);
+
             log.info("투자자별 매매 데이터 수집 완료: {}", result);
 
         } catch (Exception e) {
@@ -253,6 +261,142 @@ public class KisInvestorDataCollector {
 
         } catch (Exception e) {
             log.error("응답 파싱 실패", e);
+        }
+
+        return 0;
+    }
+
+    /**
+     * 연기금 순위 데이터 수집
+     * 기관 API 응답에서 연기금 필드(pnsn_ntby_tr_pbmn)를 추출하여 저장
+     */
+    private int collectPensionRanking(String market, String tradeType, String dateStr, int limit) {
+        if (!koreaInvestmentService.isConfigured()) {
+            log.warn("한국투자증권 API 키가 설정되지 않았습니다. 연기금 수집을 건너뜁니다.");
+            return 0;
+        }
+
+        try {
+            boolean isBuy = "BUY".equals(tradeType);
+
+            log.info("연기금 API 호출 시작: {} {} (기관 API에서 연기금 필드 추출)", market, tradeType);
+
+            // 기관계(2) API 호출 - 응답에 연기금 필드 포함
+            JsonNode response = koreaInvestmentService.getForeignInstitutionTotal("2", isBuy, true);
+
+            if (response == null) {
+                log.error("연기금 API 응답이 null입니다: {} {}", market, tradeType);
+                return 0;
+            }
+
+            return parseAndSavePensionData(response, market, tradeType,
+                    LocalDate.parse(dateStr, DATE_FORMATTER), limit);
+
+        } catch (Exception e) {
+            log.error("연기금 데이터 수집 실패: {} {} - {}", market, tradeType, e.getMessage(), e);
+        }
+
+        return 0;
+    }
+
+    /**
+     * 연기금 데이터 파싱 및 저장
+     * API 응답에서 pnsn_ntby_tr_pbmn(연기금 순매수 대금) 필드 추출
+     */
+    private int parseAndSavePensionData(JsonNode response, String market, String tradeType,
+                                        LocalDate tradeDate, int limit) {
+        try {
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                log.error("연기금 API 오류: {} - {}", rtCd, response.has("msg1") ? response.get("msg1").asText() : "");
+                return 0;
+            }
+
+            JsonNode output = response.get("output");
+            if (output == null || !output.isArray() || output.size() == 0) {
+                log.warn("연기금 응답 데이터가 비어있습니다: {} {}", market, tradeType);
+                return 0;
+            }
+
+            // 연기금 순매수 금액이 있는 항목만 필터링 후 정렬
+            List<JsonNode> pensionItems = new ArrayList<>();
+            for (JsonNode item : output) {
+                BigDecimal pensionAmount = getJsonBigDecimal(item, "pnsn_ntby_tr_pbmn");
+                if (pensionAmount.abs().compareTo(BigDecimal.ZERO) > 0) {
+                    pensionItems.add(item);
+                }
+            }
+
+            // 순매수/순매도 금액 기준 정렬
+            boolean isBuy = "BUY".equals(tradeType);
+            pensionItems.sort((a, b) -> {
+                BigDecimal amountA = getJsonBigDecimal(a, "pnsn_ntby_tr_pbmn");
+                BigDecimal amountB = getJsonBigDecimal(b, "pnsn_ntby_tr_pbmn");
+                if (isBuy) {
+                    return amountB.compareTo(amountA);  // 내림차순 (순매수 상위)
+                } else {
+                    return amountA.compareTo(amountB);  // 오름차순 (순매도 상위)
+                }
+            });
+
+            List<InvestorDailyTrade> trades = new ArrayList<>();
+            int rank = 1;
+
+            for (JsonNode item : pensionItems) {
+                if (rank > limit) break;
+
+                String stockCode = getJsonValue(item, "mksc_shrn_iscd");
+                String stockName = getJsonValue(item, "hts_kor_isnm");
+
+                if (stockCode == null || stockCode.isEmpty()) {
+                    continue;
+                }
+
+                // 연기금 순매수 금액 (백만원 단위 -> 억원 단위)
+                BigDecimal pensionAmount = getJsonBigDecimal(item, "pnsn_ntby_tr_pbmn");
+                BigDecimal netBuyAmount = pensionAmount.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+
+                // 매수/매도 조건에 맞지 않으면 건너뛰기
+                if (isBuy && netBuyAmount.compareTo(BigDecimal.ZERO) <= 0) continue;
+                if (!isBuy && netBuyAmount.compareTo(BigDecimal.ZERO) >= 0) continue;
+
+                BigDecimal buyAmount = netBuyAmount.compareTo(BigDecimal.ZERO) > 0 ? netBuyAmount : BigDecimal.ZERO;
+                BigDecimal sellAmount = netBuyAmount.compareTo(BigDecimal.ZERO) < 0 ? netBuyAmount.abs() : BigDecimal.ZERO;
+
+                BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
+                BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
+                Long tradeVolume = getJsonLong(item, "acml_vol");
+
+                InvestorDailyTrade trade = InvestorDailyTrade.builder()
+                        .marketType(market)
+                        .tradeDate(tradeDate)
+                        .investorType("PENSION")
+                        .tradeType(tradeType)
+                        .rankNum(rank)
+                        .stockCode(stockCode)
+                        .stockName(stockName)
+                        .netBuyAmount(netBuyAmount)
+                        .buyAmount(buyAmount)
+                        .sellAmount(sellAmount)
+                        .currentPrice(currentPrice)
+                        .changeRate(changeRate)
+                        .tradeVolume(tradeVolume)
+                        .build();
+
+                trades.add(trade);
+                rank++;
+            }
+
+            if (!trades.isEmpty()) {
+                investorTradeRepository.saveAll(trades);
+                log.info("연기금 저장 완료: {} {} - {}건", market, tradeType, trades.size());
+                return trades.size();
+            } else {
+                log.warn("파싱된 연기금 데이터가 없습니다: {} {}", market, tradeType);
+            }
+
+        } catch (Exception e) {
+            log.error("연기금 응답 파싱 실패", e);
         }
 
         return 0;
