@@ -119,6 +119,18 @@ public class StockDiagnosisDto {
         private boolean isRsiOversold;          // RSI 30 이하 (매수 기회)
         private boolean isRsiOverbought;        // RSI 70 이상 (매도 신호)
 
+        // 볼린저 밴드 (Bollinger Bands)
+        private BigDecimal upperBand;           // 볼린저 밴드 상단
+        private BigDecimal middleBand;          // 볼린저 밴드 중단 (20일 SMA)
+        private BigDecimal lowerBand;           // 볼린저 밴드 하단
+        private BigDecimal bandWidth;           // 밴드폭 (%)
+        private Boolean isSqueeze;              // 스퀴즈 (에너지 응축) 여부
+        private Boolean isBreakout;             // 상단 밴드 돌파 여부
+
+        // MFI (Money Flow Index)
+        private BigDecimal mfiScore;            // MFI 점수 (0~100)
+        private String mfiStatus;               // "과열", "침체", "중립"
+
         // 종합 기술적 신호
         private String overallSignal;           // "강력 매수", "매수", "중립", "매도", "강력 매도"
         private Integer buySignalStrength;      // 매수 신호 강도 (0~100)

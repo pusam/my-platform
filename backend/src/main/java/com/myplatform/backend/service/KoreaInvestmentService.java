@@ -446,4 +446,175 @@ public class KoreaInvestmentService {
     public JsonNode getInstitutionNetSellTop() {
         return getForeignInstitutionTotal("2", false, true);
     }
+
+    /**
+     * 주식 일봉 데이터 조회 (기술적 분석용)
+     * KIS API FHKST03010100 - 국내주식기간별시세(일/주/월/년)
+     *
+     * @param stockCode 종목코드 (6자리)
+     * @param days 조회할 일수 (최대 100일)
+     * @return API 응답 JsonNode (output2에 일봉 데이터 배열)
+     */
+    public JsonNode getDailyPrices(String stockCode, int days) {
+        String token = getAccessToken();
+        if (token == null) {
+            log.error("토큰 발급 실패로 일봉 조회 불가");
+            return null;
+        }
+
+        try {
+            // 시작일/종료일 계산
+            java.time.LocalDate endDate = java.time.LocalDate.now();
+            java.time.LocalDate startDate = endDate.minusDays(days + 30);  // 여유있게 조회
+            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
+
+            // 국내주식기간별시세 API (FHKST03010100)
+            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+                    + "?FID_COND_MRKT_DIV_CODE=J"           // J: 주식
+                    + "&FID_INPUT_ISCD=" + stockCode         // 종목코드
+                    + "&FID_INPUT_DATE_1=" + startDate.format(formatter)  // 시작일
+                    + "&FID_INPUT_DATE_2=" + endDate.format(formatter)    // 종료일
+                    + "&FID_PERIOD_DIV_CODE=D"              // D: 일봉
+                    + "&FID_ORG_ADJ_PRC=0";                 // 0: 수정주가 미반영
+
+            log.debug("일봉 조회 API 호출: stockCode={}, days={}", stockCode, days);
+
+            HttpHeaders headers = createHeaders(token, "FHKST03010100");
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+
+                // 성공 여부 확인
+                String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
+                if (!"0".equals(rtCd)) {
+                    String msg = result.has("msg1") ? result.get("msg1").asText() : "Unknown error";
+                    log.warn("일봉 조회 실패 [{}]: {}", stockCode, msg);
+                    return null;
+                }
+
+                log.debug("일봉 조회 성공 [{}]: {} 건", stockCode,
+                        result.has("output2") && result.get("output2").isArray() ?
+                                result.get("output2").size() : 0);
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("일봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * 일봉 데이터에서 종가 리스트 추출 (편의 메서드)
+     * @param stockCode 종목코드
+     * @param days 조회할 일수
+     * @return 종가 리스트 (최신순) - 조회 실패시 빈 리스트
+     */
+    public java.util.List<java.math.BigDecimal> getDailyClosePrices(String stockCode, int days) {
+        java.util.List<java.math.BigDecimal> prices = new java.util.ArrayList<>();
+
+        JsonNode response = getDailyPrices(stockCode, days);
+        if (response == null || !response.has("output2")) {
+            return prices;
+        }
+
+        JsonNode output2 = response.get("output2");
+        if (!output2.isArray()) {
+            return prices;
+        }
+
+        // output2의 각 항목에서 종가(stck_clpr) 추출
+        for (JsonNode item : output2) {
+            if (item.has("stck_clpr")) {
+                try {
+                    String priceStr = item.get("stck_clpr").asText();
+                    java.math.BigDecimal price = new java.math.BigDecimal(priceStr);
+                    if (price.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                        prices.add(price);
+                    }
+                } catch (NumberFormatException e) {
+                    // 무시
+                }
+            }
+        }
+
+        log.debug("종가 추출 완료 [{}]: {} 건", stockCode, prices.size());
+        return prices;
+    }
+
+    /**
+     * 일봉 데이터에서 OHLCV 리스트 추출 (MFI 계산용)
+     * @param stockCode 종목코드
+     * @param days 조회할 일수
+     * @return OHLCV 데이터 리스트 (최신순) - 조회 실패시 빈 리스트
+     */
+    public java.util.List<OhlcvData> getDailyOhlcv(String stockCode, int days) {
+        java.util.List<OhlcvData> ohlcvList = new java.util.ArrayList<>();
+
+        JsonNode response = getDailyPrices(stockCode, days);
+        if (response == null || !response.has("output2")) {
+            return ohlcvList;
+        }
+
+        JsonNode output2 = response.get("output2");
+        if (!output2.isArray()) {
+            return ohlcvList;
+        }
+
+        // output2의 각 항목에서 OHLCV 추출
+        for (JsonNode item : output2) {
+            try {
+                java.math.BigDecimal open = extractBigDecimal(item, "stck_oprc");
+                java.math.BigDecimal high = extractBigDecimal(item, "stck_hgpr");
+                java.math.BigDecimal low = extractBigDecimal(item, "stck_lwpr");
+                java.math.BigDecimal close = extractBigDecimal(item, "stck_clpr");
+                java.math.BigDecimal volume = extractBigDecimal(item, "acml_vol");
+
+                if (isValidOhlcv(open, high, low, close, volume)) {
+                    ohlcvList.add(new OhlcvData(open, high, low, close, volume));
+                }
+            } catch (Exception e) {
+                // 무시하고 다음 항목 처리
+            }
+        }
+
+        log.debug("OHLCV 추출 완료 [{}]: {} 건", stockCode, ohlcvList.size());
+        return ohlcvList;
+    }
+
+    private java.math.BigDecimal extractBigDecimal(JsonNode item, String fieldName) {
+        if (item.has(fieldName)) {
+            String value = item.get(fieldName).asText();
+            if (value != null && !value.isEmpty()) {
+                return new java.math.BigDecimal(value);
+            }
+        }
+        return null;
+    }
+
+    private boolean isValidOhlcv(java.math.BigDecimal open, java.math.BigDecimal high,
+                                  java.math.BigDecimal low, java.math.BigDecimal close,
+                                  java.math.BigDecimal volume) {
+        return close != null && close.compareTo(java.math.BigDecimal.ZERO) > 0
+                && high != null && high.compareTo(java.math.BigDecimal.ZERO) > 0
+                && low != null && low.compareTo(java.math.BigDecimal.ZERO) > 0
+                && volume != null && volume.compareTo(java.math.BigDecimal.ZERO) >= 0;
+    }
+
+    /**
+     * OHLCV 데이터 클래스
+     */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class OhlcvData {
+        private java.math.BigDecimal open;
+        private java.math.BigDecimal high;
+        private java.math.BigDecimal low;
+        private java.math.BigDecimal close;
+        private java.math.BigDecimal volume;
+    }
 }

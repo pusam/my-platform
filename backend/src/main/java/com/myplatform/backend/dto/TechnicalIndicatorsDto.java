@@ -88,6 +88,34 @@ public class TechnicalIndicatorsDto {
     /** 신호 설명 */
     private String signalDescription;
 
+    // ========== 볼린저 밴드 (Bollinger Bands) ==========
+
+    /** 볼린저 밴드 상단 (20일 SMA + 2 * 표준편차) */
+    private BigDecimal upperBand;
+
+    /** 볼린저 밴드 중단 (20일 SMA) */
+    private BigDecimal middleBand;
+
+    /** 볼린저 밴드 하단 (20일 SMA - 2 * 표준편차) */
+    private BigDecimal lowerBand;
+
+    /** 밴드폭 = (상단 - 하단) / 중단 * 100 (%) */
+    private BigDecimal bandWidth;
+
+    /** 스퀴즈 여부: 밴드폭이 최근 20일 평균 대비 0.7배 이하 (에너지 응축) */
+    private Boolean isSqueeze;
+
+    /** 돌파 여부: 종가가 상단 밴드를 상향 돌파 */
+    private Boolean isBreakout;
+
+    // ========== MFI (Money Flow Index) ==========
+
+    /** MFI 점수 (0~100) - 거래량 가중 RSI */
+    private BigDecimal mfiScore;
+
+    /** MFI 상태: OVERBOUGHT(과열 80+), OVERSOLD(침체 20-), NEUTRAL(중립) */
+    private MfiStatus mfiStatus;
+
     // ========== 데이터 충분성 ==========
 
     /** 분석에 사용된 데이터 일수 */
@@ -95,6 +123,31 @@ public class TechnicalIndicatorsDto {
 
     /** 120일 이평선 계산 가능 여부 (데이터 충분성) */
     private Boolean hasEnoughDataFor120Ma;
+
+    /**
+     * MFI 상태 열거형
+     */
+    public enum MfiStatus {
+        OVERBOUGHT("과열", "MFI 80 이상 - 매도 압력 증가 가능성"),
+        OVERSOLD("침체", "MFI 20 이하 - 매수 기회 가능성"),
+        NEUTRAL("중립", "MFI 20~80 - 정상 범위");
+
+        private final String label;
+        private final String description;
+
+        MfiStatus(String label, String description) {
+            this.label = label;
+            this.description = description;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public String getDescription() {
+            return description;
+        }
+    }
 
     /**
      * RSI 상태 열거형

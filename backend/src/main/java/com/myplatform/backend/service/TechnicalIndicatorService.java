@@ -1,12 +1,16 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
+import com.myplatform.backend.dto.TechnicalIndicatorsDto.MfiStatus;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto.RsiStatus;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto.TechnicalSignal;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,8 +41,19 @@ public class TechnicalIndicatorService {
     private static final BigDecimal RSI_OVERBOUGHT = new BigDecimal("70");
     private static final BigDecimal RSI_OVERSOLD = new BigDecimal("30");
 
+    // ========== 볼린저 밴드 상수 ==========
+    private static final int BB_PERIOD = 20;
+    private static final BigDecimal BB_STD_MULTIPLIER = new BigDecimal("2.0");
+    private static final BigDecimal BB_SQUEEZE_THRESHOLD = new BigDecimal("0.7");
+
+    // ========== MFI 상수 ==========
+    private static final int MFI_PERIOD = 14;
+    private static final BigDecimal MFI_OVERBOUGHT = new BigDecimal("80");
+    private static final BigDecimal MFI_OVERSOLD = new BigDecimal("20");
+
     // ========== 연산용 상수 ==========
     private static final BigDecimal HUNDRED = new BigDecimal("100");
+    private static final BigDecimal THREE = new BigDecimal("3");
     private static final int SCALE = 4;  // 소수점 정밀도
 
     /**
@@ -445,5 +460,307 @@ public class TechnicalIndicatorService {
                 .dataCount(prices.size())
                 .hasEnoughDataFor120Ma(false)
                 .build();
+    }
+
+    // ========== 볼린저 밴드 (Bollinger Bands) ==========
+
+    /**
+     * 볼린저 밴드 계산
+     *
+     * @param prices 종가 리스트 (index 0이 최신)
+     * @return 볼린저 밴드 결과 (upperBand, middleBand, lowerBand, bandWidth, isSqueeze, isBreakout)
+     */
+    public BollingerBandsResult calculateBollingerBands(List<BigDecimal> prices) {
+        if (prices == null || prices.size() < BB_PERIOD) {
+            return null;
+        }
+
+        BigDecimal currentPrice = prices.get(0);
+
+        // 1. 중단선 = 20일 SMA
+        BigDecimal middleBand = calculateMA(prices, BB_PERIOD);
+        if (middleBand == null) {
+            return null;
+        }
+
+        // 2. 표준편차 계산
+        BigDecimal stdDev = calculateStandardDeviation(prices, BB_PERIOD);
+        if (stdDev == null || stdDev.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+
+        // 3. 상단선 = 중단선 + (2 * 표준편차)
+        BigDecimal upperBand = middleBand.add(stdDev.multiply(BB_STD_MULTIPLIER));
+
+        // 4. 하단선 = 중단선 - (2 * 표준편차)
+        BigDecimal lowerBand = middleBand.subtract(stdDev.multiply(BB_STD_MULTIPLIER));
+
+        // 5. 밴드폭 = (상단 - 하단) / 중단 * 100
+        BigDecimal bandWidth = upperBand.subtract(lowerBand)
+                .divide(middleBand, SCALE, RoundingMode.HALF_UP)
+                .multiply(HUNDRED)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        // 6. 스퀴즈 판단: 최근 20일 밴드폭 평균 대비 0.7배 이하
+        Boolean isSqueeze = false;
+        List<BigDecimal> recentBandWidths = calculateRecentBandWidths(prices, BB_PERIOD);
+        if (!recentBandWidths.isEmpty()) {
+            BigDecimal avgBandWidth = recentBandWidths.stream()
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                    .divide(BigDecimal.valueOf(recentBandWidths.size()), SCALE, RoundingMode.HALF_UP);
+
+            BigDecimal squeezeThreshold = avgBandWidth.multiply(BB_SQUEEZE_THRESHOLD);
+            isSqueeze = bandWidth.compareTo(squeezeThreshold) <= 0;
+        }
+
+        // 7. 돌파 판단: 종가 > 상단 밴드
+        Boolean isBreakout = currentPrice.compareTo(upperBand) > 0;
+
+        return new BollingerBandsResult(
+                upperBand.setScale(0, RoundingMode.HALF_UP),
+                middleBand.setScale(0, RoundingMode.HALF_UP),
+                lowerBand.setScale(0, RoundingMode.HALF_UP),
+                bandWidth,
+                isSqueeze,
+                isBreakout
+        );
+    }
+
+    /**
+     * 표준편차 계산
+     */
+    private BigDecimal calculateStandardDeviation(List<BigDecimal> prices, int period) {
+        if (prices == null || prices.size() < period) {
+            return null;
+        }
+
+        // 평균 계산
+        BigDecimal sum = BigDecimal.ZERO;
+        int count = 0;
+        for (int i = 0; i < period; i++) {
+            BigDecimal price = prices.get(i);
+            if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
+                sum = sum.add(price);
+                count++;
+            }
+        }
+
+        if (count == 0) {
+            return null;
+        }
+
+        BigDecimal mean = sum.divide(BigDecimal.valueOf(count), SCALE, RoundingMode.HALF_UP);
+
+        // 편차 제곱의 합
+        BigDecimal sumSquaredDiff = BigDecimal.ZERO;
+        for (int i = 0; i < period && i < prices.size(); i++) {
+            BigDecimal price = prices.get(i);
+            if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal diff = price.subtract(mean);
+                sumSquaredDiff = sumSquaredDiff.add(diff.multiply(diff));
+            }
+        }
+
+        // 분산 = 편차 제곱 합 / 개수
+        BigDecimal variance = sumSquaredDiff.divide(BigDecimal.valueOf(count), SCALE, RoundingMode.HALF_UP);
+
+        // 표준편차 = sqrt(분산)
+        return sqrt(variance);
+    }
+
+    /**
+     * 최근 N일의 밴드폭 계산 (스퀴즈 판단용)
+     */
+    private List<BigDecimal> calculateRecentBandWidths(List<BigDecimal> prices, int days) {
+        List<BigDecimal> bandWidths = new ArrayList<>();
+
+        for (int i = 0; i < days && i + BB_PERIOD <= prices.size(); i++) {
+            List<BigDecimal> subList = prices.subList(i, Math.min(i + BB_PERIOD + 10, prices.size()));
+            if (subList.size() >= BB_PERIOD) {
+                BigDecimal ma = calculateMA(subList, BB_PERIOD);
+                BigDecimal stdDev = calculateStandardDeviation(subList, BB_PERIOD);
+
+                if (ma != null && stdDev != null && ma.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal upper = ma.add(stdDev.multiply(BB_STD_MULTIPLIER));
+                    BigDecimal lower = ma.subtract(stdDev.multiply(BB_STD_MULTIPLIER));
+                    BigDecimal width = upper.subtract(lower)
+                            .divide(ma, SCALE, RoundingMode.HALF_UP)
+                            .multiply(HUNDRED);
+                    bandWidths.add(width);
+                }
+            }
+        }
+
+        return bandWidths;
+    }
+
+    /**
+     * BigDecimal 제곱근 계산
+     */
+    private BigDecimal sqrt(BigDecimal value) {
+        if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+
+        MathContext mc = new MathContext(SCALE + 2);
+        BigDecimal x = value;
+        BigDecimal two = new BigDecimal("2");
+
+        // Newton-Raphson method
+        for (int i = 0; i < 50; i++) {
+            BigDecimal x2 = value.divide(x, mc);
+            BigDecimal newX = x.add(x2).divide(two, mc);
+            if (x.subtract(newX).abs().compareTo(new BigDecimal("0.0001")) < 0) {
+                break;
+            }
+            x = newX;
+        }
+
+        return x.setScale(SCALE, RoundingMode.HALF_UP);
+    }
+
+    // ========== MFI (Money Flow Index) ==========
+
+    /**
+     * MFI (Money Flow Index) 계산
+     *
+     * MFI = 100 - (100 / (1 + Money Flow Ratio))
+     * Money Flow Ratio = Positive Money Flow / Negative Money Flow
+     * Typical Price = (High + Low + Close) / 3
+     * Raw Money Flow = Typical Price * Volume
+     *
+     * @param ohlcvData OHLCV 데이터 리스트 (최신이 index 0)
+     * @return MFI 결과 (mfiScore, mfiStatus)
+     */
+    public MfiResult calculateMFI(List<OhlcvData> ohlcvData) {
+        if (ohlcvData == null || ohlcvData.size() < MFI_PERIOD + 1) {
+            return null;
+        }
+
+        BigDecimal positiveFlow = BigDecimal.ZERO;
+        BigDecimal negativeFlow = BigDecimal.ZERO;
+
+        for (int i = 0; i < MFI_PERIOD && i < ohlcvData.size() - 1; i++) {
+            OhlcvData current = ohlcvData.get(i);
+            OhlcvData previous = ohlcvData.get(i + 1);
+
+            if (!isValidOhlcv(current) || !isValidOhlcv(previous)) {
+                continue;
+            }
+
+            // Typical Price = (High + Low + Close) / 3
+            BigDecimal typicalPrice = current.getHigh()
+                    .add(current.getLow())
+                    .add(current.getClose())
+                    .divide(THREE, SCALE, RoundingMode.HALF_UP);
+
+            BigDecimal prevTypicalPrice = previous.getHigh()
+                    .add(previous.getLow())
+                    .add(previous.getClose())
+                    .divide(THREE, SCALE, RoundingMode.HALF_UP);
+
+            // Raw Money Flow = Typical Price * Volume
+            BigDecimal rawMoneyFlow = typicalPrice.multiply(current.getVolume());
+
+            // Typical Price 상승이면 Positive, 하락이면 Negative
+            if (typicalPrice.compareTo(prevTypicalPrice) > 0) {
+                positiveFlow = positiveFlow.add(rawMoneyFlow);
+            } else if (typicalPrice.compareTo(prevTypicalPrice) < 0) {
+                negativeFlow = negativeFlow.add(rawMoneyFlow);
+            }
+            // 같으면 무시
+        }
+
+        // MFI 계산
+        BigDecimal mfiScore;
+        if (negativeFlow.compareTo(BigDecimal.ZERO) == 0) {
+            mfiScore = HUNDRED;  // 모두 상승
+        } else if (positiveFlow.compareTo(BigDecimal.ZERO) == 0) {
+            mfiScore = BigDecimal.ZERO;  // 모두 하락
+        } else {
+            BigDecimal moneyFlowRatio = positiveFlow.divide(negativeFlow, SCALE, RoundingMode.HALF_UP);
+            mfiScore = HUNDRED.subtract(
+                    HUNDRED.divide(BigDecimal.ONE.add(moneyFlowRatio), SCALE, RoundingMode.HALF_UP)
+            );
+        }
+
+        // 범위 보정
+        if (mfiScore.compareTo(BigDecimal.ZERO) < 0) {
+            mfiScore = BigDecimal.ZERO;
+        } else if (mfiScore.compareTo(HUNDRED) > 0) {
+            mfiScore = HUNDRED;
+        }
+
+        mfiScore = mfiScore.setScale(2, RoundingMode.HALF_UP);
+        MfiStatus mfiStatus = determineMfiStatus(mfiScore);
+
+        return new MfiResult(mfiScore, mfiStatus);
+    }
+
+    /**
+     * OHLCV 데이터 유효성 검사
+     */
+    private boolean isValidOhlcv(OhlcvData data) {
+        return data != null
+                && data.getHigh() != null && data.getHigh().compareTo(BigDecimal.ZERO) > 0
+                && data.getLow() != null && data.getLow().compareTo(BigDecimal.ZERO) > 0
+                && data.getClose() != null && data.getClose().compareTo(BigDecimal.ZERO) > 0
+                && data.getVolume() != null && data.getVolume().compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    /**
+     * MFI 상태 판단
+     */
+    private MfiStatus determineMfiStatus(BigDecimal mfi) {
+        if (mfi == null) {
+            return null;
+        }
+
+        if (mfi.compareTo(MFI_OVERBOUGHT) >= 0) {
+            return MfiStatus.OVERBOUGHT;
+        } else if (mfi.compareTo(MFI_OVERSOLD) <= 0) {
+            return MfiStatus.OVERSOLD;
+        } else {
+            return MfiStatus.NEUTRAL;
+        }
+    }
+
+    // ========== 결과 데이터 클래스 ==========
+
+    /**
+     * 볼린저 밴드 결과
+     */
+    @Data
+    @AllArgsConstructor
+    public static class BollingerBandsResult {
+        private BigDecimal upperBand;
+        private BigDecimal middleBand;
+        private BigDecimal lowerBand;
+        private BigDecimal bandWidth;
+        private Boolean isSqueeze;
+        private Boolean isBreakout;
+    }
+
+    /**
+     * MFI 결과
+     */
+    @Data
+    @AllArgsConstructor
+    public static class MfiResult {
+        private BigDecimal mfiScore;
+        private MfiStatus mfiStatus;
+    }
+
+    /**
+     * OHLCV 데이터 (고가, 저가, 종가, 거래량)
+     */
+    @Data
+    @AllArgsConstructor
+    public static class OhlcvData {
+        private BigDecimal open;
+        private BigDecimal high;
+        private BigDecimal low;
+        private BigDecimal close;
+        private BigDecimal volume;
     }
 }

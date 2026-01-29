@@ -39,6 +39,7 @@ public class StockAnalysisService {
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockShortDataRepository stockShortDataRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
+    private final KoreaInvestmentService koreaInvestmentService;
 
     // 상수
     private static final int SUPPLY_DEMAND_DAYS = 5;
@@ -289,25 +290,58 @@ public class StockAnalysisService {
     /**
      * 3. 기술적 분석
      * - TechnicalIndicatorService 활용
+     * - 공매도 데이터(StockShortData)가 없으면 KIS API로 fallback
+     * - 볼린저 밴드 & MFI 지표 포함
      */
     private TechnicalAnalysisDto analyzeTechnical(String stockCode) {
-        // 가격 데이터 조회
+        List<BigDecimal> closePrices;
+        List<KoreaInvestmentService.OhlcvData> ohlcvData = null;
+        boolean useKisApi = false;
+
+        // 1차: 공매도 데이터에서 가격 조회
         List<StockShortData> priceData = stockShortDataRepository
                 .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
 
-        if (priceData.isEmpty()) {
-            log.debug("종목 {} 의 가격 데이터가 없습니다.", stockCode);
+        if (!priceData.isEmpty()) {
+            // 공매도 데이터에서 종가 추출
+            closePrices = priceData.stream()
+                    .map(StockShortData::getClosePrice)
+                    .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
+                    .collect(Collectors.toList());
+            log.debug("종목 {} 공매도 데이터에서 {} 건의 종가 조회", stockCode, closePrices.size());
+        } else {
+            // 2차: KIS API로 일봉 데이터 조회 (fallback)
+            log.debug("종목 {} 공매도 데이터 없음, KIS API로 fallback", stockCode);
+            useKisApi = true;
+
+            // OHLCV 데이터 가져오기 (MFI 계산용)
+            ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
+
+            if (ohlcvData.isEmpty()) {
+                log.warn("종목 {} 의 가격 데이터를 조회할 수 없습니다.", stockCode);
+                return TechnicalAnalysisDto.builder()
+                        .score(50)
+                        .assessment("데이터 부족")
+                        .build();
+            }
+
+            // OHLCV에서 종가만 추출
+            closePrices = ohlcvData.stream()
+                    .map(KoreaInvestmentService.OhlcvData::getClose)
+                    .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
+                    .collect(Collectors.toList());
+
+            log.debug("종목 {} KIS API에서 {} 건의 OHLCV 조회", stockCode, ohlcvData.size());
+        }
+
+        // 최소 데이터 검증
+        if (closePrices.size() < 20) {
+            log.warn("종목 {} 의 가격 데이터가 부족합니다 ({} 건).", stockCode, closePrices.size());
             return TechnicalAnalysisDto.builder()
                     .score(50)
                     .assessment("데이터 부족")
                     .build();
         }
-
-        // 종가 리스트 추출 (최신순)
-        List<BigDecimal> closePrices = priceData.stream()
-                .map(StockShortData::getClosePrice)
-                .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
-                .collect(Collectors.toList());
 
         // 기술적 지표 계산
         TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
@@ -319,13 +353,41 @@ public class StockAnalysisService {
         boolean isRsiOverbought = indicators.getRsi14() != null &&
                 indicators.getRsi14().compareTo(new BigDecimal("70")) >= 0;
 
+        // 볼린저 밴드 계산
+        TechnicalIndicatorService.BollingerBandsResult bbResult =
+                technicalIndicatorService.calculateBollingerBands(closePrices);
+
+        // MFI 계산 (OHLCV 데이터가 있는 경우만)
+        TechnicalIndicatorService.MfiResult mfiResult = null;
+        if (ohlcvData != null && !ohlcvData.isEmpty()) {
+            // KIS API OhlcvData → TechnicalIndicatorService OhlcvData 변환
+            List<TechnicalIndicatorService.OhlcvData> convertedOhlcv = ohlcvData.stream()
+                    .map(d -> new TechnicalIndicatorService.OhlcvData(
+                            d.getOpen(), d.getHigh(), d.getLow(), d.getClose(), d.getVolume()))
+                    .collect(Collectors.toList());
+            mfiResult = technicalIndicatorService.calculateMFI(convertedOhlcv);
+        } else if (!useKisApi) {
+            // 공매도 데이터를 쓴 경우, MFI 계산을 위해 KIS API에서 OHLCV 추가 조회
+            ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
+            if (ohlcvData != null && !ohlcvData.isEmpty()) {
+                List<TechnicalIndicatorService.OhlcvData> convertedOhlcv = ohlcvData.stream()
+                        .map(d -> new TechnicalIndicatorService.OhlcvData(
+                                d.getOpen(), d.getHigh(), d.getLow(), d.getClose(), d.getVolume()))
+                        .collect(Collectors.toList());
+                mfiResult = technicalIndicatorService.calculateMFI(convertedOhlcv);
+            }
+        }
+
         // 종합 신호 변환
         String overallSignal = indicators.getOverallSignal() != null ?
                 indicators.getOverallSignal().getLabel() : "중립";
 
-        // 점수 계산
-        int score = indicators.getBuySignalStrength() != null ? indicators.getBuySignalStrength() : 50;
+        // 점수 계산 (볼린저 밴드 & MFI 반영)
+        int score = calculateTechnicalScore(indicators, bbResult, mfiResult);
         String assessment = score >= 60 ? "매수 신호" : score <= 40 ? "매도 신호" : "중립";
+
+        // 신호 설명 업데이트
+        String signalDesc = generateEnhancedSignalDescription(indicators, bbResult, mfiResult);
 
         return TechnicalAnalysisDto.builder()
                 .isArrangedUp(indicators.getIsArrangedUp())
@@ -337,12 +399,122 @@ public class StockAnalysisService {
                 .rsiStatus(rsiStatus)
                 .isRsiOversold(isRsiOversold)
                 .isRsiOverbought(isRsiOverbought)
+                // 볼린저 밴드
+                .upperBand(bbResult != null ? bbResult.getUpperBand() : null)
+                .middleBand(bbResult != null ? bbResult.getMiddleBand() : null)
+                .lowerBand(bbResult != null ? bbResult.getLowerBand() : null)
+                .bandWidth(bbResult != null ? bbResult.getBandWidth() : null)
+                .isSqueeze(bbResult != null ? bbResult.getIsSqueeze() : null)
+                .isBreakout(bbResult != null ? bbResult.getIsBreakout() : null)
+                // MFI
+                .mfiScore(mfiResult != null ? mfiResult.getMfiScore() : null)
+                .mfiStatus(mfiResult != null && mfiResult.getMfiStatus() != null ?
+                        mfiResult.getMfiStatus().getLabel() : null)
+                // 종합
                 .overallSignal(overallSignal)
-                .buySignalStrength(indicators.getBuySignalStrength())
-                .signalDescription(indicators.getSignalDescription())
+                .buySignalStrength(score)
+                .signalDescription(signalDesc)
                 .score(score)
                 .assessment(assessment)
                 .build();
+    }
+
+    /**
+     * 기술적 점수 계산 (볼린저 밴드 & MFI 포함)
+     */
+    private int calculateTechnicalScore(TechnicalIndicatorsDto indicators,
+                                         TechnicalIndicatorService.BollingerBandsResult bbResult,
+                                         TechnicalIndicatorService.MfiResult mfiResult) {
+        int score = indicators.getBuySignalStrength() != null ? indicators.getBuySignalStrength() : 50;
+
+        // 볼린저 밴드 가산점
+        if (bbResult != null) {
+            // 스퀴즈 상태 (에너지 응축) +5
+            if (Boolean.TRUE.equals(bbResult.getIsSqueeze())) {
+                score += 5;
+            }
+            // 상단 돌파 +10 (강한 상승 신호)
+            if (Boolean.TRUE.equals(bbResult.getIsBreakout())) {
+                score += 10;
+            }
+        }
+
+        // MFI 가산점
+        if (mfiResult != null && mfiResult.getMfiScore() != null) {
+            BigDecimal mfi = mfiResult.getMfiScore();
+            // MFI 침체 (20 이하): 매수 기회 +10
+            if (mfi.compareTo(new BigDecimal("20")) <= 0) {
+                score += 10;
+            }
+            // MFI 과열 (80 이상): 매도 신호 -5
+            else if (mfi.compareTo(new BigDecimal("80")) >= 0) {
+                score -= 5;
+            }
+        }
+
+        return Math.max(0, Math.min(100, score));
+    }
+
+    /**
+     * 향상된 신호 설명 생성 (볼린저 밴드 & MFI 포함)
+     */
+    private String generateEnhancedSignalDescription(TechnicalIndicatorsDto indicators,
+                                                      TechnicalIndicatorService.BollingerBandsResult bbResult,
+                                                      TechnicalIndicatorService.MfiResult mfiResult) {
+        List<String> signals = new ArrayList<>();
+
+        // 기존 신호
+        if (Boolean.TRUE.equals(indicators.getIsGoldenCross())) {
+            signals.add("골든크로스");
+        }
+        if (Boolean.TRUE.equals(indicators.getIsDeadCross())) {
+            signals.add("데드크로스");
+        }
+        if (Boolean.TRUE.equals(indicators.getIsArrangedUp())) {
+            signals.add("정배열");
+        }
+        if (Boolean.TRUE.equals(indicators.getIsArrangedDown())) {
+            signals.add("역배열");
+        }
+
+        // RSI
+        if (indicators.getRsi14() != null) {
+            if (indicators.getRsi14().compareTo(new BigDecimal("70")) >= 0) {
+                signals.add("RSI 과열");
+            } else if (indicators.getRsi14().compareTo(new BigDecimal("30")) <= 0) {
+                signals.add("RSI 침체");
+            }
+        }
+
+        // 볼린저 밴드
+        if (bbResult != null) {
+            if (Boolean.TRUE.equals(bbResult.getIsSqueeze())) {
+                signals.add("BB 스퀴즈(폭발 대기)");
+            }
+            if (Boolean.TRUE.equals(bbResult.getIsBreakout())) {
+                signals.add("BB 상단 돌파");
+            }
+        }
+
+        // MFI
+        if (mfiResult != null && mfiResult.getMfiStatus() != null) {
+            switch (mfiResult.getMfiStatus()) {
+                case OVERBOUGHT:
+                    signals.add("MFI 과열");
+                    break;
+                case OVERSOLD:
+                    signals.add("MFI 침체(거래량↑매수)");
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        if (signals.isEmpty()) {
+            return "특이 신호 없음";
+        }
+
+        return String.join(" / ", signals);
     }
 
     /**

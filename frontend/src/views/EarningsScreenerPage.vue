@@ -635,37 +635,95 @@
                 </span>
               </div>
               <div class="card-body" v-if="diagnosisData.technicalAnalysis">
-                <div class="tech-indicators">
-                  <div class="indicator-item">
-                    <span class="indicator-label">이평선 정배열</span>
-                    <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isArrangedUp }">
-                      {{ diagnosisData.technicalAnalysis.isArrangedUp ? '✅ 정배열' : '❌ 아님' }}
-                    </span>
-                  </div>
-                  <div class="indicator-item">
-                    <span class="indicator-label">20일선 위치</span>
-                    <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 }">
-                      {{ diagnosisData.technicalAnalysis.isAboveMa20 ? '✅ 20일선 위' : '❌ 20일선 아래' }}
-                    </span>
-                  </div>
-                  <div class="indicator-item">
-                    <span class="indicator-label">골든/데드크로스</span>
-                    <span class="indicator-status">
-                      <span v-if="diagnosisData.technicalAnalysis.isGoldenCross" class="golden">🌟 골든크로스</span>
-                      <span v-else-if="diagnosisData.technicalAnalysis.isDeadCross" class="dead">💀 데드크로스</span>
-                      <span v-else>-</span>
-                    </span>
-                  </div>
-                  <div class="indicator-item">
-                    <span class="indicator-label">RSI (14일)</span>
-                    <span class="indicator-status" :class="getRsiClass(diagnosisData.technicalAnalysis.rsiStatus)">
-                      {{ formatNumber(diagnosisData.technicalAnalysis.rsi14, 1) }} ({{ diagnosisData.technicalAnalysis.rsiStatus }})
-                    </span>
+                <!-- 이동평균선 & RSI -->
+                <div class="tech-section">
+                  <div class="tech-section-title">이동평균선 & RSI</div>
+                  <div class="tech-indicators">
+                    <div class="indicator-item">
+                      <span class="indicator-label">이평선 정배열</span>
+                      <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isArrangedUp }">
+                        {{ diagnosisData.technicalAnalysis.isArrangedUp ? '✅ 정배열' : '❌ 아님' }}
+                      </span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">20일선 위치</span>
+                      <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 }">
+                        {{ diagnosisData.technicalAnalysis.isAboveMa20 ? '✅ 20일선 위' : '❌ 20일선 아래' }}
+                      </span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">골든/데드크로스</span>
+                      <span class="indicator-status">
+                        <span v-if="diagnosisData.technicalAnalysis.isGoldenCross" class="golden">🌟 골든크로스</span>
+                        <span v-else-if="diagnosisData.technicalAnalysis.isDeadCross" class="dead">💀 데드크로스</span>
+                        <span v-else>-</span>
+                      </span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">RSI (14일)</span>
+                      <span class="indicator-status" :class="getRsiClass(diagnosisData.technicalAnalysis.rsiStatus)">
+                        {{ formatNumber(diagnosisData.technicalAnalysis.rsi14, 1) }} ({{ diagnosisData.technicalAnalysis.rsiStatus }})
+                      </span>
+                    </div>
                   </div>
                 </div>
+
+                <!-- 볼린저 밴드 -->
+                <div class="tech-section" v-if="diagnosisData.technicalAnalysis.upperBand">
+                  <div class="tech-section-title">📊 볼린저 밴드</div>
+                  <div class="tech-indicators">
+                    <div class="indicator-item">
+                      <span class="indicator-label">상단</span>
+                      <span class="indicator-value">{{ formatPrice(diagnosisData.technicalAnalysis.upperBand) }}</span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">중단 (20SMA)</span>
+                      <span class="indicator-value">{{ formatPrice(diagnosisData.technicalAnalysis.middleBand) }}</span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">하단</span>
+                      <span class="indicator-value">{{ formatPrice(diagnosisData.technicalAnalysis.lowerBand) }}</span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">밴드폭</span>
+                      <span class="indicator-value">{{ formatNumber(diagnosisData.technicalAnalysis.bandWidth, 2) }}%</span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">스퀴즈</span>
+                      <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isSqueeze, squeeze: diagnosisData.technicalAnalysis.isSqueeze }">
+                        {{ diagnosisData.technicalAnalysis.isSqueeze ? '🔥 에너지 응축!' : '정상' }}
+                      </span>
+                    </div>
+                    <div class="indicator-item">
+                      <span class="indicator-label">상단 돌파</span>
+                      <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isBreakout, breakout: diagnosisData.technicalAnalysis.isBreakout }">
+                        {{ diagnosisData.technicalAnalysis.isBreakout ? '🚀 돌파!' : '-' }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- MFI -->
+                <div class="tech-section" v-if="diagnosisData.technicalAnalysis.mfiScore !== null">
+                  <div class="tech-section-title">💰 MFI (자금 흐름 지수)</div>
+                  <div class="tech-indicators">
+                    <div class="indicator-item wide">
+                      <span class="indicator-label">MFI (14일)</span>
+                      <span class="indicator-status" :class="getMfiClass(diagnosisData.technicalAnalysis.mfiStatus)">
+                        {{ formatNumber(diagnosisData.technicalAnalysis.mfiScore, 1) }} ({{ diagnosisData.technicalAnalysis.mfiStatus || '중립' }})
+                      </span>
+                    </div>
+                    <div class="mfi-description">
+                      <span v-if="diagnosisData.technicalAnalysis.mfiStatus === '과열'">⚠️ 거래량 동반 매수세 과열 - 차익실현 고려</span>
+                      <span v-else-if="diagnosisData.technicalAnalysis.mfiStatus === '침체'">💡 거래량 동반 매수 기회 - 진짜 바닥일 수 있음</span>
+                      <span v-else>거래량이 실린 정상적인 흐름</span>
+                    </div>
+                  </div>
+                </div>
+
                 <div class="tech-signal">
                   <span class="signal-label">종합 신호:</span>
-                  <span class="signal-value">{{ diagnosisData.technicalAnalysis.overallSignal }}</span>
+                  <span class="signal-value">{{ diagnosisData.technicalAnalysis.signalDescription || diagnosisData.technicalAnalysis.overallSignal }}</span>
                 </div>
                 <div class="card-assessment">{{ diagnosisData.technicalAnalysis.assessment }}</div>
               </div>
@@ -1168,6 +1226,17 @@ const getRsiClass = (status) => {
   if (status === '과열') return 'rsi-overbought';
   if (status === '침체') return 'rsi-oversold';
   return 'rsi-neutral';
+};
+
+const getMfiClass = (status) => {
+  if (status === '과열') return 'mfi-overbought';
+  if (status === '침체') return 'mfi-oversold';
+  return 'mfi-neutral';
+};
+
+const formatPrice = (value) => {
+  if (value === null || value === undefined) return '-';
+  return Number(value).toLocaleString() + '원';
 };
 
 // 스타일 클래스 함수
@@ -2491,6 +2560,78 @@ onMounted(() => {
 
 .rsi-neutral {
   color: var(--text-secondary);
+}
+
+/* MFI 스타일 */
+.mfi-overbought {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.mfi-oversold {
+  color: #27ae60;
+  font-weight: 600;
+}
+
+.mfi-neutral {
+  color: var(--text-secondary);
+}
+
+/* 기술적 분석 섹션 */
+.tech-section {
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.tech-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.tech-section-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-color);
+  margin-bottom: 0.5rem;
+  padding-left: 0.25rem;
+}
+
+/* 볼린저 밴드 & MFI */
+.indicator-value {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.indicator-item.wide {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.indicator-status.squeeze {
+  color: #ff6b35;
+  font-weight: 700;
+  animation: pulse 1.5s infinite;
+}
+
+.indicator-status.breakout {
+  color: #00d2d3;
+  font-weight: 700;
+}
+
+.mfi-description {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin-top: 0.25rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 .tech-signal {
