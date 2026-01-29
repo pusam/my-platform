@@ -296,11 +296,11 @@
 
           <div class="section paper-trading-section">
             <div class="section-header">
-              <h2>🤖 모의투자 자동매매</h2>
+              <h2>🤖 투자 자동매매</h2>
             </div>
-            <p>가상 계좌로 자동매매 전략 검증 및 백테스팅</p>
+            <p>모의투자 / 실전투자 자동매매 봇 운영</p>
             <div class="action-group">
-              <button @click="goToPaperTrading" class="action-btn primary">모의투자 대시보드</button>
+              <button @click="goToPaperTrading" class="action-btn primary">트레이딩 대시보드</button>
             </div>
           </div>
 

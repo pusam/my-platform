@@ -893,7 +893,7 @@ const autoCollectMagicFormula = async () => {
   magicFormulaCollecting.value = true;
   try {
     // 재무 데이터 재수집 (삭제 후 수집)
-    await api.post('/screener/recollect');
+    await api.post('/screener/recollect', {}, { timeout: 120000 });
     // 수집 완료 후 데이터 조회
     await fetchMagicFormula();
   } catch (error) {
@@ -929,7 +929,7 @@ const collectAllFinancialData = async () => {
   collectProgress.value = '재무 데이터 수집 시작...';
 
   try {
-    const response = await api.post('/screener/collect-all');
+    const response = await api.post('/screener/collect-all', {}, { timeout: 120000 });
     if (response.data.success) {
       const data = response.data.data;
       collectProgress.value = `수집 완료! 총 ${data.total}개 종목 중 성공: ${data.successCount}, 실패: ${data.failCount} (소요시간: ${data.elapsedSeconds}초)`;
