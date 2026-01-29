@@ -28,6 +28,7 @@ import NewsPage from './views/NewsPage.vue'
 import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 import ShortSqueezePage from './views/ShortSqueezePage.vue'
 import TechnicalAnalysisPage from './views/TechnicalAnalysisPage.vue'
+import MarketTimingPage from './views/MarketTimingPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -189,6 +190,12 @@ const router = createRouter({
       path: '/technical-analysis',
       name: 'TechnicalAnalysis',
       component: TechnicalAnalysisPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/market-timing',
+      name: 'MarketTiming',
+      component: MarketTimingPage,
       meta: { requiresAuth: true }
     },
     {

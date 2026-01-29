@@ -503,6 +503,26 @@ export const investorTradeAPI = {
   }
 };
 
+// 시장 지표 API
+export const marketAPI = {
+  // 현재 시장 상태 조회
+  getStatus() {
+    return apiClient.get('/market/status');
+  },
+  // 간단 시장 상태 (위젯용)
+  getSimpleStatus() {
+    return apiClient.get('/market/status/simple');
+  },
+  // ADR 히스토리 조회
+  getAdrHistory(days = 60) {
+    return apiClient.get('/market/adr/history', { params: { days } });
+  },
+  // 시장 데이터 수집
+  collectData() {
+    return apiClient.post('/market/collect');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

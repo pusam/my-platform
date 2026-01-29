@@ -32,315 +32,361 @@
         </div>
       </section>
 
-      <!-- 메뉴 그리드 -->
-      <section class="menu-grid">
-        <article class="menu-card" @click="goToBoard">
-          <div class="card-icon board">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-              <polyline points="14,2 14,8 20,8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-              <polyline points="10,9 9,9 8,9"/>
-            </svg>
-          </div>
-          <h3>게시판</h3>
-          <p>자유롭게 글을 작성하고 파일을 공유할 수 있습니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card" @click="goToMyContent">
-          <div class="card-icon content">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-            </svg>
-          </div>
-          <h3>내 콘텐츠</h3>
-          <p>작성한 글과 파일을 확인하고 관리합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card" @click="goToSettings">
-          <div class="card-icon settings">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-            </svg>
-          </div>
-          <h3>내 설정</h3>
-          <p>개인 정보 및 비밀번호를 관리합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card" @click="goToFiles">
-          <div class="card-icon files">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-            </svg>
-          </div>
-          <h3>내 파일</h3>
-          <p>개인 파일과 폴더를 관리합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card car" @click="goToCar">
-          <div class="card-icon car-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-3.6c-.4-.5-1-.9-1.6-.9H10c-.7 0-1.3.4-1.6.9L5.5 10l-2 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>
-              <circle cx="7" cy="17" r="2"/>
-              <circle cx="17" cy="17" r="2"/>
-            </svg>
-          </div>
-          <h3>자동차 관리</h3>
-          <p>정비 기록과 주행거리를 관리합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-        <article class="menu-card sector" @click="goToSector">
-          <div class="card-icon sector-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
-              <polyline points="16,7 22,7 22,13"/>
-            </svg>
-          </div>
-          <h3>섹터별 거래대금</h3>
-          <p>반도체, 2차전지, 로봇 등 섹터별 거래대금을 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
-
-          <article v-if="widgetSettings.investorTrades" class="menu-card investor" @click="goToInvestorTrade">
-              <div class="card-icon investor-icon">
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                  </svg>
-              </div>
-              <h3>투자자 매매 동향</h3>
-              <p>외국인·기관 매매 상위 종목을 확인합니다</p>
-              <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
+      <!-- 주식 섹션 -->
+      <section class="menu-section">
+        <div class="section-header">
+          <span class="section-icon">📈</span>
+          <h2>주식</h2>
+        </div>
+        <div class="menu-grid">
+          <article class="menu-card sector" @click="goToSector">
+            <div class="card-icon sector-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
+                <polyline points="16,7 22,7 22,13"/>
+              </svg>
+            </div>
+            <h3>섹터별 거래대금</h3>
+            <p>반도체, 2차전지, 로봇 등 섹터별 거래대금</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
           </article>
 
-        <article v-if="widgetSettings.investorTrades" class="menu-card consecutive" @click="goToConsecutiveBuy">
-          <div class="card-icon consecutive-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M13 17l5-5-5-5"/>
-              <path d="M6 17l5-5-5-5"/>
-            </svg>
-          </div>
-          <h3>연속 매수 종목</h3>
-          <p>외국인·기관이 연속 순매수 중인 종목</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.investorTrades" class="menu-card investor" @click="goToInvestorTrade">
+            <div class="card-icon investor-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+              </svg>
+            </div>
+            <h3>투자자 매매 동향</h3>
+            <p>외국인·기관 매매 상위 종목</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <article v-if="widgetSettings.investorTrades" class="menu-card surge" @click="goToInvestorSurge">
-          <div class="card-icon surge-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
-          </div>
-          <h3>수급 급증</h3>
-          <p>장중 외국인·기관 순매수 급증 종목</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.investorTrades" class="menu-card consecutive" @click="goToConsecutiveBuy">
+            <div class="card-icon consecutive-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M13 17l5-5-5-5"/>
+                <path d="M6 17l5-5-5-5"/>
+              </svg>
+            </div>
+            <h3>연속 매수 종목</h3>
+            <p>외국인·기관이 연속 순매수 중인 종목</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <article v-if="widgetSettings.earningsScreener" class="menu-card screener" @click="goToEarningsScreener">
-          <div class="card-icon screener-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M3 3v18h18"/>
-              <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
-              <circle cx="18.7" cy="8" r="2"/>
-            </svg>
-          </div>
-          <h3>실적 스크리너</h3>
-          <p>마법의 공식, PEG, 턴어라운드 종목 발굴</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.investorTrades" class="menu-card surge" @click="goToInvestorSurge">
+            <div class="card-icon surge-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+              </svg>
+            </div>
+            <h3>수급 급증</h3>
+            <p>장중 외국인·기관 순매수 급증 종목</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <article v-if="widgetSettings.investorTrades" class="menu-card short-squeeze" @click="goToShortSqueeze">
-          <div class="card-icon short-squeeze-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-            </svg>
-          </div>
-          <h3>공매도 분석</h3>
-          <p>숏스퀴즈 후보, 대차잔고/공매도 상위 종목</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.earningsScreener" class="menu-card screener" @click="goToEarningsScreener">
+            <div class="card-icon screener-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 3v18h18"/>
+                <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
+                <circle cx="18.7" cy="8" r="2"/>
+              </svg>
+            </div>
+            <h3>실적 스크리너</h3>
+            <p>마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <article v-if="widgetSettings.investorTrades" class="menu-card technical" @click="goToTechnicalAnalysis">
-          <div class="card-icon technical-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M3 3v18h18"/>
-              <path d="M18 9l-5 5-4-4-3 3"/>
-              <circle cx="18" cy="9" r="2"/>
-              <circle cx="13" cy="14" r="2"/>
-              <circle cx="9" cy="10" r="2"/>
-            </svg>
-          </div>
-          <h3>기술적 분석</h3>
-          <p>이동평균선, RSI, 골든크로스 등 매매 시그널</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.investorTrades" class="menu-card short-squeeze" @click="goToShortSqueeze">
+            <div class="card-icon short-squeeze-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+            </div>
+            <h3>공매도 분석</h3>
+            <p>숏스퀴즈 후보, 대차잔고/공매도 상위 종목</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <article class="menu-card reddit" @click="goToReddit">
-          <div class="card-icon reddit-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M16.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
-              <path d="M10.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
-              <path d="M15 15.5c-1 1-2 1.5-3 1.5s-2-.5-3-1.5"/>
-              <path d="M17 8l2-2M19 6a1 1 0 100-2 1 1 0 000 2z"/>
-              <path d="M17.5 9c1.5 0 2.5 1 2.5 2"/>
-            </svg>
-          </div>
-          <h3>Reddit 주식 정보</h3>
-          <p>해외 주식 커뮤니티(WSB, stocks 등)의 실시간 트렌드와 인기 게시물을 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.investorTrades" class="menu-card technical" @click="goToTechnicalAnalysis">
+            <div class="card-icon technical-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 3v18h18"/>
+                <path d="M18 9l-5 5-4-4-3 3"/>
+                <circle cx="18" cy="9" r="2"/>
+                <circle cx="13" cy="14" r="2"/>
+                <circle cx="9" cy="10" r="2"/>
+              </svg>
+            </div>
+            <h3>기술적 분석</h3>
+            <p>이동평균선, RSI, 골든크로스 등 매매 시그널</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <!-- 금 시세 -->
-        <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
-          <div class="card-icon gold-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v12"/>
-              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-            </svg>
-          </div>
-          <h3>금 시세</h3>
-          <p v-if="goldPrice">{{ formatCurrency(goldPrice.price) }}/g <span :class="goldPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
-          <p v-else>금 시세를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article class="menu-card market-timing" @click="goToMarketTiming">
+            <div class="card-icon market-timing-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+                <path d="M4.93 4.93l2.83 2.83"/>
+                <path d="M16.24 16.24l2.83 2.83"/>
+              </svg>
+            </div>
+            <h3>시장 지표</h3>
+            <p>ADR 기반 시장 과열/침체 분석</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <!-- 은 시세 -->
-        <article v-if="widgetSettings.silverPrice" class="menu-card silver" @click="goToSilver">
-          <div class="card-icon silver-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v12"/>
-              <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-            </svg>
-          </div>
-          <h3>은 시세</h3>
-          <p v-if="silverPrice">{{ formatCurrency(silverPrice.price) }}/g <span :class="silverPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
-          <p v-else>은 시세를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article class="menu-card reddit" @click="goToReddit">
+            <div class="card-icon reddit-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M16.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+                <path d="M10.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
+                <path d="M15 15.5c-1 1-2 1.5-3 1.5s-2-.5-3-1.5"/>
+                <path d="M17 8l2-2M19 6a1 1 0 100-2 1 1 0 000 2z"/>
+                <path d="M17.5 9c1.5 0 2.5 1 2.5 2"/>
+              </svg>
+            </div>
+            <h3>Reddit 주식 정보</h3>
+            <p>WSB, stocks 등 해외 커뮤니티 트렌드</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+        </div>
+      </section>
 
-        <!-- 자산 관리 -->
-        <article v-if="widgetSettings.assetSummary" class="menu-card asset" @click="goToAsset">
-          <div class="card-icon asset-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <line x1="12" y1="1" x2="12" y2="23"/>
-              <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
-            </svg>
-          </div>
-          <h3>자산 관리</h3>
-          <p>총 자산 {{ formatCurrency(assetSummary.totalAssets) }} <span :class="assetSummary.totalProfit >= 0 ? 'text-positive' : 'text-negative'">({{ assetSummary.totalProfit >= 0 ? '+' : '' }}{{ assetSummary.profitRate?.toFixed(2) || 0 }}%)</span></p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+      <!-- 시세 섹션 -->
+      <section class="menu-section">
+        <div class="section-header">
+          <span class="section-icon">💰</span>
+          <h2>시세</h2>
+        </div>
+        <div class="menu-grid">
+          <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
+            <div class="card-icon gold-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 6v12"/>
+                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+              </svg>
+            </div>
+            <h3>금 시세</h3>
+            <p v-if="goldPrice">{{ formatCurrency(goldPrice.price) }}/g <span :class="goldPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
+            <p v-else>금 시세를 확인합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
 
-        <!-- 가계부 -->
-        <article v-if="widgetSettings.financeSummary" class="menu-card finance" @click="goToFinance">
-          <div class="card-icon finance-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
-          </div>
-          <h3>가계부</h3>
-          <p>이번 달 <span :class="financeSummary.balance >= 0 ? 'text-positive' : 'text-negative'">{{ formatCurrency(financeSummary.balance) }}</span></p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+          <article v-if="widgetSettings.silverPrice" class="menu-card silver" @click="goToSilver">
+            <div class="card-icon silver-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 6v12"/>
+                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
+              </svg>
+            </div>
+            <h3>은 시세</h3>
+            <p v-if="silverPrice">{{ formatCurrency(silverPrice.price) }}/g <span :class="silverPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
+            <p v-else>은 시세를 확인합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+        </div>
+      </section>
 
-        <!-- 경제 뉴스 -->
-        <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
-          <div class="card-icon news-icon">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
-              <path d="M7 7h10M7 11h10M7 15h7"/>
-            </svg>
-          </div>
-          <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
-          <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
-          <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
-          <span class="card-arrow">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="9,6 15,12 9,18"/>
-            </svg>
-          </span>
-        </article>
+      <!-- 관리 섹션 -->
+      <section class="menu-section">
+        <div class="section-header">
+          <span class="section-icon">⚙️</span>
+          <h2>관리</h2>
+        </div>
+        <div class="menu-grid">
+          <article class="menu-card" @click="goToMyContent">
+            <div class="card-icon content">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </div>
+            <h3>내 콘텐츠</h3>
+            <p>작성한 글과 파일을 확인하고 관리합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article class="menu-card" @click="goToSettings">
+            <div class="card-icon settings">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+              </svg>
+            </div>
+            <h3>내 설정</h3>
+            <p>개인 정보 및 비밀번호를 관리합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article class="menu-card" @click="goToFiles">
+            <div class="card-icon files">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+              </svg>
+            </div>
+            <h3>내 파일</h3>
+            <p>개인 파일과 폴더를 관리합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article class="menu-card car" @click="goToCar">
+            <div class="card-icon car-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18 10l-2.7-3.6c-.4-.5-1-.9-1.6-.9H10c-.7 0-1.3.4-1.6.9L5.5 10l-2 1.1C2.7 11.3 2 12.1 2 13v3c0 .6.4 1 1 1h2"/>
+                <circle cx="7" cy="17" r="2"/>
+                <circle cx="17" cy="17" r="2"/>
+              </svg>
+            </div>
+            <h3>자동차 관리</h3>
+            <p>정비 기록과 주행거리를 관리합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article v-if="widgetSettings.assetSummary" class="menu-card asset" @click="goToAsset">
+            <div class="card-icon asset-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <line x1="12" y1="1" x2="12" y2="23"/>
+                <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+              </svg>
+            </div>
+            <h3>자산 관리</h3>
+            <p>총 자산 {{ formatCurrency(assetSummary.totalAssets) }} <span :class="assetSummary.totalProfit >= 0 ? 'text-positive' : 'text-negative'">({{ assetSummary.totalProfit >= 0 ? '+' : '' }}{{ assetSummary.profitRate?.toFixed(2) || 0 }}%)</span></p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article v-if="widgetSettings.financeSummary" class="menu-card finance" @click="goToFinance">
+            <div class="card-icon finance-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <h3>가계부</h3>
+            <p>이번 달 <span :class="financeSummary.balance >= 0 ? 'text-positive' : 'text-negative'">{{ formatCurrency(financeSummary.balance) }}</span></p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+        </div>
+      </section>
+
+      <!-- 기타 섹션 -->
+      <section class="menu-section">
+        <div class="section-header">
+          <span class="section-icon">📋</span>
+          <h2>기타</h2>
+        </div>
+        <div class="menu-grid">
+          <article class="menu-card" @click="goToBoard">
+            <div class="card-icon board">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14,2 14,8 20,8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10,9 9,9 8,9"/>
+              </svg>
+            </div>
+            <h3>게시판</h3>
+            <p>자유롭게 글을 작성하고 파일을 공유할 수 있습니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
+            <div class="card-icon news-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                <path d="M7 7h10M7 11h10M7 15h7"/>
+              </svg>
+            </div>
+            <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
+            <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
+            <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+        </div>
       </section>
 
       <!-- AI 상담 배너 -->
@@ -595,6 +641,9 @@ export default {
     goToTechnicalAnalysis() {
       this.$router.push('/technical-analysis')
     },
+    goToMarketTiming() {
+      this.$router.push('/market-timing')
+    },
     goToNews() {
       this.$router.push('/news')
     },
@@ -675,12 +724,40 @@ export default {
   font-size: 16px;
 }
 
+/* 메뉴 섹션 */
+.menu-section {
+  margin-bottom: 2rem;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid rgba(102, 126, 234, 0.2);
+}
+
+.section-icon {
+  font-size: 1.5rem;
+}
+
+.section-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 /* 메뉴 그리드 */
 .menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 20px;
-  margin-bottom: var(--section-gap);
 }
 
 .menu-card {
@@ -1040,6 +1117,26 @@ export default {
 
 .menu-card.technical h3 {
   color: #0891b2;
+}
+
+/* 시장 지표 카드 */
+.card-icon.market-timing-icon {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%);
+  color: #f59e0b;
+}
+
+.menu-card.market-timing {
+  background: linear-gradient(135deg, rgba(255, 251, 235, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(245, 158, 11, 0.3);
+}
+
+.menu-card.market-timing:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 20px 40px rgba(245, 158, 11, 0.15);
+}
+
+.menu-card.market-timing h3 {
+  color: #d97706;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
