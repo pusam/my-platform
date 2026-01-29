@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -123,6 +125,60 @@ public class MarketTimingController {
             log.error("시장 데이터 수집 오류: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("message", "시장 데이터 수집 실패: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 기간별 시장 데이터 수집 (Backfill)
+     */
+    @PostMapping("/collect/period")
+    @Operation(
+        summary = "기간별 시장 데이터 수집",
+        description = "특정 기간의 시장 데이터를 수집합니다 (Backfill).\n\n" +
+                     "**주의사항:**\n" +
+                     "- 네이버 금융 차단 방지를 위해 요청 간 1초 딜레이 적용\n" +
+                     "- 주말(토/일)은 자동으로 스킵\n" +
+                     "- 과거 데이터의 경우 지수 정보만 수집 가능 (상승/하락 종목 수는 제한적)"
+    )
+    public ResponseEntity<Map<String, Object>> collectMarketDataForPeriod(
+            @Parameter(description = "시작 날짜 (yyyy-MM-dd)", example = "2024-01-01")
+            @RequestParam String startDate,
+            @Parameter(description = "종료 날짜 (yyyy-MM-dd)", example = "2024-01-31")
+            @RequestParam String endDate) {
+
+        log.info("기간별 시장 데이터 수집 API 호출: {} ~ {}", startDate, endDate);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            LocalDate start = LocalDate.parse(startDate, DateTimeFormatter.ISO_LOCAL_DATE);
+            LocalDate end = LocalDate.parse(endDate, DateTimeFormatter.ISO_LOCAL_DATE);
+
+            // 유효성 검증
+            if (start.isAfter(end)) {
+                response.put("success", false);
+                response.put("message", "시작 날짜가 종료 날짜보다 늦습니다.");
+                return ResponseEntity.badRequest().body(response);
+            }
+
+            if (end.isAfter(LocalDate.now())) {
+                end = LocalDate.now();
+            }
+
+            // 수집 실행
+            Map<String, Object> result = marketTimingService.collectMarketDataForPeriod(start, end);
+
+            response.put("success", true);
+            response.put("data", result);
+            response.put("message", String.format("기간별 수집 완료 (성공: %d, 실패: %d, 스킵: %d)",
+                    result.get("successCount"), result.get("failCount"), result.get("skipCount")));
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("기간별 시장 데이터 수집 오류: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "기간별 수집 실패: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }

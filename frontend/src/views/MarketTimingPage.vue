@@ -25,6 +25,24 @@
       </div>
     </div>
 
+    <!-- ADR 히스토리 차트 -->
+    <div class="adr-chart-section">
+      <div class="section-header">
+        <h3>ADR 추이 (60일)</h3>
+        <div class="chart-legend">
+          <span class="legend-item kospi"><span class="legend-dot"></span>코스피</span>
+          <span class="legend-item kosdaq"><span class="legend-dot"></span>코스닥</span>
+          <span class="legend-item combined"><span class="legend-dot"></span>종합</span>
+        </div>
+      </div>
+      <div class="chart-container" v-if="adrHistory.length > 0">
+        <Line :data="adrChartData" :options="adrChartOptions" />
+      </div>
+      <div v-else class="no-chart-data">
+        <p>ADR 히스토리 데이터가 없습니다. 데이터를 수집해주세요.</p>
+      </div>
+    </div>
+
     <!-- ADR 설명 -->
     <div class="adr-guide">
       <h3>ADR (Advance-Decline Ratio) 이란?</h3>
@@ -166,6 +184,40 @@
       <p class="management-note">
         * 매일 장 마감 후(15:30 이후) 데이터를 수집하면 당일 시장 현황이 반영됩니다.
       </p>
+
+      <!-- 기간별 수집 (Backfill) -->
+      <div class="backfill-section">
+        <h4>기간별 데이터 수집 (Backfill)</h4>
+        <div class="backfill-form">
+          <div class="date-inputs">
+            <div class="input-group">
+              <label>시작일</label>
+              <input type="date" v-model="backfillStartDate" :max="backfillEndDate || today" />
+            </div>
+            <div class="input-group">
+              <label>종료일</label>
+              <input type="date" v-model="backfillEndDate" :min="backfillStartDate" :max="today" />
+            </div>
+          </div>
+          <button
+            @click="collectBackfillData"
+            :disabled="isBackfilling || !backfillStartDate || !backfillEndDate"
+            class="btn-backfill"
+          >
+            {{ isBackfilling ? '수집 중...' : '📅 기간 수집' }}
+          </button>
+        </div>
+        <div v-if="backfillResult" class="backfill-result">
+          <p>
+            수집 완료: 성공 {{ backfillResult.successCount }}일,
+            실패 {{ backfillResult.failCount }}일,
+            스킵 {{ backfillResult.skipCount }}일
+          </p>
+        </div>
+        <p class="management-note">
+          * 과거 데이터 수집 시 네이버 금융 차단 방지를 위해 요청 간 1초 딜레이가 적용됩니다.
+        </p>
+      </div>
     </div>
 
     <!-- 로딩 -->
@@ -177,17 +229,223 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { marketAPI } from '../utils/api';
+import { Line } from 'vue-chartjs';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js';
+import annotationPlugin from 'chartjs-plugin-annotation';
+
+// Chart.js 등록
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler,
+  annotationPlugin
+);
 
 const router = useRouter();
 const loading = ref(false);
 const isCollecting = ref(false);
 const marketData = ref(null);
+const adrHistory = ref([]);
+
+// Backfill 관련 상태
+const isBackfilling = ref(false);
+const backfillStartDate = ref('');
+const backfillEndDate = ref('');
+const backfillResult = ref(null);
+const today = new Date().toISOString().split('T')[0];
 
 const goBack = () => {
   router.push('/dashboard');
+};
+
+// ADR 차트 데이터
+const adrChartData = computed(() => {
+  if (adrHistory.value.length === 0) return { labels: [], datasets: [] };
+
+  // 날짜순 정렬 (오래된 날짜가 먼저)
+  const sortedHistory = [...adrHistory.value].reverse();
+
+  return {
+    labels: sortedHistory.map(d => {
+      const date = new Date(d.date);
+      return `${date.getMonth() + 1}/${date.getDate()}`;
+    }),
+    datasets: [
+      {
+        label: '코스피 ADR',
+        data: sortedHistory.map(d => d.kospiAdr),
+        borderColor: '#ef4444',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderWidth: 2,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 5
+      },
+      {
+        label: '코스닥 ADR',
+        data: sortedHistory.map(d => d.kosdaqAdr),
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        borderWidth: 2,
+        tension: 0.3,
+        pointRadius: 2,
+        pointHoverRadius: 5
+      },
+      {
+        label: '종합 ADR',
+        data: sortedHistory.map(d => d.combinedAdr),
+        borderColor: '#a855f7',
+        backgroundColor: 'rgba(168, 85, 247, 0.2)',
+        borderWidth: 3,
+        tension: 0.3,
+        pointRadius: 3,
+        pointHoverRadius: 6,
+        fill: true
+      }
+    ]
+  };
+});
+
+// ADR 차트 옵션
+const adrChartOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: {
+    mode: 'index',
+    intersect: false
+  },
+  plugins: {
+    legend: {
+      display: false
+    },
+    tooltip: {
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      titleColor: '#fff',
+      bodyColor: '#fff',
+      callbacks: {
+        label: (context) => `${context.dataset.label}: ${context.raw?.toFixed(1) || '-'}`
+      }
+    },
+    annotation: {
+      annotations: {
+        overheatLine: {
+          type: 'line',
+          yMin: 120,
+          yMax: 120,
+          borderColor: '#ef4444',
+          borderWidth: 2,
+          borderDash: [6, 6],
+          label: {
+            display: true,
+            content: '과열선 (120)',
+            position: 'end',
+            backgroundColor: 'rgba(239, 68, 68, 0.8)',
+            color: '#fff',
+            font: { size: 11 }
+          }
+        },
+        oversoldLine: {
+          type: 'line',
+          yMin: 80,
+          yMax: 80,
+          borderColor: '#3b82f6',
+          borderWidth: 2,
+          borderDash: [6, 6],
+          label: {
+            display: true,
+            content: '침체선 (80)',
+            position: 'end',
+            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+            color: '#fff',
+            font: { size: 11 }
+          }
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      grid: {
+        color: 'rgba(255, 255, 255, 0.1)'
+      },
+      ticks: {
+        color: '#a1a1aa',
+        maxRotation: 45,
+        minRotation: 0
+      }
+    },
+    y: {
+      grid: {
+        color: 'rgba(255, 255, 255, 0.1)'
+      },
+      ticks: {
+        color: '#a1a1aa'
+      },
+      min: 40,
+      max: 160,
+      suggestedMin: 50,
+      suggestedMax: 150
+    }
+  }
+};
+
+// ADR 히스토리 조회
+const fetchAdrHistory = async () => {
+  try {
+    const response = await marketAPI.getAdrHistory(60);
+    if (response.data.success) {
+      adrHistory.value = response.data.data || [];
+    }
+  } catch (error) {
+    console.error('ADR 히스토리 조회 실패:', error);
+  }
+};
+
+// 기간별 데이터 수집 (Backfill)
+const collectBackfillData = async () => {
+  if (!backfillStartDate.value || !backfillEndDate.value) return;
+
+  isBackfilling.value = true;
+  backfillResult.value = null;
+
+  try {
+    const response = await marketAPI.collectDataForPeriod(
+      backfillStartDate.value,
+      backfillEndDate.value
+    );
+
+    if (response.data.success) {
+      backfillResult.value = response.data.data;
+      // 수집 후 히스토리 새로고침
+      await fetchAdrHistory();
+      alert('기간별 데이터 수집이 완료되었습니다.');
+    } else {
+      alert('수집 실패: ' + response.data.message);
+    }
+  } catch (error) {
+    console.error('기간별 데이터 수집 실패:', error);
+    alert('기간별 데이터 수집에 실패했습니다.');
+  } finally {
+    isBackfilling.value = false;
+  }
 };
 
 const fetchData = async () => {
@@ -272,6 +530,7 @@ const getAdrClass = (adr) => {
 
 onMounted(() => {
   fetchData();
+  fetchAdrHistory();
 });
 </script>
 
@@ -632,6 +891,150 @@ onMounted(() => {
   to { transform: rotate(360deg); }
 }
 
+/* ADR 차트 섹션 */
+.adr-chart-section {
+  background: var(--card-bg, #18181b);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--border-color, #27272a);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 1rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted, #71717a);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legend-item.kospi .legend-dot { background: #ef4444; }
+.legend-item.kosdaq .legend-dot { background: #3b82f6; }
+.legend-item.combined .legend-dot { background: #a855f7; }
+
+.chart-container {
+  height: 300px;
+  position: relative;
+}
+
+.no-chart-data {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #71717a);
+  background: var(--bg-secondary, #27272a);
+  border-radius: 8px;
+}
+
+/* Backfill 섹션 */
+.backfill-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color, #27272a);
+}
+
+.backfill-section h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: var(--text-secondary, #a1a1aa);
+}
+
+.backfill-form {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.date-inputs {
+  display: flex;
+  gap: 1rem;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.input-group label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #71717a);
+}
+
+.input-group input[type="date"] {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #3f3f46);
+  background: var(--bg-secondary, #27272a);
+  color: var(--text-primary, #e4e4e7);
+  font-size: 0.9rem;
+}
+
+.input-group input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}
+
+.btn-backfill {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--accent-color, #667eea);
+  background: transparent;
+  color: var(--accent-color, #667eea);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-backfill:hover:not(:disabled) {
+  background: var(--accent-color, #667eea);
+  color: white;
+}
+
+.btn-backfill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.backfill-result {
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 6px;
+}
+
+.backfill-result p {
+  margin: 0;
+  color: #22c55e;
+  font-size: 0.9rem;
+}
+
 /* 반응형 */
 @media (max-width: 768px) {
   .market-timing-page {
@@ -661,6 +1064,34 @@ onMounted(() => {
 
   .management-actions {
     flex-direction: column;
+  }
+
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .chart-legend {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .chart-container {
+    height: 250px;
+  }
+
+  .backfill-form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .date-inputs {
+    flex-direction: column;
+  }
+
+  .btn-backfill {
+    width: 100%;
   }
 }
 </style>

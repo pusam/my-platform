@@ -11,11 +11,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
+import com.myplatform.backend.repository.StockPriceRepository;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 투자자별 일별 상위 매수/매도 종목 서비스
@@ -50,14 +53,66 @@ public class InvestorDailyTradeService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final InvestorDailyTradeRepository tradeRepository;
+    private final StockPriceRepository stockPriceRepository;
+
+    // 시장 구분 캐시 (종목코드 -> 시장타입)
+    private final Map<String, String> marketTypeCache = new ConcurrentHashMap<>();
 
     public InvestorDailyTradeService(RestTemplate restTemplate, ObjectMapper objectMapper,
                                       InvestorDailyTradeRepository tradeRepository,
-                                      KoreaInvestmentService kisService) {
+                                      KoreaInvestmentService kisService,
+                                      StockPriceRepository stockPriceRepository) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.tradeRepository = tradeRepository;
         this.kisService = kisService;
+        this.stockPriceRepository = stockPriceRepository;
+    }
+
+    /**
+     * 종목 코드로 시장 구분 판별
+     * - 한국 주식 시장의 종목 코드 규칙 기반
+     * - KOSPI: 00xxxx, 01xxxx, 02xxxx (주로 0으로 시작)
+     * - KOSDAQ: 그 외 (1, 2, 3, 4 등으로 시작)
+     */
+    private String determineMarketType(String stockCode) {
+        if (stockCode == null || stockCode.length() < 6) {
+            return "UNKNOWN";
+        }
+
+        // 캐시에서 먼저 조회
+        String cachedMarket = marketTypeCache.get(stockCode);
+        if (cachedMarket != null) {
+            return cachedMarket;
+        }
+
+        String marketType;
+
+        // 종목 코드 첫 자리 기반 판별 (일반적인 규칙)
+        char firstChar = stockCode.charAt(0);
+
+        // KOSPI 종목: 0으로 시작 (삼성전자 005930, SK하이닉스 000660 등)
+        // KOSDAQ 종목: 1~9로 시작 (카카오 035720은 예외지만, 대부분 패턴 따름)
+        // 추가 규칙: 종목 코드가 0으로 시작하고, 두 번째 자리도 0~2면 KOSPI 확률 높음
+        if (firstChar == '0') {
+            char secondChar = stockCode.charAt(1);
+            // 00xxxx, 01xxxx, 02xxxx, 03xxxx -> KOSPI
+            // 035720(카카오) 같은 예외가 있지만, 대부분 KOSPI
+            if (secondChar >= '0' && secondChar <= '3') {
+                marketType = "KOSPI";
+            } else {
+                // 04~09 시작은 KOSDAQ 가능성
+                marketType = "KOSDAQ";
+            }
+        } else {
+            // 1~9로 시작하면 KOSDAQ
+            marketType = "KOSDAQ";
+        }
+
+        // 캐시에 저장
+        marketTypeCache.put(stockCode, marketType);
+
+        return marketType;
     }
 
     /**
@@ -96,10 +151,11 @@ public class InvestorDailyTradeService {
 
     /**
      * 한국투자증권 API에서 투자자별 상위 종목 수집
+     * - 한투 API는 KOSPI/KOSDAQ 통합 조회이므로, 투자자+날짜로 중복 체크
      */
     public int collectFromKisApi(String investorType, LocalDate tradeDate) {
-        // 이미 데이터가 있으면 스킵
-        if (tradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate("KOSPI", investorType, tradeDate)) {
+        // 이미 해당 투자자, 날짜로 데이터가 있으면 스킵 (시장 구분 없이 체크)
+        if (tradeRepository.existsByInvestorTypeAndTradeDate(investorType, tradeDate)) {
             log.info("이미 수집됨: {} {}", investorType, tradeDate);
             return 0;
         }
@@ -142,15 +198,19 @@ public class InvestorDailyTradeService {
                     for (JsonNode stockNode : output) {
                         if (rank > 20) break; // 상위 20개만
 
+                        // 종목코드 먼저 추출
+                        String stockCode = getStringValue(stockNode, "mksc_shrn_iscd");
+
                         InvestorDailyTrade trade = new InvestorDailyTrade();
-                        trade.setMarketType("KOSPI"); // 한투 API는 전체 시장 (KOSPI로 통합)
+                        // 종목 코드 기반으로 시장 구분 판별
+                        trade.setMarketType(determineMarketType(stockCode));
                         trade.setTradeDate(tradeDate);
                         trade.setInvestorType(investorType);
                         trade.setTradeType(tradeType);
                         trade.setRankNum(rank);
 
                         // 종목코드, 종목명
-                        trade.setStockCode(getStringValue(stockNode, "mksc_shrn_iscd"));
+                        trade.setStockCode(stockCode);
                         trade.setStockName(getStringValue(stockNode, "hts_kor_isnm"));
 
                         // 순매수 금액 - 투자자 유형에 따라 다른 필드 사용

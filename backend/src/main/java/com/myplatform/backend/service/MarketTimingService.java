@@ -552,4 +552,182 @@ public class MarketTimingService {
         collectMarketData();
         sendMarketStatusAlert(true);  // 극단적 상황만 알림
     }
+
+    // ========== 기간별 데이터 수집 (Backfill) ==========
+
+    /**
+     * 특정 기간 동안의 시장 데이터 수집 (Backfill)
+     * - 네이버 금융 차단 방지를 위해 요청 간 1초 딜레이 적용
+     * - 주말은 자동으로 스킵
+     *
+     * @param startDate 시작 날짜
+     * @param endDate   종료 날짜
+     * @return 수집 결과 (성공 일수, 실패 일수, 스킵 일수)
+     */
+    @Transactional
+    public java.util.Map<String, Object> collectMarketDataForPeriod(LocalDate startDate, LocalDate endDate) {
+        log.info("========== 기간별 시장 데이터 수집 시작: {} ~ {} ==========", startDate, endDate);
+
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
+        int successCount = 0;
+        int failCount = 0;
+        int skipCount = 0;
+
+        LocalDate currentDate = startDate;
+
+        while (!currentDate.isAfter(endDate)) {
+            // 주말 스킵
+            java.time.DayOfWeek dayOfWeek = currentDate.getDayOfWeek();
+            if (dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+                log.debug("주말 스킵: {}", currentDate);
+                skipCount++;
+                currentDate = currentDate.plusDays(1);
+                continue;
+            }
+
+            try {
+                // 네이버 금융 차단 방지를 위한 딜레이 (첫 요청 제외)
+                if (successCount + failCount > 0) {
+                    Thread.sleep(1000);  // 1초 딜레이
+                }
+
+                // 해당 날짜로 데이터 수집
+                collectMarketDataForDate(currentDate);
+                successCount++;
+                log.info("시장 데이터 수집 완료: {} ({}/{})",
+                        currentDate, successCount, java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("수집 중단됨");
+                break;
+            } catch (Exception e) {
+                log.warn("시장 데이터 수집 실패 [{}]: {}", currentDate, e.getMessage());
+                failCount++;
+            }
+
+            currentDate = currentDate.plusDays(1);
+        }
+
+        result.put("startDate", startDate.toString());
+        result.put("endDate", endDate.toString());
+        result.put("successCount", successCount);
+        result.put("failCount", failCount);
+        result.put("skipCount", skipCount);
+        result.put("totalDays", java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1);
+
+        log.info("========== 기간별 시장 데이터 수집 완료 - 성공: {}, 실패: {}, 스킵: {} ==========",
+                successCount, failCount, skipCount);
+
+        return result;
+    }
+
+    /**
+     * 특정 날짜의 시장 데이터 수집
+     * - 과거 날짜의 경우 네이버 금융 시세 페이지에서 수집 시도
+     */
+    private void collectMarketDataForDate(LocalDate targetDate) {
+        log.debug("날짜별 시장 데이터 수집: {}", targetDate);
+
+        // 오늘 날짜인 경우 기존 메서드 사용
+        if (targetDate.equals(LocalDate.now())) {
+            collectMarketData();
+            return;
+        }
+
+        // 과거 날짜의 경우: 네이버 금융에서 해당 날짜 데이터 수집
+        // 네이버 금융 상승/하락 페이지는 당일 데이터만 제공하므로,
+        // 과거 데이터는 지수 정보 위주로 수집하고 상승/하락 종목 수는 0으로 설정
+        collectHistoricalMarketData("KOSPI", targetDate);
+        collectHistoricalMarketData("KOSDAQ", targetDate);
+    }
+
+    /**
+     * 과거 날짜의 시장 데이터 수집
+     * - 지수 정보는 네이버 금융 일별 시세에서 크롤링
+     * - 상승/하락 종목 수는 과거 데이터 제공이 어려워 0으로 설정
+     */
+    private void collectHistoricalMarketData(String marketType, LocalDate targetDate) {
+        try {
+            // 네이버 금융 일별 시세 페이지에서 지수 정보 크롤링
+            String code = "KOSPI".equals(marketType) ? "KOSPI" : "KOSDAQ";
+            String url = String.format(
+                    "https://finance.naver.com/sise/sise_index_day.naver?code=%s&page=1", code);
+
+            Document doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .timeout(10000)
+                    .get();
+
+            // 테이블에서 해당 날짜 데이터 찾기
+            Elements rows = doc.select("table.type_1 tr");
+            BigDecimal indexClose = null;
+            BigDecimal indexChangeRate = null;
+
+            String targetDateStr = targetDate.format(java.time.format.DateTimeFormatter.ofPattern("yyyy.MM.dd"));
+
+            for (Element row : rows) {
+                Elements tds = row.select("td");
+                if (tds.size() >= 6) {
+                    String dateText = tds.get(0).text().trim();
+                    if (dateText.equals(targetDateStr)) {
+                        // 종가
+                        String closeText = tds.get(1).text().replace(",", "").trim();
+                        if (!closeText.isEmpty()) {
+                            indexClose = new BigDecimal(closeText);
+                        }
+
+                        // 등락률 계산 (전일대비 / 종가 * 100)
+                        String changeText = tds.get(2).text().replace(",", "").trim();
+                        if (!changeText.isEmpty() && indexClose != null && indexClose.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal change = new BigDecimal(changeText);
+                            BigDecimal prevClose = indexClose.subtract(change);
+                            if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                                indexChangeRate = change.divide(prevClose, 4, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // 데이터 저장
+            Optional<MarketDailyStatus> existing = marketDailyStatusRepository
+                    .findByMarketTypeAndTradeDate(marketType, targetDate);
+
+            MarketDailyStatus status;
+            if (existing.isPresent()) {
+                status = existing.get();
+            } else {
+                status = new MarketDailyStatus();
+                status.setMarketType(marketType);
+                status.setTradeDate(targetDate);
+            }
+
+            // 지수 정보 업데이트
+            if (indexClose != null) {
+                status.setIndexClose(indexClose);
+            }
+            if (indexChangeRate != null) {
+                status.setIndexChangeRate(indexChangeRate);
+            }
+
+            // 과거 데이터는 상승/하락 종목 수를 알 수 없으므로 기존 값 유지 또는 0으로 설정
+            if (status.getAdvancingCount() == null) {
+                status.setAdvancingCount(0);
+                status.setDecliningCount(0);
+                status.setUnchangedCount(0);
+                status.setTotalCount(0);
+            }
+
+            marketDailyStatusRepository.save(status);
+            log.debug("{} {} 과거 데이터 저장 완료: indexClose={}", marketType, targetDate, indexClose);
+
+        } catch (Exception e) {
+            log.warn("{} {} 과거 데이터 수집 실패: {}", marketType, targetDate, e.getMessage());
+            throw new RuntimeException(marketType + " " + targetDate + " 데이터 수집 실패: " + e.getMessage());
+        }
+    }
 }

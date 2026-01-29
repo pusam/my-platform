@@ -494,13 +494,65 @@
           </div>
         </div>
 
-        <!-- 진행 상황 -->
-        <div v-if="collectProgress" class="progress-log">
+        <!-- 기존 진행 상황 (간단 로그) -->
+        <div v-if="collectProgress && !showProgressBar" class="progress-log">
           <div class="progress-header">
             <span>📋 진행 상황</span>
           </div>
           <div class="progress-content">
             {{ collectProgress }}
+          </div>
+        </div>
+
+        <!-- 실시간 프로그레스 바 (SSE 연동) -->
+        <div v-if="showProgressBar" class="sse-progress-panel">
+          <div class="sse-progress-header">
+            <span class="sse-title">📡 실시간 진행 상황</span>
+            <button @click="closeProgressBar" class="close-btn small">&times;</button>
+          </div>
+
+          <!-- 프로그레스 바 -->
+          <div class="progress-bar-container">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: sseProgress.percent + '%' }"></div>
+            </div>
+            <div class="progress-stats">
+              <span class="progress-percent">{{ sseProgress.percent }}%</span>
+              <span class="progress-counts" v-if="sseProgress.total > 0">
+                ({{ sseProgress.current }} / {{ sseProgress.total }})
+              </span>
+            </div>
+          </div>
+
+          <!-- 진행 정보 -->
+          <div class="progress-info">
+            <div class="info-row">
+              <span class="info-label">상태:</span>
+              <span class="info-value">{{ sseProgress.message }}</span>
+            </div>
+            <div class="info-row stats" v-if="sseProgress.success > 0 || sseProgress.fail > 0">
+              <span class="stat-item success">성공: {{ sseProgress.success }}</span>
+              <span class="stat-item fail">실패: {{ sseProgress.fail }}</span>
+            </div>
+          </div>
+
+          <!-- 로그 창 -->
+          <div class="log-container">
+            <div class="log-header">
+              <span>로그</span>
+              <span class="log-count">({{ sseProgress.logs.length }})</span>
+            </div>
+            <div class="log-list">
+              <div
+                v-for="(log, idx) in sseProgress.logs.slice(0, 20)"
+                :key="idx"
+                :class="['log-item', log.level.toLowerCase()]"
+              >
+                <span class="log-time">{{ log.timestamp }}</span>
+                <span class="log-level">{{ log.level }}</span>
+                <span class="log-message">{{ log.message }}</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -772,6 +824,19 @@ const quarterlyStockCode = ref('');
 const quarterlyResult = ref(null);
 const collectProgress = ref('');
 
+// SSE 실시간 진행률
+const sseConnection = ref(null);
+const sseProgress = ref({
+  percent: 0,
+  current: 0,
+  total: 0,
+  success: 0,
+  fail: 0,
+  message: '',
+  logs: []
+});
+const showProgressBar = ref(false);
+
 // AI 분석 결과
 const aiLoading = ref(false);
 const magicFormulaAI = ref('');
@@ -858,32 +923,138 @@ const collectAllFinancialData = async () => {
   }
 };
 
+// SSE 구독 시작
+const startSseSubscription = (taskType) => {
+  // 기존 연결 종료
+  if (sseConnection.value) {
+    sseConnection.value.close();
+  }
+
+  // 진행률 초기화
+  sseProgress.value = {
+    percent: 0,
+    current: 0,
+    total: 0,
+    success: 0,
+    fail: 0,
+    message: '연결 중...',
+    logs: []
+  };
+  showProgressBar.value = true;
+
+  // SSE 연결 (API 베이스 URL 사용)
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  const sseUrl = `${baseUrl}/api/sse/subscribe?taskType=${taskType}&clientId=${Date.now()}`;
+
+  const eventSource = new EventSource(sseUrl, { withCredentials: true });
+  sseConnection.value = eventSource;
+
+  eventSource.addEventListener('CONNECTED', (e) => {
+    const data = JSON.parse(e.data);
+    sseProgress.value.message = data.message;
+    addLog('INFO', 'SSE 연결 성공');
+  });
+
+  eventSource.addEventListener('START', (e) => {
+    const data = JSON.parse(e.data);
+    sseProgress.value.total = data.totalCount;
+    sseProgress.value.message = data.message;
+    addLog('INFO', data.message);
+  });
+
+  eventSource.addEventListener('PROGRESS', (e) => {
+    const data = JSON.parse(e.data);
+    sseProgress.value.percent = data.percent;
+    sseProgress.value.current = data.current || 0;
+    sseProgress.value.total = data.total || sseProgress.value.total;
+    sseProgress.value.success = data.success || 0;
+    sseProgress.value.fail = data.fail || 0;
+    sseProgress.value.message = data.message;
+  });
+
+  eventSource.addEventListener('LOG', (e) => {
+    const data = JSON.parse(e.data);
+    addLog(data.level, data.message);
+  });
+
+  eventSource.addEventListener('COMPLETE', (e) => {
+    const data = JSON.parse(e.data);
+    sseProgress.value.percent = 100;
+    sseProgress.value.message = data.message;
+    addLog('SUCCESS', data.message);
+    collectProgress.value = data.message;
+    eventSource.close();
+    sseConnection.value = null;
+    isCrawling.value = false;
+    isCollectingQuarterly.value = false;
+    fetchCollectStatus();
+  });
+
+  eventSource.addEventListener('ERROR', (e) => {
+    const data = JSON.parse(e.data);
+    sseProgress.value.message = data.message;
+    addLog('ERROR', data.message);
+    collectProgress.value = '오류: ' + data.message;
+  });
+
+  eventSource.onerror = () => {
+    console.error('SSE 연결 오류');
+    addLog('ERROR', 'SSE 연결이 끊어졌습니다.');
+    eventSource.close();
+    sseConnection.value = null;
+  };
+};
+
+// 로그 추가 (최대 50개 유지)
+const addLog = (level, message) => {
+  const timestamp = new Date().toLocaleTimeString();
+  sseProgress.value.logs.unshift({ level, message, timestamp });
+  if (sseProgress.value.logs.length > 50) {
+    sseProgress.value.logs.pop();
+  }
+};
+
+// 진행률 바 닫기
+const closeProgressBar = () => {
+  showProgressBar.value = false;
+  if (sseConnection.value) {
+    sseConnection.value.close();
+    sseConnection.value = null;
+  }
+};
+
 const crawlOperatingMargin = async () => {
   if (isCrawling.value) return;
 
-  if (!confirm('영업이익률 크롤링을 시작하시겠습니까?\n약 15-20분 소요됩니다.')) {
+  if (!confirm('영업이익률 크롤링을 시작하시겠습니까?\n\n' +
+    '• 진행률이 실시간으로 표시됩니다.\n' +
+    '• 약 15-20분 소요됩니다.\n' +
+    '• 브라우저를 닫아도 백그라운드에서 계속 진행됩니다.')) {
     return;
   }
 
   isCrawling.value = true;
   collectProgress.value = '영업이익률 크롤링 시작...';
 
+  // SSE 구독 시작
+  startSseSubscription('crawl-operating-margin');
+
   try {
-    const response = await api.post('/screener/crawl-operating-margin', null, {
+    // 비동기 크롤링 API 호출
+    const response = await api.post('/screener/crawl-operating-margin/async', null, {
       params: { forceUpdate: crawlForceUpdate.value }
     });
-    if (response.data.success) {
-      const data = response.data.data;
-      collectProgress.value = `크롤링 완료! 성공: ${data.successCount}, 실패: ${data.failCount}, 스킵: ${data.skipCount} (소요시간: ${data.elapsedSeconds}초)`;
-      await fetchCollectStatus();
-    } else {
-      collectProgress.value = '크롤링 실패: ' + response.data.message;
+
+    if (!response.data.success) {
+      collectProgress.value = response.data.message;
+      isCrawling.value = false;
+      closeProgressBar();
     }
   } catch (error) {
     console.error('영업이익률 크롤링 오류:', error);
-    collectProgress.value = '크롤링 중 오류 발생: ' + (error.response?.data?.message || error.message);
-  } finally {
+    collectProgress.value = '크롤링 시작 오류: ' + (error.response?.data?.message || error.message);
     isCrawling.value = false;
+    closeProgressBar();
   }
 };
 
@@ -894,7 +1065,8 @@ const collectQuarterlyFinance = async () => {
   if (!confirm('분기별 재무제표 수집을 시작하시겠습니까?\n\n' +
     '• 네이버 금융에서 최근 4개 분기 데이터를 크롤링합니다.\n' +
     '• EPS 성장률이 계산되어 PEG 스크리너가 작동합니다.\n' +
-    '• 과거 분기 데이터로 턴어라운드 분석이 가능해집니다.\n\n' +
+    '• 과거 분기 데이터로 턴어라운드 분석이 가능해집니다.\n' +
+    '• 진행률이 실시간으로 표시됩니다.\n\n' +
     '약 20-25분 소요됩니다.')) {
     return;
   }
@@ -902,20 +1074,23 @@ const collectQuarterlyFinance = async () => {
   isCollectingQuarterly.value = true;
   collectProgress.value = '분기별 재무제표 수집 시작...';
 
+  // SSE 구독 시작
+  startSseSubscription('collect-finance');
+
   try {
-    const response = await api.post('/screener/collect/finance');
-    if (response.data.success) {
-      const data = response.data.data;
-      collectProgress.value = `분기별 재무제표 수집 완료! 성공: ${data.successCount}, 실패: ${data.failCount} (소요시간: ${data.elapsedSeconds}초)`;
-      await fetchCollectStatus();
-    } else {
-      collectProgress.value = '분기별 재무제표 수집 실패: ' + response.data.message;
+    // 비동기 수집 API 호출
+    const response = await api.post('/screener/collect/finance/async');
+
+    if (!response.data.success) {
+      collectProgress.value = response.data.message;
+      isCollectingQuarterly.value = false;
+      closeProgressBar();
     }
   } catch (error) {
     console.error('분기별 재무제표 수집 오류:', error);
-    collectProgress.value = '분기별 재무제표 수집 중 오류 발생: ' + (error.response?.data?.message || error.message);
-  } finally {
+    collectProgress.value = '수집 시작 오류: ' + (error.response?.data?.message || error.message);
     isCollectingQuarterly.value = false;
+    closeProgressBar();
   }
 };
 
@@ -2099,6 +2274,205 @@ onMounted(() => {
   font-family: monospace;
   white-space: pre-wrap;
   line-height: 1.6;
+}
+
+/* SSE 실시간 프로그레스 패널 */
+.sse-progress-panel {
+  background: linear-gradient(135deg, #1a1a3a 0%, #2a2a4a 100%);
+  border-radius: 15px;
+  overflow: hidden;
+  border: 1px solid #4a4a8a;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.sse-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #4a4a8a 0%, #5a5a9a 100%);
+}
+
+.sse-title {
+  font-weight: 700;
+  color: white;
+  font-size: 1.1rem;
+}
+
+.sse-progress-header .close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sse-progress-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.progress-bar-container {
+  padding: 1.5rem;
+}
+
+.progress-bar {
+  height: 24px;
+  background: #0f0f23;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #3a3a5a;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4299e1, #48bb78, #f6ad55);
+  background-size: 200% 100%;
+  animation: progressGradient 2s linear infinite;
+  border-radius: 12px;
+  transition: width 0.3s ease;
+}
+
+@keyframes progressGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.progress-stats {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  color: #ccc;
+}
+
+.progress-percent {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #4299e1;
+}
+
+.progress-counts {
+  font-size: 1rem;
+  color: #888;
+}
+
+.progress-info {
+  padding: 0 1.5rem 1rem;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.info-label {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.info-value {
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+.info-row.stats {
+  gap: 1.5rem;
+}
+
+.stat-item {
+  font-weight: 600;
+  padding: 0.25rem 0.75rem;
+  border-radius: 15px;
+  font-size: 0.85rem;
+}
+
+.stat-item.success {
+  background: rgba(72, 187, 120, 0.2);
+  color: #48bb78;
+}
+
+.stat-item.fail {
+  background: rgba(229, 62, 62, 0.2);
+  color: #e53e3e;
+}
+
+.log-container {
+  border-top: 1px solid #3a3a5a;
+}
+
+.log-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: #0f0f23;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.log-count {
+  color: #666;
+}
+
+.log-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: #0a0a1a;
+}
+
+.log-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  font-family: monospace;
+  border-radius: 5px;
+  margin-bottom: 0.25rem;
+}
+
+.log-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.log-time {
+  color: #666;
+  min-width: 70px;
+}
+
+.log-level {
+  font-weight: 600;
+  min-width: 60px;
+  text-transform: uppercase;
+}
+
+.log-message {
+  color: #ccc;
+  flex: 1;
+}
+
+.log-item.info .log-level {
+  color: #4299e1;
+}
+
+.log-item.success .log-level {
+  color: #48bb78;
+}
+
+.log-item.error .log-level {
+  color: #e53e3e;
+}
+
+.log-item.warning .log-level {
+  color: #f6ad55;
 }
 
 @media (max-width: 768px) {

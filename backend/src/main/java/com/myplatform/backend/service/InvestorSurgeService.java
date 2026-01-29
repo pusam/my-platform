@@ -14,8 +14,11 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -32,10 +35,15 @@ public class InvestorSurgeService {
 
     private final InvestorIntradaySnapshotRepository snapshotRepository;
     private final KoreaInvestmentService koreaInvestmentService;
+    private final TelegramNotificationService telegramService;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
     private static final BigDecimal SURGE_THRESHOLD_WARM = new BigDecimal("50");   // 50억 이상
+
+    // 알림 재발송 금지 (30분 내 동일 종목)
+    private static final long ALERT_COOLDOWN_MINUTES = 30;
+    private final Map<String, LocalDateTime> alertSentMap = new ConcurrentHashMap<>();
 
     /**
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
@@ -54,11 +62,14 @@ public class InvestorSurgeService {
 
         try {
             // 외국인, 기관 순서로 수집
-            collectAndSaveSnapshot("FOREIGN");
+            List<InvestorIntradaySnapshot> foreignSnapshots = collectAndSaveSnapshot("FOREIGN");
             Thread.sleep(1000); // API 호출 간격
-            collectAndSaveSnapshot("INSTITUTION");
+            List<InvestorIntradaySnapshot> institutionSnapshots = collectAndSaveSnapshot("INSTITUTION");
 
             log.info("장중 스냅샷 수집 완료");
+
+            // HOT 등급 또는 쌍끌이 종목 알림 발송
+            sendSurgeAlerts(foreignSnapshots, institutionSnapshots);
         } catch (Exception e) {
             log.error("장중 스냅샷 수집 실패", e);
         }
@@ -66,8 +77,10 @@ public class InvestorSurgeService {
 
     /**
      * 특정 투자자 유형의 스냅샷 수집 및 저장
+     * @return 저장된 스냅샷 리스트 (알림 발송용)
      */
-    private void collectAndSaveSnapshot(String investorType) {
+    private List<InvestorIntradaySnapshot> collectAndSaveSnapshot(String investorType) {
+        List<InvestorIntradaySnapshot> snapshots = new ArrayList<>();
         try {
             LocalDate today = LocalDate.now();
             // 10분 단위로 정규화
@@ -90,7 +103,7 @@ public class InvestorSurgeService {
             }
 
             // API 호출하여 현재 데이터 수집
-            List<InvestorIntradaySnapshot> snapshots = fetchCurrentRanking(investorType, today, snapshotTime);
+            snapshots = fetchCurrentRanking(investorType, today, snapshotTime);
 
             // 변화량 계산
             for (InvestorIntradaySnapshot snapshot : snapshots) {
@@ -117,6 +130,7 @@ public class InvestorSurgeService {
         } catch (Exception e) {
             log.error("스냅샷 수집 실패: {}", investorType, e);
         }
+        return snapshots;
     }
 
     /**
@@ -570,5 +584,204 @@ public class InvestorSurgeService {
             case "INSTITUTION": return "기관";
             default: return investorType;
         }
+    }
+
+    // ============================================================
+    // 텔레그램 급등 알림 관련
+    // ============================================================
+
+    /**
+     * HOT 등급 또는 쌍끌이 종목 알림 발송
+     */
+    private void sendSurgeAlerts(List<InvestorIntradaySnapshot> foreignSnapshots,
+                                  List<InvestorIntradaySnapshot> institutionSnapshots) {
+        if (!telegramService.isEnabled()) {
+            return;
+        }
+
+        // 만료된 알림 기록 정리
+        cleanupExpiredAlerts();
+
+        // 외국인/기관 HOT 종목 추출
+        Set<String> foreignHotCodes = extractHotStockCodes(foreignSnapshots);
+        Set<String> institutionHotCodes = extractHotStockCodes(institutionSnapshots);
+
+        // 쌍끌이 종목 (외국인 + 기관 모두 HOT)
+        Set<String> commonHotCodes = new HashSet<>(foreignHotCodes);
+        commonHotCodes.retainAll(institutionHotCodes);
+
+        // 스냅샷을 Map으로 변환
+        Map<String, InvestorIntradaySnapshot> foreignMap = foreignSnapshots.stream()
+                .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
+        Map<String, InvestorIntradaySnapshot> institutionMap = institutionSnapshots.stream()
+                .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
+
+        // 1. 쌍끌이 종목 알림 (최우선)
+        for (String stockCode : commonHotCodes) {
+            if (canSendAlert(stockCode, "COMMON")) {
+                InvestorIntradaySnapshot foreign = foreignMap.get(stockCode);
+                InvestorIntradaySnapshot institution = institutionMap.get(stockCode);
+                sendCommonSurgeAlert(foreign, institution);
+                markAlertSent(stockCode, "COMMON");
+            }
+        }
+
+        // 2. 외국인 단독 HOT 종목 알림
+        for (String stockCode : foreignHotCodes) {
+            if (!commonHotCodes.contains(stockCode) && canSendAlert(stockCode, "FOREIGN")) {
+                InvestorIntradaySnapshot snapshot = foreignMap.get(stockCode);
+                sendSingleSurgeAlert(snapshot, "FOREIGN");
+                markAlertSent(stockCode, "FOREIGN");
+            }
+        }
+
+        // 3. 기관 단독 HOT 종목 알림
+        for (String stockCode : institutionHotCodes) {
+            if (!commonHotCodes.contains(stockCode) && canSendAlert(stockCode, "INSTITUTION")) {
+                InvestorIntradaySnapshot snapshot = institutionMap.get(stockCode);
+                sendSingleSurgeAlert(snapshot, "INSTITUTION");
+                markAlertSent(stockCode, "INSTITUTION");
+            }
+        }
+    }
+
+    /**
+     * HOT 등급 종목 코드 추출
+     */
+    private Set<String> extractHotStockCodes(List<InvestorIntradaySnapshot> snapshots) {
+        return snapshots.stream()
+                .filter(s -> s.getNetBuyAmount() != null &&
+                             s.getNetBuyAmount().compareTo(SURGE_THRESHOLD_HOT) >= 0)
+                .map(InvestorIntradaySnapshot::getStockCode)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * 쌍끌이 종목 알림 발송
+     */
+    private void sendCommonSurgeAlert(InvestorIntradaySnapshot foreign, InvestorIntradaySnapshot institution) {
+        BigDecimal foreignNetBuy = foreign.getNetBuyAmount() != null ? foreign.getNetBuyAmount() : BigDecimal.ZERO;
+        BigDecimal instNetBuy = institution.getNetBuyAmount() != null ? institution.getNetBuyAmount() : BigDecimal.ZERO;
+        BigDecimal totalNetBuy = foreignNetBuy.add(instNetBuy);
+
+        String message = String.format(
+            """
+            <b>🚨 [수급 포착] %s (%s)</b>
+
+            🔥 강도: <b>HOT</b> (매집 의심)
+            🤝 주체: <b>외국인+기관 쌍끌이</b>
+
+            💰 순매수: <b>%s억</b>
+               • 외국인: %s억
+               • 기관: %s억
+
+            💵 현재가: <b>%s원</b> (%s)
+
+            ⏰ %s
+            ━━━━━━━━━━━━━━━━
+            🤖 MyPlatform 수급 알림
+            """,
+            foreign.getStockName(),
+            foreign.getStockCode(),
+            formatAmount(totalNetBuy),
+            formatAmount(foreignNetBuy),
+            formatAmount(instNetBuy),
+            formatPrice(foreign.getCurrentPrice()),
+            formatChangeRate(foreign.getChangeRate()),
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        );
+
+        telegramService.sendMessage(message);
+        log.info("쌍끌이 수급 알림 발송: {} ({})", foreign.getStockName(), foreign.getStockCode());
+    }
+
+    /**
+     * 단일 투자자 HOT 종목 알림 발송
+     */
+    private void sendSingleSurgeAlert(InvestorIntradaySnapshot snapshot, String investorType) {
+        String investorEmoji = "FOREIGN".equals(investorType) ? "🌍" : "🏢";
+        String investorName = "FOREIGN".equals(investorType) ? "외국인" : "기관";
+
+        String message = String.format(
+            """
+            <b>🚨 [수급 포착] %s (%s)</b>
+
+            🔥 강도: <b>HOT</b>
+            %s 주체: <b>%s 집중 매수</b>
+
+            💰 순매수: <b>%s억</b>
+            💵 현재가: <b>%s원</b> (%s)
+
+            ⏰ %s
+            ━━━━━━━━━━━━━━━━
+            🤖 MyPlatform 수급 알림
+            """,
+            snapshot.getStockName(),
+            snapshot.getStockCode(),
+            investorEmoji,
+            investorName,
+            formatAmount(snapshot.getNetBuyAmount()),
+            formatPrice(snapshot.getCurrentPrice()),
+            formatChangeRate(snapshot.getChangeRate()),
+            LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+        );
+
+        telegramService.sendMessage(message);
+        log.info("{} 수급 알림 발송: {} ({})", investorName, snapshot.getStockName(), snapshot.getStockCode());
+    }
+
+    /**
+     * 알림 발송 가능 여부 확인 (30분 내 재발송 금지)
+     */
+    private boolean canSendAlert(String stockCode, String investorType) {
+        String key = stockCode + "_" + investorType;
+        LocalDateTime lastSent = alertSentMap.get(key);
+
+        if (lastSent == null) {
+            return true;
+        }
+
+        return LocalDateTime.now().isAfter(lastSent.plusMinutes(ALERT_COOLDOWN_MINUTES));
+    }
+
+    /**
+     * 알림 발송 기록
+     */
+    private void markAlertSent(String stockCode, String investorType) {
+        String key = stockCode + "_" + investorType;
+        alertSentMap.put(key, LocalDateTime.now());
+    }
+
+    /**
+     * 만료된 알림 기록 정리 (1시간 이상 지난 기록 삭제)
+     */
+    private void cleanupExpiredAlerts() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(1);
+        alertSentMap.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+    }
+
+    /**
+     * 금액 포맷팅 (억원 단위)
+     */
+    private String formatAmount(BigDecimal amount) {
+        if (amount == null) return "0";
+        return String.format("%,.0f", amount);
+    }
+
+    /**
+     * 가격 포맷팅
+     */
+    private String formatPrice(BigDecimal price) {
+        if (price == null) return "N/A";
+        return String.format("%,.0f", price);
+    }
+
+    /**
+     * 등락률 포맷팅
+     */
+    private String formatChangeRate(BigDecimal rate) {
+        if (rate == null) return "0.00%";
+        String sign = rate.compareTo(BigDecimal.ZERO) > 0 ? "+" : "";
+        return String.format("%s%.2f%%", sign, rate);
     }
 }

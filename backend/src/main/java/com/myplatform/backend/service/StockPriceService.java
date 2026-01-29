@@ -20,7 +20,9 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -55,6 +57,57 @@ public class StockPriceService {
         this.stockPriceRepository = stockPriceRepository;
         this.objectMapper = objectMapper;
         this.kisService = kisService;
+    }
+
+    /**
+     * [개선 1] 여러 종목 시세 일괄 조회 (N+1 문제 해결)
+     *
+     * @param stockCodes 종목코드 리스트
+     * @return 종목코드 -> 시세 DTO 맵
+     */
+    public Map<String, StockPriceDto> getStockPrices(List<String> stockCodes) {
+        if (stockCodes == null || stockCodes.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        Map<String, StockPriceDto> result = new HashMap<>();
+
+        // 1. 캐시에서 먼저 조회
+        List<String> missingCodes = new ArrayList<>();
+        int cacheMinutes = kisService.isConfigured() ? 1 : 10;
+
+        for (String code : stockCodes) {
+            StockPriceDto cached = priceCache.get(code);
+            if (cached != null && isValidCache(cached, cacheMinutes)) {
+                result.put(code, cached);
+            } else {
+                missingCodes.add(code);
+            }
+        }
+
+        // 2. 캐시 미스 종목들 API 조회
+        if (!missingCodes.isEmpty()) {
+            log.debug("Batch 시세 조회 - 캐시 히트: {}, 미스: {}", result.size(), missingCodes.size());
+
+            for (String code : missingCodes) {
+                try {
+                    StockPriceDto fetched = fetchStockPrice(code);
+                    if (fetched != null) {
+                        stockPriceRepository.save(dtoToEntity(fetched));
+                        priceCache.put(code, fetched);
+                        result.put(code, fetched);
+                    }
+
+                    // API 호출 제한 방지 (50ms 간격)
+                    Thread.sleep(50);
+
+                } catch (Exception e) {
+                    log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
+                }
+            }
+        }
+
+        return result;
     }
 
     /**

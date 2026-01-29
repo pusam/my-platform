@@ -6,6 +6,17 @@
         <button @click="goBack" class="back-button">← 돌아가기</button>
         <h1>수급 급증 종목</h1>
         <p class="subtitle">장중 외국인/기관 순매수가 급증하는 종목</p>
+
+        <!-- 실시간 감시 배지 -->
+        <div class="auto-refresh-badge" :class="{ active: isAutoRefreshActive }">
+          <span class="status-dot"></span>
+          <span v-if="isAutoRefreshActive">
+            실시간 감시 중 ({{ nextRefreshIn }}s)
+          </span>
+          <span v-else class="inactive">
+            장 운영 시간 외
+          </span>
+        </div>
       </div>
 
       <div class="action-bar">
@@ -130,10 +141,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+
+// 자동 새로고침 설정
+const AUTO_REFRESH_INTERVAL = 30000; // 30초
 
 const router = useRouter();
 const loading = ref(false);
@@ -142,6 +156,78 @@ const minChange = ref(50);
 const selectedInvestor = ref('FOREIGN');
 const allStocks = ref({});
 const lastUpdateTime = ref('');
+
+// 자동 새로고침 관련
+const autoRefreshTimer = ref(null);
+const isAutoRefreshActive = ref(false);
+const nextRefreshIn = ref(30);
+const countdownTimer = ref(null);
+
+/**
+ * 장 운영 시간 체크 (09:00 ~ 15:30)
+ */
+const isMarketOpen = () => {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const day = now.getDay(); // 0=일, 6=토
+
+  // 주말 제외
+  if (day === 0 || day === 6) return false;
+
+  // 09:00 ~ 15:30
+  const currentMinutes = hours * 60 + minutes;
+  const marketOpen = 9 * 60;       // 09:00
+  const marketClose = 15 * 60 + 30; // 15:30
+
+  return currentMinutes >= marketOpen && currentMinutes <= marketClose;
+};
+
+/**
+ * 자동 새로고침 시작
+ */
+const startAutoRefresh = () => {
+  if (!isMarketOpen()) {
+    isAutoRefreshActive.value = false;
+    return;
+  }
+
+  isAutoRefreshActive.value = true;
+  nextRefreshIn.value = 30;
+
+  // 카운트다운 타이머
+  countdownTimer.value = setInterval(() => {
+    nextRefreshIn.value--;
+    if (nextRefreshIn.value <= 0) {
+      nextRefreshIn.value = 30;
+    }
+  }, 1000);
+
+  // 데이터 새로고침 타이머 (30초)
+  autoRefreshTimer.value = setInterval(async () => {
+    if (!isMarketOpen()) {
+      stopAutoRefresh();
+      return;
+    }
+    await fetchData();
+    nextRefreshIn.value = 30;
+  }, AUTO_REFRESH_INTERVAL);
+};
+
+/**
+ * 자동 새로고침 중지
+ */
+const stopAutoRefresh = () => {
+  if (autoRefreshTimer.value) {
+    clearInterval(autoRefreshTimer.value);
+    autoRefreshTimer.value = null;
+  }
+  if (countdownTimer.value) {
+    clearInterval(countdownTimer.value);
+    countdownTimer.value = null;
+  }
+  isAutoRefreshActive.value = false;
+};
 
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
@@ -292,6 +378,11 @@ const getTrendIcon = (trendStatus) => {
 
 onMounted(() => {
   fetchData();
+  startAutoRefresh();
+});
+
+onUnmounted(() => {
+  stopAutoRefresh();
 });
 </script>
 
@@ -335,6 +426,48 @@ onMounted(() => {
 .back-button:hover {
   background: #5a5a9a;
   transform: translateX(-5px);
+}
+
+/* 실시간 감시 배지 */
+.auto-refresh-badge {
+  position: absolute;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #1a1a3a;
+  border: 1px solid #2a2a4a;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.auto-refresh-badge.active {
+  border-color: #48bb78;
+  color: #48bb78;
+}
+
+.auto-refresh-badge .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+}
+
+.auto-refresh-badge.active .status-dot {
+  background: #48bb78;
+  animation: pulse-dot 1.5s infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(72, 187, 120, 0.7); }
+  50% { opacity: 0.8; box-shadow: 0 0 0 4px rgba(72, 187, 120, 0); }
+}
+
+.auto-refresh-badge .inactive {
+  color: #666;
 }
 
 .page-header h1 {

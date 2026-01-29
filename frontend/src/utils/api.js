@@ -520,6 +520,12 @@ export const marketAPI = {
   // 시장 데이터 수집
   collectData() {
     return apiClient.post('/market/collect');
+  },
+  // 기간별 시장 데이터 수집 (Backfill)
+  collectDataForPeriod(startDate, endDate) {
+    return apiClient.post('/market/collect/period', null, {
+      params: { startDate, endDate }
+    });
   }
 };
 

@@ -66,10 +66,15 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
             @Param("endDate") LocalDate endDate);
 
     /**
-     * 특정 일자의 데이터 존재 여부 확인
+     * 특정 일자의 데이터 존재 여부 확인 (시장+투자자+날짜)
      */
     boolean existsByMarketTypeAndInvestorTypeAndTradeDate(
             String marketType, String investorType, LocalDate tradeDate);
+
+    /**
+     * 특정 일자의 데이터 존재 여부 확인 (투자자+날짜, 한투 API 중복 체크용)
+     */
+    boolean existsByInvestorTypeAndTradeDate(String investorType, LocalDate tradeDate);
 
     /**
      * 특정 일자의 데이터 삭제 (재수집용)

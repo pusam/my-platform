@@ -14,6 +14,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.myplatform.backend.service.NaverFinanceCrawler;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,7 @@ public class ShortSellingController {
 
     private final ShortSellingService shortSellingService;
     private final ShortSellingDataCollector shortSellingDataCollector;
+    private final NaverFinanceCrawler naverFinanceCrawler;
 
     @Operation(summary = "숏스퀴즈 후보 종목 조회",
                description = "대차잔고 감소 + 외국인 매수 + 주가 상승 조건을 만족하는 종목을 분석합니다.")
@@ -162,5 +164,61 @@ public class ShortSellingController {
         }
 
         return ResponseEntity.ok(ApiResponse.success(latestDate));
+    }
+
+    // ========== 네이버 금융 크롤링 API ==========
+
+    @Operation(summary = "네이버 공매도 데이터 크롤링",
+               description = "네이버 금융에서 특정 종목의 공매도 거래 현황을 크롤링합니다.")
+    @GetMapping("/naver/short/{stockCode}")
+    public ResponseEntity<ApiResponse<List<NaverFinanceCrawler.ShortSellingData>>> getNaverShortData(
+            @Parameter(description = "종목코드")
+            @PathVariable String stockCode,
+            @Parameter(description = "조회 기간 (일)")
+            @RequestParam(required = false, defaultValue = "30") Integer days) {
+
+        List<NaverFinanceCrawler.ShortSellingData> data = naverFinanceCrawler.crawlShortSellingData(stockCode, days);
+
+        if (data.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.fail("공매도 데이터를 조회할 수 없습니다."));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    @Operation(summary = "네이버 대차잔고 데이터 크롤링",
+               description = "네이버 금융에서 특정 종목의 대차거래 현황을 크롤링합니다.")
+    @GetMapping("/naver/loan/{stockCode}")
+    public ResponseEntity<ApiResponse<List<NaverFinanceCrawler.LoanBalanceData>>> getNaverLoanData(
+            @Parameter(description = "종목코드")
+            @PathVariable String stockCode,
+            @Parameter(description = "조회 기간 (일)")
+            @RequestParam(required = false, defaultValue = "30") Integer days) {
+
+        List<NaverFinanceCrawler.LoanBalanceData> data = naverFinanceCrawler.crawlLoanBalanceData(stockCode, days);
+
+        if (data.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.fail("대차잔고 데이터를 조회할 수 없습니다."));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    @Operation(summary = "네이버 공매도/대차잔고 통합 데이터",
+               description = "네이버 금융에서 공매도와 대차잔고 데이터를 통합하여 조회합니다.")
+    @GetMapping("/naver/combined/{stockCode}")
+    public ResponseEntity<ApiResponse<Map<LocalDate, NaverFinanceCrawler.CombinedShortData>>> getNaverCombinedData(
+            @Parameter(description = "종목코드")
+            @PathVariable String stockCode,
+            @Parameter(description = "조회 기간 (일)")
+            @RequestParam(required = false, defaultValue = "30") Integer days) {
+
+        Map<LocalDate, NaverFinanceCrawler.CombinedShortData> data = naverFinanceCrawler.crawlCombinedData(stockCode, days);
+
+        if (data.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.fail("데이터를 조회할 수 없습니다."));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(data));
     }
 }

@@ -7,8 +7,11 @@ import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -219,10 +222,14 @@ public class InvestorTradeService {
 
     /**
      * 특정 일자의 투자자별 매매 데이터 수집 (한국투자증권 API 호출)
+     *
+     * [캐시 초기화] 새 데이터가 수집되면 연속 매수 캐시 전체 초기화
+     * - 신규 데이터가 들어오면 연속 매수 패턴이 변경될 수 있으므로
      */
     @Transactional
+    @CacheEvict(value = "consecutiveBuys", allEntries = true)
     public Map<String, Integer> collectInvestorTradeData(LocalDate tradeDate) {
-        log.info("투자자별 매매 데이터 수집 시작: {}", tradeDate);
+        log.info("투자자별 매매 데이터 수집 시작: {} (consecutiveBuys 캐시 초기화)", tradeDate);
         return kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);
     }
 
@@ -302,9 +309,14 @@ public class InvestorTradeService {
      * - 개선: 가장 최근 거래일에 매수한 종목만 후보군으로 추려서 분석
      *         (오늘 매수하지 않은 종목은 이미 연속이 끊긴 것이므로 제외)
      *
+     * [캐싱] 장 마감 후 하루에 한 번 변경되므로 1시간 TTL 캐시 적용
+     * - Cache Key: investorType + "_" + minDays (예: "FOREIGN_5")
+     * - 데이터 수집 시 캐시 자동 초기화
+     *
      * @param investorType 투자자 유형 (FOREIGN, INSTITUTION, INDIVIDUAL)
      * @param minDays 최소 연속 일수 (기본 3일)
      */
+    @Cacheable(value = "consecutiveBuys", key = "#investorType + '_' + (#minDays != null ? #minDays : 3)")
     public List<ConsecutiveBuyDto> getConsecutiveBuyStocks(String investorType, Integer minDays) {
         if (minDays == null || minDays < 1) {
             minDays = 3;
@@ -463,6 +475,27 @@ public class InvestorTradeService {
         result.put("INDIVIDUAL", getConsecutiveBuyStocks("INDIVIDUAL", minDays));  // 개인 추가
 
         return result;
+    }
+
+    /**
+     * 연속 매수 캐시 초기화
+     * - 수동으로 캐시를 비우고 싶을 때 사용
+     * - 장 마감(16:00) 스케줄러에서 자동 호출
+     */
+    @CacheEvict(value = "consecutiveBuys", allEntries = true)
+    public void clearConsecutiveBuysCache() {
+        log.info("연속 매수 캐시 초기화 완료 (consecutiveBuys)");
+    }
+
+    /**
+     * 장 마감 후 캐시 자동 초기화 (매일 16:05)
+     * - 16:00에 데이터 수집이 실행되고, 5분 후 캐시 초기화
+     * - 데이터 수집 시에도 @CacheEvict가 적용되지만, 안전하게 이중 초기화
+     */
+    @Scheduled(cron = "0 5 16 * * MON-FRI", zone = "Asia/Seoul")
+    public void scheduledCacheEvict() {
+        clearConsecutiveBuysCache();
+        log.info("장 마감 후 연속 매수 캐시 스케줄 초기화 완료");
     }
 
     /**

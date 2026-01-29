@@ -35,6 +35,7 @@ public class ShortSellingDataCollector {
 
     private final StockShortDataRepository shortDataRepository;
     private final KoreaInvestmentService koreaInvestmentService;
+    private final NaverFinanceCrawler naverFinanceCrawler;
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
@@ -127,25 +128,29 @@ public class ShortSellingDataCollector {
     }
 
     /**
-     * 대차잔고 데이터 수집 (금융투자협회 FREESIS)
+     * 대차잔고 데이터 수집 (금융투자협회 FREESIS + 네이버 금융 fallback)
      *
-     * 실제 API 호출 예시:
-     * - URL: https://freesis.kofia.or.kr/api/data/stock/loan-balance
-     * - Method: POST
-     * - Params: { "basDt": "2024-01-15", "mktTpCd": "01" }
+     * 데이터 소스 우선순위:
+     * 1. 한국투자증권 API
+     * 2. 네이버 금융 크롤링 (fallback)
      */
     private Map<String, StockShortData> collectLoanBalanceData(LocalDate tradeDate) {
         Map<String, StockShortData> result = new HashMap<>();
         String dateStr = tradeDate.format(KRX_DATE_FORMATTER);
 
         try {
-            // KOFIA FREESIS API 호출 (실제 API 키 필요)
-            // 현재는 한국투자증권 API를 통해 개별 종목 조회로 대체
             List<String> targetStocks = getTargetStockCodes();
 
             for (String stockCode : targetStocks) {
                 try {
+                    // 1. 한국투자증권 API 시도
                     StockShortData data = fetchLoanBalanceFromKis(stockCode, tradeDate);
+
+                    // 2. KIS API 실패 시 네이버 금융 크롤링으로 fallback
+                    if (data == null || data.getLoanBalanceQuantity() == null) {
+                        data = fetchLoanBalanceFromNaver(stockCode, tradeDate);
+                    }
+
                     if (data != null) {
                         result.put(stockCode, data);
                     }
@@ -163,6 +168,57 @@ public class ShortSellingDataCollector {
         }
 
         return result;
+    }
+
+    /**
+     * 네이버 금융에서 대차잔고 데이터 조회 (fallback)
+     */
+    private StockShortData fetchLoanBalanceFromNaver(String stockCode, LocalDate tradeDate) {
+        try {
+            // 네이버 금융에서 최근 7일 데이터 크롤링
+            List<NaverFinanceCrawler.LoanBalanceData> loanDataList =
+                    naverFinanceCrawler.crawlLoanBalanceData(stockCode, 7);
+
+            // 해당 날짜의 데이터 찾기
+            for (NaverFinanceCrawler.LoanBalanceData loanData : loanDataList) {
+                if (loanData.getTradeDate().equals(tradeDate)) {
+                    // 공매도 데이터도 조회
+                    List<NaverFinanceCrawler.ShortSellingData> shortDataList =
+                            naverFinanceCrawler.crawlShortSellingData(stockCode, 7);
+
+                    BigDecimal closePrice = BigDecimal.ZERO;
+                    BigDecimal shortVolume = BigDecimal.ZERO;
+                    BigDecimal shortRatio = BigDecimal.ZERO;
+
+                    for (NaverFinanceCrawler.ShortSellingData shortData : shortDataList) {
+                        if (shortData.getTradeDate().equals(tradeDate)) {
+                            closePrice = shortData.getClosePrice();
+                            shortVolume = shortData.getShortVolume();
+                            shortRatio = shortData.getShortRatio();
+                            break;
+                        }
+                    }
+
+                    return StockShortData.builder()
+                            .stockCode(stockCode)
+                            .stockName(getStockNameFromCode(stockCode))
+                            .tradeDate(tradeDate)
+                            .closePrice(closePrice)
+                            .loanBalanceQuantity(loanData.getLoanBalance())
+                            .loanBalanceValue(loanData.getLoanBalanceValue())
+                            .shortVolume(shortVolume)
+                            .shortRatio(shortRatio)
+                            .build();
+                }
+            }
+
+            log.debug("네이버 금융에서 {} 날짜의 데이터를 찾지 못함: {}", tradeDate, stockCode);
+            return null;
+
+        } catch (Exception e) {
+            log.debug("네이버 금융 대차잔고 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
     }
 
     /**

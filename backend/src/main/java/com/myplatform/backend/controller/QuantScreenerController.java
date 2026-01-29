@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.service.AsyncCrawlerService;
 import com.myplatform.backend.service.FinancialDataCrawlerService;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
@@ -35,6 +36,7 @@ public class QuantScreenerController {
     private final GeminiService geminiService;
     private final StockFinancialDataService stockFinancialDataService;
     private final FinancialDataCrawlerService financialDataCrawlerService;
+    private final AsyncCrawlerService asyncCrawlerService;
 
     /**
      * 마법의 공식 스크리너
@@ -450,6 +452,131 @@ public class QuantScreenerController {
             response.put("message", "크롤링 중 오류 발생: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    // ========== 비동기 크롤링 API (SSE 연동) ==========
+
+    /**
+     * 영업이익률 크롤링 (비동기)
+     * - 즉시 응답하고 백그라운드에서 크롤링 수행
+     * - SSE로 진행률 실시간 전송 (/api/sse/subscribe?taskType=crawl-operating-margin)
+     */
+    @PostMapping("/crawl-operating-margin/async")
+    @Operation(summary = "영업이익률 크롤링 (비동기)",
+               description = "즉시 응답하고 백그라운드에서 크롤링을 수행합니다.\n\n" +
+                           "**SSE 연동 방법:**\n" +
+                           "1. 먼저 `/api/sse/subscribe?taskType=crawl-operating-margin` 구독\n" +
+                           "2. 이 API 호출\n" +
+                           "3. SSE로 진행률 수신 (PROGRESS, COMPLETE 이벤트)")
+    public ResponseEntity<Map<String, Object>> crawlOperatingMarginAsync(
+            @Parameter(description = "기존 데이터 강제 업데이트 여부 (기본: false)")
+            @RequestParam(defaultValue = "false") boolean forceUpdate) {
+
+        log.info("영업이익률 비동기 크롤링 API 호출 - forceUpdate: {}", forceUpdate);
+
+        Map<String, Object> response = new HashMap<>();
+
+        // 이미 실행 중인지 확인
+        if (asyncCrawlerService.isTaskRunning("crawl-operating-margin")) {
+            response.put("success", false);
+            response.put("message", "이미 크롤링이 진행 중입니다. SSE를 구독하여 진행률을 확인하세요.");
+            response.put("taskType", "crawl-operating-margin");
+            return ResponseEntity.ok(response);
+        }
+
+        // 비동기 작업 시작
+        asyncCrawlerService.crawlAllOperatingMarginAsync(forceUpdate);
+
+        response.put("success", true);
+        response.put("message", "영업이익률 크롤링이 시작되었습니다. SSE를 구독하여 진행률을 확인하세요.");
+        response.put("taskType", "crawl-operating-margin");
+        response.put("sseEndpoint", "/api/sse/subscribe?taskType=crawl-operating-margin");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 분기별 재무제표 수집 (비동기)
+     * - 즉시 응답하고 백그라운드에서 수집 수행
+     * - SSE로 진행률 실시간 전송 (/api/sse/subscribe?taskType=collect-finance)
+     */
+    @PostMapping("/collect/finance/async")
+    @Operation(summary = "분기별 재무제표 수집 (비동기)",
+               description = "즉시 응답하고 백그라운드에서 수집을 수행합니다.\n\n" +
+                           "**SSE 연동 방법:**\n" +
+                           "1. 먼저 `/api/sse/subscribe?taskType=collect-finance` 구독\n" +
+                           "2. 이 API 호출\n" +
+                           "3. SSE로 진행률 수신 (PROGRESS, COMPLETE 이벤트)")
+    public ResponseEntity<Map<String, Object>> collectQuarterlyFinanceAsync() {
+        log.info("분기별 재무제표 비동기 수집 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+
+        // 이미 실행 중인지 확인
+        if (asyncCrawlerService.isTaskRunning("collect-finance")) {
+            response.put("success", false);
+            response.put("message", "이미 수집이 진행 중입니다. SSE를 구독하여 진행률을 확인하세요.");
+            response.put("taskType", "collect-finance");
+            return ResponseEntity.ok(response);
+        }
+
+        // 비동기 작업 시작
+        asyncCrawlerService.collectQuarterlyFinanceAsync();
+
+        response.put("success", true);
+        response.put("message", "분기별 재무제표 수집이 시작되었습니다. SSE를 구독하여 진행률을 확인하세요.");
+        response.put("taskType", "collect-finance");
+        response.put("sseEndpoint", "/api/sse/subscribe?taskType=collect-finance");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 종목명 일괄 수정 (비동기)
+     */
+    @PostMapping("/fix-stock-names/async")
+    @Operation(summary = "종목명 일괄 수정 (비동기)",
+               description = "즉시 응답하고 백그라운드에서 수정을 수행합니다.")
+    public ResponseEntity<Map<String, Object>> fixAllStockNamesAsync() {
+        log.info("종목명 일괄 수정 비동기 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+
+        if (asyncCrawlerService.isTaskRunning("fix-stock-names")) {
+            response.put("success", false);
+            response.put("message", "이미 수정 작업이 진행 중입니다.");
+            return ResponseEntity.ok(response);
+        }
+
+        asyncCrawlerService.fixAllStockNamesAsync();
+
+        response.put("success", true);
+        response.put("message", "종목명 수정이 시작되었습니다. SSE를 구독하여 진행률을 확인하세요.");
+        response.put("taskType", "fix-stock-names");
+        response.put("sseEndpoint", "/api/sse/subscribe?taskType=fix-stock-names");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 크롤링 작업 상태 확인
+     */
+    @GetMapping("/async-status")
+    @Operation(summary = "비동기 작업 상태 확인",
+               description = "현재 진행 중인 비동기 크롤링/수집 작업 상태를 확인합니다.")
+    public ResponseEntity<Map<String, Object>> getAsyncStatus() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("crawlOperatingMargin", Map.of(
+                "running", asyncCrawlerService.isTaskRunning("crawl-operating-margin"),
+                "taskType", "crawl-operating-margin"
+        ));
+        response.put("collectFinance", Map.of(
+                "running", asyncCrawlerService.isTaskRunning("collect-finance"),
+                "taskType", "collect-finance"
+        ));
+        response.put("fixStockNames", Map.of(
+                "running", asyncCrawlerService.isTaskRunning("fix-stock-names"),
+                "taskType", "fix-stock-names"
+        ));
+        return ResponseEntity.ok(response);
     }
 
     /**
