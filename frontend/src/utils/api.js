@@ -553,6 +553,50 @@ export const telegramAPI = {
   }
 };
 
+// Paper Trading (모의투자) API
+export const paperTradingAPI = {
+  // 계좌 요약 조회
+  getAccountSummary() {
+    return apiClient.get('/paper-trading/account/summary');
+  },
+  // 포트폴리오 조회
+  getPortfolio() {
+    return apiClient.get('/paper-trading/portfolio');
+  },
+  // 거래 내역 조회 (페이징)
+  getTradeHistory(page = 0, size = 20) {
+    return apiClient.get('/paper-trading/trades', { params: { page, size } });
+  },
+  // 거래 통계 조회
+  getStatistics() {
+    return apiClient.get('/paper-trading/statistics');
+  },
+  // 수동 매수/매도
+  placeTrade(data) {
+    return apiClient.post('/paper-trading/trades', data);
+  },
+  // 계좌 초기화
+  initializeAccount() {
+    return apiClient.post('/paper-trading/account/initialize');
+  },
+  // 봇 상태 조회
+  getBotStatus() {
+    return apiClient.get('/paper-trading/bot/status');
+  },
+  // 봇 시작
+  startBot() {
+    return apiClient.post('/paper-trading/bot/start');
+  },
+  // 봇 중지
+  stopBot() {
+    return apiClient.post('/paper-trading/bot/stop');
+  },
+  // 포트폴리오 현재가 업데이트
+  refreshPortfolio() {
+    return apiClient.post('/paper-trading/portfolio/refresh');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

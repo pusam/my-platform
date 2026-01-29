@@ -199,6 +199,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/paper-trading',
+      name: 'PaperTrading',
+      component: () => import('./views/PaperTradingPage.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/admin/users',
       name: 'UserManagement',
       component: UserManagement,
