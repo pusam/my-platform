@@ -438,7 +438,6 @@ export default {
     return {
       username: '',
       newsList: [],
-      fetchingNews: false,
       showWidgetSettings: false,
       widgetSettings: {
         goldPrice: true,
@@ -562,32 +561,6 @@ export default {
       } catch (error) {
         console.error('뉴스 로드 실패:', error)
         this.newsList = []
-      }
-    },
-    openNewsUrl(url) {
-      if (url) {
-        window.open(url, '_blank')
-      }
-    },
-    formatNewsTime(dateStr) {
-      if (!dateStr) return ''
-      const date = new Date(dateStr)
-      const now = new Date()
-      const diffHours = Math.floor((now - date) / (1000 * 60 * 60))
-      if (diffHours < 1) return '방금 전'
-      if (diffHours < 24) return `${diffHours}시간 전`
-      return date.toLocaleDateString('ko-KR')
-    },
-    async fetchNews() {
-      this.fetchingNews = true
-      try {
-        await newsAPI.fetchNews()
-        await this.loadNews()
-      } catch (error) {
-        console.error('뉴스 수집 실패:', error)
-        alert('뉴스 수집에 실패했습니다. AI 서버(Ollama)가 실행 중인지 확인해주세요.')
-      } finally {
-        this.fetchingNews = false
       }
     },
     goToBoard() {
