@@ -9,7 +9,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Tag(name = "뉴스 요약", description = "경제 뉴스 AI 요약 API")
 @RestController
@@ -37,10 +39,19 @@ public class NewsController {
         return ResponseEntity.ok(ApiResponse.success("최근 뉴스 조회 성공", news));
     }
 
-    @Operation(summary = "뉴스 수동 수집", description = "경제 뉴스를 수동으로 수집하고 요약합니다. (관리자용)")
+    @Operation(
+        summary = "뉴스 수동 수집 (비동기)",
+        description = "경제 뉴스를 백그라운드에서 수집하고 요약합니다. 즉시 응답을 반환하며, 수집은 백그라운드에서 진행됩니다."
+    )
     @PostMapping("/fetch")
-    public ResponseEntity<ApiResponse<Integer>> fetchNews() {
-        int count = newsService.manualFetchNews();
-        return ResponseEntity.ok(ApiResponse.success("뉴스 수집 완료", count));
+    public ResponseEntity<ApiResponse<Map<String, Object>>> fetchNews() {
+        // 비동기로 뉴스 수집 시작 (결과를 기다리지 않음)
+        newsService.manualFetchNewsAsync();
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("status", "STARTED");
+        result.put("message", "뉴스 수집 작업이 백그라운드에서 시작되었습니다. 완료까지 1~2분 소요될 수 있습니다.");
+
+        return ResponseEntity.ok(ApiResponse.success("뉴스 수집 작업 시작됨", result));
     }
 }

@@ -74,7 +74,8 @@ public class AutoTradingBotService {
                     "<b>🤖 [모의투자] 자동매매 봇 시작!</b>\n\n" +
                     "✅ 봇이 활성화되었습니다.\n" +
                     "⏰ 매수: 평일 09:30\n" +
-                    "⏰ 손절/익절 체크: 매분\n\n" +
+                    "⏰ 손절/익절 체크: 매분\n" +
+                    "⏰ 장 마감 청산: 평일 15:20\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     "🤖 MyPlatform 모의투자"
             );
@@ -370,6 +371,167 @@ public class AutoTradingBotService {
     }
 
     /**
+     * 장 마감 청산 (평일 15:20) - 오버나잇 리스크 방지
+     */
+    @Scheduled(cron = "0 20 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeTimeCut() {
+        if (!botActive.get()) {
+            log.debug("[자동매매] 봇이 비활성화 상태이므로 장 마감 청산을 건너뜁니다.");
+            return;
+        }
+
+        log.info("[자동매매] 장 마감 청산(Time-Cut) 실행 시작");
+
+        try {
+            TimeCutResult result = sellAllPortfolio();
+
+            // 텔레그램 알림
+            if (telegramService.isEnabled()) {
+                sendTimeCutReport(result);
+            }
+
+            log.info("[자동매매] 장 마감 청산 완료 - {}종목 매도, 총 손익: {}원",
+                    result.getSoldCount(), result.getTotalProfitLoss());
+
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            lastErrorTime = LocalDateTime.now();
+            log.error("[자동매매] 장 마감 청산 오류", e);
+
+            if (telegramService.isEnabled()) {
+                telegramService.sendMessage(
+                        "<b>⚠️ [장 마감] 청산 오류 발생!</b>\n\n" +
+                        "❌ 에러: " + e.getMessage() + "\n\n" +
+                        "━━━━━━━━━━━━━━━━\n" +
+                        "🤖 MyPlatform 모의투자"
+                );
+            }
+        }
+    }
+
+    /**
+     * 전체 포트폴리오 청산 (Time-Cut)
+     * @return 청산 결과 (매도 종목 수, 총 손익)
+     */
+    public TimeCutResult sellAllPortfolio() {
+        VirtualAccount account = virtualTradeService.getOrCreateActiveAccount();
+        List<VirtualPortfolio> portfolios = portfolioRepository.findByAccountId(account.getId());
+
+        if (portfolios.isEmpty()) {
+            log.info("[자동매매] 보유 종목이 없어 장 마감 청산을 건너뜁니다.");
+            return new TimeCutResult(0, BigDecimal.ZERO, List.of());
+        }
+
+        // 종목코드 리스트
+        List<String> stockCodes = portfolios.stream()
+                .map(VirtualPortfolio::getStockCode)
+                .collect(Collectors.toList());
+
+        // 일괄 시세 조회
+        Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(stockCodes);
+
+        int soldCount = 0;
+        BigDecimal totalProfitLoss = BigDecimal.ZERO;
+        List<TimeCutItem> soldItems = new java.util.ArrayList<>();
+
+        for (VirtualPortfolio portfolio : portfolios) {
+            StockPriceDto priceDto = prices.get(portfolio.getStockCode());
+            if (priceDto == null || priceDto.getCurrentPrice() == null) {
+                log.warn("[자동매매] {} 시세 조회 실패, 스킵", portfolio.getStockCode());
+                continue;
+            }
+
+            BigDecimal currentPrice = priceDto.getCurrentPrice();
+
+            try {
+                // 전량 매도 (사유: TIME_CUT)
+                TradeHistoryDto result = virtualTradeService.sell(
+                        portfolio.getStockCode(),
+                        currentPrice,
+                        portfolio.getQuantity(),
+                        "TIME_CUT"
+                );
+
+                lastTradeTime = LocalDateTime.now();
+                todaySellCount.incrementAndGet();
+                soldCount++;
+
+                BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
+                totalProfitLoss = totalProfitLoss.add(profitLoss);
+
+                // 손익률 계산
+                BigDecimal profitRate = currentPrice.subtract(portfolio.getAveragePrice())
+                        .divide(portfolio.getAveragePrice(), 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+
+                soldItems.add(new TimeCutItem(
+                        portfolio.getStockName(),
+                        portfolio.getStockCode(),
+                        portfolio.getQuantity(),
+                        currentPrice,
+                        profitLoss,
+                        profitRate
+                ));
+
+                log.info("[자동매매] TIME_CUT 매도: {} x {} @ {}원, 손익: {}원",
+                        portfolio.getStockName(), portfolio.getQuantity(), currentPrice, profitLoss);
+
+                // API 호출 제한 방지
+                Thread.sleep(300);
+
+            } catch (Exception e) {
+                log.error("[자동매매] TIME_CUT 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage());
+            }
+        }
+
+        return new TimeCutResult(soldCount, totalProfitLoss, soldItems);
+    }
+
+    /**
+     * 장 마감 청산 결과 텔레그램 리포트 발송
+     */
+    private void sendTimeCutReport(TimeCutResult result) {
+        StringBuilder message = new StringBuilder();
+
+        String profitEmoji = result.getTotalProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
+        String profitSign = result.getTotalProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
+
+        message.append("<b>🔔 [장 마감] 금일 매매 종료!</b>\n\n");
+        message.append("⏰ ").append(LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))).append("\n\n");
+
+        if (result.getSoldCount() == 0) {
+            message.append("📭 청산할 보유 종목이 없습니다.\n");
+        } else {
+            message.append("📊 <b>청산 종목 (").append(result.getSoldCount()).append("건)</b>\n");
+
+            for (TimeCutItem item : result.getSoldItems()) {
+                String itemProfitSign = item.getProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
+                String itemEmoji = item.getProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "🔴" : "🔵";
+
+                message.append(itemEmoji).append(" ")
+                        .append(item.getStockName())
+                        .append(": ").append(itemProfitSign)
+                        .append(String.format("%,.0f", item.getProfitLoss())).append("원")
+                        .append(" (").append(itemProfitSign)
+                        .append(String.format("%.2f", item.getProfitRate())).append("%)\n");
+            }
+        }
+
+        message.append("\n━━━━━━━━━━━━━━━━\n");
+        message.append(profitEmoji).append(" <b>총 손익: ").append(profitSign)
+                .append(String.format("%,.0f", result.getTotalProfitLoss())).append("원</b>\n");
+
+        // 오늘의 거래 요약
+        message.append("\n📌 금일 거래: 매수 ").append(todayBuyCount.get())
+                .append("건 / 매도 ").append(todaySellCount.get()).append("건\n");
+
+        message.append("\n━━━━━━━━━━━━━━━━\n");
+        message.append("🤖 MyPlatform 모의투자");
+
+        telegramService.sendMessage(message.toString());
+    }
+
+    /**
      * 일일 카운터 초기화
      */
     private void resetDailyCounters() {
@@ -379,5 +541,30 @@ public class AutoTradingBotService {
             todaySellCount.set(0);
             lastResetDate = today;
         }
+    }
+
+    /**
+     * 장 마감 청산 결과 DTO
+     */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class TimeCutResult {
+        private int soldCount;
+        private BigDecimal totalProfitLoss;
+        private List<TimeCutItem> soldItems;
+    }
+
+    /**
+     * 장 마감 청산 개별 종목 정보
+     */
+    @lombok.Data
+    @lombok.AllArgsConstructor
+    public static class TimeCutItem {
+        private String stockName;
+        private String stockCode;
+        private int quantity;
+        private BigDecimal sellPrice;
+        private BigDecimal profitLoss;
+        private BigDecimal profitRate;
     }
 }

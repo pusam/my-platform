@@ -40,6 +40,7 @@ public class InvestorSurgeService {
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
     private static final BigDecimal SURGE_THRESHOLD_WARM = new BigDecimal("50");   // 50억 이상
+    private static final BigDecimal COMMON_SURGE_THRESHOLD = new BigDecimal("30"); // 쌍끌이 합산 30억 이상
 
     // 알림 재발송 금지 (30분 내 동일 종목)
     private static final long ALERT_COOLDOWN_MINUTES = 30;
@@ -591,7 +592,11 @@ public class InvestorSurgeService {
     // ============================================================
 
     /**
-     * HOT 등급 또는 쌍끌이 종목 알림 발송
+     * 수급 급증 종목 알림 발송 (고도화 버전)
+     *
+     * 알림 발송 조건:
+     * 1. 쌍끌이 (COMMON): 외국인 > 0 AND 기관 > 0, 합산 30억 이상 → 최우선 발송
+     * 2. 단독 (FOREIGN/INSTITUTION): 100억 이상(HOT)만 알림 → 쌍끌이 종목은 제외
      */
     private void sendSurgeAlerts(List<InvestorIntradaySnapshot> foreignSnapshots,
                                   List<InvestorIntradaySnapshot> institutionSnapshots) {
@@ -602,43 +607,61 @@ public class InvestorSurgeService {
         // 만료된 알림 기록 정리
         cleanupExpiredAlerts();
 
-        // 외국인/기관 HOT 종목 추출
-        Set<String> foreignHotCodes = extractHotStockCodes(foreignSnapshots);
-        Set<String> institutionHotCodes = extractHotStockCodes(institutionSnapshots);
-
-        // 쌍끌이 종목 (외국인 + 기관 모두 HOT)
-        Set<String> commonHotCodes = new HashSet<>(foreignHotCodes);
-        commonHotCodes.retainAll(institutionHotCodes);
-
         // 스냅샷을 Map으로 변환
         Map<String, InvestorIntradaySnapshot> foreignMap = foreignSnapshots.stream()
+                .filter(s -> s.getNetBuyAmount() != null)
                 .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
         Map<String, InvestorIntradaySnapshot> institutionMap = institutionSnapshots.stream()
+                .filter(s -> s.getNetBuyAmount() != null)
                 .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
 
+        // 쌍끌이 종목 추출: 외국인 > 0 AND 기관 > 0 AND 합산 >= 30억
+        Set<String> commonCodes = extractCommonBuyingStocks(foreignMap, institutionMap);
+
         // 1. 쌍끌이 종목 알림 (최우선)
-        for (String stockCode : commonHotCodes) {
+        for (String stockCode : commonCodes) {
             if (canSendAlert(stockCode, "COMMON")) {
                 InvestorIntradaySnapshot foreign = foreignMap.get(stockCode);
                 InvestorIntradaySnapshot institution = institutionMap.get(stockCode);
                 sendCommonSurgeAlert(foreign, institution);
                 markAlertSent(stockCode, "COMMON");
+                // 쌍끌이 알림 발송 시 개별 알림도 쿨다운 적용 (중복 알림 방지)
+                markAlertSent(stockCode, "FOREIGN");
+                markAlertSent(stockCode, "INSTITUTION");
             }
         }
 
-        // 2. 외국인 단독 HOT 종목 알림
-        for (String stockCode : foreignHotCodes) {
-            if (!commonHotCodes.contains(stockCode) && canSendAlert(stockCode, "FOREIGN")) {
-                InvestorIntradaySnapshot snapshot = foreignMap.get(stockCode);
+        // 2. 외국인 단독 HOT 종목 알림 (100억 이상, 쌍끌이 제외)
+        for (Map.Entry<String, InvestorIntradaySnapshot> entry : foreignMap.entrySet()) {
+            String stockCode = entry.getKey();
+            InvestorIntradaySnapshot snapshot = entry.getValue();
+
+            // 쌍끌이 종목은 제외
+            if (commonCodes.contains(stockCode)) {
+                continue;
+            }
+
+            // 100억 이상(HOT)만 알림
+            if (snapshot.getNetBuyAmount().compareTo(SURGE_THRESHOLD_HOT) >= 0
+                    && canSendAlert(stockCode, "FOREIGN")) {
                 sendSingleSurgeAlert(snapshot, "FOREIGN");
                 markAlertSent(stockCode, "FOREIGN");
             }
         }
 
-        // 3. 기관 단독 HOT 종목 알림
-        for (String stockCode : institutionHotCodes) {
-            if (!commonHotCodes.contains(stockCode) && canSendAlert(stockCode, "INSTITUTION")) {
-                InvestorIntradaySnapshot snapshot = institutionMap.get(stockCode);
+        // 3. 기관 단독 HOT 종목 알림 (100억 이상, 쌍끌이 제외)
+        for (Map.Entry<String, InvestorIntradaySnapshot> entry : institutionMap.entrySet()) {
+            String stockCode = entry.getKey();
+            InvestorIntradaySnapshot snapshot = entry.getValue();
+
+            // 쌍끌이 종목은 제외
+            if (commonCodes.contains(stockCode)) {
+                continue;
+            }
+
+            // 100억 이상(HOT)만 알림
+            if (snapshot.getNetBuyAmount().compareTo(SURGE_THRESHOLD_HOT) >= 0
+                    && canSendAlert(stockCode, "INSTITUTION")) {
                 sendSingleSurgeAlert(snapshot, "INSTITUTION");
                 markAlertSent(stockCode, "INSTITUTION");
             }
@@ -646,14 +669,41 @@ public class InvestorSurgeService {
     }
 
     /**
-     * HOT 등급 종목 코드 추출
+     * 쌍끌이 종목 추출
+     * 조건: 외국인 순매수 > 0 AND 기관 순매수 > 0 AND 합산 >= 30억
      */
-    private Set<String> extractHotStockCodes(List<InvestorIntradaySnapshot> snapshots) {
-        return snapshots.stream()
-                .filter(s -> s.getNetBuyAmount() != null &&
-                             s.getNetBuyAmount().compareTo(SURGE_THRESHOLD_HOT) >= 0)
-                .map(InvestorIntradaySnapshot::getStockCode)
-                .collect(Collectors.toSet());
+    private Set<String> extractCommonBuyingStocks(
+            Map<String, InvestorIntradaySnapshot> foreignMap,
+            Map<String, InvestorIntradaySnapshot> institutionMap) {
+
+        Set<String> commonCodes = new HashSet<>();
+
+        for (String stockCode : foreignMap.keySet()) {
+            // 기관에도 있는지 확인
+            if (!institutionMap.containsKey(stockCode)) {
+                continue;
+            }
+
+            InvestorIntradaySnapshot foreign = foreignMap.get(stockCode);
+            InvestorIntradaySnapshot institution = institutionMap.get(stockCode);
+
+            BigDecimal foreignNetBuy = foreign.getNetBuyAmount();
+            BigDecimal instNetBuy = institution.getNetBuyAmount();
+
+            // 둘 다 순매수 > 0 확인
+            if (foreignNetBuy.compareTo(BigDecimal.ZERO) <= 0
+                    || instNetBuy.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            // 합산 30억 이상 확인
+            BigDecimal totalNetBuy = foreignNetBuy.add(instNetBuy);
+            if (totalNetBuy.compareTo(COMMON_SURGE_THRESHOLD) >= 0) {
+                commonCodes.add(stockCode);
+            }
+        }
+
+        return commonCodes;
     }
 
     /**
@@ -664,16 +714,30 @@ public class InvestorSurgeService {
         BigDecimal instNetBuy = institution.getNetBuyAmount() != null ? institution.getNetBuyAmount() : BigDecimal.ZERO;
         BigDecimal totalNetBuy = foreignNetBuy.add(instNetBuy);
 
+        // 강도 레벨 결정
+        String intensity;
+        String intensityEmoji;
+        if (totalNetBuy.compareTo(SURGE_THRESHOLD_HOT) >= 0) {
+            intensity = "HOT";
+            intensityEmoji = "🔥🔥";
+        } else if (totalNetBuy.compareTo(SURGE_THRESHOLD_WARM) >= 0) {
+            intensity = "WARM";
+            intensityEmoji = "🔥";
+        } else {
+            intensity = "ACTIVE";
+            intensityEmoji = "✨";
+        }
+
         String message = String.format(
             """
-            <b>🚨 [수급 포착] %s (%s)</b>
+            <b>🚨 [강력 매수] %s (쌍끌이)</b>
 
-            🔥 강도: <b>HOT</b> (매집 의심)
-            🤝 주체: <b>외국인+기관 쌍끌이</b>
+            %s 강도: <b>%s</b>
+            🤝 외국인+기관 동시 순매수!
 
-            💰 순매수: <b>%s억</b>
-               • 외국인: %s억
-               • 기관: %s억
+            💰 합산 순매수: <b>%s억</b>
+               🌍 외국인: %s억
+               🏢 기관: %s억
 
             💵 현재가: <b>%s원</b> (%s)
 
@@ -682,7 +746,8 @@ public class InvestorSurgeService {
             🤖 MyPlatform 수급 알림
             """,
             foreign.getStockName(),
-            foreign.getStockCode(),
+            intensityEmoji,
+            intensity,
             formatAmount(totalNetBuy),
             formatAmount(foreignNetBuy),
             formatAmount(instNetBuy),
@@ -692,22 +757,25 @@ public class InvestorSurgeService {
         );
 
         telegramService.sendMessage(message);
-        log.info("쌍끌이 수급 알림 발송: {} ({})", foreign.getStockName(), foreign.getStockCode());
+        log.info("🚨 쌍끌이 알림 발송: {} ({}) - 합산 {}억 (외국인 {}억 + 기관 {}억)",
+                foreign.getStockName(), foreign.getStockCode(),
+                formatAmount(totalNetBuy), formatAmount(foreignNetBuy), formatAmount(instNetBuy));
     }
 
     /**
-     * 단일 투자자 HOT 종목 알림 발송
+     * 단독 수급 HOT 종목 알림 발송 (100억 이상만)
      */
     private void sendSingleSurgeAlert(InvestorIntradaySnapshot snapshot, String investorType) {
         String investorEmoji = "FOREIGN".equals(investorType) ? "🌍" : "🏢";
         String investorName = "FOREIGN".equals(investorType) ? "외국인" : "기관";
+        BigDecimal netBuy = snapshot.getNetBuyAmount();
 
         String message = String.format(
             """
-            <b>🚨 [수급 포착] %s (%s)</b>
+            <b>🌊 [수급 쏠림] %s (%s %s억↑)</b>
 
             🔥 강도: <b>HOT</b>
-            %s 주체: <b>%s 집중 매수</b>
+            %s 주체: <b>%s 단독 집중 매수</b>
 
             💰 순매수: <b>%s억</b>
             💵 현재가: <b>%s원</b> (%s)
@@ -717,17 +785,19 @@ public class InvestorSurgeService {
             🤖 MyPlatform 수급 알림
             """,
             snapshot.getStockName(),
-            snapshot.getStockCode(),
+            investorName,
+            formatAmount(netBuy),
             investorEmoji,
             investorName,
-            formatAmount(snapshot.getNetBuyAmount()),
+            formatAmount(netBuy),
             formatPrice(snapshot.getCurrentPrice()),
             formatChangeRate(snapshot.getChangeRate()),
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         telegramService.sendMessage(message);
-        log.info("{} 수급 알림 발송: {} ({})", investorName, snapshot.getStockName(), snapshot.getStockCode());
+        log.info("🌊 {} 단독 HOT 알림 발송: {} ({}) - {}억",
+                investorName, snapshot.getStockName(), snapshot.getStockCode(), formatAmount(netBuy));
     }
 
     /**

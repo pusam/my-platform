@@ -12,6 +12,8 @@ public class NewsSummaryDto {
     private String sourceUrl;
     private LocalDateTime publishedAt;
     private LocalDateTime summarizedAt;
+    private String sentiment;
+    private String sentimentLabel; // 한글 라벨
 
     public static NewsSummaryDto fromEntity(NewsSummary entity) {
         NewsSummaryDto dto = new NewsSummaryDto();
@@ -22,7 +24,19 @@ public class NewsSummaryDto {
         dto.setSourceUrl(entity.getSourceUrl());
         dto.setPublishedAt(entity.getPublishedAt());
         dto.setSummarizedAt(entity.getSummarizedAt());
+        dto.setSentiment(entity.getSentiment());
+        dto.setSentimentLabel(getSentimentLabel(entity.getSentiment()));
         return dto;
+    }
+
+    private static String getSentimentLabel(String sentiment) {
+        if (sentiment == null) return null;
+        return switch (sentiment) {
+            case "POSITIVE" -> "긍정";
+            case "NEGATIVE" -> "부정";
+            case "NEUTRAL" -> "중립";
+            default -> sentiment;
+        };
     }
 
     // Getters and Setters
@@ -80,5 +94,21 @@ public class NewsSummaryDto {
 
     public void setSummarizedAt(LocalDateTime summarizedAt) {
         this.summarizedAt = summarizedAt;
+    }
+
+    public String getSentiment() {
+        return sentiment;
+    }
+
+    public void setSentiment(String sentiment) {
+        this.sentiment = sentiment;
+    }
+
+    public String getSentimentLabel() {
+        return sentimentLabel;
+    }
+
+    public void setSentimentLabel(String sentimentLabel) {
+        this.sentimentLabel = sentimentLabel;
     }
 }

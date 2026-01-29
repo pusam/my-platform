@@ -32,6 +32,9 @@ public class NewsSummary {
     @Column(name = "summarized_at", nullable = false)
     private LocalDateTime summarizedAt;
 
+    @Column(name = "sentiment", length = 20)
+    private String sentiment; // POSITIVE, NEGATIVE, NEUTRAL
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -114,5 +117,13 @@ public class NewsSummary {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public String getSentiment() {
+        return sentiment;
+    }
+
+    public void setSentiment(String sentiment) {
+        this.sentiment = sentiment;
     }
 }

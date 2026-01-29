@@ -50,9 +50,15 @@ public class VirtualTradeService {
     private static final BigDecimal INITIAL_BALANCE = new BigDecimal("10000000"); // 1,000만원
 
     /**
-     * 계좌 초기화 (1,000만원)
+     * 계좌 초기화 (사용자 지정 금액)
+     * @param initialAmount 초기 자본금 (null이면 기본값 1,000만원)
      */
-    public AccountSummaryDto initializeAccount() {
+    public AccountSummaryDto initializeAccount(BigDecimal initialAmount) {
+        // 기본값 처리
+        BigDecimal balance = (initialAmount != null && initialAmount.compareTo(BigDecimal.ZERO) > 0)
+                ? initialAmount
+                : INITIAL_BALANCE;
+
         // 기존 활성 계좌 비활성화
         accountRepository.findByIsActiveTrue().ifPresent(account -> {
             account.setIsActive(false);
@@ -62,15 +68,15 @@ public class VirtualTradeService {
         // 새 계좌 생성
         VirtualAccount account = VirtualAccount.builder()
                 .accountName("모의투자 계좌")
-                .initialBalance(INITIAL_BALANCE)
-                .currentBalance(INITIAL_BALANCE)
+                .initialBalance(balance)
+                .currentBalance(balance)
                 .totalInvested(BigDecimal.ZERO)
                 .totalEvaluation(BigDecimal.ZERO)
                 .isActive(true)
                 .build();
 
         accountRepository.save(account);
-        log.info("가상 계좌 초기화 완료: {} - 초기자본 {}원", account.getId(), INITIAL_BALANCE);
+        log.info("가상 계좌 초기화 완료: {} - 초기자본 {}원", account.getId(), balance);
 
         return getAccountSummary();
     }
@@ -500,6 +506,7 @@ public class VirtualTradeService {
             case "STOP_LOSS" -> "🔻 손절";
             case "TAKE_PROFIT" -> "🔺 익절";
             case "AUTO_SELL" -> "🤖 자동매도";
+            case "TIME_CUT" -> "🔔 장마감청산";
             default -> "📝 수동매도";
         };
 
@@ -563,6 +570,7 @@ public class VirtualTradeService {
             case "STOP_LOSS" -> "손절";
             case "TAKE_PROFIT" -> "익절";
             case "AUTO_SELL" -> "자동매도";
+            case "TIME_CUT" -> "장마감청산";
             default -> "수동";
         };
 

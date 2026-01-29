@@ -46,17 +46,21 @@ public class PaperTradingController {
     }
 
     /**
-     * 계좌 초기화 (1,000만원)
+     * 계좌 초기화 (사용자 지정 금액)
      * POST /api/paper-trading/account/initialize
+     * @param request 초기 자본금 (선택, 미입력 시 1,000만원)
      */
     @PostMapping("/account/initialize")
-    public ResponseEntity<Map<String, Object>> initializeAccount() {
+    public ResponseEntity<Map<String, Object>> initializeAccount(@RequestBody(required = false) InitializeAccountRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
-            AccountSummaryDto summary = virtualTradeService.initializeAccount();
+            java.math.BigDecimal initialBalance = (request != null) ? request.getInitialBalance() : null;
+            AccountSummaryDto summary = virtualTradeService.initializeAccount(initialBalance);
+
+            String formattedAmount = String.format("%,d", summary.getInitialBalance().longValue());
             response.put("success", true);
             response.put("data", summary);
-            response.put("message", "계좌가 초기화되었습니다. 초기자본: 10,000,000원");
+            response.put("message", "계좌가 초기화되었습니다. 초기자본: " + formattedAmount + "원");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("계좌 초기화 실패", e);
@@ -64,6 +68,14 @@ public class PaperTradingController {
             response.put("error", e.getMessage());
             return ResponseEntity.badRequest().body(response);
         }
+    }
+
+    /**
+     * 계좌 초기화 요청 DTO
+     */
+    @lombok.Data
+    public static class InitializeAccountRequest {
+        private java.math.BigDecimal initialBalance;
     }
 
     /**

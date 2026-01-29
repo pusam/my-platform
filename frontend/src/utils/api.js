@@ -575,9 +575,9 @@ export const paperTradingAPI = {
   placeTrade(data) {
     return apiClient.post('/paper-trading/trades', data);
   },
-  // 계좌 초기화
-  initializeAccount() {
-    return apiClient.post('/paper-trading/account/initialize');
+  // 계좌 초기화 (초기 자본금 지정 가능)
+  initializeAccount(initialBalance = null) {
+    return apiClient.post('/paper-trading/account/initialize', { initialBalance });
   },
   // 봇 상태 조회
   getBotStatus() {

@@ -305,6 +305,25 @@
           <h3>계좌 초기화</h3>
           <p>정말 계좌를 초기화하시겠습니까?</p>
           <p class="warning">모든 거래 내역과 포트폴리오가 삭제됩니다.</p>
+          <div class="form-group">
+            <label>초기 자본금</label>
+            <div class="amount-input-group">
+              <input
+                v-model.number="initForm.initialBalance"
+                type="number"
+                min="100000"
+                step="1000000"
+                placeholder="10,000,000"
+              />
+              <span class="unit">원</span>
+            </div>
+            <div class="amount-presets">
+              <button type="button" @click="initForm.initialBalance = 5000000">500만</button>
+              <button type="button" @click="initForm.initialBalance = 10000000">1,000만</button>
+              <button type="button" @click="initForm.initialBalance = 50000000">5,000만</button>
+              <button type="button" @click="initForm.initialBalance = 100000000">1억</button>
+            </div>
+          </div>
           <div class="modal-actions">
             <button @click="showInitializeConfirm = false" class="cancel-btn">취소</button>
             <button @click="initializeAccount" class="submit-btn danger" :disabled="initLoading">
@@ -363,6 +382,10 @@ const sellForm = ref({
   price: 0,
   maxQuantity: 0,
   currentPrice: 0
+});
+
+const initForm = ref({
+  initialBalance: 10000000
 });
 
 // 자동 새로고침
@@ -560,10 +583,11 @@ const executeSell = async () => {
 const initializeAccount = async () => {
   initLoading.value = true;
   try {
-    const res = await paperTradingAPI.initializeAccount();
+    const res = await paperTradingAPI.initializeAccount(initForm.value.initialBalance);
     if (res.data.success) {
       alert(res.data.message);
       showInitializeConfirm.value = false;
+      initForm.value.initialBalance = 10000000; // 기본값으로 리셋
       await loadData();
     }
   } catch (error) {
@@ -1166,6 +1190,56 @@ onUnmounted(() => {
 .confirm-modal .warning {
   color: #ed8936;
   font-size: 0.9rem;
+}
+
+.amount-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.amount-input-group input {
+  flex: 1;
+  padding: 0.75rem;
+  background: #2a2a4a;
+  border: 1px solid #3a3a5a;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.amount-input-group input:focus {
+  outline: none;
+  border-color: #4a4a8a;
+}
+
+.amount-input-group .unit {
+  color: #aaa;
+  font-size: 1rem;
+}
+
+.amount-presets {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.amount-presets button {
+  flex: 1;
+  padding: 0.5rem;
+  background: #2a2a4a;
+  border: 1px solid #3a3a5a;
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.amount-presets button:hover {
+  background: #4a4a8a;
+  border-color: #4a4a8a;
+  color: #fff;
 }
 
 /* 데이터 없음 */

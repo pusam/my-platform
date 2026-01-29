@@ -26,4 +26,7 @@ public interface NewsSummaryRepository extends JpaRepository<NewsSummary, Long> 
     // 중복 체크 (같은 제목의 뉴스가 오늘 이미 있는지)
     @Query("SELECT COUNT(n) > 0 FROM NewsSummary n WHERE n.title = :title AND n.summarizedAt >= :startOfDay")
     boolean existsByTitleToday(@Param("title") String title, @Param("startOfDay") LocalDateTime startOfDay);
+
+    // URL 기준 중복 체크 (언론사 제목 수정 대응)
+    boolean existsBySourceUrl(String sourceUrl);
 }
