@@ -32,15 +32,16 @@ public class CacheConfig {
         SimpleCacheManager cacheManager = new SimpleCacheManager();
 
         cacheManager.setCaches(Arrays.asList(
-            // ========== 섹터 거래대금 캐시 (1분 TTL) ==========
-            buildCache("sectorTrading", 60, 100),
-            buildCache("sectorTradingToday", 60, 100),
-            buildCache("sectorTradingMin5", 60, 100),
-            buildCache("sectorTradingMin30", 60, 100),
+            // ========== 섹터 거래대금 캐시 (5분 TTL) ==========
+            // 실시간성보다 성능 우선 (API 호출 최소화)
+            buildCache("sectorTrading", 300, 100),
+            buildCache("sectorTradingToday", 300, 100),
+            buildCache("sectorTradingMin5", 300, 100),
+            buildCache("sectorTradingMin30", 300, 100),
 
-            // ========== 주식 시세 캐시 (1분 TTL) ==========
-            buildCache("stockPrice", 60, 500),
-            buildCache("stockPriceBatch", 60, 50),
+            // ========== 주식 시세 캐시 (3분 TTL) ==========
+            buildCache("stockPrice", 180, 500),
+            buildCache("stockPriceBatch", 180, 50),
 
             // ========== 투자자 매매동향 캐시 (5분 TTL) ==========
             buildCache("investorTrend", 300, 200),

@@ -88,26 +88,54 @@ public class StockPriceService {
             }
         }
 
-        // 2. 캐시 미스 종목들 API 조회
+        // 2. 캐시 미스 종목들 API 조회 (병렬 처리)
         if (!missingCodes.isEmpty()) {
-            log.debug("Batch 시세 조회 - 캐시 히트: {}, 미스: {}", result.size(), missingCodes.size());
+            log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {}", result.size(), missingCodes.size());
+            long startTime = System.currentTimeMillis();
 
-            for (String code : missingCodes) {
+            // 병렬 처리를 위한 CompletableFuture 리스트
+            List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+            // 동시 요청 수 제한 (API Rate Limit 고려)
+            int batchSize = 10;
+            for (int i = 0; i < missingCodes.size(); i += batchSize) {
+                int endIdx = Math.min(i + batchSize, missingCodes.size());
+                List<String> batch = missingCodes.subList(i, endIdx);
+
+                // 각 배치를 병렬로 처리
+                for (String code : batch) {
+                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                        try {
+                            StockPriceDto fetched = fetchStockPrice(code);
+                            if (fetched != null) {
+                                synchronized (result) {
+                                    result.put(code, fetched);
+                                }
+                                priceCache.put(code, fetched);
+                                stockPriceRepository.save(dtoToEntity(fetched));
+                            }
+                        } catch (Exception e) {
+                            log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
+                        }
+                    });
+                    futures.add(future);
+                }
+
+                // 배치 완료 대기 후 다음 배치 (Rate Limit 방지)
                 try {
-                    StockPriceDto fetched = fetchStockPrice(code);
-                    if (fetched != null) {
-                        stockPriceRepository.save(dtoToEntity(fetched));
-                        priceCache.put(code, fetched);
-                        result.put(code, fetched);
+                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                            .get(30, TimeUnit.SECONDS);
+                    futures.clear();
+                    if (endIdx < missingCodes.size()) {
+                        Thread.sleep(100);  // 배치 간 100ms 대기
                     }
-
-                    // API 호출 제한 방지 (50ms 간격)
-                    Thread.sleep(50);
-
                 } catch (Exception e) {
-                    log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
+                    log.warn("배치 처리 중 오류: {}", e.getMessage());
                 }
             }
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("Batch 시세 조회 완료 - 조회: {}, 소요: {}ms", missingCodes.size(), elapsed);
         }
 
         return result;
