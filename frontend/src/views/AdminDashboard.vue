@@ -294,6 +294,16 @@
             </div>
           </div>
 
+          <div class="section paper-trading-section">
+            <div class="section-header">
+              <h2>🤖 모의투자 자동매매</h2>
+            </div>
+            <p>가상 계좌로 자동매매 전략 검증 및 백테스팅</p>
+            <div class="action-group">
+              <button @click="goToPaperTrading" class="action-btn primary">모의투자 대시보드</button>
+            </div>
+          </div>
+
           <div class="section telegram-section">
             <div class="section-header">
               <h2>📱 텔레그램 알림</h2>
@@ -483,6 +493,9 @@ export default {
     },
     goToBoard() {
       this.$router.push('/board')
+    },
+    goToPaperTrading() {
+      this.$router.push('/paper-trading')
     },
     goToUserApproval() {
       this.$router.push('/admin/users')
@@ -1031,6 +1044,12 @@ export default {
 
 .stat-status.offline {
   color: #ff9800;
+}
+
+/* 모의투자 섹션 */
+.paper-trading-section {
+  border-left: 4px solid #9f7aea;
+  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
 }
 
 /* 텔레그램 섹션 */
