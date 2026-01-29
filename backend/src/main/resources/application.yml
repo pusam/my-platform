@@ -14,6 +14,7 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.MariaDBDialect
     open-in-view: false
+    defer-datasource-initialization: true  # Flyway 이후 JPA 초기화
     properties:
       hibernate:
         format_sql: true
@@ -22,6 +23,16 @@ spring:
           batch_size: 20
         order_inserts: true
         order_updates: true
+
+  # 2-1. Flyway 데이터베이스 마이그레이션 설정
+  flyway:
+    enabled: true
+    baseline-on-migrate: true      # 기존 DB가 있어도 마이그레이션 시작
+    baseline-version: 0            # 기존 DB 버전을 0으로 설정
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    out-of-order: false            # 순차적 마이그레이션 강제
+    table: flyway_schema_history   # 마이그레이션 이력 테이블
 
   # 3. 메일 설정
   mail:
