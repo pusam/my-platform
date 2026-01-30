@@ -18,13 +18,14 @@ import org.springframework.web.client.RestTemplate;
 @Slf4j
 public class WebClientConfig {
 
-    private static final int CONNECT_TIMEOUT = 5000;  // 5초 - 연결 타임아웃
-    private static final int READ_TIMEOUT = 10000;    // 10초 - 읽기 타임아웃
+    private static final int CONNECT_TIMEOUT = 3000;  // 3초 - 연결 타임아웃
+    private static final int READ_TIMEOUT = 5000;     // 5초 - 읽기 타임아웃
 
     /**
      * RestTemplate 빈 설정
-     * - Connection Timeout: 5초 (서버 연결까지 대기 시간)
-     * - Read Timeout: 10초 (응답 데이터 수신 대기 시간)
+     * - Connection Timeout: 3초 (서버 연결까지 대기 시간)
+     * - Read Timeout: 5초 (응답 데이터 수신 대기 시간)
+     * - 기존 10초에서 5초로 단축하여 느린 API 빠르게 스킵
      */
     @Bean
     public RestTemplate restTemplate() {

@@ -54,7 +54,7 @@ public class StockPriceService {
 
     // 분봉 거래대금 캐시 (종목코드_분 -> {거래대금, 캐시시간})
     private final ConcurrentHashMap<String, MinuteTradingCache> minuteTradingCache = new ConcurrentHashMap<>();
-    private static final int MINUTE_CACHE_SECONDS = 60;  // 1분간 캐시
+    private static final int MINUTE_CACHE_SECONDS = 300;  // 5분간 캐시 (섹터 흐름은 급변하지 않음)
 
     // 분봉 캐시용 내부 클래스
     private static class MinuteTradingCache {
@@ -622,15 +622,19 @@ public class StockPriceService {
             futures.put(stockCode, future);
         }
 
-        // 3. 모든 조회 완료 대기 (최대 20초)
+        // 3. 모든 조회 완료 대기 (최대 5초 - 느린 API는 빠르게 스킵)
         for (Map.Entry<String, CompletableFuture<BigDecimal>> entry : futures.entrySet()) {
             try {
-                BigDecimal value = entry.getValue().get(20, TimeUnit.SECONDS);
+                BigDecimal value = entry.getValue().get(5, TimeUnit.SECONDS);
                 if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
                     result.put(entry.getKey(), value);
+                } else {
+                    // null인 경우 ZERO로 설정하여 로직 터지지 않게 방어
+                    result.put(entry.getKey(), BigDecimal.ZERO);
                 }
             } catch (Exception e) {
-                log.warn("분봉 조회 타임아웃 [{}]", entry.getKey());
+                log.debug("분봉 조회 타임아웃/실패 [{}] - ZERO 반환", entry.getKey());
+                result.put(entry.getKey(), BigDecimal.ZERO);  // 실패 시 ZERO 반환
             }
         }
 
