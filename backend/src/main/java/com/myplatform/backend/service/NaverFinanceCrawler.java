@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -12,6 +13,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 네이버 금융 공매도 데이터 크롤러
@@ -37,6 +39,9 @@ public class NaverFinanceCrawler {
 
     private static final int CONNECTION_TIMEOUT = 10000;
     private static final int READ_TIMEOUT = 15000;
+
+    // 대차잔고 페이지 404 발생 시 더 이상 시도하지 않음 (네이버 페이지 폐지 대응)
+    private static final AtomicBoolean lendingPageUnavailable = new AtomicBoolean(false);
 
     /**
      * 공매도 일별 데이터 크롤링
@@ -113,12 +118,20 @@ public class NaverFinanceCrawler {
     /**
      * 대차잔고 일별 데이터 크롤링
      *
+     * 주의: 네이버 금융 lending.naver 페이지가 404를 반환하면
+     * 해당 세션 동안 더 이상 시도하지 않음 (API 폐지 대응)
+     *
      * @param stockCode 종목코드 (6자리)
      * @param days 조회할 일수 (기본 30일)
      * @return 일별 대차잔고 데이터 리스트
      */
     public List<LoanBalanceData> crawlLoanBalanceData(String stockCode, int days) {
         List<LoanBalanceData> result = new ArrayList<>();
+
+        // 이미 페이지가 없다고 확인된 경우 스킵
+        if (lendingPageUnavailable.get()) {
+            return result;
+        }
 
         try {
             String url = String.format(LENDING_URL, stockCode);
@@ -175,8 +188,17 @@ public class NaverFinanceCrawler {
 
             log.info("대차잔고 데이터 크롤링 완료 [{}]: {}건", stockCode, result.size());
 
+        } catch (HttpStatusException e) {
+            // 404 에러면 페이지가 폐지된 것으로 판단하고 더 이상 시도하지 않음
+            if (e.getStatusCode() == 404) {
+                if (lendingPageUnavailable.compareAndSet(false, true)) {
+                    log.warn("네이버 금융 대차잔고 페이지가 폐지되었습니다 (404). 대차잔고 크롤링을 중단합니다.");
+                }
+            } else {
+                log.debug("대차잔고 데이터 크롤링 HTTP 오류 [{}]: {}", stockCode, e.getMessage());
+            }
         } catch (Exception e) {
-            log.error("대차잔고 데이터 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
+            log.debug("대차잔고 데이터 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return result;
@@ -222,6 +244,22 @@ public class NaverFinanceCrawler {
         }
 
         return result;
+    }
+
+    /**
+     * 대차잔고 페이지가 사용 가능한지 확인
+     * @return true if available, false if 404 detected
+     */
+    public boolean isLendingPageAvailable() {
+        return !lendingPageUnavailable.get();
+    }
+
+    /**
+     * 대차잔고 페이지 상태 플래그 리셋 (테스트용)
+     */
+    public void resetLendingPageStatus() {
+        lendingPageUnavailable.set(false);
+        log.info("대차잔고 페이지 상태 플래그가 리셋되었습니다.");
     }
 
     /**

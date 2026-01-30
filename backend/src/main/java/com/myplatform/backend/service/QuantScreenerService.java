@@ -1,7 +1,9 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.entity.QuarterlyFinancialData;
 import com.myplatform.backend.entity.StockFinancialData;
+import com.myplatform.backend.repository.QuarterlyFinancialDataRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +31,7 @@ import java.util.stream.Collectors;
 public class QuantScreenerService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final QuarterlyFinancialDataRepository quarterlyFinancialDataRepository;
     private final TelegramNotificationService telegramNotificationService;
 
     private static final BigDecimal MAX_DEBT_RATIO = new BigDecimal("200"); // 부채비율 상한 200%
@@ -176,6 +179,7 @@ public class QuantScreenerService {
      * [로직]
      * 1. DB에 PEG가 이미 계산된 종목 조회
      * 2. 없으면 epsGrowth 또는 profitGrowth로 PEG 계산
+     * 3. 그래도 없으면 분기별 데이터에서 직접 EPS 성장률 계산
      */
     public List<ScreenerResultDto> getLowPegStocks(BigDecimal maxPeg, BigDecimal minEpsGrowth, Integer limit) {
         log.info("PEG 스크리닝 시작 - maxPeg: {}, minEpsGrowth: {}, limit: {}", maxPeg, minEpsGrowth, limit);
@@ -200,6 +204,12 @@ public class QuantScreenerService {
             log.info("PEG 데이터가 없어 성장률 기반으로 계산합니다.");
             stocks = stockFinancialDataRepository.findStocksWithGrowthData();
             log.info("성장률 데이터 있는 종목: {}건", stocks.size());
+        }
+
+        // 3차: 분기별 데이터에서 직접 EPS 성장률 계산 (fallback)
+        if (stocks.isEmpty()) {
+            log.info("성장률 데이터 없음 - 분기별 데이터에서 직접 계산합니다.");
+            return calculatePegFromQuarterlyData(finalMaxPeg, finalMinGrowth, limit);
         }
 
         List<ScreenerResultDto> results = stocks.stream()
@@ -251,6 +261,107 @@ public class QuantScreenerService {
 
         log.info("PEG 스크리닝 완료 - 결과 {}건", results.size());
         return results;
+    }
+
+    /**
+     * 분기별 데이터에서 직접 EPS 성장률과 PEG 계산 (fallback)
+     */
+    private List<ScreenerResultDto> calculatePegFromQuarterlyData(BigDecimal maxPeg, BigDecimal minGrowth, Integer limit) {
+        // PER > 0인 최신 종목 데이터 조회
+        List<StockFinancialData> allStocks = stockFinancialDataRepository.findLatestDataForAllStocks();
+        log.info("PER 있는 최신 종목: {}건", allStocks.size());
+
+        List<ScreenerResultDto> results = new ArrayList<>();
+
+        for (StockFinancialData stock : allStocks) {
+            if (stock.getPer() == null || stock.getPer().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            // 해당 종목의 분기별 데이터 조회 (최신순)
+            List<QuarterlyFinancialData> quarterlyData = quarterlyFinancialDataRepository
+                    .findByStockCodeOrderByReportDateDesc(stock.getStockCode());
+
+            if (quarterlyData.size() < 5) {
+                continue; // 최소 5분기 데이터 필요 (YoY 비교)
+            }
+
+            // EPS 성장률 계산 (전년 동기 비교)
+            BigDecimal epsGrowth = calculateEpsGrowthFromQuarterly(quarterlyData);
+            if (epsGrowth == null || epsGrowth.compareTo(minGrowth) < 0) {
+                continue;
+            }
+
+            // PEG 계산
+            BigDecimal peg = stock.getPer().divide(epsGrowth, 2, RoundingMode.HALF_UP);
+            if (peg.compareTo(BigDecimal.ZERO) <= 0 || peg.compareTo(maxPeg) > 0) {
+                continue;
+            }
+
+            results.add(ScreenerResultDto.builder()
+                    .stockCode(stock.getStockCode())
+                    .stockName(stock.getStockName())
+                    .market(stock.getMarket())
+                    .sector(stock.getSector())
+                    .currentPrice(stock.getCurrentPrice())
+                    .marketCap(stock.getMarketCap())
+                    .per(stock.getPer())
+                    .pbr(stock.getPbr())
+                    .roe(stock.getRoe())
+                    .operatingMargin(stock.getOperatingMargin())
+                    .netMargin(stock.getNetMargin())
+                    .eps(stock.getEps())
+                    .epsGrowth(epsGrowth)
+                    .peg(peg)
+                    .revenueGrowth(stock.getRevenueGrowth())
+                    .profitGrowth(stock.getProfitGrowth())
+                    .build());
+        }
+
+        // PEG 기준 정렬
+        results.sort(Comparator.comparing(ScreenerResultDto::getPeg));
+
+        if (limit != null && limit > 0) {
+            results = results.stream().limit(limit).collect(Collectors.toList());
+        }
+
+        log.info("분기별 데이터 기반 PEG 계산 완료 - 결과 {}건", results.size());
+        return results;
+    }
+
+    /**
+     * 분기별 데이터에서 EPS 성장률 계산 (YoY 우선)
+     */
+    private BigDecimal calculateEpsGrowthFromQuarterly(List<QuarterlyFinancialData> quarterlyData) {
+        if (quarterlyData == null || quarterlyData.size() < 5) {
+            return null;
+        }
+
+        // 최신 분기 EPS
+        BigDecimal currentEps = quarterlyData.get(0).getEps();
+        if (currentEps == null) {
+            // EPS 없으면 순이익으로 대체
+            currentEps = quarterlyData.get(0).getNetIncome();
+        }
+        if (currentEps == null) {
+            return null;
+        }
+
+        // 전년 동기 EPS (4분기 전)
+        BigDecimal previousEps = quarterlyData.get(4).getEps();
+        if (previousEps == null) {
+            previousEps = quarterlyData.get(4).getNetIncome();
+        }
+
+        // 성장률 계산
+        if (previousEps != null && previousEps.compareTo(BigDecimal.ZERO) != 0) {
+            BigDecimal growth = currentEps.subtract(previousEps)
+                    .divide(previousEps.abs(), 4, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"));
+            return growth.setScale(2, RoundingMode.HALF_UP);
+        }
+
+        return null;
     }
 
     /**
