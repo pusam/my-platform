@@ -6,27 +6,47 @@
         <button @click="goBack" class="back-button">← 돌아가기</button>
         <h1>실적 기반 저평가 스크리너</h1>
         <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+      </div>
 
-        <!-- 마지막 업데이트 시간 및 수동 수집 버튼 -->
-        <div class="data-status-bar">
-          <span v-if="collectStatus?.lastUpdatedAt" class="last-updated">
-            📅 마지막 업데이트: {{ formatDateTime(collectStatus.lastUpdatedAt) }}
-            <span class="data-count">({{ collectStatus.totalRecords?.toLocaleString() }}건)</span>
-          </span>
-          <span v-else class="last-updated warning-text">
-            ⚠️ 데이터가 없습니다
-          </span>
-          <button @click="showManualCollectDialog" class="manual-collect-btn" title="수동 데이터 수집">
-            ⚙️ 수동 수집
-          </button>
+      <!-- 데이터 기준일 표시 (상단 고정) -->
+      <div class="data-timestamp-bar">
+        <div v-if="collectStatus?.lastUpdatedAt" class="timestamp-info">
+          <span class="timestamp-icon">📅</span>
+          <span class="timestamp-label">데이터 기준일:</span>
+          <span class="timestamp-value">{{ formatDateTime(collectStatus.lastUpdatedAt) }}</span>
+          <span class="data-count">({{ collectStatus.totalRecords?.toLocaleString() }}개 종목)</span>
         </div>
+        <div v-else class="timestamp-info warning">
+          <span class="timestamp-icon">⚠️</span>
+          <span class="timestamp-label">데이터가 없습니다. 배치 수집을 기다려주세요.</span>
+        </div>
+        <span class="batch-info">자동 수집: 매일 08:30, 15:40</span>
       </div>
 
       <div class="screener-tabs">
+        <!-- 일반 스크리너 탭 -->
         <button v-for="tab in tabs" :key="tab.value"
                 :class="['tab-btn', { active: selectedTab === tab.value }]"
                 @click="changeTab(tab.value)">
           {{ tab.icon }} {{ tab.label }}
+        </button>
+
+        <!-- 구분선 -->
+        <span class="tab-divider" v-if="showAdminTab">|</span>
+
+        <!-- 관리자 탭 (더블클릭으로 표시) -->
+        <button v-for="tab in adminTabs" :key="tab.value"
+                v-show="showAdminTab"
+                :class="['tab-btn admin-tab', { active: selectedTab === tab.value }]"
+                @click="changeTab(tab.value)">
+          {{ tab.icon }} {{ tab.label }}
+        </button>
+
+        <!-- 관리자 모드 토글 (작은 버튼) -->
+        <button class="admin-toggle-btn"
+                @dblclick="showAdminTab = !showAdminTab"
+                :title="showAdminTab ? '관리자 탭 숨기기 (더블클릭)' : '관리자 탭 표시 (더블클릭)'">
+          {{ showAdminTab ? '🔓' : '🔒' }}
         </button>
       </div>
 
@@ -60,8 +80,6 @@
           <strong>마법의 공식이란?</strong>
           <p>영업이익률(수익성) + ROE(자기자본수익률) + 저PER(저평가) 순위를 합산하여 저평가된 우량주를 찾는 전략입니다.</p>
         </div>
-
-        <p v-if="magicFormulaCollecting" class="collecting-status">🔄 데이터 수집 중...</p>
 
         <!-- AI 분석 섹션 -->
         <div class="ai-section">
@@ -846,12 +864,20 @@ const router = useRouter();
 const loading = ref(false);
 const selectedTab = ref('magic-formula');
 
+// 일반 사용자용 탭 (스크리너)
 const tabs = [
   { value: 'magic-formula', label: '마법의 공식', icon: '✨' },
   { value: 'peg', label: 'PEG 스크리너', icon: '📈' },
-  { value: 'turnaround', label: '턴어라운드', icon: '🔄' },
-  { value: 'data-management', label: '데이터 관리', icon: '⚙️' }
+  { value: 'turnaround', label: '턴어라운드', icon: '🔄' }
 ];
+
+// 관리자용 탭 (데이터 수집은 관리자만 접근)
+const adminTabs = [
+  { value: 'data-management', label: '관리자', icon: '🔧', admin: true }
+];
+
+// 관리자 모드 (더블클릭으로 활성화)
+const showAdminTab = ref(false);
 
 // 데이터
 const magicFormulaStocks = ref([]);
@@ -1686,6 +1712,95 @@ onMounted(async () => {
   background: var(--bg-secondary);
   color: var(--text-primary);
   border-color: var(--primary-color);
+}
+
+/* 데이터 기준일 표시 (상단 고정) */
+.data-timestamp-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #667eea15, #764ba215);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
+}
+
+.timestamp-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.timestamp-info.warning {
+  color: #e67e22;
+}
+
+.timestamp-icon {
+  font-size: 1.1rem;
+}
+
+.timestamp-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.timestamp-value {
+  color: var(--primary-color);
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.timestamp-info .data-count {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-left: 0.25rem;
+}
+
+.batch-info {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  background: var(--bg-secondary);
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+}
+
+/* 관리자 탭 스타일 */
+.tab-divider {
+  color: var(--border-color);
+  margin: 0 0.5rem;
+  font-weight: 300;
+}
+
+.admin-tab {
+  background: #f8d7da !important;
+  border-color: #f5c6cb !important;
+  color: #721c24 !important;
+}
+
+.admin-tab:hover {
+  background: #f1b0b7 !important;
+}
+
+.admin-tab.active {
+  background: #dc3545 !important;
+  color: white !important;
+}
+
+.admin-toggle-btn {
+  background: transparent;
+  border: none;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  margin-left: 0.5rem;
+}
+
+.admin-toggle-btn:hover {
+  opacity: 1;
 }
 
 .screener-tabs {
