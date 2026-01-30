@@ -410,6 +410,7 @@ public class QuantScreenerController {
     /**
      * 재무 데이터 수집 상태 조회
      * - 총 건수, 마지막 업데이트 시간, 영업이익률 현황, 성장률 데이터 현황
+     * - 마지막 자동 수집 결과 (08:30, 15:40 스케줄러)
      */
     @GetMapping("/collect-status")
     @Operation(summary = "재무 데이터 수집 상태", description = "현재 수집된 재무 데이터 현황을 조회합니다.")
@@ -424,12 +425,16 @@ public class QuantScreenerController {
             // 성장률 데이터 현황 (PEG 스크리너용)
             long withGrowthData = financialDataCrawlerService.countWithGrowthData();
 
+            // 마지막 자동 수집 결과 (08:30, 15:40 스케줄러)
+            Map<String, Object> lastAutoCollect = asyncCrawlerService.getLastAutoCollectStatus();
+
             response.put("success", true);
             response.put("totalRecords", totalCount);
             response.put("lastUpdatedAt", lastUpdatedAt);
             response.put("withOperatingMargin", withOperatingMargin);
             response.put("missingOperatingMargin", missingOperatingMargin);
             response.put("withGrowthData", withGrowthData);  // PEG 스크리너 사용 가능 종목 수
+            response.put("lastAutoCollect", lastAutoCollect);  // 마지막 자동 수집 결과
             response.put("message", totalCount > 0
                     ? String.format("재무 데이터 %d건 (영업이익률: %d건, 성장률: %d건)",
                             totalCount, withOperatingMargin, withGrowthData)

@@ -13,19 +13,24 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 네이버 금융 공매도 데이터 크롤러
  *
  * 크롤링 대상:
- * - 일별 공매도 거래량
+ * - 일별 공매도 거래량/비중
  * - 일별 공매도 잔고
  * - 대차거래 현황
  *
  * URL 형식:
- * - 공매도 현황: https://finance.naver.com/item/short.naver?code=005930
+ * - 공매도 매매비중: https://finance.naver.com/item/short_trade.naver?code=005930
  * - 대차거래: https://finance.naver.com/item/lending.naver?code=005930
+ *
+ * 네이버 차단 방지:
+ * - 요청 간 1~3초 랜덤 딜레이 적용
+ * - Chrome User-Agent 헤더 설정
  */
 @Service
 @RequiredArgsConstructor
@@ -33,12 +38,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class NaverFinanceCrawler {
 
     private static final String BASE_URL = "https://finance.naver.com";
-    private static final String SHORT_SELLING_URL = BASE_URL + "/item/short.naver?code=%s";
+    private static final String SHORT_SELLING_URL = BASE_URL + "/item/short_trade.naver?code=%s";
     private static final String LENDING_URL = BASE_URL + "/item/lending.naver?code=%s";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy.MM.dd");
 
     private static final int CONNECTION_TIMEOUT = 10000;
     private static final int READ_TIMEOUT = 15000;
+
+    // 네이버 차단 방지용 설정
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    private static final int MIN_DELAY_MS = 1000;  // 최소 1초
+    private static final int MAX_DELAY_MS = 3000;  // 최대 3초
 
     // 대차잔고 페이지 404 발생 시 더 이상 시도하지 않음 (네이버 페이지 폐지 대응)
     private static final AtomicBoolean lendingPageUnavailable = new AtomicBoolean(false);
@@ -54,11 +64,17 @@ public class NaverFinanceCrawler {
         List<ShortSellingData> result = new ArrayList<>();
 
         try {
+            // 네이버 차단 방지: 1~3초 랜덤 딜레이
+            randomDelay();
+
             String url = String.format(SHORT_SELLING_URL, stockCode);
             log.debug("공매도 데이터 크롤링: {}", url);
 
             Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .userAgent(USER_AGENT)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                    .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
+                    .header("Referer", "https://finance.naver.com/")
                     .timeout(CONNECTION_TIMEOUT)
                     .get();
 
@@ -134,11 +150,17 @@ public class NaverFinanceCrawler {
         }
 
         try {
+            // 네이버 차단 방지: 1~3초 랜덤 딜레이
+            randomDelay();
+
             String url = String.format(LENDING_URL, stockCode);
             log.debug("대차잔고 데이터 크롤링: {}", url);
 
             Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .userAgent(USER_AGENT)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                    .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
+                    .header("Referer", "https://finance.naver.com/")
                     .timeout(CONNECTION_TIMEOUT)
                     .get();
 
@@ -276,6 +298,20 @@ public class NaverFinanceCrawler {
             return new BigDecimal(cleaned);
         } catch (NumberFormatException e) {
             return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * 네이버 차단 방지를 위한 랜덤 딜레이 (1~3초)
+     */
+    private void randomDelay() {
+        try {
+            int delay = ThreadLocalRandom.current().nextInt(MIN_DELAY_MS, MAX_DELAY_MS + 1);
+            log.debug("네이버 요청 딜레이: {}ms", delay);
+            Thread.sleep(delay);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.debug("딜레이 중단됨");
         }
     }
 

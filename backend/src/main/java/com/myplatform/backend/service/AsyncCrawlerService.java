@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -35,6 +36,12 @@ public class AsyncCrawlerService {
 
     // 작업 상태 플래그
     private final Map<String, AtomicBoolean> runningTasks = new HashMap<>();
+
+    // 마지막 자동 수집 결과 저장
+    private volatile LocalDateTime lastAutoCollectTime;
+    private volatile boolean lastAutoCollectSuccess;
+    private volatile String lastAutoCollectMessage;
+    private volatile Map<String, Object> lastAutoCollectResult;
 
     /**
      * 전 종목 영업이익률 비동기 크롤링
@@ -410,5 +417,90 @@ public class AsyncCrawlerService {
         return stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(stockCode)
                 .map(StockFinancialData::getStockName)
                 .orElse(stockCode);
+    }
+
+    /**
+     * 스케줄러용 원버튼 전체 데이터 수집 (동기 실행, SSE 없음)
+     * - 08:30, 15:40 자동 수집에서 호출
+     * - 결과를 메모리에 저장하여 화면에 표시
+     */
+    public Map<String, Object> collectAllInOneSync() {
+        String taskType = "collect-all-in-one";
+        Map<String, Object> result = new HashMap<>();
+
+        AtomicBoolean isRunning = runningTasks.computeIfAbsent(taskType, k -> new AtomicBoolean(false));
+        if (!isRunning.compareAndSet(false, true)) {
+            result.put("success", false);
+            result.put("message", "이미 전체 수집이 진행 중입니다.");
+            return result;
+        }
+
+        try {
+            long startTime = System.currentTimeMillis();
+            log.info("========== [Scheduled] 원버튼 전체 데이터 수집 시작 ==========");
+
+            // 1단계: 기본 재무 데이터 수집
+            log.info("[Scheduled] 1/4 기본 재무 데이터 수집 중...");
+            Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
+            result.put("step1_basicFinancial", step1);
+
+            // 2단계: 영업이익률 크롤링
+            log.info("[Scheduled] 2/4 영업이익률 크롤링 중...");
+            Map<String, Object> step2 = financialDataCrawlerService.crawlAllOperatingMargin(false);
+            result.put("step2_operatingMargin", step2);
+
+            // 3단계: 분기별 재무제표 수집
+            log.info("[Scheduled] 3/4 분기별 재무제표 수집 중...");
+            Map<String, Object> step3 = financialDataCrawlerService.collectQuarterlyFinancialStatements();
+            result.put("step3_quarterlyFinancials", step3);
+
+            // 4단계: 성장률 계산 (PEG 스크리너용)
+            log.info("[Scheduled] 4/4 성장률 계산 중...");
+            int growthUpdated = stockFinancialDataCollector.calculateAndUpdateGrowthRates();
+            result.put("step4_growthRates", Map.of("updatedCount", growthUpdated));
+
+            long elapsedTime = System.currentTimeMillis() - startTime;
+
+            result.put("success", true);
+            result.put("elapsedSeconds", elapsedTime / 1000);
+            result.put("message", String.format("전체 데이터 수집 완료 (소요시간: %d초)", elapsedTime / 1000));
+
+            log.info("========== [Scheduled] 원버튼 전체 데이터 수집 완료 - 소요시간: {}초 ==========", elapsedTime / 1000);
+
+            // 마지막 수집 결과 저장
+            lastAutoCollectTime = LocalDateTime.now();
+            lastAutoCollectSuccess = true;
+            lastAutoCollectMessage = result.get("message").toString();
+            lastAutoCollectResult = new HashMap<>(result);
+
+            return result;
+
+        } catch (Exception e) {
+            log.error("[Scheduled] 원버튼 수집 오류", e);
+            result.put("success", false);
+            result.put("message", "수집 중 오류 발생: " + e.getMessage());
+
+            // 실패 결과 저장
+            lastAutoCollectTime = LocalDateTime.now();
+            lastAutoCollectSuccess = false;
+            lastAutoCollectMessage = "수집 실패: " + e.getMessage();
+            lastAutoCollectResult = new HashMap<>(result);
+
+            return result;
+        } finally {
+            isRunning.set(false);
+        }
+    }
+
+    /**
+     * 마지막 자동 수집 결과 조회
+     */
+    public Map<String, Object> getLastAutoCollectStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("lastCollectTime", lastAutoCollectTime);
+        status.put("success", lastAutoCollectSuccess);
+        status.put("message", lastAutoCollectMessage);
+        status.put("detail", lastAutoCollectResult);
+        return status;
     }
 }

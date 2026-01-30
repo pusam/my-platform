@@ -364,35 +364,34 @@
               </span>
             </div>
           </div>
-          <div v-else class="status-loading">
-            상태 조회 중...
-          </div>
-        </div>
 
-        <!-- 성장률 계산 카드 -->
-        <div class="action-card secondary-action">
-          <div class="action-header">
-            <span class="action-icon">📈</span>
-            <h4>성장률 계산 (PEG 스크리너용)</h4>
+          <!-- 마지막 자동 수집 결과 -->
+          <div v-if="collectStatus?.lastAutoCollect?.lastCollectTime" class="auto-collect-status">
+            <div class="auto-collect-header">
+              <span class="auto-collect-icon">🤖</span>
+              <span class="auto-collect-title">자동 수집 (매일 08:30, 15:40)</span>
+            </div>
+            <div class="auto-collect-result" :class="collectStatus.lastAutoCollect.success ? 'success' : 'fail'">
+              <span class="result-icon">{{ collectStatus.lastAutoCollect.success ? '✅' : '❌' }}</span>
+              <span class="result-time">{{ formatDateTime(collectStatus.lastAutoCollect.lastCollectTime) }}</span>
+              <span class="result-status">{{ collectStatus.lastAutoCollect.success ? '성공' : '실패' }}</span>
+            </div>
+            <div v-if="collectStatus.lastAutoCollect.message" class="auto-collect-message">
+              {{ collectStatus.lastAutoCollect.message }}
+            </div>
           </div>
-          <p class="action-desc">
-            DB에 저장된 과거 데이터를 기반으로 성장률을 계산합니다.<br>
-            <strong>계산 항목:</strong> EPS 성장률, 순이익 성장률, 매출 성장률, PEG
-          </p>
-          <div class="action-info">
-            <span class="info-tag">⚡ 즉시 완료</span>
-            <span class="info-tag">📊 PEG = PER / EPS성장률</span>
+          <div v-else-if="collectStatus" class="auto-collect-status pending">
+            <div class="auto-collect-header">
+              <span class="auto-collect-icon">🤖</span>
+              <span class="auto-collect-title">자동 수집 (매일 08:30, 15:40)</span>
+            </div>
+            <div class="auto-collect-message">
+              아직 자동 수집이 실행되지 않았습니다. 서버 재시작 후 첫 스케줄 시간에 자동으로 실행됩니다.
+            </div>
           </div>
-          <button
-            @click="calculateGrowthRates"
-            class="action-btn secondary"
-            :disabled="isCalculatingGrowth"
-          >
-            <span v-if="isCalculatingGrowth" class="spinner"></span>
-            {{ isCalculatingGrowth ? '계산 중...' : '📈 성장률 계산 실행' }}
-          </button>
-          <div v-if="growthCalcResult" class="collect-result success">
-            ✅ {{ growthCalcResult.message }}
+
+          <div v-if="!collectStatus" class="status-loading">
+            상태 조회 중...
           </div>
         </div>
 
@@ -736,8 +735,6 @@ const isCollectingQuarterly = ref(false);
 const isCollectingSingleQuarterly = ref(false);
 const quarterlyStockCode = ref('');
 const quarterlyResult = ref(null);
-const isCalculatingGrowth = ref(false);
-const growthCalcResult = ref(null);
 const collectProgress = ref('');
 
 // SSE 실시간 진행률
@@ -883,40 +880,6 @@ const collectAllFinancialData = async () => {
     collectProgress.value = '수집 중 오류 발생: ' + (error.response?.data?.message || error.message);
   } finally {
     isCollecting.value = false;
-  }
-};
-
-// 성장률 계산 (PEG 스크리너용)
-const calculateGrowthRates = async () => {
-  if (isCalculatingGrowth.value) return;
-
-  isCalculatingGrowth.value = true;
-  growthCalcResult.value = null;
-
-  try {
-    const response = await api.post('/screener/calculate-growth');
-    if (response.data.success) {
-      growthCalcResult.value = {
-        success: true,
-        message: response.data.message,
-        updatedCount: response.data.updatedCount
-      };
-      // 상태 새로고침
-      await fetchCollectStatus();
-    } else {
-      growthCalcResult.value = {
-        success: false,
-        message: '계산 실패: ' + response.data.message
-      };
-    }
-  } catch (error) {
-    console.error('성장률 계산 오류:', error);
-    growthCalcResult.value = {
-      success: false,
-      message: '오류 발생: ' + (error.response?.data?.message || error.message)
-    };
-  } finally {
-    isCalculatingGrowth.value = false;
   }
 };
 
@@ -2152,30 +2115,6 @@ onMounted(async () => {
   color: white;
 }
 
-/* 성장률 계산 카드 스타일 */
-.action-card.secondary-action {
-  background: linear-gradient(135deg, #10b98115, #059b8515);
-  border: 2px solid #10b981;
-  margin-bottom: 1.5rem;
-}
-
-.action-card.secondary-action .action-header {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.action-btn.secondary {
-  background: linear-gradient(135deg, #10b981, #059b85);
-  color: white;
-  border: none;
-}
-
-.action-btn.secondary:hover:not(:disabled) {
-  background: linear-gradient(135deg, #059b85, #047857);
-  transform: translateY(-1px);
-}
-
 .collect-result.success {
   background: #10b98120;
   color: #10b981;
@@ -2296,6 +2235,78 @@ onMounted(async () => {
   text-align: center;
   color: var(--text-muted);
   padding: 1rem;
+}
+
+/* 자동 수집 상태 */
+.auto-collect-status {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--border-light);
+  border-radius: 10px;
+  border-left: 4px solid var(--primary);
+}
+
+.auto-collect-status.pending {
+  border-left-color: var(--text-muted);
+}
+
+.auto-collect-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.auto-collect-icon {
+  font-size: 1.2rem;
+}
+
+.auto-collect-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.auto-collect-result {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.auto-collect-result.success {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.auto-collect-result.fail {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.auto-collect-result .result-icon {
+  font-size: 1rem;
+}
+
+.auto-collect-result .result-time {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.auto-collect-result .result-status {
+  font-weight: 600;
+}
+
+.auto-collect-result.success .result-status {
+  color: var(--success);
+}
+
+.auto-collect-result.fail .result-status {
+  color: var(--danger);
+}
+
+.auto-collect-message {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .collect-actions {

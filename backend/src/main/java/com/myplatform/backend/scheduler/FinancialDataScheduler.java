@@ -1,6 +1,7 @@
 package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.service.AsyncCrawlerService;
 import com.myplatform.backend.service.StockFinancialDataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -10,17 +11,21 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
+
 /**
  * 재무 데이터 자동 수집 스케줄러 (배치)
  *
  * [스케줄]
- * - 매일 08:30 (장 시작 전) - 전일 종가 반영 데이터 수집
- * - 매일 15:40 (장 마감 직후) - 당일 종가 반영 데이터 수집
+ * - 매일 08:30 (장 시작 전) - 원버튼 전체 데이터 수집 (4단계)
+ * - 매일 15:40 (장 마감 직후) - 원버튼 전체 데이터 수집 (4단계)
  * - 서버 시작 시 데이터 없으면 1회 자동 수집
  *
- * [설계 원칙]
- * - 조회와 수집 분리: 스크리너는 DB만 조회, 수집은 배치로 처리
- * - 사용자가 새로고침해도 API 호출 없이 DB 데이터만 반환
+ * [수집 단계]
+ * 1️⃣ 기본 재무 데이터 (KIS API)
+ * 2️⃣ 영업이익률 크롤링 (네이버 금융)
+ * 3️⃣ 분기별 재무제표 (네이버 금융)
+ * 4️⃣ 성장률 계산 (PEG 스크리너용)
  */
 @Component
 @RequiredArgsConstructor
@@ -29,17 +34,23 @@ public class FinancialDataScheduler {
 
     private final StockFinancialDataService stockFinancialDataService;
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final AsyncCrawlerService asyncCrawlerService;
 
     /**
      * 매일 08:30 자동 수집 (장 시작 전)
-     * - 전일 종가 및 재무 데이터 반영
+     * - 원버튼 전체 데이터 수집 (4단계)
      */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
-        log.info("=== [배치] 08:30 재무 데이터 자동 수집 시작 ===");
+        log.info("=== [배치] 08:30 원버튼 전체 데이터 자동 수집 시작 ===");
         try {
-            stockFinancialDataService.collectAllStocksFinancialData();
-            log.info("=== [배치] 08:30 재무 데이터 수집 완료 ===");
+            Map<String, Object> result = asyncCrawlerService.collectAllInOneSync();
+            boolean success = (boolean) result.getOrDefault("success", false);
+            if (success) {
+                log.info("=== [배치] 08:30 원버튼 수집 완료: {} ===", result.get("message"));
+            } else {
+                log.error("=== [배치] 08:30 원버튼 수집 실패: {} ===", result.get("message"));
+            }
         } catch (Exception e) {
             log.error("[배치] 아침 수집 실패: {}", e.getMessage(), e);
         }
@@ -47,14 +58,19 @@ public class FinancialDataScheduler {
 
     /**
      * 매일 15:40 자동 수집 (장 마감 직후)
-     * - 당일 종가 및 최신 재무 데이터 반영
+     * - 원버튼 전체 데이터 수집 (4단계)
      */
     @Scheduled(cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
-        log.info("=== [배치] 15:40 재무 데이터 자동 수집 시작 ===");
+        log.info("=== [배치] 15:40 원버튼 전체 데이터 자동 수집 시작 ===");
         try {
-            stockFinancialDataService.collectAllStocksFinancialData();
-            log.info("=== [배치] 15:40 재무 데이터 수집 완료 ===");
+            Map<String, Object> result = asyncCrawlerService.collectAllInOneSync();
+            boolean success = (boolean) result.getOrDefault("success", false);
+            if (success) {
+                log.info("=== [배치] 15:40 원버튼 수집 완료: {} ===", result.get("message"));
+            } else {
+                log.error("=== [배치] 15:40 원버튼 수집 실패: {} ===", result.get("message"));
+            }
         } catch (Exception e) {
             log.error("[배치] 오후 수집 실패: {}", e.getMessage(), e);
         }

@@ -792,6 +792,24 @@ public class FinancialDataCrawlerService {
                 stockFinancialDataRepository.save(financialData);
             }
 
+            // 최신 레코드(오늘 날짜)에도 epsGrowth, peg 업데이트 (PEG 스크리너용)
+            if (epsGrowth != null && existingOpt.isPresent()) {
+                StockFinancialData latestRecord = existingOpt.get();
+                // 이미 epsGrowth가 있으면 덮어쓰지 않음 (분기 데이터에서 계산된 값 유지)
+                if (latestRecord.getEpsGrowth() == null || latestRecord.getEpsGrowth().compareTo(BigDecimal.ZERO) == 0) {
+                    latestRecord.setEpsGrowth(epsGrowth);
+                    // PEG 계산
+                    if (latestRecord.getPer() != null && latestRecord.getPer().compareTo(BigDecimal.ZERO) > 0 &&
+                        epsGrowth.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal peg = latestRecord.getPer().divide(epsGrowth, 2, java.math.RoundingMode.HALF_UP);
+                        latestRecord.setPeg(peg);
+                    }
+                    stockFinancialDataRepository.save(latestRecord);
+                    log.debug("최신 레코드에 epsGrowth/peg 업데이트: {} - epsGrowth: {}%, peg: {}",
+                            stockCode, epsGrowth, latestRecord.getPeg());
+                }
+            }
+
             log.debug("분기 데이터 저장 완료: {} ({}) - {}개 분기", stockName, stockCode, quarterlyData.size());
             return true;
 
