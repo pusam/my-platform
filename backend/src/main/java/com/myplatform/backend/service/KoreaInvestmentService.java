@@ -350,9 +350,11 @@ public class KoreaInvestmentService {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 return objectMapper.readTree(response.getBody());
+            } else {
+                log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
             }
         } catch (Exception e) {
-            log.error("주식 분봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
         }
 
         return null;

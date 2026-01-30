@@ -268,7 +268,7 @@ public class KisInvestorDataCollector {
 
     /**
      * 연기금 순위 데이터 수집
-     * 기관 API 응답에서 연기금 필드(pnsn_ntby_tr_pbmn)를 추출하여 저장
+     * 기관 API 응답에서 연기금 필드(fund_ntby_tr_pbmn)를 추출하여 저장
      */
     private int collectPensionRanking(String market, String tradeType, String dateStr, int limit) {
         if (!koreaInvestmentService.isConfigured()) {
@@ -301,7 +301,11 @@ public class KisInvestorDataCollector {
 
     /**
      * 연기금 데이터 파싱 및 저장
-     * API 응답에서 pnsn_ntby_tr_pbmn(연기금 순매수 대금) 필드 추출
+     * API 응답에서 fund_ntby_tr_pbmn(연기금 순매수 대금) 필드 추출
+     *
+     * [KIS API 연기금 관련 필드]
+     * - fund_ntby_qty: 연기금 순매수 수량
+     * - fund_ntby_tr_pbmn: 연기금 순매수 거래대금 (백만원 단위)
      */
     private int parseAndSavePensionData(JsonNode response, String market, String tradeType,
                                         LocalDate tradeDate, int limit) {
@@ -319,19 +323,32 @@ public class KisInvestorDataCollector {
             }
 
             // 연기금 순매수 금액이 있는 항목만 필터링 후 정렬
+            // fund_ntby_tr_pbmn: 연기금 순매수 거래대금 (올바른 필드명)
             List<JsonNode> pensionItems = new ArrayList<>();
             for (JsonNode item : output) {
-                BigDecimal pensionAmount = getJsonBigDecimal(item, "pnsn_ntby_tr_pbmn");
+                BigDecimal pensionAmount = getJsonBigDecimal(item, "fund_ntby_tr_pbmn");
                 if (pensionAmount.abs().compareTo(BigDecimal.ZERO) > 0) {
                     pensionItems.add(item);
                 }
             }
 
+            // 디버깅: 첫 번째 항목의 연기금 관련 필드 확인
+            if (output.size() > 0 && pensionItems.isEmpty()) {
+                JsonNode firstItem = output.get(0);
+                log.warn("연기금 데이터 파싱 실패 - 첫 번째 항목의 필드 확인: " +
+                        "fund_ntby_tr_pbmn={}, fund_ntby_qty={}",
+                        getJsonValue(firstItem, "fund_ntby_tr_pbmn"),
+                        getJsonValue(firstItem, "fund_ntby_qty"));
+            }
+
+            log.info("연기금 필드 체크: output 항목 {}, fund_ntby_tr_pbmn 있는 항목 {}",
+                    output.size(), pensionItems.size());
+
             // 순매수/순매도 금액 기준 정렬
             boolean isBuy = "BUY".equals(tradeType);
             pensionItems.sort((a, b) -> {
-                BigDecimal amountA = getJsonBigDecimal(a, "pnsn_ntby_tr_pbmn");
-                BigDecimal amountB = getJsonBigDecimal(b, "pnsn_ntby_tr_pbmn");
+                BigDecimal amountA = getJsonBigDecimal(a, "fund_ntby_tr_pbmn");
+                BigDecimal amountB = getJsonBigDecimal(b, "fund_ntby_tr_pbmn");
                 if (isBuy) {
                     return amountB.compareTo(amountA);  // 내림차순 (순매수 상위)
                 } else {
@@ -353,7 +370,7 @@ public class KisInvestorDataCollector {
                 }
 
                 // 연기금 순매수 금액 (백만원 단위 -> 억원 단위)
-                BigDecimal pensionAmount = getJsonBigDecimal(item, "pnsn_ntby_tr_pbmn");
+                BigDecimal pensionAmount = getJsonBigDecimal(item, "fund_ntby_tr_pbmn");
                 BigDecimal netBuyAmount = pensionAmount.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
 
                 // 매수/매도 조건에 맞지 않으면 건너뛰기

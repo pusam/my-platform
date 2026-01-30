@@ -571,6 +571,9 @@ public class StockPriceService {
         log.info("분봉 거래대금 배치 조회 - 캐시 히트: {}, API 조회: {}, 기간: {}분",
                 cacheHits, missingCodes.size(), minutes);
 
+        // 로그 카운터 리셋 (배치별로 처음 3개만 상세 로그)
+        minuteApiLogCount.set(0);
+
         // 2. 캐시 미스 종목만 API 조회
         Map<String, CompletableFuture<BigDecimal>> futures = new ConcurrentHashMap<>();
 
@@ -645,6 +648,9 @@ public class StockPriceService {
         return result;
     }
 
+    // 분봉 API 에러 로깅용 카운터 (처음 3개만 상세 로그)
+    private static final java.util.concurrent.atomic.AtomicInteger minuteApiLogCount = new java.util.concurrent.atomic.AtomicInteger(0);
+
     /**
      * 분봉 거래대금 실제 조회 (내부용)
      */
@@ -652,11 +658,15 @@ public class StockPriceService {
         try {
             JsonNode response = kisService.getStockMinuteChart(stockCode);
             if (response == null) {
+                if (minuteApiLogCount.incrementAndGet() <= 3) {
+                    log.warn("분봉 API 응답 null [{}] - KIS API 호출 실패", stockCode);
+                }
                 return null;
             }
 
             String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
             String msgCd = response.has("msg_cd") ? response.get("msg_cd").asText() : "";
+            String msg1 = response.has("msg1") ? response.get("msg1").asText() : "";
 
             // Rate Limit 에러 체크 (EGW00201: 초당 거래건수 초과)
             if ("EGW00201".equals(msgCd)) {
@@ -665,12 +675,17 @@ public class StockPriceService {
             }
 
             if (!"0".equals(rtCd)) {
-                log.debug("API 응답 에러 [{}]: rt_cd={}, msg_cd={}", stockCode, rtCd, msgCd);
+                if (minuteApiLogCount.incrementAndGet() <= 3) {
+                    log.warn("분봉 API 에러 [{}]: rt_cd={}, msg_cd={}, msg={}", stockCode, rtCd, msgCd, msg1);
+                }
                 return null;
             }
 
             JsonNode output2 = response.get("output2");
-            if (output2 == null || !output2.isArray()) {
+            if (output2 == null || !output2.isArray() || output2.size() == 0) {
+                if (minuteApiLogCount.incrementAndGet() <= 3) {
+                    log.warn("분봉 데이터 없음 [{}]: output2가 비어있음", stockCode);
+                }
                 return null;
             }
 
