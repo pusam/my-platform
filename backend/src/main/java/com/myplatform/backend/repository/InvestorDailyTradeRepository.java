@@ -190,4 +190,17 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
             @Param("marketType") String marketType,
             @Param("tradeDate") LocalDate tradeDate,
             Pageable pageable);
+
+    // ========== [스케줄러용] 데이터 존재 여부 확인 ==========
+
+    /**
+     * 특정 날짜에 데이터가 있는지 확인
+     */
+    boolean existsByTradeDate(LocalDate tradeDate);
+
+    /**
+     * 전체 거래일 수 카운트
+     */
+    @Query("SELECT COUNT(DISTINCT t.tradeDate) FROM InvestorDailyTrade t")
+    long countDistinctTradeDates();
 }

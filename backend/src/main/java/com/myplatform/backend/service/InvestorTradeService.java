@@ -534,8 +534,8 @@ public class InvestorTradeService {
         boolean hasEnoughData = foreignDates.size() >= 3 && instDates.size() >= 3;
         status.put("hasEnoughData", hasEnoughData);
         status.put("message", hasEnoughData
-                ? "충분한 데이터가 있습니다."
-                : "데이터 수집 중입니다. 매일 16:00에 자동 수집되며, 3일 이상 누적되면 연속 매수 패턴 분석이 가능합니다.");
+                ? "충분한 데이터가 있습니다. (" + foreignDates.size() + "일치)"
+                : "데이터 수집 중입니다. 매일 15:50에 자동 수집되며, 3일 이상 누적되면 연속 매수 패턴 분석이 가능합니다. (현재 " + foreignDates.size() + "일치)");
 
         return status;
     }
