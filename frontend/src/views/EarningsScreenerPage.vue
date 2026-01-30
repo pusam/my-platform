@@ -556,23 +556,33 @@
               <div class="card-body" v-if="diagnosisData.supplyDemand">
                 <div class="supply-row">
                   <span class="investor-type">외국인</span>
-                  <span class="net-amount" :class="{ positive: diagnosisData.supplyDemand.isForeignBuying, negative: !diagnosisData.supplyDemand.isForeignBuying }">
-                    {{ diagnosisData.supplyDemand.isForeignBuying ? '매수' : '매도' }}
-                    {{ formatBillion(diagnosisData.supplyDemand.foreignNet5Days) }}
+                  <span class="net-amount" :class="getSupplyDemandClass(diagnosisData.supplyDemand.foreignNet5Days)">
+                    {{ getSupplyDemandLabel(diagnosisData.supplyDemand.foreignNet5Days) }}
+                    {{ formatBillionAbs(diagnosisData.supplyDemand.foreignNet5Days) }}
                   </span>
-                  <span class="buy-days">({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)</span>
+                  <span class="buy-days" v-if="diagnosisData.supplyDemand.foreignNet5Days > 0">
+                    ({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)
+                  </span>
+                  <span class="sell-days" v-else-if="diagnosisData.supplyDemand.foreignNet5Days < 0">
+                    (5일 연속 순매도)
+                  </span>
                 </div>
                 <div class="supply-row">
                   <span class="investor-type">기관</span>
-                  <span class="net-amount" :class="{ positive: diagnosisData.supplyDemand.isInstitutionBuying, negative: !diagnosisData.supplyDemand.isInstitutionBuying }">
-                    {{ diagnosisData.supplyDemand.isInstitutionBuying ? '매수' : '매도' }}
-                    {{ formatBillion(diagnosisData.supplyDemand.institutionNet5Days) }}
+                  <span class="net-amount" :class="getSupplyDemandClass(diagnosisData.supplyDemand.institutionNet5Days)">
+                    {{ getSupplyDemandLabel(diagnosisData.supplyDemand.institutionNet5Days) }}
+                    {{ formatBillionAbs(diagnosisData.supplyDemand.institutionNet5Days) }}
                   </span>
-                  <span class="buy-days">({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)</span>
+                  <span class="buy-days" v-if="diagnosisData.supplyDemand.institutionNet5Days > 0">
+                    ({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)
+                  </span>
+                  <span class="sell-days" v-else-if="diagnosisData.supplyDemand.institutionNet5Days < 0">
+                    (5일 연속 순매도)
+                  </span>
                 </div>
                 <div class="supply-summary">
                   <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">🔥 외국인+기관 동반 매수!</span>
-                  <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">❄️ 외국인+기관 동반 매도</span>
+                  <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">❄️ 외국인+기관 동반 매도 주의!</span>
                 </div>
                 <div class="card-assessment">{{ diagnosisData.supplyDemand.assessment }}</div>
               </div>
@@ -1325,8 +1335,11 @@ const formatMarketCap = (value) => {
 };
 
 const formatAmount = (value) => {
-  if (value === null || value === undefined) return '-';
+  if (value === null || value === undefined) return 'N/A';
   const num = Number(value);
+  if (isNaN(num)) return 'N/A';
+  // 0인 경우 명확히 표시
+  if (num === 0) return '0억원';
   const sign = num >= 0 ? '' : '';
   if (Math.abs(num) >= 10000) {
     return `${sign}${(num / 10000).toFixed(1)}조`;
@@ -1335,8 +1348,11 @@ const formatAmount = (value) => {
 };
 
 const formatBillion = (value) => {
-  if (value === null || value === undefined) return '-';
+  if (value === null || value === undefined) return 'N/A';
   const num = Number(value);
+  if (isNaN(num)) return 'N/A';
+  // 0인 경우 명확히 표시
+  if (num === 0) return '0억';
   if (Math.abs(num) >= 10000) {
     return `${(num / 10000).toFixed(1)}조`;
   }
@@ -1344,6 +1360,37 @@ const formatBillion = (value) => {
     return `${num.toLocaleString('ko-KR')}억`;
   }
   return `${(num * 100).toFixed(0)}백만`;
+};
+
+// 절대값으로 억 단위 표시 (부호는 별도 라벨로 표시)
+const formatBillionAbs = (value) => {
+  if (value === null || value === undefined) return '-';
+  const num = Math.abs(Number(value));
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)}조`;
+  }
+  if (num >= 1) {
+    return `${num.toLocaleString('ko-KR')}억`;
+  }
+  return `${(num * 100).toFixed(0)}백만`;
+};
+
+// 수급 분석 색상 클래스 (양수=빨강/매수, 음수=파랑/매도)
+const getSupplyDemandClass = (value) => {
+  if (value === null || value === undefined) return '';
+  const num = Number(value);
+  if (num > 0) return 'positive';    // 순매수 → 빨간색
+  if (num < 0) return 'negative';    // 순매도 → 파란색
+  return '';
+};
+
+// 수급 분석 라벨 (매수/매도)
+const getSupplyDemandLabel = (value) => {
+  if (value === null || value === undefined) return '';
+  const num = Number(value);
+  if (num > 0) return '순매수';
+  if (num < 0) return '순매도';
+  return '보합';
 };
 
 // ========== 종목 상세 진단 (더블 체크) ==========
@@ -3203,6 +3250,12 @@ onMounted(async () => {
 .buy-days {
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.sell-days {
+  font-size: 0.8rem;
+  color: #3498db;  /* 파란색 - 매도 */
+  font-weight: 500;
 }
 
 .supply-summary {

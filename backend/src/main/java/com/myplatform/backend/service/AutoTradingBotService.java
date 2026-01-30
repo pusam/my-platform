@@ -10,17 +10,26 @@ import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -94,10 +103,132 @@ public class AutoTradingBotService {
         this.activeTradeService = virtualTradeService;
     }
 
+    /**
+     * 서버 시작 시 봇 상태 복구
+     * - 이전에 RUNNING 상태였다면 자동으로 봇 재시작
+     * - 텔레그램으로 재시작 알림 발송
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
+    public void restoreBotStateOnStartup() {
+        try {
+            // 다른 초기화 작업 대기
+            Thread.sleep(5000);
+
+            BotState savedState = loadBotState();
+            if (savedState != null && STATUS_RUNNING.equals(savedState.status)) {
+                log.info("[자동매매] 서버 재시작 감지 - 이전 상태 복구 중... (모드: {})", savedState.mode);
+
+                // 봇 재시작 (내부적으로 상태 저장하므로 별도 저장 불필요)
+                TradingMode mode = TradingMode.valueOf(savedState.mode);
+
+                // 봇 활성화 (startBot 호출하지 않고 직접 설정 - 중복 알림 방지)
+                currentMode = mode;
+                activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
+                botActive.set(true);
+                resetDailyCounters();
+
+                log.info("[자동매매] 봇 자동 재시작 완료 - 모드: {}", currentMode.getDisplayName());
+
+                // 텔레그램 알림 (재시작 전용 메시지)
+                if (telegramService.isEnabled()) {
+                    String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
+                    String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
+
+                    telegramService.sendMessage(
+                            String.format("<b>🔄 [%s] 서버 재시작 - 봇 자동 복구!</b>\n\n", modeTag) +
+                            "✅ 서버 재시작으로 봇을 자동 재실행했습니다.\n" +
+                            "📌 모드: <b>" + currentMode.getDisplayName() + "</b>\n" +
+                            "⏰ 복구 시간: " + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")) + "\n\n" +
+                            "💡 봇이 이전 상태로 복구되었습니다.\n" +
+                            "   정상적으로 매매가 계속됩니다.\n\n" +
+                            "━━━━━━━━━━━━━━━━\n" +
+                            modeEmoji + " MyPlatform " + modeTag
+                    );
+                }
+            } else {
+                log.info("[자동매매] 서버 시작 - 봇 비활성화 상태 유지 (이전 상태: {})",
+                        savedState != null ? savedState.status : "없음");
+            }
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[자동매매] 봇 상태 복구 중단됨");
+        } catch (Exception e) {
+            log.error("[자동매매] 봇 상태 복구 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 봇 상태를 파일에 저장
+     */
+    private void saveBotState(String status, TradingMode mode) {
+        try {
+            Path statusFile = Paths.get(BOT_STATUS_FILE);
+            Properties props = new Properties();
+            props.setProperty("status", status);
+            props.setProperty("mode", mode.name());
+            props.setProperty("updatedAt", LocalDateTime.now().toString());
+
+            try (var writer = Files.newBufferedWriter(statusFile)) {
+                props.store(writer, "Auto Trading Bot Status");
+            }
+
+            log.debug("[자동매매] 봇 상태 저장: status={}, mode={}", status, mode);
+
+        } catch (IOException e) {
+            log.warn("[자동매매] 봇 상태 저장 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 저장된 봇 상태 로드
+     */
+    private BotState loadBotState() {
+        try {
+            Path statusFile = Paths.get(BOT_STATUS_FILE);
+            if (!Files.exists(statusFile)) {
+                return null;
+            }
+
+            Properties props = new Properties();
+            try (var reader = Files.newBufferedReader(statusFile)) {
+                props.load(reader);
+            }
+
+            String status = props.getProperty("status", STATUS_STOPPED);
+            String mode = props.getProperty("mode", TradingMode.VIRTUAL.name());
+
+            return new BotState(status, mode);
+
+        } catch (IOException e) {
+            log.warn("[자동매매] 봇 상태 로드 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 봇 상태 저장용 내부 클래스
+     */
+    private static class BotState {
+        final String status;
+        final String mode;
+
+        BotState(String status, String mode) {
+            this.status = status;
+            this.mode = mode;
+        }
+    }
+
     // 손절/익절 기준
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-3"); // -3%
     private static final BigDecimal TAKE_PROFIT_RATE = new BigDecimal("5"); // +5%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.2"); // 종목당 최대 20%
+
+    // 봇 상태 저장 파일 (서버 재시작 시 복구용)
+    private static final String BOT_STATUS_FILE = "bot.status";
+    private static final String STATUS_RUNNING = "RUNNING";
+    private static final String STATUS_STOPPED = "STOPPED";
 
     /**
      * 봇 시작 (모드 지정)
@@ -114,6 +245,10 @@ public class AutoTradingBotService {
 
         botActive.set(true);
         resetDailyCounters();
+
+        // 상태 파일에 저장 (서버 재시작 시 복구용)
+        saveBotState(STATUS_RUNNING, currentMode);
+
         log.info("자동매매 봇 시작됨 - 모드: {}", currentMode.getDisplayName());
 
         // 텔레그램 알림
@@ -156,6 +291,10 @@ public class AutoTradingBotService {
         String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
 
         botActive.set(false);
+
+        // 상태 파일에 저장 (서버 재시작 시 복구하지 않음)
+        saveBotState(STATUS_STOPPED, currentMode);
+
         log.info("자동매매 봇 중지됨 - 모드: {}", currentMode.getDisplayName());
 
         // 텔레그램 알림

@@ -83,8 +83,19 @@ public class StockAnalysisService {
         if (financialHealth.isHasOneTimeGainWarning()) {
             warnings.add("일회성 이익 의심: " + financialHealth.getOneTimeGainReason());
         }
+        // 동반 매도 경고 (둘 다 음수일 때만)
         if (supplyDemand.isBothSelling()) {
-            warnings.add("외국인+기관 동반 매도 중");
+            warnings.add("⚠️ 외국인+기관 동반 매도 중");
+        }
+        // 외국인만 대량 매도
+        else if (!supplyDemand.isForeignBuying() && supplyDemand.getForeignNet5Days() != null &&
+                 supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) < 0) {
+            warnings.add("외국인 순매도 중");
+        }
+        // 기관만 대량 매도
+        else if (!supplyDemand.isInstitutionBuying() && supplyDemand.getInstitutionNet5Days() != null &&
+                 supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) < 0) {
+            warnings.add("기관 순매도 중");
         }
         if (technicalAnalysis.isRsiOverbought()) {
             warnings.add("RSI 과열 구간 (단기 조정 가능성)");
@@ -102,8 +113,25 @@ public class StockAnalysisService {
             financialHealth.getOperatingMargin().compareTo(new BigDecimal("10")) > 0) {
             positives.add("영업이익률 " + financialHealth.getOperatingMargin() + "% (양호)");
         }
-        if (supplyDemand.isBothBuying()) {
+        // ⚠️ 핵심 수정: 동반 매수는 둘 다 양수(>0)일 때만 표시!
+        if (supplyDemand.isBothBuying() &&
+            supplyDemand.getForeignNet5Days() != null &&
+            supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) > 0 &&
+            supplyDemand.getInstitutionNet5Days() != null &&
+            supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) > 0) {
             positives.add("외국인+기관 동반 매수 중");
+        }
+        // 외국인만 매수
+        else if (supplyDemand.isForeignBuying() &&
+                 supplyDemand.getForeignNet5Days() != null &&
+                 supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) > 0) {
+            positives.add("외국인 순매수 중");
+        }
+        // 기관만 매수
+        else if (supplyDemand.isInstitutionBuying() &&
+                 supplyDemand.getInstitutionNet5Days() != null &&
+                 supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) > 0) {
+            positives.add("기관 순매수 중");
         }
         if (Boolean.TRUE.equals(technicalAnalysis.getIsArrangedUp())) {
             positives.add("이평선 정배열 (상승 추세)");
@@ -201,6 +229,7 @@ public class StockAnalysisService {
     /**
      * 2. 수급 현황 분석
      * - 최근 5일 외국인/기관 순매수 합계
+     * - netBuyAmount가 양수면 순매수, 음수면 순매도
      */
     private SupplyDemandDto analyzeSupplyDemand(String stockCode) {
         LocalDate endDate = LocalDate.now();
@@ -212,10 +241,12 @@ public class StockAnalysisService {
         // 외국인 수급
         BigDecimal foreignNet5Days = BigDecimal.ZERO;
         int foreignBuyDays = 0;
+        int foreignSellDays = 0;
 
         // 기관 수급
         BigDecimal institutionNet5Days = BigDecimal.ZERO;
         int institutionBuyDays = 0;
+        int institutionSellDays = 0;
 
         // 일자별 집계
         List<LocalDate> recentDates = trades.stream()
@@ -226,52 +257,72 @@ public class StockAnalysisService {
                 .collect(Collectors.toList());
 
         for (LocalDate date : recentDates) {
-            // 외국인
+            // 외국인 - netBuyAmount를 그대로 사용 (양수=매수, 음수=매도)
             BigDecimal foreignDayNet = trades.stream()
                     .filter(t -> t.getTradeDate().equals(date))
                     .filter(t -> "FOREIGN".equals(t.getInvestorType()))
-                    .map(t -> {
-                        if ("BUY".equals(t.getTradeType())) {
-                            return t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO;
-                        } else {
-                            return t.getNetBuyAmount() != null ? t.getNetBuyAmount().negate() : BigDecimal.ZERO;
-                        }
-                    })
+                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             foreignNet5Days = foreignNet5Days.add(foreignDayNet);
             if (foreignDayNet.compareTo(BigDecimal.ZERO) > 0) {
                 foreignBuyDays++;
+            } else if (foreignDayNet.compareTo(BigDecimal.ZERO) < 0) {
+                foreignSellDays++;
             }
 
-            // 기관
+            // 기관 - netBuyAmount를 그대로 사용 (양수=매수, 음수=매도)
             BigDecimal institutionDayNet = trades.stream()
                     .filter(t -> t.getTradeDate().equals(date))
                     .filter(t -> "INSTITUTION".equals(t.getInvestorType()))
-                    .map(t -> {
-                        if ("BUY".equals(t.getTradeType())) {
-                            return t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO;
-                        } else {
-                            return t.getNetBuyAmount() != null ? t.getNetBuyAmount().negate() : BigDecimal.ZERO;
-                        }
-                    })
+                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             institutionNet5Days = institutionNet5Days.add(institutionDayNet);
             if (institutionDayNet.compareTo(BigDecimal.ZERO) > 0) {
                 institutionBuyDays++;
+            } else if (institutionDayNet.compareTo(BigDecimal.ZERO) < 0) {
+                institutionSellDays++;
             }
         }
 
+        // ⚠️ 핵심 로직: 양수(>0)일때만 매수, 음수(<0)일때만 매도
         boolean isForeignBuying = foreignNet5Days.compareTo(BigDecimal.ZERO) > 0;
+        boolean isForeignSelling = foreignNet5Days.compareTo(BigDecimal.ZERO) < 0;
         boolean isInstitutionBuying = institutionNet5Days.compareTo(BigDecimal.ZERO) > 0;
-        boolean isBothBuying = isForeignBuying && isInstitutionBuying;
-        boolean isBothSelling = !isForeignBuying && !isInstitutionBuying &&
-                (foreignNet5Days.compareTo(BigDecimal.ZERO) < 0 || institutionNet5Days.compareTo(BigDecimal.ZERO) < 0);
+        boolean isInstitutionSelling = institutionNet5Days.compareTo(BigDecimal.ZERO) < 0;
 
-        // 점수 계산
-        int score = calculateSupplyDemandScore(isForeignBuying, isInstitutionBuying, foreignBuyDays, institutionBuyDays);
-        String assessment = isBothBuying ? "매수 우위" : isBothSelling ? "매도 우위" : "혼조";
+        // 동반 매수: 둘 다 양수(순매수)일 때만!
+        boolean isBothBuying = isForeignBuying && isInstitutionBuying;
+        // 동반 매도: 둘 다 음수(순매도)일 때!
+        boolean isBothSelling = isForeignSelling && isInstitutionSelling;
+
+        // 점수 계산 - 매도 시 감점 반영
+        int score = calculateSupplyDemandScoreV2(
+                foreignNet5Days, institutionNet5Days,
+                foreignBuyDays, institutionBuyDays,
+                foreignSellDays, institutionSellDays
+        );
+
+        // 평가
+        String assessment;
+        if (isBothBuying) {
+            assessment = "매수 우위";
+        } else if (isBothSelling) {
+            assessment = "매도 우위";
+        } else if (isForeignSelling || isInstitutionSelling) {
+            assessment = "매도 주의";
+        } else {
+            assessment = "혼조";
+        }
+
+        log.debug("[수급분석] {} - 외국인: {}억({}일 매수/{}일 매도), 기관: {}억({}일 매수/{}일 매도), 평가: {}",
+                stockCode,
+                foreignNet5Days.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP),
+                foreignBuyDays, foreignSellDays,
+                institutionNet5Days.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP),
+                institutionBuyDays, institutionSellDays,
+                assessment);
 
         return SupplyDemandDto.builder()
                 .foreignNet5Days(foreignNet5Days)
@@ -290,11 +341,11 @@ public class StockAnalysisService {
     /**
      * 3. 기술적 분석
      * - TechnicalIndicatorService 활용
-     * - 공매도 데이터(StockShortData)가 없으면 KIS API로 fallback
+     * - 공매도 데이터(StockShortData)가 없거나 부족하면 KIS API로 fallback
      * - 볼린저 밴드 & MFI 지표 포함
      */
     private TechnicalAnalysisDto analyzeTechnical(String stockCode) {
-        List<BigDecimal> closePrices;
+        List<BigDecimal> closePrices = new ArrayList<>();
         List<KoreaInvestmentService.OhlcvData> ohlcvData = null;
         boolean useKisApi = false;
 
@@ -302,44 +353,42 @@ public class StockAnalysisService {
         List<StockShortData> priceData = stockShortDataRepository
                 .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
 
-        if (!priceData.isEmpty()) {
-            // 공매도 데이터에서 종가 추출
+        if (!priceData.isEmpty() && priceData.size() >= 60) {
+            // 공매도 데이터가 충분하면 사용
             closePrices = priceData.stream()
                     .map(StockShortData::getClosePrice)
                     .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
                     .collect(Collectors.toList());
             log.debug("종목 {} 공매도 데이터에서 {} 건의 종가 조회", stockCode, closePrices.size());
-        } else {
-            // 2차: KIS API로 일봉 데이터 조회 (fallback)
-            log.debug("종목 {} 공매도 데이터 없음, KIS API로 fallback", stockCode);
+        }
+
+        // 2차: 데이터가 부족하면 KIS API로 일봉 데이터 조회
+        if (closePrices.size() < 60) {
+            log.info("종목 {} 공매도 데이터 부족 ({} 건), KIS API로 일봉 조회 시도", stockCode, closePrices.size());
             useKisApi = true;
 
             // OHLCV 데이터 가져오기 (MFI 계산용)
             ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
 
-            if (ohlcvData.isEmpty()) {
-                log.warn("종목 {} 의 가격 데이터를 조회할 수 없습니다.", stockCode);
-                return TechnicalAnalysisDto.builder()
-                        .score(50)
-                        .assessment("데이터 부족")
-                        .build();
+            if (ohlcvData != null && !ohlcvData.isEmpty()) {
+                // OHLCV에서 종가만 추출
+                closePrices = ohlcvData.stream()
+                        .map(KoreaInvestmentService.OhlcvData::getClose)
+                        .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(Collectors.toList());
+                log.info("종목 {} KIS API에서 {} 건의 일봉 데이터 조회 성공", stockCode, closePrices.size());
+            } else {
+                log.warn("종목 {} KIS API 일봉 조회 실패 또는 데이터 없음", stockCode);
             }
-
-            // OHLCV에서 종가만 추출
-            closePrices = ohlcvData.stream()
-                    .map(KoreaInvestmentService.OhlcvData::getClose)
-                    .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
-                    .collect(Collectors.toList());
-
-            log.debug("종목 {} KIS API에서 {} 건의 OHLCV 조회", stockCode, ohlcvData.size());
         }
 
-        // 최소 데이터 검증
+        // 최소 데이터 검증 (20개 미만이면 분석 불가)
         if (closePrices.size() < 20) {
-            log.warn("종목 {} 의 가격 데이터가 부족합니다 ({} 건).", stockCode, closePrices.size());
+            log.warn("종목 {} 의 가격 데이터가 부족합니다 ({} 건). 최소 20건 필요.", stockCode, closePrices.size());
             return TechnicalAnalysisDto.builder()
                     .score(50)
-                    .assessment("데이터 부족")
+                    .assessment("데이터 부족 (" + closePrices.size() + "/20)")
+                    .signalDescription("가격 데이터 " + closePrices.size() + "건 (최소 20건 필요)")
                     .build();
         }
 
@@ -557,26 +606,51 @@ public class StockAnalysisService {
     }
 
     /**
-     * 수급 점수 계산
+     * 수급 점수 계산 (기존 - deprecated)
      */
+    @Deprecated
     private int calculateSupplyDemandScore(boolean isForeignBuying, boolean isInstitutionBuying,
                                             int foreignBuyDays, int institutionBuyDays) {
-        int score = 50;
+        return calculateSupplyDemandScoreV2(
+                isForeignBuying ? BigDecimal.ONE : BigDecimal.ONE.negate(),
+                isInstitutionBuying ? BigDecimal.ONE : BigDecimal.ONE.negate(),
+                foreignBuyDays, institutionBuyDays, 0, 0
+        );
+    }
 
-        // 외국인
-        if (isForeignBuying) {
+    /**
+     * 수급 점수 계산 V2 - 매도 시 감점 명확히 반영
+     */
+    private int calculateSupplyDemandScoreV2(BigDecimal foreignNet, BigDecimal institutionNet,
+                                              int foreignBuyDays, int institutionBuyDays,
+                                              int foreignSellDays, int institutionSellDays) {
+        int score = 50;  // 기준점
+
+        // 외국인 수급
+        if (foreignNet.compareTo(BigDecimal.ZERO) > 0) {
+            // 순매수: 가점
             score += 15;
-            score += foreignBuyDays * 3;  // 연속 매수일수 보너스
-        } else {
-            score -= 10;
+            score += foreignBuyDays * 3;  // 매수일 보너스
+        } else if (foreignNet.compareTo(BigDecimal.ZERO) < 0) {
+            // 순매도: 감점! (핵심 수정)
+            score -= 15;
+            score -= foreignSellDays * 3;  // 매도일 페널티
         }
 
-        // 기관
-        if (isInstitutionBuying) {
+        // 기관 수급
+        if (institutionNet.compareTo(BigDecimal.ZERO) > 0) {
+            // 순매수: 가점
             score += 15;
             score += institutionBuyDays * 3;
-        } else {
-            score -= 10;
+        } else if (institutionNet.compareTo(BigDecimal.ZERO) < 0) {
+            // 순매도: 감점! (핵심 수정)
+            score -= 15;
+            score -= institutionSellDays * 3;
+        }
+
+        // 동반 매도 추가 페널티
+        if (foreignNet.compareTo(BigDecimal.ZERO) < 0 && institutionNet.compareTo(BigDecimal.ZERO) < 0) {
+            score -= 10;  // 동반 매도 시 추가 감점
         }
 
         return Math.max(0, Math.min(100, score));

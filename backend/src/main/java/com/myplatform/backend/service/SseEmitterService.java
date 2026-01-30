@@ -1,10 +1,13 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -27,6 +30,9 @@ public class SseEmitterService {
 
     // SSE 타임아웃 (30분) - 장시간 크롤링 작업 고려
     private static final long SSE_TIMEOUT = 30 * 60 * 1000L;
+
+    // JSON 직렬화용 ObjectMapper
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * 새로운 SSE 연결 생성
@@ -138,21 +144,24 @@ public class SseEmitterService {
 
     /**
      * 작업 완료 이벤트 전송
+     * - ObjectMapper를 사용하여 중첩 객체도 정상적인 JSON으로 직렬화
      */
     public void sendComplete(String taskType, Map<String, Object> result) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("{\"type\":\"COMPLETE\"");
-        for (Map.Entry<String, Object> entry : result.entrySet()) {
-            sb.append(",\"").append(entry.getKey()).append("\":");
-            if (entry.getValue() instanceof String) {
-                sb.append("\"").append(escapeJson(entry.getValue().toString())).append("\"");
-            } else {
-                sb.append(entry.getValue());
-            }
+        try {
+            Map<String, Object> eventData = new HashMap<>(result);
+            eventData.put("type", "COMPLETE");
+            String json = objectMapper.writeValueAsString(eventData);
+            broadcastToTask(taskType, "COMPLETE", json);
+        } catch (JsonProcessingException e) {
+            log.error("COMPLETE 이벤트 JSON 직렬화 실패: {}", e.getMessage());
+            // fallback: 간단한 완료 메시지만 전송
+            String fallbackJson = String.format(
+                    "{\"type\":\"COMPLETE\",\"success\":%s,\"message\":\"%s\"}",
+                    result.getOrDefault("success", true),
+                    escapeJson(String.valueOf(result.getOrDefault("message", "완료")))
+            );
+            broadcastToTask(taskType, "COMPLETE", fallbackJson);
         }
-        sb.append("}");
-
-        broadcastToTask(taskType, "COMPLETE", sb.toString());
     }
 
     /**
