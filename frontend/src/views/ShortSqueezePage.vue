@@ -21,8 +21,11 @@
           </div>
         </div>
         <div class="action-buttons">
-          <button @click="collectData" class="collect-btn" :disabled="collecting">
+          <button @click="collectData" class="collect-btn" :disabled="collecting || collectingHistorical">
             {{ collecting ? '수집 중...' : '데이터 수집' }}
+          </button>
+          <button @click="collectHistoricalData" class="collect-btn historical" :disabled="collecting || collectingHistorical">
+            {{ collectingHistorical ? '수집 중...' : '과거 20일 수집' }}
           </button>
           <button @click="fetchData" class="refresh-btn">
             새로고침
@@ -277,7 +280,7 @@
 
       <div v-if="currentStocks.length === 0" class="no-data">
         <p>데이터가 없습니다.</p>
-        <p class="hint">"데이터 수집" 버튼을 클릭하여 공매도 데이터를 수집하세요.</p>
+        <p class="hint">"과거 20일 수집" 버튼을 클릭하여 기술적 분석에 필요한 데이터를 수집하세요.</p>
       </div>
     </div>
   </div>
@@ -292,6 +295,7 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 const router = useRouter();
 const loading = ref(false);
 const collecting = ref(false);
+const collectingHistorical = ref(false);
 const limit = ref(30);
 const selectedTab = ref('squeeze');
 const latestDate = ref('');
@@ -393,6 +397,35 @@ const collectData = async () => {
     alert('데이터 수집에 실패했습니다.');
   } finally {
     collecting.value = false;
+  }
+};
+
+const collectHistoricalData = async () => {
+  if (collectingHistorical.value) return;
+
+  if (!confirm('최근 20일간의 과거 데이터를 수집합니다.\n기술적 분석(이동평균선, RSI)에 필요한 데이터입니다.\n\n수집에 시간이 걸릴 수 있습니다. 계속하시겠습니까?')) {
+    return;
+  }
+
+  collectingHistorical.value = true;
+  try {
+    // 오늘 기준 20일 전부터 오늘까지
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const response = await api.post(`/short-selling/collect/historical?startDate=${startDate}&endDate=${endDate}`);
+    if (response.data.success) {
+      const count = response.data.data?.collectedCount || 0;
+      alert(`과거 데이터 수집 완료! (${count}건)`);
+      await fetchData();
+    } else {
+      alert('수집 실패: ' + response.data.message);
+    }
+  } catch (error) {
+    console.error('과거 데이터 수집 오류:', error);
+    alert('과거 데이터 수집에 실패했습니다.');
+  } finally {
+    collectingHistorical.value = false;
   }
 };
 
@@ -626,6 +659,14 @@ onMounted(() => {
 .collect-btn {
   background: #48bb78;
   color: white;
+}
+
+.collect-btn.historical {
+  background: #ed8936;
+}
+
+.collect-btn.historical:hover:not(:disabled) {
+  background: #dd6b20;
 }
 
 .collect-btn:hover:not(:disabled) {
