@@ -101,11 +101,32 @@ public class VirtualTradeService implements TradeService {
     }
 
     /**
-     * 매수 처리
+     * 활성 계좌 조회 - 비관적 락 적용 (동시성 제어)
+     * 매수/매도 등 잔고 변경 시 사용
+     */
+    private VirtualAccount getOrCreateActiveAccountWithLock() {
+        return accountRepository.findFirstByIsActiveTrueWithLock()
+                .orElseGet(() -> {
+                    log.info("활성 계좌가 없어 새로 생성합니다.");
+                    VirtualAccount account = VirtualAccount.builder()
+                            .accountName("모의투자 계좌")
+                            .initialBalance(INITIAL_BALANCE)
+                            .currentBalance(INITIAL_BALANCE)
+                            .totalInvested(BigDecimal.ZERO)
+                            .totalEvaluation(BigDecimal.ZERO)
+                            .isActive(true)
+                            .build();
+                    return accountRepository.save(account);
+                });
+    }
+
+    /**
+     * 매수 처리 (비관적 락 적용으로 동시성 문제 해결)
      */
     @Override
     public TradeHistoryDto buy(String stockCode, BigDecimal price, Integer quantity, String reason) {
-        VirtualAccount account = getOrCreateActiveAccount();
+        // 비관적 락으로 계좌 조회 (동시 접근 차단)
+        VirtualAccount account = getOrCreateActiveAccountWithLock();
 
         // 종목명 조회
         String stockName = getStockName(stockCode);
@@ -123,9 +144,9 @@ public class VirtualTradeService implements TradeService {
         // 현금 차감
         account.setCurrentBalance(account.getCurrentBalance().subtract(requiredAmount));
 
-        // 포트폴리오 업데이트
+        // 포트폴리오 업데이트 (비관적 락 적용)
         Optional<VirtualPortfolio> existingPortfolio = portfolioRepository
-                .findByAccountIdAndStockCode(account.getId(), stockCode);
+                .findByAccountIdAndStockCodeWithLock(account.getId(), stockCode);
 
         if (existingPortfolio.isPresent()) {
             // 기존 보유 종목 - 평균 매입가 계산
@@ -183,15 +204,16 @@ public class VirtualTradeService implements TradeService {
     }
 
     /**
-     * 매도 처리
+     * 매도 처리 (비관적 락 적용으로 동시성 문제 해결)
      */
     @Override
     public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason) {
-        VirtualAccount account = getOrCreateActiveAccount();
+        // 비관적 락으로 계좌 조회 (동시 접근 차단)
+        VirtualAccount account = getOrCreateActiveAccountWithLock();
 
-        // 보유 종목 확인
+        // 보유 종목 확인 (비관적 락 적용)
         VirtualPortfolio portfolio = portfolioRepository
-                .findByAccountIdAndStockCode(account.getId(), stockCode)
+                .findByAccountIdAndStockCodeWithLock(account.getId(), stockCode)
                 .orElseThrow(() -> new IllegalStateException("보유하지 않은 종목입니다: " + stockCode));
 
         if (portfolio.getQuantity() < quantity) {

@@ -43,6 +43,15 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 400 Bad Request - 비즈니스 로직 오류 (잔고 부족, 수량 부족 등)
+     */
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalStateException(IllegalStateException ex) {
+        log.warn("비즈니스 로직 오류: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex.getMessage(), null);
+    }
+
+    /**
      * 400 Bad Request - 유효성 검증 실패 (@Valid)
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
