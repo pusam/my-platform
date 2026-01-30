@@ -370,7 +370,7 @@ public class QuantScreenerController {
 
             // 3단계: 분기별 재무제표 수집
             log.info("[3/3] 분기별 재무제표 수집 시작...");
-            Map<String, Object> step3 = financialDataCrawlerService.crawlAllQuarterlyFinancials(false);
+            Map<String, Object> step3 = financialDataCrawlerService.collectQuarterlyFinancialStatements();
             results.put("step3_quarterlyFinancials", step3);
             log.info("[3/3] 분기별 재무제표 수집 완료");
 
