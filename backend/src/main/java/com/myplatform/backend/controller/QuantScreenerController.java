@@ -5,6 +5,7 @@ import com.myplatform.backend.service.AsyncCrawlerService;
 import com.myplatform.backend.service.FinancialDataCrawlerService;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.StockFinancialDataCollector;
 import com.myplatform.backend.service.StockFinancialDataService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -37,6 +38,7 @@ public class QuantScreenerController {
     private final StockFinancialDataService stockFinancialDataService;
     private final FinancialDataCrawlerService financialDataCrawlerService;
     private final AsyncCrawlerService asyncCrawlerService;
+    private final StockFinancialDataCollector stockFinancialDataCollector;
 
     /**
      * 마법의 공식 스크리너
@@ -437,6 +439,41 @@ public class QuantScreenerController {
             log.error("재무 데이터 상태 조회 오류", e);
             response.put("success", false);
             response.put("message", "상태 조회 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    // ========== 성장률 계산 API ==========
+
+    /**
+     * 성장률 계산 및 업데이트
+     * - 과거 데이터 기반으로 epsGrowth, profitGrowth, revenueGrowth 계산
+     * - PEG = PER / epsGrowth 자동 계산
+     * - PEG 스크리너 데이터 보강용
+     */
+    @PostMapping("/calculate-growth")
+    @Operation(summary = "성장률 계산",
+               description = "DB에 저장된 과거 데이터를 기반으로 성장률(YoY)을 계산합니다.\n\n" +
+                           "**계산 항목:**\n" +
+                           "- EPS 성장률 (전년 동기 대비)\n" +
+                           "- 순이익 성장률\n" +
+                           "- 매출 성장률\n" +
+                           "- PEG = PER / EPS성장률\n\n" +
+                           "**용도:** PEG 스크리너에서 성장률 데이터가 없는 종목 보강")
+    public ResponseEntity<Map<String, Object>> calculateGrowthRates() {
+        log.info("성장률 계산 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            int updatedCount = stockFinancialDataCollector.calculateAndUpdateGrowthRates();
+            response.put("success", true);
+            response.put("updatedCount", updatedCount);
+            response.put("message", String.format("성장률 계산 완료 - %d건 업데이트", updatedCount));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("성장률 계산 오류", e);
+            response.put("success", false);
+            response.put("message", "성장률 계산 중 오류 발생: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }

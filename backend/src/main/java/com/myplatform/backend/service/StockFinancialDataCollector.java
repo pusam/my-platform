@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -380,6 +381,150 @@ public class StockFinancialDataCollector {
             return new BigDecimal(value.replace(",", ""));
         } catch (Exception e) {
             return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * 과거 데이터 기반 성장률 계산 및 업데이트
+     * - 전년 동기 대비 성장률 계산 (YoY)
+     * - epsGrowth, profitGrowth, revenueGrowth 계산
+     * - PEG = PER / epsGrowth 계산
+     *
+     * @return 업데이트된 종목 수
+     */
+    @Transactional
+    public int calculateAndUpdateGrowthRates() {
+        log.info("성장률 계산 시작...");
+
+        // 최신 데이터가 있는 모든 종목 조회
+        LocalDate today = LocalDate.now();
+        LocalDate oneYearAgo = today.minusYears(1);
+
+        // 최근 30일 내 데이터가 있는 종목들
+        List<StockFinancialData> recentStocks = stockFinancialDataRepository
+                .findAllRecentData(today.minusDays(30));
+
+        // 종목별로 그룹화
+        Map<String, List<StockFinancialData>> stockDataMap = recentStocks.stream()
+                .collect(java.util.stream.Collectors.groupingBy(StockFinancialData::getStockCode));
+
+        int updatedCount = 0;
+
+        for (Map.Entry<String, List<StockFinancialData>> entry : stockDataMap.entrySet()) {
+            String stockCode = entry.getKey();
+            List<StockFinancialData> dataList = entry.getValue();
+
+            if (dataList.isEmpty()) continue;
+
+            // 최신 데이터
+            StockFinancialData latest = dataList.get(0);
+
+            // 1년 전 데이터 찾기
+            StockFinancialData yearAgoData = findYearAgoData(stockCode, latest.getReportDate());
+
+            if (yearAgoData == null) {
+                // 1년 전 데이터 없으면 이전 분기 데이터로 대체 (최소 2개 이상 데이터 필요)
+                if (dataList.size() >= 2) {
+                    yearAgoData = dataList.get(dataList.size() - 1);
+                } else {
+                    continue;
+                }
+            }
+
+            boolean updated = false;
+
+            // EPS 성장률 계산
+            if ((latest.getEpsGrowth() == null || latest.getEpsGrowth().compareTo(BigDecimal.ZERO) == 0)
+                    && latest.getEps() != null && yearAgoData.getEps() != null
+                    && yearAgoData.getEps().compareTo(BigDecimal.ZERO) != 0) {
+                BigDecimal epsGrowth = calculateGrowthRate(latest.getEps(), yearAgoData.getEps());
+                if (epsGrowth != null) {
+                    latest.setEpsGrowth(epsGrowth);
+                    updated = true;
+                }
+            }
+
+            // 순이익 성장률 계산
+            if ((latest.getProfitGrowth() == null || latest.getProfitGrowth().compareTo(BigDecimal.ZERO) == 0)
+                    && latest.getNetIncome() != null && yearAgoData.getNetIncome() != null
+                    && yearAgoData.getNetIncome().compareTo(BigDecimal.ZERO) != 0) {
+                BigDecimal profitGrowth = calculateGrowthRate(latest.getNetIncome(), yearAgoData.getNetIncome());
+                if (profitGrowth != null) {
+                    latest.setProfitGrowth(profitGrowth);
+                    updated = true;
+                }
+            }
+
+            // 매출 성장률 계산
+            if ((latest.getRevenueGrowth() == null || latest.getRevenueGrowth().compareTo(BigDecimal.ZERO) == 0)
+                    && latest.getRevenue() != null && yearAgoData.getRevenue() != null
+                    && yearAgoData.getRevenue().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal revenueGrowth = calculateGrowthRate(latest.getRevenue(), yearAgoData.getRevenue());
+                if (revenueGrowth != null) {
+                    latest.setRevenueGrowth(revenueGrowth);
+                    updated = true;
+                }
+            }
+
+            // PEG 계산 (epsGrowth가 없으면 profitGrowth로 대체)
+            if ((latest.getPeg() == null || latest.getPeg().compareTo(BigDecimal.ZERO) == 0)
+                    && latest.getPer() != null && latest.getPer().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal growthForPeg = latest.getEpsGrowth();
+                if (growthForPeg == null || growthForPeg.compareTo(BigDecimal.ZERO) <= 0) {
+                    growthForPeg = latest.getProfitGrowth();
+                }
+                if (growthForPeg != null && growthForPeg.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal peg = latest.getPer().divide(growthForPeg, 2, RoundingMode.HALF_UP);
+                    latest.setPeg(peg);
+                    updated = true;
+                }
+            }
+
+            if (updated) {
+                stockFinancialDataRepository.save(latest);
+                updatedCount++;
+                log.debug("성장률 업데이트: {} - epsGrowth: {}, profitGrowth: {}, peg: {}",
+                        stockCode, latest.getEpsGrowth(), latest.getProfitGrowth(), latest.getPeg());
+            }
+        }
+
+        log.info("성장률 계산 완료 - 업데이트: {}건", updatedCount);
+        return updatedCount;
+    }
+
+    /**
+     * 1년 전 데이터 조회
+     */
+    private StockFinancialData findYearAgoData(String stockCode, LocalDate currentDate) {
+        LocalDate targetDate = currentDate.minusYears(1);
+        // 1년 전 ±30일 범위에서 조회
+        LocalDate minDate = targetDate.minusDays(30);
+        LocalDate maxDate = targetDate.plusDays(30);
+
+        List<StockFinancialData> historicalData = stockFinancialDataRepository
+                .findByStockCodeOrderByReportDateDesc(stockCode);
+
+        return historicalData.stream()
+                .filter(d -> !d.getReportDate().isBefore(minDate) && !d.getReportDate().isAfter(maxDate))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 성장률 계산 (YoY)
+     * @return (current - previous) / |previous| * 100
+     */
+    private BigDecimal calculateGrowthRate(BigDecimal current, BigDecimal previous) {
+        if (current == null || previous == null || previous.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+        try {
+            return current.subtract(previous)
+                    .divide(previous.abs(), 4, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP);
+        } catch (ArithmeticException e) {
+            return null;
         }
     }
 

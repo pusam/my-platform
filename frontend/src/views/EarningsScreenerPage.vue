@@ -357,9 +357,42 @@
               <span class="status-label">영업이익률 없음</span>
               <span class="status-value warning-text">{{ collectStatus.missingOperatingMargin?.toLocaleString() || 0 }}건</span>
             </div>
+            <div class="status-item">
+              <span class="status-label">성장률 데이터 (PEG용)</span>
+              <span class="status-value" :class="collectStatus.withGrowthData > 0 ? 'positive' : 'warning-text'">
+                {{ collectStatus.withGrowthData?.toLocaleString() || 0 }}건
+              </span>
+            </div>
           </div>
           <div v-else class="status-loading">
             상태 조회 중...
+          </div>
+        </div>
+
+        <!-- 성장률 계산 카드 -->
+        <div class="action-card secondary-action">
+          <div class="action-header">
+            <span class="action-icon">📈</span>
+            <h4>성장률 계산 (PEG 스크리너용)</h4>
+          </div>
+          <p class="action-desc">
+            DB에 저장된 과거 데이터를 기반으로 성장률을 계산합니다.<br>
+            <strong>계산 항목:</strong> EPS 성장률, 순이익 성장률, 매출 성장률, PEG
+          </p>
+          <div class="action-info">
+            <span class="info-tag">⚡ 즉시 완료</span>
+            <span class="info-tag">📊 PEG = PER / EPS성장률</span>
+          </div>
+          <button
+            @click="calculateGrowthRates"
+            class="action-btn secondary"
+            :disabled="isCalculatingGrowth"
+          >
+            <span v-if="isCalculatingGrowth" class="spinner"></span>
+            {{ isCalculatingGrowth ? '계산 중...' : '📈 성장률 계산 실행' }}
+          </button>
+          <div v-if="growthCalcResult" class="collect-result success">
+            ✅ {{ growthCalcResult.message }}
           </div>
         </div>
 
@@ -703,6 +736,8 @@ const isCollectingQuarterly = ref(false);
 const isCollectingSingleQuarterly = ref(false);
 const quarterlyStockCode = ref('');
 const quarterlyResult = ref(null);
+const isCalculatingGrowth = ref(false);
+const growthCalcResult = ref(null);
 const collectProgress = ref('');
 
 // SSE 실시간 진행률
@@ -847,6 +882,40 @@ const collectAllFinancialData = async () => {
     collectProgress.value = '수집 중 오류 발생: ' + (error.response?.data?.message || error.message);
   } finally {
     isCollecting.value = false;
+  }
+};
+
+// 성장률 계산 (PEG 스크리너용)
+const calculateGrowthRates = async () => {
+  if (isCalculatingGrowth.value) return;
+
+  isCalculatingGrowth.value = true;
+  growthCalcResult.value = null;
+
+  try {
+    const response = await api.post('/screener/calculate-growth');
+    if (response.data.success) {
+      growthCalcResult.value = {
+        success: true,
+        message: response.data.message,
+        updatedCount: response.data.updatedCount
+      };
+      // 상태 새로고침
+      await fetchCollectStatus();
+    } else {
+      growthCalcResult.value = {
+        success: false,
+        message: '계산 실패: ' + response.data.message
+      };
+    }
+  } catch (error) {
+    console.error('성장률 계산 오류:', error);
+    growthCalcResult.value = {
+      success: false,
+      message: '오류 발생: ' + (error.response?.data?.message || error.message)
+    };
+  } finally {
+    isCalculatingGrowth.value = false;
   }
 };
 
@@ -2080,6 +2149,40 @@ onMounted(async () => {
 .info-tag.highlight {
   background: linear-gradient(135deg, #667eea, #764ba2);
   color: white;
+}
+
+/* 성장률 계산 카드 스타일 */
+.action-card.secondary-action {
+  background: linear-gradient(135deg, #10b98115, #059b8515);
+  border: 2px solid #10b981;
+  margin-bottom: 1.5rem;
+}
+
+.action-card.secondary-action .action-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.action-btn.secondary {
+  background: linear-gradient(135deg, #10b981, #059b85);
+  color: white;
+  border: none;
+}
+
+.action-btn.secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #059b85, #047857);
+  transform: translateY(-1px);
+}
+
+.collect-result.success {
+  background: #10b98120;
+  color: #10b981;
+  border: 1px solid #10b981;
+  padding: 0.75rem;
+  border-radius: 6px;
+  margin-top: 0.75rem;
+  font-weight: 500;
 }
 
 .divider {

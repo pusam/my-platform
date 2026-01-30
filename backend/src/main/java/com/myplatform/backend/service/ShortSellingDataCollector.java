@@ -128,27 +128,32 @@ public class ShortSellingDataCollector {
     }
 
     /**
-     * 대차잔고 데이터 수집 (금융투자협회 FREESIS + 네이버 금융 fallback)
+     * 공매도/대차잔고 데이터 수집
      *
      * 데이터 소스 우선순위:
-     * 1. 한국투자증권 API
-     * 2. 네이버 금융 크롤링 (fallback)
+     * 1. 네이버 금융 공매도 데이터 (필수)
+     * 2. 대차잔고 데이터 (선택 - 404시 스킵)
+     * 3. 한국투자증권 API로 주가 보강
      */
     private Map<String, StockShortData> collectLoanBalanceData(LocalDate tradeDate) {
         Map<String, StockShortData> result = new HashMap<>();
-        String dateStr = tradeDate.format(KRX_DATE_FORMATTER);
 
         try {
             List<String> targetStocks = getTargetStockCodes();
 
             for (String stockCode : targetStocks) {
                 try {
-                    // 1. 한국투자증권 API 시도
-                    StockShortData data = fetchLoanBalanceFromKis(stockCode, tradeDate);
+                    // 1. 네이버 금융 공매도 데이터 조회 (필수)
+                    StockShortData data = fetchShortSellingFromNaver(stockCode, tradeDate);
 
-                    // 2. KIS API 실패 시 네이버 금융 크롤링으로 fallback
-                    if (data == null || data.getLoanBalanceQuantity() == null) {
-                        data = fetchLoanBalanceFromNaver(stockCode, tradeDate);
+                    // 2. 공매도 데이터 없으면 KIS API로 기본 데이터 생성
+                    if (data == null) {
+                        data = fetchLoanBalanceFromKis(stockCode, tradeDate);
+                    }
+
+                    // 3. 대차잔고 데이터 추가 시도 (실패해도 OK)
+                    if (data != null && naverFinanceCrawler.isLendingPageAvailable()) {
+                        enrichWithLoanBalanceData(data, stockCode, tradeDate);
                     }
 
                     if (data != null) {
@@ -159,67 +164,71 @@ public class ShortSellingDataCollector {
                     Thread.sleep(100);
 
                 } catch (Exception e) {
-                    log.debug("종목 {} 대차잔고 조회 실패: {}", stockCode, e.getMessage());
+                    log.debug("종목 {} 데이터 조회 실패: {}", stockCode, e.getMessage());
                 }
             }
 
         } catch (Exception e) {
-            log.error("대차잔고 데이터 수집 실패: {}", e.getMessage());
+            log.error("공매도 데이터 수집 실패: {}", e.getMessage());
         }
 
         return result;
     }
 
     /**
-     * 네이버 금융에서 대차잔고 데이터 조회 (fallback)
+     * 네이버 금융에서 공매도 데이터 조회 (대차잔고 없이 공매도만)
      */
-    private StockShortData fetchLoanBalanceFromNaver(String stockCode, LocalDate tradeDate) {
+    private StockShortData fetchShortSellingFromNaver(String stockCode, LocalDate tradeDate) {
         try {
-            // 네이버 금융에서 최근 7일 데이터 크롤링
-            List<NaverFinanceCrawler.LoanBalanceData> loanDataList =
-                    naverFinanceCrawler.crawlLoanBalanceData(stockCode, 7);
+            // 공매도 데이터 조회
+            List<NaverFinanceCrawler.ShortSellingData> shortDataList =
+                    naverFinanceCrawler.crawlShortSellingData(stockCode, 10);
 
             // 해당 날짜의 데이터 찾기
-            for (NaverFinanceCrawler.LoanBalanceData loanData : loanDataList) {
-                if (loanData.getTradeDate().equals(tradeDate)) {
-                    // 공매도 데이터도 조회
-                    List<NaverFinanceCrawler.ShortSellingData> shortDataList =
-                            naverFinanceCrawler.crawlShortSellingData(stockCode, 7);
-
-                    BigDecimal closePrice = BigDecimal.ZERO;
-                    BigDecimal shortVolume = BigDecimal.ZERO;
-                    BigDecimal shortRatio = BigDecimal.ZERO;
-
-                    for (NaverFinanceCrawler.ShortSellingData shortData : shortDataList) {
-                        if (shortData.getTradeDate().equals(tradeDate)) {
-                            closePrice = shortData.getClosePrice();
-                            shortVolume = shortData.getShortVolume();
-                            shortRatio = shortData.getShortRatio();
-                            break;
-                        }
-                    }
-
+            for (NaverFinanceCrawler.ShortSellingData shortData : shortDataList) {
+                if (shortData.getTradeDate().equals(tradeDate)) {
                     return StockShortData.builder()
                             .stockCode(stockCode)
                             .stockName(getStockNameFromCode(stockCode))
                             .tradeDate(tradeDate)
-                            .closePrice(closePrice)
-                            .loanBalanceQuantity(loanData.getLoanBalance())
-                            .loanBalanceValue(loanData.getLoanBalanceValue())
-                            .shortVolume(shortVolume)
-                            .shortRatio(shortRatio)
+                            .closePrice(shortData.getClosePrice())
+                            .shortVolume(shortData.getShortVolume())
+                            .shortTradingValue(shortData.getShortTradingValue())
+                            .shortRatio(shortData.getShortRatio())
+                            .volume(shortData.getTotalVolume())
                             .build();
                 }
             }
 
-            log.debug("네이버 금융에서 {} 날짜의 데이터를 찾지 못함: {}", tradeDate, stockCode);
+            log.debug("네이버 금융에서 {} 날짜의 공매도 데이터를 찾지 못함: {}", tradeDate, stockCode);
             return null;
 
         } catch (Exception e) {
-            log.debug("네이버 금융 대차잔고 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.debug("네이버 금융 공매도 조회 실패 [{}]: {}", stockCode, e.getMessage());
             return null;
         }
     }
+
+    /**
+     * 대차잔고 데이터로 보강 (선택적)
+     */
+    private void enrichWithLoanBalanceData(StockShortData data, String stockCode, LocalDate tradeDate) {
+        try {
+            List<NaverFinanceCrawler.LoanBalanceData> loanDataList =
+                    naverFinanceCrawler.crawlLoanBalanceData(stockCode, 7);
+
+            for (NaverFinanceCrawler.LoanBalanceData loanData : loanDataList) {
+                if (loanData.getTradeDate().equals(tradeDate)) {
+                    data.setLoanBalanceQuantity(loanData.getLoanBalance());
+                    data.setLoanBalanceValue(loanData.getLoanBalanceValue());
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("대차잔고 보강 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+    }
+
 
     /**
      * 한국투자증권 API를 통한 개별 종목 대차잔고 조회
