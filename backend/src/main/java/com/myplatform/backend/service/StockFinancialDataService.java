@@ -27,6 +27,7 @@ public class StockFinancialDataService {
     private final StockShortDataRepository stockShortDataRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final StockFinancialDataCollector collector;
+    private final SseEmitterService sseEmitterService;
 
     /**
      * 매일 밤 재무 데이터 업데이트 체크 (23:00)
@@ -217,6 +218,10 @@ public class StockFinancialDataService {
                     int progress = (int) (((i + 1) * 100.0) / totalCount);
                     log.info("진행률: {}/{} ({}%) - 성공: {}, 실패: {}",
                             i + 1, totalCount, progress, successCount, failCount);
+
+                    // SSE 진행률 전송 (collect-all-in-one 태스크)
+                    sseEmitterService.sendProgress("collect-all-in-one", i + 1, totalCount,
+                            successCount, failCount, stockCode);
                 }
 
             } catch (InterruptedException e) {

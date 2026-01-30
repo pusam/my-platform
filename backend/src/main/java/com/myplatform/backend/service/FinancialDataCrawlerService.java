@@ -32,6 +32,7 @@ public class FinancialDataCrawlerService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final StockShortDataRepository stockShortDataRepository;
+    private final SseEmitterService sseEmitterService;
 
     private static final String NAVER_FINANCE_URL = "https://finance.naver.com/item/main.naver?code=";
     private static final String NAVER_FINANCE_DETAIL_URL = "https://finance.naver.com/item/coinfo.naver?code=";
@@ -133,6 +134,11 @@ public class FinancialDataCrawlerService {
                     int progress = (int) (((i + 1) * 100.0) / totalCount);
                     log.info("진행률: {}/{} ({}%) - 성공: {}, 실패: {}, 스킵: {}",
                             i + 1, totalCount, progress, successCount, failCount, skipCount);
+
+                    // SSE 진행률 전송
+                    String stockName = data.getStockName() != null ? data.getStockName() : data.getStockCode();
+                    sseEmitterService.sendProgress("collect-all-in-one", i + 1, totalCount,
+                            successCount, failCount, stockName);
                 }
 
             } catch (InterruptedException e) {
@@ -619,6 +625,10 @@ public class FinancialDataCrawlerService {
                     int progress = (int) (((i + 1) * 100.0) / totalCount);
                     log.info("진행률: {}/{} ({}%) - 성공: {}, 실패: {}",
                             i + 1, totalCount, progress, successCount, failCount);
+
+                    // SSE 진행률 전송
+                    sseEmitterService.sendProgress("collect-all-in-one", i + 1, totalCount,
+                            successCount, failCount, stockCode);
                 }
 
             } catch (InterruptedException e) {

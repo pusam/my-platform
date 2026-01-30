@@ -523,7 +523,8 @@ public class StockPriceService {
     }
 
     // Rate Limit 제어를 위한 Semaphore (동시 15개 요청으로 제한 - 초당 ~20건 처리 가능)
-    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(15);
+    // 동시 요청 수를 5개로 제한 (초당 20건 이내 유지)
+    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(5);
     // 요청 간 최소 간격 (ms) - 너무 길면 타임아웃, 너무 짧으면 Rate Limit
     private static final int REQUEST_DELAY_MS = 40;
     // Rate Limit 에러 시 재시도 대기 시간 (ms)
@@ -574,19 +575,23 @@ public class StockPriceService {
         // 로그 카운터 리셋 (배치별로 처음 3개만 상세 로그)
         minuteApiLogCount.set(0);
 
-        // 2. 캐시 미스 종목만 API 조회
+        // 2. 캐시 미스 종목만 API 조회 (순차적 60ms 간격 - 초당 ~16건)
+        // Rate Limit(초당 20건) 여유를 두고 개별 요청마다 지연
         Map<String, CompletableFuture<BigDecimal>> futures = new ConcurrentHashMap<>();
 
         for (int i = 0; i < missingCodes.size(); i++) {
             final String stockCode = missingCodes.get(i);
-            final int batchIndex = i / 15;  // 15개씩 배치 그룹
+            final int requestIndex = i;  // 각 요청의 순서
 
             CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    // 배치 그룹별로 딜레이 (15개씩 묶어서 처리)
-                    Thread.sleep((long) batchIndex * REQUEST_DELAY_MS);
+                    // 각 요청마다 개별 지연 (60ms * index = 초당 ~16건, Rate Limit 여유)
+                    long delay = (long) requestIndex * 60L;
+                    if (delay > 0) {
+                        Thread.sleep(delay);
+                    }
 
-                    // Semaphore로 동시 요청 수 제한
+                    // Semaphore로 동시 요청 수 제한 (5개)
                     API_SEMAPHORE.acquire();
                     try {
                         BigDecimal value = fetchMinuteTradingValueWithRetry(stockCode, minutes);
@@ -664,9 +669,14 @@ public class StockPriceService {
                 return null;
             }
 
-            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
-            String msgCd = response.has("msg_cd") ? response.get("msg_cd").asText() : "";
-            String msg1 = response.has("msg1") ? response.get("msg1").asText() : "";
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText("") : "";
+            String msgCd = response.has("msg_cd") ? response.get("msg_cd").asText("") : "";
+            String msg1 = response.has("msg1") ? response.get("msg1").asText("") : "";
+
+            // 응답이 비어있으면 디버그 로그 (처음 1개만)
+            if (rtCd.isEmpty() && msgCd.isEmpty() && minuteApiLogCount.get() == 0) {
+                log.warn("분봉 API 비정상 응답 [{}]: {}", stockCode, response.toString().substring(0, Math.min(200, response.toString().length())));
+            }
 
             // Rate Limit 에러 체크 (EGW00201: 초당 거래건수 초과)
             if ("EGW00201".equals(msgCd)) {
@@ -674,7 +684,8 @@ public class StockPriceService {
                 return null;
             }
 
-            if (!"0".equals(rtCd)) {
+            // rt_cd가 비어있거나 0이 아니면 에러
+            if (rtCd.isEmpty() || !"0".equals(rtCd)) {
                 if (minuteApiLogCount.incrementAndGet() <= 3) {
                     log.warn("분봉 API 에러 [{}]: rt_cd={}, msg_cd={}, msg={}", stockCode, rtCd, msgCd, msg1);
                 }
