@@ -264,16 +264,17 @@ export const stockAPI = {
 // Sector Trading API
 export const sectorAPI = {
   // 섹터별 거래대금 조회 (period: TODAY, MIN_5, MIN_30)
+  // 타임아웃 120초 - 종목 시세 조회가 오래 걸릴 수 있음
   getSectorTrading(period = 'TODAY') {
-    return apiClient.get('/sector/trading', { params: { period } });
+    return apiClient.get('/sector/trading', { params: { period }, timeout: 120000 });
   },
   // 특정 섹터 상세 조회
   getSectorDetail(sectorCode) {
-    return apiClient.get(`/sector/trading/${sectorCode}`);
+    return apiClient.get(`/sector/trading/${sectorCode}`, { timeout: 120000 });
   },
   // 캐시 새로고침
   refreshSectorTrading() {
-    return apiClient.post('/sector/trading/refresh');
+    return apiClient.post('/sector/trading/refresh', {}, { timeout: 120000 });
   }
 };
 
