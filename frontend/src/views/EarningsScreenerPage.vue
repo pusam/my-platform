@@ -784,7 +784,7 @@ const fetchCollectStatus = async () => {
   }
 };
 
-// 원버튼 전체 데이터 수집
+// 원버튼 전체 데이터 수집 (SSE 방식)
 const collectAllInOne = async () => {
   if (isCollectingAll.value) return;
 
@@ -792,7 +792,8 @@ const collectAllInOne = async () => {
                '1단계: 기본 재무 데이터 (10-15분)\n' +
                '2단계: 영업이익률 크롤링 (15-20분)\n' +
                '3단계: 분기별 재무제표 (10-15분)\n\n' +
-               '총 약 30-40분 소요됩니다.')) {
+               '총 약 30-40분 소요됩니다.\n' +
+               '진행률이 실시간으로 표시됩니다.')) {
     return;
   }
 
@@ -800,25 +801,25 @@ const collectAllInOne = async () => {
   collectAllProgress.value = '🚀 전체 수집 시작 중...';
   collectAllResult.value = null;
 
-  try {
-    collectAllProgress.value = '1️⃣ 기본 재무 데이터 수집 중... (10-15분)';
-    const response = await api.post('/screener/collect-all-in-one', {}, { timeout: 3600000 }); // 1시간 타임아웃
+  // SSE 구독 시작
+  startSseSubscription('collect-all-in-one');
 
-    if (response.data.success) {
-      collectAllProgress.value = '✅ 전체 수집 완료!';
-      collectAllResult.value = response.data.data;
-      await fetchCollectStatus();
-      alert('전체 데이터 수집이 완료되었습니다!');
-    } else {
-      collectAllProgress.value = '❌ 수집 실패';
-      collectAllResult.value = response.data;
+  try {
+    // 비동기 API 호출 (즉시 반환)
+    const response = await api.post('/screener/collect-all-in-one');
+
+    if (!response.data.success) {
+      collectAllProgress.value = '❌ 수집 시작 실패: ' + response.data.message;
+      isCollectingAll.value = false;
+      closeProgressBar();
     }
+    // 성공 시 SSE를 통해 진행 상황이 업데이트됨
   } catch (error) {
     console.error('전체 데이터 수집 오류:', error);
-    collectAllProgress.value = '❌ 수집 중 오류 발생';
-    alert('수집 중 오류가 발생했습니다: ' + (error.response?.data?.message || error.message));
-  } finally {
+    collectAllProgress.value = '❌ 수집 시작 오류';
+    alert('수집 시작 중 오류가 발생했습니다: ' + (error.response?.data?.message || error.message));
     isCollectingAll.value = false;
+    closeProgressBar();
   }
 };
 
@@ -903,16 +904,28 @@ const startSseSubscription = (taskType) => {
     addLog(data.level, data.message);
   });
 
+  eventSource.addEventListener('STEP', (e) => {
+    const data = JSON.parse(e.data);
+    sseProgress.value.percent = data.percent;
+    sseProgress.value.current = data.step;
+    sseProgress.value.total = data.totalSteps;
+    sseProgress.value.message = data.message;
+    collectAllProgress.value = data.message;
+    addLog('INFO', `[단계 ${data.step}/${data.totalSteps}] ${data.message}`);
+  });
+
   eventSource.addEventListener('COMPLETE', (e) => {
     const data = JSON.parse(e.data);
     sseProgress.value.percent = 100;
     sseProgress.value.message = data.message;
     addLog('SUCCESS', data.message);
     collectProgress.value = data.message;
+    collectAllProgress.value = '✅ ' + data.message;
     eventSource.close();
     sseConnection.value = null;
     isCrawling.value = false;
     isCollectingQuarterly.value = false;
+    isCollectingAll.value = false;
     fetchCollectStatus();
   });
 
@@ -921,6 +934,8 @@ const startSseSubscription = (taskType) => {
     sseProgress.value.message = data.message;
     addLog('ERROR', data.message);
     collectProgress.value = '오류: ' + data.message;
+    collectAllProgress.value = '❌ 오류: ' + data.message;
+    isCollectingAll.value = false;
   });
 
   eventSource.onerror = () => {
@@ -928,6 +943,9 @@ const startSseSubscription = (taskType) => {
     addLog('ERROR', 'SSE 연결이 끊어졌습니다.');
     eventSource.close();
     sseConnection.value = null;
+    isCrawling.value = false;
+    isCollectingQuarterly.value = false;
+    isCollectingAll.value = false;
   };
 };
 

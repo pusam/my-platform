@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class AsyncCrawlerService {
 
     private final FinancialDataCrawlerService financialDataCrawlerService;
+    private final StockFinancialDataService stockFinancialDataService;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final StockShortDataRepository stockShortDataRepository;
     private final SseEmitterService sseEmitterService;
@@ -285,6 +286,77 @@ public class AsyncCrawlerService {
 
             return CompletableFuture.completedFuture(result);
 
+        } finally {
+            isRunning.set(false);
+        }
+    }
+
+    /**
+     * 원버튼 전체 데이터 수집 (비동기)
+     * - 1단계: 기본 재무 데이터 수집 (KIS API)
+     * - 2단계: 영업이익률 크롤링 (네이버 금융)
+     * - 3단계: 분기별 재무제표 수집 (네이버 금융)
+     */
+    @Async("crawlerExecutor")
+    public CompletableFuture<Map<String, Object>> collectAllInOneAsync() {
+        String taskType = "collect-all-in-one";
+        Map<String, Object> result = new HashMap<>();
+
+        AtomicBoolean isRunning = runningTasks.computeIfAbsent(taskType, k -> new AtomicBoolean(false));
+        if (!isRunning.compareAndSet(false, true)) {
+            result.put("success", false);
+            result.put("message", "이미 전체 수집이 진행 중입니다.");
+            sseEmitterService.sendError(taskType, "이미 수집이 진행 중입니다.");
+            return CompletableFuture.completedFuture(result);
+        }
+
+        try {
+            long startTime = System.currentTimeMillis();
+            log.info("========== [Async] 원버튼 전체 데이터 수집 시작 ==========");
+
+            // 시작 이벤트 전송 (3단계)
+            sseEmitterService.sendStart(taskType, 3, "원버튼 전체 데이터 수집을 시작합니다.");
+
+            // 1단계: 기본 재무 데이터 수집
+            sseEmitterService.sendStep(taskType, 1, 3, "1️⃣ 기본 재무 데이터 수집 중...");
+            Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
+            result.put("step1_basicFinancial", step1);
+            sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 기본 재무 데이터: 성공 %s, 실패 %s",
+                    step1.get("successCount"), step1.get("failCount")));
+
+            // 2단계: 영업이익률 크롤링
+            sseEmitterService.sendStep(taskType, 2, 3, "2️⃣ 영업이익률 크롤링 중...");
+            Map<String, Object> step2 = financialDataCrawlerService.crawlAllOperatingMargin(false);
+            result.put("step2_operatingMargin", step2);
+            sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 영업이익률: 성공 %s, 실패 %s",
+                    step2.get("successCount"), step2.get("failCount")));
+
+            // 3단계: 분기별 재무제표 수집
+            sseEmitterService.sendStep(taskType, 3, 3, "3️⃣ 분기별 재무제표 수집 중...");
+            Map<String, Object> step3 = financialDataCrawlerService.collectQuarterlyFinancialStatements();
+            result.put("step3_quarterlyFinancials", step3);
+            sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 분기별 재무제표: 성공 %s, 실패 %s",
+                    step3.get("successCount"), step3.get("failCount")));
+
+            long elapsedTime = System.currentTimeMillis() - startTime;
+
+            result.put("success", true);
+            result.put("elapsedSeconds", elapsedTime / 1000);
+            result.put("message", String.format("전체 데이터 수집 완료 (소요시간: %d초)", elapsedTime / 1000));
+
+            // 완료 이벤트 전송
+            sseEmitterService.sendComplete(taskType, result);
+
+            log.info("========== [Async] 원버튼 전체 데이터 수집 완료 - 소요시간: {}초 ==========", elapsedTime / 1000);
+
+            return CompletableFuture.completedFuture(result);
+
+        } catch (Exception e) {
+            log.error("원버튼 수집 오류", e);
+            result.put("success", false);
+            result.put("message", "수집 중 오류 발생: " + e.getMessage());
+            sseEmitterService.sendError(taskType, "수집 중 오류 발생: " + e.getMessage());
+            return CompletableFuture.completedFuture(result);
         } finally {
             isRunning.set(false);
         }

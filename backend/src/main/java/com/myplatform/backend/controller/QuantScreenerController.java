@@ -339,55 +339,41 @@ public class QuantScreenerController {
     }
 
     /**
-     * 원버튼 전체 데이터 수집
+     * 원버튼 전체 데이터 수집 (비동기)
+     * - 즉시 응답하고 백그라운드에서 수집 수행
+     * - SSE로 진행률 실시간 전송 (/api/sse/subscribe?taskType=collect-all-in-one)
      * - 1단계: 기본 재무 데이터 수집 (KIS API)
      * - 2단계: 영업이익률 크롤링 (네이버 금융)
      * - 3단계: 분기별 재무제표 수집 (네이버 금융)
-     * - 총 소요시간: 약 30-40분
      */
     @PostMapping("/collect-all-in-one")
-    @Operation(summary = "원버튼 전체 데이터 수집",
-               description = "기본 재무 데이터 → 영업이익률 크롤링 → 분기별 재무제표 수집을 순차적으로 실행합니다. " +
-                           "총 약 30-40분 소요됩니다.")
+    @Operation(summary = "원버튼 전체 데이터 수집 (비동기)",
+               description = "즉시 응답하고 백그라운드에서 수집을 수행합니다.\n\n" +
+                           "**SSE 연동 방법:**\n" +
+                           "1. 먼저 `/api/sse/subscribe?taskType=collect-all-in-one` 구독\n" +
+                           "2. 이 API 호출\n" +
+                           "3. SSE로 진행률 수신 (PROGRESS, COMPLETE 이벤트)")
     public ResponseEntity<Map<String, Object>> collectAllInOne() {
-        log.info("=== 원버튼 전체 데이터 수집 시작 ===");
+        log.info("=== 원버튼 전체 데이터 수집 (비동기) 요청 ===");
 
         Map<String, Object> response = new HashMap<>();
-        Map<String, Object> results = new HashMap<>();
 
-        try {
-            // 1단계: 기본 재무 데이터 수집
-            log.info("[1/3] 기본 재무 데이터 수집 시작...");
-            Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
-            results.put("step1_basicFinancial", step1);
-            log.info("[1/3] 기본 재무 데이터 수집 완료");
-
-            // 2단계: 영업이익률 크롤링
-            log.info("[2/3] 영업이익률 크롤링 시작...");
-            Map<String, Object> step2 = financialDataCrawlerService.crawlAllOperatingMargin(false);
-            results.put("step2_operatingMargin", step2);
-            log.info("[2/3] 영업이익률 크롤링 완료");
-
-            // 3단계: 분기별 재무제표 수집
-            log.info("[3/3] 분기별 재무제표 수집 시작...");
-            Map<String, Object> step3 = financialDataCrawlerService.collectQuarterlyFinancialStatements();
-            results.put("step3_quarterlyFinancials", step3);
-            log.info("[3/3] 분기별 재무제표 수집 완료");
-
-            log.info("=== 원버튼 전체 데이터 수집 완료 ===");
-
-            response.put("success", true);
-            response.put("data", results);
-            response.put("message", "전체 데이터 수집 완료 (기본 재무 + 영업이익률 + 분기별)");
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("원버튼 전체 데이터 수집 오류", e);
+        // 이미 실행 중인지 확인
+        if (asyncCrawlerService.isTaskRunning("collect-all-in-one")) {
             response.put("success", false);
-            response.put("partialResults", results);
-            response.put("message", "수집 중 오류 발생: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
+            response.put("message", "이미 전체 수집이 진행 중입니다. SSE를 구독하여 진행률을 확인하세요.");
+            response.put("taskType", "collect-all-in-one");
+            return ResponseEntity.ok(response);
         }
+
+        // 비동기 작업 시작
+        asyncCrawlerService.collectAllInOneAsync();
+
+        response.put("success", true);
+        response.put("message", "전체 데이터 수집이 시작되었습니다. SSE를 구독하여 진행률을 확인하세요.");
+        response.put("taskType", "collect-all-in-one");
+        response.put("sseEndpoint", "/api/sse/subscribe?taskType=collect-all-in-one");
+        return ResponseEntity.ok(response);
     }
 
     /**

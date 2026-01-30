@@ -114,6 +114,18 @@ public class SseEmitterService {
     }
 
     /**
+     * 단계별 진행 이벤트 전송 (multi-step 작업용)
+     */
+    public void sendStep(String taskType, int step, int totalSteps, String message) {
+        int percent = totalSteps > 0 ? (int) ((step * 100.0) / totalSteps) : 0;
+        String eventData = String.format(
+                "{\"type\":\"STEP\",\"step\":%d,\"totalSteps\":%d,\"percent\":%d,\"message\":\"%s\"}",
+                step, totalSteps, percent, escapeJson(message));
+
+        broadcastToTask(taskType, "STEP", eventData);
+    }
+
+    /**
      * 작업 시작 이벤트 전송
      */
     public void sendStart(String taskType, int totalCount, String description) {
