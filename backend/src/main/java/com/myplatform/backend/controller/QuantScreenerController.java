@@ -339,6 +339,58 @@ public class QuantScreenerController {
     }
 
     /**
+     * 원버튼 전체 데이터 수집
+     * - 1단계: 기본 재무 데이터 수집 (KIS API)
+     * - 2단계: 영업이익률 크롤링 (네이버 금융)
+     * - 3단계: 분기별 재무제표 수집 (네이버 금융)
+     * - 총 소요시간: 약 30-40분
+     */
+    @PostMapping("/collect-all-in-one")
+    @Operation(summary = "원버튼 전체 데이터 수집",
+               description = "기본 재무 데이터 → 영업이익률 크롤링 → 분기별 재무제표 수집을 순차적으로 실행합니다. " +
+                           "총 약 30-40분 소요됩니다.")
+    public ResponseEntity<Map<String, Object>> collectAllInOne() {
+        log.info("=== 원버튼 전체 데이터 수집 시작 ===");
+
+        Map<String, Object> response = new HashMap<>();
+        Map<String, Object> results = new HashMap<>();
+
+        try {
+            // 1단계: 기본 재무 데이터 수집
+            log.info("[1/3] 기본 재무 데이터 수집 시작...");
+            Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
+            results.put("step1_basicFinancial", step1);
+            log.info("[1/3] 기본 재무 데이터 수집 완료");
+
+            // 2단계: 영업이익률 크롤링
+            log.info("[2/3] 영업이익률 크롤링 시작...");
+            Map<String, Object> step2 = financialDataCrawlerService.crawlAllOperatingMargin(false);
+            results.put("step2_operatingMargin", step2);
+            log.info("[2/3] 영업이익률 크롤링 완료");
+
+            // 3단계: 분기별 재무제표 수집
+            log.info("[3/3] 분기별 재무제표 수집 시작...");
+            Map<String, Object> step3 = financialDataCrawlerService.crawlAllQuarterlyFinancials(false);
+            results.put("step3_quarterlyFinancials", step3);
+            log.info("[3/3] 분기별 재무제표 수집 완료");
+
+            log.info("=== 원버튼 전체 데이터 수집 완료 ===");
+
+            response.put("success", true);
+            response.put("data", results);
+            response.put("message", "전체 데이터 수집 완료 (기본 재무 + 영업이익률 + 분기별)");
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("원버튼 전체 데이터 수집 오류", e);
+            response.put("success", false);
+            response.put("partialResults", results);
+            response.put("message", "수집 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
      * 전 종목 재무 데이터 수집
      * - StockShortData에 있는 모든 종목의 재무 데이터를 수집
      * - 2000개 이상의 종목 대상, Rate Limit 고려

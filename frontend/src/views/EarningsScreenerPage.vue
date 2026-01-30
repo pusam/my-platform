@@ -290,9 +290,38 @@
 
       <!-- 데이터 관리 탭 -->
       <div v-if="selectedTab === 'data-management'" class="tab-content">
-        <div class="info-box warning">
-          <strong>데이터 수집 안내</strong>
-          <p>스크리너를 사용하려면 먼저 재무 데이터를 수집해야 합니다. 수집 순서: 1) 기본 재무 데이터 수집 → 2) 영업이익률 크롤링</p>
+
+        <!-- 원버튼 전체 수집 카드 -->
+        <div class="action-card primary-action">
+          <div class="action-header">
+            <span class="action-icon">🚀</span>
+            <h4>원버튼 전체 데이터 수집</h4>
+            <span class="recommended-badge">추천</span>
+          </div>
+          <p class="action-desc">
+            <strong>모든 데이터를 한 번에 수집합니다:</strong><br>
+            1️⃣ 기본 재무 데이터 (KIS API) → 2️⃣ 영업이익률 (네이버 금융) → 3️⃣ 분기별 재무제표 (네이버 금융)
+          </p>
+          <div class="action-info">
+            <span class="info-tag highlight">⏱️ 총 30-40분 소요</span>
+            <span class="info-tag">📈 2,000+ 종목</span>
+            <span class="info-tag">✨ 마법의 공식 완벽 지원</span>
+          </div>
+          <button
+            @click="collectAllInOne"
+            class="action-btn primary large"
+            :disabled="isCollectingAll"
+          >
+            <span v-if="isCollectingAll" class="spinner"></span>
+            {{ isCollectingAll ? collectAllProgress : '🚀 전체 데이터 수집 시작' }}
+          </button>
+          <div v-if="collectAllResult" class="collect-result">
+            <pre>{{ JSON.stringify(collectAllResult, null, 2) }}</pre>
+          </div>
+        </div>
+
+        <div class="divider">
+          <span>또는 개별 수집</span>
         </div>
 
         <!-- 수집 상태 카드 -->
@@ -834,6 +863,9 @@ const collectStatus = ref(null);
 const isCollecting = ref(false);
 const magicFormulaCollecting = ref(false);
 const isCrawling = ref(false);
+const isCollectingAll = ref(false);
+const collectAllProgress = ref('');
+const collectAllResult = ref(null);
 const isFixingNames = ref(false);
 const isCollectingQuarterly = ref(false);
 const isCollectingSingleQuarterly = ref(false);
@@ -917,6 +949,44 @@ const fetchCollectStatus = async () => {
     }
   } catch (error) {
     console.error('수집 상태 조회 오류:', error);
+  }
+};
+
+// 원버튼 전체 데이터 수집
+const collectAllInOne = async () => {
+  if (isCollectingAll.value) return;
+
+  if (!confirm('전체 데이터 수집을 시작하시겠습니까?\n\n' +
+               '1단계: 기본 재무 데이터 (10-15분)\n' +
+               '2단계: 영업이익률 크롤링 (15-20분)\n' +
+               '3단계: 분기별 재무제표 (10-15분)\n\n' +
+               '총 약 30-40분 소요됩니다.')) {
+    return;
+  }
+
+  isCollectingAll.value = true;
+  collectAllProgress.value = '🚀 전체 수집 시작 중...';
+  collectAllResult.value = null;
+
+  try {
+    collectAllProgress.value = '1️⃣ 기본 재무 데이터 수집 중... (10-15분)';
+    const response = await api.post('/screener/collect-all-in-one', {}, { timeout: 3600000 }); // 1시간 타임아웃
+
+    if (response.data.success) {
+      collectAllProgress.value = '✅ 전체 수집 완료!';
+      collectAllResult.value = response.data.data;
+      await fetchCollectStatus();
+      alert('전체 데이터 수집이 완료되었습니다!');
+    } else {
+      collectAllProgress.value = '❌ 수집 실패';
+      collectAllResult.value = response.data;
+    }
+  } catch (error) {
+    console.error('전체 데이터 수집 오류:', error);
+    collectAllProgress.value = '❌ 수집 중 오류 발생';
+    alert('수집 중 오류가 발생했습니다: ' + (error.response?.data?.message || error.message));
+  } finally {
+    isCollectingAll.value = false;
   }
 };
 
@@ -2013,6 +2083,74 @@ onMounted(async () => {
 
 .no-data p {
   font-size: 1.2rem;
+}
+
+/* 원버튼 전체 수집 스타일 */
+.action-card.primary-action {
+  background: linear-gradient(135deg, #667eea15, #764ba215);
+  border: 2px solid #667eea;
+  margin-bottom: 1.5rem;
+}
+
+.action-card.primary-action .action-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.recommended-badge {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.action-btn.large {
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+}
+
+.info-tag.highlight {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 2rem 0;
+  color: var(--text-muted);
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.divider span {
+  padding: 0 1rem;
+  font-size: 0.9rem;
+}
+
+.collect-result {
+  margin-top: 1rem;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 1rem;
+  font-size: 0.8rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.collect-result pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* 데이터 관리 탭 스타일 */

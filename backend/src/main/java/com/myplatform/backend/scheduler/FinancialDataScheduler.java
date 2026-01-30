@@ -52,9 +52,13 @@ public class FinancialDataScheduler {
         }
     }
 
+    // 최소 데이터 건수 (이보다 적으면 재수집)
+    private static final long MIN_DATA_COUNT = 500;
+
     /**
-     * 서버 시작 시 데이터가 없으면 자동 수집
+     * 서버 시작 시 데이터가 없거나 부족하면 자동 수집
      * - @Async로 비동기 실행 (서버 시작 지연 방지)
+     * - 데이터가 500건 미만이면 재수집
      */
     @EventListener(ApplicationReadyEvent.class)
     @Async
@@ -64,8 +68,16 @@ public class FinancialDataScheduler {
         try {
             long dataCount = stockFinancialDataRepository.count();
 
-            if (dataCount == 0) {
-                log.info("[스케줄러] 재무 데이터가 없습니다. 자동 수집을 시작합니다...");
+            if (dataCount < MIN_DATA_COUNT) {
+                log.info("[스케줄러] 재무 데이터가 부족합니다 (현재: {}건, 최소: {}건). 전체 수집을 시작합니다...",
+                        dataCount, MIN_DATA_COUNT);
+
+                // 기존 데이터 삭제 후 재수집
+                if (dataCount > 0) {
+                    stockFinancialDataService.deleteAllFinancialData();
+                    log.info("[스케줄러] 기존 데이터 {}건 삭제 완료", dataCount);
+                }
+
                 stockFinancialDataService.collectAllStocksFinancialData();
                 log.info("[스케줄러] 초기 재무 데이터 수집 완료");
             } else {
