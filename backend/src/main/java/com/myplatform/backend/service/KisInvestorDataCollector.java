@@ -38,9 +38,12 @@ public class KisInvestorDataCollector {
     /**
      * 장 마감 후 자동 수집 (평일 16:00)
      * 15:30 장 마감 후 30분 여유를 두고 수집
+     *
+     * 참고: InvestorTradeScheduler가 15:50에 먼저 수집하므로
+     *      이 스케줄러는 백업/보완 역할로만 동작
+     *      데이터 삭제는 InvestorTradeService.collectInvestorTradeData에서 처리
      */
     @Scheduled(cron = "0 0 16 * * MON-FRI")
-    @Transactional
     public void scheduledDailyCollection() {
         LocalDate today = LocalDate.now();
 
@@ -49,20 +52,19 @@ public class KisInvestorDataCollector {
             return;
         }
 
-        log.info("=== 장 마감 후 자동 수집 시작 ===");
-
-        // 오늘 데이터가 이미 있는지 확인
+        // 15:50에 이미 수집되었으면 스킵
         boolean hasData = investorTradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate(
                 "KOSPI", "FOREIGN", today);
 
         if (hasData) {
-            log.info("오늘({}) 데이터가 이미 존재합니다. 기존 데이터 삭제 후 재수집합니다.", today);
-            investorTradeRepository.deleteByTradeDate(today);
+            log.debug("오늘({}) 데이터가 이미 존재합니다. 16:00 수집 스킵.", today);
+            return;
         }
 
+        log.info("=== 장 마감 후 보완 수집 시작 (16:00) ===");
         Map<String, Integer> result = collectDailyInvestorTrades(today);
         int total = result.values().stream().mapToInt(Integer::intValue).sum();
-        log.info("=== 장 마감 후 자동 수집 완료: {}건 ===", total);
+        log.info("=== 장 마감 후 보완 수집 완료: {}건 ===", total);
     }
 
     /**

@@ -233,6 +233,10 @@ public class InvestorTradeService {
     /**
      * 특정 일자의 투자자별 매매 데이터 수집 (한국투자증권 API 호출)
      *
+     * [중복 방지] 수집 전 해당 날짜 기존 데이터 삭제 후 재수집
+     * - Duplicate entry 에러 방지
+     * - 삭제와 저장이 하나의 트랜잭션에서 처리됨
+     *
      * [캐시 초기화] 새 데이터가 수집되면 연속 매수 캐시 전체 초기화
      * - 신규 데이터가 들어오면 연속 매수 패턴이 변경될 수 있으므로
      */
@@ -240,6 +244,14 @@ public class InvestorTradeService {
     @CacheEvict(value = "consecutiveBuys", allEntries = true)
     public Map<String, Integer> collectInvestorTradeData(LocalDate tradeDate) {
         log.info("투자자별 매매 데이터 수집 시작: {} (consecutiveBuys 캐시 초기화)", tradeDate);
+
+        // 기존 데이터 삭제 (중복 방지)
+        boolean hasExistingData = investorTradeRepository.existsByTradeDate(tradeDate);
+        if (hasExistingData) {
+            log.info("기존 데이터 삭제: {}", tradeDate);
+            investorTradeRepository.deleteByTradeDate(tradeDate);
+        }
+
         return kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);
     }
 
