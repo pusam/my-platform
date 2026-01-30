@@ -112,18 +112,24 @@ public class StockPriceService {
             log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {}", result.size(), missingCodes.size());
             long startTime = System.currentTimeMillis();
 
-            // 병렬 처리를 위한 CompletableFuture 리스트
+            // 병렬 처리를 위한 CompletableFuture 리스트 (Rate Limit: 초당 20건 제한)
+            // 각 요청마다 60ms 간격으로 staggered 실행 (초당 ~16건)
             List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-            // 동시 요청 수 제한 (API Rate Limit 고려)
-            int batchSize = 10;
-            for (int i = 0; i < missingCodes.size(); i += batchSize) {
-                int endIdx = Math.min(i + batchSize, missingCodes.size());
-                List<String> batch = missingCodes.subList(i, endIdx);
+            for (int i = 0; i < missingCodes.size(); i++) {
+                final String code = missingCodes.get(i);
+                final int requestIndex = i;
 
-                // 각 배치를 병렬로 처리
-                for (String code : batch) {
-                    CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                    try {
+                        // 각 요청마다 개별 지연 (60ms * index)
+                        long delay = (long) requestIndex * 60L;
+                        if (delay > 0) {
+                            Thread.sleep(delay);
+                        }
+
+                        // Semaphore로 동시 요청 수 제한 (5개)
+                        API_SEMAPHORE.acquire();
                         try {
                             StockPriceDto fetched = fetchStockPrice(code);
                             if (fetched != null) {
@@ -133,24 +139,24 @@ public class StockPriceService {
                                 priceCache.put(code, fetched);
                                 stockPriceRepository.save(dtoToEntity(fetched));
                             }
-                        } catch (Exception e) {
-                            log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
+                        } finally {
+                            API_SEMAPHORE.release();
                         }
-                    });
-                    futures.add(future);
-                }
-
-                // 배치 완료 대기 후 다음 배치 (Rate Limit 방지)
-                try {
-                    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                            .get(30, TimeUnit.SECONDS);
-                    futures.clear();
-                    if (endIdx < missingCodes.size()) {
-                        Thread.sleep(100);  // 배치 간 100ms 대기
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
                     }
-                } catch (Exception e) {
-                    log.warn("배치 처리 중 오류: {}", e.getMessage());
-                }
+                });
+                futures.add(future);
+            }
+
+            // 모든 요청 완료 대기 (최대 30초)
+            try {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .get(30, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.warn("배치 처리 중 오류: {}", e.getMessage());
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
@@ -633,17 +639,22 @@ public class StockPriceService {
         return result;
     }
 
+    // Rate Limit 발생 여부 추적용 ThreadLocal
+    private static final ThreadLocal<Boolean> wasRateLimited = ThreadLocal.withInitial(() -> false);
+
     /**
-     * 분봉 거래대금 단건 조회 (Rate Limit 에러 시 1회 재시도)
+     * 분봉 거래대금 단건 조회 (Rate Limit 에러 시만 1회 재시도)
      */
     private BigDecimal fetchMinuteTradingValueWithRetry(String stockCode, int minutes) {
+        wasRateLimited.set(false);
         BigDecimal result = fetchMinuteTradingValueInternal(stockCode, minutes);
 
-        // Rate Limit 에러 시 재시도
-        if (result == null) {
+        // Rate Limit 에러인 경우에만 재시도 (빈 응답은 재시도해도 같은 결과)
+        if (result == null && wasRateLimited.get()) {
             try {
-                log.debug("분봉 조회 재시도 대기 [{}] - {}ms", stockCode, RATE_LIMIT_RETRY_DELAY_MS);
+                log.debug("Rate Limit 재시도 대기 [{}] - {}ms", stockCode, RATE_LIMIT_RETRY_DELAY_MS);
                 Thread.sleep(RATE_LIMIT_RETRY_DELAY_MS);
+                wasRateLimited.set(false);
                 result = fetchMinuteTradingValueInternal(stockCode, minutes);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -680,7 +691,8 @@ public class StockPriceService {
 
             // Rate Limit 에러 체크 (EGW00201: 초당 거래건수 초과)
             if ("EGW00201".equals(msgCd)) {
-                log.warn("Rate Limit 초과 [{}] - 재시도 필요", stockCode);
+                log.warn("Rate Limit 초과 [{}] - 재시도 예정", stockCode);
+                wasRateLimited.set(true);
                 return null;
             }
 

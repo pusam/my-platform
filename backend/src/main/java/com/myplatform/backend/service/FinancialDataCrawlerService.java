@@ -673,6 +673,16 @@ public class FinancialDataCrawlerService {
                 return false;
             }
 
+            // 수집된 분기 데이터 로깅 (처음 5개 종목만 상세)
+            if (log.isDebugEnabled()) {
+                log.debug("종목 {} 분기 데이터 {}개 수집. EPS: {}, 순이익: {}",
+                        stockCode, quarterlyData.size(),
+                        quarterlyData.stream().map(q -> q.getEps() != null ? q.getEps().toString() : "null")
+                                .collect(java.util.stream.Collectors.joining(",")),
+                        quarterlyData.stream().map(q -> q.getNetIncome() != null ? q.getNetIncome().toString() : "null")
+                                .collect(java.util.stream.Collectors.joining(",")));
+            }
+
             // 기존 종목 정보 조회 (종목명, 시장 등)
             Optional<StockFinancialData> existingOpt = stockFinancialDataRepository
                     .findTopByStockCodeOrderByReportDateDesc(stockCode);
@@ -698,6 +708,9 @@ public class FinancialDataCrawlerService {
 
             // EPS 성장률 계산 (최신 분기 vs 전년 동기)
             BigDecimal epsGrowth = calculateEpsGrowth(quarterlyData);
+            if (epsGrowth != null && log.isDebugEnabled()) {
+                log.debug("종목 {} EPS/순이익 성장률: {}%", stockCode, epsGrowth);
+            }
 
             // 각 분기별 데이터 저장
             for (QuarterlyFinancialData qData : quarterlyData) {
@@ -853,8 +866,8 @@ public class FinancialDataCrawlerService {
                         }
                     }
 
-                    // 분기별 데이터 객체 생성
-                    for (int i = 0; i < quarterDates.size() && i < 4; i++) {
+                    // 분기별 데이터 객체 생성 (최대 8분기 - YoY 비교를 위해 5분기 이상 필요)
+                    for (int i = 0; i < quarterDates.size() && i < 8; i++) {
                         QuarterlyFinancialData qData = new QuarterlyFinancialData();
                         qData.setReportDate(quarterDates.get(i));
 
@@ -1022,27 +1035,47 @@ public class FinancialDataCrawlerService {
             return null;
         }
 
-        // 최신 분기 EPS
-        BigDecimal currentEps = quarterlyData.get(0).getEps();
-        if (currentEps == null) {
+        // 1순위: EPS 기반 성장률
+        BigDecimal epsGrowth = calculateGrowthFromField(quarterlyData, QuarterlyFinancialData::getEps);
+        if (epsGrowth != null) {
+            return epsGrowth;
+        }
+
+        // 2순위: 순이익 기반 성장률 (EPS가 없는 경우)
+        BigDecimal netIncomeGrowth = calculateGrowthFromField(quarterlyData, QuarterlyFinancialData::getNetIncome);
+        if (netIncomeGrowth != null) {
+            log.debug("EPS 없음 - 순이익 기반 성장률 사용: {}%", netIncomeGrowth);
+            return netIncomeGrowth;
+        }
+
+        return null;
+    }
+
+    /**
+     * 특정 필드 기반 성장률 계산 (YoY 우선, QoQ 폴백)
+     */
+    private BigDecimal calculateGrowthFromField(List<QuarterlyFinancialData> quarterlyData,
+                                                 java.util.function.Function<QuarterlyFinancialData, BigDecimal> fieldGetter) {
+        BigDecimal currentValue = fieldGetter.apply(quarterlyData.get(0));
+        if (currentValue == null) {
             return null;
         }
 
-        // 전년 동기 EPS (4분기 전)
-        BigDecimal previousEps = null;
+        // 1순위: 전년 동기 비교 (4분기 전)
+        BigDecimal previousValue = null;
         if (quarterlyData.size() >= 5) {
-            previousEps = quarterlyData.get(4).getEps();
+            previousValue = fieldGetter.apply(quarterlyData.get(4));
         }
 
-        // 전년 동기 데이터가 없으면 직전 분기 대비
-        if (previousEps == null || previousEps.compareTo(BigDecimal.ZERO) == 0) {
-            previousEps = quarterlyData.get(1).getEps();
+        // 2순위: 직전 분기 비교
+        if (previousValue == null || previousValue.compareTo(BigDecimal.ZERO) == 0) {
+            previousValue = fieldGetter.apply(quarterlyData.get(1));
         }
 
         // 성장률 계산
-        if (previousEps != null && previousEps.compareTo(BigDecimal.ZERO) != 0) {
-            BigDecimal growth = currentEps.subtract(previousEps)
-                    .divide(previousEps.abs(), 4, java.math.RoundingMode.HALF_UP)
+        if (previousValue != null && previousValue.compareTo(BigDecimal.ZERO) != 0) {
+            BigDecimal growth = currentValue.subtract(previousValue)
+                    .divide(previousValue.abs(), 4, java.math.RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"));
             return growth.setScale(2, java.math.RoundingMode.HALF_UP);
         }

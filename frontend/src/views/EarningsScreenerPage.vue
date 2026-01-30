@@ -946,6 +946,12 @@ const startSseSubscription = (taskType) => {
     isCrawling.value = false;
     isCollectingQuarterly.value = false;
     isCollectingAll.value = false;
+
+    // 프로그래스바 에러 상태로 표시 (수집이 완료되지 않은 경우)
+    if (sseProgress.value.percent < 100) {
+      sseProgress.value.message = '⚠️ 연결 끊김 - 수집은 백그라운드에서 계속됩니다';
+      collectAllProgress.value = '⚠️ 연결 끊김 (백그라운드 수집 중)';
+    }
   };
 };
 
