@@ -88,7 +88,10 @@ public class SecurityConfig {
                         // Swagger UI
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
-                        
+
+                        // SSE (Server-Sent Events) - EventSource는 Authorization 헤더 불가
+                        .requestMatchers("/api/sse/**").permitAll()
+
                         // Admin API는 ADMIN 권한 필요
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/test/admin").hasRole("ADMIN")
