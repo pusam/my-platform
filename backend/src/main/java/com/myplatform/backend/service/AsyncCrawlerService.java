@@ -371,6 +371,13 @@ public class AsyncCrawlerService {
     }
 
     /**
+     * 아무 작업이라도 실행 중인지 확인
+     */
+    public boolean isAnyTaskRunning() {
+        return runningTasks.values().stream().anyMatch(AtomicBoolean::get);
+    }
+
+    /**
      * 재무 데이터 업데이트 헬퍼
      */
     @Transactional

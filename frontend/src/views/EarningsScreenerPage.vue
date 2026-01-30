@@ -2803,6 +2803,10 @@ onMounted(async () => {
   /* 가로폭 100% 채우기 */
   width: 100%;
   box-sizing: border-box;
+  /* 내부 요소가 가운데로 모이지 않도록 */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .modal-error {
@@ -2822,6 +2826,8 @@ onMounted(async () => {
   border-radius: 15px;
   padding: 1.5rem;
   margin-bottom: 1.5rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .verdict-strong-buy {
@@ -2882,6 +2888,8 @@ onMounted(async () => {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .alert-box {
@@ -2921,6 +2929,8 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1.25rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .analysis-card {

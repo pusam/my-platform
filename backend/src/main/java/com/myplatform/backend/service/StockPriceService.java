@@ -52,6 +52,25 @@ public class StockPriceService {
     // 캐시 (종목코드 -> 시세)
     private final ConcurrentHashMap<String, StockPriceDto> priceCache = new ConcurrentHashMap<>();
 
+    // 분봉 거래대금 캐시 (종목코드_분 -> {거래대금, 캐시시간})
+    private final ConcurrentHashMap<String, MinuteTradingCache> minuteTradingCache = new ConcurrentHashMap<>();
+    private static final int MINUTE_CACHE_SECONDS = 60;  // 1분간 캐시
+
+    // 분봉 캐시용 내부 클래스
+    private static class MinuteTradingCache {
+        final BigDecimal value;
+        final long timestamp;
+
+        MinuteTradingCache(BigDecimal value) {
+            this.value = value;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        boolean isValid() {
+            return System.currentTimeMillis() - timestamp < MINUTE_CACHE_SECONDS * 1000L;
+        }
+    }
+
     public StockPriceService(RestTemplate restTemplate,
                              StockPriceRepository stockPriceRepository,
                              ObjectMapper objectMapper,
@@ -503,15 +522,15 @@ public class StockPriceService {
         }
     }
 
-    // Rate Limit 제어를 위한 Semaphore (동시 5개 요청으로 제한)
-    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(5);
-    // 요청 간 최소 간격 (ms)
-    private static final int REQUEST_DELAY_MS = 100;
+    // Rate Limit 제어를 위한 Semaphore (동시 15개 요청으로 제한 - 초당 ~20건 처리 가능)
+    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(15);
+    // 요청 간 최소 간격 (ms) - 너무 길면 타임아웃, 너무 짧으면 Rate Limit
+    private static final int REQUEST_DELAY_MS = 40;
     // Rate Limit 에러 시 재시도 대기 시간 (ms)
-    private static final int RATE_LIMIT_RETRY_DELAY_MS = 500;
+    private static final int RATE_LIMIT_RETRY_DELAY_MS = 300;
 
     /**
-     * [개선] 여러 종목의 분봉 거래대금 일괄 조회 (Rate Limit 제어 적용)
+     * [개선] 여러 종목의 분봉 거래대금 일괄 조회 (캐시 + Rate Limit 제어)
      *
      * @param stockCodes 종목코드 리스트
      * @param minutes    조회 기간 (분) - 5, 30 등
@@ -527,29 +546,54 @@ public class StockPriceService {
             return new HashMap<>();
         }
 
-        log.debug("분봉 거래대금 배치 조회 시작 - 종목수: {}, 기간: {}분", stockCodes.size(), minutes);
         long startTime = System.currentTimeMillis();
+        Map<String, BigDecimal> result = new ConcurrentHashMap<>();
 
-        // 병렬 처리를 위한 CompletableFuture 리스트
+        // 1. 캐시에서 먼저 조회
+        List<String> missingCodes = new ArrayList<>();
+        for (String code : stockCodes) {
+            String cacheKey = code + "_" + minutes;
+            MinuteTradingCache cached = minuteTradingCache.get(cacheKey);
+            if (cached != null && cached.isValid()) {
+                result.put(code, cached.value);
+            } else {
+                missingCodes.add(code);
+            }
+        }
+
+        int cacheHits = result.size();
+        if (missingCodes.isEmpty()) {
+            log.info("분봉 거래대금 - 전체 캐시 히트: {}, 기간: {}분, 소요: {}ms",
+                    cacheHits, minutes, System.currentTimeMillis() - startTime);
+            return result;
+        }
+
+        log.info("분봉 거래대금 배치 조회 - 캐시 히트: {}, API 조회: {}, 기간: {}분",
+                cacheHits, missingCodes.size(), minutes);
+
+        // 2. 캐시 미스 종목만 API 조회
         Map<String, CompletableFuture<BigDecimal>> futures = new ConcurrentHashMap<>();
 
-        for (int i = 0; i < stockCodes.size(); i++) {
-            final String stockCode = stockCodes.get(i);
-            final int index = i;
+        for (int i = 0; i < missingCodes.size(); i++) {
+            final String stockCode = missingCodes.get(i);
+            final int batchIndex = i / 15;  // 15개씩 배치 그룹
 
             CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    // 요청 간 딜레이 (인덱스 기반으로 분산)
-                    Thread.sleep((long) index * REQUEST_DELAY_MS / 5);
+                    // 배치 그룹별로 딜레이 (15개씩 묶어서 처리)
+                    Thread.sleep((long) batchIndex * REQUEST_DELAY_MS);
 
                     // Semaphore로 동시 요청 수 제한
                     API_SEMAPHORE.acquire();
                     try {
-                        return fetchMinuteTradingValueWithRetry(stockCode, minutes);
+                        BigDecimal value = fetchMinuteTradingValueWithRetry(stockCode, minutes);
+                        // 캐시에 저장
+                        if (value != null) {
+                            minuteTradingCache.put(stockCode + "_" + minutes, new MinuteTradingCache(value));
+                        }
+                        return value;
                     } finally {
                         API_SEMAPHORE.release();
-                        // 다음 요청을 위한 간격 확보
-                        Thread.sleep(REQUEST_DELAY_MS);
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -562,11 +606,10 @@ public class StockPriceService {
             futures.put(stockCode, future);
         }
 
-        // 모든 조회 완료 대기 (최대 120초 - 종목 수에 따라 충분한 시간 확보)
-        Map<String, BigDecimal> result = new ConcurrentHashMap<>();
+        // 3. 모든 조회 완료 대기 (최대 20초)
         for (Map.Entry<String, CompletableFuture<BigDecimal>> entry : futures.entrySet()) {
             try {
-                BigDecimal value = entry.getValue().get(120, TimeUnit.SECONDS);
+                BigDecimal value = entry.getValue().get(20, TimeUnit.SECONDS);
                 if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
                     result.put(entry.getKey(), value);
                 }
@@ -576,8 +619,8 @@ public class StockPriceService {
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.debug("분봉 거래대금 배치 조회 완료 - 성공: {}/{}, 소요: {}ms",
-                result.size(), stockCodes.size(), elapsed);
+        log.info("분봉 거래대금 배치 조회 완료 - 캐시: {}, API: {}, 성공: {}/{}, 소요: {}ms",
+                cacheHits, missingCodes.size(), result.size(), stockCodes.size(), elapsed);
 
         return result;
     }

@@ -54,6 +54,7 @@ public class SectorTradingService {
     private final SectorStockConfig sectorConfig;
     private final StockPriceService stockPriceService;
     private final ThreadPoolTaskExecutor sectorTradingExecutor;
+    private final AsyncCrawlerService asyncCrawlerService;
 
     /**
      * 모든 섹터의 거래대금 조회 (기본: 오늘 누적)
@@ -86,10 +87,25 @@ public class SectorTradingService {
 
         // ========== [개선 3] 분봉 데이터 Batch 조회 (MIN_5, MIN_30) ==========
         Map<String, BigDecimal> minuteTradingValueMap = new HashMap<>();
+        boolean minuteDataAvailable = true;
         if (period != TradingPeriod.TODAY) {
-            minuteTradingValueMap = stockPriceService.getTradingValueForMinutesBatch(
-                    new ArrayList<>(allStockCodes), period.getMinutes());
-            log.debug("분봉 거래대금 Batch 조회 완료 - 요청: {}, 응답: {}", allStockCodes.size(), minuteTradingValueMap.size());
+            // 크롤링 중이면 분봉 조회 스킵 (Rate Limit 방지)
+            if (asyncCrawlerService.isAnyTaskRunning()) {
+                log.warn("크롤링 작업 진행 중 - 분봉 데이터 조회 스킵, 오늘 누적 데이터 사용");
+                minuteDataAvailable = false;
+            } else {
+                minuteTradingValueMap = stockPriceService.getTradingValueForMinutesBatch(
+                        new ArrayList<>(allStockCodes), period.getMinutes());
+                log.debug("분봉 거래대금 Batch 조회 완료 - 요청: {}, 응답: {}", allStockCodes.size(), minuteTradingValueMap.size());
+
+                // 분봉 데이터가 거의 없으면 (50% 미만) 오늘 누적 데이터 사용
+                if (minuteTradingValueMap.size() < allStockCodes.size() / 2) {
+                    log.warn("분봉 데이터 부족 ({}/{}) - 오늘 누적 데이터 사용",
+                            minuteTradingValueMap.size(), allStockCodes.size());
+                    minuteDataAvailable = false;
+                    minuteTradingValueMap.clear();
+                }
+            }
         }
 
         // ========== 중복 종목 제거용 Map (Thread-safe) ==========
@@ -135,9 +151,10 @@ public class SectorTradingService {
         results.sort((a, b) -> b.getTotalTradingValue().compareTo(a.getTotalTradingValue()));
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("섹터 거래대금 조회 완료 - 전체: {}억, Unique 종목: {}, 소요: {}ms",
+        String dataSource = (period == TradingPeriod.TODAY || !minuteDataAvailable) ? "누적" : "분봉";
+        log.info("섹터 거래대금 조회 완료 - 전체: {}억, Unique 종목: {}, 소요: {}ms, 데이터: {}",
                 totalAllSectors.divide(BigDecimal.valueOf(100_000_000), 0, RoundingMode.HALF_UP),
-                uniqueStockTradingValue.size(), elapsed);
+                uniqueStockTradingValue.size(), elapsed, dataSource);
 
         return results;
     }
@@ -293,6 +310,15 @@ public class SectorTradingService {
                     : null;
             if (minuteTradingValue != null && minuteTradingValue.compareTo(BigDecimal.ZERO) > 0) {
                 return minuteTradingValue;
+            }
+
+            // 폴백: 분봉 데이터 없으면 오늘 누적 거래대금 사용
+            if (price.getAccumulatedTradingValue() != null
+                    && price.getAccumulatedTradingValue().compareTo(BigDecimal.ZERO) > 0) {
+                return price.getAccumulatedTradingValue();
+            }
+            if (price.getCurrentPrice() != null && price.getVolume() != null) {
+                return price.getCurrentPrice().multiply(price.getVolume());
             }
         }
 
