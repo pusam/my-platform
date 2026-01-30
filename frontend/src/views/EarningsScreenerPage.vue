@@ -938,19 +938,39 @@ const startSseSubscription = (taskType) => {
     isCollectingAll.value = false;
   });
 
+  // 재연결 시도 횟수 추적
+  let reconnectAttempts = 0;
+  const maxReconnectAttempts = 5;
+
   eventSource.onerror = () => {
     console.error('SSE 연결 오류');
-    addLog('ERROR', 'SSE 연결이 끊어졌습니다.');
     eventSource.close();
     sseConnection.value = null;
-    isCrawling.value = false;
-    isCollectingQuarterly.value = false;
-    isCollectingAll.value = false;
 
-    // 프로그래스바 에러 상태로 표시 (수집이 완료되지 않은 경우)
-    if (sseProgress.value.percent < 100) {
+    // 수집이 진행 중이면 자동 재연결 시도
+    if (sseProgress.value.percent < 100 && sseProgress.value.percent > 0 && reconnectAttempts < maxReconnectAttempts) {
+      reconnectAttempts++;
+      addLog('WARN', `SSE 연결 끊김 - 재연결 시도 중... (${reconnectAttempts}/${maxReconnectAttempts})`);
+      sseProgress.value.message = `🔄 재연결 중... (${reconnectAttempts}/${maxReconnectAttempts})`;
+
+      // 3초 후 재연결 시도
+      setTimeout(() => {
+        if (isCollectingAll.value || isCrawling.value || isCollectingQuarterly.value) {
+          startSseSubscription(taskType);
+        }
+      }, 3000);
+    } else if (reconnectAttempts >= maxReconnectAttempts) {
+      addLog('ERROR', 'SSE 재연결 실패 - 백그라운드에서 수집 계속됨');
       sseProgress.value.message = '⚠️ 연결 끊김 - 수집은 백그라운드에서 계속됩니다';
       collectAllProgress.value = '⚠️ 연결 끊김 (백그라운드 수집 중)';
+      isCrawling.value = false;
+      isCollectingQuarterly.value = false;
+      isCollectingAll.value = false;
+    } else {
+      addLog('ERROR', 'SSE 연결이 끊어졌습니다.');
+      isCrawling.value = false;
+      isCollectingQuarterly.value = false;
+      isCollectingAll.value = false;
     }
   };
 };
@@ -2739,6 +2759,23 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+/* common.css의 .modal-content 전역 스타일 오버라이드 */
+.diagnosis-modal .modal-content {
+  width: 100% !important;
+  max-width: none !important;
+  flex: 1;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 1.5rem 2rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
@@ -2799,20 +2836,6 @@ onMounted(async () => {
   height: 50px;
   border-width: 4px;
   margin: 0 auto;
-}
-
-.modal-content {
-  padding: 1.5rem 2rem 2rem;
-  /* 콘텐츠 영역만 스크롤 */
-  flex: 1;
-  overflow-y: auto;
-  /* 가로폭 100% 채우기 */
-  width: 100%;
-  box-sizing: border-box;
-  /* 내부 요소가 가운데로 모이지 않도록 */
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
 }
 
 .modal-error {
@@ -3283,10 +3306,8 @@ onMounted(async () => {
     font-size: 1.1rem;
   }
 
-  .modal-content {
+  .diagnosis-modal .modal-content {
     padding: 1rem 1.5rem 1.5rem;
-    flex: 1;
-    overflow-y: auto;
   }
 
   .verdict-icon {

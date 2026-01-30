@@ -122,13 +122,13 @@ public class StockPriceService {
 
                 CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                     try {
-                        // 각 요청마다 개별 지연 (60ms * index)
-                        long delay = (long) requestIndex * 60L;
+                        // 각 요청마다 개별 지연 (50ms * index) - burst 방지
+                        long delay = (long) requestIndex * 50L;
                         if (delay > 0) {
                             Thread.sleep(delay);
                         }
 
-                        // Semaphore로 동시 요청 수 제한 (5개)
+                        // Semaphore로 동시 요청 수 제한 (10개)
                         API_SEMAPHORE.acquire();
                         try {
                             StockPriceDto fetched = fetchStockPrice(code);
@@ -151,12 +151,14 @@ public class StockPriceService {
                 futures.add(future);
             }
 
-            // 모든 요청 완료 대기 (최대 30초)
+            // 모든 요청 완료 대기 (최대 90초)
             try {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .get(30, TimeUnit.SECONDS);
+                        .get(90, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                log.warn("배치 처리 타임아웃 (90초) - 완료된 요청만 반환");
             } catch (Exception e) {
-                log.warn("배치 처리 중 오류: {}", e.getMessage());
+                log.warn("배치 처리 중 오류: {} - {}", e.getClass().getSimpleName(), e.getMessage());
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
@@ -528,11 +530,11 @@ public class StockPriceService {
         }
     }
 
-    // Rate Limit 제어를 위한 Semaphore (동시 15개 요청으로 제한 - 초당 ~20건 처리 가능)
-    // 동시 요청 수를 5개로 제한 (초당 20건 이내 유지)
-    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(5);
-    // 요청 간 최소 간격 (ms) - 너무 길면 타임아웃, 너무 짧으면 Rate Limit
-    private static final int REQUEST_DELAY_MS = 40;
+    // Rate Limit 제어를 위한 Semaphore (동시 10개 요청으로 제한)
+    // 각 API 호출은 ~1-2초 소요, 10개 동시 = 초당 5~10건 (Rate Limit 20건 이내)
+    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(10);
+    // 요청 간 staggered 간격 (ms) - 동시 burst 방지
+    private static final int REQUEST_DELAY_MS = 50;
     // Rate Limit 에러 시 재시도 대기 시간 (ms)
     private static final int RATE_LIMIT_RETRY_DELAY_MS = 300;
 
@@ -591,13 +593,13 @@ public class StockPriceService {
 
             CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    // 각 요청마다 개별 지연 (60ms * index = 초당 ~16건, Rate Limit 여유)
-                    long delay = (long) requestIndex * 60L;
+                    // 각 요청마다 개별 지연 (50ms * index) - burst 방지
+                    long delay = (long) requestIndex * 50L;
                     if (delay > 0) {
                         Thread.sleep(delay);
                     }
 
-                    // Semaphore로 동시 요청 수 제한 (5개)
+                    // Semaphore로 동시 요청 수 제한 (10개)
                     API_SEMAPHORE.acquire();
                     try {
                         BigDecimal value = fetchMinuteTradingValueWithRetry(stockCode, minutes);

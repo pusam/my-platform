@@ -172,6 +172,10 @@ public class SseEmitterService {
     private void broadcastToTask(String taskType, String eventName, String data) {
         CopyOnWriteArrayList<String> subscribers = taskSubscribers.get(taskType);
         if (subscribers == null || subscribers.isEmpty()) {
+            // 구독자가 없을 때 첫 번째 이벤트만 로그 (스팸 방지)
+            if ("START".equals(eventName) || "COMPLETE".equals(eventName) || "ERROR".equals(eventName)) {
+                log.warn("SSE 구독자 없음 - taskType: {}, event: {} (이벤트 무시됨)", taskType, eventName);
+            }
             return;
         }
 
@@ -199,7 +203,8 @@ public class SseEmitterService {
         if (subscribers != null) {
             subscribers.remove(clientId);
         }
-        log.debug("SSE 클라이언트 제거 - clientId: {}, taskType: {}", clientId, taskType);
+        log.info("SSE 클라이언트 연결 종료 - clientId: {}, taskType: {}, 남은 구독자: {}",
+                clientId, taskType, subscribers != null ? subscribers.size() : 0);
     }
 
     /**
