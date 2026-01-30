@@ -338,10 +338,6 @@
           </div>
         </div>
 
-        <div class="divider">
-          <span>또는 개별 수집</span>
-        </div>
-
         <!-- 수집 상태 카드 -->
         <div class="status-card">
           <div class="status-header">
@@ -364,196 +360,6 @@
           </div>
           <div v-else class="status-loading">
             상태 조회 중...
-          </div>
-        </div>
-
-        <!-- 수집 버튼 영역 -->
-        <div class="collect-actions">
-          <!-- 기본 재무 데이터 수집 -->
-          <div class="action-card">
-            <div class="action-header">
-              <span class="action-icon">📥</span>
-              <h4>기본 재무 데이터 수집</h4>
-            </div>
-            <p class="action-desc">
-              KIS API를 통해 전 종목의 PER, PBR, EPS, ROE 등 기본 재무 지표를 수집합니다.
-            </p>
-            <div class="action-info">
-              <span class="info-tag">⏱️ 약 10-15분 소요</span>
-              <span class="info-tag">📈 2,000+ 종목</span>
-            </div>
-            <button
-              @click="collectAllFinancialData"
-              class="action-btn primary"
-              :disabled="isCollecting || isCrawling"
-            >
-              <span v-if="isCollecting" class="spinner"></span>
-              {{ isCollecting ? '수집 중...' : '기본 데이터 수집 시작' }}
-            </button>
-          </div>
-
-          <!-- 영업이익률 크롤링 -->
-          <div class="action-card">
-            <div class="action-header">
-              <span class="action-icon">🕷️</span>
-              <h4>영업이익률 크롤링</h4>
-            </div>
-            <p class="action-desc">
-              네이버 금융에서 영업이익률, 순이익률 등을 크롤링합니다. 마법의 공식에 필수!
-            </p>
-            <div class="action-info">
-              <span class="info-tag">⏱️ 약 15-20분 소요</span>
-              <span class="info-tag">🌐 네이버 금융</span>
-            </div>
-            <div class="action-options">
-              <label class="checkbox-label">
-                <input type="checkbox" v-model="crawlForceUpdate">
-                기존 데이터도 강제 업데이트
-              </label>
-            </div>
-            <button
-              @click="crawlOperatingMargin"
-              class="action-btn secondary"
-              :disabled="isCollecting || isCrawling"
-            >
-              <span v-if="isCrawling" class="spinner"></span>
-              {{ isCrawling ? '크롤링 중...' : '영업이익률 크롤링 시작' }}
-            </button>
-          </div>
-
-          <!-- 분기별 재무제표 수집 (PEG, 턴어라운드용) -->
-          <div class="action-card highlight">
-            <div class="action-header">
-              <span class="action-icon">📊</span>
-              <h4>분기별 재무제표 수집</h4>
-              <span class="new-badge">NEW</span>
-            </div>
-            <p class="action-desc">
-              네이버 금융에서 최근 4개 분기의 매출액, 영업이익, 당기순이익, EPS를 크롤링합니다.
-              <strong>PEG 스크리너</strong>와 <strong>턴어라운드 스크리너</strong>에 필수!
-            </p>
-            <div class="action-info">
-              <span class="info-tag">⏱️ 약 20-25분 소요</span>
-              <span class="info-tag">📈 EPS 성장률 계산</span>
-              <span class="info-tag">🔄 턴어라운드 분석</span>
-            </div>
-            <button
-              @click="collectQuarterlyFinance"
-              class="action-btn primary"
-              :disabled="isCollecting || isCrawling || isCollectingQuarterly"
-            >
-              <span v-if="isCollectingQuarterly" class="spinner"></span>
-              {{ isCollectingQuarterly ? '수집 중...' : '분기별 재무제표 수집 시작' }}
-            </button>
-          </div>
-
-          <!-- 단일 종목 테스트 -->
-          <div class="action-card">
-            <div class="action-header">
-              <span class="action-icon">🔍</span>
-              <h4>단일 종목 테스트</h4>
-            </div>
-            <p class="action-desc">
-              특정 종목의 크롤링 결과를 미리 확인합니다. (저장하지 않음)
-            </p>
-            <div class="test-input-group">
-              <input
-                v-model="testStockCode"
-                placeholder="종목코드 (예: 005930)"
-                class="test-input"
-                @keyup.enter="previewCrawl"
-              >
-              <button @click="previewCrawl" class="action-btn small" :disabled="!testStockCode">
-                미리보기
-              </button>
-            </div>
-            <div v-if="crawlPreview" class="preview-result">
-              <div class="preview-header">
-                <span>{{ crawlPreview.stockCode }} 크롤링 결과</span>
-              </div>
-              <div class="preview-data" v-if="crawlPreview.data">
-                <div class="preview-item" v-if="crawlPreview.data.operatingMargin">
-                  <span>영업이익률:</span>
-                  <span class="value">{{ crawlPreview.data.operatingMargin }}%</span>
-                </div>
-                <div class="preview-item" v-if="crawlPreview.data.netMargin">
-                  <span>순이익률:</span>
-                  <span class="value">{{ crawlPreview.data.netMargin }}%</span>
-                </div>
-                <div class="preview-item" v-if="crawlPreview.data.roe">
-                  <span>ROE:</span>
-                  <span class="value">{{ crawlPreview.data.roe }}%</span>
-                </div>
-                <div class="preview-item" v-if="crawlPreview.data.debtRatio">
-                  <span>부채비율:</span>
-                  <span class="value">{{ crawlPreview.data.debtRatio }}%</span>
-                </div>
-              </div>
-              <div v-else class="preview-empty">
-                데이터를 찾을 수 없습니다.
-              </div>
-            </div>
-          </div>
-
-          <!-- 단일 종목 분기별 재무제표 수집 -->
-          <div class="action-card">
-            <div class="action-header">
-              <span class="action-icon">📈</span>
-              <h4>단일 종목 분기별 수집</h4>
-            </div>
-            <p class="action-desc">
-              특정 종목의 분기별 재무제표(매출, 영업이익, 순이익, EPS)를 수집합니다. EPS 성장률과 PEG가 계산됩니다.
-            </p>
-            <div class="test-input-group">
-              <input
-                v-model="quarterlyStockCode"
-                placeholder="종목코드 (예: 005930)"
-                class="test-input"
-                @keyup.enter="collectSingleQuarterly"
-              >
-              <button
-                @click="collectSingleQuarterly"
-                class="action-btn small primary"
-                :disabled="!quarterlyStockCode || isCollectingSingleQuarterly"
-              >
-                <span v-if="isCollectingSingleQuarterly" class="spinner small"></span>
-                {{ isCollectingSingleQuarterly ? '수집중...' : '수집' }}
-              </button>
-            </div>
-            <div v-if="quarterlyResult" class="preview-result">
-              <div class="preview-header" :class="{ success: quarterlyResult.success, fail: !quarterlyResult.success }">
-                <span>{{ quarterlyResult.stockCode }} {{ quarterlyResult.success ? '수집 완료' : '수집 실패' }}</span>
-              </div>
-              <div class="preview-data" v-if="quarterlyResult.success">
-                <p class="success-message">✅ {{ quarterlyResult.message }}</p>
-              </div>
-              <div v-else class="preview-empty">
-                {{ quarterlyResult.message }}
-              </div>
-            </div>
-          </div>
-
-          <!-- 종목명 수정 -->
-          <div class="action-card">
-            <div class="action-header">
-              <span class="action-icon">🏷️</span>
-              <h4>종목명 일괄 수정</h4>
-            </div>
-            <p class="action-desc">
-              종목코드가 종목명으로 잘못 저장된 데이터를 수정합니다. (예: "005930" → "삼성전자")
-            </p>
-            <div class="action-info">
-              <span class="info-tag">📂 StockShortData 참조</span>
-              <span class="info-tag">🌐 네이버 금융 크롤링</span>
-            </div>
-            <button
-              @click="fixStockNames"
-              class="action-btn warning"
-              :disabled="isCollecting || isCrawling || isFixingNames"
-            >
-              <span v-if="isFixingNames" class="spinner"></span>
-              {{ isFixingNames ? '수정 중...' : '종목명 일괄 수정' }}
-            </button>
           </div>
         </div>
 
@@ -2902,8 +2708,11 @@ onMounted(async () => {
   width: 100%;
   max-width: 900px;
   max-height: 90vh;
-  overflow-y: auto;
   box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+  /* Flex 레이아웃: 헤더 고정, 콘텐츠만 스크롤 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .modal-header {
@@ -2912,10 +2721,9 @@ onMounted(async () => {
   align-items: center;
   padding: 1.5rem 2rem;
   border-bottom: 1px solid var(--border-color);
-  position: sticky;
-  top: 0;
   background: var(--card-bg);
-  z-index: 10;
+  /* 헤더는 고정 (flex-shrink 방지) */
+  flex-shrink: 0;
 }
 
 .modal-header h2 {
@@ -2949,6 +2757,12 @@ onMounted(async () => {
 .modal-loading {
   padding: 4rem 2rem;
   text-align: center;
+  /* Flex 레이아웃에서 남은 공간 채우기 */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 .modal-loading p {
@@ -2965,12 +2779,24 @@ onMounted(async () => {
 
 .modal-content {
   padding: 1.5rem 2rem 2rem;
+  /* 콘텐츠 영역만 스크롤 */
+  flex: 1;
+  overflow-y: auto;
+  /* 가로폭 100% 채우기 */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .modal-error {
   padding: 3rem 2rem;
   text-align: center;
   color: var(--text-secondary);
+  /* Flex 레이아웃에서 남은 공간 채우기 */
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 /* 종합 의견 섹션 */
@@ -3408,10 +3234,15 @@ onMounted(async () => {
     max-height: 95vh;
     border-radius: 15px 15px 0 0;
     margin-top: auto;
+    /* 모바일에서도 flex 레이아웃 유지 */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .modal-header {
     padding: 1rem 1.5rem;
+    flex-shrink: 0;
   }
 
   .modal-header h2 {
@@ -3420,6 +3251,8 @@ onMounted(async () => {
 
   .modal-content {
     padding: 1rem 1.5rem 1.5rem;
+    flex: 1;
+    overflow-y: auto;
   }
 
   .verdict-icon {

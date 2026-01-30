@@ -392,6 +392,18 @@ public class FinancialDataCrawlerService {
     }
 
     /**
+     * 성장률 데이터가 있는 종목 수 조회 (PEG 스크리너용)
+     * - epsGrowth 또는 profitGrowth가 있는 종목
+     */
+    public long countWithGrowthData() {
+        List<StockFinancialData> allData = stockFinancialDataRepository.findAll();
+        return allData.stream()
+                .filter(d -> (d.getEpsGrowth() != null && d.getEpsGrowth().compareTo(BigDecimal.ZERO) > 0) ||
+                             (d.getProfitGrowth() != null && d.getProfitGrowth().compareTo(BigDecimal.ZERO) > 0))
+                .count();
+    }
+
+    /**
      * 종목명이 없거나 종목코드와 같은 경우 수정
      * 1. StockShortData에서 조회
      * 2. 네이버 금융에서 크롤링

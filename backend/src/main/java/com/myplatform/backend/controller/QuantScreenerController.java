@@ -421,7 +421,7 @@ public class QuantScreenerController {
 
     /**
      * 재무 데이터 수집 상태 조회
-     * - 총 건수, 마지막 업데이트 시간, 영업이익률 현황
+     * - 총 건수, 마지막 업데이트 시간, 영업이익률 현황, 성장률 데이터 현황
      */
     @GetMapping("/collect-status")
     @Operation(summary = "재무 데이터 수집 상태", description = "현재 수집된 재무 데이터 현황을 조회합니다.")
@@ -433,15 +433,19 @@ public class QuantScreenerController {
             long withOperatingMargin = financialDataCrawlerService.countWithOperatingMargin();
             long missingOperatingMargin = financialDataCrawlerService.countMissingOperatingMargin();
 
+            // 성장률 데이터 현황 (PEG 스크리너용)
+            long withGrowthData = financialDataCrawlerService.countWithGrowthData();
+
             response.put("success", true);
             response.put("totalRecords", totalCount);
             response.put("lastUpdatedAt", lastUpdatedAt);
             response.put("withOperatingMargin", withOperatingMargin);
             response.put("missingOperatingMargin", missingOperatingMargin);
+            response.put("withGrowthData", withGrowthData);  // PEG 스크리너 사용 가능 종목 수
             response.put("message", totalCount > 0
-                    ? String.format("재무 데이터 %d건 (영업이익률: %d건, 미수집: %d건)",
-                            totalCount, withOperatingMargin, missingOperatingMargin)
-                    : "수집된 재무 데이터가 없습니다. POST /api/screener/collect-all을 호출하세요.");
+                    ? String.format("재무 데이터 %d건 (영업이익률: %d건, 성장률: %d건)",
+                            totalCount, withOperatingMargin, withGrowthData)
+                    : "수집된 재무 데이터가 없습니다. 원버튼 전체 수집을 실행하세요.");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("재무 데이터 상태 조회 오류", e);

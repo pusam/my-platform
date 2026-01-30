@@ -173,7 +173,9 @@ public class QuantScreenerService {
      * - PEG = PER / EPS성장률 (또는 profitGrowth로 대체)
      * - PEG < maxPeg (기본 1.0)인 저평가 성장주 발굴
      *
-     * [개선] epsGrowth가 없으면 profitGrowth로 PEG 계산
+     * [로직]
+     * 1. DB에 PEG가 이미 계산된 종목 조회
+     * 2. 없으면 epsGrowth 또는 profitGrowth로 PEG 계산
      */
     public List<ScreenerResultDto> getLowPegStocks(BigDecimal maxPeg, BigDecimal minEpsGrowth, Integer limit) {
         log.info("PEG 스크리닝 시작 - maxPeg: {}, minEpsGrowth: {}, limit: {}", maxPeg, minEpsGrowth, limit);
@@ -186,24 +188,32 @@ public class QuantScreenerService {
             minEpsGrowth = new BigDecimal("10.0"); // 최소 10% 성장
         }
 
-        // 1차: Repository 쿼리로 PEG 있는 종목 조회
-        List<StockFinancialData> stocks = stockFinancialDataRepository.findLowPegStocks(maxPeg, minEpsGrowth);
+        final BigDecimal finalMaxPeg = maxPeg;
+        final BigDecimal finalMinGrowth = minEpsGrowth;
 
-        // 2차: PEG가 없는 종목 중 PER, profitGrowth가 있는 종목으로 PEG 계산
+        // 1차: PEG가 이미 계산된 종목 조회
+        List<StockFinancialData> stocks = stockFinancialDataRepository.findLowPegStocks(maxPeg, minEpsGrowth);
+        log.info("DB에서 PEG 있는 종목: {}건", stocks.size());
+
+        // 2차: 성장률 데이터가 있는 종목으로 PEG 계산
         if (stocks.isEmpty()) {
-            log.info("PEG 데이터가 없어 profitGrowth 기반으로 계산합니다.");
-            stocks = calculatePegFromProfitGrowth(maxPeg, minEpsGrowth);
+            log.info("PEG 데이터가 없어 성장률 기반으로 계산합니다.");
+            stocks = stockFinancialDataRepository.findStocksWithGrowthData();
+            log.info("성장률 데이터 있는 종목: {}건", stocks.size());
         }
 
         List<ScreenerResultDto> results = stocks.stream()
                 .map(stock -> {
-                    // PEG 계산 (없으면 profitGrowth로 계산)
+                    // PEG 계산: 기존 PEG 사용 또는 epsGrowth/profitGrowth로 계산
                     BigDecimal peg = stock.getPeg();
                     BigDecimal growthRate = stock.getEpsGrowth();
 
+                    // PEG가 없으면 계산
                     if (peg == null && stock.getPer() != null && stock.getPer().compareTo(BigDecimal.ZERO) > 0) {
-                        // profitGrowth로 PEG 계산 시도
-                        if (stock.getProfitGrowth() != null && stock.getProfitGrowth().compareTo(BigDecimal.ZERO) > 0) {
+                        // epsGrowth 우선, 없으면 profitGrowth 사용
+                        if (growthRate != null && growthRate.compareTo(BigDecimal.ZERO) > 0) {
+                            peg = stock.getPer().divide(growthRate, 2, RoundingMode.HALF_UP);
+                        } else if (stock.getProfitGrowth() != null && stock.getProfitGrowth().compareTo(BigDecimal.ZERO) > 0) {
                             peg = stock.getPer().divide(stock.getProfitGrowth(), 2, RoundingMode.HALF_UP);
                             growthRate = stock.getProfitGrowth();
                         }
@@ -228,7 +238,10 @@ public class QuantScreenerService {
                             .profitGrowth(stock.getProfitGrowth())
                             .build();
                 })
+                // PEG 필터: 0 < PEG <= maxPeg, 성장률 >= minGrowth
                 .filter(dto -> dto.getPeg() != null && dto.getPeg().compareTo(BigDecimal.ZERO) > 0)
+                .filter(dto -> dto.getPeg().compareTo(finalMaxPeg) <= 0)
+                .filter(dto -> dto.getEpsGrowth() != null && dto.getEpsGrowth().compareTo(finalMinGrowth) >= 0)
                 .sorted(Comparator.comparing(ScreenerResultDto::getPeg))
                 .collect(Collectors.toList());
 
@@ -238,30 +251,6 @@ public class QuantScreenerService {
 
         log.info("PEG 스크리닝 완료 - 결과 {}건", results.size());
         return results;
-    }
-
-    /**
-     * profitGrowth 기반 PEG 계산
-     */
-    private List<StockFinancialData> calculatePegFromProfitGrowth(BigDecimal maxPeg, BigDecimal minGrowth) {
-        // 최신 데이터 중 PER과 profitGrowth가 있는 종목 조회
-        LocalDate today = LocalDate.now();
-        List<StockFinancialData> allStocks = stockFinancialDataRepository.findByReportDate(today);
-
-        if (allStocks.isEmpty()) {
-            // 오늘 데이터가 없으면 전체에서 최신 데이터 조회
-            allStocks = stockFinancialDataRepository.findAll();
-        }
-
-        return allStocks.stream()
-                .filter(s -> s.getPer() != null && s.getPer().compareTo(BigDecimal.ZERO) > 0)
-                .filter(s -> s.getProfitGrowth() != null && s.getProfitGrowth().compareTo(minGrowth) >= 0)
-                .filter(s -> {
-                    // PEG 계산
-                    BigDecimal peg = s.getPer().divide(s.getProfitGrowth(), 2, RoundingMode.HALF_UP);
-                    return peg.compareTo(BigDecimal.ZERO) > 0 && peg.compareTo(maxPeg) <= 0;
-                })
-                .collect(Collectors.toList());
     }
 
     /**
@@ -280,11 +269,12 @@ public class QuantScreenerService {
 
         LocalDate minDate = LocalDate.now().minusMonths(12);
         List<StockFinancialData> allRecentData = stockFinancialDataRepository.findAllRecentData(minDate);
+        log.info("최근 12개월 데이터: {}건 (minDate: {})", allRecentData.size(), minDate);
 
         List<ScreenerResultDto> results = new ArrayList<>();
 
         if (!allRecentData.isEmpty()) {
-            log.debug("턴어라운드 분석 대상 데이터: {}건", allRecentData.size());
+            log.info("턴어라운드 분석 대상 데이터: {}건", allRecentData.size());
 
             // [성능 최적화] 메모리에서 종목별로 그룹화 (날짜 내림차순 정렬 유지)
             Map<String, List<StockFinancialData>> stockDataMap = allRecentData.stream()
@@ -404,12 +394,9 @@ public class QuantScreenerService {
      * - 순이익 30억원 이상 필터 적용 (잡주 제외)
      */
     private List<ScreenerResultDto> findTurnaroundByProfitGrowth(Integer limit) {
-        LocalDate today = LocalDate.now();
-        List<StockFinancialData> allStocks = stockFinancialDataRepository.findByReportDate(today);
-
-        if (allStocks.isEmpty()) {
-            allStocks = stockFinancialDataRepository.findAll();
-        }
+        // 성장률 데이터가 있는 최신 데이터 조회
+        List<StockFinancialData> allStocks = stockFinancialDataRepository.findStocksWithGrowthData();
+        log.info("성장률 데이터 있는 종목: {}건", allStocks.size());
 
         // profitGrowth가 50% 이상이고 순이익 30억원 이상인 종목 조회
         List<ScreenerResultDto> results = allStocks.stream()

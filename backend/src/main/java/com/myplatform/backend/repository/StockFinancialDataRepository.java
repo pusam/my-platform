@@ -105,7 +105,7 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
            "ORDER BY s.operatingMargin DESC, s.roe DESC")
     List<StockFinancialData> findForMagicFormula(@Param("minMarketCap") BigDecimal minMarketCap);
 
-    // PEG 기준 저평가 종목 조회
+    // PEG 기준 저평가 종목 조회 (epsGrowth 있는 경우)
     @Query("SELECT s FROM StockFinancialData s WHERE " +
            "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
            "AND s.peg IS NOT NULL AND s.peg > 0 " +
@@ -117,6 +117,13 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
         @Param("maxPeg") BigDecimal maxPeg,
         @Param("minEpsGrowth") BigDecimal minEpsGrowth
     );
+
+    // PEG 계산용 - PER과 성장률(epsGrowth 또는 profitGrowth)이 있는 최신 데이터 조회
+    @Query("SELECT s FROM StockFinancialData s WHERE " +
+           "s.reportDate = (SELECT MAX(s2.reportDate) FROM StockFinancialData s2 WHERE s2.stockCode = s.stockCode) " +
+           "AND s.per IS NOT NULL AND s.per > 0 " +
+           "AND (s.epsGrowth IS NOT NULL AND s.epsGrowth > 0 OR s.profitGrowth IS NOT NULL AND s.profitGrowth > 0)")
+    List<StockFinancialData> findStocksWithGrowthData();
 
     // 턴어라운드 종목용 - 순이익이 있는 모든 데이터 (분기별 비교를 위해)
     @Query("SELECT s FROM StockFinancialData s WHERE " +
