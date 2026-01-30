@@ -6,6 +6,20 @@
         <button @click="goBack" class="back-button">← 돌아가기</button>
         <h1>실적 기반 저평가 스크리너</h1>
         <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+
+        <!-- 마지막 업데이트 시간 및 수동 수집 버튼 -->
+        <div class="data-status-bar">
+          <span v-if="collectStatus?.lastUpdatedAt" class="last-updated">
+            📅 마지막 업데이트: {{ formatDateTime(collectStatus.lastUpdatedAt) }}
+            <span class="data-count">({{ collectStatus.totalRecords?.toLocaleString() }}건)</span>
+          </span>
+          <span v-else class="last-updated warning-text">
+            ⚠️ 데이터가 없습니다
+          </span>
+          <button @click="showManualCollectDialog" class="manual-collect-btn" title="수동 데이터 수집">
+            ⚙️ 수동 수집
+          </button>
+        </div>
       </div>
 
       <div class="screener-tabs">
@@ -886,23 +900,11 @@ const changeTab = (tab) => {
   }
 };
 
-// 마법의 공식 탭 진입 시 자동 수집 및 조회
+// 마법의 공식 탭 진입 시 기존 데이터 바로 조회 (자동 수집 안함)
 const autoCollectMagicFormula = async () => {
-  if (magicFormulaCollecting.value) return;
-
-  magicFormulaCollecting.value = true;
-  try {
-    // 재무 데이터 재수집 (삭제 후 수집)
-    await api.post('/screener/recollect', {}, { timeout: 120000 });
-    // 수집 완료 후 데이터 조회
-    await fetchMagicFormula();
-  } catch (error) {
-    console.error('마법의 공식 데이터 수집 오류:', error);
-    // 수집 실패해도 기존 데이터 조회 시도
-    await fetchMagicFormula();
-  } finally {
-    magicFormulaCollecting.value = false;
-  }
+  // 기존 데이터 바로 조회 (수집은 스케줄러에서 자동 처리)
+  await fetchMagicFormula();
+  await fetchCollectStatus();
 };
 
 // ========== 데이터 수집 관련 함수 ==========
@@ -1496,8 +1498,27 @@ const getTurnaroundLabel = (type) => {
   }
 };
 
-onMounted(() => {
-  autoCollectMagicFormula();
+// 날짜/시간 포맷팅
+const formatDateTime = (dateTimeStr) => {
+  if (!dateTimeStr) return '';
+  const date = new Date(dateTimeStr);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+};
+
+// 수동 수집 다이얼로그
+const showManualCollectDialog = () => {
+  selectedTab.value = 'data-management';
+};
+
+onMounted(async () => {
+  // 페이지 진입 시 바로 데이터 조회 (수집은 스케줄러가 처리)
+  await fetchCollectStatus();
+  await fetchMagicFormula();
 });
 </script>
 
@@ -1552,6 +1573,49 @@ onMounted(() => {
 .subtitle {
   color: var(--text-muted);
   font-size: 1.1rem;
+}
+
+/* 데이터 상태 바 */
+.data-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.last-updated {
+  color: var(--text-secondary);
+}
+
+.last-updated .data-count {
+  color: var(--text-muted);
+  margin-left: 0.5rem;
+}
+
+.last-updated.warning-text {
+  color: #e67e22;
+}
+
+.manual-collect-btn {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.manual-collect-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
 }
 
 .screener-tabs {

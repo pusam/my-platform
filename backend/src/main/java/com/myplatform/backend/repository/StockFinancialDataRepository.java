@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -163,5 +164,11 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
            ") ranked WHERE rn <= 2",
            nativeQuery = true)
     List<StockFinancialData> findLatestTwoQuartersPerStock();
+
+    /**
+     * 마지막 업데이트 시간 조회
+     */
+    @Query("SELECT MAX(s.updatedAt) FROM StockFinancialData s")
+    Optional<LocalDateTime> findLastUpdatedAt();
 }
 

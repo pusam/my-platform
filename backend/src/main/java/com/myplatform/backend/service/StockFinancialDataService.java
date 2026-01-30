@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.*;
 
 /**
@@ -125,6 +126,23 @@ public class StockFinancialDataService {
      */
     public long getDataCount() {
         return stockFinancialDataRepository.count();
+    }
+
+    /**
+     * 마지막 데이터 업데이트 시간 조회
+     */
+    public LocalDateTime getLastUpdatedAt() {
+        return stockFinancialDataRepository.findLastUpdatedAt().orElse(null);
+    }
+
+    /**
+     * 데이터 상태 정보 조회 (건수 + 마지막 업데이트 시간)
+     */
+    public Map<String, Object> getDataStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("count", stockFinancialDataRepository.count());
+        status.put("lastUpdatedAt", getLastUpdatedAt());
+        return status;
     }
 
     /**

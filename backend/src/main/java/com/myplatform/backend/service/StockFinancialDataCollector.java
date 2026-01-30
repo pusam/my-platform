@@ -24,12 +24,16 @@ import java.util.Map;
 /**
  * 주식 재무 데이터 수집 컴포넌트
  * - 각 종목별 수집을 독립적인 트랜잭션으로 처리
+ * - API 호출 실패 시 최대 3회 재시도
  * - StockFinancialDataService에서 호출
  */
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class StockFinancialDataCollector {
+
+    private static final int MAX_RETRY_COUNT = 3;
+    private static final long RETRY_DELAY_MS = 500;
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final StockShortDataRepository stockShortDataRepository;
@@ -60,8 +64,8 @@ public class StockFinancialDataCollector {
                 return false;
             }
 
-            // 주식 현재가 조회 (PER, PBR, EPS 등)
-            JsonNode priceData = koreaInvestmentService.getStockPrice(stockCode);
+            // 재시도 로직 적용된 현재가 조회
+            JsonNode priceData = getStockPriceWithRetry(stockCode);
             if (priceData == null || !"0".equals(priceData.path("rt_cd").asText())) {
                 log.warn("주식 현재가 조회 실패: {}", stockCode);
                 return false;
@@ -91,9 +95,20 @@ public class StockFinancialDataCollector {
             Map<String, BigDecimal> financialRatios = getFinancialRatios(token, stockCode);
 
             BigDecimal roe = financialRatios.getOrDefault("roe", BigDecimal.ZERO);
-            BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", BigDecimal.ZERO);
             BigDecimal netMargin = financialRatios.getOrDefault("netMargin", BigDecimal.ZERO);
             BigDecimal debtRatio = financialRatios.getOrDefault("debtRatio", BigDecimal.ZERO);
+            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
+            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
+
+            // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
+            BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
+            if ((operatingMargin == null || operatingMargin.compareTo(BigDecimal.ZERO) == 0)
+                    && operatingProfit != null && revenue != null
+                    && revenue.compareTo(BigDecimal.ZERO) > 0) {
+                operatingMargin = operatingProfit.divide(revenue, 6, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
 
             BigDecimal epsGrowth = financialRatios.getOrDefault("epsGrowth", BigDecimal.ZERO);
             BigDecimal peg = null;
@@ -139,7 +154,8 @@ public class StockFinancialDataCollector {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean collectStockFinancialDataSimple(String stockCode) {
         try {
-            JsonNode priceData = koreaInvestmentService.getStockPrice(stockCode);
+            // 재시도 로직 적용된 현재가 조회
+            JsonNode priceData = getStockPriceWithRetry(stockCode);
             if (priceData == null || !"0".equals(priceData.path("rt_cd").asText())) {
                 log.debug("주식 현재가 조회 실패: {}", stockCode);
                 return false;
@@ -229,6 +245,17 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
+            // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
+            BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
+            if ((operatingMargin == null || operatingMargin.compareTo(BigDecimal.ZERO) == 0)
+                    && operatingProfit != null && revenue != null
+                    && revenue.compareTo(BigDecimal.ZERO) > 0) {
+                // 영업이익률 = (영업이익 / 매출액) * 100
+                operatingMargin = operatingProfit.divide(revenue, 6, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+
             LocalDate today = LocalDate.now();
             StockFinancialData financialData = stockFinancialDataRepository
                     .findByStockCodeAndReportDate(stockCode, today)
@@ -252,7 +279,7 @@ public class StockFinancialDataCollector {
             financialData.setRevenueGrowth(revenueGrowth);
             financialData.setRevenue(revenue);
             financialData.setOperatingProfit(operatingProfit);
-            financialData.setOperatingMargin(null);
+            financialData.setOperatingMargin(operatingMargin);
 
             stockFinancialDataRepository.save(financialData);
             log.debug("재무 데이터 저장: {} ({})", stockName, stockCode);
@@ -285,10 +312,10 @@ public class StockFinancialDataCollector {
             headers.set("custtype", "P");
 
             HttpEntity<String> request = new HttpEntity<>(headers);
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
+            // 재시도 로직 적용
+            ResponseEntity<String> response = executeWithRetry(url, request);
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+            if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode root = objectMapper.readTree(response.getBody());
                 if ("0".equals(root.path("rt_cd").asText())) {
                     JsonNode output = root.get("output");
@@ -313,9 +340,10 @@ public class StockFinancialDataCollector {
 
             headers.set("tr_id", "FHKST66430300");
             request = new HttpEntity<>(headers);
-            response = restTemplate.exchange(incomeUrl, HttpMethod.GET, request, String.class);
+            // 재시도 로직 적용
+            response = executeWithRetry(incomeUrl, request);
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+            if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode root = objectMapper.readTree(response.getBody());
                 if ("0".equals(root.path("rt_cd").asText())) {
                     JsonNode output = root.get("output");
@@ -353,5 +381,81 @@ public class StockFinancialDataCollector {
         } catch (Exception e) {
             return BigDecimal.ZERO;
         }
+    }
+
+    /**
+     * 주식 현재가 조회 (재시도 로직 포함)
+     * - 최대 3회 재시도
+     * - 재시도 간 500ms 대기
+     */
+    private JsonNode getStockPriceWithRetry(String stockCode) {
+        int retryCount = 0;
+        Exception lastException = null;
+
+        while (retryCount < MAX_RETRY_COUNT) {
+            try {
+                JsonNode result = koreaInvestmentService.getStockPrice(stockCode);
+                if (result != null) {
+                    return result;
+                }
+                log.debug("주식 현재가 조회 결과 null [{}], 재시도 {}/{}", stockCode, retryCount + 1, MAX_RETRY_COUNT);
+            } catch (Exception e) {
+                lastException = e;
+                log.debug("주식 현재가 조회 실패 [{}], 재시도 {}/{}: {}",
+                        stockCode, retryCount + 1, MAX_RETRY_COUNT, e.getMessage());
+            }
+
+            retryCount++;
+            if (retryCount < MAX_RETRY_COUNT) {
+                try {
+                    Thread.sleep(RETRY_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        if (lastException != null) {
+            log.warn("주식 현재가 조회 최종 실패 [{}]: {}", stockCode, lastException.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 재무비율 조회 (재시도 로직 포함)
+     * - 최대 3회 재시도
+     */
+    private ResponseEntity<String> executeWithRetry(String url, HttpEntity<String> request) {
+        int retryCount = 0;
+        Exception lastException = null;
+
+        while (retryCount < MAX_RETRY_COUNT) {
+            try {
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+                if (response.getStatusCode() == HttpStatus.OK) {
+                    return response;
+                }
+                log.debug("API 호출 실패 응답: {}, 재시도 {}/{}", response.getStatusCode(), retryCount + 1, MAX_RETRY_COUNT);
+            } catch (Exception e) {
+                lastException = e;
+                log.debug("API 호출 실패, 재시도 {}/{}: {}", retryCount + 1, MAX_RETRY_COUNT, e.getMessage());
+            }
+
+            retryCount++;
+            if (retryCount < MAX_RETRY_COUNT) {
+                try {
+                    Thread.sleep(RETRY_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        if (lastException != null) {
+            log.warn("API 호출 최종 실패: {}", lastException.getMessage());
+        }
+        return null;
     }
 }

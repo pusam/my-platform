@@ -369,6 +369,7 @@ public class QuantScreenerController {
 
     /**
      * 재무 데이터 수집 상태 조회
+     * - 총 건수, 마지막 업데이트 시간, 영업이익률 현황
      */
     @GetMapping("/collect-status")
     @Operation(summary = "재무 데이터 수집 상태", description = "현재 수집된 재무 데이터 현황을 조회합니다.")
@@ -376,11 +377,13 @@ public class QuantScreenerController {
         Map<String, Object> response = new HashMap<>();
         try {
             long totalCount = stockFinancialDataService.getDataCount();
+            var lastUpdatedAt = stockFinancialDataService.getLastUpdatedAt();
             long withOperatingMargin = financialDataCrawlerService.countWithOperatingMargin();
             long missingOperatingMargin = financialDataCrawlerService.countMissingOperatingMargin();
 
             response.put("success", true);
             response.put("totalRecords", totalCount);
+            response.put("lastUpdatedAt", lastUpdatedAt);
             response.put("withOperatingMargin", withOperatingMargin);
             response.put("missingOperatingMargin", missingOperatingMargin);
             response.put("message", totalCount > 0

@@ -31,13 +31,18 @@ public class QuantScreenerService {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final TelegramNotificationService telegramNotificationService;
 
+    private static final BigDecimal MAX_DEBT_RATIO = new BigDecimal("200"); // 부채비율 상한 200%
+    private static final BigDecimal MIN_NET_INCOME = new BigDecimal("30");  // 최소 순이익 30억원
+
     /**
      * 마법의 공식 스크리너
      * - (영업이익률 순위 + ROE 순위 + PER 순위) 합산으로 종합 순위 계산
+     * - 영업이익률이 없으면 ROE + PER만으로 계산 (2지표 모드)
      *
-     * [개선 2] 적자 기업 필터링
-     * - PER <= 0 (적자 또는 비정상) 기업은 랭킹 산정 전에 제외
-     * - 마법의 공식은 우량주를 찾는 것이므로 적자 기업은 대상이 아님
+     * [필터 조건]
+     * - PER > 0 (적자 기업 제외)
+     * - ROE > 0 (수익성 있는 기업)
+     * - 부채비율 <= 200% (ROE 왜곡 방지, 재무 건전성 확보)
      */
     public List<ScreenerResultDto> getMagicFormulaStocks(Integer limit, BigDecimal minMarketCap) {
         log.info("마법의 공식 스크리닝 시작 - limit: {}, minMarketCap: {}", limit, minMarketCap);
@@ -45,11 +50,12 @@ public class QuantScreenerService {
         // 1. 조건에 맞는 종목 조회 (Repository에서 이미 PER > 0 필터 적용됨)
         List<StockFinancialData> allStocks = stockFinancialDataRepository.findForMagicFormula(minMarketCap);
 
-        // 2. [개선] 적자 기업 확실히 제외 (PER > 0 재확인)
+        // 2. 기본 필터: PER > 0, ROE > 0, 부채비율 <= 200%
         List<StockFinancialData> stocks = allStocks.stream()
                 .filter(s -> s.getPer() != null && s.getPer().compareTo(BigDecimal.ZERO) > 0)
-                .filter(s -> s.getOperatingMargin() != null && s.getOperatingMargin().compareTo(BigDecimal.ZERO) > 0)
                 .filter(s -> s.getRoe() != null && s.getRoe().compareTo(BigDecimal.ZERO) > 0)
+                // 부채비율 필터: null이면 통과, 있으면 200% 이하만 포함
+                .filter(s -> s.getDebtRatio() == null || s.getDebtRatio().compareTo(MAX_DEBT_RATIO) <= 0)
                 .collect(Collectors.toList());
 
         if (stocks.isEmpty()) {
@@ -57,14 +63,29 @@ public class QuantScreenerService {
             return Collections.emptyList();
         }
 
-        log.debug("마법의 공식 후보 종목 수: {} (필터링 전: {})", stocks.size(), allStocks.size());
+        // 영업이익률이 있는 종목 수 확인
+        long withOperatingMargin = stocks.stream()
+                .filter(s -> s.getOperatingMargin() != null && s.getOperatingMargin().compareTo(BigDecimal.ZERO) > 0)
+                .count();
+        boolean useOperatingMargin = withOperatingMargin > stocks.size() / 2; // 절반 이상 있으면 사용
 
-        // 3. 각 지표별 순위 계산 (모두 양수인 종목만 대상)
+        log.info("마법의 공식 후보 종목 수: {} (영업이익률 있는 종목: {}, 사용여부: {})",
+                stocks.size(), withOperatingMargin, useOperatingMargin);
+
+        // 3. 각 지표별 순위 계산
         int totalStocks = stocks.size();
 
-        // 영업이익률 순위 (높을수록 좋음 = 낮은 순위)
-        Map<String, Integer> operatingMarginRanks = calculateRanks(stocks,
-                Comparator.comparing(StockFinancialData::getOperatingMargin).reversed());
+        // 영업이익률 순위 (있는 경우만, 없으면 최하위 순위 부여)
+        Map<String, Integer> operatingMarginRanks = new HashMap<>();
+        if (useOperatingMargin) {
+            List<StockFinancialData> withOpMargin = stocks.stream()
+                    .filter(s -> s.getOperatingMargin() != null && s.getOperatingMargin().compareTo(BigDecimal.ZERO) > 0)
+                    .sorted(Comparator.comparing(StockFinancialData::getOperatingMargin).reversed())
+                    .collect(Collectors.toList());
+            for (int i = 0; i < withOpMargin.size(); i++) {
+                operatingMarginRanks.put(withOpMargin.get(i).getStockCode(), i + 1);
+            }
+        }
 
         // ROE 순위 (높을수록 좋음 = 낮은 순위)
         Map<String, Integer> roeRanks = calculateRanks(stocks,
@@ -74,14 +95,22 @@ public class QuantScreenerService {
         Map<String, Integer> perRanks = calculateRanks(stocks,
                 Comparator.comparing(StockFinancialData::getPer));
 
-        // 4. 종합 순위 계산 (영업이익률 순위 + ROE 순위 + PER 순위, 낮을수록 좋음)
+        // 4. 종합 순위 계산
+        final boolean finalUseOperatingMargin = useOperatingMargin;
         List<ScreenerResultDto> results = stocks.stream()
                 .map(stock -> {
-                    Integer opMarginRank = operatingMarginRanks.getOrDefault(stock.getStockCode(), totalStocks);
                     Integer roeRank = roeRanks.getOrDefault(stock.getStockCode(), totalStocks);
                     Integer perRank = perRanks.getOrDefault(stock.getStockCode(), totalStocks);
+                    Integer opMarginRank = totalStocks; // 기본값: 최하위
 
-                    int totalScore = opMarginRank + roeRank + perRank;
+                    int totalScore;
+                    if (finalUseOperatingMargin) {
+                        opMarginRank = operatingMarginRanks.getOrDefault(stock.getStockCode(), totalStocks);
+                        totalScore = opMarginRank + roeRank + perRank;
+                    } else {
+                        // 영업이익률 없으면 ROE + PER만으로 계산 (가중치 1.5배)
+                        totalScore = (int) ((roeRank + perRank) * 1.5);
+                    }
 
                     return ScreenerResultDto.builder()
                             .stockCode(stock.getStockCode())
@@ -286,10 +315,15 @@ public class QuantScreenerService {
                 BigDecimal currentNetIncome = current.getNetIncome();
                 BigDecimal previousNetIncome = previous.getNetIncome();
 
+                // 잡주 필터링: 당 분기 순이익이 최소 30억원 이상이어야 함
+                if (currentNetIncome.compareTo(MIN_NET_INCOME) < 0) {
+                    continue;
+                }
+
                 String turnaroundType = null;
                 BigDecimal changeRate = null;
 
-                // 적자 → 흑자 전환
+                // 적자 → 흑자 전환 (단, 흑자 전환 후 30억원 이상)
                 if (previousNetIncome.compareTo(BigDecimal.ZERO) < 0 &&
                     currentNetIncome.compareTo(BigDecimal.ZERO) > 0) {
                     turnaroundType = "LOSS_TO_PROFIT";
@@ -367,6 +401,7 @@ public class QuantScreenerService {
      * profitGrowth 기반 턴어라운드 종목 조회
      * - 분기 비교 데이터가 없을 때 사용
      * - profitGrowth가 높은 종목 = 실적 개선 종목으로 간주
+     * - 순이익 30억원 이상 필터 적용 (잡주 제외)
      */
     private List<ScreenerResultDto> findTurnaroundByProfitGrowth(Integer limit) {
         LocalDate today = LocalDate.now();
@@ -376,9 +411,10 @@ public class QuantScreenerService {
             allStocks = stockFinancialDataRepository.findAll();
         }
 
-        // profitGrowth가 50% 이상인 종목 조회
+        // profitGrowth가 50% 이상이고 순이익 30억원 이상인 종목 조회
         List<ScreenerResultDto> results = allStocks.stream()
                 .filter(s -> s.getProfitGrowth() != null && s.getProfitGrowth().compareTo(new BigDecimal("50")) >= 0)
+                .filter(s -> s.getNetIncome() != null && s.getNetIncome().compareTo(MIN_NET_INCOME) >= 0)
                 .sorted((a, b) -> b.getProfitGrowth().compareTo(a.getProfitGrowth()))
                 .map(stock -> ScreenerResultDto.builder()
                         .stockCode(stock.getStockCode())
