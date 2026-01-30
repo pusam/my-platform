@@ -267,9 +267,10 @@ public class AutoTradingBotService {
                 }
 
                 // 수급 신호 확인 (외국인 또는 기관 순매수)
+                // 수급 데이터 없으면 매수하지 않음 (보수적 접근)
                 boolean hasSurgeSignal = checkSurgeSignal(stock.getStockCode(), surgeStocks);
-                if (!hasSurgeSignal && surgeStocks != null) {
-                    log.debug("[자동매매] {} - 수급 신호 없음, 스킵", stock.getStockName());
+                if (!hasSurgeSignal) {
+                    log.debug("[자동매매] {} - 수급 신호 없음 또는 데이터 없음, 스킵", stock.getStockName());
                     continue;
                 }
 
@@ -424,10 +425,12 @@ public class AutoTradingBotService {
 
     /**
      * 수급 신호 확인
+     * - 수급 데이터가 없으면 매수하지 않음 (보수적 접근)
      */
     private boolean checkSurgeSignal(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
-        if (surgeStocks == null) {
-            return true; // 수급 데이터 없으면 패스
+        if (surgeStocks == null || surgeStocks.isEmpty()) {
+            log.info("[자동매매] 수급 데이터 없음 - 보수적 접근으로 매수 보류");
+            return false; // 수급 데이터 없으면 매수하지 않음 (보수적 접근)
         }
 
         // 외국인 순매수 확인

@@ -643,28 +643,32 @@ public class KoreaInvestmentService {
      *
      * @param stockCode 종목코드 (6자리)
      * @param quantity 매수수량
+     * @param price 주문단가 (지정가 주문)
      * @return 주문 결과 JsonNode (주문번호 포함)
      */
-    public JsonNode buyStock(String stockCode, int quantity) {
-        return placeOrder(stockCode, quantity, "TTTC0802U", "buy");
+    public JsonNode buyStock(String stockCode, int quantity, java.math.BigDecimal price) {
+        return placeOrder(stockCode, quantity, price, "TTTC0802U", "buy");
     }
 
     /**
-     * 주식 현금 매도 주문 (시장가)
+     * 주식 현금 매도 주문 (지정가)
      * KIS API: TTTC0801U (국내주식 현금 매도)
      *
      * @param stockCode 종목코드 (6자리)
      * @param quantity 매도수량
+     * @param price 주문단가 (지정가 주문)
      * @return 주문 결과 JsonNode (주문번호 포함)
      */
-    public JsonNode sellStock(String stockCode, int quantity) {
-        return placeOrder(stockCode, quantity, "TTTC0801U", "sell");
+    public JsonNode sellStock(String stockCode, int quantity, java.math.BigDecimal price) {
+        return placeOrder(stockCode, quantity, price, "TTTC0801U", "sell");
     }
 
     /**
-     * 주식 주문 공통 처리
+     * 주식 주문 공통 처리 (지정가)
+     * ORD_DVSN: 00=지정가, 01=시장가
+     * 지정가 주문으로 슬리피지(체결 오차) 방지
      */
-    private JsonNode placeOrder(String stockCode, int quantity, String trId, String orderType) {
+    private JsonNode placeOrder(String stockCode, int quantity, java.math.BigDecimal price, String trId, String orderType) {
         String token = getAccessToken();
         if (token == null) {
             log.error("[실전매매] 토큰 발급 실패로 {} 불가", orderType);
@@ -681,18 +685,18 @@ public class KoreaInvestmentService {
 
             HttpHeaders headers = createHeaders(token, trId);
 
-            // 요청 바디
+            // 요청 바디 (지정가 주문)
             Map<String, String> body = new HashMap<>();
             body.put("CANO", accountPrefix);              // 계좌번호 앞 8자리
             body.put("ACNT_PRDT_CD", accountSuffix);      // 계좌상품코드 (01)
             body.put("PDNO", stockCode);                  // 종목코드
-            body.put("ORD_DVSN", "01");                   // 주문구분: 01=시장가
+            body.put("ORD_DVSN", "00");                   // 주문구분: 00=지정가 (슬리피지 방지)
             body.put("ORD_QTY", String.valueOf(quantity)); // 주문수량
-            body.put("ORD_UNPR", "0");                    // 주문단가 (시장가는 0)
+            body.put("ORD_UNPR", price.setScale(0, java.math.RoundingMode.DOWN).toString()); // 주문단가
 
             HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
 
-            log.info("[실전매매] {} 주문 요청: {} x {}", orderType.toUpperCase(), stockCode, quantity);
+            log.info("[실전매매] 지정가 {} 주문 요청: {} x {} @ {}원", orderType.toUpperCase(), stockCode, quantity, price);
 
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
 

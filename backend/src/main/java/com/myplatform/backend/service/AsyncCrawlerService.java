@@ -28,6 +28,7 @@ public class AsyncCrawlerService {
 
     private final FinancialDataCrawlerService financialDataCrawlerService;
     private final StockFinancialDataService stockFinancialDataService;
+    private final StockFinancialDataCollector stockFinancialDataCollector;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final StockShortDataRepository stockShortDataRepository;
     private final SseEmitterService sseEmitterService;
@@ -314,29 +315,35 @@ public class AsyncCrawlerService {
             long startTime = System.currentTimeMillis();
             log.info("========== [Async] 원버튼 전체 데이터 수집 시작 ==========");
 
-            // 시작 이벤트 전송 (3단계)
-            sseEmitterService.sendStart(taskType, 3, "원버튼 전체 데이터 수집을 시작합니다.");
+            // 시작 이벤트 전송 (4단계)
+            sseEmitterService.sendStart(taskType, 4, "원버튼 전체 데이터 수집을 시작합니다.");
 
             // 1단계: 기본 재무 데이터 수집
-            sseEmitterService.sendStep(taskType, 1, 3, "1️⃣ 기본 재무 데이터 수집 중...");
+            sseEmitterService.sendStep(taskType, 1, 4, "1️⃣ 기본 재무 데이터 수집 중...");
             Map<String, Object> step1 = stockFinancialDataService.collectAllStocksFinancialData();
             result.put("step1_basicFinancial", step1);
             sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 기본 재무 데이터: 성공 %s, 실패 %s",
                     step1.get("successCount"), step1.get("failCount")));
 
             // 2단계: 영업이익률 크롤링
-            sseEmitterService.sendStep(taskType, 2, 3, "2️⃣ 영업이익률 크롤링 중...");
+            sseEmitterService.sendStep(taskType, 2, 4, "2️⃣ 영업이익률 크롤링 중...");
             Map<String, Object> step2 = financialDataCrawlerService.crawlAllOperatingMargin(false);
             result.put("step2_operatingMargin", step2);
             sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 영업이익률: 성공 %s, 실패 %s",
                     step2.get("successCount"), step2.get("failCount")));
 
             // 3단계: 분기별 재무제표 수집
-            sseEmitterService.sendStep(taskType, 3, 3, "3️⃣ 분기별 재무제표 수집 중...");
+            sseEmitterService.sendStep(taskType, 3, 4, "3️⃣ 분기별 재무제표 수집 중...");
             Map<String, Object> step3 = financialDataCrawlerService.collectQuarterlyFinancialStatements();
             result.put("step3_quarterlyFinancials", step3);
             sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 분기별 재무제표: 성공 %s, 실패 %s",
                     step3.get("successCount"), step3.get("failCount")));
+
+            // 4단계: 성장률 계산 (PEG 스크리너용)
+            sseEmitterService.sendStep(taskType, 4, 4, "4️⃣ 성장률 계산 중 (PEG 스크리너용)...");
+            int growthUpdated = stockFinancialDataCollector.calculateAndUpdateGrowthRates();
+            result.put("step4_growthRates", Map.of("updatedCount", growthUpdated));
+            sseEmitterService.sendLog(taskType, "INFO", String.format("✅ 성장률 계산: %d건 업데이트", growthUpdated));
 
             long elapsedTime = System.currentTimeMillis() - startTime;
 

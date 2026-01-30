@@ -318,12 +318,12 @@
           </div>
           <p class="action-desc">
             <strong>모든 데이터를 한 번에 수집합니다:</strong><br>
-            1️⃣ 기본 재무 데이터 (KIS API) → 2️⃣ 영업이익률 (네이버 금융) → 3️⃣ 분기별 재무제표 (네이버 금융)
+            1️⃣ 기본 재무 데이터 → 2️⃣ 영업이익률 → 3️⃣ 분기별 재무제표 → 4️⃣ 성장률 계산 (PEG용)
           </p>
           <div class="action-info">
             <span class="info-tag highlight">⏱️ 총 30-40분 소요</span>
             <span class="info-tag">📈 2,000+ 종목</span>
-            <span class="info-tag">✨ 마법의 공식 완벽 지원</span>
+            <span class="info-tag">✨ 마법의 공식 + PEG 스크리너</span>
           </div>
           <button
             @click="collectAllInOne"
@@ -826,7 +826,8 @@ const collectAllInOne = async () => {
   if (!confirm('전체 데이터 수집을 시작하시겠습니까?\n\n' +
                '1단계: 기본 재무 데이터 (10-15분)\n' +
                '2단계: 영업이익률 크롤링 (15-20분)\n' +
-               '3단계: 분기별 재무제표 (10-15분)\n\n' +
+               '3단계: 분기별 재무제표 (10-15분)\n' +
+               '4단계: 성장률 계산 (즉시 완료)\n\n' +
                '총 약 30-40분 소요됩니다.\n' +
                '진행률이 실시간으로 표시됩니다.')) {
     return;

@@ -21,7 +21,7 @@ import java.util.List;
 /**
  * 실전 매매 서비스
  * - KIS API를 통한 실제 주식 매수/매도
- * - 시장가 주문 사용
+ * - 지정가 주문 사용 (슬리피지 방지)
  */
 @Service("realTradeService")
 @Transactional
@@ -57,8 +57,8 @@ public class RealTradeService implements TradeService {
         // 종목명 조회
         String stockName = getStockName(stockCode);
 
-        // KIS API 매수 주문 (시장가)
-        JsonNode orderResult = kisService.buyStock(stockCode, quantity);
+        // KIS API 매수 주문 (지정가 - 슬리피지 방지)
+        JsonNode orderResult = kisService.buyStock(stockCode, quantity, price);
         if (orderResult == null) {
             throw new IllegalStateException("매수 주문 API 호출 실패");
         }
@@ -145,8 +145,8 @@ public class RealTradeService implements TradeService {
                 ? holding.getAveragePrice()
                 : BigDecimal.ZERO;
 
-        // KIS API 매도 주문 (시장가)
-        JsonNode orderResult = kisService.sellStock(stockCode, quantity);
+        // KIS API 매도 주문 (지정가 - 슬리피지 방지)
+        JsonNode orderResult = kisService.sellStock(stockCode, quantity, price);
         if (orderResult == null) {
             throw new IllegalStateException("매도 주문 API 호출 실패");
         }
