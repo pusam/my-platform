@@ -107,13 +107,13 @@ public class StockPriceService {
             }
         }
 
-        // 2. 캐시 미스 종목들 API 조회 (병렬 처리)
+        // 2. 캐시 미스 종목들 API 조회 (순차적 처리 - 안정성 우선)
         if (!missingCodes.isEmpty()) {
-            log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {}", result.size(), missingCodes.size());
+            log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {} (초당 5건 제한)", result.size(), missingCodes.size());
             long startTime = System.currentTimeMillis();
 
-            // 병렬 처리를 위한 CompletableFuture 리스트 (Rate Limit: 초당 20건 제한)
-            // 각 요청마다 60ms 간격으로 staggered 실행 (초당 ~16건)
+            // ⚠️ Rate Limit 강화: 순차적으로 처리 (초당 5건 이내)
+            // 동시 요청 3개 + 요청 간 200ms 간격 = 안정적 수집
             List<CompletableFuture<Void>> futures = new ArrayList<>();
 
             for (int i = 0; i < missingCodes.size(); i++) {
@@ -122,15 +122,18 @@ public class StockPriceService {
 
                 CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                     try {
-                        // 각 요청마다 개별 지연 (20ms * index) - burst 방지 (속도 향상)
-                        long delay = (long) requestIndex * 20L;
-                        if (delay > 0 && delay < 2000) {  // 최대 2초 대기
+                        // ⚠️ 확실한 딜레이: 200ms * index (초당 최대 5건)
+                        long delay = (long) requestIndex * REQUEST_DELAY_MS;
+                        if (delay > 0) {
                             Thread.sleep(delay);
                         }
 
-                        // Semaphore로 동시 요청 수 제한 (10개)
+                        // Semaphore로 동시 요청 수 제한 (3개)
                         API_SEMAPHORE.acquire();
                         try {
+                            // 요청 직전 추가 안전 딜레이
+                            Thread.sleep(50);
+
                             StockPriceDto fetched = fetchStockPrice(code);
                             if (fetched != null) {
                                 synchronized (result) {
@@ -158,18 +161,20 @@ public class StockPriceService {
                 futures.add(future);
             }
 
-            // 모든 요청 완료 대기 (최대 15초 - 빠른 응답 우선)
+            // 모든 요청 완료 대기 (타임아웃 증가: 15초 → 60초)
+            // 느리더라도 100% 수집이 목표
+            int timeoutSeconds = Math.max(60, missingCodes.size() / 3);  // 종목 수에 따라 동적 조정
             try {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .get(15, TimeUnit.SECONDS);
+                        .get(timeoutSeconds, TimeUnit.SECONDS);
             } catch (java.util.concurrent.TimeoutException e) {
-                log.warn("배치 처리 타임아웃 (15초) - 완료된 요청만 반환");
+                log.warn("배치 처리 타임아웃 ({}초) - 완료된 요청만 반환", timeoutSeconds);
             } catch (Exception e) {
                 log.warn("배치 처리 중 오류: {} - {}", e.getClass().getSimpleName(), e.getMessage());
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("Batch 시세 조회 완료 - 조회: {}, 소요: {}ms", missingCodes.size(), elapsed);
+            log.info("Batch 시세 조회 완료 - 성공: {}/{}, 소요: {}ms", result.size() - (stockCodes.size() - missingCodes.size()), missingCodes.size(), elapsed);
         }
 
         return result;
@@ -537,13 +542,13 @@ public class StockPriceService {
         }
     }
 
-    // Rate Limit 제어를 위한 Semaphore (동시 10개 요청으로 제한)
-    // 각 API 호출은 ~1-2초 소요, 10개 동시 = 초당 5~10건 (Rate Limit 20건 이내)
-    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(10);
-    // 요청 간 staggered 간격 (ms) - 동시 burst 방지
-    private static final int REQUEST_DELAY_MS = 50;
-    // Rate Limit 에러 시 재시도 대기 시간 (ms)
-    private static final int RATE_LIMIT_RETRY_DELAY_MS = 300;
+    // ========== Rate Limit 설정 (안정성 우선) ==========
+    // 동시 요청 수 제한: 10 → 3 (EGW00201 에러 방지)
+    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(3);
+    // 요청 간 간격 (ms): 50 → 200 (초당 5건 이내로 제한)
+    private static final int REQUEST_DELAY_MS = 200;
+    // Rate Limit 에러 시 재시도 대기 시간 (ms): 300 → 500
+    private static final int RATE_LIMIT_RETRY_DELAY_MS = 500;
 
     /**
      * [개선] 여러 종목의 분봉 거래대금 일괄 조회 (캐시 + Rate Limit 제어)
@@ -590,25 +595,27 @@ public class StockPriceService {
         // 로그 카운터 리셋 (배치별로 처음 3개만 상세 로그)
         minuteApiLogCount.set(0);
 
-        // 2. 캐시 미스 종목만 API 조회 (순차적 60ms 간격 - 초당 ~16건)
-        // Rate Limit(초당 20건) 여유를 두고 개별 요청마다 지연
+        // ⚠️ Rate Limit 강화: 순차적 200ms 간격 - 초당 5건 이내
         Map<String, CompletableFuture<BigDecimal>> futures = new ConcurrentHashMap<>();
 
         for (int i = 0; i < missingCodes.size(); i++) {
             final String stockCode = missingCodes.get(i);
-            final int requestIndex = i;  // 각 요청의 순서
+            final int requestIndex = i;
 
             CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> {
                 try {
-                    // 각 요청마다 개별 지연 (50ms * index) - burst 방지
-                    long delay = (long) requestIndex * 50L;
+                    // ⚠️ 확실한 딜레이: 200ms * index (초당 최대 5건)
+                    long delay = (long) requestIndex * REQUEST_DELAY_MS;
                     if (delay > 0) {
                         Thread.sleep(delay);
                     }
 
-                    // Semaphore로 동시 요청 수 제한 (10개)
+                    // Semaphore로 동시 요청 수 제한 (3개)
                     API_SEMAPHORE.acquire();
                     try {
+                        // 요청 직전 추가 안전 딜레이
+                        Thread.sleep(50);
+
                         BigDecimal value = fetchMinuteTradingValueWithRetry(stockCode, minutes);
                         // 캐시에 저장
                         if (value != null) {
@@ -629,10 +636,12 @@ public class StockPriceService {
             futures.put(stockCode, future);
         }
 
-        // 3. 모든 조회 완료 대기 (최대 3초 - 느린 API는 과감히 스킵)
+        // 3. 모든 조회 완료 대기 (타임아웃 증가: 3초 → 30초)
+        // 느리더라도 100% 수집이 목표
+        int timeoutSeconds = Math.max(30, missingCodes.size() / 3);
         for (Map.Entry<String, CompletableFuture<BigDecimal>> entry : futures.entrySet()) {
             try {
-                BigDecimal value = entry.getValue().get(3, TimeUnit.SECONDS);
+                BigDecimal value = entry.getValue().get(timeoutSeconds, TimeUnit.SECONDS);
                 if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
                     result.put(entry.getKey(), value);
                 } else {

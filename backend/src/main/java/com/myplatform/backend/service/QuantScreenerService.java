@@ -356,7 +356,13 @@ public class QuantScreenerService {
      * - 개선: findAllRecentData()로 한 번에 조회 → 메모리에서 groupingBy 처리
      *
      * [개선 2] 여러 분기 데이터가 없는 경우 profitGrowth 기반으로 대체
+     *
+     * [개선 3] 데이터 품질 개선
+     * - 종목명이 코드와 같거나 비어있으면 KIS API로 조회하여 보완
+     * - 시가총액/현재가/PER/PBR이 null이면 API로 조회하여 보완
+     * - 시가총액 500억 미만 동전주/관리종목 제외
      */
+    @Transactional
     public List<ScreenerResultDto> getTurnaroundStocks(Integer limit) {
         log.info("턴어라운드 스크리닝 시작 - limit: {}", limit);
 
@@ -365,6 +371,9 @@ public class QuantScreenerService {
         log.info("최근 12개월 데이터: {}건 (minDate: {})", allRecentData.size(), minDate);
 
         List<ScreenerResultDto> results = new ArrayList<>();
+
+        // 데이터 품질 개선을 위한 종목 데이터 맵 (DB 업데이트용)
+        Map<String, StockFinancialData> stockDataForUpdate = new HashMap<>();
 
         if (!allRecentData.isEmpty()) {
             log.info("턴어라운드 분석 대상 데이터: {}건", allRecentData.size());
@@ -427,6 +436,9 @@ public class QuantScreenerService {
                 }
 
                 if (turnaroundType != null) {
+                    // 데이터 품질 개선 대상 저장
+                    stockDataForUpdate.put(current.getStockCode(), current);
+
                     results.add(ScreenerResultDto.builder()
                             .stockCode(current.getStockCode())
                             .stockName(current.getStockName())
@@ -460,6 +472,14 @@ public class QuantScreenerService {
             log.info("분기 비교 데이터가 없어 profitGrowth 기반으로 턴어라운드 종목을 조회합니다.");
             results = findTurnaroundByProfitGrowth(limit);
         } else {
+            // ⭐ 데이터 품질 개선: 종목명/시가총액/PER/PBR 보완
+            enrichScreenerResults(results, new ArrayList<>(stockDataForUpdate.values()));
+
+            // ⭐ 데이터 클렌징: 시가총액 500억 이상만 (동전주/관리종목 제외)
+            results = results.stream()
+                    .filter(dto -> dto.getMarketCap() != null && dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
+                    .collect(Collectors.toList());
+
             // 적자→흑자 전환 우선, 그 다음 변화율 높은 순으로 정렬
             results.sort((a, b) -> {
                 if ("LOSS_TO_PROFIT".equals(a.getTurnaroundType()) && !"LOSS_TO_PROFIT".equals(b.getTurnaroundType())) {
@@ -476,7 +496,7 @@ public class QuantScreenerService {
             }
         }
 
-        log.info("턴어라운드 스크리닝 완료 - 결과 {}건", results.size());
+        log.info("턴어라운드 스크리닝 완료 - 결과 {}건 (시가총액 500억 이상)", results.size());
         return results;
     }
 
@@ -485,16 +505,22 @@ public class QuantScreenerService {
      * - 분기 비교 데이터가 없을 때 사용
      * - profitGrowth가 높은 종목 = 실적 개선 종목으로 간주
      * - 순이익 30억원 이상 필터 적용 (잡주 제외)
+     * - 데이터 품질 개선 및 시가총액 500억 미만 제외
      */
     private List<ScreenerResultDto> findTurnaroundByProfitGrowth(Integer limit) {
         // 성장률 데이터가 있는 최신 데이터 조회
         List<StockFinancialData> allStocks = stockFinancialDataRepository.findStocksWithGrowthData();
         log.info("성장률 데이터 있는 종목: {}건", allStocks.size());
 
+        // ⭐ 데이터 품질 개선
+        enrichStockDataBatch(allStocks);
+
         // profitGrowth가 50% 이상이고 순이익 30억원 이상인 종목 조회
         List<ScreenerResultDto> results = allStocks.stream()
                 .filter(s -> s.getProfitGrowth() != null && s.getProfitGrowth().compareTo(new BigDecimal("50")) >= 0)
                 .filter(s -> s.getNetIncome() != null && s.getNetIncome().compareTo(MIN_NET_INCOME) >= 0)
+                // ⭐ 데이터 클렌징: 시가총액 500억 이상만
+                .filter(s -> s.getMarketCap() != null && s.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
                 .sorted((a, b) -> b.getProfitGrowth().compareTo(a.getProfitGrowth()))
                 .map(stock -> ScreenerResultDto.builder()
                         .stockCode(stock.getStockCode())
@@ -522,6 +548,7 @@ public class QuantScreenerService {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
+        log.info("profitGrowth 기반 턴어라운드 결과: {}건 (시가총액 500억 이상)", results.size());
         return results;
     }
 
@@ -716,6 +743,168 @@ public class QuantScreenerService {
             log.info("[데이터 품질 개선 완료] 종목명: {}건, 시가총액: {}건 보완됨",
                     enrichedNameCount, enrichedMarketCapCount);
         }
+    }
+
+    /**
+     * 스크리너 결과 데이터 품질 개선 (ScreenerResultDto용)
+     * - 종목명, 현재가, 시가총액, PER, PBR 보완
+     * - 원본 StockFinancialData도 함께 업데이트
+     */
+    private void enrichScreenerResults(List<ScreenerResultDto> results, List<StockFinancialData> originalStocks) {
+        if (results == null || results.isEmpty()) {
+            return;
+        }
+
+        // 보완이 필요한 종목 추출
+        List<String> stockCodesToEnrich = results.stream()
+                .filter(r -> isResultDataMissing(r))
+                .map(ScreenerResultDto::getStockCode)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (stockCodesToEnrich.isEmpty()) {
+            return;
+        }
+
+        log.info("[턴어라운드 데이터 품질 개선] 보완이 필요한 종목: {}건", stockCodesToEnrich.size());
+
+        // StockPriceService로 배치 조회
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodesToEnrich);
+
+        // 원본 데이터 맵 생성
+        Map<String, StockFinancialData> originalMap = originalStocks.stream()
+                .collect(Collectors.toMap(StockFinancialData::getStockCode, s -> s, (a, b) -> a));
+
+        int enrichedCount = 0;
+
+        for (ScreenerResultDto result : results) {
+            String stockCode = result.getStockCode();
+            StockPriceDto priceDto = priceMap.get(stockCode);
+            StockFinancialData original = originalMap.get(stockCode);
+            boolean updated = false;
+
+            // 1. 종목명 보완
+            if (isStockNameMissingInResult(result)) {
+                String newName = null;
+
+                if (priceDto != null && priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
+                    newName = priceDto.getStockName();
+                }
+
+                if (newName == null || newName.isEmpty() || newName.equals(stockCode)) {
+                    newName = fetchStockNameFromKis(stockCode);
+                }
+
+                if (newName != null && !newName.isEmpty() && !newName.equals(stockCode)) {
+                    result.setStockName(newName);
+                    if (original != null) {
+                        original.setStockName(newName);
+                        updated = true;
+                    }
+                }
+            }
+
+            // 2. 현재가 보완
+            if (result.getCurrentPrice() == null && priceDto != null && priceDto.getCurrentPrice() != null) {
+                result.setCurrentPrice(priceDto.getCurrentPrice());
+                if (original != null) {
+                    original.setCurrentPrice(priceDto.getCurrentPrice());
+                    updated = true;
+                }
+            }
+
+            // 3. 시가총액 보완
+            if (result.getMarketCap() == null || result.getMarketCap().compareTo(BigDecimal.ZERO) <= 0) {
+                BigDecimal newMarketCap = fetchMarketCapFromKis(stockCode);
+                if (newMarketCap != null && newMarketCap.compareTo(BigDecimal.ZERO) > 0) {
+                    result.setMarketCap(newMarketCap);
+                    if (original != null) {
+                        original.setMarketCap(newMarketCap);
+                        updated = true;
+                    }
+                }
+            }
+
+            // 4. PER/PBR 보완 (KIS API에서 조회)
+            if (result.getPer() == null || result.getPbr() == null) {
+                try {
+                    JsonNode response = koreaInvestmentService.getStockInfo(stockCode);
+                    if (response != null && response.has("output")) {
+                        JsonNode output = response.get("output");
+
+                        // PER
+                        if (result.getPer() == null && output.has("per")) {
+                            String perStr = output.get("per").asText();
+                            if (perStr != null && !perStr.isEmpty()) {
+                                try {
+                                    BigDecimal per = new BigDecimal(perStr);
+                                    if (per.compareTo(BigDecimal.ZERO) > 0) {
+                                        result.setPer(per);
+                                        if (original != null) {
+                                            original.setPer(per);
+                                            updated = true;
+                                        }
+                                    }
+                                } catch (NumberFormatException ignored) {}
+                            }
+                        }
+
+                        // PBR
+                        if (result.getPbr() == null && output.has("pbr")) {
+                            String pbrStr = output.get("pbr").asText();
+                            if (pbrStr != null && !pbrStr.isEmpty()) {
+                                try {
+                                    BigDecimal pbr = new BigDecimal(pbrStr);
+                                    if (pbr.compareTo(BigDecimal.ZERO) > 0) {
+                                        result.setPbr(pbr);
+                                        if (original != null) {
+                                            original.setPbr(pbr);
+                                            updated = true;
+                                        }
+                                    }
+                                } catch (NumberFormatException ignored) {}
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("PER/PBR 조회 실패 - {}: {}", stockCode, e.getMessage());
+                }
+            }
+
+            // DB 업데이트
+            if (updated && original != null) {
+                try {
+                    stockFinancialDataRepository.save(original);
+                    enrichedCount++;
+                } catch (Exception e) {
+                    log.warn("[데이터 품질 개선] DB 저장 실패 - {}: {}", stockCode, e.getMessage());
+                }
+            }
+        }
+
+        if (enrichedCount > 0) {
+            log.info("[턴어라운드 데이터 품질 개선 완료] {}건 보완됨", enrichedCount);
+        }
+    }
+
+    /**
+     * 스크리너 결과 DTO의 데이터가 누락되었는지 확인
+     */
+    private boolean isResultDataMissing(ScreenerResultDto result) {
+        return isStockNameMissingInResult(result) ||
+               result.getCurrentPrice() == null ||
+               result.getMarketCap() == null || result.getMarketCap().compareTo(BigDecimal.ZERO) <= 0 ||
+               result.getPer() == null ||
+               result.getPbr() == null;
+    }
+
+    /**
+     * 스크리너 결과 DTO의 종목명이 누락되었는지 확인
+     */
+    private boolean isStockNameMissingInResult(ScreenerResultDto result) {
+        String name = result.getStockName();
+        String code = result.getStockCode();
+        return name == null || name.trim().isEmpty() || name.equals(code);
     }
 
     /**
