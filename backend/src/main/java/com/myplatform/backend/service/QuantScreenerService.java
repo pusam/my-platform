@@ -80,6 +80,9 @@ public class QuantScreenerService {
         log.info("마법의 공식 후보 종목 수: {} (영업이익률 있는 종목: {}, 사용여부: {})",
                 stocks.size(), withOperatingMargin, useOperatingMargin);
 
+        // ⭐ 데이터 품질 개선: 종목명/시가총액 보완
+        enrichStockDataBatch(stocks);
+
         // 3. 각 지표별 순위 계산
         int totalStocks = stocks.size();
 

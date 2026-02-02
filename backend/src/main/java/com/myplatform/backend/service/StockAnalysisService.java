@@ -414,13 +414,32 @@ public class StockAnalysisService {
             log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회", stockCode, closePrices.size());
         }
 
-        // 2차: DB 데이터 부족 → KIS API에서 수집 후 DB 저장
-        if (historyData.size() < MIN_PRICE_DATA_COUNT) {
+        // 2차: DB 데이터 부족 → KIS API에서 수집 후 DB 저장 (재시도 포함)
+        if (closePrices.size() < MIN_PRICE_DATA_COUNT) {
             log.info("종목 {} 일봉 데이터 부족 ({}/{}건), KIS API에서 수집 시작...",
-                    stockCode, historyData.size(), MIN_PRICE_DATA_COUNT);
+                    stockCode, closePrices.size(), MIN_PRICE_DATA_COUNT);
 
-            // KIS API에서 OHLCV 데이터 조회
-            ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
+            // ⚠️ Rate Limit 방어: API 호출 전 딜레이
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ignored) {}
+
+            // KIS API에서 OHLCV 데이터 조회 (재시도 포함)
+            int maxRetries = 2;
+            for (int retry = 0; retry <= maxRetries && (ohlcvData == null || ohlcvData.isEmpty()); retry++) {
+                if (retry > 0) {
+                    log.info("종목 {} KIS API 재시도 {}/{}", stockCode, retry, maxRetries);
+                    try {
+                        Thread.sleep(500 * retry);  // 재시도 시 더 긴 딜레이
+                    } catch (InterruptedException ignored) {}
+                }
+
+                try {
+                    ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
+                } catch (Exception e) {
+                    log.warn("종목 {} KIS API 조회 실패 (시도 {}): {}", stockCode, retry + 1, e.getMessage());
+                }
+            }
 
             if (ohlcvData != null && !ohlcvData.isEmpty()) {
                 log.info("종목 {} KIS API에서 {} 건의 일봉 데이터 조회 성공 - DB 저장 중...",
@@ -437,16 +456,23 @@ public class StockAnalysisService {
 
                 log.info("종목 {} 일봉 데이터 DB 저장 완료 - {} 건", stockCode, closePrices.size());
             } else {
-                log.warn("종목 {} KIS API 일봉 조회 실패 또는 데이터 없음", stockCode);
+                log.warn("종목 {} KIS API 일봉 조회 최종 실패", stockCode);
+            }
+        }
 
-                // 3차: 공매도 데이터에서 종가라도 가져오기 (폴백)
-                List<StockShortData> shortData = stockShortDataRepository
-                        .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
-                if (!shortData.isEmpty()) {
-                    closePrices = shortData.stream()
-                            .map(StockShortData::getClosePrice)
-                            .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
-                            .collect(Collectors.toList());
+        // 3차: 여전히 부족하면 공매도 데이터에서 폴백
+        if (closePrices.size() < MIN_PRICE_DATA_COUNT) {
+            List<StockShortData> shortData = stockShortDataRepository
+                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
+            if (!shortData.isEmpty()) {
+                List<BigDecimal> shortPrices = shortData.stream()
+                        .map(StockShortData::getClosePrice)
+                        .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(Collectors.toList());
+
+                // 기존 데이터와 병합 (더 많은 데이터 확보)
+                if (shortPrices.size() > closePrices.size()) {
+                    closePrices = shortPrices;
                     log.info("종목 {} 공매도 데이터에서 {} 건의 종가 조회 (폴백)", stockCode, closePrices.size());
                 }
             }

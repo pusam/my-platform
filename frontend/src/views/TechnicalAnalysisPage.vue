@@ -19,6 +19,16 @@
           />
           <button @click="searchStock" class="search-btn">분석</button>
         </div>
+
+        <!-- 빠른 분석 (검색창 바로 아래) -->
+        <div class="quick-stocks">
+          <button v-for="stock in quickStocks" :key="stock.code"
+                  @click="analyzeQuickStock(stock.code)"
+                  class="quick-stock-btn"
+                  :class="{ active: searchQuery === stock.code }">
+            {{ stock.name }}
+          </button>
+        </div>
       </div>
 
       <!-- 분석 결과 -->
@@ -141,18 +151,6 @@
               <span class="value highlight">{{ analysisResult.squeezeScore }}점</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 빠른 분석 목록 -->
-      <div class="quick-analysis-section">
-        <h3>빠른 분석</h3>
-        <div class="quick-stocks">
-          <button v-for="stock in quickStocks" :key="stock.code"
-                  @click="analyzeQuickStock(stock.code)"
-                  class="quick-stock-btn">
-            {{ stock.name }}
-          </button>
         </div>
       </div>
 
@@ -740,36 +738,36 @@ onMounted(() => {
   color: #ed8936;
 }
 
-/* 빠른 분석 */
-.quick-analysis-section {
-  margin-top: 2rem;
-}
-
-.quick-analysis-section h3 {
-  color: #fff;
-  margin-bottom: 1rem;
-}
-
+/* 빠른 분석 (검색창 아래) */
 .quick-stocks {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: 0.5rem;
+  margin-top: 1rem;
 }
 
 .quick-stock-btn {
   padding: 0.5rem 1rem;
   background: #2a2a4a;
-  color: #fff;
+  color: #aaa;
   border: 1px solid #3a3a5a;
   border-radius: 20px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   transition: all 0.3s;
 }
 
 .quick-stock-btn:hover {
   background: #3a3a5a;
   border-color: #667eea;
+  color: #fff;
+}
+
+.quick-stock-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-color: #667eea;
+  color: #fff;
 }
 
 /* 결과 없음 */
