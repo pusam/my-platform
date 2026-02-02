@@ -115,7 +115,8 @@ public class NaverFinanceCrawler {
     /**
      * KRX API로 공매도 데이터 수집
      * - data.krx.co.kr 공식 API 사용
-     * - 일별 공매도 거래 데이터 조회
+     * - 종목별 공매도 거래 데이터 조회 (MDCSTAT30101)
+     * - 단축코드(6자리) 사용
      */
     private List<ShortSellingData> crawlFromKrx(String stockCode, int days) {
         List<ShortSellingData> result = new ArrayList<>();
@@ -123,6 +124,8 @@ public class NaverFinanceCrawler {
         try {
             // 딜레이
             randomDelay();
+
+            log.info("KRX API 호출 시작 [{}] - 종목별 공매도 조회", stockCode);
 
             // 요청 헤더 설정
             HttpHeaders headers = new HttpHeaders();
@@ -132,16 +135,85 @@ public class NaverFinanceCrawler {
             headers.set("User-Agent", USER_AGENT);
             headers.set("X-Requested-With", "XMLHttpRequest");
             headers.set("Origin", "http://data.krx.co.kr");
-            headers.set("Referer", "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020301");
+            headers.set("Referer", "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101");
 
             // 조회 기간 계산 (최근 days일)
             LocalDate endDate = LocalDate.now();
-            LocalDate startDate = endDate.minusDays(days + 10);  // 여유분 추가 (휴장일 고려)
+            LocalDate startDate = endDate.minusDays(days + 10);
 
-            // POST 파라미터
+            // 1차 시도: 종목별 공매도 조회 (MDCSTAT30101) - 시장 전체 조회 후 필터링
+            result = tryKrxShortSellingByMarket(headers, stockCode, startDate, endDate, days);
+            if (!result.isEmpty()) {
+                return result;
+            }
+
+            // 2차 시도: 개별 종목 조회 (isuCd 파라미터 사용)
+            result = tryKrxShortSellingByStock(headers, stockCode, startDate, endDate, days);
+
+        } catch (Exception e) {
+            log.warn("KRX API 호출 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * KRX 시장 전체 공매도 조회 후 특정 종목 필터링
+     */
+    private List<ShortSellingData> tryKrxShortSellingByMarket(HttpHeaders headers, String stockCode,
+                                                              LocalDate startDate, LocalDate endDate, int days) {
+        List<ShortSellingData> result = new ArrayList<>();
+
+        try {
+            // 최근 거래일 기준으로 조회 (시장 전체)
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-            params.add("bld", "dbms/MDC/STAT/srt/MDCSTAT30301");  // 개별종목 공매도 거래
-            params.add("isuCd", stockCode);
+            params.add("bld", KRX_SHORT_SELLING_BLD);  // MDCSTAT30101
+            params.add("mktId", "STK");  // 유가증권시장 (KOSPI)
+            params.add("trdDd", endDate.format(DateTimeFormatter.BASIC_ISO_DATE));
+            params.add("csvxls_isNo", "false");
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_API_URL, HttpMethod.POST, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                String body = response.getBody();
+                log.debug("KRX 시장 공매도 응답 길이: {}", body.length());
+
+                // 응답에서 특정 종목 필터링
+                result = parseKrxMarketResponse(body, stockCode, days);
+
+                if (result.isEmpty()) {
+                    // KOSDAQ 시도
+                    params.set("mktId", "KSQ");
+                    request = new HttpEntity<>(params, headers);
+                    response = restTemplate.exchange(KRX_API_URL, HttpMethod.POST, request, String.class);
+
+                    if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                        result = parseKrxMarketResponse(response.getBody(), stockCode, days);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KRX 시장 공매도 조회 실패: {}", e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * KRX 개별 종목 공매도 조회
+     */
+    private List<ShortSellingData> tryKrxShortSellingByStock(HttpHeaders headers, String stockCode,
+                                                             LocalDate startDate, LocalDate endDate, int days) {
+        List<ShortSellingData> result = new ArrayList<>();
+
+        try {
+            // 개별 종목 조회 (MDCSTAT30301 - 종목별 일별 추이)
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("bld", "dbms/MDC/STAT/srt/MDCSTAT30301");
+            params.add("isuCd", stockCode);  // 단축코드
             params.add("isuCd2", stockCode);
             params.add("strtDd", startDate.format(DateTimeFormatter.BASIC_ISO_DATE));
             params.add("endDd", endDate.format(DateTimeFormatter.BASIC_ISO_DATE));
@@ -150,27 +222,33 @@ public class NaverFinanceCrawler {
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
 
             ResponseEntity<String> response = restTemplate.exchange(
-                    KRX_API_URL,
-                    HttpMethod.POST,
-                    request,
-                    String.class
-            );
+                    KRX_API_URL, HttpMethod.POST, request, String.class);
+
+            log.info("KRX 개별 종목 응답 [{}]: status={}, bodyLength={}",
+                    stockCode, response.getStatusCode(),
+                    response.getBody() != null ? response.getBody().length() : 0);
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                result = parseKrxResponse(response.getBody(), days, stockCode);
+                String body = response.getBody();
+                // 응답 미리보기 (디버깅)
+                if (body.length() > 0 && body.length() < 500) {
+                    log.info("KRX 개별 종목 응답 [{}]: {}", stockCode, body);
+                } else if (body.length() >= 500) {
+                    log.debug("KRX 개별 종목 응답 미리보기 [{}]: {}...", stockCode, body.substring(0, 500));
+                }
+                result = parseKrxResponse(body, days, stockCode);
             }
-
         } catch (Exception e) {
-            log.debug("KRX API 호출 실패 [{}]: {}", stockCode, e.getMessage());
+            log.debug("KRX 개별 종목 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return result;
     }
 
     /**
-     * KRX API 응답 파싱
+     * KRX 시장 전체 응답에서 특정 종목 필터링
      */
-    private List<ShortSellingData> parseKrxResponse(String responseBody, int days, String stockCode) {
+    private List<ShortSellingData> parseKrxMarketResponse(String responseBody, String stockCode, int days) {
         List<ShortSellingData> result = new ArrayList<>();
 
         try {
@@ -178,17 +256,84 @@ public class NaverFinanceCrawler {
             JsonNode dataArray = root.get("OutBlock_1");
 
             if (dataArray == null || !dataArray.isArray()) {
-                log.debug("KRX 응답에 OutBlock_1 없음 [{}]", stockCode);
                 return result;
             }
+
+            for (JsonNode item : dataArray) {
+                // 종목 코드 매칭
+                String isuSrtCd = item.has("ISU_SRT_CD") ? item.get("ISU_SRT_CD").asText() : "";
+                if (!stockCode.equals(isuSrtCd)) {
+                    continue;
+                }
+
+                try {
+                    ShortSellingData data = new ShortSellingData();
+
+                    // 거래일
+                    String dateStr = item.has("TRD_DD") ? item.get("TRD_DD").asText() : "";
+                    LocalDate tradeDate = parseKrxDate(dateStr);
+                    if (tradeDate == null) {
+                        tradeDate = LocalDate.now();  // 당일 데이터
+                    }
+                    data.setTradeDate(tradeDate);
+
+                    // 공매도 거래량
+                    data.setShortVolume(parseKrxNumber(item, "CVSRTSELL_TRDVOL"));
+                    // 총 거래량
+                    data.setTotalVolume(parseKrxNumber(item, "ACC_TRDVOL"));
+                    // 공매도 비율
+                    data.setShortRatio(parseKrxNumber(item, "CVSRTSELL_TRDVOL_WT"));
+                    // 공매도 거래대금
+                    data.setShortTradingValue(parseKrxNumber(item, "CVSRTSELL_TRDVAL"));
+                    // 종가
+                    data.setClosePrice(parseKrxNumber(item, "TDD_CLSPRC"));
+
+                    result.add(data);
+                    log.info("KRX 공매도 데이터 [{}]: date={}, shortVol={}, ratio={}%",
+                            stockCode, data.getTradeDate(), data.getShortVolume(), data.getShortRatio());
+
+                    if (result.size() >= days) break;
+
+                } catch (Exception e) {
+                    log.trace("KRX 항목 파싱 실패: {}", e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KRX 시장 응답 파싱 실패: {}", e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * KRX API 응답 파싱 (개별 종목 조회)
+     */
+    private List<ShortSellingData> parseKrxResponse(String responseBody, int days, String stockCode) {
+        List<ShortSellingData> result = new ArrayList<>();
+
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+
+            // 여러 가능한 데이터 배열 이름 시도
+            JsonNode dataArray = root.get("OutBlock_1");
+            if (dataArray == null) dataArray = root.get("output");
+            if (dataArray == null) dataArray = root.get("block1");
+
+            if (dataArray == null || !dataArray.isArray()) {
+                // JSON 구조 로깅 (디버깅)
+                log.info("KRX 응답 구조 [{}]: keys={}", stockCode, getJsonKeys(root));
+                return result;
+            }
+
+            log.info("KRX 응답 데이터 [{}]: {}건", stockCode, dataArray.size());
 
             int count = 0;
             for (JsonNode item : dataArray) {
                 if (count >= days) break;
 
                 try {
-                    // 날짜 파싱 (YYYY/MM/DD 또는 YYYYMMDD 형식)
-                    String dateStr = item.has("TRD_DD") ? item.get("TRD_DD").asText() : "";
+                    // 날짜 파싱 (여러 필드명 시도)
+                    String dateStr = getFieldValue(item, "TRD_DD", "trdDd", "trd_dd", "STD_DT");
                     if (dateStr.isEmpty()) continue;
 
                     LocalDate tradeDate = parseKrxDate(dateStr);
@@ -197,32 +342,77 @@ public class NaverFinanceCrawler {
                     ShortSellingData data = new ShortSellingData();
                     data.setTradeDate(tradeDate);
 
-                    // 공매도량
-                    data.setShortVolume(parseKrxNumber(item, "CVSRTSELL_TRDVOL"));
+                    // 공매도량 (여러 필드명 시도)
+                    data.setShortVolume(parseKrxNumberMulti(item,
+                            "CVSRTSELL_TRDVOL", "cvsrtsellTrdvol", "SHTSALE_TRDVOL", "ACC_SHTSALE_VOL"));
                     // 총 거래량
-                    data.setTotalVolume(parseKrxNumber(item, "ACC_TRDVOL"));
+                    data.setTotalVolume(parseKrxNumberMulti(item,
+                            "ACC_TRDVOL", "accTrdvol", "TOTAL_TRDVOL"));
                     // 공매도 비율
-                    data.setShortRatio(parseKrxNumber(item, "CVSRTSELL_TRDVOL_RATE"));
+                    data.setShortRatio(parseKrxNumberMulti(item,
+                            "CVSRTSELL_TRDVOL_RATE", "CVSRTSELL_TRDVOL_WT", "SHTSALE_WT", "ACC_SHTSALE_RATIO"));
                     // 공매도 거래대금
-                    data.setShortTradingValue(parseKrxNumber(item, "CVSRTSELL_TRDVAL"));
+                    data.setShortTradingValue(parseKrxNumberMulti(item,
+                            "CVSRTSELL_TRDVAL", "cvsrtsellTrdval", "SHTSALE_TRDVAL"));
                     // 종가
-                    data.setClosePrice(parseKrxNumber(item, "TDD_CLSPRC"));
+                    data.setClosePrice(parseKrxNumberMulti(item,
+                            "TDD_CLSPRC", "tddClsprc", "CLSPRC"));
 
                     result.add(data);
                     count++;
+
+                    // 첫 번째 항목 상세 로깅
+                    if (count == 1) {
+                        log.info("KRX 첫 번째 데이터 [{}]: date={}, shortVol={}, ratio={}%",
+                                stockCode, data.getTradeDate(), data.getShortVolume(), data.getShortRatio());
+                    }
 
                 } catch (Exception e) {
                     log.trace("KRX 항목 파싱 실패 [{}]: {}", stockCode, e.getMessage());
                 }
             }
 
-            log.debug("KRX 파싱 완료 [{}]: {}건", stockCode, result.size());
+            log.info("KRX 파싱 완료 [{}]: {}건", stockCode, result.size());
 
         } catch (Exception e) {
-            log.debug("KRX 응답 파싱 실패 [{}]: {}", stockCode, e.getMessage());
+            log.warn("KRX 응답 파싱 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return result;
+    }
+
+    /**
+     * JSON 노드의 키 목록 반환 (디버깅용)
+     */
+    private String getJsonKeys(JsonNode node) {
+        if (node == null || !node.isObject()) return "[]";
+        List<String> keys = new ArrayList<>();
+        node.fieldNames().forEachRemaining(keys::add);
+        return keys.toString();
+    }
+
+    /**
+     * 여러 필드명으로 값 조회
+     */
+    private String getFieldValue(JsonNode item, String... fieldNames) {
+        for (String field : fieldNames) {
+            if (item.has(field)) {
+                return item.get(field).asText("");
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 여러 필드명으로 숫자 조회
+     */
+    private BigDecimal parseKrxNumberMulti(JsonNode item, String... fieldNames) {
+        for (String field : fieldNames) {
+            if (item.has(field)) {
+                return parseBigDecimal(item.get(field).asText());
+            }
+        }
+        return BigDecimal.ZERO;
     }
 
     /**

@@ -140,16 +140,34 @@ public class SectorTradingService {
 
     /**
      * 수동 캐시 갱신 (관리자용)
+     * - 기존 캐시를 유지하면서 백그라운드에서 갱신
+     * - 갱신 완료 시 새 데이터로 교체
      */
     public void forceRefresh() {
-        log.info("[섹터거래대금] 수동 캐시 갱신 요청");
-        if (isRefreshing.compareAndSet(false, true)) {
+        log.info("[섹터거래대금] 수동 캐시 갱신 요청 (백그라운드)");
+
+        if (!isRefreshing.compareAndSet(false, true)) {
+            log.info("[섹터거래대금] 이미 갱신 중 - 요청 무시");
+            return;
+        }
+
+        // 백그라운드에서 갱신 (기존 캐시 유지)
+        CompletableFuture.runAsync(() -> {
             try {
+                log.info("[섹터거래대금] 수동 갱신 시작 (백그라운드)");
+                long startTime = System.currentTimeMillis();
+
                 refreshCacheInternal();
+
+                long elapsed = System.currentTimeMillis() - startTime;
+                log.info("[섹터거래대금] 수동 갱신 완료 - {} 섹터, {}ms",
+                        cachedSectorData != null ? cachedSectorData.size() : 0, elapsed);
+            } catch (Exception e) {
+                log.error("[섹터거래대금] 수동 갱신 실패: {}", e.getMessage(), e);
             } finally {
                 isRefreshing.set(false);
             }
-        }
+        }, sectorTradingExecutor);
     }
 
     // ========== API 메서드 (캐시에서 즉시 반환 - 최대 1초) ==========

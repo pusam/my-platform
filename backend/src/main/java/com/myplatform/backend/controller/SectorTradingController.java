@@ -53,10 +53,19 @@ public class SectorTradingController {
         }
     }
 
-    @Operation(summary = "캐시 초기화", description = "섹터 거래대금 캐시를 초기화합니다.")
+    @Operation(summary = "캐시 강제 갱신", description = "섹터 거래대금 캐시를 백그라운드에서 갱신합니다. (초기화 X)")
     @PostMapping("/trading/refresh")
-    public ResponseEntity<ApiResponse<Void>> refreshCache() {
-        sectorTradingService.clearCache();
-        return ResponseEntity.ok(ApiResponse.success("캐시가 초기화되었습니다.", null));
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> refreshCache() {
+        // 캐시 초기화가 아닌 강제 갱신 (기존 데이터 유지하면서 백그라운드 갱신)
+        sectorTradingService.forceRefresh();
+        return ResponseEntity.ok(ApiResponse.success(
+                "캐시 갱신이 시작되었습니다. 잠시 후 새로고침 해주세요.",
+                sectorTradingService.getCacheStatus()));
+    }
+
+    @Operation(summary = "캐시 상태 조회", description = "현재 캐시 상태를 조회합니다.")
+    @GetMapping("/trading/status")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getCacheStatus() {
+        return ResponseEntity.ok(ApiResponse.success(sectorTradingService.getCacheStatus()));
     }
 }

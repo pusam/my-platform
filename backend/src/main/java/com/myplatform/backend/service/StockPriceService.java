@@ -122,9 +122,9 @@ public class StockPriceService {
 
                 CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                     try {
-                        // 각 요청마다 개별 지연 (50ms * index) - burst 방지
-                        long delay = (long) requestIndex * 50L;
-                        if (delay > 0) {
+                        // 각 요청마다 개별 지연 (20ms * index) - burst 방지 (속도 향상)
+                        long delay = (long) requestIndex * 20L;
+                        if (delay > 0 && delay < 2000) {  // 최대 2초 대기
                             Thread.sleep(delay);
                         }
 
@@ -137,7 +137,14 @@ public class StockPriceService {
                                     result.put(code, fetched);
                                 }
                                 priceCache.put(code, fetched);
-                                stockPriceRepository.save(dtoToEntity(fetched));
+                                // DB 저장은 비동기로 (속도 향상)
+                                CompletableFuture.runAsync(() -> {
+                                    try {
+                                        stockPriceRepository.save(dtoToEntity(fetched));
+                                    } catch (Exception e) {
+                                        log.debug("DB 저장 실패 [{}]: {}", code, e.getMessage());
+                                    }
+                                });
                             }
                         } finally {
                             API_SEMAPHORE.release();
@@ -151,12 +158,12 @@ public class StockPriceService {
                 futures.add(future);
             }
 
-            // 모든 요청 완료 대기 (최대 90초)
+            // 모든 요청 완료 대기 (최대 15초 - 빠른 응답 우선)
             try {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .get(90, TimeUnit.SECONDS);
+                        .get(15, TimeUnit.SECONDS);
             } catch (java.util.concurrent.TimeoutException e) {
-                log.warn("배치 처리 타임아웃 (90초) - 완료된 요청만 반환");
+                log.warn("배치 처리 타임아웃 (15초) - 완료된 요청만 반환");
             } catch (Exception e) {
                 log.warn("배치 처리 중 오류: {} - {}", e.getClass().getSimpleName(), e.getMessage());
             }
