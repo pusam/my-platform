@@ -166,6 +166,29 @@ public class ShortSellingController {
         return ResponseEntity.ok(ApiResponse.success(latestDate));
     }
 
+    // ========== 하이브리드 방식: 데이터 정리 API ==========
+
+    @Operation(summary = "오래된 데이터 정리",
+               description = "보관 기간(30일)이 지난 오래된 공매도 데이터를 삭제합니다.")
+    @DeleteMapping("/cleanup")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> cleanupOldData() {
+        Map<String, Object> result = shortSellingDataCollector.cleanupManually();
+
+        if ((boolean) result.get("success")) {
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } else {
+            return ResponseEntity.ok(ApiResponse.fail((String) result.get("message")));
+        }
+    }
+
+    @Operation(summary = "데이터 보관 현황",
+               description = "공매도 데이터의 보관 현황(보관 기간, 총 레코드 수, 거래일 수 등)을 조회합니다.")
+    @GetMapping("/retention-status")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getDataRetentionStatus() {
+        Map<String, Object> status = shortSellingDataCollector.getDataRetentionStatus();
+        return ResponseEntity.ok(ApiResponse.success(status));
+    }
+
     // ========== 네이버 금융 크롤링 API ==========
 
     @Operation(summary = "네이버 공매도 데이터 크롤링",

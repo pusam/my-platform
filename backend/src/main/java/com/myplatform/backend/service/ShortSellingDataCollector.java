@@ -42,6 +42,9 @@ public class ShortSellingDataCollector {
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
     private static final DateTimeFormatter KRX_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
+    // 하이브리드 방식: 최근 N일만 DB에 보관 (오래된 데이터 자동 삭제)
+    private static final int DATA_RETENTION_DAYS = 30;
+
     // KRX 정보데이터시스템 API (공공데이터 활용)
     @Value("${krx.api.base-url:https://data.krx.co.kr}")
     private String krxBaseUrl;
@@ -75,6 +78,12 @@ public class ShortSellingDataCollector {
 
         int collected = collectShortSellingData(today);
         log.info("=== 공매도/대차잔고 데이터 자동 수집 완료: {}건 ===", collected);
+
+        // 하이브리드 방식: 오래된 데이터 자동 정리
+        int deleted = cleanupOldData();
+        if (deleted > 0) {
+            log.info("오래된 공매도 데이터 정리 완료: {}건 삭제 ({}일 이전)", deleted, DATA_RETENTION_DAYS);
+        }
     }
 
     /**
@@ -508,5 +517,91 @@ public class ShortSellingDataCollector {
         BigDecimal shortVolume;
         BigDecimal shortTradingValue;
         BigDecimal shortRatio;
+    }
+
+    // ========== 하이브리드 방식: 데이터 정리 ==========
+
+    /**
+     * 오래된 공매도 데이터 삭제 (하이브리드 방식)
+     * - 최근 DATA_RETENTION_DAYS(30일)만 보관
+     * - 그 이전 데이터는 자동 삭제
+     *
+     * @return 삭제된 레코드 수
+     */
+    @Transactional
+    public int cleanupOldData() {
+        LocalDate cutoffDate = LocalDate.now().minusDays(DATA_RETENTION_DAYS);
+        log.info("오래된 공매도 데이터 정리 시작 - 기준일: {} 이전", cutoffDate);
+
+        try {
+            int deleted = shortDataRepository.deleteOlderThan(cutoffDate);
+            if (deleted > 0) {
+                log.info("공매도 데이터 정리 완료: {}건 삭제", deleted);
+            }
+            return deleted;
+        } catch (Exception e) {
+            log.error("공매도 데이터 정리 실패: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * 수동 데이터 정리 API 호출용
+     */
+    public Map<String, Object> cleanupManually() {
+        Map<String, Object> result = new HashMap<>();
+
+        try {
+            int deleted = cleanupOldData();
+            result.put("success", true);
+            result.put("deletedCount", deleted);
+            result.put("retentionDays", DATA_RETENTION_DAYS);
+            result.put("cutoffDate", LocalDate.now().minusDays(DATA_RETENTION_DAYS).toString());
+            result.put("message", String.format("오래된 데이터 %d건 정리 완료 (보관기간: %d일)", deleted, DATA_RETENTION_DAYS));
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("message", "정리 실패: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 데이터 보관 현황 조회
+     */
+    public Map<String, Object> getDataRetentionStatus() {
+        Map<String, Object> status = new HashMap<>();
+
+        try {
+            List<Object[]> countByDate = shortDataRepository.countByTradeDate();
+            LocalDate oldestDate = null;
+            LocalDate newestDate = null;
+            long totalRecords = 0;
+
+            for (Object[] row : countByDate) {
+                LocalDate date = (LocalDate) row[0];
+                long count = (Long) row[1];
+                totalRecords += count;
+
+                if (newestDate == null || date.isAfter(newestDate)) {
+                    newestDate = date;
+                }
+                if (oldestDate == null || date.isBefore(oldestDate)) {
+                    oldestDate = date;
+                }
+            }
+
+            status.put("retentionDays", DATA_RETENTION_DAYS);
+            status.put("totalRecords", totalRecords);
+            status.put("tradingDays", countByDate.size());
+            status.put("oldestDate", oldestDate != null ? oldestDate.toString() : null);
+            status.put("newestDate", newestDate != null ? newestDate.toString() : null);
+            status.put("cutoffDate", LocalDate.now().minusDays(DATA_RETENTION_DAYS).toString());
+
+        } catch (Exception e) {
+            status.put("error", e.getMessage());
+        }
+
+        return status;
     }
 }

@@ -279,6 +279,16 @@ public interface StockShortDataRepository extends JpaRepository<StockShortData, 
            "ORDER BY s.tradeDate DESC")
     List<Object[]> countByTradeDate();
 
+    /**
+     * 특정 날짜 이전의 오래된 데이터 삭제 (하이브리드 방식 - 최근 N일만 보관)
+     *
+     * @param cutoffDate 이 날짜 이전 데이터 삭제
+     * @return 삭제된 레코드 수
+     */
+    @Modifying
+    @Query("DELETE FROM StockShortData s WHERE s.tradeDate < :cutoffDate")
+    int deleteOlderThan(@Param("cutoffDate") LocalDate cutoffDate);
+
     // ========== 5. 전 종목 조회 ==========
 
     /**
