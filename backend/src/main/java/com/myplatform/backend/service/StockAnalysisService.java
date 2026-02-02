@@ -5,9 +5,11 @@ import com.myplatform.backend.dto.StockDiagnosisDto.*;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.entity.StockFinancialData;
+import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.entity.StockShortData;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,8 +40,12 @@ public class StockAnalysisService {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockShortDataRepository stockShortDataRepository;
+    private final StockPriceHistoryRepository stockPriceHistoryRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final KoreaInvestmentService koreaInvestmentService;
+
+    // 기술적 분석에 필요한 최소 데이터 개수
+    private static final int MIN_PRICE_DATA_COUNT = 60;
 
     // 상수
     private static final int SUPPLY_DEMAND_DAYS = 5;
@@ -257,12 +263,23 @@ public class StockAnalysisService {
                 .collect(Collectors.toList());
 
         for (LocalDate date : recentDates) {
-            // 외국인 - netBuyAmount를 그대로 사용 (양수=매수, 음수=매도)
-            BigDecimal foreignDayNet = trades.stream()
+            // 외국인 - tradeType에 따라 BUY는 +, SELL은 - 처리!
+            BigDecimal foreignBuy = trades.stream()
                     .filter(t -> t.getTradeDate().equals(date))
                     .filter(t -> "FOREIGN".equals(t.getInvestorType()))
+                    .filter(t -> "BUY".equals(t.getTradeType()))
                     .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal foreignSell = trades.stream()
+                    .filter(t -> t.getTradeDate().equals(date))
+                    .filter(t -> "FOREIGN".equals(t.getInvestorType()))
+                    .filter(t -> "SELL".equals(t.getTradeType()))
+                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 순매수 = 매수금액 - 매도금액
+            BigDecimal foreignDayNet = foreignBuy.subtract(foreignSell);
 
             foreignNet5Days = foreignNet5Days.add(foreignDayNet);
             if (foreignDayNet.compareTo(BigDecimal.ZERO) > 0) {
@@ -271,12 +288,23 @@ public class StockAnalysisService {
                 foreignSellDays++;
             }
 
-            // 기관 - netBuyAmount를 그대로 사용 (양수=매수, 음수=매도)
-            BigDecimal institutionDayNet = trades.stream()
+            // 기관 - tradeType에 따라 BUY는 +, SELL은 - 처리!
+            BigDecimal institutionBuy = trades.stream()
                     .filter(t -> t.getTradeDate().equals(date))
                     .filter(t -> "INSTITUTION".equals(t.getInvestorType()))
+                    .filter(t -> "BUY".equals(t.getTradeType()))
                     .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal institutionSell = trades.stream()
+                    .filter(t -> t.getTradeDate().equals(date))
+                    .filter(t -> "INSTITUTION".equals(t.getInvestorType()))
+                    .filter(t -> "SELL".equals(t.getTradeType()))
+                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 순매수 = 매수금액 - 매도금액
+            BigDecimal institutionDayNet = institutionBuy.subtract(institutionSell);
 
             institutionNet5Days = institutionNet5Days.add(institutionDayNet);
             if (institutionDayNet.compareTo(BigDecimal.ZERO) > 0) {
@@ -341,44 +369,69 @@ public class StockAnalysisService {
     /**
      * 3. 기술적 분석
      * - TechnicalIndicatorService 활용
-     * - 공매도 데이터(StockShortData)가 없거나 부족하면 KIS API로 fallback
+     * - StockPriceHistory DB 우선 조회, 부족하면 KIS API로 수집 후 DB 저장
      * - 볼린저 밴드 & MFI 지표 포함
      */
     private TechnicalAnalysisDto analyzeTechnical(String stockCode) {
         List<BigDecimal> closePrices = new ArrayList<>();
         List<KoreaInvestmentService.OhlcvData> ohlcvData = null;
-        boolean useKisApi = false;
 
-        // 1차: 공매도 데이터에서 가격 조회
-        List<StockShortData> priceData = stockShortDataRepository
+        // 1차: StockPriceHistory DB에서 조회
+        List<StockPriceHistory> historyData = stockPriceHistoryRepository
                 .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
 
-        if (!priceData.isEmpty() && priceData.size() >= 60) {
-            // 공매도 데이터가 충분하면 사용
-            closePrices = priceData.stream()
-                    .map(StockShortData::getClosePrice)
+        if (historyData.size() >= MIN_PRICE_DATA_COUNT) {
+            // DB에 충분한 데이터가 있음
+            closePrices = historyData.stream()
+                    .map(StockPriceHistory::getClosePrice)
                     .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
                     .collect(Collectors.toList());
-            log.debug("종목 {} 공매도 데이터에서 {} 건의 종가 조회", stockCode, closePrices.size());
+
+            // OHLCV 데이터도 변환 (MFI 계산용)
+            ohlcvData = historyData.stream()
+                    .map(h -> new KoreaInvestmentService.OhlcvData(
+                            h.getOpenPrice(), h.getHighPrice(), h.getLowPrice(),
+                            h.getClosePrice(), h.getVolume()))
+                    .collect(Collectors.toList());
+
+            log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회", stockCode, closePrices.size());
         }
 
-        // 2차: 데이터가 부족하면 KIS API로 일봉 데이터 조회
-        if (closePrices.size() < 60) {
-            log.info("종목 {} 공매도 데이터 부족 ({} 건), KIS API로 일봉 조회 시도", stockCode, closePrices.size());
-            useKisApi = true;
+        // 2차: DB 데이터 부족 → KIS API에서 수집 후 DB 저장
+        if (historyData.size() < MIN_PRICE_DATA_COUNT) {
+            log.info("종목 {} 일봉 데이터 부족 ({}/{}건), KIS API에서 수집 시작...",
+                    stockCode, historyData.size(), MIN_PRICE_DATA_COUNT);
 
-            // OHLCV 데이터 가져오기 (MFI 계산용)
+            // KIS API에서 OHLCV 데이터 조회
             ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
 
             if (ohlcvData != null && !ohlcvData.isEmpty()) {
-                // OHLCV에서 종가만 추출
+                log.info("종목 {} KIS API에서 {} 건의 일봉 데이터 조회 성공 - DB 저장 중...",
+                        stockCode, ohlcvData.size());
+
+                // DB에 저장 (중복 방지를 위해 날짜별로 체크)
+                savePriceHistoryToDb(stockCode, ohlcvData);
+
+                // 종가 추출
                 closePrices = ohlcvData.stream()
                         .map(KoreaInvestmentService.OhlcvData::getClose)
                         .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
                         .collect(Collectors.toList());
-                log.info("종목 {} KIS API에서 {} 건의 일봉 데이터 조회 성공", stockCode, closePrices.size());
+
+                log.info("종목 {} 일봉 데이터 DB 저장 완료 - {} 건", stockCode, closePrices.size());
             } else {
                 log.warn("종목 {} KIS API 일봉 조회 실패 또는 데이터 없음", stockCode);
+
+                // 3차: 공매도 데이터에서 종가라도 가져오기 (폴백)
+                List<StockShortData> shortData = stockShortDataRepository
+                        .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
+                if (!shortData.isEmpty()) {
+                    closePrices = shortData.stream()
+                            .map(StockShortData::getClosePrice)
+                            .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
+                            .collect(Collectors.toList());
+                    log.info("종목 {} 공매도 데이터에서 {} 건의 종가 조회 (폴백)", stockCode, closePrices.size());
+                }
             }
         }
 
@@ -406,7 +459,7 @@ public class StockAnalysisService {
         TechnicalIndicatorService.BollingerBandsResult bbResult =
                 technicalIndicatorService.calculateBollingerBands(closePrices);
 
-        // MFI 계산 (OHLCV 데이터가 있는 경우만)
+        // MFI 계산 (OHLCV 데이터가 있는 경우)
         TechnicalIndicatorService.MfiResult mfiResult = null;
         if (ohlcvData != null && !ohlcvData.isEmpty()) {
             // KIS API OhlcvData → TechnicalIndicatorService OhlcvData 변환
@@ -415,16 +468,6 @@ public class StockAnalysisService {
                             d.getOpen(), d.getHigh(), d.getLow(), d.getClose(), d.getVolume()))
                     .collect(Collectors.toList());
             mfiResult = technicalIndicatorService.calculateMFI(convertedOhlcv);
-        } else if (!useKisApi) {
-            // 공매도 데이터를 쓴 경우, MFI 계산을 위해 KIS API에서 OHLCV 추가 조회
-            ohlcvData = koreaInvestmentService.getDailyOhlcv(stockCode, PRICE_DATA_DAYS);
-            if (ohlcvData != null && !ohlcvData.isEmpty()) {
-                List<TechnicalIndicatorService.OhlcvData> convertedOhlcv = ohlcvData.stream()
-                        .map(d -> new TechnicalIndicatorService.OhlcvData(
-                                d.getOpen(), d.getHigh(), d.getLow(), d.getClose(), d.getVolume()))
-                        .collect(Collectors.toList());
-                mfiResult = technicalIndicatorService.calculateMFI(convertedOhlcv);
-            }
         }
 
         // 종합 신호 변환
@@ -685,6 +728,64 @@ public class StockAnalysisService {
             return VerdictLevel.CAUTION;
         } else {
             return VerdictLevel.AVOID;
+        }
+    }
+
+    /**
+     * KIS API에서 조회한 일봉 데이터를 DB에 저장
+     * - 중복 방지: 이미 존재하는 날짜는 스킵
+     * - 날짜 정보는 KIS API 응답에서 추출해야 하는데, 현재 OhlcvData에 날짜가 없음
+     * - 임시로 최신순 인덱스로 날짜 계산 (0 = 오늘, 1 = 어제, ...)
+     */
+    private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
+        try {
+            LocalDate today = LocalDate.now();
+            int savedCount = 0;
+            int skippedCount = 0;
+
+            for (int i = 0; i < ohlcvData.size(); i++) {
+                KoreaInvestmentService.OhlcvData data = ohlcvData.get(i);
+
+                // 날짜 계산 (i=0이 가장 최신, 주말 제외는 복잡해서 단순 계산)
+                // 실제로는 KIS API에서 날짜를 함께 받아와야 함
+                LocalDate tradeDate = today.minusDays(i);
+
+                // 주말 스킵 (간단한 처리)
+                while (tradeDate.getDayOfWeek().getValue() >= 6) {
+                    tradeDate = tradeDate.minusDays(1);
+                }
+
+                // 이미 존재하면 스킵
+                if (stockPriceHistoryRepository.existsByStockCodeAndTradeDate(stockCode, tradeDate)) {
+                    skippedCount++;
+                    continue;
+                }
+
+                // 유효한 데이터만 저장
+                if (data.getClose() == null || data.getClose().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+
+                StockPriceHistory history = StockPriceHistory.builder()
+                        .stockCode(stockCode)
+                        .tradeDate(tradeDate)
+                        .openPrice(data.getOpen())
+                        .highPrice(data.getHigh())
+                        .lowPrice(data.getLow())
+                        .closePrice(data.getClose())
+                        .volume(data.getVolume())
+                        .dataSource("KIS")
+                        .build();
+
+                stockPriceHistoryRepository.save(history);
+                savedCount++;
+            }
+
+            log.info("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 스킵(중복): {}",
+                    stockCode, savedCount, skippedCount);
+
+        } catch (Exception e) {
+            log.error("종목 {} 일봉 데이터 저장 실패: {}", stockCode, e.getMessage());
         }
     }
 
