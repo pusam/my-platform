@@ -447,6 +447,24 @@ public class AutoTradingBotService {
                     log.info("[자동매매-{}] 매수 완료: {} x {} @ {}원",
                             currentMode.name(), stock.getStockName(), quantity, currentPrice);
 
+                    // 텔레그램 매수 알림 전송
+                    if (telegramService.isEnabled()) {
+                        String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
+                        String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
+                        BigDecimal totalAmount = currentPrice.multiply(BigDecimal.valueOf(quantity));
+
+                        telegramService.sendMessage(
+                                String.format("<b>%s [%s] 매수 체결</b>\n\n", modeEmoji, modeTag) +
+                                "📈 <b>" + stock.getStockName() + "</b> (" + stock.getStockCode() + ")\n" +
+                                "💰 매수가: " + String.format("%,d", currentPrice.intValue()) + "원\n" +
+                                "📦 수량: " + quantity + "주\n" +
+                                "💵 매수금액: " + String.format("%,d", totalAmount.intValue()) + "원\n" +
+                                "🏆 마법공식 순위: " + (stock.getMagicFormulaRank() != null ? stock.getMagicFormulaRank() + "위" : "-") + "\n\n" +
+                                "━━━━━━━━━━━━━━━━\n" +
+                                modeEmoji + " MyPlatform " + modeTag
+                        );
+                    }
+
                     // 계좌 정보 갱신
                     AccountSummaryDto refreshedAccount = activeTradeService.getAccountSummary();
                     currentBalance = refreshedAccount.getCurrentBalance();
@@ -553,6 +571,28 @@ public class AutoTradingBotService {
                         log.info("[자동매매-{}] {} 완료: {} x {} @ {}원",
                                 currentMode.name(), reason, portfolio.getStockName(),
                                 portfolio.getQuantity(), currentPrice);
+
+                        // 텔레그램 손절/익절 알림
+                        if (telegramService.isEnabled()) {
+                            String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
+                            String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
+                            String reasonEmoji = reason.equals("STOP_LOSS") ? "🔻 손절" : "🔺 익절";
+                            String reasonTag = reason.equals("STOP_LOSS") ? "손절" : "익절";
+                            BigDecimal profitLoss = currentPrice.subtract(avgPrice)
+                                    .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
+
+                            telegramService.sendMessage(
+                                    String.format("<b>%s [%s] %s 체결</b>\n\n", modeEmoji, modeTag, reasonTag) +
+                                    reasonEmoji + " <b>" + portfolio.getStockName() + "</b> (" + portfolio.getStockCode() + ")\n" +
+                                    "💰 매도가: " + String.format("%,d", currentPrice.intValue()) + "원\n" +
+                                    "📊 평균단가: " + String.format("%,d", avgPrice.intValue()) + "원\n" +
+                                    "📦 수량: " + portfolio.getQuantity() + "주\n" +
+                                    "📈 손익률: " + String.format("%+.2f", profitRate) + "%\n" +
+                                    "💵 손익금액: " + String.format("%+,d", profitLoss.intValue()) + "원\n\n" +
+                                    "━━━━━━━━━━━━━━━━\n" +
+                                    modeEmoji + " MyPlatform " + modeTag
+                            );
+                        }
 
                     } catch (Exception e) {
                         log.error("[자동매매] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage());

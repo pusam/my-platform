@@ -4,11 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
-import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -37,7 +35,6 @@ public class StockFinancialDataCollector {
     private static final long RETRY_DELAY_MS = 500;
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
-    private final StockShortDataRepository stockShortDataRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -169,11 +166,7 @@ public class StockFinancialDataCollector {
 
             String stockName = output.path("hts_kor_isnm").asText("");
             if (stockName.isEmpty()) {
-                stockName = stockShortDataRepository.findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1))
-                        .stream()
-                        .findFirst()
-                        .map(s -> s.getStockName())
-                        .orElse(stockCode);
+                stockName = stockCode;
             }
 
             String market = "KOSPI";

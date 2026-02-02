@@ -2,7 +2,6 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
-import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -31,7 +30,6 @@ public class AsyncCrawlerService {
     private final StockFinancialDataService stockFinancialDataService;
     private final StockFinancialDataCollector stockFinancialDataCollector;
     private final StockFinancialDataRepository stockFinancialDataRepository;
-    private final StockShortDataRepository stockShortDataRepository;
     private final SseEmitterService sseEmitterService;
 
     // 작업 상태 플래그
@@ -71,8 +69,8 @@ public class AsyncCrawlerService {
             List<StockFinancialData> allData = stockFinancialDataRepository.findByReportDate(today);
 
             if (allData.isEmpty()) {
-                List<String> stockCodes = stockShortDataRepository.findDistinctStockCodes();
-                log.info("오늘 날짜 데이터 없음. StockShortData에서 {}개 종목 코드 조회", stockCodes.size());
+                List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
+                log.info("오늘 날짜 데이터 없음. StockFinancialData에서 {}개 종목 코드 조회", stockCodes.size());
 
                 for (String code : stockCodes) {
                     stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(code)
@@ -189,9 +187,6 @@ public class AsyncCrawlerService {
 
             // 대상 종목 조회
             List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
-            if (stockCodes.isEmpty()) {
-                stockCodes = stockShortDataRepository.findDistinctStockCodes();
-            }
 
             int totalCount = stockCodes.size();
 

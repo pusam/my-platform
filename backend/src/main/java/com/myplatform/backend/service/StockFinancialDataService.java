@@ -2,7 +2,6 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
-import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,7 +23,6 @@ import java.util.*;
 public class StockFinancialDataService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
-    private final StockShortDataRepository stockShortDataRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final StockFinancialDataCollector collector;
     private final SseEmitterService sseEmitterService;
@@ -184,13 +182,13 @@ public class StockFinancialDataService {
 
         log.info("========== 전 종목 재무 데이터 수집 시작 ==========");
 
-        List<String> allStockCodes = stockShortDataRepository.findDistinctStockCodes();
+        List<String> allStockCodes = stockFinancialDataRepository.findAllStockCodes();
         int totalCount = allStockCodes.size();
         log.info("수집 대상 종목 수: {}", totalCount);
 
         if (totalCount == 0) {
             result.put("success", false);
-            result.put("message", "수집할 종목이 없습니다. StockShortData 테이블에 데이터가 필요합니다.");
+            result.put("message", "수집할 종목이 없습니다. 먼저 기본 재무 데이터를 수집하세요.");
             return result;
         }
 

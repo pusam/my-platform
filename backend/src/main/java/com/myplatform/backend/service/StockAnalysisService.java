@@ -6,11 +6,9 @@ import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.entity.StockPriceHistory;
-import com.myplatform.backend.entity.StockShortData;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
-import com.myplatform.backend.repository.StockShortDataRepository;
 import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,7 +38,6 @@ public class StockAnalysisService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
-    private final StockShortDataRepository stockShortDataRepository;
     private final StockPriceHistoryRepository stockPriceHistoryRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final KoreaInvestmentService koreaInvestmentService;
@@ -467,24 +464,6 @@ public class StockAnalysisService {
             }
         }
 
-        // 3차: 여전히 부족하면 공매도 데이터에서 폴백
-        if (closePrices.size() < MIN_PRICE_DATA_COUNT) {
-            List<StockShortData> shortData = stockShortDataRepository
-                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
-            if (!shortData.isEmpty()) {
-                List<BigDecimal> shortPrices = shortData.stream()
-                        .map(StockShortData::getClosePrice)
-                        .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
-                        .collect(Collectors.toList());
-
-                // 기존 데이터와 병합 (더 많은 데이터 확보)
-                if (shortPrices.size() > closePrices.size()) {
-                    closePrices = shortPrices;
-                    log.info("종목 {} 공매도 데이터에서 {} 건의 종가 조회 (폴백)", stockCode, closePrices.size());
-                }
-            }
-        }
-
         // 최소 데이터 검증 (20개 미만이면 분석 불가)
         if (closePrices.size() < 20) {
             log.warn("종목 {} 의 가격 데이터가 부족합니다 ({} 건). 최소 20건 필요.", stockCode, closePrices.size());
@@ -892,21 +871,7 @@ public class StockAnalysisService {
             log.debug("KIS API 종목명 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
-        // 2차: StockShortData에서 조회
-        try {
-            List<StockShortData> shortData = stockShortDataRepository
-                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1));
-            if (!shortData.isEmpty() && shortData.get(0).getStockName() != null) {
-                String name = shortData.get(0).getStockName();
-                if (!name.isEmpty() && !name.equals(stockCode)) {
-                    return name;
-                }
-            }
-        } catch (Exception e) {
-            log.debug("StockShortData 종목명 조회 실패 [{}]: {}", stockCode, e.getMessage());
-        }
-
-        // 3차: 주요 종목 맵에서 조회
+        // 2차: 주요 종목 맵에서 조회
         return StockNameResolver.getNameOrDefault(stockCode, stockCode);
     }
 }

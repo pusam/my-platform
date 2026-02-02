@@ -2,7 +2,6 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
-import com.myplatform.backend.repository.StockShortDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -11,8 +10,6 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -31,7 +28,6 @@ import java.util.*;
 public class FinancialDataCrawlerService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
-    private final StockShortDataRepository stockShortDataRepository;
     private final SseEmitterService sseEmitterService;
 
     private static final String NAVER_FINANCE_URL = "https://finance.naver.com/item/main.naver?code=";
@@ -58,8 +54,8 @@ public class FinancialDataCrawlerService {
 
         if (allData.isEmpty()) {
             // 오늘 날짜 데이터가 없으면 최신 데이터 조회
-            List<String> stockCodes = stockShortDataRepository.findDistinctStockCodes();
-            log.info("오늘 날짜 데이터 없음. StockShortData에서 {}개 종목 코드 조회", stockCodes.size());
+            List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
+            log.info("오늘 날짜 데이터 없음. StockFinancialData에서 {}개 종목 코드 조회", stockCodes.size());
 
             for (String code : stockCodes) {
                 stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(code)
@@ -411,8 +407,7 @@ public class FinancialDataCrawlerService {
 
     /**
      * 종목명이 없거나 종목코드와 같은 경우 수정
-     * 1. StockShortData에서 조회
-     * 2. 네이버 금융에서 크롤링
+     * - 네이버 금융에서 크롤링
      */
     private void fixStockNameIfNeeded(StockFinancialData data) {
         String stockCode = data.getStockCode();
@@ -424,22 +419,7 @@ public class FinancialDataCrawlerService {
             return;
         }
 
-        // 1. StockShortData에서 조회
-        String nameFromShortData = stockShortDataRepository
-                .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1))
-                .stream()
-                .findFirst()
-                .map(s -> s.getStockName())
-                .orElse(null);
-
-        if (nameFromShortData != null && !nameFromShortData.isEmpty()
-                && !nameFromShortData.equals(stockCode)) {
-            data.setStockName(nameFromShortData);
-            log.debug("종목명 수정 (ShortData): {} -> {}", stockCode, nameFromShortData);
-            return;
-        }
-
-        // 2. 네이버 금융에서 크롤링
+        // 네이버 금융에서 크롤링
         String nameFromNaver = crawlStockName(stockCode);
         if (nameFromNaver != null && !nameFromNaver.isEmpty()) {
             data.setStockName(nameFromNaver);
@@ -586,10 +566,7 @@ public class FinancialDataCrawlerService {
         // StockFinancialData에 있는 종목 대상
         List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
 
-        if (stockCodes.isEmpty()) {
-            // 종목 코드가 없으면 StockShortData에서 조회
-            stockCodes = stockShortDataRepository.findDistinctStockCodes();
-        }
+        // stockCodes가 비어있으면 수집할 대상 없음
 
         int totalCount = stockCodes.size();
         log.info("수집 대상 종목 수: {}", totalCount);
