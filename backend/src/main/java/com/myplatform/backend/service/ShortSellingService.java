@@ -413,11 +413,16 @@ public class ShortSellingService {
         if (!dataList.isEmpty()) {
             log.info("공매도 데이터 있음 [{}]: {}건", stockCode, dataList.size());
             Map<String, BigDecimal> foreignNetBuyMap = getForeignNetBuyMap(today);
-            return analyzeStock(stockCode, dataList, foreignNetBuyMap);
+            ShortSqueezeDto result = analyzeStock(stockCode, dataList, foreignNetBuyMap);
+            // analyzeStock이 null을 반환하면 (대차잔고 부족 등) 폴백
+            if (result != null) {
+                return result;
+            }
+            log.info("공매도 분석 결과 null - 폴백 전략으로 전환: {}", stockCode);
         }
 
-        // 2차~4차: 다단계 폴백으로 기술적 분석
-        log.info("공매도 데이터 없음 - 폴백 전략 시작: {}", stockCode);
+        // 폴백: 다단계로 기술적 분석
+        log.info("폴백 전략 시작: {}", stockCode);
         return getAnalysisWithFallback(stockCode);
     }
 
@@ -449,6 +454,7 @@ public class ShortSellingService {
 
                 if (!historyData.isEmpty()) {
                     currentPrice = historyData.get(0).getClosePrice();
+                    changeRate = historyData.get(0).getChangeRate();
                 }
                 log.info("DB 캐시 일봉 데이터 조회 성공 [{}]: {}건", stockCode, prices.size());
             }
@@ -456,22 +462,31 @@ public class ShortSellingService {
             log.debug("DB 캐시 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
-        // ========== 2차: KIS API 실시간 조회 (Rate Limit 주의) ==========
-        if (prices.size() < 20) {
-            try {
-                // 현재가 조회
-                com.fasterxml.jackson.databind.JsonNode priceInfo = koreaInvestmentService.getStockPrice(stockCode);
-                if (priceInfo != null && priceInfo.has("output")) {
-                    com.fasterxml.jackson.databind.JsonNode output = priceInfo.get("output");
-                    stockName = output.has("hts_kor_isnm") ? output.get("hts_kor_isnm").asText() : stockCode;
-                    currentPrice = output.has("stck_prpr") ?
-                            new BigDecimal(output.get("stck_prpr").asText()) : currentPrice;
-                    changeRate = output.has("prdy_ctrt") ?
-                            new BigDecimal(output.get("prdy_ctrt").asText()) : null;
-                    log.debug("KIS API 현재가 조회 성공 [{}]: {}", stockCode, currentPrice);
+        // ========== 2차: KIS API에서 종목명 + 추가 데이터 조회 ==========
+        // DB 캐시에서 가격 데이터를 가져왔더라도 종목명은 API에서 조회
+        try {
+            com.fasterxml.jackson.databind.JsonNode priceInfo = koreaInvestmentService.getStockPrice(stockCode);
+            if (priceInfo != null && priceInfo.has("output")) {
+                com.fasterxml.jackson.databind.JsonNode output = priceInfo.get("output");
+
+                // 종목명 조회 (항상)
+                String apiStockName = output.has("hts_kor_isnm") ? output.get("hts_kor_isnm").asText() : null;
+                if (apiStockName != null && !apiStockName.isEmpty()) {
+                    stockName = apiStockName;
                 }
 
-                // 일봉 데이터 조회
+                // 가격 데이터 (DB 캐시가 없을 때만)
+                if (currentPrice == null) {
+                    currentPrice = output.has("stck_prpr") ?
+                            new BigDecimal(output.get("stck_prpr").asText()) : null;
+                    changeRate = output.has("prdy_ctrt") ?
+                            new BigDecimal(output.get("prdy_ctrt").asText()) : null;
+                }
+                log.debug("KIS API 현재가 조회 성공 [{}]: {} ({})", stockCode, stockName, currentPrice);
+            }
+
+            // 일봉 데이터가 부족하면 API에서 조회
+            if (prices.size() < 20) {
                 List<KoreaInvestmentService.OhlcvData> ohlcvList =
                         koreaInvestmentService.getDailyOhlcv(stockCode, 120);
 
@@ -482,21 +497,23 @@ public class ShortSellingService {
                             .collect(Collectors.toList());
                     log.info("KIS API 일봉 데이터 조회 성공 [{}]: {}건", stockCode, prices.size());
                 }
-            } catch (Exception e) {
-                log.warn("KIS API 조회 실패 (Rate Limit?) [{}]: {}", stockCode, e.getMessage());
             }
+        } catch (Exception e) {
+            log.warn("KIS API 조회 실패 (Rate Limit?) [{}]: {}", stockCode, e.getMessage());
         }
 
         // ========== 3차: StockPriceService 캐시 조회 (기본 정보) ==========
-        if (currentPrice == null) {
+        if (stockName.equals(stockCode) || currentPrice == null) {
             try {
                 StockPriceDto priceDto = stockPriceService.getStockPrice(stockCode);
                 if (priceDto != null) {
-                    if (priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
+                    if (stockName.equals(stockCode) && priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
                         stockName = priceDto.getStockName();
                     }
-                    currentPrice = priceDto.getCurrentPrice();
-                    changeRate = priceDto.getChangeRate();
+                    if (currentPrice == null) {
+                        currentPrice = priceDto.getCurrentPrice();
+                        changeRate = priceDto.getChangeRate();
+                    }
                     log.debug("StockPriceService 캐시 조회 성공 [{}]: {}", stockCode, currentPrice);
                 }
             } catch (Exception e) {
