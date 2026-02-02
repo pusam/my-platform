@@ -324,9 +324,11 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * 주식 분봉 데이터 조회
+     * 주식 분봉 데이터 조회 (당일 1분봉)
+     * KIS API: FHKST03010200 - 주식당일분봉조회
+     *
      * @param stockCode 종목코드
-     * @return API 응답 JsonNode
+     * @return API 응답 JsonNode (output2에 분봉 데이터 배열)
      */
     public JsonNode getStockMinuteChart(String stockCode) {
         String token = getAccessToken();
@@ -335,12 +337,20 @@ public class KoreaInvestmentService {
         }
 
         try {
-            // 주식 당일 분봉 조회
+            // 현재 시간 또는 장 마감 시간 (HHMMSS 형식)
+            java.time.LocalTime now = java.time.LocalTime.now();
+            java.time.LocalTime marketClose = java.time.LocalTime.of(15, 30);
+            java.time.LocalTime queryTime = now.isAfter(marketClose) ? marketClose : now;
+            String timeStr = String.format("%02d%02d%02d", queryTime.getHour(), queryTime.getMinute(), 0);
+
+            // 주식 당일 분봉 조회 API
+            // FID_INPUT_HOUR_1: 조회 시작 시간 (HHMMSS) - 현재시간 기준으로 과거 데이터 조회
+            // FID_PW_DATA_INCU_YN: 과거 데이터 포함 여부 (Y: 이전 데이터 포함)
             String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
-                    + "?FID_COND_MRKT_DIV_CODE=J"
-                    + "&FID_INPUT_ISCD=" + stockCode
-                    + "&FID_INPUT_HOUR_1=300"   // 300분
-                    + "&FID_PW_DATA_INCU_YN=N";
+                    + "?FID_COND_MRKT_DIV_CODE=J"       // J: 주식, ETF, ETN
+                    + "&FID_INPUT_ISCD=" + stockCode    // 종목코드
+                    + "&FID_INPUT_HOUR_1=" + timeStr    // 조회시간 (HHMMSS)
+                    + "&FID_PW_DATA_INCU_YN=Y";         // 과거 데이터 포함
 
             HttpHeaders headers = createHeaders(token, "FHKST03010200");
             HttpEntity<String> request = new HttpEntity<>(headers);

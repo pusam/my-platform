@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -331,8 +332,14 @@ public class SectorTradingService {
                             .filter(v -> v != null && v.compareTo(BigDecimal.ZERO) > 0)
                             .count();
 
-                    log.info("[섹터거래대금] [3.5/5] {} 분봉 조회 완료 - 전체: {}, 유효: {} (부족시 오늘누적 폴백)",
+                    log.info("[섹터거래대금] [3.5/5] {} 분봉 조회 완료 - 전체: {}, 유효: {} (부족시 시간비율 추정)",
                             period, tempMap.size(), validCount);
+
+                    // 분봉 조회 성공률이 낮으면 경고
+                    if (validCount < allStockCodes.size() * 0.5) {
+                        log.warn("[섹터거래대금] {} 분봉 데이터 부족 - {}% 만 유효 (나머지는 추정치 사용)",
+                                period, validCount * 100 / Math.max(1, allStockCodes.size()));
+                    }
 
                 } catch (Exception e) {
                     log.warn("[섹터거래대금] {} 분봉 조회 실패: {}", period, e.getMessage());
@@ -565,19 +572,71 @@ public class SectorTradingService {
                 return minuteTradingValue;
             }
 
-            // 분봉 데이터 없으면 오늘누적으로 폴백 (장외시간 또는 API 실패 시)
-            // 주의: 이 경우 5분파워와 오늘누적 값이 동일해짐
-            if (price.getAccumulatedTradingValue() != null
-                    && price.getAccumulatedTradingValue().compareTo(BigDecimal.ZERO) > 0) {
-                return price.getAccumulatedTradingValue();
-            }
-            if (price.getCurrentPrice() != null && price.getVolume() != null) {
-                return price.getCurrentPrice().multiply(price.getVolume());
+            // 분봉 데이터 없으면 시간 비율 추정치 계산 (TODAY와 동일값 방지)
+            BigDecimal todayValue = getTodayTradingValue(price);
+            if (todayValue.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal estimated = estimateMinuteTradingValue(todayValue, period.getMinutes());
+                log.debug("[{}] {} 분봉 데이터 없음 - 추정치 사용: {} (TODAY의 약 {}%)",
+                        stockCode, period.getMinutes(),
+                        estimated.divide(BigDecimal.valueOf(100_000_000), 0, RoundingMode.HALF_UP) + "억",
+                        estimated.multiply(BigDecimal.valueOf(100)).divide(todayValue, 1, RoundingMode.HALF_UP));
+                return estimated;
             }
             return BigDecimal.ZERO;
         }
 
         return BigDecimal.ZERO;
+    }
+
+    /**
+     * TODAY 거래대금 계산 (공통 로직)
+     */
+    private BigDecimal getTodayTradingValue(StockPriceDto price) {
+        if (price.getAccumulatedTradingValue() != null
+                && price.getAccumulatedTradingValue().compareTo(BigDecimal.ZERO) > 0) {
+            return price.getAccumulatedTradingValue();
+        }
+        if (price.getCurrentPrice() != null && price.getVolume() != null) {
+            return price.getCurrentPrice().multiply(price.getVolume());
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * 분봉 데이터 없을 때 시간 비율로 추정치 계산
+     * - 장 시작(09:00)부터 현재까지 경과 시간 기준으로 비율 계산
+     * - 예: 5분파워 = TODAY * (5분 / 경과시간)
+     */
+    private BigDecimal estimateMinuteTradingValue(BigDecimal todayValue, int periodMinutes) {
+        LocalTime now = LocalTime.now();
+        LocalTime marketStart = LocalTime.of(9, 0);
+        LocalTime marketEnd = LocalTime.of(15, 30);
+
+        // 장 시간 외: 최소 추정 (전체 장시간 390분 기준)
+        if (now.isBefore(marketStart) || now.isAfter(marketEnd)) {
+            // 장 외 시간: 전체 장시간 기준으로 비율 계산
+            BigDecimal ratio = BigDecimal.valueOf(periodMinutes)
+                    .divide(BigDecimal.valueOf(390), 6, RoundingMode.HALF_UP);
+            return todayValue.multiply(ratio).setScale(0, RoundingMode.HALF_UP);
+        }
+
+        // 장 시간 내: 현재까지 경과 시간 기준
+        long elapsedMinutes = Duration.between(marketStart, now).toMinutes();
+        if (elapsedMinutes < 1) {
+            elapsedMinutes = 1;  // 0으로 나누기 방지
+        }
+
+        // 경과시간 대비 요청 기간 비율
+        // 예: 09:30 (30분 경과) + 5분파워 = TODAY * (5/30) = 16.7%
+        BigDecimal ratio = BigDecimal.valueOf(periodMinutes)
+                .divide(BigDecimal.valueOf(elapsedMinutes), 6, RoundingMode.HALF_UP);
+
+        // 비율이 1 초과하면 1로 제한 (장 초반)
+        if (ratio.compareTo(BigDecimal.ONE) > 0) {
+            ratio = BigDecimal.ONE;
+        }
+
+        return todayValue.multiply(ratio).setScale(0, RoundingMode.HALF_UP);
     }
 
     /**
