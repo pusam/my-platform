@@ -318,17 +318,24 @@ public class SectorTradingService {
 
             // 분봉 데이터 (MIN_5, MIN_30인 경우 Batch 조회)
             final Map<String, BigDecimal> minuteTradingValueMap;
+
             if (period != TradingPeriod.TODAY) {
                 log.info("[섹터거래대금] [3.5/5] {} 분봉 거래대금 Batch 조회 시작...", period);
                 Map<String, BigDecimal> tempMap = new HashMap<>();
                 try {
                     tempMap = stockPriceService.getTradingValueForMinutesBatch(
                             new ArrayList<>(allStockCodes), period.getMinutes());
-                    log.info("[섹터거래대금] [3.5/5] {} 분봉 거래대금 조회 완료 - {} 종목",
-                            period, tempMap.size());
+
+                    // 유효한 데이터 개수 확인
+                    long validCount = tempMap.values().stream()
+                            .filter(v -> v != null && v.compareTo(BigDecimal.ZERO) > 0)
+                            .count();
+
+                    log.info("[섹터거래대금] [3.5/5] {} 분봉 조회 완료 - 전체: {}, 유효: {} (부족시 오늘누적 폴백)",
+                            period, tempMap.size(), validCount);
+
                 } catch (Exception e) {
-                    log.warn("[섹터거래대금] {} 분봉 조회 실패, 오늘누적으로 폴백: {}",
-                            period, e.getMessage());
+                    log.warn("[섹터거래대금] {} 분봉 조회 실패: {}", period, e.getMessage());
                 }
                 minuteTradingValueMap = tempMap;
             } else {
@@ -550,8 +557,7 @@ public class SectorTradingService {
                 return price.getCurrentPrice().multiply(price.getVolume());
             }
         } else {
-            // 5분/30분 파워: 미리 조회된 분봉 거래대금만 사용
-            // 주의: 오늘누적으로 폴백하면 안됨! (값이 완전히 다름)
+            // 5분/30분 파워: 미리 조회된 분봉 거래대금 사용
             BigDecimal minuteTradingValue = minuteTradingValueMap != null
                     ? minuteTradingValueMap.get(stockCode)
                     : null;
@@ -559,7 +565,15 @@ public class SectorTradingService {
                 return minuteTradingValue;
             }
 
-            // 분봉 데이터 없으면 0 반환 (오늘누적으로 폴백 X)
+            // 분봉 데이터 없으면 오늘누적으로 폴백 (장외시간 또는 API 실패 시)
+            // 주의: 이 경우 5분파워와 오늘누적 값이 동일해짐
+            if (price.getAccumulatedTradingValue() != null
+                    && price.getAccumulatedTradingValue().compareTo(BigDecimal.ZERO) > 0) {
+                return price.getAccumulatedTradingValue();
+            }
+            if (price.getCurrentPrice() != null && price.getVolume() != null) {
+                return price.getCurrentPrice().multiply(price.getVolume());
+            }
             return BigDecimal.ZERO;
         }
 
