@@ -494,10 +494,11 @@ export const marketAPI = {
   collectData() {
     return apiClient.post('/market/collect');
   },
-  // 기간별 시장 데이터 수집 (Backfill)
+  // 기간별 시장 데이터 수집 (Backfill) - 최대 3분 타임아웃
   collectDataForPeriod(startDate, endDate) {
     return apiClient.post('/market/collect/period', null, {
-      params: { startDate, endDate }
+      params: { startDate, endDate },
+      timeout: 180000  // 3분 (60일 데이터 수집에 약 1~2분 소요)
     });
   }
 };

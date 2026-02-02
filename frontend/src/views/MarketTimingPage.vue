@@ -259,6 +259,17 @@
       <div class="spinner"></div>
       <p>데이터 로딩 중...</p>
     </div>
+
+    <!-- 기간 수집 로딩 -->
+    <div v-if="isBackfilling" class="loading-overlay backfill-loading">
+      <div class="spinner"></div>
+      <div class="backfill-progress">
+        <p class="progress-title">📅 기간별 데이터 수집 중...</p>
+        <p class="progress-detail">{{ backfillStartDate }} ~ {{ backfillEndDate }}</p>
+        <p class="progress-hint">네이버 금융에서 데이터를 가져오는 중입니다.<br>차단 방지를 위해 요청당 1초 딜레이가 적용됩니다.</p>
+        <p class="progress-warning">창을 닫지 마세요. (최대 2분 소요)</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -637,9 +648,17 @@ onMounted(() => {
   background: linear-gradient(135deg, #1a1a2e 0%, #2d1f1f 100%);
 }
 
+.main-status.condition-overheated .status-value {
+  color: #fca5a5;
+}
+
 .main-status.condition-normal {
   border-color: #6b7280;
   background: linear-gradient(135deg, #1a1a2e 0%, #1f2937 100%);
+}
+
+.main-status.condition-normal .status-value {
+  color: #d1d5db;
 }
 
 .main-status.condition-oversold {
@@ -647,9 +666,17 @@ onMounted(() => {
   background: linear-gradient(135deg, #1a1a2e 0%, #1e293b 100%);
 }
 
+.main-status.condition-oversold .status-value {
+  color: #93c5fd;
+}
+
 .main-status.condition-extreme-fear {
   border-color: #06b6d4;
   background: linear-gradient(135deg, #1a1a2e 0%, #0f172a 100%);
+}
+
+.main-status.condition-extreme-fear .status-value {
+  color: #67e8f9;
 }
 
 .status-icon {
@@ -662,7 +689,7 @@ onMounted(() => {
 
 .status-label {
   font-size: 0.875rem;
-  color: var(--text-muted, #71717a);
+  color: #a1a1aa;
   margin-bottom: 0.25rem;
 }
 
@@ -670,11 +697,12 @@ onMounted(() => {
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
+  color: #ffffff;
 }
 
 .adr-value {
   font-size: 1.25rem;
-  color: var(--text-secondary, #a1a1aa);
+  color: #d4d4d8;
 }
 
 .adr-value strong {
@@ -1051,6 +1079,46 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* 기간 수집 로딩 */
+.backfill-loading {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.backfill-progress {
+  margin-top: 1.5rem;
+  text-align: center;
+  max-width: 400px;
+}
+
+.backfill-progress .progress-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f59e0b;
+  margin: 0 0 0.5rem 0;
+}
+
+.backfill-progress .progress-detail {
+  font-size: 1rem;
+  color: #d4d4d8;
+  margin: 0 0 1rem 0;
+}
+
+.backfill-progress .progress-hint {
+  font-size: 0.9rem;
+  color: #a1a1aa;
+  margin: 0 0 1rem 0;
+  line-height: 1.5;
+}
+
+.backfill-progress .progress-warning {
+  font-size: 0.85rem;
+  color: #ef4444;
+  margin: 0;
+  padding: 0.5rem 1rem;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: 6px;
 }
 
 /* ADR 차트 섹션 */
