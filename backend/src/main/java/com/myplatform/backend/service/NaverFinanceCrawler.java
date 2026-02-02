@@ -44,7 +44,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class NaverFinanceCrawler {
 
     // === KRX API 설정 (우선 사용) ===
-    private static final String KRX_API_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
+    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
     private static final String KRX_SHORT_SELLING_BLD = "dbms/MDC/STAT/srt/MDCSTAT30101";  // 공매도 거래
     private static final String KRX_SHORT_BALANCE_BLD = "dbms/MDC/STAT/srt/MDCSTAT30501";  // 공매도 잔고
 
@@ -113,10 +115,11 @@ public class NaverFinanceCrawler {
     }
 
     /**
-     * KRX API로 공매도 데이터 수집
+     * KRX API로 공매도 데이터 수집 (OTP 기반 인증)
      * - data.krx.co.kr 공식 API 사용
+     * - Step 1: getOtp.cmd로 OTP 코드 획득
+     * - Step 2: getJsonData.cmd에 OTP 코드로 데이터 요청
      * - 종목별 공매도 거래 데이터 조회 (MDCSTAT30101)
-     * - 단축코드(6자리) 사용
      */
     private List<ShortSellingData> crawlFromKrx(String stockCode, int days) {
         List<ShortSellingData> result = new ArrayList<>();
@@ -125,21 +128,14 @@ public class NaverFinanceCrawler {
             // 딜레이
             randomDelay();
 
-            log.info("KRX API 호출 시작 [{}] - 종목별 공매도 조회", stockCode);
-
-            // 요청 헤더 설정
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
-            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
-            headers.set("User-Agent", USER_AGENT);
-            headers.set("X-Requested-With", "XMLHttpRequest");
-            headers.set("Origin", "http://data.krx.co.kr");
-            headers.set("Referer", "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101");
+            log.info("KRX API 호출 시작 [{}] - OTP 기반 인증", stockCode);
 
             // 조회 기간 계산 (최근 days일)
             LocalDate endDate = LocalDate.now();
             LocalDate startDate = endDate.minusDays(days + 10);
+
+            // headers 파라미터는 이제 사용하지 않지만, 메서드 시그니처 호환성 유지
+            HttpHeaders headers = new HttpHeaders();
 
             // 1차 시도: 종목별 공매도 조회 (MDCSTAT30101) - 시장 전체 조회 후 필터링
             result = tryKrxShortSellingByMarket(headers, stockCode, startDate, endDate, days);
@@ -158,33 +154,115 @@ public class NaverFinanceCrawler {
     }
 
     /**
+     * KRX OTP 코드 획득
+     * Step 1: getOtp.cmd를 호출하여 암호화된 code를 획득
+     *
+     * @param params 데이터 요청에 사용할 파라미터 (bld, mktId, trdDd 등)
+     * @return OTP 코드 문자열 (실패 시 null)
+     */
+    private String getKrxOtpCode(MultiValueMap<String, String> params) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("Accept", "*/*");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("User-Agent", USER_AGENT);
+            headers.set("Referer", KRX_REFERER);
+            headers.set("Origin", "http://data.krx.co.kr");
+
+            // OTP 요청용 파라미터 (데이터 요청과 동일하게 구성)
+            MultiValueMap<String, String> otpParams = new LinkedMultiValueMap<>(params);
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(otpParams, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_OTP_URL, HttpMethod.POST, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                String otp = response.getBody().trim();
+                if (!otp.isEmpty() && !otp.contains("LOGOUT") && !otp.contains("error")) {
+                    log.debug("KRX OTP 획득 성공: {}...", otp.substring(0, Math.min(20, otp.length())));
+                    return otp;
+                }
+                log.warn("KRX OTP 응답 이상: {}", otp.substring(0, Math.min(100, otp.length())));
+            }
+        } catch (Exception e) {
+            log.warn("KRX OTP 획득 실패: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * KRX 데이터 요청 (OTP 사용)
+     * Step 2: 획득한 OTP 코드를 사용하여 getJsonData.cmd 호출
+     *
+     * @param otpCode OTP 코드
+     * @return JSON 응답 문자열 (실패 시 null)
+     */
+    private String requestKrxDataWithOtp(String otpCode) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("User-Agent", USER_AGENT);
+            headers.set("Referer", KRX_REFERER);
+            headers.set("Origin", "http://data.krx.co.kr");
+            headers.set("X-Requested-With", "XMLHttpRequest");
+
+            // 데이터 요청 파라미터 (OTP 코드만 전송)
+            MultiValueMap<String, String> dataParams = new LinkedMultiValueMap<>();
+            dataParams.add("code", otpCode);
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(dataParams, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_DATA_URL, HttpMethod.POST, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                String body = response.getBody();
+                // LOGOUT 응답 체크
+                if (body.contains("LOGOUT") || body.contains("접속 권한이 없습니다")) {
+                    log.warn("KRX 데이터 요청 실패: 인증 오류 - {}", body.substring(0, Math.min(100, body.length())));
+                    return null;
+                }
+                return body;
+            }
+        } catch (Exception e) {
+            log.warn("KRX 데이터 요청 실패: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
      * KRX 시장 전체 공매도 조회 후 특정 종목 필터링
+     * OTP 기반 인증 사용
      */
     private List<ShortSellingData> tryKrxShortSellingByMarket(HttpHeaders headers, String stockCode,
                                                               LocalDate startDate, LocalDate endDate, int days) {
         List<ShortSellingData> result = new ArrayList<>();
 
         try {
-            log.info("KRX 시장 전체 조회 시작 [{}] - KOSPI", stockCode);
+            log.info("KRX 시장 전체 조회 시작 [{}] - KOSPI (OTP 인증)", stockCode);
 
-            // 최근 거래일 기준으로 조회 (시장 전체)
+            // Step 1: KOSPI용 OTP 획득
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("bld", KRX_SHORT_SELLING_BLD);  // MDCSTAT30101
             params.add("mktId", "STK");  // 유가증권시장 (KOSPI)
             params.add("trdDd", endDate.format(DateTimeFormatter.BASIC_ISO_DATE));
             params.add("csvxls_isNo", "false");
 
-            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+            String otpCode = getKrxOtpCode(params);
+            if (otpCode == null) {
+                log.warn("KRX KOSPI OTP 획득 실패 [{}]", stockCode);
+                return result;
+            }
 
-            ResponseEntity<String> response = restTemplate.exchange(
-                    KRX_API_URL, HttpMethod.POST, request, String.class);
+            // Step 2: OTP로 데이터 요청
+            String body = requestKrxDataWithOtp(otpCode);
 
-            log.info("KRX KOSPI 응답 [{}]: status={}, bodyLength={}",
-                    stockCode, response.getStatusCode(),
-                    response.getBody() != null ? response.getBody().length() : 0);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                String body = response.getBody();
+            if (body != null) {
+                log.info("KRX KOSPI 응답 [{}]: bodyLength={}", stockCode, body.length());
 
                 // 응답 미리보기 (처음 300자)
                 if (body.length() > 0) {
@@ -198,18 +276,20 @@ public class NaverFinanceCrawler {
 
                 if (result.isEmpty()) {
                     // KOSDAQ 시도
-                    log.info("KRX KOSDAQ 조회 시작 [{}]", stockCode);
+                    log.info("KRX KOSDAQ 조회 시작 [{}] (OTP 인증)", stockCode);
+
+                    // KOSDAQ용 OTP 획득
                     params.set("mktId", "KSQ");
-                    request = new HttpEntity<>(params, headers);
-                    response = restTemplate.exchange(KRX_API_URL, HttpMethod.POST, request, String.class);
+                    String kosdaqOtp = getKrxOtpCode(params);
 
-                    log.info("KRX KOSDAQ 응답 [{}]: status={}, bodyLength={}",
-                            stockCode, response.getStatusCode(),
-                            response.getBody() != null ? response.getBody().length() : 0);
+                    if (kosdaqOtp != null) {
+                        String kosdaqBody = requestKrxDataWithOtp(kosdaqOtp);
 
-                    if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                        result = parseKrxMarketResponse(response.getBody(), stockCode, days);
-                        log.info("KRX KOSDAQ 파싱 결과 [{}]: {}건", stockCode, result.size());
+                        if (kosdaqBody != null) {
+                            log.info("KRX KOSDAQ 응답 [{}]: bodyLength={}", stockCode, kosdaqBody.length());
+                            result = parseKrxMarketResponse(kosdaqBody, stockCode, days);
+                            log.info("KRX KOSDAQ 파싱 결과 [{}]: {}건", stockCode, result.size());
+                        }
                     }
                 }
             }
@@ -222,6 +302,7 @@ public class NaverFinanceCrawler {
 
     /**
      * KRX 개별 종목 공매도 조회
+     * OTP 기반 인증 사용
      */
     private List<ShortSellingData> tryKrxShortSellingByStock(HttpHeaders headers, String stockCode,
                                                              LocalDate startDate, LocalDate endDate, int days) {
@@ -232,7 +313,7 @@ public class NaverFinanceCrawler {
             String isinCode = convertToIsin(stockCode);
             String aCode = "A" + stockCode;  // A005930 형식
 
-            log.info("KRX 개별 종목 조회 시작 [{}] -> ISIN: {}, A코드: {}", stockCode, isinCode, aCode);
+            log.info("KRX 개별 종목 조회 시작 [{}] -> ISIN: {}, A코드: {} (OTP 인증)", stockCode, isinCode, aCode);
 
             // 개별 종목 조회 (MDCSTAT30301 - 종목별 일별 추이)
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
@@ -243,17 +324,19 @@ public class NaverFinanceCrawler {
             params.add("endDd", endDate.format(DateTimeFormatter.BASIC_ISO_DATE));
             params.add("csvxls_isNo", "false");
 
-            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+            // Step 1: OTP 획득
+            String otpCode = getKrxOtpCode(params);
+            if (otpCode == null) {
+                log.warn("KRX 개별 종목 OTP 획득 실패 [{}]", stockCode);
+                return result;
+            }
 
-            ResponseEntity<String> response = restTemplate.exchange(
-                    KRX_API_URL, HttpMethod.POST, request, String.class);
+            // Step 2: OTP로 데이터 요청
+            String body = requestKrxDataWithOtp(otpCode);
 
-            log.info("KRX 개별 종목 응답 [{}]: status={}, bodyLength={}",
-                    stockCode, response.getStatusCode(),
-                    response.getBody() != null ? response.getBody().length() : 0);
+            if (body != null) {
+                log.info("KRX 개별 종목 응답 [{}]: bodyLength={}", stockCode, body.length());
 
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                String body = response.getBody();
                 // 응답 미리보기 (항상 로깅)
                 if (body.length() > 0) {
                     String preview = body.length() > 500 ? body.substring(0, 500) + "..." : body;
