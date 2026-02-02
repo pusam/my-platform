@@ -44,9 +44,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class NaverFinanceCrawler {
 
     // === KRX API 설정 (우선 사용) ===
-    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
-    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
-    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
+    // 주의: data.krx.co.kr은 자동화 요청을 차단할 수 있음
+    private static final String KRX_OTP_URL = "https://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
+    private static final String KRX_DATA_URL = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_REFERER = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
     private static final String KRX_SHORT_SELLING_BLD = "dbms/MDC/STAT/srt/MDCSTAT30101";  // 공매도 거래
     private static final String KRX_SHORT_BALANCE_BLD = "dbms/MDC/STAT/srt/MDCSTAT30501";  // 공매도 잔고
 
@@ -68,7 +69,7 @@ public class NaverFinanceCrawler {
     private static final int READ_TIMEOUT = 20000;
 
     // 네이버 차단 방지용 설정
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
     private static final int MIN_DELAY_MS = 2000;  // 최소 2초 (더 보수적)
     private static final int MAX_DELAY_MS = 4000;  // 최대 4초
 
@@ -168,7 +169,10 @@ public class NaverFinanceCrawler {
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
             headers.set("User-Agent", USER_AGENT);
             headers.set("Referer", KRX_REFERER);
-            headers.set("Origin", "http://data.krx.co.kr");
+            headers.set("Origin", "https://data.krx.co.kr");
+            headers.set("Sec-Fetch-Dest", "empty");
+            headers.set("Sec-Fetch-Mode", "cors");
+            headers.set("Sec-Fetch-Site", "same-origin");
 
             // OTP 요청용 파라미터 (데이터 요청과 동일하게 구성)
             MultiValueMap<String, String> otpParams = new LinkedMultiValueMap<>(params);
@@ -207,8 +211,11 @@ public class NaverFinanceCrawler {
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
             headers.set("User-Agent", USER_AGENT);
             headers.set("Referer", KRX_REFERER);
-            headers.set("Origin", "http://data.krx.co.kr");
+            headers.set("Origin", "https://data.krx.co.kr");
             headers.set("X-Requested-With", "XMLHttpRequest");
+            headers.set("Sec-Fetch-Dest", "empty");
+            headers.set("Sec-Fetch-Mode", "cors");
+            headers.set("Sec-Fetch-Site", "same-origin");
 
             // 데이터 요청 파라미터 (OTP 코드만 전송)
             MultiValueMap<String, String> dataParams = new LinkedMultiValueMap<>();
