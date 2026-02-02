@@ -43,6 +43,10 @@ public class QuantScreenerService {
     // 데이터 클렌징 상수 (PEG 스크리너용)
     private static final BigDecimal MIN_MARKET_CAP_FOR_PEG = new BigDecimal("500");  // 최소 시가총액 500억원 (동전주 제외)
 
+    // 모멘텀 스크리너 상수
+    private static final BigDecimal MIN_VOLUME_RATIO = new BigDecimal("200");        // 최소 거래량 비율 200%
+    private static final BigDecimal MIN_MARKET_CAP_FOR_MOMENTUM = new BigDecimal("1000"); // 최소 시가총액 1000억원
+
     /**
      * 마법의 공식 스크리너
      * - (영업이익률 순위 + ROE 순위 + PER 순위) 합산으로 종합 순위 계산
@@ -984,6 +988,159 @@ public class QuantScreenerService {
             }
         } catch (Exception e) {
             log.debug("KIS API 시가총액 조회 실패 - {}: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
+    // ========== 모멘텀 스크리너 (수급 주도형 단타용) ==========
+
+    /**
+     * 모멘텀 스크리너 - 수급 주도형 단타 전략용
+     *
+     * [선정 조건]
+     * 1. 거래량 급증: 전일 대비 200% 이상
+     * 2. 시가총액: 1000억원 이상 (유동성 확보)
+     * 3. 주가 상승 추세: 등락률 > 0% (당일 양봉)
+     *
+     * [정렬 기준]
+     * - 거래량 비율 높은 순 (거래량이 터지면서 주가가 움직이는 종목 우선)
+     *
+     * @param limit 조회할 종목 수
+     * @return 모멘텀 종목 리스트
+     */
+    public List<ScreenerResultDto> getMomentumStocks(int limit) {
+        log.info("[모멘텀 스크리너] 시작 - limit: {}", limit);
+
+        List<ScreenerResultDto> results = new ArrayList<>();
+
+        try {
+            // KIS API를 통해 거래량 급증 종목 조회
+            JsonNode response = koreaInvestmentService.getVolumeRankStocks();
+
+            if (response == null) {
+                log.warn("[모멘텀 스크리너] API 응답 없음");
+                return results;
+            }
+
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                log.warn("[모멘텀 스크리너] API 오류: {} - {}",
+                        rtCd, response.has("msg1") ? response.get("msg1").asText() : "");
+                return results;
+            }
+
+            JsonNode output = response.get("output");
+            if (output == null || !output.isArray()) {
+                log.warn("[모멘텀 스크리너] 데이터 없음");
+                return results;
+            }
+
+            log.info("[모멘텀 스크리너] 거래량 상위 종목 {}건 조회됨", output.size());
+
+            for (JsonNode item : output) {
+                try {
+                    String stockCode = getJsonText(item, "mksc_shrn_iscd");
+                    String stockName = getJsonText(item, "hts_kor_isnm");
+
+                    if (stockCode == null || stockName == null) continue;
+
+                    // 현재가
+                    BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
+                    if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                    // 등락률 (양봉 필터: > 0%)
+                    BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
+                    if (changeRate == null || changeRate.compareTo(BigDecimal.ZERO) <= 0) {
+                        log.debug("[모멘텀 스크리너] {} - 음봉/보합 스킵 (등락률: {}%)", stockName, changeRate);
+                        continue;
+                    }
+
+                    // 거래량 비율 (전일 대비 %)
+                    BigDecimal volumeRatio = getJsonBigDecimal(item, "vol_inrt");
+                    if (volumeRatio == null || volumeRatio.compareTo(MIN_VOLUME_RATIO) < 0) {
+                        log.debug("[모멘텀 스크리너] {} - 거래량 비율 부족 ({}%)", stockName, volumeRatio);
+                        continue;
+                    }
+
+                    // 거래량
+                    BigDecimal volume = getJsonBigDecimal(item, "acml_vol");
+
+                    // 시가총액 조회 (억원 단위)
+                    BigDecimal marketCap = fetchMarketCapFromKis(stockCode);
+                    if (marketCap == null || marketCap.compareTo(MIN_MARKET_CAP_FOR_MOMENTUM) < 0) {
+                        log.debug("[모멘텀 스크리너] {} - 시가총액 부족 ({}억)", stockName, marketCap);
+                        continue;
+                    }
+
+                    ScreenerResultDto dto = ScreenerResultDto.builder()
+                            .stockCode(stockCode)
+                            .stockName(stockName)
+                            .currentPrice(currentPrice)
+                            .marketCap(marketCap)
+                            .changeRate(changeRate)
+                            .volumeRatio(volumeRatio)
+                            .volume(volume)
+                            .build();
+
+                    results.add(dto);
+
+                    log.debug("[모멘텀 스크리너] 후보 추가: {} - 등락률 {}%, 거래량비율 {}%, 시총 {}억",
+                            stockName, changeRate, volumeRatio, marketCap);
+
+                    // API 호출 제한 방지
+                    Thread.sleep(100);
+
+                } catch (Exception e) {
+                    log.debug("[모멘텀 스크리너] 종목 처리 실패: {}", e.getMessage());
+                }
+            }
+
+            // 거래량 비율 높은 순으로 정렬
+            results.sort((a, b) -> {
+                BigDecimal volA = a.getVolumeRatio() != null ? a.getVolumeRatio() : BigDecimal.ZERO;
+                BigDecimal volB = b.getVolumeRatio() != null ? b.getVolumeRatio() : BigDecimal.ZERO;
+                return volB.compareTo(volA);
+            });
+
+            // limit 적용
+            if (limit > 0 && results.size() > limit) {
+                results = results.subList(0, limit);
+            }
+
+            log.info("[모멘텀 스크리너] 완료 - 최종 {}건 (거래량 {}% 이상, 시총 {}억 이상, 양봉만)",
+                    results.size(), MIN_VOLUME_RATIO, MIN_MARKET_CAP_FOR_MOMENTUM);
+
+        } catch (Exception e) {
+            log.error("[모멘텀 스크리너] 오류: {}", e.getMessage(), e);
+        }
+
+        return results;
+    }
+
+    /**
+     * JSON 노드에서 텍스트 값 추출
+     */
+    private String getJsonText(JsonNode node, String fieldName) {
+        if (node.has(fieldName)) {
+            String value = node.get(fieldName).asText();
+            return (value != null && !value.isEmpty()) ? value : null;
+        }
+        return null;
+    }
+
+    /**
+     * JSON 노드에서 BigDecimal 값 추출
+     */
+    private BigDecimal getJsonBigDecimal(JsonNode node, String fieldName) {
+        if (node.has(fieldName)) {
+            String value = node.get(fieldName).asText();
+            if (value != null && !value.isEmpty()) {
+                try {
+                    return new BigDecimal(value.replace(",", ""));
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+            }
         }
         return null;
     }

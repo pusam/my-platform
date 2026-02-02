@@ -35,10 +35,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * 자동 매매 봇 서비스
- * - 마법의 공식 상위 종목 자동 매수
- * - 손절/익절 자동 실행
- * - VIRTUAL(모의투자) / REAL(실전투자) 모드 지원
+ * 자동 매매 봇 서비스 (수급 주도형 단타 전략)
+ *
+ * [전략 개요]
+ * - 장 초반(09:10) 거래량 급증 + 외국인/기관 수급 종목 자동 매수
+ * - 손절(-3%) / 익절(+5%) 자동 실행
+ * - 장 마감(15:20) 전량 청산 (Time-Cut, 오버나잇 리스크 방지)
+ *
+ * [매수 조건]
+ * 1. 거래량 급증: 전일 대비 200% 이상
+ * 2. 수급 필수: 외국인 또는 기관 순매수 (AND 조건)
+ * 3. 양봉: 등락률 > 0%
+ * 4. 시가총액: 1,000억원 이상
+ *
+ * [지원 모드]
+ * - VIRTUAL: 모의투자
+ * - REAL: 실전투자
  */
 @Service
 @Slf4j
@@ -260,9 +272,14 @@ public class AutoTradingBotService {
                     String.format("<b>%s [%s] 자동매매 봇 시작!</b>\n\n", modeEmoji, modeTag) +
                     "✅ 봇이 활성화되었습니다.\n" +
                     "📌 모드: <b>" + currentMode.getDisplayName() + "</b>\n" +
-                    "⏰ 매수: 평일 09:30\n" +
-                    "⏰ 손절/익절 체크: 매분\n" +
+                    "📌 전략: <b>수급 주도형 단타</b>\n\n" +
+                    "⏰ 매수: 평일 09:10 (장 초반 수급 진입)\n" +
+                    "⏰ 손절/익절 체크: 매분 (-3%/+5%)\n" +
                     "⏰ 장 마감 청산: 평일 15:20\n\n" +
+                    "📊 매수 조건:\n" +
+                    "  • 거래량 급증 (전일 대비 200%↑)\n" +
+                    "  • 외국인/기관 순매수 필수\n" +
+                    "  • 양봉 (등락률 > 0%)\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     modeEmoji + " MyPlatform " + modeTag
             );
@@ -347,16 +364,19 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 매수 로직 실행 (평일 09:30)
+     * 매수 로직 실행 (평일 09:10)
+     * - 수급 주도형 단타 전략 (Momentum/Day Trading)
+     * - 장 초반 수급이 들어올 때 빠르게 진입
      */
-    @Scheduled(cron = "0 30 9 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10 9 * * MON-FRI", zone = "Asia/Seoul")
     public void executeBuyLogic() {
         if (!botActive.get()) {
             log.debug("자동매매 봇이 비활성화 상태입니다.");
             return;
         }
 
-        log.info("[자동매매] 매수 로직 실행 시작 - 모드: {}", currentMode.getDisplayName());
+        log.info("[자동매매] ===== 수급 주도형 단타 매수 로직 시작 =====");
+        log.info("[자동매매] 모드: {}, 시간: {}", currentMode.getDisplayName(), LocalDateTime.now());
         resetDailyCounters();
 
         try {
@@ -368,25 +388,40 @@ public class AutoTradingBotService {
                     accountSummary.getTotalEvaluation() != null ? accountSummary.getTotalEvaluation() : BigDecimal.ZERO);
             BigDecimal maxPerStock = totalAsset.multiply(MAX_INVESTMENT_RATIO);
 
-            // 마법의 공식 상위 종목 조회
-            List<ScreenerResultDto> magicFormulaStocks = quantScreenerService.getMagicFormulaStocks(10, null);
+            log.info("[자동매매] 계좌현황 - 잔액: {}원, 총자산: {}원, 종목당 최대: {}원",
+                    String.format("%,d", accountSummary.getCurrentBalance().intValue()),
+                    String.format("%,d", totalAsset.intValue()),
+                    String.format("%,d", maxPerStock.intValue()));
 
-            if (magicFormulaStocks.isEmpty()) {
-                log.warn("[자동매매] 마법의 공식 종목이 없습니다. DB에 재무 데이터가 있는지 확인 필요!");
+            // 모멘텀 종목 조회 (거래량 급증 + 양봉 + 시총 1000억 이상)
+            List<ScreenerResultDto> momentumStocks = quantScreenerService.getMomentumStocks(20);
+
+            if (momentumStocks.isEmpty()) {
+                log.warn("[자동매매] 모멘텀 조건에 맞는 종목이 없습니다!");
                 return;
             }
 
-            log.info("[자동매매] 마법의 공식 후보 종목: {}",
-                    magicFormulaStocks.stream()
-                            .map(s -> s.getStockName() + "(" + s.getStockCode() + ")")
-                            .collect(Collectors.joining(", ")));
+            log.info("[자동매매] 모멘텀 후보 종목 {}건:", momentumStocks.size());
+            for (ScreenerResultDto s : momentumStocks) {
+                log.info("  - {} ({}) | 등락률: +{}% | 거래량비율: {}% | 시총: {}억",
+                        s.getStockName(), s.getStockCode(),
+                        s.getChangeRate(), s.getVolumeRatio(), s.getMarketCap());
+            }
 
-            // 외국인/기관 수급 확인
+            // 외국인/기관 수급 데이터 조회 (필수)
             Map<String, List<InvestorSurgeDto>> surgeStocks = null;
             try {
-                surgeStocks = investorSurgeService.getAllSurgeStocks(new BigDecimal("30"));
+                surgeStocks = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
+                if (surgeStocks == null || surgeStocks.isEmpty()) {
+                    log.error("[자동매매] 수급 데이터 없음 - 매수 중단 (수급 확인 필수)");
+                    return;
+                }
+                log.info("[자동매매] 수급 데이터 조회 완료 - 외국인: {}건, 기관: {}건",
+                        surgeStocks.get("FOREIGN") != null ? surgeStocks.get("FOREIGN").size() : 0,
+                        surgeStocks.get("INSTITUTION") != null ? surgeStocks.get("INSTITUTION").size() : 0);
             } catch (Exception e) {
-                log.warn("[자동매매] 수급 데이터 조회 실패: {}", e.getMessage());
+                log.error("[자동매매] 수급 데이터 조회 실패 - 매수 중단: {}", e.getMessage());
+                return;
             }
 
             // 이미 보유 중인 종목 코드
@@ -398,23 +433,23 @@ public class AutoTradingBotService {
             BigDecimal currentBalance = accountSummary.getCurrentBalance();
             int buyCount = 0;
 
-            for (ScreenerResultDto stock : magicFormulaStocks) {
+            for (ScreenerResultDto stock : momentumStocks) {
                 // 잔액 확인
                 if (currentBalance.compareTo(new BigDecimal("100000")) < 0) {
-                    log.info("[자동매매] 잔액 부족으로 매수 중단");
+                    log.info("[자동매매] 잔액 부족으로 매수 중단 (잔액: {}원)", currentBalance);
                     break;
                 }
 
                 // 이미 보유 중인 종목 제외
                 if (holdingCodes.contains(stock.getStockCode())) {
+                    log.debug("[자동매매] {} - 이미 보유 중, 스킵", stock.getStockName());
                     continue;
                 }
 
-                // 수급 신호 확인 (외국인 또는 기관 순매수)
-                // 수급 데이터 없으면 매수하지 않음 (보수적 접근)
-                boolean hasSurgeSignal = checkSurgeSignal(stock.getStockCode(), surgeStocks);
-                if (!hasSurgeSignal) {
-                    log.debug("[자동매매] {} - 수급 신호 없음 또는 데이터 없음, 스킵", stock.getStockName());
+                // 수급 신호 확인 (외국인 또는 기관 순매수 필수!)
+                SurgeSignalResult surgeResult = checkSurgeSignalStrict(stock.getStockCode(), surgeStocks);
+                if (!surgeResult.hasSignal) {
+                    log.info("[자동매매] {} - 수급 신호 없음 (외국인/기관 순매수 필수), 스킵", stock.getStockName());
                     continue;
                 }
 
@@ -444,8 +479,18 @@ public class AutoTradingBotService {
                     todayBuyCount.incrementAndGet();
                     buyCount++;
 
-                    log.info("[자동매매-{}] 매수 완료: {} x {} @ {}원",
-                            currentMode.name(), stock.getStockName(), quantity, currentPrice);
+                    // 상세 로그 (수급 주체, 거래량 정보 포함)
+                    log.info("[자동매매-{}] ★★★ 매수 완료 ★★★", currentMode.name());
+                    log.info("  종목: {} ({})", stock.getStockName(), stock.getStockCode());
+                    log.info("  매수가: {}원 x {}주 = {}원",
+                            String.format("%,d", currentPrice.intValue()),
+                            quantity,
+                            String.format("%,d", currentPrice.multiply(BigDecimal.valueOf(quantity)).intValue()));
+                    log.info("  등락률: +{}% | 거래량비율: {}%", stock.getChangeRate(), stock.getVolumeRatio());
+                    log.info("  수급주체: {} | 외국인: {}억 | 기관: {}억",
+                            surgeResult.mainBuyer,
+                            surgeResult.foreignNetBuy != null ? String.format("%.1f", surgeResult.foreignNetBuy) : "N/A",
+                            surgeResult.instNetBuy != null ? String.format("%.1f", surgeResult.instNetBuy) : "N/A");
 
                     // 텔레그램 매수 알림 전송
                     if (telegramService.isEnabled()) {
@@ -453,13 +498,21 @@ public class AutoTradingBotService {
                         String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
                         BigDecimal totalAmount = currentPrice.multiply(BigDecimal.valueOf(quantity));
 
+                        String surgeInfo = String.format("수급: %s (외국인 %.1f억 / 기관 %.1f억)",
+                                surgeResult.mainBuyer,
+                                surgeResult.foreignNetBuy != null ? surgeResult.foreignNetBuy : 0,
+                                surgeResult.instNetBuy != null ? surgeResult.instNetBuy : 0);
+
                         telegramService.sendMessage(
                                 String.format("<b>%s [%s] 매수 체결</b>\n\n", modeEmoji, modeTag) +
                                 "📈 <b>" + stock.getStockName() + "</b> (" + stock.getStockCode() + ")\n" +
                                 "💰 매수가: " + String.format("%,d", currentPrice.intValue()) + "원\n" +
                                 "📦 수량: " + quantity + "주\n" +
-                                "💵 매수금액: " + String.format("%,d", totalAmount.intValue()) + "원\n" +
-                                "🏆 마법공식 순위: " + (stock.getMagicFormulaRank() != null ? stock.getMagicFormulaRank() + "위" : "-") + "\n\n" +
+                                "💵 매수금액: " + String.format("%,d", totalAmount.intValue()) + "원\n\n" +
+                                "📊 <b>모멘텀 지표</b>\n" +
+                                "  • 등락률: +" + stock.getChangeRate() + "%\n" +
+                                "  • 거래량비율: " + stock.getVolumeRatio() + "%\n" +
+                                "  • " + surgeInfo + "\n\n" +
                                 "━━━━━━━━━━━━━━━━\n" +
                                 modeEmoji + " MyPlatform " + modeTag
                         );
@@ -472,7 +525,7 @@ public class AutoTradingBotService {
 
                     // 최대 3종목까지만 매수
                     if (buyCount >= 3) {
-                        log.info("[자동매매] 일일 최대 매수 종목 수 도달");
+                        log.info("[자동매매] 일일 최대 매수 종목 수 도달 (3종목)");
                         break;
                     }
 
@@ -484,7 +537,7 @@ public class AutoTradingBotService {
                 }
             }
 
-            log.info("[자동매매-{}] 매수 로직 완료 - {}종목 매수", currentMode.name(), buyCount);
+            log.info("[자동매매-{}] ===== 매수 로직 완료 - {}종목 매수 =====", currentMode.name(), buyCount);
 
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -608,30 +661,50 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 수급 신호 확인
-     * - 수급 데이터가 없으면 true 반환 (마법의 공식만으로 매수)
-     * - 수급 데이터가 있으면 외국인/기관 순매도가 아닌 경우 매수 허용
+     * 수급 신호 결과 DTO
      */
-    private boolean checkSurgeSignal(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
-        // 수급 데이터 없으면 마법의 공식만으로 매수 허용
-        if (surgeStocks == null || surgeStocks.isEmpty()) {
-            log.debug("[자동매매] 수급 데이터 없음 - 마법의 공식만으로 매수 진행");
-            return true;
+    private static class SurgeSignalResult {
+        boolean hasSignal;        // 수급 신호 있음 여부
+        String mainBuyer;         // 주요 매수 주체 (외국인/기관/쌍끌이)
+        BigDecimal foreignNetBuy; // 외국인 순매수 금액 (억원)
+        BigDecimal instNetBuy;    // 기관 순매수 금액 (억원)
+
+        SurgeSignalResult(boolean hasSignal, String mainBuyer, BigDecimal foreignNetBuy, BigDecimal instNetBuy) {
+            this.hasSignal = hasSignal;
+            this.mainBuyer = mainBuyer;
+            this.foreignNetBuy = foreignNetBuy;
+            this.instNetBuy = instNetBuy;
         }
+
+        static SurgeSignalResult noSignal() {
+            return new SurgeSignalResult(false, "없음", null, null);
+        }
+    }
+
+    /**
+     * 수급 신호 확인 (엄격한 버전 - 수급 주도형 단타 전략용)
+     * - 외국인 또는 기관 순매수가 '필수' 조건
+     * - 수급 데이터가 없으면 매수 불가
+     * - 수급 주체가 매수하지 않는 종목은 절대 매수하지 않음
+     *
+     * @return SurgeSignalResult (수급 신호 여부, 주요 매수 주체, 순매수 금액)
+     */
+    private SurgeSignalResult checkSurgeSignalStrict(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
+        // 수급 데이터 없으면 매수 불가 (필수 조건)
+        if (surgeStocks == null || surgeStocks.isEmpty()) {
+            log.debug("[자동매매] {} - 수급 데이터 없음, 매수 불가", stockCode);
+            return SurgeSignalResult.noSignal();
+        }
+
+        BigDecimal foreignNetBuy = null;
+        BigDecimal instNetBuy = null;
 
         // 외국인 순매수 확인
         List<InvestorSurgeDto> foreignStocks = surgeStocks.get("FOREIGN");
-        boolean foreignBuying = false;
-        boolean foreignSelling = false;
         if (foreignStocks != null) {
             for (InvestorSurgeDto s : foreignStocks) {
                 if (s.getStockCode().equals(stockCode) && s.getNetBuyAmount() != null) {
-                    if (s.getNetBuyAmount().compareTo(BigDecimal.ZERO) > 0) {
-                        foreignBuying = true;
-                    } else if (s.getNetBuyAmount().compareTo(new BigDecimal("-50")) < 0) {
-                        // 50억 이상 순매도면 매수 제외
-                        foreignSelling = true;
-                    }
+                    foreignNetBuy = s.getNetBuyAmount();
                     break;
                 }
             }
@@ -639,36 +712,59 @@ public class AutoTradingBotService {
 
         // 기관 순매수 확인
         List<InvestorSurgeDto> instStocks = surgeStocks.get("INSTITUTION");
-        boolean instBuying = false;
-        boolean instSelling = false;
         if (instStocks != null) {
             for (InvestorSurgeDto s : instStocks) {
                 if (s.getStockCode().equals(stockCode) && s.getNetBuyAmount() != null) {
-                    if (s.getNetBuyAmount().compareTo(BigDecimal.ZERO) > 0) {
-                        instBuying = true;
-                    } else if (s.getNetBuyAmount().compareTo(new BigDecimal("-50")) < 0) {
-                        // 50억 이상 순매도면 매수 제외
-                        instSelling = true;
-                    }
+                    instNetBuy = s.getNetBuyAmount();
                     break;
                 }
             }
         }
 
-        // 외국인+기관 모두 대규모 순매도면 매수 제외
-        if (foreignSelling && instSelling) {
-            log.info("[자동매매] {} - 외국인/기관 쌍끌이 매도, 매수 제외", stockCode);
-            return false;
+        // 외국인/기관 모두 데이터 없으면 매수 불가
+        if (foreignNetBuy == null && instNetBuy == null) {
+            log.debug("[자동매매] {} - 외국인/기관 수급 데이터 없음", stockCode);
+            return SurgeSignalResult.noSignal();
         }
 
-        // 외국인 또는 기관이 순매수 중이면 추가 가점
-        if (foreignBuying || instBuying) {
-            log.info("[자동매매] {} - 수급 신호 양호 (외국인: {}, 기관: {})",
-                    stockCode, foreignBuying ? "매수" : "-", instBuying ? "매수" : "-");
+        boolean foreignBuying = foreignNetBuy != null && foreignNetBuy.compareTo(BigDecimal.ZERO) > 0;
+        boolean instBuying = instNetBuy != null && instNetBuy.compareTo(BigDecimal.ZERO) > 0;
+
+        // 필수 조건: 외국인 또는 기관 중 최소 하나는 순매수 해야 함
+        if (!foreignBuying && !instBuying) {
+            log.debug("[자동매매] {} - 외국인/기관 모두 순매수 아님 (외국인: {}억, 기관: {}억)",
+                    stockCode,
+                    foreignNetBuy != null ? foreignNetBuy : "N/A",
+                    instNetBuy != null ? instNetBuy : "N/A");
+            return SurgeSignalResult.noSignal();
         }
 
-        // 대규모 순매도가 아니면 매수 허용
-        return true;
+        // 주요 매수 주체 결정
+        String mainBuyer;
+        if (foreignBuying && instBuying) {
+            mainBuyer = "쌍끌이";
+        } else if (foreignBuying) {
+            mainBuyer = "외국인";
+        } else {
+            mainBuyer = "기관";
+        }
+
+        log.info("[자동매매] {} - 수급 신호 확인! 주체: {} (외국인: {}억, 기관: {}억)",
+                stockCode, mainBuyer,
+                foreignNetBuy != null ? String.format("%.1f", foreignNetBuy) : "N/A",
+                instNetBuy != null ? String.format("%.1f", instNetBuy) : "N/A");
+
+        return new SurgeSignalResult(true, mainBuyer, foreignNetBuy, instNetBuy);
+    }
+
+    /**
+     * 수급 신호 확인 (기존 호환용 - deprecated)
+     * @deprecated checkSurgeSignalStrict 사용 권장
+     */
+    @Deprecated
+    private boolean checkSurgeSignal(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
+        SurgeSignalResult result = checkSurgeSignalStrict(stockCode, surgeStocks);
+        return result.hasSignal;
     }
 
     /**

@@ -466,6 +466,65 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 거래량 급증 종목 조회 (모멘텀 스크리너용)
+     * KIS API: FHPST01710000 - 거래량급등종목
+     *
+     * 전일 대비 거래량이 급증한 종목 상위 30개 조회
+     * @return API 응답 JsonNode (output 배열에 종목 정보)
+     */
+    public JsonNode getVolumeRankStocks() {
+        String token = getAccessToken();
+        if (token == null) {
+            log.error("[거래량급증] 토큰 발급 실패");
+            return null;
+        }
+
+        try {
+            // 거래량급등종목 API (FHPST01710000)
+            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/volume-rank"
+                    + "?FID_COND_MRKT_DIV_CODE=J"       // J: 주식
+                    + "&FID_COND_SCR_DIV_CODE=20171"    // 화면번호
+                    + "&FID_INPUT_ISCD=0000"            // 전체
+                    + "&FID_DIV_CLS_CODE=0"             // 전체
+                    + "&FID_BLNG_CLS_CODE=0"            // 전체
+                    + "&FID_TRGT_CLS_CODE=111111111"    // 대상 구분
+                    + "&FID_TRGT_EXLS_CLS_CODE=000000"  // 제외 구분
+                    + "&FID_INPUT_PRICE_1="             // 시작가격
+                    + "&FID_INPUT_PRICE_2="             // 종료가격
+                    + "&FID_VOL_CNT="                   // 거래량 조건
+                    + "&FID_INPUT_DATE_1=";             // 기준일
+
+            log.info("[거래량급증] API 호출 시작");
+
+            HttpHeaders headers = createHeaders(token, "FHPST01710000");
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+
+                String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
+                if ("0".equals(rtCd)) {
+                    int count = result.has("output") && result.get("output").isArray()
+                            ? result.get("output").size() : 0;
+                    log.info("[거래량급증] 조회 성공 - {}건", count);
+                } else {
+                    String msg = result.has("msg1") ? result.get("msg1").asText() : "";
+                    log.warn("[거래량급증] API 오류: {} - {}", rtCd, msg);
+                }
+
+                return result;
+            }
+        } catch (Exception e) {
+            log.error("[거래량급증] 조회 실패: {}", e.getMessage(), e);
+        }
+
+        return null;
+    }
+
+    /**
      * 주식 일봉 데이터 조회 (기술적 분석용)
      * KIS API FHKST03010100 - 국내주식기간별시세(일/주/월/년)
      *

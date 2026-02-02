@@ -57,4 +57,9 @@ public class ScreenerResultDto {
     // 성장성
     private BigDecimal revenueGrowth;
     private BigDecimal profitGrowth;
+
+    // 모멘텀 스크리너 관련
+    private BigDecimal changeRate;    // 등락률 (%)
+    private BigDecimal volumeRatio;   // 거래량 비율 (전일 대비 %)
+    private BigDecimal volume;        // 거래량
 }
