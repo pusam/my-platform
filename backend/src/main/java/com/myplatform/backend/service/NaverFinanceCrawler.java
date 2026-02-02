@@ -45,6 +45,7 @@ public class NaverFinanceCrawler {
 
     // === KRX API 설정 (HTTPS 보안 연결) ===
     private static final String KRX_HOST = "data.krx.co.kr";
+    private static final String KRX_MAIN_PAGE = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
     private static final String KRX_OTP_URL = "https://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
     private static final String KRX_DATA_URL = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
     private static final String KRX_REFERER = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
@@ -55,8 +56,10 @@ public class NaverFinanceCrawler {
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // 세션 쿠키 저장 (JSESSIONID 유지용)
-    private volatile String sessionCookie = null;
+    // 세션 쿠키 저장 (JSESSIONID + SCOUTER 유지용)
+    private volatile String sessionCookies = null;
+    private volatile long sessionCreatedAt = 0;
+    private static final long SESSION_TTL_MS = 5 * 60 * 1000;  // 세션 유효시간 5분
 
     // === 네이버 금융 설정 (KRX 실패 시 폴백) ===
     private static final String BASE_URL = "https://finance.naver.com";
@@ -120,11 +123,76 @@ public class NaverFinanceCrawler {
     }
 
     /**
+     * KRX 세션 초기화 (메인 페이지 방문하여 쿠키 획득)
+     * - 브라우저처럼 메인 페이지를 먼저 방문해야 WAF를 통과함
+     * - JSESSIONID, SCOUTER 등 쿠키를 저장하여 이후 요청에 사용
+     */
+    private boolean initKrxSession() {
+        // 세션이 유효하면 재사용
+        if (sessionCookies != null && (System.currentTimeMillis() - sessionCreatedAt) < SESSION_TTL_MS) {
+            log.debug("KRX 기존 세션 재사용: {}", sessionCookies);
+            return true;
+        }
+
+        try {
+            log.info("KRX 세션 초기화 시작 - 메인 페이지 방문");
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("Cache-Control", "no-cache");
+            headers.set("Connection", "keep-alive");
+            headers.set("Host", KRX_HOST);
+            headers.set("Pragma", "no-cache");
+            headers.set("Sec-Ch-Ua", "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"");
+            headers.set("Sec-Ch-Ua-Mobile", "?0");
+            headers.set("Sec-Ch-Ua-Platform", "\"Windows\"");
+            headers.set("Sec-Fetch-Dest", "document");
+            headers.set("Sec-Fetch-Mode", "navigate");
+            headers.set("Sec-Fetch-Site", "none");
+            headers.set("Sec-Fetch-User", "?1");
+            headers.set("Upgrade-Insecure-Requests", "1");
+            headers.set("User-Agent", USER_AGENT);
+
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_MAIN_PAGE, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK) {
+                // Set-Cookie 헤더에서 쿠키 추출
+                List<String> cookies = response.getHeaders().get("Set-Cookie");
+                if (cookies != null && !cookies.isEmpty()) {
+                    StringBuilder cookieBuilder = new StringBuilder();
+                    for (String cookie : cookies) {
+                        // 쿠키 값만 추출 (세미콜론 이전 부분)
+                        String cookieValue = cookie.split(";")[0];
+                        if (cookieBuilder.length() > 0) {
+                            cookieBuilder.append("; ");
+                        }
+                        cookieBuilder.append(cookieValue);
+                    }
+                    sessionCookies = cookieBuilder.toString();
+                    sessionCreatedAt = System.currentTimeMillis();
+                    log.info("KRX 세션 쿠키 획득 성공: {}", sessionCookies);
+                    return true;
+                } else {
+                    log.warn("KRX 세션 초기화: Set-Cookie 헤더 없음");
+                }
+            } else {
+                log.warn("KRX 메인 페이지 접속 실패: status={}", response.getStatusCode());
+            }
+        } catch (Exception e) {
+            log.error("KRX 세션 초기화 실패: {}", e.getMessage());
+        }
+
+        sessionCookies = null;
+        return false;
+    }
+
+    /**
      * KRX API로 공매도 데이터 수집 (OTP 기반 인증)
-     * - data.krx.co.kr 공식 API 사용
-     * - Step 1: getOtp.cmd로 OTP 코드 획득
-     * - Step 2: getJsonData.cmd에 OTP 코드로 데이터 요청
-     * - 종목별 공매도 거래 데이터 조회 (MDCSTAT30101)
+     * - 순서: 세션 초기화 → OTP 획득 → 데이터 요청
      */
     private List<ShortSellingData> crawlFromKrx(String stockCode, int days) {
         List<ShortSellingData> result = new ArrayList<>();
@@ -133,7 +201,13 @@ public class NaverFinanceCrawler {
             // 딜레이
             randomDelay();
 
-            log.info("KRX API 호출 시작 [{}] - OTP 기반 인증", stockCode);
+            // ★ 핵심: 메인 페이지 방문하여 세션 쿠키 획득 (WAF 우회)
+            if (!initKrxSession()) {
+                log.warn("KRX 세션 초기화 실패 - API 호출 중단 [{}]", stockCode);
+                return result;
+            }
+
+            log.info("KRX API 호출 시작 [{}] - 세션 쿠키 사용", stockCode);
 
             // 조회 기간 계산 (최근 days일)
             LocalDate endDate = LocalDate.now();
@@ -187,9 +261,12 @@ public class NaverFinanceCrawler {
             headers.set("User-Agent", USER_AGENT);
             headers.set("X-Requested-With", "XMLHttpRequest");
 
-            // 세션 쿠키가 있으면 추가
-            if (sessionCookie != null) {
-                headers.set("Cookie", sessionCookie);
+            // ★ 세션 쿠키 필수 (initKrxSession에서 획득)
+            if (sessionCookies != null) {
+                headers.set("Cookie", sessionCookies);
+                log.debug("KRX OTP 요청에 쿠키 포함: {}", sessionCookies);
+            } else {
+                log.warn("KRX OTP 요청: 세션 쿠키 없음 (차단될 수 있음)");
             }
 
             // OTP 요청용 파라미터
@@ -197,22 +274,21 @@ public class NaverFinanceCrawler {
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(otpParams, headers);
 
-            log.info("KRX OTP 요청 - URL: {}, bld: {}", KRX_OTP_URL, params.getFirst("bld"));
+            log.info("KRX OTP 요청 - bld: {}", params.getFirst("bld"));
 
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_OTP_URL, HttpMethod.POST, request, String.class);
 
-            // 세션 쿠키 저장 (JSESSIONID)
-            List<String> cookies = response.getHeaders().get("Set-Cookie");
-            if (cookies != null && !cookies.isEmpty()) {
-                sessionCookie = cookies.stream()
-                        .filter(c -> c.contains("JSESSIONID"))
-                        .findFirst()
-                        .map(c -> c.split(";")[0])
-                        .orElse(sessionCookie);
-                if (sessionCookie != null) {
-                    log.debug("KRX 세션 쿠키 저장: {}", sessionCookie);
+            // 추가 쿠키가 있으면 병합
+            List<String> newCookies = response.getHeaders().get("Set-Cookie");
+            if (newCookies != null && !newCookies.isEmpty()) {
+                for (String cookie : newCookies) {
+                    String cookieValue = cookie.split(";")[0];
+                    if (sessionCookies != null && !sessionCookies.contains(cookieValue.split("=")[0])) {
+                        sessionCookies = sessionCookies + "; " + cookieValue;
+                    }
                 }
+                log.debug("KRX 쿠키 업데이트: {}", sessionCookies);
             }
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
@@ -276,9 +352,11 @@ public class NaverFinanceCrawler {
             headers.set("User-Agent", USER_AGENT);
             headers.set("X-Requested-With", "XMLHttpRequest");
 
-            // 세션 쿠키 추가
-            if (sessionCookie != null) {
-                headers.set("Cookie", sessionCookie);
+            // ★ 세션 쿠키 필수
+            if (sessionCookies != null) {
+                headers.set("Cookie", sessionCookies);
+            } else {
+                log.warn("KRX 데이터 요청: 세션 쿠키 없음");
             }
 
             // 데이터 요청 파라미터 (OTP 코드만 전송)
@@ -287,7 +365,7 @@ public class NaverFinanceCrawler {
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(dataParams, headers);
 
-            log.info("KRX 데이터 요청 - OTP 길이: {}", otpCode.length());
+            log.info("KRX 데이터 요청 - OTP 길이: {}, 쿠키: {}", otpCode.length(), sessionCookies != null ? "있음" : "없음");
 
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_DATA_URL, HttpMethod.POST, request, String.class);
