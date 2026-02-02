@@ -168,13 +168,12 @@ public class NaverFinanceCrawler {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Accept", "*/*");
-            headers.set("Accept-Encoding", "gzip, deflate");
+            // Accept-Encoding 제거: gzip 압축 응답 방지 (OTP가 깨지는 문제 해결)
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
             headers.set("Connection", "keep-alive");
             headers.set("Host", "data.krx.co.kr");
             headers.set("Origin", KRX_ORIGIN);  // 중요: HTTP (HTTPS 아님!)
             headers.set("Referer", KRX_REFERER);  // 중요: 이 헤더 없으면 무조건 차단
-            headers.set("Upgrade-Insecure-Requests", "1");
             headers.set("User-Agent", USER_AGENT);
 
             // OTP 요청용 파라미터
@@ -234,7 +233,7 @@ public class NaverFinanceCrawler {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
-            headers.set("Accept-Encoding", "gzip, deflate");
+            // Accept-Encoding 제거: gzip 압축 응답 방지
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
             headers.set("Connection", "keep-alive");
             headers.set("Host", "data.krx.co.kr");
