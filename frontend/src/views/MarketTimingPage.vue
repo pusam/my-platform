@@ -870,7 +870,7 @@ onMounted(() => {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-radius: 8px;
-  background: var(--bg-secondary, #27272a);
+  background: #27272a;
 }
 
 .level-emoji {
@@ -879,13 +879,13 @@ onMounted(() => {
 
 .level-range {
   font-weight: 600;
-  color: var(--text-primary, #e4e4e7);
+  color: #ffffff;
   font-size: 0.85rem;
 }
 
 .level-label {
   font-size: 0.8rem;
-  color: var(--text-muted, #71717a);
+  color: #a1a1aa;
 }
 
 .level.overheated { border-left: 3px solid #ef4444; }
@@ -1038,13 +1038,19 @@ onMounted(() => {
 }
 
 .btn-refresh {
-  background: var(--bg-secondary, #27272a);
-  color: var(--text-primary, #e4e4e7);
-  border: 1px solid var(--border-color, #3f3f46);
+  background: #27272a;
+  color: #ffffff;
+  border: 1px solid #3f3f46;
 }
 
 .btn-refresh:hover:not(:disabled) {
-  background: var(--hover-bg, #3f3f46);
+  background: #3f3f46;
+  color: #ffffff;
+}
+
+.btn-refresh:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .management-note {
