@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.MarketTimingDto;
 import com.myplatform.backend.dto.MarketTimingDto.*;
 import com.myplatform.backend.entity.MarketDailyStatus;
@@ -10,13 +12,18 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -43,6 +50,15 @@ public class MarketTimingService {
     private static final BigDecimal ADR_EXTREME_FEAR = new BigDecimal("60");
 
     private static final int ADR_PERIOD = 20;  // ADR 계산 기간
+
+    // === KRX API 설정 ===
+    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
+    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_MARKET_STATUS_BLD = "dbms/MDC/STAT/standard/MDCSTAT00101";  // 전체 시장 현황
+    private static final String KRX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
      * 현재 시장 타이밍 분석
@@ -644,12 +660,18 @@ public class MarketTimingService {
 
     /**
      * 과거 날짜의 시장 데이터 수집
-     * - 지수 정보는 네이버 금융 일별 시세에서 크롤링
-     * - 상승/하락 종목 수는 과거 데이터 제공이 어려워 0으로 설정
+     * - 1차: KRX API로 상승/하락 종목 수 수집 시도
+     * - 2차: 네이버 금융 일별 시세에서 지수 정보 크롤링
      */
     private void collectHistoricalMarketData(String marketType, LocalDate targetDate) {
         try {
-            // 네이버 금융 일별 시세 페이지에서 지수 정보 크롤링
+            // 1차: KRX API로 상승/하락 종목 수 수집 시도
+            int[] krxResult = collectFromKrxApi(marketType, targetDate);
+            int advancingCount = krxResult[0];
+            int decliningCount = krxResult[1];
+            int unchangedCount = krxResult[2];
+
+            // 2차: 네이버 금융에서 지수 정보 크롤링
             String code = "KOSPI".equals(marketType) ? "KOSPI" : "KOSDAQ";
             String url = String.format(
                     "https://finance.naver.com/sise/sise_index_day.naver?code=%s&page=1", code);
@@ -714,20 +736,154 @@ public class MarketTimingService {
                 status.setIndexChangeRate(indexChangeRate);
             }
 
-            // 과거 데이터는 상승/하락 종목 수를 알 수 없으므로 기존 값 유지 또는 0으로 설정
-            if (status.getAdvancingCount() == null) {
-                status.setAdvancingCount(0);
-                status.setDecliningCount(0);
-                status.setUnchangedCount(0);
-                status.setTotalCount(0);
-            }
+            // KRX에서 가져온 상승/하락 종목 수 설정
+            status.setAdvancingCount(advancingCount);
+            status.setDecliningCount(decliningCount);
+            status.setUnchangedCount(unchangedCount);
+            status.setTotalCount(advancingCount + decliningCount + unchangedCount);
 
             marketDailyStatusRepository.save(status);
-            log.debug("{} {} 과거 데이터 저장 완료: indexClose={}", marketType, targetDate, indexClose);
+            log.info("{} {} 과거 데이터 저장 완료: 상승={}, 하락={}, 보합={}",
+                    marketType, targetDate, advancingCount, decliningCount, unchangedCount);
 
         } catch (Exception e) {
             log.warn("{} {} 과거 데이터 수집 실패: {}", marketType, targetDate, e.getMessage());
             throw new RuntimeException(marketType + " " + targetDate + " 데이터 수집 실패: " + e.getMessage());
         }
+    }
+
+    // ========== KRX API 연동 ==========
+
+    /**
+     * KRX API로 특정 날짜의 상승/하락/보합 종목 수 수집
+     * - BLD: MDCSTAT00101 (전체 시장 현황)
+     *
+     * @return [상승, 하락, 보합] 배열
+     */
+    private int[] collectFromKrxApi(String marketType, LocalDate targetDate) {
+        int[] result = {0, 0, 0};  // [상승, 하락, 보합]
+
+        try {
+            String dateStr = targetDate.format(DateTimeFormatter.BASIC_ISO_DATE);
+            String mktId = "KOSPI".equals(marketType) ? "STK" : "KSQ";
+
+            // OTP 획득
+            String otp = getKrxOtp(mktId, dateStr);
+            if (otp == null) {
+                log.debug("KRX OTP 획득 실패 - 기본값 사용");
+                return result;
+            }
+
+            // 데이터 요청
+            String jsonData = requestKrxData(otp);
+            if (jsonData == null) {
+                log.debug("KRX 데이터 요청 실패 - 기본값 사용");
+                return result;
+            }
+
+            // JSON 파싱
+            JsonNode root = objectMapper.readTree(jsonData);
+            JsonNode outBlock = root.get("output");
+
+            if (outBlock != null && outBlock.isArray() && outBlock.size() > 0) {
+                // 첫 번째 데이터 (시장 전체)
+                JsonNode item = outBlock.get(0);
+
+                result[0] = getIntValue(item, "FLUC_TP_CD_RISE_CNT", "RISE_CNT", "ADV_CNT");  // 상승
+                result[1] = getIntValue(item, "FLUC_TP_CD_FALL_CNT", "FALL_CNT", "DEC_CNT");  // 하락
+                result[2] = getIntValue(item, "FLUC_TP_CD_UNCH_CNT", "UNCH_CNT", "FLAT_CNT"); // 보합
+
+                log.debug("KRX {} {} 데이터: 상승={}, 하락={}, 보합={}",
+                        marketType, targetDate, result[0], result[1], result[2]);
+            }
+
+        } catch (Exception e) {
+            log.debug("KRX API 호출 실패 [{}]: {}", marketType, e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * KRX OTP 획득
+     */
+    private String getKrxOtp(String mktId, String trdDd) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("User-Agent", KRX_USER_AGENT);
+            headers.set("Referer", "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201");
+            headers.set("Origin", "http://data.krx.co.kr");
+
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("bld", KRX_MARKET_STATUS_BLD);
+            params.add("mktId", mktId);
+            params.add("trdDd", trdDd);
+            params.add("csvxls_isNo", "false");
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_OTP_URL, HttpMethod.POST, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                String otp = response.getBody().trim();
+                if (!otp.contains("<html>") && !otp.isEmpty()) {
+                    return otp;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KRX OTP 획득 실패: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * KRX 데이터 요청
+     */
+    private String requestKrxData(String otp) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("User-Agent", KRX_USER_AGENT);
+            headers.set("Referer", "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201");
+
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("code", otp);
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_DATA_URL, HttpMethod.POST, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                String body = response.getBody();
+                if (!body.contains("<html>")) {
+                    return body;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KRX 데이터 요청 실패: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * JSON에서 int 값 추출 (여러 필드명 시도)
+     */
+    private int getIntValue(JsonNode node, String... fieldNames) {
+        for (String field : fieldNames) {
+            if (node.has(field)) {
+                String value = node.get(field).asText().replace(",", "").trim();
+                if (!value.isEmpty()) {
+                    try {
+                        return Integer.parseInt(value);
+                    } catch (NumberFormatException e) {
+                        // 무시
+                    }
+                }
+            }
+        }
+        return 0;
     }
 }

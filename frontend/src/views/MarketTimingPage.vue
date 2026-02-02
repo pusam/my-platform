@@ -14,13 +14,35 @@
         </div>
         <div class="status-content">
           <div class="status-label">종합 시장 상태</div>
-          <div class="status-value">{{ marketData?.overallCondition?.emoji || '데이터 없음' }}</div>
+          <div class="status-value" v-if="marketData?.overallCondition">
+            {{ marketData.overallCondition.emoji }}
+          </div>
+          <div class="status-value data-needed" v-else>
+            데이터 수집 필요
+          </div>
           <div class="adr-value" v-if="marketData?.combinedAdr">
             ADR(20일): <strong>{{ formatNumber(marketData.combinedAdr, 1) }}</strong>
+          </div>
+          <div class="adr-value data-needed-hint" v-else>
+            (최소 20일 데이터 필요)
           </div>
         </div>
         <div class="status-date" v-if="marketData?.analysisDate">
           {{ formatDate(marketData.analysisDate) }} 기준
+        </div>
+      </div>
+
+      <!-- 데이터 부족 알림 -->
+      <div class="data-needed-alert" v-if="!marketData?.combinedAdr">
+        <div class="alert-content">
+          <span class="alert-icon">📊</span>
+          <div class="alert-text">
+            <strong>ADR 계산을 위한 데이터가 부족합니다</strong>
+            <p>정확한 시장 분석을 위해 최소 20일간의 데이터가 필요합니다.</p>
+          </div>
+          <button @click="scrollToBackfill" class="btn-collect-now">
+            📅 기간 수집하기
+          </button>
         </div>
       </div>
     </div>
@@ -35,11 +57,23 @@
           <span class="legend-item combined"><span class="legend-dot"></span>종합</span>
         </div>
       </div>
-      <div class="chart-container" v-if="adrHistory.length > 0">
+      <div class="chart-container" v-if="adrHistory.length >= 5">
         <Line :data="adrChartData" :options="adrChartOptions" />
       </div>
       <div v-else class="no-chart-data">
-        <p>ADR 히스토리 데이터가 없습니다. 데이터를 수집해주세요.</p>
+        <div class="no-data-content">
+          <span class="no-data-icon">📈</span>
+          <h4>ADR 차트를 표시하려면 데이터가 필요합니다</h4>
+          <p v-if="adrHistory.length > 0">
+            현재 {{ adrHistory.length }}일 데이터 보유 (최소 5일 필요)
+          </p>
+          <p v-else>
+            아래 '기간 수집' 버튼을 눌러 60일 데이터를 수집하세요.
+          </p>
+          <button @click="scrollToBackfill" class="btn-go-collect">
+            📅 기간 수집으로 이동
+          </button>
+        </div>
       </div>
     </div>
 
@@ -274,6 +308,11 @@ const today = new Date().toISOString().split('T')[0];
 
 const goBack = () => {
   router.push('/dashboard');
+};
+
+// 기간 수집 섹션으로 스크롤
+const scrollToBackfill = () => {
+  document.querySelector('.backfill-section')?.scrollIntoView({ behavior: 'smooth' });
 };
 
 // ADR 차트 데이터
@@ -648,6 +687,129 @@ onMounted(() => {
   font-size: 0.875rem;
 }
 
+/* 데이터 부족 상태 */
+.status-value.data-needed {
+  color: #f59e0b;
+  font-size: 1.25rem;
+}
+
+.adr-value.data-needed-hint {
+  color: #f59e0b;
+  font-size: 0.95rem;
+}
+
+/* 데이터 부족 알림 */
+.data-needed-alert {
+  margin-top: 1rem;
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(245, 158, 11, 0.05) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+}
+
+.alert-content {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.alert-icon {
+  font-size: 2rem;
+}
+
+.alert-text {
+  flex: 1;
+  min-width: 200px;
+}
+
+.alert-text strong {
+  display: block;
+  color: #f59e0b;
+  margin-bottom: 0.25rem;
+}
+
+.alert-text p {
+  margin: 0;
+  color: var(--text-muted, #71717a);
+  font-size: 0.9rem;
+}
+
+.btn-collect-now {
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  animation: pulse-glow 2s infinite;
+}
+
+.btn-collect-now:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0);
+  }
+}
+
+/* 차트 데이터 없음 */
+.no-chart-data {
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #71717a);
+  background: var(--bg-secondary, #27272a);
+  border-radius: 8px;
+}
+
+.no-data-content {
+  text-align: center;
+  padding: 2rem;
+}
+
+.no-data-icon {
+  font-size: 3rem;
+  display: block;
+  margin-bottom: 1rem;
+}
+
+.no-data-content h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary, #e4e4e7);
+}
+
+.no-data-content p {
+  margin: 0 0 1rem 0;
+  color: var(--text-muted, #71717a);
+  font-size: 0.9rem;
+}
+
+.btn-go-collect {
+  padding: 0.5rem 1rem;
+  background: transparent;
+  color: #f59e0b;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-go-collect:hover {
+  background: #f59e0b;
+  color: white;
+}
+
 /* ADR 가이드 */
 .adr-guide {
   background: var(--card-bg, #18181b);
@@ -940,16 +1102,6 @@ onMounted(() => {
   position: relative;
 }
 
-.no-chart-data {
-  height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted, #71717a);
-  background: var(--bg-secondary, #27272a);
-  border-radius: 8px;
-}
-
 /* Backfill 섹션 */
 .backfill-section {
   margin-top: 1.5rem;
@@ -1092,6 +1244,27 @@ onMounted(() => {
 
   .btn-backfill {
     width: 100%;
+  }
+
+  .alert-content {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .alert-text {
+    min-width: auto;
+  }
+
+  .btn-collect-now {
+    width: 100%;
+  }
+
+  .no-data-content {
+    padding: 1rem;
+  }
+
+  .no-data-icon {
+    font-size: 2rem;
   }
 }
 </style>
