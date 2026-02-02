@@ -44,11 +44,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class NaverFinanceCrawler {
 
     // === KRX API 설정 (우선 사용) ===
-    // 주의: data.krx.co.kr은 자동화 요청을 차단할 수 있음
-    private static final String KRX_OTP_URL = "https://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
-    private static final String KRX_DATA_URL = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
-    private static final String KRX_REFERER = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
-    private static final String KRX_SHORT_SELLING_BLD = "dbms/MDC/STAT/srt/MDCSTAT30101";  // 공매도 거래
+    // 중요: KRX는 HTTP를 사용하며, Referer/Origin이 정확해야 함 (HTTPS 사용 시 차단됨)
+    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
+    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
+    private static final String KRX_ORIGIN = "http://data.krx.co.kr";
+    private static final String KRX_SHORT_SELLING_BLD = "dbms/MDC/STAT/srt/MDCSTAT30101";  // 공매도 거래 (종목별)
     private static final String KRX_SHORT_BALANCE_BLD = "dbms/MDC/STAT/srt/MDCSTAT30501";  // 공매도 잔고
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -68,8 +69,8 @@ public class NaverFinanceCrawler {
     private static final int CONNECTION_TIMEOUT = 15000;
     private static final int READ_TIMEOUT = 20000;
 
-    // 네이버 차단 방지용 설정
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+    // 브라우저 위장 설정 (KRX/네이버 봇 감지 우회)
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     private static final int MIN_DELAY_MS = 2000;  // 최소 2초 (더 보수적)
     private static final int MAX_DELAY_MS = 4000;  // 최대 4초
 
@@ -163,35 +164,59 @@ public class NaverFinanceCrawler {
      */
     private String getKrxOtpCode(MultiValueMap<String, String> params) {
         try {
+            // ========== 브라우저 위장 헤더 (KRX 봇 감지 우회 핵심) ==========
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Accept", "*/*");
+            headers.set("Accept-Encoding", "gzip, deflate");
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("Connection", "keep-alive");
+            headers.set("Host", "data.krx.co.kr");
+            headers.set("Origin", KRX_ORIGIN);  // 중요: HTTP (HTTPS 아님!)
+            headers.set("Referer", KRX_REFERER);  // 중요: 이 헤더 없으면 무조건 차단
+            headers.set("Upgrade-Insecure-Requests", "1");
             headers.set("User-Agent", USER_AGENT);
-            headers.set("Referer", KRX_REFERER);
-            headers.set("Origin", "https://data.krx.co.kr");
-            headers.set("Sec-Fetch-Dest", "empty");
-            headers.set("Sec-Fetch-Mode", "cors");
-            headers.set("Sec-Fetch-Site", "same-origin");
 
-            // OTP 요청용 파라미터 (데이터 요청과 동일하게 구성)
+            // OTP 요청용 파라미터
             MultiValueMap<String, String> otpParams = new LinkedMultiValueMap<>(params);
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(otpParams, headers);
+
+            log.debug("KRX OTP 요청 - URL: {}, bld: {}", KRX_OTP_URL, params.getFirst("bld"));
 
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_OTP_URL, HttpMethod.POST, request, String.class);
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 String otp = response.getBody().trim();
-                if (!otp.isEmpty() && !otp.contains("LOGOUT") && !otp.contains("error")) {
-                    log.debug("KRX OTP 획득 성공: {}...", otp.substring(0, Math.min(20, otp.length())));
-                    return otp;
+
+                // ========== OTP 검증 (정상 OTP는 암호화된 긴 문자열) ==========
+                // 실패 케이스: HTML 페이지, JSON 에러, 빈 문자열
+                if (otp.isEmpty()) {
+                    log.warn("KRX OTP 응답 비어있음");
+                    return null;
                 }
-                log.warn("KRX OTP 응답 이상: {}", otp.substring(0, Math.min(100, otp.length())));
+                if (otp.contains("<html>") || otp.contains("<HTML>") || otp.contains("<!DOCTYPE")) {
+                    log.error("KRX OTP 실패: HTML 에러 페이지 반환 - {}", otp.substring(0, Math.min(200, otp.length())));
+                    return null;
+                }
+                if (otp.startsWith("{") || otp.startsWith("[")) {
+                    log.error("KRX OTP 실패: JSON 에러 응답 - {}", otp);
+                    return null;
+                }
+                if (otp.contains("LOGOUT") || otp.contains("error") || otp.contains("ERROR")) {
+                    log.error("KRX OTP 실패: 에러 메시지 - {}", otp);
+                    return null;
+                }
+
+                // 정상 OTP (암호화된 문자열, 보통 100자 이상)
+                log.info("KRX OTP 획득 성공: 길이={}, 앞20자={}...", otp.length(), otp.substring(0, Math.min(20, otp.length())));
+                return otp;
+            } else {
+                log.warn("KRX OTP 응답 실패: status={}", response.getStatusCode());
             }
         } catch (Exception e) {
-            log.warn("KRX OTP 획득 실패: {}", e.getMessage());
+            log.error("KRX OTP 획득 예외: {}", e.getMessage());
         }
         return null;
     }
@@ -205,17 +230,18 @@ public class NaverFinanceCrawler {
      */
     private String requestKrxDataWithOtp(String otpCode) {
         try {
+            // ========== 브라우저 위장 헤더 (KRX 봇 감지 우회) ==========
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
+            headers.set("Accept-Encoding", "gzip, deflate");
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("Connection", "keep-alive");
+            headers.set("Host", "data.krx.co.kr");
+            headers.set("Origin", KRX_ORIGIN);  // 중요: HTTP
+            headers.set("Referer", KRX_REFERER);  // 중요: 필수 헤더
             headers.set("User-Agent", USER_AGENT);
-            headers.set("Referer", KRX_REFERER);
-            headers.set("Origin", "https://data.krx.co.kr");
             headers.set("X-Requested-With", "XMLHttpRequest");
-            headers.set("Sec-Fetch-Dest", "empty");
-            headers.set("Sec-Fetch-Mode", "cors");
-            headers.set("Sec-Fetch-Site", "same-origin");
 
             // 데이터 요청 파라미터 (OTP 코드만 전송)
             MultiValueMap<String, String> dataParams = new LinkedMultiValueMap<>();
@@ -223,20 +249,31 @@ public class NaverFinanceCrawler {
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(dataParams, headers);
 
+            log.debug("KRX 데이터 요청 - OTP 길이: {}", otpCode.length());
+
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_DATA_URL, HttpMethod.POST, request, String.class);
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 String body = response.getBody();
-                // LOGOUT 응답 체크
+
+                // 응답 검증
                 if (body.contains("LOGOUT") || body.contains("접속 권한이 없습니다")) {
-                    log.warn("KRX 데이터 요청 실패: 인증 오류 - {}", body.substring(0, Math.min(100, body.length())));
+                    log.error("KRX 데이터 요청 실패: 인증 오류 - {}", body.substring(0, Math.min(100, body.length())));
                     return null;
                 }
+                if (body.contains("<html>") || body.contains("<HTML>")) {
+                    log.error("KRX 데이터 요청 실패: HTML 에러 페이지 - {}", body.substring(0, Math.min(200, body.length())));
+                    return null;
+                }
+
+                log.info("KRX 데이터 응답 성공: 길이={}", body.length());
                 return body;
+            } else {
+                log.warn("KRX 데이터 응답 실패: status={}", response.getStatusCode());
             }
         } catch (Exception e) {
-            log.warn("KRX 데이터 요청 실패: {}", e.getMessage());
+            log.error("KRX 데이터 요청 예외: {}", e.getMessage());
         }
         return null;
     }
