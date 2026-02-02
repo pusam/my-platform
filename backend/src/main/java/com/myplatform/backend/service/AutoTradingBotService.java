@@ -372,9 +372,14 @@ public class AutoTradingBotService {
             List<ScreenerResultDto> magicFormulaStocks = quantScreenerService.getMagicFormulaStocks(10, null);
 
             if (magicFormulaStocks.isEmpty()) {
-                log.info("[자동매매] 마법의 공식 종목이 없습니다.");
+                log.warn("[자동매매] 마법의 공식 종목이 없습니다. DB에 재무 데이터가 있는지 확인 필요!");
                 return;
             }
+
+            log.info("[자동매매] 마법의 공식 후보 종목: {}",
+                    magicFormulaStocks.stream()
+                            .map(s -> s.getStockName() + "(" + s.getStockCode() + ")")
+                            .collect(Collectors.joining(", ")));
 
             // 외국인/기관 수급 확인
             Map<String, List<InvestorSurgeDto>> surgeStocks = null;
@@ -564,35 +569,66 @@ public class AutoTradingBotService {
 
     /**
      * 수급 신호 확인
-     * - 수급 데이터가 없으면 매수하지 않음 (보수적 접근)
+     * - 수급 데이터가 없으면 true 반환 (마법의 공식만으로 매수)
+     * - 수급 데이터가 있으면 외국인/기관 순매도가 아닌 경우 매수 허용
      */
     private boolean checkSurgeSignal(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
+        // 수급 데이터 없으면 마법의 공식만으로 매수 허용
         if (surgeStocks == null || surgeStocks.isEmpty()) {
-            log.info("[자동매매] 수급 데이터 없음 - 보수적 접근으로 매수 보류");
-            return false; // 수급 데이터 없으면 매수하지 않음 (보수적 접근)
+            log.debug("[자동매매] 수급 데이터 없음 - 마법의 공식만으로 매수 진행");
+            return true;
         }
 
         // 외국인 순매수 확인
         List<InvestorSurgeDto> foreignStocks = surgeStocks.get("FOREIGN");
+        boolean foreignBuying = false;
+        boolean foreignSelling = false;
         if (foreignStocks != null) {
-            boolean foreignBuying = foreignStocks.stream()
-                    .anyMatch(s -> s.getStockCode().equals(stockCode) &&
-                                   s.getNetBuyAmount() != null &&
-                                   s.getNetBuyAmount().compareTo(BigDecimal.ZERO) > 0);
-            if (foreignBuying) return true;
+            for (InvestorSurgeDto s : foreignStocks) {
+                if (s.getStockCode().equals(stockCode) && s.getNetBuyAmount() != null) {
+                    if (s.getNetBuyAmount().compareTo(BigDecimal.ZERO) > 0) {
+                        foreignBuying = true;
+                    } else if (s.getNetBuyAmount().compareTo(new BigDecimal("-50")) < 0) {
+                        // 50억 이상 순매도면 매수 제외
+                        foreignSelling = true;
+                    }
+                    break;
+                }
+            }
         }
 
         // 기관 순매수 확인
         List<InvestorSurgeDto> instStocks = surgeStocks.get("INSTITUTION");
+        boolean instBuying = false;
+        boolean instSelling = false;
         if (instStocks != null) {
-            boolean instBuying = instStocks.stream()
-                    .anyMatch(s -> s.getStockCode().equals(stockCode) &&
-                                   s.getNetBuyAmount() != null &&
-                                   s.getNetBuyAmount().compareTo(BigDecimal.ZERO) > 0);
-            if (instBuying) return true;
+            for (InvestorSurgeDto s : instStocks) {
+                if (s.getStockCode().equals(stockCode) && s.getNetBuyAmount() != null) {
+                    if (s.getNetBuyAmount().compareTo(BigDecimal.ZERO) > 0) {
+                        instBuying = true;
+                    } else if (s.getNetBuyAmount().compareTo(new BigDecimal("-50")) < 0) {
+                        // 50억 이상 순매도면 매수 제외
+                        instSelling = true;
+                    }
+                    break;
+                }
+            }
         }
 
-        return false;
+        // 외국인+기관 모두 대규모 순매도면 매수 제외
+        if (foreignSelling && instSelling) {
+            log.info("[자동매매] {} - 외국인/기관 쌍끌이 매도, 매수 제외", stockCode);
+            return false;
+        }
+
+        // 외국인 또는 기관이 순매수 중이면 추가 가점
+        if (foreignBuying || instBuying) {
+            log.info("[자동매매] {} - 수급 신호 양호 (외국인: {}, 기관: {})",
+                    stockCode, foreignBuying ? "매수" : "-", instBuying ? "매수" : "-");
+        }
+
+        // 대규모 순매도가 아니면 매수 허용
+        return true;
     }
 
     /**
