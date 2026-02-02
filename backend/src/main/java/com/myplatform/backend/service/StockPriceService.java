@@ -622,10 +622,10 @@ public class StockPriceService {
             futures.put(stockCode, future);
         }
 
-        // 3. 모든 조회 완료 대기 (최대 5초 - 느린 API는 빠르게 스킵)
+        // 3. 모든 조회 완료 대기 (최대 3초 - 느린 API는 과감히 스킵)
         for (Map.Entry<String, CompletableFuture<BigDecimal>> entry : futures.entrySet()) {
             try {
-                BigDecimal value = entry.getValue().get(5, TimeUnit.SECONDS);
+                BigDecimal value = entry.getValue().get(3, TimeUnit.SECONDS);
                 if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
                     result.put(entry.getKey(), value);
                 } else {

@@ -74,24 +74,38 @@ public class SectorTradingService {
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
     private static final LocalTime MARKET_CLOSE = LocalTime.of(23, 0);  // TODO: 운영 시 15:40으로 변경
 
-    // ========== 초기화 ==========
+    // 분봉 조회 최적화 설정
+    private static final int MINUTE_API_TIMEOUT_SECONDS = 3;  // 개별 종목 타임아웃 3초
+    private static final int TOP_STOCKS_FOR_MINUTE_DATA = 50; // 분봉 조회 시 상위 50개만
+
+    // ========== 초기화 (웜업) ==========
 
     /**
-     * 서버 시작 시 캐시 초기화
+     * 서버 시작 시 캐시 웜업 (Warm-up)
+     * - 사용자가 들어오기 전에 미리 데이터 채움
+     * - 동기적으로 실행하여 확실하게 데이터 확보
      */
     @PostConstruct
     public void initializeCache() {
-        log.info("[섹터거래대금] 서버 시작 - 캐시 초기화 시작");
+        log.info("[섹터거래대금] ========== 서버 시작 웜업 시작 ==========");
 
-        // 비동기로 초기화 (서버 시작 지연 방지)
+        // 비동기로 초기화 (서버 시작은 빠르게, 웜업은 백그라운드)
         CompletableFuture.runAsync(() -> {
             try {
-                Thread.sleep(5000);  // 다른 서비스 초기화 대기
+                Thread.sleep(3000);  // 다른 서비스 초기화 대기 (3초로 단축)
+
+                log.info("[섹터거래대금] 웜업 수집 시작...");
+                long startTime = System.currentTimeMillis();
+
                 refreshCacheInternal();
-                log.info("[섹터거래대금] 초기 캐시 로드 완료 - {} 섹터",
-                        cachedSectorData != null ? cachedSectorData.size() : 0);
+
+                long elapsed = System.currentTimeMillis() - startTime;
+                log.info("[섹터거래대금] ========== 웜업 완료 ==========");
+                log.info("[섹터거래대금] 웜업 결과: {} 섹터, 소요: {}ms",
+                        cachedSectorData != null ? cachedSectorData.size() : 0, elapsed);
+
             } catch (Exception e) {
-                log.error("[섹터거래대금] 초기 캐시 로드 실패: {}", e.getMessage());
+                log.error("[섹터거래대금] 웜업 실패: {}", e.getMessage(), e);
             }
         }, sectorTradingExecutor);
     }
@@ -99,13 +113,12 @@ public class SectorTradingService {
     // ========== 스케줄러 (백그라운드 갱신) ==========
 
     /**
-     * 평일 09:00~15:40, 1분마다 캐시 갱신
-     * - 장 시간에만 실행
-     * - 중복 실행 방지
+     * Cache refresh every 1 minute (09:00-23:00, weekdays - extended for testing)
+     * For production: change 9-23 to 9-15
      */
-    @Scheduled(cron = "0 */1 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */1 9-23 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledCacheRefresh() {
-        // 장 시간 체크
+        // 장 시간 체크 (MARKET_CLOSE = 23:00)
         LocalTime now = LocalTime.now();
         if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
             return;
@@ -139,12 +152,10 @@ public class SectorTradingService {
         }
     }
 
-    // ========== API 메서드 (캐시에서 즉시 반환) ==========
+    // ========== API 메서드 (캐시에서 즉시 반환 - 최대 1초) ==========
 
     /**
      * 모든 섹터의 거래대금 조회 (기본: 오늘 누적)
-     * - 캐시에서 즉시 반환 (0.1초 이내)
-     * - 캐시가 없으면 최초 1회 수집
      */
     public List<SectorTradingDto> getAllSectorTrading() {
         return getAllSectorTrading(TradingPeriod.TODAY);
@@ -153,58 +164,79 @@ public class SectorTradingService {
     /**
      * 모든 섹터의 거래대금 조회 (기간별)
      *
-     * [백그라운드 캐싱 + 방어 로직]
-     * - API 호출 없이 메모리 캐시에서 즉시 반환
-     * - 캐시가 비어있으면 동기적으로 강제 수집 (빈 화면 방지)
-     * - 다른 쓰레드가 갱신 중이면 완료될 때까지 대기
+     * [철저한 백그라운드 캐싱 전략]
+     * - 캐시가 있으면: 즉시 반환 (0.1초 이내)
+     * - 캐시가 없으면: 빈 리스트 반환 + 백그라운드 수집 트리거
+     * - 사용자를 절대 기다리게 하지 않음 (최대 응답 1초)
      */
     public List<SectorTradingDto> getAllSectorTrading(TradingPeriod period) {
         // 1. 캐시가 있으면 즉시 반환 (0.1초 이내)
         if (cachedSectorData != null && !cachedSectorData.isEmpty()) {
-            log.debug("[섹터거래대금] 캐시 반환 - {} 섹터, 마지막 갱신: {}",
+            log.debug("[섹터거래대금] 캐시 HIT - {} 섹터 즉시 반환 (마지막 갱신: {})",
                     cachedSectorData.size(), lastUpdateTime);
             return cachedSectorData;
         }
 
-        // 2. 캐시가 비어있음 - 동기적으로 강제 수집
-        log.info("[섹터거래대금] 캐시 없음 - 동기 수집 시작 (빈 화면 방지)");
+        // 2. 캐시가 없음 - 백그라운드 수집 트리거 후 빈 리스트 반환
+        log.warn("[섹터거래대금] 캐시 MISS - 빈 리스트 반환 + 백그라운드 수집 시작");
+        triggerBackgroundRefresh();
 
-        // 2-1. 다른 쓰레드가 갱신 중인지 확인
-        if (isRefreshing.compareAndSet(false, true)) {
-            // 내가 갱신 담당
+        // 3. 빈 리스트 반환 (사용자는 "데이터 집계 중" 메시지 보게 됨)
+        return Collections.emptyList();
+    }
+
+    /**
+     * 백그라운드 캐시 갱신 트리거
+     * - 이미 갱신 중이면 스킵
+     * - 비동기로 즉시 반환
+     */
+    private void triggerBackgroundRefresh() {
+        if (!isRefreshing.compareAndSet(false, true)) {
+            log.debug("[섹터거래대금] 이미 백그라운드 갱신 중 - 트리거 스킵");
+            return;
+        }
+
+        CompletableFuture.runAsync(() -> {
             try {
-                log.info("[섹터거래대금] 동기 수집 시작 (이 쓰레드가 담당)");
+                log.info("[섹터거래대금] 백그라운드 갱신 시작 (사용자 요청에 의한 트리거)");
+                long startTime = System.currentTimeMillis();
+
                 refreshCacheInternal();
-                log.info("[섹터거래대금] 동기 수집 완료 - {} 섹터",
-                        cachedSectorData != null ? cachedSectorData.size() : 0);
+
+                long elapsed = System.currentTimeMillis() - startTime;
+                log.info("[섹터거래대금] 백그라운드 갱신 완료 - {} 섹터, {}ms",
+                        cachedSectorData != null ? cachedSectorData.size() : 0, elapsed);
+            } catch (Exception e) {
+                log.error("[섹터거래대금] 백그라운드 갱신 실패: {}", e.getMessage(), e);
             } finally {
                 isRefreshing.set(false);
             }
+        }, sectorTradingExecutor);
+    }
+
+    /**
+     * 캐시 상태 포함 조회 (프론트엔드용)
+     * - 캐시가 없으면 isLoading: true 반환
+     */
+    public Map<String, Object> getAllSectorTradingWithStatus() {
+        Map<String, Object> result = new HashMap<>();
+
+        if (cachedSectorData != null && !cachedSectorData.isEmpty()) {
+            result.put("data", cachedSectorData);
+            result.put("isLoading", false);
+            result.put("lastUpdateTime", lastUpdateTime);
+            result.put("message", null);
         } else {
-            // 다른 쓰레드가 갱신 중 - 완료될 때까지 대기 (최대 30초)
-            log.info("[섹터거래대금] 다른 쓰레드가 갱신 중 - 완료 대기...");
-            int waitCount = 0;
-            int maxWait = 60;  // 최대 30초 (500ms * 60)
-            while (isRefreshing.get() && waitCount < maxWait) {
-                try {
-                    Thread.sleep(500);
-                    waitCount++;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-            log.info("[섹터거래대금] 대기 완료 ({}ms) - 캐시 상태: {}",
-                    waitCount * 500, cachedSectorData != null ? cachedSectorData.size() + "섹터" : "없음");
+            result.put("data", Collections.emptyList());
+            result.put("isLoading", true);
+            result.put("lastUpdateTime", null);
+            result.put("message", "데이터 집계 중입니다. 잠시 후 새로고침 해주세요.");
+
+            // 백그라운드 수집 트리거
+            triggerBackgroundRefresh();
         }
 
-        // 3. 여전히 캐시가 없으면 빈 리스트 반환 (극히 드문 경우)
-        if (cachedSectorData == null || cachedSectorData.isEmpty()) {
-            log.warn("[섹터거래대금] 동기 수집 후에도 캐시 없음 - 빈 리스트 반환");
-            return Collections.emptyList();
-        }
-
-        return cachedSectorData;
+        return result;
     }
 
     // ========== 내부 캐시 갱신 로직 ==========
