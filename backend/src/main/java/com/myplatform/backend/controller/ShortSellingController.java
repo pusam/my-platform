@@ -189,6 +189,19 @@ public class ShortSellingController {
         return ResponseEntity.ok(ApiResponse.success(status));
     }
 
+    @Operation(summary = "샘플 데이터 생성",
+               description = "KRX/네이버 API 차단 시 테스트용 샘플 공매도 데이터를 생성합니다. (10종목 × 20거래일)")
+    @PostMapping("/sample-data")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> insertSampleData() {
+        Map<String, Object> result = shortSellingDataCollector.insertSampleData();
+
+        if ((boolean) result.get("success")) {
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } else {
+            return ResponseEntity.ok(ApiResponse.fail((String) result.get("message")));
+        }
+    }
+
     // ========== 네이버 금융 크롤링 API ==========
 
     @Operation(summary = "네이버 공매도 데이터 크롤링",

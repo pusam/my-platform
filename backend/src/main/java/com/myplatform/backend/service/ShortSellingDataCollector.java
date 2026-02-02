@@ -604,4 +604,98 @@ public class ShortSellingDataCollector {
 
         return status;
     }
+
+    // ========== 테스트/개발용: 샘플 데이터 삽입 ==========
+
+    /**
+     * 테스트용 샘플 공매도 데이터 생성
+     * - KRX/네이버 API가 차단된 경우 기능 테스트용
+     * - 최근 20일간의 가상 데이터 생성
+     *
+     * @return 생성된 레코드 수
+     */
+    @Transactional
+    public Map<String, Object> insertSampleData() {
+        Map<String, Object> result = new HashMap<>();
+        log.info("샘플 공매도 데이터 생성 시작");
+
+        try {
+            // 테스트용 종목 목록
+            List<String[]> sampleStocks = Arrays.asList(
+                    new String[]{"005930", "삼성전자"},
+                    new String[]{"000660", "SK하이닉스"},
+                    new String[]{"035420", "NAVER"},
+                    new String[]{"035720", "카카오"},
+                    new String[]{"068270", "셀트리온"},
+                    new String[]{"247540", "에코프로비엠"},
+                    new String[]{"005380", "현대차"},
+                    new String[]{"006400", "삼성SDI"},
+                    new String[]{"051910", "LG화학"},
+                    new String[]{"105560", "KB금융"}
+            );
+
+            LocalDate today = LocalDate.now();
+            Random random = new Random();
+            int totalInserted = 0;
+
+            // 최근 20 거래일 데이터 생성
+            for (int dayOffset = 0; dayOffset < 30; dayOffset++) {
+                LocalDate tradeDate = today.minusDays(dayOffset);
+
+                // 주말 제외
+                if (isWeekend(tradeDate)) {
+                    continue;
+                }
+
+                for (String[] stock : sampleStocks) {
+                    String stockCode = stock[0];
+                    String stockName = stock[1];
+
+                    // 기존 데이터 확인
+                    if (shortDataRepository.existsByStockCodeAndTradeDate(stockCode, tradeDate)) {
+                        continue;
+                    }
+
+                    // 랜덤 데이터 생성 (현실적인 범위)
+                    BigDecimal closePrice = new BigDecimal(50000 + random.nextInt(100000));
+                    BigDecimal loanBalance = new BigDecimal(100000 + random.nextInt(5000000));  // 10만~500만주
+                    BigDecimal loanBalanceRatio = new BigDecimal(1 + random.nextDouble() * 10).setScale(2, java.math.RoundingMode.HALF_UP);  // 1~11%
+                    BigDecimal shortVolume = new BigDecimal(10000 + random.nextInt(500000));
+                    BigDecimal shortRatio = new BigDecimal(1 + random.nextDouble() * 15).setScale(2, java.math.RoundingMode.HALF_UP);  // 1~16%
+                    BigDecimal volume = shortVolume.multiply(new BigDecimal(5 + random.nextInt(10)));  // 공매도의 5~15배
+                    BigDecimal changeRate = new BigDecimal(-5 + random.nextDouble() * 10).setScale(2, java.math.RoundingMode.HALF_UP);  // -5~5%
+
+                    StockShortData data = StockShortData.builder()
+                            .stockCode(stockCode)
+                            .stockName(stockName)
+                            .tradeDate(tradeDate)
+                            .closePrice(closePrice)
+                            .changeRate(changeRate)
+                            .volume(volume)
+                            .loanBalanceQuantity(loanBalance)
+                            .loanBalanceRatio(loanBalanceRatio)
+                            .shortVolume(shortVolume)
+                            .shortRatio(shortRatio)
+                            .shortTradingValue(shortVolume.multiply(closePrice).divide(new BigDecimal(1000000), 0, java.math.RoundingMode.HALF_UP))  // 백만원 단위
+                            .build();
+
+                    shortDataRepository.save(data);
+                    totalInserted++;
+                }
+            }
+
+            result.put("success", true);
+            result.put("insertedCount", totalInserted);
+            result.put("stockCount", sampleStocks.size());
+            result.put("message", String.format("샘플 공매도 데이터 %d건 생성 완료 (%d종목 × 20거래일)", totalInserted, sampleStocks.size()));
+            log.info("샘플 공매도 데이터 생성 완료: {}건", totalInserted);
+
+        } catch (Exception e) {
+            log.error("샘플 데이터 생성 실패: {}", e.getMessage());
+            result.put("success", false);
+            result.put("message", "샘플 데이터 생성 실패: " + e.getMessage());
+        }
+
+        return result;
+    }
 }
