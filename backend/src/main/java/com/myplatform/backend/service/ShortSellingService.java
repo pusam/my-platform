@@ -32,6 +32,7 @@ public class ShortSellingService {
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final TelegramNotificationService telegramNotificationService;
+    private final KoreaInvestmentService koreaInvestmentService;
 
     // 분석 기준 상수
     private static final int ANALYSIS_DAYS = 20;           // 평균 계산 기간 (거래일 기준)
@@ -385,6 +386,8 @@ public class ShortSellingService {
 
     /**
      * 특정 종목의 상세 분석 조회 (기술적 지표 포함)
+     * - 공매도 데이터가 있으면 공매도 + 기술적 분석
+     * - 공매도 데이터가 없으면 KIS API로 기술적 분석만 수행
      */
     public ShortSqueezeDto getStockDetailedAnalysis(String stockCode) {
         log.info("종목 상세 분석 조회 - stockCode: {}", stockCode);
@@ -397,8 +400,10 @@ public class ShortSellingService {
                 stockCode, startDate, today);
 
         if (dataList.isEmpty()) {
-            log.warn("종목 데이터 없음 - stockCode: {}", stockCode);
-            return null;
+            log.info("공매도 데이터 없음 - KIS API로 기술적 분석 시도: {}", stockCode);
+
+            // 공매도 데이터 없을 때 → KIS API로 기술적 분석만 수행
+            return getAnalysisFromKisApi(stockCode);
         }
 
         // 외국인 순매수 데이터 조회
@@ -406,6 +411,65 @@ public class ShortSellingService {
 
         // 상세 분석 수행
         return analyzeStock(stockCode, dataList, foreignNetBuyMap);
+    }
+
+    /**
+     * KIS API로 기술적 분석 수행 (공매도 데이터 없을 때 폴백)
+     */
+    private ShortSqueezeDto getAnalysisFromKisApi(String stockCode) {
+        try {
+            // 1. 현재가 조회
+            com.fasterxml.jackson.databind.JsonNode priceInfo = koreaInvestmentService.getStockPrice(stockCode);
+            if (priceInfo == null || !priceInfo.has("output")) {
+                log.warn("KIS API 현재가 조회 실패: {}", stockCode);
+                return null;
+            }
+
+            com.fasterxml.jackson.databind.JsonNode output = priceInfo.get("output");
+
+            // 기본 정보 추출
+            String stockName = output.has("hts_kor_isnm") ? output.get("hts_kor_isnm").asText() : stockCode;
+            BigDecimal currentPrice = output.has("stck_prpr") ?
+                    new BigDecimal(output.get("stck_prpr").asText()) : BigDecimal.ZERO;
+            BigDecimal changeRate = output.has("prdy_ctrt") ?
+                    new BigDecimal(output.get("prdy_ctrt").asText()) : BigDecimal.ZERO;
+
+            // 2. 일봉 데이터 조회 (기술적 분석용)
+            List<KoreaInvestmentService.OhlcvData> ohlcvList =
+                    koreaInvestmentService.getDailyOhlcv(stockCode, 120);
+
+            ShortSqueezeDto dto = ShortSqueezeDto.builder()
+                    .stockCode(stockCode)
+                    .stockName(stockName)
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
+                    .analysisDate(LocalDate.now())
+                    .build();
+
+            // 3. 기술적 지표 계산
+            if (ohlcvList != null && ohlcvList.size() >= 20) {
+                List<BigDecimal> prices = ohlcvList.stream()
+                        .map(KoreaInvestmentService.OhlcvData::getClose)
+                        .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
+                        .collect(Collectors.toList());
+
+                if (prices.size() >= 20) {
+                    TechnicalIndicatorsDto technicalIndicators = technicalIndicatorService.calculate(prices);
+                    dto.applyTechnicalIndicators(technicalIndicators);
+                    log.info("KIS API 기술적 분석 완료 [{}]: RSI={}, MA20={}", stockCode,
+                            technicalIndicators.getRsi14(), technicalIndicators.getMa20());
+                }
+            } else {
+                log.warn("KIS API 일봉 데이터 부족 [{}]: {}건", stockCode,
+                        ohlcvList != null ? ohlcvList.size() : 0);
+            }
+
+            return dto;
+
+        } catch (Exception e) {
+            log.error("KIS API 분석 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
     }
 
     /**
