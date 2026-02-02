@@ -202,6 +202,21 @@ public class ShortSellingController {
         }
     }
 
+    @Operation(summary = "외부 데이터 임포트",
+               description = "pykrx 등 외부 스크립트에서 수집한 공매도 데이터를 DB에 저장합니다.")
+    @PostMapping("/import")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> importData(
+            @RequestBody List<Map<String, Object>> dataList) {
+
+        Map<String, Object> result = shortSellingDataCollector.importExternalData(dataList);
+
+        if ((boolean) result.get("success")) {
+            return ResponseEntity.ok(ApiResponse.success(result));
+        } else {
+            return ResponseEntity.ok(ApiResponse.fail((String) result.get("message")));
+        }
+    }
+
     // ========== 네이버 금융 크롤링 API ==========
 
     @Operation(summary = "네이버 공매도 데이터 크롤링",

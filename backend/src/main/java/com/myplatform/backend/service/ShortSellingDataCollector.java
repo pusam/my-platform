@@ -698,4 +698,104 @@ public class ShortSellingDataCollector {
 
         return result;
     }
+
+    // ========== 외부 데이터 임포트 (pykrx 등) ==========
+
+    /**
+     * 외부 스크립트에서 수집한 공매도 데이터 임포트
+     * - pykrx 등에서 수집한 데이터를 JSON으로 받아 DB에 저장
+     *
+     * @param dataList JSON 데이터 리스트
+     * @return 임포트 결과
+     */
+    @Transactional
+    public Map<String, Object> importExternalData(List<Map<String, Object>> dataList) {
+        Map<String, Object> result = new HashMap<>();
+        log.info("외부 공매도 데이터 임포트 시작: {}건", dataList.size());
+
+        try {
+            int imported = 0;
+            int skipped = 0;
+
+            for (Map<String, Object> item : dataList) {
+                try {
+                    String stockCode = (String) item.get("stockCode");
+                    String stockName = (String) item.get("stockName");
+                    String tradeDateStr = (String) item.get("tradeDate");
+
+                    if (stockCode == null || tradeDateStr == null) {
+                        skipped++;
+                        continue;
+                    }
+
+                    LocalDate tradeDate = LocalDate.parse(tradeDateStr);
+
+                    // 이미 존재하면 스킵
+                    if (shortDataRepository.existsByStockCodeAndTradeDate(stockCode, tradeDate)) {
+                        skipped++;
+                        continue;
+                    }
+
+                    StockShortData data = StockShortData.builder()
+                            .stockCode(stockCode)
+                            .stockName(stockName != null ? stockName : stockCode)
+                            .tradeDate(tradeDate)
+                            .shortVolume(toBigDecimal(item.get("shortVolume")))
+                            .shortTradingValue(toBigDecimal(item.get("shortTradingValue")))
+                            .shortRatio(toBigDecimal(item.get("shortRatio")))
+                            .volume(toBigDecimal(item.get("totalVolume")))
+                            .loanBalanceQuantity(toBigDecimal(item.get("loanBalanceQuantity")))
+                            .loanBalanceValue(toBigDecimal(item.get("loanBalanceValue")))
+                            .loanBalanceRatio(toBigDecimal(item.get("loanBalanceRatio")))
+                            .closePrice(toBigDecimal(item.get("closePrice")))
+                            .changeRate(toBigDecimal(item.get("changeRate")))
+                            .build();
+
+                    shortDataRepository.save(data);
+                    imported++;
+
+                } catch (Exception e) {
+                    log.debug("데이터 임포트 실패: {}", e.getMessage());
+                    skipped++;
+                }
+            }
+
+            result.put("success", true);
+            result.put("imported", imported);
+            result.put("skipped", skipped);
+            result.put("total", dataList.size());
+            result.put("message", String.format("공매도 데이터 임포트 완료: %d건 저장, %d건 스킵", imported, skipped));
+            log.info("외부 공매도 데이터 임포트 완료: {}건 저장, {}건 스킵", imported, skipped);
+
+        } catch (Exception e) {
+            log.error("외부 데이터 임포트 실패: {}", e.getMessage());
+            result.put("success", false);
+            result.put("message", "임포트 실패: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * Object를 BigDecimal로 변환
+     */
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        if (value instanceof Number) {
+            return new BigDecimal(value.toString());
+        }
+        if (value instanceof String) {
+            try {
+                return new BigDecimal((String) value);
+            } catch (NumberFormatException e) {
+                return BigDecimal.ZERO;
+            }
+        }
+        return BigDecimal.ZERO;
+    }
 }
