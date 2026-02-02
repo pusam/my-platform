@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.HttpStatusException;
@@ -7,7 +9,11 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -37,98 +43,357 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class NaverFinanceCrawler {
 
+    // === KRX API 설정 (우선 사용) ===
+    private static final String KRX_API_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_SHORT_SELLING_BLD = "dbms/MDC/STAT/srt/MDCSTAT30101";  // 공매도 거래
+    private static final String KRX_SHORT_BALANCE_BLD = "dbms/MDC/STAT/srt/MDCSTAT30501";  // 공매도 잔고
+
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // === 네이버 금융 설정 (KRX 실패 시 폴백) ===
     private static final String BASE_URL = "https://finance.naver.com";
-    private static final String SHORT_SELLING_URL = BASE_URL + "/item/short_trade.naver?code=%s";
+    // 여러 URL 형식 시도 (네이버 페이지 구조 변경 대응)
+    private static final String[] SHORT_SELLING_URL_PATTERNS = {
+            BASE_URL + "/item/short_trade.naver?code=%s",  // 새 URL
+            BASE_URL + "/item/short.naver?code=%s",        // 기존 URL
+            BASE_URL + "/item/frgn.naver?code=%s"          // 외국인 거래 (폴백)
+    };
     private static final String LENDING_URL = BASE_URL + "/item/lending.naver?code=%s";
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy.MM.dd");
 
-    private static final int CONNECTION_TIMEOUT = 10000;
-    private static final int READ_TIMEOUT = 15000;
+    private static final int CONNECTION_TIMEOUT = 15000;
+    private static final int READ_TIMEOUT = 20000;
 
     // 네이버 차단 방지용 설정
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-    private static final int MIN_DELAY_MS = 1000;  // 최소 1초
-    private static final int MAX_DELAY_MS = 3000;  // 최대 3초
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+    private static final int MIN_DELAY_MS = 2000;  // 최소 2초 (더 보수적)
+    private static final int MAX_DELAY_MS = 4000;  // 최대 4초
+
+    // 여러 테이블 셀렉터 시도
+    private static final String[] TABLE_SELECTORS = {
+            "table.type2",
+            "table.type_1",
+            "table.type_5",
+            "table[summary*='공매도']",
+            "table[summary*='거래']",
+            ".section table",
+            "#content table"
+    };
 
     // 대차잔고 페이지 404 발생 시 더 이상 시도하지 않음 (네이버 페이지 폐지 대응)
     private static final AtomicBoolean lendingPageUnavailable = new AtomicBoolean(false);
 
     /**
      * 공매도 일별 데이터 크롤링
+     * 1. KRX API 우선 사용 (안정적, 공식 데이터)
+     * 2. KRX 실패 시 네이버 금융 폴백
      *
      * @param stockCode 종목코드 (6자리)
      * @param days 조회할 일수 (기본 30일)
      * @return 일별 공매도 데이터 리스트
      */
     public List<ShortSellingData> crawlShortSellingData(String stockCode, int days) {
+        // 1. KRX API 우선 시도
+        List<ShortSellingData> result = crawlFromKrx(stockCode, days);
+        if (!result.isEmpty()) {
+            log.info("KRX 공매도 데이터 수집 성공 [{}]: {}건", stockCode, result.size());
+            return result;
+        }
+
+        // 2. KRX 실패 시 네이버 금융 폴백
+        log.debug("KRX 실패, 네이버 금융으로 폴백 [{}]", stockCode);
+        result = crawlFromNaver(stockCode, days);
+
+        if (result.isEmpty()) {
+            log.warn("공매도 데이터 수집 실패 [{}]: KRX/네이버 모두 실패", stockCode);
+        }
+
+        return result;
+    }
+
+    /**
+     * KRX API로 공매도 데이터 수집
+     * - data.krx.co.kr 공식 API 사용
+     * - 일별 공매도 거래 데이터 조회
+     */
+    private List<ShortSellingData> crawlFromKrx(String stockCode, int days) {
         List<ShortSellingData> result = new ArrayList<>();
 
         try {
-            // 네이버 차단 방지: 1~3초 랜덤 딜레이
+            // 딜레이
             randomDelay();
 
-            String url = String.format(SHORT_SELLING_URL, stockCode);
-            log.debug("공매도 데이터 크롤링: {}", url);
+            // 요청 헤더 설정
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("User-Agent", USER_AGENT);
+            headers.set("X-Requested-With", "XMLHttpRequest");
+            headers.set("Origin", "http://data.krx.co.kr");
+            headers.set("Referer", "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020301");
 
-            Document doc = Jsoup.connect(url)
-                    .userAgent(USER_AGENT)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
-                    .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
-                    .header("Referer", "https://finance.naver.com/")
-                    .timeout(CONNECTION_TIMEOUT)
-                    .get();
+            // 조회 기간 계산 (최근 days일)
+            LocalDate endDate = LocalDate.now();
+            LocalDate startDate = endDate.minusDays(days + 10);  // 여유분 추가 (휴장일 고려)
 
-            // 공매도 거래 테이블 파싱
-            // 테이블 구조: 날짜 | 공매도량 | 거래량 | 공매도비율 | 공매도거래대금 | 종가
-            Element table = doc.selectFirst("table.type2");
-            if (table == null) {
-                log.warn("공매도 테이블을 찾을 수 없습니다: {}", stockCode);
+            // POST 파라미터
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("bld", "dbms/MDC/STAT/srt/MDCSTAT30301");  // 개별종목 공매도 거래
+            params.add("isuCd", stockCode);
+            params.add("isuCd2", stockCode);
+            params.add("strtDd", startDate.format(DateTimeFormatter.BASIC_ISO_DATE));
+            params.add("endDd", endDate.format(DateTimeFormatter.BASIC_ISO_DATE));
+            params.add("csvxls_isNo", "false");
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_API_URL,
+                    HttpMethod.POST,
+                    request,
+                    String.class
+            );
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                result = parseKrxResponse(response.getBody(), days, stockCode);
+            }
+
+        } catch (Exception e) {
+            log.debug("KRX API 호출 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * KRX API 응답 파싱
+     */
+    private List<ShortSellingData> parseKrxResponse(String responseBody, int days, String stockCode) {
+        List<ShortSellingData> result = new ArrayList<>();
+
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode dataArray = root.get("OutBlock_1");
+
+            if (dataArray == null || !dataArray.isArray()) {
+                log.debug("KRX 응답에 OutBlock_1 없음 [{}]", stockCode);
                 return result;
             }
 
-            Elements rows = table.select("tbody tr");
             int count = 0;
-
-            for (Element row : rows) {
+            for (JsonNode item : dataArray) {
                 if (count >= days) break;
 
-                Elements cells = row.select("td");
-                if (cells.size() < 6) continue;
-
                 try {
-                    String dateStr = cells.get(0).text().trim();
-                    if (dateStr.isEmpty() || !dateStr.contains(".")) continue;
+                    // 날짜 파싱 (YYYY/MM/DD 또는 YYYYMMDD 형식)
+                    String dateStr = item.has("TRD_DD") ? item.get("TRD_DD").asText() : "";
+                    if (dateStr.isEmpty()) continue;
 
-                    LocalDate tradeDate = LocalDate.parse(dateStr, DATE_FORMATTER);
-                    BigDecimal shortVolume = parseBigDecimal(cells.get(1).text());
-                    BigDecimal totalVolume = parseBigDecimal(cells.get(2).text());
-                    BigDecimal shortRatio = parseBigDecimal(cells.get(3).text().replace("%", ""));
-                    BigDecimal shortTradingValue = parseBigDecimal(cells.get(4).text());
-                    BigDecimal closePrice = parseBigDecimal(cells.get(5).text());
+                    LocalDate tradeDate = parseKrxDate(dateStr);
+                    if (tradeDate == null) continue;
 
                     ShortSellingData data = new ShortSellingData();
                     data.setTradeDate(tradeDate);
-                    data.setShortVolume(shortVolume);
-                    data.setTotalVolume(totalVolume);
-                    data.setShortRatio(shortRatio);
-                    data.setShortTradingValue(shortTradingValue);
-                    data.setClosePrice(closePrice);
+
+                    // 공매도량
+                    data.setShortVolume(parseKrxNumber(item, "CVSRTSELL_TRDVOL"));
+                    // 총 거래량
+                    data.setTotalVolume(parseKrxNumber(item, "ACC_TRDVOL"));
+                    // 공매도 비율
+                    data.setShortRatio(parseKrxNumber(item, "CVSRTSELL_TRDVOL_RATE"));
+                    // 공매도 거래대금
+                    data.setShortTradingValue(parseKrxNumber(item, "CVSRTSELL_TRDVAL"));
+                    // 종가
+                    data.setClosePrice(parseKrxNumber(item, "TDD_CLSPRC"));
 
                     result.add(data);
                     count++;
 
                 } catch (Exception e) {
-                    log.debug("행 파싱 실패: {}", e.getMessage());
+                    log.trace("KRX 항목 파싱 실패 [{}]: {}", stockCode, e.getMessage());
                 }
             }
 
-            log.info("공매도 데이터 크롤링 완료 [{}]: {}건", stockCode, result.size());
+            log.debug("KRX 파싱 완료 [{}]: {}건", stockCode, result.size());
 
         } catch (Exception e) {
-            log.error("공매도 데이터 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
+            log.debug("KRX 응답 파싱 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return result;
+    }
+
+    /**
+     * KRX 날짜 형식 파싱 (YYYY/MM/DD 또는 YYYYMMDD)
+     */
+    private LocalDate parseKrxDate(String dateStr) {
+        try {
+            String cleaned = dateStr.replace("/", "").replace("-", "").replace(".", "");
+            if (cleaned.length() == 8) {
+                return LocalDate.parse(cleaned, DateTimeFormatter.BASIC_ISO_DATE);
+            }
+        } catch (Exception e) {
+            log.trace("KRX 날짜 파싱 실패: {}", dateStr);
+        }
+        return null;
+    }
+
+    /**
+     * KRX JSON 숫자 필드 파싱
+     */
+    private BigDecimal parseKrxNumber(JsonNode item, String fieldName) {
+        if (!item.has(fieldName)) return BigDecimal.ZERO;
+        String value = item.get(fieldName).asText();
+        return parseBigDecimal(value);
+    }
+
+    /**
+     * 네이버 금융에서 공매도 데이터 크롤링 (폴백)
+     */
+    private List<ShortSellingData> crawlFromNaver(String stockCode, int days) {
+        List<ShortSellingData> result = new ArrayList<>();
+
+        // 여러 URL 패턴 시도
+        for (String urlPattern : SHORT_SELLING_URL_PATTERNS) {
+            try {
+                // 네이버 차단 방지: 2~4초 랜덤 딜레이
+                randomDelay();
+
+                String url = String.format(urlPattern, stockCode);
+                log.debug("네이버 공매도 크롤링 시도: {}", url);
+
+                Document doc = Jsoup.connect(url)
+                        .userAgent(USER_AGENT)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                        .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7")
+                        .header("Referer", "https://finance.naver.com/")
+                        .header("Cache-Control", "no-cache")
+                        .timeout(CONNECTION_TIMEOUT)
+                        .get();
+
+                // 여러 테이블 셀렉터 시도
+                Element table = findTable(doc, stockCode);
+                if (table == null) {
+                    log.debug("테이블을 찾지 못함 (URL: {}), 다음 URL 시도", url);
+                    continue;
+                }
+
+                // 테이블 파싱
+                result = parseShortSellingTable(table, days, stockCode);
+
+                if (!result.isEmpty()) {
+                    log.info("네이버 공매도 크롤링 성공 [{}]: {}건", stockCode, result.size());
+                    return result;
+                }
+
+            } catch (HttpStatusException e) {
+                log.debug("HTTP 오류 [{}]: {} - {}", stockCode, e.getStatusCode(), e.getMessage());
+            } catch (Exception e) {
+                log.debug("네이버 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 여러 셀렉터로 테이블 찾기
+     */
+    private Element findTable(Document doc, String stockCode) {
+        for (String selector : TABLE_SELECTORS) {
+            Element table = doc.selectFirst(selector);
+            if (table != null) {
+                // 테이블에 데이터가 있는지 확인
+                Elements rows = table.select("tbody tr, tr");
+                if (rows.size() > 1) {
+                    log.debug("테이블 발견 [{}]: selector={}, rows={}", stockCode, selector, rows.size());
+                    return table;
+                }
+            }
+        }
+
+        // 디버깅: 페이지 구조 로깅
+        Elements allTables = doc.select("table");
+        if (allTables.isEmpty()) {
+            log.debug("페이지에 테이블이 없습니다 [{}]", stockCode);
+        } else {
+            log.debug("페이지에 {} 개의 테이블 존재, 매칭되는 셀렉터 없음 [{}]", allTables.size(), stockCode);
+        }
+
+        return null;
+    }
+
+    /**
+     * 공매도 테이블 파싱
+     */
+    private List<ShortSellingData> parseShortSellingTable(Element table, int days, String stockCode) {
+        List<ShortSellingData> result = new ArrayList<>();
+
+        Elements rows = table.select("tbody tr");
+        if (rows.isEmpty()) {
+            rows = table.select("tr");
+        }
+
+        int count = 0;
+        for (Element row : rows) {
+            if (count >= days) break;
+
+            Elements cells = row.select("td");
+            if (cells.size() < 5) continue;  // 최소 5개 컬럼 필요
+
+            try {
+                String dateStr = cells.get(0).text().trim();
+                if (dateStr.isEmpty() || !dateStr.contains(".")) continue;
+
+                // 날짜 형식 파싱 (yyyy.MM.dd 또는 yy.MM.dd)
+                LocalDate tradeDate = parseDate(dateStr);
+                if (tradeDate == null) continue;
+
+                // 데이터 파싱 (컬럼 수에 따라 유연하게 처리)
+                BigDecimal shortVolume = parseBigDecimal(cells.get(1).text());
+                BigDecimal totalVolume = cells.size() > 2 ? parseBigDecimal(cells.get(2).text()) : BigDecimal.ZERO;
+                BigDecimal shortRatio = cells.size() > 3 ? parseBigDecimal(cells.get(3).text().replace("%", "")) : BigDecimal.ZERO;
+                BigDecimal shortTradingValue = cells.size() > 4 ? parseBigDecimal(cells.get(4).text()) : BigDecimal.ZERO;
+                BigDecimal closePrice = cells.size() > 5 ? parseBigDecimal(cells.get(5).text()) : BigDecimal.ZERO;
+
+                ShortSellingData data = new ShortSellingData();
+                data.setTradeDate(tradeDate);
+                data.setShortVolume(shortVolume);
+                data.setTotalVolume(totalVolume);
+                data.setShortRatio(shortRatio);
+                data.setShortTradingValue(shortTradingValue);
+                data.setClosePrice(closePrice);
+
+                result.add(data);
+                count++;
+
+            } catch (Exception e) {
+                log.trace("행 파싱 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 날짜 문자열 파싱 (여러 형식 지원)
+     */
+    private LocalDate parseDate(String dateStr) {
+        try {
+            // yyyy.MM.dd 형식
+            if (dateStr.matches("\\d{4}\\.\\d{2}\\.\\d{2}")) {
+                return LocalDate.parse(dateStr, DATE_FORMATTER);
+            }
+            // yy.MM.dd 형식
+            if (dateStr.matches("\\d{2}\\.\\d{2}\\.\\d{2}")) {
+                return LocalDate.parse("20" + dateStr, DATE_FORMATTER);
+            }
+        } catch (Exception e) {
+            log.trace("날짜 파싱 실패: {}", dateStr);
+        }
+        return null;
     }
 
     /**
