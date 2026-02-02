@@ -1900,17 +1900,18 @@ onMounted(async () => {
   text-align: center;
 }
 
+/* 한국 주식 기준 색상: 양수=빨간색(상승/매수), 음수=파란색(하락/매도) */
 .positive {
-  color: var(--success) !important;
+  color: #e53e3e !important;  /* 빨간색: 상승, 매수, 양수 */
 }
 
 .very-positive {
-  color: #22c55e !important;
+  color: #c53030 !important;  /* 진한 빨간색: 강한 상승 */
   font-weight: 700;
 }
 
 .negative {
-  color: var(--danger) !important;
+  color: #3182ce !important;  /* 파란색: 하락, 매도, 음수 */
 }
 
 /* 턴어라운드 카드 그리드 */

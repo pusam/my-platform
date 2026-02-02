@@ -583,7 +583,7 @@ public class KoreaInvestmentService {
             return ohlcvList;
         }
 
-        // output2의 각 항목에서 OHLCV 추출
+        // output2의 각 항목에서 OHLCV + 날짜 추출
         for (JsonNode item : output2) {
             try {
                 java.math.BigDecimal open = extractBigDecimal(item, "stck_oprc");
@@ -592,8 +592,20 @@ public class KoreaInvestmentService {
                 java.math.BigDecimal close = extractBigDecimal(item, "stck_clpr");
                 java.math.BigDecimal volume = extractBigDecimal(item, "acml_vol");
 
+                // 거래일자 추출 (stck_bsop_date: YYYYMMDD 형식)
+                java.time.LocalDate tradeDate = null;
+                if (item.has("stck_bsop_date")) {
+                    String dateStr = item.get("stck_bsop_date").asText();
+                    if (dateStr != null && dateStr.length() == 8) {
+                        tradeDate = java.time.LocalDate.parse(dateStr,
+                                java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+                    }
+                }
+
                 if (isValidOhlcv(open, high, low, close, volume)) {
-                    ohlcvList.add(new OhlcvData(open, high, low, close, volume));
+                    OhlcvData data = new OhlcvData(open, high, low, close, volume);
+                    data.setTradeDate(tradeDate);
+                    ohlcvList.add(data);
                 }
             } catch (Exception e) {
                 // 무시하고 다음 항목 처리
@@ -624,16 +636,30 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * OHLCV 데이터 클래스
+     * OHLCV 데이터 클래스 (날짜 포함)
      */
     @lombok.Data
     @lombok.AllArgsConstructor
+    @lombok.NoArgsConstructor
     public static class OhlcvData {
         private java.math.BigDecimal open;
         private java.math.BigDecimal high;
         private java.math.BigDecimal low;
         private java.math.BigDecimal close;
         private java.math.BigDecimal volume;
+        private java.time.LocalDate tradeDate;  // 거래일자 추가
+
+        // 날짜 없는 생성자 (기존 호환성)
+        public OhlcvData(java.math.BigDecimal open, java.math.BigDecimal high,
+                         java.math.BigDecimal low, java.math.BigDecimal close,
+                         java.math.BigDecimal volume) {
+            this.open = open;
+            this.high = high;
+            this.low = low;
+            this.close = close;
+            this.volume = volume;
+            this.tradeDate = null;
+        }
     }
 
     // ========== 실전 매매 API ==========

@@ -734,25 +734,25 @@ public class StockAnalysisService {
     /**
      * KIS API에서 조회한 일봉 데이터를 DB에 저장
      * - 중복 방지: 이미 존재하는 날짜는 스킵
-     * - 날짜 정보는 KIS API 응답에서 추출해야 하는데, 현재 OhlcvData에 날짜가 없음
-     * - 임시로 최신순 인덱스로 날짜 계산 (0 = 오늘, 1 = 어제, ...)
+     * - OhlcvData.tradeDate 사용 (KIS API stck_bsop_date 필드에서 추출)
      */
     private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         try {
             LocalDate today = LocalDate.now();
             int savedCount = 0;
             int skippedCount = 0;
+            int fallbackIndex = 0;
 
-            for (int i = 0; i < ohlcvData.size(); i++) {
-                KoreaInvestmentService.OhlcvData data = ohlcvData.get(i);
-
-                // 날짜 계산 (i=0이 가장 최신, 주말 제외는 복잡해서 단순 계산)
-                // 실제로는 KIS API에서 날짜를 함께 받아와야 함
-                LocalDate tradeDate = today.minusDays(i);
-
-                // 주말 스킵 (간단한 처리)
-                while (tradeDate.getDayOfWeek().getValue() >= 6) {
-                    tradeDate = tradeDate.minusDays(1);
+            for (KoreaInvestmentService.OhlcvData data : ohlcvData) {
+                // API에서 제공한 거래일자 사용, 없으면 인덱스로 추정
+                LocalDate tradeDate = data.getTradeDate();
+                if (tradeDate == null) {
+                    // 폴백: 인덱스로 날짜 추정 (영업일만)
+                    tradeDate = today.minusDays(fallbackIndex);
+                    while (tradeDate.getDayOfWeek().getValue() >= 6) {
+                        tradeDate = tradeDate.minusDays(1);
+                    }
+                    fallbackIndex++;
                 }
 
                 // 이미 존재하면 스킵
