@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 거래대금 조회 기간
@@ -69,9 +70,9 @@ public class SectorTradingService {
     // 갱신 중복 방지 플래그
     private final AtomicBoolean isRefreshing = new AtomicBoolean(false);
 
-    // 장 시간 설정
+    // 장 시간 설정 (테스트용으로 23:00까지 확장)
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 40);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(23, 0);  // TODO: 운영 시 15:40으로 변경
 
     // ========== 초기화 ==========
 
@@ -152,50 +153,91 @@ public class SectorTradingService {
     /**
      * 모든 섹터의 거래대금 조회 (기간별)
      *
-     * [백그라운드 캐싱]
+     * [백그라운드 캐싱 + 방어 로직]
      * - API 호출 없이 메모리 캐시에서 즉시 반환
-     * - 캐시가 비어있으면 최초 1회만 수집
+     * - 캐시가 비어있으면 동기적으로 강제 수집 (빈 화면 방지)
+     * - 다른 쓰레드가 갱신 중이면 완료될 때까지 대기
      */
     public List<SectorTradingDto> getAllSectorTrading(TradingPeriod period) {
-        // 캐시가 있으면 즉시 반환 (0.1초 이내)
+        // 1. 캐시가 있으면 즉시 반환 (0.1초 이내)
         if (cachedSectorData != null && !cachedSectorData.isEmpty()) {
             log.debug("[섹터거래대금] 캐시 반환 - {} 섹터, 마지막 갱신: {}",
                     cachedSectorData.size(), lastUpdateTime);
             return cachedSectorData;
         }
 
-        // 캐시가 비어있으면 최초 1회 수집 (동기)
-        log.info("[섹터거래대금] 캐시 없음 - 최초 수집 시작");
+        // 2. 캐시가 비어있음 - 동기적으로 강제 수집
+        log.info("[섹터거래대금] 캐시 없음 - 동기 수집 시작 (빈 화면 방지)");
+
+        // 2-1. 다른 쓰레드가 갱신 중인지 확인
         if (isRefreshing.compareAndSet(false, true)) {
+            // 내가 갱신 담당
             try {
+                log.info("[섹터거래대금] 동기 수집 시작 (이 쓰레드가 담당)");
                 refreshCacheInternal();
+                log.info("[섹터거래대금] 동기 수집 완료 - {} 섹터",
+                        cachedSectorData != null ? cachedSectorData.size() : 0);
             } finally {
                 isRefreshing.set(false);
             }
+        } else {
+            // 다른 쓰레드가 갱신 중 - 완료될 때까지 대기 (최대 30초)
+            log.info("[섹터거래대금] 다른 쓰레드가 갱신 중 - 완료 대기...");
+            int waitCount = 0;
+            int maxWait = 60;  // 최대 30초 (500ms * 60)
+            while (isRefreshing.get() && waitCount < maxWait) {
+                try {
+                    Thread.sleep(500);
+                    waitCount++;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            log.info("[섹터거래대금] 대기 완료 ({}ms) - 캐시 상태: {}",
+                    waitCount * 500, cachedSectorData != null ? cachedSectorData.size() + "섹터" : "없음");
         }
 
-        return cachedSectorData != null ? cachedSectorData : Collections.emptyList();
+        // 3. 여전히 캐시가 없으면 빈 리스트 반환 (극히 드문 경우)
+        if (cachedSectorData == null || cachedSectorData.isEmpty()) {
+            log.warn("[섹터거래대금] 동기 수집 후에도 캐시 없음 - 빈 리스트 반환");
+            return Collections.emptyList();
+        }
+
+        return cachedSectorData;
     }
 
     // ========== 내부 캐시 갱신 로직 ==========
 
     /**
      * 실제 API 호출 및 캐시 갱신
+     * - 상세 로그로 진행 상황 추적
      */
     private void refreshCacheInternal() {
         long startTime = System.currentTimeMillis();
         TradingPeriod period = TradingPeriod.TODAY;
 
+        log.info("[섹터거래대금] ========== refreshCacheInternal 시작 ==========");
+
         try {
-            // 모든 종목 코드 수집
+            // 1. 모든 종목 코드 수집
             Set<String> allStockCodes = new HashSet<>();
-            for (SectorInfo sector : sectorConfig.getAllSectors()) {
+            List<SectorInfo> allSectors = sectorConfig.getAllSectors();
+            log.info("[섹터거래대금] [1/5] 섹터 설정 로드 - {} 섹터", allSectors.size());
+
+            for (SectorInfo sector : allSectors) {
                 allStockCodes.addAll(sector.getStockCodes());
             }
+            log.info("[섹터거래대금] [2/5] 전체 종목 수집 - {} 종목", allStockCodes.size());
 
-            // Batch로 한 번에 시세 조회
+            // 2. Batch로 한 번에 시세 조회
+            log.info("[섹터거래대금] [3/5] Batch 시세 조회 시작...");
             Map<String, StockPriceDto> stockPriceMap = stockPriceService.getStockPrices(new ArrayList<>(allStockCodes));
-            log.debug("[섹터거래대금] Batch 시세 조회 완료 - 요청: {}, 응답: {}", allStockCodes.size(), stockPriceMap.size());
+            log.info("[섹터거래대금] [3/5] Batch 시세 조회 완료 - 요청: {}, 응답: {}", allStockCodes.size(), stockPriceMap.size());
+
+            if (stockPriceMap.isEmpty()) {
+                log.error("[섹터거래대금] 시세 데이터가 비어있음! API 호출 실패 가능성");
+            }
 
             // 분봉 데이터 (크롤링 중이면 스킵)
             Map<String, BigDecimal> minuteTradingValueMap = new HashMap<>();
@@ -203,7 +245,8 @@ public class SectorTradingService {
             // 중복 종목 제거용 Map
             ConcurrentMap<String, BigDecimal> uniqueStockTradingValue = new ConcurrentHashMap<>();
 
-            // 섹터별 병렬 처리
+            // 4. 섹터별 병렬 처리
+            log.info("[섹터거래대금] [4/5] 섹터별 DTO 빌드 시작 (병렬)...");
             List<CompletableFuture<SectorTradingDto>> futures = sectorConfig.getAllSectors().stream()
                     .map(sector -> CompletableFuture.supplyAsync(
                             () -> buildSectorTradingDto(sector, period, stockPriceMap, uniqueStockTradingValue, minuteTradingValueMap),
@@ -211,22 +254,31 @@ public class SectorTradingService {
                     ))
                     .collect(Collectors.toList());
 
-            // 모든 섹터 처리 완료 대기 (타임아웃 10초)
+            // 모든 섹터 처리 완료 대기 (타임아웃 30초로 증가)
             List<SectorTradingDto> results = futures.stream()
                     .map(future -> {
                         try {
-                            return future.get(10, TimeUnit.SECONDS);
+                            return future.get(30, TimeUnit.SECONDS);
+                        } catch (TimeoutException e) {
+                            log.error("[섹터거래대금] 섹터 처리 타임아웃 (30초 초과)");
+                            return null;
                         } catch (Exception e) {
-                            log.error("[섹터거래대금] 섹터 처리 실패: {}", e.getMessage());
+                            log.error("[섹터거래대금] 섹터 처리 실패: {}", e.getMessage(), e);
                             return null;
                         }
                     })
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 
-            // 전체 시장 거래대금 (중복 제거)
+            log.info("[섹터거래대금] [4/5] 섹터별 DTO 빌드 완료 - {} 섹터 성공", results.size());
+
+            // 5. 전체 시장 거래대금 (중복 제거)
             BigDecimal totalAllSectors = uniqueStockTradingValue.values().stream()
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            log.info("[섹터거래대금] [5/5] 결과 정리 - 전체 거래대금: {}억, 고유 종목: {}",
+                    totalAllSectors.divide(BigDecimal.valueOf(100_000_000), 0, RoundingMode.HALF_UP),
+                    uniqueStockTradingValue.size());
 
             // 비율 계산
             if (totalAllSectors.compareTo(BigDecimal.ZERO) > 0) {
@@ -246,12 +298,17 @@ public class SectorTradingService {
             this.lastUpdateTime = LocalDateTime.now();
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("[섹터거래대금] 캐시 갱신 완료 - 전체: {}억, 종목: {}, 소요: {}ms",
+            log.info("[섹터거래대금] ========== refreshCacheInternal 완료 ==========");
+            log.info("[섹터거래대금] 결과: {} 섹터, {}억원, 소요: {}ms",
+                    results.size(),
                     totalAllSectors.divide(BigDecimal.valueOf(100_000_000), 0, RoundingMode.HALF_UP),
-                    uniqueStockTradingValue.size(), elapsed);
+                    elapsed);
 
         } catch (Exception e) {
-            log.error("[섹터거래대금] 캐시 갱신 실패: {}", e.getMessage(), e);
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.error("[섹터거래대금] ========== refreshCacheInternal 실패 ==========");
+            log.error("[섹터거래대금] 에러 발생 ({}ms 경과): {}", elapsed, e.getMessage());
+            log.error("[섹터거래대금] 스택 트레이스:", e);
         }
     }
 
