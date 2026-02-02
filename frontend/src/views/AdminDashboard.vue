@@ -265,7 +265,7 @@
             <div class="section-header">
               <h2>📊 주식 API 관리</h2>
             </div>
-            <p>KIS API, Reddit API 사용 현황 및 캐시 관리</p>
+            <p>KIS API 사용 현황 및 캐시 관리</p>
             <div class="action-group">
               <button @click="viewApiStats" class="action-btn">API 통계</button>
               <button @click="clearCache" class="action-btn">캐시 초기화</button>
@@ -535,11 +535,6 @@ export default {
           message += `- 연속 매수 종목: ${caches.continuousBuy || '비활성'}\n`
           message += `- 수급 급등 종목: ${caches.supplySurge || '비활성'}\n\n`
 
-          message += '🌐 Reddit 주식 정보:\n'
-          message += `- 미국 주식: ${caches.redditUSStocks || '비활성'}\n`
-          message += `- 한국 주식: ${caches.redditKRStocks || '비활성'}\n`
-          message += `- 게시글: ${caches.redditPosts || '비활성'}\n\n`
-
           message += '💰 금/은 시세:\n'
           message += `- 금 시세: ${caches.goldPrice || '비활성'}\n`
           message += `- 은 시세: ${caches.silverPrice || '비활성'}\n\n`
@@ -555,7 +550,7 @@ export default {
       }
     },
     async clearCache() {
-      if (confirm('모든 API 캐시를 초기화하시겠습니까?\n\n다음 API 호출 시 외부 서버에서 최신 데이터를 가져옵니다.\n- KIS API (투자자 매매동향, 연속 매수, 수급 급등)\n- Reddit API (미국/한국 주식 트렌드)\n- 금/은 시세')) {
+      if (confirm('모든 API 캐시를 초기화하시겠습니까?\n\n다음 API 호출 시 외부 서버에서 최신 데이터를 가져옵니다.\n- KIS API (투자자 매매동향, 연속 매수, 수급 급등)\n- 금/은 시세')) {
         try {
           const response = await apiClient.post('/admin/clear-cache')
           if (response.data.success) {

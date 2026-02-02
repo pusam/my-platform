@@ -56,11 +56,6 @@ public class CacheConfig {
             buildCache("goldPrice", 30, 10),
             buildCache("silverPrice", 30, 10),
 
-            // ========== Reddit 캐시 (10분 TTL) ==========
-            buildCache("redditUSStocks", 600, 100),
-            buildCache("redditKRStocks", 600, 100),
-            buildCache("redditPosts", 600, 500),
-
             // ========== 주식 순위 캐시 (5분 TTL) ==========
             buildCache("week52High", 300, 100),
             buildCache("week52Low", 300, 100),

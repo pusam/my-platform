@@ -2,7 +2,6 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.MarketTimingService;
 import com.myplatform.backend.service.QuantScreenerService;
-import com.myplatform.backend.service.ShortSellingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,7 +11,6 @@ import org.springframework.stereotype.Component;
 /**
  * 주식 알림 스케줄러
  * - 시장 상태 알림
- * - 숏스퀴즈 후보 알림
  * - 마법의 공식/턴어라운드 종목 알림
  *
  * [활성화 방법]
@@ -22,7 +20,7 @@ import org.springframework.stereotype.Component;
  *     enabled: true
  *
  * [실행 시간 (한국 시간 기준)]
- * - 장 마감 후 (16:00): 시장 상태, 숏스퀴즈
+ * - 장 마감 후 (16:45): 시장 상태 알림
  * - 아침 (08:30): 마법의 공식, 턴어라운드 (장 시작 전 체크)
  */
 @Component
@@ -31,7 +29,6 @@ import org.springframework.stereotype.Component;
 public class StockAlertScheduler {
 
     private final MarketTimingService marketTimingService;
-    private final ShortSellingService shortSellingService;
     private final QuantScreenerService quantScreenerService;
 
     @Value("${alert.scheduler.enabled:false}")
@@ -41,7 +38,6 @@ public class StockAlertScheduler {
      * 장 마감 후 알림 (평일 16:45)
      * - 16:00 투자자 데이터 수집, 16:30 ADR 수집이 완료된 후 실행
      * - 시장 상태 알림 (과열/공포 구간만)
-     * - 숏스퀴즈 고점수 종목 알림
      */
     @Scheduled(cron = "0 45 16 * * MON-FRI", zone = "Asia/Seoul")
     public void afterMarketCloseAlert() {
@@ -56,9 +52,6 @@ public class StockAlertScheduler {
             // 1. 시장 데이터 수집 및 상태 알림
             marketTimingService.collectAndNotify();
 
-            // 2. 숏스퀴즈 고점수 종목 알림 (70점 이상, 최대 3개)
-            shortSellingService.sendHighScoreSqueezeAlerts(70, 3);
-
             log.info("=== 장 마감 후 알림 완료 ===");
 
         } catch (Exception e) {
@@ -69,7 +62,6 @@ public class StockAlertScheduler {
     /**
      * 아침 알림 (평일 08:30)
      * - 마법의 공식 Top 5 종목
-     * - 숏스퀴즈 후보 Top 3
      * - 턴어라운드 종목
      */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
@@ -85,10 +77,7 @@ public class StockAlertScheduler {
             // 1. 마법의 공식 Top 5 알림
             quantScreenerService.sendMagicFormulaAlerts(5);
 
-            // 2. 숏스퀴즈 후보 Top 3 알림 (점수 60점 이상)
-            shortSellingService.sendHighScoreSqueezeAlerts(60, 3);
-
-            // 3. 턴어라운드 Top 2 알림
+            // 2. 턴어라운드 Top 2 알림
             quantScreenerService.sendTurnaroundAlerts(2);
 
             log.info("=== 아침 알림 완료 ===");

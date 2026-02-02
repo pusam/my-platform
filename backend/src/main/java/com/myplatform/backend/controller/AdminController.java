@@ -175,7 +175,7 @@ public class AdminController {
         }
     }
 
-    @Operation(summary = "API 통계 조회", description = "KIS API, Reddit API 등의 사용 통계 및 캐시 상태를 조회합니다.")
+    @Operation(summary = "API 통계 조회", description = "KIS API 등의 사용 통계 및 캐시 상태를 조회합니다.")
     @GetMapping("/api-stats")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getApiStats() {
         try {
@@ -184,7 +184,6 @@ public class AdminController {
             // 캐시 통계
             Map<String, Object> cacheStats = new HashMap<>();
             String[] cacheNames = {"investorTrend", "continuousBuy", "supplySurge",
-                                   "redditUSStocks", "redditKRStocks", "redditPosts",
                                    "goldPrice", "silverPrice"};
 
             for (String cacheName : cacheNames) {
@@ -206,7 +205,7 @@ public class AdminController {
         }
     }
 
-    @Operation(summary = "캐시 초기화", description = "모든 API 캐시를 초기화합니다. (KIS API, Reddit API, 금/은 시세 등)")
+    @Operation(summary = "캐시 초기화", description = "모든 API 캐시를 초기화합니다. (KIS API, 금/은 시세 등)")
     @PostMapping("/clear-cache")
     public ResponseEntity<ApiResponse<String>> clearAllCaches() {
         try {

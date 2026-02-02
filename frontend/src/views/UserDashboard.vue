@@ -118,40 +118,6 @@
             </span>
           </article>
 
-          <article v-if="widgetSettings.investorTrades" class="menu-card short-squeeze" @click="goToShortSqueeze">
-            <div class="card-icon short-squeeze-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-              </svg>
-            </div>
-            <h3>공매도 분석</h3>
-            <p>숏스퀴즈 후보, 대차잔고/공매도 상위 종목</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.investorTrades" class="menu-card technical" @click="goToTechnicalAnalysis">
-            <div class="card-icon technical-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M3 3v18h18"/>
-                <path d="M18 9l-5 5-4-4-3 3"/>
-                <circle cx="18" cy="9" r="2"/>
-                <circle cx="13" cy="14" r="2"/>
-                <circle cx="9" cy="10" r="2"/>
-              </svg>
-            </div>
-            <h3>기술적 분석</h3>
-            <p>이동평균선, RSI, 골든크로스 등 매매 시그널</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
           <article class="menu-card market-timing" @click="goToMarketTiming">
             <div class="card-icon market-timing-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -163,26 +129,6 @@
             </div>
             <h3>시장 지표</h3>
             <p>ADR 기반 시장 과열/침체 분석</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card reddit" @click="goToReddit">
-            <div class="card-icon reddit-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M16.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
-                <path d="M10.5 12a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>
-                <path d="M15 15.5c-1 1-2 1.5-3 1.5s-2-.5-3-1.5"/>
-                <path d="M17 8l2-2M19 6a1 1 0 100-2 1 1 0 000 2z"/>
-                <path d="M17.5 9c1.5 0 2.5 1 2.5 2"/>
-              </svg>
-            </div>
-            <h3>Reddit 주식 정보</h3>
-            <p>WSB, stocks 등 해외 커뮤니티 트렌드</p>
             <span class="card-arrow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9,6 15,12 9,18"/>
@@ -593,9 +539,6 @@ export default {
     goToSector() {
       this.$router.push('/sector')
     },
-    goToReddit() {
-      this.$router.push('/reddit')
-    },
     goToInvestorTrade() {
       this.$router.push('/investor-trades')
     },
@@ -607,12 +550,6 @@ export default {
     },
     goToEarningsScreener() {
       this.$router.push('/earnings-screener')
-    },
-    goToShortSqueeze() {
-      this.$router.push('/short-squeeze')
-    },
-    goToTechnicalAnalysis() {
-      this.$router.push('/technical-analysis')
     },
     goToMarketTiming() {
       this.$router.push('/market-timing')
@@ -837,25 +774,6 @@ export default {
   color: #4F46E5;
 }
 
-.card-icon.reddit-icon {
-  background: linear-gradient(135deg, rgba(255, 69, 0, 0.15) 0%, rgba(255, 87, 34, 0.15) 100%);
-  color: #FF4500;
-}
-
-.menu-card.reddit {
-  background: linear-gradient(135deg, rgba(255, 247, 237, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(255, 69, 0, 0.2);
-}
-
-.menu-card.reddit:hover {
-  border-color: #FF4500;
-  box-shadow: 0 20px 40px rgba(255, 69, 0, 0.15);
-}
-
-.menu-card.reddit h3 {
-  color: #EA580C;
-}
-
 /* 금 시세 카드 */
 .card-icon.gold-icon {
   background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
@@ -1053,46 +971,6 @@ export default {
 
 .menu-card.screener h3 {
   color: #16a34a;
-}
-
-/* 공매도 분석 카드 */
-.card-icon.short-squeeze-icon {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
-  color: #8b5cf6;
-}
-
-.menu-card.short-squeeze {
-  background: linear-gradient(135deg, rgba(245, 243, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(139, 92, 246, 0.3);
-}
-
-.menu-card.short-squeeze:hover {
-  border-color: #8b5cf6;
-  box-shadow: 0 20px 40px rgba(139, 92, 246, 0.15);
-}
-
-.menu-card.short-squeeze h3 {
-  color: #7c3aed;
-}
-
-/* 기술적 분석 카드 */
-.card-icon.technical-icon {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%);
-  color: #06b6d4;
-}
-
-.menu-card.technical {
-  background: linear-gradient(135deg, rgba(236, 254, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(6, 182, 212, 0.3);
-}
-
-.menu-card.technical:hover {
-  border-color: #06b6d4;
-  box-shadow: 0 20px 40px rgba(6, 182, 212, 0.15);
-}
-
-.menu-card.technical h3 {
-  color: #0891b2;
 }
 
 /* 시장 지표 카드 */

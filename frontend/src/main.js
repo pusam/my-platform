@@ -19,15 +19,12 @@ import CarManagement from './views/CarManagement.vue'
 import UserManagement from './views/UserManagement.vue'
 import ActivityLogs from './views/ActivityLogs.vue'
 import SectorTradingPage from './views/SectorTradingPage.vue'
-import RedditPage from './views/RedditPage.vue'
 import InvestorTradePage from './views/InvestorTradePage.vue'
 import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
 import ConsecutiveBuyPage from './views/ConsecutiveBuyPage.vue'
 import InvestorSurgePage from './views/InvestorSurgePage.vue'
 import NewsPage from './views/NewsPage.vue'
 import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
-import ShortSqueezePage from './views/ShortSqueezePage.vue'
-import TechnicalAnalysisPage from './views/TechnicalAnalysisPage.vue'
 import MarketTimingPage from './views/MarketTimingPage.vue'
 
 const router = createRouter({
@@ -139,12 +136,6 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/reddit',
-      name: 'RedditPage',
-      component: RedditPage,
-      meta: { requiresAuth: true }
-    },
-    {
       path: '/news',
       name: 'NewsPage',
       component: NewsPage,
@@ -178,18 +169,6 @@ const router = createRouter({
       path: '/earnings-screener',
       name: 'EarningsScreener',
       component: EarningsScreenerPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/short-squeeze',
-      name: 'ShortSqueeze',
-      component: ShortSqueezePage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/technical-analysis',
-      name: 'TechnicalAnalysis',
-      component: TechnicalAnalysisPage,
       meta: { requiresAuth: true }
     },
     {
