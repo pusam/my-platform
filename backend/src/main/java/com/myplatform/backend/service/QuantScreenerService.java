@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -700,6 +701,11 @@ public class QuantScreenerService {
                     newName = fetchStockNameFromKis(stock.getStockCode());
                 }
 
+                // 최후의 폴백: 주요 종목 맵에서 조회
+                if (newName == null || newName.isEmpty() || newName.equals(stock.getStockCode())) {
+                    newName = StockNameResolver.getName(stock.getStockCode());
+                }
+
                 if (newName != null && !newName.isEmpty() && !newName.equals(stock.getStockCode())) {
                     log.debug("[종목명 보완] {} -> {}", stock.getStockCode(), newName);
                     stock.setStockName(newName);
@@ -981,4 +987,5 @@ public class QuantScreenerService {
         }
         return null;
     }
+
 }

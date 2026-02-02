@@ -11,6 +11,7 @@ import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockShortDataRepository;
+import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -162,9 +163,15 @@ public class StockAnalysisService {
         VerdictLevel verdictLevel = determineVerdictLevel(overallScore, warnings.size());
         String verdict = verdictLevel.getLabel();
 
+        // ⭐ 종목명 최종 검증 (코드로 표시되면 안됨!)
+        String stockName = financialData.getStockName();
+        if (stockName == null || stockName.isEmpty() || stockName.equals(stockCode)) {
+            stockName = fetchStockNameFallback(stockCode);
+        }
+
         return StockDiagnosisDto.builder()
                 .stockCode(stockCode)
-                .stockName(financialData.getStockName())
+                .stockName(stockName)
                 .market(financialData.getMarket())
                 .currentPrice(financialData.getCurrentPrice())
                 .diagnosisDate(LocalDate.now())
@@ -856,6 +863,7 @@ public class StockAnalysisService {
     private StockDiagnosisDto createEmptyDiagnosis(String stockCode) {
         return StockDiagnosisDto.builder()
                 .stockCode(stockCode)
+                .stockName(fetchStockNameFallback(stockCode))
                 .diagnosisDate(LocalDate.now())
                 .verdict("분석 불가")
                 .verdictLevel(VerdictLevel.NEUTRAL)
@@ -863,5 +871,42 @@ public class StockAnalysisService {
                 .warnings(List.of("재무 데이터가 없습니다. 먼저 데이터를 수집해주세요."))
                 .positives(new ArrayList<>())
                 .build();
+    }
+
+    /**
+     * 종목명 폴백 조회 (코드가 아닌 한글 이름 반환)
+     * - KIS API 조회 → DB 조회 → 주요 종목 맵 순서로 시도
+     */
+    private String fetchStockNameFallback(String stockCode) {
+        // 1차: KIS API에서 조회
+        try {
+            com.fasterxml.jackson.databind.JsonNode response = koreaInvestmentService.getStockPrice(stockCode);
+            if (response != null && response.has("output")) {
+                com.fasterxml.jackson.databind.JsonNode output = response.get("output");
+                String name = output.has("hts_kor_isnm") ? output.get("hts_kor_isnm").asText() : null;
+                if (name != null && !name.isEmpty() && !name.equals(stockCode)) {
+                    return name;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KIS API 종목명 조회 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        // 2차: StockShortData에서 조회
+        try {
+            List<StockShortData> shortData = stockShortDataRepository
+                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1));
+            if (!shortData.isEmpty() && shortData.get(0).getStockName() != null) {
+                String name = shortData.get(0).getStockName();
+                if (!name.isEmpty() && !name.equals(stockCode)) {
+                    return name;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("StockShortData 종목명 조회 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        // 3차: 주요 종목 맵에서 조회
+        return StockNameResolver.getNameOrDefault(stockCode, stockCode);
     }
 }

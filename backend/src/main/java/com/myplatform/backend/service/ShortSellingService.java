@@ -9,6 +9,7 @@ import com.myplatform.backend.entity.StockShortData;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockShortDataRepository;
+import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -521,7 +522,17 @@ public class ShortSellingService {
             }
         }
 
-        // ========== 4차: 기본 DTO 생성 ==========
+        // ========== 4차: 종목명 최종 검증 (코드로 표시되면 안됨!) ==========
+        if (stockName.equals(stockCode) || stockName.isEmpty()) {
+            // 마지막 시도: StockPrice DB에서 조회
+            String dbStockName = fetchStockNameFromDb(stockCode);
+            if (dbStockName != null && !dbStockName.isEmpty() && !dbStockName.equals(stockCode)) {
+                stockName = dbStockName;
+                log.info("DB에서 종목명 조회 성공 [{}]: {}", stockCode, stockName);
+            }
+        }
+
+        // ========== 5차: 기본 DTO 생성 ==========
         ShortSqueezeDto dto = ShortSqueezeDto.builder()
                 .stockCode(stockCode)
                 .stockName(stockName)
@@ -648,4 +659,30 @@ public class ShortSellingService {
         log.info("고점수 숏스퀴즈 알림 발송 완료 - {}건", sentCount);
         return sentCount;
     }
+
+    // ========== 종목명 조회 헬퍼 메서드 ==========
+
+    /**
+     * DB에서 종목명 조회 (StockShortData, StockPriceHistory 등)
+     * - 종목코드가 아닌 실제 한글 종목명을 반환
+     */
+    private String fetchStockNameFromDb(String stockCode) {
+        try {
+            // 1차: StockShortData에서 조회
+            List<StockShortData> shortData = shortDataRepository
+                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, 1));
+            if (!shortData.isEmpty() && shortData.get(0).getStockName() != null) {
+                String name = shortData.get(0).getStockName();
+                if (!name.isEmpty() && !name.equals(stockCode)) {
+                    return name;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("StockShortData에서 종목명 조회 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        // 2차: 종목명 맵에서 조회 (하드코딩된 주요 종목)
+        return StockNameResolver.getName(stockCode);
+    }
+
 }
