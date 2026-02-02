@@ -1183,7 +1183,10 @@ const fetchMagicFormula = async () => {
     if (magicFormulaFilters.value.minMarketCap) {
       params.minMarketCap = magicFormulaFilters.value.minMarketCap;
     }
-    const response = await api.get('/screener/magic-formula', { params });
+    const response = await api.get('/screener/magic-formula', {
+      params,
+      timeout: 30000  // 30초 (시세 조회에 시간 소요)
+    });
     if (response.data.success) {
       magicFormulaStocks.value = response.data.data;
     }
@@ -1202,7 +1205,8 @@ const fetchPegStocks = async () => {
         maxPeg: pegFilters.value.maxPeg,
         minEpsGrowth: pegFilters.value.minEpsGrowth,
         limit: pegFilters.value.limit
-      }
+      },
+      timeout: 30000  // 30초 (시세 조회에 시간 소요)
     });
     if (response.data.success) {
       pegStocks.value = response.data.data;
@@ -1220,7 +1224,8 @@ const fetchTurnaroundStocks = async () => {
     const response = await api.get('/screener/turnaround', {
       params: {
         limit: turnaroundFilters.value.limit
-      }
+      },
+      timeout: 30000  // 30초 (시세 조회에 시간 소요)
     });
     if (response.data.success) {
       turnaroundStocks.value = response.data.data;
@@ -1241,7 +1246,7 @@ const fetchMagicFormulaAI = async () => {
     if (magicFormulaFilters.value.minMarketCap) {
       params.minMarketCap = magicFormulaFilters.value.minMarketCap;
     }
-    const response = await api.get('/screener/magic-formula/ai-analysis', { params });
+    const response = await api.get('/screener/magic-formula/ai-analysis', { params, timeout: 60000 });
     if (response.data.success) {
       magicFormulaAI.value = response.data.analysis;
     } else {
@@ -1264,7 +1269,8 @@ const fetchPegAI = async () => {
         maxPeg: pegFilters.value.maxPeg,
         minEpsGrowth: pegFilters.value.minEpsGrowth,
         limit: 10
-      }
+      },
+      timeout: 60000  // AI 분석에 시간 소요
     });
     if (response.data.success) {
       pegAI.value = response.data.analysis;
@@ -1284,7 +1290,8 @@ const fetchTurnaroundAI = async () => {
   turnaroundAI.value = '';
   try {
     const response = await api.get('/screener/turnaround/ai-analysis', {
-      params: { limit: 10 }
+      params: { limit: 10 },
+      timeout: 60000  // AI 분석에 시간 소요
     });
     if (response.data.success) {
       turnaroundAI.value = response.data.analysis;
