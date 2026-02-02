@@ -43,17 +43,20 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 public class NaverFinanceCrawler {
 
-    // === KRX API 설정 (우선 사용) ===
-    // 중요: KRX는 HTTP를 사용하며, Referer/Origin이 정확해야 함 (HTTPS 사용 시 차단됨)
-    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
-    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
-    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
-    private static final String KRX_ORIGIN = "http://data.krx.co.kr";
+    // === KRX API 설정 (HTTPS 보안 연결) ===
+    private static final String KRX_HOST = "data.krx.co.kr";
+    private static final String KRX_OTP_URL = "https://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
+    private static final String KRX_DATA_URL = "https://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_REFERER = "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201020101";
+    private static final String KRX_ORIGIN = "https://data.krx.co.kr";
     private static final String KRX_SHORT_SELLING_BLD = "dbms/MDC/STAT/srt/MDCSTAT30101";  // 공매도 거래 (종목별)
     private static final String KRX_SHORT_BALANCE_BLD = "dbms/MDC/STAT/srt/MDCSTAT30501";  // 공매도 잔고
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    // 세션 쿠키 저장 (JSESSIONID 유지용)
+    private volatile String sessionCookie = null;
 
     // === 네이버 금융 설정 (KRX 실패 시 폴백) ===
     private static final String BASE_URL = "https://finance.naver.com";
@@ -69,8 +72,8 @@ public class NaverFinanceCrawler {
     private static final int CONNECTION_TIMEOUT = 15000;
     private static final int READ_TIMEOUT = 20000;
 
-    // 브라우저 위장 설정 (KRX/네이버 봇 감지 우회)
-    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    // 브라우저 위장 설정 (최신 Chrome 122 - KRX/네이버 봇 감지 우회)
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
     private static final int MIN_DELAY_MS = 2000;  // 최소 2초 (더 보수적)
     private static final int MAX_DELAY_MS = 4000;  // 최대 4초
 
@@ -164,52 +167,76 @@ public class NaverFinanceCrawler {
      */
     private String getKrxOtpCode(MultiValueMap<String, String> params) {
         try {
-            // ========== 브라우저 위장 헤더 (KRX 봇 감지 우회 핵심) ==========
+            // ========== 최신 Chrome 122 브라우저 위장 헤더 ==========
             HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("Accept", "*/*");
-            // Accept-Encoding 제거: gzip 압축 응답 방지 (OTP가 깨지는 문제 해결)
+            headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("Cache-Control", "no-cache");
             headers.set("Connection", "keep-alive");
-            headers.set("Host", "data.krx.co.kr");
-            headers.set("Origin", KRX_ORIGIN);  // 중요: HTTP (HTTPS 아님!)
-            headers.set("Referer", KRX_REFERER);  // 중요: 이 헤더 없으면 무조건 차단
+            headers.set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            headers.set("Host", KRX_HOST);
+            headers.set("Origin", KRX_ORIGIN);
+            headers.set("Pragma", "no-cache");
+            headers.set("Referer", KRX_REFERER);
+            headers.set("Sec-Ch-Ua", "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"");
+            headers.set("Sec-Ch-Ua-Mobile", "?0");
+            headers.set("Sec-Ch-Ua-Platform", "\"Windows\"");
+            headers.set("Sec-Fetch-Dest", "empty");
+            headers.set("Sec-Fetch-Mode", "cors");
+            headers.set("Sec-Fetch-Site", "same-origin");
             headers.set("User-Agent", USER_AGENT);
+            headers.set("X-Requested-With", "XMLHttpRequest");
+
+            // 세션 쿠키가 있으면 추가
+            if (sessionCookie != null) {
+                headers.set("Cookie", sessionCookie);
+            }
 
             // OTP 요청용 파라미터
             MultiValueMap<String, String> otpParams = new LinkedMultiValueMap<>(params);
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(otpParams, headers);
 
-            log.debug("KRX OTP 요청 - URL: {}, bld: {}", KRX_OTP_URL, params.getFirst("bld"));
+            log.info("KRX OTP 요청 - URL: {}, bld: {}", KRX_OTP_URL, params.getFirst("bld"));
 
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_OTP_URL, HttpMethod.POST, request, String.class);
 
+            // 세션 쿠키 저장 (JSESSIONID)
+            List<String> cookies = response.getHeaders().get("Set-Cookie");
+            if (cookies != null && !cookies.isEmpty()) {
+                sessionCookie = cookies.stream()
+                        .filter(c -> c.contains("JSESSIONID"))
+                        .findFirst()
+                        .map(c -> c.split(";")[0])
+                        .orElse(sessionCookie);
+                if (sessionCookie != null) {
+                    log.debug("KRX 세션 쿠키 저장: {}", sessionCookie);
+                }
+            }
+
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 String otp = response.getBody().trim();
 
-                // ========== OTP 검증 (정상 OTP는 암호화된 긴 문자열) ==========
-                // 실패 케이스: HTML 페이지, JSON 에러, 빈 문자열
+                // ========== OTP 검증 ==========
                 if (otp.isEmpty()) {
                     log.warn("KRX OTP 응답 비어있음");
                     return null;
                 }
                 if (otp.contains("<html>") || otp.contains("<HTML>") || otp.contains("<!DOCTYPE")) {
-                    log.error("KRX OTP 실패: HTML 에러 페이지 반환 - {}", otp.substring(0, Math.min(200, otp.length())));
+                    log.error("KRX OTP 실패: HTML 에러 페이지 - {}", otp.substring(0, Math.min(300, otp.length())));
                     return null;
                 }
                 if (otp.startsWith("{") || otp.startsWith("[")) {
-                    log.error("KRX OTP 실패: JSON 에러 응답 - {}", otp);
+                    log.error("KRX OTP 실패: JSON 응답 - {}", otp);
                     return null;
                 }
                 if (otp.contains("LOGOUT") || otp.contains("error") || otp.contains("ERROR")) {
-                    log.error("KRX OTP 실패: 에러 메시지 - {}", otp);
+                    log.error("KRX OTP 실패: 에러 - {}", otp);
                     return null;
                 }
 
-                // 정상 OTP (암호화된 문자열, 보통 100자 이상)
-                log.info("KRX OTP 획득 성공: 길이={}, 앞20자={}...", otp.length(), otp.substring(0, Math.min(20, otp.length())));
+                log.info("KRX OTP 획득 성공: 길이={}", otp.length());
                 return otp;
             } else {
                 log.warn("KRX OTP 응답 실패: status={}", response.getStatusCode());
@@ -229,18 +256,30 @@ public class NaverFinanceCrawler {
      */
     private String requestKrxDataWithOtp(String otpCode) {
         try {
-            // ========== 브라우저 위장 헤더 (KRX 봇 감지 우회) ==========
+            // ========== 최신 Chrome 122 브라우저 위장 헤더 ==========
             HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Accept", "application/json, text/javascript, */*; q=0.01");
-            // Accept-Encoding 제거: gzip 압축 응답 방지
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            headers.set("Cache-Control", "no-cache");
             headers.set("Connection", "keep-alive");
-            headers.set("Host", "data.krx.co.kr");
-            headers.set("Origin", KRX_ORIGIN);  // 중요: HTTP
-            headers.set("Referer", KRX_REFERER);  // 중요: 필수 헤더
+            headers.set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+            headers.set("Host", KRX_HOST);
+            headers.set("Origin", KRX_ORIGIN);
+            headers.set("Pragma", "no-cache");
+            headers.set("Referer", KRX_REFERER);
+            headers.set("Sec-Ch-Ua", "\"Chromium\";v=\"122\", \"Not(A:Brand\";v=\"24\", \"Google Chrome\";v=\"122\"");
+            headers.set("Sec-Ch-Ua-Mobile", "?0");
+            headers.set("Sec-Ch-Ua-Platform", "\"Windows\"");
+            headers.set("Sec-Fetch-Dest", "empty");
+            headers.set("Sec-Fetch-Mode", "cors");
+            headers.set("Sec-Fetch-Site", "same-origin");
             headers.set("User-Agent", USER_AGENT);
             headers.set("X-Requested-With", "XMLHttpRequest");
+
+            // 세션 쿠키 추가
+            if (sessionCookie != null) {
+                headers.set("Cookie", sessionCookie);
+            }
 
             // 데이터 요청 파라미터 (OTP 코드만 전송)
             MultiValueMap<String, String> dataParams = new LinkedMultiValueMap<>();
@@ -248,7 +287,7 @@ public class NaverFinanceCrawler {
 
             HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(dataParams, headers);
 
-            log.debug("KRX 데이터 요청 - OTP 길이: {}", otpCode.length());
+            log.info("KRX 데이터 요청 - OTP 길이: {}", otpCode.length());
 
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_DATA_URL, HttpMethod.POST, request, String.class);
@@ -258,11 +297,11 @@ public class NaverFinanceCrawler {
 
                 // 응답 검증
                 if (body.contains("LOGOUT") || body.contains("접속 권한이 없습니다")) {
-                    log.error("KRX 데이터 요청 실패: 인증 오류 - {}", body.substring(0, Math.min(100, body.length())));
+                    log.error("KRX 데이터 실패: 인증 오류 - {}", body.substring(0, Math.min(100, body.length())));
                     return null;
                 }
                 if (body.contains("<html>") || body.contains("<HTML>")) {
-                    log.error("KRX 데이터 요청 실패: HTML 에러 페이지 - {}", body.substring(0, Math.min(200, body.length())));
+                    log.error("KRX 데이터 실패: HTML 에러 - {}", body.substring(0, Math.min(200, body.length())));
                     return null;
                 }
 
