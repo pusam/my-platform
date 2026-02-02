@@ -550,7 +550,8 @@ public class SectorTradingService {
                 return price.getCurrentPrice().multiply(price.getVolume());
             }
         } else {
-            // 5분/30분 파워: 미리 조회된 분봉 거래대금 사용 (N+1 문제 해결)
+            // 5분/30분 파워: 미리 조회된 분봉 거래대금만 사용
+            // 주의: 오늘누적으로 폴백하면 안됨! (값이 완전히 다름)
             BigDecimal minuteTradingValue = minuteTradingValueMap != null
                     ? minuteTradingValueMap.get(stockCode)
                     : null;
@@ -558,14 +559,8 @@ public class SectorTradingService {
                 return minuteTradingValue;
             }
 
-            // 폴백: 분봉 데이터 없으면 오늘 누적 거래대금 사용
-            if (price.getAccumulatedTradingValue() != null
-                    && price.getAccumulatedTradingValue().compareTo(BigDecimal.ZERO) > 0) {
-                return price.getAccumulatedTradingValue();
-            }
-            if (price.getCurrentPrice() != null && price.getVolume() != null) {
-                return price.getCurrentPrice().multiply(price.getVolume());
-            }
+            // 분봉 데이터 없으면 0 반환 (오늘누적으로 폴백 X)
+            return BigDecimal.ZERO;
         }
 
         return BigDecimal.ZERO;

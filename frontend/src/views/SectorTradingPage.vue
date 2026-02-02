@@ -41,7 +41,14 @@
       </div>
 
       <!-- 로딩 상태 -->
-      <LoadingSpinner v-if="loading && !sectors.length" message="섹터별 거래대금을 불러오는 중..." />
+      <LoadingSpinner v-if="loading" message="섹터별 거래대금을 불러오는 중..." />
+
+      <!-- 데이터 수집 중 (로딩 끝났는데 데이터 없음) -->
+      <div v-else-if="!sectors.length" class="collecting-state">
+        <div class="collecting-spinner"></div>
+        <p>데이터를 수집하고 있습니다...</p>
+        <p class="collecting-hint">잠시 후 자동으로 새로고침됩니다</p>
+      </div>
 
       <!-- 섹터 카드 그리드 -->
       <div v-else class="sector-grid">
@@ -150,6 +157,8 @@ const totalTradingValue = computed(() => {
   }, 0);
 });
 
+let retryTimeout = null;
+
 const loadData = async () => {
   try {
     loading.value = true;
@@ -157,6 +166,14 @@ const loadData = async () => {
     if (response.data.success) {
       sectors.value = response.data.data || [];
       lastUpdate.value = new Date().toLocaleTimeString('ko-KR');
+
+      // 데이터가 비어있으면 5초 후 자동 재시도
+      if (sectors.value.length === 0) {
+        if (retryTimeout) clearTimeout(retryTimeout);
+        retryTimeout = setTimeout(() => {
+          loadData();
+        }, 5000);
+      }
     }
   } catch (error) {
     console.error('섹터 데이터 로드 실패:', error);
@@ -229,6 +246,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshInterval) {
     clearInterval(refreshInterval);
+  }
+  if (retryTimeout) {
+    clearTimeout(retryTimeout);
   }
 });
 </script>
@@ -552,6 +572,40 @@ onUnmounted(() => {
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 데이터 수집 중 상태 */
+.collecting-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.collecting-spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #e5e7eb;
+  border-top-color: #3B82F6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 20px;
+}
+
+.collecting-state p {
+  color: #4b5563;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.collecting-state .collecting-hint {
+  color: #9ca3af;
+  font-size: 14px;
+  font-weight: 400;
+  margin-top: 8px;
 }
 
 /* 반응형 */

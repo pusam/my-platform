@@ -165,6 +165,8 @@ public class NaverFinanceCrawler {
         List<ShortSellingData> result = new ArrayList<>();
 
         try {
+            log.info("KRX 시장 전체 조회 시작 [{}] - KOSPI", stockCode);
+
             // 최근 거래일 기준으로 조회 (시장 전체)
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("bld", KRX_SHORT_SELLING_BLD);  // MDCSTAT30101
@@ -177,26 +179,42 @@ public class NaverFinanceCrawler {
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_API_URL, HttpMethod.POST, request, String.class);
 
+            log.info("KRX KOSPI 응답 [{}]: status={}, bodyLength={}",
+                    stockCode, response.getStatusCode(),
+                    response.getBody() != null ? response.getBody().length() : 0);
+
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 String body = response.getBody();
-                log.debug("KRX 시장 공매도 응답 길이: {}", body.length());
+
+                // 응답 미리보기 (처음 300자)
+                if (body.length() > 0) {
+                    String preview = body.length() > 300 ? body.substring(0, 300) + "..." : body;
+                    log.info("KRX KOSPI 응답 미리보기: {}", preview);
+                }
 
                 // 응답에서 특정 종목 필터링
                 result = parseKrxMarketResponse(body, stockCode, days);
+                log.info("KRX KOSPI 파싱 결과 [{}]: {}건", stockCode, result.size());
 
                 if (result.isEmpty()) {
                     // KOSDAQ 시도
+                    log.info("KRX KOSDAQ 조회 시작 [{}]", stockCode);
                     params.set("mktId", "KSQ");
                     request = new HttpEntity<>(params, headers);
                     response = restTemplate.exchange(KRX_API_URL, HttpMethod.POST, request, String.class);
 
+                    log.info("KRX KOSDAQ 응답 [{}]: status={}, bodyLength={}",
+                            stockCode, response.getStatusCode(),
+                            response.getBody() != null ? response.getBody().length() : 0);
+
                     if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                         result = parseKrxMarketResponse(response.getBody(), stockCode, days);
+                        log.info("KRX KOSDAQ 파싱 결과 [{}]: {}건", stockCode, result.size());
                     }
                 }
             }
         } catch (Exception e) {
-            log.debug("KRX 시장 공매도 조회 실패: {}", e.getMessage());
+            log.warn("KRX 시장 공매도 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return result;
@@ -210,11 +228,17 @@ public class NaverFinanceCrawler {
         List<ShortSellingData> result = new ArrayList<>();
 
         try {
+            // ISIN 코드 생성 (KRX API는 ISIN 또는 A+종목코드 형식 필요)
+            String isinCode = convertToIsin(stockCode);
+            String aCode = "A" + stockCode;  // A005930 형식
+
+            log.info("KRX 개별 종목 조회 시작 [{}] -> ISIN: {}, A코드: {}", stockCode, isinCode, aCode);
+
             // 개별 종목 조회 (MDCSTAT30301 - 종목별 일별 추이)
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
             params.add("bld", "dbms/MDC/STAT/srt/MDCSTAT30301");
-            params.add("isuCd", stockCode);  // 단축코드
-            params.add("isuCd2", stockCode);
+            params.add("isuCd", isinCode);  // ISIN 코드
+            params.add("isuCd2", aCode);    // A+종목코드
             params.add("strtDd", startDate.format(DateTimeFormatter.BASIC_ISO_DATE));
             params.add("endDd", endDate.format(DateTimeFormatter.BASIC_ISO_DATE));
             params.add("csvxls_isNo", "false");
@@ -230,19 +254,71 @@ public class NaverFinanceCrawler {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 String body = response.getBody();
-                // 응답 미리보기 (디버깅)
-                if (body.length() > 0 && body.length() < 500) {
-                    log.info("KRX 개별 종목 응답 [{}]: {}", stockCode, body);
-                } else if (body.length() >= 500) {
-                    log.debug("KRX 개별 종목 응답 미리보기 [{}]: {}...", stockCode, body.substring(0, 500));
+                // 응답 미리보기 (항상 로깅)
+                if (body.length() > 0) {
+                    String preview = body.length() > 500 ? body.substring(0, 500) + "..." : body;
+                    log.info("KRX 개별 종목 응답 [{}]: {}", stockCode, preview);
                 }
                 result = parseKrxResponse(body, days, stockCode);
             }
         } catch (Exception e) {
-            log.debug("KRX 개별 종목 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.warn("KRX 개별 종목 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return result;
+    }
+
+    /**
+     * 종목코드를 ISIN 코드로 변환
+     * 예: 005930 -> KR7005930003
+     * ISIN 형식: KR + 7(주식) + 6자리코드 + 00 + 체크디지트
+     */
+    private String convertToIsin(String stockCode) {
+        if (stockCode == null || stockCode.length() != 6) {
+            return stockCode;
+        }
+
+        // 기본 ISIN 구조: KR7 + 종목코드(6자리) + 00 + 체크디지트
+        String baseIsin = "KR7" + stockCode + "00";
+
+        // Luhn 알고리즘 변형으로 체크디지트 계산
+        int checkDigit = calculateIsinCheckDigit(baseIsin);
+
+        return baseIsin + checkDigit;
+    }
+
+    /**
+     * ISIN 체크디지트 계산 (Luhn 알고리즘 변형)
+     */
+    private int calculateIsinCheckDigit(String baseIsin) {
+        // 문자를 숫자로 변환 (A=10, B=11, ... Z=35)
+        StringBuilder digits = new StringBuilder();
+        for (char c : baseIsin.toCharArray()) {
+            if (Character.isDigit(c)) {
+                digits.append(c);
+            } else if (Character.isLetter(c)) {
+                digits.append(Character.toUpperCase(c) - 'A' + 10);
+            }
+        }
+
+        // Luhn 알고리즘
+        String numStr = digits.toString();
+        int sum = 0;
+        boolean alternate = true;  // 오른쪽부터 시작, 첫번째는 2배
+
+        for (int i = numStr.length() - 1; i >= 0; i--) {
+            int n = Character.getNumericValue(numStr.charAt(i));
+            if (alternate) {
+                n *= 2;
+                if (n > 9) {
+                    n = (n % 10) + 1;
+                }
+            }
+            sum += n;
+            alternate = !alternate;
+        }
+
+        return (10 - (sum % 10)) % 10;
     }
 
     /**
@@ -256,21 +332,30 @@ public class NaverFinanceCrawler {
             JsonNode dataArray = root.get("OutBlock_1");
 
             if (dataArray == null || !dataArray.isArray()) {
+                log.info("KRX 시장 응답에 OutBlock_1 없음, keys: {}", getJsonKeys(root));
                 return result;
             }
 
+            log.info("KRX 시장 응답 데이터: {}건", dataArray.size());
+
             for (JsonNode item : dataArray) {
-                // 종목 코드 매칭
-                String isuSrtCd = item.has("ISU_SRT_CD") ? item.get("ISU_SRT_CD").asText() : "";
-                if (!stockCode.equals(isuSrtCd)) {
+                // 종목 코드 매칭 (여러 형식 시도)
+                String isuSrtCd = getFieldValue(item, "ISU_SRT_CD", "isuSrtCd", "ISU_CD");
+
+                // A005930 -> 005930, KR7005930003 -> 005930 형식으로 정규화
+                String normalizedCode = normalizeStockCode(isuSrtCd);
+
+                if (!stockCode.equals(normalizedCode)) {
                     continue;
                 }
+
+                log.info("KRX 종목 매칭 성공 [{}]: raw={}", stockCode, isuSrtCd);
 
                 try {
                     ShortSellingData data = new ShortSellingData();
 
                     // 거래일
-                    String dateStr = item.has("TRD_DD") ? item.get("TRD_DD").asText() : "";
+                    String dateStr = getFieldValue(item, "TRD_DD", "trdDd", "STD_DT");
                     LocalDate tradeDate = parseKrxDate(dateStr);
                     if (tradeDate == null) {
                         tradeDate = LocalDate.now();  // 당일 데이터
@@ -401,6 +486,35 @@ public class NaverFinanceCrawler {
             }
         }
         return "";
+    }
+
+    /**
+     * 종목코드 정규화 (다양한 형식을 6자리 숫자로 변환)
+     * A005930 -> 005930
+     * KR7005930003 -> 005930
+     * 005930 -> 005930
+     */
+    private String normalizeStockCode(String code) {
+        if (code == null || code.isEmpty()) {
+            return "";
+        }
+
+        // A005930 형식
+        if (code.length() == 7 && code.startsWith("A")) {
+            return code.substring(1);
+        }
+
+        // KR7005930003 형식 (ISIN)
+        if (code.length() == 12 && code.startsWith("KR7")) {
+            return code.substring(3, 9);
+        }
+
+        // 이미 6자리면 그대로 반환
+        if (code.length() == 6 && code.matches("\\d{6}")) {
+            return code;
+        }
+
+        return code;
     }
 
     /**
