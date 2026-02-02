@@ -85,23 +85,31 @@ public class StockAnalysisService {
         List<String> warnings = new ArrayList<>();
         List<String> positives = new ArrayList<>();
 
-        // 경고 수집
+        // 경고 수집 - 매도 경고 강화
         if (financialHealth.isHasOneTimeGainWarning()) {
             warnings.add("일회성 이익 의심: " + financialHealth.getOneTimeGainReason());
         }
-        // 동반 매도 경고 (둘 다 음수일 때만)
+
+        // 수급 경고 - 매도는 반드시 경고!
         if (supplyDemand.isBothSelling()) {
-            warnings.add("⚠️ 외국인+기관 동반 매도 중");
-        }
-        // 외국인만 대량 매도
-        else if (!supplyDemand.isForeignBuying() && supplyDemand.getForeignNet5Days() != null &&
-                 supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) < 0) {
-            warnings.add("외국인 순매도 중");
-        }
-        // 기관만 대량 매도
-        else if (!supplyDemand.isInstitutionBuying() && supplyDemand.getInstitutionNet5Days() != null &&
-                 supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) < 0) {
-            warnings.add("기관 순매도 중");
+            // 동반 매도는 가장 심각한 경고
+            warnings.add("🚨 외국인+기관 동반 매도 중! 뇌동매매 금지!");
+        } else {
+            // 개별 매도 경고
+            if (supplyDemand.getForeignNet5Days() != null &&
+                supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) < 0) {
+                // 외국인 순매도 금액 계산 (억 단위)
+                BigDecimal foreignNetBillion = supplyDemand.getForeignNet5Days()
+                        .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP).abs();
+                warnings.add("⚠️ 외국인 순매도 " + foreignNetBillion + "억 - 신중히 접근!");
+            }
+            if (supplyDemand.getInstitutionNet5Days() != null &&
+                supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) < 0) {
+                // 기관 순매도 금액 계산 (억 단위)
+                BigDecimal institutionNetBillion = supplyDemand.getInstitutionNet5Days()
+                        .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP).abs();
+                warnings.add("⚠️ 기관 순매도 " + institutionNetBillion + "억 - 신중히 접근!");
+            }
         }
         if (technicalAnalysis.isRsiOverbought()) {
             warnings.add("RSI 과열 구간 (단기 조정 가능성)");
@@ -332,16 +340,25 @@ public class StockAnalysisService {
                 foreignSellDays, institutionSellDays
         );
 
-        // 평가
+        // 평가 - 매도 시 경고 강화
         String assessment;
         if (isBothBuying) {
-            assessment = "매수 우위";
+            assessment = "✅ 외국인+기관 동반 매수";
         } else if (isBothSelling) {
-            assessment = "매도 우위";
-        } else if (isForeignSelling || isInstitutionSelling) {
-            assessment = "매도 주의";
+            assessment = "⚠️ 매도 우위 (뇌동매매 주의!)";
+        } else if (isForeignSelling && isInstitutionSelling) {
+            // 이미 isBothSelling에서 처리됨
+            assessment = "⚠️ 매도 우위 (주의)";
+        } else if (isForeignSelling) {
+            assessment = "⚠️ 외국인 매도 (주의)";
+        } else if (isInstitutionSelling) {
+            assessment = "⚠️ 기관 매도 (주의)";
+        } else if (isForeignBuying && !isInstitutionBuying) {
+            assessment = "외국인 매수 / 기관 관망";
+        } else if (!isForeignBuying && isInstitutionBuying) {
+            assessment = "기관 매수 / 외국인 관망";
         } else {
-            assessment = "혼조";
+            assessment = "혼조 (관망)";
         }
 
         log.debug("[수급분석] {} - 외국인: {}억({}일 매수/{}일 매도), 기관: {}억({}일 매수/{}일 매도), 평가: {}",
@@ -662,22 +679,35 @@ public class StockAnalysisService {
     }
 
     /**
-     * 수급 점수 계산 V2 - 매도 시 감점 명확히 반영
+     * 수급 점수 계산 V2 - 매도 시 감점 강화 (뇌동매매 방지)
+     *
+     * 점수 기준:
+     * - 50점 기준
+     * - 순매수: +15점 기본 + 매수일*3점
+     * - 순매도: -20점 기본 - 매도일*4점 (강화!)
+     * - 동반매도: 추가 -15점 (강화!)
+     * - 대량매도(100억 이상): 추가 -10점
      */
     private int calculateSupplyDemandScoreV2(BigDecimal foreignNet, BigDecimal institutionNet,
                                               int foreignBuyDays, int institutionBuyDays,
                                               int foreignSellDays, int institutionSellDays) {
         int score = 50;  // 기준점
+        BigDecimal BILLION_100 = new BigDecimal("10000000000");  // 100억
 
         // 외국인 수급
         if (foreignNet.compareTo(BigDecimal.ZERO) > 0) {
             // 순매수: 가점
             score += 15;
-            score += foreignBuyDays * 3;  // 매수일 보너스
+            score += foreignBuyDays * 3;
         } else if (foreignNet.compareTo(BigDecimal.ZERO) < 0) {
-            // 순매도: 감점! (핵심 수정)
-            score -= 15;
-            score -= foreignSellDays * 3;  // 매도일 페널티
+            // 순매도: 감점 강화!
+            score -= 20;  // 기본 감점 (15→20)
+            score -= foreignSellDays * 4;  // 매도일 페널티 강화 (3→4)
+
+            // 대량 매도 추가 페널티 (100억 이상)
+            if (foreignNet.abs().compareTo(BILLION_100) > 0) {
+                score -= 10;
+            }
         }
 
         // 기관 수급
@@ -686,14 +716,19 @@ public class StockAnalysisService {
             score += 15;
             score += institutionBuyDays * 3;
         } else if (institutionNet.compareTo(BigDecimal.ZERO) < 0) {
-            // 순매도: 감점! (핵심 수정)
-            score -= 15;
-            score -= institutionSellDays * 3;
+            // 순매도: 감점 강화!
+            score -= 20;  // 기본 감점 (15→20)
+            score -= institutionSellDays * 4;  // 매도일 페널티 강화 (3→4)
+
+            // 대량 매도 추가 페널티 (100억 이상)
+            if (institutionNet.abs().compareTo(BILLION_100) > 0) {
+                score -= 10;
+            }
         }
 
-        // 동반 매도 추가 페널티
+        // 동반 매도 추가 페널티 강화!
         if (foreignNet.compareTo(BigDecimal.ZERO) < 0 && institutionNet.compareTo(BigDecimal.ZERO) < 0) {
-            score -= 10;  // 동반 매도 시 추가 감점
+            score -= 15;  // 동반 매도 시 추가 감점 (10→15)
         }
 
         return Math.max(0, Math.min(100, score));

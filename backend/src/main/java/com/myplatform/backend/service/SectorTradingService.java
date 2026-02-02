@@ -315,7 +315,12 @@ public class SectorTradingService {
 
         StockTradingInfo info = new StockTradingInfo();
         info.setStockCode(stockCode);
-        info.setStockName(price.getStockName() != null ? price.getStockName() : sectorConfig.getStockName(stockCode));
+        // price에서 종목명이 없으면 SectorStockConfig에서 조회
+        String stockName = price.getStockName();
+        if (stockName == null || stockName.isEmpty()) {
+            stockName = sectorConfig.getStockName(stockCode);
+        }
+        info.setStockName(stockName);
         info.setCurrentPrice(price.getCurrentPrice());
         info.setChangeRate(price.getChangeRate());
 

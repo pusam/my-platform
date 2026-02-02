@@ -560,11 +560,11 @@
                     {{ getSupplyDemandLabel(diagnosisData.supplyDemand.foreignNet5Days) }}
                     {{ formatBillionAbs(diagnosisData.supplyDemand.foreignNet5Days) }}
                   </span>
-                  <span class="buy-days" v-if="diagnosisData.supplyDemand.foreignNet5Days > 0">
+                  <span class="buy-days" v-if="isSupplyPositive(diagnosisData.supplyDemand.foreignNet5Days)">
                     ({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)
                   </span>
-                  <span class="sell-days" v-else-if="diagnosisData.supplyDemand.foreignNet5Days < 0">
-                    (5일 연속 순매도)
+                  <span class="sell-days" v-else-if="isSupplyNegative(diagnosisData.supplyDemand.foreignNet5Days)">
+                    (연속 순매도 주의!)
                   </span>
                 </div>
                 <div class="supply-row">
@@ -573,11 +573,11 @@
                     {{ getSupplyDemandLabel(diagnosisData.supplyDemand.institutionNet5Days) }}
                     {{ formatBillionAbs(diagnosisData.supplyDemand.institutionNet5Days) }}
                   </span>
-                  <span class="buy-days" v-if="diagnosisData.supplyDemand.institutionNet5Days > 0">
+                  <span class="buy-days" v-if="isSupplyPositive(diagnosisData.supplyDemand.institutionNet5Days)">
                     ({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)
                   </span>
-                  <span class="sell-days" v-else-if="diagnosisData.supplyDemand.institutionNet5Days < 0">
-                    (5일 연속 순매도)
+                  <span class="sell-days" v-else-if="isSupplyNegative(diagnosisData.supplyDemand.institutionNet5Days)">
+                    (연속 순매도 주의!)
                   </span>
                 </div>
                 <div class="supply-summary">
@@ -1376,11 +1376,13 @@ const formatBillionAbs = (value) => {
 };
 
 // 수급 분석 색상 클래스 (양수=빨강/매수, 음수=파랑/매도)
+// ⚠️ 핵심: 반드시 Number()로 변환 후 비교해야 함 (BigDecimal이 문자열로 올 수 있음)
 const getSupplyDemandClass = (value) => {
   if (value === null || value === undefined) return '';
   const num = Number(value);
-  if (num > 0) return 'positive';    // 순매수 → 빨간색
-  if (num < 0) return 'negative';    // 순매도 → 파란색
+  if (isNaN(num)) return '';
+  if (num > 0) return 'supply-positive';    // 순매수 → 빨간색
+  if (num < 0) return 'supply-negative';    // 순매도 → 파란색
   return '';
 };
 
@@ -1388,9 +1390,24 @@ const getSupplyDemandClass = (value) => {
 const getSupplyDemandLabel = (value) => {
   if (value === null || value === undefined) return '';
   const num = Number(value);
+  if (isNaN(num)) return '';
   if (num > 0) return '순매수';
   if (num < 0) return '순매도';
   return '보합';
+};
+
+// 수급 값이 양수인지 확인 (템플릿용 헬퍼)
+const isSupplyPositive = (value) => {
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num > 0;
+};
+
+// 수급 값이 음수인지 확인 (템플릿용 헬퍼)
+const isSupplyNegative = (value) => {
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num < 0;
 };
 
 // ========== 종목 상세 진단 (더블 체크) ==========
@@ -3240,12 +3257,23 @@ onMounted(async () => {
   flex: 1;
 }
 
+/* 수급 전용 색상 클래스 - 한국 주식 기준 */
+/* 양수(순매수) → 빨간색, 음수(순매도) → 파란색 */
+.net-amount.supply-positive {
+  color: #e53e3e !important;  /* 빨간색: 순매수 */
+}
+
+.net-amount.supply-negative {
+  color: #3182ce !important;  /* 파란색: 순매도 */
+}
+
+/* 일반 positive/negative도 유지 (호환성) */
 .net-amount.positive {
-  color: #e74c3c;
+  color: #e53e3e !important;
 }
 
 .net-amount.negative {
-  color: #3498db;
+  color: #3182ce !important;
 }
 
 .buy-days {
@@ -3254,9 +3282,12 @@ onMounted(async () => {
 }
 
 .sell-days {
-  font-size: 0.8rem;
-  color: #3498db;  /* 파란색 - 매도 */
-  font-weight: 500;
+  font-size: 0.85rem;
+  color: #3182ce !important;  /* 파란색 - 매도 */
+  font-weight: 700;
+  background-color: rgba(49, 130, 206, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 .supply-summary {

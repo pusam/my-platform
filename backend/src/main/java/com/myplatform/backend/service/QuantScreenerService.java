@@ -1,11 +1,14 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -30,9 +33,14 @@ public class QuantScreenerService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final TelegramNotificationService telegramNotificationService;
+    private final KoreaInvestmentService koreaInvestmentService;
+    private final StockPriceService stockPriceService;
 
     private static final BigDecimal MAX_DEBT_RATIO = new BigDecimal("200"); // 부채비율 상한 200%
     private static final BigDecimal MIN_NET_INCOME = new BigDecimal("30");  // 최소 순이익 30억원
+
+    // 데이터 클렌징 상수 (PEG 스크리너용)
+    private static final BigDecimal MIN_MARKET_CAP_FOR_PEG = new BigDecimal("500");  // 최소 시가총액 500억원 (동전주 제외)
 
     /**
      * 마법의 공식 스크리너
@@ -177,7 +185,13 @@ public class QuantScreenerService {
      * 1. DB에 PEG가 이미 계산된 종목 조회
      * 2. 없으면 epsGrowth 또는 profitGrowth로 PEG 계산
      * 3. 그래도 없으면 분기별 데이터에서 직접 EPS 성장률 계산
+     *
+     * [데이터 품질 개선]
+     * - 종목명이 코드와 같거나 비어있으면 KIS API로 조회하여 보완
+     * - 시가총액이 0이면 현재가로 계산하여 보완
+     * - 시가총액 500억 미만 동전주/관리종목 제외
      */
+    @Transactional
     public List<ScreenerResultDto> getLowPegStocks(BigDecimal maxPeg, BigDecimal minEpsGrowth, Integer limit) {
         log.info("PEG 스크리닝 시작 - maxPeg: {}, minEpsGrowth: {}, limit: {}", maxPeg, minEpsGrowth, limit);
 
@@ -208,6 +222,9 @@ public class QuantScreenerService {
             log.info("성장률 데이터 없음 - 분기별 데이터에서 직접 계산합니다.");
             return calculatePegFromQuarterlyData(finalMaxPeg, finalMinGrowth, limit);
         }
+
+        // ⭐ 데이터 품질 개선: 종목명/시가총액 보완
+        enrichStockDataBatch(stocks);
 
         List<ScreenerResultDto> results = stocks.stream()
                 .map(stock -> {
@@ -249,6 +266,8 @@ public class QuantScreenerService {
                 .filter(dto -> dto.getPeg() != null && dto.getPeg().compareTo(BigDecimal.ZERO) > 0)
                 .filter(dto -> dto.getPeg().compareTo(finalMaxPeg) <= 0)
                 .filter(dto -> dto.getEpsGrowth() != null && dto.getEpsGrowth().compareTo(finalMinGrowth) >= 0)
+                // ⭐ 데이터 클렌징: 시가총액 500억 이상만 (동전주/관리종목 제외)
+                .filter(dto -> dto.getMarketCap() != null && dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
                 .sorted(Comparator.comparing(ScreenerResultDto::getPeg))
                 .collect(Collectors.toList());
 
@@ -256,23 +275,32 @@ public class QuantScreenerService {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
-        log.info("PEG 스크리닝 완료 - 결과 {}건", results.size());
+        log.info("PEG 스크리닝 완료 - 결과 {}건 (시가총액 500억 이상만)", results.size());
         return results;
     }
 
     /**
      * profitGrowth 기반으로 PEG 계산 (fallback)
      * - DB에 PEG가 없고 epsGrowth도 없을 때 profitGrowth로 대체
+     * - 데이터 클렌징: 시가총액 500억 이상만 포함
      */
     private List<ScreenerResultDto> calculatePegFromQuarterlyData(BigDecimal maxPeg, BigDecimal minGrowth, Integer limit) {
         // profitGrowth가 있는 종목들 조회
         List<StockFinancialData> allStocks = stockFinancialDataRepository.findStocksWithGrowthData();
         log.info("성장률 데이터 있는 종목 (fallback): {}건", allStocks.size());
 
+        // ⭐ 데이터 품질 개선
+        enrichStockDataBatch(allStocks);
+
         List<ScreenerResultDto> results = new ArrayList<>();
 
         for (StockFinancialData stock : allStocks) {
             if (stock.getPer() == null || stock.getPer().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            // ⭐ 데이터 클렌징: 시가총액 500억 이상만
+            if (stock.getMarketCap() == null || stock.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) < 0) {
                 continue;
             }
 
@@ -314,7 +342,7 @@ public class QuantScreenerService {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
-        log.info("profitGrowth 기반 PEG 계산 완료 - 결과 {}건", results.size());
+        log.info("profitGrowth 기반 PEG 계산 완료 - 결과 {}건 (시가총액 500억 이상만)", results.size());
         return results;
     }
 
@@ -591,5 +619,174 @@ public class QuantScreenerService {
 
         log.info("턴어라운드 알림 발송 완료 - {}건", sentCount);
         return sentCount;
+    }
+
+    // ========== 데이터 품질 개선 메서드 ==========
+
+    /**
+     * 종목 데이터 품질 개선 (배치 처리)
+     * - 종목명이 코드와 같거나 비어있으면 KIS API로 조회하여 보완
+     * - 시가총액이 0이면 현재가 기반으로 계산하여 보완
+     */
+    private void enrichStockDataBatch(List<StockFinancialData> stocks) {
+        if (stocks == null || stocks.isEmpty()) {
+            return;
+        }
+
+        int enrichedNameCount = 0;
+        int enrichedMarketCapCount = 0;
+
+        // 종목명 또는 시가총액 보완이 필요한 종목 추출
+        List<String> stockCodesToEnrich = stocks.stream()
+                .filter(s -> isStockNameMissing(s) || isMarketCapMissing(s))
+                .map(StockFinancialData::getStockCode)
+                .distinct()
+                .collect(Collectors.toList());
+
+        if (stockCodesToEnrich.isEmpty()) {
+            return;
+        }
+
+        log.info("[데이터 품질 개선] 보완이 필요한 종목: {}건", stockCodesToEnrich.size());
+
+        // StockPriceService로 배치 조회 (시세 + 종목명)
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodesToEnrich);
+
+        for (StockFinancialData stock : stocks) {
+            boolean updated = false;
+            StockPriceDto priceDto = priceMap.get(stock.getStockCode());
+
+            // 1. 종목명 보완
+            if (isStockNameMissing(stock)) {
+                String newName = null;
+
+                // StockPriceService에서 가져온 이름 사용
+                if (priceDto != null && priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
+                    newName = priceDto.getStockName();
+                }
+
+                // 여전히 없으면 KIS API 직접 호출
+                if (newName == null || newName.isEmpty() || newName.equals(stock.getStockCode())) {
+                    newName = fetchStockNameFromKis(stock.getStockCode());
+                }
+
+                if (newName != null && !newName.isEmpty() && !newName.equals(stock.getStockCode())) {
+                    log.debug("[종목명 보완] {} -> {}", stock.getStockCode(), newName);
+                    stock.setStockName(newName);
+                    updated = true;
+                    enrichedNameCount++;
+                }
+            }
+
+            // 2. 시가총액 보완
+            if (isMarketCapMissing(stock)) {
+                BigDecimal newMarketCap = null;
+
+                // StockPriceService에서 현재가 기반으로 계산
+                if (priceDto != null && priceDto.getCurrentPrice() != null) {
+                    // 시가총액 직접 조회 시도
+                    newMarketCap = fetchMarketCapFromKis(stock.getStockCode());
+
+                    // 없으면 현재가만이라도 업데이트
+                    if (newMarketCap == null && stock.getCurrentPrice() == null) {
+                        stock.setCurrentPrice(priceDto.getCurrentPrice());
+                        updated = true;
+                    }
+                }
+
+                if (newMarketCap != null && newMarketCap.compareTo(BigDecimal.ZERO) > 0) {
+                    log.debug("[시가총액 보완] {} -> {}억", stock.getStockCode(), newMarketCap);
+                    stock.setMarketCap(newMarketCap);
+                    updated = true;
+                    enrichedMarketCapCount++;
+                }
+            }
+
+            // DB 업데이트
+            if (updated) {
+                try {
+                    stockFinancialDataRepository.save(stock);
+                } catch (Exception e) {
+                    log.warn("[데이터 품질 개선] DB 저장 실패 - {}: {}", stock.getStockCode(), e.getMessage());
+                }
+            }
+        }
+
+        if (enrichedNameCount > 0 || enrichedMarketCapCount > 0) {
+            log.info("[데이터 품질 개선 완료] 종목명: {}건, 시가총액: {}건 보완됨",
+                    enrichedNameCount, enrichedMarketCapCount);
+        }
+    }
+
+    /**
+     * 종목명이 누락되었는지 확인
+     * - null, 빈 문자열, 또는 종목코드와 동일하면 누락으로 판단
+     */
+    private boolean isStockNameMissing(StockFinancialData stock) {
+        String name = stock.getStockName();
+        String code = stock.getStockCode();
+        return name == null || name.trim().isEmpty() || name.equals(code);
+    }
+
+    /**
+     * 시가총액이 누락되었는지 확인
+     * - null 또는 0이면 누락으로 판단
+     */
+    private boolean isMarketCapMissing(StockFinancialData stock) {
+        BigDecimal marketCap = stock.getMarketCap();
+        return marketCap == null || marketCap.compareTo(BigDecimal.ZERO) <= 0;
+    }
+
+    /**
+     * KIS API에서 종목명 조회
+     */
+    private String fetchStockNameFromKis(String stockCode) {
+        try {
+            JsonNode response = koreaInvestmentService.getStockInfo(stockCode);
+            if (response != null && response.has("output")) {
+                JsonNode output = response.get("output");
+                // prdt_abrv_name: 상품약어명, hts_kor_isnm: HTS 한글 종목명
+                if (output.has("prdt_abrv_name")) {
+                    String name = output.get("prdt_abrv_name").asText();
+                    if (name != null && !name.isEmpty()) {
+                        return name;
+                    }
+                }
+                if (output.has("hts_kor_isnm")) {
+                    String name = output.get("hts_kor_isnm").asText();
+                    if (name != null && !name.isEmpty()) {
+                        return name;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KIS API 종목명 조회 실패 - {}: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * KIS API에서 시가총액 조회
+     * - 억원 단위로 반환
+     */
+    private BigDecimal fetchMarketCapFromKis(String stockCode) {
+        try {
+            JsonNode response = koreaInvestmentService.getStockInfo(stockCode);
+            if (response != null && response.has("output")) {
+                JsonNode output = response.get("output");
+                // hts_avls: 시가총액 (원 단위)
+                if (output.has("hts_avls")) {
+                    String avlsStr = output.get("hts_avls").asText();
+                    if (avlsStr != null && !avlsStr.isEmpty()) {
+                        BigDecimal avls = new BigDecimal(avlsStr);
+                        // 원 -> 억원 변환
+                        return avls.divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("KIS API 시가총액 조회 실패 - {}: {}", stockCode, e.getMessage());
+        }
+        return null;
     }
 }
