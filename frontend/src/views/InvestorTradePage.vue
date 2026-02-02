@@ -102,15 +102,22 @@ const fetchData = async () => {
   }
 };
 const autoCollectAndFetch = async () => {
-  collecting.value = true;
-  try {
-    // 삭제 후 재수집
-    await api.post('/investor/recollect');
-    await fetchData();
-  } catch (error) {
-    console.error('데이터 수집 오류:', error);
-  } finally {
-    collecting.value = false;
+  // 먼저 기존 데이터 조회 시도
+  await fetchData();
+
+  // 데이터가 없으면 오늘 데이터만 수집 (전체 삭제 X)
+  if (Object.values(allTrades.value).every(arr => arr.length === 0)) {
+    collecting.value = true;
+    try {
+      // /investor/collect: 오늘 데이터만 수집 (기존 데이터 유지)
+      // /investor/recollect: 전체 삭제 후 재수집 (사용 금지!)
+      await api.post('/investor/collect');
+      await fetchData();
+    } catch (error) {
+      console.error('데이터 수집 오류:', error);
+    } finally {
+      collecting.value = false;
+    }
   }
 };
 const goToDetail = (stockCode) => {
