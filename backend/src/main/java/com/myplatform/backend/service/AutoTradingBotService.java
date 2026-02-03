@@ -7,28 +7,25 @@ import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.dto.PaperTradingDto.TradeHistoryDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.BotConfig;
+import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -65,6 +62,10 @@ public class AutoTradingBotService {
     private final InvestorSurgeService investorSurgeService;
     private final StockPriceService stockPriceService;
     private final TelegramNotificationService telegramService;
+    private final BotConfigRepository botConfigRepository;
+
+    // 봇 설정 키
+    private static final String BOT_CONFIG_KEY = "trading_bot";
 
     // 현재 사용 중인 매매 서비스
     private volatile TradeService activeTradeService;
@@ -104,7 +105,8 @@ public class AutoTradingBotService {
             QuantScreenerService quantScreenerService,
             InvestorSurgeService investorSurgeService,
             StockPriceService stockPriceService,
-            TelegramNotificationService telegramService) {
+            TelegramNotificationService telegramService,
+            BotConfigRepository botConfigRepository) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -112,6 +114,7 @@ public class AutoTradingBotService {
         this.investorSurgeService = investorSurgeService;
         this.stockPriceService = stockPriceService;
         this.telegramService = telegramService;
+        this.botConfigRepository = botConfigRepository;
 
         // 기본값: 모의투자
         this.activeTradeService = virtualTradeService;
@@ -174,49 +177,43 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 봇 상태를 파일에 저장
+     * 봇 상태를 DB에 저장
      */
-    private void saveBotState(String status, TradingMode mode) {
+    @Transactional
+    protected void saveBotState(String status, TradingMode mode) {
         try {
-            Path statusFile = Paths.get(BOT_STATUS_FILE);
-            Properties props = new Properties();
-            props.setProperty("status", status);
-            props.setProperty("mode", mode.name());
-            props.setProperty("updatedAt", LocalDateTime.now().toString());
+            BotConfig config = botConfigRepository.findByConfigKey(BOT_CONFIG_KEY)
+                    .orElse(BotConfig.builder()
+                            .configKey(BOT_CONFIG_KEY)
+                            .build());
 
-            try (var writer = Files.newBufferedWriter(statusFile)) {
-                props.store(writer, "Auto Trading Bot Status");
-            }
+            config.setIsActive(STATUS_RUNNING.equals(status));
+            config.setTradingMode(mode.name());
+            config.setLastStatusChange(LocalDateTime.now());
 
-            log.debug("[자동매매] 봇 상태 저장: status={}, mode={}", status, mode);
+            botConfigRepository.save(config);
 
-        } catch (IOException e) {
-            log.warn("[자동매매] 봇 상태 저장 실패: {}", e.getMessage());
+            log.debug("[자동매매] 봇 상태 DB 저장: status={}, mode={}", status, mode);
+
+        } catch (Exception e) {
+            log.warn("[자동매매] 봇 상태 DB 저장 실패: {}", e.getMessage());
         }
     }
 
     /**
-     * 저장된 봇 상태 로드
+     * DB에서 봇 상태 로드
      */
     private BotState loadBotState() {
         try {
-            Path statusFile = Paths.get(BOT_STATUS_FILE);
-            if (!Files.exists(statusFile)) {
-                return null;
-            }
+            return botConfigRepository.findByConfigKey(BOT_CONFIG_KEY)
+                    .map(config -> new BotState(
+                            config.getIsActive() ? STATUS_RUNNING : STATUS_STOPPED,
+                            config.getTradingMode() != null ? config.getTradingMode() : TradingMode.VIRTUAL.name()
+                    ))
+                    .orElse(null);
 
-            Properties props = new Properties();
-            try (var reader = Files.newBufferedReader(statusFile)) {
-                props.load(reader);
-            }
-
-            String status = props.getProperty("status", STATUS_STOPPED);
-            String mode = props.getProperty("mode", TradingMode.VIRTUAL.name());
-
-            return new BotState(status, mode);
-
-        } catch (IOException e) {
-            log.warn("[자동매매] 봇 상태 로드 실패: {}", e.getMessage());
+        } catch (Exception e) {
+            log.warn("[자동매매] 봇 상태 DB 로드 실패: {}", e.getMessage());
             return null;
         }
     }
@@ -239,8 +236,7 @@ public class AutoTradingBotService {
     private static final BigDecimal TAKE_PROFIT_RATE = new BigDecimal("5"); // +5%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.2"); // 종목당 최대 20%
 
-    // 봇 상태 저장 파일 (서버 재시작 시 복구용)
-    private static final String BOT_STATUS_FILE = "bot.status";
+    // 봇 상태 상수 (DB 저장용)
     private static final String STATUS_RUNNING = "RUNNING";
     private static final String STATUS_STOPPED = "STOPPED";
 
