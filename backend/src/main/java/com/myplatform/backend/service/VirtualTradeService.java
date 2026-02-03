@@ -460,17 +460,19 @@ public class VirtualTradeService implements TradeService {
 
     /**
      * 종목명 조회
+     * - 빈 문자열도 체크하여 종목코드를 반환하지 않도록 함
      */
     private String getStockName(String stockCode) {
         try {
             StockPriceDto priceDto = stockPriceService.getStockPrice(stockCode);
-            return priceDto != null && priceDto.getStockName() != null
-                    ? priceDto.getStockName()
-                    : stockCode;
+            if (priceDto != null && priceDto.getStockName() != null && !priceDto.getStockName().trim().isEmpty()) {
+                return priceDto.getStockName();
+            }
+            log.warn("종목명 조회 실패 (빈 값): {} - StockPriceService에서 종목명 없음", stockCode);
         } catch (Exception e) {
-            log.warn("종목명 조회 실패: {}", stockCode);
-            return stockCode;
+            log.warn("종목명 조회 실패: {} - {}", stockCode, e.getMessage());
         }
+        return stockCode;
     }
 
     /**
