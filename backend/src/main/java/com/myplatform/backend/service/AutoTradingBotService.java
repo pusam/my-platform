@@ -501,10 +501,10 @@ public class AutoTradingBotService {
                         String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
                         BigDecimal totalAmount = currentPrice.multiply(BigDecimal.valueOf(quantity));
 
-                        String surgeInfo = String.format("수급: %s (외국인 %.1f억 / 기관 %.1f억)",
+                        String surgeInfo = String.format("수급: %s (외국인 %s억 / 기관 %s억)",
                                 surgeResult.mainBuyer,
-                                surgeResult.foreignNetBuy != null ? surgeResult.foreignNetBuy : 0,
-                                surgeResult.instNetBuy != null ? surgeResult.instNetBuy : 0);
+                                surgeResult.foreignNetBuy != null ? String.format("%.1f", surgeResult.foreignNetBuy.doubleValue()) : "N/A",
+                                surgeResult.instNetBuy != null ? String.format("%.1f", surgeResult.instNetBuy.doubleValue()) : "N/A");
 
                         telegramService.sendMessage(
                                 String.format("<b>%s [%s] 매수 체결</b>\n\n", modeEmoji, modeTag) +
