@@ -173,6 +173,32 @@ public class PaperTradingController {
     }
 
     /**
+     * 수동으로 매수 로직 실행 (테스트/디버깅용)
+     * POST /api/paper-trading/bot/trigger-buy
+     */
+    @PostMapping("/bot/trigger-buy")
+    public ResponseEntity<Map<String, Object>> triggerBuyLogic() {
+        log.info("===== 수동 매수 로직 트리거 =====");
+
+        BotStatusDto status = autoTradingBotService.getBotStatus();
+        if (!status.getActive()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "봇이 비활성화 상태입니다. 먼저 봇을 시작해주세요.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        // 매수 로직 수동 실행
+        autoTradingBotService.executeBuyLogic();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "매수 로직이 수동으로 실행되었습니다. 로그를 확인해주세요.");
+        response.put("botStatus", autoTradingBotService.getBotStatus());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * 포트폴리오 현재가 수동 업데이트
      * POST /api/paper-trading/portfolio/refresh
      */

@@ -44,8 +44,8 @@ public class QuantScreenerService {
     private static final BigDecimal MIN_MARKET_CAP_FOR_PEG = new BigDecimal("500");  // 최소 시가총액 500억원 (동전주 제외)
 
     // 모멘텀 스크리너 상수
-    private static final BigDecimal MIN_VOLUME_RATIO = new BigDecimal("200");        // 최소 거래량 비율 200%
-    private static final BigDecimal MIN_MARKET_CAP_FOR_MOMENTUM = new BigDecimal("1000"); // 최소 시가총액 1000억원
+    private static final BigDecimal MIN_VOLUME_RATIO = new BigDecimal("150");        // 최소 거래량 비율 150% (완화)
+    private static final BigDecimal MIN_MARKET_CAP_FOR_MOMENTUM = new BigDecimal("500"); // 최소 시가총액 500억원 (완화)
 
     /**
      * 마법의 공식 스크리너
@@ -998,9 +998,9 @@ public class QuantScreenerService {
      * 모멘텀 스크리너 - 수급 주도형 단타 전략용
      *
      * [선정 조건]
-     * 1. 거래량 급증: 전일 대비 200% 이상
-     * 2. 시가총액: 1000억원 이상 (유동성 확보)
-     * 3. 주가 상승 추세: 등락률 > 0% (당일 양봉)
+     * 1. 거래량 급증: 전일 대비 150% 이상
+     * 2. 시가총액: 500억원 이상 (유동성 확보)
+     * 3. 등락률: >= -2% (과도한 음봉 제외)
      *
      * [정렬 기준]
      * - 거래량 비율 높은 순 (거래량이 터지면서 주가가 움직이는 종목 우선)
@@ -1048,10 +1048,10 @@ public class QuantScreenerService {
                     BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
                     if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-                    // 등락률 (양봉 필터: > 0%)
+                    // 등락률 (완화: >= -2% 허용, 장 초반 눌림 감안)
                     BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
-                    if (changeRate == null || changeRate.compareTo(BigDecimal.ZERO) <= 0) {
-                        log.debug("[모멘텀 스크리너] {} - 음봉/보합 스킵 (등락률: {}%)", stockName, changeRate);
+                    if (changeRate == null || changeRate.compareTo(new BigDecimal("-2")) < 0) {
+                        log.debug("[모멘텀 스크리너] {} - 과도한 음봉 스킵 (등락률: {}%)", stockName, changeRate);
                         continue;
                     }
 
@@ -1065,9 +1065,14 @@ public class QuantScreenerService {
                     // 거래량
                     BigDecimal volume = getJsonBigDecimal(item, "acml_vol");
 
-                    // 시가총액 조회 (억원 단위)
-                    BigDecimal marketCap = fetchMarketCapFromKis(stockCode);
-                    if (marketCap == null || marketCap.compareTo(MIN_MARKET_CAP_FOR_MOMENTUM) < 0) {
+                    // 시가총액 조회 (억원 단위) - 조회 실패 시 통과 (나중에 수급으로 필터링)
+                    BigDecimal marketCap = null;
+                    try {
+                        marketCap = fetchMarketCapFromKis(stockCode);
+                    } catch (Exception e) {
+                        log.debug("[모멘텀 스크리너] {} - 시가총액 조회 실패, 일단 통과", stockName);
+                    }
+                    if (marketCap != null && marketCap.compareTo(MIN_MARKET_CAP_FOR_MOMENTUM) < 0) {
                         log.debug("[모멘텀 스크리너] {} - 시가총액 부족 ({}억)", stockName, marketCap);
                         continue;
                     }
