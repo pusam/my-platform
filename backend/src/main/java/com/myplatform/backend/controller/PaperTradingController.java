@@ -147,6 +147,7 @@ public class PaperTradingController {
     /**
      * 봇 시작 (모드 지정)
      * POST /api/paper-trading/bot/start?mode=VIRTUAL (기본) 또는 REAL
+     * - 봇 활성화 후 즉시 매수 로직 1회 실행
      */
     @PostMapping("/bot/start")
     public ResponseEntity<Map<String, Object>> startBot(
@@ -154,8 +155,20 @@ public class PaperTradingController {
         TradingMode tradingMode = parseTradingMode(mode);
 
         BotStatusDto status = autoTradingBotService.startBot(tradingMode);
+
+        // 봇 시작 후 즉시 매수 로직 실행 (비동기)
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000); // 1초 대기 후 실행
+                log.info("[봇 시작] 즉시 매수 로직 실행 시작");
+                autoTradingBotService.executeBuyLogic();
+            } catch (Exception e) {
+                log.error("[봇 시작] 즉시 매수 로직 실행 실패: {}", e.getMessage());
+            }
+        }).start();
+
         Map<String, Object> response = buildSuccessResponse(status);
-        response.put("message", String.format("자동매매 봇이 %s 모드로 시작되었습니다.",
+        response.put("message", String.format("자동매매 봇이 %s 모드로 시작되었습니다. 매수 로직을 즉시 실행합니다.",
                 tradingMode.getDisplayName()));
         return ResponseEntity.ok(response);
     }
