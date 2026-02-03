@@ -44,8 +44,8 @@ public class QuantScreenerService {
     private static final BigDecimal MIN_MARKET_CAP_FOR_PEG = new BigDecimal("500");  // 최소 시가총액 500억원 (동전주 제외)
 
     // 모멘텀 스크리너 상수
-    private static final BigDecimal MIN_VOLUME_RATIO = new BigDecimal("150");        // 최소 거래량 비율 150% (완화)
-    private static final BigDecimal MIN_MARKET_CAP_FOR_MOMENTUM = new BigDecimal("500"); // 최소 시가총액 500억원 (완화)
+    private static final BigDecimal MIN_VOLUME_RATIO = new BigDecimal("30");          // 최소 거래량 비율 30% (09:10 기준 전일 30%면 급등)
+    private static final BigDecimal MIN_MARKET_CAP_FOR_MOMENTUM = new BigDecimal("1000"); // 최소 시가총액 1,000억원 (슬리피지 방지)
 
     /**
      * 마법의 공식 스크리너

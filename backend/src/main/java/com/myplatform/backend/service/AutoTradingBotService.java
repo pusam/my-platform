@@ -34,15 +34,15 @@ import java.util.stream.Collectors;
  * 자동 매매 봇 서비스 (수급 주도형 단타 전략)
  *
  * [전략 개요]
- * - 장 초반(09:10) 거래량 급증 + 외국인/기관 수급 종목 자동 매수
- * - 손절(-3%) / 익절(+5%) 자동 실행
+ * - 장 초반(09:10~09:30) 거래량 급증 + 외국인/기관 수급 종목 자동 매수
+ * - 손절(-3%) / 익절(+7%) 자동 실행
  * - 장 마감(15:20) 전량 청산 (Time-Cut, 오버나잇 리스크 방지)
  *
  * [매수 조건]
- * 1. 거래량 급증: 전일 대비 150% 이상
+ * 1. 거래량 급증: 전일 대비 30% 이상 (09:10 기준)
  * 2. 수급 필수: 외국인 또는 기관 순매수 (AND 조건)
  * 3. 등락률: >= -2% (과도한 음봉 제외)
- * 4. 시가총액: 500억원 이상
+ * 4. 시가총액: 1,000억원 이상 (슬리피지 방지)
  *
  * [지원 모드]
  * - VIRTUAL: 모의투자
@@ -233,7 +233,7 @@ public class AutoTradingBotService {
 
     // 손절/익절 기준
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-3"); // -3%
-    private static final BigDecimal TAKE_PROFIT_RATE = new BigDecimal("5"); // +5%
+    private static final BigDecimal TAKE_PROFIT_RATE = new BigDecimal("7"); // +7% (강한 놈은 더 간다)
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.2"); // 종목당 최대 20%
 
     // 봇 상태 상수 (DB 저장용)
@@ -271,12 +271,13 @@ public class AutoTradingBotService {
                     "✅ 봇이 활성화되었습니다.\n" +
                     "📌 모드: <b>" + currentMode.getDisplayName() + "</b>\n" +
                     "📌 전략: <b>수급 주도형 단타</b>\n\n" +
-                    "⏰ 매수: 평일 09:10 (장 초반 수급 진입)\n" +
-                    "⏰ 손절/익절 체크: 매분 (-3%/+5%)\n" +
-                    "⏰ 장 마감 청산: 평일 15:20\n\n" +
+                    "⏰ 매수: 09:10~09:30 (5분 간격 감시)\n" +
+                    "⏰ 손절/익절 체크: 매분 (-3%/+7%)\n" +
+                    "⏰ 장 마감 청산: 15:20\n\n" +
                     "📊 매수 조건:\n" +
-                    "  • 거래량 급증 (전일 대비 150%↑)\n" +
+                    "  • 거래량 급증 (전일 대비 30%↑)\n" +
                     "  • 외국인/기관 순매수 필수\n" +
+                    "  • 시가총액 1,000억↑\n" +
                     "  • 등락률 >= -2%\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     modeEmoji + " MyPlatform " + modeTag
@@ -362,12 +363,13 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 매수 로직 실행 (매일 09:10)
+     * 매수 로직 실행 (매일 09:10~09:30, 5분 간격)
      * - 수급 주도형 단타 전략 (Momentum/Day Trading)
      * - 장 초반 수급이 들어올 때 빠르게 진입
+     * - 20분간 감시하여 타이밍 포착 (09:10, 15, 20, 25, 30)
      * - 모의투자는 365일 운영 (주말 포함)
      */
-    @Scheduled(cron = "0 10 9 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10,15,20,25,30 9 * * *", zone = "Asia/Seoul")
     public void executeBuyLogic() {
         if (!botActive.get()) {
             log.debug("자동매매 봇이 비활성화 상태입니다.");
