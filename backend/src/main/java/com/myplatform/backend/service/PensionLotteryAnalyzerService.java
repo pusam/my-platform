@@ -717,17 +717,24 @@ public class PensionLotteryAnalyzerService {
             final int position = pos;
             final int digit = digits.get(pos - 1);
 
-            digitStats.stream()
+            Optional<DigitStatDto> statOpt = digitStats.stream()
                     .filter(d -> d.getPosition() == position && d.getDigit() == digit)
-                    .findFirst()
-                    .ifPresent(stat -> {
-                        // 가중치 기반 점수
-                        if (stat.getWeight() > 10) score += 3;
-                        else if (stat.getWeight() > 5) score += 2;
+                    .findFirst();
 
-                        // Hot 숫자 보너스
-                        if ("HOT".equals(stat.getCategory())) score += 2;
-                    });
+            if (statOpt.isPresent()) {
+                DigitStatDto stat = statOpt.get();
+                // 가중치 기반 점수
+                if (stat.getWeight() > 10) {
+                    score += 3;
+                } else if (stat.getWeight() > 5) {
+                    score += 2;
+                }
+
+                // Hot 숫자 보너스
+                if ("HOT".equals(stat.getCategory())) {
+                    score += 2;
+                }
+            }
         }
 
         // 홀짝 균형 보너스

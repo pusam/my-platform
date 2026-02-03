@@ -37,7 +37,7 @@ public class LottoController {
         LottoAnalysisDto result = lottoAnalyzerService.analyzeAndRecommend();
 
         if (result == null) {
-            return ResponseEntity.ok(ApiResponse.error("로또 데이터 분석에 실패했습니다."));
+            return ResponseEntity.ok(ApiResponse.fail("로또 데이터 분석에 실패했습니다."));
         }
 
         return ResponseEntity.ok(ApiResponse.success(
@@ -64,7 +64,7 @@ public class LottoController {
         LottoDrawDto result = lottoAnalyzerService.getDrawData(drawNo);
 
         if (result == null) {
-            return ResponseEntity.ok(ApiResponse.error(drawNo + "회차 데이터를 찾을 수 없습니다."));
+            return ResponseEntity.ok(ApiResponse.fail(drawNo + "회차 데이터를 찾을 수 없습니다."));
         }
 
         return ResponseEntity.ok(ApiResponse.success(drawNo + "회차 당첨 정보", result));
@@ -78,7 +78,7 @@ public class LottoController {
         log.info("[로또API] 최근 {}회차 조회", count);
 
         if (count < 1 || count > 100) {
-            return ResponseEntity.ok(ApiResponse.error("조회 범위는 1~100 사이여야 합니다."));
+            return ResponseEntity.ok(ApiResponse.fail("조회 범위는 1~100 사이여야 합니다."));
         }
 
         List<LottoDrawDto> result = lottoAnalyzerService.getRecentDraws(count);
@@ -97,7 +97,7 @@ public class LottoController {
         LottoAnalysisDto result = lottoAnalyzerService.analyzeAndRecommend();
 
         if (result == null) {
-            return ResponseEntity.ok(ApiResponse.error("번호 생성에 실패했습니다."));
+            return ResponseEntity.ok(ApiResponse.fail("번호 생성에 실패했습니다."));
         }
 
         return ResponseEntity.ok(ApiResponse.success(
@@ -115,7 +115,7 @@ public class LottoController {
         LocalDate generatedDate = lottoAnalyzerService.getWeeklyRecommendationDate();
 
         if (result == null) {
-            return ResponseEntity.ok(ApiResponse.error("금주의 추천 번호를 생성할 수 없습니다."));
+            return ResponseEntity.ok(ApiResponse.fail("금주의 추천 번호를 생성할 수 없습니다."));
         }
 
         Map<String, Object> response = new HashMap<>();
@@ -137,7 +137,7 @@ public class LottoController {
         LocalDate generatedDate = lottoAnalyzerService.getWeeklyRecommendationDate();
 
         if (result == null) {
-            return ResponseEntity.ok(ApiResponse.error("금주의 추천 번호 갱신에 실패했습니다."));
+            return ResponseEntity.ok(ApiResponse.fail("금주의 추천 번호 갱신에 실패했습니다."));
         }
 
         Map<String, Object> response = new HashMap<>();
