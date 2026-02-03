@@ -95,6 +95,10 @@ public class SecurityConfig {
                         // 자동매매 봇 테스트 API (수동 트리거)
                         .requestMatchers("/api/paper-trading/bot/trigger-buy").permitAll()
 
+                        // 투자자 API 테스트/수집 (디버깅용)
+                        .requestMatchers("/api/investor/test-api").permitAll()
+                        .requestMatchers("/api/investor/collect").permitAll()
+
                         // Admin API는 ADMIN 권한 필요
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/test/admin").hasRole("ADMIN")
