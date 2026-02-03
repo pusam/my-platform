@@ -121,6 +121,22 @@ public class VirtualTradeService implements TradeService {
     }
 
     /**
+     * 매수 처리 (종목명 포함 버전)
+     */
+    @Override
+    public TradeHistoryDto buy(String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
+        // 비관적 락으로 계좌 조회 (동시 접근 차단)
+        VirtualAccount account = getOrCreateActiveAccountWithLock();
+
+        // 종목명이 없거나 종목코드와 같으면 조회 시도
+        if (stockName == null || stockName.trim().isEmpty() || stockName.equals(stockCode)) {
+            stockName = getStockName(stockCode);
+        }
+
+        return executeBuy(account, stockCode, stockName, price, quantity, reason);
+    }
+
+    /**
      * 매수 처리 (비관적 락 적용으로 동시성 문제 해결)
      */
     @Override
@@ -130,6 +146,14 @@ public class VirtualTradeService implements TradeService {
 
         // 종목명 조회
         String stockName = getStockName(stockCode);
+
+        return executeBuy(account, stockCode, stockName, price, quantity, reason);
+    }
+
+    /**
+     * 매수 실행 (공통 로직)
+     */
+    private TradeHistoryDto executeBuy(VirtualAccount account, String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
 
         // 총 금액 계산
         BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));

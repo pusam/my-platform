@@ -43,6 +43,26 @@ public class RealTradeService implements TradeService {
     private static final long BALANCE_CACHE_SECONDS = 30;
 
     /**
+     * 실전 매수 처리 (종목명 포함 버전)
+     */
+    @Override
+    public TradeHistoryDto buy(String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
+        log.info("[실전매매] 매수 주문 시작: {} ({}) x {} @ {}원", stockName, stockCode, quantity, price);
+
+        // KIS API 설정 확인
+        if (!kisService.isRealTradingConfigured()) {
+            throw new IllegalStateException("실전매매 API가 설정되지 않았습니다. 계좌 정보를 확인하세요.");
+        }
+
+        // 종목명이 없거나 종목코드와 같으면 조회 시도
+        if (stockName == null || stockName.trim().isEmpty() || stockName.equals(stockCode)) {
+            stockName = getStockName(stockCode);
+        }
+
+        return executeBuy(stockCode, stockName, price, quantity, reason);
+    }
+
+    /**
      * 실전 매수 처리
      */
     @Override
@@ -57,6 +77,13 @@ public class RealTradeService implements TradeService {
         // 종목명 조회
         String stockName = getStockName(stockCode);
 
+        return executeBuy(stockCode, stockName, price, quantity, reason);
+    }
+
+    /**
+     * 매수 실행 (공통 로직)
+     */
+    private TradeHistoryDto executeBuy(String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
         // KIS API 매수 주문 (지정가 - 슬리피지 방지)
         JsonNode orderResult = kisService.buyStock(stockCode, quantity, price);
         if (orderResult == null) {

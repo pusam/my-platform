@@ -23,6 +23,19 @@ public interface TradeService {
     TradeHistoryDto buy(String stockCode, BigDecimal price, Integer quantity, String reason);
 
     /**
+     * 매수 처리 (종목명 포함)
+     * @param stockCode 종목코드
+     * @param stockName 종목명
+     * @param price 매수가격 (시장가일 경우 현재가)
+     * @param quantity 매수수량
+     * @param reason 매수사유 (AUTO_BUY, MANUAL 등)
+     * @return 거래내역 DTO
+     */
+    default TradeHistoryDto buy(String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
+        return buy(stockCode, price, quantity, reason);
+    }
+
+    /**
      * 매도 처리
      * @param stockCode 종목코드
      * @param price 매도가격 (시장가일 경우 현재가)

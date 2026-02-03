@@ -475,9 +475,9 @@ public class AutoTradingBotService {
                     continue;
                 }
 
-                // 매수 실행 (activeTradeService 사용)
+                // 매수 실행 (activeTradeService 사용) - 종목명 전달
                 try {
-                    activeTradeService.buy(stock.getStockCode(), currentPrice, quantity, "AUTO_BUY");
+                    activeTradeService.buy(stock.getStockCode(), stock.getStockName(), currentPrice, quantity, "AUTO_BUY");
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
                     buyCount++;
