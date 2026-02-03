@@ -27,6 +27,7 @@ import NewsPage from './views/NewsPage.vue'
 import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 import MarketTimingPage from './views/MarketTimingPage.vue'
 import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
+import PensionLotteryPage from './views/PensionLotteryPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -182,6 +183,12 @@ const router = createRouter({
       path: '/lotto',
       name: 'LottoAnalyzer',
       component: LottoAnalyzerPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/pension-lottery',
+      name: 'PensionLottery',
+      component: PensionLotteryPage,
       meta: { requiresAuth: true }
     },
     {

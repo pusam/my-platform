@@ -349,6 +349,24 @@
               </svg>
             </span>
           </article>
+
+          <article class="menu-card pension" @click="goToPensionLottery">
+            <div class="card-icon pension-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="16" rx="2"/>
+                <path d="M7 8h2M11 8h2M15 8h2"/>
+                <path d="M7 12h2M11 12h2M15 12h2"/>
+                <path d="M7 16h10"/>
+              </svg>
+            </div>
+            <h3>연금복권 분석기</h3>
+            <p>통계 기반 연금복권 720+ 추천</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
         </div>
       </section>
 
@@ -576,6 +594,9 @@ export default {
     },
     goToLotto() {
       this.$router.push('/lotto')
+    },
+    goToPensionLottery() {
+      this.$router.push('/pension-lottery')
     },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
@@ -931,6 +952,26 @@ export default {
 
 .menu-card.lotto h3 {
   color: #f57c00;
+}
+
+/* 연금복권 분석기 카드 */
+.card-icon.pension-icon {
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
+  color: #00d4ff;
+}
+
+.menu-card.pension {
+  background: linear-gradient(135deg, rgba(240, 248, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(0, 212, 255, 0.3);
+}
+
+.menu-card.pension:hover {
+  border-color: #00d4ff;
+  box-shadow: 0 20px 40px rgba(0, 212, 255, 0.15);
+}
+
+.menu-card.pension h3 {
+  color: #1e88e5;
 }
 
 /* 투자자 매매 동향 카드 */
