@@ -197,19 +197,56 @@ public class InvestorTradeController {
         result.put("apiConfigured", koreaInvestmentService.isConfigured());
 
         try {
-            // 외국인 순매수 API 테스트
+            // 외국인 순매수 API 테스트 (investorCode = 1)
             com.fasterxml.jackson.databind.JsonNode foreignBuy = koreaInvestmentService.getForeignInstitutionTotal("1", true, true);
 
             if (foreignBuy != null) {
                 result.put("foreignBuy_rtCd", foreignBuy.has("rt_cd") ? foreignBuy.get("rt_cd").asText() : "없음");
                 result.put("foreignBuy_msg", foreignBuy.has("msg1") ? foreignBuy.get("msg1").asText() : "없음");
-                result.put("foreignBuy_count", foreignBuy.has("output") && foreignBuy.get("output").isArray()
-                        ? foreignBuy.get("output").size() : 0);
+                int foreignCount = foreignBuy.has("output") && foreignBuy.get("output").isArray()
+                        ? foreignBuy.get("output").size() : 0;
+                result.put("foreignBuy_count", foreignCount);
+
+                // 첫 번째 항목의 필드값 확인
+                if (foreignCount > 0) {
+                    com.fasterxml.jackson.databind.JsonNode firstItem = foreignBuy.get("output").get(0);
+                    result.put("foreign_sample_stockCode", firstItem.has("mksc_shrn_iscd") ? firstItem.get("mksc_shrn_iscd").asText() : "없음");
+                    result.put("foreign_sample_stockName", firstItem.has("hts_kor_isnm") ? firstItem.get("hts_kor_isnm").asText() : "없음");
+                    result.put("foreign_sample_frgn_ntby", firstItem.has("frgn_ntby_tr_pbmn") ? firstItem.get("frgn_ntby_tr_pbmn").asText() : "없음");
+                    result.put("foreign_sample_orgn_ntby", firstItem.has("orgn_ntby_tr_pbmn") ? firstItem.get("orgn_ntby_tr_pbmn").asText() : "없음");
+                }
             } else {
                 result.put("foreignBuy_error", "응답이 null입니다");
             }
         } catch (Exception e) {
             result.put("foreignBuy_error", e.getMessage());
+        }
+
+        try {
+            // 기관 순매수 API 테스트 (investorCode = 2)
+            com.fasterxml.jackson.databind.JsonNode instBuy = koreaInvestmentService.getForeignInstitutionTotal("2", true, true);
+
+            if (instBuy != null) {
+                result.put("instBuy_rtCd", instBuy.has("rt_cd") ? instBuy.get("rt_cd").asText() : "없음");
+                result.put("instBuy_msg", instBuy.has("msg1") ? instBuy.get("msg1").asText() : "없음");
+                int instCount = instBuy.has("output") && instBuy.get("output").isArray()
+                        ? instBuy.get("output").size() : 0;
+                result.put("instBuy_count", instCount);
+
+                // 첫 번째 항목의 필드값 확인
+                if (instCount > 0) {
+                    com.fasterxml.jackson.databind.JsonNode firstItem = instBuy.get("output").get(0);
+                    result.put("inst_sample_stockCode", firstItem.has("mksc_shrn_iscd") ? firstItem.get("mksc_shrn_iscd").asText() : "없음");
+                    result.put("inst_sample_stockName", firstItem.has("hts_kor_isnm") ? firstItem.get("hts_kor_isnm").asText() : "없음");
+                    result.put("inst_sample_frgn_ntby", firstItem.has("frgn_ntby_tr_pbmn") ? firstItem.get("frgn_ntby_tr_pbmn").asText() : "없음");
+                    result.put("inst_sample_orgn_ntby", firstItem.has("orgn_ntby_tr_pbmn") ? firstItem.get("orgn_ntby_tr_pbmn").asText() : "없음");
+                    result.put("inst_sample_fund_ntby", firstItem.has("fund_ntby_tr_pbmn") ? firstItem.get("fund_ntby_tr_pbmn").asText() : "없음");
+                }
+            } else {
+                result.put("instBuy_error", "응답이 null입니다");
+            }
+        } catch (Exception e) {
+            result.put("instBuy_error", e.getMessage());
         }
 
         return ResponseEntity.ok(ApiResponse.success(result));
