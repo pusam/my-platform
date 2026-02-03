@@ -11,6 +11,10 @@ import com.myplatform.backend.dto.PensionLotteryRecommendationDto;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
 import java.security.SecureRandom;
@@ -115,18 +119,22 @@ public class PensionLotteryAnalyzerService {
         long weeks = java.time.temporal.ChronoUnit.WEEKS.between(firstDraw, today);
         int estimatedDrawNo = (int) weeks + 1;
 
+        log.info("[연금복권분석] 추정 최신 회차: {}회 (검색 범위: {}-{})", estimatedDrawNo, estimatedDrawNo, estimatedDrawNo - 10);
+
         // 추정 회차부터 실제 데이터가 있는지 확인
         for (int i = estimatedDrawNo; i > estimatedDrawNo - 10; i--) {
             PensionLotteryDrawDto draw = fetchDrawData(i);
             if (draw != null) {
                 latestDrawNo = i;
-                log.info("[연금복권분석] 최신 회차: {}회", latestDrawNo);
+                log.info("[연금복권분석] 최신 회차 확인: {}회", latestDrawNo);
                 return;
             }
         }
 
+        // 못 찾으면 알려진 최근 회차 사용 (2024년 1월 기준 약 650회차)
         if (latestDrawNo == null) {
-            latestDrawNo = estimatedDrawNo - 1;
+            latestDrawNo = 650;
+            log.warn("[연금복권분석] 최신 회차 조회 실패, 기본값 사용: {}회", latestDrawNo);
         }
     }
 
@@ -161,16 +169,33 @@ public class PensionLotteryAnalyzerService {
 
         try {
             String url = PENSION_API_URL + drawNo;
-            String response = restTemplate.getForObject(url, String.class);
+
+            // User-Agent 헤더 설정 (API 차단 방지)
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            headers.set("Accept", "application/json, text/plain, */*");
+            headers.set("Referer", "https://www.dhlottery.co.kr/");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            log.info("[연금복권분석] {}회차 API 호출 중...", drawNo);
+
+            ResponseEntity<String> responseEntity = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            String response = responseEntity.getBody();
 
             if (response == null || response.isEmpty()) {
+                log.warn("[연금복권분석] {}회차 응답 없음", drawNo);
                 return null;
             }
+
+            log.info("[연금복권분석] {}회차 응답 수신 (길이: {})", drawNo, response.length());
 
             JsonNode json = objectMapper.readTree(response);
 
             String returnValue = json.path("returnValue").asText();
             if (!"success".equals(returnValue)) {
+                log.warn("[연금복권분석] {}회차 returnValue: {} (응답: {})", drawNo, returnValue,
+                    response.length() > 200 ? response.substring(0, 200) + "..." : response);
                 return null;
             }
 
@@ -199,10 +224,11 @@ public class PensionLotteryAnalyzerService {
             // 캐시 저장
             drawCache.put(drawNo, draw);
 
+            log.debug("[연금복권분석] {}회차 데이터 수집 성공", drawNo);
             return draw;
 
         } catch (Exception e) {
-            log.debug("[연금복권분석] {}회차 데이터 조회 실패: {}", drawNo, e.getMessage());
+            log.warn("[연금복권분석] {}회차 데이터 조회 실패: {} - {}", drawNo, e.getClass().getSimpleName(), e.getMessage());
             return null;
         }
     }
