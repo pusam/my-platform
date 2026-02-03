@@ -245,11 +245,20 @@ public class InvestorTradeService {
     public Map<String, Integer> collectInvestorTradeData(LocalDate tradeDate) {
         log.info("투자자별 매매 데이터 수집 시작: {} (consecutiveBuys 캐시 초기화)", tradeDate);
 
-        // 기존 데이터 삭제 (중복 방지)
+        // 기존 데이터 삭제 (중복 방지) - Native Query로 즉시 삭제
         boolean hasExistingData = investorTradeRepository.existsByTradeDate(tradeDate);
         if (hasExistingData) {
-            log.info("기존 데이터 삭제: {}", tradeDate);
+            log.info("기존 데이터 삭제 시작: {}", tradeDate);
             investorTradeRepository.deleteByTradeDate(tradeDate);
+            log.info("기존 데이터 삭제 완료: {} (Native DELETE 실행됨)", tradeDate);
+        }
+
+        // 삭제 확인
+        boolean stillExists = investorTradeRepository.existsByTradeDate(tradeDate);
+        if (stillExists) {
+            log.error("데이터 삭제 실패! 여전히 데이터가 존재합니다: {}", tradeDate);
+        } else {
+            log.info("데이터 삭제 확인: {} 데이터 없음", tradeDate);
         }
 
         return kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);

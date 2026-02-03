@@ -145,10 +145,14 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
     int deleteDuplicates();
 
     /**
-     * 특정 날짜의 모든 데이터 삭제
+     * 특정 날짜의 모든 데이터 삭제 (Native Query)
+     * - 파생 삭제 메서드 대신 native query 사용하여 성능 및 신뢰성 향상
+     * - flushAutomatically=true: 삭제 전 변경사항 플러시
+     * - clearAutomatically=true: 삭제 후 영속성 컨텍스트 초기화 (중복 방지)
      */
-    @Modifying
-    void deleteByTradeDate(LocalDate tradeDate);
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(value = "DELETE FROM investor_daily_trade WHERE trade_date = :tradeDate", nativeQuery = true)
+    void deleteByTradeDate(@Param("tradeDate") LocalDate tradeDate);
 
     // ========== [성능 최적화] Pageable 지원 쿼리 ==========
 

@@ -71,42 +71,70 @@ public class KisInvestorDataCollector {
      * 특정 일자의 투자자별 매매 데이터 수집
      * KOSPI 상위 50종목의 투자자별 매매 데이터를 수집합니다.
      * KoreaInvestmentService를 통해 토큰 관리
+     *
+     * [개선] 각 투자자 유형별 수집을 독립적으로 처리
+     * - 하나의 투자자 유형 수집 실패 시에도 나머지는 계속 수집
+     * - 중복 키 오류 등이 발생해도 전체 롤백 방지
      */
     public Map<String, Integer> collectDailyInvestorTrades(LocalDate tradeDate) {
         Map<String, Integer> result = new HashMap<>();
+        String dateStr = tradeDate.format(DATE_FORMATTER);
 
+        // 외국인 순매수 상위
         try {
-            String dateStr = tradeDate.format(DATE_FORMATTER);
-
-            // 외국인 순매수 상위
             int foreignBuy = collectInvestorRanking("KOSPI", "FOREIGN", "BUY", dateStr, 50);
             result.put("KOSPI_FOREIGN_BUY", foreignBuy);
+        } catch (Exception e) {
+            log.error("외국인 순매수 수집 실패: {}", e.getMessage());
+            result.put("KOSPI_FOREIGN_BUY", 0);
+        }
 
-            // 외국인 순매도 상위
+        // 외국인 순매도 상위
+        try {
             int foreignSell = collectInvestorRanking("KOSPI", "FOREIGN", "SELL", dateStr, 50);
             result.put("KOSPI_FOREIGN_SELL", foreignSell);
+        } catch (Exception e) {
+            log.error("외국인 순매도 수집 실패: {}", e.getMessage());
+            result.put("KOSPI_FOREIGN_SELL", 0);
+        }
 
-            // 기관 순매수 상위
+        // 기관 순매수 상위
+        try {
             int institutionBuy = collectInvestorRanking("KOSPI", "INSTITUTION", "BUY", dateStr, 50);
             result.put("KOSPI_INSTITUTION_BUY", institutionBuy);
+        } catch (Exception e) {
+            log.error("기관 순매수 수집 실패: {}", e.getMessage());
+            result.put("KOSPI_INSTITUTION_BUY", 0);
+        }
 
-            // 기관 순매도 상위
+        // 기관 순매도 상위
+        try {
             int institutionSell = collectInvestorRanking("KOSPI", "INSTITUTION", "SELL", dateStr, 50);
             result.put("KOSPI_INSTITUTION_SELL", institutionSell);
+        } catch (Exception e) {
+            log.error("기관 순매도 수집 실패: {}", e.getMessage());
+            result.put("KOSPI_INSTITUTION_SELL", 0);
+        }
 
-            // 연기금 순매수 상위 (기관 API 응답에서 연기금 필드 추출)
+        // 연기금 순매수 상위 (기관 API 응답에서 연기금 필드 추출)
+        try {
             int pensionBuy = collectPensionRanking("KOSPI", "BUY", dateStr, 50);
             result.put("KOSPI_PENSION_BUY", pensionBuy);
+        } catch (Exception e) {
+            log.error("연기금 순매수 수집 실패: {}", e.getMessage());
+            result.put("KOSPI_PENSION_BUY", 0);
+        }
 
-            // 연기금 순매도 상위
+        // 연기금 순매도 상위
+        try {
             int pensionSell = collectPensionRanking("KOSPI", "SELL", dateStr, 50);
             result.put("KOSPI_PENSION_SELL", pensionSell);
-
-            log.info("투자자별 매매 데이터 수집 완료: {}", result);
-
         } catch (Exception e) {
-            log.error("투자자별 매매 데이터 수집 실패", e);
+            log.error("연기금 순매도 수집 실패: {}", e.getMessage());
+            result.put("KOSPI_PENSION_SELL", 0);
         }
+
+        log.info("투자자별 매매 데이터 수집 완료: {}", result);
 
         return result;
     }
