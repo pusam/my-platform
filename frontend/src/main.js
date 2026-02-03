@@ -26,6 +26,7 @@ import InvestorSurgePage from './views/InvestorSurgePage.vue'
 import NewsPage from './views/NewsPage.vue'
 import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 import MarketTimingPage from './views/MarketTimingPage.vue'
+import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -175,6 +176,12 @@ const router = createRouter({
       path: '/market-timing',
       name: 'MarketTiming',
       component: MarketTimingPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/lotto',
+      name: 'LottoAnalyzer',
+      component: LottoAnalyzerPage,
       meta: { requiresAuth: true }
     },
     {

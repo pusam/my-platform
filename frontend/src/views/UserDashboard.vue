@@ -332,6 +332,23 @@
               </svg>
             </span>
           </article>
+
+          <article class="menu-card lotto" @click="goToLotto">
+            <div class="card-icon lotto-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>
+              </svg>
+            </div>
+            <h3>로또 분석기</h3>
+            <p>통계 기반 로또 번호 추천</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
         </div>
       </section>
 
@@ -556,6 +573,9 @@ export default {
     },
     goToNews() {
       this.$router.push('/news')
+    },
+    goToLotto() {
+      this.$router.push('/lotto')
     },
     openAiChat() {
       // 챗봇 열기 이벤트 발생
@@ -891,6 +911,26 @@ export default {
 
 .menu-card.news h3 {
   color: #2563eb;
+}
+
+/* 로또 분석기 카드 */
+.card-icon.lotto-icon {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, rgba(255, 87, 34, 0.15) 100%);
+  color: #ff9800;
+}
+
+.menu-card.lotto {
+  background: linear-gradient(135deg, rgba(255, 248, 225, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(255, 193, 7, 0.3);
+}
+
+.menu-card.lotto:hover {
+  border-color: #ffc107;
+  box-shadow: 0 20px 40px rgba(255, 193, 7, 0.15);
+}
+
+.menu-card.lotto h3 {
+  color: #f57c00;
 }
 
 /* 투자자 매매 동향 카드 */
