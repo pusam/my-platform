@@ -31,25 +31,32 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * 자동 매매 봇 서비스 (수급 주도형 단타 전략)
+ * 자동 매매 봇 서비스 (Momentum Day Trading 전략)
  *
- * [전략 개요]
- * - 장 초반(09:10~09:30) 거래량 급증 + 외국인/기관 수급 종목 자동 매수
- * - 손절(-3%) / 익절(+7%) 자동 실행
- * - 장 마감(15:20) 전량 청산 (Time-Cut, 오버나잇 리스크 방지)
+ * ========================================
+ * [전략 명세서]
+ * ========================================
  *
- * [매수 조건]
- * 1. 거래량 급증: 전일 대비 30% 이상 (09:10 기준)
- * 2. 수급 필수: 외국인 또는 기관 순매수 (AND 조건)
- * 3. 등락률: >= -2% (과도한 음봉 제외)
- * 4. 시가총액: 1,000억원 이상 (슬리피지 방지)
+ * 1. 매수 로직 (executeBuyLogic)
+ *    - 실행 시간: 09:10 ~ 09:30 (매분 실행)
+ *    - 종목 선정 기준:
+ *      A. 시가총액: 1,000억 원 이상 (슬리피지 방지)
+ *      B. 거래량 급증: 현재 거래량이 전일 거래량의 30% 이상
+ *      C. 수급 필수: 외국인 또는 기관 순매수 > 0 (필수 조건)
+ *      D. 등락률: -2% 이상 (폭락주 제외)
+ *    - 최대 보유 종목: 3개 (채우면 매수 중단)
+ *    - 종목당 투자 비중: 20%
  *
- * [지원 모드]
- * - VIRTUAL: 모의투자
- * - REAL: 실전투자
+ * 2. 매도 로직 (checkStopLossAndTakeProfit)
+ *    - 감시 시간: 09:10 ~ 15:19 (1분 간격)
+ *    - 손절(Stop Loss): -3%
+ *    - 익절(Take Profit): +7%
  *
- * [수동 테스트]
- * POST /api/paper-trading/bot/trigger-buy
+ * 3. 장 마감 청산 (executeTimeCut)
+ *    - 시간: 15:20
+ *    - 전량 청산 (오버나잇 리스크 방지)
+ *
+ * ========================================
  */
 @Service
 @Slf4j
@@ -64,14 +71,20 @@ public class AutoTradingBotService {
     private final TelegramNotificationService telegramService;
     private final BotConfigRepository botConfigRepository;
 
-    // 봇 설정 키
-    private static final String BOT_CONFIG_KEY = "trading_bot";
+    // ========== 전략 상수 ==========
+    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-3");    // 손절: -3%
+    private static final BigDecimal TAKE_PROFIT_RATE = new BigDecimal("7");   // 익절: +7%
+    private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.2"); // 종목당 최대 20%
+    private static final int MAX_HOLDING_STOCKS = 3;                          // 최대 보유 종목 수
 
-    // 현재 사용 중인 매매 서비스
+    // ========== 봇 상태 상수 ==========
+    private static final String BOT_CONFIG_KEY = "trading_bot";
+    private static final String STATUS_RUNNING = "RUNNING";
+    private static final String STATUS_STOPPED = "STOPPED";
+
+    // ========== 봇 상태 변수 ==========
     private volatile TradeService activeTradeService;
     private volatile TradingMode currentMode = TradingMode.VIRTUAL;
-
-    // 봇 상태
     private final AtomicBoolean botActive = new AtomicBoolean(false);
     private volatile LocalDateTime lastTradeTime;
     private volatile String lastError;
@@ -115,31 +128,25 @@ public class AutoTradingBotService {
         this.stockPriceService = stockPriceService;
         this.telegramService = telegramService;
         this.botConfigRepository = botConfigRepository;
-
-        // 기본값: 모의투자
         this.activeTradeService = virtualTradeService;
     }
 
+    // ==================== 봇 상태 관리 ====================
+
     /**
      * 서버 시작 시 봇 상태 복구
-     * - 이전에 RUNNING 상태였다면 자동으로 봇 재시작
-     * - 텔레그램으로 재시작 알림 발송
      */
     @EventListener(ApplicationReadyEvent.class)
     @Async
     public void restoreBotStateOnStartup() {
         try {
-            // 다른 초기화 작업 대기
             Thread.sleep(5000);
 
             BotState savedState = loadBotState();
             if (savedState != null && STATUS_RUNNING.equals(savedState.status)) {
                 log.info("[자동매매] 서버 재시작 감지 - 이전 상태 복구 중... (모드: {})", savedState.mode);
 
-                // 봇 재시작 (내부적으로 상태 저장하므로 별도 저장 불필요)
                 TradingMode mode = TradingMode.valueOf(savedState.mode);
-
-                // 봇 활성화 (startBot 호출하지 않고 직접 설정 - 중복 알림 방지)
                 currentMode = mode;
                 activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
                 botActive.set(true);
@@ -147,7 +154,6 @@ public class AutoTradingBotService {
 
                 log.info("[자동매매] 봇 자동 재시작 완료 - 모드: {}", currentMode.getDisplayName());
 
-                // 텔레그램 알림 (재시작 전용 메시지)
                 if (telegramService.isEnabled()) {
                     String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
                     String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
@@ -157,15 +163,12 @@ public class AutoTradingBotService {
                             "✅ 서버 재시작으로 봇을 자동 재실행했습니다.\n" +
                             "📌 모드: <b>" + currentMode.getDisplayName() + "</b>\n" +
                             "⏰ 복구 시간: " + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss")) + "\n\n" +
-                            "💡 봇이 이전 상태로 복구되었습니다.\n" +
-                            "   정상적으로 매매가 계속됩니다.\n\n" +
                             "━━━━━━━━━━━━━━━━\n" +
                             modeEmoji + " MyPlatform " + modeTag
                     );
                 }
             } else {
-                log.info("[자동매매] 서버 시작 - 봇 비활성화 상태 유지 (이전 상태: {})",
-                        savedState != null ? savedState.status : "없음");
+                log.info("[자동매매] 서버 시작 - 봇 비활성화 상태 유지");
             }
 
         } catch (InterruptedException e) {
@@ -183,16 +186,13 @@ public class AutoTradingBotService {
     protected void saveBotState(String status, TradingMode mode) {
         try {
             BotConfig config = botConfigRepository.findByConfigKey(BOT_CONFIG_KEY)
-                    .orElse(BotConfig.builder()
-                            .configKey(BOT_CONFIG_KEY)
-                            .build());
+                    .orElse(BotConfig.builder().configKey(BOT_CONFIG_KEY).build());
 
             config.setIsActive(STATUS_RUNNING.equals(status));
             config.setTradingMode(mode.name());
             config.setLastStatusChange(LocalDateTime.now());
 
             botConfigRepository.save(config);
-
             log.debug("[자동매매] 봇 상태 DB 저장: status={}, mode={}", status, mode);
 
         } catch (Exception e) {
@@ -211,16 +211,12 @@ public class AutoTradingBotService {
                             config.getTradingMode() != null ? config.getTradingMode() : TradingMode.VIRTUAL.name()
                     ))
                     .orElse(null);
-
         } catch (Exception e) {
             log.warn("[자동매매] 봇 상태 DB 로드 실패: {}", e.getMessage());
             return null;
         }
     }
 
-    /**
-     * 봇 상태 저장용 내부 클래스
-     */
     private static class BotState {
         final String status;
         final String mode;
@@ -231,17 +227,10 @@ public class AutoTradingBotService {
         }
     }
 
-    // 손절/익절 기준
-    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-3"); // -3%
-    private static final BigDecimal TAKE_PROFIT_RATE = new BigDecimal("7"); // +7% (강한 놈은 더 간다)
-    private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.2"); // 종목당 최대 20%
-
-    // 봇 상태 상수 (DB 저장용)
-    private static final String STATUS_RUNNING = "RUNNING";
-    private static final String STATUS_STOPPED = "STOPPED";
+    // ==================== 봇 시작/중지 ====================
 
     /**
-     * 봇 시작 (모드 지정)
+     * 봇 시작
      */
     public BotStatusDto startBot(TradingMode mode) {
         if (botActive.get()) {
@@ -249,19 +238,15 @@ public class AutoTradingBotService {
             return getBotStatus();
         }
 
-        // 모드 설정
         currentMode = mode != null ? mode : TradingMode.VIRTUAL;
         activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
 
         botActive.set(true);
         resetDailyCounters();
-
-        // 상태 파일에 저장 (서버 재시작 시 복구용)
         saveBotState(STATUS_RUNNING, currentMode);
 
         log.info("자동매매 봇 시작됨 - 모드: {}", currentMode.getDisplayName());
 
-        // 텔레그램 알림
         if (telegramService.isEnabled()) {
             String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
             String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
@@ -269,16 +254,17 @@ public class AutoTradingBotService {
             telegramService.sendMessage(
                     String.format("<b>%s [%s] 자동매매 봇 시작!</b>\n\n", modeEmoji, modeTag) +
                     "✅ 봇이 활성화되었습니다.\n" +
-                    "📌 모드: <b>" + currentMode.getDisplayName() + "</b>\n" +
-                    "📌 전략: <b>수급 주도형 단타</b>\n\n" +
-                    "⏰ 매수: 09:10~09:30 (5분 간격 감시)\n" +
-                    "⏰ 손절/익절 체크: 매분 (-3%/+7%)\n" +
+                    "📌 전략: <b>Momentum Day Trading</b>\n\n" +
+                    "⏰ 매수: 09:10~09:30 (매분 감시)\n" +
+                    "⏰ 손절/익절: 09:10~15:19 (매분 체크)\n" +
                     "⏰ 장 마감 청산: 15:20\n\n" +
                     "📊 매수 조건:\n" +
-                    "  • 거래량 급증 (전일 대비 30%↑)\n" +
-                    "  • 외국인/기관 순매수 필수\n" +
                     "  • 시가총액 1,000억↑\n" +
+                    "  • 거래량 전일 대비 30%↑\n" +
+                    "  • 외국인/기관 순매수 필수\n" +
                     "  • 등락률 >= -2%\n\n" +
+                    "📈 손절: -3% / 익절: +7%\n" +
+                    "📦 최대 보유: 3종목\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     modeEmoji + " MyPlatform " + modeTag
             );
@@ -287,9 +273,6 @@ public class AutoTradingBotService {
         return getBotStatus();
     }
 
-    /**
-     * 봇 시작 (기본: 모의투자)
-     */
     public BotStatusDto startBot() {
         return startBot(TradingMode.VIRTUAL);
     }
@@ -307,13 +290,10 @@ public class AutoTradingBotService {
         String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
 
         botActive.set(false);
-
-        // 상태 파일에 저장 (서버 재시작 시 복구하지 않음)
         saveBotState(STATUS_STOPPED, currentMode);
 
         log.info("자동매매 봇 중지됨 - 모드: {}", currentMode.getDisplayName());
 
-        // 텔레그램 알림
         if (telegramService.isEnabled()) {
             telegramService.sendMessage(
                     String.format("<b>%s [%s] 자동매매 봇 중지!</b>\n\n", modeEmoji, modeTag) +
@@ -355,79 +335,76 @@ public class AutoTradingBotService {
                 .build();
     }
 
-    /**
-     * 현재 매매 모드 조회
-     */
     public TradingMode getCurrentMode() {
         return currentMode;
     }
 
+    // ==================== 매수 로직 ====================
+
     /**
-     * 매수 로직 실행 (매일 09:10~09:30, 5분 간격)
-     * - 수급 주도형 단타 전략 (Momentum/Day Trading)
-     * - 장 초반 수급이 들어올 때 빠르게 진입
-     * - 20분간 감시하여 타이밍 포착 (09:10, 15, 20, 25, 30)
-     * - 모의투자는 365일 운영 (주말 포함)
+     * 매수 로직 실행
+     * - 실행 시간: 09:10 ~ 09:30 (매분)
+     * - 최대 3종목까지만 보유
      */
-    @Scheduled(cron = "0 10,15,20,25,30 9 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10-30 9 * * *", zone = "Asia/Seoul")
     public void executeBuyLogic() {
         if (!botActive.get()) {
-            log.debug("자동매매 봇이 비활성화 상태입니다.");
             return;
         }
 
-        log.info("[자동매매] ===== 수급 주도형 단타 매수 로직 시작 =====");
-        log.info("[자동매매] 모드: {}, 시간: {}", currentMode.getDisplayName(), LocalDateTime.now());
+        log.info("[자동매매] ===== 매수 로직 시작 ({}) =====", LocalTime.now());
         resetDailyCounters();
 
         try {
-            // 계좌 정보 조회 (모드에 따라 다른 서비스 사용)
-            AccountSummaryDto accountSummary = activeTradeService.getAccountSummary();
+            // 현재 보유 종목 수 확인 - 3개 이상이면 매수 중단
+            List<PortfolioItemDto> currentPortfolio = activeTradeService.getPortfolio();
+            if (currentPortfolio.size() >= MAX_HOLDING_STOCKS) {
+                log.info("[자동매매] 최대 보유 종목 수({}) 도달 - 매수 스킵", MAX_HOLDING_STOCKS);
+                return;
+            }
 
-            // 종목당 최대 투자금액 계산
+            int remainingSlots = MAX_HOLDING_STOCKS - currentPortfolio.size();
+            log.info("[자동매매] 현재 보유: {}종목, 매수 가능: {}종목", currentPortfolio.size(), remainingSlots);
+
+            // 계좌 정보 조회
+            AccountSummaryDto accountSummary = activeTradeService.getAccountSummary();
             BigDecimal totalAsset = accountSummary.getCurrentBalance().add(
                     accountSummary.getTotalEvaluation() != null ? accountSummary.getTotalEvaluation() : BigDecimal.ZERO);
             BigDecimal maxPerStock = totalAsset.multiply(MAX_INVESTMENT_RATIO);
 
             log.info("[자동매매] 계좌현황 - 잔액: {}원, 총자산: {}원, 종목당 최대: {}원",
-                    String.format("%,d", accountSummary.getCurrentBalance().intValue()),
-                    String.format("%,d", totalAsset.intValue()),
-                    String.format("%,d", maxPerStock.intValue()));
+                    formatNumber(accountSummary.getCurrentBalance()),
+                    formatNumber(totalAsset),
+                    formatNumber(maxPerStock));
 
-            // 모멘텀 종목 조회 (거래량 급증 + 양봉 + 시총 1000억 이상)
+            // 모멘텀 종목 조회 (시총 1000억+, 거래량 30%+, 등락률 -2%+)
             List<ScreenerResultDto> momentumStocks = quantScreenerService.getMomentumStocks(20);
 
             if (momentumStocks.isEmpty()) {
-                log.warn("[자동매매] 모멘텀 조건에 맞는 종목이 없습니다!");
+                log.info("[자동매매] 모멘텀 조건에 맞는 종목 없음");
                 return;
             }
 
             log.info("[자동매매] 모멘텀 후보 종목 {}건:", momentumStocks.size());
             for (ScreenerResultDto s : momentumStocks) {
-                log.info("  - {} ({}) | 등락률: +{}% | 거래량비율: {}% | 시총: {}억",
+                log.info("  - {} ({}) | 등락률: {}% | 거래량비율: {}% | 시총: {}억",
                         s.getStockName(), s.getStockCode(),
                         s.getChangeRate(), s.getVolumeRatio(), s.getMarketCap());
             }
 
-            // 외국인/기관 수급 데이터 조회 (필수)
-            Map<String, List<InvestorSurgeDto>> surgeStocks = null;
-            try {
-                surgeStocks = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
-                if (surgeStocks == null || surgeStocks.isEmpty()) {
-                    log.error("[자동매매] 수급 데이터 없음 - 매수 중단 (수급 확인 필수)");
-                    return;
-                }
-                log.info("[자동매매] 수급 데이터 조회 완료 - 외국인: {}건, 기관: {}건",
-                        surgeStocks.get("FOREIGN") != null ? surgeStocks.get("FOREIGN").size() : 0,
-                        surgeStocks.get("INSTITUTION") != null ? surgeStocks.get("INSTITUTION").size() : 0);
-            } catch (Exception e) {
-                log.error("[자동매매] 수급 데이터 조회 실패 - 매수 중단: {}", e.getMessage());
+            // 수급 데이터 조회 (필수)
+            Map<String, List<InvestorSurgeDto>> surgeStocks = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
+            if (surgeStocks == null || surgeStocks.isEmpty()) {
+                log.warn("[자동매매] 수급 데이터 없음 - 매수 중단");
                 return;
             }
 
+            log.info("[자동매매] 수급 데이터 - 외국인: {}건, 기관: {}건",
+                    surgeStocks.get("FOREIGN") != null ? surgeStocks.get("FOREIGN").size() : 0,
+                    surgeStocks.get("INSTITUTION") != null ? surgeStocks.get("INSTITUTION").size() : 0);
+
             // 이미 보유 중인 종목 코드
-            List<PortfolioItemDto> portfolioList = activeTradeService.getPortfolio();
-            List<String> holdingCodes = portfolioList.stream()
+            List<String> holdingCodes = currentPortfolio.stream()
                     .map(PortfolioItemDto::getStockCode)
                     .collect(Collectors.toList());
 
@@ -437,20 +414,19 @@ public class AutoTradingBotService {
             for (ScreenerResultDto stock : momentumStocks) {
                 // 잔액 확인
                 if (currentBalance.compareTo(new BigDecimal("100000")) < 0) {
-                    log.info("[자동매매] 잔액 부족으로 매수 중단 (잔액: {}원)", currentBalance);
+                    log.info("[자동매매] 잔액 부족 (잔액: {}원)", formatNumber(currentBalance));
                     break;
                 }
 
-                // 이미 보유 중인 종목 제외
+                // 이미 보유 중인 종목 스킵
                 if (holdingCodes.contains(stock.getStockCode())) {
-                    log.debug("[자동매매] {} - 이미 보유 중, 스킵", stock.getStockName());
                     continue;
                 }
 
-                // 수급 신호 확인 (외국인 또는 기관 순매수 필수!)
-                SurgeSignalResult surgeResult = checkSurgeSignalStrict(stock.getStockCode(), surgeStocks);
+                // 수급 신호 확인 (외국인 OR 기관 순매수 > 0)
+                SurgeSignalResult surgeResult = checkSurgeSignal(stock.getStockCode(), surgeStocks);
                 if (!surgeResult.hasSignal) {
-                    log.info("[자동매매] {} - 수급 신호 없음 (외국인/기관 순매수 필수), 스킵", stock.getStockName());
+                    log.debug("[자동매매] {} - 수급 신호 없음, 스킵", stock.getStockName());
                     continue;
                 }
 
@@ -463,74 +439,47 @@ public class AutoTradingBotService {
 
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
 
-                // 매수 수량 계산 (최대 투자금액 내에서)
-                BigDecimal investAmount = currentBalance.compareTo(maxPerStock) < 0
-                        ? currentBalance
-                        : maxPerStock;
+                // 매수 수량 계산
+                BigDecimal investAmount = currentBalance.compareTo(maxPerStock) < 0 ? currentBalance : maxPerStock;
                 int quantity = investAmount.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
 
                 if (quantity <= 0) {
                     continue;
                 }
 
-                // 매수 실행 (activeTradeService 사용) - 종목명 전달
+                // 매수 실행
                 try {
                     activeTradeService.buy(stock.getStockCode(), stock.getStockName(), currentPrice, quantity, "AUTO_BUY");
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
                     buyCount++;
 
-                    // 상세 로그 (수급 주체, 거래량 정보 포함)
-                    log.info("[자동매매-{}] ★★★ 매수 완료 ★★★", currentMode.name());
+                    // 로그 (거래량 비율, 수급 주체 포함)
+                    log.info("[자동매매-{}] ★ 매수 완료 ★", currentMode.name());
                     log.info("  종목: {} ({})", stock.getStockName(), stock.getStockCode());
                     log.info("  매수가: {}원 x {}주 = {}원",
-                            String.format("%,d", currentPrice.intValue()),
-                            quantity,
-                            String.format("%,d", currentPrice.multiply(BigDecimal.valueOf(quantity)).intValue()));
-                    log.info("  등락률: +{}% | 거래량비율: {}%", stock.getChangeRate(), stock.getVolumeRatio());
+                            formatNumber(currentPrice), quantity,
+                            formatNumber(currentPrice.multiply(BigDecimal.valueOf(quantity))));
+                    log.info("  거래량비율: {}% | 등락률: {}%", stock.getVolumeRatio(), stock.getChangeRate());
                     log.info("  수급주체: {} | 외국인: {}억 | 기관: {}억",
                             surgeResult.mainBuyer,
                             surgeResult.foreignNetBuy != null ? String.format("%.1f", surgeResult.foreignNetBuy) : "N/A",
                             surgeResult.instNetBuy != null ? String.format("%.1f", surgeResult.instNetBuy) : "N/A");
 
-                    // 텔레그램 매수 알림 전송
-                    if (telegramService.isEnabled()) {
-                        String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
-                        String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
-                        BigDecimal totalAmount = currentPrice.multiply(BigDecimal.valueOf(quantity));
+                    // 텔레그램 알림
+                    sendBuyNotification(stock, currentPrice, quantity, surgeResult);
 
-                        String surgeInfo = String.format("수급: %s (외국인 %s억 / 기관 %s억)",
-                                surgeResult.mainBuyer,
-                                surgeResult.foreignNetBuy != null ? String.format("%.1f", surgeResult.foreignNetBuy.doubleValue()) : "N/A",
-                                surgeResult.instNetBuy != null ? String.format("%.1f", surgeResult.instNetBuy.doubleValue()) : "N/A");
-
-                        telegramService.sendMessage(
-                                String.format("<b>%s [%s] 매수 체결</b>\n\n", modeEmoji, modeTag) +
-                                "📈 <b>" + stock.getStockName() + "</b> (" + stock.getStockCode() + ")\n" +
-                                "💰 매수가: " + String.format("%,d", currentPrice.intValue()) + "원\n" +
-                                "📦 수량: " + quantity + "주\n" +
-                                "💵 매수금액: " + String.format("%,d", totalAmount.intValue()) + "원\n\n" +
-                                "📊 <b>모멘텀 지표</b>\n" +
-                                "  • 등락률: +" + stock.getChangeRate() + "%\n" +
-                                "  • 거래량비율: " + stock.getVolumeRatio() + "%\n" +
-                                "  • " + surgeInfo + "\n\n" +
-                                "━━━━━━━━━━━━━━━━\n" +
-                                modeEmoji + " MyPlatform " + modeTag
-                        );
-                    }
-
-                    // 계좌 정보 갱신
-                    AccountSummaryDto refreshedAccount = activeTradeService.getAccountSummary();
-                    currentBalance = refreshedAccount.getCurrentBalance();
+                    // 잔고 갱신
+                    AccountSummaryDto refreshed = activeTradeService.getAccountSummary();
+                    currentBalance = refreshed.getCurrentBalance();
                     holdingCodes.add(stock.getStockCode());
 
-                    // 최대 3종목까지만 매수
-                    if (buyCount >= 3) {
-                        log.info("[자동매매] 일일 최대 매수 종목 수 도달 (3종목)");
+                    // 최대 종목 수 체크
+                    if (holdingCodes.size() >= MAX_HOLDING_STOCKS) {
+                        log.info("[자동매매] 최대 보유 종목 수 도달 ({}종목)", MAX_HOLDING_STOCKS);
                         break;
                     }
 
-                    // API 호출 제한 방지
                     Thread.sleep(currentMode == TradingMode.REAL ? 1000 : 500);
 
                 } catch (Exception e) {
@@ -538,7 +487,7 @@ public class AutoTradingBotService {
                 }
             }
 
-            log.info("[자동매매-{}] ===== 매수 로직 완료 - {}종목 매수 =====", currentMode.name(), buyCount);
+            log.info("[자동매매] ===== 매수 로직 완료 - {}종목 매수 =====", buyCount);
 
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -547,9 +496,12 @@ public class AutoTradingBotService {
         }
     }
 
+    // ==================== 손절/익절 로직 ====================
+
     /**
-     * 손절/익절 체크 (매일 09:00~15:59, 매분)
-     * - 모의투자는 365일 운영 (주말 포함)
+     * 손절/익절 체크
+     * - 감시 시간: 09:10 ~ 15:19 (매분)
+     * - 손절: -3% / 익절: +7%
      */
     @Scheduled(cron = "0 * 9-15 * * *", zone = "Asia/Seoul")
     public void checkStopLossAndTakeProfit() {
@@ -557,20 +509,22 @@ public class AutoTradingBotService {
             return;
         }
 
-        try {
-            // 포트폴리오 조회 (모드에 따라 다른 서비스 사용)
-            List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+        // 시간 체크: 09:10 ~ 15:19
+        LocalTime now = LocalTime.now();
+        if (now.isBefore(LocalTime.of(9, 10)) || now.isAfter(LocalTime.of(15, 19))) {
+            return;
+        }
 
+        try {
+            List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
             if (portfolios.isEmpty()) {
                 return;
             }
 
-            // 종목코드 리스트
             List<String> stockCodes = portfolios.stream()
                     .map(PortfolioItemDto::getStockCode)
                     .collect(Collectors.toList());
 
-            // 일괄 시세 조회
             Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(stockCodes);
 
             for (PortfolioItemDto portfolio : portfolios) {
@@ -593,59 +547,19 @@ public class AutoTradingBotService {
 
                 String reason = null;
 
-                // 손절 체크 (-3% 이하)
+                // 손절 체크 (-3%)
                 if (profitRate.compareTo(STOP_LOSS_RATE) <= 0) {
                     reason = "STOP_LOSS";
-                    log.info("[자동매매-{}] 손절 조건 충족: {} - 손익률 {}%",
-                            currentMode.name(), portfolio.getStockName(), profitRate);
+                    log.info("[자동매매] 손절 조건 충족: {} - 손익률 {}%", portfolio.getStockName(), profitRate);
                 }
-                // 익절 체크 (+5% 이상)
+                // 익절 체크 (+7%)
                 else if (profitRate.compareTo(TAKE_PROFIT_RATE) >= 0) {
                     reason = "TAKE_PROFIT";
-                    log.info("[자동매매-{}] 익절 조건 충족: {} - 손익률 {}%",
-                            currentMode.name(), portfolio.getStockName(), profitRate);
+                    log.info("[자동매매] 익절 조건 충족: {} - 손익률 {}%", portfolio.getStockName(), profitRate);
                 }
 
                 if (reason != null) {
-                    try {
-                        activeTradeService.sell(
-                                portfolio.getStockCode(),
-                                currentPrice,
-                                portfolio.getQuantity(),
-                                reason
-                        );
-                        lastTradeTime = LocalDateTime.now();
-                        todaySellCount.incrementAndGet();
-
-                        log.info("[자동매매-{}] {} 완료: {} x {} @ {}원",
-                                currentMode.name(), reason, portfolio.getStockName(),
-                                portfolio.getQuantity(), currentPrice);
-
-                        // 텔레그램 손절/익절 알림
-                        if (telegramService.isEnabled()) {
-                            String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
-                            String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
-                            String reasonEmoji = reason.equals("STOP_LOSS") ? "🔻 손절" : "🔺 익절";
-                            String reasonTag = reason.equals("STOP_LOSS") ? "손절" : "익절";
-                            BigDecimal profitLoss = currentPrice.subtract(avgPrice)
-                                    .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
-
-                            telegramService.sendMessage(
-                                    String.format("<b>%s [%s] %s 체결</b>\n\n", modeEmoji, modeTag, reasonTag) +
-                                    reasonEmoji + " <b>" + portfolio.getStockName() + "</b> (" + portfolio.getStockCode() + ")\n" +
-                                    "💰 매도가: " + String.format("%,d", currentPrice.intValue()) + "원\n" +
-                                    "📊 평균단가: " + String.format("%,d", avgPrice.intValue()) + "원\n" +
-                                    "📦 수량: " + portfolio.getQuantity() + "주\n" +
-                                    "📈 손익률: " + String.format("%+.2f", profitRate) + "%\n" +
-                                    "💵 손익금액: " + String.format("%+,d", profitLoss.intValue()) + "원\n\n" +
-                                    "━━━━━━━━━━━━━━━━\n" +
-                                    modeEmoji + " MyPlatform " + modeTag
-                            );
-                        }
-
-                    } catch (Exception e) {
-                        log.error("[자동매매] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage());
-                    }
+                    executeSell(portfolio, currentPrice, avgPrice, profitRate, reason);
                 }
             }
 
@@ -657,13 +571,132 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 수급 신호 결과 DTO
+     * 매도 실행 (공통)
      */
+    private void executeSell(PortfolioItemDto portfolio, BigDecimal currentPrice,
+                             BigDecimal avgPrice, BigDecimal profitRate, String reason) {
+        try {
+            activeTradeService.sell(portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), reason);
+            lastTradeTime = LocalDateTime.now();
+            todaySellCount.incrementAndGet();
+
+            BigDecimal profitLoss = currentPrice.subtract(avgPrice).multiply(BigDecimal.valueOf(portfolio.getQuantity()));
+
+            log.info("[자동매매-{}] {} 완료: {} x {} @ {}원, 손익: {}원",
+                    currentMode.name(), reason, portfolio.getStockName(),
+                    portfolio.getQuantity(), formatNumber(currentPrice), formatNumber(profitLoss));
+
+            // 텔레그램 알림
+            sendSellNotification(portfolio, currentPrice, avgPrice, profitRate, profitLoss, reason);
+
+        } catch (Exception e) {
+            log.error("[자동매매] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage());
+        }
+    }
+
+    // ==================== 장 마감 청산 ====================
+
+    /**
+     * 장 마감 청산 (15:20)
+     */
+    @Scheduled(cron = "0 20 15 * * *", zone = "Asia/Seoul")
+    public void executeTimeCut() {
+        if (!botActive.get()) {
+            return;
+        }
+
+        log.info("[자동매매] ===== 장 마감 청산 시작 =====");
+
+        try {
+            TimeCutResult result = sellAllPortfolio();
+
+            if (telegramService.isEnabled()) {
+                sendTimeCutReport(result);
+            }
+
+            log.info("[자동매매] 장 마감 청산 완료 - {}종목 매도, 총 손익: {}원",
+                    result.soldCount, formatNumber(result.totalProfitLoss));
+
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            lastErrorTime = LocalDateTime.now();
+            log.error("[자동매매] 장 마감 청산 오류", e);
+        }
+    }
+
+    /**
+     * 전체 포트폴리오 청산
+     */
+    public TimeCutResult sellAllPortfolio() {
+        List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+
+        if (portfolios.isEmpty()) {
+            log.info("[자동매매] 보유 종목 없음 - 청산 스킵");
+            return new TimeCutResult(0, BigDecimal.ZERO, List.of());
+        }
+
+        List<String> stockCodes = portfolios.stream()
+                .map(PortfolioItemDto::getStockCode)
+                .collect(Collectors.toList());
+
+        Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(stockCodes);
+
+        int soldCount = 0;
+        BigDecimal totalProfitLoss = BigDecimal.ZERO;
+        List<TimeCutItem> soldItems = new java.util.ArrayList<>();
+
+        for (PortfolioItemDto portfolio : portfolios) {
+            StockPriceDto priceDto = prices.get(portfolio.getStockCode());
+            if (priceDto == null || priceDto.getCurrentPrice() == null) {
+                continue;
+            }
+
+            BigDecimal currentPrice = priceDto.getCurrentPrice();
+
+            try {
+                TradeHistoryDto result = activeTradeService.sell(
+                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), "TIME_CUT");
+
+                lastTradeTime = LocalDateTime.now();
+                todaySellCount.incrementAndGet();
+                soldCount++;
+
+                BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
+                totalProfitLoss = totalProfitLoss.add(profitLoss);
+
+                BigDecimal avgPrice = portfolio.getAveragePrice();
+                BigDecimal profitRate = BigDecimal.ZERO;
+                if (avgPrice != null && avgPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    profitRate = currentPrice.subtract(avgPrice)
+                            .divide(avgPrice, 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"));
+                }
+
+                soldItems.add(new TimeCutItem(
+                        portfolio.getStockName(), portfolio.getStockCode(),
+                        portfolio.getQuantity(), currentPrice, profitLoss, profitRate));
+
+                log.info("[자동매매] TIME_CUT: {} x {} @ {}원, 손익: {}원",
+                        portfolio.getStockName(), portfolio.getQuantity(),
+                        formatNumber(currentPrice), formatNumber(profitLoss));
+
+                Thread.sleep(300);
+
+            } catch (Exception e) {
+                log.error("[자동매매] TIME_CUT 실패: {} - {}", portfolio.getStockName(), e.getMessage());
+            }
+        }
+
+        return new TimeCutResult(soldCount, totalProfitLoss, soldItems);
+    }
+
+    // ==================== 수급 신호 확인 ====================
+
     private static class SurgeSignalResult {
-        boolean hasSignal;        // 수급 신호 있음 여부
-        String mainBuyer;         // 주요 매수 주체 (외국인/기관/쌍끌이)
-        BigDecimal foreignNetBuy; // 외국인 순매수 금액 (억원)
-        BigDecimal instNetBuy;    // 기관 순매수 금액 (억원)
+        boolean hasSignal;
+        String mainBuyer;
+        BigDecimal foreignNetBuy;
+        BigDecimal instNetBuy;
 
         SurgeSignalResult(boolean hasSignal, String mainBuyer, BigDecimal foreignNetBuy, BigDecimal instNetBuy) {
             this.hasSignal = hasSignal;
@@ -678,24 +711,18 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 수급 신호 확인 (엄격한 버전 - 수급 주도형 단타 전략용)
-     * - 외국인 또는 기관 순매수가 '필수' 조건
-     * - 수급 데이터가 없으면 매수 불가
-     * - 수급 주체가 매수하지 않는 종목은 절대 매수하지 않음
-     *
-     * @return SurgeSignalResult (수급 신호 여부, 주요 매수 주체, 순매수 금액)
+     * 수급 신호 확인
+     * - 외국인 또는 기관 순매수 > 0 이면 신호 있음
      */
-    private SurgeSignalResult checkSurgeSignalStrict(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
-        // 수급 데이터 없으면 매수 불가 (필수 조건)
+    private SurgeSignalResult checkSurgeSignal(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
         if (surgeStocks == null || surgeStocks.isEmpty()) {
-            log.debug("[자동매매] {} - 수급 데이터 없음, 매수 불가", stockCode);
             return SurgeSignalResult.noSignal();
         }
 
         BigDecimal foreignNetBuy = null;
         BigDecimal instNetBuy = null;
 
-        // 외국인 순매수 확인
+        // 외국인 순매수
         List<InvestorSurgeDto> foreignStocks = surgeStocks.get("FOREIGN");
         if (foreignStocks != null) {
             for (InvestorSurgeDto s : foreignStocks) {
@@ -706,7 +733,7 @@ public class AutoTradingBotService {
             }
         }
 
-        // 기관 순매수 확인
+        // 기관 순매수
         List<InvestorSurgeDto> instStocks = surgeStocks.get("INSTITUTION");
         if (instStocks != null) {
             for (InvestorSurgeDto s : instStocks) {
@@ -717,25 +744,17 @@ public class AutoTradingBotService {
             }
         }
 
-        // 외국인/기관 모두 데이터 없으면 매수 불가
         if (foreignNetBuy == null && instNetBuy == null) {
-            log.debug("[자동매매] {} - 외국인/기관 수급 데이터 없음", stockCode);
             return SurgeSignalResult.noSignal();
         }
 
         boolean foreignBuying = foreignNetBuy != null && foreignNetBuy.compareTo(BigDecimal.ZERO) > 0;
         boolean instBuying = instNetBuy != null && instNetBuy.compareTo(BigDecimal.ZERO) > 0;
 
-        // 필수 조건: 외국인 또는 기관 중 최소 하나는 순매수 해야 함
         if (!foreignBuying && !instBuying) {
-            log.debug("[자동매매] {} - 외국인/기관 모두 순매수 아님 (외국인: {}억, 기관: {}억)",
-                    stockCode,
-                    foreignNetBuy != null ? foreignNetBuy : "N/A",
-                    instNetBuy != null ? instNetBuy : "N/A");
             return SurgeSignalResult.noSignal();
         }
 
-        // 주요 매수 주체 결정
         String mainBuyer;
         if (foreignBuying && instBuying) {
             mainBuyer = "쌍끌이";
@@ -745,199 +764,91 @@ public class AutoTradingBotService {
             mainBuyer = "기관";
         }
 
-        log.info("[자동매매] {} - 수급 신호 확인! 주체: {} (외국인: {}억, 기관: {}억)",
-                stockCode, mainBuyer,
-                foreignNetBuy != null ? String.format("%.1f", foreignNetBuy) : "N/A",
-                instNetBuy != null ? String.format("%.1f", instNetBuy) : "N/A");
-
         return new SurgeSignalResult(true, mainBuyer, foreignNetBuy, instNetBuy);
     }
 
-    /**
-     * 수급 신호 확인 (기존 호환용 - deprecated)
-     * @deprecated checkSurgeSignalStrict 사용 권장
-     */
-    @Deprecated
-    private boolean checkSurgeSignal(String stockCode, Map<String, List<InvestorSurgeDto>> surgeStocks) {
-        SurgeSignalResult result = checkSurgeSignalStrict(stockCode, surgeStocks);
-        return result.hasSignal;
-    }
+    // ==================== 텔레그램 알림 ====================
 
-    /**
-     * 장 마감 청산 (매일 15:20) - 오버나잇 리스크 방지
-     * - 모의투자는 365일 운영 (주말 포함)
-     */
-    @Scheduled(cron = "0 20 15 * * *", zone = "Asia/Seoul")
-    public void executeTimeCut() {
-        if (!botActive.get()) {
-            log.debug("[자동매매] 봇이 비활성화 상태이므로 장 마감 청산을 건너뜁니다.");
-            return;
-        }
-
-        log.info("[자동매매-{}] 장 마감 청산(Time-Cut) 실행 시작", currentMode.name());
-
-        try {
-            TimeCutResult result = sellAllPortfolio();
-
-            // 텔레그램 알림
-            if (telegramService.isEnabled()) {
-                sendTimeCutReport(result);
-            }
-
-            log.info("[자동매매-{}] 장 마감 청산 완료 - {}종목 매도, 총 손익: {}원",
-                    currentMode.name(), result.getSoldCount(), result.getTotalProfitLoss());
-
-        } catch (Exception e) {
-            lastError = e.getMessage();
-            lastErrorTime = LocalDateTime.now();
-            log.error("[자동매매] 장 마감 청산 오류", e);
-
-            String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
-            String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
-
-            if (telegramService.isEnabled()) {
-                telegramService.sendMessage(
-                        String.format("<b>⚠️ [%s 장 마감] 청산 오류 발생!</b>\n\n", modeTag) +
-                        "❌ 에러: " + e.getMessage() + "\n\n" +
-                        "━━━━━━━━━━━━━━━━\n" +
-                        modeEmoji + " MyPlatform " + modeTag
-                );
-            }
-        }
-    }
-
-    /**
-     * 전체 포트폴리오 청산 (Time-Cut)
-     * @return 청산 결과 (매도 종목 수, 총 손익)
-     */
-    public TimeCutResult sellAllPortfolio() {
-        // 포트폴리오 조회 (모드에 따라 다른 서비스 사용)
-        List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
-
-        if (portfolios.isEmpty()) {
-            log.info("[자동매매-{}] 보유 종목이 없어 장 마감 청산을 건너뜁니다.", currentMode.name());
-            return new TimeCutResult(0, BigDecimal.ZERO, List.of());
-        }
-
-        // 종목코드 리스트
-        List<String> stockCodes = portfolios.stream()
-                .map(PortfolioItemDto::getStockCode)
-                .collect(Collectors.toList());
-
-        // 일괄 시세 조회
-        Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(stockCodes);
-
-        int soldCount = 0;
-        BigDecimal totalProfitLoss = BigDecimal.ZERO;
-        List<TimeCutItem> soldItems = new java.util.ArrayList<>();
-
-        for (PortfolioItemDto portfolio : portfolios) {
-            StockPriceDto priceDto = prices.get(portfolio.getStockCode());
-            if (priceDto == null || priceDto.getCurrentPrice() == null) {
-                log.warn("[자동매매] {} 시세 조회 실패, 스킵", portfolio.getStockCode());
-                continue;
-            }
-
-            BigDecimal currentPrice = priceDto.getCurrentPrice();
-
-            try {
-                // 전량 매도 (사유: TIME_CUT) - activeTradeService 사용
-                TradeHistoryDto result = activeTradeService.sell(
-                        portfolio.getStockCode(),
-                        currentPrice,
-                        portfolio.getQuantity(),
-                        "TIME_CUT"
-                );
-
-                lastTradeTime = LocalDateTime.now();
-                todaySellCount.incrementAndGet();
-                soldCount++;
-
-                BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
-                totalProfitLoss = totalProfitLoss.add(profitLoss);
-
-                // 손익률 계산
-                BigDecimal avgPrice = portfolio.getAveragePrice();
-                BigDecimal profitRate = BigDecimal.ZERO;
-                if (avgPrice != null && avgPrice.compareTo(BigDecimal.ZERO) > 0) {
-                    profitRate = currentPrice.subtract(avgPrice)
-                            .divide(avgPrice, 4, RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"));
-                }
-
-                soldItems.add(new TimeCutItem(
-                        portfolio.getStockName(),
-                        portfolio.getStockCode(),
-                        portfolio.getQuantity(),
-                        currentPrice,
-                        profitLoss,
-                        profitRate
-                ));
-
-                log.info("[자동매매-{}] TIME_CUT 매도: {} x {} @ {}원, 손익: {}원",
-                        currentMode.name(), portfolio.getStockName(), portfolio.getQuantity(),
-                        currentPrice, profitLoss);
-
-                // API 호출 제한 방지
-                Thread.sleep(300);
-
-            } catch (Exception e) {
-                log.error("[자동매매] TIME_CUT 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage());
-            }
-        }
-
-        return new TimeCutResult(soldCount, totalProfitLoss, soldItems);
-    }
-
-    /**
-     * 장 마감 청산 결과 텔레그램 리포트 발송
-     */
-    private void sendTimeCutReport(TimeCutResult result) {
-        StringBuilder message = new StringBuilder();
+    private void sendBuyNotification(ScreenerResultDto stock, BigDecimal price, int quantity, SurgeSignalResult surge) {
+        if (!telegramService.isEnabled()) return;
 
         String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
         String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
-        String profitEmoji = result.getTotalProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
-        String profitSign = result.getTotalProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
+        BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
 
-        message.append(String.format("<b>🔔 [%s 장 마감] 금일 매매 종료!</b>\n\n", modeTag));
+        telegramService.sendMessage(
+                String.format("<b>%s [%s] 매수 체결</b>\n\n", modeEmoji, modeTag) +
+                "📈 <b>" + stock.getStockName() + "</b> (" + stock.getStockCode() + ")\n" +
+                "💰 " + formatNumber(price) + "원 x " + quantity + "주\n" +
+                "💵 매수금액: " + formatNumber(totalAmount) + "원\n\n" +
+                "📊 거래량비율: " + stock.getVolumeRatio() + "%\n" +
+                "📊 등락률: " + stock.getChangeRate() + "%\n" +
+                "📊 수급: " + surge.mainBuyer +
+                " (외국인 " + (surge.foreignNetBuy != null ? String.format("%.1f", surge.foreignNetBuy) : "N/A") + "억" +
+                " / 기관 " + (surge.instNetBuy != null ? String.format("%.1f", surge.instNetBuy) : "N/A") + "억)\n\n" +
+                "━━━━━━━━━━━━━━━━\n" +
+                modeEmoji + " MyPlatform " + modeTag
+        );
+    }
+
+    private void sendSellNotification(PortfolioItemDto portfolio, BigDecimal currentPrice,
+                                      BigDecimal avgPrice, BigDecimal profitRate, BigDecimal profitLoss, String reason) {
+        if (!telegramService.isEnabled()) return;
+
+        String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
+        String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
+        String reasonEmoji = "STOP_LOSS".equals(reason) ? "🔻 손절" : "🔺 익절";
+        String reasonTag = "STOP_LOSS".equals(reason) ? "손절" : "익절";
+
+        telegramService.sendMessage(
+                String.format("<b>%s [%s] %s 체결</b>\n\n", modeEmoji, modeTag, reasonTag) +
+                reasonEmoji + " <b>" + portfolio.getStockName() + "</b> (" + portfolio.getStockCode() + ")\n" +
+                "💰 매도가: " + formatNumber(currentPrice) + "원\n" +
+                "📊 평균단가: " + formatNumber(avgPrice) + "원\n" +
+                "📦 수량: " + portfolio.getQuantity() + "주\n" +
+                "📈 손익률: " + String.format("%+.2f", profitRate) + "%\n" +
+                "💵 손익금액: " + String.format("%+,d", profitLoss.intValue()) + "원\n\n" +
+                "━━━━━━━━━━━━━━━━\n" +
+                modeEmoji + " MyPlatform " + modeTag
+        );
+    }
+
+    private void sendTimeCutReport(TimeCutResult result) {
+        String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
+        String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
+        String profitEmoji = result.totalProfitLoss.compareTo(BigDecimal.ZERO) >= 0 ? "📈" : "📉";
+        String profitSign = result.totalProfitLoss.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
+
+        StringBuilder message = new StringBuilder();
+        message.append(String.format("<b>🔔 [%s] 장 마감 청산 완료!</b>\n\n", modeTag));
         message.append("⏰ ").append(LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))).append("\n\n");
 
-        if (result.getSoldCount() == 0) {
-            message.append("📭 청산할 보유 종목이 없습니다.\n");
+        if (result.soldCount == 0) {
+            message.append("📭 청산할 보유 종목 없음\n");
         } else {
-            message.append("📊 <b>청산 종목 (").append(result.getSoldCount()).append("건)</b>\n");
-
-            for (TimeCutItem item : result.getSoldItems()) {
-                String itemProfitSign = item.getProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
-                String itemEmoji = item.getProfitLoss().compareTo(BigDecimal.ZERO) >= 0 ? "🔴" : "🔵";
-
-                message.append(itemEmoji).append(" ")
-                        .append(item.getStockName())
-                        .append(": ").append(itemProfitSign)
-                        .append(String.format("%,.0f", item.getProfitLoss())).append("원")
-                        .append(" (").append(itemProfitSign)
-                        .append(String.format("%.2f", item.getProfitRate())).append("%)\n");
+            message.append("📊 <b>청산 종목 (").append(result.soldCount).append("건)</b>\n");
+            for (TimeCutItem item : result.soldItems) {
+                String itemSign = item.profitLoss.compareTo(BigDecimal.ZERO) >= 0 ? "+" : "";
+                String itemEmoji = item.profitLoss.compareTo(BigDecimal.ZERO) >= 0 ? "🔴" : "🔵";
+                message.append(itemEmoji).append(" ").append(item.stockName)
+                        .append(": ").append(itemSign).append(formatNumber(item.profitLoss)).append("원")
+                        .append(" (").append(itemSign).append(String.format("%.2f", item.profitRate)).append("%)\n");
             }
         }
 
         message.append("\n━━━━━━━━━━━━━━━━\n");
         message.append(profitEmoji).append(" <b>총 손익: ").append(profitSign)
-                .append(String.format("%,.0f", result.getTotalProfitLoss())).append("원</b>\n");
-
-        // 오늘의 거래 요약
+                .append(formatNumber(result.totalProfitLoss)).append("원</b>\n");
         message.append("\n📌 금일 거래: 매수 ").append(todayBuyCount.get())
-                .append("건 / 매도 ").append(todaySellCount.get()).append("건\n");
-
-        message.append("\n━━━━━━━━━━━━━━━━\n");
+                .append("건 / 매도 ").append(todaySellCount.get()).append("건\n\n");
+        message.append("━━━━━━━━━━━━━━━━\n");
         message.append(modeEmoji).append(" MyPlatform ").append(modeTag);
 
         telegramService.sendMessage(message.toString());
     }
 
-    /**
-     * 일일 카운터 초기화
-     */
+    // ==================== 유틸리티 ====================
+
     private void resetDailyCounters() {
         LocalDate today = LocalDate.now();
         if (lastResetDate == null || !lastResetDate.equals(today)) {
@@ -947,9 +858,13 @@ public class AutoTradingBotService {
         }
     }
 
-    /**
-     * 장 마감 청산 결과 DTO
-     */
+    private String formatNumber(BigDecimal value) {
+        if (value == null) return "0";
+        return String.format("%,d", value.longValue());
+    }
+
+    // ==================== DTO 클래스 ====================
+
     @lombok.Data
     @lombok.AllArgsConstructor
     public static class TimeCutResult {
@@ -958,9 +873,6 @@ public class AutoTradingBotService {
         private List<TimeCutItem> soldItems;
     }
 
-    /**
-     * 장 마감 청산 개별 종목 정보
-     */
     @lombok.Data
     @lombok.AllArgsConstructor
     public static class TimeCutItem {
