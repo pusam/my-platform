@@ -23,7 +23,6 @@ import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -367,11 +366,12 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 매수 로직 실행 (평일 09:10)
+     * 매수 로직 실행 (매일 09:10)
      * - 수급 주도형 단타 전략 (Momentum/Day Trading)
      * - 장 초반 수급이 들어올 때 빠르게 진입
+     * - 모의투자는 365일 운영 (주말 포함)
      */
-    @Scheduled(cron = "0 10 9 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10 9 * * *", zone = "Asia/Seoul")
     public void executeBuyLogic() {
         if (!botActive.get()) {
             log.debug("자동매매 봇이 비활성화 상태입니다.");
@@ -550,17 +550,12 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 손절/익절 체크 (평일 09:00~15:59, 매분)
+     * 손절/익절 체크 (매일 09:00~15:59, 매분)
+     * - 모의투자는 365일 운영 (주말 포함)
      */
-    @Scheduled(cron = "0 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * 9-15 * * *", zone = "Asia/Seoul")
     public void checkStopLossAndTakeProfit() {
         if (!botActive.get()) {
-            return;
-        }
-
-        // 주말 체크
-        LocalDate today = LocalDate.now();
-        if (today.getDayOfWeek() == DayOfWeek.SATURDAY || today.getDayOfWeek() == DayOfWeek.SUNDAY) {
             return;
         }
 
@@ -771,9 +766,10 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 장 마감 청산 (평일 15:20) - 오버나잇 리스크 방지
+     * 장 마감 청산 (매일 15:20) - 오버나잇 리스크 방지
+     * - 모의투자는 365일 운영 (주말 포함)
      */
-    @Scheduled(cron = "0 20 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 20 15 * * *", zone = "Asia/Seoul")
     public void executeTimeCut() {
         if (!botActive.get()) {
             log.debug("[자동매매] 봇이 비활성화 상태이므로 장 마감 청산을 건너뜁니다.");
