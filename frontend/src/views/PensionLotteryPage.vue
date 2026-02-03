@@ -237,7 +237,7 @@ const goBack = () => {
 const generateNumbers = async () => {
   generating.value = true;
   try {
-    const response = await api.post('/api/pension-lottery/generate');
+    const response = await api.post('/pension-lottery/generate');
     if (response.data.success) {
       analysisData.value = response.data.data;
       showHistory.value = false;
@@ -255,7 +255,7 @@ const generateNumbers = async () => {
 const loadAnalysis = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/api/pension-lottery/analyze');
+    const response = await api.get('/pension-lottery/analyze');
     if (response.data.success) {
       analysisData.value = response.data.data;
     }
@@ -268,7 +268,7 @@ const loadAnalysis = async () => {
 
 const loadRecentDraws = async () => {
   try {
-    const response = await api.get('/api/pension-lottery/recent?count=20');
+    const response = await api.get('/pension-lottery/recent?count=20');
     if (response.data.success) {
       recentDraws.value = response.data.data;
     }
@@ -279,7 +279,7 @@ const loadRecentDraws = async () => {
 
 const loadWeeklyRecommendation = async () => {
   try {
-    const response = await api.get('/api/pension-lottery/weekly');
+    const response = await api.get('/pension-lottery/weekly');
     if (response.data.success) {
       weeklyData.value = response.data.data;
     }

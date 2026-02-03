@@ -245,7 +245,7 @@ const goBack = () => {
 const generateNumbers = async () => {
   generating.value = true;
   try {
-    const response = await api.post('/api/lotto/generate');
+    const response = await api.post('/lotto/generate');
     if (response.data.success) {
       analysisData.value = response.data.data;
       showHistory.value = false;
@@ -266,7 +266,7 @@ const generateNumbers = async () => {
 const loadAnalysis = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/api/lotto/analyze');
+    const response = await api.get('/lotto/analyze');
     if (response.data.success) {
       analysisData.value = response.data.data;
     }
@@ -282,7 +282,7 @@ const loadAnalysis = async () => {
  */
 const loadRecentDraws = async () => {
   try {
-    const response = await api.get('/api/lotto/recent?count=20');
+    const response = await api.get('/lotto/recent?count=20');
     if (response.data.success) {
       recentDraws.value = response.data.data;
     }
@@ -296,7 +296,7 @@ const loadRecentDraws = async () => {
  */
 const loadWeeklyRecommendation = async () => {
   try {
-    const response = await api.get('/api/lotto/weekly');
+    const response = await api.get('/lotto/weekly');
     if (response.data.success) {
       weeklyData.value = response.data.data;
     }
