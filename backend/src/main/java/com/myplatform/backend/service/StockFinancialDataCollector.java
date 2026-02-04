@@ -97,6 +97,7 @@ public class StockFinancialDataCollector {
             BigDecimal debtRatio = financialRatios.getOrDefault("debtRatio", BigDecimal.ZERO);
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
+            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
             BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
@@ -135,6 +136,9 @@ public class StockFinancialDataCollector {
             financialData.setDebtRatio(debtRatio);
             financialData.setEpsGrowth(epsGrowth);
             financialData.setPeg(peg);
+            financialData.setRevenue(revenue);
+            financialData.setOperatingProfit(operatingProfit);
+            financialData.setNetIncome(netIncome);
 
             stockFinancialDataRepository.save(financialData);
             log.debug("재무 데이터 저장 완료: {} ({})", stockName, stockCode);
