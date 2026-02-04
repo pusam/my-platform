@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.PensionLotteryAnalysisDto;
@@ -8,9 +10,15 @@ import com.myplatform.backend.dto.PensionLotteryAnalysisDto.GroupStatDto;
 import com.myplatform.backend.dto.PensionLotteryAnalysisDto.StatisticsSummaryDto;
 import com.myplatform.backend.dto.PensionLotteryDrawDto;
 import com.myplatform.backend.dto.PensionLotteryRecommendationDto;
+import com.myplatform.backend.entity.PensionLotteryDraw;
+import com.myplatform.backend.entity.PensionLotteryWeeklyRecommendation;
+import com.myplatform.backend.repository.PensionLotteryDrawRepository;
+import com.myplatform.backend.repository.PensionLotteryWeeklyRecommendationRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,16 +29,16 @@ import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * 연금복권 720+ 통계 기반 번호 추출기
- *
- * 자리별 숫자 빈도 분석 + Hot/Cold 하이브리드 필터링
+ * - DB 기반 데이터 저장 및 조회
+ * - 금요일 06:00 배치로 데이터 수집 및 추천번호 생성 (목요일 추첨 후)
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class PensionLotteryAnalyzerService {
 
     private static final String PENSION_API_URL = "https://www.dhlottery.co.kr/common.do?method=get720Number&drwNo=";
@@ -38,139 +46,85 @@ public class PensionLotteryAnalyzerService {
     private static final int GAME_COUNT = 5;
     private static final int MAX_GROUP = 5;
 
-    // Hot/Cold 비율
-    private static final double HOT_RATIO = 0.7;
-    private static final double COLD_RATIO = 0.3;
-
-    private final RestTemplate restTemplate;
+    private final PensionLotteryDrawRepository drawRepository;
+    private final PensionLotteryWeeklyRecommendationRepository weeklyRepository;
     private final ObjectMapper objectMapper;
-    private final SecureRandom random;
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final SecureRandom random = new SecureRandom();
 
-    // 캐시
-    private final Map<Integer, PensionLotteryDrawDto> drawCache = new ConcurrentHashMap<>();
-    private volatile Integer latestDrawNo = null;
-
-    // 금주의 추천 번호
-    private volatile PensionLotteryAnalysisDto weeklyRecommendation = null;
-    private volatile LocalDate weeklyRecommendationDate = null;
-
-    public PensionLotteryAnalyzerService() {
-        this.restTemplate = new RestTemplate();
-        this.objectMapper = new ObjectMapper();
-        this.random = new SecureRandom();
-    }
+    // ==================== 스케줄러 ====================
 
     /**
-     * 연금복권 번호 분석 및 추천
+     * 매주 금요일 06:00에 연금복권 데이터 수집 및 추천번호 생성
+     * (목요일 추첨 후 금요일에 결과 반영)
      */
-    public PensionLotteryAnalysisDto analyzeAndRecommend() {
-        log.info("[연금복권분석] 분석 시작...");
+    @Scheduled(cron = "0 0 6 * * FRI", zone = "Asia/Seoul")
+    @Transactional
+    public void weeklyBatchJob() {
+        log.info("[연금복권배치] ===== 주간 배치 시작 =====");
 
-        // 1. 최신 회차 확인 및 데이터 수집
-        updateLatestDrawNo();
-        List<PensionLotteryDrawDto> recentDraws = collectRecentDraws(100);
+        try {
+            // 1. 최신 당첨 데이터 수집
+            int collected = collectLatestDraws();
+            log.info("[연금복권배치] 당첨 데이터 수집 완료: {}건", collected);
 
-        if (recentDraws.isEmpty()) {
-            log.error("[연금복권분석] 당첨 데이터 수집 실패");
-            return null;
+            // 2. 금주의 추천 번호 생성
+            generateAndSaveWeeklyRecommendation();
+            log.info("[연금복권배치] 금주의 추천 번호 생성 완료");
+
+        } catch (Exception e) {
+            log.error("[연금복권배치] 배치 실행 오류: {}", e.getMessage(), e);
         }
 
-        log.info("[연금복권분석] {}개 회차 데이터 수집 완료", recentDraws.size());
-
-        // 2. 조 번호 통계 분석
-        Map<Integer, GroupStatDto> groupStats = analyzeGroupStats(recentDraws);
-
-        // 3. 자리별 숫자 통계 분석
-        List<DigitStatDto> digitStats = analyzeDigitStats(recentDraws);
-
-        // 4. Hot/Cold 숫자 분류
-        List<DigitStatDto> hotDigits = extractHotDigits(digitStats, 15);
-        List<DigitStatDto> coldDigits = extractColdDigits(digitStats, 15);
-
-        // 5. 통계 요약 생성
-        StatisticsSummaryDto statistics = generateStatisticsSummary(recentDraws);
-
-        // 6. 추천 번호 생성 (5게임)
-        List<PensionLotteryRecommendationDto> recommendations =
-            generateRecommendations(groupStats, digitStats, hotDigits, coldDigits);
-
-        log.info("[연금복권분석] 분석 완료 - {}게임 추천", recommendations.size());
-
-        return PensionLotteryAnalysisDto.builder()
-                .latestDrawNo(latestDrawNo)
-                .analyzedDrawCount(recentDraws.size())
-                .analysisTime(LocalDateTime.now())
-                .recommendations(recommendations)
-                .groupStats(groupStats)
-                .digitStats(digitStats)
-                .hotDigits(hotDigits)
-                .coldDigits(coldDigits)
-                .statistics(statistics)
-                .build();
+        log.info("[연금복권배치] ===== 주간 배치 완료 =====");
     }
 
     /**
-     * 최신 회차 번호 업데이트
+     * 서버 시작 시 데이터가 없으면 초기 데이터 수집
      */
-    private void updateLatestDrawNo() {
-        // 연금복권은 2011년 9월 시작, 매주 목요일 추첨
-        LocalDate firstDraw = LocalDate.of(2011, 9, 1);
-        LocalDate today = LocalDate.now();
-        long weeks = java.time.temporal.ChronoUnit.WEEKS.between(firstDraw, today);
-        int estimatedDrawNo = (int) weeks + 1;
+    @Transactional
+    public void initializeDataIfEmpty() {
+        if (drawRepository.count() == 0) {
+            log.info("[연금복권초기화] DB에 데이터가 없어 초기 수집 시작...");
+            collectLatestDraws();
+            generateAndSaveWeeklyRecommendation();
+            log.info("[연금복권초기화] 초기화 완료");
+        }
+    }
 
-        log.info("[연금복권분석] 추정 최신 회차: {}회 (검색 범위: {}-{})", estimatedDrawNo, estimatedDrawNo, estimatedDrawNo - 10);
+    // ==================== 데이터 수집 ====================
 
-        // 추정 회차부터 실제 데이터가 있는지 확인
-        for (int i = estimatedDrawNo; i > estimatedDrawNo - 10; i--) {
-            PensionLotteryDrawDto draw = fetchDrawData(i);
-            if (draw != null) {
-                latestDrawNo = i;
-                log.info("[연금복권분석] 최신 회차 확인: {}회", latestDrawNo);
-                return;
+    /**
+     * 최신 당첨 데이터 수집 (최대 100회차)
+     */
+    @Transactional
+    public int collectLatestDraws() {
+        int collected = 0;
+        int latestInDb = drawRepository.findMaxDrawNo().orElse(0);
+        int estimatedLatest = estimateLatestDrawNo();
+
+        log.info("[연금복권수집] DB 최신: {}회, 추정 최신: {}회", latestInDb, estimatedLatest);
+
+        // 새 회차부터 수집
+        for (int drawNo = estimatedLatest; drawNo > Math.max(latestInDb, estimatedLatest - 100) && drawNo > 0; drawNo--) {
+            if (!drawRepository.existsByDrawNo(drawNo)) {
+                PensionLotteryDraw draw = fetchAndSaveDraw(drawNo);
+                if (draw != null) {
+                    collected++;
+                }
             }
         }
 
-        // 못 찾으면 알려진 최근 회차 사용 (2024년 1월 기준 약 650회차)
-        if (latestDrawNo == null) {
-            latestDrawNo = 650;
-            log.warn("[연금복권분석] 최신 회차 조회 실패, 기본값 사용: {}회", latestDrawNo);
-        }
+        return collected;
     }
 
     /**
-     * 최근 N회차 데이터 수집
+     * 외부 API에서 회차 데이터 조회 및 저장
      */
-    private List<PensionLotteryDrawDto> collectRecentDraws(int count) {
-        List<PensionLotteryDrawDto> draws = new ArrayList<>();
-
-        if (latestDrawNo == null) {
-            updateLatestDrawNo();
-        }
-
-        for (int i = latestDrawNo; i > latestDrawNo - count && i > 0; i--) {
-            PensionLotteryDrawDto draw = fetchDrawData(i);
-            if (draw != null) {
-                draws.add(draw);
-            }
-        }
-
-        return draws;
-    }
-
-    /**
-     * 동행복권 API에서 회차 데이터 조회
-     */
-    private PensionLotteryDrawDto fetchDrawData(int drawNo) {
-        // 캐시 확인
-        if (drawCache.containsKey(drawNo)) {
-            return drawCache.get(drawNo);
-        }
-
+    private PensionLotteryDraw fetchAndSaveDraw(int drawNo) {
         try {
             String url = PENSION_API_URL + drawNo;
 
-            // User-Agent 헤더 설정 (API 차단 방지)
             HttpHeaders headers = new HttpHeaders();
             headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             headers.set("Accept", "application/json, text/plain, */*");
@@ -178,24 +132,15 @@ public class PensionLotteryAnalyzerService {
             headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            log.info("[연금복권분석] {}회차 API 호출 중...", drawNo);
-
             ResponseEntity<String> responseEntity = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
             String response = responseEntity.getBody();
 
             if (response == null || response.isEmpty()) {
-                log.warn("[연금복권분석] {}회차 응답 없음", drawNo);
                 return null;
             }
 
-            log.info("[연금복권분석] {}회차 응답 수신 (길이: {})", drawNo, response.length());
-
             JsonNode json = objectMapper.readTree(response);
-
-            String returnValue = json.path("returnValue").asText();
-            if (!"success".equals(returnValue)) {
-                log.warn("[연금복권분석] {}회차 returnValue: {} (응답: {})", drawNo, returnValue,
-                    response.length() > 200 ? response.substring(0, 200) + "..." : response);
+            if (!"success".equals(json.path("returnValue").asText())) {
                 return null;
             }
 
@@ -213,7 +158,7 @@ public class PensionLotteryAnalyzerService {
                 bonusNumber.append(json.path("bonusNum" + i).asInt());
             }
 
-            PensionLotteryDrawDto draw = PensionLotteryDrawDto.builder()
+            PensionLotteryDraw draw = PensionLotteryDraw.builder()
                     .drawNo(drawNo)
                     .firstGroup(firstGroup)
                     .firstNumber(firstNumber.toString())
@@ -221,25 +166,180 @@ public class PensionLotteryAnalyzerService {
                     .bonusNumber(bonusNumber.toString())
                     .build();
 
-            // 캐시 저장
-            drawCache.put(drawNo, draw);
-
-            log.debug("[연금복권분석] {}회차 데이터 수집 성공", drawNo);
-            return draw;
+            PensionLotteryDraw saved = drawRepository.save(draw);
+            log.debug("[연금복권수집] {}회차 저장 완료", drawNo);
+            return saved;
 
         } catch (Exception e) {
-            log.warn("[연금복권분석] {}회차 데이터 조회 실패: {} - {}", drawNo, e.getClass().getSimpleName(), e.getMessage());
+            log.warn("[연금복권수집] {}회차 수집 실패: {}", drawNo, e.getMessage());
             return null;
         }
     }
 
     /**
-     * 조 번호 통계 분석
+     * 최신 회차 추정
      */
+    private int estimateLatestDrawNo() {
+        LocalDate firstDraw = LocalDate.of(2011, 9, 1);
+        LocalDate today = LocalDate.now();
+        long weeks = java.time.temporal.ChronoUnit.WEEKS.between(firstDraw, today);
+        return (int) weeks + 1;
+    }
+
+    // ==================== 금주의 추천 번호 ====================
+
+    /**
+     * 금주의 추천 번호 생성 및 저장
+     */
+    @Transactional
+    public void generateAndSaveWeeklyRecommendation() {
+        LocalDate today = LocalDate.now();
+
+        if (weeklyRepository.existsByGeneratedDate(today)) {
+            log.info("[연금복권추천] 오늘({}) 이미 추천 번호가 생성됨", today);
+            return;
+        }
+
+        List<PensionLotteryDraw> draws = drawRepository.findRecentDraws(100);
+        if (draws.isEmpty()) {
+            log.error("[연금복권추천] 분석할 데이터가 없습니다");
+            return;
+        }
+
+        List<PensionLotteryDrawDto> drawDtos = draws.stream()
+                .map(this::toDrawDto)
+                .collect(Collectors.toList());
+
+        PensionLotteryAnalysisDto analysis = performAnalysis(drawDtos);
+        if (analysis == null) {
+            return;
+        }
+
+        int nextDrawNo = draws.get(0).getDrawNo() + 1;
+
+        try {
+            PensionLotteryWeeklyRecommendation recommendation = PensionLotteryWeeklyRecommendation.builder()
+                    .generatedDate(today)
+                    .targetDrawNo(nextDrawNo)
+                    .latestAnalyzedDrawNo(draws.get(0).getDrawNo())
+                    .analyzedDrawCount(draws.size())
+                    .recommendations(objectMapper.writeValueAsString(analysis.getRecommendations()))
+                    .statisticsSummary(objectMapper.writeValueAsString(analysis.getStatistics()))
+                    .hotDigits(objectMapper.writeValueAsString(analysis.getHotDigits()))
+                    .coldDigits(objectMapper.writeValueAsString(analysis.getColdDigits()))
+                    .groupStats(objectMapper.writeValueAsString(analysis.getGroupStats()))
+                    .build();
+
+            weeklyRepository.save(recommendation);
+            log.info("[연금복권추천] 추천 번호 저장 완료 - 대상 회차: {}회", nextDrawNo);
+
+        } catch (JsonProcessingException e) {
+            log.error("[연금복권추천] JSON 직렬화 오류: {}", e.getMessage());
+        }
+    }
+
+    // ==================== API 조회 메서드 ====================
+
+    @Transactional(readOnly = true)
+    public PensionLotteryAnalysisDto getWeeklyRecommendation() {
+        Optional<PensionLotteryWeeklyRecommendation> optional = weeklyRepository.findLatestRecommendation();
+
+        if (optional.isEmpty()) {
+            log.info("[연금복권조회] 저장된 추천 없음, 새로 생성...");
+            initializeDataIfEmpty();
+            optional = weeklyRepository.findLatestRecommendation();
+        }
+
+        if (optional.isEmpty()) {
+            log.error("[연금복권조회] 추천 번호 생성 실패");
+            return null;
+        }
+
+        return convertToAnalysisDto(optional.get());
+    }
+
+    @Transactional
+    public PensionLotteryAnalysisDto refreshWeeklyRecommendation() {
+        LocalDate today = LocalDate.now();
+        weeklyRepository.findByGeneratedDate(today).ifPresent(weeklyRepository::delete);
+        generateAndSaveWeeklyRecommendation();
+        return getWeeklyRecommendation();
+    }
+
+    @Transactional(readOnly = true)
+    public LocalDate getWeeklyRecommendationDate() {
+        return weeklyRepository.findLatestRecommendation()
+                .map(PensionLotteryWeeklyRecommendation::getGeneratedDate)
+                .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public Integer getLatestDrawNo() {
+        return drawRepository.findMaxDrawNo().orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public PensionLotteryDrawDto getDrawData(int drawNo) {
+        return drawRepository.findByDrawNo(drawNo)
+                .map(this::toDrawDto)
+                .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PensionLotteryDrawDto> getRecentDraws(int count) {
+        return drawRepository.findRecentDraws(count).stream()
+                .map(this::toDrawDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public PensionLotteryAnalysisDto analyzeAndRecommend() {
+        List<PensionLotteryDraw> draws = drawRepository.findRecentDraws(100);
+        if (draws.isEmpty()) {
+            log.error("[연금복권분석] 분석할 데이터가 없습니다");
+            return null;
+        }
+
+        List<PensionLotteryDrawDto> drawDtos = draws.stream()
+                .map(this::toDrawDto)
+                .collect(Collectors.toList());
+
+        return performAnalysis(drawDtos);
+    }
+
+    // ==================== 내부 분석 로직 ====================
+
+    private PensionLotteryAnalysisDto performAnalysis(List<PensionLotteryDrawDto> draws) {
+        if (draws.isEmpty()) {
+            return null;
+        }
+
+        int latestDrawNo = draws.get(0).getDrawNo();
+
+        Map<Integer, GroupStatDto> groupStats = analyzeGroupStats(draws);
+        List<DigitStatDto> digitStats = analyzeDigitStats(draws);
+        List<DigitStatDto> hotDigits = extractHotDigits(digitStats, 15);
+        List<DigitStatDto> coldDigits = extractColdDigits(digitStats, 15);
+        StatisticsSummaryDto statistics = generateStatisticsSummary(draws);
+        List<PensionLotteryRecommendationDto> recommendations =
+            generateRecommendations(groupStats, digitStats, hotDigits, coldDigits);
+
+        return PensionLotteryAnalysisDto.builder()
+                .latestDrawNo(latestDrawNo)
+                .analyzedDrawCount(draws.size())
+                .analysisTime(LocalDateTime.now())
+                .recommendations(recommendations)
+                .groupStats(groupStats)
+                .digitStats(digitStats)
+                .hotDigits(hotDigits)
+                .coldDigits(coldDigits)
+                .statistics(statistics)
+                .build();
+    }
+
     private Map<Integer, GroupStatDto> analyzeGroupStats(List<PensionLotteryDrawDto> draws) {
         Map<Integer, GroupStatDto> stats = new LinkedHashMap<>();
 
-        // 초기화 (1~5조)
         for (int g = 1; g <= MAX_GROUP; g++) {
             stats.put(g, GroupStatDto.builder()
                     .group(g)
@@ -249,22 +349,17 @@ public class PensionLotteryAnalyzerService {
                     .build());
         }
 
-        // 빈도 계산
         for (int i = 0; i < draws.size(); i++) {
-            PensionLotteryDrawDto draw = draws.get(i);
-            int group = draw.getFirstGroup();
-
+            int group = draws.get(i).getFirstGroup();
             if (group >= 1 && group <= MAX_GROUP) {
                 GroupStatDto stat = stats.get(group);
                 stat.setFrequency(stat.getFrequency() + 1);
-
                 if (stat.getLastAppearance() == 999) {
                     stat.setLastAppearance(i);
                 }
             }
         }
 
-        // 비율 계산
         int total = draws.size();
         for (GroupStatDto stat : stats.values()) {
             stat.setPercentage(Math.round(stat.getFrequency() * 1000.0 / total) / 10.0);
@@ -273,13 +368,9 @@ public class PensionLotteryAnalyzerService {
         return stats;
     }
 
-    /**
-     * 자리별 숫자 통계 분석
-     */
     private List<DigitStatDto> analyzeDigitStats(List<PensionLotteryDrawDto> draws) {
         List<DigitStatDto> statsList = new ArrayList<>();
 
-        // 각 자리(1~6)별, 각 숫자(0~9)별 통계
         for (int pos = 1; pos <= DIGIT_COUNT; pos++) {
             for (int digit = 0; digit <= 9; digit++) {
                 DigitStatDto stat = DigitStatDto.builder()
@@ -293,7 +384,6 @@ public class PensionLotteryAnalyzerService {
                         .category("WARM")
                         .build();
 
-                // 빈도 계산
                 for (int i = 0; i < draws.size(); i++) {
                     String number = draws.get(i).getFirstNumber();
                     if (number != null && number.length() >= pos) {
@@ -309,14 +399,12 @@ public class PensionLotteryAnalyzerService {
                     }
                 }
 
-                // 가중치 계산
                 double weight = (stat.getFrequency10() * 3.0) +
                                (stat.getFrequency50() * 2.0) +
                                (stat.getFrequency100() * 1.0) -
                                (stat.getLastAppearance() * 0.3);
                 stat.setWeight(Math.max(0, weight));
 
-                // 카테고리 분류
                 if (stat.getFrequency10() >= 2 || stat.getLastAppearance() <= 3) {
                     stat.setCategory("HOT");
                 } else if (stat.getLastAppearance() >= 15 || stat.getFrequency50() <= 3) {
@@ -330,9 +418,6 @@ public class PensionLotteryAnalyzerService {
         return statsList;
     }
 
-    /**
-     * Hot Digits 추출
-     */
     private List<DigitStatDto> extractHotDigits(List<DigitStatDto> stats, int count) {
         return stats.stream()
                 .filter(s -> "HOT".equals(s.getCategory()))
@@ -341,9 +426,6 @@ public class PensionLotteryAnalyzerService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Cold Digits 추출
-     */
     private List<DigitStatDto> extractColdDigits(List<DigitStatDto> stats, int count) {
         return stats.stream()
                 .filter(s -> "COLD".equals(s.getCategory()))
@@ -352,11 +434,7 @@ public class PensionLotteryAnalyzerService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 통계 요약 생성
-     */
     private StatisticsSummaryDto generateStatisticsSummary(List<PensionLotteryDrawDto> draws) {
-        // 조 번호 분포
         Map<Integer, Integer> groupDist = new HashMap<>();
         for (int g = 1; g <= MAX_GROUP; g++) {
             groupDist.put(g, 0);
@@ -368,19 +446,16 @@ public class PensionLotteryAnalyzerService {
             }
         }
 
-        // 홀짝 패턴 분포
         Map<String, Integer> oddEvenDist = new HashMap<>();
         for (PensionLotteryDrawDto draw : draws) {
             String pattern = getOddEvenPattern(draw.getFirstNumber());
             oddEvenDist.merge(pattern, 1, Integer::sum);
         }
 
-        // 평균 자리수 합계
         double avgSum = draws.stream()
                 .mapToInt(d -> getDigitSum(d.getFirstNumber()))
                 .average().orElse(0);
 
-        // 자리별 숫자 빈도
         Map<Integer, Map<Integer, Integer>> posDigitFreq = new HashMap<>();
         for (int pos = 1; pos <= DIGIT_COUNT; pos++) {
             Map<Integer, Integer> digitFreq = new HashMap<>();
@@ -408,9 +483,6 @@ public class PensionLotteryAnalyzerService {
                 .build();
     }
 
-    /**
-     * 홀짝 패턴 생성
-     */
     private String getOddEvenPattern(String number) {
         if (number == null) return "";
         StringBuilder pattern = new StringBuilder();
@@ -421,9 +493,6 @@ public class PensionLotteryAnalyzerService {
         return pattern.toString();
     }
 
-    /**
-     * 자리수 합계 계산
-     */
     private int getDigitSum(String number) {
         if (number == null) return 0;
         return number.chars()
@@ -431,9 +500,6 @@ public class PensionLotteryAnalyzerService {
                 .sum();
     }
 
-    /**
-     * 추천 번호 5게임 생성
-     */
     private List<PensionLotteryRecommendationDto> generateRecommendations(
             Map<Integer, GroupStatDto> groupStats,
             List<DigitStatDto> digitStats,
@@ -458,10 +524,7 @@ public class PensionLotteryAnalyzerService {
         while (recommendations.size() < GAME_COUNT && attempts < maxAttempts) {
             attempts++;
 
-            // 조 번호 선택 (빈도 기반 가중 랜덤)
             int group = selectGroup(groupStats);
-
-            // 6자리 번호 생성
             List<Integer> digits;
             String strategy = strategies[Math.min(gameNo - 1, strategies.length - 1)];
 
@@ -489,14 +552,12 @@ public class PensionLotteryAnalyzerService {
                     .map(String::valueOf)
                     .collect(Collectors.joining());
 
-            // 중복 체크
             String key = group + "-" + number;
             if (generatedCombinations.contains(key)) {
                 continue;
             }
             generatedCombinations.add(key);
 
-            // 신뢰도 계산
             double confidence = calculateConfidence(digits, digitStats);
 
             PensionLotteryRecommendationDto rec = PensionLotteryRecommendationDto.builder()
@@ -513,19 +574,12 @@ public class PensionLotteryAnalyzerService {
 
             recommendations.add(rec);
             gameNo++;
-
-            log.info("[연금복권분석] 게임 {} 생성: {}조 {} (신뢰도:{}%)",
-                    rec.getGameNo(), rec.getGroup(), rec.getNumber(), rec.getConfidence());
         }
 
         return recommendations;
     }
 
-    /**
-     * 조 번호 선택 (빈도 기반)
-     */
     private int selectGroup(Map<Integer, GroupStatDto> groupStats) {
-        // 빈도가 낮은 조에 가중치를 더 주어 균형 맞춤
         List<Integer> pool = new ArrayList<>();
         int maxFreq = groupStats.values().stream()
                 .mapToInt(GroupStatDto::getFrequency)
@@ -542,9 +596,6 @@ public class PensionLotteryAnalyzerService {
         return pool.get(random.nextInt(pool.size()));
     }
 
-    /**
-     * Hot/Cold 하이브리드 전략
-     */
     private List<Integer> generateHotColdHybrid(
             List<DigitStatDto> digitStats,
             List<DigitStatDto> hotDigits,
@@ -555,7 +606,6 @@ public class PensionLotteryAnalyzerService {
         for (int pos = 1; pos <= DIGIT_COUNT; pos++) {
             final int position = pos;
 
-            // 해당 자리의 Hot/Cold 숫자 필터링
             List<Integer> hotPool = hotDigits.stream()
                     .filter(d -> d.getPosition() == position)
                     .map(DigitStatDto::getDigit)
@@ -566,9 +616,8 @@ public class PensionLotteryAnalyzerService {
                     .map(DigitStatDto::getDigit)
                     .collect(Collectors.toList());
 
-            // 70% 확률로 Hot, 30% 확률로 Cold
             int digit;
-            if (random.nextDouble() < HOT_RATIO && !hotPool.isEmpty()) {
+            if (random.nextDouble() < 0.7 && !hotPool.isEmpty()) {
                 digit = hotPool.get(random.nextInt(hotPool.size()));
             } else if (!coldPool.isEmpty()) {
                 digit = coldPool.get(random.nextInt(coldPool.size()));
@@ -582,9 +631,6 @@ public class PensionLotteryAnalyzerService {
         return result;
     }
 
-    /**
-     * 빈도 기반 전략
-     */
     private List<Integer> generateFrequencyBased(List<DigitStatDto> digitStats) {
         List<Integer> result = new ArrayList<>();
 
@@ -607,9 +653,6 @@ public class PensionLotteryAnalyzerService {
         return result;
     }
 
-    /**
-     * 가중치 기반 전략
-     */
     private List<Integer> generateWeightBased(List<DigitStatDto> digitStats) {
         List<Integer> result = new ArrayList<>();
 
@@ -632,9 +675,6 @@ public class PensionLotteryAnalyzerService {
         return result;
     }
 
-    /**
-     * 홀짝 균형 전략
-     */
     private List<Integer> generateBalancedOddEven(List<DigitStatDto> digitStats) {
         List<Integer> result = new ArrayList<>();
         int oddCount = 0;
@@ -648,7 +688,6 @@ public class PensionLotteryAnalyzerService {
                     .sorted((a, b) -> Double.compare(b.getWeight(), a.getWeight()))
                     .collect(Collectors.toList());
 
-            // 홀짝 균형 맞추기 (3:3 목표)
             List<DigitStatDto> filtered;
             if (oddCount < 3 && evenCount >= 3) {
                 filtered = posStats.stream()
@@ -680,16 +719,12 @@ public class PensionLotteryAnalyzerService {
         return result;
     }
 
-    /**
-     * Cold 중심 역발상 전략
-     */
     private List<Integer> generateColdFocused(List<DigitStatDto> digitStats, List<DigitStatDto> coldDigits) {
         List<Integer> result = new ArrayList<>();
 
         for (int pos = 1; pos <= DIGIT_COUNT; pos++) {
             final int position = pos;
 
-            // 해당 자리의 Cold 숫자 우선
             List<Integer> coldPool = coldDigits.stream()
                     .filter(d -> d.getPosition() == position)
                     .map(DigitStatDto::getDigit)
@@ -699,7 +734,6 @@ public class PensionLotteryAnalyzerService {
             if (!coldPool.isEmpty() && random.nextDouble() < 0.6) {
                 digit = coldPool.get(random.nextInt(coldPool.size()));
             } else {
-                // 그 외는 일반 가중치 기반
                 List<DigitStatDto> posStats = digitStats.stream()
                         .filter(d -> d.getPosition() == position)
                         .sorted((a, b) -> Double.compare(b.getWeight(), a.getWeight()))
@@ -719,9 +753,6 @@ public class PensionLotteryAnalyzerService {
         return result;
     }
 
-    /**
-     * 고저 패턴 생성 (0-4: 저, 5-9: 고)
-     */
     private String getHighLowPattern(String number) {
         if (number == null) return "";
         StringBuilder pattern = new StringBuilder();
@@ -732,13 +763,9 @@ public class PensionLotteryAnalyzerService {
         return pattern.toString();
     }
 
-    /**
-     * 신뢰도 계산
-     */
     private double calculateConfidence(List<Integer> digits, List<DigitStatDto> digitStats) {
         double score = 50.0;
 
-        // 각 자리별 가중치 합산
         for (int pos = 1; pos <= digits.size(); pos++) {
             final int position = pos;
             final int digit = digits.get(pos - 1);
@@ -749,21 +776,17 @@ public class PensionLotteryAnalyzerService {
 
             if (statOpt.isPresent()) {
                 DigitStatDto stat = statOpt.get();
-                // 가중치 기반 점수
                 if (stat.getWeight() > 10) {
                     score += 3;
                 } else if (stat.getWeight() > 5) {
                     score += 2;
                 }
-
-                // Hot 숫자 보너스
                 if ("HOT".equals(stat.getCategory())) {
                     score += 2;
                 }
             }
         }
 
-        // 홀짝 균형 보너스
         long oddCount = digits.stream().filter(d -> d % 2 == 1).count();
         if (oddCount >= 2 && oddCount <= 4) {
             score += 5;
@@ -772,56 +795,59 @@ public class PensionLotteryAnalyzerService {
         return Math.min(score, 95);
     }
 
-    // ==================== 공개 API 메서드 ====================
+    // ==================== 변환 메서드 ====================
 
-    public PensionLotteryDrawDto getDrawData(int drawNo) {
-        return fetchDrawData(drawNo);
+    private PensionLotteryDrawDto toDrawDto(PensionLotteryDraw entity) {
+        return PensionLotteryDrawDto.builder()
+                .drawNo(entity.getDrawNo())
+                .firstGroup(entity.getFirstGroup())
+                .firstNumber(entity.getFirstNumber())
+                .bonusGroup(entity.getBonusGroup())
+                .bonusNumber(entity.getBonusNumber())
+                .build();
     }
 
-    public List<PensionLotteryDrawDto> getRecentDraws(int count) {
-        updateLatestDrawNo();
-        return collectRecentDraws(count);
-    }
-
-    public Integer getLatestDrawNo() {
-        if (latestDrawNo == null) {
-            updateLatestDrawNo();
-        }
-        return latestDrawNo;
-    }
-
-    // ==================== 금주의 추천 번호 ====================
-
-    @Scheduled(cron = "0 0 6 * * MON", zone = "Asia/Seoul")
-    public void generateWeeklyRecommendation() {
-        log.info("[연금복권분석] 금주의 추천 번호 생성 시작...");
-
+    private PensionLotteryAnalysisDto convertToAnalysisDto(PensionLotteryWeeklyRecommendation entity) {
         try {
-            PensionLotteryAnalysisDto analysis = analyzeAndRecommend();
-            if (analysis != null) {
-                weeklyRecommendation = analysis;
-                weeklyRecommendationDate = LocalDate.now();
-                log.info("[연금복권분석] 금주의 추천 번호 생성 완료 - {} 기준", weeklyRecommendationDate);
-            }
-        } catch (Exception e) {
-            log.error("[연금복권분석] 금주의 추천 번호 생성 실패: {}", e.getMessage());
+            List<PensionLotteryRecommendationDto> recommendations = objectMapper.readValue(
+                    entity.getRecommendations(),
+                    new TypeReference<List<PensionLotteryRecommendationDto>>() {}
+            );
+
+            StatisticsSummaryDto statistics = objectMapper.readValue(
+                    entity.getStatisticsSummary(),
+                    StatisticsSummaryDto.class
+            );
+
+            List<DigitStatDto> hotDigits = objectMapper.readValue(
+                    entity.getHotDigits(),
+                    new TypeReference<List<DigitStatDto>>() {}
+            );
+
+            List<DigitStatDto> coldDigits = objectMapper.readValue(
+                    entity.getColdDigits(),
+                    new TypeReference<List<DigitStatDto>>() {}
+            );
+
+            Map<Integer, GroupStatDto> groupStats = objectMapper.readValue(
+                    entity.getGroupStats(),
+                    new TypeReference<Map<Integer, GroupStatDto>>() {}
+            );
+
+            return PensionLotteryAnalysisDto.builder()
+                    .latestDrawNo(entity.getLatestAnalyzedDrawNo())
+                    .analyzedDrawCount(entity.getAnalyzedDrawCount())
+                    .analysisTime(entity.getCreatedAt())
+                    .recommendations(recommendations)
+                    .groupStats(groupStats)
+                    .hotDigits(hotDigits)
+                    .coldDigits(coldDigits)
+                    .statistics(statistics)
+                    .build();
+
+        } catch (JsonProcessingException e) {
+            log.error("[연금복권변환] JSON 파싱 오류: {}", e.getMessage());
+            return null;
         }
-    }
-
-    public PensionLotteryAnalysisDto getWeeklyRecommendation() {
-        if (weeklyRecommendation == null || weeklyRecommendationDate == null ||
-            weeklyRecommendationDate.plusDays(7).isBefore(LocalDate.now())) {
-            generateWeeklyRecommendation();
-        }
-        return weeklyRecommendation;
-    }
-
-    public LocalDate getWeeklyRecommendationDate() {
-        return weeklyRecommendationDate;
-    }
-
-    public PensionLotteryAnalysisDto refreshWeeklyRecommendation() {
-        generateWeeklyRecommendation();
-        return weeklyRecommendation;
     }
 }

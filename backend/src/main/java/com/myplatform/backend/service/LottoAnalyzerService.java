@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.LottoAnalysisDto;
@@ -7,9 +9,15 @@ import com.myplatform.backend.dto.LottoAnalysisDto.NumberStatDto;
 import com.myplatform.backend.dto.LottoAnalysisDto.StatisticsSummaryDto;
 import com.myplatform.backend.dto.LottoDrawDto;
 import com.myplatform.backend.dto.LottoRecommendationDto;
+import com.myplatform.backend.entity.LottoDraw;
+import com.myplatform.backend.entity.LottoWeeklyRecommendation;
+import com.myplatform.backend.repository.LottoDrawRepository;
+import com.myplatform.backend.repository.LottoWeeklyRecommendationRepository;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -21,16 +29,16 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
  * 통계 기반 로또 번호 추출기 (Lotto Quant Analyzer)
- *
- * Hot/Cold 번호 분석 + 하이브리드 필터링 시스템을 통한 번호 추천
+ * - DB 기반 데이터 저장 및 조회
+ * - 일요일 06:00 배치로 데이터 수집 및 추천번호 생성
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class LottoAnalyzerService {
 
     private static final String LOTTO_API_URL = "https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=";
@@ -41,66 +49,324 @@ public class LottoAnalyzerService {
     // 필터링 조건
     private static final int MIN_SUM = 120;
     private static final int MAX_SUM = 180;
-    private static final int LOW_HIGH_BOUNDARY = 22;  // 1~22: 저, 23~45: 고
-    private static final int MAX_CONSECUTIVE = 2;     // 연속 번호 최대 2개까지 허용
+    private static final int LOW_HIGH_BOUNDARY = 22;
+    private static final int MAX_CONSECUTIVE = 2;
 
-    // Hot/Cold 비율
-    private static final double HOT_RATIO = 0.7;
-    private static final double COLD_RATIO = 0.3;
-
-    private final RestTemplate restTemplate;
+    private final LottoDrawRepository drawRepository;
+    private final LottoWeeklyRecommendationRepository weeklyRepository;
     private final ObjectMapper objectMapper;
-    private final SecureRandom random;
+    private final RestTemplate restTemplate = new RestTemplate();
+    private final SecureRandom random = new SecureRandom();
 
-    // 캐시
-    private final Map<Integer, LottoDrawDto> drawCache = new ConcurrentHashMap<>();
-    private volatile Integer latestDrawNo = null;
+    // ==================== 스케줄러 ====================
 
-    // 금주의 추천 번호
-    private volatile LottoAnalysisDto weeklyRecommendation = null;
-    private volatile LocalDate weeklyRecommendationDate = null;
+    /**
+     * 매주 일요일 06:00에 로또 데이터 수집 및 추천번호 생성
+     * (토요일 추첨 후 일요일에 결과 반영)
+     */
+    @Scheduled(cron = "0 0 6 * * SUN", zone = "Asia/Seoul")
+    @Transactional
+    public void weeklyBatchJob() {
+        log.info("[로또배치] ===== 주간 배치 시작 =====");
 
-    public LottoAnalyzerService() {
-        this.restTemplate = new RestTemplate();
-        this.objectMapper = new ObjectMapper();
-        this.random = new SecureRandom();
+        try {
+            // 1. 최신 당첨 데이터 수집
+            int collected = collectLatestDraws();
+            log.info("[로또배치] 당첨 데이터 수집 완료: {}건", collected);
+
+            // 2. 금주의 추천 번호 생성
+            generateAndSaveWeeklyRecommendation();
+            log.info("[로또배치] 금주의 추천 번호 생성 완료");
+
+        } catch (Exception e) {
+            log.error("[로또배치] 배치 실행 오류: {}", e.getMessage(), e);
+        }
+
+        log.info("[로또배치] ===== 주간 배치 완료 =====");
     }
 
     /**
-     * 로또 번호 분석 및 추천
+     * 서버 시작 시 데이터가 없으면 초기 데이터 수집
      */
-    public LottoAnalysisDto analyzeAndRecommend() {
-        log.info("[로또분석] 분석 시작...");
+    @Transactional
+    public void initializeDataIfEmpty() {
+        if (drawRepository.count() == 0) {
+            log.info("[로또초기화] DB에 데이터가 없어 초기 수집 시작...");
+            collectLatestDraws();
+            generateAndSaveWeeklyRecommendation();
+            log.info("[로또초기화] 초기화 완료");
+        }
+    }
 
-        // 1. 최신 회차 확인 및 데이터 수집
-        updateLatestDrawNo();
-        List<LottoDrawDto> recentDraws = collectRecentDraws(100);
+    // ==================== 데이터 수집 ====================
 
-        if (recentDraws.isEmpty()) {
-            log.error("[로또분석] 당첨 데이터 수집 실패");
+    /**
+     * 최신 당첨 데이터 수집 (최대 100회차)
+     */
+    @Transactional
+    public int collectLatestDraws() {
+        int collected = 0;
+        int latestInDb = drawRepository.findMaxDrawNo().orElse(0);
+        int estimatedLatest = estimateLatestDrawNo();
+
+        log.info("[로또수집] DB 최신: {}회, 추정 최신: {}회", latestInDb, estimatedLatest);
+
+        // 새 회차부터 수집
+        for (int drawNo = estimatedLatest; drawNo > Math.max(latestInDb, estimatedLatest - 100) && drawNo > 0; drawNo--) {
+            if (!drawRepository.existsByDrawNo(drawNo)) {
+                LottoDraw draw = fetchAndSaveDraw(drawNo);
+                if (draw != null) {
+                    collected++;
+                }
+            }
+        }
+
+        return collected;
+    }
+
+    /**
+     * 외부 API에서 회차 데이터 조회 및 저장
+     */
+    private LottoDraw fetchAndSaveDraw(int drawNo) {
+        try {
+            String url = LOTTO_API_URL + drawNo;
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+            headers.set("Accept", "application/json, text/plain, */*");
+            headers.set("Referer", "https://www.dhlottery.co.kr/");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<String> responseEntity = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+            String response = responseEntity.getBody();
+
+            if (response == null || response.isEmpty()) {
+                return null;
+            }
+
+            JsonNode json = objectMapper.readTree(response);
+            if (!"success".equals(json.path("returnValue").asText())) {
+                return null;
+            }
+
+            String dateStr = json.path("drwNoDate").asText();
+            LocalDate drawDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE);
+
+            LottoDraw draw = LottoDraw.builder()
+                    .drawNo(drawNo)
+                    .drawDate(drawDate)
+                    .num1(json.path("drwtNo1").asInt())
+                    .num2(json.path("drwtNo2").asInt())
+                    .num3(json.path("drwtNo3").asInt())
+                    .num4(json.path("drwtNo4").asInt())
+                    .num5(json.path("drwtNo5").asInt())
+                    .num6(json.path("drwtNo6").asInt())
+                    .bonusNo(json.path("bnusNo").asInt())
+                    .totalPrize(json.path("totSellamnt").asLong())
+                    .firstWinnerCount(json.path("firstPrzwnerCo").asLong())
+                    .firstWinAmount(json.path("firstWinamnt").asLong())
+                    .build();
+
+            LottoDraw saved = drawRepository.save(draw);
+            log.debug("[로또수집] {}회차 저장 완료", drawNo);
+            return saved;
+
+        } catch (Exception e) {
+            log.warn("[로또수집] {}회차 수집 실패: {}", drawNo, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 최신 회차 추정
+     */
+    private int estimateLatestDrawNo() {
+        LocalDate firstDraw = LocalDate.of(2002, 12, 7);
+        LocalDate today = LocalDate.now();
+        long weeks = java.time.temporal.ChronoUnit.WEEKS.between(firstDraw, today);
+        return (int) weeks + 1;
+    }
+
+    // ==================== 금주의 추천 번호 ====================
+
+    /**
+     * 금주의 추천 번호 생성 및 저장
+     */
+    @Transactional
+    public void generateAndSaveWeeklyRecommendation() {
+        LocalDate today = LocalDate.now();
+
+        // 오늘 이미 생성된 추천이 있으면 스킵
+        if (weeklyRepository.existsByGeneratedDate(today)) {
+            log.info("[로또추천] 오늘({}) 이미 추천 번호가 생성됨", today);
+            return;
+        }
+
+        // DB에서 최근 100회차 데이터 조회
+        List<LottoDraw> draws = drawRepository.findRecentDraws(100);
+        if (draws.isEmpty()) {
+            log.error("[로또추천] 분석할 데이터가 없습니다");
+            return;
+        }
+
+        // DTO로 변환
+        List<LottoDrawDto> drawDtos = draws.stream()
+                .map(this::toDrawDto)
+                .collect(Collectors.toList());
+
+        // 분석 실행
+        LottoAnalysisDto analysis = performAnalysis(drawDtos);
+        if (analysis == null) {
+            return;
+        }
+
+        // 다음 회차 번호 계산
+        int nextDrawNo = draws.get(0).getDrawNo() + 1;
+
+        // DB 저장
+        try {
+            LottoWeeklyRecommendation recommendation = LottoWeeklyRecommendation.builder()
+                    .generatedDate(today)
+                    .targetDrawNo(nextDrawNo)
+                    .latestAnalyzedDrawNo(draws.get(0).getDrawNo())
+                    .analyzedDrawCount(draws.size())
+                    .recommendations(objectMapper.writeValueAsString(analysis.getRecommendations()))
+                    .statisticsSummary(objectMapper.writeValueAsString(analysis.getStatistics()))
+                    .hotNumbers(objectMapper.writeValueAsString(analysis.getHotNumbers()))
+                    .coldNumbers(objectMapper.writeValueAsString(analysis.getColdNumbers()))
+                    .build();
+
+            weeklyRepository.save(recommendation);
+            log.info("[로또추천] 추천 번호 저장 완료 - 대상 회차: {}회", nextDrawNo);
+
+        } catch (JsonProcessingException e) {
+            log.error("[로또추천] JSON 직렬화 오류: {}", e.getMessage());
+        }
+    }
+
+    // ==================== API 조회 메서드 ====================
+
+    /**
+     * 금주의 추천 번호 조회 (DB에서 빠르게)
+     */
+    @Transactional(readOnly = true)
+    public LottoAnalysisDto getWeeklyRecommendation() {
+        Optional<LottoWeeklyRecommendation> optional = weeklyRepository.findLatestRecommendation();
+
+        if (optional.isEmpty()) {
+            // DB에 없으면 즉시 생성 (첫 실행 시)
+            log.info("[로또조회] 저장된 추천 없음, 새로 생성...");
+            initializeDataIfEmpty();
+            optional = weeklyRepository.findLatestRecommendation();
+        }
+
+        if (optional.isEmpty()) {
+            log.error("[로또조회] 추천 번호 생성 실패");
             return null;
         }
 
-        log.info("[로또분석] {}개 회차 데이터 수집 완료", recentDraws.size());
+        return convertToAnalysisDto(optional.get());
+    }
 
-        // 2. 번호별 통계 분석
-        Map<Integer, NumberStatDto> numberStats = analyzeNumberStats(recentDraws);
+    /**
+     * 새 추천 번호 생성 (강제 갱신)
+     */
+    @Transactional
+    public LottoAnalysisDto refreshWeeklyRecommendation() {
+        // 오늘 날짜로 새로 생성
+        LocalDate today = LocalDate.now();
 
-        // 3. Hot/Cold 번호 분류
+        // 기존 오늘 데이터 삭제
+        weeklyRepository.findByGeneratedDate(today).ifPresent(weeklyRepository::delete);
+
+        // 새로 생성
+        generateAndSaveWeeklyRecommendation();
+
+        return getWeeklyRecommendation();
+    }
+
+    /**
+     * 금주 추천 생성일 조회
+     */
+    @Transactional(readOnly = true)
+    public LocalDate getWeeklyRecommendationDate() {
+        return weeklyRepository.findLatestRecommendation()
+                .map(LottoWeeklyRecommendation::getGeneratedDate)
+                .orElse(null);
+    }
+
+    /**
+     * 최신 회차 번호 조회
+     */
+    @Transactional(readOnly = true)
+    public Integer getLatestDrawNo() {
+        return drawRepository.findMaxDrawNo().orElse(null);
+    }
+
+    /**
+     * 특정 회차 데이터 조회
+     */
+    @Transactional(readOnly = true)
+    public LottoDrawDto getDrawData(int drawNo) {
+        return drawRepository.findByDrawNo(drawNo)
+                .map(this::toDrawDto)
+                .orElse(null);
+    }
+
+    /**
+     * 최근 N회차 데이터 조회
+     */
+    @Transactional(readOnly = true)
+    public List<LottoDrawDto> getRecentDraws(int count) {
+        return drawRepository.findRecentDraws(count).stream()
+                .map(this::toDrawDto)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 실시간 분석 (새 추천 번호 생성)
+     */
+    @Transactional(readOnly = true)
+    public LottoAnalysisDto analyzeAndRecommend() {
+        List<LottoDraw> draws = drawRepository.findRecentDraws(100);
+        if (draws.isEmpty()) {
+            log.error("[로또분석] 분석할 데이터가 없습니다");
+            return null;
+        }
+
+        List<LottoDrawDto> drawDtos = draws.stream()
+                .map(this::toDrawDto)
+                .collect(Collectors.toList());
+
+        return performAnalysis(drawDtos);
+    }
+
+    // ==================== 내부 분석 로직 ====================
+
+    private LottoAnalysisDto performAnalysis(List<LottoDrawDto> draws) {
+        if (draws.isEmpty()) {
+            return null;
+        }
+
+        int latestDrawNo = draws.get(0).getDrawNo();
+
+        // 번호별 통계 분석
+        Map<Integer, NumberStatDto> numberStats = analyzeNumberStats(draws);
+
+        // Hot/Cold 번호 분류
         List<NumberStatDto> hotNumbers = extractHotNumbers(numberStats, 10);
         List<NumberStatDto> coldNumbers = extractColdNumbers(numberStats, 10);
 
-        // 4. 통계 요약 생성
-        StatisticsSummaryDto statistics = generateStatisticsSummary(recentDraws);
+        // 통계 요약 생성
+        StatisticsSummaryDto statistics = generateStatisticsSummary(draws);
 
-        // 5. 추천 번호 생성 (5게임)
+        // 추천 번호 생성 (5게임)
         List<LottoRecommendationDto> recommendations = generateRecommendations(numberStats, hotNumbers, coldNumbers);
-
-        log.info("[로또분석] 분석 완료 - {}게임 추천", recommendations.size());
 
         return LottoAnalysisDto.builder()
                 .latestDrawNo(latestDrawNo)
-                .analyzedDrawCount(recentDraws.size())
+                .analyzedDrawCount(draws.size())
                 .analysisTime(LocalDateTime.now())
                 .recommendations(recommendations)
                 .numberStats(numberStats)
@@ -111,136 +377,11 @@ public class LottoAnalyzerService {
     }
 
     /**
-     * 최신 회차 번호 업데이트
-     */
-    private void updateLatestDrawNo() {
-        // 2002년 12월 7일 1회차 기준으로 현재 회차 추정
-        LocalDate firstDraw = LocalDate.of(2002, 12, 7);
-        LocalDate today = LocalDate.now();
-        long weeks = java.time.temporal.ChronoUnit.WEEKS.between(firstDraw, today);
-        int estimatedDrawNo = (int) weeks + 1;
-
-        log.info("[로또분석] 추정 최신 회차: {}회 (검색 범위: {}-{})", estimatedDrawNo, estimatedDrawNo, estimatedDrawNo - 10);
-
-        // 추정 회차부터 실제 데이터가 있는지 확인 (범위 확대)
-        for (int i = estimatedDrawNo; i > estimatedDrawNo - 10; i--) {
-            LottoDrawDto draw = fetchDrawData(i);
-            if (draw != null) {
-                latestDrawNo = i;
-                log.info("[로또분석] 최신 회차 확인: {}회", latestDrawNo);
-                return;
-            }
-        }
-
-        // 못 찾으면 알려진 최근 회차 사용 (2024년 1월 기준 약 1150회차)
-        if (latestDrawNo == null) {
-            latestDrawNo = 1150;
-            log.warn("[로또분석] 최신 회차 조회 실패, 기본값 사용: {}회", latestDrawNo);
-        }
-    }
-
-    /**
-     * 최근 N회차 데이터 수집
-     */
-    private List<LottoDrawDto> collectRecentDraws(int count) {
-        List<LottoDrawDto> draws = new ArrayList<>();
-
-        if (latestDrawNo == null) {
-            updateLatestDrawNo();
-        }
-
-        for (int i = latestDrawNo; i > latestDrawNo - count && i > 0; i--) {
-            LottoDrawDto draw = fetchDrawData(i);
-            if (draw != null) {
-                draws.add(draw);
-            }
-        }
-
-        return draws;
-    }
-
-    /**
-     * 동행복권 API에서 회차 데이터 조회
-     */
-    private LottoDrawDto fetchDrawData(int drawNo) {
-        // 캐시 확인
-        if (drawCache.containsKey(drawNo)) {
-            return drawCache.get(drawNo);
-        }
-
-        try {
-            String url = LOTTO_API_URL + drawNo;
-
-            // User-Agent 헤더 설정 (API 차단 방지)
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            headers.set("Accept", "application/json, text/plain, */*");
-            headers.set("Referer", "https://www.dhlottery.co.kr/");
-            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            log.info("[로또분석] {}회차 API 호출 중...", drawNo);
-
-            ResponseEntity<String> responseEntity = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-            String response = responseEntity.getBody();
-
-            if (response == null || response.isEmpty()) {
-                log.warn("[로또분석] {}회차 응답 없음", drawNo);
-                return null;
-            }
-
-            log.info("[로또분석] {}회차 응답 수신 (길이: {})", drawNo, response.length());
-
-            JsonNode json = objectMapper.readTree(response);
-
-            String returnValue = json.path("returnValue").asText();
-            if (!"success".equals(returnValue)) {
-                log.warn("[로또분석] {}회차 returnValue: {} (응답: {})", drawNo, returnValue,
-                    response.length() > 200 ? response.substring(0, 200) + "..." : response);
-                return null;
-            }
-
-            List<Integer> numbers = new ArrayList<>();
-            numbers.add(json.path("drwtNo1").asInt());
-            numbers.add(json.path("drwtNo2").asInt());
-            numbers.add(json.path("drwtNo3").asInt());
-            numbers.add(json.path("drwtNo4").asInt());
-            numbers.add(json.path("drwtNo5").asInt());
-            numbers.add(json.path("drwtNo6").asInt());
-            Collections.sort(numbers);
-
-            String dateStr = json.path("drwNoDate").asText();
-            LocalDate drawDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_LOCAL_DATE);
-
-            LottoDrawDto draw = LottoDrawDto.builder()
-                    .drawNo(drawNo)
-                    .drawDate(drawDate)
-                    .numbers(numbers)
-                    .bonusNo(json.path("bnusNo").asInt())
-                    .totalPrize(json.path("totSellamnt").asLong())
-                    .firstWinnerCount(json.path("firstPrzwnerCo").asLong())
-                    .firstWinAmount(json.path("firstWinamnt").asLong())
-                    .build();
-
-            // 캐시 저장
-            drawCache.put(drawNo, draw);
-
-            log.debug("[로또분석] {}회차 데이터 수집 성공", drawNo);
-            return draw;
-
-        } catch (Exception e) {
-            log.warn("[로또분석] {}회차 데이터 조회 실패: {} - {}", drawNo, e.getClass().getSimpleName(), e.getMessage());
-            return null;
-        }
-    }
-
-    /**
      * 번호별 통계 분석
      */
     private Map<Integer, NumberStatDto> analyzeNumberStats(List<LottoDrawDto> draws) {
         Map<Integer, NumberStatDto> stats = new LinkedHashMap<>();
 
-        // 각 번호별 초기화
         for (int num = 1; num <= MAX_NUMBER; num++) {
             stats.put(num, NumberStatDto.builder()
                     .number(num)
@@ -253,34 +394,28 @@ public class LottoAnalyzerService {
                     .build());
         }
 
-        // 빈도 계산
         for (int i = 0; i < draws.size(); i++) {
             LottoDrawDto draw = draws.get(i);
             for (Integer num : draw.getNumbers()) {
                 NumberStatDto stat = stats.get(num);
 
-                // 마지막 출현
                 if (stat.getLastAppearance() == 999) {
                     stat.setLastAppearance(i);
                 }
 
-                // 구간별 빈도
                 if (i < 10) stat.setFrequency10(stat.getFrequency10() + 1);
                 if (i < 50) stat.setFrequency50(stat.getFrequency50() + 1);
                 if (i < 100) stat.setFrequency100(stat.getFrequency100() + 1);
             }
         }
 
-        // 가중치 계산 및 카테고리 분류
         for (NumberStatDto stat : stats.values()) {
-            // 가중치 = (최근 10회 빈도 * 3) + (최근 50회 빈도 * 2) + (최근 100회 빈도) - (안 나온 회차 * 0.5)
             double weight = (stat.getFrequency10() * 3.0) +
                            (stat.getFrequency50() * 2.0) +
                            (stat.getFrequency100() * 1.0) -
                            (stat.getLastAppearance() * 0.5);
             stat.setWeight(Math.max(0, weight));
 
-            // 카테고리 분류
             if (stat.getFrequency10() >= 2 || stat.getLastAppearance() <= 3) {
                 stat.setCategory("HOT");
             } else if (stat.getLastAppearance() >= 15 || stat.getFrequency50() <= 4) {
@@ -293,9 +428,6 @@ public class LottoAnalyzerService {
         return stats;
     }
 
-    /**
-     * Hot Numbers 추출 (가중치 상위)
-     */
     private List<NumberStatDto> extractHotNumbers(Map<Integer, NumberStatDto> stats, int count) {
         return stats.values().stream()
                 .filter(s -> "HOT".equals(s.getCategory()))
@@ -304,9 +436,6 @@ public class LottoAnalyzerService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Cold Numbers 추출 (오랫동안 안 나온 번호)
-     */
     private List<NumberStatDto> extractColdNumbers(Map<Integer, NumberStatDto> stats, int count) {
         return stats.values().stream()
                 .filter(s -> "COLD".equals(s.getCategory()))
@@ -315,11 +444,7 @@ public class LottoAnalyzerService {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * 통계 요약 생성
-     */
     private StatisticsSummaryDto generateStatisticsSummary(List<LottoDrawDto> draws) {
-        // 합계 통계
         List<Integer> sums = draws.stream()
                 .map(d -> d.getNumbers().stream().mapToInt(Integer::intValue).sum())
                 .collect(Collectors.toList());
@@ -328,7 +453,6 @@ public class LottoAnalyzerService {
         int minSum = sums.stream().mapToInt(Integer::intValue).min().orElse(0);
         int maxSum = sums.stream().mapToInt(Integer::intValue).max().orElse(0);
 
-        // 홀짝 분포
         Map<String, Integer> oddEvenDist = new HashMap<>();
         for (LottoDrawDto draw : draws) {
             int oddCount = (int) draw.getNumbers().stream().filter(n -> n % 2 == 1).count();
@@ -337,7 +461,6 @@ public class LottoAnalyzerService {
             oddEvenDist.merge(key, 1, Integer::sum);
         }
 
-        // 고저 분포
         Map<String, Integer> highLowDist = new HashMap<>();
         for (LottoDrawDto draw : draws) {
             int lowCount = (int) draw.getNumbers().stream().filter(n -> n <= LOW_HIGH_BOUNDARY).count();
@@ -346,7 +469,6 @@ public class LottoAnalyzerService {
             highLowDist.merge(key, 1, Integer::sum);
         }
 
-        // 평균 연속 번호 개수
         double avgConsec = draws.stream()
                 .mapToInt(this::countConsecutive)
                 .average().orElse(0);
@@ -361,9 +483,6 @@ public class LottoAnalyzerService {
                 .build();
     }
 
-    /**
-     * 연속 번호 개수 계산
-     */
     private int countConsecutive(LottoDrawDto draw) {
         List<Integer> numbers = new ArrayList<>(draw.getNumbers());
         Collections.sort(numbers);
@@ -383,9 +502,6 @@ public class LottoAnalyzerService {
         return maxConsec;
     }
 
-    /**
-     * 추천 번호 5게임 생성
-     */
     private List<LottoRecommendationDto> generateRecommendations(
             Map<Integer, NumberStatDto> numberStats,
             List<NumberStatDto> hotNumbers,
@@ -412,13 +528,12 @@ public class LottoAnalyzerService {
             List<Integer> numbers;
             String strategy = strategies[Math.min(gameNo - 1, strategies.length - 1)];
 
-            // 전략별 번호 생성
             switch (gameNo) {
                 case 1:
                     numbers = generateHotColdHybrid(hotNumbers, coldNumbers, numberStats);
                     break;
                 case 2:
-                    numbers = generateFrequencyBased(numberStats, "frequency10");
+                    numbers = generateFrequencyBased(numberStats);
                     break;
                 case 3:
                     numbers = generateWeightBased(numberStats);
@@ -433,12 +548,10 @@ public class LottoAnalyzerService {
                     numbers = generateWeightBased(numberStats);
             }
 
-            // 필터링 통과 확인
             if (!passesAllFilters(numbers)) {
                 continue;
             }
 
-            // 중복 조합 체크
             Collections.sort(numbers);
             String key = numbers.toString();
             if (generatedCombinations.contains(key)) {
@@ -446,13 +559,10 @@ public class LottoAnalyzerService {
             }
             generatedCombinations.add(key);
 
-            // 추천 생성
             int sum = numbers.stream().mapToInt(Integer::intValue).sum();
             int oddCount = (int) numbers.stream().filter(n -> n % 2 == 1).count();
             int lowCount = (int) numbers.stream().filter(n -> n <= LOW_HIGH_BOUNDARY).count();
             int consecCount = countConsecutiveInList(numbers);
-
-            // 신뢰도 점수 계산
             double confidence = calculateConfidence(numbers, numberStats);
 
             LottoRecommendationDto rec = LottoRecommendationDto.builder()
@@ -468,18 +578,11 @@ public class LottoAnalyzerService {
 
             recommendations.add(rec);
             gameNo++;
-
-            log.info("[로또분석] 게임 {} 생성: {} (합:{}, 홀짝:{}, 신뢰도:{}%)",
-                    rec.getGameNo(), rec.getNumbers(), rec.getSum(),
-                    rec.getOddEvenRatio(), rec.getConfidence());
         }
 
         return recommendations;
     }
 
-    /**
-     * Hot/Cold 하이브리드 전략 (7:3)
-     */
     private List<Integer> generateHotColdHybrid(
             List<NumberStatDto> hotNumbers,
             List<NumberStatDto> coldNumbers,
@@ -487,8 +590,7 @@ public class LottoAnalyzerService {
 
         Set<Integer> selected = new HashSet<>();
 
-        // Hot 번호에서 4~5개
-        int hotCount = random.nextInt(2) + 4; // 4 or 5
+        int hotCount = random.nextInt(2) + 4;
         List<Integer> hotPool = hotNumbers.stream()
                 .map(NumberStatDto::getNumber)
                 .collect(Collectors.toList());
@@ -498,7 +600,6 @@ public class LottoAnalyzerService {
             selected.add(hotPool.remove(idx));
         }
 
-        // Cold 번호에서 1~2개
         List<Integer> coldPool = coldNumbers.stream()
                 .map(NumberStatDto::getNumber)
                 .collect(Collectors.toList());
@@ -508,7 +609,6 @@ public class LottoAnalyzerService {
             selected.add(coldPool.remove(idx));
         }
 
-        // 부족하면 WARM에서 채우기
         if (selected.size() < PICK_COUNT) {
             List<Integer> warmPool = numberStats.values().stream()
                     .filter(s -> "WARM".equals(s.getCategory()))
@@ -525,20 +625,10 @@ public class LottoAnalyzerService {
         return new ArrayList<>(selected);
     }
 
-    /**
-     * 빈도 기반 전략
-     */
-    private List<Integer> generateFrequencyBased(Map<Integer, NumberStatDto> stats, String frequencyType) {
+    private List<Integer> generateFrequencyBased(Map<Integer, NumberStatDto> stats) {
         List<NumberStatDto> sorted = new ArrayList<>(stats.values());
-        sorted.sort((a, b) -> {
-            int freqA = "frequency10".equals(frequencyType) ? a.getFrequency10() :
-                       "frequency50".equals(frequencyType) ? a.getFrequency50() : a.getFrequency100();
-            int freqB = "frequency10".equals(frequencyType) ? b.getFrequency10() :
-                       "frequency50".equals(frequencyType) ? b.getFrequency50() : b.getFrequency100();
-            return Integer.compare(freqB, freqA);
-        });
+        sorted.sort((a, b) -> Integer.compare(b.getFrequency10(), a.getFrequency10()));
 
-        // 상위 15개 중에서 랜덤 선택
         List<Integer> pool = sorted.stream()
                 .limit(15)
                 .map(NumberStatDto::getNumber)
@@ -553,14 +643,10 @@ public class LottoAnalyzerService {
         return new ArrayList<>(selected);
     }
 
-    /**
-     * 가중치 기반 전략
-     */
     private List<Integer> generateWeightBased(Map<Integer, NumberStatDto> stats) {
         List<NumberStatDto> sorted = new ArrayList<>(stats.values());
         sorted.sort((a, b) -> Double.compare(b.getWeight(), a.getWeight()));
 
-        // 가중치 상위 20개 중에서 선택
         List<Integer> pool = sorted.stream()
                 .limit(20)
                 .map(NumberStatDto::getNumber)
@@ -575,13 +661,9 @@ public class LottoAnalyzerService {
         return new ArrayList<>(selected);
     }
 
-    /**
-     * 균형 분포 전략
-     */
     private List<Integer> generateBalanced(Map<Integer, NumberStatDto> stats) {
         Set<Integer> selected = new HashSet<>();
 
-        // 번호대별로 1~2개씩 선택 (1~10, 11~20, 21~30, 31~40, 41~45)
         int[][] ranges = {{1, 10}, {11, 20}, {21, 30}, {31, 40}, {41, 45}};
 
         for (int[] range : ranges) {
@@ -597,7 +679,6 @@ public class LottoAnalyzerService {
             }
         }
 
-        // 나머지 채우기
         List<Integer> allNumbers = new ArrayList<>();
         for (int i = 1; i <= MAX_NUMBER; i++) {
             if (!selected.contains(i)) allNumbers.add(i);
@@ -611,13 +692,9 @@ public class LottoAnalyzerService {
         return new ArrayList<>(selected);
     }
 
-    /**
-     * Cold 중심 역발상 전략
-     */
     private List<Integer> generateColdFocused(List<NumberStatDto> coldNumbers, Map<Integer, NumberStatDto> stats) {
         Set<Integer> selected = new HashSet<>();
 
-        // Cold 번호에서 3~4개
         int coldCount = random.nextInt(2) + 3;
         List<Integer> coldPool = coldNumbers.stream()
                 .map(NumberStatDto::getNumber)
@@ -628,7 +705,6 @@ public class LottoAnalyzerService {
             selected.add(coldPool.remove(idx));
         }
 
-        // 나머지는 WARM에서
         List<Integer> warmPool = stats.values().stream()
                 .filter(s -> "WARM".equals(s.getCategory()))
                 .map(NumberStatDto::getNumber)
@@ -643,38 +719,30 @@ public class LottoAnalyzerService {
         return new ArrayList<>(selected);
     }
 
-    /**
-     * 모든 필터 통과 확인
-     */
     private boolean passesAllFilters(List<Integer> numbers) {
         if (numbers == null || numbers.size() != PICK_COUNT) {
             return false;
         }
 
-        // 중복 체크
         if (new HashSet<>(numbers).size() != PICK_COUNT) {
             return false;
         }
 
-        // 1. 합계 필터 (120 ~ 180)
         int sum = numbers.stream().mapToInt(Integer::intValue).sum();
         if (sum < MIN_SUM || sum > MAX_SUM) {
             return false;
         }
 
-        // 2. 홀짝 비율 필터 (6:0, 0:6, 5:1, 1:5 제외)
         int oddCount = (int) numbers.stream().filter(n -> n % 2 == 1).count();
         if (oddCount == 0 || oddCount == 6 || oddCount == 5 || oddCount == 1) {
             return false;
         }
 
-        // 3. 고저 비율 필터 (균형)
         int lowCount = (int) numbers.stream().filter(n -> n <= LOW_HIGH_BOUNDARY).count();
         if (lowCount == 0 || lowCount == 6 || lowCount == 5 || lowCount == 1) {
             return false;
         }
 
-        // 4. 연속 번호 제한 (3개 이상 연속 제외)
         Collections.sort(numbers);
         int maxConsec = countConsecutiveInList(numbers);
         if (maxConsec > MAX_CONSECUTIVE) {
@@ -684,9 +752,6 @@ public class LottoAnalyzerService {
         return true;
     }
 
-    /**
-     * 리스트에서 연속 번호 개수 계산
-     */
     private int countConsecutiveInList(List<Integer> numbers) {
         List<Integer> sorted = new ArrayList<>(numbers);
         Collections.sort(sorted);
@@ -706,116 +771,92 @@ public class LottoAnalyzerService {
         return maxConsec;
     }
 
-    /**
-     * 신뢰도 점수 계산
-     */
     private double calculateConfidence(List<Integer> numbers, Map<Integer, NumberStatDto> stats) {
-        double score = 50.0; // 기본 점수
+        double score = 50.0;
 
-        // 가중치 합계 기반 점수
         double totalWeight = numbers.stream()
                 .mapToDouble(n -> stats.get(n).getWeight())
                 .sum();
         score += Math.min(totalWeight / 2, 20);
 
-        // 합계가 최적 범위(140~160)에 있으면 가점
         int sum = numbers.stream().mapToInt(Integer::intValue).sum();
         if (sum >= 140 && sum <= 160) {
             score += 10;
         }
 
-        // 홀짝 3:3이면 가점
         int oddCount = (int) numbers.stream().filter(n -> n % 2 == 1).count();
         if (oddCount == 3) {
             score += 5;
         }
 
-        // 고저 균형이면 가점
         int lowCount = (int) numbers.stream().filter(n -> n <= LOW_HIGH_BOUNDARY).count();
         if (lowCount >= 2 && lowCount <= 4) {
             score += 5;
         }
 
-        // Hot 번호 포함 비율
         long hotCount = numbers.stream()
                 .filter(n -> "HOT".equals(stats.get(n).getCategory()))
                 .count();
         score += hotCount * 2;
 
-        return Math.min(score, 95); // 최대 95%
+        return Math.min(score, 95);
     }
 
-    /**
-     * 특정 회차 데이터 조회 (API)
-     */
-    public LottoDrawDto getDrawData(int drawNo) {
-        return fetchDrawData(drawNo);
+    // ==================== 변환 메서드 ====================
+
+    private LottoDrawDto toDrawDto(LottoDraw entity) {
+        List<Integer> numbers = Arrays.asList(
+                entity.getNum1(), entity.getNum2(), entity.getNum3(),
+                entity.getNum4(), entity.getNum5(), entity.getNum6()
+        );
+        Collections.sort(numbers);
+
+        return LottoDrawDto.builder()
+                .drawNo(entity.getDrawNo())
+                .drawDate(entity.getDrawDate())
+                .numbers(numbers)
+                .bonusNo(entity.getBonusNo())
+                .totalPrize(entity.getTotalPrize())
+                .firstWinnerCount(entity.getFirstWinnerCount())
+                .firstWinAmount(entity.getFirstWinAmount())
+                .build();
     }
 
-    /**
-     * 최근 N회차 데이터 조회 (API)
-     */
-    public List<LottoDrawDto> getRecentDraws(int count) {
-        updateLatestDrawNo();
-        return collectRecentDraws(count);
-    }
-
-    /**
-     * 최신 회차 번호 조회
-     */
-    public Integer getLatestDrawNo() {
-        if (latestDrawNo == null) {
-            updateLatestDrawNo();
-        }
-        return latestDrawNo;
-    }
-
-    // ==================== 금주의 추천 번호 ====================
-
-    /**
-     * 매주 월요일 06:00에 금주의 추천 번호 생성
-     */
-    @Scheduled(cron = "0 0 6 * * MON", zone = "Asia/Seoul")
-    public void generateWeeklyRecommendation() {
-        log.info("[로또분석] 금주의 추천 번호 생성 시작...");
-
+    private LottoAnalysisDto convertToAnalysisDto(LottoWeeklyRecommendation entity) {
         try {
-            LottoAnalysisDto analysis = analyzeAndRecommend();
-            if (analysis != null) {
-                weeklyRecommendation = analysis;
-                weeklyRecommendationDate = LocalDate.now();
-                log.info("[로또분석] 금주의 추천 번호 생성 완료 - {} 기준", weeklyRecommendationDate);
-            }
-        } catch (Exception e) {
-            log.error("[로또분석] 금주의 추천 번호 생성 실패: {}", e.getMessage());
+            List<LottoRecommendationDto> recommendations = objectMapper.readValue(
+                    entity.getRecommendations(),
+                    new TypeReference<List<LottoRecommendationDto>>() {}
+            );
+
+            StatisticsSummaryDto statistics = objectMapper.readValue(
+                    entity.getStatisticsSummary(),
+                    StatisticsSummaryDto.class
+            );
+
+            List<NumberStatDto> hotNumbers = objectMapper.readValue(
+                    entity.getHotNumbers(),
+                    new TypeReference<List<NumberStatDto>>() {}
+            );
+
+            List<NumberStatDto> coldNumbers = objectMapper.readValue(
+                    entity.getColdNumbers(),
+                    new TypeReference<List<NumberStatDto>>() {}
+            );
+
+            return LottoAnalysisDto.builder()
+                    .latestDrawNo(entity.getLatestAnalyzedDrawNo())
+                    .analyzedDrawCount(entity.getAnalyzedDrawCount())
+                    .analysisTime(entity.getCreatedAt())
+                    .recommendations(recommendations)
+                    .hotNumbers(hotNumbers)
+                    .coldNumbers(coldNumbers)
+                    .statistics(statistics)
+                    .build();
+
+        } catch (JsonProcessingException e) {
+            log.error("[로또변환] JSON 파싱 오류: {}", e.getMessage());
+            return null;
         }
-    }
-
-    /**
-     * 금주의 추천 번호 조회
-     * - 저장된 금주 추천이 없거나 1주일이 지났으면 새로 생성
-     */
-    public LottoAnalysisDto getWeeklyRecommendation() {
-        // 금주 추천이 없거나 7일이 지났으면 새로 생성
-        if (weeklyRecommendation == null || weeklyRecommendationDate == null ||
-            weeklyRecommendationDate.plusDays(7).isBefore(LocalDate.now())) {
-            generateWeeklyRecommendation();
-        }
-        return weeklyRecommendation;
-    }
-
-    /**
-     * 금주 추천 번호 생성일 조회
-     */
-    public LocalDate getWeeklyRecommendationDate() {
-        return weeklyRecommendationDate;
-    }
-
-    /**
-     * 금주 추천 번호 강제 갱신
-     */
-    public LottoAnalysisDto refreshWeeklyRecommendation() {
-        generateWeeklyRecommendation();
-        return weeklyRecommendation;
     }
 }
