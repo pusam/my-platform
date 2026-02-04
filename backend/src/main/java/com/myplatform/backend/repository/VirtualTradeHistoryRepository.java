@@ -95,5 +95,5 @@ public interface VirtualTradeHistoryRepository extends JpaRepository<VirtualTrad
         FROM VirtualTradeHistory t
         WHERE t.accountId = :accountId
         """)
-    Object[] getTradeStatistics(@Param("accountId") Long accountId, @Param("todayStart") LocalDateTime todayStart);
+    List<Object[]> getTradeStatistics(@Param("accountId") Long accountId, @Param("todayStart") LocalDateTime todayStart);
 }

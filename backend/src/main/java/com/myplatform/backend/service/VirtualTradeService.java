@@ -402,7 +402,8 @@ public class VirtualTradeService implements TradeService {
 
         // 거래 통계 통합 조회 (6개 쿼리 → 1개 쿼리로 최적화)
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
-        Object[] stats = tradeHistoryRepository.getTradeStatistics(account.getId(), todayStart);
+        List<Object[]> statsResult = tradeHistoryRepository.getTradeStatistics(account.getId(), todayStart);
+        Object[] stats = statsResult.isEmpty() ? new Object[6] : statsResult.get(0);
 
         long buyCount = stats[0] != null ? ((Number) stats[0]).longValue() : 0;
         long sellCount = stats[1] != null ? ((Number) stats[1]).longValue() : 0;
@@ -493,7 +494,8 @@ public class VirtualTradeService implements TradeService {
 
         // 거래 통계 통합 조회
         LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
-        Object[] stats = tradeHistoryRepository.getTradeStatistics(account.getId(), todayStart);
+        List<Object[]> statsResult = tradeHistoryRepository.getTradeStatistics(account.getId(), todayStart);
+        Object[] stats = statsResult.isEmpty() ? new Object[6] : statsResult.get(0);
 
         long buyCount = stats[0] != null ? ((Number) stats[0]).longValue() : 0;
         long sellCount = stats[1] != null ? ((Number) stats[1]).longValue() : 0;
