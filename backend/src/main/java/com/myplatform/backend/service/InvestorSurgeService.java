@@ -2,7 +2,9 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.InvestorSurgeDto;
+import com.myplatform.backend.entity.AlertHistory;
 import com.myplatform.backend.entity.InvestorIntradaySnapshot;
+import com.myplatform.backend.repository.AlertHistoryRepository;
 import com.myplatform.backend.repository.InvestorIntradaySnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -18,7 +20,6 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -34,6 +35,7 @@ import java.util.stream.Collectors;
 public class InvestorSurgeService {
 
     private final InvestorIntradaySnapshotRepository snapshotRepository;
+    private final AlertHistoryRepository alertHistoryRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final TelegramNotificationService telegramService;
 
@@ -48,7 +50,6 @@ public class InvestorSurgeService {
 
     // 알림 재발송 금지 (30분 내 동일 종목)
     private static final long ALERT_COOLDOWN_MINUTES = 30;
-    private final Map<String, LocalDateTime> alertSentMap = new ConcurrentHashMap<>();
 
     /**
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
@@ -488,13 +489,16 @@ public class InvestorSurgeService {
     }
 
     /**
-     * 오래된 스냅샷 정리 (7일 이전)
+     * 오래된 스냅샷 및 알림 기록 정리 (7일 이전)
      */
     @Scheduled(cron = "0 0 6 * * *")
-    public void cleanupOldSnapshots() {
+    public void cleanupOldData() {
         LocalDate cutoffDate = LocalDate.now().minusDays(7);
         snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);
         log.info("오래된 스냅샷 정리 완료: {} 이전", cutoffDate);
+
+        // 오래된 알림 기록 정리 (24시간 이상)
+        cleanupExpiredAlerts();
     }
 
     private InvestorSurgeDto toSurgeDto(InvestorIntradaySnapshot snapshot) {
@@ -628,10 +632,10 @@ public class InvestorSurgeService {
                 InvestorIntradaySnapshot foreign = foreignMap.get(stockCode);
                 InvestorIntradaySnapshot institution = institutionMap.get(stockCode);
                 sendCommonSurgeAlert(foreign, institution);
-                markAlertSent(stockCode, "COMMON");
+                markAlertSent(stockCode, foreign.getStockName(), "COMMON", "COMMON_BUY");
                 // 쌍끌이 알림 발송 시 개별 알림도 쿨다운 적용 (중복 알림 방지)
-                markAlertSent(stockCode, "FOREIGN");
-                markAlertSent(stockCode, "INSTITUTION");
+                markAlertSent(stockCode, foreign.getStockName(), "FOREIGN", "COMMON_BUY");
+                markAlertSent(stockCode, foreign.getStockName(), "INSTITUTION", "COMMON_BUY");
             }
         }
 
@@ -652,7 +656,7 @@ public class InvestorSurgeService {
                     && amountChange.compareTo(HOT_CHANGE_THRESHOLD) >= 0
                     && canSendAlert(stockCode, "FOREIGN")) {
                 sendSingleSurgeAlert(snapshot, "FOREIGN");
-                markAlertSent(stockCode, "FOREIGN");
+                markAlertSent(stockCode, snapshot.getStockName(), "FOREIGN", "HOT");
             }
         }
 
@@ -673,7 +677,7 @@ public class InvestorSurgeService {
                     && amountChange.compareTo(HOT_CHANGE_THRESHOLD) >= 0
                     && canSendAlert(stockCode, "INSTITUTION")) {
                 sendSingleSurgeAlert(snapshot, "INSTITUTION");
-                markAlertSent(stockCode, "INSTITUTION");
+                markAlertSent(stockCode, snapshot.getStockName(), "INSTITUTION", "HOT");
             }
         }
     }
@@ -834,33 +838,36 @@ public class InvestorSurgeService {
     }
 
     /**
-     * 알림 발송 가능 여부 확인 (30분 내 재발송 금지)
+     * 알림 발송 가능 여부 확인 (30분 내 재발송 금지) - DB 기반
      */
     private boolean canSendAlert(String stockCode, String investorType) {
         String key = stockCode + "_" + investorType;
-        LocalDateTime lastSent = alertSentMap.get(key);
-
-        if (lastSent == null) {
-            return true;
-        }
-
-        return LocalDateTime.now().isAfter(lastSent.plusMinutes(ALERT_COOLDOWN_MINUTES));
+        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(ALERT_COOLDOWN_MINUTES);
+        return !alertHistoryRepository.existsRecentAlert(key, cutoffTime);
     }
 
     /**
-     * 알림 발송 기록
+     * 알림 발송 기록 - DB에 저장
      */
-    private void markAlertSent(String stockCode, String investorType) {
-        String key = stockCode + "_" + investorType;
-        alertSentMap.put(key, LocalDateTime.now());
+    private void markAlertSent(String stockCode, String stockName, String investorType, String alertType) {
+        AlertHistory alert = new AlertHistory();
+        alert.setAlertKey(stockCode + "_" + investorType);
+        alert.setStockCode(stockCode);
+        alert.setStockName(stockName);
+        alert.setInvestorType(investorType);
+        alert.setAlertType(alertType);
+        alert.setSentAt(LocalDateTime.now());
+        alertHistoryRepository.save(alert);
     }
 
     /**
-     * 만료된 알림 기록 정리 (1시간 이상 지난 기록 삭제)
+     * 만료된 알림 기록 정리 (24시간 이상 지난 기록 삭제) - DB 기반
      */
-    private void cleanupExpiredAlerts() {
-        LocalDateTime cutoff = LocalDateTime.now().minusHours(1);
-        alertSentMap.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+    @Transactional
+    public void cleanupExpiredAlerts() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
+        alertHistoryRepository.deleteOldAlerts(cutoff);
+        log.debug("오래된 알림 기록 정리 완료: {} 이전", cutoff);
     }
 
     /**
