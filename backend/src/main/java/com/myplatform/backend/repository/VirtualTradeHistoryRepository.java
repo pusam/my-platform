@@ -74,4 +74,9 @@ public interface VirtualTradeHistoryRepository extends JpaRepository<VirtualTrad
      */
     @Query("SELECT COUNT(t) FROM VirtualTradeHistory t WHERE t.accountId = :accountId AND t.tradeDate >= :todayStart")
     long countTodayTrades(@Param("accountId") Long accountId, @Param("todayStart") LocalDateTime todayStart);
+
+    /**
+     * 계좌별 전체 거래 수 조회
+     */
+    long countByAccountId(Long accountId);
 }

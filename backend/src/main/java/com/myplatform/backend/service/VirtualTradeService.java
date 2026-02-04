@@ -16,6 +16,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -48,6 +50,64 @@ public class VirtualTradeService implements TradeService {
     private static final BigDecimal COMMISSION_RATE = new BigDecimal("0.00015"); // 0.015%
     private static final BigDecimal TAX_RATE = new BigDecimal("0.002"); // 0.2%
     private static final BigDecimal INITIAL_BALANCE = new BigDecimal("10000000"); // 1,000만원
+
+    /**
+     * 서버 시작 시 계좌 상태 확인 (디버깅용)
+     */
+    @PostConstruct
+    public void checkAccountStatusOnStartup() {
+        long totalAccounts = accountRepository.count();
+        Optional<VirtualAccount> activeAccount = accountRepository.findFirstByIsActiveTrueOrderByIdDesc();
+
+        log.info("========== 모의투자 계좌 상태 확인 ==========");
+        log.info("전체 계좌 수: {}개", totalAccounts);
+
+        if (activeAccount.isPresent()) {
+            VirtualAccount account = activeAccount.get();
+            BigDecimal totalProfit = account.getCurrentBalance().subtract(account.getInitialBalance());
+            log.info("✅ 활성 계좌 존재: ID={}, 초기자본={}원, 현재잔액={}원, 총손익={}원, 생성일={}",
+                    account.getId(),
+                    account.getInitialBalance(),
+                    account.getCurrentBalance(),
+                    totalProfit,
+                    account.getCreatedAt());
+
+            // 포트폴리오 수도 확인
+            long portfolioCount = portfolioRepository.countByAccountId(account.getId());
+            long tradeCount = tradeHistoryRepository.countByAccountId(account.getId());
+            log.info("   보유종목: {}개, 거래내역: {}건", portfolioCount, tradeCount);
+        } else {
+            log.warn("⚠️ 활성 계좌 없음! (전체 {}개 계좌 중 is_active=true인 계좌 없음)", totalAccounts);
+
+            // 활성 계좌가 없는 이유 분석
+            if (totalAccounts == 0) {
+                log.warn("   → 원인: DB에 계좌 데이터가 없음 (첫 실행 또는 DB 초기화됨)");
+            } else {
+                log.warn("   → 원인: 모든 계좌가 비활성화됨 (is_active=false)");
+                // 가장 최근 계좌 정보 출력
+                accountRepository.findAll().stream()
+                        .max((a, b) -> a.getId().compareTo(b.getId()))
+                        .ifPresent(lastAccount -> {
+                            log.warn("   → 마지막 계좌: ID={}, is_active={}, 생성일={}",
+                                    lastAccount.getId(), lastAccount.getIsActive(), lastAccount.getCreatedAt());
+                        });
+            }
+
+            // 텔레그램 알림 (계좌 없음 경고)
+            if (telegramService.isEnabled()) {
+                telegramService.sendMessage(
+                        "<b>⚠️ [모의투자] 서버 시작 - 활성 계좌 없음</b>\n\n" +
+                        "전체 계좌 수: " + totalAccounts + "개\n" +
+                        "활성 계좌: 없음\n\n" +
+                        "첫 거래 시 새 계좌가 자동 생성됩니다.\n" +
+                        "⏰ " + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "\n\n" +
+                        "━━━━━━━━━━━━━━━━\n" +
+                        "🤖 MyPlatform 모의투자"
+                );
+            }
+        }
+        log.info("=============================================");
+    }
 
     /**
      * 계좌 초기화 (사용자 지정 금액)
