@@ -79,4 +79,21 @@ public interface VirtualTradeHistoryRepository extends JpaRepository<VirtualTrad
      * 계좌별 전체 거래 수 조회
      */
     long countByAccountId(Long accountId);
+
+    /**
+     * 거래 통계 통합 조회 (6개 쿼리 → 1개 쿼리로 최적화)
+     * 반환값: [buyCount, sellCount, winCount, loseCount, realizedProfitLoss, todayTradeCount]
+     */
+    @Query("""
+        SELECT
+            COUNT(CASE WHEN t.tradeType = 'BUY' THEN 1 END),
+            COUNT(CASE WHEN t.tradeType = 'SELL' THEN 1 END),
+            COUNT(CASE WHEN t.profitLoss > 0 THEN 1 END),
+            COUNT(CASE WHEN t.profitLoss < 0 THEN 1 END),
+            COALESCE(SUM(t.profitLoss), 0),
+            COUNT(CASE WHEN t.tradeDate >= :todayStart THEN 1 END)
+        FROM VirtualTradeHistory t
+        WHERE t.accountId = :accountId
+        """)
+    Object[] getTradeStatistics(@Param("accountId") Long accountId, @Param("todayStart") LocalDateTime todayStart);
 }

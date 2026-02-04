@@ -16,7 +16,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "virtual_trade_history", indexes = {
         @Index(name = "idx_vth_account_date", columnList = "account_id, trade_date"),
-        @Index(name = "idx_vth_stock_code", columnList = "stock_code")
+        @Index(name = "idx_vth_stock_code", columnList = "stock_code"),
+        @Index(name = "idx_vth_account_type", columnList = "account_id, trade_type")
 })
 @Data
 @Builder

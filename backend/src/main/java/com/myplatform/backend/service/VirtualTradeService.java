@@ -400,9 +400,16 @@ public class VirtualTradeService implements TradeService {
             totalEvaluation = totalEvaluation.add(evaluation);
         }
 
-        // 실현손익
-        BigDecimal realizedProfitLoss = tradeHistoryRepository.sumRealizedProfitLoss(account.getId());
-        if (realizedProfitLoss == null) realizedProfitLoss = BigDecimal.ZERO;
+        // 거래 통계 통합 조회 (6개 쿼리 → 1개 쿼리로 최적화)
+        LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
+        Object[] stats = tradeHistoryRepository.getTradeStatistics(account.getId(), todayStart);
+
+        long buyCount = stats[0] != null ? ((Number) stats[0]).longValue() : 0;
+        long sellCount = stats[1] != null ? ((Number) stats[1]).longValue() : 0;
+        long winCount = stats[2] != null ? ((Number) stats[2]).longValue() : 0;
+        long loseCount = stats[3] != null ? ((Number) stats[3]).longValue() : 0;
+        BigDecimal realizedProfitLoss = stats[4] != null ? new BigDecimal(stats[4].toString()) : BigDecimal.ZERO;
+        long todayTradeCount = stats[5] != null ? ((Number) stats[5]).longValue() : 0;
 
         // 평가손익
         BigDecimal unrealizedProfitLoss = totalEvaluation.subtract(totalInvested);
@@ -421,17 +428,11 @@ public class VirtualTradeService implements TradeService {
                     .multiply(new BigDecimal("100"));
         }
 
-        // 거래 통계
-        long totalTradeCount = tradeHistoryRepository.countSellTrades(account.getId());
-        long winCount = tradeHistoryRepository.countWinningTrades(account.getId());
-        long loseCount = tradeHistoryRepository.countLosingTrades(account.getId());
+        // 승률 계산
+        long totalTradeCount = sellCount;
         BigDecimal winRate = totalTradeCount > 0
                 ? BigDecimal.valueOf(winCount).divide(BigDecimal.valueOf(totalTradeCount), 4, RoundingMode.HALF_UP).multiply(new BigDecimal("100"))
                 : BigDecimal.ZERO;
-
-        // 오늘 거래 수
-        LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
-        long todayTradeCount = tradeHistoryRepository.countTodayTrades(account.getId(), todayStart);
 
         return AccountSummaryDto.builder()
                 .accountId(account.getId())
@@ -484,24 +485,26 @@ public class VirtualTradeService implements TradeService {
     }
 
     /**
-     * 거래 통계 조회
+     * 거래 통계 조회 (6개 쿼리 → 1개 쿼리로 최적화)
      */
     @Transactional(readOnly = true)
     public TradeStatisticsDto getStatistics() {
         VirtualAccount account = getOrCreateActiveAccount();
 
-        long buyCount = tradeHistoryRepository.countBuyTrades(account.getId());
-        long sellCount = tradeHistoryRepository.countSellTrades(account.getId());
-        long winCount = tradeHistoryRepository.countWinningTrades(account.getId());
-        long loseCount = tradeHistoryRepository.countLosingTrades(account.getId());
-        BigDecimal totalRealizedProfitLoss = tradeHistoryRepository.sumRealizedProfitLoss(account.getId());
+        // 거래 통계 통합 조회
+        LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
+        Object[] stats = tradeHistoryRepository.getTradeStatistics(account.getId(), todayStart);
+
+        long buyCount = stats[0] != null ? ((Number) stats[0]).longValue() : 0;
+        long sellCount = stats[1] != null ? ((Number) stats[1]).longValue() : 0;
+        long winCount = stats[2] != null ? ((Number) stats[2]).longValue() : 0;
+        long loseCount = stats[3] != null ? ((Number) stats[3]).longValue() : 0;
+        BigDecimal totalRealizedProfitLoss = stats[4] != null ? new BigDecimal(stats[4].toString()) : BigDecimal.ZERO;
+        long todayTrades = stats[5] != null ? ((Number) stats[5]).longValue() : 0;
 
         BigDecimal winRate = sellCount > 0
                 ? BigDecimal.valueOf(winCount).divide(BigDecimal.valueOf(sellCount), 4, RoundingMode.HALF_UP).multiply(new BigDecimal("100"))
                 : BigDecimal.ZERO;
-
-        LocalDateTime todayStart = LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT);
-        long todayTrades = tradeHistoryRepository.countTodayTrades(account.getId(), todayStart);
 
         return TradeStatisticsDto.builder()
                 .totalTrades(buyCount + sellCount)
@@ -510,7 +513,7 @@ public class VirtualTradeService implements TradeService {
                 .winCount(winCount)
                 .loseCount(loseCount)
                 .winRate(winRate)
-                .totalRealizedProfitLoss(totalRealizedProfitLoss != null ? totalRealizedProfitLoss : BigDecimal.ZERO)
+                .totalRealizedProfitLoss(totalRealizedProfitLoss)
                 .todayTrades(todayTrades)
                 .build();
     }
