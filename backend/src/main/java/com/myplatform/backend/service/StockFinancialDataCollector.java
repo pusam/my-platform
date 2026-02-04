@@ -141,7 +141,8 @@ public class StockFinancialDataCollector {
             financialData.setNetIncome(netIncome);
 
             stockFinancialDataRepository.save(financialData);
-            log.debug("재무 데이터 저장 완료: {} ({})", stockName, stockCode);
+            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}",
+                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin);
             return true;
 
         } catch (Exception e) {
@@ -343,28 +344,46 @@ public class StockFinancialDataCollector {
 
             if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode root = objectMapper.readTree(response.getBody());
-                if ("0".equals(root.path("rt_cd").asText())) {
+                String rtCd = root.path("rt_cd").asText();
+                log.debug("[손익계산서 API] 종목: {}, rt_cd: {}, msg: {}",
+                        stockCode, rtCd, root.path("msg1").asText());
+
+                if ("0".equals(rtCd)) {
                     JsonNode output = root.get("output");
                     if (output != null && output.isArray() && output.size() > 0) {
                         JsonNode latest = output.get(0);
+
+                        // 손익계산서 필드 로깅
+                        log.info("[손익계산서] {} - 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                                stockCode,
+                                latest.path("sale_account").asText(),
+                                latest.path("bsop_prti").asText(),
+                                latest.path("thtr_ntin").asText());
+
                         BigDecimal netIncomeRaw = parseBigDecimal(latest.path("thtr_ntin").asText());
                         if (netIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
                             BigDecimal netIncome = netIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                             ratios.put("netIncome", netIncome);
                         }
-                        BigDecimal revenue = parseBigDecimal(latest.path("sale_account").asText());
-                        if (revenue.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("revenue", revenue.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        BigDecimal revenueRaw = parseBigDecimal(latest.path("sale_account").asText());
+                        if (revenueRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("revenue", revenueRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
-                        BigDecimal operatingProfit = parseBigDecimal(latest.path("bsop_prti").asText());
-                        if (operatingProfit.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("operatingProfit", operatingProfit.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        BigDecimal operatingProfitRaw = parseBigDecimal(latest.path("bsop_prti").asText());
+                        if (operatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("operatingProfit", operatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
+                    } else {
+                        log.warn("[손익계산서] {} - output이 비어있음", stockCode);
                     }
+                } else {
+                    log.warn("[손익계산서] {} - API 오류: {}", stockCode, root.path("msg1").asText());
                 }
+            } else {
+                log.warn("[손익계산서] {} - API 응답 없음 또는 실패", stockCode);
             }
         } catch (Exception e) {
-            log.debug("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.warn("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return ratios;
