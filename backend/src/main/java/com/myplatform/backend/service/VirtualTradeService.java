@@ -51,6 +51,7 @@ public class VirtualTradeService implements TradeService {
 
     /**
      * 계좌 초기화 (사용자 지정 금액)
+     * ⚠️ 주의: 이 메서드는 새 계좌를 생성하며, 기존 거래내역/포트폴리오는 이전 계좌에 남습니다.
      * @param initialAmount 초기 자본금 (null이면 기본값 1,000만원)
      */
     public AccountSummaryDto initializeAccount(BigDecimal initialAmount) {
@@ -59,10 +60,14 @@ public class VirtualTradeService implements TradeService {
                 ? initialAmount
                 : INITIAL_BALANCE;
 
-        // 기존 활성 계좌 비활성화
-        accountRepository.findFirstByIsActiveTrueOrderByIdDesc().ifPresent(account -> {
-            account.setIsActive(false);
-            accountRepository.save(account);
+        // 기존 활성 계좌 정보 로깅 (디버깅용)
+        accountRepository.findFirstByIsActiveTrueOrderByIdDesc().ifPresent(oldAccount -> {
+            log.warn("⚠️ [계좌초기화] 기존 계좌 비활성화: ID={}, 잔액={}원, 총손익={}원",
+                    oldAccount.getId(),
+                    oldAccount.getCurrentBalance(),
+                    oldAccount.getCurrentBalance().subtract(oldAccount.getInitialBalance()));
+            oldAccount.setIsActive(false);
+            accountRepository.save(oldAccount);
         });
 
         // 새 계좌 생성
@@ -76,7 +81,20 @@ public class VirtualTradeService implements TradeService {
                 .build();
 
         accountRepository.save(account);
-        log.info("가상 계좌 초기화 완료: {} - 초기자본 {}원", account.getId(), balance);
+        log.warn("⚠️ [계좌초기화] 새 계좌 생성 완료: ID={}, 초기자본={}원 (기존 거래내역은 이전 계좌에 보존됨)",
+                account.getId(), balance);
+
+        // 텔레그램 알림 (초기화 추적용)
+        if (telegramService.isEnabled()) {
+            telegramService.sendMessage(
+                    "<b>⚠️ [모의투자] 계좌 초기화됨</b>\n\n" +
+                    "새 계좌 ID: " + account.getId() + "\n" +
+                    "초기 자본금: " + String.format("%,d", balance.longValue()) + "원\n" +
+                    "⏰ " + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "\n\n" +
+                    "━━━━━━━━━━━━━━━━\n" +
+                    "🤖 MyPlatform 모의투자"
+            );
+        }
 
         return getAccountSummary();
     }
@@ -87,7 +105,7 @@ public class VirtualTradeService implements TradeService {
     public VirtualAccount getOrCreateActiveAccount() {
         return accountRepository.findFirstByIsActiveTrueOrderByIdDesc()
                 .orElseGet(() -> {
-                    log.info("활성 계좌가 없어 새로 생성합니다.");
+                    log.warn("⚠️ [자동생성] 활성 계좌가 없어 새로 생성합니다. (DB 초기화 또는 첫 실행)");
                     VirtualAccount account = VirtualAccount.builder()
                             .accountName("모의투자 계좌")
                             .initialBalance(INITIAL_BALANCE)
@@ -96,7 +114,9 @@ public class VirtualTradeService implements TradeService {
                             .totalEvaluation(BigDecimal.ZERO)
                             .isActive(true)
                             .build();
-                    return accountRepository.save(account);
+                    VirtualAccount saved = accountRepository.save(account);
+                    log.warn("⚠️ [자동생성] 새 계좌 생성 완료: ID={}, 초기자본={}원", saved.getId(), INITIAL_BALANCE);
+                    return saved;
                 });
     }
 
@@ -107,7 +127,7 @@ public class VirtualTradeService implements TradeService {
     private VirtualAccount getOrCreateActiveAccountWithLock() {
         return accountRepository.findFirstByIsActiveTrueWithLock()
                 .orElseGet(() -> {
-                    log.info("활성 계좌가 없어 새로 생성합니다.");
+                    log.warn("⚠️ [자동생성-Lock] 활성 계좌가 없어 새로 생성합니다. (DB 초기화 또는 첫 실행)");
                     VirtualAccount account = VirtualAccount.builder()
                             .accountName("모의투자 계좌")
                             .initialBalance(INITIAL_BALANCE)
@@ -116,7 +136,9 @@ public class VirtualTradeService implements TradeService {
                             .totalEvaluation(BigDecimal.ZERO)
                             .isActive(true)
                             .build();
-                    return accountRepository.save(account);
+                    VirtualAccount saved = accountRepository.save(account);
+                    log.warn("⚠️ [자동생성-Lock] 새 계좌 생성 완료: ID={}, 초기자본={}원", saved.getId(), INITIAL_BALANCE);
+                    return saved;
                 });
     }
 

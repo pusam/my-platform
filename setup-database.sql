@@ -1,9 +1,10 @@
 -- MariaDB 데이터베이스 초기화 스크립트
 -- 실행 방법: mysql -u root -p < setup-database.sql
+-- ⚠️ 주의: 이 스크립트는 Docker 최초 실행 시에만 실행됩니다.
+-- 수동으로 실행하지 마세요! 데이터가 삭제될 수 있습니다.
 
--- 데이터베이스 생성
-DROP DATABASE IF EXISTS myplatform;
-CREATE DATABASE myplatform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- 데이터베이스 생성 (이미 존재하면 건너뜀 - 안전)
+CREATE DATABASE IF NOT EXISTS myplatform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- 참고: Docker 환경에서는 docker-compose.yml의 MYSQL_USER, MYSQL_PASSWORD 환경변수로
 -- 사용자가 자동 생성됩니다. 로컬 환경에서 직접 실행할 경우 아래 명령어를 수정하여 사용하세요.
