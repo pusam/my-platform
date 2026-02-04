@@ -4,7 +4,7 @@ import { TokenManager, UserManager } from './auth';
 // Axios 인스턴스 생성
 const apiClient = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 30000,  // 30초로 증가 (서버 응답 대기)
   headers: {
     'Content-Type': 'application/json'
   }

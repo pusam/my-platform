@@ -627,34 +627,41 @@ const switchToRealTab = () => {
   loadRealData();
 };
 
-// 모의투자 데이터 로드
+// 모의투자 데이터 로드 (각 API 독립적으로 처리 - 하나 실패해도 다른 것 표시)
 const loadData = async () => {
-  try {
-    const [accountRes, portfolioRes, tradesRes, botRes] = await Promise.all([
-      paperTradingAPI.getAccountSummary(),
-      paperTradingAPI.getPortfolio(),
-      paperTradingAPI.getTradeHistory(0, pageSize),
-      paperTradingAPI.getBotStatus()
-    ]);
+  const loadAccount = async () => {
+    try {
+      const res = await paperTradingAPI.getAccountSummary();
+      if (res.data.success) account.value = res.data.data;
+    } catch (e) { console.warn('계좌 로드 실패:', e.message); }
+  };
 
-    if (accountRes.data.success) {
-      account.value = accountRes.data.data;
-    }
-    if (portfolioRes.data.success) {
-      portfolio.value = portfolioRes.data.data;
-    }
-    if (tradesRes.data.success) {
-      trades.value = tradesRes.data.data;
-      totalPages.value = tradesRes.data.totalPages;
-    }
-    if (botRes.data.success) {
-      botStatus.value = botRes.data.data;
-    }
-  } catch (error) {
-    console.error('데이터 로드 오류:', error);
-  } finally {
-    loading.value = false;
-  }
+  const loadPortfolio = async () => {
+    try {
+      const res = await paperTradingAPI.getPortfolio();
+      if (res.data.success) portfolio.value = res.data.data;
+    } catch (e) { console.warn('포트폴리오 로드 실패:', e.message); }
+  };
+
+  const loadTrades = async () => {
+    try {
+      const res = await paperTradingAPI.getTradeHistory(0, pageSize);
+      if (res.data.success) {
+        trades.value = res.data.data;
+        totalPages.value = res.data.totalPages;
+      }
+    } catch (e) { console.warn('거래내역 로드 실패:', e.message); }
+  };
+
+  const loadBotStatus = async () => {
+    try {
+      const res = await paperTradingAPI.getBotStatus();
+      if (res.data.success) botStatus.value = res.data.data;
+    } catch (e) { console.warn('봇 상태 로드 실패:', e.message); }
+  };
+
+  await Promise.all([loadAccount(), loadPortfolio(), loadTrades(), loadBotStatus()]);
+  loading.value = false;
 };
 
 // 실전투자 데이터 로드
