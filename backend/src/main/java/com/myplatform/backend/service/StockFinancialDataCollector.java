@@ -281,7 +281,15 @@ public class StockFinancialDataCollector {
             financialData.setOperatingMargin(operatingMargin);
 
             stockFinancialDataRepository.save(financialData);
-            log.debug("재무 데이터 저장: {} ({})", stockName, stockCode);
+
+            // 손익계산서 데이터 저장 여부 로깅
+            if (operatingProfit != null || netIncome != null || revenue != null) {
+                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}",
+                        stockName, stockCode, revenue, operatingProfit, netIncome);
+            } else {
+                log.warn("[Simple저장] {} ({}) - 손익계산서 데이터 없음 (영업이익률: {})",
+                        stockName, stockCode, operatingMargin);
+            }
             return true;
 
         } catch (Exception e) {
