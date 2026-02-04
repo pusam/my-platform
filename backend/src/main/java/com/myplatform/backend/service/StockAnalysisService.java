@@ -187,6 +187,7 @@ public class StockAnalysisService {
      * 1. 재무 건전성 분석
      * - 영업이익 vs 당기순이익 비교
      * - 차이가 클 경우 일회성 이익 경고
+     * - operatingProfit/netIncome이 없으면 다른 분기 데이터에서 조회
      */
     private FinancialHealthDto analyzeFinancialHealth(StockFinancialData data) {
         BigDecimal operatingProfit = data.getOperatingProfit();
@@ -195,6 +196,25 @@ public class StockAnalysisService {
         BigDecimal netMargin = data.getNetMargin();
         BigDecimal roe = data.getRoe();
         BigDecimal debtRatio = data.getDebtRatio();
+
+        // operatingProfit/netIncome이 없으면 가장 최근 분기 데이터에서 조회
+        if ((operatingProfit == null || netIncome == null) && data.getStockCode() != null) {
+            List<StockFinancialData> historicalData = stockFinancialDataRepository
+                    .findByStockCodeOrderByReportDateDesc(data.getStockCode());
+            for (StockFinancialData hist : historicalData) {
+                if (operatingProfit == null && hist.getOperatingProfit() != null) {
+                    operatingProfit = hist.getOperatingProfit();
+                    log.debug("[재무분석] {} 영업이익 보완: {} (from {})",
+                            data.getStockCode(), operatingProfit, hist.getReportDate());
+                }
+                if (netIncome == null && hist.getNetIncome() != null) {
+                    netIncome = hist.getNetIncome();
+                    log.debug("[재무분석] {} 당기순이익 보완: {} (from {})",
+                            data.getStockCode(), netIncome, hist.getReportDate());
+                }
+                if (operatingProfit != null && netIncome != null) break;
+            }
+        }
 
         // 일회성 이익 분석
         boolean hasOneTimeGainWarning = false;
