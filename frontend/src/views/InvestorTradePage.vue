@@ -3,7 +3,7 @@
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>투자자별 매매 동향</h1>
         <p class="subtitle">외국인, 기관, 연기금의 상위 매매 종목을 확인하세요</p>
         <p v-if="collecting" class="collecting-status">🔄 데이터 수집 중...</p>
@@ -65,6 +65,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 const router = useRouter();
 const loading = ref(false);
 const collecting = ref(false);
@@ -122,9 +123,6 @@ const autoCollectAndFetch = async () => {
 };
 const goToDetail = (stockCode) => {
   router.push(`/investor-stock/${stockCode}`);
-};
-const goBack = () => {
-  router.back();
 };
 const formatNumber = (value) => {
   if (!value) return '0';

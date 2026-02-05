@@ -4,7 +4,7 @@
       <header class="common-header">
         <h1>활동 로그</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -109,9 +109,11 @@
 <script>
 import { adminAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import BackButton from '../components/BackButton.vue';
 
 export default {
   name: 'ActivityLogs',
+  components: { BackButton },
   data() {
     return {
       logs: [],
@@ -190,9 +192,6 @@ export default {
       if (!dateStr) return '';
       const date = new Date(dateStr);
       return date.toLocaleString('ko-KR');
-    },
-    goBack() {
-      this.$router.back();
     },
     logout() {
       UserManager.logout();

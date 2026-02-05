@@ -4,7 +4,7 @@
       <header class="common-header">
         <h1>🪙 금 시세</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">← 돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -110,6 +110,7 @@ import { goldAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
 import { Chart, registerables } from 'chart.js'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
+import BackButton from '../components/BackButton.vue'
 
 // Chart.js 등록
 Chart.register(...registerables)
@@ -125,10 +126,6 @@ const nextUpdateTime = ref('')
 let pollingInterval = null
 let countdownInterval = null
 let nextUpdateTimestamp = null
-
-const goBack = () => {
-  router.back()
-}
 
 const logout = () => {
   UserManager.logout()

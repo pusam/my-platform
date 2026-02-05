@@ -12,7 +12,7 @@
             </svg>
             {{ fetchingNews ? '수집 중...' : '새로고침' }}
           </button>
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -69,6 +69,7 @@ import { useRouter } from 'vue-router';
 import { newsAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 
@@ -121,10 +122,6 @@ const formatNewsTime = (dateStr) => {
   if (diffHours < 1) return '방금 전';
   if (diffHours < 24) return `${diffHours}시간 전`;
   return date.toLocaleDateString('ko-KR');
-};
-
-const goBack = () => {
-  router.back();
 };
 
 const logout = () => {

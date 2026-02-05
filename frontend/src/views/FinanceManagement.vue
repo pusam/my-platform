@@ -4,7 +4,7 @@
       <header class="common-header">
         <h1>가계부</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -483,6 +483,7 @@ import { useRouter } from 'vue-router';
 import { financeAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 import { Chart, ArcElement, Tooltip, Legend, DoughnutController } from 'chart.js';
 
 // Chart.js 컴포넌트 등록

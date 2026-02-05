@@ -4,7 +4,7 @@
 
     <div class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>단타 분석</h1>
         <p class="subtitle">실시간 체결강도 및 프로그램 매매 추이</p>
       </div>
@@ -136,6 +136,7 @@ import { scalpingAPI, stockAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import ProgramTradingChart from '../components/ProgramTradingChart.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const loading = ref(false);
@@ -146,10 +147,6 @@ const errorMessage = ref('');
 const autoRefresh = ref(false);
 const lastUpdated = ref(null);
 let refreshInterval = null;
-
-const goBack = () => {
-  router.back();
-};
 
 const searchStock = async () => {
   if (!searchInput.value.trim()) {

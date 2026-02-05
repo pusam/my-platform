@@ -3,7 +3,7 @@
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>실적 기반 저평가 스크리너</h1>
         <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
       </div>
@@ -707,6 +707,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const loading = ref(false);
@@ -1312,10 +1313,6 @@ const formatAIResponse = (text) => {
   return text
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>');
-};
-
-const goBack = () => {
-  router.back();
 };
 
 // 포맷팅 함수

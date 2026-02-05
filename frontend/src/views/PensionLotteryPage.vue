@@ -3,7 +3,7 @@
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>연금복권 720+ 분석기</h1>
         <p class="subtitle">통계 기반 연금복권 번호 추출기</p>
       </div>
@@ -221,6 +221,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const loading = ref(false);
@@ -229,10 +230,6 @@ const showHistory = ref(false);
 const analysisData = ref(null);
 const recentDraws = ref([]);
 const weeklyData = ref(null);
-
-const goBack = () => {
-  router.back();
-};
 
 const generateNumbers = async () => {
   generating.value = true;

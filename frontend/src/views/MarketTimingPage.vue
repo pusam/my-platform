@@ -1,7 +1,7 @@
 <template>
   <div class="market-timing-page">
     <div class="page-header">
-      <button @click="goBack" class="back-button">← 돌아가기</button>
+      <BackButton />
       <h1>시장 지표 (Market Timing)</h1>
       <p class="subtitle">ADR(등락비율) 기반 시장 상태 분석</p>
     </div>
@@ -277,6 +277,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { marketAPI } from '../utils/api';
+import BackButton from '../components/BackButton.vue';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -316,10 +317,6 @@ const backfillStartDate = ref('');
 const backfillEndDate = ref('');
 const backfillResult = ref(null);
 const today = new Date().toISOString().split('T')[0];
-
-const goBack = () => {
-  router.push('/dashboard');
-};
 
 // 기간 수집 섹션으로 스크롤
 const scrollToBackfill = () => {

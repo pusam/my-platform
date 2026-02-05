@@ -3,7 +3,7 @@
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>연속 매수 종목</h1>
         <p class="subtitle">외국인, 기관이 연속으로 순매수 중인 종목</p>
       </div>
@@ -101,6 +101,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const loading = ref(false);
@@ -143,10 +144,6 @@ const fetchData = async () => {
 
 const goToDetail = (stockCode) => {
   router.push(`/investor-stock/${stockCode}`);
-};
-
-const goBack = () => {
-  router.back();
 };
 
 const formatNumber = (value) => {

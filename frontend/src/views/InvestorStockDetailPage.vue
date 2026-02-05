@@ -4,7 +4,7 @@
 
     <div v-else class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>{{ getStockName() }} ({{ stockCode }})</h1>
         <p class="subtitle">투자자별 매매 동향</p>
       </div>
@@ -201,6 +201,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 import { Line, Bar } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -494,10 +495,6 @@ const fetchStockDetail = async () => {
   } finally {
     loading.value = false;
   }
-};
-
-const goBack = () => {
-  router.back();
 };
 
 const formatDate = (dateStr) => {

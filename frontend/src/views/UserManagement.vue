@@ -4,7 +4,7 @@
       <header class="common-header">
         <h1>사용자 관리</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -89,9 +89,11 @@
 <script>
 import { adminAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import BackButton from '../components/BackButton.vue';
 
 export default {
   name: 'UserManagement',
+  components: { BackButton },
   data() {
     return {
       users: [],

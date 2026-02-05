@@ -8,7 +8,7 @@
           <div class="header-user">
             <span>{{ currentUsername }}</span>
           </div>
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
         </div>
       </header>
 
@@ -278,12 +278,14 @@ import axios from 'axios';
 import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 export default {
   name: 'BoardPage',
   components: {
     QuillEditor,
-    LoadingSpinner
+    LoadingSpinner,
+    BackButton
   },
   data() {
     return {

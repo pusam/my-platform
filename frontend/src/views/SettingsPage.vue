@@ -5,7 +5,7 @@
       <header class="common-header">
         <h1>내 설정</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -133,6 +133,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { userSettingsAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
+import BackButton from '../components/BackButton.vue'
 
 const router = useRouter()
 

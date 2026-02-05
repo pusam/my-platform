@@ -3,7 +3,7 @@
     <div class="page-content">
       <!-- 헤더 -->
       <header class="common-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>트레이딩 지표</h1>
       </header>
 
@@ -264,9 +264,11 @@
 
 <script>
 import { tradingIndicatorAPI } from '../utils/api'
+import BackButton from '../components/BackButton.vue'
 
 export default {
   name: 'TradingIndicatorsPage',
+  components: { BackButton },
   data() {
     return {
       loading: {
@@ -294,9 +296,6 @@ export default {
     this.loadLeadingSectors()
   },
   methods: {
-    goBack() {
-      this.$router.back()
-    },
     async loadGlobalMarket() {
       this.loading.global = true
       try {

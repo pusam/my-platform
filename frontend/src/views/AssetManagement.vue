@@ -5,7 +5,7 @@
       <header class="common-header">
         <h1>자산 관리</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">돌아가기</button>
+          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -413,6 +413,7 @@ import { useRouter } from 'vue-router';
 import { assetAPI, stockAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 

@@ -4,7 +4,7 @@
     <div v-else class="content-wrapper">
       <!-- 헤더 섹션 -->
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>자동매매</h1>
         <p class="subtitle">모의투자와 실전투자를 관리하세요</p>
       </div>
@@ -548,6 +548,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -989,10 +990,6 @@ const getBotStatusClass = (status) => {
     case 'ERROR': return 'error';
     default: return '';
   }
-};
-
-const goBack = () => {
-  router.back();
 };
 
 onMounted(() => {

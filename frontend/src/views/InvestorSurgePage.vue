@@ -3,7 +3,7 @@
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <div class="page-header">
-        <button @click="goBack" class="back-button">← 돌아가기</button>
+        <BackButton />
         <h1>수급 급증 종목</h1>
         <p class="subtitle">장중 외국인/기관 순매수가 급증하는 종목</p>
 
@@ -145,6 +145,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
+import BackButton from '../components/BackButton.vue';
 
 // 자동 새로고침 설정
 const AUTO_REFRESH_INTERVAL = 30000; // 30초
@@ -275,10 +276,6 @@ const collectSnapshot = async () => {
 
 const goToDetail = (stockCode) => {
   router.push(`/investor-stock/${stockCode}`);
-};
-
-const goBack = () => {
-  router.back();
 };
 
 const formatNumber = (value) => {
