@@ -107,74 +107,54 @@ public class StockPriceService {
             }
         }
 
-        // 2. 캐시 미스 종목들 API 조회 (순차적 처리 - 안정성 우선)
+        // 2. 캐시 미스 종목들 API 조회 (순차 처리 - 안정성 우선)
         if (!missingCodes.isEmpty()) {
-            log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {} (초당 5건 제한)", result.size(), missingCodes.size());
+            log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {} (순차 처리, 200ms 간격)", result.size(), missingCodes.size());
             long startTime = System.currentTimeMillis();
+            int successCount = 0;
 
-            // ⚠️ Rate Limit 강화: 순차적으로 처리 (초당 5건 이내)
-            // 동시 요청 3개 + 요청 간 200ms 간격 = 안정적 수집
-            List<CompletableFuture<Void>> futures = new ArrayList<>();
-
+            // 순차 처리로 변경 (CompletableFuture + Thread.sleep 조합의 스레드풀 블로킹 문제 해결)
             for (int i = 0; i < missingCodes.size(); i++) {
-                final String code = missingCodes.get(i);
-                final int requestIndex = i;
+                String code = missingCodes.get(i);
 
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                    try {
-                        // ⚠️ 확실한 딜레이: 200ms * index (초당 최대 5건)
-                        long delay = (long) requestIndex * REQUEST_DELAY_MS;
-                        if (delay > 0) {
-                            Thread.sleep(delay);
-                        }
-
-                        // Semaphore로 동시 요청 수 제한 (3개)
-                        API_SEMAPHORE.acquire();
-                        try {
-                            // 요청 직전 추가 안전 딜레이
-                            Thread.sleep(50);
-
-                            StockPriceDto fetched = fetchStockPrice(code);
-                            if (fetched != null) {
-                                synchronized (result) {
-                                    result.put(code, fetched);
-                                }
-                                priceCache.put(code, fetched);
-                                // DB 저장은 비동기로 (속도 향상)
-                                CompletableFuture.runAsync(() -> {
-                                    try {
-                                        stockPriceRepository.save(dtoToEntity(fetched));
-                                    } catch (Exception e) {
-                                        log.debug("DB 저장 실패 [{}]: {}", code, e.getMessage());
-                                    }
-                                });
-                            }
-                        } finally {
-                            API_SEMAPHORE.release();
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } catch (Exception e) {
-                        log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
+                try {
+                    // Rate Limit 제어: 200ms 간격 (초당 5건)
+                    if (i > 0) {
+                        Thread.sleep(REQUEST_DELAY_MS);
                     }
-                });
-                futures.add(future);
-            }
 
-            // 모든 요청 완료 대기 (타임아웃 증가: 15초 → 60초)
-            // 느리더라도 100% 수집이 목표
-            int timeoutSeconds = Math.max(60, missingCodes.size() / 3);  // 종목 수에 따라 동적 조정
-            try {
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .get(timeoutSeconds, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.TimeoutException e) {
-                log.warn("배치 처리 타임아웃 ({}초) - 완료된 요청만 반환", timeoutSeconds);
-            } catch (Exception e) {
-                log.warn("배치 처리 중 오류: {} - {}", e.getClass().getSimpleName(), e.getMessage());
+                    StockPriceDto fetched = fetchStockPrice(code);
+                    if (fetched != null) {
+                        result.put(code, fetched);
+                        priceCache.put(code, fetched);
+                        successCount++;
+
+                        // DB 저장은 비동기로 (속도 향상)
+                        final StockPriceDto toSave = fetched;
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                stockPriceRepository.save(dtoToEntity(toSave));
+                            } catch (Exception e) {
+                                log.debug("DB 저장 실패 [{}]: {}", code, e.getMessage());
+                            }
+                        });
+                    }
+
+                    // 10개마다 진행상황 로그
+                    if ((i + 1) % 10 == 0) {
+                        log.debug("시세 조회 진행 중: {}/{}, 성공: {}", i + 1, missingCodes.size(), successCount);
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("시세 조회 중단됨 (interrupt)");
+                    break;
+                } catch (Exception e) {
+                    log.warn("종목 시세 조회 실패 [{}]: {}", code, e.getMessage());
+                }
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("Batch 시세 조회 완료 - 성공: {}/{}, 소요: {}ms", result.size() - (stockCodes.size() - missingCodes.size()), missingCodes.size(), elapsed);
+            log.info("Batch 시세 조회 완료 - 성공: {}/{}, 소요: {}ms", successCount, missingCodes.size(), elapsed);
         }
 
         return result;
@@ -571,12 +551,10 @@ public class StockPriceService {
         }
     }
 
-    // ========== Rate Limit 설정 (안정성 우선) ==========
-    // 동시 요청 수 제한: 10 → 3 (EGW00201 에러 방지)
-    private static final java.util.concurrent.Semaphore API_SEMAPHORE = new java.util.concurrent.Semaphore(3);
-    // 요청 간 간격 (ms): 50 → 200 (초당 5건 이내로 제한)
+    // ========== Rate Limit 설정 (순차 처리) ==========
+    // 요청 간 간격 (ms): 200 (초당 5건 이내로 제한)
     private static final int REQUEST_DELAY_MS = 200;
-    // Rate Limit 에러 시 재시도 대기 시간 (ms): 300 → 500
+    // Rate Limit 에러 시 재시도 대기 시간 (ms)
     private static final int RATE_LIMIT_RETRY_DELAY_MS = 500;
 
     /**
@@ -623,69 +601,45 @@ public class StockPriceService {
 
         // 로그 카운터 리셋 (배치별로 처음 3개만 상세 로그)
         minuteApiLogCount.set(0);
+        int apiSuccessCount = 0;
 
-        // ⚠️ Rate Limit 강화: 순차적 200ms 간격 - 초당 5건 이내
-        Map<String, CompletableFuture<BigDecimal>> futures = new ConcurrentHashMap<>();
-
+        // 순차 처리로 변경 (CompletableFuture + Thread.sleep 조합의 스레드풀 블로킹 문제 해결)
         for (int i = 0; i < missingCodes.size(); i++) {
-            final String stockCode = missingCodes.get(i);
-            final int requestIndex = i;
+            String stockCode = missingCodes.get(i);
 
-            CompletableFuture<BigDecimal> future = CompletableFuture.supplyAsync(() -> {
-                try {
-                    // ⚠️ 확실한 딜레이: 200ms * index (초당 최대 5건)
-                    long delay = (long) requestIndex * REQUEST_DELAY_MS;
-                    if (delay > 0) {
-                        Thread.sleep(delay);
-                    }
-
-                    // Semaphore로 동시 요청 수 제한 (3개)
-                    API_SEMAPHORE.acquire();
-                    try {
-                        // 요청 직전 추가 안전 딜레이
-                        Thread.sleep(50);
-
-                        BigDecimal value = fetchMinuteTradingValueWithRetry(stockCode, minutes);
-                        // 캐시에 저장
-                        if (value != null) {
-                            minuteTradingCache.put(stockCode + "_" + minutes, new MinuteTradingCache(value));
-                        }
-                        return value;
-                    } finally {
-                        API_SEMAPHORE.release();
-                    }
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return null;
-                } catch (Exception e) {
-                    log.warn("분봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
-                    return null;
-                }
-            });
-            futures.put(stockCode, future);
-        }
-
-        // 3. 모든 조회 완료 대기 (타임아웃 증가: 3초 → 30초)
-        // 느리더라도 100% 수집이 목표
-        int timeoutSeconds = Math.max(30, missingCodes.size() / 3);
-        for (Map.Entry<String, CompletableFuture<BigDecimal>> entry : futures.entrySet()) {
             try {
-                BigDecimal value = entry.getValue().get(timeoutSeconds, TimeUnit.SECONDS);
-                if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
-                    result.put(entry.getKey(), value);
-                } else {
-                    // null인 경우 ZERO로 설정하여 로직 터지지 않게 방어
-                    result.put(entry.getKey(), BigDecimal.ZERO);
+                // Rate Limit 제어: 200ms 간격 (초당 5건)
+                if (i > 0) {
+                    Thread.sleep(REQUEST_DELAY_MS);
                 }
+
+                BigDecimal value = fetchMinuteTradingValueWithRetry(stockCode, minutes);
+
+                if (value != null && value.compareTo(BigDecimal.ZERO) > 0) {
+                    result.put(stockCode, value);
+                    minuteTradingCache.put(stockCode + "_" + minutes, new MinuteTradingCache(value));
+                    apiSuccessCount++;
+                } else {
+                    result.put(stockCode, BigDecimal.ZERO);
+                }
+
+                // 20개마다 진행상황 로그
+                if ((i + 1) % 20 == 0) {
+                    log.debug("분봉 조회 진행 중: {}/{}, 성공: {}", i + 1, missingCodes.size(), apiSuccessCount);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("분봉 조회 중단됨 (interrupt)");
+                break;
             } catch (Exception e) {
-                log.debug("분봉 조회 타임아웃/실패 [{}] - ZERO 반환", entry.getKey());
-                result.put(entry.getKey(), BigDecimal.ZERO);  // 실패 시 ZERO 반환
+                log.warn("분봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
+                result.put(stockCode, BigDecimal.ZERO);
             }
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
-        log.info("분봉 거래대금 배치 조회 완료 - 캐시: {}, API: {}, 성공: {}/{}, 소요: {}ms",
-                cacheHits, missingCodes.size(), result.size(), stockCodes.size(), elapsed);
+        log.info("분봉 거래대금 배치 조회 완료 - 캐시: {}, API 성공: {}/{}, 총: {}, 소요: {}ms",
+                cacheHits, apiSuccessCount, missingCodes.size(), result.size(), elapsed);
 
         return result;
     }
