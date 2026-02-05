@@ -763,4 +763,343 @@ public class TechnicalIndicatorService {
         private BigDecimal close;
         private BigDecimal volume;
     }
+
+    // ========== RSI 다이버전스 탐지 ==========
+
+    /**
+     * RSI 다이버전스 탐지
+     *
+     * 하락 다이버전스 (Bearish):
+     * - 주가는 전고점보다 높은데 (High > Prev_High)
+     * - RSI는 전고점보다 낮은 경우 (RSI < Prev_RSI)
+     * → 매도 신호 (상승 추세 약화)
+     *
+     * 상승 다이버전스 (Bullish):
+     * - 주가는 전저점보다 낮은데 (Low < Prev_Low)
+     * - RSI는 전저점보다 높은 경우 (RSI > Prev_RSI)
+     * → 매수 신호 (하락 추세 약화)
+     *
+     * @param prices 가격 리스트 (index 0이 최신, 최소 60개 권장)
+     * @param lookbackPeriod 비교할 기간 (20~60봉)
+     * @return 다이버전스 결과
+     */
+    public DivergenceResult detectRsiDivergence(List<BigDecimal> prices, int lookbackPeriod) {
+        if (prices == null || prices.size() < lookbackPeriod + RSI_PERIOD) {
+            log.debug("다이버전스 탐지 불가: 데이터 부족 (필요: {}, 보유: {})",
+                    lookbackPeriod + RSI_PERIOD, prices != null ? prices.size() : 0);
+            return createNoDivergence("데이터 부족");
+        }
+
+        // 1. 전체 기간의 RSI 계산
+        List<BigDecimal> rsiValues = new ArrayList<>();
+        for (int i = 0; i <= lookbackPeriod; i++) {
+            List<BigDecimal> subPrices = prices.subList(i, Math.min(i + RSI_PERIOD + 5, prices.size()));
+            BigDecimal rsi = calculateRSI(subPrices, RSI_PERIOD);
+            rsiValues.add(rsi);
+        }
+
+        BigDecimal currentPrice = prices.get(0);
+        BigDecimal currentRsi = rsiValues.get(0);
+
+        if (currentRsi == null) {
+            return createNoDivergence("RSI 계산 불가");
+        }
+
+        // 2. 고점/저점 찾기 (최소 5봉 이상 떨어진)
+        int minDistance = 5;
+
+        // 하락 다이버전스 탐지: 가격 고점 찾기
+        DivergenceResult bearishResult = detectBearishDivergence(
+                prices, rsiValues, currentPrice, currentRsi, lookbackPeriod, minDistance);
+
+        // 상승 다이버전스 탐지: 가격 저점 찾기
+        DivergenceResult bullishResult = detectBullishDivergence(
+                prices, rsiValues, currentPrice, currentRsi, lookbackPeriod, minDistance);
+
+        // 더 강한 신호 반환
+        if (bearishResult.isValid() && bullishResult.isValid()) {
+            return bearishResult.getStrength() >= bullishResult.getStrength() ? bearishResult : bullishResult;
+        } else if (bearishResult.isValid()) {
+            return bearishResult;
+        } else if (bullishResult.isValid()) {
+            return bullishResult;
+        }
+
+        return createNoDivergence("다이버전스 미감지");
+    }
+
+    /**
+     * 하락 다이버전스 탐지 (매도 신호)
+     * 주가 신고가 + RSI 전고점 하회
+     */
+    private DivergenceResult detectBearishDivergence(List<BigDecimal> prices, List<BigDecimal> rsiValues,
+                                                       BigDecimal currentPrice, BigDecimal currentRsi,
+                                                       int lookbackPeriod, int minDistance) {
+        // 현재가 근처가 고점인지 확인 (최근 5봉 중 최고)
+        boolean isNearHigh = true;
+        for (int i = 1; i < Math.min(5, prices.size()); i++) {
+            if (prices.get(i) != null && prices.get(i).compareTo(currentPrice) > 0) {
+                isNearHigh = false;
+                break;
+            }
+        }
+
+        if (!isNearHigh) {
+            return createNoDivergence("현재가가 고점 아님");
+        }
+
+        // 이전 고점 찾기
+        BigDecimal prevPeakPrice = null;
+        BigDecimal prevPeakRsi = null;
+        int peakIndex = -1;
+
+        for (int i = minDistance; i < Math.min(lookbackPeriod, prices.size()); i++) {
+            BigDecimal price = prices.get(i);
+            BigDecimal rsi = i < rsiValues.size() ? rsiValues.get(i) : null;
+
+            if (price == null || rsi == null) continue;
+
+            // 로컬 고점 확인 (앞뒤 2봉보다 높은지)
+            boolean isLocalHigh = true;
+            for (int j = -2; j <= 2; j++) {
+                if (j == 0) continue;
+                int checkIdx = i + j;
+                if (checkIdx >= 0 && checkIdx < prices.size() && prices.get(checkIdx) != null) {
+                    if (prices.get(checkIdx).compareTo(price) > 0) {
+                        isLocalHigh = false;
+                        break;
+                    }
+                }
+            }
+
+            if (isLocalHigh && (prevPeakPrice == null || price.compareTo(prevPeakPrice) > 0)) {
+                prevPeakPrice = price;
+                prevPeakRsi = rsi;
+                peakIndex = i;
+            }
+        }
+
+        if (prevPeakPrice == null || prevPeakRsi == null) {
+            return createNoDivergence("이전 고점 없음");
+        }
+
+        // 하락 다이버전스 조건: 현재 가격 > 이전 고점 가격, 현재 RSI < 이전 고점 RSI
+        boolean priceHigher = currentPrice.compareTo(prevPeakPrice) > 0;
+        boolean rsiLower = currentRsi.compareTo(prevPeakRsi) < 0;
+
+        if (priceHigher && rsiLower) {
+            // 신호 강도 계산 (RSI 차이가 클수록 강함)
+            BigDecimal rsiDiff = prevPeakRsi.subtract(currentRsi);
+            int strength = calculateDivergenceStrength(rsiDiff, true);
+
+            String interpretation = String.format(
+                    "🔻 하락 다이버전스 감지! 주가 신고가(%.0f > %.0f) but RSI 하락(%.1f < %.1f). " +
+                    "%d봉 전 고점 대비. 추세 반전(하락) 주의!",
+                    currentPrice, prevPeakPrice, currentRsi, prevPeakRsi, peakIndex);
+
+            return DivergenceResult.builder()
+                    .type(DivergenceType.BEARISH_REGULAR)
+                    .signal(strength >= 4 ? DivergenceSignal.STRONG_SELL : DivergenceSignal.SELL)
+                    .currentPrice(currentPrice)
+                    .currentRsi(currentRsi)
+                    .prevPeakPrice(prevPeakPrice)
+                    .prevPeakRsi(prevPeakRsi)
+                    .peakIndex(peakIndex)
+                    .strength(strength)
+                    .interpretation(interpretation)
+                    .isValid(true)
+                    .detectedAt(java.time.LocalDateTime.now())
+                    .build();
+        }
+
+        return createNoDivergence("하락 다이버전스 조건 미충족");
+    }
+
+    /**
+     * 상승 다이버전스 탐지 (매수 신호)
+     * 주가 신저가 + RSI 전저점 상회
+     */
+    private DivergenceResult detectBullishDivergence(List<BigDecimal> prices, List<BigDecimal> rsiValues,
+                                                       BigDecimal currentPrice, BigDecimal currentRsi,
+                                                       int lookbackPeriod, int minDistance) {
+        // 현재가 근처가 저점인지 확인 (최근 5봉 중 최저)
+        boolean isNearLow = true;
+        for (int i = 1; i < Math.min(5, prices.size()); i++) {
+            if (prices.get(i) != null && prices.get(i).compareTo(currentPrice) < 0) {
+                isNearLow = false;
+                break;
+            }
+        }
+
+        if (!isNearLow) {
+            return createNoDivergence("현재가가 저점 아님");
+        }
+
+        // 이전 저점 찾기
+        BigDecimal prevTroughPrice = null;
+        BigDecimal prevTroughRsi = null;
+        int troughIndex = -1;
+
+        for (int i = minDistance; i < Math.min(lookbackPeriod, prices.size()); i++) {
+            BigDecimal price = prices.get(i);
+            BigDecimal rsi = i < rsiValues.size() ? rsiValues.get(i) : null;
+
+            if (price == null || rsi == null) continue;
+
+            // 로컬 저점 확인 (앞뒤 2봉보다 낮은지)
+            boolean isLocalLow = true;
+            for (int j = -2; j <= 2; j++) {
+                if (j == 0) continue;
+                int checkIdx = i + j;
+                if (checkIdx >= 0 && checkIdx < prices.size() && prices.get(checkIdx) != null) {
+                    if (prices.get(checkIdx).compareTo(price) < 0) {
+                        isLocalLow = false;
+                        break;
+                    }
+                }
+            }
+
+            if (isLocalLow && (prevTroughPrice == null || price.compareTo(prevTroughPrice) < 0)) {
+                prevTroughPrice = price;
+                prevTroughRsi = rsi;
+                troughIndex = i;
+            }
+        }
+
+        if (prevTroughPrice == null || prevTroughRsi == null) {
+            return createNoDivergence("이전 저점 없음");
+        }
+
+        // 상승 다이버전스 조건: 현재 가격 < 이전 저점 가격, 현재 RSI > 이전 저점 RSI
+        boolean priceLower = currentPrice.compareTo(prevTroughPrice) < 0;
+        boolean rsiHigher = currentRsi.compareTo(prevTroughRsi) > 0;
+
+        if (priceLower && rsiHigher) {
+            // 신호 강도 계산
+            BigDecimal rsiDiff = currentRsi.subtract(prevTroughRsi);
+            int strength = calculateDivergenceStrength(rsiDiff, false);
+
+            String interpretation = String.format(
+                    "🔺 상승 다이버전스 감지! 주가 신저가(%.0f < %.0f) but RSI 상승(%.1f > %.1f). " +
+                    "%d봉 전 저점 대비. 추세 반전(상승) 기대!",
+                    currentPrice, prevTroughPrice, currentRsi, prevTroughRsi, troughIndex);
+
+            return DivergenceResult.builder()
+                    .type(DivergenceType.BULLISH_REGULAR)
+                    .signal(strength >= 4 ? DivergenceSignal.STRONG_BUY : DivergenceSignal.BUY)
+                    .currentPrice(currentPrice)
+                    .currentRsi(currentRsi)
+                    .prevPeakPrice(prevTroughPrice)
+                    .prevPeakRsi(prevTroughRsi)
+                    .peakIndex(troughIndex)
+                    .strength(strength)
+                    .interpretation(interpretation)
+                    .isValid(true)
+                    .detectedAt(java.time.LocalDateTime.now())
+                    .build();
+        }
+
+        return createNoDivergence("상승 다이버전스 조건 미충족");
+    }
+
+    /**
+     * 다이버전스 신호 강도 계산 (1~5)
+     */
+    private int calculateDivergenceStrength(BigDecimal rsiDiff, boolean isBearish) {
+        BigDecimal absDiff = rsiDiff.abs();
+
+        // RSI 차이에 따른 강도
+        // 5점 이하: 약한 신호, 10점 이상: 강한 신호
+        if (absDiff.compareTo(new BigDecimal("15")) >= 0) {
+            return 5;
+        } else if (absDiff.compareTo(new BigDecimal("10")) >= 0) {
+            return 4;
+        } else if (absDiff.compareTo(new BigDecimal("7")) >= 0) {
+            return 3;
+        } else if (absDiff.compareTo(new BigDecimal("5")) >= 0) {
+            return 2;
+        } else {
+            return 1;
+        }
+    }
+
+    /**
+     * 다이버전스 미감지 결과 생성
+     */
+    private DivergenceResult createNoDivergence(String reason) {
+        return DivergenceResult.builder()
+                .type(DivergenceType.NONE)
+                .signal(DivergenceSignal.NEUTRAL)
+                .interpretation(reason)
+                .isValid(false)
+                .detectedAt(java.time.LocalDateTime.now())
+                .build();
+    }
+
+    // ========== 다이버전스 결과 클래스 ==========
+
+    /**
+     * RSI 다이버전스 결과
+     */
+    @Data
+    @AllArgsConstructor
+    @lombok.NoArgsConstructor
+    @lombok.Builder
+    public static class DivergenceResult {
+        private DivergenceType type;
+        private DivergenceSignal signal;
+        private BigDecimal currentPrice;
+        private BigDecimal currentRsi;
+        private BigDecimal prevPeakPrice;
+        private BigDecimal prevPeakRsi;
+        private int peakIndex;
+        private int strength;
+        private String interpretation;
+        private boolean isValid;
+        private java.time.LocalDateTime detectedAt;
+    }
+
+    /**
+     * 다이버전스 타입
+     */
+    public enum DivergenceType {
+        BEARISH_REGULAR("하락 다이버전스 (일반)", "주가 신고가, RSI 전고점 하회"),
+        BEARISH_HIDDEN("하락 다이버전스 (히든)", "주가 저고점, RSI 고점 갱신"),
+        BULLISH_REGULAR("상승 다이버전스 (일반)", "주가 신저가, RSI 전저점 상회"),
+        BULLISH_HIDDEN("상승 다이버전스 (히든)", "주가 고저점, RSI 저점 갱신"),
+        NONE("다이버전스 없음", "특이 신호 없음");
+
+        private final String label;
+        private final String description;
+
+        DivergenceType(String label, String description) {
+            this.label = label;
+            this.description = description;
+        }
+
+        public String getLabel() { return label; }
+        public String getDescription() { return description; }
+    }
+
+    /**
+     * 다이버전스 신호
+     */
+    public enum DivergenceSignal {
+        STRONG_BUY("강한 매수 신호", 5),
+        BUY("매수 신호", 3),
+        NEUTRAL("중립", 0),
+        SELL("매도 신호", -3),
+        STRONG_SELL("강한 매도 신호", -5);
+
+        private final String label;
+        private final int weight;
+
+        DivergenceSignal(String label, int weight) {
+            this.label = label;
+            this.weight = weight;
+        }
+
+        public String getLabel() { return label; }
+        public int getWeight() { return weight; }
+    }
 }
