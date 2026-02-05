@@ -295,16 +295,30 @@ public class StockPriceService {
 
             String responseBody = response.getBody();
             log.info("종목 검색 응답 길이: {}", responseBody != null ? responseBody.length() : 0);
+            log.info("종목 검색 응답 내용: {}", responseBody != null ? responseBody.substring(0, Math.min(500, responseBody.length())) : "null");
 
             if (responseBody != null) {
                 JsonNode root = objectMapper.readTree(responseBody);
+                log.info("종목 검색 JSON 구조: {}", root.fieldNames().hasNext() ? root.fieldNames().next() : "empty");
                 JsonNode resultNode = root.get("result");
+                if (resultNode == null) {
+                    // 새로운 API 구조 시도: stocks 필드
+                    resultNode = root.get("stocks");
+                    log.info("stocks 필드 시도: {}", resultNode != null ? "found" : "not found");
+                }
                 JsonNode items = resultNode != null ? resultNode.get("items") : null;
+                if (items == null && resultNode != null && resultNode.isArray()) {
+                    // resultNode 자체가 배열인 경우
+                    items = resultNode;
+                    log.info("resultNode 자체가 배열: size={}", items.size());
+                }
 
                 if (items != null && items.isArray()) {
+                    log.info("종목 검색 items 수: {}", items.size());
                     for (JsonNode item : items) {
-                        String stockCode = item.has("code") ? item.get("code").asText() : null;
-                        String stockName = item.has("name") ? item.get("name").asText() : null;
+                        // 다양한 필드명 지원
+                        String stockCode = getFirstAvailableText(item, "code", "stockCode", "itemCode", "cd", "srtnCd");
+                        String stockName = getFirstAvailableText(item, "name", "stockName", "itemName", "nm", "itmsNm");
 
                         // 한국 주식만 필터링 (6자리 종목코드)
                         if (stockCode != null && stockCode.matches("[0-9A-Z]{6}")) {
@@ -421,6 +435,21 @@ public class StockPriceService {
      */
     private String getTextValue(JsonNode node, String field) {
         return node.has(field) ? node.get(field).asText() : "";
+    }
+
+    /**
+     * JsonNode에서 여러 필드명 중 첫 번째로 존재하는 값 반환
+     */
+    private String getFirstAvailableText(JsonNode node, String... fields) {
+        for (String field : fields) {
+            if (node.has(field) && !node.get(field).isNull()) {
+                String value = node.get(field).asText();
+                if (value != null && !value.isEmpty()) {
+                    return value;
+                }
+            }
+        }
+        return null;
     }
 
     /**

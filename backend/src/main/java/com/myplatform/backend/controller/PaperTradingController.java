@@ -65,10 +65,15 @@ public class PaperTradingController {
     /**
      * 포트폴리오 조회
      * GET /api/paper-trading/portfolio
+     * - 기본: 캐시된 가격으로 빠르게 반환
+     * - refresh=true: 현재가 갱신 후 반환 (느림)
      */
     @GetMapping("/portfolio")
-    public ResponseEntity<Map<String, Object>> getPortfolio() {
-        virtualTradeService.updatePortfolioPrices();
+    public ResponseEntity<Map<String, Object>> getPortfolio(
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        if (refresh) {
+            virtualTradeService.updatePortfolioPrices();
+        }
         List<PortfolioItemDto> portfolio = virtualTradeService.getPortfolio();
         return ResponseEntity.ok(buildSuccessResponse(portfolio));
     }
