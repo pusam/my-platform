@@ -155,6 +155,24 @@
               </svg>
             </span>
           </article>
+
+          <article class="menu-card trading-indicators" @click="goToTradingIndicators">
+            <div class="card-icon trading-indicators-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 3v18h18"/>
+                <path d="M18 9l-5 5-4-4-3 3"/>
+                <circle cx="18" cy="9" r="2"/>
+                <path d="M21 12v-2h-4"/>
+              </svg>
+            </div>
+            <h3>트레이딩 지표</h3>
+            <p>VWAP, 나스닥 선물, 주도 섹터</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
         </div>
       </section>
 
@@ -613,6 +631,9 @@ export default {
     },
     goToScalping() {
       this.$router.push('/scalping')
+    },
+    goToTradingIndicators() {
+      this.$router.push('/trading-indicators')
     },
     goToNews() {
       this.$router.push('/news')
@@ -1117,6 +1138,26 @@ export default {
 
 .menu-card.scalping h3 {
   color: #db2777;
+}
+
+/* 트레이딩 지표 카드 */
+.card-icon.trading-indicators-icon {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15) 0%, rgba(109, 40, 217, 0.15) 100%);
+  color: #8b5cf6;
+}
+
+.menu-card.trading-indicators {
+  background: linear-gradient(135deg, rgba(245, 243, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(139, 92, 246, 0.3);
+}
+
+.menu-card.trading-indicators:hover {
+  border-color: #8b5cf6;
+  box-shadow: 0 20px 40px rgba(139, 92, 246, 0.15);
+}
+
+.menu-card.trading-indicators h3 {
+  color: #7c3aed;
 }
 
 /* AI 뱃지 (메뉴 카드용) */

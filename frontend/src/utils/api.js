@@ -607,6 +607,45 @@ export const exchangeRateAPI = {
   }
 };
 
+// Trading Indicator API (트레이딩 지표)
+export const tradingIndicatorAPI = {
+  // VWAP 조회
+  getVwap(stockCode) {
+    return apiClient.get(`/trading-indicators/vwap/${stockCode}`);
+  },
+  // 나스닥 선물 조회
+  getNasdaqFutures() {
+    return apiClient.get('/trading-indicators/global/nasdaq-futures');
+  },
+  // S&P 500 선물 조회
+  getSP500Futures() {
+    return apiClient.get('/trading-indicators/global/sp500-futures');
+  },
+  // 글로벌 악재 필터 체크
+  checkGlobalHalt() {
+    return apiClient.get('/trading-indicators/global/halt-check');
+  },
+  // 주도 섹터 랭킹
+  getLeadingSectors() {
+    return apiClient.get('/trading-indicators/sectors/leading');
+  },
+  // 섹터 상세
+  getSectorDetail(sectorCode) {
+    return apiClient.get(`/trading-indicators/sectors/${sectorCode}`);
+  },
+  // RSI 다이버전스 탐지
+  detectDivergence(prices, lookbackPeriod = 40) {
+    return apiClient.post('/trading-indicators/divergence/detect', {
+      prices,
+      lookbackPeriod
+    });
+  },
+  // 종합 분석
+  getComprehensive(stockCode) {
+    return apiClient.get(`/trading-indicators/comprehensive/${stockCode}`);
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

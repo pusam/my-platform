@@ -29,6 +29,7 @@ import MarketTimingPage from './views/MarketTimingPage.vue'
 import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
 import PensionLotteryPage from './views/PensionLotteryPage.vue'
 import ScalpingAnalysisPage from './views/ScalpingAnalysisPage.vue'
+import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -196,6 +197,12 @@ const router = createRouter({
       path: '/scalping',
       name: 'ScalpingAnalysis',
       component: ScalpingAnalysisPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/trading-indicators',
+      name: 'TradingIndicators',
+      component: TradingIndicatorsPage,
       meta: { requiresAuth: true }
     },
     {
