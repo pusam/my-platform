@@ -44,6 +44,23 @@
           <h2>주식</h2>
         </div>
         <div class="menu-grid">
+          <article class="menu-card ai-analysis" @click="goToAiStock">
+            <div class="card-icon ai-analysis-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z"/>
+                <circle cx="8.5" cy="14.5" r="1.5"/>
+                <circle cx="15.5" cy="14.5" r="1.5"/>
+              </svg>
+            </div>
+            <h3>AI 종목 추천 <span class="menu-ai-badge">AI</span></h3>
+            <p>AI 4대장 앙상블 기반 단기/중장기 TOP PICK</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
           <article class="menu-card sector" @click="goToSector">
             <div class="card-icon sector-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -614,6 +631,9 @@ export default {
     goToSector() {
       this.$router.push('/sector')
     },
+    goToAiStock() {
+      this.$router.push('/ai-stock')
+    },
     goToInvestorTrade() {
       this.$router.push('/investor-trades')
     },
@@ -845,6 +865,26 @@ export default {
 
 .menu-card.car h3 {
   color: #2c3e50;
+}
+
+/* AI 분석 카드 */
+.card-icon.ai-analysis-icon {
+  background: linear-gradient(135deg, rgba(236, 72, 153, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%);
+  color: #a855f7;
+}
+
+.menu-card.ai-analysis {
+  background: linear-gradient(135deg, rgba(253, 244, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(168, 85, 247, 0.3);
+}
+
+.menu-card.ai-analysis:hover {
+  border-color: #a855f7;
+  box-shadow: 0 20px 40px rgba(168, 85, 247, 0.2);
+}
+
+.menu-card.ai-analysis h3 {
+  color: #9333ea;
 }
 
 .menu-card.sector {

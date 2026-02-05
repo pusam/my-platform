@@ -650,6 +650,18 @@ export const tradingIndicatorAPI = {
   }
 };
 
+// AI Analysis API (AI 주식 분석)
+export const aiAnalysisAPI = {
+  // AI 분석 결과 조회
+  getAnalysis() {
+    return apiClient.get('/ai-analysis');
+  },
+  // AI 분석 새로고침
+  refresh() {
+    return apiClient.post('/ai-analysis/refresh');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
