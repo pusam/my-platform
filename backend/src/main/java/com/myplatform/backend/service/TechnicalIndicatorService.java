@@ -1,11 +1,13 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto.MfiStatus;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto.RsiStatus;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto.TechnicalSignal;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +30,10 @@ import java.util.List;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class TechnicalIndicatorService {
+
+    private final KoreaInvestmentService kisService;
 
     // ========== 기간 상수 ==========
     private static final int MA_5 = 5;
@@ -826,6 +831,71 @@ public class TechnicalIndicatorService {
         }
 
         return createNoDivergence("다이버전스 미감지");
+    }
+
+    /**
+     * 종목코드로 RSI 다이버전스 탐지
+     * 한투 API로 일봉 데이터를 조회하여 다이버전스 분석
+     *
+     * @param stockCode 종목코드
+     * @param lookbackPeriod 분석 기간 (기본 40일)
+     * @return 다이버전스 결과
+     */
+    public DivergenceResult detectRsiDivergenceByStockCode(String stockCode, int lookbackPeriod) {
+        log.info("종목별 RSI 다이버전스 탐지: {}, lookback={}", stockCode, lookbackPeriod);
+
+        if (!kisService.isConfigured()) {
+            log.warn("RSI 다이버전스 탐지 불가 - 한투 API 미설정");
+            return createNoDivergence("API 미설정");
+        }
+
+        try {
+            // 일봉 데이터 조회 (lookback + RSI 기간 + 여유분)
+            int requiredDays = lookbackPeriod + RSI_PERIOD + 20;
+            JsonNode response = kisService.getStockDailyChart(stockCode, requiredDays);
+
+            if (response == null) {
+                return createNoDivergence("일봉 데이터 조회 실패");
+            }
+
+            String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+            if (!"0".equals(rtCd)) {
+                String msg = response.has("msg1") ? response.get("msg1").asText() : "Unknown error";
+                log.warn("RSI 다이버전스 일봉 API 에러 [{}]: {}", stockCode, msg);
+                return createNoDivergence(msg);
+            }
+
+            JsonNode output2 = response.get("output2");
+            if (output2 == null || !output2.isArray() || output2.isEmpty()) {
+                return createNoDivergence("일봉 데이터 없음");
+            }
+
+            // 가격 데이터 추출 (종가 기준)
+            List<BigDecimal> prices = new ArrayList<>();
+            for (JsonNode candle : output2) {
+                String closeStr = candle.has("stck_clpr") ? candle.get("stck_clpr").asText() : null;
+                if (closeStr != null && !closeStr.isEmpty()) {
+                    try {
+                        prices.add(new BigDecimal(closeStr.replace(",", "")));
+                    } catch (NumberFormatException e) {
+                        // 무시
+                    }
+                }
+            }
+
+            if (prices.size() < lookbackPeriod + RSI_PERIOD) {
+                return createNoDivergence("데이터 부족 (" + prices.size() + "일)");
+            }
+
+            log.info("종목 {} 일봉 {}개 조회 완료, 다이버전스 분석 시작", stockCode, prices.size());
+
+            // 기존 다이버전스 탐지 로직 호출
+            return detectRsiDivergence(prices, lookbackPeriod);
+
+        } catch (Exception e) {
+            log.error("종목별 RSI 다이버전스 탐지 실패 [{}]: {}", stockCode, e.getMessage(), e);
+            return createNoDivergence("분석 실패: " + e.getMessage());
+        }
     }
 
     /**

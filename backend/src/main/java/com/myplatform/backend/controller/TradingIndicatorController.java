@@ -164,6 +164,26 @@ public class TradingIndicatorController {
         return ResponseEntity.ok(buildSuccessResponse(result));
     }
 
+    @GetMapping("/divergence/{stockCode}")
+    @Operation(
+        summary = "종목별 RSI 다이버전스 탐지",
+        description = "종목코드를 입력하면 일봉 데이터를 조회하여 RSI 다이버전스를 자동 탐지합니다.\n\n" +
+                     "lookbackPeriod: 20~60 권장 (기본값 40)"
+    )
+    public ResponseEntity<Map<String, Object>> detectDivergenceByStock(
+            @Parameter(description = "종목코드", example = "005930")
+            @PathVariable String stockCode,
+            @Parameter(description = "분석 기간 (일)", example = "40")
+            @RequestParam(defaultValue = "40") int lookbackPeriod) {
+
+        log.info("종목별 RSI 다이버전스 탐지 API 호출: {}, lookback={}", stockCode, lookbackPeriod);
+
+        DivergenceResult result = technicalIndicatorService.detectRsiDivergenceByStockCode(
+                stockCode, lookbackPeriod);
+
+        return ResponseEntity.ok(buildSuccessResponse(result));
+    }
+
     // ========== 5. 종합 분석 ==========
 
     @GetMapping("/comprehensive/{stockCode}")

@@ -371,6 +371,58 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 주식 일봉 차트 조회
+     * RSI 다이버전스 등 기술적 분석에 사용
+     *
+     * @param stockCode 종목코드
+     * @param days 조회할 일수 (최대 100일)
+     * @return API 응답 JsonNode (output2에 일봉 데이터 배열)
+     */
+    public JsonNode getStockDailyChart(String stockCode, int days) {
+        String token = getAccessToken();
+        if (token == null) {
+            return null;
+        }
+
+        try {
+            // 종료일: 오늘
+            java.time.LocalDate endDate = java.time.LocalDate.now();
+            // 시작일: days일 전
+            java.time.LocalDate startDate = endDate.minusDays(days + 30);  // 주말/공휴일 고려 여유분
+
+            String endDateStr = endDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+            String startDateStr = startDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+
+            // 주식 일별 시세 조회 API (FHKST03010100)
+            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+                    + "?FID_COND_MRKT_DIV_CODE=J"       // J: 주식
+                    + "&FID_INPUT_ISCD=" + stockCode    // 종목코드
+                    + "&FID_INPUT_DATE_1=" + startDateStr  // 시작일
+                    + "&FID_INPUT_DATE_2=" + endDateStr    // 종료일
+                    + "&FID_PERIOD_DIV_CODE=D"          // D: 일봉
+                    + "&FID_ORG_ADJ_PRC=0";             // 0: 수정주가 미반영
+
+            HttpHeaders headers = createHeaders(token, "FHKST03010100");
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+                log.debug("일봉 조회 완료 [{}]: {}~{}", stockCode, startDateStr, endDateStr);
+                return result;
+            } else {
+                log.warn("일봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
+            }
+        } catch (Exception e) {
+            log.warn("일봉 API 예외 [{}]: {}", stockCode, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
      * 앱키 반환 (외부에서 필요시)
      */
     public String getAppKey() {

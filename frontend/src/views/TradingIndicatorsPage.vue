@@ -174,6 +174,61 @@
         </div>
       </section>
 
+      <!-- RSI 다이버전스 섹션 -->
+      <section class="indicator-section">
+        <div class="section-header">
+          <span class="section-icon">📉</span>
+          <h2>RSI 다이버전스 탐지</h2>
+        </div>
+
+        <div class="divergence-info">
+          <p><strong>하락 다이버전스:</strong> 주가 신고가 + RSI 전고점 하회 → 매도 신호</p>
+          <p><strong>상승 다이버전스:</strong> 주가 신저가 + RSI 전저점 상회 → 매수 신호</p>
+        </div>
+
+        <div class="divergence-search">
+          <input
+            v-model="divergenceStockCode"
+            placeholder="종목코드 입력 (예: 005930)"
+            class="stock-input"
+          />
+          <select v-model="divergenceLookback" class="lookback-select">
+            <option :value="20">20일</option>
+            <option :value="40">40일 (권장)</option>
+            <option :value="60">60일</option>
+          </select>
+          <button @click="loadDivergence" class="search-btn" :disabled="loading.divergence || !divergenceStockCode">
+            {{ loading.divergence ? '분석 중...' : '다이버전스 탐지' }}
+          </button>
+        </div>
+
+        <div v-if="divergenceResult" class="divergence-result" :class="getDivergenceClass(divergenceResult.signal)">
+          <div class="divergence-header">
+            <h3>분석 결과</h3>
+            <div class="divergence-signal" :class="getDivergenceClass(divergenceResult.signal)">
+              {{ getDivergenceSignalText(divergenceResult.signal) }}
+            </div>
+          </div>
+          <div class="divergence-content">
+            <div class="divergence-stat">
+              <span class="label">다이버전스 유형</span>
+              <span class="value">{{ getDivergenceTypeText(divergenceResult.type) }}</span>
+            </div>
+            <div class="divergence-stat">
+              <span class="label">현재 RSI</span>
+              <span class="value" :class="getRsiClass(divergenceResult.currentRsi)">
+                {{ divergenceResult.currentRsi?.toFixed(2) }}
+              </span>
+            </div>
+            <div class="divergence-stat" v-if="divergenceResult.strength">
+              <span class="label">신호 강도</span>
+              <span class="value">{{ divergenceResult.strength }}</span>
+            </div>
+          </div>
+          <p class="divergence-interpretation">{{ divergenceResult.interpretation }}</p>
+        </div>
+      </section>
+
       <!-- 종합 분석 섹션 -->
       <section class="indicator-section">
         <div class="section-header">
@@ -218,6 +273,7 @@ export default {
         global: false,
         sectors: false,
         vwap: false,
+        divergence: false,
         comprehensive: false
       },
       nasdaqFutures: null,
@@ -226,6 +282,9 @@ export default {
       leadingSectors: null,
       vwapStockCode: '',
       vwapResult: null,
+      divergenceStockCode: '',
+      divergenceLookback: 40,
+      divergenceResult: null,
       comprehensiveStockCode: '',
       comprehensiveResult: null
     }
@@ -287,6 +346,23 @@ export default {
         console.error('VWAP 분석 실패:', error)
       } finally {
         this.loading.vwap = false
+      }
+    },
+    async loadDivergence() {
+      if (!this.divergenceStockCode) return
+      this.loading.divergence = true
+      try {
+        const response = await tradingIndicatorAPI.detectDivergenceByStock(
+          this.divergenceStockCode,
+          this.divergenceLookback
+        )
+        if (response.data.success) {
+          this.divergenceResult = response.data.data
+        }
+      } catch (error) {
+        console.error('RSI 다이버전스 분석 실패:', error)
+      } finally {
+        this.loading.divergence = false
       }
     },
     async loadComprehensive() {
@@ -355,6 +431,39 @@ export default {
       if (score >= -20) return 'score-neutral'
       if (score >= -50) return 'score-mid-low'
       return 'score-low'
+    },
+    getDivergenceClass(signal) {
+      if (!signal) return ''
+      switch (signal) {
+        case 'BEARISH': return 'divergence-bearish'
+        case 'BULLISH': return 'divergence-bullish'
+        case 'NONE': return 'divergence-none'
+        default: return ''
+      }
+    },
+    getDivergenceSignalText(signal) {
+      if (!signal) return '-'
+      switch (signal) {
+        case 'BEARISH': return '하락 다이버전스 (매도)'
+        case 'BULLISH': return '상승 다이버전스 (매수)'
+        case 'NONE': return '다이버전스 없음'
+        default: return signal
+      }
+    },
+    getDivergenceTypeText(type) {
+      if (!type) return '-'
+      switch (type) {
+        case 'BEARISH': return '하락 다이버전스'
+        case 'BULLISH': return '상승 다이버전스'
+        case 'NONE': return '없음'
+        default: return type
+      }
+    },
+    getRsiClass(rsi) {
+      if (rsi == null) return ''
+      if (rsi >= 70) return 'rsi-overbought'
+      if (rsi <= 30) return 'rsi-oversold'
+      return 'rsi-normal'
     }
   }
 }
@@ -889,6 +998,139 @@ export default {
   text-align: center;
   color: #9ca3af;
   padding: 20px;
+}
+
+/* RSI 다이버전스 */
+.divergence-info {
+  background: #f3f4f6;
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.divergence-info p {
+  margin: 4px 0;
+  font-size: 0.875rem;
+  color: #4b5563;
+}
+
+.divergence-search {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.lookback-select {
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 1rem;
+  background: white;
+  cursor: pointer;
+}
+
+.lookback-select:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.divergence-result {
+  padding: 20px;
+  border-radius: 12px;
+  border: 2px solid #e5e7eb;
+}
+
+.divergence-result.divergence-bearish {
+  border-color: #3b82f6;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+}
+
+.divergence-result.divergence-bullish {
+  border-color: #ef4444;
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+.divergence-result.divergence-none {
+  border-color: #9ca3af;
+  background: #f9fafb;
+}
+
+.divergence-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.divergence-header h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+}
+
+.divergence-signal {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: white;
+}
+
+.divergence-signal.divergence-bearish {
+  background: #3b82f6;
+}
+
+.divergence-signal.divergence-bullish {
+  background: #ef4444;
+}
+
+.divergence-signal.divergence-none {
+  background: #6b7280;
+}
+
+.divergence-content {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.divergence-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.divergence-stat .label {
+  font-size: 0.875rem;
+  color: #6b7280;
+}
+
+.divergence-stat .value {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.divergence-stat .value.rsi-overbought {
+  color: #dc2626;
+}
+
+.divergence-stat .value.rsi-oversold {
+  color: #2563eb;
+}
+
+.divergence-stat .value.rsi-normal {
+  color: #1f2937;
+}
+
+.divergence-interpretation {
+  font-size: 0.9375rem;
+  color: #374151;
+  line-height: 1.6;
+  margin: 0;
 }
 
 /* 반응형 */

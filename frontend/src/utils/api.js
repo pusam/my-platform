@@ -633,12 +633,16 @@ export const tradingIndicatorAPI = {
   getSectorDetail(sectorCode) {
     return apiClient.get(`/trading-indicators/sectors/${sectorCode}`);
   },
-  // RSI 다이버전스 탐지
+  // RSI 다이버전스 탐지 (가격 데이터 직접 전달)
   detectDivergence(prices, lookbackPeriod = 40) {
     return apiClient.post('/trading-indicators/divergence/detect', {
       prices,
       lookbackPeriod
     });
+  },
+  // 종목코드로 RSI 다이버전스 탐지
+  detectDivergenceByStock(stockCode, lookbackPeriod = 40) {
+    return apiClient.get(`/trading-indicators/divergence/${stockCode}?lookbackPeriod=${lookbackPeriod}`);
   },
   // 종합 분석
   getComprehensive(stockCode) {
