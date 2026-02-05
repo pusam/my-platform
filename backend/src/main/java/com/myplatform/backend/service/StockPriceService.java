@@ -161,6 +161,43 @@ public class StockPriceService {
     }
 
     /**
+     * [빠른 조회] 캐시/DB에서만 시세 조회 (API 호출 안 함)
+     * - 턴어라운드 등 빠른 응답이 필요한 API에서 사용
+     * - 캐시 미스 시 null 반환
+     */
+    public Map<String, StockPriceDto> getStockPricesFromCacheOnly(List<String> stockCodes) {
+        if (stockCodes == null || stockCodes.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        Map<String, StockPriceDto> result = new HashMap<>();
+        int cacheMinutes = kisService.isConfigured() ? 5 : 30; // 캐시 유효시간 늘림
+
+        for (String code : stockCodes) {
+            // 1. 메모리 캐시에서 조회
+            StockPriceDto cached = priceCache.get(code);
+            if (cached != null && isValidCache(cached, cacheMinutes)) {
+                result.put(code, cached);
+                continue;
+            }
+
+            // 2. DB에서 조회
+            Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code);
+            if (dbPrice.isPresent()) {
+                StockPriceDto dto = entityToDto(dbPrice.get());
+                if (isValidCache(dto, cacheMinutes)) {
+                    priceCache.put(code, dto);
+                    result.put(code, dto);
+                }
+            }
+            // API 호출은 하지 않음 - 없으면 그냥 null
+        }
+
+        log.debug("캐시 전용 시세 조회 - 요청: {}, 캐시 히트: {}", stockCodes.size(), result.size());
+        return result;
+    }
+
+    /**
      * 종목코드로 주식 시세 조회
      */
     public StockPriceDto getStockPrice(String stockCode) {

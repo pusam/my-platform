@@ -779,10 +779,10 @@ public class QuantScreenerService {
             return;
         }
 
-        log.info("[턴어라운드 데이터 품질 개선] 보완이 필요한 종목: {}건", stockCodesToEnrich.size());
+        log.info("[턴어라운드 데이터 품질 개선] 보완이 필요한 종목: {}건 (캐시 전용)", stockCodesToEnrich.size());
 
-        // StockPriceService로 배치 조회
-        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodesToEnrich);
+        // StockPriceService로 캐시 전용 조회 (API 호출 안 함 - 빠른 응답)
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPricesFromCacheOnly(stockCodesToEnrich);
 
         // 원본 데이터 맵 생성
         Map<String, StockFinancialData> originalMap = originalStocks.stream()
