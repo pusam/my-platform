@@ -155,25 +155,6 @@
               </svg>
             </span>
           </article>
-
-          <article class="menu-card paper-trading" @click="goToPaperTrading">
-            <div class="card-icon paper-trading-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                <line x1="8" y1="21" x2="16" y2="21"/>
-                <line x1="12" y1="17" x2="12" y2="21"/>
-                <path d="M6 8h.01M9 8h.01"/>
-                <path d="M17 8l-5 5-2-2-3 3"/>
-              </svg>
-            </div>
-            <h3>모의투자</h3>
-            <p>가상 자금으로 투자 연습</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
         </div>
       </section>
 
@@ -632,9 +613,6 @@ export default {
     },
     goToScalping() {
       this.$router.push('/scalping')
-    },
-    goToPaperTrading() {
-      this.$router.push('/paper-trading')
     },
     goToNews() {
       this.$router.push('/news')
@@ -1139,26 +1117,6 @@ export default {
 
 .menu-card.scalping h3 {
   color: #db2777;
-}
-
-/* 모의투자 카드 */
-.card-icon.paper-trading-icon {
-  background: linear-gradient(135deg, rgba(20, 184, 166, 0.15) 0%, rgba(6, 148, 162, 0.15) 100%);
-  color: #14b8a6;
-}
-
-.menu-card.paper-trading {
-  background: linear-gradient(135deg, rgba(240, 253, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(20, 184, 166, 0.3);
-}
-
-.menu-card.paper-trading:hover {
-  border-color: #14b8a6;
-  box-shadow: 0 20px 40px rgba(20, 184, 166, 0.15);
-}
-
-.menu-card.paper-trading h3 {
-  color: #0d9488;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
