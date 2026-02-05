@@ -255,8 +255,10 @@ const goToStockDetail = (stockCode) => {
 }
 
 const formatCurrency = (value) => {
-  if (!value) return '0원'
-  return new Intl.NumberFormat('ko-KR').format(value) + '원'
+  if (!value && value !== 0) return '0원'
+  // BigDecimal은 JSON에서 number로 변환됨
+  const numValue = typeof value === 'number' ? value : parseFloat(value)
+  return new Intl.NumberFormat('ko-KR').format(Math.round(numValue)) + '원'
 }
 
 const formatNumber = (value) => {

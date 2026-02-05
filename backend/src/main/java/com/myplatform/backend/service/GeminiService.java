@@ -173,6 +173,67 @@ public class GeminiService {
     }
 
     /**
+     * AI 종목 추천 분석 (AI 대시보드용)
+     * @param stockDataSummary 종목 데이터 요약 문자열
+     * @return AI 분석 코멘트
+     */
+    public String analyzeStockRecommendation(String stockDataSummary) {
+        if (stockDataSummary == null || stockDataSummary.isEmpty()) {
+            return "분석할 데이터가 없습니다.";
+        }
+
+        String prompt = String.format("""
+                당신은 한국 주식시장 전문 AI 애널리스트입니다.
+
+                아래는 외국인/기관 연속 순매수 및 실적 데이터 기반으로 선별된 종목입니다.
+
+                [분석 대상 종목]
+                %s
+
+                위 종목에 대해 다음을 분석해주세요:
+                1. 투자 매력도 (매수/관망/매도 중 하나)
+                2. 핵심 매수 근거 (2-3가지)
+                3. 주의해야 할 리스크
+                4. 적정 목표가 또는 투자 전략
+
+                반드시 한국어로, 200자 이내로 간결하게 답변해주세요.
+                """, stockDataSummary);
+
+        return callWithFallback(prompt, "AI 종목 추천");
+    }
+
+    /**
+     * AI 4대장 앙상블 의견 생성
+     * @param stocksSummary 전체 종목 요약
+     * @return 앙상블 의견
+     */
+    public String generateEnsembleOpinion(String stocksSummary) {
+        if (stocksSummary == null || stocksSummary.isEmpty()) {
+            return "데이터가 부족합니다.";
+        }
+
+        String prompt = String.format("""
+                당신은 GPT, Claude, Gemini, Deepseek 4개 AI의 의견을 종합하는 앙상블 분석가입니다.
+
+                아래 종목들에 대해 4개 AI가 분석했다고 가정하고, 각 AI의 관점에서 의견을 제시한 후
+                종합적인 컨센서스 의견을 도출해주세요.
+
+                [분석 대상]
+                %s
+
+                각 AI별 특성:
+                - GPT: 기술적 분석 중심, 차트 패턴 중시
+                - Claude: 기본적 분석 중심, 재무제표 중시
+                - Gemini: 수급 분석 중심, 외국인/기관 동향 중시
+                - Deepseek: 모멘텀 분석 중심, 단기 추세 중시
+
+                100자 이내로 간결한 종합 의견만 답변해주세요.
+                """, stocksSummary);
+
+        return callWithFallback(prompt, "AI 앙상블 의견");
+    }
+
+    /**
      * Gemini API 호출 (Rate Limit 처리 + Ollama 폴백)
      */
     private String callWithFallback(String prompt, String analysisType) {

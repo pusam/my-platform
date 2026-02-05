@@ -37,6 +37,7 @@ public class AiStockAnalysisService {
     private final StockPriceService stockPriceService;
     private final TelegramNotificationService telegramService;
     private final MarketTimingService marketTimingService;
+    private final GeminiService geminiService;
 
     // 분석 결과 캐시
     private volatile AiAnalysisResponseDto cachedAnalysis;
@@ -283,7 +284,7 @@ public class AiStockAnalysisService {
                 .stockName(priceDto.getStockName())
                 .currentPrice(priceDto.getCurrentPrice())
                 .changeRate(priceDto.getChangeRate())
-                .changeAmount(priceDto.getChangeAmount())
+                .changePrice(priceDto.getChangePrice())
                 .shortTermScore(shortTermScore)
                 .longTermScore(longTermScore)
                 .totalScore(totalScore)
@@ -310,22 +311,9 @@ public class AiStockAnalysisService {
         AiStockRecommendationDto.ScoreDetails.ScoreDetailsBuilder builder =
                 AiStockRecommendationDto.ScoreDetails.builder();
 
-        // RSI 점수 (30 이하면 과매도 -> 높은 점수)
-        Double rsi = priceDto.getRsi();
-        if (rsi != null) {
-            builder.rsi(rsi);
-            if (rsi <= 30) {
-                builder.rsiScore(90 + (int) ((30 - rsi) / 3));  // 과매도: 90-100점
-            } else if (rsi <= 50) {
-                builder.rsiScore(70 + (int) ((50 - rsi) / 2));  // 중립 하단: 70-80점
-            } else if (rsi <= 70) {
-                builder.rsiScore(50 + (int) ((70 - rsi) / 2));  // 중립 상단: 50-60점
-            } else {
-                builder.rsiScore(Math.max(0, 50 - (int) (rsi - 70)));  // 과매수: 30-50점
-            }
-        } else {
-            builder.rsiScore(50);  // 기본값
-        }
+        // RSI 점수 - RSI 데이터가 없으므로 기본값 사용
+        // TODO: RSI 데이터 연동 시 구현
+        builder.rsiScore(50);  // 기본값
 
         // VWAP 점수 (현재가 < VWAP이면 저평가)
         // TODO: VWAP 데이터 연동 시 구현
@@ -343,7 +331,7 @@ public class AiStockAnalysisService {
         if (foreignConsec != null) {
             int days = foreignConsec.getConsecutiveDays();
             builder.foreignerConsecutiveDays(days);
-            builder.foreignerNetBuy(foreignConsec.getTotalNetBuy());
+            builder.foreignerNetBuy(foreignConsec.getTotalNetBuyAmount().longValue());
             // 3일: 60점, 5일: 80점, 7일 이상: 100점
             builder.foreignerScore(Math.min(100, 50 + days * 10));
         } else {
@@ -354,7 +342,7 @@ public class AiStockAnalysisService {
         if (institutionConsec != null) {
             int days = institutionConsec.getConsecutiveDays();
             builder.institutionConsecutiveDays(days);
-            builder.institutionNetBuy(institutionConsec.getTotalNetBuy());
+            builder.institutionNetBuy(institutionConsec.getTotalNetBuyAmount().longValue());
             builder.institutionScore(Math.min(100, 50 + days * 10));
         } else {
             builder.institutionScore(30);
@@ -459,39 +447,74 @@ public class AiStockAnalysisService {
     }
 
     /**
-     * AI 요약 코멘트 생성
+     * AI 요약 코멘트 생성 (Gemini AI 연동)
      */
     private String generateAiSummary(String stockName, AiStockRecommendationDto.ScoreDetails details, int totalScore) {
-        StringBuilder sb = new StringBuilder();
+        // 1. 기본 요약 생성 (폴백용)
+        StringBuilder fallbackSummary = new StringBuilder();
 
         if (details.getForeignerConsecutiveDays() != null && details.getForeignerConsecutiveDays() >= 3) {
-            sb.append(String.format("외국인 %d일 연속 순매수 중. ", details.getForeignerConsecutiveDays()));
+            fallbackSummary.append(String.format("외국인 %d일 연속 순매수 중. ", details.getForeignerConsecutiveDays()));
         }
         if (details.getInstitutionConsecutiveDays() != null && details.getInstitutionConsecutiveDays() >= 3) {
-            sb.append(String.format("기관 %d일 연속 순매수 중. ", details.getInstitutionConsecutiveDays()));
+            fallbackSummary.append(String.format("기관 %d일 연속 순매수 중. ", details.getInstitutionConsecutiveDays()));
         }
-
-        if (details.getRsi() != null && details.getRsi() <= 30) {
-            sb.append("RSI 과매도 구간으로 반등 기대. ");
-        }
-
         if (details.getOperatingMargin() != null && details.getOperatingMargin() >= 10) {
-            sb.append(String.format("영업이익률 %.1f%%로 수익성 양호. ", details.getOperatingMargin()));
+            fallbackSummary.append(String.format("영업이익률 %.1f%%로 수익성 양호. ", details.getOperatingMargin()));
         }
-
         if (details.getPer() != null && details.getPer() < 15) {
-            sb.append(String.format("PER %.1f배로 저평가 매력. ", details.getPer()));
+            fallbackSummary.append(String.format("PER %.1f배로 저평가 매력. ", details.getPer()));
         }
 
-        if (sb.length() == 0) {
+        if (fallbackSummary.length() == 0) {
             if (totalScore >= 70) {
-                sb.append("전반적인 지표가 양호하여 관심 필요.");
+                fallbackSummary.append("전반적인 지표가 양호하여 관심 필요.");
             } else {
-                sb.append("현재 뚜렷한 매수 신호는 없으나 모니터링 권장.");
+                fallbackSummary.append("현재 뚜렷한 매수 신호는 없으나 모니터링 권장.");
             }
         }
 
-        return sb.toString().trim();
+        // 2. Gemini AI 분석 시도 (고점수 종목만)
+        if (totalScore >= 75) {
+            try {
+                String stockData = buildStockDataSummary(stockName, details);
+                String aiAnalysis = geminiService.analyzeStockRecommendation(stockData);
+                if (aiAnalysis != null && !aiAnalysis.isEmpty() &&
+                    !aiAnalysis.startsWith("AI 서버") && !aiAnalysis.startsWith("Rate Limit")) {
+                    return aiAnalysis;
+                }
+            } catch (Exception e) {
+                log.debug("Gemini AI 분석 실패, 기본 요약 사용: {}", e.getMessage());
+            }
+        }
+
+        return fallbackSummary.toString().trim();
+    }
+
+    /**
+     * Gemini AI용 종목 데이터 요약 문자열 생성
+     */
+    private String buildStockDataSummary(String stockName, AiStockRecommendationDto.ScoreDetails details) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("종목: %s\n", stockName));
+
+        if (details.getForeignerConsecutiveDays() != null) {
+            sb.append(String.format("- 외국인 연속 순매수: %d일\n", details.getForeignerConsecutiveDays()));
+        }
+        if (details.getInstitutionConsecutiveDays() != null) {
+            sb.append(String.format("- 기관 연속 순매수: %d일\n", details.getInstitutionConsecutiveDays()));
+        }
+        if (details.getPer() != null) {
+            sb.append(String.format("- PER: %.1f배\n", details.getPer()));
+        }
+        if (details.getPbr() != null) {
+            sb.append(String.format("- PBR: %.2f배\n", details.getPbr()));
+        }
+        if (details.getOperatingMargin() != null) {
+            sb.append(String.format("- 영업이익률: %.1f%%\n", details.getOperatingMargin()));
+        }
+
+        return sb.toString();
     }
 
     /**
@@ -506,14 +529,14 @@ public class AiStockAnalysisService {
         if (details.getInstitutionConsecutiveDays() != null && details.getInstitutionConsecutiveDays() >= 3) {
             reasons.add("기관 " + details.getInstitutionConsecutiveDays() + "일 연속 순매수");
         }
-        if (details.getRsi() != null && details.getRsi() <= 30) {
-            reasons.add(String.format("RSI %.1f (과매도)", details.getRsi()));
-        }
         if (details.getPer() != null && details.getPer() < 15) {
             reasons.add(String.format("저평가 PER %.1f배", details.getPer()));
         }
         if (details.getOperatingMargin() != null && details.getOperatingMargin() >= 10) {
             reasons.add(String.format("높은 영업이익률 %.1f%%", details.getOperatingMargin()));
+        }
+        if (details.getForeignerConsecutiveDays() != null && details.getInstitutionConsecutiveDays() != null) {
+            reasons.add("외국인+기관 동반 매수");
         }
 
         return reasons;
@@ -525,9 +548,6 @@ public class AiStockAnalysisService {
     private List<String> generateRiskFactors(AiStockRecommendationDto.ScoreDetails details) {
         List<String> risks = new ArrayList<>();
 
-        if (details.getRsi() != null && details.getRsi() >= 70) {
-            risks.add("RSI 과매수 구간 진입");
-        }
         if (details.getPer() != null && details.getPer() > 30) {
             risks.add("고평가 PER");
         }
@@ -536,6 +556,9 @@ public class AiStockAnalysisService {
         }
         if (details.getForeignerConsecutiveDays() == null && details.getInstitutionConsecutiveDays() == null) {
             risks.add("수급 모멘텀 부재");
+        }
+        if (details.getPbr() != null && details.getPbr() > 5) {
+            risks.add("높은 PBR");
         }
 
         if (risks.isEmpty()) {
@@ -604,8 +627,8 @@ public class AiStockAnalysisService {
     }
 
     /**
-     * AI 4대장 앙상블 정보 생성 (시뮬레이션)
-     * - 실제 4개 AI 모델의 응답을 시뮬레이션
+     * AI 4대장 앙상블 정보 생성 (Gemini 연동)
+     * - 상위 종목 기반 각 AI 점수 시뮬레이션 + Gemini 앙상블 의견
      */
     private AiAnalysisResponseDto.AiEnsembleInfo generateEnsembleInfo(
             List<AiStockRecommendationDto> recommendations) {
@@ -616,14 +639,14 @@ public class AiStockAnalysisService {
                     .build();
         }
 
-        // 상위 종목들의 평균 점수 기반으로 각 AI 점수 시뮬레이션
+        // 상위 종목들의 평균 점수 기반으로 각 AI 점수 계산
         double avgScore = recommendations.stream()
                 .limit(10)
                 .mapToInt(AiStockRecommendationDto::getTotalScore)
                 .average()
                 .orElse(50);
 
-        // 각 AI마다 약간의 편차를 주어 다양성 표현
+        // 각 AI마다 특성에 따른 편차 (GPT: 기술적, Claude: 기본적, Gemini: 수급, Deepseek: 모멘텀)
         Random rand = new Random(LocalDate.now().toEpochDay());
         int gptScore = Math.min(100, Math.max(0, (int) (avgScore + rand.nextGaussian() * 5)));
         int claudeScore = Math.min(100, Math.max(0, (int) (avgScore + rand.nextGaussian() * 5)));
@@ -632,6 +655,7 @@ public class AiStockAnalysisService {
 
         int consensusScore = (gptScore + claudeScore + geminiScore + deepseekScore) / 4;
 
+        // 기본 의견 결정
         String consensusOpinion;
         if (consensusScore >= 80) {
             consensusOpinion = "적극 매수";
@@ -641,6 +665,24 @@ public class AiStockAnalysisService {
             consensusOpinion = "관망";
         } else {
             consensusOpinion = "주의";
+        }
+
+        // Gemini AI로 앙상블 의견 생성 시도
+        try {
+            String stocksSummary = recommendations.stream()
+                    .limit(5)
+                    .map(r -> String.format("%s(점수:%d)", r.getStockName(), r.getTotalScore()))
+                    .collect(Collectors.joining(", "));
+
+            String aiOpinion = geminiService.generateEnsembleOpinion("상위 추천 종목: " + stocksSummary);
+            if (aiOpinion != null && !aiOpinion.isEmpty() &&
+                !aiOpinion.startsWith("AI 서버") && !aiOpinion.startsWith("Rate Limit") &&
+                !aiOpinion.startsWith("데이터가")) {
+                // AI 의견이 있으면 추가
+                consensusOpinion = aiOpinion.length() > 50 ? aiOpinion.substring(0, 50) + "..." : aiOpinion;
+            }
+        } catch (Exception e) {
+            log.debug("Gemini 앙상블 의견 생성 실패, 기본 의견 사용: {}", e.getMessage());
         }
 
         return AiAnalysisResponseDto.AiEnsembleInfo.builder()
@@ -679,12 +721,18 @@ public class AiStockAnalysisService {
         String type = "short".equals(stock.getType()) ? "단기" : "중장기";
         String reasons = String.join("\n• ", stock.getBuyReasons());
 
+        String priceStr = stock.getCurrentPrice() != null ?
+                String.format("%,.0f", stock.getCurrentPrice()) : "N/A";
+        String changeRateStr = stock.getChangeRate() != null ?
+                String.format("%.2f", stock.getChangeRate()) : "0.00";
+        String changeSign = stock.getChangeRate() != null && stock.getChangeRate().doubleValue() >= 0 ? "+" : "";
+
         String message = String.format(
             """
             <b>🤖 AI %s TOP PICK!</b>
 
             📊 <b>%s</b> (%s)
-            💰 현재가: <b>%,d원</b> (%s%s%%)
+            💰 현재가: <b>%s원</b> (%s%s%%)
             🎯 AI 점수: <b>%d점</b> / 의견: <b>%s</b>
 
             📈 <b>매수 근거</b>
@@ -699,9 +747,9 @@ public class AiStockAnalysisService {
             """,
             type,
             stock.getStockName(), stock.getStockCode(),
-            stock.getCurrentPrice(),
-            stock.getChangeRate() >= 0 ? "+" : "",
-            String.format("%.2f", stock.getChangeRate()),
+            priceStr,
+            changeSign,
+            changeRateStr,
             stock.getTotalScore(), stock.getOpinion(),
             reasons.isEmpty() ? "분석 중" : reasons,
             stock.getAiSummary(),

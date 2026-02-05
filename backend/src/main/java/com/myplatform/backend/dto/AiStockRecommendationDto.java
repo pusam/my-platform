@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -16,9 +17,9 @@ public class AiStockRecommendationDto {
 
     private String stockCode;
     private String stockName;
-    private Integer currentPrice;
-    private Double changeRate;
-    private Integer changeAmount;
+    private BigDecimal currentPrice;
+    private BigDecimal changeRate;
+    private BigDecimal changePrice;
 
     // AI 점수 (0-100)
     private Integer shortTermScore;      // 단기 예측 점수
