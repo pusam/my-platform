@@ -28,6 +28,7 @@ import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 import MarketTimingPage from './views/MarketTimingPage.vue'
 import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
 import PensionLotteryPage from './views/PensionLotteryPage.vue'
+import ScalpingAnalysisPage from './views/ScalpingAnalysisPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -189,6 +190,12 @@ const router = createRouter({
       path: '/pension-lottery',
       name: 'PensionLottery',
       component: PensionLotteryPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/scalping',
+      name: 'ScalpingAnalysis',
+      component: ScalpingAnalysisPage,
       meta: { requiresAuth: true }
     },
     {

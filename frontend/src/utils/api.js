@@ -587,6 +587,18 @@ export const paperTradingAPI = {
   }
 };
 
+// Scalping Analysis API (단타 분석)
+export const scalpingAPI = {
+  // 단타 분석 조회 (체결강도, 프로그램매매, 투자자 매매)
+  getAnalysis(stockCode) {
+    return apiClient.get(`/scalping/${stockCode}`);
+  },
+  // 체결강도만 빠르게 갱신 (자동 갱신용)
+  refreshVolumePower(stockCode) {
+    return apiClient.get(`/scalping/${stockCode}/refresh`);
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
