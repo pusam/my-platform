@@ -7,7 +7,6 @@ import com.myplatform.backend.repository.GoldPriceRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Profile;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpEntity;
@@ -65,7 +64,7 @@ public class GoldPriceService {
     }
 
     /**
-     * DB에서 최신 데이터 로드 (API 호출 안 함)
+     * DB에서 최신 데이터 로드, 없으면 API 호출
      */
     private void loadFromDatabase() {
         Optional<GoldPrice> latest = goldPriceRepository.findTopByOrderByFetchedAtDesc();
@@ -74,17 +73,17 @@ public class GoldPriceService {
             cachedGoldPrice.set(dto);
             log.info("DB에서 금 시세 로드 완료: 1돈 = {}원 (기준: {})", dto.getPricePerDon(), dto.getFetchedAt());
         } else {
-            log.info("DB에 금 시세 데이터 없음. 첫 요청 시 API 호출 예정.");
+            log.info("DB에 금 시세 데이터 없음. API 호출하여 초기 데이터 수집...");
+            fetchAndCacheGoldPrice();
         }
     }
 
     /**
-     * 평일 9시, 12시, 15시30분, 18시 금 시세 갱신 (무료 플랜 월 100회 제한 고려: 하루 4회 × 약 22일 = 88회)
-     * prod 환경에서만 실행
+     * 평일 9시, 12시, 15시30분, 18시 금 시세 갱신
+     * (무료 플랜 월 100회 제한 고려: 하루 4회 × 약 22일 = 88회)
      */
-    @Profile("dev")
-    @Scheduled(cron = "0 0 9,12,18 * * MON-FRI")
-    @Scheduled(cron = "0 30 15 * * MON-FRI")
+    @Scheduled(cron = "0 0 9,12,18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledFetchGoldPrice() {
         log.info("스케줄 작업: 금 시세 갱신 시작");
         fetchAndCacheGoldPrice();
