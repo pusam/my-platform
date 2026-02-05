@@ -599,6 +599,14 @@ export const scalpingAPI = {
   }
 };
 
+// Exchange Rate API (환율)
+export const exchangeRateAPI = {
+  // 현재 환율 조회 (USD/KRW)
+  getCurrentRate() {
+    return apiClient.get('/exchange-rate');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

@@ -32,6 +32,11 @@
         </div>
       </section>
 
+      <!-- 시장 정보 위젯 -->
+      <section class="market-info-section">
+        <MarketInfoWidget />
+      </section>
+
       <!-- 주식 섹션 -->
       <section class="menu-section">
         <div class="section-header">
@@ -424,11 +429,13 @@
 <script>
 import { newsAPI, financeAPI, goldAPI, silverAPI, assetAPI } from '../utils/api';
 import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
+import MarketInfoWidget from '../components/MarketInfoWidget.vue';
 
 export default {
   name: 'UserDashboard',
   components: {
-    WidgetSettingsModal
+    WidgetSettingsModal,
+    MarketInfoWidget
   },
   data() {
     return {
@@ -1356,5 +1363,10 @@ export default {
   transform: scale(1.05);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   color: var(--primary-start);
+}
+
+/* 시장 정보 섹션 */
+.market-info-section {
+  margin-bottom: var(--section-gap);
 }
 </style>
