@@ -120,7 +120,11 @@ public class AiStockAnalysisService {
 
             log.info("분석 대상 종목 수: {}", stockCodes.size());
 
-            // 3. 각 종목 분석
+            // 3. 주가 데이터 캐시에서 일괄 조회 (API 호출 없이)
+            Map<String, StockPriceDto> priceMap = stockPriceService.getStockPricesFromCacheOnly(stockCodes);
+            log.info("캐시된 주가 데이터: {}/{}개", priceMap.size(), stockCodes.size());
+
+            // 4. 각 종목 분석 (캐시된 데이터만 사용)
             Map<String, ConsecutiveBuyDto> foreignMap = foreignConsecutive.stream()
                     .collect(Collectors.toMap(ConsecutiveBuyDto::getStockCode, c -> c, (a, b) -> a));
             Map<String, ConsecutiveBuyDto> institutionMap = institutionConsecutive.stream()
@@ -129,9 +133,16 @@ public class AiStockAnalysisService {
             List<AiStockRecommendationDto> allRecommendations = new ArrayList<>();
 
             for (String stockCode : stockCodes) {
+                StockPriceDto priceDto = priceMap.get(stockCode);
+                if (priceDto == null) {
+                    // 캐시에 없으면 건너뛰기 (API 호출 안함)
+                    continue;
+                }
+
                 try {
-                    AiStockRecommendationDto recommendation = analyzeStock(
+                    AiStockRecommendationDto recommendation = analyzeStockWithPrice(
                             stockCode,
+                            priceDto,
                             foreignMap.get(stockCode),
                             institutionMap.get(stockCode)
                     );
@@ -183,13 +194,17 @@ public class AiStockAnalysisService {
                 }
             }
 
-            // 6. 시장 지표 조회
+            // 6. 상위 3개 종목만 Gemini AI로 요약 보강 (Rate Limit 방지)
+            enhanceTopPicksWithAi(shortTermPicks, 3);
+            enhanceTopPicksWithAi(longTermPicks, 3);
+
+            // 7. 시장 지표 조회
             AiAnalysisResponseDto.MarketIndicators marketIndicators = getMarketIndicators();
 
-            // 7. AI 앙상블 정보 생성
+            // 8. AI 앙상블 정보 생성
             AiAnalysisResponseDto.AiEnsembleInfo ensembleInfo = generateEnsembleInfo(allRecommendations);
 
-            // 8. 결과 저장
+            // 9. 결과 저장
             cachedAnalysis = AiAnalysisResponseDto.builder()
                     .shortTermPicks(shortTermPicks)
                     .longTermPicks(longTermPicks)
@@ -199,7 +214,7 @@ public class AiStockAnalysisService {
                     .build();
             lastAnalysisTime = LocalDateTime.now();
 
-            // 9. 고득점 종목 텔레그램 알림
+            // 10. 고득점 종목 텔레그램 알림
             sendHighScoreAlerts(shortTermPicks, longTermPicks);
 
             log.info("AI 분석 완료 - 단기: {}개, 중장기: {}개",
@@ -211,13 +226,12 @@ public class AiStockAnalysisService {
     }
 
     /**
-     * 개별 종목 분석
+     * 개별 종목 분석 (캐시된 주가 데이터 사용)
      */
-    private AiStockRecommendationDto analyzeStock(String stockCode,
-                                                   ConsecutiveBuyDto foreignConsec,
-                                                   ConsecutiveBuyDto institutionConsec) {
-        // 주가 정보 조회
-        StockPriceDto priceDto = stockPriceService.getStockPrice(stockCode);
+    private AiStockRecommendationDto analyzeStockWithPrice(String stockCode,
+                                                            StockPriceDto priceDto,
+                                                            ConsecutiveBuyDto foreignConsec,
+                                                            ConsecutiveBuyDto institutionConsec) {
         if (priceDto == null || priceDto.getCurrentPrice() == null) {
             return null;
         }
@@ -413,6 +427,36 @@ public class AiStockAnalysisService {
     }
 
     /**
+     * 상위 N개 종목에 대해 Gemini AI 분석 보강
+     * - Rate Limit 방지를 위해 제한된 수만 호출
+     */
+    private void enhanceTopPicksWithAi(List<AiStockRecommendationDto> picks, int maxCount) {
+        int count = 0;
+        for (AiStockRecommendationDto stock : picks) {
+            if (count >= maxCount) break;
+            if (stock.getTotalScore() < 70) continue;  // 70점 이상만
+
+            try {
+                String stockData = buildStockDataSummary(stock.getStockName(), stock.getScoreDetails());
+                String aiAnalysis = geminiService.analyzeStockRecommendation(stockData);
+
+                if (aiAnalysis != null && !aiAnalysis.isEmpty() &&
+                    !aiAnalysis.startsWith("AI 서버") && !aiAnalysis.startsWith("Rate Limit") &&
+                    !aiAnalysis.startsWith("분석할")) {
+                    stock.setAiSummary(aiAnalysis);
+                    count++;
+                    log.debug("AI 분석 보강: {} - {}", stock.getStockName(), aiAnalysis.substring(0, Math.min(30, aiAnalysis.length())));
+                }
+
+                // Rate Limit 방지를 위해 호출 간 딜레이
+                Thread.sleep(2000);
+            } catch (Exception e) {
+                log.debug("AI 분석 보강 실패: {} - {}", stock.getStockName(), e.getMessage());
+            }
+        }
+    }
+
+    /**
      * 기술적 분석 종합 점수
      */
     private int calculateTechnicalScore(AiStockRecommendationDto.ScoreDetails details) {
@@ -474,19 +518,8 @@ public class AiStockAnalysisService {
             }
         }
 
-        // 2. Gemini AI 분석 시도 (고점수 종목만)
-        if (totalScore >= 75) {
-            try {
-                String stockData = buildStockDataSummary(stockName, details);
-                String aiAnalysis = geminiService.analyzeStockRecommendation(stockData);
-                if (aiAnalysis != null && !aiAnalysis.isEmpty() &&
-                    !aiAnalysis.startsWith("AI 서버") && !aiAnalysis.startsWith("Rate Limit")) {
-                    return aiAnalysis;
-                }
-            } catch (Exception e) {
-                log.debug("Gemini AI 분석 실패, 기본 요약 사용: {}", e.getMessage());
-            }
-        }
+        // 2. Gemini AI 분석은 최종 TOP PICK 선정 후 별도로 수행 (Rate Limit 방지)
+        // 여기서는 기본 요약만 반환
 
         return fallbackSummary.toString().trim();
     }
@@ -667,23 +700,8 @@ public class AiStockAnalysisService {
             consensusOpinion = "주의";
         }
 
-        // Gemini AI로 앙상블 의견 생성 시도
-        try {
-            String stocksSummary = recommendations.stream()
-                    .limit(5)
-                    .map(r -> String.format("%s(점수:%d)", r.getStockName(), r.getTotalScore()))
-                    .collect(Collectors.joining(", "));
-
-            String aiOpinion = geminiService.generateEnsembleOpinion("상위 추천 종목: " + stocksSummary);
-            if (aiOpinion != null && !aiOpinion.isEmpty() &&
-                !aiOpinion.startsWith("AI 서버") && !aiOpinion.startsWith("Rate Limit") &&
-                !aiOpinion.startsWith("데이터가")) {
-                // AI 의견이 있으면 추가
-                consensusOpinion = aiOpinion.length() > 50 ? aiOpinion.substring(0, 50) + "..." : aiOpinion;
-            }
-        } catch (Exception e) {
-            log.debug("Gemini 앙상블 의견 생성 실패, 기본 의견 사용: {}", e.getMessage());
-        }
+        // Gemini AI 앙상블 의견은 비활성화 (Rate Limit 방지)
+        // 개별 종목 분석에서 이미 AI 호출하므로 추가 호출 생략
 
         return AiAnalysisResponseDto.AiEnsembleInfo.builder()
                 .gptScore(gptScore)

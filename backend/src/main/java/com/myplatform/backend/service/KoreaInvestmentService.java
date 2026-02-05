@@ -45,6 +45,10 @@ public class KoreaInvestmentService {
     private String accessToken;
     private LocalDateTime tokenExpireTime;
 
+    // 토큰 발급 실패 시 쿨다운 (Rate Limit 방지)
+    private LocalDateTime tokenCooldownUntil;
+    private static final int TOKEN_COOLDOWN_SECONDS = 65;  // 1분 + 여유 5초
+
     public KoreaInvestmentService(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
@@ -62,12 +66,19 @@ public class KoreaInvestmentService {
      * Access Token 발급
      * - 토큰 유효시간: 24시간
      * - 만료 1시간 전에 갱신
+     * - Rate Limit 방지를 위한 쿨다운 적용
      */
     public synchronized String getAccessToken() {
         // 토큰이 유효하면 재사용
         if (accessToken != null && tokenExpireTime != null
             && LocalDateTime.now().isBefore(tokenExpireTime.minusHours(1))) {
             return accessToken;
+        }
+
+        // 쿨다운 중이면 null 반환 (Rate Limit 방지)
+        if (tokenCooldownUntil != null && LocalDateTime.now().isBefore(tokenCooldownUntil)) {
+            log.debug("토큰 발급 쿨다운 중 ({}까지 대기)", tokenCooldownUntil);
+            return null;
         }
 
         if (!isConfigured()) {
@@ -96,15 +107,24 @@ public class KoreaInvestmentService {
                     accessToken = root.get("access_token").asText();
                     // 토큰 만료시간 설정 (24시간)
                     tokenExpireTime = LocalDateTime.now().plusHours(24);
+                    // 쿨다운 해제
+                    tokenCooldownUntil = null;
                     log.info("한국투자증권 Access Token 발급 성공");
                     return accessToken;
                 } else {
                     String errorMsg = root.has("msg") ? root.get("msg").asText() : "Unknown error";
                     log.error("토큰 발급 실패: {}", errorMsg);
+                    // 실패 시 쿨다운 설정
+                    tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
                 }
             }
         } catch (Exception e) {
             log.error("한국투자증권 토큰 발급 실패: {}", e.getMessage());
+            // Rate Limit 에러인 경우 쿨다운 설정
+            if (e.getMessage() != null && e.getMessage().contains("403")) {
+                tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+                log.info("토큰 발급 쿨다운 설정: {}초 후 재시도 가능", TOKEN_COOLDOWN_SECONDS);
+            }
         }
 
         return null;
