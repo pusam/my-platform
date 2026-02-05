@@ -6,6 +6,7 @@ import com.myplatform.backend.dto.MarketTimingDto;
 import com.myplatform.backend.dto.MarketTimingDto.*;
 import com.myplatform.backend.entity.MarketDailyStatus;
 import com.myplatform.backend.repository.MarketDailyStatusRepository;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -59,6 +60,38 @@ public class MarketTimingService {
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 서버 시작 시 오늘 ADR 데이터가 없으면 자동 수집
+     */
+    @PostConstruct
+    public void initializeDataIfEmpty() {
+        LocalDate today = LocalDate.now();
+
+        // 주말이면 금요일 날짜 사용
+        java.time.DayOfWeek dayOfWeek = today.getDayOfWeek();
+        if (dayOfWeek == java.time.DayOfWeek.SATURDAY) {
+            today = today.minusDays(1);
+        } else if (dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+            today = today.minusDays(2);
+        }
+
+        // 오늘(또는 가장 최근 영업일) 데이터가 없으면 수집
+        boolean kospiExists = marketDailyStatusRepository.findByMarketTypeAndTradeDate("KOSPI", today).isPresent();
+        boolean kosdaqExists = marketDailyStatusRepository.findByMarketTypeAndTradeDate("KOSDAQ", today).isPresent();
+
+        if (!kospiExists || !kosdaqExists) {
+            log.info("ADR 시장 데이터가 없습니다. 초기 데이터 수집을 시작합니다... (날짜: {})", today);
+            try {
+                collectMarketData();
+                log.info("ADR 시장 데이터 초기 수집 완료");
+            } catch (Exception e) {
+                log.warn("ADR 시장 데이터 초기 수집 실패 (나중에 스케줄러가 재시도): {}", e.getMessage());
+            }
+        } else {
+            log.info("ADR 시장 데이터 존재 확인됨 (날짜: {})", today);
+        }
+    }
 
     /**
      * 현재 시장 타이밍 분석
