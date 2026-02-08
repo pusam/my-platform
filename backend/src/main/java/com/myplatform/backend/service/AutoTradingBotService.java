@@ -21,11 +21,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.MonthDay;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -37,8 +40,14 @@ import java.util.stream.Collectors;
  * [전략 명세서]
  * ========================================
  *
+ * 0. 휴장일 처리
+ *    - 주말(토/일): 스케줄러 자체에서 MON-FRI 필터로 제외
+ *    - 공휴일: 런타임에 isMarketClosed()로 체크
+ *      (신정, 삼일절, 어린이날, 현충일, 광복절, 개천절, 한글날, 성탄절,
+ *       설날, 추석, 부처님오신날, 대체공휴일)
+ *
  * 1. 매수 로직 (executeBuyLogic)
- *    - 실행 시간: 09:10 ~ 09:30 (매분 실행)
+ *    - 실행 시간: 09:10 ~ 09:30 (매분, 평일/개장일만)
  *    - 종목 선정 기준:
  *      A. 시가총액: 1,000억 원 이상 (슬리피지 방지)
  *      B. 거래량 급증: 현재 거래량이 전일 거래량의 30% 이상
@@ -48,12 +57,12 @@ import java.util.stream.Collectors;
  *    - 종목당 투자 비중: 20%
  *
  * 2. 매도 로직 (checkStopLossAndTakeProfit)
- *    - 감시 시간: 09:10 ~ 15:19 (1분 간격)
+ *    - 감시 시간: 09:10 ~ 15:19 (1분 간격, 평일/개장일만)
  *    - 손절(Stop Loss): -3%
  *    - 익절(Take Profit): +7%
  *
  * 3. 장 마감 청산 (executeTimeCut)
- *    - 시간: 15:20
+ *    - 시간: 15:20 (평일/개장일만)
  *    - 전량 청산 (오버나잇 리스크 방지)
  *
  * ========================================
@@ -343,12 +352,17 @@ public class AutoTradingBotService {
 
     /**
      * 매수 로직 실행
-     * - 실행 시간: 09:10 ~ 09:30 (매분)
+     * - 실행 시간: 09:10 ~ 09:30 (매분, 평일만)
      * - 최대 3종목까지만 보유
      */
-    @Scheduled(cron = "0 10-30 9 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10-30 9 * * MON-FRI", zone = "Asia/Seoul")
     public void executeBuyLogic() {
         if (!botActive.get()) {
+            return;
+        }
+
+        // 휴장일 체크 (공휴일)
+        if (isMarketClosed()) {
             return;
         }
 
@@ -500,12 +514,17 @@ public class AutoTradingBotService {
 
     /**
      * 손절/익절 체크
-     * - 감시 시간: 09:10 ~ 15:19 (매분)
+     * - 감시 시간: 09:10 ~ 15:19 (매분, 평일만)
      * - 손절: -3% / 익절: +7%
      */
-    @Scheduled(cron = "0 * 9-15 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkStopLossAndTakeProfit() {
         if (!botActive.get()) {
+            return;
+        }
+
+        // 휴장일 체크 (공휴일)
+        if (isMarketClosed()) {
             return;
         }
 
@@ -597,11 +616,16 @@ public class AutoTradingBotService {
     // ==================== 장 마감 청산 ====================
 
     /**
-     * 장 마감 청산 (15:20)
+     * 장 마감 청산 (15:20, 평일만)
      */
-    @Scheduled(cron = "0 20 15 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 20 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeTimeCut() {
         if (!botActive.get()) {
+            return;
+        }
+
+        // 휴장일 체크 (공휴일)
+        if (isMarketClosed()) {
             return;
         }
 
@@ -856,6 +880,94 @@ public class AutoTradingBotService {
             todaySellCount.set(0);
             lastResetDate = today;
         }
+    }
+
+    // ==================== 휴장일 체크 ====================
+
+    /**
+     * 한국 증시 휴장일 (고정 공휴일)
+     * - 매년 반복되는 공휴일 목록
+     * - 대체공휴일은 매년 다르므로 별도 관리 필요
+     */
+    private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
+            MonthDay.of(1, 1),   // 신정
+            MonthDay.of(3, 1),   // 삼일절
+            MonthDay.of(5, 5),   // 어린이날
+            MonthDay.of(6, 6),   // 현충일
+            MonthDay.of(8, 15),  // 광복절
+            MonthDay.of(10, 3),  // 개천절
+            MonthDay.of(10, 9),  // 한글날
+            MonthDay.of(12, 25)  // 성탄절
+    );
+
+    /**
+     * 2025년 한국 증시 휴장일 (음력 공휴일 + 대체공휴일)
+     */
+    private static final Set<LocalDate> KOREA_HOLIDAYS_2025 = Set.of(
+            // 설날 연휴 (1/28~1/30)
+            LocalDate.of(2025, 1, 28),
+            LocalDate.of(2025, 1, 29),
+            LocalDate.of(2025, 1, 30),
+            // 부처님오신날
+            LocalDate.of(2025, 5, 5),  // 어린이날과 겹침
+            LocalDate.of(2025, 5, 6),  // 대체공휴일
+            // 추석 연휴 (10/5~10/7)
+            LocalDate.of(2025, 10, 6),
+            LocalDate.of(2025, 10, 7),
+            LocalDate.of(2025, 10, 8)
+    );
+
+    /**
+     * 2026년 한국 증시 휴장일 (음력 공휴일 + 대체공휴일)
+     */
+    private static final Set<LocalDate> KOREA_HOLIDAYS_2026 = Set.of(
+            // 설날 연휴 (2/16~2/18)
+            LocalDate.of(2026, 2, 16),
+            LocalDate.of(2026, 2, 17),
+            LocalDate.of(2026, 2, 18),
+            // 부처님오신날
+            LocalDate.of(2026, 5, 24),
+            // 추석 연휴 (9/24~9/26)
+            LocalDate.of(2026, 9, 24),
+            LocalDate.of(2026, 9, 25),
+            LocalDate.of(2026, 9, 26)
+    );
+
+    /**
+     * 주식 시장 휴장일인지 확인
+     * - 주말 (토, 일)
+     * - 고정 공휴일 (신정, 삼일절 등)
+     * - 음력 공휴일 (설날, 추석, 부처님오신날)
+     */
+    private boolean isMarketClosed() {
+        LocalDate today = LocalDate.now();
+        DayOfWeek dayOfWeek = today.getDayOfWeek();
+
+        // 주말 체크
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            log.debug("[자동매매] 주말 휴장일 - {}", dayOfWeek);
+            return true;
+        }
+
+        // 고정 공휴일 체크
+        MonthDay monthDay = MonthDay.from(today);
+        if (KOREA_FIXED_HOLIDAYS.contains(monthDay)) {
+            log.info("[자동매매] 공휴일 휴장 - {}", today);
+            return true;
+        }
+
+        // 연도별 음력/대체 공휴일 체크
+        int year = today.getYear();
+        if (year == 2025 && KOREA_HOLIDAYS_2025.contains(today)) {
+            log.info("[자동매매] 공휴일 휴장 (2025) - {}", today);
+            return true;
+        }
+        if (year == 2026 && KOREA_HOLIDAYS_2026.contains(today)) {
+            log.info("[자동매매] 공휴일 휴장 (2026) - {}", today);
+            return true;
+        }
+
+        return false;
     }
 
     private String formatNumber(BigDecimal value) {
