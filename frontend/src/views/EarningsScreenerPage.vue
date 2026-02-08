@@ -119,10 +119,26 @@
                   <span class="detail-hint">클릭하여 상세 진단</span>
                 </td>
                 <td>{{ stock.market }}</td>
-                <td :class="getValueClass(stock.per, 'per')">{{ formatNumber(stock.per, 2) }}</td>
-                <td :class="getValueClass(stock.pbr, 'pbr')">{{ formatNumber(stock.pbr, 2) }}</td>
-                <td :class="getValueClass(stock.roe, 'roe')">{{ formatPercent(stock.roe) }}</td>
-                <td :class="getValueClass(stock.operatingMargin, 'margin')">{{ formatPercent(stock.operatingMargin) }}</td>
+                <td class="metric-cell">
+                  <span class="metric-value-bar" :style="getValueBarStyle(stock.per, 'per')"></span>
+                  <span class="metric-text">{{ formatNumber(stock.per, 2) }}</span>
+                  <span v-if="isGoodValue(stock.per, 'per')" class="good-badge">👍</span>
+                </td>
+                <td class="metric-cell">
+                  <span class="metric-value-bar" :style="getValueBarStyle(stock.pbr, 'pbr')"></span>
+                  <span class="metric-text">{{ formatNumber(stock.pbr, 2) }}</span>
+                  <span v-if="isGoodValue(stock.pbr, 'pbr')" class="good-badge">👍</span>
+                </td>
+                <td class="metric-cell">
+                  <span class="metric-value-bar" :style="getValueBarStyle(stock.roe, 'roe')"></span>
+                  <span class="metric-text">{{ formatPercent(stock.roe) }}</span>
+                  <span v-if="isGoodValue(stock.roe, 'roe')" class="good-badge">👍</span>
+                </td>
+                <td class="metric-cell">
+                  <span class="metric-value-bar" :style="getValueBarStyle(stock.operatingMargin, 'margin')"></span>
+                  <span class="metric-text">{{ formatPercent(stock.operatingMargin) }}</span>
+                  <span v-if="isGoodValue(stock.operatingMargin, 'margin')" class="good-badge">👍</span>
+                </td>
                 <td>{{ formatMarketCap(stock.marketCap) }}</td>
                 <td class="score">{{ stock.magicFormulaScore }}</td>
               </tr>
@@ -477,12 +493,16 @@
 
         <div v-else-if="diagnosisData" class="modal-content">
           <!-- 종합 의견 -->
-          <div class="verdict-section" :class="getVerdictClass(diagnosisData.verdictLevel)">
+          <div class="verdict-section" :class="getAdjustedVerdictClass(diagnosisData)">
             <div class="verdict-header">
-              <span class="verdict-icon">{{ getVerdictIcon(diagnosisData.verdictLevel) }}</span>
+              <span class="verdict-icon">{{ getAdjustedVerdictIcon(diagnosisData) }}</span>
               <div class="verdict-info">
-                <span class="verdict-label">{{ diagnosisData.verdict }}</span>
+                <span class="verdict-label">{{ getAdjustedVerdict(diagnosisData) }}</span>
                 <span class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
+                <!-- RSI 과열 시 추가 경고 -->
+                <span v-if="isRsiOverbought(diagnosisData)" class="verdict-caution-tag">
+                  ⚠️ RSI 과열 - 단기 조정 주의
+                </span>
               </div>
             </div>
           </div>
@@ -554,12 +574,18 @@
                 </span>
               </div>
               <div class="card-body" v-if="diagnosisData.supplyDemand">
+                <!-- 장 시작 전 안내 -->
+                <div v-if="isBeforeMarketOpen()" class="before-market-notice">
+                  ⏰ 장 시작 전입니다. 전일 기준 데이터입니다.
+                </div>
                 <div class="supply-row">
                   <span class="investor-type">외국인</span>
-                  <span class="net-amount" :class="getSupplyDemandClass(diagnosisData.supplyDemand.foreignNet5Days)">
+                  <span v-if="isSupplyDataAvailable(diagnosisData.supplyDemand.foreignNet5Days)"
+                        class="net-amount" :class="getSupplyDemandClass(diagnosisData.supplyDemand.foreignNet5Days)">
                     {{ getSupplyDemandLabel(diagnosisData.supplyDemand.foreignNet5Days) }}
                     {{ formatBillionAbs(diagnosisData.supplyDemand.foreignNet5Days) }}
                   </span>
+                  <span v-else class="net-amount no-data">집계 중</span>
                   <span class="buy-days" v-if="isSupplyPositive(diagnosisData.supplyDemand.foreignNet5Days)">
                     ({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)
                   </span>
@@ -569,10 +595,12 @@
                 </div>
                 <div class="supply-row">
                   <span class="investor-type">기관</span>
-                  <span class="net-amount" :class="getSupplyDemandClass(diagnosisData.supplyDemand.institutionNet5Days)">
+                  <span v-if="isSupplyDataAvailable(diagnosisData.supplyDemand.institutionNet5Days)"
+                        class="net-amount" :class="getSupplyDemandClass(diagnosisData.supplyDemand.institutionNet5Days)">
                     {{ getSupplyDemandLabel(diagnosisData.supplyDemand.institutionNet5Days) }}
                     {{ formatBillionAbs(diagnosisData.supplyDemand.institutionNet5Days) }}
                   </span>
+                  <span v-else class="net-amount no-data">집계 중</span>
                   <span class="buy-days" v-if="isSupplyPositive(diagnosisData.supplyDemand.institutionNet5Days)">
                     ({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)
                   </span>
@@ -625,8 +653,14 @@
                     <div class="indicator-item">
                       <span class="indicator-label">RSI (14일)</span>
                       <span class="indicator-status" :class="getRsiClass(diagnosisData.technicalAnalysis.rsiStatus)">
-                        {{ formatNumber(diagnosisData.technicalAnalysis.rsi14, 1) }} ({{ diagnosisData.technicalAnalysis.rsiStatus }})
+                        {{ formatNumber(diagnosisData.technicalAnalysis.rsi14, 1) }}
+                        <span class="rsi-badge" :class="getRsiBadgeClass(diagnosisData.technicalAnalysis.rsiStatus)">
+                          {{ getRsiStatusLabel(diagnosisData.technicalAnalysis.rsiStatus) }}
+                        </span>
                       </span>
+                    </div>
+                    <div v-if="diagnosisData.technicalAnalysis.rsiStatus === '과열'" class="rsi-warning">
+                      ⚠️ 단기 조정 주의 - RSI 과열 구간
                     </div>
                   </div>
                 </div>
@@ -1469,9 +1503,77 @@ const getScoreClass = (score) => {
 };
 
 const getRsiClass = (status) => {
-  if (status === '과열') return 'rsi-overbought';
+  if (status === '과열') return 'rsi-caution'; // 주황색 (경고)으로 변경
   if (status === '침체') return 'rsi-oversold';
   return 'rsi-neutral';
+};
+
+// RSI 뱃지 클래스 (과열은 주황색)
+const getRsiBadgeClass = (status) => {
+  if (status === '과열') return 'badge-caution';
+  if (status === '침체') return 'badge-opportunity';
+  return 'badge-neutral';
+};
+
+// RSI 상태 라벨
+const getRsiStatusLabel = (status) => {
+  if (status === '과열') return '⚠️ 과열';
+  if (status === '침체') return '💡 매수 기회';
+  return '중립';
+};
+
+// 장 시작 전인지 확인 (09:00 이전)
+const isBeforeMarketOpen = () => {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  return hours < 9 || (hours === 9 && minutes === 0);
+};
+
+// 수급 데이터가 유효한지 확인 (0이 아닌 실제 데이터인지)
+const isSupplyDataAvailable = (value) => {
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num !== 0;
+};
+
+// RSI가 과열 상태인지 확인 (70 이상)
+const isRsiOverbought = (data) => {
+  if (!data || !data.rsiStatus) return false;
+  return data.rsiStatus === '과열';
+};
+
+// RSI 과열 시 조정된 verdict 클래스 (주황색 경고로 표시)
+const getAdjustedVerdictClass = (data) => {
+  if (!data) return 'verdict-neutral';
+
+  // RSI 과열 시 매수 신호라도 주황색 경고로 변경
+  if (isRsiOverbought(data) && (data.verdictLevel === 'STRONG_BUY' || data.verdictLevel === 'BUY')) {
+    return 'verdict-caution';
+  }
+  return getVerdictClass(data.verdictLevel);
+};
+
+// RSI 과열 시 조정된 verdict 아이콘
+const getAdjustedVerdictIcon = (data) => {
+  if (!data) return '❓';
+
+  // RSI 과열 시 매수 신호라도 경고 아이콘으로 변경
+  if (isRsiOverbought(data) && (data.verdictLevel === 'STRONG_BUY' || data.verdictLevel === 'BUY')) {
+    return '⚠️';
+  }
+  return getVerdictIcon(data.verdictLevel);
+};
+
+// RSI 과열 시 조정된 verdict 라벨
+const getAdjustedVerdict = (data) => {
+  if (!data) return '분석 중';
+
+  // RSI 과열 시 매수 신호라도 '관망'으로 변경
+  if (isRsiOverbought(data) && (data.verdictLevel === 'STRONG_BUY' || data.verdictLevel === 'BUY')) {
+    return '관망';
+  }
+  return data.verdict || '분석 중';
 };
 
 const getMfiClass = (status) => {
@@ -1485,28 +1587,66 @@ const formatPrice = (value) => {
   return Number(value).toLocaleString() + '원';
 };
 
-// 스타일 클래스 함수
-const getValueClass = (value, type) => {
-  if (value === null || value === undefined) return '';
+// ========== 개선된 지표 표시 함수들 ==========
+
+// 좋은 수치인지 판단 (👍 뱃지 표시용)
+const isGoodValue = (value, type) => {
+  if (value === null || value === undefined) return false;
   const num = Number(value);
 
   switch (type) {
     case 'per':
-      if (num < 10) return 'positive';
-      if (num > 30) return 'negative';
-      return '';
+      return num > 0 && num < 15; // PER 15 미만이면 좋음
     case 'pbr':
-      if (num < 1) return 'positive';
-      if (num > 3) return 'negative';
-      return '';
+      return num > 0 && num < 1.5; // PBR 1.5 미만이면 좋음
+    case 'roe':
+      return num >= 10; // ROE 10% 이상이면 좋음
+    case 'margin':
+      return num >= 10; // 영업이익률 10% 이상이면 좋음
+    default:
+      return false;
+  }
+};
+
+// 배경 컬러바 스타일 (수치의 높낮이 시각화)
+const getValueBarStyle = (value, type) => {
+  if (value === null || value === undefined) return { width: '0%' };
+  const num = Number(value);
+
+  let percent = 0;
+  let color = '';
+
+  switch (type) {
+    case 'per':
+      // PER: 0~50 범위, 낮을수록 좋음 (녹색)
+      percent = Math.min(Math.max(num / 50, 0), 1) * 100;
+      color = num < 15 ? 'rgba(34, 197, 94, 0.2)' : num > 30 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(156, 163, 175, 0.15)';
+      break;
+    case 'pbr':
+      // PBR: 0~5 범위, 낮을수록 좋음 (녹색)
+      percent = Math.min(Math.max(num / 5, 0), 1) * 100;
+      color = num < 1.5 ? 'rgba(34, 197, 94, 0.2)' : num > 3 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(156, 163, 175, 0.15)';
+      break;
     case 'roe':
     case 'margin':
-      if (num >= 15) return 'positive';
-      if (num < 5) return 'negative';
-      return '';
+      // ROE/마진: 0~30 범위, 높을수록 좋음 (녹색)
+      percent = Math.min(Math.max(num / 30, 0), 1) * 100;
+      color = num >= 10 ? 'rgba(34, 197, 94, 0.2)' : num < 5 ? 'rgba(239, 68, 68, 0.15)' : 'rgba(156, 163, 175, 0.15)';
+      break;
     default:
-      return '';
+      percent = 50;
+      color = 'rgba(156, 163, 175, 0.15)';
   }
+
+  return {
+    width: `${percent}%`,
+    background: color
+  };
+};
+
+// 기존 getValueClass는 유지 (하위 호환성)
+const getValueClass = (value, type) => {
+  return ''; // 이제 색상 대신 기본 검정색 사용
 };
 
 const getPegClass = (peg) => {
@@ -1933,6 +2073,58 @@ onMounted(async () => {
 
 .negative {
   color: #3182ce !important;  /* 파란색: 하락, 매도, 음수 */
+}
+
+/* 개선된 지표 셀 스타일 (1. 스크리너 테이블 색상 로직 개선) */
+.metric-cell {
+  position: relative;
+  padding: 0.5rem 0.75rem;
+}
+
+.metric-value-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 4px;
+  z-index: 0;
+  transition: width 0.3s ease;
+}
+
+.metric-text {
+  position: relative;
+  z-index: 1;
+  color: var(--text-primary); /* 기본 검정색 */
+  font-weight: 500;
+}
+
+.good-badge {
+  margin-left: 0.25rem;
+  font-size: 0.85rem;
+  animation: pop-in 0.3s ease;
+}
+
+@keyframes pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* 수급 데이터 없음 스타일 (2. 상세 진단 모달 예외 처리) */
+.net-amount.no-data {
+  color: var(--text-muted) !important;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.before-market-notice {
+  padding: 0.5rem 0.75rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #3b82f6;
+  margin-bottom: 0.75rem;
+  text-align: center;
 }
 
 /* 턴어라운드 카드 그리드 */
@@ -3095,6 +3287,18 @@ onMounted(async () => {
   color: var(--text-secondary);
 }
 
+.verdict-caution-tag {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f39c12;
+  background: rgba(243, 156, 18, 0.15);
+  border: 1px solid rgba(243, 156, 18, 0.3);
+  border-radius: 4px;
+}
+
 /* 경고/긍정 요소 */
 .alerts-section {
   display: grid;
@@ -3350,8 +3554,10 @@ onMounted(async () => {
   color: #e74c3c;
 }
 
-.rsi-overbought {
-  color: #e74c3c;
+/* RSI 스타일 (과열은 주황색 경고로 변경) */
+.rsi-overbought,
+.rsi-caution {
+  color: #f59e0b; /* 주황색: 경고 (공포감 완화) */
 }
 
 .rsi-oversold {
@@ -3360,6 +3566,44 @@ onMounted(async () => {
 
 .rsi-neutral {
   color: var(--text-secondary);
+}
+
+/* RSI 뱃지 */
+.rsi-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.badge-caution {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-opportunity {
+  background: rgba(39, 174, 96, 0.15);
+  color: #27ae60;
+  border: 1px solid rgba(39, 174, 96, 0.3);
+}
+
+.badge-neutral {
+  background: rgba(156, 163, 175, 0.15);
+  color: var(--text-muted);
+}
+
+/* RSI 과열 경고 메시지 */
+.rsi-warning {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #f59e0b;
 }
 
 /* MFI 스타일 */
