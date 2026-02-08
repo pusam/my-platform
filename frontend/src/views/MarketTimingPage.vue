@@ -51,14 +51,33 @@
     <div class="adr-chart-section">
       <div class="section-header">
         <h3>ADR 추이 (60일)</h3>
-        <div class="chart-legend">
-          <span class="legend-item kospi"><span class="legend-dot"></span>코스피</span>
-          <span class="legend-item kosdaq"><span class="legend-dot"></span>코스닥</span>
-          <span class="legend-item combined"><span class="legend-dot"></span>종합</span>
+        <!-- Interactive Legend -->
+        <div class="chart-legend interactive">
+          <button
+            class="legend-item kospi"
+            :class="{ inactive: !visibleDatasets.kospi }"
+            @click="toggleDataset('kospi')"
+          >
+            <span class="legend-dot"></span>코스피
+          </button>
+          <button
+            class="legend-item kosdaq"
+            :class="{ inactive: !visibleDatasets.kosdaq }"
+            @click="toggleDataset('kosdaq')"
+          >
+            <span class="legend-dot"></span>코스닥
+          </button>
+          <button
+            class="legend-item combined"
+            :class="{ inactive: !visibleDatasets.combined }"
+            @click="toggleDataset('combined')"
+          >
+            <span class="legend-dot"></span>종합
+          </button>
         </div>
       </div>
       <div class="chart-container" v-if="adrHistory.length >= 5">
-        <Line :data="adrChartData" :options="adrChartOptions" />
+        <Line :data="adrChartData" :options="adrChartOptions" :key="chartKey" />
       </div>
       <div v-else class="no-chart-data">
         <div class="no-data-content">
@@ -105,7 +124,7 @@
       </div>
     </div>
 
-    <!-- 시장별 상세 현황 -->
+    <!-- 시장별 상세 현황 (간소화) -->
     <div class="market-details" v-if="marketData">
       <div class="market-card" v-if="marketData.kospi">
         <div class="market-header">
@@ -115,36 +134,68 @@
           </span>
         </div>
         <div class="market-stats">
-          <div class="stat-row">
-            <span class="stat-label">지수</span>
-            <span class="stat-value">
-              {{ formatNumber(marketData.kospi.indexClose, 2) }}
-              <span :class="marketData.kospi.indexChangeRate >= 0 ? 'positive' : 'negative'">
-                ({{ marketData.kospi.indexChangeRate >= 0 ? '+' : '' }}{{ formatNumber(marketData.kospi.indexChangeRate, 2) }}%)
-              </span>
-            </span>
+          <!-- 등락 현황 (Stacked Bar) -->
+          <div class="ratio-bar-section">
+            <div class="ratio-bar-label">
+              <span class="rising-count">상승 {{ marketData.kospi.advancingCount || 0 }}</span>
+              <span class="unchanged-count">보합 {{ marketData.kospi.unchangedCount || 0 }}</span>
+              <span class="falling-count">하락 {{ marketData.kospi.decliningCount || 0 }}</span>
+            </div>
+            <div class="stacked-bar">
+              <div
+                class="bar-segment rising"
+                :style="{ width: getAdvanceRatio(marketData.kospi) + '%' }"
+              ></div>
+              <div
+                class="bar-segment unchanged"
+                :style="{ width: getUnchangedRatio(marketData.kospi) + '%' }"
+              ></div>
+              <div
+                class="bar-segment falling"
+                :style="{ width: getDeclineRatio(marketData.kospi) + '%' }"
+              ></div>
+            </div>
           </div>
-          <div class="stat-row">
-            <span class="stat-label">상승</span>
-            <span class="stat-value rising">{{ marketData.kospi.advancingCount || 0 }}개</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">하락</span>
-            <span class="stat-value falling">{{ marketData.kospi.decliningCount || 0 }}개</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">보합</span>
-            <span class="stat-value">{{ marketData.kospi.unchangedCount || 0 }}개</span>
-          </div>
+
+          <!-- 당일 등락비 (Stacked Bar) -->
           <div class="stat-row highlight">
             <span class="stat-label">당일 등락비</span>
             <span class="stat-value">{{ formatNumber(marketData.kospi.dailyRatio, 1) }}</span>
           </div>
-          <div class="stat-row highlight">
+          <div class="ratio-progress-bar">
+            <div class="progress-track">
+              <div
+                class="progress-fill rising-fill"
+                :style="{ width: getDailyRatioPercent(marketData.kospi.dailyRatio) + '%' }"
+              ></div>
+            </div>
+            <div class="progress-labels">
+              <span>0</span>
+              <span>100</span>
+              <span>200</span>
+            </div>
+          </div>
+
+          <!-- ADR(20일) -->
+          <div class="stat-row highlight adr-row">
             <span class="stat-label">ADR(20일)</span>
             <span class="stat-value" :class="getAdrClass(marketData.kospi.adr20)">
               {{ formatNumber(marketData.kospi.adr20, 1) }}
             </span>
+          </div>
+          <div class="adr-progress-bar">
+            <div class="progress-track">
+              <div
+                class="progress-fill"
+                :class="getAdrClass(marketData.kospi.adr20)"
+                :style="{ width: getAdrPercent(marketData.kospi.adr20) + '%' }"
+              ></div>
+            </div>
+            <div class="progress-markers">
+              <span class="marker" style="left: 30%">60</span>
+              <span class="marker" style="left: 40%">80</span>
+              <span class="marker" style="left: 60%">120</span>
+            </div>
           </div>
         </div>
       </div>
@@ -157,36 +208,68 @@
           </span>
         </div>
         <div class="market-stats">
-          <div class="stat-row">
-            <span class="stat-label">지수</span>
-            <span class="stat-value">
-              {{ formatNumber(marketData.kosdaq.indexClose, 2) }}
-              <span :class="marketData.kosdaq.indexChangeRate >= 0 ? 'positive' : 'negative'">
-                ({{ marketData.kosdaq.indexChangeRate >= 0 ? '+' : '' }}{{ formatNumber(marketData.kosdaq.indexChangeRate, 2) }}%)
-              </span>
-            </span>
+          <!-- 등락 현황 (Stacked Bar) -->
+          <div class="ratio-bar-section">
+            <div class="ratio-bar-label">
+              <span class="rising-count">상승 {{ marketData.kosdaq.advancingCount || 0 }}</span>
+              <span class="unchanged-count">보합 {{ marketData.kosdaq.unchangedCount || 0 }}</span>
+              <span class="falling-count">하락 {{ marketData.kosdaq.decliningCount || 0 }}</span>
+            </div>
+            <div class="stacked-bar">
+              <div
+                class="bar-segment rising"
+                :style="{ width: getAdvanceRatio(marketData.kosdaq) + '%' }"
+              ></div>
+              <div
+                class="bar-segment unchanged"
+                :style="{ width: getUnchangedRatio(marketData.kosdaq) + '%' }"
+              ></div>
+              <div
+                class="bar-segment falling"
+                :style="{ width: getDeclineRatio(marketData.kosdaq) + '%' }"
+              ></div>
+            </div>
           </div>
-          <div class="stat-row">
-            <span class="stat-label">상승</span>
-            <span class="stat-value rising">{{ marketData.kosdaq.advancingCount || 0 }}개</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">하락</span>
-            <span class="stat-value falling">{{ marketData.kosdaq.decliningCount || 0 }}개</span>
-          </div>
-          <div class="stat-row">
-            <span class="stat-label">보합</span>
-            <span class="stat-value">{{ marketData.kosdaq.unchangedCount || 0 }}개</span>
-          </div>
+
+          <!-- 당일 등락비 -->
           <div class="stat-row highlight">
             <span class="stat-label">당일 등락비</span>
             <span class="stat-value">{{ formatNumber(marketData.kosdaq.dailyRatio, 1) }}</span>
           </div>
-          <div class="stat-row highlight">
+          <div class="ratio-progress-bar">
+            <div class="progress-track">
+              <div
+                class="progress-fill rising-fill"
+                :style="{ width: getDailyRatioPercent(marketData.kosdaq.dailyRatio) + '%' }"
+              ></div>
+            </div>
+            <div class="progress-labels">
+              <span>0</span>
+              <span>100</span>
+              <span>200</span>
+            </div>
+          </div>
+
+          <!-- ADR(20일) -->
+          <div class="stat-row highlight adr-row">
             <span class="stat-label">ADR(20일)</span>
             <span class="stat-value" :class="getAdrClass(marketData.kosdaq.adr20)">
               {{ formatNumber(marketData.kosdaq.adr20, 1) }}
             </span>
+          </div>
+          <div class="adr-progress-bar">
+            <div class="progress-track">
+              <div
+                class="progress-fill"
+                :class="getAdrClass(marketData.kosdaq.adr20)"
+                :style="{ width: getAdrPercent(marketData.kosdaq.adr20) + '%' }"
+              ></div>
+            </div>
+            <div class="progress-markers">
+              <span class="marker" style="left: 30%">60</span>
+              <span class="marker" style="left: 40%">80</span>
+              <span class="marker" style="left: 60%">120</span>
+            </div>
           </div>
         </div>
       </div>
@@ -205,14 +288,22 @@
     </div>
 
     <!-- 데이터 관리 -->
-    <div class="data-management">
+    <div class="data-management" ref="backfillSection">
       <h3>데이터 관리</h3>
       <div class="management-actions">
         <button @click="collectData" :disabled="isCollecting" class="btn-collect">
-          {{ isCollecting ? '수집 중...' : '📥 시장 데이터 수집' }}
+          <span v-if="isCollecting" class="btn-loading">
+            <span class="spinner-small"></span>
+            수집 중...
+          </span>
+          <span v-else>📥 시장 데이터 수집</span>
         </button>
         <button @click="fetchData" :disabled="loading" class="btn-refresh">
-          🔄 새로고침
+          <span v-if="loading" class="btn-loading">
+            <span class="spinner-small"></span>
+            로딩...
+          </span>
+          <span v-else>🔄 새로고침</span>
         </button>
       </div>
       <p class="management-note">
@@ -238,7 +329,11 @@
             :disabled="isBackfilling || !backfillStartDate || !backfillEndDate"
             class="btn-backfill"
           >
-            {{ isBackfilling ? '수집 중...' : '📅 기간 수집' }}
+            <span v-if="isBackfilling" class="btn-loading">
+              <span class="spinner-small"></span>
+              수집 중...
+            </span>
+            <span v-else>📅 기간 수집</span>
           </button>
         </div>
         <div v-if="backfillResult" class="backfill-result">
@@ -255,7 +350,7 @@
     </div>
 
     <!-- 로딩 -->
-    <div v-if="loading" class="loading-overlay">
+    <div v-if="loading && !isCollecting" class="loading-overlay">
       <div class="spinner"></div>
       <p>데이터 로딩 중...</p>
     </div>
@@ -274,7 +369,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { marketAPI } from '../utils/api';
 import BackButton from '../components/BackButton.vue';
@@ -310,6 +405,15 @@ const loading = ref(false);
 const isCollecting = ref(false);
 const marketData = ref(null);
 const adrHistory = ref([]);
+const backfillSection = ref(null);
+
+// Chart Legend Toggle 상태
+const visibleDatasets = reactive({
+  kospi: true,
+  kosdaq: true,
+  combined: true
+});
+const chartKey = ref(0);
 
 // Backfill 관련 상태
 const isBackfilling = ref(false);
@@ -318,9 +422,46 @@ const backfillEndDate = ref('');
 const backfillResult = ref(null);
 const today = new Date().toISOString().split('T')[0];
 
+// 데이터셋 토글
+const toggleDataset = (dataset) => {
+  visibleDatasets[dataset] = !visibleDatasets[dataset];
+  chartKey.value++; // 차트 리렌더링
+};
+
 // 기간 수집 섹션으로 스크롤
 const scrollToBackfill = () => {
-  document.querySelector('.backfill-section')?.scrollIntoView({ behavior: 'smooth' });
+  backfillSection.value?.scrollIntoView({ behavior: 'smooth' });
+};
+
+// 등락비 계산 헬퍼 함수
+const getAdvanceRatio = (market) => {
+  const total = (market?.advancingCount || 0) + (market?.decliningCount || 0) + (market?.unchangedCount || 0);
+  if (total === 0) return 0;
+  return ((market?.advancingCount || 0) / total) * 100;
+};
+
+const getDeclineRatio = (market) => {
+  const total = (market?.advancingCount || 0) + (market?.decliningCount || 0) + (market?.unchangedCount || 0);
+  if (total === 0) return 0;
+  return ((market?.decliningCount || 0) / total) * 100;
+};
+
+const getUnchangedRatio = (market) => {
+  const total = (market?.advancingCount || 0) + (market?.decliningCount || 0) + (market?.unchangedCount || 0);
+  if (total === 0) return 0;
+  return ((market?.unchangedCount || 0) / total) * 100;
+};
+
+// 당일 등락비 퍼센트 (0~200 범위를 0~100%로)
+const getDailyRatioPercent = (ratio) => {
+  if (ratio === null || ratio === undefined) return 0;
+  return Math.min(Math.max((ratio / 200) * 100, 0), 100);
+};
+
+// ADR 퍼센트 (40~160 범위를 0~100%로)
+const getAdrPercent = (adr) => {
+  if (adr === null || adr === undefined) return 0;
+  return Math.min(Math.max(((adr - 40) / 120) * 100, 0), 100);
 };
 
 // ADR 차트 데이터
@@ -330,44 +471,54 @@ const adrChartData = computed(() => {
   // 날짜순 정렬 (오래된 날짜가 먼저)
   const sortedHistory = [...adrHistory.value].reverse();
 
+  const datasets = [];
+
+  if (visibleDatasets.kospi) {
+    datasets.push({
+      label: '코스피 ADR',
+      data: sortedHistory.map(d => d.kospiAdr),
+      borderColor: '#ef4444',
+      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+      borderWidth: 2,
+      tension: 0.3,
+      pointRadius: 2,
+      pointHoverRadius: 5
+    });
+  }
+
+  if (visibleDatasets.kosdaq) {
+    datasets.push({
+      label: '코스닥 ADR',
+      data: sortedHistory.map(d => d.kosdaqAdr),
+      borderColor: '#3b82f6',
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
+      borderWidth: 2,
+      tension: 0.3,
+      pointRadius: 2,
+      pointHoverRadius: 5
+    });
+  }
+
+  if (visibleDatasets.combined) {
+    datasets.push({
+      label: '종합 ADR',
+      data: sortedHistory.map(d => d.combinedAdr),
+      borderColor: '#a855f7',
+      backgroundColor: 'rgba(168, 85, 247, 0.2)',
+      borderWidth: 3,
+      tension: 0.3,
+      pointRadius: 3,
+      pointHoverRadius: 6,
+      fill: true
+    });
+  }
+
   return {
     labels: sortedHistory.map(d => {
       const date = new Date(d.date);
       return `${date.getMonth() + 1}/${date.getDate()}`;
     }),
-    datasets: [
-      {
-        label: '코스피 ADR',
-        data: sortedHistory.map(d => d.kospiAdr),
-        borderColor: '#ef4444',
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-        borderWidth: 2,
-        tension: 0.3,
-        pointRadius: 2,
-        pointHoverRadius: 5
-      },
-      {
-        label: '코스닥 ADR',
-        data: sortedHistory.map(d => d.kosdaqAdr),
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        borderWidth: 2,
-        tension: 0.3,
-        pointRadius: 2,
-        pointHoverRadius: 5
-      },
-      {
-        label: '종합 ADR',
-        data: sortedHistory.map(d => d.combinedAdr),
-        borderColor: '#a855f7',
-        backgroundColor: 'rgba(168, 85, 247, 0.2)',
-        borderWidth: 3,
-        tension: 0.3,
-        pointRadius: 3,
-        pointHoverRadius: 6,
-        fill: true
-      }
-    ]
+    datasets
   };
 });
 
@@ -515,6 +666,7 @@ const collectData = async () => {
     const response = await marketAPI.collectData();
     if (response.data.success) {
       marketData.value = response.data.data;
+      await fetchAdrHistory();
       alert('시장 데이터 수집이 완료되었습니다.');
     } else {
       alert('수집 실패: ' + response.data.message);
@@ -931,6 +1083,46 @@ onMounted(() => {
   gap: 0.75rem;
 }
 
+/* Stacked Bar 등락비 */
+.ratio-bar-section {
+  margin-bottom: 0.5rem;
+}
+
+.ratio-bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.rising-count { color: #ef4444; }
+.unchanged-count { color: #71717a; }
+.falling-count { color: #3b82f6; }
+
+.stacked-bar {
+  display: flex;
+  height: 24px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #3f3f46;
+}
+
+.bar-segment {
+  transition: width 0.3s ease;
+}
+
+.bar-segment.rising {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+}
+
+.bar-segment.unchanged {
+  background: linear-gradient(135deg, #71717a 0%, #52525b 100%);
+}
+
+.bar-segment.falling {
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
 .stat-row {
   display: flex;
   justify-content: space-between;
@@ -942,6 +1134,10 @@ onMounted(() => {
   background: var(--bg-secondary, #27272a);
   border-radius: 6px;
   margin-top: 0.5rem;
+}
+
+.stat-row.adr-row {
+  margin-top: 1rem;
 }
 
 .stat-label {
@@ -958,9 +1154,71 @@ onMounted(() => {
 .stat-value .negative { color: #3b82f6; }
 
 .adr-overheated { color: #ef4444; }
-.adr-normal { color: #6b7280; }
+.adr-normal { color: #a1a1aa; }
 .adr-oversold { color: #3b82f6; }
 .adr-extreme-fear { color: #06b6d4; }
+
+/* Progress Bar 스타일 */
+.ratio-progress-bar,
+.adr-progress-bar {
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.progress-track {
+  height: 8px;
+  background: #4b5563;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.progress-fill.rising-fill {
+  background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+}
+
+.progress-fill.adr-overheated {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+}
+
+.progress-fill.adr-normal {
+  background: linear-gradient(90deg, #6b7280 0%, #9ca3af 100%);
+}
+
+.progress-fill.adr-oversold {
+  background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%);
+}
+
+.progress-fill.adr-extreme-fear {
+  background: linear-gradient(90deg, #06b6d4 0%, #22d3ee 100%);
+}
+
+.progress-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  color: #71717a;
+}
+
+.progress-markers {
+  position: relative;
+  height: 16px;
+  margin-top: 0.25rem;
+}
+
+.progress-markers .marker {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 0.65rem;
+  color: #71717a;
+}
 
 /* 진단 섹션 */
 .diagnosis-section {
@@ -1017,6 +1275,11 @@ onMounted(() => {
   cursor: pointer;
   font-weight: 600;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 160px;
 }
 
 .btn-collect {
@@ -1030,8 +1293,9 @@ onMounted(() => {
 }
 
 .btn-collect:disabled {
-  opacity: 0.6;
+  opacity: 0.8;
   cursor: not-allowed;
+  transform: none;
 }
 
 .btn-refresh {
@@ -1046,8 +1310,24 @@ onMounted(() => {
 }
 
 .btn-refresh:disabled {
-  opacity: 0.6;
+  opacity: 0.8;
   cursor: not-allowed;
+}
+
+/* 버튼 로딩 상태 */
+.btn-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.spinner-small {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
 .management-note {
@@ -1145,9 +1425,10 @@ onMounted(() => {
   font-size: 1.1rem;
 }
 
-.chart-legend {
+/* Interactive Legend */
+.chart-legend.interactive {
   display: flex;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .legend-item {
@@ -1155,7 +1436,22 @@ onMounted(() => {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
-  color: var(--text-muted, #71717a);
+  color: var(--text-primary, #e4e4e7);
+  background: transparent;
+  border: 1px solid var(--border-color, #3f3f46);
+  padding: 0.4rem 0.75rem;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.legend-item:hover {
+  background: var(--bg-secondary, #27272a);
+}
+
+.legend-item.inactive {
+  opacity: 0.4;
+  text-decoration: line-through;
 }
 
 .legend-dot {
@@ -1231,6 +1527,11 @@ onMounted(() => {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 120px;
+  justify-content: center;
 }
 
 .btn-backfill:hover:not(:disabled) {
@@ -1289,15 +1590,20 @@ onMounted(() => {
     flex-direction: column;
   }
 
+  .btn-collect,
+  .btn-refresh {
+    width: 100%;
+  }
+
   .section-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.5rem;
+    gap: 0.75rem;
   }
 
-  .chart-legend {
+  .chart-legend.interactive {
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
 
   .chart-container {
