@@ -53,7 +53,13 @@
       <div v-if="analysisData" class="stock-info-card">
         <div class="stock-header">
           <div class="stock-name-section">
-            <h2>{{ analysisData.stockName || analysisData.stockCode }}</h2>
+            <h2>
+              {{ analysisData.stockName || analysisData.stockCode }}
+              <!-- 리스크 뱃지 -->
+              <span v-if="riskData" class="risk-badge-inline" :class="getRiskBadgeClass">
+                {{ getRiskBadgeText }}
+              </span>
+            </h2>
             <span class="stock-code">{{ analysisData.stockCode }}</span>
           </div>
           <div class="price-section">
@@ -145,6 +151,33 @@
             :programTrend="analysisData.programTrend"
           />
         </div>
+
+        <!-- AI 리스크 분석 카드 -->
+        <div class="analysis-card risk-card">
+          <RiskAnalysisCard
+            ref="riskCardRef"
+            :stockName="analysisData.stockName"
+            :riskData="riskData"
+            :loading="riskLoading"
+            :error="riskError"
+            :apiNotConfigured="riskApiNotConfigured"
+            @retry="retryRiskAnalysis"
+            @buy-confirmed="onBuyConfirmed"
+            @buy-cancelled="onBuyCancelled"
+          />
+        </div>
+      </div>
+
+      <!-- 매수 버튼 (리스크 80 이상이면 경고 스타일) -->
+      <div v-if="analysisData" class="action-section">
+        <button
+          @click="handleBuyClick"
+          class="buy-button"
+          :class="{ danger: riskData?.riskScore >= 80 }"
+        >
+          <span v-if="riskData?.riskScore >= 80" class="warning-icon">⚠️</span>
+          {{ riskData?.riskScore >= 80 ? '위험 경고 - 매수' : '매수' }}
+        </button>
       </div>
 
       <!-- 사용 가이드 -->
@@ -181,11 +214,12 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { scalpingAPI, stockAPI } from '../utils/api';
+import { scalpingAPI, stockAPI, riskAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import ProgramTradingChart from '../components/ProgramTradingChart.vue';
 import BackButton from '../components/BackButton.vue';
+import RiskAnalysisCard from '../components/RiskAnalysisCard.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -198,6 +232,13 @@ const errorMessage = ref('');
 const autoRefresh = ref(false);
 const lastUpdated = ref(null);
 let refreshInterval = null;
+
+// 리스크 분석 상태
+const riskData = ref(null);
+const riskLoading = ref(false);
+const riskError = ref('');
+const riskApiNotConfigured = ref(false);
+const riskCardRef = ref(null);
 
 // ========== 1. 종목명/코드 매핑 (Search Fix) ==========
 const STOCK_MAP = {
@@ -309,6 +350,10 @@ const searchStock = async () => {
 
     stockCode.value = code;
     await fetchAnalysis();
+
+    // 리스크 분석 병렬 실행 (종목명으로)
+    const stockName = CODE_TO_NAME[code] || searchInput.value;
+    fetchRiskAnalysis(stockName);
   } catch (error) {
     console.error('검색 오류:', error);
     showToast('종목 검색에 실패했습니다.');
@@ -345,6 +390,64 @@ const fetchAnalysis = async () => {
   } finally {
     loading.value = false;
   }
+};
+
+// ========== 리스크 분석 ==========
+const fetchRiskAnalysis = async (stockName) => {
+  if (!stockName) return;
+
+  riskLoading.value = true;
+  riskError.value = '';
+  riskApiNotConfigured.value = false;
+
+  try {
+    const response = await riskAPI.checkRisk(stockName);
+
+    if (response.data.success && response.data.data) {
+      riskData.value = response.data.data;
+    } else {
+      riskError.value = response.data.message || '리스크 분석에 실패했습니다.';
+    }
+  } catch (error) {
+    console.error('리스크 분석 오류:', error);
+    if (error.response?.status === 503 || error.message?.includes('API')) {
+      riskApiNotConfigured.value = true;
+    } else {
+      riskError.value = '리스크 분석 서버에 연결할 수 없습니다.';
+    }
+  } finally {
+    riskLoading.value = false;
+  }
+};
+
+const retryRiskAnalysis = () => {
+  const stockName = CODE_TO_NAME[stockCode.value] || analysisData.value?.stockName;
+  if (stockName) {
+    fetchRiskAnalysis(stockName);
+  }
+};
+
+// 매수 버튼 클릭 핸들러
+const handleBuyClick = () => {
+  if (riskCardRef.value?.showBuyWarning()) {
+    // 모달이 표시됨 - 이벤트로 처리
+    return;
+  }
+  // 리스크 80 미만이면 바로 매수 로직
+  executeBuy();
+};
+
+const executeBuy = () => {
+  // 여기에 실제 매수 로직 구현
+  showToast('매수 주문이 접수되었습니다.');
+};
+
+const onBuyConfirmed = () => {
+  executeBuy();
+};
+
+const onBuyCancelled = () => {
+  showToast('매수가 취소되었습니다.');
 };
 
 // ========== 시뮬레이션 데이터 생성 ==========
@@ -600,8 +703,25 @@ onUnmounted(() => {
 });
 
 // analysisData 변경 시 changeClass 갱신
-import { watch } from 'vue';
+import { watch, computed } from 'vue';
 watch(analysisData, updateChangeClass, { deep: true });
+
+// 리스크 뱃지 계산
+const getRiskBadgeClass = computed(() => {
+  if (!riskData.value) return '';
+  const score = riskData.value.riskScore;
+  if (score >= 70) return 'danger blink';
+  if (score >= 30) return 'warning';
+  return 'safe';
+});
+
+const getRiskBadgeText = computed(() => {
+  if (!riskData.value) return '';
+  const score = riskData.value.riskScore;
+  if (score >= 70) return '위험';
+  if (score >= 30) return '주의';
+  return '안전';
+});
 </script>
 
 <style scoped>
@@ -903,6 +1023,10 @@ watch(analysisData, updateChangeClass, { deep: true });
   grid-column: 1 / -1;
 }
 
+.analysis-card.risk-card {
+  grid-column: 1 / -1;
+}
+
 .investor-card {
   background: #1a1a3a;
   border-radius: 16px;
@@ -1060,6 +1184,116 @@ watch(analysisData, updateChangeClass, { deep: true });
 
   .investor-grid {
     flex-direction: column;
+  }
+}
+
+/* 리스크 뱃지 (인라인) */
+.risk-badge-inline {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-left: 12px;
+  vertical-align: middle;
+}
+
+.risk-badge-inline.safe {
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: #fff;
+}
+
+.risk-badge-inline.warning {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #000;
+}
+
+.risk-badge-inline.danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: #fff;
+}
+
+.risk-badge-inline.blink {
+  animation: blink-badge 1s ease-in-out infinite;
+}
+
+@keyframes blink-badge {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.8);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 25px rgba(239, 68, 68, 1);
+  }
+}
+
+/* 액션 섹션 (매수 버튼) */
+.action-section {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+  margin-bottom: 32px;
+}
+
+.buy-button {
+  padding: 16px 48px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+  color: #fff;
+  box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+}
+
+.buy-button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(34, 197, 94, 0.4);
+}
+
+.buy-button.danger {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+  animation: pulse-danger 2s ease-in-out infinite;
+}
+
+.buy-button.danger:hover {
+  box-shadow: 0 8px 30px rgba(239, 68, 68, 0.5);
+}
+
+@keyframes pulse-danger {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 30px rgba(239, 68, 68, 0.6);
+  }
+}
+
+.buy-button .warning-icon {
+  font-size: 1.2rem;
+}
+
+@media (max-width: 768px) {
+  .risk-badge-inline {
+    display: block;
+    margin-left: 0;
+    margin-top: 8px;
+    width: fit-content;
+  }
+
+  .buy-button {
+    width: 100%;
+    justify-content: center;
+    padding: 16px;
   }
 }
 </style>

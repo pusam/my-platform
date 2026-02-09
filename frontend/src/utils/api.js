@@ -733,6 +733,26 @@ export const investorAPI = {
   }
 };
 
+// Risk Analysis API (리스크 분석)
+export const riskAPI = {
+  // 종합 리스크 분석
+  checkRisk(stockName) {
+    return apiClient.get('/risk/check', { params: { stockName }, timeout: 60000 });
+  },
+  // 빠른 위험 체크 (공시만)
+  quickCheck(stockName) {
+    return apiClient.get('/risk/quick', { params: { stockName } });
+  },
+  // 매수 가능 여부 확인
+  isSafeToBuy(stockName) {
+    return apiClient.get('/risk/safe', { params: { stockName } });
+  },
+  // 여러 종목 일괄 체크
+  batchCheck(stockNames) {
+    return apiClient.post('/risk/batch', { stockNames });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
