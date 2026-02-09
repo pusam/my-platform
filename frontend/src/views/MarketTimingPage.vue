@@ -137,23 +137,33 @@
           <!-- 등락 현황 (Stacked Bar) -->
           <div class="ratio-bar-section">
             <div class="ratio-bar-label">
-              <span class="rising-count">상승 {{ marketData.kospi.advancingCount || 0 }}</span>
-              <span class="unchanged-count">보합 {{ marketData.kospi.unchangedCount || 0 }}</span>
-              <span class="falling-count">하락 {{ marketData.kospi.decliningCount || 0 }}</span>
+              <span class="rising-count" :class="{ 'no-data': !hasValidMarketData(marketData.kospi) }">
+                상승 {{ hasValidMarketData(marketData.kospi) ? marketData.kospi.advancingCount : '-' }}
+              </span>
+              <span class="unchanged-count" :class="{ 'no-data': !hasValidMarketData(marketData.kospi) }">
+                보합 {{ hasValidMarketData(marketData.kospi) ? marketData.kospi.unchangedCount : '-' }}
+              </span>
+              <span class="falling-count" :class="{ 'no-data': !hasValidMarketData(marketData.kospi) }">
+                하락 {{ hasValidMarketData(marketData.kospi) ? marketData.kospi.decliningCount : '-' }}
+              </span>
             </div>
-            <div class="stacked-bar">
-              <div
-                class="bar-segment rising"
-                :style="{ width: getAdvanceRatio(marketData.kospi) + '%' }"
-              ></div>
-              <div
-                class="bar-segment unchanged"
-                :style="{ width: getUnchangedRatio(marketData.kospi) + '%' }"
-              ></div>
-              <div
-                class="bar-segment falling"
-                :style="{ width: getDeclineRatio(marketData.kospi) + '%' }"
-              ></div>
+            <!-- 데이터가 있을 때만 Stacked Bar 표시, 없으면 빈 트랙 -->
+            <div class="stacked-bar" :class="{ 'empty': !hasValidMarketData(marketData.kospi) }">
+              <template v-if="hasValidMarketData(marketData.kospi)">
+                <div
+                  class="bar-segment rising"
+                  :style="{ width: getAdvanceRatio(marketData.kospi) + '%' }"
+                ></div>
+                <div
+                  class="bar-segment unchanged"
+                  :style="{ width: getUnchangedRatio(marketData.kospi) + '%' }"
+                ></div>
+                <div
+                  class="bar-segment falling"
+                  :style="{ width: getDeclineRatio(marketData.kospi) + '%' }"
+                ></div>
+              </template>
+              <div v-else class="empty-bar-message">집계 중</div>
             </div>
           </div>
 
@@ -211,23 +221,33 @@
           <!-- 등락 현황 (Stacked Bar) -->
           <div class="ratio-bar-section">
             <div class="ratio-bar-label">
-              <span class="rising-count">상승 {{ marketData.kosdaq.advancingCount || 0 }}</span>
-              <span class="unchanged-count">보합 {{ marketData.kosdaq.unchangedCount || 0 }}</span>
-              <span class="falling-count">하락 {{ marketData.kosdaq.decliningCount || 0 }}</span>
+              <span class="rising-count" :class="{ 'no-data': !hasValidMarketData(marketData.kosdaq) }">
+                상승 {{ hasValidMarketData(marketData.kosdaq) ? marketData.kosdaq.advancingCount : '-' }}
+              </span>
+              <span class="unchanged-count" :class="{ 'no-data': !hasValidMarketData(marketData.kosdaq) }">
+                보합 {{ hasValidMarketData(marketData.kosdaq) ? marketData.kosdaq.unchangedCount : '-' }}
+              </span>
+              <span class="falling-count" :class="{ 'no-data': !hasValidMarketData(marketData.kosdaq) }">
+                하락 {{ hasValidMarketData(marketData.kosdaq) ? marketData.kosdaq.decliningCount : '-' }}
+              </span>
             </div>
-            <div class="stacked-bar">
-              <div
-                class="bar-segment rising"
-                :style="{ width: getAdvanceRatio(marketData.kosdaq) + '%' }"
-              ></div>
-              <div
-                class="bar-segment unchanged"
-                :style="{ width: getUnchangedRatio(marketData.kosdaq) + '%' }"
-              ></div>
-              <div
-                class="bar-segment falling"
-                :style="{ width: getDeclineRatio(marketData.kosdaq) + '%' }"
-              ></div>
+            <!-- 데이터가 있을 때만 Stacked Bar 표시, 없으면 빈 트랙 -->
+            <div class="stacked-bar" :class="{ 'empty': !hasValidMarketData(marketData.kosdaq) }">
+              <template v-if="hasValidMarketData(marketData.kosdaq)">
+                <div
+                  class="bar-segment rising"
+                  :style="{ width: getAdvanceRatio(marketData.kosdaq) + '%' }"
+                ></div>
+                <div
+                  class="bar-segment unchanged"
+                  :style="{ width: getUnchangedRatio(marketData.kosdaq) + '%' }"
+                ></div>
+                <div
+                  class="bar-segment falling"
+                  :style="{ width: getDeclineRatio(marketData.kosdaq) + '%' }"
+                ></div>
+              </template>
+              <div v-else class="empty-bar-message">집계 중</div>
             </div>
           </div>
 
@@ -431,6 +451,35 @@ const toggleDataset = (dataset) => {
 // 기간 수집 섹션으로 스크롤
 const scrollToBackfill = () => {
   backfillSection.value?.scrollIntoView({ behavior: 'smooth' });
+};
+
+// 장 시작 전 체크 (09:00 이전)
+const isBeforeMarketOpen = () => {
+  const now = new Date();
+  const hours = now.getHours();
+  return hours < 9;
+};
+
+// 종목 수 표시 (0이면 '-' 또는 '집계 중')
+const formatCount = (count, type) => {
+  if (count === null || count === undefined) {
+    return '-';
+  }
+  if (count === 0) {
+    // 장 시작 전이면 '전일' 표시, 아니면 '집계 중'
+    if (isBeforeMarketOpen()) {
+      return '-';
+    }
+    return '-';
+  }
+  return count;
+};
+
+// 데이터가 유효한지 확인 (모두 0이면 무효)
+const hasValidMarketData = (market) => {
+  if (!market) return false;
+  const total = (market.advancingCount || 0) + (market.decliningCount || 0) + (market.unchangedCount || 0);
+  return total > 0;
 };
 
 // 등락비 계산 헬퍼 함수
@@ -1095,9 +1144,17 @@ onMounted(() => {
   margin-bottom: 0.5rem;
 }
 
-.rising-count { color: #ef4444; }
+.rising-count { color: #ef4444; font-weight: 600; }
 .unchanged-count { color: #71717a; }
-.falling-count { color: #3b82f6; }
+.falling-count { color: #3b82f6; font-weight: 600; }
+
+/* 데이터 없을 때 스타일 */
+.rising-count.no-data,
+.unchanged-count.no-data,
+.falling-count.no-data {
+  color: #52525b;
+  font-weight: normal;
+}
 
 .stacked-bar {
   display: flex;
@@ -1105,6 +1162,20 @@ onMounted(() => {
   border-radius: 12px;
   overflow: hidden;
   background: #3f3f46;
+  position: relative;
+}
+
+/* 데이터 없을 때 빈 트랙 */
+.stacked-bar.empty {
+  background: linear-gradient(135deg, #27272a 0%, #3f3f46 100%);
+  justify-content: center;
+  align-items: center;
+}
+
+.empty-bar-message {
+  color: #71717a;
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
 .bar-segment {
@@ -1113,6 +1184,7 @@ onMounted(() => {
 
 .bar-segment.rising {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .bar-segment.unchanged {
@@ -1121,6 +1193,7 @@ onMounted(() => {
 
 .bar-segment.falling {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .stat-row {
