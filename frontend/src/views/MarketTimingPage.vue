@@ -82,12 +82,12 @@
       <div v-else class="no-chart-data">
         <div class="no-data-content">
           <span class="no-data-icon">📈</span>
-          <h4>ADR 차트를 표시하려면 데이터가 필요합니다</h4>
+          <h4>데이터 수집 중입니다</h4>
           <p v-if="adrHistory.length > 0">
             현재 {{ adrHistory.length }}일 데이터 보유 (최소 5일 필요)
           </p>
           <p v-else>
-            아래 '기간 수집' 버튼을 눌러 60일 데이터를 수집하세요.
+            내일부터 차트가 그려집니다
           </p>
           <button @click="scrollToBackfill" class="btn-go-collect">
             📅 기간 수집으로 이동
@@ -634,7 +634,9 @@ const adrChartOptions = {
       ticks: {
         color: '#a1a1aa',
         maxRotation: 45,
-        minRotation: 0
+        minRotation: 0,
+        autoSkip: true,
+        maxTicksLimit: 8
       }
     },
     y: {
@@ -1499,6 +1501,9 @@ onMounted(() => {
   padding: 1.5rem;
   margin-bottom: 2rem;
   border: 1px solid var(--border-color, #27272a);
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .section-header {
@@ -1553,8 +1558,12 @@ onMounted(() => {
 .legend-item.combined .legend-dot { background: #a855f7; }
 
 .chart-container {
+  width: 100%;
+  max-width: 100%;
   height: 300px;
   position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* Backfill 섹션 */
