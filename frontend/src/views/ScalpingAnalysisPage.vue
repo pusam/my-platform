@@ -34,7 +34,6 @@
           </span>
         </div>
         <div class="status-meta">
-          <span v-if="isMockData" class="mock-badge">📋 테스트 데이터</span>
           <span class="update-time">Update: {{ formatTime(lastUpdated) }}</span>
         </div>
       </div>
@@ -198,7 +197,6 @@ const analysisData = ref(null);
 const errorMessage = ref('');
 const autoRefresh = ref(false);
 const lastUpdated = ref(null);
-const isMockData = ref(false);
 let refreshInterval = null;
 
 // ========== 1. 종목명/코드 매핑 (Search Fix) ==========
@@ -256,114 +254,6 @@ const CODE_TO_NAME = {
   '028300': 'HLB',
   '068270': '셀트리온',
   '196170': '알테오젠',
-};
-
-// ========== 2. 논리적으로 정합한 Mock Data 생성 ==========
-const getMockData = (code) => {
-  const now = new Date();
-  const programSeries = [];
-  const stockName = CODE_TO_NAME[code] || '테스트 종목';
-
-  // 종목별 시나리오 데이터 (주가 상승 시 체결강도 > 100%)
-  const scenarios = {
-    '005930': { // 삼성전자 - 상승 시나리오
-      currentPrice: 74200,
-      changePrice: 3200,
-      changeRate: 4.51,
-      tradingVolume: 18500000,
-      volumePower: 128.5,  // 상승 중이므로 100% 이상
-      volumeSignal: 'BUY',
-      foreignNetBuy: 320,
-      instNetBuy: 85,
-      programNetBuy: 150,
-      programTrend: 'UP'
-    },
-    '000660': { // SK하이닉스 - 강한 상승
-      currentPrice: 178500,
-      changePrice: 8500,
-      changeRate: 5.0,
-      tradingVolume: 8200000,
-      volumePower: 142.3,
-      volumeSignal: 'STRONG_BUY',
-      foreignNetBuy: 580,
-      instNetBuy: 220,
-      programNetBuy: 320,
-      programTrend: 'UP'
-    },
-    '086520': { // 에코프로 - 급등
-      currentPrice: 98500,
-      changePrice: 12800,
-      changeRate: 14.93,
-      tradingVolume: 25000000,
-      volumePower: 185.6,
-      volumeSignal: 'STRONG_BUY',
-      foreignNetBuy: 420,
-      instNetBuy: -150,
-      programNetBuy: 680,
-      programTrend: 'UP'
-    },
-    'default': { // 기본값 - 소폭 상승
-      currentPrice: 50000,
-      changePrice: 1500,
-      changeRate: 3.1,
-      tradingVolume: 5000000,
-      volumePower: 115.2,
-      volumeSignal: 'BUY',
-      foreignNetBuy: 120,
-      instNetBuy: 45,
-      programNetBuy: 85,
-      programTrend: 'UP'
-    }
-  };
-
-  const data = scenarios[code] || scenarios['default'];
-
-  // 09:00 ~ 현재 시간까지 프로그램 매매 추이 생성 (우상향 곡선)
-  const currentHour = Math.min(now.getHours(), 15);
-  const currentMinute = now.getMinutes();
-  let cumulativeValue = 0;
-
-  for (let h = 9; h <= currentHour; h++) {
-    const maxMinute = (h === currentHour) ? currentMinute : 59;
-    for (let m = 0; m <= maxMinute; m += 10) {
-      const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      // 시간에 따라 점진적 증가 + 랜덤 변동
-      const timeFactor = (h - 9) * 60 + m;
-      const trend = data.programNetBuy > 0 ? 1 : -1;
-      const baseIncrease = trend * (timeFactor * 0.4 + Math.random() * 30);
-      cumulativeValue += baseIncrease;
-
-      programSeries.push({
-        time,
-        value: Math.round(cumulativeValue)
-      });
-    }
-  }
-
-  // 마지막 값을 programNetBuy에 맞게 스케일링
-  if (programSeries.length > 0) {
-    const lastValue = programSeries[programSeries.length - 1].value;
-    const scale = lastValue !== 0 ? data.programNetBuy / lastValue : 1;
-    programSeries.forEach(item => {
-      item.value = Math.round(item.value * scale);
-    });
-  }
-
-  return {
-    stockCode: code,
-    stockName: stockName,
-    currentPrice: data.currentPrice,
-    changePrice: data.changePrice,
-    changeRate: data.changeRate,
-    tradingVolume: data.tradingVolume,
-    volumePower: data.volumePower,
-    volumeSignal: data.volumeSignal,
-    foreignNetBuy: data.foreignNetBuy,
-    instNetBuy: data.instNetBuy,
-    programNetBuy: data.programNetBuy,
-    programTrend: data.programTrend,
-    programTradingSeries: programSeries
-  };
 };
 
 // 토스트 메시지 표시
@@ -432,7 +322,6 @@ const fetchAnalysis = async () => {
 
   try {
     loading.value = true;
-    isMockData.value = false;
     const response = await scalpingAPI.getAnalysis(stockCode.value);
 
     if (response.data.success && response.data.data) {
@@ -440,26 +329,16 @@ const fetchAnalysis = async () => {
       lastUpdated.value = new Date();
       errorMessage.value = '';
     } else {
-      // API 실패 시 Mock Data로 Fallback
-      console.warn('API 응답 없음, Mock Data로 대체');
-      applyMockData();
+      analysisData.value = null;
+      showToast('해당 종목의 분석 데이터가 없습니다. 장 시간 중에 다시 시도해주세요.');
     }
   } catch (error) {
     console.error('분석 조회 오류:', error);
-    // API 에러 시 Mock Data로 Fallback
-    console.warn('API 에러 발생, Mock Data로 대체');
-    applyMockData();
+    analysisData.value = null;
+    showToast('데이터 조회에 실패했습니다. 잠시 후 다시 시도해주세요.');
   } finally {
     loading.value = false;
   }
-};
-
-// Mock Data 적용
-const applyMockData = () => {
-  analysisData.value = getMockData(stockCode.value);
-  lastUpdated.value = new Date();
-  isMockData.value = true;
-  errorMessage.value = '';
 };
 
 const refreshVolumePower = async () => {
@@ -762,15 +641,6 @@ watch(analysisData, updateChangeClass, { deep: true });
   display: flex;
   align-items: center;
   gap: 16px;
-}
-
-.mock-badge {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  color: #fff;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 0.8rem;
-  font-weight: 600;
 }
 
 .update-time {

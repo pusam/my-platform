@@ -418,7 +418,6 @@ export default {
       sp500Futures: null,
       philadelphiaSemi: null,
       haltCheck: null,
-      useMockData: true, // Mock 데이터 사용 플래그
       leadingSectors: null,
       vwapStockCode: '',
       vwapResult: null,
@@ -432,11 +431,6 @@ export default {
   mounted() {
     this.loadGlobalMarket()
     this.loadLeadingSectors()
-    // 초기 Mock Data 표시 (UI 확인용)
-    this.vwapStockCode = '005930'
-    this.applyVwapMockData()
-    this.divergenceStockCode = '005930'
-    this.applyDivergenceMockData()
   },
   methods: {
     async loadGlobalMarket() {
@@ -460,42 +454,7 @@ export default {
       } catch (error) {
         console.error('글로벌 시장 데이터 로드 실패:', error)
       } finally {
-        // API 실패 시 Mock Data 적용
-        this.applyGlobalMockData()
         this.loading.global = false
-      }
-    },
-    // 글로벌 시장 Mock Data 적용
-    applyGlobalMockData() {
-      if (!this.nasdaqFutures) {
-        this.nasdaqFutures = {
-          price: 17950.50,
-          changeRate: 1.25,
-          signal: 'POSITIVE',
-          interpretation: '나스닥 선물 강세. 기술주 중심 상승 예상.'
-        }
-      }
-      if (!this.sp500Futures) {
-        this.sp500Futures = {
-          price: 5088.25,
-          changeRate: 0.85,
-          signal: 'POSITIVE',
-          interpretation: 'S&P500 선물 상승. 미국 시장 긍정적.'
-        }
-      }
-      if (!this.philadelphiaSemi) {
-        this.philadelphiaSemi = {
-          price: 4980.10,
-          changeRate: -0.50,
-          signal: 'CAUTION',
-          interpretation: '반도체 섹터 약세. 관련주 주의 필요.'
-        }
-      }
-      if (!this.haltCheck) {
-        this.haltCheck = {
-          shouldHaltBuying: false,
-          message: '글로벌 악재 없음. 정상 매매 가능.'
-        }
       }
     },
     async loadLeadingSectors() {
@@ -504,99 +463,32 @@ export default {
         const response = await tradingIndicatorAPI.getLeadingSectors()
         if (response.data.success && response.data.data) {
           this.leadingSectors = response.data.data
-        } else {
-          this.applySectorMockData()
         }
       } catch (error) {
-        console.error('주도 섹터 데이터 로드 실패, Mock Data 적용:', error)
-        this.applySectorMockData()
+        console.error('주도 섹터 데이터 로드 실패:', error)
       } finally {
         this.loading.sectors = false
-      }
-    },
-    // 주도 섹터 Mock Data
-    applySectorMockData() {
-      this.leadingSectors = {
-        interpretation: '오늘 AI 반도체 섹터가 시장을 주도하고 있습니다. 전력설비, 금융 섹터도 강세. 2차전지·게임은 차익실현으로 약세.',
-        topSectors: [
-          {
-            sectorCode: 'AI_SEMI',
-            sectorName: 'AI 반도체',
-            rank: 1,
-            averageChangeRate: 4.5,
-            leadingStockName: 'SK하이닉스',
-            leadingStockChange: 5.2
-          },
-          {
-            sectorCode: 'POWER_EQUIP',
-            sectorName: '전력설비',
-            rank: 2,
-            averageChangeRate: 3.2,
-            leadingStockName: 'HD현대일렉트릭',
-            leadingStockChange: 4.8
-          },
-          {
-            sectorCode: 'LOW_PBR',
-            sectorName: '저PBR(금융)',
-            rank: 3,
-            averageChangeRate: 1.8,
-            leadingStockName: 'KB금융',
-            leadingStockChange: 2.3
-          }
-        ],
-        bottomSectors: [
-          {
-            sectorCode: 'BATTERY',
-            sectorName: '2차전지',
-            rank: 1,
-            averageChangeRate: -2.1,
-            leadingStockName: '에코프로',
-            leadingStockChange: -3.5
-          },
-          {
-            sectorCode: 'GAME',
-            sectorName: '게임',
-            rank: 2,
-            averageChangeRate: -1.5,
-            leadingStockName: '크래프톤',
-            leadingStockChange: -1.8
-          }
-        ]
       }
     },
     async loadVwap() {
       if (!this.vwapStockCode) return
       this.loading.vwap = true
+      this.vwapResult = null
       try {
         const response = await tradingIndicatorAPI.getVwap(this.vwapStockCode)
         if (response.data.success && response.data.data) {
           this.vwapResult = response.data.data
-        } else {
-          this.applyVwapMockData()
         }
       } catch (error) {
-        console.error('VWAP 분석 실패, Mock Data 적용:', error)
-        this.applyVwapMockData()
+        console.error('VWAP 분석 실패:', error)
       } finally {
         this.loading.vwap = false
-      }
-    },
-    // VWAP Mock Data
-    applyVwapMockData() {
-      this.vwapResult = {
-        stockCode: this.vwapStockCode || '005930',
-        stockName: '삼성전자',
-        currentPrice: 74200,
-        vwap: 73500,
-        deviation: 0.95,
-        signal: 'BUY',
-        interpretation: '현재 주가가 VWAP 선 위에 있어 매수 우위입니다. 기관 평균 매수가 대비 주가가 높아 추가 상승 모멘텀 존재.',
-        isReliable: true
       }
     },
     async loadDivergence() {
       if (!this.divergenceStockCode) return
       this.loading.divergence = true
+      this.divergenceResult = null
       try {
         const response = await tradingIndicatorAPI.detectDivergenceByStock(
           this.divergenceStockCode,
@@ -604,24 +496,11 @@ export default {
         )
         if (response.data.success && response.data.data) {
           this.divergenceResult = response.data.data
-        } else {
-          this.applyDivergenceMockData()
         }
       } catch (error) {
-        console.error('RSI 다이버전스 분석 실패, Mock Data 적용:', error)
-        this.applyDivergenceMockData()
+        console.error('RSI 다이버전스 분석 실패:', error)
       } finally {
         this.loading.divergence = false
-      }
-    },
-    // RSI 다이버전스 Mock Data
-    applyDivergenceMockData() {
-      this.divergenceResult = {
-        type: 'BEARISH',
-        signal: 'BEARISH',
-        currentRsi: 68.5,
-        strength: '강함',
-        interpretation: '주가는 신고가를 기록했지만 RSI는 전 고점을 넘지 못함. 하락 다이버전스 발생으로 단기 조정 가능성 높음.'
       }
     },
     async loadComprehensive() {
