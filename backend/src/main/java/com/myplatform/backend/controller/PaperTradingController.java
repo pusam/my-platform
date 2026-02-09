@@ -166,7 +166,7 @@ public class PaperTradingController {
             try {
                 Thread.sleep(1000); // 1초 대기 후 실행
                 log.info("[봇 시작] 즉시 매수 로직 실행 시작");
-                autoTradingBotService.executeBuyLogic();
+                autoTradingBotService.executeScalpingBuyLogic();
             } catch (Exception e) {
                 log.error("[봇 시작] 즉시 매수 로직 실행 실패: {}", e.getMessage());
             }
@@ -207,7 +207,7 @@ public class PaperTradingController {
         }
 
         // 매수 로직 수동 실행
-        autoTradingBotService.executeBuyLogic();
+        autoTradingBotService.executeScalpingBuyLogic();
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
