@@ -18,13 +18,13 @@ import java.util.*;
  * 네이버 검색 API 연동 서비스
  *
  * [기능]
- * - 특정 종목의 뉴스 검색 (주식/증권 관련 뉴스만 필터링)
- * - 악재/호재 키워드와 조합하여 타겟 검색
+ * - 특정 종목의 뉴스 검색
+ * - 제목에 종목명이 포함된 뉴스만 필터링
  *
- * [검색 전략]
- * 1. 주식 관련 키워드 조합: "{종목명} 주가", "{종목명} 특징주", "{종목명} 실적"
- * 2. 비관련 뉴스 필터링: 연예, 날씨, 운세 등 제외
- * 3. 최신순 정렬 (sort=date)
+ * [검색 전략 v2 - Loose Search]
+ * 1. 단순 검색어: "{종목명}" 또는 "{종목명} 주식"
+ * 2. 정확도순 정렬 (sort=sim) - 일단 뉴스를 무조건 가져옴
+ * 3. 20개 넉넉하게 요청 후, Java에서 제목 필터링
  */
 @Service
 @Slf4j
@@ -38,35 +38,10 @@ public class NaverSearchService {
 
     private static final String NAVER_SEARCH_URL = "https://openapi.naver.com/v1/search/news.json";
 
-    // 주식 관련 필수 검색 키워드 (정확도 높은 순서)
-    private static final List<String> STOCK_KEYWORDS = Arrays.asList(
-            "주가", "특징주", "실적", "증권", "주식"
-    );
-
-    // 리스크 관련 검색 키워드
+    // 리스크 관련 키워드 (countRiskNews에서 사용)
     private static final List<String> RISK_KEYWORDS = Arrays.asList(
             "악재", "검찰", "횡령", "배임", "수사", "기소",
             "적자", "손실", "하락", "폭락", "실적악화", "공매도"
-    );
-
-    // 호재 관련 검색 키워드
-    private static final List<String> POSITIVE_KEYWORDS = Arrays.asList(
-            "호재", "급등", "상승", "실적개선", "흑자전환", "목표가상향"
-    );
-
-    // 제외할 키워드 (비관련 뉴스 필터링)
-    private static final List<String> EXCLUDE_KEYWORDS = Arrays.asList(
-            "운세", "날씨", "연예", "스포츠", "드라마", "영화", "아이돌",
-            "가수", "배우", "결혼", "이혼", "열애", "출산", "사망",
-            "맛집", "레시피", "여행", "패션", "뷰티", "다이어트",
-            "로또", "복권", "게임", "e스포츠", "야구", "축구", "농구"
-    );
-
-    // 증권/경제 관련 키워드 (있으면 가산점)
-    private static final List<String> FINANCE_KEYWORDS = Arrays.asList(
-            "코스피", "코스닥", "증권", "주식", "투자", "시가총액", "PER", "PBR",
-            "배당", "공시", "IR", "애널리스트", "목표가", "매수", "매도",
-            "기관", "외국인", "개인", "거래량", "시총", "상장", "유증"
     );
 
     private final RestTemplate restTemplate;
@@ -78,12 +53,12 @@ public class NaverSearchService {
     }
 
     /**
-     * 종목 관련 뉴스 검색 (주식/증권 뉴스만 필터링)
+     * 종목 관련 뉴스 검색 (Loose Search v2)
      *
-     * [검색 전략]
-     * 1. "{종목명} 주가", "{종목명} 특징주" 등 주식 키워드로 검색
-     * 2. 리스크 키워드로 악재 뉴스 검색
-     * 3. 비관련 뉴스(연예, 날씨 등) 필터링
+     * [검색 전략 - 단순화]
+     * 1. 단순 검색어로 API 호출 (종목명, 종목명+주식)
+     * 2. 정확도순(sim) 정렬로 20개 요청
+     * 3. Java에서 제목 필터링 (종목명 포함 여부만 체크)
      *
      * @param stockName 종목명
      * @return 필터링된 뉴스 목록
@@ -94,46 +69,27 @@ public class NaverSearchService {
             return Collections.emptyList();
         }
 
-        log.info("[NaverSearch] '{}' 종목 뉴스 검색 시작", stockName);
+        log.info("[NaverSearch] '{}' 종목 뉴스 검색 시작 (Loose Search v2)", stockName);
         Set<NewsItem> allNews = new LinkedHashSet<>(); // 중복 제거용
-        int totalSearched = 0;
-        int totalFiltered = 0;
 
-        // 1. 주식 관련 키워드로 검색 (가장 정확한 결과 우선)
-        for (String keyword : STOCK_KEYWORDS) {
-            String query = stockName + " " + keyword;
-            List<NewsItem> news = searchNews(query, 10);
-            totalSearched += news.size();
+        // 1. 단순 검색: 종목명만 (정확도순, 20개)
+        List<NewsItem> simpleSearch = searchNewsWithSort(stockName, 20, "sim");
+        log.info("[NaverSearch] 1차 검색 '{}': {}건 반환", stockName, simpleSearch.size());
+        allNews.addAll(filterByTitle(simpleSearch, stockName));
 
-            // 비관련 뉴스 필터링
-            List<NewsItem> filtered = filterRelevantNews(news, stockName);
-            totalFiltered += (news.size() - filtered.size());
-            allNews.addAll(filtered);
-
-            log.debug("[NaverSearch] 쿼리='{}' -> 검색 {}건, 필터 후 {}건",
-                    query, news.size(), filtered.size());
+        // 2. 결과가 부족하면 "종목명 주식"으로 추가 검색
+        if (allNews.size() < 5) {
+            String query2 = stockName + " 주식";
+            List<NewsItem> stockSearch = searchNewsWithSort(query2, 20, "sim");
+            log.info("[NaverSearch] 2차 검색 '{}': {}건 반환", query2, stockSearch.size());
+            allNews.addAll(filterByTitle(stockSearch, stockName));
         }
 
-        // 2. 리스크 키워드로 검색 (악재 발굴)
-        for (String keyword : RISK_KEYWORDS.subList(0, Math.min(5, RISK_KEYWORDS.size()))) {
-            String query = stockName + " " + keyword;
-            List<NewsItem> news = searchNews(query, 5);
-            totalSearched += news.size();
-
-            List<NewsItem> filtered = filterRelevantNews(news, stockName);
-            totalFiltered += (news.size() - filtered.size());
-            allNews.addAll(filtered);
-        }
-
-        // 3. 호재 키워드로 검색 (균형 잡힌 분석용)
-        for (String keyword : POSITIVE_KEYWORDS.subList(0, Math.min(3, POSITIVE_KEYWORDS.size()))) {
-            String query = stockName + " " + keyword;
-            List<NewsItem> news = searchNews(query, 3);
-            totalSearched += news.size();
-
-            List<NewsItem> filtered = filterRelevantNews(news, stockName);
-            totalFiltered += (news.size() - filtered.size());
-            allNews.addAll(filtered);
+        // 3. 그래도 부족하면 최신순으로도 검색
+        if (allNews.size() < 5) {
+            List<NewsItem> dateSearch = searchNewsWithSort(stockName, 20, "date");
+            log.info("[NaverSearch] 3차 검색 '{}' (최신순): {}건 반환", stockName, dateSearch.size());
+            allNews.addAll(filterByTitle(dateSearch, stockName));
         }
 
         List<NewsItem> result = new ArrayList<>(allNews);
@@ -143,76 +99,60 @@ public class NaverSearchService {
             result = result.subList(0, 15);
         }
 
-        log.info("[NaverSearch] '{}' 뉴스 검색 완료: 총 검색 {}건 → 필터링 {}건 제외 → 최종 {}건",
-                stockName, totalSearched, totalFiltered, result.size());
+        log.info("[NaverSearch] '{}' 뉴스 검색 완료: 최종 {}건", stockName, result.size());
 
         // 검색 결과가 없으면 경고
         if (result.isEmpty()) {
-            log.warn("[NaverSearch] '{}' 관련 유효한 뉴스를 찾지 못했습니다.", stockName);
+            log.warn("[NaverSearch] '{}' 관련 뉴스를 찾지 못했습니다. API 응답 확인 필요.", stockName);
         }
 
         return result;
     }
 
     /**
-     * 비관련 뉴스 필터링
-     * - 연예, 날씨, 운세 등 비관련 뉴스 제외
-     * - 종목명이 제목/내용에 포함되어야 함
-     * - 증권/경제 키워드 있으면 우선 포함
+     * 제목에 종목명이 포함된 뉴스만 필터링 (Loose Filter)
+     * - 제목 또는 내용에 종목명(또는 축약형)이 있으면 통과
+     * - 연예/스포츠 등 명백히 관련 없는 뉴스만 제외
      */
-    private List<NewsItem> filterRelevantNews(List<NewsItem> newsList, String stockName) {
+    private List<NewsItem> filterByTitle(List<NewsItem> newsList, String stockName) {
         List<NewsItem> filtered = new ArrayList<>();
+        String stockNameLower = stockName.toLowerCase();
+
+        // 종목명 축약형 (예: "삼성전자" → "삼성")
+        String shortName = stockName.length() >= 2
+                ? stockName.substring(0, Math.min(2, stockName.length())).toLowerCase()
+                : stockNameLower;
 
         for (NewsItem news : newsList) {
             String title = news.getTitle() != null ? news.getTitle().toLowerCase() : "";
             String description = news.getDescription() != null ? news.getDescription().toLowerCase() : "";
             String content = title + " " + description;
 
-            // 1. 제외 키워드 체크 (연예, 날씨, 운세 등)
-            boolean hasExcludeKeyword = false;
-            for (String exclude : EXCLUDE_KEYWORDS) {
-                if (content.contains(exclude)) {
-                    hasExcludeKeyword = true;
-                    log.trace("[NaverSearch] 제외: '{}' (키워드: {})", truncate(title, 30), exclude);
-                    break;
-                }
-            }
-            if (hasExcludeKeyword) {
-                continue;
-            }
-
-            // 2. 종목명이 포함되어 있는지 확인 (필수)
-            String stockNameLower = stockName.toLowerCase();
-            boolean containsStockName = content.contains(stockNameLower);
-
-            // 종목명의 일부만 포함되어도 허용 (예: "삼성" in "삼성전자")
-            if (!containsStockName && stockName.length() >= 4) {
-                String shortName = stockName.substring(0, Math.min(3, stockName.length()));
-                containsStockName = content.contains(shortName.toLowerCase());
-            }
+            // 종목명 또는 축약형이 포함되어 있으면 통과
+            boolean containsStockName = content.contains(stockNameLower)
+                    || content.contains(shortName);
 
             if (!containsStockName) {
-                log.trace("[NaverSearch] 제외: '{}' (종목명 미포함)", truncate(title, 30));
+                log.trace("[NaverSearch] 제외 (종목명 미포함): '{}'", truncate(title, 40));
                 continue;
             }
 
-            // 3. 증권/경제 키워드 있으면 보너스 (없어도 통과 가능)
-            boolean hasFinanceKeyword = false;
-            for (String finance : FINANCE_KEYWORDS) {
-                if (content.contains(finance.toLowerCase())) {
-                    hasFinanceKeyword = true;
+            // 명백히 관련 없는 뉴스 제외 (연예, 스포츠 등) - 최소한의 필터링
+            boolean isIrrelevant = false;
+            for (String exclude : Arrays.asList("연예", "아이돌", "드라마", "야구", "축구", "농구", "운세")) {
+                if (title.contains(exclude)) {
+                    isIrrelevant = true;
+                    log.trace("[NaverSearch] 제외 (비관련): '{}' (키워드: {})", truncate(title, 40), exclude);
                     break;
                 }
             }
 
-            // 증권 키워드 없어도 종목명 있으면 포함 (단, 로그로 표시)
-            if (!hasFinanceKeyword) {
-                log.trace("[NaverSearch] 포함(경제키워드 없음): '{}'", truncate(title, 30));
+            if (!isIrrelevant) {
+                filtered.add(news);
             }
-
-            filtered.add(news);
         }
 
+        log.debug("[NaverSearch] 제목 필터링: {}건 → {}건", newsList.size(), filtered.size());
         return filtered;
     }
 
@@ -225,13 +165,25 @@ public class NaverSearchService {
     }
 
     /**
-     * 뉴스 검색 API 호출
+     * 뉴스 검색 API 호출 (기본: 최신순)
      *
      * @param query 검색어
      * @param display 결과 수 (최대 100)
      * @return 뉴스 목록
      */
     public List<NewsItem> searchNews(String query, int display) {
+        return searchNewsWithSort(query, display, "date");
+    }
+
+    /**
+     * 뉴스 검색 API 호출 (정렬 옵션 지정)
+     *
+     * @param query 검색어
+     * @param display 결과 수 (최대 100)
+     * @param sort 정렬 방식 ("sim": 정확도순, "date": 최신순)
+     * @return 뉴스 목록
+     */
+    public List<NewsItem> searchNewsWithSort(String query, int display, String sort) {
         if (!isAvailable()) {
             return Collections.emptyList();
         }
@@ -239,16 +191,16 @@ public class NaverSearchService {
         try {
             String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
 
-            // API URL 구성 (최신순 정렬, display 개수 제한)
+            // API URL 구성
             String url = UriComponentsBuilder.fromUriString(NAVER_SEARCH_URL)
                     .queryParam("query", encodedQuery)
                     .queryParam("display", Math.min(display, 100)) // 최대 100개
                     .queryParam("start", 1)
-                    .queryParam("sort", "date")  // 최신순 정렬 (sim: 정확도순)
+                    .queryParam("sort", sort)  // sim: 정확도순, date: 최신순
                     .build(false)  // 이미 인코딩됨
                     .toUriString();
 
-            log.debug("[NaverSearch] API 호출: query='{}', display={}", query, display);
+            log.debug("[NaverSearch] API 호출: query='{}', display={}, sort={}", query, display, sort);
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("X-Naver-Client-Id", clientId);
@@ -262,14 +214,14 @@ public class NaverSearchService {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 List<NewsItem> news = parseNewsResponse(response.getBody());
-                log.debug("[NaverSearch] API 응답: query='{}' → {}건 반환", query, news.size());
+                log.debug("[NaverSearch] API 응답: query='{}', sort='{}' → {}건 반환", query, sort, news.size());
                 return news;
             } else {
                 log.warn("[NaverSearch] API 응답 오류: status={}", response.getStatusCode());
             }
 
         } catch (Exception e) {
-            log.error("[NaverSearch] 뉴스 검색 실패 (query={}): {}", query, e.getMessage());
+            log.error("[NaverSearch] 뉴스 검색 실패 (query={}, sort={}): {}", query, sort, e.getMessage());
         }
 
         return Collections.emptyList();
