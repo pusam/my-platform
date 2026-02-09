@@ -30,6 +30,7 @@ public class ScreenerResultDto {
     // 밸류에이션 지표
     private BigDecimal per;
     private BigDecimal pbr;
+    private BigDecimal bps; // BPS (주당순자산) - PBR 계산용
 
     // 수익성 지표
     private BigDecimal roe;

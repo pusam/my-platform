@@ -886,6 +886,14 @@ public class QuantScreenerService {
                 }
             }
 
+            // BPS 필드 설정 (프론트엔드에서 PBR 계산 fallback용)
+            if (priceDto != null && priceDto.getBps() != null && priceDto.getBps().compareTo(BigDecimal.ZERO) > 0) {
+                result.setBps(priceDto.getBps());
+                if (original != null) {
+                    original.setBps(priceDto.getBps());
+                }
+            }
+
             // PBR이 여전히 없고 BPS와 현재가가 있으면 계산
             if ((result.getPbr() == null || result.getPbr().compareTo(BigDecimal.ZERO) <= 0)
                     && priceDto != null && priceDto.getBps() != null && priceDto.getBps().compareTo(BigDecimal.ZERO) > 0

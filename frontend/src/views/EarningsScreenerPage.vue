@@ -313,8 +313,8 @@
               </div>
               <div class="detail-row" v-else>
                 <span class="label">PBR</span>
-                <span class="value" :class="{ 'value-highlight': stock.pbr && stock.pbr < 1 }">
-                  {{ stock.pbr ? formatNumber(stock.pbr, 2) + '배' : '-' }}
+                <span class="value" :class="{ 'value-highlight': isGoodPbr(stock) }">
+                  {{ formatPbrSafe(stock) }}
                 </span>
               </div>
               <div class="detail-row">
@@ -1274,10 +1274,12 @@ const fetchTurnaroundStocks = async () => {
       // 디버깅용: 턴어라운드 데이터 확인
       console.log('[턴어라운드] 전체 데이터:', response.data.data);
       if (response.data.data.length > 0) {
-        console.log('[턴어라운드] 첫 번째 종목 상세:', response.data.data[0]);
-        console.log('[턴어라운드] marketCap:', response.data.data[0].marketCap);
-        console.log('[턴어라운드] pbr:', response.data.data[0].pbr);
-        console.log('[턴어라운드] per:', response.data.data[0].per);
+        const first = response.data.data[0];
+        console.log('[턴어라운드] 첫 번째 종목 상세:', first);
+        console.log('[턴어라운드] 사용 가능한 필드들:', Object.keys(first));
+        console.log('[턴어라운드] marketCap:', first.marketCap, '| marCap:', first.marCap, '| amount:', first.amount);
+        console.log('[턴어라운드] pbr:', first.pbr, '| priceBookRatio:', first.priceBookRatio);
+        console.log('[턴어라운드] bps:', first.bps, '| currentPrice:', first.currentPrice, '| per:', first.per);
       }
     }
   } catch (error) {
@@ -1389,12 +1391,18 @@ const formatMarketCap = (value) => {
 
 // 턴어라운드 종목 시가총액 안전 포맷 (여러 필드 확인)
 const formatMarketCapSafe = (stock) => {
-  // marketCap 필드 우선, 없으면 market_cap 확인
-  const value = stock.marketCap || stock.market_cap || stock.marketCapitalization;
-  if (!value || value === 0) return '-';
+  // 다양한 필드명 확인
+  const value = stock.marketCap ?? stock.market_cap ?? stock.marketCapitalization ??
+                stock.marCap ?? stock.amount ?? stock.totalValue ?? null;
+
+  // null/undefined만 '-' 표시, 0은 별도 처리
+  if (value === null || value === undefined) return '-';
 
   const num = Number(value);
-  if (isNaN(num) || num <= 0) return '-';
+  if (isNaN(num)) return '-';
+
+  // 0인 경우 명확히 표시
+  if (num === 0) return '0억';
 
   if (num >= 10000) {
     return `${(num / 10000).toFixed(1)}조`;
@@ -1402,6 +1410,40 @@ const formatMarketCapSafe = (stock) => {
     return `${Math.round(num).toLocaleString('ko-KR')}억`;
   }
   return '-';
+};
+
+// 턴어라운드 종목 PBR 안전 포맷 (여러 필드 확인 + BPS 계산)
+const formatPbrSafe = (stock) => {
+  // 다양한 필드명 확인
+  let value = stock.pbr ?? stock.priceBookRatio ?? stock.price_book_ratio ?? null;
+
+  // PBR이 없으면 currentPrice / BPS로 계산 시도
+  if ((value === null || value === undefined || Number(value) <= 0) && stock.currentPrice && stock.bps) {
+    const currentPrice = Number(stock.currentPrice);
+    const bps = Number(stock.bps);
+    if (currentPrice > 0 && bps > 0) {
+      value = currentPrice / bps;
+    }
+  }
+
+  // null/undefined만 '-' 표시
+  if (value === null || value === undefined) return '-';
+
+  const num = Number(value);
+  if (isNaN(num)) return '-';
+
+  // 0인 경우 명확히 표시
+  if (num === 0) return '0배';
+
+  return `${num.toFixed(2)}배`;
+};
+
+// PBR 값이 유효한지 확인 (하이라이트용)
+const isGoodPbr = (stock) => {
+  const value = stock.pbr ?? stock.priceBookRatio ?? null;
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num > 0 && num < 1;
 };
 
 // PER이 유효한지 확인 (양수이고 0보다 큰 경우만)
