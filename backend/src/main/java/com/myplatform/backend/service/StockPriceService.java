@@ -248,6 +248,7 @@ public class StockPriceService {
 
     /**
      * 한국투자증권 API에서 시세 조회
+     * [장전 처리] 08:00~09:00 사이에는 일봉 API에서 어제 등락률을 가져옴
      */
     private StockPriceDto fetchFromKoreaInvestment(String stockCode) {
         try {
@@ -282,23 +283,36 @@ public class StockPriceService {
             dto.setFetchedAt(LocalDateTime.now());
             dto.setDataSource("KIS"); // 데이터 출처
 
-            // 등락률이 없거나 0이고, 전일대비(prdy_vrss)가 있으면 직접 계산
-            // (장전/장후에는 prdy_ctrt가 0으로 오지만, prdy_vrss는 유효한 값이 있음)
+            // 등락률이 없거나 0인지 확인
             boolean changeRateIsZeroOrNull = dto.getChangeRate() == null
                     || dto.getChangeRate().compareTo(BigDecimal.ZERO) == 0;
-            boolean hasValidChangePrice = dto.getChangePrice() != null
-                    && dto.getChangePrice().compareTo(BigDecimal.ZERO) != 0;
 
-            if (changeRateIsZeroOrNull && hasValidChangePrice && dto.getCurrentPrice() != null) {
-                BigDecimal previousClose = dto.getCurrentPrice().subtract(dto.getChangePrice());
-                if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal calculatedRate = dto.getChangePrice()
-                            .divide(previousClose, 4, java.math.RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"))
-                            .setScale(2, java.math.RoundingMode.HALF_UP);
-                    dto.setChangeRate(calculatedRate);
-                    log.info("등락률 직접 계산 (장전/장후): {} = {}% (전일대비: {}원, 전일종가: {}원)",
-                            stockCode, calculatedRate, dto.getChangePrice(), previousClose);
+            // 1. 먼저 전일대비(prdy_vrss)로 계산 시도
+            if (changeRateIsZeroOrNull) {
+                boolean hasValidChangePrice = dto.getChangePrice() != null
+                        && dto.getChangePrice().compareTo(BigDecimal.ZERO) != 0;
+
+                if (hasValidChangePrice && dto.getCurrentPrice() != null) {
+                    BigDecimal previousClose = dto.getCurrentPrice().subtract(dto.getChangePrice());
+                    if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal calculatedRate = dto.getChangePrice()
+                                .divide(previousClose, 4, java.math.RoundingMode.HALF_UP)
+                                .multiply(new BigDecimal("100"))
+                                .setScale(2, java.math.RoundingMode.HALF_UP);
+                        dto.setChangeRate(calculatedRate);
+                        changeRateIsZeroOrNull = false;
+                        log.debug("등락률 계산 (prdy_vrss): {} = {}%", stockCode, calculatedRate);
+                    }
+                }
+            }
+
+            // 2. 장전(08:00~09:00)이고 여전히 등락률이 0이면 → 일봉 API에서 어제 등락률 조회
+            if (changeRateIsZeroOrNull && isPreMarketTime()) {
+                BigDecimal yesterdayChangeRate = fetchYesterdayChangeRateFromDaily(stockCode);
+                if (yesterdayChangeRate != null) {
+                    dto.setChangeRate(yesterdayChangeRate);
+                    dto.setDataSource("KIS_DAILY"); // 일봉 데이터 출처 표시
+                    log.info("[장전] 일봉 API에서 어제 등락률 적용: {} = {}%", stockCode, yesterdayChangeRate);
                 }
             }
 
@@ -308,6 +322,99 @@ public class StockPriceService {
 
         } catch (Exception e) {
             log.error("한투 API 시세 파싱 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 장전 시간대인지 확인 (08:00 ~ 09:00)
+     * 주말은 제외 (토,일은 장 안 열림)
+     */
+    private boolean isPreMarketTime() {
+        LocalDateTime now = LocalDateTime.now();
+        int hour = now.getHour();
+        java.time.DayOfWeek dayOfWeek = now.getDayOfWeek();
+
+        // 주말 제외
+        if (dayOfWeek == java.time.DayOfWeek.SATURDAY || dayOfWeek == java.time.DayOfWeek.SUNDAY) {
+            return false;
+        }
+
+        // 08:00 ~ 09:00 사이
+        return hour >= 8 && hour < 9;
+    }
+
+    /**
+     * 일봉 API에서 어제(가장 최근 거래일) 등락률 조회
+     * @param stockCode 종목코드
+     * @return 어제 등락률 (%) 또는 null
+     */
+    private BigDecimal fetchYesterdayChangeRateFromDaily(String stockCode) {
+        try {
+            // 일봉 데이터 조회 (최근 5일)
+            JsonNode response = kisService.getDailyPrices(stockCode, 5);
+            if (response == null) {
+                return null;
+            }
+
+            JsonNode output2 = response.get("output2");
+            if (output2 == null || !output2.isArray() || output2.size() == 0) {
+                log.warn("[일봉] {} - output2 데이터 없음", stockCode);
+                return null;
+            }
+
+            // output2[0] = 가장 최근 거래일 (어제)
+            JsonNode yesterday = output2.get(0);
+
+            // prdy_ctrt (전일대비율) 추출
+            if (yesterday.has("prdy_ctrt")) {
+                String rateStr = yesterday.get("prdy_ctrt").asText();
+                if (rateStr != null && !rateStr.isEmpty()) {
+                    BigDecimal rate = new BigDecimal(rateStr);
+                    log.debug("[일봉] {} - 어제 등락률: {}%", stockCode, rate);
+                    return rate;
+                }
+            }
+
+            // prdy_ctrt가 없으면 종가로 직접 계산
+            if (output2.size() >= 2) {
+                JsonNode day1 = output2.get(0); // 어제
+                JsonNode day2 = output2.get(1); // 그저께
+
+                BigDecimal close1 = getBigDecimalFromNode(day1, "stck_clpr");
+                BigDecimal close2 = getBigDecimalFromNode(day2, "stck_clpr");
+
+                if (close1 != null && close2 != null && close2.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal rate = close1.subtract(close2)
+                            .divide(close2, 4, java.math.RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, java.math.RoundingMode.HALF_UP);
+                    log.debug("[일봉] {} - 종가 기반 등락률 계산: {}%", stockCode, rate);
+                    return rate;
+                }
+            }
+
+        } catch (Exception e) {
+            log.warn("[일봉] {} - 어제 등락률 조회 실패: {}", stockCode, e.getMessage());
+        }
+
+        return null;
+    }
+
+    /**
+     * JsonNode에서 BigDecimal 추출 (일봉용)
+     */
+    private BigDecimal getBigDecimalFromNode(JsonNode node, String field) {
+        if (node == null || !node.has(field)) {
+            return null;
+        }
+        String value = node.get(field).asText();
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(value.replace(",", ""));
+        } catch (NumberFormatException e) {
             return null;
         }
     }
