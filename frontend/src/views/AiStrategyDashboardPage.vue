@@ -605,40 +605,10 @@ const fetchRealTimeQuotes = async (strategyType) => {
         stock.stopLoss = Math.round(newPrice * (1 - stock.stopLossPercent / 100));
       }
     } catch (error) {
+      // API 실패 시 기존 데이터 유지 (가짜 데이터 생성 안함)
       console.warn(`시세 조회 실패 (${stock.stockCode}):`, error.message);
-      // API 실패 시 시뮬레이션 데이터 생성
-      generateSimulatedQuote(stock);
     }
   }
-};
-
-// 시뮬레이션 시세 데이터 생성
-const generateSimulatedQuote = (stock) => {
-  // 종목코드 기반 시드로 일관된 랜덤값
-  const seed = stock.stockCode.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const rand = (min, max) => {
-    const x = Math.sin(seed * Date.now() / 100000) * 10000;
-    return min + Math.abs(x - Math.floor(x)) * (max - min);
-  };
-
-  // 60% 확률로 상승
-  const isRising = rand(0, 100) > 40;
-  const changePercent = isRising ? rand(0.5, 4.5) : rand(-3.5, -0.3);
-
-  // 기존 가격이 없으면 추정
-  const basePrice = stock.currentPrice || 50000;
-  const previousClose = Math.round(basePrice / (1 + changePercent / 100));
-  const currentPrice = basePrice;
-  const changeRate = ((currentPrice - previousClose) / previousClose) * 100;
-
-  // 플래시 효과
-  if (stock.changeRate !== changeRate) {
-    stock.priceFlash = changeRate > stock.changeRate ? 'up' : 'down';
-    setTimeout(() => { stock.priceFlash = null; }, 500);
-  }
-
-  stock.previousClose = previousClose;
-  stock.changeRate = changeRate;
 };
 
 const loadMarketSummary = async () => {
