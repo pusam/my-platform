@@ -11,7 +11,12 @@
     </div>
 
     <div class="chart-wrapper">
-      <Line v-if="hasData" :data="chartData" :options="chartOptions" />
+      <Line v-if="hasData && !isPreMarket" :data="chartData" :options="chartOptions" />
+      <div v-else-if="isPreMarket" class="no-data pre-market">
+        <div class="pre-market-icon">🕐</div>
+        <p class="pre-market-title">장 시작 대기 중</p>
+        <p class="pre-market-desc">09:00 장 시작 후 데이터가 표시됩니다</p>
+      </div>
       <div v-else class="no-data">
         <p>프로그램 매매 데이터가 없습니다</p>
       </div>
@@ -73,6 +78,16 @@ const props = defineProps({
 
 const hasData = computed(() => {
   return props.series && props.series.length > 0;
+});
+
+// 장 운영 시간 체크 (09:00 ~ 15:30)
+const isPreMarket = computed(() => {
+  const now = new Date();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const currentTime = hour * 60 + minute;
+  // 09:00 이전이거나 데이터가 없으면 장 시작 대기
+  return currentTime < 540 || (!hasData.value && currentTime < 930);
 });
 
 const netBuyText = computed(() => {
@@ -271,6 +286,30 @@ const chartOptions = computed(() => ({
   align-items: center;
   justify-content: center;
   color: #666;
+}
+
+.no-data.pre-market {
+  flex-direction: column;
+  gap: 8px;
+  color: #71717a;
+}
+
+.pre-market-icon {
+  font-size: 2.5rem;
+  opacity: 0.7;
+}
+
+.pre-market-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #a1a1aa;
+}
+
+.pre-market-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #71717a;
 }
 
 .chart-legend {

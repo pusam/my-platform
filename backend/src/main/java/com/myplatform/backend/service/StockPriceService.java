@@ -276,12 +276,27 @@ public class StockPriceService {
             dto.setOpenPrice(getBigDecimalValue(output, "stck_oprc")); // 시가
             dto.setHighPrice(getBigDecimalValue(output, "stck_hgpr")); // 고가
             dto.setLowPrice(getBigDecimalValue(output, "stck_lwpr")); // 저가
+            dto.setChangePrice(getBigDecimalValue(output, "prdy_vrss")); // 전일대비
             dto.setChangeRate(getBigDecimalValue(output, "prdy_ctrt")); // 전일대비율
             dto.setVolume(getBigDecimalValue(output, "acml_vol")); // 누적거래량
             dto.setFetchedAt(LocalDateTime.now());
             dto.setDataSource("KIS"); // 데이터 출처
 
-            log.debug("한투 API 시세 조회 성공: {} - {}원", dto.getStockName(), dto.getCurrentPrice());
+            // 등락률이 없고 전일대비가 있으면 직접 계산
+            if (dto.getChangeRate() == null && dto.getChangePrice() != null && dto.getCurrentPrice() != null) {
+                BigDecimal previousClose = dto.getCurrentPrice().subtract(dto.getChangePrice());
+                if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal calculatedRate = dto.getChangePrice()
+                            .divide(previousClose, 4, java.math.RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, java.math.RoundingMode.HALF_UP);
+                    dto.setChangeRate(calculatedRate);
+                    log.debug("등락률 직접 계산: {} = {}%", stockCode, calculatedRate);
+                }
+            }
+
+            log.debug("한투 API 시세 조회 성공: {} - {}원, 등락률 {}%",
+                    dto.getStockName(), dto.getCurrentPrice(), dto.getChangeRate());
             return dto;
 
         } catch (Exception e) {

@@ -5,6 +5,7 @@ import com.myplatform.backend.service.AdminStatsService;
 import com.myplatform.backend.dto.ActivityLogDto;
 import com.myplatform.backend.dto.ServerStatusDto;
 import com.myplatform.backend.service.ActivityLogService;
+import com.myplatform.backend.service.AiStrategySnapshotService;
 import com.myplatform.backend.service.ServerStatusService;
 import com.myplatform.backend.service.UserManagementService;
 import com.myplatform.core.dto.ApiResponse;
@@ -31,17 +32,20 @@ public class AdminController {
     private final CacheManager cacheManager;
     private final ServerStatusService serverStatusService;
     private final ActivityLogService activityLogService;
+    private final AiStrategySnapshotService aiStrategySnapshotService;
 
     public AdminController(UserManagementService userManagementService,
                           AdminStatsService adminStatsService,
                           CacheManager cacheManager,
                           ServerStatusService serverStatusService,
-                          ActivityLogService activityLogService) {
+                          ActivityLogService activityLogService,
+                          AiStrategySnapshotService aiStrategySnapshotService) {
         this.userManagementService = userManagementService;
         this.adminStatsService = adminStatsService;
         this.cacheManager = cacheManager;
         this.serverStatusService = serverStatusService;
         this.activityLogService = activityLogService;
+        this.aiStrategySnapshotService = aiStrategySnapshotService;
     }
 
     @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
@@ -318,6 +322,63 @@ public class AdminController {
         try {
             List<ActivityLogDto> logs = activityLogService.getRecentLogs();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", logs));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+        }
+    }
+
+    // ==================== AI 전략 스냅샷 데이터 관리 ====================
+
+    @Operation(summary = "스냅샷 데이터 보정", description = "모든 전략 스냅샷의 가격/등락률 데이터를 최신 API 데이터로 업데이트합니다.")
+    @GetMapping("/fix-data")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> fixSnapshotData() {
+        try {
+            long startTime = System.currentTimeMillis();
+            int updatedCount = aiStrategySnapshotService.fixAllSnapshotData();
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("updatedCount", updatedCount);
+            result.put("elapsedMs", elapsed);
+            result.put("message", String.format("%d건의 스냅샷 데이터가 보정되었습니다.", updatedCount));
+
+            return ResponseEntity.ok(ApiResponse.success("데이터 보정 완료", result));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("데이터 보정 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "장 마감 데이터 업데이트", description = "모든 전략 스냅샷을 최종 종가로 강제 업데이트합니다.")
+    @PostMapping("/update-closing-prices")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> updateClosingPrices() {
+        try {
+            long startTime = System.currentTimeMillis();
+            int updatedCount = 0;
+
+            for (com.myplatform.backend.entity.AiStrategySnapshot.StrategyType type :
+                    com.myplatform.backend.entity.AiStrategySnapshot.StrategyType.values()) {
+                updatedCount += aiStrategySnapshotService.updateSnapshotPrices(type);
+            }
+
+            long elapsed = System.currentTimeMillis() - startTime;
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("updatedCount", updatedCount);
+            result.put("elapsedMs", elapsed);
+            result.put("message", String.format("%d건의 스냅샷이 최신 종가로 업데이트되었습니다.", updatedCount));
+
+            return ResponseEntity.ok(ApiResponse.success("종가 업데이트 완료", result));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("종가 업데이트 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "스냅샷 통계 조회", description = "AI 전략 스냅샷의 현재 상태를 조회합니다.")
+    @GetMapping("/snapshot-stats")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getSnapshotStats() {
+        try {
+            Map<String, Object> stats = aiStrategySnapshotService.getSnapshotStats();
+            return ResponseEntity.ok(ApiResponse.success("조회 성공", stats));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
         }

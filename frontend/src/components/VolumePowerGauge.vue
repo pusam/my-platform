@@ -24,7 +24,10 @@
     </div>
 
     <div class="description">
-      <p v-if="volumePower >= 120">매수세가 매우 강합니다</p>
+      <p v-if="isPreMarket" class="pre-market-text">
+        {{ isMarketHours ? '체결 데이터를 수집하고 있습니다...' : '09:00 장 시작 후 체결강도가 표시됩니다' }}
+      </p>
+      <p v-else-if="volumePower >= 120">매수세가 매우 강합니다</p>
       <p v-else-if="volumePower >= 100">매수세가 우위입니다</p>
       <p v-else-if="volumePower >= 80">균형 상태입니다</p>
       <p v-else-if="volumePower >= 60">매도세가 우위입니다</p>
@@ -47,24 +50,47 @@ const props = defineProps({
   }
 });
 
+// 장 운영 시간 체크 (09:00 ~ 15:30)
+const isMarketHours = computed(() => {
+  const now = new Date();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const currentTime = hour * 60 + minute;
+  return currentTime >= 540 && currentTime <= 930; // 09:00 ~ 15:30
+});
+
+// 데이터가 유효한지 확인 (0이거나 null이면 무효)
+const hasValidData = computed(() => {
+  return props.volumePower != null && props.volumePower > 0;
+});
+
+// 장 시작 대기 상태인지 확인
+const isPreMarket = computed(() => {
+  return !isMarketHours.value || !hasValidData.value;
+});
+
 const formattedPower = computed(() => {
+  if (isPreMarket.value) return '-';
   return props.volumePower?.toFixed(1) || '0.0';
 });
 
 // 게이지 채우기 너비 (0~200% -> 0~100%)
 const fillWidth = computed(() => {
+  if (isPreMarket.value) return 50; // 중앙에 위치
   const power = props.volumePower || 100;
   return Math.min(100, Math.max(0, power / 2));
 });
 
 // 마커 위치 (0~200% -> 0~100%)
 const markerPosition = computed(() => {
+  if (isPreMarket.value) return 50; // 중앙에 위치
   const power = props.volumePower || 100;
   return Math.min(100, Math.max(0, power / 2));
 });
 
 // 바 색상 클래스
 const barClass = computed(() => {
+  if (isPreMarket.value) return 'pre-market';
   const power = props.volumePower || 100;
   if (power >= 120) return 'strong-buy';
   if (power >= 100) return 'buy';
@@ -75,6 +101,10 @@ const barClass = computed(() => {
 
 // 신호 텍스트
 const signalText = computed(() => {
+  // 장 시작 전이거나 데이터가 없으면 대기 상태 표시
+  if (isPreMarket.value) {
+    return isMarketHours.value ? '데이터 수집 중' : '장 시작 대기';
+  }
   switch (props.signal) {
     case 'STRONG_BUY': return '강한 매수세';
     case 'BUY': return '매수 우위';
@@ -87,6 +117,7 @@ const signalText = computed(() => {
 
 // 신호 클래스
 const signalClass = computed(() => {
+  if (isPreMarket.value) return 'pre-market';
   switch (props.signal) {
     case 'STRONG_BUY': return 'strong-buy';
     case 'BUY': return 'buy';
@@ -249,11 +280,24 @@ const signalClass = computed(() => {
   border: 1px solid #3b82f6;
 }
 
+/* 장 시작 대기 상태 */
+.signal-badge.pre-market {
+  background: rgba(113, 113, 122, 0.2);
+  color: #71717a;
+  border: 1px solid #71717a;
+}
+
 .power-value.strong-buy { color: #ef4444; }
 .power-value.buy { color: #f87171; }
 .power-value.neutral { color: #a3a3a3; }
 .power-value.sell { color: #60a5fa; }
 .power-value.strong-sell { color: #3b82f6; }
+.power-value.pre-market { color: #71717a; }
+
+.gauge-fill.pre-market {
+  background: linear-gradient(to right, #52525b, #71717a);
+  opacity: 0.5;
+}
 
 .description {
   color: #888;
@@ -262,5 +306,10 @@ const signalClass = computed(() => {
 
 .description p {
   margin: 0;
+}
+
+.description .pre-market-text {
+  color: #71717a;
+  font-style: italic;
 }
 </style>

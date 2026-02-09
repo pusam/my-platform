@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
@@ -46,6 +47,7 @@ public class AiStrategySnapshotService {
 
     private final AiStrategySnapshotRepository snapshotRepository;
     private final QuantScreenerService quantScreenerService;
+    private final StockPriceService stockPriceService;
 
     // 스냅샷당 저장할 종목 수
     private static final int SNAPSHOT_LIMIT = 5;
@@ -145,6 +147,112 @@ public class AiStrategySnapshotService {
     }
 
     /**
+     * 장 마감 확정 배치 (15:40)
+     * - 모든 전략 스냅샷의 현재가/등락률을 최종 종가로 업데이트
+     * - 장중 데이터가 아닌 확정 종가로 보정
+     */
+    @Scheduled(cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void updateClosingPrices() {
+        log.info("[Closing Batch] 장 마감 확정 배치 시작");
+        long startTime = System.currentTimeMillis();
+
+        int totalUpdated = 0;
+        for (StrategyType type : StrategyType.values()) {
+            try {
+                int updated = updateSnapshotPrices(type);
+                totalUpdated += updated;
+                log.info("[Closing Batch] {} 전략: {}건 업데이트", type.name(), updated);
+                Thread.sleep(500); // API Rate Limit 방지
+            } catch (Exception e) {
+                log.error("[Closing Batch] {} 전략 업데이트 실패: {}", type.name(), e.getMessage());
+            }
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("[Closing Batch] 장 마감 확정 배치 완료 - 총 {}건 업데이트, {}ms", totalUpdated, elapsed);
+    }
+
+    /**
+     * 특정 전략의 최신 스냅샷 가격/등락률 업데이트
+     * @return 업데이트된 스냅샷 수
+     */
+    @Transactional
+    public int updateSnapshotPrices(StrategyType strategyType) {
+        List<AiStrategySnapshot> snapshots = snapshotRepository.findLatestByStrategyType(strategyType);
+        if (snapshots.isEmpty()) {
+            return 0;
+        }
+
+        // 종목코드 목록 추출
+        List<String> stockCodes = snapshots.stream()
+                .map(AiStrategySnapshot::getStockCode)
+                .collect(Collectors.toList());
+
+        // 실시간 시세 조회
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodes);
+
+        int updatedCount = 0;
+        for (AiStrategySnapshot snapshot : snapshots) {
+            StockPriceDto priceDto = priceMap.get(snapshot.getStockCode());
+            if (priceDto == null) {
+                continue;
+            }
+
+            boolean updated = false;
+
+            // 현재가 업데이트
+            if (priceDto.getCurrentPrice() != null && priceDto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                snapshot.setCurrentPrice(priceDto.getCurrentPrice());
+                updated = true;
+            }
+
+            // 등락률 업데이트 (API에서 제공하거나 계산)
+            BigDecimal changeRate = calculateChangeRate(priceDto, snapshot.getCurrentPrice());
+            if (changeRate != null) {
+                snapshot.setChangeRate(changeRate);
+                updated = true;
+            }
+
+            if (updated) {
+                snapshotRepository.save(snapshot);
+                updatedCount++;
+            }
+        }
+
+        return updatedCount;
+    }
+
+    /**
+     * 등락률 계산 (API 값 우선, 없으면 직접 계산)
+     * 공식: (현재가 - 전일종가) / 전일종가 * 100
+     */
+    private BigDecimal calculateChangeRate(StockPriceDto priceDto, BigDecimal currentPrice) {
+        // 1. API에서 prdy_ctrt(전일대비율)이 있으면 사용
+        if (priceDto.getChangeRate() != null) {
+            return priceDto.getChangeRate();
+        }
+
+        // 2. 현재가와 전일종가가 있으면 직접 계산
+        BigDecimal price = priceDto.getCurrentPrice();
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            price = currentPrice;
+        }
+
+        BigDecimal changePrice = priceDto.getChangePrice();
+        if (price != null && changePrice != null && price.compareTo(BigDecimal.ZERO) > 0) {
+            // 전일종가 = 현재가 - 전일대비
+            BigDecimal previousClose = price.subtract(changePrice);
+            if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
+                return changePrice.divide(previousClose, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * 오래된 스냅샷 정리 (매일 06:00)
      * - 7일 이상 된 데이터 삭제
      */
@@ -153,6 +261,31 @@ public class AiStrategySnapshotService {
         LocalDateTime cutoffTime = LocalDateTime.now().minusDays(7);
         int deleted = snapshotRepository.deleteOldSnapshots(cutoffTime);
         log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", 7, deleted);
+    }
+
+    /**
+     * 모든 스냅샷 데이터 보정 (관리자용)
+     * - 0% 등락률 데이터를 실시간 API로 업데이트
+     * @return 업데이트된 총 스냅샷 수
+     */
+    @Transactional
+    public int fixAllSnapshotData() {
+        log.info("[Data Fix] 스냅샷 데이터 보정 시작");
+        int totalUpdated = 0;
+
+        for (StrategyType type : StrategyType.values()) {
+            try {
+                int updated = updateSnapshotPrices(type);
+                totalUpdated += updated;
+                log.info("[Data Fix] {} 전략: {}건 보정", type.name(), updated);
+                Thread.sleep(300);
+            } catch (Exception e) {
+                log.error("[Data Fix] {} 전략 보정 실패: {}", type.name(), e.getMessage());
+            }
+        }
+
+        log.info("[Data Fix] 스냅샷 데이터 보정 완료 - 총 {}건", totalUpdated);
+        return totalUpdated;
     }
 
     // ========== 스냅샷 수집 로직 ==========
@@ -229,10 +362,25 @@ public class AiStrategySnapshotService {
      * 스윙(마법의 공식) 전략 데이터 수집
      * - PER, ROE, 영업이익률 기반 종합 순위
      * - 점수: 마법의 공식 순위 기반 (상위일수록 높음)
+     * - 실시간 등락률(changeRate) 추가 (KIS API prdy_ctrt)
+     * - EPS 성장률(epsGrowth) 추가
      */
     private List<AiStrategySnapshot> collectSwingData(LocalDateTime createdAt) {
         List<ScreenerResultDto> magicFormula = quantScreenerService.getMagicFormulaStocks(SNAPSHOT_LIMIT, null);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        if (magicFormula.isEmpty()) {
+            return snapshots;
+        }
+
+        // 실시간 시세 조회 (등락률 포함)
+        List<String> stockCodes = magicFormula.stream()
+                .map(ScreenerResultDto::getStockCode)
+                .collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodes);
+
+        log.debug("[SWING] 실시간 시세 조회: {}건 중 {}건 성공",
+                stockCodes.size(), priceMap.size());
 
         int rank = 1;
         for (ScreenerResultDto dto : magicFormula) {
@@ -242,12 +390,39 @@ public class AiStrategySnapshotService {
             // 추천 사유 생성
             String reason = generateSwingReason(dto.getRoe(), dto.getOperatingMargin(), dto.getPer());
 
+            // 실시간 시세 데이터 가져오기
+            StockPriceDto priceDto = priceMap.get(dto.getStockCode());
+
+            // 현재가 및 등락률 결정 (실시간 시세 우선, 없으면 ScreenerResultDto 값 사용)
+            BigDecimal currentPrice = dto.getCurrentPrice();
+            BigDecimal changeRate = null;
+
+            if (priceDto != null) {
+                // 실시간 현재가가 있으면 사용
+                if (priceDto.getCurrentPrice() != null && priceDto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                // 실시간 등락률(prdy_ctrt) 사용
+                changeRate = priceDto.getChangeRate();
+            }
+
+            // EPS 성장률 결정 (epsGrowth 우선, 없으면 profitGrowth 사용)
+            BigDecimal epsGrowth = dto.getEpsGrowth();
+            if (epsGrowth == null || epsGrowth.compareTo(BigDecimal.ZERO) == 0) {
+                epsGrowth = dto.getProfitGrowth();
+            }
+            // 비정상적인 값 필터링 (1000% 이상은 데이터 오류로 간주)
+            if (epsGrowth != null && epsGrowth.abs().compareTo(new BigDecimal("500")) > 0) {
+                log.debug("[SWING] {} - EPS 성장률 비정상 값 무시: {}%", dto.getStockName(), epsGrowth);
+                epsGrowth = null;
+            }
+
             AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
                     .strategyType(StrategyType.SWING)
                     .stockCode(dto.getStockCode())
                     .stockName(dto.getStockName())
-                    .currentPrice(dto.getCurrentPrice())
-                    .changeRate(null) // 마법의 공식은 등락률 없음
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
                     .score(score)
                     .reason(reason)
                     .rankNum(rank++)
@@ -255,12 +430,16 @@ public class AiStrategySnapshotService {
                     .pbr(dto.getPbr())
                     .roe(dto.getRoe())
                     .operatingMargin(dto.getOperatingMargin())
+                    .epsGrowth(epsGrowth)
                     .magicFormulaRank(dto.getMagicFormulaRank())
                     .marketCap(dto.getMarketCap())
                     .createdAt(createdAt)
                     .build();
 
             snapshots.add(snapshot);
+
+            log.debug("[SWING] {} - 현재가: {}, 등락률: {}%, EPS성장률: {}%",
+                    dto.getStockName(), currentPrice, changeRate, epsGrowth);
         }
 
         return snapshots;
@@ -270,10 +449,24 @@ public class AiStrategySnapshotService {
      * 턴어라운드 전략 데이터 수집
      * - 적자→흑자 전환 또는 이익 급증 종목
      * - 점수: 순이익 변화율 기반
+     * - 실시간 등락률(changeRate) 추가 (KIS API prdy_ctrt)
      */
     private List<AiStrategySnapshot> collectTurnaroundData(LocalDateTime createdAt) {
         List<ScreenerResultDto> turnaround = quantScreenerService.getTurnaroundStocks(SNAPSHOT_LIMIT);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        if (turnaround.isEmpty()) {
+            return snapshots;
+        }
+
+        // 실시간 시세 조회 (등락률 포함)
+        List<String> stockCodes = turnaround.stream()
+                .map(ScreenerResultDto::getStockCode)
+                .collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodes);
+
+        log.debug("[TURNAROUND] 실시간 시세 조회: {}건 중 {}건 성공",
+                stockCodes.size(), priceMap.size());
 
         int rank = 1;
         for (ScreenerResultDto dto : turnaround) {
@@ -283,12 +476,29 @@ public class AiStrategySnapshotService {
             // 추천 사유 생성
             String reason = generateTurnaroundReason(dto.getTurnaroundType(), dto.getNetIncomeChangeRate());
 
+            // 실시간 시세 데이터 가져오기
+            StockPriceDto priceDto = priceMap.get(dto.getStockCode());
+
+            // 현재가 및 등락률 결정
+            BigDecimal currentPrice = dto.getCurrentPrice();
+            BigDecimal changeRate = null;
+
+            if (priceDto != null) {
+                if (priceDto.getCurrentPrice() != null && priceDto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                changeRate = priceDto.getChangeRate();
+            }
+
+            // 순이익 변화율 검증 (999.99는 흑자전환 특별 표기이므로 유지)
+            BigDecimal netIncomeChangeRate = dto.getNetIncomeChangeRate();
+
             AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
                     .strategyType(StrategyType.TURNAROUND)
                     .stockCode(dto.getStockCode())
                     .stockName(dto.getStockName())
-                    .currentPrice(dto.getCurrentPrice())
-                    .changeRate(null)
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
                     .score(score)
                     .reason(reason)
                     .rankNum(rank++)
@@ -296,12 +506,15 @@ public class AiStrategySnapshotService {
                     .pbr(dto.getPbr())
                     .roe(dto.getRoe())
                     .turnaroundType(dto.getTurnaroundType())
-                    .netIncomeChangeRate(dto.getNetIncomeChangeRate())
+                    .netIncomeChangeRate(netIncomeChangeRate)
                     .marketCap(dto.getMarketCap())
                     .createdAt(createdAt)
                     .build();
 
             snapshots.add(snapshot);
+
+            log.debug("[TURNAROUND] {} - 현재가: {}, 등락률: {}%, 순이익변화: {}%",
+                    dto.getStockName(), currentPrice, changeRate, netIncomeChangeRate);
         }
 
         return snapshots;
@@ -311,11 +524,25 @@ public class AiStrategySnapshotService {
      * 가치투자(PEG) 전략 데이터 수집
      * - 저평가 성장주 (PEG < 1.0)
      * - 점수: PEG 기반 (낮을수록 높은 점수)
+     * - 실시간 등락률(changeRate) 추가 (KIS API prdy_ctrt)
      */
     private List<AiStrategySnapshot> collectValueData(LocalDateTime createdAt) {
         List<ScreenerResultDto> lowPeg = quantScreenerService.getLowPegStocks(
                 new BigDecimal("1.0"), new BigDecimal("10"), SNAPSHOT_LIMIT);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        if (lowPeg.isEmpty()) {
+            return snapshots;
+        }
+
+        // 실시간 시세 조회 (등락률 포함)
+        List<String> stockCodes = lowPeg.stream()
+                .map(ScreenerResultDto::getStockCode)
+                .collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodes);
+
+        log.debug("[VALUE] 실시간 시세 조회: {}건 중 {}건 성공",
+                stockCodes.size(), priceMap.size());
 
         int rank = 1;
         for (ScreenerResultDto dto : lowPeg) {
@@ -325,12 +552,36 @@ public class AiStrategySnapshotService {
             // 추천 사유 생성
             String reason = generateValueReason(dto.getPeg(), dto.getEpsGrowth(), dto.getRoe());
 
+            // 실시간 시세 데이터 가져오기
+            StockPriceDto priceDto = priceMap.get(dto.getStockCode());
+
+            // 현재가 및 등락률 결정
+            BigDecimal currentPrice = dto.getCurrentPrice();
+            BigDecimal changeRate = null;
+
+            if (priceDto != null) {
+                if (priceDto.getCurrentPrice() != null && priceDto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                changeRate = priceDto.getChangeRate();
+            }
+
+            // EPS 성장률 검증 (비정상적 값 필터링)
+            BigDecimal epsGrowth = dto.getEpsGrowth();
+            if (epsGrowth != null && epsGrowth.abs().compareTo(new BigDecimal("500")) > 0) {
+                log.debug("[VALUE] {} - EPS 성장률 비정상 값 무시: {}%", dto.getStockName(), epsGrowth);
+                epsGrowth = dto.getProfitGrowth(); // profitGrowth로 대체
+                if (epsGrowth != null && epsGrowth.abs().compareTo(new BigDecimal("500")) > 0) {
+                    epsGrowth = null;
+                }
+            }
+
             AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
                     .strategyType(StrategyType.VALUE)
                     .stockCode(dto.getStockCode())
                     .stockName(dto.getStockName())
-                    .currentPrice(dto.getCurrentPrice())
-                    .changeRate(null)
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
                     .score(score)
                     .reason(reason)
                     .rankNum(rank++)
@@ -338,12 +589,15 @@ public class AiStrategySnapshotService {
                     .pbr(dto.getPbr())
                     .roe(dto.getRoe())
                     .peg(dto.getPeg())
-                    .epsGrowth(dto.getEpsGrowth())
+                    .epsGrowth(epsGrowth)
                     .marketCap(dto.getMarketCap())
                     .createdAt(createdAt)
                     .build();
 
             snapshots.add(snapshot);
+
+            log.debug("[VALUE] {} - 현재가: {}, 등락률: {}%, EPS성장률: {}%",
+                    dto.getStockName(), currentPrice, changeRate, epsGrowth);
         }
 
         return snapshots;

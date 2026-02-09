@@ -229,7 +229,7 @@ const searchInput = ref('');
 const stockCode = ref('');
 const analysisData = ref(null);
 const errorMessage = ref('');
-const autoRefresh = ref(false);
+const autoRefresh = ref(true); // 기본값: 자동 갱신 ON
 const lastUpdated = ref(null);
 let refreshInterval = null;
 
@@ -389,6 +389,10 @@ const fetchAnalysis = async () => {
     lastUpdated.value = new Date();
   } finally {
     loading.value = false;
+    // 데이터 로드 후 자동 갱신 시작 (기본 ON)
+    if (autoRefresh.value && analysisData.value) {
+      startAutoRefresh();
+    }
   }
 };
 

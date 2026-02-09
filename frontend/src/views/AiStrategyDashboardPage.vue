@@ -488,9 +488,14 @@ const buildKeyMetrics = (snapshot, strategyType, score) => {
         scoreMetric
       ];
     case 'trend':
+      // 흑자전환의 경우 999.99%가 아닌 의미있는 텍스트 표시
+      const isLossToProfit = snapshot.turnaroundType === 'LOSS_TO_PROFIT';
+      const changeRateValue = isLossToProfit
+        ? '흑자전환'
+        : (snapshot.netIncomeChangeRate ? `+${snapshot.netIncomeChangeRate.toFixed(0)}%` : '-');
       return [
-        { label: '턴어라운드', value: snapshot.turnaroundType === 'LOSS_TO_PROFIT' ? '흑자전환' : '이익증가', class: 'positive' },
-        { label: '이익변화', value: snapshot.netIncomeChangeRate ? `${snapshot.netIncomeChangeRate.toFixed(0)}%` : '-', class: 'positive' },
+        { label: '턴어라운드', value: isLossToProfit ? '흑자전환' : '이익증가', class: 'positive' },
+        { label: '이익변화', value: changeRateValue, class: 'positive' },
         scoreMetric
       ];
     case 'value':
