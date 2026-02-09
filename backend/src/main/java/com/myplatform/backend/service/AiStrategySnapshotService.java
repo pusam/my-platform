@@ -523,6 +523,7 @@ public class AiStrategySnapshotService {
     /**
      * 모든 전략의 최신 스냅샷 조회
      * - DB 조회 우선, 비어있으면 동기적으로 수집 (Fallback)
+     * - 기간별 수익률 계산 포함
      */
     @Transactional
     public AiStrategySnapshotDto.AllStrategiesResponse getAllLatestSnapshots() {
@@ -544,8 +545,9 @@ public class AiStrategySnapshotService {
                 }
             }
 
+            // Entity -> DTO 변환 + 수익률 계산
             List<AiStrategySnapshotDto> dtos = snapshots.stream()
-                    .map(AiStrategySnapshotDto::fromEntity)
+                    .map(this::toSnapshotDtoWithReturns)
                     .collect(Collectors.toList());
 
             strategies.put(type.name(), dtos);
@@ -566,6 +568,7 @@ public class AiStrategySnapshotService {
     /**
      * 특정 전략의 최신 스냅샷 조회
      * - DB 조회 우선, 비어있으면 동기적으로 수집 (Fallback)
+     * - 기간별 수익률 계산 포함
      */
     @Transactional
     public List<AiStrategySnapshotDto> getLatestByStrategy(StrategyType strategyType) {
@@ -583,9 +586,78 @@ public class AiStrategySnapshotService {
             }
         }
 
+        // Entity -> DTO 변환 + 수익률 계산
         return snapshots.stream()
-                .map(AiStrategySnapshotDto::fromEntity)
+                .map(this::toSnapshotDtoWithReturns)
                 .collect(Collectors.toList());
+    }
+
+    // ========== 수익률 계산 로직 ==========
+
+    /**
+     * Entity -> DTO 변환 + 기간별 수익률 계산
+     */
+    private AiStrategySnapshotDto toSnapshotDtoWithReturns(AiStrategySnapshot entity) {
+        AiStrategySnapshotDto dto = AiStrategySnapshotDto.fromEntity(entity);
+
+        // 현재가가 없으면 수익률 계산 불가
+        if (entity.getCurrentPrice() == null || entity.getCurrentPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            return dto;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        BigDecimal currentPrice = entity.getCurrentPrice();
+        String stockCode = entity.getStockCode();
+
+        // 1주 수익률 (7일 전)
+        dto.setReturn1Week(calculateReturn(stockCode, currentPrice, now.minusDays(7), now.minusDays(5)));
+
+        // 1개월 수익률 (30일 전)
+        dto.setReturn1Month(calculateReturn(stockCode, currentPrice, now.minusDays(32), now.minusDays(28)));
+
+        // 3개월 수익률 (90일 전)
+        dto.setReturn3Month(calculateReturn(stockCode, currentPrice, now.minusDays(95), now.minusDays(85)));
+
+        return dto;
+    }
+
+    /**
+     * 수익률 계산
+     * - startDate ~ endDate 범위 내 가장 최신 과거 스냅샷을 기준으로 계산
+     *
+     * @param stockCode 종목코드
+     * @param currentPrice 현재가
+     * @param startDate 기준 시작일 (예: 7일 전)
+     * @param endDate 기준 종료일 (허용 범위)
+     * @return 수익률 (%) 또는 데이터 없으면 null
+     */
+    private Double calculateReturn(String stockCode, BigDecimal currentPrice,
+                                   LocalDateTime startDate, LocalDateTime endDate) {
+        try {
+            Optional<AiStrategySnapshot> pastSnapshot =
+                    snapshotRepository.findNearestSnapshotInRange(stockCode, startDate, endDate);
+
+            if (pastSnapshot.isEmpty()) {
+                // 범위 내 데이터 없으면 해당 날짜 이전 가장 가까운 데이터 사용
+                pastSnapshot = snapshotRepository.findNearestSnapshotBefore(stockCode, endDate);
+            }
+
+            if (pastSnapshot.isPresent() && pastSnapshot.get().getCurrentPrice() != null) {
+                BigDecimal pastPrice = pastSnapshot.get().getCurrentPrice();
+                if (pastPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    // 수익률 = (현재가 - 과거가) / 과거가 * 100
+                    double returnRate = currentPrice.subtract(pastPrice)
+                            .divide(pastPrice, 6, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .doubleValue();
+                    return Math.round(returnRate * 100.0) / 100.0; // 소수점 2자리
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[수익률 계산] {} 과거 데이터 조회 실패: {}", stockCode, e.getMessage());
+        }
+
+        return null; // 데이터 부족
     }
 
     /**

@@ -174,6 +174,22 @@
               </div>
             </div>
 
+            <!-- 기간별 수익률 -->
+            <div v-if="stock.return1Week !== null || stock.return1Month !== null" class="return-metrics">
+              <div class="return-item" :class="getReturnClass(stock.return1Week)">
+                <span class="return-label">1주</span>
+                <span class="return-value">{{ formatReturn(stock.return1Week) }}</span>
+              </div>
+              <div class="return-item" :class="getReturnClass(stock.return1Month)">
+                <span class="return-label">1개월</span>
+                <span class="return-value">{{ formatReturn(stock.return1Month) }}</span>
+              </div>
+              <div class="return-item" :class="getReturnClass(stock.return3Month)">
+                <span class="return-label">3개월</span>
+                <span class="return-value">{{ formatReturn(stock.return3Month) }}</span>
+              </div>
+            </div>
+
             <!-- 핵심 지표 -->
             <div class="key-metrics">
               <div v-for="metric in stock.keyMetrics" :key="metric.label" class="metric-item">
@@ -419,7 +435,11 @@ const mapSnapshotToCard = (snapshots, strategyType) => {
       stopLossPercent: config.stopLossPercent,
       holdingPeriod: config.holdingPeriod,
       score: score,
-      keyMetrics: buildKeyMetrics(snapshot, strategyType, score)
+      keyMetrics: buildKeyMetrics(snapshot, strategyType, score),
+      // 기간별 수익률 (백엔드에서 계산된 값)
+      return1Week: snapshot.return1Week,
+      return1Month: snapshot.return1Month,
+      return3Month: snapshot.return3Month
     };
   });
 };
@@ -588,6 +608,21 @@ const formatTime = (date) => {
 const formatChangeRate = (rate) => {
   if (rate == null || isNaN(rate)) return '0.00';
   return rate.toFixed(2);
+};
+
+// 기간별 수익률 포맷
+const formatReturn = (value) => {
+  if (value == null || isNaN(value)) return '-';
+  const prefix = value >= 0 ? '+' : '';
+  return `${prefix}${value.toFixed(1)}%`;
+};
+
+// 수익률 클래스 (양수/음수)
+const getReturnClass = (value) => {
+  if (value == null || isNaN(value)) return 'neutral';
+  if (value > 0) return 'positive';
+  if (value < 0) return 'negative';
+  return 'neutral';
 };
 
 const getRankClass = (index) => {
@@ -1181,6 +1216,65 @@ onMounted(async () => {
 
 .suggestion-value.positive { color: #22c55e; }
 .suggestion-value.negative { color: #f87171; }
+
+/* 기간별 수익률 */
+.return-metrics {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(102, 126, 234, 0.2);
+}
+
+.return-item {
+  flex: 1;
+  text-align: center;
+  padding: 8px 4px;
+  border-radius: 6px;
+  transition: all 0.3s;
+}
+
+.return-item.positive {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.return-item.negative {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.return-item.neutral {
+  background: rgba(156, 163, 175, 0.1);
+}
+
+.return-label {
+  display: block;
+  font-size: 0.7rem;
+  color: #888;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.return-value {
+  display: block;
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-family: 'Monaco', 'Consolas', monospace;
+}
+
+.return-item.positive .return-value {
+  color: #ef4444;
+}
+
+.return-item.negative .return-value {
+  color: #3b82f6;
+}
+
+.return-item.neutral .return-value {
+  color: #9ca3af;
+}
 
 /* 핵심 지표 */
 .key-metrics {

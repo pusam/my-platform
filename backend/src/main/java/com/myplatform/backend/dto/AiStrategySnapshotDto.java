@@ -42,6 +42,11 @@ public class AiStrategySnapshotDto {
     private BigDecimal netIncomeChangeRate;
     private BigDecimal marketCap;
 
+    // 기간별 수익률 (DB 히스토리 기반)
+    private Double return1Week;    // 1주 수익률 (%)
+    private Double return1Month;   // 1개월 수익률 (%)
+    private Double return3Month;   // 3개월 수익률 (%)
+
     private LocalDateTime createdAt;
 
     /**
