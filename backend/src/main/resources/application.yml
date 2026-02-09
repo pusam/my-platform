@@ -128,6 +128,17 @@ alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
 
+# 11. DART(전자공시) API 설정
+dart:
+  api:
+    key: ${DART_API_KEY:}
+
+# 12. Naver Search API 설정
+naver:
+  api:
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_CLIENT_SECRET:}
+
 # 7. Swagger
 springdoc:
   api-docs:

@@ -122,4 +122,113 @@ public class OllamaService {
             return false;
         }
     }
+
+    /**
+     * 주식 리스크 분석 (공시 + 뉴스 기반)
+     *
+     * @param stockName 종목명
+     * @param disclosures 공시 정보 (텍스트)
+     * @param news 뉴스 정보 (텍스트)
+     * @return AI 분석 결과 (JSON 형식)
+     */
+    public String analyzeRisk(String stockName, String disclosures, String news) {
+        String systemPrompt = """
+            당신은 전문 주식 리스크 분석가입니다.
+            제공된 공시 정보와 뉴스를 분석하여 해당 종목의 투자 위험도를 평가해 주세요.
+
+            [분석 기준]
+            1. 치명적 악재 (점수 80-100, DANGER):
+               - 횡령, 배임, 분식회계 등 범죄 혐의
+               - 상장폐지 가능성
+               - 거래정지
+               - 대규모 유상증자 (자본 희석)
+               - 무상감자 (손실 보전)
+               - 검찰 수사, 기소
+
+            2. 주의 필요 (점수 31-79, WARNING):
+               - 실적 악화
+               - 최대주주 변경
+               - 대규모 손실 발생
+               - 부정적 뉴스 다수
+
+            3. 안전 (점수 0-30, SAFE):
+               - 특별한 악재 없음
+               - 정상적인 경영 활동
+
+            [출력 형식]
+            반드시 다음 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요:
+            {
+              "riskScore": 숫자(0-100),
+              "status": "SAFE" 또는 "WARNING" 또는 "DANGER",
+              "reason": "주요 위험 요인 1-2문장",
+              "analysis": "상세 분석 내용 3-5문장"
+            }
+            """;
+
+        String userMessage = String.format("""
+            [분석 대상 종목]: %s
+
+            === 최근 공시 정보 ===
+            %s
+
+            === 최근 뉴스 ===
+            %s
+
+            위 정보를 바탕으로 이 종목의 투자 리스크를 분석해 주세요.
+            """, stockName, disclosures, news);
+
+        return chat(userMessage, systemPrompt);
+    }
+
+    /**
+     * 리스크 분석 결과에서 점수 추출
+     */
+    public int extractRiskScore(String aiResponse) {
+        try {
+            // JSON에서 riskScore 추출 시도
+            if (aiResponse.contains("\"riskScore\"")) {
+                int start = aiResponse.indexOf("\"riskScore\"");
+                int colonIndex = aiResponse.indexOf(":", start);
+                int commaIndex = aiResponse.indexOf(",", colonIndex);
+                if (commaIndex == -1) commaIndex = aiResponse.indexOf("}", colonIndex);
+
+                String scoreStr = aiResponse.substring(colonIndex + 1, commaIndex).trim();
+                return Integer.parseInt(scoreStr.replaceAll("[^0-9]", ""));
+            }
+        } catch (Exception e) {
+            log.warn("리스크 점수 추출 실패: {}", e.getMessage());
+        }
+        return 50; // 기본값
+    }
+
+    /**
+     * 리스크 분석 결과에서 상태 추출
+     */
+    public String extractRiskStatus(String aiResponse) {
+        if (aiResponse.contains("\"DANGER\"")) return "DANGER";
+        if (aiResponse.contains("\"WARNING\"")) return "WARNING";
+        if (aiResponse.contains("\"SAFE\"")) return "SAFE";
+        return "WARNING"; // 기본값
+    }
+
+    /**
+     * 리스크 분석 결과에서 사유 추출
+     */
+    public String extractRiskReason(String aiResponse) {
+        try {
+            if (aiResponse.contains("\"reason\"")) {
+                int start = aiResponse.indexOf("\"reason\"");
+                int colonIndex = aiResponse.indexOf(":", start);
+                int quoteStart = aiResponse.indexOf("\"", colonIndex + 1);
+                int quoteEnd = aiResponse.indexOf("\"", quoteStart + 1);
+
+                if (quoteStart != -1 && quoteEnd != -1) {
+                    return aiResponse.substring(quoteStart + 1, quoteEnd);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("리스크 사유 추출 실패: {}", e.getMessage());
+        }
+        return "분석 결과를 확인해 주세요.";
+    }
 }
