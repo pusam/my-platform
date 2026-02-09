@@ -5,14 +5,71 @@
       <div class="page-header">
         <BackButton />
         <div class="header-content">
-          <h1>AI 투자 전략 대시보드</h1>
-          <p class="subtitle">기간별 맞춤 추천 종목 | 실시간 업데이트</p>
+          <h1>AI 트레이딩 전략</h1>
+          <p class="subtitle">4분할 투자 전략 | 기간별 맞춤 추천</p>
         </div>
         <div class="header-meta">
           <span class="update-badge">
             <span class="pulse-dot"></span>
             {{ formatTime(lastUpdated) }} 기준
           </span>
+        </div>
+      </div>
+
+      <!-- 4분할 전략 점수 패널 -->
+      <div class="score-panel">
+        <div class="score-panel-header">
+          <span class="panel-icon">📊</span>
+          <h2>4분할 투자 전략 점수</h2>
+        </div>
+        <div class="score-panel-content">
+          <div class="strategy-scores">
+            <div class="score-item" @click="activeTab = 'scalping'">
+              <span class="score-label">⚡ 스캘핑</span>
+              <div class="score-bar-wrapper">
+                <div class="score-bar">
+                  <div class="score-fill scalping" :style="{ width: strategyScores.scalping + '%' }"></div>
+                </div>
+              </div>
+              <span class="score-number">{{ strategyScores.scalping }}</span>
+            </div>
+            <div class="score-item" @click="activeTab = 'swing'">
+              <span class="score-label">📈 스윙</span>
+              <div class="score-bar-wrapper">
+                <div class="score-bar">
+                  <div class="score-fill swing" :style="{ width: strategyScores.swing + '%' }"></div>
+                </div>
+              </div>
+              <span class="score-number">{{ strategyScores.swing }}</span>
+            </div>
+            <div class="score-item" @click="activeTab = 'trend'">
+              <span class="score-label">🔄 턴어라운드</span>
+              <div class="score-bar-wrapper">
+                <div class="score-bar">
+                  <div class="score-fill turnaround" :style="{ width: strategyScores.turnaround + '%' }"></div>
+                </div>
+              </div>
+              <span class="score-number">{{ strategyScores.turnaround }}</span>
+            </div>
+            <div class="score-item" @click="activeTab = 'value'">
+              <span class="score-label">💎 가치투자</span>
+              <div class="score-bar-wrapper">
+                <div class="score-bar">
+                  <div class="score-fill value" :style="{ width: strategyScores.value + '%' }"></div>
+                </div>
+              </div>
+              <span class="score-number">{{ strategyScores.value }}</span>
+            </div>
+          </div>
+          <div class="total-score-section">
+            <div class="total-score-box">
+              <span class="total-label">AI 종합 투자 매력도</span>
+              <span class="total-value">{{ totalScore }}</span>
+            </div>
+            <div class="total-opinion-box" :class="opinionClass">
+              {{ totalOpinion }}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -175,6 +232,38 @@ import BackButton from '../components/BackButton.vue';
 const router = useRouter();
 const activeTab = ref('scalping');
 const lastUpdated = ref(new Date());
+
+// 4분할 전략 점수 (Mock)
+const strategyScores = ref({
+  scalping: 78,
+  swing: 82,
+  turnaround: 71,
+  value: 85
+});
+
+// 종합 점수 계산
+const totalScore = computed(() => {
+  const scores = strategyScores.value;
+  return Math.round((scores.scalping + scores.swing + scores.turnaround + scores.value) / 4);
+});
+
+// 종합 의견
+const totalOpinion = computed(() => {
+  const score = totalScore.value;
+  if (score >= 80) return '적극 매수';
+  if (score >= 70) return '매수';
+  if (score >= 55) return '관망';
+  return '매도';
+});
+
+// 의견 클래스
+const opinionClass = computed(() => {
+  const score = totalScore.value;
+  if (score >= 80) return 'strong-buy';
+  if (score >= 70) return 'buy';
+  if (score >= 55) return 'hold';
+  return 'sell';
+});
 
 // 전략 탭 정의
 const strategyTabs = [
@@ -659,6 +748,179 @@ onMounted(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+/* 4분할 전략 점수 패널 */
+.score-panel {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 2rem;
+}
+
+.score-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.panel-icon {
+  font-size: 1.5rem;
+}
+
+.score-panel-header h2 {
+  color: #fff;
+  font-size: 1.3rem;
+  margin: 0;
+}
+
+.score-panel-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.strategy-scores {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  min-width: 180px;
+}
+
+.score-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+}
+
+.score-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ccc;
+  white-space: nowrap;
+}
+
+.score-bar-wrapper {
+  flex: 1;
+  min-width: 80px;
+}
+
+.score-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.score-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+.score-fill.scalping {
+  background: linear-gradient(90deg, #f59e0b 0%, #f97316 100%);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+}
+
+.score-fill.swing {
+  background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.5);
+}
+
+.score-fill.turnaround {
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+}
+
+.score-fill.value {
+  background: linear-gradient(90deg, #a855f7 0%, #7c3aed 100%);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+}
+
+.score-number {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #fff;
+  min-width: 40px;
+  text-align: right;
+}
+
+.total-score-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.total-score-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+}
+
+.total-label {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.total-value {
+  font-size: 3rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.total-opinion-box {
+  padding: 12px 24px;
+  border-radius: 24px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.total-opinion-box.strong-buy {
+  background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
+  color: white;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+}
+
+.total-opinion-box.buy {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.total-opinion-box.hold {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.total-opinion-box.sell {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 /* 전략 탭 */

@@ -52,25 +52,8 @@
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <h3>AI 투자 전략 <span class="menu-ai-badge gold">NEW</span></h3>
+            <h3>AI 트레이딩 전략 <span class="menu-ai-badge gold">NEW</span></h3>
             <p>초단타/스윙/추세/가치 기간별 맞춤 TOP 5</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card ai-analysis" @click="goToAiStock">
-            <div class="card-icon ai-analysis-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z"/>
-                <circle cx="8.5" cy="14.5" r="1.5"/>
-                <circle cx="15.5" cy="14.5" r="1.5"/>
-              </svg>
-            </div>
-            <h3>AI 종목 추천 <span class="menu-ai-badge">AI</span></h3>
-            <p>AI 4대장 앙상블 기반 단기/중장기 TOP PICK</p>
             <span class="card-arrow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9,6 15,12 9,18"/>
@@ -647,9 +630,6 @@ export default {
     },
     goToSector() {
       this.$router.push('/sector')
-    },
-    goToAiStock() {
-      this.$router.push('/ai-stock')
     },
     goToAiStrategy() {
       this.$router.push('/ai-strategy')

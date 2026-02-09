@@ -30,7 +30,6 @@ import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
 import PensionLotteryPage from './views/PensionLotteryPage.vue'
 import ScalpingAnalysisPage from './views/ScalpingAnalysisPage.vue'
 import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
-import AiStockDashboard from './views/AiStockDashboard.vue'
 import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 
 const router = createRouter({
@@ -209,13 +208,11 @@ const router = createRouter({
     },
     {
       path: '/ai-stock',
-      name: 'AiStockDashboard',
-      component: AiStockDashboard,
-      meta: { requiresAuth: true }
+      redirect: '/ai-strategy'
     },
     {
       path: '/ai-strategy',
-      name: 'AiStrategyDashboard',
+      name: 'AiTradingStrategy',
       component: AiStrategyDashboardPage,
       meta: { requiresAuth: true }
     },
