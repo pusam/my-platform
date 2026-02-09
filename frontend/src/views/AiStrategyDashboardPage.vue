@@ -106,7 +106,20 @@
       <div class="recommendations-section">
         <h2>오늘의 추천 TOP 5</h2>
 
-        <div class="recommendations-grid">
+        <!-- 로딩 상태 -->
+        <div v-if="loading" class="loading-state">
+          <div class="loading-spinner"></div>
+          <p>실시간 데이터 분석 중...</p>
+        </div>
+
+        <!-- 데이터 없음 상태 -->
+        <div v-else-if="currentRecommendations.length === 0" class="empty-state">
+          <span class="empty-icon">📊</span>
+          <p>현재 조건에 맞는 추천 종목이 없습니다.</p>
+          <p class="empty-hint">데이터 수집 시간 또는 시장 상황에 따라 종목이 표시됩니다.</p>
+        </div>
+
+        <div v-else class="recommendations-grid">
           <div
             v-for="(stock, index) in currentRecommendations"
             :key="stock.stockCode"
@@ -228,17 +241,19 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
+import { investorAPI, screenerAPI, marketAPI, tradingIndicatorAPI } from '../utils/api';
 
 const router = useRouter();
 const activeTab = ref('scalping');
 const lastUpdated = ref(new Date());
+const loading = ref(false);
 
-// 4분할 전략 점수 (Mock)
+// 4분할 전략 점수 (API 데이터 기반 계산)
 const strategyScores = ref({
-  scalping: 78,
-  swing: 82,
-  turnaround: 71,
-  value: 85
+  scalping: 0,
+  swing: 0,
+  turnaround: 0,
+  value: 0
 });
 
 // 종합 점수 계산
@@ -303,350 +318,238 @@ const strategyDescriptions = {
 
 const currentStrategy = computed(() => strategyDescriptions[activeTab.value]);
 
-// ========== Mock 추천 데이터 ==========
-const recommendations = {
-  scalping: [
-    {
-      stockCode: '000660',
-      stockName: 'SK하이닉스',
-      currentPrice: 178500,
-      changeRate: 5.2,
-      reasons: ['체결강도 142%', '외국인 폭발 매수', 'HBM 수혜'],
-      expectedReturn: 3.5,
-      stopLoss: 173000,
-      stopLossPercent: 3.1,
-      holdingPeriod: '30분~2시간',
-      keyMetrics: [
-        { label: '체결강도', value: '142.3%', class: 'positive' },
-        { label: '거래량비', value: '285%', class: 'positive' },
-        { label: '외국인', value: '+580억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '086520',
-      stockName: '에코프로',
-      currentPrice: 98500,
-      changeRate: 8.7,
-      reasons: ['체결강도 185%', '프로그램 급등', '거래량 폭발'],
-      expectedReturn: 5.0,
-      stopLoss: 94000,
-      stopLossPercent: 4.6,
-      holdingPeriod: '1~3시간',
-      keyMetrics: [
-        { label: '체결강도', value: '185.6%', class: 'positive' },
-        { label: '거래량비', value: '420%', class: 'positive' },
-        { label: '프로그램', value: '+320억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '012450',
-      stockName: '한화에어로스페이스',
-      currentPrice: 245000,
-      changeRate: 4.1,
-      reasons: ['체결강도 128%', '기관 동시 매수', '방산 테마'],
-      expectedReturn: 2.8,
-      stopLoss: 238000,
-      stopLossPercent: 2.9,
-      holdingPeriod: '1~2시간',
-      keyMetrics: [
-        { label: '체결강도', value: '128.4%', class: 'positive' },
-        { label: '기관', value: '+180억', class: 'positive' },
-        { label: '외국인', value: '+95억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '035720',
-      stockName: '카카오',
-      currentPrice: 42500,
-      changeRate: 3.8,
-      reasons: ['체결강도 124%', '저점 반등', '수급 전환'],
-      expectedReturn: 2.5,
-      stopLoss: 41200,
-      stopLossPercent: 3.1,
-      holdingPeriod: '30분~1시간',
-      keyMetrics: [
-        { label: '체결강도', value: '124.2%', class: 'positive' },
-        { label: '거래량비', value: '195%', class: 'positive' },
-        { label: '프로그램', value: '+85억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '005930',
-      stockName: '삼성전자',
-      currentPrice: 74200,
-      changeRate: 2.1,
-      reasons: ['체결강도 121%', '대형주 안정', '외국인 유입'],
-      expectedReturn: 1.8,
-      stopLoss: 72500,
-      stopLossPercent: 2.3,
-      holdingPeriod: '1~2시간',
-      keyMetrics: [
-        { label: '체결강도', value: '121.5%', class: 'positive' },
-        { label: '외국인', value: '+320억', class: 'positive' },
-        { label: '기관', value: '+85억', class: 'positive' }
-      ]
-    }
-  ],
-  swing: [
-    {
-      stockCode: '005490',
-      stockName: 'POSCO홀딩스',
-      currentPrice: 385000,
-      changeRate: -1.2,
-      reasons: ['외국인 5일 연속', '눌림목 구간', '철강 수요 회복'],
-      expectedReturn: 8.5,
-      stopLoss: 365000,
-      stopLossPercent: 5.2,
-      holdingPeriod: '3~5일',
-      keyMetrics: [
-        { label: '연속매수', value: '5일', class: 'positive' },
-        { label: '누적금액', value: '+1,250억', class: 'positive' },
-        { label: 'RSI', value: '42 (과매도)', class: 'neutral' }
-      ]
-    },
-    {
-      stockCode: '105560',
-      stockName: 'KB금융',
-      currentPrice: 78500,
-      changeRate: -0.8,
-      reasons: ['기관 4일 연속', '저PBR 눌림목', '배당 매력'],
-      expectedReturn: 6.2,
-      stopLoss: 74500,
-      stopLossPercent: 5.1,
-      holdingPeriod: '2~4일',
-      keyMetrics: [
-        { label: '연속매수', value: '4일', class: 'positive' },
-        { label: 'PBR', value: '0.42배', class: 'positive' },
-        { label: '배당률', value: '5.8%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '051910',
-      stockName: 'LG화학',
-      currentPrice: 298000,
-      changeRate: -2.1,
-      reasons: ['외국인 3일 연속', 'VWAP 근접', '배터리 회복'],
-      expectedReturn: 7.8,
-      stopLoss: 280000,
-      stopLossPercent: 6.0,
-      holdingPeriod: '3~5일',
-      keyMetrics: [
-        { label: '연속매수', value: '3일', class: 'positive' },
-        { label: 'VWAP괴리', value: '-1.2%', class: 'neutral' },
-        { label: '외국인', value: '+420억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '035420',
-      stockName: 'NAVER',
-      currentPrice: 182000,
-      changeRate: -1.5,
-      reasons: ['기관 3일 연속', 'AI 성장 기대', '저점 매집'],
-      expectedReturn: 5.5,
-      stopLoss: 172000,
-      stopLossPercent: 5.5,
-      holdingPeriod: '2~3일',
-      keyMetrics: [
-        { label: '연속매수', value: '3일', class: 'positive' },
-        { label: '기관', value: '+380억', class: 'positive' },
-        { label: 'PER', value: '18.5배', class: 'neutral' }
-      ]
-    },
-    {
-      stockCode: '006400',
-      stockName: '삼성SDI',
-      currentPrice: 358000,
-      changeRate: -0.5,
-      reasons: ['외국인 3일 연속', '전고체 기대감', '조정 마무리'],
-      expectedReturn: 6.0,
-      stopLoss: 340000,
-      stopLossPercent: 5.0,
-      holdingPeriod: '3~4일',
-      keyMetrics: [
-        { label: '연속매수', value: '3일', class: 'positive' },
-        { label: '누적금액', value: '+520억', class: 'positive' },
-        { label: 'RSI', value: '38 (과매도)', class: 'neutral' }
-      ]
-    }
-  ],
-  trend: [
-    {
-      stockCode: '034020',
-      stockName: '두산에너빌리티',
-      currentPrice: 21500,
-      changeRate: 3.2,
-      reasons: ['흑자전환 확정', 'VWAP 상단', '원전 수주 기대'],
-      expectedReturn: 25.0,
-      stopLoss: 18500,
-      stopLossPercent: 14.0,
-      holdingPeriod: '2~4주',
-      keyMetrics: [
-        { label: '순이익', value: '흑자전환', class: 'positive' },
-        { label: 'VWAP위치', value: '+3.5%', class: 'positive' },
-        { label: '영업이익', value: '+180%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '028300',
-      stockName: 'HLB',
-      currentPrice: 58000,
-      changeRate: 2.8,
-      reasons: ['실적 턴어라운드', 'VWAP 돌파', 'FDA 승인 기대'],
-      expectedReturn: 35.0,
-      stopLoss: 48000,
-      stopLossPercent: 17.2,
-      holdingPeriod: '3~6주',
-      keyMetrics: [
-        { label: '순이익', value: '흑자전환', class: 'positive' },
-        { label: 'VWAP위치', value: '+5.2%', class: 'positive' },
-        { label: '매출성장', value: '+85%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '196170',
-      stockName: '알테오젠',
-      currentPrice: 185000,
-      changeRate: 1.5,
-      reasons: ['영업이익 급증', 'VWAP 지지', '기술수출 모멘텀'],
-      expectedReturn: 20.0,
-      stopLoss: 160000,
-      stopLossPercent: 13.5,
-      holdingPeriod: '2~4주',
-      keyMetrics: [
-        { label: '영업이익', value: '+320%', class: 'positive' },
-        { label: 'VWAP위치', value: '+2.1%', class: 'positive' },
-        { label: '외국인', value: '+850억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '003670',
-      stockName: '포스코퓨처엠',
-      currentPrice: 245000,
-      changeRate: 0.8,
-      reasons: ['적자폭 대폭 감소', 'VWAP 근접', '양극재 수요'],
-      expectedReturn: 18.0,
-      stopLoss: 215000,
-      stopLossPercent: 12.2,
-      holdingPeriod: '2~3주',
-      keyMetrics: [
-        { label: '적자개선', value: '85% 감소', class: 'positive' },
-        { label: 'VWAP위치', value: '+0.5%', class: 'neutral' },
-        { label: '기관', value: '+320억', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '068270',
-      stockName: '셀트리온',
-      currentPrice: 172000,
-      changeRate: 1.2,
-      reasons: ['이익률 개선', 'VWAP 상단', '바이오시밀러 확대'],
-      expectedReturn: 15.0,
-      stopLoss: 155000,
-      stopLossPercent: 9.9,
-      holdingPeriod: '2~4주',
-      keyMetrics: [
-        { label: '영업이익률', value: '28%', class: 'positive' },
-        { label: 'VWAP위치', value: '+1.8%', class: 'positive' },
-        { label: 'PER', value: '22배', class: 'neutral' }
-      ]
-    }
-  ],
-  value: [
-    {
-      stockCode: '055550',
-      stockName: '신한지주',
-      currentPrice: 52000,
-      changeRate: 0.5,
-      reasons: ['PEG 0.35', '배당률 6.2%', 'ROE 12.5%'],
-      expectedReturn: 25.0,
-      stopLoss: 45000,
-      stopLossPercent: 13.5,
-      holdingPeriod: '1~3개월',
-      keyMetrics: [
-        { label: 'PEG', value: '0.35', class: 'positive' },
-        { label: '배당률', value: '6.2%', class: 'positive' },
-        { label: 'ROE', value: '12.5%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '316140',
-      stockName: '우리금융지주',
-      currentPrice: 15800,
-      changeRate: 0.3,
-      reasons: ['초저PBR 0.38', '배당률 7.1%', '밸류업 수혜'],
-      expectedReturn: 30.0,
-      stopLoss: 13500,
-      stopLossPercent: 14.6,
-      holdingPeriod: '2~6개월',
-      keyMetrics: [
-        { label: 'PBR', value: '0.38배', class: 'positive' },
-        { label: '배당률', value: '7.1%', class: 'positive' },
-        { label: 'ROE', value: '10.8%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '005380',
-      stockName: '현대차',
-      currentPrice: 258000,
-      changeRate: 0.8,
-      reasons: ['PEG 0.52', '글로벌 판매 호조', 'EV 전환 가속'],
-      expectedReturn: 20.0,
-      stopLoss: 225000,
-      stopLossPercent: 12.8,
-      holdingPeriod: '1~3개월',
-      keyMetrics: [
-        { label: 'PEG', value: '0.52', class: 'positive' },
-        { label: 'PER', value: '5.2배', class: 'positive' },
-        { label: 'ROE', value: '14.2%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '000270',
-      stockName: '기아',
-      currentPrice: 128000,
-      changeRate: 1.1,
-      reasons: ['PEG 0.48', '배당률 4.5%', '실적 서프라이즈'],
-      expectedReturn: 22.0,
-      stopLoss: 112000,
-      stopLossPercent: 12.5,
-      holdingPeriod: '1~3개월',
-      keyMetrics: [
-        { label: 'PEG', value: '0.48', class: 'positive' },
-        { label: '배당률', value: '4.5%', class: 'positive' },
-        { label: 'ROE', value: '18.5%', class: 'positive' }
-      ]
-    },
-    {
-      stockCode: '017670',
-      stockName: 'SK텔레콤',
-      currentPrice: 58500,
-      changeRate: 0.2,
-      reasons: ['안정적 배당', 'AI 인프라 투자', '통신 독점'],
-      expectedReturn: 15.0,
-      stopLoss: 52000,
-      stopLossPercent: 11.1,
-      holdingPeriod: '3~6개월',
-      keyMetrics: [
-        { label: '배당률', value: '5.8%', class: 'positive' },
-        { label: 'PER', value: '9.5배', class: 'positive' },
-        { label: 'ROE', value: '8.2%', class: 'neutral' }
-      ]
-    }
-  ]
-};
+// ========== 실제 추천 데이터 저장소 ==========
+const recommendations = ref({
+  scalping: [],
+  swing: [],
+  trend: [],
+  value: []
+});
 
-const currentRecommendations = computed(() => recommendations[activeTab.value] || []);
+const currentRecommendations = computed(() => recommendations.value[activeTab.value] || []);
 
 // 시장 요약 데이터
-const marketSentiment = ref({ text: '강세 (Risk-On)', class: 'positive' });
-const foreignFlow = ref(2850);
-const institutionFlow = ref(1420);
-const leadingSector = ref('AI 반도체');
+const marketSentiment = ref({ text: '조회 중...', class: '' });
+const foreignFlow = ref(0);
+const institutionFlow = ref(0);
+const leadingSector = ref('-');
 
-// 유틸리티 함수
+// ========== API 데이터 로드 ==========
+const loadScalpingData = async () => {
+  try {
+    // 수급 급증 종목 (외국인+기관 공통)
+    const response = await investorAPI.getCommonSurgeStocks();
+    if (response.data.success && response.data.data) {
+      const surgeStocks = response.data.data.slice(0, 5);
+      recommendations.value.scalping = surgeStocks.map(stock => ({
+        stockCode: stock.stockCode,
+        stockName: stock.stockName,
+        currentPrice: stock.currentPrice || 0,
+        changeRate: stock.changeRate || 0,
+        reasons: buildScalpingReasons(stock),
+        expectedReturn: 3.0,
+        stopLoss: Math.round((stock.currentPrice || 0) * 0.97),
+        stopLossPercent: 3.0,
+        holdingPeriod: '30분~2시간',
+        keyMetrics: [
+          { label: '외국인', value: formatAmount(stock.foreignNetBuy), class: stock.foreignNetBuy > 0 ? 'positive' : 'negative' },
+          { label: '기관', value: formatAmount(stock.institutionNetBuy), class: stock.institutionNetBuy > 0 ? 'positive' : 'negative' },
+          { label: '등락률', value: `${(stock.changeRate || 0).toFixed(1)}%`, class: stock.changeRate > 0 ? 'positive' : 'negative' }
+        ]
+      }));
+      strategyScores.value.scalping = Math.min(95, 60 + surgeStocks.length * 7);
+    }
+  } catch (error) {
+    console.error('스캘핑 데이터 로드 오류:', error);
+    strategyScores.value.scalping = 50;
+  }
+};
+
+const loadSwingData = async () => {
+  try {
+    // 연속 매수 종목
+    const response = await investorAPI.getAllConsecutiveBuy(3);
+    if (response.data.success && response.data.data) {
+      const foreignStocks = response.data.data.FOREIGN || [];
+      const institutionStocks = response.data.data.INSTITUTION || [];
+
+      // 외국인/기관 합쳐서 누적 순매수 상위 5종목
+      const allStocks = [...foreignStocks, ...institutionStocks]
+        .sort((a, b) => (b.totalNetBuyAmount || 0) - (a.totalNetBuyAmount || 0))
+        .slice(0, 5);
+
+      recommendations.value.swing = allStocks.map(stock => ({
+        stockCode: stock.stockCode,
+        stockName: stock.stockName,
+        currentPrice: stock.currentPrice || 0,
+        changeRate: stock.changeRate || 0,
+        reasons: buildSwingReasons(stock),
+        expectedReturn: 7.0,
+        stopLoss: Math.round((stock.currentPrice || 0) * 0.95),
+        stopLossPercent: 5.0,
+        holdingPeriod: '3~5일',
+        keyMetrics: [
+          { label: '연속매수', value: `${stock.consecutiveDays}일`, class: 'positive' },
+          { label: '누적금액', value: formatAmount(stock.totalNetBuyAmount), class: 'positive' },
+          { label: '등락률', value: `${(stock.changeRate || 0).toFixed(1)}%`, class: stock.changeRate > 0 ? 'positive' : (stock.changeRate < 0 ? 'neutral' : '') }
+        ]
+      }));
+      strategyScores.value.swing = Math.min(95, 55 + allStocks.length * 8);
+    }
+  } catch (error) {
+    console.error('스윙 데이터 로드 오류:', error);
+    strategyScores.value.swing = 50;
+  }
+};
+
+const loadTrendData = async () => {
+  try {
+    // 턴어라운드 종목
+    const response = await screenerAPI.getTurnaroundStocks(5);
+    if (response.data.success && response.data.data) {
+      const turnaroundStocks = response.data.data.slice(0, 5);
+      recommendations.value.trend = turnaroundStocks.map(stock => ({
+        stockCode: stock.stockCode,
+        stockName: stock.stockName,
+        currentPrice: stock.currentPrice || 0,
+        changeRate: stock.changeRate || 0,
+        reasons: buildTrendReasons(stock),
+        expectedReturn: 20.0,
+        stopLoss: Math.round((stock.currentPrice || 0) * 0.88),
+        stopLossPercent: 12.0,
+        holdingPeriod: '2~4주',
+        keyMetrics: [
+          { label: '순이익', value: stock.netIncome > 0 ? '흑자전환' : '개선중', class: stock.netIncome > 0 ? 'positive' : 'neutral' },
+          { label: '영업이익률', value: stock.operatingMargin ? `${stock.operatingMargin.toFixed(1)}%` : '-', class: stock.operatingMargin > 0 ? 'positive' : 'neutral' },
+          { label: 'ROE', value: stock.roe ? `${stock.roe.toFixed(1)}%` : '-', class: stock.roe > 10 ? 'positive' : 'neutral' }
+        ]
+      }));
+      strategyScores.value.turnaround = Math.min(95, 50 + turnaroundStocks.length * 9);
+    }
+  } catch (error) {
+    console.error('턴어라운드 데이터 로드 오류:', error);
+    strategyScores.value.turnaround = 50;
+  }
+};
+
+const loadValueData = async () => {
+  try {
+    // PEG 저평가 종목
+    const response = await screenerAPI.getLowPegStocks(5, 1.0, 10);
+    if (response.data.success && response.data.data) {
+      const pegStocks = response.data.data.slice(0, 5);
+      recommendations.value.value = pegStocks.map(stock => ({
+        stockCode: stock.stockCode,
+        stockName: stock.stockName,
+        currentPrice: stock.currentPrice || 0,
+        changeRate: stock.changeRate || 0,
+        reasons: buildValueReasons(stock),
+        expectedReturn: 25.0,
+        stopLoss: Math.round((stock.currentPrice || 0) * 0.87),
+        stopLossPercent: 13.0,
+        holdingPeriod: '1~3개월',
+        keyMetrics: [
+          { label: 'PEG', value: stock.peg ? stock.peg.toFixed(2) : '-', class: stock.peg < 1 ? 'positive' : 'neutral' },
+          { label: 'PER', value: stock.per ? `${stock.per.toFixed(1)}배` : '-', class: stock.per < 15 ? 'positive' : 'neutral' },
+          { label: 'ROE', value: stock.roe ? `${stock.roe.toFixed(1)}%` : '-', class: stock.roe > 10 ? 'positive' : 'neutral' }
+        ]
+      }));
+      strategyScores.value.value = Math.min(95, 60 + pegStocks.length * 7);
+    }
+  } catch (error) {
+    console.error('가치투자 데이터 로드 오류:', error);
+    strategyScores.value.value = 50;
+  }
+};
+
+const loadMarketSummary = async () => {
+  try {
+    // 시장 상태
+    const statusResponse = await marketAPI.getStatus();
+    if (statusResponse.data.success && statusResponse.data.data) {
+      const data = statusResponse.data.data;
+      // ADR 기반 시장 분위기 판단
+      const adr = data.adr || 100;
+      if (adr >= 120) {
+        marketSentiment.value = { text: '강세 (Risk-On)', class: 'positive' };
+      } else if (adr >= 100) {
+        marketSentiment.value = { text: '보합', class: '' };
+      } else if (adr >= 80) {
+        marketSentiment.value = { text: '약세', class: 'negative' };
+      } else {
+        marketSentiment.value = { text: '약세 (Risk-Off)', class: 'negative' };
+      }
+
+      foreignFlow.value = data.foreignNetBuy || 0;
+      institutionFlow.value = data.institutionNetBuy || 0;
+    }
+  } catch (error) {
+    console.error('시장 상태 로드 오류:', error);
+    marketSentiment.value = { text: '조회 실패', class: '' };
+  }
+
+  try {
+    // 주도 섹터
+    const sectorResponse = await tradingIndicatorAPI.getLeadingSectors();
+    if (sectorResponse.data.success && sectorResponse.data.data && sectorResponse.data.data.length > 0) {
+      leadingSector.value = sectorResponse.data.data[0].sectorName || '-';
+    }
+  } catch (error) {
+    console.error('주도 섹터 로드 오류:', error);
+    leadingSector.value = '-';
+  }
+};
+
+// ========== 추천 사유 빌더 ==========
+const buildScalpingReasons = (stock) => {
+  const reasons = [];
+  if (stock.foreignNetBuy > 0 && stock.institutionNetBuy > 0) reasons.push('외국인+기관 동시 매수');
+  if (stock.foreignNetBuy > 100) reasons.push('외국인 폭발 매수');
+  if (stock.institutionNetBuy > 100) reasons.push('기관 폭발 매수');
+  if (stock.changeRate > 3) reasons.push('급등 모멘텀');
+  if (reasons.length === 0) reasons.push('수급 급증');
+  return reasons.slice(0, 3);
+};
+
+const buildSwingReasons = (stock) => {
+  const reasons = [];
+  reasons.push(`${stock.consecutiveDays}일 연속 매수`);
+  if (stock.changeRate < 0) reasons.push('눌림목 구간');
+  if (stock.totalNetBuyAmount > 500) reasons.push('대량 매집');
+  return reasons.slice(0, 3);
+};
+
+const buildTrendReasons = (stock) => {
+  const reasons = [];
+  if (stock.netIncome > 0) reasons.push('흑자전환');
+  if (stock.operatingMargin > 0) reasons.push(`영업이익률 ${stock.operatingMargin?.toFixed(1) || 0}%`);
+  if (stock.revenueGrowth > 20) reasons.push('매출 급성장');
+  if (reasons.length === 0) reasons.push('실적 개선');
+  return reasons.slice(0, 3);
+};
+
+const buildValueReasons = (stock) => {
+  const reasons = [];
+  if (stock.peg && stock.peg < 1) reasons.push(`PEG ${stock.peg.toFixed(2)}`);
+  if (stock.per && stock.per < 10) reasons.push(`저PER ${stock.per.toFixed(1)}배`);
+  if (stock.pbr && stock.pbr < 1) reasons.push(`저PBR ${stock.pbr.toFixed(2)}배`);
+  if (stock.roe && stock.roe > 15) reasons.push(`고ROE ${stock.roe.toFixed(1)}%`);
+  if (stock.dividendYield && stock.dividendYield > 3) reasons.push(`배당률 ${stock.dividendYield.toFixed(1)}%`);
+  if (reasons.length === 0) reasons.push('저평가 성장주');
+  return reasons.slice(0, 3);
+};
+
+// ========== 유틸리티 함수 ==========
 const formatNumber = (value) => {
   if (!value) return '0';
   return Number(value).toLocaleString('ko-KR');
+};
+
+const formatAmount = (value) => {
+  if (!value) return '0억';
+  const num = Number(value);
+  if (Math.abs(num) >= 10000) return `${(num / 10000).toFixed(1)}조`;
+  return `${num.toLocaleString('ko-KR', { maximumFractionDigits: 0 })}억`;
 };
 
 const formatTime = (date) => {
@@ -662,11 +565,11 @@ const getRankClass = (index) => {
 };
 
 const getReasonClass = (reason) => {
-  if (reason.includes('연속') || reason.includes('매수')) return 'supply';
-  if (reason.includes('체결강도') || reason.includes('거래량')) return 'momentum';
-  if (reason.includes('흑자') || reason.includes('이익')) return 'fundamental';
-  if (reason.includes('PEG') || reason.includes('PBR') || reason.includes('배당')) return 'value';
-  if (reason.includes('VWAP') || reason.includes('RSI')) return 'technical';
+  if (reason.includes('연속') || reason.includes('매수') || reason.includes('매집')) return 'supply';
+  if (reason.includes('체결강도') || reason.includes('거래량') || reason.includes('급등') || reason.includes('폭발')) return 'momentum';
+  if (reason.includes('흑자') || reason.includes('이익') || reason.includes('성장')) return 'fundamental';
+  if (reason.includes('PEG') || reason.includes('PBR') || reason.includes('PER') || reason.includes('배당') || reason.includes('ROE')) return 'value';
+  if (reason.includes('VWAP') || reason.includes('RSI') || reason.includes('눌림')) return 'technical';
   return 'theme';
 };
 
@@ -674,8 +577,23 @@ const goToDetail = (stockCode) => {
   router.push(`/scalping-analysis?code=${stockCode}&from=ai-strategy`);
 };
 
-onMounted(() => {
-  lastUpdated.value = new Date();
+// ========== 초기화 ==========
+onMounted(async () => {
+  loading.value = true;
+  try {
+    await Promise.all([
+      loadScalpingData(),
+      loadSwingData(),
+      loadTrendData(),
+      loadValueData(),
+      loadMarketSummary()
+    ]);
+    lastUpdated.value = new Date();
+  } catch (error) {
+    console.error('데이터 로드 오류:', error);
+  } finally {
+    loading.value = false;
+  }
 });
 </script>
 
@@ -1350,6 +1268,56 @@ onMounted(() => {
   margin: 0;
   color: #555;
   font-size: 0.85rem;
+}
+
+/* 로딩 상태 */
+.loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #888;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(102, 126, 234, 0.2);
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 빈 상태 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: #888;
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 3rem;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  margin: 4px 0;
+}
+
+.empty-hint {
+  font-size: 0.85rem;
+  color: #666;
 }
 
 /* 반응형 */

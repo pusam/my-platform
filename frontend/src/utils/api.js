@@ -662,6 +662,57 @@ export const aiAnalysisAPI = {
   }
 };
 
+// Quant Screener API (퀀트 스크리너)
+export const screenerAPI = {
+  // 마법의 공식 스크리너
+  getMagicFormula(limit = 30, minMarketCap = null) {
+    const params = { limit };
+    if (minMarketCap) params.minMarketCap = minMarketCap;
+    return apiClient.get('/screener/magic-formula', { params });
+  },
+  // PEG 스크리너 (저평가 성장주)
+  getLowPegStocks(limit = 30, maxPeg = null, minEpsGrowth = null) {
+    const params = { limit };
+    if (maxPeg) params.maxPeg = maxPeg;
+    if (minEpsGrowth) params.minEpsGrowth = minEpsGrowth;
+    return apiClient.get('/screener/peg', { params });
+  },
+  // 턴어라운드 스크리너 (흑자전환 종목)
+  getTurnaroundStocks(limit = 30) {
+    return apiClient.get('/screener/turnaround', { params: { limit } });
+  },
+  // 스크리너 요약
+  getSummary() {
+    return apiClient.get('/screener/summary');
+  }
+};
+
+// Investor Trade API (투자자 매매)
+export const investorAPI = {
+  // 투자자별 상위 매수/매도 종목
+  getTopTrades(investorType, tradeType, limit = 50) {
+    return apiClient.get('/investor/top-trades', {
+      params: { investorType, tradeType, limit }
+    });
+  },
+  // 연속 매수 종목 전체 조회
+  getAllConsecutiveBuy(minDays = 3) {
+    return apiClient.get('/investor/consecutive-buy/all', { params: { minDays } });
+  },
+  // 수급 급증 종목 전체 조회
+  getAllSurgeStocks(minChange = null) {
+    const params = {};
+    if (minChange) params.minChange = minChange;
+    return apiClient.get('/investor/surge/all', { params });
+  },
+  // 외국인+기관 공통 순매수 종목
+  getCommonSurgeStocks(minChange = null) {
+    const params = {};
+    if (minChange) params.minChange = minChange;
+    return apiClient.get('/investor/surge/common', { params });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
