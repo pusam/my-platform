@@ -37,6 +37,8 @@
         >
           <span class="tab-icon">{{ tab.icon }}</span>
           <span class="tab-label">{{ tab.label }}</span>
+          <!-- 5분파워 탭 활성화 시 빨간 점 깜빡임 -->
+          <span v-if="tab.value === 'MIN_5' && selectedPeriod === 'MIN_5'" class="live-dot"></span>
         </button>
       </div>
 
@@ -82,7 +84,10 @@
               <span class="total-value" :style="{ color: sector.color }">{{ formatTradingValue(sector.totalTradingValue) }}</span>
             </div>
             <div class="total-chart">
-              <div class="mini-bar" :style="{ width: sector.percentage + '%', background: sector.color }"></div>
+              <div class="chart-track">
+                <div class="mini-bar" :style="{ width: Math.min(sector.percentage * 2, 100) + '%', background: sector.color }"></div>
+              </div>
+              <span class="chart-percentage" :style="{ color: sector.color }">{{ sector.percentage?.toFixed(1) || 0 }}%</span>
             </div>
           </div>
 
@@ -319,6 +324,29 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
+/* 5분파워 라이브 점 (빨간색 깜빡임) */
+.live-dot {
+  width: 8px;
+  height: 8px;
+  background: #EF4444;
+  border-radius: 50%;
+  animation: pulse-dot 1.5s ease-in-out infinite;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.3);
+  }
+}
+
 /* 섹터 그리드 */
 .sector-grid {
   display: flex;
@@ -422,17 +450,32 @@ onUnmounted(() => {
 }
 
 .total-chart {
-  width: 120px;
-  height: 8px;
-  background: #f3f4f6;
-  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.chart-track {
+  width: 140px;
+  height: 12px;
+  background: linear-gradient(135deg, #e5e7eb 0%, #f3f4f6 100%);
+  border-radius: 6px;
   overflow: hidden;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);
 }
 
 .mini-bar {
   height: 100%;
-  border-radius: 4px;
+  border-radius: 6px;
   transition: width 0.5s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.chart-percentage {
+  font-size: 14px;
+  font-weight: 700;
+  min-width: 45px;
+  text-align: right;
 }
 
 /* 섹터 상세 */
@@ -629,6 +672,12 @@ onUnmounted(() => {
 
   .total-chart {
     width: 100%;
+    justify-content: space-between;
+  }
+
+  .chart-track {
+    flex: 1;
+    max-width: none;
   }
 
   .summary-bar {
