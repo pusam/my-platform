@@ -190,6 +190,40 @@
               </svg>
             </span>
           </article>
+
+          <article class="menu-card risk-analysis" @click="goToRiskAnalysis">
+            <div class="card-icon risk-analysis-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                <path d="M12 8v4"/>
+                <path d="M12 16h.01"/>
+              </svg>
+            </div>
+            <h3>리스크 분석 <span class="menu-ai-badge">AI</span></h3>
+            <p>DART 공시, 뉴스 기반 투자 위험 분석</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
+            <div class="card-icon news-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+                <path d="M7 7h10M7 11h10M7 15h7"/>
+              </svg>
+            </div>
+            <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
+            <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
+            <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
         </div>
       </section>
 
@@ -364,23 +398,6 @@
             </div>
             <h3>게시판</h3>
             <p>자유롭게 글을 작성하고 파일을 공유할 수 있습니다.</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
-            <div class="card-icon news-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
-                <path d="M7 7h10M7 11h10M7 15h7"/>
-              </svg>
-            </div>
-            <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
-            <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
-            <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
             <span class="card-arrow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9,6 15,12 9,18"/>
@@ -654,6 +671,9 @@ export default {
     },
     goToTradingIndicators() {
       this.$router.push('/trading-indicators')
+    },
+    goToRiskAnalysis() {
+      this.$router.push('/risk-analysis')
     },
     goToNews() {
       this.$router.push('/news')
@@ -1252,6 +1272,26 @@ export default {
 
 .menu-card.trading-indicators h3 {
   color: #7c3aed;
+}
+
+/* 리스크 분석 카드 */
+.card-icon.risk-analysis-icon {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
+  color: #ef4444;
+}
+
+.menu-card.risk-analysis {
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(239, 68, 68, 0.3);
+}
+
+.menu-card.risk-analysis:hover {
+  border-color: #ef4444;
+  box-shadow: 0 20px 40px rgba(239, 68, 68, 0.15);
+}
+
+.menu-card.risk-analysis h3 {
+  color: #dc2626;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
