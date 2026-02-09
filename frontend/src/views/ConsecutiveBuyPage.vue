@@ -10,13 +10,21 @@
 
       <div class="filter-section">
         <div class="filter-item">
-          <label>최소 연속일</label>
+          <label>최소 연속 일수</label>
           <select v-model="minDays" @change="fetchData">
             <option :value="2">2일 이상</option>
             <option :value="3">3일 이상</option>
             <option :value="5">5일 이상</option>
             <option :value="7">7일 이상</option>
             <option :value="10">10일 이상</option>
+          </select>
+        </div>
+        <div class="filter-item">
+          <label>정렬 기준</label>
+          <select v-model="sortBy">
+            <option value="netBuy">누적 순매수순</option>
+            <option value="days">연속 일수순</option>
+            <option value="changeRate">등락률 낮은순</option>
           </select>
         </div>
       </div>
@@ -107,6 +115,7 @@ const router = useRouter();
 const loading = ref(false);
 const minDays = ref(3);
 const selectedInvestor = ref('FOREIGN');
+const sortBy = ref('netBuy');  // 정렬 기준: netBuy, days, changeRate
 const allStocks = ref({});
 const dataStatus = ref(null);
 
@@ -117,7 +126,24 @@ const investorTypes = [
 ];
 
 const currentStocks = computed(() => {
-  return allStocks.value[selectedInvestor.value] || [];
+  const stocks = allStocks.value[selectedInvestor.value] || [];
+  if (!stocks.length) return [];
+
+  // 정렬 적용
+  return [...stocks].sort((a, b) => {
+    switch (sortBy.value) {
+      case 'days':
+        // 연속 일수순 (내림차순: 오래 산 종목부터)
+        return (b.consecutiveDays || 0) - (a.consecutiveDays || 0);
+      case 'changeRate':
+        // 등락률 낮은순 (오름차순: 많이 샀는데 주가 떨어진 매집주)
+        return (a.changeRate || 0) - (b.changeRate || 0);
+      case 'netBuy':
+      default:
+        // 누적 순매수순 (내림차순)
+        return (b.totalNetBuyAmount || 0) - (a.totalNetBuyAmount || 0);
+    }
+  });
 });
 
 const fetchData = async () => {
