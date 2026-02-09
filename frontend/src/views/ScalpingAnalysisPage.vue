@@ -4,7 +4,7 @@
 
     <div class="content-wrapper">
       <div class="page-header">
-        <BackButton />
+        <BackButton :dark="true" />
         <h1>단타 분석</h1>
         <p class="subtitle">실시간 체결강도 및 프로그램 매매 추이</p>
       </div>
@@ -181,7 +181,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { scalpingAPI, stockAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
@@ -189,7 +189,9 @@ import ProgramTradingChart from '../components/ProgramTradingChart.vue';
 import BackButton from '../components/BackButton.vue';
 
 const router = useRouter();
+const route = useRoute();
 const loading = ref(false);
+const fromAiStrategy = ref(false); // AI 전략 페이지에서 왔는지 여부
 const searchInput = ref('');
 const stockCode = ref('');
 const analysisData = ref(null);
@@ -552,12 +554,21 @@ const updateChangeClass = () => {
 };
 
 onMounted(() => {
-  // URL 파라미터에서 종목코드 확인
-  const urlParams = new URLSearchParams(window.location.search);
-  const code = urlParams.get('code');
+  // Vue Router의 query에서 종목코드 확인
+  const code = route.query.code;
+
+  // AI 전략 페이지에서 왔는지 확인
+  if (route.query.from === 'ai-strategy' || route.path === '/scalping-analysis') {
+    fromAiStrategy.value = true;
+  }
+
+  // 종목코드가 있으면 자동 검색
   if (code && /^\d{6}$/.test(code)) {
-    searchInput.value = code;
-    searchStock();
+    // 종목명이 있으면 검색창에 표시
+    const stockName = CODE_TO_NAME[code];
+    searchInput.value = stockName || code;
+    stockCode.value = code;
+    fetchAnalysis();
   }
 });
 

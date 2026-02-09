@@ -671,7 +671,7 @@ const getReasonClass = (reason) => {
 };
 
 const goToDetail = (stockCode) => {
-  router.push(`/scalping-analysis?code=${stockCode}`);
+  router.push(`/scalping-analysis?code=${stockCode}&from=ai-strategy`);
 };
 
 onMounted(() => {

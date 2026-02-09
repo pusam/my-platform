@@ -201,6 +201,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/scalping-analysis',
+      name: 'ScalpingAnalysisDetail',
+      component: ScalpingAnalysisPage,
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/trading-indicators',
       name: 'TradingIndicators',
       component: TradingIndicatorsPage,
