@@ -4,7 +4,12 @@
     <div v-else class="content-wrapper">
       <div class="page-header">
         <BackButton />
-        <h1>투자자별 매매 동향</h1>
+        <div class="title-row">
+          <h1>투자자별 매매 동향</h1>
+          <span class="data-timestamp" :class="dataStatus">
+            {{ dataStatusIcon }} 데이터 기준: {{ dataTimestamp }}
+          </span>
+        </div>
         <p class="subtitle">외국인, 기관, 연기금의 상위 매매 종목을 확인하세요</p>
         <p v-if="collecting" class="collecting-status">🔄 데이터 수집 중...</p>
       </div>
@@ -39,8 +44,17 @@
               <td class="rank">{{ trade.rankNum }}</td>
               <td class="stock-name">{{ trade.stockName }}</td>
               <td class="stock-code">{{ trade.stockCode }}</td>
-              <td class="amount" :class="{ positive: trade.netBuyAmount > 0, negative: trade.netBuyAmount < 0 }">
-                {{ formatNumber(trade.netBuyAmount) }}
+              <td class="amount-cell">
+                <div class="amount-bar-container">
+                  <div
+                    class="amount-bar"
+                    :class="tradeType === 'BUY' ? 'bar-buy' : 'bar-sell'"
+                    :style="{ width: getBarWidth(trade.netBuyAmount) + '%' }"
+                  ></div>
+                  <span class="amount-value" :class="{ positive: trade.netBuyAmount > 0, negative: trade.netBuyAmount < 0 }">
+                    {{ formatNumber(Math.abs(trade.netBuyAmount)) }}
+                  </span>
+                </div>
               </td>
               <td class="price">{{ formatNumber(trade.currentPrice) }}</td>
               <td class="rate" :class="{ positive: trade.changeRate > 0, negative: trade.changeRate < 0 }">
@@ -72,6 +86,8 @@ const collecting = ref(false);
 const tradeType = ref('BUY');
 const selectedInvestor = ref('FOREIGN');
 const allTrades = ref({});
+const dataTimestamp = ref('-');
+const dataStatus = ref('status-unknown');
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
   { value: 'INSTITUTION', label: '기관', icon: '🏢' },
@@ -80,6 +96,48 @@ const investorTypes = [
 const currentTrades = computed(() => {
   return allTrades.value[selectedInvestor.value] || [];
 });
+
+// 데이터 바 너비 계산 (최대값 기준 %)
+const maxAmount = computed(() => {
+  const trades = currentTrades.value;
+  if (!trades.length) return 1;
+  return Math.max(...trades.map(t => Math.abs(t.netBuyAmount || 0)));
+});
+
+const getBarWidth = (amount) => {
+  if (!amount || !maxAmount.value) return 0;
+  return (Math.abs(amount) / maxAmount.value) * 100;
+};
+
+// 데이터 상태 아이콘
+const dataStatusIcon = computed(() => {
+  if (dataStatus.value === 'status-live') return '🔴';
+  if (dataStatus.value === 'status-confirmed') return '✅';
+  return '📊';
+});
+
+// 장 마감 여부 확인 (15:30 이후면 확정)
+const updateDataStatus = () => {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hour = String(hours).padStart(2, '0');
+  const min = String(minutes).padStart(2, '0');
+
+  if (hours >= 15 && minutes >= 30) {
+    dataTimestamp.value = `${month}.${day} 장 마감 확정`;
+    dataStatus.value = 'status-confirmed';
+  } else if (hours >= 9 && hours < 16) {
+    dataTimestamp.value = `${month}.${day} ${hour}:${min} (잠정)`;
+    dataStatus.value = 'status-live';
+  } else {
+    dataTimestamp.value = `${month}.${day} ${hour}:${min}`;
+    dataStatus.value = 'status-unknown';
+  }
+};
 const changeTradeType = (type) => {
   tradeType.value = type;
   fetchData();
@@ -95,6 +153,7 @@ const fetchData = async () => {
     });
     if (response.data.success) {
       allTrades.value = response.data.data;
+      updateDataStatus();
     }
   } catch (error) {
     console.error('투자자 매매 데이터 조회 오류:', error);
@@ -173,9 +232,44 @@ onMounted(() => {
   background: #5568d3;
   transform: translateX(-5px);
 }
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .page-header h1 {
   color: #2d3748;
   margin-bottom: 0.5rem;
+}
+
+/* 데이터 타임스탬프 뱃지 */
+.data-timestamp {
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.data-timestamp.status-live {
+  background: rgba(239, 68, 68, 0.1);
+  color: #e53e3e;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.data-timestamp.status-confirmed {
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.data-timestamp.status-unknown {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+  border: 1px solid rgba(107, 114, 128, 0.3);
 }
 .subtitle {
   color: #718096;
@@ -277,10 +371,45 @@ td {
   color: #718096;
   font-family: monospace;
 }
-.amount {
-  text-align: right;
+/* 순매수 금액 데이터 바 */
+.amount-cell {
+  padding: 0.5rem 1rem !important;
+}
+
+.amount-bar-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 32px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f7fafc;
+}
+
+.amount-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.amount-bar.bar-buy {
+  background: linear-gradient(90deg, rgba(229, 62, 62, 0.15) 0%, rgba(229, 62, 62, 0.25) 100%);
+}
+
+.amount-bar.bar-sell {
+  background: linear-gradient(90deg, rgba(49, 130, 206, 0.15) 0%, rgba(49, 130, 206, 0.25) 100%);
+}
+
+.amount-value {
+  position: relative;
+  z-index: 1;
   font-family: monospace;
   font-weight: 600;
+  padding-right: 0.5rem;
 }
 .price {
   text-align: right;
