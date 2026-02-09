@@ -241,7 +241,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
-import { investorAPI, screenerAPI, marketAPI, tradingIndicatorAPI, stockAPI } from '../utils/api';
+import { aiStrategyAPI, marketAPI, tradingIndicatorAPI } from '../utils/api';
 
 const router = useRouter();
 const activeTab = ref('scalping');
@@ -334,280 +334,153 @@ const foreignFlow = ref(0);
 const institutionFlow = ref(0);
 const leadingSector = ref('-');
 
-// ========== API 데이터 로드 ==========
-const loadScalpingData = async () => {
+// ========== 스냅샷 API 데이터 로드 (단일 호출) ==========
+const loadSnapshotData = async () => {
   try {
-    // 수급 급증 종목 (외국인+기관 공통)
-    const response = await investorAPI.getCommonSurgeStocks();
-    if (response.data.success && response.data.data) {
-      const surgeStocks = response.data.data.slice(0, 5);
+    const response = await aiStrategyAPI.getLatest();
+    if (response.data && response.data.strategies) {
+      const { strategies, lastUpdated } = response.data;
 
-      // 각 종목별 스캘핑 점수 계산
-      const stocksWithScore = surgeStocks.map(stock => {
-        // 수급강도 점수: 외국인+기관 순매수 합계 기반 (억원 단위)
-        const supplyScore = Math.min(50, ((stock.foreignNetBuy || 0) + (stock.institutionNetBuy || 0)) / 10);
-        // 모멘텀 점수: 등락률 기반
-        const momentumScore = Math.min(30, Math.max(0, (stock.changeRate || 0) * 5));
-        // 체결강도 가정 점수: 수급 급증이면 체결강도 높을 것으로 추정
-        const volumeScore = 20;
-        const score = Math.min(100, Math.round(supplyScore + momentumScore + volumeScore));
-
-        return {
-          stockCode: stock.stockCode,
-          stockName: stock.stockName,
-          currentPrice: stock.currentPrice || 0,
-          previousClose: stock.previousClose || stock.currentPrice || 0,
-          changeRate: stock.changeRate || 0,
-          priceFlash: null,
-          reasons: buildScalpingReasons(stock),
-          expectedReturn: 3.0,
-          stopLoss: Math.round((stock.currentPrice || 0) * 0.97),
-          stopLossPercent: 3.0,
-          holdingPeriod: '30분~2시간',
-          score: score,
-          keyMetrics: [
-            { label: '외국인', value: formatAmount(stock.foreignNetBuy), class: stock.foreignNetBuy > 0 ? 'positive' : 'negative' },
-            { label: '기관', value: formatAmount(stock.institutionNetBuy), class: stock.institutionNetBuy > 0 ? 'positive' : 'negative' },
-            { label: '점수', value: `${score}점`, class: score >= 70 ? 'positive' : (score >= 50 ? 'neutral' : 'negative') }
-          ]
-        };
-      });
-
-      recommendations.value.scalping = stocksWithScore;
-
-      // 전략 점수: 상위 종목들의 평균 점수
-      if (stocksWithScore.length > 0) {
-        const avgScore = stocksWithScore.reduce((sum, s) => sum + s.score, 0) / stocksWithScore.length;
+      // 스캘핑 데이터 매핑
+      if (strategies.SCALPING && strategies.SCALPING.length > 0) {
+        recommendations.value.scalping = mapSnapshotToCard(strategies.SCALPING, 'scalping');
+        const avgScore = strategies.SCALPING.reduce((sum, s) => sum + (s.score || 0), 0) / strategies.SCALPING.length;
         strategyScores.value.scalping = Math.round(avgScore);
-      } else {
-        strategyScores.value.scalping = 0;
       }
 
-      // 실시간 시세 데이터 병합 (비동기)
-      fetchRealTimeQuotes('scalping');
-    }
-  } catch (error) {
-    console.error('스캘핑 데이터 로드 오류:', error);
-    strategyScores.value.scalping = 0;
-  }
-};
-
-const loadSwingData = async () => {
-  try {
-    // 연속 매수 종목
-    const response = await investorAPI.getAllConsecutiveBuy(3);
-    if (response.data.success && response.data.data) {
-      const foreignStocks = response.data.data.FOREIGN || [];
-      const institutionStocks = response.data.data.INSTITUTION || [];
-
-      // 외국인/기관 합쳐서 누적 순매수 상위 5종목
-      const allStocks = [...foreignStocks, ...institutionStocks]
-        .sort((a, b) => (b.totalNetBuyAmount || 0) - (a.totalNetBuyAmount || 0))
-        .slice(0, 5);
-
-      // 각 종목별 스윙 점수 계산: (연속매수일수 × 10) + (등락률 보정)
-      const stocksWithScore = allStocks.map(stock => {
-        // 연속매수일수 점수 (최대 50점)
-        const consecutiveScore = Math.min(50, (stock.consecutiveDays || 0) * 10);
-        // 눌림목일 때 가산점 (조정 구간이면 매수 기회)
-        const pullbackBonus = stock.changeRate < 0 ? Math.min(20, Math.abs(stock.changeRate) * 5) : 0;
-        // 누적 매수금액 점수 (최대 30점)
-        const amountScore = Math.min(30, (stock.totalNetBuyAmount || 0) / 50);
-        const score = Math.min(100, Math.round(consecutiveScore + pullbackBonus + amountScore));
-
-        return {
-          stockCode: stock.stockCode,
-          stockName: stock.stockName,
-          currentPrice: stock.currentPrice || 0,
-          previousClose: stock.previousClose || stock.currentPrice || 0,
-          changeRate: stock.changeRate || 0,
-          priceFlash: null,
-          reasons: buildSwingReasons(stock),
-          expectedReturn: 7.0,
-          stopLoss: Math.round((stock.currentPrice || 0) * 0.95),
-          stopLossPercent: 5.0,
-          holdingPeriod: '3~5일',
-          score: score,
-          keyMetrics: [
-            { label: '연속매수', value: `${stock.consecutiveDays}일`, class: 'positive' },
-            { label: '누적금액', value: formatAmount(stock.totalNetBuyAmount), class: 'positive' },
-            { label: '점수', value: `${score}점`, class: score >= 70 ? 'positive' : (score >= 50 ? 'neutral' : 'negative') }
-          ]
-        };
-      });
-
-      recommendations.value.swing = stocksWithScore;
-
-      // 전략 점수: 상위 종목들의 평균 점수
-      if (stocksWithScore.length > 0) {
-        const avgScore = stocksWithScore.reduce((sum, s) => sum + s.score, 0) / stocksWithScore.length;
+      // 스윙 데이터 매핑
+      if (strategies.SWING && strategies.SWING.length > 0) {
+        recommendations.value.swing = mapSnapshotToCard(strategies.SWING, 'swing');
+        const avgScore = strategies.SWING.reduce((sum, s) => sum + (s.score || 0), 0) / strategies.SWING.length;
         strategyScores.value.swing = Math.round(avgScore);
-      } else {
-        strategyScores.value.swing = 0;
       }
 
-      // 실시간 시세 데이터 병합 (비동기)
-      fetchRealTimeQuotes('swing');
-    }
-  } catch (error) {
-    console.error('스윙 데이터 로드 오류:', error);
-    strategyScores.value.swing = 0;
-  }
-};
-
-const loadTrendData = async () => {
-  try {
-    // 턴어라운드 종목
-    const response = await screenerAPI.getTurnaroundStocks(5);
-    if (response.data.success && response.data.data) {
-      const turnaroundStocks = response.data.data.slice(0, 5);
-
-      // 각 종목별 턴어라운드 점수 계산: 흑자전환이면 기본 80점 + 기술적 점수
-      const stocksWithScore = turnaroundStocks.map(stock => {
-        // 흑자전환 기본 점수
-        const profitBase = stock.netIncome > 0 ? 80 : 50;
-        // 영업이익률 가산점 (최대 10점)
-        const marginBonus = Math.min(10, Math.max(0, (stock.operatingMargin || 0)));
-        // ROE 가산점 (최대 10점)
-        const roeBonus = Math.min(10, Math.max(0, (stock.roe || 0) / 2));
-        const score = Math.min(100, Math.round(profitBase + marginBonus + roeBonus));
-
-        return {
-          stockCode: stock.stockCode,
-          stockName: stock.stockName,
-          currentPrice: stock.currentPrice || 0,
-          previousClose: stock.previousClose || stock.currentPrice || 0,
-          changeRate: stock.changeRate || 0,
-          priceFlash: null,
-          reasons: buildTrendReasons(stock),
-          expectedReturn: 20.0,
-          stopLoss: Math.round((stock.currentPrice || 0) * 0.88),
-          stopLossPercent: 12.0,
-          holdingPeriod: '2~4주',
-          score: score,
-          keyMetrics: [
-            { label: '순이익', value: stock.netIncome > 0 ? '흑자전환' : '개선중', class: stock.netIncome > 0 ? 'positive' : 'neutral' },
-            { label: '영업이익률', value: stock.operatingMargin ? `${stock.operatingMargin.toFixed(1)}%` : '-', class: stock.operatingMargin > 0 ? 'positive' : 'neutral' },
-            { label: '점수', value: `${score}점`, class: score >= 70 ? 'positive' : (score >= 50 ? 'neutral' : 'negative') }
-          ]
-        };
-      });
-
-      recommendations.value.trend = stocksWithScore;
-
-      // 전략 점수: 상위 종목들의 평균 점수
-      if (stocksWithScore.length > 0) {
-        const avgScore = stocksWithScore.reduce((sum, s) => sum + s.score, 0) / stocksWithScore.length;
+      // 턴어라운드 데이터 매핑
+      if (strategies.TURNAROUND && strategies.TURNAROUND.length > 0) {
+        recommendations.value.trend = mapSnapshotToCard(strategies.TURNAROUND, 'trend');
+        const avgScore = strategies.TURNAROUND.reduce((sum, s) => sum + (s.score || 0), 0) / strategies.TURNAROUND.length;
         strategyScores.value.turnaround = Math.round(avgScore);
-      } else {
-        strategyScores.value.turnaround = 0;
       }
 
-      // 실시간 시세 데이터 병합 (비동기)
-      fetchRealTimeQuotes('trend');
-    }
-  } catch (error) {
-    console.error('턴어라운드 데이터 로드 오류:', error);
-    strategyScores.value.turnaround = 0;
-  }
-};
-
-const loadValueData = async () => {
-  try {
-    // PEG 저평가 종목
-    const response = await screenerAPI.getLowPegStocks(5, 1.0, 10);
-    if (response.data.success && response.data.data) {
-      const pegStocks = response.data.data.slice(0, 5);
-
-      // 각 종목별 가치투자 점수 계산: (1 / PEG) * 50 + ROE 보정
-      const stocksWithScore = pegStocks.map(stock => {
-        // PEG 점수: (1 / PEG) * 50 (PEG가 낮을수록 고득점, 최대 70점)
-        const peg = stock.peg || 1;
-        const pegScore = Math.min(70, Math.round((1 / Math.max(0.1, peg)) * 50));
-        // ROE 가산점 (최대 20점)
-        const roeBonus = Math.min(20, Math.max(0, (stock.roe || 0)));
-        // 저PER 가산점 (최대 10점)
-        const perBonus = stock.per && stock.per < 10 ? Math.min(10, 10 - stock.per) : 0;
-        const score = Math.min(100, Math.round(pegScore + roeBonus + perBonus));
-
-        return {
-          stockCode: stock.stockCode,
-          stockName: stock.stockName,
-          currentPrice: stock.currentPrice || 0,
-          previousClose: stock.previousClose || stock.currentPrice || 0,
-          changeRate: stock.changeRate || 0,
-          priceFlash: null,
-          reasons: buildValueReasons(stock),
-          expectedReturn: 25.0,
-          stopLoss: Math.round((stock.currentPrice || 0) * 0.87),
-          stopLossPercent: 13.0,
-          holdingPeriod: '1~3개월',
-          score: score,
-          keyMetrics: [
-            { label: 'PEG', value: stock.peg ? stock.peg.toFixed(2) : '-', class: stock.peg < 1 ? 'positive' : 'neutral' },
-            { label: 'PER', value: stock.per ? `${stock.per.toFixed(1)}배` : '-', class: stock.per < 15 ? 'positive' : 'neutral' },
-            { label: '점수', value: `${score}점`, class: score >= 70 ? 'positive' : (score >= 50 ? 'neutral' : 'negative') }
-          ]
-        };
-      });
-
-      recommendations.value.value = stocksWithScore;
-
-      // 전략 점수: 상위 종목들의 평균 점수
-      if (stocksWithScore.length > 0) {
-        const avgScore = stocksWithScore.reduce((sum, s) => sum + s.score, 0) / stocksWithScore.length;
+      // 가치투자 데이터 매핑
+      if (strategies.VALUE && strategies.VALUE.length > 0) {
+        recommendations.value.value = mapSnapshotToCard(strategies.VALUE, 'value');
+        const avgScore = strategies.VALUE.reduce((sum, s) => sum + (s.score || 0), 0) / strategies.VALUE.length;
         strategyScores.value.value = Math.round(avgScore);
-      } else {
-        strategyScores.value.value = 0;
       }
 
-      // 실시간 시세 데이터 병합 (비동기)
-      fetchRealTimeQuotes('value');
+      // 최종 업데이트 시각 설정 (가장 최근 것 사용)
+      if (lastUpdated) {
+        const times = Object.values(lastUpdated).filter(t => t).map(t => new Date(t));
+        if (times.length > 0) {
+          lastUpdated.value = new Date(Math.max(...times));
+        }
+      }
+
+      console.log('스냅샷 데이터 로드 완료:', {
+        scalping: recommendations.value.scalping.length,
+        swing: recommendations.value.swing.length,
+        trend: recommendations.value.trend.length,
+        value: recommendations.value.value.length
+      });
     }
   } catch (error) {
-    console.error('가치투자 데이터 로드 오류:', error);
-    strategyScores.value.value = 0;
+    console.error('스냅샷 데이터 로드 오류:', error);
+    // 모든 전략 점수 0으로 초기화
+    strategyScores.value = { scalping: 0, swing: 0, turnaround: 0, value: 0 };
   }
 };
 
-// ========== 실시간 시세 데이터 조회 및 병합 ==========
-const fetchRealTimeQuotes = async (strategyType) => {
-  const stocks = recommendations.value[strategyType];
-  if (!stocks || stocks.length === 0) return;
+// 스냅샷 데이터를 카드 형식으로 매핑
+const mapSnapshotToCard = (snapshots, strategyType) => {
+  const strategyConfig = {
+    scalping: { expectedReturn: 3.0, stopLossPercent: 3.0, holdingPeriod: '30분~2시간' },
+    swing: { expectedReturn: 7.0, stopLossPercent: 5.0, holdingPeriod: '3~5일' },
+    trend: { expectedReturn: 20.0, stopLossPercent: 12.0, holdingPeriod: '2~4주' },
+    value: { expectedReturn: 25.0, stopLossPercent: 13.0, holdingPeriod: '1~3개월' }
+  };
 
-  for (const stock of stocks) {
-    try {
-      const response = await stockAPI.getStockPrice(stock.stockCode);
-      if (response.data.success && response.data.data) {
-        const quote = response.data.data;
-        const oldPrice = stock.currentPrice;
-        const newPrice = quote.currentPrice || quote.price || oldPrice;
-        const previousClose = quote.previousClose || quote.basePrice || stock.previousClose;
+  const config = strategyConfig[strategyType];
 
-        // 등락률 계산: (현재가 - 전일종가) / 전일종가 * 100
-        let changeRate = 0;
-        if (previousClose && previousClose > 0) {
-          changeRate = ((newPrice - previousClose) / previousClose) * 100;
-        }
+  return snapshots.map(snapshot => {
+    const currentPrice = snapshot.currentPrice || 0;
+    const score = snapshot.score || 0;
 
-        // 가격 변동 시 플래시 효과
-        if (newPrice !== oldPrice) {
-          stock.priceFlash = newPrice > oldPrice ? 'up' : 'down';
-          setTimeout(() => {
-            stock.priceFlash = null;
-          }, 500);
-        }
+    return {
+      stockCode: snapshot.stockCode,
+      stockName: snapshot.stockName,
+      currentPrice: currentPrice,
+      previousClose: currentPrice, // 스냅샷에서는 전일종가 없음
+      changeRate: snapshot.changeRate || 0,
+      priceFlash: null,
+      reasons: buildReasons(snapshot, strategyType),
+      expectedReturn: config.expectedReturn,
+      stopLoss: Math.round(currentPrice * (1 - config.stopLossPercent / 100)),
+      stopLossPercent: config.stopLossPercent,
+      holdingPeriod: config.holdingPeriod,
+      score: score,
+      keyMetrics: buildKeyMetrics(snapshot, strategyType, score)
+    };
+  });
+};
 
-        // 데이터 업데이트
-        stock.currentPrice = newPrice;
-        stock.previousClose = previousClose;
-        stock.changeRate = changeRate;
-        stock.stopLoss = Math.round(newPrice * (1 - stock.stopLossPercent / 100));
-      }
-    } catch (error) {
-      // API 실패 시 기존 데이터 유지 (가짜 데이터 생성 안함)
-      console.warn(`시세 조회 실패 (${stock.stockCode}):`, error.message);
-    }
+// 전략별 추천 사유 생성
+const buildReasons = (snapshot, strategyType) => {
+  // 스냅샷의 reason이 있으면 사용
+  if (snapshot.reason) {
+    return snapshot.reason.split(', ').slice(0, 3);
+  }
+
+  // 없으면 전략별로 기본 사유 생성
+  switch (strategyType) {
+    case 'scalping':
+      return buildScalpingReasons(snapshot);
+    case 'swing':
+      return buildSwingReasons(snapshot);
+    case 'trend':
+      return buildTrendReasons(snapshot);
+    case 'value':
+      return buildValueReasons(snapshot);
+    default:
+      return ['AI 추천'];
+  }
+};
+
+// 전략별 핵심 지표 생성
+const buildKeyMetrics = (snapshot, strategyType, score) => {
+  const scoreMetric = {
+    label: '점수',
+    value: `${score}점`,
+    class: score >= 70 ? 'positive' : (score >= 50 ? 'neutral' : 'negative')
+  };
+
+  switch (strategyType) {
+    case 'scalping':
+      return [
+        { label: '거래량', value: snapshot.volumeRatio ? `${snapshot.volumeRatio.toFixed(0)}%` : '-', class: 'positive' },
+        { label: '등락률', value: snapshot.changeRate ? `${snapshot.changeRate >= 0 ? '+' : ''}${snapshot.changeRate.toFixed(2)}%` : '-', class: snapshot.changeRate >= 0 ? 'positive' : 'negative' },
+        scoreMetric
+      ];
+    case 'swing':
+      return [
+        { label: 'ROE', value: snapshot.roe ? `${snapshot.roe.toFixed(1)}%` : '-', class: snapshot.roe > 10 ? 'positive' : 'neutral' },
+        { label: 'PER', value: snapshot.per ? `${snapshot.per.toFixed(1)}배` : '-', class: snapshot.per && snapshot.per < 15 ? 'positive' : 'neutral' },
+        scoreMetric
+      ];
+    case 'trend':
+      return [
+        { label: '턴어라운드', value: snapshot.turnaroundType === 'LOSS_TO_PROFIT' ? '흑자전환' : '이익증가', class: 'positive' },
+        { label: '이익변화', value: snapshot.netIncomeChangeRate ? `${snapshot.netIncomeChangeRate.toFixed(0)}%` : '-', class: 'positive' },
+        scoreMetric
+      ];
+    case 'value':
+      return [
+        { label: 'PEG', value: snapshot.peg ? snapshot.peg.toFixed(2) : '-', class: snapshot.peg && snapshot.peg < 1 ? 'positive' : 'neutral' },
+        { label: 'ROE', value: snapshot.roe ? `${snapshot.roe.toFixed(1)}%` : '-', class: snapshot.roe > 10 ? 'positive' : 'neutral' },
+        scoreMetric
+      ];
+    default:
+      return [scoreMetric];
   }
 };
 
@@ -649,41 +522,47 @@ const loadMarketSummary = async () => {
   }
 };
 
-// ========== 추천 사유 빌더 ==========
-const buildScalpingReasons = (stock) => {
+// ========== 추천 사유 빌더 (스냅샷 데이터 형식 대응) ==========
+const buildScalpingReasons = (snapshot) => {
   const reasons = [];
-  if (stock.foreignNetBuy > 0 && stock.institutionNetBuy > 0) reasons.push('외국인+기관 동시 매수');
-  if (stock.foreignNetBuy > 100) reasons.push('외국인 폭발 매수');
-  if (stock.institutionNetBuy > 100) reasons.push('기관 폭발 매수');
-  if (stock.changeRate > 3) reasons.push('급등 모멘텀');
-  if (reasons.length === 0) reasons.push('수급 급증');
+  if (snapshot.volumeRatio && snapshot.volumeRatio > 200) reasons.push('거래량 급증');
+  if (snapshot.changeRate && snapshot.changeRate > 5) reasons.push('급등 모멘텀');
+  else if (snapshot.changeRate && snapshot.changeRate > 2) reasons.push('상승 모멘텀');
+  if (reasons.length === 0) reasons.push('모멘텀 발생');
   return reasons.slice(0, 3);
 };
 
-const buildSwingReasons = (stock) => {
+const buildSwingReasons = (snapshot) => {
   const reasons = [];
-  reasons.push(`${stock.consecutiveDays}일 연속 매수`);
-  if (stock.changeRate < 0) reasons.push('눌림목 구간');
-  if (stock.totalNetBuyAmount > 500) reasons.push('대량 매집');
+  if (snapshot.roe && snapshot.roe > 15) reasons.push(`고ROE ${snapshot.roe.toFixed(1)}%`);
+  if (snapshot.operatingMargin && snapshot.operatingMargin > 10) reasons.push(`영업이익률 ${snapshot.operatingMargin.toFixed(1)}%`);
+  if (snapshot.per && snapshot.per < 10) reasons.push(`저PER ${snapshot.per.toFixed(1)}배`);
+  if (snapshot.magicFormulaRank) reasons.push(`마법공식 ${snapshot.magicFormulaRank}위`);
+  if (reasons.length === 0) reasons.push('우량 가치주');
   return reasons.slice(0, 3);
 };
 
-const buildTrendReasons = (stock) => {
+const buildTrendReasons = (snapshot) => {
   const reasons = [];
-  if (stock.netIncome > 0) reasons.push('흑자전환');
-  if (stock.operatingMargin > 0) reasons.push(`영업이익률 ${stock.operatingMargin?.toFixed(1) || 0}%`);
-  if (stock.revenueGrowth > 20) reasons.push('매출 급성장');
+  if (snapshot.turnaroundType === 'LOSS_TO_PROFIT') reasons.push('흑자전환 성공');
+  else if (snapshot.turnaroundType === 'PROFIT_GROWTH') reasons.push('이익 급증');
+  if (snapshot.netIncomeChangeRate && snapshot.netIncomeChangeRate > 50) {
+    reasons.push(`순이익 ${snapshot.netIncomeChangeRate.toFixed(0)}%↑`);
+  }
+  if (snapshot.operatingMargin && snapshot.operatingMargin > 0) {
+    reasons.push(`영업이익률 ${snapshot.operatingMargin.toFixed(1)}%`);
+  }
   if (reasons.length === 0) reasons.push('실적 개선');
   return reasons.slice(0, 3);
 };
 
-const buildValueReasons = (stock) => {
+const buildValueReasons = (snapshot) => {
   const reasons = [];
-  if (stock.peg && stock.peg < 1) reasons.push(`PEG ${stock.peg.toFixed(2)}`);
-  if (stock.per && stock.per < 10) reasons.push(`저PER ${stock.per.toFixed(1)}배`);
-  if (stock.pbr && stock.pbr < 1) reasons.push(`저PBR ${stock.pbr.toFixed(2)}배`);
-  if (stock.roe && stock.roe > 15) reasons.push(`고ROE ${stock.roe.toFixed(1)}%`);
-  if (stock.dividendYield && stock.dividendYield > 3) reasons.push(`배당률 ${stock.dividendYield.toFixed(1)}%`);
+  if (snapshot.peg && snapshot.peg < 1) reasons.push(`PEG ${snapshot.peg.toFixed(2)}`);
+  if (snapshot.per && snapshot.per < 10) reasons.push(`저PER ${snapshot.per.toFixed(1)}배`);
+  if (snapshot.pbr && snapshot.pbr < 1) reasons.push(`저PBR ${snapshot.pbr.toFixed(2)}배`);
+  if (snapshot.roe && snapshot.roe > 15) reasons.push(`고ROE ${snapshot.roe.toFixed(1)}%`);
+  if (snapshot.epsGrowth && snapshot.epsGrowth > 20) reasons.push(`EPS성장 ${snapshot.epsGrowth.toFixed(0)}%`);
   if (reasons.length === 0) reasons.push('저평가 성장주');
   return reasons.slice(0, 3);
 };
@@ -735,11 +614,9 @@ const goToDetail = (stockCode) => {
 onMounted(async () => {
   loading.value = true;
   try {
+    // 스냅샷 API 단일 호출로 모든 전략 데이터 로드 (외부 API 호출 X, DB만)
     await Promise.all([
-      loadScalpingData(),
-      loadSwingData(),
-      loadTrendData(),
-      loadValueData(),
+      loadSnapshotData(),
       loadMarketSummary()
     ]);
     lastUpdated.value = new Date();

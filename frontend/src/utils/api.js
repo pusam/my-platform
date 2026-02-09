@@ -687,6 +687,26 @@ export const screenerAPI = {
   }
 };
 
+// AI Strategy Snapshot API (스냅샷 기반 - DB 조회만)
+export const aiStrategyAPI = {
+  // 모든 전략의 최신 스냅샷 조회
+  getLatest() {
+    return apiClient.get('/ai-strategy/latest');
+  },
+  // 특정 전략의 최신 스냅샷 조회
+  getLatestByType(strategyType) {
+    return apiClient.get(`/ai-strategy/latest/${strategyType}`);
+  },
+  // 스냅샷 통계 조회 (관리용)
+  getStats() {
+    return apiClient.get('/ai-strategy/stats');
+  },
+  // 수동 스냅샷 수집 (테스트/관리용)
+  collectSnapshots() {
+    return apiClient.post('/ai-strategy/collect');
+  }
+};
+
 // Investor Trade API (투자자 매매)
 export const investorAPI = {
   // 투자자별 상위 매수/매도 종목
