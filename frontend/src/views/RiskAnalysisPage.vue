@@ -248,8 +248,10 @@
               <span class="badge ai">AI</span>
             </div>
             <div class="card-body">
-              <div v-if="result.aiAnalysis" class="ai-analysis-content">
-                <p>{{ result.aiAnalysis }}</p>
+              <div v-if="parsedAiAnalysis" class="ai-analysis-content">
+                <p v-if="parsedAiAnalysis.analysis" class="ai-main-text">{{ parsedAiAnalysis.analysis }}</p>
+                <p v-else-if="parsedAiAnalysis.reason" class="ai-main-text">{{ parsedAiAnalysis.reason }}</p>
+                <p v-else class="ai-main-text">{{ parsedAiAnalysis.text }}</p>
               </div>
               <div v-else class="empty-state">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2">
@@ -339,6 +341,55 @@ export default {
       if (!this.result) return this.gaugeArcLength;
       const progress = this.result.riskScore / 100;
       return this.gaugeArcLength * (1 - progress);
+    },
+    parsedAiAnalysis() {
+      if (!this.result?.aiAnalysis) return null;
+
+      const raw = this.result.aiAnalysis;
+
+      // JSON 파싱 시도
+      try {
+        // ```json ... ``` 형식 처리
+        let jsonStr = raw;
+        if (raw.includes('```json')) {
+          jsonStr = raw.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+        } else if (raw.includes('```')) {
+          jsonStr = raw.replace(/```\s*/g, '');
+        }
+
+        // JSON 객체 추출 시도 (중괄호로 시작하는 부분 찾기)
+        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          // reason과 analysis만 추출
+          return {
+            reason: parsed.reason || null,
+            analysis: parsed.analysis || null,
+            text: null
+          };
+        }
+      } catch (e) {
+        // JSON 파싱 실패 시 원본 텍스트 반환
+        console.log('AI 분석 JSON 파싱 실패, 원본 텍스트 사용');
+      }
+
+      // JSON이 아닌 경우 원본 텍스트 반환 (정리된 형태로)
+      let cleanText = raw
+        .replace(/```json\s*/g, '')
+        .replace(/```\s*/g, '')
+        .replace(/\{[\s\S]*\}/g, '') // JSON 블록 제거
+        .trim();
+
+      // 텍스트가 비어있으면 원본 사용
+      if (!cleanText) {
+        cleanText = raw;
+      }
+
+      return {
+        reason: null,
+        analysis: null,
+        text: cleanText
+      };
     }
   },
   methods: {
@@ -921,8 +972,17 @@ export default {
 
 /* AI 분석 */
 .ai-analysis-content {
-  line-height: 1.7;
+  line-height: 1.8;
+  color: #374151;
+}
+
+.ai-main-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
   color: #4b5563;
+  word-break: keep-all;
+  white-space: pre-wrap;
 }
 
 /* 빈 상태 */
