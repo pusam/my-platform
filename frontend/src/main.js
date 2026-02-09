@@ -31,6 +31,7 @@ import PensionLotteryPage from './views/PensionLotteryPage.vue'
 import ScalpingAnalysisPage from './views/ScalpingAnalysisPage.vue'
 import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 import AiStockDashboard from './views/AiStockDashboard.vue'
+import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -210,6 +211,12 @@ const router = createRouter({
       path: '/ai-stock',
       name: 'AiStockDashboard',
       component: AiStockDashboard,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/ai-strategy',
+      name: 'AiStrategyDashboard',
+      component: AiStrategyDashboardPage,
       meta: { requiresAuth: true }
     },
     {

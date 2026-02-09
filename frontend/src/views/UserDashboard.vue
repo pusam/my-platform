@@ -44,6 +44,23 @@
           <h2>주식</h2>
         </div>
         <div class="menu-grid">
+          <article class="menu-card ai-strategy featured" @click="goToAiStrategy">
+            <div class="card-icon ai-strategy-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+              </svg>
+            </div>
+            <h3>AI 투자 전략 <span class="menu-ai-badge gold">NEW</span></h3>
+            <p>초단타/스윙/추세/가치 기간별 맞춤 TOP 5</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
           <article class="menu-card ai-analysis" @click="goToAiStock">
             <div class="card-icon ai-analysis-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -634,6 +651,9 @@ export default {
     goToAiStock() {
       this.$router.push('/ai-stock')
     },
+    goToAiStrategy() {
+      this.$router.push('/ai-strategy')
+    },
     goToInvestorTrade() {
       this.$router.push('/investor-trades')
     },
@@ -885,6 +905,60 @@ export default {
 
 .menu-card.ai-analysis h3 {
   color: #9333ea;
+}
+
+/* AI 투자 전략 카드 (Featured) */
+.card-icon.ai-strategy-icon {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(255, 165, 0, 0.2) 100%);
+  color: #f59e0b;
+}
+
+.menu-card.ai-strategy {
+  background: linear-gradient(135deg, rgba(255, 251, 235, 0.98) 0%, rgba(254, 243, 199, 0.95) 100%);
+  border: 2px solid rgba(245, 158, 11, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.menu-card.ai-strategy::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: linear-gradient(
+    45deg,
+    transparent 30%,
+    rgba(255, 215, 0, 0.1) 50%,
+    transparent 70%
+  );
+  animation: shine 3s infinite;
+}
+
+@keyframes shine {
+  0% { transform: translateX(-100%) rotate(45deg); }
+  100% { transform: translateX(100%) rotate(45deg); }
+}
+
+.menu-card.ai-strategy.featured {
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.2);
+}
+
+.menu-card.ai-strategy:hover {
+  border-color: #f59e0b;
+  box-shadow: 0 20px 50px rgba(245, 158, 11, 0.3);
+  transform: translateY(-8px);
+}
+
+.menu-card.ai-strategy h3 {
+  color: #d97706;
+}
+
+.menu-ai-badge.gold {
+  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
+  color: #78350f;
+  font-weight: 700;
 }
 
 .menu-card.sector {
