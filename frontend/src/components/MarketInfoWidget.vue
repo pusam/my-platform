@@ -1,52 +1,86 @@
 <template>
   <div class="market-info-widget">
     <div class="widget-header">
-      <h3>시장 정보</h3>
-      <span class="update-time" v-if="lastUpdated">{{ lastUpdated }}</span>
+      <h3>
+        <span class="header-icon">📡</span>
+        시장 HUD
+      </h3>
+      <span class="update-time" v-if="lastUpdated && !loading">{{ lastUpdated }} 기준</span>
     </div>
 
-    <div class="info-cards">
-      <!-- ADR (등락비율) -->
-      <div class="info-card adr-card" :class="adrClass">
-        <div class="info-label">
-          <span class="icon">📊</span>
-          ADR (20일)
-        </div>
-        <div class="info-value">
-          <span class="main-value" v-if="marketData?.combinedAdr">
-            {{ marketData.combinedAdr.toFixed(1) }}
-          </span>
-          <span class="main-value" v-else>-</span>
-        </div>
-        <div class="info-status" :class="adrStatusClass">
-          {{ adrStatusText }}
-        </div>
+    <!-- 로딩 상태: 스켈레톤 UI -->
+    <div v-if="loading" class="info-cards">
+      <div class="info-card skeleton-card">
+        <div class="skeleton-header"></div>
+        <div class="skeleton-main"></div>
+        <div class="skeleton-sub"></div>
+        <div class="skeleton-badge"></div>
       </div>
-
-      <!-- USD/KRW 환율 -->
-      <div class="info-card exchange-card" :class="exchangeClass">
-        <div class="info-label">
-          <span class="icon">💱</span>
-          USD/KRW
-        </div>
-        <div class="info-value">
-          <span class="main-value" v-if="exchangeData?.rate">
-            {{ formatNumber(exchangeData.rate) }}
-          </span>
-          <span class="main-value" v-else>-</span>
-          <span class="change-value" v-if="exchangeData?.change" :class="exchangeTrendClass">
-            {{ exchangeData.change >= 0 ? '+' : '' }}{{ exchangeData.change.toFixed(2) }}
-            ({{ exchangeData.changeRate >= 0 ? '+' : '' }}{{ exchangeData.changeRate?.toFixed(2) }}%)
-          </span>
-        </div>
-        <div class="info-status" :class="exchangeSignalClass">
-          {{ exchangeSignalText }}
+      <div class="info-card skeleton-card">
+        <div class="skeleton-header"></div>
+        <div class="skeleton-items">
+          <div class="skeleton-item"></div>
+          <div class="skeleton-item"></div>
+          <div class="skeleton-item"></div>
         </div>
       </div>
     </div>
 
-    <div class="loading-overlay" v-if="loading">
-      <span class="spinner"></span>
+    <!-- 데이터 로드 완료 -->
+    <div v-else class="info-cards">
+      <!-- 좌측: 시장 상태 요약 -->
+      <div class="info-card status-card" :class="marketStatusClass">
+        <div class="status-icon">{{ marketStatusIcon }}</div>
+        <div class="status-content">
+          <div class="status-label">시장 상태</div>
+          <div class="status-main">{{ marketStatusTitle }}</div>
+          <div class="status-interpretation">{{ marketStatusDescription }}</div>
+        </div>
+        <div class="adr-badge" :class="adrBadgeClass">
+          ADR {{ marketData?.combinedAdr?.toFixed(0) || '-' }}
+        </div>
+      </div>
+
+      <!-- 우측: 지수/환율 현황 -->
+      <div class="info-card indices-card">
+        <div class="indices-grid">
+          <!-- KOSPI -->
+          <div class="index-item">
+            <span class="index-label">KOSPI</span>
+            <span class="index-value" v-if="marketData?.kospiIndex">
+              {{ formatNumber(marketData.kospiIndex, 2) }}
+            </span>
+            <span class="index-value" v-else>-</span>
+            <span class="index-change" :class="getChangeClass(marketData?.kospiChange)">
+              {{ formatChange(marketData?.kospiChange) }}
+            </span>
+          </div>
+
+          <!-- KOSDAQ -->
+          <div class="index-item">
+            <span class="index-label">KOSDAQ</span>
+            <span class="index-value" v-if="marketData?.kosdaqIndex">
+              {{ formatNumber(marketData.kosdaqIndex, 2) }}
+            </span>
+            <span class="index-value" v-else>-</span>
+            <span class="index-change" :class="getChangeClass(marketData?.kosdaqChange)">
+              {{ formatChange(marketData?.kosdaqChange) }}
+            </span>
+          </div>
+
+          <!-- 환율 -->
+          <div class="index-item">
+            <span class="index-label">USD/KRW</span>
+            <span class="index-value" v-if="exchangeData?.rate">
+              {{ formatNumber(exchangeData.rate, 0) }}
+            </span>
+            <span class="index-value" v-else>-</span>
+            <span class="index-change" :class="getChangeClass(exchangeData?.changeRate, true)">
+              {{ formatChange(exchangeData?.changeRate) }}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -61,72 +95,79 @@ const loading = ref(true);
 const lastUpdated = ref('');
 let refreshInterval = null;
 
-// ADR 클래스
-const adrClass = computed(() => {
+// 시장 상태 계산
+const marketStatusClass = computed(() => {
   if (!marketData.value?.combinedAdr) return '';
   const adr = marketData.value.combinedAdr;
   if (adr >= 120) return 'overheated';
-  if (adr <= 60) return 'extreme-fear';
-  if (adr <= 80) return 'oversold';
-  return 'normal';
+  if (adr >= 100) return 'bullish';
+  if (adr >= 80) return 'normal';
+  if (adr >= 60) return 'bearish';
+  return 'extreme-fear';
 });
 
-const adrStatusClass = computed(() => {
-  if (!marketData.value?.overallCondition) return 'neutral';
-  const condition = marketData.value.overallCondition;
-  switch (condition) {
-    case 'OVERHEATED': return 'danger';
-    case 'EXTREME_FEAR': return 'danger';
-    case 'OVERSOLD': return 'warning';
-    default: return 'normal';
-  }
+const marketStatusIcon = computed(() => {
+  if (!marketData.value?.combinedAdr) return '📊';
+  const adr = marketData.value.combinedAdr;
+  if (adr >= 120) return '🔥';
+  if (adr >= 100) return '📈';
+  if (adr >= 80) return '➡️';
+  if (adr >= 60) return '📉';
+  return '💎';
 });
 
-const adrStatusText = computed(() => {
+const marketStatusTitle = computed(() => {
   if (!marketData.value?.combinedAdr) return '데이터 없음';
   const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '과열 - 매수 주의';
-  if (adr <= 60) return '극심한 공포 - 기회 탐색';
-  if (adr <= 80) return '침체 - 바닥 탐색';
-  return '정상';
+  if (adr >= 120) return '과열';
+  if (adr >= 100) return '강세';
+  if (adr >= 80) return '보합';
+  if (adr >= 60) return '약세';
+  return '침체';
 });
 
-// 환율 클래스
-const exchangeClass = computed(() => {
-  if (!exchangeData.value?.signal) return '';
-  switch (exchangeData.value.signal) {
-    case 'FOREIGN_SELL': return 'sell-pressure';
-    case 'FOREIGN_BUY': return 'buy-pressure';
-    default: return 'neutral';
+const marketStatusDescription = computed(() => {
+  if (!marketData.value?.combinedAdr) return '시장 데이터를 불러오지 못했습니다.';
+  const adr = marketData.value.combinedAdr;
+  if (adr >= 120) return '추격 매수 주의, 익절 고려';
+  if (adr >= 100) return '상승 추세, 눌림목 매수 유효';
+  if (adr >= 80) return '방향성 탐색 중';
+  if (adr >= 60) return '하락 추세, 반등 대기';
+  return '저점 매수 기회 탐색';
+});
+
+const adrBadgeClass = computed(() => {
+  if (!marketData.value?.combinedAdr) return '';
+  const adr = marketData.value.combinedAdr;
+  if (adr >= 120) return 'badge-danger';
+  if (adr >= 100) return 'badge-success';
+  if (adr >= 80) return 'badge-neutral';
+  if (adr >= 60) return 'badge-warning';
+  return 'badge-info';
+});
+
+// 유틸리티
+const formatNumber = (num, decimals = 2) => {
+  if (num == null) return '-';
+  return num.toLocaleString('ko-KR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+};
+
+const formatChange = (change) => {
+  if (change == null) return '-';
+  const sign = change >= 0 ? '+' : '';
+  return `${sign}${change.toFixed(2)}%`;
+};
+
+const getChangeClass = (change, inverse = false) => {
+  if (change == null) return '';
+  // inverse: 환율은 상승이 부정적
+  if (inverse) {
+    return change >= 0 ? 'negative' : 'positive';
   }
-});
-
-const exchangeTrendClass = computed(() => {
-  if (!exchangeData.value?.trend) return '';
-  return exchangeData.value.trend === 'UP' ? 'up' : 'down';
-});
-
-const exchangeSignalClass = computed(() => {
-  if (!exchangeData.value?.signal) return 'neutral';
-  switch (exchangeData.value.signal) {
-    case 'FOREIGN_SELL': return 'warning';
-    case 'FOREIGN_BUY': return 'success';
-    default: return 'neutral';
-  }
-});
-
-const exchangeSignalText = computed(() => {
-  if (!exchangeData.value?.signal) return '-';
-  switch (exchangeData.value.signal) {
-    case 'FOREIGN_SELL': return '외국인 매도 압력';
-    case 'FOREIGN_BUY': return '외국인 매수 유입';
-    default: return '중립';
-  }
-});
-
-const formatNumber = (num) => {
-  if (!num) return '-';
-  return num.toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return change >= 0 ? 'positive' : 'negative';
 };
 
 const fetchData = async () => {
@@ -136,9 +177,11 @@ const fetchData = async () => {
       exchangeRateAPI.getCurrentRate().catch(() => ({ data: null }))
     ]);
 
-    if (marketRes.data) {
-      marketData.value = marketRes.data;
+    // market API는 { success, data } 래퍼 구조
+    if (marketRes.data?.success && marketRes.data?.data) {
+      marketData.value = marketRes.data.data;
     }
+    // exchange rate API는 DTO 직접 반환
     if (exchangeRes.data) {
       exchangeData.value = exchangeRes.data;
     }
@@ -186,11 +229,21 @@ onUnmounted(() => {
   color: #fff;
   font-size: 1.1rem;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-icon {
+  font-size: 1.2rem;
 }
 
 .update-time {
   font-size: 0.75rem;
   color: #888;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 4px 10px;
+  border-radius: 12px;
 }
 
 .info-cards {
@@ -199,7 +252,7 @@ onUnmounted(() => {
   gap: 16px;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 700px) {
   .info-cards {
     grid-template-columns: 1fr;
   }
@@ -213,135 +266,206 @@ onUnmounted(() => {
   transition: all 0.3s ease;
 }
 
-.info-card:hover {
-  background: rgba(255, 255, 255, 0.08);
-  transform: translateY(-2px);
-}
-
-/* ADR 카드 색상 */
-.info-card.overheated {
-  border-color: rgba(239, 68, 68, 0.5);
-  background: rgba(239, 68, 68, 0.1);
-}
-
-.info-card.oversold {
-  border-color: rgba(59, 130, 246, 0.5);
-  background: rgba(59, 130, 246, 0.1);
-}
-
-.info-card.extreme-fear {
-  border-color: rgba(147, 51, 234, 0.5);
-  background: rgba(147, 51, 234, 0.1);
-}
-
-/* 환율 카드 색상 */
-.info-card.sell-pressure {
-  border-color: rgba(245, 158, 11, 0.5);
-  background: rgba(245, 158, 11, 0.1);
-}
-
-.info-card.buy-pressure {
-  border-color: rgba(16, 185, 129, 0.5);
-  background: rgba(16, 185, 129, 0.1);
-}
-
-.info-label {
+/* ===== 좌측: 시장 상태 카드 ===== */
+.status-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: #aaa;
-  font-size: 0.85rem;
-  margin-bottom: 8px;
+  gap: 14px;
+  position: relative;
 }
 
-.icon {
-  font-size: 1rem;
+.status-card.overheated {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.05) 100%);
 }
 
-.info-value {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.status-card.bullish {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15) 0%, rgba(34, 197, 94, 0.05) 100%);
 }
 
-.main-value {
-  font-size: 1.5rem;
+.status-card.normal {
+  border-color: rgba(156, 163, 175, 0.5);
+  background: linear-gradient(135deg, rgba(156, 163, 175, 0.1) 0%, rgba(156, 163, 175, 0.02) 100%);
+}
+
+.status-card.bearish {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(245, 158, 11, 0.05) 100%);
+}
+
+.status-card.extreme-fear {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
+}
+
+.status-icon {
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.status-content {
+  flex: 1;
+}
+
+.status-label {
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.status-main {
+  font-size: 1.4rem;
   font-weight: 700;
   color: #fff;
-  font-family: 'Monaco', 'Consolas', monospace;
+  margin-bottom: 4px;
 }
 
-.change-value {
+.status-interpretation {
   font-size: 0.85rem;
-  font-family: 'Monaco', 'Consolas', monospace;
+  color: #aaa;
 }
 
-.change-value.up {
-  color: #ef4444;
-}
-
-.change-value.down {
-  color: #3b82f6;
-}
-
-.info-status {
-  margin-top: 8px;
-  padding: 4px 8px;
-  border-radius: 6px;
+.adr-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
   font-size: 0.75rem;
   font-weight: 600;
-  display: inline-block;
+  font-family: 'Monaco', 'Consolas', monospace;
 }
 
-.info-status.danger {
+.badge-danger {
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
 }
 
-.info-status.warning {
+.badge-success {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+}
+
+.badge-neutral {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+}
+
+.badge-warning {
   background: rgba(245, 158, 11, 0.2);
   color: #f59e0b;
 }
 
-.info-status.success {
-  background: rgba(16, 185, 129, 0.2);
-  color: #10b981;
+.badge-info {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
 }
 
-.info-status.normal {
-  background: rgba(163, 163, 163, 0.2);
-  color: #a3a3a3;
-}
-
-.info-status.neutral {
-  background: rgba(163, 163, 163, 0.2);
-  color: #a3a3a3;
-}
-
-/* Loading */
-.loading-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(26, 26, 58, 0.8);
+/* ===== 우측: 지수 현황 카드 ===== */
+.indices-card {
   display: flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 16px;
 }
 
-.spinner {
-  width: 24px;
+.indices-grid {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+
+.index-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 4px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.index-label {
+  font-size: 0.7rem;
+  color: #888;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.index-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff;
+  font-family: 'Monaco', 'Consolas', monospace;
+  margin-bottom: 2px;
+}
+
+.index-change {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-family: 'Monaco', 'Consolas', monospace;
+}
+
+.index-change.positive {
+  color: #ef4444;
+}
+
+.index-change.negative {
+  color: #3b82f6;
+}
+
+/* ===== 스켈레톤 로딩 UI ===== */
+.skeleton-card {
+  background: rgba(255, 255, 255, 0.03);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.skeleton-header {
+  width: 60%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.skeleton-main {
+  width: 80%;
   height: 24px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-top-color: #9f7aea;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  margin-bottom: 8px;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.skeleton-sub {
+  width: 100%;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.skeleton-badge {
+  width: 50px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  margin-left: auto;
+}
+
+.skeleton-items {
+  display: flex;
+  gap: 8px;
+}
+
+.skeleton-item {
+  flex: 1;
+  height: 60px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
 }
 </style>

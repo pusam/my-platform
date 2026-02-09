@@ -207,6 +207,16 @@ public class MarketTimingController {
                     timing.getOverallCondition().getEmoji() : "❓ 데이터 없음");
             simpleData.put("diagnosis", timing.getDiagnosis());
 
+            // KOSPI/KOSDAQ 지수 정보 추가
+            if (timing.getKospi() != null) {
+                simpleData.put("kospiIndex", timing.getKospi().getIndexClose());
+                simpleData.put("kospiChange", timing.getKospi().getIndexChangeRate());
+            }
+            if (timing.getKosdaq() != null) {
+                simpleData.put("kosdaqIndex", timing.getKosdaq().getIndexClose());
+                simpleData.put("kosdaqChange", timing.getKosdaq().getIndexChangeRate());
+            }
+
             response.put("success", true);
             response.put("data", simpleData);
 
