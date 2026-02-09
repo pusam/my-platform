@@ -199,46 +199,186 @@ const lastUpdated = ref(null);
 const isMockData = ref(false);
 let refreshInterval = null;
 
-// Mock Data (테스트용 삼성전자 데이터)
+// ========== 1. 종목명/코드 매핑 (Search Fix) ==========
+const STOCK_MAP = {
+  // 대형주
+  '삼성전자': '005930',
+  'SK하이닉스': '000660',
+  'LG에너지솔루션': '373220',
+  '삼성바이오로직스': '207940',
+  '현대차': '005380',
+  '기아': '000270',
+  'NAVER': '035420',
+  '네이버': '035420',
+  '카카오': '035720',
+  'LG화학': '051910',
+  '삼성SDI': '006400',
+  'POSCO홀딩스': '005490',
+  '포스코홀딩스': '005490',
+  'KB금융': '105560',
+  '신한지주': '055550',
+  // 인기 테마주
+  '에코프로': '086520',
+  '에코프로비엠': '247540',
+  '포스코퓨처엠': '003670',
+  '엘앤에프': '066970',
+  '두산에너빌리티': '034020',
+  '한화에어로스페이스': '012450',
+  'HLB': '028300',
+  '셀트리온': '068270',
+  '알테오젠': '196170',
+  // 역방향 매핑 (코드 → 이름)
+};
+
+// 코드로 종목명 찾기
+const CODE_TO_NAME = {
+  '005930': '삼성전자',
+  '000660': 'SK하이닉스',
+  '373220': 'LG에너지솔루션',
+  '207940': '삼성바이오로직스',
+  '005380': '현대차',
+  '000270': '기아',
+  '035420': 'NAVER',
+  '035720': '카카오',
+  '051910': 'LG화학',
+  '006400': '삼성SDI',
+  '005490': 'POSCO홀딩스',
+  '105560': 'KB금융',
+  '055550': '신한지주',
+  '086520': '에코프로',
+  '247540': '에코프로비엠',
+  '003670': '포스코퓨처엠',
+  '066970': '엘앤에프',
+  '034020': '두산에너빌리티',
+  '012450': '한화에어로스페이스',
+  '028300': 'HLB',
+  '068270': '셀트리온',
+  '196170': '알테오젠',
+};
+
+// ========== 2. 논리적으로 정합한 Mock Data 생성 ==========
 const getMockData = (code) => {
   const now = new Date();
-  const hours = [];
   const programSeries = [];
+  const stockName = CODE_TO_NAME[code] || '테스트 종목';
 
-  // 09:00 ~ 현재 시간까지 프로그램 매매 추이 생성
-  for (let h = 9; h <= Math.min(now.getHours(), 15); h++) {
-    for (let m = 0; m < 60; m += 30) {
-      if (h === 15 && m > 30) break;
+  // 종목별 시나리오 데이터 (주가 상승 시 체결강도 > 100%)
+  const scenarios = {
+    '005930': { // 삼성전자 - 상승 시나리오
+      currentPrice: 74200,
+      changePrice: 3200,
+      changeRate: 4.51,
+      tradingVolume: 18500000,
+      volumePower: 128.5,  // 상승 중이므로 100% 이상
+      volumeSignal: 'BUY',
+      foreignNetBuy: 320,
+      instNetBuy: 85,
+      programNetBuy: 150,
+      programTrend: 'UP'
+    },
+    '000660': { // SK하이닉스 - 강한 상승
+      currentPrice: 178500,
+      changePrice: 8500,
+      changeRate: 5.0,
+      tradingVolume: 8200000,
+      volumePower: 142.3,
+      volumeSignal: 'STRONG_BUY',
+      foreignNetBuy: 580,
+      instNetBuy: 220,
+      programNetBuy: 320,
+      programTrend: 'UP'
+    },
+    '086520': { // 에코프로 - 급등
+      currentPrice: 98500,
+      changePrice: 12800,
+      changeRate: 14.93,
+      tradingVolume: 25000000,
+      volumePower: 185.6,
+      volumeSignal: 'STRONG_BUY',
+      foreignNetBuy: 420,
+      instNetBuy: -150,
+      programNetBuy: 680,
+      programTrend: 'UP'
+    },
+    'default': { // 기본값 - 소폭 상승
+      currentPrice: 50000,
+      changePrice: 1500,
+      changeRate: 3.1,
+      tradingVolume: 5000000,
+      volumePower: 115.2,
+      volumeSignal: 'BUY',
+      foreignNetBuy: 120,
+      instNetBuy: 45,
+      programNetBuy: 85,
+      programTrend: 'UP'
+    }
+  };
+
+  const data = scenarios[code] || scenarios['default'];
+
+  // 09:00 ~ 현재 시간까지 프로그램 매매 추이 생성 (우상향 곡선)
+  const currentHour = Math.min(now.getHours(), 15);
+  const currentMinute = now.getMinutes();
+  let cumulativeValue = 0;
+
+  for (let h = 9; h <= currentHour; h++) {
+    const maxMinute = (h === currentHour) ? currentMinute : 59;
+    for (let m = 0; m <= maxMinute; m += 10) {
       const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-      // 점진적으로 증가하는 누적 순매수
-      const baseValue = ((h - 9) * 60 + m) * 3 + Math.random() * 100;
+      // 시간에 따라 점진적 증가 + 랜덤 변동
+      const timeFactor = (h - 9) * 60 + m;
+      const trend = data.programNetBuy > 0 ? 1 : -1;
+      const baseIncrease = trend * (timeFactor * 0.4 + Math.random() * 30);
+      cumulativeValue += baseIncrease;
+
       programSeries.push({
         time,
-        value: Math.round(baseValue)
+        value: Math.round(cumulativeValue)
       });
     }
   }
 
+  // 마지막 값을 programNetBuy에 맞게 스케일링
+  if (programSeries.length > 0) {
+    const lastValue = programSeries[programSeries.length - 1].value;
+    const scale = lastValue !== 0 ? data.programNetBuy / lastValue : 1;
+    programSeries.forEach(item => {
+      item.value = Math.round(item.value * scale);
+    });
+  }
+
   return {
-    stockCode: code || '005930',
-    stockName: code === '005930' ? '삼성전자' : '테스트 종목',
-    currentPrice: 74200,
-    changePrice: 1100,
-    changeRate: 1.5,
-    tradingVolume: 12500000,
-    volumePower: 125.4,
-    volumeSignal: 'BUY',
-    foreignNetBuy: 200,
-    instNetBuy: -50,
-    programNetBuy: 520,
-    programTrend: 'UP',
+    stockCode: code,
+    stockName: stockName,
+    currentPrice: data.currentPrice,
+    changePrice: data.changePrice,
+    changeRate: data.changeRate,
+    tradingVolume: data.tradingVolume,
+    volumePower: data.volumePower,
+    volumeSignal: data.volumeSignal,
+    foreignNetBuy: data.foreignNetBuy,
+    instNetBuy: data.instNetBuy,
+    programNetBuy: data.programNetBuy,
+    programTrend: data.programTrend,
     programTradingSeries: programSeries
   };
 };
 
+// 토스트 메시지 표시
+const showToast = (message) => {
+  errorMessage.value = message;
+  setTimeout(() => {
+    if (errorMessage.value === message) {
+      errorMessage.value = '';
+    }
+  }, 3000);
+};
+
 const searchStock = async () => {
-  if (!searchInput.value.trim()) {
-    errorMessage.value = '종목코드 또는 종목명을 입력해주세요.';
+  const input = searchInput.value.trim();
+
+  if (!input) {
+    showToast('종목코드 또는 종목명을 입력해주세요.');
     return;
   }
 
@@ -246,15 +386,30 @@ const searchStock = async () => {
   errorMessage.value = '';
 
   try {
-    let code = searchInput.value.trim();
+    let code = input;
 
-    // 6자리 숫자가 아니면 종목 검색
-    if (!/^\d{6}$/.test(code)) {
-      const searchResponse = await stockAPI.searchStocks(code);
-      if (searchResponse.data.success && searchResponse.data.data?.length > 0) {
-        code = searchResponse.data.data[0].stockCode;
-      } else {
-        errorMessage.value = '종목을 찾을 수 없습니다.';
+    // 1. 6자리 숫자인 경우 코드로 간주
+    if (/^\d{6}$/.test(input)) {
+      code = input;
+    }
+    // 2. 종목명인 경우 로컬 매핑에서 먼저 확인
+    else if (STOCK_MAP[input]) {
+      code = STOCK_MAP[input];
+    }
+    // 3. 로컬 매핑에 없으면 API 검색 시도
+    else {
+      try {
+        const searchResponse = await stockAPI.searchStocks(input);
+        if (searchResponse.data.success && searchResponse.data.data?.length > 0) {
+          code = searchResponse.data.data[0].stockCode;
+        } else {
+          showToast('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
+          loading.value = false;
+          return;
+        }
+      } catch (apiError) {
+        console.warn('API 검색 실패, 로컬 매핑만 지원:', apiError);
+        showToast('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
         loading.value = false;
         return;
       }
@@ -264,7 +419,7 @@ const searchStock = async () => {
     await fetchAnalysis();
   } catch (error) {
     console.error('검색 오류:', error);
-    errorMessage.value = '종목 검색에 실패했습니다.';
+    showToast('종목 검색에 실패했습니다.');
   } finally {
     loading.value = false;
   }
@@ -519,8 +674,21 @@ watch(analysisData, updateChangeClass, { deep: true });
 
 .error-message {
   text-align: center;
-  color: #ef4444;
+  color: #fff;
   margin-top: 12px;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border-radius: 10px;
+  font-weight: 500;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+  animation: fadeInOut 0.3s ease;
+}
+
+@keyframes fadeInOut {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* 실시간 상태 표시줄 */

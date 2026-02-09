@@ -147,23 +147,22 @@
                 하락 {{ hasValidMarketData(marketData.kospi) ? marketData.kospi.decliningCount : '-' }}
               </span>
             </div>
-            <!-- 데이터가 있을 때만 Stacked Bar 표시, 없으면 빈 트랙 -->
-            <div class="stacked-bar" :class="{ 'empty': !hasValidMarketData(marketData.kospi) }">
-              <template v-if="hasValidMarketData(marketData.kospi)">
-                <div
-                  class="bar-segment rising"
-                  :style="{ width: getAdvanceRatio(marketData.kospi) + '%' }"
-                ></div>
-                <div
-                  class="bar-segment unchanged"
-                  :style="{ width: getUnchangedRatio(marketData.kospi) + '%' }"
-                ></div>
-                <div
-                  class="bar-segment falling"
-                  :style="{ width: getDeclineRatio(marketData.kospi) + '%' }"
-                ></div>
-              </template>
-              <div v-else class="empty-bar-message">집계 중</div>
+            <!-- Stacked Bar: 항상 렌더링하고 width로 애니메이션 -->
+            <div class="stacked-bar">
+              <div
+                class="bar-segment rising"
+                :style="{ width: (hasValidMarketData(marketData.kospi) ? getAdvanceRatio(marketData.kospi) : 0) + '%' }"
+              ></div>
+              <div
+                class="bar-segment unchanged"
+                :style="{ width: (hasValidMarketData(marketData.kospi) ? getUnchangedRatio(marketData.kospi) : 0) + '%' }"
+              ></div>
+              <div
+                class="bar-segment falling"
+                :style="{ width: (hasValidMarketData(marketData.kospi) ? getDeclineRatio(marketData.kospi) : 0) + '%' }"
+              ></div>
+              <!-- 데이터 없을 때 메시지 (바 위에 오버레이) -->
+              <div v-if="!hasValidMarketData(marketData.kospi)" class="empty-bar-overlay">집계 중</div>
             </div>
           </div>
 
@@ -231,23 +230,22 @@
                 하락 {{ hasValidMarketData(marketData.kosdaq) ? marketData.kosdaq.decliningCount : '-' }}
               </span>
             </div>
-            <!-- 데이터가 있을 때만 Stacked Bar 표시, 없으면 빈 트랙 -->
-            <div class="stacked-bar" :class="{ 'empty': !hasValidMarketData(marketData.kosdaq) }">
-              <template v-if="hasValidMarketData(marketData.kosdaq)">
-                <div
-                  class="bar-segment rising"
-                  :style="{ width: getAdvanceRatio(marketData.kosdaq) + '%' }"
-                ></div>
-                <div
-                  class="bar-segment unchanged"
-                  :style="{ width: getUnchangedRatio(marketData.kosdaq) + '%' }"
-                ></div>
-                <div
-                  class="bar-segment falling"
-                  :style="{ width: getDeclineRatio(marketData.kosdaq) + '%' }"
-                ></div>
-              </template>
-              <div v-else class="empty-bar-message">집계 중</div>
+            <!-- Stacked Bar: 항상 렌더링하고 width로 애니메이션 -->
+            <div class="stacked-bar">
+              <div
+                class="bar-segment rising"
+                :style="{ width: (hasValidMarketData(marketData.kosdaq) ? getAdvanceRatio(marketData.kosdaq) : 0) + '%' }"
+              ></div>
+              <div
+                class="bar-segment unchanged"
+                :style="{ width: (hasValidMarketData(marketData.kosdaq) ? getUnchangedRatio(marketData.kosdaq) : 0) + '%' }"
+              ></div>
+              <div
+                class="bar-segment falling"
+                :style="{ width: (hasValidMarketData(marketData.kosdaq) ? getDeclineRatio(marketData.kosdaq) : 0) + '%' }"
+              ></div>
+              <!-- 데이터 없을 때 메시지 (바 위에 오버레이) -->
+              <div v-if="!hasValidMarketData(marketData.kosdaq)" class="empty-bar-overlay">집계 중</div>
             </div>
           </div>
 
@@ -1178,8 +1176,25 @@ onMounted(() => {
   font-weight: 500;
 }
 
+/* 데이터 없을 때 바 위에 표시되는 오버레이 */
+.empty-bar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #71717a;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: linear-gradient(135deg, rgba(39, 39, 42, 0.9) 0%, rgba(63, 63, 70, 0.9) 100%);
+  border-radius: 12px;
+}
+
 .bar-segment {
-  transition: width 0.3s ease;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .bar-segment.rising {

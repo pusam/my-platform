@@ -110,7 +110,8 @@ const chartData = computed(() => {
   }
 
   const labels = props.series.map(p => p.time);
-  const data = props.series.map(p => p.netBuyAmount);
+  // netBuyAmount 또는 value 필드 지원 (API vs Mock 데이터 호환)
+  const data = props.series.map(p => p.netBuyAmount ?? p.value ?? 0);
 
   // 양수/음수에 따른 색상
   const borderColor = data.map(v => v >= 0 ? '#ef4444' : '#3b82f6');
