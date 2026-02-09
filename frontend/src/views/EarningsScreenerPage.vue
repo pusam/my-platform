@@ -306,13 +306,20 @@
                 <span class="label">변화율</span>
                 <span class="value positive">+{{ formatPercent(stock.netIncomeChangeRate) }}</span>
               </div>
-              <div class="detail-row">
+              <!-- PER이 유효하면 PER 표시, 아니면 PBR 표시 -->
+              <div class="detail-row" v-if="isValidPer(stock.per)">
                 <span class="label">PER</span>
-                <span class="value">{{ formatNumber(stock.per, 2) }}</span>
+                <span class="value">{{ formatNumber(stock.per, 2) }}배</span>
+              </div>
+              <div class="detail-row" v-else>
+                <span class="label">PBR</span>
+                <span class="value" :class="{ 'value-highlight': stock.pbr && stock.pbr < 1 }">
+                  {{ stock.pbr ? formatNumber(stock.pbr, 2) + '배' : '-' }}
+                </span>
               </div>
               <div class="detail-row">
                 <span class="label">시가총액</span>
-                <span class="value">{{ formatMarketCap(stock.marketCap) }}</span>
+                <span class="value">{{ formatMarketCapSafe(stock) }}</span>
               </div>
             </div>
           </div>
@@ -1372,6 +1379,30 @@ const formatMarketCap = (value) => {
   return `${num.toLocaleString('ko-KR')}억`;
 };
 
+// 턴어라운드 종목 시가총액 안전 포맷 (여러 필드 확인)
+const formatMarketCapSafe = (stock) => {
+  // marketCap 필드 우선, 없으면 market_cap 확인
+  const value = stock.marketCap || stock.market_cap || stock.marketCapitalization;
+  if (!value || value === 0) return '-';
+
+  const num = Number(value);
+  if (isNaN(num) || num <= 0) return '-';
+
+  if (num >= 10000) {
+    return `${(num / 10000).toFixed(1)}조`;
+  } else if (num >= 1) {
+    return `${Math.round(num).toLocaleString('ko-KR')}억`;
+  }
+  return '-';
+};
+
+// PER이 유효한지 확인 (양수이고 0보다 큰 경우만)
+const isValidPer = (per) => {
+  if (per === null || per === undefined) return false;
+  const num = Number(per);
+  return !isNaN(num) && num > 0;
+};
+
 const formatAmount = (value) => {
   if (value === null || value === undefined) return 'N/A';
   const num = Number(value);
@@ -2179,6 +2210,12 @@ onMounted(async () => {
 
 .turnaround-badge.profit-growth {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+}
+
+/* PBR 1배 미만 강조 (저평가) */
+.value-highlight {
+  color: var(--success) !important;
+  font-weight: 700;
 }
 
 .stock-header {
