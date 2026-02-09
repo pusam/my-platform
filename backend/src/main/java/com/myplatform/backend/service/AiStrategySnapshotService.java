@@ -7,6 +7,8 @@ import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +50,40 @@ public class AiStrategySnapshotService {
     // 스냅샷당 저장할 종목 수
     private static final int SNAPSHOT_LIMIT = 5;
 
+    // ========== 서버 시작 시 Warm-up ==========
+
+    /**
+     * 서버 시작 시 모든 전략 스냅샷 초기화 (Warm-up)
+     * - 주말/휴일에도 실행하여 DB에 최소 데이터 보장
+     * - 각 전략별 순차적으로 수집 (API Rate Limit 고려)
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmUpSnapshots() {
+        log.info("[Warm-up] 서버 시작 - 모든 전략 스냅샷 초기 수집 시작");
+
+        int successCount = 0;
+        int failCount = 0;
+
+        for (StrategyType type : StrategyType.values()) {
+            try {
+                log.info("[Warm-up] {} 전략 스냅샷 수집 중...", type.name());
+                collectAndSaveSnapshot(type);
+
+                List<AiStrategySnapshot> saved = snapshotRepository.findLatestByStrategyType(type);
+                log.info("[Warm-up] {} Strategy initialized: {} stocks saved.", type.name(), saved.size());
+                successCount++;
+
+                // API 호출 간격 (Rate Limit 방지)
+                Thread.sleep(1500);
+            } catch (Exception e) {
+                log.error("[Warm-up] {} 전략 스냅샷 수집 실패: {}", type.name(), e.getMessage());
+                failCount++;
+            }
+        }
+
+        log.info("[Warm-up] 초기화 완료 - 성공: {}, 실패: {}", successCount, failCount);
+    }
+
     // ========== 스케줄러 (Dual Track) ==========
 
     /**
@@ -64,12 +100,12 @@ public class AiStrategySnapshotService {
             return;
         }
 
-        log.info("[Track A] 스캘핑 전략 스냅샷 수집 시작");
         try {
             collectAndSaveSnapshot(StrategyType.SCALPING);
-            log.info("[Track A] 스캘핑 전략 스냅샷 수집 완료");
+            List<AiStrategySnapshot> saved = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
+            log.info("[Scheduler] SCALPING Strategy updated: {} stocks saved.", saved.size());
         } catch (Exception e) {
-            log.error("[Track A] 스캘핑 전략 스냅샷 수집 실패: {}", e.getMessage(), e);
+            log.error("[Scheduler] SCALPING Strategy update failed: {}", e.getMessage(), e);
         }
     }
 
@@ -88,19 +124,23 @@ public class AiStrategySnapshotService {
             return;
         }
 
-        log.info("[Track B] 중장기 전략 스냅샷 수집 시작 (SWING, TURNAROUND, VALUE)");
         try {
             collectAndSaveSnapshot(StrategyType.SWING);
+            List<AiStrategySnapshot> swingSaved = snapshotRepository.findLatestByStrategyType(StrategyType.SWING);
+            log.info("[Scheduler] SWING Strategy updated: {} stocks saved.", swingSaved.size());
             Thread.sleep(1000); // API 호출 간격
 
             collectAndSaveSnapshot(StrategyType.TURNAROUND);
+            List<AiStrategySnapshot> turnaroundSaved = snapshotRepository.findLatestByStrategyType(StrategyType.TURNAROUND);
+            log.info("[Scheduler] TURNAROUND Strategy updated: {} stocks saved.", turnaroundSaved.size());
             Thread.sleep(1000);
 
             collectAndSaveSnapshot(StrategyType.VALUE);
+            List<AiStrategySnapshot> valueSaved = snapshotRepository.findLatestByStrategyType(StrategyType.VALUE);
+            log.info("[Scheduler] VALUE Strategy updated: {} stocks saved.", valueSaved.size());
 
-            log.info("[Track B] 중장기 전략 스냅샷 수집 완료");
         } catch (Exception e) {
-            log.error("[Track B] 중장기 전략 스냅샷 수집 실패: {}", e.getMessage(), e);
+            log.error("[Scheduler] Long-term strategies update failed: {}", e.getMessage(), e);
         }
     }
 
@@ -142,9 +182,9 @@ public class AiStrategySnapshotService {
 
         if (!snapshots.isEmpty()) {
             snapshotRepository.saveAll(snapshots);
-            log.info("[스냅샷 저장] {} - {}건", strategyType, snapshots.size());
+            log.debug("[Snapshot] {} saved: {} stocks.", strategyType.name(), snapshots.size());
         } else {
-            log.warn("[스냅샷 저장] {} - 데이터 없음", strategyType);
+            log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
     }
 
@@ -482,15 +522,28 @@ public class AiStrategySnapshotService {
 
     /**
      * 모든 전략의 최신 스냅샷 조회
-     * - DB 조회만, 외부 API 호출 X
+     * - DB 조회 우선, 비어있으면 동기적으로 수집 (Fallback)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public AiStrategySnapshotDto.AllStrategiesResponse getAllLatestSnapshots() {
         Map<String, List<AiStrategySnapshotDto>> strategies = new LinkedHashMap<>();
         Map<String, LocalDateTime> lastUpdated = new LinkedHashMap<>();
 
         for (StrategyType type : StrategyType.values()) {
             List<AiStrategySnapshot> snapshots = snapshotRepository.findLatestByStrategyType(type);
+
+            // Fallback: DB에 데이터가 없으면 동기적으로 수집
+            if (snapshots.isEmpty()) {
+                log.warn("[Fallback] {} 전략 데이터 없음 - 동기 수집 시작", type.name());
+                try {
+                    collectAndSaveSnapshot(type);
+                    snapshots = snapshotRepository.findLatestByStrategyType(type);
+                    log.info("[Fallback] {} Strategy collected: {} stocks.", type.name(), snapshots.size());
+                } catch (Exception e) {
+                    log.error("[Fallback] {} 전략 동기 수집 실패: {}", type.name(), e.getMessage());
+                }
+            }
+
             List<AiStrategySnapshotDto> dtos = snapshots.stream()
                     .map(AiStrategySnapshotDto::fromEntity)
                     .collect(Collectors.toList());
@@ -512,10 +565,24 @@ public class AiStrategySnapshotService {
 
     /**
      * 특정 전략의 최신 스냅샷 조회
+     * - DB 조회 우선, 비어있으면 동기적으로 수집 (Fallback)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public List<AiStrategySnapshotDto> getLatestByStrategy(StrategyType strategyType) {
         List<AiStrategySnapshot> snapshots = snapshotRepository.findLatestByStrategyType(strategyType);
+
+        // Fallback: DB에 데이터가 없으면 동기적으로 수집
+        if (snapshots.isEmpty()) {
+            log.warn("[Fallback] {} 전략 데이터 없음 - 동기 수집 시작", strategyType.name());
+            try {
+                collectAndSaveSnapshot(strategyType);
+                snapshots = snapshotRepository.findLatestByStrategyType(strategyType);
+                log.info("[Fallback] {} Strategy collected: {} stocks.", strategyType.name(), snapshots.size());
+            } catch (Exception e) {
+                log.error("[Fallback] {} 전략 동기 수집 실패: {}", strategyType.name(), e.getMessage());
+            }
+        }
+
         return snapshots.stream()
                 .map(AiStrategySnapshotDto::fromEntity)
                 .collect(Collectors.toList());
