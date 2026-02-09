@@ -2078,17 +2078,17 @@ onMounted(async () => {
 /* 개선된 지표 셀 스타일 (1. 스크리너 테이블 색상 로직 개선) */
 .metric-cell {
   position: relative;
-  padding: 0.5rem 0.75rem;
+  padding: 0 !important; /* 패딩 제거하여 배경색 꽉 채우기 */
 }
 
 .metric-value-bar {
   position: absolute;
   left: 0;
   top: 0;
+  bottom: 0;
   height: 100%;
-  border-radius: 4px;
   z-index: 0;
-  transition: width 0.3s ease;
+  /* border-radius 제거하여 셀 사이 끊김 방지 */
 }
 
 .metric-text {
@@ -2096,12 +2096,16 @@ onMounted(async () => {
   z-index: 1;
   color: var(--text-primary); /* 기본 검정색 */
   font-weight: 500;
+  padding: 0.75rem 0.5rem 0.75rem 0.75rem;
+  display: inline-block;
 }
 
 .good-badge {
-  margin-left: 0.25rem;
+  position: relative;
+  z-index: 1;
   font-size: 0.85rem;
   animation: pop-in 0.3s ease;
+  padding-right: 0.5rem;
 }
 
 @keyframes pop-in {
