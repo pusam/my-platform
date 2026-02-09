@@ -501,15 +501,23 @@ public class QuantScreenerService {
             // ⭐ 데이터 품질 개선: 종목명/시가총액/PER/PBR 보완
             enrichScreenerResults(results, new ArrayList<>(stockDataForUpdate.values()));
 
-            // ⭐ 데이터 클렌징: 시가총액 500억 이상만 (동전주/관리종목 제외)
+            // ⭐ 데이터 클렌징: 시가총액 500억 이상 또는 시가총액 미확인 종목 포함
+            // (시가총액 데이터가 없는 경우 일단 포함 - 화면에서 확인 가능하도록)
             int beforeFilter = results.size();
             long nullMarketCapCount = results.stream().filter(dto -> dto.getMarketCap() == null).count();
             log.info("시가총액 필터 전: {}건, 시가총액 null: {}건", beforeFilter, nullMarketCapCount);
 
             results = results.stream()
-                    .filter(dto -> dto.getMarketCap() != null && dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
+                    .filter(dto -> {
+                        // 시가총액이 null이면 일단 포함 (데이터 누락)
+                        if (dto.getMarketCap() == null) {
+                            return true;
+                        }
+                        // 시가총액 500억 이상만
+                        return dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0;
+                    })
                     .collect(Collectors.toList());
-            log.info("시가총액 필터 후: {}건 (500억 이상)", results.size());
+            log.info("시가총액 필터 후: {}건 (500억↑ 또는 미확인)", results.size());
 
             // 적자→흑자 전환 우선, 그 다음 변화율 높은 순으로 정렬
             results.sort((a, b) -> {
@@ -849,20 +857,25 @@ public class QuantScreenerService {
                 }
             }
 
-            // 3. 시가총액 보완
-            if (result.getMarketCap() == null || result.getMarketCap().compareTo(BigDecimal.ZERO) <= 0) {
-                BigDecimal newMarketCap = fetchMarketCapFromKis(stockCode);
-                if (newMarketCap != null && newMarketCap.compareTo(BigDecimal.ZERO) > 0) {
-                    result.setMarketCap(newMarketCap);
-                    if (original != null) {
-                        original.setMarketCap(newMarketCap);
-                        updated = true;
-                    }
+            // 3. 시가총액 보완 (캐시에서만 - API 호출 안 함)
+            if ((result.getMarketCap() == null || result.getMarketCap().compareTo(BigDecimal.ZERO) <= 0)
+                    && priceDto != null && priceDto.getMarketCap() != null) {
+                result.setMarketCap(priceDto.getMarketCap());
+                if (original != null) {
+                    original.setMarketCap(priceDto.getMarketCap());
+                    updated = true;
                 }
             }
 
-            // 4. PER/PBR 보완 (KIS API에서 조회)
-            if (result.getPer() == null || result.getPbr() == null) {
+            // 4. PER/PBR 보완 - 캐시에 없으므로 스킵 (빠른 응답 우선)
+            // StockPriceDto에는 PER/PBR이 없음 - DB 데이터 그대로 사용
+
+            /* ⚠️ KIS API 개별 호출 비활성화 (126건 × API 호출 = 타임아웃)
+             * 턴어라운드 스크리너는 빠른 응답이 중요하므로 개별 API 호출 안 함
+             */
+
+            // ====== 아래 코드는 사용하지 않음 (성능 이슈로 비활성화) ======
+            if (false && (result.getPer() == null || result.getPbr() == null)) {
                 try {
                     JsonNode response = koreaInvestmentService.getStockInfo(stockCode);
                     if (response != null && response.has("output")) {
