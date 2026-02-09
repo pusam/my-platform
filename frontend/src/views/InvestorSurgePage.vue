@@ -56,7 +56,9 @@
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode"
              :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON', outdated: stock.outdated }]">
-          <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()">
+          <!-- HOT 뱃지: 변화량 양수 또는 매수 집중 상태일 때만 표시 -->
+          <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()"
+               v-if="shouldShowHotBadge(stock)">
             {{ getSurgeLevelText(stock.surgeLevel) }}
           </div>
 
@@ -353,6 +355,30 @@ const getSurgeLevelText = (level) => {
     case 'WARM': return '⚡ WARM';
     default: return '';
   }
+};
+
+/**
+ * HOT/WARM 뱃지 표시 여부 결정
+ * - 변화량이 양수(+)이거나
+ * - 매수 집중 상태(ACCUMULATING)일 때만 표시
+ * - 차익 실현(PROFIT_TAKING) 중인 종목은 제외
+ */
+const shouldShowHotBadge = (stock) => {
+  // NORMAL 레벨은 표시 안 함
+  if (!stock.surgeLevel || stock.surgeLevel === 'NORMAL') {
+    return false;
+  }
+
+  // 차익 실현 중이면 HOT 뱃지 숨김
+  if (stock.trendStatus === 'PROFIT_TAKING') {
+    return false;
+  }
+
+  // 변화량이 양수이거나 매수 집중 상태면 표시
+  const hasPositiveChange = stock.amountChange && Number(stock.amountChange) > 0;
+  const isAccumulating = stock.trendStatus === 'ACCUMULATING';
+
+  return hasPositiveChange || isAccumulating;
 };
 
 const getTrendClass = (trendStatus) => {
@@ -837,12 +863,15 @@ onUnmounted(() => {
   50% { opacity: 0.4; }
 }
 
+/* 네온 색상으로 등락 강조 */
 .positive {
-  color: #e53e3e !important;
+  color: #ff4d4d !important;
+  text-shadow: 0 0 8px rgba(255, 77, 77, 0.5);
 }
 
 .negative {
-  color: #3182ce !important;
+  color: #00ffff !important;
+  text-shadow: 0 0 8px rgba(0, 255, 255, 0.5);
 }
 
 .detail-btn {
