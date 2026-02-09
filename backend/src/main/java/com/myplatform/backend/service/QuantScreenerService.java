@@ -502,9 +502,14 @@ public class QuantScreenerService {
             enrichScreenerResults(results, new ArrayList<>(stockDataForUpdate.values()));
 
             // ⭐ 데이터 클렌징: 시가총액 500억 이상만 (동전주/관리종목 제외)
+            int beforeFilter = results.size();
+            long nullMarketCapCount = results.stream().filter(dto -> dto.getMarketCap() == null).count();
+            log.info("시가총액 필터 전: {}건, 시가총액 null: {}건", beforeFilter, nullMarketCapCount);
+
             results = results.stream()
                     .filter(dto -> dto.getMarketCap() != null && dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
                     .collect(Collectors.toList());
+            log.info("시가총액 필터 후: {}건 (500억 이상)", results.size());
 
             // 적자→흑자 전환 우선, 그 다음 변화율 높은 순으로 정렬
             results.sort((a, b) -> {
