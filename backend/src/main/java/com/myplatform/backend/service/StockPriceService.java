@@ -282,8 +282,14 @@ public class StockPriceService {
             dto.setFetchedAt(LocalDateTime.now());
             dto.setDataSource("KIS"); // 데이터 출처
 
-            // 등락률이 없고 전일대비가 있으면 직접 계산
-            if (dto.getChangeRate() == null && dto.getChangePrice() != null && dto.getCurrentPrice() != null) {
+            // 등락률이 없거나 0이고, 전일대비(prdy_vrss)가 있으면 직접 계산
+            // (장전/장후에는 prdy_ctrt가 0으로 오지만, prdy_vrss는 유효한 값이 있음)
+            boolean changeRateIsZeroOrNull = dto.getChangeRate() == null
+                    || dto.getChangeRate().compareTo(BigDecimal.ZERO) == 0;
+            boolean hasValidChangePrice = dto.getChangePrice() != null
+                    && dto.getChangePrice().compareTo(BigDecimal.ZERO) != 0;
+
+            if (changeRateIsZeroOrNull && hasValidChangePrice && dto.getCurrentPrice() != null) {
                 BigDecimal previousClose = dto.getCurrentPrice().subtract(dto.getChangePrice());
                 if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
                     BigDecimal calculatedRate = dto.getChangePrice()
@@ -291,7 +297,8 @@ public class StockPriceService {
                             .multiply(new BigDecimal("100"))
                             .setScale(2, java.math.RoundingMode.HALF_UP);
                     dto.setChangeRate(calculatedRate);
-                    log.debug("등락률 직접 계산: {} = {}%", stockCode, calculatedRate);
+                    log.info("등락률 직접 계산 (장전/장후): {} = {}% (전일대비: {}원, 전일종가: {}원)",
+                            stockCode, calculatedRate, dto.getChangePrice(), previousClose);
                 }
             }
 

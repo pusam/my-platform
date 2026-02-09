@@ -223,29 +223,39 @@ public class AiStrategySnapshotService {
     }
 
     /**
-     * 등락률 계산 (API 값 우선, 없으면 직접 계산)
+     * 등락률 계산 (API 값 우선, 없거나 0이면 직접 계산)
      * 공식: (현재가 - 전일종가) / 전일종가 * 100
+     *
+     * [장전/장후 처리]
+     * - 장전/장후에는 prdy_ctrt(전일대비율)이 0으로 오지만
+     * - prdy_vrss(전일대비)는 유효한 값이 있으므로 이를 활용하여 계산
      */
     private BigDecimal calculateChangeRate(StockPriceDto priceDto, BigDecimal currentPrice) {
-        // 1. API에서 prdy_ctrt(전일대비율)이 있으면 사용
-        if (priceDto.getChangeRate() != null) {
+        // 1. API에서 prdy_ctrt(전일대비율)이 유효하면 사용 (0이 아닌 경우)
+        if (priceDto.getChangeRate() != null && priceDto.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
             return priceDto.getChangeRate();
         }
 
-        // 2. 현재가와 전일종가가 있으면 직접 계산
+        // 2. prdy_ctrt가 없거나 0인 경우: prdy_vrss(전일대비)로 직접 계산
         BigDecimal price = priceDto.getCurrentPrice();
         if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
             price = currentPrice;
         }
 
         BigDecimal changePrice = priceDto.getChangePrice();
-        if (price != null && changePrice != null && price.compareTo(BigDecimal.ZERO) > 0) {
+        // changePrice가 0이 아닐 때만 계산 (0이면 실제로 변동이 없는 것)
+        if (price != null && changePrice != null
+                && changePrice.compareTo(BigDecimal.ZERO) != 0
+                && price.compareTo(BigDecimal.ZERO) > 0) {
             // 전일종가 = 현재가 - 전일대비
             BigDecimal previousClose = price.subtract(changePrice);
             if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
-                return changePrice.divide(previousClose, 4, RoundingMode.HALF_UP)
+                BigDecimal calculated = changePrice.divide(previousClose, 4, RoundingMode.HALF_UP)
                         .multiply(new BigDecimal("100"))
                         .setScale(2, RoundingMode.HALF_UP);
+                log.debug("[등락률 계산] 장전/장후 계산: 현재가={}, 전일대비={}, 전일종가={}, 등락률={}%",
+                        price, changePrice, previousClose, calculated);
+                return calculated;
             }
         }
 
