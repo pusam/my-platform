@@ -422,6 +422,55 @@ public class StockPriceService {
             dto.setVolume(root.has("accumulatedTradingVolume")
                     ? BigDecimal.valueOf(root.get("accumulatedTradingVolume").asLong())
                     : BigDecimal.ZERO);
+
+            // 누적 거래대금 파싱
+            if (root.has("accumulatedTradingValue")) {
+                dto.setAccumulatedTradingValue(BigDecimal.valueOf(root.get("accumulatedTradingValue").asLong()));
+            }
+
+            // 시가총액 파싱 (네이버 API: marketCap 또는 marketValue)
+            if (root.has("marketCap")) {
+                dto.setMarketCap(BigDecimal.valueOf(root.get("marketCap").asLong()));
+            } else if (root.has("marketValue")) {
+                dto.setMarketCap(BigDecimal.valueOf(root.get("marketValue").asLong()));
+            }
+
+            // PER 파싱
+            if (root.has("per")) {
+                dto.setPer(parsePrice(root.get("per")));
+            } else if (root.has("stockEndStockStatisticItemInfos")) {
+                // 네이버 상세 API 구조에서 PER 찾기
+                JsonNode infos = root.get("stockEndStockStatisticItemInfos");
+                if (infos != null && infos.isArray()) {
+                    for (JsonNode info : infos) {
+                        if ("per".equalsIgnoreCase(info.path("code").asText())) {
+                            dto.setPer(parsePrice(info.get("value")));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // PBR 파싱
+            if (root.has("pbr")) {
+                dto.setPbr(parsePrice(root.get("pbr")));
+            } else if (root.has("stockEndStockStatisticItemInfos")) {
+                JsonNode infos = root.get("stockEndStockStatisticItemInfos");
+                if (infos != null && infos.isArray()) {
+                    for (JsonNode info : infos) {
+                        if ("pbr".equalsIgnoreCase(info.path("code").asText())) {
+                            dto.setPbr(parsePrice(info.get("value")));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // BPS 파싱 (PBR 계산용)
+            if (root.has("bps")) {
+                dto.setBps(parsePrice(root.get("bps")));
+            }
+
             dto.setFetchedAt(LocalDateTime.now());
             dto.setDataSource("NAVER"); // 데이터 출처
 

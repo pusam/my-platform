@@ -16,6 +16,9 @@ public class StockPriceDto {
     private BigDecimal volume;
     private BigDecimal accumulatedTradingValue;  // 누적 거래대금 (API에서 직접 제공 시)
     private BigDecimal marketCap;
+    private BigDecimal per;  // PER (주가수익비율)
+    private BigDecimal pbr;  // PBR (주가순자산비율)
+    private BigDecimal bps;  // BPS (주당순자산)
     private String baseDate;
     private LocalDateTime fetchedAt;
     private String dataSource; // 데이터 출처 (KIS: 한국투자증권, NAVER: 네이버)
@@ -107,6 +110,30 @@ public class StockPriceDto {
 
     public void setMarketCap(BigDecimal marketCap) {
         this.marketCap = marketCap;
+    }
+
+    public BigDecimal getPer() {
+        return per;
+    }
+
+    public void setPer(BigDecimal per) {
+        this.per = per;
+    }
+
+    public BigDecimal getPbr() {
+        return pbr;
+    }
+
+    public void setPbr(BigDecimal pbr) {
+        this.pbr = pbr;
+    }
+
+    public BigDecimal getBps() {
+        return bps;
+    }
+
+    public void setBps(BigDecimal bps) {
+        this.bps = bps;
     }
 
     public String getBaseDate() {

@@ -867,8 +867,36 @@ public class QuantScreenerService {
                 }
             }
 
-            // 4. PER/PBR 보완 - 캐시에 없으므로 스킵 (빠른 응답 우선)
-            // StockPriceDto에는 PER/PBR이 없음 - DB 데이터 그대로 사용
+            // 4. PER/PBR 보완 - 캐시에서 가져오기
+            if ((result.getPer() == null || result.getPer().compareTo(BigDecimal.ZERO) <= 0)
+                    && priceDto != null && priceDto.getPer() != null && priceDto.getPer().compareTo(BigDecimal.ZERO) > 0) {
+                result.setPer(priceDto.getPer());
+                if (original != null) {
+                    original.setPer(priceDto.getPer());
+                    updated = true;
+                }
+            }
+
+            if ((result.getPbr() == null || result.getPbr().compareTo(BigDecimal.ZERO) <= 0)
+                    && priceDto != null && priceDto.getPbr() != null && priceDto.getPbr().compareTo(BigDecimal.ZERO) > 0) {
+                result.setPbr(priceDto.getPbr());
+                if (original != null) {
+                    original.setPbr(priceDto.getPbr());
+                    updated = true;
+                }
+            }
+
+            // PBR이 여전히 없고 BPS와 현재가가 있으면 계산
+            if ((result.getPbr() == null || result.getPbr().compareTo(BigDecimal.ZERO) <= 0)
+                    && priceDto != null && priceDto.getBps() != null && priceDto.getBps().compareTo(BigDecimal.ZERO) > 0
+                    && result.getCurrentPrice() != null && result.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal calculatedPbr = result.getCurrentPrice().divide(priceDto.getBps(), 2, RoundingMode.HALF_UP);
+                result.setPbr(calculatedPbr);
+                if (original != null) {
+                    original.setPbr(calculatedPbr);
+                    updated = true;
+                }
+            }
 
             /* ⚠️ KIS API 개별 호출 비활성화 (126건 × API 호출 = 타임아웃)
              * 턴어라운드 스크리너는 빠른 응답이 중요하므로 개별 API 호출 안 함
