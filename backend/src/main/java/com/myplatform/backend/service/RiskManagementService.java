@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -44,25 +46,43 @@ public class RiskManagementService {
      */
     public RiskAnalysisDto analyzeRisk(String stockName) {
         log.info("[RiskManagement] 리스크 분석 시작: {}", stockName);
+        long startTime = System.currentTimeMillis();
 
-        // 1. DART 공시 조회
-        List<DartDisclosure> disclosures = fetchDisclosures(stockName);
+        // 1. DART 공시 + 네이버 뉴스 병렬 조회
+        CompletableFuture<List<DartDisclosure>> disclosuresFuture =
+                CompletableFuture.supplyAsync(() -> fetchDisclosures(stockName));
+        CompletableFuture<List<NewsItem>> newsFuture =
+                CompletableFuture.supplyAsync(() -> fetchNews(stockName));
+
+        List<DartDisclosure> disclosures;
+        List<NewsItem> news;
+
+        try {
+            // 20초 타임아웃으로 병렬 조회 대기
+            disclosures = disclosuresFuture.get(20, TimeUnit.SECONDS);
+            news = newsFuture.get(20, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("[RiskManagement] 데이터 조회 타임아웃/오류: {}", e.getMessage());
+            disclosures = disclosuresFuture.getNow(List.of());
+            news = newsFuture.getNow(List.of());
+        }
+
+        log.info("[RiskManagement] 데이터 조회 완료: 공시 {}건, 뉴스 {}건, {}ms",
+                disclosures.size(), news.size(), System.currentTimeMillis() - startTime);
 
         // 2. 위험 공시 즉시 체크 (발견 시 DANGER 반환)
         List<DartDisclosure> dangerousDisclosures = dartService.filterDangerousDisclosures(disclosures);
         if (!dangerousDisclosures.isEmpty()) {
             log.warn("[RiskManagement] 위험 공시 발견: {} - {}건", stockName, dangerousDisclosures.size());
-            return buildDangerResult(stockName, dangerousDisclosures, null);
+            return buildDangerResult(stockName, dangerousDisclosures, news);
         }
 
-        // 3. 네이버 뉴스 검색
-        List<NewsItem> news = fetchNews(stockName);
-
-        // 4. AI 리스크 분석
+        // 3. AI 리스크 분석 (타임아웃 시 규칙 기반으로 폴백)
         RiskAnalysisDto result = performAiAnalysis(stockName, disclosures, news);
 
-        log.info("[RiskManagement] 리스크 분석 완료: {} - Score: {}, Status: {}",
-                stockName, result.getRiskScore(), result.getStatus());
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("[RiskManagement] 리스크 분석 완료: {} - Score: {}, Status: {}, 총 {}ms",
+                stockName, result.getRiskScore(), result.getStatus(), elapsed);
 
         return result;
     }
@@ -114,21 +134,24 @@ public class RiskManagementService {
         String newsText = naverSearchService.formatNewsForAi(news);
 
         // AI 분석 수행
-        String aiResponse;
+        String aiResponse = null;
         int riskScore;
         RiskStatus status;
         String reason;
 
         if (ollamaService.isAvailable()) {
             aiResponse = ollamaService.analyzeRisk(stockName, disclosureText, newsText);
-            riskScore = ollamaService.extractRiskScore(aiResponse);
-            status = determineStatus(riskScore);
-            reason = ollamaService.extractRiskReason(aiResponse);
-        } else {
-            log.warn("[RiskManagement] Ollama AI 사용 불가 - 규칙 기반 분석으로 대체");
-            // Fallback: 규칙 기반 분석
+        }
+
+        // AI 응답이 없거나 실패한 경우 규칙 기반 분석으로 폴백
+        if (aiResponse == null || aiResponse.isBlank()) {
+            log.warn("[RiskManagement] AI 분석 실패/타임아웃 - 규칙 기반 분석으로 대체");
             return performRuleBasedAnalysis(stockName, disclosures, news);
         }
+
+        riskScore = ollamaService.extractRiskScore(aiResponse);
+        status = determineStatus(riskScore);
+        reason = ollamaService.extractRiskReason(aiResponse);
 
         return RiskAnalysisDto.builder()
                 .stockName(stockName)

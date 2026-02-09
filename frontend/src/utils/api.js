@@ -735,9 +735,9 @@ export const investorAPI = {
 
 // Risk Analysis API (리스크 분석)
 export const riskAPI = {
-  // 종합 리스크 분석
+  // 종합 리스크 분석 (최대 90초 - DART/뉴스/AI 분석 포함)
   checkRisk(stockName) {
-    return apiClient.get('/risk/check', { params: { stockName }, timeout: 60000 });
+    return apiClient.get('/risk/check', { params: { stockName }, timeout: 90000 });
   },
   // 빠른 위험 체크 (공시만)
   quickCheck(stockName) {

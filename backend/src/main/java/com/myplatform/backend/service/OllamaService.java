@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -21,9 +22,25 @@ public class OllamaService {
     private String modelName;
 
     private final RestTemplate restTemplate;
+    private final RestTemplate fastRestTemplate; // 빠른 응답용 (타임아웃 짧음)
+
+    // 타임아웃 설정 (밀리초)
+    private static final int DEFAULT_CONNECT_TIMEOUT = 5000;   // 연결 타임아웃 5초
+    private static final int DEFAULT_READ_TIMEOUT = 60000;     // 읽기 타임아웃 60초
+    private static final int FAST_READ_TIMEOUT = 30000;        // 빠른 읽기 타임아웃 30초
 
     public OllamaService() {
-        this.restTemplate = new RestTemplate();
+        // 기본 RestTemplate (60초 타임아웃)
+        SimpleClientHttpRequestFactory defaultFactory = new SimpleClientHttpRequestFactory();
+        defaultFactory.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
+        defaultFactory.setReadTimeout(DEFAULT_READ_TIMEOUT);
+        this.restTemplate = new RestTemplate(defaultFactory);
+
+        // 빠른 RestTemplate (30초 타임아웃) - 리스크 분석용
+        SimpleClientHttpRequestFactory fastFactory = new SimpleClientHttpRequestFactory();
+        fastFactory.setConnectTimeout(DEFAULT_CONNECT_TIMEOUT);
+        fastFactory.setReadTimeout(FAST_READ_TIMEOUT);
+        this.fastRestTemplate = new RestTemplate(fastFactory);
     }
 
     /**
@@ -124,7 +141,7 @@ public class OllamaService {
     }
 
     /**
-     * 주식 리스크 분석 (공시 + 뉴스 기반)
+     * 주식 리스크 분석 (공시 + 뉴스 기반) - 빠른 응답용
      *
      * @param stockName 종목명
      * @param disclosures 공시 정보 (텍스트)
@@ -132,52 +149,77 @@ public class OllamaService {
      * @return AI 분석 결과 (JSON 형식)
      */
     public String analyzeRisk(String stockName, String disclosures, String news) {
+        // 간결한 프롬프트로 빠른 응답 유도
         String systemPrompt = """
-            당신은 전문 주식 리스크 분석가입니다.
-            제공된 공시 정보와 뉴스를 분석하여 해당 종목의 투자 위험도를 평가해 주세요.
-
-            [분석 기준]
-            1. 치명적 악재 (점수 80-100, DANGER):
-               - 횡령, 배임, 분식회계 등 범죄 혐의
-               - 상장폐지 가능성
-               - 거래정지
-               - 대규모 유상증자 (자본 희석)
-               - 무상감자 (손실 보전)
-               - 검찰 수사, 기소
-
-            2. 주의 필요 (점수 31-79, WARNING):
-               - 실적 악화
-               - 최대주주 변경
-               - 대규모 손실 발생
-               - 부정적 뉴스 다수
-
-            3. 안전 (점수 0-30, SAFE):
-               - 특별한 악재 없음
-               - 정상적인 경영 활동
-
-            [출력 형식]
-            반드시 다음 JSON 형식으로만 응답하세요. 다른 텍스트는 포함하지 마세요:
-            {
-              "riskScore": 숫자(0-100),
-              "status": "SAFE" 또는 "WARNING" 또는 "DANGER",
-              "reason": "주요 위험 요인 1-2문장",
-              "analysis": "상세 분석 내용 3-5문장"
-            }
+            주식 리스크 분석가. 간결하게 JSON만 응답.
+            치명적 악재(횡령,상폐,감자)=80-100점/DANGER
+            주의 필요(실적악화,부정뉴스)=31-79점/WARNING
+            안전=0-30점/SAFE
             """;
 
+        // 공시/뉴스를 요약하여 입력 크기 줄임
+        String shortDisclosures = truncateText(disclosures, 500);
+        String shortNews = truncateText(news, 500);
+
         String userMessage = String.format("""
-            [분석 대상 종목]: %s
+            종목: %s
+            공시: %s
+            뉴스: %s
+            JSON응답: {"riskScore":숫자,"status":"상태","reason":"사유","analysis":"분석"}
+            """, stockName, shortDisclosures, shortNews);
 
-            === 최근 공시 정보 ===
-            %s
+        return chatFast(userMessage, systemPrompt);
+    }
 
-            === 최근 뉴스 ===
-            %s
+    /**
+     * 텍스트를 지정된 길이로 자르기
+     */
+    private String truncateText(String text, int maxLength) {
+        if (text == null) return "";
+        if (text.length() <= maxLength) return text;
+        return text.substring(0, maxLength) + "...";
+    }
 
-            위 정보를 바탕으로 이 종목의 투자 리스크를 분석해 주세요.
-            """, stockName, disclosures, news);
+    /**
+     * 빠른 AI 응답 (30초 타임아웃)
+     */
+    public String chatFast(String userMessage, String systemPrompt) {
+        try {
+            String url = ollamaUrl + "/api/generate";
 
-        return chat(userMessage, systemPrompt);
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", modelName);
+            requestBody.put("prompt", buildPrompt(userMessage, systemPrompt));
+            requestBody.put("stream", false);
+            // 토큰 수 제한으로 빠른 응답 유도
+            requestBody.put("options", Map.of(
+                "num_predict", 200,  // 최대 200 토큰
+                "temperature", 0.3   // 낮은 온도로 일관된 응답
+            ));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+            log.info("[Ollama] 빠른 리스크 분석 요청 시작");
+            long startTime = System.currentTimeMillis();
+
+            ResponseEntity<Map> response = fastRestTemplate.postForEntity(url, entity, Map.class);
+
+            long elapsed = System.currentTimeMillis() - startTime;
+            log.info("[Ollama] 리스크 분석 완료: {}ms", elapsed);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                return (String) response.getBody().get("response");
+            }
+
+            return null;
+
+        } catch (Exception e) {
+            log.warn("[Ollama] 빠른 분석 실패 (타임아웃 또는 오류): {}", e.getMessage());
+            return null; // null 반환 시 규칙 기반 분석으로 폴백
+        }
     }
 
     /**
