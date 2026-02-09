@@ -25,6 +25,20 @@
         <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
       </div>
 
+      <!-- 실시간 상태 표시줄 -->
+      <div v-if="analysisData" class="realtime-status-bar" :class="{ active: autoRefresh }">
+        <div class="status-indicator">
+          <span class="status-dot" :class="{ pulsing: autoRefresh }"></span>
+          <span class="status-text">
+            {{ autoRefresh ? '실시간 체결 감시 중' : '실시간 감시 대기' }}
+          </span>
+        </div>
+        <div class="status-meta">
+          <span v-if="isMockData" class="mock-badge">📋 테스트 데이터</span>
+          <span class="update-time">Update: {{ formatTime(lastUpdated) }}</span>
+        </div>
+      </div>
+
       <!-- 자동 갱신 설정 -->
       <div v-if="analysisData" class="refresh-section">
         <label class="auto-refresh-label">
@@ -69,20 +83,56 @@
           />
         </div>
 
-        <!-- 투자자 순매수 -->
+        <!-- 투자자 순매수 (막대 차트) -->
         <div class="analysis-card investor-card">
-          <h3>투자자 순매수</h3>
-          <div class="investor-grid">
-            <div class="investor-item">
-              <span class="investor-label">외국인</span>
-              <span class="investor-value" :class="analysisData.foreignNetBuy >= 0 ? 'positive' : 'negative'">
+          <h3>실시간 수급</h3>
+          <div class="investor-bar-chart">
+            <!-- 외국인 -->
+            <div class="investor-bar-row">
+              <span class="bar-label">🌍 외국인</span>
+              <div class="bar-container">
+                <div class="bar-track">
+                  <div
+                    class="bar-fill"
+                    :class="analysisData.foreignNetBuy >= 0 ? 'positive' : 'negative'"
+                    :style="{ width: getBarWidth(analysisData.foreignNetBuy) + '%' }"
+                  ></div>
+                </div>
+              </div>
+              <span class="bar-value" :class="analysisData.foreignNetBuy >= 0 ? 'positive' : 'negative'">
                 {{ analysisData.foreignNetBuy >= 0 ? '+' : '' }}{{ formatBillion(analysisData.foreignNetBuy) }}
               </span>
             </div>
-            <div class="investor-item">
-              <span class="investor-label">기관</span>
-              <span class="investor-value" :class="analysisData.instNetBuy >= 0 ? 'positive' : 'negative'">
+            <!-- 기관 -->
+            <div class="investor-bar-row">
+              <span class="bar-label">🏢 기관</span>
+              <div class="bar-container">
+                <div class="bar-track">
+                  <div
+                    class="bar-fill"
+                    :class="analysisData.instNetBuy >= 0 ? 'positive' : 'negative'"
+                    :style="{ width: getBarWidth(analysisData.instNetBuy) + '%' }"
+                  ></div>
+                </div>
+              </div>
+              <span class="bar-value" :class="analysisData.instNetBuy >= 0 ? 'positive' : 'negative'">
                 {{ analysisData.instNetBuy >= 0 ? '+' : '' }}{{ formatBillion(analysisData.instNetBuy) }}
+              </span>
+            </div>
+            <!-- 프로그램 -->
+            <div class="investor-bar-row highlight">
+              <span class="bar-label">💻 프로그램</span>
+              <div class="bar-container">
+                <div class="bar-track">
+                  <div
+                    class="bar-fill"
+                    :class="analysisData.programNetBuy >= 0 ? 'positive' : 'negative'"
+                    :style="{ width: getBarWidth(analysisData.programNetBuy) + '%' }"
+                  ></div>
+                </div>
+              </div>
+              <span class="bar-value" :class="analysisData.programNetBuy >= 0 ? 'positive' : 'negative'">
+                {{ analysisData.programNetBuy >= 0 ? '+' : '' }}{{ formatBillion(analysisData.programNetBuy) }}
               </span>
             </div>
           </div>
@@ -146,7 +196,45 @@ const analysisData = ref(null);
 const errorMessage = ref('');
 const autoRefresh = ref(false);
 const lastUpdated = ref(null);
+const isMockData = ref(false);
 let refreshInterval = null;
+
+// Mock Data (테스트용 삼성전자 데이터)
+const getMockData = (code) => {
+  const now = new Date();
+  const hours = [];
+  const programSeries = [];
+
+  // 09:00 ~ 현재 시간까지 프로그램 매매 추이 생성
+  for (let h = 9; h <= Math.min(now.getHours(), 15); h++) {
+    for (let m = 0; m < 60; m += 30) {
+      if (h === 15 && m > 30) break;
+      const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      // 점진적으로 증가하는 누적 순매수
+      const baseValue = ((h - 9) * 60 + m) * 3 + Math.random() * 100;
+      programSeries.push({
+        time,
+        value: Math.round(baseValue)
+      });
+    }
+  }
+
+  return {
+    stockCode: code || '005930',
+    stockName: code === '005930' ? '삼성전자' : '테스트 종목',
+    currentPrice: 74200,
+    changePrice: 1100,
+    changeRate: 1.5,
+    tradingVolume: 12500000,
+    volumePower: 125.4,
+    volumeSignal: 'BUY',
+    foreignNetBuy: 200,
+    instNetBuy: -50,
+    programNetBuy: 520,
+    programTrend: 'UP',
+    programTradingSeries: programSeries
+  };
+};
 
 const searchStock = async () => {
   if (!searchInput.value.trim()) {
@@ -187,21 +275,34 @@ const fetchAnalysis = async () => {
 
   try {
     loading.value = true;
+    isMockData.value = false;
     const response = await scalpingAPI.getAnalysis(stockCode.value);
 
-    if (response.data.success) {
+    if (response.data.success && response.data.data) {
       analysisData.value = response.data.data;
       lastUpdated.value = new Date();
       errorMessage.value = '';
     } else {
-      errorMessage.value = response.data.message || '데이터 조회 실패';
+      // API 실패 시 Mock Data로 Fallback
+      console.warn('API 응답 없음, Mock Data로 대체');
+      applyMockData();
     }
   } catch (error) {
     console.error('분석 조회 오류:', error);
-    errorMessage.value = '데이터 조회에 실패했습니다.';
+    // API 에러 시 Mock Data로 Fallback
+    console.warn('API 에러 발생, Mock Data로 대체');
+    applyMockData();
   } finally {
     loading.value = false;
   }
+};
+
+// Mock Data 적용
+const applyMockData = () => {
+  analysisData.value = getMockData(stockCode.value);
+  lastUpdated.value = new Date();
+  isMockData.value = true;
+  errorMessage.value = '';
 };
 
 const refreshVolumePower = async () => {
@@ -264,7 +365,19 @@ const formatVolume = (value) => {
 
 const formatBillion = (value) => {
   if (value == null) return '0억';
-  return value.toFixed(2) + '억';
+  return value.toFixed(0) + '억';
+};
+
+// 막대 차트 너비 계산 (최대값 기준 %)
+const getBarWidth = (value) => {
+  if (!value || !analysisData.value) return 0;
+  const maxVal = Math.max(
+    Math.abs(analysisData.value.foreignNetBuy || 0),
+    Math.abs(analysisData.value.instNetBuy || 0),
+    Math.abs(analysisData.value.programNetBuy || 0),
+    1
+  );
+  return Math.min((Math.abs(value) / maxVal) * 100, 100);
 };
 
 const formatTime = (date) => {
@@ -410,6 +523,83 @@ watch(analysisData, updateChangeClass, { deep: true });
   margin-top: 12px;
 }
 
+/* 실시간 상태 표시줄 */
+.realtime-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #1a1a3a 0%, #0f0f23 100%);
+  border: 1px solid #2a2a4a;
+  border-radius: 12px;
+  padding: 12px 20px;
+  margin-bottom: 1rem;
+}
+
+.realtime-status-bar.active {
+  border-color: #22c55e;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #71717a;
+}
+
+.status-dot.pulsing {
+  background: #22c55e;
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
+.status-text {
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.realtime-status-bar.active .status-text {
+  color: #22c55e;
+}
+
+.status-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.mock-badge {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.update-time {
+  color: #888;
+  font-size: 0.9rem;
+  font-family: 'Monaco', 'Consolas', monospace;
+}
+
 /* 자동 갱신 섹션 */
 .refresh-section {
   display: flex;
@@ -533,35 +723,72 @@ watch(analysisData, updateChangeClass, { deep: true });
   font-size: 1.2rem;
 }
 
-.investor-grid {
+/* 투자자 막대 차트 */
+.investor-bar-chart {
   display: flex;
-  gap: 24px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.investor-item {
-  flex: 1;
-  text-align: center;
-  padding: 16px;
+.investor-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
   background: #0f0f23;
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
-.investor-label {
-  display: block;
-  color: #888;
+.investor-bar-row.highlight {
+  background: linear-gradient(135deg, #1a1a3a 0%, #2a2a4a 100%);
+  border: 1px solid #3a3a5a;
+}
+
+.bar-label {
+  width: 100px;
+  color: #ccc;
   font-size: 0.9rem;
-  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
-.investor-value {
-  display: block;
-  font-size: 1.5rem;
+.bar-container {
+  flex: 1;
+}
+
+.bar-track {
+  height: 24px;
+  background: #27272a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 12px;
+  transition: width 0.5s ease;
+}
+
+.bar-fill.positive {
+  background: linear-gradient(90deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.bar-fill.negative {
+  background: linear-gradient(90deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+}
+
+.bar-value {
+  width: 80px;
+  text-align: right;
+  font-size: 1.1rem;
   font-weight: 700;
   font-family: 'Monaco', 'Consolas', monospace;
+  flex-shrink: 0;
 }
 
-.investor-value.positive { color: #ef4444; }
-.investor-value.negative { color: #3b82f6; }
+.bar-value.positive { color: #ef4444; }
+.bar-value.negative { color: #3b82f6; }
 
 /* 가이드 섹션 */
 .guide-section {
