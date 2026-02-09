@@ -351,17 +351,18 @@ const fetchAnalysis = async () => {
 const generateSimulatedData = (code) => {
   const stockName = CODE_TO_NAME[code] || code;
 
-  // 종목코드 기반 시드로 일관된 랜덤값 생성
-  const seed = code.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const random = (min, max) => {
-    const x = Math.sin(seed * 9999) * 10000;
-    return min + (x - Math.floor(x)) * (max - min);
+  // 종목코드 기반 시드 생성 (일관된 랜덤값)
+  const seed = code.split('').reduce((acc, char, idx) => acc + char.charCodeAt(0) * (idx + 1), 0);
+
+  // 시드 기반 랜덤 함수 (각 호출마다 다른 값 생성)
+  let seedState = seed;
+  const seededRandom = (min, max) => {
+    seedState = (seedState * 9301 + 49297) % 233280;
+    const rnd = seedState / 233280;
+    return min + rnd * (max - min);
   };
 
-  // 상승/하락 랜덤 결정 (60% 확률로 상승)
-  const isRising = random(0, 100) > 40;
-
-  // 기본 가격 설정 (종목별 대략적인 가격대)
+  // 기본 가격 설정 (종목별 실제 가격대 반영)
   const basePrices = {
     '005930': 72000, '000660': 185000, '373220': 420000, '207940': 780000,
     '005380': 245000, '000270': 125000, '035420': 210000, '035720': 52000,
@@ -369,37 +370,49 @@ const generateSimulatedData = (code) => {
     '247540': 165000, '003670': 290000, '066970': 125000, '028300': 85000,
     '068270': 185000, '196170': 310000, '034020': 22000, '012450': 285000
   };
-  const basePrice = basePrices[code] || Math.round(random(15000, 150000) / 100) * 100;
+  const basePrice = basePrices[code] || Math.round(seededRandom(20000, 100000) / 100) * 100;
 
-  // 등락률: 상승이면 +1~8%, 하락이면 -1~5%
+  // 상승/하락 결정 (70% 확률로 상승 - 추천 종목이므로)
+  const isRising = seededRandom(0, 100) > 30;
+
+  // 등락률: 상승이면 +2~10%, 하락이면 -1~4%
   const changeRate = isRising
-    ? random(1.0, 8.0)
-    : random(-5.0, -0.5);
+    ? seededRandom(2.0, 10.0)
+    : seededRandom(-4.0, -0.5);
   const changePrice = Math.round(basePrice * changeRate / 100);
   const currentPrice = basePrice + changePrice;
 
-  // 체결강도: 상승 중이면 100% 이상 (110~180%), 하락이면 50~95%
+  // ★ 체결강도: 주가 흐름과 일치하도록 설정
+  // 상승 중: 110% ~ 200% (강한 매수세)
+  // 하락 중: 30% ~ 90% (매도세 우위)
   const volumePower = isRising
-    ? random(110, 180)
-    : random(50, 95);
+    ? seededRandom(115, 200)
+    : seededRandom(30, 85);
 
-  // 수급 데이터: 상승이면 순매수, 하락이면 순매도 (50~500억 규모)
+  // 거래량 (대형주는 더 많이)
+  const volumeBase = basePrices[code] ? (basePrices[code] > 100000 ? 3000000 : 8000000) : 5000000;
+  const tradingVolume = Math.round(seededRandom(volumeBase * 0.5, volumeBase * 1.5));
+
+  // ★ 수급 데이터: 거래량에 비례, 주가 흐름과 일치
+  // 상승 시: 외국인/기관/프로그램 모두 순매수 (100~600억 규모)
+  // 하락 시: 순매도
+  const supplyMultiplier = tradingVolume / 1000000; // 거래량 기반 배수
   const foreignNetBuy = isRising
-    ? Math.round(random(80, 450))
-    : Math.round(random(-300, -30));
+    ? Math.round(seededRandom(150, 500) * supplyMultiplier / 5)
+    : Math.round(seededRandom(-400, -50) * supplyMultiplier / 5);
   const instNetBuy = isRising
-    ? Math.round(random(50, 380))
-    : Math.round(random(-250, -20));
+    ? Math.round(seededRandom(80, 350) * supplyMultiplier / 5)
+    : Math.round(seededRandom(-300, -30) * supplyMultiplier / 5);
   const programNetBuy = isRising
-    ? Math.round(random(30, 280))
-    : Math.round(random(-200, -10));
+    ? Math.round(seededRandom(100, 450) * supplyMultiplier / 5)
+    : Math.round(seededRandom(-350, -40) * supplyMultiplier / 5);
 
-  // 신호 결정
+  // 신호 결정 (체결강도 기반)
   let volumeSignal = 'NEUTRAL';
-  if (volumePower >= 130) volumeSignal = 'STRONG_BUY';
-  else if (volumePower >= 110) volumeSignal = 'BUY';
-  else if (volumePower <= 70) volumeSignal = 'STRONG_SELL';
-  else if (volumePower <= 90) volumeSignal = 'SELL';
+  if (volumePower >= 150) volumeSignal = 'STRONG_BUY';
+  else if (volumePower >= 115) volumeSignal = 'BUY';
+  else if (volumePower <= 50) volumeSignal = 'STRONG_SELL';
+  else if (volumePower <= 85) volumeSignal = 'SELL';
 
   return {
     stockCode: code,
@@ -407,45 +420,56 @@ const generateSimulatedData = (code) => {
     currentPrice: currentPrice,
     changePrice: changePrice,
     changeRate: parseFloat(changeRate.toFixed(2)),
-    tradingVolume: Math.round(random(500000, 5000000)),
+    tradingVolume: tradingVolume,
     volumePower: parseFloat(volumePower.toFixed(1)),
     volumeSignal: volumeSignal,
     foreignNetBuy: foreignNetBuy,
     instNetBuy: instNetBuy,
     programNetBuy: programNetBuy,
     programTrend: isRising ? 'UP' : 'DOWN',
-    programTradingSeries: generateProgramTradingSeries(programNetBuy)
+    programTradingSeries: generateProgramTradingSeries(programNetBuy, isRising)
   };
 };
 
-// 프로그램 매매 추이 시계열 데이터 생성 (09:00 ~ 현재)
-const generateProgramTradingSeries = (finalValue) => {
+// ★ 프로그램 매매 추이 시계열 데이터 생성 (계단식 상승/하락)
+const generateProgramTradingSeries = (finalValue, isRising = true) => {
   const series = [];
   const now = new Date();
   const marketOpen = new Date();
   marketOpen.setHours(9, 0, 0, 0);
 
-  // 현재 시간이 9시 이전이면 가상의 시간대 사용
+  // 현재 시간이 9시 이전이면 가상의 시간대 사용 (15:00까지)
   const endTime = now.getHours() >= 9 && now.getHours() < 16
     ? now
-    : new Date(marketOpen.getTime() + 6 * 60 * 60 * 1000); // 15:00
+    : new Date(marketOpen.getTime() + 6 * 60 * 60 * 1000);
 
   const totalMinutes = Math.floor((endTime - marketOpen) / (1000 * 60));
-  const intervals = Math.min(Math.max(totalMinutes / 10, 10), 40); // 10분 간격, 최소 10개 최대 40개
+  const intervals = Math.min(Math.max(Math.floor(totalMinutes / 10), 15), 40); // 10분 간격
 
+  // ★ 계단식 상승/하락 패턴 생성 (0에서 시작)
   let cumulative = 0;
-  const trend = finalValue >= 0 ? 1 : -1;
-  const volatility = Math.abs(finalValue) / intervals;
+  const stepSize = Math.abs(finalValue) / intervals;
+  const direction = finalValue >= 0 ? 1 : -1;
 
   for (let i = 0; i <= intervals; i++) {
     const time = new Date(marketOpen.getTime() + (i * 10 * 60 * 1000));
     const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 
-    // 점진적으로 목표값에 수렴하면서 약간의 변동 추가
-    const progress = i / intervals;
-    const targetValue = finalValue * progress;
-    const noise = (Math.random() - 0.5) * volatility * 0.5;
-    cumulative = targetValue + noise;
+    if (i === 0) {
+      // 시작은 0
+      cumulative = 0;
+    } else {
+      // 계단식 증가: 때때로 평탄, 가끔 점프
+      const rand = Math.random();
+      if (rand > 0.7) {
+        // 30% 확률로 큰 점프 (계단 2~3칸)
+        cumulative += stepSize * direction * (2 + Math.random());
+      } else if (rand > 0.3) {
+        // 40% 확률로 일반 상승
+        cumulative += stepSize * direction * (0.8 + Math.random() * 0.5);
+      }
+      // 30% 확률로 유지 (평탄 구간)
+    }
 
     series.push({
       time: timeStr,
@@ -453,7 +477,7 @@ const generateProgramTradingSeries = (finalValue) => {
     });
   }
 
-  // 마지막 값은 정확히 finalValue로 설정
+  // 마지막 값은 최종 목표값에 근접하게
   if (series.length > 0) {
     series[series.length - 1].value = finalValue;
   }
