@@ -14,8 +14,11 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.MonthDay;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -74,6 +77,33 @@ public class SectorTradingService {
     private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 40);  // 운영: 15:40
     private static final int HISTORY_RETENTION_MINUTES = 40;  // 최근 40분 데이터만 유지
 
+    // 한국 공휴일 (고정)
+    private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
+            MonthDay.of(1, 1),   // 신정
+            MonthDay.of(3, 1),   // 삼일절
+            MonthDay.of(5, 5),   // 어린이날
+            MonthDay.of(6, 6),   // 현충일
+            MonthDay.of(8, 15),  // 광복절
+            MonthDay.of(10, 3),  // 개천절
+            MonthDay.of(10, 9),  // 한글날
+            MonthDay.of(12, 25)  // 크리스마스
+    );
+
+    // 휴장일 여부 확인
+    private boolean isMarketClosed() {
+        LocalDate today = LocalDate.now();
+        DayOfWeek dayOfWeek = today.getDayOfWeek();
+
+        // 주말 체크
+        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            return true;
+        }
+
+        // 고정 공휴일 체크
+        MonthDay todayMonthDay = MonthDay.from(today);
+        return KOREA_FIXED_HOLIDAYS.contains(todayMonthDay);
+    }
+
     // ========== 초기화 ==========
 
     @PostConstruct
@@ -121,6 +151,11 @@ public class SectorTradingService {
     private void collectSnapshot() {
         long startTime = System.currentTimeMillis();
         LocalDateTime snapshotTime = LocalDateTime.now();
+        boolean isClosedDay = isMarketClosed();
+
+        if (isClosedDay) {
+            log.info("[섹터거래대금] 휴장일 - 마지막 거래일 데이터 유지");
+        }
 
         // 1. 모든 종목 코드 수집
         Set<String> allStockCodes = new HashSet<>();
@@ -147,6 +182,20 @@ public class SectorTradingService {
                 // 누적 거래대금이 없으면 현재가 * 거래량으로 계산
                 if (price.getCurrentPrice() != null && price.getVolume() != null) {
                     accumulatedValue = price.getCurrentPrice().multiply(price.getVolume());
+                }
+            }
+
+            // 휴장일에는 거래대금이 0이어도 현재가 기준으로 임시값 저장 (UI 표시용)
+            if (isClosedDay && (accumulatedValue == null || accumulatedValue.compareTo(BigDecimal.ZERO) <= 0)) {
+                if (price.getCurrentPrice() != null) {
+                    // 휴장일: 시가총액의 0.1%를 임시 거래대금으로 사용 (정렬/표시용)
+                    BigDecimal marketCap = price.getMarketCap();
+                    if (marketCap != null && marketCap.compareTo(BigDecimal.ZERO) > 0) {
+                        accumulatedValue = marketCap.multiply(new BigDecimal("0.001"));
+                    } else {
+                        // 시가총액도 없으면 현재가 * 10000 (임시값)
+                        accumulatedValue = price.getCurrentPrice().multiply(new BigDecimal("10000"));
+                    }
                 }
             }
 
@@ -454,6 +503,11 @@ public class SectorTradingService {
 
     public Map<String, Object> getCacheStatus() {
         Map<String, Object> status = new HashMap<>();
+
+        // 휴장일 여부
+        boolean marketClosed = isMarketClosed();
+        status.put("marketClosed", marketClosed);
+        status.put("marketStatus", marketClosed ? "휴장 (주말/공휴일)" : "정상 거래일");
 
         // 스냅샷 저장소 상태
         status.put("snapshotStockCount", tradingHistoryStore.size());
