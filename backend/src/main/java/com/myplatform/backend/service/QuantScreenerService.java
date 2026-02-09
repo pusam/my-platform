@@ -42,6 +42,8 @@ public class QuantScreenerService {
 
     // 데이터 클렌징 상수 (PEG 스크리너용)
     private static final BigDecimal MIN_MARKET_CAP_FOR_PEG = new BigDecimal("500");  // 최소 시가총액 500억원 (동전주 제외)
+    private static final BigDecimal MAX_EPS_GROWTH_FOR_PEG = new BigDecimal("200");  // 최대 EPS 성장률 200% (기저효과 제외)
+    private static final BigDecimal MIN_ROE_FOR_PEG = new BigDecimal("0");           // 최소 ROE 0% (적자 기업 제외)
 
     // 모멘텀 스크리너 상수
     private static final BigDecimal MIN_VOLUME_RATIO = new BigDecimal("30");          // 최소 거래량 비율 30% (09:10 기준 전일 30%면 급등)
@@ -274,6 +276,12 @@ public class QuantScreenerService {
                 .filter(dto -> dto.getPeg() != null && dto.getPeg().compareTo(BigDecimal.ZERO) > 0)
                 .filter(dto -> dto.getPeg().compareTo(finalMaxPeg) <= 0)
                 .filter(dto -> dto.getEpsGrowth() != null && dto.getEpsGrowth().compareTo(finalMinGrowth) >= 0)
+                // ⭐ [품질 필터 1] 비정상적 성장률 제외 (기저효과 방지)
+                .filter(dto -> dto.getEpsGrowth().compareTo(MAX_EPS_GROWTH_FOR_PEG) <= 0)
+                // ⭐ [품질 필터 2] 수익성 요건: ROE > 0 (적자 기업 제외)
+                .filter(dto -> dto.getRoe() != null && dto.getRoe().compareTo(MIN_ROE_FOR_PEG) > 0)
+                // ⭐ [품질 필터 3] PER > 0 확인 (혹시 모를 적자 기업 이중 체크)
+                .filter(dto -> dto.getPer() != null && dto.getPer().compareTo(BigDecimal.ZERO) > 0)
                 // ⭐ 데이터 클렌징: 시가총액 500억 이상만 (동전주/관리종목 제외)
                 .filter(dto -> dto.getMarketCap() != null && dto.getMarketCap().compareTo(MIN_MARKET_CAP_FOR_PEG) >= 0)
                 .sorted(Comparator.comparing(ScreenerResultDto::getPeg))
@@ -283,7 +291,7 @@ public class QuantScreenerService {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
-        log.info("PEG 스크리닝 완료 - 결과 {}건 (시가총액 500억 이상만)", results.size());
+        log.info("PEG 스크리닝 완료 - 결과 {}건 (시총500억↑, ROE>0, EPS성장률≤200%)", results.size());
         return results;
     }
 
@@ -312,9 +320,19 @@ public class QuantScreenerService {
                 continue;
             }
 
+            // ⭐ [품질 필터] ROE > 0 (적자 기업 제외)
+            if (stock.getRoe() == null || stock.getRoe().compareTo(MIN_ROE_FOR_PEG) <= 0) {
+                continue;
+            }
+
             // profitGrowth로 PEG 계산
             BigDecimal growthRate = stock.getProfitGrowth();
             if (growthRate == null || growthRate.compareTo(minGrowth) < 0) {
+                continue;
+            }
+
+            // ⭐ [품질 필터] 비정상적 성장률 제외 (기저효과 방지: 200% 상한)
+            if (growthRate.compareTo(MAX_EPS_GROWTH_FOR_PEG) > 0) {
                 continue;
             }
 
@@ -350,7 +368,7 @@ public class QuantScreenerService {
             results = results.stream().limit(limit).collect(Collectors.toList());
         }
 
-        log.info("profitGrowth 기반 PEG 계산 완료 - 결과 {}건 (시가총액 500억 이상만)", results.size());
+        log.info("profitGrowth 기반 PEG 계산 완료 - 결과 {}건 (시총500억↑, ROE>0, 성장률≤200%)", results.size());
         return results;
     }
 
