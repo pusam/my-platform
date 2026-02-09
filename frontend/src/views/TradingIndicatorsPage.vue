@@ -113,10 +113,16 @@
             <div class="sector-column top-sectors">
               <h4>📈 상위 섹터</h4>
               <div v-for="sector in leadingSectors.topSectors" :key="sector.sectorCode" class="sector-card top">
-                <div class="sector-rank">#{{ sector.rank }}</div>
-                <div class="sector-info">
-                  <div class="sector-name">{{ sector.sectorName }}</div>
-                  <div class="sector-change positive">+{{ sector.averageChangeRate?.toFixed(2) }}%</div>
+                <div class="sector-main">
+                  <div class="sector-rank">#{{ sector.rank }}</div>
+                  <div class="sector-info">
+                    <div class="sector-name">{{ sector.sectorName }}</div>
+                    <div class="sector-change positive">+{{ sector.averageChangeRate?.toFixed(2) }}%</div>
+                  </div>
+                </div>
+                <!-- 막대 그래프 -->
+                <div class="sector-bar-container">
+                  <div class="sector-bar positive" :style="{ width: Math.min(sector.averageChangeRate * 15, 100) + '%' }"></div>
                 </div>
                 <div class="leading-stock" v-if="sector.leadingStockName">
                   <span class="label">대장주:</span>
@@ -132,10 +138,23 @@
             <div class="sector-column bottom-sectors">
               <h4>📉 하위 섹터</h4>
               <div v-for="sector in leadingSectors.bottomSectors" :key="sector.sectorCode" class="sector-card bottom">
-                <div class="sector-rank">#{{ sector.rank }}</div>
-                <div class="sector-info">
-                  <div class="sector-name">{{ sector.sectorName }}</div>
-                  <div class="sector-change negative">{{ sector.averageChangeRate?.toFixed(2) }}%</div>
+                <div class="sector-main">
+                  <div class="sector-rank">#{{ sector.rank }}</div>
+                  <div class="sector-info">
+                    <div class="sector-name">{{ sector.sectorName }}</div>
+                    <div class="sector-change negative">{{ sector.averageChangeRate?.toFixed(2) }}%</div>
+                  </div>
+                </div>
+                <!-- 막대 그래프 -->
+                <div class="sector-bar-container">
+                  <div class="sector-bar negative" :style="{ width: Math.min(Math.abs(sector.averageChangeRate) * 15, 100) + '%' }"></div>
+                </div>
+                <div class="leading-stock" v-if="sector.leadingStockName">
+                  <span class="label">대장주:</span>
+                  <span class="stock-name">{{ sector.leadingStockName }}</span>
+                  <span class="stock-change" :class="sector.leadingStockChange >= 0 ? 'positive' : 'negative'">
+                    {{ sector.leadingStockChange >= 0 ? '+' : '' }}{{ sector.leadingStockChange?.toFixed(2) }}%
+                  </span>
                 </div>
               </div>
             </div>
@@ -483,13 +502,66 @@ export default {
       this.loading.sectors = true
       try {
         const response = await tradingIndicatorAPI.getLeadingSectors()
-        if (response.data.success) {
+        if (response.data.success && response.data.data) {
           this.leadingSectors = response.data.data
+        } else {
+          this.applySectorMockData()
         }
       } catch (error) {
-        console.error('주도 섹터 데이터 로드 실패:', error)
+        console.error('주도 섹터 데이터 로드 실패, Mock Data 적용:', error)
+        this.applySectorMockData()
       } finally {
         this.loading.sectors = false
+      }
+    },
+    // 주도 섹터 Mock Data
+    applySectorMockData() {
+      this.leadingSectors = {
+        interpretation: '오늘 AI 반도체 섹터가 시장을 주도하고 있습니다. 전력설비, 금융 섹터도 강세. 2차전지·게임은 차익실현으로 약세.',
+        topSectors: [
+          {
+            sectorCode: 'AI_SEMI',
+            sectorName: 'AI 반도체',
+            rank: 1,
+            averageChangeRate: 4.5,
+            leadingStockName: 'SK하이닉스',
+            leadingStockChange: 5.2
+          },
+          {
+            sectorCode: 'POWER_EQUIP',
+            sectorName: '전력설비',
+            rank: 2,
+            averageChangeRate: 3.2,
+            leadingStockName: 'HD현대일렉트릭',
+            leadingStockChange: 4.8
+          },
+          {
+            sectorCode: 'LOW_PBR',
+            sectorName: '저PBR(금융)',
+            rank: 3,
+            averageChangeRate: 1.8,
+            leadingStockName: 'KB금융',
+            leadingStockChange: 2.3
+          }
+        ],
+        bottomSectors: [
+          {
+            sectorCode: 'BATTERY',
+            sectorName: '2차전지',
+            rank: 1,
+            averageChangeRate: -2.1,
+            leadingStockName: '에코프로',
+            leadingStockChange: -3.5
+          },
+          {
+            sectorCode: 'GAME',
+            sectorName: '게임',
+            rank: 2,
+            averageChangeRate: -1.5,
+            leadingStockName: '크래프톤',
+            leadingStockChange: -1.8
+          }
+        ]
       }
     },
     async loadVwap() {
@@ -881,9 +953,8 @@ export default {
 
 .sector-card {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 16px;
   border-radius: 12px;
   margin-bottom: 12px;
@@ -927,6 +998,37 @@ export default {
 
 .sector-change.negative {
   color: #3b82f6;
+}
+
+.sector-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.sector-bar-container {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sector-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sector-bar.positive {
+  background: linear-gradient(90deg, #f87171 0%, #ef4444 100%);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
+.sector-bar.negative {
+  background: linear-gradient(90deg, #60a5fa 0%, #3b82f6 100%);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
 .leading-stock {
