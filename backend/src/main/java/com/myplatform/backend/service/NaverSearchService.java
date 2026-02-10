@@ -16,19 +16,20 @@ import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * 네이버 검색 API 연동 서비스
  *
  * [기능]
  * - 특정 종목의 최신 뉴스 검색
- * - 7일 이내 기사만 필터링
+ * - 7일 이내 기사 우선, 없으면 원본 반환 (Fail-safe)
  *
- * [검색 전략 v3 - Strict & Fresh]
- * 1. 검색어 구체화: "{종목명} 주가", "{종목명} 실적", "{종목명} 공시"
- * 2. 날짜순 정렬 (sort=date) - 최신 기사 우선
- * 3. 7일 이내 기사만 필터링 (옛날 기사 제거)
- * 4. 종목명 포함 여부 체크
+ * [검색 전략 v4 - Simple & Safe]
+ * 1. 검색어: 종목명만 사용 (수식어 없음)
+ * 2. 정렬: sim (정확도순) - 관련성 높은 기사 우선
+ * 3. 7일 이내 기사 필터링 시도
+ * 4. Fail-safe: 필터링 후 0건이면 원본 상위 5개 반환
  */
 @Service
 @Slf4j
@@ -42,11 +43,6 @@ public class NaverSearchService {
 
     private static final String NAVER_SEARCH_URL = "https://openapi.naver.com/v1/search/news.json";
 
-    // 주식 관련 검색 키워드 (검색어 조합용)
-    private static final List<String> STOCK_SEARCH_KEYWORDS = Arrays.asList(
-            "주가", "실적", "공시", "증권"
-    );
-
     // 리스크 관련 키워드 (countRiskNews에서 사용)
     private static final List<String> RISK_KEYWORDS = Arrays.asList(
             "악재", "검찰", "횡령", "배임", "수사", "기소",
@@ -55,6 +51,13 @@ public class NaverSearchService {
 
     // 최신 기사 필터링 기준 (일)
     private static final int MAX_NEWS_AGE_DAYS = 7;
+
+    // Fail-safe: 필터링 후 0건일 때 반환할 최소 개수
+    private static final int FALLBACK_NEWS_COUNT = 5;
+
+    // 날짜 파싱용 포맷터 (Locale.ENGLISH 필수!)
+    private static final DateTimeFormatter RFC_1123_FORMATTER =
+            DateTimeFormatter.RFC_1123_DATE_TIME.withLocale(Locale.ENGLISH);
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -65,16 +68,16 @@ public class NaverSearchService {
     }
 
     /**
-     * 종목 관련 뉴스 검색 (Strict & Fresh v3)
+     * 종목 관련 뉴스 검색 (Simple & Safe v4)
      *
-     * [검색 전략 - 엄격 + 최신]
-     * 1. 검색어 구체화: "{종목명} 주가", "{종목명} 실적" 등
-     * 2. 날짜순(date) 정렬 고정 - 최신 기사 우선
-     * 3. 7일 이내 기사만 필터링
-     * 4. 종목명 포함 여부 체크
+     * [검색 전략]
+     * 1. 검색어: 종목명만 사용 (수식어 없음)
+     * 2. 정렬: sim (정확도순) - 관련성 높은 기사 우선
+     * 3. 7일 이내 기사 필터링 시도
+     * 4. Fail-safe: 필터링 후 0건이면 원본 상위 5개 반환
      *
      * @param stockName 종목명
-     * @return 필터링된 뉴스 목록 (최신순, 7일 이내)
+     * @return 뉴스 목록 (최소 5개 보장)
      */
     public List<NewsItem> searchStockNews(String stockName) {
         if (!isAvailable()) {
@@ -82,111 +85,122 @@ public class NaverSearchService {
             return Collections.emptyList();
         }
 
-        log.info("[NaverSearch] '{}' 종목 뉴스 검색 시작 (Strict v3, 날짜순, 7일 이내)", stockName);
-        Set<NewsItem> allNews = new LinkedHashSet<>(); // 중복 제거용
+        log.info("[NaverSearch] '{}' 종목 뉴스 검색 시작 (Simple & Safe v4)", stockName);
 
-        // 주식 관련 키워드 조합으로 검색 (날짜순 고정)
-        for (String keyword : STOCK_SEARCH_KEYWORDS) {
-            String query = stockName + " " + keyword;
-            List<NewsItem> searchResult = searchNewsWithSort(query, 30, "date"); // 날짜순 고정!
+        // 1. 종목명으로만 검색 (정확도순, 30개)
+        List<NewsItem> rawNews = searchNewsWithSort(stockName, 30, "sim");
+        log.info("[NaverSearch] API 원본 응답: {}건", rawNews.size());
 
-            // 필터링: 종목명 포함 + 7일 이내
-            List<NewsItem> filtered = filterStrictly(searchResult, stockName);
-            allNews.addAll(filtered);
-
-            log.info("[NaverSearch] 검색 '{}': API {}건 → 필터 후 {}건 (누적: {}건)",
-                    query, searchResult.size(), filtered.size(), allNews.size());
-
-            // 충분한 기사가 모이면 중단
-            if (allNews.size() >= 10) {
-                break;
-            }
+        if (rawNews.isEmpty()) {
+            log.warn("[NaverSearch] '{}' 검색 결과 없음 (API 응답 0건)", stockName);
+            return Collections.emptyList();
         }
 
-        List<NewsItem> result = new ArrayList<>(allNews);
+        // 2. 종목명 포함 필터링 (날짜 필터링 전)
+        List<NewsItem> relevantNews = filterByStockName(rawNews, stockName);
+        log.info("[NaverSearch] 종목명 필터링 후: {}건", relevantNews.size());
 
-        // 최대 15개로 제한
-        if (result.size() > 15) {
-            result = result.subList(0, 15);
+        // 3. 7일 이내 기사 필터링
+        List<NewsItem> recentNews = filterRecentNews(relevantNews, MAX_NEWS_AGE_DAYS);
+        log.info("[NaverSearch] 7일 이내 필터링 후: {}건", recentNews.size());
+
+        // 4. Fail-safe: 최신 뉴스가 0건이면 원본에서 상위 N개 반환
+        List<NewsItem> result;
+        if (recentNews.isEmpty()) {
+            log.warn("[NaverSearch] 7일 이내 뉴스 0건 → Fail-safe: 원본 상위 {}개 반환", FALLBACK_NEWS_COUNT);
+            result = relevantNews.stream()
+                    .limit(FALLBACK_NEWS_COUNT)
+                    .collect(Collectors.toList());
+        } else {
+            // 최신순 정렬 후 최대 15개
+            result = recentNews.stream()
+                    .sorted((a, b) -> comparePubDate(b.getPubDate(), a.getPubDate()))
+                    .limit(15)
+                    .collect(Collectors.toList());
         }
 
-        log.info("[NaverSearch] '{}' 뉴스 검색 완료: 최종 {}건 (7일 이내)", stockName, result.size());
-
-        // 검색 결과가 없으면 메시지
-        if (result.isEmpty()) {
-            log.info("[NaverSearch] '{}' 관련 최신 뉴스(7일 이내)가 없습니다.", stockName);
-        }
-
+        log.info("[NaverSearch] '{}' 뉴스 검색 완료: 최종 {}건", stockName, result.size());
         return result;
     }
 
     /**
-     * 엄격한 필터링: 종목명 포함 + 7일 이내 기사만
+     * 종목명 포함 여부로 필터링 (비관련 기사 제외)
      */
-    private List<NewsItem> filterStrictly(List<NewsItem> newsList, String stockName) {
-        List<NewsItem> filtered = new ArrayList<>();
+    private List<NewsItem> filterByStockName(List<NewsItem> newsList, String stockName) {
         String stockNameLower = stockName.toLowerCase();
-        LocalDate cutoffDate = LocalDate.now().minusDays(MAX_NEWS_AGE_DAYS);
 
-        for (NewsItem news : newsList) {
-            // 1. 발행일 체크 (7일 이내)
-            if (!isWithinDays(news.getPubDate(), MAX_NEWS_AGE_DAYS)) {
-                log.trace("[NaverSearch] 제외 (오래된 기사): pubDate={}", news.getPubDate());
-                continue;
-            }
+        return newsList.stream()
+                .filter(news -> {
+                    String title = news.getTitle() != null ? news.getTitle().toLowerCase() : "";
+                    String description = news.getDescription() != null ? news.getDescription().toLowerCase() : "";
+                    String content = title + " " + description;
 
-            // 2. 종목명 포함 여부 체크
-            String title = news.getTitle() != null ? news.getTitle().toLowerCase() : "";
-            String description = news.getDescription() != null ? news.getDescription().toLowerCase() : "";
-            String content = title + " " + description;
+                    // 종목명 포함 체크
+                    if (!content.contains(stockNameLower)) {
+                        return false;
+                    }
 
-            if (!content.contains(stockNameLower)) {
-                log.trace("[NaverSearch] 제외 (종목명 미포함): '{}'", truncate(title, 40));
-                continue;
-            }
+                    // 비관련 키워드 제외
+                    for (String exclude : Arrays.asList("연예", "아이돌", "드라마", "야구", "축구", "농구", "운세", "로또")) {
+                        if (title.contains(exclude)) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .collect(Collectors.toList());
+    }
 
-            // 3. 명백히 비관련 기사 제외
-            boolean isIrrelevant = false;
-            for (String exclude : Arrays.asList("연예", "아이돌", "드라마", "야구", "축구", "농구", "운세", "로또")) {
-                if (title.contains(exclude)) {
-                    isIrrelevant = true;
-                    break;
-                }
-            }
+    /**
+     * N일 이내 기사만 필터링
+     */
+    private List<NewsItem> filterRecentNews(List<NewsItem> newsList, int days) {
+        return newsList.stream()
+                .filter(news -> isWithinDays(news.getPubDate(), days))
+                .collect(Collectors.toList());
+    }
 
-            if (!isIrrelevant) {
-                filtered.add(news);
-            }
+    /**
+     * pubDate 비교 (최신순 정렬용)
+     */
+    private int comparePubDate(String date1, String date2) {
+        try {
+            if (date1 == null || date2 == null) return 0;
+            ZonedDateTime zdt1 = ZonedDateTime.parse(date1, RFC_1123_FORMATTER);
+            ZonedDateTime zdt2 = ZonedDateTime.parse(date2, RFC_1123_FORMATTER);
+            return zdt1.compareTo(zdt2);
+        } catch (Exception e) {
+            return 0;
         }
-
-        return filtered;
     }
 
     /**
      * pubDate가 N일 이내인지 확인
      * 네이버 API pubDate 형식: "Mon, 10 Feb 2025 09:00:00 +0900"
+     *
+     * ⚠️ 중요: Locale.ENGLISH 설정 필수! (영문 요일/월 파싱)
      */
     private boolean isWithinDays(String pubDate, int days) {
         if (pubDate == null || pubDate.isEmpty()) {
-            return false;
+            log.debug("[NaverSearch] pubDate가 null 또는 빈 문자열 → 포함 처리");
+            return true;  // 날짜 없으면 일단 포함
         }
 
         try {
-            // RFC 1123 형식 파싱 (예: "Mon, 10 Feb 2025 09:00:00 +0900")
-            DateTimeFormatter formatter = DateTimeFormatter.RFC_1123_DATE_TIME;
-            ZonedDateTime articleDate = ZonedDateTime.parse(pubDate, formatter);
+            // RFC 1123 형식 파싱 (Locale.ENGLISH 필수!)
+            ZonedDateTime articleDate = ZonedDateTime.parse(pubDate, RFC_1123_FORMATTER);
             LocalDate articleLocalDate = articleDate.toLocalDate();
             LocalDate cutoffDate = LocalDate.now().minusDays(days);
 
             boolean isRecent = !articleLocalDate.isBefore(cutoffDate);
             if (!isRecent) {
-                log.trace("[NaverSearch] 오래된 기사 필터링: {} (기준: {} 이후)", articleLocalDate, cutoffDate);
+                log.trace("[NaverSearch] 오래된 기사: {} (기준: {} 이후)", articleLocalDate, cutoffDate);
             }
             return isRecent;
 
         } catch (Exception e) {
-            // 파싱 실패 시 일단 포함 (안전한 쪽으로)
-            log.debug("[NaverSearch] pubDate 파싱 실패: '{}' - {}", pubDate, e.getMessage());
+            // 파싱 실패 시 일단 포함 (Fail-safe)
+            log.warn("[NaverSearch] pubDate 파싱 실패 (포함 처리): '{}' - {}", pubDate, e.getMessage());
             return true;
         }
     }
