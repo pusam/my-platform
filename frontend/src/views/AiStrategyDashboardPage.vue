@@ -218,20 +218,20 @@
             </div>
           </div>
           <div class="summary-card">
-            <span class="summary-icon">🌍</span>
+            <span class="summary-icon">📈</span>
             <div class="summary-content">
-              <span class="summary-label">외국인 동향</span>
-              <span class="summary-value" :class="foreignFlow > 0 ? 'positive' : 'negative'">
-                {{ foreignFlow > 0 ? '순매수' : '순매도' }} {{ Math.abs(foreignFlow).toLocaleString() }}억
+              <span class="summary-label">KOSPI</span>
+              <span class="summary-value" :class="kospiInfo.change >= 0 ? 'positive' : 'negative'">
+                {{ kospiInfo.index.toLocaleString() }} ({{ kospiInfo.change >= 0 ? '+' : '' }}{{ kospiInfo.change.toFixed(2) }}%)
               </span>
             </div>
           </div>
           <div class="summary-card">
-            <span class="summary-icon">🏢</span>
+            <span class="summary-icon">📉</span>
             <div class="summary-content">
-              <span class="summary-label">기관 동향</span>
-              <span class="summary-value" :class="institutionFlow > 0 ? 'positive' : 'negative'">
-                {{ institutionFlow > 0 ? '순매수' : '순매도' }} {{ Math.abs(institutionFlow).toLocaleString() }}억
+              <span class="summary-label">KOSDAQ</span>
+              <span class="summary-value" :class="kosdaqInfo.change >= 0 ? 'positive' : 'negative'">
+                {{ kosdaqInfo.index.toLocaleString() }} ({{ kosdaqInfo.change >= 0 ? '+' : '' }}{{ kosdaqInfo.change.toFixed(2) }}%)
               </span>
             </div>
           </div>
@@ -346,8 +346,8 @@ const currentRecommendations = computed(() => recommendations.value[activeTab.va
 
 // 시장 요약 데이터
 const marketSentiment = ref({ text: '조회 중...', class: '' });
-const foreignFlow = ref(0);
-const institutionFlow = ref(0);
+const kospiInfo = ref({ index: 0, change: 0 });  // KOSPI 지수 정보
+const kosdaqInfo = ref({ index: 0, change: 0 }); // KOSDAQ 지수 정보
 const leadingSector = ref('-');
 
 // ========== 스냅샷 API 데이터 로드 (단일 호출) ==========
@@ -515,20 +515,33 @@ const loadMarketSummary = async () => {
     const statusResponse = await marketAPI.getStatus();
     if (statusResponse.data.success && statusResponse.data.data) {
       const data = statusResponse.data.data;
-      // ADR 기반 시장 분위기 판단
-      const adr = data.adr || 100;
+      // ADR 기반 시장 분위기 판단 (combinedAdr 필드 사용)
+      const adr = data.combinedAdr || 100;
       if (adr >= 120) {
-        marketSentiment.value = { text: '강세 (Risk-On)', class: 'positive' };
+        marketSentiment.value = { text: '과열 (Risk-On)', class: 'positive' };
       } else if (adr >= 100) {
         marketSentiment.value = { text: '보합', class: '' };
       } else if (adr >= 80) {
-        marketSentiment.value = { text: '약세', class: 'negative' };
+        marketSentiment.value = { text: '침체', class: 'negative' };
       } else {
-        marketSentiment.value = { text: '약세 (Risk-Off)', class: 'negative' };
+        marketSentiment.value = { text: '공포 (Risk-Off)', class: 'negative' };
       }
 
-      foreignFlow.value = data.foreignNetBuy || 0;
-      institutionFlow.value = data.institutionNetBuy || 0;
+      // KOSPI 지수 정보
+      if (data.kospi) {
+        kospiInfo.value = {
+          index: data.kospi.indexClose || 0,
+          change: data.kospi.indexChangeRate || 0
+        };
+      }
+
+      // KOSDAQ 지수 정보
+      if (data.kosdaq) {
+        kosdaqInfo.value = {
+          index: data.kosdaq.indexClose || 0,
+          change: data.kosdaq.indexChangeRate || 0
+        };
+      }
     }
   } catch (error) {
     console.error('시장 상태 로드 오류:', error);
@@ -538,8 +551,12 @@ const loadMarketSummary = async () => {
   try {
     // 주도 섹터
     const sectorResponse = await tradingIndicatorAPI.getLeadingSectors();
-    if (sectorResponse.data.success && sectorResponse.data.data && sectorResponse.data.data.length > 0) {
-      leadingSector.value = sectorResponse.data.data[0].sectorName || '-';
+    if (sectorResponse.data.success && sectorResponse.data.data) {
+      // topSectors 배열에서 첫 번째 섹터 이름 가져오기
+      const topSectors = sectorResponse.data.data.topSectors;
+      if (topSectors && topSectors.length > 0) {
+        leadingSector.value = topSectors[0].sectorName || '-';
+      }
     }
   } catch (error) {
     console.error('주도 섹터 로드 오류:', error);
