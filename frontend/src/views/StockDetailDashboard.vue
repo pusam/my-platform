@@ -351,8 +351,9 @@ const searchStock = async () => {
     if (!/^\d{6}$/.test(code)) {
       // 종목명으로 검색
       const searchResult = await stockAPI.searchStocks(code);
-      if (searchResult.data?.length > 0) {
-        code = searchResult.data[0].stockCode;
+      if (searchResult.data.success && searchResult.data.data?.length > 0) {
+        code = searchResult.data.data[0].stockCode;
+        stockName.value = searchResult.data.data[0].stockName;
       } else {
         alert('종목을 찾을 수 없습니다.');
         loading.value = false;
