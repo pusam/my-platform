@@ -32,6 +32,7 @@ import ScalpingAnalysisPage from './views/ScalpingAnalysisPage.vue'
 import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 import RiskAnalysisPage from './views/RiskAnalysisPage.vue'
+import StockDetailDashboard from './views/StockDetailDashboard.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -227,6 +228,18 @@ const router = createRouter({
       path: '/risk-analysis',
       name: 'RiskAnalysis',
       component: RiskAnalysisPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/stock-detail',
+      name: 'StockDetail',
+      component: StockDetailDashboard,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/stock/:stockCode',
+      name: 'StockDetailWithCode',
+      component: StockDetailDashboard,
       meta: { requiresAuth: true }
     },
     {

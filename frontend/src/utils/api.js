@@ -753,6 +753,14 @@ export const riskAPI = {
   }
 };
 
+// Stock Detail API (종목 종합 상세)
+export const stockDetailAPI = {
+  // 종목 종합 상세 조회 (수급/재무/리스크/AI 분석 통합)
+  getSummary(stockCode) {
+    return apiClient.get(`/stock/${stockCode}/summary`, { timeout: 90000 });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
