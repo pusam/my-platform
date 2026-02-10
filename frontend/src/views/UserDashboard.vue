@@ -208,6 +208,26 @@
             </span>
           </article>
 
+          <article class="menu-card stock-detail" @click="goToStockDetail">
+            <div class="card-icon stock-detail-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <path d="M3 9h18"/>
+                <path d="M9 21V9"/>
+                <path d="M13 13h4"/>
+                <path d="M13 17h4"/>
+                <polyline points="5 15 6 14 7 16 8 12"/>
+              </svg>
+            </div>
+            <h3>종목 종합상세 <span class="menu-ai-badge">AI</span></h3>
+            <p>차트, 수급, 재무, 리스크 통합 분석</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
           <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
             <div class="card-icon news-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -674,6 +694,9 @@ export default {
     },
     goToRiskAnalysis() {
       this.$router.push('/risk-analysis')
+    },
+    goToStockDetail() {
+      this.$router.push('/stock-detail')
     },
     goToNews() {
       this.$router.push('/news')
@@ -1292,6 +1315,26 @@ export default {
 
 .menu-card.risk-analysis h3 {
   color: #dc2626;
+}
+
+/* 종목 종합상세 카드 */
+.card-icon.stock-detail-icon {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(14, 165, 233, 0.15) 100%);
+  color: #06b6d4;
+}
+
+.menu-card.stock-detail {
+  background: linear-gradient(135deg, rgba(236, 254, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(6, 182, 212, 0.3);
+}
+
+.menu-card.stock-detail:hover {
+  border-color: #06b6d4;
+  box-shadow: 0 20px 40px rgba(6, 182, 212, 0.15);
+}
+
+.menu-card.stock-detail h3 {
+  color: #0891b2;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
