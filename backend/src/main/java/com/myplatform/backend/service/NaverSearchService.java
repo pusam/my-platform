@@ -71,9 +71,9 @@ public class NaverSearchService {
     }
 
     /**
-     * 종목 관련 뉴스 검색 (v5 - 강제 날짜순)
+     * 종목 관련 뉴스 검색 (v5 - 강제 날짜순 + 엄격 필터링)
      *
-     * @param stockName 종목명
+     * @param stockName 종목명 (예: 삼성전자)
      * @return 뉴스 목록
      */
     public List<NewsItem> searchStockNews(String stockName) {
@@ -82,21 +82,28 @@ public class NaverSearchService {
             return Collections.emptyList();
         }
 
+        // ★★★ 종목명 정규화 ★★★
+        String cleanStockName = stockName.trim();
+        if (cleanStockName.isEmpty()) {
+            log.warn("[NaverSearch] 종목명이 비어있음");
+            return Collections.emptyList();
+        }
+
         log.info("========================================");
-        log.info("[NaverSearch] 검색 시작: '{}'", stockName);
+        log.info("[NaverSearch] ★ 검색 시작: '{}' (정규화: '{}')", stockName, cleanStockName);
         log.info("[NaverSearch] 설정: sort={}, display={}", SORT_DATE, DISPLAY_COUNT);
 
         // 1. API 호출 (날짜순 고정!)
-        List<NewsItem> rawNews = callNaverApi(stockName);
-        log.info("[NaverSearch] 검색어: '{}', API 응답: {}건", stockName, rawNews.size());
+        List<NewsItem> rawNews = callNaverApi(cleanStockName);
+        log.info("[NaverSearch] 검색어: '{}', API 응답: {}건", cleanStockName, rawNews.size());
 
         if (rawNews.isEmpty()) {
             log.warn("[NaverSearch] API 응답 0건 - 검색 종료");
             return Collections.emptyList();
         }
 
-        // 2. 종목명 포함 필터링
-        List<NewsItem> relevantNews = filterByRelevance(rawNews, stockName);
+        // 2. 종목명 포함 필터링 (★ 엄격 필터링 적용 ★)
+        List<NewsItem> relevantNews = filterByRelevance(rawNews, cleanStockName);
         log.info("[NaverSearch] 종목명 필터 후: {}건 (원본: {}건)", relevantNews.size(), rawNews.size());
 
         // 3. 7일 이내 필터링
@@ -187,37 +194,85 @@ public class NaverSearchService {
     }
 
     /**
-     * 종목명 포함 + 비관련 제외 필터링
+     * 종목명 포함 + 비관련 제외 필터링 (강화된 필터링)
+     *
+     * ★★★ 핵심 규칙 ★★★
+     * 1. 제목에 종목명이 반드시 포함되어야 함 (본문만 포함은 제외)
+     * 2. 다른 종목명이 제목에 있으면 제외 (삼성SDI, 삼성물산 등)
+     * 3. 비관련 키워드(연예, 스포츠 등) 제외
      */
     private List<NewsItem> filterByRelevance(List<NewsItem> newsList, String stockName) {
-        String stockNameLower = stockName.toLowerCase();
+        String stockNameLower = stockName.toLowerCase().trim();
         List<NewsItem> result = new ArrayList<>();
+
+        // 관련 없는 종목 키워드 (삼성전자 검색 시 제외할 키워드들)
+        List<String> competitorKeywords = getCompetitorKeywords(stockName);
 
         for (NewsItem news : newsList) {
             String title = news.getTitle() != null ? news.getTitle().toLowerCase() : "";
             String desc = news.getDescription() != null ? news.getDescription().toLowerCase() : "";
-            String content = title + " " + desc;
 
-            // 종목명 포함 여부
-            if (!content.contains(stockNameLower)) {
+            // ★ 제목에 종목명이 반드시 포함되어야 함
+            if (!title.contains(stockNameLower)) {
+                log.trace("[NaverSearch] 제외 (제목에 종목명 없음): {}", news.getTitle());
                 continue;
             }
+
+            // ★ 다른 종목 키워드가 제목에 있으면 제외
+            boolean hasCompetitor = false;
+            for (String comp : competitorKeywords) {
+                if (title.contains(comp.toLowerCase())) {
+                    log.trace("[NaverSearch] 제외 (경쟁 종목): {} - {}", comp, news.getTitle());
+                    hasCompetitor = true;
+                    break;
+                }
+            }
+            if (hasCompetitor) continue;
 
             // 비관련 키워드 제외
             boolean excluded = false;
             for (String kw : EXCLUDE_KEYWORDS) {
                 if (title.contains(kw)) {
+                    log.trace("[NaverSearch] 제외 (비관련 키워드 {}): {}", kw, news.getTitle());
                     excluded = true;
                     break;
                 }
             }
 
             if (!excluded) {
+                log.debug("[NaverSearch] ✓ 포함: {}", news.getTitle());
                 result.add(news);
             }
         }
 
         return result;
+    }
+
+    /**
+     * 종목별 경쟁/관련 종목 키워드 (제외 대상)
+     */
+    private List<String> getCompetitorKeywords(String stockName) {
+        // 삼성전자 검색 시 다른 삼성 계열사 제외
+        if (stockName.contains("삼성전자")) {
+            return Arrays.asList("삼성SDI", "삼성물산", "삼성생명", "삼성화재",
+                    "삼성바이오", "삼성엔지", "삼성카드", "삼성증권", "삼성SDS");
+        }
+        // 현대차 검색 시 다른 현대 계열사 제외
+        if (stockName.contains("현대차") || stockName.contains("현대자동차")) {
+            return Arrays.asList("현대건설", "현대중공업", "현대모비스", "현대제철",
+                    "현대글로비스", "현대위아", "현대로템", "현대에너지솔루션");
+        }
+        // SK하이닉스 검색 시 다른 SK 계열사 제외
+        if (stockName.contains("SK하이닉스")) {
+            return Arrays.asList("SK텔레콤", "SK이노베이션", "SK바이오팜",
+                    "SK스퀘어", "SKC", "SK네트웍스");
+        }
+        // LG전자 검색 시 다른 LG 계열사 제외
+        if (stockName.contains("LG전자")) {
+            return Arrays.asList("LG화학", "LG에너지솔루션", "LG디스플레이",
+                    "LG유플러스", "LG이노텍", "LG생활건강");
+        }
+        return Collections.emptyList();
     }
 
     /**

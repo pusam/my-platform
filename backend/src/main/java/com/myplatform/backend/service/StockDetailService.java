@@ -49,41 +49,73 @@ public class StockDetailService {
                 .stockCode(stockCode)
                 .fetchedAt(LocalDateTime.now());
 
-        // 1. 현재가 조회 (필수)
+        // 1. 현재가 조회 (필수) - 종목명 먼저 확보
+        String stockName = stockCode;  // 기본값
         JsonNode priceData = kisService.getStockPrice(stockCode);
-        if (priceData != null) {
+        if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
             PriceInfo priceInfo = parsePriceInfo(priceData);
             builder.price(priceInfo);
 
             // 종목명 설정
-            String stockName = getFieldValue(priceData, "output", "hts_kor_isnm");
-            builder.stockName(stockName != null ? stockName : stockCode);
+            String name = getFieldValue(priceData, "output", "hts_kor_isnm");
+            if (name != null && !name.isEmpty()) {
+                stockName = name;
+            }
+            builder.stockName(stockName);
+            log.info("[StockDetail] 종목명: {}, 현재가: {}", stockName, priceInfo.getCurrentPrice());
+        } else {
+            log.warn("[StockDetail] 현재가 조회 실패: {}", stockCode);
         }
+
+        // ★★★ 종목명을 final로 캡처 (람다에서 사용) ★★★
+        final String finalStockName = stockName;
 
         // 2. 병렬 조회 (수급, 리스크, 차트)
         CompletableFuture<ScalpingAnalysisDto> scalpingFuture =
-                CompletableFuture.supplyAsync(() -> scalpingService.getScalpingAnalysis(stockCode));
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return scalpingService.getScalpingAnalysis(stockCode);
+                    } catch (Exception e) {
+                        log.error("[StockDetail] 수급 조회 실패: {}", e.getMessage());
+                        return null;
+                    }
+                });
 
+        // ★★★ 뉴스 검색 시 정확한 종목명 사용 ★★★
         CompletableFuture<RiskAnalysisDto> riskFuture =
                 CompletableFuture.supplyAsync(() -> {
-                    String stockName = builder.build().getStockName();
-                    return stockName != null ? riskService.analyzeRisk(stockName) : null;
+                    try {
+                        log.info("[StockDetail] 리스크 분석 시작 - 종목명: '{}'", finalStockName);
+                        return riskService.analyzeRisk(finalStockName);
+                    } catch (Exception e) {
+                        log.error("[StockDetail] 리스크 조회 실패: {}", e.getMessage());
+                        return null;
+                    }
                 });
 
         CompletableFuture<ChartData> chartFuture =
                 CompletableFuture.supplyAsync(() -> fetchChartData(stockCode));
 
         try {
-            // 수급 정보
+            // 수급 정보 - 상세 로깅 추가
             ScalpingAnalysisDto scalping = scalpingFuture.get(30, TimeUnit.SECONDS);
             if (scalping != null) {
+                log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}%",
+                        scalping.getForeignNetBuy(), scalping.getInstNetBuy(), scalping.getVolumePower());
                 builder.supplyDemand(parseSupplyDemand(scalping));
+            } else {
+                log.warn("[StockDetail] 수급 데이터 없음");
             }
 
             // 리스크 정보
             RiskAnalysisDto risk = riskFuture.get(60, TimeUnit.SECONDS);
             if (risk != null) {
+                log.info("[StockDetail] 리스크 분석 완료 - 뉴스: {}건, 점수: {}",
+                        risk.getRelatedNews() != null ? risk.getRelatedNews().size() : 0,
+                        risk.getRiskScore());
                 builder.risk(parseRiskInfo(risk));
+            } else {
+                log.warn("[StockDetail] 리스크 데이터 없음");
             }
 
             // 차트 데이터
@@ -93,7 +125,7 @@ public class StockDetailService {
             }
 
         } catch (Exception e) {
-            log.warn("[StockDetail] 병렬 조회 중 오류: {}", e.getMessage());
+            log.warn("[StockDetail] 병렬 조회 중 오류: {}", e.getMessage(), e);
         }
 
         // 3. 재무 정보 조회
@@ -112,16 +144,26 @@ public class StockDetailService {
     }
 
     /**
-     * 가격 정보 파싱
+     * 가격 정보 파싱 (KIS API 실시간 시세)
      */
     private PriceInfo parsePriceInfo(JsonNode data) {
         JsonNode output = data.get("output");
-        if (output == null) return null;
+        if (output == null) {
+            log.warn("[StockDetail] 가격 output 없음");
+            return null;
+        }
+
+        BigDecimal currentPrice = parseBigDecimal(output.get("stck_prpr"));
+        BigDecimal changePrice = parseBigDecimal(output.get("prdy_vrss"));
+        BigDecimal changeRate = parseBigDecimal(output.get("prdy_ctrt"));
+
+        log.debug("[StockDetail] 시세 파싱 - 현재가: {}, 전일대비: {}, 등락률: {}%",
+                currentPrice, changePrice, changeRate);
 
         return PriceInfo.builder()
-                .currentPrice(parseBigDecimal(output.get("stck_prpr")))
-                .changePrice(parseBigDecimal(output.get("prdy_vrss")))
-                .changeRate(parseBigDecimal(output.get("prdy_ctrt")))
+                .currentPrice(currentPrice)
+                .changePrice(changePrice)
+                .changeRate(changeRate)
                 .tradingVolume(parseLong(output.get("acml_vol")))
                 .tradingValue(parseBigDecimal(output.get("acml_tr_pbmn"))
                         .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP))
@@ -133,16 +175,28 @@ public class StockDetailService {
     }
 
     /**
-     * 수급 정보 변환
+     * 수급 정보 변환 (null → 0 처리)
      */
     private SupplyDemand parseSupplyDemand(ScalpingAnalysisDto scalping) {
+        if (scalping == null) {
+            log.warn("[StockDetail] ScalpingAnalysisDto가 null");
+            return SupplyDemand.builder()
+                    .volumePower(BigDecimal.ZERO)
+                    .volumeSignal("NEUTRAL")
+                    .foreignNetBuy(BigDecimal.ZERO)
+                    .instNetBuy(BigDecimal.ZERO)
+                    .programNetBuy(BigDecimal.ZERO)
+                    .programTrend("FLAT")
+                    .build();
+        }
+
         return SupplyDemand.builder()
-                .volumePower(scalping.getVolumePower())
-                .volumeSignal(scalping.getVolumeSignal())
-                .foreignNetBuy(scalping.getForeignNetBuy())
-                .instNetBuy(scalping.getInstNetBuy())
-                .programNetBuy(scalping.getProgramNetBuy())
-                .programTrend(scalping.getProgramTrend())
+                .volumePower(scalping.getVolumePower() != null ? scalping.getVolumePower() : BigDecimal.ZERO)
+                .volumeSignal(scalping.getVolumeSignal() != null ? scalping.getVolumeSignal() : "NEUTRAL")
+                .foreignNetBuy(scalping.getForeignNetBuy() != null ? scalping.getForeignNetBuy() : BigDecimal.ZERO)
+                .instNetBuy(scalping.getInstNetBuy() != null ? scalping.getInstNetBuy() : BigDecimal.ZERO)
+                .programNetBuy(scalping.getProgramNetBuy() != null ? scalping.getProgramNetBuy() : BigDecimal.ZERO)
+                .programTrend(scalping.getProgramTrend() != null ? scalping.getProgramTrend() : "FLAT")
                 .programSeries(scalping.getProgramTradingSeries())
                 .build();
     }
