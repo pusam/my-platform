@@ -1,7 +1,7 @@
 <template>
   <div class="program-trading-chart">
     <div class="chart-header">
-      <h3>프로그램 매매 추이</h3>
+      <h3>프로그램 매매 추이 <span v-if="isAfterMarket && hasData" class="post-market-badge">장 마감</span></h3>
       <div class="summary">
         <span class="net-buy" :class="netBuyClass">
           누적 {{ netBuyText }}
@@ -12,12 +12,12 @@
 
     <div class="chart-wrapper">
       <Line v-if="hasData && !isPreMarket" :data="chartData" :options="chartOptions" />
-      <div v-else-if="isPreMarket" class="no-data pre-market">
+      <div v-else-if="isPreMarket && isBeforeMarket" class="no-data pre-market">
         <div class="pre-market-icon">🕐</div>
         <p class="pre-market-title">장 시작 대기 중</p>
         <p class="pre-market-desc">09:00 장 시작 후 데이터가 표시됩니다</p>
       </div>
-      <div v-else-if="isMarketHours" class="no-data collecting">
+      <div v-else-if="isMarketHours && !hasData" class="no-data collecting">
         <div class="collecting-icon">⏳</div>
         <p class="collecting-title">데이터 집계 중</p>
         <p class="collecting-desc">잠시 후 다시 조회해 주세요</p>
@@ -85,24 +85,35 @@ const hasData = computed(() => {
   return props.series && props.series.length > 0;
 });
 
-// 장 운영 시간 체크 (09:00 ~ 15:30)
-const isPreMarket = computed(() => {
+// 현재 시간 정보
+const currentTimeMinutes = computed(() => {
   const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const currentTime = hour * 60 + minute;
-  // 09:00 이전
-  return currentTime < 540;
+  return now.getHours() * 60 + now.getMinutes();
 });
 
-// 장중 시간 체크 (09:00 ~ 15:30)
+// 장 시작 전 (09:00 이전)
+const isBeforeMarket = computed(() => {
+  return currentTimeMinutes.value < 540;
+});
+
+// 장중 (09:00 ~ 15:30)
 const isMarketHours = computed(() => {
-  const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const currentTime = hour * 60 + minute;
-  // 09:00 ~ 15:30 (540분 ~ 930분)
-  return currentTime >= 540 && currentTime <= 930;
+  return currentTimeMinutes.value >= 540 && currentTimeMinutes.value <= 930;
+});
+
+// 장 마감 후 (15:30 이후)
+const isAfterMarket = computed(() => {
+  return currentTimeMinutes.value > 930;
+});
+
+// 장 시작 대기 상태 (09:00 이전이고 데이터가 없을 때만)
+const isPreMarket = computed(() => {
+  // 장 마감 후에는 데이터가 있으면 표시
+  if (isAfterMarket.value && hasData.value) return false;
+  // 장중이면 데이터 있으면 표시
+  if (isMarketHours.value && hasData.value) return false;
+  // 장 시작 전이면 대기 상태
+  return isBeforeMarket.value;
 });
 
 const netBuyText = computed(() => {
@@ -250,6 +261,18 @@ const chartOptions = computed(() => ({
   margin: 0;
   color: #fff;
   font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.post-market-badge {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+  color: #fff;
+  border-radius: 10px;
+  font-weight: 600;
 }
 
 .summary {

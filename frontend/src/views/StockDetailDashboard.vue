@@ -366,6 +366,56 @@ const programTradingSeries = ref([]);
 
 const hasData = computed(() => priceInfo.value !== null);
 
+// 종목명 → 코드 매핑 (API 검색 실패 시 폴백)
+const STOCK_MAP = {
+  // 대형주
+  '삼성전자': '005930',
+  'SK하이닉스': '000660',
+  'LG에너지솔루션': '373220',
+  '삼성바이오로직스': '207940',
+  '현대차': '005380',
+  '현대자동차': '005380',
+  '기아': '000270',
+  'NAVER': '035420',
+  '네이버': '035420',
+  '카카오': '035720',
+  'LG화학': '051910',
+  '삼성SDI': '006400',
+  'POSCO홀딩스': '005490',
+  '포스코홀딩스': '005490',
+  'KB금융': '105560',
+  '신한지주': '055550',
+  '하이브': '352820',
+  'LG전자': '066570',
+  '삼성물산': '028260',
+  '삼성생명': '032830',
+  '현대모비스': '012330',
+  // 인기 테마주
+  '에코프로': '086520',
+  '에코프로비엠': '247540',
+  '포스코퓨처엠': '003670',
+  '엘앤에프': '066970',
+  '두산에너빌리티': '034020',
+  '한화에어로스페이스': '012450',
+  'HLB': '028300',
+  '셀트리온': '068270',
+  '알테오젠': '196170',
+  'SK이노베이션': '096770',
+  '카카오뱅크': '323410',
+  '크래프톤': '259960',
+  '삼성엔지니어링': '028050',
+  '한화오션': '042660',
+  '두산밥캣': '241560',
+  '한미반도체': '042700',
+  '리노공업': '058470',
+  '레인보우로보틱스': '277810',
+};
+
+// 코드 → 종목명 매핑 (역방향)
+const CODE_TO_NAME = Object.fromEntries(
+  Object.entries(STOCK_MAP).map(([name, code]) => [code, name])
+);
+
 // 차트 표시용 (최근 30개)
 const displayCandles = computed(() => {
   if (!chartData.value?.candles) return [];
@@ -437,16 +487,40 @@ const searchStock = async () => {
     let code = searchQuery.value.trim();
     let searchedName = null;
 
+    // 6자리 숫자 코드가 아닌 경우 (종목명으로 검색)
     if (!/^\d{6}$/.test(code)) {
-      const searchResult = await stockAPI.searchStocks(code);
-      if (searchResult.data.success && searchResult.data.data?.length > 0) {
-        code = searchResult.data.data[0].stockCode;
-        searchedName = searchResult.data.data[0].stockName;
+      // 1. 로컬 매핑에서 먼저 확인
+      if (STOCK_MAP[code]) {
+        searchedName = code;
+        code = STOCK_MAP[code];
         stockName.value = searchedName;
+        console.log('[StockDetail] 로컬 매핑 사용:', searchedName, '->', code);
       } else {
-        alert('종목을 찾을 수 없습니다.');
-        loading.value = false;
-        return;
+        // 2. API 검색 시도
+        try {
+          const searchResult = await stockAPI.searchStocks(code);
+          if (searchResult.data.success && searchResult.data.data?.length > 0) {
+            code = searchResult.data.data[0].stockCode;
+            searchedName = searchResult.data.data[0].stockName;
+            stockName.value = searchedName;
+            console.log('[StockDetail] API 검색 성공:', searchedName, '->', code);
+          } else {
+            alert('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
+            loading.value = false;
+            return;
+          }
+        } catch (apiError) {
+          console.warn('[StockDetail] API 검색 실패:', apiError);
+          alert('종목 검색에 실패했습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
+          loading.value = false;
+          return;
+        }
+      }
+    } else {
+      // 코드로 검색 시, 역방향 매핑으로 종목명 찾기
+      searchedName = CODE_TO_NAME[code] || null;
+      if (searchedName) {
+        stockName.value = searchedName;
       }
     }
 

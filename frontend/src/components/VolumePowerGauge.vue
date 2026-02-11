@@ -25,7 +25,10 @@
 
     <div class="description">
       <p v-if="isPreMarket" class="pre-market-text">
-        {{ isMarketHours ? '체결 데이터를 수집하고 있습니다...' : '09:00 장 시작 후 체결강도가 표시됩니다' }}
+        {{ isBeforeMarket ? '09:00 장 시작 후 체결강도가 표시됩니다' : '체결 데이터를 수집하고 있습니다...' }}
+      </p>
+      <p v-else-if="isAfterMarket && hasValidData" class="post-market-text">
+        장 마감 (Today's Close) - 오늘의 최종 체결강도
       </p>
       <p v-else-if="volumePower >= 120">매수세가 매우 강합니다</p>
       <p v-else-if="volumePower >= 100">매수세가 우위입니다</p>
@@ -50,13 +53,25 @@ const props = defineProps({
   }
 });
 
-// 장 운영 시간 체크 (09:00 ~ 15:30)
-const isMarketHours = computed(() => {
+// 현재 시간 정보
+const currentTimeMinutes = computed(() => {
   const now = new Date();
-  const hour = now.getHours();
-  const minute = now.getMinutes();
-  const currentTime = hour * 60 + minute;
-  return currentTime >= 540 && currentTime <= 930; // 09:00 ~ 15:30
+  return now.getHours() * 60 + now.getMinutes();
+});
+
+// 장 시작 전 (09:00 이전)
+const isBeforeMarket = computed(() => {
+  return currentTimeMinutes.value < 540; // 09:00 이전
+});
+
+// 장중 (09:00 ~ 15:30)
+const isMarketHours = computed(() => {
+  return currentTimeMinutes.value >= 540 && currentTimeMinutes.value <= 930;
+});
+
+// 장 마감 후 (15:30 이후)
+const isAfterMarket = computed(() => {
+  return currentTimeMinutes.value > 930; // 15:30 이후
 });
 
 // 데이터가 유효한지 확인 (0이거나 null이면 무효)
@@ -64,9 +79,14 @@ const hasValidData = computed(() => {
   return props.volumePower != null && props.volumePower > 0;
 });
 
-// 장 시작 대기 상태인지 확인
+// 장 시작 대기 상태 (09:00 이전이고 데이터가 없을 때만)
 const isPreMarket = computed(() => {
-  return !isMarketHours.value || !hasValidData.value;
+  // 장 마감 후에는 데이터가 있으면 표시
+  if (isAfterMarket.value && hasValidData.value) return false;
+  // 장중이면 데이터 있으면 표시
+  if (isMarketHours.value && hasValidData.value) return false;
+  // 장 시작 전이거나 데이터가 없으면 대기 상태
+  return isBeforeMarket.value || !hasValidData.value;
 });
 
 const formattedPower = computed(() => {
@@ -103,7 +123,18 @@ const barClass = computed(() => {
 const signalText = computed(() => {
   // 장 시작 전이거나 데이터가 없으면 대기 상태 표시
   if (isPreMarket.value) {
-    return isMarketHours.value ? '데이터 수집 중' : '장 시작 대기';
+    return isBeforeMarket.value ? '장 시작 대기' : '데이터 수집 중';
+  }
+  // 장 마감 후 데이터가 있으면 마감 상태 표시
+  if (isAfterMarket.value && hasValidData.value) {
+    const signalMap = {
+      'STRONG_BUY': '강한 매수세',
+      'BUY': '매수 우위',
+      'NEUTRAL': '균형',
+      'SELL': '매도 우위',
+      'STRONG_SELL': '강한 매도세'
+    };
+    return `${signalMap[props.signal] || '균형'} (종가)`;
   }
   switch (props.signal) {
     case 'STRONG_BUY': return '강한 매수세';
@@ -310,6 +341,11 @@ const signalClass = computed(() => {
 
 .description .pre-market-text {
   color: #71717a;
+  font-style: italic;
+}
+
+.description .post-market-text {
+  color: #a78bfa;
   font-style: italic;
 }
 </style>
