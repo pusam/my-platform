@@ -347,13 +347,16 @@ const searchStock = async () => {
   try {
     // 종목코드 변환 (종목명 → 코드)
     let code = searchQuery.value.trim();
+    let searchedName = null;  // 검색 시 찾은 종목명 보관
 
     if (!/^\d{6}$/.test(code)) {
       // 종목명으로 검색
       const searchResult = await stockAPI.searchStocks(code);
       if (searchResult.data.success && searchResult.data.data?.length > 0) {
         code = searchResult.data.data[0].stockCode;
-        stockName.value = searchResult.data.data[0].stockName;
+        searchedName = searchResult.data.data[0].stockName;
+        stockName.value = searchedName;
+        console.log('[StockDetail] 종목명 검색 성공:', searchedName, code);
       } else {
         alert('종목을 찾을 수 없습니다.');
         loading.value = false;
@@ -367,13 +370,21 @@ const searchStock = async () => {
     const response = await stockDetailAPI.getSummary(code);
     if (response.data.success && response.data.data) {
       const data = response.data.data;
-      stockName.value = data.stockName;
+      // 종목명: API 응답 우선, 없으면 검색 결과, 없으면 코드
+      stockName.value = data.stockName || searchedName || code;
       priceInfo.value = data.price;
       supplyDemand.value = data.supplyDemand;
       financial.value = data.financial;
       riskInfo.value = data.risk;
       aiAnalysis.value = data.aiAnalysis;
       chartData.value = data.chartData;
+
+      console.log('[StockDetail] 데이터 로드 완료:', {
+        stockName: stockName.value,
+        supplyDemand: supplyDemand.value,
+        volumePower: supplyDemand.value?.volumePower,
+        foreignNetBuy: supplyDemand.value?.foreignNetBuy
+      });
     }
   } catch (error) {
     console.error('종목 조회 오류:', error);

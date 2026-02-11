@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.dto.StockDetailDto.*;
+import com.myplatform.backend.dto.StockPriceDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -50,22 +51,32 @@ public class StockDetailService {
                 .fetchedAt(LocalDateTime.now());
 
         // 1. 현재가 조회 (필수) - 종목명 먼저 확보
-        String stockName = stockCode;  // 기본값
+        String stockName = stockCode;  // 기본값 (종목코드)
         JsonNode priceData = kisService.getStockPrice(stockCode);
         if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
             PriceInfo priceInfo = parsePriceInfo(priceData);
             builder.price(priceInfo);
 
-            // 종목명 설정
+            // 종목명 설정 (KIS API에서 가져오기)
             String name = getFieldValue(priceData, "output", "hts_kor_isnm");
             if (name != null && !name.isEmpty()) {
                 stockName = name;
             }
-            builder.stockName(stockName);
             log.info("[StockDetail] 종목명: {}, 현재가: {}", stockName, priceInfo.getCurrentPrice());
         } else {
-            log.warn("[StockDetail] 현재가 조회 실패: {}", stockCode);
+            log.warn("[StockDetail] 현재가 조회 실패: {} - 종목명을 별도 조회합니다", stockCode);
+            // 가격 조회 실패 시 종목명만 별도 조회
+            try {
+                List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
+                if (searchResult != null && !searchResult.isEmpty()) {
+                    stockName = searchResult.get(0).getStockName();
+                }
+            } catch (Exception e) {
+                log.debug("[StockDetail] 종목명 별도 조회 실패: {}", e.getMessage());
+            }
         }
+        // ★★★ 항상 stockName 설정 ★★★
+        builder.stockName(stockName);
 
         // ★★★ 종목명을 final로 캡처 (람다에서 사용) ★★★
         final String finalStockName = stockName;
