@@ -545,7 +545,12 @@ const fetchAllData = async (code, searchedName) => {
     const response = await stockDetailAPI.getSummary(code);
     if (response.data.success && response.data.data) {
       const data = response.data.data;
-      stockName.value = data.stockName || searchedName || code;
+
+      // ★ 종목명 우선순위: 로컬매핑 > API응답 > 검색어 > 코드
+      // API가 코드를 종목명으로 반환하는 경우 방지
+      const localName = CODE_TO_NAME[code];
+      const apiName = data.stockName && data.stockName !== code ? data.stockName : null;
+      stockName.value = localName || apiName || searchedName || code;
       priceInfo.value = data.price;
       supplyDemand.value = data.supplyDemand;
       financial.value = data.financial;
