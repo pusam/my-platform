@@ -31,34 +31,44 @@ public class ScalpingAnalysisService {
      * @return 단타 분석 정보
      */
     public ScalpingAnalysisDto getScalpingAnalysis(String stockCode) {
-        log.info("[단타분석] 종목 {} 분석 시작", stockCode);
+        log.info("[단타분석] ========== 종목 {} 분석 시작 ==========", stockCode);
+        long startTime = System.currentTimeMillis();
 
         ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder = ScalpingAnalysisDto.builder()
                 .stockCode(stockCode)
                 .fetchedAt(LocalDateTime.now());
 
         // 1. 현재가 및 체결강도 조회 (FHKST01010100)
+        log.debug("[단타분석] 1. 현재가 조회 시작");
         JsonNode priceData = kisService.getStockPrice(stockCode);
         if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
             parseStockPrice(priceData, builder);
         } else {
-            log.warn("[단타분석] 현재가 조회 실패: {}", stockCode);
+            String errCode = priceData != null ? getFieldValue(priceData, "rt_cd") : "null";
+            String errMsg = priceData != null ? getFieldValue(priceData, "msg1") : "응답 없음";
+            log.warn("[단타분석] 현재가 조회 실패: {} - 코드: {}, 메시지: {}", stockCode, errCode, errMsg);
         }
 
         // 2. 프로그램 매매 조회 (FHKST01010700)
+        log.debug("[단타분석] 2. 프로그램 매매 조회 시작");
         JsonNode programData = kisService.getProgramTrading(stockCode);
         if (programData != null && "0".equals(getFieldValue(programData, "rt_cd"))) {
             parseProgramTrading(programData, builder);
         } else {
-            log.warn("[단타분석] 프로그램 매매 조회 실패: {}", stockCode);
+            String errCode = programData != null ? getFieldValue(programData, "rt_cd") : "null";
+            String errMsg = programData != null ? getFieldValue(programData, "msg1") : "응답 없음";
+            log.warn("[단타분석] 프로그램 매매 조회 실패: {} - 코드: {}, 메시지: {}", stockCode, errCode, errMsg);
         }
 
         // 3. 투자자별 매매동향 조회 (FHKST01010900)
+        log.debug("[단타분석] 3. 투자자 매매 조회 시작");
         JsonNode investorData = kisService.getInvestorTrading(stockCode);
         if (investorData != null && "0".equals(getFieldValue(investorData, "rt_cd"))) {
             parseInvestorTrading(investorData, builder);
         } else {
-            log.warn("[단타분석] 투자자 매매 조회 실패: {}", stockCode);
+            String errCode = investorData != null ? getFieldValue(investorData, "rt_cd") : "null";
+            String errMsg = investorData != null ? getFieldValue(investorData, "msg1") : "응답 없음";
+            log.warn("[단타분석] 투자자 매매 조회 실패: {} - 코드: {}, 메시지: {}", stockCode, errCode, errMsg);
         }
 
         ScalpingAnalysisDto result = builder.build();
@@ -67,8 +77,14 @@ public class ScalpingAnalysisService {
         result.setVolumeSignal(ScalpingAnalysisDto.calculateVolumeSignal(result.getVolumePower()));
         result.setProgramTrend(ScalpingAnalysisDto.calculateProgramTrend(result.getProgramNetBuy()));
 
-        log.info("[단타분석] 종목 {} 분석 완료 - 체결강도: {}%, 프로그램: {}억",
-                stockCode, result.getVolumePower(), result.getProgramNetBuy());
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("[단타분석] ========== 종목 {} 분석 완료 ({}ms) ==========", stockCode, elapsed);
+        log.info("[단타분석] 결과 - 체결강도: {}%, 외인: {}억, 기관: {}억, 프로그램: {}억, 시계열: {}건",
+                result.getVolumePower(),
+                result.getForeignNetBuy(),
+                result.getInstNetBuy(),
+                result.getProgramNetBuy(),
+                result.getProgramTradingSeries() != null ? result.getProgramTradingSeries().size() : 0);
 
         return result;
     }
@@ -103,6 +119,7 @@ public class ScalpingAnalysisService {
     private void parseStockPrice(JsonNode data, ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder) {
         JsonNode output = data.get("output");
         if (output == null) {
+            log.warn("[단타분석] output이 null");
             return;
         }
 
@@ -136,15 +153,68 @@ public class ScalpingAnalysisService {
             builder.tradingVolume(Long.parseLong(volumeStr));
         }
 
-        // 체결강도 (vol_tnrt: 체결강도)
-        String volumePowerStr = getFieldValue(output, "vol_tnrt");
-        if (volumePowerStr != null && !volumePowerStr.isEmpty()) {
+        // ★★★ 체결강도 파싱 (수정됨) ★★★
+        // 1순위: tday_rltv (당일 상대강도 = 체결강도)
+        // 2순위: seln_cnqn_smtn, shnu_cnqn_smtn으로 계산
+        // 3순위: vol_tnrt는 거래량회전율이므로 사용하지 않음
+        BigDecimal volumePower = parseVolumePower(output);
+        if (volumePower != null) {
+            builder.volumePower(volumePower);
+            log.debug("[단타분석] 체결강도: {}%", volumePower);
+        }
+    }
+
+    /**
+     * 체결강도 계산 (매수체결량 / 매도체결량 * 100)
+     *
+     * KIS API 필드:
+     * - seln_cnqn_smtn: 매도 체결수량 합계
+     * - shnu_cnqn_smtn: 매수 체결수량 합계
+     * - tday_rltv: 당일 상대강도 (이미 계산된 값)
+     */
+    private BigDecimal parseVolumePower(JsonNode output) {
+        // 1순위: 당일 상대강도 (tday_rltv) - 이미 계산된 체결강도
+        String relativeStrength = getFieldValue(output, "tday_rltv");
+        if (relativeStrength != null && !relativeStrength.isEmpty()) {
             try {
-                builder.volumePower(new BigDecimal(volumePowerStr));
+                BigDecimal power = new BigDecimal(relativeStrength);
+                if (power.compareTo(BigDecimal.ZERO) > 0) {
+                    log.debug("[단타분석] tday_rltv 사용: {}", power);
+                    return power;
+                }
             } catch (NumberFormatException e) {
-                log.warn("[단타분석] 체결강도 파싱 실패: {}", volumePowerStr);
+                log.debug("[단타분석] tday_rltv 파싱 실패: {}", relativeStrength);
             }
         }
+
+        // 2순위: 매수/매도 체결수량으로 직접 계산
+        String buyVolumeStr = getFieldValue(output, "shnu_cnqn_smtn");  // 매수체결수량
+        String sellVolumeStr = getFieldValue(output, "seln_cnqn_smtn"); // 매도체결수량
+
+        if (buyVolumeStr != null && sellVolumeStr != null &&
+            !buyVolumeStr.isEmpty() && !sellVolumeStr.isEmpty()) {
+            try {
+                BigDecimal buyVolume = new BigDecimal(buyVolumeStr);
+                BigDecimal sellVolume = new BigDecimal(sellVolumeStr);
+
+                if (sellVolume.compareTo(BigDecimal.ZERO) > 0) {
+                    // 체결강도 = (매수체결량 / 매도체결량) * 100
+                    BigDecimal power = buyVolume
+                            .divide(sellVolume, 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP);
+                    log.debug("[단타분석] 체결강도 계산: 매수={}, 매도={}, 강도={}%",
+                            buyVolume, sellVolume, power);
+                    return power;
+                }
+            } catch (NumberFormatException e) {
+                log.debug("[단타분석] 체결수량 파싱 실패");
+            }
+        }
+
+        // 3순위: 체결강도 데이터 없음 → null 반환 (0이 아님!)
+        log.debug("[단타분석] 체결강도 데이터 없음 - 매수: {}, 매도: {}", buyVolumeStr, sellVolumeStr);
+        return null;
     }
 
     /**
@@ -162,16 +232,22 @@ public class ScalpingAnalysisService {
                     BigDecimal netBuy = new BigDecimal(netBuyStr)
                             .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
                     builder.programNetBuy(netBuy);
+                    log.debug("[단타분석] 프로그램 순매수: {}억", netBuy);
                 } catch (NumberFormatException e) {
                     log.warn("[단타분석] 프로그램 순매수 파싱 실패: {}", netBuyStr);
                 }
+            } else {
+                log.debug("[단타분석] output1.ntby_tr_pbmn 없음");
             }
+        } else {
+            log.debug("[단타분석] 프로그램 매매 output1 없음");
         }
 
         // output2: 시간대별 프로그램 매매 시계열
         JsonNode output2 = data.get("output2");
         if (output2 != null && output2.isArray()) {
             List<ScalpingAnalysisDto.ProgramTradingPoint> series = new ArrayList<>();
+            int itemCount = 0;
 
             for (JsonNode item : output2) {
                 String timeStr = getFieldValue(item, "stck_cntg_hour");  // 체결시간 (HHMMSS)
@@ -190,6 +266,7 @@ public class ScalpingAnalysisService {
                                 .time(formattedTime)
                                 .netBuyAmount(netBuy)
                                 .build());
+                        itemCount++;
                     } catch (Exception e) {
                         // 파싱 실패는 무시
                     }
@@ -199,40 +276,56 @@ public class ScalpingAnalysisService {
             // 시간순 정렬 (오래된 것부터)
             series.sort((a, b) -> a.getTime().compareTo(b.getTime()));
             builder.programTradingSeries(series);
+            log.debug("[단타분석] 프로그램 매매 시계열: {}건", itemCount);
+        } else {
+            log.debug("[단타분석] 프로그램 매매 output2 없음 또는 빈 배열");
         }
     }
 
     /**
      * 투자자 매매 데이터 파싱
+     *
+     * FHKST01010900 API 응답 필드:
+     * - frgn_ntby_qty: 외국인 순매수 수량
+     * - frgn_ntby_tr_pbmn: 외국인 순매수 거래대금
+     * - orgn_ntby_qty: 기관 순매수 수량
+     * - orgn_ntby_tr_pbmn: 기관 순매수 거래대금
      */
     private void parseInvestorTrading(JsonNode data, ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder) {
         JsonNode output = data.get("output");
         if (output == null) {
+            log.debug("[단타분석] 투자자 매매 output 없음");
             return;
         }
 
-        // 외국인 순매수 (frgn_ntby_tr_pbmn)
+        // 외국인 순매수 (frgn_ntby_tr_pbmn: 외국인 순매수 거래대금)
         String foreignStr = getFieldValue(output, "frgn_ntby_tr_pbmn");
         if (foreignStr != null && !foreignStr.isEmpty()) {
             try {
                 BigDecimal foreign = new BigDecimal(foreignStr)
                         .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
                 builder.foreignNetBuy(foreign);
+                log.debug("[단타분석] 외국인 순매수: {}억 (원본: {})", foreign, foreignStr);
             } catch (NumberFormatException e) {
                 log.warn("[단타분석] 외국인 순매수 파싱 실패: {}", foreignStr);
             }
+        } else {
+            log.debug("[단타분석] 외국인 순매수 데이터 없음 - frgn_ntby_tr_pbmn: {}", foreignStr);
         }
 
-        // 기관 순매수 (orgn_ntby_tr_pbmn)
+        // 기관 순매수 (orgn_ntby_tr_pbmn: 기관 순매수 거래대금)
         String instStr = getFieldValue(output, "orgn_ntby_tr_pbmn");
         if (instStr != null && !instStr.isEmpty()) {
             try {
                 BigDecimal inst = new BigDecimal(instStr)
                         .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
                 builder.instNetBuy(inst);
+                log.debug("[단타분석] 기관 순매수: {}억 (원본: {})", inst, instStr);
             } catch (NumberFormatException e) {
                 log.warn("[단타분석] 기관 순매수 파싱 실패: {}", instStr);
             }
+        } else {
+            log.debug("[단타분석] 기관 순매수 데이터 없음 - orgn_ntby_tr_pbmn: {}", instStr);
         }
     }
 

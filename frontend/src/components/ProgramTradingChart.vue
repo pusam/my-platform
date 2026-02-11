@@ -17,6 +17,11 @@
         <p class="pre-market-title">장 시작 대기 중</p>
         <p class="pre-market-desc">09:00 장 시작 후 데이터가 표시됩니다</p>
       </div>
+      <div v-else-if="isMarketHours" class="no-data collecting">
+        <div class="collecting-icon">⏳</div>
+        <p class="collecting-title">데이터 집계 중</p>
+        <p class="collecting-desc">잠시 후 다시 조회해 주세요</p>
+      </div>
       <div v-else class="no-data">
         <p>프로그램 매매 데이터가 없습니다</p>
       </div>
@@ -86,8 +91,18 @@ const isPreMarket = computed(() => {
   const hour = now.getHours();
   const minute = now.getMinutes();
   const currentTime = hour * 60 + minute;
-  // 09:00 이전이거나 데이터가 없으면 장 시작 대기
-  return currentTime < 540 || (!hasData.value && currentTime < 930);
+  // 09:00 이전
+  return currentTime < 540;
+});
+
+// 장중 시간 체크 (09:00 ~ 15:30)
+const isMarketHours = computed(() => {
+  const now = new Date();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const currentTime = hour * 60 + minute;
+  // 09:00 ~ 15:30 (540분 ~ 930분)
+  return currentTime >= 540 && currentTime <= 930;
 });
 
 const netBuyText = computed(() => {
@@ -288,28 +303,41 @@ const chartOptions = computed(() => ({
   color: #666;
 }
 
-.no-data.pre-market {
+.no-data.pre-market,
+.no-data.collecting {
   flex-direction: column;
   gap: 8px;
   color: #71717a;
 }
 
-.pre-market-icon {
+.pre-market-icon,
+.collecting-icon {
   font-size: 2.5rem;
   opacity: 0.7;
 }
 
-.pre-market-title {
+.pre-market-title,
+.collecting-title {
   margin: 0;
   font-size: 1.1rem;
   font-weight: 600;
   color: #a1a1aa;
 }
 
-.pre-market-desc {
+.pre-market-desc,
+.collecting-desc {
   margin: 0;
   font-size: 0.85rem;
   color: #71717a;
+}
+
+.collecting-icon {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.1); }
 }
 
 .chart-legend {
