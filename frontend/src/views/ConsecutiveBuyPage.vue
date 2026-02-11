@@ -169,7 +169,11 @@ const fetchData = async () => {
 };
 
 const goToDetail = (stockCode) => {
-  router.push(`/investor-stock/${stockCode}`);
+  // ★ 현재 선택된 투자자 타입을 쿼리 파라미터로 전달
+  router.push({
+    path: `/investor-stock/${stockCode}`,
+    query: { investorType: selectedInvestor.value }
+  });
 };
 
 const formatNumber = (value) => {

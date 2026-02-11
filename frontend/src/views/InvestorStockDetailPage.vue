@@ -233,7 +233,9 @@ const loading = ref(false);
 const stockCode = ref(route.params.stockCode);
 const stockData = ref(null);
 const surgeTrend = ref({ FOREIGN: [], INSTITUTION: [], PENSION: [] });
-const selectedInvestor = ref('FOREIGN');
+// ★ 쿼리 파라미터에서 investorType 읽기 (없으면 FOREIGN 기본값)
+const initialInvestorType = route.query.investorType || 'FOREIGN';
+const selectedInvestor = ref(initialInvestorType);
 const selectedChartPeriod = ref(30); // 기본값: 1개월
 
 const investorTypes = [
@@ -482,13 +484,17 @@ const fetchStockDetail = async () => {
       surgeTrend.value.PENSION = pensionResponse.data.data || [];
     }
 
-    // 데이터가 있는 첫 번째 투자자 탭 선택
-    if (surgeTrend.value.FOREIGN.length > 0) {
-      selectedInvestor.value = 'FOREIGN';
-    } else if (surgeTrend.value.INSTITUTION.length > 0) {
-      selectedInvestor.value = 'INSTITUTION';
-    } else if (surgeTrend.value.PENSION.length > 0) {
-      selectedInvestor.value = 'PENSION';
+    // ★ 현재 선택된 투자자의 데이터가 없을 때만 다른 탭으로 전환
+    const currentInvestorHasData = surgeTrend.value[selectedInvestor.value]?.length > 0;
+    if (!currentInvestorHasData) {
+      // 데이터가 있는 첫 번째 투자자 탭으로 전환
+      if (surgeTrend.value.FOREIGN.length > 0) {
+        selectedInvestor.value = 'FOREIGN';
+      } else if (surgeTrend.value.INSTITUTION.length > 0) {
+        selectedInvestor.value = 'INSTITUTION';
+      } else if (surgeTrend.value.PENSION.length > 0) {
+        selectedInvestor.value = 'PENSION';
+      }
     }
   } catch (error) {
     console.error('종목 상세 조회 오류:', error);
