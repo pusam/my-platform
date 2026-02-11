@@ -1,6 +1,10 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.entity.AiStrategySnapshot;
+import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -8,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -231,6 +236,242 @@ public class GeminiService {
                 """, stocksSummary);
 
         return callWithFallback(prompt, "AI 앙상블 의견");
+    }
+
+    // ========== AI 스코어링 (전략 대시보드용) ==========
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AiScoreResult {
+        private String stockCode;
+        private int aiScore;
+        private String aiComment;
+    }
+
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 전략별 후보 종목 AI 스코어링 (배치)
+     * - 10개 후보를 하나의 프롬프트로 전송 → 전략당 1회 API 호출
+     * - 실패 시 빈 Map 반환 (graceful degradation)
+     *
+     * @param candidates 후보 스냅샷 목록 (최대 10개)
+     * @param strategyType 전략 유형 (SCALPING, SWING, TURNAROUND, VALUE)
+     * @return stockCode → AiScoreResult 매핑
+     */
+    public Map<String, AiScoreResult> scoreStockCandidates(
+            List<AiStrategySnapshot> candidates, String strategyType) {
+
+        if (candidates == null || candidates.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        if (apiKey == null || apiKey.isEmpty()) {
+            log.debug("[AI Scoring] Gemini API 키 미설정 - AI 스코어링 스킵");
+            return Collections.emptyMap();
+        }
+
+        // 전략별 평가 맥락
+        String strategyContext = switch (strategyType) {
+            case "SCALPING" -> "모멘텀/단기 급등 가능성 (거래량 급증, 체결강도, 단기 수급)";
+            case "SWING" -> "밸류에이션 매력도 (ROE, 영업이익률, PER, 재무 건전성)";
+            case "TURNAROUND" -> "실적 개선 지속 가능성 (흑자전환 신뢰도, 이익 성장 추세)";
+            case "VALUE" -> "성장 잠재력 대비 저평가 정도 (PEG, EPS성장률, ROE)";
+            default -> "종합 투자 매력도";
+        };
+
+        // 종목 데이터 구성
+        StringBuilder stockData = new StringBuilder();
+        for (AiStrategySnapshot s : candidates) {
+            stockData.append(String.format(
+                    "- %s(%s): 현재가 %s원, 등락률 %s%%, 알고리즘점수 %d",
+                    s.getStockName(), s.getStockCode(),
+                    s.getCurrentPrice() != null ? s.getCurrentPrice().toPlainString() : "N/A",
+                    s.getChangeRate() != null ? s.getChangeRate().toPlainString() : "N/A",
+                    s.getScore() != null ? s.getScore() : 0
+            ));
+            if (s.getPer() != null) stockData.append(String.format(", PER %.1f", s.getPer().doubleValue()));
+            if (s.getPbr() != null) stockData.append(String.format(", PBR %.1f", s.getPbr().doubleValue()));
+            if (s.getRoe() != null) stockData.append(String.format(", ROE %.1f%%", s.getRoe().doubleValue()));
+            if (s.getVolumeRatio() != null) stockData.append(String.format(", 거래량비율 %.0f%%", s.getVolumeRatio().doubleValue()));
+            if (s.getPeg() != null) stockData.append(String.format(", PEG %.2f", s.getPeg().doubleValue()));
+            if (s.getEpsGrowth() != null) stockData.append(String.format(", EPS성장률 %.1f%%", s.getEpsGrowth().doubleValue()));
+            if (s.getOperatingMargin() != null) stockData.append(String.format(", 영업이익률 %.1f%%", s.getOperatingMargin().doubleValue()));
+            if (s.getTurnaroundType() != null) stockData.append(", 턴어라운드유형: ").append(s.getTurnaroundType());
+            stockData.append("\n");
+        }
+
+        String prompt = String.format("""
+                당신은 한국 주식시장 전문 AI 애널리스트입니다.
+
+                아래 종목들의 '%s' 전략 관점에서 AI 매력도 점수(0~100)와 한줄평을 작성해주세요.
+
+                [평가 기준: %s]
+
+                [점수 스케일]
+                - 0~30: 낮음 (투자 매력 부족)
+                - 31~50: 보통 (조건부 관심)
+                - 51~70: 매력적 (적극 관심)
+                - 71~100: 매우 매력적 (강력 추천)
+
+                [후보 종목]
+                %s
+
+                반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트를 포함하지 마세요.
+                코멘트는 한국어로 40자 이내로 작성하세요.
+
+                [{"stockCode": "종목코드", "aiScore": 점수, "aiComment": "한줄평"}, ...]
+                """, strategyType, strategyContext, stockData.toString());
+
+        try {
+            String response = callGeminiApiForJson(prompt);
+            if (response == null || response.isBlank()) {
+                log.warn("[AI Scoring] {} - Gemini 응답 없음", strategyType);
+                return Collections.emptyMap();
+            }
+
+            // JSON 파싱
+            String jsonStr = extractJsonArray(response);
+            List<AiScoreResult> results = objectMapper.readValue(
+                    jsonStr, new TypeReference<List<AiScoreResult>>() {});
+
+            Map<String, AiScoreResult> resultMap = new HashMap<>();
+            for (AiScoreResult result : results) {
+                if (result.getStockCode() != null && !result.getStockCode().isBlank()) {
+                    // 점수 범위 보정
+                    result.setAiScore(Math.max(0, Math.min(100, result.getAiScore())));
+                    resultMap.put(result.getStockCode(), result);
+                }
+            }
+
+            log.info("[AI Scoring] {} - {}개 종목 스코어링 완료", strategyType, resultMap.size());
+            return resultMap;
+
+        } catch (Exception e) {
+            log.warn("[AI Scoring] {} - 스코어링 실패 (graceful degradation): {}", strategyType, e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * JSON 배열 추출 (응답에 불필요한 텍스트가 포함된 경우 처리)
+     */
+    private String extractJsonArray(String response) {
+        String trimmed = response.trim();
+        // ```json ... ``` 마크다운 코드블록 처리
+        if (trimmed.startsWith("```")) {
+            int startIdx = trimmed.indexOf('[');
+            int endIdx = trimmed.lastIndexOf(']');
+            if (startIdx >= 0 && endIdx > startIdx) {
+                return trimmed.substring(startIdx, endIdx + 1);
+            }
+        }
+        // 순수 JSON 배열인 경우
+        if (trimmed.startsWith("[")) {
+            return trimmed;
+        }
+        // 다른 텍스트가 앞뒤에 있는 경우
+        int startIdx = trimmed.indexOf('[');
+        int endIdx = trimmed.lastIndexOf(']');
+        if (startIdx >= 0 && endIdx > startIdx) {
+            return trimmed.substring(startIdx, endIdx + 1);
+        }
+        return trimmed;
+    }
+
+    /**
+     * Gemini API 호출 (JSON 응답 전용)
+     * - temperature: 0.3 (일관성 높임)
+     * - responseMimeType: application/json
+     */
+    private String callGeminiApiForJson(String prompt) {
+        if (apiKey == null || apiKey.isEmpty()) {
+            return null;
+        }
+
+        // 쿼터 리셋 시간 체크
+        if (quotaResetTime != null && LocalDateTime.now().isBefore(quotaResetTime)) {
+            log.warn("[AI Scoring] Gemini 쿼터 제한 중 - 스코어링 스킵");
+            return null;
+        }
+
+        enforceRateLimit();
+
+        for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            try {
+                String url = apiUrl + "?key=" + apiKey;
+
+                Map<String, Object> requestBody = new HashMap<>();
+
+                List<Map<String, Object>> contents = new ArrayList<>();
+                Map<String, Object> content = new HashMap<>();
+                List<Map<String, String>> parts = new ArrayList<>();
+                parts.add(Map.of("text", prompt));
+                content.put("parts", parts);
+                contents.add(content);
+                requestBody.put("contents", contents);
+
+                // JSON 전용 generation config
+                Map<String, Object> generationConfig = new HashMap<>();
+                generationConfig.put("temperature", 0.3);
+                generationConfig.put("maxOutputTokens", 2048);
+                generationConfig.put("responseMimeType", "application/json");
+                requestBody.put("generationConfig", generationConfig);
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+
+                HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+                log.debug("[AI Scoring] Gemini API 호출 (시도 {}/{})", attempt + 1, MAX_RETRIES);
+                lastRequestTime = LocalDateTime.now();
+
+                ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    Map body = response.getBody();
+                    List<Map> candidates = (List<Map>) body.get("candidates");
+                    if (candidates != null && !candidates.isEmpty()) {
+                        Map candidate = candidates.get(0);
+                        Map contentMap = (Map) candidate.get("content");
+                        if (contentMap != null) {
+                            List<Map> partsList = (List<Map>) contentMap.get("parts");
+                            if (partsList != null && !partsList.isEmpty()) {
+                                consecutiveErrors.set(0);
+                                return (String) partsList.get(0).get("text");
+                            }
+                        }
+                    }
+                }
+
+                log.warn("[AI Scoring] Gemini 응답 파싱 실패");
+                return null;
+
+            } catch (HttpClientErrorException.TooManyRequests e) {
+                long retryDelay = parseRetryDelay(e.getMessage());
+                consecutiveErrors.incrementAndGet();
+                log.warn("[AI Scoring] Rate Limit (시도 {}/{}), {}ms 후 재시도", attempt + 1, MAX_RETRIES, retryDelay);
+
+                if (consecutiveErrors.get() >= 3) {
+                    quotaResetTime = LocalDateTime.now().plusMinutes(1);
+                    return null;
+                }
+
+                try {
+                    Thread.sleep(retryDelay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+
+            } catch (Exception e) {
+                log.error("[AI Scoring] API 호출 실패: {}", e.getMessage());
+                return null;
+            }
+        }
+
+        return null;
     }
 
     /**

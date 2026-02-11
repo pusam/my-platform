@@ -149,6 +149,19 @@
                 </span>
               </div>
 
+              <!-- AI 스코어 배지 + 한줄 코멘트 말풍선 -->
+              <div v-if="stock.aiScore != null" class="ai-score-section">
+                <div class="ai-score-badge" :class="getAiScoreClass(stock.aiScore)">
+                  <span class="ai-badge-icon">🤖</span>
+                  <span class="ai-badge-label">AI</span>
+                  <span class="ai-badge-score">{{ stock.aiScore }}</span>
+                </div>
+                <div v-if="stock.aiComment" class="ai-comment-bubble">
+                  <div class="bubble-tail"></div>
+                  <span class="bubble-text">{{ stock.aiComment }}</span>
+                </div>
+              </div>
+
               <!-- 현재가 정보 -->
               <div class="price-info" :class="{ 'flash-up': stock.priceFlash === 'up', 'flash-down': stock.priceFlash === 'down' }">
                 <span class="current-price">{{ formatNumber(stock.currentPrice) }}원</span>
@@ -435,6 +448,9 @@ const mapSnapshotToCard = (snapshots, strategyType) => {
       stopLossPercent: config.stopLossPercent,
       holdingPeriod: config.holdingPeriod,
       score: score,
+      aiScore: snapshot.aiScore,
+      aiComment: snapshot.aiComment,
+      originalScore: snapshot.originalScore,
       keyMetrics: buildKeyMetrics(snapshot, strategyType, score),
       // 기간별 수익률 (백엔드에서 계산된 값)
       return1Week: snapshot.return1Week,
@@ -663,8 +679,15 @@ const getReasonClass = (reason) => {
   return 'theme';
 };
 
+const getAiScoreClass = (score) => {
+  if (score >= 71) return 'ai-high';
+  if (score >= 51) return 'ai-medium';
+  if (score >= 31) return 'ai-low';
+  return 'ai-very-low';
+};
+
 const goToDetail = (stockCode) => {
-  router.push(`/scalping-analysis?code=${stockCode}&from=ai-strategy`);
+  router.push(`/stock/${stockCode}`);
 };
 
 // ========== 초기화 ==========
@@ -1467,6 +1490,98 @@ onMounted(async () => {
   color: #666;
 }
 
+/* AI 스코어 섹션 */
+.ai-score-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-score-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ai-badge-icon {
+  font-size: 0.9rem;
+}
+
+.ai-badge-label {
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
+.ai-badge-score {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.ai-score-badge.ai-high {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25) 0%, rgba(220, 38, 38, 0.35) 100%);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.2);
+}
+
+.ai-score-badge.ai-medium {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.25) 0%, rgba(22, 163, 74, 0.35) 100%);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
+}
+
+.ai-score-badge.ai-low {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.25) 0%, rgba(202, 138, 4, 0.35) 100%);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.ai-score-badge.ai-very-low {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+.ai-comment-bubble {
+  position: relative;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(109, 40, 217, 0.15) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 12px;
+  padding: 6px 12px;
+  max-width: 100%;
+  flex: 1;
+  min-width: 0;
+}
+
+.bubble-tail {
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 6px solid rgba(139, 92, 246, 0.3);
+}
+
+.bubble-text {
+  color: #c4b5fd;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
 /* 반응형 */
 @media (max-width: 768px) {
   .ai-dashboard {
@@ -1495,6 +1610,15 @@ onMounted(async () => {
 
   .recommendations-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ai-score-section {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .bubble-tail {
+    display: none;
   }
 
   .summary-cards {

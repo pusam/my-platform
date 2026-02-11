@@ -48,8 +48,11 @@ public class AiStrategySnapshotService {
     private final AiStrategySnapshotRepository snapshotRepository;
     private final QuantScreenerService quantScreenerService;
     private final StockPriceService stockPriceService;
+    private final GeminiService geminiService;
 
-    // 스냅샷당 저장할 종목 수
+    // AI 스코어링 후보 수집 수 (Gemini 평가용)
+    private static final int CANDIDATE_LIMIT = 10;
+    // 최종 저장 수 (블렌딩 후 TOP N)
     private static final int SNAPSHOT_LIMIT = 5;
 
     // ========== 서버 시작 시 Warm-up ==========
@@ -306,29 +309,96 @@ public class AiStrategySnapshotService {
     @Transactional
     public void collectAndSaveSnapshot(StrategyType strategyType) {
         LocalDateTime now = LocalDateTime.now();
-        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+        List<AiStrategySnapshot> candidates = new ArrayList<>();
 
         switch (strategyType) {
             case SCALPING:
-                snapshots = collectScalpingData(now);
+                candidates = collectScalpingData(now);
                 break;
             case SWING:
-                snapshots = collectSwingData(now);
+                candidates = collectSwingData(now);
                 break;
             case TURNAROUND:
-                snapshots = collectTurnaroundData(now);
+                candidates = collectTurnaroundData(now);
                 break;
             case VALUE:
-                snapshots = collectValueData(now);
+                candidates = collectValueData(now);
                 break;
         }
 
-        if (!snapshots.isEmpty()) {
+        if (!candidates.isEmpty()) {
+            // AI 스코어링 적용 (최대 10개 → 블렌딩 → TOP 5)
+            List<AiStrategySnapshot> snapshots = applyGeminiScoring(candidates, strategyType);
             snapshotRepository.saveAll(snapshots);
-            log.debug("[Snapshot] {} saved: {} stocks.", strategyType.name(), snapshots.size());
+            log.debug("[Snapshot] {} saved: {} stocks (from {} candidates).",
+                    strategyType.name(), snapshots.size(), candidates.size());
         } else {
             log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
+    }
+
+    /**
+     * Gemini AI 스코어링 적용
+     * 1. 모든 후보의 originalScore 보존
+     * 2. Gemini API로 AI 점수 획득
+     * 3. 블렌딩: score = originalScore * 0.6 + aiScore * 0.4
+     * 4. 내림차순 정렬 후 상위 SNAPSHOT_LIMIT개 선택
+     *
+     * Gemini 실패 시 알고리즘 점수만으로 기존 동작 유지 (graceful degradation)
+     */
+    private List<AiStrategySnapshot> applyGeminiScoring(
+            List<AiStrategySnapshot> candidates, StrategyType strategyType) {
+
+        // 1. 원본 점수 보존
+        for (AiStrategySnapshot s : candidates) {
+            s.setOriginalScore(s.getScore());
+        }
+
+        // 2. Gemini AI 스코어링
+        try {
+            Map<String, GeminiService.AiScoreResult> aiResults =
+                    geminiService.scoreStockCandidates(candidates, strategyType.name());
+
+            if (!aiResults.isEmpty()) {
+                for (AiStrategySnapshot s : candidates) {
+                    GeminiService.AiScoreResult aiResult = aiResults.get(s.getStockCode());
+                    if (aiResult != null) {
+                        s.setAiScore(aiResult.getAiScore());
+                        s.setAiComment(aiResult.getAiComment());
+                        // 블렌딩: 알고리즘 60% + AI 40%
+                        int blendedScore = (int) Math.round(
+                                s.getOriginalScore() * 0.6 + aiResult.getAiScore() * 0.4);
+                        s.setScore(Math.max(0, Math.min(100, blendedScore)));
+                    }
+                    // AI 점수 없는 종목: originalScore 유지 (이미 score == originalScore)
+                }
+                log.info("[AI Scoring] {} - AI 블렌딩 완료 ({}개 종목 스코어링됨)",
+                        strategyType.name(), aiResults.size());
+            } else {
+                log.debug("[AI Scoring] {} - AI 결과 없음, 알고리즘 점수만 사용", strategyType.name());
+            }
+        } catch (Exception e) {
+            log.warn("[AI Scoring] {} - Gemini 스코어링 실패 (graceful degradation): {}",
+                    strategyType.name(), e.getMessage());
+            // 실패 시 알고리즘 점수만으로 동작
+        }
+
+        // 3. 블렌딩 점수 기준 내림차순 정렬
+        candidates.sort((a, b) -> Integer.compare(
+                b.getScore() != null ? b.getScore() : 0,
+                a.getScore() != null ? a.getScore() : 0));
+
+        // 4. 상위 SNAPSHOT_LIMIT개 선택 + rankNum 재부여
+        List<AiStrategySnapshot> topSnapshots = candidates.stream()
+                .limit(SNAPSHOT_LIMIT)
+                .collect(Collectors.toList());
+
+        int rank = 1;
+        for (AiStrategySnapshot s : topSnapshots) {
+            s.setRankNum(rank++);
+        }
+
+        return topSnapshots;
     }
 
     /**
@@ -337,7 +407,7 @@ public class AiStrategySnapshotService {
      * - 점수: 거래량 비율 기반 (최대 100점)
      */
     private List<AiStrategySnapshot> collectScalpingData(LocalDateTime createdAt) {
-        List<ScreenerResultDto> momentum = quantScreenerService.getMomentumStocks(SNAPSHOT_LIMIT);
+        List<ScreenerResultDto> momentum = quantScreenerService.getMomentumStocks(CANDIDATE_LIMIT);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         int rank = 1;
@@ -376,7 +446,7 @@ public class AiStrategySnapshotService {
      * - EPS 성장률(epsGrowth) 추가
      */
     private List<AiStrategySnapshot> collectSwingData(LocalDateTime createdAt) {
-        List<ScreenerResultDto> magicFormula = quantScreenerService.getMagicFormulaStocks(SNAPSHOT_LIMIT, null);
+        List<ScreenerResultDto> magicFormula = quantScreenerService.getMagicFormulaStocks(CANDIDATE_LIMIT, null);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (magicFormula.isEmpty()) {
@@ -462,7 +532,7 @@ public class AiStrategySnapshotService {
      * - 실시간 등락률(changeRate) 추가 (KIS API prdy_ctrt)
      */
     private List<AiStrategySnapshot> collectTurnaroundData(LocalDateTime createdAt) {
-        List<ScreenerResultDto> turnaround = quantScreenerService.getTurnaroundStocks(SNAPSHOT_LIMIT);
+        List<ScreenerResultDto> turnaround = quantScreenerService.getTurnaroundStocks(CANDIDATE_LIMIT);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (turnaround.isEmpty()) {
@@ -538,7 +608,7 @@ public class AiStrategySnapshotService {
      */
     private List<AiStrategySnapshot> collectValueData(LocalDateTime createdAt) {
         List<ScreenerResultDto> lowPeg = quantScreenerService.getLowPegStocks(
-                new BigDecimal("1.0"), new BigDecimal("10"), SNAPSHOT_LIMIT);
+                new BigDecimal("1.0"), new BigDecimal("10"), CANDIDATE_LIMIT);
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (lowPeg.isEmpty()) {

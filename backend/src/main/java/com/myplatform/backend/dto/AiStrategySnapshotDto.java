@@ -26,6 +26,9 @@ public class AiStrategySnapshotDto {
     private BigDecimal currentPrice;
     private BigDecimal changeRate;
     private Integer score;
+    private Integer aiScore;
+    private String aiComment;
+    private Integer originalScore;
     private String reason;
     private Integer rankNum;
 
@@ -62,6 +65,9 @@ public class AiStrategySnapshotDto {
                 .currentPrice(entity.getCurrentPrice())
                 .changeRate(entity.getChangeRate())
                 .score(entity.getScore())
+                .aiScore(entity.getAiScore())
+                .aiComment(entity.getAiComment())
+                .originalScore(entity.getOriginalScore())
                 .reason(entity.getReason())
                 .rankNum(entity.getRankNum())
                 .volumeRatio(entity.getVolumeRatio())

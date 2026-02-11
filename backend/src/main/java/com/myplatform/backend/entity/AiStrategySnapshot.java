@@ -72,6 +72,15 @@ public class AiStrategySnapshot {
     @Column(name = "score")
     private Integer score;
 
+    @Column(name = "ai_score")
+    private Integer aiScore;
+
+    @Column(name = "ai_comment", length = 200)
+    private String aiComment;
+
+    @Column(name = "original_score")
+    private Integer originalScore;
+
     /**
      * 추천 사유
      * - 프론트엔드 표시용 한글 문자열
