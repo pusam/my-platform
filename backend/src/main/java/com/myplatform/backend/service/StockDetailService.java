@@ -210,24 +210,35 @@ public class StockDetailService {
     }
 
     /**
-     * 수급 정보 변환 (null → 0 처리)
+     * 수급 정보 변환 (null/0 처리 개선)
+     *
+     * ★ 체결강도가 null 또는 0이면 기본값 100% (균형) 사용
+     * ★ 외국인/기관/프로그램 값이 있으면 그대로 사용, 없으면 0
      */
     private SupplyDemand parseSupplyDemand(ScalpingAnalysisDto scalping) {
         if (scalping == null) {
-            log.warn("[StockDetail] ScalpingAnalysisDto가 null");
-            return SupplyDemand.builder()
-                    .volumePower(BigDecimal.ZERO)
-                    .volumeSignal("NEUTRAL")
-                    .foreignNetBuy(BigDecimal.ZERO)
-                    .instNetBuy(BigDecimal.ZERO)
-                    .programNetBuy(BigDecimal.ZERO)
-                    .programTrend("FLAT")
-                    .build();
+            log.warn("[StockDetail] ScalpingAnalysisDto가 null - 기본값 반환");
+            return buildEmptySupplyDemand();
+        }
+
+        // ★ 체결강도: null 또는 0이면 기본값 100 (균형)
+        BigDecimal volumePower = scalping.getVolumePower();
+        if (volumePower == null || volumePower.compareTo(BigDecimal.ZERO) == 0) {
+            volumePower = new BigDecimal("100");
+        }
+
+        // ★ 외국인/기관/프로그램 데이터 로깅
+        log.info("[StockDetail] parseSupplyDemand - 체결강도: {}%, 외인: {}억, 기관: {}억, 프로그램: {}억",
+                volumePower, scalping.getForeignNetBuy(), scalping.getInstNetBuy(), scalping.getProgramNetBuy());
+
+        String volumeSignal = scalping.getVolumeSignal();
+        if (volumeSignal == null) {
+            volumeSignal = ScalpingAnalysisDto.calculateVolumeSignal(volumePower);
         }
 
         return SupplyDemand.builder()
-                .volumePower(scalping.getVolumePower() != null ? scalping.getVolumePower() : BigDecimal.ZERO)
-                .volumeSignal(scalping.getVolumeSignal() != null ? scalping.getVolumeSignal() : "NEUTRAL")
+                .volumePower(volumePower)
+                .volumeSignal(volumeSignal)
                 .foreignNetBuy(scalping.getForeignNetBuy() != null ? scalping.getForeignNetBuy() : BigDecimal.ZERO)
                 .instNetBuy(scalping.getInstNetBuy() != null ? scalping.getInstNetBuy() : BigDecimal.ZERO)
                 .programNetBuy(scalping.getProgramNetBuy() != null ? scalping.getProgramNetBuy() : BigDecimal.ZERO)
@@ -530,13 +541,19 @@ public class StockDetailService {
                 .findByStockCodeAndDateRange(stockCode, startDate, endDate);
 
         if (trades.isEmpty()) {
-            log.warn("[StockDetail] 종목 {} 거래 데이터 없음 ({})", stockCode, targetDate);
-            // 데이터가 없으면 실시간 API fallback 시도
+            log.info("[StockDetail] 종목 {} DB 데이터 없음 ({}) - 실시간 API 조회로 전환", stockCode, targetDate);
+            // ★ DB에 데이터가 없으면 실시간 API에서 전체 데이터 조회
+            // 장 마감 후에도 KIS API는 당일 누적 데이터를 제공함
             try {
                 ScalpingAnalysisDto scalping = scalpingService.getScalpingAnalysis(stockCode);
+                if (scalping != null) {
+                    log.info("[StockDetail] 실시간 API 응답 - 체결강도: {}, 외인: {}, 기관: {}, 프로그램: {}",
+                            scalping.getVolumePower(), scalping.getForeignNetBuy(),
+                            scalping.getInstNetBuy(), scalping.getProgramNetBuy());
+                }
                 return parseSupplyDemand(scalping);
             } catch (Exception e) {
-                log.warn("[StockDetail] 실시간 API fallback 실패: {}", e.getMessage());
+                log.warn("[StockDetail] 실시간 API 조회 실패: {} - 기본값 반환", e.getMessage());
                 return buildEmptySupplyDemand();
             }
         }
