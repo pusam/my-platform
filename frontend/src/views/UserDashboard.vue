@@ -191,23 +191,6 @@
             </span>
           </article>
 
-          <article class="menu-card risk-analysis" @click="goToRiskAnalysis">
-            <div class="card-icon risk-analysis-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="M12 8v4"/>
-                <path d="M12 16h.01"/>
-              </svg>
-            </div>
-            <h3>리스크 분석 <span class="menu-ai-badge">AI</span></h3>
-            <p>DART 공시, 뉴스 기반 투자 위험 분석</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
           <article class="menu-card stock-detail" @click="goToStockDetail">
             <div class="card-icon stock-detail-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -691,9 +674,6 @@ export default {
     },
     goToTradingIndicators() {
       this.$router.push('/trading-indicators')
-    },
-    goToRiskAnalysis() {
-      this.$router.push('/risk-analysis')
     },
     goToStockDetail() {
       this.$router.push('/stock-detail')
@@ -1295,26 +1275,6 @@ export default {
 
 .menu-card.trading-indicators h3 {
   color: #7c3aed;
-}
-
-/* 리스크 분석 카드 */
-.card-icon.risk-analysis-icon {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
-  color: #ef4444;
-}
-
-.menu-card.risk-analysis {
-  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(239, 68, 68, 0.3);
-}
-
-.menu-card.risk-analysis:hover {
-  border-color: #ef4444;
-  box-shadow: 0 20px 40px rgba(239, 68, 68, 0.15);
-}
-
-.menu-card.risk-analysis h3 {
-  color: #dc2626;
 }
 
 /* 종목 종합상세 카드 */

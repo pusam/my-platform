@@ -189,16 +189,68 @@
 
       <!-- Right: AI/리스크존 -->
       <div class="ai-risk-zone">
-        <!-- 리스크 분석 -->
-        <div class="risk-section">
-          <h2>리스크 분석</h2>
-          <div class="risk-score-box" :class="riskStatusClass">
-            <div class="risk-score">
-              <span class="score">{{ riskInfo?.riskScore || '-' }}</span>
-              <span class="score-label">점</span>
+        <!-- 리스크 게이지 (원형) -->
+        <div class="risk-gauge-section" :class="riskStatusClass">
+          <div class="gauge-header">
+            <h2>리스크 분석</h2>
+            <span class="risk-badge" :class="riskStatusClass">
+              {{ getRiskStatusText(riskInfo?.riskStatus) }}
+            </span>
+          </div>
+
+          <div class="gauge-container">
+            <div class="gauge">
+              <svg viewBox="0 0 200 120" class="gauge-svg">
+                <!-- 배경 아크 -->
+                <path
+                  d="M 20 100 A 80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="#2a2a4a"
+                  stroke-width="16"
+                  stroke-linecap="round"
+                />
+                <!-- 컬러 아크 -->
+                <path
+                  d="M 20 100 A 80 80 0 0 1 180 100"
+                  fill="none"
+                  stroke="url(#riskGaugeGradient)"
+                  stroke-width="16"
+                  stroke-linecap="round"
+                  :stroke-dasharray="gaugeArcLength"
+                  :stroke-dashoffset="gaugeDashOffset"
+                  class="gauge-arc"
+                />
+                <defs>
+                  <linearGradient id="riskGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#22c55e" />
+                    <stop offset="50%" stop-color="#eab308" />
+                    <stop offset="100%" stop-color="#ef4444" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div class="gauge-value">
+                <span class="score" :class="riskStatusClass">{{ riskInfo?.riskScore ?? '-' }}</span>
+                <span class="label">/100</span>
+              </div>
             </div>
-            <div class="risk-status">{{ getRiskStatusText(riskInfo?.riskStatus) }}</div>
-            <div class="risk-reason">{{ riskInfo?.riskReason || '-' }}</div>
+            <div class="gauge-labels">
+              <span class="safe">안전</span>
+              <span class="warning">주의</span>
+              <span class="danger">위험</span>
+            </div>
+          </div>
+
+          <div class="risk-reason-box" v-if="riskInfo?.riskReason">
+            <p>{{ riskInfo.riskReason }}</p>
+          </div>
+
+          <!-- 매수 금지 경고 -->
+          <div v-if="riskInfo?.riskStatus === 'DANGER'" class="danger-warning">
+            <span class="warning-icon">🚨</span>
+            <div class="warning-text">
+              <strong>매수 주의</strong>
+              <p>리스크가 높아 신중한 판단이 필요합니다.</p>
+            </div>
           </div>
 
           <!-- 공시/뉴스 요약 -->
@@ -219,7 +271,7 @@
 
           <!-- 뉴스 목록 -->
           <div class="news-list" v-if="riskInfo?.news?.length">
-            <div v-for="(news, index) in riskInfo.news.slice(0, 3)" :key="index" class="news-item">
+            <div v-for="(news, index) in riskInfo.news.slice(0, 5)" :key="index" class="news-item">
               <a :href="news.link" target="_blank">{{ truncate(news.title, 40) }}</a>
               <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>
             </div>
@@ -337,6 +389,15 @@ const aiRecommendationClass = computed(() => {
   if (rec === 'BUY') return 'buy';
   if (rec === 'SELL') return 'sell';
   return 'hold';
+});
+
+// 리스크 게이지 계산
+const gaugeArcLength = computed(() => 251.2); // 반원의 둘레 (π * 80)
+
+const gaugeDashOffset = computed(() => {
+  if (!riskInfo.value?.riskScore) return gaugeArcLength.value;
+  const progress = riskInfo.value.riskScore / 100;
+  return gaugeArcLength.value * (1 - progress);
 });
 
 // 종목 검색
@@ -881,45 +942,152 @@ onMounted(() => {
   font-family: 'Monaco', monospace;
 }
 
-/* Risk Section */
-.risk-score-box {
-  text-align: center;
+/* Risk Gauge Section */
+.risk-gauge-section {
   padding: 20px;
-  border-radius: 12px;
-  background: rgba(50, 50, 80, 0.5);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1a1a3a 0%, #0f0f23 100%);
+  border: 2px solid #2a2a4a;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+}
+
+.risk-gauge-section.safe { border-color: #22c55e; box-shadow: 0 0 30px rgba(34, 197, 94, 0.15); }
+.risk-gauge-section.warning { border-color: #eab308; box-shadow: 0 0 30px rgba(234, 179, 8, 0.15); }
+.risk-gauge-section.danger { border-color: #ef4444; box-shadow: 0 0 30px rgba(239, 68, 68, 0.2); }
+
+.gauge-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.gauge-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.risk-badge {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.risk-badge.safe { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); color: #fff; }
+.risk-badge.warning { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #000; }
+.risk-badge.danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; animation: blink-danger 1s ease-in-out infinite; }
+
+@keyframes blink-danger {
+  0%, 100% { opacity: 1; box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+  50% { opacity: 0.8; box-shadow: 0 0 30px rgba(239, 68, 68, 1); }
+}
+
+.gauge-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.gauge {
+  position: relative;
+  width: 200px;
+  height: 120px;
+}
+
+.gauge-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.gauge-arc {
+  transition: stroke-dashoffset 1s ease-out;
+}
+
+.gauge-value {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.gauge-value .score {
+  font-size: 3rem;
+  font-weight: 800;
+  font-family: 'Monaco', 'Consolas', monospace;
+}
+
+.gauge-value .score.safe { color: #22c55e; }
+.gauge-value .score.warning { color: #eab308; }
+.gauge-value .score.danger { color: #ef4444; }
+
+.gauge-value .label {
+  font-size: 1rem;
+  color: #666;
+}
+
+.gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  width: 200px;
+  margin-top: 8px;
+}
+
+.gauge-labels span {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.gauge-labels .safe { color: #22c55e; }
+.gauge-labels .warning { color: #eab308; }
+.gauge-labels .danger { color: #ef4444; }
+
+.risk-reason-box {
+  padding: 14px;
+  background: rgba(50, 50, 80, 0.3);
+  border-radius: 10px;
   margin-bottom: 16px;
 }
 
-.risk-score-box.safe { border: 2px solid #22c55e; }
-.risk-score-box.warning { border: 2px solid #eab308; }
-.risk-score-box.danger { border: 2px solid #ef4444; }
+.risk-reason-box p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #ccc;
+  line-height: 1.5;
+}
 
-.risk-score {
+.danger-warning {
   display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 10px;
+  margin-bottom: 16px;
 }
 
-.risk-score .score {
-  font-size: 3rem;
-  font-weight: 800;
-  font-family: 'Monaco', monospace;
+.warning-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
 }
 
-.risk-score-box.safe .score { color: #22c55e; }
-.risk-score-box.warning .score { color: #eab308; }
-.risk-score-box.danger .score { color: #ef4444; }
-
-.risk-status {
-  font-size: 1.1rem;
-  font-weight: 600;
-  margin: 8px 0;
+.warning-text strong {
+  color: #ef4444;
+  font-size: 1rem;
+  display: block;
+  margin-bottom: 4px;
 }
 
-.risk-reason {
+.warning-text p {
+  margin: 0;
   font-size: 0.85rem;
-  color: #aaa;
+  color: #ff8a8a;
 }
 
 .risk-summary {
@@ -941,8 +1109,23 @@ onMounted(() => {
 .item-value.danger { color: #ef4444; font-weight: 600; }
 
 .news-list {
-  max-height: 120px;
+  max-height: 180px;
   overflow-y: auto;
+  padding-right: 4px;
+}
+
+.news-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.news-list::-webkit-scrollbar-track {
+  background: rgba(50, 50, 80, 0.3);
+  border-radius: 2px;
+}
+
+.news-list::-webkit-scrollbar-thumb {
+  background: #4a4a8a;
+  border-radius: 2px;
 }
 
 .news-item {
