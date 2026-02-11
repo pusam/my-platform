@@ -28,7 +28,6 @@ import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
 import MarketTimingPage from './views/MarketTimingPage.vue'
 import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
 import PensionLotteryPage from './views/PensionLotteryPage.vue'
-import ScalpingAnalysisPage from './views/ScalpingAnalysisPage.vue'
 import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 import StockDetailDashboard from './views/StockDetailDashboard.vue'
@@ -193,18 +192,6 @@ const router = createRouter({
       path: '/pension-lottery',
       name: 'PensionLottery',
       component: PensionLotteryPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/scalping',
-      name: 'ScalpingAnalysis',
-      component: ScalpingAnalysisPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/scalping-analysis',
-      name: 'ScalpingAnalysisDetail',
-      component: ScalpingAnalysisPage,
       meta: { requiresAuth: true }
     },
     {

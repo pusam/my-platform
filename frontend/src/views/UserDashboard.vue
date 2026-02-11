@@ -158,21 +158,6 @@
             </span>
           </article>
 
-          <article class="menu-card scalping" @click="goToScalping">
-            <div class="card-icon scalping-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-              </svg>
-            </div>
-            <h3>단타 분석</h3>
-            <p>실시간 체결강도 및 프로그램 매매</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
           <article class="menu-card trading-indicators" @click="goToTradingIndicators">
             <div class="card-icon trading-indicators-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -668,9 +653,6 @@ export default {
     },
     goToMarketTiming() {
       this.$router.push('/market-timing')
-    },
-    goToScalping() {
-      this.$router.push('/scalping')
     },
     goToTradingIndicators() {
       this.$router.push('/trading-indicators')
@@ -1235,26 +1217,6 @@ export default {
 
 .menu-card.market-timing h3 {
   color: #d97706;
-}
-
-/* 단타 분석 카드 */
-.card-icon.scalping-icon {
-  background: linear-gradient(135deg, rgba(236, 72, 153, 0.15) 0%, rgba(219, 39, 119, 0.15) 100%);
-  color: #ec4899;
-}
-
-.menu-card.scalping {
-  background: linear-gradient(135deg, rgba(253, 242, 248, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(236, 72, 153, 0.3);
-}
-
-.menu-card.scalping:hover {
-  border-color: #ec4899;
-  box-shadow: 0 20px 40px rgba(236, 72, 153, 0.15);
-}
-
-.menu-card.scalping h3 {
-  color: #db2777;
 }
 
 /* 트레이딩 지표 카드 */
