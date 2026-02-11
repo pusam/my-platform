@@ -546,15 +546,13 @@ public class StockDetailService {
         BigDecimal instNetBuy = BigDecimal.ZERO;
         BigDecimal programNetBuy = BigDecimal.ZERO;
         BigDecimal volumePower = null;
+        List<ScalpingAnalysisDto.ProgramTradingPoint> programSeries = null;
 
         for (InvestorDailyTrade trade : trades) {
             String investorType = trade.getInvestorType();
             BigDecimal netBuy = trade.getNetBuyAmount();
             if (netBuy == null) continue;
 
-            // 억원 단위로 변환 (DB는 원 단위일 수 있음)
-            // DB 데이터가 이미 억원 단위인지 확인 필요
-            // InvestorDailyTrade의 netBuyAmount는 억원 단위로 저장되어 있음
             switch (investorType) {
                 case "FOREIGN":
                     foreignNetBuy = foreignNetBuy.add(netBuy);
@@ -569,20 +567,30 @@ public class StockDetailService {
             }
         }
 
-        // 체결강도는 실시간 API에서만 제공 - 장 마감 후에도 마지막 값 조회 시도
+        // ★★★ 프로그램 매매 및 체결강도: 실시간 API에서 조회 (장 마감 후에도 당일 누적값 제공) ★★★
         try {
             ScalpingAnalysisDto scalping = scalpingService.getScalpingAnalysis(stockCode);
-            if (scalping != null && scalping.getVolumePower() != null &&
-                scalping.getVolumePower().compareTo(BigDecimal.ZERO) > 0) {
-                volumePower = scalping.getVolumePower();
+            if (scalping != null) {
+                // 체결강도
+                if (scalping.getVolumePower() != null &&
+                    scalping.getVolumePower().compareTo(BigDecimal.ZERO) > 0) {
+                    volumePower = scalping.getVolumePower();
+                }
 
-                // 프로그램 매매도 실시간 API 값 사용 (있으면)
+                // ★ 프로그램 순매수 금액
                 if (scalping.getProgramNetBuy() != null) {
                     programNetBuy = scalping.getProgramNetBuy();
+                    log.info("[StockDetail] 프로그램 순매수 API 조회: {}억", programNetBuy);
+                }
+
+                // ★ 프로그램 매매 시계열 (차트용)
+                if (scalping.getProgramTradingSeries() != null && !scalping.getProgramTradingSeries().isEmpty()) {
+                    programSeries = scalping.getProgramTradingSeries();
+                    log.info("[StockDetail] 프로그램 매매 시계열: {}건", programSeries.size());
                 }
             }
         } catch (Exception e) {
-            log.debug("[StockDetail] 체결강도 조회 실패: {}", e.getMessage());
+            log.warn("[StockDetail] 프로그램/체결강도 조회 실패: {}", e.getMessage());
         }
 
         // 체결강도가 없으면 기본값 100 (균형)
@@ -593,8 +601,9 @@ public class StockDetailService {
         String volumeSignal = ScalpingAnalysisDto.calculateVolumeSignal(volumePower);
         String programTrend = ScalpingAnalysisDto.calculateProgramTrend(programNetBuy);
 
-        log.info("[StockDetail] DB 일별 요약 - 외국인: {}억, 기관: {}억, 프로그램: {}억, 체결강도: {}%",
-                foreignNetBuy, instNetBuy, programNetBuy, volumePower);
+        log.info("[StockDetail] DB 일별 요약 - 외국인: {}억, 기관: {}억, 프로그램: {}억, 체결강도: {}%, 시계열: {}건",
+                foreignNetBuy, instNetBuy, programNetBuy, volumePower,
+                programSeries != null ? programSeries.size() : 0);
 
         return SupplyDemand.builder()
                 .volumePower(volumePower)
@@ -603,6 +612,7 @@ public class StockDetailService {
                 .instNetBuy(instNetBuy)
                 .programNetBuy(programNetBuy)
                 .programTrend(programTrend)
+                .programSeries(programSeries)  // ★ 시계열 데이터 추가
                 .build();
     }
 
