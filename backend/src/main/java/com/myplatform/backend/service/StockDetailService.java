@@ -4,13 +4,18 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.dto.StockDetailDto.*;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.InvestorDailyTrade;
+import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -35,6 +40,11 @@ public class StockDetailService {
     private final RiskManagementService riskService;
     private final VwapService vwapService;
     private final StockPriceService stockPriceService;
+    private final InvestorDailyTradeRepository investorDailyTradeRepository;
+
+    // 장 마감 시간 (15:30)
+    private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
      * 종목 종합 상세 조회
@@ -81,11 +91,23 @@ public class StockDetailService {
         // ★★★ 종목명을 final로 캡처 (람다에서 사용) ★★★
         final String finalStockName = stockName;
 
+        // ★★★ 장 마감 여부 체크 ★★★
+        boolean isAfterMarket = isAfterMarketHours();
+        log.info("[StockDetail] 현재 시간: {}, 장 마감 여부: {}", LocalTime.now(KST), isAfterMarket);
+
         // 2. 병렬 조회 (수급, 리스크, 차트)
-        CompletableFuture<ScalpingAnalysisDto> scalpingFuture =
+        // ★★★ 장 마감 후에는 DB에서 일별 누적 데이터 사용 ★★★
+        CompletableFuture<SupplyDemand> supplyFuture =
                 CompletableFuture.supplyAsync(() -> {
                     try {
-                        return scalpingService.getScalpingAnalysis(stockCode);
+                        if (isAfterMarket) {
+                            log.info("[StockDetail] 장 마감 후 - DB 일별 데이터 조회");
+                            return getDailySummaryFromDb(stockCode);
+                        } else {
+                            log.info("[StockDetail] 장중 - 실시간 API 데이터 조회");
+                            ScalpingAnalysisDto scalping = scalpingService.getScalpingAnalysis(stockCode);
+                            return parseSupplyDemand(scalping);
+                        }
                     } catch (Exception e) {
                         log.error("[StockDetail] 수급 조회 실패: {}", e.getMessage());
                         return null;
@@ -108,12 +130,14 @@ public class StockDetailService {
                 CompletableFuture.supplyAsync(() -> fetchChartData(stockCode));
 
         try {
-            // 수급 정보 - 상세 로깅 추가
-            ScalpingAnalysisDto scalping = scalpingFuture.get(30, TimeUnit.SECONDS);
-            if (scalping != null) {
-                log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}%",
-                        scalping.getForeignNetBuy(), scalping.getInstNetBuy(), scalping.getVolumePower());
-                builder.supplyDemand(parseSupplyDemand(scalping));
+            // 수급 정보 - 장 마감 여부에 따라 다른 소스 사용
+            SupplyDemand supplyDemand = supplyFuture.get(30, TimeUnit.SECONDS);
+            if (supplyDemand != null) {
+                log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}%{}",
+                        supplyDemand.getForeignNetBuy(), supplyDemand.getInstNetBuy(),
+                        supplyDemand.getVolumePower(),
+                        isAfterMarket ? " (장마감-DB)" : " (장중-API)");
+                builder.supplyDemand(supplyDemand);
             } else {
                 log.warn("[StockDetail] 수급 데이터 없음");
             }
@@ -469,6 +493,131 @@ public class StockDetailService {
             sum = sum.add(prices.get(i));
         }
         return sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP);
+    }
+
+    // ========== 장 마감 후 일별 데이터 조회 ==========
+
+    /**
+     * 장 마감 여부 확인 (15:30 이후)
+     */
+    private boolean isAfterMarketHours() {
+        LocalTime now = LocalTime.now(KST);
+        return now.isAfter(MARKET_CLOSE_TIME);
+    }
+
+    /**
+     * DB에서 오늘의 일별 누적 데이터 조회 (장 마감 후 사용)
+     *
+     * InvestorDailyTrade 테이블에서 오늘 날짜의 데이터를 조회하여
+     * 외국인/기관의 순매수 금액을 합산
+     */
+    private SupplyDemand getDailySummaryFromDb(String stockCode) {
+        LocalDate today = LocalDate.now(KST);
+
+        // 오늘 데이터가 없으면 가장 최근 거래일 데이터 사용
+        LocalDate targetDate = investorDailyTradeRepository.findLatestTradeDate();
+        if (targetDate == null) {
+            log.warn("[StockDetail] DB에 거래 데이터 없음");
+            return buildEmptySupplyDemand();
+        }
+
+        log.info("[StockDetail] DB 일별 데이터 조회 - 종목: {}, 거래일: {}", stockCode, targetDate);
+
+        // 해당 종목의 투자자별 거래 데이터 조회 (오늘 또는 최근 거래일)
+        LocalDate startDate = targetDate;
+        LocalDate endDate = targetDate;
+        List<InvestorDailyTrade> trades = investorDailyTradeRepository
+                .findByStockCodeAndDateRange(stockCode, startDate, endDate);
+
+        if (trades.isEmpty()) {
+            log.warn("[StockDetail] 종목 {} 거래 데이터 없음 ({})", stockCode, targetDate);
+            // 데이터가 없으면 실시간 API fallback 시도
+            try {
+                ScalpingAnalysisDto scalping = scalpingService.getScalpingAnalysis(stockCode);
+                return parseSupplyDemand(scalping);
+            } catch (Exception e) {
+                log.warn("[StockDetail] 실시간 API fallback 실패: {}", e.getMessage());
+                return buildEmptySupplyDemand();
+            }
+        }
+
+        // 투자자별 순매수 합산
+        BigDecimal foreignNetBuy = BigDecimal.ZERO;
+        BigDecimal instNetBuy = BigDecimal.ZERO;
+        BigDecimal programNetBuy = BigDecimal.ZERO;
+        BigDecimal volumePower = null;
+
+        for (InvestorDailyTrade trade : trades) {
+            String investorType = trade.getInvestorType();
+            BigDecimal netBuy = trade.getNetBuyAmount();
+            if (netBuy == null) continue;
+
+            // 억원 단위로 변환 (DB는 원 단위일 수 있음)
+            // DB 데이터가 이미 억원 단위인지 확인 필요
+            // InvestorDailyTrade의 netBuyAmount는 억원 단위로 저장되어 있음
+            switch (investorType) {
+                case "FOREIGN":
+                    foreignNetBuy = foreignNetBuy.add(netBuy);
+                    break;
+                case "INSTITUTION":
+                    instNetBuy = instNetBuy.add(netBuy);
+                    break;
+                case "PENSION":
+                    // 연기금은 기관에 포함
+                    instNetBuy = instNetBuy.add(netBuy);
+                    break;
+            }
+        }
+
+        // 체결강도는 실시간 API에서만 제공 - 장 마감 후에도 마지막 값 조회 시도
+        try {
+            ScalpingAnalysisDto scalping = scalpingService.getScalpingAnalysis(stockCode);
+            if (scalping != null && scalping.getVolumePower() != null &&
+                scalping.getVolumePower().compareTo(BigDecimal.ZERO) > 0) {
+                volumePower = scalping.getVolumePower();
+
+                // 프로그램 매매도 실시간 API 값 사용 (있으면)
+                if (scalping.getProgramNetBuy() != null) {
+                    programNetBuy = scalping.getProgramNetBuy();
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[StockDetail] 체결강도 조회 실패: {}", e.getMessage());
+        }
+
+        // 체결강도가 없으면 기본값 100 (균형)
+        if (volumePower == null || volumePower.compareTo(BigDecimal.ZERO) == 0) {
+            volumePower = new BigDecimal("100");
+        }
+
+        String volumeSignal = ScalpingAnalysisDto.calculateVolumeSignal(volumePower);
+        String programTrend = ScalpingAnalysisDto.calculateProgramTrend(programNetBuy);
+
+        log.info("[StockDetail] DB 일별 요약 - 외국인: {}억, 기관: {}억, 프로그램: {}억, 체결강도: {}%",
+                foreignNetBuy, instNetBuy, programNetBuy, volumePower);
+
+        return SupplyDemand.builder()
+                .volumePower(volumePower)
+                .volumeSignal(volumeSignal)
+                .foreignNetBuy(foreignNetBuy)
+                .instNetBuy(instNetBuy)
+                .programNetBuy(programNetBuy)
+                .programTrend(programTrend)
+                .build();
+    }
+
+    /**
+     * 빈 수급 정보 반환 (데이터 없을 때)
+     */
+    private SupplyDemand buildEmptySupplyDemand() {
+        return SupplyDemand.builder()
+                .volumePower(new BigDecimal("100"))  // 기본값 100% (균형)
+                .volumeSignal("NEUTRAL")
+                .foreignNetBuy(BigDecimal.ZERO)
+                .instNetBuy(BigDecimal.ZERO)
+                .programNetBuy(BigDecimal.ZERO)
+                .programTrend("FLAT")
+                .build();
     }
 
     // ========== 유틸리티 ==========
