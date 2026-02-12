@@ -146,24 +146,31 @@ public class KoreaInvestmentService {
                     String errorMsg = root.has("msg") ? root.get("msg").asText() : "";
                     String errorDesc = root.has("error_description") ? root.get("error_description").asText() : "";
                     log.error("KIS 토큰 발급 실패 - code: {}, msg: {}, desc: {}, 전체 응답: {}",
-                            errorCode, errorMsg, errorDesc,
-                            response.getBody().substring(0, Math.min(500, response.getBody().length())));
+                            errorCode, errorMsg, errorDesc, response.getBody());
                     tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
                     log.info("KIS 토큰 쿨다운 설정: {}까지 대기", tokenCooldownUntil);
                 }
             } else {
                 log.error("KIS 토큰 비정상 응답 - HTTP {}", response.getStatusCode());
             }
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int statusCode = e.getStatusCode().value();
+            String responseBody = e.getResponseBodyAsString();
+            log.error("KIS 토큰 발급 HTTP {} - appKey: {}, baseUrl: {}, 응답: {}",
+                    statusCode, maskedKey, baseUrl, responseBody, e);
+            if (statusCode == 401) {
+                log.error("KIS 토큰 401 Unauthorized - appKey/appSecret 확인 필요");
+            } else if (statusCode == 403) {
+                log.error("KIS 토큰 403 Forbidden - API 권한 또는 IP 접근 제한 확인");
+            } else if (statusCode == 429) {
+                log.error("KIS 토큰 429 Too Many Requests - 분당 요청 한도 초과");
+            }
+            tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+            log.info("KIS 토큰 쿨다운 설정: {}초 ({}까지)", TOKEN_COOLDOWN_SECONDS, tokenCooldownUntil);
         } catch (Exception e) {
-            log.error("KIS 토큰 발급 예외 - appKey: {}, baseUrl: {}, 에러: {}",
-                    maskedKey, baseUrl, e.getMessage());
-            // HTTP 상태코드별 처리
+            log.error("KIS 토큰 발급 예외 - appKey: {}, baseUrl: {}", maskedKey, baseUrl, e);
             String msg = e.getMessage() != null ? e.getMessage() : "";
-            if (msg.contains("403") || msg.contains("429") || msg.contains("Too Many")) {
-                tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
-                log.info("KIS 토큰 Rate Limit → {}초 쿨다운 ({}까지)",
-                        TOKEN_COOLDOWN_SECONDS, tokenCooldownUntil);
-            } else if (msg.contains("Connection refused") || msg.contains("Connect timed out")) {
+            if (msg.contains("Connection refused") || msg.contains("Connect timed out")) {
                 tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS * 2);
                 log.error("KIS API 서버 연결 불가 - {}초 쿨다운", TOKEN_COOLDOWN_SECONDS * 2);
             }

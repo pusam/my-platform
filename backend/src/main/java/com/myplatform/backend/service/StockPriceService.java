@@ -46,8 +46,8 @@ public class StockPriceService {
     private static final String NAVER_SEARCH_API = "https://m.stock.naver.com/front-api/search/autoComplete?query=%s&target=stock";
 
     // 네이버 API 요청 헤더 (409 차단 방지)
-    private static final String NAVER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-    private static final String NAVER_REFERER = "https://m.stock.naver.com";
+    private static final String NAVER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    private static final String NAVER_REFERER = "https://m.stock.naver.com/";
 
     // 네이버 서킷브레이커 (연속 에러 시 요청 중단)
     private final AtomicInteger naverConsecutiveErrors = new AtomicInteger(0);
@@ -848,7 +848,7 @@ public class StockPriceService {
     // KIS API 요청 간 간격 (ms): 200 (초당 5건 이내로 제한)
     private static final int REQUEST_DELAY_MS = 200;
     // 네이버 API 요청 간 간격 (ms): 500 (초당 2건 - 409 방지)
-    private static final int NAVER_REQUEST_DELAY_MS = 500;
+    private static final int NAVER_REQUEST_DELAY_MS = 150;
     // Rate Limit 에러 시 재시도 대기 시간 (ms)
     private static final int RATE_LIMIT_RETRY_DELAY_MS = 500;
 

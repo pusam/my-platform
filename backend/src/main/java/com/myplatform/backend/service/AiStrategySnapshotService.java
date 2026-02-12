@@ -354,10 +354,18 @@ public class AiStrategySnapshotService {
             s.setOriginalScore(s.getScore());
         }
 
-        // 2. Gemini AI 스코어링
+        // 2. Gemini AI 스코어링 (상위 3개만 전송하여 API 호출 최적화)
+        //    알고리즘 점수 기준 상위 3개만 Gemini에 보내고, 나머지는 알고리즘 점수 유지
+        List<AiStrategySnapshot> geminiCandidates = candidates.stream()
+                .sorted((a, b) -> Integer.compare(
+                        b.getOriginalScore() != null ? b.getOriginalScore() : 0,
+                        a.getOriginalScore() != null ? a.getOriginalScore() : 0))
+                .limit(3)
+                .collect(Collectors.toList());
+
         try {
             Map<String, GeminiService.AiScoreResult> aiResults =
-                    geminiService.scoreStockCandidates(candidates, strategyType.name());
+                    geminiService.scoreStockCandidates(geminiCandidates, strategyType.name());
 
             if (!aiResults.isEmpty()) {
                 for (AiStrategySnapshot s : candidates) {

@@ -135,9 +135,9 @@ export default {
   methods: {
     formatAmount(val) {
       if (!val) return '-'
-      const billion = val / 100000000
-      if (Math.abs(billion) >= 1) return (billion >= 0 ? '+' : '') + billion.toFixed(0) + '억'
-      const million = val / 1000000
+      // 백엔드가 억원 단위로 반환 (예: 1.5 = 1.5억원)
+      if (Math.abs(val) >= 1) return (val >= 0 ? '+' : '') + val.toFixed(0) + '억'
+      const million = val * 100  // 억 → 백만 변환 (1억 = 100백만)
       return (million >= 0 ? '+' : '') + million.toFixed(0) + '백만'
     },
     goToStock(code) {
