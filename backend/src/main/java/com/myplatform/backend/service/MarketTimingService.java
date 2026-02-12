@@ -58,6 +58,11 @@ public class MarketTimingService {
     private static final String KRX_MARKET_STATUS_BLD = "dbms/MDC/STAT/standard/MDCSTAT00101";  // 전체 시장 현황
     private static final String KRX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
+    // === 네이버 모바일 API (지수 폴백) ===
+    private static final String NAVER_INDEX_API = "https://m.stock.naver.com/api/index/%s/basic";
+    private static final String NAVER_INDEX_REFERER = "https://m.stock.naver.com/";
+    private static final String NAVER_INDEX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -121,6 +126,10 @@ public class MarketTimingService {
                 kosdaqStatus = status;
             }
         }
+
+        // 지수/등락률이 없으면 실시간 네이버 API로 보충
+        kospiStatus = refreshIndexIfMissing(kospiStatus, "KOSPI");
+        kosdaqStatus = refreshIndexIfMissing(kosdaqStatus, "KOSDAQ");
 
         // ADR이 없으면 계산
         if (kospiStatus != null && kospiStatus.getAdr20() == null) {
@@ -366,18 +375,30 @@ public class MarketTimingService {
     }
 
     /**
-     * 지수 정보 크롤링
+     * 지수 정보 조회 (네이버 모바일 API 우선 → HTML 크롤링 폴백)
      */
     private BigDecimal[] crawlIndexInfo(String marketType) {
         BigDecimal[] result = new BigDecimal[3];  // [종가, 등락률, 거래대금]
 
+        // 1차: 네이버 모바일 API (JSON - 안정적)
+        try {
+            result = fetchIndexFromNaverApi(marketType);
+            if (result[0] != null && result[1] != null) {
+                log.debug("{} 지수 네이버 API 성공: 종가={}, 등락률={}%", marketType, result[0], result[1]);
+                return result;
+            }
+        } catch (Exception e) {
+            log.debug("{} 네이버 API 실패, HTML 폴백 시도: {}", marketType, e.getMessage());
+        }
+
+        // 2차: HTML 크롤링 폴백
         try {
             String url = "KOSPI".equals(marketType)
                     ? "https://finance.naver.com/sise/sise_index.naver?code=KOSPI"
                     : "https://finance.naver.com/sise/sise_index.naver?code=KOSDAQ";
 
             Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0")
+                    .userAgent(NAVER_INDEX_USER_AGENT)
                     .timeout(10000)
                     .get();
 
@@ -387,11 +408,10 @@ public class MarketTimingService {
                 result[0] = new BigDecimal(indexElement.text().replace(",", ""));
             }
 
-            // 등락률
-            Element changeElement = doc.selectFirst("#change_rate");
-            if (changeElement != null) {
-                String rateText = changeElement.text().replace("%", "").replace("+", "");
-                result[1] = new BigDecimal(rateText);
+            // 등락률 - 여러 셀렉터 시도
+            BigDecimal changeRate = parseChangeRateFromHtml(doc);
+            if (changeRate != null) {
+                result[1] = changeRate;
             }
 
             // 거래대금
@@ -401,11 +421,162 @@ public class MarketTimingService {
                 result[2] = new BigDecimal(tradingText);
             }
 
+            if (result[0] != null) {
+                log.debug("{} 지수 HTML 크롤링 성공: 종가={}, 등락률={}", marketType, result[0], result[1]);
+            }
+
         } catch (Exception e) {
             log.warn("{} 지수 정보 크롤링 실패: {}", marketType, e.getMessage());
         }
 
         return result;
+    }
+
+    /**
+     * 네이버 모바일 API로 지수 정보 조회
+     * API: https://m.stock.naver.com/api/index/{KOSPI|KOSDAQ}/basic
+     * 응답 필드: closePrice, compareToPreviousClosePrice, fluctuationsRatio 등
+     */
+    private BigDecimal[] fetchIndexFromNaverApi(String marketType) throws Exception {
+        BigDecimal[] result = new BigDecimal[3];
+        String code = "KOSPI".equals(marketType) ? "KOSPI" : "KOSDAQ";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("User-Agent", NAVER_INDEX_USER_AGENT);
+        headers.set("Referer", NAVER_INDEX_REFERER);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+        String url = String.format(NAVER_INDEX_API, code);
+        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            JsonNode root = objectMapper.readTree(response.getBody());
+
+            // 종가 (closePrice)
+            if (root.has("closePrice")) {
+                String closeStr = root.get("closePrice").asText().replace(",", "");
+                result[0] = new BigDecimal(closeStr);
+            }
+
+            // 등락률 (fluctuationsRatio)
+            if (root.has("fluctuationsRatio")) {
+                String ratioStr = root.get("fluctuationsRatio").asText().replace(",", "");
+                result[1] = new BigDecimal(ratioStr);
+            }
+
+            // 거래대금 (accumulatedTradingValue - 백만원 단위 → 억원 변환)
+            if (root.has("accumulatedTradingValue")) {
+                try {
+                    String tradingStr = root.get("accumulatedTradingValue").asText().replace(",", "");
+                    BigDecimal tradingValue = new BigDecimal(tradingStr);
+                    result[2] = tradingValue.divide(new BigDecimal("100"), 0, RoundingMode.HALF_UP);
+                } catch (Exception e) {
+                    log.debug("거래대금 파싱 실패: {}", e.getMessage());
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * HTML에서 등락률 추출 (여러 셀렉터 시도)
+     */
+    private BigDecimal parseChangeRateFromHtml(Document doc) {
+        // 1차: #change_rate (기존)
+        Element changeElement = doc.selectFirst("#change_rate");
+        if (changeElement != null) {
+            try {
+                String rateText = changeElement.text().replace("%", "").replace("+", "").trim();
+                if (!rateText.isEmpty()) {
+                    BigDecimal rate = new BigDecimal(rateText);
+                    // 하락 여부 확인 (상위 요소에 "ndown" 또는 "minus" 클래스)
+                    Element parent = changeElement.parent();
+                    if (parent != null && (parent.classNames().contains("ndown") ||
+                            parent.classNames().contains("minus") ||
+                            parent.html().contains("ico_down"))) {
+                        rate = rate.negate();
+                    }
+                    return rate;
+                }
+            } catch (NumberFormatException e) {
+                log.debug("change_rate 파싱 실패: {}", changeElement.text());
+            }
+        }
+
+        // 2차: .subtit_sise 내 등락률
+        Element subtitElement = doc.selectFirst(".subtit_sise .change_rate");
+        if (subtitElement != null) {
+            try {
+                String rateText = subtitElement.text().replace("%", "").replace("+", "").trim();
+                if (!rateText.isEmpty()) {
+                    return new BigDecimal(rateText);
+                }
+            } catch (NumberFormatException e) {
+                log.debug("subtit_sise 등락률 파싱 실패");
+            }
+        }
+
+        // 3차: 전일대비 + 종가로 계산
+        Element changeValueElement = doc.selectFirst("#change_value_01");
+        Element nowValueElement = doc.selectFirst("#now_value");
+        if (changeValueElement != null && nowValueElement != null) {
+            try {
+                String changeStr = changeValueElement.text().replace(",", "").trim();
+                String nowStr = nowValueElement.text().replace(",", "").trim();
+                if (!changeStr.isEmpty() && !nowStr.isEmpty()) {
+                    BigDecimal change = new BigDecimal(changeStr);
+                    BigDecimal now = new BigDecimal(nowStr);
+                    BigDecimal prev = now.subtract(change);
+                    if (prev.compareTo(BigDecimal.ZERO) > 0) {
+                        return change.divide(prev, 4, RoundingMode.HALF_UP)
+                                .multiply(new BigDecimal("100"))
+                                .setScale(2, RoundingMode.HALF_UP);
+                    }
+                }
+            } catch (NumberFormatException e) {
+                log.debug("전일대비 계산 폴백 실패");
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * DB에서 가져온 지수 데이터에 등락률이 없으면 실시간 네이버 API로 보충
+     */
+    private MarketStatusDto refreshIndexIfMissing(MarketStatusDto status, String marketType) {
+        if (status == null) {
+            // status 자체가 없으면 실시간으로 생성
+            status = MarketStatusDto.builder()
+                    .marketType(marketType)
+                    .tradeDate(LocalDate.now())
+                    .build();
+        }
+
+        boolean needsRefresh = status.getIndexClose() == null
+                || status.getIndexChangeRate() == null
+                || status.getIndexChangeRate().compareTo(BigDecimal.ZERO) == 0;
+
+        if (needsRefresh) {
+            try {
+                BigDecimal[] indexInfo = fetchIndexFromNaverApi(marketType);
+                if (indexInfo[0] != null) {
+                    status.setIndexClose(indexInfo[0]);
+                }
+                if (indexInfo[1] != null) {
+                    status.setIndexChangeRate(indexInfo[1]);
+                }
+                if (indexInfo[2] != null) {
+                    status.setTradingValue(indexInfo[2]);
+                }
+                log.info("{} 지수 실시간 보충 완료: 종가={}, 등락률={}%", marketType, indexInfo[0], indexInfo[1]);
+            } catch (Exception e) {
+                log.debug("{} 지수 실시간 보충 실패: {}", marketType, e.getMessage());
+            }
+        }
+
+        return status;
     }
 
     /**
