@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.RiskAnalysisDto.NewsItem;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -351,6 +355,93 @@ public class NaverSearchService {
     public boolean isAvailable() {
         return clientId != null && !clientId.isEmpty()
                 && clientSecret != null && !clientSecret.isEmpty();
+    }
+
+    // ========== 네이버 금융 종목별 뉴스 크롤링 ==========
+
+    private static final String NAVER_FINANCE_NEWS_URL = "https://finance.naver.com/item/news_news.naver?code=%s&page=1";
+    private static final String NAVER_FINANCE_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    private static final int FINANCE_NEWS_COUNT = 5;
+
+    /**
+     * 네이버 금융 종목별 뉴스 크롤링 (종목코드 기반)
+     * URL: https://finance.naver.com/item/news_news.naver?code={stockCode}
+     * 이 페이지는 해당 종목과 직접 관련된 금융 뉴스만 표시
+     *
+     * @param stockCode 종목코드 (6자리, 예: 005930)
+     * @return 종목 관련 금융 뉴스 (최대 5건)
+     */
+    public List<NewsItem> searchStockNewsByCode(String stockCode) {
+        if (stockCode == null || stockCode.trim().isEmpty()) {
+            log.warn("[NaverFinanceNews] 종목코드가 비어있음");
+            return Collections.emptyList();
+        }
+
+        String code = stockCode.trim();
+        log.info("[NaverFinanceNews] 종목 {} 금융 뉴스 크롤링 시작", code);
+
+        try {
+            String url = String.format(NAVER_FINANCE_NEWS_URL, code);
+
+            Document doc = Jsoup.connect(url)
+                    .userAgent(NAVER_FINANCE_USER_AGENT)
+                    .referrer("https://finance.naver.com/item/news.naver?code=" + code)
+                    .timeout(10000)
+                    .get();
+
+            List<NewsItem> result = new ArrayList<>();
+
+            // 네이버 금융 뉴스 테이블: <table class="type5">
+            Elements rows = doc.select("table.type5 tbody tr");
+            if (rows.isEmpty()) {
+                // 대체 셀렉터
+                rows = doc.select("table.type5 tr");
+            }
+
+            for (Element row : rows) {
+                if (result.size() >= FINANCE_NEWS_COUNT) break;
+
+                // 관련종목 헤더 행이나 빈 행 스킵
+                Element titleTd = row.selectFirst("td.title");
+                if (titleTd == null) continue;
+
+                Element titleLink = titleTd.selectFirst("a");
+                if (titleLink == null) continue;
+
+                String title = titleLink.text().trim();
+                if (title.isEmpty()) continue;
+
+                // 링크 구성
+                String href = titleLink.attr("href");
+                String newsLink = href.startsWith("http") ? href : "https://finance.naver.com" + href;
+
+                // 출처
+                Element infoTd = row.selectFirst("td.info");
+                String source = infoTd != null ? infoTd.text().trim() : "";
+
+                // 날짜
+                Element dateTd = row.selectFirst("td.date");
+                String dateStr = dateTd != null ? dateTd.text().trim() : "";
+
+                NewsItem news = NewsItem.builder()
+                        .title(title)
+                        .description(source)
+                        .link(newsLink)
+                        .originalLink(newsLink)
+                        .pubDate(dateStr)
+                        .build();
+
+                result.add(news);
+                log.debug("[NaverFinanceNews] ✓ {}: {} ({})", result.size(), title, dateStr);
+            }
+
+            log.info("[NaverFinanceNews] 종목 {} 뉴스 크롤링 완료: {}건", code, result.size());
+            return result;
+
+        } catch (Exception e) {
+            log.warn("[NaverFinanceNews] 종목 {} 뉴스 크롤링 실패: {}", code, e.getMessage());
+            return Collections.emptyList();
+        }
     }
 
     // ========== 외부 인터페이스 ==========

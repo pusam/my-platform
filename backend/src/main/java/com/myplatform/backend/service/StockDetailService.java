@@ -138,12 +138,12 @@ public class StockDetailService {
                     }
                 });
 
-        // ★★★ 뉴스 검색 시 정확한 종목명 사용 ★★★
+        // ★★★ 뉴스: 네이버 금융 종목별 뉴스 (종목코드 기반) ★★★
         CompletableFuture<RiskAnalysisDto> riskFuture =
                 CompletableFuture.supplyAsync(() -> {
                     try {
-                        log.info("[StockDetail] 리스크 분석 시작 - 종목명: '{}'", finalStockName);
-                        return riskService.analyzeRisk(finalStockName);
+                        log.info("[StockDetail] 리스크 분석 시작 - 종목명: '{}', 코드: '{}'", finalStockName, stockCode);
+                        return riskService.analyzeRisk(finalStockName, stockCode);
                     } catch (Exception e) {
                         log.error("[StockDetail] 리스크 조회 실패: {}", e.getMessage());
                         return null;
