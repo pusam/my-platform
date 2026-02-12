@@ -13,8 +13,8 @@
         <div class="price-info" v-if="priceInfo">
           <span class="current-price">{{ formatPrice(priceInfo.currentPrice) }}원</span>
           <span class="change-info" :class="priceClass">
-            {{ priceInfo.changePrice >= 0 ? '+' : '' }}{{ formatPrice(priceInfo.changePrice) }}
-            ({{ priceInfo.changeRate >= 0 ? '+' : '' }}{{ priceInfo.changeRate?.toFixed(2) }}%)
+            {{ Number(priceInfo.changePrice) > 0 ? '+' : '' }}{{ formatPrice(priceInfo.changePrice) }}
+            ({{ Number(priceInfo.changeRate) > 0 ? '+' : '' }}{{ Number(priceInfo.changeRate)?.toFixed(2) }}%)
           </span>
         </div>
       </div>
@@ -494,7 +494,10 @@ const displayVolumes = computed(() => {
 // 스타일 클래스
 const priceClass = computed(() => {
   if (!priceInfo.value) return '';
-  return priceInfo.value.changeRate >= 0 ? 'positive' : 'negative';
+  const rate = Number(priceInfo.value.changeRate) || 0;
+  if (rate > 0) return 'positive';
+  if (rate < 0) return 'negative';
+  return 'neutral';
 });
 
 const aiScoreClass = computed(() => {
@@ -893,6 +896,7 @@ onUnmounted(() => {
 
 .change-info.positive { color: #ef4444; }
 .change-info.negative { color: #3b82f6; }
+.change-info.neutral { color: #9ca3af; }
 
 .ai-score-box {
   display: flex;
