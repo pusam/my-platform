@@ -260,6 +260,15 @@ public class StockPriceService {
             if (kisService.isTokenAvailable()) {
                 StockPriceDto kisPrice = fetchFromKoreaInvestment(stockCode);
                 if (kisPrice != null) {
+                    // ★ KIS가 등락률 0%를 반환하면 네이버에서 등락률만 보충
+                    boolean changeRateMissing = kisPrice.getChangeRate() == null
+                            || kisPrice.getChangeRate().compareTo(BigDecimal.ZERO) == 0;
+                    boolean changePriceMissing = kisPrice.getChangePrice() == null
+                            || kisPrice.getChangePrice().compareTo(BigDecimal.ZERO) == 0;
+
+                    if (changeRateMissing && changePriceMissing && kisPrice.getCurrentPrice() != null) {
+                        supplementFromNaver(kisPrice, stockCode);
+                    }
                     return kisPrice;
                 }
                 log.warn("한투 API 조회 실패 [{}], 네이버 폴백", stockCode);
@@ -270,6 +279,28 @@ public class StockPriceService {
 
         // 네이버 증권 API 폴백
         return fetchFromNaver(stockCode);
+    }
+
+    /**
+     * KIS 응답에 등락률이 없을 때 네이버에서 보충
+     */
+    private void supplementFromNaver(StockPriceDto kisDto, String stockCode) {
+        try {
+            StockPriceDto naverDto = fetchFromNaver(stockCode);
+            if (naverDto == null) return;
+
+            if (naverDto.getChangeRate() != null && naverDto.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
+                kisDto.setChangeRate(naverDto.getChangeRate());
+                log.debug("[시세보충] {} 등락률 네이버 보충: {}%", stockCode, naverDto.getChangeRate());
+            }
+            if (kisDto.getChangePrice() == null || kisDto.getChangePrice().compareTo(BigDecimal.ZERO) == 0) {
+                if (naverDto.getChangePrice() != null) {
+                    kisDto.setChangePrice(naverDto.getChangePrice());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[시세보충] {} 네이버 보충 실패: {}", stockCode, e.getMessage());
+        }
     }
 
     /**
@@ -632,6 +663,10 @@ public class StockPriceService {
             dto.setHighPrice(parsePrice(root.has("highPrice") ? root.get("highPrice") : null));
             dto.setLowPrice(parsePrice(root.has("lowPrice") ? root.get("lowPrice") : null));
             dto.setChangeRate(parsePrice(root.get("fluctuationsRatio")));
+            // 전일대비 금액
+            if (root.has("compareToPreviousClosePrice")) {
+                dto.setChangePrice(parsePrice(root.get("compareToPreviousClosePrice")));
+            }
             dto.setVolume(root.has("accumulatedTradingVolume")
                     ? BigDecimal.valueOf(root.get("accumulatedTradingVolume").asLong())
                     : BigDecimal.ZERO);

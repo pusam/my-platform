@@ -360,20 +360,28 @@ public class SectorTradingService {
             }
         }
 
-        // 섹터 평균 등락률 계산 (거래대금 가중 평균)
-        BigDecimal weightedChangeSum = BigDecimal.ZERO;
-        BigDecimal weightSum = BigDecimal.ZERO;
-        for (StockTradingInfo info : stockInfos) {
-            if (info.getChangeRate() != null && info.getTradingValue() != null) {
-                weightedChangeSum = weightedChangeSum.add(
-                        info.getChangeRate().multiply(info.getTradingValue()));
-                weightSum = weightSum.add(info.getTradingValue());
+        // 섹터 평균 등락률 계산 (상위 종목 단순 평균)
+        // 거래대금 순 정렬 후 상위 5개 종목의 등락률 단순 평균
+        stockInfos.sort((a, b) -> b.getTradingValue().compareTo(a.getTradingValue()));
+        List<StockTradingInfo> topForAvg = stockInfos.stream().limit(5).collect(Collectors.toList());
+
+        BigDecimal changeRateSum = BigDecimal.ZERO;
+        int validCount = 0;
+        for (StockTradingInfo info : topForAvg) {
+            if (info.getChangeRate() != null && info.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
+                changeRateSum = changeRateSum.add(info.getChangeRate());
+                validCount++;
             }
         }
-        if (weightSum.compareTo(BigDecimal.ZERO) > 0) {
-            dto.setChangeRate(weightedChangeSum.divide(weightSum, 2, java.math.RoundingMode.HALF_UP));
+        if (validCount > 0) {
+            BigDecimal avgChangeRate = changeRateSum.divide(BigDecimal.valueOf(validCount), 2, RoundingMode.HALF_UP);
+            dto.setChangeRate(avgChangeRate);
+            log.debug("[섹터등락률] {} = {}% (상위 {}종목 평균)", sector.getName(), avgChangeRate, validCount);
         } else {
             dto.setChangeRate(BigDecimal.ZERO);
+            log.warn("[섹터등락률] {} - 유효한 등락률 없음! 종목별: {}", sector.getName(),
+                    topForAvg.stream().map(s -> s.getStockName() + "=" + s.getChangeRate() + "%")
+                            .collect(Collectors.joining(", ")));
         }
 
         // 거래대금 순 정렬 후 상위 5개
