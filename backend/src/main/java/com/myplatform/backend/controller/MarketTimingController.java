@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.MarketTimingDto;
+import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.MarketTimingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -29,6 +30,7 @@ import java.util.Map;
 public class MarketTimingController {
 
     private final MarketTimingService marketTimingService;
+    private final GeminiService geminiService;
 
     /**
      * 현재 시장 상태 조회 (대시보드용)
@@ -179,6 +181,36 @@ public class MarketTimingController {
             log.error("기간별 시장 데이터 수집 오류: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("message", "기간별 수집 실패: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * AI 시장 예측 (향후 5일간 KOSPI 예측)
+     */
+    @GetMapping("/forecast")
+    @Operation(
+        summary = "AI 시장 예측",
+        description = "Gemini AI가 현재 시장 데이터를 분석하여 향후 5거래일간 KOSPI 예측을 제공합니다.\n\n" +
+                     "Bull/Base/Bear 3개 시나리오와 확률, 근거를 포함합니다."
+    )
+    public ResponseEntity<Map<String, Object>> getMarketForecast() {
+        log.info("AI 시장 예측 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            MarketTimingDto timing = marketTimingService.getCurrentMarketTiming();
+            Map<String, Object> forecast = geminiService.generateMarketForecast(timing);
+
+            response.put("success", true);
+            response.putAll(forecast);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("AI 시장 예측 오류: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "AI 시장 예측 실패: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }

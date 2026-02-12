@@ -91,16 +91,74 @@
           <router-link to="/trading-indicators">트레이딩 지표 →</router-link>
         </div>
       </div>
+
+      <!-- AI 예측 -->
+      <div v-if="activeTab === 'forecast'" class="forecast-section">
+        <div v-if="forecastLoading" class="loading-state">
+          <div class="loading-spinner"></div>
+          <span>AI 예측 생성 중...</span>
+        </div>
+
+        <div v-else-if="forecastData" class="forecast-content">
+          <div class="forecast-chart-container">
+            <Line :data="forecastChartData" :options="forecastChartOptions" />
+          </div>
+
+          <div class="scenario-cards">
+            <div class="scenario-card bull">
+              <div class="scenario-header">
+                <span class="scenario-label">Bull</span>
+                <span class="scenario-probability">{{ forecastData.scenarios.bull.probability }}%</span>
+              </div>
+              <p class="scenario-reason">{{ forecastData.scenarios.bull.reason }}</p>
+            </div>
+            <div class="scenario-card base">
+              <div class="scenario-header">
+                <span class="scenario-label">Base</span>
+                <span class="scenario-probability">{{ forecastData.scenarios.base.probability }}%</span>
+              </div>
+              <p class="scenario-reason">{{ forecastData.scenarios.base.reason }}</p>
+            </div>
+            <div class="scenario-card bear">
+              <div class="scenario-header">
+                <span class="scenario-label">Bear</span>
+                <span class="scenario-probability">{{ forecastData.scenarios.bear.probability }}%</span>
+              </div>
+              <p class="scenario-reason">{{ forecastData.scenarios.bear.reason }}</p>
+            </div>
+          </div>
+
+          <div class="forecast-summary">{{ forecastData.summary }}</div>
+          <div v-if="forecastData.fallback" class="fallback-notice">* 기본 예측 (AI 응답 실패 시 기계적 산출)</div>
+        </div>
+
+        <div v-else class="empty-msg">예측 데이터를 불러올 수 없습니다.</div>
+      </div>
     </template>
   </div>
 </template>
 
 <script>
 import SkeletonLoader from './SkeletonLoader.vue'
+import { Line } from 'vue-chartjs'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+} from 'chart.js'
+import { marketAPI } from '../../utils/api'
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 export default {
   name: 'SectionMarketMap',
-  components: { SkeletonLoader },
+  components: { SkeletonLoader, Line },
   props: {
     sectorData: { type: Array, default: () => [] },
     marketData: { type: Object, default: () => ({}) },
@@ -114,17 +172,131 @@ export default {
       tabs: [
         { key: 'heatmap', label: '섹터 히트맵' },
         { key: 'market', label: '시장 지표' },
-        { key: 'global', label: '글로벌' }
-      ]
+        { key: 'global', label: '글로벌' },
+        { key: 'forecast', label: 'AI 예측' }
+      ],
+      forecastData: null,
+      forecastLoading: false
     }
   },
   computed: {
     maxTradingValue() {
       if (this.sectorData.length === 0) return 1
       return Math.max(...this.sectorData.map(s => s.totalTradingValue || s.tradingValue || 1))
+    },
+    forecastChartData() {
+      if (!this.forecastData || !this.forecastData.forecasts) return { labels: [], datasets: [] }
+
+      const base = this.forecastData.baseIndex
+      const forecasts = this.forecastData.forecasts
+
+      return {
+        labels: ['오늘', 'D+1', 'D+2', 'D+3', 'D+4', 'D+5'],
+        datasets: [
+          {
+            label: 'Bull 시나리오',
+            data: [base, ...forecasts.map(f => f.bull)],
+            borderColor: 'rgba(239, 68, 68, 0.8)',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            fill: '+1',
+            borderDash: [5, 5],
+            pointRadius: 3,
+            pointBackgroundColor: 'rgba(239, 68, 68, 0.8)',
+            borderWidth: 1.5,
+            tension: 0.3
+          },
+          {
+            label: '기본 시나리오',
+            data: [base, ...forecasts.map(f => f.base)],
+            borderColor: 'rgba(255, 255, 255, 0.9)',
+            backgroundColor: 'rgba(255, 255, 255, 0.05)',
+            fill: false,
+            borderWidth: 2,
+            pointRadius: 4,
+            pointBackgroundColor: 'rgba(255, 255, 255, 0.9)',
+            tension: 0.3
+          },
+          {
+            label: 'Bear 시나리오',
+            data: [base, ...forecasts.map(f => f.bear)],
+            borderColor: 'rgba(59, 130, 246, 0.8)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            fill: '-1',
+            borderDash: [5, 5],
+            pointRadius: 3,
+            pointBackgroundColor: 'rgba(59, 130, 246, 0.8)',
+            borderWidth: 1.5,
+            tension: 0.3
+          }
+        ]
+      }
+    },
+    forecastChartOptions() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'top',
+            labels: {
+              color: 'rgba(255,255,255,0.7)',
+              font: { size: 11 },
+              boxWidth: 20,
+              padding: 12
+            }
+          },
+          tooltip: {
+            backgroundColor: 'rgba(0,0,0,0.8)',
+            titleColor: '#fff',
+            bodyColor: 'rgba(255,255,255,0.8)',
+            borderColor: 'rgba(255,255,255,0.1)',
+            borderWidth: 1,
+            callbacks: {
+              label: function(context) {
+                return context.dataset.label + ': ' + Math.round(context.parsed.y).toLocaleString()
+              }
+            }
+          },
+          filler: { propagate: true }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: { color: 'rgba(255,255,255,0.6)', font: { size: 11 } }
+          },
+          y: {
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: {
+              color: 'rgba(255,255,255,0.6)',
+              font: { size: 11 },
+              callback: function(value) { return Math.round(value).toLocaleString() }
+            }
+          }
+        }
+      }
+    }
+  },
+  watch: {
+    activeTab(newTab) {
+      if (newTab === 'forecast' && !this.forecastData) {
+        this.loadForecast()
+      }
     }
   },
   methods: {
+    async loadForecast() {
+      this.forecastLoading = true
+      try {
+        const res = await marketAPI.getForecast()
+        if (res.data && res.data.success !== false) {
+          this.forecastData = res.data
+        }
+      } catch (e) {
+        console.error('Forecast load failed:', e)
+      } finally {
+        this.forecastLoading = false
+      }
+    },
     getBlockStyle(sector) {
       const ratio = (sector.totalTradingValue || sector.tradingValue || 0) / this.maxTradingValue
       const size = Math.max(60, Math.min(120, 60 + ratio * 60))
@@ -279,4 +451,79 @@ export default {
 .more-links a:hover { color: #667eea; }
 
 .empty-msg { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; padding: 20px 0; }
+
+/* Forecast */
+.forecast-section { padding: 4px 0; }
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 60px 0;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+}
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.1);
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.forecast-chart-container { height: 260px; }
+.scenario-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+.scenario-card {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.scenario-card.bull { border-left: 3px solid #ef4444; }
+.scenario-card.base { border-left: 3px solid rgba(255,255,255,0.6); }
+.scenario-card.bear { border-left: 3px solid #3b82f6; }
+.scenario-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.scenario-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.8);
+}
+.scenario-probability {
+  font-size: 14px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+}
+.scenario-reason {
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  margin: 0;
+  line-height: 1.4;
+}
+.forecast-summary {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.65);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.fallback-notice {
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  text-align: center;
+}
 </style>

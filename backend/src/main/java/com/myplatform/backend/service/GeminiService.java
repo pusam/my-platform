@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.dto.MarketTimingDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import lombok.*;
@@ -319,6 +320,137 @@ public class GeminiService {
                 """, stocksSummary);
 
         return callWithFallback(prompt, "AI 앙상블 의견");
+    }
+
+    // ========== AI 시장 예측 (Market Forecast) ==========
+
+    /**
+     * AI 시장 예측 생성
+     * 현재 시장 데이터를 기반으로 향후 5일간 KOSPI 지수 예측
+     *
+     * @param marketStatus 현재 시장 상태 DTO
+     * @return 예측 결과 Map (forecasts, scenarios, summary 포함)
+     */
+    public Map<String, Object> generateMarketForecast(MarketTimingDto marketStatus) {
+        if (marketStatus == null || marketStatus.getKospi() == null) {
+            log.warn("[Market Forecast] 시장 데이터 없음 - 기본 예측 반환");
+            return buildFallbackForecast(2700.0);
+        }
+
+        double currentIndex = marketStatus.getKospi().getIndexClose() != null
+                ? marketStatus.getKospi().getIndexClose().doubleValue() : 2700.0;
+
+        String prompt = buildForecastPrompt(marketStatus, currentIndex);
+        String response = callGeminiApiForJson(prompt);
+
+        if (response != null && !response.isBlank()) {
+            Map<String, Object> parsed = parseMarketForecast(response, currentIndex);
+            if (parsed != null) {
+                consecutiveErrors.set(0);
+                return parsed;
+            }
+        }
+
+        log.warn("[Market Forecast] Gemini 응답 파싱 실패 - 기본 예측 반환");
+        return buildFallbackForecast(currentIndex);
+    }
+
+    private String buildForecastPrompt(MarketTimingDto marketStatus, double currentIndex) {
+        MarketTimingDto.MarketStatusDto kospi = marketStatus.getKospi();
+        double changeRate = kospi.getIndexChangeRate() != null ? kospi.getIndexChangeRate().doubleValue() : 0;
+        double adr = marketStatus.getCombinedAdr() != null ? marketStatus.getCombinedAdr().doubleValue() : 100;
+        String condition = marketStatus.getOverallCondition() != null
+                ? marketStatus.getOverallCondition().name() : "NORMAL";
+        double tradingValue = kospi.getTradingValue() != null ? kospi.getTradingValue().doubleValue() : 0;
+
+        return String.format("""
+                당신은 한국 주식시장 애널리스트입니다.
+                현재 시장 데이터를 기반으로 향후 5거래일간 KOSPI 지수 예측을 JSON으로 작성하세요.
+
+                [현재 시장 데이터]
+                - KOSPI 지수: %.2f
+                - 등락률: %.2f%%
+                - ADR (등락비율): %.1f
+                - 시장 상태: %s
+                - 거래대금: %.0f억원
+
+                [예측 규칙]
+                1. 현재 지수(%.2f)를 기준으로 현실적 변동폭 (일일 ±0.5~1.5%%) 적용
+                2. Bull/Base/Bear 3개 시나리오 제시
+                3. 확률 합계는 반드시 100%%
+                4. 근거는 30자 이내로 간결하게
+
+                반드시 아래 JSON 형식으로만 응답하세요:
+                {"baseIndex": %.2f, "forecasts": [{"day": 1, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 2, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 3, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 4, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 5, "bull": 숫자, "base": 숫자, "bear": 숫자}], "scenarios": {"bull": {"probability": 숫자, "reason": "문자열"}, "base": {"probability": 숫자, "reason": "문자열"}, "bear": {"probability": 숫자, "reason": "문자열"}}, "summary": "종합 분석 문자열 (100자 이내)"}
+                """, currentIndex, changeRate, adr, condition, tradingValue,
+                currentIndex, currentIndex);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseMarketForecast(String jsonResponse, double currentIndex) {
+        try {
+            String json = jsonResponse.trim();
+            // ```json ... ``` 마크다운 코드블록 처리
+            if (json.startsWith("```")) {
+                int startIdx = json.indexOf('{');
+                int endIdx = json.lastIndexOf('}');
+                if (startIdx >= 0 && endIdx > startIdx) {
+                    json = json.substring(startIdx, endIdx + 1);
+                }
+            }
+            if (!json.startsWith("{")) {
+                int startIdx = json.indexOf('{');
+                int endIdx = json.lastIndexOf('}');
+                if (startIdx >= 0 && endIdx > startIdx) {
+                    json = json.substring(startIdx, endIdx + 1);
+                }
+            }
+
+            Map<String, Object> result = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+
+            // 기본 검증
+            if (!result.containsKey("forecasts") || !result.containsKey("scenarios")) {
+                log.warn("[Market Forecast] JSON 필수 필드 누락");
+                return null;
+            }
+
+            // baseIndex가 없으면 현재 지수 사용
+            if (!result.containsKey("baseIndex")) {
+                result.put("baseIndex", currentIndex);
+            }
+
+            return result;
+        } catch (Exception e) {
+            log.error("[Market Forecast] JSON 파싱 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private Map<String, Object> buildFallbackForecast(double currentIndex) {
+        Map<String, Object> result = new HashMap<>();
+        result.put("baseIndex", currentIndex);
+
+        List<Map<String, Object>> forecasts = new ArrayList<>();
+        for (int day = 1; day <= 5; day++) {
+            Map<String, Object> f = new HashMap<>();
+            f.put("day", day);
+            f.put("bull", Math.round(currentIndex * (1 + 0.005 * day)));
+            f.put("base", Math.round(currentIndex * (1 + 0.001 * day)));
+            f.put("bear", Math.round(currentIndex * (1 - 0.005 * day)));
+            forecasts.add(f);
+        }
+        result.put("forecasts", forecasts);
+
+        Map<String, Object> scenarios = new HashMap<>();
+        scenarios.put("bull", Map.of("probability", 30, "reason", "외국인 매수 유입 시 상승 가능"));
+        scenarios.put("base", Map.of("probability", 50, "reason", "현재 추세 유지 전망"));
+        scenarios.put("bear", Map.of("probability", 20, "reason", "글로벌 리스크 확대 시 하락"));
+        result.put("scenarios", scenarios);
+
+        result.put("summary", "AI 분석 데이터 부족으로 기본 예측을 제공합니다. 현재 지수 기반 기계적 산출입니다.");
+        result.put("fallback", true);
+
+        return result;
     }
 
     // ========== AI 스코어링 (전략 대시보드용) ==========

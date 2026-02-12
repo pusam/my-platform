@@ -490,6 +490,10 @@ export const marketAPI = {
   getAdrHistory(days = 60) {
     return apiClient.get('/market/adr/history', { params: { days } });
   },
+  // AI 시장 예측 (향후 5일)
+  getForecast() {
+    return apiClient.get('/market/forecast', { timeout: 60000 });
+  },
   // 시장 데이터 수집
   collectData() {
     return apiClient.post('/market/collect');
