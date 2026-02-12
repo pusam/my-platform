@@ -51,7 +51,7 @@ public class StockDetailService {
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
-    private static final LocalTime MARKET_PRE_OPEN_TIME = LocalTime.of(8, 50);
+    private static final LocalTime MARKET_PRE_OPEN_TIME = LocalTime.of(9, 0);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
@@ -164,8 +164,8 @@ public class StockDetailService {
             // 수급 정보 - 장 마감 여부에 따라 다른 소스 사용
             SupplyDemand supplyDemand = supplyFuture.get(30, TimeUnit.SECONDS);
 
-            // 수급 데이터 없거나 전부 0이면 네이버 폴백
-            if (supplyDemand == null || isEmptySupplyDemand(supplyDemand)) {
+            // 수급 데이터 없거나 전부 0이면 네이버 폴백 (단, 장전에는 스킵 → 0 유지)
+            if (!isBeforeMarket && (supplyDemand == null || isEmptySupplyDemand(supplyDemand))) {
                 log.info("[StockDetail] 수급 데이터 없거나 비어있음 - 네이버 투자자 매매동향 폴백 시도");
                 SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
                 if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) {
