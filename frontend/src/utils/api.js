@@ -766,7 +766,7 @@ export const stockDetailAPI = {
 // V2 Axios 인스턴스 (Python 마이크로서비스)
 const apiV2Client = axios.create({
   baseURL: '/api/v2',
-  timeout: 60000,
+  timeout: 2000,  // 2초 타임아웃 (python-backend 미실행 시 빠른 실패)
   headers: { 'Content-Type': 'application/json' }
 });
 
