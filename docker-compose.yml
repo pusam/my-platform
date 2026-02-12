@@ -79,7 +79,8 @@ services:
       start_period: 60s
 
   python-backend:
-    build: ./python-backend
+    image: ${DOCKER_USERNAME:-kdhgla}/my-python:${DOCKER_TAG:-latest}
+    pull_policy: always
     container_name: myplatform-python
     restart: unless-stopped
     ports:
@@ -120,7 +121,6 @@ services:
       - nginx_logs:/var/log/nginx
     depends_on:
       - backend
-      - python-backend
     networks:
       - myplatform-network
     healthcheck:
