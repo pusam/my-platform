@@ -23,6 +23,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -50,6 +51,7 @@ public class StockDetailService {
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
+    private static final LocalTime MARKET_PRE_OPEN_TIME = LocalTime.of(8, 50);
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
@@ -115,16 +117,21 @@ public class StockDetailService {
         // ★★★ 종목명을 final로 캡처 (람다에서 사용) ★★★
         final String finalStockName = stockName;
 
-        // ★★★ 장 마감 여부 체크 ★★★
+        // ★★★ 시간대 체크: 장전/장중/장마감 3단계 ★★★
         boolean isAfterMarket = isAfterMarketHours();
-        log.info("[StockDetail] 현재 시간: {}, 장 마감 여부: {}", LocalTime.now(KST), isAfterMarket);
+        boolean isBeforeMarket = isBeforeMarketHours();
+        String marketPhase = isBeforeMarket ? "장전" : (isAfterMarket ? "장마감" : "장중");
+        log.info("[StockDetail] 현재 시간: {}, 시장 상태: {}", LocalTime.now(KST), marketPhase);
 
         // 2. 병렬 조회 (수급, 리스크, 차트)
-        // ★★★ 장 마감 후에는 DB에서 일별 누적 데이터 사용 ★★★
         CompletableFuture<SupplyDemand> supplyFuture =
                 CompletableFuture.supplyAsync(() -> {
                     try {
-                        if (isAfterMarket) {
+                        if (isBeforeMarket) {
+                            // ★★★ 장전(~08:50): 당일 수급 초기화 (전일 잔존 데이터 표시 방지) ★★★
+                            log.info("[StockDetail] 장전 - 수급 데이터 초기화 (당일 거래 시작 전)");
+                            return buildEmptySupplyDemand();
+                        } else if (isAfterMarket) {
                             log.info("[StockDetail] 장 마감 후 - DB 일별 데이터 조회");
                             return getDailySummaryFromDb(stockCode);
                         } else {
@@ -574,6 +581,14 @@ public class StockDetailService {
     }
 
     /**
+     * 장전 여부 (08:50 이전이면 당일 수급 데이터 아직 없음)
+     */
+    private boolean isBeforeMarketHours() {
+        LocalTime now = LocalTime.now(KST);
+        return now.isBefore(MARKET_PRE_OPEN_TIME);
+    }
+
+    /**
      * DB에서 오늘의 일별 누적 데이터 조회 (장 마감 후 사용)
      *
      * InvestorDailyTrade 테이블에서 오늘 날짜의 데이터를 조회하여
@@ -973,7 +988,41 @@ public class StockDetailService {
             }
         }
 
+        // 계열사/자회사 관계 정보 (뉴스 연관성 설명용)
+        String subsidiaryContext = getSubsidiaryContext(dto.getStockName());
+        if (subsidiaryContext != null) {
+            sb.append(subsidiaryContext);
+        }
+
         return sb.toString();
+    }
+
+    /**
+     * 종목별 계열사/자회사 관계 정보 반환
+     * AI가 관련 종목 뉴스를 해석할 때 연관성을 설명하도록 도움
+     */
+    private String getSubsidiaryContext(String stockName) {
+        if (stockName == null) return null;
+
+        // 지주사 → 자회사 매핑
+        Map<String, String> subsidiaryMap = Map.ofEntries(
+                Map.entry("SK스퀘어", "자회사: SK하이닉스(반도체), SK쉴더스(보안). SK하이닉스 관련 뉴스는 지주사 SK스퀘어에 직접 영향."),
+                Map.entry("SK", "자회사: SK이노베이션, SK텔레콤, SK하이닉스(간접). 계열사 실적이 지주사 가치에 반영."),
+                Map.entry("LG", "자회사: LG전자, LG화학, LG에너지솔루션. 계열사 실적이 지주사 가치에 반영."),
+                Map.entry("삼성물산", "삼성그룹 지주사 역할. 삼성전자, 삼성바이오로직스 등 계열사 가치 연동."),
+                Map.entry("한화에어로스페이스", "자회사: 한화오션(조선), 한화시스템(방산IT). 방산/우주항공 계열사 뉴스 연동."),
+                Map.entry("현대차", "자회사: 기아, 현대모비스. 기아 실적이 현대차에 영향."),
+                Map.entry("기아", "모회사: 현대차그룹. 현대차그룹 전략과 연동."),
+                Map.entry("네이버", "자회사: 라인야후(일본), 네이버웹툰. 글로벌 자회사 실적 연동."),
+                Map.entry("카카오", "자회사: 카카오뱅크, 카카오페이, 카카오엔터. 자회사 IPO/실적 영향.")
+        );
+
+        for (Map.Entry<String, String> entry : subsidiaryMap.entrySet()) {
+            if (stockName.contains(entry.getKey())) {
+                return String.format("📌 계열사 관계: %s\n", entry.getValue());
+            }
+        }
+        return null;
     }
 
     /**
