@@ -10,6 +10,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -41,6 +46,7 @@ public class StockDetailService {
     private final VwapService vwapService;
     private final StockPriceService stockPriceService;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
+    private final GeminiService geminiService;
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
@@ -62,6 +68,7 @@ public class StockDetailService {
 
         // 1. 현재가 조회 (필수) - 종목명 먼저 확보
         String stockName = stockCode;  // 기본값 (종목코드)
+        StockPriceDto naverData = null; // 네이버 폴백 데이터 (재무 정보 재사용)
         JsonNode priceData = kisService.getStockPrice(stockCode);
         if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
             PriceInfo priceInfo = parsePriceInfo(priceData);
@@ -74,15 +81,32 @@ public class StockDetailService {
             }
             log.info("[StockDetail] 종목명: {}, 현재가: {}", stockName, priceInfo.getCurrentPrice());
         } else {
-            log.warn("[StockDetail] 현재가 조회 실패: {} - 종목명을 별도 조회합니다", stockCode);
-            // 가격 조회 실패 시 종목명만 별도 조회
+            log.warn("[StockDetail] KIS 현재가 조회 실패: {} - 네이버 폴백 시도", stockCode);
+            // KIS 실패 → stockPriceService (내부 KIS→Naver 자동 폴백)
             try {
-                List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
-                if (searchResult != null && !searchResult.isEmpty()) {
-                    stockName = searchResult.get(0).getStockName();
+                naverData = stockPriceService.getStockPrice(stockCode);
+                if (naverData != null && naverData.getCurrentPrice() != null) {
+                    stockName = naverData.getStockName() != null ? naverData.getStockName() : stockCode;
+                    PriceInfo priceInfo = convertNaverToPriceInfo(naverData);
+                    builder.price(priceInfo);
+                    log.info("[StockDetail] 네이버 폴백 성공: {} - 현재가: {}", stockName, naverData.getCurrentPrice());
+                } else {
+                    log.warn("[StockDetail] 네이버 폴백도 데이터 없음 - 종목명 별도 조회");
+                    List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
+                    if (searchResult != null && !searchResult.isEmpty()) {
+                        stockName = searchResult.get(0).getStockName();
+                    }
                 }
             } catch (Exception e) {
-                log.debug("[StockDetail] 종목명 별도 조회 실패: {}", e.getMessage());
+                log.warn("[StockDetail] 네이버 폴백 실패: {} - 종목명 별도 조회", e.getMessage());
+                try {
+                    List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
+                    if (searchResult != null && !searchResult.isEmpty()) {
+                        stockName = searchResult.get(0).getStockName();
+                    }
+                } catch (Exception e2) {
+                    log.debug("[StockDetail] 종목명 별도 조회 실패: {}", e2.getMessage());
+                }
             }
         }
         // ★★★ 항상 stockName 설정 ★★★
@@ -132,6 +156,16 @@ public class StockDetailService {
         try {
             // 수급 정보 - 장 마감 여부에 따라 다른 소스 사용
             SupplyDemand supplyDemand = supplyFuture.get(30, TimeUnit.SECONDS);
+
+            // 수급 데이터 없거나 전부 0이면 네이버 폴백
+            if (supplyDemand == null || isEmptySupplyDemand(supplyDemand)) {
+                log.info("[StockDetail] 수급 데이터 없거나 비어있음 - 네이버 투자자 매매동향 폴백 시도");
+                SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
+                if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) {
+                    supplyDemand = naverSupply;
+                }
+            }
+
             if (supplyDemand != null) {
                 log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}%{}",
                         supplyDemand.getForeignNetBuy(), supplyDemand.getInstNetBuy(),
@@ -163,13 +197,22 @@ public class StockDetailService {
             log.warn("[StockDetail] 병렬 조회 중 오류: {}", e.getMessage(), e);
         }
 
-        // 3. 재무 정보 조회
+        // 3. 재무 정보 조회 (KIS 실패 시 네이버 폴백)
         FinancialInfo financial = fetchFinancialInfo(stockCode);
+        if (financial == null && naverData != null) {
+            financial = convertNaverToFinancialInfo(naverData);
+            log.info("[StockDetail] 재무 정보 네이버 폴백 적용 - PER: {}, PBR: {}",
+                    financial != null ? financial.getPer() : null,
+                    financial != null ? financial.getPbr() : null);
+        }
         builder.financial(financial);
 
-        // 4. AI 종합 분석 생성
+        // 4. AI 종합 분석 생성 (Gemini 우선 → 규칙기반 폴백)
         StockDetailDto dto = builder.build();
-        AiAnalysis aiAnalysis = generateAiAnalysis(dto);
+        AiAnalysis aiAnalysis = generateGeminiAnalysis(dto);
+        if (aiAnalysis == null) {
+            aiAnalysis = generateAiAnalysis(dto);
+        }
         dto.setAiAnalysis(aiAnalysis);
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -644,6 +687,338 @@ public class StockDetailService {
                 .instNetBuy(BigDecimal.ZERO)
                 .programNetBuy(BigDecimal.ZERO)
                 .programTrend("FLAT")
+                .build();
+    }
+
+    // ========== 네이버 폴백 변환 ==========
+
+    /**
+     * 네이버 StockPriceDto → PriceInfo 변환
+     */
+    private PriceInfo convertNaverToPriceInfo(StockPriceDto naverData) {
+        BigDecimal tradingValue = null;
+        if (naverData.getAccumulatedTradingValue() != null) {
+            tradingValue = naverData.getAccumulatedTradingValue()
+                    .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
+        }
+
+        Long volume = null;
+        if (naverData.getVolume() != null) {
+            volume = naverData.getVolume().longValue();
+        }
+
+        BigDecimal prevClose = null;
+        if (naverData.getCurrentPrice() != null && naverData.getChangePrice() != null) {
+            prevClose = naverData.getCurrentPrice().subtract(naverData.getChangePrice());
+        } else if (naverData.getCurrentPrice() != null && naverData.getChangeRate() != null
+                && naverData.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
+            // changePrice 없으면 changeRate로 역산
+            BigDecimal rate = naverData.getChangeRate().divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
+            prevClose = naverData.getCurrentPrice().divide(BigDecimal.ONE.add(rate), 0, RoundingMode.HALF_UP);
+        }
+
+        BigDecimal changePrice = naverData.getChangePrice();
+        if (changePrice == null && prevClose != null && naverData.getCurrentPrice() != null) {
+            changePrice = naverData.getCurrentPrice().subtract(prevClose);
+        }
+
+        return PriceInfo.builder()
+                .currentPrice(naverData.getCurrentPrice())
+                .changePrice(changePrice)
+                .changeRate(naverData.getChangeRate())
+                .tradingVolume(volume)
+                .tradingValue(tradingValue)
+                .high(naverData.getHighPrice())
+                .low(naverData.getLowPrice())
+                .open(naverData.getOpenPrice())
+                .prevClose(prevClose)
+                .build();
+    }
+
+    /**
+     * 네이버 StockPriceDto → FinancialInfo 변환
+     */
+    private FinancialInfo convertNaverToFinancialInfo(StockPriceDto naverData) {
+        Long marketCapBillion = null;
+        if (naverData.getMarketCap() != null) {
+            // 네이버 marketCap은 원 단위 → 억원 변환
+            marketCapBillion = naverData.getMarketCap()
+                    .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP)
+                    .longValue();
+        }
+
+        return FinancialInfo.builder()
+                .per(naverData.getPer())
+                .pbr(naverData.getPbr())
+                .bps(naverData.getBps())
+                .marketCap(marketCapBillion)
+                .build();
+    }
+
+    /**
+     * 수급 데이터가 비어있는지 확인 (외국인/기관 모두 0)
+     */
+    private boolean isEmptySupplyDemand(SupplyDemand sd) {
+        if (sd == null) return true;
+
+        boolean foreignZero = sd.getForeignNetBuy() == null
+                || sd.getForeignNetBuy().compareTo(BigDecimal.ZERO) == 0;
+        boolean instZero = sd.getInstNetBuy() == null
+                || sd.getInstNetBuy().compareTo(BigDecimal.ZERO) == 0;
+
+        return foreignZero && instZero;
+    }
+
+    /**
+     * 네이버 투자자 매매동향 크롤링 (외국인/기관 순매매)
+     * URL: https://finance.naver.com/item/frgn.naver?code={stockCode}
+     */
+    private SupplyDemand fetchInvestorFromNaver(String stockCode) {
+        try {
+            String url = "https://finance.naver.com/item/frgn.naver?code=" + stockCode;
+            Document doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://finance.naver.com/")
+                    .timeout(10000)
+                    .get();
+
+            // table.type2 내 tbody tr에서 최신 거래일 데이터 추출
+            Elements rows = doc.select("table.type2 tbody tr");
+
+            for (Element row : rows) {
+                Elements tds = row.select("td");
+                if (tds.size() < 9) continue;
+
+                // 날짜가 있는 유효 데이터 행인지 확인
+                String dateText = tds.get(0).text().trim();
+                if (dateText.isEmpty() || !dateText.contains(".")) continue;
+
+                // 컬럼: 날짜 | 종가 | 전일비 | 등락률 | 거래량 | 기관순매매량 | 외국인순매매량 | ...
+                BigDecimal closePrice = parseNaverNumber(tds.get(1).text());
+                BigDecimal instNetShares = parseNaverNumber(tds.get(5).text()); // 기관 순매매량 (주)
+                BigDecimal foreignNetShares = parseNaverNumber(tds.get(6).text()); // 외국인 순매매량 (주)
+
+                if (closePrice == null || closePrice.compareTo(BigDecimal.ZERO) == 0) continue;
+
+                // 주수 × 종가 ÷ 1억 → 억원 변환
+                BigDecimal instNetBuy = BigDecimal.ZERO;
+                BigDecimal foreignNetBuy = BigDecimal.ZERO;
+
+                if (instNetShares != null) {
+                    instNetBuy = instNetShares.multiply(closePrice)
+                            .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
+                }
+                if (foreignNetShares != null) {
+                    foreignNetBuy = foreignNetShares.multiply(closePrice)
+                            .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
+                }
+
+                log.info("[StockDetail] 네이버 투자자 매매동향 ({}) - 기관: {}억, 외국인: {}억",
+                        dateText, instNetBuy, foreignNetBuy);
+
+                return SupplyDemand.builder()
+                        .volumePower(new BigDecimal("100")) // 기본값
+                        .volumeSignal("NEUTRAL")
+                        .foreignNetBuy(foreignNetBuy)
+                        .instNetBuy(instNetBuy)
+                        .programNetBuy(BigDecimal.ZERO)
+                        .programTrend("FLAT")
+                        .build();
+            }
+
+            log.warn("[StockDetail] 네이버 투자자 매매동향 파싱 실패 - 유효 데이터 행 없음");
+        } catch (Exception e) {
+            log.warn("[StockDetail] 네이버 투자자 매매동향 크롤링 실패: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 네이버 페이지 숫자 파싱 (쉼표, +/- 처리)
+     */
+    private BigDecimal parseNaverNumber(String text) {
+        if (text == null || text.trim().isEmpty()) return null;
+        try {
+            String cleaned = text.trim()
+                    .replace(",", "")
+                    .replace("+", "")
+                    .replace("\u00A0", ""); // non-breaking space
+            if (cleaned.isEmpty() || cleaned.equals("-")) return BigDecimal.ZERO;
+            return new BigDecimal(cleaned);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // ========== Gemini AI 분석 ==========
+
+    /**
+     * Gemini 기반 AI 분석 (실제 데이터 기반)
+     * 실패 시 null 반환 → 규칙기반 폴백
+     */
+    private AiAnalysis generateGeminiAnalysis(StockDetailDto dto) {
+        try {
+            String prompt = buildGeminiPrompt(dto);
+            if (prompt == null) return null;
+
+            String response = geminiService.analyzeStockRecommendation(prompt);
+            if (response == null || response.contains("분석할 데이터가 없습니다")) return null;
+
+            log.info("[StockDetail] Gemini AI 분석 응답: {}", response);
+
+            return parseGeminiResponse(response, dto);
+        } catch (Exception e) {
+            log.warn("[StockDetail] Gemini AI 분석 실패: {} - 규칙기반 폴백", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Gemini 프롬프트 구성 (실제 데이터 요약)
+     */
+    private String buildGeminiPrompt(StockDetailDto dto) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("종목: %s (%s)\n", dto.getStockName(), dto.getStockCode()));
+
+        // 가격 정보
+        if (dto.getPrice() != null) {
+            PriceInfo p = dto.getPrice();
+            sb.append(String.format("현재가: %s원, 등락률: %s%%, 거래량: %s\n",
+                    p.getCurrentPrice(), p.getChangeRate(),
+                    p.getTradingVolume() != null ? p.getTradingVolume() : "N/A"));
+            if (p.getHigh() != null && p.getLow() != null) {
+                sb.append(String.format("고가: %s, 저가: %s, 시가: %s\n",
+                        p.getHigh(), p.getLow(), p.getOpen()));
+            }
+        } else {
+            return null; // 가격 없으면 분석 불가
+        }
+
+        // 재무 정보
+        if (dto.getFinancial() != null) {
+            FinancialInfo f = dto.getFinancial();
+            sb.append(String.format("PER: %s, PBR: %s, BPS: %s, 시가총액: %s억원\n",
+                    f.getPer() != null ? f.getPer() : "N/A",
+                    f.getPbr() != null ? f.getPbr() : "N/A",
+                    f.getBps() != null ? f.getBps() : "N/A",
+                    f.getMarketCap() != null ? f.getMarketCap() : "N/A"));
+        }
+
+        // 수급 정보
+        if (dto.getSupplyDemand() != null) {
+            SupplyDemand s = dto.getSupplyDemand();
+            sb.append(String.format("외국인 순매수: %s억, 기관 순매수: %s억, 체결강도: %s%%\n",
+                    s.getForeignNetBuy(), s.getInstNetBuy(), s.getVolumePower()));
+        }
+
+        // 리스크 정보
+        if (dto.getRisk() != null) {
+            RiskInfo r = dto.getRisk();
+            sb.append(String.format("리스크상태: %s, 관련뉴스: %s건\n",
+                    r.getRiskStatus(), r.getNewsCount()));
+            // 뉴스 헤드라인 추가 (최대 3개)
+            if (r.getNews() != null && !r.getNews().isEmpty()) {
+                sb.append("주요뉴스: ");
+                int count = 0;
+                for (var news : r.getNews()) {
+                    if (count >= 3) break;
+                    sb.append(news.getTitle()).append("; ");
+                    count++;
+                }
+                sb.append("\n");
+            }
+        }
+
+        // 차트 기술적 지표
+        if (dto.getChartData() != null) {
+            ChartData c = dto.getChartData();
+            sb.append(String.format("MA5: %s, MA20: %s, MA60: %s, VWAP: %s\n",
+                    c.getMa5() != null ? c.getMa5() : "N/A",
+                    c.getMa20() != null ? c.getMa20() : "N/A",
+                    c.getMa60() != null ? c.getMa60() : "N/A",
+                    c.getVwap() != null ? c.getVwap() : "N/A"));
+        }
+
+        return sb.toString();
+    }
+
+    /**
+     * Gemini 응답 텍스트 파싱 → AiAnalysis
+     */
+    private AiAnalysis parseGeminiResponse(String response, StockDetailDto dto) {
+        // 추천 결정 파싱
+        String recommendation = "HOLD";
+        if (response.contains("매수") || response.contains("BUY") || response.contains("적극")) {
+            recommendation = "BUY";
+        } else if (response.contains("매도") || response.contains("SELL") || response.contains("회피")) {
+            recommendation = "SELL";
+        }
+
+        // 점수 추정 (추천 기반)
+        int score;
+        switch (recommendation) {
+            case "BUY": score = 75; break;
+            case "SELL": score = 25; break;
+            default: score = 50; break;
+        }
+
+        // 수급/재무 데이터로 점수 보정
+        if (dto.getSupplyDemand() != null) {
+            SupplyDemand s = dto.getSupplyDemand();
+            if (s.getForeignNetBuy() != null && s.getForeignNetBuy().doubleValue() > 10) score += 5;
+            if (s.getForeignNetBuy() != null && s.getForeignNetBuy().doubleValue() < -10) score -= 5;
+            if (s.getInstNetBuy() != null && s.getInstNetBuy().doubleValue() > 10) score += 5;
+            if (s.getInstNetBuy() != null && s.getInstNetBuy().doubleValue() < -10) score -= 5;
+        }
+        score = Math.max(0, Math.min(100, score));
+
+        // 매수/매도 근거 추출 (응답에서 줄 단위 파싱)
+        List<String> buyReasons = new ArrayList<>();
+        List<String> sellReasons = new ArrayList<>();
+
+        String[] lines = response.split("[\\n\\r]+");
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("-") || trimmed.startsWith("•") || trimmed.matches("^\\d+\\..*")) {
+                String content = trimmed.replaceFirst("^[-•]\\s*|^\\d+\\.\\s*", "").trim();
+                if (content.length() > 5) {
+                    if (content.contains("매수") || content.contains("긍정") || content.contains("호재")
+                            || content.contains("상승") || content.contains("지지") || content.contains("매력")) {
+                        buyReasons.add(content);
+                    } else if (content.contains("리스크") || content.contains("주의") || content.contains("하락")
+                            || content.contains("매도") || content.contains("부정") || content.contains("우려")) {
+                        sellReasons.add(content);
+                    } else {
+                        // 매수/관망 추천이면 매수근거로, 매도면 매도근거로
+                        if ("BUY".equals(recommendation)) {
+                            buyReasons.add(content);
+                        } else if ("SELL".equals(recommendation)) {
+                            sellReasons.add(content);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 기술적 신호
+        String technicalSignal = "NEUTRAL";
+        if (dto.getChartData() != null && dto.getPrice() != null && dto.getChartData().getMa20() != null) {
+            BigDecimal cp = dto.getPrice().getCurrentPrice();
+            BigDecimal ma20 = dto.getChartData().getMa20();
+            if (cp != null && cp.compareTo(ma20) > 0) {
+                technicalSignal = "이평선 상회";
+            } else if (cp != null) {
+                technicalSignal = "이평선 하향 이탈";
+            }
+        }
+
+        return AiAnalysis.builder()
+                .overallScore(score)
+                .recommendation(recommendation)
+                .strategy(response) // Gemini 전체 응답을 전략 텍스트로 사용
+                .technicalSignal(technicalSignal)
+                .buyReasons(buyReasons)
+                .sellReasons(sellReasons)
                 .build();
     }
 
