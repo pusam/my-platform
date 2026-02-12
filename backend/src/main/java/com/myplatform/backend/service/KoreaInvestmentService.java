@@ -318,8 +318,11 @@ public class KoreaInvestmentService {
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 return objectMapper.readTree(response.getBody());
             }
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            // KIS API에서 해당 엔드포인트 폐지/변경 시 404 반환 → 조용히 무시
+            log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
         } catch (Exception e) {
-            log.error("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return null;

@@ -55,9 +55,7 @@ public class ScalpingAnalysisService {
         if (programData != null && "0".equals(getFieldValue(programData, "rt_cd"))) {
             parseProgramTrading(programData, builder);
         } else {
-            String errCode = programData != null ? getFieldValue(programData, "rt_cd") : "null";
-            String errMsg = programData != null ? getFieldValue(programData, "msg1") : "응답 없음";
-            log.warn("[단타분석] 프로그램 매매 조회 실패: {} - 코드: {}, 메시지: {}", stockCode, errCode, errMsg);
+            log.debug("[단타분석] 프로그램 매매 데이터 없음: {} (KIS API 미지원 가능)", stockCode);
         }
 
         // 3. 투자자별 매매동향 조회 (FHKST01010900)
