@@ -405,8 +405,12 @@ public class InvestorTradeService {
             latestTradeByStock.merge(
                     trade.getStockCode(),
                     trade,
-                    (existing, newTrade) -> newTrade.getTradeDate().isAfter(existing.getTradeDate())
-                            ? newTrade : existing
+                    (existing, newTrade) -> {
+                        if (newTrade.getTradeDate() == null) return existing;
+                        if (existing.getTradeDate() == null) return newTrade;
+                        return newTrade.getTradeDate().isAfter(existing.getTradeDate())
+                                ? newTrade : existing;
+                    }
             );
         }
 

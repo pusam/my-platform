@@ -145,7 +145,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import api from '../utils/api';
+import { investorAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -245,9 +245,7 @@ const currentStocks = computed(() => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/investor/surge/all', {
-      params: { minChange: minChange.value }
-    });
+    const response = await investorAPI.getAllSurgeStocks(minChange.value);
     if (response.data.success) {
       allStocks.value = response.data.data;
       lastUpdateTime.value = new Date().toLocaleTimeString('ko-KR');
@@ -263,7 +261,7 @@ const collectSnapshot = async () => {
   if (collecting.value) return;
   collecting.value = true;
   try {
-    const response = await api.post('/investor/surge/collect');
+    const response = await investorAPI.collectSurge();
     if (response.data.success) {
       alert('스냅샷 수집이 완료되었습니다!');
       await fetchData();

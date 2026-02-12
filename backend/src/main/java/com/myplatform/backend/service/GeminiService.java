@@ -436,6 +436,10 @@ public class GeminiService {
                     List<Map> candidates = (List<Map>) body.get("candidates");
                     if (candidates != null && !candidates.isEmpty()) {
                         Map candidate = candidates.get(0);
+                        if (candidate == null) {
+                            log.warn("[AI Scoring] Gemini 응답 candidate가 null");
+                            return null;
+                        }
                         Map contentMap = (Map) candidate.get("content");
                         if (contentMap != null) {
                             List<Map> partsList = (List<Map>) contentMap.get("parts");

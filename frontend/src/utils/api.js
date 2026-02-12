@@ -715,6 +715,16 @@ export const investorAPI = {
       params: { investorType, tradeType, limit }
     });
   },
+  // 전체 투자자 상위 매매 (외국인+기관 통합)
+  getAllTopTrades(tradeType = 'BUY', limit = 50) {
+    return apiClient.get('/investor/all-top-trades', {
+      params: { tradeType, limit }
+    });
+  },
+  // 데이터 수집 (당일)
+  collect() {
+    return apiClient.post('/investor/collect');
+  },
   // 연속 매수 종목 전체 조회
   getAllConsecutiveBuy(minDays = 3) {
     return apiClient.get('/investor/consecutive-buy/all', { params: { minDays } });
@@ -724,6 +734,10 @@ export const investorAPI = {
     const params = {};
     if (minChange) params.minChange = minChange;
     return apiClient.get('/investor/surge/all', { params });
+  },
+  // 수급 급증 스냅샷 수집
+  collectSurge() {
+    return apiClient.post('/investor/surge/collect');
   },
   // 외국인+기관 공통 순매수 종목
   getCommonSurgeStocks(minChange = null) {

@@ -180,10 +180,12 @@ export default {
           const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
           if (hasStocks) { this.aiStrategyData = d; return }
         } catch (e) { console.warn('[Java] AI Strategy 실패:', e.message) }
-        // API 실패 시 null 유지 (컴포넌트에서 빈 상태 표시)
+        // API 모두 실패 시 에러 상태 표시
         console.warn('[AI Strategy] 데이터 없음')
+        this.sections.aiStrategy.error = true
       } catch {
         this.aiStrategyData = null
+        this.sections.aiStrategy.error = true
       } finally {
         this.sections.aiStrategy.loading = false
       }
@@ -236,6 +238,7 @@ export default {
         this.sectorData = []
         this.marketData = {}
         this.globalData = {}
+        this.sections.marketMap.error = true
       } finally {
         this.sections.marketMap.loading = false
       }
@@ -270,6 +273,7 @@ export default {
         this.tradesData = { foreign: [], institution: [] }
         this.consecutiveData = []
         this.surgeData = []
+        this.sections.smartMoney.error = true
       } finally {
         this.sections.smartMoney.loading = false
       }
@@ -296,6 +300,7 @@ export default {
       } catch {
         this.screenerData = {}
         this.newsData = []
+        this.sections.research.error = true
       } finally {
         this.sections.research.loading = false
       }

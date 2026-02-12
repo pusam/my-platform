@@ -336,6 +336,9 @@ public class QuantScreenerService {
                 continue;
             }
 
+            if (stock.getPer() == null || growthRate.compareTo(BigDecimal.ZERO) == 0) {
+                continue;
+            }
             BigDecimal peg = stock.getPer().divide(growthRate, 2, RoundingMode.HALF_UP);
             if (peg.compareTo(BigDecimal.ZERO) <= 0 || peg.compareTo(maxPeg) > 0) {
                 continue;

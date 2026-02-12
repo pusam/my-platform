@@ -69,8 +69,14 @@ public class KisApiService {
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
 
             JsonNode root = objectMapper.readTree(response.getBody());
-            this.accessToken = root.get("access_token").asText();
-            int expiresIn = root.get("expires_in").asInt();
+            JsonNode tokenNode = root != null ? root.get("access_token") : null;
+            JsonNode expiresNode = root != null ? root.get("expires_in") : null;
+            if (tokenNode == null || expiresNode == null) {
+                log.error("KIS API 토큰 응답에 필수 필드 누락 (access_token={}, expires_in={})", tokenNode != null, expiresNode != null);
+                return;
+            }
+            this.accessToken = tokenNode.asText();
+            int expiresIn = expiresNode.asInt();
 
             // 토큰 만료 시간 설정 (여유있게 1시간 전에 갱신)
             this.tokenExpireTime = System.currentTimeMillis() + ((expiresIn - 3600) * 1000L);

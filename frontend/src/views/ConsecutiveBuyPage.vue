@@ -107,7 +107,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import api from '../utils/api';
+import { investorAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -149,9 +149,7 @@ const currentStocks = computed(() => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/investor/consecutive-buy/all', {
-      params: { minDays: minDays.value }
-    });
+    const response = await investorAPI.getAllConsecutiveBuy(minDays.value);
     if (response.data.success) {
       const data = response.data.data;
       allStocks.value = {
