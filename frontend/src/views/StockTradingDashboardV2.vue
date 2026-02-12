@@ -158,6 +158,28 @@ export default {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(t => t.netBuyAmount && t.netBuyAmount !== 0)
     },
+    // 투자자별 Map → 평탄 배열 변환 ({ FOREIGN: [...], INSTITUTION: [...] } → [...])
+    flattenInvestorMap(data) {
+      if (!data) return []
+      if (Array.isArray(data)) return data.length > 0 ? data : []
+      if (typeof data === 'object') {
+        const merged = []
+        const seen = new Set()
+        for (const [key, arr] of Object.entries(data)) {
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              const id = item.stockCode || JSON.stringify(item)
+              if (!seen.has(id)) {
+                seen.add(id)
+                merged.push(item)
+              }
+            }
+          }
+        }
+        return merged
+      }
+      return []
+    },
 
     // Section A: AI 전략 (V2 → Java, 3초 타임아웃)
     async loadAiStrategy() {
@@ -263,12 +285,12 @@ export default {
         const id = instRes.status === 'fulfilled' ? this.extractData(instRes.value) : null
         console.log('[API] Institution 원본:', id)
         this.tradesData.institution = this.hasTradeData(id) ? id : []
-        // Consecutive
+        // Consecutive - API가 { FOREIGN: [...], INSTITUTION: [...] } Map 반환
         const cd = consecutiveRes.status === 'fulfilled' ? this.extractData(consecutiveRes.value) : null
-        this.consecutiveData = (Array.isArray(cd) && cd.length > 0) ? cd : []
-        // Surge
+        this.consecutiveData = this.flattenInvestorMap(cd)
+        // Surge - API가 { FOREIGN: [...], INSTITUTION: [...], COMMON: [...] } Map 반환
         const sd = surgeRes.status === 'fulfilled' ? this.extractData(surgeRes.value) : null
-        this.surgeData = (Array.isArray(sd) && sd.length > 0) ? sd : []
+        this.surgeData = this.flattenInvestorMap(sd)
       } catch {
         this.tradesData = { foreign: [], institution: [] }
         this.consecutiveData = []

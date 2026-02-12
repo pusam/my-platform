@@ -345,6 +345,22 @@ public class SectorTradingService {
             }
         }
 
+        // 섹터 평균 등락률 계산 (거래대금 가중 평균)
+        BigDecimal weightedChangeSum = BigDecimal.ZERO;
+        BigDecimal weightSum = BigDecimal.ZERO;
+        for (StockTradingInfo info : stockInfos) {
+            if (info.getChangeRate() != null && info.getTradingValue() != null) {
+                weightedChangeSum = weightedChangeSum.add(
+                        info.getChangeRate().multiply(info.getTradingValue()));
+                weightSum = weightSum.add(info.getTradingValue());
+            }
+        }
+        if (weightSum.compareTo(BigDecimal.ZERO) > 0) {
+            dto.setChangeRate(weightedChangeSum.divide(weightSum, 2, java.math.RoundingMode.HALF_UP));
+        } else {
+            dto.setChangeRate(BigDecimal.ZERO);
+        }
+
         // 거래대금 순 정렬 후 상위 5개
         stockInfos.sort((a, b) -> b.getTradingValue().compareTo(a.getTradingValue()));
         dto.setTopStocks(stockInfos.stream().limit(5).collect(Collectors.toList()));

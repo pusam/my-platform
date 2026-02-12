@@ -597,6 +597,7 @@ public class QuantScreenerService {
     /**
      * 스크리너 요약 정보
      * - 각 스크리너의 상위 종목 요약
+     * - DB 데이터 없으면 네이버 크롤링 폴백
      */
     public Map<String, Object> getScreenerSummary() {
         Map<String, Object> summary = new HashMap<>();
@@ -616,6 +617,119 @@ public class QuantScreenerService {
         summary.put("turnaround", turnaround);
         summary.put("turnaroundCount", turnaround.size());
 
+        // DB 데이터 없으면 네이버 크롤링 폴백
+        if (magicFormula.isEmpty() && lowPeg.isEmpty() && turnaround.isEmpty()) {
+            log.info("[스크리너] DB 데이터 없음 → 네이버 크롤링 폴백");
+            return getScreenerFromNaver();
+        }
+
+        return summary;
+    }
+
+    /**
+     * 네이버 금융 크롤링 기반 스크리너 폴백
+     * - DB에 재무 데이터 없을 때 사용
+     */
+    private Map<String, Object> getScreenerFromNaver() {
+        Map<String, Object> summary = new HashMap<>();
+        List<ScreenerResultDto> magicFormula = new ArrayList<>();
+        List<ScreenerResultDto> lowPeg = new ArrayList<>();
+        List<ScreenerResultDto> turnaround = new ArrayList<>();
+
+        try {
+            // 대형주 목록에서 PER/PBR/ROE 조회
+            String[][] targets = {
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"}, {"005380", "현대차"},
+                    {"068270", "셀트리온"}, {"035420", "NAVER"}, {"055550", "신한지주"},
+                    {"105560", "KB금융"}, {"003670", "포스코퓨처엠"}, {"086790", "하나금융지주"},
+                    {"012330", "현대모비스"}, {"051910", "LG화학"}, {"006400", "삼성SDI"},
+                    {"034730", "SK"}, {"032830", "삼성생명"}, {"003550", "LG"}
+            };
+
+            List<ScreenerResultDto> allStocks = new ArrayList<>();
+            for (String[] target : targets) {
+                try {
+                    StockPriceDto price = stockPriceService.getStockPrice(target[0]);
+                    if (price == null || price.getCurrentPrice() == null) continue;
+
+                    ScreenerResultDto dto = ScreenerResultDto.builder()
+                            .stockCode(target[0])
+                            .stockName(price.getStockName() != null ? price.getStockName() : target[1])
+                            .currentPrice(price.getCurrentPrice())
+                            .changeRate(price.getChangeRate())
+                            .per(price.getPer())
+                            .pbr(price.getPbr())
+                            .roe(price.getPer() != null && price.getPbr() != null
+                                    && price.getPer().compareTo(BigDecimal.ZERO) > 0
+                                    ? price.getPbr().divide(price.getPer(), 4, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100")).setScale(2, RoundingMode.HALF_UP)
+                                    : null)
+                            .marketCap(price.getMarketCap())
+                            .build();
+                    allStocks.add(dto);
+                    Thread.sleep(100); // 네이버 요청 간격
+                } catch (Exception e) {
+                    log.debug("[스크리너 폴백] {} 조회 실패: {}", target[1], e.getMessage());
+                }
+            }
+
+            if (allStocks.isEmpty()) {
+                log.warn("[스크리너 폴백] 네이버 데이터 조회 실패");
+                summary.put("magicFormula", magicFormula);
+                summary.put("lowPeg", lowPeg);
+                summary.put("turnaround", turnaround);
+                return summary;
+            }
+
+            // 마법의 공식: PER 낮고 ROE 높은 순
+            magicFormula = allStocks.stream()
+                    .filter(s -> s.getPer() != null && s.getPer().compareTo(BigDecimal.ZERO) > 0)
+                    .filter(s -> s.getRoe() != null && s.getRoe().compareTo(BigDecimal.ZERO) > 0)
+                    .sorted(Comparator.comparing(ScreenerResultDto::getPer))
+                    .limit(5)
+                    .collect(Collectors.toList());
+            for (int i = 0; i < magicFormula.size(); i++) {
+                magicFormula.get(i).setMagicFormulaRank(i + 1);
+            }
+
+            // Low PEG: PER / 예상성장률 (ROE를 성장률 대용)
+            lowPeg = allStocks.stream()
+                    .filter(s -> s.getPer() != null && s.getPer().compareTo(BigDecimal.ZERO) > 0)
+                    .filter(s -> s.getRoe() != null && s.getRoe().compareTo(BigDecimal.ZERO) > 0)
+                    .filter(s -> {
+                        BigDecimal peg = s.getPer().divide(s.getRoe(), 2, RoundingMode.HALF_UP);
+                        return peg.compareTo(BigDecimal.ZERO) > 0 && peg.compareTo(new BigDecimal("3")) < 0;
+                    })
+                    .sorted(Comparator.comparing(s -> s.getPer().divide(s.getRoe(), 2, RoundingMode.HALF_UP)))
+                    .limit(5)
+                    .peek(s -> {
+                        BigDecimal peg = s.getPer().divide(s.getRoe(), 2, RoundingMode.HALF_UP);
+                        s.setPeg(peg);
+                        s.setEpsGrowth(s.getRoe());
+                    })
+                    .collect(Collectors.toList());
+
+            // 턴어라운드: 등락률 높은 종목 (상승 모멘텀)
+            turnaround = allStocks.stream()
+                    .filter(s -> s.getChangeRate() != null && s.getChangeRate().compareTo(BigDecimal.ZERO) > 0)
+                    .sorted(Comparator.comparing(ScreenerResultDto::getChangeRate).reversed())
+                    .limit(5)
+                    .peek(s -> s.setNetIncomeChangeRate(s.getChangeRate()))
+                    .collect(Collectors.toList());
+
+            log.info("[스크리너 폴백] 네이버 기반 결과 - 마법공식: {}건, PEG: {}건, 턴어라운드: {}건",
+                    magicFormula.size(), lowPeg.size(), turnaround.size());
+
+        } catch (Exception e) {
+            log.warn("[스크리너 폴백] 네이버 크롤링 실패: {}", e.getMessage());
+        }
+
+        summary.put("magicFormula", magicFormula);
+        summary.put("magicFormulaCount", magicFormula.size());
+        summary.put("lowPeg", lowPeg);
+        summary.put("lowPegCount", lowPeg.size());
+        summary.put("turnaround", turnaround);
+        summary.put("turnaroundCount", turnaround.size());
         return summary;
     }
 
