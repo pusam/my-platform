@@ -63,6 +63,24 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 토큰이 현재 사용 가능한지 확인 (쿨다운 포함)
+     * - 토큰 발급 시도 없이 빠르게 상태만 확인
+     */
+    public boolean isTokenAvailable() {
+        // 이미 유효한 토큰이 있으면 true
+        if (accessToken != null && tokenExpireTime != null
+            && LocalDateTime.now().isBefore(tokenExpireTime.minusHours(1))) {
+            return true;
+        }
+        // 쿨다운 중이면 false
+        if (tokenCooldownUntil != null && LocalDateTime.now().isBefore(tokenCooldownUntil)) {
+            return false;
+        }
+        // 설정이 안 되어 있으면 false
+        return isConfigured();
+    }
+
+    /**
      * Access Token 발급
      * - 토큰 유효시간: 24시간
      * - 만료 1시간 전에 갱신
@@ -82,12 +100,19 @@ public class KoreaInvestmentService {
         }
 
         if (!isConfigured()) {
-            log.warn("한국투자증권 API 키가 설정되지 않았습니다.");
+            log.warn("한국투자증권 API 키가 설정되지 않았습니다. (appKey 길이: {}, appSecret 길이: {})",
+                    appKey != null ? appKey.length() : 0,
+                    appSecret != null ? appSecret.length() : 0);
             return null;
         }
 
+        // 마스킹된 키로 디버그 로깅
+        String maskedKey = appKey.length() > 4
+                ? appKey.substring(0, 4) + "****" : "****";
+
         try {
             String url = baseUrl + "/oauth2/tokenP";
+            log.info("KIS 토큰 발급 시도 - baseUrl: {}, appKey: {}", baseUrl, maskedKey);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -100,6 +125,10 @@ public class KoreaInvestmentService {
             HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
 
+            log.info("KIS 토큰 응답 - HTTP {}, body 길이: {}",
+                    response.getStatusCode(),
+                    response.getBody() != null ? response.getBody().length() : 0);
+
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode root = objectMapper.readTree(response.getBody());
 
@@ -109,21 +138,34 @@ public class KoreaInvestmentService {
                     tokenExpireTime = LocalDateTime.now().plusHours(24);
                     // 쿨다운 해제
                     tokenCooldownUntil = null;
-                    log.info("한국투자증권 Access Token 발급 성공");
+                    log.info("KIS Access Token 발급 성공 (만료: {})", tokenExpireTime);
                     return accessToken;
                 } else {
-                    String errorMsg = root.has("msg") ? root.get("msg").asText() : "Unknown error";
-                    log.error("토큰 발급 실패: {}", errorMsg);
-                    // 실패 시 쿨다운 설정
+                    // 에러 상세 로깅
+                    String errorCode = root.has("error_code") ? root.get("error_code").asText() : "";
+                    String errorMsg = root.has("msg") ? root.get("msg").asText() : "";
+                    String errorDesc = root.has("error_description") ? root.get("error_description").asText() : "";
+                    log.error("KIS 토큰 발급 실패 - code: {}, msg: {}, desc: {}, 전체 응답: {}",
+                            errorCode, errorMsg, errorDesc,
+                            response.getBody().substring(0, Math.min(500, response.getBody().length())));
                     tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+                    log.info("KIS 토큰 쿨다운 설정: {}까지 대기", tokenCooldownUntil);
                 }
+            } else {
+                log.error("KIS 토큰 비정상 응답 - HTTP {}", response.getStatusCode());
             }
         } catch (Exception e) {
-            log.error("한국투자증권 토큰 발급 실패: {}", e.getMessage());
-            // Rate Limit 에러인 경우 쿨다운 설정
-            if (e.getMessage() != null && e.getMessage().contains("403")) {
+            log.error("KIS 토큰 발급 예외 - appKey: {}, baseUrl: {}, 에러: {}",
+                    maskedKey, baseUrl, e.getMessage());
+            // HTTP 상태코드별 처리
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            if (msg.contains("403") || msg.contains("429") || msg.contains("Too Many")) {
                 tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
-                log.info("토큰 발급 쿨다운 설정: {}초 후 재시도 가능", TOKEN_COOLDOWN_SECONDS);
+                log.info("KIS 토큰 Rate Limit → {}초 쿨다운 ({}까지)",
+                        TOKEN_COOLDOWN_SECONDS, tokenCooldownUntil);
+            } else if (msg.contains("Connection refused") || msg.contains("Connect timed out")) {
+                tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS * 2);
+                log.error("KIS API 서버 연결 불가 - {}초 쿨다운", TOKEN_COOLDOWN_SECONDS * 2);
             }
         }
 

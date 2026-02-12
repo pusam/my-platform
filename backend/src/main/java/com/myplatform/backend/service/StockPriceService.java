@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -43,6 +44,16 @@ public class StockPriceService {
     // 네이버 증권 API (폴백용)
     private static final String NAVER_STOCK_API = "https://m.stock.naver.com/api/stock/%s/basic";
     private static final String NAVER_SEARCH_API = "https://m.stock.naver.com/front-api/search/autoComplete?query=%s&target=stock";
+
+    // 네이버 API 요청 헤더 (409 차단 방지)
+    private static final String NAVER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+    private static final String NAVER_REFERER = "https://m.stock.naver.com";
+
+    // 네이버 서킷브레이커 (연속 에러 시 요청 중단)
+    private final AtomicInteger naverConsecutiveErrors = new AtomicInteger(0);
+    private volatile LocalDateTime naverCooldownUntil = null;
+    private static final int NAVER_MAX_CONSECUTIVE_ERRORS = 3;  // 3회 연속 에러 시 서킷 오픈
+    private static final int NAVER_COOLDOWN_SECONDS = 60;       // 60초 쿨다운
 
     private final RestTemplate restTemplate;
     private final StockPriceRepository stockPriceRepository;
@@ -109,18 +120,29 @@ public class StockPriceService {
 
         // 2. 캐시 미스 종목들 API 조회 (순차 처리 - 안정성 우선)
         if (!missingCodes.isEmpty()) {
-            log.info("Batch 시세 조회 시작 - 캐시 히트: {}, 미스: {} (순차 처리, 200ms 간격)", result.size(), missingCodes.size());
+            // KIS 사용 불가 시 네이버 폴백 → 더 긴 딜레이 적용
+            boolean usingKis = kisService.isConfigured() && kisService.isTokenAvailable();
+            int delayMs = usingKis ? REQUEST_DELAY_MS : NAVER_REQUEST_DELAY_MS;
+            String apiSource = usingKis ? "KIS" : "Naver(폴백)";
+
+            log.info("Batch 시세 조회 시작 - 소스: {}, 캐시 히트: {}, 미스: {} (순차 처리, {}ms 간격)",
+                    apiSource, result.size(), missingCodes.size(), delayMs);
             long startTime = System.currentTimeMillis();
             int successCount = 0;
 
-            // 순차 처리로 변경 (CompletableFuture + Thread.sleep 조합의 스레드풀 블로킹 문제 해결)
             for (int i = 0; i < missingCodes.size(); i++) {
                 String code = missingCodes.get(i);
 
+                // 네이버 서킷브레이커 체크 (연속 에러 시 중단)
+                if (!usingKis && isNaverCircuitOpen()) {
+                    log.warn("네이버 서킷브레이커 오픈 - 나머지 {}건 스킵", missingCodes.size() - i);
+                    break;
+                }
+
                 try {
-                    // Rate Limit 제어: 200ms 간격 (초당 5건)
+                    // Rate Limit 제어
                     if (i > 0) {
-                        Thread.sleep(REQUEST_DELAY_MS);
+                        Thread.sleep(delayMs);
                     }
 
                     StockPriceDto fetched = fetchStockPrice(code);
@@ -154,7 +176,7 @@ public class StockPriceService {
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("Batch 시세 조회 완료 - 성공: {}/{}, 소요: {}ms", successCount, missingCodes.size(), elapsed);
+            log.info("Batch 시세 조회 완료 - 소스: {}, 성공: {}/{}, 소요: {}ms", apiSource, successCount, missingCodes.size(), elapsed);
         }
 
         return result;
@@ -235,11 +257,15 @@ public class StockPriceService {
     private StockPriceDto fetchStockPrice(String stockCode) {
         // 한국투자증권 API 우선 사용
         if (kisService.isConfigured()) {
-            StockPriceDto kisPrice = fetchFromKoreaInvestment(stockCode);
-            if (kisPrice != null) {
-                return kisPrice;
+            if (kisService.isTokenAvailable()) {
+                StockPriceDto kisPrice = fetchFromKoreaInvestment(stockCode);
+                if (kisPrice != null) {
+                    return kisPrice;
+                }
+                log.warn("한투 API 조회 실패 [{}], 네이버 폴백", stockCode);
+            } else {
+                log.debug("한투 토큰 미발급 상태, 네이버 폴백: {}", stockCode);
             }
-            log.warn("한국투자증권 API 조회 실패, 네이버로 폴백: {}", stockCode);
         }
 
         // 네이버 증권 API 폴백
@@ -431,11 +457,7 @@ public class StockPriceService {
             String url = String.format(NAVER_SEARCH_API, encodedKeyword);
             log.info("종목 검색: {} - URL: {}", keyword, url);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            headers.set("Referer", "https://m.stock.naver.com");
-            headers.set("Accept", "application/json");
-
+            HttpHeaders headers = createNaverHeaders();
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
 
@@ -509,29 +531,85 @@ public class StockPriceService {
 
     /**
      * 네이버 증권 API에서 개별 종목 시세 조회 (폴백)
+     * - 서킷브레이커: 연속 에러 시 요청 중단
+     * - 409 Conflict 처리: 쿨다운 적용
      */
     private StockPriceDto fetchFromNaver(String stockCode) {
+        // 서킷브레이커 체크
+        if (isNaverCircuitOpen()) {
+            log.debug("네이버 서킷브레이커 오픈 상태 - {} 스킵", stockCode);
+            return null;
+        }
+
         try {
             String url = String.format(NAVER_STOCK_API, stockCode);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            headers.set("Referer", "https://m.stock.naver.com");
-
+            HttpHeaders headers = createNaverHeaders();
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
 
             String responseBody = response.getBody();
             if (responseBody != null) {
+                // 성공 → 에러 카운터 리셋
+                naverConsecutiveErrors.set(0);
                 JsonNode root = objectMapper.readTree(responseBody);
                 return parseNaverStockDetail(root, stockCode);
             }
 
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int statusCode = e.getStatusCode().value();
+            if (statusCode == 409) {
+                // 409 Conflict: 네이버 차단 → 서킷브레이커 활성화
+                int errors = naverConsecutiveErrors.incrementAndGet();
+                log.warn("네이버 API 409 Conflict [{}] (연속 에러 {}/{})", stockCode, errors, NAVER_MAX_CONSECUTIVE_ERRORS);
+                if (errors >= NAVER_MAX_CONSECUTIVE_ERRORS) {
+                    naverCooldownUntil = LocalDateTime.now().plusSeconds(NAVER_COOLDOWN_SECONDS);
+                    log.error("네이버 서킷브레이커 오픈 - {}초간 요청 차단 (쿨다운: {})", NAVER_COOLDOWN_SECONDS, naverCooldownUntil);
+                }
+            } else if (statusCode == 429) {
+                int errors = naverConsecutiveErrors.incrementAndGet();
+                log.warn("네이버 API 429 Too Many Requests [{}] (연속 에러 {})", stockCode, errors);
+                if (errors >= NAVER_MAX_CONSECUTIVE_ERRORS) {
+                    naverCooldownUntil = LocalDateTime.now().plusSeconds(NAVER_COOLDOWN_SECONDS);
+                }
+            } else {
+                log.error("네이버 API HTTP {} [{}]: {}", statusCode, stockCode, e.getMessage());
+            }
         } catch (Exception e) {
+            naverConsecutiveErrors.incrementAndGet();
             log.error("네이버 증권 API 주식 시세 조회 실패: {} - {}", stockCode, e.getMessage());
         }
 
         return null;
+    }
+
+    /**
+     * 네이버 API 요청 헤더 생성 (409 차단 방지)
+     */
+    private HttpHeaders createNaverHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("User-Agent", NAVER_USER_AGENT);
+        headers.set("Referer", NAVER_REFERER);
+        headers.set("Accept", "application/json, text/plain, */*");
+        headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+        headers.set("Connection", "keep-alive");
+        return headers;
+    }
+
+    /**
+     * 네이버 서킷브레이커 오픈 여부 확인
+     */
+    private boolean isNaverCircuitOpen() {
+        if (naverCooldownUntil != null) {
+            if (LocalDateTime.now().isBefore(naverCooldownUntil)) {
+                return true;  // 아직 쿨다운 중
+            }
+            // 쿨다운 만료 → 서킷 닫기
+            naverCooldownUntil = null;
+            naverConsecutiveErrors.set(0);
+            log.info("네이버 서킷브레이커 닫힘 - 요청 재개");
+        }
+        return false;
     }
 
     /**
@@ -767,8 +845,10 @@ public class StockPriceService {
     }
 
     // ========== Rate Limit 설정 (순차 처리) ==========
-    // 요청 간 간격 (ms): 200 (초당 5건 이내로 제한)
+    // KIS API 요청 간 간격 (ms): 200 (초당 5건 이내로 제한)
     private static final int REQUEST_DELAY_MS = 200;
+    // 네이버 API 요청 간 간격 (ms): 500 (초당 2건 - 409 방지)
+    private static final int NAVER_REQUEST_DELAY_MS = 500;
     // Rate Limit 에러 시 재시도 대기 시간 (ms)
     private static final int RATE_LIMIT_RETRY_DELAY_MS = 500;
 

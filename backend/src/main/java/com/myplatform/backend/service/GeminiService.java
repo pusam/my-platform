@@ -451,12 +451,16 @@ public class GeminiService {
                 return null;
 
             } catch (HttpClientErrorException.TooManyRequests e) {
-                long retryDelay = parseRetryDelay(e.getMessage());
+                long baseDelay = parseRetryDelay(e.getMessage());
+                // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x)
+                long retryDelay = baseDelay * (1L << attempt);
                 consecutiveErrors.incrementAndGet();
-                log.warn("[AI Scoring] Rate Limit (시도 {}/{}), {}ms 후 재시도", attempt + 1, MAX_RETRIES, retryDelay);
+                log.warn("[AI Scoring] Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",
+                        attempt + 1, MAX_RETRIES, retryDelay);
 
                 if (consecutiveErrors.get() >= 3) {
                     quotaResetTime = LocalDateTime.now().plusMinutes(1);
+                    log.warn("[AI Scoring] 연속 Rate Limit 3회 → 1분간 Gemini 중단");
                     return null;
                 }
 
@@ -519,16 +523,18 @@ public class GeminiService {
                 return result;
 
             } catch (HttpClientErrorException.TooManyRequests e) {
-                long retryDelay = parseRetryDelay(e.getMessage());
+                long baseDelay = parseRetryDelay(e.getMessage());
+                // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x)
+                long retryDelay = baseDelay * (1L << attempt);
                 consecutiveErrors.incrementAndGet();
 
-                log.warn("Gemini Rate Limit (시도 {}/{}), {}ms 후 재시도...",
+                log.warn("Gemini Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",
                         attempt + 1, MAX_RETRIES, retryDelay);
 
                 // 연속 에러가 많으면 쿼터 리셋 시간 설정 (1분)
                 if (consecutiveErrors.get() >= 3) {
                     quotaResetTime = LocalDateTime.now().plusMinutes(1);
-                    log.warn("연속 Rate Limit 발생, {}까지 Gemini 일시 중단", quotaResetTime);
+                    log.warn("연속 Rate Limit 3회 → {}까지 Gemini 일시 중단", quotaResetTime);
                     return null;
                 }
 
