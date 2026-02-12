@@ -44,168 +44,16 @@
           <h2>주식</h2>
         </div>
         <div class="menu-grid">
-          <article class="menu-card ai-strategy featured" @click="goToAiStrategy">
-            <div class="card-icon ai-strategy-icon">
+          <article class="menu-card stock-dashboard-v2" @click="goToStockDashboard">
+            <div class="card-icon stock-dashboard-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                 <path d="M2 17l10 5 10-5"/>
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <h3>AI 트레이딩 전략 <span class="menu-ai-badge gold">NEW</span></h3>
-            <p>초단타/스윙/추세/가치 기간별 맞춤 TOP 5</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card sector" @click="goToSector">
-            <div class="card-icon sector-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
-                <polyline points="16,7 22,7 22,13"/>
-              </svg>
-            </div>
-            <h3>섹터별 거래대금</h3>
-            <p>반도체, 2차전지, 로봇 등 섹터별 거래대금</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.investorTrades" class="menu-card investor" @click="goToInvestorTrade">
-            <div class="card-icon investor-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-              </svg>
-            </div>
-            <h3>투자자 매매 동향</h3>
-            <p>외국인·기관 매매 상위 종목</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.investorTrades" class="menu-card consecutive" @click="goToConsecutiveBuy">
-            <div class="card-icon consecutive-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M13 17l5-5-5-5"/>
-                <path d="M6 17l5-5-5-5"/>
-              </svg>
-            </div>
-            <h3>연속 매수 종목</h3>
-            <p>외국인·기관이 연속 순매수 중인 종목</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.investorTrades" class="menu-card surge" @click="goToInvestorSurge">
-            <div class="card-icon surge-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-              </svg>
-            </div>
-            <h3>수급 급증</h3>
-            <p>장중 외국인·기관 순매수 급증 종목</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.earningsScreener" class="menu-card screener" @click="goToEarningsScreener">
-            <div class="card-icon screener-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M3 3v18h18"/>
-                <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3"/>
-                <circle cx="18.7" cy="8" r="2"/>
-              </svg>
-            </div>
-            <h3>실적 스크리너</h3>
-            <p>마법의 공식, PEG, 턴어라운드 종목 발굴</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card market-timing" @click="goToMarketTiming">
-            <div class="card-icon market-timing-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12 6 12 12 16 14"/>
-                <path d="M4.93 4.93l2.83 2.83"/>
-                <path d="M16.24 16.24l2.83 2.83"/>
-              </svg>
-            </div>
-            <h3>시장 지표</h3>
-            <p>ADR 기반 시장 과열/침체 분석</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card trading-indicators" @click="goToTradingIndicators">
-            <div class="card-icon trading-indicators-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M3 3v18h18"/>
-                <path d="M18 9l-5 5-4-4-3 3"/>
-                <circle cx="18" cy="9" r="2"/>
-                <path d="M21 12v-2h-4"/>
-              </svg>
-            </div>
-            <h3>트레이딩 지표</h3>
-            <p>VWAP, 나스닥 선물, 주도 섹터</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card stock-detail" @click="goToStockDetail">
-            <div class="card-icon stock-detail-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="3" width="18" height="18" rx="2"/>
-                <path d="M3 9h18"/>
-                <path d="M9 21V9"/>
-                <path d="M13 13h4"/>
-                <path d="M13 17h4"/>
-                <polyline points="5 15 6 14 7 16 8 12"/>
-              </svg>
-            </div>
-            <h3>종목 종합상세 <span class="menu-ai-badge">AI</span></h3>
-            <p>차트, 수급, 재무, 리스크 통합 분석</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.news" class="menu-card news" @click="goToNews">
-            <div class="card-icon news-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
-                <path d="M7 7h10M7 11h10M7 15h7"/>
-              </svg>
-            </div>
-            <h3>경제 뉴스 <span class="menu-ai-badge">AI</span></h3>
-            <p v-if="newsList.length > 0">{{ newsList.length }}개의 뉴스가 있습니다.</p>
-            <p v-else>AI가 요약한 경제 뉴스를 확인합니다.</p>
+            <h3>주식 트레이딩 대시보드 <span class="menu-ai-badge gold">V2</span></h3>
+            <p>AI 전략, 시장 지도, 스마트 머니, 리서치 - 한눈에 보기</p>
             <span class="card-arrow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9,6 15,12 9,18"/>
@@ -636,32 +484,8 @@ export default {
     goToSector() {
       this.$router.push('/sector')
     },
-    goToAiStrategy() {
-      this.$router.push('/ai-strategy')
-    },
-    goToInvestorTrade() {
-      this.$router.push('/investor-trades')
-    },
-    goToConsecutiveBuy() {
-      this.$router.push('/consecutive-buy')
-    },
-    goToInvestorSurge() {
-      this.$router.push('/investor-surge')
-    },
-    goToEarningsScreener() {
-      this.$router.push('/earnings-screener')
-    },
-    goToMarketTiming() {
-      this.$router.push('/market-timing')
-    },
-    goToTradingIndicators() {
-      this.$router.push('/trading-indicators')
-    },
-    goToStockDetail() {
-      this.$router.push('/stock-detail')
-    },
-    goToNews() {
-      this.$router.push('/news')
+    goToStockDashboard() {
+      this.$router.push('/stock-dashboard')
     },
     goToLotto() {
       this.$router.push('/lotto')
@@ -892,20 +716,21 @@ export default {
   color: #9333ea;
 }
 
-/* AI 투자 전략 카드 (Featured) */
-.card-icon.ai-strategy-icon {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(255, 165, 0, 0.2) 100%);
-  color: #f59e0b;
+/* 주식 트레이딩 대시보드 V2 카드 */
+.card-icon.stock-dashboard-icon {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+  color: #667eea;
 }
 
-.menu-card.ai-strategy {
-  background: linear-gradient(135deg, rgba(255, 251, 235, 0.98) 0%, rgba(254, 243, 199, 0.95) 100%);
-  border: 2px solid rgba(245, 158, 11, 0.4);
+.menu-card.stock-dashboard-v2 {
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98) 0%, rgba(245, 243, 255, 0.95) 100%);
+  border: 2px solid rgba(102, 126, 234, 0.4);
   position: relative;
   overflow: hidden;
+  grid-column: 1 / -1;
 }
 
-.menu-card.ai-strategy::before {
+.menu-card.stock-dashboard-v2::before {
   content: '';
   position: absolute;
   top: -50%;
@@ -915,7 +740,7 @@ export default {
   background: linear-gradient(
     45deg,
     transparent 30%,
-    rgba(255, 215, 0, 0.1) 50%,
+    rgba(102, 126, 234, 0.08) 50%,
     transparent 70%
   );
   animation: shine 3s infinite;
@@ -926,18 +751,14 @@ export default {
   100% { transform: translateX(100%) rotate(45deg); }
 }
 
-.menu-card.ai-strategy.featured {
-  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.2);
-}
-
-.menu-card.ai-strategy:hover {
-  border-color: #f59e0b;
-  box-shadow: 0 20px 50px rgba(245, 158, 11, 0.3);
+.menu-card.stock-dashboard-v2:hover {
+  border-color: #667eea;
+  box-shadow: 0 20px 50px rgba(102, 126, 234, 0.3);
   transform: translateY(-8px);
 }
 
-.menu-card.ai-strategy h3 {
-  color: #d97706;
+.menu-card.stock-dashboard-v2 h3 {
+  color: #4F46E5;
 }
 
 .menu-ai-badge.gold {

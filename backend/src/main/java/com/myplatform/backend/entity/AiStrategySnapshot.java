@@ -78,6 +78,9 @@ public class AiStrategySnapshot {
     @Column(name = "ai_comment", length = 200)
     private String aiComment;
 
+    @Column(name = "ai_themes", length = 300)
+    private String aiThemes;
+
     @Column(name = "original_score")
     private Integer originalScore;
 

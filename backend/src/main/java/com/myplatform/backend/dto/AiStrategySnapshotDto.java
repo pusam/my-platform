@@ -28,6 +28,7 @@ public class AiStrategySnapshotDto {
     private Integer score;
     private Integer aiScore;
     private String aiComment;
+    private String aiThemes;
     private Integer originalScore;
     private String reason;
     private Integer rankNum;
@@ -67,6 +68,7 @@ public class AiStrategySnapshotDto {
                 .score(entity.getScore())
                 .aiScore(entity.getAiScore())
                 .aiComment(entity.getAiComment())
+                .aiThemes(entity.getAiThemes())
                 .originalScore(entity.getOriginalScore())
                 .reason(entity.getReason())
                 .rankNum(entity.getRankNum())

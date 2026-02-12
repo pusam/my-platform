@@ -247,6 +247,7 @@ public class GeminiService {
         private String stockCode;
         private int aiScore;
         private String aiComment;
+        private List<String> themes;
     }
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
@@ -320,8 +321,9 @@ public class GeminiService {
 
                 반드시 아래 JSON 배열 형식으로만 응답하세요. 다른 텍스트를 포함하지 마세요.
                 코멘트는 한국어로 40자 이내로 작성하세요.
+                themes는 해당 종목의 핵심 투자 테마를 2~3개 한국어 키워드로 작성하세요 (예: "AI반도체", "수급우량", "실적턴어라운드").
 
-                [{"stockCode": "종목코드", "aiScore": 점수, "aiComment": "한줄평"}, ...]
+                [{"stockCode": "종목코드", "aiScore": 점수, "aiComment": "한줄평", "themes": ["테마1","테마2"]}, ...]
                 """, strategyType, strategyContext, stockData.toString());
 
         try {

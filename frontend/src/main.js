@@ -31,6 +31,7 @@ import PensionLotteryPage from './views/PensionLotteryPage.vue'
 import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 import StockDetailDashboard from './views/StockDetailDashboard.vue'
+import StockTradingDashboardV2 from './views/StockTradingDashboardV2.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -198,6 +199,12 @@ const router = createRouter({
       path: '/trading-indicators',
       name: 'TradingIndicators',
       component: TradingIndicatorsPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/stock-dashboard',
+      name: 'StockTradingDashboardV2',
+      component: StockTradingDashboardV2,
       meta: { requiresAuth: true }
     },
     {

@@ -365,6 +365,10 @@ public class AiStrategySnapshotService {
                     if (aiResult != null) {
                         s.setAiScore(aiResult.getAiScore());
                         s.setAiComment(aiResult.getAiComment());
+                        // 테마 태그 저장 (콤마 구분 문자열)
+                        if (aiResult.getThemes() != null && !aiResult.getThemes().isEmpty()) {
+                            s.setAiThemes(String.join(",", aiResult.getThemes()));
+                        }
                         // 블렌딩: 알고리즘 60% + AI 40%
                         int blendedScore = (int) Math.round(
                                 s.getOriginalScore() * 0.6 + aiResult.getAiScore() * 0.4);
