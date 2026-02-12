@@ -259,8 +259,15 @@ public class SectorTradingService {
         }
 
         // 캐시 없으면 즉시 계산
-        log.info("[섹터거래대금] {} 캐시 MISS - 즉시 계산", period);
+        log.info("[섹터거래대금] {} 캐시 MISS - 즉시 계산 (캐시 종목: {})", period, latestPriceCache.size());
         List<SectorTradingDto> result = calculateSectorTrading(period);
+        if (!result.isEmpty()) {
+            // 디버그: 첫 번째 섹터의 changeRate 확인
+            SectorTradingDto first = result.get(0);
+            log.info("[섹터거래대금] 결과 예시 - {}: changeRate={}, tradingValue={}, topStocks={}",
+                    first.getSectorName(), first.getChangeRate(), first.getTotalTradingValue(),
+                    first.getTopStocks() != null ? first.getTopStocks().size() : 0);
+        }
         cachedResultByPeriod.put(period, result);
         lastCalculateTime.put(period, LocalDateTime.now());
         return result;
@@ -395,7 +402,22 @@ public class SectorTradingService {
         }
         info.setStockName(stockName);
         info.setCurrentPrice(price.getCurrentPrice());
-        info.setChangeRate(price.getChangeRate());
+
+        // changeRate 보완: KIS API가 장 마감 후 prdy_ctrt를 빈 값으로 반환 시 0이 됨
+        // → changePrice(전일대비)에서 재계산
+        BigDecimal changeRate = price.getChangeRate();
+        if ((changeRate == null || changeRate.compareTo(BigDecimal.ZERO) == 0)
+                && price.getChangePrice() != null
+                && price.getChangePrice().compareTo(BigDecimal.ZERO) != 0
+                && price.getCurrentPrice() != null) {
+            BigDecimal prevClose = price.getCurrentPrice().subtract(price.getChangePrice());
+            if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                changeRate = price.getChangePrice()
+                        .divide(prevClose, 2, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+            }
+        }
+        info.setChangeRate(changeRate);
 
         // 거래대금 계산
         BigDecimal tradingValue = calculateTradingValueFromSnapshot(stockCode, period, price);

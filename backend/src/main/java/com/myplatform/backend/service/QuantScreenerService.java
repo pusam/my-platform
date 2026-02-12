@@ -617,10 +617,39 @@ public class QuantScreenerService {
         summary.put("turnaround", turnaround);
         summary.put("turnaroundCount", turnaround.size());
 
-        // DB 데이터 없으면 네이버 크롤링 폴백
-        if (magicFormula.isEmpty() && lowPeg.isEmpty() && turnaround.isEmpty()) {
-            log.info("[스크리너] DB 데이터 없음 → 네이버 크롤링 폴백");
-            return getScreenerFromNaver();
+        // 개별 스크리너별 네이버 크롤링 폴백 (하나라도 빈 경우 폴백)
+        if (magicFormula.isEmpty() || lowPeg.isEmpty() || turnaround.isEmpty()) {
+            log.info("[스크리너] 일부 데이터 없음 (마법공식:{}, PEG:{}, 턴어라운드:{}) → 네이버 폴백",
+                    magicFormula.size(), lowPeg.size(), turnaround.size());
+            try {
+                Map<String, Object> naverFallback = getScreenerFromNaver();
+                if (magicFormula.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    List<ScreenerResultDto> naverMagic = (List<ScreenerResultDto>) naverFallback.get("magicFormula");
+                    if (naverMagic != null && !naverMagic.isEmpty()) {
+                        summary.put("magicFormula", naverMagic);
+                        summary.put("magicFormulaCount", naverMagic.size());
+                    }
+                }
+                if (lowPeg.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    List<ScreenerResultDto> naverPeg = (List<ScreenerResultDto>) naverFallback.get("lowPeg");
+                    if (naverPeg != null && !naverPeg.isEmpty()) {
+                        summary.put("lowPeg", naverPeg);
+                        summary.put("lowPegCount", naverPeg.size());
+                    }
+                }
+                if (turnaround.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    List<ScreenerResultDto> naverTurn = (List<ScreenerResultDto>) naverFallback.get("turnaround");
+                    if (naverTurn != null && !naverTurn.isEmpty()) {
+                        summary.put("turnaround", naverTurn);
+                        summary.put("turnaroundCount", naverTurn.size());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[스크리너] 네이버 폴백 실패: {}", e.getMessage());
+            }
         }
 
         return summary;

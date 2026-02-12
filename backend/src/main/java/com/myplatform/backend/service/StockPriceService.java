@@ -306,6 +306,12 @@ public class StockPriceService {
             dto.setChangePrice(getBigDecimalValue(output, "prdy_vrss")); // 전일대비
             dto.setChangeRate(getBigDecimalValue(output, "prdy_ctrt")); // 전일대비율
             dto.setVolume(getBigDecimalValue(output, "acml_vol")); // 누적거래량
+            // 누적 거래대금 계산 (KIS API는 직접 제공 안 함 → 현재가 × 거래량)
+            if (dto.getCurrentPrice() != null && dto.getVolume() != null
+                    && dto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0
+                    && dto.getVolume().compareTo(BigDecimal.ZERO) > 0) {
+                dto.setAccumulatedTradingValue(dto.getCurrentPrice().multiply(dto.getVolume()));
+            }
             dto.setFetchedAt(LocalDateTime.now());
             dto.setDataSource("KIS"); // 데이터 출처
 
