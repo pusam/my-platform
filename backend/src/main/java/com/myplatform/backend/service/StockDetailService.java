@@ -505,6 +505,20 @@ public class StockDetailService {
             }
         }
 
+        // 수급-가격 괴리 감지
+        if (dto.getPrice() != null && dto.getSupplyDemand() != null) {
+            double changeRate = dto.getPrice().getChangeRate() != null ? dto.getPrice().getChangeRate().doubleValue() : 0;
+            double foreignNet = dto.getSupplyDemand().getForeignNetBuy() != null ? dto.getSupplyDemand().getForeignNetBuy().doubleValue() : 0;
+            double instNet = dto.getSupplyDemand().getInstNetBuy() != null ? dto.getSupplyDemand().getInstNetBuy().doubleValue() : 0;
+            if (changeRate > 1.0 && (foreignNet < -5 || instNet < -5)) {
+                score -= 15;
+                sellReasons.add("⚠ 수급 괴리: 주가 상승(+" + String.format("%.1f", changeRate) + "%) 중 외인/기관 매도 → 개인 주도 상승 위험");
+            } else if (changeRate < -1.0 && (foreignNet > 5 || instNet > 5)) {
+                score += 5;
+                buyReasons.add("기관 매집: 주가 하락 중 외인/기관 매수 → 저점 매집 가능성");
+            }
+        }
+
         // 점수 범위 제한
         score = Math.max(0, Math.min(100, score));
 
@@ -861,8 +875,9 @@ public class StockDetailService {
             String prompt = buildGeminiPrompt(dto);
             if (prompt == null) return null;
 
-            String response = geminiService.analyzeStockRecommendation(prompt);
-            if (response == null || response.contains("분석할 데이터가 없습니다")) return null;
+            // Gemini Only (Ollama 폴백 없음) - 실패 시 null → 규칙기반 폴백
+            String response = geminiService.analyzeStockDetail(prompt);
+            if (response == null) return null;
 
             log.info("[StockDetail] Gemini AI 분석 응답: {}", response);
 
@@ -937,6 +952,25 @@ public class StockDetailService {
                     c.getMa20() != null ? c.getMa20() : "N/A",
                     c.getMa60() != null ? c.getMa60() : "N/A",
                     c.getVwap() != null ? c.getVwap() : "N/A"));
+        }
+
+        // 수급-가격 괴리 감지
+        if (dto.getPrice() != null && dto.getSupplyDemand() != null) {
+            BigDecimal changeRate = dto.getPrice().getChangeRate();
+            BigDecimal foreignNet = dto.getSupplyDemand().getForeignNetBuy();
+            BigDecimal instNet = dto.getSupplyDemand().getInstNetBuy();
+            boolean priceUp = changeRate != null && changeRate.doubleValue() > 1.0;
+            boolean priceDown = changeRate != null && changeRate.doubleValue() < -1.0;
+            boolean foreignSell = foreignNet != null && foreignNet.doubleValue() < -5;
+            boolean instSell = instNet != null && instNet.doubleValue() < -5;
+            boolean foreignBuy = foreignNet != null && foreignNet.doubleValue() > 5;
+            boolean instBuy = instNet != null && instNet.doubleValue() > 5;
+
+            if (priceUp && (foreignSell || instSell)) {
+                sb.append("⚠ 경고: 주가 상승 중이지만 외국인/기관이 매도 중 (수급 괴리 - 개인 주도 상승 위험)\n");
+            } else if (priceDown && (foreignBuy || instBuy)) {
+                sb.append("💡 참고: 주가 하락 중이지만 외국인/기관이 매수 중 (기관 매집 가능성)\n");
+            }
         }
 
         return sb.toString();

@@ -208,6 +208,56 @@ public class GeminiService {
     }
 
     /**
+     * 종목 상세 페이지 전용 AI 분석 (Gemini Only, Ollama 폴백 없음)
+     * 가격/수급/재무/리스크 데이터를 종합하여 매매 전략 리포트 생성
+     *
+     * @param stockDataSummary 종목 데이터 요약 텍스트
+     * @return AI 분석 리포트 (실패 시 null → 규칙기반 폴백)
+     */
+    public String analyzeStockDetail(String stockDataSummary) {
+        if (stockDataSummary == null || stockDataSummary.isEmpty()) {
+            return null;
+        }
+
+        String prompt = String.format("""
+                당신은 한국 주식시장 전문 AI 애널리스트입니다.
+                개인 투자자에게 실질적으로 도움이 되는 매매 전략을 제시합니다.
+
+                [종목 실시간 데이터]
+                %s
+
+                위 데이터를 기반으로 아래 형식으로 분석해주세요:
+
+                ■ 종합 판단: (매수/관망/매도 중 하나)와 그 이유를 1문장으로
+
+                ■ 수급 해석:
+                - 외국인/기관 매매 동향이 의미하는 것
+                - 주가 방향과 수급이 일치하는지, 괴리가 있는지
+
+                ■ 리스크 요인:
+                - 주의해야 할 핵심 위험 (2-3가지)
+
+                ■ 매매 전략:
+                - 진입/청산 시점 제안
+                - 개인 투자자 대응 방안
+
+                반드시 한국어로 작성하세요.
+                핵심만 간결하게, 총 500자 이내로 답변해주세요.
+                수급과 가격의 괴리(예: 주가 상승인데 외인/기관 매도)가 있으면 반드시 경고해주세요.
+                """, stockDataSummary);
+
+        // Gemini만 사용 (Ollama 폴백 없음)
+        String result = callGeminiApiWithRetry(prompt);
+        if (result != null && !result.startsWith("Rate Limit") && !result.startsWith("AI 서버")) {
+            consecutiveErrors.set(0);
+            return result;
+        }
+
+        log.warn("[StockDetail AI] Gemini 분석 실패 → null 반환 (규칙기반 폴백 사용)");
+        return null;
+    }
+
+    /**
      * AI 4대장 앙상블 의견 생성
      * @param stocksSummary 전체 종목 요약
      * @return 앙상블 의견
