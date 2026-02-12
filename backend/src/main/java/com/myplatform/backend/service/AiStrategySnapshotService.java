@@ -6,18 +6,24 @@ import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -54,16 +60,21 @@ public class AiStrategySnapshotService {
     private final QuantScreenerService quantScreenerService;
     private final StockPriceService stockPriceService;
     private final GeminiService geminiService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
     // AI 스코어링 후보 수집 수 (Gemini 평가용)
     private static final int CANDIDATE_LIMIT = 10;
     // 최종 저장 수 (블렌딩 후 TOP N)
     private static final int SNAPSHOT_LIMIT = 5;
 
-    // 네이버 금융 상승률 상위 URL (폴백용)
-    private static final String NAVER_RISE_URL = "https://finance.naver.com/sise/sise_rise.naver";
+    // 네이버 모바일 API - 거래량 상위 (JSON, primary)
+    private static final String NAVER_VOLUME_API = "https://m.stock.naver.com/api/stocks/volume/%s?page=1&pageSize=%d";
+    // 네이버 금융 거래상위 HTML (fallback)
+    private static final String NAVER_VOLUME_HTML_URL = "https://finance.naver.com/sise/sise_quant.naver";
     private static final String CRAWL_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    private static final String NAVER_REFERER = "https://m.stock.naver.com/";
 
     // ========== 서버 시작 시 Warm-up ==========
 
@@ -718,21 +729,131 @@ public class AiStrategySnapshotService {
         return snapshots;
     }
 
-    // ========== 네이버 크롤링 폴백 ==========
+    // ========== 네이버 폴백 (3단계) ==========
 
     /**
-     * 네이버 금융 상승률 상위 크롤링 (KOSPI + KOSDAQ)
-     * - KIS API/DB 데이터 소스 실패 시 폴백
-     * - 참조: MarketTimingService.crawlStockCount() 동일 셀렉터
+     * 네이버 폴백 진입점 (3단계 체인)
+     * 1단계: 네이버 모바일 API (JSON) - 거래량 상위
+     * 2단계: 네이버 금융 거래상위 HTML 크롤링
+     * 3단계: (호출측에서) createFallbackStocks()
      */
     private List<AiStrategySnapshot> crawlNaverTopGainers(StrategyType strategyType, LocalDateTime createdAt) {
+        // 1단계: 네이버 모바일 API (JSON)
+        List<AiStrategySnapshot> snapshots = fetchNaverVolumeApi(strategyType, createdAt);
+        if (!snapshots.isEmpty()) {
+            return snapshots;
+        }
+
+        // 2단계: 네이버 금융 거래상위 HTML 크롤링
+        log.info("[네이버 폴백] {} - 모바일 API 실패, HTML 크롤링 시도", strategyType.name());
+        return crawlNaverVolumeHtml(strategyType, createdAt);
+    }
+
+    /**
+     * 1단계: 네이버 모바일 API로 거래량 상위 종목 조회 (JSON)
+     * - StockPriceService 동일 패턴 (RestTemplate + ObjectMapper)
+     * - KOSPI + KOSDAQ 순차 조회
+     */
+    private List<AiStrategySnapshot> fetchNaverVolumeApi(StrategyType strategyType, LocalDateTime createdAt) {
+        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        try {
+            for (String market : new String[]{"KOSPI", "KOSDAQ"}) {
+                if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                int remaining = CANDIDATE_LIMIT - snapshots.size();
+                String url = String.format(NAVER_VOLUME_API, market, remaining);
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.set("User-Agent", CRAWL_USER_AGENT);
+                headers.set("Referer", NAVER_REFERER);
+                headers.set("Accept", "application/json, text/plain, */*");
+                headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+                headers.set("Connection", "keep-alive");
+
+                HttpEntity<String> entity = new HttpEntity<>(headers);
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+                if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) continue;
+
+                JsonNode root = objectMapper.readTree(response.getBody());
+                JsonNode stocks = root.has("stocks") ? root.get("stocks") : root;
+                if (stocks == null || !stocks.isArray()) continue;
+
+                for (JsonNode stock : stocks) {
+                    if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                    try {
+                        String stockCode = getJsonText(stock, "itemCode", "stockCode", "cd");
+                        String stockName = getJsonText(stock, "stockName", "name", "nm");
+
+                        if (stockCode == null || !stockCode.matches("[0-9]{6}")) continue;
+                        if (stockName == null || stockName.isEmpty()) continue;
+
+                        BigDecimal currentPrice = parseNumericValue(
+                                getJsonText(stock, "closePrice", "currentPrice", "stckPrpr"));
+                        BigDecimal changeRate = parseNumericValue(
+                                getJsonText(stock, "fluctuationsRatio", "changeRate", "prdyCtrt"));
+
+                        if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                        // 점수: 거래량 상위 기본 60점 + 등락률 반영
+                        int score = 60;
+                        if (changeRate != null) {
+                            score = (int) Math.min(100, Math.max(30, 60 + changeRate.doubleValue() * 2));
+                        }
+
+                        String reason = changeRate != null
+                                ? String.format("거래량 상위 (%+.2f%%)", changeRate)
+                                : "거래량 상위";
+
+                        AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
+                                .strategyType(strategyType)
+                                .stockCode(stockCode)
+                                .stockName(stockName)
+                                .currentPrice(currentPrice)
+                                .changeRate(changeRate)
+                                .score(score)
+                                .reason(reason)
+                                .rankNum(snapshots.size() + 1)
+                                .createdAt(createdAt)
+                                .build();
+
+                        snapshots.add(snapshot);
+                    } catch (Exception e) {
+                        continue;
+                    }
+                }
+
+                // KOSPI → KOSDAQ 간 딜레이
+                if ("KOSPI".equals(market) && snapshots.size() < CANDIDATE_LIMIT) {
+                    Thread.sleep(300);
+                }
+            }
+
+            if (!snapshots.isEmpty()) {
+                log.info("[네이버 API 폴백] {} - {}개 종목 조회 완료", strategyType.name(), snapshots.size());
+            }
+        } catch (Exception e) {
+            log.warn("[네이버 API 폴백] {} - API 실패: {}", strategyType.name(), e.getMessage());
+        }
+
+        return snapshots;
+    }
+
+    /**
+     * 2단계: 네이버 금융 거래상위 HTML 크롤링 (KOSPI + KOSDAQ)
+     * - 참조: MarketTimingService.crawlStockCount() 동일 셀렉터
+     * - 거래상위는 장 마감 후에도 데이터 존재 (상승률 대비 안정적)
+     */
+    private List<AiStrategySnapshot> crawlNaverVolumeHtml(StrategyType strategyType, LocalDateTime createdAt) {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         try {
             for (String sosok : new String[]{"0", "1"}) { // 0=KOSPI, 1=KOSDAQ
                 if (snapshots.size() >= CANDIDATE_LIMIT) break;
 
-                String url = NAVER_RISE_URL + "?sosok=" + sosok;
+                String url = NAVER_VOLUME_HTML_URL + "?sosok=" + sosok;
                 Document doc = Jsoup.connect(url)
                         .userAgent(CRAWL_USER_AGENT)
                         .timeout(10000)
@@ -750,7 +871,6 @@ public class AiStrategySnapshotService {
                     if (link == null) continue;
 
                     try {
-                        // 종목코드 추출
                         String href = link.attr("href");
                         String stockCode = href.replaceAll(".*code=([0-9]+).*", "$1");
                         if (stockCode.length() != 6) continue;
@@ -758,7 +878,7 @@ public class AiStrategySnapshotService {
                         String stockName = link.text().trim();
                         if (stockName.isEmpty()) continue;
 
-                        // 링크가 포함된 td 인덱스 기준으로 현재가/등락률 파싱
+                        // 링크 td 인덱스 기준 파싱
                         int linkTdIndex = -1;
                         for (int i = 0; i < tds.size(); i++) {
                             if (tds.get(i).selectFirst("a[href*=code=]") != null) {
@@ -768,18 +888,15 @@ public class AiStrategySnapshotService {
                         }
                         if (linkTdIndex < 0 || linkTdIndex + 3 >= tds.size()) continue;
 
-                        // 현재가 (linkTdIndex + 1)
                         String priceText = tds.get(linkTdIndex + 1).text().replace(",", "").trim();
                         BigDecimal currentPrice = new BigDecimal(priceText);
                         if (currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-                        // 등락률 (linkTdIndex + 3)
                         String rateText = tds.get(linkTdIndex + 3).text()
                                 .replace("%", "").replace("+", "").trim();
                         BigDecimal changeRate = new BigDecimal(rateText);
 
-                        // 점수: 변화율 기반
-                        int score = (int) Math.min(100, 30 + changeRate.doubleValue() * 2.3);
+                        int score = (int) Math.min(100, Math.max(30, 60 + changeRate.doubleValue() * 2));
 
                         AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
                                 .strategyType(strategyType)
@@ -788,7 +905,7 @@ public class AiStrategySnapshotService {
                                 .currentPrice(currentPrice)
                                 .changeRate(changeRate)
                                 .score(score)
-                                .reason(String.format("상승률 상위 (+%.2f%%)", changeRate))
+                                .reason(String.format("거래량 상위 (%+.2f%%)", changeRate))
                                 .rankNum(snapshots.size() + 1)
                                 .createdAt(createdAt)
                                 .build();
@@ -799,33 +916,55 @@ public class AiStrategySnapshotService {
                     }
                 }
 
-                // KOSPI → KOSDAQ 간 딜레이
                 if ("0".equals(sosok) && snapshots.size() < CANDIDATE_LIMIT) {
                     Thread.sleep(500);
                 }
             }
 
-            log.info("[네이버 폴백] {} - {}개 종목 크롤링 완료", strategyType.name(), snapshots.size());
+            if (!snapshots.isEmpty()) {
+                log.info("[네이버 HTML 폴백] {} - {}개 종목 크롤링 완료", strategyType.name(), snapshots.size());
+            }
         } catch (Exception e) {
-            log.warn("[네이버 폴백] {} - 크롤링 실패: {}", strategyType.name(), e.getMessage());
+            log.warn("[네이버 HTML 폴백] {} - 크롤링 실패: {}", strategyType.name(), e.getMessage());
         }
 
         return snapshots;
     }
 
+    /** JSON 필드 다중 이름 지원 (네이버 API 필드명 변동 대응) */
+    private String getJsonText(JsonNode node, String... fieldNames) {
+        for (String field : fieldNames) {
+            if (node.has(field) && !node.get(field).isNull()) {
+                return node.get(field).asText().trim();
+            }
+        }
+        return null;
+    }
+
+    /** 숫자 문자열 파싱 (콤마/부호/% 제거) */
+    private BigDecimal parseNumericValue(String text) {
+        if (text == null || text.isEmpty()) return null;
+        try {
+            return new BigDecimal(text.replace(",", "").replace("+", "").replace("%", "").trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
     /**
-     * 최후 안전장치: 시가총액 상위 대표주 5개
-     * - 네이버 크롤링까지 실패 시 사용
+     * 3단계 최종 안전장치: 대형주 5개
+     * - 모든 크롤링 실패 시에도 빈 화면 방지
+     * - stockPriceService로 현재가 조회
      */
     private List<AiStrategySnapshot> createFallbackStocks(StrategyType strategyType, LocalDateTime createdAt) {
-        log.info("[최종 폴백] {} - 시가총액 상위 대표주 사용", strategyType.name());
+        log.info("[최종 폴백] {} - 대형주 폴백 사용", strategyType.name());
 
         String[][] bluechips = {
                 {"005930", "삼성전자"},
                 {"000660", "SK하이닉스"},
-                {"373220", "LG에너지솔루션"},
-                {"005380", "현대차"},
-                {"000270", "기아"}
+                {"035420", "NAVER"},
+                {"035720", "카카오"},
+                {"005380", "현대차"}
         };
 
         List<String> codes = Arrays.stream(bluechips).map(b -> b[0]).collect(Collectors.toList());
