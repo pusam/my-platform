@@ -761,6 +761,84 @@ export const stockDetailAPI = {
   }
 };
 
+// ===================== V2 API (Python FastAPI) =====================
+
+// V2 Axios 인스턴스 (Python 마이크로서비스)
+const apiV2Client = axios.create({
+  baseURL: '/api/v2',
+  timeout: 60000,
+  headers: { 'Content-Type': 'application/json' }
+});
+
+// V2에도 동일한 JWT 인터셉터 적용
+apiV2Client.interceptors.request.use(
+  (config) => {
+    const token = TokenManager.getToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// V2 AI Strategy API
+export const aiStrategyV2API = {
+  getLatest() {
+    return apiV2Client.get('/ai-strategy/latest');
+  }
+};
+
+// V2 Market API
+export const marketV2API = {
+  getStatus() {
+    return apiV2Client.get('/market/status');
+  },
+  getSectors(period = 'TODAY') {
+    return apiV2Client.get('/market/sectors', { params: { period } });
+  },
+  getLeadingSectors() {
+    return apiV2Client.get('/market/sectors/leading');
+  },
+  getNasdaqFutures() {
+    return apiV2Client.get('/market/global/nasdaq-futures');
+  }
+};
+
+// V2 Investor API
+export const investorV2API = {
+  getTopTrades(investorType, limit = 10) {
+    return apiV2Client.get('/investor/top-trades', { params: { investorType, limit } });
+  },
+  getAllConsecutiveBuy(minDays = 3) {
+    return apiV2Client.get('/investor/consecutive-buy/all', { params: { minDays } });
+  },
+  getAllSurgeStocks() {
+    return apiV2Client.get('/investor/surge/all');
+  }
+};
+
+// V2 Screener API
+export const screenerV2API = {
+  getSummary() {
+    return apiV2Client.get('/screener/summary');
+  }
+};
+
+// V2 News API
+export const newsV2API = {
+  getTodayNews() {
+    return apiV2Client.get('/news/today');
+  }
+};
+
+// V2 Analysis API (개별 종목)
+export const analysisV2API = {
+  getAnalysis(ticker) {
+    return apiV2Client.get(`/analysis/${ticker}`);
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

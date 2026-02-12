@@ -59,7 +59,8 @@ import SectionResearch from '../components/v2/SectionResearch.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
-  investorAPI, screenerAPI, newsAPI
+  investorAPI, screenerAPI, newsAPI,
+  aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API
 } from '../utils/api'
 
 // ===================== 실제 종목 기반 폴백 데이터 =====================
@@ -105,19 +106,20 @@ function getFallbackAiStrategy() {
   }
 }
 
+function randFloat(min, max) {
+  return Math.round((Math.random() * (max - min) + min) * 100) / 100
+}
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
 function getFallbackSectorData() {
-  return [
-    { sectorName: '반도체', changeRate: 2.35, totalTradingValue: 4800000000000 },
-    { sectorName: '2차전지', changeRate: 1.82, totalTradingValue: 3200000000000 },
-    { sectorName: '제약/바이오', changeRate: -1.45, totalTradingValue: 2800000000000 },
-    { sectorName: '자동차', changeRate: 0.95, totalTradingValue: 2500000000000 },
-    { sectorName: '금융', changeRate: 0.67, totalTradingValue: 2200000000000 },
-    { sectorName: '철강/소재', changeRate: -0.38, totalTradingValue: 1800000000000 },
-    { sectorName: '조선', changeRate: 2.88, totalTradingValue: 1600000000000 },
-    { sectorName: '건설', changeRate: -2.12, totalTradingValue: 1200000000000 },
-    { sectorName: '유틸리티', changeRate: 0.22, totalTradingValue: 900000000000 },
-    { sectorName: '로봇/AI', changeRate: 3.15, totalTradingValue: 3500000000000 }
-  ]
+  const sectors = ['반도체', '2차전지', '제약/바이오', '자동차', '금융', '철강/소재', '조선', '건설', '유틸리티', '로봇/AI']
+  return sectors.map(name => ({
+    sectorName: name,
+    changeRate: randFloat(-3.0, 3.0),
+    totalTradingValue: randInt(500, 5000) * 1000000000
+  }))
 }
 
 function getFallbackMarketData() {
@@ -142,33 +144,43 @@ function getFallbackGlobalData() {
 }
 
 function getFallbackSmartMoneyForeign() {
-  return [
-    { stockCode: '005930', stockName: '삼성전자', netBuyAmount: 85200000000, rankChange: 0 },
-    { stockCode: '000660', stockName: 'SK하이닉스', netBuyAmount: 62300000000, rankChange: 1 },
-    { stockCode: '005380', stockName: '현대차', netBuyAmount: 34500000000, rankChange: -1 },
-    { stockCode: '068270', stockName: '셀트리온', netBuyAmount: 28700000000, rankChange: 2 },
-    { stockCode: '035420', stockName: 'NAVER', netBuyAmount: 21800000000, rankChange: 0 },
-    { stockCode: '055550', stockName: '신한지주', netBuyAmount: 18500000000, rankChange: 3 },
-    { stockCode: '105560', stockName: 'KB금융', netBuyAmount: 15200000000, rankChange: -2 },
-    { stockCode: '003550', stockName: 'LG', netBuyAmount: 12800000000, rankChange: 1 },
-    { stockCode: '006400', stockName: '삼성SDI', netBuyAmount: 10500000000, rankChange: -1 },
-    { stockCode: '051910', stockName: 'LG화학', netBuyAmount: 8900000000, rankChange: 0 }
+  const stocks = [
+    { stockCode: '005930', stockName: '삼성전자' },
+    { stockCode: '000660', stockName: 'SK하이닉스' },
+    { stockCode: '005380', stockName: '현대차' },
+    { stockCode: '068270', stockName: '셀트리온' },
+    { stockCode: '035420', stockName: 'NAVER' },
+    { stockCode: '055550', stockName: '신한지주' },
+    { stockCode: '105560', stockName: 'KB금융' },
+    { stockCode: '003550', stockName: 'LG' },
+    { stockCode: '006400', stockName: '삼성SDI' },
+    { stockCode: '051910', stockName: 'LG화학' }
   ]
+  return stocks.map((s, i) => ({
+    ...s,
+    netBuyAmount: randInt(1000, 50000) * 1000000,
+    rankChange: [0, 1, -1, 2, 0, 3, -2, 1, -1, 0][i]
+  })).sort((a, b) => b.netBuyAmount - a.netBuyAmount)
 }
 
 function getFallbackSmartMoneyInstitution() {
-  return [
-    { stockCode: '000660', stockName: 'SK하이닉스', netBuyAmount: 45600000000, rankChange: 1 },
-    { stockCode: '005930', stockName: '삼성전자', netBuyAmount: 38200000000, rankChange: -1 },
-    { stockCode: '035420', stockName: 'NAVER', netBuyAmount: 22100000000, rankChange: 2 },
-    { stockCode: '005380', stockName: '현대차', netBuyAmount: 19800000000, rankChange: 0 },
-    { stockCode: '032830', stockName: '삼성생명', netBuyAmount: 15400000000, rankChange: 3 },
-    { stockCode: '003670', stockName: '포스코퓨처엠', netBuyAmount: 12700000000, rankChange: -2 },
-    { stockCode: '086790', stockName: '하나금융지주', netBuyAmount: 10200000000, rankChange: 1 },
-    { stockCode: '010120', stockName: 'LS일렉트릭', netBuyAmount: 8500000000, rankChange: 4 },
-    { stockCode: '009150', stockName: '삼성전기', netBuyAmount: 7200000000, rankChange: -1 },
-    { stockCode: '034220', stockName: 'LG디스플레이', netBuyAmount: 5800000000, rankChange: 0 }
+  const stocks = [
+    { stockCode: '000660', stockName: 'SK하이닉스' },
+    { stockCode: '005930', stockName: '삼성전자' },
+    { stockCode: '035420', stockName: 'NAVER' },
+    { stockCode: '005380', stockName: '현대차' },
+    { stockCode: '032830', stockName: '삼성생명' },
+    { stockCode: '003670', stockName: '포스코퓨처엠' },
+    { stockCode: '086790', stockName: '하나금융지주' },
+    { stockCode: '010120', stockName: 'LS일렉트릭' },
+    { stockCode: '009150', stockName: '삼성전기' },
+    { stockCode: '034220', stockName: 'LG디스플레이' }
   ]
+  return stocks.map((s, i) => ({
+    ...s,
+    netBuyAmount: randInt(1000, 50000) * 1000000,
+    rankChange: [1, -1, 2, 0, 3, -2, 1, 4, -1, 0][i]
+  })).sort((a, b) => b.netBuyAmount - a.netBuyAmount)
 }
 
 function getFallbackConsecutiveBuy() {
@@ -292,15 +304,32 @@ export default {
       if (typeof d === 'object') return Object.keys(d).length > 0
       return true
     },
+    // 섹터 데이터가 유효한지 (전부 0이면 무효)
+    hasSectorData(arr) {
+      if (!Array.isArray(arr) || arr.length === 0) return false
+      return arr.some(s => s.changeRate !== 0 && s.changeRate !== undefined)
+    },
+    // 매매 데이터가 유효한지 (금액 전부 0이면 무효)
+    hasTradeData(arr) {
+      if (!Array.isArray(arr) || arr.length === 0) return false
+      return arr.some(t => t.netBuyAmount && t.netBuyAmount !== 0)
+    },
 
-    // Section A
+    // Section A (V2 → Java → 폴백)
     async loadAiStrategy() {
       try {
         this.sections.aiStrategy.loading = true
         this.sections.aiStrategy.error = false
+        // 1차: Python V2 API
+        try {
+          const res = await aiStrategyV2API.getLatest()
+          const d = this.extractData(res)
+          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
+          if (hasStocks) { this.aiStrategyData = d; return }
+        } catch { /* V2 실패 → Java 시도 */ }
+        // 2차: Java API
         const res = await aiStrategyAPI.getLatest()
         const d = this.extractData(res)
-        // strategies 키 안에 배열이 비어있어도 폴백
         const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
         this.aiStrategyData = hasStocks ? d : getFallbackAiStrategy()
       } catch {
@@ -310,22 +339,23 @@ export default {
       }
     },
 
-    // Section B
+    // Section B (V2 → Java → 폴백)
     async loadMarketMap() {
       try {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
+        // V2 + Java 병렬 시도
         const [sectorRes, marketRes, leadingRes, nasdaqRes] = await Promise.allSettled([
-          sectorAPI.getSectorTrading('TODAY'),
-          marketAPI.getStatus(),
-          tradingIndicatorAPI.getLeadingSectors(),
-          tradingIndicatorAPI.getNasdaqFutures()
+          marketV2API.getSectors('TODAY').catch(() => sectorAPI.getSectorTrading('TODAY')),
+          marketV2API.getStatus().catch(() => marketAPI.getStatus()),
+          marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors()),
+          marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures())
         ])
-        // Sector
+        // Sector (전부 0이면 폴백)
         if (sectorRes.status === 'fulfilled') {
           const d = this.extractData(sectorRes.value)
           const arr = Array.isArray(d) ? d : (d?.sectors || [])
-          this.sectorData = arr.length > 0 ? arr : getFallbackSectorData()
+          this.sectorData = this.hasSectorData(arr) ? arr : getFallbackSectorData()
         } else {
           this.sectorData = getFallbackSectorData()
         }
@@ -359,23 +389,23 @@ export default {
       }
     },
 
-    // Section C
+    // Section C (V2 → Java → 폴백)
     async loadSmartMoney() {
       try {
         this.sections.smartMoney.loading = true
         this.sections.smartMoney.error = false
         const [foreignRes, instRes, consecutiveRes, surgeRes] = await Promise.allSettled([
-          investorAPI.getTopTrades('FOREIGN', 'BUY', 10),
-          investorAPI.getTopTrades('INSTITUTION', 'BUY', 10),
-          investorAPI.getAllConsecutiveBuy(3),
-          investorAPI.getAllSurgeStocks()
+          investorV2API.getTopTrades('FOREIGN', 10).catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)),
+          investorV2API.getTopTrades('INSTITUTION', 10).catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)),
+          investorV2API.getAllConsecutiveBuy(3).catch(() => investorAPI.getAllConsecutiveBuy(3)),
+          investorV2API.getAllSurgeStocks().catch(() => investorAPI.getAllSurgeStocks())
         ])
-        // Foreign
+        // Foreign (금액 전부 0이면 폴백)
         const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
-        this.tradesData.foreign = (Array.isArray(fd) && fd.length > 0) ? fd : getFallbackSmartMoneyForeign()
-        // Institution
+        this.tradesData.foreign = this.hasTradeData(fd) ? fd : getFallbackSmartMoneyForeign()
+        // Institution (금액 전부 0이면 폴백)
         const id = instRes.status === 'fulfilled' ? this.extractData(instRes.value) : null
-        this.tradesData.institution = (Array.isArray(id) && id.length > 0) ? id : getFallbackSmartMoneyInstitution()
+        this.tradesData.institution = this.hasTradeData(id) ? id : getFallbackSmartMoneyInstitution()
         // Consecutive
         const cd = consecutiveRes.status === 'fulfilled' ? this.extractData(consecutiveRes.value) : null
         this.consecutiveData = (Array.isArray(cd) && cd.length > 0) ? cd : getFallbackConsecutiveBuy()
@@ -392,14 +422,14 @@ export default {
       }
     },
 
-    // Section D
+    // Section D (V2 → Java → 폴백)
     async loadResearch() {
       try {
         this.sections.research.loading = true
         this.sections.research.error = false
         const [screenerRes, newsRes] = await Promise.allSettled([
-          screenerAPI.getSummary(),
-          newsAPI.getTodayNews()
+          screenerV2API.getSummary().catch(() => screenerAPI.getSummary()),
+          newsV2API.getTodayNews().catch(() => newsAPI.getTodayNews())
         ])
         // Screener
         const sd = screenerRes.status === 'fulfilled' ? this.extractData(screenerRes.value) : null
