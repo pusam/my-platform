@@ -283,8 +283,16 @@ public class SectorTradingService {
      */
     private List<SectorTradingDto> calculateSectorTrading(TradingPeriod period) {
         if (latestPriceCache.isEmpty()) {
-            log.warn("[섹터거래대금] 시세 캐시 없음 - 빈 결과 반환");
-            return Collections.emptyList();
+            log.warn("[섹터거래대금] 시세 캐시 없음 - 즉시 수집 시도");
+            try {
+                collectSnapshot();
+            } catch (Exception e) {
+                log.error("[섹터거래대금] 즉시 수집 실패: {}", e.getMessage());
+            }
+            if (latestPriceCache.isEmpty()) {
+                log.warn("[섹터거래대금] 즉시 수집 후에도 캐시 없음 - 빈 결과 반환");
+                return Collections.emptyList();
+            }
         }
 
         List<SectorTradingDto> results = new ArrayList<>();

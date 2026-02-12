@@ -637,13 +637,11 @@ public class QuantScreenerService {
         List<ScreenerResultDto> turnaround = new ArrayList<>();
 
         try {
-            // 대형주 목록에서 PER/PBR/ROE 조회
+            // 대형주 목록에서 PER/PBR/ROE 조회 (타임아웃 방지: 8종목으로 제한)
             String[][] targets = {
                     {"005930", "삼성전자"}, {"000660", "SK하이닉스"}, {"005380", "현대차"},
                     {"068270", "셀트리온"}, {"035420", "NAVER"}, {"055550", "신한지주"},
-                    {"105560", "KB금융"}, {"003670", "포스코퓨처엠"}, {"086790", "하나금융지주"},
-                    {"012330", "현대모비스"}, {"051910", "LG화학"}, {"006400", "삼성SDI"},
-                    {"034730", "SK"}, {"032830", "삼성생명"}, {"003550", "LG"}
+                    {"105560", "KB금융"}, {"051910", "LG화학"}
             };
 
             List<ScreenerResultDto> allStocks = new ArrayList<>();
@@ -667,7 +665,7 @@ public class QuantScreenerService {
                             .marketCap(price.getMarketCap())
                             .build();
                     allStocks.add(dto);
-                    Thread.sleep(100); // 네이버 요청 간격
+                    Thread.sleep(50); // 네이버 요청 간격
                 } catch (Exception e) {
                     log.debug("[스크리너 폴백] {} 조회 실패: {}", target[1], e.getMessage());
                 }

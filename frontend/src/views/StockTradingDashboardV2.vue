@@ -148,10 +148,10 @@ export default {
       if (typeof d === 'object') return Object.keys(d).length > 0
       return true
     },
-    // 섹터 데이터가 유효한지 (전부 0이면 무효)
+    // 섹터 데이터가 유효한지 (거래대금 있거나 섹터명 있으면 유효)
     hasSectorData(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
-      return arr.some(s => s.changeRate !== 0 && s.changeRate !== undefined)
+      return arr.some(s => s.sectorName || (s.totalTradingValue && s.totalTradingValue > 0))
     },
     // 매매 데이터가 유효한지 (금액 전부 0이면 무효)
     hasTradeData(arr) {
@@ -219,7 +219,7 @@ export default {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
         const [sectorRes, marketRes, leadingRes, nasdaqRes] = await Promise.allSettled([
-          withTimeout(marketV2API.getSectors('TODAY').catch(() => sectorAPI.getSectorTrading('TODAY'))),
+          withTimeout(marketV2API.getSectors('TODAY').catch(() => sectorAPI.getSectorTrading('TODAY')), 10000),
           withTimeout(marketV2API.getStatus().catch(() => marketAPI.getStatus())),
           withTimeout(marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors())),
           withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures()))
@@ -307,7 +307,7 @@ export default {
         this.sections.research.loading = true
         this.sections.research.error = false
         const [screenerRes, newsRes] = await Promise.allSettled([
-          withTimeout(screenerV2API.getSummary().catch(() => screenerAPI.getSummary())),
+          withTimeout(screenerV2API.getSummary().catch(() => screenerAPI.getSummary()), 15000),
           withTimeout(newsV2API.getTodayNews().catch(() => newsAPI.getTodayNews()))
         ])
         // Screener
