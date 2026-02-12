@@ -44,6 +44,10 @@
             <span class="trade-amount" :class="item.netBuyAmount >= 0 ? 'buy' : 'sell'">
               {{ formatAmount(item.netBuyAmount) }}
             </span>
+            <span v-if="item.rankChange != null && item.rankChange !== 0" class="rank-change" :class="item.rankChange > 0 ? 'rank-up' : 'rank-down'">
+              {{ item.rankChange > 0 ? '▲' : '▼' }}{{ Math.abs(item.rankChange) }}
+            </span>
+            <span v-else-if="item.rankChange === 0" class="rank-change rank-same">-</span>
           </div>
         </div>
         <div v-if="filteredTrades.length === 0" class="empty-msg">매매 데이터 없음</div>
@@ -82,6 +86,7 @@
         >
           <span class="trade-rank">{{ i + 1 }}</span>
           <span class="trade-name">{{ item.stockName }}</span>
+          <span class="surge-ratio" v-if="item.surgeRatio">{{ item.surgeRatio }}%</span>
           <span class="surge-change" :class="(item.changeRate || 0) >= 0 ? 'up' : 'down'">
             {{ (item.changeRate || 0) >= 0 ? '+' : '' }}{{ (item.changeRate || 0).toFixed(1) }}%
           </span>
@@ -220,6 +225,19 @@ export default {
   background: rgba(102,126,234,0.15); color: #8b9cf7;
 }
 
+/* Rank Change */
+.rank-change {
+  font-size: 11px; font-weight: 700; min-width: 28px; text-align: center;
+}
+.rank-up { color: #ef4444; }
+.rank-down { color: #3b82f6; }
+.rank-same { color: rgba(255,255,255,0.25); font-size: 10px; }
+
+/* Surge */
+.surge-ratio {
+  font-size: 10px; font-weight: 600; padding: 2px 5px; border-radius: 4px;
+  background: rgba(245,158,11,0.15); color: #f59e0b;
+}
 .surge-change { font-size: 12px; font-weight: 600; }
 .surge-change.up { color: #ef4444; }
 .surge-change.down { color: #3b82f6; }

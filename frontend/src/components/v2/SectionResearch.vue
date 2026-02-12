@@ -34,8 +34,10 @@
             <span class="s-rank">{{ i + 1 }}</span>
             <span class="s-name">{{ item.stockName }}</span>
             <div class="s-metrics">
-              <span v-if="item.per">PER {{ Number(item.per).toFixed(1) }}</span>
-              <span v-if="item.roe">ROE {{ Number(item.roe).toFixed(1) }}%</span>
+              <span v-if="item.per" class="badge-per">PER {{ Number(item.per).toFixed(1) }}</span>
+              <span v-if="item.pbr" class="badge-pbr">PBR {{ Number(item.pbr).toFixed(2) }}</span>
+              <span v-if="item.roe" class="badge-roe">ROE {{ Number(item.roe).toFixed(1) }}%</span>
+              <span v-if="item.operatingMargin" class="badge-margin">영업 {{ Number(item.operatingMargin).toFixed(1) }}%</span>
             </div>
           </div>
         </div>
@@ -52,7 +54,9 @@
             <span class="s-rank">{{ i + 1 }}</span>
             <span class="s-name">{{ item.stockName }}</span>
             <div class="s-metrics">
-              <span v-if="item.peg">PEG {{ Number(item.peg).toFixed(2) }}</span>
+              <span v-if="item.peg" class="badge-peg">PEG {{ Number(item.peg).toFixed(2) }}</span>
+              <span v-if="item.epsGrowth" class="badge-growth">EPS +{{ Number(item.epsGrowth).toFixed(0) }}%</span>
+              <span v-if="item.roe" class="badge-roe">ROE {{ Number(item.roe).toFixed(1) }}%</span>
             </div>
           </div>
         </div>
@@ -72,6 +76,8 @@
               <span class="turnaround-type">
                 {{ item.turnaroundType === 'LOSS_TO_PROFIT' ? '흑자전환' : '이익급증' }}
               </span>
+              <span v-if="item.netIncomeChangeRate && item.netIncomeChangeRate < 999" class="badge-growth">+{{ Number(item.netIncomeChangeRate).toFixed(0) }}%</span>
+              <span v-if="item.per" class="badge-per">PER {{ Number(item.per).toFixed(1) }}</span>
             </div>
           </div>
         </div>
@@ -198,11 +204,17 @@ export default {
 
 .s-rank { font-size: 12px; color: rgba(255,255,255,0.35); width: 18px; text-align: center; }
 .s-name { flex: 1; font-size: 13px; color: rgba(255,255,255,0.85); }
-.s-metrics { display: flex; gap: 6px; }
+.s-metrics { display: flex; gap: 4px; flex-wrap: wrap; }
 .s-metrics span {
-  font-size: 11px; padding: 2px 6px; border-radius: 4px;
+  font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
   background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.5);
 }
+.badge-per { background: rgba(59,130,246,0.15) !important; color: #60a5fa !important; }
+.badge-pbr { background: rgba(139,92,246,0.15) !important; color: #a78bfa !important; }
+.badge-roe { background: rgba(239,68,68,0.15) !important; color: #f87171 !important; }
+.badge-margin { background: rgba(245,158,11,0.15) !important; color: #fbbf24 !important; }
+.badge-peg { background: rgba(16,185,129,0.15) !important; color: #34d399 !important; }
+.badge-growth { background: rgba(239,68,68,0.12) !important; color: #ef4444 !important; }
 .turnaround-type {
   background: rgba(16,185,129,0.15) !important;
   color: #10b981 !important;
