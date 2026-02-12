@@ -14,6 +14,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
@@ -54,6 +59,11 @@ public class AiStrategySnapshotService {
     private static final int CANDIDATE_LIMIT = 10;
     // 최종 저장 수 (블렌딩 후 TOP N)
     private static final int SNAPSHOT_LIMIT = 5;
+
+    // 네이버 금융 상승률 상위 URL (폴백용)
+    private static final String NAVER_RISE_URL = "https://finance.naver.com/sise/sise_rise.naver";
+    private static final String CRAWL_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     // ========== 서버 시작 시 Warm-up ==========
 
@@ -420,6 +430,13 @@ public class AiStrategySnapshotService {
      */
     private List<AiStrategySnapshot> collectScalpingData(LocalDateTime createdAt) {
         List<ScreenerResultDto> momentum = quantScreenerService.getMomentumStocks(CANDIDATE_LIMIT);
+
+        if (momentum.isEmpty()) {
+            log.warn("[SCALPING] KIS API 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.SCALPING, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.SCALPING, createdAt) : fallback;
+        }
+
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         int rank = 1;
@@ -462,7 +479,9 @@ public class AiStrategySnapshotService {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (magicFormula.isEmpty()) {
-            return snapshots;
+            log.warn("[SWING] DB 조회 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.SWING, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.SWING, createdAt) : fallback;
         }
 
         // 실시간 시세 조회 (등락률 포함)
@@ -548,7 +567,9 @@ public class AiStrategySnapshotService {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (turnaround.isEmpty()) {
-            return snapshots;
+            log.warn("[TURNAROUND] DB 조회 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.TURNAROUND, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.TURNAROUND, createdAt) : fallback;
         }
 
         // 실시간 시세 조회 (등락률 포함)
@@ -624,7 +645,9 @@ public class AiStrategySnapshotService {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (lowPeg.isEmpty()) {
-            return snapshots;
+            log.warn("[VALUE] DB 조회 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.VALUE, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.VALUE, createdAt) : fallback;
         }
 
         // 실시간 시세 조회 (등락률 포함)
@@ -690,6 +713,152 @@ public class AiStrategySnapshotService {
 
             log.debug("[VALUE] {} - 현재가: {}, 등락률: {}%, EPS성장률: {}%",
                     dto.getStockName(), currentPrice, changeRate, epsGrowth);
+        }
+
+        return snapshots;
+    }
+
+    // ========== 네이버 크롤링 폴백 ==========
+
+    /**
+     * 네이버 금융 상승률 상위 크롤링 (KOSPI + KOSDAQ)
+     * - KIS API/DB 데이터 소스 실패 시 폴백
+     * - 참조: MarketTimingService.crawlStockCount() 동일 셀렉터
+     */
+    private List<AiStrategySnapshot> crawlNaverTopGainers(StrategyType strategyType, LocalDateTime createdAt) {
+        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        try {
+            for (String sosok : new String[]{"0", "1"}) { // 0=KOSPI, 1=KOSDAQ
+                if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                String url = NAVER_RISE_URL + "?sosok=" + sosok;
+                Document doc = Jsoup.connect(url)
+                        .userAgent(CRAWL_USER_AGENT)
+                        .timeout(10000)
+                        .get();
+
+                Elements rows = doc.select("table.type_2 tbody tr");
+
+                for (Element row : rows) {
+                    if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                    Elements tds = row.select("td");
+                    if (tds.size() < 4) continue;
+
+                    Element link = row.selectFirst("a[href*=code=]");
+                    if (link == null) continue;
+
+                    try {
+                        // 종목코드 추출
+                        String href = link.attr("href");
+                        String stockCode = href.replaceAll(".*code=([0-9]+).*", "$1");
+                        if (stockCode.length() != 6) continue;
+
+                        String stockName = link.text().trim();
+                        if (stockName.isEmpty()) continue;
+
+                        // 링크가 포함된 td 인덱스 기준으로 현재가/등락률 파싱
+                        int linkTdIndex = -1;
+                        for (int i = 0; i < tds.size(); i++) {
+                            if (tds.get(i).selectFirst("a[href*=code=]") != null) {
+                                linkTdIndex = i;
+                                break;
+                            }
+                        }
+                        if (linkTdIndex < 0 || linkTdIndex + 3 >= tds.size()) continue;
+
+                        // 현재가 (linkTdIndex + 1)
+                        String priceText = tds.get(linkTdIndex + 1).text().replace(",", "").trim();
+                        BigDecimal currentPrice = new BigDecimal(priceText);
+                        if (currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                        // 등락률 (linkTdIndex + 3)
+                        String rateText = tds.get(linkTdIndex + 3).text()
+                                .replace("%", "").replace("+", "").trim();
+                        BigDecimal changeRate = new BigDecimal(rateText);
+
+                        // 점수: 변화율 기반
+                        int score = (int) Math.min(100, 30 + changeRate.doubleValue() * 2.3);
+
+                        AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
+                                .strategyType(strategyType)
+                                .stockCode(stockCode)
+                                .stockName(stockName)
+                                .currentPrice(currentPrice)
+                                .changeRate(changeRate)
+                                .score(score)
+                                .reason(String.format("상승률 상위 (+%.2f%%)", changeRate))
+                                .rankNum(snapshots.size() + 1)
+                                .createdAt(createdAt)
+                                .build();
+
+                        snapshots.add(snapshot);
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                }
+
+                // KOSPI → KOSDAQ 간 딜레이
+                if ("0".equals(sosok) && snapshots.size() < CANDIDATE_LIMIT) {
+                    Thread.sleep(500);
+                }
+            }
+
+            log.info("[네이버 폴백] {} - {}개 종목 크롤링 완료", strategyType.name(), snapshots.size());
+        } catch (Exception e) {
+            log.warn("[네이버 폴백] {} - 크롤링 실패: {}", strategyType.name(), e.getMessage());
+        }
+
+        return snapshots;
+    }
+
+    /**
+     * 최후 안전장치: 시가총액 상위 대표주 5개
+     * - 네이버 크롤링까지 실패 시 사용
+     */
+    private List<AiStrategySnapshot> createFallbackStocks(StrategyType strategyType, LocalDateTime createdAt) {
+        log.info("[최종 폴백] {} - 시가총액 상위 대표주 사용", strategyType.name());
+
+        String[][] bluechips = {
+                {"005930", "삼성전자"},
+                {"000660", "SK하이닉스"},
+                {"373220", "LG에너지솔루션"},
+                {"005380", "현대차"},
+                {"000270", "기아"}
+        };
+
+        List<String> codes = Arrays.stream(bluechips).map(b -> b[0]).collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(codes);
+
+        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+        int rank = 1;
+
+        for (String[] stock : bluechips) {
+            BigDecimal currentPrice = BigDecimal.ZERO;
+            BigDecimal changeRate = null;
+
+            StockPriceDto priceDto = priceMap.get(stock[0]);
+            if (priceDto != null) {
+                if (priceDto.getCurrentPrice() != null) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                changeRate = priceDto.getChangeRate();
+            }
+
+            AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
+                    .strategyType(strategyType)
+                    .stockCode(stock[0])
+                    .stockName(stock[1])
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
+                    .score(50)
+                    .reason("시가총액 상위 대표주")
+                    .rankNum(rank++)
+                    .createdAt(createdAt)
+                    .build();
+
+            snapshots.add(snapshot);
         }
 
         return snapshots;
