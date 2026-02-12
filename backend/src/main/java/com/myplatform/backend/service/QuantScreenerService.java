@@ -1137,14 +1137,18 @@ public class QuantScreenerService {
                     // 거래량
                     BigDecimal volume = getJsonBigDecimal(item, "acml_vol");
 
-                    // 시가총액 조회 (억원 단위) - 조회 실패 시 통과 (나중에 수급으로 필터링)
+                    // 시가총액 조회 (억원 단위) - 조회 실패 시 스킵 (소형주 유입 방지)
                     BigDecimal marketCap = null;
                     try {
                         marketCap = fetchMarketCapFromKis(stockCode);
                     } catch (Exception e) {
-                        log.debug("[모멘텀 스크리너] {} - 시가총액 조회 실패, 일단 통과", stockName);
+                        log.debug("[모멘텀 스크리너] {} - 시가총액 조회 실패", stockName);
                     }
-                    if (marketCap != null && marketCap.compareTo(MIN_MARKET_CAP_FOR_MOMENTUM) < 0) {
+                    if (marketCap == null) {
+                        log.debug("[모멘텀 스크리너] {} - 시가총액 미확인 → 소형주 방지를 위해 스킵", stockName);
+                        continue;
+                    }
+                    if (marketCap.compareTo(MIN_MARKET_CAP_FOR_MOMENTUM) < 0) {
                         log.debug("[모멘텀 스크리너] {} - 시가총액 부족 ({}억)", stockName, marketCap);
                         continue;
                     }
