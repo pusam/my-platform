@@ -130,16 +130,24 @@
 
           <div class="forecast-summary">{{ forecastData.summary }}</div>
           <div v-if="forecastData.fallback" class="fallback-notice">* 기본 예측 (AI 응답 실패 시 기계적 산출)</div>
+          <button class="forecast-detail-btn" @click="showForecastDetail = true">자세히 보기 →</button>
         </div>
 
         <div v-else class="empty-msg">예측 데이터를 불러올 수 없습니다.</div>
       </div>
     </template>
+
+    <ForecastDetailModal
+      :visible="showForecastDetail"
+      :forecastData="forecastData"
+      @close="showForecastDetail = false"
+    />
   </div>
 </template>
 
 <script>
 import SkeletonLoader from './SkeletonLoader.vue'
+import ForecastDetailModal from './ForecastDetailModal.vue'
 import { Line } from 'vue-chartjs'
 import {
   Chart as ChartJS,
@@ -158,7 +166,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, T
 
 export default {
   name: 'SectionMarketMap',
-  components: { SkeletonLoader, Line },
+  components: { SkeletonLoader, Line, ForecastDetailModal },
   props: {
     sectorData: { type: Array, default: () => [] },
     marketData: { type: Object, default: () => ({}) },
@@ -176,7 +184,8 @@ export default {
         { key: 'forecast', label: 'AI 예측' }
       ],
       forecastData: null,
-      forecastLoading: false
+      forecastLoading: false,
+      showForecastDetail: false
     }
   },
   computed: {
@@ -525,5 +534,22 @@ export default {
   font-size: 11px;
   color: rgba(255,255,255,0.3);
   text-align: center;
+}
+.forecast-detail-btn {
+  display: block;
+  margin: 12px auto 0;
+  padding: 6px 16px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: #667eea;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.forecast-detail-btn:hover {
+  background: rgba(102,126,234,0.1);
+  border-color: #667eea;
+  color: #8b9cf7;
 }
 </style>

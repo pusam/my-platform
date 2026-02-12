@@ -2,7 +2,9 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.MarketTimingDto;
+import com.myplatform.backend.dto.NewsSummaryDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import lombok.*;
@@ -326,12 +328,20 @@ public class GeminiService {
 
     /**
      * AI 시장 예측 생성
-     * 현재 시장 데이터를 기반으로 향후 5일간 KOSPI 지수 예측
+     * 현재 시장 데이터 + 수급 + 뉴스를 종합하여 향후 5일간 KOSPI 지수 예측
      *
      * @param marketStatus 현재 시장 상태 DTO
+     * @param foreignBuys 외국인 순매수 상위 종목
+     * @param instBuys 기관 순매수 상위 종목
+     * @param recentNews 최근 뉴스 요약
      * @return 예측 결과 Map (forecasts, scenarios, summary 포함)
      */
-    public Map<String, Object> generateMarketForecast(MarketTimingDto marketStatus) {
+    public Map<String, Object> generateMarketForecast(
+            MarketTimingDto marketStatus,
+            List<InvestorSurgeDto> foreignBuys,
+            List<InvestorSurgeDto> instBuys,
+            List<NewsSummaryDto> recentNews) {
+
         if (marketStatus == null || marketStatus.getKospi() == null) {
             log.warn("[Market Forecast] 시장 데이터 없음 - 기본 예측 반환");
             return buildFallbackForecast(2700.0);
@@ -340,7 +350,7 @@ public class GeminiService {
         double currentIndex = marketStatus.getKospi().getIndexClose() != null
                 ? marketStatus.getKospi().getIndexClose().doubleValue() : 2700.0;
 
-        String prompt = buildForecastPrompt(marketStatus, currentIndex);
+        String prompt = buildForecastPrompt(marketStatus, currentIndex, foreignBuys, instBuys, recentNews);
         String response = callGeminiApiForJson(prompt);
 
         if (response != null && !response.isBlank()) {
@@ -355,34 +365,83 @@ public class GeminiService {
         return buildFallbackForecast(currentIndex);
     }
 
-    private String buildForecastPrompt(MarketTimingDto marketStatus, double currentIndex) {
+    private String buildForecastPrompt(
+            MarketTimingDto marketStatus, double currentIndex,
+            List<InvestorSurgeDto> foreignBuys, List<InvestorSurgeDto> instBuys,
+            List<NewsSummaryDto> recentNews) {
+
         MarketTimingDto.MarketStatusDto kospi = marketStatus.getKospi();
         double changeRate = kospi.getIndexChangeRate() != null ? kospi.getIndexChangeRate().doubleValue() : 0;
         double adr = marketStatus.getCombinedAdr() != null ? marketStatus.getCombinedAdr().doubleValue() : 100;
         String condition = marketStatus.getOverallCondition() != null
                 ? marketStatus.getOverallCondition().name() : "NORMAL";
         double tradingValue = kospi.getTradingValue() != null ? kospi.getTradingValue().doubleValue() : 0;
+        int advCount = kospi.getAdvancingCount() != null ? kospi.getAdvancingCount() : 0;
+        int decCount = kospi.getDecliningCount() != null ? kospi.getDecliningCount() : 0;
+
+        // 외국인 수급 텍스트
+        String foreignText = "데이터 없음";
+        if (foreignBuys != null && !foreignBuys.isEmpty()) {
+            foreignText = foreignBuys.stream()
+                    .map(s -> String.format("%s %+.0f억",
+                            s.getStockName(),
+                            s.getNetBuyAmount() != null ? s.getNetBuyAmount().doubleValue() : 0))
+                    .collect(Collectors.joining(", "));
+        }
+
+        // 기관 수급 텍스트
+        String instText = "데이터 없음";
+        if (instBuys != null && !instBuys.isEmpty()) {
+            instText = instBuys.stream()
+                    .map(s -> String.format("%s %+.0f억",
+                            s.getStockName(),
+                            s.getNetBuyAmount() != null ? s.getNetBuyAmount().doubleValue() : 0))
+                    .collect(Collectors.joining(", "));
+        }
+
+        // 뉴스 센티먼트 텍스트
+        String newsText = "데이터 없음";
+        if (recentNews != null && !recentNews.isEmpty()) {
+            newsText = recentNews.stream()
+                    .map(n -> String.format("[%s] %s",
+                            n.getSentimentLabel() != null ? n.getSentimentLabel() : "중립",
+                            n.getTitle()))
+                    .collect(Collectors.joining("\n"));
+        }
 
         return String.format("""
-                당신은 한국 주식시장 애널리스트입니다.
-                현재 시장 데이터를 기반으로 향후 5거래일간 KOSPI 지수 예측을 JSON으로 작성하세요.
+                당신은 한국 주식시장 전문 애널리스트입니다.
+                현재 시장 데이터, 수급 동향, 뉴스 센티먼트를 종합하여 향후 5거래일간 KOSPI 지수 예측을 JSON으로 작성하세요.
 
-                [현재 시장 데이터]
+                [시장 현황]
                 - KOSPI 지수: %.2f
-                - 등락률: %.2f%%
+                - 등락률: %+.2f%%
                 - ADR (등락비율): %.1f
                 - 시장 상태: %s
+                - 상승 종목: %d개 / 하락 종목: %d개
                 - 거래대금: %.0f억원
 
-                [예측 규칙]
+                [외국인 수급 - 순매수 상위]
+                %s
+
+                [기관 수급 - 순매수 상위]
+                %s
+
+                [뉴스 센티먼트 - 최근 헤드라인]
+                %s
+
+                [예측 지침]
                 1. 현재 지수(%.2f)를 기준으로 현실적 변동폭 (일일 ±0.5~1.5%%) 적용
-                2. Bull/Base/Bear 3개 시나리오 제시
-                3. 확률 합계는 반드시 100%%
-                4. 근거는 30자 이내로 간결하게
+                2. 외국인/기관 수급이 강세(대량 순매수)이면 Bull 확률을 높게 설정
+                3. 뉴스 센티먼트가 부정적이면 Bear 확률을 높게 설정
+                4. Bull/Base/Bear 3개 시나리오 확률 합계는 반드시 100%%
+                5. 근거(reason)는 수급/뉴스 데이터를 인용하여 50자 이내로 작성
+                6. summary는 핵심 판단과 근거를 100자 이내로 작성
 
                 반드시 아래 JSON 형식으로만 응답하세요:
-                {"baseIndex": %.2f, "forecasts": [{"day": 1, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 2, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 3, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 4, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 5, "bull": 숫자, "base": 숫자, "bear": 숫자}], "scenarios": {"bull": {"probability": 숫자, "reason": "문자열"}, "base": {"probability": 숫자, "reason": "문자열"}, "bear": {"probability": 숫자, "reason": "문자열"}}, "summary": "종합 분석 문자열 (100자 이내)"}
-                """, currentIndex, changeRate, adr, condition, tradingValue,
+                {"baseIndex": %.2f, "forecasts": [{"day": 1, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 2, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 3, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 4, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 5, "bull": 숫자, "base": 숫자, "bear": 숫자}], "scenarios": {"bull": {"probability": 숫자, "reason": "문자열"}, "base": {"probability": 숫자, "reason": "문자열"}, "bear": {"probability": 숫자, "reason": "문자열"}}, "summary": "종합 분석 문자열"}
+                """, currentIndex, changeRate, adr, condition, advCount, decCount, tradingValue,
+                foreignText, instText, newsText,
                 currentIndex, currentIndex);
     }
 
