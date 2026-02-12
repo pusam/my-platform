@@ -353,18 +353,49 @@ public class GeminiService {
         double currentIndex = marketStatus.getKospi().getIndexClose() != null
                 ? marketStatus.getKospi().getIndexClose().doubleValue() : 2700.0;
 
-        String prompt = buildForecastPrompt(marketStatus, currentIndex, foreignBuys, instBuys, recentNews);
-        String response = callGeminiApiForJson(prompt);
+        log.info("[Market Forecast] 예측 시작 - KOSPI: {}, 외국인수급: {}건, 기관수급: {}건, 뉴스: {}건",
+                currentIndex,
+                foreignBuys != null ? foreignBuys.size() : 0,
+                instBuys != null ? instBuys.size() : 0,
+                recentNews != null ? recentNews.size() : 0);
 
+        String prompt = buildForecastPrompt(marketStatus, currentIndex, foreignBuys, instBuys, recentNews);
+
+        // 1차: JSON 모드 호출
+        String response = callGeminiApiForJson(prompt);
         if (response != null && !response.isBlank()) {
+            log.info("[Market Forecast] Gemini JSON 응답 수신 ({}자): {}", response.length(),
+                    response.length() > 200 ? response.substring(0, 200) + "..." : response);
             Map<String, Object> parsed = parseMarketForecast(response, currentIndex);
             if (parsed != null) {
+                log.info("[Market Forecast] Gemini JSON 파싱 성공");
                 consecutiveErrors.set(0);
                 return parsed;
             }
+            log.warn("[Market Forecast] JSON 파싱 실패 - 텍스트 모드 재시도");
+        } else {
+            log.warn("[Market Forecast] Gemini JSON 모드 응답 없음 (null/blank) - 텍스트 모드 재시도");
         }
 
-        log.warn("[Market Forecast] Gemini 응답 파싱 실패 - 기본 예측 반환");
+        // 2차: 텍스트 모드 (responseMimeType 없이) 재시도
+        String textResponse = callGeminiApiWithRetry(prompt);
+        if (textResponse != null && !textResponse.isBlank()
+                && !textResponse.startsWith("Rate Limit") && !textResponse.startsWith("AI 서버")) {
+            log.info("[Market Forecast] Gemini 텍스트 응답 수신 ({}자): {}", textResponse.length(),
+                    textResponse.length() > 200 ? textResponse.substring(0, 200) + "..." : textResponse);
+            Map<String, Object> parsed = parseMarketForecast(textResponse, currentIndex);
+            if (parsed != null) {
+                log.info("[Market Forecast] 텍스트 모드 파싱 성공");
+                consecutiveErrors.set(0);
+                return parsed;
+            }
+            log.warn("[Market Forecast] 텍스트 모드 파싱도 실패");
+        } else {
+            log.warn("[Market Forecast] Gemini 텍스트 모드도 응답 없음: {}",
+                    textResponse != null ? textResponse.substring(0, Math.min(100, textResponse.length())) : "null");
+        }
+
+        log.warn("[Market Forecast] 모든 Gemini 시도 실패 - 하드코딩 폴백 반환");
         return buildFallbackForecast(currentIndex);
     }
 
@@ -452,6 +483,7 @@ public class GeminiService {
     private Map<String, Object> parseMarketForecast(String jsonResponse, double currentIndex) {
         try {
             String json = jsonResponse.trim();
+
             // ```json ... ``` 마크다운 코드블록 처리
             if (json.startsWith("```")) {
                 int startIdx = json.indexOf('{');
@@ -460,19 +492,26 @@ public class GeminiService {
                     json = json.substring(startIdx, endIdx + 1);
                 }
             }
+            // JSON 시작 위치 찾기
             if (!json.startsWith("{")) {
                 int startIdx = json.indexOf('{');
                 int endIdx = json.lastIndexOf('}');
                 if (startIdx >= 0 && endIdx > startIdx) {
                     json = json.substring(startIdx, endIdx + 1);
+                } else {
+                    log.warn("[Market Forecast] JSON 객체를 찾을 수 없음 - 원본: {}",
+                            jsonResponse.substring(0, Math.min(300, jsonResponse.length())));
+                    return null;
                 }
             }
 
             Map<String, Object> result = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
 
+            log.info("[Market Forecast] 파싱 결과 키: {}", result.keySet());
+
             // 기본 검증
             if (!result.containsKey("forecasts") || !result.containsKey("scenarios")) {
-                log.warn("[Market Forecast] JSON 필수 필드 누락");
+                log.warn("[Market Forecast] JSON 필수 필드 누락 - 존재하는 키: {}", result.keySet());
                 return null;
             }
 
@@ -481,9 +520,29 @@ public class GeminiService {
                 result.put("baseIndex", currentIndex);
             }
 
+            // forecasts 검증 (최소 1개)
+            Object forecastsObj = result.get("forecasts");
+            if (forecastsObj instanceof List) {
+                List<?> forecastsList = (List<?>) forecastsObj;
+                if (forecastsList.isEmpty()) {
+                    log.warn("[Market Forecast] forecasts 배열이 비어있음");
+                    return null;
+                }
+                log.info("[Market Forecast] forecasts {}일 파싱 완료", forecastsList.size());
+            }
+
+            // scenarios 검증
+            Object scenariosObj = result.get("scenarios");
+            if (scenariosObj instanceof Map) {
+                Map<?, ?> scenariosMap = (Map<?, ?>) scenariosObj;
+                log.info("[Market Forecast] scenarios 키: {}", scenariosMap.keySet());
+            }
+
             return result;
         } catch (Exception e) {
-            log.error("[Market Forecast] JSON 파싱 실패: {}", e.getMessage());
+            log.error("[Market Forecast] JSON 파싱 예외: {} - 원본(앞 300자): {}",
+                    e.getMessage(),
+                    jsonResponse != null ? jsonResponse.substring(0, Math.min(300, jsonResponse.length())) : "null");
             return null;
         }
     }
@@ -666,12 +725,13 @@ public class GeminiService {
      */
     private String callGeminiApiForJson(String prompt) {
         if (apiKey == null || apiKey.isEmpty()) {
+            log.warn("[Gemini JSON] API 키 미설정 - 호출 스킵");
             return null;
         }
 
         // 쿼터 리셋 시간 체크
         if (quotaResetTime != null && LocalDateTime.now().isBefore(quotaResetTime)) {
-            log.warn("[AI Scoring] Gemini 쿼터 제한 중 - 스코어링 스킵");
+            log.warn("[Gemini JSON] 쿼터 제한 중 (리셋: {}) - 호출 스킵", quotaResetTime);
             return null;
         }
 
@@ -703,45 +763,67 @@ public class GeminiService {
 
                 HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
-                log.debug("[AI Scoring] Gemini API 호출 (시도 {}/{})", attempt + 1, MAX_RETRIES);
+                log.info("[Gemini JSON] API 호출 시작 (시도 {}/{}, 프롬프트 {}자)", attempt + 1, MAX_RETRIES, prompt.length());
                 lastRequestTime = LocalDateTime.now();
 
                 ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
 
+                log.info("[Gemini JSON] 응답 상태: {}", response.getStatusCode());
+
                 if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                     Map body = response.getBody();
                     List<Map> candidates = (List<Map>) body.get("candidates");
-                    if (candidates != null && !candidates.isEmpty()) {
-                        Map candidate = candidates.get(0);
-                        if (candidate == null) {
-                            log.warn("[AI Scoring] Gemini 응답 candidate가 null");
-                            return null;
+                    if (candidates == null || candidates.isEmpty()) {
+                        // finishReason 등 에러 정보 확인
+                        log.warn("[Gemini JSON] candidates 비어있음 - 응답 body keys: {}", body.keySet());
+                        if (body.containsKey("promptFeedback")) {
+                            log.warn("[Gemini JSON] promptFeedback: {}", body.get("promptFeedback"));
                         }
-                        Map contentMap = (Map) candidate.get("content");
-                        if (contentMap != null) {
-                            List<Map> partsList = (List<Map>) contentMap.get("parts");
-                            if (partsList != null && !partsList.isEmpty()) {
-                                consecutiveErrors.set(0);
-                                return (String) partsList.get(0).get("text");
-                            }
-                        }
+                        return null;
                     }
-                }
+                    Map candidate = candidates.get(0);
+                    if (candidate == null) {
+                        log.warn("[Gemini JSON] candidate[0]이 null");
+                        return null;
+                    }
 
-                log.warn("[AI Scoring] Gemini 응답 파싱 실패");
+                    // finishReason 확인
+                    String finishReason = candidate.get("finishReason") != null
+                            ? candidate.get("finishReason").toString() : "UNKNOWN";
+                    log.info("[Gemini JSON] finishReason: {}", finishReason);
+
+                    Map contentMap = (Map) candidate.get("content");
+                    if (contentMap != null) {
+                        List<Map> partsList = (List<Map>) contentMap.get("parts");
+                        if (partsList != null && !partsList.isEmpty()) {
+                            String text = (String) partsList.get(0).get("text");
+                            if (text != null && !text.isBlank()) {
+                                consecutiveErrors.set(0);
+                                return text;
+                            }
+                            log.warn("[Gemini JSON] parts[0].text가 null 또는 빈 문자열");
+                        } else {
+                            log.warn("[Gemini JSON] parts 리스트 비어있음");
+                        }
+                    } else {
+                        log.warn("[Gemini JSON] content가 null - candidate keys: {}", candidate.keySet());
+                    }
+                } else {
+                    log.warn("[Gemini JSON] 비정상 응답 - 상태: {}, body null: {}",
+                            response.getStatusCode(), response.getBody() == null);
+                }
                 return null;
 
             } catch (HttpClientErrorException.TooManyRequests e) {
                 long baseDelay = parseRetryDelay(e.getMessage());
-                // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x)
                 long retryDelay = baseDelay * (1L << attempt);
                 consecutiveErrors.incrementAndGet();
-                log.warn("[AI Scoring] Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",
+                log.warn("[Gemini JSON] Rate Limit (시도 {}/{}) - {}ms 후 재시도",
                         attempt + 1, MAX_RETRIES, retryDelay);
 
                 if (consecutiveErrors.get() >= 3) {
                     quotaResetTime = LocalDateTime.now().plusMinutes(1);
-                    log.warn("[AI Scoring] 연속 Rate Limit 3회 → 1분간 Gemini 중단");
+                    log.warn("[Gemini JSON] 연속 Rate Limit 3회 → 1분간 중단");
                     return null;
                 }
 
@@ -752,8 +834,11 @@ public class GeminiService {
                     return null;
                 }
 
+            } catch (HttpClientErrorException e) {
+                log.error("[Gemini JSON] HTTP 에러 {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
+                return null;
             } catch (Exception e) {
-                log.error("[AI Scoring] API 호출 실패: {}", e.getMessage());
+                log.error("[Gemini JSON] API 호출 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage());
                 return null;
             }
         }
