@@ -312,9 +312,8 @@
               </div>
             </div>
 
-            <!-- 점수 비교 해석 -->
+            <!-- 한 줄 요약 가이드 (점수 차이 클 때만) -->
             <div v-if="scoreDiffComment" class="score-diff-comment">
-              <span class="diff-icon">📊</span>
               <p>{{ scoreDiffComment }}</p>
             </div>
           </div>
@@ -775,11 +774,22 @@ const scoreDiffComment = computed(() => {
   const fundamental = diagnosisData.value?.overallScore;
   if (!trading || !fundamental) return null;
 
-  if (fundamental > trading + 20) return '펀더멘털은 우수하나 단기 수급 부진으로 조정 주의';
-  if (trading > fundamental + 20) return '단기 모멘텀은 강하나 펀더멘털 보강 필요';
-  if (trading >= 70 && fundamental >= 70) return '단기·중장기 모두 양호';
-  if (trading <= 40 && fundamental <= 40) return '단기·중장기 모두 부진 — 신중한 접근 필요';
-  return '단기와 중장기 관점 혼재 — 분할 매수/매도 고려';
+  const diff = Math.abs(fundamental - trading);
+  // 점수 차이가 클 때만 표시 (20점 이상 차이 또는 양쪽 극단)
+  if (fundamental > trading + 20) {
+    return `펀더멘털은 우수하나(${fundamental}점), 단기 수급 부진으로 인한 조정 주의(${trading}점)`;
+  }
+  if (trading > fundamental + 20) {
+    return `단기 모멘텀은 강하나(${trading}점), 펀더멘털 보강이 필요한 구간(${fundamental}점)`;
+  }
+  if (trading >= 70 && fundamental >= 70) {
+    return `단기(${trading}점)·중장기(${fundamental}점) 모두 양호 — 추세 추종 유효`;
+  }
+  if (trading <= 40 && fundamental <= 40) {
+    return `단기(${trading}점)·중장기(${fundamental}점) 모두 부진 — 신중한 접근 필요`;
+  }
+  // 차이가 작고 극단도 아니면 숨김
+  return null;
 });
 
 const riskStatusClass = computed(() => {
