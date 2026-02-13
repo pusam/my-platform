@@ -32,12 +32,21 @@
             @click="goToStock(item.stockCode)"
           >
             <span class="s-rank">{{ i + 1 }}</span>
-            <span class="s-name">{{ item.stockName }}</span>
+            <span class="s-name">
+              {{ item.stockName }}
+              <template v-if="scoreMap[item.stockCode]">
+                <span class="supply-icon" :class="scoreMap[item.stockCode].foreignBuying ? 'buying' : 'selling'">{{ scoreMap[item.stockCode].foreignBuying ? '▲' : '▼' }}</span>
+                <span class="supply-icon" :class="scoreMap[item.stockCode].instBuying ? 'buying' : 'selling'">{{ scoreMap[item.stockCode].instBuying ? '▲' : '▼' }}</span>
+              </template>
+            </span>
             <div class="s-metrics">
               <span v-if="item.per" class="badge-per">PER {{ Number(item.per).toFixed(1) }}</span>
-              <span v-if="item.pbr" class="badge-pbr">PBR {{ Number(item.pbr).toFixed(2) }}</span>
               <span v-if="item.roe" class="badge-roe">ROE {{ Number(item.roe).toFixed(1) }}%</span>
-              <span v-if="item.operatingMargin" class="badge-margin">영업 {{ Number(item.operatingMargin).toFixed(1) }}%</span>
+              <template v-if="scoreMap[item.stockCode]">
+                <span :class="scoreBadgeClass(scoreMap[item.stockCode].tradingScore)">단기 {{ scoreMap[item.stockCode].tradingScore }}</span>
+                <span :class="scoreBadgeClass(scoreMap[item.stockCode].fundamentalScore)">중장기 {{ scoreMap[item.stockCode].fundamentalScore }}</span>
+              </template>
+              <span v-else-if="scoresLoading" class="badge-shimmer">...</span>
             </div>
           </div>
         </div>
@@ -52,11 +61,21 @@
             @click="goToStock(item.stockCode)"
           >
             <span class="s-rank">{{ i + 1 }}</span>
-            <span class="s-name">{{ item.stockName }}</span>
+            <span class="s-name">
+              {{ item.stockName }}
+              <template v-if="scoreMap[item.stockCode]">
+                <span class="supply-icon" :class="scoreMap[item.stockCode].foreignBuying ? 'buying' : 'selling'">{{ scoreMap[item.stockCode].foreignBuying ? '▲' : '▼' }}</span>
+                <span class="supply-icon" :class="scoreMap[item.stockCode].instBuying ? 'buying' : 'selling'">{{ scoreMap[item.stockCode].instBuying ? '▲' : '▼' }}</span>
+              </template>
+            </span>
             <div class="s-metrics">
               <span v-if="item.peg" class="badge-peg">PEG {{ Number(item.peg).toFixed(2) }}</span>
-              <span v-if="item.epsGrowth" class="badge-growth">EPS +{{ Number(item.epsGrowth).toFixed(0) }}%</span>
               <span v-if="item.roe" class="badge-roe">ROE {{ Number(item.roe).toFixed(1) }}%</span>
+              <template v-if="scoreMap[item.stockCode]">
+                <span :class="scoreBadgeClass(scoreMap[item.stockCode].tradingScore)">단기 {{ scoreMap[item.stockCode].tradingScore }}</span>
+                <span :class="scoreBadgeClass(scoreMap[item.stockCode].fundamentalScore)">중장기 {{ scoreMap[item.stockCode].fundamentalScore }}</span>
+              </template>
+              <span v-else-if="scoresLoading" class="badge-shimmer">...</span>
             </div>
           </div>
         </div>
@@ -71,13 +90,22 @@
             @click="goToStock(item.stockCode)"
           >
             <span class="s-rank">{{ i + 1 }}</span>
-            <span class="s-name">{{ item.stockName }}</span>
+            <span class="s-name">
+              {{ item.stockName }}
+              <template v-if="scoreMap[item.stockCode]">
+                <span class="supply-icon" :class="scoreMap[item.stockCode].foreignBuying ? 'buying' : 'selling'">{{ scoreMap[item.stockCode].foreignBuying ? '▲' : '▼' }}</span>
+                <span class="supply-icon" :class="scoreMap[item.stockCode].instBuying ? 'buying' : 'selling'">{{ scoreMap[item.stockCode].instBuying ? '▲' : '▼' }}</span>
+              </template>
+            </span>
             <div class="s-metrics">
               <span class="turnaround-type">
                 {{ item.turnaroundType === 'LOSS_TO_PROFIT' ? '흑자전환' : '이익급증' }}
               </span>
-              <span v-if="item.netIncomeChangeRate && item.netIncomeChangeRate < 999" class="badge-growth">+{{ Number(item.netIncomeChangeRate).toFixed(0) }}%</span>
-              <span v-if="item.per" class="badge-per">PER {{ Number(item.per).toFixed(1) }}</span>
+              <template v-if="scoreMap[item.stockCode]">
+                <span :class="scoreBadgeClass(scoreMap[item.stockCode].tradingScore)">단기 {{ scoreMap[item.stockCode].tradingScore }}</span>
+                <span :class="scoreBadgeClass(scoreMap[item.stockCode].fundamentalScore)">중장기 {{ scoreMap[item.stockCode].fundamentalScore }}</span>
+              </template>
+              <span v-else-if="scoresLoading" class="badge-shimmer">...</span>
             </div>
           </div>
         </div>
@@ -86,6 +114,35 @@
           v-if="!screenerData.magicFormula?.length && !screenerData.lowPeg?.length && !screenerData.turnaround?.length"
           class="empty-msg"
         >스크리너 데이터 없음</div>
+      </div>
+
+      <!-- AI 쌍끌이 -->
+      <div v-if="activeTab === 'dual'" class="screener-area">
+        <div v-if="scoresLoading" class="empty-msg">점수 로딩 중...</div>
+        <template v-else-if="dualHighStocks.length > 0">
+          <div class="screener-group">
+            <h4>단기 + 중장기 80점 이상</h4>
+            <div
+              v-for="(item, i) in dualHighStocks"
+              :key="'dual-' + i"
+              class="screener-row"
+              @click="goToStock(item.stockCode)"
+            >
+              <span class="s-rank">{{ i + 1 }}</span>
+              <span class="s-name">
+                {{ item.stockName }}
+                <span class="supply-icon" :class="item.foreignBuying ? 'buying' : 'selling'">{{ item.foreignBuying ? '▲' : '▼' }}</span>
+                <span class="supply-icon" :class="item.instBuying ? 'buying' : 'selling'">{{ item.instBuying ? '▲' : '▼' }}</span>
+              </span>
+              <div class="s-metrics">
+                <span :class="scoreBadgeClass(item.tradingScore)">단기 {{ item.tradingScore }}</span>
+                <span :class="scoreBadgeClass(item.fundamentalScore)">중장기 {{ item.fundamentalScore }}</span>
+                <span class="badge-total">합산 {{ item.tradingScore + item.fundamentalScore }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+        <div v-else class="empty-msg">조건을 충족하는 종목이 없습니다</div>
       </div>
 
       <!-- 경제 뉴스 -->
@@ -116,6 +173,7 @@
 
 <script>
 import SkeletonLoader from './SkeletonLoader.vue'
+import { stockDetailAPI } from '@/utils/api'
 
 export default {
   name: 'SectionResearch',
@@ -131,13 +189,84 @@ export default {
       activeTab: 'screener',
       tabs: [
         { key: 'screener', label: '실적 스크리너' },
+        { key: 'dual', label: 'AI 쌍끌이' },
         { key: 'news', label: '경제 뉴스' }
-      ]
+      ],
+      scoreMap: {},
+      scoresLoading: false
+    }
+  },
+  computed: {
+    allStockCodes() {
+      const codes = new Set()
+      const d = this.screenerData
+      if (d.magicFormula) d.magicFormula.slice(0, 3).forEach(s => codes.add(s.stockCode))
+      if (d.lowPeg) d.lowPeg.slice(0, 3).forEach(s => codes.add(s.stockCode))
+      if (d.turnaround) d.turnaround.slice(0, 3).forEach(s => codes.add(s.stockCode))
+      return [...codes]
+    },
+    allStockMap() {
+      const map = {}
+      const d = this.screenerData
+      const lists = [d.magicFormula, d.lowPeg, d.turnaround]
+      lists.forEach(list => {
+        if (!list) return
+        list.slice(0, 3).forEach(item => {
+          if (!map[item.stockCode]) map[item.stockCode] = item
+        })
+      })
+      return map
+    },
+    dualHighStocks() {
+      const items = []
+      for (const [code, scores] of Object.entries(this.scoreMap)) {
+        if (scores.tradingScore >= 80 && scores.fundamentalScore >= 80) {
+          const stock = this.allStockMap[code]
+          items.push({
+            stockCode: code,
+            stockName: stock ? stock.stockName : code,
+            tradingScore: scores.tradingScore,
+            fundamentalScore: scores.fundamentalScore,
+            foreignBuying: scores.foreignBuying,
+            instBuying: scores.instBuying
+          })
+        }
+      }
+      items.sort((a, b) => (b.tradingScore + b.fundamentalScore) - (a.tradingScore + a.fundamentalScore))
+      return items
+    }
+  },
+  watch: {
+    screenerData: {
+      handler() {
+        this.fetchBatchScores()
+      },
+      deep: true
     }
   },
   methods: {
     goToStock(code) {
       if (code) this.$router.push(`/stock/${code}`)
+    },
+    async fetchBatchScores() {
+      const codes = this.allStockCodes
+      if (codes.length === 0) return
+      this.scoresLoading = true
+      try {
+        const res = await stockDetailAPI.batchScores(codes)
+        if (res.data && res.data.success) {
+          this.scoreMap = res.data.data || {}
+        }
+      } catch (e) {
+        console.warn('배치 점수 로딩 실패:', e)
+      } finally {
+        this.scoresLoading = false
+      }
+    },
+    scoreBadgeClass(score) {
+      if (score >= 80) return 'badge-score high'
+      if (score <= 40) return 'badge-score low'
+      return 'badge-score mid'
     },
     formatNewsTime(dateStr) {
       if (!dateStr) return ''
@@ -203,7 +332,7 @@ export default {
 .screener-row:hover { background: rgba(255,255,255,0.04); }
 
 .s-rank { font-size: 12px; color: rgba(255,255,255,0.35); width: 18px; text-align: center; }
-.s-name { flex: 1; font-size: 13px; color: rgba(255,255,255,0.85); }
+.s-name { flex: 1; font-size: 13px; color: rgba(255,255,255,0.85); white-space: nowrap; }
 .s-metrics { display: flex; gap: 4px; flex-wrap: wrap; }
 .s-metrics span {
   font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600;
@@ -218,6 +347,38 @@ export default {
 .turnaround-type {
   background: rgba(16,185,129,0.15) !important;
   color: #10b981 !important;
+}
+
+/* Supply/Demand Icons */
+.supply-icon {
+  font-size: 10px; margin-left: 2px; font-weight: 700;
+}
+.supply-icon.buying { color: #ef4444; }
+.supply-icon.selling { color: #3b82f6; }
+
+/* Score Badges */
+.badge-score {
+  font-weight: 700 !important;
+}
+.badge-score.high {
+  background: rgba(239,68,68,0.18) !important; color: #ef4444 !important;
+}
+.badge-score.low {
+  background: rgba(59,130,246,0.18) !important; color: #60a5fa !important;
+}
+.badge-score.mid {
+  background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.55) !important;
+}
+.badge-total {
+  background: rgba(245,158,11,0.18) !important; color: #fbbf24 !important; font-weight: 700 !important;
+}
+.badge-shimmer {
+  background: rgba(255,255,255,0.06) !important; color: rgba(255,255,255,0.2) !important;
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
 }
 
 /* News */

@@ -786,6 +786,10 @@ export const stockDetailAPI = {
   // 종목 펀더멘털 진단 (재무/수급/기술적 분석)
   getDiagnosis(stockCode) {
     return apiClient.get(`/analysis/diagnosis/${stockCode}`, { timeout: 60000 });
+  },
+  // 배치 점수 조회 (스크리너 듀얼 점수용)
+  batchScores(stockCodes) {
+    return apiClient.post('/analysis/batch-scores', { stockCodes }, { timeout: 90000 });
   }
 };
 

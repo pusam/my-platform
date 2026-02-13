@@ -18,9 +18,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -49,6 +49,55 @@ public class StockAnalysisService {
     private static final int SUPPLY_DEMAND_DAYS = 5;
     private static final int PRICE_DATA_DAYS = 120;  // 기술적 분석용 가격 데이터 일수
     private static final BigDecimal ONE_TIME_GAIN_THRESHOLD = new BigDecimal("50");  // 50% 이상 차이시 경고
+
+    /**
+     * 배치 점수 조회 — 여러 종목을 병렬 진단 후 경량 점수+수급만 반환
+     *
+     * @param stockCodes 종목코드 리스트
+     * @return { "005930": { tradingScore, fundamentalScore, foreignBuying, instBuying } }
+     */
+    public Map<String, Map<String, Object>> batchScores(List<String> stockCodes) {
+        Map<String, Map<String, Object>> result = new ConcurrentHashMap<>();
+
+        List<CompletableFuture<Void>> futures = stockCodes.stream()
+                .map(code -> CompletableFuture.runAsync(() -> {
+                    try {
+                        StockDiagnosisDto diagnosis = diagnose(code);
+
+                        int techScore = diagnosis.getTechnicalAnalysis() != null
+                                ? diagnosis.getTechnicalAnalysis().getScore() : 50;
+                        int supplyScore = diagnosis.getSupplyDemand() != null
+                                ? diagnosis.getSupplyDemand().getScore() : 50;
+
+                        // 단기 점수 = 기술(60%) + 수급(40%)
+                        int tradingScore = (int) Math.round(techScore * 0.6 + supplyScore * 0.4);
+                        // 중장기 점수 = overallScore (재무30 + 수급35 + 기술35)
+                        int fundamentalScore = diagnosis.getOverallScore();
+
+                        boolean foreignBuying = diagnosis.getSupplyDemand() != null
+                                && diagnosis.getSupplyDemand().isForeignBuying();
+                        boolean instBuying = diagnosis.getSupplyDemand() != null
+                                && diagnosis.getSupplyDemand().isInstitutionBuying();
+
+                        Map<String, Object> scoreMap = new HashMap<>();
+                        scoreMap.put("tradingScore", tradingScore);
+                        scoreMap.put("fundamentalScore", fundamentalScore);
+                        scoreMap.put("foreignBuying", foreignBuying);
+                        scoreMap.put("instBuying", instBuying);
+
+                        result.put(code, scoreMap);
+                    } catch (Exception e) {
+                        log.warn("배치 점수 조회 실패 [{}]: {}", code, e.getMessage());
+                    }
+                }))
+                .collect(Collectors.toList());
+
+        // 모든 진단이 끝날 때까지 대기
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        log.info("배치 점수 조회 완료: {}/{} 종목 성공", result.size(), stockCodes.size());
+        return result;
+    }
 
     /**
      * 종목 상세 진단 수행
