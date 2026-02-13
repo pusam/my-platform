@@ -136,7 +136,10 @@
           </div>
           <div class="news-list" v-if="riskInfo?.news?.length">
             <div v-for="(news, index) in riskInfo.news.slice(0, 8)" :key="index" class="news-item">
-              <a :href="news.link" target="_blank">{{ truncate(news.title, 60) }}</a>
+              <div class="news-content">
+                <a :href="news.link" target="_blank">{{ truncate(news.title, 60) }}</a>
+                <p v-if="news.description" class="news-desc">{{ truncate(news.description, 80) }}</p>
+              </div>
               <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>
             </div>
           </div>
@@ -1420,20 +1423,31 @@ onUnmounted(() => {
 .news-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 10px 0;
   border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.news-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .news-item a {
   color: #a5b4fc;
   text-decoration: none;
   font-size: 0.85rem;
-  flex: 1;
+}
+
+.news-desc {
+  color: #888;
+  font-size: 0.75rem;
+  margin: 4px 0 0 0;
+  line-height: 1.3;
 }
 
 .news-item a:hover { text-decoration: underline; }
-.news-date { color: #666; font-size: 0.75rem; flex-shrink: 0; margin-left: 10px; }
+.news-date { color: #666; font-size: 0.75rem; flex-shrink: 0; margin-left: 10px; white-space: nowrap; }
 
 .no-news {
   padding: 20px;

@@ -32,6 +32,7 @@ public class RiskManagementService {
 
     private final DartService dartService;
     private final NaverSearchService naverSearchService;
+    private final GoogleNewsService googleNewsService;
     private final OllamaService ollamaService;
 
     // DANGER 임계값 (이 점수 이상이면 매수 금지)
@@ -118,7 +119,18 @@ public class RiskManagementService {
      * 2순위: 네이버 검색 API (종목명 기반 - API 키 필요)
      */
     private List<NewsItem> fetchNews(String stockName, String stockCode) {
-        // 1순위: 네이버 금융 종목별 뉴스 크롤링 (종목코드 기반)
+        // 1순위: Google News RSS (종목명 기반, 빠르고 관련성 높음)
+        try {
+            List<NewsItem> googleNews = googleNewsService.searchNews(stockName);
+            if (!googleNews.isEmpty()) {
+                log.info("[RiskManagement] Google News {}건 조회 성공 (종목: {})", googleNews.size(), stockName);
+                return googleNews;
+            }
+        } catch (Exception e) {
+            log.warn("[RiskManagement] Google News RSS 실패: {}", e.getMessage());
+        }
+
+        // 2순위: 네이버 금융 종목별 뉴스 크롤링 (종목코드 기반)
         if (stockCode != null && !stockCode.isEmpty()) {
             try {
                 List<NewsItem> financeNews = naverSearchService.searchStockNewsByCode(stockCode);
@@ -131,7 +143,7 @@ public class RiskManagementService {
             }
         }
 
-        // 2순위: 네이버 검색 API (종목명 기반)
+        // 3순위: 네이버 검색 API (종목명 기반)
         if (naverSearchService.isAvailable()) {
             try {
                 List<NewsItem> searchNews = naverSearchService.searchStockNews(stockName);

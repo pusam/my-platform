@@ -953,16 +953,20 @@ public class StockDetailService {
             RiskInfo r = dto.getRisk();
             sb.append(String.format("리스크상태: %s, 관련뉴스: %s건\n",
                     r.getRiskStatus(), r.getNewsCount()));
-            // 뉴스 헤드라인 추가 (최대 3개)
+            // 뉴스 헤드라인 + 요약문 추가 (최대 5개)
             if (r.getNews() != null && !r.getNews().isEmpty()) {
-                sb.append("주요뉴스: ");
                 int count = 0;
                 for (var news : r.getNews()) {
-                    if (count >= 3) break;
-                    sb.append(news.getTitle()).append("; ");
+                    if (count >= 5) break;
                     count++;
+                    sb.append(String.format("[뉴스%d] %s", count, news.getTitle()));
+                    if (news.getDescription() != null && !news.getDescription().isEmpty()) {
+                        String desc = news.getDescription();
+                        if (desc.length() > 150) desc = desc.substring(0, 150) + "...";
+                        sb.append(" - ").append(desc);
+                    }
+                    sb.append("\n");
                 }
-                sb.append("\n");
             }
         }
 
