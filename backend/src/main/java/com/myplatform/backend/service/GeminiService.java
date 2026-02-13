@@ -366,9 +366,10 @@ public class GeminiService {
                 recentNews != null ? recentNews.size() : 0);
 
         String prompt = buildForecastPrompt(marketStatus, currentIndex, foreignBuys, instBuys, recentNews);
+        Map<String, Object> schema = buildForecastResponseSchema();
 
-        // 1차: JSON 모드 호출
-        String response = callGeminiApiForJson(prompt);
+        // 1차: JSON 모드 + responseSchema 호출
+        String response = callGeminiApiForJson(prompt, schema);
         if (response != null && !response.isBlank()) {
             log.info("[Market Forecast] Gemini JSON 응답 수신 ({}자): {}", response.length(),
                     response.length() > 200 ? response.substring(0, 200) + "..." : response);
@@ -383,10 +384,11 @@ public class GeminiService {
             log.warn("[Market Forecast] Gemini JSON 모드 응답 없음 (null/blank) - 텍스트 모드 재시도");
         }
 
-        // 2차: 텍스트 모드 (responseMimeType 없이) 재시도
+        // 2차: 텍스트 모드 (responseMimeType 없이) 재시도 - JSON 스키마 없이 호출
         String textResponse = callGeminiApiWithRetry(prompt);
         if (textResponse != null && !textResponse.isBlank()
-                && !textResponse.startsWith("Rate Limit") && !textResponse.startsWith("AI 서버")) {
+                && !textResponse.startsWith("Rate Limit") && !textResponse.startsWith("AI 서버")
+                && !textResponse.startsWith("AI 분석") && textResponse.contains("{")) {
             log.info("[Market Forecast] Gemini 텍스트 응답 수신 ({}자): {}", textResponse.length(),
                     textResponse.length() > 200 ? textResponse.substring(0, 200) + "..." : textResponse);
             Map<String, Object> parsed = parseMarketForecast(textResponse, currentIndex);
@@ -397,7 +399,7 @@ public class GeminiService {
             }
             log.warn("[Market Forecast] 텍스트 모드 파싱도 실패");
         } else {
-            log.warn("[Market Forecast] Gemini 텍스트 모드도 응답 없음: {}",
+            log.warn("[Market Forecast] Gemini 텍스트 모드도 응답 없음/비JSON: {}",
                     textResponse != null ? textResponse.substring(0, Math.min(100, textResponse.length())) : "null");
         }
 
@@ -474,15 +476,70 @@ public class GeminiService {
                 1. 현재 지수(%.2f)를 기준으로 현실적 변동폭 (일일 ±0.5~1.5%%) 적용
                 2. 외국인/기관 수급이 강세(대량 순매수)이면 Bull 확률을 높게 설정
                 3. 뉴스 센티먼트가 부정적이면 Bear 확률을 높게 설정
-                4. Bull/Base/Bear 3개 시나리오 확률 합계는 반드시 100%%
-                5. 근거(reason)는 수급/뉴스 데이터를 인용하여 50자 이내로 작성
-                6. summary는 핵심 판단과 근거를 100자 이내로 작성
+                4. Bull/Base/Bear 3개 시나리오 확률 합계는 반드시 100
+                5. 근거(reason)는 수급/뉴스 데이터를 인용하여 한국어 50자 이내로 작성
+                6. summary는 핵심 판단과 근거를 한국어 100자 이내로 작성
+                7. forecasts의 bull/base/bear 값은 반드시 소수점 없는 정수(예: 2750)로 작성
+                8. baseIndex는 %.2f로 설정
 
-                반드시 아래 JSON 형식으로만 응답하세요:
-                {"baseIndex": %.2f, "forecasts": [{"day": 1, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 2, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 3, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 4, "bull": 숫자, "base": 숫자, "bear": 숫자}, {"day": 5, "bull": 숫자, "base": 숫자, "bear": 숫자}], "scenarios": {"bull": {"probability": 숫자, "reason": "문자열"}, "base": {"probability": 숫자, "reason": "문자열"}, "bear": {"probability": 숫자, "reason": "문자열"}}, "summary": "종합 분석 문자열"}
+                반드시 JSON만 출력하세요. 설명이나 마크다운 없이 순수 JSON만 출력하세요.
+                예시:
+                {"baseIndex": 2750.00, "forecasts": [{"day": 1, "bull": 2770, "base": 2755, "bear": 2735}, {"day": 2, "bull": 2790, "base": 2758, "bear": 2720}, {"day": 3, "bull": 2810, "base": 2760, "bear": 2705}, {"day": 4, "bull": 2825, "base": 2762, "bear": 2690}, {"day": 5, "bull": 2840, "base": 2765, "bear": 2680}], "scenarios": {"bull": {"probability": 35, "reason": "외국인 순매수 지속 기대"}, "base": {"probability": 45, "reason": "박스권 등락 전망"}, "bear": {"probability": 20, "reason": "글로벌 리스크 확대 우려"}}, "summary": "외국인 수급 개선과 기관 매수세로 단기 상승 여력 존재하나 글로벌 변동성에 유의 필요"}
                 """, currentIndex, changeRate, adr, condition, advCount, decCount, tradingValue,
                 foreignText, instText, newsText,
                 currentIndex, currentIndex);
+    }
+
+    /**
+     * Gemini responseSchema: 시장 예측 JSON 구조 정의
+     */
+    private Map<String, Object> buildForecastResponseSchema() {
+        // day/bull/base/bear 속성 정의
+        Map<String, Object> forecastItemProps = new LinkedHashMap<>();
+        forecastItemProps.put("day", Map.of("type", "INTEGER"));
+        forecastItemProps.put("bull", Map.of("type", "NUMBER"));
+        forecastItemProps.put("base", Map.of("type", "NUMBER"));
+        forecastItemProps.put("bear", Map.of("type", "NUMBER"));
+
+        Map<String, Object> forecastItem = new LinkedHashMap<>();
+        forecastItem.put("type", "OBJECT");
+        forecastItem.put("properties", forecastItemProps);
+        forecastItem.put("required", List.of("day", "bull", "base", "bear"));
+
+        // scenario (probability + reason)
+        Map<String, Object> scenarioProps = new LinkedHashMap<>();
+        scenarioProps.put("probability", Map.of("type", "INTEGER"));
+        scenarioProps.put("reason", Map.of("type", "STRING"));
+
+        Map<String, Object> scenarioItem = new LinkedHashMap<>();
+        scenarioItem.put("type", "OBJECT");
+        scenarioItem.put("properties", scenarioProps);
+        scenarioItem.put("required", List.of("probability", "reason"));
+
+        // scenarios (bull/base/bear)
+        Map<String, Object> scenariosProps = new LinkedHashMap<>();
+        scenariosProps.put("bull", scenarioItem);
+        scenariosProps.put("base", scenarioItem);
+        scenariosProps.put("bear", scenarioItem);
+
+        Map<String, Object> scenarios = new LinkedHashMap<>();
+        scenarios.put("type", "OBJECT");
+        scenarios.put("properties", scenariosProps);
+        scenarios.put("required", List.of("bull", "base", "bear"));
+
+        // root schema
+        Map<String, Object> rootProps = new LinkedHashMap<>();
+        rootProps.put("baseIndex", Map.of("type", "NUMBER"));
+        rootProps.put("forecasts", Map.of("type", "ARRAY", "items", forecastItem));
+        rootProps.put("scenarios", scenarios);
+        rootProps.put("summary", Map.of("type", "STRING"));
+
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("type", "OBJECT");
+        schema.put("properties", rootProps);
+        schema.put("required", List.of("baseIndex", "forecasts", "scenarios", "summary"));
+
+        return schema;
     }
 
     @SuppressWarnings("unchecked")
@@ -526,7 +583,7 @@ public class GeminiService {
                 result.put("baseIndex", currentIndex);
             }
 
-            // forecasts 검증 (최소 1개)
+            // forecasts 검증 및 정규화 (최소 1개, 숫자 타입 보정)
             Object forecastsObj = result.get("forecasts");
             if (forecastsObj instanceof List) {
                 List<?> forecastsList = (List<?>) forecastsObj;
@@ -534,7 +591,21 @@ public class GeminiService {
                     log.warn("[Market Forecast] forecasts 배열이 비어있음");
                     return null;
                 }
-                log.info("[Market Forecast] forecasts {}일 파싱 완료", forecastsList.size());
+                // 숫자 타입 보정 (Integer → Number로 프론트 호환 보장)
+                List<Map<String, Object>> normalized = new ArrayList<>();
+                for (Object item : forecastsList) {
+                    if (item instanceof Map) {
+                        Map<?, ?> m = (Map<?, ?>) item;
+                        Map<String, Object> norm = new HashMap<>();
+                        norm.put("day", toNumber(m.get("day")));
+                        norm.put("bull", toNumber(m.get("bull")));
+                        norm.put("base", toNumber(m.get("base")));
+                        norm.put("bear", toNumber(m.get("bear")));
+                        normalized.add(norm);
+                    }
+                }
+                result.put("forecasts", normalized);
+                log.info("[Market Forecast] forecasts {}일 파싱+정규화 완료", normalized.size());
             }
 
             // scenarios 검증
@@ -542,6 +613,25 @@ public class GeminiService {
             if (scenariosObj instanceof Map) {
                 Map<?, ?> scenariosMap = (Map<?, ?>) scenariosObj;
                 log.info("[Market Forecast] scenarios 키: {}", scenariosMap.keySet());
+                // probability가 bull+base+bear = 100이 아닌 경우 보정
+                try {
+                    Map<String, Object> normalizedScenarios = new LinkedHashMap<>();
+                    for (String key : List.of("bull", "base", "bear")) {
+                        Object s = scenariosMap.get(key);
+                        if (s instanceof Map) {
+                            Map<?, ?> sm = (Map<?, ?>) s;
+                            Map<String, Object> ns = new HashMap<>();
+                            ns.put("probability", toNumber(sm.get("probability")));
+                            ns.put("reason", sm.get("reason") != null ? sm.get("reason").toString() : "");
+                            normalizedScenarios.put(key, ns);
+                        }
+                    }
+                    if (normalizedScenarios.size() == 3) {
+                        result.put("scenarios", normalizedScenarios);
+                    }
+                } catch (Exception e) {
+                    log.warn("[Market Forecast] scenarios 정규화 실패 (무시): {}", e.getMessage());
+                }
             }
 
             return result;
@@ -551,6 +641,15 @@ public class GeminiService {
                     jsonResponse != null ? jsonResponse.substring(0, Math.min(300, jsonResponse.length())) : "null");
             return null;
         }
+    }
+
+    private Number toNumber(Object obj) {
+        if (obj instanceof Number) return (Number) obj;
+        if (obj instanceof String) {
+            try { return Double.parseDouble((String) obj); }
+            catch (NumberFormatException e) { return 0; }
+        }
+        return 0;
     }
 
     private Map<String, Object> buildFallbackForecast(double currentIndex) {
@@ -725,11 +824,19 @@ public class GeminiService {
     }
 
     /**
+     * Gemini API 호출 (JSON 응답 전용) - 스키마 없는 버전
+     */
+    private String callGeminiApiForJson(String prompt) {
+        return callGeminiApiForJson(prompt, null);
+    }
+
+    /**
      * Gemini API 호출 (JSON 응답 전용)
      * - temperature: 0.3 (일관성 높임)
      * - responseMimeType: application/json
+     * - responseSchema: 선택적 JSON 스키마 (구조 강제)
      */
-    private String callGeminiApiForJson(String prompt) {
+    private String callGeminiApiForJson(String prompt, Map<String, Object> responseSchema) {
         if (apiKey == null || apiKey.isEmpty()) {
             log.warn("[Gemini JSON] API 키 미설정 - 호출 스킵");
             return null;
@@ -762,6 +869,9 @@ public class GeminiService {
                 generationConfig.put("temperature", 0.3);
                 generationConfig.put("maxOutputTokens", 2048);
                 generationConfig.put("responseMimeType", "application/json");
+                if (responseSchema != null) {
+                    generationConfig.put("responseSchema", responseSchema);
+                }
                 requestBody.put("generationConfig", generationConfig);
 
                 HttpHeaders headers = new HttpHeaders();
