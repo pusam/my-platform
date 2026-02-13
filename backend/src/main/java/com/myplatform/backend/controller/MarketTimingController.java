@@ -245,7 +245,7 @@ public class MarketTimingController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            log.error("AI 시장 예측 오류: {}", e.getMessage(), e);
+            log.warn("AI 시장 예측 실패: {}", e.getMessage());
             response.put("success", false);
             response.put("message", "AI 시장 예측 실패: " + e.getMessage());
             return ResponseEntity.ok(response);
