@@ -32,6 +32,7 @@ import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 import StockDetailDashboard from './views/StockDetailDashboard.vue'
 import StockTradingDashboardV2 from './views/StockTradingDashboardV2.vue'
+import BatchJobMonitor from './components/admin/BatchJobMonitor.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -245,6 +246,12 @@ const router = createRouter({
       path: '/admin/logs',
       name: 'ActivityLogs',
       component: ActivityLogs,
+      meta: { requiresAuth: true, role: 'ADMIN' }
+    },
+    {
+      path: '/admin/batch',
+      name: 'BatchJobMonitor',
+      component: BatchJobMonitor,
       meta: { requiresAuth: true, role: 'ADMIN' }
     }
   ]

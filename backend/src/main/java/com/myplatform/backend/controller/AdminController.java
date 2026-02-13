@@ -1,11 +1,14 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.BatchJobExecutionDto;
+import com.myplatform.backend.dto.BatchJobSummaryDto;
 import com.myplatform.backend.dto.SystemStatsDto;
 import com.myplatform.backend.service.AdminStatsService;
 import com.myplatform.backend.dto.ActivityLogDto;
 import com.myplatform.backend.dto.ServerStatusDto;
 import com.myplatform.backend.service.ActivityLogService;
 import com.myplatform.backend.service.AiStrategySnapshotService;
+import com.myplatform.backend.service.BatchJobMonitorService;
 import com.myplatform.backend.service.ServerStatusService;
 import com.myplatform.backend.service.UserManagementService;
 import com.myplatform.core.dto.ApiResponse;
@@ -33,19 +36,22 @@ public class AdminController {
     private final ServerStatusService serverStatusService;
     private final ActivityLogService activityLogService;
     private final AiStrategySnapshotService aiStrategySnapshotService;
+    private final BatchJobMonitorService batchJobMonitorService;
 
     public AdminController(UserManagementService userManagementService,
                           AdminStatsService adminStatsService,
                           CacheManager cacheManager,
                           ServerStatusService serverStatusService,
                           ActivityLogService activityLogService,
-                          AiStrategySnapshotService aiStrategySnapshotService) {
+                          AiStrategySnapshotService aiStrategySnapshotService,
+                          BatchJobMonitorService batchJobMonitorService) {
         this.userManagementService = userManagementService;
         this.adminStatsService = adminStatsService;
         this.cacheManager = cacheManager;
         this.serverStatusService = serverStatusService;
         this.activityLogService = activityLogService;
         this.aiStrategySnapshotService = aiStrategySnapshotService;
+        this.batchJobMonitorService = batchJobMonitorService;
     }
 
     @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
@@ -379,6 +385,44 @@ public class AdminController {
         try {
             Map<String, Object> stats = aiStrategySnapshotService.getSnapshotStats();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", stats));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+        }
+    }
+
+    // ==================== 배치 잡 모니터링 ====================
+
+    @Operation(summary = "배치 잡 실행 목록", description = "배치 잡 실행 이력을 페이징하여 조회합니다.")
+    @GetMapping("/batch-jobs")
+    public ResponseEntity<ApiResponse<Page<BatchJobExecutionDto>>> getBatchJobs(
+            @RequestParam(required = false) String jobName,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        try {
+            Page<BatchJobExecutionDto> executions = batchJobMonitorService.getRecentExecutions(jobName, page, size);
+            return ResponseEntity.ok(ApiResponse.success("조회 성공", executions));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "배치 잡 오늘 요약", description = "오늘의 배치 잡 실행 통계를 조회합니다.")
+    @GetMapping("/batch-jobs/summary")
+    public ResponseEntity<ApiResponse<BatchJobSummaryDto>> getBatchJobSummary() {
+        try {
+            BatchJobSummaryDto summary = batchJobMonitorService.getSummary();
+            return ResponseEntity.ok(ApiResponse.success("조회 성공", summary));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "배치 잡 이름 목록", description = "등록된 배치 잡 이름 목록을 조회합니다.")
+    @GetMapping("/batch-jobs/names")
+    public ResponseEntity<ApiResponse<List<String>>> getBatchJobNames() {
+        try {
+            List<String> names = batchJobMonitorService.getJobNames();
+            return ResponseEntity.ok(ApiResponse.success("조회 성공", names));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
         }

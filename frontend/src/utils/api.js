@@ -857,6 +857,19 @@ export const analysisV2API = {
   }
 };
 
+// 배치 잡 모니터링 API
+export const batchJobAPI = {
+  getExecutions(params = {}) {
+    return apiClient.get('/admin/batch-jobs', { params });
+  },
+  getSummary() {
+    return apiClient.get('/admin/batch-jobs/summary');
+  },
+  getJobNames() {
+    return apiClient.get('/admin/batch-jobs/names');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
