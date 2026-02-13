@@ -44,6 +44,18 @@ public class InvestorTradeController {
         return ResponseEntity.ok(ApiResponse.success(trades));
     }
 
+    @Operation(summary = "투자자별 실시간 매매 상위 종목 (장중: KIS API, 장외: DB)")
+    @GetMapping("/top-trades/realtime")
+    public ResponseEntity<ApiResponse<List<InvestorTradeDto>>> getTopTradesRealtime(
+            @RequestParam String investorType,
+            @RequestParam(required = false, defaultValue = "10") Integer limit) {
+
+        List<InvestorTradeDto> trades = investorTradeService.getTopTradesRealtime(
+                investorType.toUpperCase(), limit);
+
+        return ResponseEntity.ok(ApiResponse.success(trades));
+    }
+
     @Operation(summary = "전체 투자자 상위 매매 종목 조회")
     @GetMapping("/all-top-trades")
     public ResponseEntity<ApiResponse<Map<String, List<InvestorTradeDto>>>> getAllTopTrades(

@@ -123,9 +123,18 @@ export default {
   mounted() {
     this.loadAllSections()
     this.setupKeyboardShortcut()
+    // 60초마다 스마트 머니 + 섹터 히트맵 자동 갱신
+    this._refreshTimer = setInterval(() => {
+      this.loadSmartMoney()
+      this.loadMarketMap()
+    }, 60000)
   },
   beforeUnmount() {
     this.removeKeyboardShortcut()
+    if (this._refreshTimer) {
+      clearInterval(this._refreshTimer)
+      this._refreshTimer = null
+    }
   },
   methods: {
     async loadAllSections() {
@@ -152,6 +161,11 @@ export default {
     hasSectorData(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(s => s.sectorName || (s.totalTradingValue && s.totalTradingValue > 0))
+    },
+    // 섹터 changeRate가 유효한지 (전부 0이면 무효)
+    hasSectorChangeRate(arr) {
+      if (!Array.isArray(arr) || arr.length === 0) return false
+      return arr.some(s => s.changeRate && s.changeRate !== 0)
     },
     // 매매 데이터가 유효한지 (금액 전부 0이면 무효)
     hasTradeData(arr) {
@@ -213,26 +227,42 @@ export default {
       }
     },
 
-    // Section B: 시장 지도 (V2 → Java, 3초 타임아웃)
+    // Section B: 시장 지도 (V2 → Java, changeRate 검증 포함)
     async loadMarketMap() {
       try {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
         const [sectorRes, marketRes, leadingRes, nasdaqRes] = await Promise.allSettled([
-          withTimeout(marketV2API.getSectors('TODAY').catch(() => sectorAPI.getSectorTrading('TODAY')), 10000),
+          withTimeout(marketV2API.getSectors('TODAY'), 5000)
+            .catch(() => null),
           withTimeout(marketV2API.getStatus().catch(() => marketAPI.getStatus())),
           withTimeout(marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors())),
           withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures()))
         ])
-        // Sector
-        if (sectorRes.status === 'fulfilled') {
+        // Sector - V2 응답 검증 후, changeRate 전부 0이면 Java API 재시도
+        let sectorArr = []
+        if (sectorRes.status === 'fulfilled' && sectorRes.value) {
           const d = this.extractData(sectorRes.value)
-          console.log('[API] Sector 원본:', d)
+          console.log('[API] Sector V2 원본:', d)
           const arr = Array.isArray(d) ? d : (d?.sectors || [])
-          this.sectorData = this.hasSectorData(arr) ? arr : []
-        } else {
-          this.sectorData = []
+          if (this.hasSectorData(arr) && this.hasSectorChangeRate(arr)) {
+            sectorArr = arr
+          }
         }
+        // V2 실패 또는 changeRate 전부 0 → Java API 직접 호출 (120초 타임아웃)
+        if (sectorArr.length === 0) {
+          try {
+            console.log('[API] Sector V2 changeRate 0 → Java API 재시도')
+            const javaRes = await withTimeout(sectorAPI.getSectorTrading('TODAY'), 120000)
+            const jd = this.extractData(javaRes)
+            console.log('[API] Sector Java 원본:', jd)
+            const jarr = Array.isArray(jd) ? jd : (jd?.sectors || [])
+            sectorArr = this.hasSectorData(jarr) ? jarr : []
+          } catch (e) {
+            console.warn('[API] Sector Java API 실패:', e.message)
+          }
+        }
+        this.sectorData = sectorArr
         // Market - Java API 포맷 변환 (kospi.indexClose → kospiIndex)
         if (marketRes.status === 'fulfilled') {
           const d = this.extractData(marketRes.value)
@@ -266,14 +296,18 @@ export default {
       }
     },
 
-    // Section C: 스마트 머니 (V2 → Java, 3초 타임아웃)
+    // Section C: 스마트 머니 (실시간 KIS API 우선, 폴백: V2 → Java DB)
     async loadSmartMoney() {
       try {
         this.sections.smartMoney.loading = true
         this.sections.smartMoney.error = false
         const [foreignRes, instRes, consecutiveRes, surgeRes] = await Promise.allSettled([
-          withTimeout(investorV2API.getTopTrades('FOREIGN', 10).catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10))),
-          withTimeout(investorV2API.getTopTrades('INSTITUTION', 10).catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))),
+          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10).catch(() =>
+            investorV2API.getTopTrades('FOREIGN', 10).catch(() =>
+              investorAPI.getTopTrades('FOREIGN', 'BUY', 10))), 10000),
+          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10).catch(() =>
+            investorV2API.getTopTrades('INSTITUTION', 10).catch(() =>
+              investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))), 10000),
           withTimeout(investorV2API.getAllConsecutiveBuy(3).catch(() => investorAPI.getAllConsecutiveBuy(3))),
           withTimeout(investorV2API.getAllSurgeStocks().catch(() => investorAPI.getAllSurgeStocks()))
         ])

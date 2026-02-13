@@ -719,6 +719,12 @@ export const investorAPI = {
       params: { investorType, tradeType, limit }
     });
   },
+  // 실시간 상위 매매 (장중: KIS API 직접, 장외: DB)
+  getTopTradesRealtime(investorType, limit = 10) {
+    return apiClient.get('/investor/top-trades/realtime', {
+      params: { investorType, limit }
+    });
+  },
   // 전체 투자자 상위 매매 (외국인+기관 통합)
   getAllTopTrades(tradeType = 'BUY', limit = 50) {
     return apiClient.get('/investor/all-top-trades', {
