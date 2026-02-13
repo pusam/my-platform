@@ -97,15 +97,6 @@
           </div>
         </div>
 
-        <!-- 프로그램 매매 차트 -->
-        <div class="program-chart-section">
-          <ProgramTradingChart
-            :series="programTradingSeries"
-            :programNetBuy="supplyDemand?.programNetBuy || 0"
-            :programTrend="supplyDemand?.programTrend || 'FLAT'"
-          />
-        </div>
-
         <!-- 핵심 재무 -->
         <div class="financial-section">
           <h2>핵심 재무</h2>
@@ -321,7 +312,6 @@
       <p>종목명 또는 종목코드를 입력하면<br/>차트, 수급, 리스크, AI 분석을 한눈에 보여드립니다.</p>
       <div class="feature-badges">
         <span class="badge">실시간 체결강도</span>
-        <span class="badge">프로그램 매매</span>
         <span class="badge">AI 리스크 분석</span>
         <span class="badge">매매 전략</span>
       </div>
@@ -339,7 +329,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
-import ProgramTradingChart from '../components/ProgramTradingChart.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';
 
 const route = useRoute();
@@ -360,9 +349,6 @@ const chartData = ref(null);
 const autoRefresh = ref(true);
 const lastUpdated = ref(null);
 let refreshInterval = null;
-
-// 프로그램 매매 시계열
-const programTradingSeries = ref([]);
 
 const hasData = computed(() => priceInfo.value !== null);
 
@@ -625,15 +611,6 @@ const fetchAllData = async (code, searchedName) => {
       aiAnalysis.value = data.aiAnalysis;
       chartData.value = data.chartData;
 
-      // 프로그램 매매 시계열 생성
-      if (data.supplyDemand?.programTradingSeries) {
-        programTradingSeries.value = data.supplyDemand.programTradingSeries;
-      } else {
-        programTradingSeries.value = generateProgramTradingSeries(
-          data.supplyDemand?.programNetBuy || 0
-        );
-      }
-
       lastUpdated.value = new Date();
     }
   } catch (error) {
@@ -654,10 +631,6 @@ const refreshRealtimeData = async () => {
       supplyDemand.value = data.supplyDemand;
       lastUpdated.value = new Date();
 
-      // 프로그램 매매 시계열 업데이트
-      if (data.supplyDemand?.programTradingSeries) {
-        programTradingSeries.value = data.supplyDemand.programTradingSeries;
-      }
     }
   } catch (error) {
     console.error('실시간 갱신 오류:', error);
@@ -682,49 +655,6 @@ const stopAutoRefresh = () => {
     clearInterval(refreshInterval);
     refreshInterval = null;
   }
-};
-
-// 프로그램 매매 시계열 생성
-const generateProgramTradingSeries = (finalValue) => {
-  const series = [];
-  const now = new Date();
-  const marketOpen = new Date();
-  marketOpen.setHours(9, 0, 0, 0);
-
-  const endTime = now.getHours() >= 9 && now.getHours() < 16
-    ? now
-    : new Date(marketOpen.getTime() + 6 * 60 * 60 * 1000);
-
-  const totalMinutes = Math.floor((endTime - marketOpen) / (1000 * 60));
-  const intervals = Math.min(Math.max(Math.floor(totalMinutes / 10), 15), 40);
-
-  let cumulative = 0;
-  const stepSize = Math.abs(finalValue) / intervals;
-  const direction = finalValue >= 0 ? 1 : -1;
-
-  for (let i = 0; i <= intervals; i++) {
-    const time = new Date(marketOpen.getTime() + (i * 10 * 60 * 1000));
-    const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-
-    if (i === 0) {
-      cumulative = 0;
-    } else {
-      const rand = Math.random();
-      if (rand > 0.7) {
-        cumulative += stepSize * direction * (2 + Math.random());
-      } else if (rand > 0.3) {
-        cumulative += stepSize * direction * (0.8 + Math.random() * 0.5);
-      }
-    }
-
-    series.push({ time: timeStr, value: Math.round(cumulative) });
-  }
-
-  if (series.length > 0) {
-    series[series.length - 1].value = finalValue;
-  }
-
-  return series;
 };
 
 // 차트 스타일 계산
@@ -1155,12 +1085,6 @@ onUnmounted(() => {
 .volume-bar.up { background: rgba(239, 68, 68, 0.5); }
 
 /* Program Chart Section */
-.program-chart-section {
-  background: rgba(30, 30, 60, 0.6);
-  border-radius: 16px;
-  border: 1px solid #2a2a5a;
-  overflow: hidden;
-}
 
 /* Financial Section */
 .financial-section {
