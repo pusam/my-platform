@@ -782,6 +782,10 @@ export const stockDetailAPI = {
   // 종목 종합 상세 조회 (수급/재무/리스크/AI 분석 통합)
   getSummary(stockCode) {
     return apiClient.get(`/stock/${stockCode}/summary`, { timeout: 90000 });
+  },
+  // 종목 펀더멘털 진단 (재무/수급/기술적 분석)
+  getDiagnosis(stockCode) {
+    return apiClient.get(`/analysis/diagnosis/${stockCode}`, { timeout: 60000 });
   }
 };
 
