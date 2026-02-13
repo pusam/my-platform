@@ -248,7 +248,7 @@ public class MarketTimingController {
             log.error("AI 시장 예측 오류: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("message", "AI 시장 예측 실패: " + e.getMessage());
-            return ResponseEntity.internalServerError().body(response);
+            return ResponseEntity.ok(response);
         }
     }
 

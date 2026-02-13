@@ -129,8 +129,13 @@
           </div>
 
           <div class="forecast-summary">{{ forecastData.summary }}</div>
-          <div v-if="forecastData.fallback" class="fallback-notice">* 기본 예측 (AI 응답 실패 시 기계적 산출)</div>
           <button class="forecast-detail-btn" @click="showForecastDetail = true">자세히 보기 →</button>
+        </div>
+
+        <div v-else-if="forecastError" class="forecast-error">
+          <span class="error-icon">⚠️</span>
+          <span class="error-text">AI 분석 실패</span>
+          <button class="retry-btn" @click="retryForecast">재분석 요청</button>
         </div>
 
         <div v-else class="empty-msg">예측 데이터를 불러올 수 없습니다.</div>
@@ -185,6 +190,8 @@ export default {
       ],
       forecastData: null,
       forecastLoading: false,
+      forecastError: false,
+      forecastRetryCount: 0,
       showForecastDetail: false
     }
   },
@@ -295,16 +302,34 @@ export default {
   methods: {
     async loadForecast() {
       this.forecastLoading = true
+      this.forecastError = false
       try {
         const res = await marketAPI.getForecast()
         if (res.data && res.data.success !== false) {
           this.forecastData = res.data
+        } else {
+          this.forecastError = true
+          // 자동 재시도 1회 (5초 후)
+          if (this.forecastRetryCount < 1) {
+            this.forecastRetryCount++
+            setTimeout(() => this.loadForecast(), 5000)
+          }
         }
       } catch (e) {
         console.error('Forecast load failed:', e)
+        this.forecastError = true
+        if (this.forecastRetryCount < 1) {
+          this.forecastRetryCount++
+          setTimeout(() => this.loadForecast(), 5000)
+        }
       } finally {
         this.forecastLoading = false
       }
+    },
+    retryForecast() {
+      this.forecastRetryCount = 0
+      this.forecastData = null
+      this.loadForecast()
     },
     getBlockStyle(sector) {
       const ratio = (sector.totalTradingValue || sector.tradingValue || 0) / this.maxTradingValue
@@ -529,11 +554,33 @@ export default {
   font-size: 12px;
   line-height: 1.6;
 }
-.fallback-notice {
-  margin-top: 8px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.3);
-  text-align: center;
+.forecast-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px 0;
+}
+.error-icon { font-size: 28px; }
+.error-text {
+  font-size: 14px;
+  color: rgba(255,255,255,0.5);
+  font-weight: 600;
+}
+.retry-btn {
+  padding: 8px 20px;
+  background: rgba(102,126,234,0.15);
+  border: 1px solid rgba(102,126,234,0.3);
+  border-radius: 8px;
+  color: #667eea;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.retry-btn:hover {
+  background: rgba(102,126,234,0.25);
+  border-color: #667eea;
 }
 .forecast-detail-btn {
   display: block;

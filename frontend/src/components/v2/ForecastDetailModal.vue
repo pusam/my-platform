@@ -67,7 +67,6 @@
         <!-- Base Info -->
         <div class="detail-base-info">
           <span>기준 지수: {{ formatNum(forecastData.baseIndex) }}</span>
-          <span v-if="forecastData.fallback" class="fallback-badge">기본 예측</span>
         </div>
       </div>
     </div>
@@ -384,13 +383,6 @@ export default {
   font-size: 12px;
   color: rgba(255,255,255,0.35);
 }
-.fallback-badge {
-  background: rgba(255,255,255,0.08);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-}
-
 /* Scrollbar */
 .modal-container::-webkit-scrollbar { width: 6px; }
 .modal-container::-webkit-scrollbar-track { background: transparent; }

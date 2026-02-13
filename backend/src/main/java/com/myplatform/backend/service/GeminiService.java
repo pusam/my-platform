@@ -55,6 +55,11 @@ public class GeminiService {
     private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
     private volatile LocalDateTime quotaResetTime = null;
 
+    // Forecast 캐시 (10분)
+    private static final long FORECAST_CACHE_MINUTES = 10;
+    private volatile Map<String, Object> forecastCache = null;
+    private volatile LocalDateTime forecastCacheTime = null;
+
     public GeminiService(OllamaService ollamaService) {
         this.restTemplate = new RestTemplate();
         this.ollamaService = ollamaService;
@@ -359,9 +364,15 @@ public class GeminiService {
             List<InvestorSurgeDto> instBuys,
             List<NewsSummaryDto> recentNews) {
 
+        // 캐시 확인 (10분 이내)
+        if (forecastCache != null && forecastCacheTime != null
+                && forecastCacheTime.plusMinutes(FORECAST_CACHE_MINUTES).isAfter(LocalDateTime.now())) {
+            log.info("[Market Forecast] 캐시 반환 (캐시 시간: {})", forecastCacheTime);
+            return forecastCache;
+        }
+
         if (marketStatus == null || marketStatus.getKospi() == null) {
-            log.warn("[Market Forecast] 시장 데이터 없음 - 기본 예측 반환");
-            return buildFallbackForecast(2700.0);
+            throw new RuntimeException("시장 데이터 없음 - KOSPI 데이터를 먼저 수집해주세요");
         }
 
         double currentIndex = marketStatus.getKospi().getIndexClose() != null
@@ -376,8 +387,8 @@ public class GeminiService {
         String prompt = buildForecastPrompt(marketStatus, currentIndex, foreignBuys, instBuys, recentNews);
         Map<String, Object> schema = buildForecastResponseSchema();
 
-        // 1차: JSON 모드 + responseSchema 호출
-        String response = callGeminiApiForJson(prompt, schema);
+        // 1차: JSON 모드 + responseSchema 호출 (quota 바이패스)
+        String response = callGeminiApiForJson(prompt, schema, true);
         if (response != null && !response.isBlank()) {
             log.info("[Market Forecast] Gemini JSON 응답 수신 ({}자): {}", response.length(),
                     response.length() > 200 ? response.substring(0, 200) + "..." : response);
@@ -385,6 +396,8 @@ public class GeminiService {
             if (parsed != null) {
                 log.info("[Market Forecast] Gemini JSON 파싱 성공");
                 consecutiveErrors.set(0);
+                forecastCache = parsed;
+                forecastCacheTime = LocalDateTime.now();
                 return parsed;
             }
             log.warn("[Market Forecast] JSON 파싱 실패 - 텍스트 모드 재시도");
@@ -403,6 +416,8 @@ public class GeminiService {
             if (parsed != null) {
                 log.info("[Market Forecast] 텍스트 모드 파싱 성공");
                 consecutiveErrors.set(0);
+                forecastCache = parsed;
+                forecastCacheTime = LocalDateTime.now();
                 return parsed;
             }
             log.warn("[Market Forecast] 텍스트 모드 파싱도 실패");
@@ -411,8 +426,7 @@ public class GeminiService {
                     textResponse != null ? textResponse.substring(0, Math.min(100, textResponse.length())) : "null");
         }
 
-        log.warn("[Market Forecast] 모든 Gemini 시도 실패 - 하드코딩 폴백 반환");
-        return buildFallbackForecast(currentIndex);
+        throw new RuntimeException("Gemini AI 예측 생성 실패 - 잠시 후 다시 시도해주세요");
     }
 
     private String buildForecastPrompt(
@@ -835,7 +849,14 @@ public class GeminiService {
      * Gemini API 호출 (JSON 응답 전용) - 스키마 없는 버전
      */
     private String callGeminiApiForJson(String prompt) {
-        return callGeminiApiForJson(prompt, null);
+        return callGeminiApiForJson(prompt, null, false);
+    }
+
+    /**
+     * Gemini API 호출 (JSON 응답 전용) - 스키마 지정, quota 체크 포함
+     */
+    private String callGeminiApiForJson(String prompt, Map<String, Object> responseSchema) {
+        return callGeminiApiForJson(prompt, responseSchema, false);
     }
 
     /**
@@ -843,15 +864,16 @@ public class GeminiService {
      * - temperature: 0.3 (일관성 높임)
      * - responseMimeType: application/json
      * - responseSchema: 선택적 JSON 스키마 (구조 강제)
+     * - bypassQuota: true이면 quotaResetTime 체크 건너뜀 (forecast 등 독립 호출용)
      */
-    private String callGeminiApiForJson(String prompt, Map<String, Object> responseSchema) {
+    private String callGeminiApiForJson(String prompt, Map<String, Object> responseSchema, boolean bypassQuota) {
         if (apiKey == null || apiKey.isEmpty()) {
             log.warn("[Gemini JSON] API 키 미설정 - 호출 스킵");
             return null;
         }
 
-        // 쿼터 리셋 시간 체크
-        if (quotaResetTime != null && LocalDateTime.now().isBefore(quotaResetTime)) {
+        // 쿼터 리셋 시간 체크 (bypassQuota이면 건너뜀)
+        if (!bypassQuota && quotaResetTime != null && LocalDateTime.now().isBefore(quotaResetTime)) {
             log.warn("[Gemini JSON] 쿼터 제한 중 (리셋: {}) - 호출 스킵", quotaResetTime);
             return null;
         }
