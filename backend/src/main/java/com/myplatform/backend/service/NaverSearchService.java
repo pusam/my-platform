@@ -114,11 +114,16 @@ public class NaverSearchService {
         List<NewsItem> recentNews = filterByDate(relevantNews);
         log.info("[NaverSearch] 7일 이내 필터 후: {}건", recentNews.size());
 
-        // 4. Fail-safe: 0건이면 원본 상위 N개 반환
+        // 4. Fail-safe: 0건이면 종목명 필터된 뉴스 반환 (비관련 뉴스 유입 방지)
         List<NewsItem> result;
         if (recentNews.isEmpty()) {
-            log.warn("[NaverSearch] ⚠️ 7일 이내 뉴스 0건 → Fail-safe 발동: 원본 상위 {}개 반환", FALLBACK_COUNT);
-            result = getTopN(relevantNews.isEmpty() ? rawNews : relevantNews, FALLBACK_COUNT);
+            if (!relevantNews.isEmpty()) {
+                log.warn("[NaverSearch] 7일 이내 뉴스 0건 → 종목명 매칭 뉴스 상위 {}개 반환", FALLBACK_COUNT);
+                result = getTopN(relevantNews, FALLBACK_COUNT);
+            } else {
+                log.warn("[NaverSearch] 종목명 매칭 뉴스 0건 → 빈 목록 반환 (비관련 뉴스 유입 방지)");
+                result = Collections.emptyList();
+            }
         } else {
             result = getTopN(recentNews, MAX_RESULT_COUNT);
         }
@@ -270,6 +275,11 @@ public class NaverSearchService {
         if (stockName.contains("SK하이닉스")) {
             return Arrays.asList("SK텔레콤", "SK이노베이션", "SK바이오팜",
                     "SK스퀘어", "SKC", "SK네트웍스");
+        }
+        // SK스퀘어 검색 시 다른 SK/삼성 계열사 제외
+        if (stockName.contains("SK스퀘어")) {
+            return Arrays.asList("SK하이닉스", "SK텔레콤", "SK이노베이션",
+                    "삼성전자", "삼성SDI", "삼성물산");
         }
         // LG전자 검색 시 다른 LG 계열사 제외
         if (stockName.contains("LG전자")) {

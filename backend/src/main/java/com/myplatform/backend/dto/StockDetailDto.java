@@ -86,6 +86,9 @@ public class StockDetailDto {
         private BigDecimal programNetBuy;     // 프로그램 누적 순매수 (억원)
         private String programTrend;          // UP, DOWN, FLAT
         private List<ScalpingAnalysisDto.ProgramTradingPoint> programSeries;
+
+        // 데이터 출처 표시
+        private String dataSource;            // "실시간", "일별(DB)", "장전(초기화)"
     }
 
     /**

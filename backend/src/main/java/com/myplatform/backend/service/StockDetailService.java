@@ -174,10 +174,17 @@ public class StockDetailService {
             }
 
             if (supplyDemand != null) {
-                log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}%{}",
+                // ★ 데이터 출처 표시
+                if (isBeforeMarket) {
+                    supplyDemand.setDataSource("장전(초기화)");
+                } else if (isAfterMarket) {
+                    supplyDemand.setDataSource("일별(DB)");
+                } else {
+                    supplyDemand.setDataSource("실시간");
+                }
+                log.info("[StockDetail] 수급 데이터 - 외국인: {}억, 기관: {}억, 체결강도: {}% [{}]",
                         supplyDemand.getForeignNetBuy(), supplyDemand.getInstNetBuy(),
-                        supplyDemand.getVolumePower(),
-                        isAfterMarket ? " (장마감-DB)" : " (장중-API)");
+                        supplyDemand.getVolumePower(), supplyDemand.getDataSource());
                 builder.supplyDemand(supplyDemand);
             } else {
                 log.warn("[StockDetail] 수급 데이터 없음");

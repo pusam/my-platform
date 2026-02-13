@@ -127,6 +127,23 @@
             </div>
           </div>
         </div>
+
+        <!-- 관련 뉴스 (좌측 하단) -->
+        <div class="news-section-left">
+          <div class="section-header">
+            <h2>관련 뉴스</h2>
+            <span class="news-count">{{ riskInfo?.news?.length || 0 }}건</span>
+          </div>
+          <div class="news-list" v-if="riskInfo?.news?.length">
+            <div v-for="(news, index) in riskInfo.news.slice(0, 8)" :key="index" class="news-item">
+              <a :href="news.link" target="_blank">{{ truncate(news.title, 60) }}</a>
+              <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>
+            </div>
+          </div>
+          <div v-else class="no-news">
+            <p>관련 뉴스가 없습니다.</p>
+          </div>
+        </div>
       </div>
 
       <!-- ========== Right Column: 정보 영역 ========== -->
@@ -141,7 +158,12 @@
 
           <!-- 투자자별 수급 막대 차트 -->
           <div class="investor-section">
-            <h3>실시간 수급</h3>
+            <div class="supply-header">
+              <h3>투자자별 수급</h3>
+              <span class="data-source-badge" :class="supplySourceClass">
+                {{ supplyDemand?.dataSource || '대기' }}
+              </span>
+            </div>
             <div class="investor-bar-chart">
               <!-- 외국인 -->
               <div class="investor-bar-row">
@@ -284,24 +306,6 @@
           </div>
         </div>
 
-        <!-- Zone C: 뉴스 -->
-        <div class="zone zone-c">
-          <div class="news-section">
-            <div class="section-header">
-              <h2>관련 뉴스</h2>
-              <span class="news-count">{{ riskInfo?.news?.length || 0 }}건</span>
-            </div>
-            <div class="news-list" v-if="riskInfo?.news?.length">
-              <div v-for="(news, index) in riskInfo.news.slice(0, 8)" :key="index" class="news-item">
-                <a :href="news.link" target="_blank">{{ truncate(news.title, 50) }}</a>
-                <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>
-              </div>
-            </div>
-            <div v-else class="no-news">
-              <p>관련 뉴스가 없습니다.</p>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -499,6 +503,14 @@ const riskStatusClass = computed(() => {
   if (status === 'SAFE') return 'safe';
   if (status === 'WARNING') return 'warning';
   if (status === 'DANGER') return 'danger';
+  return '';
+});
+
+const supplySourceClass = computed(() => {
+  const source = supplyDemand.value?.dataSource;
+  if (source === '실시간') return 'live';
+  if (source === '일별(DB)') return 'daily';
+  if (source === '장전(초기화)') return 'pre-market';
   return '';
 });
 
@@ -1122,10 +1134,42 @@ onUnmounted(() => {
   border-top: 1px solid #2a2a4a;
 }
 
-.investor-section h3 {
-  margin: 0 0 12px 0;
+.supply-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.supply-header h3 {
+  margin: 0;
   font-size: 1rem;
   color: #ccc;
+}
+
+.data-source-badge {
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.data-source-badge.live {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.data-source-badge.daily {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.data-source-badge.pre-market {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.4);
 }
 
 .investor-bar-chart {
@@ -1352,8 +1396,15 @@ onUnmounted(() => {
 .reasons-section ul { margin: 0; padding-left: 14px; }
 .reasons-section li { font-size: 0.75rem; color: #aaa; margin-bottom: 3px; }
 
-/* Zone C - News */
-.news-section h2 { font-size: 1rem; }
+/* Left Column - News */
+.news-section-left {
+  background: rgba(30, 30, 60, 0.6);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #2a2a5a;
+}
+
+.news-section-left h2 { font-size: 1rem; }
 .news-count { font-size: 0.85rem; color: #888; }
 
 .news-list {
