@@ -433,7 +433,12 @@ public class GeminiService {
                     textResponse != null ? textResponse.substring(0, Math.min(100, textResponse.length())) : "null");
         }
 
-        throw new RuntimeException("Gemini AI 예측 생성 실패 - 잠시 후 다시 시도해주세요");
+        // Gemini 완전 실패 → 기계적 fallback 예측 반환
+        log.warn("[Market Forecast] Gemini 실패 → 기계적 fallback 예측 반환 (KOSPI: {})", currentIndex);
+        Map<String, Object> fallback = buildFallbackForecast(currentIndex);
+        forecastCache = fallback;
+        forecastCacheTime = LocalDateTime.now();
+        return fallback;
     }
 
     private String buildForecastPrompt(

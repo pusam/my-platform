@@ -100,6 +100,10 @@
         </div>
 
         <div v-else-if="forecastData" class="forecast-content">
+          <div v-if="forecastData.fallback" class="fallback-notice">
+            <span>AI 분석 일시 불가 — 현재 지수 기반 기계적 예측입니다.</span>
+            <button class="retry-btn-sm" @click="retryForecast">AI 재분석</button>
+          </div>
           <div class="forecast-chart-container">
             <Line :data="forecastChartData" :options="forecastChartOptions" />
           </div>
@@ -553,6 +557,34 @@ export default {
   color: rgba(255,255,255,0.65);
   font-size: 12px;
   line-height: 1.6;
+}
+.fallback-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 8px;
+  font-size: 12px;
+  color: rgba(245, 158, 11, 0.85);
+}
+.retry-btn-sm {
+  padding: 4px 12px;
+  background: rgba(102,126,234,0.15);
+  border: 1px solid rgba(102,126,234,0.3);
+  border-radius: 6px;
+  color: #667eea;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+.retry-btn-sm:hover {
+  background: rgba(102,126,234,0.25);
 }
 .forecast-error {
   display: flex;
