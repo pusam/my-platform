@@ -50,6 +50,10 @@ const props = defineProps({
   signal: {
     type: String,
     default: 'NEUTRAL'
+  },
+  dataSource: {
+    type: String,
+    default: ''
   }
 });
 
@@ -79,8 +83,10 @@ const hasValidData = computed(() => {
   return props.volumePower != null && props.volumePower > 0;
 });
 
-// 장 시작 대기 상태 (09:00 이전이고 데이터가 없을 때만)
+// 장 시작 대기 상태
 const isPreMarket = computed(() => {
+  // 백엔드에서 '장전(초기화)' 소스 → 무조건 대기 상태
+  if (props.dataSource === '장전(초기화)') return true;
   // 장 마감 후에는 데이터가 있으면 표시
   if (isAfterMarket.value && hasValidData.value) return false;
   // 장중이면 데이터 있으면 표시

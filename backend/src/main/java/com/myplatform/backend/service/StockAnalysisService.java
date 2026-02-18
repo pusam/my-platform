@@ -245,6 +245,8 @@ public class StockAnalysisService {
         BigDecimal netMargin = data.getNetMargin();
         BigDecimal roe = data.getRoe();
         BigDecimal debtRatio = data.getDebtRatio();
+        BigDecimal revenue = data.getRevenue();
+        BigDecimal totalEquity = data.getTotalEquity();
 
         // operatingProfit/netIncome이 없으면 가장 최근 분기 데이터에서 조회
         if ((operatingProfit == null || netIncome == null) && data.getStockCode() != null) {
@@ -261,8 +263,51 @@ public class StockAnalysisService {
                     log.debug("[재무분석] {} 당기순이익 보완: {} (from {})",
                             data.getStockCode(), netIncome, hist.getReportDate());
                 }
-                if (operatingProfit != null && netIncome != null) break;
+                if (revenue == null && hist.getRevenue() != null) {
+                    revenue = hist.getRevenue();
+                }
+                if (totalEquity == null && hist.getTotalEquity() != null) {
+                    totalEquity = hist.getTotalEquity();
+                }
+                if (operatingProfit != null && netIncome != null
+                        && revenue != null && totalEquity != null) break;
             }
+        }
+
+        // ★ 영업이익률: DB값이 null/0이면 영업이익÷매출액으로 재계산
+        if ((operatingMargin == null || operatingMargin.compareTo(BigDecimal.ZERO) == 0)
+                && operatingProfit != null && revenue != null
+                && revenue.compareTo(BigDecimal.ZERO) > 0) {
+            operatingMargin = operatingProfit
+                    .divide(revenue, 6, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP);
+            log.info("[재무분석] {} 영업이익률 재계산: {}% (영업이익: {}, 매출: {})",
+                    data.getStockCode(), operatingMargin, operatingProfit, revenue);
+        }
+
+        // ★ 순이익률: DB값이 null/0이면 당기순이익÷매출액으로 재계산
+        if ((netMargin == null || netMargin.compareTo(BigDecimal.ZERO) == 0)
+                && netIncome != null && revenue != null
+                && revenue.compareTo(BigDecimal.ZERO) > 0) {
+            netMargin = netIncome
+                    .divide(revenue, 6, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP);
+            log.info("[재무분석] {} 순이익률 재계산: {}% (순이익: {}, 매출: {})",
+                    data.getStockCode(), netMargin, netIncome, revenue);
+        }
+
+        // ★ ROE: DB값이 null/0이면 당기순이익÷자본총계로 재계산
+        if ((roe == null || roe.compareTo(BigDecimal.ZERO) == 0)
+                && netIncome != null && totalEquity != null
+                && totalEquity.compareTo(BigDecimal.ZERO) > 0) {
+            roe = netIncome
+                    .divide(totalEquity, 6, RoundingMode.HALF_UP)
+                    .multiply(new BigDecimal("100"))
+                    .setScale(2, RoundingMode.HALF_UP);
+            log.info("[재무분석] {} ROE 재계산: {}% (순이익: {}, 자본총계: {})",
+                    data.getStockCode(), roe, netIncome, totalEquity);
         }
 
         // 일회성 이익 분석

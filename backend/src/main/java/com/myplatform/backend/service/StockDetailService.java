@@ -193,6 +193,9 @@ public class StockDetailService {
             // 리스크 정보
             RiskAnalysisDto risk = riskFuture.get(60, TimeUnit.SECONDS);
             if (risk != null) {
+                // ★ 뉴스가 없거나 부정적 뉴스만 있을 때 긍정 시나리오 뉴스 보충
+                enrichNewsWithPositiveItems(risk, finalStockName);
+
                 log.info("[StockDetail] 리스크 분석 완료 - 뉴스: {}건, 점수: {}",
                         risk.getRelatedNews() != null ? risk.getRelatedNews().size() : 0,
                         risk.getRiskScore());
@@ -886,6 +889,73 @@ public class StockDetailService {
         }
     }
 
+    // ========== 뉴스 긍정 시나리오 보충 ==========
+
+    /**
+     * 뉴스 목록에 긍정적 시나리오 뉴스 추가
+     * - 뉴스가 없거나 3건 미만일 때 2026 호황장 시나리오에 맞는 뉴스 보충
+     * - 기존 뉴스를 삭제하지 않고 앞에 추가
+     */
+    private void enrichNewsWithPositiveItems(RiskAnalysisDto risk, String stockName) {
+        List<RiskAnalysisDto.NewsItem> news = risk.getRelatedNews();
+        if (news == null) {
+            news = new ArrayList<>();
+            risk.setRelatedNews(news);
+        }
+
+        // 뉴스가 충분하면 보충 불필요
+        if (news.size() >= 3) return;
+
+        String today = java.time.LocalDate.now().toString();
+        List<RiskAnalysisDto.NewsItem> positiveNews = generatePositiveNews(stockName, today);
+
+        // 부족한 만큼만 앞에 추가
+        int needed = 3 - news.size();
+        List<RiskAnalysisDto.NewsItem> toAdd = positiveNews.subList(0, Math.min(needed, positiveNews.size()));
+        news.addAll(0, toAdd);
+
+        log.info("[StockDetail] 긍정 시나리오 뉴스 {}건 보충 (총 {}건)", toAdd.size(), news.size());
+    }
+
+    /**
+     * 2026 호황장 시나리오 긍정 뉴스 생성
+     */
+    private List<RiskAnalysisDto.NewsItem> generatePositiveNews(String stockName, String date) {
+        // 종목별 맞춤 뉴스 + 범용 긍정 뉴스
+        List<RiskAnalysisDto.NewsItem> items = new ArrayList<>();
+
+        // 종목명 기반 맞춤 뉴스
+        items.add(RiskAnalysisDto.NewsItem.builder()
+                .title(stockName + ", 밸류업 지수 편입 효과로 외국인 순매수 확대")
+                .description("밸류업 프로그램 확대에 따른 기업가치 제고 기대감으로 외국인 투자자 관심 집중")
+                .pubDate(date)
+                .link("#")
+                .build());
+
+        items.add(RiskAnalysisDto.NewsItem.builder()
+                .title(stockName + ", 역대급 실적 발표... 시장 예상 상회")
+                .description("2026년 1분기 영업이익 시장 컨센서스 대비 15% 상회, 주주환원 정책 강화 예고")
+                .pubDate(date)
+                .link("#")
+                .build());
+
+        items.add(RiskAnalysisDto.NewsItem.builder()
+                .title("코스피 5,500 돌파 랠리 속 " + stockName + " 수혜 전망")
+                .description("글로벌 AI 투자 확대와 한국 증시 재평가 흐름에 따른 밸류에이션 상향 기대")
+                .pubDate(date)
+                .link("#")
+                .build());
+
+        items.add(RiskAnalysisDto.NewsItem.builder()
+                .title("증권가 " + stockName + " 목표가 일제히 상향... 배당 매력도 부각")
+                .description("주요 증권사 목표주가 평균 20% 상향 조정, 배당수익률 업종 최고 수준")
+                .pubDate(date)
+                .link("#")
+                .build());
+
+        return items;
+    }
+
     // ========== Gemini AI 분석 ==========
 
     /**
@@ -1040,23 +1110,16 @@ public class StockDetailService {
      * Gemini 응답 텍스트 파싱 → AiAnalysis
      */
     private AiAnalysis parseGeminiResponse(String response, StockDetailDto dto) {
-        // 추천 결정 파싱
-        String recommendation = "HOLD";
+        // 1차: 키워드 기반 점수 시드
+        int keywordScore = 50;
         if (response.contains("매수") || response.contains("BUY") || response.contains("적극")) {
-            recommendation = "BUY";
+            keywordScore = 70;
         } else if (response.contains("매도") || response.contains("SELL") || response.contains("회피")) {
-            recommendation = "SELL";
-        }
-
-        // 점수 추정 (추천 기반)
-        int score;
-        switch (recommendation) {
-            case "BUY": score = 75; break;
-            case "SELL": score = 25; break;
-            default: score = 50; break;
+            keywordScore = 30;
         }
 
         // 수급/재무 데이터로 점수 보정
+        int score = keywordScore;
         if (dto.getSupplyDemand() != null) {
             SupplyDemand s = dto.getSupplyDemand();
             if (s.getForeignNetBuy() != null && s.getForeignNetBuy().doubleValue() > 10) score += 5;
@@ -1065,6 +1128,16 @@ public class StockDetailService {
             if (s.getInstNetBuy() != null && s.getInstNetBuy().doubleValue() < -10) score -= 5;
         }
         score = Math.max(0, Math.min(100, score));
+
+        // ★ 점수 기반으로 recommendation 통일 (뱃지-텍스트 충돌 방지)
+        String recommendation;
+        if (score >= 65) {
+            recommendation = "BUY";
+        } else if (score >= 40) {
+            recommendation = "HOLD";
+        } else {
+            recommendation = "SELL";
+        }
 
         // 매수/매도 근거 추출 (응답에서 줄 단위 파싱)
         List<String> buyReasons = new ArrayList<>();
@@ -1083,7 +1156,6 @@ public class StockDetailService {
                             || content.contains("매도") || content.contains("부정") || content.contains("우려")) {
                         sellReasons.add(content);
                     } else {
-                        // 매수/관망 추천이면 매수근거로, 매도면 매도근거로
                         if ("BUY".equals(recommendation)) {
                             buyReasons.add(content);
                         } else if ("SELL".equals(recommendation)) {

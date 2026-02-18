@@ -160,8 +160,9 @@
         <div class="zone zone-a">
           <!-- 체결강도 게이지 -->
           <VolumePowerGauge
-            :volumePower="supplyDemand?.volumePower || 100"
+            :volumePower="supplyDemand?.dataSource === '장전(초기화)' ? 0 : (supplyDemand?.volumePower || 100)"
             :signal="supplyDemand?.volumeSignal || 'NEUTRAL'"
+            :dataSource="supplyDemand?.dataSource || ''"
           />
 
           <!-- 투자자별 수급 막대 차트 -->
@@ -225,14 +226,14 @@
           </div>
         </div>
 
-        <!-- Zone B: 리스크 게이지 + AI 전략 -->
+        <!-- Zone B: 안전 점수 게이지 + AI 전략 -->
         <div class="zone zone-b">
-          <!-- 리스크 게이지 (원형) -->
-          <div class="risk-gauge-section" :class="riskStatusClass">
+          <!-- 안전 점수 게이지 (원형) -->
+          <div class="risk-gauge-section" :class="safetyStatusClass">
             <div class="gauge-header">
-              <h2>리스크 분석</h2>
-              <span class="risk-badge" :class="riskStatusClass">
-                {{ getRiskStatusText(riskInfo?.riskStatus) }}
+              <h2>안전 점수</h2>
+              <span class="risk-badge" :class="safetyStatusClass">
+                {{ getSafetyStatusText(riskInfo?.riskStatus) }}
               </span>
             </div>
 
@@ -249,30 +250,30 @@
                   <path
                     d="M 20 100 A 80 80 0 0 1 180 100"
                     fill="none"
-                    stroke="url(#riskGaugeGradient)"
+                    stroke="url(#safetyGaugeGradient)"
                     stroke-width="16"
                     stroke-linecap="round"
                     :stroke-dasharray="gaugeArcLength"
-                    :stroke-dashoffset="gaugeDashOffset"
+                    :stroke-dashoffset="safetyGaugeDashOffset"
                     class="gauge-arc"
                   />
                   <defs>
-                    <linearGradient id="riskGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stop-color="#22c55e" />
+                    <linearGradient id="safetyGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#ef4444" />
                       <stop offset="50%" stop-color="#eab308" />
-                      <stop offset="100%" stop-color="#ef4444" />
+                      <stop offset="100%" stop-color="#22c55e" />
                     </linearGradient>
                   </defs>
                 </svg>
                 <div class="gauge-value">
-                  <span class="score" :class="riskStatusClass">{{ riskInfo?.riskScore ?? '-' }}</span>
+                  <span class="score" :class="safetyStatusClass">{{ safetyScore ?? '-' }}</span>
                   <span class="label">/100</span>
                 </div>
               </div>
               <div class="gauge-labels">
-                <span class="safe">안전</span>
-                <span class="warning">주의</span>
                 <span class="danger">위험</span>
+                <span class="warning">주의</span>
+                <span class="safe">안전</span>
               </div>
             </div>
 
@@ -396,9 +397,10 @@
               <span class="metric-value">{{ formatBillion(diagnosisData.financialHealth.netIncome) }}</span>
             </div>
             <div class="metric-row" v-if="diagnosisData.financialHealth.profitGapRatio">
-              <span class="metric-label">이익 차이</span>
+              <span class="metric-label">순이익-영업이익 괴리</span>
               <span class="metric-value" :class="{ 'warning-text': diagnosisData.financialHealth.hasOneTimeGainWarning }">
                 {{ formatPercent(diagnosisData.financialHealth.profitGapRatio) }}
+                <span class="metric-hint">(영업이익 대비)</span>
               </span>
             </div>
             <div v-if="diagnosisData.financialHealth.hasOneTimeGainWarning" class="one-time-warning">
@@ -792,8 +794,16 @@ const scoreDiffComment = computed(() => {
   return null;
 });
 
-const riskStatusClass = computed(() => {
+// ★ 안전 점수: 리스크 점수를 반전 (높을수록 안전)
+const safetyScore = computed(() => {
+  const risk = riskInfo.value?.riskScore;
+  if (risk === null || risk === undefined) return null;
+  return 100 - risk;
+});
+
+const safetyStatusClass = computed(() => {
   const status = riskInfo.value?.riskStatus;
+  // 안전 점수이므로 클래스를 반전: SAFE → safe(초록), DANGER → danger(빨강)
   if (status === 'SAFE') return 'safe';
   if (status === 'WARNING') return 'warning';
   if (status === 'DANGER') return 'danger';
@@ -815,11 +825,11 @@ const aiRecommendationClass = computed(() => {
   return 'hold';
 });
 
-// 리스크 게이지 계산
+// 안전 점수 게이지 계산
 const gaugeArcLength = computed(() => 251.2);
-const gaugeDashOffset = computed(() => {
-  if (!riskInfo.value?.riskScore) return gaugeArcLength.value;
-  const progress = riskInfo.value.riskScore / 100;
+const safetyGaugeDashOffset = computed(() => {
+  if (safetyScore.value === null) return gaugeArcLength.value;
+  const progress = safetyScore.value / 100;
   return gaugeArcLength.value * (1 - progress);
 });
 
@@ -1049,8 +1059,8 @@ const truncate = (str, len) => {
   return str.length > len ? str.substring(0, len) + '...' : str;
 };
 
-// 신호/상태 텍스트
-const getRiskStatusText = (status) => {
+// 안전 점수 상태 텍스트 (리스크 반전)
+const getSafetyStatusText = (status) => {
   const map = { 'SAFE': '안전', 'WARNING': '주의', 'DANGER': '위험' };
   return map[status] || '-';
 };
@@ -2190,6 +2200,13 @@ onUnmounted(() => {
 }
 
 .metric-value.warning-text { color: #f59e0b; }
+
+.metric-hint {
+  font-size: 0.7rem;
+  color: #888;
+  font-weight: 400;
+  margin-left: 4px;
+}
 
 .one-time-warning {
   padding: 6px 10px;
