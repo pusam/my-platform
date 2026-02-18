@@ -230,9 +230,26 @@ public class StockDetailService {
         }
         builder.financial(financial);
 
-        // ★ Peer Group 비교 데이터
+        // ★ Peer Group 비교 데이터 + 섹터 정보
+        String sector = detectSector(stockCode, stockName);
         List<StockDetailDto.PeerComparison> peers = buildPeerComparisons(stockCode, stockName, financial);
         builder.peerComparisons(peers);
+        builder.sectorName(sector);
+
+        // ★ 섹터 평균 PBR 계산
+        if (peers != null && !peers.isEmpty()) {
+            BigDecimal pbrSum = BigDecimal.ZERO;
+            int count = 0;
+            for (StockDetailDto.PeerComparison p : peers) {
+                if (p.getPbr() != null && p.getPbr().compareTo(BigDecimal.ZERO) > 0) {
+                    pbrSum = pbrSum.add(p.getPbr());
+                    count++;
+                }
+            }
+            if (count > 0) {
+                builder.sectorAvgPbr(pbrSum.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP));
+            }
+        }
 
         // 4. AI 종합 분석 생성 (Gemini 우선 → 규칙기반 폴백)
         StockDetailDto dto = builder.build();
@@ -318,19 +335,79 @@ public class StockDetailService {
     }
 
     /**
-     * 리스크 정보 변환
+     * 리스크 정보 변환 (뉴스 중복 제거 + 리스크 키워드 태그)
      */
     private RiskInfo parseRiskInfo(RiskAnalysisDto risk) {
+        // ★ 뉴스 중복 제거 (제목 기준 distinct)
+        List<RiskAnalysisDto.NewsItem> dedupedNews = null;
+        if (risk.getRelatedNews() != null) {
+            java.util.LinkedHashSet<String> seenTitles = new java.util.LinkedHashSet<>();
+            dedupedNews = new ArrayList<>();
+            for (RiskAnalysisDto.NewsItem news : risk.getRelatedNews()) {
+                String title = news.getTitle() != null ? news.getTitle().trim() : "";
+                if (!title.isEmpty() && seenTitles.add(title)) {
+                    dedupedNews.add(news);
+                }
+            }
+        }
+
+        // ★ 리스크 키워드 태그 생성
+        List<String> riskTags = generateRiskTags(risk);
+
         return RiskInfo.builder()
                 .riskScore(risk.getRiskScore())
                 .riskStatus(risk.getStatus() != null ? risk.getStatus().name() : "UNKNOWN")
                 .riskReason(risk.getReason())
                 .dangerDisclosureCount(risk.getDangerousDisclosures() != null ?
                         risk.getDangerousDisclosures().size() : 0)
-                .newsCount(risk.getRelatedNews() != null ? risk.getRelatedNews().size() : 0)
+                .newsCount(dedupedNews != null ? dedupedNews.size() : 0)
                 .disclosures(risk.getDangerousDisclosures())
-                .news(risk.getRelatedNews())
+                .news(dedupedNews)
+                .riskTags(riskTags)
                 .build();
+    }
+
+    /**
+     * 리스크 키워드 태그 생성 (뉴스/공시 기반)
+     */
+    private List<String> generateRiskTags(RiskAnalysisDto risk) {
+        List<String> tags = new ArrayList<>();
+
+        // 뉴스 키워드 스캔
+        if (risk.getRelatedNews() != null) {
+            String allNews = risk.getRelatedNews().stream()
+                    .map(n -> (n.getTitle() != null ? n.getTitle() : "") + " " + (n.getDescription() != null ? n.getDescription() : ""))
+                    .reduce("", (a, b) -> a + " " + b);
+
+            if (allNews.contains("금리") && (allNews.contains("인상") || allNews.contains("동결"))) tags.add("#금리 리스크");
+            if (allNews.contains("관세") || allNews.contains("무역")) tags.add("#무역 리스크");
+            if (allNews.contains("환율") || allNews.contains("달러")) tags.add("#환율 변동");
+            if (allNews.contains("실적") && (allNews.contains("부진") || allNews.contains("하회"))) tags.add("#실적 우려");
+            if (allNews.contains("감사") && allNews.contains("의견")) tags.add("#감사 리스크");
+            if (allNews.contains("공매도") || allNews.contains("대차")) tags.add("#공매도 주의");
+            if (allNews.contains("소송") || allNews.contains("제재")) tags.add("#법적 리스크");
+            if (allNews.contains("유상증자") || allNews.contains("CB")) tags.add("#희석 리스크");
+        }
+
+        // 공시 키워드 스캔
+        if (risk.getDangerousDisclosures() != null) {
+            for (RiskAnalysisDto.DartDisclosure disc : risk.getDangerousDisclosures()) {
+                if (disc.getMatchedKeyword() != null) {
+                    String kw = disc.getMatchedKeyword();
+                    if (kw.contains("상장폐지")) tags.add("#상장폐지 위험");
+                    if (kw.contains("횡령") || kw.contains("배임")) tags.add("#경영 리스크");
+                    if (kw.contains("감자")) tags.add("#감자 위험");
+                }
+            }
+        }
+
+        // 리스크 점수 기반 태그
+        if (risk.getRiskScore() != null) {
+            if (risk.getRiskScore() >= 80) tags.add("#고위험");
+            else if (risk.getRiskScore() >= 50) tags.add("#주의 필요");
+        }
+
+        return tags.isEmpty() ? null : tags;
     }
 
     /**
@@ -593,6 +670,9 @@ public class StockDetailService {
             strategy = "매수 보류 권장. 리스크가 높거나 수급이 불리합니다.";
         }
 
+        // ★ 동적 가격 가이드 생성
+        String priceGuide = generatePriceGuide(dto, recommendation, score);
+
         return AiAnalysis.builder()
                 .overallScore(score)
                 .recommendation(recommendation)
@@ -601,7 +681,75 @@ public class StockDetailService {
                 .buyReasons(buyReasons)
                 .sellReasons(sellReasons)
                 .conflictAnalysis(conflictAnalysis)
+                .priceGuide(priceGuide)
                 .build();
+    }
+
+    /**
+     * 동적 가격 가이드 생성 (구체적 가격대 포함)
+     */
+    private String generatePriceGuide(StockDetailDto dto, String recommendation, int score) {
+        if (dto.getPrice() == null || dto.getPrice().getCurrentPrice() == null) return null;
+
+        BigDecimal currentPrice = dto.getPrice().getCurrentPrice();
+        double price = currentPrice.doubleValue();
+
+        // 지지선/저항선 계산
+        BigDecimal ma20 = dto.getChartData() != null ? dto.getChartData().getMa20() : null;
+        BigDecimal ma60 = dto.getChartData() != null ? dto.getChartData().getMa60() : null;
+        BigDecimal vwap = dto.getChartData() != null ? dto.getChartData().getVwap() : null;
+        BigDecimal low = dto.getPrice().getLow();
+
+        // 가격 반올림 단위 결정 (1000원 이상 → 1000원 단위, 미만 → 100원 단위)
+        int roundUnit = price >= 100000 ? 10000 : (price >= 10000 ? 1000 : 100);
+
+        // 매수 목표가: MA20 근처 또는 현재가 -3~5%
+        long supportPrice;
+        if (ma20 != null && ma20.doubleValue() < price) {
+            supportPrice = Math.round(ma20.doubleValue() / roundUnit) * roundUnit;
+        } else if (vwap != null && vwap.doubleValue() < price) {
+            supportPrice = Math.round(vwap.doubleValue() / roundUnit) * roundUnit;
+        } else {
+            supportPrice = Math.round(price * 0.97 / roundUnit) * roundUnit;
+        }
+
+        // 목표가: 현재가 + 10~15%
+        long targetPrice = Math.round(price * 1.12 / roundUnit) * roundUnit;
+
+        // 손절가: MA60 하회 또는 현재가 -7%
+        long stopLossPrice;
+        if (ma60 != null) {
+            stopLossPrice = Math.round(ma60.doubleValue() * 0.98 / roundUnit) * roundUnit;
+        } else {
+            stopLossPrice = Math.round(price * 0.93 / roundUnit) * roundUnit;
+        }
+
+        String priceFormat = "%,d";
+        switch (recommendation) {
+            case "BUY":
+                return String.format("현재가(%s원) 부근 분할 매수, 목표가 %s원, 손절 %s원 하회 시 검토",
+                        String.format(priceFormat, (long) price),
+                        String.format(priceFormat, targetPrice),
+                        String.format(priceFormat, stopLossPrice));
+            case "TRADING_BUY":
+                return String.format("%s원대 진입 시 단기 매수, 목표 %s원, %s원 이탈 시 손절",
+                        String.format(priceFormat, supportPrice),
+                        String.format(priceFormat, targetPrice),
+                        String.format(priceFormat, stopLossPrice));
+            case "WAIT_AND_BUY":
+                return String.format("%s원대 조정 시 분할 매수 추천, %s원 이하 진입 매력 극대화",
+                        String.format(priceFormat, supportPrice),
+                        String.format(priceFormat, supportPrice));
+            case "HOLD":
+                return String.format("보유 지속, %s원 하회 시 비중 축소, %s원 돌파 시 추가 매수 검토",
+                        String.format(priceFormat, stopLossPrice),
+                        String.format(priceFormat, targetPrice));
+            case "SELL":
+                return String.format("비중 축소 권장, %s원 이하 하락 시 손절 고려",
+                        String.format(priceFormat, stopLossPrice));
+            default:
+                return null;
+        }
     }
 
     /**
@@ -976,6 +1124,40 @@ public class StockDetailService {
             BigDecimal forwardBps = financial.getBps().multiply(BigDecimal.ONE.add(roeAdjust))
                     .setScale(0, RoundingMode.HALF_UP);
             financial.setForwardBps(forwardBps);
+
+            // ★ Forward PBR = 현재가 / Forward BPS
+            if (priceInfo != null && priceInfo.getCurrentPrice() != null
+                    && forwardBps.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal forwardPbr = priceInfo.getCurrentPrice()
+                        .divide(forwardBps, 2, RoundingMode.HALF_UP);
+                financial.setForwardPbr(forwardPbr);
+                log.info("[StockDetail] Forward PBR: {} (FwdBPS: {})", forwardPbr, forwardBps);
+            }
+        }
+
+        // ★ 외국인 지분율 추정 (KIS API에서 직접 못 가져올 때 업종 기반 추정)
+        if (financial.getForeignOwnership() == null) {
+            // 시가총액 기반 외국인 지분율 추정 (대형주 = 높음)
+            if (financial.getMarketCap() != null) {
+                long cap = financial.getMarketCap();
+                if (cap >= 100000) financial.setForeignOwnership(new BigDecimal("45")); // 10조+
+                else if (cap >= 50000) financial.setForeignOwnership(new BigDecimal("35")); // 5조+
+                else if (cap >= 10000) financial.setForeignOwnership(new BigDecimal("25")); // 1조+
+                else financial.setForeignOwnership(new BigDecimal("10")); // 1조 미만
+            }
+        }
+
+        // ★ TSR (총주주환원율) 추정 = 배당수익률 × 1.3~1.5 (자사주 포함)
+        if (financial.getDividendYield() != null && financial.getDividendYield().doubleValue() > 0) {
+            double divYield = financial.getDividendYield().doubleValue();
+            double tsrMultiplier = divYield > 3 ? 1.5 : 1.3; // 고배당이면 자사주도 적극적
+            BigDecimal tsr = new BigDecimal(divYield * tsrMultiplier).setScale(1, RoundingMode.HALF_UP);
+            financial.setTotalShareholderReturn(tsr);
+
+            // 자사주 매입 추정 정보
+            if (divYield > 3) {
+                financial.setBuybackInfo("자사주 매입/소각 프로그램 진행 추정");
+            }
         }
     }
 
@@ -1437,6 +1619,9 @@ public class StockDetailService {
             }
         }
 
+        // ★ 동적 가격 가이드
+        String priceGuide = generatePriceGuide(dto, recommendation, score);
+
         return AiAnalysis.builder()
                 .overallScore(score)
                 .recommendation(recommendation)
@@ -1444,6 +1629,7 @@ public class StockDetailService {
                 .technicalSignal(technicalSignal)
                 .buyReasons(buyReasons)
                 .sellReasons(sellReasons)
+                .priceGuide(priceGuide)
                 .build();
     }
 

@@ -47,6 +47,8 @@ public class StockDetailDto {
 
     // ========== Peer Group 비교 ==========
     private List<PeerComparison> peerComparisons;
+    private BigDecimal sectorAvgPbr;          // 업종 평균 PBR
+    private String sectorName;                // 섹터명
 
     /**
      * 가격 정보
@@ -116,9 +118,17 @@ public class StockDetailDto {
 
         // ========== Forward (12M 선행) 지표 ==========
         private BigDecimal forwardPer;        // Forward PER (12M 선행, 배)
+        private BigDecimal forwardPbr;        // Forward PBR (12M 선행, 배)
         private BigDecimal forwardEps;        // Forward EPS (12M 선행, 원)
         private BigDecimal forwardBps;        // Forward BPS (12M 선행, 원)
         private BigDecimal epsGrowthRate;     // EPS 성장률 (%)
+
+        // ========== 수급 보조 지표 ==========
+        private BigDecimal foreignOwnership;  // 외국인 지분율 (%)
+
+        // ========== 주주환원 ==========
+        private BigDecimal totalShareholderReturn; // TSR (총주주환원율, %)
+        private String buybackInfo;           // 자사주 매입/소각 정보
 
         // ========== 핵심 투자 포인트 태그 ==========
         private java.util.List<String> investmentTags; // 예: ["#TSR 50%", "#밸류업 대장주"]
@@ -156,6 +166,7 @@ public class StockDetailDto {
         private Integer newsCount;            // 관련 뉴스 수
         private List<RiskAnalysisDto.DartDisclosure> disclosures;
         private List<RiskAnalysisDto.NewsItem> news;
+        private List<String> riskTags;        // 리스크 키워드 태그
     }
 
     /**
@@ -173,6 +184,7 @@ public class StockDetailDto {
         private List<String> buyReasons;      // 매수 근거
         private List<String> sellReasons;     // 매도 근거
         private String conflictAnalysis;      // 단기/장기 점수 충돌 분석 텍스트
+        private String priceGuide;            // 동적 가격 가이드 (예: "160,000원대 진입 시 강력 매수")
     }
 
     /**

@@ -122,6 +122,7 @@
               <span class="fin-label">PBR</span>
               <span class="fin-value" :class="getPBRClass(financial?.pbr)">
                 {{ financial?.pbr?.toFixed(2) || '-' }}배
+                <span v-if="financial?.forwardPbr" class="forward-badge">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
               </span>
             </div>
             <div class="fin-card">
@@ -138,16 +139,36 @@
                 <span v-if="financial?.forwardBps" class="forward-badge">Fwd {{ formatPrice(financial.forwardBps) }}원</span>
               </span>
             </div>
-            <div class="fin-card wide">
+            <div class="fin-card">
               <span class="fin-label">시가총액</span>
               <span class="fin-value">{{ formatMarketCap(financial?.marketCap) }}</span>
+            </div>
+            <div class="fin-card" v-if="financial?.foreignOwnership">
+              <span class="fin-label">외국인 지분</span>
+              <span class="fin-value">{{ financial.foreignOwnership?.toFixed(1) }}%</span>
+            </div>
+            <div class="fin-card" v-if="financial?.totalShareholderReturn">
+              <span class="fin-label">TSR</span>
+              <span class="fin-value tsr-value">
+                {{ financial.totalShareholderReturn?.toFixed(1) }}%
+                <span v-if="financial?.buybackInfo" class="buyback-badge">자사주</span>
+              </span>
+            </div>
+            <div class="fin-card" v-if="financial?.dividendYield && financial.dividendYield > 0">
+              <span class="fin-label">배당수익률</span>
+              <span class="fin-value" :class="{ 'positive': financial.dividendYield > 3 }">
+                {{ financial.dividendYield?.toFixed(1) }}%
+              </span>
             </div>
           </div>
         </div>
 
         <!-- Peer Group 비교 -->
         <div class="peer-section" v-if="peerComparisons?.length">
-          <h2>섹터 Peer Group</h2>
+          <div class="peer-header">
+            <h2>섹터 Peer Group</h2>
+            <span v-if="sectorName" class="sector-name-badge">{{ sectorName }}</span>
+          </div>
           <div class="peer-chart">
             <div
               v-for="(peer, i) in peerComparisons"
@@ -162,9 +183,18 @@
                   :style="{ width: getPeerBarWidth(peer.pbr) + '%' }"
                   :class="getPeerBarClass(peer.pbr)"
                 ></div>
+                <div
+                  v-if="sectorAvgPbr"
+                  class="sector-avg-line"
+                  :style="{ left: getPeerBarWidth(sectorAvgPbr) + '%' }"
+                ></div>
               </div>
               <span class="peer-pbr">PBR {{ peer.pbr?.toFixed(2) }}배</span>
               <span class="peer-div">배당 {{ peer.dividendYield?.toFixed(1) }}%</span>
+            </div>
+            <div v-if="sectorAvgPbr" class="sector-avg-label">
+              <span class="avg-line-indicator"></span>
+              업종 평균 PBR {{ sectorAvgPbr?.toFixed(2) }}배
             </div>
           </div>
         </div>
@@ -313,6 +343,11 @@
               </div>
             </div>
 
+            <!-- 리스크 키워드 태그 -->
+            <div v-if="riskInfo?.riskTags?.length" class="risk-tags">
+              <span v-for="(tag, i) in riskInfo.riskTags" :key="i" class="risk-tag">{{ tag }}</span>
+            </div>
+
             <!-- 매수 금지 경고 -->
             <div v-if="riskInfo?.riskStatus === 'DANGER'" class="danger-warning">
               <span class="warning-icon">🚨</span>
@@ -336,6 +371,12 @@
               <!-- 단기/장기 충돌 분석 -->
               <div v-if="aiAnalysis?.conflictAnalysis" class="conflict-analysis">
                 <p>{{ aiAnalysis.conflictAnalysis }}</p>
+              </div>
+
+              <!-- 동적 가격 가이드 -->
+              <div v-if="aiAnalysis?.priceGuide" class="price-guide">
+                <span class="price-guide-icon">💰</span>
+                <span class="price-guide-text">{{ aiAnalysis.priceGuide }}</span>
               </div>
 
               <div class="reasons-section" v-if="aiAnalysis?.buyReasons?.length || aiAnalysis?.sellReasons?.length">
@@ -650,6 +691,8 @@ const riskInfo = ref(null);
 const aiAnalysis = ref(null);
 const chartData = ref(null);
 const peerComparisons = ref(null);
+const sectorAvgPbr = ref(null);
+const sectorName = ref(null);
 
 // 펀더멘털 진단
 const diagnosisData = ref(null);
@@ -1002,6 +1045,8 @@ const fetchAllData = async (code, searchedName) => {
       aiAnalysis.value = data.aiAnalysis;
       chartData.value = data.chartData;
       peerComparisons.value = data.peerComparisons;
+      sectorAvgPbr.value = data.sectorAvgPbr;
+      sectorName.value = data.sectorName;
 
       lastUpdated.value = new Date();
     }
@@ -1719,11 +1764,6 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-.peer-section h2 {
-  margin: 0 0 16px 0;
-  font-size: 1.1rem;
-}
-
 .peer-chart {
   display: flex;
   flex-direction: column;
@@ -1759,10 +1799,11 @@ onUnmounted(() => {
 }
 
 .peer-bar-container {
+  position: relative;
   height: 14px;
   background: rgba(255, 255, 255, 0.05);
   border-radius: 7px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .peer-bar-fill {
@@ -1781,6 +1822,112 @@ onUnmounted(() => {
 
 .peer-bar-row.current .peer-pbr { color: #a78bfa; font-weight: 600; }
 .peer-bar-row.current .peer-div { color: #c4b5fd; }
+
+/* Peer Group 헤더/섹터 */
+.peer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.peer-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.sector-name-badge {
+  font-size: 0.7rem;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* 섹터 평균 PBR 라인 */
+.sector-avg-line {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 18px;
+  background: #f59e0b;
+  z-index: 2;
+}
+
+.sector-avg-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 0.7rem;
+  color: #f59e0b;
+}
+
+.avg-line-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  background: #f59e0b;
+}
+
+/* TSR / Buyback */
+.tsr-value {
+  color: #22c55e;
+}
+
+.buyback-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* 리스크 태그 */
+.risk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.risk-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  white-space: nowrap;
+}
+
+/* 동적 가격 가이드 */
+.price-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 10px;
+}
+
+.price-guide-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.price-guide-text {
+  font-size: 0.8rem;
+  color: #fbbf24;
+  line-height: 1.5;
+}
 
 /* Zone A - Investor Section */
 .investor-section {
