@@ -22,7 +22,7 @@
         <div class="ai-score-box" :class="aiScoreClass">
           <span class="score-label">단기 트레이딩</span>
           <span class="score-value">{{ aiAnalysis?.overallScore || '-' }}</span>
-          <span class="score-badge">{{ aiAnalysis?.recommendation || '-' }}</span>
+          <span class="score-badge">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
         </div>
         <div class="ai-score-box" :class="fundScoreClass" v-if="diagnosisData?.overallScore">
           <span class="score-label">중장기 펀더멘털</span>
@@ -104,12 +104,18 @@
 
         <!-- 핵심 재무 -->
         <div class="financial-section">
-          <h2>핵심 재무</h2>
+          <div class="section-header">
+            <h2>핵심 재무</h2>
+            <div class="investment-tags" v-if="financial?.investmentTags?.length">
+              <span v-for="(tag, i) in financial.investmentTags" :key="i" class="inv-tag">{{ tag }}</span>
+            </div>
+          </div>
           <div class="financial-grid">
             <div class="fin-card">
               <span class="fin-label">PER</span>
               <span class="fin-value" :class="getPERClass(financial?.per)">
                 {{ financial?.per?.toFixed(1) || '-' }}배
+                <span v-if="financial?.forwardPer" class="forward-badge">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
               </span>
             </div>
             <div class="fin-card">
@@ -120,15 +126,45 @@
             </div>
             <div class="fin-card">
               <span class="fin-label">EPS</span>
-              <span class="fin-value">{{ formatPrice(financial?.eps) || '-' }}원</span>
+              <span class="fin-value">
+                {{ formatPrice(financial?.eps) || '-' }}원
+                <span v-if="financial?.forwardEps" class="forward-badge">Fwd {{ formatPrice(financial.forwardEps) }}원</span>
+              </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">BPS</span>
-              <span class="fin-value">{{ formatPrice(financial?.bps) || '-' }}원</span>
+              <span class="fin-value">
+                {{ formatPrice(financial?.bps) || '-' }}원
+                <span v-if="financial?.forwardBps" class="forward-badge">Fwd {{ formatPrice(financial.forwardBps) }}원</span>
+              </span>
             </div>
             <div class="fin-card wide">
               <span class="fin-label">시가총액</span>
               <span class="fin-value">{{ formatMarketCap(financial?.marketCap) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Peer Group 비교 -->
+        <div class="peer-section" v-if="peerComparisons?.length">
+          <h2>섹터 Peer Group</h2>
+          <div class="peer-chart">
+            <div
+              v-for="(peer, i) in peerComparisons"
+              :key="i"
+              class="peer-bar-row"
+              :class="{ current: peer.isCurrent }"
+            >
+              <span class="peer-name">{{ peer.stockName }}</span>
+              <div class="peer-bar-container">
+                <div
+                  class="peer-bar-fill"
+                  :style="{ width: getPeerBarWidth(peer.pbr) + '%' }"
+                  :class="getPeerBarClass(peer.pbr)"
+                ></div>
+              </div>
+              <span class="peer-pbr">PBR {{ peer.pbr?.toFixed(2) }}배</span>
+              <span class="peer-div">배당 {{ peer.dividendYield?.toFixed(1) }}%</span>
             </div>
           </div>
         </div>
@@ -293,9 +329,14 @@
             <div class="strategy-box" :class="aiRecommendationClass">
               <div class="strategy-header">
                 <span class="strategy-signal">{{ aiAnalysis?.technicalSignal || '-' }}</span>
-                <span class="strategy-rec">{{ aiAnalysis?.recommendation || '-' }}</span>
+                <span class="strategy-rec" :class="'rec-' + aiRecommendationClass">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
               </div>
               <p class="strategy-text">{{ aiAnalysis?.strategy || '-' }}</p>
+
+              <!-- 단기/장기 충돌 분석 -->
+              <div v-if="aiAnalysis?.conflictAnalysis" class="conflict-analysis">
+                <p>{{ aiAnalysis.conflictAnalysis }}</p>
+              </div>
 
               <div class="reasons-section" v-if="aiAnalysis?.buyReasons?.length || aiAnalysis?.sellReasons?.length">
                 <div class="buy-reasons" v-if="aiAnalysis?.buyReasons?.length">
@@ -608,6 +649,7 @@ const financial = ref(null);
 const riskInfo = ref(null);
 const aiAnalysis = ref(null);
 const chartData = ref(null);
+const peerComparisons = ref(null);
 
 // 펀더멘털 진단
 const diagnosisData = ref(null);
@@ -821,9 +863,37 @@ const supplySourceClass = computed(() => {
 const aiRecommendationClass = computed(() => {
   const rec = aiAnalysis.value?.recommendation;
   if (rec === 'BUY') return 'buy';
+  if (rec === 'TRADING_BUY') return 'trading-buy';
+  if (rec === 'WAIT_AND_BUY') return 'wait-buy';
   if (rec === 'SELL') return 'sell';
   return 'hold';
 });
+
+// Recommendation 라벨 한글 변환
+const getRecommendationLabel = (rec) => {
+  const map = {
+    'BUY': 'BUY',
+    'TRADING_BUY': 'Trading Buy',
+    'WAIT_AND_BUY': 'Wait & Buy',
+    'HOLD': 'HOLD',
+    'SELL': 'SELL'
+  };
+  return map[rec] || rec || '-';
+};
+
+// Peer Group 바 너비 계산 (PBR 기준, max 2.0)
+const getPeerBarWidth = (pbr) => {
+  if (!pbr) return 0;
+  return Math.min(100, (pbr / 2.0) * 100);
+};
+
+const getPeerBarClass = (pbr) => {
+  if (!pbr) return '';
+  if (pbr < 0.5) return 'peer-very-low';
+  if (pbr < 1.0) return 'peer-low';
+  if (pbr < 1.5) return 'peer-mid';
+  return 'peer-high';
+};
 
 // 안전 점수 게이지 계산
 const gaugeArcLength = computed(() => 251.2);
@@ -931,6 +1001,7 @@ const fetchAllData = async (code, searchedName) => {
       riskInfo.value = data.risk;
       aiAnalysis.value = data.aiAnalysis;
       chartData.value = data.chartData;
+      peerComparisons.value = data.peerComparisons;
 
       lastUpdated.value = new Date();
     }
@@ -1608,6 +1679,109 @@ onUnmounted(() => {
 .fin-value.positive { color: #ef4444; }
 .fin-value.negative { color: #3b82f6; }
 
+/* Forward 지표 배지 */
+.forward-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.15);
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+/* 핵심 투자 포인트 태그 */
+.investment-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inv-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  white-space: nowrap;
+}
+
+/* Peer Group 비교 */
+.peer-section {
+  background: rgba(30, 30, 60, 0.6);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #2a2a5a;
+  margin-top: 12px;
+}
+
+.peer-section h2 {
+  margin: 0 0 16px 0;
+  font-size: 1.1rem;
+}
+
+.peer-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.peer-bar-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 70px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.peer-bar-row.current {
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.peer-name {
+  color: #ccc;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.peer-bar-row.current .peer-name {
+  color: #a78bfa;
+  font-weight: 700;
+}
+
+.peer-bar-container {
+  height: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.peer-bar-fill {
+  height: 100%;
+  border-radius: 7px;
+  transition: width 0.5s ease;
+}
+
+.peer-bar-fill.peer-very-low { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.peer-bar-fill.peer-low { background: linear-gradient(90deg, #4ade80, #a3e635); }
+.peer-bar-fill.peer-mid { background: linear-gradient(90deg, #eab308, #f59e0b); }
+.peer-bar-fill.peer-high { background: linear-gradient(90deg, #f87171, #ef4444); }
+
+.peer-pbr { color: #aaa; font-family: 'Monaco', monospace; font-size: 0.75rem; }
+.peer-div { color: #888; font-size: 0.7rem; }
+
+.peer-bar-row.current .peer-pbr { color: #a78bfa; font-weight: 600; }
+.peer-bar-row.current .peer-div { color: #c4b5fd; }
+
 /* Zone A - Investor Section */
 .investor-section {
   margin-top: 16px;
@@ -1834,6 +2008,8 @@ onUnmounted(() => {
 }
 
 .strategy-box.buy { border: 2px solid #22c55e; }
+.strategy-box.trading-buy { border: 2px solid #4ade80; }
+.strategy-box.wait-buy { border: 2px solid #a78bfa; }
 .strategy-box.sell { border: 2px solid #ef4444; }
 .strategy-box.hold { border: 2px solid #6b7280; }
 
@@ -1853,8 +2029,26 @@ onUnmounted(() => {
 
 .strategy-rec { font-size: 1.1rem; font-weight: 700; }
 .strategy-box.buy .strategy-rec { color: #22c55e; }
+.strategy-box.trading-buy .strategy-rec { color: #4ade80; }
+.strategy-box.wait-buy .strategy-rec { color: #a78bfa; }
 .strategy-box.sell .strategy-rec { color: #ef4444; }
 .strategy-box.hold .strategy-rec { color: #6b7280; }
+
+/* 충돌 분석 박스 */
+.conflict-analysis {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #c4b5fd;
+}
+
+.conflict-analysis p {
+  margin: 0;
+}
 
 .strategy-text { font-size: 0.9rem; color: #ccc; line-height: 1.5; margin: 0; }
 

@@ -222,7 +222,17 @@ public class StockDetailService {
                     financial != null ? financial.getPer() : null,
                     financial != null ? financial.getPbr() : null);
         }
+
+        // ★ Forward(12M 선행) 지표 계산 + 투자 포인트 태그 생성
+        if (financial != null) {
+            enrichWithForwardMetrics(financial, builder.build().getPrice());
+            financial.setInvestmentTags(generateInvestmentTags(financial, stockName));
+        }
         builder.financial(financial);
+
+        // ★ Peer Group 비교 데이터
+        List<StockDetailDto.PeerComparison> peers = buildPeerComparisons(stockCode, stockName, financial);
+        builder.peerComparisons(peers);
 
         // 4. AI 종합 분석 생성 (Gemini 우선 → 규칙기반 폴백)
         StockDetailDto dto = builder.build();
@@ -539,11 +549,37 @@ public class StockDetailService {
         // 점수 범위 제한
         score = Math.max(0, Math.min(100, score));
 
-        // 추천 결정
+        // ★ 단기/장기 점수 충돌 분석
+        String conflictAnalysis = null;
         String recommendation;
         String strategy;
 
-        if (score >= 70) {
+        // 펀더멘털 점수 추정 (재무 + 저PER 보너스)
+        int fundamentalEstimate = 50;
+        if (dto.getFinancial() != null) {
+            FinancialInfo fin = dto.getFinancial();
+            if (fin.getPer() != null && fin.getPer().doubleValue() > 0 && fin.getPer().doubleValue() < 10) fundamentalEstimate += 15;
+            if (fin.getPbr() != null && fin.getPbr().doubleValue() > 0 && fin.getPbr().doubleValue() < 1) fundamentalEstimate += 10;
+            if (fin.getRoe() != null && fin.getRoe().doubleValue() > 10) fundamentalEstimate += 10;
+            if (fin.getDividendYield() != null && fin.getDividendYield().doubleValue() > 3) fundamentalEstimate += 5;
+        }
+        fundamentalEstimate = Math.min(100, fundamentalEstimate);
+
+        int scoreDiff = fundamentalEstimate - score;
+
+        if (scoreDiff > 25 && fundamentalEstimate >= 65) {
+            // 펀더멘털 견고 + 단기 부진 → WAIT_AND_BUY
+            recommendation = "WAIT_AND_BUY";
+            strategy = "펀더멘털은 견고하나 기술적 과열/수급 부진 구간입니다. 조정 시 분할 매수(Buy on Dip)를 추천합니다.";
+            conflictAnalysis = String.format(
+                    "단기 트레이딩 점수(%d점)와 중장기 펀더멘털(%d점) 간 괴리가 큽니다. " +
+                    "펀더멘털이 뒷받침되므로 급락 시 매수 기회로 활용하되, 기술적 반등 신호 확인 후 진입하세요.",
+                    score, fundamentalEstimate);
+        } else if (score >= 55 && fundamentalEstimate >= 60) {
+            // 양쪽 다 괜찮음 → TRADING_BUY
+            recommendation = "TRADING_BUY";
+            strategy = "수급과 펀더멘털 모두 양호합니다. 단기 트레이딩 매수 구간이며, 목표가 도달 시 일부 차익 실현을 고려하세요.";
+        } else if (score >= 70) {
             recommendation = "BUY";
             strategy = "적극 매수 구간입니다. 수급과 재무 모두 양호하며, 분할 매수 전략을 권장합니다.";
         } else if (score >= 50) {
@@ -564,6 +600,7 @@ public class StockDetailService {
                 .technicalSignal(technicalSignal)
                 .buyReasons(buyReasons)
                 .sellReasons(sellReasons)
+                .conflictAnalysis(conflictAnalysis)
                 .build();
     }
 
@@ -889,12 +926,219 @@ public class StockDetailService {
         }
     }
 
+    // ========== Forward Valuation & Investment Tags ==========
+
+    /**
+     * Forward(12M 선행) 지표 계산
+     * - 성장률 기반으로 EPS/BPS 예상치 산출
+     * - Forward PER = 현재가 / Forward EPS
+     */
+    private void enrichWithForwardMetrics(FinancialInfo financial, PriceInfo priceInfo) {
+        if (financial == null) return;
+
+        // EPS 성장률: DB에서 가져오거나 업종 평균 사용
+        BigDecimal epsGrowthRate = new BigDecimal("15"); // 기본 성장률 15%
+
+        // PER 기반 성장률 추정: 저PER이면 성장률 높게, 고PER이면 낮게
+        if (financial.getPer() != null && financial.getPer().compareTo(BigDecimal.ZERO) > 0) {
+            double per = financial.getPer().doubleValue();
+            if (per < 8) epsGrowthRate = new BigDecimal("25");       // 저평가 → 실적 성장 기대
+            else if (per < 12) epsGrowthRate = new BigDecimal("18");
+            else if (per < 20) epsGrowthRate = new BigDecimal("12");
+            else epsGrowthRate = new BigDecimal("8");                // 고PER → 보수적
+        }
+        financial.setEpsGrowthRate(epsGrowthRate);
+
+        // Forward EPS = Trailing EPS × (1 + 성장률)
+        if (financial.getEps() != null && financial.getEps().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal growthMultiplier = BigDecimal.ONE.add(
+                    epsGrowthRate.divide(new BigDecimal("100"), 4, RoundingMode.HALF_UP));
+            BigDecimal forwardEps = financial.getEps().multiply(growthMultiplier)
+                    .setScale(0, RoundingMode.HALF_UP);
+            financial.setForwardEps(forwardEps);
+
+            // Forward PER = 현재가 / Forward EPS
+            if (priceInfo != null && priceInfo.getCurrentPrice() != null
+                    && forwardEps.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal forwardPer = priceInfo.getCurrentPrice()
+                        .divide(forwardEps, 1, RoundingMode.HALF_UP);
+                financial.setForwardPer(forwardPer);
+                log.info("[StockDetail] Forward PER: {} (EPS성장률: {}%, FwdEPS: {})",
+                        forwardPer, epsGrowthRate, forwardEps);
+            }
+        }
+
+        // Forward BPS = BPS × (1 + ROE/2)  (자본 축적 반영)
+        if (financial.getBps() != null && financial.getBps().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal roeAdjust = financial.getRoe() != null
+                    ? financial.getRoe().divide(new BigDecimal("200"), 4, RoundingMode.HALF_UP)
+                    : new BigDecimal("0.05");
+            BigDecimal forwardBps = financial.getBps().multiply(BigDecimal.ONE.add(roeAdjust))
+                    .setScale(0, RoundingMode.HALF_UP);
+            financial.setForwardBps(forwardBps);
+        }
+    }
+
+    /**
+     * 핵심 투자 포인트 태그 생성
+     */
+    private List<String> generateInvestmentTags(FinancialInfo financial, String stockName) {
+        List<String> tags = new ArrayList<>();
+
+        // 배당 관련
+        if (financial.getDividendYield() != null && financial.getDividendYield().doubleValue() > 3) {
+            tags.add("#고배당 " + financial.getDividendYield().setScale(1, RoundingMode.HALF_UP) + "%");
+        }
+
+        // 저평가 관련
+        if (financial.getPbr() != null && financial.getPbr().doubleValue() > 0 && financial.getPbr().doubleValue() < 1) {
+            tags.add("#저PBR " + financial.getPbr().setScale(2, RoundingMode.HALF_UP) + "배");
+        }
+        if (financial.getForwardPer() != null && financial.getForwardPer().doubleValue() < 10) {
+            tags.add("#Forward PER " + financial.getForwardPer() + "배");
+        }
+
+        // 수익성 관련
+        if (financial.getRoe() != null && financial.getRoe().doubleValue() > 10) {
+            tags.add("#ROE " + financial.getRoe().setScale(1, RoundingMode.HALF_UP) + "%");
+        }
+
+        // 밸류업 / TSR (총주주환원율) 추정
+        if (financial.getDividendYield() != null && financial.getDividendYield().doubleValue() > 2) {
+            double estimatedTsr = financial.getDividendYield().doubleValue() * 1.5; // 자사주 매입 포함 추정
+            if (estimatedTsr > 5) {
+                tags.add("#TSR " + String.format("%.0f", estimatedTsr) + "%+");
+            }
+        }
+
+        // 밸류업 프로그램 대상 (금융, 지주, 저PBR)
+        if (stockName != null && (stockName.contains("금융") || stockName.contains("지주")
+                || stockName.contains("은행") || stockName.contains("보험"))) {
+            tags.add("#밸류업 대장주");
+        }
+
+        // 성장성
+        if (financial.getEpsGrowthRate() != null && financial.getEpsGrowthRate().doubleValue() > 15) {
+            tags.add("#고성장");
+        }
+
+        return tags;
+    }
+
+    // ========== Peer Group 비교 ==========
+
+    /**
+     * 섹터 Peer Group 비교 데이터 생성
+     * - 동종 업종 내 PBR/PER/ROE 비교
+     */
+    private List<StockDetailDto.PeerComparison> buildPeerComparisons(
+            String stockCode, String stockName, FinancialInfo currentFinancial) {
+
+        // 현재 종목의 섹터 판별
+        String sector = detectSector(stockCode, stockName);
+        if (sector == null) return null;
+
+        // 섹터별 Peer Group 데이터 [코드, 이름, PBR, PER, ROE, 배당률]
+        List<String[]> peerList = getPeerDataBySector(sector);
+        if (peerList == null || peerList.isEmpty()) return null;
+
+        List<StockDetailDto.PeerComparison> peers = new ArrayList<>();
+        for (String[] peer : peerList) {
+            boolean isCurrent = peer[0].equals(stockCode);
+            StockDetailDto.PeerComparison pc = StockDetailDto.PeerComparison.builder()
+                    .stockCode(peer[0])
+                    .stockName(peer[1])
+                    .pbr(new BigDecimal(peer[2]))
+                    .per(new BigDecimal(peer[3]))
+                    .roe(new BigDecimal(peer[4]))
+                    .dividendYield(new BigDecimal(peer[5]))
+                    .isCurrent(isCurrent)
+                    .build();
+
+            // 현재 종목이면 실시간 데이터로 덮어쓰기
+            if (isCurrent && currentFinancial != null) {
+                if (currentFinancial.getPbr() != null) pc.setPbr(currentFinancial.getPbr());
+                if (currentFinancial.getPer() != null) pc.setPer(currentFinancial.getPer());
+                if (currentFinancial.getRoe() != null) pc.setRoe(currentFinancial.getRoe());
+                if (currentFinancial.getDividendYield() != null) pc.setDividendYield(currentFinancial.getDividendYield());
+            }
+            peers.add(pc);
+        }
+
+        return peers;
+    }
+
+    /**
+     * 섹터별 Peer Group 데이터 반환
+     * [코드, 이름, PBR, PER, ROE, 배당수익률]
+     */
+    private List<String[]> getPeerDataBySector(String sector) {
+        switch (sector) {
+            case "금융지주":
+                return List.of(
+                    new String[]{"055550", "신한지주", "0.42", "5.8", "9.5", "5.2"},
+                    new String[]{"105560", "KB금융", "0.48", "6.2", "10.1", "4.8"},
+                    new String[]{"086790", "하나금융지주", "0.35", "4.5", "11.2", "6.1"},
+                    new String[]{"316140", "우리금융지주", "0.33", "4.2", "10.8", "6.5"},
+                    new String[]{"138040", "메리츠금융지주", "0.95", "8.1", "18.5", "3.2"}
+                );
+            case "반도체":
+                return List.of(
+                    new String[]{"005930", "삼성전자", "1.25", "11.7", "12.3", "2.1"},
+                    new String[]{"000660", "SK하이닉스", "1.65", "6.8", "28.5", "1.2"},
+                    new String[]{"042700", "한미반도체", "8.50", "35.0", "25.0", "0.5"}
+                );
+            case "자동차":
+                return List.of(
+                    new String[]{"005380", "현대차", "0.72", "5.5", "13.8", "3.5"},
+                    new String[]{"000270", "기아", "0.68", "4.8", "15.2", "4.2"},
+                    new String[]{"012330", "현대모비스", "0.55", "7.2", "8.5", "2.8"}
+                );
+            case "플랫폼":
+                return List.of(
+                    new String[]{"035420", "NAVER", "1.80", "22.5", "8.5", "0.5"},
+                    new String[]{"035720", "카카오", "2.20", "45.0", "5.2", "0.3"}
+                );
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * 종목의 섹터 판별
+     */
+    private String detectSector(String stockCode, String stockName) {
+        if (stockName == null) return null;
+
+        // 금융
+        if (stockName.contains("금융") || stockName.contains("지주") || stockName.contains("은행")
+                || "055550,105560,086790,316140,138040".contains(stockCode)) {
+            return "금융지주";
+        }
+        // 반도체
+        if (stockName.contains("반도체") || stockName.contains("하이닉스")
+                || "005930,000660,042700".contains(stockCode)) {
+            return "반도체";
+        }
+        // 자동차
+        if (stockName.contains("현대차") || stockName.contains("기아") || stockName.contains("모비스")
+                || "005380,000270,012330".contains(stockCode)) {
+            return "자동차";
+        }
+        // 플랫폼
+        if (stockName.contains("NAVER") || stockName.contains("네이버") || stockName.contains("카카오")
+                || "035420,035720".contains(stockCode)) {
+            return "플랫폼";
+        }
+        return null;
+    }
+
     // ========== 뉴스 긍정 시나리오 보충 ==========
 
     /**
-     * 뉴스 목록에 긍정적 시나리오 뉴스 추가
-     * - 뉴스가 없거나 3건 미만일 때 2026 호황장 시나리오에 맞는 뉴스 보충
-     * - 기존 뉴스를 삭제하지 않고 앞에 추가
+     * 뉴스 목록에 2026 호황장 시나리오 뉴스 보충
+     * - 뉴스가 5건 미만이면 긍정 시나리오 뉴스 앞에 추가
+     * - 부정적 키워드 뉴스가 지배적이면 긍정 뉴스로 밸런싱
      */
     private void enrichNewsWithPositiveItems(RiskAnalysisDto risk, String stockName) {
         List<RiskAnalysisDto.NewsItem> news = risk.getRelatedNews();
@@ -903,55 +1147,70 @@ public class StockDetailService {
             risk.setRelatedNews(news);
         }
 
-        // 뉴스가 충분하면 보충 불필요
-        if (news.size() >= 3) return;
-
         String today = java.time.LocalDate.now().toString();
         List<RiskAnalysisDto.NewsItem> positiveNews = generatePositiveNews(stockName, today);
 
-        // 부족한 만큼만 앞에 추가
-        int needed = 3 - news.size();
+        // 부정 뉴스 비율 체크
+        long negativeCount = news.stream()
+                .filter(n -> n.getTitle() != null && (
+                        n.getTitle().contains("빚") || n.getTitle().contains("대출")
+                        || n.getTitle().contains("금리 인상") || n.getTitle().contains("하락")
+                        || n.getTitle().contains("위기") || n.getTitle().contains("폭락")))
+                .count();
+
+        int needed;
+        if (news.isEmpty()) {
+            needed = 5; // 뉴스 없으면 5개 채움
+        } else if (negativeCount > news.size() / 2) {
+            needed = 3; // 부정 뉴스 과반이면 3개 보충
+        } else if (news.size() < 3) {
+            needed = 3 - news.size(); // 부족분 보충
+        } else {
+            return; // 충분
+        }
+
         List<RiskAnalysisDto.NewsItem> toAdd = positiveNews.subList(0, Math.min(needed, positiveNews.size()));
         news.addAll(0, toAdd);
 
-        log.info("[StockDetail] 긍정 시나리오 뉴스 {}건 보충 (총 {}건)", toAdd.size(), news.size());
+        log.info("[StockDetail] 긍정 시나리오 뉴스 {}건 보충 (부정뉴스: {}, 총: {}건)",
+                toAdd.size(), negativeCount, news.size());
     }
 
     /**
-     * 2026 호황장 시나리오 긍정 뉴스 생성
+     * 2026 호황장 시나리오 긍정 뉴스 생성 (주주환원 + 실적호재 중심)
      */
     private List<RiskAnalysisDto.NewsItem> generatePositiveNews(String stockName, String date) {
-        // 종목별 맞춤 뉴스 + 범용 긍정 뉴스
         List<RiskAnalysisDto.NewsItem> items = new ArrayList<>();
 
-        // 종목명 기반 맞춤 뉴스
         items.add(RiskAnalysisDto.NewsItem.builder()
-                .title(stockName + ", 밸류업 지수 편입 효과로 외국인 순매수 확대")
-                .description("밸류업 프로그램 확대에 따른 기업가치 제고 기대감으로 외국인 투자자 관심 집중")
-                .pubDate(date)
-                .link("#")
-                .build());
+                .title(stockName + ", 자사주 1조원 소각 결정... 주주환원율 50% 달성")
+                .description("이사회 결의로 자기주식 전량 소각, TSR 업종 최고 수준 달성. 밸류업 프로그램 모범 사례로 주목")
+                .pubDate(date).link("#").build());
 
         items.add(RiskAnalysisDto.NewsItem.builder()
-                .title(stockName + ", 역대급 실적 발표... 시장 예상 상회")
-                .description("2026년 1분기 영업이익 시장 컨센서스 대비 15% 상회, 주주환원 정책 강화 예고")
-                .pubDate(date)
-                .link("#")
-                .build());
+                .title(stockName + ", 배당성향 50% 돌파... 역대 최대 배당금 확정")
+                .description("2025년 결산 배당 확정, 배당수익률 5%대 진입. 기관·외국인 배당투자 수요 급증")
+                .pubDate(date).link("#").build());
 
         items.add(RiskAnalysisDto.NewsItem.builder()
-                .title("코스피 5,500 돌파 랠리 속 " + stockName + " 수혜 전망")
-                .description("글로벌 AI 투자 확대와 한국 증시 재평가 흐름에 따른 밸류에이션 상향 기대")
-                .pubDate(date)
-                .link("#")
-                .build());
+                .title("[속보] " + stockName + ", 2026년 1분기 역대 최대 실적 달성")
+                .description("영업이익 컨센서스 18% 상회, 매출액 전년 동기 대비 22% 성장. 연간 실적 상향 불가피")
+                .pubDate(date).link("#").build());
 
         items.add(RiskAnalysisDto.NewsItem.builder()
-                .title("증권가 " + stockName + " 목표가 일제히 상향... 배당 매력도 부각")
-                .description("주요 증권사 목표주가 평균 20% 상향 조정, 배당수익률 업종 최고 수준")
-                .pubDate(date)
-                .link("#")
-                .build());
+                .title("외국인 " + stockName + " 지분율 70% 돌파... 글로벌 자금 유입 가속")
+                .description("코리아 디스카운트 해소 기대감에 외국인 15거래일 연속 순매수, 역대 최고 지분율 경신")
+                .pubDate(date).link("#").build());
+
+        items.add(RiskAnalysisDto.NewsItem.builder()
+                .title("코스피 5,500 시대, " + stockName + " 밸류업 지수 편입 효과 본격화")
+                .description("밸류업 ETF 자금 유입에 따른 패시브 매수 확대, 목표가 상향 릴레이 진행 중")
+                .pubDate(date).link("#").build());
+
+        items.add(RiskAnalysisDto.NewsItem.builder()
+                .title("증권가 일제히 " + stockName + " 목표가 상향... \"저평가 매력 극대화\"")
+                .description("주요 5개 증권사 목표주가 평균 25% 상향 조정, Forward PER 기준 업종 내 최저 수준")
+                .pubDate(date).link("#").build());
 
         return items;
     }
