@@ -115,14 +115,14 @@
               <span class="fin-label">PER</span>
               <span class="fin-value" :class="getPERClass(financial?.per)">
                 {{ financial?.per?.toFixed(1) || '-' }}배
-                <span v-if="financial?.forwardPer" class="forward-badge">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
+                <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
               </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">PBR</span>
               <span class="fin-value" :class="getPBRClass(financial?.pbr)">
                 {{ financial?.pbr?.toFixed(2) || '-' }}배
-                <span v-if="financial?.forwardPbr" class="forward-badge">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
+                <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
               </span>
             </div>
             <div class="fin-card">
@@ -203,10 +203,10 @@
         <div class="news-section-left">
           <div class="section-header">
             <h2>관련 뉴스</h2>
-            <span class="news-count">{{ riskInfo?.news?.length || 0 }}건</span>
+            <span class="news-count">{{ dedupedNews.length }}건</span>
           </div>
-          <div class="news-list" v-if="riskInfo?.news?.length">
-            <div v-for="(news, index) in riskInfo.news.slice(0, 8)" :key="index" class="news-item">
+          <div class="news-list" v-if="dedupedNews.length">
+            <div v-for="(news, index) in dedupedNews" :key="index" class="news-item">
               <div class="news-content">
                 <a :href="news.link" target="_blank">{{ truncate(news.title, 60) }}</a>
                 <p v-if="news.description" class="news-desc">{{ truncate(news.description, 80) }}</p>
@@ -454,7 +454,7 @@
       <!-- 탭 -->
       <div class="fund-tabs">
         <button class="fund-tab-btn" :class="{ active: fundTab === 'financial' }" @click="fundTab = 'financial'">재무 건전성</button>
-        <button class="fund-tab-btn" :class="{ active: fundTab === 'supply' }" @click="fundTab = 'supply'">수급 현황 (5일)</button>
+        <button class="fund-tab-btn" :class="{ active: fundTab === 'supply' }" @click="fundTab = 'supply'">최근 5일 누적 수급</button>
         <button class="fund-tab-btn" :class="{ active: fundTab === 'technical' }" @click="fundTab = 'technical'">기술적 분석</button>
       </div>
 
@@ -500,16 +500,26 @@
           </div>
         </div>
 
-        <!-- 수급 현황 (5일) -->
+        <!-- 최근 5일 누적 수급 -->
         <div v-if="fundTab === 'supply'" class="analysis-card">
           <div class="card-header">
             <span class="card-icon">📊</span>
-            <h3>수급 현황 (5일)</h3>
+            <h3>최근 5일 누적 수급</h3>
             <span class="card-score" :class="diagGetScoreClass(diagnosisData.supplyDemand?.score)">
               {{ diagnosisData.supplyDemand?.score || 0 }}점
             </span>
           </div>
           <div class="card-body" v-if="diagnosisData.supplyDemand">
+            <!-- 금일 수급 미니바 -->
+            <div v-if="supplyDemand && supplyDemand.dataSource !== '장전(초기화)'" class="today-supply-mini">
+              <span class="today-label">금일 수급</span>
+              <span class="today-item" :class="supplyDemand.foreignNetBuy >= 0 ? 'positive' : 'negative'">
+                외국인 {{ supplyDemand.foreignNetBuy >= 0 ? '+' : '' }}{{ supplyDemand.foreignNetBuy?.toFixed(0) || 0 }}억
+              </span>
+              <span class="today-item" :class="supplyDemand.instNetBuy >= 0 ? 'positive' : 'negative'">
+                기관 {{ supplyDemand.instNetBuy >= 0 ? '+' : '' }}{{ supplyDemand.instNetBuy?.toFixed(0) || 0 }}억
+              </span>
+            </div>
             <div v-if="diagIsBeforeMarketOpen()" class="before-market-notice">
               장 시작 전입니다. 전일 기준 데이터입니다.
             </div>
@@ -861,22 +871,37 @@ const scoreDiffComment = computed(() => {
   const fundamental = diagnosisData.value?.overallScore;
   if (!trading || !fundamental) return null;
 
-  const diff = Math.abs(fundamental - trading);
+  const guide = aiAnalysis.value?.priceGuide;
+  const suffix = guide ? ` → ${guide}` : '';
+
   // 점수 차이가 클 때만 표시 (20점 이상 차이 또는 양쪽 극단)
   if (fundamental > trading + 20) {
-    return `펀더멘털은 우수하나(${fundamental}점), 단기 수급 부진으로 인한 조정 주의(${trading}점)`;
+    return `펀더멘털은 우수하나(${fundamental}점), 단기 수급 부진으로 인한 조정 주의(${trading}점)${suffix}`;
   }
   if (trading > fundamental + 20) {
-    return `단기 모멘텀은 강하나(${trading}점), 펀더멘털 보강이 필요한 구간(${fundamental}점)`;
+    return `단기 모멘텀은 강하나(${trading}점), 펀더멘털 보강이 필요한 구간(${fundamental}점)${suffix}`;
   }
   if (trading >= 70 && fundamental >= 70) {
-    return `단기(${trading}점)·중장기(${fundamental}점) 모두 양호 — 추세 추종 유효`;
+    return `단기(${trading}점)·중장기(${fundamental}점) 모두 양호 — 추세 추종 유효${suffix}`;
   }
   if (trading <= 40 && fundamental <= 40) {
-    return `단기(${trading}점)·중장기(${fundamental}점) 모두 부진 — 신중한 접근 필요`;
+    return `단기(${trading}점)·중장기(${fundamental}점) 모두 부진 — 신중한 접근 필요${suffix}`;
   }
   // 차이가 작고 극단도 아니면 숨김
   return null;
+});
+
+// ★ 뉴스 중복제거 (제목 기준 Set 필터링)
+const dedupedNews = computed(() => {
+  const news = riskInfo.value?.news;
+  if (!news || !news.length) return [];
+  const seen = new Set();
+  return news.filter(n => {
+    const title = (n.title || '').trim();
+    if (!title || seen.has(title)) return false;
+    seen.add(title);
+    return true;
+  }).slice(0, 8);
 });
 
 // ★ 안전 점수: 리스크 점수를 반전 (높을수록 안전)
@@ -1735,6 +1760,11 @@ onUnmounted(() => {
   margin-left: 6px;
   font-weight: 500;
   vertical-align: middle;
+}
+
+.forward-badge.forward-improved {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
 }
 
 /* 핵심 투자 포인트 태그 */
@@ -2605,6 +2635,31 @@ onUnmounted(() => {
 
 .both-buying { color: #ef4444; font-weight: 700; font-size: 0.9rem; }
 .both-selling { color: #3b82f6; font-weight: 700; font-size: 0.9rem; }
+
+/* 금일 수급 미니바 */
+.today-supply-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+.today-label {
+  color: #a78bfa;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.today-item {
+  font-weight: 600;
+  font-family: 'Monaco', monospace;
+  white-space: nowrap;
+}
+.today-item.positive { color: #ef4444; }
+.today-item.negative { color: #3b82f6; }
 
 .before-market-notice {
   padding: 8px 12px;

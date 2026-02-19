@@ -531,10 +531,10 @@ public class StockDetailService {
                 double foreign = supply.getForeignNetBuy().doubleValue();
                 if (foreign > 10) {
                     score += 10;
-                    buyReasons.add("외국인 순매수 +" + String.format("%.0f", foreign) + "억");
+                    buyReasons.add("금일 외국인 순매수 +" + String.format("%.0f", foreign) + "억");
                 } else if (foreign < -10) {
                     score -= 10;
-                    sellReasons.add("외국인 순매도 " + String.format("%.0f", foreign) + "억");
+                    sellReasons.add("금일 외국인 순매도 " + String.format("%.0f", foreign) + "억");
                 }
             }
 
@@ -543,17 +543,17 @@ public class StockDetailService {
                 double inst = supply.getInstNetBuy().doubleValue();
                 if (inst > 10) {
                     score += 10;
-                    buyReasons.add("기관 순매수 +" + String.format("%.0f", inst) + "억");
+                    buyReasons.add("금일 기관 순매수 +" + String.format("%.0f", inst) + "억");
                 } else if (inst < -10) {
                     score -= 10;
-                    sellReasons.add("기관 순매도 " + String.format("%.0f", inst) + "억");
+                    sellReasons.add("금일 기관 순매도 " + String.format("%.0f", inst) + "억");
                 }
             }
 
             // 프로그램
             if (supply.getProgramNetBuy() != null && supply.getProgramNetBuy().doubleValue() > 20) {
                 score += 5;
-                buyReasons.add("프로그램 매집");
+                buyReasons.add("금일 프로그램 매집");
             }
         }
 
@@ -648,10 +648,21 @@ public class StockDetailService {
             // 펀더멘털 견고 + 단기 부진 → WAIT_AND_BUY
             recommendation = "WAIT_AND_BUY";
             strategy = "펀더멘털은 견고하나 기술적 과열/수급 부진 구간입니다. 조정 시 분할 매수(Buy on Dip)를 추천합니다.";
-            conflictAnalysis = String.format(
-                    "단기 트레이딩 점수(%d점)와 중장기 펀더멘털(%d점) 간 괴리가 큽니다. " +
-                    "펀더멘털이 뒷받침되므로 급락 시 매수 기회로 활용하되, 기술적 반등 신호 확인 후 진입하세요.",
-                    score, fundamentalEstimate);
+            // ★ MA20 기반 지지가격 포함
+            BigDecimal ma20Support = dto.getChartData() != null ? dto.getChartData().getMa20() : null;
+            if (ma20Support != null && dto.getPrice() != null && dto.getPrice().getCurrentPrice() != null) {
+                double cpVal = dto.getPrice().getCurrentPrice().doubleValue();
+                int rUnit = cpVal >= 100000 ? 10000 : (cpVal >= 10000 ? 1000 : 100);
+                long sPrice = Math.round(ma20Support.doubleValue() / rUnit) * rUnit;
+                conflictAnalysis = String.format(
+                        "장기적 상승 추세는 유효하나(%d점), 단기 과열로 조정 가능성 있음. %,d원대 지지 확인 후 분할 매수 추천.",
+                        fundamentalEstimate, sPrice);
+            } else {
+                conflictAnalysis = String.format(
+                        "단기 트레이딩 점수(%d점)와 중장기 펀더멘털(%d점) 간 괴리가 큽니다. " +
+                        "펀더멘털이 뒷받침되므로 급락 시 매수 기회로 활용하되, 기술적 반등 신호 확인 후 진입하세요.",
+                        score, fundamentalEstimate);
+            }
         } else if (score >= 55 && fundamentalEstimate >= 60) {
             // 양쪽 다 괜찮음 → TRADING_BUY
             recommendation = "TRADING_BUY";
@@ -1224,6 +1235,45 @@ public class StockDetailService {
         List<String[]> peerList = getPeerDataBySector(sector);
         if (peerList == null || peerList.isEmpty()) return null;
 
+        // ★ Peer 종목 실시간 KIS 데이터 병렬 조회 (현재 종목 제외)
+        List<CompletableFuture<JsonNode>> peerFutures = new ArrayList<>();
+        List<String> peerCodes = new ArrayList<>();
+        for (String[] peer : peerList) {
+            if (!peer[0].equals(stockCode)) {
+                peerCodes.add(peer[0]);
+                peerFutures.add(CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return kisService.getStockPrice(peer[0]);
+                    } catch (Exception e) {
+                        log.debug("[StockDetail] Peer {} KIS 조회 실패: {}", peer[0], e.getMessage());
+                        return null;
+                    }
+                }));
+            } else {
+                peerCodes.add(null); // 현재 종목 자리 표시
+                peerFutures.add(null);
+            }
+        }
+
+        // 5초 타임아웃으로 전체 대기
+        java.util.Map<String, JsonNode> peerPriceMap = new java.util.HashMap<>();
+        for (int i = 0; i < peerFutures.size(); i++) {
+            CompletableFuture<JsonNode> future = peerFutures.get(i);
+            String code = peerCodes.get(i);
+            if (future != null && code != null) {
+                try {
+                    JsonNode result = future.get(5, TimeUnit.SECONDS);
+                    if (result != null && "0".equals(getFieldValue(result, "rt_cd"))) {
+                        peerPriceMap.put(code, result);
+                    }
+                } catch (Exception e) {
+                    log.debug("[StockDetail] Peer {} 타임아웃/실패 - 하드코딩 폴백", code);
+                }
+            }
+        }
+        log.info("[StockDetail] Peer 실시간 데이터 조회: {}/{}건 성공", peerPriceMap.size(),
+                peerCodes.stream().filter(c -> c != null).count());
+
         List<StockDetailDto.PeerComparison> peers = new ArrayList<>();
         for (String[] peer : peerList) {
             boolean isCurrent = peer[0].equals(stockCode);
@@ -1244,6 +1294,19 @@ public class StockDetailService {
                 if (currentFinancial.getRoe() != null) pc.setRoe(currentFinancial.getRoe());
                 if (currentFinancial.getDividendYield() != null) pc.setDividendYield(currentFinancial.getDividendYield());
             }
+
+            // ★ Peer 종목도 KIS 실시간 PBR/PER 적용
+            if (!isCurrent && peerPriceMap.containsKey(peer[0])) {
+                JsonNode peerOutput = peerPriceMap.get(peer[0]).get("output");
+                if (peerOutput != null) {
+                    BigDecimal livePbr = parseBigDecimal(peerOutput.get("pbr"));
+                    BigDecimal livePer = parseBigDecimal(peerOutput.get("per"));
+                    if (livePbr.compareTo(BigDecimal.ZERO) > 0) pc.setPbr(livePbr);
+                    if (livePer.compareTo(BigDecimal.ZERO) > 0) pc.setPer(livePer);
+                    log.debug("[StockDetail] Peer {} 실시간 적용 - PBR: {}, PER: {}", peer[1], livePbr, livePer);
+                }
+            }
+
             peers.add(pc);
         }
 
@@ -1570,14 +1633,49 @@ public class StockDetailService {
         }
         score = Math.max(0, Math.min(100, score));
 
-        // ★ 점수 기반으로 recommendation 통일 (뱃지-텍스트 충돌 방지)
+        // ★ 펀더멘털 점수 추정 (generateAiAnalysis와 동일 로직)
+        int fundamentalEstimate = 50;
+        if (dto.getFinancial() != null) {
+            FinancialInfo fin = dto.getFinancial();
+            if (fin.getPer() != null && fin.getPer().doubleValue() > 0 && fin.getPer().doubleValue() < 10) fundamentalEstimate += 15;
+            if (fin.getPbr() != null && fin.getPbr().doubleValue() > 0 && fin.getPbr().doubleValue() < 1) fundamentalEstimate += 10;
+            if (fin.getRoe() != null && fin.getRoe().doubleValue() > 10) fundamentalEstimate += 10;
+            if (fin.getDividendYield() != null && fin.getDividendYield().doubleValue() > 3) fundamentalEstimate += 5;
+        }
+        fundamentalEstimate = Math.min(100, fundamentalEstimate);
+        int scoreDiff = fundamentalEstimate - score;
+
+        // ★ 점수 기반 recommendation (WAIT_AND_BUY / TRADING_BUY 포함)
         String recommendation;
-        if (score >= 65) {
+        String conflictAnalysis = null;
+
+        if (scoreDiff > 25 && fundamentalEstimate >= 65) {
+            recommendation = "WAIT_AND_BUY";
+        } else if (score >= 55 && fundamentalEstimate >= 60) {
+            recommendation = "TRADING_BUY";
+        } else if (score >= 65) {
             recommendation = "BUY";
         } else if (score >= 40) {
             recommendation = "HOLD";
         } else {
             recommendation = "SELL";
+        }
+
+        // ★ 충돌 분석에 MA20 기반 지지가격 포함
+        if ("WAIT_AND_BUY".equals(recommendation)) {
+            BigDecimal ma20 = dto.getChartData() != null ? dto.getChartData().getMa20() : null;
+            if (ma20 != null && dto.getPrice() != null && dto.getPrice().getCurrentPrice() != null) {
+                double price = dto.getPrice().getCurrentPrice().doubleValue();
+                int roundUnit = price >= 100000 ? 10000 : (price >= 10000 ? 1000 : 100);
+                long supportPrice = Math.round(ma20.doubleValue() / roundUnit) * roundUnit;
+                conflictAnalysis = String.format(
+                        "장기적 상승 추세는 유효하나(%d점), 단기 과열로 조정 가능성 있음. %,d원대 지지 확인 후 분할 매수 추천.",
+                        fundamentalEstimate, supportPrice);
+            } else {
+                conflictAnalysis = String.format(
+                        "단기 트레이딩 점수(%d점)와 중장기 펀더멘털(%d점) 간 괴리가 큽니다. 조정 시 분할 매수 기회로 활용하세요.",
+                        score, fundamentalEstimate);
+            }
         }
 
         // 매수/매도 근거 추출 (응답에서 줄 단위 파싱)
@@ -1597,7 +1695,8 @@ public class StockDetailService {
                             || content.contains("매도") || content.contains("부정") || content.contains("우려")) {
                         sellReasons.add(content);
                     } else {
-                        if ("BUY".equals(recommendation)) {
+                        if ("BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation)
+                                || "WAIT_AND_BUY".equals(recommendation)) {
                             buyReasons.add(content);
                         } else if ("SELL".equals(recommendation)) {
                             sellReasons.add(content);
@@ -1629,6 +1728,7 @@ public class StockDetailService {
                 .technicalSignal(technicalSignal)
                 .buyReasons(buyReasons)
                 .sellReasons(sellReasons)
+                .conflictAnalysis(conflictAnalysis)
                 .priceGuide(priceGuide)
                 .build();
     }
