@@ -390,6 +390,18 @@ public class StockFinancialDataCollector {
                         if (ttmOperatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
                             ratios.put("operatingProfit", ttmOperatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
+
+                        // ★ TTM 기준 영업이익률/순이익률 덮어쓰기 (연간 ratio API 값 대체)
+                        if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) > 0) {
+                            ratios.put("operatingMargin", ttmOperatingProfitRaw
+                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100"))
+                                    .setScale(2, RoundingMode.HALF_UP));
+                            ratios.put("netMargin", ttmNetIncomeRaw
+                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100"))
+                                    .setScale(2, RoundingMode.HALF_UP));
+                        }
                     } else {
                         log.warn("[손익계산서] {} - output이 비어있음", stockCode);
                     }

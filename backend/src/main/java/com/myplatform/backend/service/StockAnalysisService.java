@@ -140,7 +140,7 @@ public class StockAnalysisService {
         // 수급 경고 - 매도는 반드시 경고!
         if (supplyDemand.isBothSelling()) {
             // 동반 매도는 가장 심각한 경고
-            warnings.add("🚨 외국인+기관 동반 매도 중! 뇌동매매 금지!");
+            warnings.add("🚨 외국인+기관 동반 매도 중 (최근 5일)! 뇌동매매 금지!");
         } else {
             // 개별 매도 경고
             if (supplyDemand.getForeignNet5Days() != null &&
@@ -148,14 +148,14 @@ public class StockAnalysisService {
                 // 외국인 순매도 금액 계산 (억 단위)
                 BigDecimal foreignNetBillion = supplyDemand.getForeignNet5Days()
                         .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP).abs();
-                warnings.add("⚠️ 외국인 순매도 " + foreignNetBillion + "억 - 신중히 접근!");
+                warnings.add("⚠️ 외국인 순매도 " + foreignNetBillion + "억 (최근 5일) - 신중히 접근!");
             }
             if (supplyDemand.getInstitutionNet5Days() != null &&
                 supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) < 0) {
                 // 기관 순매도 금액 계산 (억 단위)
                 BigDecimal institutionNetBillion = supplyDemand.getInstitutionNet5Days()
                         .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP).abs();
-                warnings.add("⚠️ 기관 순매도 " + institutionNetBillion + "억 - 신중히 접근!");
+                warnings.add("⚠️ 기관 순매도 " + institutionNetBillion + "억 (최근 5일) - 신중히 접근!");
             }
         }
         if (technicalAnalysis.isRsiOverbought()) {
@@ -180,19 +180,19 @@ public class StockAnalysisService {
             supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) > 0 &&
             supplyDemand.getInstitutionNet5Days() != null &&
             supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) > 0) {
-            positives.add("외국인+기관 동반 매수 중");
+            positives.add("외국인+기관 동반 매수 중 (최근 5일)");
         }
         // 외국인만 매수
         else if (supplyDemand.isForeignBuying() &&
                  supplyDemand.getForeignNet5Days() != null &&
                  supplyDemand.getForeignNet5Days().compareTo(BigDecimal.ZERO) > 0) {
-            positives.add("외국인 순매수 중");
+            positives.add("외국인 순매수 중 (최근 5일)");
         }
         // 기관만 매수
         else if (supplyDemand.isInstitutionBuying() &&
                  supplyDemand.getInstitutionNet5Days() != null &&
                  supplyDemand.getInstitutionNet5Days().compareTo(BigDecimal.ZERO) > 0) {
-            positives.add("기관 순매수 중");
+            positives.add("기관 순매수 중 (최근 5일)");
         }
         if (Boolean.TRUE.equals(technicalAnalysis.getIsArrangedUp())) {
             positives.add("이평선 정배열 (상승 추세)");
@@ -274,39 +274,36 @@ public class StockAnalysisService {
             }
         }
 
-        // ★ 영업이익률: DB값이 null/0이면 영업이익÷매출액으로 재계산
-        if ((operatingMargin == null || operatingMargin.compareTo(BigDecimal.ZERO) == 0)
-                && operatingProfit != null && revenue != null
+        // ★ 영업이익률: TTM 기준 항상 재계산 (DB의 연간 ratio API 값 대신 TTM 사용)
+        if (operatingProfit != null && revenue != null
                 && revenue.compareTo(BigDecimal.ZERO) > 0) {
             operatingMargin = operatingProfit
                     .divide(revenue, 6, RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"))
                     .setScale(2, RoundingMode.HALF_UP);
-            log.info("[재무분석] {} 영업이익률 재계산: {}% (영업이익: {}, 매출: {})",
+            log.info("[재무분석] {} 영업이익률 TTM 재계산: {}% (영업이익: {}, 매출: {})",
                     data.getStockCode(), operatingMargin, operatingProfit, revenue);
         }
 
-        // ★ 순이익률: DB값이 null/0이면 당기순이익÷매출액으로 재계산
-        if ((netMargin == null || netMargin.compareTo(BigDecimal.ZERO) == 0)
-                && netIncome != null && revenue != null
+        // ★ 순이익률: TTM 기준 항상 재계산
+        if (netIncome != null && revenue != null
                 && revenue.compareTo(BigDecimal.ZERO) > 0) {
             netMargin = netIncome
                     .divide(revenue, 6, RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"))
                     .setScale(2, RoundingMode.HALF_UP);
-            log.info("[재무분석] {} 순이익률 재계산: {}% (순이익: {}, 매출: {})",
+            log.info("[재무분석] {} 순이익률 TTM 재계산: {}% (순이익: {}, 매출: {})",
                     data.getStockCode(), netMargin, netIncome, revenue);
         }
 
-        // ★ ROE: DB값이 null/0이면 당기순이익÷자본총계로 재계산
-        if ((roe == null || roe.compareTo(BigDecimal.ZERO) == 0)
-                && netIncome != null && totalEquity != null
+        // ★ ROE: TTM 기준 항상 재계산 (자본총계 있으면)
+        if (netIncome != null && totalEquity != null
                 && totalEquity.compareTo(BigDecimal.ZERO) > 0) {
             roe = netIncome
                     .divide(totalEquity, 6, RoundingMode.HALF_UP)
                     .multiply(new BigDecimal("100"))
                     .setScale(2, RoundingMode.HALF_UP);
-            log.info("[재무분석] {} ROE 재계산: {}% (순이익: {}, 자본총계: {})",
+            log.info("[재무분석] {} ROE TTM 재계산: {}% (순이익: {}, 자본총계: {})",
                     data.getStockCode(), roe, netIncome, totalEquity);
         }
 
@@ -461,22 +458,22 @@ public class StockAnalysisService {
         // 평가 - 매도 시 경고 강화
         String assessment;
         if (isBothBuying) {
-            assessment = "✅ 외국인+기관 동반 매수";
+            assessment = "✅ 외국인+기관 동반 매수 (5일 누적)";
         } else if (isBothSelling) {
-            assessment = "⚠️ 매도 우위 (뇌동매매 주의!)";
+            assessment = "⚠️ 매도 우위 (5일 누적, 뇌동매매 주의!)";
         } else if (isForeignSelling && isInstitutionSelling) {
             // 이미 isBothSelling에서 처리됨
-            assessment = "⚠️ 매도 우위 (주의)";
+            assessment = "⚠️ 매도 우위 (5일 누적)";
         } else if (isForeignSelling) {
-            assessment = "⚠️ 외국인 매도 (주의)";
+            assessment = "⚠️ 외국인 매도 (5일 누적)";
         } else if (isInstitutionSelling) {
-            assessment = "⚠️ 기관 매도 (주의)";
+            assessment = "⚠️ 기관 매도 (5일 누적)";
         } else if (isForeignBuying && !isInstitutionBuying) {
-            assessment = "외국인 매수 / 기관 관망";
+            assessment = "외국인 매수 / 기관 관망 (5일 누적)";
         } else if (!isForeignBuying && isInstitutionBuying) {
-            assessment = "기관 매수 / 외국인 관망";
+            assessment = "기관 매수 / 외국인 관망 (5일 누적)";
         } else {
-            assessment = "혼조 (관망)";
+            assessment = "혼조 (5일 누적)";
         }
 
         log.debug("[수급분석] {} - 외국인: {}억({}일 매수/{}일 매도), 기관: {}억({}일 매수/{}일 매도), 평가: {}",

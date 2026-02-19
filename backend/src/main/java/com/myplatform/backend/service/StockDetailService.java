@@ -681,6 +681,18 @@ public class StockDetailService {
             strategy = "매수 보류 권장. 리스크가 높거나 수급이 불리합니다.";
         }
 
+        // ★ technicalSignal과 recommendation 동기화
+        // 차트 데이터 부재로 NEUTRAL 기본값일 때, recommendation 기반으로 보정
+        if ("NEUTRAL".equals(technicalSignal)) {
+            switch (recommendation) {
+                case "BUY": technicalSignal = "매수 신호"; break;
+                case "TRADING_BUY": technicalSignal = "단기 매수"; break;
+                case "WAIT_AND_BUY": technicalSignal = "조정 대기"; break;
+                case "SELL": technicalSignal = "매도 신호"; break;
+                case "HOLD": technicalSignal = "중립"; break;
+            }
+        }
+
         // ★ 동적 가격 가이드 생성
         String priceGuide = generatePriceGuide(dto, recommendation, score);
 
@@ -1715,6 +1727,17 @@ public class StockDetailService {
                 technicalSignal = "이평선 상회";
             } else if (cp != null) {
                 technicalSignal = "이평선 하향 이탈";
+            }
+        }
+
+        // ★ technicalSignal과 recommendation 동기화
+        if ("NEUTRAL".equals(technicalSignal)) {
+            switch (recommendation) {
+                case "BUY": technicalSignal = "매수 신호"; break;
+                case "TRADING_BUY": technicalSignal = "단기 매수"; break;
+                case "WAIT_AND_BUY": technicalSignal = "조정 대기"; break;
+                case "SELL": technicalSignal = "매도 신호"; break;
+                case "HOLD": technicalSignal = "중립"; break;
             }
         }
 
