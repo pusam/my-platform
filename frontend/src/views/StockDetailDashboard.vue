@@ -105,7 +105,7 @@
         <!-- 핵심 재무 -->
         <div class="financial-section">
           <div class="section-header">
-            <h2>핵심 재무</h2>
+            <h2>핵심 재무 <span class="ttm-label">TTM</span></h2>
             <div class="investment-tags" v-if="financial?.investmentTags?.length">
               <span v-for="(tag, i) in financial.investmentTags" :key="i" class="inv-tag">{{ tag }}</span>
             </div>
@@ -464,7 +464,7 @@
         <div v-if="fundTab === 'financial'" class="analysis-card">
           <div class="card-header">
             <span class="card-icon">💰</span>
-            <h3>재무 건전성</h3>
+            <h3>재무 건전성 <span class="ttm-label">TTM</span></h3>
             <span class="card-score" :class="diagGetScoreClass(diagnosisData.financialHealth?.score)">
               {{ diagnosisData.financialHealth?.score || 0 }}점
             </span>
@@ -1765,6 +1765,18 @@ onUnmounted(() => {
 .forward-badge.forward-improved {
   color: #22c55e;
   background: rgba(34, 197, 94, 0.15);
+}
+
+.ttm-label {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 /* 핵심 투자 포인트 태그 */

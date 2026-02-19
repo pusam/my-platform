@@ -340,8 +340,9 @@ public class StockFinancialDataCollector {
             }
 
             Thread.sleep(100);
+            // ★ 분기별 손익계산서 조회 → 최근 4분기 합산(TTM) 기준으로 통일
             String incomeUrl = baseUrl + "/uapi/domestic-stock/v1/finance/income-statement"
-                    + "?FID_DIV_CLS_CODE=0"
+                    + "?FID_DIV_CLS_CODE=1"
                     + "&fid_cond_mrkt_div_code=J"
                     + "&fid_input_iscd=" + stockCode;
 
@@ -359,27 +360,35 @@ public class StockFinancialDataCollector {
                 if ("0".equals(rtCd)) {
                     JsonNode output = root.get("output");
                     if (output != null && output.isArray() && output.size() > 0) {
-                        JsonNode latest = output.get(0);
+                        // 최근 4분기 합산 (TTM)
+                        int quarterCount = Math.min(output.size(), 4);
+                        BigDecimal ttmNetIncomeRaw = BigDecimal.ZERO;
+                        BigDecimal ttmRevenueRaw = BigDecimal.ZERO;
+                        BigDecimal ttmOperatingProfitRaw = BigDecimal.ZERO;
 
-                        // 손익계산서 필드 로깅
-                        log.info("[손익계산서] {} - 매출액: {}, 영업이익: {}, 당기순이익: {}",
-                                stockCode,
-                                latest.path("sale_account").asText(),
-                                latest.path("bsop_prti").asText(),
-                                latest.path("thtr_ntin").asText());
+                        for (int i = 0; i < quarterCount; i++) {
+                            JsonNode q = output.get(i);
+                            ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
+                            ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
+                            ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
+                        }
 
-                        BigDecimal netIncomeRaw = parseBigDecimal(latest.path("thtr_ntin").asText());
-                        if (netIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            BigDecimal netIncome = netIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-                            ratios.put("netIncome", netIncome);
+                        log.info("[손익계산서 TTM] {} - {}분기 합산: 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                                stockCode, quarterCount, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
+
+                        if (quarterCount < 4) {
+                            log.warn("[손익계산서 TTM] {} - 4분기 미만 데이터 ({}분기)", stockCode, quarterCount);
                         }
-                        BigDecimal revenueRaw = parseBigDecimal(latest.path("sale_account").asText());
-                        if (revenueRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("revenue", revenueRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+
+                        // 단위변환: 합산 후 1회만 /100 (백만원 → 억원)
+                        if (ttmNetIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("netIncome", ttmNetIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
-                        BigDecimal operatingProfitRaw = parseBigDecimal(latest.path("bsop_prti").asText());
-                        if (operatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("operatingProfit", operatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("revenue", ttmRevenueRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        }
+                        if (ttmOperatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("operatingProfit", ttmOperatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
                     } else {
                         log.warn("[손익계산서] {} - output이 비어있음", stockCode);
