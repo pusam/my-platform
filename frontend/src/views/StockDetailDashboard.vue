@@ -161,6 +161,9 @@
               </span>
             </div>
           </div>
+          <div class="data-source-note" v-if="financial?.forwardPer || financial?.forwardPbr">
+            *Forward 지표: EPS 성장률 기반 자체 추정 | 목표주가: 네이버 금융 (FnGuide)
+          </div>
         </div>
 
         <!-- Peer Group 비교 -->
@@ -348,12 +351,12 @@
               <span v-for="(tag, i) in riskInfo.riskTags" :key="i" class="risk-tag">{{ tag }}</span>
             </div>
 
-            <!-- 매수 금지 경고 -->
-            <div v-if="riskInfo?.riskStatus === 'DANGER'" class="danger-warning">
-              <span class="warning-icon">🚨</span>
+            <!-- 매수 금지 경고 (조건부 설명) -->
+            <div v-if="riskInfo?.riskStatus === 'DANGER' || riskInfo?.riskStatus === 'WARNING'" class="danger-warning" :class="riskInfo?.riskStatus === 'WARNING' ? 'warning-level' : ''">
+              <span class="warning-icon">{{ riskInfo?.riskStatus === 'DANGER' ? '🚨' : '⚠️' }}</span>
               <div class="warning-text">
-                <strong>매수 주의</strong>
-                <p>리스크가 높아 신중한 판단이 필요합니다.</p>
+                <strong>{{ riskInfo?.riskStatus === 'DANGER' ? '매수 주의' : '주의 필요' }}</strong>
+                <p>{{ safetyDescriptionText }}</p>
               </div>
             </div>
           </div>
@@ -377,6 +380,34 @@
               <div v-if="aiAnalysis?.priceGuide" class="price-guide">
                 <span class="price-guide-icon">💰</span>
                 <span class="price-guide-text">{{ aiAnalysis.priceGuide }}</span>
+              </div>
+
+              <!-- 목표주가 컨센서스 -->
+              <div v-if="aiAnalysis?.consensusTargetPrice" class="consensus-section">
+                <div class="consensus-header">
+                  <span class="consensus-label">증권사 목표주가</span>
+                  <span class="consensus-price">{{ formatPrice(aiAnalysis.consensusTargetPrice) }}원</span>
+                  <span class="consensus-upside" :class="aiAnalysis.targetUpside >= 0 ? 'positive' : 'negative'">
+                    {{ aiAnalysis.targetUpside >= 0 ? '+' : '' }}{{ aiAnalysis.targetUpside?.toFixed(1) }}%
+                  </span>
+                </div>
+                <div class="consensus-bar-wrap">
+                  <div class="consensus-bar-bg">
+                    <div class="consensus-bar-current"
+                         :style="{ width: consensusBarWidth + '%' }"></div>
+                    <div class="consensus-bar-marker"
+                         :style="{ left: consensusBarWidth + '%' }">
+                      <span class="marker-label">현재가</span>
+                    </div>
+                  </div>
+                  <div class="consensus-bar-labels">
+                    <span>0</span>
+                    <span>목표가</span>
+                  </div>
+                </div>
+                <div class="consensus-source" v-if="aiAnalysis.consensusSource">
+                  *{{ aiAnalysis.consensusSource }}
+                </div>
               </div>
 
               <div class="reasons-section" v-if="aiAnalysis?.buyReasons?.length || aiAnalysis?.sellReasons?.length">
@@ -891,6 +922,15 @@ const scoreDiffComment = computed(() => {
   return null;
 });
 
+// ★ 목표주가 컨센서스 바 너비 (현재가 / 목표가 비율)
+const consensusBarWidth = computed(() => {
+  const target = aiAnalysis.value?.consensusTargetPrice;
+  const current = priceInfo.value?.currentPrice;
+  if (!target || !current || target <= 0) return 0;
+  const ratio = (current / target) * 100;
+  return Math.min(Math.max(ratio, 5), 100);
+});
+
 // ★ 뉴스 중복제거 (제목 기준 Set 필터링)
 const dedupedNews = computed(() => {
   const news = riskInfo.value?.news;
@@ -918,6 +958,32 @@ const safetyStatusClass = computed(() => {
   if (status === 'WARNING') return 'warning';
   if (status === 'DANGER') return 'danger';
   return '';
+});
+
+// ★ 안전 점수 조건부 설명 텍스트 (펀더멘털 점수 연동)
+const safetyDescriptionText = computed(() => {
+  const fundamental = diagnosisData.value?.overallScore;
+  const safety = safetyScore.value;
+  const trading = aiAnalysis.value?.overallScore;
+
+  // 펀더멘털 우수 + 안전점수 낮음 → 단기 과열
+  if (fundamental && fundamental >= 70 && safety !== null && safety <= 40) {
+    return '단기 과열 주의 — 펀더멘털은 우수하나 단기 급등으로 차익실현 매물이 나올 수 있습니다.';
+  }
+  // 트레이딩 점수도 낮고 펀더멘털도 낮음 → 전반 위험
+  if (fundamental && fundamental <= 40 && safety !== null && safety <= 30) {
+    return '복합 리스크 — 재무 지표와 수급 모두 부진하여 손실 위험이 높습니다.';
+  }
+  // 수급 과열 (트레이딩 높고 안전 낮음)
+  if (trading && trading >= 60 && safety !== null && safety <= 30) {
+    return '수급 과열 주의 — 단기 매수세가 강하나 위험 공시/뉴스가 감지되어 급반전 가능성이 있습니다.';
+  }
+  // WARNING 레벨
+  if (riskInfo.value?.riskStatus === 'WARNING') {
+    return '일부 리스크 요인이 감지되었습니다. 공시/뉴스를 확인하고 신중하게 접근하세요.';
+  }
+  // 기본
+  return '리스크가 높아 신중한 판단이 필요합니다.';
 });
 
 const supplySourceClass = computed(() => {
@@ -1969,6 +2035,99 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: #fbbf24;
   line-height: 1.5;
+}
+
+/* 목표주가 컨센서스 */
+.consensus-section {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 10px;
+}
+.consensus-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.consensus-label {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.6);
+}
+.consensus-price {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #60a5fa;
+}
+.consensus-upside {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.consensus-upside.positive {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+}
+.consensus-upside.negative {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+.consensus-bar-wrap {
+  margin-bottom: 4px;
+}
+.consensus-bar-bg {
+  position: relative;
+  height: 8px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  overflow: visible;
+}
+.consensus-bar-current {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #60a5fa);
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+.consensus-bar-marker {
+  position: absolute;
+  top: -16px;
+  transform: translateX(-50%);
+}
+.marker-label {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.5);
+}
+.consensus-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.35);
+  margin-top: 2px;
+}
+.consensus-source {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.3);
+  margin-top: 6px;
+}
+
+/* 데이터 출처 노트 */
+.data-source-note {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.3);
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+/* 안전 점수 WARNING 레벨 */
+.danger-warning.warning-level {
+  background: rgba(234, 179, 8, 0.1);
+  border-color: rgba(234, 179, 8, 0.3);
+}
+.danger-warning.warning-level strong {
+  color: #eab308;
 }
 
 /* Zone A - Investor Section */

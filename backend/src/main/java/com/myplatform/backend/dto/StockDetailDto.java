@@ -185,6 +185,11 @@ public class StockDetailDto {
         private List<String> sellReasons;     // 매도 근거
         private String conflictAnalysis;      // 단기/장기 점수 충돌 분석 텍스트
         private String priceGuide;            // 동적 가격 가이드 (예: "160,000원대 진입 시 강력 매수")
+
+        // ========== 목표주가 컨센서스 ==========
+        private BigDecimal consensusTargetPrice;  // 증권사 평균 목표주가
+        private BigDecimal targetUpside;          // 현재가 대비 상승여력 (%)
+        private String consensusSource;           // 데이터 출처
     }
 
     /**

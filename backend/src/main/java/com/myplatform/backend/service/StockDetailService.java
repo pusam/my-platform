@@ -223,8 +223,9 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
-        // ★ Forward(12M 선행) 지표 계산 + 투자 포인트 태그 생성
+        // ★ 배당수익률 크롤링 (네이버) + Forward 지표 + 투자 포인트 태그
         if (financial != null) {
+            enrichWithDividendYield(financial, stockCode);
             enrichWithForwardMetrics(financial, builder.build().getPrice());
             financial.setInvestmentTags(generateInvestmentTags(financial, stockName));
         }
@@ -257,6 +258,8 @@ public class StockDetailService {
         if (aiAnalysis == null) {
             aiAnalysis = generateAiAnalysis(dto);
         }
+        // ★ 목표주가 컨센서스 크롤링
+        enrichWithConsensusTarget(aiAnalysis, stockCode, dto.getPrice());
         dto.setAiAnalysis(aiAnalysis);
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -1094,6 +1097,76 @@ public class StockDetailService {
             return new BigDecimal(cleaned);
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    // ========== 목표주가 컨센서스 ==========
+
+    /**
+     * 네이버 금융에서 목표주가 컨센서스 + 배당수익률 크롤링
+     * URL: https://finance.naver.com/item/main.naver?code={stockCode}
+     */
+    private void enrichWithConsensusTarget(AiAnalysis aiAnalysis, String stockCode, PriceInfo priceInfo) {
+        if (aiAnalysis == null) return;
+        try {
+            String url = "https://finance.naver.com/item/main.naver?code=" + stockCode;
+            Document doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://finance.naver.com/")
+                    .timeout(10000)
+                    .get();
+
+            // 투자의견 섹션에서 목표주가 추출
+            Elements consensusEls = doc.select("div.tab_con1 table tbody tr td em");
+            if (consensusEls.size() >= 2) {
+                // 첫번째 em: 투자의견(숫자), 두번째 em: 목표주가
+                BigDecimal targetPrice = parseNaverNumber(consensusEls.get(1).text());
+                if (targetPrice != null && targetPrice.compareTo(BigDecimal.ZERO) > 0) {
+                    aiAnalysis.setConsensusTargetPrice(targetPrice);
+                    aiAnalysis.setConsensusSource("네이버 금융 (FnGuide)");
+
+                    if (priceInfo != null && priceInfo.getCurrentPrice() != null
+                            && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal upside = targetPrice.subtract(priceInfo.getCurrentPrice())
+                                .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
+                                .multiply(new BigDecimal("100"))
+                                .setScale(1, RoundingMode.HALF_UP);
+                        aiAnalysis.setTargetUpside(upside);
+                    }
+                    log.info("[StockDetail] 목표주가 컨센서스: {}원 (상승여력: {}%)",
+                            targetPrice, aiAnalysis.getTargetUpside());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[StockDetail] 목표주가 컨센서스 크롤링 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 네이버 금융에서 배당수익률 크롤링
+     */
+    private void enrichWithDividendYield(FinancialInfo financial, String stockCode) {
+        if (financial == null || financial.getDividendYield() != null) return;
+        try {
+            String url = "https://finance.naver.com/item/main.naver?code=" + stockCode;
+            Document doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://finance.naver.com/")
+                    .timeout(10000)
+                    .get();
+
+            // per_table에서 배당수익률 추출
+            Elements tds = doc.select("table.per_table tbody td em");
+            // 순서: PER, EPS, 추정PER, PBR, BPS, 배당수익률
+            if (tds.size() >= 6) {
+                BigDecimal divYield = parseNaverNumber(tds.get(5).text());
+                if (divYield != null && divYield.compareTo(BigDecimal.ZERO) > 0) {
+                    financial.setDividendYield(divYield);
+                    log.info("[StockDetail] 배당수익률 크롤링: {}%", divYield);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[StockDetail] 배당수익률 크롤링 실패: {}", e.getMessage());
         }
     }
 
