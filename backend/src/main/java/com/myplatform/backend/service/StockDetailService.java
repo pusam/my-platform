@@ -1103,8 +1103,8 @@ public class StockDetailService {
     // ========== 목표주가 컨센서스 ==========
 
     /**
-     * 네이버 금융에서 목표주가 컨센서스 + 배당수익률 크롤링
-     * URL: https://finance.naver.com/item/main.naver?code={stockCode}
+     * 네이버 금융에서 목표주가 컨센서스 크롤링
+     * 구조: 투자의견 td 안에 em이 2개 — [0]=투자의견 점수(4.00), [1]=목표주가(654,231)
      */
     private void enrichWithConsensusTarget(AiAnalysis aiAnalysis, String stockCode, PriceInfo priceInfo) {
         if (aiAnalysis == null) return;
@@ -1116,25 +1116,32 @@ public class StockDetailService {
                     .timeout(10000)
                     .get();
 
-            // 투자의견 섹션에서 목표주가 추출
-            Elements consensusEls = doc.select("div.tab_con1 table tbody tr td em");
-            if (consensusEls.size() >= 2) {
-                // 첫번째 em: 투자의견(숫자), 두번째 em: 목표주가
-                BigDecimal targetPrice = parseNaverNumber(consensusEls.get(1).text());
-                if (targetPrice != null && targetPrice.compareTo(BigDecimal.ZERO) > 0) {
-                    aiAnalysis.setConsensusTargetPrice(targetPrice);
-                    aiAnalysis.setConsensusSource("네이버 금융 (FnGuide)");
+            // ★ 투자의견 테이블에서 목표주가 추출
+            // 구조: <th>투자의견|목표주가</th><td><span><em>4.00</em>매수</span> | <em>654,231</em></td>
+            Element opinionTh = doc.selectFirst("table.rwidth th:contains(목표주가)");
+            if (opinionTh != null) {
+                Element opinionTd = opinionTh.nextElementSibling();
+                if (opinionTd != null) {
+                    Elements ems = opinionTd.select("em");
+                    // 마지막 em이 목표주가 (첫번째는 투자의견 점수)
+                    if (ems.size() >= 2) {
+                        BigDecimal targetPrice = parseNaverNumber(ems.last().text());
+                        if (targetPrice != null && targetPrice.compareTo(new BigDecimal("1000")) > 0) {
+                            aiAnalysis.setConsensusTargetPrice(targetPrice);
+                            aiAnalysis.setConsensusSource("네이버 금융 (FnGuide)");
 
-                    if (priceInfo != null && priceInfo.getCurrentPrice() != null
-                            && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal upside = targetPrice.subtract(priceInfo.getCurrentPrice())
-                                .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
-                                .multiply(new BigDecimal("100"))
-                                .setScale(1, RoundingMode.HALF_UP);
-                        aiAnalysis.setTargetUpside(upside);
+                            if (priceInfo != null && priceInfo.getCurrentPrice() != null
+                                    && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal upside = targetPrice.subtract(priceInfo.getCurrentPrice())
+                                        .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(1, RoundingMode.HALF_UP);
+                                aiAnalysis.setTargetUpside(upside);
+                            }
+                            log.info("[StockDetail] 목표주가 컨센서스: {}원 (상승여력: {}%)",
+                                    targetPrice, aiAnalysis.getTargetUpside());
+                        }
                     }
-                    log.info("[StockDetail] 목표주가 컨센서스: {}원 (상승여력: {}%)",
-                            targetPrice, aiAnalysis.getTargetUpside());
                 }
             }
         } catch (Exception e) {
@@ -1144,6 +1151,7 @@ public class StockDetailService {
 
     /**
      * 네이버 금융에서 배당수익률 크롤링
+     * 고유 ID 기반: <em id="_dvr">1.97</em>
      */
     private void enrichWithDividendYield(FinancialInfo financial, String stockCode) {
         if (financial == null || financial.getDividendYield() != null) return;
@@ -1155,12 +1163,12 @@ public class StockDetailService {
                     .timeout(10000)
                     .get();
 
-            // per_table에서 배당수익률 추출
-            Elements tds = doc.select("table.per_table tbody td em");
-            // 순서: PER, EPS, 추정PER, PBR, BPS, 배당수익률
-            if (tds.size() >= 6) {
-                BigDecimal divYield = parseNaverNumber(tds.get(5).text());
-                if (divYield != null && divYield.compareTo(BigDecimal.ZERO) > 0) {
+            // ★ ID 기반 셀렉터 (확실한 파싱)
+            Element dvrEl = doc.selectFirst("em#_dvr");
+            if (dvrEl != null) {
+                BigDecimal divYield = parseNaverNumber(dvrEl.text());
+                if (divYield != null && divYield.compareTo(BigDecimal.ZERO) > 0
+                        && divYield.compareTo(new BigDecimal("100")) < 0) {
                     financial.setDividendYield(divYield);
                     log.info("[StockDetail] 배당수익률 크롤링: {}%", divYield);
                 }
