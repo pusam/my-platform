@@ -223,9 +223,10 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
-        // ★ 배당수익률 크롤링 (네이버) + Forward 지표 + 투자 포인트 태그
+        // ★ 네이버 크롤링 (배당수익률 + 목표주가 한 번에) + Forward 지표 + 태그
+        Document naverMainDoc = fetchNaverMainPage(stockCode);
         if (financial != null) {
-            enrichWithDividendYield(financial, stockCode);
+            enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
             enrichWithForwardMetrics(financial, builder.build().getPrice());
             financial.setInvestmentTags(generateInvestmentTags(financial, stockName));
         }
@@ -258,8 +259,8 @@ public class StockDetailService {
         if (aiAnalysis == null) {
             aiAnalysis = generateAiAnalysis(dto);
         }
-        // ★ 목표주가 컨센서스 크롤링
-        enrichWithConsensusTarget(aiAnalysis, stockCode, dto.getPrice());
+        // ★ 목표주가 컨센서스 (위에서 이미 크롤링한 doc 재사용)
+        enrichWithConsensusTargetFromDoc(aiAnalysis, naverMainDoc, stockCode, dto.getPrice());
         dto.setAiAnalysis(aiAnalysis);
 
         long elapsed = System.currentTimeMillis() - startTime;
@@ -1103,78 +1104,119 @@ public class StockDetailService {
     // ========== 목표주가 컨센서스 ==========
 
     /**
-     * 네이버 금융에서 목표주가 컨센서스 크롤링
-     * 구조: 투자의견 td 안에 em이 2개 — [0]=투자의견 점수(4.00), [1]=목표주가(654,231)
+     * 네이버 금융 메인 페이지 1회 크롤링 (배당수익률 + 목표주가 공용)
      */
-    private void enrichWithConsensusTarget(AiAnalysis aiAnalysis, String stockCode, PriceInfo priceInfo) {
-        if (aiAnalysis == null) return;
+    private Document fetchNaverMainPage(String stockCode) {
         try {
-            String url = "https://finance.naver.com/item/main.naver?code=" + stockCode;
-            Document doc = Jsoup.connect(url)
+            return Jsoup.connect("https://finance.naver.com/item/main.naver?code=" + stockCode)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                     .referrer("https://finance.naver.com/")
                     .timeout(10000)
                     .get();
-
-            // ★ 투자의견 테이블에서 목표주가 추출
-            // 구조: <th>투자의견|목표주가</th><td><span><em>4.00</em>매수</span> | <em>654,231</em></td>
-            Element opinionTh = doc.selectFirst("table.rwidth th:contains(목표주가)");
-            if (opinionTh != null) {
-                Element opinionTd = opinionTh.nextElementSibling();
-                if (opinionTd != null) {
-                    Elements ems = opinionTd.select("em");
-                    // 마지막 em이 목표주가 (첫번째는 투자의견 점수)
-                    if (ems.size() >= 2) {
-                        BigDecimal targetPrice = parseNaverNumber(ems.last().text());
-                        if (targetPrice != null && targetPrice.compareTo(new BigDecimal("1000")) > 0) {
-                            aiAnalysis.setConsensusTargetPrice(targetPrice);
-                            aiAnalysis.setConsensusSource("네이버 금융 (FnGuide)");
-
-                            if (priceInfo != null && priceInfo.getCurrentPrice() != null
-                                    && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
-                                BigDecimal upside = targetPrice.subtract(priceInfo.getCurrentPrice())
-                                        .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
-                                        .multiply(new BigDecimal("100"))
-                                        .setScale(1, RoundingMode.HALF_UP);
-                                aiAnalysis.setTargetUpside(upside);
-                            }
-                            log.info("[StockDetail] 목표주가 컨센서스: {}원 (상승여력: {}%)",
-                                    targetPrice, aiAnalysis.getTargetUpside());
-                        }
-                    }
-                }
-            }
         } catch (Exception e) {
-            log.warn("[StockDetail] 목표주가 컨센서스 크롤링 실패: {}", e.getMessage());
+            log.warn("[StockDetail] 네이버 메인 페이지 크롤링 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
         }
     }
 
     /**
-     * 네이버 금융에서 배당수익률 크롤링
-     * 고유 ID 기반: <em id="_dvr">1.97</em>
+     * 네이버 금융에서 목표주가 컨센서스 추출
+     * HTML 구조: <th>투자의견|목표주가</th><td><span><em>4.00</em>매수</span> | <em>654,231</em></td>
+     * → td 안의 em 중 값이 1,000 이상인 것이 목표주가
      */
-    private void enrichWithDividendYield(FinancialInfo financial, String stockCode) {
-        if (financial == null || financial.getDividendYield() != null) return;
+    private void enrichWithConsensusTargetFromDoc(AiAnalysis aiAnalysis, Document doc, String stockCode, PriceInfo priceInfo) {
+        if (aiAnalysis == null || doc == null) return;
         try {
-            String url = "https://finance.naver.com/item/main.naver?code=" + stockCode;
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .referrer("https://finance.naver.com/")
-                    .timeout(10000)
-                    .get();
+            // 전략 1: th:contains(목표주가) → 형제 td → em 중 큰 값
+            Element opinionTh = doc.selectFirst("th:contains(목표주가)");
+            if (opinionTh != null) {
+                Element opinionTd = opinionTh.nextElementSibling();
+                if (opinionTd != null) {
+                    Elements ems = opinionTd.select("em");
+                    log.debug("[목표주가 파싱] {} - td 내 em {} 개: {}",
+                            stockCode, ems.size(), ems.eachText());
 
-            // ★ ID 기반 셀렉터 (확실한 파싱)
-            Element dvrEl = doc.selectFirst("em#_dvr");
-            if (dvrEl != null) {
-                BigDecimal divYield = parseNaverNumber(dvrEl.text());
-                if (divYield != null && divYield.compareTo(BigDecimal.ZERO) > 0
-                        && divYield.compareTo(new BigDecimal("100")) < 0) {
-                    financial.setDividendYield(divYield);
-                    log.info("[StockDetail] 배당수익률 크롤링: {}%", divYield);
+                    // em 값 중 1000 이상인 가장 큰 값 = 목표주가 (4.00 같은 점수 제외)
+                    BigDecimal targetPrice = null;
+                    for (Element em : ems) {
+                        BigDecimal val = parseNaverNumber(em.text());
+                        if (val != null && val.compareTo(new BigDecimal("1000")) > 0) {
+                            if (targetPrice == null || val.compareTo(targetPrice) > 0) {
+                                targetPrice = val;
+                            }
+                        }
+                    }
+
+                    if (targetPrice != null && targetPrice.compareTo(new BigDecimal("100000000")) < 0) {
+                        aiAnalysis.setConsensusTargetPrice(targetPrice);
+                        aiAnalysis.setConsensusSource("네이버 금융 (FnGuide)");
+
+                        if (priceInfo != null && priceInfo.getCurrentPrice() != null
+                                && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal upside = targetPrice.subtract(priceInfo.getCurrentPrice())
+                                    .divide(priceInfo.getCurrentPrice(), 4, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100"))
+                                    .setScale(1, RoundingMode.HALF_UP);
+                            aiAnalysis.setTargetUpside(upside);
+                        }
+                        log.info("[StockDetail] 목표주가 컨센서스: {} → {}원 (상승여력: {}%)",
+                                stockCode, targetPrice, aiAnalysis.getTargetUpside());
+                    } else {
+                        log.warn("[목표주가 파싱] {} - 유효한 목표주가 없음 (em 값: {})",
+                                stockCode, ems.eachText());
+                    }
                 }
             }
         } catch (Exception e) {
-            log.warn("[StockDetail] 배당수익률 크롤링 실패: {}", e.getMessage());
+            log.warn("[StockDetail] 목표주가 파싱 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+    }
+
+    /**
+     * 네이버 금융에서 배당수익률 추출
+     * HTML 구조: <em id="_dvr">1.97</em>% (또는 th:contains(배당수익률) → td > em)
+     * 정상 범위: 0 < 배당수익률 < 30%
+     */
+    private void enrichWithDividendYieldFromDoc(FinancialInfo financial, Document doc, String stockCode) {
+        if (financial == null || financial.getDividendYield() != null || doc == null) return;
+        try {
+            BigDecimal divYield = null;
+
+            // 전략 1: ID 기반 — em[id=_dvr] (Jsoup에서 _로 시작하는 ID는 속성 셀렉터가 안전)
+            Element dvrEl = doc.selectFirst("em[id=_dvr]");
+            if (dvrEl != null) {
+                divYield = parseNaverNumber(dvrEl.text());
+                log.debug("[배당수익률 파싱] {} - em[id=_dvr] 원본값: '{}' → parsed: {}",
+                        stockCode, dvrEl.text(), divYield);
+            }
+
+            // 전략 2: 폴백 — th:contains(배당수익률) → td > em
+            if (divYield == null) {
+                Element divTh = doc.selectFirst("th:contains(배당수익률)");
+                if (divTh != null) {
+                    Element divTd = divTh.nextElementSibling();
+                    if (divTd != null) {
+                        Element em = divTd.selectFirst("em");
+                        if (em != null) {
+                            divYield = parseNaverNumber(em.text());
+                            log.debug("[배당수익률 파싱] {} - th 폴백 원본값: '{}' → parsed: {}",
+                                    stockCode, em.text(), divYield);
+                        }
+                    }
+                }
+            }
+
+            // 범위 검증: 0 < 배당수익률 < 30% (세계 최고 배당주도 20% 안넘음)
+            if (divYield != null && divYield.compareTo(BigDecimal.ZERO) > 0
+                    && divYield.compareTo(new BigDecimal("30")) < 0) {
+                financial.setDividendYield(divYield);
+                log.info("[StockDetail] 배당수익률: {} → {}%", stockCode, divYield);
+            } else if (divYield != null) {
+                log.warn("[배당수익률 파싱] {} - 범위 초과로 무시: {}% (정상범위: 0~30%)",
+                        stockCode, divYield);
+            }
+        } catch (Exception e) {
+            log.warn("[StockDetail] 배당수익률 파싱 실패 [{}]: {}", stockCode, e.getMessage());
         }
     }
 
