@@ -2,7 +2,7 @@
   <div v-if="visible" class="modal-overlay" @click.self="$emit('close')" @keydown.escape="$emit('close')">
     <div class="modal-container">
       <div class="modal-header">
-        <h3>AI 시장 예측 상세</h3>
+        <h3>AI 시장 예측 상세 (KOSPI)</h3>
         <button class="close-btn" @click="$emit('close')">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -20,7 +20,11 @@
         <div class="detail-scenario-cards">
           <div class="detail-scenario-card bull">
             <div class="detail-scenario-header">
-              <span class="detail-scenario-icon">📈</span>
+              <span class="detail-scenario-icon bull-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+                </svg>
+              </span>
               <span class="detail-scenario-label">Bull 시나리오</span>
               <span class="detail-scenario-prob">{{ forecastData.scenarios.bull.probability }}%</span>
             </div>
@@ -33,7 +37,11 @@
 
           <div class="detail-scenario-card base-card">
             <div class="detail-scenario-header">
-              <span class="detail-scenario-icon">📊</span>
+              <span class="detail-scenario-icon base-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="2" y1="12" x2="22" y2="12"/><polyline points="17 7 22 12 17 17"/>
+                </svg>
+              </span>
               <span class="detail-scenario-label">Base 시나리오</span>
               <span class="detail-scenario-prob">{{ forecastData.scenarios.base.probability }}%</span>
             </div>
@@ -46,7 +54,11 @@
 
           <div class="detail-scenario-card bear">
             <div class="detail-scenario-header">
-              <span class="detail-scenario-icon">📉</span>
+              <span class="detail-scenario-icon bear-icon">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>
+                </svg>
+              </span>
               <span class="detail-scenario-label">Bear 시나리오</span>
               <span class="detail-scenario-prob">{{ forecastData.scenarios.bear.probability }}%</span>
             </div>
@@ -66,7 +78,7 @@
 
         <!-- Base Info -->
         <div class="detail-base-info">
-          <span>기준 지수: {{ formatNum(forecastData.baseIndex) }}</span>
+          <span>KOSPI 기준 지수: {{ formatNum(forecastData.baseIndex) }}pt</span>
         </div>
       </div>
     </div>
@@ -125,7 +137,7 @@ export default {
             tension: 0.3
           },
           {
-            label: '기본 시나리오',
+            label: 'Base 시나리오',
             data: [base, ...forecasts.map(f => f.base)],
             borderColor: 'rgba(255, 255, 255, 0.9)',
             backgroundColor: 'rgba(255, 255, 255, 0.05)',
@@ -312,7 +324,18 @@ export default {
   gap: 8px;
   margin-bottom: 10px;
 }
-.detail-scenario-icon { font-size: 16px; }
+.detail-scenario-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+.detail-scenario-icon.bull-icon { background: rgba(239, 68, 68, 0.15); }
+.detail-scenario-icon.base-icon { background: rgba(255, 255, 255, 0.1); }
+.detail-scenario-icon.bear-icon { background: rgba(59, 130, 246, 0.15); }
 .detail-scenario-label {
   font-size: 14px;
   font-weight: 700;
