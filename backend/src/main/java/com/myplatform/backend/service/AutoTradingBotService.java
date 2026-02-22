@@ -7,6 +7,7 @@ import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.dto.PaperTradingDto.TradeHistoryDto;
 import com.myplatform.backend.dto.ScalpingAnalysisDto;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.BotConfig;
 import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
@@ -41,20 +42,24 @@ import java.util.stream.Collectors;
  * [전략 명세서] - SCALPING SNIPER MODE
  * ========================================
  *
- * 1. 매수 조건 (Strict Entry) - 3가지 모두 만족 시 시장가 진입
+ * 1. 매수 조건 (Strict Entry) - 6가지 모두 만족 시 시장가 진입
  *    A. 실시간 체결강도 120% 이상 유지 중
  *    B. 최근 10분 내 거래대금 100억 이상 (수급 급증)
  *    C. 현재가 > 시초가 (양봉 상태)
+ *    D. RSI(14) < 75 (과열 구간 진입 금지)
+ *    E. 20MA 이격도 < +15% (급등 구간 진입 금지)
+ *    F. 갭상승 < +5% (갭상승 과다 진입 금지)
  *
- * 2. 매도 조건 (Auto Exit)
+ * 2. 매도 조건 (Auto Exit) - 3초 간격 감시
  *    A. 익절 1차: +2.5% 도달 시 절반 매도
  *    B. 익절 2차: 트레일링 스탑 (고점 대비 -1% 하락 시 전량 매도)
  *    C. 손절: -1.5% 터치 시 즉시 전량 손절
- *    D. 타임컷: 매수 후 20분 내 승부 안 나면 본절 매도
+ *    D. 타임컷: 매수 후 10분 초과 시 무조건 전량 매도
  *
  * 3. 운용 설정
  *    A. 감시 대상: 수급 급증 탭에 잡힌 종목들만
  *    B. 킬 스위치: 하루 최대 손실 -3% 초과 시 봇 자동 종료
+ *    C. 운용 시간: 오전장 09:05~11:00 / 오후장 13:30~15:00 (점심 휴식)
  *
  * ========================================
  */
@@ -70,6 +75,8 @@ public class AutoTradingBotService {
     private final StockPriceService stockPriceService;
     private final TelegramNotificationService telegramService;
     private final BotConfigRepository botConfigRepository;
+    private final TechnicalIndicatorService technicalIndicatorService;
+    private final KoreaInvestmentService kisService;
 
     // ========== 스캘핑 전략 상수 ==========
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5%
@@ -77,10 +84,13 @@ public class AutoTradingBotService {
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-1.0"); // 트레일링: 고점 대비 -1%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");    // 최소 체결강도: 120%
     private static final BigDecimal MIN_TRADE_AMOUNT = new BigDecimal("100");    // 최소 거래대금: 100억
-    private static final int TIME_CUT_MINUTES = 20;                               // 타임컷: 20분
+    private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
     private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
     private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-3.0");   // 킬 스위치: -3%
+    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("75");      // RSI 진입 상한
+    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("15"); // 20MA 이격도 상한 (%)
+    private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("5");          // 갭상승 상한 (%)
 
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
@@ -161,7 +171,9 @@ public class AutoTradingBotService {
             ScalpingAnalysisService scalpingAnalysisService,
             StockPriceService stockPriceService,
             TelegramNotificationService telegramService,
-            BotConfigRepository botConfigRepository) {
+            BotConfigRepository botConfigRepository,
+            TechnicalIndicatorService technicalIndicatorService,
+            KoreaInvestmentService kisService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -170,6 +182,8 @@ public class AutoTradingBotService {
         this.stockPriceService = stockPriceService;
         this.telegramService = telegramService;
         this.botConfigRepository = botConfigRepository;
+        this.technicalIndicatorService = technicalIndicatorService;
+        this.kisService = kisService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -288,19 +302,23 @@ public class AutoTradingBotService {
             telegramService.sendMessage(
                     String.format("<b>%s [%s] 스캘핑 스나이퍼 봇 시작!</b>\n\n", modeEmoji, modeTag) +
                     "✅ 봇이 활성화되었습니다.\n" +
-                    "🎯 전략: <b>스캘핑 스나이퍼 모드</b>\n\n" +
-                    "━━━ 매수 조건 (3가지 동시 충족) ━━━\n" +
+                    "🎯 전략: <b>스캘핑 스나이퍼 모드 v2</b>\n\n" +
+                    "━━━ 매수 조건 (6가지 동시 충족) ━━━\n" +
                     "1️⃣ 체결강도 120% 이상\n" +
                     "2️⃣ 거래대금 100억↑ (수급 급증)\n" +
-                    "3️⃣ 현재가 > 시초가 (양봉)\n\n" +
-                    "━━━ 매도 조건 ━━━\n" +
+                    "3️⃣ 현재가 > 시초가 (양봉)\n" +
+                    "4️⃣ RSI(14) < 75 (과열 금지)\n" +
+                    "5️⃣ 20MA 이격도 < +15%\n" +
+                    "6️⃣ 갭상승 < +5%\n\n" +
+                    "━━━ 매도 조건 (3초 감시) ━━━\n" +
                     "🟢 익절 1차: +2.5% → 절반 매도\n" +
                     "🟢 익절 2차: 고점 -1% → 전량 매도\n" +
                     "🔴 손절: -1.5% → 전량 손절\n" +
-                    "⏰ 타임컷: 20분 후 횡보 → 본절\n\n" +
+                    "⏰ 타임컷: 10분 초과 → 전량 매도\n\n" +
                     "━━━ 리스크 관리 ━━━\n" +
                     "🛑 킬 스위치: 일일 손실 -3% 초과 시 봇 종료\n" +
-                    "📦 최대 보유: 3종목\n\n" +
+                    "📦 최대 보유: 3종목\n" +
+                    "🕐 오전장: 09:05~11:00 / 오후장: 13:30~15:00\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     modeEmoji + " MyPlatform " + modeTag
             );
@@ -375,12 +393,17 @@ public class AutoTradingBotService {
 
     /**
      * 스캘핑 매수 로직
-     * - 실행 시간: 09:05 ~ 15:15 (매분, 평일만)
-     * - 수급 급증 종목 중 스캘핑 조건 충족 시 진입
+     * - 실행 시간: 오전장 09:05~11:00 / 오후장 13:30~15:00 (매분, 평일만)
+     * - 수급 급증 종목 중 스캘핑 6가지 조건 충족 시 진입
      */
+    // 오전장: 09:05~11:00
     @Scheduled(cron = "0 5-59 9 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 * 10-14 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 0-15 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * 10 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 11 * * MON-FRI", zone = "Asia/Seoul")
+    // 오후장: 13:30~15:00
+    @Scheduled(cron = "0 30-59 13 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) {
             return;
@@ -513,6 +536,9 @@ public class AutoTradingBotService {
      * 1. 체결강도 120% 이상
      * 2. 거래대금 100억 이상
      * 3. 현재가 > 시초가 (양봉)
+     * 4. RSI(14) < 75 (과열 금지)
+     * 5. 20MA 이격도 < +15% (급등 금지)
+     * 6. 갭상승 < +5% (갭상승 과다 금지)
      */
     private ScalpingEntryResult checkScalpingEntry(InvestorSurgeDto surge) {
         try {
@@ -563,6 +589,52 @@ public class AutoTradingBotService {
                         .multiply(new BigDecimal("100"));
             }
 
+            // ===== 추가 필터 (상투 잡기 방지) =====
+
+            // 조건 4: RSI(14) >= 75 → 매수 금지
+            try {
+                List<BigDecimal> closePrices = kisService.getDailyClosePrices(surge.getStockCode(), 30);
+                if (closePrices != null && closePrices.size() >= 14) {
+                    TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
+
+                    // 4-A. RSI 과열 체크
+                    if (indicators.getRsi14() != null && indicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) >= 0) {
+                        log.info("[스캘핑봇] RSI 과열: {} - RSI {}", surge.getStockName(), indicators.getRsi14());
+                        return ScalpingEntryResult.fail("RSI 과열: " + indicators.getRsi14());
+                    }
+
+                    // 4-B. 20MA 이격도 +15% 이상 → 매수 금지
+                    if (indicators.getMa20() != null && indicators.getMa20().compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal disparity = currentPrice.subtract(indicators.getMa20())
+                                .divide(indicators.getMa20(), 4, RoundingMode.HALF_UP)
+                                .multiply(new BigDecimal("100"));
+                        if (disparity.compareTo(DISPARITY_20MA_LIMIT) >= 0) {
+                            log.info("[스캘핑봇] 이격도 과다: {} - {}%", surge.getStockName(), disparity.setScale(2, RoundingMode.HALF_UP));
+                            return ScalpingEntryResult.fail("이격도 과다: " + disparity.setScale(2, RoundingMode.HALF_UP) + "%");
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[스캘핑봇] RSI/이격도 체크 실패 (진입 허용): {} - {}", surge.getStockCode(), e.getMessage());
+            }
+
+            // 조건 5: 갭상승 +5% 이상 → 매수 금지
+            if (openPrice != null && openPrice.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal changePrice = priceDto.getChangePrice();
+                if (changePrice != null) {
+                    BigDecimal prevClose = currentPrice.subtract(changePrice);
+                    if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal gapRate = openPrice.subtract(prevClose)
+                                .divide(prevClose, 4, RoundingMode.HALF_UP)
+                                .multiply(new BigDecimal("100"));
+                        if (gapRate.compareTo(GAP_UP_LIMIT) >= 0) {
+                            log.info("[스캘핑봇] 갭상승 과다: {} - {}%", surge.getStockName(), gapRate.setScale(2, RoundingMode.HALF_UP));
+                            return ScalpingEntryResult.fail("갭상승 과다: " + gapRate.setScale(2, RoundingMode.HALF_UP) + "%");
+                        }
+                    }
+                }
+            }
+
             return ScalpingEntryResult.success(currentPrice, volumePower, tradeAmount, openChangeRate);
 
         } catch (Exception e) {
@@ -602,9 +674,9 @@ public class AutoTradingBotService {
     /**
      * 스캘핑 매도 로직
      * - 익절/손절/트레일링/타임컷 체크
-     * - 30초 간격으로 실행
+     * - 3초 간격으로 실행 (09:05~15:20, 점심시간 포함)
      */
-    @Scheduled(cron = "*/30 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/3 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
         if (!botActive.get()) {
             return;
@@ -693,15 +765,11 @@ public class AutoTradingBotService {
                     sellReason = "TRAILING_STOP";
                     log.info("[스캘핑봇] 트레일링 스탑: {} - 고점대비 {}%", portfolio.getStockName(), highDropRate);
                 }
-                // 4. 타임컷 체크 (20분 경과)
+                // 4. 타임컷 체크 (10분 경과 → 무조건 전량 매도)
                 else if (minutesElapsed >= TIME_CUT_MINUTES) {
-                    // 횡보 판단: 수익률이 -0.5% ~ +1% 사이면 횡보로 간주
-                    if (profitRate.compareTo(new BigDecimal("-0.5")) >= 0 &&
-                        profitRate.compareTo(new BigDecimal("1.0")) <= 0) {
-                        sellReason = "TIME_CUT";
-                        log.info("[스캘핑봇] 타임컷: {} - {}분 경과, 손익률 {}%",
-                                portfolio.getStockName(), minutesElapsed, profitRate);
-                    }
+                    sellReason = "TIME_CUT";
+                    log.info("[스캘핑봇] 타임컷: {} - {}분 경과, 손익률 {}%",
+                            portfolio.getStockName(), minutesElapsed, profitRate);
                 }
 
                 if (sellReason != null && sellQuantity > 0) {
