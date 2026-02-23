@@ -120,9 +120,9 @@
               </span>
             </div>
             <div class="detail-row">
-              <span class="label">스냅샷 시간</span>
-              <span class="value time" :class="{ 'live': stock.displayTime && stock.displayTime.includes('Live') }">
-                {{ stock.displayTime || '-' }}
+              <span class="label">업데이트</span>
+              <span class="value time" :class="{ 'live': isAutoRefreshActive }">
+                {{ lastUpdateTime || '-' }}
               </span>
             </div>
           </div>
@@ -381,9 +381,8 @@ const shouldShowHotBadge = (stock) => {
 
 const getTrendClass = (trendStatus) => {
   switch (trendStatus) {
-    case 'ACCUMULATING': return 'trend-accumulating';  // 초록색
-    case 'PROFIT_TAKING': return 'trend-profit-taking'; // 주황색
-    case 'TURNAROUND': return 'trend-turnaround';       // 회색
+    case 'ACCUMULATING': return 'trend-accumulating';  // 초록색 - 매수 집중
+    case 'PROFIT_TAKING': return 'trend-profit-taking'; // 주황색 - 차익 실현
     default: return 'trend-normal';
   }
 };
@@ -392,7 +391,6 @@ const getTrendIcon = (trendStatus) => {
   switch (trendStatus) {
     case 'ACCUMULATING': return '🚀';
     case 'PROFIT_TAKING': return '💰';
-    case 'TURNAROUND': return '🔄';
     default: return '';
   }
 };

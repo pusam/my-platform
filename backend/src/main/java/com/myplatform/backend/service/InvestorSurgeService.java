@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.InvestorSurgeDto;
+import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AlertHistory;
 import com.myplatform.backend.entity.InvestorIntradaySnapshot;
 import com.myplatform.backend.repository.AlertHistoryRepository;
@@ -38,6 +39,7 @@ public class InvestorSurgeService {
     private final AlertHistoryRepository alertHistoryRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final TelegramNotificationService telegramService;
+    private final StockPriceService stockPriceService;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -315,7 +317,46 @@ public class InvestorSurgeService {
         result.put("INSTITUTION", institutionStocks);
         result.put("COMMON", getCommonStocks(foreignStocks, institutionStocks));
 
+        // 스냅샷 가격 → 실시간 가격으로 보정
+        enrichWithRealTimePrices(result);
+
         return result;
+    }
+
+    /**
+     * 스냅샷의 stale 가격을 실시간 가격으로 보정
+     * - 종목명-현재가 매핑 불일치 방지
+     * - StockPriceService 캐시(1분) 활용으로 API 부하 최소화
+     */
+    private void enrichWithRealTimePrices(Map<String, List<InvestorSurgeDto>> allStocks) {
+        Set<String> allCodes = new HashSet<>();
+        for (List<InvestorSurgeDto> stocks : allStocks.values()) {
+            for (InvestorSurgeDto stock : stocks) {
+                if (stock.getStockCode() != null) {
+                    allCodes.add(stock.getStockCode());
+                }
+            }
+        }
+
+        if (allCodes.isEmpty()) return;
+
+        try {
+            Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(new ArrayList<>(allCodes));
+
+            for (List<InvestorSurgeDto> stocks : allStocks.values()) {
+                for (InvestorSurgeDto stock : stocks) {
+                    StockPriceDto price = prices.get(stock.getStockCode());
+                    if (price != null && price.getCurrentPrice() != null) {
+                        stock.setCurrentPrice(price.getCurrentPrice());
+                        stock.setChangeRate(price.getChangeRate());
+                    }
+                }
+            }
+
+            log.debug("실시간 가격 보정 완료: {}종목", prices.size());
+        } catch (Exception e) {
+            log.warn("실시간 가격 보정 실패 (스냅샷 가격 유지): {}", e.getMessage());
+        }
     }
 
     /**
@@ -551,26 +592,18 @@ public class InvestorSurgeService {
 
     /**
      * 추세 상태 계산
-     * - 누적 순매수 금액(currentTotal)과 변화량(changeAmount) 조합으로 결정
-     * - ACCUMULATING: 누적 양수 + 변화 양수 → 초록색 '매수 집중' (★최고의 매수 타이밍)
-     * - PROFIT_TAKING: 누적 양수 + 변화 음수 → 주황색 '차익 실현'
-     * - TURNAROUND: 누적 음수 + 변화 양수 → 회색 '수급 유입' (반등 시도)
-     * - NORMAL: 그 외 케이스
+     * - 누적 순매수 금액(currentTotal) 부호 기준으로 결정
+     * - ACCUMULATING: 순매수 양수 → 초록색 '매수 집중'
+     * - PROFIT_TAKING: 순매수 음수 → 주황색 '차익 실현'
+     * - NORMAL: 0 또는 판단 불가
      */
     private String calculateTrendStatus(BigDecimal currentTotal, BigDecimal changeAmount) {
-        boolean isPositiveTotal = currentTotal.compareTo(BigDecimal.ZERO) > 0;
-        boolean isNegativeTotal = currentTotal.compareTo(BigDecimal.ZERO) < 0;
-        boolean isPositiveChange = changeAmount.compareTo(BigDecimal.ZERO) > 0;
-        boolean isNegativeChange = changeAmount.compareTo(BigDecimal.ZERO) < 0;
-
-        if (isPositiveTotal && isPositiveChange) {
-            return "ACCUMULATING";  // ★최고의 매수 타이밍 - 계속 사는 중
-        } else if (isPositiveTotal && isNegativeChange) {
-            return "PROFIT_TAKING"; // 많이 샀는데 차익 실현 중
-        } else if (isNegativeTotal && isPositiveChange) {
-            return "TURNAROUND";    // 반등 시도 - 수급 유입
+        if (currentTotal.compareTo(BigDecimal.ZERO) > 0) {
+            return "ACCUMULATING";  // 순매수 양수 → 매수 집중
+        } else if (currentTotal.compareTo(BigDecimal.ZERO) < 0) {
+            return "PROFIT_TAKING"; // 순매수 음수 → 차익 실현
         } else {
-            return "NORMAL";        // 그 외 케이스
+            return "NORMAL";
         }
     }
 
@@ -581,7 +614,6 @@ public class InvestorSurgeService {
         switch (trendStatus) {
             case "ACCUMULATING": return "매수 집중";
             case "PROFIT_TAKING": return "차익 실현";
-            case "TURNAROUND": return "수급 유입";
             case "NORMAL": return "";
             default: return "";
         }
