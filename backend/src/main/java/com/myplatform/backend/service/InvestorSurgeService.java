@@ -326,7 +326,8 @@ public class InvestorSurgeService {
     /**
      * 스냅샷의 stale 가격을 실시간 가격으로 보정
      * - 종목명-현재가 매핑 불일치 방지
-     * - StockPriceService 캐시(1분) 활용으로 API 부하 최소화
+     * - 캐시 전용 조회 (API 호출 없음) → 봇 매수 사이클 지연 방지
+     * - 캐시 미스 시 스냅샷 가격 유지
      */
     private void enrichWithRealTimePrices(Map<String, List<InvestorSurgeDto>> allStocks) {
         Set<String> allCodes = new HashSet<>();
@@ -341,19 +342,21 @@ public class InvestorSurgeService {
         if (allCodes.isEmpty()) return;
 
         try {
-            Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(new ArrayList<>(allCodes));
+            Map<String, StockPriceDto> prices = stockPriceService.getStockPricesFromCacheOnly(new ArrayList<>(allCodes));
 
+            int enriched = 0;
             for (List<InvestorSurgeDto> stocks : allStocks.values()) {
                 for (InvestorSurgeDto stock : stocks) {
                     StockPriceDto price = prices.get(stock.getStockCode());
                     if (price != null && price.getCurrentPrice() != null) {
                         stock.setCurrentPrice(price.getCurrentPrice());
                         stock.setChangeRate(price.getChangeRate());
+                        enriched++;
                     }
                 }
             }
 
-            log.debug("실시간 가격 보정 완료: {}종목", prices.size());
+            log.debug("실시간 가격 보정 완료: {}/{}종목 (캐시 히트)", enriched, allCodes.size());
         } catch (Exception e) {
             log.warn("실시간 가격 보정 실패 (스냅샷 가격 유지): {}", e.getMessage());
         }
