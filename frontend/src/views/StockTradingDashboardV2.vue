@@ -208,20 +208,16 @@ export default {
         try {
           const res = await withTimeout(aiStrategyV2API.getLatest())
           const d = this.extractData(res)
-          console.log('[V2] AI Strategy 원본:', JSON.stringify(d, null, 2))
           const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
           if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { console.warn('[V2] AI Strategy 실패:', e.message) }
+        } catch (e) { /* V2 실패 → Java 폴백 */ }
         // 2차: Java API (3초 타임아웃)
         try {
           const res = await withTimeout(aiStrategyAPI.getLatest())
           const d = this.extractData(res)
-          console.log('[Java] AI Strategy 원본:', JSON.stringify(d, null, 2))
           const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
           if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { console.warn('[Java] AI Strategy 실패:', e.message) }
-        // API 모두 실패 시 에러 상태 표시
-        console.warn('[AI Strategy] 데이터 없음')
+        } catch (e) { /* Java API도 실패 */ }
         this.sections.aiStrategy.error = true
       } catch {
         this.aiStrategyData = null
@@ -247,7 +243,6 @@ export default {
         let sectorArr = []
         if (sectorRes.status === 'fulfilled' && sectorRes.value) {
           const d = this.extractData(sectorRes.value)
-          console.log('[API] Sector V2 원본:', d)
           const arr = Array.isArray(d) ? d : (d?.sectors || [])
           if (this.hasSectorData(arr) && this.hasSectorChangeRate(arr)) {
             sectorArr = arr
@@ -256,10 +251,8 @@ export default {
         // V2 실패 또는 changeRate 전부 0 → Java API 직접 호출 (120초 타임아웃)
         if (sectorArr.length === 0) {
           try {
-            console.log('[API] Sector V2 changeRate 0 → Java API 재시도')
             const javaRes = await withTimeout(sectorAPI.getSectorTrading('TODAY'), 120000)
             const jd = this.extractData(javaRes)
-            console.log('[API] Sector Java 원본:', jd)
             const jarr = Array.isArray(jd) ? jd : (jd?.sectors || [])
             sectorArr = this.hasSectorData(jarr) ? jarr : []
           } catch (e) {
@@ -270,7 +263,6 @@ export default {
         // Market - Java API 포맷 변환 (kospi.indexClose → kospiIndex)
         if (marketRes.status === 'fulfilled') {
           const d = this.extractData(marketRes.value)
-          console.log('[API] Market 원본:', d)
           const transformed = transformMarketData(d)
           this.marketData = transformed || {}
         } else {
@@ -317,11 +309,9 @@ export default {
         ])
         // Foreign
         const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
-        console.log('[API] Foreign 원본:', fd)
         this.tradesData.foreign = this.hasTradeData(fd) ? fd : []
         // Institution
         const id = instRes.status === 'fulfilled' ? this.extractData(instRes.value) : null
-        console.log('[API] Institution 원본:', id)
         this.tradesData.institution = this.hasTradeData(id) ? id : []
         // Consecutive - API가 { FOREIGN: [...], INSTITUTION: [...] } Map 반환
         const cd = consecutiveRes.status === 'fulfilled' ? this.extractData(consecutiveRes.value) : null
@@ -350,12 +340,10 @@ export default {
         ])
         // Screener
         const sd = screenerRes.status === 'fulfilled' ? this.extractData(screenerRes.value) : null
-        console.log('[API] Screener 원본:', sd)
         const hasScreener = sd && (sd.magicFormula?.length || sd.lowPeg?.length || sd.turnaround?.length)
         this.screenerData = hasScreener ? sd : {}
         // News
         const nd = newsRes.status === 'fulfilled' ? this.extractData(newsRes.value) : null
-        console.log('[API] News 원본:', nd)
         this.newsData = (Array.isArray(nd) && nd.length > 0) ? nd : []
       } catch {
         this.screenerData = {}

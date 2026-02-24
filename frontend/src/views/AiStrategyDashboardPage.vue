@@ -406,12 +406,6 @@ const loadSnapshotData = async () => {
         }
       }
 
-      console.log('스냅샷 데이터 로드 완료:', {
-        scalping: recommendations.value.scalping.length,
-        swing: recommendations.value.swing.length,
-        trend: recommendations.value.trend.length,
-        value: recommendations.value.value.length
-      });
     }
   } catch (error) {
     console.error('스냅샷 데이터 로드 오류:', error);

@@ -1271,16 +1271,6 @@ const fetchTurnaroundStocks = async () => {
     });
     if (response.data.success) {
       turnaroundStocks.value = response.data.data;
-      // 디버깅용: 턴어라운드 데이터 확인
-      console.log('[턴어라운드] 전체 데이터:', response.data.data);
-      if (response.data.data.length > 0) {
-        const first = response.data.data[0];
-        console.log('[턴어라운드] 첫 번째 종목 상세:', first);
-        console.log('[턴어라운드] 사용 가능한 필드들:', Object.keys(first));
-        console.log('[턴어라운드] marketCap:', first.marketCap, '| marCap:', first.marCap, '| amount:', first.amount);
-        console.log('[턴어라운드] pbr:', first.pbr, '| priceBookRatio:', first.priceBookRatio);
-        console.log('[턴어라운드] bps:', first.bps, '| currentPrice:', first.currentPrice, '| per:', first.per);
-      }
     }
   } catch (error) {
     console.error('턴어라운드 스크리닝 오류:', error);

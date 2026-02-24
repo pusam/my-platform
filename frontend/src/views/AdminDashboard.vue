@@ -390,7 +390,6 @@
 
 <script>
 import { adminAPI, telegramAPI } from '../utils/api';
-import apiClient from '../utils/api';
 
 export default {
   name: 'AdminDashboard',

@@ -1067,7 +1067,6 @@ const searchStock = async () => {
         searchedName = code;
         code = STOCK_MAP[code];
         stockName.value = searchedName;
-        console.log('[StockDetail] 로컬 매핑 사용:', searchedName, '->', code);
       } else {
         // 2. API 검색 시도
         try {
@@ -1076,7 +1075,6 @@ const searchStock = async () => {
             code = searchResult.data.data[0].stockCode;
             searchedName = searchResult.data.data[0].stockName;
             stockName.value = searchedName;
-            console.log('[StockDetail] API 검색 성공:', searchedName, '->', code);
           } else {
             alert('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
             loading.value = false;

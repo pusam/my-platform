@@ -481,9 +481,6 @@ export default {
     goToCar() {
       this.$router.push('/car')
     },
-    goToSector() {
-      this.$router.push('/sector')
-    },
     goToStockDashboard() {
       this.$router.push('/stock-dashboard')
     },
