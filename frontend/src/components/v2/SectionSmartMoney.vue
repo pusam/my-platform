@@ -7,7 +7,14 @@
 
     <SkeletonLoader v-if="loading" type="table" :rows="5" />
 
-    <div v-else-if="error" class="section-error">데이터를 불러올 수 없습니다.</div>
+    <div v-else-if="error" class="state-box">
+      <span class="state-icon">⚠️</span>
+      <p class="state-text">데이터를 불러오지 못했습니다</p>
+      <button class="state-btn" @click="$emit('retry')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
+        새로고침
+      </button>
+    </div>
 
     <template v-else>
       <!-- 내부 탭 -->
@@ -113,6 +120,7 @@ export default {
     loading: { type: Boolean, default: false },
     error: { type: Boolean, default: false }
   },
+  emits: ['retry'],
   data() {
     return {
       activeTab: 'trades',
@@ -169,7 +177,34 @@ export default {
 .section-icon { margin-right: 6px; }
 .more-link { font-size: 13px; color: #667eea; text-decoration: none; }
 .more-link:hover { color: #8b9cf7; }
-.section-error { text-align: center; color: rgba(255,255,255,0.4); padding: 40px 0; font-size: 14px; }
+.state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  text-align: center;
+}
+.state-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.6; }
+.state-text { font-size: 14px; color: rgba(255,255,255,0.4); margin: 0 0 16px 0; }
+.state-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: rgba(102,126,234,0.12);
+  border: 1px solid rgba(102,126,234,0.25);
+  border-radius: 10px;
+  color: #667eea;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.state-btn:hover {
+  background: rgba(102,126,234,0.22);
+  border-color: #667eea;
+}
 
 /* Tabs */
 .inner-tabs {

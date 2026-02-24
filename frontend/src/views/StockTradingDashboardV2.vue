@@ -11,6 +11,7 @@
           :data="aiStrategyData"
           :loading="sections.aiStrategy.loading"
           :error="sections.aiStrategy.error"
+          @retry="loadAiStrategy"
         />
 
         <!-- B. 시장 지도 -->
@@ -20,6 +21,7 @@
           :globalData="globalData"
           :loading="sections.marketMap.loading"
           :error="sections.marketMap.error"
+          @retry="loadMarketMap"
         />
 
         <!-- C. 스마트 머니 -->
@@ -29,6 +31,7 @@
           :surgeData="surgeData"
           :loading="sections.smartMoney.loading"
           :error="sections.smartMoney.error"
+          @retry="loadSmartMoney"
         />
 
         <!-- D. AI 리서치 -->
@@ -37,6 +40,7 @@
           :newsData="newsData"
           :loading="sections.research.loading"
           :error="sections.research.error"
+          @retry="loadResearch"
         />
       </div>
 
