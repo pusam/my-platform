@@ -38,7 +38,8 @@
       </div>
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
-        <div v-for="stock in currentStocks" :key="stock.stockCode" class="stock-card">
+        <div v-for="stock in currentStocks" :key="stock.stockCode" class="stock-card"
+             @click="goToDetail(stock.stockCode)">
           <div class="stock-header">
             <div class="stock-info">
               <span class="stock-name">{{ stock.stockName }}</span>
@@ -76,7 +77,7 @@
             </div>
           </div>
 
-          <button @click="goToDetail(stock.stockCode)" class="detail-btn">
+          <button @click.stop="goToDetail(stock.stockCode)" class="detail-btn">
             상세보기
           </button>
         </div>
@@ -336,6 +337,7 @@ onMounted(() => {
   padding: 1.5rem;
   border: 2px solid #e2e8f0;
   transition: all 0.3s;
+  cursor: pointer;
 }
 
 .stock-card:hover {

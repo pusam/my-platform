@@ -55,7 +55,8 @@
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode"
-             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON', outdated: stock.outdated }]">
+             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON', outdated: stock.outdated }]"
+             @click="goToDetail(stock.stockCode)">
           <!-- HOT 뱃지: 변화량 양수 또는 매수 집중 상태일 때만 표시 -->
           <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()"
                v-if="shouldShowHotBadge(stock)">
@@ -127,7 +128,7 @@
             </div>
           </div>
 
-          <button @click="goToDetail(stock.stockCode)" class="detail-btn">
+          <button @click.stop="goToDetail(stock.stockCode)" class="detail-btn">
             상세보기
           </button>
         </div>
@@ -624,6 +625,7 @@ onUnmounted(() => {
   border: 2px solid #2a2a4a;
   transition: all 0.3s;
   position: relative;
+  cursor: pointer;
 }
 
 .stock-card:hover {

@@ -40,7 +40,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(trade, index) in currentTrades" :key="`${trade.stockCode}-${index}`" class="trade-row">
+            <tr v-for="(trade, index) in currentTrades" :key="`${trade.stockCode}-${index}`" class="trade-row" @click="goToDetail(trade.stockCode)">
               <td class="rank">{{ trade.rankNum }}</td>
               <td class="stock-name">{{ trade.stockName }}</td>
               <td class="stock-code">{{ trade.stockCode }}</td>
@@ -61,7 +61,7 @@
                 {{ formatRate(trade.changeRate) }}
               </td>
               <td>
-                <button @click="goToDetail(trade.stockCode)" class="detail-btn">상세보기</button>
+                <button @click.stop="goToDetail(trade.stockCode)" class="detail-btn">상세보기</button>
               </td>
             </tr>
           </tbody>
@@ -348,6 +348,9 @@ th {
 td {
   padding: 1rem;
   border-bottom: 1px solid #e2e8f0;
+}
+.trade-row {
+  cursor: pointer;
 }
 .trade-row:hover {
   background: #f7fafc;
