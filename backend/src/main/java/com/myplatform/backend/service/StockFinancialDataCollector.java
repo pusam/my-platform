@@ -87,6 +87,7 @@ public class StockFinancialDataCollector {
             BigDecimal per = parseBigDecimal(output.path("per").asText());
             BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
+            BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
 
             // 재무비율 조회
             Thread.sleep(100);
@@ -98,6 +99,20 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
             BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
+
+            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 (별도→연결 통일)
+            if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmEps = netIncome
+                        .multiply(new BigDecimal("100000000"))
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                log.info("[TTM EPS] {} - 별도 EPS: {} → TTM 연결 EPS: {} (순이익: {}억, 주식수: {})",
+                        stockCode, eps, ttmEps, netIncome, lstnStcn);
+                eps = ttmEps;
+
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && eps.compareTo(BigDecimal.ZERO) != 0) {
+                    per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
+                }
+            }
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
             BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
@@ -141,8 +156,8 @@ public class StockFinancialDataCollector {
             financialData.setNetIncome(netIncome);
 
             stockFinancialDataRepository.save(financialData);
-            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}",
-                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin);
+            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}",
+                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per);
             return true;
 
         } catch (Exception e) {
@@ -207,6 +222,7 @@ public class StockFinancialDataCollector {
             BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
             BigDecimal bps = parseBigDecimal(output.path("bps").asText());
+            BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
 
             BigDecimal roe = BigDecimal.ZERO;
             if (bps != null && bps.compareTo(BigDecimal.ZERO) > 0 && eps != null) {
@@ -231,18 +247,39 @@ public class StockFinancialDataCollector {
                 roe = roeFromApi;
             }
 
+            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
+            BigDecimal profitGrowth = financialRatios.getOrDefault("profitGrowth", null);
+            BigDecimal revenueGrowth = financialRatios.getOrDefault("revenueGrowth", null);
+            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
+            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
+
+            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 (별도→연결 통일)
+            if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmEps = netIncome
+                        .multiply(new BigDecimal("100000000"))
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                log.info("[Simple TTM EPS] {} - 별도 EPS: {} → TTM 연결 EPS: {} (순이익: {}억, 주식수: {})",
+                        stockCode, eps, ttmEps, netIncome, lstnStcn);
+                eps = ttmEps;
+
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && eps.compareTo(BigDecimal.ZERO) != 0) {
+                    per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
+                }
+
+                // TTM EPS 기반 ROE 재계산
+                if (bps != null && bps.compareTo(BigDecimal.ZERO) > 0) {
+                    roe = eps.divide(bps, 6, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP);
+                }
+            }
+
             BigDecimal epsGrowth = financialRatios.getOrDefault("epsGrowth", null);
             BigDecimal peg = null;
             if (per != null && per.compareTo(BigDecimal.ZERO) > 0 &&
                 epsGrowth != null && epsGrowth.compareTo(BigDecimal.ZERO) > 0) {
                 peg = per.divide(epsGrowth, 2, RoundingMode.HALF_UP);
             }
-
-            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
-            BigDecimal profitGrowth = financialRatios.getOrDefault("profitGrowth", null);
-            BigDecimal revenueGrowth = financialRatios.getOrDefault("revenueGrowth", null);
-            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
-            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
             BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
@@ -284,8 +321,8 @@ public class StockFinancialDataCollector {
 
             // 손익계산서 데이터 저장 여부 로깅
             if (operatingProfit != null || netIncome != null || revenue != null) {
-                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}",
-                        stockName, stockCode, revenue, operatingProfit, netIncome);
+                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}, EPS(TTM): {}, PER(TTM): {}",
+                        stockName, stockCode, revenue, operatingProfit, netIncome, eps, per);
             } else {
                 log.warn("[Simple저장] {} ({}) - 손익계산서 데이터 없음 (영업이익률: {})",
                         stockName, stockCode, operatingMargin);

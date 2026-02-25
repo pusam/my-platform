@@ -5,7 +5,9 @@ import com.myplatform.backend.dto.*;
 import com.myplatform.backend.dto.StockDetailDto.*;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
+import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import com.myplatform.backend.repository.StockFinancialDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -47,6 +49,7 @@ public class StockDetailService {
     private final VwapService vwapService;
     private final StockPriceService stockPriceService;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
+    private final StockFinancialDataRepository stockFinancialDataRepository;
     private final GeminiService geminiService;
 
     // 장 마감 시간 (15:30)
@@ -491,12 +494,68 @@ public class StockDetailService {
             JsonNode output = priceData.get("output");
             if (output == null) return null;
 
+            BigDecimal currentPrice = parseBigDecimal(output.get("stck_prpr"));
+            BigDecimal kisEps = parseBigDecimal(output.get("eps"));
+            BigDecimal kisPer = parseBigDecimal(output.get("per"));
+            BigDecimal pbr = parseBigDecimal(output.get("pbr"));
+            BigDecimal bps = parseBigDecimal(output.get("bps"));
+            Long marketCap = parseLong(output.get("hts_avls"));
+
+            // 상장 주식수 (TTM EPS 계산용)
+            BigDecimal lstnStcn = parseBigDecimal(output.get("lstn_stcn"));
+
+            // ★ DB에서 TTM 연결 재무데이터 조회 → 별도 기준 EPS/PER 덮어쓰기
+            BigDecimal eps = kisEps;
+            BigDecimal per = kisPer;
+            BigDecimal roe = null;
+            BigDecimal operatingMargin = null;
+            BigDecimal netMargin = null;
+            BigDecimal debtRatio = null;
+
+            try {
+                java.util.Optional<StockFinancialData> dbDataOpt = stockFinancialDataRepository
+                        .findTopByStockCodeOrderByReportDateDesc(stockCode);
+
+                if (dbDataOpt.isPresent()) {
+                    StockFinancialData dbData = dbDataOpt.get();
+
+                    // TTM 연결 당기순이익으로 EPS/PER 재계산
+                    if (dbData.getNetIncome() != null && lstnStcn != null
+                            && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                        // netIncome은 억원 단위 → 원 단위로 변환 후 주식수로 나눔
+                        BigDecimal ttmEps = dbData.getNetIncome()
+                                .multiply(new BigDecimal("100000000"))
+                                .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                        eps = ttmEps;
+
+                        if (currentPrice != null && ttmEps.compareTo(BigDecimal.ZERO) != 0) {
+                            per = currentPrice.divide(ttmEps, 1, RoundingMode.HALF_UP);
+                        }
+
+                        log.info("[StockDetail] {} TTM 연결 기준 적용: EPS {} → {}, PER {} → {}",
+                                stockCode, kisEps, eps, kisPer, per);
+                    }
+
+                    // ROE, 영업이익률, 순이익률, 부채비율 오버레이
+                    if (dbData.getRoe() != null) roe = dbData.getRoe();
+                    if (dbData.getOperatingMargin() != null) operatingMargin = dbData.getOperatingMargin();
+                    if (dbData.getNetMargin() != null) netMargin = dbData.getNetMargin();
+                    if (dbData.getDebtRatio() != null) debtRatio = dbData.getDebtRatio();
+                }
+            } catch (Exception e) {
+                log.debug("[StockDetail] DB TTM 데이터 조회 실패, KIS API 값 사용: {}", e.getMessage());
+            }
+
             return FinancialInfo.builder()
-                    .per(parseBigDecimal(output.get("per")))
-                    .pbr(parseBigDecimal(output.get("pbr")))
-                    .eps(parseBigDecimal(output.get("eps")))
-                    .bps(parseBigDecimal(output.get("bps")))
-                    .marketCap(parseLong(output.get("hts_avls")))
+                    .per(per)
+                    .pbr(pbr)
+                    .eps(eps)
+                    .bps(bps)
+                    .roe(roe)
+                    .operatingMargin(operatingMargin)
+                    .netMargin(netMargin)
+                    .debtRatio(debtRatio)
+                    .marketCap(marketCap)
                     .build();
 
         } catch (Exception e) {
