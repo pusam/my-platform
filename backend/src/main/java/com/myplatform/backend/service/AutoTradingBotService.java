@@ -59,7 +59,7 @@ import java.util.stream.Collectors;
  * 3. 운용 설정
  *    A. 감시 대상: 수급 급증 탭에 잡힌 종목들만
  *    B. 킬 스위치: 하루 최대 손실 -3% 초과 시 봇 자동 종료
- *    C. 운용 시간: 오전장 09:05~11:00 / 오후장 13:30~15:00 (점심 휴식)
+ *    C. 운용 시간: 09:05~15:00 (점심 휴식 없이 연속)
  *
  * ========================================
  */
@@ -393,16 +393,11 @@ public class AutoTradingBotService {
 
     /**
      * 스캘핑 매수 로직
-     * - 실행 시간: 오전장 09:05~11:00 / 오후장 13:30~15:00 (매분, 평일만)
+     * - 실행 시간: 09:05~15:00 (점심 휴식 없이 연속, 매분, 평일만)
      * - 수급 급증 종목 중 스캘핑 6가지 조건 충족 시 진입
      */
-    // 오전장: 09:05~11:00
     @Scheduled(cron = "0 5-59 9 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 * 10 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 0 11 * * MON-FRI", zone = "Asia/Seoul")
-    // 오후장: 13:30~15:00
-    @Scheduled(cron = "0 30-59 13 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 * 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 * 10-14 * * MON-FRI", zone = "Asia/Seoul")
     @Scheduled(cron = "0 0 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) {
