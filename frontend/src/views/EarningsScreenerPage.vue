@@ -95,56 +95,13 @@
           </div>
         </div>
 
-        <div v-if="magicFormulaStocks.length > 0" class="stocks-table-wrapper">
-          <table class="stocks-table">
-            <thead>
-              <tr>
-                <th>순위</th>
-                <th>종목</th>
-                <th>시장</th>
-                <th>PER</th>
-                <th>PBR</th>
-                <th>ROE</th>
-                <th>영업이익률</th>
-                <th>시가총액</th>
-                <th>종합점수</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="stock in magicFormulaStocks" :key="stock.stockCode">
-                <td class="rank">{{ stock.magicFormulaRank }}</td>
-                <td class="stock-info clickable" @click="openDiagnosis(stock.stockCode, stock.stockName)">
-                  <span class="stock-name">{{ stock.stockName }}</span>
-                  <span class="stock-code">{{ stock.stockCode }}</span>
-                  <span class="detail-hint">클릭하여 상세 진단</span>
-                </td>
-                <td>{{ stock.market }}</td>
-                <td class="metric-cell">
-                  <span class="metric-value-bar" :style="getValueBarStyle(stock.per, 'per')"></span>
-                  <span class="metric-text">{{ formatNumber(stock.per, 2) }}</span>
-                  <span v-if="isGoodValue(stock.per, 'per')" class="good-badge">👍</span>
-                </td>
-                <td class="metric-cell">
-                  <span class="metric-value-bar" :style="getValueBarStyle(stock.pbr, 'pbr')"></span>
-                  <span class="metric-text">{{ formatNumber(stock.pbr, 2) }}</span>
-                  <span v-if="isGoodValue(stock.pbr, 'pbr')" class="good-badge">👍</span>
-                </td>
-                <td class="metric-cell">
-                  <span class="metric-value-bar" :style="getValueBarStyle(stock.roe, 'roe')"></span>
-                  <span class="metric-text">{{ formatPercent(stock.roe) }}</span>
-                  <span v-if="isGoodValue(stock.roe, 'roe')" class="good-badge">👍</span>
-                </td>
-                <td class="metric-cell">
-                  <span class="metric-value-bar" :style="getValueBarStyle(stock.operatingMargin, 'margin')"></span>
-                  <span class="metric-text">{{ formatPercent(stock.operatingMargin) }}</span>
-                  <span v-if="isGoodValue(stock.operatingMargin, 'margin')" class="good-badge">👍</span>
-                </td>
-                <td>{{ formatMarketCap(stock.marketCap) }}</td>
-                <td class="score">{{ stock.magicFormulaScore }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <!-- Smart Table (AI 스코어링 + 뱃지 시스템) -->
+        <MagicFormulaSmartTable
+          v-if="magicFormulaStocks.length > 0"
+          :stocks="magicFormulaStocks"
+          title="마법의 공식"
+          @stock-click="(s) => openDiagnosis(s.stockCode, s.stockName)"
+        />
         <div v-else class="no-data">
           <p>조건에 맞는 종목이 없습니다.</p>
         </div>
@@ -749,6 +706,7 @@ import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+import MagicFormulaSmartTable from '../components/v2/MagicFormulaSmartTable.vue';
 
 const router = useRouter();
 const loading = ref(false);
