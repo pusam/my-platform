@@ -55,6 +55,9 @@
 
       <!-- 시장 지표 -->
       <div v-if="activeTab === 'market'" class="market-indicators">
+        <div v-if="marketData.analysisDate" class="analysis-date">
+          기준일: {{ marketData.analysisDate }}
+        </div>
         <div class="indicator-card">
           <span class="ind-label">KOSPI</span>
           <span class="ind-value">{{ marketData.kospiIndex || '-' }}</span>
@@ -533,6 +536,12 @@ export default {
   margin-bottom: 8px;
 }
 
+.analysis-date {
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  text-align: right;
+  margin-bottom: 6px;
+}
 .more-links { margin-top: 8px; }
 .more-links a { font-size: 12px; color: rgba(255,255,255,0.4); text-decoration: none; }
 .more-links a:hover { color: #667eea; }

@@ -432,12 +432,14 @@ public class AutoTradingBotService {
             // 수급 급증 종목 조회
             Map<String, List<InvestorSurgeDto>> surgeStocks = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
             if (surgeStocks == null || surgeStocks.isEmpty()) {
+                log.info("[스캘핑봇] 수급 급증 데이터 없음 — 스냅샷 미수집 상태");
                 return;
             }
 
             // 외국인 + 기관 순매수 종목 합치기 (중복 제거)
             List<InvestorSurgeDto> targetStocks = mergeAndFilterSurgeStocks(surgeStocks);
             if (targetStocks.isEmpty()) {
+                log.info("[스캘핑봇] 수급 급증 후보 0종목 — 외국인/기관 순매수 종목 없음");
                 return;
             }
 
@@ -571,9 +573,9 @@ public class AutoTradingBotService {
             BigDecimal currentPrice = priceDto.getCurrentPrice();
             BigDecimal openPrice = priceDto.getOpenPrice();
 
-            // 조건 2: 순매수금액 20억 이상
+            // 조건 2: 순매수금액 20억 이상 (양수만 — 순매도 종목 제외)
             BigDecimal netBuyAmount = surge.getNetBuyAmount();
-            if (netBuyAmount == null || netBuyAmount.abs().compareTo(MIN_NET_BUY_AMOUNT) < 0) {
+            if (netBuyAmount == null || netBuyAmount.compareTo(MIN_NET_BUY_AMOUNT) < 0) {
                 log.debug("[스캘핑봇] Skip [{}({})] 순매수 부족 (현재: {}억 < 기준: {}억)",
                         stockName, stockCode, netBuyAmount, MIN_NET_BUY_AMOUNT);
                 return ScalpingEntryResult.fail("순매수 부족: " + netBuyAmount + "억");
@@ -1178,9 +1180,12 @@ public class AutoTradingBotService {
     );
 
     private static final Set<LocalDate> KOREA_HOLIDAYS_2026 = Set.of(
-            LocalDate.of(2026, 2, 16), LocalDate.of(2026, 2, 17), LocalDate.of(2026, 2, 18),
-            LocalDate.of(2026, 5, 24),
-            LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 25), LocalDate.of(2026, 9, 26)
+            LocalDate.of(2026, 2, 16), LocalDate.of(2026, 2, 17), LocalDate.of(2026, 2, 18),  // 설날
+            LocalDate.of(2026, 3, 2),   // 삼일절 대체휴일 (3/1 일요일)
+            LocalDate.of(2026, 5, 24),  // 부처님오신날
+            LocalDate.of(2026, 8, 17),  // 광복절 대체휴일 (8/15 토요일)
+            LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 25), LocalDate.of(2026, 9, 26),  // 추석
+            LocalDate.of(2026, 10, 5)   // 개천절 대체휴일 (10/3 토요일)
     );
 
     private boolean isMarketClosed() {

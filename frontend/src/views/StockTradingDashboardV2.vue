@@ -77,7 +77,7 @@ function withTimeout(promise, ms = 3000) {
 // ===================== Java API 응답 → 프론트 포맷 변환 =====================
 function transformMarketData(d) {
   if (!d) return null
-  // Java API: { kospi: { indexClose, indexChangeRate }, kosdaq: { ... }, combinedAdr, diagnosis }
+  // Java API: { kospi: { indexClose, indexChangeRate }, kosdaq: { ... }, combinedAdr, diagnosis, analysisDate }
   if (d.kospiIndex) return d // 이미 올바른 포맷 (V2 API)
   if (d.kospi && d.kospi.indexClose != null) {
     return {
@@ -86,7 +86,8 @@ function transformMarketData(d) {
       kosdaqIndex: d.kosdaq ? Number(d.kosdaq.indexClose).toLocaleString('ko-KR', { minimumFractionDigits: 2 }) : '-',
       kosdaqChangeRate: d.kosdaq ? Number(d.kosdaq.indexChangeRate) || 0 : 0,
       adr: Number(d.combinedAdr) || 0,
-      marketStatus: d.diagnosis || ''
+      marketStatus: d.diagnosis || '',
+      analysisDate: d.analysisDate || null
     }
   }
   return null
@@ -244,7 +245,7 @@ export default {
         if (sectorRes.status === 'fulfilled' && sectorRes.value) {
           const d = this.extractData(sectorRes.value)
           const arr = Array.isArray(d) ? d : (d?.sectors || [])
-          if (this.hasSectorData(arr) && this.hasSectorChangeRate(arr)) {
+          if (this.hasSectorData(arr)) {
             sectorArr = arr
           }
         }

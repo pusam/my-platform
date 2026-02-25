@@ -114,6 +114,11 @@ public class MarketTimingService {
 
         LocalDate analysisDate = latestData.get(0).getTradeDate();
 
+        // DB 데이터가 과거이면 로그 남기고, 실시간 보충 시 오늘 날짜 사용
+        if (!analysisDate.equals(LocalDate.now())) {
+            log.info("DB 최신 데이터가 과거임 ({}), 실시간 지수로 보충 예정", analysisDate);
+        }
+
         // 코스피/코스닥 데이터 분리
         MarketStatusDto kospiStatus = null;
         MarketStatusDto kosdaqStatus = null;
@@ -554,7 +559,10 @@ public class MarketTimingService {
                     .build();
         }
 
-        boolean needsRefresh = status.getIndexClose() == null
+        // DB 데이터가 오늘이 아니면 무조건 갱신 (과거 데이터 방지)
+        boolean isOldData = status.getTradeDate() != null && !status.getTradeDate().equals(LocalDate.now());
+        boolean needsRefresh = isOldData
+                || status.getIndexClose() == null
                 || status.getIndexChangeRate() == null
                 || status.getIndexChangeRate().compareTo(BigDecimal.ZERO) == 0;
 
