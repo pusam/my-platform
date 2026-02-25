@@ -389,7 +389,7 @@
 </template>
 
 <script>
-import { adminAPI, telegramAPI } from '../utils/api';
+import apiClient, { adminAPI, telegramAPI } from '../utils/api';
 
 export default {
   name: 'AdminDashboard',
@@ -438,6 +438,7 @@ export default {
     if (this.statsInterval) {
       clearInterval(this.statsInterval)
     }
+    this.stopAutoRefresh()
   },
   methods: {
     async loadStats() {

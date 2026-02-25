@@ -1,18 +1,44 @@
+// localStorage 안전 래퍼 (시크릿 모드/용량 초과 대비)
+function safeGetItem(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    console.warn('localStorage 읽기 실패:', e);
+    return null;
+  }
+}
+
+function safeSetItem(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.warn('localStorage 쓰기 실패:', e);
+  }
+}
+
+function safeRemoveItem(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (e) {
+    console.warn('localStorage 삭제 실패:', e);
+  }
+}
+
 // JWT 토큰 관리 유틸리티
 export const TokenManager = {
   // 토큰 저장
   setToken(token) {
-    localStorage.setItem('jwt_token', token);
+    safeSetItem('jwt_token', token);
   },
 
   // 토큰 가져오기
   getToken() {
-    return localStorage.getItem('jwt_token');
+    return safeGetItem('jwt_token');
   },
 
   // 토큰 삭제
   removeToken() {
-    localStorage.removeItem('jwt_token');
+    safeRemoveItem('jwt_token');
   },
 
   // 토큰 존재 여부 확인
@@ -31,35 +57,40 @@ export const TokenManager = {
 export const UserManager = {
   // 사용자 정보 저장
   setUser(user) {
-    localStorage.setItem('user_info', JSON.stringify(user));
+    safeSetItem('user_info', JSON.stringify(user));
     // 역할 정보도 별도로 저장 (라우터 가드에서 빠른 접근)
     if (user && user.role) {
-      localStorage.setItem('role', user.role);
+      safeSetItem('role', user.role);
     }
   },
 
   // 사용자 정보 가져오기
   getUser() {
-    const userStr = localStorage.getItem('user_info');
-    return userStr ? JSON.parse(userStr) : null;
+    const userStr = safeGetItem('user_info');
+    if (!userStr) return null;
+    try {
+      return JSON.parse(userStr);
+    } catch (e) {
+      return null;
+    }
   },
 
   // 역할 정보 가져오기
   getRole() {
-    return localStorage.getItem('role');
+    return safeGetItem('role');
   },
 
   // 사용자 정보 삭제
   removeUser() {
-    localStorage.removeItem('user_info');
-    localStorage.removeItem('role');
+    safeRemoveItem('user_info');
+    safeRemoveItem('role');
   },
 
   // 로그아웃 (토큰 및 사용자 정보 모두 삭제)
   logout() {
     TokenManager.removeToken();
     this.removeUser();
-    localStorage.removeItem('role');
+    safeRemoveItem('role');
   }
 };
 

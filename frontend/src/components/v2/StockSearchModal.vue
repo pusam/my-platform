@@ -73,6 +73,11 @@ export default {
       }
     }
   },
+  beforeUnmount() {
+    if (this.debounceTimer) {
+      clearTimeout(this.debounceTimer)
+    }
+  },
   methods: {
     onSearch() {
       clearTimeout(this.debounceTimer)

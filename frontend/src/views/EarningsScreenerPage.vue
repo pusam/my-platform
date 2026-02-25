@@ -1308,8 +1308,13 @@ const fetchTurnaroundAI = async () => {
 
 const formatAIResponse = (text) => {
   if (!text) return '';
-  // 줄바꿈을 <br>로 변환하고, **text**를 <strong>으로 변환
-  return text
+  // XSS 방지: HTML 엔티티 이스케이프 후 안전한 마크다운 변환
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+  return escaped
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>');
 };

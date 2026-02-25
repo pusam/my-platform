@@ -57,8 +57,11 @@ public class GeminiService {
 
     // Forecast 캐시 (10분)
     private static final long FORECAST_CACHE_MINUTES = 10;
-    private volatile Map<String, Object> forecastCache = null;
+    private volatile Map<String, Object> forecastCache = null;  // 읽기 전용 교체 방식이므로 volatile로 충분
     private volatile LocalDateTime forecastCacheTime = null;
+
+    // 캐시 갱신 동기화
+    private final Object forecastCacheLock = new Object();
 
     public GeminiService(OllamaService ollamaService) {
         this.restTemplate = new RestTemplate();

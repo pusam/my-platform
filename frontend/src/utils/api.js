@@ -24,8 +24,9 @@ apiClient.interceptors.request.use(
   }
 );
 
-// 401 리다이렉트 중복 방지 플래그
+// 401 리다이렉트 중복 방지 (타이머 기반 자동 해제)
 let isRedirecting = false;
+let redirectTimer = null;
 
 // 응답 인터셉터 - 401 에러 시 로그아웃 처리
 apiClient.interceptors.response.use(
@@ -34,9 +35,11 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     if (error.response && error.response.status === 401 && !isRedirecting) {
-      // 토큰이 만료되었거나 유효하지 않은 경우
       isRedirecting = true;
       UserManager.logout();
+      // 3초 후 플래그 해제 (리다이렉트 실패 대비)
+      clearTimeout(redirectTimer);
+      redirectTimer = setTimeout(() => { isRedirecting = false; }, 3000);
       window.location.href = '/login';
     }
     return Promise.reject(error);

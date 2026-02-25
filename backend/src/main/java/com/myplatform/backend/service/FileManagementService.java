@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.UserFolder;
 import com.myplatform.backend.repository.UserFileRepository;
 import com.myplatform.backend.repository.UserFolderRepository;
 import com.myplatform.backend.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @Transactional
 public class FileManagementService {
@@ -175,7 +177,7 @@ public class FileManagementService {
         try {
             Files.deleteIfExists(Paths.get(file.getFilePath()));
         } catch (IOException e) {
-            // 로그만 남기고 계속 진행
+            log.warn("파일 삭제 실패 (fileId={}, path={}): {}", fileId, file.getFilePath(), e.getMessage());
         }
 
         fileRepository.delete(file);
