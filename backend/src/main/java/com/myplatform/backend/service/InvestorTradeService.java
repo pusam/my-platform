@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
 import com.myplatform.backend.dto.StockInvestorDetailDto;
@@ -35,6 +36,7 @@ public class InvestorTradeService {
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final KisInvestorDataCollector kisInvestorDataCollector;
     private final KoreaInvestmentService koreaInvestmentService;
+    private final RedisCacheService redisCacheService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
@@ -85,6 +87,15 @@ public class InvestorTradeService {
      * - 장외: DB 조회 폴백
      */
     public List<InvestorTradeDto> getTopTradesRealtime(String investorType, int limit) {
+        // Redis L2 캐시 조회 (워머가 30초마다 갱신)
+        List<InvestorTradeDto> cached = redisCacheService.get(
+                "smartMoneyRealtime", investorType,
+                new TypeReference<List<InvestorTradeDto>>() {});
+        if (cached != null && !cached.isEmpty()) {
+            log.debug("[SmartMoney] Redis L2 HIT - {} {}건", investorType, cached.size());
+            return cached.size() > limit ? cached.subList(0, limit) : cached;
+        }
+
         LocalTime now = LocalTime.now(KST);
         boolean isMarketHours = !now.isBefore(MARKET_OPEN) && !now.isAfter(MARKET_CLOSE);
 

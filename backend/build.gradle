@@ -18,6 +18,9 @@ dependencies {
 
     // Caffeine Cache (고성능 로컬 캐시)
     implementation 'com.github.ben-manes.caffeine:caffeine:3.1.8'
+
+    // Redis (L2 캐시)
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-batch'
 
     // Swagger (Springdoc OpenAPI)

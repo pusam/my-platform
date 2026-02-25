@@ -51,6 +51,13 @@ spring:
             timeout: 5000
             writetimeout: 5000
 
+  # 3-1. Redis 설정 (L2 캐시용)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
   # 4. 기타 설정
   servlet:
     multipart:
@@ -138,6 +145,11 @@ naver:
   api:
     client-id: ${NAVER_CLIENT_ID:}
     client-secret: ${NAVER_CLIENT_SECRET:}
+
+# 13. Redis L2 캐시 설정
+cache:
+  redis:
+    enabled: ${CACHE_REDIS_ENABLED:false}
 
 # 7. Swagger
 springdoc:
