@@ -337,6 +337,7 @@ public class StockPriceService {
             dto.setChangePrice(getBigDecimalValue(output, "prdy_vrss")); // 전일대비
             dto.setChangeRate(getBigDecimalValue(output, "prdy_ctrt")); // 전일대비율
             dto.setVolume(getBigDecimalValue(output, "acml_vol")); // 누적거래량
+            dto.setPreviousDayVolume(getBigDecimalValue(output, "prdy_vol")); // 전일 거래량
             // 누적 거래대금 계산 (KIS API는 직접 제공 안 함 → 현재가 × 거래량)
             if (dto.getCurrentPrice() != null && dto.getVolume() != null
                     && dto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0

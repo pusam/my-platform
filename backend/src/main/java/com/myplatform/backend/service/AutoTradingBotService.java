@@ -79,12 +79,14 @@ public class AutoTradingBotService {
     private final KoreaInvestmentService kisService;
 
     // ========== 스캘핑 전략 상수 ==========
-    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5%
-    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("2.5");   // 익절 1차: +2.5% (절반 매도)
-    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-1.0"); // 트레일링: 고점 대비 -1%
+    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.2");     // 손절: -1.2%
+    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.3");   // 익절 1차: +1.3% (절반 매도)
+    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("100");    // 최소 체결강도: 100%
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억
-    private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분
+    private static final int TIME_CUT_MINUTES = 5;                                // 타임컷: 5분
+    private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원
+    private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
     private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
     private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-3.0");   // 킬 스위치: -3%
@@ -393,14 +395,18 @@ public class AutoTradingBotService {
 
     /**
      * 스캘핑 매수 로직
-     * - 실행 시간: 09:05~15:00 (점심 휴식 없이 연속, 매분, 평일만)
-     * - 수급 급증 종목 중 스캘핑 6가지 조건 충족 시 진입
+     * - 실행 시간: 09:00~10:30 (장 초반 변동성 집중, 매초, 평일만)
+     * - 수급 급증 종목 중 스캘핑 조건 충족 시 진입
      */
-    @Scheduled(cron = "0 5-59 9 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 * 10-14 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 0 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/1 * 9-10 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) {
+            return;
+        }
+
+        // 09:00~10:30만 매수 허용
+        LocalTime now = LocalTime.now();
+        if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(10, 30))) {
             return;
         }
 
@@ -560,6 +566,27 @@ public class AutoTradingBotService {
             BigDecimal currentPrice = priceDto.getCurrentPrice();
             BigDecimal openPrice = priceDto.getOpenPrice();
 
+            // ===== 조건: 거래대금 > 500억 OR 전일 대비 거래량 > 200% =====
+            BigDecimal tradingValue = priceDto.getAccumulatedTradingValue();
+            boolean tradingValueOk = tradingValue != null
+                    && tradingValue.compareTo(new BigDecimal(MIN_TRADING_VALUE)) > 0;
+
+            boolean volumeRatioOk = false;
+            if (priceDto.getPreviousDayVolume() != null
+                    && priceDto.getPreviousDayVolume().compareTo(BigDecimal.ZERO) > 0
+                    && priceDto.getVolume() != null) {
+                BigDecimal ratio = priceDto.getVolume()
+                        .divide(priceDto.getPreviousDayVolume(), 2, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+                volumeRatioOk = ratio.compareTo(new BigDecimal(MIN_VOLUME_RATIO)) >= 0;
+            }
+
+            if (!tradingValueOk && !volumeRatioOk) {
+                log.info("[스캘핑봇] Skip [{}({})] 거래대금/거래량 부족 (거래대금: {}, 전일거래량비율 충족: {})",
+                        stockName, stockCode, tradingValue, volumeRatioOk);
+                return ScalpingEntryResult.fail("거래대금/거래량 부족");
+            }
+
             // ===== 조건 2: 체결강도 100% 이상 (KIS API 실패 시 소프트 패스) =====
             BigDecimal volumePower = null;
             try {
@@ -689,9 +716,9 @@ public class AutoTradingBotService {
     /**
      * 스캘핑 매도 로직
      * - 익절/손절/트레일링/타임컷 체크
-     * - 3초 간격으로 실행 (09:05~15:20, 점심시간 포함)
+     * - 1초 간격으로 실행 (09:00~15:20, 점심시간 포함)
      */
-    @Scheduled(cron = "*/3 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/1 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
         if (!botActive.get()) {
             return;
@@ -702,7 +729,7 @@ public class AutoTradingBotService {
         }
 
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) {
+        if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(15, 20))) {
             return;
         }
 
