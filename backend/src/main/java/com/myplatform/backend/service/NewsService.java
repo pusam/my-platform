@@ -46,6 +46,15 @@ public class NewsService {
     // 감성 분석 태그 패턴
     private static final Pattern SENTIMENT_PATTERN = Pattern.compile("\\[(긍정|부정|중립)\\]");
 
+    // ═══ 긴급 뉴스 키워드 (프론트 토스트 알림용) ═══
+    private static final String[] URGENT_KEYWORDS = {
+        "수주", "실적", "계약", "급등", "급락", "사상최고", "역대급", "호실적",
+        "인수", "합병", "M&A", "IPO", "상장", "흑자전환", "적자전환",
+        "소각", "무상증자", "공급계약", "사상최대", "어닝서프라이즈", "어닝쇼크",
+        "자사주", "배당확대", "액면분할", "스톡옵션", "유상증자",
+        "상한가", "하한가", "서킷브레이커", "사이드카"
+    };
+
     // ═══ 카테고리 필터링: 투자 관련 뉴스만 수집 ═══
     private static final String[] INCLUDE_KEYWORDS = {
         "증시", "주가", "코스피", "코스닥", "나스닥", "S&P", "다우",
@@ -96,12 +105,65 @@ public class NewsService {
     }
 
     /**
-     * 매일 아침 8시에 경제 뉴스 수집 및 요약
-     * 크론 표현식: 초 분 시 일 월 요일
+     * 특정 시각 이후 새로 수집된 뉴스 조회 (폴링용)
      */
-    @Scheduled(cron = "0 0 8 * * *")
+    public List<NewsSummaryDto> getNewsSince(LocalDateTime since) {
+        return newsSummaryRepository.findBySummarizedAtBetweenOrderBySummarizedAtDesc(since, LocalDateTime.now())
+                .stream()
+                .map(NewsSummaryDto::fromEntity)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 뉴스 제목에 긴급 키워드가 포함되어 있는지 확인
+     */
+    public boolean isUrgentNews(String title) {
+        if (title == null) return false;
+        String lower = title.toLowerCase();
+        for (String kw : URGENT_KEYWORDS) {
+            if (lower.contains(kw.toLowerCase())) return true;
+        }
+        return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  스케줄러: 장중 15분 간격 + 아침 07:30 배치
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * 장중 실시간 수집 (평일 08:00~17:45, 15분 간격)
+     */
+    @Scheduled(cron = "0 */15 8-17 * * MON-FRI")
+    public void scheduledMarketHours() {
+        log.info("[스케줄] 장중 15분 주기 뉴스 수집 시작");
+        fetchAndSummarizeNews(3);  // 장중에는 최대 3건씩 빠르게
+    }
+
+    /**
+     * 장 마감 직후 수집 (평일 18:00)
+     */
+    @Scheduled(cron = "0 0 18 * * MON-FRI")
+    public void scheduledAfterClose() {
+        log.info("[스케줄] 장 마감 후 뉴스 수집");
+        fetchAndSummarizeNews(5);
+    }
+
+    /**
+     * 아침 프리마켓 배치 (평일 07:30 - 야간 뉴스 한 번에 수집)
+     */
+    @Scheduled(cron = "0 30 7 * * MON-FRI")
+    public void scheduledMorningBatch() {
+        log.info("[스케줄] 아침 07:30 배치 뉴스 수집");
+        fetchAndSummarizeNews(8);  // 밤새 쌓인 뉴스 넉넉하게
+    }
+
     @Transactional
     public void fetchAndSummarizeNews() {
+        fetchAndSummarizeNews(5);
+    }
+
+    @Transactional
+    public void fetchAndSummarizeNews(int maxArticles) {
         log.info("=== 경제 뉴스 수집 및 요약 시작 ===");
 
         List<RssItem> allItems = new ArrayList<>();
@@ -123,11 +185,11 @@ public class NewsService {
                 .collect(Collectors.toList());
         log.info("카테고리 필터링: {}건 → {}건 (투자 관련)", allItems.size(), filteredItems.size());
 
-        // 최대 5개 뉴스만 요약 (AI 부하 고려)
+        // 최대 maxArticles개 뉴스만 요약 (AI 부하 고려)
         int count = 0;
 
         for (RssItem item : filteredItems) {
-            if (count >= 5) break;
+            if (count >= maxArticles) break;
 
             // URL 기준 중복 체크 (제목 수정에도 동일 뉴스 거름)
             if (item.link != null && newsSummaryRepository.existsBySourceUrl(item.link)) {

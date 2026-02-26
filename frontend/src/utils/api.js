@@ -327,6 +327,10 @@ export const newsAPI = {
   // 뉴스 수동 수집 (관리자용)
   fetchNews() {
     return apiClient.post('/news/fetch', {}, { timeout: 120000 });
+  },
+  // 최신 뉴스 폴링 (minutes 이내 수집된 뉴스, urgent 플래그 포함)
+  pollNews(minutes = 15) {
+    return apiClient.get('/news/poll', { params: { minutes } });
   }
 };
 
