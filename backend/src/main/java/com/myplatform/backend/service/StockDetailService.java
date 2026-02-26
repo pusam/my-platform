@@ -217,8 +217,8 @@ public class StockDetailService {
             log.warn("[StockDetail] 병렬 조회 중 오류: {}", e.getMessage(), e);
         }
 
-        // 3. 재무 정보 조회 (KIS 실패 시 네이버 폴백)
-        FinancialInfo financial = fetchFinancialInfo(stockCode);
+        // 3. 재무 정보 조회 (이미 가져온 priceData 재사용, KIS 실패 시 네이버 폴백)
+        FinancialInfo financial = fetchFinancialInfo(stockCode, priceData);
         if (financial == null && naverData != null) {
             financial = convertNaverToFinancialInfo(naverData);
             log.info("[StockDetail] 재무 정보 네이버 폴백 적용 - PER: {}, PBR: {}",
@@ -486,9 +486,18 @@ public class StockDetailService {
     /**
      * 재무 정보 조회
      */
-    private FinancialInfo fetchFinancialInfo(String stockCode) {
+    /**
+     * 재무 정보 조회 — TTM 연결 재무제표 기준으로 통일
+     *
+     * 1순위: DB의 TTM 연결 데이터 (StockFinancialData — 손익계산서 4분기 합산)
+     * 2순위: KIS 현재가 API (별도 기준 — DB 데이터 없을 때만 폴백)
+     */
+    private FinancialInfo fetchFinancialInfo(String stockCode, JsonNode priceData) {
         try {
-            JsonNode priceData = kisService.getStockPrice(stockCode);
+            // priceData가 없으면 새로 조회
+            if (priceData == null || !"0".equals(priceData.path("rt_cd").asText())) {
+                priceData = kisService.getStockPrice(stockCode);
+            }
             if (priceData == null) return null;
 
             JsonNode output = priceData.get("output");
@@ -501,10 +510,22 @@ public class StockDetailService {
             BigDecimal bps = parseBigDecimal(output.get("bps"));
             Long marketCap = parseLong(output.get("hts_avls"));
 
-            // 상장 주식수 (TTM EPS 계산용)
+            // 상장 주식수 (TTM EPS 계산용) — 여러 필드에서 시도
             BigDecimal lstnStcn = parseBigDecimal(output.get("lstn_stcn"));
+            if (lstnStcn.compareTo(BigDecimal.ZERO) <= 0) {
+                lstnStcn = parseBigDecimal(output.get("lstg_stcn"));
+            }
+            // 폴백: 시가총액 / 현재가로 추정
+            if (lstnStcn.compareTo(BigDecimal.ZERO) <= 0
+                    && marketCap != null && marketCap > 0
+                    && currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                lstnStcn = BigDecimal.valueOf(marketCap)
+                        .multiply(new BigDecimal("100000000"))
+                        .divide(currentPrice, 0, RoundingMode.HALF_UP);
+                log.info("[StockDetail] {} 주식수 시총 역산: {}", stockCode, lstnStcn);
+            }
 
-            // ★ DB에서 TTM 연결 재무데이터 조회 → 별도 기준 EPS/PER 덮어쓰기
+            // 기본값: KIS API (별도 기준)
             BigDecimal eps = kisEps;
             BigDecimal per = kisPer;
             BigDecimal roe = null;
@@ -512,15 +533,18 @@ public class StockDetailService {
             BigDecimal netMargin = null;
             BigDecimal debtRatio = null;
 
+            // ★ DB에서 TTM 연결 재무데이터 조회 → 별도 기준 EPS/PER 덮어쓰기
             try {
                 java.util.Optional<StockFinancialData> dbDataOpt = stockFinancialDataRepository
                         .findTopByStockCodeOrderByReportDateDesc(stockCode);
 
                 if (dbDataOpt.isPresent()) {
                     StockFinancialData dbData = dbDataOpt.get();
+                    log.info("[StockDetail] {} DB 데이터 발견 (날짜: {}, netIncome: {}, 주식수: {})",
+                            stockCode, dbData.getReportDate(), dbData.getNetIncome(), lstnStcn);
 
                     // TTM 연결 당기순이익으로 EPS/PER 재계산
-                    if (dbData.getNetIncome() != null && lstnStcn != null
+                    if (dbData.getNetIncome() != null
                             && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
                         // netIncome은 억원 단위 → 원 단위로 변환 후 주식수로 나눔
                         BigDecimal ttmEps = dbData.getNetIncome()
@@ -534,6 +558,9 @@ public class StockDetailService {
 
                         log.info("[StockDetail] {} TTM 연결 기준 적용: EPS {} → {}, PER {} → {}",
                                 stockCode, kisEps, eps, kisPer, per);
+                    } else {
+                        log.warn("[StockDetail] {} TTM 재계산 불가 (netIncome: {}, 주식수: {})",
+                                stockCode, dbData.getNetIncome(), lstnStcn);
                     }
 
                     // ROE, 영업이익률, 순이익률, 부채비율 오버레이
@@ -541,9 +568,11 @@ public class StockDetailService {
                     if (dbData.getOperatingMargin() != null) operatingMargin = dbData.getOperatingMargin();
                     if (dbData.getNetMargin() != null) netMargin = dbData.getNetMargin();
                     if (dbData.getDebtRatio() != null) debtRatio = dbData.getDebtRatio();
+                } else {
+                    log.warn("[StockDetail] {} DB에 재무 데이터 없음 — KIS API 별도 기준 사용", stockCode);
                 }
             } catch (Exception e) {
-                log.debug("[StockDetail] DB TTM 데이터 조회 실패, KIS API 값 사용: {}", e.getMessage());
+                log.warn("[StockDetail] {} DB TTM 데이터 조회 실패: {}", stockCode, e.getMessage());
             }
 
             return FinancialInfo.builder()
