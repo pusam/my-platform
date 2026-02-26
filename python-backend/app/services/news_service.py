@@ -35,12 +35,23 @@ INCLUDE_KEYWORDS = [
     "바이오", "제약", "전기차", "은행", "부동산",
 ]
 EXCLUDE_KEYWORDS = [
-    "날씨", "기온", "폭염", "한파", "미세먼지", "강수", "태풍",
-    "연예", "아이돌", "드라마", "영화배우",
-    "빵값", "식품가격", "맛집", "레시피",
-    "사건사고", "교통사고", "실종", "화재",
-    "스포츠", "야구", "축구", "올림픽",
-    "여행", "관광", "축제",
+    # 날씨/환경
+    "날씨", "기온", "폭염", "한파", "미세먼지", "강수", "태풍", "폭우", "폭설",
+    # 연예/문화
+    "연예", "아이돌", "드라마", "영화배우", "예능", "콘서트", "가수", "배우",
+    # 생활/소비 (비투자)
+    "빵값", "식품가격", "맛집", "레시피", "택배", "배송",
+    "샤넬", "루이비통", "에르메스", "명품", "브랜드가방", "하소연",
+    "육아", "출산", "결혼식", "반려동물",
+    # 사건사고/사회
+    "사건사고", "교통사고", "실종", "화재", "범죄", "살인", "폭행",
+    "재판", "판결", "검찰", "경찰", "구속",
+    # 스포츠
+    "스포츠", "야구", "축구", "올림픽", "월드컵", "농구",
+    # 여행/레저
+    "여행", "관광", "축제", "공연", "전시회",
+    # 정치 일반
+    "대통령선거", "국회의원", "정당", "여당", "야당", "탄핵",
 ]
 
 
@@ -90,13 +101,20 @@ async def get_today_news(limit: int = 5) -> list:
 
 
 def _is_investment_related(title: str, summary: str) -> bool:
-    """투자 관련 뉴스인지 필터링"""
+    """투자 관련 뉴스인지 필터링 (화이트리스트 방식)
+    1. EXCLUDE 키워드 → 무조건 Drop
+    2. INCLUDE 키워드 → 통과
+    3. 둘 다 아님 → Drop (안전하게 차단)
+    """
     text = (title + " " + summary).lower()
-    if any(kw in text for kw in INCLUDE_KEYWORDS):
-        return True
+    # 1단계: EXCLUDE 먼저 체크
     if any(kw in text for kw in EXCLUDE_KEYWORDS):
         return False
-    return True  # 경제 RSS 피드 자체가 경제 카테고리
+    # 2단계: INCLUDE 키워드 있으면 통과
+    if any(kw in text for kw in INCLUDE_KEYWORDS):
+        return True
+    # 3단계: 둘 다 아니면 Drop
+    return False
 
 
 def _analyze_sentiment(text: str) -> str:
