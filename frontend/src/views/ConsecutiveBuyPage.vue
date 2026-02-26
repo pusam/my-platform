@@ -5,7 +5,7 @@
       <div class="page-header">
         <BackButton />
         <h1>연속 매수 종목</h1>
-        <p class="subtitle">외국인, 기관이 연속으로 순매수 중인 종목</p>
+        <p class="subtitle">외국인·기관이 연속으로 순매수 중인 종목 · 공통 매수 종목 분석</p>
       </div>
 
       <div class="filter-section">
@@ -39,6 +39,7 @@
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode" class="stock-card"
+             :class="{ 'common-card': selectedInvestor === 'COMMON' }"
              @click="goToDetail(stock.stockCode)">
           <div class="stock-header">
             <div class="stock-info">
@@ -50,9 +51,21 @@
             </div>
           </div>
 
+          <!-- 공통 탭: 외국인/기관 각각 정보 표시 -->
+          <div v-if="stock._foreign || stock._institution" class="common-investor-info">
+            <div v-if="stock._foreign" class="investor-chip foreign">
+              🌍 외국인 {{ stock._foreign.consecutiveDays }}일
+              <span class="chip-amount">{{ formatAmount(stock._foreign.totalNetBuyAmount) }}</span>
+            </div>
+            <div v-if="stock._institution" class="investor-chip institution">
+              🏢 기관 {{ stock._institution.consecutiveDays }}일
+              <span class="chip-amount">{{ formatAmount(stock._institution.totalNetBuyAmount) }}</span>
+            </div>
+          </div>
+
           <div class="stock-details">
             <div class="detail-row">
-              <span class="label">누적 순매수</span>
+              <span class="label">{{ stock._foreign ? '합산 순매수' : '누적 순매수' }}</span>
               <span class="value amount" :class="{ positive: stock.totalNetBuyAmount > 0 }">
                 {{ formatAmount(stock.totalNetBuyAmount) }}
               </span>
@@ -123,25 +136,56 @@ const dataStatus = ref(null);
 const investorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
   { value: 'INSTITUTION', label: '기관', icon: '🏢' },
-  { value: 'INDIVIDUAL', label: '개인', icon: '👤' }
+  { value: 'COMMON', label: '외국인+기관 공통', icon: '🤝' }
 ];
 
+// 외국인 + 기관 공통 종목 계산
+const commonStocks = computed(() => {
+  const foreignList = allStocks.value.FOREIGN || [];
+  const institutionList = allStocks.value.INSTITUTION || [];
+  if (!foreignList.length || !institutionList.length) return [];
+
+  const institutionMap = {};
+  institutionList.forEach(s => { institutionMap[s.stockCode] = s; });
+
+  return foreignList
+    .filter(f => institutionMap[f.stockCode])
+    .map(f => {
+      const inst = institutionMap[f.stockCode];
+      const totalNet = (f.totalNetBuyAmount || 0) + (inst.totalNetBuyAmount || 0);
+      const totalAvg = (f.avgDailyAmount || 0) + (inst.avgDailyAmount || 0);
+      // 더 오래 매수한 쪽 기준으로 기간 표시
+      const primary = (f.consecutiveDays || 0) >= (inst.consecutiveDays || 0) ? f : inst;
+      return {
+        stockCode: f.stockCode,
+        stockName: f.stockName,
+        consecutiveDays: Math.min(f.consecutiveDays || 0, inst.consecutiveDays || 0),
+        totalNetBuyAmount: totalNet,
+        avgDailyAmount: totalAvg,
+        startDate: primary.startDate,
+        endDate: primary.endDate,
+        currentPrice: f.currentPrice || inst.currentPrice,
+        changeRate: f.changeRate || inst.changeRate,
+        _foreign: f,
+        _institution: inst
+      };
+    });
+});
+
 const currentStocks = computed(() => {
-  const stocks = allStocks.value[selectedInvestor.value] || [];
+  const stocks = selectedInvestor.value === 'COMMON'
+    ? commonStocks.value
+    : (allStocks.value[selectedInvestor.value] || []);
   if (!stocks.length) return [];
 
-  // 정렬 적용
   return [...stocks].sort((a, b) => {
     switch (sortBy.value) {
       case 'days':
-        // 연속 일수순 (내림차순: 오래 산 종목부터)
         return (b.consecutiveDays || 0) - (a.consecutiveDays || 0);
       case 'changeRate':
-        // 등락률 낮은순 (오름차순: 많이 샀는데 주가 떨어진 매집주)
         return (a.changeRate || 0) - (b.changeRate || 0);
       case 'netBuy':
       default:
-        // 누적 순매수순 (내림차순)
         return (b.totalNetBuyAmount || 0) - (a.totalNetBuyAmount || 0);
     }
   });
@@ -155,8 +199,7 @@ const fetchData = async () => {
       const data = response.data.data;
       allStocks.value = {
         FOREIGN: data.FOREIGN || [],
-        INSTITUTION: data.INSTITUTION || [],
-        INDIVIDUAL: data.INDIVIDUAL || []
+        INSTITUTION: data.INSTITUTION || []
       };
       dataStatus.value = data.dataStatus;
     }
@@ -168,10 +211,9 @@ const fetchData = async () => {
 };
 
 const goToDetail = (stockCode) => {
-  // ★ 현재 선택된 투자자 타입을 쿼리 파라미터로 전달
   router.push({
     path: `/investor-stock/${stockCode}`,
-    query: { investorType: selectedInvestor.value }
+    query: { investorType: selectedInvestor.value === 'COMMON' ? 'FOREIGN' : selectedInvestor.value }
   });
 };
 
@@ -487,6 +529,45 @@ onMounted(() => {
   padding: 0.5rem 1rem;
   border-radius: 20px;
   border: 1px solid #e2e8f0;
+}
+
+/* 공통 종목 카드 */
+.common-card {
+  border-color: #9f7aea;
+  background: linear-gradient(135deg, #faf5ff, #f7fafc);
+}
+.common-card:hover {
+  border-color: #805ad5;
+  box-shadow: 0 10px 30px rgba(128, 90, 213, 0.2);
+}
+.common-investor-info {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+.investor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.investor-chip.foreign {
+  background: #ebf8ff;
+  color: #2b6cb0;
+  border: 1px solid #bee3f8;
+}
+.investor-chip.institution {
+  background: #fefcbf;
+  color: #975a16;
+  border: 1px solid #fefcbf;
+}
+.chip-amount {
+  font-weight: 700;
+  margin-left: 0.25rem;
 }
 
 @media (max-width: 768px) {
