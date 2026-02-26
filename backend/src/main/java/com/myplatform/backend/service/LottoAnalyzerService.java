@@ -15,6 +15,7 @@ import com.myplatform.backend.repository.LottoDrawRepository;
 import com.myplatform.backend.repository.LottoWeeklyRecommendationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,6 +89,7 @@ public class LottoAnalyzerService {
     /**
      * 서버 시작 시 데이터가 없으면 초기 데이터 수집
      */
+    @PostConstruct
     @Transactional
     public void initializeDataIfEmpty() {
         if (drawRepository.count() == 0) {
@@ -250,7 +252,7 @@ public class LottoAnalyzerService {
     /**
      * 금주의 추천 번호 조회 (DB에서 빠르게)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public LottoAnalysisDto getWeeklyRecommendation() {
         Optional<LottoWeeklyRecommendation> optional = weeklyRepository.findLatestRecommendation();
 
@@ -327,12 +329,17 @@ public class LottoAnalyzerService {
     /**
      * 실시간 분석 (새 추천 번호 생성)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public LottoAnalysisDto analyzeAndRecommend() {
         List<LottoDraw> draws = drawRepository.findRecentDraws(100);
         if (draws.isEmpty()) {
-            log.error("[로또분석] 분석할 데이터가 없습니다");
-            return null;
+            log.info("[로또분석] DB에 데이터가 없어 자동 수집 시작...");
+            collectLatestDraws();
+            draws = drawRepository.findRecentDraws(100);
+            if (draws.isEmpty()) {
+                log.error("[로또분석] 데이터 수집 후에도 분석할 데이터가 없습니다");
+                return null;
+            }
         }
 
         List<LottoDrawDto> drawDtos = draws.stream()

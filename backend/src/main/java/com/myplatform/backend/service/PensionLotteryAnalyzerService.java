@@ -16,6 +16,7 @@ import com.myplatform.backend.repository.PensionLotteryDrawRepository;
 import com.myplatform.backend.repository.PensionLotteryWeeklyRecommendationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PostConstruct;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -82,6 +83,7 @@ public class PensionLotteryAnalyzerService {
     /**
      * 서버 시작 시 데이터가 없으면 초기 데이터 수집
      */
+    @PostConstruct
     @Transactional
     public void initializeDataIfEmpty() {
         if (drawRepository.count() == 0) {
@@ -240,7 +242,7 @@ public class PensionLotteryAnalyzerService {
 
     // ==================== API 조회 메서드 ====================
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PensionLotteryAnalysisDto getWeeklyRecommendation() {
         Optional<PensionLotteryWeeklyRecommendation> optional = weeklyRepository.findLatestRecommendation();
 
@@ -292,12 +294,17 @@ public class PensionLotteryAnalyzerService {
                 .collect(Collectors.toList());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PensionLotteryAnalysisDto analyzeAndRecommend() {
         List<PensionLotteryDraw> draws = drawRepository.findRecentDraws(100);
         if (draws.isEmpty()) {
-            log.error("[연금복권분석] 분석할 데이터가 없습니다");
-            return null;
+            log.info("[연금복권분석] DB에 데이터가 없어 자동 수집 시작...");
+            collectLatestDraws();
+            draws = drawRepository.findRecentDraws(100);
+            if (draws.isEmpty()) {
+                log.error("[연금복권분석] 데이터 수집 후에도 분석할 데이터가 없습니다");
+                return null;
+            }
         }
 
         List<PensionLotteryDrawDto> drawDtos = draws.stream()
