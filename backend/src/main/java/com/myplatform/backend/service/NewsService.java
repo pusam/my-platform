@@ -46,6 +46,29 @@ public class NewsService {
     // 감성 분석 태그 패턴
     private static final Pattern SENTIMENT_PATTERN = Pattern.compile("\\[(긍정|부정|중립)\\]");
 
+    // ═══ 카테고리 필터링: 투자 관련 뉴스만 수집 ═══
+    private static final String[] INCLUDE_KEYWORDS = {
+        "증시", "주가", "코스피", "코스닥", "나스닥", "S&P", "다우",
+        "실적", "영업이익", "매출", "수주", "계약", "분기",
+        "금리", "환율", "유가", "원자재", "채권",
+        "반도체", "2차전지", "배터리", "AI", "수출", "수입",
+        "IPO", "상장", "공모", "배당", "자사주", "유상증자",
+        "GDP", "CPI", "고용", "무역수지", "경상수지",
+        "외국인", "기관", "순매수", "순매도", "공매도",
+        "인수", "합병", "M&A", "투자", "펀드",
+        "바이오", "제약", "신약", "전기차", "자동차",
+        "은행", "보험", "증권사", "부동산", "건설"
+    };
+
+    private static final String[] EXCLUDE_KEYWORDS = {
+        "날씨", "기온", "폭염", "한파", "미세먼지", "강수", "태풍", "폭우", "폭설",
+        "연예", "아이돌", "드라마", "영화배우", "예능", "콘서트",
+        "빵값", "식품가격", "맛집", "레시피", "다이어트",
+        "사건사고", "교통사고", "실종", "화재", "범죄",
+        "스포츠", "야구", "축구", "올림픽", "월드컵",
+        "여행", "관광", "축제", "공연"
+    };
+
     public NewsService(NewsSummaryRepository newsSummaryRepository, OllamaService ollamaService) {
         this.newsSummaryRepository = newsSummaryRepository;
         this.ollamaService = ollamaService;
@@ -94,10 +117,16 @@ public class NewsService {
             }
         }
 
+        // 투자 관련 뉴스만 필터링
+        List<RssItem> filteredItems = allItems.stream()
+                .filter(this::isInvestmentRelated)
+                .collect(Collectors.toList());
+        log.info("카테고리 필터링: {}건 → {}건 (투자 관련)", allItems.size(), filteredItems.size());
+
         // 최대 5개 뉴스만 요약 (AI 부하 고려)
         int count = 0;
 
-        for (RssItem item : allItems) {
+        for (RssItem item : filteredItems) {
             if (count >= 5) break;
 
             // URL 기준 중복 체크 (제목 수정에도 동일 뉴스 거름)
@@ -189,12 +218,36 @@ public class NewsService {
     }
 
     /**
+     * 투자 관련 뉴스인지 필터링
+     * INCLUDE 키워드 매칭 → 통과, 아니면 EXCLUDE 키워드 체크 → Drop
+     */
+    private boolean isInvestmentRelated(RssItem item) {
+        String text = (item.title + " " + item.description).toLowerCase();
+
+        // INCLUDE 키워드가 하나라도 있으면 무조건 통과
+        for (String kw : INCLUDE_KEYWORDS) {
+            if (text.contains(kw.toLowerCase())) return true;
+        }
+
+        // EXCLUDE 키워드가 있으면 Drop
+        for (String kw : EXCLUDE_KEYWORDS) {
+            if (text.contains(kw.toLowerCase())) {
+                log.debug("비투자 뉴스 제외: {}", item.title);
+                return false;
+            }
+        }
+
+        // 둘 다 아닌 경우 통과 (경제 RSS 피드 자체가 경제 카테고리)
+        return true;
+    }
+
+    /**
      * AI를 사용하여 뉴스 요약 + 감성 분석
      */
     private SummaryResult summarizeWithAi(String title, String content) {
         String prompt = String.format("""
-            다음 경제 뉴스를 5줄 이내로 간결하게 요약해주세요.
-            핵심 내용만 포함하고, 불필요한 수식어는 제외해주세요.
+            다음 경제 뉴스의 핵심을 정확히 3개의 불릿 포인트로 요약해주세요.
+            각 불릿은 '• '로 시작하고, 한 줄에 20자~40자로 간결하게 작성해주세요.
 
             요약 마지막에 이 뉴스가 주식 시장에 미치는 영향을 다음 중 하나로 판단해서 태그를 달아주세요:
             - [긍정] : 시장에 호재, 상승 기대
@@ -204,18 +257,16 @@ public class NewsService {
             제목: %s
 
             내용: %s
-
-            [요약]
             """, title, content);
 
         String systemPrompt = """
-            당신은 경제 뉴스 요약 및 시장 분석 전문가입니다.
+            당신은 주식 투자자를 위한 경제 뉴스 분석 전문가입니다.
             반드시 한국어로 답변하세요.
-            - 핵심 내용을 5줄 이내로 요약
+            - 정확히 3개의 불릿 포인트(• )로만 요약
+            - 숫자, 금액, 비율 등 구체적 수치를 반드시 포함
             - 객관적이고 중립적인 어조 유지
-            - 숫자와 통계는 정확하게 포함
-            - 불필요한 인사말이나 부가 설명 없이 요약만 제공
-            - 요약 마지막에 반드시 [긍정], [부정], [중립] 중 하나의 태그를 붙여주세요
+            - 불필요한 인사말이나 부가 설명 없이 불릿 포인트만 제공
+            - 요약 마지막 줄에 반드시 [긍정], [부정], [중립] 중 하나의 태그를 붙여주세요
             """;
 
         String response = ollamaService.chat(prompt, systemPrompt);

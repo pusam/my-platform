@@ -343,9 +343,15 @@ export default {
         const sd = screenerRes.status === 'fulfilled' ? this.extractData(screenerRes.value) : null
         const hasScreener = sd && (sd.magicFormula?.length || sd.lowPeg?.length || sd.turnaround?.length)
         this.screenerData = hasScreener ? sd : {}
-        // News
-        const nd = newsRes.status === 'fulfilled' ? this.extractData(newsRes.value) : null
-        this.newsData = (Array.isArray(nd) && nd.length > 0) ? nd : []
+        // News (today → recent fallback)
+        let nd = newsRes.status === 'fulfilled' ? this.extractData(newsRes.value) : null
+        if (!Array.isArray(nd) || nd.length === 0) {
+          try {
+            const fallback = await newsAPI.getRecentNews()
+            nd = this.extractData(fallback) || []
+          } catch { nd = [] }
+        }
+        this.newsData = Array.isArray(nd) ? nd.slice(0, 5) : []
       } catch {
         this.screenerData = {}
         this.newsData = []

@@ -155,21 +155,25 @@
       <!-- 경제 뉴스 -->
       <div v-if="activeTab === 'news'" class="news-area">
         <div
-          v-for="(item, i) in newsData.slice(0, 5)"
+          v-for="(item, i) in enrichedNewsData.slice(0, 5)"
           :key="'news-' + i"
-          class="news-item"
+          :class="['news-item', { 'news-item--hot': item._isHot }]"
         >
+          <div class="news-title-row">
+            <span v-if="item._sector" class="mini-sector-tag">{{ item._sector }}</span>
+            <span v-if="item._isHot" class="mini-hot-badge">HOT</span>
+          </div>
           <div class="news-title">{{ item.title }}</div>
           <div class="news-summary" v-if="item.summary">{{ item.summary }}</div>
           <div class="news-meta">
-            <span class="news-source" v-if="item.source">{{ item.source }}</span>
-            <span class="news-time" v-if="item.publishedAt">{{ formatNewsTime(item.publishedAt) }}</span>
-            <span class="news-sentiment" v-if="item.sentiment" :class="getSentimentClass(item.sentiment)">
-              {{ item.sentiment }}
+            <span class="news-source" v-if="item.source || item.sourceName">{{ item.source || item.sourceName }}</span>
+            <span class="news-time" v-if="item.publishedAt || item.summarizedAt">{{ formatNewsTime(item.publishedAt || item.summarizedAt) }}</span>
+            <span class="news-sentiment" v-if="item.sentiment || item.sentimentLabel" :class="getSentimentClass(item.sentiment || item.sentimentLabel)">
+              {{ item.sentimentLabel || item.sentiment }}
             </span>
           </div>
         </div>
-        <div v-if="newsData.length === 0" class="empty-msg">오늘 뉴스 없음</div>
+        <div v-if="newsData.length === 0" class="empty-msg">뉴스를 불러오는 중...</div>
         <div class="more-links">
           <router-link to="/news">전체 뉴스 →</router-link>
         </div>
@@ -205,6 +209,30 @@ export default {
     }
   },
   computed: {
+    enrichedNewsData() {
+      const HOT_KW = ['수주','실적','계약','급등','급락','사상최고','역대급','호실적','인수','합병','M&A','IPO','상장','흑자전환','적자전환']
+      const SECTORS = [
+        { kw: ['반도체','HBM','파운드리','DRAM'], tag: '반도체' },
+        { kw: ['2차전지','배터리','리튬','양극재'], tag: '2차전지' },
+        { kw: ['AI','인공지능','GPT','LLM'], tag: 'AI' },
+        { kw: ['나스닥','S&P','다우','뉴욕증시','미국증시'], tag: '미국증시' },
+        { kw: ['코스피','코스닥','한국증시'], tag: '국내증시' },
+        { kw: ['금리','기준금리','연준','Fed'], tag: '금리·통화' },
+        { kw: ['환율','달러','원화'], tag: '환율' },
+        { kw: ['유가','원유','OPEC'], tag: '원자재' },
+        { kw: ['바이오','제약','신약'], tag: '바이오' },
+        { kw: ['자동차','전기차','EV'], tag: '자동차' },
+      ]
+      return this.newsData.map(item => {
+        const title = item.title || ''
+        const _isHot = HOT_KW.some(k => title.includes(k))
+        let _sector = null
+        for (const s of SECTORS) {
+          if (s.kw.some(k => title.includes(k))) { _sector = s.tag; break }
+        }
+        return { ...item, _isHot, _sector }
+      })
+    },
     allStockCodes() {
       const codes = new Set()
       const d = this.screenerData
@@ -422,6 +450,23 @@ export default {
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .news-item:last-child { border-bottom: none; }
+.news-item--hot {
+  border-left: 3px solid #ef4444;
+  padding-left: 8px;
+  margin-left: -8px;
+}
+
+.news-title-row {
+  display: flex; gap: 4px; margin-bottom: 3px; flex-wrap: wrap;
+}
+.mini-sector-tag {
+  font-size: 9px; padding: 1px 6px; border-radius: 3px;
+  background: rgba(99,102,241,0.2); color: #a5b4fc; font-weight: 700;
+}
+.mini-hot-badge {
+  font-size: 9px; padding: 1px 5px; border-radius: 3px;
+  background: rgba(239,68,68,0.25); color: #fca5a5; font-weight: 800;
+}
 
 .news-title {
   font-size: 13px; color: rgba(255,255,255,0.85); font-weight: 500;
