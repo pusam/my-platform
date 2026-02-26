@@ -534,20 +534,34 @@ public class StockDetailService {
             BigDecimal debtRatio = null;
 
             // ★ DB에서 TTM 연결 재무데이터 조회 → 별도 기준 EPS/PER 덮어쓰기
+            // 최신 레코드에 netIncome이 null이면 과거 레코드까지 스캔 (analyzeFinancialHealth와 동일)
             try {
-                java.util.Optional<StockFinancialData> dbDataOpt = stockFinancialDataRepository
-                        .findTopByStockCodeOrderByReportDateDesc(stockCode);
+                List<StockFinancialData> dbDataList = stockFinancialDataRepository
+                        .findByStockCodeOrderByReportDateDesc(stockCode);
 
-                if (dbDataOpt.isPresent()) {
-                    StockFinancialData dbData = dbDataOpt.get();
-                    log.info("[StockDetail] {} DB 데이터 발견 (날짜: {}, netIncome: {}, 주식수: {})",
-                            stockCode, dbData.getReportDate(), dbData.getNetIncome(), lstnStcn);
+                if (!dbDataList.isEmpty()) {
+                    // 최신 + 과거 레코드에서 데이터 보완
+                    BigDecimal netIncome = null;
+                    BigDecimal dbRoe = null;
+                    BigDecimal dbOpMargin = null;
+                    BigDecimal dbNetMargin = null;
+                    BigDecimal dbDebtRatio = null;
+
+                    for (StockFinancialData hist : dbDataList) {
+                        if (netIncome == null && hist.getNetIncome() != null) netIncome = hist.getNetIncome();
+                        if (dbRoe == null && hist.getRoe() != null) dbRoe = hist.getRoe();
+                        if (dbOpMargin == null && hist.getOperatingMargin() != null) dbOpMargin = hist.getOperatingMargin();
+                        if (dbNetMargin == null && hist.getNetMargin() != null) dbNetMargin = hist.getNetMargin();
+                        if (dbDebtRatio == null && hist.getDebtRatio() != null) dbDebtRatio = hist.getDebtRatio();
+                        if (netIncome != null && dbRoe != null && dbOpMargin != null) break;
+                    }
+
+                    log.info("[StockDetail] {} DB 데이터 ({}건, netIncome: {}, 주식수: {})",
+                            stockCode, dbDataList.size(), netIncome, lstnStcn);
 
                     // TTM 연결 당기순이익으로 EPS/PER 재계산
-                    if (dbData.getNetIncome() != null
-                            && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
-                        // netIncome은 억원 단위 → 원 단위로 변환 후 주식수로 나눔
-                        BigDecimal ttmEps = dbData.getNetIncome()
+                    if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal ttmEps = netIncome
                                 .multiply(new BigDecimal("100000000"))
                                 .divide(lstnStcn, 0, RoundingMode.HALF_UP);
                         eps = ttmEps;
@@ -560,14 +574,14 @@ public class StockDetailService {
                                 stockCode, kisEps, eps, kisPer, per);
                     } else {
                         log.warn("[StockDetail] {} TTM 재계산 불가 (netIncome: {}, 주식수: {})",
-                                stockCode, dbData.getNetIncome(), lstnStcn);
+                                stockCode, netIncome, lstnStcn);
                     }
 
                     // ROE, 영업이익률, 순이익률, 부채비율 오버레이
-                    if (dbData.getRoe() != null) roe = dbData.getRoe();
-                    if (dbData.getOperatingMargin() != null) operatingMargin = dbData.getOperatingMargin();
-                    if (dbData.getNetMargin() != null) netMargin = dbData.getNetMargin();
-                    if (dbData.getDebtRatio() != null) debtRatio = dbData.getDebtRatio();
+                    if (dbRoe != null) roe = dbRoe;
+                    if (dbOpMargin != null) operatingMargin = dbOpMargin;
+                    if (dbNetMargin != null) netMargin = dbNetMargin;
+                    if (dbDebtRatio != null) debtRatio = dbDebtRatio;
                 } else {
                     log.warn("[StockDetail] {} DB에 재무 데이터 없음 — KIS API 별도 기준 사용", stockCode);
                 }
