@@ -786,12 +786,12 @@ public class AutoTradingBotService {
                 int sellQuantity = portfolio.getQuantity();
                 boolean isPartialSell = false;
 
-                // 1. 손절 체크 (-1.5%)
+                // 1. 손절 체크 (-1.2%)
                 if (profitRate.compareTo(STOP_LOSS_RATE) <= 0) {
                     sellReason = "STOP_LOSS";
                     log.info("[스캘핑봇] 손절 조건: {} - 손익률 {}%", portfolio.getStockName(), profitRate);
                 }
-                // 2. 익절 1차 체크 (+2.5% 절반 매도)
+                // 2. 익절 1차 체크 (+1.3% 절반 매도)
                 else if (!position.halfSold && profitRate.compareTo(TAKE_PROFIT_FIRST) >= 0) {
                     sellReason = "TAKE_PROFIT_HALF";
                     sellQuantity = portfolio.getQuantity() / 2;
@@ -802,12 +802,12 @@ public class AutoTradingBotService {
                                 portfolio.getStockName(), profitRate, sellQuantity);
                     }
                 }
-                // 3. 트레일링 스탑 체크 (고점 대비 -1%)
+                // 3. 트레일링 스탑 체크 (고점 대비 -0.5%)
                 else if (position.halfSold && highDropRate.compareTo(TRAILING_STOP_RATE) <= 0) {
                     sellReason = "TRAILING_STOP";
                     log.info("[스캘핑봇] 트레일링 스탑: {} - 고점대비 {}%", portfolio.getStockName(), highDropRate);
                 }
-                // 4. 타임컷 체크 (10분 경과 → 무조건 전량 매도)
+                // 4. 타임컷 체크 (5분 경과 → 무조건 전량 매도)
                 else if (minutesElapsed >= TIME_CUT_MINUTES) {
                     sellReason = "TIME_CUT";
                     log.info("[스캘핑봇] 타임컷: {} - {}분 경과, 손익률 {}%",
