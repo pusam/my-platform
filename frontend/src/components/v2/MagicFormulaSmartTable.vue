@@ -312,7 +312,7 @@ const ScoreRing = {
     <div class="score-ring" :style="{ width: size + 'px', height: size + 'px' }">
       <svg :width="size" :height="size" class="score-ring-svg">
         <circle :cx="size/2" :cy="size/2" :r="r"
-                fill="none" stroke-width="3.5" stroke="rgba(255,255,255,0.06)" />
+                fill="none" stroke-width="3.5" stroke="rgba(0,0,0,0.08)" />
         <circle :cx="size/2" :cy="size/2" :r="r"
                 fill="none" stroke-width="3.5" stroke-linecap="round"
                 :stroke="grade.ring"
@@ -434,10 +434,15 @@ export default {
 
 <style scoped>
 /* ═══════════════════════════════════════════════════════════════════
+   HIGH-CONTRAST LIGHT THEME
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════
    1. 레이아웃 / 헤더
    ═══════════════════════════════════════════════════════════════════ */
 .smart-table-wrap {
   width: 100%;
+  color: #1F2937;
 }
 
 .smart-header {
@@ -461,19 +466,19 @@ export default {
   justify-content: center;
   border-radius: 14px;
   background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(109,40,217,0.08));
-  border: 1px solid rgba(139,92,246,0.15);
+  border: 1px solid rgba(139,92,246,0.25);
   font-size: 20px;
 }
 .header-title {
   font-size: 22px;
   font-weight: 800;
-  color: #fff;
+  color: #111827;
   margin: 0;
   letter-spacing: -0.3px;
 }
 .header-sub {
   font-size: 12px;
-  color: rgba(255,255,255,0.35);
+  color: #6B7280;
   margin: 2px 0 0;
 }
 
@@ -487,23 +492,23 @@ export default {
   top: 50%;
   transform: translateY(-50%);
   font-size: 13px;
-  opacity: 0.4;
+  opacity: 0.5;
 }
 .search-input {
   width: 240px;
   padding: 9px 14px 9px 36px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.04);
-  color: #fff;
+  border: 1px solid #D1D5DB;
+  background: #F9FAFB;
+  color: #1F2937;
   font-size: 13px;
   outline: none;
   transition: border-color 0.2s;
 }
-.search-input::placeholder { color: rgba(255,255,255,0.25); }
+.search-input::placeholder { color: #9CA3AF; }
 .search-input:focus {
-  border-color: rgba(139,92,246,0.4);
-  box-shadow: 0 0 0 2px rgba(139,92,246,0.1);
+  border-color: #7C3AED;
+  box-shadow: 0 0 0 2px rgba(124,58,237,0.15);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -522,34 +527,36 @@ export default {
   padding: 20px;
   cursor: pointer;
   transition: transform 0.25s, box-shadow 0.25s;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 .pick-card:hover {
   transform: scale(1.02);
 }
 
-/* 등급별 카드 테마 */
+/* 등급별 카드 테마 - 고대비 */
 .pick-card.grade-s {
-  background: rgba(139,92,246,0.07);
-  border: 1px solid rgba(139,92,246,0.25);
+  background: rgba(139,92,246,0.08);
+  border: 1.5px solid rgba(139,92,246,0.35);
 }
-.pick-card.grade-s:hover { box-shadow: 0 8px 32px rgba(139,92,246,0.15); }
+.pick-card.grade-s:hover { box-shadow: 0 8px 24px rgba(139,92,246,0.2); }
 
 .pick-card.grade-a {
-  background: rgba(245,158,11,0.07);
-  border: 1px solid rgba(245,158,11,0.25);
+  background: rgba(245,158,11,0.08);
+  border: 1.5px solid rgba(245,158,11,0.35);
 }
-.pick-card.grade-a:hover { box-shadow: 0 8px 32px rgba(245,158,11,0.12); }
+.pick-card.grade-a:hover { box-shadow: 0 8px 24px rgba(245,158,11,0.18); }
 
 .pick-card.grade-b {
-  background: rgba(56,189,248,0.06);
-  border: 1px solid rgba(56,189,248,0.2);
+  background: rgba(37,99,235,0.06);
+  border: 1.5px solid rgba(37,99,235,0.3);
 }
-.pick-card.grade-b:hover { box-shadow: 0 8px 32px rgba(56,189,248,0.1); }
+.pick-card.grade-b:hover { box-shadow: 0 8px 24px rgba(37,99,235,0.15); }
 
 .pick-card.grade-c {
-  background: rgba(148,163,184,0.06);
-  border: 1px solid rgba(148,163,184,0.15);
+  background: rgba(107,114,128,0.06);
+  border: 1.5px solid rgba(107,114,128,0.25);
 }
+.pick-card.grade-c:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
 
 /* 순위 뱃지 (우상단) */
 .pick-rank-badge {
@@ -569,8 +576,8 @@ export default {
 }
 .pick-rank-badge.grade-s { background: linear-gradient(135deg, #8b5cf6, #7c3aed); box-shadow: 0 4px 14px rgba(139,92,246,0.4); }
 .pick-rank-badge.grade-a { background: linear-gradient(135deg, #f59e0b, #d97706); box-shadow: 0 4px 14px rgba(245,158,11,0.4); }
-.pick-rank-badge.grade-b { background: linear-gradient(135deg, #0ea5e9, #0284c7); }
-.pick-rank-badge.grade-c { background: linear-gradient(135deg, #64748b, #475569); }
+.pick-rank-badge.grade-b { background: linear-gradient(135deg, #2563EB, #1D4ED8); box-shadow: 0 4px 14px rgba(37,99,235,0.3); }
+.pick-rank-badge.grade-c { background: linear-gradient(135deg, #6B7280, #4B5563); }
 
 /* 글로우 */
 .pick-glow {
@@ -580,16 +587,16 @@ export default {
   width: 160px;
   height: 160px;
   border-radius: 50%;
-  opacity: 0.04;
+  opacity: 0.06;
   filter: blur(40px);
   pointer-events: none;
   transition: opacity 0.4s;
 }
-.pick-card:hover .pick-glow { opacity: 0.08; }
+.pick-card:hover .pick-glow { opacity: 0.1; }
 .pick-glow.grade-s { background: linear-gradient(135deg, #8b5cf6, #7c3aed); }
 .pick-glow.grade-a { background: linear-gradient(135deg, #f59e0b, #d97706); }
-.pick-glow.grade-b { background: linear-gradient(135deg, #0ea5e9, #0284c7); }
-.pick-glow.grade-c { background: #64748b; }
+.pick-glow.grade-b { background: linear-gradient(135deg, #2563EB, #1D4ED8); }
+.pick-glow.grade-c { background: #6B7280; }
 
 .pick-body { position: relative; z-index: 1; }
 
@@ -601,9 +608,9 @@ export default {
 }
 .pick-info { min-width: 0; }
 .pick-name {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 15px;
-  color: #fff;
+  color: #111827;
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -611,7 +618,7 @@ export default {
 }
 .pick-meta {
   font-size: 11px;
-  color: rgba(255,255,255,0.3);
+  color: #6B7280;
   margin: 1px 0 0;
 }
 
@@ -620,7 +627,7 @@ export default {
   width: 100%;
   height: 5px;
   border-radius: 3px;
-  background: rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.08);
   overflow: hidden;
 }
 .score-bar-fill {
@@ -630,12 +637,12 @@ export default {
 }
 .score-bar-fill.grade-s { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
 .score-bar-fill.grade-a { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-.score-bar-fill.grade-b { background: linear-gradient(90deg, #0ea5e9, #38bdf8); }
-.score-bar-fill.grade-c { background: linear-gradient(90deg, #64748b, #94a3b8); }
+.score-bar-fill.grade-b { background: linear-gradient(90deg, #2563EB, #60A5FA); }
+.score-bar-fill.grade-c { background: linear-gradient(90deg, #6B7280, #9CA3AF); }
 
 .pick-insight {
   font-size: 11px;
-  color: rgba(255,255,255,0.22);
+  color: #6B7280;
   margin: 10px 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -649,25 +656,26 @@ export default {
   margin-top: 12px;
 }
 .pick-metric-box {
-  background: rgba(255,255,255,0.04);
+  background: rgba(0,0,0,0.04);
   border-radius: 10px;
   padding: 7px 4px;
   text-align: center;
 }
 .pick-metric-label {
   font-size: 9px;
-  color: rgba(255,255,255,0.25);
+  color: #6B7280;
   margin-bottom: 2px;
+  font-weight: 600;
 }
 .pick-metric-value {
   font-size: 13px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.8);
+  font-weight: 700;
+  color: #1F2937;
   font-variant-numeric: tabular-nums;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   3. 뱃지
+   3. 뱃지 - 고대비 색상
    ═══════════════════════════════════════════════════════════════════ */
 .badge-row {
   display: flex;
@@ -681,7 +689,7 @@ export default {
   padding: 2px 9px;
   border-radius: 100px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   border: 1px solid;
   white-space: nowrap;
   cursor: default;
@@ -690,17 +698,17 @@ export default {
 .smart-badge:hover { transform: scale(1.05); }
 .smart-badge.badge-sm { font-size: 10px; padding: 1px 7px; }
 
-.badge-blue   { background: rgba(59,130,246,0.12); color: #93c5fd; border-color: rgba(59,130,246,0.2); }
-.badge-green  { background: rgba(16,185,129,0.12); color: #6ee7b7; border-color: rgba(16,185,129,0.2); }
-.badge-red    { background: rgba(244,63,94,0.12);  color: #fda4af; border-color: rgba(244,63,94,0.2); }
-.badge-purple { background: rgba(139,92,246,0.12); color: #c4b5fd; border-color: rgba(139,92,246,0.2); }
-.badge-cyan   { background: rgba(6,182,212,0.12);  color: #67e8f9; border-color: rgba(6,182,212,0.2); }
-.badge-orange { background: rgba(249,115,22,0.12); color: #fdba74; border-color: rgba(249,115,22,0.2); }
-.badge-pink   { background: rgba(236,72,153,0.12); color: #f9a8d4; border-color: rgba(236,72,153,0.2); }
+.badge-blue   { background: rgba(37,99,235,0.1);  color: #1D4ED8; border-color: rgba(37,99,235,0.3); }
+.badge-green  { background: rgba(5,150,105,0.1);  color: #047857; border-color: rgba(5,150,105,0.3); }
+.badge-red    { background: rgba(220,38,38,0.1);  color: #B91C1C; border-color: rgba(220,38,38,0.3); }
+.badge-purple { background: rgba(124,58,237,0.1); color: #6D28D9; border-color: rgba(124,58,237,0.3); }
+.badge-cyan   { background: rgba(8,145,178,0.1);  color: #0E7490; border-color: rgba(8,145,178,0.3); }
+.badge-orange { background: rgba(234,88,12,0.1);  color: #C2410C; border-color: rgba(234,88,12,0.3); }
+.badge-pink   { background: rgba(219,39,119,0.1); color: #BE185D; border-color: rgba(219,39,119,0.3); }
 
 .badge-more {
   font-size: 9px;
-  color: rgba(255,255,255,0.15);
+  color: #9CA3AF;
   align-self: center;
   margin-left: 2px;
 }
@@ -736,19 +744,20 @@ export default {
 }
 .score-ring-num {
   font-size: 9px;
-  color: rgba(255,255,255,0.3);
+  color: #6B7280;
   margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   5. 메인 테이블
+   5. 메인 테이블 - 고대비
    ═══════════════════════════════════════════════════════════════════ */
 .smart-table-container {
   border-radius: 18px;
-  border: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.015);
+  border: 1px solid #E5E7EB;
+  background: #FFFFFF;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
 /* 헤더 행 */
@@ -758,11 +767,11 @@ export default {
   align-items: center;
   padding: 0 16px;
   height: 40px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid #E5E7EB;
+  background: #F9FAFB;
   font-size: 11px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.35);
+  font-weight: 700;
+  color: #6B7280;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   user-select: none;
@@ -771,7 +780,7 @@ export default {
   cursor: pointer;
   transition: color 0.15s;
 }
-.smart-table-header .sortable:hover { color: rgba(255,255,255,0.6); }
+.smart-table-header .sortable:hover { color: #111827; }
 
 .col-rank   { text-align: center; }
 .col-grade  { text-align: center; }
@@ -790,17 +799,17 @@ export default {
   height: 52px;
   cursor: pointer;
   transition: background 0.15s;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid #F3F4F6;
 }
-.smart-table-row:hover { background: rgba(255,255,255,0.025); }
+.smart-table-row:hover { background: #F9FAFB; }
 .smart-table-row.row-top-tier {
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.008), transparent);
+  background: rgba(139,92,246,0.03);
 }
 
 .rank-num {
   font-size: 14px;
   font-weight: 700;
-  color: rgba(255,255,255,0.4);
+  color: #4B5563;
   font-variant-numeric: tabular-nums;
 }
 .rank-num.rank-top { font-weight: 900; }
@@ -812,16 +821,16 @@ export default {
   gap: 8px;
 }
 .stock-name {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
-  color: #fff;
+  color: #111827;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .stock-code {
   font-size: 10px;
-  color: rgba(255,255,255,0.2);
+  color: #9CA3AF;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
@@ -829,34 +838,35 @@ export default {
   font-size: 9px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: rgba(255,255,255,0.04);
-  color: rgba(255,255,255,0.25);
+  background: #F3F4F6;
+  color: #6B7280;
   flex-shrink: 0;
+  font-weight: 500;
 }
 .stock-insight {
   font-size: 10.5px;
-  color: rgba(255,255,255,0.2);
+  color: #6B7280;
   margin: 2px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 숫자 색상 */
-.num-excellent { color: #34d399; font-weight: 600; }
-.num-good      { color: rgba(52,211,153,0.7); }
-.num-bad       { color: rgba(251,113,133,0.6); }
-.num-normal    { color: rgba(255,255,255,0.5); }
-.num-dim       { color: rgba(255,255,255,0.15); }
-.dim           { color: rgba(255,255,255,0.4); }
+/* 숫자 색상 - 고대비 */
+.num-excellent { color: #059669; font-weight: 700; }
+.num-good      { color: #059669; font-weight: 500; }
+.num-bad       { color: #DC2626; font-weight: 600; }
+.num-normal    { color: #1F2937; font-weight: 500; }
+.num-dim       { color: #9CA3AF; font-weight: 500; }
+.dim           { color: #6B7280; font-weight: 500; }
 
 /* 소트 화살표 */
 .sort-arrow {
   font-size: 8px;
-  color: rgba(255,255,255,0.15);
+  color: #D1D5DB;
   margin-left: 2px;
 }
-.sort-arrow.active { color: #a78bfa; }
+.sort-arrow.active { color: #7C3AED; }
 
 /* ═══════════════════════════════════════════════════════════════════
    6. 확장 디테일 패널
@@ -866,14 +876,14 @@ export default {
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   padding: 16px 20px;
-  background: rgba(255,255,255,0.015);
-  border-top: 1px solid rgba(255,255,255,0.04);
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  background: #F9FAFB;
+  border-top: 1px solid #E5E7EB;
+  border-bottom: 1px solid #E5E7EB;
 }
 .detail-title {
   font-size: 10px;
   font-weight: 700;
-  color: rgba(255,255,255,0.3);
+  color: #6B7280;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin: 0 0 8px;
@@ -886,12 +896,12 @@ export default {
 }
 .detail-row span:first-child {
   font-size: 11px;
-  color: rgba(255,255,255,0.25);
+  color: #6B7280;
 }
 .detail-row span:last-child {
   font-size: 11px;
-  font-weight: 500;
-  color: rgba(255,255,255,0.6);
+  font-weight: 600;
+  color: #1F2937;
   font-variant-numeric: tabular-nums;
 }
 
@@ -912,13 +922,14 @@ export default {
 .empty-state {
   padding: 60px 0;
   text-align: center;
-  color: rgba(255,255,255,0.2);
+  color: #9CA3AF;
   font-size: 14px;
+  font-weight: 500;
 }
 .smart-footer {
   text-align: center;
   font-size: 11px;
-  color: rgba(255,255,255,0.15);
+  color: #9CA3AF;
   padding: 16px 0;
 }
 
