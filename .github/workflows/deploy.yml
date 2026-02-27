@@ -159,19 +159,11 @@ jobs:
         if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
         run: |
           mkdir -p ~/.ssh
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "${{ secrets.KEY_PROD }}" > ~/.ssh/deploy_key
-          else
-            echo "${{ secrets.KEY_DEV }}" > ~/.ssh/deploy_key
-          fi
+          echo "${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            HOST="${{ secrets.HOST_PROD }}"
-          else
-            HOST="${{ secrets.HOST_DEV }}"
-          fi
-          ssh-keyscan -p ${{ secrets.PORT }} "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "StrictHostKeyChecking no" > ~/.ssh/config
+          echo "UserKnownHostsFile /dev/null" >> ~/.ssh/config
+          echo "LogLevel ERROR" >> ~/.ssh/config
 
       - name: Copy files to server
         if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
@@ -187,22 +179,22 @@ jobs:
           fi
           PORT="${{ secrets.PORT }}"
           TARGET="/home/dev/my-platform"
+          SSH_CMD="ssh -p $PORT -i ~/.ssh/deploy_key"
+          SCP_CMD="scp -P $PORT -i ~/.ssh/deploy_key"
 
           echo "📦 파일 전송: $HOST:$PORT → $TARGET"
 
           # 타겟 디렉토리 생성
-          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" "mkdir -p $TARGET/nginx $TARGET/frontend"
+          $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/nginx $TARGET/frontend"
 
-          # docker-compose.yml
-          scp -P "$PORT" -i ~/.ssh/deploy_key docker-compose.yml "$USER@$HOST:$TARGET/"
+          # docker-compose.yml + nginx conf
+          $SCP_CMD docker-compose.yml "$USER@$HOST:$TARGET/"
+          $SCP_CMD "$NGINX_CONF" "$USER@$HOST:$TARGET/$NGINX_CONF"
 
-          # nginx conf
-          scp -P "$PORT" -i ~/.ssh/deploy_key "$NGINX_CONF" "$USER@$HOST:$TARGET/$NGINX_CONF"
-
-          # frontend/dist (tar로 압축 전송)
+          # frontend/dist (tar 압축 전송)
           tar -czf /tmp/frontend-dist.tar.gz -C frontend dist
-          scp -P "$PORT" -i ~/.ssh/deploy_key /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
-          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" "cd $TARGET/frontend && rm -rf dist && tar -xzf /tmp/frontend-dist.tar.gz && rm /tmp/frontend-dist.tar.gz"
+          $SCP_CMD /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
+          $SSH_CMD "$USER@$HOST" "cd $TARGET/frontend && rm -rf dist && tar -xzf /tmp/frontend-dist.tar.gz && rm /tmp/frontend-dist.tar.gz"
 
           echo "✅ 파일 전송 완료"
 
