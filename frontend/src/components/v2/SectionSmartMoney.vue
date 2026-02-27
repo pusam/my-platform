@@ -113,6 +113,7 @@ import SkeletonLoader from './SkeletonLoader.vue'
 export default {
   name: 'SectionSmartMoney',
   components: { SkeletonLoader },
+  inject: { openStock: { default: null } },
   props: {
     tradesData: { type: Object, default: () => ({ foreign: [], institution: [] }) },
     consecutiveData: { type: Array, default: () => [] },
@@ -156,10 +157,12 @@ export default {
       return sign + (abs * 10000 / 10).toFixed(0) + '만'
     },
     goToStock(code) {
-      this.$router.push(`/stock/${code}`)
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/stock/${code}`)
     },
     goToConsecutiveDetail(code) {
-      this.$router.push(`/investor-stock/${code}`)
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/investor-stock/${code}`)
     }
   }
 }

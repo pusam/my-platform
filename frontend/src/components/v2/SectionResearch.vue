@@ -189,6 +189,7 @@ import { stockDetailAPI } from '@/utils/api'
 export default {
   name: 'SectionResearch',
   components: { SkeletonLoader },
+  inject: { openStock: { default: null } },
   props: {
     screenerData: { type: Object, default: () => ({}) },
     newsData: { type: Array, default: () => [] },
@@ -282,7 +283,9 @@ export default {
   },
   methods: {
     goToStock(code) {
-      if (code) this.$router.push(`/stock/${code}`)
+      if (!code) return
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/stock/${code}`)
     },
     async fetchBatchScores() {
       const codes = this.allStockCodes

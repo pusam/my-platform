@@ -32,6 +32,7 @@ import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
 import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
 import StockDetailDashboard from './views/StockDetailDashboard.vue'
 import StockTradingDashboardV2 from './views/StockTradingDashboardV2.vue'
+import PaperTradingPage from './views/PaperTradingPage.vue'
 import BatchJobMonitor from './components/admin/BatchJobMonitor.vue'
 
 const router = createRouter({
@@ -233,7 +234,7 @@ const router = createRouter({
     {
       path: '/paper-trading',
       name: 'PaperTrading',
-      component: () => import('./views/PaperTradingPage.vue'),
+      component: PaperTradingPage,
       meta: { requiresAuth: true }
     },
     {

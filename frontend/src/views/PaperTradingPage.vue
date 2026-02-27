@@ -1,9 +1,9 @@
 <template>
-  <div class="paper-trading-page">
+  <div :class="['paper-trading-page', { embedded: props.embedded }]">
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
-      <!-- 헤더 섹션 -->
-      <div class="page-header">
+      <!-- 헤더 섹션 (embedded 모드에서는 숨김) -->
+      <div v-if="!props.embedded" class="page-header">
         <BackButton />
         <h1>자동매매</h1>
         <p class="subtitle">모의투자와 실전투자를 관리하세요</p>
@@ -550,6 +550,10 @@ import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
+
 const router = useRouter();
 const route = useRoute();
 
@@ -1019,6 +1023,11 @@ onUnmounted(() => {
   min-height: 100vh;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
   padding: 2rem;
+}
+.paper-trading-page.embedded {
+  min-height: unset;
+  background: transparent;
+  padding: 0;
 }
 
 .content-wrapper {

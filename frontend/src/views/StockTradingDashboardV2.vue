@@ -1,20 +1,15 @@
 <template>
   <div class="v2-dashboard">
     <div class="v2-content">
-      <!-- 헤더 -->
-      <DashboardHeader @open-search="showSearch = true" />
+      <!-- 헤더 (GNB 3탭 통합) -->
+      <DashboardHeader
+        :activeTab="activeGnbTab"
+        @open-search="showSearch = true"
+        @tab-change="activeGnbTab = $event"
+      />
 
-      <!-- 2x2 그리드 -->
-      <div class="dashboard-grid">
-        <!-- A. AI 전략 -->
-        <SectionAiStrategy
-          :data="aiStrategyData"
-          :loading="sections.aiStrategy.loading"
-          :error="sections.aiStrategy.error"
-          @retry="loadAiStrategy"
-        />
-
-        <!-- B. 시장 지도 -->
+      <!-- ═══ Tab 1: 시장 뷰 ═══ -->
+      <div v-if="activeGnbTab === 'market'" class="tab-panel">
         <SectionMarketMap
           :sectorData="sectorData"
           :marketData="marketData"
@@ -23,9 +18,49 @@
           :error="sections.marketMap.error"
           @retry="loadMarketMap"
         />
+        <!-- 뉴스 영역 -->
+        <div class="news-panel section-card" v-if="!sections.research.loading">
+          <div class="section-title-row">
+            <h2><span class="section-icon">📰</span> 주요 뉴스</h2>
+            <router-link to="/news" class="more-link">전체 뉴스 →</router-link>
+          </div>
+          <div v-if="newsData.length">
+            <div
+              v-for="(item, i) in newsData.slice(0, 8)"
+              :key="'news-' + i"
+              class="news-row"
+            >
+              <span class="news-title">{{ item.title }}</span>
+              <span class="news-time">{{ formatNewsTime(item.publishedAt || item.summarizedAt) }}</span>
+            </div>
+          </div>
+          <div v-else class="empty-msg">뉴스를 불러오는 중...</div>
+        </div>
+      </div>
 
-        <!-- C. 스마트 머니 -->
+      <!-- ═══ Tab 2: 종목 발굴 ═══ -->
+      <div v-if="activeGnbTab === 'discover'" class="tab-panel">
+        <div class="discover-tabs">
+          <button
+            v-for="tab in discoverSubTabs"
+            :key="tab.key"
+            :class="['discover-tab-btn', { active: discoverTab === tab.key }]"
+            @click="discoverTab = tab.key"
+          >
+            <span class="dtab-icon">{{ tab.icon }}</span>
+            {{ tab.label }}
+          </button>
+        </div>
+
+        <SectionAiStrategy
+          v-if="discoverTab === 'ai'"
+          :data="aiStrategyData"
+          :loading="sections.aiStrategy.loading"
+          :error="sections.aiStrategy.error"
+          @retry="loadAiStrategy"
+        />
         <SectionSmartMoney
+          v-if="discoverTab === 'smart'"
           :tradesData="tradesData"
           :consecutiveData="consecutiveData"
           :surgeData="surgeData"
@@ -33,9 +68,8 @@
           :error="sections.smartMoney.error"
           @retry="loadSmartMoney"
         />
-
-        <!-- D. AI 리서치 -->
         <SectionResearch
+          v-if="discoverTab === 'screener'"
           :screenerData="screenerData"
           :newsData="newsData"
           :loading="sections.research.loading"
@@ -43,6 +77,18 @@
           @retry="loadResearch"
         />
       </div>
+
+      <!-- ═══ Tab 3: 내 계좌/봇 ═══ -->
+      <div v-if="activeGnbTab === 'account'" class="tab-panel">
+        <PaperTradingPage :embedded="true" />
+      </div>
+
+      <!-- 종목 Drawer (모든 탭에서 접근 가능) -->
+      <StockDrawer
+        :visible="drawerVisible"
+        :stockCode="drawerStockCode"
+        @close="drawerVisible = false"
+      />
 
       <!-- 종목 검색 모달 -->
       <StockSearchModal
@@ -61,6 +107,8 @@ import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
 import SectionResearch from '../components/v2/SectionResearch.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
+import StockDrawer from '../components/v2/StockDrawer.vue'
+import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
@@ -109,11 +157,28 @@ export default {
     SectionMarketMap,
     SectionSmartMoney,
     SectionResearch,
-    StockSearchModal
+    StockSearchModal,
+    StockDrawer,
+    PaperTradingPage
+  },
+  provide() {
+    return {
+      openStock: this.openStockDrawer
+    }
   },
   data() {
     return {
+      activeGnbTab: 'market',
+      discoverTab: 'ai',
+      discoverSubTabs: [
+        { key: 'ai', label: 'AI 전략', icon: '🤖' },
+        { key: 'smart', label: '스마트 머니', icon: '💰' },
+        { key: 'screener', label: '실적 스크리너', icon: '🔬' }
+      ],
       showSearch: false,
+      drawerVisible: false,
+      drawerStockCode: null,
+      dataLoaded: { market: false, discover: false },
       sections: {
         aiStrategy: { loading: true, error: false },
         marketMap: { loading: true, error: false },
@@ -131,13 +196,19 @@ export default {
       newsData: []
     }
   },
+  watch: {
+    activeGnbTab(tab) {
+      this.loadTabData(tab)
+    }
+  },
   mounted() {
-    this.loadAllSections()
+    this.loadTabData('market')
+    this.loadNews() // 뉴스는 market + research 공용
     this.setupKeyboardShortcut()
-    // 60초마다 스마트 머니 + 섹터 히트맵 자동 갱신
+    // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
-      this.loadSmartMoney()
-      this.loadMarketMap()
+      if (this.activeGnbTab === 'market') this.loadMarketMap()
+      if (this.activeGnbTab === 'discover') this.loadSmartMoney()
     }, 60000)
   },
   beforeUnmount() {
@@ -148,13 +219,57 @@ export default {
     }
   },
   methods: {
-    async loadAllSections() {
-      await Promise.allSettled([
-        this.loadAiStrategy(),
-        this.loadMarketMap(),
-        this.loadSmartMoney(),
+    // ---- 탭별 데이터 로딩 ----
+    loadTabData(tab) {
+      if (tab === 'market' && !this.dataLoaded.market) {
+        this.loadMarketMap()
+        this.dataLoaded.market = true
+      }
+      if (tab === 'discover' && !this.dataLoaded.discover) {
+        this.loadAiStrategy()
+        this.loadSmartMoney()
         this.loadResearch()
-      ])
+        this.dataLoaded.discover = true
+      }
+      // account 탭은 PaperTradingPage 내부에서 자체 로드
+    },
+
+    // ---- 뉴스 로딩 (공용) ----
+    async loadNews() {
+      try {
+        let nd = null
+        try {
+          const res = await withTimeout(newsV2API.getTodayNews())
+          nd = this.extractData(res)
+        } catch { /* V2 실패 */ }
+        if (!Array.isArray(nd) || nd.length === 0) {
+          try {
+            const res = await newsAPI.getTodayNews()
+            nd = this.extractData(res)
+          } catch { /* Java도 실패 */ }
+        }
+        if (!Array.isArray(nd) || nd.length === 0) {
+          try {
+            const fallback = await newsAPI.getRecentNews()
+            nd = this.extractData(fallback) || []
+          } catch { nd = [] }
+        }
+        this.newsData = Array.isArray(nd) ? nd.slice(0, 10) : []
+      } catch {
+        this.newsData = []
+      }
+    },
+
+    // ---- Drawer ----
+    openStockDrawer(stockCode) {
+      this.drawerStockCode = stockCode
+      this.drawerVisible = true
+    },
+
+    onStockSelect(stock) {
+      if (stock?.stockCode) {
+        this.openStockDrawer(stock.stockCode)
+      }
     },
 
     // ---- helpers ----
@@ -168,22 +283,18 @@ export default {
       if (typeof d === 'object') return Object.keys(d).length > 0
       return true
     },
-    // 섹터 데이터가 유효한지 (거래대금 있거나 섹터명 있으면 유효)
     hasSectorData(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(s => s.sectorName || (s.totalTradingValue && s.totalTradingValue > 0))
     },
-    // 섹터 changeRate가 유효한지 (전부 0이면 무효)
     hasSectorChangeRate(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(s => s.changeRate && s.changeRate !== 0)
     },
-    // 매매 데이터가 유효한지 (금액 전부 0이면 무효)
     hasTradeData(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(t => t.netBuyAmount && t.netBuyAmount !== 0)
     },
-    // 투자자별 Map → 평탄 배열 변환 ({ FOREIGN: [...], INSTITUTION: [...] } → [...])
     flattenInvestorMap(data) {
       if (!data) return []
       if (Array.isArray(data)) return data.length > 0 ? data : []
@@ -205,33 +316,16 @@ export default {
       }
       return []
     },
-
-    // Section A: AI 전략 (V2 → Java, 3초 타임아웃)
-    async loadAiStrategy() {
+    formatNewsTime(dateStr) {
+      if (!dateStr) return ''
       try {
-        this.sections.aiStrategy.loading = true
-        this.sections.aiStrategy.error = false
-        // 1차: Python V2 API (3초 타임아웃)
-        try {
-          const res = await withTimeout(aiStrategyV2API.getLatest())
-          const d = this.extractData(res)
-          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
-          if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { /* V2 실패 → Java 폴백 */ }
-        // 2차: Java API (3초 타임아웃)
-        try {
-          const res = await withTimeout(aiStrategyAPI.getLatest())
-          const d = this.extractData(res)
-          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
-          if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { /* Java API도 실패 */ }
-        this.sections.aiStrategy.error = true
-      } catch {
-        this.aiStrategyData = null
-        this.sections.aiStrategy.error = true
-      } finally {
-        this.sections.aiStrategy.loading = false
-      }
+        const d = new Date(dateStr)
+        const now = new Date()
+        const diff = now - d
+        if (diff < 3600000) return Math.floor(diff / 60000) + '분 전'
+        if (diff < 86400000) return Math.floor(diff / 3600000) + '시간 전'
+        return d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
+      } catch { return '' }
     },
 
     // Section B: 시장 지도 (V2 → Java, changeRate 검증 포함)
@@ -246,7 +340,6 @@ export default {
           withTimeout(marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors())),
           withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures()))
         ])
-        // Sector - V2 응답 검증 후, changeRate 전부 0이면 Java API 재시도
         let sectorArr = []
         if (sectorRes.status === 'fulfilled' && sectorRes.value) {
           const d = this.extractData(sectorRes.value)
@@ -255,7 +348,6 @@ export default {
             sectorArr = arr
           }
         }
-        // V2 실패 또는 changeRate 전부 0 → Java API 직접 호출 (120초 타임아웃)
         if (sectorArr.length === 0) {
           try {
             const javaRes = await withTimeout(sectorAPI.getSectorTrading('TODAY'), 120000)
@@ -267,7 +359,6 @@ export default {
           }
         }
         this.sectorData = sectorArr
-        // Market - Java API 포맷 변환 (kospi.indexClose → kospiIndex)
         if (marketRes.status === 'fulfilled') {
           const d = this.extractData(marketRes.value)
           const transformed = transformMarketData(d)
@@ -275,7 +366,6 @@ export default {
         } else {
           this.marketData = {}
         }
-        // Global
         this.globalData = {}
         if (nasdaqRes.status === 'fulfilled') {
           const d = this.extractData(nasdaqRes.value)
@@ -299,6 +389,32 @@ export default {
       }
     },
 
+    // Section A: AI 전략 (V2 → Java, 3초 타임아웃)
+    async loadAiStrategy() {
+      try {
+        this.sections.aiStrategy.loading = true
+        this.sections.aiStrategy.error = false
+        try {
+          const res = await withTimeout(aiStrategyV2API.getLatest())
+          const d = this.extractData(res)
+          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
+          if (hasStocks) { this.aiStrategyData = d; return }
+        } catch (e) { /* V2 실패 → Java 폴백 */ }
+        try {
+          const res = await withTimeout(aiStrategyAPI.getLatest())
+          const d = this.extractData(res)
+          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
+          if (hasStocks) { this.aiStrategyData = d; return }
+        } catch (e) { /* Java API도 실패 */ }
+        this.sections.aiStrategy.error = true
+      } catch {
+        this.aiStrategyData = null
+        this.sections.aiStrategy.error = true
+      } finally {
+        this.sections.aiStrategy.loading = false
+      }
+    },
+
     // Section C: 스마트 머니 (실시간 KIS API 우선, 폴백: V2 → Java DB)
     async loadSmartMoney() {
       try {
@@ -314,16 +430,12 @@ export default {
           withTimeout(investorV2API.getAllConsecutiveBuy(3).catch(() => investorAPI.getAllConsecutiveBuy(3))),
           withTimeout(investorV2API.getAllSurgeStocks().catch(() => investorAPI.getAllSurgeStocks()))
         ])
-        // Foreign
         const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
         this.tradesData.foreign = this.hasTradeData(fd) ? fd : []
-        // Institution
         const id = instRes.status === 'fulfilled' ? this.extractData(instRes.value) : null
         this.tradesData.institution = this.hasTradeData(id) ? id : []
-        // Consecutive - API가 { FOREIGN: [...], INSTITUTION: [...] } Map 반환
         const cd = consecutiveRes.status === 'fulfilled' ? this.extractData(consecutiveRes.value) : null
         this.consecutiveData = this.flattenInvestorMap(cd)
-        // Surge - API가 { FOREIGN: [...], INSTITUTION: [...], COMMON: [...] } Map 반환
         const sd = surgeRes.status === 'fulfilled' ? this.extractData(surgeRes.value) : null
         this.surgeData = this.flattenInvestorMap(sd)
       } catch {
@@ -341,35 +453,17 @@ export default {
       try {
         this.sections.research.loading = true
         this.sections.research.error = false
-        const [screenerRes, newsRes] = await Promise.allSettled([
-          withTimeout(screenerV2API.getSummary().catch(() => screenerAPI.getSummary()), 15000),
-          withTimeout(newsV2API.getTodayNews().catch(() => newsAPI.getTodayNews()))
-        ])
-        // Screener
-        const sd = screenerRes.status === 'fulfilled' ? this.extractData(screenerRes.value) : null
+        const screenerRes = await withTimeout(
+          screenerV2API.getSummary().catch(() => screenerAPI.getSummary()), 15000
+        ).catch(() => null)
+        const sd = screenerRes ? this.extractData(screenerRes) : null
         const hasScreener = sd && (sd.magicFormula?.length || sd.lowPeg?.length || sd.turnaround?.length)
         this.screenerData = hasScreener ? sd : {}
-        // News (today → recent fallback)
-        let nd = newsRes.status === 'fulfilled' ? this.extractData(newsRes.value) : null
-        if (!Array.isArray(nd) || nd.length === 0) {
-          try {
-            const fallback = await newsAPI.getRecentNews()
-            nd = this.extractData(fallback) || []
-          } catch { nd = [] }
-        }
-        this.newsData = Array.isArray(nd) ? nd.slice(0, 5) : []
       } catch {
         this.screenerData = {}
-        this.newsData = []
         this.sections.research.error = true
       } finally {
         this.sections.research.loading = false
-      }
-    },
-
-    onStockSelect(stock) {
-      if (stock?.stockCode) {
-        this.$router.push(`/stock/${stock.stockCode}`)
       }
     },
 
@@ -380,7 +474,11 @@ export default {
           this.showSearch = true
         }
         if (e.key === 'Escape') {
-          this.showSearch = false
+          if (this.drawerVisible) {
+            this.drawerVisible = false
+          } else {
+            this.showSearch = false
+          }
         }
       }
       window.addEventListener('keydown', this._onKeydown)
@@ -406,18 +504,105 @@ export default {
   padding: 20px 24px 60px;
 }
 
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* Tab Panel */
+.tab-panel {
+  display: flex;
+  flex-direction: column;
   gap: 20px;
 }
 
-@media (max-width: 1024px) {
-  .dashboard-grid { grid-template-columns: 1fr; }
+/* Discover Sub-tabs */
+.discover-tabs {
+  display: flex;
+  gap: 6px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 12px;
+  margin-bottom: 4px;
+}
+.discover-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 9px;
+  transition: all 0.2s;
+}
+.discover-tab-btn:hover {
+  color: rgba(255,255,255,0.7);
+  background: rgba(255,255,255,0.04);
+}
+.discover-tab-btn.active {
+  background: rgba(102,126,234,0.15);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+.dtab-icon { font-size: 14px; }
+
+/* News Panel in Market Tab */
+.news-panel {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 24px;
+}
+.section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.section-title-row h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.95);
+}
+.section-icon { margin-right: 6px; }
+.more-link { font-size: 13px; color: #667eea; text-decoration: none; }
+.more-link:hover { color: #8b9cf7; }
+
+.news-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  gap: 12px;
+}
+.news-row:last-child { border-bottom: none; }
+.news-title {
+  flex: 1;
+  font-size: 13px;
+  color: rgba(255,255,255,0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.news-time {
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+
+.empty-msg {
+  text-align: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 13px;
+  padding: 20px 0;
 }
 
 @media (max-width: 768px) {
   .v2-content { padding: 12px 16px 40px; }
-  .dashboard-grid { gap: 14px; }
+  .tab-panel { gap: 14px; }
+  .discover-tab-btn { padding: 8px 10px; font-size: 12px; }
 }
 </style>

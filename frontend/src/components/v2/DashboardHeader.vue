@@ -6,21 +6,27 @@
           <polyline points="15,18 9,12 15,6"/>
         </svg>
       </button>
-      <div class="header-title">
-        <h1>주식 트레이딩 대시보드</h1>
-        <span class="header-subtitle">V2.0</span>
-      </div>
     </div>
     <div class="header-center">
-      <div class="search-trigger" @click="$emit('open-search')">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <span>종목 검색...</span>
-        <kbd>Ctrl+K</kbd>
+      <div class="gnb-tabs">
+        <button
+          v-for="tab in gnbTabs"
+          :key="tab.key"
+          :class="['gnb-btn', { active: activeTab === tab.key }]"
+          @click="$emit('tab-change', tab.key)"
+        >
+          <span class="gnb-icon">{{ tab.icon }}</span>
+          <span class="gnb-label">{{ tab.label }}</span>
+        </button>
       </div>
     </div>
     <div class="header-right">
+      <button class="search-btn" @click="$emit('open-search')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <kbd>Ctrl+K</kbd>
+      </button>
       <span class="update-time">
         <span class="pulse-dot"></span>
         {{ currentTime }}
@@ -32,10 +38,18 @@
 <script>
 export default {
   name: 'DashboardHeader',
-  emits: ['open-search'],
+  props: {
+    activeTab: { type: String, default: 'market' }
+  },
+  emits: ['open-search', 'tab-change'],
   data() {
     return {
-      currentTime: ''
+      currentTime: '',
+      gnbTabs: [
+        { key: 'market', label: '시장 뷰', icon: '📊' },
+        { key: 'discover', label: '종목 발굴', icon: '🔍' },
+        { key: 'account', label: '내 계좌/봇', icon: '🤖' }
+      ]
     }
   },
   mounted() {
@@ -59,14 +73,14 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 0;
-  margin-bottom: 24px;
+  padding: 12px 0;
+  margin-bottom: 20px;
+  gap: 12px;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
 }
 
 .back-btn {
@@ -86,70 +100,85 @@ export default {
   color: white;
 }
 
-.header-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.header-title h1 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.95);
-}
-
-.header-subtitle {
-  font-size: 12px;
-  color: #667eea;
-  background: rgba(102, 126, 234, 0.15);
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-weight: 600;
-}
-
+/* GNB Tabs */
 .header-center {
   flex: 1;
   display: flex;
   justify-content: center;
-  max-width: 400px;
-  margin: 0 24px;
 }
 
-.search-trigger {
+.gnb-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.gnb-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 16px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px;
+  gap: 6px;
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  border-radius: 9px;
   transition: all 0.2s;
-  color: rgba(255,255,255,0.4);
+  white-space: nowrap;
+}
+.gnb-btn:hover {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.04);
+}
+.gnb-btn.active {
+  background: rgba(102,126,234,0.18);
+  color: #a5b4fc;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(102,126,234,0.15);
+}
+
+.gnb-icon {
   font-size: 14px;
 }
-.search-trigger:hover {
+.gnb-label {
+  font-size: 13px;
+}
+
+/* Right */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.search-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 9px;
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.search-btn:hover {
   background: rgba(255,255,255,0.1);
   border-color: rgba(255,255,255,0.2);
   color: rgba(255,255,255,0.6);
 }
-.search-trigger span {
-  flex: 1;
-}
-.search-trigger kbd {
-  font-size: 11px;
+.search-btn kbd {
+  font-size: 10px;
   background: rgba(255,255,255,0.1);
-  padding: 2px 6px;
+  padding: 2px 5px;
   border-radius: 4px;
-  color: rgba(255,255,255,0.4);
+  color: rgba(255,255,255,0.35);
   font-family: inherit;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
 }
 
 .update-time {
@@ -176,15 +205,21 @@ export default {
 @media (max-width: 768px) {
   .dashboard-header {
     flex-wrap: wrap;
-    gap: 12px;
+    gap: 10px;
   }
   .header-center {
     order: 3;
-    max-width: 100%;
-    margin: 0;
     flex-basis: 100%;
   }
-  .header-title h1 { font-size: 16px; }
-  .search-trigger kbd { display: none; }
+  .gnb-tabs {
+    width: 100%;
+  }
+  .gnb-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 7px 10px;
+  }
+  .gnb-label { font-size: 12px; }
+  .search-btn kbd { display: none; }
 }
 </style>

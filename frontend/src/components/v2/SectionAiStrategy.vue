@@ -84,6 +84,7 @@ import SkeletonLoader from './SkeletonLoader.vue'
 export default {
   name: 'SectionAiStrategy',
   components: { SkeletonLoader },
+  inject: { openStock: { default: null } },
   props: {
     data: { type: Object, default: null },
     loading: { type: Boolean, default: false },
@@ -150,7 +151,8 @@ export default {
       return themes.split(',').map(t => t.trim()).filter(Boolean)
     },
     goToStock(code) {
-      this.$router.push(`/stock/${code}`)
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/stock/${code}`)
     }
   }
 }
