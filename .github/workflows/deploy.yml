@@ -165,6 +165,7 @@ jobs:
           port: ${{ secrets.PORT }}
           source: "docker-compose.yml, nginx/${{ github.ref == 'refs/heads/main' && 'prod.conf' || 'dev.conf' }}, frontend/dist"
           target: "/home/dev/my-platform"
+          debug: true
 
       - name: Deploy to Server
         if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
