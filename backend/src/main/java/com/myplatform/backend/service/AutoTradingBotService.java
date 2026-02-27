@@ -50,11 +50,12 @@ import java.util.stream.Collectors;
  *    E. 20MA 이격도 < +15% (급등 구간 진입 금지)
  *    F. 갭상승 < +8% (갭상승 과다 진입 금지)
  *
- * 2. 매도 조건 (Auto Exit) - 3초 간격 감시
- *    A. 익절 1차: +2.5% 도달 시 절반 매도
- *    B. 익절 2차: 트레일링 스탑 (고점 대비 -1% 하락 시 전량 매도)
- *    C. 손절: -1.5% 터치 시 즉시 전량 손절
- *    D. 타임컷: 매수 후 10분 초과 시 무조건 전량 매도
+ * 2. 매도 조건 (Auto Exit) - 1초 간격 감시
+ *    A. 익절 1차: +1.5% 도달 시 절반 매도
+ *    B. 익절 2차: 트레일링 스탑 (고점 대비 -0.5% 하락 시 전량 매도)
+ *    C. 손절: -1.2% 터치 시 즉시 전량 손절
+ *    D. 타임컷: 매수 후 5분 초과 시 무조건 전량 매도
+ *    E. 재매수 쿨다운: 매도 후 30분간 같은 종목 재매수 금지
  *
  * 3. 운용 설정
  *    A. 감시 대상: 수급 급증 탭에 잡힌 종목들만
@@ -80,7 +81,7 @@ public class AutoTradingBotService {
 
     // ========== 스캘핑 전략 상수 ==========
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.2");     // 손절: -1.2%
-    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.3");   // 익절 1차: +1.3% (절반 매도)
+    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.5");   // 익절 1차: +1.5% (절반 매도)
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("100");    // 최소 체결강도: 100%
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억
@@ -90,6 +91,7 @@ public class AutoTradingBotService {
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
     private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
     private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-3.0");   // 킬 스위치: -3%
+    private static final int SELL_COOLDOWN_MINUTES = 30;                        // 매도 후 재매수 쿨다운: 30분
     private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("80");      // RSI 진입 상한
     private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("15"); // 20MA 이격도 상한 (%)
     private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("8");          // 갭상승 상한 (%)
@@ -113,6 +115,8 @@ public class AutoTradingBotService {
     // ========== 스캘핑 전용 상태 ==========
     // 종목별 매수 정보 (고점 추적, 매수 시간, 절반 익절 여부)
     private final Map<String, ScalpingPosition> scalpingPositions = new ConcurrentHashMap<>();
+    // 종목별 마지막 매도 시간 (재매수 쿨다운용)
+    private final Map<String, LocalDateTime> sellCooldownMap = new ConcurrentHashMap<>();
     // 당일 시작 자산 (킬 스위치용)
     private volatile BigDecimal dailyStartAsset = BigDecimal.ZERO;
     // 킬 스위치 발동 여부
@@ -468,6 +472,14 @@ public class AutoTradingBotService {
 
                 // 이미 보유 중인 종목 스킵
                 if (holdingCodes.contains(surge.getStockCode())) {
+                    continue;
+                }
+
+                // 쿨다운: 최근 30분 이내 매도한 종목 재매수 금지
+                LocalDateTime lastSell = sellCooldownMap.get(surge.getStockCode());
+                if (lastSell != null && java.time.Duration.between(lastSell, LocalDateTime.now()).toMinutes() < SELL_COOLDOWN_MINUTES) {
+                    log.debug("[스캘핑봇] 쿨다운: {} - 매도 후 {}분 경과 (기준: {}분)",
+                            surge.getStockName(), java.time.Duration.between(lastSell, LocalDateTime.now()).toMinutes(), SELL_COOLDOWN_MINUTES);
                     continue;
                 }
 
@@ -844,9 +856,10 @@ public class AutoTradingBotService {
                     currentMode.name(), reason, portfolio.getStockName(),
                     quantity, formatNumber(currentPrice), formatNumber(profitLoss));
 
-            // 전량 매도 시 포지션 정리
+            // 전량 매도 시 포지션 정리 + 쿨다운 기록
             if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
+                sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now());
             }
 
             // 텔레그램 알림
@@ -925,6 +938,7 @@ public class AutoTradingBotService {
                 lastTradeTime = LocalDateTime.now();
                 todaySellCount.incrementAndGet();
                 soldCount++;
+                sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now());
 
                 BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
                 totalProfitLoss = totalProfitLoss.add(profitLoss);
@@ -1066,6 +1080,7 @@ public class AutoTradingBotService {
             todaySellCount.set(0);
             killSwitchTriggered.set(false);
             scalpingPositions.clear();
+            sellCooldownMap.clear();
             lastResetDate = today;
             initializeDailyAsset();
         }

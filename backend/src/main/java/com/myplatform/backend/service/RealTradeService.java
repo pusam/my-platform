@@ -404,11 +404,14 @@ public class RealTradeService implements TradeService {
     private TradeHistoryDto toTradeHistoryDto(VirtualTradeHistory trade) {
         String tradeTypeName = "BUY".equals(trade.getTradeType()) ? "매수" : "매도";
         String tradeReasonName = switch (trade.getTradeReason()) {
-            case "AUTO_BUY" -> "자동매수";
+            case "AUTO_BUY", "SCALPING_ENTRY" -> "자동매수";
             case "STOP_LOSS" -> "손절";
             case "TAKE_PROFIT" -> "익절";
+            case "TAKE_PROFIT_HALF" -> "1차익절(절반)";
+            case "TRAILING_STOP" -> "트레일링스탑";
+            case "TIME_CUT" -> "타임컷";
+            case "END_OF_DAY" -> "장마감청산";
             case "AUTO_SELL" -> "자동매도";
-            case "TIME_CUT" -> "장마감청산";
             default -> "수동";
         };
 
@@ -468,9 +471,11 @@ public class RealTradeService implements TradeService {
 
         String reasonText = switch (reason) {
             case "STOP_LOSS" -> "🔻 손절";
-            case "TAKE_PROFIT" -> "🔺 익절";
+            case "TAKE_PROFIT", "TAKE_PROFIT_HALF" -> "🔺 익절";
+            case "TRAILING_STOP" -> "📊 트레일링스탑";
+            case "TIME_CUT" -> "⏱️ 타임컷";
+            case "END_OF_DAY" -> "🔔 장마감청산";
             case "AUTO_SELL" -> "🤖 자동매도";
-            case "TIME_CUT" -> "🔔 장마감청산";
             default -> "📝 수동매도";
         };
 

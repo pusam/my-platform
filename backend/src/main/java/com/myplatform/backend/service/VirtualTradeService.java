@@ -48,7 +48,7 @@ public class VirtualTradeService implements TradeService {
 
     // 수수료율 및 세율
     private static final BigDecimal COMMISSION_RATE = new BigDecimal("0.00015"); // 0.015%
-    private static final BigDecimal TAX_RATE = new BigDecimal("0.002"); // 0.2%
+    private static final BigDecimal TAX_RATE = new BigDecimal("0.0018"); // 0.18% (2023년~ 증권거래세)
     private static final BigDecimal INITIAL_BALANCE = new BigDecimal("10000000"); // 1,000만원
 
     /**
@@ -255,11 +255,11 @@ public class VirtualTradeService implements TradeService {
                 .findByAccountIdAndStockCodeWithLock(account.getId(), stockCode);
 
         if (existingPortfolio.isPresent()) {
-            // 기존 보유 종목 - 평균 매입가 계산
+            // 기존 보유 종목 - 평균 매입가 계산 (매수 수수료 포함)
             VirtualPortfolio portfolio = existingPortfolio.get();
             BigDecimal existingTotal = portfolio.getAveragePrice()
                     .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
-            BigDecimal newTotal = existingTotal.add(totalAmount);
+            BigDecimal newTotal = existingTotal.add(totalAmount).add(commission);
             int newQuantity = portfolio.getQuantity() + quantity;
             BigDecimal newAvgPrice = newTotal.divide(BigDecimal.valueOf(newQuantity), 0, RoundingMode.HALF_UP);
 
@@ -268,13 +268,15 @@ public class VirtualTradeService implements TradeService {
             portfolio.setCurrentPrice(price);
             portfolioRepository.save(portfolio);
         } else {
-            // 신규 종목
+            // 신규 종목 - 평단가에 매수 수수료 포함
+            BigDecimal avgPriceWithCommission = totalAmount.add(commission)
+                    .divide(BigDecimal.valueOf(quantity), 0, RoundingMode.HALF_UP);
             VirtualPortfolio portfolio = VirtualPortfolio.builder()
                     .accountId(account.getId())
                     .stockCode(stockCode)
                     .stockName(stockName)
                     .quantity(quantity)
-                    .averagePrice(price)
+                    .averagePrice(avgPriceWithCommission)
                     .currentPrice(price)
                     .build();
             portfolioRepository.save(portfolio);
@@ -644,9 +646,11 @@ public class VirtualTradeService implements TradeService {
 
         String reasonText = switch (reason) {
             case "STOP_LOSS" -> "🔻 손절";
-            case "TAKE_PROFIT" -> "🔺 익절";
+            case "TAKE_PROFIT", "TAKE_PROFIT_HALF" -> "🔺 익절";
+            case "TRAILING_STOP" -> "📊 트레일링스탑";
+            case "TIME_CUT" -> "⏱️ 타임컷";
+            case "END_OF_DAY" -> "🔔 장마감청산";
             case "AUTO_SELL" -> "🤖 자동매도";
-            case "TIME_CUT" -> "🔔 장마감청산";
             default -> "📝 수동매도";
         };
 
@@ -706,11 +710,14 @@ public class VirtualTradeService implements TradeService {
     private TradeHistoryDto toTradeHistoryDto(VirtualTradeHistory trade) {
         String tradeTypeName = "BUY".equals(trade.getTradeType()) ? "매수" : "매도";
         String tradeReasonName = switch (trade.getTradeReason()) {
-            case "AUTO_BUY" -> "자동매수";
+            case "AUTO_BUY", "SCALPING_ENTRY" -> "자동매수";
             case "STOP_LOSS" -> "손절";
             case "TAKE_PROFIT" -> "익절";
+            case "TAKE_PROFIT_HALF" -> "1차익절(절반)";
+            case "TRAILING_STOP" -> "트레일링스탑";
+            case "TIME_CUT" -> "타임컷";
+            case "END_OF_DAY" -> "장마감청산";
             case "AUTO_SELL" -> "자동매도";
-            case "TIME_CUT" -> "장마감청산";
             default -> "수동";
         };
 
