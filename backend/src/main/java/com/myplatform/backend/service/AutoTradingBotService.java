@@ -83,7 +83,7 @@ public class AutoTradingBotService {
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.2");     // 손절: -1.2%
     private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.5");   // 익절 1차: +1.5% (절반 매도)
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
-    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("100");    // 최소 체결강도: 100%
+    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");    // 최소 체결강도: 120% (STRONG_BUY 기준)
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억
     private static final int TIME_CUT_MINUTES = 5;                                // 타임컷: 5분
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원

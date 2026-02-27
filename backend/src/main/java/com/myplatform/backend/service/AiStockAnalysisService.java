@@ -43,10 +43,10 @@ public class AiStockAnalysisService {
     private volatile AiAnalysisResponseDto cachedAnalysis;
     private volatile LocalDateTime lastAnalysisTime;
 
-    // 점수 가중치
-    private static final double TECHNICAL_WEIGHT = 0.3;   // 기술적 분석 30%
-    private static final double SUPPLY_WEIGHT = 0.4;      // 수급 분석 40%
-    private static final double FUNDAMENTAL_WEIGHT = 0.3; // 기본적 분석 30%
+    // 점수 가중치 (TA 점수는 실시간 데이터 미연동 → 가중치 0으로 비활성화)
+    private static final double TECHNICAL_WEIGHT = 0.0;    // 기술적 분석 0% (placeholder 50 → 무의미)
+    private static final double SUPPLY_WEIGHT = 0.55;      // 수급 분석 55%
+    private static final double FUNDAMENTAL_WEIGHT = 0.45; // 기본적 분석 45%
 
     // 텔레그램 알림 임계값
     private static final int ALERT_SCORE_THRESHOLD = 90;
@@ -254,14 +254,14 @@ public class AiStockAnalysisService {
         // 기본적 점수 (밸류에이션, 수익성)
         int fundamentalScore = calculateFundamentalScore(scoreDetails);
 
-        // 단기 점수 (기술적 + 수급 가중)
+        // 단기 점수 (수급 중심 — TA 데이터 미연동이므로 수급+펀더멘탈만 사용)
         int shortTermScore = (int) Math.round(
-                technicalScore * 0.4 + supplyScore * 0.5 + fundamentalScore * 0.1
+                supplyScore * 0.7 + fundamentalScore * 0.3
         );
 
-        // 중장기 점수 (기본적 + 수급 가중)
+        // 중장기 점수 (펀더멘탈 중심)
         int longTermScore = (int) Math.round(
-                technicalScore * 0.2 + supplyScore * 0.3 + fundamentalScore * 0.5
+                supplyScore * 0.35 + fundamentalScore * 0.65
         );
 
         // 종합 점수
@@ -325,20 +325,11 @@ public class AiStockAnalysisService {
         AiStockRecommendationDto.ScoreDetails.ScoreDetailsBuilder builder =
                 AiStockRecommendationDto.ScoreDetails.builder();
 
-        // RSI 점수 - RSI 데이터가 없으므로 기본값 사용
-        // TODO: RSI 데이터 연동 시 구현
-        builder.rsiScore(50);  // 기본값
-
-        // VWAP 점수 (현재가 < VWAP이면 저평가)
-        // TODO: VWAP 데이터 연동 시 구현
+        // TA 점수: 실시간 데이터 미연동 → 중립값(50) 유지 (TECHNICAL_WEIGHT=0이므로 총점에 영향 없음)
+        // TODO: TechnicalIndicatorService 연동 시 실제 RSI/VWAP/BB/MACD 점수로 교체
+        builder.rsiScore(50);
         builder.vwapScore(50);
-
-        // 볼린저밴드 점수
-        // TODO: 볼린저밴드 데이터 연동 시 구현
         builder.bollingerScore(50);
-
-        // MACD 점수
-        // TODO: MACD 데이터 연동 시 구현
         builder.macdScore(50);
 
         // 외국인 연속 매수 점수

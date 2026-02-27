@@ -697,12 +697,15 @@ public class StockDetailService {
             BigDecimal currentPrice = dto.getPrice().getCurrentPrice();
 
             if (chart.getMa20() != null && currentPrice != null) {
-                if (currentPrice.compareTo(chart.getMa20()) > 0 &&
-                    currentPrice.compareTo(chart.getMa20().multiply(new BigDecimal("1.05"))) < 0) {
+                if (currentPrice.compareTo(chart.getMa20().multiply(new BigDecimal("1.05"))) >= 0) {
+                    technicalSignal = "20일선 상향 돌파 (강세)";
+                    buyReasons.add("20일선 5% 이상 상회 (강한 상승 추세)");
+                    score += 8;
+                } else if (currentPrice.compareTo(chart.getMa20()) > 0) {
                     technicalSignal = "눌림목 구간";
                     buyReasons.add("20일선 지지 (눌림목)");
                     score += 5;
-                } else if (currentPrice.compareTo(chart.getMa20()) < 0) {
+                } else {
                     technicalSignal = "이평선 하향 이탈";
                     sellReasons.add("20일선 하회");
                 }
@@ -721,11 +724,15 @@ public class StockDetailService {
             double foreignNet = dto.getSupplyDemand().getForeignNetBuy() != null ? dto.getSupplyDemand().getForeignNetBuy().doubleValue() : 0;
             double instNet = dto.getSupplyDemand().getInstNetBuy() != null ? dto.getSupplyDemand().getInstNetBuy().doubleValue() : 0;
             if (changeRate > 1.0 && (foreignNet < -5 || instNet < -5)) {
+                String sellers = (foreignNet < -5 && instNet < -5) ? "외인/기관" :
+                                 (foreignNet < -5) ? "외인" : "기관";
                 score -= 15;
-                sellReasons.add("⚠ 수급 괴리: 주가 상승(+" + String.format("%.1f", changeRate) + "%) 중 외인/기관 매도 → 개인 주도 상승 위험");
+                sellReasons.add("⚠ 수급 괴리: 주가 상승(+" + String.format("%.1f", changeRate) + "%) 중 " + sellers + " 매도 → 개인 주도 상승 위험");
             } else if (changeRate < -1.0 && (foreignNet > 5 || instNet > 5)) {
+                String buyers = (foreignNet > 5 && instNet > 5) ? "외인/기관" :
+                                (foreignNet > 5) ? "외인" : "기관";
                 score += 5;
-                buyReasons.add("기관 매집: 주가 하락 중 외인/기관 매수 → 저점 매집 가능성");
+                buyReasons.add(buyers + " 매집: 주가 하락 중 " + buyers + " 매수 → 저점 매집 가능성");
             }
         }
 
