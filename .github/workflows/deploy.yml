@@ -153,30 +153,74 @@ jobs:
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-server:buildcache,mode=max
 
       # ================================================================
-      # 서버 배포 (조건: develop 브랜치일 때만 실행)
+      # 서버 배포
       # ================================================================
-      - name: Copy config files to server
+      - name: Setup SSH
         if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
-          username: ${{ github.ref == 'refs/heads/main' && secrets.USERNAME_PROD || secrets.USERNAME_DEV }}
-          key: ${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}
-          port: ${{ secrets.PORT }}
-          source: "docker-compose.yml, nginx/${{ github.ref == 'refs/heads/main' && 'prod.conf' || 'dev.conf' }}, frontend/dist"
-          target: "/home/dev/my-platform"
-          debug: true
+        run: |
+          mkdir -p ~/.ssh
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "${{ secrets.KEY_PROD }}" > ~/.ssh/deploy_key
+          else
+            echo "${{ secrets.KEY_DEV }}" > ~/.ssh/deploy_key
+          fi
+          chmod 600 ~/.ssh/deploy_key
+
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            HOST="${{ secrets.HOST_PROD }}"
+          else
+            HOST="${{ secrets.HOST_DEV }}"
+          fi
+          ssh-keyscan -p ${{ secrets.PORT }} "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Copy files to server
+        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            HOST="${{ secrets.HOST_PROD }}"
+            USER="${{ secrets.USERNAME_PROD }}"
+            NGINX_CONF="nginx/prod.conf"
+          else
+            HOST="${{ secrets.HOST_DEV }}"
+            USER="${{ secrets.USERNAME_DEV }}"
+            NGINX_CONF="nginx/dev.conf"
+          fi
+          PORT="${{ secrets.PORT }}"
+          TARGET="/home/dev/my-platform"
+
+          echo "📦 파일 전송: $HOST:$PORT → $TARGET"
+
+          # 타겟 디렉토리 생성
+          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" "mkdir -p $TARGET/nginx $TARGET/frontend"
+
+          # docker-compose.yml
+          scp -P "$PORT" -i ~/.ssh/deploy_key docker-compose.yml "$USER@$HOST:$TARGET/"
+
+          # nginx conf
+          scp -P "$PORT" -i ~/.ssh/deploy_key "$NGINX_CONF" "$USER@$HOST:$TARGET/$NGINX_CONF"
+
+          # frontend/dist (tar로 압축 전송)
+          tar -czf /tmp/frontend-dist.tar.gz -C frontend dist
+          scp -P "$PORT" -i ~/.ssh/deploy_key /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
+          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" "cd $TARGET/frontend && rm -rf dist && tar -xzf /tmp/frontend-dist.tar.gz && rm /tmp/frontend-dist.tar.gz"
+
+          echo "✅ 파일 전송 완료"
 
       - name: Deploy to Server
         if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ github.ref == 'refs/heads/main' && secrets.HOST_PROD || secrets.HOST_DEV }}
-          username: ${{ github.ref == 'refs/heads/main' && secrets.USERNAME_PROD || secrets.USERNAME_DEV }}
-          key: ${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}
-          port: ${{ secrets.PORT }}
-          command_timeout: 20m
-          script: |
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            HOST="${{ secrets.HOST_PROD }}"
+            USER="${{ secrets.USERNAME_PROD }}"
+            TAG="prod"
+          else
+            HOST="${{ secrets.HOST_DEV }}"
+            USER="${{ secrets.USERNAME_DEV }}"
+            TAG="dev"
+          fi
+          PORT="${{ secrets.PORT }}"
+
+          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" << DEPLOY_EOF
             cd /home/dev/my-platform/nginx
 
             if [ -f "prod.conf" ]; then
@@ -189,13 +233,12 @@ jobs:
 
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-            TAG=${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
             echo "🚀 배포 시작: $TAG 환경"
 
             docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:$TAG
             docker pull ${{ secrets.DOCKER_USERNAME }}/my-python:$TAG
 
-            # 무중단 배포: DB/Redis는 유지, 앱 컨테이너만 재시작
             docker compose up -d --force-recreate --no-deps backend python-backend
             docker compose up -d --force-recreate --no-deps nginx
             docker image prune -f
+          DEPLOY_EOF
