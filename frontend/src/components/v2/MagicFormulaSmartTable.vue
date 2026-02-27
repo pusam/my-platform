@@ -257,7 +257,8 @@ export function getBadges(stock) {
   if (stock.profitGrowth != null && stock.profitGrowth > 50) {
     badges.push({ emoji: '⚡', label: '턴어라운드', colorClass: 'badge-orange', tip: `순이익 +${stock.profitGrowth.toFixed(0)}%` })
   }
-  if (stock.peg != null && stock.peg > 0 && stock.peg < 0.8) {
+  if (stock.peg != null && stock.peg > 0 && stock.peg <= 1.0
+      && stock.marketCap != null && stock.marketCap >= 500) {
     badges.push({ emoji: '🔥', label: '저PEG', colorClass: 'badge-pink', tip: `PEG ${stock.peg.toFixed(2)} (저평가 성장주)` })
   }
 

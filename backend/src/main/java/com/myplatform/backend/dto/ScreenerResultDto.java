@@ -54,6 +54,8 @@ public class ScreenerResultDto {
     private BigDecimal previousNetIncome; // 이전 분기 순이익
     private BigDecimal currentNetIncome; // 현재 분기 순이익
     private BigDecimal netIncomeChangeRate; // 순이익 변화율 (%)
+    private String previousPeriod; // 이전 기간 라벨 (예: "2025.3Q")
+    private String currentPeriod;  // 현재 기간 라벨 (예: "2025.4Q")
 
     // 성장성
     private BigDecimal revenueGrowth;

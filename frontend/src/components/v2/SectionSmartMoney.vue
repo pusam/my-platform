@@ -94,8 +94,8 @@
           <span class="trade-rank">{{ i + 1 }}</span>
           <span class="trade-name">{{ item.stockName }}</span>
           <span class="surge-ratio" v-if="item.surgeRatio">{{ item.surgeRatio }}%</span>
-          <span class="surge-change" :class="(item.changeRate || 0) >= 0 ? 'up' : 'down'">
-            {{ (item.changeRate || 0) >= 0 ? '+' : '' }}{{ (item.changeRate || 0).toFixed(1) }}%
+          <span class="surge-change" :class="(item.amountChange || 0) >= 0 ? 'up' : 'down'">
+            {{ formatSurgeAmount(item.amountChange) }}
           </span>
         </div>
         <div v-if="surgeData.length === 0" class="empty-msg">수급 급증 종목 없음</div>
@@ -126,9 +126,9 @@ export default {
       activeTab: 'trades',
       investorType: 'FOREIGN',
       tabs: [
-        { key: 'trades', label: '매매 동향' },
-        { key: 'consecutive', label: '연속 매수' },
-        { key: 'surge', label: '수급 급증' }
+        { key: 'trades', label: '매매 동향 (당일)' },
+        { key: 'consecutive', label: '연속 매수 (최근 30일)' },
+        { key: 'surge', label: '수급 급증 (장중)' }
       ]
     }
   },
@@ -147,6 +147,13 @@ export default {
       if (Math.abs(val) >= 1) return (val >= 0 ? '+' : '') + val.toFixed(0) + '억'
       const million = val * 100  // 억 → 백만 변환 (1억 = 100백만)
       return (million >= 0 ? '+' : '') + million.toFixed(0) + '백만'
+    },
+    formatSurgeAmount(val) {
+      if (val == null || val === 0) return '-'
+      const abs = Math.abs(val)
+      const sign = val >= 0 ? '+' : '-'
+      if (abs >= 1) return sign + abs.toFixed(1) + '억'
+      return sign + (abs * 10000 / 10).toFixed(0) + '만'
     },
     goToStock(code) {
       this.$router.push(`/stock/${code}`)

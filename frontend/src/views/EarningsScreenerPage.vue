@@ -248,13 +248,13 @@
 
             <div class="stock-details">
               <div class="detail-row highlight">
-                <span class="label">이전 순이익</span>
+                <span class="label">이전 ({{ stock.previousPeriod || '직전분기' }})</span>
                 <span class="value" :class="getAmountClass(stock.previousNetIncome)">
                   {{ formatAmount(stock.previousNetIncome) }}
                 </span>
               </div>
               <div class="detail-row highlight">
-                <span class="label">현재 순이익</span>
+                <span class="label">현재 ({{ stock.currentPeriod || '최근분기' }})</span>
                 <span class="value" :class="getAmountClass(stock.currentNetIncome)">
                   {{ formatAmount(stock.currentNetIncome) }}
                 </span>

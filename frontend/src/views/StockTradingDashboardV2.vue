@@ -80,12 +80,18 @@ function transformMarketData(d) {
   // Java API: { kospi: { indexClose, indexChangeRate }, kosdaq: { ... }, combinedAdr, diagnosis, analysisDate }
   if (d.kospiIndex) return d // 이미 올바른 포맷 (V2 API)
   if (d.kospi && d.kospi.indexClose != null) {
+    // 당일 등락비 우선, 없으면 20일 ADR 사용
+    const kospiDaily = d.kospi.dailyRatio ? Number(d.kospi.dailyRatio) : null
+    const kosdaqDaily = d.kosdaq && d.kosdaq.dailyRatio ? Number(d.kosdaq.dailyRatio) : null
+    const dailyRatio = (kospiDaily && kosdaqDaily) ? (kospiDaily + kosdaqDaily) / 2 :
+                       (kospiDaily || kosdaqDaily || null)
     return {
       kospiIndex: Number(d.kospi.indexClose).toLocaleString('ko-KR', { minimumFractionDigits: 2 }),
       kospiChangeRate: Number(d.kospi.indexChangeRate) || 0,
       kosdaqIndex: d.kosdaq ? Number(d.kosdaq.indexClose).toLocaleString('ko-KR', { minimumFractionDigits: 2 }) : '-',
       kosdaqChangeRate: d.kosdaq ? Number(d.kosdaq.indexChangeRate) || 0 : 0,
       adr: Number(d.combinedAdr) || 0,
+      dailyRatio: dailyRatio,
       marketStatus: d.diagnosis || '',
       analysisDate: d.analysisDate || null
     }

@@ -487,6 +487,8 @@ public class QuantScreenerService {
                             .previousNetIncome(previousNetIncome)
                             .currentNetIncome(currentNetIncome)
                             .netIncomeChangeRate(changeRate)
+                            .previousPeriod(formatQuarter(previous.getReportDate()))
+                            .currentPeriod(formatQuarter(current.getReportDate()))
                             .revenueGrowth(current.getRevenueGrowth())
                             .profitGrowth(current.getProfitGrowth())
                             .build());
@@ -957,7 +959,28 @@ public class QuantScreenerService {
         log.info("[턴어라운드 데이터 품질 개선] 보완이 필요한 종목: {}건 (캐시 전용)", stockCodesToEnrich.size());
 
         // StockPriceService로 캐시 전용 조회 (API 호출 안 함 - 빠른 응답)
-        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPricesFromCacheOnly(stockCodesToEnrich);
+        Map<String, StockPriceDto> priceMap = new HashMap<>(
+                stockPriceService.getStockPricesFromCacheOnly(stockCodesToEnrich));
+
+        // ★ 캐시 미스 종목 중 상위 20개만 API 개별 조회 (PBR/시가총액 Null 방지)
+        List<String> cacheMissCodes = stockCodesToEnrich.stream()
+                .filter(code -> !priceMap.containsKey(code))
+                .limit(20)
+                .collect(Collectors.toList());
+
+        if (!cacheMissCodes.isEmpty()) {
+            log.info("[턴어라운드 데이터 보충] 캐시 미스 {}건 중 {}건 API 조회",
+                    stockCodesToEnrich.size() - priceMap.size(), cacheMissCodes.size());
+            for (String code : cacheMissCodes) {
+                try {
+                    StockPriceDto apiPrice = stockPriceService.getStockPrice(code);
+                    if (apiPrice != null) priceMap.put(code, apiPrice);
+                    Thread.sleep(100); // Rate limit
+                } catch (Exception e) {
+                    log.debug("API 보충 실패: {}", code);
+                }
+            }
+        }
 
         // 원본 데이터 맵 생성
         Map<String, StockFinancialData> originalMap = originalStocks.stream()
@@ -1114,6 +1137,15 @@ public class QuantScreenerService {
         if (enrichedCount > 0) {
             log.info("[턴어라운드 데이터 품질 개선 완료] {}건 보완됨", enrichedCount);
         }
+    }
+
+    /**
+     * 분기 날짜를 "YYYY.NQ" 형식으로 변환
+     */
+    private String formatQuarter(LocalDate reportDate) {
+        if (reportDate == null) return null;
+        int quarter = (reportDate.getMonthValue() - 1) / 3 + 1;
+        return reportDate.getYear() + "." + quarter + "Q";
     }
 
     /**

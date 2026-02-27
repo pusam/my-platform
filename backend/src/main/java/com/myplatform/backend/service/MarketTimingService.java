@@ -148,6 +148,10 @@ public class MarketTimingService {
             kosdaqStatus.setCondition(determineCondition(adr));
         }
 
+        // ★ 당일 등락비가 없으면 실시간 크롤링으로 보충 (지수와 시점 동기화)
+        refreshDailyRatioIfMissing(kospiStatus, "KOSPI");
+        refreshDailyRatioIfMissing(kosdaqStatus, "KOSDAQ");
+
         // 종합 ADR 계산
         BigDecimal combinedAdr = calculateCombinedAdr(kospiStatus, kosdaqStatus);
         MarketCondition overallCondition = determineCondition(combinedAdr);
@@ -585,6 +589,32 @@ public class MarketTimingService {
         }
 
         return status;
+    }
+
+    /**
+     * 당일 등락비가 없으면 실시간 크롤링으로 보충
+     * - 지수는 실시간 API로 갱신되지만 등락비는 16:30 스케줄 수집에 의존
+     * - 장중에는 DB에 오늘 데이터가 없으므로 등락비도 실시간으로 보충
+     */
+    private void refreshDailyRatioIfMissing(MarketStatusDto status, String marketType) {
+        if (status == null || status.getDailyRatio() != null) {
+            return;
+        }
+        try {
+            int adv = crawlStockCount(marketType, "rise");
+            int dec = crawlStockCount(marketType, "fall");
+            if (dec > 0) {
+                BigDecimal dailyRatio = BigDecimal.valueOf(adv)
+                        .divide(BigDecimal.valueOf(dec), 2, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+                status.setDailyRatio(dailyRatio);
+                // 당일 등락비 기준으로 condition도 갱신
+                status.setCondition(determineCondition(dailyRatio));
+                log.info("{} 당일 등락비 실시간 보충: {} (상승={}, 하락={})", marketType, dailyRatio, adv, dec);
+            }
+        } catch (Exception e) {
+            log.debug("{} 당일 등락비 실시간 보충 실패: {}", marketType, e.getMessage());
+        }
     }
 
     /**

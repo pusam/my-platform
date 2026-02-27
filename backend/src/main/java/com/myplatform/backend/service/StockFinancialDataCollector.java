@@ -368,6 +368,8 @@ public class StockFinancialDataCollector {
                         ratios.put("roe", parseBigDecimal(latest.path("roe_val").asText()));
                         ratios.put("operatingMargin", parseBigDecimal(latest.path("bsop_prfi_inrt").asText()));
                         ratios.put("netMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
+                        // ★ 연간 순이익률 백업 (TTM 덮어쓰기 전에 보관 → ROE 추정용)
+                        ratios.put("_annualNetMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
                         ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
                         ratios.put("epsGrowth", parseBigDecimal(latest.path("eps_cagr").asText()));
                         ratios.put("revenueGrowth", parseBigDecimal(latest.path("sls_cagr").asText()));
@@ -439,6 +441,21 @@ public class StockFinancialDataCollector {
                                     .multiply(new BigDecimal("100"))
                                     .setScale(2, RoundingMode.HALF_UP));
                         }
+
+                        // ★ TTM ROE 추정: annual_ROE × (TTM순이익률 / 연간순이익률)
+                        BigDecimal annualRoe = ratios.get("roe");
+                        BigDecimal annualNetMargin = ratios.get("_annualNetMargin");
+                        BigDecimal ttmNetMargin = ratios.get("netMargin");
+                        if (annualRoe != null && annualNetMargin != null
+                                && annualNetMargin.compareTo(BigDecimal.ZERO) > 0
+                                && ttmNetMargin != null) {
+                            BigDecimal ttmRoe = annualRoe.multiply(ttmNetMargin)
+                                    .divide(annualNetMargin, 2, RoundingMode.HALF_UP);
+                            ratios.put("roe", ttmRoe);
+                            log.info("[재무비율 TTM] {} ROE 보정: {}% → {}% (순이익률 {}→{})",
+                                    stockCode, annualRoe, ttmRoe, annualNetMargin, ttmNetMargin);
+                        }
+                        ratios.remove("_annualNetMargin"); // 임시 키 제거
                     } else {
                         log.warn("[손익계산서] {} - output이 비어있음", stockCode);
                     }

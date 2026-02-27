@@ -72,13 +72,13 @@
             {{ (marketData.kosdaqChangeRate || 0) >= 0 ? '+' : '' }}{{ (marketData.kosdaqChangeRate || 0).toFixed(2) }}%
           </span>
         </div>
-        <!-- ADR Gauge -->
+        <!-- ADR Gauge (당일 등락비 우선, 없으면 20일 ADR) -->
         <div class="adr-gauge">
-          <span class="adr-label">ADR (등락비율)</span>
+          <span class="adr-label">{{ marketData.dailyRatio ? '당일 등락비' : 'ADR (20일)' }}</span>
           <div class="gauge-bar">
-            <div class="gauge-fill" :style="{ width: Math.min(100, marketData.adr || 0) + '%' }" :class="getAdrClass()"></div>
+            <div class="gauge-fill" :style="{ width: Math.min(100, marketData.dailyRatio || marketData.adr || 0) + '%' }" :class="getAdrClass()"></div>
           </div>
-          <span class="adr-value">{{ (marketData.adr || 0).toFixed(1) }}%</span>
+          <span class="adr-value">{{ (marketData.dailyRatio || marketData.adr || 0).toFixed(1) }}%</span>
         </div>
         <div class="market-status" v-if="marketData.marketStatus">
           {{ marketData.marketStatus }}
@@ -358,8 +358,8 @@ export default {
       this.loadForecast()
     },
     getBlockStyle(sector) {
-      const ratio = (sector.totalTradingValue || sector.tradingValue || 0) / this.maxTradingValue
-      const size = Math.max(60, Math.min(120, 60 + ratio * 60))
+      const pct = sector.percentage || 0
+      const size = Math.max(60, Math.min(140, 60 + pct * 1.6))
       const rate = sector.changeRate || 0
       let bg
       if (rate > 3) bg = 'rgba(239,68,68,0.5)'

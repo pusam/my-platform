@@ -312,8 +312,9 @@ public class SectorTradingService {
             }
         }
 
-        // 전체 거래대금 계산 (중복 제거)
-        BigDecimal totalAllSectors = uniqueStockTradingValue.values().stream()
+        // 전체 거래대금 계산 (섹터별 합계의 총합 — 중복 종목 비례 배분되어 합산 ≤ 100%)
+        BigDecimal totalAllSectors = results.stream()
+                .map(SectorTradingDto::getTotalTradingValue)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 비율 계산
