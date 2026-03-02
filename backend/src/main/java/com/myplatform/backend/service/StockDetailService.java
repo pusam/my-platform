@@ -510,6 +510,9 @@ public class StockDetailService {
             BigDecimal bps = parseBigDecimal(output.get("bps"));
             Long marketCap = parseLong(output.get("hts_avls"));
 
+            // ★ 외국인 지분율 (KIS API 실제 데이터)
+            BigDecimal foreignOwnership = parseBigDecimal(output.get("hts_frgn_ehrt"));
+
             // 상장 주식수 (TTM EPS 계산용) — 여러 필드에서 시도
             BigDecimal lstnStcn = parseBigDecimal(output.get("lstn_stcn"));
             if (lstnStcn.compareTo(BigDecimal.ZERO) <= 0) {
@@ -542,6 +545,7 @@ public class StockDetailService {
                 if (!dbDataList.isEmpty()) {
                     // 최신 + 과거 레코드에서 데이터 보완
                     BigDecimal netIncome = null;
+                    BigDecimal totalEquity = null;
                     BigDecimal dbRoe = null;
                     BigDecimal dbOpMargin = null;
                     BigDecimal dbNetMargin = null;
@@ -549,11 +553,22 @@ public class StockDetailService {
 
                     for (StockFinancialData hist : dbDataList) {
                         if (netIncome == null && hist.getNetIncome() != null) netIncome = hist.getNetIncome();
+                        if (totalEquity == null && hist.getTotalEquity() != null) totalEquity = hist.getTotalEquity();
                         if (dbRoe == null && hist.getRoe() != null) dbRoe = hist.getRoe();
                         if (dbOpMargin == null && hist.getOperatingMargin() != null) dbOpMargin = hist.getOperatingMargin();
                         if (dbNetMargin == null && hist.getNetMargin() != null) dbNetMargin = hist.getNetMargin();
                         if (dbDebtRatio == null && hist.getDebtRatio() != null) dbDebtRatio = hist.getDebtRatio();
-                        if (netIncome != null && dbRoe != null && dbOpMargin != null) break;
+                        if (netIncome != null && totalEquity != null && dbRoe != null && dbOpMargin != null) break;
+                    }
+
+                    // ★ ROE가 DB에 없으면 당기순이익/자본총계로 직접 계산
+                    if (dbRoe == null && netIncome != null && totalEquity != null
+                            && totalEquity.compareTo(BigDecimal.ZERO) > 0) {
+                        dbRoe = netIncome.divide(totalEquity, 4, RoundingMode.HALF_UP)
+                                .multiply(new BigDecimal("100"))
+                                .setScale(2, RoundingMode.HALF_UP);
+                        log.info("[StockDetail] {} ROE 직접 계산: {} (순이익: {}억 / 자본총계: {}억)",
+                                stockCode, dbRoe, netIncome, totalEquity);
                     }
 
                     log.info("[StockDetail] {} DB 데이터 ({}건, netIncome: {}, 주식수: {})",
@@ -599,6 +614,8 @@ public class StockDetailService {
                     .netMargin(netMargin)
                     .debtRatio(debtRatio)
                     .marketCap(marketCap)
+                    .foreignOwnership(foreignOwnership != null && foreignOwnership.compareTo(BigDecimal.ZERO) > 0
+                            ? foreignOwnership : null)
                     .build();
 
         } catch (Exception e) {
