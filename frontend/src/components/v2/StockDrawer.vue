@@ -247,12 +247,12 @@ export default {
     },
 
     transformSummary(d) {
-      // stockDetailAPI.getSummary returns a comprehensive object
-      const price = d.priceInfo || d
-      const financial = d.financialInfo || d
+      // StockDetailDto 필드: price, financial, supplyDemand, aiAnalysis, risk
+      const price = d.price || d.priceInfo || d
+      const financial = d.financial || d.financialInfo || d
       const supply = d.supplyDemand || d
       const ai = d.aiAnalysis || d
-      const risk = d.riskInfo || d
+      const risk = d.risk || d.riskInfo || d
 
       return {
         stockName: d.stockName || price.stockName,
@@ -275,9 +275,9 @@ export default {
         tradingScore: ai.overallScore || ai.tradingScore,
         fundamentalScore: d.diagnosisData?.overallScore || ai.fundamentalScore,
         recommendation: ai.recommendation,
-        aiComment: ai.comment || ai.aiComment,
+        aiComment: ai.strategy || ai.comment || ai.aiComment,
         // Risk
-        riskKeywords: risk.riskKeywords || []
+        riskKeywords: risk.riskTags || risk.riskKeywords || []
       }
     },
 
