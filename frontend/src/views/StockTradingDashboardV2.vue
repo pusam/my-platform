@@ -83,13 +83,6 @@
         <PaperTradingPage :embedded="true" />
       </div>
 
-      <!-- 종목 Drawer (모든 탭에서 접근 가능) -->
-      <StockDrawer
-        :visible="drawerVisible"
-        :stockCode="drawerStockCode"
-        @close="drawerVisible = false"
-      />
-
       <!-- 종목 검색 모달 -->
       <StockSearchModal
         :visible="showSearch"
@@ -107,7 +100,6 @@ import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
 import SectionResearch from '../components/v2/SectionResearch.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
-import StockDrawer from '../components/v2/StockDrawer.vue'
 import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
@@ -158,12 +150,11 @@ export default {
     SectionSmartMoney,
     SectionResearch,
     StockSearchModal,
-    StockDrawer,
     PaperTradingPage
   },
   provide() {
     return {
-      openStock: this.openStockDrawer
+      openStock: (code) => this.$router.push(`/stock/${code}`)
     }
   },
   data() {
@@ -176,8 +167,6 @@ export default {
         { key: 'screener', label: '실적 스크리너', icon: '🔬' }
       ],
       showSearch: false,
-      drawerVisible: false,
-      drawerStockCode: null,
       dataLoaded: { market: false, discover: false },
       sections: {
         aiStrategy: { loading: true, error: false },
@@ -260,15 +249,10 @@ export default {
       }
     },
 
-    // ---- Drawer ----
-    openStockDrawer(stockCode) {
-      this.drawerStockCode = stockCode
-      this.drawerVisible = true
-    },
-
+    // ---- 종목 선택 → 상세 페이지 이동 ----
     onStockSelect(stock) {
       if (stock?.stockCode) {
-        this.openStockDrawer(stock.stockCode)
+        this.$router.push(`/stock/${stock.stockCode}`)
       }
     },
 
@@ -474,11 +458,7 @@ export default {
           this.showSearch = true
         }
         if (e.key === 'Escape') {
-          if (this.drawerVisible) {
-            this.drawerVisible = false
-          } else {
-            this.showSearch = false
-          }
+          this.showSearch = false
         }
       }
       window.addEventListener('keydown', this._onKeydown)
