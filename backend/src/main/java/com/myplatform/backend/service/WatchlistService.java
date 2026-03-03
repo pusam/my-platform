@@ -22,15 +22,12 @@ public class WatchlistService {
     private final StockPriceService stockPriceService;
     private final TelegramNotificationService telegramNotificationService;
 
-    private static final String DEFAULT_USERNAME = "default";
-
     @Transactional(readOnly = true)
-    public List<WatchlistDto.WatchlistItem> getWatchlist() {
-        List<StockWatchlist> list = watchlistRepository.findByUsernameOrderByCreatedAtDesc(DEFAULT_USERNAME);
+    public List<WatchlistDto.WatchlistItem> getWatchlist(String username) {
+        List<StockWatchlist> list = watchlistRepository.findByUsernameOrderByCreatedAtDesc(username);
 
         return list.stream().map(w -> {
             WatchlistDto.WatchlistItem item = toDto(w);
-            // 현재가 조회
             try {
                 StockPriceDto price = stockPriceService.getStockPrice(w.getStockCode());
                 if (price != null) {
@@ -45,13 +42,13 @@ public class WatchlistService {
     }
 
     @Transactional
-    public WatchlistDto.WatchlistItem addWatchlist(WatchlistDto.AddRequest request) {
-        if (watchlistRepository.existsByUsernameAndStockCode(DEFAULT_USERNAME, request.getStockCode())) {
+    public WatchlistDto.WatchlistItem addWatchlist(String username, WatchlistDto.AddRequest request) {
+        if (watchlistRepository.existsByUsernameAndStockCode(username, request.getStockCode())) {
             throw new IllegalArgumentException("이미 관심종목에 등록된 종목입니다.");
         }
 
         StockWatchlist entity = StockWatchlist.builder()
-                .username(DEFAULT_USERNAME)
+                .username(username)
                 .stockCode(request.getStockCode())
                 .stockName(request.getStockName())
                 .isActive(true)
@@ -59,7 +56,7 @@ public class WatchlistService {
                 .build();
 
         watchlistRepository.save(entity);
-        log.info("관심종목 추가: {} ({})", request.getStockName(), request.getStockCode());
+        log.info("관심종목 추가: {} ({}) - user: {}", request.getStockName(), request.getStockCode(), username);
 
         return toDto(entity);
     }
@@ -71,7 +68,7 @@ public class WatchlistService {
 
         entity.setTargetPrice(request.getTargetPrice());
         entity.setAlertCondition(request.getAlertCondition());
-        entity.setAlertTriggered(false); // 알림 재설정 시 리셋
+        entity.setAlertTriggered(false);
         entity.setIsActive(true);
 
         watchlistRepository.save(entity);
@@ -90,12 +87,12 @@ public class WatchlistService {
     }
 
     @Transactional(readOnly = true)
-    public boolean isBookmarked(String stockCode) {
-        return watchlistRepository.existsByUsernameAndStockCode(DEFAULT_USERNAME, stockCode);
+    public boolean isBookmarked(String username, String stockCode) {
+        return watchlistRepository.existsByUsernameAndStockCode(username, stockCode);
     }
 
     /**
-     * 목표가 알림 체크 (스케줄러에서 호출)
+     * 목표가 알림 체크 (스케줄러에서 호출 - 전체 사용자 대상)
      */
     @Transactional
     public void checkWatchlistAlerts() {

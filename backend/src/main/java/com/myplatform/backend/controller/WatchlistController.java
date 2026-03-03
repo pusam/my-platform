@@ -7,6 +7,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -22,12 +24,16 @@ public class WatchlistController {
 
     private final WatchlistService watchlistService;
 
+    private String getUsername(Authentication auth) {
+        return ((UserDetails) auth.getPrincipal()).getUsername();
+    }
+
     @GetMapping
     @Operation(summary = "관심종목 목록 조회")
-    public ResponseEntity<Map<String, Object>> getWatchlist() {
+    public ResponseEntity<Map<String, Object>> getWatchlist(Authentication authentication) {
         Map<String, Object> response = new HashMap<>();
         try {
-            List<WatchlistDto.WatchlistItem> list = watchlistService.getWatchlist();
+            List<WatchlistDto.WatchlistItem> list = watchlistService.getWatchlist(getUsername(authentication));
             response.put("success", true);
             response.put("data", list);
         } catch (Exception e) {
@@ -40,10 +46,12 @@ public class WatchlistController {
 
     @PostMapping
     @Operation(summary = "관심종목 추가")
-    public ResponseEntity<Map<String, Object>> addWatchlist(@RequestBody WatchlistDto.AddRequest request) {
+    public ResponseEntity<Map<String, Object>> addWatchlist(
+            Authentication authentication,
+            @RequestBody WatchlistDto.AddRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
-            WatchlistDto.WatchlistItem item = watchlistService.addWatchlist(request);
+            WatchlistDto.WatchlistItem item = watchlistService.addWatchlist(getUsername(authentication), request);
             response.put("success", true);
             response.put("data", item);
         } catch (IllegalArgumentException e) {
@@ -105,10 +113,12 @@ public class WatchlistController {
 
     @GetMapping("/check")
     @Operation(summary = "북마크 여부 확인")
-    public ResponseEntity<Map<String, Object>> checkBookmark(@RequestParam String stockCode) {
+    public ResponseEntity<Map<String, Object>> checkBookmark(
+            Authentication authentication,
+            @RequestParam String stockCode) {
         Map<String, Object> response = new HashMap<>();
         try {
-            boolean bookmarked = watchlistService.isBookmarked(stockCode);
+            boolean bookmarked = watchlistService.isBookmarked(getUsername(authentication), stockCode);
             response.put("success", true);
             response.put("data", bookmarked);
         } catch (Exception e) {

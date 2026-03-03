@@ -13,7 +13,6 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -26,12 +25,44 @@ public class BacktestService {
     public BacktestDto.PerformanceResponse getPerformance(int days) {
         LocalDateTime since = LocalDateTime.now().minusDays(days);
 
+        // 전체 전략에서 추천 종목 수집
+        Map<StrategyType, Map<String, AiStrategySnapshot>> allFirstRecommendations = new LinkedHashMap<>();
+        Set<String> allStockCodes = new HashSet<>();
+
+        for (StrategyType type : StrategyType.values()) {
+            List<AiStrategySnapshot> snapshots = snapshotRepository
+                    .findByStrategyTypeAndCreatedAtAfterOrderByCreatedAtAsc(type, since);
+
+            Map<String, AiStrategySnapshot> firstRecs = new LinkedHashMap<>();
+            for (AiStrategySnapshot snap : snapshots) {
+                if (snap.getRankNum() != null && snap.getRankNum() <= 3
+                        && !firstRecs.containsKey(snap.getStockCode())) {
+                    firstRecs.put(snap.getStockCode(), snap);
+                    allStockCodes.add(snap.getStockCode());
+                }
+            }
+            allFirstRecommendations.put(type, firstRecs);
+        }
+
+        // 배치로 현재가 조회 (N+1 → 1회)
+        Map<String, StockPriceDto> priceMap = new HashMap<>();
+        if (!allStockCodes.isEmpty()) {
+            try {
+                priceMap = stockPriceService.getStockPrices(new ArrayList<>(allStockCodes));
+                log.info("백테스트 배치 시세 조회 완료: {}건", priceMap.size());
+            } catch (Exception e) {
+                log.warn("백테스트 배치 시세 조회 실패: {}", e.getMessage());
+            }
+        }
+
+        // 전략별 성과 분석
         List<BacktestDto.StrategyPerformance> strategyResults = new ArrayList<>();
         int totalPicks = 0, totalWins = 0;
         BigDecimal totalReturn = BigDecimal.ZERO;
 
         for (StrategyType type : StrategyType.values()) {
-            BacktestDto.StrategyPerformance perf = analyzeStrategy(type, since);
+            BacktestDto.StrategyPerformance perf = analyzeStrategy(
+                    type, allFirstRecommendations.get(type), priceMap);
             strategyResults.add(perf);
             totalPicks += perf.getTotalPicks();
             totalWins += perf.getWinCount();
@@ -44,7 +75,8 @@ public class BacktestService {
                 .totalPicks(totalPicks)
                 .winCount(totalWins)
                 .hitRate(totalPicks > 0
-                        ? BigDecimal.valueOf(totalWins).divide(BigDecimal.valueOf(totalPicks), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP)
+                        ? BigDecimal.valueOf(totalWins).divide(BigDecimal.valueOf(totalPicks), 4, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100)).setScale(1, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO)
                 .avgReturn(totalPicks > 0
                         ? totalReturn.divide(BigDecimal.valueOf(totalPicks), 2, RoundingMode.HALF_UP)
@@ -58,19 +90,10 @@ public class BacktestService {
                 .build();
     }
 
-    private BacktestDto.StrategyPerformance analyzeStrategy(StrategyType type, LocalDateTime since) {
-        // 기간 내 고유 추천 종목 추출 (종목별 첫 추천 기준)
-        List<AiStrategySnapshot> allSnapshots = snapshotRepository
-                .findByStrategyTypeAndCreatedAtAfterOrderByCreatedAtAsc(type, since);
-
-        // 종목별 첫 추천만 추출 (중복 제거)
-        Map<String, AiStrategySnapshot> firstRecommendations = new LinkedHashMap<>();
-        for (AiStrategySnapshot snap : allSnapshots) {
-            if (snap.getRankNum() != null && snap.getRankNum() <= 3
-                    && !firstRecommendations.containsKey(snap.getStockCode())) {
-                firstRecommendations.put(snap.getStockCode(), snap);
-            }
-        }
+    private BacktestDto.StrategyPerformance analyzeStrategy(
+            StrategyType type,
+            Map<String, AiStrategySnapshot> firstRecommendations,
+            Map<String, StockPriceDto> priceMap) {
 
         List<BacktestDto.PickDetail> picks = new ArrayList<>();
         int winCount = 0;
@@ -84,15 +107,8 @@ public class BacktestService {
             BigDecimal recommendPrice = snap.getCurrentPrice();
             if (recommendPrice == null || recommendPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            // 현재가 조회
-            BigDecimal currentPrice = null;
-            try {
-                StockPriceDto priceDto = stockPriceService.getStockPrice(snap.getStockCode());
-                if (priceDto != null) currentPrice = priceDto.getCurrentPrice();
-            } catch (Exception e) {
-                log.debug("백테스트 현재가 조회 실패: {}", snap.getStockCode());
-            }
-
+            StockPriceDto priceDto = priceMap.get(snap.getStockCode());
+            BigDecimal currentPrice = priceDto != null ? priceDto.getCurrentPrice() : null;
             if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             BigDecimal returnRate = currentPrice.subtract(recommendPrice)
@@ -123,7 +139,6 @@ public class BacktestService {
                     .build());
         }
 
-        // 수익률 기준 정렬
         picks.sort((a, b) -> b.getReturnRate().compareTo(a.getReturnRate()));
 
         int totalPicks = picks.size();
@@ -147,7 +162,7 @@ public class BacktestService {
                 .bestStock(bestStock)
                 .worstReturn(worstReturn)
                 .worstStock(worstStock)
-                .picks(picks.size() > 10 ? picks.subList(0, 10) : picks) // 상위 10개만
+                .picks(picks.size() > 10 ? picks.subList(0, 10) : picks)
                 .build();
     }
 

@@ -1,39 +1,43 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+
+// 초기 로딩에 필요한 페이지만 정적 import
 import Login from './views/Login.vue'
 import Signup from './views/Signup.vue'
 import ForgotPassword from './views/ForgotPassword.vue'
-import Dashboard from './views/Dashboard.vue'
-import AdminDashboard from './views/AdminDashboard.vue'
-import UserDashboard from './views/UserDashboard.vue'
-import BoardPage from './views/BoardPage.vue'
-import GoldPricePage from './views/GoldPricePage.vue'
-import SilverPricePage from './views/SilverPricePage.vue'
-import MyContentPage from './views/MyContentPage.vue'
-import SettingsPage from './views/SettingsPage.vue'
-import AssetManagement from './views/AssetManagement.vue'
-import FileManager from './views/FileManager.vue'
-import FinanceManagement from './views/FinanceManagement.vue'
-import CarManagement from './views/CarManagement.vue'
-import UserManagement from './views/UserManagement.vue'
-import ActivityLogs from './views/ActivityLogs.vue'
-import SectorTradingPage from './views/SectorTradingPage.vue'
-import InvestorTradePage from './views/InvestorTradePage.vue'
-import InvestorStockDetailPage from './views/InvestorStockDetailPage.vue'
-import ConsecutiveBuyPage from './views/ConsecutiveBuyPage.vue'
-import InvestorSurgePage from './views/InvestorSurgePage.vue'
-import NewsPage from './views/NewsPage.vue'
-import EarningsScreenerPage from './views/EarningsScreenerPage.vue'
-import MarketTimingPage from './views/MarketTimingPage.vue'
-import LottoAnalyzerPage from './views/LottoAnalyzerPage.vue'
-import PensionLotteryPage from './views/PensionLotteryPage.vue'
-import TradingIndicatorsPage from './views/TradingIndicatorsPage.vue'
-import AiStrategyDashboardPage from './views/AiStrategyDashboardPage.vue'
-import StockDetailDashboard from './views/StockDetailDashboard.vue'
-import StockTradingDashboardV2 from './views/StockTradingDashboardV2.vue'
-import PaperTradingPage from './views/PaperTradingPage.vue'
-import BatchJobMonitor from './components/admin/BatchJobMonitor.vue'
+
+// 나머지는 lazy loading (코드 스플리팅)
+const Dashboard = () => import('./views/Dashboard.vue')
+const AdminDashboard = () => import('./views/AdminDashboard.vue')
+const UserDashboard = () => import('./views/UserDashboard.vue')
+const BoardPage = () => import('./views/BoardPage.vue')
+const GoldPricePage = () => import('./views/GoldPricePage.vue')
+const SilverPricePage = () => import('./views/SilverPricePage.vue')
+const MyContentPage = () => import('./views/MyContentPage.vue')
+const SettingsPage = () => import('./views/SettingsPage.vue')
+const AssetManagement = () => import('./views/AssetManagement.vue')
+const FileManager = () => import('./views/FileManager.vue')
+const FinanceManagement = () => import('./views/FinanceManagement.vue')
+const CarManagement = () => import('./views/CarManagement.vue')
+const UserManagement = () => import('./views/UserManagement.vue')
+const ActivityLogs = () => import('./views/ActivityLogs.vue')
+const SectorTradingPage = () => import('./views/SectorTradingPage.vue')
+const InvestorTradePage = () => import('./views/InvestorTradePage.vue')
+const InvestorStockDetailPage = () => import('./views/InvestorStockDetailPage.vue')
+const ConsecutiveBuyPage = () => import('./views/ConsecutiveBuyPage.vue')
+const InvestorSurgePage = () => import('./views/InvestorSurgePage.vue')
+const NewsPage = () => import('./views/NewsPage.vue')
+const EarningsScreenerPage = () => import('./views/EarningsScreenerPage.vue')
+const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
+const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
+const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
+const TradingIndicatorsPage = () => import('./views/TradingIndicatorsPage.vue')
+const AiStrategyDashboardPage = () => import('./views/AiStrategyDashboardPage.vue')
+const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
+const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
+const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
+const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -314,4 +318,3 @@ router.beforeEach((to, from, next) => {
 const app = createApp(App)
 app.use(router)
 app.mount('#app')
-
