@@ -53,14 +53,9 @@ public class FinancialDataCrawlerService {
         List<StockFinancialData> allData = stockFinancialDataRepository.findByReportDate(today);
 
         if (allData.isEmpty()) {
-            // 오늘 날짜 데이터가 없으면 최신 데이터 조회
-            List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
-            log.info("오늘 날짜 데이터 없음. StockFinancialData에서 {}개 종목 코드 조회", stockCodes.size());
-
-            for (String code : stockCodes) {
-                stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(code)
-                        .ifPresent(allData::add);
-            }
+            // 오늘 날짜 데이터가 없으면 종목별 최신 데이터 일괄 조회 (N+1 방지)
+            allData = stockFinancialDataRepository.findLatestPerStock();
+            log.info("오늘 날짜 데이터 없음. 종목별 최신 데이터 일괄 조회: {}개", allData.size());
         }
 
         int totalCount = allData.size();

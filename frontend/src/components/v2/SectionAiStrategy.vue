@@ -359,4 +359,15 @@ export default {
   font-size: 13px;
   padding: 20px 0;
 }
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; min-height: auto; border-radius: 14px; }
+  .section-title-row h2 { font-size: 14px; }
+  .score-label { width: 75px; font-size: 12px; }
+  .total-value { font-size: 18px; }
+  .stock-card { padding: 10px; gap: 8px; }
+  .stock-name { font-size: 13px; }
+  .theme-tags { gap: 3px; }
+  .theme-tag { font-size: 9px; padding: 1px 5px; }
+}
 </style>

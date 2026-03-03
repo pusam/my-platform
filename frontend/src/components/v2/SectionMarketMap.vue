@@ -689,4 +689,11 @@ export default {
   border-color: #667eea;
   color: #8b9cf7;
 }
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; border-radius: 14px; }
+  .section-title-row h2 { font-size: 14px; }
+  .scenario-cards { grid-template-columns: 1fr; }
+  .forecast-chart-container { height: 200px; }
+}
 </style>

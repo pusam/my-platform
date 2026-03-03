@@ -343,4 +343,17 @@ export default {
 .bw-item { font-size: 11px; }
 .bw-item.best { color: #ef4444; }
 .bw-item.worst { color: #3b82f6; }
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; border-radius: 14px; }
+  .section-title-row { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .overall-row { flex-direction: column; gap: 6px; }
+  .stat-box { padding: 10px; }
+  .stat-value { font-size: 16px; }
+  .strategy-header { flex-wrap: wrap; }
+  .strategy-stats { margin-left: 0; }
+  .pick-row { flex-wrap: wrap; gap: 4px; }
+  .pick-prices { font-size: 10px; }
+  .best-worst { flex-direction: column; gap: 4px; }
+}
 </style>

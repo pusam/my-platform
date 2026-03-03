@@ -292,4 +292,11 @@ export default {
 .more-links a:hover { color: #667eea; }
 
 .empty-msg { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; padding: 20px 0; }
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; border-radius: 14px; }
+  .section-title-row h2 { font-size: 14px; }
+  .stock-card { padding: 8px; gap: 8px; }
+  .stock-name { font-size: 13px; }
+}
 </style>

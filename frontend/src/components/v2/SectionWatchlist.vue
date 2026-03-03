@@ -353,4 +353,12 @@ export default {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; border-radius: 14px; }
+  .section-title-row h2 { font-size: 14px; }
+  .watch-card { padding: 10px; gap: 8px; }
+  .watch-name { font-size: 13px; }
+  .modal-box { padding: 18px; }
+}
 </style>
