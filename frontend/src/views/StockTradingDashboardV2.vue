@@ -59,6 +59,9 @@
           :error="sections.aiStrategy.error"
           @retry="loadAiStrategy"
         />
+        <SectionWatchlist
+          v-if="discoverTab === 'watchlist'"
+        />
         <SectionSmartMoney
           v-if="discoverTab === 'smart'"
           :tradesData="tradesData"
@@ -75,6 +78,9 @@
           :loading="sections.research.loading"
           :error="sections.research.error"
           @retry="loadResearch"
+        />
+        <SectionBacktest
+          v-if="discoverTab === 'backtest'"
         />
       </div>
 
@@ -99,6 +105,8 @@ import SectionAiStrategy from '../components/v2/SectionAiStrategy.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
 import SectionResearch from '../components/v2/SectionResearch.vue'
+import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
+import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import PaperTradingPage from './PaperTradingPage.vue'
 import {
@@ -149,6 +157,8 @@ export default {
     SectionMarketMap,
     SectionSmartMoney,
     SectionResearch,
+    SectionWatchlist,
+    SectionBacktest,
     StockSearchModal,
     PaperTradingPage
   },
@@ -163,8 +173,10 @@ export default {
       discoverTab: 'ai',
       discoverSubTabs: [
         { key: 'ai', label: 'AI 전략', icon: '🤖' },
+        { key: 'watchlist', label: '관심종목', icon: '⭐' },
         { key: 'smart', label: '스마트 머니', icon: '💰' },
-        { key: 'screener', label: '실적 스크리너', icon: '🔬' }
+        { key: 'screener', label: '실적 스크리너', icon: '🔬' },
+        { key: 'backtest', label: 'AI 성과', icon: '📊' }
       ],
       showSearch: false,
       dataLoaded: { market: false, discover: false },

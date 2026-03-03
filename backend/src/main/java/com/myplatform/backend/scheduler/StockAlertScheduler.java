@@ -2,6 +2,7 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.MarketTimingService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.WatchlistService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  * 주식 알림 스케줄러
  * - 시장 상태 알림
  * - 마법의 공식/턴어라운드 종목 알림
+ * - 관심종목 목표가 알림 (장중 5분 간격)
  *
  * [활성화 방법]
  * application.yml에 다음 설정 추가:
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Component;
  *     enabled: true
  *
  * [실행 시간 (한국 시간 기준)]
+ * - 장중 5분 간격 (09:00~15:30): 관심종목 목표가 알림
  * - 장 마감 후 (16:45): 시장 상태 알림
  * - 아침 (08:30): 마법의 공식, 턴어라운드 (장 시작 전 체크)
  */
@@ -30,6 +33,7 @@ public class StockAlertScheduler {
 
     private final MarketTimingService marketTimingService;
     private final QuantScreenerService quantScreenerService;
+    private final WatchlistService watchlistService;
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
@@ -84,6 +88,24 @@ public class StockAlertScheduler {
 
         } catch (Exception e) {
             log.error("아침 알림 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 관심종목 목표가 알림 (장중 5분 간격)
+     * - 09:00~15:30 사이 5분마다 실행
+     */
+    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkWatchlistAlerts() {
+        if (!schedulerEnabled) {
+            log.debug("스케줄러 비활성화 상태");
+            return;
+        }
+
+        try {
+            watchlistService.checkWatchlistAlerts();
+        } catch (Exception e) {
+            log.error("관심종목 알림 체크 실패: {}", e.getMessage(), e);
         }
     }
 

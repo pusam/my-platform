@@ -715,6 +715,10 @@ export const aiStrategyAPI = {
   // 수동 스냅샷 수집 (테스트/관리용)
   collectSnapshots() {
     return apiClient.post('/ai-strategy/collect');
+  },
+  // AI 전략 성과 분석 (백테스트)
+  getPerformance(days = 30) {
+    return apiClient.get('/ai-strategy/performance', { params: { days }, timeout: 60000 });
   }
 };
 
@@ -888,6 +892,25 @@ export const batchJobAPI = {
   },
   getJobNames() {
     return apiClient.get('/admin/batch-jobs/names');
+  }
+};
+
+// 관심종목 API
+export const watchlistAPI = {
+  getList() {
+    return apiClient.get('/watchlist');
+  },
+  add(stockCode, stockName) {
+    return apiClient.post('/watchlist', { stockCode, stockName });
+  },
+  setAlert(id, targetPrice, alertCondition) {
+    return apiClient.put(`/watchlist/${id}/alert`, { targetPrice, alertCondition });
+  },
+  delete(id) {
+    return apiClient.delete(`/watchlist/${id}`);
+  },
+  checkBookmark(stockCode) {
+    return apiClient.get('/watchlist/check', { params: { stockCode } });
   }
 };
 

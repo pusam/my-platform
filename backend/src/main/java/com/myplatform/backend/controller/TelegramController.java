@@ -1,5 +1,6 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.scheduler.DailyReportScheduler;
 import com.myplatform.backend.service.TelegramNotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,7 @@ import java.util.Map;
 public class TelegramController {
 
     private final TelegramNotificationService telegramNotificationService;
+    private final DailyReportScheduler dailyReportScheduler;
 
     /**
      * 텔레그램 알림 상태 확인
@@ -123,6 +125,36 @@ public class TelegramController {
 
         response.put("success", true);
         response.put("message", "주식 알림 테스트 메시지가 발송되었습니다.");
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 일일 포트폴리오 리포트 테스트
+     */
+    @PostMapping("/test-daily-report")
+    @Operation(summary = "일일 리포트 테스트", description = "일일 포트폴리오 리포트를 즉시 발송합니다.")
+    public ResponseEntity<Map<String, Object>> testDailyReport() {
+        log.info("일일 리포트 테스트 발송 요청");
+
+        Map<String, Object> response = new HashMap<>();
+
+        if (!telegramNotificationService.isEnabled()) {
+            response.put("success", false);
+            response.put("message", "텔레그램 알림이 비활성화 상태입니다.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        try {
+            String report = dailyReportScheduler.buildDailyReport();
+            telegramNotificationService.sendMessage(report);
+            response.put("success", true);
+            response.put("message", "일일 리포트가 발송되었습니다.");
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "리포트 생성 실패: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
 
         return ResponseEntity.ok(response);
     }

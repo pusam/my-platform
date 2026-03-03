@@ -50,6 +50,7 @@
           @click="goToStock(stock.stockCode)"
         >
           <div class="rank" :class="'rank-' + (i + 1)">{{ i === 0 ? '👑' : '#' + (i + 1) }}</div>
+          <WatchlistBookmark :stockCode="stock.stockCode" :stockName="stock.stockName" />
           <div class="stock-main">
             <div class="stock-name-row">
               <span class="stock-name">{{ stock.stockName }}</span>
@@ -80,10 +81,11 @@
 
 <script>
 import SkeletonLoader from './SkeletonLoader.vue'
+import WatchlistBookmark from './WatchlistBookmark.vue'
 
 export default {
   name: 'SectionAiStrategy',
-  components: { SkeletonLoader },
+  components: { SkeletonLoader, WatchlistBookmark },
   inject: { openStock: { default: null } },
   props: {
     data: { type: Object, default: null },
