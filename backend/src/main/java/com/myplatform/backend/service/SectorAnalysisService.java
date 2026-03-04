@@ -35,6 +35,7 @@ public class SectorAnalysisService {
 
     private final SectorStockConfig sectorConfig;
     private final StockPriceService stockPriceService;
+    private final SectorTradingService sectorTradingService;
 
     // 캐시 (5분)
     private volatile LeadingSectorResult cachedResult;
@@ -74,8 +75,12 @@ public class SectorAnalysisService {
                 allStockCodes.addAll(sector.getStockCodes());
             }
 
-            // 3. 일괄 시세 조회
-            Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(new ArrayList<>(allStockCodes));
+            // 3. 시세 조회 (SectorTradingService 캐시 우선 → 없으면 직접 조회)
+            Map<String, StockPriceDto> priceMap = sectorTradingService.getCachedPriceMap();
+            if (priceMap.isEmpty()) {
+                log.info("섹터 분석: SectorTrading 캐시 없음 → StockPriceService 직접 조회");
+                priceMap = stockPriceService.getStockPrices(new ArrayList<>(allStockCodes));
+            }
             log.info("섹터 분석용 시세 조회 완료: {}/{} 종목", priceMap.size(), allStockCodes.size());
 
             // 4. 섹터별 평균 등락률 계산

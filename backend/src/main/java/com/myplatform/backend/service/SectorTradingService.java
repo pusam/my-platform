@@ -257,6 +257,14 @@ public class SectorTradingService {
         }
     }
 
+    /**
+     * 캐시된 시세 데이터 반환 (SectorAnalysisService 등에서 재활용)
+     * - 중복 batch fetch 방지
+     */
+    public Map<String, StockPriceDto> getCachedPriceMap() {
+        return Collections.unmodifiableMap(latestPriceCache);
+    }
+
     // ========== API 메서드 (캐시에서 즉시 반환) ==========
 
     public List<SectorTradingDto> getAllSectorTrading() {
@@ -302,16 +310,17 @@ public class SectorTradingService {
      */
     private List<SectorTradingDto> calculateSectorTrading(TradingPeriod period) {
         if (latestPriceCache.isEmpty()) {
-            log.warn("[섹터거래대금] 시세 캐시 없음 - 즉시 수집 시도");
-            try {
-                collectSnapshot();
-            } catch (Exception e) {
-                log.error("[섹터거래대금] 즉시 수집 실패: {}", e.getMessage());
-            }
-            if (latestPriceCache.isEmpty()) {
-                log.warn("[섹터거래대금] 즉시 수집 후에도 캐시 없음 - 빈 결과 반환");
-                return Collections.emptyList();
-            }
+            // 캐시 없으면 빈 결과 즉시 반환 (HTTP 스레드에서 30초 블로킹 방지)
+            // 백그라운드에서 비동기 수집 트리거 → 다음 요청 시 캐시 HIT
+            log.warn("[섹터거래대금] 시세 캐시 없음 - 빈 결과 반환 (백그라운드 수집 트리거)");
+            CompletableFuture.runAsync(() -> {
+                try {
+                    collectSnapshot();
+                } catch (Exception e) {
+                    log.error("[섹터거래대금] 백그라운드 수집 실패: {}", e.getMessage());
+                }
+            }, sectorTradingExecutor);
+            return Collections.emptyList();
         }
 
         List<SectorTradingDto> results = new ArrayList<>();
