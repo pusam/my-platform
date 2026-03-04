@@ -20,6 +20,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -84,11 +85,21 @@ public class AiStrategySnapshotService {
 
     /**
      * 서버 시작 시 모든 전략 스냅샷 초기화 (Warm-up)
-     * - 주말/휴일에도 실행하여 DB에 최소 데이터 보장
+     * - @Async로 메인 스레드 블로킹 방지
+     * - 30초 지연 후 시작 (다른 서비스 초기화 대기)
      * - 각 전략별 순차적으로 수집 (API Rate Limit 고려)
      */
     @EventListener(ApplicationReadyEvent.class)
+    @Async
     public void warmUpSnapshots() {
+        try {
+            // 다른 서비스 초기화 완료 대기 (SectorTrading, InvestorTrade 등)
+            Thread.sleep(30000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
         log.info("[Warm-up] 서버 시작 - 모든 전략 스냅샷 초기 수집 시작");
 
         int successCount = 0;
@@ -104,7 +115,11 @@ public class AiStrategySnapshotService {
                 successCount++;
 
                 // API 호출 간격 (Rate Limit 방지)
-                Thread.sleep(1500);
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("[Warm-up] 중단됨");
+                return;
             } catch (Exception e) {
                 log.error("[Warm-up] {} 전략 스냅샷 수집 실패: {}", type.name(), e.getMessage());
                 failCount++;

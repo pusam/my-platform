@@ -2,6 +2,7 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.service.InvestorTradeService;
+import com.myplatform.backend.service.KoreaInvestmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -33,6 +34,7 @@ public class InvestorTradeScheduler {
 
     private final InvestorTradeService investorTradeService;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
+    private final KoreaInvestmentService koreaInvestmentService;
 
     /**
      * 매일 15:50 자동 수집 (장 마감 직후)
@@ -79,14 +81,15 @@ public class InvestorTradeScheduler {
 
     /**
      * 서버 시작 시 자동 수집 (오늘 데이터 없으면)
-     * - 서버가 재시작되거나 처음 배포될 때 데이터 확보
+     * - KIS 토큰 사용 가능 여부 먼저 확인 (불필요한 API 호출 방지)
+     * - 60초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
     @EventListener(ApplicationReadyEvent.class)
     @Async
     public void collectOnStartup() {
         try {
-            // 시작 시 잠시 대기 (다른 초기화 작업 완료 대기)
-            Thread.sleep(10000);
+            // 60초 대기 (서버 시작 직후 리소스 경합 방지 - AI Warm-up, 섹터 초기화와 분산)
+            Thread.sleep(60000);
 
             LocalDate today = LocalDate.now();
 
@@ -97,10 +100,15 @@ public class InvestorTradeScheduler {
                 return;
             }
 
+            // KIS 토큰 사용 가능 여부 먼저 확인 (실패 시 불필요한 API 호출 방지)
+            if (!koreaInvestmentService.isTokenAvailable()) {
+                log.warn("[시작시 수집] KIS 토큰 사용 불가 - 투자자 데이터 수집 스킵 (15:50/18:00 스케줄러에서 재시도)");
+                return;
+            }
+
             // 오늘 데이터가 있는지 확인
             boolean hasData = investorDailyTradeRepository.existsByTradeDate(today);
             if (hasData) {
-                // 데이터 일수 확인
                 long tradeDays = investorDailyTradeRepository.countDistinctTradeDates();
                 log.info("[시작시 수집] 오늘 데이터 존재 - 현재 {}일치 데이터 보유", tradeDays);
                 return;

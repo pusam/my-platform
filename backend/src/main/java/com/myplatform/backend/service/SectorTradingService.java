@@ -110,9 +110,21 @@ public class SectorTradingService {
     public void initializeCache() {
         log.info("[섹터거래대금] ========== 스냅샷 기반 서비스 시작 ==========");
 
+        // 장외 시간이면 초기 수집 스킵 (스케줄러가 장중에 자동 수집)
+        if (isMarketClosed()) {
+            log.info("[섹터거래대금] 휴장일 - 초기 스냅샷 수집 스킵");
+            return;
+        }
+        LocalTime now = LocalTime.now();
+        if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
+            log.info("[섹터거래대금] 장외 시간 - 초기 스냅샷 수집 스킵 (스케줄러가 장중 자동 수집)");
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
             try {
-                Thread.sleep(3000);
+                // 15초 대기 (서버 시작 직후 리소스 경합 방지)
+                Thread.sleep(15000);
                 log.info("[섹터거래대금] 초기 스냅샷 수집 시작...");
                 collectSnapshot();
                 log.info("[섹터거래대금] 초기 스냅샷 수집 완료 - {} 종목", tradingHistoryStore.size());
