@@ -11,6 +11,7 @@ import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -64,7 +65,11 @@ public class GeminiService {
     private final Object forecastCacheLock = new Object();
 
     public GeminiService(OllamaService ollamaService) {
-        this.restTemplate = new RestTemplate();
+        // Gemini API 전용 RestTemplate (타임아웃 설정)
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);   // 연결 5초
+        factory.setReadTimeout(30000);     // 응답 30초 (AI 응답 대기)
+        this.restTemplate = new RestTemplate(factory);
         this.ollamaService = ollamaService;
     }
 
