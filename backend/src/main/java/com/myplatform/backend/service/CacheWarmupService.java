@@ -10,6 +10,9 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 /**
@@ -38,6 +41,15 @@ public class CacheWarmupService {
     public void warmupOnStartup() {
         if (marketCacheWarmerService != null) {
             log.info("=== Redis L2 Cache Warmer 활성화됨 - 기존 워밍업 스킵 ===");
+            return;
+        }
+
+        // 장외 시간에는 섹터 워밍업 스킵 (134개 종목 batch fetch 방지)
+        DayOfWeek dow = LocalDate.now().getDayOfWeek();
+        LocalTime now = LocalTime.now();
+        if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY
+                || now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(15, 40))) {
+            log.info("=== 장외 시간 - 캐시 워밍업 스킵 (스케줄러가 장중 자동 워밍) ===");
             return;
         }
 

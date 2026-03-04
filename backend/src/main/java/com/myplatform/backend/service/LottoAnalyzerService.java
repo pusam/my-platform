@@ -104,10 +104,12 @@ public class LottoAnalyzerService {
 
     /**
      * 최신 당첨 데이터 수집 (최대 100회차)
+     * - 연속 5회 실패 시 조기 중단 (API 장애/차단 대응)
      */
     @Transactional
     public int collectLatestDraws() {
         int collected = 0;
+        int consecutiveFailures = 0;
         int latestInDb = drawRepository.findMaxDrawNo().orElse(0);
         int estimatedLatest = estimateLatestDrawNo();
 
@@ -119,6 +121,13 @@ public class LottoAnalyzerService {
                 LottoDraw draw = fetchAndSaveDraw(drawNo);
                 if (draw != null) {
                     collected++;
+                    consecutiveFailures = 0;
+                } else {
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= 5) {
+                        log.warn("[로또수집] 연속 {}회 실패 - 수집 중단 (API 장애 가능성)", consecutiveFailures);
+                        break;
+                    }
                 }
             }
         }
