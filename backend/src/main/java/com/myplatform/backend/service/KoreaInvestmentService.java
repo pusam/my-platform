@@ -546,9 +546,15 @@ public class KoreaInvestmentService {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode result = objectMapper.readTree(response.getBody());
+                int outputSize = result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0;
                 log.info("KIS API 응답: rt_cd={}, output 크기={}",
-                        result.has("rt_cd") ? result.get("rt_cd").asText() : "없음",
-                        result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0);
+                        result.has("rt_cd") ? result.get("rt_cd").asText() : "없음", outputSize);
+                if (outputSize == 0) {
+                    log.warn("KIS API 빈 응답 [투자자:{}] msg1={}, raw={}",
+                            investorType,
+                            result.has("msg1") ? result.get("msg1").asText() : "없음",
+                            response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
+                }
                 return result;
             } else {
                 log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
