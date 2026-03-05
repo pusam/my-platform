@@ -130,10 +130,15 @@ public class InvestorSurgeService {
                 }
             }
 
-            // 중복 방지: 동일 시간대 기존 데이터 삭제 후 저장
-            snapshotRepository.deleteBySnapshotDateAndSnapshotTimeAndInvestorType(today, snapshotTime, investorType);
-            snapshotRepository.saveAll(snapshots);
-            log.info("스냅샷 저장 완료: {} - {}건", investorType, snapshots.size());
+            // 수집 결과가 0건이면 기존 데이터 보존 (장 초반 기관 데이터 미제공 대응)
+            if (snapshots.isEmpty()) {
+                log.warn("스냅샷 수집 결과 0건 — 기존 데이터 보존: {}", investorType);
+            } else {
+                // 중복 방지: 동일 시간대 기존 데이터 삭제 후 저장
+                snapshotRepository.deleteBySnapshotDateAndSnapshotTimeAndInvestorType(today, snapshotTime, investorType);
+                snapshotRepository.saveAll(snapshots);
+                log.info("스냅샷 저장 완료: {} - {}건", investorType, snapshots.size());
+            }
 
         } catch (Exception e) {
             log.error("스냅샷 수집 실패: {}", investorType, e);
