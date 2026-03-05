@@ -56,6 +56,10 @@ public class InvestorSurgeService {
     /**
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
      * 평일 09:10 ~ 15:20 사이에만 실행
+     *
+     * KIS API 데이터 입력 시간:
+     * - 외국인: 09:30, 11:20, 13:20, 14:30
+     * - 기관종합: 10:00, 11:20, 13:20, 14:30
      */
     @Scheduled(cron = "0 0/10 9-15 * * MON-FRI")
     public void collectIntradaySnapshot() {
@@ -69,10 +73,18 @@ public class InvestorSurgeService {
         log.info("장중 스냅샷 수집 시작: {}", now);
 
         try {
-            // 외국인, 기관 순서로 수집
+            // 외국인 수집 (09:30부터 데이터 제공)
             List<InvestorIntradaySnapshot> foreignSnapshots = collectAndSaveSnapshot("FOREIGN");
             Thread.sleep(1000); // API 호출 간격
-            List<InvestorIntradaySnapshot> institutionSnapshots = collectAndSaveSnapshot("INSTITUTION");
+
+            // 기관 수집 (10:00부터 데이터 제공 — 그 전에는 빈 배열 반환)
+            List<InvestorIntradaySnapshot> institutionSnapshots;
+            if (now.isBefore(LocalTime.of(10, 0))) {
+                log.info("기관 데이터 미제공 시간 (10:00 이전) — 기관 수집 스킵");
+                institutionSnapshots = Collections.emptyList();
+            } else {
+                institutionSnapshots = collectAndSaveSnapshot("INSTITUTION");
+            }
 
             log.info("장중 스냅샷 수집 완료");
 
@@ -529,8 +541,14 @@ public class InvestorSurgeService {
 
             Thread.sleep(1000);
 
-            collectAndSaveSnapshot("INSTITUTION");
-            result.put("INSTITUTION", 1);
+            // 기관 데이터는 10:00 이후부터 KIS에서 제공
+            if (LocalTime.now().isBefore(LocalTime.of(10, 0))) {
+                log.info("기관 데이터 미제공 시간 (10:00 이전) — 기관 수집 스킵");
+                result.put("INSTITUTION", 0);
+            } else {
+                collectAndSaveSnapshot("INSTITUTION");
+                result.put("INSTITUTION", 1);
+            }
         } catch (Exception e) {
             log.error("수동 스냅샷 수집 실패", e);
         }
