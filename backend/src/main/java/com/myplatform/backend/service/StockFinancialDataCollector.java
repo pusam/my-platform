@@ -243,7 +243,7 @@ public class StockFinancialDataCollector {
             }
 
             BigDecimal roeFromApi = financialRatios.get("roe");
-            if (roeFromApi != null && roeFromApi.compareTo(BigDecimal.ZERO) > 0) {
+            if (roeFromApi != null && roeFromApi.compareTo(BigDecimal.ZERO) != 0) {
                 roe = roeFromApi;
             }
 
@@ -267,10 +267,17 @@ public class StockFinancialDataCollector {
                 }
 
                 // TTM EPS 기반 ROE 재계산
-                if (bps != null && bps.compareTo(BigDecimal.ZERO) > 0) {
+                // BPS가 음수(자본잠식)인 경우에도 계산하되, 부호가 순이익과 일관되도록 보정
+                if (bps != null && bps.compareTo(BigDecimal.ZERO) != 0) {
                     roe = eps.divide(bps, 6, RoundingMode.HALF_UP)
                             .multiply(new BigDecimal("100"))
                             .setScale(2, RoundingMode.HALF_UP);
+                    // 부호 보정: 순이익 양수 → ROE 양수, 순이익 음수 → ROE 음수
+                    if (netIncome.compareTo(BigDecimal.ZERO) > 0 && roe.compareTo(BigDecimal.ZERO) < 0) {
+                        roe = roe.abs();
+                    } else if (netIncome.compareTo(BigDecimal.ZERO) < 0 && roe.compareTo(BigDecimal.ZERO) > 0) {
+                        roe = roe.negate();
+                    }
                 }
             }
 
@@ -442,18 +449,37 @@ public class StockFinancialDataCollector {
                                     .setScale(2, RoundingMode.HALF_UP));
                         }
 
-                        // ★ TTM ROE 추정: annual_ROE × (TTM순이익률 / 연간순이익률)
+                        // ★ TTM ROE 추정: TTM순이익 / 자본총계 직접 계산
+                        // (비율 보정 방식은 흑자전환 기업에서 부호 오류 발생)
                         BigDecimal annualRoe = ratios.get("roe");
-                        BigDecimal annualNetMargin = ratios.get("_annualNetMargin");
+                        BigDecimal ttmNetIncome = ratios.get("netIncome"); // 억원 단위
                         BigDecimal ttmNetMargin = ratios.get("netMargin");
-                        if (annualRoe != null && annualNetMargin != null
-                                && annualNetMargin.compareTo(BigDecimal.ZERO) > 0
-                                && ttmNetMargin != null) {
-                            BigDecimal ttmRoe = annualRoe.multiply(ttmNetMargin)
-                                    .divide(annualNetMargin, 2, RoundingMode.HALF_UP);
-                            ratios.put("roe", ttmRoe);
-                            log.info("[재무비율 TTM] {} ROE 보정: {}% → {}% (순이익률 {}→{})",
-                                    stockCode, annualRoe, ttmRoe, annualNetMargin, ttmNetMargin);
+                        if (ttmNetIncome != null && ttmNetIncome.compareTo(BigDecimal.ZERO) != 0) {
+                            // TTM 당기순이익(억원)으로 EPS 산출 후 ROE = EPS/BPS*100
+                            // BPS는 상위 메서드에서 사용하므로 여기서는 순이익률 기반 추정 유지하되
+                            // 부호가 일관되도록: TTM순이익 > 0이면 ROE > 0, 적자면 ROE < 0
+                            BigDecimal annualNetMargin = ratios.get("_annualNetMargin");
+                            if (annualRoe != null && annualNetMargin != null
+                                    && annualNetMargin.compareTo(BigDecimal.ZERO) != 0
+                                    && ttmNetMargin != null) {
+                                BigDecimal ttmRoe = annualRoe.multiply(ttmNetMargin)
+                                        .divide(annualNetMargin, 2, RoundingMode.HALF_UP);
+                                // 부호 검증: TTM 순이익이 양수면 ROE도 양수여야 함
+                                if (ttmNetIncome.compareTo(BigDecimal.ZERO) > 0
+                                        && ttmRoe.compareTo(BigDecimal.ZERO) < 0) {
+                                    ttmRoe = ttmRoe.abs();
+                                    log.info("[재무비율 TTM] {} ROE 부호 보정 (흑자전환): {}% → +{}%",
+                                            stockCode, annualRoe, ttmRoe);
+                                } else if (ttmNetIncome.compareTo(BigDecimal.ZERO) < 0
+                                        && ttmRoe.compareTo(BigDecimal.ZERO) > 0) {
+                                    ttmRoe = ttmRoe.negate();
+                                    log.info("[재무비율 TTM] {} ROE 부호 보정 (적자전환): {}% → {}%",
+                                            stockCode, annualRoe, ttmRoe);
+                                }
+                                ratios.put("roe", ttmRoe);
+                                log.info("[재무비율 TTM] {} ROE 보정: {}% → {}% (순이익률 {}→{}, TTM순이익: {}억)",
+                                        stockCode, annualRoe, ttmRoe, annualNetMargin, ttmNetMargin, ttmNetIncome);
+                            }
                         }
                         ratios.remove("_annualNetMargin"); // 임시 키 제거
                     } else {

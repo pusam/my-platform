@@ -484,6 +484,15 @@ public class AiStrategySnapshotService {
 
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
+        // 실시간 시세 조회 (등락률 포함)
+        List<String> stockCodes = momentum.stream()
+                .map(ScreenerResultDto::getStockCode)
+                .collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodes);
+
+        log.debug("[SCALPING] 실시간 시세 조회: {}건 중 {}건 성공",
+                stockCodes.size(), priceMap.size());
+
         int rank = 1;
         for (ScreenerResultDto dto : momentum) {
             // 점수 계산: 거래량 비율 기반 (300% 이상이면 100점, 30%면 10점)
@@ -492,12 +501,28 @@ public class AiStrategySnapshotService {
             // 추천 사유 생성
             String reason = generateScalpingReason(dto.getVolumeRatio(), dto.getChangeRate());
 
+            // 실시간 시세 데이터 가져오기
+            StockPriceDto priceDto = priceMap.get(dto.getStockCode());
+
+            // 현재가 및 등락률 결정 (실시간 시세 우선, 없으면 ScreenerResultDto 값 사용)
+            BigDecimal currentPrice = dto.getCurrentPrice();
+            BigDecimal changeRate = dto.getChangeRate();
+
+            if (priceDto != null) {
+                if (priceDto.getCurrentPrice() != null && priceDto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                if (priceDto.getChangeRate() != null) {
+                    changeRate = priceDto.getChangeRate();
+                }
+            }
+
             AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
                     .strategyType(StrategyType.SCALPING)
                     .stockCode(dto.getStockCode())
                     .stockName(dto.getStockName())
-                    .currentPrice(dto.getCurrentPrice())
-                    .changeRate(dto.getChangeRate())
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
                     .score(score)
                     .reason(reason)
                     .rankNum(rank++)
