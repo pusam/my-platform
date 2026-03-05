@@ -37,6 +37,7 @@ const AiStrategyDashboardPage = () => import('./views/AiStrategyDashboardPage.vu
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
+const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -239,6 +240,12 @@ const router = createRouter({
       path: '/paper-trading',
       name: 'PaperTrading',
       component: PaperTradingPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/global-futures',
+      name: 'GlobalFutures',
+      component: GlobalFuturesPage,
       meta: { requiresAuth: true }
     },
     {

@@ -902,6 +902,19 @@ export const watchlistAPI = {
   }
 };
 
+// 글로벌 선물 API (해외선물/야간선물)
+export const globalFuturesAPI = {
+  getAllQuotes() {
+    return apiClient.get('/global-futures/quotes', { timeout: 30000 });
+  },
+  getQuote(symbol) {
+    return apiClient.get(`/global-futures/quotes/${symbol}`);
+  },
+  getKospiImpact() {
+    return apiClient.get('/global-futures/kospi-impact', { timeout: 30000 });
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();
