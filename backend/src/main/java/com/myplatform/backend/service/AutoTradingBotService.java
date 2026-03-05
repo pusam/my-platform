@@ -470,8 +470,8 @@ public class AutoTradingBotService {
                     break;
                 }
 
-                // 이미 보유 중인 종목 스킵
-                if (holdingCodes.contains(surge.getStockCode())) {
+                // 이미 보유 중이거나 매수 진행 중인 종목 스킵
+                if (holdingCodes.contains(surge.getStockCode()) || scalpingPositions.containsKey(surge.getStockCode())) {
                     continue;
                 }
 
@@ -599,7 +599,7 @@ public class AutoTradingBotService {
                 return ScalpingEntryResult.fail("거래대금/거래량 부족");
             }
 
-            // ===== 조건 2: 체결강도 100% 이상 (KIS API 실패 시 소프트 패스) =====
+            // ===== 조건 2: 체결강도 100% 이상 (데이터 없으면 진입 불가) =====
             BigDecimal volumePower = null;
             try {
                 ScalpingAnalysisDto scalpingData = scalpingAnalysisService.getVolumePowerRefresh(stockCode);
@@ -611,10 +611,12 @@ public class AutoTradingBotService {
                         return ScalpingEntryResult.fail("체결강도 부족: " + volumePower + "%");
                     }
                 } else {
-                    log.debug("[스캘핑봇] [{}({})] 체결강도 데이터 없음 — KIS API 응답 없음, 소프트 패스", stockName, stockCode);
+                    log.debug("[스캘핑봇] Skip [{}({})] 체결강도 데이터 없음 — 진입 불가", stockName, stockCode);
+                    return ScalpingEntryResult.fail("체결강도 데이터 없음");
                 }
             } catch (Exception e) {
-                log.warn("[스캘핑봇] [{}({})] 체결강도 조회 실패 (소프트 패스): {}", stockName, stockCode, e.getMessage());
+                log.debug("[스캘핑봇] Skip [{}({})] 체결강도 조회 실패 — 진입 불가: {}", stockName, stockCode, e.getMessage());
+                return ScalpingEntryResult.fail("체결강도 조회 실패");
             }
 
             // ===== 조건 3: 현재가 > 시초가 (양봉) =====
