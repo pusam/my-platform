@@ -61,7 +61,7 @@ public class InvestorSurgeService {
      * - 외국인: 09:30, 11:20, 13:20, 14:30
      * - 기관종합: 10:00, 11:20, 13:20, 14:30
      */
-    @Scheduled(cron = "0 0/10 9-15 * * MON-FRI")
+    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI")
     public void collectIntradaySnapshot() {
         LocalTime now = LocalTime.now();
 
