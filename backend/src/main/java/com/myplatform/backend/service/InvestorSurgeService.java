@@ -277,7 +277,8 @@ public class InvestorSurgeService {
         }
 
         LocalTime latestTime = latestTimeOpt.get();
-        log.info("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
+        boolean isStaleData = !today.equals(LocalDate.now());
+        log.info("최신 스냅샷 조회: date={}, time={}, investorType={}, stale={}", today, latestTime, investorType, isStaleData);
 
         // 전체 스냅샷을 가져와서 금액 기준 정렬
         List<InvestorIntradaySnapshot> surgeSnapshots = snapshotRepository.findLatestSnapshots(
@@ -286,13 +287,21 @@ public class InvestorSurgeService {
         log.info("스냅샷 조회 결과: {} 건, date={}, time={}, investorType={}",
                 surgeSnapshots.size(), today, latestTime, investorType);
 
-        // minChange 필터 적용 — amountChange(변화량) 기준으로 양수만 필터링
+        // minChange 필터 적용
         if (minChange != null && minChange.compareTo(BigDecimal.ZERO) > 0) {
             final BigDecimal filterAmount = minChange;
-            surgeSnapshots = surgeSnapshots.stream()
-                    .filter(s -> s.getAmountChange() != null && s.getAmountChange().compareTo(BigDecimal.ZERO) > 0)
-                    .filter(s -> s.getAmountChange().compareTo(filterAmount) >= 0)
-                    .collect(Collectors.toList());
+            if (isStaleData) {
+                // 과거 데이터 폴백: amountChange가 없으므로 netBuyAmount 기준 필터링
+                surgeSnapshots = surgeSnapshots.stream()
+                        .filter(s -> s.getNetBuyAmount() != null && s.getNetBuyAmount().compareTo(filterAmount) >= 0)
+                        .collect(Collectors.toList());
+            } else {
+                // 당일 데이터: amountChange(변화량) 기준으로 양수만 필터링
+                surgeSnapshots = surgeSnapshots.stream()
+                        .filter(s -> s.getAmountChange() != null && s.getAmountChange().compareTo(BigDecimal.ZERO) > 0)
+                        .filter(s -> s.getAmountChange().compareTo(filterAmount) >= 0)
+                        .collect(Collectors.toList());
+            }
         }
 
         // 종목코드 기준 중복 제거 (가장 최신 데이터만 유지)
