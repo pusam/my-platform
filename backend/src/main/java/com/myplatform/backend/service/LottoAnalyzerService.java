@@ -15,7 +15,9 @@ import com.myplatform.backend.repository.LottoDrawRepository;
 import com.myplatform.backend.repository.LottoWeeklyRecommendationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import jakarta.annotation.PostConstruct;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -88,10 +90,19 @@ public class LottoAnalyzerService {
 
     /**
      * 서버 시작 시 데이터가 없으면 초기 데이터 수집
+     * - 90초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     @Transactional
     public void initializeDataIfEmpty() {
+        try {
+            Thread.sleep(90000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
         if (drawRepository.count() == 0) {
             log.info("[로또초기화] DB에 데이터가 없어 초기 수집 시작...");
             collectLatestDraws();
