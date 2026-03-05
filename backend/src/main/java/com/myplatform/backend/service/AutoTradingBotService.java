@@ -121,6 +121,10 @@ public class AutoTradingBotService {
     private volatile BigDecimal dailyStartAsset = BigDecimal.ZERO;
     // 킬 스위치 발동 여부
     private final AtomicBoolean killSwitchTriggered = new AtomicBoolean(false);
+    // 수급 급증 데이터 캐시 (10분마다 갱신되므로 매초 DB 조회 불필요)
+    private volatile Map<String, List<InvestorSurgeDto>> cachedSurgeStocks = null;
+    private volatile LocalDateTime surgeStocksCacheTime = null;
+    private static final long SURGE_CACHE_SECONDS = 30; // 30초 캐시
 
     /**
      * 스캘핑 포지션 정보
@@ -399,10 +403,10 @@ public class AutoTradingBotService {
 
     /**
      * 스캘핑 매수 로직
-     * - 실행 시간: 09:00~10:30 (장 초반 변동성 집중, 매초, 평일만)
+     * - 실행 시간: 09:00~10:30 (장 초반 변동성 집중, 5초 간격, 평일만)
      * - 수급 급증 종목 중 스캘핑 조건 충족 시 진입
      */
-    @Scheduled(cron = "*/1 * 9-10 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/5 * 9-10 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) {
             return;
@@ -418,7 +422,7 @@ public class AutoTradingBotService {
             return;
         }
 
-        log.info("[스캘핑봇] ===== 매수 로직 시작 ({}) =====", LocalTime.now());
+        log.debug("[스캘핑봇] ===== 매수 로직 시작 ({}) =====", LocalTime.now());
         resetDailyCounters();
 
         try {
@@ -434,8 +438,8 @@ public class AutoTradingBotService {
                 return;
             }
 
-            // 수급 급증 종목 조회
-            Map<String, List<InvestorSurgeDto>> surgeStocks = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
+            // 수급 급증 종목 조회 (10분마다 갱신되므로 캐시 활용)
+            Map<String, List<InvestorSurgeDto>> surgeStocks = getCachedSurgeStocks();
             if (surgeStocks == null || surgeStocks.isEmpty()) {
                 log.info("[스캘핑봇] 수급 급증 데이터 없음 — 스냅샷 미수집 상태");
                 return;
@@ -448,7 +452,7 @@ public class AutoTradingBotService {
                 return;
             }
 
-            log.info("[스캘핑봇] 수급 급증 후보: {}종목", targetStocks.size());
+            log.debug("[스캘핑봇] 수급 급증 후보: {}종목", targetStocks.size());
 
             // 계좌 정보 조회
             AccountSummaryDto accountSummary = activeTradeService.getAccountSummary();
@@ -544,6 +548,21 @@ public class AutoTradingBotService {
             lastErrorTime = LocalDateTime.now();
             log.error("[스캘핑봇] 매수 로직 오류", e);
         }
+    }
+
+    /**
+     * 수급 급증 데이터 캐시 조회 (30초 TTL)
+     * 스냅샷은 10분마다 갱신되므로 매 사이클(5초)마다 DB 조회할 필요 없음
+     */
+    private Map<String, List<InvestorSurgeDto>> getCachedSurgeStocks() {
+        LocalDateTime now = LocalDateTime.now();
+        if (cachedSurgeStocks != null && surgeStocksCacheTime != null
+                && java.time.Duration.between(surgeStocksCacheTime, now).getSeconds() < SURGE_CACHE_SECONDS) {
+            return cachedSurgeStocks;
+        }
+        cachedSurgeStocks = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
+        surgeStocksCacheTime = now;
+        return cachedSurgeStocks;
     }
 
     /**
