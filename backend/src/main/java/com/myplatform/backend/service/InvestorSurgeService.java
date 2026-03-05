@@ -298,12 +298,11 @@ public class InvestorSurgeService {
         log.info("스냅샷 조회 결과: {} 건, date={}, time={}, investorType={}",
                 surgeSnapshots.size(), today, latestTime, investorType);
 
-        // minChange 필터 적용 — amountChange(변화량) 기준으로 양수만 필터링
+        // minChange 필터 적용 — netBuyAmount(누적 순매수금액) 기준으로 필터링
         if (minChange != null && minChange.compareTo(BigDecimal.ZERO) > 0) {
             final BigDecimal filterAmount = minChange;
             surgeSnapshots = surgeSnapshots.stream()
-                    .filter(s -> s.getAmountChange() != null && s.getAmountChange().compareTo(BigDecimal.ZERO) > 0)
-                    .filter(s -> s.getAmountChange().compareTo(filterAmount) >= 0)
+                    .filter(s -> s.getNetBuyAmount() != null && s.getNetBuyAmount().compareTo(filterAmount) >= 0)
                     .collect(Collectors.toList());
         }
 
