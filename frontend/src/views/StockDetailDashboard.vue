@@ -944,20 +944,36 @@ const dedupedNews = computed(() => {
   }).slice(0, 8);
 });
 
-// ★ 안전 점수: 리스크 점수를 반전 (높을수록 안전)
+// ★ 안전 점수: 펀더멘털 종합 점수 기반 + 리스크 감점
 const safetyScore = computed(() => {
+  // 1순위: 진단 종합 점수 (재무건전성 + 수급 + 기술적분석)
+  const diagScore = diagnosisData.value?.overallScore;
   const risk = riskInfo.value?.riskScore;
-  if (risk === null || risk === undefined) return null;
-  return 100 - risk;
+
+  if (diagScore != null) {
+    // 리스크 점수가 있으면 감점 (위험 공시/뉴스 반영)
+    const riskPenalty = risk != null ? Math.floor(risk * 0.3) : 0;
+    return Math.max(0, Math.min(100, diagScore - riskPenalty));
+  }
+
+  // 진단 데이터 없으면 리스크 반전으로 폴백
+  if (risk !== null && risk !== undefined) return 100 - risk;
+  return null;
 });
 
 const safetyStatusClass = computed(() => {
-  const status = riskInfo.value?.riskStatus;
-  // 안전 점수이므로 클래스를 반전: SAFE → safe(초록), DANGER → danger(빨강)
-  if (status === 'SAFE') return 'safe';
-  if (status === 'WARNING') return 'warning';
-  if (status === 'DANGER') return 'danger';
-  return '';
+  const score = safetyScore.value;
+  if (score === null) {
+    // 점수 없으면 리스크 상태로 폴백
+    const status = riskInfo.value?.riskStatus;
+    if (status === 'SAFE') return 'safe';
+    if (status === 'WARNING') return 'warning';
+    if (status === 'DANGER') return 'danger';
+    return '';
+  }
+  if (score >= 65) return 'safe';
+  if (score >= 40) return 'warning';
+  return 'danger';
 });
 
 // ★ 안전 점수 조건부 설명 텍스트 (펀더멘털 점수 연동)
