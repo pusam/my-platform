@@ -4,7 +4,6 @@
       <NotificationBell />
     </div>
     <router-view />
-    <ChatBot v-if="isAuthenticated" />
     <NewsToast v-if="isAuthenticated" />
   </div>
 </template>
@@ -12,7 +11,6 @@
 <script setup>
 import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import ChatBot from './components/ChatBot.vue';
 import NotificationBell from './components/NotificationBell.vue';
 import NewsToast from './components/NewsToast.vue';
 import { TokenManager } from './utils/auth';

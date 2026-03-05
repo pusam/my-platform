@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
  * [기능]
  * 1. DART 공시 조회 → 위험 키워드 필터링
  * 2. 네이버 뉴스 검색 → 악재 뉴스 수집
- * 3. Ollama AI 분석 → 종합 리스크 점수 산출
+ * 3. 규칙 기반 종합 리스크 점수 산출
  *
  * [리스크 레벨]
  * - SAFE (0~30점): 매매 가능
@@ -33,7 +33,6 @@ public class RiskManagementService {
     private final DartService dartService;
     private final NaverSearchService naverSearchService;
     private final GoogleNewsService googleNewsService;
-    private final OllamaService ollamaService;
 
     // DANGER 임계값 (이 점수 이상이면 매수 금지)
     private static final int DANGER_THRESHOLD = 80;
@@ -86,8 +85,8 @@ public class RiskManagementService {
             return buildDangerResult(stockName, dangerousDisclosures, news);
         }
 
-        // 3. AI 리스크 분석 (타임아웃 시 규칙 기반으로 폴백)
-        RiskAnalysisDto result = performAiAnalysis(stockName, disclosures, news);
+        // 3. 규칙 기반 리스크 분석
+        RiskAnalysisDto result = performRuleBasedAnalysis(stockName, disclosures, news);
 
         long elapsed = System.currentTimeMillis() - startTime;
         log.info("[RiskManagement] 리스크 분석 완료: {} - Score: {}, Status: {}, 총 {}ms",
@@ -160,53 +159,7 @@ public class RiskManagementService {
     }
 
     /**
-     * AI 리스크 분석 수행
-     */
-    private RiskAnalysisDto performAiAnalysis(String stockName,
-                                               List<DartDisclosure> disclosures,
-                                               List<NewsItem> news) {
-        // 공시 정보 텍스트 변환
-        String disclosureText = formatDisclosuresForAi(disclosures);
-
-        // 뉴스 정보 텍스트 변환
-        String newsText = naverSearchService.formatNewsForAi(news);
-
-        // AI 분석 수행
-        String aiResponse = null;
-        int riskScore;
-        RiskStatus status;
-        String reason;
-
-        if (ollamaService.isAvailable()) {
-            aiResponse = ollamaService.analyzeRisk(stockName, disclosureText, newsText);
-        }
-
-        // AI 응답이 없거나 실패한 경우 규칙 기반 분석으로 폴백
-        if (aiResponse == null || aiResponse.isBlank()) {
-            log.warn("[RiskManagement] AI 분석 실패/타임아웃 - 규칙 기반 분석으로 대체");
-            return performRuleBasedAnalysis(stockName, disclosures, news);
-        }
-
-        riskScore = ollamaService.extractRiskScore(aiResponse);
-        status = determineStatus(riskScore);
-        reason = ollamaService.extractRiskReason(aiResponse);
-
-        return RiskAnalysisDto.builder()
-                .stockName(stockName)
-                .riskScore(riskScore)
-                .status(status)
-                .reason(reason)
-                .aiAnalysis(aiResponse)
-                .dangerousDisclosures(disclosures.stream()
-                        .filter(DartDisclosure::isDangerous)
-                        .collect(Collectors.toList()))
-                .relatedNews(news)
-                .analyzedAt(LocalDateTime.now())
-                .build();
-    }
-
-    /**
-     * 규칙 기반 분석 (AI 불가 시 Fallback)
+     * 규칙 기반 분석
      */
     private RiskAnalysisDto performRuleBasedAnalysis(String stockName,
                                                       List<DartDisclosure> disclosures,

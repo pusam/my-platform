@@ -92,11 +92,6 @@ silver:
     key: ${SILVER_API_KEY}
     gram-per-don: 3.75
 
-# 6. Ollama AI 설정
-ollama:
-  url: ${OLLAMA_URL:http://localhost:11434}
-  model: ${OLLAMA_MODEL:gemma2:2b}
-
 # Gemini AI 설정
 gemini:
   api:

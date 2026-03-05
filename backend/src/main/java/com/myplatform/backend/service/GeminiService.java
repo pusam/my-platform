@@ -28,7 +28,6 @@ import java.util.stream.Collectors;
  * Google Gemini AI 서비스
  * - 스크리너 결과 분석 및 AI 추천 제공
  * - Rate Limit 처리 (지수 백오프 재시도)
- * - Ollama 폴백 지원
  */
 @Slf4j
 @Service
@@ -40,11 +39,7 @@ public class GeminiService {
     @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}")
     private String apiUrl;
 
-    @Value("${gemini.fallback.enabled:true}")
-    private boolean fallbackEnabled;
-
     private final RestTemplate restTemplate;
-    private final OllamaService ollamaService;
 
     // Rate Limit 관리
     private static final int MAX_RETRIES = 3;
@@ -64,13 +59,19 @@ public class GeminiService {
     // 캐시 갱신 동기화
     private final Object forecastCacheLock = new Object();
 
-    public GeminiService(OllamaService ollamaService) {
+    public GeminiService() {
         // Gemini API 전용 RestTemplate (타임아웃 설정)
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);   // 연결 5초
         factory.setReadTimeout(30000);     // 응답 30초 (AI 응답 대기)
         this.restTemplate = new RestTemplate(factory);
-        this.ollamaService = ollamaService;
+    }
+
+    /**
+     * 범용 Gemini AI 호출 (뉴스 요약 등)
+     */
+    public String chat(String prompt) {
+        return callWithFallback(prompt, "범용 AI 호출");
     }
 
     /**
@@ -224,7 +225,7 @@ public class GeminiService {
     }
 
     /**
-     * 종목 상세 페이지 전용 AI 분석 (Gemini Only, Ollama 폴백 없음)
+     * 종목 상세 페이지 전용 AI 분석
      * 가격/수급/재무/리스크 데이터를 종합하여 매매 전략 리포트 생성
      *
      * @param stockDataSummary 종목 데이터 요약 텍스트
@@ -319,7 +320,7 @@ public class GeminiService {
                 수급과 가격의 괴리(예: 주가 상승인데 외인/기관 매도)가 있으면 반드시 경고해주세요.
                 """, stockDataSummary);
 
-        // Gemini만 사용 (Ollama 폴백 없음)
+        // Gemini API 호출
         String result = callGeminiApiWithRetry(prompt);
         if (result != null && !result.startsWith("Rate Limit") && !result.startsWith("AI 서버")) {
             consecutiveErrors.set(0);
@@ -1013,25 +1014,17 @@ public class GeminiService {
     }
 
     /**
-     * Gemini API 호출 (Rate Limit 처리 + Ollama 폴백)
+     * Gemini API 호출 (Rate Limit 처리)
      */
     private String callWithFallback(String prompt, String analysisType) {
         // 1. 쿼터 리셋 시간 체크
         if (quotaResetTime != null && LocalDateTime.now().isBefore(quotaResetTime)) {
-            log.warn("Gemini 쿼터 제한 중 (리셋: {}), Ollama 폴백 사용", quotaResetTime);
-            return callOllamaFallback(prompt, analysisType);
+            log.warn("Gemini 쿼터 제한 중 (리셋: {})", quotaResetTime);
+            return "AI 분석 서비스가 일시적으로 사용 불가능합니다. (Gemini Rate Limit)";
         }
 
         // 2. Gemini API 호출 시도 (재시도 로직 포함)
         String result = callGeminiApiWithRetry(prompt);
-
-        // 3. 실패 시 Ollama 폴백
-        if (result == null || result.startsWith("AI 서버") || result.startsWith("Rate Limit")) {
-            if (fallbackEnabled && ollamaService != null) {
-                log.info("Gemini 실패, Ollama 폴백 사용: {}", analysisType);
-                return callOllamaFallback(prompt, analysisType);
-            }
-        }
 
         return result;
     }
@@ -1140,32 +1133,6 @@ public class GeminiService {
         return "AI 분석 결과를 가져오는데 실패했습니다.";
     }
 
-    /**
-     * Ollama 폴백 호출
-     */
-    private String callOllamaFallback(String prompt, String analysisType) {
-        if (ollamaService == null) {
-            return "AI 분석 서비스가 일시적으로 사용 불가능합니다. (Gemini Rate Limit)";
-        }
-
-        try {
-            String systemPrompt = """
-                    당신은 한국 주식시장 전문 애널리스트입니다.
-                    주어진 종목 데이터를 분석하여 투자 조언을 제공합니다.
-                    반드시 한국어로 답변하세요.
-                    """;
-
-            String result = ollamaService.chat(prompt, systemPrompt);
-            if (result != null && !result.isEmpty()) {
-                log.info("Ollama 폴백 성공: {}", analysisType);
-                return "[Ollama AI 분석]\n" + result;
-            }
-        } catch (Exception e) {
-            log.error("Ollama 폴백 실패: {}", e.getMessage());
-        }
-
-        return "AI 분석 서비스가 일시적으로 사용 불가능합니다.";
-    }
 
     /**
      * 요청 간 최소 간격 유지
@@ -1219,7 +1186,6 @@ public class GeminiService {
         status.put("consecutiveErrors", consecutiveErrors.get());
         status.put("quotaResetTime", quotaResetTime);
         status.put("lastRequestTime", lastRequestTime);
-        status.put("fallbackEnabled", fallbackEnabled);
         return status;
     }
 }

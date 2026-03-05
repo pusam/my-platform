@@ -1732,7 +1732,7 @@ public class StockDetailService {
             String prompt = buildGeminiPrompt(dto);
             if (prompt == null) return null;
 
-            // Gemini Only (Ollama 폴백 없음) - 실패 시 null → 규칙기반 폴백
+            // Gemini AI 분석 - 실패 시 null → 규칙기반 폴백
             String response = geminiService.analyzeStockDetail(prompt);
             if (response == null) return null;
 

@@ -34,7 +34,7 @@ public class NewsService {
     private static final Logger log = LoggerFactory.getLogger(NewsService.class);
 
     private final NewsSummaryRepository newsSummaryRepository;
-    private final OllamaService ollamaService;
+    private final GeminiService geminiService;
 
     // 경제 뉴스 RSS 피드 URL 목록
     private static final String[] RSS_FEEDS = {
@@ -90,9 +90,9 @@ public class NewsService {
         "대통령선거", "국회의원", "정당", "여당", "야당", "탄핵"
     };
 
-    public NewsService(NewsSummaryRepository newsSummaryRepository, OllamaService ollamaService) {
+    public NewsService(NewsSummaryRepository newsSummaryRepository, GeminiService geminiService) {
         this.newsSummaryRepository = newsSummaryRepository;
-        this.ollamaService = ollamaService;
+        this.geminiService = geminiService;
     }
 
     /**
@@ -356,7 +356,7 @@ public class NewsService {
             위 형식 외에 인사말, 설명, 부가 문장을 출력하지 마세요.
             """;
 
-        String response = ollamaService.chat(prompt, systemPrompt);
+        String response = geminiService.chat(prompt);
 
         // 응답에서 감성 태그 파싱
         String sentiment = "NEUTRAL";
