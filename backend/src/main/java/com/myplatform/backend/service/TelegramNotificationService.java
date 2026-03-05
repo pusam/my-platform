@@ -38,7 +38,10 @@ public class TelegramNotificationService {
     private final RestTemplate restTemplate;
 
     public TelegramNotificationService() {
-        this.restTemplate = new RestTemplate();
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        this.restTemplate = new RestTemplate(factory);
     }
 
     @PostConstruct

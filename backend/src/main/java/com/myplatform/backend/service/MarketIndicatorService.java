@@ -7,10 +7,12 @@ import com.myplatform.backend.config.KisApiProperties;
 import com.myplatform.backend.dto.MarketIndicatorStockDto;
 import com.myplatform.backend.entity.MarketIndicatorSnapshot;
 import com.myplatform.backend.repository.MarketIndicatorSnapshotRepository;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,9 +65,17 @@ public class MarketIndicatorService {
 
     /**
      * 서버 시작 시 오늘 데이터가 없으면 수집
+     * - 75초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     public void initializeDataIfEmpty() {
+        try {
+            Thread.sleep(75000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
         LocalDate today = LocalDate.now();
 
         // 주말이면 금요일 날짜 사용

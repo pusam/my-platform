@@ -70,7 +70,10 @@ public class NaverSearchService {
     private final ObjectMapper objectMapper;
 
     public NaverSearchService() {
-        this.restTemplate = new RestTemplate();
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        this.restTemplate = new RestTemplate(factory);
         this.objectMapper = new ObjectMapper();
     }
 

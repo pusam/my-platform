@@ -6,7 +6,6 @@ import com.myplatform.backend.dto.MarketTimingDto;
 import com.myplatform.backend.dto.MarketTimingDto.*;
 import com.myplatform.backend.entity.MarketDailyStatus;
 import com.myplatform.backend.repository.MarketDailyStatusRepository;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -14,6 +13,9 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.http.*;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,12 +38,17 @@ import java.util.Optional;
  * - 데이터 수집 (네이버 금융)
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class MarketTimingService {
 
     private final MarketDailyStatusRepository marketDailyStatusRepository;
     private final TelegramNotificationService telegramNotificationService;
+
+    public MarketTimingService(MarketDailyStatusRepository marketDailyStatusRepository,
+                               TelegramNotificationService telegramNotificationService) {
+        this.marketDailyStatusRepository = marketDailyStatusRepository;
+        this.telegramNotificationService = telegramNotificationService;
+    }
 
     // ADR 기준값
     private static final BigDecimal ADR_OVERHEATED = new BigDecimal("120");
@@ -63,14 +70,29 @@ public class MarketTimingService {
     private static final String NAVER_INDEX_REFERER = "https://m.stock.naver.com/";
     private static final String NAVER_INDEX_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = createRestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static RestTemplate createRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
 
     /**
      * 서버 시작 시 오늘 ADR 데이터가 없으면 자동 수집
+     * - 45초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     public void initializeDataIfEmpty() {
+        try {
+            Thread.sleep(45000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
         LocalDate today = LocalDate.now();
 
         // 주말이면 금요일 날짜 사용

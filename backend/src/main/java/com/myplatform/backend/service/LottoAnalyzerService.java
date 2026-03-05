@@ -58,7 +58,14 @@ public class LottoAnalyzerService {
     private final LottoDrawRepository drawRepository;
     private final LottoWeeklyRecommendationRepository weeklyRepository;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = createTimeoutRestTemplate();
+
+    private static RestTemplate createTimeoutRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
     private final SecureRandom random = new SecureRandom();
 
     // ==================== 스케줄러 ====================
