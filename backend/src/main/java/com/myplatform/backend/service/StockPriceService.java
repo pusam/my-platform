@@ -11,6 +11,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
@@ -90,6 +91,36 @@ public class StockPriceService {
         this.stockPriceRepository = stockPriceRepository;
         this.objectMapper = objectMapper;
         this.kisService = kisService;
+    }
+
+    /**
+     * 장 마감 후 만료 캐시 정리 (메모리 누수 방지)
+     * - priceCache: 5분 이상 된 엔트리 제거
+     * - minuteTradingCache: 만료된 엔트리 제거
+     */
+    @Scheduled(cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
+    public void cleanupExpiredCache() {
+        int priceRemoved = 0;
+        int minuteRemoved = 0;
+
+        // priceCache: fetchedAt이 5분 이상 지난 엔트리 제거
+        for (Map.Entry<String, StockPriceDto> entry : priceCache.entrySet()) {
+            if (!isValidCache(entry.getValue(), 5)) {
+                priceCache.remove(entry.getKey());
+                priceRemoved++;
+            }
+        }
+
+        // minuteTradingCache: isValid() false인 엔트리 제거
+        for (Map.Entry<String, MinuteTradingCache> entry : minuteTradingCache.entrySet()) {
+            if (!entry.getValue().isValid()) {
+                minuteTradingCache.remove(entry.getKey());
+                minuteRemoved++;
+            }
+        }
+
+        log.info("[캐시정리] priceCache {}건 제거 (잔여 {}건), minuteTradingCache {}건 제거 (잔여 {}건)",
+                priceRemoved, priceCache.size(), minuteRemoved, minuteTradingCache.size());
     }
 
     /**
