@@ -171,22 +171,22 @@ public class GlobalFuturesService {
         }
 
         try {
-            // KIS 해외선물 현재가 API (HHDFS76200200)
+            // KIS 해외선물옵션 현재가 API (HHDFS76410000)
             String excd = info.getExchange();
             String contractSymbol = getActiveContractSymbol(symbol);
 
-            String url = baseUrl + "/uapi/overseas-futures/v1/quotations/inquire-price"
+            String url = baseUrl + "/uapi/overseas-futr/v1/quotations/inquire-price"
                     + "?EXCD=" + excd
                     + "&SYMB=" + contractSymbol;
 
-            log.debug("[해외선물] {} 조회 요청: EXCD={}, SYMB={}", info.getName(), excd, contractSymbol);
+            log.info("[해외선물] {} 조회 요청: EXCD={}, SYMB={}", info.getName(), excd, contractSymbol);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("authorization", "Bearer " + token);
             headers.set("appkey", appKey);
             headers.set("appsecret", appSecret);
-            headers.set("tr_id", "HHDFS76200200");
+            headers.set("tr_id", "HHDFS76410000");
             headers.set("custtype", "P");
 
             HttpEntity<String> request = new HttpEntity<>(headers);
