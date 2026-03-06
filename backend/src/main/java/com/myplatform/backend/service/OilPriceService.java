@@ -1,13 +1,16 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.OilPriceDto;
 import com.myplatform.backend.entity.OilPrice;
 import com.myplatform.backend.repository.OilPriceRepository;
-import com.myplatform.backend.service.GlobalFuturesService.FuturesQuote;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.*;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
@@ -22,7 +25,7 @@ import java.util.stream.Collectors;
 
 /**
  * WTI 원유 시세 서비스
- * - KIS API 해외선물(CL)을 통해 WTI 시세 조회
+ * - Yahoo Finance API (CL=F)를 통해 WTI 시세 조회
  * - DB에 히스토리 저장
  */
 @Service
@@ -30,8 +33,12 @@ import java.util.stream.Collectors;
 @Slf4j
 public class OilPriceService {
 
-    private final GlobalFuturesService globalFuturesService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
     private final OilPriceRepository oilPriceRepository;
+
+    private static final String YAHOO_FINANCE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=1d";
+    private static final String WTI_SYMBOL = "CL=F";
 
     private final AtomicReference<OilPriceDto> cachedOilPrice = new AtomicReference<>();
 
@@ -47,15 +54,14 @@ public class OilPriceService {
             cachedOilPrice.set(dto);
             log.info("DB에서 원유 시세 로드 완료: ${}  (기준: {})", dto.getPricePerBarrel(), dto.getFetchedAt());
         } else {
-            log.info("DB에 원유 시세 데이터 없음. KIS API로 초기 데이터 수집...");
+            log.info("DB에 원유 시세 데이터 없음. Yahoo Finance로 초기 데이터 수집...");
             fetchAndCache();
         }
     }
 
     /**
-     * 평일 장중/야간 주기적 시세 갱신
-     * - 07:00 (야간선물 마감 무렵)
-     * - 10:00, 14:00, 18:00, 22:00 (주요 시간대)
+     * 평일 주기적 시세 갱신
+     * - 07:00, 10:00, 14:00, 18:00, 22:00
      */
     @Scheduled(cron = "0 0 7,10,14,18,22 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledFetch() {
@@ -64,32 +70,102 @@ public class OilPriceService {
     }
 
     /**
-     * KIS API CL(WTI) 선물 시세 조회 및 DB 저장
+     * Yahoo Finance CL=F(WTI) 시세 조회 및 DB 저장
      */
     public void fetchAndCache() {
         try {
-            FuturesQuote quote = globalFuturesService.getFuturesQuote("CL");
+            String url = String.format(YAHOO_FINANCE_URL, WTI_SYMBOL);
 
-            if (quote == null || !quote.isSuccess() || quote.getCurrentPrice() == null) {
-                log.warn("WTI 원유 시세 조회 실패");
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            headers.set("Accept", "application/json");
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                log.warn("WTI 원유 시세 조회 실패: HTTP {}", response.getStatusCode());
                 return;
             }
 
-            OilPriceDto dto = new OilPriceDto();
-            dto.setPricePerBarrel(quote.getCurrentPrice());
-            dto.setOpenPrice(quote.getCurrentPrice()); // KIS 선물 API에 시가 없으면 현재가 사용
-            dto.setHighPrice(quote.getHighPrice());
-            dto.setLowPrice(quote.getLowPrice());
-            dto.setClosePrice(quote.getCurrentPrice());
-            dto.setChangePrice(quote.getChangePrice());
-            dto.setChangeRate(quote.getChangeRate());
-            dto.setVolume(quote.getVolume() != null ? quote.getVolume().longValue() : null);
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode result = root.path("chart").path("result").get(0);
 
-            // 원화 환산 (대략 환율 1,350원 기준 - 추후 환율 API 연동 가능)
+            if (result == null) {
+                log.warn("WTI 원유 시세 조회 실패: Yahoo Finance 결과 없음");
+                return;
+            }
+
+            JsonNode meta = result.path("meta");
+            BigDecimal currentPrice = parseBd(meta.path("regularMarketPrice").asText());
+            BigDecimal prevClose = parseBd(meta.path("chartPreviousClose").asText());
+
+            if (currentPrice == null) {
+                log.warn("WTI 원유 시세 조회 실패: 현재가 없음");
+                return;
+            }
+
+            // 등락 계산
+            BigDecimal changePrice = BigDecimal.ZERO;
+            BigDecimal changeRate = BigDecimal.ZERO;
+            if (prevClose != null && prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                changePrice = currentPrice.subtract(prevClose).setScale(2, RoundingMode.HALF_UP);
+                changeRate = changePrice.divide(prevClose, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"))
+                        .setScale(2, RoundingMode.HALF_UP);
+            }
+
+            // 고가/저가 추출
+            BigDecimal highPrice = parseBd(meta.path("regularMarketDayHigh").asText());
+            BigDecimal lowPrice = parseBd(meta.path("regularMarketDayLow").asText());
+            BigDecimal openPrice = parseBd(meta.path("regularMarketOpen").asText());
+            Long volume = meta.path("regularMarketVolume").canConvertToLong()
+                    ? meta.path("regularMarketVolume").asLong() : null;
+
+            // indicators에서 고가/저가 fallback
+            if (highPrice == null || lowPrice == null) {
+                JsonNode indicators = result.path("indicators").path("quote").get(0);
+                if (indicators != null) {
+                    if (highPrice == null) {
+                        JsonNode highArr = indicators.path("high");
+                        if (highArr.isArray() && highArr.size() > 0) {
+                            highPrice = parseBd(highArr.get(highArr.size() - 1).asText());
+                        }
+                    }
+                    if (lowPrice == null) {
+                        JsonNode lowArr = indicators.path("low");
+                        if (lowArr.isArray() && lowArr.size() > 0) {
+                            lowPrice = parseBd(lowArr.get(lowArr.size() - 1).asText());
+                        }
+                    }
+                    if (openPrice == null) {
+                        JsonNode openArr = indicators.path("open");
+                        if (openArr.isArray() && openArr.size() > 0) {
+                            openPrice = parseBd(openArr.get(openArr.size() - 1).asText());
+                        }
+                    }
+                    if (volume == null) {
+                        JsonNode volArr = indicators.path("volume");
+                        if (volArr.isArray() && volArr.size() > 0 && !volArr.get(volArr.size() - 1).isNull()) {
+                            volume = volArr.get(volArr.size() - 1).asLong();
+                        }
+                    }
+                }
+            }
+
+            OilPriceDto dto = new OilPriceDto();
+            dto.setPricePerBarrel(currentPrice.setScale(2, RoundingMode.HALF_UP));
+            dto.setOpenPrice(openPrice != null ? openPrice.setScale(2, RoundingMode.HALF_UP) : currentPrice);
+            dto.setHighPrice(highPrice != null ? highPrice.setScale(2, RoundingMode.HALF_UP) : currentPrice);
+            dto.setLowPrice(lowPrice != null ? lowPrice.setScale(2, RoundingMode.HALF_UP) : currentPrice);
+            dto.setClosePrice(currentPrice.setScale(2, RoundingMode.HALF_UP));
+            dto.setChangePrice(changePrice);
+            dto.setChangeRate(changeRate);
+            dto.setVolume(volume);
+
+            // 원화 환산 (대략 환율 1,350원 기준)
             BigDecimal exchangeRate = new BigDecimal("1350");
-            dto.setPriceKrw(quote.getCurrentPrice()
-                    .multiply(exchangeRate)
-                    .setScale(0, RoundingMode.HALF_UP));
+            dto.setPriceKrw(currentPrice.multiply(exchangeRate).setScale(0, RoundingMode.HALF_UP));
 
             LocalDateTime now = LocalDateTime.now();
             dto.setBaseDate(now.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
@@ -99,11 +175,10 @@ public class OilPriceService {
             cachedOilPrice.set(dto);
 
             // DB 저장
-            OilPrice entity = dtoToEntity(dto);
-            oilPriceRepository.save(entity);
+            OilPrice oilEntity = dtoToEntity(dto);
+            oilPriceRepository.save(oilEntity);
 
-            log.info("WTI 원유 시세 갱신 완료: ${}/배럴 ({}%)",
-                    dto.getPricePerBarrel(), dto.getChangeRate());
+            log.info("WTI 원유 시세 갱신 완료: ${}/배럴 ({}%)", dto.getPricePerBarrel(), dto.getChangeRate());
 
         } catch (Exception e) {
             log.error("원유 시세 조회 실패", e);
@@ -162,6 +237,15 @@ public class OilPriceService {
             result.add(dto);
         }
         return result;
+    }
+
+    private BigDecimal parseBd(String value) {
+        if (value == null || value.isEmpty() || "null".equals(value)) return null;
+        try {
+            return new BigDecimal(value);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private OilPrice dtoToEntity(OilPriceDto dto) {
