@@ -105,6 +105,40 @@
               </svg>
             </span>
           </article>
+
+          <article class="menu-card oil" @click="goToOil">
+            <div class="card-icon oil-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M6 20V10a6 6 0 0 1 12 0v10"/>
+                <path d="M6 20h12"/>
+                <path d="M12 4V2"/>
+                <circle cx="12" cy="10" r="2"/>
+              </svg>
+            </div>
+            <h3>원유 시세</h3>
+            <p>WTI 원유 선물 시세</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article class="menu-card futures" @click="goToGlobalFutures">
+            <div class="card-icon futures-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
+                <polyline points="16,7 22,7 22,13"/>
+              </svg>
+            </div>
+            <h3>글로벌 선물</h3>
+            <p>야간선물 / 해외선물 시세</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
         </div>
       </section>
 
@@ -447,6 +481,12 @@ export default {
     goToSilver() {
       this.$router.push('/silver')
     },
+    goToOil() {
+      this.$router.push('/oil')
+    },
+    goToGlobalFutures() {
+      this.$router.push('/global-futures')
+    },
     goToFiles() {
       this.$router.push('/files')
     },
@@ -767,6 +807,46 @@ export default {
 
 .menu-card.gold h3 {
   color: #b8860b;
+}
+
+/* 원유 시세 카드 */
+.card-icon.oil-icon {
+  background: linear-gradient(135deg, rgba(44, 62, 80, 0.2) 0%, rgba(52, 73, 94, 0.2) 100%);
+  color: #2c3e50;
+}
+
+.menu-card.oil {
+  background: linear-gradient(135deg, rgba(234, 242, 248, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(41, 128, 185, 0.3);
+}
+
+.menu-card.oil:hover {
+  border-color: #2980b9;
+  box-shadow: 0 20px 40px rgba(41, 128, 185, 0.15);
+}
+
+.menu-card.oil h3 {
+  color: #2c3e50;
+}
+
+/* 글로벌 선물 카드 */
+.card-icon.futures-icon {
+  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
+  color: #27ae60;
+}
+
+.menu-card.futures {
+  background: linear-gradient(135deg, rgba(232, 246, 239, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  border: 2px solid rgba(39, 174, 96, 0.3);
+}
+
+.menu-card.futures:hover {
+  border-color: #27ae60;
+  box-shadow: 0 20px 40px rgba(39, 174, 96, 0.15);
+}
+
+.menu-card.futures h3 {
+  color: #27ae60;
 }
 
 /* 은 시세 카드 */
