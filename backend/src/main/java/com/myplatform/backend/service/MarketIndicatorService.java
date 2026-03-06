@@ -342,11 +342,23 @@ public class MarketIndicatorService {
                 for (JsonNode item : output) {
                     MarketIndicatorStockDto dto = new MarketIndicatorStockDto();
 
-                    dto.setStockCode(item.get("mksc_shrn_iscd").asText());
-                    dto.setStockName(item.get("hts_kor_isnm").asText());
-                    dto.setCurrentPrice(new BigDecimal(item.get("stck_prpr").asText()));
-                    dto.setChangeAmount(new BigDecimal(item.get("prdy_vrss").asText()));
-                    dto.setChangeRate(new BigDecimal(item.get("prdy_ctrt").asText()));
+                    // 필드명이 API 종류에 따라 다를 수 있으므로 null 체크
+                    JsonNode codeNode = item.get("mksc_shrn_iscd");
+                    if (codeNode == null) codeNode = item.get("stck_shrn_iscd");
+                    if (codeNode == null) continue;
+
+                    JsonNode nameNode = item.get("hts_kor_isnm");
+                    if (nameNode == null) nameNode = item.get("stck_kor_isnm");
+                    if (nameNode == null) continue;
+
+                    JsonNode priceNode = item.get("stck_prpr");
+                    if (priceNode == null) continue;
+
+                    dto.setStockCode(codeNode.asText());
+                    dto.setStockName(nameNode.asText());
+                    dto.setCurrentPrice(new BigDecimal(priceNode.asText()));
+                    dto.setChangeAmount(item.has("prdy_vrss") ? new BigDecimal(item.get("prdy_vrss").asText()) : BigDecimal.ZERO);
+                    dto.setChangeRate(item.has("prdy_ctrt") ? new BigDecimal(item.get("prdy_ctrt").asText()) : BigDecimal.ZERO);
 
                     if (item.has("stck_oprc")) {
                         dto.setOpenPrice(new BigDecimal(item.get("stck_oprc").asText()));
