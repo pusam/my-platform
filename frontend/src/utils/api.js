@@ -902,6 +902,16 @@ export const watchlistAPI = {
   }
 };
 
+// Oil Price API (원유 시세)
+export const oilAPI = {
+  getPrice() {
+    return apiClient.get('/oil/price');
+  },
+  getMonthlyHistory() {
+    return apiClient.get('/oil/history/month');
+  }
+};
+
 // 글로벌 선물 API (해외선물/야간선물)
 export const globalFuturesAPI = {
   getAllQuotes() {
