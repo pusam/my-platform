@@ -13,6 +13,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -49,13 +50,27 @@ public class GlobalFuturesService {
     // 해외선물 종목 정의
     private static final Map<String, FuturesInfo> FUTURES_MAP = new LinkedHashMap<>();
 
+    // KIS API 거래소코드 매핑
+    private static final Map<String, String> KIS_EXCHANGE_MAP = Map.of(
+            "CME", "CME",
+            "NYMEX", "NYM",
+            "COMEX", "CMX",
+            "CBOT", "CBT"
+    );
+
+    // 선물 만기월 코드: 1월=F, 2월=G, ..., 12월=Z
+    private static final char[] MONTH_CODES = {'F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'};
+
+    // 분기월(3,6,9,12) 사용 종목
+    private static final Set<String> QUARTERLY_SYMBOLS = Set.of("NQ", "ES", "YM", "6E", "6J", "KM");
+
     static {
-        FUTURES_MAP.put("KM", new FuturesInfo("KM", "KOSPI200 야간선물", "코스피200", "index", "KRX"));
+        FUTURES_MAP.put("KM", new FuturesInfo("KM", "KOSPI200 야간선물", "코스피200", "index", "CME"));
         FUTURES_MAP.put("NQ", new FuturesInfo("NQ", "나스닥100 선물", "나스닥100", "index", "CME"));
         FUTURES_MAP.put("ES", new FuturesInfo("ES", "S&P500 E-mini", "S&P500", "index", "CME"));
-        FUTURES_MAP.put("YM", new FuturesInfo("YM", "다우 E-mini", "다우존스", "index", "CBOT"));
-        FUTURES_MAP.put("CL", new FuturesInfo("CL", "WTI 원유", "WTI", "commodity", "NYMEX"));
-        FUTURES_MAP.put("GC", new FuturesInfo("GC", "금 선물", "Gold", "commodity", "COMEX"));
+        FUTURES_MAP.put("YM", new FuturesInfo("YM", "다우 E-mini", "다우존스", "index", "CBT"));
+        FUTURES_MAP.put("CL", new FuturesInfo("CL", "WTI 원유", "WTI", "commodity", "NYM"));
+        FUTURES_MAP.put("GC", new FuturesInfo("GC", "금 선물", "Gold", "commodity", "CMX"));
         FUTURES_MAP.put("6E", new FuturesInfo("6E", "유로/달러", "EUR/USD", "currency", "CME"));
         FUTURES_MAP.put("6J", new FuturesInfo("6J", "엔/달러", "JPY/USD", "currency", "CME"));
     }
@@ -157,8 +172,14 @@ public class GlobalFuturesService {
 
         try {
             // KIS 해외선물 현재가 API (HHDFS76200200)
+            String excd = info.getExchange();
+            String contractSymbol = getActiveContractSymbol(symbol);
+
             String url = baseUrl + "/uapi/overseas-futures/v1/quotations/inquire-price"
-                    + "?SRS_CD=" + symbol;
+                    + "?EXCD=" + excd
+                    + "&SYMB=" + contractSymbol;
+
+            log.debug("[해외선물] {} 조회 요청: EXCD={}, SYMB={}", info.getName(), excd, contractSymbol);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -294,6 +315,37 @@ public class GlobalFuturesService {
     public void clearCache() {
         cache.clear();
         log.info("해외선물 캐시 클리어됨");
+    }
+
+    /**
+     * 현재 날짜 기준 활성 계약월 심볼 생성
+     * 예: CL → CLJ6 (2026년 4월물), NQ → NQH6 (2026년 3월물, 분기)
+     */
+    String getActiveContractSymbol(String baseSymbol) {
+        LocalDate now = LocalDate.now();
+        int month = now.getMonthValue();
+        int year = now.getYear() % 10; // 마지막 한자리 (2026 → 6)
+
+        if (QUARTERLY_SYMBOLS.contains(baseSymbol)) {
+            // 분기 계약: 3(H), 6(M), 9(U), 12(Z)
+            int[] qMonths = {3, 6, 9, 12};
+            for (int qm : qMonths) {
+                if (qm >= month) {
+                    return baseSymbol + MONTH_CODES[qm - 1] + year;
+                }
+            }
+            // 12월 이후 → 내년 3월물
+            return baseSymbol + "H" + ((year + 1) % 10);
+        } else {
+            // 월물 계약: 현재월+1 (front month)
+            int frontMonth = month + 1;
+            int frontYear = year;
+            if (frontMonth > 12) {
+                frontMonth = 1;
+                frontYear = (frontYear + 1) % 10;
+            }
+            return baseSymbol + MONTH_CODES[frontMonth - 1] + frontYear;
+        }
     }
 
     private FuturesQuote createErrorQuote(FuturesInfo info, String message) {
