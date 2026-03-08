@@ -12,7 +12,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDateTime;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -70,7 +71,8 @@ public class GlobalFuturesService {
         private BigDecimal lowPrice;
         private BigDecimal volume;
         private String sign;          // 1:상한, 2:상승, 3:보합, 4:하한, 5:하락
-        private String tradingTime;
+        private String tradingTime;   // 실제 마켓 체결 시간 (Yahoo regularMarketTime)
+        private String marketStatus;  // OPEN, CLOSED, PRE, POST
         private LocalDateTime fetchedAt;
         private boolean success;
         private String errorMessage;
@@ -190,6 +192,24 @@ public class GlobalFuturesService {
                 }
             }
 
+            // 실제 마켓 체결 시간 추출
+            String tradingTime = null;
+            long regularMarketTimeEpoch = meta.path("regularMarketTime").asLong(0);
+            if (regularMarketTimeEpoch > 0) {
+                String timezone = meta.path("exchangeTimezoneName").asText("America/New_York");
+                try {
+                    ZonedDateTime marketTime = Instant.ofEpochSecond(regularMarketTimeEpoch)
+                            .atZone(ZoneId.of(timezone));
+                    ZonedDateTime kst = marketTime.withZoneSameInstant(ZoneId.of("Asia/Seoul"));
+                    tradingTime = kst.format(DateTimeFormatter.ofPattern("MM/dd HH:mm (E)", Locale.KOREAN)) + " KST";
+                } catch (Exception e) {
+                    log.debug("시간 변환 실패: {}", e.getMessage());
+                }
+            }
+
+            // 마켓 상태
+            String marketStatus = meta.path("marketState").asText("CLOSED");
+
             // sign 결정
             String sign = "3"; // 보합
             if (changeRate.compareTo(BigDecimal.ZERO) > 0) sign = "2"; // 상승
@@ -208,6 +228,8 @@ public class GlobalFuturesService {
                     .lowPrice(lowPrice != null ? lowPrice.setScale(2, RoundingMode.HALF_UP) : null)
                     .volume(volumeBd)
                     .sign(sign)
+                    .tradingTime(tradingTime)
+                    .marketStatus(marketStatus)
                     .fetchedAt(LocalDateTime.now())
                     .success(true)
                     .build();

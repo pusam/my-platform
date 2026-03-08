@@ -6,6 +6,11 @@
         <h1>글로벌 선물 대시보드</h1>
       </div>
       <div class="header-right">
+        <div v-if="dataTimestamp" class="data-time-info">
+          <span class="data-time-label">데이터 기준</span>
+          <span class="data-time-value">{{ dataTimestamp }}</span>
+          <span v-if="marketStatusText" class="market-status-badge" :class="marketStatusClass">{{ marketStatusText }}</span>
+        </div>
         <span v-if="lastUpdated" class="update-time">{{ formatTime(lastUpdated) }} 갱신</span>
         <button class="refresh-btn" :class="{ spinning: loading }" @click="fetchData">↻</button>
         <label class="auto-toggle">
@@ -73,7 +78,7 @@
           <span class="value">{{ formatVolume(kospiQuote.volume) }}</span>
         </div>
         <div class="detail">
-          <span class="label">체결시간</span>
+          <span class="label">데이터 기준</span>
           <span class="value">{{ kospiQuote.tradingTime || '-' }}</span>
         </div>
       </div>
@@ -201,7 +206,7 @@
     </div>
 
     <div class="disclaimer">
-      해외선물 시세는 KIS API를 통해 제공되며, 실시간 데이터와 차이가 있을 수 있습니다. 투자 판단의 참고자료로만 활용하세요.
+      해외선물 시세는 Yahoo Finance를 통해 제공됩니다. 주말·공휴일에는 마지막 거래일 종가 기준이며, 장중에는 약간의 지연이 있을 수 있습니다. 투자 판단의 참고자료로만 활용하세요.
     </div>
   </div>
 </template>
@@ -216,6 +221,8 @@ const quotes = ref([]);
 const impactData = ref(null);
 const lastUpdated = ref(null);
 const autoRefresh = ref(true);
+const dataTimestamp = ref('');
+const currentMarketStatus = ref('');
 let refreshTimer = null;
 
 // 카테고리 필터
@@ -252,6 +259,23 @@ const impactText = computed(() => {
   return '보합 예상';
 });
 
+// 마켓 상태
+const marketStatusText = computed(() => {
+  const s = currentMarketStatus.value;
+  if (s === 'REGULAR') return '장중';
+  if (s === 'PRE') return '프리마켓';
+  if (s === 'POST' || s === 'POSTPOST') return '애프터마켓';
+  if (s === 'CLOSED') return '장마감';
+  return s || '';
+});
+
+const marketStatusClass = computed(() => {
+  const s = currentMarketStatus.value;
+  if (s === 'REGULAR') return 'status-open';
+  if (s === 'PRE' || s === 'POST' || s === 'POSTPOST') return 'status-pre';
+  return 'status-closed';
+});
+
 // 데이터 fetch
 const fetchData = async () => {
   loading.value = true;
@@ -268,6 +292,12 @@ const fetchData = async () => {
         comment: data.comment
       };
       lastUpdated.value = new Date();
+
+      // 데이터 기준 시간 추출 (첫 번째 성공 종목의 tradingTime)
+      const firstSuccess = (data.quotes || []).find(q => q.success && q.tradingTime);
+      dataTimestamp.value = firstSuccess ? firstSuccess.tradingTime : '';
+      const firstStatus = (data.quotes || []).find(q => q.success && q.marketStatus);
+      currentMarketStatus.value = firstStatus ? firstStatus.marketStatus : '';
     }
   } catch (e) {
     error.value = '해외선물 데이터 조회에 실패했습니다.';
@@ -419,6 +449,49 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.data-time-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  padding: 6px 14px;
+}
+
+.data-time-label {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.data-time-value {
+  font-size: 0.8rem;
+  color: #ddd;
+  font-weight: 600;
+}
+
+.market-status-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.market-status-badge.status-open {
+  background: rgba(34,197,94,0.2);
+  color: #22c55e;
+}
+
+.market-status-badge.status-pre {
+  background: rgba(251,191,36,0.2);
+  color: #fbbf24;
+}
+
+.market-status-badge.status-closed {
+  background: rgba(156,163,175,0.2);
+  color: #9ca3af;
 }
 
 .update-time {
