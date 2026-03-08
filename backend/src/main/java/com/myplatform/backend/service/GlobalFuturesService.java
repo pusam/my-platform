@@ -27,6 +27,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * - WTI 원유 선물 (CL=F)
  * - 금 선물 (GC=F)
  * - 유로/달러 (EURUSD=X), 달러/엔 (USDJPY=X)
+ * - 달러/원 (KRW=X)
+ * - VIX 공포지수 (^VIX)
  */
 @Service
 @RequiredArgsConstructor
@@ -50,6 +52,8 @@ public class GlobalFuturesService {
         FUTURES_MAP.put("GC", new FuturesInfo("GC", "GC=F", "금 선물", "Gold", "commodity", "COMEX"));
         FUTURES_MAP.put("6E", new FuturesInfo("6E", "EURUSD=X", "유로/달러", "EUR/USD", "currency", "CME"));
         FUTURES_MAP.put("6J", new FuturesInfo("6J", "USDJPY=X", "달러/엔", "USD/JPY", "currency", "CME"));
+        FUTURES_MAP.put("KRW", new FuturesInfo("KRW", "KRW=X", "달러/원", "USD/KRW", "currency", "FX"));
+        FUTURES_MAP.put("VIX", new FuturesInfo("VIX", "^VIX", "VIX 공포지수", "VIX", "volatility", "CBOE"));
     }
 
     // 캐시 (60초)
@@ -246,59 +250,194 @@ public class GlobalFuturesService {
     }
 
     /**
-     * 코스피 영향 예측 생성
+     * 코스피 영향 예측 생성 (복합 가중치 모델)
+     *
+     * 가중치 배분:
+     * - 나스닥100 선물: 35% (미국 기술주 연동)
+     * - S&P500 선물: 15% (글로벌 대형주)
+     * - WTI 원유: 15% (에너지·인플레 리스크)
+     * - 달러/원 환율: 20% (외국인 자금 흐름 핵심)
+     * - VIX 공포지수: 15% (시장 변동성)
      */
     public Map<String, Object> getKospiImpactAnalysis() {
         List<FuturesQuote> quotes = getAllFuturesQuotes();
         Map<String, Object> analysis = new LinkedHashMap<>();
 
-        FuturesQuote kospi = quotes.stream()
-                .filter(q -> "KM".equals(q.getSymbol()) && q.isSuccess())
-                .findFirst().orElse(null);
-
-        FuturesQuote nasdaq = quotes.stream()
-                .filter(q -> "NQ".equals(q.getSymbol()) && q.isSuccess())
-                .findFirst().orElse(null);
-
-        String impact = "NEUTRAL";
-        String comment = "글로벌 시장 데이터를 조회할 수 없습니다.";
-        int impactScore = 50;
-
-        // 나스닥 선물 기준으로 영향 분석
-        if (nasdaq != null && nasdaq.getChangeRate() != null) {
-            BigDecimal rate = nasdaq.getChangeRate();
-            if (rate.compareTo(new BigDecimal("0.5")) >= 0) {
-                impact = "POSITIVE";
-                impactScore = 70;
-                comment = String.format("나스닥 선물 +%.2f%% 상승. 코스피 긍정적 영향 예상.", rate);
-            } else if (rate.compareTo(new BigDecimal("-0.5")) <= 0) {
-                impact = "NEGATIVE";
-                impactScore = 30;
-                comment = String.format("나스닥 선물 %.2f%% 하락. 코스피 하방 압력 주의.", rate);
-            } else {
-                comment = String.format("나스닥 선물 %.2f%% 소폭 변동. 보합 출발 예상.", rate);
-            }
+        // 종목별 추출
+        Map<String, FuturesQuote> quoteMap = new LinkedHashMap<>();
+        for (FuturesQuote q : quotes) {
+            if (q.isSuccess()) quoteMap.put(q.getSymbol(), q);
         }
 
-        // KOSPI200 데이터가 있으면 보정
-        if (kospi != null && kospi.getChangeRate() != null) {
-            BigDecimal kRate = kospi.getChangeRate();
-            if (kRate.compareTo(new BigDecimal("0.5")) >= 0) {
-                impactScore = Math.min(90, impactScore + 10);
-                comment += String.format(" KOSPI200 +%.2f%% 강세.", kRate);
-            } else if (kRate.compareTo(new BigDecimal("-0.5")) <= 0) {
-                impactScore = Math.max(10, impactScore - 10);
-                comment += String.format(" KOSPI200 %.2f%% 약세.", kRate);
+        // 복합 점수 계산 (0~100, 50=중립)
+        double weightedScore = 50.0;
+        List<Map<String, Object>> riskFactors = new ArrayList<>();
+
+        // 1) 나스닥100 선물 (가중치 35%)
+        FuturesQuote nq = quoteMap.get("NQ");
+        if (nq != null && nq.getChangeRate() != null) {
+            double nqRate = nq.getChangeRate().doubleValue();
+            double nqContrib = clampContrib(nqRate * 7.0); // ±1% → ±7점
+            weightedScore += nqContrib * 0.35;
+            riskFactors.add(createFactor("나스닥100", nqRate, nqContrib > 0 ? "POSITIVE" : nqContrib < 0 ? "NEGATIVE" : "NEUTRAL", 35));
+        }
+
+        // 2) S&P500 선물 (가중치 15%)
+        FuturesQuote es = quoteMap.get("ES");
+        if (es != null && es.getChangeRate() != null) {
+            double esRate = es.getChangeRate().doubleValue();
+            double esContrib = clampContrib(esRate * 6.0);
+            weightedScore += esContrib * 0.15;
+            riskFactors.add(createFactor("S&P500", esRate, esContrib > 0 ? "POSITIVE" : esContrib < 0 ? "NEGATIVE" : "NEUTRAL", 15));
+        }
+
+        // 3) WTI 원유 (가중치 15%) - 유가 급등은 코스피에 악재
+        FuturesQuote cl = quoteMap.get("CL");
+        if (cl != null && cl.getChangeRate() != null) {
+            double clRate = cl.getChangeRate().doubleValue();
+            // 유가 상승 → 코스피 약세 (역방향), 단 소폭(±2% 이내)은 무시
+            double clContrib = 0;
+            if (Math.abs(clRate) > 2.0) {
+                clContrib = clampContrib(-clRate * 3.0); // 유가 5% 급등 → -15점
+            } else {
+                clContrib = clampContrib(-clRate * 1.5);
             }
+            weightedScore += clContrib * 0.15;
+            String clSignal = clRate > 3.0 ? "NEGATIVE" : clRate < -3.0 ? "POSITIVE" : "NEUTRAL";
+            riskFactors.add(createFactor("WTI 원유", clRate, clSignal, 15));
+        }
+
+        // 4) 달러/원 환율 (가중치 20%) - 원화 약세(환율 상승)는 외국인 이탈 → 코스피 약세
+        FuturesQuote krw = quoteMap.get("KRW");
+        if (krw != null && krw.getChangeRate() != null) {
+            double krwRate = krw.getChangeRate().doubleValue();
+            // 환율 상승(원화 약세) → 코스피 하락
+            double krwContrib = clampContrib(-krwRate * 8.0); // ±0.5% → ±4점
+            weightedScore += krwContrib * 0.20;
+            String krwSignal = krwRate > 0.3 ? "NEGATIVE" : krwRate < -0.3 ? "POSITIVE" : "NEUTRAL";
+            riskFactors.add(createFactor("달러/원", krwRate, krwSignal, 20));
+        }
+
+        // 5) VIX 공포지수 (가중치 15%) - VIX 상승 → 공포 → 코스피 약세
+        FuturesQuote vix = quoteMap.get("VIX");
+        if (vix != null && vix.getCurrentPrice() != null) {
+            double vixLevel = vix.getCurrentPrice().doubleValue();
+            double vixRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
+            // VIX 절대 수준 + 변동률 복합
+            double vixContrib = 0;
+            if (vixLevel >= 30) vixContrib = -15; // 극심한 공포
+            else if (vixLevel >= 25) vixContrib = -10;
+            else if (vixLevel >= 20) vixContrib = -5;
+            else if (vixLevel < 15) vixContrib = 3; // 안정
+            // VIX 급등 추가 반영
+            if (vixRate > 10) vixContrib -= 8;
+            else if (vixRate > 5) vixContrib -= 4;
+            vixContrib = clampContrib(vixContrib);
+            weightedScore += vixContrib * 0.15;
+
+            String vixSignal = vixLevel >= 25 ? "NEGATIVE" : vixLevel < 18 ? "POSITIVE" : "NEUTRAL";
+            riskFactors.add(createFactor("VIX", vixRate, vixSignal, 15));
+        }
+
+        // KOSPI200 보정
+        FuturesQuote kospi = quoteMap.get("KM");
+        if (kospi != null && kospi.getChangeRate() != null) {
+            double kRate = kospi.getChangeRate().doubleValue();
+            weightedScore += clampContrib(kRate * 3.0) * 0.10; // 소폭 보정
+        }
+
+        // 최종 점수 클램핑 (5~95)
+        int impactScore = (int) Math.max(5, Math.min(95, Math.round(weightedScore)));
+
+        // 등급 + 코멘트 결정
+        String impact;
+        String alertLevel; // EXTREME_NEGATIVE, NEGATIVE, NEUTRAL, POSITIVE, EXTREME_POSITIVE
+        String comment;
+
+        if (impactScore <= 20) {
+            impact = "NEGATIVE";
+            alertLevel = "EXTREME_NEGATIVE";
+            comment = buildComment(quoteMap, "극심한 하방 변동성 경고");
+        } else if (impactScore <= 35) {
+            impact = "NEGATIVE";
+            alertLevel = "NEGATIVE";
+            comment = buildComment(quoteMap, "코스피 하방 압력 주의");
+        } else if (impactScore <= 45) {
+            impact = "NEGATIVE";
+            alertLevel = "WEAK_NEGATIVE";
+            comment = buildComment(quoteMap, "소폭 약세 출발 예상");
+        } else if (impactScore <= 55) {
+            impact = "NEUTRAL";
+            alertLevel = "NEUTRAL";
+            comment = buildComment(quoteMap, "보합 출발 예상");
+        } else if (impactScore <= 65) {
+            impact = "POSITIVE";
+            alertLevel = "WEAK_POSITIVE";
+            comment = buildComment(quoteMap, "소폭 강세 출발 예상");
+        } else if (impactScore <= 80) {
+            impact = "POSITIVE";
+            alertLevel = "POSITIVE";
+            comment = buildComment(quoteMap, "코스피 긍정적 흐름 예상");
+        } else {
+            impact = "POSITIVE";
+            alertLevel = "EXTREME_POSITIVE";
+            comment = buildComment(quoteMap, "강한 상승 모멘텀 예상");
         }
 
         analysis.put("impact", impact);
+        analysis.put("alertLevel", alertLevel);
         analysis.put("impactScore", impactScore);
         analysis.put("comment", comment);
+        analysis.put("riskFactors", riskFactors);
         analysis.put("quotes", quotes);
         analysis.put("fetchedAt", LocalDateTime.now());
 
         return analysis;
+    }
+
+    private double clampContrib(double value) {
+        return Math.max(-20, Math.min(20, value));
+    }
+
+    private Map<String, Object> createFactor(String name, double changeRate, String signal, int weight) {
+        Map<String, Object> factor = new LinkedHashMap<>();
+        factor.put("name", name);
+        factor.put("changeRate", Math.round(changeRate * 100.0) / 100.0);
+        factor.put("signal", signal);
+        factor.put("weight", weight);
+        return factor;
+    }
+
+    private String buildComment(Map<String, FuturesQuote> quoteMap, String headline) {
+        StringBuilder sb = new StringBuilder(headline).append(".");
+
+        FuturesQuote nq = quoteMap.get("NQ");
+        if (nq != null && nq.getChangeRate() != null) {
+            sb.append(String.format(" 나스닥 %+.2f%%", nq.getChangeRate().doubleValue()));
+        }
+
+        FuturesQuote cl = quoteMap.get("CL");
+        if (cl != null && cl.getChangeRate() != null && Math.abs(cl.getChangeRate().doubleValue()) > 1.0) {
+            sb.append(String.format(", WTI %+.2f%%", cl.getChangeRate().doubleValue()));
+        }
+
+        FuturesQuote krw = quoteMap.get("KRW");
+        if (krw != null && krw.getCurrentPrice() != null) {
+            sb.append(String.format(", 원/달러 %.0f원", krw.getCurrentPrice().doubleValue()));
+        }
+
+        FuturesQuote vix = quoteMap.get("VIX");
+        if (vix != null && vix.getCurrentPrice() != null) {
+            double vixLevel = vix.getCurrentPrice().doubleValue();
+            sb.append(String.format(", VIX %.1f", vixLevel));
+            if (vixLevel >= 30) sb.append("(극심한 공포)");
+            else if (vixLevel >= 25) sb.append("(공포)");
+            else if (vixLevel >= 20) sb.append("(경계)");
+            else sb.append("(안정)");
+        }
+
+        sb.append(".");
+        return sb.toString();
     }
 
     public void clearCache() {

@@ -21,10 +21,11 @@
     </div>
 
     <!-- 코스피 영향 분석 배너 -->
-    <div v-if="impactData" class="impact-banner" :class="impactClass">
+    <div v-if="impactData" class="impact-banner" :class="[impactClass, alertClass]">
       <div class="impact-left">
         <span class="impact-label">내일 코스피 전망</span>
         <span class="impact-badge" :class="impactClass">{{ impactText }}</span>
+        <span v-if="isExtremeAlert" class="extreme-alert-badge" :class="alertClass">{{ alertLabel }}</span>
       </div>
       <div class="impact-score-bar">
         <div class="score-track">
@@ -38,6 +39,55 @@
         </div>
       </div>
       <div class="impact-comment">{{ impactData.comment }}</div>
+
+      <!-- 리스크 팩터 분석 -->
+      <div v-if="impactData.riskFactors && impactData.riskFactors.length" class="risk-factors">
+        <div class="factor-title">복합 분석 지표</div>
+        <div class="factor-grid">
+          <div v-for="f in impactData.riskFactors" :key="f.name" class="factor-item">
+            <div class="factor-name">
+              {{ f.name }}
+              <span class="factor-weight">({{ f.weight }}%)</span>
+            </div>
+            <div class="factor-rate" :class="getFactorClass(f)">
+              {{ f.changeRate > 0 ? '+' : '' }}{{ f.changeRate.toFixed(2) }}%
+            </div>
+            <div class="factor-signal" :class="getFactorClass(f)">
+              {{ getFactorSignalText(f.signal) }}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIX 공포지수 패널 -->
+    <div v-if="vixQuote" class="vix-panel" :class="vixLevelClass">
+      <div class="vix-header">
+        <div class="vix-title">
+          <span class="vix-icon">{{ vixEmoji }}</span>
+          <h3>VIX 공포지수</h3>
+          <span class="vix-exchange">CBOE</span>
+        </div>
+        <span class="vix-level-badge" :class="vixLevelClass">{{ vixLevelText }}</span>
+      </div>
+      <div class="vix-body">
+        <div class="vix-price">{{ formatPrice(vixQuote.currentPrice) }}</div>
+        <div class="vix-change" :class="getChangeClass(vixQuote)">
+          {{ formatChange(vixQuote.changePrice) }} ({{ formatRate(vixQuote.changeRate) }}%)
+        </div>
+      </div>
+      <div class="vix-meter">
+        <div class="vix-meter-track">
+          <div class="vix-meter-fill" :style="{ width: vixMeterWidth + '%' }"></div>
+        </div>
+        <div class="vix-meter-labels">
+          <span>0</span>
+          <span class="vix-zone-low">안정 (&lt;15)</span>
+          <span class="vix-zone-mid">경계 (20~25)</span>
+          <span class="vix-zone-high">공포 (&gt;30)</span>
+          <span>50+</span>
+        </div>
+      </div>
     </div>
 
     <!-- 로딩 -->
@@ -242,6 +292,43 @@ const currencyQuotes = computed(() =>
   quotes.value.filter(q => q.category === 'currency' && q.success)
 );
 
+// VIX
+const vixQuote = computed(() =>
+  quotes.value.find(q => q.symbol === 'VIX' && q.success)
+);
+
+const vixLevel = computed(() => {
+  if (!vixQuote.value) return 0;
+  return Number(vixQuote.value.currentPrice) || 0;
+});
+
+const vixLevelClass = computed(() => {
+  const v = vixLevel.value;
+  if (v >= 30) return 'vix-extreme';
+  if (v >= 25) return 'vix-fear';
+  if (v >= 20) return 'vix-caution';
+  return 'vix-calm';
+});
+
+const vixLevelText = computed(() => {
+  const v = vixLevel.value;
+  if (v >= 30) return '극심한 공포';
+  if (v >= 25) return '공포';
+  if (v >= 20) return '경계';
+  if (v >= 15) return '보통';
+  return '안정';
+});
+
+const vixEmoji = computed(() => {
+  const v = vixLevel.value;
+  if (v >= 30) return '!!';
+  if (v >= 25) return '!';
+  if (v >= 20) return '~';
+  return '';
+});
+
+const vixMeterWidth = computed(() => Math.min(100, (vixLevel.value / 50) * 100));
+
 // 코스피 영향 분석
 const impactClass = computed(() => {
   if (!impactData.value) return '';
@@ -253,10 +340,36 @@ const impactClass = computed(() => {
 
 const impactText = computed(() => {
   if (!impactData.value) return '';
-  const impact = impactData.value.impact;
-  if (impact === 'POSITIVE') return '강세 예상';
-  if (impact === 'NEGATIVE') return '약세 주의';
+  const al = impactData.value.alertLevel;
+  if (al === 'EXTREME_NEGATIVE') return '극심한 약세';
+  if (al === 'NEGATIVE') return '약세 주의';
+  if (al === 'WEAK_NEGATIVE') return '소폭 약세';
+  if (al === 'WEAK_POSITIVE') return '소폭 강세';
+  if (al === 'POSITIVE') return '강세 예상';
+  if (al === 'EXTREME_POSITIVE') return '강한 강세';
   return '보합 예상';
+});
+
+const alertClass = computed(() => {
+  if (!impactData.value) return '';
+  const al = impactData.value.alertLevel;
+  if (al === 'EXTREME_NEGATIVE') return 'alert-extreme-neg';
+  if (al === 'EXTREME_POSITIVE') return 'alert-extreme-pos';
+  return '';
+});
+
+const isExtremeAlert = computed(() => {
+  if (!impactData.value) return false;
+  const al = impactData.value.alertLevel;
+  return al === 'EXTREME_NEGATIVE' || al === 'EXTREME_POSITIVE';
+});
+
+const alertLabel = computed(() => {
+  if (!impactData.value) return '';
+  const al = impactData.value.alertLevel;
+  if (al === 'EXTREME_NEGATIVE') return '하방 변동성 경고';
+  if (al === 'EXTREME_POSITIVE') return '강세 모멘텀';
+  return '';
 });
 
 // 마켓 상태
@@ -288,8 +401,10 @@ const fetchData = async () => {
       quotes.value = data.quotes || [];
       impactData.value = {
         impact: data.impact,
+        alertLevel: data.alertLevel,
         impactScore: data.impactScore,
-        comment: data.comment
+        comment: data.comment,
+        riskFactors: data.riskFactors || []
       };
       lastUpdated.value = new Date();
 
@@ -391,6 +506,18 @@ const getSignText = (q) => {
   if (!q || !q.sign) return '';
   const map = { '1': '상한', '2': '상승', '3': '보합', '4': '하한', '5': '하락' };
   return map[q.sign] || '';
+};
+
+const getFactorClass = (f) => {
+  if (f.signal === 'POSITIVE') return 'factor-pos';
+  if (f.signal === 'NEGATIVE') return 'factor-neg';
+  return 'factor-neutral';
+};
+
+const getFactorSignalText = (signal) => {
+  if (signal === 'POSITIVE') return '긍정';
+  if (signal === 'NEGATIVE') return '부정';
+  return '중립';
 };
 
 onMounted(() => {
@@ -608,6 +735,216 @@ onUnmounted(() => {
   color: #ccc;
   line-height: 1.5;
 }
+
+/* 극심한 경고 */
+.impact-banner.alert-extreme-neg {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(60, 10, 10, 0.7);
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.15);
+}
+
+.impact-banner.alert-extreme-pos {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(10, 60, 30, 0.7);
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
+}
+
+.extreme-alert-badge {
+  padding: 3px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  animation: alertPulse 2s ease-in-out infinite;
+}
+
+.extreme-alert-badge.alert-extreme-neg {
+  background: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.extreme-alert-badge.alert-extreme-pos {
+  background: rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+@keyframes alertPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 리스크 팩터 */
+.risk-factors {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.factor-title {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 10px;
+}
+
+.factor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.factor-item {
+  background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.factor-name {
+  font-size: 0.8rem;
+  color: #bbb;
+  margin-bottom: 4px;
+}
+
+.factor-weight {
+  font-size: 0.65rem;
+  color: #666;
+}
+
+.factor-rate {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.factor-signal {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.factor-pos { color: #ef4444; }
+.factor-neg { color: #3b82f6; }
+.factor-neutral { color: #9ca3af; }
+
+/* VIX 공포지수 패널 */
+.vix-panel {
+  background: rgba(30, 30, 60, 0.7);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+}
+
+.vix-panel.vix-extreme {
+  border-color: rgba(239, 68, 68, 0.5);
+  background: rgba(60, 15, 15, 0.7);
+}
+
+.vix-panel.vix-fear {
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
+.vix-panel.vix-caution {
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.vix-panel.vix-calm {
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.vix-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.vix-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vix-title h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #fff;
+}
+
+.vix-icon {
+  font-size: 1rem;
+  color: #f87171;
+  font-weight: 700;
+}
+
+.vix-exchange {
+  font-size: 0.7rem;
+  color: #888;
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+}
+
+.vix-level-badge {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.vix-level-badge.vix-extreme { background: rgba(239,68,68,0.2); color: #f87171; }
+.vix-level-badge.vix-fear { background: rgba(251,146,60,0.2); color: #fb923c; }
+.vix-level-badge.vix-caution { background: rgba(251,191,36,0.2); color: #fbbf24; }
+.vix-level-badge.vix-calm { background: rgba(34,197,94,0.2); color: #4ade80; }
+
+.vix-body {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.vix-price {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.vix-change {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.vix-meter { margin-top: 8px; }
+
+.vix-meter-track {
+  height: 8px;
+  background: linear-gradient(90deg, #22c55e 0%, #fbbf24 40%, #fb923c 60%, #ef4444 80%, #991b1b 100%);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.vix-meter-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: transparent;
+  border-right: 3px solid #fff;
+  box-shadow: 2px 0 8px rgba(255,255,255,0.5);
+  transition: width 0.8s ease;
+}
+
+.vix-meter-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: #666;
+  margin-top: 4px;
+}
+
+.vix-zone-low { color: #4ade80; }
+.vix-zone-mid { color: #fbbf24; }
+.vix-zone-high { color: #f87171; }
 
 /* 메인 카드 (코스피200 야간선물) */
 .main-card {
