@@ -332,6 +332,8 @@ const vixMeterWidth = computed(() => Math.min(100, (vixLevel.value / 50) * 100))
 // 코스피 영향 분석
 const impactClass = computed(() => {
   if (!impactData.value) return '';
+  const al = impactData.value.alertLevel;
+  if (al === 'CRISIS') return 'negative';
   const impact = impactData.value.impact;
   if (impact === 'POSITIVE') return 'positive';
   if (impact === 'NEGATIVE') return 'negative';
@@ -341,6 +343,7 @@ const impactClass = computed(() => {
 const impactText = computed(() => {
   if (!impactData.value) return '';
   const al = impactData.value.alertLevel;
+  if (al === 'CRISIS') return '폭락 경계';
   if (al === 'EXTREME_NEGATIVE') return '극심한 약세';
   if (al === 'NEGATIVE') return '약세 주의';
   if (al === 'WEAK_NEGATIVE') return '소폭 약세';
@@ -353,6 +356,7 @@ const impactText = computed(() => {
 const alertClass = computed(() => {
   if (!impactData.value) return '';
   const al = impactData.value.alertLevel;
+  if (al === 'CRISIS') return 'alert-crisis';
   if (al === 'EXTREME_NEGATIVE') return 'alert-extreme-neg';
   if (al === 'EXTREME_POSITIVE') return 'alert-extreme-pos';
   return '';
@@ -361,12 +365,13 @@ const alertClass = computed(() => {
 const isExtremeAlert = computed(() => {
   if (!impactData.value) return false;
   const al = impactData.value.alertLevel;
-  return al === 'EXTREME_NEGATIVE' || al === 'EXTREME_POSITIVE';
+  return al === 'CRISIS' || al === 'EXTREME_NEGATIVE' || al === 'EXTREME_POSITIVE';
 });
 
 const alertLabel = computed(() => {
   if (!impactData.value) return '';
   const al = impactData.value.alertLevel;
+  if (al === 'CRISIS') return '극심한 하방 압력';
   if (al === 'EXTREME_NEGATIVE') return '하방 변동성 경고';
   if (al === 'EXTREME_POSITIVE') return '강세 모멘텀';
   return '';
@@ -737,6 +742,18 @@ onUnmounted(() => {
 }
 
 /* 극심한 경고 */
+.impact-banner.alert-crisis {
+  border-color: rgba(220, 38, 38, 0.8);
+  background: linear-gradient(135deg, rgba(80, 5, 5, 0.9) 0%, rgba(50, 0, 0, 0.9) 100%);
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.25), inset 0 0 30px rgba(239, 68, 68, 0.05);
+  animation: crisisPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes crisisPulse {
+  0%, 100% { box-shadow: 0 0 30px rgba(239, 68, 68, 0.25); }
+  50% { box-shadow: 0 0 50px rgba(239, 68, 68, 0.4); }
+}
+
 .impact-banner.alert-extreme-neg {
   border-color: rgba(239, 68, 68, 0.6);
   background: rgba(60, 10, 10, 0.7);
@@ -755,6 +772,12 @@ onUnmounted(() => {
   font-size: 0.75rem;
   font-weight: 700;
   animation: alertPulse 2s ease-in-out infinite;
+}
+
+.extreme-alert-badge.alert-crisis {
+  background: rgba(220, 38, 38, 0.4);
+  color: #fca5a5;
+  animation: alertPulse 1s ease-in-out infinite;
 }
 
 .extreme-alert-badge.alert-extreme-neg {

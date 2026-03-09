@@ -350,12 +350,66 @@ public class GlobalFuturesService {
         // 최종 점수 클램핑 (5~95)
         int impactScore = (int) Math.max(5, Math.min(95, Math.round(weightedScore)));
 
+        // ============================================================
+        // 임계값 오버라이드: 극단적 시장 상황 감지 시 가중치 점수 무시
+        // ============================================================
+        boolean thresholdOverride = false;
+        List<String> overrideReasons = new ArrayList<>();
+
+        // 조건 1: VIX >= 25 (공포 구간)
+        if (vix != null && vix.getCurrentPrice() != null) {
+            double vixLevel = vix.getCurrentPrice().doubleValue();
+            if (vixLevel >= 30) {
+                thresholdOverride = true;
+                overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
+            } else if (vixLevel >= 25) {
+                thresholdOverride = true;
+                overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
+            }
+        }
+
+        // 조건 2: WTI 원유 +10% 이상 폭등
+        if (cl != null && cl.getChangeRate() != null) {
+            double clRate = cl.getChangeRate().doubleValue();
+            if (clRate >= 10.0) {
+                thresholdOverride = true;
+                overrideReasons.add(String.format("WTI 원유 +%.1f%% 폭등", clRate));
+            }
+        }
+
+        // 조건 3: 브렌트유 +10% 이상 폭등
+        FuturesQuote bz = quoteMap.get("BZ");
+        if (bz != null && bz.getChangeRate() != null) {
+            double bzRate = bz.getChangeRate().doubleValue();
+            if (bzRate >= 10.0) {
+                thresholdOverride = true;
+                overrideReasons.add(String.format("브렌트유 +%.1f%% 폭등", bzRate));
+            }
+        }
+
+        // 조건 4: 나스닥 -3% 이상 폭락
+        if (nq != null && nq.getChangeRate() != null) {
+            double nqRate = nq.getChangeRate().doubleValue();
+            if (nqRate <= -3.0) {
+                thresholdOverride = true;
+                overrideReasons.add(String.format("나스닥 %.1f%% 폭락", nqRate));
+            }
+        }
+
         // 등급 + 코멘트 결정
         String impact;
-        String alertLevel; // EXTREME_NEGATIVE, NEGATIVE, NEUTRAL, POSITIVE, EXTREME_POSITIVE
+        String alertLevel;
         String comment;
 
-        if (impactScore <= 20) {
+        if (thresholdOverride) {
+            // 임계값 오버라이드 → 강제 최악 등급
+            impact = "NEGATIVE";
+            alertLevel = "CRISIS";
+            impactScore = 3; // 게이지 바 좌측 극단
+            String reasons = String.join(" + ", overrideReasons);
+            comment = buildComment(quoteMap, "폭락 경계 — " + reasons);
+            log.warn("[코스피 전망] 임계값 오버라이드 발동: {}", reasons);
+        } else if (impactScore <= 20) {
             impact = "NEGATIVE";
             alertLevel = "EXTREME_NEGATIVE";
             comment = buildComment(quoteMap, "극심한 하방 변동성 경고");
