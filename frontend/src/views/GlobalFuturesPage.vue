@@ -23,7 +23,7 @@
     <!-- 코스피 영향 분석 배너 -->
     <div v-if="impactData" class="impact-banner" :class="[impactClass, alertClass]">
       <div class="impact-left">
-        <span class="impact-label">내일 코스피 전망</span>
+        <span class="impact-label">종합 시장 방향성</span>
         <span class="impact-badge" :class="impactClass">{{ impactText }}</span>
         <span v-if="isExtremeAlert" class="extreme-alert-badge" :class="alertClass">{{ alertLabel }}</span>
       </div>
@@ -83,8 +83,8 @@
         <div class="vix-meter-labels">
           <span>0</span>
           <span class="vix-zone-low">안정 (&lt;15)</span>
-          <span class="vix-zone-mid">경계 (20~25)</span>
-          <span class="vix-zone-high">공포 (&gt;30)</span>
+          <span class="vix-zone-mid">경계 (15~25)</span>
+          <span class="vix-zone-high">공포 (&ge;25)</span>
           <span>50+</span>
         </div>
       </div>
@@ -940,7 +940,8 @@ onUnmounted(() => {
 
 .vix-meter-track {
   height: 8px;
-  background: linear-gradient(90deg, #22c55e 0%, #fbbf24 40%, #fb923c 60%, #ef4444 80%, #991b1b 100%);
+  /* 0=안정(녹색) → 15=보통(노랑,30%) → 25=공포(빨강,50%) → 50+=극심(어두운빨강) */
+  background: linear-gradient(90deg, #22c55e 0%, #4ade80 20%, #fbbf24 30%, #fb923c 42%, #ef4444 50%, #dc2626 70%, #991b1b 100%);
   border-radius: 4px;
   position: relative;
   overflow: hidden;
