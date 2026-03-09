@@ -364,29 +364,31 @@ export default {
         } else {
           this.marketData = {}
         }
-        this.globalData = {}
+        // globalData를 한번에 새 객체로 할당 (Vue 반응성 보장)
+        const newGlobalData = {
+          nasdaqFutures: null,
+          leadingSectors: [],
+          usdKrw: null
+        }
         if (nasdaqRes.status === 'fulfilled') {
           const d = this.extractData(nasdaqRes.value)
-          this.globalData.nasdaqFutures = (d && d.price) ? d : null
-        } else {
-          this.globalData.nasdaqFutures = null
+          newGlobalData.nasdaqFutures = (d && d.price) ? d : null
         }
         if (leadingRes.status === 'fulfilled') {
           const d = this.extractData(leadingRes.value)
-          this.globalData.leadingSectors = (Array.isArray(d) && d.length > 0) ? d : []
-        } else {
-          this.globalData.leadingSectors = []
+          newGlobalData.leadingSectors = (Array.isArray(d) && d.length > 0) ? d : []
         }
         // USD/KRW 환율
         if (usdKrwRes.status === 'fulfilled' && usdKrwRes.value) {
           const d = this.extractData(usdKrwRes.value)
           if (d && d.currentPrice) {
-            this.globalData.usdKrw = {
+            newGlobalData.usdKrw = {
               price: Number(d.currentPrice).toLocaleString('ko-KR', { minimumFractionDigits: 2 }),
               changeRate: Number(d.changeRate) || 0
             }
           }
         }
+        this.globalData = newGlobalData
       } catch {
         this.sectorData = []
         this.marketData = {}

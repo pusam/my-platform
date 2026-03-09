@@ -81,10 +81,10 @@
           <span class="adr-value">{{ (marketData.dailyRatio || marketData.adr || 0).toFixed(1) }}%</span>
         </div>
         <!-- USD/KRW 환율 -->
-        <div class="indicator-card" v-if="globalData.usdKrw">
+        <div class="indicator-card">
           <span class="ind-label">USD/KRW</span>
-          <span class="ind-value">{{ globalData.usdKrw.price || '-' }}</span>
-          <span class="ind-change" :class="(globalData.usdKrw.changeRate || 0) >= 0 ? 'up' : 'down'">
+          <span class="ind-value">{{ (globalData.usdKrw && globalData.usdKrw.price) || '-' }}</span>
+          <span v-if="globalData.usdKrw" class="ind-change" :class="(globalData.usdKrw.changeRate || 0) >= 0 ? 'up' : 'down'">
             {{ (globalData.usdKrw.changeRate || 0) >= 0 ? '+' : '' }}{{ (globalData.usdKrw.changeRate || 0).toFixed(2) }}%
           </span>
         </div>
@@ -230,6 +230,10 @@ export default {
     }
   },
   computed: {
+    isCrashStatus() {
+      const status = this.marketData.marketStatus || ''
+      return status.includes('폭락') || status.includes('패닉')
+    },
     maxTradingValue() {
       if (this.sectorData.length === 0) return 1
       return Math.max(...this.sectorData.map(s => s.totalTradingValue || s.tradingValue || 1))
@@ -393,10 +397,6 @@ export default {
       if (adr >= 120) return 'adr-hot'
       if (adr >= 80) return 'adr-normal'
       return 'adr-cold'
-    },
-    isCrashStatus() {
-      const status = this.marketData.marketStatus || ''
-      return status.includes('폭락') || status.includes('패닉')
     }
   }
 }
