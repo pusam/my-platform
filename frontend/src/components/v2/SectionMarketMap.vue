@@ -72,24 +72,26 @@
             {{ (marketData.kosdaqChangeRate || 0) >= 0 ? '+' : '' }}{{ (marketData.kosdaqChangeRate || 0).toFixed(2) }}%
           </span>
         </div>
-        <!-- ADR Gauge (당일 등락비 우선, 없으면 20일 ADR) -->
+        <!-- ADR Gauge — 폭락 시 ADR 수치 무시, 강제 빨간색 -->
         <div class="adr-gauge">
-          <span class="adr-label">{{ marketData.dailyRatio ? '당일 등락비' : 'ADR (20일)' }}</span>
+          <span class="adr-label" v-if="isCrashStatus" style="color: #fca5a5; font-weight: 700;">⚠️ 폭락 감지 — ADR 무시됨</span>
+          <span class="adr-label" v-else>{{ marketData.dailyRatio ? '당일 등락비' : 'ADR (20일)' }}</span>
           <div class="gauge-bar">
-            <div class="gauge-fill" :style="{ width: Math.min(100, marketData.dailyRatio || marketData.adr || 0) + '%' }" :class="getAdrClass()"></div>
+            <div class="gauge-fill" :style="{ width: isCrashStatus ? '100%' : (Math.min(100, marketData.dailyRatio || marketData.adr || 0) + '%') }" :class="getAdrClass()"></div>
           </div>
-          <span class="adr-value">{{ (marketData.dailyRatio || marketData.adr || 0).toFixed(1) }}%</span>
+          <span class="adr-value" v-if="!isCrashStatus">{{ (marketData.dailyRatio || marketData.adr || 0).toFixed(1) }}%</span>
         </div>
-        <!-- USD/KRW 환율 -->
+        <!-- USD/KRW 환율 — 데이터 없으면 '데이터 지연' -->
         <div class="indicator-card">
           <span class="ind-label">USD/KRW</span>
-          <span class="ind-value">{{ (globalData.usdKrw && globalData.usdKrw.price) || '-' }}</span>
-          <span v-if="globalData.usdKrw" class="ind-change" :class="(globalData.usdKrw.changeRate || 0) >= 0 ? 'up' : 'down'">
+          <span class="ind-value" :class="{ 'data-delayed': !globalData.usdKrw || !globalData.usdKrw.price }">{{ usdKrwDisplay }}</span>
+          <span v-if="globalData.usdKrw && globalData.usdKrw.price" class="ind-change" :class="(globalData.usdKrw.changeRate || 0) >= 0 ? 'up' : 'down'">
             {{ (globalData.usdKrw.changeRate || 0) >= 0 ? '+' : '' }}{{ (globalData.usdKrw.changeRate || 0).toFixed(2) }}%
           </span>
         </div>
-        <div class="market-status" v-if="displayMarketStatus" :class="isCrashStatus ? 'crash-status' : ''">
-          {{ displayMarketStatus }}
+        <!-- 시장 상태 — 폭락 시 항상 표시 -->
+        <div class="market-status" :class="isCrashStatus ? 'crash-status' : ''" v-if="isCrashStatus || displayMarketStatus">
+          {{ displayMarketStatus || '시장 상태 로딩 중...' }}
         </div>
         <div class="more-links">
           <router-link to="/market-timing">시장 타이밍 →</router-link>
@@ -230,28 +232,39 @@ export default {
     }
   },
   computed: {
-    // ★ 프론트엔드 crash override: KOSPI/KOSDAQ -3% 이하면 백엔드 판단과 무관하게 폭락 처리
-    isCrashStatus() {
-      const kospiRate = this.marketData.kospiChangeRate || 0
-      const kosdaqRate = this.marketData.kosdaqChangeRate || 0
-      if (kospiRate <= -3 || kosdaqRate <= -3) return true
-      const status = this.marketData.marketStatus || ''
-      return status.includes('폭락') || status.includes('패닉')
+    // ★ 프론트엔드 하드코딩 crash override
+    // 어떤 필드명이든 KOSPI/KOSDAQ 등락률을 찾아서 -3% 이하면 강제 폭락
+    kospiPercent() {
+      const d = this.marketData
+      // V2/Java 등 다양한 필드명 대응
+      const rate = d.kospiChangeRate ?? d.kospi_change_rate ?? d.kospiRate ?? null
+      return (rate !== null && rate !== undefined) ? Number(rate) : null
     },
-    // marketStatus 텍스트도 crash override 적용
+    kosdaqPercent() {
+      const d = this.marketData
+      const rate = d.kosdaqChangeRate ?? d.kosdaq_change_rate ?? d.kosdaqRate ?? null
+      return (rate !== null && rate !== undefined) ? Number(rate) : null
+    },
+    isCrashStatus() {
+      // 등락률 값이 존재하고 -3% 이하면 무조건 폭락 (백엔드 판단 무시)
+      if (this.kospiPercent !== null && this.kospiPercent <= -3) return true
+      if (this.kosdaqPercent !== null && this.kosdaqPercent <= -3) return true
+      // 백엔드가 보내준 문자열도 체크
+      const status = this.marketData.marketStatus || ''
+      return status.includes('폭락') || status.includes('패닉') || status.includes('CRASH')
+    },
+    // 화면에 표시될 시장 상태 텍스트 (crash 시 하드코딩 오버라이드)
     displayMarketStatus() {
       if (this.isCrashStatus) {
-        const reasons = []
-        const kospiRate = this.marketData.kospiChangeRate || 0
-        const kosdaqRate = this.marketData.kosdaqChangeRate || 0
-        if (kospiRate <= -3) reasons.push(`KOSPI ${kospiRate.toFixed(2)}%`)
-        if (kosdaqRate <= -3) reasons.push(`KOSDAQ ${kosdaqRate.toFixed(2)}%`)
-        if (reasons.length > 0) {
-          return `🚨 폭락/패닉 — ${reasons.join(' + ')} 폭락. 관망 필수.`
-        }
-        return this.marketData.marketStatus || ''
+        return '🚨 폭락장 (관망 및 리스크 관리 필수)'
       }
       return this.marketData.marketStatus || ''
+    },
+    // USD/KRW 표시값 — null/undefined 시 '데이터 지연'
+    usdKrwDisplay() {
+      const krw = this.globalData.usdKrw
+      if (!krw || !krw.price) return '데이터 지연'
+      return krw.price
     },
     maxTradingValue() {
       if (this.sectorData.length === 0) return 1
@@ -537,6 +550,7 @@ export default {
 .ind-change { font-size: 13px; font-weight: 600; }
 .ind-change.up { color: #ef4444; }
 .ind-change.down { color: #3b82f6; }
+.ind-value.data-delayed { color: rgba(245, 158, 11, 0.7); font-size: 13px; font-weight: 500; }
 
 /* ADR */
 .adr-gauge {
