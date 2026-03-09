@@ -37,7 +37,7 @@
           <div class="status-interpretation">{{ marketStatusDescription }}</div>
         </div>
         <div class="adr-badge" :class="adrBadgeClass">
-          ADR {{ marketData?.combinedAdr?.toFixed(0) || '-' }}
+          {{ isCrash ? '⚠ 폭락' : ('ADR ' + (marketData?.combinedAdr?.toFixed(0) || '-')) }}
         </div>
       </div>
 
@@ -74,8 +74,8 @@
             <span class="index-value" v-if="exchangeData?.rate">
               {{ formatNumber(exchangeData.rate, 0) }}
             </span>
-            <span class="index-value" v-else>-</span>
-            <span class="index-change" :class="getChangeClass(exchangeData?.changeRate, true)">
+            <span class="index-value delayed-text" v-else>데이터 지연</span>
+            <span v-if="exchangeData?.changeRate != null" class="index-change" :class="getChangeClass(exchangeData?.changeRate, true)">
               {{ formatChange(exchangeData?.changeRate) }}
             </span>
           </div>
@@ -95,8 +95,22 @@ const loading = ref(true);
 const lastUpdated = ref('');
 let refreshInterval = null;
 
-// 시장 상태 계산
+// ★ 폭락 감지: KOSPI/KOSDAQ -3% 이하면 ADR 무시하고 강제 폭락
+const isCrash = computed(() => {
+  const d = marketData.value;
+  if (!d) return false;
+  const kospiRate = d.kospiChange ?? d.kospiChangeRate ?? d.kospi?.indexChangeRate ?? null;
+  const kosdaqRate = d.kosdaqChange ?? d.kosdaqChangeRate ?? d.kosdaq?.indexChangeRate ?? null;
+  if (kospiRate !== null && Number(kospiRate) <= -3) return true;
+  if (kosdaqRate !== null && Number(kosdaqRate) <= -3) return true;
+  // 백엔드 diagnosis 문자열 체크
+  const diag = d.diagnosis || d.marketStatus || '';
+  return diag.includes('폭락') || diag.includes('패닉') || diag.includes('CRASH');
+});
+
+// 시장 상태 계산 (폭락 override 포함)
 const marketStatusClass = computed(() => {
+  if (isCrash.value) return 'crash';
   if (!marketData.value?.combinedAdr) return '';
   const adr = marketData.value.combinedAdr;
   if (adr >= 120) return 'overheated';
@@ -107,6 +121,7 @@ const marketStatusClass = computed(() => {
 });
 
 const marketStatusIcon = computed(() => {
+  if (isCrash.value) return '🚨';
   if (!marketData.value?.combinedAdr) return '📊';
   const adr = marketData.value.combinedAdr;
   if (adr >= 120) return '🔥';
@@ -117,6 +132,7 @@ const marketStatusIcon = computed(() => {
 });
 
 const marketStatusTitle = computed(() => {
+  if (isCrash.value) return '폭락장';
   if (!marketData.value?.combinedAdr) return '데이터 없음';
   const adr = marketData.value.combinedAdr;
   if (adr >= 120) return '과열';
@@ -127,6 +143,7 @@ const marketStatusTitle = computed(() => {
 });
 
 const marketStatusDescription = computed(() => {
+  if (isCrash.value) return '관망 및 리스크 관리 필수';
   if (!marketData.value?.combinedAdr) return '시장 데이터를 불러오지 못했습니다.';
   const adr = marketData.value.combinedAdr;
   if (adr >= 120) return '추격 매수 주의, 익절 고려';
@@ -137,6 +154,7 @@ const marketStatusDescription = computed(() => {
 });
 
 const adrBadgeClass = computed(() => {
+  if (isCrash.value) return 'badge-crash';
   if (!marketData.value?.combinedAdr) return '';
   const adr = marketData.value.combinedAdr;
   if (adr >= 120) return 'badge-danger';
@@ -299,6 +317,17 @@ onUnmounted(() => {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
 }
 
+.status-card.crash {
+  border-color: rgba(220, 38, 38, 0.7);
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.25) 0%, rgba(153, 27, 27, 0.15) 100%);
+  animation: crashPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes crashPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .status-icon {
   font-size: 2.2rem;
   line-height: 1;
@@ -360,6 +389,19 @@ onUnmounted(() => {
 .badge-info {
   background: rgba(59, 130, 246, 0.2);
   color: #3b82f6;
+}
+
+.badge-crash {
+  background: rgba(220, 38, 38, 0.3);
+  color: #fca5a5;
+  font-weight: 700;
+  animation: crashPulse 1.5s ease-in-out infinite;
+}
+
+.delayed-text {
+  font-size: 0.75rem !important;
+  color: rgba(245, 158, 11, 0.7) !important;
+  font-weight: 500 !important;
 }
 
 /* ===== 우측: 지수 현황 카드 ===== */
