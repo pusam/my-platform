@@ -812,8 +812,22 @@ public class StockDetailService {
         }
 
         // ★ technicalSignal과 recommendation 동기화
-        // 차트 데이터 부재로 NEUTRAL 기본값일 때, recommendation 기반으로 보정
-        if ("NEUTRAL".equals(technicalSignal)) {
+        // 모순 방지: 약세 시그널 + 매수 추천, 또는 강세 시그널 + 매도 추천일 때 보정
+        boolean isBearishSignal = "이평선 하향 이탈".equals(technicalSignal) || "NEUTRAL".equals(technicalSignal);
+        boolean isBullishRec = "BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation) || "WAIT_AND_BUY".equals(recommendation);
+        boolean isBullishSignal = technicalSignal.contains("강세") || technicalSignal.contains("돌파");
+        boolean isBearishRec = "SELL".equals(recommendation);
+
+        if (isBearishSignal && isBullishRec) {
+            // 약세 시그널인데 매수 추천 → recommendation 기준으로 보정
+            switch (recommendation) {
+                case "BUY": technicalSignal = "수급 강세 (적극 매수)"; break;
+                case "TRADING_BUY": technicalSignal = "단기 매수 구간"; break;
+                case "WAIT_AND_BUY": technicalSignal = "조정 대기 (눌림목 매수)"; break;
+            }
+        } else if (isBullishSignal && isBearishRec) {
+            technicalSignal = "기술적 반등이나 수급 악화";
+        } else if ("NEUTRAL".equals(technicalSignal) || "이평선 하향 이탈".equals(technicalSignal)) {
             switch (recommendation) {
                 case "BUY": technicalSignal = "매수 신호"; break;
                 case "TRADING_BUY": technicalSignal = "단기 매수"; break;
@@ -1979,8 +1993,17 @@ public class StockDetailService {
             }
         }
 
-        // ★ technicalSignal과 recommendation 동기화
-        if ("NEUTRAL".equals(technicalSignal)) {
+        // ★ technicalSignal과 recommendation 모순 방지
+        boolean isBearishSignal2 = "이평선 하향 이탈".equals(technicalSignal) || "NEUTRAL".equals(technicalSignal);
+        boolean isBullishRec2 = "BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation) || "WAIT_AND_BUY".equals(recommendation);
+
+        if (isBearishSignal2 && isBullishRec2) {
+            switch (recommendation) {
+                case "BUY": technicalSignal = "수급 강세 (적극 매수)"; break;
+                case "TRADING_BUY": technicalSignal = "단기 매수 구간"; break;
+                case "WAIT_AND_BUY": technicalSignal = "조정 대기 (눌림목 매수)"; break;
+            }
+        } else if ("NEUTRAL".equals(technicalSignal) || "이평선 하향 이탈".equals(technicalSignal)) {
             switch (recommendation) {
                 case "BUY": technicalSignal = "매수 신호"; break;
                 case "TRADING_BUY": technicalSignal = "단기 매수"; break;
