@@ -182,6 +182,29 @@ public class MarketTimingService {
         String diagnosis = generateDiagnosis(kospiStatus, kosdaqStatus, combinedAdr);
         String strategy = overallCondition != null ? overallCondition.getSuggestion() : "";
 
+        // ★ 당일 폭락 오버라이드: KOSPI/KOSDAQ -3% 이하 시 ADR 무시하고 강제 폭락/패닉
+        boolean crashOverride = false;
+        StringBuilder crashReasons = new StringBuilder();
+
+        if (kospiStatus != null && kospiStatus.getIndexChangeRate() != null
+                && kospiStatus.getIndexChangeRate().compareTo(new BigDecimal("-3.0")) <= 0) {
+            crashOverride = true;
+            crashReasons.append(String.format("KOSPI %+.2f%% 폭락", kospiStatus.getIndexChangeRate()));
+        }
+        if (kosdaqStatus != null && kosdaqStatus.getIndexChangeRate() != null
+                && kosdaqStatus.getIndexChangeRate().compareTo(new BigDecimal("-3.0")) <= 0) {
+            if (crashOverride) crashReasons.append(" + ");
+            crashOverride = true;
+            crashReasons.append(String.format("KOSDAQ %+.2f%% 폭락", kosdaqStatus.getIndexChangeRate()));
+        }
+
+        if (crashOverride) {
+            overallCondition = MarketCondition.CRASH;
+            diagnosis = String.format("폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.", crashReasons);
+            strategy = MarketCondition.CRASH.getSuggestion();
+            log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", crashReasons);
+        }
+
         return MarketTimingDto.builder()
                 .analysisDate(analysisDate)
                 .kospi(kospiStatus)

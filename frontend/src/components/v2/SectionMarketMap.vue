@@ -80,7 +80,15 @@
           </div>
           <span class="adr-value">{{ (marketData.dailyRatio || marketData.adr || 0).toFixed(1) }}%</span>
         </div>
-        <div class="market-status" v-if="marketData.marketStatus">
+        <!-- USD/KRW 환율 -->
+        <div class="indicator-card" v-if="globalData.usdKrw">
+          <span class="ind-label">USD/KRW</span>
+          <span class="ind-value">{{ globalData.usdKrw.price || '-' }}</span>
+          <span class="ind-change" :class="(globalData.usdKrw.changeRate || 0) >= 0 ? 'up' : 'down'">
+            {{ (globalData.usdKrw.changeRate || 0) >= 0 ? '+' : '' }}{{ (globalData.usdKrw.changeRate || 0).toFixed(2) }}%
+          </span>
+        </div>
+        <div class="market-status" v-if="marketData.marketStatus" :class="isCrashStatus ? 'crash-status' : ''">
           {{ marketData.marketStatus }}
         </div>
         <div class="more-links">
@@ -379,10 +387,16 @@ export default {
       return name.length > 5 ? name.substring(0, 5) + '..' : name
     },
     getAdrClass() {
+      // 폭락 상태면 ADR 무관하게 붉은색
+      if (this.isCrashStatus) return 'adr-crash'
       const adr = this.marketData.adr || 0
       if (adr >= 120) return 'adr-hot'
       if (adr >= 80) return 'adr-normal'
       return 'adr-cold'
+    },
+    isCrashStatus() {
+      const status = this.marketData.marketStatus || ''
+      return status.includes('폭락') || status.includes('패닉')
     }
   }
 }
@@ -524,6 +538,8 @@ export default {
 .gauge-fill.adr-hot { background: linear-gradient(90deg, #f59e0b, #ef4444); }
 .gauge-fill.adr-normal { background: linear-gradient(90deg, #10b981, #3b82f6); }
 .gauge-fill.adr-cold { background: linear-gradient(90deg, #3b82f6, #6366f1); }
+.gauge-fill.adr-crash { background: linear-gradient(90deg, #dc2626, #991b1b); animation: crashPulse 1.5s ease-in-out infinite; }
+@keyframes crashPulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
 .adr-value { font-size: 13px; color: rgba(255,255,255,0.7); font-weight: 600; }
 
 .market-status {
@@ -534,6 +550,14 @@ export default {
   background: rgba(255,255,255,0.03);
   border-radius: 8px;
   margin-bottom: 8px;
+}
+
+.market-status.crash-status {
+  color: #fca5a5;
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  font-weight: 700;
+  animation: crashPulse 1.5s ease-in-out infinite;
 }
 
 .analysis-date {

@@ -98,7 +98,9 @@ public class MarketTimingDto {
         OVERSOLD("침체", "💧 침체 (저점 매수 기회)",
                  "시장이 과매도 구간입니다. 우량주 분할 매수를 고려하세요."),
         EXTREME_FEAR("공포", "🥶 극심한 공포 (적극 매수 검토)",
-                     "극심한 공포 구간입니다. 역발상 투자의 적기일 수 있습니다.");
+                     "극심한 공포 구간입니다. 역발상 투자의 적기일 수 있습니다."),
+        CRASH("폭락", "🚨 폭락/패닉 (관망 필수)",
+              "시장이 폭락 중입니다. 신규 매수를 중단하고 하방 리스크 관리에 집중하세요.");
 
         private final String label;
         private final String emoji;

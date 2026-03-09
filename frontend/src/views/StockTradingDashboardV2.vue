@@ -112,7 +112,8 @@ import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
-  aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API
+  aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API,
+  globalFuturesAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -329,12 +330,13 @@ export default {
       try {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
-        const [sectorRes, marketRes, leadingRes, nasdaqRes] = await Promise.allSettled([
+        const [sectorRes, marketRes, leadingRes, nasdaqRes, usdKrwRes] = await Promise.allSettled([
           withTimeout(marketV2API.getSectors('TODAY'), 5000)
             .catch(() => null),
           withTimeout(marketV2API.getStatus().catch(() => marketAPI.getStatus())),
           withTimeout(marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors())),
-          withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures()))
+          withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures())),
+          withTimeout(globalFuturesAPI.getQuote('KRW'), 5000).catch(() => null)
         ])
         let sectorArr = []
         if (sectorRes.status === 'fulfilled' && sectorRes.value) {
@@ -374,6 +376,16 @@ export default {
           this.globalData.leadingSectors = (Array.isArray(d) && d.length > 0) ? d : []
         } else {
           this.globalData.leadingSectors = []
+        }
+        // USD/KRW 환율
+        if (usdKrwRes.status === 'fulfilled' && usdKrwRes.value) {
+          const d = this.extractData(usdKrwRes.value)
+          if (d && d.currentPrice) {
+            this.globalData.usdKrw = {
+              price: Number(d.currentPrice).toLocaleString('ko-KR', { minimumFractionDigits: 2 }),
+              changeRate: Number(d.changeRate) || 0
+            }
+          }
         }
       } catch {
         this.sectorData = []
