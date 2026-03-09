@@ -12,7 +12,8 @@ const Dashboard = () => import('./views/Dashboard.vue')
 const AdminDashboard = () => import('./views/AdminDashboard.vue')
 const UserDashboard = () => import('./views/UserDashboard.vue')
 const BoardPage = () => import('./views/BoardPage.vue')
-// GoldPricePage, SilverPricePage → GlobalFuturesPage에 통합됨 (redirect)
+const GoldPricePage = () => import('./views/GoldPricePage.vue')
+const SilverPricePage = () => import('./views/SilverPricePage.vue')
 const MyContentPage = () => import('./views/MyContentPage.vue')
 const SettingsPage = () => import('./views/SettingsPage.vue')
 const AssetManagement = () => import('./views/AssetManagement.vue')
@@ -35,7 +36,7 @@ const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
-// OilPricePage는 GlobalFuturesPage에 통합됨 (redirect)
+const OilPricePage = () => import('./views/OilPricePage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -94,11 +95,15 @@ const router = createRouter({
     },
     {
       path: '/gold',
-      redirect: '/global-futures'
+      name: 'GoldPrice',
+      component: GoldPricePage,
+      meta: { requiresAuth: true }
     },
     {
       path: '/silver',
-      redirect: '/global-futures'
+      name: 'SilverPrice',
+      component: SilverPricePage,
+      meta: { requiresAuth: true }
     },
     {
       path: '/my-content',
@@ -234,7 +239,9 @@ const router = createRouter({
     },
     {
       path: '/oil',
-      redirect: '/global-futures'
+      name: 'OilPrice',
+      component: OilPricePage,
+      meta: { requiresAuth: true }
     },
     {
       path: '/global-futures',
