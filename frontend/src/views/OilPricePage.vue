@@ -78,7 +78,7 @@
           </div>
 
           <div class="widget-footer">
-            <span class="next-update">다음 자동 갱신: {{ nextUpdateTime }}</span>
+            <span class="next-update">60초 간격 자동 갱신</span>
           </div>
         </div>
 
@@ -102,9 +102,9 @@
         <h3>원유 시세 안내</h3>
         <ul>
           <li>WTI(West Texas Intermediate) 원유 선물 시세입니다.</li>
-          <li>KIS API 해외선물(CL) 시세를 기반으로 제공됩니다.</li>
+          <li>Yahoo Finance(CL=F) 실시간 시세를 기반으로 제공됩니다.</li>
           <li>원화 환산은 참고용이며, 실제 환율과 차이가 있을 수 있습니다.</li>
-          <li>갱신 시간: 평일 07:00, 10:00, 14:00, 18:00, 22:00</li>
+          <li>시세는 60초 간격으로 자동 갱신됩니다.</li>
         </ul>
       </div>
       </div>
@@ -129,11 +129,8 @@ const loading = ref(true)
 const error = ref(null)
 const chartCanvas = ref(null)
 let chartInstance = null
-const nextUpdateTime = ref('')
 
 let pollingInterval = null
-let countdownInterval = null
-let nextUpdateTimestamp = null
 
 const logout = () => {
   UserManager.logout()
@@ -147,7 +144,6 @@ const fetchOilPrice = async () => {
     const response = await oilAPI.getPrice()
     if (response.data.success) {
       oilPrice.value = response.data.data
-      updateNextUpdateTime()
       await fetchChartData()
     } else {
       error.value = response.data.message
@@ -242,46 +238,6 @@ const createChartFromData = (historyData) => {
   })
 }
 
-const updateNextUpdateTime = () => {
-  const now = new Date()
-  const hours = now.getHours()
-  const nextDate = new Date(now)
-
-  if (hours < 7) {
-    nextDate.setHours(7, 0, 0, 0)
-  } else if (hours < 10) {
-    nextDate.setHours(10, 0, 0, 0)
-  } else if (hours < 14) {
-    nextDate.setHours(14, 0, 0, 0)
-  } else if (hours < 18) {
-    nextDate.setHours(18, 0, 0, 0)
-  } else if (hours < 22) {
-    nextDate.setHours(22, 0, 0, 0)
-  } else {
-    nextDate.setDate(nextDate.getDate() + 1)
-    nextDate.setHours(7, 0, 0, 0)
-  }
-
-  nextUpdateTimestamp = nextDate.getTime()
-  updateCountdown()
-}
-
-const updateCountdown = () => {
-  if (!nextUpdateTimestamp) return
-  const remaining = nextUpdateTimestamp - Date.now()
-  if (remaining <= 0) {
-    nextUpdateTime.value = '곧 갱신됩니다'
-    return
-  }
-  const hours = Math.floor(remaining / 3600000)
-  const minutes = Math.floor((remaining % 3600000) / 60000)
-  if (hours > 0) {
-    nextUpdateTime.value = `${hours}시간 ${minutes}분 후`
-  } else {
-    nextUpdateTime.value = `${minutes}분 후`
-  }
-}
-
 const changeRateClass = computed(() => {
   if (!oilPrice.value) return ''
   return oilPrice.value.changeRate > 0 ? 'positive' : oilPrice.value.changeRate < 0 ? 'negative' : ''
@@ -318,13 +274,11 @@ const formatUpdateTime = (dateTime) => {
 
 onMounted(() => {
   fetchOilPrice()
-  pollingInterval = setInterval(fetchOilPrice, 28800000)
-  countdownInterval = setInterval(updateCountdown, 1000)
+  pollingInterval = setInterval(fetchOilPrice, 60000) // 60초마다 갱신
 })
 
 onUnmounted(() => {
   if (pollingInterval) clearInterval(pollingInterval)
-  if (countdownInterval) clearInterval(countdownInterval)
   if (chartInstance) chartInstance.destroy()
 })
 </script>

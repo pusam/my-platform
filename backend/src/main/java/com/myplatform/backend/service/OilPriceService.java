@@ -41,6 +41,8 @@ public class OilPriceService {
     private static final String WTI_SYMBOL = "CL=F";
 
     private final AtomicReference<OilPriceDto> cachedOilPrice = new AtomicReference<>();
+    private volatile long lastFetchedTimestamp = 0;
+    private static final long CACHE_TTL_MS = 60 * 1000; // 60초 캐시
 
     @PostConstruct
     public void init() {
@@ -173,6 +175,7 @@ public class OilPriceService {
             dto.setFetchedAt(now);
 
             cachedOilPrice.set(dto);
+            lastFetchedTimestamp = System.currentTimeMillis();
 
             // DB 저장
             OilPrice oilEntity = dtoToEntity(dto);
@@ -186,11 +189,19 @@ public class OilPriceService {
     }
 
     public OilPriceDto getOilPrice() {
+        // 캐시가 만료됐으면 Yahoo Finance에서 실시간 갱신
+        boolean cacheExpired = (System.currentTimeMillis() - lastFetchedTimestamp) > CACHE_TTL_MS;
+
+        if (cacheExpired) {
+            fetchAndCache();
+        }
+
         OilPriceDto cached = cachedOilPrice.get();
         if (cached != null) {
             return cached;
         }
 
+        // 캐시도 없고 fetch도 실패한 경우 DB fallback
         Optional<OilPrice> latest = oilPriceRepository.findTopByOrderByFetchedAtDesc();
         if (latest.isPresent()) {
             OilPriceDto dto = entityToDto(latest.get());
@@ -198,8 +209,7 @@ public class OilPriceService {
             return dto;
         }
 
-        fetchAndCache();
-        return cachedOilPrice.get();
+        return null;
     }
 
     public List<OilPriceDto> getMonthlyHistory() {
