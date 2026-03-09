@@ -476,10 +476,10 @@ export default {
       this.$router.push('/settings')
     },
     goToGold() {
-      this.$router.push('/gold')
+      this.$router.push('/global-futures')
     },
     goToSilver() {
-      this.$router.push('/silver')
+      this.$router.push('/global-futures')
     },
     goToOil() {
       this.$router.push('/global-futures')

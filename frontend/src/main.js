@@ -12,8 +12,7 @@ const Dashboard = () => import('./views/Dashboard.vue')
 const AdminDashboard = () => import('./views/AdminDashboard.vue')
 const UserDashboard = () => import('./views/UserDashboard.vue')
 const BoardPage = () => import('./views/BoardPage.vue')
-const GoldPricePage = () => import('./views/GoldPricePage.vue')
-const SilverPricePage = () => import('./views/SilverPricePage.vue')
+// GoldPricePage, SilverPricePage → GlobalFuturesPage에 통합됨 (redirect)
 const MyContentPage = () => import('./views/MyContentPage.vue')
 const SettingsPage = () => import('./views/SettingsPage.vue')
 const AssetManagement = () => import('./views/AssetManagement.vue')
@@ -23,10 +22,8 @@ const CarManagement = () => import('./views/CarManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
 const SectorTradingPage = () => import('./views/SectorTradingPage.vue')
-const InvestorTradePage = () => import('./views/InvestorTradePage.vue')
-// InvestorStockDetailPage는 StockDetailDashboard에 통합됨 (redirect)
-const ConsecutiveBuyPage = () => import('./views/ConsecutiveBuyPage.vue')
-const InvestorSurgePage = () => import('./views/InvestorSurgePage.vue')
+const InvestorAnalysisPage = () => import('./views/InvestorAnalysisPage.vue')
+// InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → InvestorAnalysisPage에 통합됨 (redirect)
 const NewsPage = () => import('./views/NewsPage.vue')
 const EarningsScreenerPage = () => import('./views/EarningsScreenerPage.vue')
 const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
@@ -97,15 +94,11 @@ const router = createRouter({
     },
     {
       path: '/gold',
-      name: 'GoldPrice',
-      component: GoldPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/silver',
-      name: 'SilverPrice',
-      component: SilverPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/my-content',
@@ -156,26 +149,26 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
-      path: '/investor-trades',
-      name: 'InvestorTrade',
-      component: InvestorTradePage,
+      path: '/investor',
+      name: 'InvestorAnalysis',
+      component: InvestorAnalysisPage,
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/investor-trades',
+      redirect: '/investor'
+    },
+    {
+      path: '/consecutive-buy',
+      redirect: '/investor'
+    },
+    {
+      path: '/investor-surge',
+      redirect: '/investor'
     },
     {
       path: '/investor-stock/:stockCode',
       redirect: to => `/stock/${to.params.stockCode}`
-    },
-    {
-      path: '/consecutive-buy',
-      name: 'ConsecutiveBuy',
-      component: ConsecutiveBuyPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/investor-surge',
-      name: 'InvestorSurge',
-      component: InvestorSurgePage,
-      meta: { requiresAuth: true }
     },
     {
       path: '/earnings-screener',

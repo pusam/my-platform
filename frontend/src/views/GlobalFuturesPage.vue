@@ -164,7 +164,11 @@
       <div class="section">
         <h3 class="section-title">
           원자재 선물
-          <button class="oil-detail-btn" @click="toggleOilDetail">🛢️ 원유 상세</button>
+          <span class="commodity-btns">
+            <button class="commodity-detail-btn oil" @click="toggleOilDetail">🛢️ 원유</button>
+            <button class="commodity-detail-btn gold" @click="toggleGoldDetail">🪙 금</button>
+            <button class="commodity-detail-btn silver" @click="toggleSilverDetail">🥈 은</button>
+          </span>
         </h3>
         <div class="futures-grid">
           <div v-for="q in commodityQuotes" :key="q.symbol"
@@ -326,6 +330,108 @@
       </div>
     </div>
 
+    <!-- 금 상세 패널 -->
+    <div v-if="showGoldDetail" class="oil-detail-panel gold-panel">
+      <div class="oil-detail-header">
+        <h3>🪙 금 시세 상세</h3>
+        <button class="close-detail-btn" @click="showGoldDetail = false">✕</button>
+      </div>
+      <div v-if="goldLoading" class="oil-loading">
+        <div class="spinner"></div>
+        <span>금 시세 로딩 중...</span>
+      </div>
+      <div v-else-if="goldPrice" class="oil-detail-body">
+        <div class="oil-price-main">
+          <div class="oil-price-big">{{ formatKrw(goldPrice.pricePerDon) }}원</div>
+          <div class="oil-price-sub">1돈 (3.75g)</div>
+          <div class="oil-price-krw">1g = {{ formatKrw(goldPrice.pricePerGram) }}원</div>
+        </div>
+        <div class="oil-info-grid">
+          <div class="oil-info-item">
+            <span class="label">기준일</span>
+            <span class="value">{{ formatOilDate(goldPrice.baseDate) }}</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">등락률</span>
+            <span class="value" :class="goldPrice.changeRate > 0 ? 'up' : goldPrice.changeRate < 0 ? 'down' : ''">
+              {{ goldPrice.changeRate > 0 ? '+' : '' }}{{ goldPrice.changeRate }}%
+            </span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">시가</span>
+            <span class="value">{{ formatKrw(goldPrice.openPrice) }}원</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">고가</span>
+            <span class="value high">{{ formatKrw(goldPrice.highPrice) }}원</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">저가</span>
+            <span class="value low">{{ formatKrw(goldPrice.lowPrice) }}원</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">종가</span>
+            <span class="value">{{ formatKrw(goldPrice.closePrice) }}원</span>
+          </div>
+        </div>
+        <div class="oil-chart-section">
+          <h4>📊 최근 한 달 금 시세 추이</h4>
+          <div class="oil-chart-container"><canvas ref="goldChartCanvas"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 은 상세 패널 -->
+    <div v-if="showSilverDetail" class="oil-detail-panel silver-panel">
+      <div class="oil-detail-header">
+        <h3>🥈 은 시세 상세</h3>
+        <button class="close-detail-btn" @click="showSilverDetail = false">✕</button>
+      </div>
+      <div v-if="silverLoading" class="oil-loading">
+        <div class="spinner"></div>
+        <span>은 시세 로딩 중...</span>
+      </div>
+      <div v-else-if="silverPrice" class="oil-detail-body">
+        <div class="oil-price-main">
+          <div class="oil-price-big">{{ formatKrw(silverPrice.pricePerDon) }}원</div>
+          <div class="oil-price-sub">1돈 (3.75g)</div>
+          <div class="oil-price-krw">1g = {{ formatKrw(silverPrice.pricePerGram) }}원 | 1kg = {{ formatKrw(silverPrice.pricePerKg) }}원</div>
+        </div>
+        <div class="oil-info-grid">
+          <div class="oil-info-item">
+            <span class="label">기준일</span>
+            <span class="value">{{ formatOilDate(silverPrice.baseDate) }}</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">등락률</span>
+            <span class="value" :class="silverPrice.changeRate > 0 ? 'up' : silverPrice.changeRate < 0 ? 'down' : ''">
+              {{ silverPrice.changeRate > 0 ? '+' : '' }}{{ silverPrice.changeRate }}%
+            </span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">시가</span>
+            <span class="value">{{ formatKrw(silverPrice.openPrice) }}원</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">고가</span>
+            <span class="value high">{{ formatKrw(silverPrice.highPrice) }}원</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">저가</span>
+            <span class="value low">{{ formatKrw(silverPrice.lowPrice) }}원</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">종가</span>
+            <span class="value">{{ formatKrw(silverPrice.closePrice) }}원</span>
+          </div>
+        </div>
+        <div class="oil-chart-section">
+          <h4>📊 최근 한 달 은 시세 추이</h4>
+          <div class="oil-chart-container"><canvas ref="silverChartCanvas"></canvas></div>
+        </div>
+      </div>
+    </div>
+
     <div class="disclaimer">
       해외선물 시세는 Yahoo Finance를 통해 제공됩니다. 주말·공휴일에는 마지막 거래일 종가 기준이며, 장중에는 약간의 지연이 있을 수 있습니다. 투자 판단의 참고자료로만 활용하세요.
     </div>
@@ -334,7 +440,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
-import { globalFuturesAPI, oilAPI } from '../utils/api';
+import { globalFuturesAPI, oilAPI, goldAPI, silverAPI } from '../utils/api';
 import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
 import { Chart, registerables } from 'chart.js';
 
@@ -350,12 +456,24 @@ const dataTimestamp = ref('');
 const currentMarketStatus = ref('');
 let refreshTimer = null;
 
-// 원유 상세
+// 원자재 상세 (원유/금/은 통합)
 const showOilDetail = ref(false);
 const oilPrice = ref(null);
 const oilLoading = ref(false);
 const oilChartCanvas = ref(null);
 let oilChartInstance = null;
+
+const showGoldDetail = ref(false);
+const goldPrice = ref(null);
+const goldLoading = ref(false);
+const goldChartCanvas = ref(null);
+let goldChartInstance = null;
+
+const showSilverDetail = ref(false);
+const silverPrice = ref(null);
+const silverLoading = ref(false);
+const silverChartCanvas = ref(null);
+let silverChartInstance = null;
 
 // 카테고리 필터
 const kospiQuote = computed(() =>
@@ -635,63 +753,92 @@ const fetchOilChart = async () => {
     const response = await oilAPI.getMonthlyHistory();
     if (response.data.success && response.data.data) {
       await nextTick();
-      createOilChart(response.data.data);
+      oilChartInstance = createCommodityChart(oilChartCanvas.value, oilChartInstance, response.data.data, 'WTI 원유 ($/배럴)', 'pricePerBarrel', 'rgba(251, 146, 60, 0.6)', 'rgba(251, 146, 60, 1)', (v) => '$' + v.toFixed(2) + '/배럴');
     }
   } catch (err) {
     console.error('Oil chart fetch error:', err);
   }
 };
 
-const createOilChart = (historyData) => {
-  if (!oilChartCanvas.value || !historyData?.length) return;
-  if (oilChartInstance) oilChartInstance.destroy();
+// 금/은 공통 KRW 포맷
+const formatKrw = (price) => {
+  if (price == null) return '-';
+  return new Intl.NumberFormat('ko-KR').format(price);
+};
 
-  const labels = historyData.map(item => {
+// 금 상세
+const toggleGoldDetail = async () => {
+  showGoldDetail.value = !showGoldDetail.value;
+  if (showGoldDetail.value && !goldPrice.value) await fetchGoldDetail();
+};
+
+const fetchGoldDetail = async () => {
+  goldLoading.value = true;
+  try {
+    const res = await goldAPI.getPrice();
+    if (res.data.success) {
+      goldPrice.value = res.data.data;
+      const chartRes = await goldAPI.getMonthlyHistory();
+      if (chartRes.data.success && chartRes.data.data) {
+        await nextTick();
+        goldChartInstance = createCommodityChart(goldChartCanvas.value, goldChartInstance, chartRes.data.data, '금 시세 (원/돈)', 'pricePerDon', 'rgba(255, 215, 0, 0.6)', 'rgba(255, 215, 0, 1)', (v) => formatKrw(v) + '원');
+      }
+    }
+  } catch (err) { console.error('Gold fetch error:', err); }
+  finally { goldLoading.value = false; }
+};
+
+// 은 상세
+const toggleSilverDetail = async () => {
+  showSilverDetail.value = !showSilverDetail.value;
+  if (showSilverDetail.value && !silverPrice.value) await fetchSilverDetail();
+};
+
+const fetchSilverDetail = async () => {
+  silverLoading.value = true;
+  try {
+    const res = await silverAPI.getPrice();
+    if (res.data.success) {
+      silverPrice.value = res.data.data;
+      const chartRes = await silverAPI.getMonthlyHistory();
+      if (chartRes.data.success && chartRes.data.data) {
+        await nextTick();
+        silverChartInstance = createCommodityChart(silverChartCanvas.value, silverChartInstance, chartRes.data.data, '은 시세 (원/돈)', 'pricePerDon', 'rgba(192, 192, 192, 0.6)', 'rgba(192, 192, 192, 1)', (v) => formatKrw(v) + '원');
+      }
+    }
+  } catch (err) { console.error('Silver fetch error:', err); }
+  finally { silverLoading.value = false; }
+};
+
+// 공통 차트 생성 (원유/금/은)
+const createCommodityChart = (canvas, existingInstance, data, label, priceField, bgColor, borderColor, tooltipFn) => {
+  if (!canvas || !data?.length) return existingInstance;
+  if (existingInstance) existingInstance.destroy();
+
+  const labels = data.map(item => {
     const date = new Date(item.fetchedAt);
     return `${date.getMonth() + 1}/${date.getDate()}`;
   });
-  const prices = historyData.map(item => item.pricePerBarrel);
+  const prices = data.map(item => item[priceField]);
 
-  oilChartInstance = new Chart(oilChartCanvas.value.getContext('2d'), {
+  return new Chart(canvas.getContext('2d'), {
     type: 'bar',
     data: {
       labels,
-      datasets: [{
-        label: 'WTI 원유 ($/배럴)',
-        data: prices,
-        backgroundColor: 'rgba(251, 146, 60, 0.6)',
-        borderColor: 'rgba(251, 146, 60, 1)',
-        borderWidth: 2,
-        borderRadius: 4
-      }]
+      datasets: [{ label, data: prices, backgroundColor: bgColor, borderColor, borderWidth: 2, borderRadius: 4 }]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: 'rgba(15, 15, 35, 0.95)',
-          titleColor: '#fff',
-          bodyColor: '#ccc',
-          callbacks: {
-            label: (ctx) => '시세: $' + ctx.parsed.y.toFixed(2) + '/배럴'
-          }
+          backgroundColor: 'rgba(15,15,35,0.95)', titleColor: '#fff', bodyColor: '#ccc',
+          callbacks: { label: (ctx) => tooltipFn(ctx.parsed.y) }
         }
       },
       scales: {
-        y: {
-          beginAtZero: false,
-          ticks: {
-            color: '#888',
-            callback: (v) => '$' + v.toFixed(1)
-          },
-          grid: { color: 'rgba(255,255,255,0.05)' }
-        },
-        x: {
-          ticks: { color: '#888' },
-          grid: { display: false }
-        }
+        y: { beginAtZero: false, ticks: { color: '#888' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        x: { ticks: { color: '#888' }, grid: { display: false } }
       }
     }
   });
@@ -705,6 +852,8 @@ onMounted(() => {
 onUnmounted(() => {
   stopAutoRefresh();
   if (oilChartInstance) oilChartInstance.destroy();
+  if (goldChartInstance) goldChartInstance.destroy();
+  if (silverChartInstance) silverChartInstance.destroy();
 });
 </script>
 
@@ -1385,23 +1534,32 @@ onUnmounted(() => {
   border-top: 1px solid rgba(255,255,255,0.05);
 }
 
-/* 원유 상세 버튼 */
-.oil-detail-btn {
+/* 원자재 상세 버튼 */
+.commodity-btns {
   float: right;
-  background: rgba(251, 146, 60, 0.15);
-  border: 1px solid rgba(251, 146, 60, 0.3);
-  color: #fb923c;
-  padding: 4px 14px;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.commodity-detail-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #aaa;
+  padding: 4px 12px;
   border-radius: 8px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s;
 }
 
-.oil-detail-btn:hover {
-  background: rgba(251, 146, 60, 0.25);
-}
+.commodity-detail-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+.commodity-detail-btn.oil { border-color: rgba(251,146,60,0.3); color: #fb923c; }
+.commodity-detail-btn.oil:hover { background: rgba(251,146,60,0.15); }
+.commodity-detail-btn.gold { border-color: rgba(255,215,0,0.3); color: #ffd700; }
+.commodity-detail-btn.gold:hover { background: rgba(255,215,0,0.15); }
+.commodity-detail-btn.silver { border-color: rgba(192,192,192,0.3); color: #c0c0c0; }
+.commodity-detail-btn.silver:hover { background: rgba(192,192,192,0.15); }
 
 /* 원유 상세 패널 */
 .oil-detail-panel {
@@ -1412,6 +1570,9 @@ onUnmounted(() => {
   margin-bottom: 24px;
   animation: slideDown 0.3s ease;
 }
+
+.oil-detail-panel.gold-panel { border-color: rgba(255, 215, 0, 0.3); }
+.oil-detail-panel.silver-panel { border-color: rgba(192, 192, 192, 0.3); }
 
 @keyframes slideDown {
   from { opacity: 0; transform: translateY(-10px); }
