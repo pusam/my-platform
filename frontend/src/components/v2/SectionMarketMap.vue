@@ -88,8 +88,8 @@
             {{ (globalData.usdKrw.changeRate || 0) >= 0 ? '+' : '' }}{{ (globalData.usdKrw.changeRate || 0).toFixed(2) }}%
           </span>
         </div>
-        <div class="market-status" v-if="marketData.marketStatus" :class="isCrashStatus ? 'crash-status' : ''">
-          {{ marketData.marketStatus }}
+        <div class="market-status" v-if="displayMarketStatus" :class="isCrashStatus ? 'crash-status' : ''">
+          {{ displayMarketStatus }}
         </div>
         <div class="more-links">
           <router-link to="/market-timing">시장 타이밍 →</router-link>
@@ -230,9 +230,28 @@ export default {
     }
   },
   computed: {
+    // ★ 프론트엔드 crash override: KOSPI/KOSDAQ -3% 이하면 백엔드 판단과 무관하게 폭락 처리
     isCrashStatus() {
+      const kospiRate = this.marketData.kospiChangeRate || 0
+      const kosdaqRate = this.marketData.kosdaqChangeRate || 0
+      if (kospiRate <= -3 || kosdaqRate <= -3) return true
       const status = this.marketData.marketStatus || ''
       return status.includes('폭락') || status.includes('패닉')
+    },
+    // marketStatus 텍스트도 crash override 적용
+    displayMarketStatus() {
+      if (this.isCrashStatus) {
+        const reasons = []
+        const kospiRate = this.marketData.kospiChangeRate || 0
+        const kosdaqRate = this.marketData.kosdaqChangeRate || 0
+        if (kospiRate <= -3) reasons.push(`KOSPI ${kospiRate.toFixed(2)}%`)
+        if (kosdaqRate <= -3) reasons.push(`KOSDAQ ${kosdaqRate.toFixed(2)}%`)
+        if (reasons.length > 0) {
+          return `🚨 폭락/패닉 — ${reasons.join(' + ')} 폭락. 관망 필수.`
+        }
+        return this.marketData.marketStatus || ''
+      }
+      return this.marketData.marketStatus || ''
     },
     maxTradingValue() {
       if (this.sectorData.length === 0) return 1
