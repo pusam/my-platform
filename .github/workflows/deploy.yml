@@ -153,30 +153,24 @@ jobs:
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-server:buildcache,mode=max
 
       # ================================================================
-      # 서버 배포
+      # 서버 배포 (develop 브랜치만 — prod 서버 준비되면 main도 추가)
       # ================================================================
       - name: Setup SSH
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/develop'
         run: |
           mkdir -p ~/.ssh
-          echo "${{ github.ref == 'refs/heads/main' && secrets.KEY_PROD || secrets.KEY_DEV }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.KEY_DEV }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           echo "StrictHostKeyChecking no" > ~/.ssh/config
           echo "UserKnownHostsFile /dev/null" >> ~/.ssh/config
           echo "LogLevel ERROR" >> ~/.ssh/config
 
       - name: Copy files to server
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/develop'
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            HOST="${{ secrets.HOST_PROD }}"
-            USER="${{ secrets.USERNAME_PROD }}"
-            NGINX_CONF="nginx/prod.conf"
-          else
-            HOST="${{ secrets.HOST_DEV }}"
-            USER="${{ secrets.USERNAME_DEV }}"
-            NGINX_CONF="nginx/dev.conf"
-          fi
+          HOST="${{ secrets.HOST_DEV }}"
+          USER="${{ secrets.USERNAME_DEV }}"
+          NGINX_CONF="nginx/dev.conf"
           PORT="${{ secrets.PORT }}"
           TARGET="/home/dev/my-platform"
           SSH_CMD="ssh -p $PORT -i ~/.ssh/deploy_key"
@@ -199,25 +193,16 @@ jobs:
           echo "✅ 파일 전송 완료"
 
       - name: Deploy to Server
-        if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/develop'
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            HOST="${{ secrets.HOST_PROD }}"
-            USER="${{ secrets.USERNAME_PROD }}"
-            TAG="prod"
-          else
-            HOST="${{ secrets.HOST_DEV }}"
-            USER="${{ secrets.USERNAME_DEV }}"
-            TAG="dev"
-          fi
+          HOST="${{ secrets.HOST_DEV }}"
+          USER="${{ secrets.USERNAME_DEV }}"
           PORT="${{ secrets.PORT }}"
 
           ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" << DEPLOY_EOF
             cd /home/dev/my-platform/nginx
 
-            if [ -f "prod.conf" ]; then
-              mv prod.conf default.conf
-            elif [ -f "dev.conf" ]; then
+            if [ -f "dev.conf" ]; then
               mv dev.conf default.conf
             fi
 
@@ -225,10 +210,10 @@ jobs:
 
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-            echo "🚀 배포 시작: $TAG 환경"
+            echo "🚀 배포 시작: dev 환경"
 
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:$TAG
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-python:$TAG
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:dev
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-python:dev
 
             docker compose up -d --force-recreate --no-deps backend python-backend
             docker compose up -d --force-recreate --no-deps nginx
