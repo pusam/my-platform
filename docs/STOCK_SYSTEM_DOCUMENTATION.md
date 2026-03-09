@@ -1,6 +1,6 @@
 # 주식 시스템 종합 문서
 
-> 최종 업데이트: 2026-03-09 (리팩토링 반영)
+> 최종 업데이트: 2026-03-09 (페이지 통합 반영)
 
 ---
 
@@ -26,9 +26,8 @@
 |------|---------|------|
 | `/user` | UserDashboard | 메인 대시보드 (진입점) |
 | `/stock-dashboard` | StockTradingDashboardV2 | V2 통합 주식 대시보드 (시장뷰/종목발굴/내계좌봇) |
-| `/stock/:stockCode` | StockDetailDashboard | 종목 종합 상세보기 |
+| `/stock/:stockCode` | StockDetailDashboard | 종목 종합 상세보기 (투자자 동향 탭 포함) |
 | `/ai-strategy` | AiStrategyDashboardPage | AI 4분할 트레이딩 전략 |
-| `/investor-stock/:stockCode` | InvestorStockDetailPage | 투자자별 매매 동향 + 차트 |
 | `/investor-trades` | InvestorTradePage | 투자자 매매 목록 (V2 스마트머니 "더 보기") |
 | `/consecutive-buy` | ConsecutiveBuyPage | 연속 매수 종목 (V2 스마트머니 "전체 목록") |
 | `/investor-surge` | InvestorSurgePage | 수급 급증 종목 (V2 스마트머니 "전체 목록") |
@@ -37,8 +36,7 @@
 | `/market-timing` | MarketTimingPage | ADR 기반 시장 타이밍 (V2 시장지표 링크) |
 | `/trading-indicators` | TradingIndicatorsPage | 글로벌 시장 지표 (V2 글로벌 "트레이딩 지표") |
 | `/paper-trading` | PaperTradingPage | 모의/실전 자동매매 (V2 내계좌탭 임베드) |
-| `/global-futures` | GlobalFuturesPage | 해외선물 + VIX 공포지수 |
-| `/oil` | OilPricePage | WTI 원유 시세 |
+| `/global-futures` | GlobalFuturesPage | 해외선물 + VIX 공포지수 + 원유 상세 (통합) |
 
 ### 리다이렉트 라우트
 
@@ -46,6 +44,8 @@
 |------|------|------|
 | `/stock-detail` | → `/stock-dashboard` | stockCode 없이 접근 시 무의미, 미사용 |
 | `/ai-stock` | → `/ai-strategy` | 레거시 경로 호환 |
+| `/oil` | → `/global-futures` | GlobalFuturesPage에 원유 상세 패널로 통합 |
+| `/investor-stock/:stockCode` | → `/stock/:stockCode` | StockDetailDashboard 투자자 동향 탭으로 통합 |
 | `/dashboard` | → `/user` 또는 `/admin` | 역할 기반 리다이렉트 |
 
 ### 화면 간 네비게이션 흐름
@@ -63,11 +63,30 @@ UserDashboard (/user)
        │    ├─ SectionSmartMoney → /investor-trades (더 보기)
        │    │                    → /consecutive-buy (전체 목록)
        │    │                    → /investor-surge (전체 목록)
-       │    │                    → /investor-stock/:code (종목 클릭)
+       │    │                    → /stock/:code (종목 클릭)
        │    ├─ SectionResearch → /earnings-screener (더 보기)
        │    └─ 종목 클릭 → /stock/:stockCode
        └─ [내 계좌/봇 탭]
             └─ PaperTradingPage (embedded)
+
+StockDetailDashboard (/stock/:stockCode)
+  ├─ [종합 분석 탭] ← 기본
+  │    ├─ 차트, 재무, Peer Group, 뉴스 (좌측)
+  │    ├─ 체결강도, 수급, 안전점수, AI전략 (우측)
+  │    └─ 펀더멘털 진단 (하단)
+  └─ [투자자 동향 탭] ← InvestorStockDetailPage 통합
+       ├─ 주가 vs 누적 순매수 추이 차트
+       ├─ 장중 수급 추이 (외국인/기관/연기금)
+       └─ 일별 매매 동향 (최근 30일)
+
+GlobalFuturesPage (/global-futures)
+  ├─ 코스피 영향 분석 배너
+  ├─ VIX 공포지수 패널
+  ├─ 코스피200 야간선물 메인 카드
+  ├─ 카테고리별 선물 (미국지수/원자재/통화)
+  │    └─ [원유 상세] 버튼 → 인라인 확장 패널 (OilPricePage 통합)
+  ├─ 전체 시세표
+  └─ 면책조항
 ```
 
 ---
