@@ -211,10 +211,7 @@ const fetchData = async () => {
 };
 
 const goToDetail = (stockCode) => {
-  router.push({
-    path: `/investor-stock/${stockCode}`,
-    query: { investorType: selectedInvestor.value === 'COMMON' ? 'FOREIGN' : selectedInvestor.value }
-  });
+  router.push(`/stock/${stockCode}`);
 };
 
 const formatNumber = (value) => {

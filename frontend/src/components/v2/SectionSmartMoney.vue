@@ -162,7 +162,7 @@ export default {
     },
     goToConsecutiveDetail(code) {
       if (this.openStock) this.openStock(code)
-      else this.$router.push(`/investor-stock/${code}`)
+      else this.$router.push(`/stock/${code}`)
     }
   }
 }

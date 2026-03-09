@@ -24,7 +24,7 @@ const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
 const SectorTradingPage = () => import('./views/SectorTradingPage.vue')
 const InvestorTradePage = () => import('./views/InvestorTradePage.vue')
-const InvestorStockDetailPage = () => import('./views/InvestorStockDetailPage.vue')
+// InvestorStockDetailPage는 StockDetailDashboard에 통합됨 (redirect)
 const ConsecutiveBuyPage = () => import('./views/ConsecutiveBuyPage.vue')
 const InvestorSurgePage = () => import('./views/InvestorSurgePage.vue')
 const NewsPage = () => import('./views/NewsPage.vue')
@@ -38,7 +38,7 @@ const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
-const OilPricePage = () => import('./views/OilPricePage.vue')
+// OilPricePage는 GlobalFuturesPage에 통합됨 (redirect)
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -163,9 +163,7 @@ const router = createRouter({
     },
     {
       path: '/investor-stock/:stockCode',
-      name: 'InvestorStockDetail',
-      component: InvestorStockDetailPage,
-      meta: { requiresAuth: true }
+      redirect: to => `/stock/${to.params.stockCode}`
     },
     {
       path: '/consecutive-buy',
@@ -243,9 +241,7 @@ const router = createRouter({
     },
     {
       path: '/oil',
-      name: 'OilPrice',
-      component: OilPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/global-futures',

@@ -162,7 +162,10 @@
 
       <!-- 원자재 선물 -->
       <div class="section">
-        <h3 class="section-title">원자재 선물</h3>
+        <h3 class="section-title">
+          원자재 선물
+          <button class="oil-detail-btn" @click="toggleOilDetail">🛢️ 원유 상세</button>
+        </h3>
         <div class="futures-grid">
           <div v-for="q in commodityQuotes" :key="q.symbol"
                class="futures-card" :class="getCardClass(q)">
@@ -255,6 +258,74 @@
       <button @click="fetchData" class="retry-btn">다시 시도</button>
     </div>
 
+    <!-- 원유 상세 패널 (인라인 확장) -->
+    <div v-if="showOilDetail" class="oil-detail-panel">
+      <div class="oil-detail-header">
+        <h3>🛢️ WTI 원유 상세</h3>
+        <button class="close-detail-btn" @click="showOilDetail = false">✕</button>
+      </div>
+
+      <div v-if="oilLoading" class="oil-loading">
+        <div class="spinner"></div>
+        <span>원유 상세 데이터 로딩 중...</span>
+      </div>
+
+      <div v-else-if="oilPrice" class="oil-detail-body">
+        <div class="oil-price-main">
+          <div class="oil-price-big">${{ formatOilUsd(oilPrice.pricePerBarrel) }}</div>
+          <div class="oil-price-sub">1배럴 (USD)</div>
+          <div class="oil-price-krw" v-if="oilPrice.priceKrw">≈ {{ formatOilKrw(oilPrice.priceKrw) }}원</div>
+        </div>
+
+        <div class="oil-info-grid">
+          <div class="oil-info-item">
+            <span class="label">기준일</span>
+            <span class="value">{{ formatOilDate(oilPrice.baseDate) }}</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">등락률</span>
+            <span class="value" :class="oilChangeClass">
+              {{ oilPrice.changeRate > 0 ? '+' : '' }}{{ oilPrice.changeRate }}%
+            </span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">전일 대비</span>
+            <span class="value" :class="oilChangeClass">
+              {{ oilPrice.changePrice > 0 ? '+' : '' }}{{ formatOilUsd(oilPrice.changePrice) }}
+            </span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">시가</span>
+            <span class="value">${{ formatOilUsd(oilPrice.openPrice) }}</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">고가</span>
+            <span class="value high">${{ formatOilUsd(oilPrice.highPrice) }}</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">저가</span>
+            <span class="value low">${{ formatOilUsd(oilPrice.lowPrice) }}</span>
+          </div>
+          <div class="oil-info-item">
+            <span class="label">종가</span>
+            <span class="value">${{ formatOilUsd(oilPrice.closePrice) }}</span>
+          </div>
+          <div class="oil-info-item" v-if="oilPrice.volume">
+            <span class="label">거래량</span>
+            <span class="value">{{ formatVolume(oilPrice.volume) }}</span>
+          </div>
+        </div>
+
+        <!-- 최근 한 달 차트 -->
+        <div class="oil-chart-section">
+          <h4>📊 최근 한 달 WTI 시세 추이</h4>
+          <div class="oil-chart-container">
+            <canvas ref="oilChartCanvas"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="disclaimer">
       해외선물 시세는 Yahoo Finance를 통해 제공됩니다. 주말·공휴일에는 마지막 거래일 종가 기준이며, 장중에는 약간의 지연이 있을 수 있습니다. 투자 판단의 참고자료로만 활용하세요.
     </div>
@@ -262,9 +333,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { globalFuturesAPI } from '../utils/api';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
+import { globalFuturesAPI, oilAPI } from '../utils/api';
 import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
+import { Chart, registerables } from 'chart.js';
+
+Chart.register(...registerables);
 
 const loading = ref(false);
 const error = ref('');
@@ -275,6 +349,13 @@ const autoRefresh = ref(true);
 const dataTimestamp = ref('');
 const currentMarketStatus = ref('');
 let refreshTimer = null;
+
+// 원유 상세
+const showOilDetail = ref(false);
+const oilPrice = ref(null);
+const oilLoading = ref(false);
+const oilChartCanvas = ref(null);
+let oilChartInstance = null;
 
 // 카테고리 필터
 const kospiQuote = computed(() =>
@@ -506,6 +587,116 @@ const getFactorSignalText = (signal) => {
   return '중립';
 };
 
+// 원유 상세
+const oilChangeClass = computed(() => {
+  if (!oilPrice.value) return '';
+  return oilPrice.value.changeRate > 0 ? 'up' : oilPrice.value.changeRate < 0 ? 'down' : '';
+});
+
+const formatOilUsd = (price) => {
+  if (price == null) return '-';
+  return Number(price).toFixed(2);
+};
+
+const formatOilKrw = (price) => {
+  if (price == null) return '-';
+  return new Intl.NumberFormat('ko-KR').format(price);
+};
+
+const formatOilDate = (dateStr) => {
+  if (!dateStr || dateStr.length !== 8) return dateStr || '-';
+  return `${dateStr.substring(0, 4)}.${dateStr.substring(4, 6)}.${dateStr.substring(6, 8)}`;
+};
+
+const toggleOilDetail = async () => {
+  showOilDetail.value = !showOilDetail.value;
+  if (showOilDetail.value && !oilPrice.value) {
+    await fetchOilDetail();
+  }
+};
+
+const fetchOilDetail = async () => {
+  oilLoading.value = true;
+  try {
+    const response = await oilAPI.getPrice();
+    if (response.data.success) {
+      oilPrice.value = response.data.data;
+      await fetchOilChart();
+    }
+  } catch (err) {
+    console.error('Oil detail fetch error:', err);
+  } finally {
+    oilLoading.value = false;
+  }
+};
+
+const fetchOilChart = async () => {
+  try {
+    const response = await oilAPI.getMonthlyHistory();
+    if (response.data.success && response.data.data) {
+      await nextTick();
+      createOilChart(response.data.data);
+    }
+  } catch (err) {
+    console.error('Oil chart fetch error:', err);
+  }
+};
+
+const createOilChart = (historyData) => {
+  if (!oilChartCanvas.value || !historyData?.length) return;
+  if (oilChartInstance) oilChartInstance.destroy();
+
+  const labels = historyData.map(item => {
+    const date = new Date(item.fetchedAt);
+    return `${date.getMonth() + 1}/${date.getDate()}`;
+  });
+  const prices = historyData.map(item => item.pricePerBarrel);
+
+  oilChartInstance = new Chart(oilChartCanvas.value.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'WTI 원유 ($/배럴)',
+        data: prices,
+        backgroundColor: 'rgba(251, 146, 60, 0.6)',
+        borderColor: 'rgba(251, 146, 60, 1)',
+        borderWidth: 2,
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(15, 15, 35, 0.95)',
+          titleColor: '#fff',
+          bodyColor: '#ccc',
+          callbacks: {
+            label: (ctx) => '시세: $' + ctx.parsed.y.toFixed(2) + '/배럴'
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: false,
+          ticks: {
+            color: '#888',
+            callback: (v) => '$' + v.toFixed(1)
+          },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        },
+        x: {
+          ticks: { color: '#888' },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+};
+
 onMounted(() => {
   fetchData();
   if (autoRefresh.value) startAutoRefresh();
@@ -513,6 +704,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAutoRefresh();
+  if (oilChartInstance) oilChartInstance.destroy();
 });
 </script>
 
@@ -1193,6 +1385,147 @@ onUnmounted(() => {
   border-top: 1px solid rgba(255,255,255,0.05);
 }
 
+/* 원유 상세 버튼 */
+.oil-detail-btn {
+  float: right;
+  background: rgba(251, 146, 60, 0.15);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  color: #fb923c;
+  padding: 4px 14px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.oil-detail-btn:hover {
+  background: rgba(251, 146, 60, 0.25);
+}
+
+/* 원유 상세 패널 */
+.oil-detail-panel {
+  background: rgba(30, 30, 60, 0.7);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 24px;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.oil-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.oil-detail-header h3 {
+  margin: 0;
+  color: #fb923c;
+  font-size: 1.2rem;
+}
+
+.close-detail-btn {
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #888;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.close-detail-btn:hover { color: #fff; }
+
+.oil-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  color: #888;
+}
+
+.oil-price-main {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.oil-price-big {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.oil-price-sub {
+  font-size: 0.9rem;
+  color: #888;
+  margin-top: 4px;
+}
+
+.oil-price-krw {
+  font-size: 1rem;
+  color: #9ca3af;
+  margin-top: 4px;
+}
+
+.oil-info-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.oil-info-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.oil-info-item .label {
+  font-size: 0.75rem;
+  color: #888;
+  margin-bottom: 4px;
+}
+
+.oil-info-item .value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #ddd;
+}
+
+.oil-info-item .value.up { color: #ef4444; }
+.oil-info-item .value.down { color: #3b82f6; }
+.oil-info-item .value.high { color: #ef4444; }
+.oil-info-item .value.low { color: #3b82f6; }
+
+.oil-chart-section {
+  margin-top: 20px;
+}
+
+.oil-chart-section h4 {
+  margin: 0 0 16px;
+  color: #ddd;
+  font-size: 1rem;
+}
+
+.oil-chart-container {
+  height: 300px;
+  background: rgba(255,255,255,0.02);
+  border-radius: 12px;
+  padding: 12px;
+}
+
 /* 반응형 */
 @media (max-width: 768px) {
   .page-container { padding: 12px; }
@@ -1201,5 +1534,6 @@ onUnmounted(() => {
   .futures-grid { grid-template-columns: 1fr; }
   .impact-banner { padding: 16px; }
   .page-header { flex-direction: column; align-items: flex-start; }
+  .oil-info-grid { grid-template-columns: repeat(2, 1fr); }
 }
 </style>

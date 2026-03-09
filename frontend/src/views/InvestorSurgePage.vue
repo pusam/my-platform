@@ -276,7 +276,7 @@ const collectSnapshot = async () => {
 };
 
 const goToDetail = (stockCode) => {
-  router.push(`/investor-stock/${stockCode}`);
+  router.push(`/stock/${stockCode}`);
 };
 
 const formatNumber = (value) => {
