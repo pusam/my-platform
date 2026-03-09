@@ -96,12 +96,13 @@
       <span>해외선물 시세 조회 중...</span>
     </div>
 
-    <!-- 메인 카드 (코스피200 야간선물) -->
-    <div v-if="kospiQuote" class="main-card" :class="getCardClass(kospiQuote)">
+    <!-- 메인 카드 (코스피200 지수) -->
+    <div v-if="kospiQuote" class="main-card" :class="[getCardClass(kospiQuote), { stale: kospiQuote.stale }]">
       <div class="main-header">
         <div class="main-title">
           <span class="exchange-badge">{{ kospiQuote.exchange }}</span>
           <h2>{{ kospiQuote.name }}</h2>
+          <span v-if="kospiQuote.stale" class="stale-badge">장 마감</span>
         </div>
         <span class="main-status" :class="getSignClass(kospiQuote)">
           {{ getSignText(kospiQuote) }}
@@ -129,8 +130,16 @@
         </div>
         <div class="detail">
           <span class="label">데이터 기준</span>
-          <span class="value">{{ kospiQuote.tradingTime || '-' }}</span>
+          <span class="value" :class="{ 'stale-time': kospiQuote.stale }">
+            {{ kospiQuote.tradingTime || '-' }}
+            <span v-if="kospiQuote.stale && kospiQuote.dataAgeMinutes > 0" class="age-info">
+              ({{ formatDataAge(kospiQuote.dataAgeMinutes) }} 전)
+            </span>
+          </span>
         </div>
+      </div>
+      <div v-if="kospiQuote.stale" class="stale-notice">
+        KRX 장중(09:00~15:30)에만 실시간 업데이트됩니다
       </div>
     </div>
 
@@ -467,6 +476,14 @@ const formatVolume = (vol) => {
 const formatTime = (date) => {
   if (!date) return '';
   return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+};
+
+const formatDataAge = (minutes) => {
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간`;
+  const days = Math.floor(hours / 24);
+  return `${days}일`;
 };
 
 // 스타일 헬퍼
@@ -964,6 +981,33 @@ onUnmounted(() => {
 
 .main-card.up-card { border-color: rgba(239,68,68,0.3); box-shadow: 0 0 30px rgba(239,68,68,0.1); }
 .main-card.down-card { border-color: rgba(59,130,246,0.3); box-shadow: 0 0 30px rgba(59,130,246,0.1); }
+.main-card.stale { opacity: 0.75; border-color: rgba(255,255,255,0.1); box-shadow: none; }
+
+.stale-badge {
+  display: inline-block;
+  background: rgba(245,158,11,0.2);
+  color: #f59e0b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.stale-time { color: #f59e0b !important; }
+.age-info { font-size: 0.75rem; color: #f59e0b; }
+
+.stale-notice {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 8px;
+  color: #f59e0b;
+  font-size: 0.75rem;
+  text-align: center;
+}
 
 .main-header {
   display: flex;

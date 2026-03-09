@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 글로벌 선물 시세 서비스 (Yahoo Finance 기반)
  *
- * - 코스피200 야간선물 → 미지원 (KRX 전용), 대신 코스피 ETF 대체
+ * - 코스피200 지수 (^KS200) — KRX 장중(09:00~15:30)만 업데이트, 야간선물 미지원
  * - 나스닥100 선물 (NQ=F)
  * - S&P500 선물 (ES=F)
  * - 다우 선물 (YM=F)
@@ -44,7 +44,7 @@ public class GlobalFuturesService {
     private static final Map<String, FuturesInfo> FUTURES_MAP = new LinkedHashMap<>();
 
     static {
-        FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "KOSPI200 야간선물", "코스피200", "index", "KRX"));
+        FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "KOSPI200 지수", "코스피200", "index", "KRX"));
         FUTURES_MAP.put("NQ", new FuturesInfo("NQ", "NQ=F", "나스닥100 선물", "나스닥100", "index", "CME"));
         FUTURES_MAP.put("ES", new FuturesInfo("ES", "ES=F", "S&P500 E-mini", "S&P500", "index", "CME"));
         FUTURES_MAP.put("YM", new FuturesInfo("YM", "YM=F", "다우 E-mini", "다우존스", "index", "CBOT"));
@@ -78,6 +78,8 @@ public class GlobalFuturesService {
         private String sign;          // 1:상한, 2:상승, 3:보합, 4:하한, 5:하락
         private String tradingTime;   // 실제 마켓 체결 시간 (Yahoo regularMarketTime)
         private String marketStatus;  // OPEN, CLOSED, PRE, POST
+        private long dataAgeMinutes;  // 데이터 경과 시간 (분)
+        private boolean stale;        // 데이터가 오래되었는지 (30분 이상)
         private LocalDateTime fetchedAt;
         private boolean success;
         private String errorMessage;
@@ -215,6 +217,15 @@ public class GlobalFuturesService {
             // 마켓 상태
             String marketStatus = meta.path("marketState").asText("CLOSED");
 
+            // 데이터 경과 시간 계산
+            long dataAgeMinutes = 0;
+            boolean stale = false;
+            if (regularMarketTimeEpoch > 0) {
+                long nowEpoch = Instant.now().getEpochSecond();
+                dataAgeMinutes = (nowEpoch - regularMarketTimeEpoch) / 60;
+                stale = dataAgeMinutes > 30; // 30분 이상 경과 시 stale
+            }
+
             // sign 결정
             String sign = "3"; // 보합
             if (changeRate.compareTo(BigDecimal.ZERO) > 0) sign = "2"; // 상승
@@ -235,6 +246,8 @@ public class GlobalFuturesService {
                     .sign(sign)
                     .tradingTime(tradingTime)
                     .marketStatus(marketStatus)
+                    .dataAgeMinutes(dataAgeMinutes)
+                    .stale(stale)
                     .fetchedAt(LocalDateTime.now())
                     .success(true)
                     .build();
@@ -330,13 +343,28 @@ public class GlobalFuturesService {
             else if (vixLevel >= 25) vixContrib = -10;
             else if (vixLevel >= 20) vixContrib = -5;
             else if (vixLevel < 15) vixContrib = 3; // 안정
-            // VIX 급등 추가 반영
+
+            // VIX 급등 시 추가 약세 반영
             if (vixRate > 10) vixContrib -= 8;
             else if (vixRate > 5) vixContrib -= 4;
+            // VIX 급락 시 진정 국면 반영 — 절대값이 높아도 빠르게 하락 중이면 페널티 경감
+            else if (vixRate <= -10) vixContrib += 8;  // VIX 10%+ 급락 → 큰 진정
+            else if (vixRate <= -5) vixContrib += 5;   // VIX 5%+ 급락 → 진정
+
             vixContrib = clampContrib(vixContrib);
             weightedScore += vixContrib * 0.15;
 
-            String vixSignal = vixLevel >= 25 ? "NEGATIVE" : vixLevel < 18 ? "POSITIVE" : "NEUTRAL";
+            // VIX 시그널: 절대값 + 방향성 복합 판단
+            String vixSignal;
+            if (vixLevel >= 25 && vixRate <= -5) {
+                vixSignal = "NEUTRAL"; // 높지만 급락 중 → 진정 국면
+            } else if (vixLevel >= 25) {
+                vixSignal = "NEGATIVE";
+            } else if (vixLevel < 18) {
+                vixSignal = "POSITIVE";
+            } else {
+                vixSignal = "NEUTRAL";
+            }
             riskFactors.add(createFactor("VIX", vixRate, vixSignal, 15));
         }
 
@@ -357,14 +385,39 @@ public class GlobalFuturesService {
         List<String> overrideReasons = new ArrayList<>();
 
         // 조건 1: VIX >= 25 (공포 구간)
+        // 예외: VIX가 전일 대비 5% 이상 하락 중이고, 하위 지표(WTI/환율)가 긍정이면
+        //       시장 진정 국면으로 판단 → 폭락 경계 오버라이드 해제
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
-            if (vixLevel >= 30) {
+            double vixChangeRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
+
+            boolean isVixCalming = vixChangeRate <= -5.0; // VIX 전일 대비 5% 이상 급락 중
+
+            // 하위 지표 긍정 여부 체크 (WTI 안정 + 환율 안정/강세)
+            boolean subIndicatorsPositive = false;
+            if (isVixCalming) {
+                boolean wtiOk = true;  // WTI가 폭등하지 않으면 OK
+                boolean krwOk = true;  // 환율이 급등하지 않으면 OK
+                if (cl != null && cl.getChangeRate() != null) {
+                    wtiOk = cl.getChangeRate().doubleValue() < 5.0; // WTI +5% 미만
+                }
+                if (krw != null && krw.getChangeRate() != null) {
+                    krwOk = krw.getChangeRate().doubleValue() < 0.5; // 환율 +0.5% 미만 (원화 약세 제한적)
+                }
+                subIndicatorsPositive = wtiOk && krwOk;
+            }
+
+            boolean marketCalming = isVixCalming && subIndicatorsPositive;
+
+            if (vixLevel >= 30 && !marketCalming) {
                 thresholdOverride = true;
                 overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
-            } else if (vixLevel >= 25) {
+            } else if (vixLevel >= 25 && !marketCalming) {
                 thresholdOverride = true;
                 overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
+            } else if (vixLevel >= 25 && marketCalming) {
+                log.info("[코스피 전망] VIX {} (≥25) but 진정 국면 — VIX 변동 {}%, 오버라이드 해제",
+                        String.format("%.1f", vixLevel), String.format("%.1f", vixChangeRate));
             }
         }
 
