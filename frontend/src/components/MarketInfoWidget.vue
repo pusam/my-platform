@@ -88,6 +88,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { marketAPI, exchangeRateAPI } from '@/utils/api';
+import { checkCrash, getMarketStatus } from '@/composables/useMarketStatus';
+import { formatNumber, formatChange, getChangeClass } from '@/utils/marketFormatters';
 
 const marketData = ref(null);
 const exchangeData = ref(null);
@@ -95,98 +97,16 @@ const loading = ref(true);
 const lastUpdated = ref('');
 let refreshInterval = null;
 
-// ★ 폭락 감지: KOSPI/KOSDAQ -3% 이하면 ADR 무시하고 강제 폭락
-const isCrash = computed(() => {
-  const d = marketData.value;
-  if (!d) return false;
-  const kospiRate = d.kospiChange ?? d.kospiChangeRate ?? d.kospi?.indexChangeRate ?? null;
-  const kosdaqRate = d.kosdaqChange ?? d.kosdaqChangeRate ?? d.kosdaq?.indexChangeRate ?? null;
-  if (kospiRate !== null && Number(kospiRate) <= -3) return true;
-  if (kosdaqRate !== null && Number(kosdaqRate) <= -3) return true;
-  // 백엔드 diagnosis 문자열 체크
-  const diag = d.diagnosis || d.marketStatus || '';
-  return diag.includes('폭락') || diag.includes('패닉') || diag.includes('CRASH');
-});
+// 폭락 감지 (공통 컴포저블 사용)
+const isCrash = computed(() => checkCrash(marketData.value));
 
-// 시장 상태 계산 (폭락 override 포함)
-const marketStatusClass = computed(() => {
-  if (isCrash.value) return 'crash';
-  if (!marketData.value?.combinedAdr) return '';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return 'overheated';
-  if (adr >= 100) return 'bullish';
-  if (adr >= 80) return 'normal';
-  if (adr >= 60) return 'bearish';
-  return 'extreme-fear';
-});
-
-const marketStatusIcon = computed(() => {
-  if (isCrash.value) return '🚨';
-  if (!marketData.value?.combinedAdr) return '📊';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '🔥';
-  if (adr >= 100) return '📈';
-  if (adr >= 80) return '➡️';
-  if (adr >= 60) return '📉';
-  return '💎';
-});
-
-const marketStatusTitle = computed(() => {
-  if (isCrash.value) return '폭락장';
-  if (!marketData.value?.combinedAdr) return '데이터 없음';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '과열';
-  if (adr >= 100) return '강세';
-  if (adr >= 80) return '보합';
-  if (adr >= 60) return '약세';
-  return '침체';
-});
-
-const marketStatusDescription = computed(() => {
-  if (isCrash.value) return '관망 및 리스크 관리 필수';
-  if (!marketData.value?.combinedAdr) return '시장 데이터를 불러오지 못했습니다.';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '추격 매수 주의, 익절 고려';
-  if (adr >= 100) return '상승 추세, 눌림목 매수 유효';
-  if (adr >= 80) return '방향성 탐색 중';
-  if (adr >= 60) return '하락 추세, 반등 대기';
-  return '저점 매수 기회 탐색';
-});
-
-const adrBadgeClass = computed(() => {
-  if (isCrash.value) return 'badge-crash';
-  if (!marketData.value?.combinedAdr) return '';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return 'badge-danger';
-  if (adr >= 100) return 'badge-success';
-  if (adr >= 80) return 'badge-neutral';
-  if (adr >= 60) return 'badge-warning';
-  return 'badge-info';
-});
-
-// 유틸리티
-const formatNumber = (num, decimals = 2) => {
-  if (num == null) return '-';
-  return num.toLocaleString('ko-KR', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals
-  });
-};
-
-const formatChange = (change) => {
-  if (change == null) return '-';
-  const sign = change >= 0 ? '+' : '';
-  return `${sign}${change.toFixed(2)}%`;
-};
-
-const getChangeClass = (change, inverse = false) => {
-  if (change == null) return '';
-  // inverse: 환율은 상승이 부정적
-  if (inverse) {
-    return change >= 0 ? 'negative' : 'positive';
-  }
-  return change >= 0 ? 'positive' : 'negative';
-};
+// 시장 상태 (공통 컴포저블 — ADR 기반 + 폭락 override)
+const statusInfo = computed(() => getMarketStatus(isCrash.value, marketData.value?.combinedAdr));
+const marketStatusClass = computed(() => statusInfo.value.status);
+const marketStatusIcon = computed(() => statusInfo.value.icon);
+const marketStatusTitle = computed(() => statusInfo.value.title);
+const marketStatusDescription = computed(() => statusInfo.value.desc);
+const adrBadgeClass = computed(() => statusInfo.value.badgeClass);
 
 const fetchData = async () => {
   try {

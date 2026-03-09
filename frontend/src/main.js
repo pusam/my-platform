@@ -227,9 +227,7 @@ const router = createRouter({
     },
     {
       path: '/stock-detail',
-      name: 'StockDetail',
-      component: StockDetailDashboard,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard'
     },
     {
       path: '/stock/:stockCode',

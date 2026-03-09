@@ -201,6 +201,8 @@ import {
   Filler
 } from 'chart.js'
 import { marketAPI } from '../../utils/api'
+import { checkCrash, getMarketStatus } from '../../composables/useMarketStatus'
+import { formatChange } from '../../utils/marketFormatters'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -232,35 +234,18 @@ export default {
     }
   },
   computed: {
-    // ★ 프론트엔드 하드코딩 crash override
-    // 어떤 필드명이든 KOSPI/KOSDAQ 등락률을 찾아서 -3% 이하면 강제 폭락
-    kospiPercent() {
-      const d = this.marketData
-      // V2/Java 등 다양한 필드명 대응
-      const rate = d.kospiChangeRate ?? d.kospi_change_rate ?? d.kospiRate ?? null
-      return (rate !== null && rate !== undefined) ? Number(rate) : null
-    },
-    kosdaqPercent() {
-      const d = this.marketData
-      const rate = d.kosdaqChangeRate ?? d.kosdaq_change_rate ?? d.kosdaqRate ?? null
-      return (rate !== null && rate !== undefined) ? Number(rate) : null
-    },
+    // 폭락 감지 (공통 컴포저블 사용)
     isCrashStatus() {
-      // 등락률 값이 존재하고 -3% 이하면 무조건 폭락 (백엔드 판단 무시)
-      if (this.kospiPercent !== null && this.kospiPercent <= -3) return true
-      if (this.kosdaqPercent !== null && this.kosdaqPercent <= -3) return true
-      // 백엔드가 보내준 문자열도 체크
-      const status = this.marketData.marketStatus || ''
-      return status.includes('폭락') || status.includes('패닉') || status.includes('CRASH')
+      return checkCrash(this.marketData)
     },
-    // 화면에 표시될 시장 상태 텍스트 (crash 시 하드코딩 오버라이드)
+    // 시장 상태 텍스트 (폭락 시 하드코딩 오버라이드)
     displayMarketStatus() {
       if (this.isCrashStatus) {
-        return '🚨 폭락장 (관망 및 리스크 관리 필수)'
+        return getMarketStatus(true).displayText
       }
       return this.marketData.marketStatus || ''
     },
-    // USD/KRW 표시값 — null/undefined 시 '데이터 지연'
+    // USD/KRW 표시값
     usdKrwDisplay() {
       const krw = this.globalData.usdKrw
       if (!krw || !krw.price) return '데이터 지연'
@@ -423,12 +408,7 @@ export default {
       return name.length > 5 ? name.substring(0, 5) + '..' : name
     },
     getAdrClass() {
-      // 폭락 상태면 ADR 무관하게 붉은색
-      if (this.isCrashStatus) return 'adr-crash'
-      const adr = this.marketData.adr || 0
-      if (adr >= 120) return 'adr-hot'
-      if (adr >= 80) return 'adr-normal'
-      return 'adr-cold'
+      return getMarketStatus(this.isCrashStatus, this.marketData.adr || 0).adrClass
     }
   }
 }
