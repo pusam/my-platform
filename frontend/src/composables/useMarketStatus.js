@@ -1,8 +1,8 @@
 /**
  * 시장 상태 공통 컴포저블
- * 폭락 감지, ADR 분류, 시장 상태 텍스트를 한 곳에서 관리
+ * 폭락 감지, ADR 분류, VIX 구간 분류, 시장 상태 텍스트를 한 곳에서 관리
  *
- * 사용처: MarketInfoWidget.vue, SectionMarketMap.vue
+ * 사용처: MarketInfoWidget.vue, SectionMarketMap.vue, GlobalFuturesPage.vue
  */
 
 // ========== 폭락 감지 ==========
@@ -78,4 +78,28 @@ export function getMarketStatus(isCrash, adr) {
     if (adr >= tier.min) return tier
   }
   return ADR_TIERS[ADR_TIERS.length - 1]
+}
+
+// ========== VIX 공포지수 구간 분류 ==========
+
+const VIX_TIERS = [
+  { min: 30, cssClass: 'vix-extreme', text: '극심한 공포', emoji: '!!' },
+  { min: 25, cssClass: 'vix-fear',    text: '공포',       emoji: '!' },
+  { min: 20, cssClass: 'vix-caution', text: '경계',       emoji: '~' },
+  { min: 15, cssClass: 'vix-normal',  text: '보통',       emoji: '' },
+  { min: -Infinity, cssClass: 'vix-calm', text: '안정',   emoji: '' }
+]
+
+// VIX 값으로 구간 정보 반환
+export function getVixStatus(vixValue) {
+  const v = Number(vixValue) || 0
+  for (const tier of VIX_TIERS) {
+    if (v >= tier.min) return tier
+  }
+  return VIX_TIERS[VIX_TIERS.length - 1]
+}
+
+// VIX 미터 게이지 너비 (0~50+ → 0~100%)
+export function getVixMeterWidth(vixValue) {
+  return Math.min(100, ((Number(vixValue) || 0) / 50) * 100)
 }

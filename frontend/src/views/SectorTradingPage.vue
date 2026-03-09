@@ -138,6 +138,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { sectorAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { formatTradingValue } from '../utils/marketFormatters';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -208,18 +209,7 @@ const toggleSector = (sectorCode) => {
   expandedSector.value = expandedSector.value === sectorCode ? null : sectorCode;
 };
 
-const formatTradingValue = (value) => {
-  if (!value) return '0원';
-  const num = parseFloat(value);
-  if (num >= 1000000000000) {
-    return (num / 1000000000000).toFixed(2) + '조';
-  } else if (num >= 100000000) {
-    return (num / 100000000).toFixed(0) + '억';
-  } else if (num >= 10000) {
-    return (num / 10000).toFixed(0) + '만';
-  }
-  return num.toLocaleString('ko-KR') + '원';
-};
+// formatTradingValue는 공통 유틸리티 (marketFormatters.js)에서 import
 
 const formatCurrency = (value) => {
   if (!value) return '0원';

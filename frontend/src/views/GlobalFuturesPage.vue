@@ -264,6 +264,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { globalFuturesAPI } from '../utils/api';
+import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
 
 const loading = ref(false);
 const error = ref('');
@@ -302,32 +303,12 @@ const vixLevel = computed(() => {
   return Number(vixQuote.value.currentPrice) || 0;
 });
 
-const vixLevelClass = computed(() => {
-  const v = vixLevel.value;
-  if (v >= 30) return 'vix-extreme';
-  if (v >= 25) return 'vix-fear';
-  if (v >= 20) return 'vix-caution';
-  return 'vix-calm';
-});
-
-const vixLevelText = computed(() => {
-  const v = vixLevel.value;
-  if (v >= 30) return '극심한 공포';
-  if (v >= 25) return '공포';
-  if (v >= 20) return '경계';
-  if (v >= 15) return '보통';
-  return '안정';
-});
-
-const vixEmoji = computed(() => {
-  const v = vixLevel.value;
-  if (v >= 30) return '!!';
-  if (v >= 25) return '!';
-  if (v >= 20) return '~';
-  return '';
-});
-
-const vixMeterWidth = computed(() => Math.min(100, (vixLevel.value / 50) * 100));
+// VIX 구간 분류 (공통 컴포저블 사용)
+const vixStatus = computed(() => getVixStatus(vixLevel.value));
+const vixLevelClass = computed(() => vixStatus.value.cssClass);
+const vixLevelText = computed(() => vixStatus.value.text);
+const vixEmoji = computed(() => vixStatus.value.emoji);
+const vixMeterWidth = computed(() => getVixMeterWidth(vixLevel.value));
 
 // 코스피 영향 분석
 const impactClass = computed(() => {

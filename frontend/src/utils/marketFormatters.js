@@ -30,9 +30,10 @@ export function getChangeClass(change, inverse = false) {
 
 // 거래대금 포맷 (조/억/만)
 export function formatTradingValue(value) {
-  if (value == null) return '-'
-  if (value >= 1e12) return (value / 1e12).toFixed(2) + '조'
-  if (value >= 1e10) return Math.round(value / 1e8) + '억'
-  if (value >= 1e4) return Math.round(value / 1e4) + '만'
-  return value.toLocaleString('ko-KR') + '원'
+  if (!value) return '0원'
+  const num = parseFloat(value)
+  if (num >= 1e12) return (num / 1e12).toFixed(2) + '조'
+  if (num >= 1e8) return Math.round(num / 1e8) + '억'
+  if (num >= 1e4) return Math.round(num / 1e4) + '만'
+  return num.toLocaleString('ko-KR') + '원'
 }
