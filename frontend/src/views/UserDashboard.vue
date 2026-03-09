@@ -482,7 +482,7 @@ export default {
       this.$router.push('/silver')
     },
     goToOil() {
-      this.$router.push('/oil')
+      this.$router.push('/global-futures')
     },
     goToGlobalFutures() {
       this.$router.push('/global-futures')
