@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
  * [기능]
  * 1. DART 공시 조회 → 위험 키워드 필터링
  * 2. 네이버 뉴스 검색 → 악재 뉴스 수집
- * 3. Ollama AI 분석 → 종합 리스크 점수 산출
+ * 3. 규칙 기반 종합 리스크 점수 산출
  *
  * [리스크 레벨]
  * - SAFE (0~30점): 매매 가능
@@ -32,27 +32,35 @@ public class RiskManagementService {
 
     private final DartService dartService;
     private final NaverSearchService naverSearchService;
-    private final OllamaService ollamaService;
+    private final GoogleNewsService googleNewsService;
 
     // DANGER 임계값 (이 점수 이상이면 매수 금지)
     private static final int DANGER_THRESHOLD = 80;
     private static final int WARNING_THRESHOLD = 31;
 
     /**
-     * 종목 리스크 종합 분석
-     *
-     * @param stockName 종목명 (예: 삼성전자)
-     * @return 리스크 분석 결과
+     * 종목 리스크 종합 분석 (종목명만)
      */
     public RiskAnalysisDto analyzeRisk(String stockName) {
-        log.info("[RiskManagement] 리스크 분석 시작: {}", stockName);
+        return analyzeRisk(stockName, null);
+    }
+
+    /**
+     * 종목 리스크 종합 분석 (종목코드 포함)
+     *
+     * @param stockName 종목명 (예: 삼성전자)
+     * @param stockCode 종목코드 (예: 005930) - 네이버 금융 뉴스 크롤링용
+     * @return 리스크 분석 결과
+     */
+    public RiskAnalysisDto analyzeRisk(String stockName, String stockCode) {
+        log.info("[RiskManagement] 리스크 분석 시작: {} (코드: {})", stockName, stockCode);
         long startTime = System.currentTimeMillis();
 
         // 1. DART 공시 + 네이버 뉴스 병렬 조회
         CompletableFuture<List<DartDisclosure>> disclosuresFuture =
                 CompletableFuture.supplyAsync(() -> fetchDisclosures(stockName));
         CompletableFuture<List<NewsItem>> newsFuture =
-                CompletableFuture.supplyAsync(() -> fetchNews(stockName));
+                CompletableFuture.supplyAsync(() -> fetchNews(stockName, stockCode));
 
         List<DartDisclosure> disclosures;
         List<NewsItem> news;
@@ -77,8 +85,8 @@ public class RiskManagementService {
             return buildDangerResult(stockName, dangerousDisclosures, news);
         }
 
-        // 3. AI 리스크 분석 (타임아웃 시 규칙 기반으로 폴백)
-        RiskAnalysisDto result = performAiAnalysis(stockName, disclosures, news);
+        // 3. 규칙 기반 리스크 분석
+        RiskAnalysisDto result = performRuleBasedAnalysis(stockName, disclosures, news);
 
         long elapsed = System.currentTimeMillis() - startTime;
         log.info("[RiskManagement] 리스크 분석 완료: {} - Score: {}, Status: {}, 총 {}ms",
@@ -105,70 +113,53 @@ public class RiskManagementService {
     }
 
     /**
-     * 네이버 뉴스 검색
+     * 네이버 금융 종목 뉴스 조회
+     * 1순위: 네이버 금융 종목별 뉴스 (종목코드 기반 - 금융 뉴스만 정확히 제공)
+     * 2순위: 네이버 검색 API (종목명 기반 - API 키 필요)
      */
-    private List<NewsItem> fetchNews(String stockName) {
-        if (!naverSearchService.isAvailable()) {
-            log.warn("[RiskManagement] Naver Search API 사용 불가");
-            return List.of();
-        }
-
+    private List<NewsItem> fetchNews(String stockName, String stockCode) {
+        // 1순위: Google News RSS (종목명 기반, 빠르고 관련성 높음)
         try {
-            return naverSearchService.searchStockNews(stockName);
+            List<NewsItem> googleNews = googleNewsService.searchNews(stockName);
+            if (!googleNews.isEmpty()) {
+                log.info("[RiskManagement] Google News {}건 조회 성공 (종목: {})", googleNews.size(), stockName);
+                return googleNews;
+            }
         } catch (Exception e) {
-            log.error("[RiskManagement] 뉴스 검색 실패: {}", e.getMessage());
-            return List.of();
+            log.warn("[RiskManagement] Google News RSS 실패: {}", e.getMessage());
         }
+
+        // 2순위: 네이버 금융 종목별 뉴스 크롤링 (종목코드 기반)
+        if (stockCode != null && !stockCode.isEmpty()) {
+            try {
+                List<NewsItem> financeNews = naverSearchService.searchStockNewsByCode(stockCode);
+                if (!financeNews.isEmpty()) {
+                    log.info("[RiskManagement] 네이버 금융 뉴스 {}건 조회 성공 (종목: {})", financeNews.size(), stockCode);
+                    return financeNews;
+                }
+            } catch (Exception e) {
+                log.warn("[RiskManagement] 네이버 금융 뉴스 크롤링 실패: {}", e.getMessage());
+            }
+        }
+
+        // 3순위: 네이버 검색 API (종목명 기반)
+        if (naverSearchService.isAvailable()) {
+            try {
+                List<NewsItem> searchNews = naverSearchService.searchStockNews(stockName);
+                if (!searchNews.isEmpty()) {
+                    return searchNews;
+                }
+            } catch (Exception e) {
+                log.warn("[RiskManagement] 네이버 검색 API 실패: {}", e.getMessage());
+            }
+        }
+
+        log.warn("[RiskManagement] 뉴스 조회 실패 - 종목: {}, 코드: {}", stockName, stockCode);
+        return List.of();
     }
 
     /**
-     * AI 리스크 분석 수행
-     */
-    private RiskAnalysisDto performAiAnalysis(String stockName,
-                                               List<DartDisclosure> disclosures,
-                                               List<NewsItem> news) {
-        // 공시 정보 텍스트 변환
-        String disclosureText = formatDisclosuresForAi(disclosures);
-
-        // 뉴스 정보 텍스트 변환
-        String newsText = naverSearchService.formatNewsForAi(news);
-
-        // AI 분석 수행
-        String aiResponse = null;
-        int riskScore;
-        RiskStatus status;
-        String reason;
-
-        if (ollamaService.isAvailable()) {
-            aiResponse = ollamaService.analyzeRisk(stockName, disclosureText, newsText);
-        }
-
-        // AI 응답이 없거나 실패한 경우 규칙 기반 분석으로 폴백
-        if (aiResponse == null || aiResponse.isBlank()) {
-            log.warn("[RiskManagement] AI 분석 실패/타임아웃 - 규칙 기반 분석으로 대체");
-            return performRuleBasedAnalysis(stockName, disclosures, news);
-        }
-
-        riskScore = ollamaService.extractRiskScore(aiResponse);
-        status = determineStatus(riskScore);
-        reason = ollamaService.extractRiskReason(aiResponse);
-
-        return RiskAnalysisDto.builder()
-                .stockName(stockName)
-                .riskScore(riskScore)
-                .status(status)
-                .reason(reason)
-                .aiAnalysis(aiResponse)
-                .dangerousDisclosures(disclosures.stream()
-                        .filter(DartDisclosure::isDangerous)
-                        .collect(Collectors.toList()))
-                .relatedNews(news)
-                .analyzedAt(LocalDateTime.now())
-                .build();
-    }
-
-    /**
-     * 규칙 기반 분석 (AI 불가 시 Fallback)
+     * 규칙 기반 분석
      */
     private RiskAnalysisDto performRuleBasedAnalysis(String stockName,
                                                       List<DartDisclosure> disclosures,

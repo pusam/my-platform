@@ -1,7 +1,12 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.MarketTimingDto;
+import com.myplatform.backend.dto.NewsSummaryDto;
+import com.myplatform.backend.service.GeminiService;
+import com.myplatform.backend.service.InvestorSurgeService;
 import com.myplatform.backend.service.MarketTimingService;
+import com.myplatform.backend.service.NewsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -10,8 +15,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +36,9 @@ import java.util.Map;
 public class MarketTimingController {
 
     private final MarketTimingService marketTimingService;
+    private final GeminiService geminiService;
+    private final InvestorSurgeService investorSurgeService;
+    private final NewsService newsService;
 
     /**
      * 현재 시장 상태 조회 (대시보드용)
@@ -180,6 +190,65 @@ public class MarketTimingController {
             response.put("success", false);
             response.put("message", "기간별 수집 실패: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * AI 시장 예측 (향후 5일간 KOSPI 예측)
+     */
+    @GetMapping("/forecast")
+    @Operation(
+        summary = "AI 시장 예측",
+        description = "Gemini AI가 현재 시장 데이터를 분석하여 향후 5거래일간 KOSPI 예측을 제공합니다.\n\n" +
+                     "Bull/Base/Bear 3개 시나리오와 확률, 근거를 포함합니다."
+    )
+    public ResponseEntity<Map<String, Object>> getMarketForecast() {
+        log.info("AI 시장 예측 API 호출");
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            MarketTimingDto timing = marketTimingService.getCurrentMarketTiming();
+
+            // 외국인 순매수 Top 5
+            List<InvestorSurgeDto> foreignBuys = Collections.emptyList();
+            try {
+                foreignBuys = investorSurgeService.getSurgeStocks("FOREIGN", BigDecimal.valueOf(10));
+                if (foreignBuys.size() > 5) foreignBuys = foreignBuys.subList(0, 5);
+            } catch (Exception e) {
+                log.warn("외국인 수급 데이터 수집 실패 (무시): {}", e.getMessage());
+            }
+
+            // 기관 순매수 Top 5
+            List<InvestorSurgeDto> instBuys = Collections.emptyList();
+            try {
+                instBuys = investorSurgeService.getSurgeStocks("INSTITUTION", BigDecimal.valueOf(10));
+                if (instBuys.size() > 5) instBuys = instBuys.subList(0, 5);
+            } catch (Exception e) {
+                log.warn("기관 수급 데이터 수집 실패 (무시): {}", e.getMessage());
+            }
+
+            // 최근 뉴스 5건
+            List<NewsSummaryDto> recentNews = Collections.emptyList();
+            try {
+                recentNews = newsService.getRecentNews();
+                if (recentNews.size() > 5) recentNews = recentNews.subList(0, 5);
+            } catch (Exception e) {
+                log.warn("뉴스 데이터 수집 실패 (무시): {}", e.getMessage());
+            }
+
+            Map<String, Object> forecast = geminiService.generateMarketForecast(
+                    timing, foreignBuys, instBuys, recentNews);
+
+            response.put("success", true);
+            response.putAll(forecast);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.warn("AI 시장 예측 실패: {}", e.getMessage());
+            response.put("success", false);
+            response.put("message", "AI 시장 예측 실패: " + e.getMessage());
+            return ResponseEntity.ok(response);
         }
     }
 

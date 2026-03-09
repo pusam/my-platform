@@ -24,8 +24,9 @@ apiClient.interceptors.request.use(
   }
 );
 
-// 401 리다이렉트 중복 방지 플래그
+// 401 리다이렉트 중복 방지 (타이머 기반 자동 해제)
 let isRedirecting = false;
+let redirectTimer = null;
 
 // 응답 인터셉터 - 401 에러 시 로그아웃 처리
 apiClient.interceptors.response.use(
@@ -34,9 +35,11 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     if (error.response && error.response.status === 401 && !isRedirecting) {
-      // 토큰이 만료되었거나 유효하지 않은 경우
       isRedirecting = true;
       UserManager.logout();
+      // 3초 후 플래그 해제 (리다이렉트 실패 대비)
+      clearTimeout(redirectTimer);
+      redirectTimer = setTimeout(() => { isRedirecting = false; }, 3000);
       window.location.href = '/login';
     }
     return Promise.reject(error);
@@ -278,18 +281,6 @@ export const sectorAPI = {
   }
 };
 
-// AI Chat API
-export const aiAPI = {
-  // AI 채팅 (타임아웃 60초로 설정 - AI 응답이 느릴 수 있음)
-  chat(message, useContext = false) {
-    return apiClient.post('/ai/chat', { message, useContext }, { timeout: 60000 });
-  },
-  // AI 서버 상태 확인
-  checkStatus() {
-    return apiClient.get('/ai/status');
-  }
-};
-
 // Car Record API
 export const carAPI = {
   // 정비 기록 목록 조회
@@ -324,6 +315,10 @@ export const newsAPI = {
   // 뉴스 수동 수집 (관리자용)
   fetchNews() {
     return apiClient.post('/news/fetch', {}, { timeout: 120000 });
+  },
+  // 최신 뉴스 폴링 (minutes 이내 수집된 뉴스, urgent 플래그 포함)
+  pollNews(minutes = 15) {
+    return apiClient.get('/news/poll', { params: { minutes } });
   }
 };
 
@@ -489,6 +484,10 @@ export const marketAPI = {
   // ADR 히스토리 조회
   getAdrHistory(days = 60) {
     return apiClient.get('/market/adr/history', { params: { days } });
+  },
+  // AI 시장 예측 (향후 5일)
+  getForecast() {
+    return apiClient.get('/market/forecast', { timeout: 60000 });
   },
   // 시장 데이터 수집
   collectData() {
@@ -704,6 +703,10 @@ export const aiStrategyAPI = {
   // 수동 스냅샷 수집 (테스트/관리용)
   collectSnapshots() {
     return apiClient.post('/ai-strategy/collect');
+  },
+  // AI 전략 성과 분석 (백테스트)
+  getPerformance(days = 30) {
+    return apiClient.get('/ai-strategy/performance', { params: { days }, timeout: 60000 });
   }
 };
 
@@ -715,6 +718,22 @@ export const investorAPI = {
       params: { investorType, tradeType, limit }
     });
   },
+  // 실시간 상위 매매 (장중: KIS API 직접, 장외: DB)
+  getTopTradesRealtime(investorType, limit = 10) {
+    return apiClient.get('/investor/top-trades/realtime', {
+      params: { investorType, limit }
+    });
+  },
+  // 전체 투자자 상위 매매 (외국인+기관 통합)
+  getAllTopTrades(tradeType = 'BUY', limit = 50) {
+    return apiClient.get('/investor/all-top-trades', {
+      params: { tradeType, limit }
+    });
+  },
+  // 데이터 수집 (당일)
+  collect() {
+    return apiClient.post('/investor/collect');
+  },
   // 연속 매수 종목 전체 조회
   getAllConsecutiveBuy(minDays = 3) {
     return apiClient.get('/investor/consecutive-buy/all', { params: { minDays } });
@@ -724,6 +743,10 @@ export const investorAPI = {
     const params = {};
     if (minChange) params.minChange = minChange;
     return apiClient.get('/investor/surge/all', { params });
+  },
+  // 수급 급증 스냅샷 수집
+  collectSurge() {
+    return apiClient.post('/investor/surge/collect');
   },
   // 외국인+기관 공통 순매수 종목
   getCommonSurgeStocks(minChange = null) {
@@ -758,6 +781,14 @@ export const stockDetailAPI = {
   // 종목 종합 상세 조회 (수급/재무/리스크/AI 분석 통합)
   getSummary(stockCode) {
     return apiClient.get(`/stock/${stockCode}/summary`, { timeout: 90000 });
+  },
+  // 종목 펀더멘털 진단 (재무/수급/기술적 분석)
+  getDiagnosis(stockCode) {
+    return apiClient.get(`/analysis/diagnosis/${stockCode}`, { timeout: 60000 });
+  },
+  // 배치 점수 조회 (스크리너 듀얼 점수용)
+  batchScores(stockCodes) {
+    return apiClient.post('/analysis/batch-scores', { stockCodes }, { timeout: 90000 });
   }
 };
 
@@ -766,7 +797,7 @@ export const stockDetailAPI = {
 // V2 Axios 인스턴스 (Python 마이크로서비스)
 const apiV2Client = axios.create({
   baseURL: '/api/v2',
-  timeout: 60000,
+  timeout: 2000,  // 2초 타임아웃 (python-backend 미실행 시 빠른 실패)
   headers: { 'Content-Type': 'application/json' }
 });
 
@@ -836,6 +867,61 @@ export const newsV2API = {
 export const analysisV2API = {
   getAnalysis(ticker) {
     return apiV2Client.get(`/analysis/${ticker}`);
+  }
+};
+
+// 배치 잡 모니터링 API
+export const batchJobAPI = {
+  getExecutions(params = {}) {
+    return apiClient.get('/admin/batch-jobs', { params });
+  },
+  getSummary() {
+    return apiClient.get('/admin/batch-jobs/summary');
+  },
+  getJobNames() {
+    return apiClient.get('/admin/batch-jobs/names');
+  }
+};
+
+// 관심종목 API
+export const watchlistAPI = {
+  getList() {
+    return apiClient.get('/watchlist');
+  },
+  add(stockCode, stockName) {
+    return apiClient.post('/watchlist', { stockCode, stockName });
+  },
+  setAlert(id, targetPrice, alertCondition) {
+    return apiClient.put(`/watchlist/${id}/alert`, { targetPrice, alertCondition });
+  },
+  delete(id) {
+    return apiClient.delete(`/watchlist/${id}`);
+  },
+  checkBookmark(stockCode) {
+    return apiClient.get('/watchlist/check', { params: { stockCode } });
+  }
+};
+
+// Oil Price API (원유 시세)
+export const oilAPI = {
+  getPrice() {
+    return apiClient.get('/oil/price');
+  },
+  getMonthlyHistory() {
+    return apiClient.get('/oil/history/month');
+  }
+};
+
+// 글로벌 선물 API (해외선물/야간선물)
+export const globalFuturesAPI = {
+  getAllQuotes() {
+    return apiClient.get('/global-futures/quotes', { timeout: 30000 });
+  },
+  getQuote(symbol) {
+    return apiClient.get(`/global-futures/quotes/${symbol}`);
+  },
+  getKospiImpact() {
+    return apiClient.get('/global-futures/kospi-impact', { timeout: 30000 });
   }
 };
 

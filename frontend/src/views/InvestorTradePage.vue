@@ -40,7 +40,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(trade, index) in currentTrades" :key="`${trade.stockCode}-${index}`" class="trade-row">
+            <tr v-for="(trade, index) in currentTrades" :key="`${trade.stockCode}-${index}`" class="trade-row" @click="goToDetail(trade.stockCode)">
               <td class="rank">{{ trade.rankNum }}</td>
               <td class="stock-name">{{ trade.stockName }}</td>
               <td class="stock-code">{{ trade.stockCode }}</td>
@@ -61,7 +61,7 @@
                 {{ formatRate(trade.changeRate) }}
               </td>
               <td>
-                <button @click="goToDetail(trade.stockCode)" class="detail-btn">상세보기</button>
+                <button @click.stop="goToDetail(trade.stockCode)" class="detail-btn">상세보기</button>
               </td>
             </tr>
           </tbody>
@@ -77,7 +77,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import api from '../utils/api';
+import { investorAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 const router = useRouter();
@@ -145,12 +145,7 @@ const changeTradeType = (type) => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/investor/all-top-trades', {
-      params: {
-        tradeType: tradeType.value,
-        limit: 50
-      }
-    });
+    const response = await investorAPI.getAllTopTrades(tradeType.value, 50);
     if (response.data.success) {
       allTrades.value = response.data.data;
       updateDataStatus();
@@ -171,7 +166,7 @@ const autoCollectAndFetch = async () => {
     try {
       // /investor/collect: 오늘 데이터만 수집 (기존 데이터 유지)
       // /investor/recollect: 전체 삭제 후 재수집 (사용 금지!)
-      await api.post('/investor/collect');
+      await investorAPI.collect();
       await fetchData();
     } catch (error) {
       console.error('데이터 수집 오류:', error);
@@ -353,6 +348,9 @@ th {
 td {
   padding: 1rem;
   border-bottom: 1px solid #e2e8f0;
+}
+.trade-row {
+  cursor: pointer;
 }
 .trade-row:hover {
   background: #f7fafc;

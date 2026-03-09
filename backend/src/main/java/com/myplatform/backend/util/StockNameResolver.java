@@ -24,6 +24,7 @@ public class StockNameResolver {
         STOCK_NAME_MAP.put("035720", "카카오");
         STOCK_NAME_MAP.put("051910", "LG화학");
         STOCK_NAME_MAP.put("068270", "셀트리온");
+        STOCK_NAME_MAP.put("012620", "삼성물산");
         STOCK_NAME_MAP.put("028260", "삼성물산");
         STOCK_NAME_MAP.put("105560", "KB금융");
         STOCK_NAME_MAP.put("055550", "신한지주");

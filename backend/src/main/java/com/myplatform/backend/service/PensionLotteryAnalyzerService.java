@@ -16,6 +16,9 @@ import com.myplatform.backend.repository.PensionLotteryDrawRepository;
 import com.myplatform.backend.repository.PensionLotteryWeeklyRecommendationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,7 +52,14 @@ public class PensionLotteryAnalyzerService {
     private final PensionLotteryDrawRepository drawRepository;
     private final PensionLotteryWeeklyRecommendationRepository weeklyRepository;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = createTimeoutRestTemplate();
+
+    private static RestTemplate createTimeoutRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
     private final SecureRandom random = new SecureRandom();
 
     // ==================== 스케줄러 ====================
@@ -81,9 +91,19 @@ public class PensionLotteryAnalyzerService {
 
     /**
      * 서버 시작 시 데이터가 없으면 초기 데이터 수집
+     * - 120초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     @Transactional
     public void initializeDataIfEmpty() {
+        try {
+            Thread.sleep(120000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
         if (drawRepository.count() == 0) {
             log.info("[연금복권초기화] DB에 데이터가 없어 초기 수집 시작...");
             collectLatestDraws();
@@ -96,10 +116,12 @@ public class PensionLotteryAnalyzerService {
 
     /**
      * 최신 당첨 데이터 수집 (최대 100회차)
+     * - 연속 5회 실패 시 조기 중단 (API 장애/차단 대응)
      */
     @Transactional
     public int collectLatestDraws() {
         int collected = 0;
+        int consecutiveFailures = 0;
         int latestInDb = drawRepository.findMaxDrawNo().orElse(0);
         int estimatedLatest = estimateLatestDrawNo();
 
@@ -111,6 +133,13 @@ public class PensionLotteryAnalyzerService {
                 PensionLotteryDraw draw = fetchAndSaveDraw(drawNo);
                 if (draw != null) {
                     collected++;
+                    consecutiveFailures = 0;
+                } else {
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= 5) {
+                        log.warn("[연금복권수집] 연속 {}회 실패 - 수집 중단 (API 장애 가능성)", consecutiveFailures);
+                        break;
+                    }
                 }
             }
         }
@@ -240,7 +269,7 @@ public class PensionLotteryAnalyzerService {
 
     // ==================== API 조회 메서드 ====================
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PensionLotteryAnalysisDto getWeeklyRecommendation() {
         Optional<PensionLotteryWeeklyRecommendation> optional = weeklyRepository.findLatestRecommendation();
 
@@ -292,12 +321,17 @@ public class PensionLotteryAnalyzerService {
                 .collect(Collectors.toList());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public PensionLotteryAnalysisDto analyzeAndRecommend() {
         List<PensionLotteryDraw> draws = drawRepository.findRecentDraws(100);
         if (draws.isEmpty()) {
-            log.error("[연금복권분석] 분석할 데이터가 없습니다");
-            return null;
+            log.info("[연금복권분석] DB에 데이터가 없어 자동 수집 시작...");
+            collectLatestDraws();
+            draws = drawRepository.findRecentDraws(100);
+            if (draws.isEmpty()) {
+                log.error("[연금복권분석] 데이터 수집 후에도 분석할 데이터가 없습니다");
+                return null;
+            }
         }
 
         List<PensionLotteryDrawDto> drawDtos = draws.stream()

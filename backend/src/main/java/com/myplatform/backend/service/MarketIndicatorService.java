@@ -7,10 +7,12 @@ import com.myplatform.backend.config.KisApiProperties;
 import com.myplatform.backend.dto.MarketIndicatorStockDto;
 import com.myplatform.backend.entity.MarketIndicatorSnapshot;
 import com.myplatform.backend.repository.MarketIndicatorSnapshotRepository;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,9 +65,17 @@ public class MarketIndicatorService {
 
     /**
      * 서버 시작 시 오늘 데이터가 없으면 수집
+     * - 75초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     public void initializeDataIfEmpty() {
+        try {
+            Thread.sleep(75000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
         LocalDate today = LocalDate.now();
 
         // 주말이면 금요일 날짜 사용
@@ -332,11 +342,23 @@ public class MarketIndicatorService {
                 for (JsonNode item : output) {
                     MarketIndicatorStockDto dto = new MarketIndicatorStockDto();
 
-                    dto.setStockCode(item.get("mksc_shrn_iscd").asText());
-                    dto.setStockName(item.get("hts_kor_isnm").asText());
-                    dto.setCurrentPrice(new BigDecimal(item.get("stck_prpr").asText()));
-                    dto.setChangeAmount(new BigDecimal(item.get("prdy_vrss").asText()));
-                    dto.setChangeRate(new BigDecimal(item.get("prdy_ctrt").asText()));
+                    // 필드명이 API 종류에 따라 다를 수 있으므로 null 체크
+                    JsonNode codeNode = item.get("mksc_shrn_iscd");
+                    if (codeNode == null) codeNode = item.get("stck_shrn_iscd");
+                    if (codeNode == null) continue;
+
+                    JsonNode nameNode = item.get("hts_kor_isnm");
+                    if (nameNode == null) nameNode = item.get("stck_kor_isnm");
+                    if (nameNode == null) continue;
+
+                    JsonNode priceNode = item.get("stck_prpr");
+                    if (priceNode == null) continue;
+
+                    dto.setStockCode(codeNode.asText());
+                    dto.setStockName(nameNode.asText());
+                    dto.setCurrentPrice(new BigDecimal(priceNode.asText()));
+                    dto.setChangeAmount(item.has("prdy_vrss") ? new BigDecimal(item.get("prdy_vrss").asText()) : BigDecimal.ZERO);
+                    dto.setChangeRate(item.has("prdy_ctrt") ? new BigDecimal(item.get("prdy_ctrt").asText()) : BigDecimal.ZERO);
 
                     if (item.has("stck_oprc")) {
                         dto.setOpenPrice(new BigDecimal(item.get("stck_oprc").asText()));

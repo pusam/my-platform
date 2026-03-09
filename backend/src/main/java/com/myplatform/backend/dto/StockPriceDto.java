@@ -21,6 +21,7 @@ public class StockPriceDto {
     private BigDecimal bps;  // BPS (주당순자산)
     private String baseDate;
     private LocalDateTime fetchedAt;
+    private BigDecimal previousDayVolume;  // 전일 거래량
     private String dataSource; // 데이터 출처 (KIS: 한국투자증권, NAVER: 네이버)
 
     // Getters and Setters
@@ -150,6 +151,14 @@ public class StockPriceDto {
 
     public void setFetchedAt(LocalDateTime fetchedAt) {
         this.fetchedAt = fetchedAt;
+    }
+
+    public BigDecimal getPreviousDayVolume() {
+        return previousDayVolume;
+    }
+
+    public void setPreviousDayVolume(BigDecimal previousDayVolume) {
+        this.previousDayVolume = previousDayVolume;
     }
 
     public String getDataSource() {

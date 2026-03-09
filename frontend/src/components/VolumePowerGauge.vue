@@ -1,6 +1,6 @@
 <template>
   <div class="volume-power-gauge">
-    <div class="gauge-header">
+    <div class="gauge-header" :title="tooltipText">
       <h3>체결강도</h3>
       <span class="power-value" :class="signalClass">{{ formattedPower }}%</span>
     </div>
@@ -50,6 +50,10 @@ const props = defineProps({
   signal: {
     type: String,
     default: 'NEUTRAL'
+  },
+  dataSource: {
+    type: String,
+    default: ''
   }
 });
 
@@ -79,8 +83,10 @@ const hasValidData = computed(() => {
   return props.volumePower != null && props.volumePower > 0;
 });
 
-// 장 시작 대기 상태 (09:00 이전이고 데이터가 없을 때만)
+// 장 시작 대기 상태
 const isPreMarket = computed(() => {
+  // 백엔드에서 '장전(초기화)' 소스 → 무조건 대기 상태
+  if (props.dataSource === '장전(초기화)') return true;
   // 장 마감 후에는 데이터가 있으면 표시
   if (isAfterMarket.value && hasValidData.value) return false;
   // 장중이면 데이터 있으면 표시
@@ -144,6 +150,17 @@ const signalText = computed(() => {
     case 'STRONG_SELL': return '강한 매도세';
     default: return '균형';
   }
+});
+
+// 체결강도 툴팁 설명
+const tooltipText = computed(() => {
+  const power = props.volumePower;
+  if (!power || power === 0) return '체결강도: 매수 체결량 / 매도 체결량 × 100\n100% 이상이면 매수세 우위';
+  if (power >= 150) return `체결강도 ${power.toFixed(1)}%: 매수세가 매도세의 1.5배 이상. 강한 매수 압력`;
+  if (power >= 120) return `체결강도 ${power.toFixed(1)}%: 매수세 우위. 상승 탄력 기대`;
+  if (power >= 100) return `체결강도 ${power.toFixed(1)}%: 매수세가 소폭 우위. 균형~상승 구간`;
+  if (power >= 80) return `체결강도 ${power.toFixed(1)}%: 매도세 소폭 우위. 관망 구간`;
+  return `체결강도 ${power.toFixed(1)}%: 매도세가 매수세보다 강함. 하락 압력 주의`;
 });
 
 // 신호 클래스

@@ -44,11 +44,10 @@ public class InvestorSurgeDto {
     private String surgeLevel;             // 급등 레벨: HOT, WARM, NORMAL
 
     /**
-     * 추세 상태 (누적금액 + 변화량 조합)
-     * - ACCUMULATING: 누적 양수 + 변화 양수 → 초록색 '매수 집중' (★최고의 매수 타이밍)
-     * - PROFIT_TAKING: 누적 양수 + 변화 음수 → 주황색 '차익 실현'
-     * - TURNAROUND: 누적 음수 + 변화 양수 → 회색 '수급 유입' (반등 시도)
-     * - NORMAL: 그 외 케이스
+     * 추세 상태 (순매수 금액 부호 기준)
+     * - ACCUMULATING: 순매수 양수 → 초록색 '매수 집중'
+     * - PROFIT_TAKING: 순매수 음수 → 주황색 '차익 실현'
+     * - NORMAL: 0 또는 판단 불가
      */
     private String trendStatus;
     private String trendStatusName;        // 추세 상태 한글명

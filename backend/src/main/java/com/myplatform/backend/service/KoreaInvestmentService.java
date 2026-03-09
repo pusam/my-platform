@@ -63,6 +63,24 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 토큰이 현재 사용 가능한지 확인 (쿨다운 포함)
+     * - 토큰 발급 시도 없이 빠르게 상태만 확인
+     */
+    public boolean isTokenAvailable() {
+        // 이미 유효한 토큰이 있으면 true
+        if (accessToken != null && tokenExpireTime != null
+            && LocalDateTime.now().isBefore(tokenExpireTime.minusHours(1))) {
+            return true;
+        }
+        // 쿨다운 중이면 false
+        if (tokenCooldownUntil != null && LocalDateTime.now().isBefore(tokenCooldownUntil)) {
+            return false;
+        }
+        // 설정이 안 되어 있으면 false
+        return isConfigured();
+    }
+
+    /**
      * Access Token 발급
      * - 토큰 유효시간: 24시간
      * - 만료 1시간 전에 갱신
@@ -82,12 +100,19 @@ public class KoreaInvestmentService {
         }
 
         if (!isConfigured()) {
-            log.warn("한국투자증권 API 키가 설정되지 않았습니다.");
+            log.warn("한국투자증권 API 키가 설정되지 않았습니다. (appKey 길이: {}, appSecret 길이: {})",
+                    appKey != null ? appKey.length() : 0,
+                    appSecret != null ? appSecret.length() : 0);
             return null;
         }
 
+        // 마스킹된 키로 디버그 로깅
+        String maskedKey = appKey.length() > 4
+                ? appKey.substring(0, 4) + "****" : "****";
+
         try {
             String url = baseUrl + "/oauth2/tokenP";
+            log.info("KIS 토큰 발급 시도 - baseUrl: {}, appKey: {}", baseUrl, maskedKey);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -100,6 +125,10 @@ public class KoreaInvestmentService {
             HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
 
+            log.info("KIS 토큰 응답 - HTTP {}, body 길이: {}",
+                    response.getStatusCode(),
+                    response.getBody() != null ? response.getBody().length() : 0);
+
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode root = objectMapper.readTree(response.getBody());
 
@@ -109,21 +138,41 @@ public class KoreaInvestmentService {
                     tokenExpireTime = LocalDateTime.now().plusHours(24);
                     // 쿨다운 해제
                     tokenCooldownUntil = null;
-                    log.info("한국투자증권 Access Token 발급 성공");
+                    log.info("KIS Access Token 발급 성공 (만료: {})", tokenExpireTime);
                     return accessToken;
                 } else {
-                    String errorMsg = root.has("msg") ? root.get("msg").asText() : "Unknown error";
-                    log.error("토큰 발급 실패: {}", errorMsg);
-                    // 실패 시 쿨다운 설정
+                    // 에러 상세 로깅
+                    String errorCode = root.has("error_code") ? root.get("error_code").asText() : "";
+                    String errorMsg = root.has("msg") ? root.get("msg").asText() : "";
+                    String errorDesc = root.has("error_description") ? root.get("error_description").asText() : "";
+                    log.error("KIS 토큰 발급 실패 - code: {}, msg: {}, desc: {}, 전체 응답: {}",
+                            errorCode, errorMsg, errorDesc, response.getBody());
                     tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+                    log.info("KIS 토큰 쿨다운 설정: {}까지 대기", tokenCooldownUntil);
                 }
+            } else {
+                log.error("KIS 토큰 비정상 응답 - HTTP {}", response.getStatusCode());
             }
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int statusCode = e.getStatusCode().value();
+            String responseBody = e.getResponseBodyAsString();
+            log.error("KIS 토큰 발급 HTTP {} - appKey: {}, baseUrl: {}, 응답: {}",
+                    statusCode, maskedKey, baseUrl, responseBody, e);
+            if (statusCode == 401) {
+                log.error("KIS 토큰 401 Unauthorized - appKey/appSecret 확인 필요");
+            } else if (statusCode == 403) {
+                log.error("KIS 토큰 403 Forbidden - API 권한 또는 IP 접근 제한 확인");
+            } else if (statusCode == 429) {
+                log.error("KIS 토큰 429 Too Many Requests - 분당 요청 한도 초과");
+            }
+            tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+            log.info("KIS 토큰 쿨다운 설정: {}초 ({}까지)", TOKEN_COOLDOWN_SECONDS, tokenCooldownUntil);
         } catch (Exception e) {
-            log.error("한국투자증권 토큰 발급 실패: {}", e.getMessage());
-            // Rate Limit 에러인 경우 쿨다운 설정
-            if (e.getMessage() != null && e.getMessage().contains("403")) {
-                tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
-                log.info("토큰 발급 쿨다운 설정: {}초 후 재시도 가능", TOKEN_COOLDOWN_SECONDS);
+            log.error("KIS 토큰 발급 예외 - appKey: {}, baseUrl: {}", maskedKey, baseUrl, e);
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            if (msg.contains("Connection refused") || msg.contains("Connect timed out")) {
+                tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS * 2);
+                log.error("KIS API 서버 연결 불가 - {}초 쿨다운", TOKEN_COOLDOWN_SECONDS * 2);
             }
         }
 
@@ -269,8 +318,11 @@ public class KoreaInvestmentService {
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 return objectMapper.readTree(response.getBody());
             }
+        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+            // KIS API에서 해당 엔드포인트 폐지/변경 시 404 반환 → 조용히 무시
+            log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
         } catch (Exception e) {
-            log.error("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
         return null;
@@ -494,9 +546,15 @@ public class KoreaInvestmentService {
 
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode result = objectMapper.readTree(response.getBody());
+                int outputSize = result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0;
                 log.info("KIS API 응답: rt_cd={}, output 크기={}",
-                        result.has("rt_cd") ? result.get("rt_cd").asText() : "없음",
-                        result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0);
+                        result.has("rt_cd") ? result.get("rt_cd").asText() : "없음", outputSize);
+                if (outputSize == 0) {
+                    log.warn("KIS API 빈 응답 [투자자:{}] msg1={}, raw={}",
+                            investorType,
+                            result.has("msg1") ? result.get("msg1").asText() : "없음",
+                            response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
+                }
                 return result;
             } else {
                 log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());

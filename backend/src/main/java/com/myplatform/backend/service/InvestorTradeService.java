@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
 import com.myplatform.backend.dto.StockInvestorDetailDto;
@@ -15,9 +16,12 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -31,6 +35,12 @@ public class InvestorTradeService {
 
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final KisInvestorDataCollector kisInvestorDataCollector;
+    private final KoreaInvestmentService koreaInvestmentService;
+    private final RedisCacheService redisCacheService;
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
 
     /**
      * 투자자 유형별 상위 매수/매도 종목 조회 (최대 50개)
@@ -69,6 +79,104 @@ public class InvestorTradeService {
                 .limit(finalLimit)
                 .map(this::entityToDto)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 장중 실시간 투자자별 상위 매매 종목 조회 (KIS API 직접 호출)
+     * - 장중(09:00~15:30): KIS API 실시간 호출
+     * - 장외: DB 조회 폴백
+     */
+    public List<InvestorTradeDto> getTopTradesRealtime(String investorType, int limit) {
+        // Redis L2 캐시 조회 (워머가 30초마다 갱신)
+        List<InvestorTradeDto> cached = redisCacheService.get(
+                "smartMoneyRealtime", investorType,
+                new TypeReference<List<InvestorTradeDto>>() {});
+        if (cached != null && !cached.isEmpty()) {
+            log.debug("[SmartMoney] Redis L2 HIT - {} {}건", investorType, cached.size());
+            return cached.size() > limit ? cached.subList(0, limit) : cached;
+        }
+
+        LocalTime now = LocalTime.now(KST);
+        boolean isMarketHours = !now.isBefore(MARKET_OPEN) && !now.isAfter(MARKET_CLOSE);
+
+        if (isMarketHours && koreaInvestmentService.isConfigured()) {
+            try {
+                String kisInvestorCode = "FOREIGN".equals(investorType) ? "1" : "2";
+                JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(kisInvestorCode, true, true);
+                if (response != null) {
+                    List<InvestorTradeDto> result = parseKisRealtimeResponse(response, investorType, limit);
+                    if (!result.isEmpty()) {
+                        log.info("[SmartMoney] 실시간 KIS API 조회 성공 - {} {}건", investorType, result.size());
+                        return result;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[SmartMoney] 실시간 KIS API 실패, DB 폴백 - {}: {}", investorType, e.getMessage());
+            }
+        }
+
+        // 장외 또는 API 실패 시 DB 폴백
+        return getTopTradesByInvestor(investorType, "BUY", limit);
+    }
+
+    /**
+     * KIS API 실시간 응답을 InvestorTradeDto로 변환
+     */
+    private List<InvestorTradeDto> parseKisRealtimeResponse(JsonNode response, String investorType, int limit) {
+        List<InvestorTradeDto> result = new ArrayList<>();
+
+        String rtCd = response.has("rt_cd") ? response.get("rt_cd").asText() : "";
+        if (!"0".equals(rtCd)) return result;
+
+        JsonNode output = response.get("output");
+        if (output == null || !output.isArray()) return result;
+
+        String netBuyField = "FOREIGN".equals(investorType) ? "frgn_ntby_tr_pbmn" : "orgn_ntby_tr_pbmn";
+        int rank = 1;
+
+        for (JsonNode item : output) {
+            if (rank > limit) break;
+
+            String stockCode = getJsonText(item, "mksc_shrn_iscd");
+            String stockName = getJsonText(item, "hts_kor_isnm");
+            if (stockCode.isEmpty() || stockName.isEmpty()) continue;
+
+            BigDecimal netBuyRaw = getJsonBigDecimal(item, netBuyField);
+            // 백만원 → 억원
+            BigDecimal netBuyAmount = netBuyRaw.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+
+            BigDecimal currentPrice = getJsonBigDecimal(item, "stck_prpr");
+            BigDecimal changeRate = getJsonBigDecimal(item, "prdy_ctrt");
+
+            InvestorTradeDto dto = new InvestorTradeDto();
+            dto.setStockCode(stockCode);
+            dto.setStockName(stockName);
+            dto.setNetBuyAmount(netBuyAmount);
+            dto.setCurrentPrice(currentPrice);
+            dto.setChangeRate(changeRate);
+            dto.setInvestorType(investorType);
+            dto.setRankNum(rank);
+            dto.setTradeDate(LocalDate.now());
+
+            result.add(dto);
+            rank++;
+        }
+
+        return result;
+    }
+
+    private String getJsonText(JsonNode node, String field) {
+        if (node == null || !node.has(field)) return "";
+        return node.get(field).asText("");
+    }
+
+    private BigDecimal getJsonBigDecimal(JsonNode node, String field) {
+        if (node == null || !node.has(field)) return BigDecimal.ZERO;
+        try {
+            return new BigDecimal(node.get(field).asText("0").replace(",", ""));
+        } catch (NumberFormatException e) {
+            return BigDecimal.ZERO;
+        }
     }
 
     /**
@@ -405,8 +513,12 @@ public class InvestorTradeService {
             latestTradeByStock.merge(
                     trade.getStockCode(),
                     trade,
-                    (existing, newTrade) -> newTrade.getTradeDate().isAfter(existing.getTradeDate())
-                            ? newTrade : existing
+                    (existing, newTrade) -> {
+                        if (newTrade.getTradeDate() == null) return existing;
+                        if (existing.getTradeDate() == null) return newTrade;
+                        return newTrade.getTradeDate().isAfter(existing.getTradeDate())
+                                ? newTrade : existing;
+                    }
             );
         }
 

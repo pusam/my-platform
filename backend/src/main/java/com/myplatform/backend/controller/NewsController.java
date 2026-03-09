@@ -9,9 +9,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Tag(name = "뉴스 요약", description = "경제 뉴스 AI 요약 API")
 @RestController
@@ -37,6 +39,31 @@ public class NewsController {
     public ResponseEntity<ApiResponse<List<NewsSummaryDto>>> getRecentNews() {
         List<NewsSummaryDto> news = newsService.getRecentNews();
         return ResponseEntity.ok(ApiResponse.success("최근 뉴스 조회 성공", news));
+    }
+
+    @Operation(summary = "최신 뉴스 폴링", description = "지정된 분 이내에 새로 수집된 뉴스를 조회합니다. 긴급(HOT) 뉴스는 urgent=true로 표시됩니다.")
+    @GetMapping("/poll")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> pollNews(
+            @RequestParam(defaultValue = "15") int minutes
+    ) {
+        LocalDateTime since = LocalDateTime.now().minusMinutes(minutes);
+        List<NewsSummaryDto> recent = newsService.getNewsSince(since);
+
+        List<Map<String, Object>> result = recent.stream().map(dto -> {
+            Map<String, Object> item = new HashMap<>();
+            item.put("id", dto.getId());
+            item.put("title", dto.getTitle());
+            item.put("summary", dto.getSummary());
+            item.put("sourceName", dto.getSourceName());
+            item.put("sourceUrl", dto.getSourceUrl());
+            item.put("sentiment", dto.getSentiment());
+            item.put("sentimentLabel", dto.getSentimentLabel());
+            item.put("summarizedAt", dto.getSummarizedAt());
+            item.put("urgent", newsService.isUrgentNews(dto.getTitle()));
+            return item;
+        }).collect(Collectors.toList());
+
+        return ResponseEntity.ok(ApiResponse.success("최신 뉴스 폴링 완료", result));
     }
 
     @Operation(

@@ -95,7 +95,8 @@
           <div v-if="expandedSector === sector.sectorCode" class="sector-detail">
             <h4>거래대금 상위 종목</h4>
             <div class="top-stocks">
-              <div v-for="stock in sector.topStocks" :key="stock.stockCode" class="stock-row">
+              <div v-for="stock in sector.topStocks" :key="stock.stockCode" class="stock-row"
+                   @click.stop="goToStock(stock.stockCode)">
                 <div class="stock-info">
                   <span class="stock-name">{{ stock.stockName || stock.stockCode }}</span>
                   <span class="stock-code">{{ stock.stockCode }}</span>
@@ -232,6 +233,10 @@ const formatCurrency = (value) => {
 const getChangeClass = (rate) => {
   if (!rate) return '';
   return rate > 0 ? 'positive' : rate < 0 ? 'negative' : '';
+};
+
+const goToStock = (stockCode) => {
+  router.push('/stock/' + stockCode);
 };
 
 const goBack = () => {
@@ -507,6 +512,12 @@ onUnmounted(() => {
   padding: 12px 16px;
   background: #f3f4f6;
   border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.stock-row:hover {
+  background: #e5e7eb;
 }
 
 .stock-row .stock-info {

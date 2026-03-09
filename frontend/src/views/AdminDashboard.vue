@@ -294,6 +294,16 @@
             </div>
           </div>
 
+          <div class="section">
+            <div class="section-header">
+              <h2>🔄 배치 모니터링</h2>
+            </div>
+            <p>스케줄러 배치 잡 실행 현황 및 성공/실패 모니터링</p>
+            <div class="action-group">
+              <button @click="goToBatchMonitor" class="action-btn">배치 현황</button>
+            </div>
+          </div>
+
           <div class="section paper-trading-section">
             <div class="section-header">
               <h2>🤖 투자 자동매매</h2>
@@ -379,8 +389,7 @@
 </template>
 
 <script>
-import { adminAPI, telegramAPI } from '../utils/api';
-import apiClient from '../utils/api';
+import apiClient, { adminAPI, telegramAPI } from '../utils/api';
 
 export default {
   name: 'AdminDashboard',
@@ -429,6 +438,7 @@ export default {
     if (this.statsInterval) {
       clearInterval(this.statsInterval)
     }
+    this.stopAutoRefresh()
   },
   methods: {
     async loadStats() {
@@ -582,6 +592,9 @@ export default {
     },
     goToActivityLogs() {
       this.$router.push('/admin/logs')
+    },
+    goToBatchMonitor() {
+      this.$router.push('/admin/batch')
     },
     logout() {
       localStorage.removeItem('jwt_token')

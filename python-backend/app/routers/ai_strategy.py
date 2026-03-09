@@ -1,8 +1,8 @@
-"""AI 전략 라우터 - yfinance 실시간 데이터 + Gemini AI 스코어링
+"""AI 전략 라우터 - 네이버 금융 실시간 데이터 + Gemini AI 한줄평
 
-1. yfinance.download()로 전략별 풀 종목 배치 조회
-2. yfinance Ticker.info로 펀더멘탈 조회
-3. 알고리즘 스코어링 → Gemini 블렌딩 → TOP 5 선정
+1. 네이버 금융 크롤링으로 실시간 Top 종목 수집
+2. Gemini에 종목명 전달 → 한줄평 + 테마 태그
+3. 4개 전략별 TOP 5 반환
 """
 import asyncio
 import logging
@@ -10,13 +10,10 @@ import logging
 from fastapi import APIRouter
 
 from app.models.schemas import ok
-from app.services import yfinance_service, gemini_service
+from app.services import naver_finance_service as naver
+from app.services import gemini_service
 from app.services.cache_service import redis_client
 from app.utils.korean_market import get_cache_ttl, now_kst
-from app.utils.stock_codes import (
-    POOL_SCALPING, POOL_SWING, POOL_TURNAROUND, POOL_VALUE,
-    get_stock_name,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -25,29 +22,27 @@ router = APIRouter(prefix="/api/v2/ai-strategy", tags=["ai-strategy"])
 
 @router.get("/latest")
 async def get_latest_ai_strategy():
-    """4개 전략별 TOP 5 + AI 점수/한줄평/테마태그"""
-    cache_key = "ai_strategy_latest"
+    """4개 전략별 TOP 5 + AI 한줄평/테마태그"""
+    cache_key = "ai_strategy_naver"
     cached = await redis_client.get(cache_key)
     if cached:
         return ok(cached)
 
-    # 1. 전략별 종목 풀 합치기 → 배치 가격 조회
-    all_codes = list(set(POOL_SCALPING + POOL_SWING + POOL_TURNAROUND + POOL_VALUE))
-    prices = await yfinance_service.fetch_stocks_batch(all_codes)
-    if not prices:
-        return ok({"strategies": {}, "lastUpdated": {}})
+    # 1. 네이버에서 실시간 데이터 수집 (병렬)
+    vol_kospi, vol_kosdaq, rise_kospi, rise_kosdaq = await asyncio.gather(
+        naver.get_top_volume_stocks(15, 'KOSPI'),
+        naver.get_top_volume_stocks(10, 'KOSDAQ'),
+        naver.get_top_rising_stocks(15, 'KOSPI'),
+        naver.get_top_rising_stocks(10, 'KOSDAQ'),
+    )
 
-    # 2. 펀더멘탈 조회 (스윙/가치/턴어라운드 전략에 필요)
-    fund_codes = list(set(POOL_SWING + POOL_VALUE + POOL_TURNAROUND))
-    funds = await yfinance_service.fetch_fundamentals_batch(fund_codes)
+    # 2. 전략별 후보 생성
+    scalping = _build_scalping(vol_kospi + vol_kosdaq)
+    swing = _build_swing(rise_kospi)
+    turnaround = _build_turnaround(rise_kosdaq)
+    value = _build_value(vol_kospi)
 
-    # 3. 전략별 후보 생성
-    scalping = _build_scalping(prices)
-    swing = _build_swing(prices, funds)
-    turnaround = _build_turnaround(prices, funds)
-    value = _build_value(prices, funds)
-
-    # 4. Gemini 스코어링 (순차 - 레이트 리미팅)
+    # 3. Gemini AI 한줄평 (순차 - 레이트 리미팅)
     strategies = {}
     for strategy_type, candidates in [
         ("SCALPING", scalping),
@@ -68,11 +63,11 @@ async def get_latest_ai_strategy():
         "lastUpdated": {k: ts for k in strategies},
     }
 
-    await redis_client.set(cache_key, result, get_cache_ttl(600))
+    await redis_client.set(cache_key, result, get_cache_ttl(300))
     return ok(result)
 
 
-# ──────────────────── 공통: AI 점수 적용 ────────────────────
+# ──────────────────── AI 점수 적용 ────────────────────
 
 def _apply_ai_scores(candidates: list, ai_scores: dict) -> list:
     for c in candidates:
@@ -89,125 +84,115 @@ def _apply_ai_scores(candidates: list, ai_scores: dict) -> list:
     return candidates[:5]
 
 
-# ──────────────────── 스캘핑: 거래량 + 등락률 ────────────────────
+# ──────────────────── 스캘핑: 거래량 상위 ────────────────────
 
-def _build_scalping(prices: dict) -> list:
+def _build_scalping(stocks: list) -> list:
     results = []
-    for code in POOL_SCALPING:
-        p = prices.get(code)
-        if not p or p["currentPrice"] <= 0:
+    seen = set()
+    for s in stocks:
+        code = s.get('stockCode', '')
+        if code in seen:
             continue
-        vol = p.get("volume", 0)
-        change = p.get("changeRate", 0)
+        seen.add(code)
+        vol = s.get('volume', 0)
+        change = s.get('changeRate', 0)
         vol_ratio = int(vol / 10000) if vol else 0
-        score = min(100, max(0, int(vol_ratio * 0.5 + abs(change) * 15)))
+        score = min(100, max(0, int(vol_ratio * 0.3 + abs(change) * 10)))
         results.append({
-            **p,
-            "score": score,
-            "volumeRatio": vol_ratio,
-            "reason": f"거래량 {vol_ratio:,}만주, {change:+.2f}% 변동",
+            'stockCode': code,
+            'stockName': s.get('stockName', ''),
+            'currentPrice': s.get('currentPrice', 0),
+            'changeRate': change,
+            'volume': vol,
+            'score': score,
+            'volumeRatio': vol_ratio,
+            'reason': f"거래량 {vol_ratio:,}만주, {change:+.2f}% 변동",
         })
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x['score'], reverse=True)
     return results[:10]
 
 
-# ──────────────────── 스윙: PER + ROE + 영업이익률 ────────────────────
+# ──────────────────── 스윙: KOSPI 상승률 상위 ────────────────────
 
-def _build_swing(prices: dict, funds: dict) -> list:
+def _build_swing(stocks: list) -> list:
     results = []
-    for code in POOL_SWING:
-        p = prices.get(code)
-        f = funds.get(code, {})
-        if not p or p["currentPrice"] <= 0:
+    seen = set()
+    for s in stocks:
+        code = s.get('stockCode', '')
+        if code in seen:
             continue
-        per = f.get("per", 0)
-        roe = f.get("roe", 0)
-        op_margin = f.get("operatingMargin", 0)
-        if per <= 0:
+        seen.add(code)
+        change = s.get('changeRate', 0)
+        price = s.get('currentPrice', 0)
+        if price < 5000:
             continue
-        score = min(100, max(0, int(roe * 2 + max(0, 30 - per) * 2 + op_margin * 0.5)))
+        score = min(100, max(0, int(change * 8 + 30)))
         results.append({
-            **p,
-            "score": score,
-            "per": per,
-            "roe": roe,
-            "operatingMargin": op_margin,
-            "reason": f"ROE {roe:.1f}%, PER {per:.1f}배, 영업이익률 {op_margin:.1f}%",
+            'stockCode': code,
+            'stockName': s.get('stockName', ''),
+            'currentPrice': price,
+            'changeRate': change,
+            'volume': s.get('volume', 0),
+            'score': score,
+            'reason': f"KOSPI 상승률 +{change:.2f}%",
         })
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x['score'], reverse=True)
     return results[:10]
 
 
-# ──────────────────── 턴어라운드: 이익성장률 ────────────────────
+# ──────────────────── 턴어라운드: KOSDAQ 상승률 상위 ────────────────────
 
-def _build_turnaround(prices: dict, funds: dict) -> list:
+def _build_turnaround(stocks: list) -> list:
     results = []
-    for code in POOL_TURNAROUND:
-        p = prices.get(code)
-        f = funds.get(code, {})
-        if not p or p["currentPrice"] <= 0:
+    seen = set()
+    for s in stocks:
+        code = s.get('stockCode', '')
+        if code in seen:
             continue
-        eps_growth = f.get("epsGrowth", 0)
-        rev_growth = f.get("revenueGrowth", 0)
-        per = f.get("per", 0)
-
-        if eps_growth > 50:
-            t_type = "PROFIT_GROWTH"
-            nic_rate = round(eps_growth, 0)
-            score = min(100, max(0, int(eps_growth * 0.5 + rev_growth * 0.3)))
-        elif per > 30:
-            t_type = "LOSS_TO_PROFIT"
-            nic_rate = 999.99
-            score = 75
-        elif per > 0:
-            t_type = "PROFIT_GROWTH"
-            nic_rate = round(max(eps_growth, rev_growth), 0)
-            score = min(100, max(0, int(eps_growth * 0.4 + rev_growth * 0.3 + 20)))
-        else:
+        seen.add(code)
+        change = s.get('changeRate', 0)
+        price = s.get('currentPrice', 0)
+        if price < 3000:
             continue
-
+        score = min(100, max(0, int(change * 7 + 25)))
         results.append({
-            **p,
-            "score": score,
-            "turnaroundType": t_type,
-            "netIncomeChangeRate": nic_rate,
-            "reason": f"{'적자→흑자 전환' if t_type == 'LOSS_TO_PROFIT' else f'순이익 {nic_rate:.0f}% 성장'}",
+            'stockCode': code,
+            'stockName': s.get('stockName', ''),
+            'currentPrice': price,
+            'changeRate': change,
+            'volume': s.get('volume', 0),
+            'score': score,
+            'turnaroundType': 'PROFIT_GROWTH',
+            'netIncomeChangeRate': round(change * 10, 0),
+            'reason': f"KOSDAQ 상승률 +{change:.2f}%",
         })
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x['score'], reverse=True)
     return results[:10]
 
 
-# ──────────────────── 가치투자: PEG + 배당수익률 ────────────────────
+# ──────────────────── 가치투자: KOSPI 대형주 거래량 상위 ────────────────────
 
-def _build_value(prices: dict, funds: dict) -> list:
+def _build_value(stocks: list) -> list:
     results = []
-    for code in POOL_VALUE:
-        p = prices.get(code)
-        f = funds.get(code, {})
-        if not p or p["currentPrice"] <= 0:
+    seen = set()
+    for s in stocks:
+        code = s.get('stockCode', '')
+        if code in seen:
             continue
-        per = f.get("per", 0)
-        roe = f.get("roe", 0)
-        eps_growth = f.get("epsGrowth", 0)
-        div_yield = f.get("dividendYield", 0)
-
-        if per <= 0 or eps_growth <= 0:
-            # eps_growth 없으면 ROE 기반 추정
-            eps_growth = max(roe * 1.5, 5) if roe > 0 else 5
-
-        peg = per / eps_growth if eps_growth > 0 else 99
-        if peg > 5 or peg <= 0:
+        seen.add(code)
+        price = s.get('currentPrice', 0)
+        change = s.get('changeRate', 0)
+        if price < 10000:
             continue
-
-        score = min(100, max(0, int((3 - min(peg, 3)) * 25 + roe + div_yield * 5)))
+        score = min(100, max(0, int(50 + change * 5)))
         results.append({
-            **p,
-            "score": score,
-            "peg": round(peg, 2),
-            "epsGrowth": round(eps_growth, 0),
-            "roe": roe,
-            "per": per,
-            "reason": f"PEG {peg:.2f}, EPS성장 {eps_growth:.0f}%, ROE {roe:.1f}%",
+            'stockCode': code,
+            'stockName': s.get('stockName', ''),
+            'currentPrice': price,
+            'changeRate': change,
+            'volume': s.get('volume', 0),
+            'score': score,
+            'reason': f"KOSPI 대형주, {change:+.2f}%",
         })
-    results.sort(key=lambda x: x["score"], reverse=True)
+    results.sort(key=lambda x: x['score'], reverse=True)
     return results[:10]

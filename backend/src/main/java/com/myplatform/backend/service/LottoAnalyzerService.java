@@ -15,6 +15,9 @@ import com.myplatform.backend.repository.LottoDrawRepository;
 import com.myplatform.backend.repository.LottoWeeklyRecommendationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,7 +58,14 @@ public class LottoAnalyzerService {
     private final LottoDrawRepository drawRepository;
     private final LottoWeeklyRecommendationRepository weeklyRepository;
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = createTimeoutRestTemplate();
+
+    private static RestTemplate createTimeoutRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
     private final SecureRandom random = new SecureRandom();
 
     // ==================== 스케줄러 ====================
@@ -87,9 +97,19 @@ public class LottoAnalyzerService {
 
     /**
      * 서버 시작 시 데이터가 없으면 초기 데이터 수집
+     * - 90초 지연으로 다른 초기화 작업과 리소스 경합 방지
      */
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
     @Transactional
     public void initializeDataIfEmpty() {
+        try {
+            Thread.sleep(90000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
         if (drawRepository.count() == 0) {
             log.info("[로또초기화] DB에 데이터가 없어 초기 수집 시작...");
             collectLatestDraws();
@@ -102,10 +122,12 @@ public class LottoAnalyzerService {
 
     /**
      * 최신 당첨 데이터 수집 (최대 100회차)
+     * - 연속 5회 실패 시 조기 중단 (API 장애/차단 대응)
      */
     @Transactional
     public int collectLatestDraws() {
         int collected = 0;
+        int consecutiveFailures = 0;
         int latestInDb = drawRepository.findMaxDrawNo().orElse(0);
         int estimatedLatest = estimateLatestDrawNo();
 
@@ -117,6 +139,13 @@ public class LottoAnalyzerService {
                 LottoDraw draw = fetchAndSaveDraw(drawNo);
                 if (draw != null) {
                     collected++;
+                    consecutiveFailures = 0;
+                } else {
+                    consecutiveFailures++;
+                    if (consecutiveFailures >= 5) {
+                        log.warn("[로또수집] 연속 {}회 실패 - 수집 중단 (API 장애 가능성)", consecutiveFailures);
+                        break;
+                    }
                 }
             }
         }
@@ -250,7 +279,7 @@ public class LottoAnalyzerService {
     /**
      * 금주의 추천 번호 조회 (DB에서 빠르게)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public LottoAnalysisDto getWeeklyRecommendation() {
         Optional<LottoWeeklyRecommendation> optional = weeklyRepository.findLatestRecommendation();
 
@@ -327,12 +356,17 @@ public class LottoAnalyzerService {
     /**
      * 실시간 분석 (새 추천 번호 생성)
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public LottoAnalysisDto analyzeAndRecommend() {
         List<LottoDraw> draws = drawRepository.findRecentDraws(100);
         if (draws.isEmpty()) {
-            log.error("[로또분석] 분석할 데이터가 없습니다");
-            return null;
+            log.info("[로또분석] DB에 데이터가 없어 자동 수집 시작...");
+            collectLatestDraws();
+            draws = drawRepository.findRecentDraws(100);
+            if (draws.isEmpty()) {
+                log.error("[로또분석] 데이터 수집 후에도 분석할 데이터가 없습니다");
+                return null;
+            }
         }
 
         List<LottoDrawDto> drawDtos = draws.stream()

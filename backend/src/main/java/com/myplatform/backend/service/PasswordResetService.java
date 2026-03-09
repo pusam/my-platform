@@ -8,8 +8,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
-import java.util.Random;
 
 @Service
 @Transactional
@@ -101,9 +101,10 @@ public class PasswordResetService {
     /**
      * 6자리 랜덤 인증번호 생성
      */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+
     private String generateToken() {
-        Random random = new Random();
-        return String.format("%06d", random.nextInt(1000000));
+        return String.format("%06d", SECURE_RANDOM.nextInt(1000000));
     }
 
     /**

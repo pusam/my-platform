@@ -119,6 +119,12 @@ public interface AiStrategySnapshotRepository extends JpaRepository<AiStrategySn
             @Param("limit") int limit);
 
     /**
+     * 특정 전략의 특정 시각 이후 스냅샷 조회 (백테스트용 - 시간순)
+     */
+    List<AiStrategySnapshot> findByStrategyTypeAndCreatedAtAfterOrderByCreatedAtAsc(
+            StrategyType strategyType, LocalDateTime afterTime);
+
+    /**
      * 특정 종목의 특정 시점 근처 스냅샷 조회 (기간별 수익률 계산용)
      * - targetDate에 가장 가까운 과거 스냅샷 1개 반환
      * - 모든 전략 타입에서 검색 (동일 종목이 여러 전략에 있을 수 있음)

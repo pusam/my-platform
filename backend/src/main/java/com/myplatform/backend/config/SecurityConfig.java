@@ -18,6 +18,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -45,8 +46,13 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        // 개발 환경: 모든 origin 허용
-        configuration.setAllowedOriginPatterns(Arrays.asList("*"));
+        // 허용할 Origin 명시 (credentials 사용 시 와일드카드 불가)
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:5173",   // Vite 개발 서버
+                "http://localhost:8080",   // 로컬 배포
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:8080"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);
@@ -92,12 +98,10 @@ public class SecurityConfig {
                         // SSE (Server-Sent Events) - EventSource는 Authorization 헤더 불가
                         .requestMatchers("/api/sse/**").permitAll()
 
-                        // 자동매매 봇 테스트 API (수동 트리거)
-                        .requestMatchers("/api/paper-trading/bot/trigger-buy").permitAll()
-
-                        // 투자자 API 테스트/수집 (디버깅용)
-                        .requestMatchers("/api/investor/test-api").permitAll()
-                        .requestMatchers("/api/investor/collect").permitAll()
+                        // 자동매매 봇/투자자 API - 인증 필요 (ADMIN만 허용)
+                        .requestMatchers("/api/paper-trading/bot/trigger-buy").hasRole("ADMIN")
+                        .requestMatchers("/api/investor/test-api").hasRole("ADMIN")
+                        .requestMatchers("/api/investor/collect").hasRole("ADMIN")
 
                         // Admin API는 ADMIN 권한 필요
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")

@@ -100,8 +100,8 @@ public class AuthService {
             return new SignupResponse(false, "비밀번호는 최소 4자 이상이어야 합니다.");
         }
 
-        // 4. 이메일 형식 검증
-        if (!request.getEmail().matches("^[A-Za-z0-9+_.-]+@(.+)$")) {
+        // 4. 이메일 형식 검증 (도메인 부분에 최소 1글자.1글자 필요)
+        if (!request.getEmail().matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}$")) {
             return new SignupResponse(false, "올바른 이메일 형식이 아닙니다.");
         }
 

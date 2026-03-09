@@ -110,9 +110,21 @@ public class SectorTradingService {
     public void initializeCache() {
         log.info("[섹터거래대금] ========== 스냅샷 기반 서비스 시작 ==========");
 
+        // 장외 시간이면 초기 수집 스킵 (스케줄러가 장중에 자동 수집)
+        if (isMarketClosed()) {
+            log.info("[섹터거래대금] 휴장일 - 초기 스냅샷 수집 스킵");
+            return;
+        }
+        LocalTime now = LocalTime.now();
+        if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
+            log.info("[섹터거래대금] 장외 시간 - 초기 스냅샷 수집 스킵 (스케줄러가 장중 자동 수집)");
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
             try {
-                Thread.sleep(3000);
+                // 15초 대기 (서버 시작 직후 리소스 경합 방지)
+                Thread.sleep(15000);
                 log.info("[섹터거래대금] 초기 스냅샷 수집 시작...");
                 collectSnapshot();
                 log.info("[섹터거래대금] 초기 스냅샷 수집 완료 - {} 종목", tradingHistoryStore.size());
@@ -245,6 +257,14 @@ public class SectorTradingService {
         }
     }
 
+    /**
+     * 캐시된 시세 데이터 반환 (SectorAnalysisService 등에서 재활용)
+     * - 중복 batch fetch 방지
+     */
+    public Map<String, StockPriceDto> getCachedPriceMap() {
+        return Collections.unmodifiableMap(latestPriceCache);
+    }
+
     // ========== API 메서드 (캐시에서 즉시 반환) ==========
 
     public List<SectorTradingDto> getAllSectorTrading() {
@@ -259,8 +279,15 @@ public class SectorTradingService {
         }
 
         // 캐시 없으면 즉시 계산
-        log.info("[섹터거래대금] {} 캐시 MISS - 즉시 계산", period);
+        log.info("[섹터거래대금] {} 캐시 MISS - 즉시 계산 (캐시 종목: {})", period, latestPriceCache.size());
         List<SectorTradingDto> result = calculateSectorTrading(period);
+        if (!result.isEmpty()) {
+            // 디버그: 첫 번째 섹터의 changeRate 확인
+            SectorTradingDto first = result.get(0);
+            log.info("[섹터거래대금] 결과 예시 - {}: changeRate={}, tradingValue={}, topStocks={}",
+                    first.getSectorName(), first.getChangeRate(), first.getTotalTradingValue(),
+                    first.getTopStocks() != null ? first.getTopStocks().size() : 0);
+        }
         cachedResultByPeriod.put(period, result);
         lastCalculateTime.put(period, LocalDateTime.now());
         return result;
@@ -283,7 +310,16 @@ public class SectorTradingService {
      */
     private List<SectorTradingDto> calculateSectorTrading(TradingPeriod period) {
         if (latestPriceCache.isEmpty()) {
-            log.warn("[섹터거래대금] 시세 캐시 없음 - 빈 결과 반환");
+            // 캐시 없으면 빈 결과 즉시 반환 (HTTP 스레드에서 30초 블로킹 방지)
+            // 백그라운드에서 비동기 수집 트리거 → 다음 요청 시 캐시 HIT
+            log.warn("[섹터거래대금] 시세 캐시 없음 - 빈 결과 반환 (백그라운드 수집 트리거)");
+            CompletableFuture.runAsync(() -> {
+                try {
+                    collectSnapshot();
+                } catch (Exception e) {
+                    log.error("[섹터거래대금] 백그라운드 수집 실패: {}", e.getMessage());
+                }
+            }, sectorTradingExecutor);
             return Collections.emptyList();
         }
 
@@ -297,8 +333,9 @@ public class SectorTradingService {
             }
         }
 
-        // 전체 거래대금 계산 (중복 제거)
-        BigDecimal totalAllSectors = uniqueStockTradingValue.values().stream()
+        // 전체 거래대금 계산 (섹터별 합계의 총합 — 중복 종목 비례 배분되어 합산 ≤ 100%)
+        BigDecimal totalAllSectors = results.stream()
+                .map(SectorTradingDto::getTotalTradingValue)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 비율 계산
@@ -345,6 +382,30 @@ public class SectorTradingService {
             }
         }
 
+        // 섹터 평균 등락률 계산 (상위 종목 단순 평균)
+        // 거래대금 순 정렬 후 상위 5개 종목의 등락률 단순 평균
+        stockInfos.sort((a, b) -> b.getTradingValue().compareTo(a.getTradingValue()));
+        List<StockTradingInfo> topForAvg = stockInfos.stream().limit(5).collect(Collectors.toList());
+
+        BigDecimal changeRateSum = BigDecimal.ZERO;
+        int validCount = 0;
+        for (StockTradingInfo info : topForAvg) {
+            if (info.getChangeRate() != null && info.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
+                changeRateSum = changeRateSum.add(info.getChangeRate());
+                validCount++;
+            }
+        }
+        if (validCount > 0) {
+            BigDecimal avgChangeRate = changeRateSum.divide(BigDecimal.valueOf(validCount), 2, RoundingMode.HALF_UP);
+            dto.setChangeRate(avgChangeRate);
+            log.debug("[섹터등락률] {} = {}% (상위 {}종목 평균)", sector.getName(), avgChangeRate, validCount);
+        } else {
+            dto.setChangeRate(BigDecimal.ZERO);
+            log.warn("[섹터등락률] {} - 유효한 등락률 없음! 종목별: {}", sector.getName(),
+                    topForAvg.stream().map(s -> s.getStockName() + "=" + s.getChangeRate() + "%")
+                            .collect(Collectors.joining(", ")));
+        }
+
         // 거래대금 순 정렬 후 상위 5개
         stockInfos.sort((a, b) -> b.getTradingValue().compareTo(a.getTradingValue()));
         dto.setTopStocks(stockInfos.stream().limit(5).collect(Collectors.toList()));
@@ -371,7 +432,22 @@ public class SectorTradingService {
         }
         info.setStockName(stockName);
         info.setCurrentPrice(price.getCurrentPrice());
-        info.setChangeRate(price.getChangeRate());
+
+        // changeRate 보완: KIS API가 장 마감 후 prdy_ctrt를 빈 값으로 반환 시 0이 됨
+        // → changePrice(전일대비)에서 재계산
+        BigDecimal changeRate = price.getChangeRate();
+        if ((changeRate == null || changeRate.compareTo(BigDecimal.ZERO) == 0)
+                && price.getChangePrice() != null
+                && price.getChangePrice().compareTo(BigDecimal.ZERO) != 0
+                && price.getCurrentPrice() != null) {
+            BigDecimal prevClose = price.getCurrentPrice().subtract(price.getChangePrice());
+            if (prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                changeRate = price.getChangePrice()
+                        .divide(prevClose, 2, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+            }
+        }
+        info.setChangeRate(changeRate);
 
         // 거래대금 계산
         BigDecimal tradingValue = calculateTradingValueFromSnapshot(stockCode, period, price);

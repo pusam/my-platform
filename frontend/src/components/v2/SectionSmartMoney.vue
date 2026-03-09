@@ -7,7 +7,14 @@
 
     <SkeletonLoader v-if="loading" type="table" :rows="5" />
 
-    <div v-else-if="error" class="section-error">데이터를 불러올 수 없습니다.</div>
+    <div v-else-if="error" class="state-box">
+      <span class="state-icon">⚠️</span>
+      <p class="state-text">데이터를 불러오지 못했습니다</p>
+      <button class="state-btn" @click="$emit('retry')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
+        새로고침
+      </button>
+    </div>
 
     <template v-else>
       <!-- 내부 탭 -->
@@ -87,8 +94,8 @@
           <span class="trade-rank">{{ i + 1 }}</span>
           <span class="trade-name">{{ item.stockName }}</span>
           <span class="surge-ratio" v-if="item.surgeRatio">{{ item.surgeRatio }}%</span>
-          <span class="surge-change" :class="(item.changeRate || 0) >= 0 ? 'up' : 'down'">
-            {{ (item.changeRate || 0) >= 0 ? '+' : '' }}{{ (item.changeRate || 0).toFixed(1) }}%
+          <span class="surge-change" :class="(item.amountChange || 0) >= 0 ? 'up' : 'down'">
+            {{ formatSurgeAmount(item.amountChange) }}
           </span>
         </div>
         <div v-if="surgeData.length === 0" class="empty-msg">수급 급증 종목 없음</div>
@@ -106,6 +113,7 @@ import SkeletonLoader from './SkeletonLoader.vue'
 export default {
   name: 'SectionSmartMoney',
   components: { SkeletonLoader },
+  inject: { openStock: { default: null } },
   props: {
     tradesData: { type: Object, default: () => ({ foreign: [], institution: [] }) },
     consecutiveData: { type: Array, default: () => [] },
@@ -113,14 +121,15 @@ export default {
     loading: { type: Boolean, default: false },
     error: { type: Boolean, default: false }
   },
+  emits: ['retry'],
   data() {
     return {
       activeTab: 'trades',
       investorType: 'FOREIGN',
       tabs: [
-        { key: 'trades', label: '매매 동향' },
-        { key: 'consecutive', label: '연속 매수' },
-        { key: 'surge', label: '수급 급증' }
+        { key: 'trades', label: '매매 동향 (당일)' },
+        { key: 'consecutive', label: '연속 매수 (최근 30일)' },
+        { key: 'surge', label: '수급 급증 (장중)' }
       ]
     }
   },
@@ -135,16 +144,25 @@ export default {
   methods: {
     formatAmount(val) {
       if (!val) return '-'
-      const billion = val / 100000000
-      if (Math.abs(billion) >= 1) return (billion >= 0 ? '+' : '') + billion.toFixed(0) + '억'
-      const million = val / 1000000
+      // 백엔드가 억원 단위로 반환 (예: 1.5 = 1.5억원)
+      if (Math.abs(val) >= 1) return (val >= 0 ? '+' : '') + val.toFixed(0) + '억'
+      const million = val * 100  // 억 → 백만 변환 (1억 = 100백만)
       return (million >= 0 ? '+' : '') + million.toFixed(0) + '백만'
     },
+    formatSurgeAmount(val) {
+      if (val == null || val === 0) return '-'
+      const abs = Math.abs(val)
+      const sign = val >= 0 ? '+' : '-'
+      if (abs >= 1) return sign + abs.toFixed(1) + '억'
+      return sign + (abs * 10000 / 10).toFixed(0) + '만'
+    },
     goToStock(code) {
-      this.$router.push(`/stock/${code}`)
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/stock/${code}`)
     },
     goToConsecutiveDetail(code) {
-      this.$router.push(`/investor-stock/${code}`)
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/investor-stock/${code}`)
     }
   }
 }
@@ -169,7 +187,34 @@ export default {
 .section-icon { margin-right: 6px; }
 .more-link { font-size: 13px; color: #667eea; text-decoration: none; }
 .more-link:hover { color: #8b9cf7; }
-.section-error { text-align: center; color: rgba(255,255,255,0.4); padding: 40px 0; font-size: 14px; }
+.state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  text-align: center;
+}
+.state-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.6; }
+.state-text { font-size: 14px; color: rgba(255,255,255,0.4); margin: 0 0 16px 0; }
+.state-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: rgba(102,126,234,0.12);
+  border: 1px solid rgba(102,126,234,0.25);
+  border-radius: 10px;
+  color: #667eea;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.state-btn:hover {
+  background: rgba(102,126,234,0.22);
+  border-color: #667eea;
+}
 
 /* Tabs */
 .inner-tabs {
@@ -247,4 +292,11 @@ export default {
 .more-links a:hover { color: #667eea; }
 
 .empty-msg { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; padding: 20px 0; }
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; border-radius: 14px; }
+  .section-title-row h2 { font-size: 14px; }
+  .stock-card { padding: 8px; gap: 8px; }
+  .stock-name { font-size: 13px; }
+}
 </style>

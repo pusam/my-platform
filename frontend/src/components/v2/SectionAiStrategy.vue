@@ -7,8 +7,13 @@
 
     <SkeletonLoader v-if="loading" type="score" />
 
-    <div v-else-if="error" class="section-error">
-      <span>데이터를 불러올 수 없습니다.</span>
+    <div v-else-if="error" class="state-box">
+      <span class="state-icon">⚠️</span>
+      <p class="state-text">데이터를 불러오지 못했습니다</p>
+      <button class="state-btn" @click="$emit('retry')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 11-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
+        새로고침
+      </button>
     </div>
 
     <template v-else>
@@ -45,6 +50,7 @@
           @click="goToStock(stock.stockCode)"
         >
           <div class="rank" :class="'rank-' + (i + 1)">{{ i === 0 ? '👑' : '#' + (i + 1) }}</div>
+          <WatchlistBookmark :stockCode="stock.stockCode" :stockName="stock.stockName" />
           <div class="stock-main">
             <div class="stock-name-row">
               <span class="stock-name">{{ stock.stockName }}</span>
@@ -75,15 +81,18 @@
 
 <script>
 import SkeletonLoader from './SkeletonLoader.vue'
+import WatchlistBookmark from './WatchlistBookmark.vue'
 
 export default {
   name: 'SectionAiStrategy',
-  components: { SkeletonLoader },
+  components: { SkeletonLoader, WatchlistBookmark },
+  inject: { openStock: { default: null } },
   props: {
     data: { type: Object, default: null },
     loading: { type: Boolean, default: false },
     error: { type: Boolean, default: false }
   },
+  emits: ['retry'],
   data() {
     return {
       activeTab: 'scalping',
@@ -144,7 +153,8 @@ export default {
       return themes.split(',').map(t => t.trim()).filter(Boolean)
     },
     goToStock(code) {
-      this.$router.push(`/stock/${code}`)
+      if (this.openStock) this.openStock(code)
+      else this.$router.push(`/stock/${code}`)
     }
   }
 }
@@ -183,11 +193,33 @@ export default {
 }
 .more-link:hover { color: #8b9cf7; }
 
-.section-error {
+.state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
   text-align: center;
-  color: rgba(255,255,255,0.4);
-  padding: 40px 0;
-  font-size: 14px;
+}
+.state-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.6; }
+.state-text { font-size: 14px; color: rgba(255,255,255,0.4); margin: 0 0 16px 0; }
+.state-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: rgba(102,126,234,0.12);
+  border: 1px solid rgba(102,126,234,0.25);
+  border-radius: 10px;
+  color: #667eea;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.state-btn:hover {
+  background: rgba(102,126,234,0.22);
+  border-color: #667eea;
 }
 
 /* Strategy Scores */
@@ -326,5 +358,16 @@ export default {
   color: rgba(255,255,255,0.3);
   font-size: 13px;
   padding: 20px 0;
+}
+
+@media (max-width: 768px) {
+  .section-card { padding: 16px; min-height: auto; border-radius: 14px; }
+  .section-title-row h2 { font-size: 14px; }
+  .score-label { width: 75px; font-size: 12px; }
+  .total-value { font-size: 18px; }
+  .stock-card { padding: 10px; gap: 8px; }
+  .stock-name { font-size: 13px; }
+  .theme-tags { gap: 3px; }
+  .theme-tag { font-size: 9px; padding: 1px 5px; }
 }
 </style>

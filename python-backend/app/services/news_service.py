@@ -22,6 +22,39 @@ RSS_FEEDS = [
 POSITIVE_KEYWORDS = ["상승", "급등", "호조", "성장", "확대", "반등", "최고", "수혜", "호재", "강세"]
 NEGATIVE_KEYWORDS = ["하락", "급락", "우려", "둔화", "축소", "부진", "최저", "악재", "리스크", "약세"]
 
+# 카테고리 필터링: 투자 관련 뉴스만 수집
+INCLUDE_KEYWORDS = [
+    "증시", "주가", "코스피", "코스닥", "나스닥", "S&P", "다우",
+    "실적", "영업이익", "매출", "수주", "계약", "분기", "공급", "흑자",
+    "금리", "환율", "유가", "원자재", "채권",
+    "반도체", "2차전지", "배터리", "AI", "수출", "수입",
+    "IPO", "상장", "공모", "배당", "자사주", "소각",
+    "급등", "급락", "상한가", "하한가", "최대", "사상최고",
+    "GDP", "CPI", "고용", "무역수지",
+    "외국인", "기관", "순매수", "순매도",
+    "인수", "합병", "M&A", "투자", "펀드",
+    "바이오", "제약", "전기차", "은행", "부동산",
+]
+EXCLUDE_KEYWORDS = [
+    # 날씨/환경
+    "날씨", "기온", "폭염", "한파", "미세먼지", "강수", "태풍", "폭우", "폭설",
+    # 연예/문화
+    "연예", "아이돌", "드라마", "영화배우", "예능", "콘서트", "가수", "배우",
+    # 생활/소비 (비투자)
+    "빵값", "식품가격", "맛집", "레시피", "택배", "배송",
+    "샤넬", "루이비통", "에르메스", "명품", "브랜드가방", "하소연",
+    "육아", "출산", "결혼식", "반려동물",
+    # 사건사고/사회
+    "사건사고", "교통사고", "실종", "화재", "범죄", "살인", "폭행",
+    "재판", "판결", "검찰", "경찰", "구속",
+    # 스포츠
+    "스포츠", "야구", "축구", "올림픽", "월드컵", "농구",
+    # 여행/레저
+    "여행", "관광", "축제", "공연", "전시회",
+    # 정치 일반
+    "대통령선거", "국회의원", "정당", "여당", "야당", "탄핵",
+]
+
 
 async def get_today_news(limit: int = 5) -> list:
     """오늘의 뉴스 (RSS 수집 + 감성 분석)"""
@@ -43,6 +76,10 @@ async def get_today_news(limit: int = 5) -> list:
                         summary = BeautifulSoup(summary, "html.parser").get_text()[:200]
                     published = entry.get("published", now_kst().isoformat())
 
+                    # 투자 관련 뉴스만 필터링
+                    if not _is_investment_related(title, summary):
+                        continue
+
                     sentiment = _analyze_sentiment(title + " " + summary)
                     articles.append({
                         "title": title,
@@ -62,6 +99,23 @@ async def get_today_news(limit: int = 5) -> list:
     if data:
         await redis_client.set(cache_key, data, get_cache_ttl(1800))
     return data or []
+
+
+def _is_investment_related(title: str, summary: str) -> bool:
+    """투자 관련 뉴스인지 필터링 (화이트리스트 방식)
+    1. EXCLUDE 키워드 → 무조건 Drop
+    2. INCLUDE 키워드 → 통과
+    3. 둘 다 아님 → Drop (안전하게 차단)
+    """
+    text = (title + " " + summary).lower()
+    # 1단계: EXCLUDE 먼저 체크
+    if any(kw in text for kw in EXCLUDE_KEYWORDS):
+        return False
+    # 2단계: INCLUDE 키워드 있으면 통과
+    if any(kw in text for kw in INCLUDE_KEYWORDS):
+        return True
+    # 3단계: 둘 다 아니면 Drop
+    return False
 
 
 def _analyze_sentiment(text: str) -> str:

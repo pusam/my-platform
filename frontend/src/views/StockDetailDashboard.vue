@@ -13,16 +13,21 @@
         <div class="price-info" v-if="priceInfo">
           <span class="current-price">{{ formatPrice(priceInfo.currentPrice) }}원</span>
           <span class="change-info" :class="priceClass">
-            {{ priceInfo.changePrice >= 0 ? '+' : '' }}{{ formatPrice(priceInfo.changePrice) }}
-            ({{ priceInfo.changeRate >= 0 ? '+' : '' }}{{ priceInfo.changeRate?.toFixed(2) }}%)
+            {{ Number(priceInfo.changePrice) > 0 ? '+' : '' }}{{ formatPrice(priceInfo.changePrice) }}
+            ({{ Number(priceInfo.changeRate) > 0 ? '+' : '' }}{{ Number(priceInfo.changeRate)?.toFixed(2) }}%)
           </span>
         </div>
       </div>
-      <div class="header-right">
+      <div class="header-right dual-score-header">
         <div class="ai-score-box" :class="aiScoreClass">
-          <span class="score-label">AI 점수</span>
+          <span class="score-label">단기 트레이딩</span>
           <span class="score-value">{{ aiAnalysis?.overallScore || '-' }}</span>
-          <span class="score-badge">{{ aiAnalysis?.recommendation || '-' }}</span>
+          <span class="score-badge">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
+        </div>
+        <div class="ai-score-box" :class="fundScoreClass" v-if="diagnosisData?.overallScore">
+          <span class="score-label">중장기 펀더멘털</span>
+          <span class="score-value">{{ diagnosisData.overallScore }}</span>
+          <span class="score-badge">{{ getAdjustedVerdict(diagnosisData) }}</span>
         </div>
       </div>
     </header>
@@ -97,43 +102,123 @@
           </div>
         </div>
 
-        <!-- 프로그램 매매 차트 -->
-        <div class="program-chart-section">
-          <ProgramTradingChart
-            :series="programTradingSeries"
-            :programNetBuy="supplyDemand?.programNetBuy || 0"
-            :programTrend="supplyDemand?.programTrend || 'FLAT'"
-          />
-        </div>
-
         <!-- 핵심 재무 -->
         <div class="financial-section">
-          <h2>핵심 재무</h2>
+          <div class="section-header">
+            <h2>핵심 재무 <span class="ttm-label">TTM</span></h2>
+            <div class="investment-tags" v-if="financial?.investmentTags?.length">
+              <span v-for="(tag, i) in financial.investmentTags" :key="i" class="inv-tag">{{ tag }}</span>
+            </div>
+          </div>
           <div class="financial-grid">
             <div class="fin-card">
               <span class="fin-label">PER</span>
               <span class="fin-value" :class="getPERClass(financial?.per)">
                 {{ financial?.per?.toFixed(1) || '-' }}배
+                <span v-if="financial?.forwardPer" class="forward-badge" :class="{ 'forward-improved': financial.forwardPer < financial.per }">Fwd {{ financial.forwardPer.toFixed(1) }}배</span>
               </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">PBR</span>
               <span class="fin-value" :class="getPBRClass(financial?.pbr)">
                 {{ financial?.pbr?.toFixed(2) || '-' }}배
+                <span v-if="financial?.forwardPbr" class="forward-badge" :class="{ 'forward-improved': financial.forwardPbr < financial.pbr }">Fwd {{ financial.forwardPbr.toFixed(2) }}배</span>
               </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">EPS</span>
-              <span class="fin-value">{{ formatPrice(financial?.eps) || '-' }}원</span>
+              <span class="fin-value">
+                {{ formatPrice(financial?.eps) || '-' }}원
+                <span v-if="financial?.forwardEps" class="forward-badge">Fwd {{ formatPrice(financial.forwardEps) }}원</span>
+              </span>
             </div>
             <div class="fin-card">
               <span class="fin-label">BPS</span>
-              <span class="fin-value">{{ formatPrice(financial?.bps) || '-' }}원</span>
+              <span class="fin-value">
+                {{ formatPrice(financial?.bps) || '-' }}원
+                <span v-if="financial?.forwardBps" class="forward-badge">Fwd {{ formatPrice(financial.forwardBps) }}원</span>
+              </span>
             </div>
-            <div class="fin-card wide">
+            <div class="fin-card">
               <span class="fin-label">시가총액</span>
               <span class="fin-value">{{ formatMarketCap(financial?.marketCap) }}</span>
             </div>
+            <div class="fin-card" v-if="financial?.foreignOwnership">
+              <span class="fin-label">외국인 지분</span>
+              <span class="fin-value">{{ financial.foreignOwnership?.toFixed(1) }}%</span>
+            </div>
+            <div class="fin-card" v-if="financial?.totalShareholderReturn">
+              <span class="fin-label">TSR</span>
+              <span class="fin-value tsr-value">
+                {{ financial.totalShareholderReturn?.toFixed(1) }}%
+                <span v-if="financial?.buybackInfo" class="buyback-badge">자사주</span>
+              </span>
+            </div>
+            <div class="fin-card" v-if="financial?.dividendYield && financial.dividendYield > 0">
+              <span class="fin-label">배당수익률</span>
+              <span class="fin-value" :class="{ 'positive': financial.dividendYield > 3 }">
+                {{ financial.dividendYield?.toFixed(1) }}%
+              </span>
+            </div>
+          </div>
+          <div class="data-source-note" v-if="financial?.forwardPer || financial?.forwardPbr">
+            *Forward 지표: EPS 성장률 기반 자체 추정 | 목표주가: 네이버 금융 (FnGuide)
+          </div>
+        </div>
+
+        <!-- Peer Group 비교 -->
+        <div class="peer-section" v-if="peerComparisons?.length">
+          <div class="peer-header">
+            <h2>섹터 Peer Group</h2>
+            <span v-if="sectorName" class="sector-name-badge">{{ sectorName }}</span>
+          </div>
+          <div class="peer-chart">
+            <div
+              v-for="(peer, i) in peerComparisons"
+              :key="i"
+              class="peer-bar-row"
+              :class="{ current: peer.isCurrent }"
+            >
+              <span class="peer-name">{{ peer.stockName }}</span>
+              <div class="peer-bar-container">
+                <div
+                  class="peer-bar-fill"
+                  :style="{ width: getPeerBarWidth(peer.pbr) + '%' }"
+                  :class="getPeerBarClass(peer.pbr)"
+                ></div>
+                <div
+                  v-if="sectorAvgPbr"
+                  class="sector-avg-line"
+                  :style="{ left: getPeerBarWidth(sectorAvgPbr) + '%' }"
+                ></div>
+              </div>
+              <span class="peer-pbr">PBR {{ peer.pbr?.toFixed(2) }}배</span>
+              <span class="peer-div">배당 {{ peer.dividendYield?.toFixed(1) }}%</span>
+            </div>
+            <div v-if="sectorAvgPbr" class="sector-avg-label">
+              <span class="avg-line-indicator"></span>
+              업종 평균 PBR {{ sectorAvgPbr?.toFixed(2) }}배
+            </div>
+          </div>
+        </div>
+
+        <!-- 관련 뉴스 (좌측 하단) -->
+        <div class="news-section-left">
+          <div class="section-header">
+            <h2>관련 뉴스</h2>
+            <span class="news-count">{{ dedupedNews.length }}건</span>
+          </div>
+          <div class="news-list" v-if="dedupedNews.length">
+            <div v-for="(news, index) in dedupedNews" :key="index" class="news-item">
+              <div class="news-content">
+                <a :href="news.link" target="_blank">{{ truncate(news.title, 60) }}</a>
+                <p v-if="news.description" class="news-desc">{{ truncate(news.description, 80) }}</p>
+              </div>
+              <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>
+            </div>
+          </div>
+          <div v-else class="no-news">
+            <p>관련 뉴스가 없습니다.</p>
           </div>
         </div>
       </div>
@@ -144,13 +229,19 @@
         <div class="zone zone-a">
           <!-- 체결강도 게이지 -->
           <VolumePowerGauge
-            :volumePower="supplyDemand?.volumePower || 100"
+            :volumePower="supplyDemand?.dataSource === '장전(초기화)' ? 0 : (supplyDemand?.volumePower || 100)"
             :signal="supplyDemand?.volumeSignal || 'NEUTRAL'"
+            :dataSource="supplyDemand?.dataSource || ''"
           />
 
           <!-- 투자자별 수급 막대 차트 -->
           <div class="investor-section">
-            <h3>실시간 수급</h3>
+            <div class="supply-header">
+              <h3>투자자별 수급</h3>
+              <span class="data-source-badge" :class="supplySourceClass">
+                {{ supplyDemand?.dataSource || '대기' }}
+              </span>
+            </div>
             <div class="investor-bar-chart">
               <!-- 외국인 -->
               <div class="investor-bar-row">
@@ -204,14 +295,14 @@
           </div>
         </div>
 
-        <!-- Zone B: 리스크 게이지 + AI 전략 -->
+        <!-- Zone B: 안전 점수 게이지 + AI 전략 -->
         <div class="zone zone-b">
-          <!-- 리스크 게이지 (원형) -->
-          <div class="risk-gauge-section" :class="riskStatusClass">
+          <!-- 안전 점수 게이지 (원형) -->
+          <div class="risk-gauge-section" :class="safetyStatusClass">
             <div class="gauge-header">
-              <h2>리스크 분석</h2>
-              <span class="risk-badge" :class="riskStatusClass">
-                {{ getRiskStatusText(riskInfo?.riskStatus) }}
+              <h2>안전 점수</h2>
+              <span class="risk-badge" :class="safetyStatusClass">
+                {{ getSafetyStatusText(riskInfo?.riskStatus) }}
               </span>
             </div>
 
@@ -228,39 +319,44 @@
                   <path
                     d="M 20 100 A 80 80 0 0 1 180 100"
                     fill="none"
-                    stroke="url(#riskGaugeGradient)"
+                    stroke="url(#safetyGaugeGradient)"
                     stroke-width="16"
                     stroke-linecap="round"
                     :stroke-dasharray="gaugeArcLength"
-                    :stroke-dashoffset="gaugeDashOffset"
+                    :stroke-dashoffset="safetyGaugeDashOffset"
                     class="gauge-arc"
                   />
                   <defs>
-                    <linearGradient id="riskGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stop-color="#22c55e" />
+                    <linearGradient id="safetyGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#ef4444" />
                       <stop offset="50%" stop-color="#eab308" />
-                      <stop offset="100%" stop-color="#ef4444" />
+                      <stop offset="100%" stop-color="#22c55e" />
                     </linearGradient>
                   </defs>
                 </svg>
                 <div class="gauge-value">
-                  <span class="score" :class="riskStatusClass">{{ riskInfo?.riskScore ?? '-' }}</span>
+                  <span class="score" :class="safetyStatusClass">{{ safetyScore ?? '-' }}</span>
                   <span class="label">/100</span>
                 </div>
               </div>
               <div class="gauge-labels">
-                <span class="safe">안전</span>
-                <span class="warning">주의</span>
                 <span class="danger">위험</span>
+                <span class="warning">주의</span>
+                <span class="safe">안전</span>
               </div>
             </div>
 
-            <!-- 매수 금지 경고 -->
-            <div v-if="riskInfo?.riskStatus === 'DANGER'" class="danger-warning">
-              <span class="warning-icon">🚨</span>
+            <!-- 리스크 키워드 태그 -->
+            <div v-if="riskInfo?.riskTags?.length" class="risk-tags">
+              <span v-for="(tag, i) in riskInfo.riskTags" :key="i" class="risk-tag">{{ tag }}</span>
+            </div>
+
+            <!-- 매수 금지 경고 (조건부 설명) -->
+            <div v-if="riskInfo?.riskStatus === 'DANGER' || riskInfo?.riskStatus === 'WARNING'" class="danger-warning" :class="riskInfo?.riskStatus === 'WARNING' ? 'warning-level' : ''">
+              <span class="warning-icon">{{ riskInfo?.riskStatus === 'DANGER' ? '🚨' : '⚠️' }}</span>
               <div class="warning-text">
-                <strong>매수 주의</strong>
-                <p>리스크가 높아 신중한 판단이 필요합니다.</p>
+                <strong>{{ riskInfo?.riskStatus === 'DANGER' ? '매수 주의' : '주의 필요' }}</strong>
+                <p>{{ safetyDescriptionText }}</p>
               </div>
             </div>
           </div>
@@ -271,9 +367,48 @@
             <div class="strategy-box" :class="aiRecommendationClass">
               <div class="strategy-header">
                 <span class="strategy-signal">{{ aiAnalysis?.technicalSignal || '-' }}</span>
-                <span class="strategy-rec">{{ aiAnalysis?.recommendation || '-' }}</span>
+                <span class="strategy-rec" :class="'rec-' + aiRecommendationClass">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
               </div>
               <p class="strategy-text">{{ aiAnalysis?.strategy || '-' }}</p>
+
+              <!-- 단기/장기 충돌 분석 -->
+              <div v-if="aiAnalysis?.conflictAnalysis" class="conflict-analysis">
+                <p>{{ aiAnalysis.conflictAnalysis }}</p>
+              </div>
+
+              <!-- 동적 가격 가이드 -->
+              <div v-if="aiAnalysis?.priceGuide" class="price-guide">
+                <span class="price-guide-icon">💰</span>
+                <span class="price-guide-text">{{ aiAnalysis.priceGuide }}</span>
+              </div>
+
+              <!-- 목표주가 컨센서스 -->
+              <div v-if="aiAnalysis?.consensusTargetPrice" class="consensus-section">
+                <div class="consensus-header">
+                  <span class="consensus-label">증권사 목표주가</span>
+                  <span class="consensus-price">{{ formatPrice(aiAnalysis.consensusTargetPrice) }}원</span>
+                  <span class="consensus-upside" :class="aiAnalysis.targetUpside >= 0 ? 'positive' : 'negative'">
+                    {{ aiAnalysis.targetUpside >= 0 ? '+' : '' }}{{ aiAnalysis.targetUpside?.toFixed(1) }}%
+                  </span>
+                </div>
+                <div class="consensus-bar-wrap">
+                  <div class="consensus-bar-bg">
+                    <div class="consensus-bar-current"
+                         :style="{ width: consensusBarWidth + '%' }"></div>
+                    <div class="consensus-bar-marker"
+                         :style="{ left: consensusBarWidth + '%' }">
+                      <span class="marker-label">현재가</span>
+                    </div>
+                  </div>
+                  <div class="consensus-bar-labels">
+                    <span>0</span>
+                    <span>목표가</span>
+                  </div>
+                </div>
+                <div class="consensus-source" v-if="aiAnalysis.consensusSource">
+                  *{{ aiAnalysis.consensusSource }}
+                </div>
+              </div>
 
               <div class="reasons-section" v-if="aiAnalysis?.buyReasons?.length || aiAnalysis?.sellReasons?.length">
                 <div class="buy-reasons" v-if="aiAnalysis?.buyReasons?.length">
@@ -290,27 +425,14 @@
                 </div>
               </div>
             </div>
+
+            <!-- 한 줄 요약 가이드 (점수 차이 클 때만) -->
+            <div v-if="scoreDiffComment" class="score-diff-comment">
+              <p>{{ scoreDiffComment }}</p>
+            </div>
           </div>
         </div>
 
-        <!-- Zone C: 뉴스 -->
-        <div class="zone zone-c">
-          <div class="news-section">
-            <div class="section-header">
-              <h2>관련 뉴스</h2>
-              <span class="news-count">{{ riskInfo?.news?.length || 0 }}건</span>
-            </div>
-            <div class="news-list" v-if="riskInfo?.news?.length">
-              <div v-for="(news, index) in riskInfo.news.slice(0, 8)" :key="index" class="news-item">
-                <a :href="news.link" target="_blank">{{ truncate(news.title, 50) }}</a>
-                <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>
-              </div>
-            </div>
-            <div v-else class="no-news">
-              <p>관련 뉴스가 없습니다.</p>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -321,9 +443,264 @@
       <p>종목명 또는 종목코드를 입력하면<br/>차트, 수급, 리스크, AI 분석을 한눈에 보여드립니다.</p>
       <div class="feature-badges">
         <span class="badge">실시간 체결강도</span>
-        <span class="badge">프로그램 매매</span>
         <span class="badge">AI 리스크 분석</span>
         <span class="badge">매매 전략</span>
+      </div>
+    </div>
+
+    <!-- 펀더멘털 진단 섹션 -->
+    <div v-if="hasData && diagnosisData" class="fundamental-section">
+      <h2 class="fund-section-title">펀더멘털 진단</h2>
+
+      <!-- 종합 의견 -->
+      <div class="verdict-section" :class="getAdjustedVerdictClass(diagnosisData)">
+        <div class="verdict-header">
+          <span class="verdict-icon">{{ getAdjustedVerdictIcon(diagnosisData) }}</span>
+          <div class="verdict-info">
+            <span class="verdict-label">{{ getAdjustedVerdict(diagnosisData) }}</span>
+            <span class="verdict-score">종합 점수: {{ diagnosisData.overallScore }}점</span>
+            <span v-if="isRsiOverbought(diagnosisData)" class="verdict-caution-tag">
+              RSI 과열 - 단기 조정 주의
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 경고/긍정 요소 -->
+      <div class="alerts-section">
+        <div v-if="diagnosisData.warnings?.length" class="alert-box warning">
+          <div class="alert-header">주의 사항</div>
+          <ul>
+            <li v-for="(w, idx) in diagnosisData.warnings" :key="'w-'+idx">{{ w }}</li>
+          </ul>
+        </div>
+        <div v-if="diagnosisData.positives?.length" class="alert-box positive">
+          <div class="alert-header">긍정적 요소</div>
+          <ul>
+            <li v-for="(p, idx) in diagnosisData.positives" :key="'p-'+idx">{{ p }}</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 탭 -->
+      <div class="fund-tabs">
+        <button class="fund-tab-btn" :class="{ active: fundTab === 'financial' }" @click="fundTab = 'financial'">재무 건전성</button>
+        <button class="fund-tab-btn" :class="{ active: fundTab === 'supply' }" @click="fundTab = 'supply'">최근 5일 누적 수급</button>
+        <button class="fund-tab-btn" :class="{ active: fundTab === 'technical' }" @click="fundTab = 'technical'">기술적 분석</button>
+      </div>
+
+      <!-- 탭 콘텐츠 -->
+      <div class="fund-tab-content">
+        <!-- 재무 건전성 -->
+        <div v-if="fundTab === 'financial'" class="analysis-card">
+          <div class="card-header">
+            <span class="card-icon">💰</span>
+            <h3>재무 건전성 <span class="ttm-label">TTM</span></h3>
+            <span class="card-score" :class="diagGetScoreClass(diagnosisData.financialHealth?.score)">
+              {{ diagnosisData.financialHealth?.score || 0 }}점
+            </span>
+          </div>
+          <div class="card-body" v-if="diagnosisData.financialHealth">
+            <div class="metric-row">
+              <span class="metric-label">영업이익</span>
+              <span class="metric-value">{{ formatBillion(diagnosisData.financialHealth.operatingProfit) }}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">당기순이익</span>
+              <span class="metric-value">{{ formatBillion(diagnosisData.financialHealth.netIncome) }}</span>
+            </div>
+            <div class="metric-row" v-if="diagnosisData.financialHealth.profitGapRatio">
+              <span class="metric-label">순이익-영업이익 괴리</span>
+              <span class="metric-value" :class="{ 'warning-text': diagnosisData.financialHealth.hasOneTimeGainWarning }">
+                {{ formatPercent(diagnosisData.financialHealth.profitGapRatio) }}
+                <span class="metric-hint">(영업이익 대비)</span>
+              </span>
+            </div>
+            <div v-if="diagnosisData.financialHealth.hasOneTimeGainWarning" class="one-time-warning">
+              {{ diagnosisData.financialHealth.oneTimeGainReason }}
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">영업이익률</span>
+              <span class="metric-value">{{ formatPercent(diagnosisData.financialHealth.operatingMargin) }}</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">ROE</span>
+              <span class="metric-value">{{ formatPercent(diagnosisData.financialHealth.roe) }}</span>
+            </div>
+            <div class="card-assessment">{{ diagnosisData.financialHealth.assessment }}</div>
+          </div>
+        </div>
+
+        <!-- 최근 5일 누적 수급 -->
+        <div v-if="fundTab === 'supply'" class="analysis-card">
+          <div class="card-header">
+            <span class="card-icon">📊</span>
+            <h3>최근 5일 누적 수급</h3>
+            <span class="card-score" :class="diagGetScoreClass(diagnosisData.supplyDemand?.score)">
+              {{ diagnosisData.supplyDemand?.score || 0 }}점
+            </span>
+          </div>
+          <div class="card-body" v-if="diagnosisData.supplyDemand">
+            <!-- 금일 수급 미니바 -->
+            <div v-if="supplyDemand && supplyDemand.dataSource !== '장전(초기화)'" class="today-supply-mini">
+              <span class="today-label">금일 수급</span>
+              <span class="today-item" :class="supplyDemand.foreignNetBuy >= 0 ? 'positive' : 'negative'">
+                외국인 {{ supplyDemand.foreignNetBuy >= 0 ? '+' : '' }}{{ supplyDemand.foreignNetBuy?.toFixed(0) || 0 }}억
+              </span>
+              <span class="today-item" :class="supplyDemand.instNetBuy >= 0 ? 'positive' : 'negative'">
+                기관 {{ supplyDemand.instNetBuy >= 0 ? '+' : '' }}{{ supplyDemand.instNetBuy?.toFixed(0) || 0 }}억
+              </span>
+            </div>
+            <div v-if="diagIsBeforeMarketOpen()" class="before-market-notice">
+              장 시작 전입니다. 전일 기준 데이터입니다.
+            </div>
+            <div class="supply-row">
+              <span class="investor-type">외국인</span>
+              <span v-if="diagIsSupplyDataAvailable(diagnosisData.supplyDemand.foreignNet5Days)"
+                    class="net-amount" :class="diagGetSupplyDemandClass(diagnosisData.supplyDemand.foreignNet5Days)">
+                {{ diagGetSupplyDemandLabel(diagnosisData.supplyDemand.foreignNet5Days) }}
+                {{ formatBillionAbs(diagnosisData.supplyDemand.foreignNet5Days) }}
+              </span>
+              <span v-else class="net-amount no-data">집계 중</span>
+              <span class="buy-days" v-if="diagIsSupplyPositive(diagnosisData.supplyDemand.foreignNet5Days)">
+                ({{ diagnosisData.supplyDemand.foreignBuyDays }}일 순매수)
+              </span>
+              <span class="sell-days" v-else-if="diagIsSupplyNegative(diagnosisData.supplyDemand.foreignNet5Days)">
+                (연속 순매도 주의!)
+              </span>
+            </div>
+            <div class="supply-row">
+              <span class="investor-type">기관</span>
+              <span v-if="diagIsSupplyDataAvailable(diagnosisData.supplyDemand.institutionNet5Days)"
+                    class="net-amount" :class="diagGetSupplyDemandClass(diagnosisData.supplyDemand.institutionNet5Days)">
+                {{ diagGetSupplyDemandLabel(diagnosisData.supplyDemand.institutionNet5Days) }}
+                {{ formatBillionAbs(diagnosisData.supplyDemand.institutionNet5Days) }}
+              </span>
+              <span v-else class="net-amount no-data">집계 중</span>
+              <span class="buy-days" v-if="diagIsSupplyPositive(diagnosisData.supplyDemand.institutionNet5Days)">
+                ({{ diagnosisData.supplyDemand.institutionBuyDays }}일 순매수)
+              </span>
+              <span class="sell-days" v-else-if="diagIsSupplyNegative(diagnosisData.supplyDemand.institutionNet5Days)">
+                (연속 순매도 주의!)
+              </span>
+            </div>
+            <div class="supply-summary">
+              <span v-if="diagnosisData.supplyDemand.isBothBuying" class="both-buying">외국인+기관 동반 매수!</span>
+              <span v-else-if="diagnosisData.supplyDemand.isBothSelling" class="both-selling">외국인+기관 동반 매도 주의!</span>
+            </div>
+            <div class="card-assessment">{{ diagnosisData.supplyDemand.assessment }}</div>
+          </div>
+        </div>
+
+        <!-- 기술적 분석 -->
+        <div v-if="fundTab === 'technical'" class="analysis-card">
+          <div class="card-header">
+            <span class="card-icon">📈</span>
+            <h3>기술적 분석</h3>
+            <span class="card-score" :class="diagGetScoreClass(diagnosisData.technicalAnalysis?.score)">
+              {{ diagnosisData.technicalAnalysis?.score || 0 }}점
+            </span>
+          </div>
+          <div class="card-body" v-if="diagnosisData.technicalAnalysis">
+            <!-- 이동평균선 & RSI -->
+            <div class="tech-section">
+              <div class="tech-section-title">이동평균선 & RSI</div>
+              <div class="tech-indicators">
+                <div class="indicator-item">
+                  <span class="indicator-label">이평선 정배열</span>
+                  <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isArrangedUp }">
+                    {{ diagnosisData.technicalAnalysis.isArrangedUp ? '정배열' : '아님' }}
+                  </span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">20일선 위치</span>
+                  <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 }">
+                    {{ diagnosisData.technicalAnalysis.isAboveMa20 ? '20일선 위' : '20일선 아래' }}
+                  </span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">골든/데드크로스</span>
+                  <span class="indicator-status">
+                    <span v-if="diagnosisData.technicalAnalysis.isGoldenCross" class="golden">골든크로스</span>
+                    <span v-else-if="diagnosisData.technicalAnalysis.isDeadCross" class="dead">데드크로스</span>
+                    <span v-else>-</span>
+                  </span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">RSI (14일)</span>
+                  <span class="indicator-status" :class="diagGetRsiClass(diagnosisData.technicalAnalysis.rsiStatus)">
+                    {{ formatNumber(diagnosisData.technicalAnalysis.rsi14, 1) }}
+                    <span class="rsi-badge" :class="diagGetRsiBadgeClass(diagnosisData.technicalAnalysis.rsiStatus)">
+                      {{ diagGetRsiStatusLabel(diagnosisData.technicalAnalysis.rsiStatus) }}
+                    </span>
+                  </span>
+                </div>
+                <div v-if="diagnosisData.technicalAnalysis.rsiStatus === '과열'" class="rsi-warning">
+                  단기 조정 주의 - RSI 과열 구간
+                </div>
+              </div>
+            </div>
+
+            <!-- 볼린저 밴드 -->
+            <div class="tech-section" v-if="diagnosisData.technicalAnalysis.upperBand">
+              <div class="tech-section-title">볼린저 밴드</div>
+              <div class="tech-indicators">
+                <div class="indicator-item">
+                  <span class="indicator-label">상단</span>
+                  <span class="indicator-value">{{ formatPriceWon(diagnosisData.technicalAnalysis.upperBand) }}</span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">중단 (20SMA)</span>
+                  <span class="indicator-value">{{ formatPriceWon(diagnosisData.technicalAnalysis.middleBand) }}</span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">하단</span>
+                  <span class="indicator-value">{{ formatPriceWon(diagnosisData.technicalAnalysis.lowerBand) }}</span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">밴드폭</span>
+                  <span class="indicator-value">{{ formatNumber(diagnosisData.technicalAnalysis.bandWidth, 2) }}%</span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">스퀴즈</span>
+                  <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isSqueeze, squeeze: diagnosisData.technicalAnalysis.isSqueeze }">
+                    {{ diagnosisData.technicalAnalysis.isSqueeze ? '에너지 응축!' : '정상' }}
+                  </span>
+                </div>
+                <div class="indicator-item">
+                  <span class="indicator-label">상단 돌파</span>
+                  <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isBreakout, breakout: diagnosisData.technicalAnalysis.isBreakout }">
+                    {{ diagnosisData.technicalAnalysis.isBreakout ? '돌파!' : '-' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- MFI -->
+            <div class="tech-section" v-if="diagnosisData.technicalAnalysis.mfiScore !== null && diagnosisData.technicalAnalysis.mfiScore !== undefined">
+              <div class="tech-section-title">MFI (자금 흐름 지수)</div>
+              <div class="tech-indicators">
+                <div class="indicator-item wide">
+                  <span class="indicator-label">MFI (14일)</span>
+                  <span class="indicator-status" :class="diagGetMfiClass(diagnosisData.technicalAnalysis.mfiStatus)">
+                    {{ formatNumber(diagnosisData.technicalAnalysis.mfiScore, 1) }} ({{ diagnosisData.technicalAnalysis.mfiStatus || '중립' }})
+                  </span>
+                </div>
+                <div class="mfi-description">
+                  <span v-if="diagnosisData.technicalAnalysis.mfiStatus === '과열'">거래량 동반 매수세 과열 - 차익실현 고려</span>
+                  <span v-else-if="diagnosisData.technicalAnalysis.mfiStatus === '침체'">거래량 동반 매수 기회 - 진짜 바닥일 수 있음</span>
+                  <span v-else>거래량이 실린 정상적인 흐름</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="tech-signal">
+              <span class="signal-label">종합 신호:</span>
+              <span class="signal-value">{{ diagnosisData.technicalAnalysis.signalDescription || diagnosisData.technicalAnalysis.overallSignal }}</span>
+            </div>
+            <div class="card-assessment">{{ diagnosisData.technicalAnalysis.assessment }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -339,7 +716,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
-import ProgramTradingChart from '../components/ProgramTradingChart.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';
 
 const route = useRoute();
@@ -355,14 +731,19 @@ const financial = ref(null);
 const riskInfo = ref(null);
 const aiAnalysis = ref(null);
 const chartData = ref(null);
+const peerComparisons = ref(null);
+const sectorAvgPbr = ref(null);
+const sectorName = ref(null);
+
+// 펀더멘털 진단
+const diagnosisData = ref(null);
+const diagnosisLoading = ref(false);
+const fundTab = ref('financial');
 
 // 실시간 갱신
 const autoRefresh = ref(true);
 const lastUpdated = ref(null);
 let refreshInterval = null;
-
-// 프로그램 매매 시계열
-const programTradingSeries = ref([]);
 
 const hasData = computed(() => priceInfo.value !== null);
 
@@ -494,7 +875,10 @@ const displayVolumes = computed(() => {
 // 스타일 클래스
 const priceClass = computed(() => {
   if (!priceInfo.value) return '';
-  return priceInfo.value.changeRate >= 0 ? 'positive' : 'negative';
+  const rate = Number(priceInfo.value.changeRate) || 0;
+  if (rate > 0) return 'positive';
+  if (rate < 0) return 'negative';
+  return 'neutral';
 });
 
 const aiScoreClass = computed(() => {
@@ -505,26 +889,167 @@ const aiScoreClass = computed(() => {
   return 'low';
 });
 
-const riskStatusClass = computed(() => {
-  const status = riskInfo.value?.riskStatus;
-  if (status === 'SAFE') return 'safe';
-  if (status === 'WARNING') return 'warning';
-  if (status === 'DANGER') return 'danger';
+const fundScoreClass = computed(() => {
+  const score = diagnosisData.value?.overallScore;
+  if (!score) return '';
+  if (score >= 70) return 'high';
+  if (score >= 50) return 'medium';
+  return 'low';
+});
+
+const scoreDiffComment = computed(() => {
+  const trading = aiAnalysis.value?.overallScore;
+  const fundamental = diagnosisData.value?.overallScore;
+  if (!trading || !fundamental) return null;
+
+  const guide = aiAnalysis.value?.priceGuide;
+  const suffix = guide ? ` → ${guide}` : '';
+
+  // 점수 차이가 클 때만 표시 (20점 이상 차이 또는 양쪽 극단)
+  if (fundamental > trading + 20) {
+    return `펀더멘털은 우수하나(${fundamental}점), 단기 수급 부진으로 인한 조정 주의(${trading}점)${suffix}`;
+  }
+  if (trading > fundamental + 20) {
+    return `단기 모멘텀은 강하나(${trading}점), 펀더멘털 보강이 필요한 구간(${fundamental}점)${suffix}`;
+  }
+  if (trading >= 70 && fundamental >= 70) {
+    return `단기(${trading}점)·중장기(${fundamental}점) 모두 양호 — 추세 추종 유효${suffix}`;
+  }
+  if (trading <= 40 && fundamental <= 40) {
+    return `단기(${trading}점)·중장기(${fundamental}점) 모두 부진 — 신중한 접근 필요${suffix}`;
+  }
+  // 차이가 작고 극단도 아니면 숨김
+  return null;
+});
+
+// ★ 목표주가 컨센서스 바 너비 (현재가 / 목표가 비율)
+const consensusBarWidth = computed(() => {
+  const target = aiAnalysis.value?.consensusTargetPrice;
+  const current = priceInfo.value?.currentPrice;
+  if (!target || !current || target <= 0) return 0;
+  const ratio = (current / target) * 100;
+  return Math.min(Math.max(ratio, 5), 100);
+});
+
+// ★ 뉴스 중복제거 (제목 기준 Set 필터링)
+const dedupedNews = computed(() => {
+  const news = riskInfo.value?.news;
+  if (!news || !news.length) return [];
+  const seen = new Set();
+  return news.filter(n => {
+    const title = (n.title || '').trim();
+    if (!title || seen.has(title)) return false;
+    seen.add(title);
+    return true;
+  }).slice(0, 8);
+});
+
+// ★ 안전 점수: 펀더멘털 종합 점수 기반 + 리스크 감점
+const safetyScore = computed(() => {
+  // 1순위: 진단 종합 점수 (재무건전성 + 수급 + 기술적분석)
+  const diagScore = diagnosisData.value?.overallScore;
+  const risk = riskInfo.value?.riskScore;
+
+  if (diagScore != null) {
+    // 리스크 점수가 있으면 감점 (위험 공시/뉴스 반영)
+    const riskPenalty = risk != null ? Math.floor(risk * 0.3) : 0;
+    return Math.max(0, Math.min(100, diagScore - riskPenalty));
+  }
+
+  // 진단 데이터 없으면 리스크 반전으로 폴백
+  if (risk !== null && risk !== undefined) return 100 - risk;
+  return null;
+});
+
+const safetyStatusClass = computed(() => {
+  const score = safetyScore.value;
+  if (score === null) {
+    // 점수 없으면 리스크 상태로 폴백
+    const status = riskInfo.value?.riskStatus;
+    if (status === 'SAFE') return 'safe';
+    if (status === 'WARNING') return 'warning';
+    if (status === 'DANGER') return 'danger';
+    return '';
+  }
+  if (score >= 65) return 'safe';
+  if (score >= 40) return 'warning';
+  return 'danger';
+});
+
+// ★ 안전 점수 조건부 설명 텍스트 (펀더멘털 점수 연동)
+const safetyDescriptionText = computed(() => {
+  const fundamental = diagnosisData.value?.overallScore;
+  const safety = safetyScore.value;
+  const trading = aiAnalysis.value?.overallScore;
+
+  // 펀더멘털 우수 + 안전점수 낮음 → 단기 과열
+  if (fundamental && fundamental >= 70 && safety !== null && safety <= 40) {
+    return '단기 과열 주의 — 펀더멘털은 우수하나 단기 급등으로 차익실현 매물이 나올 수 있습니다.';
+  }
+  // 트레이딩 점수도 낮고 펀더멘털도 낮음 → 전반 위험
+  if (fundamental && fundamental <= 40 && safety !== null && safety <= 30) {
+    return '복합 리스크 — 재무 지표와 수급 모두 부진하여 손실 위험이 높습니다.';
+  }
+  // 수급 과열 (트레이딩 높고 안전 낮음)
+  if (trading && trading >= 60 && safety !== null && safety <= 30) {
+    return '수급 과열 주의 — 단기 매수세가 강하나 위험 공시/뉴스가 감지되어 급반전 가능성이 있습니다.';
+  }
+  // WARNING 레벨
+  if (riskInfo.value?.riskStatus === 'WARNING') {
+    return '일부 리스크 요인이 감지되었습니다. 공시/뉴스를 확인하고 신중하게 접근하세요.';
+  }
+  // 기본
+  return '리스크가 높아 신중한 판단이 필요합니다.';
+});
+
+const supplySourceClass = computed(() => {
+  const source = supplyDemand.value?.dataSource;
+  if (source === '실시간') return 'live';
+  if (source === '일별(DB)') return 'daily';
+  if (source === '장전(초기화)') return 'pre-market';
   return '';
 });
 
 const aiRecommendationClass = computed(() => {
   const rec = aiAnalysis.value?.recommendation;
   if (rec === 'BUY') return 'buy';
+  if (rec === 'TRADING_BUY') return 'trading-buy';
+  if (rec === 'WAIT_AND_BUY') return 'wait-buy';
   if (rec === 'SELL') return 'sell';
   return 'hold';
 });
 
-// 리스크 게이지 계산
+// Recommendation 라벨 한글 변환
+const getRecommendationLabel = (rec) => {
+  const map = {
+    'BUY': 'BUY',
+    'TRADING_BUY': 'Trading Buy',
+    'WAIT_AND_BUY': 'Wait & Buy',
+    'HOLD': 'HOLD',
+    'SELL': 'SELL'
+  };
+  return map[rec] || rec || '-';
+};
+
+// Peer Group 바 너비 계산 (PBR 기준, max 2.0)
+const getPeerBarWidth = (pbr) => {
+  if (!pbr) return 0;
+  return Math.min(100, (pbr / 2.0) * 100);
+};
+
+const getPeerBarClass = (pbr) => {
+  if (!pbr) return '';
+  if (pbr < 0.5) return 'peer-very-low';
+  if (pbr < 1.0) return 'peer-low';
+  if (pbr < 1.5) return 'peer-mid';
+  return 'peer-high';
+};
+
+// 안전 점수 게이지 계산
 const gaugeArcLength = computed(() => 251.2);
-const gaugeDashOffset = computed(() => {
-  if (!riskInfo.value?.riskScore) return gaugeArcLength.value;
-  const progress = riskInfo.value.riskScore / 100;
+const safetyGaugeDashOffset = computed(() => {
+  if (safetyScore.value === null) return gaugeArcLength.value;
+  const progress = safetyScore.value / 100;
   return gaugeArcLength.value * (1 - progress);
 });
 
@@ -558,7 +1083,6 @@ const searchStock = async () => {
         searchedName = code;
         code = STOCK_MAP[code];
         stockName.value = searchedName;
-        console.log('[StockDetail] 로컬 매핑 사용:', searchedName, '->', code);
       } else {
         // 2. API 검색 시도
         try {
@@ -567,7 +1091,6 @@ const searchStock = async () => {
             code = searchResult.data.data[0].stockCode;
             searchedName = searchResult.data.data[0].stockName;
             stockName.value = searchedName;
-            console.log('[StockDetail] API 검색 성공:', searchedName, '->', code);
           } else {
             alert('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
             loading.value = false;
@@ -606,12 +1129,17 @@ const searchStock = async () => {
 // 모든 데이터 가져오기
 const fetchAllData = async (code, searchedName) => {
   try {
-    const response = await stockDetailAPI.getSummary(code);
-    if (response.data.success && response.data.data) {
-      const data = response.data.data;
+    // summary + diagnosis 병렬 호출
+    const [summaryRes, diagnosisRes] = await Promise.allSettled([
+      stockDetailAPI.getSummary(code),
+      stockDetailAPI.getDiagnosis(code)
+    ]);
+
+    // Summary 처리
+    if (summaryRes.status === 'fulfilled' && summaryRes.value.data.success && summaryRes.value.data.data) {
+      const data = summaryRes.value.data.data;
 
       // ★ 종목명 우선순위: 로컬매핑 > API응답 > 검색어 > 코드
-      // API가 코드를 종목명으로 반환하는 경우 방지
       const localName = CODE_TO_NAME[code];
       const apiName = data.stockName && data.stockName !== code ? data.stockName : null;
       stockName.value = localName || apiName || searchedName || code;
@@ -621,17 +1149,18 @@ const fetchAllData = async (code, searchedName) => {
       riskInfo.value = data.risk;
       aiAnalysis.value = data.aiAnalysis;
       chartData.value = data.chartData;
-
-      // 프로그램 매매 시계열 생성
-      if (data.supplyDemand?.programTradingSeries) {
-        programTradingSeries.value = data.supplyDemand.programTradingSeries;
-      } else {
-        programTradingSeries.value = generateProgramTradingSeries(
-          data.supplyDemand?.programNetBuy || 0
-        );
-      }
+      peerComparisons.value = data.peerComparisons;
+      sectorAvgPbr.value = data.sectorAvgPbr;
+      sectorName.value = data.sectorName;
 
       lastUpdated.value = new Date();
+    }
+
+    // Diagnosis 처리 (실패 시 해당 섹션만 숨김)
+    if (diagnosisRes.status === 'fulfilled' && diagnosisRes.value.data.success) {
+      diagnosisData.value = diagnosisRes.value.data.data;
+    } else {
+      diagnosisData.value = null;
     }
   } catch (error) {
     console.error('데이터 로드 오류:', error);
@@ -651,10 +1180,6 @@ const refreshRealtimeData = async () => {
       supplyDemand.value = data.supplyDemand;
       lastUpdated.value = new Date();
 
-      // 프로그램 매매 시계열 업데이트
-      if (data.supplyDemand?.programTradingSeries) {
-        programTradingSeries.value = data.supplyDemand.programTradingSeries;
-      }
     }
   } catch (error) {
     console.error('실시간 갱신 오류:', error);
@@ -679,49 +1204,6 @@ const stopAutoRefresh = () => {
     clearInterval(refreshInterval);
     refreshInterval = null;
   }
-};
-
-// 프로그램 매매 시계열 생성
-const generateProgramTradingSeries = (finalValue) => {
-  const series = [];
-  const now = new Date();
-  const marketOpen = new Date();
-  marketOpen.setHours(9, 0, 0, 0);
-
-  const endTime = now.getHours() >= 9 && now.getHours() < 16
-    ? now
-    : new Date(marketOpen.getTime() + 6 * 60 * 60 * 1000);
-
-  const totalMinutes = Math.floor((endTime - marketOpen) / (1000 * 60));
-  const intervals = Math.min(Math.max(Math.floor(totalMinutes / 10), 15), 40);
-
-  let cumulative = 0;
-  const stepSize = Math.abs(finalValue) / intervals;
-  const direction = finalValue >= 0 ? 1 : -1;
-
-  for (let i = 0; i <= intervals; i++) {
-    const time = new Date(marketOpen.getTime() + (i * 10 * 60 * 1000));
-    const timeStr = time.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-
-    if (i === 0) {
-      cumulative = 0;
-    } else {
-      const rand = Math.random();
-      if (rand > 0.7) {
-        cumulative += stepSize * direction * (2 + Math.random());
-      } else if (rand > 0.3) {
-        cumulative += stepSize * direction * (0.8 + Math.random() * 0.5);
-      }
-    }
-
-    series.push({ time: timeStr, value: Math.round(cumulative) });
-  }
-
-  if (series.length > 0) {
-    series[series.length - 1].value = finalValue;
-  }
-
-  return series;
 };
 
 // 차트 스타일 계산
@@ -798,8 +1280,8 @@ const truncate = (str, len) => {
   return str.length > len ? str.substring(0, len) + '...' : str;
 };
 
-// 신호/상태 텍스트
-const getRiskStatusText = (status) => {
+// 안전 점수 상태 텍스트 (리스크 반전)
+const getSafetyStatusText = (status) => {
   const map = { 'SAFE': '안전', 'WARNING': '주의', 'DANGER': '위험' };
   return map[status] || '-';
 };
@@ -816,6 +1298,171 @@ const getPBRClass = (pbr) => {
   if (pbr > 0 && pbr < 1) return 'positive';
   if (pbr > 3) return 'negative';
   return '';
+};
+
+// ========== 펀더멘털 진단 헬퍼 함수 ==========
+const formatNumber = (value, decimals = 0) => {
+  if (value === null || value === undefined) return '-';
+  return Number(value).toLocaleString('ko-KR', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  });
+};
+
+const formatPercent = (value) => {
+  if (value === null || value === undefined) return '-';
+  return `${Number(value).toFixed(2)}%`;
+};
+
+const formatBillion = (value) => {
+  if (value === null || value === undefined) return 'N/A';
+  const num = Number(value);
+  if (isNaN(num)) return 'N/A';
+  if (num === 0) return '0억';
+  if (Math.abs(num) >= 10000) return `${(num / 10000).toFixed(1)}조`;
+  if (Math.abs(num) >= 1) return `${num.toLocaleString('ko-KR')}억`;
+  return `${(num * 100).toFixed(0)}백만`;
+};
+
+const formatBillionAbs = (value) => {
+  if (value === null || value === undefined) return '-';
+  const num = Math.abs(Number(value));
+  if (num >= 10000) return `${(num / 10000).toFixed(1)}조`;
+  if (num >= 1) return `${num.toLocaleString('ko-KR')}억`;
+  return `${(num * 100).toFixed(0)}백만`;
+};
+
+const formatPriceWon = (value) => {
+  if (value === null || value === undefined) return '-';
+  return Number(value).toLocaleString() + '원';
+};
+
+// 진단 점수 클래스
+const diagGetScoreClass = (score) => {
+  if (score >= 70) return 'score-high';
+  if (score >= 40) return 'score-mid';
+  return 'score-low';
+};
+
+// verdict 관련
+const getVerdictClass = (level) => {
+  switch (level) {
+    case 'STRONG_BUY': return 'verdict-strong-buy';
+    case 'BUY': return 'verdict-buy';
+    case 'NEUTRAL': return 'verdict-neutral';
+    case 'CAUTION': return 'verdict-caution';
+    case 'AVOID': return 'verdict-avoid';
+    default: return 'verdict-neutral';
+  }
+};
+
+const getVerdictIcon = (level) => {
+  switch (level) {
+    case 'STRONG_BUY': return '🚀';
+    case 'BUY': return '👍';
+    case 'NEUTRAL': return '🤔';
+    case 'CAUTION': return '⚠️';
+    case 'AVOID': return '🛑';
+    default: return '❓';
+  }
+};
+
+const isRsiOverbought = (data) => {
+  if (!data || !data.rsiStatus) return false;
+  return data.rsiStatus === '과열';
+};
+
+const getAdjustedVerdictClass = (data) => {
+  if (!data) return 'verdict-neutral';
+  if (isRsiOverbought(data) && (data.verdictLevel === 'STRONG_BUY' || data.verdictLevel === 'BUY')) {
+    return 'verdict-caution';
+  }
+  return getVerdictClass(data.verdictLevel);
+};
+
+const getAdjustedVerdictIcon = (data) => {
+  if (!data) return '❓';
+  if (isRsiOverbought(data) && (data.verdictLevel === 'STRONG_BUY' || data.verdictLevel === 'BUY')) {
+    return '⚠️';
+  }
+  return getVerdictIcon(data.verdictLevel);
+};
+
+const getAdjustedVerdict = (data) => {
+  if (!data) return '분석 중';
+  if (isRsiOverbought(data) && (data.verdictLevel === 'STRONG_BUY' || data.verdictLevel === 'BUY')) {
+    return '관망';
+  }
+  return data.verdict || '분석 중';
+};
+
+// RSI/MFI 관련
+const diagGetRsiClass = (status) => {
+  if (status === '과열') return 'rsi-caution';
+  if (status === '침체') return 'rsi-oversold';
+  return 'rsi-neutral';
+};
+
+const diagGetRsiBadgeClass = (status) => {
+  if (status === '과열') return 'badge-caution';
+  if (status === '침체') return 'badge-opportunity';
+  return 'badge-neutral';
+};
+
+const diagGetRsiStatusLabel = (status) => {
+  if (status === '과열') return '과열';
+  if (status === '침체') return '매수 기회';
+  return '중립';
+};
+
+const diagGetMfiClass = (status) => {
+  if (status === '과열') return 'mfi-overbought';
+  if (status === '침체') return 'mfi-oversold';
+  return 'mfi-neutral';
+};
+
+// 수급 관련
+const diagIsBeforeMarketOpen = () => {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  return hours < 9 || (hours === 9 && minutes === 0);
+};
+
+const diagIsSupplyDataAvailable = (value) => {
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num !== 0;
+};
+
+const diagIsSupplyPositive = (value) => {
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num > 0;
+};
+
+const diagIsSupplyNegative = (value) => {
+  if (value === null || value === undefined) return false;
+  const num = Number(value);
+  return !isNaN(num) && num < 0;
+};
+
+const diagGetSupplyDemandClass = (value) => {
+  if (value === null || value === undefined) return '';
+  const num = Number(value);
+  if (isNaN(num)) return '';
+  if (num > 0) return 'supply-positive';
+  if (num < 0) return 'supply-negative';
+  return '';
+};
+
+const diagGetSupplyDemandLabel = (value) => {
+  if (value === null || value === undefined) return '';
+  const num = Number(value);
+  if (isNaN(num)) return '';
+  if (num > 0) return '순매수';
+  if (num < 0) return '순매도';
+  return '보합';
 };
 
 // URL 파라미터 처리
@@ -893,6 +1540,7 @@ onUnmounted(() => {
 
 .change-info.positive { color: #ef4444; }
 .change-info.negative { color: #3b82f6; }
+.change-info.neutral { color: #9ca3af; }
 
 .ai-score-box {
   display: flex;
@@ -1151,12 +1799,6 @@ onUnmounted(() => {
 .volume-bar.up { background: rgba(239, 68, 68, 0.5); }
 
 /* Program Chart Section */
-.program-chart-section {
-  background: rgba(30, 30, 60, 0.6);
-  border-radius: 16px;
-  border: 1px solid #2a2a5a;
-  overflow: hidden;
-}
 
 /* Financial Section */
 .financial-section {
@@ -1187,6 +1829,321 @@ onUnmounted(() => {
 .fin-value.positive { color: #ef4444; }
 .fin-value.negative { color: #3b82f6; }
 
+/* Forward 지표 배지 */
+.forward-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.15);
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.forward-badge.forward-improved {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+}
+
+.ttm-label {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* 핵심 투자 포인트 태그 */
+.investment-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inv-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  white-space: nowrap;
+}
+
+/* Peer Group 비교 */
+.peer-section {
+  background: rgba(30, 30, 60, 0.6);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #2a2a5a;
+  margin-top: 12px;
+}
+
+.peer-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.peer-bar-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 70px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.peer-bar-row.current {
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+
+.peer-name {
+  color: #ccc;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.peer-bar-row.current .peer-name {
+  color: #a78bfa;
+  font-weight: 700;
+}
+
+.peer-bar-container {
+  position: relative;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 7px;
+  overflow: visible;
+}
+
+.peer-bar-fill {
+  height: 100%;
+  border-radius: 7px;
+  transition: width 0.5s ease;
+}
+
+.peer-bar-fill.peer-very-low { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.peer-bar-fill.peer-low { background: linear-gradient(90deg, #4ade80, #a3e635); }
+.peer-bar-fill.peer-mid { background: linear-gradient(90deg, #eab308, #f59e0b); }
+.peer-bar-fill.peer-high { background: linear-gradient(90deg, #f87171, #ef4444); }
+
+.peer-pbr { color: #aaa; font-family: 'Monaco', monospace; font-size: 0.75rem; }
+.peer-div { color: #888; font-size: 0.7rem; }
+
+.peer-bar-row.current .peer-pbr { color: #a78bfa; font-weight: 600; }
+.peer-bar-row.current .peer-div { color: #c4b5fd; }
+
+/* Peer Group 헤더/섹터 */
+.peer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.peer-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.sector-name-badge {
+  font-size: 0.7rem;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* 섹터 평균 PBR 라인 */
+.sector-avg-line {
+  position: absolute;
+  top: -2px;
+  width: 2px;
+  height: 18px;
+  background: #f59e0b;
+  z-index: 2;
+}
+
+.sector-avg-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 0.7rem;
+  color: #f59e0b;
+}
+
+.avg-line-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 2px;
+  background: #f59e0b;
+}
+
+/* TSR / Buyback */
+.tsr-value {
+  color: #22c55e;
+}
+
+.buyback-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* 리스크 태그 */
+.risk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.risk-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  white-space: nowrap;
+}
+
+/* 동적 가격 가이드 */
+.price-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 10px;
+}
+
+.price-guide-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.price-guide-text {
+  font-size: 0.8rem;
+  color: #fbbf24;
+  line-height: 1.5;
+}
+
+/* 목표주가 컨센서스 */
+.consensus-section {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  border-radius: 10px;
+}
+.consensus-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.consensus-label {
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.6);
+}
+.consensus-price {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #60a5fa;
+}
+.consensus-upside {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.consensus-upside.positive {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
+}
+.consensus-upside.negative {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+.consensus-bar-wrap {
+  margin-bottom: 4px;
+}
+.consensus-bar-bg {
+  position: relative;
+  height: 8px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 4px;
+  overflow: visible;
+}
+.consensus-bar-current {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #60a5fa);
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+.consensus-bar-marker {
+  position: absolute;
+  top: -16px;
+  transform: translateX(-50%);
+}
+.marker-label {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.5);
+}
+.consensus-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.35);
+  margin-top: 2px;
+}
+.consensus-source {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.3);
+  margin-top: 6px;
+}
+
+/* 데이터 출처 노트 */
+.data-source-note {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.3);
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+/* 안전 점수 WARNING 레벨 */
+.danger-warning.warning-level {
+  background: rgba(234, 179, 8, 0.1);
+  border-color: rgba(234, 179, 8, 0.3);
+}
+.danger-warning.warning-level strong {
+  color: #eab308;
+}
+
 /* Zone A - Investor Section */
 .investor-section {
   margin-top: 16px;
@@ -1194,10 +2151,42 @@ onUnmounted(() => {
   border-top: 1px solid #2a2a4a;
 }
 
-.investor-section h3 {
-  margin: 0 0 12px 0;
+.supply-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.supply-header h3 {
+  margin: 0;
   font-size: 1rem;
   color: #ccc;
+}
+
+.data-source-badge {
+  padding: 3px 10px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.data-source-badge.live {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.data-source-badge.daily {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.data-source-badge.pre-market {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+  border: 1px solid rgba(156, 163, 175, 0.4);
 }
 
 .investor-bar-chart {
@@ -1381,6 +2370,8 @@ onUnmounted(() => {
 }
 
 .strategy-box.buy { border: 2px solid #22c55e; }
+.strategy-box.trading-buy { border: 2px solid #4ade80; }
+.strategy-box.wait-buy { border: 2px solid #a78bfa; }
 .strategy-box.sell { border: 2px solid #ef4444; }
 .strategy-box.hold { border: 2px solid #6b7280; }
 
@@ -1400,8 +2391,26 @@ onUnmounted(() => {
 
 .strategy-rec { font-size: 1.1rem; font-weight: 700; }
 .strategy-box.buy .strategy-rec { color: #22c55e; }
+.strategy-box.trading-buy .strategy-rec { color: #4ade80; }
+.strategy-box.wait-buy .strategy-rec { color: #a78bfa; }
 .strategy-box.sell .strategy-rec { color: #ef4444; }
 .strategy-box.hold .strategy-rec { color: #6b7280; }
+
+/* 충돌 분석 박스 */
+.conflict-analysis {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #c4b5fd;
+}
+
+.conflict-analysis p {
+  margin: 0;
+}
 
 .strategy-text { font-size: 0.9rem; color: #ccc; line-height: 1.5; margin: 0; }
 
@@ -1424,8 +2433,15 @@ onUnmounted(() => {
 .reasons-section ul { margin: 0; padding-left: 14px; }
 .reasons-section li { font-size: 0.75rem; color: #aaa; margin-bottom: 3px; }
 
-/* Zone C - News */
-.news-section h2 { font-size: 1rem; }
+/* Left Column - News */
+.news-section-left {
+  background: rgba(30, 30, 60, 0.6);
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #2a2a5a;
+}
+
+.news-section-left h2 { font-size: 1rem; }
 .news-count { font-size: 0.85rem; color: #888; }
 
 .news-list {
@@ -1441,20 +2457,31 @@ onUnmounted(() => {
 .news-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   padding: 10px 0;
   border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.news-content {
+  flex: 1;
+  min-width: 0;
 }
 
 .news-item a {
   color: #a5b4fc;
   text-decoration: none;
   font-size: 0.85rem;
-  flex: 1;
+}
+
+.news-desc {
+  color: #888;
+  font-size: 0.75rem;
+  margin: 4px 0 0 0;
+  line-height: 1.3;
 }
 
 .news-item a:hover { text-decoration: underline; }
-.news-date { color: #666; font-size: 0.75rem; flex-shrink: 0; margin-left: 10px; }
+.news-date { color: #666; font-size: 0.75rem; flex-shrink: 0; margin-left: 10px; white-space: nowrap; }
 
 .no-news {
   padding: 20px;
@@ -1489,6 +2516,462 @@ onUnmounted(() => {
   color: #a5b4fc;
 }
 
+/* ========== Dual Score Header ========== */
+.dual-score-header {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+/* ========== Score Diff Comment ========== */
+.score-diff-comment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: rgba(102, 126, 234, 0.1);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+  border-radius: 10px;
+}
+
+.score-diff-comment .diff-icon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.score-diff-comment p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #a5b4fc;
+  line-height: 1.4;
+}
+
+/* ========== Fundamental Section ========== */
+.fundamental-section {
+  margin-top: 20px;
+  padding: 24px;
+  background: rgba(30, 30, 60, 0.6);
+  border-radius: 16px;
+  border: 1px solid #2a2a5a;
+}
+
+.fund-section-title {
+  display: block;
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: #fff;
+}
+
+/* Verdict Section */
+.verdict-section {
+  padding: 16px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+  border: 2px solid #3a3a6a;
+  background: rgba(50, 50, 80, 0.3);
+}
+
+.verdict-section.verdict-strong-buy { border-color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+.verdict-section.verdict-buy { border-color: #4ade80; background: rgba(74, 222, 128, 0.08); }
+.verdict-section.verdict-neutral { border-color: #6b7280; background: rgba(107, 114, 128, 0.08); }
+.verdict-section.verdict-caution { border-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+.verdict-section.verdict-avoid { border-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+
+.verdict-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.verdict-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.verdict-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.verdict-label {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.verdict-section.verdict-strong-buy .verdict-label { color: #22c55e; }
+.verdict-section.verdict-buy .verdict-label { color: #4ade80; }
+.verdict-section.verdict-neutral .verdict-label { color: #9ca3af; }
+.verdict-section.verdict-caution .verdict-label { color: #f59e0b; }
+.verdict-section.verdict-avoid .verdict-label { color: #ef4444; }
+
+.verdict-score {
+  font-size: 0.9rem;
+  color: #aaa;
+  font-family: 'Monaco', monospace;
+}
+
+.verdict-caution-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(245, 158, 11, 0.2);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: #f59e0b;
+  width: fit-content;
+}
+
+/* Alerts Section */
+.alerts-section {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.alert-box {
+  padding: 12px;
+  border-radius: 10px;
+}
+
+.alert-box.warning {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.alert-box.positive {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.alert-header {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.alert-box.warning .alert-header { color: #f59e0b; }
+.alert-box.positive .alert-header { color: #22c55e; }
+
+.alert-box ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.alert-box li {
+  font-size: 0.8rem;
+  color: #bbb;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+/* Fund Tabs */
+.fund-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.fund-tab-btn {
+  flex: 1;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #888;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fund-tab-btn:hover { color: #ccc; background: rgba(255,255,255,0.05); }
+.fund-tab-btn.active {
+  color: #fff;
+  background: rgba(102, 126, 234, 0.3);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+}
+
+/* Analysis Card */
+.fund-tab-content .analysis-card {
+  background: rgba(50, 50, 80, 0.3);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid #2a2a5a;
+}
+
+.fund-tab-content .card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.fund-tab-content .card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  flex: 1;
+}
+
+.card-icon { font-size: 1.2rem; }
+
+.card-score {
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: 'Monaco', monospace;
+}
+
+.card-score.score-high { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.card-score.score-mid { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+.card-score.score-low { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+/* Metric Row */
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.metric-label {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.metric-value {
+  font-weight: 600;
+  font-family: 'Monaco', monospace;
+  font-size: 0.9rem;
+}
+
+.metric-value.warning-text { color: #f59e0b; }
+
+.metric-hint {
+  font-size: 0.7rem;
+  color: #888;
+  font-weight: 400;
+  margin-left: 4px;
+}
+
+.one-time-warning {
+  padding: 6px 10px;
+  margin: 4px 0;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #f59e0b;
+}
+
+.card-assessment {
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #aaa;
+  line-height: 1.5;
+}
+
+/* Supply Row */
+.supply-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.investor-type {
+  width: 60px;
+  color: #aaa;
+  font-size: 0.85rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.net-amount {
+  font-weight: 700;
+  font-family: 'Monaco', monospace;
+  font-size: 0.95rem;
+}
+
+.net-amount.supply-positive { color: #ef4444; }
+.net-amount.supply-negative { color: #3b82f6; }
+.net-amount.no-data { color: #666; font-weight: 400; }
+
+.buy-days { color: #ef4444; font-size: 0.8rem; }
+.sell-days { color: #3b82f6; font-size: 0.8rem; }
+
+.supply-summary {
+  padding: 8px 0;
+  text-align: center;
+}
+
+.both-buying { color: #ef4444; font-weight: 700; font-size: 0.9rem; }
+.both-selling { color: #3b82f6; font-weight: 700; font-size: 0.9rem; }
+
+/* 금일 수급 미니바 */
+.today-supply-mini {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.2);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+.today-label {
+  color: #a78bfa;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.today-item {
+  font-weight: 600;
+  font-family: 'Monaco', monospace;
+  white-space: nowrap;
+}
+.today-item.positive { color: #ef4444; }
+.today-item.negative { color: #3b82f6; }
+
+.before-market-notice {
+  padding: 8px 12px;
+  background: rgba(156, 163, 175, 0.1);
+  border: 1px solid rgba(156, 163, 175, 0.3);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+
+/* Tech Section */
+.tech-section {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.tech-section:last-of-type { border-bottom: none; }
+
+.tech-section-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ccc;
+  margin-bottom: 10px;
+}
+
+.tech-indicators {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.indicator-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+}
+
+.indicator-item.wide { flex-direction: column; align-items: flex-start; gap: 4px; }
+
+.indicator-label {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.indicator-status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #aaa;
+}
+
+.indicator-status.active { color: #22c55e; }
+.indicator-value {
+  font-family: 'Monaco', monospace;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.indicator-status.squeeze { color: #f59e0b; }
+.indicator-status.breakout { color: #ef4444; }
+
+.golden { color: #22c55e; font-weight: 700; }
+.dead { color: #ef4444; font-weight: 700; }
+
+/* RSI */
+.rsi-caution { color: #f59e0b; }
+.rsi-oversold { color: #3b82f6; }
+.rsi-neutral { color: #9ca3af; }
+
+.rsi-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  margin-left: 6px;
+}
+
+.badge-caution { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+.badge-opportunity { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+.badge-neutral { background: rgba(156, 163, 175, 0.2); color: #9ca3af; }
+
+.rsi-warning {
+  padding: 6px 10px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #f59e0b;
+}
+
+/* MFI */
+.mfi-overbought { color: #f59e0b; }
+.mfi-oversold { color: #3b82f6; }
+.mfi-neutral { color: #9ca3af; }
+
+.mfi-description {
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+/* Tech Signal */
+.tech-signal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: rgba(102, 126, 234, 0.08);
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+.signal-label {
+  color: #888;
+  font-size: 0.85rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.signal-value {
+  font-size: 0.85rem;
+  color: #a5b4fc;
+}
+
 /* Disclaimer */
 .disclaimer {
   text-align: center;
@@ -1516,5 +2999,9 @@ onUnmounted(() => {
   .realtime-status { flex-wrap: wrap; gap: 8px; }
 
   .reasons-section { grid-template-columns: 1fr; }
+
+  .dual-score-header { flex-direction: column; }
+  .alerts-section { grid-template-columns: 1fr; }
+  .fund-tabs { flex-direction: column; }
 }
 </style>

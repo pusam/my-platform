@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -73,6 +74,40 @@ public class StockAnalysisController {
             log.error("종목 진단 오류: {}", stockCode, e);
             response.put("success", false);
             response.put("message", "진단 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    /**
+     * 배치 점수 조회 (스크리너 듀얼 점수용)
+     * 여러 종목의 단기/중장기 점수 + 수급 상태를 한번에 조회
+     */
+    @PostMapping("/batch-scores")
+    @Operation(
+        summary = "배치 점수 조회",
+        description = "여러 종목의 단기(트레이딩)/중장기(펀더멘털) 점수와 수급 상태를 병렬로 조회합니다."
+    )
+    public ResponseEntity<Map<String, Object>> batchScores(@RequestBody Map<String, List<String>> request) {
+        List<String> stockCodes = request.get("stockCodes");
+        if (stockCodes == null || stockCodes.isEmpty()) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "stockCodes가 필요합니다.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        log.info("배치 점수 조회 API 호출: {} 종목", stockCodes.size());
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Map<String, Object>> scores = stockAnalysisService.batchScores(stockCodes);
+            response.put("success", true);
+            response.put("data", scores);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("배치 점수 조회 오류", e);
+            response.put("success", false);
+            response.put("message", "배치 점수 조회 중 오류 발생: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }

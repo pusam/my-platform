@@ -45,6 +45,11 @@ public class StockDetailDto {
     // ========== 차트 데이터 ==========
     private ChartData chartData;
 
+    // ========== Peer Group 비교 ==========
+    private List<PeerComparison> peerComparisons;
+    private BigDecimal sectorAvgPbr;          // 업종 평균 PBR
+    private String sectorName;                // 섹터명
+
     /**
      * 가격 정보
      */
@@ -86,6 +91,9 @@ public class StockDetailDto {
         private BigDecimal programNetBuy;     // 프로그램 누적 순매수 (억원)
         private String programTrend;          // UP, DOWN, FLAT
         private List<ScalpingAnalysisDto.ProgramTradingPoint> programSeries;
+
+        // 데이터 출처 표시
+        private String dataSource;            // "실시간", "일별(DB)", "장전(초기화)"
     }
 
     /**
@@ -96,17 +104,51 @@ public class StockDetailDto {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class FinancialInfo {
-        private BigDecimal per;               // PER (배)
+        private BigDecimal per;               // PER (배) - Trailing
         private BigDecimal pbr;               // PBR (배)
         private BigDecimal peg;               // PEG
         private BigDecimal roe;               // ROE (%)
-        private BigDecimal eps;               // EPS (원)
+        private BigDecimal eps;               // EPS (원) - Trailing
         private BigDecimal bps;               // BPS (원)
         private BigDecimal operatingMargin;   // 영업이익률 (%)
         private BigDecimal netMargin;         // 순이익률 (%)
         private BigDecimal debtRatio;         // 부채비율 (%)
         private Long marketCap;               // 시가총액 (억원)
         private BigDecimal dividendYield;     // 배당수익률 (%)
+
+        // ========== Forward (12M 선행) 지표 ==========
+        private BigDecimal forwardPer;        // Forward PER (12M 선행, 배)
+        private BigDecimal forwardPbr;        // Forward PBR (12M 선행, 배)
+        private BigDecimal forwardEps;        // Forward EPS (12M 선행, 원)
+        private BigDecimal forwardBps;        // Forward BPS (12M 선행, 원)
+        private BigDecimal epsGrowthRate;     // EPS 성장률 (%)
+
+        // ========== 수급 보조 지표 ==========
+        private BigDecimal foreignOwnership;  // 외국인 지분율 (%)
+
+        // ========== 주주환원 ==========
+        private BigDecimal totalShareholderReturn; // TSR (총주주환원율, %)
+        private String buybackInfo;           // 자사주 매입/소각 정보
+
+        // ========== 핵심 투자 포인트 태그 ==========
+        private java.util.List<String> investmentTags; // 예: ["#TSR 50%", "#밸류업 대장주"]
+    }
+
+    /**
+     * 섹터 Peer Group 비교
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PeerComparison {
+        private String stockName;             // 종목명
+        private String stockCode;             // 종목코드
+        private BigDecimal pbr;               // PBR
+        private BigDecimal per;               // PER
+        private BigDecimal roe;               // ROE
+        private BigDecimal dividendYield;     // 배당수익률
+        private boolean isCurrent;            // 현재 분석 종목 여부
     }
 
     /**
@@ -124,6 +166,7 @@ public class StockDetailDto {
         private Integer newsCount;            // 관련 뉴스 수
         private List<RiskAnalysisDto.DartDisclosure> disclosures;
         private List<RiskAnalysisDto.NewsItem> news;
+        private List<String> riskTags;        // 리스크 키워드 태그
     }
 
     /**
@@ -135,11 +178,18 @@ public class StockDetailDto {
     @AllArgsConstructor
     public static class AiAnalysis {
         private Integer overallScore;         // AI 종합 점수 (0~100)
-        private String recommendation;        // BUY, HOLD, SELL
+        private String recommendation;        // BUY, HOLD, SELL, TRADING_BUY, WAIT_AND_BUY
         private String strategy;              // AI 매매 전략 텍스트
         private String technicalSignal;       // 기술적 신호 (눌림목, 돌파, 과열 등)
         private List<String> buyReasons;      // 매수 근거
         private List<String> sellReasons;     // 매도 근거
+        private String conflictAnalysis;      // 단기/장기 점수 충돌 분석 텍스트
+        private String priceGuide;            // 동적 가격 가이드 (예: "160,000원대 진입 시 강력 매수")
+
+        // ========== 목표주가 컨센서스 ==========
+        private BigDecimal consensusTargetPrice;  // 증권사 평균 목표주가
+        private BigDecimal targetUpside;          // 현재가 대비 상승여력 (%)
+        private String consensusSource;           // 데이터 출처
     }
 
     /**

@@ -1,8 +1,10 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
+import com.myplatform.backend.dto.BacktestDto;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.service.AiStrategySnapshotService;
+import com.myplatform.backend.service.BacktestService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -31,6 +33,7 @@ import java.util.Map;
 public class AiStrategyController {
 
     private final AiStrategySnapshotService snapshotService;
+    private final BacktestService backtestService;
 
     /**
      * 모든 전략의 최신 스냅샷 조회
@@ -91,6 +94,19 @@ public class AiStrategyController {
     public ResponseEntity<Map<String, Object>> getStats() {
         Map<String, Object> stats = snapshotService.getSnapshotStats();
         return ResponseEntity.ok(stats);
+    }
+
+    /**
+     * AI 전략 성과 분석 (백테스트)
+     *
+     * GET /api/ai-strategy/performance?days=30
+     */
+    @GetMapping("/performance")
+    public ResponseEntity<BacktestDto.PerformanceResponse> getPerformance(
+            @RequestParam(defaultValue = "30") int days) {
+        log.debug("[AI Strategy API] /performance 요청 ({}일)", days);
+        BacktestDto.PerformanceResponse response = backtestService.getPerformance(days);
+        return ResponseEntity.ok(response);
     }
 
     /**

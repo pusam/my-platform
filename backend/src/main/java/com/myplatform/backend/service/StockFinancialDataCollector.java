@@ -87,6 +87,7 @@ public class StockFinancialDataCollector {
             BigDecimal per = parseBigDecimal(output.path("per").asText());
             BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
+            BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
 
             // 재무비율 조회
             Thread.sleep(100);
@@ -98,6 +99,20 @@ public class StockFinancialDataCollector {
             BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
             BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
             BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
+
+            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 (별도→연결 통일)
+            if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmEps = netIncome
+                        .multiply(new BigDecimal("100000000"))
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                log.info("[TTM EPS] {} - 별도 EPS: {} → TTM 연결 EPS: {} (순이익: {}억, 주식수: {})",
+                        stockCode, eps, ttmEps, netIncome, lstnStcn);
+                eps = ttmEps;
+
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && eps.compareTo(BigDecimal.ZERO) != 0) {
+                    per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
+                }
+            }
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
             BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
@@ -141,8 +156,8 @@ public class StockFinancialDataCollector {
             financialData.setNetIncome(netIncome);
 
             stockFinancialDataRepository.save(financialData);
-            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}",
-                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin);
+            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}",
+                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per);
             return true;
 
         } catch (Exception e) {
@@ -207,6 +222,7 @@ public class StockFinancialDataCollector {
             BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
             BigDecimal bps = parseBigDecimal(output.path("bps").asText());
+            BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
 
             BigDecimal roe = BigDecimal.ZERO;
             if (bps != null && bps.compareTo(BigDecimal.ZERO) > 0 && eps != null) {
@@ -227,8 +243,42 @@ public class StockFinancialDataCollector {
             }
 
             BigDecimal roeFromApi = financialRatios.get("roe");
-            if (roeFromApi != null && roeFromApi.compareTo(BigDecimal.ZERO) > 0) {
+            if (roeFromApi != null && roeFromApi.compareTo(BigDecimal.ZERO) != 0) {
                 roe = roeFromApi;
+            }
+
+            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
+            BigDecimal profitGrowth = financialRatios.getOrDefault("profitGrowth", null);
+            BigDecimal revenueGrowth = financialRatios.getOrDefault("revenueGrowth", null);
+            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
+            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
+
+            // ★ TTM 연결 당기순이익으로 EPS/PER 재계산 (별도→연결 통일)
+            if (netIncome != null && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmEps = netIncome
+                        .multiply(new BigDecimal("100000000"))
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                log.info("[Simple TTM EPS] {} - 별도 EPS: {} → TTM 연결 EPS: {} (순이익: {}억, 주식수: {})",
+                        stockCode, eps, ttmEps, netIncome, lstnStcn);
+                eps = ttmEps;
+
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && eps.compareTo(BigDecimal.ZERO) != 0) {
+                    per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
+                }
+
+                // TTM EPS 기반 ROE 재계산
+                // BPS가 음수(자본잠식)인 경우에도 계산하되, 부호가 순이익과 일관되도록 보정
+                if (bps != null && bps.compareTo(BigDecimal.ZERO) != 0) {
+                    roe = eps.divide(bps, 6, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP);
+                    // 부호 보정: 순이익 양수 → ROE 양수, 순이익 음수 → ROE 음수
+                    if (netIncome.compareTo(BigDecimal.ZERO) > 0 && roe.compareTo(BigDecimal.ZERO) < 0) {
+                        roe = roe.abs();
+                    } else if (netIncome.compareTo(BigDecimal.ZERO) < 0 && roe.compareTo(BigDecimal.ZERO) > 0) {
+                        roe = roe.negate();
+                    }
+                }
             }
 
             BigDecimal epsGrowth = financialRatios.getOrDefault("epsGrowth", null);
@@ -237,12 +287,6 @@ public class StockFinancialDataCollector {
                 epsGrowth != null && epsGrowth.compareTo(BigDecimal.ZERO) > 0) {
                 peg = per.divide(epsGrowth, 2, RoundingMode.HALF_UP);
             }
-
-            BigDecimal netIncome = financialRatios.getOrDefault("netIncome", null);
-            BigDecimal profitGrowth = financialRatios.getOrDefault("profitGrowth", null);
-            BigDecimal revenueGrowth = financialRatios.getOrDefault("revenueGrowth", null);
-            BigDecimal revenue = financialRatios.getOrDefault("revenue", null);
-            BigDecimal operatingProfit = financialRatios.getOrDefault("operatingProfit", null);
 
             // 영업이익률: API에서 가져오거나, operatingProfit/revenue로 계산
             BigDecimal operatingMargin = financialRatios.getOrDefault("operatingMargin", null);
@@ -284,8 +328,8 @@ public class StockFinancialDataCollector {
 
             // 손익계산서 데이터 저장 여부 로깅
             if (operatingProfit != null || netIncome != null || revenue != null) {
-                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}",
-                        stockName, stockCode, revenue, operatingProfit, netIncome);
+                log.info("[Simple저장] {} ({}) - 매출: {}, 영업이익: {}, 순이익: {}, EPS(TTM): {}, PER(TTM): {}",
+                        stockName, stockCode, revenue, operatingProfit, netIncome, eps, per);
             } else {
                 log.warn("[Simple저장] {} ({}) - 손익계산서 데이터 없음 (영업이익률: {})",
                         stockName, stockCode, operatingMargin);
@@ -331,6 +375,8 @@ public class StockFinancialDataCollector {
                         ratios.put("roe", parseBigDecimal(latest.path("roe_val").asText()));
                         ratios.put("operatingMargin", parseBigDecimal(latest.path("bsop_prfi_inrt").asText()));
                         ratios.put("netMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
+                        // ★ 연간 순이익률 백업 (TTM 덮어쓰기 전에 보관 → ROE 추정용)
+                        ratios.put("_annualNetMargin", parseBigDecimal(latest.path("ntin_inrt").asText()));
                         ratios.put("debtRatio", parseBigDecimal(latest.path("lblt_rate").asText()));
                         ratios.put("epsGrowth", parseBigDecimal(latest.path("eps_cagr").asText()));
                         ratios.put("revenueGrowth", parseBigDecimal(latest.path("sls_cagr").asText()));
@@ -340,8 +386,9 @@ public class StockFinancialDataCollector {
             }
 
             Thread.sleep(100);
+            // ★ 분기별 손익계산서 조회 → 최근 4분기 합산(TTM) 기준으로 통일
             String incomeUrl = baseUrl + "/uapi/domestic-stock/v1/finance/income-statement"
-                    + "?FID_DIV_CLS_CODE=0"
+                    + "?FID_DIV_CLS_CODE=1"
                     + "&fid_cond_mrkt_div_code=J"
                     + "&fid_input_iscd=" + stockCode;
 
@@ -359,28 +406,82 @@ public class StockFinancialDataCollector {
                 if ("0".equals(rtCd)) {
                     JsonNode output = root.get("output");
                     if (output != null && output.isArray() && output.size() > 0) {
-                        JsonNode latest = output.get(0);
+                        // 최근 4분기 합산 (TTM)
+                        int quarterCount = Math.min(output.size(), 4);
+                        BigDecimal ttmNetIncomeRaw = BigDecimal.ZERO;
+                        BigDecimal ttmRevenueRaw = BigDecimal.ZERO;
+                        BigDecimal ttmOperatingProfitRaw = BigDecimal.ZERO;
 
-                        // 손익계산서 필드 로깅
-                        log.info("[손익계산서] {} - 매출액: {}, 영업이익: {}, 당기순이익: {}",
-                                stockCode,
-                                latest.path("sale_account").asText(),
-                                latest.path("bsop_prti").asText(),
-                                latest.path("thtr_ntin").asText());
+                        for (int i = 0; i < quarterCount; i++) {
+                            JsonNode q = output.get(i);
+                            ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
+                            ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
+                            ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
+                        }
 
-                        BigDecimal netIncomeRaw = parseBigDecimal(latest.path("thtr_ntin").asText());
-                        if (netIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            BigDecimal netIncome = netIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-                            ratios.put("netIncome", netIncome);
+                        log.info("[손익계산서 TTM] {} - {}분기 합산: 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                                stockCode, quarterCount, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
+
+                        if (quarterCount < 4) {
+                            log.warn("[손익계산서 TTM] {} - 4분기 미만 데이터 ({}분기)", stockCode, quarterCount);
                         }
-                        BigDecimal revenueRaw = parseBigDecimal(latest.path("sale_account").asText());
-                        if (revenueRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("revenue", revenueRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+
+                        // 단위변환: 합산 후 1회만 /100 (백만원 → 억원)
+                        if (ttmNetIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("netIncome", ttmNetIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
-                        BigDecimal operatingProfitRaw = parseBigDecimal(latest.path("bsop_prti").asText());
-                        if (operatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("operatingProfit", operatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("revenue", ttmRevenueRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
                         }
+                        if (ttmOperatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
+                            ratios.put("operatingProfit", ttmOperatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                        }
+
+                        // ★ TTM 기준 영업이익률/순이익률 덮어쓰기 (연간 ratio API 값 대체)
+                        if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) > 0) {
+                            ratios.put("operatingMargin", ttmOperatingProfitRaw
+                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100"))
+                                    .setScale(2, RoundingMode.HALF_UP));
+                            ratios.put("netMargin", ttmNetIncomeRaw
+                                    .divide(ttmRevenueRaw, 6, RoundingMode.HALF_UP)
+                                    .multiply(new BigDecimal("100"))
+                                    .setScale(2, RoundingMode.HALF_UP));
+                        }
+
+                        // ★ TTM ROE 추정: TTM순이익 / 자본총계 직접 계산
+                        // (비율 보정 방식은 흑자전환 기업에서 부호 오류 발생)
+                        BigDecimal annualRoe = ratios.get("roe");
+                        BigDecimal ttmNetIncome = ratios.get("netIncome"); // 억원 단위
+                        BigDecimal ttmNetMargin = ratios.get("netMargin");
+                        if (ttmNetIncome != null && ttmNetIncome.compareTo(BigDecimal.ZERO) != 0) {
+                            // TTM 당기순이익(억원)으로 EPS 산출 후 ROE = EPS/BPS*100
+                            // BPS는 상위 메서드에서 사용하므로 여기서는 순이익률 기반 추정 유지하되
+                            // 부호가 일관되도록: TTM순이익 > 0이면 ROE > 0, 적자면 ROE < 0
+                            BigDecimal annualNetMargin = ratios.get("_annualNetMargin");
+                            if (annualRoe != null && annualNetMargin != null
+                                    && annualNetMargin.compareTo(BigDecimal.ZERO) != 0
+                                    && ttmNetMargin != null) {
+                                BigDecimal ttmRoe = annualRoe.multiply(ttmNetMargin)
+                                        .divide(annualNetMargin, 2, RoundingMode.HALF_UP);
+                                // 부호 검증: TTM 순이익이 양수면 ROE도 양수여야 함
+                                if (ttmNetIncome.compareTo(BigDecimal.ZERO) > 0
+                                        && ttmRoe.compareTo(BigDecimal.ZERO) < 0) {
+                                    ttmRoe = ttmRoe.abs();
+                                    log.info("[재무비율 TTM] {} ROE 부호 보정 (흑자전환): {}% → +{}%",
+                                            stockCode, annualRoe, ttmRoe);
+                                } else if (ttmNetIncome.compareTo(BigDecimal.ZERO) < 0
+                                        && ttmRoe.compareTo(BigDecimal.ZERO) > 0) {
+                                    ttmRoe = ttmRoe.negate();
+                                    log.info("[재무비율 TTM] {} ROE 부호 보정 (적자전환): {}% → {}%",
+                                            stockCode, annualRoe, ttmRoe);
+                                }
+                                ratios.put("roe", ttmRoe);
+                                log.info("[재무비율 TTM] {} ROE 보정: {}% → {}% (순이익률 {}→{}, TTM순이익: {}억)",
+                                        stockCode, annualRoe, ttmRoe, annualNetMargin, ttmNetMargin, ttmNetIncome);
+                            }
+                        }
+                        ratios.remove("_annualNetMargin"); // 임시 키 제거
                     } else {
                         log.warn("[손익계산서] {} - output이 비어있음", stockCode);
                     }

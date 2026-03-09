@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.InvestorSurgeDto;
+import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AlertHistory;
 import com.myplatform.backend.entity.InvestorIntradaySnapshot;
 import com.myplatform.backend.repository.AlertHistoryRepository;
@@ -38,6 +39,7 @@ public class InvestorSurgeService {
     private final AlertHistoryRepository alertHistoryRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final TelegramNotificationService telegramService;
+    private final StockPriceService stockPriceService;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -54,8 +56,12 @@ public class InvestorSurgeService {
     /**
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
      * 평일 09:10 ~ 15:20 사이에만 실행
+     *
+     * KIS API 데이터 입력 시간:
+     * - 외국인: 09:30, 11:20, 13:20, 14:30
+     * - 기관종합: 10:00, 11:20, 13:20, 14:30
      */
-    @Scheduled(cron = "0 0/10 9-15 * * MON-FRI")
+    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI")
     public void collectIntradaySnapshot() {
         LocalTime now = LocalTime.now();
 
@@ -67,10 +73,18 @@ public class InvestorSurgeService {
         log.info("장중 스냅샷 수집 시작: {}", now);
 
         try {
-            // 외국인, 기관 순서로 수집
+            // 외국인 수집 (09:30부터 데이터 제공)
             List<InvestorIntradaySnapshot> foreignSnapshots = collectAndSaveSnapshot("FOREIGN");
             Thread.sleep(1000); // API 호출 간격
-            List<InvestorIntradaySnapshot> institutionSnapshots = collectAndSaveSnapshot("INSTITUTION");
+
+            // 기관 수집 (10:00부터 데이터 제공 — 그 전에는 빈 배열 반환)
+            List<InvestorIntradaySnapshot> institutionSnapshots;
+            if (now.isBefore(LocalTime.of(10, 0))) {
+                log.info("기관 데이터 미제공 시간 (10:00 이전) — 기관 수집 스킵");
+                institutionSnapshots = Collections.emptyList();
+            } else {
+                institutionSnapshots = collectAndSaveSnapshot("INSTITUTION");
+            }
 
             log.info("장중 스냅샷 수집 완료");
 
@@ -128,10 +142,15 @@ public class InvestorSurgeService {
                 }
             }
 
-            // 중복 방지: 동일 시간대 기존 데이터 삭제 후 저장
-            snapshotRepository.deleteBySnapshotDateAndSnapshotTimeAndInvestorType(today, snapshotTime, investorType);
-            snapshotRepository.saveAll(snapshots);
-            log.info("스냅샷 저장 완료: {} - {}건", investorType, snapshots.size());
+            // 수집 결과가 0건이면 기존 데이터 보존 (장 초반 기관 데이터 미제공 대응)
+            if (snapshots.isEmpty()) {
+                log.warn("스냅샷 수집 결과 0건 — 기존 데이터 보존: {}", investorType);
+            } else {
+                // 중복 방지: 동일 시간대 기존 데이터 삭제 후 저장
+                snapshotRepository.deleteBySnapshotDateAndSnapshotTimeAndInvestorType(today, snapshotTime, investorType);
+                snapshotRepository.saveAll(snapshots);
+                log.info("스냅샷 저장 완료: {} - {}건", investorType, snapshots.size());
+            }
 
         } catch (Exception e) {
             log.error("스냅샷 수집 실패: {}", investorType, e);
@@ -279,11 +298,11 @@ public class InvestorSurgeService {
         log.info("스냅샷 조회 결과: {} 건, date={}, time={}, investorType={}",
                 surgeSnapshots.size(), today, latestTime, investorType);
 
-        // minChange 필터 적용 (선택적)
+        // minChange 필터 적용 — netBuyAmount(누적 순매수금액) 기준으로 필터링
         if (minChange != null && minChange.compareTo(BigDecimal.ZERO) > 0) {
             final BigDecimal filterAmount = minChange;
             surgeSnapshots = surgeSnapshots.stream()
-                    .filter(s -> (s.getNetBuyAmount() != null && s.getNetBuyAmount().compareTo(filterAmount) >= 0))
+                    .filter(s -> s.getNetBuyAmount() != null && s.getNetBuyAmount().compareTo(filterAmount) >= 0)
                     .collect(Collectors.toList());
         }
 
@@ -315,7 +334,49 @@ public class InvestorSurgeService {
         result.put("INSTITUTION", institutionStocks);
         result.put("COMMON", getCommonStocks(foreignStocks, institutionStocks));
 
+        // 스냅샷 가격 → 실시간 가격으로 보정
+        enrichWithRealTimePrices(result);
+
         return result;
+    }
+
+    /**
+     * 스냅샷의 stale 가격을 실시간 가격으로 보정
+     * - 종목명-현재가 매핑 불일치 방지
+     * - 캐시 전용 조회 (API 호출 없음) → 봇 매수 사이클 지연 방지
+     * - 캐시 미스 시 스냅샷 가격 유지
+     */
+    private void enrichWithRealTimePrices(Map<String, List<InvestorSurgeDto>> allStocks) {
+        Set<String> allCodes = new HashSet<>();
+        for (List<InvestorSurgeDto> stocks : allStocks.values()) {
+            for (InvestorSurgeDto stock : stocks) {
+                if (stock.getStockCode() != null) {
+                    allCodes.add(stock.getStockCode());
+                }
+            }
+        }
+
+        if (allCodes.isEmpty()) return;
+
+        try {
+            Map<String, StockPriceDto> prices = stockPriceService.getStockPricesFromCacheOnly(new ArrayList<>(allCodes));
+
+            int enriched = 0;
+            for (List<InvestorSurgeDto> stocks : allStocks.values()) {
+                for (InvestorSurgeDto stock : stocks) {
+                    StockPriceDto price = prices.get(stock.getStockCode());
+                    if (price != null && price.getCurrentPrice() != null) {
+                        stock.setCurrentPrice(price.getCurrentPrice());
+                        stock.setChangeRate(price.getChangeRate());
+                        enriched++;
+                    }
+                }
+            }
+
+            log.debug("실시간 가격 보정 완료: {}/{}종목 (캐시 히트)", enriched, allCodes.size());
+        } catch (Exception e) {
+            log.warn("실시간 가격 보정 실패 (스냅샷 가격 유지): {}", e.getMessage());
+        }
     }
 
     /**
@@ -479,8 +540,14 @@ public class InvestorSurgeService {
 
             Thread.sleep(1000);
 
-            collectAndSaveSnapshot("INSTITUTION");
-            result.put("INSTITUTION", 1);
+            // 기관 데이터는 10:00 이후부터 KIS에서 제공
+            if (LocalTime.now().isBefore(LocalTime.of(10, 0))) {
+                log.info("기관 데이터 미제공 시간 (10:00 이전) — 기관 수집 스킵");
+                result.put("INSTITUTION", 0);
+            } else {
+                collectAndSaveSnapshot("INSTITUTION");
+                result.put("INSTITUTION", 1);
+            }
         } catch (Exception e) {
             log.error("수동 스냅샷 수집 실패", e);
         }
@@ -551,26 +618,18 @@ public class InvestorSurgeService {
 
     /**
      * 추세 상태 계산
-     * - 누적 순매수 금액(currentTotal)과 변화량(changeAmount) 조합으로 결정
-     * - ACCUMULATING: 누적 양수 + 변화 양수 → 초록색 '매수 집중' (★최고의 매수 타이밍)
-     * - PROFIT_TAKING: 누적 양수 + 변화 음수 → 주황색 '차익 실현'
-     * - TURNAROUND: 누적 음수 + 변화 양수 → 회색 '수급 유입' (반등 시도)
-     * - NORMAL: 그 외 케이스
+     * - 누적 순매수 금액(currentTotal) 부호 기준으로 결정
+     * - ACCUMULATING: 순매수 양수 → 초록색 '매수 집중'
+     * - PROFIT_TAKING: 순매수 음수 → 주황색 '차익 실현'
+     * - NORMAL: 0 또는 판단 불가
      */
     private String calculateTrendStatus(BigDecimal currentTotal, BigDecimal changeAmount) {
-        boolean isPositiveTotal = currentTotal.compareTo(BigDecimal.ZERO) > 0;
-        boolean isNegativeTotal = currentTotal.compareTo(BigDecimal.ZERO) < 0;
-        boolean isPositiveChange = changeAmount.compareTo(BigDecimal.ZERO) > 0;
-        boolean isNegativeChange = changeAmount.compareTo(BigDecimal.ZERO) < 0;
-
-        if (isPositiveTotal && isPositiveChange) {
-            return "ACCUMULATING";  // ★최고의 매수 타이밍 - 계속 사는 중
-        } else if (isPositiveTotal && isNegativeChange) {
-            return "PROFIT_TAKING"; // 많이 샀는데 차익 실현 중
-        } else if (isNegativeTotal && isPositiveChange) {
-            return "TURNAROUND";    // 반등 시도 - 수급 유입
+        if (currentTotal.compareTo(BigDecimal.ZERO) > 0) {
+            return "ACCUMULATING";  // 순매수 양수 → 매수 집중
+        } else if (currentTotal.compareTo(BigDecimal.ZERO) < 0) {
+            return "PROFIT_TAKING"; // 순매수 음수 → 차익 실현
         } else {
-            return "NORMAL";        // 그 외 케이스
+            return "NORMAL";
         }
     }
 
@@ -581,7 +640,6 @@ public class InvestorSurgeService {
         switch (trendStatus) {
             case "ACCUMULATING": return "매수 집중";
             case "PROFIT_TAKING": return "차익 실현";
-            case "TURNAROUND": return "수급 유입";
             case "NORMAL": return "";
             default: return "";
         }

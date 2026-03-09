@@ -173,6 +173,16 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     List<StockFinancialData> findLatestTwoQuartersPerStock();
 
     /**
+     * 종목별 최신 재무 데이터 1건씩 조회 (N+1 방지)
+     */
+    @Query(value = "SELECT s.* FROM stock_financial_data s " +
+           "INNER JOIN (SELECT stock_code, MAX(report_date) as max_date " +
+           "FROM stock_financial_data GROUP BY stock_code) latest " +
+           "ON s.stock_code = latest.stock_code AND s.report_date = latest.max_date",
+           nativeQuery = true)
+    List<StockFinancialData> findLatestPerStock();
+
+    /**
      * 마지막 업데이트 시간 조회
      */
     @Query("SELECT MAX(s.updatedAt) FROM StockFinancialData s")

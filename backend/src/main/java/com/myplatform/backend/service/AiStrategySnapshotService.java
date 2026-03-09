@@ -6,13 +6,25 @@ import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -49,21 +61,45 @@ public class AiStrategySnapshotService {
     private final QuantScreenerService quantScreenerService;
     private final StockPriceService stockPriceService;
     private final GeminiService geminiService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
     // AI 스코어링 후보 수집 수 (Gemini 평가용)
     private static final int CANDIDATE_LIMIT = 10;
     // 최종 저장 수 (블렌딩 후 TOP N)
     private static final int SNAPSHOT_LIMIT = 5;
+    // 최소 주가 (초저가 소형주 제외: 오리엔트정공 700원, 소프트센 400원 등)
+    private static final BigDecimal MIN_STOCK_PRICE = new BigDecimal("1000");
+    // 최소 시가총액 (억원, 네이버 폴백 시 소형주 필터)
+    private static final BigDecimal MIN_MARKET_CAP = new BigDecimal("3000");
+
+    // 네이버 모바일 API - 시가총액 상위 (JSON, primary) — 거래량 API(/stocks/volume/) 404 폐기 → 시총 상위로 변경
+    private static final String NAVER_VOLUME_API = "https://m.stock.naver.com/api/stocks/marketValue/%s?page=1&pageSize=%d";
+    // 네이버 금융 거래상위 HTML (fallback)
+    private static final String NAVER_VOLUME_HTML_URL = "https://finance.naver.com/sise/sise_quant.naver";
+    private static final String CRAWL_USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    private static final String NAVER_REFERER = "https://m.stock.naver.com/";
 
     // ========== 서버 시작 시 Warm-up ==========
 
     /**
      * 서버 시작 시 모든 전략 스냅샷 초기화 (Warm-up)
-     * - 주말/휴일에도 실행하여 DB에 최소 데이터 보장
+     * - @Async로 메인 스레드 블로킹 방지
+     * - 30초 지연 후 시작 (다른 서비스 초기화 대기)
      * - 각 전략별 순차적으로 수집 (API Rate Limit 고려)
      */
     @EventListener(ApplicationReadyEvent.class)
+    @Async
     public void warmUpSnapshots() {
+        try {
+            // 다른 서비스 초기화 완료 대기 (SectorTrading, InvestorTrade 등)
+            Thread.sleep(30000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
         log.info("[Warm-up] 서버 시작 - 모든 전략 스냅샷 초기 수집 시작");
 
         int successCount = 0;
@@ -79,7 +115,11 @@ public class AiStrategySnapshotService {
                 successCount++;
 
                 // API 호출 간격 (Rate Limit 방지)
-                Thread.sleep(1500);
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("[Warm-up] 중단됨");
+                return;
             } catch (Exception e) {
                 log.error("[Warm-up] {} 전략 스냅샷 수집 실패: {}", type.name(), e.getMessage());
                 failCount++;
@@ -354,10 +394,18 @@ public class AiStrategySnapshotService {
             s.setOriginalScore(s.getScore());
         }
 
-        // 2. Gemini AI 스코어링
+        // 2. Gemini AI 스코어링 (상위 3개만 전송하여 API 호출 최적화)
+        //    알고리즘 점수 기준 상위 3개만 Gemini에 보내고, 나머지는 알고리즘 점수 유지
+        List<AiStrategySnapshot> geminiCandidates = candidates.stream()
+                .sorted((a, b) -> Integer.compare(
+                        b.getOriginalScore() != null ? b.getOriginalScore() : 0,
+                        a.getOriginalScore() != null ? a.getOriginalScore() : 0))
+                .limit(3)
+                .collect(Collectors.toList());
+
         try {
             Map<String, GeminiService.AiScoreResult> aiResults =
-                    geminiService.scoreStockCandidates(candidates, strategyType.name());
+                    geminiService.scoreStockCandidates(geminiCandidates, strategyType.name());
 
             if (!aiResults.isEmpty()) {
                 for (AiStrategySnapshot s : candidates) {
@@ -412,7 +460,38 @@ public class AiStrategySnapshotService {
      */
     private List<AiStrategySnapshot> collectScalpingData(LocalDateTime createdAt) {
         List<ScreenerResultDto> momentum = quantScreenerService.getMomentumStocks(CANDIDATE_LIMIT);
+
+        // 소형주 필터 (시가총액 null이거나 주가 1000원 미만 제외)
+        if (!momentum.isEmpty()) {
+            int beforeSize = momentum.size();
+            momentum = momentum.stream()
+                    .filter(dto -> dto.getCurrentPrice() != null
+                            && dto.getCurrentPrice().compareTo(MIN_STOCK_PRICE) >= 0)
+                    .filter(dto -> dto.getMarketCap() != null
+                            && dto.getMarketCap().compareTo(MIN_MARKET_CAP) >= 0)
+                    .collect(Collectors.toList());
+            if (beforeSize != momentum.size()) {
+                log.info("[SCALPING] 소형주 필터: {}건 → {}건 (주가<{}원 또는 시총<{}억 제외)",
+                        beforeSize, momentum.size(), MIN_STOCK_PRICE, MIN_MARKET_CAP);
+            }
+        }
+
+        if (momentum.isEmpty()) {
+            log.warn("[SCALPING] KIS API 실패/소형주 필터 후 빈 목록 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.SCALPING, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.SCALPING, createdAt) : fallback;
+        }
+
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        // 실시간 시세 조회 (등락률 포함)
+        List<String> stockCodes = momentum.stream()
+                .map(ScreenerResultDto::getStockCode)
+                .collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(stockCodes);
+
+        log.debug("[SCALPING] 실시간 시세 조회: {}건 중 {}건 성공",
+                stockCodes.size(), priceMap.size());
 
         int rank = 1;
         for (ScreenerResultDto dto : momentum) {
@@ -422,12 +501,28 @@ public class AiStrategySnapshotService {
             // 추천 사유 생성
             String reason = generateScalpingReason(dto.getVolumeRatio(), dto.getChangeRate());
 
+            // 실시간 시세 데이터 가져오기
+            StockPriceDto priceDto = priceMap.get(dto.getStockCode());
+
+            // 현재가 및 등락률 결정 (실시간 시세 우선, 없으면 ScreenerResultDto 값 사용)
+            BigDecimal currentPrice = dto.getCurrentPrice();
+            BigDecimal changeRate = dto.getChangeRate();
+
+            if (priceDto != null) {
+                if (priceDto.getCurrentPrice() != null && priceDto.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                if (priceDto.getChangeRate() != null) {
+                    changeRate = priceDto.getChangeRate();
+                }
+            }
+
             AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
                     .strategyType(StrategyType.SCALPING)
                     .stockCode(dto.getStockCode())
                     .stockName(dto.getStockName())
-                    .currentPrice(dto.getCurrentPrice())
-                    .changeRate(dto.getChangeRate())
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
                     .score(score)
                     .reason(reason)
                     .rankNum(rank++)
@@ -454,7 +549,9 @@ public class AiStrategySnapshotService {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (magicFormula.isEmpty()) {
-            return snapshots;
+            log.warn("[SWING] DB 조회 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.SWING, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.SWING, createdAt) : fallback;
         }
 
         // 실시간 시세 조회 (등락률 포함)
@@ -540,7 +637,9 @@ public class AiStrategySnapshotService {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (turnaround.isEmpty()) {
-            return snapshots;
+            log.warn("[TURNAROUND] DB 조회 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.TURNAROUND, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.TURNAROUND, createdAt) : fallback;
         }
 
         // 실시간 시세 조회 (등락률 포함)
@@ -616,7 +715,9 @@ public class AiStrategySnapshotService {
         List<AiStrategySnapshot> snapshots = new ArrayList<>();
 
         if (lowPeg.isEmpty()) {
-            return snapshots;
+            log.warn("[VALUE] DB 조회 실패 - 네이버 크롤링 폴백");
+            List<AiStrategySnapshot> fallback = crawlNaverTopGainers(StrategyType.VALUE, createdAt);
+            return fallback.isEmpty() ? createFallbackStocks(StrategyType.VALUE, createdAt) : fallback;
         }
 
         // 실시간 시세 조회 (등락률 포함)
@@ -682,6 +783,278 @@ public class AiStrategySnapshotService {
 
             log.debug("[VALUE] {} - 현재가: {}, 등락률: {}%, EPS성장률: {}%",
                     dto.getStockName(), currentPrice, changeRate, epsGrowth);
+        }
+
+        return snapshots;
+    }
+
+    // ========== 네이버 폴백 (3단계) ==========
+
+    /**
+     * 네이버 폴백 진입점 (3단계 체인)
+     * 1단계: 네이버 모바일 API (JSON) - 거래량 상위
+     * 2단계: 네이버 금융 거래상위 HTML 크롤링
+     * 3단계: (호출측에서) createFallbackStocks()
+     */
+    private List<AiStrategySnapshot> crawlNaverTopGainers(StrategyType strategyType, LocalDateTime createdAt) {
+        // 1단계: 네이버 모바일 API (JSON)
+        List<AiStrategySnapshot> snapshots = fetchNaverVolumeApi(strategyType, createdAt);
+        if (!snapshots.isEmpty()) {
+            return snapshots;
+        }
+
+        // 2단계: 네이버 금융 거래상위 HTML 크롤링
+        log.info("[네이버 폴백] {} - 시총 상위 API 결과 없음, 거래상위 HTML 크롤링 시도", strategyType.name());
+        return crawlNaverVolumeHtml(strategyType, createdAt);
+    }
+
+    /**
+     * 1단계: 네이버 모바일 API 시가총액 상위 종목 조회 (JSON)
+     * - 거래량 API(/stocks/volume/) 폐기(404) → 시총 상위로 대체
+     * - KOSPI + KOSDAQ 순차 조회
+     */
+    private List<AiStrategySnapshot> fetchNaverVolumeApi(StrategyType strategyType, LocalDateTime createdAt) {
+        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        try {
+            for (String market : new String[]{"KOSPI", "KOSDAQ"}) {
+                if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                int remaining = CANDIDATE_LIMIT - snapshots.size();
+                String url = String.format(NAVER_VOLUME_API, market, remaining);
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.set("User-Agent", CRAWL_USER_AGENT);
+                headers.set("Referer", NAVER_REFERER);
+                headers.set("Accept", "application/json, text/plain, */*");
+                headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
+                headers.set("Connection", "keep-alive");
+
+                HttpEntity<String> entity = new HttpEntity<>(headers);
+                ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
+
+                if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) continue;
+
+                JsonNode root = objectMapper.readTree(response.getBody());
+                JsonNode stocks = root.has("stocks") ? root.get("stocks") : root;
+                if (stocks == null || !stocks.isArray()) continue;
+
+                for (JsonNode stock : stocks) {
+                    if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                    try {
+                        String stockCode = getJsonText(stock, "itemCode", "stockCode", "cd");
+                        String stockName = getJsonText(stock, "stockName", "name", "nm");
+
+                        if (stockCode == null || !stockCode.matches("[0-9]{6}")) continue;
+                        if (stockName == null || stockName.isEmpty()) continue;
+
+                        BigDecimal currentPrice = parseNumericValue(
+                                getJsonText(stock, "closePrice", "currentPrice", "stckPrpr"));
+                        BigDecimal changeRate = parseNumericValue(
+                                getJsonText(stock, "fluctuationsRatio", "changeRate", "prdyCtrt"));
+
+                        if (currentPrice == null || currentPrice.compareTo(MIN_STOCK_PRICE) < 0) continue;
+
+                        // 점수: 시총 상위 기본 60점 + 등락률 반영
+                        int score = 60;
+                        if (changeRate != null) {
+                            score = (int) Math.min(100, Math.max(30, 60 + changeRate.doubleValue() * 2));
+                        }
+
+                        String reason = changeRate != null
+                                ? String.format("시총 상위 대형주 (%+.2f%%)", changeRate)
+                                : "시총 상위 대형주";
+
+                        AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
+                                .strategyType(strategyType)
+                                .stockCode(stockCode)
+                                .stockName(stockName)
+                                .currentPrice(currentPrice)
+                                .changeRate(changeRate)
+                                .score(score)
+                                .reason(reason)
+                                .rankNum(snapshots.size() + 1)
+                                .createdAt(createdAt)
+                                .build();
+
+                        snapshots.add(snapshot);
+                    } catch (Exception e) {
+                        continue;
+                    }
+                }
+
+                // KOSPI → KOSDAQ 간 딜레이
+                if ("KOSPI".equals(market) && snapshots.size() < CANDIDATE_LIMIT) {
+                    Thread.sleep(300);
+                }
+            }
+
+            if (!snapshots.isEmpty()) {
+                log.info("[네이버 API 폴백] {} - 시총 상위 {}개 종목 조회 완료", strategyType.name(), snapshots.size());
+            }
+        } catch (Exception e) {
+            log.warn("[네이버 API 폴백] {} - API 실패: {}", strategyType.name(), e.getMessage());
+        }
+
+        return snapshots;
+    }
+
+    /**
+     * 2단계: 네이버 금융 거래상위 HTML 크롤링 (KOSPI + KOSDAQ)
+     * - 참조: MarketTimingService.crawlStockCount() 동일 셀렉터
+     * - 거래상위는 장 마감 후에도 데이터 존재 (상승률 대비 안정적)
+     */
+    private List<AiStrategySnapshot> crawlNaverVolumeHtml(StrategyType strategyType, LocalDateTime createdAt) {
+        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+
+        try {
+            for (String sosok : new String[]{"0", "1"}) { // 0=KOSPI, 1=KOSDAQ
+                if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                String url = NAVER_VOLUME_HTML_URL + "?sosok=" + sosok;
+                Document doc = Jsoup.connect(url)
+                        .userAgent(CRAWL_USER_AGENT)
+                        .timeout(10000)
+                        .get();
+
+                Elements rows = doc.select("table.type_2 tbody tr");
+
+                for (Element row : rows) {
+                    if (snapshots.size() >= CANDIDATE_LIMIT) break;
+
+                    Elements tds = row.select("td");
+                    if (tds.size() < 4) continue;
+
+                    Element link = row.selectFirst("a[href*=code=]");
+                    if (link == null) continue;
+
+                    try {
+                        String href = link.attr("href");
+                        String stockCode = href.replaceAll(".*code=([0-9]+).*", "$1");
+                        if (stockCode.length() != 6) continue;
+
+                        String stockName = link.text().trim();
+                        if (stockName.isEmpty()) continue;
+
+                        // 링크 td 인덱스 기준 파싱
+                        int linkTdIndex = -1;
+                        for (int i = 0; i < tds.size(); i++) {
+                            if (tds.get(i).selectFirst("a[href*=code=]") != null) {
+                                linkTdIndex = i;
+                                break;
+                            }
+                        }
+                        if (linkTdIndex < 0 || linkTdIndex + 3 >= tds.size()) continue;
+
+                        String priceText = tds.get(linkTdIndex + 1).text().replace(",", "").trim();
+                        BigDecimal currentPrice = new BigDecimal(priceText);
+                        if (currentPrice.compareTo(MIN_STOCK_PRICE) < 0) continue;
+
+                        String rateText = tds.get(linkTdIndex + 3).text()
+                                .replace("%", "").replace("+", "").trim();
+                        BigDecimal changeRate = new BigDecimal(rateText);
+
+                        int score = (int) Math.min(100, Math.max(30, 60 + changeRate.doubleValue() * 2));
+
+                        AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
+                                .strategyType(strategyType)
+                                .stockCode(stockCode)
+                                .stockName(stockName)
+                                .currentPrice(currentPrice)
+                                .changeRate(changeRate)
+                                .score(score)
+                                .reason(String.format("거래량 상위 (%+.2f%%)", changeRate))
+                                .rankNum(snapshots.size() + 1)
+                                .createdAt(createdAt)
+                                .build();
+
+                        snapshots.add(snapshot);
+                    } catch (NumberFormatException e) {
+                        continue;
+                    }
+                }
+
+                if ("0".equals(sosok) && snapshots.size() < CANDIDATE_LIMIT) {
+                    Thread.sleep(500);
+                }
+            }
+
+            if (!snapshots.isEmpty()) {
+                log.info("[네이버 HTML 폴백] {} - {}개 종목 크롤링 완료", strategyType.name(), snapshots.size());
+            }
+        } catch (Exception e) {
+            log.warn("[네이버 HTML 폴백] {} - 크롤링 실패: {}", strategyType.name(), e.getMessage());
+        }
+
+        return snapshots;
+    }
+
+    /** JSON 필드 다중 이름 지원 (네이버 API 필드명 변동 대응) */
+    private String getJsonText(JsonNode node, String... fieldNames) {
+        for (String field : fieldNames) {
+            if (node.has(field) && !node.get(field).isNull()) {
+                return node.get(field).asText().trim();
+            }
+        }
+        return null;
+    }
+
+    /** 숫자 문자열 파싱 (콤마/부호/% 제거) */
+    private BigDecimal parseNumericValue(String text) {
+        if (text == null || text.isEmpty()) return null;
+        try {
+            return new BigDecimal(text.replace(",", "").replace("+", "").replace("%", "").trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * 3단계 최종 안전장치: 대형주 3개
+     * - 모든 크롤링 실패 시에도 빈 화면 방지
+     * - stockPriceService로 현재가 조회
+     */
+    private List<AiStrategySnapshot> createFallbackStocks(StrategyType strategyType, LocalDateTime createdAt) {
+        log.info("[최종 폴백] {} - 대형주 폴백 사용", strategyType.name());
+
+        String[][] bluechips = {
+                {"005930", "삼성전자"},
+                {"000660", "SK하이닉스"},
+                {"035420", "NAVER"}
+        };
+
+        List<String> codes = Arrays.stream(bluechips).map(b -> b[0]).collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(codes);
+
+        List<AiStrategySnapshot> snapshots = new ArrayList<>();
+        int rank = 1;
+
+        for (String[] stock : bluechips) {
+            BigDecimal currentPrice = BigDecimal.ZERO;
+            BigDecimal changeRate = null;
+
+            StockPriceDto priceDto = priceMap.get(stock[0]);
+            if (priceDto != null) {
+                if (priceDto.getCurrentPrice() != null) {
+                    currentPrice = priceDto.getCurrentPrice();
+                }
+                changeRate = priceDto.getChangeRate();
+            }
+
+            AiStrategySnapshot snapshot = AiStrategySnapshot.builder()
+                    .strategyType(strategyType)
+                    .stockCode(stock[0])
+                    .stockName(stock[1])
+                    .currentPrice(currentPrice)
+                    .changeRate(changeRate)
+                    .score(50)
+                    .reason("시가총액 상위 대표주")
+                    .rankNum(rank++)
+                    .createdAt(createdAt)
+                    .build();
+
+            snapshots.add(snapshot);
         }
 
         return snapshots;

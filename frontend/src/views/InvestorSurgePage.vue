@@ -55,7 +55,8 @@
 
       <div v-if="currentStocks.length > 0" class="stocks-grid">
         <div v-for="stock in currentStocks" :key="stock.stockCode"
-             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON', outdated: stock.outdated }]">
+             :class="['stock-card', stock.surgeLevel.toLowerCase(), getTrendClass(stock.trendStatus), { common: selectedInvestor === 'COMMON', outdated: stock.outdated }]"
+             @click="goToDetail(stock.stockCode)">
           <!-- HOT 뱃지: 변화량 양수 또는 매수 집중 상태일 때만 표시 -->
           <div class="surge-badge" :class="stock.surgeLevel.toLowerCase()"
                v-if="shouldShowHotBadge(stock)">
@@ -120,14 +121,14 @@
               </span>
             </div>
             <div class="detail-row">
-              <span class="label">스냅샷 시간</span>
-              <span class="value time" :class="{ 'live': stock.displayTime && stock.displayTime.includes('Live') }">
-                {{ stock.displayTime || '-' }}
+              <span class="label">업데이트</span>
+              <span class="value time" :class="{ 'live': isAutoRefreshActive }">
+                {{ lastUpdateTime || '-' }}
               </span>
             </div>
           </div>
 
-          <button @click="goToDetail(stock.stockCode)" class="detail-btn">
+          <button @click.stop="goToDetail(stock.stockCode)" class="detail-btn">
             상세보기
           </button>
         </div>
@@ -145,7 +146,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
-import api from '../utils/api';
+import { investorAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -245,9 +246,7 @@ const currentStocks = computed(() => {
 const fetchData = async () => {
   loading.value = true;
   try {
-    const response = await api.get('/investor/surge/all', {
-      params: { minChange: minChange.value }
-    });
+    const response = await investorAPI.getAllSurgeStocks(minChange.value);
     if (response.data.success) {
       allStocks.value = response.data.data;
       lastUpdateTime.value = new Date().toLocaleTimeString('ko-KR');
@@ -263,7 +262,7 @@ const collectSnapshot = async () => {
   if (collecting.value) return;
   collecting.value = true;
   try {
-    const response = await api.post('/investor/surge/collect');
+    const response = await investorAPI.collectSurge();
     if (response.data.success) {
       alert('스냅샷 수집이 완료되었습니다!');
       await fetchData();
@@ -383,9 +382,8 @@ const shouldShowHotBadge = (stock) => {
 
 const getTrendClass = (trendStatus) => {
   switch (trendStatus) {
-    case 'ACCUMULATING': return 'trend-accumulating';  // 초록색
-    case 'PROFIT_TAKING': return 'trend-profit-taking'; // 주황색
-    case 'TURNAROUND': return 'trend-turnaround';       // 회색
+    case 'ACCUMULATING': return 'trend-accumulating';  // 초록색 - 매수 집중
+    case 'PROFIT_TAKING': return 'trend-profit-taking'; // 주황색 - 차익 실현
     default: return 'trend-normal';
   }
 };
@@ -394,7 +392,6 @@ const getTrendIcon = (trendStatus) => {
   switch (trendStatus) {
     case 'ACCUMULATING': return '🚀';
     case 'PROFIT_TAKING': return '💰';
-    case 'TURNAROUND': return '🔄';
     default: return '';
   }
 };
@@ -628,6 +625,7 @@ onUnmounted(() => {
   border: 2px solid #2a2a4a;
   transition: all 0.3s;
   position: relative;
+  cursor: pointer;
 }
 
 .stock-card:hover {
