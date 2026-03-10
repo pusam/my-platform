@@ -354,12 +354,10 @@ public class GlobalFuturesService {
             vixContrib = clampContrib(vixContrib);
             weightedScore += vixContrib * 0.15;
 
-            // VIX 시그널: 절대값 + 방향성 복합 판단
+            // VIX 시그널: 절대값 기준 (25 이상이면 무조건 부정)
             String vixSignal;
-            if (vixLevel >= 25 && vixRate <= -5) {
-                vixSignal = "NEUTRAL"; // 높지만 급락 중 → 진정 국면
-            } else if (vixLevel >= 25) {
-                vixSignal = "NEGATIVE";
+            if (vixLevel >= 25) {
+                vixSignal = "NEGATIVE"; // 공포 구간 → 항상 부정
             } else if (vixLevel < 18) {
                 vixSignal = "POSITIVE";
             } else {
