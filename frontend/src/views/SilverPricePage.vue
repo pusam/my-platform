@@ -1,7 +1,7 @@
 <template>
-  <div class="page-container silver-theme">
+  <div :class="['page-container', 'silver-theme', { embedded: embedded }]">
     <div class="page-content">
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
         <h1>🥈 은 시세</h1>
         <div class="header-actions">
           <BackButton />
@@ -115,6 +115,10 @@ import { UserManager } from '../utils/auth'
 import { Chart, registerables } from 'chart.js'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+})
 
 // Chart.js 등록
 Chart.register(...registerables)
@@ -755,5 +759,15 @@ onUnmounted(() => {
 .info-section li {
   margin-bottom: 10px;
   line-height: 1.6;
+}
+
+.page-container.embedded {
+  padding: 0;
+  background: transparent;
+  min-height: auto;
+}
+
+.page-container.embedded .page-content {
+  padding: 0;
 }
 </style>

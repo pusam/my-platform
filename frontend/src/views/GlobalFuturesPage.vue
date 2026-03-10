@@ -1,5 +1,14 @@
 <template>
   <div class="page-container">
+    <!-- 메인 탭 -->
+    <div class="main-tab-bar">
+      <button class="main-tab" :class="{ active: mainTab === 'futures' }" @click="mainTab = 'futures'">선물 시세</button>
+      <button class="main-tab" :class="{ active: mainTab === 'gold' }" @click="mainTab = 'gold'">금 시세</button>
+      <button class="main-tab" :class="{ active: mainTab === 'silver' }" @click="mainTab = 'silver'">은 시세</button>
+      <button class="main-tab" :class="{ active: mainTab === 'oil' }" @click="mainTab = 'oil'">원유 시세</button>
+    </div>
+
+    <div v-show="mainTab === 'futures'">
     <div class="page-header">
       <div class="header-left">
         <button class="back-btn" @click="$router.back()">←</button>
@@ -269,6 +278,11 @@
     <div class="disclaimer">
       해외선물 시세는 Yahoo Finance를 통해 제공됩니다. 주말·공휴일에는 마지막 거래일 종가 기준이며, 장중에는 약간의 지연이 있을 수 있습니다. 투자 판단의 참고자료로만 활용하세요.
     </div>
+    </div>
+
+    <GoldPricePage v-if="mainTab === 'gold'" :embedded="true" />
+    <SilverPricePage v-if="mainTab === 'silver'" :embedded="true" />
+    <OilPricePage v-if="mainTab === 'oil'" :embedded="true" />
   </div>
 </template>
 
@@ -276,7 +290,11 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { globalFuturesAPI } from '../utils/api';
 import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
+import GoldPricePage from './GoldPricePage.vue';
+import SilverPricePage from './SilverPricePage.vue';
+import OilPricePage from './OilPricePage.vue';
 
+const mainTab = ref('futures');
 const loading = ref(false);
 const error = ref('');
 const quotes = ref([]);
@@ -536,6 +554,34 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.main-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 12px 20px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 20px;
+}
+.main-tab {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.main-tab:hover {
+  color: rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.05);
+}
+.main-tab.active {
+  color: #fff;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
 .page-container {
   max-width: 1200px;
   margin: 0 auto;

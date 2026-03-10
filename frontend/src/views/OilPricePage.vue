@@ -1,7 +1,7 @@
 <template>
-  <div class="page-container oil-theme">
+  <div :class="['page-container', 'oil-theme', { embedded: embedded }]">
     <div class="page-content">
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
         <h1>🛢️ 원유 시세</h1>
         <div class="header-actions">
           <BackButton />
@@ -122,6 +122,10 @@ import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
 
 Chart.register(...registerables)
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+})
 
 const router = useRouter()
 const oilPrice = ref(null)
@@ -545,5 +549,15 @@ onUnmounted(() => {
 .info-section li {
   margin-bottom: 10px;
   line-height: 1.6;
+}
+
+.page-container.embedded {
+  padding: 0;
+  background: transparent;
+  min-height: auto;
+}
+
+.page-container.embedded .page-content {
+  padding: 0;
 }
 </style>
