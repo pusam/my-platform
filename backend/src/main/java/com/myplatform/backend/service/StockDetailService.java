@@ -712,8 +712,20 @@ public class StockDetailService {
         if (dto.getChartData() != null && dto.getPrice() != null) {
             ChartData chart = dto.getChartData();
             BigDecimal currentPrice = dto.getPrice().getCurrentPrice();
+            double dailyChangeRate = dto.getPrice().getChangeRate() != null ? dto.getPrice().getChangeRate().doubleValue() : 0;
 
-            if (chart.getMa20() != null && currentPrice != null) {
+            // ★ 당일 급등(+5% 이상) 시 강한 돌파로 우선 분류
+            if (currentPrice != null && dailyChangeRate >= 5.0) {
+                if (chart.getMa20() != null && currentPrice.compareTo(chart.getMa20()) > 0) {
+                    technicalSignal = "강한 돌파 상승 (추세 추종)";
+                    buyReasons.add(String.format("당일 +%.1f%% 급등 + 20일선 상회 (강한 상승 모멘텀)", dailyChangeRate));
+                    score += 12;
+                } else {
+                    technicalSignal = "급등 돌파 (강세)";
+                    buyReasons.add(String.format("당일 +%.1f%% 급등 (단기 모멘텀 강세)", dailyChangeRate));
+                    score += 10;
+                }
+            } else if (chart.getMa20() != null && currentPrice != null) {
                 if (currentPrice.compareTo(chart.getMa20().multiply(new BigDecimal("1.05"))) >= 0) {
                     technicalSignal = "20일선 상향 돌파 (강세)";
                     buyReasons.add("20일선 5% 이상 상회 (강한 상승 추세)");

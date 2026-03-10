@@ -248,8 +248,8 @@ public class StockAnalysisService {
         BigDecimal revenue = data.getRevenue();
         BigDecimal totalEquity = data.getTotalEquity();
 
-        // operatingProfit/netIncome이 없으면 가장 최근 분기 데이터에서 조회
-        if ((operatingProfit == null || netIncome == null) && data.getStockCode() != null) {
+        // operatingProfit/netIncome/totalEquity 중 하나라도 없으면 가장 최근 분기 데이터에서 조회
+        if ((operatingProfit == null || netIncome == null || totalEquity == null || roe == null) && data.getStockCode() != null) {
             List<StockFinancialData> historicalData = stockFinancialDataRepository
                     .findByStockCodeOrderByReportDateDesc(data.getStockCode());
             for (StockFinancialData hist : historicalData) {
@@ -269,8 +269,16 @@ public class StockAnalysisService {
                 if (totalEquity == null && hist.getTotalEquity() != null) {
                     totalEquity = hist.getTotalEquity();
                 }
+                if (roe == null && hist.getRoe() != null) {
+                    roe = hist.getRoe();
+                    log.debug("[재무분석] {} ROE 보완: {} (from {})",
+                            data.getStockCode(), roe, hist.getReportDate());
+                }
+                if (debtRatio == null && hist.getDebtRatio() != null) {
+                    debtRatio = hist.getDebtRatio();
+                }
                 if (operatingProfit != null && netIncome != null
-                        && revenue != null && totalEquity != null) break;
+                        && revenue != null && totalEquity != null && roe != null) break;
             }
         }
 
