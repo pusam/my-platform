@@ -1,8 +1,8 @@
 <template>
-  <div class="page-container">
+  <div :class="['page-container', { embedded: embedded }]">
     <div class="page-content">
       <!-- 헤더 -->
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
         <BackButton />
         <h1>트레이딩 지표</h1>
       </header>
@@ -405,6 +405,12 @@ import BackButton from '../components/BackButton.vue'
 export default {
   name: 'TradingIndicatorsPage',
   components: { BackButton },
+  props: {
+    embedded: {
+      type: Boolean,
+      default: false
+    }
+  },
   data() {
     return {
       loading: {
@@ -608,6 +614,16 @@ export default {
 </script>
 
 <style scoped>
+.page-container.embedded {
+  padding-top: 0;
+  min-height: auto;
+}
+
+.page-container.embedded .page-content {
+  padding: 0;
+  max-width: 100%;
+}
+
 .indicator-section {
   background: rgba(255, 255, 255, 0.95);
   border-radius: 16px;

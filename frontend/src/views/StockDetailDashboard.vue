@@ -65,6 +65,9 @@
       <button class="main-tab-btn" :class="{ active: mainTab === 'investor' }" @click="switchToInvestorTab">
         🏛️ 투자자 동향
       </button>
+      <button class="main-tab-btn" :class="{ active: mainTab === 'indicators' }" @click="mainTab = 'indicators'">
+        📈 트레이딩 지표
+      </button>
     </div>
 
     <!-- 로딩 -->
@@ -194,6 +197,11 @@
           <p class="hint">상위 50개 종목에 포함된 경우에만 데이터가 수집됩니다.</p>
         </div>
       </template>
+    </div>
+
+    <!-- ========== 트레이딩 지표 탭 ========== -->
+    <div v-else-if="hasData && mainTab === 'indicators'" class="indicators-tab-content">
+      <TradingIndicatorsPage :embedded="true" />
     </div>
 
     <!-- ========== 종합 분석 탭 (기존 컨텐츠) ========== -->
@@ -850,6 +858,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
+import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';
 import api from '../utils/api';
 import { Line } from 'vue-chartjs';
