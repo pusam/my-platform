@@ -3,12 +3,12 @@
     <div class="page-content">
       <!-- 헤더 -->
       <header class="common-header">
+        <BackButton />
         <h1>게시판</h1>
         <div class="header-actions">
           <div class="header-user">
             <span>{{ currentUsername }}</span>
           </div>
-          <BackButton />
         </div>
       </header>
 

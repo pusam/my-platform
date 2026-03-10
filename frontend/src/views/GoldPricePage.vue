@@ -2,9 +2,9 @@
   <div :class="['page-container', 'gold-theme', { embedded: embedded }]">
     <div class="page-content">
       <header v-if="!embedded" class="common-header">
+        <BackButton />
         <h1>🪙 금 시세</h1>
         <div class="header-actions">
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>

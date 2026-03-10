@@ -2,9 +2,9 @@
   <div :class="['page-container', 'oil-theme', { embedded: embedded }]">
     <div class="page-content">
       <header v-if="!embedded" class="common-header">
+        <BackButton />
         <h1>🛢️ 원유 시세</h1>
         <div class="header-actions">
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>

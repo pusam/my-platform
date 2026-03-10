@@ -3,6 +3,7 @@
     <div class="page-content">
       <!-- 헤더 -->
       <header v-if="!embedded" class="common-header">
+        <BackButton />
         <h1>섹터별 거래대금</h1>
         <div class="header-actions">
           <button @click="refreshData" class="btn btn-refresh" :disabled="loading">
@@ -12,7 +13,6 @@
             </svg>
             새로고침
           </button>
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>

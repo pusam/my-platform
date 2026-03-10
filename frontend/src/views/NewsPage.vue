@@ -3,6 +3,7 @@
     <div class="page-content">
       <!-- 헤더 -->
       <header class="common-header">
+        <BackButton />
         <h1>경제 뉴스</h1>
         <div class="header-actions">
           <button @click="fetchNews" class="btn btn-refresh" :disabled="fetchingNews">
@@ -12,7 +13,6 @@
             </svg>
             {{ fetchingNews ? '수집 중...' : '새로고침' }}
           </button>
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
