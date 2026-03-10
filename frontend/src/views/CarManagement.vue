@@ -3,9 +3,9 @@
     <div class="page-content">
       <!-- 헤더 -->
       <header class="common-header">
+        <BackButton />
         <h1>자동차 관리</h1>
         <div class="header-actions">
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
