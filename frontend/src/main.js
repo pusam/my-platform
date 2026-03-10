@@ -27,6 +27,7 @@ const InvestorAnalysisPage = () => import('./views/InvestorAnalysisPage.vue')
 // InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → InvestorAnalysisPage에 통합됨 (redirect)
 const NewsPage = () => import('./views/NewsPage.vue')
 const EarningsScreenerPage = () => import('./views/EarningsScreenerPage.vue')
+const ResearchPage = () => import('./views/ResearchPage.vue')
 const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
 const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
 const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
@@ -179,6 +180,12 @@ const router = createRouter({
       path: '/earnings-screener',
       name: 'EarningsScreener',
       component: EarningsScreenerPage,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/research',
+      name: 'Research',
+      component: ResearchPage,
       meta: { requiresAuth: true }
     },
     {

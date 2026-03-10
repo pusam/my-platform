@@ -1,8 +1,8 @@
 <template>
-  <div class="page-container">
+  <div :class="['page-container', { embedded: embedded }]">
     <div class="page-content">
       <!-- 헤더 -->
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
         <h1>섹터별 거래대금</h1>
         <div class="header-actions">
           <button @click="refreshData" class="btn btn-refresh" :disabled="loading">
@@ -141,6 +141,10 @@ import { UserManager } from '../utils/auth';
 import { formatTradingValue } from '../utils/marketFormatters';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
 
 const router = useRouter();
 
@@ -696,5 +700,11 @@ onUnmounted(() => {
     width: 100%;
     justify-content: space-between;
   }
+}
+
+.page-container.embedded {
+  min-height: auto;
+  padding: 0;
+  background: none;
 }
 </style>

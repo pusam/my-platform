@@ -1,8 +1,8 @@
 <template>
-  <div class="screener-page">
+  <div :class="['screener-page', { embedded: embedded }]">
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
-      <div class="page-header">
+      <div v-if="!embedded" class="page-header">
         <BackButton />
         <h1>실적 기반 저평가 스크리너</h1>
         <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
@@ -706,6 +706,10 @@ import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
 import MagicFormulaSmartTable from '../components/v2/MagicFormulaSmartTable.vue';
 
 const router = useRouter();
@@ -3813,5 +3817,11 @@ onMounted(async () => {
   .analysis-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.screener-page.embedded {
+  min-height: auto;
+  padding: 0;
+  background: none;
 }
 </style>
