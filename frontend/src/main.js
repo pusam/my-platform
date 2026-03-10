@@ -12,8 +12,7 @@ const Dashboard = () => import('./views/Dashboard.vue')
 const AdminDashboard = () => import('./views/AdminDashboard.vue')
 const UserDashboard = () => import('./views/UserDashboard.vue')
 const BoardPage = () => import('./views/BoardPage.vue')
-const GoldPricePage = () => import('./views/GoldPricePage.vue')
-const SilverPricePage = () => import('./views/SilverPricePage.vue')
+// GoldPricePage, SilverPricePage, OilPricePage → GlobalFuturesPage에 탭으로 통합됨 (redirect)
 const MyContentPage = () => import('./views/MyContentPage.vue')
 const SettingsPage = () => import('./views/SettingsPage.vue')
 const AssetManagement = () => import('./views/AssetManagement.vue')
@@ -22,22 +21,21 @@ const FinanceManagement = () => import('./views/FinanceManagement.vue')
 const CarManagement = () => import('./views/CarManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
-const SectorTradingPage = () => import('./views/SectorTradingPage.vue')
+// SectorTradingPage, EarningsScreenerPage → ResearchPage에 탭으로 통합됨 (redirect)
 const InvestorAnalysisPage = () => import('./views/InvestorAnalysisPage.vue')
 // InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → InvestorAnalysisPage에 통합됨 (redirect)
 const NewsPage = () => import('./views/NewsPage.vue')
-const EarningsScreenerPage = () => import('./views/EarningsScreenerPage.vue')
 const ResearchPage = () => import('./views/ResearchPage.vue')
 const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
 const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
 const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
-const TradingIndicatorsPage = () => import('./views/TradingIndicatorsPage.vue')
+// TradingIndicatorsPage → StockDetailDashboard에 탭으로 통합됨 (redirect)
 const AiStrategyDashboardPage = () => import('./views/AiStrategyDashboardPage.vue')
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
-const OilPricePage = () => import('./views/OilPricePage.vue')
+// OilPricePage → GlobalFuturesPage에 탭으로 통합됨 (redirect)
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -96,15 +94,11 @@ const router = createRouter({
     },
     {
       path: '/gold',
-      name: 'GoldPrice',
-      component: GoldPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/silver',
-      name: 'SilverPrice',
-      component: SilverPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/my-content',
@@ -144,9 +138,7 @@ const router = createRouter({
     },
     {
       path: '/sector',
-      name: 'SectorTrading',
-      component: SectorTradingPage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
     },
     {
       path: '/news',
@@ -178,9 +170,7 @@ const router = createRouter({
     },
     {
       path: '/earnings-screener',
-      name: 'EarningsScreener',
-      component: EarningsScreenerPage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
     },
     {
       path: '/research',
@@ -208,9 +198,7 @@ const router = createRouter({
     },
     {
       path: '/trading-indicators',
-      name: 'TradingIndicators',
-      component: TradingIndicatorsPage,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard'
     },
     {
       path: '/stock-dashboard',
@@ -246,9 +234,7 @@ const router = createRouter({
     },
     {
       path: '/oil',
-      name: 'OilPrice',
-      component: OilPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/global-futures',
