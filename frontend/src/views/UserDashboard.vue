@@ -70,60 +70,6 @@
           <h2>시세</h2>
         </div>
         <div class="menu-grid">
-          <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
-            <div class="card-icon gold-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v12"/>
-                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-              </svg>
-            </div>
-            <h3>금 시세</h3>
-            <p v-if="goldPrice">{{ formatCurrency(goldPrice.price) }}/g <span :class="goldPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
-            <p v-else>금 시세를 확인합니다.</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article v-if="widgetSettings.silverPrice" class="menu-card silver" @click="goToSilver">
-            <div class="card-icon silver-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v12"/>
-                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-              </svg>
-            </div>
-            <h3>은 시세</h3>
-            <p v-if="silverPrice">{{ formatCurrency(silverPrice.price) }}/g <span :class="silverPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
-            <p v-else>은 시세를 확인합니다.</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card oil" @click="goToOil">
-            <div class="card-icon oil-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M6 20V10a6 6 0 0 1 12 0v10"/>
-                <path d="M6 20h12"/>
-                <path d="M12 4V2"/>
-                <circle cx="12" cy="10" r="2"/>
-              </svg>
-            </div>
-            <h3>원유 시세</h3>
-            <p>WTI 원유 선물 시세</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
           <article class="menu-card futures" @click="goToGlobalFutures">
             <div class="card-icon futures-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -131,8 +77,8 @@
                 <polyline points="16,7 22,7 22,13"/>
               </svg>
             </div>
-            <h3>글로벌 선물</h3>
-            <p>야간선물 / 해외선물 시세</p>
+            <h3>글로벌 시세</h3>
+            <p>선물 · 금 · 은 · 원유</p>
             <span class="card-arrow">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="9,6 15,12 9,18"/>
@@ -324,7 +270,7 @@
 </template>
 
 <script>
-import { newsAPI, financeAPI, goldAPI, silverAPI, assetAPI } from '../utils/api';
+import { newsAPI, financeAPI, assetAPI } from '../utils/api';
 import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
 import MarketInfoWidget from '../components/MarketInfoWidget.vue';
 
@@ -340,8 +286,6 @@ export default {
       newsList: [],
       showWidgetSettings: false,
       widgetSettings: {
-        goldPrice: true,
-        silverPrice: true,
         assetSummary: true,
         news: true,
         financeSummary: true,
@@ -353,14 +297,11 @@ export default {
         totalExpense: 0,
         balance: 0
       },
-      goldPrice: null,
-      silverPrice: null,
       assetSummary: {
         totalAssets: 0,
         totalProfit: 0,
         profitRate: 0
       },
-      loadingPrices: false
     }
   },
   mounted() {
@@ -368,7 +309,6 @@ export default {
     this.loadWidgetSettings()
     this.loadNews()
     this.loadFinanceSummary()
-    this.loadPrices()
     this.loadAssetSummary()
   },
   methods: {
@@ -381,9 +321,6 @@ export default {
     updateWidgetSettings(settings) {
       this.widgetSettings = { ...this.widgetSettings, ...settings }
       // 위젯 데이터 다시 로드
-      if (settings.goldPrice || settings.silverPrice) {
-        this.loadPrices()
-      }
       if (settings.assetSummary) {
         this.loadAssetSummary()
       }
@@ -408,25 +345,6 @@ export default {
         }
       } catch (error) {
         console.error('가계부 요약 로드 실패:', error)
-      }
-    },
-    async loadPrices() {
-      this.loadingPrices = true
-      try {
-        const [goldRes, silverRes] = await Promise.all([
-          goldAPI.getPrice(),
-          silverAPI.getPrice()
-        ])
-        if (goldRes.data.success) {
-          this.goldPrice = goldRes.data.data
-        }
-        if (silverRes.data.success) {
-          this.silverPrice = silverRes.data.data
-        }
-      } catch (error) {
-        console.error('시세 로드 실패:', error)
-      } finally {
-        this.loadingPrices = false
       }
     },
     async loadAssetSummary() {
@@ -474,15 +392,6 @@ export default {
     },
     goToSettings() {
       this.$router.push('/settings')
-    },
-    goToGold() {
-      this.$router.push('/gold')
-    },
-    goToSilver() {
-      this.$router.push('/silver')
-    },
-    goToOil() {
-      this.$router.push('/oil')
     },
     goToGlobalFutures() {
       this.$router.push('/global-futures')
@@ -789,47 +698,7 @@ export default {
   color: #4F46E5;
 }
 
-/* 금 시세 카드 */
-.card-icon.gold-icon {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
-  color: #daa520;
-}
-
-.menu-card.gold {
-  background: linear-gradient(135deg, rgba(255, 250, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(255, 215, 0, 0.3);
-}
-
-.menu-card.gold:hover {
-  border-color: #ffd700;
-  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.15);
-}
-
-.menu-card.gold h3 {
-  color: #b8860b;
-}
-
-/* 원유 시세 카드 */
-.card-icon.oil-icon {
-  background: linear-gradient(135deg, rgba(44, 62, 80, 0.2) 0%, rgba(52, 73, 94, 0.2) 100%);
-  color: #2c3e50;
-}
-
-.menu-card.oil {
-  background: linear-gradient(135deg, rgba(234, 242, 248, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(41, 128, 185, 0.3);
-}
-
-.menu-card.oil:hover {
-  border-color: #2980b9;
-  box-shadow: 0 20px 40px rgba(41, 128, 185, 0.15);
-}
-
-.menu-card.oil h3 {
-  color: #2c3e50;
-}
-
-/* 글로벌 선물 카드 */
+/* 글로벌 시세 카드 */
 .card-icon.futures-icon {
   background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
   color: #27ae60;
@@ -849,25 +718,6 @@ export default {
   color: #27ae60;
 }
 
-/* 은 시세 카드 */
-.card-icon.silver-icon {
-  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(169, 169, 169, 0.2) 100%);
-  color: #708090;
-}
-
-.menu-card.silver {
-  background: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(192, 192, 192, 0.3);
-}
-
-.menu-card.silver:hover {
-  border-color: #c0c0c0;
-  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.15);
-}
-
-.menu-card.silver h3 {
-  color: #5a6a7a;
-}
 
 /* 자산 관리 카드 */
 .card-icon.asset-icon {
