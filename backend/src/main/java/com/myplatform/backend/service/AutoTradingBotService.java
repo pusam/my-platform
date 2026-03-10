@@ -11,6 +11,7 @@ import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.BotConfig;
 import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -46,14 +47,14 @@ import java.util.stream.Collectors;
  *    A. 실시간 체결강도 100% 이상 유지 중
  *    B. 순매수금액 3억 이상 (수급 급증)
  *    C. 현재가 > 시초가 (양봉 상태)
- *    D. RSI(14) < 80 (과열 구간 진입 금지)
+ *    D. RSI(14) < 70 (분봉 기준, 과열 구간 진입 금지)
  *    E. 20MA 이격도 < +15% (급등 구간 진입 금지)
  *    F. 갭상승 < +8% (갭상승 과다 진입 금지)
  *
- * 2. 매도 조건 (Auto Exit) - 1초 간격 감시
- *    A. 익절 1차: +1.5% 도달 시 절반 매도
+ * 2. 매도 조건 (Auto Exit) - 3초 간격 감시 (API 블락 방지)
+ *    A. 익절 1차: +2.0% 도달 시 절반 매도 (슬리피지 방어)
  *    B. 익절 2차: 트레일링 스탑 (고점 대비 -0.5% 하락 시 전량 매도)
- *    C. 손절: -1.2% 터치 시 즉시 전량 손절
+ *    C. 손절: -1.5% 터치 시 즉시 전량 손절 (슬리피지+세금 고려)
  *    D. 타임컷: 매수 후 5분 초과 시 무조건 전량 매도
  *    E. 재매수 쿨다운: 매도 후 30분간 같은 종목 재매수 금지
  *
@@ -80,8 +81,8 @@ public class AutoTradingBotService {
     private final KoreaInvestmentService kisService;
 
     // ========== 스캘핑 전략 상수 ==========
-    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.2");     // 손절: -1.2%
-    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.5");   // 익절 1차: +1.5% (절반 매도)
+    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5% (슬리피지+세금 고려)
+    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("2.0");   // 익절 1차: +2.0% (슬리피지 방어)
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");    // 최소 체결강도: 120% (STRONG_BUY 기준)
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억
@@ -92,7 +93,7 @@ public class AutoTradingBotService {
     private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
     private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-3.0");   // 킬 스위치: -3%
     private static final int SELL_COOLDOWN_MINUTES = 30;                        // 매도 후 재매수 쿨다운: 30분
-    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("80");      // RSI 진입 상한
+    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("70");      // RSI 진입 상한 (분봉 기준, 과열 방지)
     private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("15"); // 20MA 이격도 상한 (%)
     private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("8");          // 갭상승 상한 (%)
 
@@ -317,7 +318,7 @@ public class AutoTradingBotService {
                     "1️⃣ 체결강도 100% 이상\n" +
                     "2️⃣ 순매수금액 3억↑ (수급 급증)\n" +
                     "3️⃣ 현재가 > 시초가 (양봉)\n" +
-                    "4️⃣ RSI(14) < 80 (과열 금지)\n" +
+                    "4️⃣ RSI(14) < 70 (분봉 기준, 과열 금지)\n" +
                     "5️⃣ 20MA 이격도 < +15%\n" +
                     "6️⃣ 갭상승 < +8%\n\n" +
                     "━━━ 매도 조건 (3초 감시) ━━━\n" +
@@ -660,21 +661,58 @@ public class AutoTradingBotService {
                         .multiply(new BigDecimal("100"));
             }
 
-            // ===== 조건 4: RSI / 이격도 (실패 시 진입 허용) =====
+            // ===== 조건 4: RSI(분봉) / 이격도(일봉) (실패 시 진입 허용) =====
             try {
-                List<BigDecimal> closePrices = kisService.getDailyClosePrices(stockCode, 30);
-                if (closePrices != null && closePrices.size() >= 14) {
-                    TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
-
-                    if (indicators.getRsi14() != null && indicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) >= 0) {
-                        log.debug("[스캘핑봇] Skip [{}({})] RSI 과열 (현재: {} >= 기준: {})",
-                                stockName, stockCode, indicators.getRsi14(), RSI_ENTRY_LIMIT);
-                        return ScalpingEntryResult.fail("RSI 과열: " + indicators.getRsi14());
+                // ★ RSI: 분봉(1분봉) 기준 — 스캘핑에 적합한 단기 과열 판단
+                boolean rsiChecked = false;
+                try {
+                    JsonNode minuteData = kisService.getStockMinuteChart(stockCode);
+                    if (minuteData != null) {
+                        JsonNode output2 = minuteData.get("output2");
+                        if (output2 != null && output2.isArray() && output2.size() >= 15) {
+                            List<BigDecimal> minuteClosePrices = new java.util.ArrayList<>();
+                            for (int i = 0; i < Math.min(output2.size(), 30); i++) {
+                                JsonNode bar = output2.get(i);
+                                String closeStr = bar.has("stck_prpr") ? bar.get("stck_prpr").asText() : null;
+                                if (closeStr != null && !closeStr.isEmpty()) {
+                                    minuteClosePrices.add(new BigDecimal(closeStr));
+                                }
+                            }
+                            if (minuteClosePrices.size() >= 15) {
+                                TechnicalIndicatorsDto minuteIndicators = technicalIndicatorService.calculateSimple(minuteClosePrices);
+                                if (minuteIndicators.getRsi14() != null && minuteIndicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) >= 0) {
+                                    log.debug("[스캘핑봇] Skip [{}({})] 분봉 RSI 과열 (현재: {} >= 기준: {})",
+                                            stockName, stockCode, minuteIndicators.getRsi14(), RSI_ENTRY_LIMIT);
+                                    return ScalpingEntryResult.fail("분봉 RSI 과열: " + minuteIndicators.getRsi14());
+                                }
+                                rsiChecked = true;
+                            }
+                        }
                     }
+                } catch (Exception e) {
+                    log.warn("[스캘핑봇] 분봉 RSI 조회 실패 (일봉 폴백): {} - {}", stockCode, e.getMessage());
+                }
 
-                    if (indicators.getMa20() != null && indicators.getMa20().compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal disparity = currentPrice.subtract(indicators.getMa20())
-                                .divide(indicators.getMa20(), 4, RoundingMode.HALF_UP)
+                // 분봉 RSI 실패 시 일봉 폴백
+                if (!rsiChecked) {
+                    List<BigDecimal> closePrices = kisService.getDailyClosePrices(stockCode, 30);
+                    if (closePrices != null && closePrices.size() >= 14) {
+                        TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
+                        if (indicators.getRsi14() != null && indicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) >= 0) {
+                            log.debug("[스캘핑봇] Skip [{}({})] 일봉 RSI 과열 (현재: {} >= 기준: {})",
+                                    stockName, stockCode, indicators.getRsi14(), RSI_ENTRY_LIMIT);
+                            return ScalpingEntryResult.fail("RSI 과열(일봉): " + indicators.getRsi14());
+                        }
+                    }
+                }
+
+                // 이격도: 일봉 기준 유지 (중기 과열 판단)
+                List<BigDecimal> dailyPrices = kisService.getDailyClosePrices(stockCode, 30);
+                if (dailyPrices != null && dailyPrices.size() >= 20) {
+                    TechnicalIndicatorsDto dailyIndicators = technicalIndicatorService.calculate(dailyPrices);
+                    if (dailyIndicators.getMa20() != null && dailyIndicators.getMa20().compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal disparity = currentPrice.subtract(dailyIndicators.getMa20())
+                                .divide(dailyIndicators.getMa20(), 4, RoundingMode.HALF_UP)
                                 .multiply(new BigDecimal("100"));
                         if (disparity.compareTo(DISPARITY_20MA_LIMIT) >= 0) {
                             log.debug("[스캘핑봇] Skip [{}({})] 이격도 과다 (현재: {}% >= 기준: {}%)",
@@ -749,9 +787,9 @@ public class AutoTradingBotService {
     /**
      * 스캘핑 매도 로직
      * - 익절/손절/트레일링/타임컷 체크
-     * - 1초 간격으로 실행 (09:00~15:20, 점심시간 포함)
+     * - 3초 간격으로 실행 (09:00~15:20, 점심시간 포함, API 블락 방지)
      */
-    @Scheduled(cron = "*/1 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/3 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
         if (!botActive.get()) {
             return;
