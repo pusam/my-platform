@@ -37,71 +37,72 @@
         <MarketInfoWidget />
       </section>
 
-      <!-- 주식 섹션 -->
-      <section class="menu-section">
+      <!-- 투자 섹션 -->
+      <section class="menu-section invest-section">
         <div class="section-header">
           <span class="section-icon">📈</span>
-          <h2>주식</h2>
+          <h2>투자</h2>
         </div>
-        <div class="menu-grid">
-          <article class="menu-card stock-dashboard-v2" @click="goToStockDashboard">
-            <div class="card-icon stock-dashboard-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+
+        <!-- 메인 카드: 주식 트레이딩 -->
+        <article class="invest-hero-card" @click="goToStockDashboard">
+          <div class="invest-hero-bg"></div>
+          <div class="invest-hero-content">
+            <div class="invest-hero-icon">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                 <path d="M2 17l10 5 10-5"/>
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <h3>주식 트레이딩 대시보드 <span class="menu-ai-badge gold">V2</span></h3>
-            <p>AI 전략, 시장 지도, 스마트 머니, 리서치 - 한눈에 보기</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card news" @click="$router.push('/news')">
-            <div class="card-icon news-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/>
-                <line x1="10" y1="6" x2="18" y2="6"/>
-                <line x1="10" y1="10" x2="18" y2="10"/>
-                <line x1="10" y1="14" x2="14" y2="14"/>
-              </svg>
+            <div class="invest-hero-text">
+              <h3>주식 트레이딩 대시보드 <span class="v2-badge">V2</span></h3>
+              <p>AI 전략 · 시장 지도 · 스마트 머니 · 리서치</p>
             </div>
-            <h3>경제 뉴스</h3>
-            <p>AI 요약 뉴스</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-        </div>
-      </section>
+            <span class="invest-hero-arrow">→</span>
+          </div>
+        </article>
 
-      <!-- 시세 섹션 -->
-      <section class="menu-section">
-        <div class="section-header">
-          <span class="section-icon">💰</span>
-          <h2>시세</h2>
-        </div>
-        <div class="menu-grid">
-          <article class="menu-card futures" @click="goToGlobalFutures">
-            <div class="card-icon futures-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <!-- 서브 카드 그리드 -->
+        <div class="invest-sub-grid">
+          <article class="invest-sub-card" @click="goToGlobalFutures">
+            <div class="invest-sub-icon futures-gradient">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
                 <polyline points="16,7 22,7 22,13"/>
               </svg>
             </div>
-            <h3>글로벌 시세</h3>
-            <p>선물 · 금 · 은 · 원유</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
+            <div class="invest-sub-text">
+              <h4>글로벌 시세</h4>
+              <p>선물 · 금 · 은 · 원유</p>
+            </div>
+          </article>
+
+          <article class="invest-sub-card" @click="$router.push('/news')">
+            <div class="invest-sub-icon news-gradient">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/>
+                <line x1="10" y1="6" x2="18" y2="6"/>
+                <line x1="10" y1="10" x2="18" y2="10"/>
               </svg>
-            </span>
+            </div>
+            <div class="invest-sub-text">
+              <h4>경제 뉴스</h4>
+              <p>AI 요약 뉴스</p>
+            </div>
+          </article>
+
+          <article class="invest-sub-card" @click="$router.push('/market-timing')">
+            <div class="invest-sub-icon timing-gradient">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12,6 12,12 16,14"/>
+              </svg>
+            </div>
+            <div class="invest-sub-text">
+              <h4>시장 타이밍</h4>
+              <p>ADR · 시장 상태</p>
+            </div>
           </article>
         </div>
       </section>
@@ -651,91 +652,186 @@ export default {
   color: #9333ea;
 }
 
-/* 주식 트레이딩 대시보드 V2 카드 */
-.card-icon.stock-dashboard-icon {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
-  color: #667eea;
-}
+/* ===== 투자 섹션 ===== */
 
-.menu-card.stock-dashboard-v2 {
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98) 0%, rgba(245, 243, 255, 0.95) 100%);
-  border: 2px solid rgba(102, 126, 234, 0.4);
+/* 메인 히어로 카드 */
+.invest-hero-card {
   position: relative;
+  border-radius: 20px;
+  padding: 28px 32px;
+  cursor: pointer;
   overflow: hidden;
-  grid-column: 1 / -1;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(102, 126, 234, 0.25);
 }
 
-.menu-card.stock-dashboard-v2::before {
+.invest-hero-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4338ca 100%);
+  z-index: 0;
+}
+
+.invest-hero-bg::after {
   content: '';
   position: absolute;
   top: -50%;
   left: -50%;
   width: 200%;
   height: 200%;
-  background: linear-gradient(
-    45deg,
-    transparent 30%,
-    rgba(102, 126, 234, 0.08) 50%,
-    transparent 70%
-  );
-  animation: shine 3s infinite;
+  background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.04) 50%, transparent 70%);
+  animation: hero-shine 4s infinite;
 }
 
-@keyframes shine {
+@keyframes hero-shine {
   0% { transform: translateX(-100%) rotate(45deg); }
   100% { transform: translateX(100%) rotate(45deg); }
 }
 
-.menu-card.stock-dashboard-v2:hover {
-  border-color: #667eea;
-  box-shadow: 0 20px 50px rgba(102, 126, 234, 0.3);
-  transform: translateY(-8px);
+.invest-hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
-.menu-card.stock-dashboard-v2 h3 {
-  color: #4F46E5;
+.invest-hero-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a5b4fc;
+  flex-shrink: 0;
 }
 
-.menu-ai-badge.gold {
-  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
-  color: #78350f;
+.invest-hero-text {
+  flex: 1;
+}
+
+.invest-hero-text h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
   font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.menu-card.sector {
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(79, 70, 229, 0.2);
+.v2-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #78350f;
+  letter-spacing: 0.5px;
 }
 
-.menu-card.sector:hover {
-  border-color: #4F46E5;
-  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+.invest-hero-text p {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
-.menu-card.sector h3 {
-  color: #4F46E5;
+.invest-hero-arrow {
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.4);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
-/* 글로벌 시세 카드 */
-.card-icon.futures-icon {
-  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
-  color: #27ae60;
+.invest-hero-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 50px rgba(67, 56, 202, 0.4);
+  border-color: rgba(129, 140, 248, 0.5);
 }
 
-.menu-card.futures {
-  background: linear-gradient(135deg, rgba(232, 246, 239, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(39, 174, 96, 0.3);
+.invest-hero-card:hover .invest-hero-arrow {
+  color: #fff;
+  transform: translateX(4px);
 }
 
-.menu-card.futures:hover {
-  border-color: #27ae60;
-  box-shadow: 0 20px 40px rgba(39, 174, 96, 0.15);
+/* 서브 카드 그리드 */
+.invest-sub-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
 
-.menu-card.futures h3 {
-  color: #27ae60;
+.invest-sub-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: all 0.25s ease;
 }
 
+.invest-sub-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+  border-color: transparent;
+}
+
+.invest-sub-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.invest-sub-icon.futures-gradient {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
+}
+
+.invest-sub-icon.news-gradient {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #fff;
+}
+
+.invest-sub-icon.timing-gradient {
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  color: #fff;
+}
+
+.invest-sub-text h4 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.invest-sub-text p {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+@media (max-width: 768px) {
+  .invest-sub-grid {
+    grid-template-columns: 1fr;
+  }
+  .invest-hero-card {
+    padding: 20px;
+  }
+  .invest-hero-text h3 {
+    font-size: 16px;
+  }
+}
 
 /* 자산 관리 카드 */
 .card-icon.asset-icon {
