@@ -597,6 +597,20 @@ public class StockDetailService {
                     if (dbOpMargin != null) operatingMargin = dbOpMargin;
                     if (dbNetMargin != null) netMargin = dbNetMargin;
                     if (dbDebtRatio != null) debtRatio = dbDebtRatio;
+
+                    // ★ totalEquity 기반 BPS/PBR 연결 기준 재계산
+                    if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
+                            && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal ttmBps = totalEquity
+                                .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                                .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                        bps = ttmBps;
+                        if (currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0
+                                && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
+                            pbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
+                        }
+                        log.info("[StockDetail] {} 연결 BPS: {}, PBR: {} (자본총계: {}억)", stockCode, bps, pbr, totalEquity);
+                    }
                 } else {
                     log.warn("[StockDetail] {} DB에 재무 데이터 없음 — KIS API 별도 기준 사용", stockCode);
                 }

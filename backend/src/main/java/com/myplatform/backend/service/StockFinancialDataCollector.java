@@ -155,9 +155,34 @@ public class StockFinancialDataCollector {
             financialData.setOperatingProfit(operatingProfit);
             financialData.setNetIncome(netIncome);
 
+            // ★ 재무상태표 데이터 저장
+            BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
+            BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
+            BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
+            if (totalEquity != null) financialData.setTotalEquity(totalEquity);
+            if (totalAssets != null) financialData.setTotalAssets(totalAssets);
+            if (totalDebt != null) financialData.setTotalDebt(totalDebt);
+
+            // ★ totalEquity 기반 BPS 재계산 (연결 기준)
+            if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
+                    && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmBps = totalEquity
+                        .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                log.info("[TTM BPS] {} - 별도 BPS → 연결 BPS: {} (자본총계: {}억, 주식수: {})",
+                        stockCode, ttmBps, totalEquity, lstnStcn);
+                financialData.setBps(ttmBps);
+
+                // PBR 재계산
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal ttmPbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
+                    financialData.setPbr(ttmPbr);
+                }
+            }
+
             stockFinancialDataRepository.save(financialData);
-            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}",
-                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per);
+            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}, 자본총계: {}",
+                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per, totalEquity);
             return true;
 
         } catch (Exception e) {
@@ -323,6 +348,37 @@ public class StockFinancialDataCollector {
             financialData.setRevenue(revenue);
             financialData.setOperatingProfit(operatingProfit);
             financialData.setOperatingMargin(operatingMargin);
+
+            // ★ 재무상태표 데이터 저장
+            BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
+            BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
+            BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
+            if (totalEquity != null) financialData.setTotalEquity(totalEquity);
+            if (totalAssets != null) financialData.setTotalAssets(totalAssets);
+            if (totalDebt != null) financialData.setTotalDebt(totalDebt);
+
+            // ★ totalEquity 기반 BPS/PBR/ROE 재계산 (연결 기준)
+            if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
+                    && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmBps = totalEquity
+                        .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                financialData.setBps(ttmBps);
+                bps = ttmBps;  // ROE 재계산용
+
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
+                    pbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
+                    financialData.setPbr(pbr);
+                }
+
+                // ROE 직접 재계산 (TTM 순이익 / 자본총계)
+                if (netIncome != null && netIncome.compareTo(BigDecimal.ZERO) != 0) {
+                    roe = netIncome.divide(totalEquity, 6, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP);
+                    financialData.setRoe(roe);
+                }
+            }
 
             stockFinancialDataRepository.save(financialData);
 
@@ -490,6 +546,74 @@ public class StockFinancialDataCollector {
                 }
             } else {
                 log.warn("[손익계산서] {} - API 응답 없음 또는 실패", stockCode);
+            }
+
+            // ★ 재무상태표 조회 → 자본총계/총자산/부채총계 수집 (ROE 직접 계산용)
+            Thread.sleep(100);
+            try {
+                String balanceUrl = baseUrl + "/uapi/domestic-stock/v1/finance/balance-sheet"
+                        + "?FID_DIV_CLS_CODE=1"
+                        + "&fid_cond_mrkt_div_code=J"
+                        + "&fid_input_iscd=" + stockCode;
+
+                headers.set("tr_id", "FHKST66430400");
+                request = new HttpEntity<>(headers);
+                response = executeWithRetry(balanceUrl, request);
+
+                if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    JsonNode bsRoot = objectMapper.readTree(response.getBody());
+                    if ("0".equals(bsRoot.path("rt_cd").asText())) {
+                        JsonNode bsOutput = bsRoot.get("output");
+                        if (bsOutput != null && bsOutput.isArray() && bsOutput.size() > 0) {
+                            // 가장 최근 분기 데이터 사용
+                            JsonNode latestBs = bsOutput.get(0);
+                            BigDecimal totalAset = parseBigDecimal(latestBs.path("total_aset").asText());
+                            BigDecimal totalCptl = parseBigDecimal(latestBs.path("total_cptl").asText());
+                            BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
+
+                            // 단위변환: 백만원 → 억원 (손익계산서와 동일)
+                            if (totalAset.compareTo(BigDecimal.ZERO) > 0) {
+                                ratios.put("totalAssets", totalAset.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                            }
+                            if (totalCptl.compareTo(BigDecimal.ZERO) > 0) {
+                                ratios.put("totalEquity", totalCptl.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                            }
+                            if (totalLblt.compareTo(BigDecimal.ZERO) > 0) {
+                                ratios.put("totalDebt", totalLblt.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                            }
+
+                            // ★ totalEquity 기반 ROE 직접 계산 (ratio 추정 대체)
+                            BigDecimal ttmNetIncome = ratios.get("netIncome"); // 억원
+                            BigDecimal totalEquity = ratios.get("totalEquity"); // 억원
+                            if (ttmNetIncome != null && totalEquity != null
+                                    && totalEquity.compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal directRoe = ttmNetIncome
+                                        .divide(totalEquity, 6, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP);
+                                log.info("[재무상태표] {} ROE 직접 계산: {}% (TTM순이익: {}억 / 자본총계: {}억), 기존 ROE: {}%",
+                                        stockCode, directRoe, ttmNetIncome, totalEquity, ratios.get("roe"));
+                                ratios.put("roe", directRoe);
+                            }
+
+                            // ★ 부채비율 직접 계산
+                            if (totalLblt.compareTo(BigDecimal.ZERO) > 0 && totalCptl.compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal directDebtRatio = totalLblt
+                                        .divide(totalCptl, 6, RoundingMode.HALF_UP)
+                                        .multiply(new BigDecimal("100"))
+                                        .setScale(2, RoundingMode.HALF_UP);
+                                ratios.put("debtRatio", directDebtRatio);
+                            }
+
+                            log.info("[재무상태표] {} - 총자산: {}억, 자본총계: {}억, 부채총계: {}억",
+                                    stockCode, ratios.get("totalAssets"), ratios.get("totalEquity"), ratios.get("totalDebt"));
+                        }
+                    } else {
+                        log.warn("[재무상태표] {} - API 오류: {}", stockCode, bsRoot.path("msg1").asText());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[재무상태표] {} - 조회 실패: {}", stockCode, e.getMessage());
             }
         } catch (Exception e) {
             log.warn("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
