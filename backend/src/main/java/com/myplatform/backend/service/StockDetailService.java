@@ -1299,8 +1299,7 @@ public class StockDetailService {
                 log.info("[StockDetail] {} FnGuide 최신 결산 컬럼: {} (인덱스: {})",
                         stockCode, latestCol < headerCells.size() ? headerCells.get(latestCol).text() : "?", latestCol);
 
-                // 각 행에서 데이터 추출
-                BigDecimal netIncome = null;   // 지배주주순이익 (억원)
+                // 각 행에서 데이터 추출 (BPS/ROE/마진/부채비율은 Annual 테이블 사용)
                 BigDecimal issuedShares = null; // 발행주식수 (천주)
 
                 Elements rows = highlightTable.select("tbody tr");
@@ -1313,9 +1312,7 @@ public class StockDetailService {
                     BigDecimal value = parseFnGuideNumber(cellText);
                     if (value == null) continue;
 
-                    if (label.contains("지배주주순이익") && !label.contains("률") && !label.contains("비지배")) {
-                        netIncome = value;
-                    } else if (label.startsWith("발행주식수")) {
+                    if (label.startsWith("발행주식수")) {
                         issuedShares = value;
                     } else if (label.startsWith("BPS")) {
                         metrics.put("bps", value);
@@ -1334,16 +1331,66 @@ public class StockDetailService {
                     }
                 }
 
-                // ★ EPS 직접 계산: 지배주주순이익(억원) × 1억 / 발행주식수(천주 × 1,000)
-                // FnGuide EPS는 "수정평균주식수" 기준이라 주식수 변동 시 부정확
-                if (netIncome != null && issuedShares != null
+                // ★ EPS TTM 계산: highlight_D_Q (분기) 테이블에서 최근 4분기 지배주주순이익 합산
+                BigDecimal ttmNetIncome = null;
+                Element quarterTable = doc.selectFirst("div#highlight_D_Q table");
+                if (quarterTable != null) {
+                    // 분기 헤더에서 실적 확정 컬럼 인덱스들 찾기 (E 추정치 제외)
+                    Elements qHeaderCells = quarterTable.select("thead tr.td_gapcolor2 th");
+                    List<Integer> actualQCols = new ArrayList<>();
+                    for (int i = 0; i < qHeaderCells.size(); i++) {
+                        String hText = qHeaderCells.get(i).text().trim();
+                        if (!hText.contains("(E)") && hText.matches("\\d{4}/\\d{2}")) {
+                            actualQCols.add(i);
+                        }
+                    }
+                    // 최근 4분기 (뒤에서 4개)
+                    int startIdx = Math.max(0, actualQCols.size() - 4);
+                    List<Integer> last4Cols = actualQCols.subList(startIdx, actualQCols.size());
+
+                    if (!last4Cols.isEmpty()) {
+                        log.info("[StockDetail] {} TTM 분기 컬럼: {}", stockCode,
+                                last4Cols.stream().map(ci -> ci < qHeaderCells.size() ? qHeaderCells.get(ci).text() : "?")
+                                        .collect(java.util.stream.Collectors.joining(", ")));
+
+                        Elements qRows = quarterTable.select("tbody tr");
+                        for (Element qRow : qRows) {
+                            String qLabel = qRow.selectFirst("th") != null ? qRow.selectFirst("th").text().trim() : "";
+                            if (qLabel.contains("지배주주순이익") && !qLabel.contains("률") && !qLabel.contains("비지배")) {
+                                Elements qTds = qRow.select("td");
+                                BigDecimal sum = BigDecimal.ZERO;
+                                int validCount = 0;
+                                for (int colIdx : last4Cols) {
+                                    if (colIdx < qTds.size()) {
+                                        BigDecimal qVal = parseFnGuideNumber(qTds.get(colIdx).text().trim());
+                                        if (qVal != null) {
+                                            sum = sum.add(qVal);
+                                            validCount++;
+                                        }
+                                    }
+                                }
+                                if (validCount >= 4) {
+                                    ttmNetIncome = sum;
+                                    log.info("[StockDetail] {} TTM 지배주주순이익: {}억원 ({}분기 합산)",
+                                            stockCode, ttmNetIncome, validCount);
+                                } else {
+                                    log.warn("[StockDetail] {} TTM 분기 데이터 부족: {}개/4개", stockCode, validCount);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // ★ EPS = TTM 지배주주순이익(억원) × 1억 / 발행주식수(천주 × 1,000)
+                if (ttmNetIncome != null && issuedShares != null
                         && issuedShares.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal calcEps = netIncome
+                    BigDecimal calcEps = ttmNetIncome
                             .multiply(new BigDecimal("100000000"))  // 억원 → 원
                             .divide(issuedShares.multiply(new BigDecimal("1000")), 0, RoundingMode.HALF_UP);  // 천주 → 주
                     metrics.put("eps", calcEps);
-                    log.info("[StockDetail] {} EPS 직접계산: {} (지배주주순이익: {}억 ÷ 발행주식수: {}천주)",
-                            stockCode, calcEps, netIncome, issuedShares);
+                    log.info("[StockDetail] {} EPS TTM 계산: {} (TTM순이익: {}억 ÷ 발행주식수: {}천주)",
+                            stockCode, calcEps, ttmNetIncome, issuedShares);
                 }
             }
 
