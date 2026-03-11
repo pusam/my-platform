@@ -1,10 +1,12 @@
 <template>
   <div class="investor-analysis-page">
     <div class="content-wrapper">
-      <div class="page-header">
-        <BackButton />
-        <h1>투자자 분석</h1>
-        <p class="subtitle">외국인·기관·연기금의 매매 동향, 연속 매수, 수급 급증을 한눈에</p>
+      <div class="page-header-unified">
+        <BackButton :dark="true" />
+        <div class="header-title">
+          <h1>투자자 분석</h1>
+          <p class="subtitle">외국인·기관·연기금의 매매 동향, 연속 매수, 수급 급증을 한눈에</p>
+        </div>
       </div>
 
       <!-- 메인 탭 -->
@@ -676,23 +678,6 @@ onUnmounted(() => {
 .content-wrapper {
   max-width: 1400px;
   margin: 0 auto;
-}
-
-.page-header {
-  text-align: center;
-  margin-bottom: 2rem;
-  position: relative;
-}
-
-.page-header h1 {
-  color: #fff;
-  margin-bottom: 0.5rem;
-  font-size: 1.8rem;
-}
-
-.subtitle {
-  color: rgba(255,255,255,0.5);
-  font-size: 1rem;
 }
 
 /* 메인 탭 */

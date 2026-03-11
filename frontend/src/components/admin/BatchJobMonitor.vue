@@ -4,7 +4,7 @@
       <header class="common-header">
         <h1>🔄 배치 잡 모니터링</h1>
         <div class="header-actions">
-          <button @click="goBack" class="btn btn-back">← 관리자 대시보드</button>
+          <BackButton />
         </div>
       </header>
 
@@ -114,9 +114,11 @@
 
 <script>
 import { batchJobAPI } from '../../utils/api';
+import BackButton from '../BackButton.vue';
 
 export default {
   name: 'BatchJobMonitor',
+  components: { BackButton },
   data() {
     return {
       summary: {},
@@ -238,9 +240,6 @@ export default {
       if (!str) return ''
       return str.length > len ? str.substring(0, len) + '...' : str
     },
-    goBack() {
-      this.$router.push('/admin')
-    }
   }
 }
 </script>
@@ -507,22 +506,6 @@ export default {
 .page-info {
   font-size: 14px;
   color: #666;
-}
-
-/* 뒤로가기 */
-.btn-back {
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.2s;
-}
-
-.btn-back:hover {
-  background: rgba(255, 255, 255, 0.3);
 }
 
 /* 반응형 */

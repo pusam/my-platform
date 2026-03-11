@@ -3,10 +3,12 @@
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <!-- 헤더 섹션 (embedded 모드에서는 숨김) -->
-      <div v-if="!props.embedded" class="page-header">
-        <BackButton />
-        <h1>자동매매</h1>
-        <p class="subtitle">모의투자와 실전투자를 관리하세요</p>
+      <div v-if="!props.embedded" class="page-header-unified">
+        <BackButton :dark="true" />
+        <div class="header-title">
+          <h1>자동매매</h1>
+          <p class="subtitle">모의투자와 실전투자를 관리하세요</p>
+        </div>
       </div>
 
       <!-- 탭 네비게이션 -->
@@ -1040,42 +1042,6 @@ onUnmounted(() => {
   border: 1px solid #2a2a4a;
 }
 
-.page-header {
-  text-align: center;
-  margin-bottom: 1.5rem;
-  position: relative;
-}
-
-.back-button {
-  position: absolute;
-  left: 0;
-  top: 0;
-  background: #4a4a8a;
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: all 0.3s;
-}
-
-.back-button:hover {
-  background: #5a5a9a;
-  transform: translateX(-5px);
-}
-
-.page-header h1 {
-  color: #fff;
-  margin-bottom: 0.5rem;
-  font-size: 2rem;
-}
-
-.subtitle {
-  color: #888;
-  font-size: 1.1rem;
-}
-
 /* 탭 네비게이션 */
 .tab-navigation {
   display: flex;
@@ -1719,11 +1685,6 @@ onUnmounted(() => {
 
   .content-wrapper {
     padding: 1rem;
-  }
-
-  .page-header h1 {
-    margin-top: 3rem;
-    font-size: 1.5rem;
   }
 
   .tab-navigation {

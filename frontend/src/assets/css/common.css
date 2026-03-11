@@ -72,6 +72,12 @@
   --card-padding: 24px;
   --header-margin-bottom: 24px;
 
+  /* Header System */
+  --header-min-height: 60px;
+  --header-title-size: 22px;
+  --header-title-weight: 700;
+  --header-subtitle-size: 13px;
+
   /* Animation */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
@@ -130,23 +136,54 @@ body {
    ======================================== */
 .common-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 16px;
   background: var(--card-bg);
-  padding: 20px var(--card-padding);
+  padding: 16px var(--card-padding);
   border-radius: var(--card-radius);
   margin-bottom: var(--header-margin-bottom);
   box-shadow: var(--card-shadow);
+  min-height: var(--header-min-height);
 }
 
 .common-header h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 700;
+  flex: 1;
+  font-size: var(--header-title-size);
+  font-weight: var(--header-title-weight);
   background: var(--primary-gradient);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+}
+
+/* ========================================
+   Dark Page Header (투자/분석 페이지용)
+   ======================================== */
+.page-header-unified {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  margin-bottom: var(--header-margin-bottom);
+  min-height: var(--header-min-height);
+}
+
+.page-header-unified .header-title {
+  flex: 1;
+}
+
+.page-header-unified h1 {
+  margin: 0;
+  font-size: var(--header-title-size);
+  font-weight: var(--header-title-weight);
+  color: #ffffff;
+}
+
+.page-header-unified .subtitle {
+  margin: 4px 0 0;
+  font-size: var(--header-subtitle-size);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .header-actions {
@@ -603,19 +640,18 @@ tbody tr:hover {
   }
 
   .common-header {
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 12px;
-    text-align: center;
-    padding: 16px;
+    padding: 12px 16px;
   }
 
   .common-header h1 {
-    font-size: 20px;
+    font-size: 18px;
+    flex: 1;
+    min-width: 0;
   }
 
   .header-actions {
-    width: 100%;
-    justify-content: center;
     flex-wrap: wrap;
     gap: 8px;
   }
@@ -633,6 +669,15 @@ tbody tr:hover {
   .card {
     padding: var(--spacing-md);
   }
+
+  .page-header-unified {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .page-header-unified h1 {
+    font-size: 18px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -645,13 +690,12 @@ tbody tr:hover {
   }
 
   .header-actions {
-    flex-direction: column;
     width: 100%;
+    justify-content: flex-end;
   }
 
   .btn-back,
   .btn-logout {
-    width: 100%;
     justify-content: center;
   }
 }

@@ -2,10 +2,12 @@
   <div class="lotto-page">
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
-      <div class="page-header">
-        <BackButton />
-        <h1>Lotto Quant Analyzer</h1>
-        <p class="subtitle">통계 기반 로또 번호 추출기</p>
+      <div class="page-header-unified">
+        <BackButton :dark="true" />
+        <div class="header-title">
+          <h1>Lotto Quant Analyzer</h1>
+          <p class="subtitle">통계 기반 로또 번호 추출기</p>
+        </div>
       </div>
 
       <!-- 금주의 추천 번호 (하이라이트) -->
@@ -379,41 +381,6 @@ onMounted(() => {
 .content-wrapper {
   max-width: 1200px;
   margin: 0 auto;
-}
-
-.page-header {
-  text-align: center;
-  margin-bottom: 30px;
-}
-
-.back-button {
-  position: absolute;
-  left: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  border: none;
-  color: #fff;
-  padding: 8px 16px;
-  border-radius: 20px;
-  cursor: pointer;
-  transition: background 0.3s;
-}
-
-.back-button:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.page-header h1 {
-  font-size: 2.5rem;
-  margin: 0;
-  background: linear-gradient(90deg, #ffd700, #ff6b6b);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.subtitle {
-  color: #888;
-  margin-top: 8px;
 }
 
 /* 금주의 추천 번호 */
@@ -944,15 +911,6 @@ onMounted(() => {
 
 /* 반응형 */
 @media (max-width: 768px) {
-  .page-header h1 {
-    font-size: 1.8rem;
-  }
-
-  .back-button {
-    position: static;
-    margin-bottom: 15px;
-  }
-
   .lotto-ball {
     width: 38px;
     height: 38px;

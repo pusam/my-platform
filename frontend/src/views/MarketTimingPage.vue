@@ -1,9 +1,11 @@
 <template>
   <div class="market-timing-page">
-    <div class="page-header">
-      <BackButton />
-      <h1>시장 지표 (Market Timing)</h1>
-      <p class="subtitle">ADR(등락비율) 기반 시장 상태 분석</p>
+    <div class="page-header-unified">
+      <BackButton :dark="true" />
+      <div class="header-title">
+        <h1>시장 지표 (Market Timing)</h1>
+        <p class="subtitle">ADR(등락비율) 기반 시장 상태 분석</p>
+      </div>
     </div>
 
     <!-- 시장 상태 카드 -->
@@ -790,40 +792,6 @@ onMounted(() => {
   background: var(--bg-primary, #0f0f23);
   min-height: 100vh;
   color: var(--text-primary, #e4e4e7);
-}
-
-.page-header {
-  margin-bottom: 2rem;
-}
-
-.back-button {
-  background: transparent;
-  border: 1px solid var(--border-color, #3f3f46);
-  color: var(--text-secondary, #a1a1aa);
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  cursor: pointer;
-  margin-bottom: 1rem;
-  transition: all 0.2s;
-}
-
-.back-button:hover {
-  background: var(--hover-bg, #27272a);
-  color: var(--text-primary, #e4e4e7);
-}
-
-.page-header h1 {
-  font-size: 2rem;
-  margin: 0 0 0.5rem 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.subtitle {
-  color: var(--text-muted, #71717a);
-  margin: 0;
 }
 
 /* 메인 상태 카드 */

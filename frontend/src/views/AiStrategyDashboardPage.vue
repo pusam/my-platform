@@ -2,13 +2,13 @@
   <div class="ai-dashboard">
     <div class="content-wrapper">
       <!-- 헤더 -->
-      <div class="page-header">
-        <BackButton />
-        <div class="header-content">
+      <div class="page-header-unified">
+        <BackButton :dark="true" />
+        <div class="header-title">
           <h1>AI 트레이딩 전략</h1>
           <p class="subtitle">4분할 투자 전략 | 기간별 맞춤 추천</p>
         </div>
-        <div class="header-meta">
+        <div class="header-actions">
           <span class="update-badge">
             <span class="pulse-dot"></span>
             {{ formatTime(lastUpdated) }} 기준
@@ -715,35 +715,7 @@ onMounted(async () => {
 }
 
 /* 헤더 */
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  margin-bottom: 2rem;
-  flex-wrap: wrap;
-}
-
-.header-content {
-  flex: 1;
-}
-
-.page-header h1 {
-  color: #fff;
-  font-size: 2rem;
-  margin: 0 0 8px 0;
-  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.subtitle {
-  color: #888;
-  margin: 0;
-  font-size: 1rem;
-}
-
-.header-meta {
+.header-actions {
   display: flex;
   align-items: center;
 }
@@ -1580,15 +1552,6 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .ai-dashboard {
     padding: 1rem;
-  }
-
-  .page-header {
-    flex-direction: column;
-    text-align: center;
-  }
-
-  .page-header h1 {
-    font-size: 1.5rem;
   }
 
   .strategy-tabs {

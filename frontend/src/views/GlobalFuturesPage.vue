@@ -11,7 +11,7 @@
     <div v-show="mainTab === 'futures'">
     <div class="page-header">
       <div class="header-left">
-        <button class="back-btn" @click="$router.back()">←</button>
+        <BackButton :dark="true" />
         <h1>글로벌 선물 대시보드</h1>
       </div>
       <div class="header-right">
@@ -293,6 +293,7 @@ import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
 import GoldPricePage from './GoldPricePage.vue';
 import SilverPricePage from './SilverPricePage.vue';
 import OilPricePage from './OilPricePage.vue';
+import BackButton from '../components/BackButton.vue';
 
 const mainTab = ref('futures');
 const loading = ref(false);
@@ -610,17 +611,6 @@ onUnmounted(() => {
   margin: 0;
   font-size: 1.5rem;
   color: #fff;
-}
-
-.back-btn {
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1.1rem;
 }
 
 .header-right {

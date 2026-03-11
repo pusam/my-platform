@@ -1,10 +1,12 @@
 <template>
   <div class="research-page">
-    <header class="page-header">
-      <BackButton />
-      <h1>리서치</h1>
-      <p class="page-subtitle">실적 스크리너와 섹터별 거래대금을 한눈에</p>
-    </header>
+    <div class="page-header-unified">
+      <BackButton :dark="true" />
+      <div class="header-title">
+        <h1>리서치</h1>
+        <p class="subtitle">실적 스크리너와 섹터별 거래대금을 한눈에</p>
+      </div>
+    </div>
 
     <div class="tab-bar">
       <button class="tab-btn" :class="{ active: activeTab === 'screener' }" @click="activeTab = 'screener'">실적 스크리너</button>
@@ -38,26 +40,6 @@ export default {
   background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
   color: #e0e0e0;
   padding: 20px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-
-.page-header h1 {
-  font-size: 24px;
-  color: white;
-  margin: 0;
-}
-
-.page-subtitle {
-  color: rgba(255, 255, 255, 0.5);
-  margin-top: 4px;
-  font-size: 14px;
 }
 
 .tab-bar {

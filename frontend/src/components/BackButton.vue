@@ -35,20 +35,29 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  background: transparent;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  color: #666;
+  width: 36px;
+  height: 36px;
+  justify-content: center;
+  padding: 0;
+  background: var(--bg-page, #f5f7fa);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 10px;
+  color: var(--text-muted, #718096);
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.back-button span {
+  display: none;
 }
 
 .back-button:hover {
-  background: #f5f5f5;
-  border-color: #ccc;
-  color: #333;
+  background: var(--primary-start, #667eea);
+  border-color: var(--primary-start, #667eea);
+  color: #fff;
+  transform: translateX(-2px);
 }
 
 .back-button svg {
@@ -57,29 +66,15 @@ export default {
 
 /* 다크 모드 스타일 */
 .back-button.dark {
-  border-color: #4a4a8a;
-  color: #aaa;
-  background: rgba(74, 74, 138, 0.2);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .back-button.dark:hover {
-  background: #4a4a8a;
-  border-color: #5a5a9a;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.25);
   color: #fff;
-  transform: translateX(-3px);
-}
-
-/* 시스템 다크 테마 지원 */
-@media (prefers-color-scheme: dark) {
-  .back-button:not(.dark) {
-    border-color: #444;
-    color: #aaa;
-  }
-
-  .back-button:not(.dark):hover {
-    background: #333;
-    border-color: #555;
-    color: #fff;
-  }
+  transform: translateX(-2px);
 }
 </style>

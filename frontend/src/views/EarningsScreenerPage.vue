@@ -2,10 +2,12 @@
   <div :class="['screener-page', { embedded: embedded }]">
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
-      <div v-if="!embedded" class="page-header">
-        <BackButton />
-        <h1>실적 기반 저평가 스크리너</h1>
-        <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+      <div v-if="!embedded" class="page-header-unified">
+        <BackButton :dark="true" />
+        <div class="header-title">
+          <h1>실적 기반 저평가 스크리너</h1>
+          <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+        </div>
       </div>
 
       <!-- 데이터 기준일 표시 (상단 고정) -->
@@ -1765,41 +1767,6 @@ onMounted(async () => {
   border: 1px solid var(--border-color);
 }
 
-.page-header {
-  text-align: center;
-  margin-bottom: 2rem;
-  position: relative;
-}
-
-.back-button {
-  position: absolute;
-  left: 0;
-  top: 0;
-  background: var(--primary-gradient);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: all 0.3s;
-}
-
-.back-button:hover {
-  transform: translateX(-5px);
-  opacity: 0.9;
-}
-
-.page-header h1 {
-  color: var(--text-primary);
-  margin-bottom: 0.5rem;
-}
-
-.subtitle {
-  color: var(--text-muted);
-  font-size: 1.1rem;
-}
-
 /* 데이터 상태 바 */
 .data-status-bar {
   display: flex;
@@ -3095,11 +3062,6 @@ onMounted(async () => {
 
   .content-wrapper {
     padding: 1rem;
-  }
-
-  .page-header h1 {
-    margin-top: 3rem;
-    font-size: 1.5rem;
   }
 
   .screener-tabs {
