@@ -226,6 +226,31 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
+        // ★ 네이버 PER/PBR 교차검증 — TTM 계산값이 이상할 때 네이버 값으로 보정
+        if (financial != null && naverData != null) {
+            BigDecimal naverPer = naverData.getPer();
+            BigDecimal naverPbr = naverData.getPbr();
+            if (naverPer != null && naverPer.compareTo(BigDecimal.ZERO) > 0
+                    && financial.getPer() != null && financial.getPer().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal perRatio = financial.getPer().divide(naverPer, 2, RoundingMode.HALF_UP);
+                if (perRatio.compareTo(new BigDecimal("0.7")) < 0 || perRatio.compareTo(new BigDecimal("1.3")) > 0) {
+                    log.warn("[StockDetail] {} PER 네이버 교차검증 실패: TTM={}, 네이버={} → 네이버 값 사용",
+                            stockCode, financial.getPer(), naverPer);
+                    financial.setPer(naverPer);
+                }
+            }
+            if (naverPbr != null && naverPbr.compareTo(BigDecimal.ZERO) > 0
+                    && financial.getPbr() != null && financial.getPbr().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal pbrRatio = financial.getPbr().divide(naverPbr, 2, RoundingMode.HALF_UP);
+                if (pbrRatio.compareTo(new BigDecimal("0.5")) < 0 || pbrRatio.compareTo(new BigDecimal("2.0")) > 0) {
+                    log.warn("[StockDetail] {} PBR 네이버 교차검증 실패: TTM={}, 네이버={} → 네이버 값 사용",
+                            stockCode, financial.getPbr(), naverPbr);
+                    financial.setPbr(naverPbr);
+                    financial.setBps(naverData.getBps());
+                }
+            }
+        }
+
         // ★ 네이버 크롤링 (배당수익률 + 목표주가 한 번에) + Forward 지표 + 태그
         Document naverMainDoc = fetchNaverMainPage(stockCode);
         if (financial != null) {
@@ -610,6 +635,23 @@ public class StockDetailService {
                             pbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
                         }
                         log.info("[StockDetail] {} 연결 BPS: {}, PBR: {} (자본총계: {}억)", stockCode, bps, pbr, totalEquity);
+                    }
+
+                    // ★ PBR 일관성 검증: PBR ≈ PER × ROE / 100 (±50% 허용)
+                    if (per != null && roe != null && pbr != null
+                            && per.compareTo(BigDecimal.ZERO) > 0
+                            && roe.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal expectedPbr = per.multiply(roe)
+                                .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                        BigDecimal pbrRatio = pbr.divide(expectedPbr, 2, RoundingMode.HALF_UP);
+                        if (pbrRatio.compareTo(new BigDecimal("2.0")) > 0 || pbrRatio.compareTo(new BigDecimal("0.5")) < 0) {
+                            log.warn("[StockDetail] {} PBR 불일치 보정: PBR={} → {} (PER×ROE/100, PER={}, ROE={}%)",
+                                    stockCode, pbr, expectedPbr, per, roe);
+                            pbr = expectedPbr;
+                            if (currentPrice != null && expectedPbr.compareTo(BigDecimal.ZERO) > 0) {
+                                bps = currentPrice.divide(expectedPbr, 0, RoundingMode.HALF_UP);
+                            }
+                        }
                     }
                 } else {
                     log.warn("[StockDetail] {} DB에 재무 데이터 없음 — KIS API 별도 기준 사용", stockCode);
