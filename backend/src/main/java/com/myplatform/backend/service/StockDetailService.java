@@ -493,14 +493,12 @@ public class StockDetailService {
     /**
      * 재무 정보 조회 — TTM 연결 재무제표 기준으로 통일
      *
-     * ★ EPS/PER: 네이버 polling API (별도 기준이지만 시장 표준)
-     * ★ BPS/PBR: DB totalEquity(연결) ÷ 네이버 상장주식수로 직접 계산
-     * ★ ROE/마진/부채비율: DB TTM 데이터
-     * ★ 시가총액/외국인지분: KIS API
+     * 1순위: FnGuide (PER/PBR/EPS/BPS/ROE/영업이익률/부채비율 — 연결 기준)
+     * 2순위: KIS API (시가총액/외국인지분 + FnGuide 실패 시 폴백)
      */
     private FinancialInfo fetchFinancialInfo(String stockCode, JsonNode priceData) {
         try {
-            // priceData가 없으면 새로 조회
+            // KIS 가격 데이터 (시가총액, 외국인지분용)
             if (priceData == null || !"0".equals(priceData.path("rt_cd").asText())) {
                 priceData = kisService.getStockPrice(stockCode);
             }
@@ -511,121 +509,59 @@ public class StockDetailService {
 
             BigDecimal currentPrice = parseBigDecimal(output.get("stck_prpr"));
             Long marketCap = parseLong(output.get("hts_avls"));
-
-            // ★ 외국인 지분율 (KIS API 실제 데이터)
             BigDecimal foreignOwnership = parseBigDecimal(output.get("hts_frgn_ehrt"));
 
-            // ★ 네이버 polling API에서 EPS 조회 → PER 계산
-            BigDecimal eps = null;
-            BigDecimal per = null;
-            BigDecimal bps = null;
-            BigDecimal pbr = null;
+            // ★★★ 1순위: FnGuide에서 PER/PBR/EPS/BPS/ROE 등 전체 재무지표 조회
+            BigDecimal per = null, pbr = null, eps = null, bps = null;
+            BigDecimal roe = null, operatingMargin = null, netMargin = null, debtRatio = null;
 
             try {
-                Map<String, BigDecimal> naverMetrics = fetchNaverPollingMetrics(stockCode);
-                if (naverMetrics != null) {
-                    eps = naverMetrics.get("eps");
+                Map<String, BigDecimal> fnData = fetchFnGuideMetrics(stockCode);
+                if (fnData != null && !fnData.isEmpty()) {
+                    eps = fnData.get("eps");
+                    bps = fnData.get("bps");
+                    per = fnData.get("per");
+                    pbr = fnData.get("pbr");
+                    roe = fnData.get("roe");
+                    operatingMargin = fnData.get("operatingMargin");
+                    netMargin = fnData.get("netMargin");
+                    debtRatio = fnData.get("debtRatio");
 
-                    // PER = 현재가 / EPS (네이버 EPS 기준)
-                    if (currentPrice != null && eps != null && eps.compareTo(BigDecimal.ZERO) > 0) {
-                        per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
-                    }
-
-                    log.info("[StockDetail] {} 네이버 polling EPS={}, 계산 PER={}",
-                            stockCode, eps, per);
+                    log.info("[StockDetail] {} ★FnGuide 1순위: PER={}, PBR={}, EPS={}, BPS={}, ROE={}",
+                            stockCode, per, pbr, eps, bps, roe);
                 }
             } catch (Exception e) {
-                log.warn("[StockDetail] {} 네이버 polling API 실패: {}", stockCode, e.getMessage());
+                log.warn("[StockDetail] {} FnGuide 조회 실패: {}", stockCode, e.getMessage());
             }
 
-            // EPS/PER 폴백: 네이버 실패 시 KIS 데이터 사용
+            // ★ 2순위 폴백: FnGuide 실패 시 KIS 데이터 사용
             if (eps == null) {
                 eps = parseBigDecimal(output.get("eps"));
                 log.info("[StockDetail] {} EPS 폴백 → KIS: {}", stockCode, eps);
             }
-            if (per == null) {
-                per = parseBigDecimal(output.get("per"));
-            }
+            if (per == null) per = parseBigDecimal(output.get("per"));
+            if (pbr == null) pbr = parseBigDecimal(output.get("pbr"));
+            if (bps == null) bps = parseBigDecimal(output.get("bps"));
 
-            // ★ 네이버 coinfo에서 정확한 발행주식수 크롤링
-            BigDecimal naverShares = fetchNaverListedShares(stockCode);
-
-            // ★ DB에서 ROE/마진/부채비율 + totalEquity(연결 기준) 조회
-            BigDecimal roe = null;
-            BigDecimal operatingMargin = null;
-            BigDecimal netMargin = null;
-            BigDecimal debtRatio = null;
-
-            try {
-                List<StockFinancialData> dbDataList = stockFinancialDataRepository
-                        .findByStockCodeOrderByReportDateDesc(stockCode);
-
-                if (!dbDataList.isEmpty()) {
-                    BigDecimal netIncome = null;
-                    BigDecimal totalEquity = null;
-                    BigDecimal dbRoe = null;
-                    BigDecimal dbOpMargin = null;
-                    BigDecimal dbNetMargin = null;
-                    BigDecimal dbDebtRatio = null;
-
-                    for (StockFinancialData hist : dbDataList) {
-                        if (netIncome == null && hist.getNetIncome() != null) netIncome = hist.getNetIncome();
-                        if (totalEquity == null && hist.getTotalEquity() != null) totalEquity = hist.getTotalEquity();
-                        if (dbRoe == null && hist.getRoe() != null) dbRoe = hist.getRoe();
-                        if (dbOpMargin == null && hist.getOperatingMargin() != null) dbOpMargin = hist.getOperatingMargin();
-                        if (dbNetMargin == null && hist.getNetMargin() != null) dbNetMargin = hist.getNetMargin();
-                        if (dbDebtRatio == null && hist.getDebtRatio() != null) dbDebtRatio = hist.getDebtRatio();
-                        if (netIncome != null && totalEquity != null && dbRoe != null && dbOpMargin != null) break;
-                    }
-
-                    // ROE가 DB에 없으면 당기순이익/자본총계로 직접 계산
-                    if (dbRoe == null && netIncome != null && totalEquity != null
-                            && totalEquity.compareTo(BigDecimal.ZERO) > 0) {
-                        dbRoe = netIncome.divide(totalEquity, 4, RoundingMode.HALF_UP)
-                                .multiply(new BigDecimal("100"))
-                                .setScale(2, RoundingMode.HALF_UP);
-                        log.info("[StockDetail] {} ROE 직접 계산: {} (순이익: {}억 / 자본총계: {}억)",
-                                stockCode, dbRoe, netIncome, totalEquity);
-                    }
-
-                    if (dbRoe != null) roe = dbRoe;
-                    if (dbOpMargin != null) operatingMargin = dbOpMargin;
-                    if (dbNetMargin != null) netMargin = dbNetMargin;
-                    if (dbDebtRatio != null) debtRatio = dbDebtRatio;
-
-                    // ★★★ BPS = totalEquity(연결, 억원) × 1억 / 발행주식수 → 직접 계산
-                    // PBR = 현재가 / BPS
-                    if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
-                            && naverShares != null && naverShares.compareTo(BigDecimal.ZERO) > 0) {
-                        bps = totalEquity
-                                .multiply(new BigDecimal("100000000"))  // 억원 → 원
-                                .divide(naverShares, 0, RoundingMode.HALF_UP);
-                        if (currentPrice != null && bps.compareTo(BigDecimal.ZERO) > 0) {
-                            pbr = currentPrice.divide(bps, 2, RoundingMode.HALF_UP);
+            // ROE/마진 폴백: FnGuide 실패 시 DB 데이터 사용
+            if (roe == null || operatingMargin == null || debtRatio == null) {
+                try {
+                    List<StockFinancialData> dbDataList = stockFinancialDataRepository
+                            .findByStockCodeOrderByReportDateDesc(stockCode);
+                    if (!dbDataList.isEmpty()) {
+                        for (StockFinancialData hist : dbDataList) {
+                            if (roe == null && hist.getRoe() != null) roe = hist.getRoe();
+                            if (operatingMargin == null && hist.getOperatingMargin() != null) operatingMargin = hist.getOperatingMargin();
+                            if (netMargin == null && hist.getNetMargin() != null) netMargin = hist.getNetMargin();
+                            if (debtRatio == null && hist.getDebtRatio() != null) debtRatio = hist.getDebtRatio();
+                            if (roe != null && operatingMargin != null && debtRatio != null) break;
                         }
-                        log.info("[StockDetail] {} ★연결BPS 직접계산: BPS={}, PBR={} (자본총계: {}억, 주식수: {})",
-                                stockCode, bps, pbr, totalEquity, naverShares);
-                    } else {
-                        log.warn("[StockDetail] {} BPS 직접계산 불가 (totalEquity: {}, 주식수: {})",
-                                stockCode, totalEquity, naverShares);
+                        log.info("[StockDetail] {} DB 폴백 비율: ROE={}, 영업이익률={}, 부채비율={}",
+                                stockCode, roe, operatingMargin, debtRatio);
                     }
-
-                    log.info("[StockDetail] {} DB 비율: ROE={}, 영업이익률={}, 부채비율={}",
-                            stockCode, roe, operatingMargin, debtRatio);
-                } else {
-                    log.warn("[StockDetail] {} DB에 재무 데이터 없음", stockCode);
+                } catch (Exception e) {
+                    log.warn("[StockDetail] {} DB 데이터 조회 실패: {}", stockCode, e.getMessage());
                 }
-            } catch (Exception e) {
-                log.warn("[StockDetail] {} DB 데이터 조회 실패: {}", stockCode, e.getMessage());
-            }
-
-            // BPS/PBR 폴백: DB 계산 실패 시 KIS 데이터
-            if (bps == null) {
-                bps = parseBigDecimal(output.get("bps"));
-                log.info("[StockDetail] {} BPS 폴백 → KIS: {}", stockCode, bps);
-            }
-            if (pbr == null) {
-                pbr = parseBigDecimal(output.get("pbr"));
             }
 
             return FinancialInfo.builder()
@@ -1311,73 +1247,130 @@ public class StockDetailService {
         return null;
     }
 
-    // ========== 네이버 polling API (PER/PBR/EPS/BPS 단일 소스) ==========
+    // ========== FnGuide 재무지표 크롤링 (1순위 소스) ==========
 
     /**
-     * 네이버 polling API에서 EPS, BPS 조회
-     * URL: https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:{code}
-     * 응답 필드: eps, bps, keps(KRX기준), cnsEps(컨센서스)
+     * FnGuide에서 PER/PBR/EPS/BPS/ROE/영업이익률/부채비율 조회 (IFRS 연결 기준)
+     * URL: https://comp.fnguide.com/SVO2/ASP/SVD_main.asp?pGB=1&gicode=A{code}
+     * HTML 구조: div#highlight_D_A 내 테이블에서 최신 연간 데이터 추출
      */
-    private Map<String, BigDecimal> fetchNaverPollingMetrics(String stockCode) {
+    private Map<String, BigDecimal> fetchFnGuideMetrics(String stockCode) {
         try {
-            String url = "https://polling.finance.naver.com/api/realtime?query=SERVICE_ITEM:" + stockCode;
-            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            headers.set("Referer", "https://finance.naver.com/");
-            org.springframework.http.HttpEntity<String> request = new org.springframework.http.HttpEntity<>(headers);
+            String url = "https://comp.fnguide.com/SVO2/ASP/SVD_main.asp?pGB=1&gicode=A" + stockCode;
+            Document doc = Jsoup.connect(url)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://comp.fnguide.com/")
+                    .timeout(15000)
+                    .get();
 
-            org.springframework.web.client.RestTemplate rt = new org.springframework.web.client.RestTemplate();
-            org.springframework.http.ResponseEntity<String> response =
-                    rt.exchange(url, org.springframework.http.HttpMethod.GET, request, String.class);
+            Map<String, BigDecimal> metrics = new HashMap<>();
 
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(response.getBody());
-                com.fasterxml.jackson.databind.JsonNode datas = root.path("result").path("areas");
+            // ★ 상단 박스에서 PER, PBR 추출 (trailing 기준 — 가장 신뢰도 높음)
+            // 구조: <a id="h_per">PER</a> ... <dd>59.91</dd>
+            BigDecimal topPer = extractFnGuideTopValue(doc, "h_per");
+            BigDecimal topPbr = extractFnGuideTopValue(doc, "h_pbr");
 
-                if (datas.isArray() && datas.size() > 0) {
-                    com.fasterxml.jackson.databind.JsonNode datasArr = datas.get(0).path("datas");
-                    if (datasArr.isArray() && datasArr.size() > 0) {
-                        com.fasterxml.jackson.databind.JsonNode item = datasArr.get(0);
+            // ★ highlight_D_A (IFRS 연결, Annual) 테이블에서 최신 결산 EPS/BPS/ROE 등
+            Element highlightTable = doc.selectFirst("div#highlight_D_A table");
+            if (highlightTable != null) {
+                // 헤더에서 최신 실적 연도 컬럼 인덱스 찾기 (E 추정치 제외)
+                Elements headerCells = highlightTable.select("thead tr.td_gapcolor2 th");
+                int latestCol = -1;
+                for (int i = 0; i < headerCells.size(); i++) {
+                    String headerText = headerCells.get(i).text().trim();
+                    // Annual 영역(앞 4개)에서 (E) 아닌 최신 컬럼
+                    if (i < 4 && !headerText.contains("(E)") && headerText.matches("\\d{4}/\\d{2}")) {
+                        latestCol = i;
+                    }
+                }
+                if (latestCol < 0) latestCol = 2; // 기본값: 3번째 Annual 컬럼
 
-                        // ★ RAW 응답 로그 (디버깅용)
-                        log.info("[StockDetail] {} 네이버 polling RAW: nv={}, eps={}, keps={}, bps={}, cnsEps={}, cr={}",
-                                stockCode,
-                                item.path("nv").asText("null"),
-                                item.path("eps").asText("null"),
-                                item.path("keps").asText("null"),
-                                item.path("bps").asText("null"),
-                                item.path("cnsEps").asText("null"),
-                                item.path("cr").asText("null"));
+                log.info("[StockDetail] {} FnGuide 최신 결산 컬럼: {} (인덱스: {})",
+                        stockCode, latestCol < headerCells.size() ? headerCells.get(latestCol).text() : "?", latestCol);
 
-                        Map<String, BigDecimal> metrics = new HashMap<>();
+                // 각 행에서 데이터 추출
+                Elements rows = highlightTable.select("tbody tr");
+                for (Element row : rows) {
+                    String label = row.selectFirst("th") != null ? row.selectFirst("th").text().trim() : "";
+                    Elements tds = row.select("td");
+                    if (tds.size() <= latestCol) continue;
 
-                        BigDecimal eps = parseBigDecimalFromNode(item, "eps");
-                        BigDecimal bps = parseBigDecimalFromNode(item, "bps");
+                    String cellText = tds.get(latestCol).text().trim();
+                    BigDecimal value = parseFnGuideNumber(cellText);
+                    if (value == null) continue;
 
-                        if (eps != null) metrics.put("eps", eps);
-                        if (bps != null) metrics.put("bps", bps);
-
-                        log.info("[StockDetail] {} 네이버 polling parsed: eps={}, bps={}",
-                                stockCode, eps, bps);
-
-                        return metrics.isEmpty() ? null : metrics;
+                    if (label.startsWith("EPS")) {
+                        metrics.put("eps", value);
+                    } else if (label.startsWith("BPS")) {
+                        metrics.put("bps", value);
+                    } else if (label.startsWith("PER")) {
+                        if (topPer == null) metrics.put("per", value);
+                    } else if (label.startsWith("PBR")) {
+                        if (topPbr == null) metrics.put("pbr", value);
+                    } else if (label.contains("ROE")) {
+                        metrics.put("roe", value);
+                    } else if (label.contains("영업이익률")) {
+                        metrics.put("operatingMargin", value);
+                    } else if (label.contains("지배주주순이익률")) {
+                        metrics.put("netMargin", value);
+                    } else if (label.contains("부채비율")) {
+                        metrics.put("debtRatio", value);
                     }
                 }
             }
+
+            // 상단 PER/PBR이 있으면 우선 사용 (trailing 기준)
+            if (topPer != null) metrics.put("per", topPer);
+            if (topPbr != null) metrics.put("pbr", topPbr);
+
+            log.info("[StockDetail] {} FnGuide RAW: PER={}, PBR={}, EPS={}, BPS={}, ROE={}, 영업이익률={}, 부채비율={}",
+                    stockCode,
+                    metrics.get("per"), metrics.get("pbr"),
+                    metrics.get("eps"), metrics.get("bps"),
+                    metrics.get("roe"), metrics.get("operatingMargin"),
+                    metrics.get("debtRatio"));
+
+            return metrics.isEmpty() ? null : metrics;
+
         } catch (Exception e) {
-            log.warn("[StockDetail] {} 네이버 polling API 호출 실패: {}", stockCode, e.getMessage());
+            log.warn("[StockDetail] {} FnGuide 크롤링 실패: {}", stockCode, e.getMessage());
         }
         return null;
     }
 
-    private BigDecimal parseBigDecimalFromNode(com.fasterxml.jackson.databind.JsonNode node, String field) {
-        if (node == null || !node.has(field) || node.get(field).isNull()) return null;
+    /**
+     * FnGuide 상단 박스에서 PER/PBR 값 추출
+     * HTML 구조: <a id="h_per">PER</a> 뒤의 <dd>59.91</dd>
+     */
+    private BigDecimal extractFnGuideTopValue(Document doc, String anchorId) {
         try {
-            String val = node.get(field).asText();
-            if (val == null || val.isEmpty() || "null".equals(val)) return null;
-            return new BigDecimal(val.replaceAll("[^0-9.\\-]", ""));
+            Element anchor = doc.selectFirst("a#" + anchorId);
+            if (anchor != null) {
+                // anchor의 부모(li 또는 div)에서 dd 값 추출
+                Element parent = anchor.parent();
+                while (parent != null && !parent.tagName().equals("div") && !parent.tagName().equals("li")) {
+                    parent = parent.parent();
+                }
+                if (parent != null) {
+                    Element dd = parent.selectFirst("dd");
+                    if (dd != null) {
+                        return parseFnGuideNumber(dd.text().trim());
+                    }
+                }
+            }
         } catch (Exception e) {
+            log.debug("[StockDetail] FnGuide 상단 {} 추출 실패: {}", anchorId, e.getMessage());
+        }
+        return null;
+    }
+
+    private BigDecimal parseFnGuideNumber(String text) {
+        if (text == null || text.isBlank() || text.equals("&nbsp;") || text.equals("N/A")) return null;
+        try {
+            String cleaned = text.replaceAll("[^0-9.\\-]", "");
+            if (cleaned.isEmpty()) return null;
+            return new BigDecimal(cleaned);
+        } catch (NumberFormatException e) {
             return null;
         }
     }
