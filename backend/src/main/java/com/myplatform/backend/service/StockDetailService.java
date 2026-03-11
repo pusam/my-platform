@@ -1300,6 +1300,9 @@ public class StockDetailService {
                         stockCode, latestCol < headerCells.size() ? headerCells.get(latestCol).text() : "?", latestCol);
 
                 // 각 행에서 데이터 추출
+                BigDecimal netIncome = null;   // 지배주주순이익 (억원)
+                BigDecimal issuedShares = null; // 발행주식수 (천주)
+
                 Elements rows = highlightTable.select("tbody tr");
                 for (Element row : rows) {
                     String label = row.selectFirst("th") != null ? row.selectFirst("th").text().trim() : "";
@@ -1310,8 +1313,10 @@ public class StockDetailService {
                     BigDecimal value = parseFnGuideNumber(cellText);
                     if (value == null) continue;
 
-                    if (label.startsWith("EPS")) {
-                        metrics.put("eps", value);
+                    if (label.contains("지배주주순이익") && !label.contains("률") && !label.contains("비지배")) {
+                        netIncome = value;
+                    } else if (label.startsWith("발행주식수")) {
+                        issuedShares = value;
                     } else if (label.startsWith("BPS")) {
                         metrics.put("bps", value);
                     } else if (label.startsWith("PER")) {
@@ -1327,6 +1332,18 @@ public class StockDetailService {
                     } else if (label.contains("부채비율")) {
                         metrics.put("debtRatio", value);
                     }
+                }
+
+                // ★ EPS 직접 계산: 지배주주순이익(억원) × 1억 / 발행주식수(천주 × 1,000)
+                // FnGuide EPS는 "수정평균주식수" 기준이라 주식수 변동 시 부정확
+                if (netIncome != null && issuedShares != null
+                        && issuedShares.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal calcEps = netIncome
+                            .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                            .divide(issuedShares.multiply(new BigDecimal("1000")), 0, RoundingMode.HALF_UP);  // 천주 → 주
+                    metrics.put("eps", calcEps);
+                    log.info("[StockDetail] {} EPS 직접계산: {} (지배주주순이익: {}억 ÷ 발행주식수: {}천주)",
+                            stockCode, calcEps, netIncome, issuedShares);
                 }
             }
 
