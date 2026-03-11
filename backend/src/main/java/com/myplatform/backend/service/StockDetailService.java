@@ -226,28 +226,42 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
-        // ★ 네이버 PER/PBR 교차검증 — TTM 계산값이 이상할 때 네이버 값으로 보정
+        // ★ 네이버 PER/PBR/BPS를 1차 소스로 사용 (KIS TTM 계산은 2차)
+        // KIS 분기 재무제표의 누적/별도 데이터 이슈로 TTM 계산값이 부정확한 경우가 많음
         if (financial != null && naverData != null) {
             BigDecimal naverPer = naverData.getPer();
             BigDecimal naverPbr = naverData.getPbr();
-            if (naverPer != null && naverPer.compareTo(BigDecimal.ZERO) > 0
-                    && financial.getPer() != null && financial.getPer().compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal perRatio = financial.getPer().divide(naverPer, 2, RoundingMode.HALF_UP);
-                if (perRatio.compareTo(new BigDecimal("0.7")) < 0 || perRatio.compareTo(new BigDecimal("1.3")) > 0) {
-                    log.warn("[StockDetail] {} PER 네이버 교차검증 실패: TTM={}, 네이버={} → 네이버 값 사용",
+            BigDecimal naverBps = naverData.getBps();
+
+            if (naverPer != null && naverPer.compareTo(BigDecimal.ZERO) > 0) {
+                if (financial.getPer() != null && financial.getPer().compareTo(BigDecimal.ZERO) > 0) {
+                    log.info("[StockDetail] {} PER 비교: TTM={}, 네이버={} → 네이버 우선 사용",
                             stockCode, financial.getPer(), naverPer);
-                    financial.setPer(naverPer);
+                }
+                financial.setPer(naverPer);
+                // EPS도 네이버 PER 기반으로 역산 (현재가 / PER)
+                if (priceData != null) {
+                    JsonNode priceOutput = priceData.get("output");
+                    if (priceOutput != null) {
+                        BigDecimal cp = parseBigDecimal(priceOutput.get("stck_prpr"));
+                        if (cp != null && cp.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal naverEps = cp.divide(naverPer, 0, RoundingMode.HALF_UP);
+                            financial.setEps(naverEps);
+                        }
+                    }
                 }
             }
-            if (naverPbr != null && naverPbr.compareTo(BigDecimal.ZERO) > 0
-                    && financial.getPbr() != null && financial.getPbr().compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal pbrRatio = financial.getPbr().divide(naverPbr, 2, RoundingMode.HALF_UP);
-                if (pbrRatio.compareTo(new BigDecimal("0.5")) < 0 || pbrRatio.compareTo(new BigDecimal("2.0")) > 0) {
-                    log.warn("[StockDetail] {} PBR 네이버 교차검증 실패: TTM={}, 네이버={} → 네이버 값 사용",
+
+            if (naverPbr != null && naverPbr.compareTo(BigDecimal.ZERO) > 0) {
+                if (financial.getPbr() != null && financial.getPbr().compareTo(BigDecimal.ZERO) > 0) {
+                    log.info("[StockDetail] {} PBR 비교: TTM={}, 네이버={} → 네이버 우선 사용",
                             stockCode, financial.getPbr(), naverPbr);
-                    financial.setPbr(naverPbr);
-                    financial.setBps(naverData.getBps());
                 }
+                financial.setPbr(naverPbr);
+            }
+
+            if (naverBps != null && naverBps.compareTo(BigDecimal.ZERO) > 0) {
+                financial.setBps(naverBps);
             }
         }
 

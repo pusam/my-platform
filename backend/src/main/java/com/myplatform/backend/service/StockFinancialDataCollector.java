@@ -484,23 +484,83 @@ public class StockFinancialDataCollector {
                 if ("0".equals(rtCd)) {
                     JsonNode output = root.get("output");
                     if (output != null && output.isArray() && output.size() > 0) {
-                        // 최근 4분기 합산 (TTM)
                         int quarterCount = Math.min(output.size(), 4);
+
+                        // ★ 각 분기 raw 데이터 로깅 (디버깅용)
+                        for (int i = 0; i < quarterCount; i++) {
+                            JsonNode q = output.get(i);
+                            log.info("[손익계산서 RAW] {} Q{}: stac_yymm={}, 매출={}, 영업이익={}, 순이익={}",
+                                    stockCode, i, q.path("stac_yymm").asText(),
+                                    q.path("sale_account").asText(),
+                                    q.path("bsop_prti").asText(),
+                                    q.path("thtr_ntin").asText());
+                        }
+
+                        // ★ 누적(cumulative) vs 개별(individual) 분기 데이터 감지
+                        // 매출액이 Q1 < Q2 < Q3 순서로 증가하면 누적 데이터일 가능성 높음
+                        boolean isCumulative = false;
+                        if (quarterCount >= 3) {
+                            BigDecimal rev0 = parseBigDecimal(output.get(0).path("sale_account").asText());
+                            BigDecimal rev1 = parseBigDecimal(output.get(1).path("sale_account").asText());
+                            BigDecimal rev2 = parseBigDecimal(output.get(2).path("sale_account").asText());
+                            // 최신(0)이 가장 크고 이전(2)이 가장 작으면 누적 의심
+                            // 단, 모두 양수이고 비율이 2배 이상 차이나면 누적으로 판단
+                            if (rev0.compareTo(BigDecimal.ZERO) > 0 && rev2.compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal ratio02 = rev0.divide(rev2, 2, RoundingMode.HALF_UP);
+                                if (ratio02.compareTo(new BigDecimal("1.8")) > 0
+                                        && rev0.compareTo(rev1) > 0 && rev1.compareTo(rev2) > 0) {
+                                    isCumulative = true;
+                                    log.warn("[손익계산서] {} 누적 데이터 감지! 매출액: Q최신={}, Q-1={}, Q-2={} (비율: {})",
+                                            stockCode, rev0, rev1, rev2, ratio02);
+                                }
+                            }
+                        }
+
                         BigDecimal ttmNetIncomeRaw = BigDecimal.ZERO;
                         BigDecimal ttmRevenueRaw = BigDecimal.ZERO;
                         BigDecimal ttmOperatingProfitRaw = BigDecimal.ZERO;
 
-                        for (int i = 0; i < quarterCount; i++) {
-                            JsonNode q = output.get(i);
-                            ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
-                            ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
-                            ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
+                        if (isCumulative) {
+                            // 누적 데이터: 개별 분기 = 현재 누적 - 이전 누적, TTM = 연간 + 최신누적 - 전년동기누적
+                            // 안전한 방식: 가장 최근 누적이 3분기(9개월)면, 연간(entry 3) + 3분기누적 - 전년3분기
+                            // 전년 동기 데이터 없으면: 연간 데이터(entry 마지막)만 사용
+                            if (quarterCount >= 4) {
+                                // entry[3]을 연간 데이터로 가정
+                                JsonNode annual = output.get(3);
+                                ttmNetIncomeRaw = parseBigDecimal(annual.path("thtr_ntin").asText());
+                                ttmRevenueRaw = parseBigDecimal(annual.path("sale_account").asText());
+                                ttmOperatingProfitRaw = parseBigDecimal(annual.path("bsop_prti").asText());
+                                log.info("[손익계산서 TTM] {} 누적→연간 데이터 사용: 매출={}, 영업이익={}, 순이익={}",
+                                        stockCode, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
+                            } else {
+                                // 연간 데이터 없으면 최신 누적값을 12개월로 비례 추정
+                                JsonNode latestQ = output.get(0);
+                                ttmNetIncomeRaw = parseBigDecimal(latestQ.path("thtr_ntin").asText());
+                                ttmRevenueRaw = parseBigDecimal(latestQ.path("sale_account").asText());
+                                ttmOperatingProfitRaw = parseBigDecimal(latestQ.path("bsop_prti").asText());
+                                // quarterCount개 분기 누적이면 12/quarterCount 배로 추정
+                                BigDecimal annualizer = new BigDecimal("4").divide(
+                                        new BigDecimal(String.valueOf(quarterCount)), 4, RoundingMode.HALF_UP);
+                                ttmNetIncomeRaw = ttmNetIncomeRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
+                                ttmRevenueRaw = ttmRevenueRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
+                                ttmOperatingProfitRaw = ttmOperatingProfitRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
+                                log.info("[손익계산서 TTM] {} 누적→비례추정: 매출={}, 영업이익={}, 순이익={} (x{})",
+                                        stockCode, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw, annualizer);
+                            }
+                        } else {
+                            // 개별 분기 데이터: 기존 방식대로 합산
+                            for (int i = 0; i < quarterCount; i++) {
+                                JsonNode q = output.get(i);
+                                ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
+                                ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
+                                ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
+                            }
                         }
 
-                        log.info("[손익계산서 TTM] {} - {}분기 합산: 매출액: {}, 영업이익: {}, 당기순이익: {}",
-                                stockCode, quarterCount, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
+                        log.info("[손익계산서 TTM] {} - {}분기 (누적:{}): 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                                stockCode, quarterCount, isCumulative, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
 
-                        if (quarterCount < 4) {
+                        if (quarterCount < 4 && !isCumulative) {
                             log.warn("[손익계산서 TTM] {} - 4분기 미만 데이터 ({}분기)", stockCode, quarterCount);
                         }
 
