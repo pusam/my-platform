@@ -11,6 +11,9 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -90,24 +93,16 @@ public class StockFinancialDataCollector {
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
             BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
 
-            // ★ lstn_stcn(상장주식수) vs 시가총액/현재가 교차검증
-            // lstn_stcn이 유통주식수(자사주 제외)일 수 있으므로, 시가총액 기반 주식수와 비교
-            if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && marketCapRaw.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal derivedShares = marketCapRaw.divide(currentPrice, 0, RoundingMode.HALF_UP);
+            // ★ 네이버 coinfo 페이지에서 정확한 상장주식수 크롤링
+            // KIS lstn_stcn이 유통주식수만 반환하는 경우가 있어 발행주식수와 2배 차이 발생
+            BigDecimal naverShares = fetchNaverListedShares(stockCode);
+            if (naverShares != null && naverShares.compareTo(BigDecimal.ZERO) > 0) {
                 if (lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal shareRatio = derivedShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
-                    log.info("[주식수 검증] {} - lstn_stcn: {}, 시총역산: {}, 비율: {}",
-                            stockCode, lstnStcn, derivedShares, shareRatio);
-                    // 시총 역산 주식수가 lstn_stcn보다 30% 이상 크면 시총 역산 값 사용
-                    if (shareRatio.compareTo(new BigDecimal("1.3")) > 0) {
-                        log.warn("[주식수 보정] {} - lstn_stcn({})이 발행주식수({})보다 적음 → 시총역산 값 사용",
-                                stockCode, lstnStcn, derivedShares);
-                        lstnStcn = derivedShares;
-                    }
-                } else {
-                    lstnStcn = derivedShares;
-                    log.info("[주식수] {} - lstn_stcn 없음 → 시총역산: {}", stockCode, derivedShares);
+                    BigDecimal shareRatio = naverShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
+                    log.info("[주식수 검증] {} - KIS lstn_stcn: {}, 네이버 상장주식수: {}, 비율: {}",
+                            stockCode, lstnStcn, naverShares, shareRatio);
                 }
+                lstnStcn = naverShares;
             }
 
             // 재무비율 조회
@@ -977,5 +972,47 @@ public class StockFinancialDataCollector {
             log.warn("API 호출 최종 실패: {}", lastException.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 네이버 금융 coinfo 페이지에서 정확한 상장주식수 크롤링
+     * KIS API의 lstn_stcn은 유통주식수를 반환하는 경우가 있어 발행주식수와 차이 발생
+     */
+    private BigDecimal fetchNaverListedShares(String stockCode) {
+        try {
+            Document doc = Jsoup.connect("https://finance.naver.com/item/coinfo.naver?code=" + stockCode)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://finance.naver.com/")
+                    .timeout(10000)
+                    .get();
+
+            Element th = doc.selectFirst("th:contains(상장주식수)");
+            if (th != null) {
+                Element td = th.nextElementSibling();
+                if (td != null) {
+                    Element em = td.selectFirst("em");
+                    String text = (em != null) ? em.text() : td.text();
+                    BigDecimal shares = parseNaverNumber(text);
+                    if (shares != null && shares.compareTo(BigDecimal.ZERO) > 0) {
+                        log.info("[재무수집] {} 네이버 상장주식수: {}", stockCode, shares);
+                        return shares;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[재무수집] {} 네이버 상장주식수 크롤링 실패: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
+    private BigDecimal parseNaverNumber(String text) {
+        if (text == null || text.isBlank()) return null;
+        try {
+            String cleaned = text.replaceAll("[^0-9.\\-]", "");
+            if (cleaned.isEmpty()) return null;
+            return new BigDecimal(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

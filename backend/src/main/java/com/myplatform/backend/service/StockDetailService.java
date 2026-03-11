@@ -85,17 +85,6 @@ public class StockDetailService {
                 stockName = name;
             }
             log.info("[StockDetail] 종목명: {}, 현재가: {}", stockName, priceInfo.getCurrentPrice());
-
-            // ★ KIS 성공 시에도 네이버 데이터 조회 (PER/PBR/BPS 교차검증용)
-            try {
-                naverData = stockPriceService.getStockPrice(stockCode);
-                if (naverData != null) {
-                    log.info("[StockDetail] 네이버 교차검증 데이터 조회 - PER: {}, PBR: {}, BPS: {}",
-                            naverData.getPer(), naverData.getPbr(), naverData.getBps());
-                }
-            } catch (Exception e) {
-                log.debug("[StockDetail] 네이버 교차검증 데이터 조회 실패: {}", e.getMessage());
-            }
         } else {
             log.warn("[StockDetail] KIS 현재가 조회 실패: {} - 네이버 폴백 시도", stockCode);
             // KIS 실패 → stockPriceService (내부 KIS→Naver 자동 폴백)
@@ -237,47 +226,14 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
-        // ★ 네이버 PER/PBR/BPS를 1차 소스로 사용 (KIS TTM 계산은 2차)
-        // KIS 분기 재무제표의 누적/별도 데이터 이슈로 TTM 계산값이 부정확한 경우가 많음
-        if (financial != null && naverData != null) {
-            BigDecimal naverPer = naverData.getPer();
-            BigDecimal naverPbr = naverData.getPbr();
-            BigDecimal naverBps = naverData.getBps();
-
-            if (naverPer != null && naverPer.compareTo(BigDecimal.ZERO) > 0) {
-                if (financial.getPer() != null && financial.getPer().compareTo(BigDecimal.ZERO) > 0) {
-                    log.info("[StockDetail] {} PER 비교: TTM={}, 네이버={} → 네이버 우선 사용",
-                            stockCode, financial.getPer(), naverPer);
-                }
-                financial.setPer(naverPer);
-                // EPS도 네이버 PER 기반으로 역산 (현재가 / PER)
-                if (priceData != null) {
-                    JsonNode priceOutput = priceData.get("output");
-                    if (priceOutput != null) {
-                        BigDecimal cp = parseBigDecimal(priceOutput.get("stck_prpr"));
-                        if (cp != null && cp.compareTo(BigDecimal.ZERO) > 0) {
-                            BigDecimal naverEps = cp.divide(naverPer, 0, RoundingMode.HALF_UP);
-                            financial.setEps(naverEps);
-                        }
-                    }
-                }
-            }
-
-            if (naverPbr != null && naverPbr.compareTo(BigDecimal.ZERO) > 0) {
-                if (financial.getPbr() != null && financial.getPbr().compareTo(BigDecimal.ZERO) > 0) {
-                    log.info("[StockDetail] {} PBR 비교: TTM={}, 네이버={} → 네이버 우선 사용",
-                            stockCode, financial.getPbr(), naverPbr);
-                }
-                financial.setPbr(naverPbr);
-            }
-
-            if (naverBps != null && naverBps.compareTo(BigDecimal.ZERO) > 0) {
-                financial.setBps(naverBps);
-            }
-        }
-
-        // ★ 네이버 크롤링 (배당수익률 + 목표주가 한 번에) + Forward 지표 + 태그
+        // ★ 네이버 크롤링 (PER/PBR/EPS/BPS + 배당수익률 + 목표주가 한 번에) + Forward 지표 + 태그
         Document naverMainDoc = fetchNaverMainPage(stockCode);
+
+        // ★ 네이버 메인 페이지에서 PER/PBR/EPS/BPS 직접 크롤링 → 1차 소스로 사용
+        // KIS TTM 계산은 주식수(lstn_stcn) 오류로 부정확한 경우가 많음
+        if (financial != null && naverMainDoc != null) {
+            enrichFinancialFromNaverDoc(financial, naverMainDoc, stockCode);
+        }
         if (financial != null) {
             enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
             enrichWithForwardMetrics(financial, builder.build().getPrice());
@@ -569,20 +525,18 @@ public class StockDetailService {
                 lstnStcn = parseBigDecimal(output.get("lstg_stcn"));
             }
 
-            // ★ lstn_stcn vs 시가총액/현재가 교차검증
-            // lstn_stcn이 유통주식수(자사주 제외)일 수 있으므로, 시총 기반 발행주식수와 비교
-            if (lstnStcn.compareTo(BigDecimal.ZERO) > 0
-                    && marketCap != null && marketCap > 0
-                    && currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal derivedShares = BigDecimal.valueOf(marketCap)
-                        .multiply(new BigDecimal("100000000"))
-                        .divide(currentPrice, 0, RoundingMode.HALF_UP);
-                BigDecimal shareRatio = derivedShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
-                if (shareRatio.compareTo(new BigDecimal("1.3")) > 0) {
-                    log.warn("[StockDetail] {} 주식수 보정: lstn_stcn={} → 시총역산={} (비율: {})",
-                            stockCode, lstnStcn, derivedShares, shareRatio);
-                    lstnStcn = derivedShares;
+            // ★ 네이버 coinfo 페이지에서 정확한 상장주식수 크롤링
+            // KIS lstn_stcn이 유통주식수(자사주 제외)만 반환하는 경우가 있어 발행주식수와 불일치
+            BigDecimal naverShares = fetchNaverListedShares(stockCode);
+            if (naverShares != null && naverShares.compareTo(BigDecimal.ZERO) > 0) {
+                if (lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal shareRatio = naverShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
+                    if (shareRatio.compareTo(new BigDecimal("1.1")) > 0) {
+                        log.warn("[StockDetail] {} 주식수 보정: KIS lstn_stcn={} → 네이버 상장주식수={} (비율: {})",
+                                stockCode, lstnStcn, naverShares, shareRatio);
+                    }
                 }
+                lstnStcn = naverShares;
             }
 
             // 폴백: 시가총액 / 현재가로 추정
@@ -1349,6 +1303,129 @@ public class StockDetailService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // ========== 네이버 상장주식수 크롤링 ==========
+
+    /**
+     * 네이버 기업개요 페이지에서 상장주식수 크롤링
+     * URL: https://finance.naver.com/item/coinfo.naver?code={stockCode}
+     * HTML: <th>상장주식수</th><td><em>46,290,951</em></td>
+     */
+    private BigDecimal fetchNaverListedShares(String stockCode) {
+        try {
+            Document doc = Jsoup.connect("https://finance.naver.com/item/coinfo.naver?code=" + stockCode)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://finance.naver.com/")
+                    .timeout(10000)
+                    .get();
+
+            Element th = doc.selectFirst("th:contains(상장주식수)");
+            if (th != null) {
+                Element td = th.nextElementSibling();
+                if (td != null) {
+                    Element em = td.selectFirst("em");
+                    String text = (em != null) ? em.text() : td.text();
+                    BigDecimal shares = parseNaverNumber(text);
+                    if (shares != null && shares.compareTo(BigDecimal.ZERO) > 0) {
+                        log.info("[StockDetail] {} 네이버 상장주식수: {}", stockCode, shares);
+                        return shares;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[StockDetail] {} 네이버 상장주식수 크롤링 실패: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
+    // ========== 네이버 PER/PBR/EPS/BPS 크롤링 ==========
+
+    /**
+     * 네이버 금융 메인 페이지에서 PER, PBR, EPS, BPS 추출
+     * HTML 구조: <em id="_per">41.70</em>, <em id="_pbr">3.82</em>, <em id="_eps">40,137</em>
+     * 및 table.per_table 내 PER/EPS/추정EPS/PBR/BPS 행
+     */
+    private void enrichFinancialFromNaverDoc(FinancialInfo financial, Document doc, String stockCode) {
+        if (financial == null || doc == null) return;
+        try {
+            // 전략 1: ID 기반 — em[id=_per], em[id=_pbr], em[id=_eps]
+            BigDecimal naverPer = extractNaverEmById(doc, "_per");
+            BigDecimal naverPbr = extractNaverEmById(doc, "_pbr");
+            BigDecimal naverEps = extractNaverEmById(doc, "_eps");
+
+            // 전략 2: table 기반 — per_table 테이블에서 PER/EPS/BPS 행 추출
+            if (naverPer == null || naverPbr == null || naverEps == null) {
+                Elements rows = doc.select("table.per_table tr, table.rwidth tr");
+                for (Element row : rows) {
+                    Elements ths = row.select("th, td.title, em.t_nm");
+                    Elements tds = row.select("td em, td");
+                    String label = ths.isEmpty() ? "" : ths.first().text().trim();
+
+                    if (label.contains("PER") && naverPer == null && !tds.isEmpty()) {
+                        naverPer = parseNaverNumber(tds.last().text());
+                    } else if (label.contains("PBR") && naverPbr == null && !tds.isEmpty()) {
+                        naverPbr = parseNaverNumber(tds.last().text());
+                    } else if (label.contains("EPS") && !label.contains("추정") && naverEps == null && !tds.isEmpty()) {
+                        naverEps = parseNaverNumber(tds.last().text());
+                    }
+                }
+            }
+
+            // 전략 3: BPS — th:contains(BPS) → td 또는 em[id=_bps]
+            BigDecimal naverBps = extractNaverEmById(doc, "_bps");
+            if (naverBps == null) {
+                Element bpsTh = doc.selectFirst("th:contains(BPS), em.t_nm:contains(BPS)");
+                if (bpsTh != null) {
+                    Element bpsTd = bpsTh.parent().selectFirst("td em, td");
+                    if (bpsTd == null) bpsTd = bpsTh.nextElementSibling();
+                    if (bpsTd != null) {
+                        naverBps = parseNaverNumber(bpsTd.text());
+                    }
+                }
+            }
+
+            // 적용: 네이버 값이 있으면 TTM 계산값 대체
+            boolean anyApplied = false;
+            if (naverPer != null && naverPer.compareTo(BigDecimal.ZERO) > 0) {
+                log.info("[StockDetail] {} PER 네이버 크롤링: TTM={} → 네이버={}",
+                        stockCode, financial.getPer(), naverPer);
+                financial.setPer(naverPer);
+                anyApplied = true;
+            }
+            if (naverEps != null && naverEps.compareTo(BigDecimal.ZERO) > 0) {
+                log.info("[StockDetail] {} EPS 네이버 크롤링: TTM={} → 네이버={}",
+                        stockCode, financial.getEps(), naverEps);
+                financial.setEps(naverEps);
+                anyApplied = true;
+            }
+            if (naverPbr != null && naverPbr.compareTo(BigDecimal.ZERO) > 0) {
+                log.info("[StockDetail] {} PBR 네이버 크롤링: TTM={} → 네이버={}",
+                        stockCode, financial.getPbr(), naverPbr);
+                financial.setPbr(naverPbr);
+                anyApplied = true;
+            }
+            if (naverBps != null && naverBps.compareTo(BigDecimal.ZERO) > 0) {
+                log.info("[StockDetail] {} BPS 네이버 크롤링: TTM={} → 네이버={}",
+                        stockCode, financial.getBps(), naverBps);
+                financial.setBps(naverBps);
+                anyApplied = true;
+            }
+
+            if (!anyApplied) {
+                log.warn("[StockDetail] {} 네이버 PER/PBR/EPS/BPS 크롤링 실패 — TTM 값 유지", stockCode);
+            }
+        } catch (Exception e) {
+            log.warn("[StockDetail] {} 네이버 재무지표 크롤링 오류: {}", stockCode, e.getMessage());
+        }
+    }
+
+    private BigDecimal extractNaverEmById(Document doc, String id) {
+        Element el = doc.selectFirst("em[id=" + id + "]");
+        if (el != null) {
+            return parseNaverNumber(el.text());
+        }
+        return null;
     }
 
     // ========== 목표주가 컨센서스 ==========
