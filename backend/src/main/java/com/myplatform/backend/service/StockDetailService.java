@@ -539,9 +539,20 @@ public class StockDetailService {
                 eps = parseBigDecimal(output.get("eps"));
                 log.info("[StockDetail] {} EPS 폴백 → KIS: {}", stockCode, eps);
             }
+            if (bps == null) bps = parseBigDecimal(output.get("bps"));
+
+            // ★ 3순위: PER/PBR 직접 계산 (주가 ÷ EPS = PER, 주가 ÷ BPS = PBR)
+            if (per == null && currentPrice != null && eps != null && eps.compareTo(BigDecimal.ZERO) > 0) {
+                per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
+                log.info("[StockDetail] {} PER 직접 계산: {} (주가: {} ÷ EPS: {})", stockCode, per, currentPrice, eps);
+            }
+            if (pbr == null && currentPrice != null && bps != null && bps.compareTo(BigDecimal.ZERO) > 0) {
+                pbr = currentPrice.divide(bps, 2, RoundingMode.HALF_UP);
+                log.info("[StockDetail] {} PBR 직접 계산: {} (주가: {} ÷ BPS: {})", stockCode, pbr, currentPrice, bps);
+            }
+            // 최종 폴백: KIS PER/PBR
             if (per == null) per = parseBigDecimal(output.get("per"));
             if (pbr == null) pbr = parseBigDecimal(output.get("pbr"));
-            if (bps == null) bps = parseBigDecimal(output.get("bps"));
 
             // ROE/마진 폴백: FnGuide 실패 시 DB 데이터 사용
             if (roe == null || operatingMargin == null || debtRatio == null) {
@@ -1320,8 +1331,29 @@ public class StockDetailService {
             }
 
             // 상단 PER/PBR이 있으면 우선 사용 (trailing 기준)
-            if (topPer != null) metrics.put("per", topPer);
-            if (topPbr != null) metrics.put("pbr", topPbr);
+            if (topPer != null && topPer.compareTo(new BigDecimal("1000")) < 0) {
+                metrics.put("per", topPer);
+            }
+            if (topPbr != null && topPbr.compareTo(new BigDecimal("100")) < 0) {
+                metrics.put("pbr", topPbr);
+            }
+
+            // ★ PER/PBR 검증: 1000 이상이면 날짜값 오파싱 → 직접 계산으로 대체
+            BigDecimal fnEps = metrics.get("eps");
+            BigDecimal fnBps = metrics.get("bps");
+            BigDecimal fnPer = metrics.get("per");
+            BigDecimal fnPbr = metrics.get("pbr");
+
+            boolean perInvalid = (fnPer == null || fnPer.compareTo(new BigDecimal("1000")) >= 0);
+            boolean pbrInvalid = (fnPbr == null || fnPbr.compareTo(new BigDecimal("100")) >= 0);
+
+            if (perInvalid || pbrInvalid) {
+                log.warn("[StockDetail] {} FnGuide PER/PBR 이상값 감지 (PER={}, PBR={}) → 직접 계산",
+                        stockCode, fnPer, fnPbr);
+                // PER/PBR 제거 — fetchFinancialInfo에서 주가 기반으로 직접 계산
+                metrics.remove("per");
+                metrics.remove("pbr");
+            }
 
             log.info("[StockDetail] {} FnGuide RAW: PER={}, PBR={}, EPS={}, BPS={}, ROE={}, 영업이익률={}, 부채비율={}",
                     stockCode,
