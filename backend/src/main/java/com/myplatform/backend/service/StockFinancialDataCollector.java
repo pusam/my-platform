@@ -82,12 +82,33 @@ public class StockFinancialDataCollector {
             String market = "KOSPI";
 
             BigDecimal currentPrice = parseBigDecimal(output.path("stck_prpr").asText());
-            BigDecimal marketCap = parseBigDecimal(output.path("hts_avls").asText())
+            BigDecimal marketCapRaw = parseBigDecimal(output.path("hts_avls").asText());
+            BigDecimal marketCap = marketCapRaw
                     .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
             BigDecimal per = parseBigDecimal(output.path("per").asText());
             BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
             BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
+
+            // ★ lstn_stcn(상장주식수) vs 시가총액/현재가 교차검증
+            // lstn_stcn이 유통주식수(자사주 제외)일 수 있으므로, 시가총액 기반 주식수와 비교
+            if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && marketCapRaw.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal derivedShares = marketCapRaw.divide(currentPrice, 0, RoundingMode.HALF_UP);
+                if (lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal shareRatio = derivedShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
+                    log.info("[주식수 검증] {} - lstn_stcn: {}, 시총역산: {}, 비율: {}",
+                            stockCode, lstnStcn, derivedShares, shareRatio);
+                    // 시총 역산 주식수가 lstn_stcn보다 30% 이상 크면 시총 역산 값 사용
+                    if (shareRatio.compareTo(new BigDecimal("1.3")) > 0) {
+                        log.warn("[주식수 보정] {} - lstn_stcn({})이 발행주식수({})보다 적음 → 시총역산 값 사용",
+                                stockCode, lstnStcn, derivedShares);
+                        lstnStcn = derivedShares;
+                    }
+                } else {
+                    lstnStcn = derivedShares;
+                    log.info("[주식수] {} - lstn_stcn 없음 → 시총역산: {}", stockCode, derivedShares);
+                }
+            }
 
             // 재무비율 조회
             Thread.sleep(100);

@@ -73,7 +73,7 @@ public class StockDetailService {
 
         // 1. 현재가 조회 (필수) - 종목명 먼저 확보
         String stockName = stockCode;  // 기본값 (종목코드)
-        StockPriceDto naverData = null; // 네이버 폴백 데이터 (재무 정보 재사용)
+        StockPriceDto naverData = null; // 네이버 PER/PBR/BPS 교차검증용
         JsonNode priceData = kisService.getStockPrice(stockCode);
         if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
             PriceInfo priceInfo = parsePriceInfo(priceData);
@@ -85,6 +85,17 @@ public class StockDetailService {
                 stockName = name;
             }
             log.info("[StockDetail] 종목명: {}, 현재가: {}", stockName, priceInfo.getCurrentPrice());
+
+            // ★ KIS 성공 시에도 네이버 데이터 조회 (PER/PBR/BPS 교차검증용)
+            try {
+                naverData = stockPriceService.getStockPrice(stockCode);
+                if (naverData != null) {
+                    log.info("[StockDetail] 네이버 교차검증 데이터 조회 - PER: {}, PBR: {}, BPS: {}",
+                            naverData.getPer(), naverData.getPbr(), naverData.getBps());
+                }
+            } catch (Exception e) {
+                log.debug("[StockDetail] 네이버 교차검증 데이터 조회 실패: {}", e.getMessage());
+            }
         } else {
             log.warn("[StockDetail] KIS 현재가 조회 실패: {} - 네이버 폴백 시도", stockCode);
             // KIS 실패 → stockPriceService (내부 KIS→Naver 자동 폴백)
@@ -557,6 +568,23 @@ public class StockDetailService {
             if (lstnStcn.compareTo(BigDecimal.ZERO) <= 0) {
                 lstnStcn = parseBigDecimal(output.get("lstg_stcn"));
             }
+
+            // ★ lstn_stcn vs 시가총액/현재가 교차검증
+            // lstn_stcn이 유통주식수(자사주 제외)일 수 있으므로, 시총 기반 발행주식수와 비교
+            if (lstnStcn.compareTo(BigDecimal.ZERO) > 0
+                    && marketCap != null && marketCap > 0
+                    && currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal derivedShares = BigDecimal.valueOf(marketCap)
+                        .multiply(new BigDecimal("100000000"))
+                        .divide(currentPrice, 0, RoundingMode.HALF_UP);
+                BigDecimal shareRatio = derivedShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
+                if (shareRatio.compareTo(new BigDecimal("1.3")) > 0) {
+                    log.warn("[StockDetail] {} 주식수 보정: lstn_stcn={} → 시총역산={} (비율: {})",
+                            stockCode, lstnStcn, derivedShares, shareRatio);
+                    lstnStcn = derivedShares;
+                }
+            }
+
             // 폴백: 시가총액 / 현재가로 추정
             if (lstnStcn.compareTo(BigDecimal.ZERO) <= 0
                     && marketCap != null && marketCap > 0
