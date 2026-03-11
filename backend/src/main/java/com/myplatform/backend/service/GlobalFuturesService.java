@@ -26,9 +26,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * - 다우 선물 (YM=F)
  * - WTI 원유 선물 (CL=F)
  * - 금 선물 (GC=F)
+ * - 구리 선물 (HG=F)
+ * - 달러 인덱스 (DX-Y.NYB)
  * - 유로/달러 (EURUSD=X), 달러/엔 (USDJPY=X)
  * - 달러/원 (KRW=X)
  * - VIX 공포지수 (^VIX)
+ * - 미국 10년물 금리 (^TNX)
+ * - CNN Fear & Greed Index
  */
 @Service
 @RequiredArgsConstructor
@@ -51,10 +55,13 @@ public class GlobalFuturesService {
         FUTURES_MAP.put("CL", new FuturesInfo("CL", "CL=F", "WTI 원유", "WTI", "commodity", "NYMEX"));
         FUTURES_MAP.put("BZ", new FuturesInfo("BZ", "BZ=F", "브렌트유", "Brent", "commodity", "ICE"));
         FUTURES_MAP.put("GC", new FuturesInfo("GC", "GC=F", "금 선물", "Gold", "commodity", "COMEX"));
+        FUTURES_MAP.put("HG", new FuturesInfo("HG", "HG=F", "구리 선물", "Copper", "commodity", "COMEX"));
+        FUTURES_MAP.put("DXY", new FuturesInfo("DXY", "DX-Y.NYB", "달러 인덱스", "DXY", "currency", "ICE"));
         FUTURES_MAP.put("6E", new FuturesInfo("6E", "EURUSD=X", "유로/달러", "EUR/USD", "currency", "CME"));
         FUTURES_MAP.put("6J", new FuturesInfo("6J", "USDJPY=X", "달러/엔", "USD/JPY", "currency", "CME"));
         FUTURES_MAP.put("KRW", new FuturesInfo("KRW", "KRW=X", "달러/원", "USD/KRW", "currency", "FX"));
         FUTURES_MAP.put("VIX", new FuturesInfo("VIX", "^VIX", "VIX 공포지수", "VIX", "volatility", "CBOE"));
+        FUTURES_MAP.put("US10Y", new FuturesInfo("US10Y", "^TNX", "미국 10년물 금리", "US10Y", "bond", "CBOE"));
     }
 
     // 캐시 (60초)
@@ -496,6 +503,7 @@ public class GlobalFuturesService {
         analysis.put("comment", comment);
         analysis.put("riskFactors", riskFactors);
         analysis.put("quotes", quotes);
+        analysis.put("fearGreed", getFearGreedIndex());
         analysis.put("fetchedAt", LocalDateTime.now());
 
         return analysis;
@@ -548,7 +556,89 @@ public class GlobalFuturesService {
 
     public void clearCache() {
         cache.clear();
+        fearGreedCache = null;
         log.info("해외선물 캐시 클리어됨");
+    }
+
+    // ==================== CNN Fear & Greed Index ====================
+    private static final String FEAR_GREED_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata";
+    private volatile Map<String, Object> fearGreedCache = null;
+    private volatile long fearGreedCacheTime = 0;
+    private static final long FEAR_GREED_CACHE_MS = 5 * 60 * 1000; // 5분 캐시
+
+    /**
+     * CNN Fear & Greed Index 조회
+     * @return { score: 25, rating: "Extreme Fear", previousClose: 28, change: -3 }
+     */
+    public Map<String, Object> getFearGreedIndex() {
+        if (fearGreedCache != null && System.currentTimeMillis() - fearGreedCacheTime < FEAR_GREED_CACHE_MS) {
+            return fearGreedCache;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            headers.set("Accept", "application/json");
+
+            HttpEntity<String> request = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(FEAR_GREED_URL, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                log.warn("[Fear&Greed] API 응답 오류: {}", response.getStatusCode());
+                return createFearGreedError("API 응답 오류");
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode fng = root.path("fear_and_greed");
+
+            if (fng.isMissingNode()) {
+                return createFearGreedError("데이터 없음");
+            }
+
+            double score = fng.path("score").asDouble(0);
+            String rating = fng.path("rating").asText("Unknown");
+            double previousClose = fng.path("previous_close").asDouble(0);
+            double change = score - previousClose;
+
+            // 한국어 등급 매핑
+            String ratingKr;
+            String level;
+            if (score <= 25) { ratingKr = "극심한 공포"; level = "extreme-fear"; }
+            else if (score <= 45) { ratingKr = "공포"; level = "fear"; }
+            else if (score <= 55) { ratingKr = "중립"; level = "neutral"; }
+            else if (score <= 75) { ratingKr = "탐욕"; level = "greed"; }
+            else { ratingKr = "극심한 탐욕"; level = "extreme-greed"; }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("success", true);
+            result.put("score", Math.round(score));
+            result.put("rating", rating);
+            result.put("ratingKr", ratingKr);
+            result.put("level", level);
+            result.put("previousClose", Math.round(previousClose));
+            result.put("change", Math.round(change));
+            result.put("fetchedAt", LocalDateTime.now().toString());
+
+            fearGreedCache = result;
+            fearGreedCacheTime = System.currentTimeMillis();
+            log.debug("[Fear&Greed] Score: {} ({})", Math.round(score), rating);
+            return result;
+
+        } catch (Exception e) {
+            log.error("[Fear&Greed] 조회 실패: {}", e.getMessage());
+            return createFearGreedError("조회 실패: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> createFearGreedError(String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", false);
+        result.put("errorMessage", message);
+        result.put("score", 50);
+        result.put("ratingKr", "데이터 없음");
+        result.put("level", "neutral");
+        result.put("change", 0);
+        return result;
     }
 
     private FuturesQuote createErrorQuote(FuturesInfo info, String message) {
