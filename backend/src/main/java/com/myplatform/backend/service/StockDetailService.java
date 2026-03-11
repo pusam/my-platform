@@ -493,7 +493,8 @@ public class StockDetailService {
     /**
      * 재무 정보 조회 — TTM 연결 재무제표 기준으로 통일
      *
-     * ★ PER/PBR/EPS/BPS: 네이버 polling API 단일 소스 (소스 혼용 방지)
+     * ★ EPS/PER: 네이버 polling API (별도 기준이지만 시장 표준)
+     * ★ BPS/PBR: DB totalEquity(연결) ÷ 네이버 상장주식수로 직접 계산
      * ★ ROE/마진/부채비율: DB TTM 데이터
      * ★ 시가총액/외국인지분: KIS API
      */
@@ -514,34 +515,30 @@ public class StockDetailService {
             // ★ 외국인 지분율 (KIS API 실제 데이터)
             BigDecimal foreignOwnership = parseBigDecimal(output.get("hts_frgn_ehrt"));
 
-            // ★ 네이버 polling API에서 EPS/BPS 조회 → PER/PBR 계산 (단일 소스)
+            // ★ 네이버 polling API에서 EPS 조회 → PER 계산
             BigDecimal eps = null;
-            BigDecimal bps = null;
             BigDecimal per = null;
+            BigDecimal bps = null;
             BigDecimal pbr = null;
 
             try {
                 Map<String, BigDecimal> naverMetrics = fetchNaverPollingMetrics(stockCode);
                 if (naverMetrics != null) {
                     eps = naverMetrics.get("eps");
-                    bps = naverMetrics.get("bps");
 
-                    // PER = 현재가 / EPS, PBR = 현재가 / BPS (네이버 데이터 기준 통일)
+                    // PER = 현재가 / EPS (네이버 EPS 기준)
                     if (currentPrice != null && eps != null && eps.compareTo(BigDecimal.ZERO) > 0) {
                         per = currentPrice.divide(eps, 1, RoundingMode.HALF_UP);
                     }
-                    if (currentPrice != null && bps != null && bps.compareTo(BigDecimal.ZERO) > 0) {
-                        pbr = currentPrice.divide(bps, 2, RoundingMode.HALF_UP);
-                    }
 
-                    log.info("[StockDetail] {} 네이버 polling 단일소스: EPS={}, BPS={}, PER={}, PBR={}",
-                            stockCode, eps, bps, per, pbr);
+                    log.info("[StockDetail] {} 네이버 polling EPS={}, 계산 PER={}",
+                            stockCode, eps, per);
                 }
             } catch (Exception e) {
                 log.warn("[StockDetail] {} 네이버 polling API 실패: {}", stockCode, e.getMessage());
             }
 
-            // 폴백: 네이버 실패 시 KIS 데이터 사용
+            // EPS/PER 폴백: 네이버 실패 시 KIS 데이터 사용
             if (eps == null) {
                 eps = parseBigDecimal(output.get("eps"));
                 log.info("[StockDetail] {} EPS 폴백 → KIS: {}", stockCode, eps);
@@ -549,14 +546,11 @@ public class StockDetailService {
             if (per == null) {
                 per = parseBigDecimal(output.get("per"));
             }
-            if (pbr == null) {
-                pbr = parseBigDecimal(output.get("pbr"));
-            }
-            if (bps == null) {
-                bps = parseBigDecimal(output.get("bps"));
-            }
 
-            // ★ DB에서 ROE/마진/부채비율 조회 (PER/PBR/EPS/BPS는 건드리지 않음)
+            // ★ 네이버 coinfo에서 정확한 발행주식수 크롤링
+            BigDecimal naverShares = fetchNaverListedShares(stockCode);
+
+            // ★ DB에서 ROE/마진/부채비율 + totalEquity(연결 기준) 조회
             BigDecimal roe = null;
             BigDecimal operatingMargin = null;
             BigDecimal netMargin = null;
@@ -599,6 +593,23 @@ public class StockDetailService {
                     if (dbNetMargin != null) netMargin = dbNetMargin;
                     if (dbDebtRatio != null) debtRatio = dbDebtRatio;
 
+                    // ★★★ BPS = totalEquity(연결, 억원) × 1억 / 발행주식수 → 직접 계산
+                    // PBR = 현재가 / BPS
+                    if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
+                            && naverShares != null && naverShares.compareTo(BigDecimal.ZERO) > 0) {
+                        bps = totalEquity
+                                .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                                .divide(naverShares, 0, RoundingMode.HALF_UP);
+                        if (currentPrice != null && bps.compareTo(BigDecimal.ZERO) > 0) {
+                            pbr = currentPrice.divide(bps, 2, RoundingMode.HALF_UP);
+                        }
+                        log.info("[StockDetail] {} ★연결BPS 직접계산: BPS={}, PBR={} (자본총계: {}억, 주식수: {})",
+                                stockCode, bps, pbr, totalEquity, naverShares);
+                    } else {
+                        log.warn("[StockDetail] {} BPS 직접계산 불가 (totalEquity: {}, 주식수: {})",
+                                stockCode, totalEquity, naverShares);
+                    }
+
                     log.info("[StockDetail] {} DB 비율: ROE={}, 영업이익률={}, 부채비율={}",
                             stockCode, roe, operatingMargin, debtRatio);
                 } else {
@@ -606,6 +617,15 @@ public class StockDetailService {
                 }
             } catch (Exception e) {
                 log.warn("[StockDetail] {} DB 데이터 조회 실패: {}", stockCode, e.getMessage());
+            }
+
+            // BPS/PBR 폴백: DB 계산 실패 시 KIS 데이터
+            if (bps == null) {
+                bps = parseBigDecimal(output.get("bps"));
+                log.info("[StockDetail] {} BPS 폴백 → KIS: {}", stockCode, bps);
+            }
+            if (pbr == null) {
+                pbr = parseBigDecimal(output.get("pbr"));
             }
 
             return FinancialInfo.builder()
@@ -1320,6 +1340,16 @@ public class StockDetailService {
                     if (datasArr.isArray() && datasArr.size() > 0) {
                         com.fasterxml.jackson.databind.JsonNode item = datasArr.get(0);
 
+                        // ★ RAW 응답 로그 (디버깅용)
+                        log.info("[StockDetail] {} 네이버 polling RAW: nv={}, eps={}, keps={}, bps={}, cnsEps={}, cr={}",
+                                stockCode,
+                                item.path("nv").asText("null"),
+                                item.path("eps").asText("null"),
+                                item.path("keps").asText("null"),
+                                item.path("bps").asText("null"),
+                                item.path("cnsEps").asText("null"),
+                                item.path("cr").asText("null"));
+
                         Map<String, BigDecimal> metrics = new HashMap<>();
 
                         BigDecimal eps = parseBigDecimalFromNode(item, "eps");
@@ -1328,7 +1358,7 @@ public class StockDetailService {
                         if (eps != null) metrics.put("eps", eps);
                         if (bps != null) metrics.put("bps", bps);
 
-                        log.info("[StockDetail] {} 네이버 polling: eps={}, bps={}",
+                        log.info("[StockDetail] {} 네이버 polling parsed: eps={}, bps={}",
                                 stockCode, eps, bps);
 
                         return metrics.isEmpty() ? null : metrics;
