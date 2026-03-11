@@ -226,14 +226,11 @@ public class StockDetailService {
                     financial != null ? financial.getPbr() : null);
         }
 
-        // ★ 네이버 크롤링 (PER/PBR/EPS/BPS + 배당수익률 + 목표주가 한 번에) + Forward 지표 + 태그
+        // ★ 네이버 크롤링 (배당수익률 + 목표주가) + Forward 지표 + 태그
         Document naverMainDoc = fetchNaverMainPage(stockCode);
 
-        // ★ 네이버 메인 페이지에서 PER/PBR/EPS/BPS 직접 크롤링 → 1차 소스로 사용
-        // KIS TTM 계산은 주식수(lstn_stcn) 오류로 부정확한 경우가 많음
-        if (financial != null && naverMainDoc != null) {
-            enrichFinancialFromNaverDoc(financial, naverMainDoc, stockCode);
-        }
+        // 네이버 메인 페이지 PER/PBR/EPS/BPS는 JavaScript 동적 로딩이라 Jsoup 스크래핑 불가
+        // → TTM 계산(정확한 네이버 상장주식수 사용) 결과를 그대로 사용
         if (financial != null) {
             enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
             enrichWithForwardMetrics(financial, builder.build().getPrice());
@@ -630,10 +627,10 @@ public class StockDetailService {
                                 && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
                             pbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
                         }
-                        log.info("[StockDetail] {} 연결 BPS: {}, PBR: {} (자본총계: {}억)", stockCode, bps, pbr, totalEquity);
+                        log.info("[StockDetail] {} 연결 BPS: {}, PBR: {} (자본총계: {}억, 주식수: {})", stockCode, bps, pbr, totalEquity, lstnStcn);
                     }
 
-                    // ★ PBR 일관성 검증: PBR ≈ PER × ROE / 100 (±50% 허용)
+                    // ★ PBR 일관성 검증 (로그만, BPS/PBR 직접 덮어쓰지 않음)
                     if (per != null && roe != null && pbr != null
                             && per.compareTo(BigDecimal.ZERO) > 0
                             && roe.compareTo(BigDecimal.ZERO) > 0) {
@@ -641,12 +638,8 @@ public class StockDetailService {
                                 .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                         BigDecimal pbrRatio = pbr.divide(expectedPbr, 2, RoundingMode.HALF_UP);
                         if (pbrRatio.compareTo(new BigDecimal("2.0")) > 0 || pbrRatio.compareTo(new BigDecimal("0.5")) < 0) {
-                            log.warn("[StockDetail] {} PBR 불일치 보정: PBR={} → {} (PER×ROE/100, PER={}, ROE={}%)",
+                            log.warn("[StockDetail] {} PBR 불일치 감지: 계산PBR={}, 기대PBR={} (PER={}, ROE={}%)",
                                     stockCode, pbr, expectedPbr, per, roe);
-                            pbr = expectedPbr;
-                            if (currentPrice != null && expectedPbr.compareTo(BigDecimal.ZERO) > 0) {
-                                bps = currentPrice.divide(expectedPbr, 0, RoundingMode.HALF_UP);
-                            }
                         }
                     }
                 } else {
