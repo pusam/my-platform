@@ -84,8 +84,8 @@ public class AutoTradingBotService {
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5% (슬리피지+세금 고려)
     private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("2.0");   // 익절 1차: +2.0% (슬리피지 방어)
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
-    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");    // 최소 체결강도: 120% (STRONG_BUY 기준)
-    private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억
+    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("110");    // 최소 체결강도: 110% (매수 우위)
+    private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("1");    // 최소 순매수금액: 1억
     private static final int TIME_CUT_MINUTES = 5;                                // 타임컷: 5분
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원
     private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
@@ -404,18 +404,18 @@ public class AutoTradingBotService {
 
     /**
      * 스캘핑 매수 로직
-     * - 실행 시간: 09:00~10:30 (장 초반 변동성 집중, 5초 간격, 평일만)
+     * - 실행 시간: 09:00~11:30 (장 전반부, 5초 간격, 평일만)
      * - 수급 급증 종목 중 스캘핑 조건 충족 시 진입
      */
-    @Scheduled(cron = "*/5 * 9-10 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/5 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) {
             return;
         }
 
-        // 09:00~10:30만 매수 허용
+        // 09:00~11:30만 매수 허용
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(10, 30))) {
+        if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(11, 30))) {
             return;
         }
 
@@ -567,20 +567,25 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 스캘핑 진입 조건 체크
-     * 1. 체결강도 100% 이상
-     * 2. 순매수금액 3억 이상
-     * 3. 현재가 > 시초가 (양봉)
-     * 4. RSI(14) < 80 (과열 금지)
-     * 5. 20MA 이격도 < +15% (급등 금지)
-     * 6. 갭상승 < +8% (갭상승 과다 금지)
+     * 스캘핑 진입 조건 체크 (스코어링 방식)
+     *
+     * [필수 조건 - 3개 전부 충족 필요]
+     *  1. 순매수금액 ≥ 1억
+     *  2. 현재가 조회 성공
+     *  3. 양봉 (현재가 > 시초가)
+     *
+     * [보조 조건 - 4개 중 2개 이상 충족 필요]
+     *  A. 체결강도 ≥ 110%
+     *  B. RSI(14) < 70 (과열 아님)
+     *  C. 20MA 이격도 < 15%
+     *  D. 갭상승 < 8%
      */
     private ScalpingEntryResult checkScalpingEntry(InvestorSurgeDto surge) {
         String stockName = surge.getStockName();
         String stockCode = surge.getStockCode();
 
         try {
-            // ===== 조건 1: 순매수금액 3억 이상 (DB 데이터, API 호출 불필요 → 최우선 체크) =====
+            // ==================== 필수 조건 1: 순매수금액 ≥ 1억 ====================
             BigDecimal netBuyAmount = surge.getNetBuyAmount();
             if (netBuyAmount == null || netBuyAmount.compareTo(MIN_NET_BUY_AMOUNT) < 0) {
                 log.debug("[스캘핑봇] Skip [{}({})] 순매수 부족 (현재: {}억 < 기준: {}억)",
@@ -588,7 +593,7 @@ public class AutoTradingBotService {
                 return ScalpingEntryResult.fail("순매수 부족: " + netBuyAmount + "억");
             }
 
-            // ===== 현재가 조회 (이후 조건들에 필요) =====
+            // ==================== 필수 조건 2: 현재가 조회 ====================
             StockPriceDto priceDto = stockPriceService.getStockPrice(stockCode);
             if (priceDto == null || priceDto.getCurrentPrice() == null) {
                 log.debug("[스캘핑봇] Skip [{}({})] 현재가 조회 실패", stockName, stockCode);
@@ -598,7 +603,7 @@ public class AutoTradingBotService {
             BigDecimal currentPrice = priceDto.getCurrentPrice();
             BigDecimal openPrice = priceDto.getOpenPrice();
 
-            // ===== 조건: 거래대금 > 500억 OR 전일 대비 거래량 > 200% =====
+            // ===== 거래대금/거래량 기본 필터 (유동성 확인) =====
             BigDecimal tradingValue = priceDto.getAccumulatedTradingValue();
             boolean tradingValueOk = tradingValue != null
                     && tradingValue.compareTo(new BigDecimal(MIN_TRADING_VALUE)) > 0;
@@ -619,27 +624,7 @@ public class AutoTradingBotService {
                 return ScalpingEntryResult.fail("거래대금/거래량 부족");
             }
 
-            // ===== 조건 2: 체결강도 100% 이상 (데이터 없으면 진입 불가) =====
-            BigDecimal volumePower = null;
-            try {
-                ScalpingAnalysisDto scalpingData = scalpingAnalysisService.getVolumePowerRefresh(stockCode);
-                if (scalpingData != null && scalpingData.getVolumePower() != null) {
-                    volumePower = scalpingData.getVolumePower();
-                    if (volumePower.compareTo(MIN_VOLUME_POWER) < 0) {
-                        log.debug("[스캘핑봇] Skip [{}({})] 체결강도 부족 (현재: {}% < 기준: {}%)",
-                                stockName, stockCode, volumePower, MIN_VOLUME_POWER);
-                        return ScalpingEntryResult.fail("체결강도 부족: " + volumePower + "%");
-                    }
-                } else {
-                    log.debug("[스캘핑봇] Skip [{}({})] 체결강도 데이터 없음 — 진입 불가", stockName, stockCode);
-                    return ScalpingEntryResult.fail("체결강도 데이터 없음");
-                }
-            } catch (Exception e) {
-                log.debug("[스캘핑봇] Skip [{}({})] 체결강도 조회 실패 — 진입 불가: {}", stockName, stockCode, e.getMessage());
-                return ScalpingEntryResult.fail("체결강도 조회 실패");
-            }
-
-            // ===== 조건 3: 현재가 > 시초가 (양봉) =====
+            // ==================== 필수 조건 3: 양봉 ====================
             if (openPrice == null || openPrice.compareTo(BigDecimal.ZERO) <= 0) {
                 BigDecimal changeRate = priceDto.getChangeRate();
                 if (changeRate == null || changeRate.compareTo(BigDecimal.ZERO) <= 0) {
@@ -653,7 +638,7 @@ public class AutoTradingBotService {
                 return ScalpingEntryResult.fail("현재가 <= 시초가");
             }
 
-            // 시초가 대비 상승률 계산
+            // 시초가 대비 상승률
             BigDecimal openChangeRate = BigDecimal.ZERO;
             if (openPrice != null && openPrice.compareTo(BigDecimal.ZERO) > 0) {
                 openChangeRate = currentPrice.subtract(openPrice)
@@ -661,10 +646,37 @@ public class AutoTradingBotService {
                         .multiply(new BigDecimal("100"));
             }
 
-            // ===== 조건 4: RSI(분봉) / 이격도(일봉) (실패 시 진입 허용) =====
+            // ==================== 보조 조건 스코어링 (4개 중 2개 이상) ====================
+            int subScore = 0;
+            int subTotal = 4;
+            List<String> passedSubs = new java.util.ArrayList<>();
+            List<String> failedSubs = new java.util.ArrayList<>();
+
+            // ===== 보조 A: 체결강도 ≥ 110% =====
+            BigDecimal volumePower = null;
             try {
-                // ★ RSI: 분봉(1분봉) 기준 — 스캘핑에 적합한 단기 과열 판단
+                ScalpingAnalysisDto scalpingData = scalpingAnalysisService.getVolumePowerRefresh(stockCode);
+                if (scalpingData != null && scalpingData.getVolumePower() != null) {
+                    volumePower = scalpingData.getVolumePower();
+                    if (volumePower.compareTo(MIN_VOLUME_POWER) >= 0) {
+                        subScore++;
+                        passedSubs.add("체결강도 " + volumePower + "%");
+                    } else {
+                        failedSubs.add("체결강도 " + volumePower + "% < " + MIN_VOLUME_POWER + "%");
+                    }
+                } else {
+                    failedSubs.add("체결강도 데이터 없음");
+                }
+            } catch (Exception e) {
+                failedSubs.add("체결강도 조회 실패");
+            }
+
+            // ===== 보조 B: RSI(14) < 70 =====
+            try {
+                boolean rsiOk = true; // 조회 실패 시 통과 처리
                 boolean rsiChecked = false;
+
+                // 분봉 RSI 시도
                 try {
                     JsonNode minuteData = kisService.getStockMinuteChart(stockCode);
                     if (minuteData != null) {
@@ -680,33 +692,43 @@ public class AutoTradingBotService {
                             }
                             if (minuteClosePrices.size() >= 15) {
                                 TechnicalIndicatorsDto minuteIndicators = technicalIndicatorService.calculateSimple(minuteClosePrices);
-                                if (minuteIndicators.getRsi14() != null && minuteIndicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) >= 0) {
-                                    log.debug("[스캘핑봇] Skip [{}({})] 분봉 RSI 과열 (현재: {} >= 기준: {})",
-                                            stockName, stockCode, minuteIndicators.getRsi14(), RSI_ENTRY_LIMIT);
-                                    return ScalpingEntryResult.fail("분봉 RSI 과열: " + minuteIndicators.getRsi14());
+                                if (minuteIndicators.getRsi14() != null) {
+                                    rsiOk = minuteIndicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) < 0;
+                                    rsiChecked = true;
                                 }
-                                rsiChecked = true;
                             }
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("[스캘핑봇] 분봉 RSI 조회 실패 (일봉 폴백): {} - {}", stockCode, e.getMessage());
+                    log.debug("[스캘핑봇] 분봉 RSI 조회 실패 (일봉 폴백): {} - {}", stockCode, e.getMessage());
                 }
 
-                // 분봉 RSI 실패 시 일봉 폴백
+                // 분봉 실패 시 일봉 폴백
                 if (!rsiChecked) {
                     List<BigDecimal> closePrices = kisService.getDailyClosePrices(stockCode, 30);
                     if (closePrices != null && closePrices.size() >= 14) {
                         TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
-                        if (indicators.getRsi14() != null && indicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) >= 0) {
-                            log.debug("[스캘핑봇] Skip [{}({})] 일봉 RSI 과열 (현재: {} >= 기준: {})",
-                                    stockName, stockCode, indicators.getRsi14(), RSI_ENTRY_LIMIT);
-                            return ScalpingEntryResult.fail("RSI 과열(일봉): " + indicators.getRsi14());
+                        if (indicators.getRsi14() != null) {
+                            rsiOk = indicators.getRsi14().compareTo(RSI_ENTRY_LIMIT) < 0;
+                            rsiChecked = true;
                         }
                     }
                 }
 
-                // 이격도: 일봉 기준 유지 (중기 과열 판단)
+                if (rsiOk) {
+                    subScore++;
+                    passedSubs.add("RSI 양호");
+                } else {
+                    failedSubs.add("RSI 과열 ≥ " + RSI_ENTRY_LIMIT);
+                }
+            } catch (Exception e) {
+                // RSI 체크 실패 시 통과 처리
+                subScore++;
+                passedSubs.add("RSI 체크 실패(통과)");
+            }
+
+            // ===== 보조 C: 20MA 이격도 < 15% =====
+            try {
                 List<BigDecimal> dailyPrices = kisService.getDailyClosePrices(stockCode, 30);
                 if (dailyPrices != null && dailyPrices.size() >= 20) {
                     TechnicalIndicatorsDto dailyIndicators = technicalIndicatorService.calculate(dailyPrices);
@@ -714,18 +736,27 @@ public class AutoTradingBotService {
                         BigDecimal disparity = currentPrice.subtract(dailyIndicators.getMa20())
                                 .divide(dailyIndicators.getMa20(), 4, RoundingMode.HALF_UP)
                                 .multiply(new BigDecimal("100"));
-                        if (disparity.compareTo(DISPARITY_20MA_LIMIT) >= 0) {
-                            log.debug("[스캘핑봇] Skip [{}({})] 이격도 과다 (현재: {}% >= 기준: {}%)",
-                                    stockName, stockCode, disparity.setScale(2, RoundingMode.HALF_UP), DISPARITY_20MA_LIMIT);
-                            return ScalpingEntryResult.fail("이격도 과다: " + disparity.setScale(2, RoundingMode.HALF_UP) + "%");
+                        if (disparity.compareTo(DISPARITY_20MA_LIMIT) < 0) {
+                            subScore++;
+                            passedSubs.add("이격도 " + disparity.setScale(1, RoundingMode.HALF_UP) + "%");
+                        } else {
+                            failedSubs.add("이격도 " + disparity.setScale(1, RoundingMode.HALF_UP) + "% ≥ " + DISPARITY_20MA_LIMIT + "%");
                         }
+                    } else {
+                        subScore++; // 데이터 없으면 통과
+                        passedSubs.add("이격도 데이터 없음(통과)");
                     }
+                } else {
+                    subScore++; // 데이터 부족 시 통과
+                    passedSubs.add("이격도 데이터 부족(통과)");
                 }
             } catch (Exception e) {
-                log.warn("[스캘핑봇] RSI/이격도 체크 실패 (진입 허용): {} - {}", stockCode, e.getMessage());
+                subScore++; // 예외 시 통과
+                passedSubs.add("이격도 체크 실패(통과)");
             }
 
-            // ===== 조건 5: 갭상승 +8% 이상 → 매수 금지 =====
+            // ===== 보조 D: 갭상승 < 8% =====
+            boolean gapCheckDone = false;
             if (openPrice != null && openPrice.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal changePrice = priceDto.getChangePrice();
                 if (changePrice != null) {
@@ -734,17 +765,34 @@ public class AutoTradingBotService {
                         BigDecimal gapRate = openPrice.subtract(prevClose)
                                 .divide(prevClose, 4, RoundingMode.HALF_UP)
                                 .multiply(new BigDecimal("100"));
-                        if (gapRate.compareTo(GAP_UP_LIMIT) >= 0) {
-                            log.debug("[스캘핑봇] Skip [{}({})] 갭상승 과다 (현재: {}% >= 기준: {}%)",
-                                    stockName, stockCode, gapRate.setScale(2, RoundingMode.HALF_UP), GAP_UP_LIMIT);
-                            return ScalpingEntryResult.fail("갭상승 과다: " + gapRate.setScale(2, RoundingMode.HALF_UP) + "%");
+                        gapCheckDone = true;
+                        if (gapRate.compareTo(GAP_UP_LIMIT) < 0) {
+                            subScore++;
+                            passedSubs.add("갭 " + gapRate.setScale(1, RoundingMode.HALF_UP) + "%");
+                        } else {
+                            failedSubs.add("갭상승 " + gapRate.setScale(1, RoundingMode.HALF_UP) + "% ≥ " + GAP_UP_LIMIT + "%");
                         }
                     }
                 }
             }
+            if (!gapCheckDone) {
+                subScore++; // 갭 데이터 없으면 통과
+                passedSubs.add("갭 데이터 없음(통과)");
+            }
 
-            log.info("[스캘핑봇] ✓ 진입 조건 충족 [{}({})] 체결강도: {}%, 순매수: {}억, 시초가대비: +{}%",
-                    stockName, stockCode, volumePower != null ? volumePower : "N/A", netBuyAmount,
+            // ==================== 최종 판정: 보조 조건 2개 이상 충족 ====================
+            int requiredSubScore = 2;
+            if (subScore < requiredSubScore) {
+                log.info("[스캘핑봇] ✗ 보조조건 미달 [{}({})] {}/{} (통과: {} / 실패: {})",
+                        stockName, stockCode, subScore, subTotal,
+                        String.join(", ", passedSubs), String.join(", ", failedSubs));
+                return ScalpingEntryResult.fail("보조조건 " + subScore + "/" + subTotal + " (최소 " + requiredSubScore + "개 필요)");
+            }
+
+            log.info("[스캘핑봇] ✓ 진입 조건 충족 [{}({})] 순매수: {}억, 체결강도: {}%, 보조: {}/{}, 시초가대비: +{}%",
+                    stockName, stockCode, netBuyAmount,
+                    volumePower != null ? volumePower : "N/A",
+                    subScore, subTotal,
                     openChangeRate.setScale(2, RoundingMode.HALF_UP));
 
             return ScalpingEntryResult.success(currentPrice,
