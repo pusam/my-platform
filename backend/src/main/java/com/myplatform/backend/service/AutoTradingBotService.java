@@ -81,12 +81,12 @@ public class AutoTradingBotService {
     private final KoreaInvestmentService kisService;
 
     // ========== 스캘핑 전략 상수 ==========
-    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5% (슬리피지+세금 고려)
+    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.0");     // 손절: -1.0% (손실 건당 금액 축소)
     private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("2.0");   // 익절 1차: +2.0% (슬리피지 방어)
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("110");    // 최소 체결강도: 110% (매수 우위)
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("1");    // 최소 순매수금액: 1억
-    private static final int TIME_CUT_MINUTES = 5;                                // 타임컷: 5분
+    private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분 (수익 실현 기회 확대)
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원
     private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
@@ -96,6 +96,7 @@ public class AutoTradingBotService {
     private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("70");      // RSI 진입 상한 (분봉 기준, 과열 방지)
     private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("15"); // 20MA 이격도 상한 (%)
     private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("8");          // 갭상승 상한 (%)
+    private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");  // 최소 일중 변동폭: 1.5% (저변동성 종목 제외)
 
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
@@ -324,7 +325,7 @@ public class AutoTradingBotService {
                     "━━━ 매도 조건 (3초 감시) ━━━\n" +
                     "🟢 익절 1차: +2.5% → 절반 매도\n" +
                     "🟢 익절 2차: 고점 -1% → 전량 매도\n" +
-                    "🔴 손절: -1.5% → 전량 손절\n" +
+                    "🔴 손절: -1.0% → 전량 손절\n" +
                     "⏰ 타임컷: 10분 초과 → 전량 매도\n\n" +
                     "━━━ 리스크 관리 ━━━\n" +
                     "🛑 킬 스위치: 일일 손실 -3% 초과 시 봇 종료\n" +
@@ -622,6 +623,20 @@ public class AutoTradingBotService {
                 log.debug("[스캘핑봇] Skip [{}({})] 거래대금/거래량 부족 (거래대금: {}, 전일거래량비율 충족: {})",
                         stockName, stockCode, tradingValue, volumeRatioOk);
                 return ScalpingEntryResult.fail("거래대금/거래량 부족");
+            }
+
+            // ==================== 변동성 필터: 저변동성 종목 제외 ====================
+            BigDecimal highPrice = priceDto.getHighPrice();
+            BigDecimal lowPrice = priceDto.getLowPrice();
+            if (highPrice != null && lowPrice != null && lowPrice.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal intradayRange = highPrice.subtract(lowPrice)
+                        .divide(lowPrice, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+                if (intradayRange.compareTo(MIN_INTRADAY_RANGE) < 0) {
+                    log.debug("[스캘핑봇] Skip [{}({})] 저변동성 종목 (일중변동폭: {}% < 기준: {}%)",
+                            stockName, stockCode, intradayRange.setScale(1, RoundingMode.HALF_UP), MIN_INTRADAY_RANGE);
+                    return ScalpingEntryResult.fail("저변동성 종목: 일중변동폭 " + intradayRange.setScale(1, RoundingMode.HALF_UP) + "%");
+                }
             }
 
             // ==================== 필수 조건 3: 양봉 ====================
