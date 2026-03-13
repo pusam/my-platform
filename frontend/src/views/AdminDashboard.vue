@@ -1,7 +1,7 @@
 <template>
-  <div class="page-container">
+  <div :class="['page-container', { embedded: embedded }]">
     <div class="page-content">
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
         <h1>⚙️ 관리자 대시보드</h1>
         <div class="header-actions">
           <div class="header-user">
@@ -393,6 +393,9 @@ import apiClient, { adminAPI, telegramAPI } from '../utils/api';
 
 export default {
   name: 'AdminDashboard',
+  props: {
+    embedded: { type: Boolean, default: false }
+  },
   data() {
     return {
       username: '',
@@ -1210,6 +1213,17 @@ export default {
   .system-info-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.page-container.embedded {
+  min-height: auto;
+  background: none;
+  padding: 0;
+}
+.page-container.embedded .page-content {
+  max-width: none;
+  padding: 0;
+  margin: 0;
 }
 </style>
 

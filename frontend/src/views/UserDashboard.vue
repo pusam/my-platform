@@ -13,6 +13,26 @@
         </div>
       </header>
 
+      <!-- 상단 탭 -->
+      <div class="dashboard-tabs">
+        <button
+          :class="['dash-tab', { active: activeTab === 'user' }]"
+          @click="activeTab = 'user'"
+        >🏠 유저 대시보드</button>
+        <button
+          :class="['dash-tab', { active: activeTab === 'system' }]"
+          @click="activeTab = 'system'"
+        >🛠️ 시스템 대시보드</button>
+      </div>
+
+      <!-- 시스템 대시보드 (AdminDashboard 임베드) -->
+      <div v-if="activeTab === 'system'">
+        <AdminDashboard :embedded="true" />
+      </div>
+
+      <!-- 유저 대시보드 -->
+      <div v-show="activeTab === 'user'">
+
       <!-- 환영 메시지 -->
       <section class="welcome-card">
         <div class="welcome-content">
@@ -271,82 +291,7 @@
         </div>
       </section>
 
-      <!-- 시스템 관리 섹션 -->
-      <section class="menu-section">
-        <div class="section-header">
-          <span class="section-icon">🛠️</span>
-          <h2>시스템</h2>
-        </div>
-        <div class="menu-grid">
-          <article class="menu-card" @click="$router.push('/admin')">
-            <div class="card-icon admin-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                <line x1="8" y1="21" x2="16" y2="21"/>
-                <line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
-            </div>
-            <h3>서버 모니터링</h3>
-            <p>CPU, 메모리, 디스크, 텔레그램, API</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card" @click="$router.push('/admin/users')">
-            <div class="card-icon users-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-                <circle cx="9" cy="7" r="4"/>
-                <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-                <path d="M16 3.13a4 4 0 010 7.75"/>
-              </svg>
-            </div>
-            <h3>유저 관리</h3>
-            <p>회원 승인 및 관리</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card" @click="$router.push('/admin/batch')">
-            <div class="card-icon batch-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polyline points="22,12 18,12 15,21 9,3 6,12 2,12"/>
-              </svg>
-            </div>
-            <h3>배치 모니터</h3>
-            <p>스케줄러 작업 상태</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card" @click="$router.push('/admin/logs')">
-            <div class="card-icon logs-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                <polyline points="14,2 14,8 20,8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-              </svg>
-            </div>
-            <h3>활동 로그</h3>
-            <p>시스템 로그 조회</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-        </div>
-      </section>
+      </div><!-- /v-show user -->
 
     </div>
   </div>
@@ -355,14 +300,17 @@
 <script>
 import { newsAPI, financeAPI, assetAPI } from '../utils/api';
 import MarketInfoWidget from '../components/MarketInfoWidget.vue';
+import AdminDashboard from './AdminDashboard.vue';
 
 export default {
   name: 'UserDashboard',
   components: {
-    MarketInfoWidget
+    MarketInfoWidget,
+    AdminDashboard
   },
   data() {
     return {
+      activeTab: 'user',
       username: '',
       newsList: [],
       financeSummary: {
@@ -1268,21 +1216,34 @@ export default {
   margin-bottom: var(--section-gap);
 }
 
-/* 시스템 관리 카드 아이콘 */
-.card-icon.admin-icon {
-  background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(220, 38, 38, 0.15) 100%);
-  color: #ef4444;
+/* 대시보드 탭 */
+.dashboard-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 12px;
+  padding: 4px;
 }
-.card-icon.users-icon {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(37, 99, 235, 0.15) 100%);
-  color: #3b82f6;
-}
-.card-icon.batch-icon {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(217, 119, 6, 0.15) 100%);
-  color: #f59e0b;
-}
-.card-icon.logs-icon {
-  background: linear-gradient(135deg, rgba(107, 114, 128, 0.15) 0%, rgba(75, 85, 99, 0.15) 100%);
+.dash-tab {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
   color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.dash-tab:hover {
+  color: #374151;
+  background: rgba(0, 0, 0, 0.03);
+}
+.dash-tab.active {
+  background: #fff;
+  color: #1f2937;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 </style>
