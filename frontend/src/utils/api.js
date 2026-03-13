@@ -925,6 +925,28 @@ export const globalFuturesAPI = {
   }
 };
 
+// 실적공시 API
+export const earningsAPI = {
+  getRecent(months = 3) {
+    return apiClient.get('/earnings/recent', { params: { months } });
+  },
+  getCalendar(year, month) {
+    return apiClient.get('/earnings/calendar', { params: { year, month } });
+  },
+  getWatchlist() {
+    return apiClient.get('/earnings/watchlist');
+  },
+  search(q) {
+    return apiClient.get('/earnings/search', { params: { q } });
+  },
+  getStats(months = 3) {
+    return apiClient.get('/earnings/stats', { params: { months } });
+  },
+  collect() {
+    return apiClient.post('/earnings/collect');
+  }
+};
+
 // 간편 사용을 위한 export
 export const signup = (signupData) => authAPI.signup(signupData);
 export const getPendingUsers = () => userSettingsAPI.getPendingUsers();

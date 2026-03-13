@@ -82,6 +82,9 @@
         <SectionBacktest
           v-if="discoverTab === 'backtest'"
         />
+        <SectionEarnings
+          v-if="discoverTab === 'earnings'"
+        />
       </div>
 
       <!-- ═══ Tab 3: 내 계좌/봇 ═══ -->
@@ -107,6 +110,7 @@ import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
 import SectionResearch from '../components/v2/SectionResearch.vue'
 import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
+import SectionEarnings from '../components/v2/SectionEarnings.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import PaperTradingPage from './PaperTradingPage.vue'
 import {
@@ -160,6 +164,7 @@ export default {
     SectionResearch,
     SectionWatchlist,
     SectionBacktest,
+    SectionEarnings,
     StockSearchModal,
     PaperTradingPage
   },
@@ -177,7 +182,8 @@ export default {
         { key: 'watchlist', label: '관심종목', icon: '⭐' },
         { key: 'smart', label: '스마트 머니', icon: '💰' },
         { key: 'screener', label: '실적 스크리너', icon: '🔬' },
-        { key: 'backtest', label: 'AI 성과', icon: '📊' }
+        { key: 'backtest', label: 'AI 성과', icon: '📊' },
+        { key: 'earnings', label: '실적공시', icon: '📋' }
       ],
       showSearch: false,
       dataLoaded: { market: false, discover: false },
