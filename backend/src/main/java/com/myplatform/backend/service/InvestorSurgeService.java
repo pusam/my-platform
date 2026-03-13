@@ -214,14 +214,18 @@ public class InvestorSurgeService {
                     if (item.has("stck_prpr")) {
                         try {
                             currentPrice = new BigDecimal(item.get("stck_prpr").asText().replace(",", ""));
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("현재가 파싱 실패: {}", e.getMessage());
+                        }
                     }
 
                     BigDecimal changeRate = BigDecimal.ZERO;
                     if (item.has("prdy_ctrt")) {
                         try {
                             changeRate = new BigDecimal(item.get("prdy_ctrt").asText().replace(",", ""));
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("등락률 파싱 실패: {}", e.getMessage());
+                        }
                     }
 
                     InvestorIntradaySnapshot snapshot = InvestorIntradaySnapshot.builder()

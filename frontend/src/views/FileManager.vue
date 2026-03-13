@@ -150,7 +150,7 @@
               @change="onFileSelected"
               required
             />
-            <p class="file-info">※ 최대 100MB/파일, 여러 파일 동시 선택 가능</p>
+            <p class="file-info">※ 최대 300MB/파일, 여러 파일 동시 선택 가능</p>
           </div>
           <div v-if="selectedFiles.length" class="file-preview">
             <strong>선택된 파일 ({{ selectedFiles.length }}개):</strong>
@@ -352,10 +352,10 @@ const createFolder = async () => {
 
 const onFileSelected = (event) => {
   const files = Array.from(event.target.files);
-  const maxSize = 100 * 1024 * 1024;
+  const maxSize = 300 * 1024 * 1024;
   const oversized = files.filter(f => f.size > maxSize);
   if (oversized.length) {
-    modalError.value = `${oversized.map(f => f.name).join(', ')} — 100MB 초과`;
+    modalError.value = `${oversized.map(f => f.name).join(', ')} — 300MB 초과`;
     event.target.value = '';
     return;
   }

@@ -831,7 +831,9 @@ public class FinancialDataCrawlerService {
                             // 분기 마지막 날로 설정
                             LocalDate qDate = LocalDate.of(year, month, 1).plusMonths(1).minusDays(1);
                             quarterDates.add(qDate);
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("분기 날짜 파싱 실패: {}", e.getMessage());
+                        }
                     }
                 }
 
@@ -939,7 +941,9 @@ public class FinancialDataCrawlerService {
                             int month = Integer.parseInt(parts[1].substring(0, 2));
                             LocalDate qDate = LocalDate.of(year, month, 1).plusMonths(1).minusDays(1);
                             quarterDates.add(qDate);
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("분기 날짜 파싱 실패: {}", e.getMessage());
+                        }
                     }
                 }
 
