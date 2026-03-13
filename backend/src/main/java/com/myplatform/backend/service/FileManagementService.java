@@ -124,19 +124,35 @@ public class FileManagementService {
         String extension = originalFilename != null && originalFilename.contains(".")
                 ? originalFilename.substring(originalFilename.lastIndexOf("."))
                 : "";
-        String storedFilename = UUID.randomUUID().toString() + extension;
 
         Path userDir = Paths.get(uploadDir, user.getId().toString());
         Files.createDirectories(userDir);
 
+        // 동일 파일명 존재 시 덮어쓰기
+        var existing = folderId != null
+                ? fileRepository.findByUserIdAndFolderIdAndOriginalName(user.getId(), folderId, originalFilename)
+                : fileRepository.findByUserIdAndFolderIdIsNullAndOriginalName(user.getId(), originalFilename);
+
+        UserFile userFile;
+        if (existing.isPresent()) {
+            // 기존 파일 물리적 삭제 후 덮어쓰기
+            userFile = existing.get();
+            try {
+                Files.deleteIfExists(Paths.get(userFile.getFilePath()));
+            } catch (IOException e) {
+                log.warn("기존 파일 삭제 실패: {}", e.getMessage());
+            }
+        } else {
+            userFile = new UserFile();
+            userFile.setUserId(user.getId());
+            userFile.setFolderId(folderId);
+            userFile.setOriginalName(originalFilename);
+        }
+
+        String storedFilename = UUID.randomUUID().toString() + extension;
         Path filePath = userDir.resolve(storedFilename);
         Files.copy(file.getInputStream(), filePath);
 
-        // DB 저장
-        UserFile userFile = new UserFile();
-        userFile.setUserId(user.getId());
-        userFile.setFolderId(folderId);
-        userFile.setOriginalName(originalFilename);
         userFile.setStoredName(storedFilename);
         userFile.setFilePath(filePath.toString());
         userFile.setFileSize(file.getSize());
