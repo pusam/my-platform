@@ -34,6 +34,7 @@ public class EarningsDisclosureService {
     private final EarningsDisclosureRepository earningsRepository;
     private final StockWatchlistRepository watchlistRepository;
     private final TelegramNotificationService telegramService;
+    private final GeminiService geminiService;
 
     @Value("${dart.api.key:}")
     private String dartApiKey;
@@ -85,10 +86,12 @@ public class EarningsDisclosureService {
     public EarningsDisclosureService(
             EarningsDisclosureRepository earningsRepository,
             StockWatchlistRepository watchlistRepository,
-            TelegramNotificationService telegramService) {
+            TelegramNotificationService telegramService,
+            GeminiService geminiService) {
         this.earningsRepository = earningsRepository;
         this.watchlistRepository = watchlistRepository;
         this.telegramService = telegramService;
+        this.geminiService = geminiService;
 
         var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(10000);
@@ -441,6 +444,237 @@ public class EarningsDisclosureService {
         );
 
         telegramService.sendMessage(message);
+    }
+
+    // ======================== 실적 요약 ========================
+
+    /**
+     * DART 재무 수치 조회 + Gemini AI 요약
+     * - /fnlttSinglAcnt.json 으로 핵심 재무 수치 조회
+     * - Gemini AI 로 투자자 관점 코멘트 생성
+     */
+    public Map<String, Object> getEarningsSummary(String corpCode, String corpName, String reportType) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("corpName", corpName);
+
+        // 1. DART 재무 수치 조회
+        List<Map<String, String>> financials = fetchFinancialAccounts(corpCode, reportType);
+        result.put("financials", financials);
+
+        // 2. 재무 데이터가 있으면 Gemini AI 요약
+        if (!financials.isEmpty() && geminiService != null) {
+            String aiComment = generateAiComment(corpName, financials);
+            result.put("aiComment", aiComment);
+        } else if (financials.isEmpty()) {
+            result.put("aiComment", "DART에서 재무 수치를 조회할 수 없습니다. (기업코드 매핑 없음 또는 아직 공시 전)");
+        }
+
+        return result;
+    }
+
+    /**
+     * DART 단일회사 주요계정 조회 (/fnlttSinglAcnt.json)
+     */
+    private List<Map<String, String>> fetchFinancialAccounts(String corpCode, String reportType) {
+        if (dartApiKey == null || dartApiKey.isEmpty() || corpCode == null) {
+            return Collections.emptyList();
+        }
+
+        try {
+            // reprt_code: 11013=1분기, 11012=반기, 11014=3분기, 11011=사업보고서
+            String reprtCode = switch (reportType) {
+                case "QUARTERLY" -> "11013";
+                case "SEMI_ANNUAL" -> "11012";
+                case "ANNUAL" -> "11011";
+                default -> "11014"; // 3분기 or 잠정
+            };
+
+            // 최근 연도
+            int bsnsYear = LocalDate.now().getYear();
+            // 현재가 1~3월이면 전년도 데이터 우선 조회
+            if (LocalDate.now().getMonthValue() <= 3) {
+                bsnsYear--;
+            }
+
+            List<Map<String, String>> allAccounts = new ArrayList<>();
+
+            // 최근 2개 연도 시도 (당년 데이터 없으면 전년도)
+            for (int year = bsnsYear; year >= bsnsYear - 1; year--) {
+                List<Map<String, String>> accounts = callDartFinancialApi(corpCode, String.valueOf(year), reprtCode);
+                if (!accounts.isEmpty()) {
+                    allAccounts = accounts;
+                    break;
+                }
+                Thread.sleep(300);
+            }
+
+            return allAccounts;
+
+        } catch (Exception e) {
+            log.error("[실적요약] DART 재무 조회 실패: corpCode={}, error={}", corpCode, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private List<Map<String, String>> callDartFinancialApi(String corpCode, String bsnsYear, String reprtCode) {
+        List<Map<String, String>> accounts = new ArrayList<>();
+
+        try {
+            String url = UriComponentsBuilder.fromUriString(DART_BASE_URL + "/fnlttSinglAcnt.json")
+                    .queryParam("crtfc_key", dartApiKey)
+                    .queryParam("corp_code", corpCode)
+                    .queryParam("bsns_year", bsnsYear)
+                    .queryParam("reprt_code", reprtCode)
+                    .queryParam("fs_div", "CFS") // 연결재무제표
+                    .build()
+                    .toUriString();
+
+            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                String status = root.has("status") ? root.get("status").asText() : "";
+
+                if (!"000".equals(status)) {
+                    // 연결재무제표 없으면 별도재무제표 시도
+                    url = UriComponentsBuilder.fromUriString(DART_BASE_URL + "/fnlttSinglAcnt.json")
+                            .queryParam("crtfc_key", dartApiKey)
+                            .queryParam("corp_code", corpCode)
+                            .queryParam("bsns_year", bsnsYear)
+                            .queryParam("reprt_code", reprtCode)
+                            .queryParam("fs_div", "OFS")
+                            .build()
+                            .toUriString();
+
+                    response = restTemplate.getForEntity(url, String.class);
+                    if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                        return accounts;
+                    }
+                    root = objectMapper.readTree(response.getBody());
+                    status = root.has("status") ? root.get("status").asText() : "";
+                    if (!"000".equals(status)) {
+                        return accounts;
+                    }
+                }
+
+                JsonNode list = root.get("list");
+                if (list != null && list.isArray()) {
+                    // 핵심 계정과목만 필터
+                    Set<String> keyAccounts = Set.of(
+                            "매출액", "영업이익", "당기순이익", "자산총계",
+                            "부채총계", "자본총계", "영업활동현금흐름"
+                    );
+
+                    for (JsonNode item : list) {
+                        String accountNm = getTextValue(item, "account_nm");
+                        if (accountNm != null && keyAccounts.contains(accountNm)) {
+                            Map<String, String> account = new LinkedHashMap<>();
+                            account.put("accountNm", accountNm);
+                            account.put("thstrmAmount", getTextValue(item, "thstrm_amount")); // 당기
+                            account.put("frmtrmAmount", getTextValue(item, "frmtrm_amount")); // 전기
+                            account.put("bfefrmtrmAmount", getTextValue(item, "bfefrmtrm_amount")); // 전전기
+                            account.put("bsnsYear", bsnsYear);
+                            account.put("reprtCode", reprtCode);
+                            accounts.add(account);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("[실적요약] DART API 호출 실패: {}", e.getMessage());
+        }
+
+        return accounts;
+    }
+
+    /**
+     * Gemini AI 실적 코멘트 생성
+     */
+    private String generateAiComment(String corpName, List<Map<String, String>> financials) {
+        try {
+            StringBuilder dataStr = new StringBuilder();
+            for (Map<String, String> account : financials) {
+                String name = account.get("accountNm");
+                String current = account.get("thstrmAmount");
+                String previous = account.get("frmtrmAmount");
+                dataStr.append(String.format("- %s: 당기 %s / 전기 %s\n", name,
+                        current != null ? current : "N/A",
+                        previous != null ? previous : "N/A"));
+            }
+
+            String prompt = String.format("""
+                    당신은 한국 주식시장 전문 애널리스트입니다.
+
+                    아래는 '%s'의 최근 실적 공시 핵심 재무 수치입니다.
+
+                    [재무 수치 (단위: 원)]
+                    %s
+
+                    위 실적을 투자자 관점에서 분석해주세요:
+                    1. 매출/영업이익/순이익 전기 대비 증감 평가 (구체적 %% 포함)
+                    2. 실적이 좋은지/나쁜지 한 줄 판단
+                    3. 투자자에게 주는 시사점 (1-2문장)
+
+                    반드시 한국어로, 200자 이내로 간결하게 답변해주세요.
+                    숫자는 억원 단위로 환산해서 표시해주세요.
+                    """, corpName, dataStr.toString());
+
+            return geminiService.chat(prompt);
+        } catch (Exception e) {
+            log.error("[실적요약] AI 코멘트 생성 실패: {}", e.getMessage());
+            return "AI 분석을 생성할 수 없습니다.";
+        }
+    }
+
+    /**
+     * corpCode를 corpName으로부터 찾기 (역매핑 + DartService 매핑 활용)
+     */
+    public String findCorpCodeByName(String corpName) {
+        // STOCK_TO_CORP의 역매핑에서 기업명으로 찾기 위해 DartService 매핑 활용
+        Map<String, String> nameToCorpCode = new LinkedHashMap<>();
+        nameToCorpCode.put("삼성전자", "00126380");
+        nameToCorpCode.put("SK하이닉스", "00164779");
+        nameToCorpCode.put("LG에너지솔루션", "01711413");
+        nameToCorpCode.put("삼성바이오로직스", "00917503");
+        nameToCorpCode.put("현대자동차", "00164742");
+        nameToCorpCode.put("현대차", "00164742");
+        nameToCorpCode.put("기아", "00164529");
+        nameToCorpCode.put("셀트리온", "00421045");
+        nameToCorpCode.put("POSCO홀딩스", "00117631");
+        nameToCorpCode.put("포스코홀딩스", "00117631");
+        nameToCorpCode.put("NAVER", "00266961");
+        nameToCorpCode.put("네이버", "00266961");
+        nameToCorpCode.put("카카오", "01011885");
+        nameToCorpCode.put("삼성SDI", "00126186");
+        nameToCorpCode.put("LG화학", "00356361");
+        nameToCorpCode.put("현대모비스", "00164788");
+        nameToCorpCode.put("삼성물산", "00126263");
+        nameToCorpCode.put("KB금융", "00688996");
+        nameToCorpCode.put("신한지주", "00382199");
+        nameToCorpCode.put("하나금융지주", "00547583");
+        nameToCorpCode.put("LG", "00155856");
+        nameToCorpCode.put("SK", "00401731");
+        nameToCorpCode.put("LG전자", "00401731");
+        nameToCorpCode.put("KT&G", "00401335");
+        nameToCorpCode.put("삼성에스디에스", "00126571");
+        nameToCorpCode.put("삼성전기", "00164645");
+        nameToCorpCode.put("SK이노베이션", "00631518");
+        nameToCorpCode.put("한국전력", "00155913");
+        nameToCorpCode.put("한국전력공사", "00155913");
+
+        // 정확 매칭
+        if (nameToCorpCode.containsKey(corpName)) {
+            return nameToCorpCode.get(corpName);
+        }
+
+        // 부분 매칭
+        for (Map.Entry<String, String> entry : nameToCorpCode.entrySet()) {
+            if (corpName.contains(entry.getKey()) || entry.getKey().contains(corpName)) {
+                return entry.getValue();
+            }
+        }
+
+        return null;
     }
 
     private String getTextValue(JsonNode node, String field) {

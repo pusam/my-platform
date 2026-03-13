@@ -22,6 +22,7 @@ import java.util.*;
  * - GET  /api/earnings/search         : 종목명 검색
  * - GET  /api/earnings/stats          : 유형별 통계
  * - POST /api/earnings/collect        : 수동 수집 트리거
+ * - GET  /api/earnings/summary       : 실적 요약 (DART 재무 + AI 코멘트)
  */
 @RestController
 @RequestMapping("/api/earnings")
@@ -141,6 +142,45 @@ public class EarningsDisclosureController {
             log.error("[실적공시] 통계 조회 실패: {}", e.getMessage());
             return ResponseEntity.internalServerError()
                     .body(Map.of("success", false, "message", "통계 조회 실패"));
+        }
+    }
+
+    /**
+     * 실적 요약 (DART 재무 수치 + AI 코멘트)
+     * GET /api/earnings/summary?corpCode=00126380&corpName=삼성전자&reportType=QUARTERLY
+     */
+    @GetMapping("/summary")
+    public ResponseEntity<Map<String, Object>> getEarningsSummary(
+            @RequestParam(required = false) String corpCode,
+            @RequestParam String corpName,
+            @RequestParam(defaultValue = "QUARTERLY") String reportType) {
+        try {
+            // corpCode 없으면 corpName으로 매핑
+            if (corpCode == null || corpCode.isEmpty()) {
+                corpCode = earningsService.findCorpCodeByName(corpName);
+            }
+
+            if (corpCode == null) {
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "data", Map.of(
+                                "corpName", corpName,
+                                "financials", Collections.emptyList(),
+                                "aiComment", "기업코드를 찾을 수 없어 재무 데이터를 조회할 수 없습니다."
+                        )
+                ));
+            }
+
+            Map<String, Object> summary = earningsService.getEarningsSummary(corpCode, corpName, reportType);
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "data", summary
+            ));
+        } catch (Exception e) {
+            log.error("[실적요약] 조회 실패: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body(Map.of("success", false, "message", "실적 요약 조회 실패: " + e.getMessage()));
         }
     }
 

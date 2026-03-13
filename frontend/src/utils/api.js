@@ -944,6 +944,12 @@ export const earningsAPI = {
   },
   collect() {
     return apiClient.post('/earnings/collect');
+  },
+  getSummary(corpName, corpCode, reportType) {
+    return apiClient.get('/earnings/summary', {
+      params: { corpName, corpCode, reportType },
+      timeout: 60000
+    });
   }
 };
 

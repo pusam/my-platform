@@ -63,6 +63,7 @@
           <div class="d-right">
             <span class="d-report">{{ truncate(item.reportNm, 40) }}</span>
             <span class="d-date">{{ formatDate(item.rceptDt) }}</span>
+            <button class="summary-btn" @click.stop="openSummary(item)" title="실적 요약">AI</button>
           </div>
         </div>
 
@@ -145,6 +146,7 @@
           <div class="d-right">
             <span class="d-report">{{ truncate(item.reportNm, 40) }}</span>
             <span class="d-date">{{ formatDate(item.rceptDt) }}</span>
+            <button class="summary-btn" @click.stop="openSummary(item)" title="실적 요약">AI</button>
           </div>
         </div>
       </div>
@@ -156,6 +158,68 @@
         <span class="stat-badge" :class="badgeClass(type)">{{ typeLabel(type) }}</span>
         {{ count }}건
       </span>
+    </div>
+
+    <!-- 실적 요약 모달 -->
+    <div v-if="summaryModal" class="modal-overlay" @click.self="summaryModal = null">
+      <div class="summary-modal">
+        <div class="modal-header">
+          <h3>{{ summaryModal.corpName }} 실적 요약</h3>
+          <button class="modal-close" @click="summaryModal = null">&times;</button>
+        </div>
+
+        <div v-if="summaryLoading" class="loading-area">
+          <div class="spinner"></div>
+          <span>DART 재무 데이터 + AI 분석 중...</span>
+        </div>
+
+        <div v-else-if="summaryData" class="modal-body">
+          <!-- 재무 수치 테이블 -->
+          <div v-if="summaryData.financials && summaryData.financials.length > 0" class="financials-section">
+            <h4>핵심 재무 수치</h4>
+            <table class="fin-table">
+              <thead>
+                <tr>
+                  <th>항목</th>
+                  <th>당기</th>
+                  <th>전기</th>
+                  <th>증감</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, i) in summaryData.financials" :key="'fin-' + i">
+                  <td class="fin-name">{{ item.accountNm }}</td>
+                  <td class="fin-val">{{ formatAmount(item.thstrmAmount) }}</td>
+                  <td class="fin-val">{{ formatAmount(item.frmtrmAmount) }}</td>
+                  <td :class="['fin-change', changeClass(item.thstrmAmount, item.frmtrmAmount)]">
+                    {{ calcChange(item.thstrmAmount, item.frmtrmAmount) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div v-else class="empty-msg">
+            재무 데이터를 조회할 수 없습니다.
+          </div>
+
+          <!-- AI 코멘트 -->
+          <div v-if="summaryData.aiComment" class="ai-comment-section">
+            <h4>AI 분석</h4>
+            <div class="ai-comment-box">
+              {{ summaryData.aiComment }}
+            </div>
+          </div>
+
+          <!-- DART 원문 링크 -->
+          <div v-if="summaryModal.rceptNo" class="dart-link-row">
+            <a :href="'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=' + summaryModal.rceptNo"
+               target="_blank" class="dart-link">
+              DART 원문 보기 &rarr;
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -193,7 +257,11 @@ export default {
       // 통계
       stats: {},
       // 수집
-      collecting: false
+      collecting: false,
+      // 실적 요약 모달
+      summaryModal: null,
+      summaryLoading: false,
+      summaryData: null
     }
   },
   computed: {
@@ -406,6 +474,57 @@ export default {
     truncate(str, len) {
       if (!str) return ''
       return str.length > len ? str.substring(0, len) + '...' : str
+    },
+
+    // 실적 요약
+    async openSummary(item) {
+      this.summaryModal = item
+      this.summaryLoading = true
+      this.summaryData = null
+      try {
+        const res = await earningsAPI.getSummary(
+          item.corpName,
+          item.corpCode || '',
+          item.disclosureType || 'QUARTERLY'
+        )
+        if (res.data.success) {
+          this.summaryData = res.data.data
+        }
+      } catch (e) {
+        console.error('실적 요약 실패:', e)
+        this.summaryData = { financials: [], aiComment: '실적 요약을 불러올 수 없습니다.' }
+      } finally {
+        this.summaryLoading = false
+      }
+    },
+
+    formatAmount(val) {
+      if (!val || val === 'N/A') return '-'
+      const num = parseInt(val.replace(/,/g, ''))
+      if (isNaN(num)) return val
+      const billion = num / 100000000
+      if (Math.abs(billion) >= 1) {
+        return billion.toLocaleString('ko-KR', { maximumFractionDigits: 0 }) + '억'
+      }
+      return num.toLocaleString('ko-KR') + '원'
+    },
+
+    calcChange(current, previous) {
+      if (!current || !previous || current === 'N/A' || previous === 'N/A') return '-'
+      const cur = parseInt(current.replace(/,/g, ''))
+      const prev = parseInt(previous.replace(/,/g, ''))
+      if (isNaN(cur) || isNaN(prev) || prev === 0) return '-'
+      const rate = ((cur - prev) / Math.abs(prev)) * 100
+      const sign = rate >= 0 ? '+' : ''
+      return `${sign}${rate.toFixed(1)}%`
+    },
+
+    changeClass(current, previous) {
+      if (!current || !previous || current === 'N/A' || previous === 'N/A') return ''
+      const cur = parseInt(current.replace(/,/g, ''))
+      const prev = parseInt(previous.replace(/,/g, ''))
+      if (isNaN(cur) || isNaN(prev)) return ''
+      return cur >= prev ? 'positive' : 'negative'
     }
   }
 }
@@ -811,6 +930,174 @@ export default {
   padding: 30px 0;
   color: #666;
   font-size: 13px;
+}
+
+/* 실적 요약 버튼 */
+.summary-btn {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.3), rgba(168, 85, 247, 0.3));
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.summary-btn:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.5), rgba(168, 85, 247, 0.5));
+  color: #fff;
+  transform: scale(1.05);
+}
+
+/* 모달 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.summary-modal {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 17px;
+  color: #e0e0e0;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  color: #fff;
+}
+
+.modal-body {
+  padding: 20px 24px 24px;
+}
+
+/* 재무 테이블 */
+.financials-section h4,
+.ai-comment-section h4 {
+  font-size: 14px;
+  color: #aaa;
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.fin-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 20px;
+}
+
+.fin-table th {
+  text-align: left;
+  font-size: 12px;
+  color: #666;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+}
+
+.fin-table td {
+  padding: 10px;
+  font-size: 13px;
+  color: #ccc;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.fin-name {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.fin-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.fin-change {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.fin-change.positive {
+  color: #ef4444;
+}
+
+.fin-change.negative {
+  color: #3b82f6;
+}
+
+/* AI 코멘트 */
+.ai-comment-section {
+  margin-top: 4px;
+}
+
+.ai-comment-box {
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 13px;
+  color: #d4d4d8;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* DART 링크 */
+.dart-link-row {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.dart-link {
+  color: #8ab4ff;
+  text-decoration: none;
+  font-size: 13px;
+  padding: 8px 20px;
+  border: 1px solid rgba(100, 150, 255, 0.3);
+  border-radius: 8px;
+  display: inline-block;
+  transition: all 0.2s;
+}
+
+.dart-link:hover {
+  background: rgba(100, 150, 255, 0.1);
+  border-color: rgba(100, 150, 255, 0.5);
 }
 
 /* 반응형 */
