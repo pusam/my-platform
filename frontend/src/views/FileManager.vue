@@ -33,6 +33,12 @@
         <button @click="showUploadModal = true" class="btn btn-success">
           📤 파일 업로드
         </button>
+        <button @click="toggleSelectMode" class="btn" :class="selectMode ? 'btn-danger' : 'btn-select'">
+          {{ selectMode ? '선택 취소' : '🗑️ 선택 삭제' }}
+        </button>
+        <button v-if="selectMode && selectedItemIds.size > 0" @click="deleteSelected" class="btn btn-danger">
+          🗑️ {{ selectedItemIds.size }}개 삭제
+        </button>
       </div>
       <div class="action-right">
         <div class="sort-dropdown">
@@ -62,9 +68,11 @@
         v-for="folder in sortedFolders"
         :key="'folder-' + folder.id"
         class="file-item folder-item"
-        @click="navigateToFolder(folder.id)"
+        :class="{ 'selected': selectMode && selectedItemIds.has('folder-' + folder.id) }"
+        @click="selectMode ? toggleItem('folder', folder.id) : navigateToFolder(folder.id)"
         @contextmenu.prevent="showFolderContextMenu(folder, $event)"
       >
+        <input v-if="selectMode" type="checkbox" :checked="selectedItemIds.has('folder-' + folder.id)" class="item-checkbox" @click.stop />
         <div class="icon">📁</div>
         <div class="name">{{ folder.name }}</div>
         <div class="meta">{{ formatDate(folder.createdAt) }}</div>
@@ -75,10 +83,11 @@
         v-for="file in sortedFiles"
         :key="'file-' + file.id"
         class="file-item"
-        :class="{ 'image-file': isImageFile(file) }"
-        @click="viewFile(file)"
+        :class="{ 'image-file': isImageFile(file), 'selected': selectMode && selectedItemIds.has('file-' + file.id) }"
+        @click="selectMode ? toggleItem('file', file.id) : viewFile(file)"
         @contextmenu.prevent="showFileContextMenu(file, $event)"
       >
+        <input v-if="selectMode" type="checkbox" :checked="selectedItemIds.has('file-' + file.id)" class="item-checkbox" @click.stop />
         <!-- 이미지 파일인 경우 썸네일 미리보기 -->
         <div v-if="isImageFile(file)" class="thumbnail-container">
           <img
@@ -149,12 +158,19 @@
               <li v-for="(f, i) in selectedFiles" :key="i">{{ f.name }} ({{ formatFileSize(f.size) }})</li>
             </ul>
           </div>
+          <!-- 업로드 진행률 -->
+          <div v-if="processing && uploadProgress.total > 1" class="upload-progress">
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" :style="{ width: (uploadProgress.current / uploadProgress.total * 100) + '%' }"></div>
+            </div>
+            <div class="progress-text">{{ uploadProgress.current }} / {{ uploadProgress.total }}</div>
+          </div>
           <div v-if="modalError" class="error-message">{{ modalError }}</div>
           <div class="modal-actions">
             <button type="submit" class="btn btn-success" :disabled="processing || !selectedFiles.length">
-              {{ processing ? '업로드 중...' : '업로드' }}
+              {{ processing ? `업로드 중... (${uploadProgress.current}/${uploadProgress.total})` : '업로드' }}
             </button>
-            <button type="button" @click="closeUploadModal" class="btn btn-secondary">취소</button>
+            <button type="button" @click="closeUploadModal" class="btn btn-secondary" :disabled="processing">취소</button>
           </div>
         </form>
       </div>
@@ -217,6 +233,11 @@ const newFolderName = ref('');
 const selectedFiles = ref([]);
 const modalError = ref('');
 const processing = ref(false);
+const uploadProgress = ref({ current: 0, total: 0 });
+
+// 다중 선택 모드
+const selectMode = ref(false);
+const selectedItemIds = ref(new Set());
 
 const contextMenu = ref({
   show: false,
@@ -351,6 +372,8 @@ const uploadFile = async () => {
   try {
     processing.value = true;
     modalError.value = '';
+    const total = selectedFiles.value.length;
+    uploadProgress.value = { current: 0, total };
     let failed = [];
     for (const file of selectedFiles.value) {
       try {
@@ -358,10 +381,12 @@ const uploadFile = async () => {
       } catch (e) {
         failed.push(file.name);
       }
+      uploadProgress.value.current++;
     }
     if (failed.length) {
-      modalError.value = `${failed.join(', ')} 업로드 실패`;
+      modalError.value = `${failed.join(', ')} 업로드 실패 (${total - failed.length}/${total} 성공)`;
     } else {
+      alert(`${total}개 파일 업로드 완료!`);
       closeUploadModal();
     }
     await loadFolder(currentFolderId.value);
@@ -370,6 +395,7 @@ const uploadFile = async () => {
     modalError.value = error.response?.data?.message || '파일 업로드에 실패했습니다.';
   } finally {
     processing.value = false;
+    uploadProgress.value = { current: 0, total: 0 };
   }
 };
 
@@ -395,6 +421,45 @@ const showFileContextMenu = (file, event) => {
 
 const closeContextMenu = () => {
   contextMenu.value.show = false;
+};
+
+const toggleSelectMode = () => {
+  selectMode.value = !selectMode.value;
+  selectedItemIds.value = new Set();
+};
+
+const toggleItem = (type, id) => {
+  const key = `${type}-${id}`;
+  const newSet = new Set(selectedItemIds.value);
+  if (newSet.has(key)) {
+    newSet.delete(key);
+  } else {
+    newSet.add(key);
+  }
+  selectedItemIds.value = newSet;
+};
+
+const deleteSelected = async () => {
+  const count = selectedItemIds.value.size;
+  if (!confirm(`선택한 ${count}개 항목을 삭제하시겠습니까?`)) return;
+
+  try {
+    for (const key of selectedItemIds.value) {
+      const [type, id] = key.split('-');
+      if (type === 'folder') {
+        await fileAPI.deleteFolder(Number(id));
+      } else {
+        await fileAPI.deleteFile(Number(id));
+      }
+    }
+    selectedItemIds.value = new Set();
+    selectMode.value = false;
+    await loadFolder(currentFolderId.value);
+  } catch (error) {
+    console.error('Failed to delete selected:', error);
+    alert('일부 항목 삭제에 실패했습니다.');
+    await loadFolder(currentFolderId.value);
+  }
 };
 
 const deleteItem = async () => {
@@ -749,6 +814,7 @@ onMounted(() => {
 }
 
 .file-item {
+  position: relative;
   background: white;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
@@ -942,6 +1008,54 @@ onMounted(() => {
   overflow-y: auto;
 }
 .selected-file-list li { margin-bottom: 2px; }
+
+.upload-progress {
+  margin-bottom: 12px;
+}
+.progress-bar-container {
+  background: #e0e0e0;
+  border-radius: 8px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.progress-bar-fill {
+  background: linear-gradient(135deg, #11998e, #38ef7d);
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.3s;
+}
+.progress-text {
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.btn-select {
+  background: #6c757d;
+  color: white;
+}
+.btn-select:hover { background: #5a6268; }
+.btn-danger {
+  background: #e74c3c;
+  color: white;
+}
+.btn-danger:hover:not(:disabled) { background: #c0392b; }
+
+.file-item.selected {
+  border-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.08);
+}
+.item-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  z-index: 1;
+}
 
 .modal-actions {
   display: flex;
