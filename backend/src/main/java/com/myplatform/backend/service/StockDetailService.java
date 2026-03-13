@@ -1300,7 +1300,8 @@ public class StockDetailService {
                         stockCode, latestCol < headerCells.size() ? headerCells.get(latestCol).text() : "?", latestCol);
 
                 // 각 행에서 데이터 추출 (BPS/ROE/마진/부채비율은 Annual 테이블 사용)
-                BigDecimal issuedShares = null; // 발행주식수 (천주)
+                BigDecimal issuedShares = null; // 발행주식수 (천주) - 보통주만
+                BigDecimal tableEps = null; // FnGuide 테이블 EPS(원) 직접값
 
                 Elements rows = highlightTable.select("tbody tr");
                 for (Element row : rows) {
@@ -1312,8 +1313,15 @@ public class StockDetailService {
                     BigDecimal value = parseFnGuideNumber(cellText);
                     if (value == null) continue;
 
-                    if (label.startsWith("발행주식수")) {
+                    if (label.startsWith("발행주식수") && label.contains("보통주")) {
+                        // 보통주 발행주식수만 사용 (우선주 제외)
                         issuedShares = value;
+                    } else if (label.startsWith("발행주식수") && issuedShares == null) {
+                        // "보통주" 명시 없으면 첫 번째 발행주식수 행 사용 (폴백)
+                        issuedShares = value;
+                    } else if (label.startsWith("EPS") && label.contains("원")) {
+                        // EPS(원) 행 직접 읽기
+                        tableEps = value;
                     } else if (label.startsWith("BPS")) {
                         metrics.put("bps", value);
                     } else if (label.startsWith("PER")) {
@@ -1331,7 +1339,16 @@ public class StockDetailService {
                     }
                 }
 
-                // ★ EPS TTM 계산: highlight_D_Q (분기) 테이블에서 최근 4분기 지배주주순이익 합산
+                // FnGuide 테이블에 EPS(원) 행이 있으면 우선 사용 (연결 지배지분 기준)
+                if (tableEps != null) {
+                    metrics.put("eps", tableEps);
+                    log.info("[StockDetail] {} EPS FnGuide 테이블 직접값: {}", stockCode, tableEps);
+                }
+
+                // ★ EPS TTM 계산 (테이블 EPS 없을 때만): highlight_D_Q (분기) 테이블에서 최근 4분기 지배주주순이익 합산
+                if (tableEps != null) {
+                    log.info("[StockDetail] {} 테이블 EPS 있음 → TTM 계산 스킵", stockCode);
+                }
                 BigDecimal ttmNetIncome = null;
                 Element quarterTable = doc.selectFirst("div#highlight_D_Q table");
                 if (quarterTable != null) {
@@ -1383,13 +1400,14 @@ public class StockDetailService {
                 }
 
                 // ★ EPS = TTM 지배주주순이익(억원) × 1억 / 발행주식수(천주 × 1,000)
-                if (ttmNetIncome != null && issuedShares != null
+                // 테이블 EPS가 없을 때만 TTM 계산 사용
+                if (tableEps == null && ttmNetIncome != null && issuedShares != null
                         && issuedShares.compareTo(BigDecimal.ZERO) > 0) {
                     BigDecimal calcEps = ttmNetIncome
                             .multiply(new BigDecimal("100000000"))  // 억원 → 원
                             .divide(issuedShares.multiply(new BigDecimal("1000")), 0, RoundingMode.HALF_UP);  // 천주 → 주
                     metrics.put("eps", calcEps);
-                    log.info("[StockDetail] {} EPS TTM 계산: {} (TTM순이익: {}억 ÷ 발행주식수: {}천주)",
+                    log.info("[StockDetail] {} EPS TTM 폴백 계산: {} (TTM순이익: {}억 ÷ 발행주식수: {}천주)",
                             stockCode, calcEps, ttmNetIncome, issuedShares);
                 }
             }
