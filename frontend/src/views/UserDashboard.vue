@@ -1223,29 +1223,29 @@ export default {
   display: flex;
   gap: 4px;
   margin-bottom: 24px;
-  background: rgba(0, 0, 0, 0.03);
+  background: #e5e7eb;
   border-radius: 12px;
   padding: 4px;
 }
 .dash-tab {
   flex: 1;
-  padding: 12px 16px;
+  padding: 14px 16px;
   border: none;
   background: transparent;
   border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
   color: #6b7280;
   cursor: pointer;
   transition: all 0.2s;
 }
 .dash-tab:hover {
-  color: #374151;
-  background: rgba(0, 0, 0, 0.03);
+  color: #111827;
+  background: rgba(255, 255, 255, 0.5);
 }
 .dash-tab.active {
   background: #fff;
-  color: #1f2937;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  color: #111827;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 </style>
