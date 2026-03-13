@@ -345,6 +345,9 @@ export const adminAPI = {
   deleteUser(id) {
     return apiClient.delete(`/admin/users/${id}`);
   },
+  unlockUser(id) {
+    return apiClient.post(`/admin/users/${id}/unlock`);
+  },
   getUserStats() {
     return apiClient.get('/admin/users/stats');
   },

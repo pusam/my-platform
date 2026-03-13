@@ -157,6 +157,17 @@ public class AdminController {
         }
     }
 
+    @Operation(summary = "사용자 잠금 해제", description = "로그인 실패로 잠긴 사용자 계정을 해제합니다.")
+    @PostMapping("/users/{userId}/unlock")
+    public ResponseEntity<ApiResponse<String>> unlockUser(@PathVariable Long userId) {
+        try {
+            userManagementService.unlockUser(userId);
+            return ResponseEntity.ok(ApiResponse.success("계정 잠금이 해제되었습니다.", null));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("잠금 해제 실패: " + e.getMessage()));
+        }
+    }
+
     @Operation(summary = "사용자 삭제", description = "사용자 계정을 완전히 삭제합니다.")
     @DeleteMapping("/users/{userId}")
     public ResponseEntity<ApiResponse<String>> deleteUser(@PathVariable Long userId) {
