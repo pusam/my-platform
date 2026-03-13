@@ -137,17 +137,21 @@
             <label>파일 선택</label>
             <input
               type="file"
+              multiple
               @change="onFileSelected"
               required
             />
-            <p class="file-info">※ 최대 100MB까지 업로드 가능 (이미지, 영상, 문서 등)</p>
+            <p class="file-info">※ 최대 100MB/파일, 여러 파일 동시 선택 가능</p>
           </div>
-          <div v-if="selectedFile" class="file-preview">
-            <strong>선택된 파일:</strong> {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})
+          <div v-if="selectedFiles.length" class="file-preview">
+            <strong>선택된 파일 ({{ selectedFiles.length }}개):</strong>
+            <ul class="selected-file-list">
+              <li v-for="(f, i) in selectedFiles" :key="i">{{ f.name }} ({{ formatFileSize(f.size) }})</li>
+            </ul>
           </div>
           <div v-if="modalError" class="error-message">{{ modalError }}</div>
           <div class="modal-actions">
-            <button type="submit" class="btn btn-success" :disabled="processing || !selectedFile">
+            <button type="submit" class="btn btn-success" :disabled="processing || !selectedFiles.length">
               {{ processing ? '업로드 중...' : '업로드' }}
             </button>
             <button type="button" @click="closeUploadModal" class="btn btn-secondary">취소</button>
@@ -210,7 +214,7 @@ const sortOption = ref('name-asc'); // 기본 정렬: 이름순
 const showCreateFolderModal = ref(false);
 const showUploadModal = ref(false);
 const newFolderName = ref('');
-const selectedFile = ref(null);
+const selectedFiles = ref([]);
 const modalError = ref('');
 const processing = ref(false);
 
@@ -326,22 +330,20 @@ const createFolder = async () => {
 };
 
 const onFileSelected = (event) => {
-  const file = event.target.files[0];
-  if (file) {
-    // 100MB = 100 * 1024 * 1024 bytes
-    const maxSize = 100 * 1024 * 1024;
-    if (file.size > maxSize) {
-      modalError.value = '파일 크기는 100MB를 초과할 수 없습니다.';
-      event.target.value = ''; // 파일 선택 초기화
-      return;
-    }
-    selectedFile.value = file;
-    modalError.value = '';
+  const files = Array.from(event.target.files);
+  const maxSize = 100 * 1024 * 1024;
+  const oversized = files.filter(f => f.size > maxSize);
+  if (oversized.length) {
+    modalError.value = `${oversized.map(f => f.name).join(', ')} — 100MB 초과`;
+    event.target.value = '';
+    return;
   }
+  selectedFiles.value = files;
+  modalError.value = '';
 };
 
 const uploadFile = async () => {
-  if (!selectedFile.value) {
+  if (!selectedFiles.value.length) {
     modalError.value = '파일을 선택하세요.';
     return;
   }
@@ -349,11 +351,22 @@ const uploadFile = async () => {
   try {
     processing.value = true;
     modalError.value = '';
-    await fileAPI.uploadFile(currentFolderId.value, selectedFile.value, null);
-    closeUploadModal();
+    let failed = [];
+    for (const file of selectedFiles.value) {
+      try {
+        await fileAPI.uploadFile(currentFolderId.value, file, null);
+      } catch (e) {
+        failed.push(file.name);
+      }
+    }
+    if (failed.length) {
+      modalError.value = `${failed.join(', ')} 업로드 실패`;
+    } else {
+      closeUploadModal();
+    }
     await loadFolder(currentFolderId.value);
   } catch (error) {
-    console.error('Failed to upload file:', error);
+    console.error('Failed to upload files:', error);
     modalError.value = error.response?.data?.message || '파일 업로드에 실패했습니다.';
   } finally {
     processing.value = false;
@@ -513,7 +526,7 @@ const closeCreateFolderModal = () => {
 
 const closeUploadModal = () => {
   showUploadModal.value = false;
-  selectedFile.value = null;
+  selectedFiles.value = [];
   modalError.value = '';
 };
 
@@ -920,6 +933,15 @@ onMounted(() => {
   margin-bottom: 15px;
   word-break: break-word;
 }
+.selected-file-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #555;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.selected-file-list li { margin-bottom: 2px; }
 
 .modal-actions {
   display: flex;
