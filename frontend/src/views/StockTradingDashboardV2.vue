@@ -87,11 +87,6 @@
         />
       </div>
 
-      <!-- ═══ Tab 3: 내 계좌/봇 ═══ -->
-      <div v-if="activeGnbTab === 'account'" class="tab-panel">
-        <PaperTradingPage :embedded="true" />
-      </div>
-
       <!-- 종목 검색 모달 -->
       <StockSearchModal
         :visible="showSearch"
@@ -112,7 +107,6 @@ import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import SectionEarnings from '../components/v2/SectionEarnings.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
-import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
@@ -165,8 +159,7 @@ export default {
     SectionWatchlist,
     SectionBacktest,
     SectionEarnings,
-    StockSearchModal,
-    PaperTradingPage
+    StockSearchModal
   },
   provide() {
     return {
@@ -239,7 +232,6 @@ export default {
         this.loadResearch()
         this.dataLoaded.discover = true
       }
-      // account 탭은 PaperTradingPage 내부에서 자체 로드
     },
 
     // ---- 뉴스 로딩 (공용) ----

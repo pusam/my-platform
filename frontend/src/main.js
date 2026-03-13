@@ -230,7 +230,7 @@ const router = createRouter({
       path: '/paper-trading',
       name: 'PaperTrading',
       component: PaperTradingPage,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, role: 'ADMIN' }
     },
     {
       path: '/oil',
