@@ -22,12 +22,24 @@ import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
 @Service
 @Transactional
 public class FileManagementService {
+
+    // 차단할 위험 파일 확장자
+    private static final Set<String> BLOCKED_EXTENSIONS = Set.of(
+            ".exe", ".bat", ".cmd", ".com", ".msi", ".scr", ".pif",
+            ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".ps1",
+            ".sh", ".bash", ".csh", ".ksh",
+            ".jsp", ".jspx", ".asp", ".aspx", ".php", ".cgi", ".pl",
+            ".py", ".rb", ".jar", ".war", ".class",
+            ".dll", ".sys", ".drv", ".reg",
+            ".hta", ".inf", ".lnk"
+    );
 
     private final UserFolderRepository folderRepository;
     private final UserFileRepository fileRepository;
@@ -119,11 +131,24 @@ public class FileManagementService {
             }
         }
 
-        // 파일 저장
+        // 파일명 검증
         String originalFilename = file.getOriginalFilename();
-        String extension = originalFilename != null && originalFilename.contains(".")
-                ? originalFilename.substring(originalFilename.lastIndexOf("."))
+        if (originalFilename == null || originalFilename.isBlank()) {
+            throw new RuntimeException("파일 이름이 없습니다.");
+        }
+        // 경로 순회 방지
+        if (originalFilename.contains("..") || originalFilename.contains("/") || originalFilename.contains("\\")) {
+            throw new RuntimeException("잘못된 파일 이름입니다.");
+        }
+
+        String extension = originalFilename.contains(".")
+                ? originalFilename.substring(originalFilename.lastIndexOf(".")).toLowerCase()
                 : "";
+
+        // 위험 파일 확장자 차단
+        if (BLOCKED_EXTENSIONS.contains(extension)) {
+            throw new RuntimeException("보안상 업로드할 수 없는 파일 형식입니다: " + extension);
+        }
 
         Path userDir = Paths.get(uploadDir, user.getId().toString());
         Files.createDirectories(userDir);
@@ -150,7 +175,11 @@ public class FileManagementService {
         }
 
         String storedFilename = UUID.randomUUID().toString() + extension;
-        Path filePath = userDir.resolve(storedFilename);
+        Path filePath = userDir.resolve(storedFilename).normalize();
+        // 경로 순회 최종 방어
+        if (!filePath.startsWith(userDir.normalize())) {
+            throw new RuntimeException("잘못된 파일 경로입니다.");
+        }
         Files.copy(file.getInputStream(), filePath);
 
         userFile.setStoredName(storedFilename);
