@@ -128,7 +128,7 @@
               <div class="stat-row">
                 <span class="label">상태</span>
                 <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'VIRTUAL' ? botStatus.status : 'STOPPED')">
-                  {{ botStatus.active && botStatus.tradingMode === 'VIRTUAL' ? '실행 중' : '중지됨' }}
+                  {{ botStatus.tradingMode === 'VIRTUAL' && botStatus.status === 'VIX_PAUSED' ? '⏸️ VIX 일시정지' : (botStatus.active && botStatus.tradingMode === 'VIRTUAL' ? '실행 중' : '중지됨') }}
                 </span>
               </div>
               <div class="stat-row">
@@ -338,7 +338,7 @@
               <div class="stat-row">
                 <span class="label">상태</span>
                 <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'REAL' ? botStatus.status : 'STOPPED')">
-                  {{ botStatus.active && botStatus.tradingMode === 'REAL' ? '실행 중' : '중지됨' }}
+                  {{ botStatus.tradingMode === 'REAL' && botStatus.status === 'VIX_PAUSED' ? '⏸️ VIX 일시정지' : (botStatus.active && botStatus.tradingMode === 'REAL' ? '실행 중' : '중지됨') }}
                 </span>
               </div>
               <div class="stat-row">
@@ -994,6 +994,8 @@ const getBotStatusClass = (status) => {
     case 'RUNNING': return 'running';
     case 'STOPPED': return 'stopped';
     case 'ERROR': return 'error';
+    case 'VIX_PAUSED': return 'vix-paused';
+    case 'KILL_SWITCH': return 'error';
     default: return '';
   }
 };
@@ -1274,6 +1276,7 @@ onUnmounted(() => {
 .running { color: #48bb78 !important; }
 .stopped { color: #888 !important; }
 .error { color: #ed8936 !important; }
+.vix-paused { color: #f6e05e !important; }
 
 /* 섹션 */
 .section {

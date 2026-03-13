@@ -79,6 +79,7 @@ public class AutoTradingBotService {
     private final BotConfigRepository botConfigRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final KoreaInvestmentService kisService;
+    private final GlobalFuturesService globalFuturesService;
 
     // ========== 스캘핑 전략 상수 ==========
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.0");     // 손절: -1.0% (손실 건당 금액 축소)
@@ -97,6 +98,7 @@ public class AutoTradingBotService {
     private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("15"); // 20MA 이격도 상한 (%)
     private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("8");          // 갭상승 상한 (%)
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");  // 최소 일중 변동폭: 1.5% (저변동성 종목 제외)
+    private static final double VIX_PAUSE_THRESHOLD = 30.0;                    // VIX 일시정지 임계치
 
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
@@ -123,6 +125,9 @@ public class AutoTradingBotService {
     private volatile BigDecimal dailyStartAsset = BigDecimal.ZERO;
     // 킬 스위치 발동 여부
     private final AtomicBoolean killSwitchTriggered = new AtomicBoolean(false);
+    // VIX 기반 일시정지
+    private final AtomicBoolean vixPaused = new AtomicBoolean(false);
+    private volatile LocalDateTime lastVixAlertTime = null;
     // 수급 급증 데이터 캐시 (10분마다 갱신되므로 매초 DB 조회 불필요)
     private volatile Map<String, List<InvestorSurgeDto>> cachedSurgeStocks = null;
     private volatile LocalDateTime surgeStocksCacheTime = null;
@@ -185,7 +190,8 @@ public class AutoTradingBotService {
             TelegramNotificationService telegramService,
             BotConfigRepository botConfigRepository,
             TechnicalIndicatorService technicalIndicatorService,
-            KoreaInvestmentService kisService) {
+            KoreaInvestmentService kisService,
+            GlobalFuturesService globalFuturesService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -196,6 +202,7 @@ public class AutoTradingBotService {
         this.botConfigRepository = botConfigRepository;
         this.technicalIndicatorService = technicalIndicatorService;
         this.kisService = kisService;
+        this.globalFuturesService = globalFuturesService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -377,6 +384,8 @@ public class AutoTradingBotService {
             status = "KILL_SWITCH";
         } else if (!botActive.get()) {
             status = "STOPPED";
+        } else if (vixPaused.get()) {
+            status = "VIX_PAUSED";
         } else if (lastError != null && lastErrorTime != null &&
                    lastErrorTime.isAfter(LocalDateTime.now().minusMinutes(30))) {
             status = "ERROR";
@@ -401,6 +410,63 @@ public class AutoTradingBotService {
         return currentMode;
     }
 
+    // ==================== VIX 기반 매수 일시정지 ====================
+
+    /**
+     * VIX 30 이상이면 매수 일시정지 + 텔레그램 알림 (1시간에 1번만)
+     * VIX 30 미만으로 회복되면 자동 해제 + 알림
+     */
+    private boolean checkVixPause() {
+        try {
+            GlobalFuturesService.FuturesQuote vixData = globalFuturesService.getFuturesQuote("^VIX");
+            if (vixData == null || !vixData.isSuccess() || vixData.getCurrentPrice() == null) return false;
+
+            double vixPrice = vixData.getCurrentPrice().doubleValue();
+
+            if (vixPrice >= VIX_PAUSE_THRESHOLD) {
+                if (!vixPaused.getAndSet(true)) {
+                    // 최초 VIX 일시정지 발동
+                    log.warn("[스캘핑봇] ⚠️ VIX {} → 매수 일시정지!", vixPrice);
+                    sendVixAlert(vixPrice, true);
+                } else if (lastVixAlertTime == null ||
+                        lastVixAlertTime.isBefore(LocalDateTime.now().minusHours(1))) {
+                    // 1시간마다 반복 알림
+                    sendVixAlert(vixPrice, false);
+                }
+                return true;
+            } else if (vixPaused.getAndSet(false)) {
+                // VIX 정상 복귀
+                log.info("[스캘핑봇] ✅ VIX {} → 매수 재개", vixPrice);
+                if (telegramService.isEnabled()) {
+                    telegramService.sendMessage(
+                        String.format("<b>✅ VIX 정상 복귀 → 매수 재개</b>\n\n" +
+                            "📊 VIX: <b>%.1f</b> (임계치: %.0f)\n" +
+                            "🤖 스캘핑봇 매수 자동 재개\n\n" +
+                            "━━━━━━━━━━━━━━━━", vixPrice, VIX_PAUSE_THRESHOLD)
+                    );
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] VIX 조회 실패 (무시): {}", e.getMessage());
+        }
+        return false;
+    }
+
+    private void sendVixAlert(double vixPrice, boolean isFirstAlert) {
+        lastVixAlertTime = LocalDateTime.now();
+        if (telegramService.isEnabled()) {
+            String prefix = isFirstAlert ? "🚨 VIX 급등 — 매수 일시정지!" : "⚠️ VIX 고공 유지 중";
+            telegramService.sendMessage(
+                String.format("<b>%s</b>\n\n" +
+                    "📊 VIX: <b>%.1f</b> (임계치: %.0f)\n" +
+                    "⏸️ 스캘핑봇 매수 자동 중단\n" +
+                    "📉 매도/손절은 정상 작동 중\n\n" +
+                    "VIX %.0f 미만 회복 시 자동 재개\n" +
+                    "━━━━━━━━━━━━━━━━", prefix, vixPrice, VIX_PAUSE_THRESHOLD, VIX_PAUSE_THRESHOLD)
+            );
+        }
+    }
+
     // ==================== 매수 로직 (스캘핑) ====================
 
     /**
@@ -417,6 +483,11 @@ public class AutoTradingBotService {
         // 09:00~11:30만 매수 허용
         LocalTime now = LocalTime.now();
         if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(11, 30))) {
+            return;
+        }
+
+        // ★ VIX 30 이상 → 매수 일시정지
+        if (checkVixPause()) {
             return;
         }
 
