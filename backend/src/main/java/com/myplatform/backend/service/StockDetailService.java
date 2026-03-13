@@ -1402,21 +1402,53 @@ public class StockDetailService {
                 metrics.put("pbr", topPbr);
             }
 
-            // ★ PER/PBR 검증: 1000 이상이면 날짜값 오파싱 → 직접 계산으로 대체
+            // ★ PER/PBR 다단계 검증
             BigDecimal fnEps = metrics.get("eps");
             BigDecimal fnBps = metrics.get("bps");
             BigDecimal fnPer = metrics.get("per");
             BigDecimal fnPbr = metrics.get("pbr");
 
-            boolean perInvalid = (fnPer == null || fnPer.compareTo(new BigDecimal("1000")) >= 0);
-            boolean pbrInvalid = (fnPbr == null || fnPbr.compareTo(new BigDecimal("100")) >= 0);
+            // 검증 1: 절대 상한 — 1000/100 이상이면 날짜값 오파싱
+            boolean perInvalid = (fnPer != null && fnPer.compareTo(new BigDecimal("1000")) >= 0);
+            boolean pbrInvalid = (fnPbr != null && fnPbr.compareTo(new BigDecimal("100")) >= 0);
+
+            // 검증 2: 음수 PER인데 EPS가 양수 → 오파싱 (적자기업의 음수PER은 EPS도 음수여야 함)
+            if (fnPer != null && fnPer.compareTo(BigDecimal.ZERO) < 0
+                    && fnEps != null && fnEps.compareTo(BigDecimal.ZERO) > 0) {
+                log.warn("[StockDetail] {} PER 음수({})인데 EPS 양수({}) → 오파싱 판정",
+                        stockCode, fnPer, fnEps);
+                perInvalid = true;
+            }
+
+            // 검증 3: PBR 음수인데 BPS 양수 → 오파싱
+            if (fnPbr != null && fnPbr.compareTo(BigDecimal.ZERO) < 0
+                    && fnBps != null && fnBps.compareTo(BigDecimal.ZERO) > 0) {
+                log.warn("[StockDetail] {} PBR 음수({})인데 BPS 양수({}) → 오파싱 판정",
+                        stockCode, fnPbr, fnBps);
+                pbrInvalid = true;
+            }
+
+            // 검증 4: EPS·BPS 기반 역산 교차검증 (PER×EPS ≈ PBR×BPS 일관성 체크)
+            if (fnPer != null && fnEps != null && fnPbr != null && fnBps != null
+                    && fnEps.compareTo(BigDecimal.ZERO) != 0 && fnBps.compareTo(BigDecimal.ZERO) != 0) {
+                BigDecimal impliedPriceByPer = fnPer.multiply(fnEps);
+                BigDecimal impliedPriceByPbr = fnPbr.multiply(fnBps);
+                if (impliedPriceByPer.compareTo(BigDecimal.ZERO) > 0 && impliedPriceByPbr.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal priceRatio = impliedPriceByPer.divide(impliedPriceByPbr, 2, RoundingMode.HALF_UP);
+                    if (priceRatio.compareTo(new BigDecimal("3")) > 0 || priceRatio.compareTo(new BigDecimal("0.33")) < 0) {
+                        log.warn("[StockDetail] {} PER×EPS({}) vs PBR×BPS({}) 3배 이상 괴리 → 직접 계산",
+                                stockCode, impliedPriceByPer, impliedPriceByPbr);
+                        perInvalid = true;
+                        pbrInvalid = true;
+                    }
+                }
+            }
 
             if (perInvalid || pbrInvalid) {
-                log.warn("[StockDetail] {} FnGuide PER/PBR 이상값 감지 (PER={}, PBR={}) → 직접 계산",
-                        stockCode, fnPer, fnPbr);
-                // PER/PBR 제거 — fetchFinancialInfo에서 주가 기반으로 직접 계산
-                metrics.remove("per");
-                metrics.remove("pbr");
+                log.warn("[StockDetail] {} FnGuide PER/PBR 이상값 감지 (PER={}, PBR={}, perInvalid={}, pbrInvalid={}) → 직접 계산",
+                        stockCode, fnPer, fnPbr, perInvalid, pbrInvalid);
+                if (perInvalid) metrics.remove("per");
+                if (pbrInvalid) metrics.remove("pbr");
             }
 
             log.info("[StockDetail] {} FnGuide RAW: PER={}, PBR={}, EPS={}, BPS={}, ROE={}, 영업이익률={}, 부채비율={}",
