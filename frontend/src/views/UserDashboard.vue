@@ -13,8 +13,8 @@
         </div>
       </header>
 
-      <!-- 상단 탭 -->
-      <div class="dashboard-tabs">
+      <!-- 상단 탭 (ADMIN만 표시) -->
+      <div v-if="isAdmin" class="dashboard-tabs">
         <button
           :class="['dash-tab', { active: activeTab === 'user' }]"
           @click="activeTab = 'user'"
@@ -25,8 +25,8 @@
         >🛠️ 시스템 대시보드</button>
       </div>
 
-      <!-- 시스템 대시보드 (AdminDashboard 임베드) -->
-      <div v-if="activeTab === 'system'">
+      <!-- 시스템 대시보드 (ADMIN만) -->
+      <div v-if="isAdmin && activeTab === 'system'">
         <AdminDashboard :embedded="true" />
       </div>
 
@@ -311,6 +311,7 @@ export default {
   data() {
     return {
       activeTab: 'user',
+      isAdmin: false,
       username: '',
       newsList: [],
       financeSummary: {
@@ -327,6 +328,7 @@ export default {
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'User'
+    this.isAdmin = localStorage.getItem('role') === 'ADMIN'
     this.loadNews()
     this.loadFinanceSummary()
     this.loadAssetSummary()
