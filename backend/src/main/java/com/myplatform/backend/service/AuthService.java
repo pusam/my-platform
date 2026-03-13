@@ -110,13 +110,9 @@ public class AuthService {
             return new SignupResponse(false, "핸드폰번호 형식이 올바르지 않습니다. (예: 010-1234-5678)");
         }
 
-        // 6. 이메일 인증 확인
-        boolean isVerified = emailVerificationService.verifyToken(
-            request.getEmail(),
-            request.getVerificationToken()
-        );
-        if (!isVerified) {
-            return new SignupResponse(false, "이메일 인증번호가 올바르지 않거나 만료되었습니다.");
+        // 6. 이메일 인증 확인 (verify-email API에서 이미 인증 완료된 상태 확인)
+        if (!emailVerificationService.isEmailVerified(request.getEmail())) {
+            return new SignupResponse(false, "이메일 인증이 완료되지 않았습니다. 인증번호를 먼저 확인해주세요.");
         }
 
         // 7. 중복 체크

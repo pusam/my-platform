@@ -63,12 +63,11 @@ public class EmailVerificationService {
     }
 
     /**
-     * 이메일 인증 여부 확인
+     * 이메일 인증 완료 여부 확인 (회원가입 시 사용)
+     * 최근 30분 이내에 인증 완료된 토큰이 있으면 true
      */
     public boolean isEmailVerified(String email) {
-        return tokenRepository.findByEmailAndTokenAndVerifiedFalseAndExpiresAtAfter(
-                email, "", LocalDateTime.now().minusHours(1)
-        ).isEmpty();
+        return tokenRepository.existsByEmailAndVerifiedTrue(email);
     }
 
     /**
