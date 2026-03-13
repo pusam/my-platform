@@ -5,12 +5,6 @@
       <header class="common-header">
         <h1>대시보드</h1>
         <div class="header-actions">
-          <button @click="showWidgetSettings = true" class="btn-widget-settings" title="위젯 설정">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-            </svg>
-          </button>
           <div class="header-user">
             <div class="user-avatar">{{ username.charAt(0) }}</div>
             <span>{{ username }}</span>
@@ -178,7 +172,7 @@
             </span>
           </article>
 
-          <article v-if="widgetSettings.assetSummary" class="menu-card asset" @click="goToAsset">
+          <article class="menu-card asset" @click="goToAsset">
             <div class="card-icon asset-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <line x1="12" y1="1" x2="12" y2="23"/>
@@ -194,7 +188,7 @@
             </span>
           </article>
 
-          <article v-if="widgetSettings.financeSummary" class="menu-card finance" @click="goToFinance">
+          <article class="menu-card finance" @click="goToFinance">
             <div class="card-icon finance-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -277,40 +271,23 @@
         </div>
       </section>
 
-      <!-- 위젯 설정 모달 -->
-      <WidgetSettingsModal
-        :visible="showWidgetSettings"
-        :settings="widgetSettings"
-        @close="showWidgetSettings = false"
-        @update:settings="updateWidgetSettings"
-      />
     </div>
   </div>
 </template>
 
 <script>
 import { newsAPI, financeAPI, assetAPI } from '../utils/api';
-import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
 import MarketInfoWidget from '../components/MarketInfoWidget.vue';
 
 export default {
   name: 'UserDashboard',
   components: {
-    WidgetSettingsModal,
     MarketInfoWidget
   },
   data() {
     return {
       username: '',
       newsList: [],
-      showWidgetSettings: false,
-      widgetSettings: {
-        assetSummary: true,
-        news: true,
-        financeSummary: true,
-        investorTrades: true,
-        earningsScreener: true
-      },
       financeSummary: {
         totalIncome: 0,
         totalExpense: 0,
@@ -325,31 +302,11 @@ export default {
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'User'
-    this.loadWidgetSettings()
     this.loadNews()
     this.loadFinanceSummary()
     this.loadAssetSummary()
   },
   methods: {
-    loadWidgetSettings() {
-      const saved = localStorage.getItem('dashboardWidgets')
-      if (saved) {
-        this.widgetSettings = { ...this.widgetSettings, ...JSON.parse(saved) }
-      }
-    },
-    updateWidgetSettings(settings) {
-      this.widgetSettings = { ...this.widgetSettings, ...settings }
-      // 위젯 데이터 다시 로드
-      if (settings.assetSummary) {
-        this.loadAssetSummary()
-      }
-      if (settings.financeSummary) {
-        this.loadFinanceSummary()
-      }
-      if (settings.news) {
-        this.loadNews()
-      }
-    },
     async loadFinanceSummary() {
       try {
         const now = new Date()
@@ -1227,27 +1184,6 @@ export default {
     font-size: 12px;
     -webkit-line-clamp: 3;
   }
-}
-
-/* 위젯 설정 버튼 */
-.btn-widget-settings {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.btn-widget-settings:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  color: var(--primary-start);
 }
 
 /* 시장 정보 섹션 */
