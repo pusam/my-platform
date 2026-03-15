@@ -198,7 +198,8 @@ export const fileAPI = {
     if (uploadDate) formData.append('uploadDate', uploadDate);
 
     return apiClient.post('/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000  // 5분 (대용량 파일 업로드 대기)
     });
   },
   // 폴더 삭제
