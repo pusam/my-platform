@@ -317,6 +317,7 @@
       </div>
 
       <!-- 선물 시세 카드 그리드 -->
+      <div class="futures-sub-label" v-if="futuresQuotes.length">선물 지수</div>
       <div v-if="futuresQuotes.length" class="futures-grid">
         <div v-for="q in futuresQuotes" :key="q.symbol" class="futures-card">
           <div class="futures-name">{{ q.name }}</div>
@@ -326,8 +327,23 @@
           </div>
         </div>
       </div>
-      <div v-else-if="!futuresLoading" class="no-futures-data">
-        글로벌 선물 데이터를 불러오지 못했습니다.
+
+      <!-- 원자재 + 환율 -->
+      <div class="futures-sub-label" v-if="commodityQuotes.length">원자재 & 환율</div>
+      <div v-if="commodityQuotes.length" class="futures-grid">
+        <div v-for="q in commodityQuotes" :key="q.symbol" class="futures-card commodity-card">
+          <div class="futures-name">{{ q.name }}</div>
+          <div class="futures-price">
+            {{ q.unit === '$' ? '$' : '' }}{{ formatFuturesPrice(q.currentPrice) }}{{ q.unit === '원' ? '원' : '' }}
+          </div>
+          <div class="futures-change" :class="q.changeRate >= 0 ? 'positive' : 'negative'" v-if="q.changeRate">
+            {{ q.changeRate >= 0 ? '+' : '' }}{{ Number(q.changeRate).toFixed(2) }}%
+          </div>
+        </div>
+      </div>
+
+      <div v-if="!futuresQuotes.length && !commodityQuotes.length && !futuresLoading" class="no-futures-data">
+        글로벌 시장 데이터를 불러오지 못했습니다.
       </div>
     </div>
 
@@ -427,7 +443,7 @@
 <script setup>
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
-import { marketAPI, globalFuturesAPI } from '../utils/api';
+import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
 import BackButton from '../components/BackButton.vue';
 import { Line } from 'vue-chartjs';
 import {
@@ -733,25 +749,30 @@ const collectBackfillData = async () => {
   }
 };
 
-// ===== 글로벌 선물 & KOSPI 영향도 =====
+// ===== 글로벌 선물 & 원자재 & KOSPI 영향도 =====
 const futuresLoading = ref(false);
 const futuresQuotes = ref([]);
+const commodityQuotes = ref([]);
 const impactData = ref(null);
 
-const FUTURES_DISPLAY_ORDER = ['NQ', 'ES', 'DXY', 'VIX', 'GC', 'CL'];
+const FUTURES_DISPLAY_ORDER = ['NQ', 'ES', 'VIX', 'DXY'];
 const FUTURES_NAMES = {
-  NQ: '나스닥 선물', ES: 'S&P 500', DXY: '달러인덱스',
-  VIX: 'VIX 공포지수', GC: '금', CL: '원유'
+  NQ: '나스닥 선물', ES: 'S&P 500', VIX: 'VIX 공포지수', DXY: '달러인덱스'
 };
 
 const fetchFutures = async () => {
   futuresLoading.value = true;
   try {
-    const [quotesRes, impactRes] = await Promise.allSettled([
+    const [quotesRes, impactRes, goldRes, silverRes, oilRes, krwRes] = await Promise.allSettled([
       globalFuturesAPI.getAllQuotes(),
-      globalFuturesAPI.getKospiImpact()
+      globalFuturesAPI.getKospiImpact(),
+      goldAPI.getPrice(),
+      silverAPI.getPrice(),
+      oilAPI.getPrice(),
+      exchangeRateAPI.getCurrentRate()
     ]);
 
+    // 글로벌 선물
     if (quotesRes.status === 'fulfilled' && quotesRes.value.data.success) {
       const allQuotes = quotesRes.value.data.data;
       futuresQuotes.value = FUTURES_DISPLAY_ORDER
@@ -761,6 +782,26 @@ const fetchFutures = async () => {
         })
         .filter(Boolean);
     }
+
+    // 원자재 + 환율
+    const commodities = [];
+    if (goldRes.status === 'fulfilled' && goldRes.value.data.success) {
+      const g = goldRes.value.data.data;
+      commodities.push({ symbol: 'GOLD', name: '금 (1돈)', currentPrice: g.pricePerDon || g.price, changeRate: g.changeRate || 0, unit: '원' });
+    }
+    if (silverRes.status === 'fulfilled' && silverRes.value.data.success) {
+      const s = silverRes.value.data.data;
+      commodities.push({ symbol: 'SILVER', name: '은 (1돈)', currentPrice: s.pricePerDon || s.price, changeRate: s.changeRate || 0, unit: '원' });
+    }
+    if (oilRes.status === 'fulfilled' && oilRes.value.data.success) {
+      const o = oilRes.value.data.data;
+      commodities.push({ symbol: 'OIL', name: 'WTI 원유', currentPrice: o.price, changeRate: o.changeRate || 0, unit: '$' });
+    }
+    if (krwRes.status === 'fulfilled' && krwRes.value.data.success) {
+      const k = krwRes.value.data.data;
+      commodities.push({ symbol: 'KRW', name: 'USD/KRW', currentPrice: k.rate || k.basePrice, changeRate: k.changeRate || 0, unit: '원' });
+    }
+    commodityQuotes.value = commodities;
 
     if (impactRes.status === 'fulfilled' && impactRes.value.data.success) {
       impactData.value = impactRes.value.data.data;
@@ -1927,6 +1968,23 @@ onMounted(() => {
 
 .futures-change.positive { color: #ef4444; }
 .futures-change.negative { color: #3b82f6; }
+
+.futures-sub-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 12px 0 6px;
+}
+
+.futures-sub-label:first-of-type {
+  margin-top: 0;
+}
+
+.commodity-card {
+  border-color: rgba(245,158,11,0.15);
+}
 
 .no-futures-data {
   text-align: center;
