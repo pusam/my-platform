@@ -1846,11 +1846,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 20px;
-  background: rgba(30, 30, 60, 0.8);
+  background: rgba(30, 30, 60, 0.95);
   border-radius: 16px;
   margin-bottom: 16px;
   flex-wrap: wrap;
   gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .header-left {

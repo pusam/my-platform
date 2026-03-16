@@ -144,6 +144,9 @@ body {
   margin-bottom: var(--header-margin-bottom);
   box-shadow: var(--card-shadow);
   min-height: var(--header-min-height);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .common-header h1 {
@@ -167,6 +170,10 @@ body {
   padding: 16px 0;
   margin-bottom: var(--header-margin-bottom);
   min-height: var(--header-min-height);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #0f0f1a;
 }
 
 .page-header-unified .header-title {

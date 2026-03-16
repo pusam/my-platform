@@ -74,6 +74,10 @@ export default {
   padding: 12px 0;
   margin-bottom: 20px;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #0f0f1a;
 }
 
 .header-left {
