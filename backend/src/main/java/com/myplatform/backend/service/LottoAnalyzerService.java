@@ -45,6 +45,7 @@ import java.util.stream.Collectors;
 public class LottoAnalyzerService {
 
     private static final String LOTTO_API_URL = "https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=";
+    private final com.myplatform.backend.util.DhLotteryClient dhLotteryClient;
     private static final int MAX_NUMBER = 45;
     private static final int PICK_COUNT = 6;
     private static final int GAME_COUNT = 5;
@@ -159,16 +160,7 @@ public class LottoAnalyzerService {
     private LottoDraw fetchAndSaveDraw(int drawNo) {
         try {
             String url = LOTTO_API_URL + drawNo;
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-            headers.set("Accept", "application/json, text/plain, */*");
-            headers.set("Referer", "https://www.dhlottery.co.kr/");
-            headers.set("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
-            HttpEntity<String> entity = new HttpEntity<>(headers);
-
-            ResponseEntity<String> responseEntity = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-            String response = responseEntity.getBody();
+            String response = dhLotteryClient.callApi(url);
 
             if (response == null || response.isEmpty()) {
                 return null;
