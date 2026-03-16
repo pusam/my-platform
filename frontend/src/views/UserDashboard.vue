@@ -115,7 +115,20 @@
             </div>
             <div class="invest-sub-text">
               <h4>시장 타이밍</h4>
-              <p>ADR · 선물 · 금 · 은 · 원유</p>
+              <p>ADR · 시장 상태</p>
+            </div>
+          </article>
+
+          <article class="invest-sub-card" @click="$router.push('/global-futures')">
+            <div class="invest-sub-icon futures-gradient">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
+                <polyline points="16,7 22,7 22,13"/>
+              </svg>
+            </div>
+            <div class="invest-sub-text">
+              <h4>글로벌 시세</h4>
+              <p>선물 · 금 · 은 · 원유</p>
             </div>
           </article>
         </div>

@@ -34,8 +34,7 @@ const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
-// GlobalFuturesPage → 대시보드 + MarketTimingPage에 흡수됨 (redirect)
-// OilPricePage → 대시보드에 흡수됨 (redirect)
+const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -94,11 +93,11 @@ const router = createRouter({
     },
     {
       path: '/gold',
-      redirect: { path: '/market-timing', query: { tab: 'gold' } }
+      redirect: '/global-futures'
     },
     {
       path: '/silver',
-      redirect: { path: '/market-timing', query: { tab: 'silver' } }
+      redirect: '/global-futures'
     },
     {
       path: '/my-content',
@@ -230,11 +229,13 @@ const router = createRouter({
     },
     {
       path: '/oil',
-      redirect: { path: '/market-timing', query: { tab: 'oil' } }
+      redirect: '/global-futures'
     },
     {
       path: '/global-futures',
-      redirect: '/market-timing'
+      name: 'GlobalFutures',
+      component: GlobalFuturesPage,
+      meta: { requiresAuth: true }
     },
     {
       path: '/admin/users',

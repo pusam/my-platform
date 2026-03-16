@@ -3,34 +3,10 @@
     <div class="page-header-unified">
       <BackButton :dark="true" />
       <div class="header-title">
-        <h1>시장 타이밍</h1>
-        <p class="subtitle">시장 상태 분석 + 글로벌 원자재</p>
+        <h1>시장 지표 (Market Timing)</h1>
+        <p class="subtitle">ADR(등락비율) 기반 시장 상태 분석</p>
       </div>
     </div>
-
-    <!-- 메인 탭 -->
-    <div class="timing-tab-bar">
-      <button class="timing-tab" :class="{ active: activeMainTab === 'timing' }" @click="activeMainTab = 'timing'">
-        📊 시장 지표
-      </button>
-      <button class="timing-tab" :class="{ active: activeMainTab === 'gold' }" @click="activeMainTab = 'gold'">
-        🪙 금 시세
-      </button>
-      <button class="timing-tab" :class="{ active: activeMainTab === 'silver' }" @click="activeMainTab = 'silver'">
-        🥈 은 시세
-      </button>
-      <button class="timing-tab" :class="{ active: activeMainTab === 'oil' }" @click="activeMainTab = 'oil'">
-        🛢️ 원유 시세
-      </button>
-    </div>
-
-    <!-- 금/은/유가 탭 -->
-    <GoldPricePage v-if="activeMainTab === 'gold'" :embedded="true" />
-    <SilverPricePage v-if="activeMainTab === 'silver'" :embedded="true" />
-    <OilPricePage v-if="activeMainTab === 'oil'" :embedded="true" />
-
-    <!-- 시장 지표 탭 (기존 내용) -->
-    <template v-if="activeMainTab === 'timing'">
 
     <!-- 시장 상태 카드 -->
     <div class="status-overview">
@@ -462,7 +438,6 @@
       </div>
     </div>
 
-    </template><!-- /시장 지표 탭 -->
   </div>
 </template>
 
@@ -471,9 +446,6 @@ import { ref, computed, onMounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
 import BackButton from '../components/BackButton.vue';
-import GoldPricePage from './GoldPricePage.vue';
-import SilverPricePage from './SilverPricePage.vue';
-import OilPricePage from './OilPricePage.vue';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -502,10 +474,6 @@ ChartJS.register(
 );
 
 const router = useRouter();
-const route = router.currentRoute;
-const validTabs = ['timing', 'gold', 'silver', 'oil'];
-const initialTab = validTabs.includes(route.value.query.tab) ? route.value.query.tab : 'timing';
-const activeMainTab = ref(initialTab);
 const loading = ref(false);
 const isCollecting = ref(false);
 const marketData = ref(null);
@@ -953,34 +921,6 @@ onMounted(() => {
   background: var(--bg-primary, #0f0f23);
   min-height: 100vh;
   color: var(--text-primary, #e4e4e7);
-}
-
-/* 탭 바 */
-.timing-tab-bar {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 20px;
-}
-
-.timing-tab {
-  padding: 10px 20px;
-  border-radius: 10px;
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.5);
-  border: none;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 14px;
-  transition: 0.2s;
-}
-
-.timing-tab.active {
-  color: #fff;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-}
-
-.timing-tab:hover:not(.active) {
-  background: rgba(255,255,255,0.1);
 }
 
 /* 메인 상태 카드 */
