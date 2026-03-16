@@ -53,6 +53,63 @@
         </div>
       </div>
 
+      <!-- 섹터 자금 흐름 -->
+      <div v-if="activeTab === 'rotation'" class="rotation-area">
+        <div v-if="rotationLoading" class="loading-state">
+          <div class="loading-spinner"></div>
+          <span>자금 흐름 분석 중...</span>
+        </div>
+
+        <div v-else-if="rotationError" class="state-box state-box-sm">
+          <span class="state-icon">⚠️</span>
+          <p class="state-text">데이터를 불러오지 못했습니다</p>
+          <button class="state-btn" @click="loadRotation">새로고침</button>
+        </div>
+
+        <div v-else-if="rotationData.length > 0" class="rotation-content">
+          <!-- 요약 카운트 -->
+          <div class="rotation-summary">
+            <span class="summary-badge inflow">유입 {{ rotationData.filter(r => r.flowDirection === 'INFLOW').length }}</span>
+            <span class="summary-badge neutral">중립 {{ rotationData.filter(r => r.flowDirection === 'NEUTRAL').length }}</span>
+            <span class="summary-badge outflow">유출 {{ rotationData.filter(r => r.flowDirection === 'OUTFLOW').length }}</span>
+          </div>
+
+          <!-- 섹터별 흐름 리스트 -->
+          <div class="rotation-list">
+            <div
+              v-for="item in rotationData"
+              :key="item.sectorCode"
+              class="rotation-item"
+            >
+              <div class="rotation-left">
+                <span class="flow-icon" :class="getFlowClass(item.flowDirection)">{{ getFlowIcon(item.flowDirection) }}</span>
+                <span class="rotation-name">{{ item.sectorName }}</span>
+              </div>
+              <div class="rotation-center">
+                <div class="rotation-bar-track">
+                  <div
+                    class="rotation-bar-fill"
+                    :class="getFlowClass(item.flowDirection)"
+                    :style="{ width: getFlowBarWidth(item) }"
+                  ></div>
+                </div>
+              </div>
+              <div class="rotation-right">
+                <span class="rotation-rate" :class="getFlowClass(item.flowDirection)">
+                  {{ (item.changeRate || 0) >= 0 ? '+' : '' }}{{ (item.changeRate || 0).toFixed(1) }}%
+                </span>
+                <span class="rotation-amount">{{ formatBillion(item.todayTradingValue) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="state-box state-box-sm">
+          <span class="state-icon">🔄</span>
+          <p class="state-text">로테이션 데이터가 없습니다</p>
+        </div>
+      </div>
+
       <!-- 시장 지표 -->
       <div v-if="activeTab === 'market'" class="market-indicators">
         <div v-if="marketData.analysisDate" class="analysis-date">
@@ -200,7 +257,7 @@ import {
   Legend,
   Filler
 } from 'chart.js'
-import { marketAPI } from '../../utils/api'
+import { marketAPI, sectorAPI } from '../../utils/api'
 import { checkCrash, getMarketStatus } from '../../composables/useMarketStatus'
 import { formatChange } from '../../utils/marketFormatters'
 
@@ -222,6 +279,7 @@ export default {
       activeTab: 'heatmap',
       tabs: [
         { key: 'heatmap', label: '섹터 히트맵' },
+        { key: 'rotation', label: '자금 흐름' },
         { key: 'market', label: '시장 지표' },
         { key: 'global', label: '글로벌' },
         { key: 'forecast', label: 'AI 예측' }
@@ -230,7 +288,10 @@ export default {
       forecastLoading: false,
       forecastError: false,
       forecastRetryCount: 0,
-      showForecastDetail: false
+      showForecastDetail: false,
+      rotationData: [],
+      rotationLoading: false,
+      rotationError: false
     }
   },
   computed: {
@@ -352,6 +413,9 @@ export default {
       if (newTab === 'forecast' && !this.forecastData) {
         this.loadForecast()
       }
+      if (newTab === 'rotation' && this.rotationData.length === 0) {
+        this.loadRotation()
+      }
     }
   },
   methods: {
@@ -385,6 +449,45 @@ export default {
       this.forecastRetryCount = 0
       this.forecastData = null
       this.loadForecast()
+    },
+    async loadRotation() {
+      this.rotationLoading = true
+      this.rotationError = false
+      try {
+        const res = await sectorAPI.getSectorRotation()
+        const d = res.data
+        if (d && d.success !== false && d.data) {
+          this.rotationData = d.data
+        } else {
+          this.rotationError = true
+        }
+      } catch (e) {
+        console.error('Rotation load failed:', e)
+        this.rotationError = true
+      } finally {
+        this.rotationLoading = false
+      }
+    },
+    getFlowIcon(direction) {
+      if (direction === 'INFLOW') return '\u25B2'   // ▲
+      if (direction === 'OUTFLOW') return '\u25BC'   // ▼
+      return '\u25CF'                                  // ●
+    },
+    getFlowClass(direction) {
+      if (direction === 'INFLOW') return 'flow-inflow'
+      if (direction === 'OUTFLOW') return 'flow-outflow'
+      return 'flow-neutral'
+    },
+    getFlowBarWidth(item) {
+      if (!this.rotationData.length) return '0%'
+      const maxAbs = Math.max(...this.rotationData.map(r => Math.abs(r.changeRate || 0)), 1)
+      return Math.min(100, (Math.abs(item.changeRate || 0) / maxAbs) * 100) + '%'
+    },
+    formatBillion(val) {
+      if (!val && val !== 0) return '-'
+      const n = Number(val)
+      if (n >= 10000) return (n / 10000).toFixed(1) + '조'
+      return n.toLocaleString('ko-KR') + '억'
     },
     getBlockStyle(sector) {
       const pct = sector.percentage || 0
@@ -725,6 +828,101 @@ export default {
   background: rgba(102,126,234,0.1);
   border-color: #667eea;
   color: #8b9cf7;
+}
+
+/* Rotation (자금 흐름) */
+.rotation-area { padding: 4px 0; }
+.rotation-summary {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.summary-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.summary-badge.inflow {
+  background: rgba(16, 185, 129, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+.summary-badge.neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.summary-badge.outflow {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+.rotation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rotation-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+.rotation-item:hover { background: rgba(255, 255, 255, 0.06); }
+.rotation-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 110px;
+}
+.flow-icon { font-size: 11px; font-weight: 700; }
+.flow-icon.flow-inflow { color: #34d399; }
+.flow-icon.flow-outflow { color: #f87171; }
+.flow-icon.flow-neutral { color: rgba(255, 255, 255, 0.35); font-size: 8px; }
+.rotation-name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+.rotation-center { flex: 1; }
+.rotation-bar-track {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.rotation-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.rotation-bar-fill.flow-inflow { background: linear-gradient(90deg, rgba(16, 185, 129, 0.3), #34d399); }
+.rotation-bar-fill.flow-outflow { background: linear-gradient(90deg, rgba(239, 68, 68, 0.3), #f87171); }
+.rotation-bar-fill.flow-neutral { background: rgba(255, 255, 255, 0.15); }
+.rotation-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 70px;
+}
+.rotation-rate {
+  font-size: 12px;
+  font-weight: 700;
+}
+.rotation-rate.flow-inflow { color: #34d399; }
+.rotation-rate.flow-outflow { color: #f87171; }
+.rotation-rate.flow-neutral { color: rgba(255, 255, 255, 0.4); }
+.rotation-amount {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
 }
 
 @media (max-width: 768px) {

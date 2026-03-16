@@ -283,6 +283,10 @@ export const sectorAPI = {
   // 캐시 새로고침
   refreshSectorTrading() {
     return apiClient.post('/sector/trading/refresh', {}, { timeout: 120000 });
+  },
+  // 섹터 로테이션 (전일 대비 자금 흐름)
+  getSectorRotation() {
+    return apiClient.get('/sector/trading/rotation');
   }
 };
 

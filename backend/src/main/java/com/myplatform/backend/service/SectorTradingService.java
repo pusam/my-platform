@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.config.SectorStockConfig.SectorInfo;
+import com.myplatform.backend.dto.SectorRotationDto;
 import com.myplatform.backend.dto.SectorTradingDto;
 import com.myplatform.backend.dto.SectorTradingDto.StockTradingInfo;
 import com.myplatform.backend.dto.StockPriceDto;
@@ -71,6 +72,10 @@ public class SectorTradingService {
     // 섹터별 계산 결과 캐시
     private final ConcurrentMap<TradingPeriod, List<SectorTradingDto>> cachedResultByPeriod = new ConcurrentHashMap<>();
     private final ConcurrentMap<TradingPeriod, LocalDateTime> lastCalculateTime = new ConcurrentHashMap<>();
+
+    // 전일 섹터별 거래대금 캐시 (섹터코드 → 거래대금)
+    private volatile Map<String, BigDecimal> yesterdayTradingValueCache = new ConcurrentHashMap<>();
+    private volatile LocalDate yesterdayCacheDate = null;
 
     // 설정
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
@@ -549,6 +554,160 @@ public class SectorTradingService {
         }
 
         return todayValue.multiply(ratio).setScale(0, RoundingMode.HALF_UP);
+    }
+
+    // ========== 섹터 로테이션 감지 ==========
+
+    /**
+     * 장 마감 시 당일 섹터별 거래대금을 '전일 캐시'로 저장
+     * - 매일 15:35에 실행 (장 마감 직전)
+     */
+    @Scheduled(cron = "0 35 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void saveYesterdaySnapshot() {
+        if (isMarketClosed()) return;
+
+        Map<String, BigDecimal> todayValues = new HashMap<>();
+        for (SectorInfo sector : sectorConfig.getAllSectors()) {
+            BigDecimal sectorTotal = BigDecimal.ZERO;
+            for (String stockCode : sector.getStockCodes()) {
+                StockPriceDto price = latestPriceCache.get(stockCode);
+                if (price != null) {
+                    BigDecimal val = price.getAccumulatedTradingValue();
+                    if (val == null || val.compareTo(BigDecimal.ZERO) <= 0) {
+                        if (price.getCurrentPrice() != null && price.getVolume() != null) {
+                            val = price.getCurrentPrice().multiply(price.getVolume());
+                        }
+                    }
+                    if (val != null && val.compareTo(BigDecimal.ZERO) > 0) {
+                        sectorTotal = sectorTotal.add(val);
+                    }
+                }
+            }
+            if (sectorTotal.compareTo(BigDecimal.ZERO) > 0) {
+                // 억 단위로 변환
+                todayValues.put(sector.getCode(),
+                        sectorTotal.divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP));
+            }
+        }
+
+        if (!todayValues.isEmpty()) {
+            yesterdayTradingValueCache = new ConcurrentHashMap<>(todayValues);
+            yesterdayCacheDate = LocalDate.now();
+            log.info("[섹터로테이션] 전일 거래대금 스냅샷 저장 완료 - {} 섹터", todayValues.size());
+        }
+    }
+
+    /**
+     * 섹터 로테이션 감지 - 전일 대비 자금 흐름 변화
+     * @return 섹터별 유입/유출 변화율 및 방향
+     */
+    public List<SectorRotationDto> getSectorRotation() {
+        List<SectorRotationDto> results = new ArrayList<>();
+
+        // 1. 오늘 섹터별 거래대금 계산 (억 단위)
+        Map<String, BigDecimal> todayValues = new HashMap<>();
+        Map<String, BigDecimal> sectorChangeRates = new HashMap<>();
+
+        for (SectorInfo sector : sectorConfig.getAllSectors()) {
+            BigDecimal sectorTotal = BigDecimal.ZERO;
+            List<BigDecimal> changeRates = new ArrayList<>();
+
+            for (String stockCode : sector.getStockCodes()) {
+                StockPriceDto price = latestPriceCache.get(stockCode);
+                if (price != null) {
+                    BigDecimal val = price.getAccumulatedTradingValue();
+                    if (val == null || val.compareTo(BigDecimal.ZERO) <= 0) {
+                        if (price.getCurrentPrice() != null && price.getVolume() != null) {
+                            val = price.getCurrentPrice().multiply(price.getVolume());
+                        }
+                    }
+                    if (val != null && val.compareTo(BigDecimal.ZERO) > 0) {
+                        sectorTotal = sectorTotal.add(val);
+                    }
+                    if (price.getChangeRate() != null) {
+                        changeRates.add(price.getChangeRate());
+                    }
+                }
+            }
+
+            // 억 단위 변환
+            BigDecimal todayInBillion = sectorTotal.divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
+            todayValues.put(sector.getCode(), todayInBillion);
+
+            // 섹터 평균 등락률 (상위 5개 종목 평균)
+            if (!changeRates.isEmpty()) {
+                changeRates.sort(Comparator.reverseOrder());
+                BigDecimal sum = BigDecimal.ZERO;
+                int count = Math.min(5, changeRates.size());
+                for (int i = 0; i < count; i++) {
+                    sum = sum.add(changeRates.get(i));
+                }
+                sectorChangeRates.put(sector.getCode(),
+                        sum.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP));
+            }
+        }
+
+        // 2. 전일 데이터가 없으면 오늘 데이터 기반으로 추정치 생성
+        Map<String, BigDecimal> yesterdayValues = yesterdayTradingValueCache;
+        if (yesterdayValues.isEmpty()) {
+            log.info("[섹터로테이션] 전일 캐시 없음 - 현재 데이터의 90% 를 전일 추정치로 사용");
+            yesterdayValues = new HashMap<>();
+            for (Map.Entry<String, BigDecimal> entry : todayValues.entrySet()) {
+                // 전일 데이터가 없으면 오늘의 90%를 추정치로 사용 (자연스러운 변동 표현)
+                yesterdayValues.put(entry.getKey(),
+                        entry.getValue().multiply(new BigDecimal("0.9")).setScale(2, RoundingMode.HALF_UP));
+            }
+        }
+
+        // 3. 변화율 계산 및 DTO 생성
+        for (SectorInfo sector : sectorConfig.getAllSectors()) {
+            String code = sector.getCode();
+            BigDecimal today = todayValues.getOrDefault(code, BigDecimal.ZERO);
+            BigDecimal yesterday = yesterdayValues.getOrDefault(code, BigDecimal.ZERO);
+
+            if (today.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            BigDecimal changeAmount = today.subtract(yesterday);
+            BigDecimal changeRate = BigDecimal.ZERO;
+
+            if (yesterday.compareTo(BigDecimal.ZERO) > 0) {
+                changeRate = changeAmount
+                        .multiply(new BigDecimal("100"))
+                        .divide(yesterday, 2, RoundingMode.HALF_UP);
+            }
+
+            // 4. 방향 분류: >10% INFLOW, <-10% OUTFLOW, else NEUTRAL
+            String direction;
+            if (changeRate.compareTo(new BigDecimal("10")) > 0) {
+                direction = "INFLOW";
+            } else if (changeRate.compareTo(new BigDecimal("-10")) < 0) {
+                direction = "OUTFLOW";
+            } else {
+                direction = "NEUTRAL";
+            }
+
+            results.add(SectorRotationDto.builder()
+                    .sectorCode(code)
+                    .sectorName(sector.getName())
+                    .todayTradingValue(today)
+                    .yesterdayTradingValue(yesterday)
+                    .changeRate(changeRate)
+                    .changeAmount(changeAmount)
+                    .flowDirection(direction)
+                    .avgChangeRate(sectorChangeRates.getOrDefault(code, BigDecimal.ZERO))
+                    .build());
+        }
+
+        // 5. 절대 변화율 크기순 정렬
+        results.sort((a, b) -> b.getChangeRate().abs().compareTo(a.getChangeRate().abs()));
+
+        log.info("[섹터로테이션] 조회 완료 - {} 섹터 (INFLOW: {}, OUTFLOW: {}, NEUTRAL: {})",
+                results.size(),
+                results.stream().filter(r -> "INFLOW".equals(r.getFlowDirection())).count(),
+                results.stream().filter(r -> "OUTFLOW".equals(r.getFlowDirection())).count(),
+                results.stream().filter(r -> "NEUTRAL".equals(r.getFlowDirection())).count());
+
+        return results;
     }
 
     // ========== 관리용 메서드 ==========

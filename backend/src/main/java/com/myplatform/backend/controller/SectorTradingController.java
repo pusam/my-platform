@@ -1,5 +1,6 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.SectorRotationDto;
 import com.myplatform.backend.dto.SectorTradingDto;
 import com.myplatform.backend.service.SectorTradingService;
 import com.myplatform.core.dto.ApiResponse;
@@ -50,6 +51,17 @@ public class SectorTradingController {
             return ResponseEntity.ok(ApiResponse.success("섹터 상세 조회 성공", result));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("섹터 상세 조회 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "섹터 로테이션 감지", description = "전일 대비 섹터별 자금 유입/유출 방향을 조회합니다.")
+    @GetMapping("/trading/rotation")
+    public ResponseEntity<ApiResponse<List<SectorRotationDto>>> getSectorRotation() {
+        try {
+            List<SectorRotationDto> rotation = sectorTradingService.getSectorRotation();
+            return ResponseEntity.ok(ApiResponse.success("섹터 로테이션 데이터", rotation));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("섹터 로테이션 조회 실패: " + e.getMessage()));
         }
     }
 

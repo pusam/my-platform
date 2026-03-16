@@ -45,6 +45,10 @@
               <span class="compare-metric">종목 수</span>
               <span class="compare-val neutral">{{ data.overall.totalPicks }}개</span>
             </div>
+            <div class="compare-item" v-if="data.overall.mdd != null">
+              <span class="compare-metric">MDD</span>
+              <span class="compare-val negative">{{ data.overall.mdd }}%</span>
+            </div>
           </div>
           <div class="compare-divider"></div>
           <div class="compare-col">
@@ -90,6 +94,10 @@
           <span class="stat-label">추천 종목</span>
           <span class="stat-value neutral">{{ data.overall.totalPicks }}개</span>
         </div>
+        <div class="stat-box" v-if="data.overall.mdd != null">
+          <span class="stat-label">MDD</span>
+          <span class="stat-value negative">{{ data.overall.mdd }}%</span>
+        </div>
       </div>
 
       <!-- 전략별 성과 -->
@@ -118,6 +126,7 @@
           <div class="strategy-meta">
             <span>{{ st.totalPicks }}개 추천</span>
             <span>{{ st.winCount }}승 {{ st.loseCount }}패</span>
+            <span v-if="st.mdd != null">MDD {{ st.mdd }}%</span>
           </div>
 
           <!-- 종목 상세 -->
