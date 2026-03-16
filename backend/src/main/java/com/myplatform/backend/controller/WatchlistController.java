@@ -23,6 +23,7 @@ import java.util.Map;
 public class WatchlistController {
 
     private final WatchlistService watchlistService;
+    private final com.myplatform.backend.service.WatchlistRiskMonitorService riskMonitorService;
 
     private String getUsername(Authentication auth) {
         return ((UserDetails) auth.getPrincipal()).getUsername();
@@ -107,6 +108,21 @@ public class WatchlistController {
             response.put("success", false);
             response.put("message", "삭제에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/risk-status")
+    @Operation(summary = "관심종목 리스크 상태 조회")
+    public ResponseEntity<Map<String, Object>> getRiskStatus(@RequestBody List<String> stockCodes) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", riskMonitorService.getCurrentRiskStatus(stockCodes));
+        } catch (Exception e) {
+            log.error("리스크 상태 조회 실패: {}", e.getMessage());
+            response.put("success", false);
+            response.put("data", Map.of());
         }
         return ResponseEntity.ok(response);
     }

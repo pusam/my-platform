@@ -915,6 +915,9 @@ export const watchlistAPI = {
   },
   checkBookmark(stockCode) {
     return apiClient.get('/watchlist/check', { params: { stockCode } });
+  },
+  getRiskStatus(stockCodes) {
+    return apiClient.post('/watchlist/risk-status', stockCodes);
   }
 };
 
