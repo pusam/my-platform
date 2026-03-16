@@ -41,6 +41,7 @@
         </button>
       </div>
       <div class="action-right">
+        <span v-if="allSortedFiles.length > 0" class="file-total-count">{{ allSortedFiles.length }}개 파일</span>
         <div class="sort-dropdown">
           <label>정렬:</label>
           <select v-model="sortOption">
@@ -89,7 +90,7 @@
       >
         <input v-if="selectMode" type="checkbox" :checked="selectedItemIds.has('file-' + file.id)" class="item-checkbox" @click.stop />
         <!-- 이미지 파일인 경우 썸네일 미리보기 -->
-        <div v-if="isImageFile(file)" class="thumbnail-container">
+        <div v-if="isImageFile(file)" class="thumbnail-container" :ref="el => observeThumbnail(el, file)">
           <img
             v-if="thumbnailCache[file.id]"
             :src="thumbnailCache[file.id]"
@@ -111,6 +112,14 @@
       <div v-if="content.folders.length === 0 && content.files.length === 0" class="empty-message">
         이 폴더는 비어 있습니다. 파일을 업로드하거나 새 폴더를 만들어보세요.
       </div>
+    </div>
+
+    <!-- 더 보기 버튼 -->
+    <div v-if="hasMoreFiles" class="load-more-section">
+      <button @click="loadMore" class="btn btn-load-more">
+        더 보기 ({{ remainingCount }}개 남음)
+      </button>
+      <span class="file-count-info">{{ sortedFiles.length }} / {{ allSortedFiles.length }}개 표시</span>
     </div>
 
     <!-- 폴더 생성 모달 -->
@@ -213,7 +222,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
@@ -226,6 +235,8 @@ const loading = ref(true);
 const errorMessage = ref('');
 const currentFolderId = ref(null);
 const sortOption = ref('name-asc'); // 기본 정렬: 이름순
+const displayCount = ref(20); // 한 번에 표시할 파일 수
+const PAGE_SIZE = 20;
 
 const showCreateFolderModal = ref(false);
 const showUploadModal = ref(false);
@@ -285,8 +296,8 @@ const sortedFolders = computed(() => {
   });
 });
 
-// 정렬된 파일 목록
-const sortedFiles = computed(() => {
+// 정렬된 파일 목록 (전체)
+const allSortedFiles = computed(() => {
   if (!content.value || !content.value.files) return [];
   const files = [...content.value.files];
 
@@ -307,6 +318,15 @@ const sortedFiles = computed(() => {
   });
 });
 
+// 화면에 표시할 파일 (페이지네이션 적용)
+const sortedFiles = computed(() => allSortedFiles.value.slice(0, displayCount.value));
+const hasMoreFiles = computed(() => displayCount.value < allSortedFiles.value.length);
+const remainingCount = computed(() => allSortedFiles.value.length - displayCount.value);
+
+const loadMore = () => {
+  displayCount.value += PAGE_SIZE;
+};
+
 const loadFolder = async (folderId = null) => {
   try {
     loading.value = true;
@@ -314,6 +334,7 @@ const loadFolder = async (folderId = null) => {
     const response = await fileAPI.getFolderContent(folderId);
     content.value = response.data.data;
     currentFolderId.value = folderId;
+    displayCount.value = PAGE_SIZE;
   } catch (error) {
     console.error('Failed to load folder:', error);
     errorMessage.value = '폴더를 불러오는데 실패했습니다.';
@@ -637,24 +658,40 @@ const isImageFile = (file) => {
 
 // 썸네일 캐시 (reactive로 변경하여 반응성 확보)
 const thumbnailCache = reactive({});
+let thumbnailObserver = null;
 
-// 폴더 내 이미지 파일들의 썸네일 로드
-const loadThumbnails = () => {
-  if (!content.value || !content.value.files) return;
+// IntersectionObserver 기반 지연 썸네일 로딩
+const setupThumbnailObserver = () => {
+  if (thumbnailObserver) thumbnailObserver.disconnect();
 
-  content.value.files.forEach(file => {
-    if (isImageFile(file) && !thumbnailCache[file.id]) {
-      loadThumbnail(file);
-    }
-  });
+  thumbnailObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const fileId = entry.target.dataset.fileId;
+        const downloadUrl = entry.target.dataset.downloadUrl;
+        if (fileId && downloadUrl && !thumbnailCache[fileId]) {
+          loadThumbnail(fileId, downloadUrl);
+        }
+        thumbnailObserver.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '200px' }); // 200px 미리 로드
 };
 
-const loadThumbnail = async (file) => {
-  if (thumbnailCache[file.id]) return;
+const observeThumbnail = (el, file) => {
+  if (!el || !thumbnailObserver) return;
+  el.dataset.fileId = file.id;
+  el.dataset.downloadUrl = file.downloadUrl;
+  if (thumbnailCache[file.id]) return; // 이미 로드됨
+  thumbnailObserver.observe(el);
+};
+
+const loadThumbnail = async (fileId, downloadUrl) => {
+  if (thumbnailCache[fileId]) return;
 
   try {
     const token = localStorage.getItem('jwt_token');
-    const response = await fetch(file.downloadUrl, {
+    const response = await fetch(downloadUrl, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -662,24 +699,23 @@ const loadThumbnail = async (file) => {
 
     if (response.ok) {
       const blob = await response.blob();
-      thumbnailCache[file.id] = URL.createObjectURL(blob);
+      thumbnailCache[fileId] = URL.createObjectURL(blob);
     }
   } catch (e) {
-    console.error('썸네일 로드 실패:', file.originalName, e);
+    console.error('썸네일 로드 실패:', e);
   }
 };
 
 const onThumbnailError = (event, file) => {
-  // 이미지 로드 실패 시 아이콘으로 대체
   event.target.style.display = 'none';
   const container = event.target.parentElement;
   container.innerHTML = '<span class="icon">🖼️</span>';
 };
 
-// content가 변경될 때마다 썸네일 로드
-watch(content, () => {
-  loadThumbnails();
-}, { deep: true });
+// 정렬 변경 시 표시 개수 리셋
+watch(sortOption, () => {
+  displayCount.value = PAGE_SIZE;
+});
 
 const goBack = () => {
   router.back();
@@ -692,8 +728,14 @@ const logout = () => {
 
 // 전역 클릭 이벤트로 컨텍스트 메뉴 닫기
 onMounted(() => {
+  setupThumbnailObserver();
   loadFolder();
   document.addEventListener('click', closeContextMenu);
+});
+
+onUnmounted(() => {
+  if (thumbnailObserver) thumbnailObserver.disconnect();
+  document.removeEventListener('click', closeContextMenu);
 });
 </script>
 
@@ -1150,6 +1192,39 @@ onMounted(() => {
   margin-top: 15px;
   color: #333;
   font-weight: 500;
+}
+
+.file-total-count {
+  font-size: 13px;
+  color: #888;
+  font-weight: 500;
+}
+
+.load-more-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--section-gap);
+  padding: 20px 0;
+}
+
+.btn-load-more {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 12px 32px;
+  font-size: 14px;
+  border-radius: 10px;
+}
+
+.btn-load-more:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+}
+
+.file-count-info {
+  font-size: 12px;
+  color: #999;
 }
 
 /* 반응형 */
