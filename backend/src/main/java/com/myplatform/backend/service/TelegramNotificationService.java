@@ -12,7 +12,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 텔레그램 알림 서비스
@@ -279,6 +281,47 @@ public class TelegramNotificationService {
             log.info("시장 상태 알림 발송 완료 - {}, ADR: {}", condition, adr);
         } catch (Exception e) {
             log.error("시장 상태 알림 발송 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 복합 조건 충족 종목 알림 발송 (비동기)
+     * - 2개 이상 조건 동시 충족 종목 알림
+     */
+    @Async("notificationExecutor")
+    public void sendCompositeAlert(String stockName, String stockCode,
+                                    BigDecimal price, List<String> matchedConditions) {
+        if (!isEnabled()) return;
+
+        String conditionList = matchedConditions.stream()
+                .map(c -> "  • " + c)
+                .collect(Collectors.joining("\n"));
+
+        String message = String.format(
+            """
+            <b>🎯 복합 신호 포착!</b>
+
+            📊 <b>%s</b> (%s)
+            💰 현재가: <b>%s원</b>
+
+            🔍 <b>충족 조건 (%d개)</b>
+            %s
+
+            ⏰ %s
+            ━━━━━━━━━━━━━━━━
+            🤖 MyPlatform 복합 알림
+            """,
+            stockName, stockCode, formatPrice(price),
+            matchedConditions.size(), conditionList,
+            LocalDateTime.now().format(TIME_FORMATTER)
+        );
+
+        try {
+            doSendMessage(message, "HTML");
+            log.info("복합 조건 알림 발송 완료 - {} ({}) - {}개 조건 충족",
+                    stockName, stockCode, matchedConditions.size());
+        } catch (Exception e) {
+            log.error("복합 조건 알림 발송 실패 - {} ({}): {}", stockName, stockCode, e.getMessage());
         }
     }
 

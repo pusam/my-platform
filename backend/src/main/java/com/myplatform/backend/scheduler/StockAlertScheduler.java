@@ -1,5 +1,6 @@
 package com.myplatform.backend.scheduler;
 
+import com.myplatform.backend.service.CompositeAlertService;
 import com.myplatform.backend.service.MarketTimingService;
 import com.myplatform.backend.service.QuantScreenerService;
 import com.myplatform.backend.service.WatchlistService;
@@ -31,6 +32,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class StockAlertScheduler {
 
+    private final CompositeAlertService compositeAlertService;
     private final MarketTimingService marketTimingService;
     private final QuantScreenerService quantScreenerService;
     private final WatchlistService watchlistService;
@@ -106,6 +108,21 @@ public class StockAlertScheduler {
             watchlistService.checkWatchlistAlerts();
         } catch (Exception e) {
             log.error("관심종목 알림 체크 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 복합 조건 알림 (장중 10분 간격)
+     * - 09:00~15:50 사이 10분마다 실행
+     * - 여러 조건 동시 충족 종목 감지
+     */
+    @Scheduled(cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkCompositeAlerts() {
+        if (!schedulerEnabled) return;
+        try {
+            compositeAlertService.checkCompositeSignals();
+        } catch (Exception e) {
+            log.error("복합 조건 알림 체크 실패: {}", e.getMessage(), e);
         }
     }
 
