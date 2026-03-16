@@ -568,4 +568,15 @@ public class SectorStockConfig {
     public Map<String, String> getStockNameMap() {
         return stockNameMap;
     }
+
+    /**
+     * 전체 섹터의 모든 종목코드 (중복 제거)
+     */
+    public Set<String> getAllStockCodes() {
+        Set<String> codes = new LinkedHashSet<>();
+        for (SectorInfo sector : sectors.values()) {
+            codes.addAll(sector.getStockCodes());
+        }
+        return codes;
+    }
 }

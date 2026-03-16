@@ -59,6 +59,7 @@ public class SectorTradingService {
 
     private final SectorStockConfig sectorConfig;
     private final StockPriceService stockPriceService;
+    private final StockStatusService stockStatusService;
     private final ThreadPoolTaskExecutor sectorTradingExecutor;
 
     // ========== 스냅샷 저장소 ==========
@@ -174,10 +175,10 @@ public class SectorTradingService {
             log.info("[섹터거래대금] 휴장일 - 마지막 거래일 데이터 유지");
         }
 
-        // 1. 모든 종목 코드 수집
+        // 1. 모든 종목 코드 수집 (거래정지/상폐 종목 제외)
         Set<String> allStockCodes = new HashSet<>();
         for (SectorInfo sector : sectorConfig.getAllSectors()) {
-            allStockCodes.addAll(sector.getStockCodes());
+            allStockCodes.addAll(stockStatusService.filterActiveStocks(sector.getStockCodes()));
         }
 
         // 2. Batch로 시세 조회 (가볍고 빠름)

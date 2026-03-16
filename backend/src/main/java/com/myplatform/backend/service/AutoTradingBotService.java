@@ -89,6 +89,7 @@ public class AutoTradingBotService {
     private final GlobalFuturesService globalFuturesService;
     private final SectorTradingService sectorTradingService;
     private final ShortSellingService shortSellingService;
+    private final StockStatusService stockStatusService;
 
     // ========== 스캘핑 전략 상수 ==========
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.0");     // 손절: -1.0% (손실 건당 금액 축소)
@@ -215,7 +216,8 @@ public class AutoTradingBotService {
             KoreaInvestmentService kisService,
             GlobalFuturesService globalFuturesService,
             SectorTradingService sectorTradingService,
-            ShortSellingService shortSellingService) {
+            ShortSellingService shortSellingService,
+            StockStatusService stockStatusService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -229,6 +231,7 @@ public class AutoTradingBotService {
         this.globalFuturesService = globalFuturesService;
         this.sectorTradingService = sectorTradingService;
         this.shortSellingService = shortSellingService;
+        this.stockStatusService = stockStatusService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -717,6 +720,13 @@ public class AutoTradingBotService {
                 // ★ 섹터 OUTFLOW 종목 진입 차단 ★
                 if (isOutflowSectorStock(surge.getStockCode())) {
                     log.debug("[스캘핑봇] Skip [{}({})] 섹터 OUTFLOW — 자금 유출 섹터 진입 차단",
+                            surge.getStockName(), surge.getStockCode());
+                    continue;
+                }
+
+                // ★ 거래정지/상폐 종목 진입 차단 ★
+                if (!stockStatusService.isActive(surge.getStockCode())) {
+                    log.debug("[스캘핑봇] Skip [{}({})] 거래정지/상폐 종목",
                             surge.getStockName(), surge.getStockCode());
                     continue;
                 }
