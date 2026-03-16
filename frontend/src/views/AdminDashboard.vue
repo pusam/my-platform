@@ -257,7 +257,6 @@
             <p>게시글 모니터링, 신고 관리, 통계 확인</p>
             <div class="action-group">
               <button @click="goToBoard" class="action-btn">게시판 이동</button>
-              <button @click="viewBoardStats" class="action-btn">통계 보기</button>
             </div>
           </div>
 
@@ -548,10 +547,7 @@ export default {
       this.$router.push('/admin/users')
     },
     viewAllUsers() {
-      alert('전체 사용자 관리 페이지 (개발 예정)')
-    },
-    viewBoardStats() {
-      alert('게시판 통계 페이지 (개발 예정)')
+      this.$router.push('/admin/users')
     },
     async viewApiStats() {
       try {
@@ -599,14 +595,28 @@ export default {
     viewFileManager() {
       this.$router.push('/files')
     },
-    cleanupFiles() {
-      alert('파일 정리 기능 (개발 예정)')
+    async cleanupFiles() {
+      try {
+        const res = await adminAPI.getServerStatus()
+        if (res.data.success) {
+          const disks = res.data.data.disks || []
+          let msg = '📁 디스크 사용량\n\n'
+          disks.forEach(d => {
+            const usedPct = d.totalSpace > 0 ? ((d.usedSpace / d.totalSpace) * 100).toFixed(1) : 0
+            msg += `${d.path}: ${usedPct}% 사용 (${(d.usedSpace / 1073741824).toFixed(1)}GB / ${(d.totalSpace / 1073741824).toFixed(1)}GB)\n`
+          })
+          msg += '\n파일 정리가 필요하면 서버에서 직접 처리해주세요.'
+          alert(msg)
+        }
+      } catch (e) {
+        alert('디스크 정보 조회 실패')
+      }
     },
     viewSettings() {
-      alert('시스템 설정 페이지 (개발 예정)')
+      this.$router.push('/settings')
     },
     viewLogs() {
-      alert('시스템 로그 페이지 (개발 예정)')
+      this.$router.push('/admin/logs')
     },
     goToUserManagement() {
       this.$router.push('/admin/users')
