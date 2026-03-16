@@ -94,11 +94,11 @@ const router = createRouter({
     },
     {
       path: '/gold',
-      redirect: '/global-futures'
+      redirect: { path: '/market-timing', query: { tab: 'gold' } }
     },
     {
       path: '/silver',
-      redirect: '/global-futures'
+      redirect: { path: '/market-timing', query: { tab: 'silver' } }
     },
     {
       path: '/my-content',
@@ -230,7 +230,7 @@ const router = createRouter({
     },
     {
       path: '/oil',
-      redirect: '/global-futures'
+      redirect: { path: '/market-timing', query: { tab: 'oil' } }
     },
     {
       path: '/global-futures',
