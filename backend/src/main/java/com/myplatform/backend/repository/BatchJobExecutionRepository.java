@@ -24,6 +24,8 @@ public interface BatchJobExecutionRepository extends JpaRepository<BatchJobExecu
 
     long countByStatusAndStartedAtAfter(String status, LocalDateTime after);
 
+    List<BatchJobExecution> findByStatusAndStartedAtAfterOrderByStartedAtDesc(String status, LocalDateTime after);
+
     @Modifying
     @Query("DELETE FROM BatchJobExecution b WHERE b.createdAt < :before")
     int deleteByCreatedAtBefore(@Param("before") LocalDateTime before);
