@@ -2,6 +2,7 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.CompositeAlertService;
 import com.myplatform.backend.service.MarketTimingService;
+import com.myplatform.backend.service.MorningBriefingService;
 import com.myplatform.backend.service.QuantScreenerService;
 import com.myplatform.backend.service.WatchlistService;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +26,7 @@ import org.springframework.stereotype.Component;
  * [실행 시간 (한국 시간 기준)]
  * - 장중 5분 간격 (09:00~15:30): 관심종목 목표가 알림
  * - 장 마감 후 (16:45): 시장 상태 알림
+ * - 모닝 브리핑 (07:30): 전일 시장 요약 텔레그램 발송
  * - 아침 (08:30): 마법의 공식, 턴어라운드 (장 시작 전 체크)
  */
 @Component
@@ -34,11 +36,27 @@ public class StockAlertScheduler {
 
     private final CompositeAlertService compositeAlertService;
     private final MarketTimingService marketTimingService;
+    private final MorningBriefingService morningBriefingService;
     private final QuantScreenerService quantScreenerService;
     private final WatchlistService watchlistService;
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
+
+    /**
+     * 모닝 브리핑 (평일 07:30)
+     * - 장 시작 전 전일 시장 요약 텔레그램 발송
+     * - 시장 상태, 외국인/기관 연속매수, 관심종목, 마법의 공식 정보
+     */
+    @Scheduled(cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
+    public void morningBriefing() {
+        if (!schedulerEnabled) return;
+        try {
+            morningBriefingService.sendMorningBriefing();
+        } catch (Exception e) {
+            log.error("모닝 브리핑 발송 실패: {}", e.getMessage(), e);
+        }
+    }
 
     /**
      * 장 마감 후 알림 (평일 16:45)
