@@ -79,16 +79,16 @@
 
         <!-- 서브 카드 그리드 -->
         <div class="invest-sub-grid">
-          <article class="invest-sub-card" @click="goToGlobalFutures">
+          <article class="invest-sub-card" @click="$router.push('/research')">
             <div class="invest-sub-icon futures-gradient">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
-                <polyline points="16,7 22,7 22,13"/>
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
             </div>
             <div class="invest-sub-text">
-              <h4>글로벌 시세</h4>
-              <p>선물 · 금 · 은 · 원유</p>
+              <h4>종목 발굴</h4>
+              <p>스크리너 · 섹터 · 수급</p>
             </div>
           </article>
 
@@ -115,7 +115,7 @@
             </div>
             <div class="invest-sub-text">
               <h4>시장 타이밍</h4>
-              <p>ADR · 시장 상태</p>
+              <p>ADR · 선물 · 금 · 은 · 원유</p>
             </div>
           </article>
         </div>
@@ -395,9 +395,6 @@ export default {
     },
     goToSettings() {
       this.$router.push('/settings')
-    },
-    goToGlobalFutures() {
-      this.$router.push('/global-futures')
     },
     goToFiles() {
       this.$router.push('/files')
