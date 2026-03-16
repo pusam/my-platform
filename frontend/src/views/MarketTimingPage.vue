@@ -295,6 +295,42 @@
       </div>
     </div>
 
+    <!-- 글로벌 선물 & 심리지표 -->
+    <div class="global-futures-section">
+      <div class="section-header">
+        <h3>🌍 글로벌 시장 & 심리지표</h3>
+        <button class="btn-refresh-mini" @click="fetchFutures" :disabled="futuresLoading">
+          {{ futuresLoading ? '...' : '↻' }}
+        </button>
+      </div>
+
+      <!-- KOSPI 영향도 배너 -->
+      <div v-if="impactData" class="impact-mini-banner" :class="getImpactClass(impactData.impactScore)">
+        <div class="impact-mini-left">
+          <span class="impact-mini-label">종합 시장 방향성</span>
+          <span class="impact-mini-badge" :class="getImpactClass(impactData.impactScore)">
+            {{ impactData.impactScore >= 60 ? '강세' : impactData.impactScore >= 40 ? '중립' : '약세' }}
+          </span>
+          <span class="impact-mini-score">{{ impactData.impactScore }}점</span>
+        </div>
+        <div class="impact-mini-comment">{{ impactData.comment }}</div>
+      </div>
+
+      <!-- 선물 시세 카드 그리드 -->
+      <div v-if="futuresQuotes.length" class="futures-grid">
+        <div v-for="q in futuresQuotes" :key="q.symbol" class="futures-card">
+          <div class="futures-name">{{ q.name }}</div>
+          <div class="futures-price">{{ formatFuturesPrice(q.currentPrice) }}</div>
+          <div class="futures-change" :class="q.changeRate >= 0 ? 'positive' : 'negative'">
+            {{ q.changeRate >= 0 ? '+' : '' }}{{ Number(q.changeRate).toFixed(2) }}%
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!futuresLoading" class="no-futures-data">
+        글로벌 선물 데이터를 불러오지 못했습니다.
+      </div>
+    </div>
+
     <!-- 진단 및 전략 -->
     <div class="diagnosis-section" v-if="marketData">
       <div class="diagnosis-card">
@@ -391,7 +427,7 @@
 <script setup>
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
-import { marketAPI } from '../utils/api';
+import { marketAPI, globalFuturesAPI } from '../utils/api';
 import BackButton from '../components/BackButton.vue';
 import { Line } from 'vue-chartjs';
 import {
@@ -697,6 +733,56 @@ const collectBackfillData = async () => {
   }
 };
 
+// ===== 글로벌 선물 & KOSPI 영향도 =====
+const futuresLoading = ref(false);
+const futuresQuotes = ref([]);
+const impactData = ref(null);
+
+const FUTURES_DISPLAY_ORDER = ['NQ', 'ES', 'DXY', 'VIX', 'GC', 'CL'];
+const FUTURES_NAMES = {
+  NQ: '나스닥 선물', ES: 'S&P 500', DXY: '달러인덱스',
+  VIX: 'VIX 공포지수', GC: '금', CL: '원유'
+};
+
+const fetchFutures = async () => {
+  futuresLoading.value = true;
+  try {
+    const [quotesRes, impactRes] = await Promise.allSettled([
+      globalFuturesAPI.getAllQuotes(),
+      globalFuturesAPI.getKospiImpact()
+    ]);
+
+    if (quotesRes.status === 'fulfilled' && quotesRes.value.data.success) {
+      const allQuotes = quotesRes.value.data.data;
+      futuresQuotes.value = FUTURES_DISPLAY_ORDER
+        .map(sym => {
+          const q = allQuotes.find(a => a.symbol === sym);
+          return q ? { ...q, name: FUTURES_NAMES[sym] || q.name } : null;
+        })
+        .filter(Boolean);
+    }
+
+    if (impactRes.status === 'fulfilled' && impactRes.value.data.success) {
+      impactData.value = impactRes.value.data.data;
+    }
+  } catch (e) {
+    console.error('글로벌 선물 조회 실패:', e);
+  } finally {
+    futuresLoading.value = false;
+  }
+};
+
+const getImpactClass = (score) => {
+  if (score >= 60) return 'impact-bullish';
+  if (score >= 40) return 'impact-neutral';
+  return 'impact-bearish';
+};
+
+const formatFuturesPrice = (price) => {
+  if (!price) return '-';
+  return Number(price).toLocaleString('ko-KR', { maximumFractionDigits: 2 });
+};
+
 const fetchData = async () => {
   loading.value = true;
   try {
@@ -781,6 +867,7 @@ const getAdrClass = (adr) => {
 onMounted(() => {
   fetchData();
   fetchAdrHistory();
+  fetchFutures();
 });
 </script>
 
@@ -1709,4 +1796,153 @@ onMounted(() => {
     font-size: 2rem;
   }
 }
+
+/* ===== 글로벌 선물 섹션 ===== */
+.global-futures-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 2rem;
+}
+
+.global-futures-section .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.global-futures-section .section-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.btn-refresh-mini {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.5);
+  font-size: 16px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.btn-refresh-mini:hover:not(:disabled) {
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+}
+
+/* KOSPI 영향도 미니 배너 */
+.impact-mini-banner {
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.impact-mini-banner.impact-bullish {
+  background: rgba(239,68,68,0.06);
+  border-color: rgba(239,68,68,0.2);
+}
+
+.impact-mini-banner.impact-neutral {
+  background: rgba(245,158,11,0.06);
+  border-color: rgba(245,158,11,0.2);
+}
+
+.impact-mini-banner.impact-bearish {
+  background: rgba(59,130,246,0.06);
+  border-color: rgba(59,130,246,0.2);
+}
+
+.impact-mini-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.impact-mini-label {
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+}
+
+.impact-mini-badge {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 10px;
+  border-radius: 8px;
+}
+
+.impact-mini-badge.impact-bullish { background: rgba(239,68,68,0.15); color: #ef4444; }
+.impact-mini-badge.impact-neutral { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.impact-mini-badge.impact-bearish { background: rgba(59,130,246,0.15); color: #3b82f6; }
+
+.impact-mini-score {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+}
+
+.impact-mini-comment {
+  font-size: 13px;
+  color: rgba(255,255,255,0.6);
+  line-height: 1.5;
+}
+
+/* 선물 시세 그리드 */
+.futures-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.futures-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+
+.futures-name {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  margin-bottom: 4px;
+}
+
+.futures-price {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+  margin-bottom: 2px;
+}
+
+.futures-change {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.futures-change.positive { color: #ef4444; }
+.futures-change.negative { color: #3b82f6; }
+
+.no-futures-data {
+  text-align: center;
+  padding: 20px;
+  color: rgba(255,255,255,0.3);
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .futures-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .futures-card { padding: 8px; }
+  .futures-price { font-size: 13px; }
+  .futures-name { font-size: 10px; }
+}
 </style>
+

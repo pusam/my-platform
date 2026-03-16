@@ -1,7 +1,7 @@
 <template>
-  <div class="investor-analysis-page">
+  <div :class="['investor-analysis-page', { embedded: embedded }]">
     <div class="content-wrapper">
-      <div class="page-header-unified">
+      <div class="page-header-unified" v-if="!embedded">
         <BackButton :dark="true" />
         <div class="header-title">
           <h1>투자자 분석</h1>
@@ -304,11 +304,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
 import { investorAPI } from '../utils/api'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+})
 
 const router = useRouter()
 
@@ -673,6 +677,12 @@ onUnmounted(() => {
   min-height: 100vh;
   background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
   padding: 2rem;
+}
+
+.investor-analysis-page.embedded {
+  min-height: auto;
+  background: transparent;
+  padding: 0;
 }
 
 .content-wrapper {

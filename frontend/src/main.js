@@ -22,20 +22,20 @@ const CarManagement = () => import('./views/CarManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
 // SectorTradingPage, EarningsScreenerPage → ResearchPage에 탭으로 통합됨 (redirect)
-const InvestorAnalysisPage = () => import('./views/InvestorAnalysisPage.vue')
-// InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → InvestorAnalysisPage에 통합됨 (redirect)
+// InvestorAnalysisPage → ResearchPage에 탭으로 통합됨 (redirect)
+// InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → ResearchPage에 통합됨 (redirect)
 const NewsPage = () => import('./views/NewsPage.vue')
 const ResearchPage = () => import('./views/ResearchPage.vue')
 const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
 const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
 const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
 // TradingIndicatorsPage → StockDetailDashboard에 탭으로 통합됨 (redirect)
-const AiStrategyDashboardPage = () => import('./views/AiStrategyDashboardPage.vue')
+// AiStrategyDashboardPage → StockTradingDashboardV2에 AI전략 탭으로 통합됨 (redirect)
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
-const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
-// OilPricePage → GlobalFuturesPage에 탭으로 통합됨 (redirect)
+// GlobalFuturesPage → 대시보드 + MarketTimingPage에 흡수됨 (redirect)
+// OilPricePage → 대시보드에 흡수됨 (redirect)
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -148,9 +148,7 @@ const router = createRouter({
     },
     {
       path: '/investor',
-      name: 'InvestorAnalysis',
-      component: InvestorAnalysisPage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
     },
     {
       path: '/investor-trades',
@@ -212,9 +210,7 @@ const router = createRouter({
     },
     {
       path: '/ai-strategy',
-      name: 'AiTradingStrategy',
-      component: AiStrategyDashboardPage,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard'
     },
     {
       path: '/stock-detail',
@@ -238,9 +234,7 @@ const router = createRouter({
     },
     {
       path: '/global-futures',
-      name: 'GlobalFutures',
-      component: GlobalFuturesPage,
-      meta: { requiresAuth: true }
+      redirect: '/market-timing'
     },
     {
       path: '/admin/users',
