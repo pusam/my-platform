@@ -3,8 +3,10 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.RiskAnalysisDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AlertHistory;
+import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.entity.StockWatchlist;
 import com.myplatform.backend.repository.AlertHistoryRepository;
+import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockWatchlistRepository;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -32,6 +35,7 @@ public class WatchlistRiskMonitorService {
     private final AlertHistoryRepository alertHistoryRepository;
     private final StockPriceService stockPriceService;
     private final DartService dartService;
+    private final InvestorDailyTradeRepository investorTradeRepository;
     private final TelegramNotificationService telegramService;
 
     private static final int COOLDOWN_MINUTES = 60;
@@ -184,8 +188,49 @@ public class WatchlistRiskMonitorService {
     }
 
     private void checkForeignSelloff(String stockCode, List<RiskDetail> risks) {
-        // TODO: InvestorTradeService 확장 후 외국인 순매도 급전환 감지 추가
-        // 현재는 수급급증 서비스에서 커버 (InvestorSurgeService)
+        try {
+            LocalDate today = LocalDate.now();
+            LocalDate twoDaysAgo = today.minusDays(3); // 주말 고려해서 3일
+
+            List<InvestorDailyTrade> trades = investorTradeRepository
+                    .findByStockCodeAndDateRange(stockCode, twoDaysAgo, today);
+
+            if (trades.isEmpty()) return;
+
+            // 외국인 매수(BUY) 데이터에서 순매수 금액 추출 (날짜별)
+            Map<LocalDate, BigDecimal> foreignNetBuy = new HashMap<>();
+            for (InvestorDailyTrade t : trades) {
+                if ("FOREIGN".equals(t.getInvestorType()) && "BUY".equals(t.getTradeType())) {
+                    foreignNetBuy.put(t.getTradeDate(), t.getNetBuyAmount());
+                }
+            }
+
+            if (foreignNetBuy.size() < 2) return;
+
+            // 날짜 정렬 (최신 순)
+            List<LocalDate> dates = foreignNetBuy.keySet().stream()
+                    .sorted(Comparator.reverseOrder())
+                    .toList();
+
+            BigDecimal todayAmount = foreignNetBuy.get(dates.get(0));    // 당일(최신)
+            BigDecimal yesterdayAmount = foreignNetBuy.get(dates.get(1)); // 전일
+
+            if (todayAmount == null || yesterdayAmount == null) return;
+
+            // 전일 순매수(양수)였는데 당일 -50억 이하로 전환
+            if (yesterdayAmount.compareTo(BigDecimal.ZERO) > 0
+                    && todayAmount.compareTo(new BigDecimal("-50")) <= 0) {
+
+                risks.add(RiskDetail.builder()
+                        .type("FOREIGN_SELLOFF")
+                        .level(RiskLevel.WARNING)
+                        .message(String.format("외국인 순매도 급전환 %s억", todayAmount))
+                        .detail(String.format("전일 +%s억 → 당일 %s억", yesterdayAmount, todayAmount))
+                        .build());
+            }
+        } catch (Exception e) {
+            log.debug("[리스크모니터] 외국인 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
+        }
     }
 
     private void checkVolumeDrop(String stockCode, StockPriceDto price, List<RiskDetail> risks) {
