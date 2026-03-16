@@ -96,7 +96,7 @@ public class SectorStockConfig {
         stockNameMap.put("010140", "삼성중공업");
         stockNameMap.put("267250", "HD현대");
         stockNameMap.put("009830", "한화솔루션");
-        stockNameMap.put("010620", "HD현대미포");
+        stockNameMap.put("329180", "HD현대중공업");
         stockNameMap.put("003280", "흥아해운");
         stockNameMap.put("011200", "HMM");
         stockNameMap.put("028670", "팬오션");
@@ -114,7 +114,7 @@ public class SectorStockConfig {
         stockNameMap.put("207940", "삼성바이오로직스");
         stockNameMap.put("068270", "셀트리온");
         stockNameMap.put("326030", "SK바이오팜");
-        stockNameMap.put("091990", "셀트리온헬스케어");
+        stockNameMap.put("195940", "HK이노엔");
         stockNameMap.put("128940", "한미약품");
         stockNameMap.put("006280", "녹십자");
         stockNameMap.put("000100", "유한양행");
@@ -221,7 +221,7 @@ public class SectorStockConfig {
         stockNameMap.put("112040", "위메이드");
         stockNameMap.put("078340", "컴투스");
         stockNameMap.put("194480", "데브시스터즈");
-        stockNameMap.put("041140", "넥슨지티");
+        stockNameMap.put("225570", "넥슨게임즈");
         stockNameMap.put("069080", "웹젠");
 
         // 기타 주요 종목
@@ -317,7 +317,7 @@ public class SectorStockConfig {
                 "267250", // HD현대
                 "267260", // HD현대일렉트릭
                 "009830", // 한화솔루션
-                "010620", // HD현대미포
+                "329180", // HD현대중공업
                 "003280", // 흥아해운
                 "011200", // HMM
                 "028670"  // 팬오션
@@ -352,7 +352,7 @@ public class SectorStockConfig {
                 "207940", // 삼성바이오로직스
                 "068270", // 셀트리온
                 "326030", // SK바이오팜
-                "091990", // 셀트리온헬스케어
+                "195940", // HK이노엔
                 "128940", // 한미약품
                 "006280", // 녹십자
                 "000100", // 유한양행
@@ -528,7 +528,7 @@ public class SectorStockConfig {
                 "112040", // 위메이드
                 "078340", // 컴투스
                 "194480", // 데브시스터즈
-                "041140", // 넥슨지티
+                "225570", // 넥슨게임즈
                 "069080"  // 웹젠
             )
         ));
