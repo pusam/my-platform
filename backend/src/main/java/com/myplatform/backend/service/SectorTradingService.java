@@ -768,4 +768,11 @@ public class SectorTradingService {
 
         return status;
     }
+
+    /**
+     * 섹터 설정 조회 (외부 서비스에서 섹터-종목 매핑 참조용)
+     */
+    public SectorStockConfig getSectorConfig() {
+        return sectorConfig;
+    }
 }

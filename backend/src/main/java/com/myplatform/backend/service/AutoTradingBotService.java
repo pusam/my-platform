@@ -6,6 +6,7 @@ import com.myplatform.backend.dto.PaperTradingDto.BotStatusDto;
 import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.dto.PaperTradingDto.TradeHistoryDto;
 import com.myplatform.backend.dto.ScalpingAnalysisDto;
+import com.myplatform.backend.dto.SectorRotationDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.BotConfig;
@@ -43,25 +44,30 @@ import java.util.stream.Collectors;
  * [전략 명세서] - SCALPING SNIPER MODE
  * ========================================
  *
- * 1. 매수 조건 (Strict Entry) - 6가지 모두 만족 시 시장가 진입
- *    A. 실시간 체결강도 100% 이상 유지 중
- *    B. 순매수금액 3억 이상 (수급 급증)
- *    C. 현재가 > 시초가 (양봉 상태)
- *    D. RSI(14) < 70 (분봉 기준, 과열 구간 진입 금지)
- *    E. 20MA 이격도 < +15% (급등 구간 진입 금지)
- *    F. 갭상승 < +8% (갭상승 과다 진입 금지)
+ * 1. 매수 조건 (필수 3개 + 보조 4개 중 2개 이상)
+ *    [필수] A. 순매수금액 ≥ 1억 (수급 확인)
+ *    [필수] B. 현재가 조회 성공
+ *    [필수] C. 현재가 > 시초가 (양봉 상태)
+ *    [보조] D. 체결강도 ≥ 110% (매수 우위)
+ *    [보조] E. RSI(14) < 60 (과열 방지 강화)
+ *    [보조] F. 20MA 이격도 < +5% (고점 추격 차단)
+ *    [보조] G. 갭상승 < +8%
+ *    ※ 조회 실패 = 차단 (안전 우선)
  *
- * 2. 매도 조건 (Auto Exit) - 3초 간격 감시 (API 블락 방지)
- *    A. 익절 1차: +2.0% 도달 시 절반 매도 (슬리피지 방어)
- *    B. 익절 2차: 트레일링 스탑 (고점 대비 -0.5% 하락 시 전량 매도)
- *    C. 손절: -1.5% 터치 시 즉시 전량 손절 (슬리피지+세금 고려)
- *    D. 타임컷: 매수 후 5분 초과 시 무조건 전량 매도
- *    E. 재매수 쿨다운: 매도 후 30분간 같은 종목 재매수 금지
+ * 2. 매도 조건 (Auto Exit) - 3초 간격 감시
+ *    A. 익절 1차: +2.0% 도달 시 절반 매도
+ *    B. 트레일링 스탑: 고점 대비 -0.5% → 전량 매도
+ *    C. 손절: -1.0% 터치 시 전량 손절
+ *    D. 타임컷: 매수 후 10분 초과 시 전량 매도
+ *    E. 재매수 쿨다운: 매도 후 30분간 동일 종목 금지
  *
- * 3. 운용 설정
- *    A. 감시 대상: 수급 급증 탭에 잡힌 종목들만
- *    B. 킬 스위치: 하루 최대 손실 -3% 초과 시 봇 자동 종료
- *    C. 운용 시간: 09:05~15:00 (점심 휴식 없이 연속)
+ * 3. 리스크 관리 (강화)
+ *    A. 킬 스위치: 일일 -1.5% 손실 시 봇 종료
+ *    B. 연속 손절 3회 시 당일 매수 정지
+ *    C. KOSPI -1.5% 하락 시 신규 진입 차단
+ *    D. VIX > 30 매수 일시정지
+ *    E. 섹터 OUTFLOW 종목 진입 차단
+ *    F. 09:30~11:30 매수 (장 초반 30분 회피)
  *
  * ========================================
  */
@@ -80,6 +86,7 @@ public class AutoTradingBotService {
     private final TechnicalIndicatorService technicalIndicatorService;
     private final KoreaInvestmentService kisService;
     private final GlobalFuturesService globalFuturesService;
+    private final SectorTradingService sectorTradingService;
 
     // ========== 스캘핑 전략 상수 ==========
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.0");     // 손절: -1.0% (손실 건당 금액 축소)
@@ -92,13 +99,16 @@ public class AutoTradingBotService {
     private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
     private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
-    private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-3.0");   // 킬 스위치: -3%
+    private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-1.5");   // 킬 스위치: -1.5% (스캘핑용 축소)
     private static final int SELL_COOLDOWN_MINUTES = 30;                        // 매도 후 재매수 쿨다운: 30분
-    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("70");      // RSI 진입 상한 (분봉 기준, 과열 방지)
-    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("15"); // 20MA 이격도 상한 (%)
+    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("60");      // RSI 진입 상한 (과열 방지 강화: 70→60)
+    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("5");  // 20MA 이격도 상한 (급등 진입 차단: 15%→5%)
     private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("8");          // 갭상승 상한 (%)
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");  // 최소 일중 변동폭: 1.5% (저변동성 종목 제외)
     private static final double VIX_PAUSE_THRESHOLD = 30.0;                    // VIX 일시정지 임계치
+    private static final BigDecimal KOSPI_DROP_LIMIT = new BigDecimal("-1.5");   // KOSPI 하락 한도: -1.5% 이상 하락 시 진입 차단
+    private static final int CONSECUTIVE_STOP_LOSS_LIMIT = 3;                   // 연속 손절 한도: 3회 시 당일 정지
+    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 30);   // 장 초반 30분 진입 금지: 09:30부터 매수
 
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
@@ -132,6 +142,16 @@ public class AutoTradingBotService {
     private volatile Map<String, List<InvestorSurgeDto>> cachedSurgeStocks = null;
     private volatile LocalDateTime surgeStocksCacheTime = null;
     private static final long SURGE_CACHE_SECONDS = 30; // 30초 캐시
+    // 연속 손절 카운터 (3회 연속 시 당일 정지)
+    private final AtomicInteger consecutiveStopLossCount = new AtomicInteger(0);
+    private final AtomicBoolean consecutiveStopLossPaused = new AtomicBoolean(false);
+    // KOSPI 하락 기반 매수 일시정지
+    private final AtomicBoolean kospiDropPaused = new AtomicBoolean(false);
+    private volatile LocalDateTime lastKospiCheckTime = null;
+    // 섹터 OUTFLOW 캐시 (5분마다 갱신)
+    private volatile Set<String> outflowSectorStocks = ConcurrentHashMap.newKeySet();
+    private volatile LocalDateTime outflowCacheTime = null;
+    private static final long OUTFLOW_CACHE_SECONDS = 300; // 5분 캐시
 
     /**
      * 스캘핑 포지션 정보
@@ -191,7 +211,8 @@ public class AutoTradingBotService {
             BotConfigRepository botConfigRepository,
             TechnicalIndicatorService technicalIndicatorService,
             KoreaInvestmentService kisService,
-            GlobalFuturesService globalFuturesService) {
+            GlobalFuturesService globalFuturesService,
+            SectorTradingService sectorTradingService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -203,6 +224,7 @@ public class AutoTradingBotService {
         this.technicalIndicatorService = technicalIndicatorService;
         this.kisService = kisService;
         this.globalFuturesService = globalFuturesService;
+        this.sectorTradingService = sectorTradingService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -322,22 +344,23 @@ public class AutoTradingBotService {
                     String.format("<b>%s [%s] 스캘핑 스나이퍼 봇 시작!</b>\n\n", modeEmoji, modeTag) +
                     "✅ 봇이 활성화되었습니다.\n" +
                     "🎯 전략: <b>스캘핑 스나이퍼 모드 v2</b>\n\n" +
-                    "━━━ 매수 조건 (6가지 동시 충족) ━━━\n" +
-                    "1️⃣ 체결강도 100% 이상\n" +
-                    "2️⃣ 순매수금액 3억↑ (수급 급증)\n" +
-                    "3️⃣ 현재가 > 시초가 (양봉)\n" +
-                    "4️⃣ RSI(14) < 70 (분봉 기준, 과열 금지)\n" +
-                    "5️⃣ 20MA 이격도 < +15%\n" +
-                    "6️⃣ 갭상승 < +8%\n\n" +
+                    "━━━ 매수 조건 (필수3 + 보조4중2) ━━━\n" +
+                    "🔒 필수: 순매수≥1억, 현재가OK, 양봉\n" +
+                    "📊 보조(4중2): 체결강도≥110%, RSI<60,\n" +
+                    "  이격도<5%, 갭<8%\n" +
+                    "⛔ 조회실패=차단 (안전 우선)\n\n" +
                     "━━━ 매도 조건 (3초 감시) ━━━\n" +
-                    "🟢 익절 1차: +2.5% → 절반 매도\n" +
-                    "🟢 익절 2차: 고점 -1% → 전량 매도\n" +
+                    "🟢 익절 1차: +2.0% → 절반 매도\n" +
+                    "🟢 트레일링: 고점 -0.5% → 전량\n" +
                     "🔴 손절: -1.0% → 전량 손절\n" +
                     "⏰ 타임컷: 10분 초과 → 전량 매도\n\n" +
-                    "━━━ 리스크 관리 ━━━\n" +
-                    "🛑 킬 스위치: 일일 손실 -3% 초과 시 봇 종료\n" +
-                    "📦 최대 보유: 3종목\n" +
-                    "🕐 오전장: 09:05~11:00 / 오후장: 13:30~15:00\n\n" +
+                    "━━━ 리스크 관리 (강화) ━━━\n" +
+                    "🛑 킬 스위치: 일일 -1.5% 초과 시 봇 종료\n" +
+                    "🛑 연속 손절 3회 시 당일 매수 정지\n" +
+                    "📉 KOSPI -1.5% 하락 시 진입 차단\n" +
+                    "🔄 섹터 OUTFLOW 종목 진입 차단\n" +
+                    "⏰ 09:30부터 매수 (장 초반 30분 회피)\n" +
+                    "📦 최대 보유: 3종목\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     modeEmoji + " MyPlatform " + modeTag
             );
@@ -382,10 +405,14 @@ public class AutoTradingBotService {
         String status;
         if (killSwitchTriggered.get()) {
             status = "KILL_SWITCH";
+        } else if (consecutiveStopLossPaused.get()) {
+            status = "STOP_LOSS_PAUSED";
         } else if (!botActive.get()) {
             status = "STOPPED";
         } else if (vixPaused.get()) {
             status = "VIX_PAUSED";
+        } else if (kospiDropPaused.get()) {
+            status = "KOSPI_DROP_PAUSED";
         } else if (lastError != null && lastErrorTime != null &&
                    lastErrorTime.isAfter(LocalDateTime.now().minusMinutes(30))) {
             status = "ERROR";
@@ -467,6 +494,104 @@ public class AutoTradingBotService {
         }
     }
 
+    // ==================== KOSPI 하락 체크 ====================
+
+    /**
+     * KOSPI -1.5% 이상 하락 시 신규 매수 차단
+     * - 시장 전체가 빠지는 날 스캘핑은 역풍
+     * - 1분마다 체크 (API 부하 방지)
+     */
+    private boolean checkKospiDrop() {
+        try {
+            // 1분마다만 체크 (API 부하 방지)
+            if (lastKospiCheckTime != null &&
+                    java.time.Duration.between(lastKospiCheckTime, LocalDateTime.now()).getSeconds() < 60) {
+                return kospiDropPaused.get();
+            }
+            lastKospiCheckTime = LocalDateTime.now();
+
+            // KOSPI 지수 조회 (코스피: 0001)
+            StockPriceDto kospiDto = stockPriceService.getStockPrice("0001");
+            if (kospiDto == null || kospiDto.getChangeRate() == null) {
+                return kospiDropPaused.get();
+            }
+
+            BigDecimal kospiChangeRate = kospiDto.getChangeRate();
+
+            if (kospiChangeRate.compareTo(KOSPI_DROP_LIMIT) <= 0) {
+                if (!kospiDropPaused.getAndSet(true)) {
+                    log.warn("[스캘핑봇] ⚠️ KOSPI {}% 하락 — 신규 매수 차단!", kospiChangeRate);
+                    if (telegramService.isEnabled()) {
+                        telegramService.sendMessage(
+                                String.format("<b>⚠️ KOSPI 급락 — 매수 차단!</b>\n\n" +
+                                        "📉 KOSPI: <b>%+.2f%%</b> (임계치: %.1f%%)\n" +
+                                        "⏸️ 스캘핑봇 신규 매수 중단\n" +
+                                        "📉 매도/손절은 정상 작동 중\n\n" +
+                                        "━━━━━━━━━━━━━━━━", kospiChangeRate, KOSPI_DROP_LIMIT)
+                        );
+                    }
+                }
+                return true;
+            } else if (kospiDropPaused.getAndSet(false)) {
+                log.info("[스캘핑봇] ✅ KOSPI {}% — 매수 재개", kospiChangeRate);
+                if (telegramService.isEnabled()) {
+                    telegramService.sendMessage(
+                            String.format("<b>✅ KOSPI 회복 — 매수 재개</b>\n\n" +
+                                    "📊 KOSPI: <b>%+.2f%%</b>\n" +
+                                    "🤖 스캘핑봇 매수 자동 재개\n\n" +
+                                    "━━━━━━━━━━━━━━━━", kospiChangeRate)
+                    );
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] KOSPI 조회 실패 (무시): {}", e.getMessage());
+        }
+        return kospiDropPaused.get();
+    }
+
+    // ==================== 섹터 OUTFLOW 체크 ====================
+
+    /**
+     * 섹터 OUTFLOW 종목인지 확인
+     * - getSectorRotation()에서 OUTFLOW로 분류된 섹터의 종목은 진입 차단
+     * - 5분 캐시로 API 부하 방지
+     */
+    private boolean isOutflowSectorStock(String stockCode) {
+        try {
+            // 5분 캐시
+            if (outflowCacheTime != null &&
+                    java.time.Duration.between(outflowCacheTime, LocalDateTime.now()).getSeconds() < OUTFLOW_CACHE_SECONDS) {
+                return outflowSectorStocks.contains(stockCode);
+            }
+
+            // 섹터 로테이션 데이터 조회
+            List<SectorRotationDto> rotations = sectorTradingService.getSectorRotation();
+            Set<String> newOutflowStocks = ConcurrentHashMap.newKeySet();
+
+            for (SectorRotationDto rotation : rotations) {
+                if ("OUTFLOW".equals(rotation.getFlowDirection())) {
+                    // OUTFLOW 섹터의 모든 종목 코드 수집
+                    var sectorInfo = sectorTradingService.getSectorConfig().getSector(rotation.getSectorCode());
+                    if (sectorInfo != null) {
+                        newOutflowStocks.addAll(sectorInfo.getStockCodes());
+                    }
+                }
+            }
+
+            outflowSectorStocks = newOutflowStocks;
+            outflowCacheTime = LocalDateTime.now();
+
+            if (!newOutflowStocks.isEmpty()) {
+                log.debug("[스캘핑봇] OUTFLOW 섹터 종목 {}개 차단 중", newOutflowStocks.size());
+            }
+
+            return outflowSectorStocks.contains(stockCode);
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] 섹터 OUTFLOW 체크 실패 (무시): {}", e.getMessage());
+            return false;
+        }
+    }
+
     // ==================== 매수 로직 (스캘핑) ====================
 
     /**
@@ -480,14 +605,24 @@ public class AutoTradingBotService {
             return;
         }
 
-        // 09:00~11:30만 매수 허용
+        // 연속 손절 3회 시 당일 정지
+        if (consecutiveStopLossPaused.get()) {
+            return;
+        }
+
+        // 09:30~11:30만 매수 허용 (장 초반 30분 변동성 회피)
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(11, 30))) {
+        if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(LocalTime.of(11, 30))) {
             return;
         }
 
         // ★ VIX 30 이상 → 매수 일시정지
         if (checkVixPause()) {
+            return;
+        }
+
+        // ★ KOSPI -1.5% 이상 하락 → 신규 진입 차단
+        if (checkKospiDrop()) {
             return;
         }
 
@@ -557,6 +692,13 @@ public class AutoTradingBotService {
                 if (lastSell != null && java.time.Duration.between(lastSell, LocalDateTime.now()).toMinutes() < SELL_COOLDOWN_MINUTES) {
                     log.debug("[스캘핑봇] 쿨다운: {} - 매도 후 {}분 경과 (기준: {}분)",
                             surge.getStockName(), java.time.Duration.between(lastSell, LocalDateTime.now()).toMinutes(), SELL_COOLDOWN_MINUTES);
+                    continue;
+                }
+
+                // ★ 섹터 OUTFLOW 종목 진입 차단 ★
+                if (isOutflowSectorStock(surge.getStockCode())) {
+                    log.debug("[스캘핑봇] Skip [{}({})] 섹터 OUTFLOW — 자금 유출 섹터 진입 차단",
+                            surge.getStockName(), surge.getStockCode());
                     continue;
                 }
 
@@ -757,9 +899,9 @@ public class AutoTradingBotService {
                 failedSubs.add("체결강도 조회 실패");
             }
 
-            // ===== 보조 B: RSI(14) < 70 =====
+            // ===== 보조 B: RSI(14) < 60 (강화) =====
             try {
-                boolean rsiOk = true; // 조회 실패 시 통과 처리
+                boolean rsiOk = false; // 조회 실패 시 실패 처리 (안전 우선)
                 boolean rsiChecked = false;
 
                 // 분봉 RSI 시도
@@ -808,12 +950,11 @@ public class AutoTradingBotService {
                     failedSubs.add("RSI 과열 ≥ " + RSI_ENTRY_LIMIT);
                 }
             } catch (Exception e) {
-                // RSI 체크 실패 시 통과 처리
-                subScore++;
-                passedSubs.add("RSI 체크 실패(통과)");
+                // RSI 체크 실패 시 실패 처리 (안전 우선)
+                failedSubs.add("RSI 체크 실패(차단)");
             }
 
-            // ===== 보조 C: 20MA 이격도 < 15% =====
+            // ===== 보조 C: 20MA 이격도 < 5% (강화) =====
             try {
                 List<BigDecimal> dailyPrices = kisService.getDailyClosePrices(stockCode, 30);
                 if (dailyPrices != null && dailyPrices.size() >= 20) {
@@ -829,16 +970,13 @@ public class AutoTradingBotService {
                             failedSubs.add("이격도 " + disparity.setScale(1, RoundingMode.HALF_UP) + "% ≥ " + DISPARITY_20MA_LIMIT + "%");
                         }
                     } else {
-                        subScore++; // 데이터 없으면 통과
-                        passedSubs.add("이격도 데이터 없음(통과)");
+                        failedSubs.add("이격도 데이터 없음(차단)");
                     }
                 } else {
-                    subScore++; // 데이터 부족 시 통과
-                    passedSubs.add("이격도 데이터 부족(통과)");
+                    failedSubs.add("이격도 데이터 부족(차단)");
                 }
             } catch (Exception e) {
-                subScore++; // 예외 시 통과
-                passedSubs.add("이격도 체크 실패(통과)");
+                failedSubs.add("이격도 체크 실패(차단)");
             }
 
             // ===== 보조 D: 갭상승 < 8% =====
@@ -862,8 +1000,7 @@ public class AutoTradingBotService {
                 }
             }
             if (!gapCheckDone) {
-                subScore++; // 갭 데이터 없으면 통과
-                passedSubs.add("갭 데이터 없음(통과)");
+                failedSubs.add("갭 데이터 없음(차단)");
             }
 
             // ==================== 최종 판정: 보조 조건 2개 이상 충족 ====================
@@ -1053,6 +1190,28 @@ public class AutoTradingBotService {
             if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
                 sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now());
+
+                // 연속 손절 카운터 관리
+                if ("STOP_LOSS".equals(reason)) {
+                    int stopCount = consecutiveStopLossCount.incrementAndGet();
+                    log.warn("[스캘핑봇] 연속 손절 {}회 (한도: {}회)", stopCount, CONSECUTIVE_STOP_LOSS_LIMIT);
+                    if (stopCount >= CONSECUTIVE_STOP_LOSS_LIMIT) {
+                        consecutiveStopLossPaused.set(true);
+                        log.warn("[스캘핑봇] 🛑 연속 손절 {}회 — 당일 매수 정지!", stopCount);
+                        if (telegramService.isEnabled()) {
+                            telegramService.sendMessage(
+                                    "<b>🛑 연속 손절 " + stopCount + "회 — 당일 매수 정지!</b>\n\n" +
+                                    "⚠️ 연속 손절이 " + CONSECUTIVE_STOP_LOSS_LIMIT + "회에 도달하여\n" +
+                                    "금일 신규 매수를 중단합니다.\n" +
+                                    "📉 매도/손절은 정상 작동 중\n\n" +
+                                    "━━━━━━━━━━━━━━━━"
+                            );
+                        }
+                    }
+                } else {
+                    // 손절이 아닌 매도 시 연속 카운터 리셋
+                    consecutiveStopLossCount.set(0);
+                }
             }
 
             // 텔레그램 알림
@@ -1272,8 +1431,13 @@ public class AutoTradingBotService {
             todayBuyCount.set(0);
             todaySellCount.set(0);
             killSwitchTriggered.set(false);
+            consecutiveStopLossCount.set(0);
+            consecutiveStopLossPaused.set(false);
+            kospiDropPaused.set(false);
             scalpingPositions.clear();
             sellCooldownMap.clear();
+            outflowSectorStocks.clear();
+            outflowCacheTime = null;
             lastResetDate = today;
             initializeDailyAsset();
         }

@@ -128,7 +128,7 @@
               <div class="stat-row">
                 <span class="label">상태</span>
                 <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'VIRTUAL' ? botStatus.status : 'STOPPED')">
-                  {{ botStatus.tradingMode === 'VIRTUAL' && botStatus.status === 'VIX_PAUSED' ? '⏸️ VIX 일시정지' : (botStatus.active && botStatus.tradingMode === 'VIRTUAL' ? '실행 중' : '중지됨') }}
+                  {{ getBotStatusText(botStatus, 'VIRTUAL') }}
                 </span>
               </div>
               <div class="stat-row">
@@ -338,7 +338,7 @@
               <div class="stat-row">
                 <span class="label">상태</span>
                 <span class="value" :class="getBotStatusClass(botStatus.tradingMode === 'REAL' ? botStatus.status : 'STOPPED')">
-                  {{ botStatus.tradingMode === 'REAL' && botStatus.status === 'VIX_PAUSED' ? '⏸️ VIX 일시정지' : (botStatus.active && botStatus.tradingMode === 'REAL' ? '실행 중' : '중지됨') }}
+                  {{ getBotStatusText(botStatus, 'REAL') }}
                 </span>
               </div>
               <div class="stat-row">
@@ -995,8 +995,23 @@ const getBotStatusClass = (status) => {
     case 'STOPPED': return 'stopped';
     case 'ERROR': return 'error';
     case 'VIX_PAUSED': return 'vix-paused';
+    case 'KOSPI_DROP_PAUSED': return 'vix-paused';
+    case 'STOP_LOSS_PAUSED': return 'error';
     case 'KILL_SWITCH': return 'error';
     default: return '';
+  }
+};
+
+const getBotStatusText = (botStatus, mode) => {
+  if (botStatus.tradingMode !== mode) return '중지됨';
+  switch (botStatus.status) {
+    case 'VIX_PAUSED': return '⏸️ VIX 일시정지';
+    case 'KOSPI_DROP_PAUSED': return '⏸️ KOSPI 하락 정지';
+    case 'STOP_LOSS_PAUSED': return '🛑 연속손절 정지';
+    case 'KILL_SWITCH': return '🛑 킬스위치 발동';
+    case 'ERROR': return '⚠️ 오류';
+    case 'RUNNING': return botStatus.active ? '실행 중' : '중지됨';
+    default: return botStatus.active ? '실행 중' : '중지됨';
   }
 };
 
