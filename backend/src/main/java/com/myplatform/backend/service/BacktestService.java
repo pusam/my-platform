@@ -23,6 +23,31 @@ public class BacktestService {
     private final AiStrategySnapshotRepository snapshotRepository;
     private final StockPriceService stockPriceService;
 
+    // 거래 비용 상수
+    private static final BigDecimal COMMISSION_RATE = new BigDecimal("0.00015");  // 매수·매도 각 0.015%
+    private static final BigDecimal TAX_RATE = new BigDecimal("0.0018");          // 매도 세금 0.18%
+
+    // 전략별 슬리피지 (스냅샷 가격 vs 실제 체결가 괴리)
+    private static final Map<StrategyType, BigDecimal> SLIPPAGE_RATE = Map.of(
+            StrategyType.SCALPING, new BigDecimal("0.002"),     // 0.2% — 단타, 변동성 크고 체결 급함
+            StrategyType.SWING, new BigDecimal("0.001"),        // 0.1%
+            StrategyType.TURNAROUND, new BigDecimal("0.001"),   // 0.1%
+            StrategyType.VALUE, new BigDecimal("0.0005")        // 0.05% — 장기, 지정가 여유
+    );
+
+    /**
+     * 왕복 거래 비용 계산 (수수료 + 세금 + 슬리피지), 수익률(%) 단위로 반환
+     */
+    private BigDecimal calculateTradingCost(StrategyType strategyType) {
+        BigDecimal slippage = SLIPPAGE_RATE.getOrDefault(strategyType, new BigDecimal("0.001"));
+        // 왕복 수수료(매수+매도) + 매도 세금 + 슬리피지
+        BigDecimal totalCostRate = COMMISSION_RATE.multiply(BigDecimal.valueOf(2))
+                .add(TAX_RATE)
+                .add(slippage);
+        // 비율 → 퍼센트
+        return totalCostRate.multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
+    }
+
     public BacktestDto.PerformanceResponse getPerformance(int days) {
         LocalDateTime since = LocalDateTime.now().minusDays(days);
 
@@ -119,6 +144,8 @@ public class BacktestService {
         BigDecimal worstReturn = null;
         String worstStock = null;
 
+        BigDecimal tradingCost = calculateTradingCost(type);
+
         for (AiStrategySnapshot snap : firstRecommendations.values()) {
             BigDecimal recommendPrice = snap.getCurrentPrice();
             if (recommendPrice == null || recommendPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
@@ -127,10 +154,13 @@ public class BacktestService {
             BigDecimal currentPrice = priceDto != null ? priceDto.getCurrentPrice() : null;
             if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            BigDecimal returnRate = currentPrice.subtract(recommendPrice)
+            BigDecimal grossReturn = currentPrice.subtract(recommendPrice)
                     .divide(recommendPrice, 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100))
                     .setScale(2, RoundingMode.HALF_UP);
+
+            // 순수익률 = 총수익률 - 거래비용(수수료+세금+슬리피지)
+            BigDecimal returnRate = grossReturn.subtract(tradingCost);
 
             if (returnRate.compareTo(BigDecimal.ZERO) > 0) winCount++;
             totalReturn = totalReturn.add(returnRate);
@@ -149,7 +179,9 @@ public class BacktestService {
                     .stockName(snap.getStockName())
                     .recommendPrice(recommendPrice)
                     .currentPrice(currentPrice)
+                    .grossReturn(grossReturn)
                     .returnRate(returnRate)
+                    .tradingCost(tradingCost)
                     .recommendedAt(snap.getCreatedAt())
                     .rankNum(snap.getRankNum())
                     .build());

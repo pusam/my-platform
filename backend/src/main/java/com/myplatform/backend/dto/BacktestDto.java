@@ -52,7 +52,9 @@ public class BacktestDto {
         private String stockName;
         private BigDecimal recommendPrice;  // 추천 시 가격
         private BigDecimal currentPrice;    // 현재가
-        private BigDecimal returnRate;      // 수익률 (%)
+        private BigDecimal grossReturn;     // 총수익률 (%, 비용 차감 전)
+        private BigDecimal returnRate;      // 순수익률 (%, 비용 차감 후)
+        private BigDecimal tradingCost;     // 거래비용 (%, 수수료+세금+슬리피지)
         private LocalDateTime recommendedAt;
         private int rankNum;
     }

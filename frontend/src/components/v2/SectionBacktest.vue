@@ -145,9 +145,14 @@
                 <span class="pick-rec">{{ formatPrice(pick.recommendPrice) }} →</span>
                 <span class="pick-cur">{{ formatPrice(pick.currentPrice) }}</span>
               </div>
-              <span class="pick-return" :class="returnClass(pick.returnRate)">
-                {{ pick.returnRate >= 0 ? '+' : '' }}{{ pick.returnRate }}%
-              </span>
+              <div class="pick-return-wrap">
+                <span class="pick-return" :class="returnClass(pick.returnRate)">
+                  {{ pick.returnRate >= 0 ? '+' : '' }}{{ pick.returnRate }}%
+                </span>
+                <span v-if="pick.grossReturn != null && pick.tradingCost" class="pick-cost-label">
+                  비용 -{{ pick.tradingCost }}%
+                </span>
+              </div>
             </div>
           </div>
 
@@ -469,9 +474,11 @@ export default {
 .pick-prices { font-size: 11px; color: rgba(255,255,255,0.4); }
 .pick-rec { margin-right: 2px; }
 .pick-cur { color: rgba(255,255,255,0.6); }
-.pick-return { font-size: 12px; font-weight: 700; width: 60px; text-align: right; flex-shrink: 0; }
+.pick-return-wrap { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
+.pick-return { font-size: 12px; font-weight: 700; text-align: right; }
 .pick-return.positive { color: #ef4444; }
 .pick-return.negative { color: #3b82f6; }
+.pick-cost-label { font-size: 9px; color: rgba(255,255,255,0.3); }
 
 /* Best / Worst */
 .best-worst {
