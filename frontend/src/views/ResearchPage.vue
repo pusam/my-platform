@@ -4,7 +4,7 @@
       <BackButton :dark="true" />
       <div class="header-title">
         <h1>종목 발굴</h1>
-        <p class="subtitle">퀀트 스크리너 + 섹터 거래대금 + 투자자 수급 분석</p>
+        <p class="subtitle">퀀트 스크리너 + 섹터 거래대금 + 투자자 수급 + 선점 레이더</p>
       </div>
     </div>
 
@@ -18,11 +18,15 @@
       <button class="tab-btn" :class="{ active: activeTab === 'investor' }" @click="activeTab = 'investor'">
         💰 투자자 분석
       </button>
+      <button class="tab-btn radar-btn" :class="{ active: activeTab === 'radar' }" @click="activeTab = 'radar'">
+        🎯 선점 레이더
+      </button>
     </div>
 
     <EarningsScreenerPage v-if="activeTab === 'screener'" :embedded="true" />
     <SectorTradingPage v-if="activeTab === 'sector'" :embedded="true" />
     <InvestorAnalysisPage v-if="activeTab === 'investor'" :embedded="true" />
+    <SectionRadar v-if="activeTab === 'radar'" />
   </div>
 </template>
 
@@ -31,10 +35,11 @@ import BackButton from '../components/BackButton.vue'
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
 import SectorTradingPage from './SectorTradingPage.vue'
 import InvestorAnalysisPage from './InvestorAnalysisPage.vue'
+import SectionRadar from '../components/v2/SectionRadar.vue'
 
 export default {
   name: 'ResearchPage',
-  components: { BackButton, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage },
+  components: { BackButton, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage, SectionRadar },
   data() {
     return {
       activeTab: 'screener'
@@ -73,13 +78,17 @@ export default {
   background: linear-gradient(135deg, #667eea, #764ba2);
 }
 
+.tab-btn.radar-btn.active {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+}
+
 .tab-btn:hover:not(.active) {
   background: rgba(255, 255, 255, 0.1);
 }
 
 @media (max-width: 768px) {
   .tab-bar {
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 6px;
   }
   .tab-btn {

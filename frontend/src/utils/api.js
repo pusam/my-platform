@@ -942,6 +942,25 @@ export const globalFuturesAPI = {
 };
 
 // 실적공시 API
+// Preemptive Radar API (선점 레이더)
+export const radarAPI = {
+  getFull() {
+    return apiClient.get('/radar', { timeout: 60000 });
+  },
+  getPolicyNews() {
+    return apiClient.get('/radar/policy-news');
+  },
+  getNearHigh() {
+    return apiClient.get('/radar/near-high', { timeout: 30000 });
+  },
+  getLargeHoldings() {
+    return apiClient.get('/radar/large-holdings');
+  },
+  getEarningsPredictions() {
+    return apiClient.get('/radar/earnings-predictions');
+  }
+};
+
 export const earningsAPI = {
   getRecent(months = 3) {
     return apiClient.get('/earnings/recent', { params: { months } });
