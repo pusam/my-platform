@@ -133,6 +133,7 @@ services:
       - nginx_logs:/var/log/nginx
     depends_on:
       - backend
+      - python-backend
     networks:
       - myplatform-network
     healthcheck:
