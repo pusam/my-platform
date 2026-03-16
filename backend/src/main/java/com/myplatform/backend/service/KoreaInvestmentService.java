@@ -12,6 +12,7 @@ import org.springframework.web.client.RestTemplate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * 한국투자증권 Open API 서비스
@@ -40,6 +41,7 @@ public class KoreaInvestmentService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final KisApiRateLimiter rateLimiter;
 
     // 토큰 캐시
     private String accessToken;
@@ -49,9 +51,32 @@ public class KoreaInvestmentService {
     private LocalDateTime tokenCooldownUntil;
     private static final int TOKEN_COOLDOWN_SECONDS = 65;  // 1분 + 여유 5초
 
-    public KoreaInvestmentService(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    public KoreaInvestmentService(RestTemplate restTemplate, ObjectMapper objectMapper,
+                                  KisApiRateLimiter rateLimiter) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.rateLimiter = rateLimiter;
+    }
+
+    /**
+     * Rate Limiter 인스턴스 반환 (외부에서 우선순위 지정 시 사용)
+     */
+    public KisApiRateLimiter getRateLimiter() {
+        return rateLimiter;
+    }
+
+    /**
+     * Rate-limited API 호출 래퍼 (기본 NORMAL 우선순위)
+     */
+    public <T> T executeWithRateLimit(Supplier<T> apiCall) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, apiCall);
+    }
+
+    /**
+     * Rate-limited API 호출 래퍼 (우선순위 지정)
+     */
+    public <T> T executeWithRateLimit(KisApiRateLimiter.Priority priority, Supplier<T> apiCall) {
+        return rateLimiter.execute(priority, apiCall);
     }
 
     /**
@@ -185,6 +210,17 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getStockPrice(String stockCode) {
+        return getStockPriceWithPriority(stockCode, KisApiRateLimiter.Priority.NORMAL);
+    }
+
+    /**
+     * 주식 현재가 조회 (우선순위 지정)
+     */
+    public JsonNode getStockPriceWithPriority(String stockCode, KisApiRateLimiter.Priority priority) {
+        return rateLimiter.execute(priority, () -> getStockPriceInternal(stockCode));
+    }
+
+    private JsonNode getStockPriceInternal(String stockCode) {
         String token = getAccessToken();
         if (token == null) {
             return null;
@@ -218,31 +254,33 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getStockInfo(String stockCode) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
-
-        try {
-            // 상품기본정보 조회 API
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/search-stock-info"
-                    + "?PDNO=" + stockCode
-                    + "&PRDT_TYPE_CD=300";  // 300: 주식
-
-            HttpHeaders headers = createHeaders(token, "CTPF1002R");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (Exception e) {
-            log.error("주식 기본정보 조회 실패 [{}]: {}", stockCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                // 상품기본정보 조회 API
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/search-stock-info"
+                        + "?PDNO=" + stockCode
+                        + "&PRDT_TYPE_CD=300";  // 300: 주식
+
+                HttpHeaders headers = createHeaders(token, "CTPF1002R");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+            } catch (Exception e) {
+                log.error("주식 기본정보 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -265,31 +303,33 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getInvestorTrading(String stockCode) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
-
-        try {
-            // 주식현재가 투자자 API (FHKST01010900)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-investor"
-                    + "?FID_COND_MRKT_DIV_CODE=J"
-                    + "&FID_INPUT_ISCD=" + stockCode;
-
-            HttpHeaders headers = createHeaders(token, "FHKST01010900");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (Exception e) {
-            log.error("투자자별 매매동향 조회 실패 [{}]: {}", stockCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                // 주식현재가 투자자 API (FHKST01010900)
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-investor"
+                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "&FID_INPUT_ISCD=" + stockCode;
+
+                HttpHeaders headers = createHeaders(token, "FHKST01010900");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+            } catch (Exception e) {
+                log.error("투자자별 매매동향 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -298,34 +338,35 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getProgramTrading(String stockCode) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
-
-        try {
-            // 주식현재가 프로그램매매 API (FHKST01010700)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-programtrade"
-                    + "?FID_COND_MRKT_DIV_CODE=J"
-                    + "&FID_INPUT_ISCD=" + stockCode;
-
-            HttpHeaders headers = createHeaders(token, "FHKST01010700");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
-            // KIS API에서 해당 엔드포인트 폐지/변경 시 404 반환 → 조용히 무시
-            log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
-        } catch (Exception e) {
-            log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                // 주식현재가 프로그램매매 API (FHKST01010700)
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-programtrade"
+                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "&FID_INPUT_ISCD=" + stockCode;
+
+                HttpHeaders headers = createHeaders(token, "FHKST01010700");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+            } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+                log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
+            } catch (Exception e) {
+                log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -334,31 +375,33 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getIndexPrice(String indexCode) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
-
-        try {
-            // 국내주식 업종기간별시세 (지수 조회)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-index-price"
-                    + "?FID_COND_MRKT_DIV_CODE=U"  // U: 업종
-                    + "&FID_INPUT_ISCD=" + indexCode;
-
-            HttpHeaders headers = createHeaders(token, "FHPUP02100000");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (Exception e) {
-            log.error("지수 현재가 조회 실패 [{}]: {}", indexCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                // 국내주식 업종기간별시세 (지수 조회)
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-index-price"
+                        + "?FID_COND_MRKT_DIV_CODE=U"  // U: 업종
+                        + "&FID_INPUT_ISCD=" + indexCode;
+
+                HttpHeaders headers = createHeaders(token, "FHPUP02100000");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+            } catch (Exception e) {
+                log.error("지수 현재가 조회 실패 [{}]: {}", indexCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -367,32 +410,34 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getIndexMinuteChart(String indexCode) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
-
-        try {
-            // 국내주식 업종분봉조회
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-index-timeprice"
-                    + "?FID_COND_MRKT_DIV_CODE=U"
-                    + "&FID_INPUT_ISCD=" + indexCode
-                    + "&FID_INPUT_HOUR_1=300";  // 300분
-
-            HttpHeaders headers = createHeaders(token, "FHPUP02110200");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (Exception e) {
-            log.error("지수 분봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                // 국내주식 업종분봉조회
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-index-timeprice"
+                        + "?FID_COND_MRKT_DIV_CODE=U"
+                        + "&FID_INPUT_ISCD=" + indexCode
+                        + "&FID_INPUT_HOUR_1=300";  // 300분
+
+                HttpHeaders headers = createHeaders(token, "FHPUP02110200");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+            } catch (Exception e) {
+                log.error("지수 분봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -403,43 +448,49 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode (output2에 분봉 데이터 배열)
      */
     public JsonNode getStockMinuteChart(String stockCode) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
+        return getStockMinuteChartWithPriority(stockCode, KisApiRateLimiter.Priority.NORMAL);
+    }
 
-        try {
-            // 현재 시간 또는 장 마감 시간 (HHMMSS 형식)
-            java.time.LocalTime now = java.time.LocalTime.now();
-            java.time.LocalTime marketClose = java.time.LocalTime.of(15, 30);
-            java.time.LocalTime queryTime = now.isAfter(marketClose) ? marketClose : now;
-            String timeStr = String.format("%02d%02d%02d", queryTime.getHour(), queryTime.getMinute(), 0);
-
-            // 주식 당일 분봉 조회 API
-            // FID_INPUT_HOUR_1: 조회 시작 시간 (HHMMSS) - 현재시간 기준으로 과거 데이터 조회
-            // FID_PW_DATA_INCU_YN: 과거 데이터 포함 여부 (Y: 이전 데이터 포함)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
-                    + "?FID_COND_MRKT_DIV_CODE=J"       // J: 주식, ETF, ETN
-                    + "&FID_INPUT_ISCD=" + stockCode    // 종목코드
-                    + "&FID_INPUT_HOUR_1=" + timeStr    // 조회시간 (HHMMSS)
-                    + "&FID_PW_DATA_INCU_YN=Y";         // 과거 데이터 포함
-
-            HttpHeaders headers = createHeaders(token, "FHKST03010200");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                return objectMapper.readTree(response.getBody());
-            } else {
-                log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
+    /**
+     * 주식 분봉 데이터 조회 (우선순위 지정)
+     */
+    public JsonNode getStockMinuteChartWithPriority(String stockCode, KisApiRateLimiter.Priority priority) {
+        return rateLimiter.execute(priority, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (Exception e) {
-            log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                // 현재 시간 또는 장 마감 시간 (HHMMSS 형식)
+                java.time.LocalTime now = java.time.LocalTime.now();
+                java.time.LocalTime marketClose = java.time.LocalTime.of(15, 30);
+                java.time.LocalTime queryTime = now.isAfter(marketClose) ? marketClose : now;
+                String timeStr = String.format("%02d%02d%02d", queryTime.getHour(), queryTime.getMinute(), 0);
+
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
+                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "&FID_INPUT_ISCD=" + stockCode
+                        + "&FID_INPUT_HOUR_1=" + timeStr
+                        + "&FID_PW_DATA_INCU_YN=Y";
+
+                HttpHeaders headers = createHeaders(token, "FHKST03010200");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                } else {
+                    log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
+                }
+            } catch (Exception e) {
+                log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -451,47 +502,46 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode (output2에 일봉 데이터 배열)
      */
     public JsonNode getStockDailyChart(String stockCode, int days) {
-        String token = getAccessToken();
-        if (token == null) {
-            return null;
-        }
-
-        try {
-            // 종료일: 오늘
-            java.time.LocalDate endDate = java.time.LocalDate.now();
-            // 시작일: days일 전
-            java.time.LocalDate startDate = endDate.minusDays(days + 30);  // 주말/공휴일 고려 여유분
-
-            String endDateStr = endDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
-            String startDateStr = startDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
-
-            // 주식 일별 시세 조회 API (FHKST03010100)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
-                    + "?FID_COND_MRKT_DIV_CODE=J"       // J: 주식
-                    + "&FID_INPUT_ISCD=" + stockCode    // 종목코드
-                    + "&FID_INPUT_DATE_1=" + startDateStr  // 시작일
-                    + "&FID_INPUT_DATE_2=" + endDateStr    // 종료일
-                    + "&FID_PERIOD_DIV_CODE=D"          // D: 일봉
-                    + "&FID_ORG_ADJ_PRC=0";             // 0: 수정주가 미반영
-
-            HttpHeaders headers = createHeaders(token, "FHKST03010100");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                JsonNode result = objectMapper.readTree(response.getBody());
-                log.debug("일봉 조회 완료 [{}]: {}~{}", stockCode, startDateStr, endDateStr);
-                return result;
-            } else {
-                log.warn("일봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
             }
-        } catch (Exception e) {
-            log.warn("일봉 API 예외 [{}]: {}", stockCode, e.getMessage());
-        }
 
-        return null;
+            try {
+                java.time.LocalDate endDate = java.time.LocalDate.now();
+                java.time.LocalDate startDate = endDate.minusDays(days + 30);
+
+                String endDateStr = endDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+                String startDateStr = startDate.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "&FID_INPUT_ISCD=" + stockCode
+                        + "&FID_INPUT_DATE_1=" + startDateStr
+                        + "&FID_INPUT_DATE_2=" + endDateStr
+                        + "&FID_PERIOD_DIV_CODE=D"
+                        + "&FID_ORG_ADJ_PRC=0";
+
+                HttpHeaders headers = createHeaders(token, "FHKST03010100");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    JsonNode result = objectMapper.readTree(response.getBody());
+                    log.debug("일봉 조회 완료 [{}]: {}~{}", stockCode, startDateStr, endDateStr);
+                    return result;
+                } else {
+                    log.warn("일봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
+                }
+            } catch (Exception e) {
+                log.warn("일봉 API 예외 [{}]: {}", stockCode, e.getMessage());
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -518,53 +568,62 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode
      */
     public JsonNode getForeignInstitutionTotal(String investorType, boolean isBuy, boolean sortByAmount) {
-        String token = getAccessToken();
-        if (token == null) {
-            log.error("토큰 발급 실패로 API 호출 불가");
-            return null;
-        }
+        return getForeignInstitutionTotalWithPriority(investorType, isBuy, sortByAmount, KisApiRateLimiter.Priority.NORMAL);
+    }
 
-        try {
-            // 국내기관_외국인 매매종목가집계 API (FHPTJ04400000)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/foreign-institution-total"
-                    + "?FID_COND_MRKT_DIV_CODE=V"
-                    + "&FID_COND_SCR_DIV_CODE=16449"
-                    + "&FID_INPUT_ISCD=0000"  // 전체
-                    + "&FID_DIV_CLS_CODE=" + (sortByAmount ? "1" : "0")  // 0=수량, 1=금액
-                    + "&FID_RANK_SORT_CLS_CODE=" + (isBuy ? "0" : "1")   // 0=순매수상위, 1=순매도상위
-                    + "&FID_ETC_CLS_CODE=" + investorType;  // 1=외국인, 2=기관계
-
-            log.info("KIS API 호출: {}", url);
-
-            HttpHeaders headers = createHeaders(token, "FHPTJ04400000");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            log.info("KIS API 응답 상태: {}", response.getStatusCode());
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                JsonNode result = objectMapper.readTree(response.getBody());
-                int outputSize = result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0;
-                log.info("KIS API 응답: rt_cd={}, output 크기={}",
-                        result.has("rt_cd") ? result.get("rt_cd").asText() : "없음", outputSize);
-                if (outputSize == 0) {
-                    log.warn("KIS API 빈 응답 [투자자:{}] msg1={}, raw={}",
-                            investorType,
-                            result.has("msg1") ? result.get("msg1").asText() : "없음",
-                            response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
-                }
-                return result;
-            } else {
-                log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
+    /**
+     * 국내기관_외국인 매매종목가집계 조회 (우선순위 지정)
+     */
+    public JsonNode getForeignInstitutionTotalWithPriority(String investorType, boolean isBuy,
+                                                            boolean sortByAmount, KisApiRateLimiter.Priority priority) {
+        return rateLimiter.execute(priority, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                log.error("토큰 발급 실패로 API 호출 불가");
+                return null;
             }
-        } catch (Exception e) {
-            log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
-                    investorType, isBuy, e.getMessage(), e);
-        }
 
-        return null;
+            try {
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/foreign-institution-total"
+                        + "?FID_COND_MRKT_DIV_CODE=V"
+                        + "&FID_COND_SCR_DIV_CODE=16449"
+                        + "&FID_INPUT_ISCD=0000"
+                        + "&FID_DIV_CLS_CODE=" + (sortByAmount ? "1" : "0")
+                        + "&FID_RANK_SORT_CLS_CODE=" + (isBuy ? "0" : "1")
+                        + "&FID_ETC_CLS_CODE=" + investorType;
+
+                log.info("KIS API 호출: {}", url);
+
+                HttpHeaders headers = createHeaders(token, "FHPTJ04400000");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                log.info("KIS API 응답 상태: {}", response.getStatusCode());
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    JsonNode result = objectMapper.readTree(response.getBody());
+                    int outputSize = result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0;
+                    log.info("KIS API 응답: rt_cd={}, output 크기={}",
+                            result.has("rt_cd") ? result.get("rt_cd").asText() : "없음", outputSize);
+                    if (outputSize == 0) {
+                        log.warn("KIS API 빈 응답 [투자자:{}] msg1={}, raw={}",
+                                investorType,
+                                result.has("msg1") ? result.get("msg1").asText() : "없음",
+                                response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
+                    }
+                    return result;
+                } else {
+                    log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
+                }
+            } catch (Exception e) {
+                log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
+                        investorType, isBuy, e.getMessage(), e);
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -603,55 +662,56 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode (output 배열에 종목 정보)
      */
     public JsonNode getVolumeRankStocks() {
-        String token = getAccessToken();
-        if (token == null) {
-            log.error("[거래량급증] 토큰 발급 실패");
-            return null;
-        }
-
-        try {
-            // 거래량급등종목 API (FHPST01710000)
-            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/volume-rank"
-                    + "?FID_COND_MRKT_DIV_CODE=J"       // J: 주식
-                    + "&FID_COND_SCR_DIV_CODE=20171"    // 화면번호
-                    + "&FID_INPUT_ISCD=0000"            // 전체
-                    + "&FID_DIV_CLS_CODE=0"             // 전체
-                    + "&FID_BLNG_CLS_CODE=0"            // 전체
-                    + "&FID_TRGT_CLS_CODE=111111111"    // 대상 구분
-                    + "&FID_TRGT_EXLS_CLS_CODE=000000"  // 제외 구분
-                    + "&FID_INPUT_PRICE_1="             // 시작가격
-                    + "&FID_INPUT_PRICE_2="             // 종료가격
-                    + "&FID_VOL_CNT="                   // 거래량 조건
-                    + "&FID_INPUT_DATE_1=";             // 기준일
-
-            log.info("[거래량급증] API 호출 시작");
-
-            HttpHeaders headers = createHeaders(token, "FHPST01710000");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.GET, request, String.class);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                JsonNode result = objectMapper.readTree(response.getBody());
-
-                String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
-                if ("0".equals(rtCd)) {
-                    int count = result.has("output") && result.get("output").isArray()
-                            ? result.get("output").size() : 0;
-                    log.info("[거래량급증] 조회 성공 - {}건", count);
-                } else {
-                    String msg = result.has("msg1") ? result.get("msg1").asText() : "";
-                    log.warn("[거래량급증] API 오류: {} - {}", rtCd, msg);
-                }
-
-                return result;
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                log.error("[거래량급증] 토큰 발급 실패");
+                return null;
             }
-        } catch (Exception e) {
-            log.error("[거래량급증] 조회 실패: {}", e.getMessage(), e);
-        }
 
-        return null;
+            try {
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/volume-rank"
+                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "&FID_COND_SCR_DIV_CODE=20171"
+                        + "&FID_INPUT_ISCD=0000"
+                        + "&FID_DIV_CLS_CODE=0"
+                        + "&FID_BLNG_CLS_CODE=0"
+                        + "&FID_TRGT_CLS_CODE=111111111"
+                        + "&FID_TRGT_EXLS_CLS_CODE=000000"
+                        + "&FID_INPUT_PRICE_1="
+                        + "&FID_INPUT_PRICE_2="
+                        + "&FID_VOL_CNT="
+                        + "&FID_INPUT_DATE_1=";
+
+                log.info("[거래량급증] API 호출 시작");
+
+                HttpHeaders headers = createHeaders(token, "FHPST01710000");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    JsonNode result = objectMapper.readTree(response.getBody());
+
+                    String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
+                    if ("0".equals(rtCd)) {
+                        int count = result.has("output") && result.get("output").isArray()
+                                ? result.get("output").size() : 0;
+                        log.info("[거래량급증] 조회 성공 - {}건", count);
+                    } else {
+                        String msg = result.has("msg1") ? result.get("msg1").asText() : "";
+                        log.warn("[거래량급증] API 오류: {} - {}", rtCd, msg);
+                    }
+
+                    return result;
+                }
+            } catch (Exception e) {
+                log.error("[거래량급증] 조회 실패: {}", e.getMessage(), e);
+            }
+
+            return null;
+        });
     }
 
     /**
@@ -663,6 +723,17 @@ public class KoreaInvestmentService {
      * @return API 응답 JsonNode (output2에 일봉 데이터 배열)
      */
     public JsonNode getDailyPrices(String stockCode, int days) {
+        return getDailyPricesWithPriority(stockCode, days, KisApiRateLimiter.Priority.NORMAL);
+    }
+
+    /**
+     * 일봉 데이터 조회 (우선순위 지정)
+     */
+    public JsonNode getDailyPricesWithPriority(String stockCode, int days, KisApiRateLimiter.Priority priority) {
+        return rateLimiter.execute(priority, () -> getDailyPricesInternal(stockCode, days));
+    }
+
+    private JsonNode getDailyPricesInternal(String stockCode, int days) {
         String token = getAccessToken();
         if (token == null) {
             log.error("토큰 발급 실패로 일봉 조회 불가");
@@ -670,19 +741,17 @@ public class KoreaInvestmentService {
         }
 
         try {
-            // 시작일/종료일 계산
             java.time.LocalDate endDate = java.time.LocalDate.now();
-            java.time.LocalDate startDate = endDate.minusDays(days + 30);  // 여유있게 조회
+            java.time.LocalDate startDate = endDate.minusDays(days + 30);
             java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
 
-            // 국내주식기간별시세 API (FHKST03010100)
             String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
-                    + "?FID_COND_MRKT_DIV_CODE=J"           // J: 주식
-                    + "&FID_INPUT_ISCD=" + stockCode         // 종목코드
-                    + "&FID_INPUT_DATE_1=" + startDate.format(formatter)  // 시작일
-                    + "&FID_INPUT_DATE_2=" + endDate.format(formatter)    // 종료일
-                    + "&FID_PERIOD_DIV_CODE=D"              // D: 일봉
-                    + "&FID_ORG_ADJ_PRC=0";                 // 0: 수정주가 미반영
+                    + "?FID_COND_MRKT_DIV_CODE=J"
+                    + "&FID_INPUT_ISCD=" + stockCode
+                    + "&FID_INPUT_DATE_1=" + startDate.format(formatter)
+                    + "&FID_INPUT_DATE_2=" + endDate.format(formatter)
+                    + "&FID_PERIOD_DIV_CODE=D"
+                    + "&FID_ORG_ADJ_PRC=0";
 
             log.debug("일봉 조회 API 호출: stockCode={}, days={}", stockCode, days);
 
@@ -695,7 +764,6 @@ public class KoreaInvestmentService {
             if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                 JsonNode result = objectMapper.readTree(response.getBody());
 
-                // 성공 여부 확인
                 String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
                 if (!"0".equals(rtCd)) {
                     String msg = result.has("msg1") ? result.get("msg1").asText() : "Unknown error";
@@ -750,6 +818,41 @@ public class KoreaInvestmentService {
         }
 
         log.debug("종가 추출 완료 [{}]: {} 건", stockCode, prices.size());
+        return prices;
+    }
+
+    /**
+     * 일봉 종가 리스트 추출 (우선순위 지정)
+     */
+    public java.util.List<java.math.BigDecimal> getDailyClosePricesWithPriority(String stockCode, int days,
+                                                                                  KisApiRateLimiter.Priority priority) {
+        java.util.List<java.math.BigDecimal> prices = new java.util.ArrayList<>();
+
+        JsonNode response = getDailyPricesWithPriority(stockCode, days, priority);
+        if (response == null || !response.has("output2")) {
+            return prices;
+        }
+
+        JsonNode output2 = response.get("output2");
+        if (!output2.isArray()) {
+            return prices;
+        }
+
+        for (JsonNode item : output2) {
+            if (item.has("stck_clpr")) {
+                try {
+                    String priceStr = item.get("stck_clpr").asText();
+                    java.math.BigDecimal price = new java.math.BigDecimal(priceStr);
+                    if (price.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                        prices.add(price);
+                    }
+                } catch (NumberFormatException e) {
+                    // 무시
+                }
+            }
+        }
+
+        log.debug("종가 추출 완료 [{}]: {} 건 (priority={})", stockCode, prices.size(), priority);
         return prices;
     }
 
@@ -872,7 +975,8 @@ public class KoreaInvestmentService {
      * @return 주문 결과 JsonNode (주문번호 포함)
      */
     public JsonNode buyStock(String stockCode, int quantity, java.math.BigDecimal price) {
-        return placeOrder(stockCode, quantity, price, "TTTC0802U", "buy");
+        return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
+                () -> placeOrder(stockCode, quantity, price, "TTTC0802U", "buy"), 3);
     }
 
     /**
@@ -885,7 +989,8 @@ public class KoreaInvestmentService {
      * @return 주문 결과 JsonNode (주문번호 포함)
      */
     public JsonNode sellStock(String stockCode, int quantity, java.math.BigDecimal price) {
-        return placeOrder(stockCode, quantity, price, "TTTC0801U", "sell");
+        return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
+                () -> placeOrder(stockCode, quantity, price, "TTTC0801U", "sell"), 3);
     }
 
     /**
@@ -956,6 +1061,10 @@ public class KoreaInvestmentService {
      * @return 잔고 정보 JsonNode
      */
     public JsonNode getBalance() {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.HIGH, () -> getBalanceInternal());
+    }
+
+    private JsonNode getBalanceInternal() {
         String token = getAccessToken();
         if (token == null) {
             log.error("[실전매매] 토큰 발급 실패로 잔고조회 불가");
@@ -971,15 +1080,15 @@ public class KoreaInvestmentService {
             String url = baseUrl + "/uapi/domestic-stock/v1/trading/inquire-balance"
                     + "?CANO=" + accountPrefix
                     + "&ACNT_PRDT_CD=" + accountSuffix
-                    + "&AFHR_FLPR_YN=N"        // 시간외단일가여부
-                    + "&OFL_YN="               // 오프라인여부
-                    + "&INQR_DVSN=02"          // 조회구분: 02=일반조회
-                    + "&UNPR_DVSN=01"          // 단가구분
-                    + "&FUND_STTL_ICLD_YN=N"   // 펀드결제분포함여부
-                    + "&FNCG_AMT_AUTO_RDPT_YN=N" // 융자금액자동상환여부
-                    + "&PRCS_DVSN=00"          // 처리구분
-                    + "&CTX_AREA_FK100="       // 연속조회키
-                    + "&CTX_AREA_NK100=";      // 연속조회키
+                    + "&AFHR_FLPR_YN=N"
+                    + "&OFL_YN="
+                    + "&INQR_DVSN=02"
+                    + "&UNPR_DVSN=01"
+                    + "&FUND_STTL_ICLD_YN=N"
+                    + "&FNCG_AMT_AUTO_RDPT_YN=N"
+                    + "&PRCS_DVSN=00"
+                    + "&CTX_AREA_FK100="
+                    + "&CTX_AREA_NK100=";
 
             HttpHeaders headers = createHeaders(token, "TTTC8434R");
             HttpEntity<String> request = new HttpEntity<>(headers);

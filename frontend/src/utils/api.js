@@ -595,6 +595,10 @@ export const paperTradingAPI = {
   // 실전투자 수동 매수/매도
   placeRealTrade(data) {
     return apiClient.post('/paper-trading/real/trades', data);
+  },
+  // 봇 성과 분석 조회
+  getBotPerformance(days = 30) {
+    return apiClient.get('/paper-trading/bot-performance', { params: { days } });
   }
 };
 

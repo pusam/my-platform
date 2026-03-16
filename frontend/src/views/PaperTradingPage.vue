@@ -25,6 +25,12 @@
         >
           🔴 실전투자
         </button>
+        <button
+          :class="['tab-btn', { active: activeTab === 'botPerformance' }]"
+          @click="switchToBotPerformanceTab"
+        >
+          📊 봇 성과
+        </button>
       </div>
 
       <!-- 모의투자 탭 -->
@@ -441,6 +447,188 @@
         </div>
       </div>
 
+      <!-- 봇 성과 분석 탭 -->
+      <div v-if="activeTab === 'botPerformance'" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>봇 성과 분석</h2>
+            <div class="perf-controls">
+              <select v-model="perfDays" @change="loadBotPerformance" class="perf-select">
+                <option :value="7">최근 7일</option>
+                <option :value="14">최근 14일</option>
+                <option :value="30">최근 30일</option>
+                <option :value="60">최근 60일</option>
+                <option :value="90">최근 90일</option>
+                <option :value="0">전체</option>
+              </select>
+              <button @click="loadBotPerformance" class="refresh-btn" :disabled="perfLoading">
+                {{ perfLoading ? '로딩 중...' : '새로고침' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 성과 요약 카드 -->
+          <div v-if="!perfLoading && botPerf" class="summary-grid perf-summary">
+            <div class="summary-card">
+              <h3>거래 현황</h3>
+              <div class="card-content">
+                <div class="stat-row">
+                  <span class="label">총 매도 거래</span>
+                  <span class="value">{{ botPerf.totalTrades }}건</span>
+                </div>
+                <div class="stat-row">
+                  <span class="label">승률</span>
+                  <span class="value" :class="getWinRateClass(botPerf.winRate)">
+                    {{ formatPercent(botPerf.winRate) }}
+                  </span>
+                </div>
+                <div class="stat-row">
+                  <span class="label">수익/손실</span>
+                  <span class="value">
+                    <span class="win">{{ botPerf.winCount }}승</span> /
+                    <span class="lose">{{ botPerf.loseCount }}패</span>
+                  </span>
+                </div>
+                <div class="stat-row" v-if="botPerf.avgHoldingMinutes != null">
+                  <span class="label">평균 보유 시간</span>
+                  <span class="value">{{ formatHoldingTime(botPerf.avgHoldingMinutes) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="summary-card">
+              <h3>손익 분석</h3>
+              <div class="card-content">
+                <div class="stat-row">
+                  <span class="label">총 손익</span>
+                  <span class="value" :class="getProfitClass(botPerf.totalPnl)">
+                    {{ formatProfitLoss(botPerf.totalPnl) }}
+                  </span>
+                </div>
+                <div class="stat-row">
+                  <span class="label">평균 손익</span>
+                  <span class="value" :class="getProfitClass(botPerf.avgPnl)">
+                    {{ formatProfitLoss(botPerf.avgPnl) }}
+                  </span>
+                </div>
+                <div class="stat-row">
+                  <span class="label">최대 수익</span>
+                  <span class="value positive">{{ formatProfitLoss(botPerf.maxWin) }}</span>
+                </div>
+                <div class="stat-row">
+                  <span class="label">최대 손실</span>
+                  <span class="value negative">{{ formatProfitLoss(botPerf.maxLoss) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="summary-card">
+              <h3>수익 팩터</h3>
+              <div class="card-content">
+                <div class="profit-factor-display">
+                  <span class="pf-value" :class="getProfitFactorClass(botPerf.profitFactor)">
+                    {{ botPerf.profitFactor != null ? Number(botPerf.profitFactor).toFixed(2) : '-' }}
+                  </span>
+                  <span class="pf-label">총수익 / 총손실</span>
+                </div>
+                <div class="pf-guide">
+                  <span :class="{ highlight: botPerf.profitFactor >= 2 }">2.0 이상: 우수</span>
+                  <span :class="{ highlight: botPerf.profitFactor >= 1 && botPerf.profitFactor < 2 }">1.0~2.0: 양호</span>
+                  <span :class="{ highlight: botPerf.profitFactor < 1 }">1.0 미만: 손실</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 엑시트 사유별 통계 -->
+          <div v-if="!perfLoading && botPerf && botPerf.exitReasonStats && Object.keys(botPerf.exitReasonStats).length > 0" class="perf-section">
+            <h3>엑시트 사유별 통계</h3>
+            <div class="table-container">
+              <table class="perf-table">
+                <thead>
+                  <tr>
+                    <th>사유</th>
+                    <th class="right">건수</th>
+                    <th class="right">총 손익</th>
+                    <th class="right">평균 손익</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(stat, key) in botPerf.exitReasonStats" :key="key">
+                    <td>{{ stat.reasonLabel }}</td>
+                    <td class="right">{{ stat.count }}건</td>
+                    <td class="right" :class="getProfitClass(stat.totalPnl)">{{ formatProfitLoss(stat.totalPnl) }}</td>
+                    <td class="right" :class="getProfitClass(stat.avgPnl)">{{ formatProfitLoss(stat.avgPnl) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 일별 손익 -->
+          <div v-if="!perfLoading && botPerf && botPerf.dailyPnl && botPerf.dailyPnl.length > 0" class="perf-section">
+            <h3>일별 손익 추이</h3>
+            <div class="table-container">
+              <table class="perf-table">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th class="right">손익</th>
+                    <th class="right">거래 수</th>
+                    <th class="right">누적 손익</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(day, idx) in botPerf.dailyPnl" :key="day.date">
+                    <td>{{ day.date }}</td>
+                    <td class="right" :class="getProfitClass(day.pnl)">{{ formatProfitLoss(day.pnl) }}</td>
+                    <td class="right">{{ day.tradeCount }}건</td>
+                    <td class="right" :class="getProfitClass(cumulativePnl(idx))">{{ formatProfitLoss(cumulativePnl(idx)) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 종목별 손익 -->
+          <div v-if="!perfLoading && botPerf && botPerf.stockPnl && botPerf.stockPnl.length > 0" class="perf-section">
+            <h3>종목별 손익</h3>
+            <div class="table-container">
+              <table class="perf-table">
+                <thead>
+                  <tr>
+                    <th>종목명</th>
+                    <th>종목코드</th>
+                    <th class="right">거래 수</th>
+                    <th class="right">승률</th>
+                    <th class="right">총 손익</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="stock in botPerf.stockPnl" :key="stock.stockCode">
+                    <td class="stock-name">{{ stock.stockName }}</td>
+                    <td class="stock-code">{{ stock.stockCode }}</td>
+                    <td class="right">{{ stock.tradeCount }}건</td>
+                    <td class="right" :class="getWinRateClass(stock.winRate)">{{ formatPercent(stock.winRate) }}</td>
+                    <td class="right" :class="getProfitClass(stock.totalPnl)">{{ formatProfitLoss(stock.totalPnl) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 데이터 없음 -->
+          <div v-if="!perfLoading && (!botPerf || botPerf.totalTrades === 0)" class="no-data">
+            <p>봇 거래 데이터가 없습니다.</p>
+          </div>
+
+          <!-- 로딩 -->
+          <div v-if="perfLoading" class="no-data">
+            <p>성과 데이터를 불러오는 중...</p>
+          </div>
+        </div>
+      </div>
+
       <!-- 수동 거래 모달 -->
       <div v-if="showTradeModal" class="modal-overlay" @click.self="showTradeModal = false">
         <div class="modal" :class="{ 'real-modal': tradeMode === 'real' }">
@@ -620,6 +808,11 @@ const initForm = ref({
   initialBalance: 10000000
 });
 
+// 봇 성과 분석 데이터
+const perfLoading = ref(false);
+const perfDays = ref(30);
+const botPerf = ref(null);
+
 // 자동 새로고침
 let refreshTimer = null;
 
@@ -632,6 +825,57 @@ const totalAsset = computed(() => {
 const switchToRealTab = () => {
   activeTab.value = 'real';
   loadRealData();
+};
+
+// 봇 성과 탭 전환
+const switchToBotPerformanceTab = () => {
+  activeTab.value = 'botPerformance';
+  if (!botPerf.value) {
+    loadBotPerformance();
+  }
+};
+
+// 봇 성과 데이터 로드
+const loadBotPerformance = async () => {
+  perfLoading.value = true;
+  try {
+    const res = await paperTradingAPI.getBotPerformance(perfDays.value);
+    if (res.data.success) {
+      botPerf.value = res.data.data;
+    }
+  } catch (error) {
+    console.error('봇 성과 로드 오류:', error);
+  } finally {
+    perfLoading.value = false;
+  }
+};
+
+// 누적 손익 계산 (일별 손익 테이블용 - 역순이므로 뒤에서부터 합산)
+const cumulativePnl = (idx) => {
+  if (!botPerf.value || !botPerf.value.dailyPnl) return 0;
+  const dailyList = botPerf.value.dailyPnl;
+  let sum = 0;
+  for (let i = dailyList.length - 1; i >= idx; i--) {
+    sum += Number(dailyList[i].pnl || 0);
+  }
+  return sum;
+};
+
+// 보유 시간 포맷
+const formatHoldingTime = (minutes) => {
+  if (minutes == null) return '-';
+  if (minutes < 60) return Math.round(minutes) + '분';
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return hours + '시간 ' + mins + '분';
+};
+
+// 수익팩터 클래스
+const getProfitFactorClass = (value) => {
+  if (value == null) return '';
+  if (value >= 2) return 'pf-excellent';
+  if (value >= 1) return 'pf-good';
+  return 'pf-bad';
 };
 
 // 모의투자 데이터 로드 (각 API 독립적으로 처리 - 하나 실패해도 다른 것 표시)
@@ -1693,6 +1937,125 @@ onUnmounted(() => {
   color: #666;
   background: #1a1a3a;
   border-radius: 10px;
+}
+
+/* ===== 봇 성과 분석 탭 ===== */
+.perf-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.perf-select {
+  padding: 0.5rem 1rem;
+  background: #2a2a4a;
+  border: 1px solid #3a3a5a;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.perf-select:focus {
+  outline: none;
+  border-color: #4fd1c5;
+}
+
+.perf-summary {
+  margin-bottom: 2rem;
+}
+
+.perf-section {
+  margin-top: 2rem;
+}
+
+.perf-section h3 {
+  color: #e0e0e0;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  padding-left: 0.5rem;
+  border-left: 3px solid #4fd1c5;
+}
+
+.perf-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #1a1a3a;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.perf-table th {
+  background: #2a2a4a;
+  color: #aaa;
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+  text-align: left;
+}
+
+.perf-table th.right {
+  text-align: right;
+}
+
+.perf-table td {
+  padding: 0.65rem 1rem;
+  color: #ddd;
+  border-bottom: 1px solid #2a2a4a;
+  font-size: 0.9rem;
+}
+
+.perf-table td.right {
+  text-align: right;
+}
+
+.perf-table tbody tr:hover {
+  background: rgba(79, 209, 197, 0.05);
+}
+
+/* 수익팩터 디스플레이 */
+.profit-factor-display {
+  text-align: center;
+  padding: 1rem 0 0.5rem;
+}
+
+.pf-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  display: block;
+}
+
+.pf-value.pf-excellent {
+  color: #48bb78;
+}
+
+.pf-value.pf-good {
+  color: #4fd1c5;
+}
+
+.pf-value.pf-bad {
+  color: #e53e3e;
+}
+
+.pf-label {
+  display: block;
+  color: #888;
+  font-size: 0.8rem;
+  margin-top: 0.25rem;
+}
+
+.pf-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.pf-guide .highlight {
+  color: #4fd1c5;
+  font-weight: 600;
 }
 
 /* 반응형 */

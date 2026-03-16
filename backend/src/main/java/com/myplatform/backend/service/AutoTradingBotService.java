@@ -932,7 +932,7 @@ public class AutoTradingBotService {
 
                 // 분봉 RSI 시도
                 try {
-                    JsonNode minuteData = kisService.getStockMinuteChart(stockCode);
+                    JsonNode minuteData = kisService.getStockMinuteChartWithPriority(stockCode, KisApiRateLimiter.Priority.HIGH);
                     if (minuteData != null) {
                         JsonNode output2 = minuteData.get("output2");
                         if (output2 != null && output2.isArray() && output2.size() >= 15) {
@@ -959,7 +959,7 @@ public class AutoTradingBotService {
 
                 // 분봉 실패 시 일봉 폴백
                 if (!rsiChecked) {
-                    List<BigDecimal> closePrices = kisService.getDailyClosePrices(stockCode, 30);
+                    List<BigDecimal> closePrices = kisService.getDailyClosePricesWithPriority(stockCode, 30, KisApiRateLimiter.Priority.HIGH);
                     if (closePrices != null && closePrices.size() >= 14) {
                         TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
                         if (indicators.getRsi14() != null) {
@@ -982,7 +982,7 @@ public class AutoTradingBotService {
 
             // ===== 보조 C: 20MA 이격도 < 5% (강화) =====
             try {
-                List<BigDecimal> dailyPrices = kisService.getDailyClosePrices(stockCode, 30);
+                List<BigDecimal> dailyPrices = kisService.getDailyClosePricesWithPriority(stockCode, 30, KisApiRateLimiter.Priority.HIGH);
                 if (dailyPrices != null && dailyPrices.size() >= 20) {
                     TechnicalIndicatorsDto dailyIndicators = technicalIndicatorService.calculate(dailyPrices);
                     if (dailyIndicators.getMa20() != null && dailyIndicators.getMa20().compareTo(BigDecimal.ZERO) > 0) {

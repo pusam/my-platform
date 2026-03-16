@@ -2,6 +2,8 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.ShortSellingBalance;
 import com.myplatform.backend.repository.ShortSellingBalanceRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
@@ -9,10 +11,16 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -22,7 +30,8 @@ import java.util.stream.Collectors;
 
 /**
  * 공매도 잔고 서비스
- * - 네이버 금융에서 공매도 잔고 데이터 크롤링
+ * - KRX(한국거래소) 공식 데이터에서 공매도 잔고 수집 (1차)
+ * - 네이버 금융 크롤링 (KRX 실패 시 fallback)
  * - 공매도 비율 상위 종목 알림
  * - 자동매매봇 연동 (고공매도 종목 진입 차단)
  */
@@ -34,78 +43,71 @@ public class ShortSellingService {
 
     private final ShortSellingBalanceRepository repository;
     private final TelegramNotificationService telegramService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper objectMapper;
 
+    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
+    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiIO/MDIO1301";
     private static final String NAVER_SHORT_SELLING_URL = "https://finance.naver.com/sise/sise_short_balance.naver";
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     private static final BigDecimal HIGH_SHORT_RATIO = new BigDecimal("5.0");    // 5% 이상 = 높은 공매도
     private static final BigDecimal DANGER_SHORT_RATIO = new BigDecimal("10.0"); // 10% 이상 = 위험
+    private static final BigDecimal BILLION_DIVISOR = new BigDecimal("100000000"); // 억원 변환용
 
     // 캐시
     private volatile Map<String, BigDecimal> shortSellingRatioCache = new ConcurrentHashMap<>();
     private volatile LocalDate cacheDate = null;
 
     /**
-     * 네이버 금융에서 공매도 잔고 크롤링
-     * URL: https://finance.naver.com/sise/sise_short_balance.naver
-     * - 여러 페이지를 순회하며 데이터 수집
+     * 공매도 잔고 데이터 수집
+     * 1차: KRX 한국거래소 공식 데이터
+     * 2차: 네이버 금융 크롤링 (KRX 실패 시 fallback)
      */
     public void collectShortSellingData() {
-        log.info("========== 공매도 잔고 크롤링 시작 ==========");
+        log.info("========== 공매도 잔고 수집 시작 ==========");
         long startTime = System.currentTimeMillis();
-        LocalDate today = LocalDate.now();
-        int totalSaved = 0;
-        int totalFailed = 0;
 
         try {
-            // 최대 5페이지까지 크롤링
-            for (int page = 1; page <= 5; page++) {
+            // KRX 데이터 수집 시도
+            List<ShortSellingBalance> data = fetchKrxShortSellingData();
+
+            if (data.isEmpty()) {
+                // KRX 실패 시 네이버 금융 fallback
+                log.warn("KRX 데이터 없음 — 네이버 금융 크롤링으로 fallback");
+                data = fetchNaverShortSellingData();
+            }
+
+            if (data.isEmpty()) {
+                log.warn("공매도 잔고 데이터를 수집하지 못했습니다 (KRX, 네이버 모두 실패)");
+                return;
+            }
+
+            // DB 저장
+            int totalSaved = 0;
+            int totalFailed = 0;
+
+            for (ShortSellingBalance item : data) {
                 try {
-                    List<ShortSellingBalance> pageData = crawlShortSellingPage(page, today);
+                    Optional<ShortSellingBalance> existing =
+                            repository.findByStockCodeAndTradeDate(item.getStockCode(), item.getTradeDate());
 
-                    if (pageData.isEmpty()) {
-                        log.info("공매도 잔고 {}페이지: 데이터 없음 — 크롤링 종료", page);
-                        break;
+                    if (existing.isPresent()) {
+                        ShortSellingBalance existingData = existing.get();
+                        existingData.setStockName(item.getStockName());
+                        existingData.setShortSellingVolume(item.getShortSellingVolume());
+                        existingData.setShortSellingAmount(item.getShortSellingAmount());
+                        existingData.setShortSellingRatio(item.getShortSellingRatio());
+                        existingData.setListedShares(item.getListedShares());
+                        repository.save(existingData);
+                    } else {
+                        repository.save(item);
                     }
-
-                    for (ShortSellingBalance data : pageData) {
-                        try {
-                            Optional<ShortSellingBalance> existing =
-                                    repository.findByStockCodeAndTradeDate(data.getStockCode(), data.getTradeDate());
-
-                            if (existing.isPresent()) {
-                                // 기존 데이터 업데이트
-                                ShortSellingBalance existingData = existing.get();
-                                existingData.setStockName(data.getStockName());
-                                existingData.setShortSellingVolume(data.getShortSellingVolume());
-                                existingData.setShortSellingAmount(data.getShortSellingAmount());
-                                existingData.setShortSellingRatio(data.getShortSellingRatio());
-                                existingData.setListedShares(data.getListedShares());
-                                repository.save(existingData);
-                            } else {
-                                repository.save(data);
-                            }
-                            totalSaved++;
-                        } catch (Exception e) {
-                            totalFailed++;
-                            log.warn("공매도 잔고 저장 실패 - {} ({}): {}",
-                                    data.getStockName(), data.getStockCode(), e.getMessage());
-                        }
-                    }
-
-                    log.info("공매도 잔고 {}페이지 처리 완료: {}건", page, pageData.size());
-
-                    // Rate limit: 페이지 간 500ms 대기 (네이버 차단 방지)
-                    if (page < 5) {
-                        Thread.sleep(500);
-                    }
-
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    log.warn("공매도 잔고 크롤링 중단됨 (인터럽트)");
-                    break;
+                    totalSaved++;
                 } catch (Exception e) {
-                    log.warn("공매도 잔고 {}페이지 크롤링 실패: {}", page, e.getMessage());
+                    totalFailed++;
+                    log.warn("공매도 잔고 저장 실패 - {} ({}): {}",
+                            item.getStockName(), item.getStockCode(), e.getMessage());
                 }
             }
 
@@ -113,18 +115,212 @@ public class ShortSellingService {
             refreshCache();
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("========== 공매도 잔고 크롤링 완료 ({}ms) ==========", elapsed);
+            log.info("========== 공매도 잔고 수집 완료 ({}ms) ==========", elapsed);
             log.info("  저장: {}건, 실패: {}건", totalSaved, totalFailed);
 
         } catch (Exception e) {
-            log.warn("공매도 잔고 크롤링 전체 실패: {}", e.getMessage());
+            log.warn("공매도 잔고 수집 전체 실패: {}", e.getMessage());
         }
+    }
+
+    /**
+     * KRX 한국거래소에서 공매도 잔고 데이터 조회
+     * - 오늘 날짜로 시도 → 데이터 없으면 직전 영업일로 재시도
+     */
+    private List<ShortSellingBalance> fetchKrxShortSellingData() {
+        // 오늘부터 최대 5일 전까지 시도 (주말/공휴일 고려)
+        LocalDate date = LocalDate.now();
+        for (int attempt = 0; attempt < 5; attempt++) {
+            // 주말 스킵
+            if (date.getDayOfWeek() == DayOfWeek.SATURDAY) {
+                date = date.minusDays(1);
+                continue;
+            }
+            if (date.getDayOfWeek() == DayOfWeek.SUNDAY) {
+                date = date.minusDays(2);
+                continue;
+            }
+
+            List<ShortSellingBalance> result = fetchKrxDataForDate(date);
+            if (!result.isEmpty()) {
+                log.info("KRX 공매도 잔고 수집 성공 — 기준일: {}, {}건", date, result.size());
+                return result;
+            }
+
+            log.info("KRX 공매도 잔고 {} 데이터 없음 — 이전 날짜 시도", date);
+            date = date.minusDays(1);
+        }
+
+        log.warn("KRX 공매도 잔고 데이터 없음 (최근 5일간)");
+        return Collections.emptyList();
+    }
+
+    /**
+     * KRX 특정 날짜의 공매도 잔고 데이터 조회
+     */
+    private List<ShortSellingBalance> fetchKrxDataForDate(LocalDate tradeDate) {
+        List<ShortSellingBalance> result = new ArrayList<>();
+
+        try {
+            // HTTP Headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("User-Agent", USER_AGENT);
+            headers.set("Referer", KRX_REFERER);
+
+            // Form parameters
+            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+            params.add("bld", "dbms/MDC/STAT/srt/MDCSTAT030100");
+            params.add("locale", "ko_KR");
+            params.add("searchType", "1");
+            params.add("mktId", "ALL");
+            params.add("trdDd", tradeDate.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_DATA_URL, HttpMethod.POST, request, String.class);
+
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                log.warn("KRX API 응답 오류 — status: {}", response.getStatusCode());
+                return result;
+            }
+
+            // JSON 파싱
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode dataArray = root.get("OutBlock_1");
+
+            if (dataArray == null || !dataArray.isArray() || dataArray.isEmpty()) {
+                return result;
+            }
+
+            for (JsonNode item : dataArray) {
+                try {
+                    String stockCode = getJsonText(item, "ISU_SRT_CD");
+                    String stockName = getJsonText(item, "ISU_ABBRV");
+
+                    if (stockCode == null || stockCode.isEmpty() || stockName == null || stockName.isEmpty()) {
+                        continue;
+                    }
+
+                    BigDecimal balanceVolume = parseCommaNumber(getJsonText(item, "BAL_QTY"));
+                    BigDecimal balanceAmountWon = parseCommaNumber(getJsonText(item, "BAL_AMT"));
+                    BigDecimal balanceRatio = parseCommaNumber(getJsonText(item, "BAL_RTO"));
+                    BigDecimal listedShares = parseCommaNumber(getJsonText(item, "LIST_SHRS"));
+
+                    if (balanceRatio == null || balanceRatio.compareTo(BigDecimal.ZERO) == 0) {
+                        continue;
+                    }
+
+                    // 금액: 원 → 억원 변환
+                    BigDecimal balanceAmountBillion = null;
+                    if (balanceAmountWon != null) {
+                        balanceAmountBillion = balanceAmountWon.divide(BILLION_DIVISOR, 2, RoundingMode.HALF_UP);
+                    }
+
+                    ShortSellingBalance balance = ShortSellingBalance.builder()
+                            .stockCode(stockCode)
+                            .stockName(stockName)
+                            .tradeDate(tradeDate)
+                            .shortSellingVolume(balanceVolume)
+                            .shortSellingAmount(balanceAmountBillion)
+                            .shortSellingRatio(balanceRatio)
+                            .listedShares(listedShares)
+                            .build();
+
+                    result.add(balance);
+
+                } catch (Exception e) {
+                    log.debug("KRX 공매도 잔고 항목 파싱 실패: {}", e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            log.warn("KRX 공매도 잔고 조회 실패 ({}): {}", tradeDate, e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * JsonNode에서 텍스트 값 안전하게 추출
+     */
+    private String getJsonText(JsonNode node, String fieldName) {
+        JsonNode field = node.get(fieldName);
+        if (field == null || field.isNull()) return null;
+        return field.asText().trim();
+    }
+
+    /**
+     * 콤마가 포함된 숫자 문자열 파싱
+     * 예: "1,234,567" → 1234567, "0.15" → 0.15
+     */
+    private BigDecimal parseCommaNumber(String text) {
+        if (text == null || text.trim().isEmpty()) return null;
+        try {
+            String cleaned = text.trim().replace(",", "");
+            if (cleaned.isEmpty() || cleaned.equals("-") || cleaned.equals("N/A")) {
+                return null;
+            }
+            return new BigDecimal(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    // ================================================================
+    // 네이버 금융 크롤링 (fallback)
+    // ================================================================
+
+    /**
+     * 네이버 금융에서 공매도 잔고 크롤링 (KRX 실패 시 fallback)
+     */
+    private List<ShortSellingBalance> fetchNaverShortSellingData() {
+        log.info("네이버 금융 공매도 잔고 크롤링 시작 (fallback)");
+        List<ShortSellingBalance> allData = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+
+        try {
+            for (int page = 1; page <= 5; page++) {
+                try {
+                    List<ShortSellingBalance> pageData = crawlNaverShortSellingPage(page, today);
+
+                    if (pageData.isEmpty()) {
+                        log.info("네이버 공매도 잔고 {}페이지: 데이터 없음 — 크롤링 종료", page);
+                        break;
+                    }
+
+                    allData.addAll(pageData);
+                    log.info("네이버 공매도 잔고 {}페이지 처리 완료: {}건", page, pageData.size());
+
+                    if (page < 5) {
+                        Thread.sleep(500);
+                    }
+
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("네이버 공매도 잔고 크롤링 중단됨 (인터럽트)");
+                    break;
+                } catch (Exception e) {
+                    log.warn("네이버 공매도 잔고 {}페이지 크롤링 실패: {}", page, e.getMessage());
+                }
+            }
+
+            if (!allData.isEmpty()) {
+                log.info("네이버 금융 공매도 잔고 수집 성공 (fallback) — {}건", allData.size());
+            }
+
+        } catch (Exception e) {
+            log.warn("네이버 금융 공매도 잔고 크롤링 전체 실패: {}", e.getMessage());
+        }
+
+        return allData;
     }
 
     /**
      * 네이버 금융 공매도 잔고 페이지 크롤링
      */
-    private List<ShortSellingBalance> crawlShortSellingPage(int page, LocalDate tradeDate) {
+    private List<ShortSellingBalance> crawlNaverShortSellingPage(int page, LocalDate tradeDate) {
         List<ShortSellingBalance> result = new ArrayList<>();
 
         try {
@@ -134,10 +330,8 @@ public class ShortSellingService {
                     .timeout(10000)
                     .get();
 
-            // 테이블 행 파싱 (type_1 테이블 내 tbody의 tr)
             Elements rows = doc.select("table.type_1 tbody tr");
             if (rows.isEmpty()) {
-                // 대안 선택자
                 rows = doc.select("table.type_2 tbody tr");
             }
             if (rows.isEmpty()) {
@@ -148,10 +342,9 @@ public class ShortSellingService {
                 try {
                     Elements tds = row.select("td");
                     if (tds.size() < 5) {
-                        continue; // 헤더 또는 빈 행 스킵
+                        continue;
                     }
 
-                    // 종목명 + 종목코드 추출
                     Element nameLink = row.selectFirst("a[href*=main.naver]");
                     if (nameLink == null) {
                         nameLink = row.selectFirst("a[href*=main.nhn]");
@@ -168,21 +361,17 @@ public class ShortSellingService {
                         continue;
                     }
 
-                    // 테이블 컬럼 파싱
-                    // 네이버 공매도 잔고 페이지 구조:
-                    // 종목명 | 공매도잔고(주) | 상장주식수 | 공매도비중(%) | 전일대비 | ...
                     BigDecimal shortSellingVolume = parseNumber(tds.get(1).text());
                     BigDecimal listedShares = parseNumber(tds.get(2).text());
                     BigDecimal shortSellingRatio = parseNumber(tds.get(3).text());
 
-                    // 공매도 금액 계산 (잔고수량 기반, 억원 단위는 별도)
                     BigDecimal shortSellingAmount = null;
                     if (tds.size() > 4) {
                         shortSellingAmount = parseNumber(tds.get(4).text());
                     }
 
                     if (shortSellingRatio == null || shortSellingRatio.compareTo(BigDecimal.ZERO) == 0) {
-                        continue; // 비율이 0인 데이터 스킵
+                        continue;
                     }
 
                     ShortSellingBalance balance = ShortSellingBalance.builder()
@@ -198,12 +387,12 @@ public class ShortSellingService {
                     result.add(balance);
 
                 } catch (Exception e) {
-                    log.debug("공매도 잔고 행 파싱 실패: {}", e.getMessage());
+                    log.debug("네이버 공매도 잔고 행 파싱 실패: {}", e.getMessage());
                 }
             }
 
         } catch (Exception e) {
-            log.warn("공매도 잔고 페이지 크롤링 실패 (page={}): {}", page, e.getMessage());
+            log.warn("네이버 공매도 잔고 페이지 크롤링 실패 (page={}): {}", page, e.getMessage());
         }
 
         return result;
@@ -218,7 +407,6 @@ public class ShortSellingService {
         int idx = href.indexOf("code=");
         if (idx < 0) return null;
         String code = href.substring(idx + 5);
-        // &가 있으면 그 앞까지만
         int ampIdx = code.indexOf('&');
         if (ampIdx > 0) {
             code = code.substring(0, ampIdx);
@@ -227,7 +415,7 @@ public class ShortSellingService {
     }
 
     /**
-     * 숫자 파싱 (콤마 제거)
+     * 숫자 파싱 (콤마, %, 억, 만 제거) — 네이버 fallback용
      */
     private BigDecimal parseNumber(String text) {
         if (text == null || text.trim().isEmpty()) return null;
@@ -246,6 +434,10 @@ public class ShortSellingService {
             return null;
         }
     }
+
+    // ================================================================
+    // 공개 API (기존 시그니처 유지)
+    // ================================================================
 
     /**
      * 공매도 비율 상위 종목 텔레그램 알림
@@ -266,7 +458,6 @@ public class ShortSellingService {
                 return;
             }
 
-            // 상위 20개만
             List<ShortSellingBalance> topStocks = highStocks.stream()
                     .limit(20)
                     .collect(Collectors.toList());
@@ -317,16 +508,13 @@ public class ShortSellingService {
 
     /**
      * 특정 종목의 공매도 비율 조회 (봇 연동용)
-     * - 캐시 우선, fallback으로 DB 조회
      */
     @Transactional(readOnly = true)
     public BigDecimal getShortSellingRatio(String stockCode) {
-        // 캐시 확인
         if (cacheDate != null && cacheDate.equals(LocalDate.now()) && shortSellingRatioCache.containsKey(stockCode)) {
             return shortSellingRatioCache.get(stockCode);
         }
 
-        // DB fallback
         try {
             Optional<LocalDate> latestDateOpt = repository.findLatestTradeDate();
             if (latestDateOpt.isEmpty()) {
@@ -345,12 +533,10 @@ public class ShortSellingService {
 
     /**
      * 공매도 비율 높은 종목 Set (전략 차단용)
-     * - HIGH_SHORT_RATIO (5%) 이상인 종목코드 반환
      */
     @Transactional(readOnly = true)
     public Set<String> getHighShortSellingStockCodes() {
         try {
-            // 캐시 확인
             if (cacheDate != null && cacheDate.equals(LocalDate.now()) && !shortSellingRatioCache.isEmpty()) {
                 return shortSellingRatioCache.entrySet().stream()
                         .filter(e -> e.getValue().compareTo(HIGH_SHORT_RATIO) >= 0)
@@ -397,7 +583,6 @@ public class ShortSellingService {
 
     /**
      * 고공매도 종목인지 확인 (봇 연동용)
-     * - 5% 이상이면 true
      */
     @Transactional(readOnly = true)
     public boolean isHighShortSellingStock(String stockCode) {
