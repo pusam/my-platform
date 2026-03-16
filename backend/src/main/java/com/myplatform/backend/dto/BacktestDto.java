@@ -36,6 +36,9 @@ public class BacktestDto {
         private String bestStock;         // 최고 수익 종목
         private BigDecimal worstReturn;   // 최저 수익률
         private String worstStock;        // 최저 수익 종목
+        private BigDecimal mdd;             // 전략별 MDD (%)
+        private BigDecimal recentHitRate;    // 최근 20거래일 적중률
+        private BigDecimal recentAvgReturn;  // 최근 20거래일 평균 수익률
         private List<PickDetail> picks;
     }
 
@@ -64,5 +67,7 @@ public class BacktestDto {
         private int winCount;
         private BigDecimal hitRate;
         private BigDecimal avgReturn;
+        private BigDecimal mdd;          // 최대낙폭 (%)
+        private BigDecimal sharpeRatio;  // 간이 샤프비율
     }
 }
