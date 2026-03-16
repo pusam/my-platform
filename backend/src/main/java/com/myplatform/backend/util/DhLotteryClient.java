@@ -52,7 +52,7 @@ public class DhLotteryClient {
     }
 
     /**
-     * 동행복권 API 호출 (세션 쿠키 자동 관리)
+     * 동행복권 API 호출 (세션 쿠키 자동 관리 + 폴백)
      * @param apiUrl 전체 API URL
      * @return JSON 응답 문자열, 실패 시 null
      */
@@ -66,9 +66,43 @@ public class DhLotteryClient {
         // 2차 시도: 쿠키 갱신 후 재호출
         log.info("[동행복권] 쿠키 갱신 후 재시도: {}", apiUrl);
         cookie = refreshCookie();
-        if (cookie == null) return null;
+        if (cookie != null) {
+            result = doApiCall(apiUrl, cookie);
+            if (result != null) return result;
+        }
 
-        return doApiCall(apiUrl, cookie);
+        // 3차 시도: 쿠키 없이 직접 호출 (일부 환경에서 동작)
+        result = doApiCallNoCookie(apiUrl);
+        if (result != null) return result;
+
+        return null;
+    }
+
+    /**
+     * 쿠키 없이 일반 RestTemplate으로 호출 (리다이렉트 따라가기)
+     * 일부 환경/기간에 쿠키 없이도 JSON을 반환하는 경우 대응
+     */
+    private String doApiCallNoCookie(String apiUrl) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", USER_AGENT);
+            headers.set("Accept", "application/json, text/plain, */*");
+            headers.set("Referer", "https://www.dhlottery.co.kr/gameResult.do?method=byWin");
+
+            ResponseEntity<String> response = defaultTemplate.exchange(
+                    apiUrl, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+            String body = response.getBody();
+            if (body != null && body.trim().startsWith("{")) {
+                log.info("[동행복권] 쿠키 없이 API 호출 성공: {}", apiUrl);
+                return body;
+            }
+            log.warn("[동행복권] 쿠키 없이 호출했으나 JSON 아님 (서버 IP 차단 가능성): {}", apiUrl);
+            return null;
+        } catch (Exception e) {
+            log.warn("[동행복권] 쿠키 없이 호출 실패: {} - {}", apiUrl, e.getMessage());
+            return null;
+        }
     }
 
     private String doApiCall(String apiUrl, String cookie) {
@@ -119,17 +153,41 @@ public class DhLotteryClient {
         }
 
         try {
+            // noRedirectTemplate으로 첫 응답의 Set-Cookie를 잡아야 함
+            // defaultTemplate은 302를 따라가면서 Set-Cookie를 소모해버림
             HttpHeaders headers = new HttpHeaders();
             headers.set("User-Agent", USER_AGENT);
             headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            headers.set("Accept-Language", "ko-KR,ko;q=0.9");
 
-            ResponseEntity<String> response = defaultTemplate.exchange(
+            ResponseEntity<String> response = noRedirectTemplate.exchange(
                     DH_HOME_URL, HttpMethod.GET, new HttpEntity<>(headers), String.class);
 
+            int status = response.getStatusCode().value();
+            log.info("[동행복권] 홈페이지 응답 상태: {}", status);
+
             List<String> setCookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
+
+            // 302인 경우 리다이렉트 대상에서도 쿠키 취득 시도
+            if ((status == 302 || status == 301) && (setCookies == null || setCookies.isEmpty())) {
+                String location = response.getHeaders().getFirst(HttpHeaders.LOCATION);
+                if (location != null) {
+                    if (!location.startsWith("http")) {
+                        location = "https://www.dhlottery.co.kr" + location;
+                    }
+                    log.info("[동행복권] 리다이렉트 추적: {}", location);
+                    response = noRedirectTemplate.exchange(
+                            location, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+                    setCookies = response.getHeaders().get(HttpHeaders.SET_COOKIE);
+                }
+            }
+
             if (setCookies == null || setCookies.isEmpty()) {
-                log.error("[동행복권] 세션 쿠키 취득 실패 - Set-Cookie 헤더 없음");
-                return null;
+                log.error("[동행복권] 세션 쿠키 취득 실패 - Set-Cookie 헤더 없음 (HTTP {})", status);
+                // 쿠키 없이도 API가 동작하는지 시도 (일부 기간 동행복권 쿠키 불필요)
+                cachedCookie.set("");
+                cookieTimestamp = System.currentTimeMillis();
+                return "";
             }
 
             // Set-Cookie 헤더에서 쿠키 이름=값 추출
@@ -143,7 +201,7 @@ public class DhLotteryClient {
             String newCookie = cookieBuilder.toString();
             cachedCookie.set(newCookie);
             cookieTimestamp = System.currentTimeMillis();
-            log.info("[동행복권] 세션 쿠키 취득 성공: {}", newCookie.substring(0, Math.min(50, newCookie.length())) + "...");
+            log.info("[동행복권] 세션 쿠키 취득 성공: {}", newCookie.substring(0, Math.min(80, newCookie.length())) + "...");
             return newCookie;
         } catch (Exception e) {
             log.error("[동행복권] 세션 쿠키 취득 실패: {}", e.getMessage());
