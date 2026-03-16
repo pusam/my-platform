@@ -851,7 +851,7 @@ public class InvestorSurgeService {
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
         log.info("🚨 쌍끌이 알림 발송: {} ({}) - 합산 {}억 / 최근 +{}억 (외국인 {}억 + 기관 {}억)",
                 foreign.getStockName(), foreign.getStockCode(),
                 formatAmount(totalNetBuy), formatAmount(totalChange),
@@ -893,7 +893,7 @@ public class InvestorSurgeService {
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
         log.info("🌊 {} 단독 HOT 알림 발송: {} ({}) - {}억 / 최근 +{}억",
                 investorName, snapshot.getStockName(), snapshot.getStockCode(),
                 formatAmount(netBuy), formatAmount(amountChange));

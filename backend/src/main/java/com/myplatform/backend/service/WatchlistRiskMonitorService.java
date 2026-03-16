@@ -314,7 +314,7 @@ public class WatchlistRiskMonitorService {
         sb.append(String.format("\n⏰ %s\n", LocalDateTime.now().format(TIME_FMT)));
         sb.append("━━━━━━━━━━━━━━━━\n🤖 MyPlatform 리스크 알리미");
 
-        telegramService.sendMessage(sb.toString());
+        telegramService.sendRisk(sb.toString());
 
         // 알림 이력 저장
         AlertHistory history = new AlertHistory();

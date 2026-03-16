@@ -260,7 +260,7 @@ public class AutoTradingBotService {
                     String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
                     String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
 
-                    telegramService.sendMessage(
+                    telegramService.sendSignal(
                             String.format("<b>🔄 [%s] 서버 재시작 - 스캘핑봇 자동 복구!</b>\n\n", modeTag) +
                             "✅ 서버 재시작으로 봇을 자동 재실행했습니다.\n" +
                             "🎯 전략: <b>스캘핑 스나이퍼 모드</b>\n" +
@@ -347,7 +347,7 @@ public class AutoTradingBotService {
             String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
             String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
 
-            telegramService.sendMessage(
+            telegramService.sendSignal(
                     String.format("<b>%s [%s] 스캘핑 스나이퍼 봇 시작!</b>\n\n", modeEmoji, modeTag) +
                     "✅ 봇이 활성화되었습니다.\n" +
                     "🎯 전략: <b>스캘핑 스나이퍼 모드 v2</b>\n\n" +
@@ -395,7 +395,7 @@ public class AutoTradingBotService {
         log.info("[스캘핑봇] 중지됨 - 모드: {}", currentMode.getDisplayName());
 
         if (telegramService.isEnabled()) {
-            telegramService.sendMessage(
+            telegramService.sendSignal(
                     String.format("<b>%s [%s] 스캘핑봇 중지!</b>\n\n", modeEmoji, modeTag) +
                     "⏸️ 봇이 비활성화되었습니다.\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
@@ -472,7 +472,7 @@ public class AutoTradingBotService {
                 // VIX 정상 복귀
                 log.info("[스캘핑봇] ✅ VIX {} → 매수 재개", vixPrice);
                 if (telegramService.isEnabled()) {
-                    telegramService.sendMessage(
+                    telegramService.sendSignal(
                         String.format("<b>✅ VIX 정상 복귀 → 매수 재개</b>\n\n" +
                             "📊 VIX: <b>%.1f</b> (임계치: %.0f)\n" +
                             "🤖 스캘핑봇 매수 자동 재개\n\n" +
@@ -490,7 +490,7 @@ public class AutoTradingBotService {
         lastVixAlertTime = LocalDateTime.now();
         if (telegramService.isEnabled()) {
             String prefix = isFirstAlert ? "🚨 VIX 급등 — 매수 일시정지!" : "⚠️ VIX 고공 유지 중";
-            telegramService.sendMessage(
+            telegramService.sendSignal(
                 String.format("<b>%s</b>\n\n" +
                     "📊 VIX: <b>%.1f</b> (임계치: %.0f)\n" +
                     "⏸️ 스캘핑봇 매수 자동 중단\n" +
@@ -529,7 +529,7 @@ public class AutoTradingBotService {
                 if (!kospiDropPaused.getAndSet(true)) {
                     log.warn("[스캘핑봇] ⚠️ KOSPI {}% 하락 — 신규 매수 차단!", kospiChangeRate);
                     if (telegramService.isEnabled()) {
-                        telegramService.sendMessage(
+                        telegramService.sendSignal(
                                 String.format("<b>⚠️ KOSPI 급락 — 매수 차단!</b>\n\n" +
                                         "📉 KOSPI: <b>%+.2f%%</b> (임계치: %.1f%%)\n" +
                                         "⏸️ 스캘핑봇 신규 매수 중단\n" +
@@ -542,7 +542,7 @@ public class AutoTradingBotService {
             } else if (kospiDropPaused.getAndSet(false)) {
                 log.info("[스캘핑봇] ✅ KOSPI {}% — 매수 재개", kospiChangeRate);
                 if (telegramService.isEnabled()) {
-                    telegramService.sendMessage(
+                    telegramService.sendSignal(
                             String.format("<b>✅ KOSPI 회복 — 매수 재개</b>\n\n" +
                                     "📊 KOSPI: <b>%+.2f%%</b>\n" +
                                     "🤖 스캘핑봇 매수 자동 재개\n\n" +
@@ -1235,7 +1235,7 @@ public class AutoTradingBotService {
                         consecutiveStopLossPaused.set(true);
                         log.warn("[스캘핑봇] 🛑 연속 손절 {}회 — 당일 매수 정지!", stopCount);
                         if (telegramService.isEnabled()) {
-                            telegramService.sendMessage(
+                            telegramService.sendSignal(
                                     "<b>🛑 연속 손절 " + stopCount + "회 — 당일 매수 정지!</b>\n\n" +
                                     "⚠️ 연속 손절이 " + CONSECUTIVE_STOP_LOSS_LIMIT + "회에 도달하여\n" +
                                     "금일 신규 매수를 중단합니다.\n" +
@@ -1393,7 +1393,7 @@ public class AutoTradingBotService {
                     String modeEmoji = currentMode == TradingMode.REAL ? "🔴" : "🤖";
                     String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
 
-                    telegramService.sendMessage(
+                    telegramService.sendRisk(
                             String.format("<b>🛑 [%s] 킬 스위치 발동!</b>\n\n", modeTag) +
                             "⚠️ 일일 최대 손실 한도 초과로 봇을 자동 종료합니다.\n\n" +
                             "📊 시작 자산: " + formatNumber(dailyStartAsset) + "원\n" +
@@ -1488,7 +1488,7 @@ public class AutoTradingBotService {
         String modeTag = currentMode == TradingMode.REAL ? "실전투자" : "모의투자";
         BigDecimal totalAmount = entry.currentPrice.multiply(BigDecimal.valueOf(quantity));
 
-        telegramService.sendMessage(
+        telegramService.sendSignal(
                 String.format("<b>%s [%s] 스캘핑 진입</b>\n\n", modeEmoji, modeTag) +
                 "🎯 <b>" + surge.getStockName() + "</b> (" + surge.getStockCode() + ")\n" +
                 "💰 " + formatNumber(entry.currentPrice) + "원 x " + quantity + "주\n" +
@@ -1541,7 +1541,7 @@ public class AutoTradingBotService {
 
         String partialText = isPartialSell ? " (절반 매도)" : "";
 
-        telegramService.sendMessage(
+        telegramService.sendSignal(
                 String.format("<b>%s [%s] %s%s</b>\n\n", modeEmoji, modeTag, reasonText, partialText) +
                 reasonEmoji + " <b>" + portfolio.getStockName() + "</b> (" + portfolio.getStockCode() + ")\n" +
                 "💰 매도가: " + formatNumber(currentPrice) + "원\n" +
@@ -1585,7 +1585,7 @@ public class AutoTradingBotService {
         message.append("━━━━━━━━━━━━━━━━\n");
         message.append(modeEmoji).append(" MyPlatform ").append(modeTag);
 
-        telegramService.sendMessage(message.toString());
+        telegramService.sendSignal(message.toString());
     }
 
     // ==================== 휴장일 체크 ====================

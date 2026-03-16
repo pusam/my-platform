@@ -17,9 +17,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 텔레그램 알림 서비스
- * - 주식 매수 신호, 시장 상태 등 중요 알림을 텔레그램으로 발송
- * - 비동기 처리로 메인 로직에 영향 없음
+ * 텔레그램 알림 서비스 — 3채널 분리
+ *
+ * 브리핑 채널: 모닝브리핑, 마감알림, 헬스체크, 시장상태, 서버시작
+ * 시그널 채널: 수급급증, 선점레이더, 복합조건, 봇매매, 매수신호, 숏스퀴즈, 마법공식, 턴어라운드
+ * 리스크 채널: 리스크알리미, 킬스위치, 공매도경보
+ *
+ * 시그널/리스크 채널 미설정 시 기본 브리핑 채널로 폴백
  */
 @Service
 @Slf4j
@@ -28,6 +32,7 @@ public class TelegramNotificationService {
     private static final String TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage";
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");
 
+    // 브리핑 채널 (기본)
     @Value("${telegram.bot.token:}")
     private String botToken;
 
@@ -36,6 +41,20 @@ public class TelegramNotificationService {
 
     @Value("${telegram.bot.enabled:false}")
     private boolean enabled;
+
+    // 시그널 채널
+    @Value("${telegram.bot.token-signal:}")
+    private String signalToken;
+
+    @Value("${telegram.bot.chat-id-signal:}")
+    private String signalChatId;
+
+    // 리스크 채널
+    @Value("${telegram.bot.token-risk:}")
+    private String riskToken;
+
+    @Value("${telegram.bot.chat-id-risk:}")
+    private String riskChatId;
 
     private final RestTemplate restTemplate;
 
@@ -49,51 +68,80 @@ public class TelegramNotificationService {
     @PostConstruct
     public void init() {
         if (enabled && !botToken.isEmpty() && !chatId.isEmpty()) {
-            log.info("텔레그램 알림 서비스 활성화됨 - chatId: {}", chatId);
+            log.info("텔레그램 알림 서비스 활성화됨 - 브리핑: {}", chatId);
+            if (isSignalChannelConfigured()) {
+                log.info("텔레그램 시그널 채널 활성화됨 - chatId: {}", signalChatId);
+            }
+            if (isRiskChannelConfigured()) {
+                log.info("텔레그램 리스크 채널 활성화됨 - chatId: {}", riskChatId);
+            }
         } else {
             log.info("텔레그램 알림 서비스 비활성화됨 (enabled: {}, token: {}, chatId: {})",
                     enabled, !botToken.isEmpty(), !chatId.isEmpty());
         }
     }
 
-    /**
-     * 텔레그램 알림 활성화 여부 확인
-     */
     public boolean isEnabled() {
         return enabled && !botToken.isEmpty() && !chatId.isEmpty();
     }
 
-    /**
-     * 일반 텍스트 메시지 발송 (비동기)
-     */
+    private boolean isSignalChannelConfigured() {
+        return !signalToken.isEmpty() && !signalChatId.isEmpty();
+    }
+
+    private boolean isRiskChannelConfigured() {
+        return !riskToken.isEmpty() && !riskChatId.isEmpty();
+    }
+
+    // ==================== 채널별 발송 메서드 ====================
+
+    /** 브리핑 채널로 발송 (모닝브리핑, 마감알림, 헬스체크, 시장상태) */
+    @Async("notificationExecutor")
+    public void sendBriefing(String message) {
+        sendToChannel(botToken, chatId, message, "브리핑");
+    }
+
+    /** 시그널 채널로 발송 (수급급증, 선점레이더, 복합조건, 봇매매) */
+    @Async("notificationExecutor")
+    public void sendSignal(String message) {
+        if (isSignalChannelConfigured()) {
+            sendToChannel(signalToken, signalChatId, message, "시그널");
+        } else {
+            sendToChannel(botToken, chatId, message, "시그널(→브리핑폴백)");
+        }
+    }
+
+    /** 리스크 채널로 발송 (리스크알리미, 킬스위치, 공매도경보) */
+    @Async("notificationExecutor")
+    public void sendRisk(String message) {
+        if (isRiskChannelConfigured()) {
+            sendToChannel(riskToken, riskChatId, message, "리스크");
+        } else {
+            sendToChannel(botToken, chatId, message, "리스크(→브리핑폴백)");
+        }
+    }
+
+    // ==================== 기존 API 호환 (브리핑 채널 기본) ====================
+
+    /** 기존 sendMessage — 브리핑 채널로 발송 (하위 호환) */
     @Async("notificationExecutor")
     public void sendMessage(String message) {
         if (!isEnabled()) {
             log.debug("텔레그램 비활성화 상태 - 메시지 발송 생략");
             return;
         }
-
         try {
-            doSendMessage(message, "HTML");
+            doSendMessage(botToken, chatId, message, "HTML");
             log.info("텔레그램 메시지 발송 완료");
         } catch (Exception e) {
             log.error("텔레그램 메시지 발송 실패: {}", e.getMessage());
         }
     }
 
-    /**
-     * 주식 매수 알림 발송 (비동기)
-     * - 예쁜 포맷 + 이모지
-     */
+    /** 주식 매수 알림 → 시그널 채널 */
     @Async("notificationExecutor")
     public void sendStockAlert(String stockName, String stockCode, String reason, BigDecimal price) {
-        if (!isEnabled()) {
-            log.debug("텔레그램 비활성화 상태 - 주식 알림 발송 생략");
-            return;
-        }
-
-        String formattedPrice = formatPrice(price);
-        String currentTime = LocalDateTime.now().format(TIME_FORMATTER);
+        if (!isEnabled()) return;
 
         String message = String.format(
             """
@@ -109,20 +157,14 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 알림봇
             """,
-            stockName, stockCode, formattedPrice, reason, currentTime
+            stockName, stockCode, formatPrice(price), reason,
+            LocalDateTime.now().format(TIME_FORMATTER)
         );
 
-        try {
-            doSendMessage(message, "HTML");
-            log.info("주식 알림 발송 완료 - {} ({})", stockName, stockCode);
-        } catch (Exception e) {
-            log.error("주식 알림 발송 실패 - {} ({}): {}", stockName, stockCode, e.getMessage());
-        }
+        sendSignal(message);
     }
 
-    /**
-     * 숏스퀴즈 후보 알림
-     */
+    /** 숏스퀴즈 후보 알림 → 시그널 채널 */
     @Async("notificationExecutor")
     public void sendShortSqueezeAlert(String stockName, String stockCode,
                                        BigDecimal price, int squeezeScore,
@@ -155,17 +197,10 @@ public class TelegramNotificationService {
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
-        try {
-            doSendMessage(message, "HTML");
-            log.info("숏스퀴즈 알림 발송 완료 - {} ({}), 점수: {}", stockName, stockCode, squeezeScore);
-        } catch (Exception e) {
-            log.error("숏스퀴즈 알림 발송 실패: {}", e.getMessage());
-        }
+        sendSignal(message);
     }
 
-    /**
-     * 마법의 공식 상위 종목 알림
-     */
+    /** 마법의 공식 알림 → 시그널 채널 */
     @Async("notificationExecutor")
     public void sendMagicFormulaAlert(String stockName, String stockCode,
                                        int rank, BigDecimal per, BigDecimal roe,
@@ -194,17 +229,10 @@ public class TelegramNotificationService {
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
-        try {
-            doSendMessage(message, "HTML");
-            log.info("마법의 공식 알림 발송 완료 - {} ({}), 순위: #{}", stockName, stockCode, rank);
-        } catch (Exception e) {
-            log.error("마법의 공식 알림 발송 실패: {}", e.getMessage());
-        }
+        sendSignal(message);
     }
 
-    /**
-     * 턴어라운드 종목 알림
-     */
+    /** 턴어라운드 종목 알림 → 시그널 채널 */
     @Async("notificationExecutor")
     public void sendTurnaroundAlert(String stockName, String stockCode,
                                      String turnaroundType, BigDecimal changeRate,
@@ -235,17 +263,10 @@ public class TelegramNotificationService {
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
-        try {
-            doSendMessage(message, "HTML");
-            log.info("턴어라운드 알림 발송 완료 - {} ({})", stockName, stockCode);
-        } catch (Exception e) {
-            log.error("턴어라운드 알림 발송 실패: {}", e.getMessage());
-        }
+        sendSignal(message);
     }
 
-    /**
-     * 시장 상태 알림
-     */
+    /** 시장 상태 알림 → 브리핑 채널 */
     @Async("notificationExecutor")
     public void sendMarketStatusAlert(String condition, BigDecimal adr, String diagnosis) {
         if (!isEnabled()) return;
@@ -276,18 +297,10 @@ public class TelegramNotificationService {
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
-        try {
-            doSendMessage(message, "HTML");
-            log.info("시장 상태 알림 발송 완료 - {}, ADR: {}", condition, adr);
-        } catch (Exception e) {
-            log.error("시장 상태 알림 발송 실패: {}", e.getMessage());
-        }
+        sendBriefing(message);
     }
 
-    /**
-     * 복합 조건 충족 종목 알림 발송 (비동기)
-     * - 2개 이상 조건 동시 충족 종목 알림
-     */
+    /** 복합 조건 알림 → 시그널 채널 */
     @Async("notificationExecutor")
     public void sendCompositeAlert(String stockName, String stockCode,
                                     BigDecimal price, List<String> matchedConditions) {
@@ -316,19 +329,10 @@ public class TelegramNotificationService {
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
-        try {
-            doSendMessage(message, "HTML");
-            log.info("복합 조건 알림 발송 완료 - {} ({}) - {}개 조건 충족",
-                    stockName, stockCode, matchedConditions.size());
-        } catch (Exception e) {
-            log.error("복합 조건 알림 발송 실패 - {} ({}): {}", stockName, stockCode, e.getMessage());
-        }
+        sendSignal(message);
     }
 
-    /**
-     * 테스트 메시지 발송 (동기)
-     * - 설정 확인용
-     */
+    /** 테스트 메시지 (동기, 브리핑 채널) */
     public boolean sendTestMessage() {
         if (!isEnabled()) {
             log.warn("텔레그램 비활성화 상태 - 테스트 불가");
@@ -350,7 +354,7 @@ public class TelegramNotificationService {
         );
 
         try {
-            doSendMessage(message, "HTML");
+            doSendMessage(botToken, chatId, message, "HTML");
             log.info("텔레그램 테스트 메시지 발송 성공");
             return true;
         } catch (Exception e) {
@@ -359,17 +363,29 @@ public class TelegramNotificationService {
         }
     }
 
-    /**
-     * 실제 메시지 발송 (HTTP API 호출)
-     */
-    private void doSendMessage(String text, String parseMode) {
-        String url = TELEGRAM_API_URL.replace("{token}", botToken);
+    // ==================== 내부 메서드 ====================
+
+    private void sendToChannel(String token, String targetChatId, String message, String channelName) {
+        if (!isEnabled()) {
+            log.debug("텔레그램 비활성화 - {} 메시지 발송 생략", channelName);
+            return;
+        }
+        try {
+            doSendMessage(token, targetChatId, message, "HTML");
+            log.info("텔레그램 {} 채널 발송 완료", channelName);
+        } catch (Exception e) {
+            log.error("텔레그램 {} 채널 발송 실패: {}", channelName, e.getMessage());
+        }
+    }
+
+    private void doSendMessage(String token, String targetChatId, String text, String parseMode) {
+        String url = TELEGRAM_API_URL.replace("{token}", token);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         Map<String, Object> body = new HashMap<>();
-        body.put("chat_id", chatId);
+        body.put("chat_id", targetChatId);
         body.put("text", text);
         body.put("parse_mode", parseMode);
 
@@ -383,9 +399,6 @@ public class TelegramNotificationService {
         }
     }
 
-    /**
-     * 가격 포맷팅 (천 단위 콤마)
-     */
     private String formatPrice(BigDecimal price) {
         if (price == null) return "N/A";
         return String.format("%,.0f", price);

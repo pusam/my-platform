@@ -230,7 +230,7 @@ public class PreemptiveRadarService {
                     h.getCorpName(), h.getStockCode(), h.getReportName(), h.getReportDate()));
         }
         sb.append("━━━━━━━━━━━━━━━━\n🤖 MyPlatform 선점 레이더");
-        telegramService.sendMessage(sb.toString());
+        telegramService.sendSignal(sb.toString());
         log.info("[선점레이더] 대량보유 공시 알림 {}건 발송", holdings.size());
     }
 

@@ -95,7 +95,7 @@ public class VirtualTradeService implements TradeService {
 
             // 텔레그램 알림 (계좌 없음 경고)
             if (telegramService.isEnabled()) {
-                telegramService.sendMessage(
+                telegramService.sendSignal(
                         "<b>⚠️ [모의투자] 서버 시작 - 활성 계좌 없음</b>\n\n" +
                         "전체 계좌 수: " + totalAccounts + "개\n" +
                         "활성 계좌: 없음\n\n" +
@@ -146,7 +146,7 @@ public class VirtualTradeService implements TradeService {
 
         // 텔레그램 알림 (초기화 추적용)
         if (telegramService.isEnabled()) {
-            telegramService.sendMessage(
+            telegramService.sendSignal(
                     "<b>⚠️ [모의투자] 계좌 초기화됨</b>\n\n" +
                     "새 계좌 ID: " + account.getId() + "\n" +
                     "초기 자본금: " + String.format("%,d", balance.longValue()) + "원\n" +
@@ -635,7 +635,7 @@ public class VirtualTradeService implements TradeService {
                 java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
     }
 
     /**
@@ -678,7 +678,7 @@ public class VirtualTradeService implements TradeService {
                 java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
     }
 
     /**

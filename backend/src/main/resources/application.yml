@@ -118,12 +118,19 @@ reddit:
     username: ${REDDIT_USERNAME:}
     password: ${REDDIT_PASSWORD:}
 
-# 9. 텔레그램 알림 설정
+# 9. 텔레그램 알림 설정 (3채널 분리)
+# 브리핑: 모닝브리핑, 마감알림, 헬스체크, 시장상태
+# 시그널: 수급급증, 선점레이더, 복합조건, 봇매매
+# 리스크: 리스크알리미, 킬스위치, 공매도경보
 telegram:
   bot:
     token: ${TELEGRAM_BOT_TOKEN:}
     chat-id: ${TELEGRAM_CHAT_ID:}
     enabled: ${TELEGRAM_ENABLED:false}
+    token-signal: ${TELEGRAM_BOT_TOKEN_SIGNAL:}
+    chat-id-signal: ${TELEGRAM_CHAT_ID_SIGNAL:}
+    token-risk: ${TELEGRAM_BOT_TOKEN_RISK:}
+    chat-id-risk: ${TELEGRAM_CHAT_ID_RISK:}
 
 # 10. 알림 스케줄러 설정
 alert:

@@ -498,7 +498,7 @@ public class ShortSellingService {
             sb.append(String.format("\u23F0 %s\n", LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))));
             sb.append("\uD83E\uDD16 MyPlatform 공매도 알림");
 
-            telegramService.sendMessage(sb.toString());
+            telegramService.sendRisk(sb.toString());
             log.info("공매도 잔고 경보 발송 완료 — {}종목 (위험: {}종목)", highStocks.size(), dangerCount);
 
         } catch (Exception e) {

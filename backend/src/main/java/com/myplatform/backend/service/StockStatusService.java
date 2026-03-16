@@ -168,7 +168,7 @@ public class StockStatusService {
                             .orElse(""),
                     LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
             );
-            telegramService.sendMessage(msg);
+            telegramService.sendRisk(msg);
             log.warn("[종목상태] 거래정지/상폐 감지 {}건: {}", suspended.size(), suspended);
         } else {
             log.info("[종목상태] 모든 섹터 종목이 KRX 상장 목록에 존재 — 정상");
