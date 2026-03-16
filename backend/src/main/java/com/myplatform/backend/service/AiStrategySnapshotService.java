@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
+import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
@@ -61,6 +62,7 @@ public class AiStrategySnapshotService {
     private final QuantScreenerService quantScreenerService;
     private final StockPriceService stockPriceService;
     private final GeminiService geminiService;
+    private final InvestorTradeService investorTradeService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -538,6 +540,47 @@ public class AiStrategySnapshotService {
     }
 
     /**
+     * 외국인/기관 3일 연속 매수 종목 → 보너스 점수 맵 생성
+     * - 외국인 3일+ 연속매수: +8점
+     * - 기관 3일+ 연속매수: +7점
+     * - 양쪽 모두: +15점 (중복 가산)
+     * - 5일+ 연속매수 시 추가 +5점
+     */
+    private Map<String, Integer> getConsecutiveBuyBonusMap() {
+        Map<String, Integer> bonusMap = new HashMap<>();
+        try {
+            List<ConsecutiveBuyDto> foreignBuys = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 3);
+            List<ConsecutiveBuyDto> institutionBuys = investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 3);
+
+            if (foreignBuys != null) {
+                for (ConsecutiveBuyDto dto : foreignBuys) {
+                    int bonus = 8;
+                    if (dto.getConsecutiveDays() != null && dto.getConsecutiveDays() >= 5) {
+                        bonus += 5;
+                    }
+                    bonusMap.merge(dto.getStockCode(), bonus, Integer::sum);
+                }
+            }
+            if (institutionBuys != null) {
+                for (ConsecutiveBuyDto dto : institutionBuys) {
+                    int bonus = 7;
+                    if (dto.getConsecutiveDays() != null && dto.getConsecutiveDays() >= 5) {
+                        bonus += 5;
+                    }
+                    bonusMap.merge(dto.getStockCode(), bonus, Integer::sum);
+                }
+            }
+            log.info("[연속매수 보너스] 외국인 {}건, 기관 {}건 → 보너스 대상 {}종목",
+                    foreignBuys != null ? foreignBuys.size() : 0,
+                    institutionBuys != null ? institutionBuys.size() : 0,
+                    bonusMap.size());
+        } catch (Exception e) {
+            log.warn("[연속매수 보너스] 조회 실패 (무시): {}", e.getMessage());
+        }
+        return bonusMap;
+    }
+
+    /**
      * 스윙(마법의 공식) 전략 데이터 수집
      * - PER, ROE, 영업이익률 기반 종합 순위
      * - 점수: 마법의 공식 순위 기반 (상위일수록 높음)
@@ -554,6 +597,9 @@ public class AiStrategySnapshotService {
             return fallback.isEmpty() ? createFallbackStocks(StrategyType.SWING, createdAt) : fallback;
         }
 
+        // 연속매수 보너스 맵 조회
+        Map<String, Integer> consecutiveBuyBonus = getConsecutiveBuyBonusMap();
+
         // 실시간 시세 조회 (등락률 포함)
         List<String> stockCodes = magicFormula.stream()
                 .map(ScreenerResultDto::getStockCode)
@@ -568,8 +614,18 @@ public class AiStrategySnapshotService {
             // 점수 계산: ROE와 영업이익률 기반
             int score = calculateSwingScore(dto.getRoe(), dto.getOperatingMargin(), dto.getPer());
 
+            // 연속매수 보너스 가산
+            int bonus = consecutiveBuyBonus.getOrDefault(dto.getStockCode(), 0);
+            if (bonus > 0) {
+                score = Math.min(100, score + bonus);
+                log.info("[SWING] {} 연속매수 보너스 +{}점 → {}점", dto.getStockName(), bonus, score);
+            }
+
             // 추천 사유 생성
             String reason = generateSwingReason(dto.getRoe(), dto.getOperatingMargin(), dto.getPer());
+            if (bonus > 0) {
+                reason += " | 외국인/기관 연속매수(+" + bonus + "점)";
+            }
 
             // 실시간 시세 데이터 가져오기
             StockPriceDto priceDto = priceMap.get(dto.getStockCode());
@@ -720,6 +776,9 @@ public class AiStrategySnapshotService {
             return fallback.isEmpty() ? createFallbackStocks(StrategyType.VALUE, createdAt) : fallback;
         }
 
+        // 연속매수 보너스 맵 조회
+        Map<String, Integer> consecutiveBuyBonus = getConsecutiveBuyBonusMap();
+
         // 실시간 시세 조회 (등락률 포함)
         List<String> stockCodes = lowPeg.stream()
                 .map(ScreenerResultDto::getStockCode)
@@ -734,8 +793,18 @@ public class AiStrategySnapshotService {
             // 점수 계산: PEG, ROE, PER 기반
             int score = calculateValueScore(dto.getPeg(), dto.getRoe(), dto.getPer());
 
+            // 연속매수 보너스 가산
+            int bonus = consecutiveBuyBonus.getOrDefault(dto.getStockCode(), 0);
+            if (bonus > 0) {
+                score = Math.min(100, score + bonus);
+                log.info("[VALUE] {} 연속매수 보너스 +{}점 → {}점", dto.getStockName(), bonus, score);
+            }
+
             // 추천 사유 생성
             String reason = generateValueReason(dto.getPeg(), dto.getEpsGrowth(), dto.getRoe());
+            if (bonus > 0) {
+                reason += " | 외국인/기관 연속매수(+" + bonus + "점)";
+            }
 
             // 실시간 시세 데이터 가져오기
             StockPriceDto priceDto = priceMap.get(dto.getStockCode());
