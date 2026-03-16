@@ -1,7 +1,9 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.service.AsyncCrawlerService;
+import com.myplatform.backend.service.EarningSurpriseService;
 import com.myplatform.backend.service.FinancialDataCrawlerService;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
@@ -34,6 +36,7 @@ import java.util.Map;
 public class QuantScreenerController {
 
     private final QuantScreenerService quantScreenerService;
+    private final EarningSurpriseService earningSurpriseService;
     private final GeminiService geminiService;
     private final StockFinancialDataService stockFinancialDataService;
     private final FinancialDataCrawlerService financialDataCrawlerService;
@@ -266,6 +269,51 @@ public class QuantScreenerController {
         response.put("aiEnabled", geminiService.isAvailable());
         response.put("message", geminiService.isAvailable() ? "AI 기능 활성화됨" : "AI 기능 비활성화 (API 키 미설정)");
         return ResponseEntity.ok(response);
+    }
+
+    // ========== 어닝 서프라이즈 API ==========
+
+    /**
+     * 어닝 서프라이즈 종목 조회
+     * - 영업이익 전분기 대비 20%+ 변동 종목
+     * - 적자→흑자 전환 종목
+     */
+    @GetMapping("/earning-surprise")
+    @Operation(summary = "어닝 서프라이즈 스크리너",
+               description = "분기 실적 비교로 영업이익 20% 이상 변동 종목을 감지합니다.")
+    public ResponseEntity<Map<String, Object>> getEarningSurprises(
+            @Parameter(description = "서프라이즈 유형 필터 (POSITIVE, NEGATIVE, TURNAROUND)")
+            @RequestParam(required = false) String type) {
+
+        log.info("어닝 서프라이즈 API 호출 - type: {}", type);
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<EarningSurpriseDto> surprises = earningSurpriseService.detectEarningSurprises();
+
+            // 유형 필터 적용
+            if (type != null && !type.isEmpty()) {
+                try {
+                    EarningSurpriseDto.SurpriseType filterType = EarningSurpriseDto.SurpriseType.valueOf(type.toUpperCase());
+                    surprises = surprises.stream()
+                            .filter(s -> s.getSurpriseType() == filterType)
+                            .collect(java.util.stream.Collectors.toList());
+                } catch (IllegalArgumentException e) {
+                    log.warn("잘못된 서프라이즈 유형: {}", type);
+                }
+            }
+
+            response.put("success", true);
+            response.put("data", surprises);
+            response.put("count", surprises.size());
+            response.put("message", "어닝 서프라이즈 스크리닝 완료");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("어닝 서프라이즈 스크리너 오류", e);
+            response.put("success", false);
+            response.put("message", "스크리닝 중 오류 발생: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 
     // ========== 재무 데이터 수집 API ==========

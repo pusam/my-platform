@@ -56,7 +56,7 @@ import java.util.stream.Collectors;
  *
  * 2. 매도 조건 (Auto Exit) - 3초 간격 감시
  *    A. 익절 1차: +2.0% 도달 시 절반 매도
- *    B. 트레일링 스탑: 고점 대비 -0.5% → 전량 매도
+ *    B. 트레일링 스탑: 고점 대비 -1.0% → 전량 매도
  *    C. 손절: -1.0% 터치 시 전량 손절
  *    D. 타임컷: 매수 후 10분 초과 시 전량 매도
  *    E. 재매수 쿨다운: 매도 후 30분간 동일 종목 금지
@@ -67,7 +67,8 @@ import java.util.stream.Collectors;
  *    C. KOSPI -1.5% 하락 시 신규 진입 차단
  *    D. VIX > 30 매수 일시정지
  *    E. 섹터 OUTFLOW 종목 진입 차단
- *    F. 09:30~11:30 매수 (장 초반 30분 회피)
+ *    F. 공매도 비율 5% 이상 종목 진입 차단
+ *    G. 09:30~11:30 매수 (장 초반 30분 회피)
  *
  * ========================================
  */
@@ -87,11 +88,12 @@ public class AutoTradingBotService {
     private final KoreaInvestmentService kisService;
     private final GlobalFuturesService globalFuturesService;
     private final SectorTradingService sectorTradingService;
+    private final ShortSellingService shortSellingService;
 
     // ========== 스캘핑 전략 상수 ==========
     private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.0");     // 손절: -1.0% (손실 건당 금액 축소)
     private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("2.0");   // 익절 1차: +2.0% (슬리피지 방어)
-    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.5"); // 트레일링: 고점 대비 -0.5%
+    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-1.0"); // 트레일링: 고점 대비 -1.0% (틱노이즈 청산 방지: -0.5%→-1.0%)
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("110");    // 최소 체결강도: 110% (매수 우위)
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("1");    // 최소 순매수금액: 1억
     private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분 (수익 실현 기회 확대)
@@ -212,7 +214,8 @@ public class AutoTradingBotService {
             TechnicalIndicatorService technicalIndicatorService,
             KoreaInvestmentService kisService,
             GlobalFuturesService globalFuturesService,
-            SectorTradingService sectorTradingService) {
+            SectorTradingService sectorTradingService,
+            ShortSellingService shortSellingService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -225,6 +228,7 @@ public class AutoTradingBotService {
         this.kisService = kisService;
         this.globalFuturesService = globalFuturesService;
         this.sectorTradingService = sectorTradingService;
+        this.shortSellingService = shortSellingService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -592,6 +596,21 @@ public class AutoTradingBotService {
         }
     }
 
+    // ==================== 공매도 잔고 체크 ====================
+
+    /**
+     * 고공매도 종목인지 확인
+     * - 공매도 비율 5% 이상이면 진입 차단
+     */
+    private boolean isHighShortSellingStock(String stockCode) {
+        try {
+            return shortSellingService.isHighShortSellingStock(stockCode);
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] 공매도 비율 체크 실패 (무시): {}", e.getMessage());
+            return false;
+        }
+    }
+
     // ==================== 매수 로직 (스캘핑) ====================
 
     /**
@@ -698,6 +717,13 @@ public class AutoTradingBotService {
                 // ★ 섹터 OUTFLOW 종목 진입 차단 ★
                 if (isOutflowSectorStock(surge.getStockCode())) {
                     log.debug("[스캘핑봇] Skip [{}({})] 섹터 OUTFLOW — 자금 유출 섹터 진입 차단",
+                            surge.getStockName(), surge.getStockCode());
+                    continue;
+                }
+
+                // ★ 고공매도 종목 진입 차단 ★
+                if (isHighShortSellingStock(surge.getStockCode())) {
+                    log.debug("[스캘핑봇] Skip [{}({})] 공매도 비율 5% 이상 — 고공매도 종목 진입 차단",
                             surge.getStockName(), surge.getStockCode());
                     continue;
                 }
@@ -1144,7 +1170,7 @@ public class AutoTradingBotService {
                                 portfolio.getStockName(), profitRate, sellQuantity);
                     }
                 }
-                // 3. 트레일링 스탑 체크 (고점 대비 -0.5%)
+                // 3. 트레일링 스탑 체크 (고점 대비 -1.0%)
                 else if (position.halfSold && highDropRate.compareTo(TRAILING_STOP_RATE) <= 0) {
                     sellReason = "TRAILING_STOP";
                     log.info("[스캘핑봇] 트레일링 스탑: {} - 고점대비 {}%", portfolio.getStockName(), highDropRate);

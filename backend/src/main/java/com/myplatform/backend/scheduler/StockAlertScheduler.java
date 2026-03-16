@@ -1,9 +1,11 @@
 package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.CompositeAlertService;
+import com.myplatform.backend.service.EarningSurpriseService;
 import com.myplatform.backend.service.MarketTimingService;
 import com.myplatform.backend.service.MorningBriefingService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.ShortSellingService;
 import com.myplatform.backend.service.WatchlistService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,9 +37,11 @@ import org.springframework.stereotype.Component;
 public class StockAlertScheduler {
 
     private final CompositeAlertService compositeAlertService;
+    private final EarningSurpriseService earningSurpriseService;
     private final MarketTimingService marketTimingService;
     private final MorningBriefingService morningBriefingService;
     private final QuantScreenerService quantScreenerService;
+    private final ShortSellingService shortSellingService;
     private final WatchlistService watchlistService;
 
     @Value("${alert.scheduler.enabled:false}")
@@ -141,6 +145,55 @@ public class StockAlertScheduler {
             compositeAlertService.checkCompositeSignals();
         } catch (Exception e) {
             log.error("복합 조건 알림 체크 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 어닝 서프라이즈 주간 알림 (매주 월요일 08:00)
+     * - 분기 실적 비교 → 영업이익 20%+ 변동 종목 감지
+     * - 적자→흑자 전환 종목 포함
+     */
+    @Scheduled(cron = "0 0 8 * * MON", zone = "Asia/Seoul")
+    public void checkEarningSurprises() {
+        if (!schedulerEnabled) return;
+        try {
+            log.info("=== 어닝 서프라이즈 주간 알림 시작 ===");
+            earningSurpriseService.sendEarningSurpriseAlert();
+            log.info("=== 어닝 서프라이즈 주간 알림 완료 ===");
+        } catch (Exception e) {
+            log.error("어닝 서프라이즈 알림 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 공매도 잔고 수집 (평일 18:30, 장 마감 후)
+     * - 네이버 금융에서 공매도 잔고 데이터 크롤링
+     */
+    @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
+    public void collectShortSellingBalance() {
+        if (!schedulerEnabled) return;
+        try {
+            log.info("=== 공매도 잔고 수집 시작 (18:30) ===");
+            shortSellingService.collectShortSellingData();
+            log.info("=== 공매도 잔고 수집 완료 ===");
+        } catch (Exception e) {
+            log.error("공매도 잔고 수집 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 공매도 경보 발송 (평일 19:00)
+     * - 공매도 비율 5% 이상 종목 텔레그램 알림
+     */
+    @Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkShortSellingAlert() {
+        if (!schedulerEnabled) return;
+        try {
+            log.info("=== 공매도 경보 발송 시작 (19:00) ===");
+            shortSellingService.sendHighShortSellingAlert();
+            log.info("=== 공매도 경보 발송 완료 ===");
+        } catch (Exception e) {
+            log.error("공매도 경보 발송 실패: {}", e.getMessage(), e);
         }
     }
 

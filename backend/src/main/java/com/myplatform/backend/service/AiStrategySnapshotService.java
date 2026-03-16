@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
+import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
@@ -63,6 +64,7 @@ public class AiStrategySnapshotService {
     private final StockPriceService stockPriceService;
     private final GeminiService geminiService;
     private final InvestorTradeService investorTradeService;
+    private final EarningSurpriseService earningSurpriseService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -581,6 +583,38 @@ public class AiStrategySnapshotService {
     }
 
     /**
+     * 어닝 서프라이즈 맵 조회 (stockCode → SurpriseType)
+     */
+    private Map<String, EarningSurpriseDto.SurpriseType> getEarningSurpriseMap() {
+        try {
+            Map<String, EarningSurpriseDto.SurpriseType> map = earningSurpriseService.getSurpriseTypeMap();
+            if (!map.isEmpty()) {
+                log.info("[어닝서프라이즈 보너스] 대상 {}종목", map.size());
+            }
+            return map;
+        } catch (Exception e) {
+            log.warn("[어닝서프라이즈 보너스] 조회 실패 (무시): {}", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * 어닝 서프라이즈 보너스 점수 계산
+     * - POSITIVE: +10점
+     * - TURNAROUND: +12점
+     */
+    private int getEarningSurpriseBonus(String stockCode,
+                                         Map<String, EarningSurpriseDto.SurpriseType> surpriseTypeMap) {
+        EarningSurpriseDto.SurpriseType type = surpriseTypeMap.get(stockCode);
+        if (type == null) return 0;
+        return switch (type) {
+            case TURNAROUND -> 12;
+            case POSITIVE -> 10;
+            default -> 0;
+        };
+    }
+
+    /**
      * 스윙(마법의 공식) 전략 데이터 수집
      * - PER, ROE, 영업이익률 기반 종합 순위
      * - 점수: 마법의 공식 순위 기반 (상위일수록 높음)
@@ -599,6 +633,9 @@ public class AiStrategySnapshotService {
 
         // 연속매수 보너스 맵 조회
         Map<String, Integer> consecutiveBuyBonus = getConsecutiveBuyBonusMap();
+
+        // 어닝 서프라이즈 맵 조회
+        Map<String, EarningSurpriseDto.SurpriseType> surpriseTypeMap = getEarningSurpriseMap();
 
         // 실시간 시세 조회 (등락률 포함)
         List<String> stockCodes = magicFormula.stream()
@@ -621,10 +658,23 @@ public class AiStrategySnapshotService {
                 log.info("[SWING] {} 연속매수 보너스 +{}점 → {}점", dto.getStockName(), bonus, score);
             }
 
+            // 어닝 서프라이즈 보너스 가산
+            int surpriseBonus = getEarningSurpriseBonus(dto.getStockCode(), surpriseTypeMap);
+            if (surpriseBonus > 0) {
+                score = Math.min(100, score + surpriseBonus);
+                log.info("[SWING] {} 어닝서프라이즈 보너스 +{}점 → {}점", dto.getStockName(), surpriseBonus, score);
+            }
+
             // 추천 사유 생성
             String reason = generateSwingReason(dto.getRoe(), dto.getOperatingMargin(), dto.getPer());
             if (bonus > 0) {
                 reason += " | 외국인/기관 연속매수(+" + bonus + "점)";
+            }
+            if (surpriseBonus > 0) {
+                EarningSurpriseDto.SurpriseType sType = surpriseTypeMap.get(dto.getStockCode());
+                String surpriseLabel = sType == EarningSurpriseDto.SurpriseType.TURNAROUND
+                        ? "적자→흑자 전환" : "어닝서프라이즈";
+                reason += " | " + surpriseLabel + "(+" + surpriseBonus + "점)";
             }
 
             // 실시간 시세 데이터 가져오기
@@ -779,6 +829,9 @@ public class AiStrategySnapshotService {
         // 연속매수 보너스 맵 조회
         Map<String, Integer> consecutiveBuyBonus = getConsecutiveBuyBonusMap();
 
+        // 어닝 서프라이즈 맵 조회
+        Map<String, EarningSurpriseDto.SurpriseType> surpriseTypeMap = getEarningSurpriseMap();
+
         // 실시간 시세 조회 (등락률 포함)
         List<String> stockCodes = lowPeg.stream()
                 .map(ScreenerResultDto::getStockCode)
@@ -800,10 +853,23 @@ public class AiStrategySnapshotService {
                 log.info("[VALUE] {} 연속매수 보너스 +{}점 → {}점", dto.getStockName(), bonus, score);
             }
 
+            // 어닝 서프라이즈 보너스 가산
+            int surpriseBonus = getEarningSurpriseBonus(dto.getStockCode(), surpriseTypeMap);
+            if (surpriseBonus > 0) {
+                score = Math.min(100, score + surpriseBonus);
+                log.info("[VALUE] {} 어닝서프라이즈 보너스 +{}점 → {}점", dto.getStockName(), surpriseBonus, score);
+            }
+
             // 추천 사유 생성
             String reason = generateValueReason(dto.getPeg(), dto.getEpsGrowth(), dto.getRoe());
             if (bonus > 0) {
                 reason += " | 외국인/기관 연속매수(+" + bonus + "점)";
+            }
+            if (surpriseBonus > 0) {
+                EarningSurpriseDto.SurpriseType sType = surpriseTypeMap.get(dto.getStockCode());
+                String surpriseLabel = sType == EarningSurpriseDto.SurpriseType.TURNAROUND
+                        ? "적자→흑자 전환" : "어닝서프라이즈";
+                reason += " | " + surpriseLabel + "(+" + surpriseBonus + "점)";
             }
 
             // 실시간 시세 데이터 가져오기
