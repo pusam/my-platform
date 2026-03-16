@@ -362,6 +362,23 @@
                 종목 알림 테스트
               </button>
             </div>
+            <div class="channel-test-group">
+              <span class="channel-test-label">채널별 테스트</span>
+              <div class="action-group">
+                <button @click="testChannel('all')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  {{ channelTestLoading ? '전송 중...' : '📋📡🚨 전체' }}
+                </button>
+                <button @click="testChannel('briefing')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  📋 브리핑
+                </button>
+                <button @click="testChannel('signal')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  📡 시그널
+                </button>
+                <button @click="testChannel('risk')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  🚨 리스크
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -423,7 +440,8 @@ export default {
       loading: false,
       telegramStatus: null,
       telegramLoading: false,
-      telegramTestLoading: false
+      telegramTestLoading: false,
+      channelTestLoading: false
     }
   },
   mounted() {
@@ -649,6 +667,23 @@ export default {
         alert('종목 알림 테스트에 실패했습니다.')
       } finally {
         this.telegramTestLoading = false
+      }
+    },
+    async testChannel(channel) {
+      try {
+        this.channelTestLoading = true
+        const response = await telegramAPI.testChannel(channel)
+        if (response.data.success) {
+          const names = { all: '전체(3채널)', briefing: '브리핑', signal: '시그널', risk: '리스크' }
+          alert(`${names[channel] || channel} 채널 테스트 메시지가 전송되었습니다.`)
+        } else {
+          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+        }
+      } catch (error) {
+        console.error('채널 테스트 실패:', error)
+        alert('채널 테스트에 실패했습니다.')
+      } finally {
+        this.channelTestLoading = false
       }
     }
   }
@@ -1145,6 +1180,25 @@ export default {
 /* 텔레그램 섹션 */
 .telegram-section {
   border-left: 4px solid #0088cc;
+}
+
+.channel-test-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+}
+
+.channel-test-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6c757d;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.channel-btn {
+  font-size: 12px !important;
+  padding: 6px 12px !important;
 }
 
 .telegram-info {

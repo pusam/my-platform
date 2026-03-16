@@ -532,6 +532,10 @@ export const telegramAPI = {
   sendSqueezeAlertTest() {
     return apiClient.post('/telegram/test-squeeze-alert');
   },
+  // 채널별 테스트
+  testChannel(channel) {
+    return apiClient.post('/telegram/test-channel', null, { params: { channel } });
+  },
   // 커스텀 메시지 발송
   sendMessage(message) {
     return apiClient.post('/telegram/send', null, { params: { message } });
