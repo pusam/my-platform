@@ -1,32 +1,27 @@
 <template>
   <div class="research-page">
-    <GlobalNav />
-    <div class="page-header-unified">
-      <div class="header-title">
-        <h1>종목 발굴</h1>
-        <p class="subtitle">퀀트 스크리너 + 섹터 거래대금 + 투자자 수급 + 선점 레이더</p>
+    <GlobalNav subtitle="종목 발굴" />
+
+    <div class="research-tab-bar">
+      <div class="research-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          :class="['research-tab', { active: activeTab === tab.key }]"
+          @click="activeTab = tab.key"
+        >
+          <span class="rt-icon">{{ tab.icon }}</span>
+          <span class="rt-label">{{ tab.label }}</span>
+        </button>
       </div>
     </div>
 
-    <div class="tab-bar">
-      <button class="tab-btn" :class="{ active: activeTab === 'screener' }" @click="activeTab = 'screener'">
-        🔬 실적 스크리너
-      </button>
-      <button class="tab-btn" :class="{ active: activeTab === 'sector' }" @click="activeTab = 'sector'">
-        📊 섹터 거래대금
-      </button>
-      <button class="tab-btn" :class="{ active: activeTab === 'investor' }" @click="activeTab = 'investor'">
-        💰 투자자 분석
-      </button>
-      <button class="tab-btn radar-btn" :class="{ active: activeTab === 'radar' }" @click="activeTab = 'radar'">
-        🎯 선점 레이더
-      </button>
+    <div class="research-content">
+      <EarningsScreenerPage v-if="activeTab === 'screener'" :embedded="true" />
+      <SectorTradingPage v-if="activeTab === 'sector'" :embedded="true" />
+      <InvestorAnalysisPage v-if="activeTab === 'investor'" :embedded="true" />
+      <SectionRadar v-if="activeTab === 'radar'" />
     </div>
-
-    <EarningsScreenerPage v-if="activeTab === 'screener'" :embedded="true" />
-    <SectorTradingPage v-if="activeTab === 'sector'" :embedded="true" />
-    <InvestorAnalysisPage v-if="activeTab === 'investor'" :embedded="true" />
-    <SectionRadar v-if="activeTab === 'radar'" />
   </div>
 </template>
 
@@ -42,7 +37,13 @@ export default {
   components: { GlobalNav, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage, SectionRadar },
   data() {
     return {
-      activeTab: 'screener'
+      activeTab: 'screener',
+      tabs: [
+        { key: 'screener', icon: '🔬', label: '실적 스크리너' },
+        { key: 'sector', icon: '📊', label: '섹터 거래대금' },
+        { key: 'investor', icon: '💰', label: '투자자 분석' },
+        { key: 'radar', icon: '🎯', label: '선점 레이더' }
+      ]
     }
   }
 }
@@ -53,47 +54,66 @@ export default {
   min-height: 100vh;
   background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
   color: #e0e0e0;
-  padding: 20px;
 }
 
-.tab-bar {
+.research-tab-bar {
   display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
+  justify-content: center;
+  padding: 12px 20px;
 }
 
-.tab-btn {
-  padding: 10px 24px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.6);
+.research-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 12px;
+}
+
+.research-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
   border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
+  border-radius: 9px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.research-tab:hover {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.04);
+}
+
+.research-tab.active {
+  background: rgba(102,126,234,0.18);
+  color: #a5b4fc;
   font-weight: 600;
-  transition: 0.2s;
+  box-shadow: 0 2px 8px rgba(102,126,234,0.15);
 }
 
-.tab-btn.active {
-  color: #fff;
-  background: linear-gradient(135deg, #667eea, #764ba2);
-}
+.rt-icon { font-size: 14px; }
+.rt-label { font-size: 13px; }
 
-.tab-btn.radar-btn.active {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-}
-
-.tab-btn:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.1);
+.research-content {
+  padding: 0 20px 20px;
 }
 
 @media (max-width: 768px) {
-  .tab-bar {
-    flex-wrap: wrap;
-    gap: 6px;
+  .research-tabs { width: 100%; }
+  .research-tab {
+    flex: 1;
+    justify-content: center;
+    padding: 7px 10px;
   }
-  .tab-btn {
-    padding: 10px 16px;
-    font-size: 13px;
-  }
+  .rt-label { font-size: 12px; }
+  .research-tab-bar { padding: 8px 12px; }
+  .research-content { padding: 0 12px 12px; }
 }
 </style>
