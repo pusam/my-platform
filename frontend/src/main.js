@@ -27,8 +27,6 @@ const ActivityLogs = () => import('./views/ActivityLogs.vue')
 const NewsPage = () => import('./views/NewsPage.vue')
 const ResearchPage = () => import('./views/ResearchPage.vue')
 const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
-const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
-const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
 // TradingIndicatorsPage → StockDetailDashboard에 탭으로 통합됨 (redirect)
 // AiStrategyDashboardPage → StockTradingDashboardV2에 AI전략 탭으로 통합됨 (redirect)
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
@@ -179,18 +177,6 @@ const router = createRouter({
       path: '/market-timing',
       name: 'MarketTiming',
       component: MarketTimingPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/lotto',
-      name: 'LottoAnalyzer',
-      component: LottoAnalyzerPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/pension-lottery',
-      name: 'PensionLottery',
-      component: PensionLotteryPage,
       meta: { requiresAuth: true }
     },
     {
