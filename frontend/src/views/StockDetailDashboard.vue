@@ -1,5 +1,6 @@
 <template>
   <div class="trading-dashboard">
+    <GlobalNav :subtitle="stockName" />
     <!-- Header -->
     <header class="dashboard-header">
       <div class="header-left">
@@ -906,6 +907,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
+import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';

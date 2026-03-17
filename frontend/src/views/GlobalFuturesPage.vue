@@ -1,5 +1,6 @@
 <template>
   <div class="page-container">
+    <GlobalNav />
     <!-- 메인 탭 -->
     <div class="main-tab-bar">
       <button class="main-tab" :class="{ active: mainTab === 'futures' }" @click="mainTab = 'futures'">선물 시세</button>
@@ -11,7 +12,6 @@
     <div v-show="mainTab === 'futures'">
     <div class="page-header">
       <div class="header-left">
-        <BackButton :dark="true" />
         <h1>글로벌 선물 대시보드</h1>
       </div>
       <div class="header-right">
@@ -355,7 +355,7 @@ import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
 import GoldPricePage from './GoldPricePage.vue';
 import SilverPricePage from './SilverPricePage.vue';
 import OilPricePage from './OilPricePage.vue';
-import BackButton from '../components/BackButton.vue';
+import GlobalNav from '../components/GlobalNav.vue';
 
 const mainTab = ref('futures');
 const loading = ref(false);

@@ -1,7 +1,7 @@
 <template>
   <div class="research-page">
+    <GlobalNav />
     <div class="page-header-unified">
-      <BackButton :dark="true" />
       <div class="header-title">
         <h1>종목 발굴</h1>
         <p class="subtitle">퀀트 스크리너 + 섹터 거래대금 + 투자자 수급 + 선점 레이더</p>
@@ -31,7 +31,7 @@
 </template>
 
 <script>
-import BackButton from '../components/BackButton.vue'
+import GlobalNav from '../components/GlobalNav.vue'
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
 import SectorTradingPage from './SectorTradingPage.vue'
 import InvestorAnalysisPage from './InvestorAnalysisPage.vue'
@@ -39,7 +39,7 @@ import SectionRadar from '../components/v2/SectionRadar.vue'
 
 export default {
   name: 'ResearchPage',
-  components: { BackButton, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage, SectionRadar },
+  components: { GlobalNav, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage, SectionRadar },
   data() {
     return {
       activeTab: 'screener'

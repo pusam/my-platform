@@ -1,7 +1,7 @@
 <template>
   <div class="market-timing-page">
+    <GlobalNav />
     <div class="page-header-unified">
-      <BackButton :dark="true" />
       <div class="header-title">
         <h1>시장 지표 (Market Timing)</h1>
         <p class="subtitle">ADR(등락비율) 기반 시장 상태 분석</p>
@@ -446,7 +446,7 @@
 import { ref, computed, onMounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
-import BackButton from '../components/BackButton.vue';
+import GlobalNav from '../components/GlobalNav.vue';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,

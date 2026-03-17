@@ -1,10 +1,10 @@
 <template>
   <div :class="['paper-trading-page', { embedded: props.embedded }]">
+    <GlobalNav v-if="!props.embedded" />
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
       <!-- 헤더 섹션 (embedded 모드에서는 숨김) -->
       <div v-if="!props.embedded" class="page-header-unified">
-        <BackButton :dark="true" />
         <div class="header-title">
           <h1>자동매매</h1>
           <p class="subtitle">모의투자와 실전투자를 관리하세요</p>
@@ -738,7 +738,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
-import BackButton from '../components/BackButton.vue';
+import GlobalNav from '../components/GlobalNav.vue';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false }

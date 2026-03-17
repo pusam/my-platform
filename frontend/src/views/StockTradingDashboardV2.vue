@@ -1,5 +1,6 @@
 <template>
   <div class="v2-dashboard">
+    <GlobalNav />
     <div class="v2-content">
       <!-- 헤더 (GNB 3탭 통합) -->
       <DashboardHeader
@@ -98,6 +99,7 @@
 </template>
 
 <script>
+import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionAiStrategy from '../components/v2/SectionAiStrategy.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
@@ -151,6 +153,7 @@ function transformMarketData(d) {
 export default {
   name: 'StockTradingDashboardV2',
   components: {
+    GlobalNav,
     DashboardHeader,
     SectionAiStrategy,
     SectionMarketMap,
