@@ -265,9 +265,19 @@ public class DartService {
     /**
      * 위험 키워드 체크
      */
+    // 종속회사/자회사 경유 공시는 본체 위험이 아닌 것으로 제외
+    private static final List<String> EXCLUDE_PATTERNS = Arrays.asList(
+            "종속회사", "자회사", "타법인"
+    );
+
     private void checkDangerKeywords(DartDisclosure disclosure) {
         String reportNm = disclosure.getReportNm();
         if (reportNm == null) return;
+
+        // 종속회사/자회사 공시는 위험 제외
+        for (String exclude : EXCLUDE_PATTERNS) {
+            if (reportNm.contains(exclude)) return;
+        }
 
         for (String keyword : DANGER_KEYWORDS) {
             if (reportNm.contains(keyword)) {

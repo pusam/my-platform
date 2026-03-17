@@ -26,7 +26,7 @@
           <div class="msb-divider"></div>
           <div class="msb-item">
             <span class="msb-label">ADR</span>
-            <span class="msb-value">{{ marketData.combinedAdr || '-' }}</span>
+            <span class="msb-value">{{ marketData.adr || marketData.combinedAdr || '-' }}</span>
           </div>
           <div class="msb-divider" v-if="globalData?.nasdaqFutures"></div>
           <div class="msb-item" v-if="globalData?.nasdaqFutures" :class="getChangeClass(globalData.nasdaqFutures.changeRate)">
@@ -502,6 +502,22 @@ export default {
         const res = await radarAPI.getPolicyNews()
         this.radarSignals = (this.extractData(res) || []).slice(0, 5)
       } catch { this.radarSignals = [] }
+
+      // 수급급증 데이터 (시장 뷰에서도 필요)
+      if (!this.surgeData?.length) {
+        try {
+          let sd = null
+          try {
+            const res = await withTimeout(investorV2API.getAllSurgeStocks(), 10000)
+            sd = this.extractData(res)
+          } catch { /* V2 실패 */ }
+          if (!sd) {
+            const res = await investorAPI.getAllSurgeStocks()
+            sd = this.extractData(res)
+          }
+          this.surgeData = this.flattenInvestorMap(sd)
+        } catch { /* ignore */ }
+      }
 
       // 시간대별 추가 데이터
       this.phaseLoading = true

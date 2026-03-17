@@ -136,7 +136,7 @@ const isActive = (itemPath) => {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 7px 14px;
+  padding: 8px 16px;
   border-radius: 8px;
   text-decoration: none;
   color: rgba(255,255,255,0.4);
@@ -144,6 +144,9 @@ const isActive = (itemPath) => {
   font-weight: 500;
   transition: all 0.15s;
   white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
 .nav-tab:hover {
@@ -201,6 +204,10 @@ const isActive = (itemPath) => {
     text-decoration: none;
     color: rgba(255,255,255,0.35);
     transition: color 0.15s;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    min-height: 44px;
   }
 
   .mobile-tab.active {
