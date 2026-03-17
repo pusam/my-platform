@@ -36,18 +36,29 @@
         </div>
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
 
-        <!-- ② 오늘의 신호 -->
+        <!-- ② 시간대별 신호 (자동 전환) -->
         <div class="today-signals section-card">
           <div class="section-title-row">
-            <h2><span class="section-icon">🎯</span> 오늘의 신호</h2>
+            <h2>
+              <span class="section-icon">{{ marketPhase.icon }}</span>
+              {{ marketPhase.title }}
+            </h2>
+            <span class="phase-badge" :class="marketPhase.class">{{ marketPhase.label }}</span>
           </div>
-          <div v-if="todaySignals.length" class="signal-list">
+
+          <!-- 로딩 -->
+          <div v-if="phaseLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 4" :key="i"><div class="skel-bar"></div></div>
+          </div>
+
+          <!-- 신호 목록 -->
+          <div v-else-if="phaseSignals.length" class="signal-list">
             <div
-              v-for="(sig, i) in todaySignals"
+              v-for="(sig, i) in phaseSignals"
               :key="'sig-' + i"
               class="signal-card"
               :class="sig.type"
-              @click="goToStock(sig.stockCode)"
+              @click="sig.stockCode && goToStock(sig.stockCode)"
             >
               <div class="sig-badge">{{ sig.badge }}</div>
               <div class="sig-info">
@@ -55,13 +66,13 @@
                 <span class="sig-reason">{{ sig.reason }}</span>
               </div>
               <div class="sig-right" v-if="sig.changeRate != null">
-                <span :class="sig.changeRate >= 0 ? 'positive' : 'negative'">
-                  {{ sig.changeRate >= 0 ? '+' : '' }}{{ Number(sig.changeRate).toFixed(2) }}%
+                <span :class="Number(sig.changeRate) >= 0 ? 'positive' : 'negative'">
+                  {{ Number(sig.changeRate) >= 0 ? '+' : '' }}{{ Number(sig.changeRate).toFixed(2) }}%
                 </span>
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">오늘 감지된 신호가 없습니다</div>
+          <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
         </div>
 
         <!-- ③ 관심종목 현황 -->
@@ -198,7 +209,7 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API,
-  globalFuturesAPI, radarAPI, watchlistAPI
+  globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -286,7 +297,12 @@ export default {
       // 오늘의 핵심 요약
       watchlistItems: [],
       watchlistRisks: {},
-      radarSignals: []
+      radarSignals: [],
+      // 시간대별 신호
+      phaseLoading: false,
+      preMarketData: [],   // 장 전
+      postMarketData: [],  // 장 후
+      investorTop5: []     // 외국인/기관 TOP 5
     }
   },
   watch: {
@@ -313,19 +329,71 @@ export default {
     }
   },
   computed: {
-    todaySignals() {
+    currentPhaseKey() {
+      const now = new Date()
+      const day = now.getDay()
+      const h = now.getHours()
+      const m = now.getMinutes()
+      const mins = h * 60 + m
+      // 주말 → 장 후
+      if (day === 0 || day === 6) return 'post'
+      if (mins < 540) return 'pre'        // ~09:00
+      if (mins < 930) return 'during'     // 09:00~15:30
+      return 'post'                       // 15:30~
+    },
+    marketPhase() {
+      const phases = {
+        pre: { icon: '🌅', title: '오늘 장 준비', label: '장 전', class: 'phase-pre', empty: '장 전 데이터를 로딩 중입니다' },
+        during: { icon: '📈', title: '실시간 신호', label: '장 진행 중', class: 'phase-during', empty: '오늘 감지된 신호가 없습니다' },
+        post: { icon: '📊', title: '오늘 결산', label: '장 마감', class: 'phase-post', empty: '결산 데이터를 로딩 중입니다' }
+      }
+      return phases[this.currentPhaseKey]
+    },
+    phaseSignals() {
+      const phase = this.currentPhaseKey
+      if (phase === 'pre') return this.preMarketSignals
+      if (phase === 'during') return this.duringMarketSignals
+      return this.postMarketSignals
+    },
+    preMarketSignals() {
       const signals = []
-      // 수급급증 HOT 종목
+      // 나스닥 선물 방향
+      if (this.globalData?.nasdaqFutures) {
+        const nq = this.globalData.nasdaqFutures
+        signals.push({
+          type: 'global', badge: '🌙 야간', stockName: '나스닥 선물',
+          reason: `${Number(nq.currentPrice).toLocaleString()} (${Number(nq.changeRate) >= 0 ? '+' : ''}${Number(nq.changeRate).toFixed(2)}%)`,
+          stockCode: null, changeRate: nq.changeRate
+        })
+      }
+      // AI 전략 TOP 픽
+      this.aiTopPicks.slice(0, 2).forEach(p => {
+        signals.push({
+          type: 'ai', badge: p.strategyLabel, stockCode: p.stockCode,
+          stockName: p.stockName, reason: `AI ${p.aiScore || p.score}점`,
+          changeRate: p.changeRate
+        })
+      })
+      // 전일 외국인 TOP
+      this.investorTop5.slice(0, 2).forEach(t => {
+        signals.push({
+          type: 'investor', badge: '🌍 외국인', stockCode: t.stockCode,
+          stockName: t.stockName, reason: `순매수 ${t.netBuyAmount}억`,
+          changeRate: t.changeRate
+        })
+      })
+      return signals.slice(0, 6)
+    },
+    duringMarketSignals() {
+      const signals = []
       if (this.surgeData?.length) {
         this.surgeData.filter(s => s.surgeLevel === 'HOT').slice(0, 3).forEach(s => {
           signals.push({
             type: 'hot', badge: '🔥 HOT', stockCode: s.stockCode,
-            stockName: s.stockName, reason: '수급 급증',
-            changeRate: s.changeRate
+            stockName: s.stockName, reason: '수급 급증', changeRate: s.changeRate
           })
         })
       }
-      // 레이더 정책 뉴스 (종목 연결 가능한 것)
       if (this.radarSignals?.length) {
         this.radarSignals.slice(0, 3).forEach(r => {
           signals.push({
@@ -335,6 +403,28 @@ export default {
           })
         })
       }
+      return signals.slice(0, 6)
+    },
+    postMarketSignals() {
+      const signals = []
+      // 봇 성과
+      this.postMarketData.forEach(d => signals.push(d))
+      // 외국인 TOP
+      this.investorTop5.slice(0, 3).forEach(t => {
+        signals.push({
+          type: 'investor', badge: '🌍 외국인', stockCode: t.stockCode,
+          stockName: t.stockName, reason: `순매수 ${t.netBuyAmount}억`,
+          changeRate: t.changeRate
+        })
+      })
+      // AI 전략
+      this.aiTopPicks.slice(0, 2).forEach(p => {
+        signals.push({
+          type: 'ai', badge: '🤖 내일 주목', stockCode: p.stockCode,
+          stockName: p.stockName, reason: `AI ${p.aiScore || p.score}점`,
+          changeRate: p.changeRate
+        })
+      })
       return signals.slice(0, 6)
     },
     aiTopPicks() {
@@ -412,6 +502,38 @@ export default {
         const res = await radarAPI.getPolicyNews()
         this.radarSignals = (this.extractData(res) || []).slice(0, 5)
       } catch { this.radarSignals = [] }
+
+      // 시간대별 추가 데이터
+      this.phaseLoading = true
+      try {
+        await this.loadPhaseData()
+      } catch { /* ignore */ }
+      this.phaseLoading = false
+    },
+
+    async loadPhaseData() {
+      // 외국인 TOP 5 (장 전 + 장 후 공통)
+      try {
+        const res = await investorAPI.getTopTrades('FOREIGN', 'BUY', 5)
+        this.investorTop5 = this.extractData(res) || []
+      } catch { this.investorTop5 = [] }
+
+      const phase = this.currentPhaseKey
+      if (phase === 'post') {
+        // 장 후: 봇 성과
+        try {
+          const res = await paperTradingAPI.getStatistics()
+          const stats = this.extractData(res)
+          if (stats && stats.totalTrades > 0) {
+            this.postMarketData = [{
+              type: 'bot', badge: '🤖 봇 성과',
+              stockName: `${stats.winCount}승 ${stats.loseCount}패 (승률 ${stats.winRate || 0}%)`,
+              reason: `손익비 ${stats.profitFactor || '-'}`,
+              stockCode: null, changeRate: null
+            }]
+          }
+        } catch { this.postMarketData = [] }
+      }
     },
 
     goToStock(code) {
@@ -712,6 +834,18 @@ export default {
 .sig-reason { font-size: 12px; color: rgba(255,255,255,0.4); }
 .sig-right { font-size: 13px; font-weight: 700; }
 .empty-signal { text-align: center; padding: 24px; color: rgba(255,255,255,0.3); font-size: 13px; }
+.phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
+.phase-post { background: rgba(102,126,234,0.15); color: #8b9cf7; }
+.signal-card.global { border-left: 3px solid #8b5cf6; }
+.signal-card.ai { border-left: 3px solid #3b82f6; }
+.signal-card.investor { border-left: 3px solid #10b981; }
+.signal-card.bot { border-left: 3px solid #6366f1; }
+.signal-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.skel-row { height: 48px; border-radius: 10px; background: rgba(255,255,255,0.04); }
+.skel-bar { width: 60%; height: 12px; margin: 18px 16px; border-radius: 4px; background: rgba(255,255,255,0.08); animation: skeleton-pulse 1.5s infinite; }
+@keyframes skeleton-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 0.2; } }
 
 /* ===== 관심종목 요약 ===== */
 .wl-list { display: flex; flex-direction: column; gap: 4px; }
