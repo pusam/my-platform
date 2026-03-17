@@ -70,10 +70,12 @@ public class RecommendationService {
         // ④ 퀀트 스크리너 (+15점)
         scoreScreener(scoreMap);
 
-        // 결과 정렬 (총점 내림차순)
+        // 결과 정렬: 총점 내림차순 → 동점 시 등락률 높은 순
         List<RecommendationDto> results = scoreMap.values().stream()
-                .filter(s -> s.totalScore >= 30) // 최소 30점 이상만
-                .sorted(Comparator.comparingInt(StockScore::getTotalScore).reversed())
+                .filter(s -> s.totalScore >= 30 && !s.tags.isEmpty()) // 최소 30점 + 태그 1개 이상
+                .sorted(Comparator.comparingInt(StockScore::getTotalScore).reversed()
+                        .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
+                                Comparator.reverseOrder()))
                 .limit(5)
                 .map(s -> RecommendationDto.builder()
                         .stockCode(s.stockCode)
@@ -128,8 +130,9 @@ public class RecommendationService {
                     if (cb.getStockCode() == null) continue;
                     StockScore score = scoreMap.computeIfAbsent(cb.getStockCode(),
                             k -> new StockScore(k, cb.getStockName()));
-                    score.totalScore += 15;
-                    score.tags.add("외국인" + cb.getConsecutiveDays() + "일연속");
+                    int days = cb.getConsecutiveDays() != null ? cb.getConsecutiveDays() : 3;
+                    score.totalScore += (days >= 5) ? 20 : 15;
+                    score.tags.add("외국인" + days + "일연속");
                     if (cb.getChangeRate() != null) score.changeRate = cb.getChangeRate();
                 }
             }
@@ -159,7 +162,7 @@ public class RecommendationService {
                     if (nh.getStockCode() == null) continue;
                     StockScore score = scoreMap.computeIfAbsent(nh.getStockCode(),
                             k -> new StockScore(k, nh.getStockName()));
-                    score.totalScore += 15;
+                    score.totalScore += 20;
                     score.tags.add("신고가직전");
                     if (nh.getChangeRate() != null) score.changeRate = nh.getChangeRate();
                 }
