@@ -950,6 +950,13 @@ export const globalFuturesAPI = {
 
 // 실적공시 API
 // Preemptive Radar API (선점 레이더)
+// AI 종합 추천 API
+export const recommendationAPI = {
+  getTop5() {
+    return apiClient.get('/recommendation/top5', { timeout: 30000 });
+  }
+};
+
 export const radarAPI = {
   getFull() {
     return apiClient.get('/radar', { timeout: 60000 });

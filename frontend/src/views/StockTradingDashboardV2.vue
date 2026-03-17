@@ -36,7 +36,41 @@
         </div>
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
 
-        <!-- ② 시간대별 신호 (자동 전환) -->
+        <!-- ② AI 종합 추천 TOP 5 -->
+        <div class="top-rec section-card">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🏆</span> AI 종합 추천 TOP 5</h2>
+          </div>
+          <div v-if="topRecLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'rec-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="topRecommendations.length" class="rec-list">
+            <div
+              v-for="(rec, i) in topRecommendations"
+              :key="'rec-' + i"
+              class="rec-card"
+              @click="goToStock(rec.stockCode)"
+            >
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="tag in (rec.tags || []).slice(0, 3)" :key="tag" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-right">
+                <span class="rec-score">{{ rec.totalScore }}점</span>
+                <span v-if="rec.changeRate != null" class="rec-change"
+                      :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                  {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">추천 종목을 계산 중입니다...</div>
+        </div>
+
+        <!-- ③ 시간대별 신호 (자동 전환) -->
         <div class="today-signals section-card">
           <div class="section-title-row">
             <h2>
@@ -209,7 +243,8 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API,
-  globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI
+  globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
+  recommendationAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -298,6 +333,9 @@ export default {
       watchlistItems: [],
       watchlistRisks: {},
       radarSignals: [],
+      // AI 종합 추천
+      topRecommendations: [],
+      topRecLoading: false,
       // 시간대별 신호
       phaseLoading: false,
       preMarketData: [],   // 장 전
@@ -496,6 +534,14 @@ export default {
           } catch { this.watchlistRisks = {} }
         }
       } catch { this.watchlistItems = [] }
+
+      // AI 종합 추천 TOP 5
+      this.topRecLoading = true
+      try {
+        const res = await recommendationAPI.getTop5()
+        this.topRecommendations = this.extractData(res) || []
+      } catch { this.topRecommendations = [] }
+      this.topRecLoading = false
 
       // 선점 레이더 신호
       try {
@@ -850,6 +896,31 @@ export default {
 .sig-reason { font-size: 12px; color: rgba(255,255,255,0.4); }
 .sig-right { font-size: 13px; font-weight: 700; }
 .empty-signal { text-align: center; padding: 24px; color: rgba(255,255,255,0.3); font-size: 13px; }
+
+/* ===== AI 종합 추천 ===== */
+.rec-list { display: flex; flex-direction: column; gap: 6px; }
+.rec-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  transition: all 0.15s;
+}
+.rec-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
+.rec-rank {
+  font-size: 14px; font-weight: 800; color: #f59e0b;
+  min-width: 28px; text-align: center;
+}
+.rec-card:first-child .rec-rank { color: #ef4444; }
+.rec-info { flex: 1; min-width: 0; }
+.rec-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
+.rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+.rec-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(102,126,234,0.12); color: #8b9cf7; font-weight: 600;
+}
+.rec-right { text-align: right; }
+.rec-score { font-size: 18px; font-weight: 800; color: #ef4444; display: block; }
+.rec-change { font-size: 12px; font-weight: 600; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
 .phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
