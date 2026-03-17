@@ -949,7 +949,13 @@ public class StockDetailService {
             return buildEmptySupplyDemand();
         }
 
-        log.info("[StockDetail] DB 일별 데이터 조회 - 종목: {}, 거래일: {}", stockCode, targetDate);
+        // ★ Freshness check: 최신 거래일이 4일 이상 오래된 경우 경고
+        long dataAgeDays = java.time.temporal.ChronoUnit.DAYS.between(targetDate, today);
+        if (dataAgeDays >= 4) {
+            log.warn("[StockDetail] ⚠ 수급 데이터 오래됨! 최신 거래일: {} ({}일 전) - 종목: {}", targetDate, dataAgeDays, stockCode);
+        }
+
+        log.info("[StockDetail] DB 일별 데이터 조회 - 종목: {}, 거래일: {} ({}일 전)", stockCode, targetDate, dataAgeDays);
 
         // 해당 종목의 투자자별 거래 데이터 조회 (오늘 또는 최근 거래일)
         LocalDate startDate = targetDate;

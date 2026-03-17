@@ -293,6 +293,20 @@ public class InvestorSurgeService {
         }
 
         LocalTime latestTime = latestTimeOpt.get();
+
+        // ★ Freshness check: 장중(평일 09:00~15:30)에 30분 이상 오래된 스냅샷이면 경고
+        LocalDateTime snapshotDateTime = LocalDateTime.of(today, latestTime);
+        LocalDateTime now = LocalDateTime.now();
+        long staleMinutes = java.time.Duration.between(snapshotDateTime, now).toMinutes();
+        boolean isTradingHours = now.getDayOfWeek() != DayOfWeek.SATURDAY
+                && now.getDayOfWeek() != DayOfWeek.SUNDAY
+                && now.toLocalTime().isAfter(LocalTime.of(9, 0))
+                && now.toLocalTime().isBefore(LocalTime.of(15, 30));
+        if (isTradingHours && staleMinutes > 30) {
+            log.warn("[InvestorSurge] ⚠ 스냅샷 데이터 오래됨! 최신: {} {} ({}분 전) - investorType={}",
+                    today, latestTime, staleMinutes, investorType);
+        }
+
         log.info("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
 
         // 전체 스냅샷을 가져와서 금액 기준 정렬
