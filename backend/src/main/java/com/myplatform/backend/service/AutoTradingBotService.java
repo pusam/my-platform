@@ -97,7 +97,9 @@ public class AutoTradingBotService {
     private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-1.0"); // 트레일링: 고점 대비 -1.0% (틱노이즈 청산 방지: -0.5%→-1.0%)
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("110");    // 최소 체결강도: 110% (매수 우위)
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("1");    // 최소 순매수금액: 1억
-    private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분 (수익 실현 기회 확대)
+    private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분
+    private static final int TIME_CUT_EXTENDED_MINUTES = 15;                       // 동적 연장 시 최대 15분
+    private static final BigDecimal TIME_EXTEND_MIN_PROFIT = new BigDecimal("0.5"); // 연장 조건: 수익 +0.5% 이상
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원
     private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
@@ -166,6 +168,7 @@ public class AutoTradingBotService {
         LocalDateTime buyTime;         // 매수 시간
         BigDecimal highPrice;          // 최고가 (트레일링용)
         boolean halfSold;              // 절반 익절 완료 여부
+        boolean timeExtended;          // 타임컷 동적 연장 사용 여부
         int originalQuantity;          // 원래 수량
 
         ScalpingPosition(String stockCode, String stockName, BigDecimal buyPrice, int quantity) {
@@ -175,6 +178,7 @@ public class AutoTradingBotService {
             this.buyTime = LocalDateTime.now();
             this.highPrice = buyPrice;
             this.halfSold = false;
+            this.timeExtended = false;
             this.originalQuantity = quantity;
         }
 
@@ -1185,11 +1189,27 @@ public class AutoTradingBotService {
                     sellReason = "TRAILING_STOP";
                     log.info("[스캘핑봇] 트레일링 스탑: {} - 고점대비 {}%", portfolio.getStockName(), highDropRate);
                 }
-                // 4. 타임컷 체크 (5분 경과 → 무조건 전량 매도)
-                else if (minutesElapsed >= TIME_CUT_MINUTES) {
+                // 4. 타임컷 체크 (동적 연장 포함)
+                else if (minutesElapsed >= TIME_CUT_EXTENDED_MINUTES) {
+                    // 15분 → 무조건 청산
                     sellReason = "TIME_CUT";
-                    log.info("[스캘핑봇] 타임컷: {} - {}분 경과, 손익률 {}%",
+                    log.info("[스캘핑봇] 타임컷(최대): {} - {}분 경과, 손익률 {}%",
                             portfolio.getStockName(), minutesElapsed, profitRate);
+                }
+                else if (minutesElapsed >= TIME_CUT_MINUTES && !position.timeExtended) {
+                    // 10분 경과 → 연장 조건 체크
+                    boolean canExtend = profitRate.compareTo(TIME_EXTEND_MIN_PROFIT) >= 0
+                            && isVolumeIncreasing(portfolio.getStockCode());
+
+                    if (canExtend) {
+                        position.timeExtended = true;
+                        log.info("[스캘핑봇] ⏰ 타임컷 5분 연장: {} - 수익 {}%, 거래량 증가 중 → {}분까지",
+                                portfolio.getStockName(), profitRate, TIME_CUT_EXTENDED_MINUTES);
+                    } else {
+                        sellReason = "TIME_CUT";
+                        log.info("[스캘핑봇] 타임컷: {} - {}분 경과, 손익률 {}% (연장 조건 미충족)",
+                                portfolio.getStockName(), minutesElapsed, profitRate);
+                    }
                 }
 
                 if (sellReason != null && sellQuantity > 0) {
@@ -1423,6 +1443,22 @@ public class AutoTradingBotService {
         } catch (Exception e) {
             log.error("[스캘핑봇] 시작 자산 초기화 실패: {}", e.getMessage());
             dailyStartAsset = BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * 거래량 증가 추세 확인 (타임컷 동적 연장용)
+     * 현재 체결강도(거래량 파워)가 110% 이상이면 거래량 증가로 판단
+     */
+    private boolean isVolumeIncreasing(String stockCode) {
+        try {
+            var analysis = scalpingAnalysisService.getScalpingAnalysis(stockCode);
+            if (analysis == null || analysis.getVolumePower() == null) return false;
+            // 체결강도 110% 이상이면 매수세 유입 중
+            return analysis.getVolumePower().compareTo(new BigDecimal("110")) >= 0;
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] 거래량 추세 확인 실패 [{}]: {}", stockCode, e.getMessage());
+            return false;
         }
     }
 
