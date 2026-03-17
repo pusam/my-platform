@@ -114,11 +114,8 @@
       </div>
     </div>
 
-    <!-- 더 보기 버튼 -->
-    <div v-if="hasMoreFiles" class="load-more-section">
-      <button @click="loadMore" class="btn btn-load-more">
-        더 보기 ({{ remainingCount }}개 남음)
-      </button>
+    <!-- 무한 스크롤 트리거 -->
+    <div v-if="hasMoreFiles" ref="scrollTrigger" class="scroll-trigger">
       <span class="file-count-info">{{ sortedFiles.length }} / {{ allSortedFiles.length }}개 표시</span>
     </div>
 
@@ -326,6 +323,29 @@ const remainingCount = computed(() => allSortedFiles.value.length - displayCount
 const loadMore = () => {
   displayCount.value += PAGE_SIZE;
 };
+
+// 무한 스크롤
+const scrollTrigger = ref(null);
+let scrollObserver = null;
+
+const setupScrollObserver = () => {
+  if (scrollObserver) scrollObserver.disconnect();
+  scrollObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && hasMoreFiles.value) {
+      loadMore();
+    }
+  }, { rootMargin: '200px' });
+
+  nextTick(() => {
+    if (scrollTrigger.value) scrollObserver.observe(scrollTrigger.value);
+  });
+};
+
+watch(() => hasMoreFiles.value, (val) => {
+  if (val) nextTick(() => {
+    if (scrollTrigger.value && scrollObserver) scrollObserver.observe(scrollTrigger.value);
+  });
+});
 
 const loadFolder = async (folderId = null) => {
   try {
@@ -729,12 +749,14 @@ const logout = () => {
 // 전역 클릭 이벤트로 컨텍스트 메뉴 닫기
 onMounted(() => {
   setupThumbnailObserver();
+  setupScrollObserver();
   loadFolder();
   document.addEventListener('click', closeContextMenu);
 });
 
 onUnmounted(() => {
   if (thumbnailObserver) thumbnailObserver.disconnect();
+  if (scrollObserver) scrollObserver.disconnect();
   document.removeEventListener('click', closeContextMenu);
 });
 </script>
@@ -1200,26 +1222,11 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
-.load-more-section {
+.scroll-trigger {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  margin-top: var(--section-gap);
+  justify-content: center;
   padding: 20px 0;
-}
-
-.btn-load-more {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  padding: 12px 32px;
-  font-size: 14px;
-  border-radius: 10px;
-}
-
-.btn-load-more:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+  margin-top: var(--section-gap);
 }
 
 .file-count-info {
