@@ -648,40 +648,45 @@ public class SectorTradingService {
             }
         }
 
-        // 2. 전일 데이터가 없으면 오늘 데이터 기반으로 추정치 생성
+        // 2. 전일 데이터 확인
         Map<String, BigDecimal> yesterdayValues = yesterdayTradingValueCache;
-        if (yesterdayValues.isEmpty()) {
-            log.info("[섹터로테이션] 전일 캐시 없음 - 현재 데이터의 90% 를 전일 추정치로 사용");
-            yesterdayValues = new HashMap<>();
-            for (Map.Entry<String, BigDecimal> entry : todayValues.entrySet()) {
-                // 전일 데이터가 없으면 오늘의 90%를 추정치로 사용 (자연스러운 변동 표현)
-                yesterdayValues.put(entry.getKey(),
-                        entry.getValue().multiply(new BigDecimal("0.9")).setScale(2, RoundingMode.HALF_UP));
-            }
+        boolean hasYesterdayData = !yesterdayValues.isEmpty();
+
+        if (!hasYesterdayData) {
+            log.info("[섹터로테이션] 전일 캐시 없음 - 종목별 평균 등락률 기반으로 자금 흐름 판단");
         }
 
         // 3. 변화율 계산 및 DTO 생성
         for (SectorInfo sector : sectorConfig.getAllSectors()) {
             String code = sector.getCode();
             BigDecimal today = todayValues.getOrDefault(code, BigDecimal.ZERO);
-            BigDecimal yesterday = yesterdayValues.getOrDefault(code, BigDecimal.ZERO);
 
             if (today.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            BigDecimal changeAmount = today.subtract(yesterday);
-            BigDecimal changeRate = BigDecimal.ZERO;
+            BigDecimal changeRate;
+            BigDecimal changeAmount;
+            BigDecimal yesterday;
 
-            if (yesterday.compareTo(BigDecimal.ZERO) > 0) {
-                changeRate = changeAmount
-                        .multiply(new BigDecimal("100"))
-                        .divide(yesterday, 2, RoundingMode.HALF_UP);
+            if (hasYesterdayData) {
+                // 전일 대비 거래대금 변화율
+                yesterday = yesterdayValues.getOrDefault(code, BigDecimal.ZERO);
+                changeAmount = today.subtract(yesterday);
+                changeRate = yesterday.compareTo(BigDecimal.ZERO) > 0
+                        ? changeAmount.multiply(new BigDecimal("100")).divide(yesterday, 2, RoundingMode.HALF_UP)
+                        : BigDecimal.ZERO;
+            } else {
+                // 전일 데이터 없으면 섹터 평균 등락률을 자금 흐름 지표로 사용
+                changeRate = sectorChangeRates.getOrDefault(code, BigDecimal.ZERO);
+                yesterday = BigDecimal.ZERO;
+                changeAmount = BigDecimal.ZERO;
             }
 
-            // 4. 방향 분류: >10% INFLOW, <-10% OUTFLOW, else NEUTRAL
+            // 4. 방향 분류: >1% INFLOW, <-1% OUTFLOW, else NEUTRAL (전일 없을 때는 등락률 기준)
+            BigDecimal threshold = hasYesterdayData ? new BigDecimal("10") : new BigDecimal("1");
             String direction;
-            if (changeRate.compareTo(new BigDecimal("10")) > 0) {
+            if (changeRate.compareTo(threshold) > 0) {
                 direction = "INFLOW";
-            } else if (changeRate.compareTo(new BigDecimal("-10")) < 0) {
+            } else if (changeRate.compareTo(threshold.negate()) < 0) {
                 direction = "OUTFLOW";
             } else {
                 direction = "NEUTRAL";
