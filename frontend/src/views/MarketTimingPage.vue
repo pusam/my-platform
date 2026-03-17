@@ -31,6 +31,7 @@
         </div>
         <div class="status-date" v-if="marketData?.analysisDate">
           {{ formatDate(marketData.analysisDate) }} 기준
+          <span v-if="marketData?.dataAge >= 2" class="stale-badge">{{ marketData.dataAge }}일 전 데이터</span>
         </div>
       </div>
 
@@ -1008,6 +1009,17 @@ onMounted(() => {
 .status-date {
   color: var(--text-muted, #71717a);
   font-size: 0.875rem;
+}
+
+.stale-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
 }
 
 /* 데이터 부족 상태 */
