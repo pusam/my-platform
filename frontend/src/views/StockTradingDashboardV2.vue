@@ -9,8 +9,111 @@
         @tab-change="activeGnbTab = $event"
       />
 
-      <!-- ═══ Tab 1: 시장 뷰 ═══ -->
+      <!-- ═══ Tab 1: 오늘의 핵심 요약 ═══ -->
       <div v-if="activeGnbTab === 'market'" class="tab-panel">
+
+        <!-- ① 시장 상태 바 -->
+        <div class="market-status-bar" v-if="marketData">
+          <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
+            <span class="msb-label">KOSPI</span>
+            <span class="msb-value">{{ formatChange(marketData.kospiChangeRate) }}%</span>
+          </div>
+          <div class="msb-divider"></div>
+          <div class="msb-item" :class="getChangeClass(marketData.kosdaqChangeRate)">
+            <span class="msb-label">KOSDAQ</span>
+            <span class="msb-value">{{ formatChange(marketData.kosdaqChangeRate) }}%</span>
+          </div>
+          <div class="msb-divider"></div>
+          <div class="msb-item">
+            <span class="msb-label">ADR</span>
+            <span class="msb-value">{{ marketData.combinedAdr || '-' }}</span>
+          </div>
+          <div class="msb-divider" v-if="globalData?.nasdaqFutures"></div>
+          <div class="msb-item" v-if="globalData?.nasdaqFutures" :class="getChangeClass(globalData.nasdaqFutures.changeRate)">
+            <span class="msb-label">나스닥</span>
+            <span class="msb-value">{{ formatChange(globalData.nasdaqFutures.changeRate) }}%</span>
+          </div>
+        </div>
+        <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
+
+        <!-- ② 오늘의 신호 -->
+        <div class="today-signals section-card">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🎯</span> 오늘의 신호</h2>
+          </div>
+          <div v-if="todaySignals.length" class="signal-list">
+            <div
+              v-for="(sig, i) in todaySignals"
+              :key="'sig-' + i"
+              class="signal-card"
+              :class="sig.type"
+              @click="goToStock(sig.stockCode)"
+            >
+              <div class="sig-badge">{{ sig.badge }}</div>
+              <div class="sig-info">
+                <span class="sig-name">{{ sig.stockName }}</span>
+                <span class="sig-reason">{{ sig.reason }}</span>
+              </div>
+              <div class="sig-right" v-if="sig.changeRate != null">
+                <span :class="sig.changeRate >= 0 ? 'positive' : 'negative'">
+                  {{ sig.changeRate >= 0 ? '+' : '' }}{{ Number(sig.changeRate).toFixed(2) }}%
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">오늘 감지된 신호가 없습니다</div>
+        </div>
+
+        <!-- ③ 관심종목 현황 -->
+        <div class="watchlist-summary section-card" v-if="watchlistItems.length">
+          <div class="section-title-row">
+            <h2><span class="section-icon">⭐</span> 관심종목</h2>
+            <button class="more-link" @click="activeGnbTab = 'discover'; discoverTab = 'watchlist'">전체 보기 →</button>
+          </div>
+          <div class="wl-list">
+            <div
+              v-for="item in watchlistItems.slice(0, 5)"
+              :key="'wl-' + item.id"
+              class="wl-row"
+              @click="goToStock(item.stockCode)"
+            >
+              <span class="wl-risk" v-if="watchlistRisks[item.stockCode]"
+                    :class="watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
+                {{ watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? '🔴' : '🟡' }}
+              </span>
+              <span class="wl-name">{{ item.stockName }}</span>
+              <span class="wl-price" v-if="item.currentPrice">{{ Number(item.currentPrice).toLocaleString() }}</span>
+              <span class="wl-change" v-if="item.changeRate != null"
+                    :class="item.changeRate >= 0 ? 'positive' : 'negative'">
+                {{ item.changeRate >= 0 ? '+' : '' }}{{ Number(item.changeRate).toFixed(2) }}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ④ AI 전략 TOP 픽 -->
+        <div class="ai-top-picks section-card" v-if="aiTopPicks.length">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🤖</span> AI 전략 TOP 픽</h2>
+          </div>
+          <div class="top-picks-grid">
+            <div
+              v-for="pick in aiTopPicks"
+              :key="'pick-' + pick.stockCode"
+              class="pick-card"
+              @click="goToStock(pick.stockCode)"
+            >
+              <div class="pick-strategy">{{ pick.strategyLabel }}</div>
+              <div class="pick-name">{{ pick.stockName }}</div>
+              <div class="pick-score">{{ pick.aiScore || pick.score }}점</div>
+              <div class="pick-tags" v-if="pick.aiThemes">
+                <span v-for="t in pick.aiThemes.split(',').slice(0, 2)" :key="t" class="pick-tag">{{ t.trim() }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ⑤ 섹터 히트맵 (기존 유지) -->
         <SectionMarketMap
           :sectorData="sectorData"
           :marketData="marketData"
@@ -19,24 +122,6 @@
           :error="sections.marketMap.error"
           @retry="loadMarketMap"
         />
-        <!-- 뉴스 영역 -->
-        <div class="news-panel section-card" v-if="!sections.research.loading">
-          <div class="section-title-row">
-            <h2><span class="section-icon">📰</span> 주요 뉴스</h2>
-            <router-link to="/news" class="more-link">전체 뉴스 →</router-link>
-          </div>
-          <div v-if="newsData.length">
-            <div
-              v-for="(item, i) in newsData.slice(0, 8)"
-              :key="'news-' + i"
-              class="news-row"
-            >
-              <span class="news-title">{{ item.title }}</span>
-              <span class="news-time">{{ formatNewsTime(item.publishedAt || item.summarizedAt) }}</span>
-            </div>
-          </div>
-          <div v-else class="empty-msg">뉴스를 불러오는 중...</div>
-        </div>
       </div>
 
       <!-- ═══ Tab 2: 종목 발굴 ═══ -->
@@ -113,7 +198,7 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API,
-  globalFuturesAPI
+  globalFuturesAPI, radarAPI, watchlistAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -197,7 +282,11 @@ export default {
       consecutiveData: [],
       surgeData: [],
       screenerData: {},
-      newsData: []
+      newsData: [],
+      // 오늘의 핵심 요약
+      watchlistItems: [],
+      watchlistRisks: {},
+      radarSignals: []
     }
   },
   watch: {
@@ -207,7 +296,8 @@ export default {
   },
   mounted() {
     this.loadTabData('market')
-    this.loadNews() // 뉴스는 market + research 공용
+    this.loadNews()
+    this.loadTodaySummary() // 오늘의 핵심 요약
     this.setupKeyboardShortcut()
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
@@ -220,6 +310,43 @@ export default {
     if (this._refreshTimer) {
       clearInterval(this._refreshTimer)
       this._refreshTimer = null
+    }
+  },
+  computed: {
+    todaySignals() {
+      const signals = []
+      // 수급급증 HOT 종목
+      if (this.surgeData?.length) {
+        this.surgeData.filter(s => s.surgeLevel === 'HOT').slice(0, 3).forEach(s => {
+          signals.push({
+            type: 'hot', badge: '🔥 HOT', stockCode: s.stockCode,
+            stockName: s.stockName, reason: '수급 급증',
+            changeRate: s.changeRate
+          })
+        })
+      }
+      // 레이더 정책 뉴스 (종목 연결 가능한 것)
+      if (this.radarSignals?.length) {
+        this.radarSignals.slice(0, 3).forEach(r => {
+          signals.push({
+            type: 'radar', badge: '📰 정책',
+            stockName: r.title?.substring(0, 30), reason: (r.matchedSectors || []).join(' · '),
+            stockCode: null, changeRate: null
+          })
+        })
+      }
+      return signals.slice(0, 6)
+    },
+    aiTopPicks() {
+      if (!this.aiStrategyData?.strategies) return []
+      const picks = []
+      const labels = { SCALPING: '⚡ 스캘핑', SWING: '📈 스윙', TURNAROUND: '🔄 턴어라운드', VALUE: '💎 밸류' }
+      for (const [type, list] of Object.entries(this.aiStrategyData.strategies)) {
+        if (Array.isArray(list) && list.length > 0) {
+          picks.push({ ...list[0], strategyLabel: labels[type] || type })
+        }
+      }
+      return picks.slice(0, 4)
     }
   },
   methods: {
@@ -261,6 +388,34 @@ export default {
       } catch {
         this.newsData = []
       }
+    },
+
+    // ---- 오늘의 핵심 요약 로드 ----
+    async loadTodaySummary() {
+      // 관심종목
+      try {
+        const res = await watchlistAPI.getList()
+        const list = this.extractData(res)
+        this.watchlistItems = Array.isArray(list) ? list : []
+        // 리스크 상태
+        if (this.watchlistItems.length) {
+          const codes = this.watchlistItems.map(w => w.stockCode)
+          try {
+            const riskRes = await watchlistAPI.getRiskStatus(codes)
+            this.watchlistRisks = this.extractData(riskRes) || {}
+          } catch { this.watchlistRisks = {} }
+        }
+      } catch { this.watchlistItems = [] }
+
+      // 선점 레이더 신호
+      try {
+        const res = await radarAPI.getPolicyNews()
+        this.radarSignals = (this.extractData(res) || []).slice(0, 5)
+      } catch { this.radarSignals = [] }
+    },
+
+    goToStock(code) {
+      if (code) this.$router.push(`/stock/${code}`)
     },
 
     // ---- 종목 선택 → 상세 페이지 이동 ----
@@ -313,6 +468,15 @@ export default {
         return merged
       }
       return []
+    },
+    getChangeClass(rate) {
+      if (rate == null) return ''
+      return Number(rate) >= 0 ? 'positive' : 'negative'
+    },
+    formatChange(rate) {
+      if (rate == null) return '-'
+      const n = Number(rate)
+      return (n >= 0 ? '+' : '') + n.toFixed(2)
     },
     formatNewsTime(dateStr) {
       if (!dateStr) return ''
@@ -509,6 +673,82 @@ export default {
   max-width: 1400px;
   margin: 0 auto;
   padding: 20px 24px 60px;
+}
+
+/* ===== 시장 상태 바 ===== */
+.market-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+.market-status-bar.skeleton { justify-content: center; color: rgba(255,255,255,0.3); font-size: 13px; }
+.msb-item { display: flex; align-items: center; gap: 6px; }
+.msb-label { font-size: 12px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.msb-value { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.8); }
+.msb-item.positive .msb-value { color: #ef4444; }
+.msb-item.negative .msb-value { color: #3b82f6; }
+.msb-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.1); }
+
+/* ===== 오늘의 신호 ===== */
+.signal-list { display: flex; flex-direction: column; gap: 8px; }
+.signal-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  transition: all 0.15s;
+}
+.signal-card:hover { background: rgba(255,255,255,0.06); }
+.signal-card.hot { border-left: 3px solid #ef4444; }
+.signal-card.radar { border-left: 3px solid #f59e0b; }
+.sig-badge { font-size: 11px; font-weight: 700; white-space: nowrap; }
+.sig-info { flex: 1; min-width: 0; }
+.sig-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
+.sig-reason { font-size: 12px; color: rgba(255,255,255,0.4); }
+.sig-right { font-size: 13px; font-weight: 700; }
+.empty-signal { text-align: center; padding: 24px; color: rgba(255,255,255,0.3); font-size: 13px; }
+
+/* ===== 관심종목 요약 ===== */
+.wl-list { display: flex; flex-direction: column; gap: 4px; }
+.wl-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  transition: background 0.15s;
+}
+.wl-row:hover { background: rgba(255,255,255,0.04); }
+.wl-risk { font-size: 12px; }
+.wl-risk.danger { } .wl-risk.warning { }
+.wl-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+.wl-price { font-size: 13px; color: rgba(255,255,255,0.6); font-family: monospace; }
+.wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
+
+/* ===== AI TOP 픽 ===== */
+.top-picks-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pick-card {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px; padding: 12px; cursor: pointer; text-align: center;
+  transition: all 0.15s;
+}
+.pick-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
+.pick-strategy { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 4px; }
+.pick-name { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); margin-bottom: 4px; }
+.pick-score { font-size: 18px; font-weight: 800; color: #ef4444; margin-bottom: 4px; }
+.pick-tags { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.pick-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(102,126,234,0.12); color: #8b9cf7; }
+
+.positive { color: #ef4444 !important; }
+.negative { color: #3b82f6 !important; }
+
+@media (max-width: 768px) {
+  .market-status-bar { gap: 4px; padding: 8px 10px; }
+  .msb-label { font-size: 10px; } .msb-value { font-size: 12px; }
+  .top-picks-grid { grid-template-columns: repeat(2, 1fr); }
+  .pick-score { font-size: 16px; }
 }
 
 /* Tab Panel */
