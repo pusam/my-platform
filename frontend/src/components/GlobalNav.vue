@@ -60,8 +60,7 @@ const navItems = [
   { path: '/stock-dashboard', icon: '📈', label: '대시보드' },
   { path: '/research', icon: '🔍', label: '종목발굴' },
   { path: '/market-timing', icon: '⏱️', label: '시장타이밍' },
-  { path: '/global-futures', icon: '🌍', label: '글로벌시세' },
-  { path: '/paper-trading', icon: '🤖', label: '자동매매' }
+  { path: '/global-futures', icon: '🌍', label: '글로벌시세' }
 ]
 
 const isActive = (itemPath) => {
@@ -78,7 +77,8 @@ const isActive = (itemPath) => {
 .global-nav {
   position: sticky;
   top: 0;
-  z-index: 900;
+  z-index: 950;
+  pointer-events: auto;
 }
 
 .nav-inner {
@@ -89,6 +89,8 @@ const isActive = (itemPath) => {
   background: rgba(15, 15, 26, 0.92);
   backdrop-filter: blur(16px);
   border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: relative;
+  z-index: 951;
 }
 
 .nav-left {
