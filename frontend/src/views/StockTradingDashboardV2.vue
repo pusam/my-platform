@@ -40,6 +40,9 @@
         <div class="top-rec section-card">
           <div class="section-title-row">
             <h2><span class="section-icon">🏆</span> AI 종합 추천 TOP 5</h2>
+            <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
+              {{ topRecRealtime ? '🟢' : '🟡' }} {{ topRecDataTime }}
+            </span>
           </div>
           <div v-if="topRecLoading" class="signal-skeleton">
             <div class="skel-row" v-for="i in 3" :key="'rec-sk-'+i"><div class="skel-bar"></div></div>
@@ -352,6 +355,8 @@ export default {
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
+      topRecDataTime: '',
+      topRecRealtime: true,
       // 시간대별 신호
       phaseLoading: false,
       preMarketData: [],   // 장 전
@@ -555,7 +560,10 @@ export default {
       this.topRecLoading = true
       try {
         const res = await recommendationAPI.getTop5()
-        this.topRecommendations = this.extractData(res) || []
+        const body = res?.data || res
+        this.topRecommendations = (body?.data) || []
+        this.topRecDataTime = body?.dataTime || ''
+        this.topRecRealtime = body?.realtime !== false
       } catch { this.topRecommendations = [] }
       this.topRecLoading = false
 
@@ -935,6 +943,14 @@ export default {
 .empty-signal { text-align: center; padding: 24px; color: rgba(255,255,255,0.3); font-size: 13px; }
 
 /* ===== AI 종합 추천 ===== */
+.rec-data-time {
+  font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5);
+  padding: 2px 8px; border-radius: 4px;
+  background: rgba(34,197,94,0.1);
+}
+.rec-data-time.is-cached {
+  background: rgba(245,158,11,0.1); color: #f59e0b;
+}
 .rec-list { display: flex; flex-direction: column; gap: 6px; }
 .rec-card {
   display: flex; align-items: center; gap: 12px;

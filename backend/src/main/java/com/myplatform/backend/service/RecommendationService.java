@@ -3,15 +3,20 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.EarningSurpriseDto;
-import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
+import com.myplatform.backend.entity.RecommendationSnapshot;
+import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * AI 종합 추천 TOP 5
@@ -21,6 +26,9 @@ import java.util.stream.Collectors;
  * - 기관/외국인 수급 (/20)
  * - 기술적 위치 (/20)
  * - 섹터 모멘텀 (/20)
+ *
+ * 장중(09:00~15:30): 실시간 계산 (30분 캐시)
+ * 장 외 시간: DB에 저장된 직전 종가 기준 데이터 반환
  */
 @Service
 @Slf4j
@@ -32,48 +40,150 @@ public class RecommendationService {
     private final PreemptiveRadarService radarService;
     private final EarningSurpriseService earningSurpriseService;
     private final QuantScreenerService quantScreenerService;
+    private final RecommendationSnapshotRepository snapshotRepository;
 
-    // 캐시 (30분)
+    // 인메모리 캐시 (장중 30분)
     private volatile List<RecommendationDto> cachedTop5 = null;
     private volatile LocalDateTime cacheTime = null;
     private static final long CACHE_MINUTES = 30;
 
-    public List<RecommendationDto> getTop5() {
-        if (cachedTop5 != null && cacheTime != null
-                && cacheTime.isAfter(LocalDateTime.now().minusMinutes(CACHE_MINUTES))) {
-            return cachedTop5;
+    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("MM/dd HH:mm");
+
+    public Top5Response getTop5() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+
+        // ① 장중: 실시간 계산 (30분 캐시)
+        if (trading) {
+            if (cachedTop5 != null && cacheTime != null
+                    && cacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+                return new Top5Response(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", true);
+            }
+            try {
+                List<RecommendationDto> result = calculate();
+                if (!result.isEmpty()) {
+                    cachedTop5 = result;
+                    cacheTime = now;
+                    return new Top5Response(result, now.format(TIME_FMT) + " 기준", true);
+                }
+            } catch (Exception e) {
+                log.error("[종합추천] 실시간 계산 실패: {}", e.getMessage());
+            }
         }
 
+        // ② 인메모리 캐시가 있으면 반환 (장 외에도 유효)
+        if (cachedTop5 != null && !cachedTop5.isEmpty()) {
+            String label = cacheTime != null ? cacheTime.format(TIME_FMT) + " 기준" : "캐시 데이터";
+            return new Top5Response(cachedTop5, label, !trading);
+        }
+
+        // ③ DB 스냅샷에서 복원
+        List<RecommendationDto> fromDb = loadFromDb();
+        if (!fromDb.isEmpty()) {
+            cachedTop5 = fromDb;
+            // DB 스냅샷의 시점 추출
+            List<RecommendationSnapshot> snapshots = snapshotRepository.findLatestSnapshot();
+            LocalDateTime snapTime = snapshots.isEmpty() ? now : snapshots.get(0).getSnapshotAt();
+            cacheTime = snapTime;
+            return new Top5Response(fromDb, snapTime.format(TIME_FMT) + " 기준 (종가)", false);
+        }
+
+        return new Top5Response(Collections.emptyList(), "", false);
+    }
+
+    /** 장 마감 후 DB에 스냅샷 저장 — 평일 15:45 */
+    @Scheduled(cron = "0 45 15 * * MON-FRI")
+    @Transactional
+    public void saveClosingSnapshot() {
+        log.info("[종합추천] 마감 스냅샷 저장 시작");
         try {
             List<RecommendationDto> result = calculate();
+            if (result.isEmpty()) {
+                // 실시간 계산 실패 시 인메모리 캐시 사용
+                if (cachedTop5 != null && !cachedTop5.isEmpty()) {
+                    result = cachedTop5;
+                } else {
+                    log.warn("[종합추천] 마감 스냅샷 저장 실패 — 데이터 없음");
+                    return;
+                }
+            }
+
+            LocalDateTime snapTime = LocalDateTime.now();
+            for (int i = 0; i < result.size(); i++) {
+                RecommendationDto dto = result.get(i);
+                RecommendationSnapshot entity = new RecommendationSnapshot();
+                entity.setStockCode(dto.getStockCode());
+                entity.setStockName(dto.getStockName());
+                entity.setTotalScore(dto.getTotalScore());
+                entity.setAiStrategy(dto.getAiStrategy());
+                entity.setEarnings(dto.getEarnings());
+                entity.setSupplyDemand(dto.getSupplyDemand());
+                entity.setTechnical(dto.getTechnical());
+                entity.setSectorMomentum(dto.getSectorMomentum());
+                entity.setTags(dto.getTags() != null ? String.join(",", dto.getTags()) : "");
+                entity.setChangeRate(dto.getChangeRate());
+                entity.setRankOrder(i + 1);
+                entity.setSnapshotAt(snapTime);
+                snapshotRepository.save(entity);
+            }
+
+            // 인메모리 캐시도 갱신
             cachedTop5 = result;
-            cacheTime = LocalDateTime.now();
-            return result;
+            cacheTime = snapTime;
+
+            // 7일 이전 데이터 정리
+            snapshotRepository.deleteOlderThan(snapTime.minusDays(7));
+
+            log.info("[종합추천] 마감 스냅샷 {}건 저장 완료", result.size());
         } catch (Exception e) {
-            log.error("[종합추천] 계산 실패: {}", e.getMessage());
-            return cachedTop5 != null ? cachedTop5 : Collections.emptyList();
+            log.error("[종합추천] 마감 스냅샷 저장 실패: {}", e.getMessage());
+        }
+    }
+
+    // ==================== Private Methods ====================
+
+    private boolean isTradingHours(LocalDateTime now) {
+        DayOfWeek dow = now.getDayOfWeek();
+        if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return false;
+        LocalTime time = now.toLocalTime();
+        return time.isAfter(LocalTime.of(9, 0)) && time.isBefore(LocalTime.of(15, 35));
+    }
+
+    private List<RecommendationDto> loadFromDb() {
+        try {
+            List<RecommendationSnapshot> snapshots = snapshotRepository.findLatestSnapshot();
+            if (snapshots.isEmpty()) return Collections.emptyList();
+
+            return snapshots.stream()
+                    .map(s -> RecommendationDto.builder()
+                            .stockCode(s.getStockCode())
+                            .stockName(s.getStockName())
+                            .totalScore(s.getTotalScore())
+                            .aiStrategy(s.getAiStrategy())
+                            .earnings(s.getEarnings())
+                            .supplyDemand(s.getSupplyDemand())
+                            .technical(s.getTechnical())
+                            .sectorMomentum(s.getSectorMomentum())
+                            .tags(s.getTags() != null && !s.getTags().isBlank()
+                                    ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())
+                            .changeRate(s.getChangeRate())
+                            .build())
+                    .toList();
+        } catch (Exception e) {
+            log.error("[종합추천] DB 스냅샷 로드 실패: {}", e.getMessage());
+            return Collections.emptyList();
         }
     }
 
     private List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
-        // ① AI전략 신호 (/20)
         scoreAiStrategy(scoreMap);
-
-        // ② 실적 개선세 (/20)
         scoreEarnings(scoreMap);
-
-        // ③ 기관/외국인 수급 (/20)
         scoreSupplyDemand(scoreMap);
-
-        // ④ 기술적 위치 (/20) — 선점 레이더 기반
         scoreTechnical(scoreMap);
-
-        // ⑤ 섹터 모멘텀 (/20) — AI 테마 기반
         scoreSectorMomentum(scoreMap);
 
-        // 결과 정렬: 총점 내림차순 → 동점 시 등락률 높은 순
         List<RecommendationDto> results = scoreMap.values().stream()
                 .filter(s -> s.getTotalScore() >= 20 && !s.tags.isEmpty())
                 .sorted(Comparator.comparingInt(StockScore::getTotalScore).reversed()
@@ -104,7 +214,6 @@ public class RecommendationService {
             var response = aiStrategyService.getAllLatestSnapshots();
             if (response == null || response.getStrategies() == null) return;
 
-            // 전략별 1~3위 종목에 가산점
             for (Map.Entry<String, List<AiStrategySnapshotDto>> entry : response.getStrategies().entrySet()) {
                 List<AiStrategySnapshotDto> stocks = entry.getValue();
                 if (stocks == null) continue;
@@ -116,7 +225,6 @@ public class RecommendationService {
                     StockScore score = scoreMap.computeIfAbsent(snap.getStockCode(),
                             k -> new StockScore(k, snap.getStockName()));
 
-                    // 1위 +8, 2위 +5, 3위 +3 (여러 전략에서 중복 가산, 최대 20)
                     int points = (i == 0) ? 8 : (i == 1) ? 5 : 3;
                     score.aiStrategy = Math.min(20, score.aiStrategy + points);
 
@@ -145,7 +253,6 @@ public class RecommendationService {
                 if ("POSITIVE".equals(type) || "TURNAROUND".equals(type)) {
                     StockScore score = scoreMap.computeIfAbsent(s.getStockCode(),
                             k -> new StockScore(k, s.getStockName()));
-                    // 흑자전환 20점, 실적개선 16점
                     score.earnings = "TURNAROUND".equals(type) ? 20 : 16;
                     score.tags.add("TURNAROUND".equals(type) ? "흑자전환" : "실적개선");
                 }
@@ -158,7 +265,6 @@ public class RecommendationService {
     /** ③ 기관/외국인 수급 (/20): 연속매수일수 기반 */
     private void scoreSupplyDemand(Map<String, StockScore> scoreMap) {
         try {
-            // 외국인 연속매수
             List<ConsecutiveBuyDto> foreign = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 3);
             if (foreign != null) {
                 for (ConsecutiveBuyDto cb : foreign) {
@@ -166,7 +272,6 @@ public class RecommendationService {
                     StockScore score = scoreMap.computeIfAbsent(cb.getStockCode(),
                             k -> new StockScore(k, cb.getStockName()));
                     int days = cb.getConsecutiveDays() != null ? cb.getConsecutiveDays() : 3;
-                    // 5일+ → 14점, 3~4일 → 10점
                     int points = (days >= 5) ? 14 : 10;
                     score.supplyDemand = Math.min(20, score.supplyDemand + points);
                     score.tags.add("외국인" + days + "일연속");
@@ -174,7 +279,6 @@ public class RecommendationService {
                 }
             }
 
-            // 기관 연속매수
             List<ConsecutiveBuyDto> inst = investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 3);
             if (inst != null) {
                 for (ConsecutiveBuyDto cb : inst) {
@@ -193,7 +297,6 @@ public class RecommendationService {
     /** ④ 기술적 위치 (/20): 신고가 직전, 대량취득 공시 */
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
         try {
-            // 신고가 직전
             var nearHigh = radarService.detectNearHighStocks();
             if (nearHigh != null) {
                 for (var nh : nearHigh) {
@@ -206,7 +309,6 @@ public class RecommendationService {
                 }
             }
 
-            // 대량 취득 공시
             var holdings = radarService.detectLargeHoldings();
             if (holdings != null) {
                 for (var h : holdings) {
@@ -228,17 +330,15 @@ public class RecommendationService {
             var response = aiStrategyService.getAllLatestSnapshots();
             if (response == null || response.getStrategies() == null) return;
 
-            // AI 테마 태그가 있는 종목에 모멘텀 점수 부여
             for (List<AiStrategySnapshotDto> stocks : response.getStrategies().values()) {
                 if (stocks == null) continue;
                 for (AiStrategySnapshotDto snap : stocks) {
                     if (snap.getStockCode() == null) continue;
                     StockScore score = scoreMap.get(snap.getStockCode());
-                    if (score == null) continue; // 다른 항목에서 이미 등장한 종목만
+                    if (score == null) continue;
 
                     String themes = snap.getAiThemes();
                     if (themes != null && !themes.isBlank()) {
-                        // 테마 태그 개수에 비례 (최소 10, 태그당 +4, 최대 20)
                         int tagCount = themes.split(",").length;
                         score.sectorMomentum = Math.min(20, Math.max(score.sectorMomentum, 10 + tagCount * 4));
                     }
@@ -254,11 +354,11 @@ public class RecommendationService {
     private static class StockScore {
         String stockCode;
         String stockName;
-        int aiStrategy = 0;      // /20
-        int earnings = 0;        // /20
-        int supplyDemand = 0;    // /20
-        int technical = 0;       // /20
-        int sectorMomentum = 0;  // /20
+        int aiStrategy = 0;
+        int earnings = 0;
+        int supplyDemand = 0;
+        int technical = 0;
+        int sectorMomentum = 0;
         Set<String> tags = new LinkedHashSet<>();
         BigDecimal changeRate;
 
@@ -277,7 +377,6 @@ public class RecommendationService {
         private String stockCode;
         private String stockName;
         private int totalScore;
-        // 세부 항목별 점수 (각 /20)
         private int aiStrategy;
         private int earnings;
         private int supplyDemand;
@@ -285,5 +384,13 @@ public class RecommendationService {
         private int sectorMomentum;
         private List<String> tags;
         private BigDecimal changeRate;
+    }
+
+    /** API 응답 래퍼: 데이터 + 타임스탬프 + 실시간 여부 */
+    @Getter @AllArgsConstructor
+    public static class Top5Response {
+        private final List<RecommendationDto> items;
+        private final String dataTime;     // "03/18 15:30 기준" or "03/18 15:30 기준 (종가)"
+        private final boolean realtime;    // true=장중 실시간, false=장 외 캐시
     }
 }

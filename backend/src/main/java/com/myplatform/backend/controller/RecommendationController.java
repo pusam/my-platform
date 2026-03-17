@@ -16,9 +16,12 @@ public class RecommendationController {
 
     @GetMapping("/top5")
     public ResponseEntity<?> getTop5() {
+        var response = recommendationService.getTop5();
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "data", recommendationService.getTop5()
+                "data", response.getItems(),
+                "dataTime", response.getDataTime(),
+                "realtime", response.isRealtime()
         ));
     }
 }
