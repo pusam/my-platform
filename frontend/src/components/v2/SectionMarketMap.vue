@@ -2,7 +2,7 @@
   <div class="section-card">
     <div class="section-title-row">
       <h2><span class="section-icon">🗺️</span> 시장 지도</h2>
-      <router-link to="/sector" class="more-link">더 보기 →</router-link>
+      <router-link to="/research" class="more-link">더 보기 →</router-link>
     </div>
 
     <SkeletonLoader v-if="loading" type="heatmap" />
@@ -173,7 +173,7 @@
           <p class="state-text">글로벌 데이터가 없습니다</p>
         </div>
         <div class="more-links">
-          <router-link to="/trading-indicators">트레이딩 지표 →</router-link>
+          <router-link to="/market-timing">시장 타이밍 →</router-link>
         </div>
       </div>
 
