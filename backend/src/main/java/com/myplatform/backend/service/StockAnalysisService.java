@@ -520,8 +520,20 @@ public class StockAnalysisService {
         List<StockPriceHistory> historyData = stockPriceHistoryRepository
                 .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
 
+        // DB 데이터 최신성 체크 (최근 3거래일 이내인지)
+        boolean isDbDataFresh = false;
         if (historyData.size() >= MIN_PRICE_DATA_COUNT) {
-            // DB에 충분한 데이터가 있음
+            java.time.LocalDate latestDate = historyData.get(0).getTradeDate();
+            long daysSinceLatest = java.time.temporal.ChronoUnit.DAYS.between(latestDate, java.time.LocalDate.now());
+            isDbDataFresh = daysSinceLatest <= 4; // 주말+공휴일 고려 4일
+            if (!isDbDataFresh) {
+                log.info("종목 {} DB 가격 데이터 오래됨 (최신: {}, {}일 전) → KIS API 갱신",
+                        stockCode, latestDate, daysSinceLatest);
+            }
+        }
+
+        if (historyData.size() >= MIN_PRICE_DATA_COUNT && isDbDataFresh) {
+            // DB에 충분하고 최신 데이터가 있음
             closePrices = historyData.stream()
                     .map(StockPriceHistory::getClosePrice)
                     .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
@@ -534,7 +546,8 @@ public class StockAnalysisService {
                             h.getClosePrice(), h.getVolume()))
                     .collect(Collectors.toList());
 
-            log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회", stockCode, closePrices.size());
+            log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회 (최신: {})",
+                    stockCode, closePrices.size(), historyData.get(0).getTradeDate());
         }
 
         // 2차: DB 데이터 부족 → KIS API에서 수집 후 DB 저장 (재시도 포함)
