@@ -58,8 +58,18 @@
                   <span v-for="tag in (rec.tags || []).slice(0, 3)" :key="tag" class="rec-tag">{{ tag }}</span>
                 </div>
               </div>
-              <div class="rec-right">
-                <span class="rec-score">{{ rec.totalScore }}점</span>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-max">/ 100</span>
+                  <span class="rec-grade" :class="getRecGradeClass(rec.totalScore)">
+                    {{ getRecGradeLabel(rec.totalScore) }}
+                  </span>
+                </div>
+                <div class="rec-bar-track">
+                  <div class="rec-bar-fill" :class="getRecGradeClass(rec.totalScore)"
+                       :style="{ width: Math.min(rec.totalScore, 100) + '%' }"></div>
+                </div>
                 <span v-if="rec.changeRate != null" class="rec-change"
                       :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
                   {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
@@ -653,6 +663,18 @@ export default {
       }
       return []
     },
+    getRecGradeClass(score) {
+      if (score >= 80) return 'grade-strong'
+      if (score >= 60) return 'grade-buy'
+      if (score >= 40) return 'grade-hold'
+      return 'grade-exclude'
+    },
+    getRecGradeLabel(score) {
+      if (score >= 80) return '🔴 강력매수'
+      if (score >= 60) return '🟡 매수고려'
+      if (score >= 40) return '⚪ 관망'
+      return '🔵 제외'
+    },
     getChangeClass(rate) {
       if (rate == null) return ''
       return Number(rate) >= 0 ? 'positive' : 'negative'
@@ -918,9 +940,22 @@ export default {
   font-size: 10px; padding: 1px 6px; border-radius: 4px;
   background: rgba(102,126,234,0.12); color: #8b9cf7; font-weight: 600;
 }
-.rec-right { text-align: right; }
-.rec-score { font-size: 18px; font-weight: 800; color: #ef4444; display: block; }
-.rec-change { font-size: 12px; font-weight: 600; }
+.rec-score-area { min-width: 110px; text-align: right; }
+.rec-score-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; margin-bottom: 4px; }
+.rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
+.rec-score-max { font-size: 11px; color: rgba(255,255,255,0.3); }
+.rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
+.rec-grade.grade-strong { color: #ef4444; }
+.rec-grade.grade-buy { color: #f59e0b; }
+.rec-grade.grade-hold { color: rgba(255,255,255,0.5); }
+.rec-grade.grade-exclude { color: #3b82f6; }
+.rec-bar-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-bottom: 4px; }
+.rec-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+.rec-bar-fill.grade-strong { background: linear-gradient(90deg, #ef4444, #f87171); }
+.rec-bar-fill.grade-buy { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.rec-bar-fill.grade-hold { background: rgba(255,255,255,0.2); }
+.rec-bar-fill.grade-exclude { background: rgba(59,130,246,0.3); }
+.rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
 .phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
