@@ -570,14 +570,24 @@ public class RecommendationService {
         return time.isAfter(LocalTime.of(9, 0)) && time.isBefore(LocalTime.of(15, 35));
     }
 
+    /** 유효 항목 수별 상한: 5개=100, 4개=88, 3개=75, 2개=60 */
+    private static int normalizeScore(int raw, int validCount) {
+        if (validCount >= 5) return raw;
+        if (validCount <= 0) return 0;
+        int scaled = raw * 5 / validCount;
+        int cap = switch (validCount) {
+            case 4 -> 88;
+            case 3 -> 75;
+            case 2 -> 60;
+            default -> 50;
+        };
+        return Math.min(cap, scaled);
+    }
+
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
         int raw = s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum;
-        int total;
-        if (vc >= 5) total = raw;
-        else if (vc >= 3) total = Math.min(100, raw * 5 / vc);
-        else if (vc == 2) total = Math.min(80, raw * 5 / vc);  // v6: 70→80
-        else total = vc > 0 ? Math.min(50, raw * 5 / vc) : 0;
+        int total = normalizeScore(raw, vc);
 
         return RecommendationDto.builder()
                 .stockCode(s.stockCode).stockName(s.stockName)
@@ -608,10 +618,7 @@ public class RecommendationService {
             if (supplyDemand > 0) { v++; sum += supplyDemand; }
             if (technical > 0) { v++; sum += technical; }
             if (sectorMomentum > 0) { v++; sum += sectorMomentum; }
-            if (v >= 5) return sum;
-            if (v >= 3) return Math.min(100, sum * 5 / v);
-            if (v == 2) return Math.min(80, sum * 5 / v);
-            return v > 0 ? Math.min(50, sum * 5 / v) : 0;
+            return normalizeScore(sum, v);
         }
     }
 
