@@ -316,7 +316,7 @@ import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
-  aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API,
+  // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
   globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
   recommendationAPI
 } from '../utils/api'
@@ -575,15 +575,9 @@ export default {
       try {
         let nd = null
         try {
-          const res = await withTimeout(newsV2API.getTodayNews())
+          const res = await withTimeout(newsAPI.getTodayNews(), 10000)
           nd = this.extractData(res)
-        } catch { /* V2 실패 */ }
-        if (!Array.isArray(nd) || nd.length === 0) {
-          try {
-            const res = await newsAPI.getTodayNews()
-            nd = this.extractData(res)
-          } catch { /* Java도 실패 */ }
-        }
+        } catch { /* 실패 */ }
         if (!Array.isArray(nd) || nd.length === 0) {
           try {
             const fallback = await newsAPI.getRecentNews()
@@ -639,13 +633,9 @@ export default {
         try {
           let sd = null
           try {
-            const res = await withTimeout(investorV2API.getAllSurgeStocks(), 10000)
+            const res = await withTimeout(investorAPI.getAllSurgeStocks(), 10000)
             sd = this.extractData(res)
-          } catch { /* V2 실패 */ }
-          if (!sd) {
-            const res = await investorAPI.getAllSurgeStocks()
-            sd = this.extractData(res)
-          }
+          } catch { /* 실패 */ }
           this.surgeData = this.flattenInvestorMap(sd)
         } catch { /* ignore */ }
       }
@@ -843,11 +833,10 @@ export default {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
         const [sectorRes, marketRes, leadingRes, nasdaqRes, usdKrwRes] = await Promise.allSettled([
-          withTimeout(marketV2API.getSectors('TODAY'), 5000)
-            .catch(() => null),
-          withTimeout(marketV2API.getStatus().catch(() => marketAPI.getStatus())),
-          withTimeout(marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors())),
-          withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures())),
+          withTimeout(sectorAPI.getSectorTrading('TODAY'), 15000).catch(() => null),
+          withTimeout(marketAPI.getStatus(), 10000),
+          withTimeout(tradingIndicatorAPI.getLeadingSectors(), 10000),
+          withTimeout(tradingIndicatorAPI.getNasdaqFutures(), 10000),
           withTimeout(globalFuturesAPI.getQuote('KRW'), 5000).catch(() => null)
         ])
         let sectorArr = []
@@ -856,16 +845,6 @@ export default {
           const arr = Array.isArray(d) ? d : (d?.sectors || [])
           if (this.hasSectorData(arr)) {
             sectorArr = arr
-          }
-        }
-        if (sectorArr.length === 0) {
-          try {
-            const javaRes = await withTimeout(sectorAPI.getSectorTrading('TODAY'), 120000)
-            const jd = this.extractData(javaRes)
-            const jarr = Array.isArray(jd) ? jd : (jd?.sectors || [])
-            sectorArr = this.hasSectorData(jarr) ? jarr : []
-          } catch (e) {
-            console.warn('[API] Sector Java API 실패:', e.message)
           }
         }
         this.sectorData = sectorArr
@@ -917,17 +896,11 @@ export default {
         this.sections.aiStrategy.loading = true
         this.sections.aiStrategy.error = false
         try {
-          const res = await withTimeout(aiStrategyV2API.getLatest())
+          const res = await withTimeout(aiStrategyAPI.getLatest(), 15000)
           const d = this.extractData(res)
           const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
           if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { /* V2 실패 → Java 폴백 */ }
-        try {
-          const res = await withTimeout(aiStrategyAPI.getLatest())
-          const d = this.extractData(res)
-          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
-          if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { /* Java API도 실패 */ }
+        } catch (e) { /* API 실패 */ }
         this.sections.aiStrategy.error = true
       } catch {
         this.aiStrategyData = null
@@ -943,14 +916,12 @@ export default {
         this.sections.smartMoney.loading = true
         this.sections.smartMoney.error = false
         const [foreignRes, instRes, consecutiveRes, surgeRes] = await Promise.allSettled([
-          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10).catch(() =>
-            investorV2API.getTopTrades('FOREIGN', 10).catch(() =>
-              investorAPI.getTopTrades('FOREIGN', 'BUY', 10))), 10000),
-          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10).catch(() =>
-            investorV2API.getTopTrades('INSTITUTION', 10).catch(() =>
-              investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))), 10000),
-          withTimeout(investorV2API.getAllConsecutiveBuy(3).catch(() => investorAPI.getAllConsecutiveBuy(3))),
-          withTimeout(investorV2API.getAllSurgeStocks().catch(() => investorAPI.getAllSurgeStocks()))
+          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10)
+            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)), 10000),
+          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10)
+            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)), 10000),
+          withTimeout(investorAPI.getAllConsecutiveBuy(3), 10000),
+          withTimeout(investorAPI.getAllSurgeStocks(), 10000)
         ])
         const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
         this.tradesData.foreign = this.hasTradeData(fd) ? fd : []
@@ -976,7 +947,7 @@ export default {
         this.sections.research.loading = true
         this.sections.research.error = false
         const screenerRes = await withTimeout(
-          screenerV2API.getSummary().catch(() => screenerAPI.getSummary()), 15000
+          screenerAPI.getSummary(), 15000
         ).catch(() => null)
         const sd = screenerRes ? this.extractData(screenerRes) : null
         const hasScreener = sd && (sd.magicFormula?.length || sd.lowPeg?.length || sd.turnaround?.length)

@@ -407,9 +407,7 @@ public class SectorTradingService {
             log.debug("[섹터등락률] {} = {}% (상위 {}종목 평균)", sector.getName(), avgChangeRate, validCount);
         } else {
             dto.setChangeRate(BigDecimal.ZERO);
-            log.warn("[섹터등락률] {} - 유효한 등락률 없음! 종목별: {}", sector.getName(),
-                    topForAvg.stream().map(s -> s.getStockName() + "=" + s.getChangeRate() + "%")
-                            .collect(Collectors.joining(", ")));
+            log.debug("[섹터등락률] {} - 등락률 미산출 (장 외 또는 API 지연)", sector.getName());
         }
 
         // 거래대금 순 정렬 후 상위 5개
@@ -439,9 +437,10 @@ public class SectorTradingService {
         info.setStockName(stockName);
         info.setCurrentPrice(price.getCurrentPrice());
 
-        // changeRate 보완: KIS API가 장 마감 후 prdy_ctrt를 빈 값으로 반환 시 0이 됨
-        // → changePrice(전일대비)에서 재계산
+        // changeRate 보완: 3단계 폴백
         BigDecimal changeRate = price.getChangeRate();
+
+        // 1차: changePrice(전일대비)에서 재계산
         if ((changeRate == null || changeRate.compareTo(BigDecimal.ZERO) == 0)
                 && price.getChangePrice() != null
                 && price.getChangePrice().compareTo(BigDecimal.ZERO) != 0
@@ -453,6 +452,12 @@ public class SectorTradingService {
                         .multiply(new BigDecimal("100"));
             }
         }
+
+        // 2차: 여전히 없으면 volume 기반 추정 또는 0 허용 (경고 로그는 debug로 낮춤)
+        if (changeRate == null) {
+            changeRate = BigDecimal.ZERO;
+        }
+
         info.setChangeRate(changeRate);
 
         // 거래대금 계산

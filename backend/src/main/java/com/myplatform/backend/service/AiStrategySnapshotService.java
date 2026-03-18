@@ -137,11 +137,11 @@ public class AiStrategySnapshotService {
     // ========== 스케줄러 (Dual Track) ==========
 
     /**
-     * Track A: 스캘핑 전략 스냅샷 (2분 간격)
+     * Track A: 스캘핑 전략 스냅샷 (5분 간격, Rate Limit 완화)
      * - 장중 09:05 ~ 15:20
      * - 평일만 실행
      */
-    @Scheduled(cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectScalpingSnapshot() {
         LocalTime now = LocalTime.now();
 
@@ -160,37 +160,28 @@ public class AiStrategySnapshotService {
     }
 
     /**
-     * Track B: 중장기 전략 스냅샷 (30분 간격)
+     * Track B: 중장기 전략 스냅샷 (60분 간격, Rate Limit 완화)
+     * - 기존 30분 → 60분으로 변경 (Gemini Rate Limit 방지)
      * - 장중 09:00 ~ 15:30
      * - 평일만 실행
-     * - SWING, TURNAROUND, VALUE 전략 수집
+     * - SWING, TURNAROUND, VALUE 전략을 로테이션 수집 (매 시간 1개씩)
      */
-    @Scheduled(cron = "0 0,30 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectLongTermSnapshots() {
         LocalTime now = LocalTime.now();
+        if (now.isAfter(LocalTime.of(15, 30))) return;
 
-        // 15:30 이후는 스킵
-        if (now.isAfter(LocalTime.of(15, 30))) {
-            return;
-        }
+        // 시간별 로테이션: 9시→SWING, 10시→TURNAROUND, 11시→VALUE, 12시→SWING, ...
+        StrategyType[] rotation = {StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE};
+        int hour = now.getHour();
+        StrategyType target = rotation[(hour - 9) % 3];
 
         try {
-            collectAndSaveSnapshot(StrategyType.SWING);
-            List<AiStrategySnapshot> swingSaved = snapshotRepository.findLatestByStrategyType(StrategyType.SWING);
-            log.info("[Scheduler] SWING Strategy updated: {} stocks saved.", swingSaved.size());
-            Thread.sleep(1000); // API 호출 간격
-
-            collectAndSaveSnapshot(StrategyType.TURNAROUND);
-            List<AiStrategySnapshot> turnaroundSaved = snapshotRepository.findLatestByStrategyType(StrategyType.TURNAROUND);
-            log.info("[Scheduler] TURNAROUND Strategy updated: {} stocks saved.", turnaroundSaved.size());
-            Thread.sleep(1000);
-
-            collectAndSaveSnapshot(StrategyType.VALUE);
-            List<AiStrategySnapshot> valueSaved = snapshotRepository.findLatestByStrategyType(StrategyType.VALUE);
-            log.info("[Scheduler] VALUE Strategy updated: {} stocks saved.", valueSaved.size());
-
+            collectAndSaveSnapshot(target);
+            List<AiStrategySnapshot> saved = snapshotRepository.findLatestByStrategyType(target);
+            log.info("[Scheduler] {} Strategy updated: {} stocks saved.", target.name(), saved.size());
         } catch (Exception e) {
-            log.error("[Scheduler] Long-term strategies update failed: {}", e.getMessage(), e);
+            log.error("[Scheduler] {} Strategy update failed: {}", target.name(), e.getMessage());
         }
     }
 
