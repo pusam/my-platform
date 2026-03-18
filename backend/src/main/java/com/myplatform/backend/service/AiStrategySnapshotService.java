@@ -137,25 +137,22 @@ public class AiStrategySnapshotService {
     // ========== 스케줄러 (Dual Track) ==========
 
     /**
-     * Track A: 스캘핑 전략 스냅샷 (5분 간격, Rate Limit 완화)
+     * Track A: 스캘핑 전략 스냅샷 (30분 간격, Gemini Rate Limit 방지)
+     * - 기존 5분 → 30분 (Gemini 호출이 Rate Limit의 주범)
      * - 장중 09:05 ~ 15:20
-     * - 평일만 실행
      */
-    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0,30 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectScalpingSnapshot() {
         LocalTime now = LocalTime.now();
-
-        // 09:05 이전, 15:20 이후는 스킵
         if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) {
             return;
         }
 
         try {
             collectAndSaveSnapshot(StrategyType.SCALPING);
-            List<AiStrategySnapshot> saved = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
-            log.info("[Scheduler] SCALPING Strategy updated: {} stocks saved.", saved.size());
+            log.info("[Scheduler] SCALPING Strategy updated.");
         } catch (Exception e) {
-            log.error("[Scheduler] SCALPING Strategy update failed: {}", e.getMessage(), e);
+            log.error("[Scheduler] SCALPING update failed: {}", e.getMessage());
         }
     }
 
@@ -1232,11 +1229,27 @@ public class AiStrategySnapshotService {
     private List<AiStrategySnapshot> createFallbackStocks(StrategyType strategyType, LocalDateTime createdAt) {
         log.info("[최종 폴백] {} - 대형주 폴백 사용", strategyType.name());
 
-        String[][] bluechips = {
-                {"005930", "삼성전자"},
-                {"000660", "SK하이닉스"},
-                {"035420", "NAVER"}
-        };
+        // 전략별 차별화된 폴백 종목
+        String[][] bluechips;
+        if (strategyType == StrategyType.SCALPING) {
+            // 스캘핑: 유동성 높은 대형주 (거래량 풍부)
+            bluechips = new String[][]{
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"},
+                    {"005380", "현대차"}, {"035720", "카카오"}, {"035420", "NAVER"}
+            };
+        } else if (strategyType == StrategyType.TURNAROUND) {
+            // 턴어라운드: 실적 반등 기대주
+            bluechips = new String[][]{
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"},
+                    {"105560", "KB금융"}, {"055550", "신한지주"}, {"086790", "하나금융지주"}
+            };
+        } else {
+            // SWING/VALUE: 우량 가치주
+            bluechips = new String[][]{
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"},
+                    {"035420", "NAVER"}, {"105560", "KB금융"}, {"051910", "LG화학"}
+            };
+        }
 
         List<String> codes = Arrays.stream(bluechips).map(b -> b[0]).collect(Collectors.toList());
         Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(codes);
