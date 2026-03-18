@@ -95,6 +95,38 @@
           <div v-else class="empty-signal">추천 종목을 계산 중입니다...</div>
         </div>
 
+        <!-- ②-b 수급 현황 패널 -->
+        <div class="supply-panel section-card" v-if="supplyPanelData">
+          <div class="section-title-row">
+            <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
+          </div>
+          <!-- 당일 순매수 -->
+          <div class="supply-summary">
+            <div class="supply-item" v-for="inv in supplyPanelData.daily" :key="inv.type">
+              <span class="supply-label">{{ inv.label }}</span>
+              <span class="supply-amount" :class="inv.amount >= 0 ? 'positive' : 'negative'">
+                {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
+              </span>
+            </div>
+          </div>
+          <!-- 연속매수 종목 -->
+          <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
+            <div class="supply-sub-title">연속 순매수 종목</div>
+            <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode"
+                 class="supply-stock-row" @click="goToStock(item.stockCode)">
+              <span class="supply-investor-badge" :class="item.investorType === 'FOREIGN' ? 'foreign' : 'inst'">
+                {{ item.investorType === 'FOREIGN' ? '외' : '기' }}
+              </span>
+              <span class="supply-stock-name">{{ item.stockName }}</span>
+              <span class="supply-days">{{ item.consecutiveDays }}일연속</span>
+              <span class="supply-signal" :class="item.isRealRally ? 'real' : 'fake'">
+                {{ item.isRealRally ? '진짜반등' : '주의' }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
+        </div>
+
         <!-- ③ 시간대별 신호 (자동 전환) -->
         <div class="today-signals section-card">
           <div class="section-title-row">
@@ -363,6 +395,7 @@ export default {
       topRecLoading: false,
       topRecDataTime: '',
       topRecRealtime: true,
+      supplyPanelData: null,
       // 시간대별 신호
       phaseLoading: false,
       preMarketData: [],   // 장 전
@@ -573,6 +606,9 @@ export default {
       } catch { this.topRecommendations = [] }
       this.topRecLoading = false
 
+      // 수급 현황 패널
+      this.loadSupplyPanel()
+
       // 선점 레이더 신호
       try {
         const res = await radarAPI.getPolicyNews()
@@ -682,6 +718,43 @@ export default {
         return merged
       }
       return []
+    },
+    async loadSupplyPanel() {
+      try {
+        // 외국인/기관 연속매수 조회
+        const consRes = await investorAPI.getAllConsecutiveBuy(2)
+        const consecutive = this.extractData(consRes) || []
+
+        // 당일 순매수 금액 (상위 매매에서 추출)
+        let foreignNet = 0, instNet = 0
+        try {
+          const fRes = await investorAPI.getTopTrades('FOREIGN', 'BUY', 10)
+          const fData = this.extractData(fRes) || []
+          foreignNet = fData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
+        } catch { /* ignore */ }
+        try {
+          const iRes = await investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)
+          const iData = this.extractData(iRes) || []
+          instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
+        } catch { /* ignore */ }
+
+        // "진짜 반등" 판단: 외국인 3일+ 연속매수 + 양의 등락률
+        const enriched = consecutive.map(item => ({
+          ...item,
+          isRealRally: (item.consecutiveDays || 0) >= 3
+            && (Number(item.changeRate) || 0) > 0
+        }))
+
+        this.supplyPanelData = {
+          daily: [
+            { type: 'foreign', label: '외국인', amount: Math.round(foreignNet) },
+            { type: 'inst', label: '기관', amount: Math.round(instNet) }
+          ],
+          consecutive: enriched
+        }
+      } catch (e) {
+        this.supplyPanelData = { daily: [], consecutive: [] }
+      }
     },
     getScoreBreakdown(rec) {
       const items = [
@@ -1008,6 +1081,26 @@ export default {
 .rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
 .na-text { color: rgba(255,255,255,0.2); font-size: 8px; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
+
+/* ===== 수급 현황 패널 ===== */
+.supply-summary { display: flex; gap: 12px; margin-bottom: 10px; }
+.supply-item { flex: 1; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
+.supply-label { font-size: 13px; color: rgba(255,255,255,0.5); font-weight: 600; }
+.supply-amount { font-size: 16px; font-weight: 800; }
+.supply-amount.positive { color: #ef4444; }
+.supply-amount.negative { color: #3b82f6; }
+.supply-sub-title { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 6px; font-weight: 600; }
+.supply-consecutive { margin-top: 4px; }
+.supply-stock-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
+.supply-stock-row:hover { background: rgba(255,255,255,0.04); }
+.supply-investor-badge { font-size: 10px; font-weight: 800; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.supply-investor-badge.foreign { background: rgba(239,68,68,0.15); color: #ef4444; }
+.supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.supply-stock-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+.supply-days { font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.supply-signal { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+.supply-signal.real { background: rgba(34,197,94,0.15); color: #22c55e; }
+.supply-signal.fake { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
 .phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
