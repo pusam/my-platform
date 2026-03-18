@@ -1392,20 +1392,16 @@ public class AiStrategySnapshotService {
                 }
             }
 
-            // ★ Freshness check: 장중(평일 09:00~15:30)에 2시간 이상 오래된 스냅샷이면 경고 + 빈 응답
+            // ★ Freshness check: 장중에 오래된 스냅샷이면 경고 (하지만 데이터는 반환)
             if (!snapshots.isEmpty()) {
                 LocalDateTime latestCreatedAt = snapshots.get(0).getCreatedAt();
                 LocalDateTime now = LocalDateTime.now();
                 long staleMinutes = Duration.between(latestCreatedAt, now).toMinutes();
-                boolean isTradingHours = now.getDayOfWeek() != DayOfWeek.SATURDAY
-                        && now.getDayOfWeek() != DayOfWeek.SUNDAY
-                        && now.toLocalTime().isAfter(LocalTime.of(9, 0))
-                        && now.toLocalTime().isBefore(LocalTime.of(15, 30));
-                if (isTradingHours && staleMinutes > 120) {
-                    log.warn("[AiStrategy] ⚠ {} 스냅샷 데이터 오래됨! 최신: {} ({}분 전) - 장중 stale 데이터 반환 차단",
-                            type.name(), latestCreatedAt, staleMinutes);
-                    strategies.put(type.name(), Collections.emptyList());
-                    continue;
+                if (staleMinutes > 120) {
+                    log.warn("[AiStrategy] ⚠ {} 스냅샷 {}분 전 데이터 — stale이지만 반환 (빈 응답 방지)",
+                            type.name(), staleMinutes);
+                    // 기존: 빈 리스트 반환 → 종합추천 연쇄 실패
+                    // 변경: stale이라도 데이터 반환 (없는 것보다 나음)
                 }
             }
 

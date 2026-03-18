@@ -354,16 +354,17 @@ public class RecommendationService {
         int calculated = 0, skipped = 0;
         for (StockScore stock : new ArrayList<>(scoreMap.values())) {
             try {
+                // FIX: 60일로 조회 축소 (120일 없는 종목도 커버)
                 List<StockPriceHistory> history = priceHistoryRepository
-                        .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 120));
-                if (history == null || history.size() < 20) { skipped++; continue; }
+                        .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
+                if (history == null || history.size() < 14) { skipped++; continue; }
 
                 List<BigDecimal> prices = history.stream()
                         .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
                         .map(StockPriceHistory::getClosePrice)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-                if (prices.size() < 20) { skipped++; continue; }
+                if (prices.size() < 14) { skipped++; continue; }
 
                 TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(prices);
                 if (indicators == null) { skipped++; continue; }
