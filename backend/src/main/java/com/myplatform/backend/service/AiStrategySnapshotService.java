@@ -307,6 +307,14 @@ public class AiStrategySnapshotService {
      */
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
+        // 안전장치: 최근 24시간 내 스냅샷이 있을 때만 정리 실행
+        LocalDateTime recentCheck = LocalDateTime.now().minusHours(24);
+        List<AiStrategySnapshot> recent = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
+        if (recent.isEmpty() || recent.get(0).getCreatedAt().isBefore(recentCheck)) {
+            log.error("[스냅샷 정리] 최근 24시간 내 스냅샷 없음 → 정리 중단 (데이터 보호)");
+            return;
+        }
+
         LocalDateTime cutoffTime = LocalDateTime.now().minusDays(7);
         int deleted = snapshotRepository.deleteOldSnapshots(cutoffTime);
         log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", 7, deleted);

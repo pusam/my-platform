@@ -57,12 +57,12 @@ public class FinancialDataScheduler {
     }
 
     /**
-     * 매일 15:40 자동 수집 (장 마감 직후)
+     * 매일 15:38 자동 수집 (장 마감 직후, 15:40 AI종가보정과 충돌 방지)
      * - 원버튼 전체 데이터 수집 (4단계)
      */
-    @Scheduled(cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
-        log.info("=== [배치] 15:40 원버튼 전체 데이터 자동 수집 시작 ===");
+        log.info("=== [배치] 15:38 원버튼 전체 데이터 자동 수집 시작 ===");
         try {
             Map<String, Object> result = asyncCrawlerService.collectAllInOneSync();
             boolean success = (boolean) result.getOrDefault("success", false);

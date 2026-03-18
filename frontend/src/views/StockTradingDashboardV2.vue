@@ -99,7 +99,8 @@
           <div v-else class="empty-signal">추천 종목을 계산 중입니다...</div>
           <!-- ⑥ 등급 기준선 범례 -->
           <div class="rec-legend" v-if="topRecommendations.length">
-            <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>60↑ 매수고려</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>75↑ 강력매수</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-buy"></span>60~74 매수고려</span>
             <span class="rec-legend-item"><span class="legend-dot grade-hold"></span>40~59 관망</span>
             <span class="rec-legend-item"><span class="legend-dot grade-exclude"></span>40↓ 제외</span>
           </div>
@@ -616,7 +617,7 @@ export default {
         this.topRecDataTime = body?.dataTime || ''
         this.topRecRealtime = body?.realtime !== false
         this.topRecDelta = body?.delta || {}
-      } catch { this.topRecommendations = [] }
+      } catch { this.topRecommendations = []; this.topRecDelta = {} }
       this.topRecLoading = false
 
       // 수급 현황 패널
@@ -1070,6 +1071,7 @@ export default {
 .rec-legend-item { font-size: 10px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 4px; }
 .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
 .legend-dot.grade-strong { background: #ef4444; }
+.legend-dot.grade-buy { background: #f59e0b; }
 .legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
 .legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
 .rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }

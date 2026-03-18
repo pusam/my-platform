@@ -172,12 +172,13 @@ public class RecommendationService {
     private List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
-        // 각 항목이 독립적으로 종목 추가 (AI전략 실패해도 나머지 동작)
+        // 1단계: 종목 수집 (각 항목이 독립적으로 종목 추가)
         int aiCount = scoreAiStrategy(scoreMap);
         scoreEarnings(scoreMap);
         scoreSupplyDemand(scoreMap);
-        scoreTechnical(scoreMap);
         scoreSectorMomentum(scoreMap);
+        // 2단계: 기술적 점수는 마지막 (모든 종목 수집 후 계산)
+        scoreTechnical(scoreMap);
 
         // 디버그: 각 종목별 유효 항목 수 출력
         for (StockScore s : scoreMap.values()) {
@@ -524,15 +525,25 @@ public class RecommendationService {
                 log.debug("[종합추천] DB 스냅샷 없음");
                 return Collections.emptyList();
             }
-            List<RecommendationDto> result = snapshots.stream().map(s -> RecommendationDto.builder()
+            List<RecommendationDto> result = snapshots.stream().map(s -> {
+                // validCount 복원 (DB에서 로드 시)
+                int vc = 0;
+                if (s.getAiStrategy() > 0) vc++;
+                if (s.getEarnings() > 0) vc++;
+                if (s.getSupplyDemand() > 0) vc++;
+                if (s.getTechnical() > 0) vc++;
+                if (s.getSectorMomentum() > 0) vc++;
+                return RecommendationDto.builder()
                     .stockCode(s.getStockCode()).stockName(s.getStockName())
                     .totalScore(s.getTotalScore())
                     .aiStrategy(s.getAiStrategy()).earnings(s.getEarnings())
                     .supplyDemand(s.getSupplyDemand()).technical(s.getTechnical())
                     .sectorMomentum(s.getSectorMomentum())
+                    .validCount(vc)
                     .tags(s.getTags() != null && !s.getTags().isBlank()
                             ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())
-                    .changeRate(s.getChangeRate()).build()).toList();
+                    .changeRate(s.getChangeRate()).build();
+            }).toList();
 
             cachedTop5 = result;
             cacheTime = snapshots.get(0).getSnapshotAt();
