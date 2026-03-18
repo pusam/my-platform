@@ -73,10 +73,16 @@
                 <div class="rec-detail-bars">
                   <div v-for="item in getScoreBreakdown(rec)" :key="item.key" class="rec-detail-row">
                     <span class="rec-detail-label">{{ item.label }}</span>
-                    <div class="rec-detail-track">
-                      <div class="rec-detail-fill" :style="{ width: (item.score / 20 * 100) + '%', background: item.color }"></div>
-                    </div>
-                    <span class="rec-detail-score" :style="{ color: item.score >= 14 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}</span>
+                    <template v-if="item.isNA">
+                      <div class="rec-detail-track na"><div class="rec-detail-na-line"></div></div>
+                      <span class="rec-detail-score na-text">N/A</span>
+                    </template>
+                    <template v-else>
+                      <div class="rec-detail-track">
+                        <div class="rec-detail-fill" :style="{ width: (item.score / 20 * 100) + '%', background: item.color }"></div>
+                      </div>
+                      <span class="rec-detail-score" :style="{ color: item.score >= 14 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}</span>
+                    </template>
                   </div>
                 </div>
                 <span v-if="rec.changeRate != null" class="rec-change"
@@ -678,13 +684,18 @@ export default {
       return []
     },
     getScoreBreakdown(rec) {
-      return [
-        { key: 'ai', label: 'AI전략', score: rec.aiStrategy || 0, color: '#8b5cf6' },
-        { key: 'earn', label: '실적', score: rec.earnings || 0, color: '#22c55e' },
-        { key: 'supply', label: '수급', score: rec.supplyDemand || 0, color: '#3b82f6' },
-        { key: 'tech', label: '기술적', score: rec.technical || 0, color: '#f59e0b' },
-        { key: 'sector', label: '섹터', score: rec.sectorMomentum || 0, color: '#ef4444' },
+      const items = [
+        { key: 'ai', label: 'AI전략', raw: rec.aiStrategy, color: '#8b5cf6' },
+        { key: 'earn', label: '실적', raw: rec.earnings, color: '#22c55e' },
+        { key: 'supply', label: '수급', raw: rec.supplyDemand, color: '#3b82f6' },
+        { key: 'tech', label: '기술적', raw: rec.technical, color: '#f59e0b' },
+        { key: 'sector', label: '섹터', raw: rec.sectorMomentum, color: '#ef4444' },
       ]
+      return items.map(item => ({
+        ...item,
+        score: item.raw != null && item.raw >= 0 ? item.raw : -1,
+        isNA: item.raw == null || item.raw < 0
+      }))
     },
     getRecGradeClass(score) {
       if (score >= 80) return 'grade-strong'
@@ -992,7 +1003,10 @@ export default {
 .rec-detail-label { font-size: 9px; color: rgba(255,255,255,0.4); width: 32px; text-align: right; flex-shrink: 0; }
 .rec-detail-track { flex: 1; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; min-width: 40px; }
 .rec-detail-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
-.rec-detail-score { font-size: 9px; font-weight: 700; width: 14px; text-align: right; flex-shrink: 0; }
+.rec-detail-score { font-size: 9px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
+.rec-detail-track.na { opacity: 0.3; }
+.rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
+.na-text { color: rgba(255,255,255,0.2); font-size: 8px; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
 .phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
