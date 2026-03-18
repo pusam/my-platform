@@ -21,7 +21,8 @@ public class RecommendationController {
                 "success", true,
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
-                "realtime", response.isRealtime()
+                "realtime", response.isRealtime(),
+                "delta", response.getDelta()
         ));
     }
 }

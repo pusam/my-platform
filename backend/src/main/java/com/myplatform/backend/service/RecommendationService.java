@@ -21,10 +21,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * AI 종합 추천 TOP 5 — 차등 스코어링 엔진
+ * AI 종합 추천 TOP 5 — 차등 스코어링 엔진 v3
  *
  * 5개 항목 각 /20, 합계 /100
- * 데이터 없는 항목 = -1 (N/A) → 배점 제외 후 점수 재계산
+ * 데이터 없는 항목 = -1 (N/A) → 유효 항목만으로 100점 환산
+ * 전일 대비 delta 표시
  */
 @Service
 @Slf4j
@@ -58,48 +59,72 @@ public class RecommendationService {
         if (trading) {
             if (cachedTop5 != null && cacheTime != null
                     && cacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
-                return new Top5Response(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", true);
+                return buildResponse(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", true);
             }
             try {
                 List<RecommendationDto> result = calculate();
                 if (!result.isEmpty()) {
                     cachedTop5 = result;
                     cacheTime = now;
-                    return new Top5Response(result, now.format(TIME_FMT) + " 기준", true);
+                    return buildResponse(result, now.format(TIME_FMT) + " 기준", true);
                 }
             } catch (Exception e) {
                 log.error("[종합추천] 실시간 계산 실패: {}", e.getMessage());
             }
         }
 
-        // ② 인메모리 캐시 (장 외에도 유효 — 만료 없음)
+        // ② 인메모리 캐시 (장 외에도 유효)
         if (cachedTop5 != null && !cachedTop5.isEmpty()) {
             String label = cacheTime != null ? cacheTime.format(TIME_FMT) + " 기준" : "캐시 데이터";
-            return new Top5Response(cachedTop5, label, false);
+            return buildResponse(cachedTop5, label, false);
         }
 
         // ③ DB 스냅샷에서 복원
         List<RecommendationDto> fromDb = loadFromDb();
         if (!fromDb.isEmpty()) {
-            return new Top5Response(fromDb, getSnapshotTimeLabel(), false);
+            return buildResponse(fromDb, getSnapshotTimeLabel(), false);
         }
 
-        // ④ 최후 수단: 장 외라도 실시간 계산 시도
+        // ④ 최후 수단: 장 외라도 실시간 계산
         try {
             List<RecommendationDto> result = calculate();
             if (!result.isEmpty()) {
                 cachedTop5 = result;
                 cacheTime = now;
-                return new Top5Response(result, now.format(TIME_FMT) + " 기준", false);
+                return buildResponse(result, now.format(TIME_FMT) + " 기준", false);
             }
         } catch (Exception e) {
             log.debug("[종합추천] 장 외 폴백 계산 실패: {}", e.getMessage());
         }
 
-        return new Top5Response(Collections.emptyList(), "", false);
+        return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap());
     }
 
-    /** 장 마감 후 DB에 스냅샷 저장 — 평일 15:45 */
+    /** ⑦ 전일 대비 delta 계산 */
+    private Top5Response buildResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
+        Map<String, Integer> deltaMap = new HashMap<>();
+        try {
+            // 현재 스냅샷 시점 기준으로 이전 스냅샷 조회
+            LocalDateTime cutoff = cacheTime != null ? cacheTime.minusHours(20) : LocalDateTime.now().minusDays(1);
+            List<RecommendationSnapshot> prev = snapshotRepository.findPreviousSnapshot(cutoff);
+            if (!prev.isEmpty()) {
+                Map<String, Integer> prevScores = new HashMap<>();
+                for (RecommendationSnapshot s : prev) {
+                    prevScores.put(s.getStockCode(), s.getTotalScore());
+                }
+                for (RecommendationDto dto : items) {
+                    Integer prevScore = prevScores.get(dto.getStockCode());
+                    if (prevScore != null) {
+                        deltaMap.put(dto.getStockCode(), dto.getTotalScore() - prevScore);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[종합추천] delta 계산 실패: {}", e.getMessage());
+        }
+        return new Top5Response(items, dataTime, realtime, deltaMap);
+    }
+
     @Scheduled(cron = "0 45 15 * * MON-FRI")
     @Transactional
     public void saveClosingSnapshot() {
@@ -167,6 +192,7 @@ public class RecommendationService {
     }
 
     // ==================== ① AI전략 신호 (/20) ====================
+    // FIX ③: 1위 8점 + aiScore 보너스 최대 8점 + 복수전략 4점 = 최대 20점
 
     private void scoreAiStrategy(Map<String, StockScore> scoreMap) {
         try {
@@ -184,12 +210,17 @@ public class RecommendationService {
                     StockScore score = scoreMap.computeIfAbsent(snap.getStockCode(),
                             k -> new StockScore(k, snap.getStockName()));
 
-                    int rankPoints = (i == 0) ? 6 : (i == 1) ? 4 : 2;
+                    // FIX: 순위 기본점 상향 (1위 8점, 2위 5점, 3위 3점)
+                    int rankPoints = (i == 0) ? 8 : (i == 1) ? 5 : 3;
+
+                    // aiScore 보너스 (0~100 → 0~8점)
                     int aiBonus = 0;
                     if (snap.getAiScore() != null && snap.getAiScore() > 0) {
-                        aiBonus = Math.min(8, snap.getAiScore() / 12);
+                        aiBonus = Math.min(8, snap.getAiScore() * 8 / 100);
                     }
-                    int multiBonus = (score.aiStrategy > 0) ? 3 : 0;
+
+                    // 복수 전략 등장 보너스: +4 (기존 3)
+                    int multiBonus = (score.aiStrategy > 0) ? 4 : 0;
 
                     score.aiStrategy = Math.min(20, score.aiStrategy + rankPoints + aiBonus + multiBonus);
 
@@ -244,13 +275,11 @@ public class RecommendationService {
     }
 
     // ==================== ③ 기관/외국인 수급 (/20) ====================
-    // FIX: minDays를 2로 낮추고, 단일 투자자 데이터도 활용
+    // FIX ①: minDays 2로 완화 + 디버그 로그
 
     private void scoreSupplyDemand(Map<String, StockScore> scoreMap) {
         int foreignCount = 0, instCount = 0;
-
         try {
-            // 외국인 연속매수 (최소 2일로 완화 — 기존 3일이면 데이터 없는 경우 多)
             List<ConsecutiveBuyDto> foreign = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 2);
             if (foreign != null && !foreign.isEmpty()) {
                 foreignCount = foreign.size();
@@ -258,24 +287,19 @@ public class RecommendationService {
                     if (cb.getStockCode() == null) continue;
                     StockScore score = scoreMap.computeIfAbsent(cb.getStockCode(),
                             k -> new StockScore(k, cb.getStockName()));
-
                     int days = cb.getConsecutiveDays() != null ? cb.getConsecutiveDays() : 2;
                     double avgAmount = safeDouble(cb.getAvgDailyAmount());
 
-                    // 일수: 2일 4점, 3일 6점, 4일 8점, 5일+ 10점
                     int dayPoints = (days >= 5) ? 10 : (days >= 4) ? 8 : (days >= 3) ? 6 : 4;
-                    // 금액 보너스: 50억+ 4점, 20억+ 2점, 5억+ 1점
                     int amountBonus = (avgAmount >= 50) ? 4 : (avgAmount >= 20) ? 2 : (avgAmount >= 5) ? 1 : 0;
 
                     score.supplyDemand = Math.min(20, score.supplyDemand + dayPoints + amountBonus);
-
                     String amountStr = avgAmount >= 1 ? String.format("(일%.0f억)", avgAmount) : "";
                     score.tags.add("외국인" + days + "일연속" + amountStr);
                     if (cb.getChangeRate() != null) score.changeRate = cb.getChangeRate();
                 }
             }
 
-            // 기관 연속매수
             List<ConsecutiveBuyDto> inst = investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 2);
             if (inst != null && !inst.isEmpty()) {
                 instCount = inst.size();
@@ -283,7 +307,6 @@ public class RecommendationService {
                     if (cb.getStockCode() == null) continue;
                     StockScore score = scoreMap.computeIfAbsent(cb.getStockCode(),
                             k -> new StockScore(k, cb.getStockName()));
-
                     int days = cb.getConsecutiveDays() != null ? cb.getConsecutiveDays() : 2;
                     double avgAmount = safeDouble(cb.getAvgDailyAmount());
 
@@ -294,34 +317,28 @@ public class RecommendationService {
                     score.tags.add("기관" + days + "일연속");
                 }
             }
-
-            log.debug("[종합추천] 수급 데이터: 외국인 {}건, 기관 {}건", foreignCount, instCount);
+            log.debug("[종합추천] 수급: 외국인 {}건, 기관 {}건", foreignCount, instCount);
         } catch (Exception e) {
             log.warn("[종합추천] 수급 스코어 실패: {}", e.getMessage());
         }
     }
 
     // ==================== ④ 기술적 위치 (/20) ====================
-    // FIX: buySignalStrength 선형 스케일링 (정수 나눗셈 → 비례 변환)
+    // FIX ②: 선형 스케일링 + 세분화된 RSI/이평선 차등
 
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
         int calculated = 0, skipped = 0;
-
         for (StockScore stock : scoreMap.values()) {
             try {
                 List<StockPriceHistory> history = priceHistoryRepository
                         .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 120));
-                if (history == null || history.size() < 20) {
-                    skipped++;
-                    continue;
-                }
+                if (history == null || history.size() < 20) { skipped++; continue; }
 
                 List<BigDecimal> prices = history.stream()
                         .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
                         .map(StockPriceHistory::getClosePrice)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-
                 if (prices.size() < 20) { skipped++; continue; }
 
                 TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(prices);
@@ -329,83 +346,68 @@ public class RecommendationService {
 
                 int techScore = 0;
 
-                // FIX: 선형 비례 스케일링 (0~100 → 0~12점)
-                // 기존: bss / 7 (정수 나눗셈, 대부분 8~10 고정)
-                // 변경: bss * 12 / 100 (0=0, 50=6, 75=9, 100=12)
+                // FIX: buySignalStrength 선형 변환 (0~100 → 0~12점)
                 Integer bss = indicators.getBuySignalStrength();
                 if (bss != null) {
                     techScore += Math.min(12, bss * 12 / 100);
                 }
 
-                // RSI 차등 (기존보다 세분화)
+                // RSI 차등
                 BigDecimal rsi = indicators.getRsi14();
                 if (rsi != null) {
-                    double rsiVal = rsi.doubleValue();
-                    if (rsiVal >= 45 && rsiVal <= 55) techScore += 3;       // 이상적 중립
-                    else if (rsiVal >= 40 && rsiVal <= 60) techScore += 2;  // 안정 영역
-                    else if (rsiVal >= 30 && rsiVal < 40) techScore += 2;   // 과매도 근접 = 기회
-                    else if (rsiVal < 30) techScore += 1;                    // 과매도 = 리스크
-                    // 60~70: 0점 (과열 진입), 70+: 0점 (과열)
+                    double rv = rsi.doubleValue();
+                    if (rv >= 45 && rv <= 55) techScore += 3;
+                    else if (rv >= 40 && rv <= 60) techScore += 2;
+                    else if (rv >= 30 && rv < 40) techScore += 2;
+                    else if (rv < 30) techScore += 1;
                 }
 
-                // 정배열/골든크로스 — 둘 다 있으면 최대 +5
-                if (Boolean.TRUE.equals(indicators.getIsGoldenCross())) techScore += 3;
-                else if (Boolean.TRUE.equals(indicators.getIsArrangedUp())) techScore += 2;
+                // 정배열/골든크로스 (중복 방지, 최대 +5)
+                boolean gc = Boolean.TRUE.equals(indicators.getIsGoldenCross());
+                boolean au = Boolean.TRUE.equals(indicators.getIsArrangedUp());
+                if (gc && au) techScore += 5;
+                else if (gc) techScore += 3;
+                else if (au) techScore += 2;
 
                 stock.technical = Math.min(20, techScore);
 
-                // 태그
-                if (Boolean.TRUE.equals(indicators.getIsGoldenCross())) stock.tags.add("골든크로스");
-                else if (Boolean.TRUE.equals(indicators.getIsArrangedUp())) stock.tags.add("정배열");
-                if (rsi != null) {
-                    int rsiInt = rsi.intValue();
-                    if (rsiInt < 35) stock.tags.add("RSI" + rsiInt);
-                    else if (rsiInt > 70) stock.tags.add("RSI과열" + rsiInt);
-                }
-                if (bss != null) stock.tags.add("기술" + bss + "점");
+                if (gc) stock.tags.add("골든크로스");
+                else if (au) stock.tags.add("정배열");
+                if (rsi != null && rsi.intValue() < 35) stock.tags.add("RSI" + rsi.intValue());
 
                 calculated++;
             } catch (Exception e) {
                 skipped++;
-                log.debug("[종합추천] 기술적 스코어 실패 {}: {}", stock.stockCode, e.getMessage());
+                log.debug("[종합추천] 기술적 실패 {}: {}", stock.stockCode, e.getMessage());
             }
         }
-        log.debug("[종합추천] 기술적: 계산 {}건, 스킵 {}건", calculated, skipped);
+        log.debug("[종합추천] 기술적: {}건 계산, {}건 스킵", calculated, skipped);
     }
 
     // ==================== ⑤ 섹터 모멘텀 (/20) ====================
-    // FIX: 섹터 매칭 로직 개선 + AI테마만으로도 점수 부여
+    // FIX ①: 섹터 매칭 로직 개선 + AI테마만으로도 최소 점수
 
     private void scoreSectorMomentum(Map<String, StockScore> scoreMap) {
-        // 섹터 로테이션 데이터
         List<SectorRotationDto> topSectors = new ArrayList<>();
         try {
             List<SectorRotationDto> rotations = sectorTradingService.getSectorRotation();
             if (rotations != null && !rotations.isEmpty()) {
-                // 상위 섹터만 필터 (등락률 > 0 OR 자금유입)
                 topSectors = rotations.stream()
-                        .filter(r -> safeDouble(r.getAvgChangeRate()) > 0
-                                || "INFLOW".equals(r.getFlowDirection()))
-                        .sorted(Comparator.comparing(
-                                r -> safeDouble(r.getAvgChangeRate()),
-                                Comparator.reverseOrder()))
+                        .filter(r -> safeDouble(r.getAvgChangeRate()) > 0 || "INFLOW".equals(r.getFlowDirection()))
+                        .sorted(Comparator.comparing(r -> safeDouble(r.getAvgChangeRate()), Comparator.reverseOrder()))
                         .limit(10)
                         .collect(Collectors.toList());
-                log.debug("[종합추천] 섹터 로테이션 로드: {}개 섹터 (상위 {}개)", rotations.size(), topSectors.size());
             }
         } catch (Exception e) {
-            log.debug("[종합추천] 섹터 로테이션 로드 실패: {}", e.getMessage());
+            log.debug("[종합추천] 섹터 로테이션 실패: {}", e.getMessage());
         }
 
-        // 전체 시장 분위기 점수 (상위 섹터 평균 등락률 기반)
         int marketMoodBonus = 0;
         if (!topSectors.isEmpty()) {
-            double avgTopChange = topSectors.stream()
-                    .mapToDouble(r -> safeDouble(r.getAvgChangeRate()))
-                    .average().orElse(0);
-            if (avgTopChange > 2.0) marketMoodBonus = 6;
-            else if (avgTopChange > 1.0) marketMoodBonus = 4;
-            else if (avgTopChange > 0.3) marketMoodBonus = 2;
+            double avg = topSectors.stream().mapToDouble(r -> safeDouble(r.getAvgChangeRate())).average().orElse(0);
+            if (avg > 2.0) marketMoodBonus = 6;
+            else if (avg > 1.0) marketMoodBonus = 4;
+            else if (avg > 0.3) marketMoodBonus = 2;
         }
 
         try {
@@ -419,36 +421,33 @@ public class RecommendationService {
                     StockScore score = scoreMap.get(snap.getStockCode());
                     if (score == null) continue;
 
-                    int sectorScore = 0;
+                    int ss = 0;
 
-                    // AI 테마 태그 기반 (0~10점) — 테마 있으면 무조건 최소 점수 부여
                     String themes = snap.getAiThemes();
                     if (themes != null && !themes.isBlank()) {
                         int tagCount = themes.split(",").length;
-                        sectorScore += Math.min(10, 4 + tagCount * 2);
+                        ss += Math.min(10, 4 + tagCount * 2);
                     }
 
-                    // 시장 분위기 보너스 (전체 시장 기반, 0~6)
-                    sectorScore += marketMoodBonus;
+                    ss += marketMoodBonus;
 
-                    // 종목 자체 등락률 보너스 (0~4)
                     if (snap.getChangeRate() != null) {
                         double cr = snap.getChangeRate().doubleValue();
-                        if (cr > 3.0) sectorScore += 4;
-                        else if (cr > 1.5) sectorScore += 3;
-                        else if (cr > 0.5) sectorScore += 2;
-                        else if (cr > 0) sectorScore += 1;
+                        if (cr > 3.0) ss += 4;
+                        else if (cr > 1.5) ss += 3;
+                        else if (cr > 0.5) ss += 2;
+                        else if (cr > 0) ss += 1;
                     }
 
-                    score.sectorMomentum = Math.min(20, Math.max(score.sectorMomentum, sectorScore));
+                    score.sectorMomentum = Math.min(20, Math.max(score.sectorMomentum, ss));
                 }
             }
         } catch (Exception e) {
-            log.debug("[종합추천] 섹터 모멘텀 스코어 실패: {}", e.getMessage());
+            log.debug("[종합추천] 섹터 모멘텀 실패: {}", e.getMessage());
         }
     }
 
-    // ==================== N/A 보정 ====================
+    // ==================== N/A 보정 (FIX ⑤) ====================
 
     private int countValidCategories(StockScore s) {
         int count = 0;
@@ -460,7 +459,7 @@ public class RecommendationService {
         return count;
     }
 
-    // ==================== DB 복원 ====================
+    // ==================== DB 복원 (FIX ④) ====================
 
     private List<RecommendationDto> loadFromDb() {
         try {
@@ -469,8 +468,6 @@ public class RecommendationService {
                 log.debug("[종합추천] DB 스냅샷 없음");
                 return Collections.emptyList();
             }
-
-            // 캐시에도 저장
             List<RecommendationDto> result = snapshots.stream().map(s -> RecommendationDto.builder()
                     .stockCode(s.getStockCode()).stockName(s.getStockName())
                     .totalScore(s.getTotalScore())
@@ -481,10 +478,8 @@ public class RecommendationService {
                             ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())
                     .changeRate(s.getChangeRate()).build()).toList();
 
-            // 인메모리 캐시도 갱신
             cachedTop5 = result;
             cacheTime = snapshots.get(0).getSnapshotAt();
-
             log.info("[종합추천] DB 스냅샷 {}건 복원 (시점: {})", result.size(), cacheTime);
             return result;
         } catch (Exception e) {
@@ -494,14 +489,7 @@ public class RecommendationService {
     }
 
     private String getSnapshotTimeLabel() {
-        try {
-            List<RecommendationSnapshot> snapshots = snapshotRepository.findLatestSnapshot();
-            if (!snapshots.isEmpty()) {
-                return snapshots.get(0).getSnapshotAt().format(TIME_FMT) + " 기준 (종가)";
-            }
-        } catch (Exception e) {
-            log.debug("[종합추천] 스냅샷 시점 조회 실패");
-        }
+        if (cacheTime != null) return cacheTime.format(TIME_FMT) + " 기준 (종가)";
         return "이전 데이터";
     }
 
@@ -525,8 +513,7 @@ public class RecommendationService {
                 : (validCount > 0) ? Math.min(100, rawTotal * 5 / validCount) : 0;
 
         return RecommendationDto.builder()
-                .stockCode(s.stockCode)
-                .stockName(s.stockName)
+                .stockCode(s.stockCode).stockName(s.stockName)
                 .totalScore(normalizedTotal)
                 .aiStrategy(s.aiStrategy)
                 .earnings(s.earnings > 0 ? s.earnings : NA)
@@ -534,8 +521,7 @@ public class RecommendationService {
                 .technical(s.technical > 0 ? s.technical : NA)
                 .sectorMomentum(s.sectorMomentum > 0 ? s.sectorMomentum : NA)
                 .tags(new ArrayList<>(s.tags))
-                .changeRate(s.changeRate)
-                .build();
+                .changeRate(s.changeRate).build();
     }
 
     // ==================== Inner Classes ====================
@@ -551,10 +537,7 @@ public class RecommendationService {
         Set<String> tags = new LinkedHashSet<>();
         BigDecimal changeRate;
 
-        StockScore(String stockCode, String stockName) {
-            this.stockCode = stockCode;
-            this.stockName = stockName;
-        }
+        StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
             int valid = 0, sum = 0;
@@ -587,5 +570,6 @@ public class RecommendationService {
         private final List<RecommendationDto> items;
         private final String dataTime;
         private final boolean realtime;
+        private final Map<String, Integer> delta; // ⑦ 전일 대비 점수 변동
     }
 }

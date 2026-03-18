@@ -65,6 +65,10 @@
                 <div class="rec-score-head">
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
                   <span class="rec-score-max">/ 100</span>
+                  <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
+                        :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
+                    {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
+                  </span>
                   <span class="rec-grade" :class="getRecGradeClass(rec.totalScore)">
                     {{ getRecGradeLabel(rec.totalScore) }}
                   </span>
@@ -93,6 +97,12 @@
             </div>
           </div>
           <div v-else class="empty-signal">추천 종목을 계산 중입니다...</div>
+          <!-- ⑥ 등급 기준선 범례 -->
+          <div class="rec-legend" v-if="topRecommendations.length">
+            <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>60↑ 매수고려</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-hold"></span>40~59 관망</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-exclude"></span>40↓ 제외</span>
+          </div>
         </div>
 
         <!-- ②-b 수급 현황 패널 -->
@@ -100,25 +110,32 @@
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
           </div>
-          <!-- 당일 순매수 -->
+          <!-- 당일 순매수 (코스피/코스닥) -->
           <div class="supply-summary">
             <div class="supply-item" v-for="inv in supplyPanelData.daily" :key="inv.type">
-              <span class="supply-label">{{ inv.label }}</span>
-              <span class="supply-amount" :class="inv.amount >= 0 ? 'positive' : 'negative'">
-                {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
-              </span>
+              <div class="supply-item-head">
+                <span class="supply-label">{{ inv.label }}</span>
+                <span class="supply-amount" :class="inv.amount >= 0 ? 'positive' : 'negative'">
+                  {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
+                </span>
+              </div>
             </div>
+          </div>
+          <!-- 시장 분위기 인디케이터 -->
+          <div v-if="supplyPanelData.rallySignal" class="rally-indicator" :class="supplyPanelData.rallySignal.type">
+            <span class="rally-icon">{{ supplyPanelData.rallySignal.type === 'real' ? '🟢' : '🔴' }}</span>
+            <span class="rally-text">{{ supplyPanelData.rallySignal.message }}</span>
           </div>
           <!-- 연속매수 종목 -->
           <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
             <div class="supply-sub-title">연속 순매수 종목</div>
-            <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode"
+            <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
                  class="supply-stock-row" @click="goToStock(item.stockCode)">
               <span class="supply-investor-badge" :class="item.investorType === 'FOREIGN' ? 'foreign' : 'inst'">
                 {{ item.investorType === 'FOREIGN' ? '외' : '기' }}
               </span>
               <span class="supply-stock-name">{{ item.stockName }}</span>
-              <span class="supply-days">{{ item.consecutiveDays }}일연속</span>
+              <span class="supply-days">{{ item.consecutiveDays }}일</span>
               <span class="supply-signal" :class="item.isRealRally ? 'real' : 'fake'">
                 {{ item.isRealRally ? '진짜반등' : '주의' }}
               </span>
@@ -395,6 +412,7 @@ export default {
       topRecLoading: false,
       topRecDataTime: '',
       topRecRealtime: true,
+      topRecDelta: {},
       supplyPanelData: null,
       // 시간대별 신호
       phaseLoading: false,
@@ -603,6 +621,7 @@ export default {
         this.topRecommendations = (body?.data) || []
         this.topRecDataTime = body?.dataTime || ''
         this.topRecRealtime = body?.realtime !== false
+        this.topRecDelta = body?.delta || {}
       } catch { this.topRecommendations = [] }
       this.topRecLoading = false
 
@@ -721,11 +740,11 @@ export default {
     },
     async loadSupplyPanel() {
       try {
-        // 외국인/기관 연속매수 조회
+        // 연속매수 조회
         const consRes = await investorAPI.getAllConsecutiveBuy(2)
         const consecutive = this.extractData(consRes) || []
 
-        // 당일 순매수 금액 (상위 매매에서 추출)
+        // 당일 순매수 금액
         let foreignNet = 0, instNet = 0
         try {
           const fRes = await investorAPI.getTopTrades('FOREIGN', 'BUY', 10)
@@ -738,11 +757,23 @@ export default {
           instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
         } catch { /* ignore */ }
 
-        // "진짜 반등" 판단: 외국인 3일+ 연속매수 + 양의 등락률
+        // 진짜 반등 판단: 외국인 3일+ 연속 + 양의 등락률 + 순매수 양
+        const foreignConsecutive = consecutive.filter(c => c.investorType === 'FOREIGN')
+        const has3DayForeignBuy = foreignConsecutive.some(c => (c.consecutiveDays || 0) >= 3)
+        const foreignBuying = foreignNet > 0
+
+        let rallySignal = null
+        if (has3DayForeignBuy && foreignBuying) {
+          rallySignal = { type: 'real', message: '외국인 3일+ 연속 순매수 — 진짜 반등 가능성' }
+        } else if (!foreignBuying && instNet <= 0) {
+          rallySignal = { type: 'fake', message: '외국인·기관 모두 순매도 — 주의' }
+        } else if (!foreignBuying) {
+          rallySignal = { type: 'fake', message: '외국인 순매도 + 기관만 매수 — 주의' }
+        }
+
         const enriched = consecutive.map(item => ({
           ...item,
-          isRealRally: (item.consecutiveDays || 0) >= 3
-            && (Number(item.changeRate) || 0) > 0
+          isRealRally: (item.consecutiveDays || 0) >= 3 && (Number(item.changeRate) || 0) > 0
         }))
 
         this.supplyPanelData = {
@@ -750,10 +781,11 @@ export default {
             { type: 'foreign', label: '외국인', amount: Math.round(foreignNet) },
             { type: 'inst', label: '기관', amount: Math.round(instNet) }
           ],
-          consecutive: enriched
+          consecutive: enriched,
+          rallySignal
         }
       } catch (e) {
-        this.supplyPanelData = { daily: [], consecutive: [] }
+        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null }
       }
     },
     getScoreBreakdown(rec) {
@@ -771,13 +803,13 @@ export default {
       }))
     },
     getRecGradeClass(score) {
-      if (score >= 80) return 'grade-strong'
+      if (score >= 75) return 'grade-strong'
       if (score >= 60) return 'grade-buy'
       if (score >= 40) return 'grade-hold'
       return 'grade-exclude'
     },
     getRecGradeLabel(score) {
-      if (score >= 80) return '🔴 강력매수'
+      if (score >= 75) return '🔴 강력매수'
       if (score >= 60) return '🟡 매수고려'
       if (score >= 40) return '⚪ 관망'
       return '🔵 제외'
@@ -1056,7 +1088,17 @@ export default {
   background: rgba(102,126,234,0.12); color: #8b9cf7; font-weight: 600;
 }
 .rec-score-area { min-width: 160px; text-align: right; }
-.rec-score-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; margin-bottom: 4px; }
+.rec-score-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; margin-bottom: 4px; flex-wrap: wrap; }
+.rec-delta { font-size: 11px; font-weight: 700; padding: 0 3px; border-radius: 3px; }
+.rec-delta.positive { color: #ef4444; background: rgba(239,68,68,0.1); }
+.rec-delta.negative { color: #3b82f6; background: rgba(59,130,246,0.1); }
+/* 등급 기준선 범례 */
+.rec-legend { display: flex; justify-content: center; gap: 12px; padding: 8px 0 4px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 8px; }
+.rec-legend-item { font-size: 10px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 4px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+.legend-dot.grade-strong { background: #ef4444; }
+.legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
+.legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
 .rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
 .rec-score-max { font-size: 11px; color: rgba(255,255,255,0.3); }
 .rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
@@ -1101,6 +1143,13 @@ export default {
 .supply-signal { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
 .supply-signal.real { background: rgba(34,197,94,0.15); color: #22c55e; }
 .supply-signal.fake { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.supply-item-head { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+/* 시장 반등 인디케이터 */
+.rally-indicator { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
+.rally-indicator.real { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); color: #22c55e; }
+.rally-indicator.fake { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #ef4444; }
+.rally-icon { font-size: 14px; }
+.rally-text { flex: 1; }
 .phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
 .phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
 .phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }

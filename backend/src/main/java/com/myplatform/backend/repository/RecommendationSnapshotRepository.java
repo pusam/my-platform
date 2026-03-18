@@ -17,6 +17,12 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
             "ORDER BY r.rankOrder ASC")
     List<RecommendationSnapshot> findLatestSnapshot();
 
+    /** 특정 시점 이전의 가장 최근 스냅샷 (전일 대비 delta 계산용) */
+    @Query(value = "SELECT r FROM RecommendationSnapshot r " +
+            "WHERE r.snapshotAt = (SELECT MAX(r2.snapshotAt) FROM RecommendationSnapshot r2 WHERE r2.snapshotAt < :before) " +
+            "ORDER BY r.rankOrder ASC")
+    List<RecommendationSnapshot> findPreviousSnapshot(@Param("before") LocalDateTime before);
+
     /** 오래된 스냅샷 정리 (7일 이전) */
     @Modifying
     @Query("DELETE FROM RecommendationSnapshot r WHERE r.snapshotAt < :cutoff")
