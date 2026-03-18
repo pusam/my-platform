@@ -64,7 +64,7 @@
               <div class="rec-score-area">
                 <div class="rec-score-head">
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
-                  <span class="rec-score-max">/ 100</span>
+                  <span class="rec-score-basis">{{ rec.validCount }}/5항목</span>
                   <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
                         :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
                     {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
@@ -1075,7 +1075,7 @@ export default {
 .legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
 .legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
 .rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
-.rec-score-max { font-size: 11px; color: rgba(255,255,255,0.3); }
+.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.25); margin-left: 2px; }
 .rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
 .rec-grade.grade-strong { color: #ef4444; }
 .rec-grade.grade-buy { color: #f59e0b; }
