@@ -917,8 +917,14 @@ public class StockAnalysisService {
      */
     /**
      * 특정 종목의 일봉 데이터를 KIS API에서 가져와 DB에 저장
+     * 이중 수집 방지: 진행 중인 종목은 스킵
      */
+    private final Set<String> collectingStocks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     public void collectPriceHistory(String stockCode) {
+        if (!collectingStocks.add(stockCode)) {
+            return; // 이미 수집 중
+        }
         try {
             List<KoreaInvestmentService.OhlcvData> ohlcv = koreaInvestmentService.getDailyOhlcv(stockCode, 60);
             if (ohlcv != null && !ohlcv.isEmpty()) {
@@ -926,6 +932,8 @@ public class StockAnalysisService {
             }
         } catch (Exception e) {
             log.debug("일봉 수집 실패 {}: {}", stockCode, e.getMessage());
+        } finally {
+            collectingStocks.remove(stockCode);
         }
     }
 

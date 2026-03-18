@@ -147,7 +147,7 @@ public class SectorTradingService {
      * - stockPriceService.getStockPrices()로 전체 종목 시세 조회
      * - accumulatedTradingValue를 시간별로 저장
      */
-    @Scheduled(cron = "0 */1 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */3 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSnapshotCollection() {
         LocalTime now = LocalTime.now();
         if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
