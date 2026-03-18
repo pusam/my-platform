@@ -396,21 +396,17 @@ public class RecommendationService {
 
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
         int calc = 0, fallback = 0, skip = 0;
+        // 부족 종목은 모아뒀다가 비동기로 수집 (API 응답 블로킹 방지)
+        List<String> needsCollection = new ArrayList<>();
+
         for (StockScore stock : new ArrayList<>(scoreMap.values())) {
             try {
                 List<StockPriceHistory> history = priceHistoryRepository
                         .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
 
-                // 가격 히스토리 부족 시 자동 수집 시도
                 if (history == null || history.size() < 5) {
-                    try {
-                        stockAnalysisService.collectPriceHistory(stock.stockCode);
-                        history = priceHistoryRepository
-                                .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
-                    } catch (Exception ex) { /* 수집 실패 무시 */ }
-                }
-
-                if (history == null || history.size() < 5) {
+                    needsCollection.add(stock.stockCode);
+                    // 즉시 폴백 점수 부여 (수집은 나중에 비동기)
                     if (stock.changeRate != null) {
                         double cr = stock.changeRate.doubleValue();
                         stock.technical = (cr > 2.0) ? 8 : (cr > 0) ? 5 : (cr > -2.0) ? 3 : 1;
@@ -455,6 +451,18 @@ public class RecommendationService {
             } catch (Exception e) { skip++; }
         }
         log.debug("[종합추천] 기술: {}건 계산, {}건 폴백, {}건 스킵", calc, fallback, skip);
+
+        // 부족 종목 비동기 수집 (다음 calculate() 호출 시 사용 가능)
+        if (!needsCollection.isEmpty()) {
+            log.info("[종합추천] 가격히스토리 부족 {}종목 → 비동기 수집 예약", needsCollection.size());
+            new Thread(() -> {
+                for (String code : needsCollection) {
+                    try {
+                        stockAnalysisService.collectPriceHistory(code);
+                    } catch (Exception e) { /* 무시 */ }
+                }
+            }, "price-history-collector").start();
+        }
     }
 
     // ==================== N/A & Util ====================
