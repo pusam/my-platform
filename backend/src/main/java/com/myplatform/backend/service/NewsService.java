@@ -210,15 +210,17 @@ public class NewsService {
             }
 
             try {
-                // AI로 요약 및 감성 분석
-                SummaryResult result = summarizeWithAi(item.title, item.description);
+                // Gemini 호출 제거 — 원문 그대로 저장 (Gemini 쿼터를 AI전략용으로 확보)
+                String summary = item.description;
+                if (summary != null && summary.length() > 500) {
+                    summary = summary.substring(0, 500) + "...";
+                }
 
-                // DB에 저장
                 NewsSummary news = new NewsSummary();
                 news.setTitle(item.title);
                 news.setOriginalContent(item.description);
-                news.setSummary(result.summary);
-                news.setSentiment(result.sentiment);
+                news.setSummary(summary != null ? summary : item.title);
+                news.setSentiment("NEUTRAL");
                 news.setSourceName(item.sourceName);
                 news.setSourceUrl(item.link);
                 news.setPublishedAt(item.publishedAt);
@@ -226,13 +228,10 @@ public class NewsService {
 
                 newsSummaryRepository.save(news);
                 count++;
-                log.info("뉴스 요약 완료: {} [{}]", item.title, result.sentiment);
-
-                // AI 부하 방지를 위해 잠시 대기
-                Thread.sleep(2000);
+                log.debug("뉴스 저장: {}", item.title);
 
             } catch (Exception e) {
-                log.error("뉴스 요약 실패: {}", item.title, e);
+                log.error("뉴스 저장 실패: {}", item.title, e);
             }
         }
 
