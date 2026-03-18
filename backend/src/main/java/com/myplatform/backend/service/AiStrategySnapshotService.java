@@ -423,12 +423,14 @@ public class AiStrategySnapshotService {
                 log.info("[AI Scoring] {} - AI 블렌딩 완료 ({}개 종목 스코어링됨)",
                         strategyType.name(), aiResults.size());
             } else {
-                log.debug("[AI Scoring] {} - AI 결과 없음, 알고리즘 점수만 사용", strategyType.name());
+                // Gemini 응답 없음 → 직전 DB 스냅샷에서 ai_score 복사
+                copyPreviousAiScores(candidates, strategyType);
             }
         } catch (Exception e) {
-            log.warn("[AI Scoring] {} - Gemini 스코어링 실패 (graceful degradation): {}",
+            log.warn("[AI Scoring] {} - Gemini 스코어링 실패 (직전 AI점수 복원): {}",
                     strategyType.name(), e.getMessage());
-            // 실패 시 알고리즘 점수만으로 동작
+            // 실패 시 직전 DB 스냅샷에서 ai_score 복사
+            copyPreviousAiScores(candidates, strategyType);
         }
 
         // 3. 블렌딩 점수 기준 내림차순 정렬
@@ -447,6 +449,52 @@ public class AiStrategySnapshotService {
         }
 
         return topSnapshots;
+    }
+
+    /**
+     * Gemini 실패 시 직전 DB 스냅샷의 AI 점수를 현재 후보에 복사
+     * - aiScore, aiComment, aiThemes를 직전 스냅샷에서 가져와 덮어쓰기 방지
+     */
+    private void copyPreviousAiScores(List<AiStrategySnapshot> candidates, StrategyType strategyType) {
+        try {
+            List<AiStrategySnapshot> prevSnapshots = snapshotRepository.findLatestByStrategyType(strategyType);
+            if (prevSnapshots.isEmpty()) {
+                log.debug("[AI Fallback] {} - 직전 스냅샷 없음, 알고리즘 점수만 사용", strategyType.name());
+                return;
+            }
+
+            // 종목코드 → 직전 AI 점수 맵
+            Map<String, AiStrategySnapshot> prevMap = new HashMap<>();
+            for (AiStrategySnapshot prev : prevSnapshots) {
+                if (prev.getStockCode() != null && prev.getAiScore() != null) {
+                    prevMap.put(prev.getStockCode(), prev);
+                }
+            }
+
+            int copied = 0;
+            for (AiStrategySnapshot s : candidates) {
+                if (s.getAiScore() == null && s.getStockCode() != null) {
+                    AiStrategySnapshot prev = prevMap.get(s.getStockCode());
+                    if (prev != null) {
+                        s.setAiScore(prev.getAiScore());
+                        s.setAiComment(prev.getAiComment());
+                        s.setAiThemes(prev.getAiThemes());
+                        // 블렌딩: 알고리즘 60% + 이전 AI 40%
+                        if (s.getOriginalScore() != null && prev.getAiScore() != null) {
+                            int blended = (int) Math.round(
+                                    s.getOriginalScore() * 0.6 + prev.getAiScore() * 0.4);
+                            s.setScore(Math.max(0, Math.min(100, blended)));
+                        }
+                        copied++;
+                    }
+                }
+            }
+            if (copied > 0) {
+                log.info("[AI Fallback] {} - 직전 스냅샷에서 AI점수 {}개 복원", strategyType.name(), copied);
+            }
+        } catch (Exception e) {
+            log.debug("[AI Fallback] {} - 직전 AI점수 복원 실패: {}", strategyType.name(), e.getMessage());
+        }
     }
 
     /**
