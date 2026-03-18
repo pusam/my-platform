@@ -414,13 +414,13 @@ public class StockPriceService {
                 }
             }
 
-            // 2. 장전(08:00~09:00)이고 여전히 등락률이 0이면 → 일봉 API에서 어제 등락률 조회
-            if (changeRateIsZeroOrNull && isPreMarketTime()) {
-                BigDecimal yesterdayChangeRate = fetchYesterdayChangeRateFromDaily(stockCode);
-                if (yesterdayChangeRate != null) {
-                    dto.setChangeRate(yesterdayChangeRate);
-                    dto.setDataSource("KIS_DAILY"); // 일봉 데이터 출처 표시
-                    log.info("[장전] 일봉 API에서 어제 등락률 적용: {} = {}%", stockCode, yesterdayChangeRate);
+            // 2. 여전히 등락률이 0이면 → 일봉 API에서 직전 등락률 조회 (장전뿐 아니라 장중에도)
+            if (changeRateIsZeroOrNull) {
+                BigDecimal dailyChangeRate = fetchYesterdayChangeRateFromDaily(stockCode);
+                if (dailyChangeRate != null) {
+                    dto.setChangeRate(dailyChangeRate);
+                    dto.setDataSource("KIS_DAILY");
+                    log.debug("[등락률 폴백] 일봉 API에서 등락률 적용: {} = {}%", stockCode, dailyChangeRate);
                 }
             }
 

@@ -351,20 +351,39 @@ public class RecommendationService {
     // ==================== ④ 기술적 위치 (/20) ====================
 
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
-        int calculated = 0, skipped = 0;
+        int calculated = 0, skipped = 0, fallback = 0;
         for (StockScore stock : new ArrayList<>(scoreMap.values())) {
             try {
-                // FIX: 60일로 조회 축소 (120일 없는 종목도 커버)
                 List<StockPriceHistory> history = priceHistoryRepository
                         .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
-                if (history == null || history.size() < 14) { skipped++; continue; }
+
+                // 데이터 부족 시 간단 폴백 (등락률 기반 최소 점수)
+                if (history == null || history.size() < 5) {
+                    // changeRate가 있으면 최소 기술점수 부여 (N/A 방지)
+                    if (stock.changeRate != null) {
+                        double cr = stock.changeRate.doubleValue();
+                        if (cr > 2.0) stock.technical = 8;
+                        else if (cr > 0) stock.technical = 5;
+                        else if (cr > -2.0) stock.technical = 3;
+                        else stock.technical = 1;
+                        stock.tags.add("기술(간편)");
+                        fallback++;
+                    } else {
+                        skipped++;
+                    }
+                    continue;
+                }
 
                 List<BigDecimal> prices = history.stream()
                         .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
                         .map(StockPriceHistory::getClosePrice)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
-                if (prices.size() < 14) { skipped++; continue; }
+
+                if (prices.size() < 5) {
+                    skipped++;
+                    continue;
+                }
 
                 TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(prices);
                 if (indicators == null) { skipped++; continue; }
@@ -402,7 +421,7 @@ public class RecommendationService {
                 skipped++;
             }
         }
-        log.debug("[종합추천] 기술적: {}건 계산, {}건 스킵", calculated, skipped);
+        log.debug("[종합추천] 기술적: {}건 계산, {}건 폴백, {}건 스킵", calculated, fallback, skipped);
     }
 
     // ==================== ⑤ 섹터 모멘텀 (/20) ====================

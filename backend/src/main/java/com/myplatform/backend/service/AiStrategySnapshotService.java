@@ -363,11 +363,17 @@ public class AiStrategySnapshotService {
         }
 
         if (!candidates.isEmpty()) {
-            // AI 스코어링 적용 (최대 10개 → 블렌딩 → TOP 5)
             List<AiStrategySnapshot> snapshots = applyGeminiScoring(candidates, strategyType);
-            snapshotRepository.saveAll(snapshots);
-            log.debug("[Snapshot] {} saved: {} stocks (from {} candidates).",
-                    strategyType.name(), snapshots.size(), candidates.size());
+
+            // ai_score null인 스냅샷이 전부면 저장 스킵 (기존 DB 데이터 보존)
+            boolean hasAnyAiScore = snapshots.stream().anyMatch(s -> s.getAiScore() != null);
+            if (!hasAnyAiScore) {
+                log.warn("[Snapshot] {} - 전체 ai_score null → 저장 스킵 (기존 DB 보존)", strategyType.name());
+            } else {
+                snapshotRepository.saveAll(snapshots);
+                log.debug("[Snapshot] {} saved: {} stocks (from {} candidates).",
+                        strategyType.name(), snapshots.size(), candidates.size());
+            }
         } else {
             log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
