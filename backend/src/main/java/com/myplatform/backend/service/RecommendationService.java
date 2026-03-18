@@ -576,9 +576,9 @@ public class RecommendationService {
         if (validCount <= 0) return 0;
         int scaled = raw * 5 / validCount;
         int cap = switch (validCount) {
-            case 4 -> 88;
-            case 3 -> 75;
-            case 2 -> 60;
+            case 4 -> 85;
+            case 3 -> 65;
+            case 2 -> 50;
             default -> 50;
         };
         return Math.min(cap, scaled);
