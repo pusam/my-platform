@@ -171,17 +171,34 @@ public class AiStrategySnapshotService {
         LocalTime now = LocalTime.now();
         if (now.isAfter(LocalTime.of(15, 30))) return;
 
-        // 시간별 로테이션: 9시→SWING, 10시→TURNAROUND, 11시→VALUE, 12시→SWING, ...
-        StrategyType[] rotation = {StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE};
         int hour = now.getHour();
-        StrategyType target = rotation[(hour - 9) % 3];
+
+        // 09:00 첫 실행: DB에 없는 전략 모두 수집
+        if (hour == 9) {
+            for (StrategyType type : new StrategyType[]{StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE}) {
+                List<AiStrategySnapshot> existing = snapshotRepository.findLatestByStrategyType(type);
+                if (existing.isEmpty()) {
+                    try {
+                        collectAndSaveSnapshot(type);
+                        log.info("[Scheduler] 09:00 초기 수집: {} (DB에 없었음)", type.name());
+                        Thread.sleep(3000); // Gemini Rate Limit 방지
+                    } catch (Exception e) {
+                        log.error("[Scheduler] 09:00 {} 수집 실패: {}", type.name(), e.getMessage());
+                    }
+                }
+            }
+            return;
+        }
+
+        // 10시 이후: 시간별 로테이션 (1개씩)
+        StrategyType[] rotation = {StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE};
+        StrategyType target = rotation[(hour - 10) % 3];
 
         try {
             collectAndSaveSnapshot(target);
-            List<AiStrategySnapshot> saved = snapshotRepository.findLatestByStrategyType(target);
-            log.info("[Scheduler] {} Strategy updated: {} stocks saved.", target.name(), saved.size());
+            log.info("[Scheduler] {} Strategy updated.", target.name());
         } catch (Exception e) {
-            log.error("[Scheduler] {} Strategy update failed: {}", target.name(), e.getMessage());
+            log.error("[Scheduler] {} Strategy failed: {}", target.name(), e.getMessage());
         }
     }
 
@@ -373,12 +390,25 @@ public class AiStrategySnapshotService {
         if (!candidates.isEmpty()) {
             List<AiStrategySnapshot> snapshots = applyGeminiScoring(candidates, strategyType);
 
-            // 항상 저장 — ai_score null이어도 알고리즘 점수(score)는 유효
-            // Gemini는 보너스이지 필수가 아님
+            // ai_score가 전체 null이면 저장 스킵 (기존 DB 보존)
+            boolean hasAnyAiScore = snapshots.stream().anyMatch(s -> s.getAiScore() != null);
+            if (!hasAnyAiScore) {
+                // 직전 DB에도 ai_score가 없었다면 → 규칙 기반 임시 점수 부여 후 저장
+                for (int i = 0; i < snapshots.size(); i++) {
+                    AiStrategySnapshot s = snapshots.get(i);
+                    if (s.getAiScore() == null) {
+                        // 규칙 기반 폴백: 순위 기반 점수 (Gemini 없이도 유의미)
+                        int fallbackAiScore = Math.max(10, 80 - (i * 15)); // 1위=80, 2위=65, 3위=50, 4위=35, 5위=20
+                        s.setAiScore(fallbackAiScore);
+                        s.setAiComment("알고리즘 기반");
+                    }
+                }
+                log.info("[Snapshot] {} - Gemini 전체 실패 → 규칙 기반 ai_score 부여 후 저장", strategyType.name());
+            }
+
             snapshotRepository.saveAll(snapshots);
-            boolean hasAi = snapshots.stream().anyMatch(s -> s.getAiScore() != null);
-            log.info("[Snapshot] {} saved: {} stocks (AI스코어: {})",
-                    strategyType.name(), snapshots.size(), hasAi ? "있음" : "폴백/없음");
+            log.info("[Snapshot] {} saved: {} stocks (AI: {})",
+                    strategyType.name(), snapshots.size(), hasAnyAiScore ? "Gemini" : "규칙기반");
         } else {
             log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
@@ -469,16 +499,14 @@ public class AiStrategySnapshotService {
     private void copyPreviousAiScores(List<AiStrategySnapshot> candidates, StrategyType strategyType) {
         try {
             List<AiStrategySnapshot> prevSnapshots = snapshotRepository.findLatestByStrategyType(strategyType);
-            if (prevSnapshots.isEmpty()) {
-                log.debug("[AI Fallback] {} - 직전 스냅샷 없음, 알고리즘 점수만 사용", strategyType.name());
-                return;
-            }
 
-            // 종목코드 → 직전 AI 점수 맵
+            // 종목코드 → 직전 AI 점수 맵 (null이 아닌 것만)
             Map<String, AiStrategySnapshot> prevMap = new HashMap<>();
-            for (AiStrategySnapshot prev : prevSnapshots) {
-                if (prev.getStockCode() != null && prev.getAiScore() != null) {
-                    prevMap.put(prev.getStockCode(), prev);
+            if (!prevSnapshots.isEmpty()) {
+                for (AiStrategySnapshot prev : prevSnapshots) {
+                    if (prev.getStockCode() != null && prev.getAiScore() != null) {
+                        prevMap.put(prev.getStockCode(), prev);
+                    }
                 }
             }
 
@@ -490,18 +518,18 @@ public class AiStrategySnapshotService {
                         s.setAiScore(prev.getAiScore());
                         s.setAiComment(prev.getAiComment());
                         s.setAiThemes(prev.getAiThemes());
-                        // 블렌딩: 알고리즘 60% + 이전 AI 40%
-                        if (s.getOriginalScore() != null && prev.getAiScore() != null) {
+                        if (s.getOriginalScore() != null) {
                             int blended = (int) Math.round(
                                     s.getOriginalScore() * 0.6 + prev.getAiScore() * 0.4);
                             s.setScore(Math.max(0, Math.min(100, blended)));
                         }
                         copied++;
                     }
+                    // 직전 스냅샷에도 없으면 → collectAndSaveSnapshot의 규칙 기반 폴백이 처리
                 }
             }
             if (copied > 0) {
-                log.info("[AI Fallback] {} - 직전 스냅샷에서 AI점수 {}개 복원", strategyType.name(), copied);
+                log.info("[AI Fallback] {} - 직전 AI점수 {}개 복원", strategyType.name(), copied);
             }
         } catch (Exception e) {
             log.debug("[AI Fallback] {} - 직전 AI점수 복원 실패: {}", strategyType.name(), e.getMessage());
