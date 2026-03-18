@@ -183,6 +183,12 @@ public class RecommendationService {
                 .map(this::toDto)
                 .toList();
 
+        for (RecommendationDto r : results) {
+            log.info("[종합추천] #{} {} — 총{}점 (AI:{} 실적:{} 수급:{} 기술:{} 섹터:{}) 유효{}개",
+                    results.indexOf(r) + 1, r.getStockName(), r.getTotalScore(),
+                    r.getAiStrategy(), r.getEarnings(), r.getSupplyDemand(),
+                    r.getTechnical(), r.getSectorMomentum(), r.getValidCount());
+        }
         log.info("[종합추천] TOP {} 계산 완료", results.size());
         return results;
     }
@@ -384,12 +390,16 @@ public class RecommendationService {
                 else if (v > 0.5) ss += 2;
                 else if (v > 0) ss += 1;
             }
+            // 장중이면 최소 2점 (시장 열림 = 기본 모멘텀)
+            if (ss == 0 && isTradingHours(LocalDateTime.now())) {
+                ss = 2;
+            }
             if (ss > 0) {
                 stock.sectorMomentum = Math.min(20, ss);
                 scored++;
             }
         }
-        log.debug("[종합추천] 섹터: {}종목 부여, 시장분위기 +{}", scored, marketMoodBonus);
+        log.info("[종합추천] 섹터: {}종목 부여, 시장분위기 +{}", scored, marketMoodBonus);
     }
 
     // ==================== ⑤ 기술적 (/20) ====================
@@ -406,13 +416,15 @@ public class RecommendationService {
 
                 if (history == null || history.size() < 5) {
                     needsCollection.add(stock.stockCode);
-                    // 즉시 폴백 점수 부여 (수집은 나중에 비동기)
+                    // 즉시 폴백 점수 부여 (changeRate 없어도 최소 점수)
                     if (stock.changeRate != null) {
                         double cr = stock.changeRate.doubleValue();
                         stock.technical = (cr > 2.0) ? 8 : (cr > 0) ? 5 : (cr > -2.0) ? 3 : 1;
-                        stock.tags.add("기술(간편)");
-                        fallback++;
-                    } else { skip++; }
+                    } else {
+                        stock.technical = 3; // changeRate 없어도 최소 3점 (validCount에 포함)
+                    }
+                    stock.tags.add("기술(간편)");
+                    fallback++;
                     continue;
                 }
 
