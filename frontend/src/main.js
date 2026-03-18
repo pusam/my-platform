@@ -67,9 +67,7 @@ const router = createRouter({
     },
     {
       path: '/dashboard',
-      name: 'Dashboard',
-      component: Dashboard,
-      meta: { requiresAuth: true }
+      redirect: '/user'
     },
     {
       path: '/admin',
@@ -149,15 +147,15 @@ const router = createRouter({
     },
     {
       path: '/investor-trades',
-      redirect: '/investor'
+      redirect: '/research'
     },
     {
       path: '/consecutive-buy',
-      redirect: '/investor'
+      redirect: '/research'
     },
     {
       path: '/investor-surge',
-      redirect: '/investor'
+      redirect: '/research'
     },
     {
       path: '/investor-stock/:stockCode',
@@ -191,7 +189,7 @@ const router = createRouter({
     },
     {
       path: '/ai-stock',
-      redirect: '/ai-strategy'
+      redirect: '/stock-dashboard'
     },
     {
       path: '/ai-strategy',
@@ -254,8 +252,8 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  // 로그인된 상태에서 로그인/대시보드 접근 시 유저 대시보드로 이동
-  if ((to.path === '/login' || to.path === '/dashboard') && token) {
+  // 로그인된 상태에서 로그인 접근 시 유저 대시보드로 이동
+  if (to.path === '/login' && token) {
     next('/user')
     return
   }

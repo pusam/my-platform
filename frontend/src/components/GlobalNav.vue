@@ -58,14 +58,19 @@ const route = useRoute()
 
 const navItems = [
   { path: '/stock-dashboard', icon: '📈', label: '대시보드' },
+  { path: '/research', icon: '🔬', label: '리서치' },
   { path: '/market-timing', icon: '⏱️', label: '시장타이밍' },
-  { path: '/global-futures', icon: '🌍', label: '글로벌시세' }
+  { path: '/global-futures', icon: '🌍', label: '글로벌시세' },
+  { path: '/paper-trading', icon: '🤖', label: '매매' }
 ]
 
 const isActive = (itemPath) => {
   const current = route.path
   if (itemPath === '/stock-dashboard') {
     return current === '/stock-dashboard' || current.startsWith('/stock/')
+  }
+  if (itemPath === '/paper-trading') {
+    return current === '/paper-trading'
   }
   return current.startsWith(itemPath)
 }

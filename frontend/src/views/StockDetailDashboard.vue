@@ -1,6 +1,9 @@
 <template>
   <div class="trading-dashboard">
     <GlobalNav :subtitle="stockName" />
+    <!-- 종목 검색 모달 (Ctrl+K) -->
+    <StockSearchModal v-if="showSearch" @close="showSearch = false"
+      @select="(code) => { showSearch = false; router.push('/stock/' + code) }" />
     <!-- Header -->
     <header class="dashboard-header">
       <div class="header-left">
@@ -9,6 +12,9 @@
           <h1 class="stock-name">{{ stockName || '종목 검색' }}</h1>
           <span class="stock-code">{{ stockCode }}</span>
         </div>
+        <button class="search-btn" @click="showSearch = true" title="종목 검색 (Ctrl+K)">
+          🔍
+        </button>
       </div>
       <div class="header-center">
         <div class="price-info" v-if="priceInfo">
@@ -906,9 +912,10 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
+import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';
@@ -922,6 +929,16 @@ import {
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 const route = useRoute();
+const router = useRouter();
+
+// 종목 검색 (Ctrl+K)
+const showSearch = ref(false);
+const onSearchKeydown = (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    showSearch.value = true;
+  }
+};
 
 // 상태
 const loading = ref(false);
@@ -1937,6 +1954,7 @@ const invHasAmountChange = (value) => {
 
 // URL 파라미터 처리
 onMounted(() => {
+  document.addEventListener('keydown', onSearchKeydown);
   const code = route.query.code || route.params.stockCode;
   if (code) {
     searchQuery.value = code;
@@ -1946,6 +1964,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAutoRefresh();
+  document.removeEventListener('keydown', onSearchKeydown);
 });
 </script>
 
@@ -1956,6 +1975,13 @@ onUnmounted(() => {
   color: #fff;
   padding: 20px;
 }
+
+.search-btn {
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 14px;
+  color: rgba(255,255,255,0.6); transition: all 0.15s; margin-left: 8px;
+}
+.search-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
 
 /* Header */
 .dashboard-header {
