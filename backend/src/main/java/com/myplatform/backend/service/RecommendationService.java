@@ -274,8 +274,9 @@ public class RecommendationService {
     // ==================== ③ 수급 (/20) ====================
 
     private void scoreSupplyDemand(Map<String, StockScore> scoreMap) {
-        int fc = 0, ic = 0;
+        int fc = 0, ic = 0, topBuy = 0;
         try {
+            // 1. 연속매수 (2일+)
             List<ConsecutiveBuyDto> foreign = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 2);
             if (foreign != null) {
                 fc = foreign.size();
@@ -308,10 +309,45 @@ public class RecommendationService {
                     score.tags.add("기관" + days + "일연속");
                 }
             }
+
+            // 2. 당일 순매수 상위 (연속 아니어도 대량 매수면 점수 부여)
+            List<InvestorTradeDto> foreignTop = investorTradeService.getTopTradesByInvestor("FOREIGN", "BUY", 10);
+            if (foreignTop != null) {
+                for (InvestorTradeDto t : foreignTop) {
+                    if (t.getStockCode() == null) continue;
+                    StockScore score = scoreMap.computeIfAbsent(t.getStockCode(),
+                            k -> new StockScore(k, t.getStockName()));
+                    if (score.supplyDemand > 0) continue; // 연속매수로 이미 점수 있으면 스킵
+                    double amt = safeDouble(t.getNetBuyAmount());
+                    // 당일 순매수: 100억+ 8점, 50억+ 6점, 20억+ 4점, 10억+ 2점
+                    int pts = (amt >= 100) ? 8 : (amt >= 50) ? 6 : (amt >= 20) ? 4 : (amt >= 10) ? 2 : 0;
+                    if (pts > 0) {
+                        score.supplyDemand = Math.min(20, score.supplyDemand + pts);
+                        score.tags.add(String.format("외국인순매수%.0f억", amt));
+                        topBuy++;
+                    }
+                }
+            }
+            List<InvestorTradeDto> instTop = investorTradeService.getTopTradesByInvestor("INSTITUTION", "BUY", 10);
+            if (instTop != null) {
+                for (InvestorTradeDto t : instTop) {
+                    if (t.getStockCode() == null) continue;
+                    StockScore score = scoreMap.computeIfAbsent(t.getStockCode(),
+                            k -> new StockScore(k, t.getStockName()));
+                    if (score.supplyDemand > 0) continue;
+                    double amt = safeDouble(t.getNetBuyAmount());
+                    int pts = (amt >= 100) ? 6 : (amt >= 50) ? 4 : (amt >= 20) ? 3 : (amt >= 10) ? 1 : 0;
+                    if (pts > 0) {
+                        score.supplyDemand = Math.min(20, score.supplyDemand + pts);
+                        score.tags.add("기관순매수");
+                        topBuy++;
+                    }
+                }
+            }
         } catch (Exception e) {
             log.warn("[종합추천] 수급 실패: {}", e.getMessage());
         }
-        log.info("[종합추천] 수급: 외국인 {}건, 기관 {}건", fc, ic);
+        log.info("[종합추천] 수급: 연속(외국인{}건,기관{}건) + 당일상위 {}건", fc, ic, topBuy);
     }
 
     // ==================== ④ 섹터 (/20) ====================
