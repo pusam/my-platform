@@ -127,4 +127,49 @@ public class BatchJobMonitorService {
         telegramService.sendMessage(sb.toString());
         log.info("일일 헬스체크 알림 발송 - 전체: {}, 성공: {}, 실패: {}", totalCount, successCount, failedCount);
     }
+
+    /**
+     * 스케줄러 실패 즉시 알림 (중요 배치에서 호출)
+     * @param jobName 배치 이름
+     * @param error 에러 메시지
+     */
+    public void alertFailure(String jobName, String error) {
+        try {
+            String msg = String.format("🚨 <b>배치 실패</b>\n• %s\n• %s\n• %s",
+                    jobName, error.length() > 100 ? error.substring(0, 100) : error,
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
+            telegramService.sendMessage(msg);
+
+            // DB 기록
+            BatchJobExecution exec = new BatchJobExecution();
+            exec.setJobName(jobName);
+            exec.setJobClass(jobName);
+            exec.setStartedAt(LocalDateTime.now());
+            exec.setFinishedAt(LocalDateTime.now());
+            exec.setDurationMs(0L);
+            exec.setStatus("FAILED");
+            exec.setErrorMessage(error.length() > 500 ? error.substring(0, 500) : error);
+            repository.save(exec);
+        } catch (Exception e) {
+            log.error("[배치알림] 실패 알림 발송 오류: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 스케줄러 성공 기록 (선택적)
+     */
+    public void recordSuccess(String jobName, long durationMs) {
+        try {
+            BatchJobExecution exec = new BatchJobExecution();
+            exec.setJobName(jobName);
+            exec.setJobClass(jobName);
+            exec.setStartedAt(LocalDateTime.now().minusNanos(durationMs * 1_000_000));
+            exec.setFinishedAt(LocalDateTime.now());
+            exec.setDurationMs(durationMs);
+            exec.setStatus("SUCCESS");
+            repository.save(exec);
+        } catch (Exception e) {
+            log.debug("[배치기록] 성공 기록 오류: {}", e.getMessage());
+        }
+    }
 }

@@ -386,89 +386,66 @@ public class AiStrategySnapshotService {
 
         if (!candidates.isEmpty()) {
             List<AiStrategySnapshot> snapshots = applyGeminiScoring(candidates, strategyType);
-
-            // ai_score가 전체 null이면 저장 스킵 (기존 DB 보존)
-            boolean hasAnyAiScore = snapshots.stream().anyMatch(s -> s.getAiScore() != null);
-            if (!hasAnyAiScore) {
-                // 직전 DB에도 ai_score가 없었다면 → 규칙 기반 임시 점수 부여 후 저장
-                for (int i = 0; i < snapshots.size(); i++) {
-                    AiStrategySnapshot s = snapshots.get(i);
-                    if (s.getAiScore() == null) {
-                        // 규칙 기반 폴백: 순위 기반 점수 (Gemini 없이도 유의미)
-                        int fallbackAiScore = Math.max(10, 80 - (i * 15)); // 1위=80, 2위=65, 3위=50, 4위=35, 5위=20
-                        s.setAiScore(fallbackAiScore);
-                        s.setAiComment("알고리즘 기반");
-                    }
-                }
-                log.info("[Snapshot] {} - Gemini 전체 실패 → 규칙 기반 ai_score 부여 후 저장", strategyType.name());
-            }
-
+            // aiScore는 항상 알고리즘 점수로 채워져 있음 (Gemini 의존 제거)
             snapshotRepository.saveAll(snapshots);
-            log.info("[Snapshot] {} saved: {} stocks (AI: {})",
-                    strategyType.name(), snapshots.size(), hasAnyAiScore ? "Gemini" : "규칙기반");
+            boolean hasComment = snapshots.stream().anyMatch(s -> s.getAiComment() != null && !s.getAiComment().isEmpty());
+            log.info("[Snapshot] {} saved: {} stocks (Gemini코멘트: {})",
+                    strategyType.name(), snapshots.size(), hasComment ? "있음" : "없음");
         } else {
             log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
     }
 
     /**
-     * Gemini AI 스코어링 적용
-     * 1. 모든 후보의 originalScore 보존
-     * 2. Gemini API로 AI 점수 획득
-     * 3. 블렌딩: score = originalScore * 0.6 + aiScore * 0.4
-     * 4. 내림차순 정렬 후 상위 SNAPSHOT_LIMIT개 선택
+     * AI 스코어링 적용 (v7 — Gemini 의존도 제거)
      *
-     * Gemini 실패 시 알고리즘 점수만으로 기존 동작 유지 (graceful degradation)
+     * 점수(score) = 100% 알고리즘 기반 (Gemini 블렌딩 제거)
+     * aiScore = 알고리즘 점수 그대로 복사 (Gemini 실패와 무관하게 항상 유효)
+     * Gemini는 코멘트(aiComment)와 테마(aiThemes)만 보강 — 선택적 보너스
      */
     private List<AiStrategySnapshot> applyGeminiScoring(
             List<AiStrategySnapshot> candidates, StrategyType strategyType) {
 
-        // 1. 원본 점수 보존
+        // 1. 알고리즘 점수를 aiScore로도 복사 (Gemini 의존 제거)
         for (AiStrategySnapshot s : candidates) {
             s.setOriginalScore(s.getScore());
+            // aiScore = 알고리즘 점수 (Gemini 없어도 항상 유효)
+            s.setAiScore(s.getScore() != null ? s.getScore() : 50);
         }
 
-        // 2. Gemini AI 스코어링 (상위 3개만 전송하여 API 호출 최적화)
-        //    알고리즘 점수 기준 상위 3개만 Gemini에 보내고, 나머지는 알고리즘 점수 유지
-        List<AiStrategySnapshot> geminiCandidates = candidates.stream()
-                .sorted((a, b) -> Integer.compare(
-                        b.getOriginalScore() != null ? b.getOriginalScore() : 0,
-                        a.getOriginalScore() != null ? a.getOriginalScore() : 0))
-                .limit(3)
-                .collect(Collectors.toList());
-
+        // 2. Gemini는 코멘트/테마만 보강 (실패해도 점수에 영향 없음)
         try {
+            List<AiStrategySnapshot> top3 = candidates.stream()
+                    .sorted((a, b) -> Integer.compare(
+                            b.getScore() != null ? b.getScore() : 0,
+                            a.getScore() != null ? a.getScore() : 0))
+                    .limit(3)
+                    .collect(Collectors.toList());
+
             Map<String, GeminiService.AiScoreResult> aiResults =
-                    geminiService.scoreStockCandidates(geminiCandidates, strategyType.name());
+                    geminiService.scoreStockCandidates(top3, strategyType.name());
 
             if (!aiResults.isEmpty()) {
                 for (AiStrategySnapshot s : candidates) {
-                    GeminiService.AiScoreResult aiResult = aiResults.get(s.getStockCode());
-                    if (aiResult != null) {
-                        s.setAiScore(aiResult.getAiScore());
-                        s.setAiComment(aiResult.getAiComment());
-                        // 테마 태그 저장 (콤마 구분 문자열)
-                        if (aiResult.getThemes() != null && !aiResult.getThemes().isEmpty()) {
-                            s.setAiThemes(String.join(",", aiResult.getThemes()));
+                    GeminiService.AiScoreResult ai = aiResults.get(s.getStockCode());
+                    if (ai != null) {
+                        // 코멘트와 테마만 Gemini에서 가져옴 (점수는 알고리즘 유지)
+                        s.setAiComment(ai.getAiComment());
+                        if (ai.getThemes() != null && !ai.getThemes().isEmpty()) {
+                            s.setAiThemes(String.join(",", ai.getThemes()));
                         }
-                        // 블렌딩: 알고리즘 60% + AI 40%
-                        int blendedScore = (int) Math.round(
-                                s.getOriginalScore() * 0.6 + aiResult.getAiScore() * 0.4);
-                        s.setScore(Math.max(0, Math.min(100, blendedScore)));
+                        // 점수 미세 보정: 알고리즘 95% + Gemini 5%
+                        if (ai.getAiScore() > 0) {
+                            int adjusted = (int) Math.round(s.getScore() * 0.95 + ai.getAiScore() * 0.05);
+                            s.setScore(Math.max(0, Math.min(100, adjusted)));
+                        }
                     }
-                    // AI 점수 없는 종목: originalScore 유지 (이미 score == originalScore)
                 }
-                log.info("[AI Scoring] {} - AI 블렌딩 완료 ({}개 종목 스코어링됨)",
-                        strategyType.name(), aiResults.size());
-            } else {
-                // Gemini 응답 없음 → 직전 DB 스냅샷에서 ai_score 복사
-                copyPreviousAiScores(candidates, strategyType);
+                log.info("[AI] {} - Gemini 코멘트 보강 ({}종목)", strategyType.name(), aiResults.size());
             }
         } catch (Exception e) {
-            log.warn("[AI Scoring] {} - Gemini 스코어링 실패 (직전 AI점수 복원): {}",
-                    strategyType.name(), e.getMessage());
-            // 실패 시 직전 DB 스냅샷에서 ai_score 복사
-            copyPreviousAiScores(candidates, strategyType);
+            // Gemini 실패해도 점수에 영향 없음 — 그냥 코멘트 없이 진행
+            log.debug("[AI] {} - Gemini 코멘트 실패 (점수 영향 없음): {}", strategyType.name(), e.getMessage());
         }
 
         // 3. 블렌딩 점수 기준 내림차순 정렬
@@ -490,46 +467,31 @@ public class AiStrategySnapshotService {
     }
 
     /**
-     * Gemini 실패 시 직전 DB 스냅샷의 AI 점수를 현재 후보에 복사
-     * - aiScore, aiComment, aiThemes를 직전 스냅샷에서 가져와 덮어쓰기 방지
+     * 직전 스냅샷에서 Gemini 코멘트/테마 복사 (점수는 이미 알고리즘 기반으로 채워져 있음)
      */
-    private void copyPreviousAiScores(List<AiStrategySnapshot> candidates, StrategyType strategyType) {
+    private void copyPreviousComments(List<AiStrategySnapshot> candidates, StrategyType strategyType) {
         try {
-            List<AiStrategySnapshot> prevSnapshots = snapshotRepository.findLatestByStrategyType(strategyType);
+            List<AiStrategySnapshot> prev = snapshotRepository.findLatestByStrategyType(strategyType);
+            if (prev.isEmpty()) return;
 
-            // 종목코드 → 직전 AI 점수 맵 (null이 아닌 것만)
             Map<String, AiStrategySnapshot> prevMap = new HashMap<>();
-            if (!prevSnapshots.isEmpty()) {
-                for (AiStrategySnapshot prev : prevSnapshots) {
-                    if (prev.getStockCode() != null && prev.getAiScore() != null) {
-                        prevMap.put(prev.getStockCode(), prev);
-                    }
+            for (AiStrategySnapshot p : prev) {
+                if (p.getStockCode() != null && p.getAiComment() != null) {
+                    prevMap.put(p.getStockCode(), p);
                 }
             }
 
-            int copied = 0;
             for (AiStrategySnapshot s : candidates) {
-                if (s.getAiScore() == null && s.getStockCode() != null) {
-                    AiStrategySnapshot prev = prevMap.get(s.getStockCode());
-                    if (prev != null) {
-                        s.setAiScore(prev.getAiScore());
-                        s.setAiComment(prev.getAiComment());
-                        s.setAiThemes(prev.getAiThemes());
-                        if (s.getOriginalScore() != null) {
-                            int blended = (int) Math.round(
-                                    s.getOriginalScore() * 0.6 + prev.getAiScore() * 0.4);
-                            s.setScore(Math.max(0, Math.min(100, blended)));
-                        }
-                        copied++;
+                if ((s.getAiComment() == null || s.getAiComment().isEmpty()) && s.getStockCode() != null) {
+                    AiStrategySnapshot p = prevMap.get(s.getStockCode());
+                    if (p != null) {
+                        s.setAiComment(p.getAiComment());
+                        s.setAiThemes(p.getAiThemes());
                     }
-                    // 직전 스냅샷에도 없으면 → collectAndSaveSnapshot의 규칙 기반 폴백이 처리
                 }
-            }
-            if (copied > 0) {
-                log.info("[AI Fallback] {} - 직전 AI점수 {}개 복원", strategyType.name(), copied);
             }
         } catch (Exception e) {
-            log.debug("[AI Fallback] {} - 직전 AI점수 복원 실패: {}", strategyType.name(), e.getMessage());
+            log.debug("[AI] 직전 코멘트 복사 실패: {}", e.getMessage());
         }
     }
 

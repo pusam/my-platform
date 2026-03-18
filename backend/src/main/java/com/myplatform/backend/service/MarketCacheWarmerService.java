@@ -160,6 +160,7 @@ public class MarketCacheWarmerService {
      */
     @Scheduled(fixedRate = 120000)
     public void warmAiStrategy() {
+        if (!isMarketHours() && !isStartup()) return;
         try {
             AiAnalysisResponseDto analysis = aiStockAnalysisService.getAnalysis();
             if (analysis != null) {

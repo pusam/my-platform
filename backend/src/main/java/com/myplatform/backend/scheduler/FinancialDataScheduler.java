@@ -35,6 +35,7 @@ public class FinancialDataScheduler {
     private final StockFinancialDataService stockFinancialDataService;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final AsyncCrawlerService asyncCrawlerService;
+    private final com.myplatform.backend.service.BatchJobMonitorService batchMonitor;
 
     /**
      * 매일 08:30 자동 수집 (장 시작 전)
@@ -53,13 +54,10 @@ public class FinancialDataScheduler {
             }
         } catch (Exception e) {
             log.error("[배치] 아침 수집 실패: {}", e.getMessage(), e);
+            batchMonitor.alertFailure("재무데이터_아침수집", e.getMessage());
         }
     }
 
-    /**
-     * 매일 15:38 자동 수집 (장 마감 직후, 15:40 AI종가보정과 충돌 방지)
-     * - 원버튼 전체 데이터 수집 (4단계)
-     */
     @Scheduled(cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
         log.info("=== [배치] 15:38 원버튼 전체 데이터 자동 수집 시작 ===");
@@ -67,12 +65,14 @@ public class FinancialDataScheduler {
             Map<String, Object> result = asyncCrawlerService.collectAllInOneSync();
             boolean success = (boolean) result.getOrDefault("success", false);
             if (success) {
-                log.info("=== [배치] 15:40 원버튼 수집 완료: {} ===", result.get("message"));
+                log.info("=== [배치] 15:38 원버튼 수집 완료: {} ===", result.get("message"));
             } else {
-                log.error("=== [배치] 15:40 원버튼 수집 실패: {} ===", result.get("message"));
+                log.error("=== [배치] 15:38 원버튼 수집 실패: {} ===", result.get("message"));
+                batchMonitor.alertFailure("재무데이터_오후수집", String.valueOf(result.get("message")));
             }
         } catch (Exception e) {
             log.error("[배치] 오후 수집 실패: {}", e.getMessage(), e);
+            batchMonitor.alertFailure("재무데이터_오후수집", e.getMessage());
         }
     }
 
