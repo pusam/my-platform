@@ -21,11 +21,17 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * AI 종합 추천 TOP 5 — 차등 스코어링 엔진 v3
+ * AI 종합 추천 TOP 5 — 차등 스코어링 엔진 v4
  *
  * 5개 항목 각 /20, 합계 /100
  * 데이터 없는 항목 = -1 (N/A) → 유효 항목만으로 100점 환산
- * 전일 대비 delta 표시
+ * 최소 3개 항목 유효해야 등급 판정
+ *
+ * v4 수정:
+ * - AI전략 Gemini 실패 시 DB 스냅샷 폴백
+ * - 수급/섹터: scoreMap에 독립적으로 종목 추가 (AI전략 의존 제거)
+ * - 섹터: scoreMap.get → computeIfAbsent (빈 scoreMap에서도 동작)
+ * - 2개 항목만으로 100점 환산 방지 (최소 3개, 2개면 상한 70점)
  */
 @Service
 @Slf4j
@@ -55,7 +61,6 @@ public class RecommendationService {
         LocalDateTime now = LocalDateTime.now();
         boolean trading = isTradingHours(now);
 
-        // ① 장중: 실시간 계산 (30분 캐시)
         if (trading) {
             if (cachedTop5 != null && cacheTime != null
                     && cacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
@@ -73,19 +78,16 @@ public class RecommendationService {
             }
         }
 
-        // ② 인메모리 캐시 (장 외에도 유효)
         if (cachedTop5 != null && !cachedTop5.isEmpty()) {
             String label = cacheTime != null ? cacheTime.format(TIME_FMT) + " 기준" : "캐시 데이터";
             return buildResponse(cachedTop5, label, false);
         }
 
-        // ③ DB 스냅샷에서 복원
         List<RecommendationDto> fromDb = loadFromDb();
         if (!fromDb.isEmpty()) {
             return buildResponse(fromDb, getSnapshotTimeLabel(), false);
         }
 
-        // ④ 최후 수단: 장 외라도 실시간 계산
         try {
             List<RecommendationDto> result = calculate();
             if (!result.isEmpty()) {
@@ -100,11 +102,9 @@ public class RecommendationService {
         return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap());
     }
 
-    /** ⑦ 전일 대비 delta 계산 */
     private Top5Response buildResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
         Map<String, Integer> deltaMap = new HashMap<>();
         try {
-            // 현재 스냅샷 시점 기준으로 이전 스냅샷 조회
             LocalDateTime cutoff = cacheTime != null ? cacheTime.minusHours(20) : LocalDateTime.now().minusDays(1);
             List<RecommendationSnapshot> prev = snapshotRepository.findPreviousSnapshot(cutoff);
             if (!prev.isEmpty()) {
@@ -172,11 +172,14 @@ public class RecommendationService {
     private List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
-        scoreAiStrategy(scoreMap);
+        // 각 항목이 독립적으로 종목 추가 (AI전략 실패해도 나머지 동작)
+        int aiCount = scoreAiStrategy(scoreMap);
         scoreEarnings(scoreMap);
         scoreSupplyDemand(scoreMap);
         scoreTechnical(scoreMap);
         scoreSectorMomentum(scoreMap);
+
+        log.info("[종합추천] scoreMap: {}종목 (AI전략 {}개 시드)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()
                 .filter(s -> countValidCategories(s) >= 2)
@@ -187,51 +190,71 @@ public class RecommendationService {
                 .map(this::toDto)
                 .toList();
 
-        log.info("[종합추천] TOP {} 계산 완료 (scoreMap={}종목)", results.size(), scoreMap.size());
+        log.info("[종합추천] TOP {} 계산 완료", results.size());
         return results;
     }
 
     // ==================== ① AI전략 신호 (/20) ====================
-    // FIX ③: 1위 8점 + aiScore 보너스 최대 8점 + 복수전략 4점 = 최대 20점
+    // FIX: Gemini 실패 시 DB에서 직전 스냅샷 폴백
 
-    private void scoreAiStrategy(Map<String, StockScore> scoreMap) {
+    private int scoreAiStrategy(Map<String, StockScore> scoreMap) {
+        int scored = 0;
         try {
             var response = aiStrategyService.getAllLatestSnapshots();
-            if (response == null || response.getStrategies() == null) return;
+            if (response != null && response.getStrategies() != null) {
+                for (Map.Entry<String, List<AiStrategySnapshotDto>> entry : response.getStrategies().entrySet()) {
+                    List<AiStrategySnapshotDto> stocks = entry.getValue();
+                    if (stocks == null || stocks.isEmpty()) continue;
 
-            for (Map.Entry<String, List<AiStrategySnapshotDto>> entry : response.getStrategies().entrySet()) {
-                List<AiStrategySnapshotDto> stocks = entry.getValue();
-                if (stocks == null) continue;
+                    for (int i = 0; i < Math.min(3, stocks.size()); i++) {
+                        AiStrategySnapshotDto snap = stocks.get(i);
+                        if (snap.getStockCode() == null) continue;
 
-                for (int i = 0; i < Math.min(3, stocks.size()); i++) {
-                    AiStrategySnapshotDto snap = stocks.get(i);
-                    if (snap.getStockCode() == null) continue;
+                        StockScore score = scoreMap.computeIfAbsent(snap.getStockCode(),
+                                k -> new StockScore(k, snap.getStockName()));
 
-                    StockScore score = scoreMap.computeIfAbsent(snap.getStockCode(),
-                            k -> new StockScore(k, snap.getStockName()));
+                        int rankPoints = (i == 0) ? 8 : (i == 1) ? 5 : 3;
+                        int aiBonus = 0;
+                        if (snap.getAiScore() != null && snap.getAiScore() > 0) {
+                            aiBonus = Math.min(8, snap.getAiScore() * 8 / 100);
+                        }
+                        int multiBonus = (score.aiStrategy > 0) ? 4 : 0;
 
-                    // FIX: 순위 기본점 상향 (1위 8점, 2위 5점, 3위 3점)
-                    int rankPoints = (i == 0) ? 8 : (i == 1) ? 5 : 3;
+                        score.aiStrategy = Math.min(20, score.aiStrategy + rankPoints + aiBonus + multiBonus);
 
-                    // aiScore 보너스 (0~100 → 0~8점)
-                    int aiBonus = 0;
-                    if (snap.getAiScore() != null && snap.getAiScore() > 0) {
-                        aiBonus = Math.min(8, snap.getAiScore() * 8 / 100);
+                        String[] labels = {"AI전략1위", "AI전략2위", "AI전략3위"};
+                        score.tags.add(labels[i]);
+                        if (snap.getChangeRate() != null) score.changeRate = snap.getChangeRate();
+                        scored++;
                     }
-
-                    // 복수 전략 등장 보너스: +4 (기존 3)
-                    int multiBonus = (score.aiStrategy > 0) ? 4 : 0;
-
-                    score.aiStrategy = Math.min(20, score.aiStrategy + rankPoints + aiBonus + multiBonus);
-
-                    String[] labels = {"AI전략1위", "AI전략2위", "AI전략3위"};
-                    score.tags.add(labels[i]);
-                    if (snap.getChangeRate() != null) score.changeRate = snap.getChangeRate();
                 }
             }
         } catch (Exception e) {
-            log.debug("[종합추천] AI 전략 스코어 실패: {}", e.getMessage());
+            log.warn("[종합추천] AI 전략 스코어 실패: {}", e.getMessage());
         }
+
+        // FIX: AI전략이 0개면 DB 스냅샷에서 AI전략 점수 폴백
+        if (scored == 0) {
+            log.warn("[종합추천] AI전략 0개 — DB 스냅샷에서 폴백 시도");
+            try {
+                List<RecommendationSnapshot> prevSnap = snapshotRepository.findLatestSnapshot();
+                for (RecommendationSnapshot snap : prevSnap) {
+                    if (snap.getAiStrategy() > 0) {
+                        StockScore score = scoreMap.computeIfAbsent(snap.getStockCode(),
+                                k -> new StockScore(k, snap.getStockName()));
+                        score.aiStrategy = snap.getAiStrategy();
+                        score.tags.add("AI전략(이전)");
+                        if (snap.getChangeRate() != null) score.changeRate = snap.getChangeRate();
+                        scored++;
+                    }
+                }
+                if (scored > 0) log.info("[종합추천] AI전략 DB 폴백: {}종목 복원", scored);
+            } catch (Exception e) {
+                log.debug("[종합추천] AI전략 DB 폴백 실패: {}", e.getMessage());
+            }
+        }
+
+        return scored;
     }
 
     // ==================== ② 실적 개선세 (/20) ====================
@@ -275,14 +298,14 @@ public class RecommendationService {
     }
 
     // ==================== ③ 기관/외국인 수급 (/20) ====================
-    // FIX ①: minDays 2로 완화 + 디버그 로그
+    // FIX: 로그 강화 — 데이터 있는데 연결 안 되는 원인 추적
 
     private void scoreSupplyDemand(Map<String, StockScore> scoreMap) {
-        int foreignCount = 0, instCount = 0;
+        int foreignCount = 0, instCount = 0, scored = 0;
         try {
             List<ConsecutiveBuyDto> foreign = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 2);
-            if (foreign != null && !foreign.isEmpty()) {
-                foreignCount = foreign.size();
+            foreignCount = (foreign != null) ? foreign.size() : 0;
+            if (foreign != null) {
                 for (ConsecutiveBuyDto cb : foreign) {
                     if (cb.getStockCode() == null) continue;
                     StockScore score = scoreMap.computeIfAbsent(cb.getStockCode(),
@@ -297,12 +320,13 @@ public class RecommendationService {
                     String amountStr = avgAmount >= 1 ? String.format("(일%.0f억)", avgAmount) : "";
                     score.tags.add("외국인" + days + "일연속" + amountStr);
                     if (cb.getChangeRate() != null) score.changeRate = cb.getChangeRate();
+                    scored++;
                 }
             }
 
             List<ConsecutiveBuyDto> inst = investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 2);
-            if (inst != null && !inst.isEmpty()) {
-                instCount = inst.size();
+            instCount = (inst != null) ? inst.size() : 0;
+            if (inst != null) {
                 for (ConsecutiveBuyDto cb : inst) {
                     if (cb.getStockCode() == null) continue;
                     StockScore score = scoreMap.computeIfAbsent(cb.getStockCode(),
@@ -315,20 +339,20 @@ public class RecommendationService {
 
                     score.supplyDemand = Math.min(20, score.supplyDemand + dayPoints + amountBonus);
                     score.tags.add("기관" + days + "일연속");
+                    scored++;
                 }
             }
-            log.debug("[종합추천] 수급: 외국인 {}건, 기관 {}건", foreignCount, instCount);
         } catch (Exception e) {
             log.warn("[종합추천] 수급 스코어 실패: {}", e.getMessage());
         }
+        log.info("[종합추천] 수급: 외국인 {}건, 기관 {}건, 점수부여 {}종목", foreignCount, instCount, scored);
     }
 
     // ==================== ④ 기술적 위치 (/20) ====================
-    // FIX ②: 선형 스케일링 + 세분화된 RSI/이평선 차등
 
     private void scoreTechnical(Map<String, StockScore> scoreMap) {
         int calculated = 0, skipped = 0;
-        for (StockScore stock : scoreMap.values()) {
+        for (StockScore stock : new ArrayList<>(scoreMap.values())) {
             try {
                 List<StockPriceHistory> history = priceHistoryRepository
                         .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 120));
@@ -346,13 +370,11 @@ public class RecommendationService {
 
                 int techScore = 0;
 
-                // FIX: buySignalStrength 선형 변환 (0~100 → 0~12점)
                 Integer bss = indicators.getBuySignalStrength();
                 if (bss != null) {
                     techScore += Math.min(12, bss * 12 / 100);
                 }
 
-                // RSI 차등
                 BigDecimal rsi = indicators.getRsi14();
                 if (rsi != null) {
                     double rv = rsi.doubleValue();
@@ -362,7 +384,6 @@ public class RecommendationService {
                     else if (rv < 30) techScore += 1;
                 }
 
-                // 정배열/골든크로스 (중복 방지, 최대 +5)
                 boolean gc = Boolean.TRUE.equals(indicators.getIsGoldenCross());
                 boolean au = Boolean.TRUE.equals(indicators.getIsArrangedUp());
                 if (gc && au) techScore += 5;
@@ -378,14 +399,13 @@ public class RecommendationService {
                 calculated++;
             } catch (Exception e) {
                 skipped++;
-                log.debug("[종합추천] 기술적 실패 {}: {}", stock.stockCode, e.getMessage());
             }
         }
         log.debug("[종합추천] 기술적: {}건 계산, {}건 스킵", calculated, skipped);
     }
 
     // ==================== ⑤ 섹터 모멘텀 (/20) ====================
-    // FIX ①: 섹터 매칭 로직 개선 + AI테마만으로도 최소 점수
+    // FIX: scoreMap.get → computeIfAbsent (AI전략 빈 상태에서도 종목 추가)
 
     private void scoreSectorMomentum(Map<String, StockScore> scoreMap) {
         List<SectorRotationDto> topSectors = new ArrayList<>();
@@ -410,6 +430,7 @@ public class RecommendationService {
             else if (avg > 0.3) marketMoodBonus = 2;
         }
 
+        int scored = 0;
         try {
             var response = aiStrategyService.getAllLatestSnapshots();
             if (response == null || response.getStrategies() == null) return;
@@ -418,8 +439,10 @@ public class RecommendationService {
                 if (stocks == null) continue;
                 for (AiStrategySnapshotDto snap : stocks) {
                     if (snap.getStockCode() == null) continue;
-                    StockScore score = scoreMap.get(snap.getStockCode());
-                    if (score == null) continue;
+
+                    // FIX: computeIfAbsent로 변경 (AI전략 빈 상태에서도 동작)
+                    StockScore score = scoreMap.computeIfAbsent(snap.getStockCode(),
+                            k -> new StockScore(k, snap.getStockName()));
 
                     int ss = 0;
 
@@ -439,15 +462,22 @@ public class RecommendationService {
                         else if (cr > 0) ss += 1;
                     }
 
-                    score.sectorMomentum = Math.min(20, Math.max(score.sectorMomentum, ss));
+                    if (ss > score.sectorMomentum) {
+                        score.sectorMomentum = Math.min(20, ss);
+                        scored++;
+                    }
+                    if (snap.getChangeRate() != null && score.changeRate == null) {
+                        score.changeRate = snap.getChangeRate();
+                    }
                 }
             }
         } catch (Exception e) {
             log.debug("[종합추천] 섹터 모멘텀 실패: {}", e.getMessage());
         }
+        log.debug("[종합추천] 섹터: {}종목 점수 부여, 시장분위기 +{}", scored, marketMoodBonus);
     }
 
-    // ==================== N/A 보정 (FIX ⑤) ====================
+    // ==================== N/A 보정 ====================
 
     private int countValidCategories(StockScore s) {
         int count = 0;
@@ -459,7 +489,7 @@ public class RecommendationService {
         return count;
     }
 
-    // ==================== DB 복원 (FIX ④) ====================
+    // ==================== DB 복원 ====================
 
     private List<RecommendationDto> loadFromDb() {
         try {
@@ -509,17 +539,29 @@ public class RecommendationService {
     private RecommendationDto toDto(StockScore s) {
         int validCount = countValidCategories(s);
         int rawTotal = s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum;
-        int normalizedTotal = (validCount >= 5) ? rawTotal
-                : (validCount > 0) ? Math.min(100, rawTotal * 5 / validCount) : 0;
+
+        // FIX: 유효항목 2개면 상한 70점, 3개 이상이어야 100점 환산
+        int normalizedTotal;
+        if (validCount >= 5) {
+            normalizedTotal = rawTotal;
+        } else if (validCount >= 3) {
+            normalizedTotal = Math.min(100, rawTotal * 5 / validCount);
+        } else if (validCount == 2) {
+            // 2개 항목만으로는 최대 70점 (강력매수 불가)
+            normalizedTotal = Math.min(70, rawTotal * 5 / validCount);
+        } else {
+            normalizedTotal = validCount > 0 ? Math.min(50, rawTotal * 5 / validCount) : 0;
+        }
 
         return RecommendationDto.builder()
                 .stockCode(s.stockCode).stockName(s.stockName)
                 .totalScore(normalizedTotal)
-                .aiStrategy(s.aiStrategy)
+                .aiStrategy(s.aiStrategy > 0 ? s.aiStrategy : NA)
                 .earnings(s.earnings > 0 ? s.earnings : NA)
                 .supplyDemand(s.supplyDemand > 0 ? s.supplyDemand : NA)
                 .technical(s.technical > 0 ? s.technical : NA)
                 .sectorMomentum(s.sectorMomentum > 0 ? s.sectorMomentum : NA)
+                .validCount(validCount)
                 .tags(new ArrayList<>(s.tags))
                 .changeRate(s.changeRate).build();
     }
@@ -547,7 +589,9 @@ public class RecommendationService {
             if (technical > 0) { valid++; sum += technical; }
             if (sectorMomentum > 0) { valid++; sum += sectorMomentum; }
             if (valid >= 5) return sum;
-            return valid > 0 ? Math.min(100, sum * 5 / valid) : 0;
+            if (valid >= 3) return Math.min(100, sum * 5 / valid);
+            if (valid == 2) return Math.min(70, sum * 5 / valid);
+            return valid > 0 ? Math.min(50, sum * 5 / valid) : 0;
         }
     }
 
@@ -561,6 +605,7 @@ public class RecommendationService {
         private int supplyDemand;
         private int technical;
         private int sectorMomentum;
+        private int validCount;  // 유효 항목 수 (UI에서 신뢰도 표시용)
         private List<String> tags;
         private BigDecimal changeRate;
     }
@@ -570,6 +615,6 @@ public class RecommendationService {
         private final List<RecommendationDto> items;
         private final String dataTime;
         private final boolean realtime;
-        private final Map<String, Integer> delta; // ⑦ 전일 대비 점수 변동
+        private final Map<String, Integer> delta;
     }
 }

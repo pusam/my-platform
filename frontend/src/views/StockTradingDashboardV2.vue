@@ -69,8 +69,8 @@
                         :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
                     {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
                   </span>
-                  <span class="rec-grade" :class="getRecGradeClass(rec.totalScore)">
-                    {{ getRecGradeLabel(rec.totalScore) }}
+                  <span class="rec-grade" :class="getRecGradeClass(rec.totalScore, rec.validCount)">
+                    {{ getRecGradeLabel(rec.totalScore, rec.validCount) }}
                   </span>
                 </div>
                 <!-- 세부 항목별 점수 바 -->
@@ -802,13 +802,15 @@ export default {
         isNA: item.raw == null || item.raw < 0
       }))
     },
-    getRecGradeClass(score) {
+    getRecGradeClass(score, validCount) {
+      if (validCount != null && validCount < 3) return 'grade-low-confidence'
       if (score >= 75) return 'grade-strong'
       if (score >= 60) return 'grade-buy'
       if (score >= 40) return 'grade-hold'
       return 'grade-exclude'
     },
-    getRecGradeLabel(score) {
+    getRecGradeLabel(score, validCount) {
+      if (validCount != null && validCount < 3) return '⚠ 데이터부족'
       if (score >= 75) return '🔴 강력매수'
       if (score >= 60) return '🟡 매수고려'
       if (score >= 40) return '⚪ 관망'
@@ -1106,6 +1108,7 @@ export default {
 .rec-grade.grade-buy { color: #f59e0b; }
 .rec-grade.grade-hold { color: rgba(255,255,255,0.5); }
 .rec-grade.grade-exclude { color: #3b82f6; }
+.rec-grade.grade-low-confidence { color: #f59e0b; font-size: 9px; }
 .rec-bar-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-bottom: 4px; }
 .rec-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
 .rec-bar-fill.grade-strong { background: linear-gradient(90deg, #ef4444, #f87171); }
