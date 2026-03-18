@@ -40,6 +40,7 @@ public class RecommendationService {
     private final QuantScreenerService quantScreenerService;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final SectorTradingService sectorTradingService;
+    private final StockAnalysisService stockAnalysisService;
     private final StockPriceHistoryRepository priceHistoryRepository;
     private final RecommendationSnapshotRepository snapshotRepository;
 
@@ -399,6 +400,15 @@ public class RecommendationService {
             try {
                 List<StockPriceHistory> history = priceHistoryRepository
                         .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
+
+                // 가격 히스토리 부족 시 자동 수집 시도
+                if (history == null || history.size() < 5) {
+                    try {
+                        stockAnalysisService.collectPriceHistory(stock.stockCode);
+                        history = priceHistoryRepository
+                                .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
+                    } catch (Exception ex) { /* 수집 실패 무시 */ }
+                }
 
                 if (history == null || history.size() < 5) {
                     if (stock.changeRate != null) {

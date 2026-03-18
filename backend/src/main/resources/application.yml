@@ -3,12 +3,20 @@ spring:
     name: my-platform-backend
 
 
-  # 1. DB 설정 (모두 변수로 처리 -> IntelliJ나 서버가 채워줌)
+  # 1. DB 설정
   datasource:
     driverClassName: org.mariadb.jdbc.Driver
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 5
+      idle-timeout: 300000        # 5분 (유휴 커넥션 정리)
+      max-lifetime: 1740000       # 29분 (MariaDB wait_timeout=28800 이내)
+      connection-timeout: 10000   # 10초
+      leak-detection-threshold: 30000  # 30초 이상 미반환 시 경고
+      pool-name: MyPlatformPool
 
   # 2. JPA 기본 설정
   jpa:

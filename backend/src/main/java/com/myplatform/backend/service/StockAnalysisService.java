@@ -915,6 +915,20 @@ public class StockAnalysisService {
      * - 중복 방지: 이미 존재하는 날짜는 스킵
      * - OhlcvData.tradeDate 사용 (KIS API stck_bsop_date 필드에서 추출)
      */
+    /**
+     * 특정 종목의 일봉 데이터를 KIS API에서 가져와 DB에 저장
+     */
+    public void collectPriceHistory(String stockCode) {
+        try {
+            List<KoreaInvestmentService.OhlcvData> ohlcv = koreaInvestmentService.getDailyOhlcv(stockCode, 60);
+            if (ohlcv != null && !ohlcv.isEmpty()) {
+                savePriceHistoryToDb(stockCode, ohlcv);
+            }
+        } catch (Exception e) {
+            log.debug("일봉 수집 실패 {}: {}", stockCode, e.getMessage());
+        }
+    }
+
     private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         try {
             LocalDate today = LocalDate.now();
