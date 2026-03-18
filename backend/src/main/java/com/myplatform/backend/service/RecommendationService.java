@@ -179,6 +179,12 @@ public class RecommendationService {
         scoreTechnical(scoreMap);
         scoreSectorMomentum(scoreMap);
 
+        // 디버그: 각 종목별 유효 항목 수 출력
+        for (StockScore s : scoreMap.values()) {
+            int vc = countValidCategories(s);
+            log.info("[종합추천] {} — AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} (유효 {}개)",
+                    s.stockName, s.aiStrategy, s.earnings, s.supplyDemand, s.technical, s.sectorMomentum, vc);
+        }
         log.info("[종합추천] scoreMap: {}종목 (AI전략 {}개 시드)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()

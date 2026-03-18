@@ -365,15 +365,12 @@ public class AiStrategySnapshotService {
         if (!candidates.isEmpty()) {
             List<AiStrategySnapshot> snapshots = applyGeminiScoring(candidates, strategyType);
 
-            // ai_score null인 스냅샷이 전부면 저장 스킵 (기존 DB 데이터 보존)
-            boolean hasAnyAiScore = snapshots.stream().anyMatch(s -> s.getAiScore() != null);
-            if (!hasAnyAiScore) {
-                log.warn("[Snapshot] {} - 전체 ai_score null → 저장 스킵 (기존 DB 보존)", strategyType.name());
-            } else {
-                snapshotRepository.saveAll(snapshots);
-                log.debug("[Snapshot] {} saved: {} stocks (from {} candidates).",
-                        strategyType.name(), snapshots.size(), candidates.size());
-            }
+            // 항상 저장 — ai_score null이어도 알고리즘 점수(score)는 유효
+            // Gemini는 보너스이지 필수가 아님
+            snapshotRepository.saveAll(snapshots);
+            boolean hasAi = snapshots.stream().anyMatch(s -> s.getAiScore() != null);
+            log.info("[Snapshot] {} saved: {} stocks (AI스코어: {})",
+                    strategyType.name(), snapshots.size(), hasAi ? "있음" : "폴백/없음");
         } else {
             log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
@@ -1425,16 +1422,9 @@ public class AiStrategySnapshotService {
         for (StrategyType type : StrategyType.values()) {
             List<AiStrategySnapshot> snapshots = snapshotRepository.findLatestByStrategyType(type);
 
-            // Fallback: DB에 데이터가 없으면 동기적으로 수집
+            // Fallback: DB에 데이터가 없으면 빈 리스트로 진행 (동기 수집 제거 — Gemini Rate Limit 방지)
             if (snapshots.isEmpty()) {
-                log.warn("[Fallback] {} 전략 데이터 없음 - 동기 수집 시작", type.name());
-                try {
-                    collectAndSaveSnapshot(type);
-                    snapshots = snapshotRepository.findLatestByStrategyType(type);
-                    log.info("[Fallback] {} Strategy collected: {} stocks.", type.name(), snapshots.size());
-                } catch (Exception e) {
-                    log.error("[Fallback] {} 전략 동기 수집 실패: {}", type.name(), e.getMessage());
-                }
+                log.warn("[AiStrategy] {} 전략 DB 데이터 없음 — 스케줄러가 수집할 때까지 대기", type.name());
             }
 
             // ★ Freshness check: 장중에 오래된 스냅샷이면 경고 (하지만 데이터는 반환)
