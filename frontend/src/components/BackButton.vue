@@ -22,7 +22,11 @@ export default {
     const router = useRouter()
 
     const goBack = () => {
-      router.back()
+      if (window.history.length > 1) {
+        router.back()
+      } else {
+        router.push('/stock-dashboard')
+      }
     }
 
     return { goBack }

@@ -41,6 +41,7 @@
       <SectionWatchlist v-if="activeTab === 'watchlist'" />
       <SectionEarnings v-if="activeTab === 'earnings'" />
       <SectionBacktest v-if="activeTab === 'backtest'" />
+      <NewsPage v-if="activeTab === 'news'" :embedded="true" />
     </div>
   </div>
 </template>
@@ -57,6 +58,7 @@ import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
 import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
 import SectionEarnings from '../components/v2/SectionEarnings.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
+import NewsPage from './NewsPage.vue'
 import {
   aiStrategyAPI, investorAPI
 } from '../utils/api'
@@ -66,7 +68,7 @@ export default {
   components: {
     GlobalNav, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage,
     MarketTimingPage, SectionRadar, SectionAiStrategy, SectionSmartMoney,
-    SectionWatchlist, SectionEarnings, SectionBacktest
+    SectionWatchlist, SectionEarnings, SectionBacktest, NewsPage
   },
   data() {
     return {
@@ -81,7 +83,8 @@ export default {
         { key: 'timing', icon: '⏱️', label: '시장타이밍' },
         { key: 'watchlist', icon: '⭐', label: '관심종목' },
         { key: 'earnings', icon: '📋', label: '실적공시' },
-        { key: 'backtest', icon: '📊', label: 'AI성과' }
+        { key: 'backtest', icon: '📊', label: 'AI성과' },
+        { key: 'news', icon: '📰', label: '뉴스' }
       ],
       // AI 전략
       aiStrategyData: null,

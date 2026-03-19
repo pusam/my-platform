@@ -77,61 +77,7 @@
           </div>
         </article>
 
-        <!-- 서브 카드 그리드 -->
-        <div class="invest-sub-grid">
-          <article class="invest-sub-card" @click="$router.push('/research')">
-            <div class="invest-sub-icon futures-gradient">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"/>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-              </svg>
-            </div>
-            <div class="invest-sub-text">
-              <h4>종목 발굴</h4>
-              <p>스크리너 · 섹터 · 수급</p>
-            </div>
-          </article>
-
-          <article class="invest-sub-card" @click="$router.push('/news')">
-            <div class="invest-sub-icon news-gradient">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M4 22h16a2 2 0 002-2V4a2 2 0 00-2-2H8a2 2 0 00-2 2v16a2 2 0 01-2 2zm0 0a2 2 0 01-2-2v-9c0-1.1.9-2 2-2h2"/>
-                <line x1="10" y1="6" x2="18" y2="6"/>
-                <line x1="10" y1="10" x2="18" y2="10"/>
-              </svg>
-            </div>
-            <div class="invest-sub-text">
-              <h4>경제 뉴스</h4>
-              <p>AI 요약 뉴스</p>
-            </div>
-          </article>
-
-          <article class="invest-sub-card" @click="$router.push('/market-timing')">
-            <div class="invest-sub-icon timing-gradient">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <polyline points="12,6 12,12 16,14"/>
-              </svg>
-            </div>
-            <div class="invest-sub-text">
-              <h4>시장 타이밍</h4>
-              <p>ADR · 시장 상태</p>
-            </div>
-          </article>
-
-          <article class="invest-sub-card" @click="$router.push('/global-futures')">
-            <div class="invest-sub-icon futures-gradient">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
-                <polyline points="16,7 22,7 22,13"/>
-              </svg>
-            </div>
-            <div class="invest-sub-text">
-              <h4>글로벌 시세</h4>
-              <p>선물 · 금 · 은 · 원유</p>
-            </div>
-          </article>
-        </div>
+        <!-- GNB에서 시장/분석/글로벌 직접 접근 가능 → 서브 카드 제거 -->
       </section>
 
       <!-- 관리 섹션 -->

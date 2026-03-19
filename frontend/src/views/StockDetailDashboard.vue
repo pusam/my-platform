@@ -7,7 +7,7 @@
     <!-- Header -->
     <header class="dashboard-header">
       <div class="header-left">
-        <BackButton />
+        <BackButton :dark="true" />
         <div class="stock-info">
           <h1 class="stock-name">{{ stockName || '종목 검색' }}</h1>
           <span class="stock-code">{{ stockCode }}</span>

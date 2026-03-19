@@ -137,9 +137,7 @@ const router = createRouter({
     },
     {
       path: '/news',
-      name: 'NewsPage',
-      component: NewsPage,
-      meta: { requiresAuth: true }
+      redirect: '/research?tab=news'
     },
     {
       path: '/investor',
