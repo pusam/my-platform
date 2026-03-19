@@ -175,7 +175,7 @@ public class RecommendationService {
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()
-                .filter(s -> countValidCategories(s) >= 3)
+                .filter(s -> countValidCategories(s) >= 4)
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
                         .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
                                 Comparator.reverseOrder()))
