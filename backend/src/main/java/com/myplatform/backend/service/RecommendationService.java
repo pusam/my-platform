@@ -176,6 +176,9 @@ public class RecommendationService {
 
         List<RecommendationDto> results = scoreMap.values().stream()
                 .filter(s -> countValidCategories(s) >= 4)
+                .filter(s -> normalizeScore(
+                        s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum,
+                        countValidCategories(s)) >= 60) // 관망(59↓) 종목 제외
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
                         .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
                                 Comparator.reverseOrder()))
