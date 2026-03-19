@@ -368,7 +368,7 @@ export default {
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
       if (this.activeGnbTab === 'market') this.loadMarketMap()
-      // discover 탭 제거됨 — 분석은 /research에서
+      // 시장 뷰만 사용
     }, 60000)
   },
   beforeUnmount() {
@@ -495,12 +495,6 @@ export default {
       if (tab === 'market' && !this.dataLoaded.market) {
         this.loadMarketMap()
         this.dataLoaded.market = true
-      }
-      if (tab === 'discover' && !this.dataLoaded.discover) {
-        this.loadAiStrategy()
-        this.loadSmartMoney()
-        this.loadResearch()
-        this.dataLoaded.discover = true
       }
     },
 
@@ -1117,42 +1111,6 @@ export default {
   gap: 20px;
 }
 
-/* Discover Sub-tabs */
-.discover-tabs {
-  display: flex;
-  gap: 6px;
-  background: rgba(255,255,255,0.04);
-  padding: 4px;
-  border-radius: 12px;
-  margin-bottom: 4px;
-}
-.discover-tab-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border: none;
-  background: transparent;
-  color: rgba(255,255,255,0.5);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border-radius: 9px;
-  transition: all 0.2s;
-}
-.discover-tab-btn:hover {
-  color: rgba(255,255,255,0.7);
-  background: rgba(255,255,255,0.04);
-}
-.discover-tab-btn.active {
-  background: rgba(102,126,234,0.15);
-  color: #a5b4fc;
-  font-weight: 600;
-}
-.dtab-icon { font-size: 14px; }
-
 /* News Panel in Market Tab */
 .news-panel {
   background: rgba(255,255,255,0.05);
@@ -1209,6 +1167,5 @@ export default {
 @media (max-width: 768px) {
   .v2-content { padding: 12px 16px 40px; }
   .tab-panel { gap: 14px; }
-  .discover-tab-btn { padding: 8px 10px; font-size: 12px; }
 }
 </style>
