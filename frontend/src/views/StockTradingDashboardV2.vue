@@ -307,13 +307,7 @@ export default {
   components: {
     GlobalNav,
     DashboardHeader,
-    SectionAiStrategy,
     SectionMarketMap,
-    SectionSmartMoney,
-    SectionResearch,
-    SectionWatchlist,
-    SectionBacktest,
-    SectionEarnings,
     StockSearchModal
   },
   provide() {
@@ -327,8 +321,12 @@ export default {
       showSearch: false,
       dataLoaded: { market: false },
       sections: {
-        marketMap: { loading: true, error: false }
+        marketMap: { loading: true, error: false },
+        aiStrategy: { loading: false, error: false },
+        smartMoney: { loading: false, error: false },
+        research: { loading: false, error: false }
       },
+      aiStrategyData: null,  // phaseSignals에서 사용
       sectorData: [],
       marketData: {},
       globalData: {},
@@ -494,6 +492,8 @@ export default {
     loadTabData(tab) {
       if (tab === 'market' && !this.dataLoaded.market) {
         this.loadMarketMap()
+        this.loadAiStrategy()  // 시간대별 신호용
+        this.loadSmartMoney()  // 수급급증 신호용
         this.dataLoaded.market = true
       }
     },
