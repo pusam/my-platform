@@ -188,7 +188,7 @@
         <div class="watchlist-summary section-card" v-if="watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
-            <button class="more-link" @click="activeGnbTab = 'discover'; discoverTab = 'watchlist'">전체 보기 →</button>
+            <router-link to="/research" class="more-link">전체 보기 →</router-link>
           </div>
           <div class="wl-list">
             <div
@@ -244,55 +244,6 @@
         />
       </div>
 
-      <!-- ═══ Tab 2: 종목 발굴 ═══ -->
-      <div v-if="activeGnbTab === 'discover'" class="tab-panel">
-        <div class="discover-tabs">
-          <button
-            v-for="tab in discoverSubTabs"
-            :key="tab.key"
-            :class="['discover-tab-btn', { active: discoverTab === tab.key }]"
-            @click="discoverTab = tab.key"
-          >
-            <span class="dtab-icon">{{ tab.icon }}</span>
-            {{ tab.label }}
-          </button>
-        </div>
-
-        <SectionAiStrategy
-          v-if="discoverTab === 'ai'"
-          :data="aiStrategyData"
-          :loading="sections.aiStrategy.loading"
-          :error="sections.aiStrategy.error"
-          @retry="loadAiStrategy"
-        />
-        <SectionWatchlist
-          v-if="discoverTab === 'watchlist'"
-        />
-        <SectionSmartMoney
-          v-if="discoverTab === 'smart'"
-          :tradesData="tradesData"
-          :consecutiveData="consecutiveData"
-          :surgeData="surgeData"
-          :loading="sections.smartMoney.loading"
-          :error="sections.smartMoney.error"
-          @retry="loadSmartMoney"
-        />
-        <SectionResearch
-          v-if="discoverTab === 'screener'"
-          :screenerData="screenerData"
-          :newsData="newsData"
-          :loading="sections.research.loading"
-          :error="sections.research.error"
-          @retry="loadResearch"
-        />
-        <SectionBacktest
-          v-if="discoverTab === 'backtest'"
-        />
-        <SectionEarnings
-          v-if="discoverTab === 'earnings'"
-        />
-      </div>
-
       <!-- 종목 검색 모달 -->
       <StockSearchModal
         :visible="showSearch"
@@ -306,13 +257,8 @@
 <script>
 import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
-import SectionAiStrategy from '../components/v2/SectionAiStrategy.vue'
+// 시장 뷰 전용 (AI전략/스마트머니/리서치는 /research로 이동)
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
-import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
-import SectionResearch from '../components/v2/SectionResearch.vue'
-import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
-import SectionBacktest from '../components/v2/SectionBacktest.vue'
-import SectionEarnings from '../components/v2/SectionEarnings.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
@@ -378,24 +324,11 @@ export default {
   data() {
     return {
       activeGnbTab: 'market',
-      discoverTab: 'ai',
-      discoverSubTabs: [
-        { key: 'ai', label: 'AI 전략', icon: '🤖' },
-        { key: 'watchlist', label: '관심종목', icon: '⭐' },
-        { key: 'smart', label: '스마트 머니', icon: '💰' },
-        { key: 'screener', label: '실적 스크리너', icon: '🔬' },
-        { key: 'backtest', label: 'AI 성과', icon: '📊' },
-        { key: 'earnings', label: '실적공시', icon: '📋' }
-      ],
       showSearch: false,
-      dataLoaded: { market: false, discover: false },
+      dataLoaded: { market: false },
       sections: {
-        aiStrategy: { loading: true, error: false },
-        marketMap: { loading: true, error: false },
-        smartMoney: { loading: true, error: false },
-        research: { loading: true, error: false }
+        marketMap: { loading: true, error: false }
       },
-      aiStrategyData: null,
       sectorData: [],
       marketData: {},
       globalData: {},
@@ -435,7 +368,7 @@ export default {
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
       if (this.activeGnbTab === 'market') this.loadMarketMap()
-      if (this.activeGnbTab === 'discover') this.loadSmartMoney()
+      // discover 탭 제거됨 — 분석은 /research에서
     }, 60000)
   },
   beforeUnmount() {

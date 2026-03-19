@@ -45,8 +45,7 @@ export default {
     return {
       currentTime: '',
       gnbTabs: [
-        { key: 'market', label: '시장 뷰', icon: '📊' },
-        { key: 'discover', label: '종목 발굴', icon: '🔍' }
+        { key: 'market', label: '시장 현황', icon: '📊' }
       ]
     }
   },

@@ -173,9 +173,7 @@ const router = createRouter({
     },
     {
       path: '/market-timing',
-      name: 'MarketTiming',
-      component: MarketTimingPage,
-      meta: { requiresAuth: true }
+      redirect: '/research?tab=timing'
     },
     {
       path: '/trading-indicators',

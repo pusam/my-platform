@@ -1,6 +1,6 @@
 <template>
   <div class="research-page">
-    <GlobalNav subtitle="종목 발굴" />
+    <GlobalNav subtitle="분석" />
 
     <div class="research-tab-bar">
       <div class="research-tabs">
@@ -21,6 +21,26 @@
       <SectorTradingPage v-if="activeTab === 'sector'" :embedded="true" />
       <InvestorAnalysisPage v-if="activeTab === 'investor'" :embedded="true" />
       <SectionRadar v-if="activeTab === 'radar'" />
+      <SectionAiStrategy
+        v-if="activeTab === 'ai'"
+        :data="aiStrategyData"
+        :loading="aiLoading"
+        :error="aiError"
+        @retry="loadAiStrategy"
+      />
+      <SectionSmartMoney
+        v-if="activeTab === 'smart'"
+        :tradesData="tradesData"
+        :consecutiveData="consecutiveData"
+        :surgeData="surgeData"
+        :loading="smartLoading"
+        :error="smartError"
+        @retry="loadSmartMoney"
+      />
+      <MarketTimingPage v-if="activeTab === 'timing'" :embedded="true" />
+      <SectionWatchlist v-if="activeTab === 'watchlist'" />
+      <SectionEarnings v-if="activeTab === 'earnings'" />
+      <SectionBacktest v-if="activeTab === 'backtest'" />
     </div>
   </div>
 </template>
@@ -30,20 +50,91 @@ import GlobalNav from '../components/GlobalNav.vue'
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
 import SectorTradingPage from './SectorTradingPage.vue'
 import InvestorAnalysisPage from './InvestorAnalysisPage.vue'
+import MarketTimingPage from './MarketTimingPage.vue'
 import SectionRadar from '../components/v2/SectionRadar.vue'
+import SectionAiStrategy from '../components/v2/SectionAiStrategy.vue'
+import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
+import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
+import SectionEarnings from '../components/v2/SectionEarnings.vue'
+import SectionBacktest from '../components/v2/SectionBacktest.vue'
+import {
+  aiStrategyAPI, investorAPI
+} from '../utils/api'
 
 export default {
   name: 'ResearchPage',
-  components: { GlobalNav, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage, SectionRadar },
+  components: {
+    GlobalNav, EarningsScreenerPage, SectorTradingPage, InvestorAnalysisPage,
+    MarketTimingPage, SectionRadar, SectionAiStrategy, SectionSmartMoney,
+    SectionWatchlist, SectionEarnings, SectionBacktest
+  },
   data() {
     return {
-      activeTab: 'screener',
+      activeTab: this.$route.query.tab || 'screener',
       tabs: [
-        { key: 'screener', icon: '🔬', label: '실적 스크리너' },
-        { key: 'sector', icon: '📊', label: '섹터 거래대금' },
-        { key: 'investor', icon: '💰', label: '투자자 분석' },
-        { key: 'radar', icon: '🎯', label: '선점 레이더' }
-      ]
+        { key: 'screener', icon: '🔬', label: '스크리너' },
+        { key: 'sector', icon: '📊', label: '섹터' },
+        { key: 'investor', icon: '💰', label: '투자자' },
+        { key: 'radar', icon: '🎯', label: '레이더' },
+        { key: 'ai', icon: '🤖', label: 'AI전략' },
+        { key: 'smart', icon: '📈', label: '스마트머니' },
+        { key: 'timing', icon: '⏱️', label: '시장타이밍' },
+        { key: 'watchlist', icon: '⭐', label: '관심종목' },
+        { key: 'earnings', icon: '📋', label: '실적공시' },
+        { key: 'backtest', icon: '📊', label: 'AI성과' }
+      ],
+      // AI 전략
+      aiStrategyData: null,
+      aiLoading: false,
+      aiError: false,
+      // 스마트머니
+      tradesData: { foreign: [], institution: [] },
+      consecutiveData: [],
+      surgeData: [],
+      smartLoading: false,
+      smartError: false
+    }
+  },
+  watch: {
+    activeTab(tab) {
+      if (tab === 'ai' && !this.aiStrategyData) this.loadAiStrategy()
+      if (tab === 'smart' && !this.tradesData.foreign.length) this.loadSmartMoney()
+    }
+  },
+  methods: {
+    extractData(res) {
+      const d = res?.data?.data ?? res?.data ?? res
+      return d
+    },
+    async loadAiStrategy() {
+      this.aiLoading = true
+      this.aiError = false
+      try {
+        const res = await aiStrategyAPI.getLatest()
+        const d = this.extractData(res)
+        if (d?.strategies) this.aiStrategyData = d
+        else this.aiError = true
+      } catch { this.aiError = true }
+      this.aiLoading = false
+    },
+    async loadSmartMoney() {
+      this.smartLoading = true
+      this.smartError = false
+      try {
+        const [fRes, iRes, cRes, sRes] = await Promise.allSettled([
+          investorAPI.getTopTrades('FOREIGN', 'BUY', 10),
+          investorAPI.getTopTrades('INSTITUTION', 'BUY', 10),
+          investorAPI.getAllConsecutiveBuy(3),
+          investorAPI.getAllSurgeStocks()
+        ])
+        this.tradesData.foreign = fRes.status === 'fulfilled' ? (this.extractData(fRes.value) || []) : []
+        this.tradesData.institution = iRes.status === 'fulfilled' ? (this.extractData(iRes.value) || []) : []
+        const cd = cRes.status === 'fulfilled' ? this.extractData(cRes.value) : null
+        this.consecutiveData = Array.isArray(cd) ? cd : (cd ? Object.values(cd).flat() : [])
+        const sd = sRes.status === 'fulfilled' ? this.extractData(sRes.value) : null
+        this.surgeData = Array.isArray(sd) ? sd : (sd ? Object.values(sd).flat() : [])
+      } catch { this.smartError = true }
+      this.smartLoading = false
     }
   }
 }
@@ -65,6 +156,9 @@ export default {
 .research-tabs {
   display: flex;
   gap: 4px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
   background: rgba(255,255,255,0.04);
   padding: 4px;
   border-radius: 12px;

@@ -1,6 +1,6 @@
 <template>
   <div class="market-timing-page">
-    <GlobalNav />
+    <GlobalNav v-if="!embedded" />
     <div class="page-header-unified">
       <div class="header-title">
         <h1>시장 지표 (Market Timing)</h1>
@@ -443,7 +443,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, onMounted, reactive, defineProps } from 'vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
 import GlobalNav from '../components/GlobalNav.vue';
