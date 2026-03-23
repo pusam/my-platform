@@ -140,14 +140,29 @@ public class RecommendationService {
         return new Top5Response(items, dataTime, realtime, deltaMap);
     }
 
+    /** 장중 스냅샷 (11:30, 14:00) — 장중 흐름 변화 히스토리 */
+    @Scheduled(cron = "0 30 11 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Transactional
+    public void saveIntradaySnapshot() {
+        log.info("[종합추천] 장중 스냅샷 저장");
+        saveSnapshotInternal();
+    }
+
+    /** 마감 스냅샷 (15:45) */
     @Scheduled(cron = "0 45 15 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         log.info("[종합추천] 마감 스냅샷 저장 시작");
+        saveSnapshotInternal();
+        snapshotRepository.deleteOlderThan(LocalDateTime.now().minusDays(7));
+    }
+
+    private void saveSnapshotInternal() {
         try {
             List<RecommendationDto> result = calculate();
             if (result.isEmpty() && cachedTop5 != null && !cachedTop5.isEmpty()) result = cachedTop5;
-            if (result.isEmpty()) { log.warn("[종합추천] 마감 스냅샷 — 데이터 없음"); return; }
+            if (result.isEmpty()) { log.warn("[종합추천] 스냅샷 — 데이터 없음"); return; }
 
             LocalDateTime snapTime = LocalDateTime.now();
             for (int i = 0; i < result.size(); i++) {
@@ -169,10 +184,9 @@ public class RecommendationService {
             }
             cachedTop5 = result;
             cacheTime = snapTime;
-            snapshotRepository.deleteOlderThan(snapTime.minusDays(7));
-            log.info("[종합추천] 마감 스냅샷 {}건 저장", result.size());
+            log.info("[종합추천] 스냅샷 {}건 저장 ({})", result.size(), snapTime.format(TIME_FMT));
         } catch (Exception e) {
-            log.error("[종합추천] 마감 스냅샷 실패: {}", e.getMessage());
+            log.error("[종합추천] 스냅샷 실패: {}", e.getMessage());
         }
     }
 

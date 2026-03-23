@@ -145,6 +145,12 @@ alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
 
+# 10-1. 한국수출입은행 환율 API 설정
+koreaexim:
+  api:
+    key: ${KOREAEXIM_API_KEY:}
+    url: https://www.koreaexim.go.kr/site/program/financial/exchangeJSON
+
 # 11. DART(전자공시) API 설정
 dart:
   api:
