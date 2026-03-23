@@ -12,8 +12,7 @@ const Dashboard = () => import('./views/Dashboard.vue')
 const AdminDashboard = () => import('./views/AdminDashboard.vue')
 const UserDashboard = () => import('./views/UserDashboard.vue')
 const BoardPage = () => import('./views/BoardPage.vue')
-const GoldPricePage = () => import('./views/GoldPricePage.vue')
-const SilverPricePage = () => import('./views/SilverPricePage.vue')
+// GoldPricePage, SilverPricePage, OilPricePage → GlobalFuturesPage에 탭으로 통합됨 (redirect)
 const MyContentPage = () => import('./views/MyContentPage.vue')
 const SettingsPage = () => import('./views/SettingsPage.vue')
 const AssetManagement = () => import('./views/AssetManagement.vue')
@@ -22,23 +21,18 @@ const FinanceManagement = () => import('./views/FinanceManagement.vue')
 const CarManagement = () => import('./views/CarManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
-const SectorTradingPage = () => import('./views/SectorTradingPage.vue')
-const InvestorTradePage = () => import('./views/InvestorTradePage.vue')
-const InvestorStockDetailPage = () => import('./views/InvestorStockDetailPage.vue')
-const ConsecutiveBuyPage = () => import('./views/ConsecutiveBuyPage.vue')
-const InvestorSurgePage = () => import('./views/InvestorSurgePage.vue')
+// SectorTradingPage, EarningsScreenerPage → ResearchPage에 탭으로 통합됨 (redirect)
+// InvestorAnalysisPage → ResearchPage에 탭으로 통합됨 (redirect)
+// InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → ResearchPage에 통합됨 (redirect)
 const NewsPage = () => import('./views/NewsPage.vue')
-const EarningsScreenerPage = () => import('./views/EarningsScreenerPage.vue')
+const ResearchPage = () => import('./views/ResearchPage.vue')
 const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
-const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
-const PensionLotteryPage = () => import('./views/PensionLotteryPage.vue')
-const TradingIndicatorsPage = () => import('./views/TradingIndicatorsPage.vue')
-const AiStrategyDashboardPage = () => import('./views/AiStrategyDashboardPage.vue')
+// TradingIndicatorsPage → StockDetailDashboard에 탭으로 통합됨 (redirect)
+// AiStrategyDashboardPage → StockTradingDashboardV2에 AI전략 탭으로 통합됨 (redirect)
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
-const OilPricePage = () => import('./views/OilPricePage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
 const router = createRouter({
@@ -73,21 +67,19 @@ const router = createRouter({
     },
     {
       path: '/dashboard',
-      name: 'Dashboard',
-      component: Dashboard,
-      meta: { requiresAuth: true }
+      redirect: '/user'
     },
     {
       path: '/admin',
       name: 'AdminDashboard',
       component: AdminDashboard,
-      meta: { requiresAuth: true, role: 'ADMIN' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/user',
       name: 'UserDashboard',
       component: UserDashboard,
-      meta: { requiresAuth: true, role: 'USER' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/board',
@@ -97,15 +89,11 @@ const router = createRouter({
     },
     {
       path: '/gold',
-      name: 'GoldPrice',
-      component: GoldPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/silver',
-      name: 'SilverPrice',
-      component: SilverPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/my-content',
@@ -145,69 +133,49 @@ const router = createRouter({
     },
     {
       path: '/sector',
-      name: 'SectorTrading',
-      component: SectorTradingPage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
     },
     {
       path: '/news',
-      name: 'NewsPage',
-      component: NewsPage,
-      meta: { requiresAuth: true }
+      redirect: '/research?tab=news'
+    },
+    {
+      path: '/investor',
+      redirect: '/research'
     },
     {
       path: '/investor-trades',
-      name: 'InvestorTrade',
-      component: InvestorTradePage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/investor-stock/:stockCode',
-      name: 'InvestorStockDetail',
-      component: InvestorStockDetailPage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
     },
     {
       path: '/consecutive-buy',
-      name: 'ConsecutiveBuy',
-      component: ConsecutiveBuyPage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
     },
     {
       path: '/investor-surge',
-      name: 'InvestorSurge',
-      component: InvestorSurgePage,
-      meta: { requiresAuth: true }
+      redirect: '/research'
+    },
+    {
+      path: '/investor-stock/:stockCode',
+      redirect: to => `/stock/${to.params.stockCode}`
     },
     {
       path: '/earnings-screener',
-      name: 'EarningsScreener',
-      component: EarningsScreenerPage,
+      redirect: '/research'
+    },
+    {
+      path: '/research',
+      name: 'Research',
+      component: ResearchPage,
       meta: { requiresAuth: true }
     },
     {
       path: '/market-timing',
-      name: 'MarketTiming',
-      component: MarketTimingPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/lotto',
-      name: 'LottoAnalyzer',
-      component: LottoAnalyzerPage,
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/pension-lottery',
-      name: 'PensionLottery',
-      component: PensionLotteryPage,
-      meta: { requiresAuth: true }
+      redirect: '/research?tab=timing'
     },
     {
       path: '/trading-indicators',
-      name: 'TradingIndicators',
-      component: TradingIndicatorsPage,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard'
     },
     {
       path: '/stock-dashboard',
@@ -217,19 +185,15 @@ const router = createRouter({
     },
     {
       path: '/ai-stock',
-      redirect: '/ai-strategy'
+      redirect: '/stock-dashboard'
     },
     {
       path: '/ai-strategy',
-      name: 'AiTradingStrategy',
-      component: AiStrategyDashboardPage,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard'
     },
     {
       path: '/stock-detail',
-      name: 'StockDetail',
-      component: StockDetailDashboard,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard'
     },
     {
       path: '/stock/:stockCode',
@@ -245,9 +209,7 @@ const router = createRouter({
     },
     {
       path: '/oil',
-      name: 'OilPrice',
-      component: OilPricePage,
-      meta: { requiresAuth: true }
+      redirect: '/global-futures'
     },
     {
       path: '/global-futures',
@@ -259,19 +221,19 @@ const router = createRouter({
       path: '/admin/users',
       name: 'UserManagement',
       component: UserManagement,
-      meta: { requiresAuth: true, role: 'ADMIN' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/admin/logs',
       name: 'ActivityLogs',
       component: ActivityLogs,
-      meta: { requiresAuth: true, role: 'ADMIN' }
+      meta: { requiresAuth: true }
     },
     {
       path: '/admin/batch',
       name: 'BatchJobMonitor',
       component: BatchJobMonitor,
-      meta: { requiresAuth: true, role: 'ADMIN' }
+      meta: { requiresAuth: true }
     }
   ]
 })
@@ -279,7 +241,6 @@ const router = createRouter({
 // Navigation guard for authentication
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('jwt_token')
-  const role = localStorage.getItem('role')
 
   // 인증이 필요한 페이지인데 토큰이 없는 경우
   if (to.meta.requiresAuth && !token) {
@@ -287,42 +248,9 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  // 로그인된 상태에서 로그인 페이지 접근 시 역할별 대시보드로 이동
+  // 로그인된 상태에서 로그인 접근 시 유저 대시보드로 이동
   if (to.path === '/login' && token) {
-    if (role === 'ADMIN') {
-      next('/admin')
-    } else {
-      next('/user')
-    }
-    return
-  }
-
-  // /dashboard 경로는 역할별로 리다이렉션
-  if (to.path === '/dashboard' && token) {
-    if (role === 'ADMIN') {
-      next('/admin')
-    } else {
-      next('/user')
-    }
-    return
-  }
-
-  // 특정 역할이 필요한 페이지 접근 시 권한 체크
-  if (to.meta.role && role && to.meta.role !== role) {
-    // 권한이 없는 페이지 접근 시 자신의 대시보드로 이동
-    if (role === 'ADMIN') {
-      next('/admin')
-    } else {
-      next('/user')
-    }
-    return
-  }
-
-  // role이 필요한데 role이 없는 경우 (비정상 상태) - 로그인 페이지로
-  if (to.meta.role && !role) {
-    localStorage.removeItem('jwt_token')
-    localStorage.removeItem('role')
-    next('/login')
+    next('/user')
     return
   }
 

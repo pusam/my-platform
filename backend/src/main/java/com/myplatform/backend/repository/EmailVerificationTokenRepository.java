@@ -13,6 +13,8 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
     Optional<EmailVerificationToken> findByEmailAndTokenAndVerifiedFalseAndExpiresAtAfter(
             String email, String token, LocalDateTime now);
 
+    boolean existsByEmailAndVerifiedTrue(String email);
+
     void deleteByEmail(String email);
 
     void deleteByExpiresAtBefore(LocalDateTime now);

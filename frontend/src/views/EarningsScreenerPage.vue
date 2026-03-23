@@ -1,11 +1,13 @@
 <template>
-  <div class="screener-page">
+  <div :class="['screener-page', { embedded: embedded }]">
     <LoadingSpinner v-if="loading" />
     <div v-else class="content-wrapper">
-      <div class="page-header">
-        <BackButton />
-        <h1>실적 기반 저평가 스크리너</h1>
-        <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+      <div v-if="!embedded" class="page-header-unified">
+        <BackButton :dark="true" />
+        <div class="header-title">
+          <h1>실적 기반 저평가 스크리너</h1>
+          <p class="subtitle">마법의 공식, PEG, 턴어라운드 종목 발굴</p>
+        </div>
       </div>
 
       <!-- 데이터 기준일 표시 (상단 고정) -->
@@ -706,6 +708,10 @@ import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
 import MagicFormulaSmartTable from '../components/v2/MagicFormulaSmartTable.vue';
 
 const router = useRouter();
@@ -1759,41 +1765,6 @@ onMounted(async () => {
   padding: 2rem;
   box-shadow: var(--card-shadow);
   border: 1px solid var(--border-color);
-}
-
-.page-header {
-  text-align: center;
-  margin-bottom: 2rem;
-  position: relative;
-}
-
-.back-button {
-  position: absolute;
-  left: 0;
-  top: 0;
-  background: var(--primary-gradient);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1rem;
-  transition: all 0.3s;
-}
-
-.back-button:hover {
-  transform: translateX(-5px);
-  opacity: 0.9;
-}
-
-.page-header h1 {
-  color: var(--text-primary);
-  margin-bottom: 0.5rem;
-}
-
-.subtitle {
-  color: var(--text-muted);
-  font-size: 1.1rem;
 }
 
 /* 데이터 상태 바 */
@@ -3093,11 +3064,6 @@ onMounted(async () => {
     padding: 1rem;
   }
 
-  .page-header h1 {
-    margin-top: 3rem;
-    font-size: 1.5rem;
-  }
-
   .screener-tabs {
     flex-wrap: wrap;
   }
@@ -3813,5 +3779,11 @@ onMounted(async () => {
   .analysis-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.screener-page.embedded {
+  min-height: auto;
+  padding: 0;
+  background: none;
 }
 </style>

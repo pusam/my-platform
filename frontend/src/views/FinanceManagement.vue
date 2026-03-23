@@ -2,9 +2,9 @@
   <div class="page-container">
     <div class="page-content">
       <header class="common-header">
+        <BackButton />
         <h1>가계부</h1>
         <div class="header-actions">
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>

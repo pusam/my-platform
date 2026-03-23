@@ -35,12 +35,19 @@ public class AuthService {
         this.emailVerificationService = emailVerificationService;
     }
 
+    private static final int MAX_FAILED_ATTEMPTS = 10;
+
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElse(null);
 
         if (user == null) {
             return new LoginResponse(false, "존재하지 않는 사용자입니다.");
+        }
+
+        // 계정 잠금 체크
+        if ("LOCKED".equals(user.getStatus())) {
+            return new LoginResponse(false, "계정이 잠겼습니다. 관리자에게 문의하세요.");
         }
 
         // 승인되지 않은 사용자 체크
@@ -53,7 +60,22 @@ public class AuthService {
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            return new LoginResponse(false, "비밀번호가 일치하지 않습니다.");
+            // 로그인 실패 횟수 증가
+            int attempts = user.getFailedLoginAttempts() + 1;
+            user.setFailedLoginAttempts(attempts);
+            if (attempts >= MAX_FAILED_ATTEMPTS) {
+                user.setStatus("LOCKED");
+                userRepository.save(user);
+                return new LoginResponse(false, "로그인 " + MAX_FAILED_ATTEMPTS + "회 실패로 계정이 잠겼습니다. 관리자에게 문의하세요.");
+            }
+            userRepository.save(user);
+            return new LoginResponse(false, "비밀번호가 일치하지 않습니다. (실패 " + attempts + "/" + MAX_FAILED_ATTEMPTS + ")");
+        }
+
+        // 로그인 성공 시 실패 횟수 초기화
+        if (user.getFailedLoginAttempts() > 0) {
+            user.setFailedLoginAttempts(0);
+            userRepository.save(user);
         }
 
         String token = jwtTokenProvider.generateToken(user.getUsername());
@@ -110,13 +132,9 @@ public class AuthService {
             return new SignupResponse(false, "핸드폰번호 형식이 올바르지 않습니다. (예: 010-1234-5678)");
         }
 
-        // 6. 이메일 인증 확인
-        boolean isVerified = emailVerificationService.verifyToken(
-            request.getEmail(),
-            request.getVerificationToken()
-        );
-        if (!isVerified) {
-            return new SignupResponse(false, "이메일 인증번호가 올바르지 않거나 만료되었습니다.");
+        // 6. 이메일 인증 확인 (verify-email API에서 이미 인증 완료된 상태 확인)
+        if (!emailVerificationService.isEmailVerified(request.getEmail())) {
+            return new SignupResponse(false, "이메일 인증이 완료되지 않았습니다. 인증번호를 먼저 확인해주세요.");
         }
 
         // 7. 중복 체크

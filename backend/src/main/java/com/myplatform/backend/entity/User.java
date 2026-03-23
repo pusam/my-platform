@@ -35,6 +35,9 @@ public class User {
     @Column(name = "profile_image", length = 500)
     private String profileImage;
 
+    @Column(name = "failed_login_attempts", nullable = false)
+    private int failedLoginAttempts = 0;
+
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
@@ -138,6 +141,14 @@ public class User {
 
     public void setProfileImage(String profileImage) {
         this.profileImage = profileImage;
+    }
+
+    public int getFailedLoginAttempts() {
+        return failedLoginAttempts;
+    }
+
+    public void setFailedLoginAttempts(int failedLoginAttempts) {
+        this.failedLoginAttempts = failedLoginAttempts;
     }
 }
 

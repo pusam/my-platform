@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface UserFileRepository extends JpaRepository<UserFile, Long> {
@@ -25,6 +26,11 @@ public interface UserFileRepository extends JpaRepository<UserFile, Long> {
 
     @Query("SELECT SUM(f.fileSize) FROM UserFile f WHERE f.userId = :userId")
     Long getTotalFileSizeByUserId(@Param("userId") Long userId);
+
+    // 동일 파일명 조회 (덮어쓰기용)
+    Optional<UserFile> findByUserIdAndFolderIdAndOriginalName(Long userId, Long folderId, String originalName);
+
+    Optional<UserFile> findByUserIdAndFolderIdIsNullAndOriginalName(Long userId, String originalName);
 
     // 관리자 통계용
     Long countByUserId(Long userId);

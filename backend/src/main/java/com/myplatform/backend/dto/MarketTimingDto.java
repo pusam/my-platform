@@ -39,6 +39,9 @@ public class MarketTimingDto {
     /** 투자 전략 제안 */
     private String strategy;
 
+    /** 데이터 경과일 (N일 전 데이터) - null이면 당일 데이터 */
+    private Integer dataAge;
+
     /**
      * 개별 시장 현황
      */

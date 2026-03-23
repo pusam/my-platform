@@ -20,15 +20,19 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 글로벌 선물 시세 서비스 (Yahoo Finance 기반)
  *
- * - 코스피200 야간선물 → 미지원 (KRX 전용), 대신 코스피 ETF 대체
+ * - 코스피200 지수 (^KS200) — KRX 장중(09:00~15:30)만 업데이트, 야간선물 미지원
  * - 나스닥100 선물 (NQ=F)
  * - S&P500 선물 (ES=F)
  * - 다우 선물 (YM=F)
  * - WTI 원유 선물 (CL=F)
  * - 금 선물 (GC=F)
+ * - 구리 선물 (HG=F)
+ * - 달러 인덱스 (DX-Y.NYB)
  * - 유로/달러 (EURUSD=X), 달러/엔 (USDJPY=X)
  * - 달러/원 (KRW=X)
  * - VIX 공포지수 (^VIX)
+ * - 미국 10년물 금리 (^TNX)
+ * - CNN Fear & Greed Index
  */
 @Service
 @RequiredArgsConstructor
@@ -44,17 +48,20 @@ public class GlobalFuturesService {
     private static final Map<String, FuturesInfo> FUTURES_MAP = new LinkedHashMap<>();
 
     static {
-        FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "KOSPI200 야간선물", "코스피200", "index", "KRX"));
+        FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "KOSPI200 지수", "코스피200", "index", "KRX"));
         FUTURES_MAP.put("NQ", new FuturesInfo("NQ", "NQ=F", "나스닥100 선물", "나스닥100", "index", "CME"));
         FUTURES_MAP.put("ES", new FuturesInfo("ES", "ES=F", "S&P500 E-mini", "S&P500", "index", "CME"));
         FUTURES_MAP.put("YM", new FuturesInfo("YM", "YM=F", "다우 E-mini", "다우존스", "index", "CBOT"));
         FUTURES_MAP.put("CL", new FuturesInfo("CL", "CL=F", "WTI 원유", "WTI", "commodity", "NYMEX"));
         FUTURES_MAP.put("BZ", new FuturesInfo("BZ", "BZ=F", "브렌트유", "Brent", "commodity", "ICE"));
         FUTURES_MAP.put("GC", new FuturesInfo("GC", "GC=F", "금 선물", "Gold", "commodity", "COMEX"));
+        FUTURES_MAP.put("HG", new FuturesInfo("HG", "HG=F", "구리 선물", "Copper", "commodity", "COMEX"));
+        FUTURES_MAP.put("DXY", new FuturesInfo("DXY", "DX-Y.NYB", "달러 인덱스", "DXY", "currency", "ICE"));
         FUTURES_MAP.put("6E", new FuturesInfo("6E", "EURUSD=X", "유로/달러", "EUR/USD", "currency", "CME"));
         FUTURES_MAP.put("6J", new FuturesInfo("6J", "USDJPY=X", "달러/엔", "USD/JPY", "currency", "CME"));
         FUTURES_MAP.put("KRW", new FuturesInfo("KRW", "KRW=X", "달러/원", "USD/KRW", "currency", "FX"));
         FUTURES_MAP.put("VIX", new FuturesInfo("VIX", "^VIX", "VIX 공포지수", "VIX", "volatility", "CBOE"));
+        FUTURES_MAP.put("US10Y", new FuturesInfo("US10Y", "^TNX", "미국 10년물 금리", "US10Y", "bond", "CBOE"));
     }
 
     // 캐시 (60초)
@@ -78,6 +85,8 @@ public class GlobalFuturesService {
         private String sign;          // 1:상한, 2:상승, 3:보합, 4:하한, 5:하락
         private String tradingTime;   // 실제 마켓 체결 시간 (Yahoo regularMarketTime)
         private String marketStatus;  // OPEN, CLOSED, PRE, POST
+        private long dataAgeMinutes;  // 데이터 경과 시간 (분)
+        private boolean stale;        // 데이터가 오래되었는지 (30분 이상)
         private LocalDateTime fetchedAt;
         private boolean success;
         private String errorMessage;
@@ -215,6 +224,15 @@ public class GlobalFuturesService {
             // 마켓 상태
             String marketStatus = meta.path("marketState").asText("CLOSED");
 
+            // 데이터 경과 시간 계산
+            long dataAgeMinutes = 0;
+            boolean stale = false;
+            if (regularMarketTimeEpoch > 0) {
+                long nowEpoch = Instant.now().getEpochSecond();
+                dataAgeMinutes = (nowEpoch - regularMarketTimeEpoch) / 60;
+                stale = dataAgeMinutes > 30; // 30분 이상 경과 시 stale
+            }
+
             // sign 결정
             String sign = "3"; // 보합
             if (changeRate.compareTo(BigDecimal.ZERO) > 0) sign = "2"; // 상승
@@ -235,6 +253,8 @@ public class GlobalFuturesService {
                     .sign(sign)
                     .tradingTime(tradingTime)
                     .marketStatus(marketStatus)
+                    .dataAgeMinutes(dataAgeMinutes)
+                    .stale(stale)
                     .fetchedAt(LocalDateTime.now())
                     .success(true)
                     .build();
@@ -330,13 +350,26 @@ public class GlobalFuturesService {
             else if (vixLevel >= 25) vixContrib = -10;
             else if (vixLevel >= 20) vixContrib = -5;
             else if (vixLevel < 15) vixContrib = 3; // 안정
-            // VIX 급등 추가 반영
+
+            // VIX 급등 시 추가 약세 반영
             if (vixRate > 10) vixContrib -= 8;
             else if (vixRate > 5) vixContrib -= 4;
+            // VIX 급락 시 진정 국면 반영 — 절대값이 높아도 빠르게 하락 중이면 페널티 경감
+            else if (vixRate <= -10) vixContrib += 8;  // VIX 10%+ 급락 → 큰 진정
+            else if (vixRate <= -5) vixContrib += 5;   // VIX 5%+ 급락 → 진정
+
             vixContrib = clampContrib(vixContrib);
             weightedScore += vixContrib * 0.15;
 
-            String vixSignal = vixLevel >= 25 ? "NEGATIVE" : vixLevel < 18 ? "POSITIVE" : "NEUTRAL";
+            // VIX 시그널: 절대값 기준 (25 이상이면 무조건 부정)
+            String vixSignal;
+            if (vixLevel >= 25) {
+                vixSignal = "NEGATIVE"; // 공포 구간 → 항상 부정
+            } else if (vixLevel < 18) {
+                vixSignal = "POSITIVE";
+            } else {
+                vixSignal = "NEUTRAL";
+            }
             riskFactors.add(createFactor("VIX", vixRate, vixSignal, 15));
         }
 
@@ -357,14 +390,39 @@ public class GlobalFuturesService {
         List<String> overrideReasons = new ArrayList<>();
 
         // 조건 1: VIX >= 25 (공포 구간)
+        // 예외: VIX가 전일 대비 5% 이상 하락 중이고, 하위 지표(WTI/환율)가 긍정이면
+        //       시장 진정 국면으로 판단 → 폭락 경계 오버라이드 해제
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
-            if (vixLevel >= 30) {
+            double vixChangeRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
+
+            boolean isVixCalming = vixChangeRate <= -5.0; // VIX 전일 대비 5% 이상 급락 중
+
+            // 하위 지표 긍정 여부 체크 (WTI 안정 + 환율 안정/강세)
+            boolean subIndicatorsPositive = false;
+            if (isVixCalming) {
+                boolean wtiOk = true;  // WTI가 폭등하지 않으면 OK
+                boolean krwOk = true;  // 환율이 급등하지 않으면 OK
+                if (cl != null && cl.getChangeRate() != null) {
+                    wtiOk = cl.getChangeRate().doubleValue() < 5.0; // WTI +5% 미만
+                }
+                if (krw != null && krw.getChangeRate() != null) {
+                    krwOk = krw.getChangeRate().doubleValue() < 0.5; // 환율 +0.5% 미만 (원화 약세 제한적)
+                }
+                subIndicatorsPositive = wtiOk && krwOk;
+            }
+
+            boolean marketCalming = isVixCalming && subIndicatorsPositive;
+
+            if (vixLevel >= 30 && !marketCalming) {
                 thresholdOverride = true;
                 overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
-            } else if (vixLevel >= 25) {
+            } else if (vixLevel >= 25 && !marketCalming) {
                 thresholdOverride = true;
                 overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
+            } else if (vixLevel >= 25 && marketCalming) {
+                log.info("[코스피 전망] VIX {} (≥25) but 진정 국면 — VIX 변동 {}%, 오버라이드 해제",
+                        String.format("%.1f", vixLevel), String.format("%.1f", vixChangeRate));
             }
         }
 
@@ -445,6 +503,7 @@ public class GlobalFuturesService {
         analysis.put("comment", comment);
         analysis.put("riskFactors", riskFactors);
         analysis.put("quotes", quotes);
+        analysis.put("fearGreed", getFearGreedIndex());
         analysis.put("fetchedAt", LocalDateTime.now());
 
         return analysis;
@@ -497,7 +556,89 @@ public class GlobalFuturesService {
 
     public void clearCache() {
         cache.clear();
+        fearGreedCache = null;
         log.info("해외선물 캐시 클리어됨");
+    }
+
+    // ==================== CNN Fear & Greed Index ====================
+    private static final String FEAR_GREED_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata";
+    private volatile Map<String, Object> fearGreedCache = null;
+    private volatile long fearGreedCacheTime = 0;
+    private static final long FEAR_GREED_CACHE_MS = 5 * 60 * 1000; // 5분 캐시
+
+    /**
+     * CNN Fear & Greed Index 조회
+     * @return { score: 25, rating: "Extreme Fear", previousClose: 28, change: -3 }
+     */
+    public Map<String, Object> getFearGreedIndex() {
+        if (fearGreedCache != null && System.currentTimeMillis() - fearGreedCacheTime < FEAR_GREED_CACHE_MS) {
+            return fearGreedCache;
+        }
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            headers.set("Accept", "application/json");
+
+            HttpEntity<String> request = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(FEAR_GREED_URL, HttpMethod.GET, request, String.class);
+
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                log.warn("[Fear&Greed] API 응답 오류: {}", response.getStatusCode());
+                return createFearGreedError("API 응답 오류");
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            JsonNode fng = root.path("fear_and_greed");
+
+            if (fng.isMissingNode()) {
+                return createFearGreedError("데이터 없음");
+            }
+
+            double score = fng.path("score").asDouble(0);
+            String rating = fng.path("rating").asText("Unknown");
+            double previousClose = fng.path("previous_close").asDouble(0);
+            double change = score - previousClose;
+
+            // 한국어 등급 매핑
+            String ratingKr;
+            String level;
+            if (score <= 25) { ratingKr = "극심한 공포"; level = "extreme-fear"; }
+            else if (score <= 45) { ratingKr = "공포"; level = "fear"; }
+            else if (score <= 55) { ratingKr = "중립"; level = "neutral"; }
+            else if (score <= 75) { ratingKr = "탐욕"; level = "greed"; }
+            else { ratingKr = "극심한 탐욕"; level = "extreme-greed"; }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("success", true);
+            result.put("score", Math.round(score));
+            result.put("rating", rating);
+            result.put("ratingKr", ratingKr);
+            result.put("level", level);
+            result.put("previousClose", Math.round(previousClose));
+            result.put("change", Math.round(change));
+            result.put("fetchedAt", LocalDateTime.now().toString());
+
+            fearGreedCache = result;
+            fearGreedCacheTime = System.currentTimeMillis();
+            log.debug("[Fear&Greed] Score: {} ({})", Math.round(score), rating);
+            return result;
+
+        } catch (Exception e) {
+            log.error("[Fear&Greed] 조회 실패: {}", e.getMessage());
+            return createFearGreedError("조회 실패: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> createFearGreedError(String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("success", false);
+        result.put("errorMessage", message);
+        result.put("score", 50);
+        result.put("ratingKr", "데이터 없음");
+        result.put("level", "neutral");
+        result.put("change", 0);
+        return result;
     }
 
     private FuturesQuote createErrorQuote(FuturesInfo info, String message) {

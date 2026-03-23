@@ -1,6 +1,8 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
+import com.myplatform.backend.dto.ConsecutiveBuyDto;
+import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
@@ -29,6 +31,7 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -61,6 +64,8 @@ public class AiStrategySnapshotService {
     private final QuantScreenerService quantScreenerService;
     private final StockPriceService stockPriceService;
     private final GeminiService geminiService;
+    private final InvestorTradeService investorTradeService;
+    private final EarningSurpriseService earningSurpriseService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -132,60 +137,65 @@ public class AiStrategySnapshotService {
     // ========== 스케줄러 (Dual Track) ==========
 
     /**
-     * Track A: 스캘핑 전략 스냅샷 (2분 간격)
+     * Track A: 스캘핑 전략 스냅샷 (30분 간격, Gemini Rate Limit 방지)
+     * - 기존 5분 → 30분 (Gemini 호출이 Rate Limit의 주범)
      * - 장중 09:05 ~ 15:20
-     * - 평일만 실행
      */
-    @Scheduled(cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0,30 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectScalpingSnapshot() {
         LocalTime now = LocalTime.now();
-
-        // 09:05 이전, 15:20 이후는 스킵
         if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) {
             return;
         }
 
         try {
             collectAndSaveSnapshot(StrategyType.SCALPING);
-            List<AiStrategySnapshot> saved = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
-            log.info("[Scheduler] SCALPING Strategy updated: {} stocks saved.", saved.size());
+            log.info("[Scheduler] SCALPING Strategy updated.");
         } catch (Exception e) {
-            log.error("[Scheduler] SCALPING Strategy update failed: {}", e.getMessage(), e);
+            log.error("[Scheduler] SCALPING update failed: {}", e.getMessage());
         }
     }
 
     /**
-     * Track B: 중장기 전략 스냅샷 (30분 간격)
+     * Track B: 중장기 전략 스냅샷 (60분 간격, Rate Limit 완화)
+     * - 기존 30분 → 60분으로 변경 (Gemini Rate Limit 방지)
      * - 장중 09:00 ~ 15:30
      * - 평일만 실행
-     * - SWING, TURNAROUND, VALUE 전략 수집
+     * - SWING, TURNAROUND, VALUE 전략을 로테이션 수집 (매 시간 1개씩)
      */
-    @Scheduled(cron = "0 0,30 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectLongTermSnapshots() {
         LocalTime now = LocalTime.now();
+        if (now.isAfter(LocalTime.of(15, 30))) return;
 
-        // 15:30 이후는 스킵
-        if (now.isAfter(LocalTime.of(15, 30))) {
+        int hour = now.getHour();
+
+        // 09:00 첫 실행: DB에 없는 전략 모두 수집
+        if (hour == 9) {
+            for (StrategyType type : new StrategyType[]{StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE}) {
+                List<AiStrategySnapshot> existing = snapshotRepository.findLatestByStrategyType(type);
+                if (existing.isEmpty()) {
+                    try {
+                        collectAndSaveSnapshot(type);
+                        log.info("[Scheduler] 09:00 초기 수집: {} (DB에 없었음)", type.name());
+                        Thread.sleep(3000); // Gemini Rate Limit 방지
+                    } catch (Exception e) {
+                        log.error("[Scheduler] 09:00 {} 수집 실패: {}", type.name(), e.getMessage());
+                    }
+                }
+            }
             return;
         }
 
+        // 10시 이후: 시간별 로테이션 (1개씩)
+        StrategyType[] rotation = {StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE};
+        StrategyType target = rotation[(hour - 10) % 3];
+
         try {
-            collectAndSaveSnapshot(StrategyType.SWING);
-            List<AiStrategySnapshot> swingSaved = snapshotRepository.findLatestByStrategyType(StrategyType.SWING);
-            log.info("[Scheduler] SWING Strategy updated: {} stocks saved.", swingSaved.size());
-            Thread.sleep(1000); // API 호출 간격
-
-            collectAndSaveSnapshot(StrategyType.TURNAROUND);
-            List<AiStrategySnapshot> turnaroundSaved = snapshotRepository.findLatestByStrategyType(StrategyType.TURNAROUND);
-            log.info("[Scheduler] TURNAROUND Strategy updated: {} stocks saved.", turnaroundSaved.size());
-            Thread.sleep(1000);
-
-            collectAndSaveSnapshot(StrategyType.VALUE);
-            List<AiStrategySnapshot> valueSaved = snapshotRepository.findLatestByStrategyType(StrategyType.VALUE);
-            log.info("[Scheduler] VALUE Strategy updated: {} stocks saved.", valueSaved.size());
-
+            collectAndSaveSnapshot(target);
+            log.info("[Scheduler] {} Strategy updated.", target.name());
         } catch (Exception e) {
-            log.error("[Scheduler] Long-term strategies update failed: {}", e.getMessage(), e);
+            log.error("[Scheduler] {} Strategy failed: {}", target.name(), e.getMessage());
         }
     }
 
@@ -311,6 +321,14 @@ public class AiStrategySnapshotService {
      */
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
+        // 안전장치: 최근 24시간 내 스냅샷이 있을 때만 정리 실행
+        LocalDateTime recentCheck = LocalDateTime.now().minusHours(24);
+        List<AiStrategySnapshot> recent = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
+        if (recent.isEmpty() || recent.get(0).getCreatedAt().isBefore(recentCheck)) {
+            log.error("[스냅샷 정리] 최근 24시간 내 스냅샷 없음 → 정리 중단 (데이터 보호)");
+            return;
+        }
+
         LocalDateTime cutoffTime = LocalDateTime.now().minusDays(7);
         int deleted = snapshotRepository.deleteOldSnapshots(cutoffTime);
         log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", 7, deleted);
@@ -367,72 +385,67 @@ public class AiStrategySnapshotService {
         }
 
         if (!candidates.isEmpty()) {
-            // AI 스코어링 적용 (최대 10개 → 블렌딩 → TOP 5)
             List<AiStrategySnapshot> snapshots = applyGeminiScoring(candidates, strategyType);
+            // aiScore는 항상 알고리즘 점수로 채워져 있음 (Gemini 의존 제거)
             snapshotRepository.saveAll(snapshots);
-            log.debug("[Snapshot] {} saved: {} stocks (from {} candidates).",
-                    strategyType.name(), snapshots.size(), candidates.size());
+            boolean hasComment = snapshots.stream().anyMatch(s -> s.getAiComment() != null && !s.getAiComment().isEmpty());
+            log.info("[Snapshot] {} saved: {} stocks (Gemini코멘트: {})",
+                    strategyType.name(), snapshots.size(), hasComment ? "있음" : "없음");
         } else {
             log.warn("[Snapshot] {} - No data collected.", strategyType.name());
         }
     }
 
     /**
-     * Gemini AI 스코어링 적용
-     * 1. 모든 후보의 originalScore 보존
-     * 2. Gemini API로 AI 점수 획득
-     * 3. 블렌딩: score = originalScore * 0.6 + aiScore * 0.4
-     * 4. 내림차순 정렬 후 상위 SNAPSHOT_LIMIT개 선택
+     * AI 스코어링 적용 (v7 — Gemini 의존도 제거)
      *
-     * Gemini 실패 시 알고리즘 점수만으로 기존 동작 유지 (graceful degradation)
+     * 점수(score) = 100% 알고리즘 기반 (Gemini 블렌딩 제거)
+     * aiScore = 알고리즘 점수 그대로 복사 (Gemini 실패와 무관하게 항상 유효)
+     * Gemini는 코멘트(aiComment)와 테마(aiThemes)만 보강 — 선택적 보너스
      */
     private List<AiStrategySnapshot> applyGeminiScoring(
             List<AiStrategySnapshot> candidates, StrategyType strategyType) {
 
-        // 1. 원본 점수 보존
+        // 1. 알고리즘 점수를 aiScore로도 복사 (Gemini 의존 제거)
         for (AiStrategySnapshot s : candidates) {
             s.setOriginalScore(s.getScore());
+            // aiScore = 알고리즘 점수 (Gemini 없어도 항상 유효)
+            s.setAiScore(s.getScore() != null ? s.getScore() : 50);
         }
 
-        // 2. Gemini AI 스코어링 (상위 3개만 전송하여 API 호출 최적화)
-        //    알고리즘 점수 기준 상위 3개만 Gemini에 보내고, 나머지는 알고리즘 점수 유지
-        List<AiStrategySnapshot> geminiCandidates = candidates.stream()
-                .sorted((a, b) -> Integer.compare(
-                        b.getOriginalScore() != null ? b.getOriginalScore() : 0,
-                        a.getOriginalScore() != null ? a.getOriginalScore() : 0))
-                .limit(3)
-                .collect(Collectors.toList());
-
+        // 2. Gemini는 코멘트/테마만 보강 (실패해도 점수에 영향 없음)
         try {
+            List<AiStrategySnapshot> top3 = candidates.stream()
+                    .sorted((a, b) -> Integer.compare(
+                            b.getScore() != null ? b.getScore() : 0,
+                            a.getScore() != null ? a.getScore() : 0))
+                    .limit(3)
+                    .collect(Collectors.toList());
+
             Map<String, GeminiService.AiScoreResult> aiResults =
-                    geminiService.scoreStockCandidates(geminiCandidates, strategyType.name());
+                    geminiService.scoreStockCandidates(top3, strategyType.name());
 
             if (!aiResults.isEmpty()) {
                 for (AiStrategySnapshot s : candidates) {
-                    GeminiService.AiScoreResult aiResult = aiResults.get(s.getStockCode());
-                    if (aiResult != null) {
-                        s.setAiScore(aiResult.getAiScore());
-                        s.setAiComment(aiResult.getAiComment());
-                        // 테마 태그 저장 (콤마 구분 문자열)
-                        if (aiResult.getThemes() != null && !aiResult.getThemes().isEmpty()) {
-                            s.setAiThemes(String.join(",", aiResult.getThemes()));
+                    GeminiService.AiScoreResult ai = aiResults.get(s.getStockCode());
+                    if (ai != null) {
+                        // 코멘트와 테마만 Gemini에서 가져옴 (점수는 알고리즘 유지)
+                        s.setAiComment(ai.getAiComment());
+                        if (ai.getThemes() != null && !ai.getThemes().isEmpty()) {
+                            s.setAiThemes(String.join(",", ai.getThemes()));
                         }
-                        // 블렌딩: 알고리즘 60% + AI 40%
-                        int blendedScore = (int) Math.round(
-                                s.getOriginalScore() * 0.6 + aiResult.getAiScore() * 0.4);
-                        s.setScore(Math.max(0, Math.min(100, blendedScore)));
+                        // 점수 미세 보정: 알고리즘 95% + Gemini 5%
+                        if (ai.getAiScore() > 0) {
+                            int adjusted = (int) Math.round(s.getScore() * 0.95 + ai.getAiScore() * 0.05);
+                            s.setScore(Math.max(0, Math.min(100, adjusted)));
+                        }
                     }
-                    // AI 점수 없는 종목: originalScore 유지 (이미 score == originalScore)
                 }
-                log.info("[AI Scoring] {} - AI 블렌딩 완료 ({}개 종목 스코어링됨)",
-                        strategyType.name(), aiResults.size());
-            } else {
-                log.debug("[AI Scoring] {} - AI 결과 없음, 알고리즘 점수만 사용", strategyType.name());
+                log.info("[AI] {} - Gemini 코멘트 보강 ({}종목)", strategyType.name(), aiResults.size());
             }
         } catch (Exception e) {
-            log.warn("[AI Scoring] {} - Gemini 스코어링 실패 (graceful degradation): {}",
-                    strategyType.name(), e.getMessage());
-            // 실패 시 알고리즘 점수만으로 동작
+            // Gemini 실패해도 점수에 영향 없음 — 그냥 코멘트 없이 진행
+            log.debug("[AI] {} - Gemini 코멘트 실패 (점수 영향 없음): {}", strategyType.name(), e.getMessage());
         }
 
         // 3. 블렌딩 점수 기준 내림차순 정렬
@@ -451,6 +464,35 @@ public class AiStrategySnapshotService {
         }
 
         return topSnapshots;
+    }
+
+    /**
+     * 직전 스냅샷에서 Gemini 코멘트/테마 복사 (점수는 이미 알고리즘 기반으로 채워져 있음)
+     */
+    private void copyPreviousComments(List<AiStrategySnapshot> candidates, StrategyType strategyType) {
+        try {
+            List<AiStrategySnapshot> prev = snapshotRepository.findLatestByStrategyType(strategyType);
+            if (prev.isEmpty()) return;
+
+            Map<String, AiStrategySnapshot> prevMap = new HashMap<>();
+            for (AiStrategySnapshot p : prev) {
+                if (p.getStockCode() != null && p.getAiComment() != null) {
+                    prevMap.put(p.getStockCode(), p);
+                }
+            }
+
+            for (AiStrategySnapshot s : candidates) {
+                if ((s.getAiComment() == null || s.getAiComment().isEmpty()) && s.getStockCode() != null) {
+                    AiStrategySnapshot p = prevMap.get(s.getStockCode());
+                    if (p != null) {
+                        s.setAiComment(p.getAiComment());
+                        s.setAiThemes(p.getAiThemes());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[AI] 직전 코멘트 복사 실패: {}", e.getMessage());
+        }
     }
 
     /**
@@ -538,6 +580,79 @@ public class AiStrategySnapshotService {
     }
 
     /**
+     * 외국인/기관 3일 연속 매수 종목 → 보너스 점수 맵 생성
+     * - 외국인 3일+ 연속매수: +8점
+     * - 기관 3일+ 연속매수: +7점
+     * - 양쪽 모두: +15점 (중복 가산)
+     * - 5일+ 연속매수 시 추가 +5점
+     */
+    private Map<String, Integer> getConsecutiveBuyBonusMap() {
+        Map<String, Integer> bonusMap = new HashMap<>();
+        try {
+            List<ConsecutiveBuyDto> foreignBuys = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 3);
+            List<ConsecutiveBuyDto> institutionBuys = investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 3);
+
+            if (foreignBuys != null) {
+                for (ConsecutiveBuyDto dto : foreignBuys) {
+                    int bonus = 8;
+                    if (dto.getConsecutiveDays() != null && dto.getConsecutiveDays() >= 5) {
+                        bonus += 5;
+                    }
+                    bonusMap.merge(dto.getStockCode(), bonus, Integer::sum);
+                }
+            }
+            if (institutionBuys != null) {
+                for (ConsecutiveBuyDto dto : institutionBuys) {
+                    int bonus = 7;
+                    if (dto.getConsecutiveDays() != null && dto.getConsecutiveDays() >= 5) {
+                        bonus += 5;
+                    }
+                    bonusMap.merge(dto.getStockCode(), bonus, Integer::sum);
+                }
+            }
+            log.info("[연속매수 보너스] 외국인 {}건, 기관 {}건 → 보너스 대상 {}종목",
+                    foreignBuys != null ? foreignBuys.size() : 0,
+                    institutionBuys != null ? institutionBuys.size() : 0,
+                    bonusMap.size());
+        } catch (Exception e) {
+            log.warn("[연속매수 보너스] 조회 실패 (무시): {}", e.getMessage());
+        }
+        return bonusMap;
+    }
+
+    /**
+     * 어닝 서프라이즈 맵 조회 (stockCode → SurpriseType)
+     */
+    private Map<String, EarningSurpriseDto.SurpriseType> getEarningSurpriseMap() {
+        try {
+            Map<String, EarningSurpriseDto.SurpriseType> map = earningSurpriseService.getSurpriseTypeMap();
+            if (!map.isEmpty()) {
+                log.info("[어닝서프라이즈 보너스] 대상 {}종목", map.size());
+            }
+            return map;
+        } catch (Exception e) {
+            log.warn("[어닝서프라이즈 보너스] 조회 실패 (무시): {}", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    /**
+     * 어닝 서프라이즈 보너스 점수 계산
+     * - POSITIVE: +10점
+     * - TURNAROUND: +12점
+     */
+    private int getEarningSurpriseBonus(String stockCode,
+                                         Map<String, EarningSurpriseDto.SurpriseType> surpriseTypeMap) {
+        EarningSurpriseDto.SurpriseType type = surpriseTypeMap.get(stockCode);
+        if (type == null) return 0;
+        return switch (type) {
+            case TURNAROUND -> 12;
+            case POSITIVE -> 10;
+            default -> 0;
+        };
+    }
+
+    /**
      * 스윙(마법의 공식) 전략 데이터 수집
      * - PER, ROE, 영업이익률 기반 종합 순위
      * - 점수: 마법의 공식 순위 기반 (상위일수록 높음)
@@ -554,6 +669,12 @@ public class AiStrategySnapshotService {
             return fallback.isEmpty() ? createFallbackStocks(StrategyType.SWING, createdAt) : fallback;
         }
 
+        // 연속매수 보너스 맵 조회
+        Map<String, Integer> consecutiveBuyBonus = getConsecutiveBuyBonusMap();
+
+        // 어닝 서프라이즈 맵 조회
+        Map<String, EarningSurpriseDto.SurpriseType> surpriseTypeMap = getEarningSurpriseMap();
+
         // 실시간 시세 조회 (등락률 포함)
         List<String> stockCodes = magicFormula.stream()
                 .map(ScreenerResultDto::getStockCode)
@@ -568,8 +689,31 @@ public class AiStrategySnapshotService {
             // 점수 계산: ROE와 영업이익률 기반
             int score = calculateSwingScore(dto.getRoe(), dto.getOperatingMargin(), dto.getPer());
 
+            // 연속매수 보너스 가산
+            int bonus = consecutiveBuyBonus.getOrDefault(dto.getStockCode(), 0);
+            if (bonus > 0) {
+                score = Math.min(100, score + bonus);
+                log.info("[SWING] {} 연속매수 보너스 +{}점 → {}점", dto.getStockName(), bonus, score);
+            }
+
+            // 어닝 서프라이즈 보너스 가산
+            int surpriseBonus = getEarningSurpriseBonus(dto.getStockCode(), surpriseTypeMap);
+            if (surpriseBonus > 0) {
+                score = Math.min(100, score + surpriseBonus);
+                log.info("[SWING] {} 어닝서프라이즈 보너스 +{}점 → {}점", dto.getStockName(), surpriseBonus, score);
+            }
+
             // 추천 사유 생성
             String reason = generateSwingReason(dto.getRoe(), dto.getOperatingMargin(), dto.getPer());
+            if (bonus > 0) {
+                reason += " | 외국인/기관 연속매수(+" + bonus + "점)";
+            }
+            if (surpriseBonus > 0) {
+                EarningSurpriseDto.SurpriseType sType = surpriseTypeMap.get(dto.getStockCode());
+                String surpriseLabel = sType == EarningSurpriseDto.SurpriseType.TURNAROUND
+                        ? "적자→흑자 전환" : "어닝서프라이즈";
+                reason += " | " + surpriseLabel + "(+" + surpriseBonus + "점)";
+            }
 
             // 실시간 시세 데이터 가져오기
             StockPriceDto priceDto = priceMap.get(dto.getStockCode());
@@ -720,6 +864,12 @@ public class AiStrategySnapshotService {
             return fallback.isEmpty() ? createFallbackStocks(StrategyType.VALUE, createdAt) : fallback;
         }
 
+        // 연속매수 보너스 맵 조회
+        Map<String, Integer> consecutiveBuyBonus = getConsecutiveBuyBonusMap();
+
+        // 어닝 서프라이즈 맵 조회
+        Map<String, EarningSurpriseDto.SurpriseType> surpriseTypeMap = getEarningSurpriseMap();
+
         // 실시간 시세 조회 (등락률 포함)
         List<String> stockCodes = lowPeg.stream()
                 .map(ScreenerResultDto::getStockCode)
@@ -734,8 +884,31 @@ public class AiStrategySnapshotService {
             // 점수 계산: PEG, ROE, PER 기반
             int score = calculateValueScore(dto.getPeg(), dto.getRoe(), dto.getPer());
 
+            // 연속매수 보너스 가산
+            int bonus = consecutiveBuyBonus.getOrDefault(dto.getStockCode(), 0);
+            if (bonus > 0) {
+                score = Math.min(100, score + bonus);
+                log.info("[VALUE] {} 연속매수 보너스 +{}점 → {}점", dto.getStockName(), bonus, score);
+            }
+
+            // 어닝 서프라이즈 보너스 가산
+            int surpriseBonus = getEarningSurpriseBonus(dto.getStockCode(), surpriseTypeMap);
+            if (surpriseBonus > 0) {
+                score = Math.min(100, score + surpriseBonus);
+                log.info("[VALUE] {} 어닝서프라이즈 보너스 +{}점 → {}점", dto.getStockName(), surpriseBonus, score);
+            }
+
             // 추천 사유 생성
             String reason = generateValueReason(dto.getPeg(), dto.getEpsGrowth(), dto.getRoe());
+            if (bonus > 0) {
+                reason += " | 외국인/기관 연속매수(+" + bonus + "점)";
+            }
+            if (surpriseBonus > 0) {
+                EarningSurpriseDto.SurpriseType sType = surpriseTypeMap.get(dto.getStockCode());
+                String surpriseLabel = sType == EarningSurpriseDto.SurpriseType.TURNAROUND
+                        ? "적자→흑자 전환" : "어닝서프라이즈";
+                reason += " | " + surpriseLabel + "(+" + surpriseBonus + "점)";
+            }
 
             // 실시간 시세 데이터 가져오기
             StockPriceDto priceDto = priceMap.get(dto.getStockCode());
@@ -1018,11 +1191,27 @@ public class AiStrategySnapshotService {
     private List<AiStrategySnapshot> createFallbackStocks(StrategyType strategyType, LocalDateTime createdAt) {
         log.info("[최종 폴백] {} - 대형주 폴백 사용", strategyType.name());
 
-        String[][] bluechips = {
-                {"005930", "삼성전자"},
-                {"000660", "SK하이닉스"},
-                {"035420", "NAVER"}
-        };
+        // 전략별 차별화된 폴백 종목
+        String[][] bluechips;
+        if (strategyType == StrategyType.SCALPING) {
+            // 스캘핑: 유동성 높은 대형주 (거래량 풍부)
+            bluechips = new String[][]{
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"},
+                    {"005380", "현대차"}, {"035720", "카카오"}, {"035420", "NAVER"}
+            };
+        } else if (strategyType == StrategyType.TURNAROUND) {
+            // 턴어라운드: 실적 반등 기대주
+            bluechips = new String[][]{
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"},
+                    {"105560", "KB금융"}, {"055550", "신한지주"}, {"086790", "하나금융지주"}
+            };
+        } else {
+            // SWING/VALUE: 우량 가치주
+            bluechips = new String[][]{
+                    {"005930", "삼성전자"}, {"000660", "SK하이닉스"},
+                    {"035420", "NAVER"}, {"105560", "KB금융"}, {"051910", "LG화학"}
+            };
+        }
 
         List<String> codes = Arrays.stream(bluechips).map(b -> b[0]).collect(Collectors.toList());
         Map<String, StockPriceDto> priceMap = stockPriceService.getStockPrices(codes);
@@ -1244,15 +1433,21 @@ public class AiStrategySnapshotService {
         for (StrategyType type : StrategyType.values()) {
             List<AiStrategySnapshot> snapshots = snapshotRepository.findLatestByStrategyType(type);
 
-            // Fallback: DB에 데이터가 없으면 동기적으로 수집
+            // Fallback: DB에 데이터가 없으면 빈 리스트로 진행 (동기 수집 제거 — Gemini Rate Limit 방지)
             if (snapshots.isEmpty()) {
-                log.warn("[Fallback] {} 전략 데이터 없음 - 동기 수집 시작", type.name());
-                try {
-                    collectAndSaveSnapshot(type);
-                    snapshots = snapshotRepository.findLatestByStrategyType(type);
-                    log.info("[Fallback] {} Strategy collected: {} stocks.", type.name(), snapshots.size());
-                } catch (Exception e) {
-                    log.error("[Fallback] {} 전략 동기 수집 실패: {}", type.name(), e.getMessage());
+                log.warn("[AiStrategy] {} 전략 DB 데이터 없음 — 스케줄러가 수집할 때까지 대기", type.name());
+            }
+
+            // ★ Freshness check: 장중에 오래된 스냅샷이면 경고 (하지만 데이터는 반환)
+            if (!snapshots.isEmpty()) {
+                LocalDateTime latestCreatedAt = snapshots.get(0).getCreatedAt();
+                LocalDateTime now = LocalDateTime.now();
+                long staleMinutes = Duration.between(latestCreatedAt, now).toMinutes();
+                if (staleMinutes > 120) {
+                    log.warn("[AiStrategy] ⚠ {} 스냅샷 {}분 전 데이터 — stale이지만 반환 (빈 응답 방지)",
+                            type.name(), staleMinutes);
+                    // 기존: 빈 리스트 반환 → 종합추천 연쇄 실패
+                    // 변경: stale이라도 데이터 반환 (없는 것보다 나음)
                 }
             }
 

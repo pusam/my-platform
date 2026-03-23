@@ -136,9 +136,15 @@ public class MarketTimingService {
 
         LocalDate analysisDate = latestData.get(0).getTradeDate();
 
-        // DB 데이터가 과거이면 로그 남기고, 실시간 보충 시 오늘 날짜 사용
-        if (!analysisDate.equals(LocalDate.now())) {
-            log.info("DB 최신 데이터가 과거임 ({}), 실시간 지수로 보충 예정", analysisDate);
+        // ★ Freshness check: 데이터 경과일 계산
+        long dataAgeDays = java.time.temporal.ChronoUnit.DAYS.between(analysisDate, LocalDate.now());
+        Integer dataAge = null;
+        if (dataAgeDays > 0) {
+            log.info("DB 최신 데이터가 과거임 ({}), {}일 전 데이터, 실시간 지수로 보충 예정", analysisDate, dataAgeDays);
+            dataAge = (int) dataAgeDays;
+            if (dataAgeDays >= 2) {
+                log.warn("[MarketTiming] ⚠ 시장 데이터 오래됨! 최신 거래일: {} ({}일 전) - ADR 분석 신뢰도 저하", analysisDate, dataAgeDays);
+            }
         }
 
         // 코스피/코스닥 데이터 분리
@@ -213,6 +219,7 @@ public class MarketTimingService {
                 .overallCondition(overallCondition)
                 .diagnosis(diagnosis)
                 .strategy(strategy)
+                .dataAge(dataAge)
                 .build();
     }
 

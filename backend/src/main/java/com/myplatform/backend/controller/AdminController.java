@@ -37,6 +37,7 @@ public class AdminController {
     private final ActivityLogService activityLogService;
     private final AiStrategySnapshotService aiStrategySnapshotService;
     private final BatchJobMonitorService batchJobMonitorService;
+    private final com.myplatform.backend.service.KisApiRateLimiter kisApiRateLimiter;
 
     public AdminController(UserManagementService userManagementService,
                           AdminStatsService adminStatsService,
@@ -44,7 +45,8 @@ public class AdminController {
                           ServerStatusService serverStatusService,
                           ActivityLogService activityLogService,
                           AiStrategySnapshotService aiStrategySnapshotService,
-                          BatchJobMonitorService batchJobMonitorService) {
+                          BatchJobMonitorService batchJobMonitorService,
+                          com.myplatform.backend.service.KisApiRateLimiter kisApiRateLimiter) {
         this.userManagementService = userManagementService;
         this.adminStatsService = adminStatsService;
         this.cacheManager = cacheManager;
@@ -52,6 +54,7 @@ public class AdminController {
         this.activityLogService = activityLogService;
         this.aiStrategySnapshotService = aiStrategySnapshotService;
         this.batchJobMonitorService = batchJobMonitorService;
+        this.kisApiRateLimiter = kisApiRateLimiter;
     }
 
     @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
@@ -154,6 +157,17 @@ public class AdminController {
             return ResponseEntity.ok(ApiResponse.success("계정이 활성화되었습니다.", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("활성화 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "사용자 잠금 해제", description = "로그인 실패로 잠긴 사용자 계정을 해제합니다.")
+    @PostMapping("/users/{userId}/unlock")
+    public ResponseEntity<ApiResponse<String>> unlockUser(@PathVariable Long userId) {
+        try {
+            userManagementService.unlockUser(userId);
+            return ResponseEntity.ok(ApiResponse.success("계정 잠금이 해제되었습니다.", null));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("잠금 해제 실패: " + e.getMessage()));
         }
     }
 
@@ -425,6 +439,30 @@ public class AdminController {
             return ResponseEntity.ok(ApiResponse.success("조회 성공", names));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+        }
+    }
+
+    // ==================== KIS API Rate Limiter 모니터링 ====================
+
+    @Operation(summary = "KIS API Rate Limiter 통계", description = "KIS API 호출 통계를 조회합니다. (대기/총호출/스로틀/재시도/드랍)")
+    @GetMapping("/rate-limiter-stats")
+    public ResponseEntity<ApiResponse<Map<String, Integer>>> getRateLimiterStats() {
+        try {
+            Map<String, Integer> stats = kisApiRateLimiter.getStats();
+            return ResponseEntity.ok(ApiResponse.success("Rate Limiter 통계 조회 성공", stats));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "KIS API Rate Limiter 통계 초기화", description = "KIS API 호출 통계를 초기화합니다.")
+    @PostMapping("/rate-limiter-stats/reset")
+    public ResponseEntity<ApiResponse<String>> resetRateLimiterStats() {
+        try {
+            kisApiRateLimiter.resetStats();
+            return ResponseEntity.ok(ApiResponse.success("Rate Limiter 통계가 초기화되었습니다.", null));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("초기화 실패: " + e.getMessage()));
         }
     }
 }

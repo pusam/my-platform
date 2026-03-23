@@ -5,12 +5,6 @@
       <header class="common-header">
         <h1>대시보드</h1>
         <div class="header-actions">
-          <button @click="showWidgetSettings = true" class="btn-widget-settings" title="위젯 설정">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="3"/>
-              <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-            </svg>
-          </button>
           <div class="header-user">
             <div class="user-avatar">{{ username.charAt(0) }}</div>
             <span>{{ username }}</span>
@@ -18,6 +12,26 @@
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
+
+      <!-- 상단 탭 (ADMIN만 표시) -->
+      <div v-if="isAdmin" class="dashboard-tabs">
+        <button
+          :class="['dash-tab', { active: activeTab === 'user' }]"
+          @click="activeTab = 'user'"
+        >🏠 유저 대시보드</button>
+        <button
+          :class="['dash-tab', { active: activeTab === 'system' }]"
+          @click="activeTab = 'system'"
+        >🛠️ 시스템 대시보드</button>
+      </div>
+
+      <!-- 시스템 대시보드 (ADMIN만) -->
+      <div v-if="isAdmin && activeTab === 'system'">
+        <AdminDashboard :embedded="true" />
+      </div>
+
+      <!-- 유저 대시보드 -->
+      <div v-show="activeTab === 'user'">
 
       <!-- 환영 메시지 -->
       <section class="welcome-card">
@@ -37,109 +51,33 @@
         <MarketInfoWidget />
       </section>
 
-      <!-- 주식 섹션 -->
-      <section class="menu-section">
+      <!-- 투자 섹션 -->
+      <section class="menu-section invest-section">
         <div class="section-header">
           <span class="section-icon">📈</span>
-          <h2>주식</h2>
+          <h2>투자</h2>
         </div>
-        <div class="menu-grid">
-          <article class="menu-card stock-dashboard-v2" @click="goToStockDashboard">
-            <div class="card-icon stock-dashboard-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+
+        <!-- 메인 카드: 주식 트레이딩 -->
+        <article class="invest-hero-card" @click="goToStockDashboard">
+          <div class="invest-hero-bg"></div>
+          <div class="invest-hero-content">
+            <div class="invest-hero-icon">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <path d="M12 2L2 7l10 5 10-5-10-5z"/>
                 <path d="M2 17l10 5 10-5"/>
                 <path d="M2 12l10 5 10-5"/>
               </svg>
             </div>
-            <h3>주식 트레이딩 대시보드 <span class="menu-ai-badge gold">V2</span></h3>
-            <p>AI 전략, 시장 지도, 스마트 머니, 리서치 - 한눈에 보기</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-        </div>
-      </section>
-
-      <!-- 시세 섹션 -->
-      <section class="menu-section">
-        <div class="section-header">
-          <span class="section-icon">💰</span>
-          <h2>시세</h2>
-        </div>
-        <div class="menu-grid">
-          <article v-if="widgetSettings.goldPrice" class="menu-card gold" @click="goToGold">
-            <div class="card-icon gold-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v12"/>
-                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-              </svg>
+            <div class="invest-hero-text">
+              <h3>주식 트레이딩 대시보드 <span class="v2-badge">V2</span></h3>
+              <p>AI 전략 · 시장 지도 · 스마트 머니 · 리서치</p>
             </div>
-            <h3>금 시세</h3>
-            <p v-if="goldPrice">{{ formatCurrency(goldPrice.price) }}/g <span :class="goldPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ goldPrice.changeRate >= 0 ? '+' : '' }}{{ goldPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
-            <p v-else>금 시세를 확인합니다.</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
+            <span class="invest-hero-arrow">→</span>
+          </div>
+        </article>
 
-          <article v-if="widgetSettings.silverPrice" class="menu-card silver" @click="goToSilver">
-            <div class="card-icon silver-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v12"/>
-                <path d="M15 9.5c0-1.5-1.5-2.5-3-2.5s-3 1-3 2.5c0 2 6 1 6 4 0 1.5-1.5 2.5-3 2.5s-3-1-3-2.5"/>
-              </svg>
-            </div>
-            <h3>은 시세</h3>
-            <p v-if="silverPrice">{{ formatCurrency(silverPrice.price) }}/g <span :class="silverPrice.changeRate >= 0 ? 'text-positive' : 'text-negative'">({{ silverPrice.changeRate >= 0 ? '+' : '' }}{{ silverPrice.changeRate?.toFixed(2) || 0 }}%)</span></p>
-            <p v-else>은 시세를 확인합니다.</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card oil" @click="goToOil">
-            <div class="card-icon oil-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M6 20V10a6 6 0 0 1 12 0v10"/>
-                <path d="M6 20h12"/>
-                <path d="M12 4V2"/>
-                <circle cx="12" cy="10" r="2"/>
-              </svg>
-            </div>
-            <h3>원유 시세</h3>
-            <p>WTI 원유 선물 시세</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card futures" @click="goToGlobalFutures">
-            <div class="card-icon futures-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <polyline points="22,7 13.5,15.5 8.5,10.5 2,17"/>
-                <polyline points="16,7 22,7 22,13"/>
-              </svg>
-            </div>
-            <h3>글로벌 선물</h3>
-            <p>야간선물 / 해외선물 시세</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-        </div>
+        <!-- GNB에서 시장/분석/글로벌 직접 접근 가능 → 서브 카드 제거 -->
       </section>
 
       <!-- 관리 섹션 -->
@@ -213,7 +151,7 @@
             </span>
           </article>
 
-          <article v-if="widgetSettings.assetSummary" class="menu-card asset" @click="goToAsset">
+          <article class="menu-card asset" @click="goToAsset">
             <div class="card-icon asset-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <line x1="12" y1="1" x2="12" y2="23"/>
@@ -229,7 +167,7 @@
             </span>
           </article>
 
-          <article v-if="widgetSettings.financeSummary" class="menu-card finance" @click="goToFinance">
+          <article class="menu-card finance" @click="goToFinance">
             <div class="card-icon finance-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
@@ -275,125 +213,52 @@
             </span>
           </article>
 
-          <article class="menu-card lotto" @click="goToLotto">
-            <div class="card-icon lotto-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <circle cx="12" cy="12" r="10"/>
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>
-              </svg>
-            </div>
-            <h3>로또 분석기</h3>
-            <p>통계 기반 로또 번호 추천</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
-
-          <article class="menu-card pension" @click="goToPensionLottery">
-            <div class="card-icon pension-icon">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="3" y="4" width="18" height="16" rx="2"/>
-                <path d="M7 8h2M11 8h2M15 8h2"/>
-                <path d="M7 12h2M11 12h2M15 12h2"/>
-                <path d="M7 16h10"/>
-              </svg>
-            </div>
-            <h3>연금복권 분석기</h3>
-            <p>통계 기반 연금복권 720+ 추천</p>
-            <span class="card-arrow">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="9,6 15,12 9,18"/>
-              </svg>
-            </span>
-          </article>
         </div>
       </section>
 
-      <!-- 위젯 설정 모달 -->
-      <WidgetSettingsModal
-        :visible="showWidgetSettings"
-        :settings="widgetSettings"
-        @close="showWidgetSettings = false"
-        @update:settings="updateWidgetSettings"
-      />
+      </div><!-- /v-show user -->
+
     </div>
   </div>
 </template>
 
 <script>
-import { newsAPI, financeAPI, goldAPI, silverAPI, assetAPI } from '../utils/api';
-import WidgetSettingsModal from '../components/WidgetSettingsModal.vue';
+import { newsAPI, financeAPI, assetAPI } from '../utils/api';
 import MarketInfoWidget from '../components/MarketInfoWidget.vue';
+import AdminDashboard from './AdminDashboard.vue';
 
 export default {
   name: 'UserDashboard',
   components: {
-    WidgetSettingsModal,
-    MarketInfoWidget
+    MarketInfoWidget,
+    AdminDashboard
   },
   data() {
     return {
+      activeTab: 'user',
+      isAdmin: false,
       username: '',
       newsList: [],
-      showWidgetSettings: false,
-      widgetSettings: {
-        goldPrice: true,
-        silverPrice: true,
-        assetSummary: true,
-        news: true,
-        financeSummary: true,
-        investorTrades: true,
-        earningsScreener: true
-      },
       financeSummary: {
         totalIncome: 0,
         totalExpense: 0,
         balance: 0
       },
-      goldPrice: null,
-      silverPrice: null,
       assetSummary: {
         totalAssets: 0,
         totalProfit: 0,
         profitRate: 0
       },
-      loadingPrices: false
     }
   },
   mounted() {
     this.username = localStorage.getItem('username') || 'User'
-    this.loadWidgetSettings()
+    this.isAdmin = localStorage.getItem('role') === 'ADMIN'
     this.loadNews()
     this.loadFinanceSummary()
-    this.loadPrices()
     this.loadAssetSummary()
   },
   methods: {
-    loadWidgetSettings() {
-      const saved = localStorage.getItem('dashboardWidgets')
-      if (saved) {
-        this.widgetSettings = { ...this.widgetSettings, ...JSON.parse(saved) }
-      }
-    },
-    updateWidgetSettings(settings) {
-      this.widgetSettings = { ...this.widgetSettings, ...settings }
-      // 위젯 데이터 다시 로드
-      if (settings.goldPrice || settings.silverPrice) {
-        this.loadPrices()
-      }
-      if (settings.assetSummary) {
-        this.loadAssetSummary()
-      }
-      if (settings.financeSummary) {
-        this.loadFinanceSummary()
-      }
-      if (settings.news) {
-        this.loadNews()
-      }
-    },
     async loadFinanceSummary() {
       try {
         const now = new Date()
@@ -408,25 +273,6 @@ export default {
         }
       } catch (error) {
         console.error('가계부 요약 로드 실패:', error)
-      }
-    },
-    async loadPrices() {
-      this.loadingPrices = true
-      try {
-        const [goldRes, silverRes] = await Promise.all([
-          goldAPI.getPrice(),
-          silverAPI.getPrice()
-        ])
-        if (goldRes.data.success) {
-          this.goldPrice = goldRes.data.data
-        }
-        if (silverRes.data.success) {
-          this.silverPrice = silverRes.data.data
-        }
-      } catch (error) {
-        console.error('시세 로드 실패:', error)
-      } finally {
-        this.loadingPrices = false
       }
     },
     async loadAssetSummary() {
@@ -475,18 +321,6 @@ export default {
     goToSettings() {
       this.$router.push('/settings')
     },
-    goToGold() {
-      this.$router.push('/gold')
-    },
-    goToSilver() {
-      this.$router.push('/silver')
-    },
-    goToOil() {
-      this.$router.push('/oil')
-    },
-    goToGlobalFutures() {
-      this.$router.push('/global-futures')
-    },
     goToFiles() {
       this.$router.push('/files')
     },
@@ -498,12 +332,6 @@ export default {
     },
     goToStockDashboard() {
       this.$router.push('/stock-dashboard')
-    },
-    goToLotto() {
-      this.$router.push('/lotto')
-    },
-    goToPensionLottery() {
-      this.$router.push('/pension-lottery')
     },
     logout() {
       localStorage.removeItem('jwt_token')
@@ -724,149 +552,185 @@ export default {
   color: #9333ea;
 }
 
-/* 주식 트레이딩 대시보드 V2 카드 */
-.card-icon.stock-dashboard-icon {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
-  color: #667eea;
-}
+/* ===== 투자 섹션 ===== */
 
-.menu-card.stock-dashboard-v2 {
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.98) 0%, rgba(245, 243, 255, 0.95) 100%);
-  border: 2px solid rgba(102, 126, 234, 0.4);
+/* 메인 히어로 카드 */
+.invest-hero-card {
   position: relative;
+  border-radius: 20px;
+  padding: 28px 32px;
+  cursor: pointer;
   overflow: hidden;
-  grid-column: 1 / -1;
+  margin-bottom: 16px;
+  transition: all 0.3s ease;
+  border: 1px solid rgba(102, 126, 234, 0.25);
 }
 
-.menu-card.stock-dashboard-v2::before {
+.invest-hero-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 40%, #4338ca 100%);
+  z-index: 0;
+}
+
+.invest-hero-bg::after {
   content: '';
   position: absolute;
   top: -50%;
   left: -50%;
   width: 200%;
   height: 200%;
-  background: linear-gradient(
-    45deg,
-    transparent 30%,
-    rgba(102, 126, 234, 0.08) 50%,
-    transparent 70%
-  );
-  animation: shine 3s infinite;
+  background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.04) 50%, transparent 70%);
+  animation: hero-shine 4s infinite;
 }
 
-@keyframes shine {
+@keyframes hero-shine {
   0% { transform: translateX(-100%) rotate(45deg); }
   100% { transform: translateX(100%) rotate(45deg); }
 }
 
-.menu-card.stock-dashboard-v2:hover {
-  border-color: #667eea;
-  box-shadow: 0 20px 50px rgba(102, 126, 234, 0.3);
-  transform: translateY(-8px);
+.invest-hero-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
-.menu-card.stock-dashboard-v2 h3 {
-  color: #4F46E5;
+.invest-hero-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a5b4fc;
+  flex-shrink: 0;
 }
 
-.menu-ai-badge.gold {
-  background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
-  color: #78350f;
+.invest-hero-text {
+  flex: 1;
+}
+
+.invest-hero-text h3 {
+  margin: 0 0 6px;
+  font-size: 18px;
   font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.menu-card.sector {
-  background: linear-gradient(135deg, rgba(238, 242, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(79, 70, 229, 0.2);
+.v2-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #78350f;
+  letter-spacing: 0.5px;
 }
 
-.menu-card.sector:hover {
-  border-color: #4F46E5;
-  box-shadow: 0 20px 40px rgba(79, 70, 229, 0.15);
+.invest-hero-text p {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
-.menu-card.sector h3 {
-  color: #4F46E5;
+.invest-hero-arrow {
+  font-size: 24px;
+  color: rgba(255, 255, 255, 0.4);
+  transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
-/* 금 시세 카드 */
-.card-icon.gold-icon {
-  background: linear-gradient(135deg, rgba(255, 215, 0, 0.2) 0%, rgba(218, 165, 32, 0.2) 100%);
-  color: #daa520;
+.invest-hero-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 50px rgba(67, 56, 202, 0.4);
+  border-color: rgba(129, 140, 248, 0.5);
 }
 
-.menu-card.gold {
-  background: linear-gradient(135deg, rgba(255, 250, 230, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(255, 215, 0, 0.3);
+.invest-hero-card:hover .invest-hero-arrow {
+  color: #fff;
+  transform: translateX(4px);
 }
 
-.menu-card.gold:hover {
-  border-color: #ffd700;
-  box-shadow: 0 20px 40px rgba(255, 215, 0, 0.15);
+/* 서브 카드 그리드 */
+.invest-sub-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
 }
 
-.menu-card.gold h3 {
-  color: #b8860b;
+.invest-sub-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: all 0.25s ease;
 }
 
-/* 원유 시세 카드 */
-.card-icon.oil-icon {
-  background: linear-gradient(135deg, rgba(44, 62, 80, 0.2) 0%, rgba(52, 73, 94, 0.2) 100%);
-  color: #2c3e50;
+.invest-sub-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
+  border-color: transparent;
 }
 
-.menu-card.oil {
-  background: linear-gradient(135deg, rgba(234, 242, 248, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(41, 128, 185, 0.3);
+.invest-sub-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
-.menu-card.oil:hover {
-  border-color: #2980b9;
-  box-shadow: 0 20px 40px rgba(41, 128, 185, 0.15);
+.invest-sub-icon.futures-gradient {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: #fff;
 }
 
-.menu-card.oil h3 {
-  color: #2c3e50;
+.invest-sub-icon.news-gradient {
+  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  color: #fff;
 }
 
-/* 글로벌 선물 카드 */
-.card-icon.futures-icon {
-  background: linear-gradient(135deg, rgba(46, 204, 113, 0.15) 0%, rgba(39, 174, 96, 0.15) 100%);
-  color: #27ae60;
+.invest-sub-icon.timing-gradient {
+  background: linear-gradient(135deg, #7c3aed, #8b5cf6);
+  color: #fff;
 }
 
-.menu-card.futures {
-  background: linear-gradient(135deg, rgba(232, 246, 239, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(39, 174, 96, 0.3);
+.invest-sub-text h4 {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
 }
 
-.menu-card.futures:hover {
-  border-color: #27ae60;
-  box-shadow: 0 20px 40px rgba(39, 174, 96, 0.15);
+.invest-sub-text p {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
 }
 
-.menu-card.futures h3 {
-  color: #27ae60;
-}
-
-/* 은 시세 카드 */
-.card-icon.silver-icon {
-  background: linear-gradient(135deg, rgba(192, 192, 192, 0.2) 0%, rgba(169, 169, 169, 0.2) 100%);
-  color: #708090;
-}
-
-.menu-card.silver {
-  background: linear-gradient(135deg, rgba(248, 250, 252, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(192, 192, 192, 0.3);
-}
-
-.menu-card.silver:hover {
-  border-color: #c0c0c0;
-  box-shadow: 0 20px 40px rgba(128, 128, 128, 0.15);
-}
-
-.menu-card.silver h3 {
-  color: #5a6a7a;
+@media (max-width: 768px) {
+  .invest-sub-grid {
+    grid-template-columns: 1fr;
+  }
+  .invest-hero-card {
+    padding: 20px;
+  }
+  .invest-hero-text h3 {
+    font-size: 16px;
+  }
 }
 
 /* 자산 관리 카드 */
@@ -948,45 +812,6 @@ export default {
   color: #2563eb;
 }
 
-/* 로또 분석기 카드 */
-.card-icon.lotto-icon {
-  background: linear-gradient(135deg, rgba(255, 193, 7, 0.15) 0%, rgba(255, 87, 34, 0.15) 100%);
-  color: #ff9800;
-}
-
-.menu-card.lotto {
-  background: linear-gradient(135deg, rgba(255, 248, 225, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(255, 193, 7, 0.3);
-}
-
-.menu-card.lotto:hover {
-  border-color: #ffc107;
-  box-shadow: 0 20px 40px rgba(255, 193, 7, 0.15);
-}
-
-.menu-card.lotto h3 {
-  color: #f57c00;
-}
-
-/* 연금복권 분석기 카드 */
-.card-icon.pension-icon {
-  background: linear-gradient(135deg, rgba(0, 212, 255, 0.15) 0%, rgba(124, 58, 237, 0.15) 100%);
-  color: #00d4ff;
-}
-
-.menu-card.pension {
-  background: linear-gradient(135deg, rgba(240, 248, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(0, 212, 255, 0.3);
-}
-
-.menu-card.pension:hover {
-  border-color: #00d4ff;
-  box-shadow: 0 20px 40px rgba(0, 212, 255, 0.15);
-}
-
-.menu-card.pension h3 {
-  color: #1e88e5;
-}
 
 /* 투자자 매매 동향 카드 */
 .card-icon.investor-icon {
@@ -1265,29 +1090,39 @@ export default {
   }
 }
 
-/* 위젯 설정 버튼 */
-.btn-widget-settings {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.btn-widget-settings:hover {
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  color: var(--primary-start);
-}
-
 /* 시장 정보 섹션 */
 .market-info-section {
   margin-bottom: var(--section-gap);
+}
+
+/* 대시보드 탭 */
+.dashboard-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  background: #e5e7eb;
+  border-radius: 12px;
+  padding: 4px;
+}
+.dash-tab {
+  flex: 1;
+  padding: 14px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.dash-tab:hover {
+  color: #111827;
+  background: rgba(255, 255, 255, 0.5);
+}
+.dash-tab.active {
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 </style>

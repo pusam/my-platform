@@ -2,7 +2,7 @@
   <div class="section-card">
     <div class="section-title-row">
       <h2><span class="section-icon">💰</span> 스마트 머니</h2>
-      <router-link to="/investor-trades" class="more-link">더 보기 →</router-link>
+      <router-link to="/investor" class="more-link">더 보기 →</router-link>
     </div>
 
     <SkeletonLoader v-if="loading" type="table" :rows="5" />
@@ -79,7 +79,7 @@
         </div>
         <div v-if="consecutiveData.length === 0" class="empty-msg">연속 매수 종목 없음</div>
         <div class="more-links">
-          <router-link to="/consecutive-buy">전체 목록 →</router-link>
+          <router-link to="/investor">전체 목록 →</router-link>
         </div>
       </div>
 
@@ -100,7 +100,7 @@
         </div>
         <div v-if="surgeData.length === 0" class="empty-msg">수급 급증 종목 없음</div>
         <div class="more-links">
-          <router-link to="/investor-surge">전체 목록 →</router-link>
+          <router-link to="/investor">전체 목록 →</router-link>
         </div>
       </div>
     </template>
@@ -162,7 +162,7 @@ export default {
     },
     goToConsecutiveDetail(code) {
       if (this.openStock) this.openStock(code)
-      else this.$router.push(`/investor-stock/${code}`)
+      else this.$router.push(`/stock/${code}`)
     }
   }
 }

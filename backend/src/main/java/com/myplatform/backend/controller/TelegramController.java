@@ -160,6 +160,44 @@ public class TelegramController {
     }
 
     /**
+     * 채널별 테스트 메시지 발송
+     * channel: briefing, signal, risk
+     */
+    @PostMapping("/test-channel")
+    @Operation(summary = "채널별 테스트", description = "브리핑/시그널/리스크 채널별 테스트 메시지를 발송합니다.")
+    public ResponseEntity<Map<String, Object>> testChannel(@RequestParam(defaultValue = "all") String channel) {
+        log.info("텔레그램 채널 테스트 요청: {}", channel);
+
+        Map<String, Object> response = new HashMap<>();
+        if (!telegramNotificationService.isEnabled()) {
+            response.put("success", false);
+            response.put("message", "텔레그램 알림이 비활성화 상태입니다.");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        String time = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"));
+
+        if ("briefing".equals(channel) || "all".equals(channel)) {
+            telegramNotificationService.sendBriefing(
+                    "<b>📋 [테스트] 브리핑 채널</b>\n\n✅ 브리핑 채널 연결 확인!\n모닝브리핑, 마감알림, 헬스체크가 여기로 옵니다.\n\n⏰ " + time);
+        }
+
+        if ("signal".equals(channel) || "all".equals(channel)) {
+            telegramNotificationService.sendSignal(
+                    "<b>📡 [테스트] 시그널 채널</b>\n\n✅ 시그널 채널 연결 확인!\n수급급증, 봇매매, 복합조건 알림이 여기로 옵니다.\n\n⏰ " + time);
+        }
+
+        if ("risk".equals(channel) || "all".equals(channel)) {
+            telegramNotificationService.sendRisk(
+                    "<b>🚨 [테스트] 리스크 채널</b>\n\n✅ 리스크 채널 연결 확인!\n리스크알리미, 킬스위치, 공매도경보가 여기로 옵니다.\n\n⏰ " + time);
+        }
+
+        response.put("success", true);
+        response.put("message", channel + " 채널 테스트 메시지가 발송되었습니다.");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * 숏스퀴즈 알림 테스트
      */
     @PostMapping("/test-squeeze-alert")

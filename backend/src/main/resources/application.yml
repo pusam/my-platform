@@ -3,12 +3,20 @@ spring:
     name: my-platform-backend
 
 
-  # 1. DB 설정 (모두 변수로 처리 -> IntelliJ나 서버가 채워줌)
+  # 1. DB 설정
   datasource:
     driverClassName: org.mariadb.jdbc.Driver
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 5
+      idle-timeout: 300000        # 5분 (유휴 커넥션 정리)
+      max-lifetime: 1740000       # 29분 (MariaDB wait_timeout=28800 이내)
+      connection-timeout: 10000   # 10초
+      leak-detection-threshold: 120000 # 2분 이상 미반환 시 경고 (섹터 배치 50~60초 소요)
+      pool-name: MyPlatformPool
 
   # 2. JPA 기본 설정
   jpa:
@@ -62,8 +70,8 @@ spring:
   servlet:
     multipart:
       enabled: true
-      max-file-size: 100MB
-      max-request-size: 100MB
+      max-file-size: 300MB
+      max-request-size: 300MB
   web:
     resources:
       static-locations: classpath:/static/
@@ -118,17 +126,30 @@ reddit:
     username: ${REDDIT_USERNAME:}
     password: ${REDDIT_PASSWORD:}
 
-# 9. 텔레그램 알림 설정
+# 9. 텔레그램 알림 설정 (3채널 분리)
+# 브리핑: 모닝브리핑, 마감알림, 헬스체크, 시장상태
+# 시그널: 수급급증, 선점레이더, 복합조건, 봇매매
+# 리스크: 리스크알리미, 킬스위치, 공매도경보
 telegram:
   bot:
     token: ${TELEGRAM_BOT_TOKEN:}
     chat-id: ${TELEGRAM_CHAT_ID:}
     enabled: ${TELEGRAM_ENABLED:false}
+    token-signal: ${TELEGRAM_BOT_TOKEN_SIGNAL:}
+    chat-id-signal: ${TELEGRAM_CHAT_ID_SIGNAL:}
+    token-risk: ${TELEGRAM_BOT_TOKEN_RISK:}
+    chat-id-risk: ${TELEGRAM_CHAT_ID_RISK:}
 
 # 10. 알림 스케줄러 설정
 alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
+
+# 10-1. 한국수출입은행 환율 API 설정
+koreaexim:
+  api:
+    key: ${KOREAEXIM_API_KEY:}
+    url: https://www.koreaexim.go.kr/site/program/financial/exchangeJSON
 
 # 11. DART(전자공시) API 설정
 dart:

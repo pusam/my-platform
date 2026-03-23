@@ -248,8 +248,8 @@ public class StockAnalysisService {
         BigDecimal revenue = data.getRevenue();
         BigDecimal totalEquity = data.getTotalEquity();
 
-        // operatingProfit/netIncome이 없으면 가장 최근 분기 데이터에서 조회
-        if ((operatingProfit == null || netIncome == null) && data.getStockCode() != null) {
+        // operatingProfit/netIncome/totalEquity 중 하나라도 없으면 가장 최근 분기 데이터에서 조회
+        if ((operatingProfit == null || netIncome == null || totalEquity == null || roe == null) && data.getStockCode() != null) {
             List<StockFinancialData> historicalData = stockFinancialDataRepository
                     .findByStockCodeOrderByReportDateDesc(data.getStockCode());
             for (StockFinancialData hist : historicalData) {
@@ -269,8 +269,16 @@ public class StockAnalysisService {
                 if (totalEquity == null && hist.getTotalEquity() != null) {
                     totalEquity = hist.getTotalEquity();
                 }
+                if (roe == null && hist.getRoe() != null) {
+                    roe = hist.getRoe();
+                    log.debug("[재무분석] {} ROE 보완: {} (from {})",
+                            data.getStockCode(), roe, hist.getReportDate());
+                }
+                if (debtRatio == null && hist.getDebtRatio() != null) {
+                    debtRatio = hist.getDebtRatio();
+                }
                 if (operatingProfit != null && netIncome != null
-                        && revenue != null && totalEquity != null) break;
+                        && revenue != null && totalEquity != null && roe != null) break;
             }
         }
 
@@ -512,8 +520,20 @@ public class StockAnalysisService {
         List<StockPriceHistory> historyData = stockPriceHistoryRepository
                 .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, PRICE_DATA_DAYS));
 
+        // DB 데이터 최신성 체크 (최근 3거래일 이내인지)
+        boolean isDbDataFresh = false;
         if (historyData.size() >= MIN_PRICE_DATA_COUNT) {
-            // DB에 충분한 데이터가 있음
+            java.time.LocalDate latestDate = historyData.get(0).getTradeDate();
+            long daysSinceLatest = java.time.temporal.ChronoUnit.DAYS.between(latestDate, java.time.LocalDate.now());
+            isDbDataFresh = daysSinceLatest <= 4; // 주말+공휴일 고려 4일
+            if (!isDbDataFresh) {
+                log.info("종목 {} DB 가격 데이터 오래됨 (최신: {}, {}일 전) → KIS API 갱신",
+                        stockCode, latestDate, daysSinceLatest);
+            }
+        }
+
+        if (historyData.size() >= MIN_PRICE_DATA_COUNT && isDbDataFresh) {
+            // DB에 충분하고 최신 데이터가 있음
             closePrices = historyData.stream()
                     .map(StockPriceHistory::getClosePrice)
                     .filter(p -> p != null && p.compareTo(BigDecimal.ZERO) > 0)
@@ -526,7 +546,8 @@ public class StockAnalysisService {
                             h.getClosePrice(), h.getVolume()))
                     .collect(Collectors.toList());
 
-            log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회", stockCode, closePrices.size());
+            log.debug("종목 {} StockPriceHistory에서 {} 건의 일봉 조회 (최신: {})",
+                    stockCode, closePrices.size(), historyData.get(0).getTradeDate());
         }
 
         // 2차: DB 데이터 부족 → KIS API에서 수집 후 DB 저장 (재시도 포함)
@@ -894,6 +915,28 @@ public class StockAnalysisService {
      * - 중복 방지: 이미 존재하는 날짜는 스킵
      * - OhlcvData.tradeDate 사용 (KIS API stck_bsop_date 필드에서 추출)
      */
+    /**
+     * 특정 종목의 일봉 데이터를 KIS API에서 가져와 DB에 저장
+     * 이중 수집 방지: 진행 중인 종목은 스킵
+     */
+    private final Set<String> collectingStocks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    public void collectPriceHistory(String stockCode) {
+        if (!collectingStocks.add(stockCode)) {
+            return; // 이미 수집 중
+        }
+        try {
+            List<KoreaInvestmentService.OhlcvData> ohlcv = koreaInvestmentService.getDailyOhlcv(stockCode, 60);
+            if (ohlcv != null && !ohlcv.isEmpty()) {
+                savePriceHistoryToDb(stockCode, ohlcv);
+            }
+        } catch (Exception e) {
+            log.debug("일봉 수집 실패 {}: {}", stockCode, e.getMessage());
+        } finally {
+            collectingStocks.remove(stockCode);
+        }
+    }
+
     private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         try {
             LocalDate today = LocalDate.now();

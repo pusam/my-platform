@@ -53,8 +53,15 @@ public class StockPriceService {
     // 네이버 서킷브레이커 (연속 에러 시 요청 중단)
     private final AtomicInteger naverConsecutiveErrors = new AtomicInteger(0);
     private volatile LocalDateTime naverCooldownUntil = null;
+    private final AtomicInteger naverCircuitOpenCount = new AtomicInteger(0); // 반복 오픈 횟수
     private static final int NAVER_MAX_CONSECUTIVE_ERRORS = 3;  // 3회 연속 에러 시 서킷 오픈
-    private static final int NAVER_COOLDOWN_SECONDS = 60;       // 60초 쿨다운
+    private static final int NAVER_BASE_COOLDOWN_SECONDS = 60;  // 기본 60초 쿨다운
+
+    // 409 반복 실패 종목 자동 블랙리스트 (종목코드 → 블랙리스트 해제 시각)
+    private final ConcurrentHashMap<String, LocalDateTime> naverBlacklist = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> naverFailCount = new ConcurrentHashMap<>();
+    private static final int NAVER_BLACKLIST_THRESHOLD = 3;     // 3회 409 → 블랙리스트
+    private static final int NAVER_BLACKLIST_MINUTES = 30;      // 30분간 스킵
 
     private final RestTemplate restTemplate;
     private final StockPriceRepository stockPriceRepository;
@@ -103,24 +110,32 @@ public class StockPriceService {
         int priceRemoved = 0;
         int minuteRemoved = 0;
 
-        // priceCache: fetchedAt이 5분 이상 지난 엔트리 제거
-        for (Map.Entry<String, StockPriceDto> entry : priceCache.entrySet()) {
-            if (!isValidCache(entry.getValue(), 5)) {
-                priceCache.remove(entry.getKey());
+        // priceCache: fetchedAt이 5분 이상 지난 엔트리 제거 (removeIf로 안전하게)
+        var priceIt = priceCache.entrySet().iterator();
+        while (priceIt.hasNext()) {
+            if (!isValidCache(priceIt.next().getValue(), 5)) {
+                priceIt.remove();
                 priceRemoved++;
             }
         }
 
         // minuteTradingCache: isValid() false인 엔트리 제거
-        for (Map.Entry<String, MinuteTradingCache> entry : minuteTradingCache.entrySet()) {
-            if (!entry.getValue().isValid()) {
-                minuteTradingCache.remove(entry.getKey());
+        var minuteIt = minuteTradingCache.entrySet().iterator();
+        while (minuteIt.hasNext()) {
+            if (!minuteIt.next().getValue().isValid()) {
+                minuteIt.remove();
                 minuteRemoved++;
             }
         }
 
-        log.info("[캐시정리] priceCache {}건 제거 (잔여 {}건), minuteTradingCache {}건 제거 (잔여 {}건)",
-                priceRemoved, priceCache.size(), minuteRemoved, minuteTradingCache.size());
+        // 네이버 블랙리스트 & 서킷 카운터 일괄 리셋
+        int blacklistSize = naverBlacklist.size();
+        naverBlacklist.clear();
+        naverFailCount.clear();
+        naverCircuitOpenCount.set(0);
+
+        log.info("[캐시정리] priceCache {}건 제거 (잔여 {}건), minuteTradingCache {}건 제거 (잔여 {}건), 네이버 블랙리스트 {}건 리셋",
+                priceRemoved, priceCache.size(), minuteRemoved, minuteTradingCache.size(), blacklistSize);
     }
 
     /**
@@ -401,13 +416,13 @@ public class StockPriceService {
                 }
             }
 
-            // 2. 장전(08:00~09:00)이고 여전히 등락률이 0이면 → 일봉 API에서 어제 등락률 조회
-            if (changeRateIsZeroOrNull && isPreMarketTime()) {
-                BigDecimal yesterdayChangeRate = fetchYesterdayChangeRateFromDaily(stockCode);
-                if (yesterdayChangeRate != null) {
-                    dto.setChangeRate(yesterdayChangeRate);
-                    dto.setDataSource("KIS_DAILY"); // 일봉 데이터 출처 표시
-                    log.info("[장전] 일봉 API에서 어제 등락률 적용: {} = {}%", stockCode, yesterdayChangeRate);
+            // 2. 여전히 등락률이 0이면 → 일봉 API에서 직전 등락률 조회 (장전뿐 아니라 장중에도)
+            if (changeRateIsZeroOrNull) {
+                BigDecimal dailyChangeRate = fetchYesterdayChangeRateFromDaily(stockCode);
+                if (dailyChangeRate != null) {
+                    dto.setChangeRate(dailyChangeRate);
+                    dto.setDataSource("KIS_DAILY");
+                    log.debug("[등락률 폴백] 일봉 API에서 등락률 적용: {} = {}%", stockCode, dailyChangeRate);
                 }
             }
 
@@ -604,6 +619,12 @@ public class StockPriceService {
      * - 409 Conflict 처리: 쿨다운 적용
      */
     private StockPriceDto fetchFromNaver(String stockCode) {
+        // 블랙리스트 체크 (409 반복 실패 종목)
+        if (isNaverBlacklisted(stockCode)) {
+            log.debug("네이버 블랙리스트 종목 - {} 스킵", stockCode);
+            return null;
+        }
+
         // 서킷브레이커 체크
         if (isNaverCircuitOpen()) {
             log.debug("네이버 서킷브레이커 오픈 상태 - {} 스킵", stockCode);
@@ -628,18 +649,31 @@ public class StockPriceService {
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             int statusCode = e.getStatusCode().value();
             if (statusCode == 409) {
-                // 409 Conflict: 네이버 차단 → 서킷브레이커 활성화
+                // 종목별 409 카운트 → 반복 실패 종목 블랙리스트
+                int stockFails = naverFailCount
+                        .computeIfAbsent(stockCode, k -> new AtomicInteger(0))
+                        .incrementAndGet();
+                if (stockFails >= NAVER_BLACKLIST_THRESHOLD) {
+                    naverBlacklist.put(stockCode, LocalDateTime.now().plusMinutes(NAVER_BLACKLIST_MINUTES));
+                    log.warn("네이버 블랙리스트 추가 [{}] - {}분간 스킵 ({}회 연속 409)", stockCode, NAVER_BLACKLIST_MINUTES, stockFails);
+                }
+
+                // 서킷브레이커 (점진적 쿨다운)
                 int errors = naverConsecutiveErrors.incrementAndGet();
                 log.warn("네이버 API 409 Conflict [{}] (연속 에러 {}/{})", stockCode, errors, NAVER_MAX_CONSECUTIVE_ERRORS);
                 if (errors >= NAVER_MAX_CONSECUTIVE_ERRORS) {
-                    naverCooldownUntil = LocalDateTime.now().plusSeconds(NAVER_COOLDOWN_SECONDS);
-                    log.error("네이버 서킷브레이커 오픈 - {}초간 요청 차단 (쿨다운: {})", NAVER_COOLDOWN_SECONDS, naverCooldownUntil);
+                    int openCount = naverCircuitOpenCount.incrementAndGet();
+                    int cooldownSeconds = Math.min(NAVER_BASE_COOLDOWN_SECONDS * openCount, 600); // 60s → 120s → 180s, 최대 10분
+                    naverCooldownUntil = LocalDateTime.now().plusSeconds(cooldownSeconds);
+                    log.error("네이버 서킷브레이커 오픈 ({}회차) - {}초간 요청 차단 (쿨다운: {})", openCount, cooldownSeconds, naverCooldownUntil);
                 }
             } else if (statusCode == 429) {
                 int errors = naverConsecutiveErrors.incrementAndGet();
                 log.warn("네이버 API 429 Too Many Requests [{}] (연속 에러 {})", stockCode, errors);
                 if (errors >= NAVER_MAX_CONSECUTIVE_ERRORS) {
-                    naverCooldownUntil = LocalDateTime.now().plusSeconds(NAVER_COOLDOWN_SECONDS);
+                    int openCount = naverCircuitOpenCount.incrementAndGet();
+                    int cooldownSeconds = Math.min(NAVER_BASE_COOLDOWN_SECONDS * openCount, 600);
+                    naverCooldownUntil = LocalDateTime.now().plusSeconds(cooldownSeconds);
                 }
             } else {
                 log.error("네이버 API HTTP {} [{}]: {}", statusCode, stockCode, e.getMessage());
@@ -679,6 +713,20 @@ public class StockPriceService {
             log.info("네이버 서킷브레이커 닫힘 - 요청 재개");
         }
         return false;
+    }
+
+    /**
+     * 종목별 네이버 블랙리스트 확인 (409 반복 실패 종목 스킵)
+     */
+    private boolean isNaverBlacklisted(String stockCode) {
+        LocalDateTime until = naverBlacklist.get(stockCode);
+        if (until == null) return false;
+        if (LocalDateTime.now().isAfter(until)) {
+            naverBlacklist.remove(stockCode);
+            naverFailCount.remove(stockCode);
+            return false;
+        }
+        return true;
     }
 
     /**

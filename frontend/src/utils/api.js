@@ -34,6 +34,10 @@ apiClient.interceptors.response.use(
     return response;
   },
   (error) => {
+    if (error.response && error.response.status === 429) {
+      alert('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+      return Promise.reject(error);
+    }
     if (error.response && error.response.status === 401 && !isRedirecting) {
       isRedirecting = true;
       UserManager.logout();
@@ -194,7 +198,8 @@ export const fileAPI = {
     if (uploadDate) formData.append('uploadDate', uploadDate);
 
     return apiClient.post('/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000  // 5분 (대용량 파일 업로드 대기)
     });
   },
   // 폴더 삭제
@@ -278,6 +283,10 @@ export const sectorAPI = {
   // 캐시 새로고침
   refreshSectorTrading() {
     return apiClient.post('/sector/trading/refresh', {}, { timeout: 120000 });
+  },
+  // 섹터 로테이션 (전일 대비 자금 흐름)
+  getSectorRotation() {
+    return apiClient.get('/sector/trading/rotation');
   }
 };
 
@@ -344,6 +353,9 @@ export const adminAPI = {
   },
   deleteUser(id) {
     return apiClient.delete(`/admin/users/${id}`);
+  },
+  unlockUser(id) {
+    return apiClient.post(`/admin/users/${id}/unlock`);
   },
   getUserStats() {
     return apiClient.get('/admin/users/stats');
@@ -520,6 +532,10 @@ export const telegramAPI = {
   sendSqueezeAlertTest() {
     return apiClient.post('/telegram/test-squeeze-alert');
   },
+  // 채널별 테스트
+  testChannel(channel) {
+    return apiClient.post('/telegram/test-channel', null, { params: { channel } });
+  },
   // 커스텀 메시지 발송
   sendMessage(message) {
     return apiClient.post('/telegram/send', null, { params: { message } });
@@ -583,6 +599,10 @@ export const paperTradingAPI = {
   // 실전투자 수동 매수/매도
   placeRealTrade(data) {
     return apiClient.post('/paper-trading/real/trades', data);
+  },
+  // 봇 성과 분석 조회
+  getBotPerformance(days = 30) {
+    return apiClient.get('/paper-trading/bot-performance', { params: { days } });
   }
 };
 
@@ -792,84 +812,6 @@ export const stockDetailAPI = {
   }
 };
 
-// ===================== V2 API (Python FastAPI) =====================
-
-// V2 Axios 인스턴스 (Python 마이크로서비스)
-const apiV2Client = axios.create({
-  baseURL: '/api/v2',
-  timeout: 2000,  // 2초 타임아웃 (python-backend 미실행 시 빠른 실패)
-  headers: { 'Content-Type': 'application/json' }
-});
-
-// V2에도 동일한 JWT 인터셉터 적용
-apiV2Client.interceptors.request.use(
-  (config) => {
-    const token = TokenManager.getToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
-// V2 AI Strategy API
-export const aiStrategyV2API = {
-  getLatest() {
-    return apiV2Client.get('/ai-strategy/latest');
-  }
-};
-
-// V2 Market API
-export const marketV2API = {
-  getStatus() {
-    return apiV2Client.get('/market/status');
-  },
-  getSectors(period = 'TODAY') {
-    return apiV2Client.get('/market/sectors', { params: { period } });
-  },
-  getLeadingSectors() {
-    return apiV2Client.get('/market/sectors/leading');
-  },
-  getNasdaqFutures() {
-    return apiV2Client.get('/market/global/nasdaq-futures');
-  }
-};
-
-// V2 Investor API
-export const investorV2API = {
-  getTopTrades(investorType, limit = 10) {
-    return apiV2Client.get('/investor/top-trades', { params: { investorType, limit } });
-  },
-  getAllConsecutiveBuy(minDays = 3) {
-    return apiV2Client.get('/investor/consecutive-buy/all', { params: { minDays } });
-  },
-  getAllSurgeStocks() {
-    return apiV2Client.get('/investor/surge/all');
-  }
-};
-
-// V2 Screener API
-export const screenerV2API = {
-  getSummary() {
-    return apiV2Client.get('/screener/summary');
-  }
-};
-
-// V2 News API
-export const newsV2API = {
-  getTodayNews() {
-    return apiV2Client.get('/news/today');
-  }
-};
-
-// V2 Analysis API (개별 종목)
-export const analysisV2API = {
-  getAnalysis(ticker) {
-    return apiV2Client.get(`/analysis/${ticker}`);
-  }
-};
-
 // 배치 잡 모니터링 API
 export const batchJobAPI = {
   getExecutions(params = {}) {
@@ -899,6 +841,9 @@ export const watchlistAPI = {
   },
   checkBookmark(stockCode) {
     return apiClient.get('/watchlist/check', { params: { stockCode } });
+  },
+  getRiskStatus(stockCodes) {
+    return apiClient.post('/watchlist/risk-status', stockCodes);
   }
 };
 
@@ -922,6 +867,60 @@ export const globalFuturesAPI = {
   },
   getKospiImpact() {
     return apiClient.get('/global-futures/kospi-impact', { timeout: 30000 });
+  }
+};
+
+// 실적공시 API
+// Preemptive Radar API (선점 레이더)
+// AI 종합 추천 API
+export const recommendationAPI = {
+  getTop5() {
+    return apiClient.get('/recommendation/top5', { timeout: 30000 });
+  }
+};
+
+export const radarAPI = {
+  getFull() {
+    return apiClient.get('/radar', { timeout: 60000 });
+  },
+  getPolicyNews() {
+    return apiClient.get('/radar/policy-news');
+  },
+  getNearHigh() {
+    return apiClient.get('/radar/near-high', { timeout: 30000 });
+  },
+  getLargeHoldings() {
+    return apiClient.get('/radar/large-holdings');
+  },
+  getEarningsPredictions() {
+    return apiClient.get('/radar/earnings-predictions');
+  }
+};
+
+export const earningsAPI = {
+  getRecent(months = 3) {
+    return apiClient.get('/earnings/recent', { params: { months } });
+  },
+  getCalendar(year, month) {
+    return apiClient.get('/earnings/calendar', { params: { year, month } });
+  },
+  getWatchlist() {
+    return apiClient.get('/earnings/watchlist');
+  },
+  search(q) {
+    return apiClient.get('/earnings/search', { params: { q } });
+  },
+  getStats(months = 3) {
+    return apiClient.get('/earnings/stats', { params: { months } });
+  },
+  collect() {
+    return apiClient.post('/earnings/collect');
+  },
+  getSummary(corpName, corpCode, reportType) {
+    return apiClient.get('/earnings/summary', {
+      params: { corpName, corpCode, reportType },
+      timeout: 60000
+    });
   }
 };
 

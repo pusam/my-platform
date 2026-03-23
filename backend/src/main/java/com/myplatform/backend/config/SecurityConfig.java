@@ -67,7 +67,16 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                .csrf(csrf -> csrf.disable())
+                .csrf(csrf -> csrf.disable()) // JWT 기반 Stateless → CSRF 불필요
+                .headers(headers -> headers
+                        .frameOptions(frame -> frame.deny())                          // 클릭재킹 방지
+                        .contentTypeOptions(content -> {})                             // MIME 스니핑 방지 (X-Content-Type-Options: nosniff)
+                        .httpStrictTransportSecurity(hsts -> hsts                      // HTTPS 강제
+                                .includeSubDomains(true)
+                                .maxAgeInSeconds(31536000))
+                        .permissionsPolicy(permissions -> permissions                  // 불필요한 브라우저 기능 차단
+                                .policy("camera=(), microphone=(), geolocation=()"))
+                )
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

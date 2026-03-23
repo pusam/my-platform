@@ -1,11 +1,7 @@
 <template>
   <div class="dashboard-header">
     <div class="header-left">
-      <button class="back-btn" @click="$router.push('/user')">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="15,18 9,12 15,6"/>
-        </svg>
-      </button>
+      <BackButton :dark="true" />
     </div>
     <div class="header-center">
       <div class="gnb-tabs">
@@ -36,8 +32,11 @@
 </template>
 
 <script>
+import BackButton from '../BackButton.vue'
+
 export default {
   name: 'DashboardHeader',
+  components: { BackButton },
   props: {
     activeTab: { type: String, default: 'market' }
   },
@@ -46,9 +45,7 @@ export default {
     return {
       currentTime: '',
       gnbTabs: [
-        { key: 'market', label: '시장 뷰', icon: '📊' },
-        { key: 'discover', label: '종목 발굴', icon: '🔍' },
-        { key: 'account', label: '내 계좌/봇', icon: '🤖' }
+        { key: 'market', label: '시장 현황', icon: '📊' }
       ]
     }
   },
@@ -76,28 +73,15 @@ export default {
   padding: 12px 0;
   margin-bottom: 20px;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #0f0f1a;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-}
-
-.back-btn {
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px;
-  color: rgba(255,255,255,0.7);
-  cursor: pointer;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.2s;
-}
-.back-btn:hover {
-  background: rgba(255,255,255,0.1);
-  color: white;
 }
 
 /* GNB Tabs */

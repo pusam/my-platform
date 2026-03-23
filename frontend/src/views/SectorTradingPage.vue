@@ -1,8 +1,9 @@
 <template>
-  <div class="page-container">
+  <div :class="['page-container', { embedded: embedded }]">
     <div class="page-content">
       <!-- 헤더 -->
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
+        <BackButton />
         <h1>섹터별 거래대금</h1>
         <div class="header-actions">
           <button @click="refreshData" class="btn btn-refresh" :disabled="loading">
@@ -12,7 +13,6 @@
             </svg>
             새로고침
           </button>
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -138,8 +138,13 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { sectorAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { formatTradingValue } from '../utils/marketFormatters';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
 
 const router = useRouter();
 
@@ -165,6 +170,8 @@ const totalTradingValue = computed(() => {
 });
 
 let retryTimeout = null;
+let retryCount = 0;
+const MAX_RETRIES = 3;
 
 const loadData = async () => {
   try {
@@ -174,12 +181,15 @@ const loadData = async () => {
       sectors.value = response.data.data || [];
       lastUpdate.value = new Date().toLocaleTimeString('ko-KR');
 
-      // 데이터가 비어있으면 5초 후 자동 재시도
-      if (sectors.value.length === 0) {
+      // 데이터가 비어있으면 5초 후 자동 재시도 (최대 3회)
+      if (sectors.value.length === 0 && retryCount < MAX_RETRIES) {
+        retryCount++;
         if (retryTimeout) clearTimeout(retryTimeout);
         retryTimeout = setTimeout(() => {
           loadData();
         }, 5000);
+      } else {
+        retryCount = 0;
       }
     }
   } catch (error) {
@@ -208,18 +218,7 @@ const toggleSector = (sectorCode) => {
   expandedSector.value = expandedSector.value === sectorCode ? null : sectorCode;
 };
 
-const formatTradingValue = (value) => {
-  if (!value) return '0원';
-  const num = parseFloat(value);
-  if (num >= 1000000000000) {
-    return (num / 1000000000000).toFixed(2) + '조';
-  } else if (num >= 100000000) {
-    return (num / 100000000).toFixed(0) + '억';
-  } else if (num >= 10000) {
-    return (num / 10000).toFixed(0) + '만';
-  }
-  return num.toLocaleString('ko-KR') + '원';
-};
+// formatTradingValue는 공통 유틸리티 (marketFormatters.js)에서 import
 
 const formatCurrency = (value) => {
   if (!value) return '0원';
@@ -706,5 +705,11 @@ onUnmounted(() => {
     width: 100%;
     justify-content: space-between;
   }
+}
+
+.page-container.embedded {
+  min-height: auto;
+  padding: 0;
+  background: none;
 }
 </style>

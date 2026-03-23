@@ -61,7 +61,7 @@ public class InvestorSurgeService {
      * - 외국인: 09:30, 11:20, 13:20, 14:30
      * - 기관종합: 10:00, 11:20, 13:20, 14:30
      */
-    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI")
+    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectIntradaySnapshot() {
         LocalTime now = LocalTime.now();
 
@@ -214,14 +214,18 @@ public class InvestorSurgeService {
                     if (item.has("stck_prpr")) {
                         try {
                             currentPrice = new BigDecimal(item.get("stck_prpr").asText().replace(",", ""));
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("현재가 파싱 실패: {}", e.getMessage());
+                        }
                     }
 
                     BigDecimal changeRate = BigDecimal.ZERO;
                     if (item.has("prdy_ctrt")) {
                         try {
                             changeRate = new BigDecimal(item.get("prdy_ctrt").asText().replace(",", ""));
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            log.warn("등락률 파싱 실패: {}", e.getMessage());
+                        }
                     }
 
                     InvestorIntradaySnapshot snapshot = InvestorIntradaySnapshot.builder()
@@ -289,6 +293,20 @@ public class InvestorSurgeService {
         }
 
         LocalTime latestTime = latestTimeOpt.get();
+
+        // ★ Freshness check: 장중(평일 09:00~15:30)에 30분 이상 오래된 스냅샷이면 경고
+        LocalDateTime snapshotDateTime = LocalDateTime.of(today, latestTime);
+        LocalDateTime now = LocalDateTime.now();
+        long staleMinutes = java.time.Duration.between(snapshotDateTime, now).toMinutes();
+        boolean isTradingHours = now.getDayOfWeek() != DayOfWeek.SATURDAY
+                && now.getDayOfWeek() != DayOfWeek.SUNDAY
+                && now.toLocalTime().isAfter(LocalTime.of(9, 0))
+                && now.toLocalTime().isBefore(LocalTime.of(15, 30));
+        if (isTradingHours && staleMinutes > 30) {
+            log.warn("[InvestorSurge] ⚠ 스냅샷 데이터 오래됨! 최신: {} {} ({}분 전) - investorType={}",
+                    today, latestTime, staleMinutes, investorType);
+        }
+
         log.info("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
 
         // 전체 스냅샷을 가져와서 금액 기준 정렬
@@ -558,7 +576,7 @@ public class InvestorSurgeService {
     /**
      * 오래된 스냅샷 및 알림 기록 정리 (7일 이전)
      */
-    @Scheduled(cron = "0 0 6 * * *")
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldData() {
         LocalDate cutoffDate = LocalDate.now().minusDays(7);
         snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);
@@ -847,7 +865,7 @@ public class InvestorSurgeService {
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
         log.info("🚨 쌍끌이 알림 발송: {} ({}) - 합산 {}억 / 최근 +{}억 (외국인 {}억 + 기관 {}억)",
                 foreign.getStockName(), foreign.getStockCode(),
                 formatAmount(totalNetBuy), formatAmount(totalChange),
@@ -889,7 +907,7 @@ public class InvestorSurgeService {
             LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
         log.info("🌊 {} 단독 HOT 알림 발송: {} ({}) - {}억 / 최근 +{}억",
                 investorName, snapshot.getStockName(), snapshot.getStockCode(),
                 formatAmount(netBuy), formatAmount(amountChange));

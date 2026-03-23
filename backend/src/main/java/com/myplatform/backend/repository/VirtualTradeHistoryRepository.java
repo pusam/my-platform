@@ -96,4 +96,34 @@ public interface VirtualTradeHistoryRepository extends JpaRepository<VirtualTrad
         WHERE t.accountId = :accountId
         """)
     List<Object[]> getTradeStatistics(@Param("accountId") Long accountId, @Param("todayStart") LocalDateTime todayStart);
+
+    /**
+     * 봇 거래만 조회 (tradeReason으로 필터)
+     */
+    @Query("SELECT v FROM VirtualTradeHistory v WHERE v.accountId = :accountId AND v.tradeReason IN :reasons ORDER BY v.tradeDate DESC")
+    List<VirtualTradeHistory> findBotTrades(@Param("accountId") Long accountId, @Param("reasons") List<String> reasons);
+
+    /**
+     * 봇 거래 - 페이징
+     */
+    @Query("SELECT v FROM VirtualTradeHistory v WHERE v.accountId = :accountId AND v.tradeReason IN :reasons ORDER BY v.tradeDate DESC")
+    Page<VirtualTradeHistory> findBotTrades(@Param("accountId") Long accountId, @Param("reasons") List<String> reasons, Pageable pageable);
+
+    /**
+     * 봇 거래 - 기간별
+     */
+    @Query("SELECT v FROM VirtualTradeHistory v WHERE v.accountId = :accountId AND v.tradeReason IN :reasons AND v.tradeDate BETWEEN :start AND :end ORDER BY v.tradeDate DESC")
+    List<VirtualTradeHistory> findBotTradesBetween(@Param("accountId") Long accountId, @Param("reasons") List<String> reasons, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    /**
+     * 봇 일별 손익 집계
+     */
+    @Query("SELECT CAST(v.tradeDate AS date) as tradeDay, SUM(v.profitLoss) as dailyPnl, COUNT(v) as tradeCount FROM VirtualTradeHistory v WHERE v.accountId = :accountId AND v.tradeReason IN :reasons AND v.tradeType = 'SELL' GROUP BY CAST(v.tradeDate AS date) ORDER BY tradeDay DESC")
+    List<Object[]> findDailyBotPnl(@Param("accountId") Long accountId, @Param("reasons") List<String> reasons);
+
+    /**
+     * 봇 종목별 손익 집계
+     */
+    @Query("SELECT v.stockCode, v.stockName, SUM(v.profitLoss) as totalPnl, COUNT(v) as tradeCount, SUM(CASE WHEN v.profitLoss > 0 THEN 1 ELSE 0 END) as winCount FROM VirtualTradeHistory v WHERE v.accountId = :accountId AND v.tradeReason IN :reasons AND v.tradeType = 'SELL' GROUP BY v.stockCode, v.stockName ORDER BY totalPnl DESC")
+    List<Object[]> findBotPnlByStock(@Param("accountId") Long accountId, @Param("reasons") List<String> reasons);
 }

@@ -139,6 +139,16 @@ public class UserManagementService {
                 String.format("사용자 '%s' 활성화됨", user.getUsername()));
     }
 
+    public void unlockUser(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setStatus("APPROVED");
+        user.setFailedLoginAttempts(0);
+        userRepository.save(user);
+        activityLogService.log("SYSTEM", "STATUS_CHANGE",
+                String.format("사용자 '%s' 잠금 해제됨", user.getUsername()));
+    }
+
     public void changeUserRole(Long userId, String role) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));

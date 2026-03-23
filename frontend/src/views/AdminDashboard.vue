@@ -1,7 +1,7 @@
 <template>
-  <div class="page-container">
+  <div :class="['page-container', { embedded: embedded }]">
     <div class="page-content">
-      <header class="common-header">
+      <header v-if="!embedded" class="common-header">
         <h1>⚙️ 관리자 대시보드</h1>
         <div class="header-actions">
           <div class="header-user">
@@ -257,7 +257,6 @@
             <p>게시글 모니터링, 신고 관리, 통계 확인</p>
             <div class="action-group">
               <button @click="goToBoard" class="action-btn">게시판 이동</button>
-              <button @click="viewBoardStats" class="action-btn">통계 보기</button>
             </div>
           </div>
 
@@ -362,6 +361,23 @@
                 종목 알림 테스트
               </button>
             </div>
+            <div class="channel-test-group">
+              <span class="channel-test-label">채널별 테스트</span>
+              <div class="action-group">
+                <button @click="testChannel('all')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  {{ channelTestLoading ? '전송 중...' : '📋📡🚨 전체' }}
+                </button>
+                <button @click="testChannel('briefing')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  📋 브리핑
+                </button>
+                <button @click="testChannel('signal')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  📡 시그널
+                </button>
+                <button @click="testChannel('risk')" class="action-btn channel-btn" :disabled="channelTestLoading || !telegramStatus?.enabled">
+                  🚨 리스크
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -393,6 +409,9 @@ import apiClient, { adminAPI, telegramAPI } from '../utils/api';
 
 export default {
   name: 'AdminDashboard',
+  props: {
+    embedded: { type: Boolean, default: false }
+  },
   data() {
     return {
       username: '',
@@ -420,7 +439,8 @@ export default {
       loading: false,
       telegramStatus: null,
       telegramLoading: false,
-      telegramTestLoading: false
+      telegramTestLoading: false,
+      channelTestLoading: false
     }
   },
   mounted() {
@@ -527,10 +547,7 @@ export default {
       this.$router.push('/admin/users')
     },
     viewAllUsers() {
-      alert('전체 사용자 관리 페이지 (개발 예정)')
-    },
-    viewBoardStats() {
-      alert('게시판 통계 페이지 (개발 예정)')
+      this.$router.push('/admin/users')
     },
     async viewApiStats() {
       try {
@@ -578,14 +595,28 @@ export default {
     viewFileManager() {
       this.$router.push('/files')
     },
-    cleanupFiles() {
-      alert('파일 정리 기능 (개발 예정)')
+    async cleanupFiles() {
+      try {
+        const res = await adminAPI.getServerStatus()
+        if (res.data.success) {
+          const disks = res.data.data.disks || []
+          let msg = '📁 디스크 사용량\n\n'
+          disks.forEach(d => {
+            const usedPct = d.totalSpace > 0 ? ((d.usedSpace / d.totalSpace) * 100).toFixed(1) : 0
+            msg += `${d.path}: ${usedPct}% 사용 (${(d.usedSpace / 1073741824).toFixed(1)}GB / ${(d.totalSpace / 1073741824).toFixed(1)}GB)\n`
+          })
+          msg += '\n파일 정리가 필요하면 서버에서 직접 처리해주세요.'
+          alert(msg)
+        }
+      } catch (e) {
+        alert('디스크 정보 조회 실패')
+      }
     },
     viewSettings() {
-      alert('시스템 설정 페이지 (개발 예정)')
+      this.$router.push('/settings')
     },
     viewLogs() {
-      alert('시스템 로그 페이지 (개발 예정)')
+      this.$router.push('/admin/logs')
     },
     goToUserManagement() {
       this.$router.push('/admin/users')
@@ -646,6 +677,23 @@ export default {
         alert('종목 알림 테스트에 실패했습니다.')
       } finally {
         this.telegramTestLoading = false
+      }
+    },
+    async testChannel(channel) {
+      try {
+        this.channelTestLoading = true
+        const response = await telegramAPI.testChannel(channel)
+        if (response.data.success) {
+          const names = { all: '전체(3채널)', briefing: '브리핑', signal: '시그널', risk: '리스크' }
+          alert(`${names[channel] || channel} 채널 테스트 메시지가 전송되었습니다.`)
+        } else {
+          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+        }
+      } catch (error) {
+        console.error('채널 테스트 실패:', error)
+        alert('채널 테스트에 실패했습니다.')
+      } finally {
+        this.channelTestLoading = false
       }
     }
   }
@@ -1144,6 +1192,25 @@ export default {
   border-left: 4px solid #0088cc;
 }
 
+.channel-test-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+}
+
+.channel-test-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #6c757d;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.channel-btn {
+  font-size: 12px !important;
+  padding: 6px 12px !important;
+}
+
 .telegram-info {
   background: #f8f9fa;
   padding: 12px 16px;
@@ -1210,6 +1277,17 @@ export default {
   .system-info-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.page-container.embedded {
+  min-height: auto;
+  background: none;
+  padding: 0;
+}
+.page-container.embedded .page-content {
+  max-width: none;
+  padding: 0;
+  margin: 0;
 }
 </style>
 

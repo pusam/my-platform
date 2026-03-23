@@ -459,7 +459,7 @@ public class RealTradeService implements TradeService {
                 LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
     }
 
     /**
@@ -505,7 +505,7 @@ public class RealTradeService implements TradeService {
                 LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendMessage(message);
+        telegramService.sendSignal(message);
     }
 
     private String formatNumber(BigDecimal value) {

@@ -1,8 +1,10 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.BotPerformanceDto;
 import com.myplatform.backend.dto.PaperTradingDto.*;
 import com.myplatform.backend.service.AutoTradingBotService;
 import com.myplatform.backend.service.AutoTradingBotService.TradingMode;
+import com.myplatform.backend.service.BotPerformanceService;
 import com.myplatform.backend.service.RealTradeService;
 import com.myplatform.backend.service.VirtualTradeService;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ public class PaperTradingController {
     private final VirtualTradeService virtualTradeService;
     private final RealTradeService realTradeService;
     private final AutoTradingBotService autoTradingBotService;
+    private final BotPerformanceService botPerformanceService;
 
     /**
      * 계좌 요약 조회
@@ -227,6 +230,17 @@ public class PaperTradingController {
         Map<String, Object> response = buildSuccessResponse(portfolio);
         response.put("message", "포트폴리오 현재가가 업데이트되었습니다.");
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 봇 성과 분석
+     * GET /api/paper-trading/bot-performance?days=30
+     */
+    @GetMapping("/bot-performance")
+    public ResponseEntity<Map<String, Object>> getBotPerformance(
+            @RequestParam(required = false, defaultValue = "30") Integer days) {
+        BotPerformanceDto performance = botPerformanceService.getPerformance(days);
+        return ResponseEntity.ok(buildSuccessResponse(performance));
     }
 
     // ========== 실전투자 API ==========

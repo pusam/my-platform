@@ -26,6 +26,10 @@
           <div class="watch-name-row">
             <span class="watch-name">{{ item.stockName }}</span>
             <span class="watch-code">{{ item.stockCode }}</span>
+            <span v-if="riskMap[item.stockCode]" class="risk-badge"
+                  :class="riskMap[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
+              {{ riskMap[item.stockCode].riskLevel === 'DANGER' ? '🔴 위험' : '🟡 주의' }}
+            </span>
           </div>
           <div class="watch-price-row">
             <span class="price" v-if="item.currentPrice">
@@ -103,6 +107,7 @@ export default {
   data() {
     return {
       list: [],
+      riskMap: {},
       loading: false,
       showModal: false,
       modalItem: null,
@@ -119,10 +124,23 @@ export default {
       try {
         const res = await watchlistAPI.getList()
         this.list = res.data?.data || []
+        this.fetchRiskStatus()
       } catch (e) {
         console.error('관심종목 조회 실패:', e)
       } finally {
         this.loading = false
+      }
+    },
+    async fetchRiskStatus() {
+      if (!this.list.length) return
+      try {
+        const codes = this.list.map(item => item.stockCode)
+        const res = await watchlistAPI.getRiskStatus(codes)
+        if (res.data?.success) {
+          this.riskMap = res.data.data || {}
+        }
+      } catch (e) {
+        // 리스크 조회 실패해도 관심종목 표시는 유지
       }
     },
     formatPrice(val) {
@@ -226,6 +244,16 @@ export default {
 .watch-name-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
 .watch-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); }
 .watch-code { font-size: 11px; color: rgba(255,255,255,0.35); }
+
+.risk-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+.risk-badge.danger { background: rgba(239,68,68,0.2); color: #ef4444; }
+.risk-badge.warning { background: rgba(245,158,11,0.2); color: #f59e0b; }
 
 .watch-price-row { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .price { font-size: 13px; color: rgba(255,255,255,0.7); }

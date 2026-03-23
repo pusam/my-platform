@@ -2,9 +2,9 @@
   <div class="page-container">
     <div class="page-content">
       <header class="common-header">
+        <BackButton />
         <h1>사용자 관리</h1>
         <div class="header-actions">
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -70,10 +70,12 @@
                       <option value="PENDING">대기</option>
                       <option value="APPROVED">승인</option>
                       <option value="REJECTED">거부</option>
+                      <option value="LOCKED">잠김</option>
                     </select>
                   </td>
                   <td>{{ formatDate(user.createdAt) }}</td>
                   <td>
+                    <button v-if="user.status === 'LOCKED'" @click="unlockUser(user)" class="btn-unlock">잠금해제</button>
                     <button @click="confirmDelete(user)" class="btn-delete">삭제</button>
                   </td>
                 </tr>
@@ -156,6 +158,18 @@ export default {
         console.error('Failed to update status:', error);
         alert('상태 변경에 실패했습니다.');
         this.loadUsers();
+      }
+    },
+    async unlockUser(user) {
+      try {
+        const response = await adminAPI.unlockUser(user.id);
+        if (response.data.success) {
+          alert(`'${user.username}' 계정 잠금이 해제되었습니다.`);
+          this.loadUsers();
+        }
+      } catch (error) {
+        console.error('Failed to unlock user:', error);
+        alert('잠금 해제에 실패했습니다.');
       }
     },
     async confirmDelete(user) {
@@ -352,6 +366,27 @@ export default {
 .btn-delete:hover {
   background: #f44336;
   color: white;
+}
+
+.btn-unlock {
+  padding: 6px 12px;
+  background: transparent;
+  color: #ff9800;
+  border: 1px solid #ff9800;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 6px;
+}
+.btn-unlock:hover {
+  background: #ff9800;
+  color: white;
+}
+
+.status-select.locked {
+  background: #fff3e0;
+  color: #e65100;
+  border-color: #ff9800;
 }
 
 @media (max-width: 768px) {

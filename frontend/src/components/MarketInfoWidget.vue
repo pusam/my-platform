@@ -37,7 +37,7 @@
           <div class="status-interpretation">{{ marketStatusDescription }}</div>
         </div>
         <div class="adr-badge" :class="adrBadgeClass">
-          ADR {{ marketData?.combinedAdr?.toFixed(0) || '-' }}
+          {{ isCrash ? '⚠ 폭락' : ('ADR ' + (marketData?.combinedAdr?.toFixed(0) || '-')) }}
         </div>
       </div>
 
@@ -74,8 +74,8 @@
             <span class="index-value" v-if="exchangeData?.rate">
               {{ formatNumber(exchangeData.rate, 0) }}
             </span>
-            <span class="index-value" v-else>-</span>
-            <span class="index-change" :class="getChangeClass(exchangeData?.changeRate, true)">
+            <span class="index-value delayed-text" v-else>데이터 지연</span>
+            <span v-if="exchangeData?.changeRate != null" class="index-change" :class="getChangeClass(exchangeData?.changeRate, true)">
               {{ formatChange(exchangeData?.changeRate) }}
             </span>
           </div>
@@ -88,6 +88,8 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { marketAPI, exchangeRateAPI } from '@/utils/api';
+import { checkCrash, getMarketStatus } from '@/composables/useMarketStatus';
+import { formatNumber, formatChange, getChangeClass } from '@/utils/marketFormatters';
 
 const marketData = ref(null);
 const exchangeData = ref(null);
@@ -95,80 +97,16 @@ const loading = ref(true);
 const lastUpdated = ref('');
 let refreshInterval = null;
 
-// 시장 상태 계산
-const marketStatusClass = computed(() => {
-  if (!marketData.value?.combinedAdr) return '';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return 'overheated';
-  if (adr >= 100) return 'bullish';
-  if (adr >= 80) return 'normal';
-  if (adr >= 60) return 'bearish';
-  return 'extreme-fear';
-});
+// 폭락 감지 (공통 컴포저블 사용)
+const isCrash = computed(() => checkCrash(marketData.value));
 
-const marketStatusIcon = computed(() => {
-  if (!marketData.value?.combinedAdr) return '📊';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '🔥';
-  if (adr >= 100) return '📈';
-  if (adr >= 80) return '➡️';
-  if (adr >= 60) return '📉';
-  return '💎';
-});
-
-const marketStatusTitle = computed(() => {
-  if (!marketData.value?.combinedAdr) return '데이터 없음';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '과열';
-  if (adr >= 100) return '강세';
-  if (adr >= 80) return '보합';
-  if (adr >= 60) return '약세';
-  return '침체';
-});
-
-const marketStatusDescription = computed(() => {
-  if (!marketData.value?.combinedAdr) return '시장 데이터를 불러오지 못했습니다.';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return '추격 매수 주의, 익절 고려';
-  if (adr >= 100) return '상승 추세, 눌림목 매수 유효';
-  if (adr >= 80) return '방향성 탐색 중';
-  if (adr >= 60) return '하락 추세, 반등 대기';
-  return '저점 매수 기회 탐색';
-});
-
-const adrBadgeClass = computed(() => {
-  if (!marketData.value?.combinedAdr) return '';
-  const adr = marketData.value.combinedAdr;
-  if (adr >= 120) return 'badge-danger';
-  if (adr >= 100) return 'badge-success';
-  if (adr >= 80) return 'badge-neutral';
-  if (adr >= 60) return 'badge-warning';
-  return 'badge-info';
-});
-
-// 유틸리티
-const formatNumber = (num, decimals = 2) => {
-  if (num == null) return '-';
-  return num.toLocaleString('ko-KR', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals
-  });
-};
-
-const formatChange = (change) => {
-  if (change == null) return '-';
-  const sign = change >= 0 ? '+' : '';
-  return `${sign}${change.toFixed(2)}%`;
-};
-
-const getChangeClass = (change, inverse = false) => {
-  if (change == null) return '';
-  // inverse: 환율은 상승이 부정적
-  if (inverse) {
-    return change >= 0 ? 'negative' : 'positive';
-  }
-  return change >= 0 ? 'positive' : 'negative';
-};
+// 시장 상태 (공통 컴포저블 — ADR 기반 + 폭락 override)
+const statusInfo = computed(() => getMarketStatus(isCrash.value, marketData.value?.combinedAdr));
+const marketStatusClass = computed(() => statusInfo.value.status);
+const marketStatusIcon = computed(() => statusInfo.value.icon);
+const marketStatusTitle = computed(() => statusInfo.value.title);
+const marketStatusDescription = computed(() => statusInfo.value.desc);
+const adrBadgeClass = computed(() => statusInfo.value.badgeClass);
 
 const fetchData = async () => {
   try {
@@ -299,6 +237,17 @@ onUnmounted(() => {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.05) 100%);
 }
 
+.status-card.crash {
+  border-color: rgba(220, 38, 38, 0.7);
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.25) 0%, rgba(153, 27, 27, 0.15) 100%);
+  animation: crashPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes crashPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .status-icon {
   font-size: 2.2rem;
   line-height: 1;
@@ -360,6 +309,19 @@ onUnmounted(() => {
 .badge-info {
   background: rgba(59, 130, 246, 0.2);
   color: #3b82f6;
+}
+
+.badge-crash {
+  background: rgba(220, 38, 38, 0.3);
+  color: #fca5a5;
+  font-weight: 700;
+  animation: crashPulse 1.5s ease-in-out infinite;
+}
+
+.delayed-text {
+  font-size: 0.75rem !important;
+  color: rgba(245, 158, 11, 0.7) !important;
+  font-weight: 500 !important;
 }
 
 /* ===== 우측: 지수 현황 카드 ===== */

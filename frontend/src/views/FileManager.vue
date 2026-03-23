@@ -2,9 +2,9 @@
   <div class="page-container">
     <div class="page-content">
       <header class="common-header">
+        <BackButton />
         <h1>📁 파일 관리</h1>
         <div class="header-actions">
-          <BackButton />
           <button @click="logout" class="btn btn-logout">로그아웃</button>
         </div>
       </header>
@@ -33,8 +33,15 @@
         <button @click="showUploadModal = true" class="btn btn-success">
           📤 파일 업로드
         </button>
+        <button @click="toggleSelectMode" class="btn" :class="selectMode ? 'btn-danger' : 'btn-select'">
+          {{ selectMode ? '선택 취소' : '🗑️ 선택 삭제' }}
+        </button>
+        <button v-if="selectMode && selectedItemIds.size > 0" @click="deleteSelected" class="btn btn-danger">
+          🗑️ {{ selectedItemIds.size }}개 삭제
+        </button>
       </div>
       <div class="action-right">
+        <span v-if="allSortedFiles.length > 0" class="file-total-count">{{ allSortedFiles.length }}개 파일</span>
         <div class="sort-dropdown">
           <label>정렬:</label>
           <select v-model="sortOption">
@@ -62,9 +69,11 @@
         v-for="folder in sortedFolders"
         :key="'folder-' + folder.id"
         class="file-item folder-item"
-        @click="navigateToFolder(folder.id)"
+        :class="{ 'selected': selectMode && selectedItemIds.has('folder-' + folder.id) }"
+        @click="selectMode ? toggleItem('folder', folder.id) : navigateToFolder(folder.id)"
         @contextmenu.prevent="showFolderContextMenu(folder, $event)"
       >
+        <input v-if="selectMode" type="checkbox" :checked="selectedItemIds.has('folder-' + folder.id)" class="item-checkbox" @click.stop />
         <div class="icon">📁</div>
         <div class="name">{{ folder.name }}</div>
         <div class="meta">{{ formatDate(folder.createdAt) }}</div>
@@ -75,12 +84,13 @@
         v-for="file in sortedFiles"
         :key="'file-' + file.id"
         class="file-item"
-        :class="{ 'image-file': isImageFile(file) }"
-        @click="viewFile(file)"
+        :class="{ 'image-file': isImageFile(file), 'selected': selectMode && selectedItemIds.has('file-' + file.id) }"
+        @click="selectMode ? toggleItem('file', file.id) : viewFile(file)"
         @contextmenu.prevent="showFileContextMenu(file, $event)"
       >
+        <input v-if="selectMode" type="checkbox" :checked="selectedItemIds.has('file-' + file.id)" class="item-checkbox" @click.stop />
         <!-- 이미지 파일인 경우 썸네일 미리보기 -->
-        <div v-if="isImageFile(file)" class="thumbnail-container">
+        <div v-if="isImageFile(file)" class="thumbnail-container" :ref="el => observeThumbnail(el, file)">
           <img
             v-if="thumbnailCache[file.id]"
             :src="thumbnailCache[file.id]"
@@ -102,6 +112,11 @@
       <div v-if="content.folders.length === 0 && content.files.length === 0" class="empty-message">
         이 폴더는 비어 있습니다. 파일을 업로드하거나 새 폴더를 만들어보세요.
       </div>
+    </div>
+
+    <!-- 무한 스크롤 트리거 -->
+    <div v-if="hasMoreFiles" ref="scrollTrigger" class="scroll-trigger">
+      <span class="file-count-info">{{ sortedFiles.length }} / {{ allSortedFiles.length }}개 표시</span>
     </div>
 
     <!-- 폴더 생성 모달 -->
@@ -137,20 +152,31 @@
             <label>파일 선택</label>
             <input
               type="file"
+              multiple
               @change="onFileSelected"
               required
             />
-            <p class="file-info">※ 최대 100MB까지 업로드 가능 (이미지, 영상, 문서 등)</p>
+            <p class="file-info">※ 최대 300MB/파일, 여러 파일 동시 선택 가능</p>
           </div>
-          <div v-if="selectedFile" class="file-preview">
-            <strong>선택된 파일:</strong> {{ selectedFile.name }} ({{ formatFileSize(selectedFile.size) }})
+          <div v-if="selectedFiles.length" class="file-preview">
+            <strong>선택된 파일 ({{ selectedFiles.length }}개):</strong>
+            <ul class="selected-file-list">
+              <li v-for="(f, i) in selectedFiles" :key="i">{{ f.name }} ({{ formatFileSize(f.size) }})</li>
+            </ul>
+          </div>
+          <!-- 업로드 진행률 -->
+          <div v-if="processing && uploadProgress.total > 1" class="upload-progress">
+            <div class="progress-bar-container">
+              <div class="progress-bar-fill" :style="{ width: (uploadProgress.current / uploadProgress.total * 100) + '%' }"></div>
+            </div>
+            <div class="progress-text">{{ uploadProgress.current }} / {{ uploadProgress.total }}</div>
           </div>
           <div v-if="modalError" class="error-message">{{ modalError }}</div>
           <div class="modal-actions">
-            <button type="submit" class="btn btn-success" :disabled="processing || !selectedFile">
-              {{ processing ? '업로드 중...' : '업로드' }}
+            <button type="submit" class="btn btn-success" :disabled="processing || !selectedFiles.length">
+              {{ processing ? `업로드 중... (${uploadProgress.current}/${uploadProgress.total})` : '업로드' }}
             </button>
-            <button type="button" @click="closeUploadModal" class="btn btn-secondary">취소</button>
+            <button type="button" @click="closeUploadModal" class="btn btn-secondary" :disabled="processing">취소</button>
           </div>
         </form>
       </div>
@@ -193,7 +219,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
@@ -206,13 +232,20 @@ const loading = ref(true);
 const errorMessage = ref('');
 const currentFolderId = ref(null);
 const sortOption = ref('name-asc'); // 기본 정렬: 이름순
+const displayCount = ref(20); // 한 번에 표시할 파일 수
+const PAGE_SIZE = 20;
 
 const showCreateFolderModal = ref(false);
 const showUploadModal = ref(false);
 const newFolderName = ref('');
-const selectedFile = ref(null);
+const selectedFiles = ref([]);
 const modalError = ref('');
 const processing = ref(false);
+const uploadProgress = ref({ current: 0, total: 0 });
+
+// 다중 선택 모드
+const selectMode = ref(false);
+const selectedItemIds = ref(new Set());
 
 const contextMenu = ref({
   show: false,
@@ -260,8 +293,8 @@ const sortedFolders = computed(() => {
   });
 });
 
-// 정렬된 파일 목록
-const sortedFiles = computed(() => {
+// 정렬된 파일 목록 (전체)
+const allSortedFiles = computed(() => {
   if (!content.value || !content.value.files) return [];
   const files = [...content.value.files];
 
@@ -282,6 +315,38 @@ const sortedFiles = computed(() => {
   });
 });
 
+// 화면에 표시할 파일 (페이지네이션 적용)
+const sortedFiles = computed(() => allSortedFiles.value.slice(0, displayCount.value));
+const hasMoreFiles = computed(() => displayCount.value < allSortedFiles.value.length);
+const remainingCount = computed(() => allSortedFiles.value.length - displayCount.value);
+
+const loadMore = () => {
+  displayCount.value += PAGE_SIZE;
+};
+
+// 무한 스크롤
+const scrollTrigger = ref(null);
+let scrollObserver = null;
+
+const setupScrollObserver = () => {
+  if (scrollObserver) scrollObserver.disconnect();
+  scrollObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && hasMoreFiles.value) {
+      loadMore();
+    }
+  }, { rootMargin: '200px' });
+
+  nextTick(() => {
+    if (scrollTrigger.value) scrollObserver.observe(scrollTrigger.value);
+  });
+};
+
+watch(() => hasMoreFiles.value, (val) => {
+  if (val) nextTick(() => {
+    if (scrollTrigger.value && scrollObserver) scrollObserver.observe(scrollTrigger.value);
+  });
+});
+
 const loadFolder = async (folderId = null) => {
   try {
     loading.value = true;
@@ -289,6 +354,7 @@ const loadFolder = async (folderId = null) => {
     const response = await fileAPI.getFolderContent(folderId);
     content.value = response.data.data;
     currentFolderId.value = folderId;
+    displayCount.value = PAGE_SIZE;
   } catch (error) {
     console.error('Failed to load folder:', error);
     errorMessage.value = '폴더를 불러오는데 실패했습니다.';
@@ -326,22 +392,20 @@ const createFolder = async () => {
 };
 
 const onFileSelected = (event) => {
-  const file = event.target.files[0];
-  if (file) {
-    // 100MB = 100 * 1024 * 1024 bytes
-    const maxSize = 100 * 1024 * 1024;
-    if (file.size > maxSize) {
-      modalError.value = '파일 크기는 100MB를 초과할 수 없습니다.';
-      event.target.value = ''; // 파일 선택 초기화
-      return;
-    }
-    selectedFile.value = file;
-    modalError.value = '';
+  const files = Array.from(event.target.files);
+  const maxSize = 300 * 1024 * 1024;
+  const oversized = files.filter(f => f.size > maxSize);
+  if (oversized.length) {
+    modalError.value = `${oversized.map(f => f.name).join(', ')} — 300MB 초과`;
+    event.target.value = '';
+    return;
   }
+  selectedFiles.value = files;
+  modalError.value = '';
 };
 
 const uploadFile = async () => {
-  if (!selectedFile.value) {
+  if (!selectedFiles.value.length) {
     modalError.value = '파일을 선택하세요.';
     return;
   }
@@ -349,14 +413,30 @@ const uploadFile = async () => {
   try {
     processing.value = true;
     modalError.value = '';
-    await fileAPI.uploadFile(currentFolderId.value, selectedFile.value, null);
-    closeUploadModal();
+    const total = selectedFiles.value.length;
+    uploadProgress.value = { current: 0, total };
+    let failed = [];
+    for (const file of selectedFiles.value) {
+      try {
+        await fileAPI.uploadFile(currentFolderId.value, file, null);
+      } catch (e) {
+        failed.push(file.name);
+      }
+      uploadProgress.value.current++;
+    }
+    if (failed.length) {
+      modalError.value = `${failed.join(', ')} 업로드 실패 (${total - failed.length}/${total} 성공)`;
+    } else {
+      alert(`${total}개 파일 업로드 완료!`);
+      closeUploadModal();
+    }
     await loadFolder(currentFolderId.value);
   } catch (error) {
-    console.error('Failed to upload file:', error);
+    console.error('Failed to upload files:', error);
     modalError.value = error.response?.data?.message || '파일 업로드에 실패했습니다.';
   } finally {
     processing.value = false;
+    uploadProgress.value = { current: 0, total: 0 };
   }
 };
 
@@ -382,6 +462,45 @@ const showFileContextMenu = (file, event) => {
 
 const closeContextMenu = () => {
   contextMenu.value.show = false;
+};
+
+const toggleSelectMode = () => {
+  selectMode.value = !selectMode.value;
+  selectedItemIds.value = new Set();
+};
+
+const toggleItem = (type, id) => {
+  const key = `${type}-${id}`;
+  const newSet = new Set(selectedItemIds.value);
+  if (newSet.has(key)) {
+    newSet.delete(key);
+  } else {
+    newSet.add(key);
+  }
+  selectedItemIds.value = newSet;
+};
+
+const deleteSelected = async () => {
+  const count = selectedItemIds.value.size;
+  if (!confirm(`선택한 ${count}개 항목을 삭제하시겠습니까?`)) return;
+
+  try {
+    for (const key of selectedItemIds.value) {
+      const [type, id] = key.split('-');
+      if (type === 'folder') {
+        await fileAPI.deleteFolder(Number(id));
+      } else {
+        await fileAPI.deleteFile(Number(id));
+      }
+    }
+    selectedItemIds.value = new Set();
+    selectMode.value = false;
+    await loadFolder(currentFolderId.value);
+  } catch (error) {
+    console.error('Failed to delete selected:', error);
+    alert('일부 항목 삭제에 실패했습니다.');
+    await loadFolder(currentFolderId.value);
+  }
 };
 
 const deleteItem = async () => {
@@ -513,7 +632,7 @@ const closeCreateFolderModal = () => {
 
 const closeUploadModal = () => {
   showUploadModal.value = false;
-  selectedFile.value = null;
+  selectedFiles.value = [];
   modalError.value = '';
 };
 
@@ -559,24 +678,40 @@ const isImageFile = (file) => {
 
 // 썸네일 캐시 (reactive로 변경하여 반응성 확보)
 const thumbnailCache = reactive({});
+let thumbnailObserver = null;
 
-// 폴더 내 이미지 파일들의 썸네일 로드
-const loadThumbnails = () => {
-  if (!content.value || !content.value.files) return;
+// IntersectionObserver 기반 지연 썸네일 로딩
+const setupThumbnailObserver = () => {
+  if (thumbnailObserver) thumbnailObserver.disconnect();
 
-  content.value.files.forEach(file => {
-    if (isImageFile(file) && !thumbnailCache[file.id]) {
-      loadThumbnail(file);
-    }
-  });
+  thumbnailObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const fileId = entry.target.dataset.fileId;
+        const downloadUrl = entry.target.dataset.downloadUrl;
+        if (fileId && downloadUrl && !thumbnailCache[fileId]) {
+          loadThumbnail(fileId, downloadUrl);
+        }
+        thumbnailObserver.unobserve(entry.target);
+      }
+    });
+  }, { rootMargin: '200px' }); // 200px 미리 로드
 };
 
-const loadThumbnail = async (file) => {
-  if (thumbnailCache[file.id]) return;
+const observeThumbnail = (el, file) => {
+  if (!el || !thumbnailObserver) return;
+  el.dataset.fileId = file.id;
+  el.dataset.downloadUrl = file.downloadUrl;
+  if (thumbnailCache[file.id]) return; // 이미 로드됨
+  thumbnailObserver.observe(el);
+};
+
+const loadThumbnail = async (fileId, downloadUrl) => {
+  if (thumbnailCache[fileId]) return;
 
   try {
     const token = localStorage.getItem('jwt_token');
-    const response = await fetch(file.downloadUrl, {
+    const response = await fetch(downloadUrl, {
       headers: {
         'Authorization': `Bearer ${token}`
       }
@@ -584,24 +719,23 @@ const loadThumbnail = async (file) => {
 
     if (response.ok) {
       const blob = await response.blob();
-      thumbnailCache[file.id] = URL.createObjectURL(blob);
+      thumbnailCache[fileId] = URL.createObjectURL(blob);
     }
   } catch (e) {
-    console.error('썸네일 로드 실패:', file.originalName, e);
+    console.error('썸네일 로드 실패:', e);
   }
 };
 
 const onThumbnailError = (event, file) => {
-  // 이미지 로드 실패 시 아이콘으로 대체
   event.target.style.display = 'none';
   const container = event.target.parentElement;
   container.innerHTML = '<span class="icon">🖼️</span>';
 };
 
-// content가 변경될 때마다 썸네일 로드
-watch(content, () => {
-  loadThumbnails();
-}, { deep: true });
+// 정렬 변경 시 표시 개수 리셋
+watch(sortOption, () => {
+  displayCount.value = PAGE_SIZE;
+});
 
 const goBack = () => {
   router.back();
@@ -614,8 +748,16 @@ const logout = () => {
 
 // 전역 클릭 이벤트로 컨텍스트 메뉴 닫기
 onMounted(() => {
+  setupThumbnailObserver();
+  setupScrollObserver();
   loadFolder();
   document.addEventListener('click', closeContextMenu);
+});
+
+onUnmounted(() => {
+  if (thumbnailObserver) thumbnailObserver.disconnect();
+  if (scrollObserver) scrollObserver.disconnect();
+  document.removeEventListener('click', closeContextMenu);
 });
 </script>
 
@@ -736,6 +878,7 @@ onMounted(() => {
 }
 
 .file-item {
+  position: relative;
   background: white;
   border: 2px solid #e0e0e0;
   border-radius: 8px;
@@ -920,6 +1063,63 @@ onMounted(() => {
   margin-bottom: 15px;
   word-break: break-word;
 }
+.selected-file-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #555;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.selected-file-list li { margin-bottom: 2px; }
+
+.upload-progress {
+  margin-bottom: 12px;
+}
+.progress-bar-container {
+  background: #e0e0e0;
+  border-radius: 8px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.progress-bar-fill {
+  background: linear-gradient(135deg, #11998e, #38ef7d);
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.3s;
+}
+.progress-text {
+  text-align: center;
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.btn-select {
+  background: #6c757d;
+  color: white;
+}
+.btn-select:hover { background: #5a6268; }
+.btn-danger {
+  background: #e74c3c;
+  color: white;
+}
+.btn-danger:hover:not(:disabled) { background: #c0392b; }
+
+.file-item.selected {
+  border-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.08);
+}
+.item-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  z-index: 1;
+}
 
 .modal-actions {
   display: flex;
@@ -1014,6 +1214,24 @@ onMounted(() => {
   margin-top: 15px;
   color: #333;
   font-weight: 500;
+}
+
+.file-total-count {
+  font-size: 13px;
+  color: #888;
+  font-weight: 500;
+}
+
+.scroll-trigger {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+  margin-top: var(--section-gap);
+}
+
+.file-count-info {
+  font-size: 12px;
+  color: #999;
 }
 
 /* 반응형 */

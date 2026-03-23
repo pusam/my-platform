@@ -1,8 +1,17 @@
 <template>
   <div class="page-container">
+    <GlobalNav />
+    <!-- 메인 탭 -->
+    <div class="main-tab-bar">
+      <button class="main-tab" :class="{ active: mainTab === 'futures' }" @click="mainTab = 'futures'">선물 시세</button>
+      <button class="main-tab" :class="{ active: mainTab === 'gold' }" @click="mainTab = 'gold'">금 시세</button>
+      <button class="main-tab" :class="{ active: mainTab === 'silver' }" @click="mainTab = 'silver'">은 시세</button>
+      <button class="main-tab" :class="{ active: mainTab === 'oil' }" @click="mainTab = 'oil'">원유 시세</button>
+    </div>
+
+    <div v-show="mainTab === 'futures'">
     <div class="page-header">
       <div class="header-left">
-        <button class="back-btn" @click="$router.back()">←</button>
         <h1>글로벌 선물 대시보드</h1>
       </div>
       <div class="header-right">
@@ -23,7 +32,7 @@
     <!-- 코스피 영향 분석 배너 -->
     <div v-if="impactData" class="impact-banner" :class="[impactClass, alertClass]">
       <div class="impact-left">
-        <span class="impact-label">내일 코스피 전망</span>
+        <span class="impact-label">종합 시장 방향성</span>
         <span class="impact-badge" :class="impactClass">{{ impactText }}</span>
         <span v-if="isExtremeAlert" class="extreme-alert-badge" :class="alertClass">{{ alertLabel }}</span>
       </div>
@@ -60,32 +69,94 @@
       </div>
     </div>
 
-    <!-- VIX 공포지수 패널 -->
-    <div v-if="vixQuote" class="vix-panel" :class="vixLevelClass">
-      <div class="vix-header">
-        <div class="vix-title">
-          <span class="vix-icon">{{ vixEmoji }}</span>
-          <h3>VIX 공포지수</h3>
-          <span class="vix-exchange">CBOE</span>
+    <!-- 시장 심리 지표 (VIX + 10년물 금리 + Fear & Greed) -->
+    <div class="sentiment-grid">
+      <!-- VIX 공포지수 -->
+      <div v-if="vixQuote" class="vix-panel" :class="vixLevelClass">
+        <div class="vix-header">
+          <div class="vix-title">
+            <span class="vix-icon">{{ vixEmoji }}</span>
+            <h3>VIX 공포지수</h3>
+            <span class="vix-exchange">CBOE</span>
+          </div>
+          <span class="vix-level-badge" :class="vixLevelClass">{{ vixLevelText }}</span>
         </div>
-        <span class="vix-level-badge" :class="vixLevelClass">{{ vixLevelText }}</span>
+        <div class="vix-body">
+          <div class="vix-price">{{ formatPrice(vixQuote.currentPrice) }}</div>
+          <div class="vix-change" :class="getChangeClass(vixQuote)">
+            {{ formatChange(vixQuote.changePrice) }} ({{ formatRate(vixQuote.changeRate) }}%)
+          </div>
+        </div>
+        <div class="vix-meter">
+          <div class="vix-meter-track">
+            <div class="vix-meter-fill" :style="{ width: vixMeterWidth + '%' }"></div>
+          </div>
+          <div class="vix-meter-labels">
+            <span>0</span>
+            <span class="vix-zone-low">안정 (&lt;15)</span>
+            <span class="vix-zone-mid">경계 (15~25)</span>
+            <span class="vix-zone-high">공포 (&ge;25)</span>
+            <span>50+</span>
+          </div>
+        </div>
       </div>
-      <div class="vix-body">
-        <div class="vix-price">{{ formatPrice(vixQuote.currentPrice) }}</div>
-        <div class="vix-change" :class="getChangeClass(vixQuote)">
-          {{ formatChange(vixQuote.changePrice) }} ({{ formatRate(vixQuote.changeRate) }}%)
+
+      <!-- 미국 10년물 국채금리 -->
+      <div v-if="us10yQuote" class="sentiment-card bond-card">
+        <div class="sentiment-card-header">
+          <div class="sentiment-card-title">
+            <span class="sentiment-icon">📊</span>
+            <h3>미국 10년물 금리</h3>
+            <span class="sentiment-exchange">CBOE</span>
+          </div>
+        </div>
+        <div class="sentiment-card-body">
+          <div class="sentiment-price">{{ formatPrice(us10yQuote.currentPrice) }}%</div>
+          <div class="sentiment-change" :class="getChangeClass(us10yQuote)">
+            {{ formatChange(us10yQuote.changePrice) }} ({{ formatRate(us10yQuote.changeRate) }}%)
+          </div>
+        </div>
+        <div class="bond-meter">
+          <div class="bond-meter-track">
+            <div class="bond-meter-fill" :style="{ width: bondMeterWidth + '%' }"></div>
+          </div>
+          <div class="bond-meter-labels">
+            <span>2%</span>
+            <span class="bond-zone-low">저금리</span>
+            <span class="bond-zone-mid">보통</span>
+            <span class="bond-zone-high">고금리</span>
+            <span>6%</span>
+          </div>
         </div>
       </div>
-      <div class="vix-meter">
-        <div class="vix-meter-track">
-          <div class="vix-meter-fill" :style="{ width: vixMeterWidth + '%' }"></div>
+
+      <!-- CNN Fear & Greed Index -->
+      <div v-if="fearGreedData" class="sentiment-card fng-card" :class="'fng-' + fearGreedData.level">
+        <div class="sentiment-card-header">
+          <div class="sentiment-card-title">
+            <span class="sentiment-icon">{{ fngEmoji }}</span>
+            <h3>Fear & Greed</h3>
+            <span class="sentiment-exchange">CNN</span>
+          </div>
+          <span class="fng-level-badge" :class="'fng-' + fearGreedData.level">{{ fearGreedData.ratingKr }}</span>
         </div>
-        <div class="vix-meter-labels">
-          <span>0</span>
-          <span class="vix-zone-low">안정 (&lt;15)</span>
-          <span class="vix-zone-mid">경계 (20~25)</span>
-          <span class="vix-zone-high">공포 (&gt;30)</span>
-          <span>50+</span>
+        <div class="sentiment-card-body">
+          <div class="fng-score">{{ fearGreedData.score }}</div>
+          <div class="fng-change" :class="fearGreedData.change > 0 ? 'up' : fearGreedData.change < 0 ? 'down' : 'flat'">
+            {{ fearGreedData.change > 0 ? '+' : '' }}{{ fearGreedData.change }}
+          </div>
+        </div>
+        <div class="fng-meter">
+          <div class="fng-meter-track">
+            <div class="fng-meter-fill" :style="{ width: fearGreedData.score + '%' }"></div>
+          </div>
+          <div class="fng-meter-labels">
+            <span>0</span>
+            <span class="fng-label-fear">극심한 공포</span>
+            <span class="fng-label-neutral">중립</span>
+            <span class="fng-label-greed">극심한 탐욕</span>
+            <span>100</span>
+          </div>
         </div>
       </div>
     </div>
@@ -96,12 +167,13 @@
       <span>해외선물 시세 조회 중...</span>
     </div>
 
-    <!-- 메인 카드 (코스피200 야간선물) -->
-    <div v-if="kospiQuote" class="main-card" :class="getCardClass(kospiQuote)">
+    <!-- 메인 카드 (코스피200 지수) -->
+    <div v-if="kospiQuote" class="main-card" :class="[getCardClass(kospiQuote), { stale: kospiQuote.stale }]">
       <div class="main-header">
         <div class="main-title">
           <span class="exchange-badge">{{ kospiQuote.exchange }}</span>
           <h2>{{ kospiQuote.name }}</h2>
+          <span v-if="kospiQuote.stale" class="stale-badge">장 마감</span>
         </div>
         <span class="main-status" :class="getSignClass(kospiQuote)">
           {{ getSignText(kospiQuote) }}
@@ -129,8 +201,16 @@
         </div>
         <div class="detail">
           <span class="label">데이터 기준</span>
-          <span class="value">{{ kospiQuote.tradingTime || '-' }}</span>
+          <span class="value" :class="{ 'stale-time': kospiQuote.stale }">
+            {{ kospiQuote.tradingTime || '-' }}
+            <span v-if="kospiQuote.stale && kospiQuote.dataAgeMinutes > 0" class="age-info">
+              ({{ formatDataAge(kospiQuote.dataAgeMinutes) }} 전)
+            </span>
+          </span>
         </div>
+      </div>
+      <div v-if="kospiQuote.stale" class="stale-notice">
+        KRX 장중(09:00~15:30)에만 실시간 업데이트됩니다
       </div>
     </div>
 
@@ -162,7 +242,9 @@
 
       <!-- 원자재 선물 -->
       <div class="section">
-        <h3 class="section-title">원자재 선물</h3>
+        <h3 class="section-title">
+          원자재 선물
+        </h3>
         <div class="futures-grid">
           <div v-for="q in commodityQuotes" :key="q.symbol"
                class="futures-card" :class="getCardClass(q)">
@@ -258,17 +340,29 @@
     <div class="disclaimer">
       해외선물 시세는 Yahoo Finance를 통해 제공됩니다. 주말·공휴일에는 마지막 거래일 종가 기준이며, 장중에는 약간의 지연이 있을 수 있습니다. 투자 판단의 참고자료로만 활용하세요.
     </div>
+    </div>
+
+    <GoldPricePage v-if="mainTab === 'gold'" :embedded="true" />
+    <SilverPricePage v-if="mainTab === 'silver'" :embedded="true" />
+    <OilPricePage v-if="mainTab === 'oil'" :embedded="true" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { globalFuturesAPI } from '../utils/api';
+import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
+import GoldPricePage from './GoldPricePage.vue';
+import SilverPricePage from './SilverPricePage.vue';
+import OilPricePage from './OilPricePage.vue';
+import GlobalNav from '../components/GlobalNav.vue';
 
+const mainTab = ref('futures');
 const loading = ref(false);
 const error = ref('');
 const quotes = ref([]);
 const impactData = ref(null);
+const fearGreedData = ref(null);
 const lastUpdated = ref(null);
 const autoRefresh = ref(true);
 const dataTimestamp = ref('');
@@ -292,42 +386,44 @@ const currencyQuotes = computed(() =>
   quotes.value.filter(q => q.category === 'currency' && q.success)
 );
 
-// VIX
+// VIX, US10Y
 const vixQuote = computed(() =>
   quotes.value.find(q => q.symbol === 'VIX' && q.success)
 );
+
+const us10yQuote = computed(() =>
+  quotes.value.find(q => q.symbol === 'US10Y' && q.success)
+);
+
+const bondMeterWidth = computed(() => {
+  if (!us10yQuote.value) return 50;
+  const rate = Number(us10yQuote.value.currentPrice) || 4;
+  // 2% ~ 6% 범위를 0~100%로 매핑
+  return Math.max(0, Math.min(100, ((rate - 2) / 4) * 100));
+});
+
+// Fear & Greed
+const fngEmoji = computed(() => {
+  if (!fearGreedData.value) return '😐';
+  const level = fearGreedData.value.level;
+  if (level === 'extreme-fear') return '😱';
+  if (level === 'fear') return '😰';
+  if (level === 'neutral') return '😐';
+  if (level === 'greed') return '🤑';
+  return '🔥';
+});
 
 const vixLevel = computed(() => {
   if (!vixQuote.value) return 0;
   return Number(vixQuote.value.currentPrice) || 0;
 });
 
-const vixLevelClass = computed(() => {
-  const v = vixLevel.value;
-  if (v >= 30) return 'vix-extreme';
-  if (v >= 25) return 'vix-fear';
-  if (v >= 20) return 'vix-caution';
-  return 'vix-calm';
-});
-
-const vixLevelText = computed(() => {
-  const v = vixLevel.value;
-  if (v >= 30) return '극심한 공포';
-  if (v >= 25) return '공포';
-  if (v >= 20) return '경계';
-  if (v >= 15) return '보통';
-  return '안정';
-});
-
-const vixEmoji = computed(() => {
-  const v = vixLevel.value;
-  if (v >= 30) return '!!';
-  if (v >= 25) return '!';
-  if (v >= 20) return '~';
-  return '';
-});
-
-const vixMeterWidth = computed(() => Math.min(100, (vixLevel.value / 50) * 100));
+// VIX 구간 분류 (공통 컴포저블 사용)
+const vixStatus = computed(() => getVixStatus(vixLevel.value));
+const vixLevelClass = computed(() => vixStatus.value.cssClass);
+const vixLevelText = computed(() => vixStatus.value.text);
+const vixEmoji = computed(() => vixStatus.value.emoji);
+const vixMeterWidth = computed(() => getVixMeterWidth(vixLevel.value));
 
 // 코스피 영향 분석
 const impactClass = computed(() => {
@@ -411,6 +507,10 @@ const fetchData = async () => {
         comment: data.comment,
         riskFactors: data.riskFactors || []
       };
+      // Fear & Greed
+      if (data.fearGreed && data.fearGreed.success !== false) {
+        fearGreedData.value = data.fearGreed;
+      }
       lastUpdated.value = new Date();
 
       // 데이터 기준 시간 추출 (첫 번째 성공 종목의 tradingTime)
@@ -486,6 +586,14 @@ const formatTime = (date) => {
   return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 
+const formatDataAge = (minutes) => {
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}시간`;
+  const days = Math.floor(hours / 24);
+  return `${days}일`;
+};
+
 // 스타일 헬퍼
 const getChangeClass = (q) => {
   if (!q || !q.success || q.changeRate == null) return '';
@@ -536,6 +644,34 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.main-tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 12px 20px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 20px;
+}
+.main-tab {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.main-tab:hover {
+  color: rgba(255,255,255,0.8);
+  background: rgba(255,255,255,0.05);
+}
+.main-tab.active {
+  color: #fff;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
 .page-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -564,17 +700,6 @@ onUnmounted(() => {
   margin: 0;
   font-size: 1.5rem;
   color: #fff;
-}
-
-.back-btn {
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: #fff;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 1.1rem;
 }
 
 .header-right {
@@ -853,7 +978,6 @@ onUnmounted(() => {
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 16px;
   padding: 20px 24px;
-  margin-bottom: 24px;
 }
 
 .vix-panel.vix-extreme {
@@ -940,7 +1064,8 @@ onUnmounted(() => {
 
 .vix-meter-track {
   height: 8px;
-  background: linear-gradient(90deg, #22c55e 0%, #fbbf24 40%, #fb923c 60%, #ef4444 80%, #991b1b 100%);
+  /* 0=안정(녹색) → 15=보통(노랑,30%) → 25=공포(빨강,50%) → 50+=극심(어두운빨강) */
+  background: linear-gradient(90deg, #22c55e 0%, #4ade80 20%, #fbbf24 30%, #fb923c 42%, #ef4444 50%, #dc2626 70%, #991b1b 100%);
   border-radius: 4px;
   position: relative;
   overflow: hidden;
@@ -969,6 +1094,172 @@ onUnmounted(() => {
 .vix-zone-mid { color: #fbbf24; }
 .vix-zone-high { color: #f87171; }
 
+/* 시장 심리 지표 그리드 (VIX + 10년물 + Fear & Greed) */
+.sentiment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.sentiment-card {
+  background: rgba(30, 30, 60, 0.7);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 20px 24px;
+}
+
+.sentiment-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.sentiment-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sentiment-card-title h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.sentiment-icon {
+  font-size: 1rem;
+}
+
+.sentiment-exchange {
+  font-size: 0.7rem;
+  color: #888;
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+}
+
+.sentiment-card-body {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.sentiment-price {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.sentiment-change {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* 10년물 금리 미터 */
+.bond-card {
+  border-color: rgba(168, 85, 247, 0.3);
+}
+
+.bond-meter-track {
+  height: 8px;
+  background: linear-gradient(90deg, #22c55e 0%, #fbbf24 40%, #ef4444 80%, #991b1b 100%);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.bond-meter-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: transparent;
+  border-right: 3px solid #fff;
+  box-shadow: 2px 0 8px rgba(255,255,255,0.5);
+  transition: width 0.8s ease;
+}
+
+.bond-meter-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: #666;
+  margin-top: 4px;
+}
+
+.bond-zone-low { color: #4ade80; }
+.bond-zone-mid { color: #fbbf24; }
+.bond-zone-high { color: #f87171; }
+
+/* Fear & Greed 카드 */
+.fng-card.fng-extreme-fear { border-color: rgba(239, 68, 68, 0.4); }
+.fng-card.fng-fear { border-color: rgba(251, 146, 60, 0.3); }
+.fng-card.fng-neutral { border-color: rgba(255, 255, 255, 0.15); }
+.fng-card.fng-greed { border-color: rgba(34, 197, 94, 0.3); }
+.fng-card.fng-extreme-greed { border-color: rgba(34, 197, 94, 0.5); }
+
+.fng-level-badge {
+  padding: 4px 14px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.fng-level-badge.fng-extreme-fear { background: rgba(239,68,68,0.2); color: #f87171; }
+.fng-level-badge.fng-fear { background: rgba(251,146,60,0.2); color: #fb923c; }
+.fng-level-badge.fng-neutral { background: rgba(255,255,255,0.1); color: #9ca3af; }
+.fng-level-badge.fng-greed { background: rgba(34,197,94,0.2); color: #4ade80; }
+.fng-level-badge.fng-extreme-greed { background: rgba(34,197,94,0.3); color: #22c55e; }
+
+.fng-score {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.fng-change {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.fng-change.up { color: #4ade80; }
+.fng-change.down { color: #f87171; }
+.fng-change.flat { color: #9ca3af; }
+
+.fng-meter-track {
+  height: 8px;
+  background: linear-gradient(90deg, #ef4444 0%, #fb923c 25%, #9ca3af 50%, #4ade80 75%, #22c55e 100%);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.fng-meter-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: transparent;
+  border-right: 3px solid #fff;
+  box-shadow: 2px 0 8px rgba(255,255,255,0.5);
+  transition: width 0.8s ease;
+}
+
+.fng-meter-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: #666;
+  margin-top: 4px;
+}
+
+.fng-label-fear { color: #f87171; }
+.fng-label-neutral { color: #9ca3af; }
+.fng-label-greed { color: #4ade80; }
+
 /* 메인 카드 (코스피200 야간선물) */
 .main-card {
   background: linear-gradient(135deg, #1a1a3a 0%, #252550 100%);
@@ -980,6 +1271,33 @@ onUnmounted(() => {
 
 .main-card.up-card { border-color: rgba(239,68,68,0.3); box-shadow: 0 0 30px rgba(239,68,68,0.1); }
 .main-card.down-card { border-color: rgba(59,130,246,0.3); box-shadow: 0 0 30px rgba(59,130,246,0.1); }
+.main-card.stale { opacity: 0.75; border-color: rgba(255,255,255,0.1); box-shadow: none; }
+
+.stale-badge {
+  display: inline-block;
+  background: rgba(245,158,11,0.2);
+  color: #f59e0b;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.stale-time { color: #f59e0b !important; }
+.age-info { font-size: 0.75rem; color: #f59e0b; }
+
+.stale-notice {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.2);
+  border-radius: 8px;
+  color: #f59e0b;
+  font-size: 0.75rem;
+  text-align: center;
+}
 
 .main-header {
   display: flex;
@@ -1219,5 +1537,7 @@ onUnmounted(() => {
   .futures-grid { grid-template-columns: 1fr; }
   .impact-banner { padding: 16px; }
   .page-header { flex-direction: column; align-items: flex-start; }
+  .sentiment-grid { grid-template-columns: 1fr; }
+  .sentiment-price, .fng-score { font-size: 1.5rem; }
 }
 </style>

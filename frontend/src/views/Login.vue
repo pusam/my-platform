@@ -128,12 +128,8 @@ const handleLogin = async () => {
         role: data.role
       })
 
-      // 역할별 대시보드로 이동
-      if (data.role === 'ADMIN') {
-        await router.push('/admin')
-      } else {
-        await router.push('/user')
-      }
+      // 대시보드로 이동
+      await router.push('/user')
     } else {
       errorMessage.value = data.message
     }

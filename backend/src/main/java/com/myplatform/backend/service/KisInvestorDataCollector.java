@@ -43,7 +43,7 @@ public class KisInvestorDataCollector {
      *      이 스케줄러는 백업/보완 역할로만 동작
      *      데이터 삭제는 InvestorTradeService.collectInvestorTradeData에서 처리
      */
-    @Scheduled(cron = "0 0 16 * * MON-FRI")
+    @Scheduled(cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledDailyCollection() {
         LocalDate today = LocalDate.now();
 
@@ -168,7 +168,8 @@ public class KisInvestorDataCollector {
                     market, investorType, tradeType, investorCode, isBuy);
 
             // KoreaInvestmentService를 통해 API 호출
-            JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(investorCode, isBuy, true);
+            JsonNode response = koreaInvestmentService.getForeignInstitutionTotalWithPriority(
+                    investorCode, isBuy, true, KisApiRateLimiter.Priority.LOW);
 
             if (response == null) {
                 log.error("API 응답이 null입니다: {} {} {}", market, investorType, tradeType);
@@ -312,7 +313,8 @@ public class KisInvestorDataCollector {
             log.info("연기금 API 호출 시작: {} {} (기관 API에서 연기금 필드 추출)", market, tradeType);
 
             // 기관계(2) API 호출 - 응답에 연기금 필드 포함
-            JsonNode response = koreaInvestmentService.getForeignInstitutionTotal("2", isBuy, true);
+            JsonNode response = koreaInvestmentService.getForeignInstitutionTotalWithPriority(
+                    "2", isBuy, true, KisApiRateLimiter.Priority.LOW);
 
             if (response == null) {
                 log.error("연기금 API 응답이 null입니다: {} {}", market, tradeType);

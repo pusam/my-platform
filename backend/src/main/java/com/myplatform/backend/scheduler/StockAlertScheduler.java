@@ -1,7 +1,11 @@
 package com.myplatform.backend.scheduler;
 
+import com.myplatform.backend.service.CompositeAlertService;
+import com.myplatform.backend.service.EarningSurpriseService;
 import com.myplatform.backend.service.MarketTimingService;
+import com.myplatform.backend.service.MorningBriefingService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.ShortSellingService;
 import com.myplatform.backend.service.WatchlistService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +28,7 @@ import org.springframework.stereotype.Component;
  * [실행 시간 (한국 시간 기준)]
  * - 장중 5분 간격 (09:00~15:30): 관심종목 목표가 알림
  * - 장 마감 후 (16:45): 시장 상태 알림
+ * - 모닝 브리핑 (07:30): 전일 시장 요약 텔레그램 발송
  * - 아침 (08:30): 마법의 공식, 턴어라운드 (장 시작 전 체크)
  */
 @Component
@@ -31,12 +36,31 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class StockAlertScheduler {
 
+    private final CompositeAlertService compositeAlertService;
+    private final EarningSurpriseService earningSurpriseService;
     private final MarketTimingService marketTimingService;
+    private final MorningBriefingService morningBriefingService;
     private final QuantScreenerService quantScreenerService;
+    private final ShortSellingService shortSellingService;
     private final WatchlistService watchlistService;
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
+
+    /**
+     * 모닝 브리핑 (평일 07:30)
+     * - 장 시작 전 전일 시장 요약 텔레그램 발송
+     * - 시장 상태, 외국인/기관 연속매수, 관심종목, 마법의 공식 정보
+     */
+    @Scheduled(cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
+    public void morningBriefing() {
+        if (!schedulerEnabled) return;
+        try {
+            morningBriefingService.sendMorningBriefing();
+        } catch (Exception e) {
+            log.error("모닝 브리핑 발송 실패: {}", e.getMessage(), e);
+        }
+    }
 
     /**
      * 장 마감 후 알림 (평일 16:45)
@@ -106,6 +130,70 @@ public class StockAlertScheduler {
             watchlistService.checkWatchlistAlerts();
         } catch (Exception e) {
             log.error("관심종목 알림 체크 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 복합 조건 알림 (장중 10분 간격)
+     * - 09:00~15:50 사이 10분마다 실행
+     * - 여러 조건 동시 충족 종목 감지
+     */
+    @Scheduled(cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkCompositeAlerts() {
+        if (!schedulerEnabled) return;
+        try {
+            compositeAlertService.checkCompositeSignals();
+        } catch (Exception e) {
+            log.error("복합 조건 알림 체크 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 어닝 서프라이즈 주간 알림 (매주 월요일 08:00)
+     * - 분기 실적 비교 → 영업이익 20%+ 변동 종목 감지
+     * - 적자→흑자 전환 종목 포함
+     */
+    @Scheduled(cron = "0 0 8 * * MON", zone = "Asia/Seoul")
+    public void checkEarningSurprises() {
+        if (!schedulerEnabled) return;
+        try {
+            log.info("=== 어닝 서프라이즈 주간 알림 시작 ===");
+            earningSurpriseService.sendEarningSurpriseAlert();
+            log.info("=== 어닝 서프라이즈 주간 알림 완료 ===");
+        } catch (Exception e) {
+            log.error("어닝 서프라이즈 알림 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 공매도 잔고 수집 (평일 18:30, 장 마감 후)
+     * - 네이버 금융에서 공매도 잔고 데이터 크롤링
+     */
+    @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
+    public void collectShortSellingBalance() {
+        if (!schedulerEnabled) return;
+        try {
+            log.info("=== 공매도 잔고 수집 시작 (18:30) ===");
+            shortSellingService.collectShortSellingData();
+            log.info("=== 공매도 잔고 수집 완료 ===");
+        } catch (Exception e) {
+            log.error("공매도 잔고 수집 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 공매도 경보 발송 (평일 19:00)
+     * - 공매도 비율 5% 이상 종목 텔레그램 알림
+     */
+    @Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkShortSellingAlert() {
+        if (!schedulerEnabled) return;
+        try {
+            log.info("=== 공매도 경보 발송 시작 (19:00) ===");
+            shortSellingService.sendHighShortSellingAlert();
+            log.info("=== 공매도 경보 발송 완료 ===");
+        } catch (Exception e) {
+            log.error("공매도 경보 발송 실패: {}", e.getMessage(), e);
         }
     }
 

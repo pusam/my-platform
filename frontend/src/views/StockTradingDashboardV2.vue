@@ -1,5 +1,6 @@
 <template>
   <div class="v2-dashboard">
+    <GlobalNav />
     <div class="v2-content">
       <!-- 헤더 (GNB 3탭 통합) -->
       <DashboardHeader
@@ -8,8 +9,234 @@
         @tab-change="activeGnbTab = $event"
       />
 
-      <!-- ═══ Tab 1: 시장 뷰 ═══ -->
+      <!-- ═══ Tab 1: 오늘의 핵심 요약 ═══ -->
       <div v-if="activeGnbTab === 'market'" class="tab-panel">
+
+        <!-- ① 시장 상태 바 -->
+        <div class="market-status-bar" v-if="marketData">
+          <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
+            <span class="msb-label">KOSPI</span>
+            <span class="msb-value">{{ formatChange(marketData.kospiChangeRate) }}%</span>
+          </div>
+          <div class="msb-divider"></div>
+          <div class="msb-item" :class="getChangeClass(marketData.kosdaqChangeRate)">
+            <span class="msb-label">KOSDAQ</span>
+            <span class="msb-value">{{ formatChange(marketData.kosdaqChangeRate) }}%</span>
+          </div>
+          <div class="msb-divider"></div>
+          <div class="msb-item">
+            <span class="msb-label">ADR</span>
+            <span class="msb-value">{{ marketData.adr != null ? marketData.adr : (marketData.combinedAdr || '-') }}</span>
+          </div>
+          <div class="msb-divider" v-if="globalData?.nasdaqFutures"></div>
+          <div class="msb-item" v-if="globalData?.nasdaqFutures" :class="getChangeClass(globalData.nasdaqFutures.changeRate)">
+            <span class="msb-label">나스닥</span>
+            <span class="msb-value">{{ formatChange(globalData.nasdaqFutures.changeRate) }}%</span>
+          </div>
+        </div>
+        <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
+
+        <!-- ② AI 종합 추천 TOP 5 -->
+        <div class="top-rec section-card">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🏆</span> AI 종합 추천 TOP 5</h2>
+            <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
+              {{ topRecRealtime ? '🟢' : '🟡' }} {{ topRecDataTime }}
+            </span>
+          </div>
+          <div v-if="topRecLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'rec-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="topRecommendations.length" class="rec-list">
+            <div
+              v-for="(rec, i) in topRecommendations"
+              :key="'rec-' + i"
+              class="rec-card"
+              @click="goToStock(rec.stockCode)"
+            >
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 3)" :key="'t-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-basis">{{ rec.validCount }}/5항목</span>
+                  <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
+                        :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
+                    {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
+                  </span>
+                  <span class="rec-grade" :class="getRecGradeClass(rec.totalScore, rec.validCount)">
+                    {{ getRecGradeLabel(rec.totalScore, rec.validCount) }}
+                  </span>
+                </div>
+                <!-- 세부 항목별 점수 바 -->
+                <div class="rec-detail-bars">
+                  <div v-for="item in getScoreBreakdown(rec)" :key="item.key" class="rec-detail-row">
+                    <span class="rec-detail-label">{{ item.label }}</span>
+                    <template v-if="item.isNA">
+                      <div class="rec-detail-track na"><div class="rec-detail-na-line"></div></div>
+                      <span class="rec-detail-score na-text">N/A</span>
+                    </template>
+                    <template v-else>
+                      <div class="rec-detail-track">
+                        <div class="rec-detail-fill" :style="{ width: (item.score / 20 * 100) + '%', background: item.color }"></div>
+                      </div>
+                      <span class="rec-detail-score" :style="{ color: item.score >= 14 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}</span>
+                    </template>
+                  </div>
+                </div>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">추천 종목이 없습니다</div>
+          <!-- ⑥ 등급 기준선 범례 -->
+          <div class="rec-legend" v-if="topRecommendations.length">
+            <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>75↑ 강력매수</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-buy"></span>60~74 매수고려</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-hold"></span>40~59 관망</span>
+            <span class="rec-legend-item"><span class="legend-dot grade-exclude"></span>40↓ 제외</span>
+          </div>
+        </div>
+
+        <!-- ②-b 수급 현황 패널 -->
+        <div class="supply-panel section-card" v-if="supplyPanelData">
+          <div class="section-title-row">
+            <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
+          </div>
+          <!-- 당일 순매수 (코스피/코스닥) -->
+          <div class="supply-summary">
+            <div class="supply-item" v-for="inv in supplyPanelData.daily" :key="inv.type">
+              <div class="supply-item-head">
+                <span class="supply-label">{{ inv.label }}</span>
+                <span class="supply-amount" :class="inv.amount >= 0 ? 'positive' : 'negative'">
+                  {{ inv.amount >= 0 ? '+' : '' }}{{ inv.amount.toLocaleString() }}억
+                </span>
+              </div>
+            </div>
+          </div>
+          <!-- 시장 분위기 인디케이터 -->
+          <div v-if="supplyPanelData.rallySignal" class="rally-indicator" :class="supplyPanelData.rallySignal.type">
+            <span class="rally-icon">{{ supplyPanelData.rallySignal.type === 'real' ? '🟢' : '🔴' }}</span>
+            <span class="rally-text">{{ supplyPanelData.rallySignal.message }}</span>
+          </div>
+          <!-- 연속매수 종목 -->
+          <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
+            <div class="supply-sub-title">연속 순매수 종목</div>
+            <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
+                 class="supply-stock-row" @click="goToStock(item.stockCode)">
+              <span class="supply-investor-badge" :class="item.investorType === 'FOREIGN' ? 'foreign' : 'inst'">
+                {{ item.investorType === 'FOREIGN' ? '외' : '기' }}
+              </span>
+              <span class="supply-stock-name">{{ item.stockName }}</span>
+              <span class="supply-days">{{ item.consecutiveDays }}일</span>
+              <span class="supply-signal" :class="item.isRealRally ? 'real' : 'fake'">
+                {{ item.isRealRally ? '진짜반등' : '주의' }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
+        </div>
+
+        <!-- ③ 시간대별 신호 (자동 전환) -->
+        <div class="today-signals section-card">
+          <div class="section-title-row">
+            <h2>
+              <span class="section-icon">{{ marketPhase.icon }}</span>
+              {{ marketPhase.title }}
+            </h2>
+            <span class="phase-badge" :class="marketPhase.class">{{ marketPhase.label }}</span>
+          </div>
+
+          <!-- 로딩 -->
+          <div v-if="phaseLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 4" :key="i"><div class="skel-bar"></div></div>
+          </div>
+
+          <!-- 신호 목록 -->
+          <div v-else-if="phaseSignals.length" class="signal-list">
+            <div
+              v-for="(sig, i) in phaseSignals"
+              :key="'sig-' + i"
+              class="signal-card"
+              :class="sig.type"
+              @click="sig.stockCode && goToStock(sig.stockCode)"
+            >
+              <div class="sig-badge">{{ sig.badge }}</div>
+              <div class="sig-info">
+                <span class="sig-name">{{ sig.stockName }}</span>
+                <span class="sig-reason">{{ sig.reason }}</span>
+              </div>
+              <div class="sig-right" v-if="sig.changeRate != null">
+                <span :class="Number(sig.changeRate) >= 0 ? 'positive' : 'negative'">
+                  {{ Number(sig.changeRate) >= 0 ? '+' : '' }}{{ Number(sig.changeRate).toFixed(2) }}%
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
+        </div>
+
+        <!-- ③ 관심종목 현황 -->
+        <div class="watchlist-summary section-card" v-if="watchlistItems.length">
+          <div class="section-title-row">
+            <h2><span class="section-icon">⭐</span> 관심종목</h2>
+            <router-link to="/research" class="more-link">전체 보기 →</router-link>
+          </div>
+          <div class="wl-list">
+            <div
+              v-for="item in watchlistItems.slice(0, 5)"
+              :key="'wl-' + item.id"
+              class="wl-row"
+              @click="goToStock(item.stockCode)"
+            >
+              <span class="wl-risk" v-if="watchlistRisks[item.stockCode]"
+                    :class="watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
+                {{ watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? '🔴' : '🟡' }}
+              </span>
+              <span class="wl-name">{{ item.stockName }}</span>
+              <span class="wl-price" v-if="item.currentPrice">{{ Number(item.currentPrice).toLocaleString() }}</span>
+              <span class="wl-change" v-if="item.changeRate != null"
+                    :class="item.changeRate >= 0 ? 'positive' : 'negative'">
+                {{ item.changeRate >= 0 ? '+' : '' }}{{ Number(item.changeRate).toFixed(2) }}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ④ AI 전략 TOP 픽 -->
+        <div class="ai-top-picks section-card" v-if="aiTopPicks.length">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🤖</span> AI 전략 TOP 픽</h2>
+          </div>
+          <div class="top-picks-grid">
+            <div
+              v-for="pick in aiTopPicks"
+              :key="'pick-' + pick.stockCode"
+              class="pick-card"
+              @click="goToStock(pick.stockCode)"
+            >
+              <div class="pick-strategy">{{ pick.strategyLabel }}</div>
+              <div class="pick-name">{{ pick.stockName }}</div>
+              <div class="pick-score">{{ pick.aiScore || pick.score }}점</div>
+              <div class="pick-tags" v-if="pick.aiThemes">
+                <span v-for="t in pick.aiThemes.split(',').slice(0, 2)" :key="t" class="pick-tag">{{ t.trim() }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ⑤ 섹터 히트맵 (기존 유지) -->
         <SectionMarketMap
           :sectorData="sectorData"
           :marketData="marketData"
@@ -18,75 +245,6 @@
           :error="sections.marketMap.error"
           @retry="loadMarketMap"
         />
-        <!-- 뉴스 영역 -->
-        <div class="news-panel section-card" v-if="!sections.research.loading">
-          <div class="section-title-row">
-            <h2><span class="section-icon">📰</span> 주요 뉴스</h2>
-            <router-link to="/news" class="more-link">전체 뉴스 →</router-link>
-          </div>
-          <div v-if="newsData.length">
-            <div
-              v-for="(item, i) in newsData.slice(0, 8)"
-              :key="'news-' + i"
-              class="news-row"
-            >
-              <span class="news-title">{{ item.title }}</span>
-              <span class="news-time">{{ formatNewsTime(item.publishedAt || item.summarizedAt) }}</span>
-            </div>
-          </div>
-          <div v-else class="empty-msg">뉴스를 불러오는 중...</div>
-        </div>
-      </div>
-
-      <!-- ═══ Tab 2: 종목 발굴 ═══ -->
-      <div v-if="activeGnbTab === 'discover'" class="tab-panel">
-        <div class="discover-tabs">
-          <button
-            v-for="tab in discoverSubTabs"
-            :key="tab.key"
-            :class="['discover-tab-btn', { active: discoverTab === tab.key }]"
-            @click="discoverTab = tab.key"
-          >
-            <span class="dtab-icon">{{ tab.icon }}</span>
-            {{ tab.label }}
-          </button>
-        </div>
-
-        <SectionAiStrategy
-          v-if="discoverTab === 'ai'"
-          :data="aiStrategyData"
-          :loading="sections.aiStrategy.loading"
-          :error="sections.aiStrategy.error"
-          @retry="loadAiStrategy"
-        />
-        <SectionWatchlist
-          v-if="discoverTab === 'watchlist'"
-        />
-        <SectionSmartMoney
-          v-if="discoverTab === 'smart'"
-          :tradesData="tradesData"
-          :consecutiveData="consecutiveData"
-          :surgeData="surgeData"
-          :loading="sections.smartMoney.loading"
-          :error="sections.smartMoney.error"
-          @retry="loadSmartMoney"
-        />
-        <SectionResearch
-          v-if="discoverTab === 'screener'"
-          :screenerData="screenerData"
-          :newsData="newsData"
-          :loading="sections.research.loading"
-          :error="sections.research.error"
-          @retry="loadResearch"
-        />
-        <SectionBacktest
-          v-if="discoverTab === 'backtest'"
-        />
-      </div>
-
-      <!-- ═══ Tab 3: 내 계좌/봇 ═══ -->
-      <div v-if="activeGnbTab === 'account'" class="tab-panel">
-        <PaperTradingPage :embedded="true" />
       </div>
 
       <!-- 종목 검색 모달 -->
@@ -100,20 +258,17 @@
 </template>
 
 <script>
+import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
-import SectionAiStrategy from '../components/v2/SectionAiStrategy.vue'
+// 시장 뷰 전용 (AI전략/스마트머니/리서치는 /research로 이동)
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
-import SectionSmartMoney from '../components/v2/SectionSmartMoney.vue'
-import SectionResearch from '../components/v2/SectionResearch.vue'
-import SectionWatchlist from '../components/v2/SectionWatchlist.vue'
-import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
-import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
-  aiStrategyV2API, marketV2API, investorV2API, screenerV2API, newsV2API,
-  globalFuturesAPI
+  // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
+  globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
+  recommendationAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -153,15 +308,10 @@ function transformMarketData(d) {
 export default {
   name: 'StockTradingDashboardV2',
   components: {
+    GlobalNav,
     DashboardHeader,
-    SectionAiStrategy,
     SectionMarketMap,
-    SectionSmartMoney,
-    SectionResearch,
-    SectionWatchlist,
-    SectionBacktest,
-    StockSearchModal,
-    PaperTradingPage
+    StockSearchModal
   },
   provide() {
     return {
@@ -171,23 +321,15 @@ export default {
   data() {
     return {
       activeGnbTab: 'market',
-      discoverTab: 'ai',
-      discoverSubTabs: [
-        { key: 'ai', label: 'AI 전략', icon: '🤖' },
-        { key: 'watchlist', label: '관심종목', icon: '⭐' },
-        { key: 'smart', label: '스마트 머니', icon: '💰' },
-        { key: 'screener', label: '실적 스크리너', icon: '🔬' },
-        { key: 'backtest', label: 'AI 성과', icon: '📊' }
-      ],
       showSearch: false,
-      dataLoaded: { market: false, discover: false },
+      dataLoaded: { market: false },
       sections: {
-        aiStrategy: { loading: true, error: false },
         marketMap: { loading: true, error: false },
-        smartMoney: { loading: true, error: false },
-        research: { loading: true, error: false }
+        aiStrategy: { loading: false, error: false },
+        smartMoney: { loading: false, error: false },
+        research: { loading: false, error: false }
       },
-      aiStrategyData: null,
+      aiStrategyData: null,  // phaseSignals에서 사용
       sectorData: [],
       marketData: {},
       globalData: {},
@@ -195,7 +337,23 @@ export default {
       consecutiveData: [],
       surgeData: [],
       screenerData: {},
-      newsData: []
+      newsData: [],
+      // 오늘의 핵심 요약
+      watchlistItems: [],
+      watchlistRisks: {},
+      radarSignals: [],
+      // AI 종합 추천
+      topRecommendations: [],
+      topRecLoading: false,
+      topRecDataTime: '',
+      topRecRealtime: true,
+      topRecDelta: {},
+      supplyPanelData: null,
+      // 시간대별 신호
+      phaseLoading: false,
+      preMarketData: [],   // 장 전
+      postMarketData: [],  // 장 후
+      investorTop5: []     // 외국인/기관 TOP 5
     }
   },
   watch: {
@@ -205,12 +363,13 @@ export default {
   },
   mounted() {
     this.loadTabData('market')
-    this.loadNews() // 뉴스는 market + research 공용
+    this.loadNews()
+    this.loadTodaySummary() // 오늘의 핵심 요약
     this.setupKeyboardShortcut()
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
       if (this.activeGnbTab === 'market') this.loadMarketMap()
-      if (this.activeGnbTab === 'discover') this.loadSmartMoney()
+      // 시장 뷰만 사용
     }, 60000)
   },
   beforeUnmount() {
@@ -220,20 +379,126 @@ export default {
       this._refreshTimer = null
     }
   },
+  computed: {
+    currentPhaseKey() {
+      const now = new Date()
+      const day = now.getDay()
+      const h = now.getHours()
+      const m = now.getMinutes()
+      const mins = h * 60 + m
+      // 주말 → 장 후
+      if (day === 0 || day === 6) return 'post'
+      if (mins < 540) return 'pre'        // ~09:00
+      if (mins < 930) return 'during'     // 09:00~15:30
+      return 'post'                       // 15:30~
+    },
+    marketPhase() {
+      const phases = {
+        pre: { icon: '🌅', title: '오늘 장 준비', label: '장 전', class: 'phase-pre', empty: '장 전 데이터를 로딩 중입니다' },
+        during: { icon: '📈', title: '실시간 신호', label: '장 진행 중', class: 'phase-during', empty: '오늘 감지된 신호가 없습니다' },
+        post: { icon: '📊', title: '오늘 결산', label: '장 마감', class: 'phase-post', empty: '결산 데이터를 로딩 중입니다' }
+      }
+      return phases[this.currentPhaseKey]
+    },
+    phaseSignals() {
+      const phase = this.currentPhaseKey
+      if (phase === 'pre') return this.preMarketSignals
+      if (phase === 'during') return this.duringMarketSignals
+      return this.postMarketSignals
+    },
+    preMarketSignals() {
+      const signals = []
+      // 나스닥 선물 방향
+      if (this.globalData?.nasdaqFutures) {
+        const nq = this.globalData.nasdaqFutures
+        signals.push({
+          type: 'global', badge: '🌙 야간', stockName: '나스닥 선물',
+          reason: `${Number(nq.currentPrice).toLocaleString()} (${Number(nq.changeRate) >= 0 ? '+' : ''}${Number(nq.changeRate).toFixed(2)}%)`,
+          stockCode: null, changeRate: nq.changeRate
+        })
+      }
+      // AI 전략 TOP 픽
+      this.aiTopPicks.slice(0, 2).forEach(p => {
+        signals.push({
+          type: 'ai', badge: p.strategyLabel, stockCode: p.stockCode,
+          stockName: p.stockName, reason: `AI ${p.aiScore || p.score}점`,
+          changeRate: p.changeRate
+        })
+      })
+      // 전일 외국인 TOP
+      this.investorTop5.slice(0, 2).forEach(t => {
+        signals.push({
+          type: 'investor', badge: '🌍 외국인', stockCode: t.stockCode,
+          stockName: t.stockName, reason: `순매수 ${t.netBuyAmount}억`,
+          changeRate: t.changeRate
+        })
+      })
+      return signals.slice(0, 6)
+    },
+    duringMarketSignals() {
+      const signals = []
+      if (this.surgeData?.length) {
+        this.surgeData.filter(s => s.surgeLevel === 'HOT').slice(0, 3).forEach(s => {
+          signals.push({
+            type: 'hot', badge: '🔥 HOT', stockCode: s.stockCode,
+            stockName: s.stockName, reason: '수급 급증', changeRate: s.changeRate
+          })
+        })
+      }
+      if (this.radarSignals?.length) {
+        this.radarSignals.slice(0, 3).forEach(r => {
+          signals.push({
+            type: 'radar', badge: '📰 정책',
+            stockName: r.title?.substring(0, 30), reason: (r.matchedSectors || []).join(' · '),
+            stockCode: null, changeRate: null
+          })
+        })
+      }
+      return signals.slice(0, 6)
+    },
+    postMarketSignals() {
+      const signals = []
+      // 봇 성과
+      this.postMarketData.forEach(d => signals.push(d))
+      // 외국인 TOP
+      this.investorTop5.slice(0, 3).forEach(t => {
+        signals.push({
+          type: 'investor', badge: '🌍 외국인', stockCode: t.stockCode,
+          stockName: t.stockName, reason: `순매수 ${t.netBuyAmount}억`,
+          changeRate: t.changeRate
+        })
+      })
+      // AI 전략
+      this.aiTopPicks.slice(0, 2).forEach(p => {
+        signals.push({
+          type: 'ai', badge: '🤖 내일 주목', stockCode: p.stockCode,
+          stockName: p.stockName, reason: `AI ${p.aiScore || p.score}점`,
+          changeRate: p.changeRate
+        })
+      })
+      return signals.slice(0, 6)
+    },
+    aiTopPicks() {
+      if (!this.aiStrategyData?.strategies) return []
+      const picks = []
+      const labels = { SCALPING: '⚡ 스캘핑', SWING: '📈 스윙', TURNAROUND: '🔄 턴어라운드', VALUE: '💎 밸류' }
+      for (const [type, list] of Object.entries(this.aiStrategyData.strategies)) {
+        if (Array.isArray(list) && list.length > 0) {
+          picks.push({ ...list[0], strategyLabel: labels[type] || type })
+        }
+      }
+      return picks.slice(0, 4)
+    }
+  },
   methods: {
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
       if (tab === 'market' && !this.dataLoaded.market) {
         this.loadMarketMap()
+        this.loadAiStrategy()  // 시간대별 신호용
+        this.loadSmartMoney()  // 수급급증 신호용
         this.dataLoaded.market = true
       }
-      if (tab === 'discover' && !this.dataLoaded.discover) {
-        this.loadAiStrategy()
-        this.loadSmartMoney()
-        this.loadResearch()
-        this.dataLoaded.discover = true
-      }
-      // account 탭은 PaperTradingPage 내부에서 자체 로드
     },
 
     // ---- 뉴스 로딩 (공용) ----
@@ -241,15 +506,9 @@ export default {
       try {
         let nd = null
         try {
-          const res = await withTimeout(newsV2API.getTodayNews())
+          const res = await withTimeout(newsAPI.getTodayNews(), 10000)
           nd = this.extractData(res)
-        } catch { /* V2 실패 */ }
-        if (!Array.isArray(nd) || nd.length === 0) {
-          try {
-            const res = await newsAPI.getTodayNews()
-            nd = this.extractData(res)
-          } catch { /* Java도 실패 */ }
-        }
+        } catch { /* 실패 */ }
         if (!Array.isArray(nd) || nd.length === 0) {
           try {
             const fallback = await newsAPI.getRecentNews()
@@ -260,6 +519,93 @@ export default {
       } catch {
         this.newsData = []
       }
+    },
+
+    // ---- 오늘의 핵심 요약 로드 ----
+    async loadTodaySummary() {
+      // 관심종목
+      try {
+        const res = await watchlistAPI.getList()
+        const list = this.extractData(res)
+        this.watchlistItems = Array.isArray(list) ? list : []
+        // 리스크 상태
+        if (this.watchlistItems.length) {
+          const codes = this.watchlistItems.map(w => w.stockCode)
+          try {
+            const riskRes = await watchlistAPI.getRiskStatus(codes)
+            this.watchlistRisks = this.extractData(riskRes) || {}
+          } catch { this.watchlistRisks = {} }
+        }
+      } catch { this.watchlistItems = [] }
+
+      // AI 종합 추천 TOP 5
+      this.topRecLoading = true
+      try {
+        const res = await recommendationAPI.getTop5()
+        const body = res?.data || res
+        this.topRecommendations = (body?.data) || []
+        this.topRecDataTime = body?.dataTime || ''
+        this.topRecRealtime = body?.realtime !== false
+        this.topRecDelta = body?.delta || {}
+      } catch { this.topRecommendations = []; this.topRecDelta = {} }
+      this.topRecLoading = false
+
+      // 수급 현황 패널
+      this.loadSupplyPanel()
+
+      // 선점 레이더 신호
+      try {
+        const res = await radarAPI.getPolicyNews()
+        this.radarSignals = (this.extractData(res) || []).slice(0, 5)
+      } catch { this.radarSignals = [] }
+
+      // 수급급증 데이터 (시장 뷰에서도 필요)
+      if (!this.surgeData?.length) {
+        try {
+          let sd = null
+          try {
+            const res = await withTimeout(investorAPI.getAllSurgeStocks(), 10000)
+            sd = this.extractData(res)
+          } catch { /* 실패 */ }
+          this.surgeData = this.flattenInvestorMap(sd)
+        } catch { /* ignore */ }
+      }
+
+      // 시간대별 추가 데이터
+      this.phaseLoading = true
+      try {
+        await this.loadPhaseData()
+      } catch { /* ignore */ }
+      this.phaseLoading = false
+    },
+
+    async loadPhaseData() {
+      // 외국인 TOP 5 (장 전 + 장 후 공통)
+      try {
+        const res = await investorAPI.getTopTrades('FOREIGN', 'BUY', 5)
+        this.investorTop5 = this.extractData(res) || []
+      } catch { this.investorTop5 = [] }
+
+      const phase = this.currentPhaseKey
+      if (phase === 'post') {
+        // 장 후: 봇 성과
+        try {
+          const res = await paperTradingAPI.getStatistics()
+          const stats = this.extractData(res)
+          if (stats && stats.totalTrades > 0) {
+            this.postMarketData = [{
+              type: 'bot', badge: '🤖 봇 성과',
+              stockName: `${stats.winCount}승 ${stats.loseCount}패 (승률 ${stats.winRate || 0}%)`,
+              reason: `손익비 ${stats.profitFactor || '-'}`,
+              stockCode: null, changeRate: null
+            }]
+          }
+        } catch { this.postMarketData = [] }
+      }
+    },
+
+    goToStock(code) {
+      if (code) this.$router.push(`/stock/${code}`)
     },
 
     // ---- 종목 선택 → 상세 페이지 이동 ----
@@ -313,6 +659,93 @@ export default {
       }
       return []
     },
+    async loadSupplyPanel() {
+      try {
+        // 연속매수 조회
+        const consRes = await investorAPI.getAllConsecutiveBuy(2)
+        const consecutive = this.extractData(consRes) || []
+
+        // 당일 순매수 금액
+        let foreignNet = 0, instNet = 0
+        try {
+          const fRes = await investorAPI.getTopTrades('FOREIGN', 'BUY', 10)
+          const fData = this.extractData(fRes) || []
+          foreignNet = fData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
+        } catch { /* ignore */ }
+        try {
+          const iRes = await investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)
+          const iData = this.extractData(iRes) || []
+          instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
+        } catch { /* ignore */ }
+
+        // 진짜 반등 판단: 외국인 3일+ 연속 + 양의 등락률 + 순매수 양
+        const foreignConsecutive = consecutive.filter(c => c.investorType === 'FOREIGN')
+        const has3DayForeignBuy = foreignConsecutive.some(c => (c.consecutiveDays || 0) >= 3)
+        const foreignBuying = foreignNet > 0
+
+        let rallySignal = null
+        if (has3DayForeignBuy && foreignBuying) {
+          rallySignal = { type: 'real', message: '외국인 3일+ 연속 순매수 — 진짜 반등 가능성' }
+        } else if (!foreignBuying && instNet <= 0) {
+          rallySignal = { type: 'fake', message: '외국인·기관 모두 순매도 — 주의' }
+        } else if (!foreignBuying) {
+          rallySignal = { type: 'fake', message: '외국인 순매도 + 기관만 매수 — 주의' }
+        }
+
+        const enriched = consecutive.map(item => ({
+          ...item,
+          isRealRally: (item.consecutiveDays || 0) >= 3 && (Number(item.changeRate) || 0) > 0
+        }))
+
+        this.supplyPanelData = {
+          daily: [
+            { type: 'foreign', label: '외국인', amount: Math.round(foreignNet) },
+            { type: 'inst', label: '기관', amount: Math.round(instNet) }
+          ],
+          consecutive: enriched,
+          rallySignal
+        }
+      } catch (e) {
+        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null }
+      }
+    },
+    getScoreBreakdown(rec) {
+      const items = [
+        { key: 'ai', label: 'AI전략', raw: rec.aiStrategy, color: '#8b5cf6' },
+        { key: 'earn', label: '실적', raw: rec.earnings, color: '#22c55e' },
+        { key: 'supply', label: '수급', raw: rec.supplyDemand, color: '#3b82f6' },
+        { key: 'tech', label: '기술적', raw: rec.technical, color: '#f59e0b' },
+        { key: 'sector', label: '섹터', raw: rec.sectorMomentum, color: '#ef4444' },
+      ]
+      return items.map(item => ({
+        ...item,
+        score: item.raw != null && item.raw >= 0 ? item.raw : -1,
+        isNA: item.raw == null || item.raw < 0
+      }))
+    },
+    getRecGradeClass(score, validCount) {
+      if (validCount != null && validCount < 3) return 'grade-low-confidence'
+      if (score >= 75) return 'grade-strong'
+      if (score >= 60) return 'grade-buy'
+      if (score >= 40) return 'grade-hold'
+      return 'grade-exclude'
+    },
+    getRecGradeLabel(score, validCount) {
+      if (validCount != null && validCount < 3) return '⚠ 데이터부족'
+      if (score >= 75) return '🔴 강력매수'
+      if (score >= 60) return '🟡 매수고려'
+      if (score >= 40) return '⚪ 관망'
+      return '🔵 제외'
+    },
+    getChangeClass(rate) {
+      if (rate == null) return ''
+      return Number(rate) >= 0 ? 'positive' : 'negative'
+    },
+    formatChange(rate) {
+      if (rate == null) return '-'
+      const n = Number(rate)
+      return (n >= 0 ? '+' : '') + n.toFixed(2)
+    },
     formatNewsTime(dateStr) {
       if (!dateStr) return ''
       try {
@@ -331,11 +764,10 @@ export default {
         this.sections.marketMap.loading = true
         this.sections.marketMap.error = false
         const [sectorRes, marketRes, leadingRes, nasdaqRes, usdKrwRes] = await Promise.allSettled([
-          withTimeout(marketV2API.getSectors('TODAY'), 5000)
-            .catch(() => null),
-          withTimeout(marketV2API.getStatus().catch(() => marketAPI.getStatus())),
-          withTimeout(marketV2API.getLeadingSectors().catch(() => tradingIndicatorAPI.getLeadingSectors())),
-          withTimeout(marketV2API.getNasdaqFutures().catch(() => tradingIndicatorAPI.getNasdaqFutures())),
+          withTimeout(sectorAPI.getSectorTrading('TODAY'), 15000).catch(() => null),
+          withTimeout(marketAPI.getStatus(), 10000),
+          withTimeout(tradingIndicatorAPI.getLeadingSectors(), 10000),
+          withTimeout(tradingIndicatorAPI.getNasdaqFutures(), 10000),
           withTimeout(globalFuturesAPI.getQuote('KRW'), 5000).catch(() => null)
         ])
         let sectorArr = []
@@ -346,16 +778,6 @@ export default {
             sectorArr = arr
           }
         }
-        if (sectorArr.length === 0) {
-          try {
-            const javaRes = await withTimeout(sectorAPI.getSectorTrading('TODAY'), 120000)
-            const jd = this.extractData(javaRes)
-            const jarr = Array.isArray(jd) ? jd : (jd?.sectors || [])
-            sectorArr = this.hasSectorData(jarr) ? jarr : []
-          } catch (e) {
-            console.warn('[API] Sector Java API 실패:', e.message)
-          }
-        }
         this.sectorData = sectorArr
         if (marketRes.status === 'fulfilled') {
           const d = this.extractData(marketRes.value)
@@ -364,29 +786,31 @@ export default {
         } else {
           this.marketData = {}
         }
-        this.globalData = {}
+        // globalData를 한번에 새 객체로 할당 (Vue 반응성 보장)
+        const newGlobalData = {
+          nasdaqFutures: null,
+          leadingSectors: [],
+          usdKrw: null
+        }
         if (nasdaqRes.status === 'fulfilled') {
           const d = this.extractData(nasdaqRes.value)
-          this.globalData.nasdaqFutures = (d && d.price) ? d : null
-        } else {
-          this.globalData.nasdaqFutures = null
+          newGlobalData.nasdaqFutures = (d && d.price) ? d : null
         }
         if (leadingRes.status === 'fulfilled') {
           const d = this.extractData(leadingRes.value)
-          this.globalData.leadingSectors = (Array.isArray(d) && d.length > 0) ? d : []
-        } else {
-          this.globalData.leadingSectors = []
+          newGlobalData.leadingSectors = (Array.isArray(d) && d.length > 0) ? d : []
         }
         // USD/KRW 환율
         if (usdKrwRes.status === 'fulfilled' && usdKrwRes.value) {
           const d = this.extractData(usdKrwRes.value)
           if (d && d.currentPrice) {
-            this.globalData.usdKrw = {
+            newGlobalData.usdKrw = {
               price: Number(d.currentPrice).toLocaleString('ko-KR', { minimumFractionDigits: 2 }),
               changeRate: Number(d.changeRate) || 0
             }
           }
         }
+        this.globalData = newGlobalData
       } catch {
         this.sectorData = []
         this.marketData = {}
@@ -403,17 +827,11 @@ export default {
         this.sections.aiStrategy.loading = true
         this.sections.aiStrategy.error = false
         try {
-          const res = await withTimeout(aiStrategyV2API.getLatest())
+          const res = await withTimeout(aiStrategyAPI.getLatest(), 15000)
           const d = this.extractData(res)
           const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
           if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { /* V2 실패 → Java 폴백 */ }
-        try {
-          const res = await withTimeout(aiStrategyAPI.getLatest())
-          const d = this.extractData(res)
-          const hasStocks = d?.strategies && Object.values(d.strategies).some(arr => arr && arr.length > 0)
-          if (hasStocks) { this.aiStrategyData = d; return }
-        } catch (e) { /* Java API도 실패 */ }
+        } catch (e) { /* API 실패 */ }
         this.sections.aiStrategy.error = true
       } catch {
         this.aiStrategyData = null
@@ -429,14 +847,12 @@ export default {
         this.sections.smartMoney.loading = true
         this.sections.smartMoney.error = false
         const [foreignRes, instRes, consecutiveRes, surgeRes] = await Promise.allSettled([
-          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10).catch(() =>
-            investorV2API.getTopTrades('FOREIGN', 10).catch(() =>
-              investorAPI.getTopTrades('FOREIGN', 'BUY', 10))), 10000),
-          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10).catch(() =>
-            investorV2API.getTopTrades('INSTITUTION', 10).catch(() =>
-              investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))), 10000),
-          withTimeout(investorV2API.getAllConsecutiveBuy(3).catch(() => investorAPI.getAllConsecutiveBuy(3))),
-          withTimeout(investorV2API.getAllSurgeStocks().catch(() => investorAPI.getAllSurgeStocks()))
+          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10)
+            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)), 10000),
+          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10)
+            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)), 10000),
+          withTimeout(investorAPI.getAllConsecutiveBuy(3), 10000),
+          withTimeout(investorAPI.getAllSurgeStocks(), 10000)
         ])
         const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
         this.tradesData.foreign = this.hasTradeData(fd) ? fd : []
@@ -462,7 +878,7 @@ export default {
         this.sections.research.loading = true
         this.sections.research.error = false
         const screenerRes = await withTimeout(
-          screenerV2API.getSummary().catch(() => screenerAPI.getSummary()), 15000
+          screenerAPI.getSummary(), 15000
         ).catch(() => null)
         const sd = screenerRes ? this.extractData(screenerRes) : null
         const hasScreener = sd && (sd.magicFormula?.length || sd.lowPeg?.length || sd.turnaround?.length)
@@ -508,48 +924,197 @@ export default {
   padding: 20px 24px 60px;
 }
 
+/* ===== 시장 상태 바 ===== */
+.market-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+.market-status-bar.skeleton { justify-content: center; color: rgba(255,255,255,0.3); font-size: 13px; }
+.msb-item { display: flex; align-items: center; gap: 6px; }
+.msb-label { font-size: 12px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.msb-value { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.8); }
+.msb-item.positive .msb-value { color: #ef4444; }
+.msb-item.negative .msb-value { color: #3b82f6; }
+.msb-divider { width: 1px; height: 16px; background: rgba(255,255,255,0.1); }
+
+/* ===== 오늘의 신호 ===== */
+.signal-list { display: flex; flex-direction: column; gap: 8px; }
+.signal-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  transition: all 0.15s;
+}
+.signal-card:hover { background: rgba(255,255,255,0.06); }
+.signal-card.hot { border-left: 3px solid #ef4444; }
+.signal-card.radar { border-left: 3px solid #f59e0b; }
+.sig-badge { font-size: 11px; font-weight: 700; white-space: nowrap; }
+.sig-info { flex: 1; min-width: 0; }
+.sig-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
+.sig-reason { font-size: 12px; color: rgba(255,255,255,0.4); }
+.sig-right { font-size: 13px; font-weight: 700; }
+.empty-signal { text-align: center; padding: 24px; color: rgba(255,255,255,0.3); font-size: 13px; }
+
+/* ===== AI 종합 추천 ===== */
+.rec-data-time {
+  font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.5);
+  padding: 2px 8px; border-radius: 4px;
+  background: rgba(34,197,94,0.1);
+}
+.rec-data-time.is-cached {
+  background: rgba(245,158,11,0.1); color: #f59e0b;
+}
+.rec-list { display: flex; flex-direction: column; gap: 6px; }
+.rec-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 10px; cursor: pointer;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  transition: all 0.15s;
+}
+.rec-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
+.rec-rank {
+  font-size: 14px; font-weight: 800; color: #f59e0b;
+  min-width: 28px; text-align: center;
+}
+.rec-card:first-child .rec-rank { color: #ef4444; }
+.rec-info { flex: 1; min-width: 0; }
+.rec-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
+.rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
+.rec-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: rgba(102,126,234,0.12); color: #8b9cf7; font-weight: 600;
+}
+.rec-score-area { min-width: 160px; text-align: right; }
+.rec-score-head { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; margin-bottom: 4px; flex-wrap: wrap; }
+.rec-delta { font-size: 11px; font-weight: 700; padding: 0 3px; border-radius: 3px; }
+.rec-delta.positive { color: #ef4444; background: rgba(239,68,68,0.1); }
+.rec-delta.negative { color: #3b82f6; background: rgba(59,130,246,0.1); }
+/* 등급 기준선 범례 */
+.rec-legend { display: flex; justify-content: center; gap: 12px; padding: 8px 0 4px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 8px; }
+.rec-legend-item { font-size: 10px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 4px; }
+.legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+.legend-dot.grade-strong { background: #ef4444; }
+.legend-dot.grade-buy { background: #f59e0b; }
+.legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
+.legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
+.rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
+.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.25); margin-left: 2px; }
+.rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
+.rec-grade.grade-strong { color: #ef4444; }
+.rec-grade.grade-buy { color: #f59e0b; }
+.rec-grade.grade-hold { color: rgba(255,255,255,0.5); }
+.rec-grade.grade-exclude { color: #3b82f6; }
+.rec-grade.grade-low-confidence { color: #f59e0b; font-size: 9px; }
+.rec-bar-track { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-bottom: 4px; }
+.rec-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+.rec-bar-fill.grade-strong { background: linear-gradient(90deg, #ef4444, #f87171); }
+.rec-bar-fill.grade-buy { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+.rec-bar-fill.grade-hold { background: rgba(255,255,255,0.2); }
+.rec-bar-fill.grade-exclude { background: rgba(59,130,246,0.3); }
+/* 세부 항목별 바 */
+.rec-detail-bars { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
+.rec-detail-row { display: flex; align-items: center; gap: 4px; }
+.rec-detail-label { font-size: 9px; color: rgba(255,255,255,0.4); width: 32px; text-align: right; flex-shrink: 0; }
+.rec-detail-track { flex: 1; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; min-width: 40px; }
+.rec-detail-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+.rec-detail-score { font-size: 9px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
+.rec-detail-track.na { opacity: 0.3; }
+.rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
+.na-text { color: rgba(255,255,255,0.2); font-size: 8px; }
+.rec-price-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.rec-current-price { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
+.rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
+
+/* ===== 수급 현황 패널 ===== */
+.supply-summary { display: flex; gap: 12px; margin-bottom: 10px; }
+.supply-item { flex: 1; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); }
+.supply-label { font-size: 13px; color: rgba(255,255,255,0.5); font-weight: 600; }
+.supply-amount { font-size: 16px; font-weight: 800; }
+.supply-amount.positive { color: #ef4444; }
+.supply-amount.negative { color: #3b82f6; }
+.supply-sub-title { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 6px; font-weight: 600; }
+.supply-consecutive { margin-top: 4px; }
+.supply-stock-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
+.supply-stock-row:hover { background: rgba(255,255,255,0.04); }
+.supply-investor-badge { font-size: 10px; font-weight: 800; width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.supply-investor-badge.foreign { background: rgba(239,68,68,0.15); color: #ef4444; }
+.supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.supply-stock-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+.supply-days { font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.supply-signal { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+.supply-signal.real { background: rgba(34,197,94,0.15); color: #22c55e; }
+.supply-signal.fake { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.supply-item-head { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+/* 시장 반등 인디케이터 */
+.rally-indicator { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 12px; font-weight: 600; }
+.rally-indicator.real { background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.2); color: #22c55e; }
+.rally-indicator.fake { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #ef4444; }
+.rally-icon { font-size: 14px; }
+.rally-text { flex: 1; }
+.phase-badge { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 6px; }
+.phase-pre { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.phase-during { background: rgba(34,197,94,0.15); color: #22c55e; }
+.phase-post { background: rgba(102,126,234,0.15); color: #8b9cf7; }
+.signal-card.global { border-left: 3px solid #8b5cf6; }
+.signal-card.ai { border-left: 3px solid #3b82f6; }
+.signal-card.investor { border-left: 3px solid #10b981; }
+.signal-card.bot { border-left: 3px solid #6366f1; }
+.signal-skeleton { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+.skel-row { height: 48px; border-radius: 10px; background: rgba(255,255,255,0.04); }
+.skel-bar { width: 60%; height: 12px; margin: 18px 16px; border-radius: 4px; background: rgba(255,255,255,0.08); animation: skeleton-pulse 1.5s infinite; }
+@keyframes skeleton-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 0.2; } }
+
+/* ===== 관심종목 요약 ===== */
+.wl-list { display: flex; flex-direction: column; gap: 4px; }
+.wl-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  transition: background 0.15s;
+}
+.wl-row:hover { background: rgba(255,255,255,0.04); }
+.wl-risk { font-size: 12px; }
+.wl-risk.danger { } .wl-risk.warning { }
+.wl-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
+.wl-price { font-size: 13px; color: rgba(255,255,255,0.6); font-family: monospace; }
+.wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
+
+/* ===== AI TOP 픽 ===== */
+.top-picks-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.pick-card {
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px; padding: 12px; cursor: pointer; text-align: center;
+  transition: all 0.15s;
+}
+.pick-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
+.pick-strategy { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 4px; }
+.pick-name { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); margin-bottom: 4px; }
+.pick-score { font-size: 18px; font-weight: 800; color: #ef4444; margin-bottom: 4px; }
+.pick-tags { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
+.pick-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(102,126,234,0.12); color: #8b9cf7; }
+
+.positive { color: #ef4444 !important; }
+.negative { color: #3b82f6 !important; }
+
+@media (max-width: 768px) {
+  .market-status-bar { gap: 4px; padding: 8px 10px; }
+  .msb-label { font-size: 10px; } .msb-value { font-size: 12px; }
+  .top-picks-grid { grid-template-columns: repeat(2, 1fr); }
+  .pick-score { font-size: 16px; }
+}
+
 /* Tab Panel */
 .tab-panel {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
-
-/* Discover Sub-tabs */
-.discover-tabs {
-  display: flex;
-  gap: 6px;
-  background: rgba(255,255,255,0.04);
-  padding: 4px;
-  border-radius: 12px;
-  margin-bottom: 4px;
-}
-.discover-tab-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border: none;
-  background: transparent;
-  color: rgba(255,255,255,0.5);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border-radius: 9px;
-  transition: all 0.2s;
-}
-.discover-tab-btn:hover {
-  color: rgba(255,255,255,0.7);
-  background: rgba(255,255,255,0.04);
-}
-.discover-tab-btn.active {
-  background: rgba(102,126,234,0.15);
-  color: #a5b4fc;
-  font-weight: 600;
-}
-.dtab-icon { font-size: 14px; }
 
 /* News Panel in Market Tab */
 .news-panel {
@@ -607,6 +1172,5 @@ export default {
 @media (max-width: 768px) {
   .v2-content { padding: 12px 16px 40px; }
   .tab-panel { gap: 14px; }
-  .discover-tab-btn { padding: 8px 10px; font-size: 12px; }
 }
 </style>

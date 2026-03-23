@@ -11,6 +11,9 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -82,12 +85,25 @@ public class StockFinancialDataCollector {
             String market = "KOSPI";
 
             BigDecimal currentPrice = parseBigDecimal(output.path("stck_prpr").asText());
-            BigDecimal marketCap = parseBigDecimal(output.path("hts_avls").asText())
+            BigDecimal marketCapRaw = parseBigDecimal(output.path("hts_avls").asText());
+            BigDecimal marketCap = marketCapRaw
                     .divide(new BigDecimal("100000000"), 0, RoundingMode.HALF_UP);
             BigDecimal per = parseBigDecimal(output.path("per").asText());
             BigDecimal pbr = parseBigDecimal(output.path("pbr").asText());
             BigDecimal eps = parseBigDecimal(output.path("eps").asText());
             BigDecimal lstnStcn = parseBigDecimal(output.path("lstn_stcn").asText());
+
+            // ★ 네이버 coinfo 페이지에서 정확한 상장주식수 크롤링
+            // KIS lstn_stcn이 유통주식수만 반환하는 경우가 있어 발행주식수와 2배 차이 발생
+            BigDecimal naverShares = fetchNaverListedShares(stockCode);
+            if (naverShares != null && naverShares.compareTo(BigDecimal.ZERO) > 0) {
+                if (lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal shareRatio = naverShares.divide(lstnStcn, 2, RoundingMode.HALF_UP);
+                    log.info("[주식수 검증] {} - KIS lstn_stcn: {}, 네이버 상장주식수: {}, 비율: {}",
+                            stockCode, lstnStcn, naverShares, shareRatio);
+                }
+                lstnStcn = naverShares;
+            }
 
             // 재무비율 조회
             Thread.sleep(100);
@@ -155,9 +171,56 @@ public class StockFinancialDataCollector {
             financialData.setOperatingProfit(operatingProfit);
             financialData.setNetIncome(netIncome);
 
+            // ★ 재무상태표 데이터 저장
+            BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
+            BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
+            BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
+            if (totalEquity != null) financialData.setTotalEquity(totalEquity);
+            if (totalAssets != null) financialData.setTotalAssets(totalAssets);
+            if (totalDebt != null) financialData.setTotalDebt(totalDebt);
+
+            // ★ totalEquity 기반 BPS 재계산 (연결 기준)
+            if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
+                    && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmBps = totalEquity
+                        .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                log.info("[TTM BPS] {} - 별도 BPS → 연결 BPS: {} (자본총계: {}억, 주식수: {})",
+                        stockCode, ttmBps, totalEquity, lstnStcn);
+                financialData.setBps(ttmBps);
+
+                // PBR 재계산
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal ttmPbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
+                    financialData.setPbr(ttmPbr);
+                }
+            }
+
+            // ★ PBR 일관성 검증: PBR ≈ PER × ROE / 100 (±50% 허용)
+            BigDecimal finalPbr = financialData.getPbr();
+            BigDecimal finalPer = financialData.getPer();
+            BigDecimal finalRoe = financialData.getRoe();
+            if (finalPbr != null && finalPer != null && finalRoe != null
+                    && finalPer.compareTo(BigDecimal.ZERO) > 0
+                    && finalRoe.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal expectedPbr = finalPer.multiply(finalRoe)
+                        .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+                BigDecimal ratio = finalPbr.divide(expectedPbr, 2, RoundingMode.HALF_UP);
+                if (ratio.compareTo(new BigDecimal("2.0")) > 0 || ratio.compareTo(new BigDecimal("0.5")) < 0) {
+                    log.warn("[PBR 보정] {} PBR 불일치 감지: PBR={}, 예상(PER×ROE/100)={}, 비율={} → 보정 적용",
+                            stockCode, finalPbr, expectedPbr, ratio);
+                    financialData.setPbr(expectedPbr);
+                    // BPS도 역산
+                    if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && expectedPbr.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal correctedBps = currentPrice.divide(expectedPbr, 0, RoundingMode.HALF_UP);
+                        financialData.setBps(correctedBps);
+                    }
+                }
+            }
+
             stockFinancialDataRepository.save(financialData);
-            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}",
-                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per);
+            log.info("[재무데이터 저장] {} ({}) - 매출액: {}, 영업이익: {}, 당기순이익: {}, 영업이익률: {}, EPS(TTM): {}, PER(TTM): {}, 자본총계: {}",
+                    stockName, stockCode, revenue, operatingProfit, netIncome, operatingMargin, eps, per, totalEquity);
             return true;
 
         } catch (Exception e) {
@@ -324,6 +387,37 @@ public class StockFinancialDataCollector {
             financialData.setOperatingProfit(operatingProfit);
             financialData.setOperatingMargin(operatingMargin);
 
+            // ★ 재무상태표 데이터 저장
+            BigDecimal totalEquity = financialRatios.getOrDefault("totalEquity", null);
+            BigDecimal totalAssets = financialRatios.getOrDefault("totalAssets", null);
+            BigDecimal totalDebt = financialRatios.getOrDefault("totalDebt", null);
+            if (totalEquity != null) financialData.setTotalEquity(totalEquity);
+            if (totalAssets != null) financialData.setTotalAssets(totalAssets);
+            if (totalDebt != null) financialData.setTotalDebt(totalDebt);
+
+            // ★ totalEquity 기반 BPS/PBR/ROE 재계산 (연결 기준)
+            if (totalEquity != null && totalEquity.compareTo(BigDecimal.ZERO) > 0
+                    && lstnStcn.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal ttmBps = totalEquity
+                        .multiply(new BigDecimal("100000000"))  // 억원 → 원
+                        .divide(lstnStcn, 0, RoundingMode.HALF_UP);
+                financialData.setBps(ttmBps);
+                bps = ttmBps;  // ROE 재계산용
+
+                if (currentPrice.compareTo(BigDecimal.ZERO) > 0 && ttmBps.compareTo(BigDecimal.ZERO) > 0) {
+                    pbr = currentPrice.divide(ttmBps, 2, RoundingMode.HALF_UP);
+                    financialData.setPbr(pbr);
+                }
+
+                // ROE 직접 재계산 (TTM 순이익 / 자본총계)
+                if (netIncome != null && netIncome.compareTo(BigDecimal.ZERO) != 0) {
+                    roe = netIncome.divide(totalEquity, 6, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP);
+                    financialData.setRoe(roe);
+                }
+            }
+
             stockFinancialDataRepository.save(financialData);
 
             // 손익계산서 데이터 저장 여부 로깅
@@ -406,23 +500,83 @@ public class StockFinancialDataCollector {
                 if ("0".equals(rtCd)) {
                     JsonNode output = root.get("output");
                     if (output != null && output.isArray() && output.size() > 0) {
-                        // 최근 4분기 합산 (TTM)
                         int quarterCount = Math.min(output.size(), 4);
+
+                        // ★ 각 분기 raw 데이터 로깅 (디버깅용)
+                        for (int i = 0; i < quarterCount; i++) {
+                            JsonNode q = output.get(i);
+                            log.info("[손익계산서 RAW] {} Q{}: stac_yymm={}, 매출={}, 영업이익={}, 순이익={}",
+                                    stockCode, i, q.path("stac_yymm").asText(),
+                                    q.path("sale_account").asText(),
+                                    q.path("bsop_prti").asText(),
+                                    q.path("thtr_ntin").asText());
+                        }
+
+                        // ★ 누적(cumulative) vs 개별(individual) 분기 데이터 감지
+                        // 매출액이 Q1 < Q2 < Q3 순서로 증가하면 누적 데이터일 가능성 높음
+                        boolean isCumulative = false;
+                        if (quarterCount >= 3) {
+                            BigDecimal rev0 = parseBigDecimal(output.get(0).path("sale_account").asText());
+                            BigDecimal rev1 = parseBigDecimal(output.get(1).path("sale_account").asText());
+                            BigDecimal rev2 = parseBigDecimal(output.get(2).path("sale_account").asText());
+                            // 최신(0)이 가장 크고 이전(2)이 가장 작으면 누적 의심
+                            // 단, 모두 양수이고 비율이 2배 이상 차이나면 누적으로 판단
+                            if (rev0.compareTo(BigDecimal.ZERO) > 0 && rev2.compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal ratio02 = rev0.divide(rev2, 2, RoundingMode.HALF_UP);
+                                if (ratio02.compareTo(new BigDecimal("1.8")) > 0
+                                        && rev0.compareTo(rev1) > 0 && rev1.compareTo(rev2) > 0) {
+                                    isCumulative = true;
+                                    log.warn("[손익계산서] {} 누적 데이터 감지! 매출액: Q최신={}, Q-1={}, Q-2={} (비율: {})",
+                                            stockCode, rev0, rev1, rev2, ratio02);
+                                }
+                            }
+                        }
+
                         BigDecimal ttmNetIncomeRaw = BigDecimal.ZERO;
                         BigDecimal ttmRevenueRaw = BigDecimal.ZERO;
                         BigDecimal ttmOperatingProfitRaw = BigDecimal.ZERO;
 
-                        for (int i = 0; i < quarterCount; i++) {
-                            JsonNode q = output.get(i);
-                            ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
-                            ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
-                            ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
+                        if (isCumulative) {
+                            // 누적 데이터: 개별 분기 = 현재 누적 - 이전 누적, TTM = 연간 + 최신누적 - 전년동기누적
+                            // 안전한 방식: 가장 최근 누적이 3분기(9개월)면, 연간(entry 3) + 3분기누적 - 전년3분기
+                            // 전년 동기 데이터 없으면: 연간 데이터(entry 마지막)만 사용
+                            if (quarterCount >= 4) {
+                                // entry[3]을 연간 데이터로 가정
+                                JsonNode annual = output.get(3);
+                                ttmNetIncomeRaw = parseBigDecimal(annual.path("thtr_ntin").asText());
+                                ttmRevenueRaw = parseBigDecimal(annual.path("sale_account").asText());
+                                ttmOperatingProfitRaw = parseBigDecimal(annual.path("bsop_prti").asText());
+                                log.info("[손익계산서 TTM] {} 누적→연간 데이터 사용: 매출={}, 영업이익={}, 순이익={}",
+                                        stockCode, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
+                            } else {
+                                // 연간 데이터 없으면 최신 누적값을 12개월로 비례 추정
+                                JsonNode latestQ = output.get(0);
+                                ttmNetIncomeRaw = parseBigDecimal(latestQ.path("thtr_ntin").asText());
+                                ttmRevenueRaw = parseBigDecimal(latestQ.path("sale_account").asText());
+                                ttmOperatingProfitRaw = parseBigDecimal(latestQ.path("bsop_prti").asText());
+                                // quarterCount개 분기 누적이면 12/quarterCount 배로 추정
+                                BigDecimal annualizer = new BigDecimal("4").divide(
+                                        new BigDecimal(String.valueOf(quarterCount)), 4, RoundingMode.HALF_UP);
+                                ttmNetIncomeRaw = ttmNetIncomeRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
+                                ttmRevenueRaw = ttmRevenueRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
+                                ttmOperatingProfitRaw = ttmOperatingProfitRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
+                                log.info("[손익계산서 TTM] {} 누적→비례추정: 매출={}, 영업이익={}, 순이익={} (x{})",
+                                        stockCode, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw, annualizer);
+                            }
+                        } else {
+                            // 개별 분기 데이터: 기존 방식대로 합산
+                            for (int i = 0; i < quarterCount; i++) {
+                                JsonNode q = output.get(i);
+                                ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
+                                ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
+                                ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
+                            }
                         }
 
-                        log.info("[손익계산서 TTM] {} - {}분기 합산: 매출액: {}, 영업이익: {}, 당기순이익: {}",
-                                stockCode, quarterCount, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
+                        log.info("[손익계산서 TTM] {} - {}분기 (누적:{}): 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                                stockCode, quarterCount, isCumulative, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
 
-                        if (quarterCount < 4) {
+                        if (quarterCount < 4 && !isCumulative) {
                             log.warn("[손익계산서 TTM] {} - 4분기 미만 데이터 ({}분기)", stockCode, quarterCount);
                         }
 
@@ -490,6 +644,97 @@ public class StockFinancialDataCollector {
                 }
             } else {
                 log.warn("[손익계산서] {} - API 응답 없음 또는 실패", stockCode);
+            }
+
+            // ★ 재무상태표 조회 → 자본총계/총자산/부채총계 수집 (ROE 직접 계산용)
+            // 분기(1) 먼저 시도, 실패 또는 데이터 없으면 연간(0) 폴백
+            Thread.sleep(100);
+            try {
+                boolean bsDataFound = false;
+                for (String divClsCode : new String[]{"1", "0"}) {
+                    if (bsDataFound) break;
+
+                    String balanceUrl = baseUrl + "/uapi/domestic-stock/v1/finance/balance-sheet"
+                            + "?FID_DIV_CLS_CODE=" + divClsCode
+                            + "&fid_cond_mrkt_div_code=J"
+                            + "&fid_input_iscd=" + stockCode;
+
+                    headers.set("tr_id", "FHKST66430400");
+                    request = new HttpEntity<>(headers);
+                    response = executeWithRetry(balanceUrl, request);
+
+                    if (response != null && response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                        JsonNode bsRoot = objectMapper.readTree(response.getBody());
+                        if ("0".equals(bsRoot.path("rt_cd").asText())) {
+                            JsonNode bsOutput = bsRoot.get("output");
+                            if (bsOutput != null && bsOutput.isArray() && bsOutput.size() > 0) {
+                                // 가장 최근 데이터 사용
+                                JsonNode latestBs = bsOutput.get(0);
+                                BigDecimal totalAset = parseBigDecimal(latestBs.path("total_aset").asText());
+                                BigDecimal totalCptl = parseBigDecimal(latestBs.path("total_cptl").asText());
+                                BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
+
+                                if (totalCptl.compareTo(BigDecimal.ZERO) <= 0) {
+                                    log.warn("[재무상태표] {} - FID_DIV_CLS_CODE={} 자본총계 0 또는 없음, 다음 시도", stockCode, divClsCode);
+                                    if ("1".equals(divClsCode)) {
+                                        Thread.sleep(100);
+                                    }
+                                    continue;
+                                }
+
+                                bsDataFound = true;
+                                log.info("[재무상태표] {} - FID_DIV_CLS_CODE={} 데이터 사용 (raw 자본총계: {})", stockCode, divClsCode, totalCptl);
+
+                                // 단위변환: 백만원 → 억원 (손익계산서와 동일)
+                                if (totalAset.compareTo(BigDecimal.ZERO) > 0) {
+                                    ratios.put("totalAssets", totalAset.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                                }
+                                ratios.put("totalEquity", totalCptl.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                                if (totalLblt.compareTo(BigDecimal.ZERO) > 0) {
+                                    ratios.put("totalDebt", totalLblt.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                                }
+
+                                // ★ totalEquity 기반 ROE 직접 계산 (ratio 추정 대체)
+                                BigDecimal ttmNetIncome = ratios.get("netIncome"); // 억원
+                                BigDecimal totalEquity = ratios.get("totalEquity"); // 억원
+                                if (ttmNetIncome != null && totalEquity != null
+                                        && totalEquity.compareTo(BigDecimal.ZERO) > 0) {
+                                    BigDecimal directRoe = ttmNetIncome
+                                            .divide(totalEquity, 6, RoundingMode.HALF_UP)
+                                            .multiply(new BigDecimal("100"))
+                                            .setScale(2, RoundingMode.HALF_UP);
+                                    log.info("[재무상태표] {} ROE 직접 계산: {}% (TTM순이익: {}억 / 자본총계: {}억), 기존 ROE: {}%",
+                                            stockCode, directRoe, ttmNetIncome, totalEquity, ratios.get("roe"));
+                                    ratios.put("roe", directRoe);
+                                }
+
+                                // ★ 부채비율 직접 계산
+                                if (totalLblt.compareTo(BigDecimal.ZERO) > 0 && totalCptl.compareTo(BigDecimal.ZERO) > 0) {
+                                    BigDecimal directDebtRatio = totalLblt
+                                            .divide(totalCptl, 6, RoundingMode.HALF_UP)
+                                            .multiply(new BigDecimal("100"))
+                                            .setScale(2, RoundingMode.HALF_UP);
+                                    ratios.put("debtRatio", directDebtRatio);
+                                }
+
+                                log.info("[재무상태표] {} - 총자산: {}억, 자본총계: {}억, 부채총계: {}억",
+                                        stockCode, ratios.get("totalAssets"), ratios.get("totalEquity"), ratios.get("totalDebt"));
+                            } else {
+                                log.warn("[재무상태표] {} - FID_DIV_CLS_CODE={} output 비어있음", stockCode, divClsCode);
+                                if ("1".equals(divClsCode)) {
+                                    Thread.sleep(100);
+                                }
+                            }
+                        } else {
+                            log.warn("[재무상태표] {} - FID_DIV_CLS_CODE={} API 오류: {}", stockCode, divClsCode, bsRoot.path("msg1").asText());
+                            if ("1".equals(divClsCode)) {
+                                Thread.sleep(100);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[재무상태표] {} - 조회 실패: {}", stockCode, e.getMessage());
             }
         } catch (Exception e) {
             log.warn("재무비율 조회 실패 [{}]: {}", stockCode, e.getMessage());
@@ -727,5 +972,47 @@ public class StockFinancialDataCollector {
             log.warn("API 호출 최종 실패: {}", lastException.getMessage());
         }
         return null;
+    }
+
+    /**
+     * 네이버 금융 coinfo 페이지에서 정확한 상장주식수 크롤링
+     * KIS API의 lstn_stcn은 유통주식수를 반환하는 경우가 있어 발행주식수와 차이 발생
+     */
+    private BigDecimal fetchNaverListedShares(String stockCode) {
+        try {
+            Document doc = Jsoup.connect("https://finance.naver.com/item/coinfo.naver?code=" + stockCode)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .referrer("https://finance.naver.com/")
+                    .timeout(10000)
+                    .get();
+
+            Element th = doc.selectFirst("th:contains(상장주식수)");
+            if (th != null) {
+                Element td = th.nextElementSibling();
+                if (td != null) {
+                    Element em = td.selectFirst("em");
+                    String text = (em != null) ? em.text() : td.text();
+                    BigDecimal shares = parseNaverNumber(text);
+                    if (shares != null && shares.compareTo(BigDecimal.ZERO) > 0) {
+                        log.info("[재무수집] {} 네이버 상장주식수: {}", stockCode, shares);
+                        return shares;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[재무수집] {} 네이버 상장주식수 크롤링 실패: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
+    private BigDecimal parseNaverNumber(String text) {
+        if (text == null || text.isBlank()) return null;
+        try {
+            String cleaned = text.replaceAll("[^0-9.\\-]", "");
+            if (cleaned.isEmpty()) return null;
+            return new BigDecimal(cleaned);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

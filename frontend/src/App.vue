@@ -1,6 +1,6 @@
 <template>
   <div class="app-wrapper">
-    <div class="global-controls">
+    <div class="global-controls" v-if="!isStockPage">
       <NotificationBell />
     </div>
     <router-view />
@@ -9,16 +9,21 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, watch } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 import NotificationBell from './components/NotificationBell.vue';
 import NewsToast from './components/NewsToast.vue';
 import { TokenManager } from './utils/auth';
 
 const router = useRouter();
+const route = useRoute();
 const isAuthenticated = ref(TokenManager.hasToken());
 
-// 라우터 변경 시 인증 상태 업데이트
+const stockPaths = ['/stock-dashboard', '/stock/', '/research', '/market-timing', '/global-futures', '/paper-trading'];
+const isStockPage = computed(() => {
+  return stockPaths.some(p => route.path.startsWith(p));
+});
+
 watch(
   () => router.currentRoute.value,
   () => {
@@ -51,4 +56,3 @@ watch(
   }
 }
 </style>
-

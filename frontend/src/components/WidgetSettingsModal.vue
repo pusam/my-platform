@@ -56,8 +56,6 @@ const props = defineProps({
 const emit = defineEmits(['close', 'update:settings']);
 
 const defaultWidgets = [
-  { id: 'goldPrice', name: '금 시세', description: '실시간 금 시세를 표시합니다', iconClass: 'gold', enabled: true },
-  { id: 'silverPrice', name: '은 시세', description: '실시간 은 시세를 표시합니다', iconClass: 'silver', enabled: true },
   { id: 'assetSummary', name: '자산 요약', description: '보유 자산 요약 정보를 표시합니다', iconClass: 'asset', enabled: true },
   { id: 'news', name: '경제 뉴스', description: '오늘의 경제 뉴스를 표시합니다', iconClass: 'news', enabled: true },
   { id: 'financeSummary', name: '가계부 요약', description: '이번 달 수입/지출 요약을 표시합니다', iconClass: 'finance', enabled: true },

@@ -633,13 +633,13 @@ public class InvestorTradeService {
 
     /**
      * 장 마감 후 캐시 자동 초기화 (매일 16:05)
-     * - 16:00에 데이터 수집이 실행되고, 5분 후 캐시 초기화
-     * - 데이터 수집 시에도 @CacheEvict가 적용되지만, 안전하게 이중 초기화
+     * - 16:00에 데이터 수집이 실행되고, 10분 후 캐시 초기화
+     * - 16:05 warmConsecutiveBuys와 레이스 방지 (기존 16:05 → 16:10)
      */
-    @Scheduled(cron = "0 5 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10 16 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledCacheEvict() {
         clearConsecutiveBuysCache();
-        log.info("장 마감 후 연속 매수 캐시 스케줄 초기화 완료");
+        log.info("장 마감 후 연속 매수 캐시 스케줄 초기화 완료 (16:10)");
     }
 
     /**
