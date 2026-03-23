@@ -1383,7 +1383,7 @@ onUnmounted(() => {
   background: #1a1a3a;
   border-radius: 15px;
   padding: 1.5rem;
-  border: 2px solid #2a2a4a;
+  border: 1px solid rgba(255,255,255,0.1);
   transition: all 0.3s;
 }
 
@@ -1622,6 +1622,10 @@ onUnmounted(() => {
 
 .stock-name {
   font-weight: 600;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stock-code {
@@ -1710,7 +1714,7 @@ onUnmounted(() => {
   padding: 2rem;
   width: 90%;
   max-width: 400px;
-  border: 2px solid #2a2a4a;
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
 .modal.real-modal {
@@ -1769,7 +1773,7 @@ onUnmounted(() => {
 .trade-type-buttons button {
   flex: 1;
   padding: 0.75rem;
-  border: 2px solid #3a3a5a;
+  border: 1px solid rgba(255,255,255,0.15);
   background: transparent;
   color: #888;
   border-radius: 8px;

@@ -1005,7 +1005,7 @@ export default {
 .legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
 .legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
 .rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
-.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.25); margin-left: 2px; }
+.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.4); margin-left: 2px; }
 .rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
 .rec-grade.grade-strong { color: #ef4444; }
 .rec-grade.grade-buy { color: #f59e0b; }
@@ -1027,7 +1027,7 @@ export default {
 .rec-detail-score { font-size: 9px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
 .rec-detail-track.na { opacity: 0.3; }
 .rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
-.na-text { color: rgba(255,255,255,0.2); font-size: 8px; }
+.na-text { color: rgba(255,255,255,0.35); font-size: 9px; }
 .rec-price-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .rec-current-price { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }

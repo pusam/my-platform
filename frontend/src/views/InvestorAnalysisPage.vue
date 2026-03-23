@@ -961,7 +961,7 @@ td {
 .trade-row:hover { background: rgba(255,255,255,0.04); }
 
 .rank { font-weight: 700; color: #667eea; text-align: center; }
-.stock-name { font-weight: 600; }
+.stock-name { font-weight: 600; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stock-code { color: rgba(255,255,255,0.4); font-family: monospace; }
 
 .amount-cell { padding: 6px 12px !important; }
@@ -1045,7 +1045,7 @@ td {
 }
 
 .stock-info { display: flex; flex-direction: column; }
-.card-stock-name { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.9); }
+.card-stock-name { font-size: 15px; font-weight: 700; color: rgba(255,255,255,0.9); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
 .card-stock-code { font-size: 12px; color: rgba(255,255,255,0.35); font-family: monospace; }
 
 .consecutive-badge {

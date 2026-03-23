@@ -2327,7 +2327,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 .ind-toggle {
-  padding: 3px 8px;
+  padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;
   border: 1px solid rgba(255,255,255,0.12);
@@ -2336,16 +2336,22 @@ onUnmounted(() => {
   color: rgba(255,255,255,0.35);
   cursor: pointer;
   transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
 }
 .ind-toggle:hover {
   border-color: rgba(255,255,255,0.25);
   color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.04);
 }
 .ind-toggle.active {
-  background: color-mix(in srgb, var(--ind-color) 18%, transparent);
   border-color: var(--ind-color);
   color: var(--ind-color);
 }
+.ind-toggle.active[style*="--ind-color: #f59e0b"] { background: rgba(245,158,11,0.18); }
+.ind-toggle.active[style*="--ind-color: #3b82f6"] { background: rgba(59,130,246,0.18); }
+.ind-toggle.active[style*="--ind-color: #10b981"] { background: rgba(16,185,129,0.18); }
+.ind-toggle.active[style*="--ind-color: #a855f7"] { background: rgba(168,85,247,0.18); }
+.ind-toggle.active[style*="--ind-color: #6b7280"] { background: rgba(107,114,128,0.18); }
 
 .candle {
   width: 8px;
