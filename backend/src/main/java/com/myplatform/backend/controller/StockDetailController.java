@@ -71,7 +71,7 @@ public class StockDetailController {
             log.error("[StockDetail API] 종목 {} 조회 실패: {}", stockCode, e.getMessage(), e);
 
             response.put("success", false);
-            response.put("message", "종목 상세 조회 실패: " + e.getMessage());
+            response.put("message", "종목 상세 조회에 실패했습니다. 잠시 후 다시 시도해주세요.");
             response.put("timestamp", LocalDateTime.now());
 
             return ResponseEntity.internalServerError().body(response);

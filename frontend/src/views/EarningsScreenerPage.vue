@@ -703,7 +703,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -755,6 +755,7 @@ const collectProgress = ref('');
 
 // SSE 실시간 진행률
 const sseConnection = ref(null);
+let sseReconnectTimer = null;
 const sseProgress = ref({
   percent: 0,
   current: 0,
@@ -1003,7 +1004,7 @@ const startSseSubscription = (taskType) => {
       sseProgress.value.message = `🔄 재연결 중... (${reconnectAttempts}/${maxReconnectAttempts})`;
 
       // 3초 후 재연결 시도
-      setTimeout(() => {
+      sseReconnectTimer = setTimeout(() => {
         if (isCollectingAll.value || isCrawling.value || isCollectingQuarterly.value) {
           startSseSubscription(taskType);
         }
@@ -1746,6 +1747,14 @@ onMounted(async () => {
   // 페이지 진입 시 바로 데이터 조회 (수집은 스케줄러가 처리)
   await fetchCollectStatus();
   await fetchMagicFormula();
+});
+
+onUnmounted(() => {
+  if (sseConnection.value) {
+    sseConnection.value.close();
+    sseConnection.value = null;
+  }
+  if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
 });
 </script>
 
