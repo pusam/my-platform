@@ -41,6 +41,7 @@ public class RecommendationService {
     private final TechnicalIndicatorService technicalIndicatorService;
     private final SectorTradingService sectorTradingService;
     private final StockAnalysisService stockAnalysisService;
+    private final StockPriceService stockPriceService;
     private final StockPriceHistoryRepository priceHistoryRepository;
     private final RecommendationSnapshotRepository snapshotRepository;
 
@@ -98,7 +99,29 @@ public class RecommendationService {
         return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap());
     }
 
+    /**
+     * TOP5 종목의 changeRate/currentPrice를 실시간 시세로 갱신
+     */
+    private void refreshPrices(List<RecommendationDto> items) {
+        try {
+            List<String> codes = items.stream().map(RecommendationDto::getStockCode).toList();
+            Map<String, com.myplatform.backend.dto.StockPriceDto> prices = stockPriceService.getStockPrices(codes);
+            for (RecommendationDto dto : items) {
+                com.myplatform.backend.dto.StockPriceDto p = prices.get(dto.getStockCode());
+                if (p != null) {
+                    if (p.getChangeRate() != null) dto.setChangeRate(p.getChangeRate());
+                    if (p.getCurrentPrice() != null) dto.setCurrentPrice(p.getCurrentPrice());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[종합추천] 실시간 시세 갱신 실패: {}", e.getMessage());
+        }
+    }
+
     private Top5Response buildResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
+        // 실시간 시세로 changeRate/currentPrice 갱신
+        refreshPrices(items);
+
         Map<String, Integer> deltaMap = new HashMap<>();
         try {
             LocalDateTime cutoff = cacheTime != null ? cacheTime.minusHours(20) : LocalDateTime.now().minusDays(1);
@@ -631,6 +654,7 @@ public class RecommendationService {
         private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, validCount;
         private List<String> tags;
         private BigDecimal changeRate;
+        private BigDecimal currentPrice;
     }
 
     @Getter @AllArgsConstructor

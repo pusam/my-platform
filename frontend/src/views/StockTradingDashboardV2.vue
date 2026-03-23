@@ -89,10 +89,13 @@
                     </template>
                   </div>
                 </div>
-                <span v-if="rec.changeRate != null" class="rec-change"
-                      :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
-                  {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
-                </span>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -1025,6 +1028,8 @@ export default {
 .rec-detail-track.na { opacity: 0.3; }
 .rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
 .na-text { color: rgba(255,255,255,0.2); font-size: 8px; }
+.rec-price-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.rec-current-price { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
 
 /* ===== 수급 현황 패널 ===== */
