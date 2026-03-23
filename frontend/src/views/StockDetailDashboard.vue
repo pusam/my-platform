@@ -270,14 +270,17 @@
         <div class="chart-section">
           <div class="section-header">
             <h2>주가 차트</h2>
-            <div class="ma-legend">
-              <span class="ma5">MA5: {{ chartData?.ma5?.toLocaleString() }}</span>
-              <span class="ma20">MA20: {{ chartData?.ma20?.toLocaleString() }}</span>
-              <span class="vwap">VWAP: {{ chartData?.vwap?.toLocaleString() }}</span>
+            <div class="chart-toggles">
+              <button v-for="ind in indicatorList" :key="ind.key"
+                :class="['ind-toggle', { active: activeIndicators[ind.key] }]"
+                :style="{ '--ind-color': ind.color }"
+                @click="activeIndicators[ind.key] = !activeIndicators[ind.key]">
+                {{ ind.label }}
+              </button>
             </div>
           </div>
           <div class="candlestick-container">
-            <div class="candlestick-chart">
+            <div class="candlestick-chart" ref="candleChartRef">
               <div
                 v-for="(candle, index) in displayCandles"
                 :key="index"
@@ -288,6 +291,23 @@
                 <div class="wick" :style="getWickStyle(candle)"></div>
                 <div class="body" :style="getBodyStyle(candle)"></div>
               </div>
+              <!-- 이동평균선 + 볼린저밴드 SVG 오버레이 -->
+              <svg v-if="displayCandles.length" class="chart-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <polyline v-if="activeIndicators.ma5 && maLinePath('maLine5')"
+                  :points="maLinePath('maLine5')" fill="none" stroke="#f59e0b" stroke-width="1.5" opacity="0.8"/>
+                <polyline v-if="activeIndicators.ma20 && maLinePath('maLine20')"
+                  :points="maLinePath('maLine20')" fill="none" stroke="#3b82f6" stroke-width="1.5" opacity="0.8"/>
+                <polyline v-if="activeIndicators.ma60 && maLinePath('maLine60')"
+                  :points="maLinePath('maLine60')" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.8"/>
+                <polyline v-if="activeIndicators.ma120 && maLinePath('maLine120')"
+                  :points="maLinePath('maLine120')" fill="none" stroke="#a855f7" stroke-width="1.5" opacity="0.8"/>
+                <template v-if="activeIndicators.bb">
+                  <polyline v-if="maLinePath('bbUpper')"
+                    :points="maLinePath('bbUpper')" fill="none" stroke="#6b7280" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
+                  <polyline v-if="maLinePath('bbLower')"
+                    :points="maLinePath('bbLower')" fill="none" stroke="#6b7280" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
+                </template>
+              </svg>
             </div>
           </div>
           <div class="volume-chart">
@@ -911,7 +931,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
@@ -1114,6 +1134,38 @@ const displayVolumes = computed(() => {
   if (!chartData.value?.volumes) return [];
   return chartData.value.volumes.slice(0, 30).reverse();
 });
+
+// 차트 지표 토글
+const activeIndicators = reactive({
+  ma5: true, ma20: true, ma60: false, ma120: false, bb: false
+});
+const indicatorList = [
+  { key: 'ma5', label: 'MA5', color: '#f59e0b' },
+  { key: 'ma20', label: 'MA20', color: '#3b82f6' },
+  { key: 'ma60', label: 'MA60', color: '#10b981' },
+  { key: 'ma120', label: 'MA120', color: '#a855f7' },
+  { key: 'bb', label: '볼린저', color: '#6b7280' }
+];
+
+// 이동평균선/볼린저밴드 SVG path 생성
+const maLinePath = (lineKey) => {
+  const data = chartData.value?.[lineKey];
+  if (!data || !displayCandles.value.length) return null;
+  // data는 최신→과거 순 (캔들과 동일), 표시는 reverse
+  const lineData = data.slice(0, 30).reverse();
+  const range = chartPriceRange.value;
+  const count = displayCandles.value.length;
+  if (range.max === range.min) return null;
+
+  const points = [];
+  for (let i = 0; i < Math.min(lineData.length, count); i++) {
+    if (lineData[i] == null) continue;
+    const x = ((i + 0.5) / count) * 100;
+    const y = 100 - ((lineData[i] - range.min) / (range.max - range.min)) * 100;
+    points.push(`${x},${y}`);
+  }
+  return points.length >= 2 ? points.join(' ') : null;
+};
 
 // 스타일 클래스
 const priceClass = computed(() => {
@@ -2255,6 +2307,44 @@ onUnmounted(() => {
   align-items: flex-end;
   height: 100%;
   position: relative;
+}
+
+/* 이동평균선 SVG 오버레이 */
+.chart-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  viewBox: 0 0 100 100;
+}
+
+/* 차트 지표 토글 버튼 */
+.chart-toggles {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.ind-toggle {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255,255,255,0.35);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.ind-toggle:hover {
+  border-color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.6);
+}
+.ind-toggle.active {
+  background: color-mix(in srgb, var(--ind-color) 18%, transparent);
+  border-color: var(--ind-color);
+  color: var(--ind-color);
 }
 
 .candle {

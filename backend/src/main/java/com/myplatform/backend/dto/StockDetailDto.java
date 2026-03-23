@@ -202,10 +202,20 @@ public class StockDetailDto {
     public static class ChartData {
         private List<CandlePoint> candles;    // 일봉 데이터
         private List<VolumePoint> volumes;    // 거래량 데이터
-        private BigDecimal ma5;               // 5일 이동평균
-        private BigDecimal ma20;              // 20일 이동평균
-        private BigDecimal ma60;              // 60일 이동평균
+        private BigDecimal ma5;               // 5일 이동평균 (현재값)
+        private BigDecimal ma20;              // 20일 이동평균 (현재값)
+        private BigDecimal ma60;              // 60일 이동평균 (현재값)
         private BigDecimal vwap;              // VWAP
+
+        // 이동평균선 배열 (차트 오버레이용, 각 캔들별 값)
+        private List<BigDecimal> maLine5;
+        private List<BigDecimal> maLine20;
+        private List<BigDecimal> maLine60;
+        private List<BigDecimal> maLine120;
+
+        // 볼린저밴드 (20일 기준)
+        private List<BigDecimal> bbUpper;     // 상단밴드
+        private List<BigDecimal> bbLower;     // 하단밴드
     }
 
     @Data

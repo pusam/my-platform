@@ -426,21 +426,22 @@ public class StockDetailService {
      */
     private ChartData fetchChartData(String stockCode) {
         try {
-            JsonNode dailyData = kisService.getDailyPrices(stockCode, 60);
+            // 120일 + 여유분으로 요청 (MA120 계산용)
+            JsonNode dailyData = kisService.getDailyPrices(stockCode, 150);
             if (dailyData == null) return null;
 
             JsonNode output2 = dailyData.get("output2");
             if (output2 == null || !output2.isArray()) return null;
 
-            List<CandlePoint> candles = new ArrayList<>();
-            List<VolumePoint> volumes = new ArrayList<>();
-            List<BigDecimal> closes = new ArrayList<>();
+            List<CandlePoint> allCandles = new ArrayList<>();
+            List<VolumePoint> allVolumes = new ArrayList<>();
+            List<BigDecimal> allCloses = new ArrayList<>();
 
             for (JsonNode item : output2) {
                 String date = item.has("stck_bsop_date") ? item.get("stck_bsop_date").asText() : "";
                 BigDecimal close = parseBigDecimal(item.get("stck_clpr"));
 
-                candles.add(CandlePoint.builder()
+                allCandles.add(CandlePoint.builder()
                         .date(date)
                         .open(parseBigDecimal(item.get("stck_oprc")))
                         .high(parseBigDecimal(item.get("stck_hgpr")))
@@ -448,18 +449,49 @@ public class StockDetailService {
                         .close(close)
                         .build());
 
-                volumes.add(VolumePoint.builder()
+                allVolumes.add(VolumePoint.builder()
                         .date(date)
                         .volume(parseLong(item.get("acml_vol")))
                         .build());
 
-                closes.add(close);
+                allCloses.add(close);
             }
 
-            // 이동평균 계산
-            BigDecimal ma5 = calculateMA(closes, 5);
-            BigDecimal ma20 = calculateMA(closes, 20);
-            BigDecimal ma60 = calculateMA(closes, 60);
+            // 표시용 캔들 (최근 60개)
+            int displayCount = Math.min(60, allCandles.size());
+            List<CandlePoint> candles = allCandles.subList(0, displayCount);
+            List<VolumePoint> volumes = allVolumes.subList(0, displayCount);
+
+            // 현재값 이동평균
+            BigDecimal ma5 = calculateMA(allCloses, 5);
+            BigDecimal ma20 = calculateMA(allCloses, 20);
+            BigDecimal ma60 = calculateMA(allCloses, 60);
+
+            // 이동평균선 배열 (각 캔들별 MA값, 차트 오버레이용)
+            List<BigDecimal> maLine5 = calculateMALine(allCloses, 5, displayCount);
+            List<BigDecimal> maLine20 = calculateMALine(allCloses, 20, displayCount);
+            List<BigDecimal> maLine60 = calculateMALine(allCloses, 60, displayCount);
+            List<BigDecimal> maLine120 = calculateMALine(allCloses, 120, displayCount);
+
+            // 볼린저밴드 (20일 기준)
+            List<BigDecimal> bbUpper = new ArrayList<>();
+            List<BigDecimal> bbLower = new ArrayList<>();
+            for (int i = 0; i < displayCount; i++) {
+                if (i + 20 <= allCloses.size()) {
+                    List<BigDecimal> window = allCloses.subList(i, i + 20);
+                    BigDecimal mean = window.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
+                            .divide(BigDecimal.valueOf(20), 2, RoundingMode.HALF_UP);
+                    double variance = window.stream()
+                            .mapToDouble(p -> Math.pow(p.subtract(mean).doubleValue(), 2))
+                            .average().orElse(0);
+                    BigDecimal stdDev = BigDecimal.valueOf(Math.sqrt(variance)).setScale(2, RoundingMode.HALF_UP);
+                    bbUpper.add(mean.add(stdDev.multiply(BigDecimal.valueOf(2))));
+                    bbLower.add(mean.subtract(stdDev.multiply(BigDecimal.valueOf(2))));
+                } else {
+                    bbUpper.add(null);
+                    bbLower.add(null);
+                }
+            }
 
             // VWAP
             BigDecimal vwap = null;
@@ -475,10 +507,10 @@ public class StockDetailService {
             return ChartData.builder()
                     .candles(candles)
                     .volumes(volumes)
-                    .ma5(ma5)
-                    .ma20(ma20)
-                    .ma60(ma60)
+                    .ma5(ma5).ma20(ma20).ma60(ma60)
                     .vwap(vwap)
+                    .maLine5(maLine5).maLine20(maLine20).maLine60(maLine60).maLine120(maLine120)
+                    .bbUpper(bbUpper).bbLower(bbLower)
                     .build();
 
         } catch (Exception e) {
@@ -913,6 +945,23 @@ public class StockDetailService {
             sum = sum.add(prices.get(i));
         }
         return sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP);
+    }
+
+    /** 각 캔들 위치별 이동평균값 배열 생성 (차트 오버레이용) */
+    private List<BigDecimal> calculateMALine(List<BigDecimal> allCloses, int period, int displayCount) {
+        List<BigDecimal> line = new ArrayList<>();
+        for (int i = 0; i < displayCount; i++) {
+            if (i + period <= allCloses.size()) {
+                BigDecimal sum = BigDecimal.ZERO;
+                for (int j = i; j < i + period; j++) {
+                    sum = sum.add(allCloses.get(j));
+                }
+                line.add(sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP));
+            } else {
+                line.add(null);
+            }
+        }
+        return line;
     }
 
     // ========== 장 마감 후 일별 데이터 조회 ==========
