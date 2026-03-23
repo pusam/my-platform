@@ -20,7 +20,7 @@ public class BatchJobCleanupService {
         this.repository = repository;
     }
 
-    @Scheduled(cron = "0 0 3 * * *")
+    @Scheduled(cron = "0 0 3 * * *", zone = "Asia/Seoul")
     @Transactional
     public void cleanOldExecutions() {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(7);

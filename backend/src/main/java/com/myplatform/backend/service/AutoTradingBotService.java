@@ -809,7 +809,7 @@ public class AutoTradingBotService {
      * 수급 급증 데이터 캐시 조회 (30초 TTL)
      * 스냅샷은 10분마다 갱신되므로 매 사이클(5초)마다 DB 조회할 필요 없음
      */
-    private Map<String, List<InvestorSurgeDto>> getCachedSurgeStocks() {
+    private synchronized Map<String, List<InvestorSurgeDto>> getCachedSurgeStocks() {
         LocalDateTime now = LocalDateTime.now();
         if (cachedSurgeStocks != null && surgeStocksCacheTime != null
                 && java.time.Duration.between(surgeStocksCacheTime, now).getSeconds() < SURGE_CACHE_SECONDS) {
@@ -1497,7 +1497,7 @@ public class AutoTradingBotService {
         return new java.util.ArrayList<>(merged.values());
     }
 
-    private void resetDailyCounters() {
+    private synchronized void resetDailyCounters() {
         LocalDate today = LocalDate.now();
         if (lastResetDate == null || !lastResetDate.equals(today)) {
             todayBuyCount.set(0);

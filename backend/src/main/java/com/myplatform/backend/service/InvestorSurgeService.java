@@ -61,7 +61,7 @@ public class InvestorSurgeService {
      * - 외국인: 09:30, 11:20, 13:20, 14:30
      * - 기관종합: 10:00, 11:20, 13:20, 14:30
      */
-    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI")
+    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectIntradaySnapshot() {
         LocalTime now = LocalTime.now();
 
@@ -576,7 +576,7 @@ public class InvestorSurgeService {
     /**
      * 오래된 스냅샷 및 알림 기록 정리 (7일 이전)
      */
-    @Scheduled(cron = "0 0 6 * * *")
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldData() {
         LocalDate cutoffDate = LocalDate.now().minusDays(7);
         snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);

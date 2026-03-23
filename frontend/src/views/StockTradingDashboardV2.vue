@@ -26,7 +26,7 @@
           <div class="msb-divider"></div>
           <div class="msb-item">
             <span class="msb-label">ADR</span>
-            <span class="msb-value">{{ marketData.adr || marketData.combinedAdr || '-' }}</span>
+            <span class="msb-value">{{ marketData.adr != null ? marketData.adr : (marketData.combinedAdr || '-') }}</span>
           </div>
           <div class="msb-divider" v-if="globalData?.nasdaqFutures"></div>
           <div class="msb-item" v-if="globalData?.nasdaqFutures" :class="getChangeClass(globalData.nasdaqFutures.changeRate)">
@@ -58,7 +58,7 @@
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
                 <div class="rec-tags">
-                  <span v-for="tag in (rec.tags || []).slice(0, 3)" :key="tag" class="rec-tag">{{ tag }}</span>
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 3)" :key="'t-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
                 </div>
               </div>
               <div class="rec-score-area">
@@ -99,7 +99,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">추천 종목을 계산 중입니다...</div>
+          <div v-else class="empty-signal">추천 종목이 없습니다</div>
           <!-- ⑥ 등급 기준선 범례 -->
           <div class="rec-legend" v-if="topRecommendations.length">
             <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>75↑ 강력매수</span>

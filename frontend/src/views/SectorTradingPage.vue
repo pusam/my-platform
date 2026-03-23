@@ -170,6 +170,8 @@ const totalTradingValue = computed(() => {
 });
 
 let retryTimeout = null;
+let retryCount = 0;
+const MAX_RETRIES = 3;
 
 const loadData = async () => {
   try {
@@ -179,12 +181,15 @@ const loadData = async () => {
       sectors.value = response.data.data || [];
       lastUpdate.value = new Date().toLocaleTimeString('ko-KR');
 
-      // 데이터가 비어있으면 5초 후 자동 재시도
-      if (sectors.value.length === 0) {
+      // 데이터가 비어있으면 5초 후 자동 재시도 (최대 3회)
+      if (sectors.value.length === 0 && retryCount < MAX_RETRIES) {
+        retryCount++;
         if (retryTimeout) clearTimeout(retryTimeout);
         retryTimeout = setTimeout(() => {
           loadData();
         }, 5000);
+      } else {
+        retryCount = 0;
       }
     }
   } catch (error) {

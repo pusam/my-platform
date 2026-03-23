@@ -140,7 +140,7 @@ public class RecommendationService {
         return new Top5Response(items, dataTime, realtime, deltaMap);
     }
 
-    @Scheduled(cron = "0 45 15 * * MON-FRI")
+    @Scheduled(cron = "0 45 15 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         log.info("[종합추천] 마감 스냅샷 저장 시작");

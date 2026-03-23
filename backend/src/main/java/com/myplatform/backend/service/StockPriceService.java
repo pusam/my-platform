@@ -110,18 +110,20 @@ public class StockPriceService {
         int priceRemoved = 0;
         int minuteRemoved = 0;
 
-        // priceCache: fetchedAt이 5분 이상 지난 엔트리 제거
-        for (Map.Entry<String, StockPriceDto> entry : priceCache.entrySet()) {
-            if (!isValidCache(entry.getValue(), 5)) {
-                priceCache.remove(entry.getKey());
+        // priceCache: fetchedAt이 5분 이상 지난 엔트리 제거 (removeIf로 안전하게)
+        var priceIt = priceCache.entrySet().iterator();
+        while (priceIt.hasNext()) {
+            if (!isValidCache(priceIt.next().getValue(), 5)) {
+                priceIt.remove();
                 priceRemoved++;
             }
         }
 
         // minuteTradingCache: isValid() false인 엔트리 제거
-        for (Map.Entry<String, MinuteTradingCache> entry : minuteTradingCache.entrySet()) {
-            if (!entry.getValue().isValid()) {
-                minuteTradingCache.remove(entry.getKey());
+        var minuteIt = minuteTradingCache.entrySet().iterator();
+        while (minuteIt.hasNext()) {
+            if (!minuteIt.next().getValue().isValid()) {
+                minuteIt.remove();
                 minuteRemoved++;
             }
         }
