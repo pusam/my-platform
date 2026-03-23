@@ -1995,8 +1995,12 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 16px;
   position: sticky;
-  top: 0;
+  top: 48px;
   z-index: 100;
+}
+
+@media (max-width: 768px) {
+  .stock-header { top: 40px; }
 }
 
 .header-left {

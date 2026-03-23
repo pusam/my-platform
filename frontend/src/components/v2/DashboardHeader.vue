@@ -74,7 +74,7 @@ export default {
   margin-bottom: 20px;
   gap: 12px;
   position: sticky;
-  top: 0;
+  top: 48px;
   z-index: 100;
   background: #0f0f1a;
 }
@@ -190,6 +190,7 @@ export default {
   .dashboard-header {
     flex-wrap: wrap;
     gap: 10px;
+    top: 40px;
   }
   .header-center {
     order: 3;
