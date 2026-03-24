@@ -45,20 +45,20 @@ import java.util.stream.Collectors;
  * ========================================
  *
  * 1. 매수 조건 (필수 3개 + 보조 4개 중 2개 이상)
- *    [필수] A. 순매수금액 ≥ 1억 (수급 확인)
+ *    [필수] A. 순매수금액 ≥ 3억 (수급 확인, 유의미한 수준)
  *    [필수] B. 현재가 조회 성공
  *    [필수] C. 현재가 > 시초가 (양봉 상태)
- *    [보조] D. 체결강도 ≥ 110% (매수 우위)
- *    [보조] E. RSI(14) < 60 (과열 방지 강화)
- *    [보조] F. 20MA 이격도 < +5% (고점 추격 차단)
- *    [보조] G. 갭상승 < +8%
+ *    [보조] D. 체결강도 ≥ 115% (매수 우위)
+ *    [보조] E. RSI(14) < 55 (과열 방지 강화)
+ *    [보조] F. 20MA 이격도 < +3% (고점 추격 차단)
+ *    [보조] G. 갭상승 < +5%
  *    ※ 조회 실패 = 차단 (안전 우선)
  *
  * 2. 매도 조건 (Auto Exit) - 3초 간격 감시
- *    A. 익절 1차: +2.0% 도달 시 절반 매도
- *    B. 트레일링 스탑: 고점 대비 -1.0% → 전량 매도
- *    C. 손절: -1.0% 터치 시 전량 손절
- *    D. 타임컷: 매수 후 10분 초과 시 전량 매도
+ *    A. 익절 1차: +1.2% 도달 시 절반 매도
+ *    B. 트레일링 스탑: 고점 대비 -0.8% → 전량 매도
+ *    C. 손절: -1.5% 터치 시 전량 손절
+ *    D. 타임컷: 매수 후 15분 초과 시 전량 매도 (최대 20분)
  *    E. 재매수 쿨다운: 매도 후 30분간 동일 종목 금지
  *
  * 3. 리스크 관리 (강화)
@@ -68,7 +68,7 @@ import java.util.stream.Collectors;
  *    D. VIX > 30 매수 일시정지
  *    E. 섹터 OUTFLOW 종목 진입 차단
  *    F. 공매도 비율 5% 이상 종목 진입 차단
- *    G. 09:30~11:30 매수 (장 초반 30분 회피)
+ *    G. 09:45~11:30 매수 (장 초반 45분 관망)
  *
  * ========================================
  */
@@ -92,28 +92,28 @@ public class AutoTradingBotService {
     private final StockStatusService stockStatusService;
 
     // ========== 스캘핑 전략 상수 ==========
-    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.0");     // 손절: -1.0% (손실 건당 금액 축소)
-    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("2.0");   // 익절 1차: +2.0% (슬리피지 방어)
-    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-1.0"); // 트레일링: 고점 대비 -1.0% (틱노이즈 청산 방지: -0.5%→-1.0%)
-    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("110");    // 최소 체결강도: 110% (매수 우위)
-    private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("1");    // 최소 순매수금액: 1억
-    private static final int TIME_CUT_MINUTES = 10;                               // 타임컷: 10분
-    private static final int TIME_CUT_EXTENDED_MINUTES = 15;                       // 동적 연장 시 최대 15분
-    private static final BigDecimal TIME_EXTEND_MIN_PROFIT = new BigDecimal("0.5"); // 연장 조건: 수익 +0.5% 이상
+    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5% (노이즈 손절 방지: -1.0%→-1.5%)
+    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.2");   // 익절 1차: +1.2% (실현 가능 수준: +2.0%→+1.2%)
+    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.8"); // 트레일링: 고점 대비 -0.8% (익절 후 수익 보호: -1.0%→-0.8%)
+    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("115");    // 최소 체결강도: 115% (매수 우위 기준 상향: 110→115)
+    private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억 (유의미한 수급: 1억→3억)
+    private static final int TIME_CUT_MINUTES = 15;                               // 타임컷: 15분 (충분한 수익 전환 시간: 10분→15분)
+    private static final int TIME_CUT_EXTENDED_MINUTES = 20;                       // 동적 연장 시 최대 20분 (15분→20분)
+    private static final BigDecimal TIME_EXTEND_MIN_PROFIT = new BigDecimal("0.3"); // 연장 조건: 수익 +0.3% 이상 (완화: 0.5%→0.3%)
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원
     private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
     private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
     private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-1.5");   // 킬 스위치: -1.5% (스캘핑용 축소)
     private static final int SELL_COOLDOWN_MINUTES = 30;                        // 매도 후 재매수 쿨다운: 30분
-    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("60");      // RSI 진입 상한 (과열 방지 강화: 70→60)
-    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("5");  // 20MA 이격도 상한 (급등 진입 차단: 15%→5%)
-    private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("8");          // 갭상승 상한 (%)
+    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("55");      // RSI 진입 상한 (과열 방지 재강화: 60→55)
+    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("3");  // 20MA 이격도 상한 (고점 추격 차단 강화: 5%→3%)
+    private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("5");          // 갭상승 상한 (축소: 8%→5%)
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");  // 최소 일중 변동폭: 1.5% (저변동성 종목 제외)
     private static final double VIX_PAUSE_THRESHOLD = 30.0;                    // VIX 일시정지 임계치
     private static final BigDecimal KOSPI_DROP_LIMIT = new BigDecimal("-1.5");   // KOSPI 하락 한도: -1.5% 이상 하락 시 진입 차단
     private static final int CONSECUTIVE_STOP_LOSS_LIMIT = 3;                   // 연속 손절 한도: 3회 시 당일 정지
-    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 30);   // 장 초반 30분 진입 금지: 09:30부터 매수
+    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 45);   // 장 초반 45분 관망: 09:45부터 매수 (09:30→09:45)
 
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
@@ -636,7 +636,7 @@ public class AutoTradingBotService {
             return;
         }
 
-        // 09:30~11:30만 매수 허용 (장 초반 30분 변동성 회피)
+        // 09:45~11:30만 매수 허용 (장 초반 45분 변동성 회피)
         LocalTime now = LocalTime.now();
         if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(LocalTime.of(11, 30))) {
             return;
@@ -1168,12 +1168,12 @@ public class AutoTradingBotService {
                 int sellQuantity = portfolio.getQuantity();
                 boolean isPartialSell = false;
 
-                // 1. 손절 체크 (-1.2%)
+                // 1. 손절 체크 (-1.5%)
                 if (profitRate.compareTo(STOP_LOSS_RATE) <= 0) {
                     sellReason = "STOP_LOSS";
                     log.info("[스캘핑봇] 손절 조건: {} - 손익률 {}%", portfolio.getStockName(), profitRate);
                 }
-                // 2. 익절 1차 체크 (+1.3% 절반 매도)
+                // 2. 익절 1차 체크 (+1.2% 절반 매도)
                 else if (!position.halfSold && profitRate.compareTo(TAKE_PROFIT_FIRST) >= 0) {
                     sellReason = "TAKE_PROFIT_HALF";
                     sellQuantity = portfolio.getQuantity() / 2;
