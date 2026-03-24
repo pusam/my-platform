@@ -2094,7 +2094,9 @@ onUnmounted(() => {
 }
 
 .change-info.positive { color: #ef4444; }
+.change-info.positive::before { content: '▲ '; font-size: 0.85em; }
 .change-info.negative { color: #3b82f6; }
+.change-info.negative::before { content: '▼ '; font-size: 0.85em; }
 .change-info.neutral { color: #9ca3af; }
 
 .ai-score-box {
@@ -2721,14 +2723,14 @@ onUnmounted(() => {
 }
 .consensus-source {
   font-size: 0.6rem;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.5);
   margin-top: 6px;
 }
 
 /* 데이터 출처 노트 */
 .data-source-note {
   font-size: 0.6rem;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.5);
   margin-top: 8px;
   padding-top: 6px;
   border-top: 1px solid rgba(255,255,255,0.05);
@@ -3628,9 +3630,9 @@ onUnmounted(() => {
   gap: 2px;
   padding: 6px 4px;
 }
-.qs-label { font-size: 10px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.qs-label { font-size: 10px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .qs-value { font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.9); }
-.qs-sub { font-size: 10px; color: rgba(255,255,255,0.4); }
+.qs-sub { font-size: 10px; color: rgba(255,255,255,0.6); }
 .qs-badge {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
   background: rgba(107,114,128,0.2); color: #9ca3af;

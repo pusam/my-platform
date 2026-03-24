@@ -1001,7 +1001,9 @@ td {
 .rate { text-align: right; font-weight: 600; font-family: monospace; }
 
 .positive { color: #ef4444 !important; }
+.positive::before { content: '▲ '; font-size: 0.75em; }
 .negative { color: #3b82f6 !important; }
+.negative::before { content: '▼ '; font-size: 0.75em; }
 
 /* ===== 카드 그리드 (연속 매수 / 수급 급증) ===== */
 .stocks-grid {
