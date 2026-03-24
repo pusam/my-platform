@@ -202,6 +202,8 @@ public class RecommendationService {
         scoreSectorMomentum(scoreMap);
         // 기술: 마지막 (모든 종목 수집 후)
         scoreTechnical(scoreMap);
+        // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
+        applyRealtimeChecks(scoreMap);
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
@@ -550,6 +552,68 @@ public class RecommendationService {
                     } catch (Exception e) { /* 무시 */ }
                 }
             }, "price-history-collector").start();
+        }
+    }
+
+    // ==================== ⑥ 실시간 교차검증 (상세페이지 정합성) ====================
+
+    /**
+     * 랭킹 점수와 상세페이지 점수의 괴리 방지
+     * - MA20 하회 종목: 기술 점수 차감 + 경고 태그
+     * - 수급 괴리 (주가↑ + 기관/외인 매도): 수급 페널티 + 경고 태그
+     */
+    private void applyRealtimeChecks(Map<String, StockScore> scoreMap) {
+        int ma20Penalty = 0, divergencePenalty = 0;
+
+        for (StockScore stock : scoreMap.values()) {
+            try {
+                // 1. MA20 하회 체크 (가격 히스토리에서 계산)
+                List<StockPriceHistory> history = priceHistoryRepository
+                        .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 25));
+                if (history != null && history.size() >= 20) {
+                    List<BigDecimal> prices = history.stream()
+                            .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
+                            .map(StockPriceHistory::getClosePrice)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+
+                    if (prices.size() >= 20) {
+                        // MA20 계산
+                        BigDecimal ma20Sum = BigDecimal.ZERO;
+                        for (int i = prices.size() - 20; i < prices.size(); i++) {
+                            ma20Sum = ma20Sum.add(prices.get(i));
+                        }
+                        BigDecimal ma20 = ma20Sum.divide(BigDecimal.valueOf(20), 0, java.math.RoundingMode.HALF_UP);
+                        BigDecimal latestClose = prices.get(prices.size() - 1);
+
+                        // 현재가가 MA20보다 낮으면 기술 점수 페널티
+                        if (latestClose.compareTo(ma20) < 0) {
+                            int penalty = Math.min(stock.technical, 8); // 최대 8점 차감
+                            stock.technical = Math.max(0, stock.technical - penalty);
+                            stock.tags.add("⚠MA20하회");
+                            ma20Penalty++;
+                            log.debug("[종합추천] MA20 페널티: {} (종가:{} < MA20:{}, 기술 -{}점)",
+                                    stock.stockName, latestClose, ma20, penalty);
+                        }
+                    }
+                }
+
+                // 2. 수급-가격 괴리 체크: 주가 상승 + 수급 점수 없음 → 개인 주도 의심
+                if (stock.changeRate != null && stock.changeRate.doubleValue() > 1.0 && stock.supplyDemand <= 0) {
+                    // 기관/외인 매수 없이 상승 중 → 수급 페널티
+                    stock.technical = Math.max(0, stock.technical - 3);
+                    stock.tags.add("⚠수급괴리");
+                    divergencePenalty++;
+                    log.debug("[종합추천] 수급 괴리: {} (등락률:+{}% but 수급 점수:{})",
+                            stock.stockName, stock.changeRate, stock.supplyDemand);
+                }
+            } catch (Exception e) {
+                log.debug("[종합추천] 실시간 체크 실패: {} - {}", stock.stockName, e.getMessage());
+            }
+        }
+
+        if (ma20Penalty > 0 || divergencePenalty > 0) {
+            log.info("[종합추천] 실시간 교차검증: MA20페널티 {}건, 수급괴리 {}건", ma20Penalty, divergencePenalty);
         }
     }
 
