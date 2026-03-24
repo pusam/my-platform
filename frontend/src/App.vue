@@ -19,7 +19,7 @@ const router = useRouter();
 const route = useRoute();
 const isAuthenticated = ref(TokenManager.hasToken());
 
-const stockPaths = ['/stock-dashboard', '/stock/', '/research', '/market-timing', '/global-futures', '/paper-trading'];
+const stockPaths = ['/stock-dashboard', '/stock/', '/global-futures'];
 const isStockPage = computed(() => {
   return stockPaths.some(p => route.path.startsWith(p));
 });

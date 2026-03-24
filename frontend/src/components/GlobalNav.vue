@@ -58,7 +58,6 @@ const route = useRoute()
 
 const navItems = [
   { path: '/stock-dashboard', icon: '📈', label: '시장' },
-  { path: '/research', icon: '🔬', label: '분석' },
   { path: '/global-futures', icon: '🌍', label: '글로벌' }
 ]
 
@@ -66,9 +65,6 @@ const isActive = (itemPath) => {
   const current = route.path
   if (itemPath === '/stock-dashboard') {
     return current === '/stock-dashboard' || current.startsWith('/stock/')
-  }
-  if (itemPath === '/research') {
-    return current === '/research' || current === '/market-timing'
   }
   return current.startsWith(itemPath)
 }

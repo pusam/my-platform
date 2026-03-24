@@ -45,7 +45,10 @@ export default {
     return {
       currentTime: '',
       gnbTabs: [
-        { key: 'market', label: '시장 현황', icon: '📊' }
+        { key: 'market', label: '개요', icon: '📊' },
+        { key: 'analysis', label: '분석', icon: '🔬' },
+        { key: 'news', label: '뉴스', icon: '📰' },
+        { key: 'trading', label: '매매', icon: '🤖' }
       ]
     }
   },

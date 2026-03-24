@@ -2,7 +2,7 @@
   <div class="v2-dashboard">
     <GlobalNav />
     <div class="v2-content">
-      <!-- 헤더 (GNB 3탭 통합) -->
+      <!-- 헤더 (4탭: 개요/분석/뉴스/매매) -->
       <DashboardHeader
         :activeTab="activeGnbTab"
         @open-search="showSearch = true"
@@ -191,7 +191,7 @@
         <div class="watchlist-summary section-card" v-if="watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
-            <router-link to="/research" class="more-link">전체 보기 →</router-link>
+            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'analysis'">전체 보기 →</a>
           </div>
           <div class="wl-list">
             <div
@@ -247,6 +247,33 @@
         />
       </div>
 
+      <!-- ═══ Tab 2: 분석 ═══ -->
+      <div v-if="activeGnbTab === 'analysis'" class="tab-panel">
+        <div class="sub-tabs">
+          <button v-for="st in analysisTabs" :key="st.key"
+            :class="['sub-tab-btn', { active: activeAnalysisTab === st.key }]"
+            @click="activeAnalysisTab = st.key">
+            {{ st.label }}
+          </button>
+        </div>
+        <div class="embedded-content">
+          <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
+          <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
+          <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
+          <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
+        </div>
+      </div>
+
+      <!-- ═══ Tab 3: 뉴스 ═══ -->
+      <div v-if="activeGnbTab === 'news'" class="tab-panel">
+        <NewsPage :embedded="true" />
+      </div>
+
+      <!-- ═══ Tab 4: 매매 ═══ -->
+      <div v-if="activeGnbTab === 'trading'" class="tab-panel">
+        <PaperTradingPage :embedded="true" />
+      </div>
+
       <!-- 종목 검색 모달 -->
       <StockSearchModal
         :visible="showSearch"
@@ -260,9 +287,17 @@
 <script>
 import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
-// 시장 뷰 전용 (AI전략/스마트머니/리서치는 /research로 이동)
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
+// 분석 탭 (ResearchPage에서 흡수)
+import EarningsScreenerPage from './EarningsScreenerPage.vue'
+import SectorTradingPage from './SectorTradingPage.vue'
+import InvestorAnalysisPage from './InvestorAnalysisPage.vue'
+import MarketTimingPage from './MarketTimingPage.vue'
+// 뉴스 탭
+import NewsPage from './NewsPage.vue'
+// 매매 탭 (PaperTradingPage 흡수)
+import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
@@ -311,7 +346,13 @@ export default {
     GlobalNav,
     DashboardHeader,
     SectionMarketMap,
-    StockSearchModal
+    StockSearchModal,
+    EarningsScreenerPage,
+    SectorTradingPage,
+    InvestorAnalysisPage,
+    MarketTimingPage,
+    NewsPage,
+    PaperTradingPage
   },
   provide() {
     return {
@@ -320,7 +361,14 @@ export default {
   },
   data() {
     return {
-      activeGnbTab: 'market',
+      activeGnbTab: this.$route?.query?.tab || 'market',
+      activeAnalysisTab: 'screener',
+      analysisTabs: [
+        { key: 'screener', label: '스크리너' },
+        { key: 'sector', label: '섹터' },
+        { key: 'investor', label: '투자자' },
+        { key: 'timing', label: '시장타이밍' }
+      ],
       showSearch: false,
       dataLoaded: { market: false },
       sections: {
@@ -359,6 +407,11 @@ export default {
   watch: {
     activeGnbTab(tab) {
       this.loadTabData(tab)
+    },
+    '$route.query.tab'(tab) {
+      if (tab && tab !== this.activeGnbTab) {
+        this.activeGnbTab = tab
+      }
     }
   },
   mounted() {
@@ -922,6 +975,41 @@ export default {
   max-width: 1400px;
   margin: 0 auto;
   padding: 20px 24px 60px;
+}
+
+/* ===== 분석 서브탭 ===== */
+.sub-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+.sub-tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 9px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.sub-tab-btn:hover {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.04);
+}
+.sub-tab-btn.active {
+  background: rgba(102,126,234,0.18);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+.embedded-content {
+  min-height: 400px;
 }
 
 /* ===== 시장 상태 바 ===== */

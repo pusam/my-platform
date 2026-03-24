@@ -538,10 +538,10 @@ export default {
       this.$router.push('/board')
     },
     goToVirtualTrading() {
-      this.$router.push('/paper-trading?tab=virtual')
+      this.$router.push('/stock-dashboard?tab=trading')
     },
     goToRealTrading() {
-      this.$router.push('/paper-trading?tab=real')
+      this.$router.push('/stock-dashboard?tab=trading')
     },
     goToUserApproval() {
       this.$router.push('/admin/users')
