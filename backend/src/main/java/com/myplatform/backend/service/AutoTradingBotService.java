@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.PaperTradingDto.AccountSummaryDto;
 import com.myplatform.backend.dto.PaperTradingDto.BotStatusDto;
@@ -38,37 +39,22 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * 자동 매매 봇 서비스 (스캘핑 스나이퍼 모드)
+ * 자동 매매 봇 서비스 (듀얼 전략: 스캘핑 + 스윙)
  *
  * ========================================
- * [전략 명세서] - SCALPING SNIPER MODE
+ * [전략 A] 스캘핑 (고확률 제한 모드)
  * ========================================
+ *    매수: 순매수 ≥ 10억, 체결강도 ≥ 130%, 하루 최대 2건
+ *    매도: 익절 +1.2%(절반), 손절 -1.5%, 타임컷 15분
+ *    시간: 09:45~10:30 (장 초반 골든타임만)
  *
- * 1. 매수 조건 (필수 3개 + 보조 4개 중 2개 이상)
- *    [필수] A. 순매수금액 ≥ 3억 (수급 확인, 유의미한 수준)
- *    [필수] B. 현재가 조회 성공
- *    [필수] C. 현재가 > 시초가 (양봉 상태)
- *    [보조] D. 체결강도 ≥ 115% (매수 우위)
- *    [보조] E. RSI(14) < 55 (과열 방지 강화)
- *    [보조] F. 20MA 이격도 < +3% (고점 추격 차단)
- *    [보조] G. 갭상승 < +5%
- *    ※ 조회 실패 = 차단 (안전 우선)
- *
- * 2. 매도 조건 (Auto Exit) - 3초 간격 감시
- *    A. 익절 1차: +1.2% 도달 시 절반 매도
- *    B. 트레일링 스탑: 고점 대비 -0.8% → 전량 매도
- *    C. 손절: -1.5% 터치 시 전량 손절
- *    D. 타임컷: 매수 후 15분 초과 시 전량 매도 (최대 20분)
- *    E. 재매수 쿨다운: 매도 후 30분간 동일 종목 금지
- *
- * 3. 리스크 관리 (강화)
- *    A. 킬 스위치: 일일 -1.5% 손실 시 봇 종료
- *    B. 연속 손절 3회 시 당일 매수 정지
- *    C. KOSPI -1.5% 하락 시 신규 진입 차단
- *    D. VIX > 30 매수 일시정지
- *    E. 섹터 OUTFLOW 종목 진입 차단
- *    F. 공매도 비율 5% 이상 종목 진입 차단
- *    G. 09:45~11:30 매수 (장 초반 45분 관망)
+ * ========================================
+ * [전략 B] 스윙 (수급 추종, 2~5일 보유)
+ * ========================================
+ *    매수: 외국인/기관 3일+ 연속매수 + MA20 지지 + RSI < 65
+ *    매도: 익절 +5%, 손절 -3%, 최대 5일 보유
+ *    시간: 14:00 1회 체크 (장 마감 전 수급 확정)
+ *    최대 2종목 동시 보유
  *
  * ========================================
  */
@@ -90,30 +76,44 @@ public class AutoTradingBotService {
     private final SectorTradingService sectorTradingService;
     private final ShortSellingService shortSellingService;
     private final StockStatusService stockStatusService;
+    private final InvestorTradeService investorTradeService;
 
-    // ========== 스캘핑 전략 상수 ==========
-    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5% (노이즈 손절 방지: -1.0%→-1.5%)
-    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.2");   // 익절 1차: +1.2% (실현 가능 수준: +2.0%→+1.2%)
-    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.8"); // 트레일링: 고점 대비 -0.8% (익절 후 수익 보호: -1.0%→-0.8%)
-    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("115");    // 최소 체결강도: 115% (매수 우위 기준 상향: 110→115)
-    private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("3");    // 최소 순매수금액: 3억 (유의미한 수급: 1억→3억)
-    private static final int TIME_CUT_MINUTES = 15;                               // 타임컷: 15분 (충분한 수익 전환 시간: 10분→15분)
-    private static final int TIME_CUT_EXTENDED_MINUTES = 20;                       // 동적 연장 시 최대 20분 (15분→20분)
-    private static final BigDecimal TIME_EXTEND_MIN_PROFIT = new BigDecimal("0.3"); // 연장 조건: 수익 +0.3% 이상 (완화: 0.5%→0.3%)
+    // ========== [A] 스캘핑 전략 상수 (고확률 제한) ==========
+    private static final BigDecimal STOP_LOSS_RATE = new BigDecimal("-1.5");     // 손절: -1.5%
+    private static final BigDecimal TAKE_PROFIT_FIRST = new BigDecimal("1.2");   // 익절 1차: +1.2% (절반)
+    private static final BigDecimal TRAILING_STOP_RATE = new BigDecimal("-0.8"); // 트레일링: 고점 대비 -0.8%
+    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("130");    // 최소 체결강도: 130% (고확률: 115→130)
+    private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("10");   // 최소 순매수금액: 10억 (대폭 상향: 3→10)
+    private static final int TIME_CUT_MINUTES = 15;                               // 타임컷: 15분
+    private static final int TIME_CUT_EXTENDED_MINUTES = 20;                       // 동적 연장 최대 20분
+    private static final BigDecimal TIME_EXTEND_MIN_PROFIT = new BigDecimal("0.3"); // 연장 조건: +0.3%
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;               // 최소 거래대금: 500억원
     private static final int MIN_VOLUME_RATIO = 200;                              // 전일 대비 거래량: 200%
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 최대 15%
-    private static final int MAX_HOLDING_STOCKS = 3;                              // 최대 보유 종목 수
-    private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-1.5");   // 킬 스위치: -1.5% (스캘핑용 축소)
-    private static final int SELL_COOLDOWN_MINUTES = 30;                        // 매도 후 재매수 쿨다운: 30분
-    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("55");      // RSI 진입 상한 (과열 방지 재강화: 60→55)
-    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("3");  // 20MA 이격도 상한 (고점 추격 차단 강화: 5%→3%)
-    private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("5");          // 갭상승 상한 (축소: 8%→5%)
-    private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");  // 최소 일중 변동폭: 1.5% (저변동성 종목 제외)
-    private static final double VIX_PAUSE_THRESHOLD = 30.0;                    // VIX 일시정지 임계치
-    private static final BigDecimal KOSPI_DROP_LIMIT = new BigDecimal("-1.5");   // KOSPI 하락 한도: -1.5% 이상 하락 시 진입 차단
-    private static final int CONSECUTIVE_STOP_LOSS_LIMIT = 3;                   // 연속 손절 한도: 3회 시 당일 정지
-    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 45);   // 장 초반 45분 관망: 09:45부터 매수 (09:30→09:45)
+    private static final int MAX_HOLDING_STOCKS = 3;                              // 스캘핑 최대 보유: 3종목
+    private static final int MAX_SCALPING_TRADES_PER_DAY = 2;                    // ★ 하루 최대 스캘핑 매수: 2건
+    private static final BigDecimal KILL_SWITCH_RATE = new BigDecimal("-1.5");   // 킬 스위치: -1.5%
+    private static final int SELL_COOLDOWN_MINUTES = 30;                        // 재매수 쿨다운: 30분
+    private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("55");      // RSI 상한: 55
+    private static final BigDecimal DISPARITY_20MA_LIMIT = new BigDecimal("3");  // 이격도 상한: 3%
+    private static final BigDecimal GAP_UP_LIMIT = new BigDecimal("5");          // 갭상승 상한: 5%
+    private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");  // 최소 변동폭: 1.5%
+    private static final double VIX_PAUSE_THRESHOLD = 30.0;                    // VIX 임계치
+    private static final BigDecimal KOSPI_DROP_LIMIT = new BigDecimal("-1.5");   // KOSPI 하락 한도
+    private static final int CONSECUTIVE_STOP_LOSS_LIMIT = 3;                   // 연속 손절 한도: 3회
+    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 45);   // 스캘핑 시작: 09:45
+    private static final LocalTime MORNING_ENTRY_END = LocalTime.of(10, 30);    // ★ 스캘핑 종료: 10:30 (골든타임만)
+
+    // ========== [B] 스윙 전략 상수 (수급 추종, 2~5일 보유) ==========
+    private static final BigDecimal SWING_STOP_LOSS = new BigDecimal("-3.0");    // 스윙 손절: -3%
+    private static final BigDecimal SWING_TAKE_PROFIT = new BigDecimal("5.0");   // 스윙 익절: +5%
+    private static final BigDecimal SWING_TRAILING_STOP = new BigDecimal("-2.0"); // 스윙 트레일링: 고점 -2%
+    private static final int SWING_MAX_HOLD_DAYS = 5;                            // 최대 보유: 5일
+    private static final int SWING_MIN_CONSEC_DAYS = 3;                          // 최소 연속매수: 3일
+    private static final BigDecimal SWING_MIN_AVG_AMOUNT = new BigDecimal("10"); // 일평균 순매수 ≥ 10억
+    private static final BigDecimal SWING_RSI_LIMIT = new BigDecimal("65");      // RSI 상한: 65 (과열 미진입)
+    private static final int SWING_MAX_HOLDING = 2;                              // 스윙 최대 보유: 2종목
+    private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.20"); // 종목당 20%
 
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
@@ -134,6 +134,8 @@ public class AutoTradingBotService {
     // ========== 스캘핑 전용 상태 ==========
     // 종목별 매수 정보 (고점 추적, 매수 시간, 절반 익절 여부)
     private final Map<String, ScalpingPosition> scalpingPositions = new ConcurrentHashMap<>();
+    // ========== 스윙 전용 상태 ==========
+    private final Map<String, SwingPosition> swingPositions = new ConcurrentHashMap<>();
     // 종목별 마지막 매도 시간 (재매수 쿨다운용)
     private final Map<String, LocalDateTime> sellCooldownMap = new ConcurrentHashMap<>();
     // 당일 시작 자산 (킬 스위치용)
@@ -190,6 +192,37 @@ public class AutoTradingBotService {
     }
 
     /**
+     * 스윙 포지션 정보
+     */
+    private static class SwingPosition {
+        String stockCode;
+        String stockName;
+        BigDecimal buyPrice;
+        LocalDateTime buyTime;
+        BigDecimal highPrice;
+        String buyReason; // "외국인3일연속" 등
+
+        SwingPosition(String stockCode, String stockName, BigDecimal buyPrice, String reason) {
+            this.stockCode = stockCode;
+            this.stockName = stockName;
+            this.buyPrice = buyPrice;
+            this.buyTime = LocalDateTime.now();
+            this.highPrice = buyPrice;
+            this.buyReason = reason;
+        }
+
+        void updateHighPrice(BigDecimal currentPrice) {
+            if (currentPrice.compareTo(highPrice) > 0) {
+                highPrice = currentPrice;
+            }
+        }
+
+        long holdDays() {
+            return java.time.Duration.between(buyTime, LocalDateTime.now()).toDays();
+        }
+    }
+
+    /**
      * 매매 모드 Enum
      */
     public enum TradingMode {
@@ -221,7 +254,8 @@ public class AutoTradingBotService {
             GlobalFuturesService globalFuturesService,
             SectorTradingService sectorTradingService,
             ShortSellingService shortSellingService,
-            StockStatusService stockStatusService) {
+            StockStatusService stockStatusService,
+            InvestorTradeService investorTradeService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -236,6 +270,7 @@ public class AutoTradingBotService {
         this.sectorTradingService = sectorTradingService;
         this.shortSellingService = shortSellingService;
         this.stockStatusService = stockStatusService;
+        this.investorTradeService = investorTradeService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -636,9 +671,14 @@ public class AutoTradingBotService {
             return;
         }
 
-        // 09:45~11:30만 매수 허용 (장 초반 45분 변동성 회피)
+        // 09:45~10:30만 스캘핑 매수 허용 (골든타임 집중)
         LocalTime now = LocalTime.now();
-        if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(LocalTime.of(11, 30))) {
+        if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(MORNING_ENTRY_END)) {
+            return;
+        }
+
+        // ★ 하루 최대 스캘핑 매수 제한
+        if (todayBuyCount.get() >= MAX_SCALPING_TRADES_PER_DAY) {
             return;
         }
 
@@ -1291,20 +1331,22 @@ public class AutoTradingBotService {
             return;
         }
 
-        log.info("[스캘핑봇] ===== 장 마감 청산 시작 =====");
+        log.info("[스캘핑봇] ===== 장 마감 청산 시작 (스캘핑만, 스윙 유지) =====");
 
         try {
-            TimeCutResult result = sellAllPortfolio();
+            // 스윙 포지션은 보유 유지 — 스캘핑 포지션만 청산
+            Set<String> swingCodes = swingPositions.keySet();
+            TimeCutResult result = sellPortfolioExcept(swingCodes);
 
             if (telegramService.isEnabled()) {
                 sendEndOfDayReport(result);
             }
 
-            // 포지션 정리
+            // 스캘핑 포지션만 정리
             scalpingPositions.clear();
 
-            log.info("[스캘핑봇] 장 마감 청산 완료 - {}종목 매도, 총 손익: {}원",
-                    result.soldCount, formatNumber(result.totalProfitLoss));
+            log.info("[스캘핑봇] 장 마감 청산 완료 - {}종목 매도(스윙 {}종목 유지), 총 손익: {}원",
+                    result.soldCount, swingCodes.size(), formatNumber(result.totalProfitLoss));
 
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -1375,6 +1417,325 @@ public class AutoTradingBotService {
         }
 
         return new TimeCutResult(soldCount, totalProfitLoss, soldItems);
+    }
+
+    /**
+     * 스윙 포지션 제외하고 포트폴리오 청산
+     */
+    private TimeCutResult sellPortfolioExcept(Set<String> excludeCodes) {
+        List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+        List<PortfolioItemDto> toSell = portfolios.stream()
+                .filter(p -> !excludeCodes.contains(p.getStockCode()))
+                .collect(Collectors.toList());
+
+        if (toSell.isEmpty()) {
+            return new TimeCutResult(0, BigDecimal.ZERO, List.of());
+        }
+
+        List<String> codes = toSell.stream().map(PortfolioItemDto::getStockCode).collect(Collectors.toList());
+        Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(codes);
+
+        int soldCount = 0;
+        BigDecimal totalProfitLoss = BigDecimal.ZERO;
+        List<TimeCutItem> soldItems = new java.util.ArrayList<>();
+
+        for (PortfolioItemDto portfolio : toSell) {
+            StockPriceDto priceDto = prices.get(portfolio.getStockCode());
+            if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
+            BigDecimal currentPrice = priceDto.getCurrentPrice();
+            try {
+                TradeHistoryDto result = activeTradeService.sell(
+                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), "END_OF_DAY");
+                lastTradeTime = LocalDateTime.now();
+                todaySellCount.incrementAndGet();
+                soldCount++;
+                sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now());
+                BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
+                totalProfitLoss = totalProfitLoss.add(profitLoss);
+                BigDecimal avgPrice = portfolio.getAveragePrice();
+                BigDecimal profitRate = (avgPrice != null && avgPrice.compareTo(BigDecimal.ZERO) > 0)
+                        ? currentPrice.subtract(avgPrice).divide(avgPrice, 4, RoundingMode.HALF_UP).multiply(new BigDecimal("100"))
+                        : BigDecimal.ZERO;
+                soldItems.add(new TimeCutItem(portfolio.getStockName(), portfolio.getStockCode(),
+                        portfolio.getQuantity(), currentPrice, profitLoss, profitRate));
+                Thread.sleep(300);
+            } catch (Exception e) {
+                log.error("[스캘핑봇] 장마감 청산 실패: {} - {}", portfolio.getStockName(), e.getMessage());
+            }
+        }
+        return new TimeCutResult(soldCount, totalProfitLoss, soldItems);
+    }
+
+    // ==================== [전략 B] 스윙 매수 (14:00, 평일) ====================
+
+    /**
+     * 스윙 진입: 외국인/기관 연속매수 종목 중 기술적 조건 충족 시 매수
+     * - 14:00 실행 (장 마감 전 수급 확정)
+     * - 3일+ 연속매수 + 일평균 10억+ + MA20 지지 + RSI < 65
+     */
+    @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeSwingBuyLogic() {
+        if (!botActive.get() || killSwitchTriggered.get()) return;
+        if (isMarketClosed()) return;
+
+        // 스윙 보유 한도 체크
+        if (swingPositions.size() >= SWING_MAX_HOLDING) {
+            log.debug("[스윙봇] 최대 보유 {}종목 도달 — 신규 진입 스킵", SWING_MAX_HOLDING);
+            return;
+        }
+
+        log.info("[스윙봇] ===== 스윙 진입 체크 시작 =====");
+
+        try {
+            // 외국인 + 기관 연속매수 조회
+            List<ConsecutiveBuyDto> foreignConsec = getConsecutiveBuyData("FOREIGN");
+            List<ConsecutiveBuyDto> instConsec = getConsecutiveBuyData("INSTITUTION");
+
+            if (foreignConsec.isEmpty() && instConsec.isEmpty()) {
+                log.info("[스윙봇] 연속매수 데이터 없음 — 스킵");
+                return;
+            }
+
+            // 외국인/기관 모두 합쳐서 후보 선정
+            Map<String, ConsecutiveBuyDto> candidates = new java.util.LinkedHashMap<>();
+            for (ConsecutiveBuyDto cb : foreignConsec) {
+                if (cb.getConsecutiveDays() >= SWING_MIN_CONSEC_DAYS
+                        && cb.getAvgDailyAmount() != null
+                        && cb.getAvgDailyAmount().compareTo(SWING_MIN_AVG_AMOUNT) >= 0) {
+                    candidates.put(cb.getStockCode(), cb);
+                }
+            }
+            // 기관 데이터로 보강 (이미 있으면 스킵)
+            for (ConsecutiveBuyDto cb : instConsec) {
+                if (!candidates.containsKey(cb.getStockCode())
+                        && cb.getConsecutiveDays() >= SWING_MIN_CONSEC_DAYS
+                        && cb.getAvgDailyAmount() != null
+                        && cb.getAvgDailyAmount().compareTo(SWING_MIN_AVG_AMOUNT) >= 0) {
+                    candidates.put(cb.getStockCode(), cb);
+                }
+            }
+
+            log.info("[스윙봇] 연속매수 후보: {}건 (외국인 {}건, 기관 {}건)",
+                    candidates.size(), foreignConsec.size(), instConsec.size());
+
+            if (candidates.isEmpty()) return;
+
+            // 잔고 확인
+            AccountSummaryDto account = activeTradeService.getAccountSummary();
+            BigDecimal totalAsset = account.getCurrentBalance().add(
+                    account.getTotalEvaluation() != null ? account.getTotalEvaluation() : BigDecimal.ZERO);
+            BigDecimal maxPerStock = totalAsset.multiply(SWING_INVESTMENT_RATIO);
+
+            // 이미 보유 중인 종목 제외
+            Set<String> holdingCodes = activeTradeService.getPortfolio().stream()
+                    .map(PortfolioItemDto::getStockCode).collect(Collectors.toSet());
+
+            for (ConsecutiveBuyDto candidate : candidates.values()) {
+                if (swingPositions.size() >= SWING_MAX_HOLDING) break;
+                if (holdingCodes.contains(candidate.getStockCode())) continue;
+                if (swingPositions.containsKey(candidate.getStockCode())) continue;
+                if (sellCooldownMap.containsKey(candidate.getStockCode())) continue;
+
+                // 기술적 조건 체크
+                if (!checkSwingTechnical(candidate.getStockCode())) continue;
+
+                // 현재가 조회
+                StockPriceDto priceDto = stockPriceService.getStockPrice(candidate.getStockCode());
+                if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
+
+                BigDecimal currentPrice = priceDto.getCurrentPrice();
+                int quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
+                if (quantity <= 0) continue;
+
+                // 매수 실행
+                try {
+                    String investorLabel = candidate.getInvestorType().equals("FOREIGN") ? "외국인" : "기관";
+                    String reason = "SWING_" + candidate.getInvestorType();
+
+                    activeTradeService.buy(candidate.getStockCode(), candidate.getStockName(),
+                            currentPrice, quantity, reason);
+
+                    swingPositions.put(candidate.getStockCode(),
+                            new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
+                                    currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속"));
+
+                    lastTradeTime = LocalDateTime.now();
+                    todayBuyCount.incrementAndGet();
+
+                    log.info("[스윙봇-{}] ★ 스윙 진입 ★ {} ({}) {}원 x {}주 | {}",
+                            currentMode.name(), candidate.getStockName(), candidate.getStockCode(),
+                            formatNumber(currentPrice), quantity, investorLabel + candidate.getConsecutiveDays() + "일연속");
+
+                    // 텔레그램 알림
+                    if (telegramService.isEnabled()) {
+                        String modeTag = currentMode == TradingMode.REAL ? "실전" : "모의";
+                        telegramService.sendSignal(String.format(
+                                "<b>📈 [%s] 스윙 진입</b>\n\n🎯 <b>%s</b> (%s)\n💰 %s원 x %d주\n\n📊 %s %d일 연속매수 (일평균 %s억)\n🔴 손절: %s%% | 🟢 익절: +%s%%\n⏰ 최대 보유: %d일\n\n%s MyPlatform %s",
+                                modeTag, candidate.getStockName(), candidate.getStockCode(),
+                                formatNumber(currentPrice), quantity,
+                                investorLabel, candidate.getConsecutiveDays(),
+                                candidate.getAvgDailyAmount().setScale(0, RoundingMode.HALF_UP),
+                                SWING_STOP_LOSS, SWING_TAKE_PROFIT, SWING_MAX_HOLD_DAYS,
+                                currentMode == TradingMode.REAL ? "🔴" : "🟡", modeTag));
+                    }
+
+                    Thread.sleep(500);
+                } catch (Exception e) {
+                    log.error("[스윙봇] 매수 실패: {} - {}", candidate.getStockName(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("[스윙봇] 스윙 매수 로직 오류", e);
+        }
+    }
+
+    /**
+     * 연속매수 데이터 조회
+     */
+    private List<ConsecutiveBuyDto> getConsecutiveBuyData(String investorType) {
+        try {
+            List<ConsecutiveBuyDto> result = investorTradeService.getConsecutiveBuyStocks(investorType, SWING_MIN_CONSEC_DAYS);
+            return result != null ? result : List.of();
+        } catch (Exception e) {
+            log.debug("[스윙봇] 연속매수 조회 실패 ({}): {}", investorType, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 스윙 기술적 조건 체크: MA20 지지 + RSI < 65
+     */
+    private boolean checkSwingTechnical(String stockCode) {
+        try {
+            List<BigDecimal> closePrices = kisService.getDailyClosePricesWithPriority(
+                    stockCode, 30, KisApiRateLimiter.Priority.LOW);
+            if (closePrices == null || closePrices.size() < 20) return false;
+
+            TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
+            if (indicators == null) return false;
+
+            // RSI 과열 체크
+            if (indicators.getRsi14() != null && indicators.getRsi14().compareTo(SWING_RSI_LIMIT) >= 0) {
+                log.debug("[스윙봇] RSI 과열: {} ({})", stockCode, indicators.getRsi14());
+                return false;
+            }
+
+            // MA20 지지 체크: 현재가가 MA20 근처 또는 상회
+            if (indicators.getMa20() != null) {
+                BigDecimal latestPrice = closePrices.get(closePrices.size() - 1);
+                BigDecimal ma20Floor = indicators.getMa20().multiply(new BigDecimal("0.97")); // MA20 -3% 이내
+                if (latestPrice.compareTo(ma20Floor) < 0) {
+                    log.debug("[스윙봇] MA20 하회 심화: {} (가격:{} < MA20×0.97:{})",
+                            stockCode, latestPrice, ma20Floor);
+                    return false;
+                }
+            }
+
+            return true;
+        } catch (Exception e) {
+            log.debug("[스윙봇] 기술 체크 실패: {} - {}", stockCode, e.getMessage());
+            return false;
+        }
+    }
+
+    // ==================== [전략 B] 스윙 매도 (30초 간격) ====================
+
+    /**
+     * 스윙 포지션 감시: 익절/손절/트레일링/일수 타임컷
+     */
+    @Scheduled(cron = "*/30 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeSwingSellLogic() {
+        if (!botActive.get() || swingPositions.isEmpty()) return;
+        if (isMarketClosed()) return;
+
+        LocalTime now = LocalTime.now();
+        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) return;
+
+        try {
+            List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+            Map<String, PortfolioItemDto> portfolioMap = portfolios.stream()
+                    .collect(Collectors.toMap(PortfolioItemDto::getStockCode, p -> p, (a, b) -> a));
+
+            for (SwingPosition position : new java.util.ArrayList<>(swingPositions.values())) {
+                PortfolioItemDto portfolio = portfolioMap.get(position.stockCode);
+                if (portfolio == null) {
+                    swingPositions.remove(position.stockCode);
+                    continue;
+                }
+
+                StockPriceDto priceDto = stockPriceService.getStockPrice(position.stockCode);
+                if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
+
+                BigDecimal currentPrice = priceDto.getCurrentPrice();
+                position.updateHighPrice(currentPrice);
+
+                BigDecimal profitRate = currentPrice.subtract(position.buyPrice)
+                        .divide(position.buyPrice, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+
+                BigDecimal highDropRate = currentPrice.subtract(position.highPrice)
+                        .divide(position.highPrice, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+
+                long holdDays = position.holdDays();
+                String sellReason = null;
+
+                // 1. 손절 -3%
+                if (profitRate.compareTo(SWING_STOP_LOSS) <= 0) {
+                    sellReason = "STOP_LOSS";
+                    log.info("[스윙봇] 손절: {} 손익률 {}%", position.stockName, profitRate);
+                }
+                // 2. 익절 +5%
+                else if (profitRate.compareTo(SWING_TAKE_PROFIT) >= 0) {
+                    sellReason = "TAKE_PROFIT";
+                    log.info("[스윙봇] 익절: {} 손익률 {}%", position.stockName, profitRate);
+                }
+                // 3. 트레일링 (고점 대비 -2%, 수익 구간에서만)
+                else if (profitRate.compareTo(new BigDecimal("2.0")) > 0
+                        && highDropRate.compareTo(SWING_TRAILING_STOP) <= 0) {
+                    sellReason = "TRAILING_STOP";
+                    log.info("[스윙봇] 트레일링: {} 고점대비 {}%", position.stockName, highDropRate);
+                }
+                // 4. 일수 타임컷 (5일 초과)
+                else if (holdDays >= SWING_MAX_HOLD_DAYS) {
+                    sellReason = "TIME_CUT";
+                    log.info("[스윙봇] 일수 타임컷: {} {}일 보유, 손익률 {}%", position.stockName, holdDays, profitRate);
+                }
+
+                if (sellReason != null) {
+                    try {
+                        activeTradeService.sell(portfolio.getStockCode(), currentPrice,
+                                portfolio.getQuantity(), sellReason);
+                        lastTradeTime = LocalDateTime.now();
+                        todaySellCount.incrementAndGet();
+
+                        BigDecimal profitLoss = currentPrice.subtract(position.buyPrice)
+                                .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
+
+                        log.info("[스윙봇-{}] {} 완료: {} x {} @ {}원, 손익: {}원 ({}일 보유)",
+                                currentMode.name(), sellReason, position.stockName,
+                                portfolio.getQuantity(), formatNumber(currentPrice),
+                                formatNumber(profitLoss), holdDays);
+
+                        if (telegramService.isEnabled()) {
+                            String emoji = profitLoss.compareTo(BigDecimal.ZERO) >= 0 ? "🟢" : "🔴";
+                            telegramService.sendSignal(String.format(
+                                    "%s <b>스윙 %s</b>: %s\n💰 %s원 (손익률 %s%%)\n⏰ %d일 보유 | 사유: %s",
+                                    emoji, sellReason, position.stockName,
+                                    formatNumber(profitLoss), profitRate.setScale(2, RoundingMode.HALF_UP),
+                                    holdDays, sellReason));
+                        }
+
+                        swingPositions.remove(position.stockCode);
+                        sellCooldownMap.put(position.stockCode, LocalDateTime.now());
+                    } catch (Exception e) {
+                        log.error("[스윙봇] 매도 실패: {} - {}", position.stockName, e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("[스윙봇] 스윙 매도 로직 오류", e);
+        }
     }
 
     // ==================== 킬 스위치 ====================
