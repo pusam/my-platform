@@ -566,17 +566,26 @@ public class RecommendationService {
     private void applyRealtimeChecks(Map<String, StockScore> scoreMap) {
         int ma20Penalty = 0, divergencePenalty = 0, tagFixed = 0;
 
-        // 실시간 시세 일괄 조회 (API 호출 최소화)
-        List<String> codes = scoreMap.keySet().stream().collect(Collectors.toList());
+        // 상위 후보만 선별 (전체 종목 시세 조회 시 타임아웃 방지)
+        List<StockScore> topCandidates = scoreMap.values().stream()
+                .filter(s -> countValidCategories(s) >= 4)
+                .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
+                .limit(10)
+                .collect(Collectors.toList());
+
+        if (topCandidates.isEmpty()) return;
+
+        // 상위 10개만 실시간 시세 조회
+        List<String> codes = topCandidates.stream().map(s -> s.stockCode).collect(Collectors.toList());
         Map<String, StockPriceDto> priceMap;
         try {
             priceMap = stockPriceService.getStockPrices(codes);
         } catch (Exception e) {
-            log.warn("[종합추천] 실시간 시세 조회 실패: {}", e.getMessage());
-            priceMap = Map.of();
+            log.warn("[종합추천] 실시간 시세 조회 실패 (교차검증 스킵): {}", e.getMessage());
+            return; // 시세 조회 실패 시 교차검증 자체를 스킵 (기존 점수 유지)
         }
 
-        for (StockScore stock : scoreMap.values()) {
+        for (StockScore stock : topCandidates) {
             try {
                 StockPriceDto livePrice = priceMap.get(stock.stockCode);
 
