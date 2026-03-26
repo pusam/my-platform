@@ -123,7 +123,13 @@ jobs:
 
       - name: Prepare JAR file
         run: |
-          JAR_FILE=$(find . -name "*.jar" | grep -v "plain" | head -n 1)
+          JAR_FILE=$(find . -name "*.jar" -not -name "*plain*" -not -path "*/gradle/*" -size +1M | head -n 1)
+          if [ -z "$JAR_FILE" ]; then
+            echo "❌ ERROR: Spring Boot JAR not found!"
+            find . -name "*.jar" -ls
+            exit 1
+          fi
+          echo "✅ Found JAR: $JAR_FILE ($(du -h "$JAR_FILE" | cut -f1))"
           mv "$JAR_FILE" app.jar
 
       - name: Set Docker Tag
