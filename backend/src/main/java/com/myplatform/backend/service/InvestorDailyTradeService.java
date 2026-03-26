@@ -138,11 +138,24 @@ public class InvestorDailyTradeService {
             result.put("KOSPI_" + investorType, count);
         }
 
-        // KRX API에서 연기금 등 세부 투자자 데이터 수집
+        // KRX API에서 세부 투자자 데이터 수집 (연기금/투신/사모/보험)
         String[] markets = {"KOSPI", "KOSDAQ"};
+        Map<String, String> krxInvestorTypes = Map.of(
+                INVESTOR_PENSION, "6000",
+                INVESTOR_INVEST_TRUST, "1000",
+                INVESTOR_PRIVATE_EQUITY, "2000",
+                INVESTOR_INSURANCE, "3000"
+        );
         for (String market : markets) {
-            int count = collectPensionFromKrx(market, tradeDate);
-            result.put(market + "_" + INVESTOR_PENSION, count);
+            for (var entry : krxInvestorTypes.entrySet()) {
+                try {
+                    int count = collectInvestorFromKrx(market, tradeDate, entry.getKey(), entry.getValue());
+                    result.put(market + "_" + entry.getKey(), count);
+                    Thread.sleep(500); // KRX rate limit
+                } catch (Exception e) {
+                    log.warn("KRX {} {} 수집 실패: {}", market, entry.getKey(), e.getMessage());
+                }
+            }
         }
 
         log.info("투자자별 거래 데이터 수집 완료: {}", result);
@@ -372,6 +385,103 @@ public class InvestorDailyTradeService {
             log.error("연기금 데이터 수집 실패 [{}/{}]: {}", marketType, tradeDate, e.getMessage());
         }
 
+        return trades.size();
+    }
+
+    /**
+     * KRX에서 투자자 유형별 데이터 수집 (범용)
+     * @param investorType 내부 투자자 유형 (INVEST_TRUST, PRIVATE_EQUITY, INSURANCE 등)
+     * @param krxCode KRX invstTpCd (1000=투신, 2000=사모, 3000=보험, 6000=연기금)
+     */
+    public int collectInvestorFromKrx(String marketType, LocalDate tradeDate, String investorType, String krxCode) {
+        if (tradeRepository.existsByMarketTypeAndInvestorTypeAndTradeDate(marketType, investorType, tradeDate)) {
+            log.debug("이미 수집됨: {} {} {}", marketType, investorType, tradeDate);
+            return 0;
+        }
+
+        List<InvestorDailyTrade> trades = new ArrayList<>();
+        String dateStr = tradeDate.format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+
+        try {
+            String mktId = "KOSPI".equals(marketType) ? "STK" : "KSQ";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+            headers.set("Referer", "https://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd");
+
+            String requestBody = String.format(
+                    "bld=dbms/MDC/STAT/standard/MDCSTAT02303" +
+                    "&locale=ko_KR" +
+                    "&invstTpCd=%s" +
+                    "&strtDd=%s" +
+                    "&endDd=%s" +
+                    "&mktId=%s" +
+                    "&share=1" +
+                    "&money=1" +
+                    "&csvxls_is498=false",
+                    krxCode, dateStr, dateStr, mktId
+            );
+
+            HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                    KRX_INVESTOR_API, HttpMethod.POST, entity, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode root = objectMapper.readTree(response.getBody());
+                JsonNode outBlock = root.has("OutBlock_1") ? root.get("OutBlock_1") : root.get("output");
+
+                if (outBlock != null && outBlock.isArray()) {
+                    BigDecimal divider = BigDecimal.valueOf(100000000); // 원→억
+                    int buyRank = 1, sellRank = 1;
+
+                    for (JsonNode item : outBlock) {
+                        if (buyRank > 20 && sellRank > 20) break;
+
+                        String stockCode = getStringValue(item, "ISU_SRT_CD");
+                        if (stockCode.isEmpty()) stockCode = getStringValue(item, "ISU_CD");
+                        String stockName = getStringValue(item, "ISU_ABBRV");
+                        if (stockName.isEmpty()) stockName = getStringValue(item, "ISU_NM");
+
+                        BigDecimal netBuy = getBigDecimalValue(item, "NETBID_AMT");
+                        if (netBuy.equals(BigDecimal.ZERO)) {
+                            netBuy = getBigDecimalValue(item, "ASK_TRDVAL").subtract(getBigDecimalValue(item, "BID_TRDVAL"));
+                        }
+                        BigDecimal buyAmt = getBigDecimalValue(item, "BID_TRDVAL");
+                        BigDecimal sellAmt = getBigDecimalValue(item, "ASK_TRDVAL");
+
+                        if (netBuy.compareTo(BigDecimal.ZERO) > 0 && buyRank <= 20) {
+                            InvestorDailyTrade trade = createTrade(
+                                    marketType, tradeDate, investorType, TRADE_BUY, buyRank,
+                                    stockCode, stockName, netBuy.divide(divider, 2, RoundingMode.HALF_UP),
+                                    buyAmt.divide(divider, 2, RoundingMode.HALF_UP),
+                                    sellAmt.divide(divider, 2, RoundingMode.HALF_UP));
+                            trade.setCurrentPrice(getBigDecimalValue(item, "TDD_CLSPRC"));
+                            trade.setChangeRate(getBigDecimalValue(item, "FLUC_RT"));
+                            trades.add(trade);
+                            buyRank++;
+                        } else if (netBuy.compareTo(BigDecimal.ZERO) < 0 && sellRank <= 20) {
+                            InvestorDailyTrade trade = createTrade(
+                                    marketType, tradeDate, investorType, TRADE_SELL, sellRank,
+                                    stockCode, stockName, netBuy.abs().divide(divider, 2, RoundingMode.HALF_UP),
+                                    buyAmt.divide(divider, 2, RoundingMode.HALF_UP),
+                                    sellAmt.divide(divider, 2, RoundingMode.HALF_UP));
+                            trade.setCurrentPrice(getBigDecimalValue(item, "TDD_CLSPRC"));
+                            trade.setChangeRate(getBigDecimalValue(item, "FLUC_RT"));
+                            trades.add(trade);
+                            sellRank++;
+                        }
+                    }
+                }
+            }
+
+            if (!trades.isEmpty()) {
+                tradeRepository.saveAll(trades);
+                log.info("{} 데이터 저장: {} {} - {}건", investorType, marketType, tradeDate, trades.size());
+            }
+        } catch (Exception e) {
+            log.error("{} 데이터 수집 실패 [{}/{}]: {}", investorType, marketType, tradeDate, e.getMessage());
+        }
         return trades.size();
     }
 

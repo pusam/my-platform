@@ -148,6 +148,9 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
+        <!-- ②-c 멀티 컨빅션 시그널 -->
+        <SectionConviction @stock-click="goToStock" />
+
         <!-- ③ 시간대별 신호 (자동 전환) -->
         <div class="today-signals section-card">
           <div class="section-title-row">
@@ -288,6 +291,7 @@
 import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
+import SectionConviction from '../components/v2/SectionConviction.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
@@ -346,6 +350,7 @@ export default {
     GlobalNav,
     DashboardHeader,
     SectionMarketMap,
+    SectionConviction,
     StockSearchModal,
     EarningsScreenerPage,
     SectorTradingPage,

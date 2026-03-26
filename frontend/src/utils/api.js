@@ -773,6 +773,10 @@ export const investorAPI = {
     const params = {};
     if (minChange) params.minChange = minChange;
     return apiClient.get('/investor/surge/common', { params });
+  },
+  // 멀티 컨빅션 시그널
+  getConvictionSignals() {
+    return apiClient.get('/investor/conviction');
   }
 };
 
