@@ -30,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.MonthDay;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,22 +40,27 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * 자동 매매 봇 서비스 (듀얼 전략: 스캘핑 + 스윙)
+ * 자동 매매 봇 서비스 (3전략: 스캘핑(모의만) + 스윙 + 종가매수)
  *
  * ========================================
- * [전략 A] 스캘핑 (고확률 제한 모드)
+ * [전략 A] 스캘핑 — ★ 모의투자 전용 (실전 비활성)
  * ========================================
- *    매수: 순매수 ≥ 10억, 체결강도 ≥ 130%, 하루 최대 2건
- *    매도: 익절 +1.2%(절반), 손절 -1.5%, 타임컷 15분
- *    시간: 09:45~10:30 (장 초반 골든타임만)
+ *    지연 데이터 기반 단타는 구조적 열위 → 실전에서 OFF
  *
  * ========================================
  * [전략 B] 스윙 (수급 추종, 2~5일 보유)
  * ========================================
  *    매수: 외국인/기관 3일+ 연속매수 + MA20 지지 + RSI < 65
  *    매도: 익절 +5%, 손절 -3%, 최대 5일 보유
- *    시간: 14:00 1회 체크 (장 마감 전 수급 확정)
- *    최대 2종목 동시 보유
+ *    시간: 14:00 체크
+ *
+ * ========================================
+ * [전략 C] 종가 매수 (확정 수급, 1~2일 보유)
+ * ========================================
+ *    매수: 15:15 장 마감 직전, 당일 외국인+기관 동시 순매수 상위
+ *         + 등락률 양봉 + RSI < 70
+ *    매도: 다음날 갭업 시 익절 +2%, 손절 -2%, 최대 2일 보유
+ *    최대 2종목
  *
  * ========================================
  */
@@ -115,6 +121,16 @@ public class AutoTradingBotService {
     private static final int SWING_MAX_HOLDING = 2;                              // 스윙 최대 보유: 2종목
     private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.20"); // 종목당 20%
 
+    // ========== [C] 종가 매수 전략 (확정 수급, 1~2일 보유) ==========
+    private static final BigDecimal CLOSING_STOP_LOSS = new BigDecimal("-2.0");      // 종가매수 손절: -2%
+    private static final BigDecimal CLOSING_TAKE_PROFIT = new BigDecimal("2.0");     // 종가매수 익절: +2% (갭업 타겟)
+    private static final BigDecimal CLOSING_TRAILING_STOP = new BigDecimal("-1.0");  // 종가매수 트레일링: 고점 -1%
+    private static final int CLOSING_MAX_HOLD_DAYS = 2;                              // 최대 보유: 2일
+    private static final BigDecimal CLOSING_MIN_NET_BUY = new BigDecimal("50");      // 외국인+기관 합산 순매수 ≥ 50억
+    private static final BigDecimal CLOSING_RSI_LIMIT = new BigDecimal("70");        // RSI 상한: 70
+    private static final int CLOSING_MAX_HOLDING = 2;                                // 종가매수 최대 보유: 2종목
+    private static final BigDecimal CLOSING_INVESTMENT_RATIO = new BigDecimal("0.15"); // 종목당 15%
+
     // ========== 봇 상태 상수 ==========
     private static final String BOT_CONFIG_KEY = "trading_bot";
     private static final String STATUS_RUNNING = "RUNNING";
@@ -136,6 +152,8 @@ public class AutoTradingBotService {
     private final Map<String, ScalpingPosition> scalpingPositions = new ConcurrentHashMap<>();
     // ========== 스윙 전용 상태 ==========
     private final Map<String, SwingPosition> swingPositions = new ConcurrentHashMap<>();
+    // ========== 종가매수 전용 상태 ==========
+    private final Map<String, SwingPosition> closingPositions = new ConcurrentHashMap<>(); // SwingPosition 재사용
     // 종목별 마지막 매도 시간 (재매수 쿨다운용)
     private final Map<String, LocalDateTime> sellCooldownMap = new ConcurrentHashMap<>();
     // 당일 시작 자산 (킬 스위치용)
@@ -663,6 +681,11 @@ public class AutoTradingBotService {
     @Scheduled(cron = "*/5 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) {
+            return;
+        }
+
+        // ★ 실전투자 모드에서 스캘핑 비활성 (지연 데이터 기반 단타는 구조적 열위)
+        if (currentMode == TradingMode.REAL) {
             return;
         }
 
@@ -1331,12 +1354,14 @@ public class AutoTradingBotService {
             return;
         }
 
-        log.info("[스캘핑봇] ===== 장 마감 청산 시작 (스캘핑만, 스윙 유지) =====");
+        log.info("[스캘핑봇] ===== 장 마감 청산 시작 (스캘핑만, 스윙/종가매수 유지) =====");
 
         try {
-            // 스윙 포지션은 보유 유지 — 스캘핑 포지션만 청산
-            Set<String> swingCodes = swingPositions.keySet();
-            TimeCutResult result = sellPortfolioExcept(swingCodes);
+            // 스윙 + 종가매수 포지션은 보유 유지
+            Set<String> keepCodes = new java.util.HashSet<>();
+            keepCodes.addAll(swingPositions.keySet());
+            keepCodes.addAll(closingPositions.keySet());
+            TimeCutResult result = sellPortfolioExcept(keepCodes);
 
             if (telegramService.isEnabled()) {
                 sendEndOfDayReport(result);
@@ -1346,7 +1371,7 @@ public class AutoTradingBotService {
             scalpingPositions.clear();
 
             log.info("[스캘핑봇] 장 마감 청산 완료 - {}종목 매도(스윙 {}종목 유지), 총 손익: {}원",
-                    result.soldCount, swingCodes.size(), formatNumber(result.totalProfitLoss));
+                    result.soldCount, keepCodes.size(), formatNumber(result.totalProfitLoss));
 
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -1735,6 +1760,253 @@ public class AutoTradingBotService {
             }
         } catch (Exception e) {
             log.error("[스윙봇] 스윙 매도 로직 오류", e);
+        }
+    }
+
+    // ==================== [전략 C] 종가 매수 (15:15, 평일) ====================
+
+    /**
+     * 종가 매수: 장 마감 직전 확정 수급 데이터로 매수
+     * - 15:15 실행 (장 마감 5분 전, 수급 거의 확정)
+     * - 외국인+기관 동시 순매수 상위 종목
+     * - 다음날 갭업 노림 (익절 +2%, 손절 -2%)
+     */
+    @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeClosingBuyLogic() {
+        if (!botActive.get() || killSwitchTriggered.get()) return;
+        if (isMarketClosed()) return;
+
+        if (closingPositions.size() >= CLOSING_MAX_HOLDING) {
+            log.debug("[종가매수] 최대 보유 {}종목 도달 — 스킵", CLOSING_MAX_HOLDING);
+            return;
+        }
+
+        log.info("[종가매수] ===== 종가 매수 체크 시작 =====");
+
+        try {
+            // 외국인+기관 동시 순매수 종목 조회 (수급급증 데이터 활용)
+            Map<String, List<InvestorSurgeDto>> surgeMap = getCachedSurgeStocks();
+            if (surgeMap == null || surgeMap.isEmpty()) {
+                log.info("[종가매수] 수급 데이터 없음 — 스킵");
+                return;
+            }
+
+            // 외국인 + 기관 데이터 합치기
+            Map<String, BigDecimal> foreignBuy = new LinkedHashMap<>();
+            Map<String, BigDecimal> instBuy = new LinkedHashMap<>();
+            Map<String, InvestorSurgeDto> surgeInfo = new LinkedHashMap<>();
+
+            for (var entry : surgeMap.entrySet()) {
+                for (InvestorSurgeDto surge : entry.getValue()) {
+                    if (surge.getNetBuyAmount() == null || surge.getNetBuyAmount().compareTo(BigDecimal.ZERO) <= 0) continue;
+                    surgeInfo.putIfAbsent(surge.getStockCode(), surge);
+                    String investorType = surge.getInvestorType();
+                    if ("FOREIGN".equals(investorType)) {
+                        foreignBuy.merge(surge.getStockCode(), surge.getNetBuyAmount(), BigDecimal::add);
+                    } else if ("INSTITUTION".equals(investorType)) {
+                        instBuy.merge(surge.getStockCode(), surge.getNetBuyAmount(), BigDecimal::add);
+                    }
+                }
+            }
+
+            // 외국인+기관 동시 순매수 종목 필터
+            List<String> candidates = foreignBuy.keySet().stream()
+                    .filter(instBuy::containsKey)
+                    .filter(code -> {
+                        BigDecimal total = foreignBuy.get(code).add(instBuy.get(code));
+                        return total.compareTo(CLOSING_MIN_NET_BUY) >= 0;
+                    })
+                    .sorted((a, b) -> {
+                        BigDecimal totalA = foreignBuy.get(a).add(instBuy.get(a));
+                        BigDecimal totalB = foreignBuy.get(b).add(instBuy.get(b));
+                        return totalB.compareTo(totalA);
+                    })
+                    .collect(Collectors.toList());
+
+            log.info("[종가매수] 외국인+기관 동시매수 후보: {}건", candidates.size());
+            if (candidates.isEmpty()) return;
+
+            // 잔고 확인
+            AccountSummaryDto account = activeTradeService.getAccountSummary();
+            BigDecimal totalAsset = account.getCurrentBalance().add(
+                    account.getTotalEvaluation() != null ? account.getTotalEvaluation() : BigDecimal.ZERO);
+            BigDecimal maxPerStock = totalAsset.multiply(CLOSING_INVESTMENT_RATIO);
+
+            // 이미 보유 중인 종목 제외
+            Set<String> holdingCodes = activeTradeService.getPortfolio().stream()
+                    .map(PortfolioItemDto::getStockCode).collect(Collectors.toSet());
+
+            for (String code : candidates) {
+                if (closingPositions.size() >= CLOSING_MAX_HOLDING) break;
+                if (holdingCodes.contains(code)) continue;
+                if (closingPositions.containsKey(code)) continue;
+                if (swingPositions.containsKey(code)) continue;
+
+                InvestorSurgeDto surge = surgeInfo.get(code);
+                if (surge == null) continue;
+
+                // 양봉 확인 (등락률 > 0)
+                if (surge.getChangeRate() == null || surge.getChangeRate().doubleValue() <= 0) {
+                    log.debug("[종가매수] Skip {} — 음봉", surge.getStockName());
+                    continue;
+                }
+
+                // RSI 과열 체크
+                try {
+                    List<BigDecimal> closePrices = kisService.getDailyClosePricesWithPriority(
+                            code, 20, KisApiRateLimiter.Priority.LOW);
+                    if (closePrices != null && closePrices.size() >= 14) {
+                        TechnicalIndicatorsDto ind = technicalIndicatorService.calculate(closePrices);
+                        if (ind != null && ind.getRsi14() != null && ind.getRsi14().compareTo(CLOSING_RSI_LIMIT) >= 0) {
+                            log.debug("[종가매수] Skip {} — RSI 과열 ({})", surge.getStockName(), ind.getRsi14());
+                            continue;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("[종가매수] RSI 체크 실패 {} — 진입 허용", code);
+                }
+
+                // 현재가 조회
+                StockPriceDto priceDto = stockPriceService.getStockPrice(code);
+                if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
+                BigDecimal currentPrice = priceDto.getCurrentPrice();
+
+                int quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
+                if (quantity <= 0) continue;
+
+                // 매수 실행
+                try {
+                    BigDecimal fAmt = foreignBuy.get(code);
+                    BigDecimal iAmt = instBuy.get(code);
+
+                    activeTradeService.buy(code, surge.getStockName(), currentPrice, quantity, "CLOSING_BUY");
+
+                    closingPositions.put(code, new SwingPosition(code, surge.getStockName(),
+                            currentPrice, String.format("외국인%.0f억+기관%.0f억", fAmt, iAmt)));
+
+                    lastTradeTime = LocalDateTime.now();
+                    todayBuyCount.incrementAndGet();
+
+                    log.info("[종가매수-{}] ★ 진입 ★ {} ({}) {}원 x {}주 | 외국인 {}억 + 기관 {}억",
+                            currentMode.name(), surge.getStockName(), code,
+                            formatNumber(currentPrice), quantity, fAmt, iAmt);
+
+                    // 텔레그램 알림
+                    if (telegramService.isEnabled()) {
+                        String modeTag = currentMode == TradingMode.REAL ? "실전" : "모의";
+                        telegramService.sendSignal(String.format(
+                                "<b>🌆 [%s] 종가 매수</b>\n\n🎯 <b>%s</b> (%s)\n💰 %s원 x %d주\n\n📊 외국인 %s억 + 기관 %s억 (동시 매수)\n📈 등락률: %s%%\n🔴 손절: %s%% | 🟢 익절: +%s%%\n⏰ 최대 보유: %d일\n\n%s MyPlatform %s",
+                                modeTag, surge.getStockName(), code,
+                                formatNumber(currentPrice), quantity,
+                                fAmt.setScale(0, RoundingMode.HALF_UP),
+                                iAmt.setScale(0, RoundingMode.HALF_UP),
+                                surge.getChangeRate(),
+                                CLOSING_STOP_LOSS, CLOSING_TAKE_PROFIT, CLOSING_MAX_HOLD_DAYS,
+                                currentMode == TradingMode.REAL ? "🔴" : "🟡", modeTag));
+                    }
+
+                    holdingCodes.add(code);
+                    Thread.sleep(500);
+                } catch (Exception e) {
+                    log.error("[종가매수] 매수 실패: {} - {}", surge.getStockName(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.error("[종가매수] 종가 매수 로직 오류", e);
+        }
+    }
+
+    // ==================== [전략 C] 종가 매수 포지션 감시 (30초 간격) ====================
+
+    /**
+     * 종가 매수 포지션 감시: 익절/손절/트레일링/일수 타임컷
+     */
+    @Scheduled(cron = "*/30 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeClosingSellLogic() {
+        if (!botActive.get() || closingPositions.isEmpty()) return;
+        if (isMarketClosed()) return;
+
+        LocalTime now = LocalTime.now();
+        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) return;
+
+        try {
+            List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+            Map<String, PortfolioItemDto> portfolioMap = portfolios.stream()
+                    .collect(Collectors.toMap(PortfolioItemDto::getStockCode, p -> p, (a, b) -> a));
+
+            for (SwingPosition position : new java.util.ArrayList<>(closingPositions.values())) {
+                PortfolioItemDto portfolio = portfolioMap.get(position.stockCode);
+                if (portfolio == null) {
+                    closingPositions.remove(position.stockCode);
+                    continue;
+                }
+
+                StockPriceDto priceDto = stockPriceService.getStockPrice(position.stockCode);
+                if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
+
+                BigDecimal currentPrice = priceDto.getCurrentPrice();
+                position.updateHighPrice(currentPrice);
+
+                BigDecimal profitRate = currentPrice.subtract(position.buyPrice)
+                        .divide(position.buyPrice, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+
+                BigDecimal highDropRate = currentPrice.subtract(position.highPrice)
+                        .divide(position.highPrice, 4, RoundingMode.HALF_UP)
+                        .multiply(new BigDecimal("100"));
+
+                long holdDays = position.holdDays();
+                String sellReason = null;
+
+                // 1. 손절 -2%
+                if (profitRate.compareTo(CLOSING_STOP_LOSS) <= 0) {
+                    sellReason = "STOP_LOSS";
+                }
+                // 2. 익절 +2%
+                else if (profitRate.compareTo(CLOSING_TAKE_PROFIT) >= 0) {
+                    sellReason = "TAKE_PROFIT";
+                }
+                // 3. 트레일링 (수익 +1% 이후 고점 대비 -1%)
+                else if (profitRate.compareTo(new BigDecimal("1.0")) > 0
+                        && highDropRate.compareTo(CLOSING_TRAILING_STOP) <= 0) {
+                    sellReason = "TRAILING_STOP";
+                }
+                // 4. 일수 타임컷 (2일 초과)
+                else if (holdDays >= CLOSING_MAX_HOLD_DAYS) {
+                    sellReason = "TIME_CUT";
+                }
+
+                if (sellReason != null) {
+                    try {
+                        activeTradeService.sell(portfolio.getStockCode(), currentPrice,
+                                portfolio.getQuantity(), sellReason);
+                        lastTradeTime = LocalDateTime.now();
+                        todaySellCount.incrementAndGet();
+
+                        BigDecimal profitLoss = currentPrice.subtract(position.buyPrice)
+                                .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
+
+                        log.info("[종가매수-{}] {} 완료: {} 손익: {}원 ({}%, {}일 보유)",
+                                currentMode.name(), sellReason, position.stockName,
+                                formatNumber(profitLoss), profitRate.setScale(2, RoundingMode.HALF_UP), holdDays);
+
+                        if (telegramService.isEnabled()) {
+                            String emoji = profitLoss.compareTo(BigDecimal.ZERO) >= 0 ? "🟢" : "🔴";
+                            telegramService.sendSignal(String.format(
+                                    "%s <b>종가매수 %s</b>: %s\n💰 %s원 (%s%%)\n⏰ %d일 보유",
+                                    emoji, sellReason, position.stockName,
+                                    formatNumber(profitLoss), profitRate.setScale(2, RoundingMode.HALF_UP), holdDays));
+                        }
+
+                        closingPositions.remove(position.stockCode);
+                        sellCooldownMap.put(position.stockCode, LocalDateTime.now());
+                    } catch (Exception e) {
+                        log.error("[종가매수] 매도 실패: {} - {}", position.stockName, e.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("[종가매수] 매도 로직 오류", e);
         }
     }
 
