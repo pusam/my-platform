@@ -260,6 +260,7 @@
           </button>
         </div>
         <div class="embedded-content">
+          <AiStrategyDashboardPage v-if="activeAnalysisTab === 'ai-strategy'" :embedded="true" />
           <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
           <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
           <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
@@ -294,6 +295,7 @@ import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionConviction from '../components/v2/SectionConviction.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
+import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
 import SectorTradingPage from './SectorTradingPage.vue'
 import InvestorAnalysisPage from './InvestorAnalysisPage.vue'
@@ -352,6 +354,7 @@ export default {
     SectionMarketMap,
     SectionConviction,
     StockSearchModal,
+    AiStrategyDashboardPage,
     EarningsScreenerPage,
     SectorTradingPage,
     InvestorAnalysisPage,
@@ -367,8 +370,9 @@ export default {
   data() {
     return {
       activeGnbTab: this.$route?.query?.tab || 'market',
-      activeAnalysisTab: 'screener',
+      activeAnalysisTab: 'ai-strategy',
       analysisTabs: [
+        { key: 'ai-strategy', label: 'AI전략' },
         { key: 'screener', label: '스크리너' },
         { key: 'sector', label: '섹터' },
         { key: 'investor', label: '투자자' },

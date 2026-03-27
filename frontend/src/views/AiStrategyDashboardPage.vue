@@ -1,8 +1,8 @@
 <template>
   <div class="ai-dashboard">
     <div class="content-wrapper">
-      <!-- 헤더 -->
-      <div class="page-header-unified">
+      <!-- 헤더 (embedded 모드에서 숨김) -->
+      <div v-if="!embedded" class="page-header-unified">
         <BackButton :dark="true" />
         <div class="header-title">
           <h1>AI 트레이딩 전략</h1>
@@ -267,9 +267,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, defineProps } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
 import { aiStrategyAPI, marketAPI, tradingIndicatorAPI } from '../utils/api';
 
 const router = useRouter();
