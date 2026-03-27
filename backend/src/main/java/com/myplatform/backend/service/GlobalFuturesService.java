@@ -344,27 +344,39 @@ public class GlobalFuturesService {
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
             double vixRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
-            // VIX 절대 수준 + 변동률 복합
-            double vixContrib = 0;
-            if (vixLevel >= 30) vixContrib = -15; // 극심한 공포
-            else if (vixLevel >= 25) vixContrib = -10;
-            else if (vixLevel >= 20) vixContrib = -5;
-            else if (vixLevel < 15) vixContrib = 3; // 안정
+            boolean vixStale = vix.isStale() || vix.getDataAgeMinutes() > 120;
 
-            // VIX 급등 시 추가 약세 반영
-            if (vixRate > 10) vixContrib -= 8;
-            else if (vixRate > 5) vixContrib -= 4;
-            // VIX 급락 시 진정 국면 반영 — 절대값이 높아도 빠르게 하락 중이면 페널티 경감
-            else if (vixRate <= -10) vixContrib += 8;  // VIX 10%+ 급락 → 큰 진정
-            else if (vixRate <= -5) vixContrib += 5;   // VIX 5%+ 급락 → 진정
+            double vixContrib = 0;
+
+            if (vixStale) {
+                // ★ stale 데이터: 가중치 절반으로 축소 (2시간+ 지난 데이터는 신뢰도 낮음)
+                if (vixLevel >= 30) vixContrib = -7;
+                else if (vixLevel >= 25) vixContrib = -5;
+                else if (vixLevel >= 20) vixContrib = -2;
+                else if (vixLevel < 15) vixContrib = 1;
+                log.debug("[코스피 전망] VIX stale 데이터 ({}분 전) — 가중치 절반 적용", vix.getDataAgeMinutes());
+            } else {
+                // 실시간 데이터: 정상 가중치
+                if (vixLevel >= 30) vixContrib = -15;
+                else if (vixLevel >= 25) vixContrib = -10;
+                else if (vixLevel >= 20) vixContrib = -5;
+                else if (vixLevel < 15) vixContrib = 3;
+
+                // VIX 급등/급락 시 추가 조정 (stale이 아닐 때만)
+                if (vixRate > 10) vixContrib -= 8;
+                else if (vixRate > 5) vixContrib -= 4;
+                else if (vixRate <= -10) vixContrib += 8;
+                else if (vixRate <= -5) vixContrib += 5;
+            }
 
             vixContrib = clampContrib(vixContrib);
             weightedScore += vixContrib * 0.15;
 
-            // VIX 시그널: 절대값 기준 (25 이상이면 무조건 부정)
             String vixSignal;
-            if (vixLevel >= 25) {
-                vixSignal = "NEGATIVE"; // 공포 구간 → 항상 부정
+            if (vixStale) {
+                vixSignal = "NEUTRAL"; // stale 데이터는 중립 처리
+            } else if (vixLevel >= 25) {
+                vixSignal = "NEGATIVE";
             } else if (vixLevel < 18) {
                 vixSignal = "POSITIVE";
             } else {
@@ -390,39 +402,44 @@ public class GlobalFuturesService {
         List<String> overrideReasons = new ArrayList<>();
 
         // 조건 1: VIX >= 25 (공포 구간)
-        // 예외: VIX가 전일 대비 5% 이상 하락 중이고, 하위 지표(WTI/환율)가 긍정이면
-        //       시장 진정 국면으로 판단 → 폭락 경계 오버라이드 해제
+        // ★ stale 데이터(2시간+)인 경우 CRISIS 오버라이드 발동하지 않음
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
             double vixChangeRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
+            boolean vixStale = vix.isStale() || vix.getDataAgeMinutes() > 120;
 
-            boolean isVixCalming = vixChangeRate <= -5.0; // VIX 전일 대비 5% 이상 급락 중
+            if (vixStale) {
+                // stale 데이터: CRISIS 오버라이드 발동하지 않음 (가중치 점수만 반영)
+                log.info("[코스피 전망] VIX {} (≥25) but stale ({}분 전) — CRISIS 오버라이드 스킵",
+                        String.format("%.1f", vixLevel), vix.getDataAgeMinutes());
+            } else {
+                boolean isVixCalming = vixChangeRate <= -5.0;
 
-            // 하위 지표 긍정 여부 체크 (WTI 안정 + 환율 안정/강세)
-            boolean subIndicatorsPositive = false;
-            if (isVixCalming) {
-                boolean wtiOk = true;  // WTI가 폭등하지 않으면 OK
-                boolean krwOk = true;  // 환율이 급등하지 않으면 OK
-                if (cl != null && cl.getChangeRate() != null) {
-                    wtiOk = cl.getChangeRate().doubleValue() < 5.0; // WTI +5% 미만
+                boolean subIndicatorsPositive = false;
+                if (isVixCalming) {
+                    boolean wtiOk = true;
+                    boolean krwOk = true;
+                    if (cl != null && cl.getChangeRate() != null) {
+                        wtiOk = cl.getChangeRate().doubleValue() < 5.0;
+                    }
+                    if (krw != null && krw.getChangeRate() != null) {
+                        krwOk = krw.getChangeRate().doubleValue() < 0.5;
+                    }
+                    subIndicatorsPositive = wtiOk && krwOk;
                 }
-                if (krw != null && krw.getChangeRate() != null) {
-                    krwOk = krw.getChangeRate().doubleValue() < 0.5; // 환율 +0.5% 미만 (원화 약세 제한적)
+
+                boolean marketCalming = isVixCalming && subIndicatorsPositive;
+
+                if (vixLevel >= 30 && !marketCalming) {
+                    thresholdOverride = true;
+                    overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
+                } else if (vixLevel >= 25 && !marketCalming) {
+                    thresholdOverride = true;
+                    overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
+                } else if (vixLevel >= 25 && marketCalming) {
+                    log.info("[코스피 전망] VIX {} (≥25) but 진정 국면 — VIX 변동 {}%, 오버라이드 해제",
+                            String.format("%.1f", vixLevel), String.format("%.1f", vixChangeRate));
                 }
-                subIndicatorsPositive = wtiOk && krwOk;
-            }
-
-            boolean marketCalming = isVixCalming && subIndicatorsPositive;
-
-            if (vixLevel >= 30 && !marketCalming) {
-                thresholdOverride = true;
-                overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
-            } else if (vixLevel >= 25 && !marketCalming) {
-                thresholdOverride = true;
-                overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
-            } else if (vixLevel >= 25 && marketCalming) {
-                log.info("[코스피 전망] VIX {} (≥25) but 진정 국면 — VIX 변동 {}%, 오버라이드 해제",
-                        String.format("%.1f", vixLevel), String.format("%.1f", vixChangeRate));
             }
         }
 
