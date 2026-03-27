@@ -140,17 +140,18 @@ public class RecommendationService {
         return new Top5Response(items, dataTime, realtime, deltaMap);
     }
 
-    /** 장중 스냅샷 (11:30, 14:00) — 장중 흐름 변화 히스토리 */
+    /** 장중 스냅샷 (11:30, 14:00, 17:00) — 장중 흐름 변화 히스토리 */
     @Scheduled(cron = "0 30 11 * * MON-FRI", zone = "Asia/Seoul")
     @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 17 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveIntradaySnapshot() {
         log.info("[종합추천] 장중 스냅샷 저장");
         saveSnapshotInternal();
     }
 
-    /** 마감 스냅샷 (15:45) */
-    @Scheduled(cron = "0 45 15 * * MON-FRI", zone = "Asia/Seoul")
+    /** 마감 스냅샷 (20:05 — 애프터마켓 종료 후) */
+    @Scheduled(cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         log.info("[종합추천] 마감 스냅샷 저장 시작");
@@ -717,7 +718,7 @@ public class RecommendationService {
         DayOfWeek dow = now.getDayOfWeek();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return false;
         LocalTime time = now.toLocalTime();
-        return time.isAfter(LocalTime.of(9, 0)) && time.isBefore(LocalTime.of(15, 35));
+        return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
     /** 유효 항목 수별 상한: 5개=100, 4개=88, 3개=75, 2개=60 */

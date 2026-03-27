@@ -453,9 +453,9 @@ export default {
       const mins = h * 60 + m
       // 주말 → 장 후
       if (day === 0 || day === 6) return 'post'
-      if (mins < 540) return 'pre'        // ~09:00
-      if (mins < 930) return 'during'     // 09:00~15:30
-      return 'post'                       // 15:30~
+      if (mins < 480) return 'pre'        // ~08:00
+      if (mins < 1200) return 'during'   // 08:00~20:00 (프리+정규+애프터)
+      return 'post'                       // 20:00~
     },
     marketPhase() {
       const phases = {

@@ -55,18 +55,14 @@ public class InvestorSurgeService {
 
     /**
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
-     * 평일 09:10 ~ 15:20 사이에만 실행
-     *
-     * KIS API 데이터 입력 시간:
-     * - 외국인: 09:30, 11:20, 13:20, 14:30
-     * - 기관종합: 10:00, 11:20, 13:20, 14:30
+     * 평일 08:00 ~ 20:00 (프리마켓/정규장/애프터마켓 전체)
      */
-    @Scheduled(cron = "0 2/10 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 2/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void collectIntradaySnapshot() {
         LocalTime now = LocalTime.now();
 
-        // 09:00 이전, 15:30 이후는 수집하지 않음
-        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 25))) {
+        // 08:00 이전, 20:00 이후는 수집하지 않음
+        if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
             return;
         }
 

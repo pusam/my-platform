@@ -39,8 +39,8 @@ public class InvestorTradeService {
     private final RedisCacheService redisCacheService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
+    private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);   // 프리마켓 포함
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(20, 0);  // 애프터마켓 포함
 
     /**
      * 투자자 유형별 상위 매수/매도 종목 조회 (최대 50개)

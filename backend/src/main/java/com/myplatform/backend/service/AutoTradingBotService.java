@@ -110,6 +110,13 @@ public class AutoTradingBotService {
     private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 45);   // 스캘핑 시작: 09:45
     private static final LocalTime MORNING_ENTRY_END = LocalTime.of(10, 30);    // ★ 스캘핑 종료: 10:30 (골든타임만)
 
+    // ========== 시장 시간 (프리마켓/정규장/애프터마켓) ==========
+    private static final LocalTime PRE_MARKET_START = LocalTime.of(8, 0);     // 프리마켓: 08:00
+    private static final LocalTime REGULAR_START = LocalTime.of(9, 0);         // 정규장: 09:00
+    private static final LocalTime REGULAR_END = LocalTime.of(15, 25);         // 정규장: 15:25
+    private static final LocalTime AFTER_MARKET_END = LocalTime.of(20, 0);     // 애프터마켓: 20:00
+    private static final LocalTime EOD_CLEARANCE_TIME = LocalTime.of(19, 50);  // 장 마감 청산: 19:50
+
     // ========== [B] 스윙 전략 상수 (수급 추종, 2~5일 보유) ==========
     private static final BigDecimal SWING_STOP_LOSS = new BigDecimal("-3.0");    // 스윙 손절: -3%
     private static final BigDecimal SWING_TAKE_PROFIT = new BigDecimal("5.0");   // 스윙 익절: +5%
@@ -1161,9 +1168,9 @@ public class AutoTradingBotService {
     /**
      * 스캘핑 매도 로직
      * - 익절/손절/트레일링/타임컷 체크
-     * - 3초 간격으로 실행 (09:00~15:20, 점심시간 포함, API 블락 방지)
+     * - 3초 간격으로 실행 (08:00~20:00, 프리/정규/애프터마켓 전체)
      */
-    @Scheduled(cron = "*/3 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/3 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
         if (!botActive.get()) {
             return;
@@ -1174,7 +1181,7 @@ public class AutoTradingBotService {
         }
 
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(15, 20))) {
+        if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) {
             return;
         }
 
@@ -1344,7 +1351,7 @@ public class AutoTradingBotService {
 
     // ==================== 장 마감 청산 ====================
 
-    @Scheduled(cron = "0 20 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 50 19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeEndOfDayClearance() {
         if (!botActive.get()) {
             return;
@@ -1668,13 +1675,13 @@ public class AutoTradingBotService {
     /**
      * 스윙 포지션 감시: 익절/손절/트레일링/일수 타임컷
      */
-    @Scheduled(cron = "*/30 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingSellLogic() {
         if (!botActive.get() || swingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
 
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) return;
+        if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) return;
 
         try {
             List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
@@ -1921,13 +1928,13 @@ public class AutoTradingBotService {
     /**
      * 종가 매수 포지션 감시: 익절/손절/트레일링/일수 타임컷
      */
-    @Scheduled(cron = "*/30 * 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeClosingSellLogic() {
         if (!botActive.get() || closingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
 
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) return;
+        if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) return;
 
         try {
             List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
