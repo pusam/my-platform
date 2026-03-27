@@ -82,10 +82,17 @@ public class MultiConvictionService {
             return ConvictionResult.empty(date);
         }
 
-        // 종목별 투자자 매매 집계
+        // 종목별 투자자 매매 집계 (중복 수집기 대응: 종목+투자자+매매타입별 최신 1건만 사용)
+        // key: stockCode_investorType_tradeType → 중복 제거
+        Map<String, InvestorDailyTrade> deduped = new LinkedHashMap<>();
+        for (InvestorDailyTrade trade : allTrades) {
+            String key = trade.getStockCode() + "_" + trade.getInvestorType() + "_" + trade.getTradeType();
+            deduped.putIfAbsent(key, trade); // 첫 번째(=rank가 낮은=상위) 것만 유지
+        }
+
         Map<String, StockInvestorMap> stockMap = new LinkedHashMap<>();
 
-        for (InvestorDailyTrade trade : allTrades) {
+        for (InvestorDailyTrade trade : deduped.values()) {
             String investorType = trade.getInvestorType();
             if (!INVESTOR_TYPES.contains(investorType) && !"INSTITUTION".equals(investorType)) continue;
 
@@ -96,6 +103,13 @@ public class MultiConvictionService {
 
             BigDecimal amount = trade.getNetBuyAmount();
             if (amount == null) continue;
+
+            // 단위 보정: 1000 이상이면 백만원 단위로 판단 → 억원 변환
+            if (amount.abs().compareTo(new BigDecimal("1000")) > 0) {
+                amount = amount.divide(BigDecimal.valueOf(100), 2, java.math.RoundingMode.HALF_UP);
+                log.debug("[멀티컨빅션] 단위 보정: {} {} {}억 → {}억",
+                        code, investorType, trade.getNetBuyAmount(), amount);
+            }
 
             // BUY는 양수, SELL은 음수로 통일
             BigDecimal signedAmount = "SELL".equals(trade.getTradeType())
