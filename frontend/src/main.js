@@ -19,6 +19,8 @@ const AssetManagement = () => import('./views/AssetManagement.vue')
 const FileManager = () => import('./views/FileManager.vue')
 const FinanceManagement = () => import('./views/FinanceManagement.vue')
 const CarManagement = () => import('./views/CarManagement.vue')
+const DietManagement = () => import('./views/DietManagement.vue')
+const ExerciseManagement = () => import('./views/ExerciseManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
 // ResearchPage, PaperTradingPage → StockTradingDashboardV2에 탭으로 통합됨 (redirect)
@@ -121,6 +123,18 @@ const router = createRouter({
       path: '/car',
       name: 'CarManagement',
       component: CarManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/diet',
+      name: 'DietManagement',
+      component: DietManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/exercise',
+      name: 'ExerciseManagement',
+      component: ExerciseManagement,
       meta: { requiresAuth: true }
     },
     {

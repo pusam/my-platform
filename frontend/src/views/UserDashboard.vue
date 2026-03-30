@@ -151,6 +151,36 @@
             </span>
           </article>
 
+          <article class="menu-card diet" @click="$router.push('/diet')">
+            <div class="card-icon diet-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>
+              </svg>
+            </div>
+            <h3>식단 관리</h3>
+            <p>매일 식단과 영양소를 기록합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
+          <article class="menu-card exercise" @click="$router.push('/exercise')">
+            <div class="card-icon exercise-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M6.5 6.5l11 11"/><path d="M21 3l-3.5 3.5"/><path d="M3 21l3.5-3.5"/><path d="M18.5 5.5l-2 2"/><path d="M5.5 18.5l2-2"/><path d="M20 4l-1 1"/><path d="M4 20l1-1"/>
+              </svg>
+            </div>
+            <h3>운동 관리</h3>
+            <p>운동 기록과 소모 칼로리를 추적합니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
           <article class="menu-card asset" @click="goToAsset">
             <div class="card-icon asset-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -531,6 +561,18 @@ export default {
 .menu-card.car h3 {
   color: #2c3e50;
 }
+
+/* 식단 카드 */
+.card-icon.diet-icon { background: linear-gradient(135deg, rgba(251,191,36,0.15) 0%, rgba(245,158,11,0.15) 100%); color: #f59e0b; }
+.menu-card.diet { background: linear-gradient(135deg, rgba(255,251,235,0.95) 0%, rgba(255,255,255,0.95) 100%); border: 2px solid rgba(245,158,11,0.2); }
+.menu-card.diet:hover { border-color: #f59e0b; box-shadow: 0 20px 40px rgba(245,158,11,0.15); }
+.menu-card.diet h3 { color: #92400e; }
+
+/* 운동 카드 */
+.card-icon.exercise-icon { background: linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(5,150,105,0.15) 100%); color: #10b981; }
+.menu-card.exercise { background: linear-gradient(135deg, rgba(236,253,245,0.95) 0%, rgba(255,255,255,0.95) 100%); border: 2px solid rgba(16,185,129,0.2); }
+.menu-card.exercise:hover { border-color: #10b981; box-shadow: 0 20px 40px rgba(16,185,129,0.15); }
+.menu-card.exercise h3 { color: #065f46; }
 
 /* AI 분석 카드 */
 .card-icon.ai-analysis-icon {

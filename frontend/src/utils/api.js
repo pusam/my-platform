@@ -311,6 +311,46 @@ export const carAPI = {
   }
 };
 
+// Diet API (식단 관리)
+export const dietAPI = {
+  getRecords(type = null) {
+    const params = type ? { type } : {};
+    return apiClient.get('/diet/records', { params });
+  },
+  addRecord(data) {
+    return apiClient.post('/diet/records', data);
+  },
+  updateRecord(id, data) {
+    return apiClient.put(`/diet/records/${id}`, data);
+  },
+  deleteRecord(id) {
+    return apiClient.delete(`/diet/records/${id}`);
+  },
+  getSummary() {
+    return apiClient.get('/diet/summary');
+  }
+};
+
+// Exercise API (운동 관리)
+export const exerciseAPI = {
+  getRecords(type = null) {
+    const params = type ? { type } : {};
+    return apiClient.get('/exercise/records', { params });
+  },
+  addRecord(data) {
+    return apiClient.post('/exercise/records', data);
+  },
+  updateRecord(id, data) {
+    return apiClient.put(`/exercise/records/${id}`, data);
+  },
+  deleteRecord(id) {
+    return apiClient.delete(`/exercise/records/${id}`);
+  },
+  getSummary() {
+    return apiClient.get('/exercise/summary');
+  }
+};
+
 // News Summary API
 export const newsAPI = {
   // 오늘의 뉴스 조회
