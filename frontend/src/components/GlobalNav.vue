@@ -186,9 +186,9 @@ const isActive = (itemPath) => {
     left: 0;
     right: 0;
     height: 56px;
-    background: rgba(15, 15, 26, 0.95);
+    background: rgba(15, 15, 26, 0.98);
     backdrop-filter: blur(16px);
-    border-top: 1px solid rgba(255,255,255,0.06);
+    border-top: 1px solid rgba(255,255,255,0.12);
     z-index: 900;
     padding: 0 4px;
     padding-bottom: env(safe-area-inset-bottom, 0);

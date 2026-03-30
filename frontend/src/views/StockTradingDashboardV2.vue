@@ -1273,7 +1273,7 @@ export default {
 }
 
 @media (max-width: 768px) {
-  .v2-content { padding: 12px 16px 40px; }
+  .v2-content { padding: 12px 16px 72px; }
   .tab-panel { gap: 14px; }
 }
 </style>
