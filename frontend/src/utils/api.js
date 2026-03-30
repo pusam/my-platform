@@ -802,9 +802,17 @@ export const riskAPI = {
 
 // Stock Detail API (종목 종합 상세)
 export const stockDetailAPI = {
-  // 종목 종합 상세 조회 (수급/재무/리스크/AI 분석 통합)
+  // 종목 종합 상세 조회 (수급/재무/리스크/AI 분석 통합) — 레거시 (전체 한방 호출)
   getSummary(stockCode) {
     return apiClient.get(`/stock/${stockCode}/summary`, { timeout: 90000 });
+  },
+  // 1단계: 빠른 데이터 (시세/수급/차트/재무) — 3~5초
+  getQuick(stockCode) {
+    return apiClient.get(`/stock/${stockCode}/quick`, { timeout: 30000 });
+  },
+  // 2단계: 무거운 데이터 (리스크/AI/피어) — 캐시히트 1초, 미스 10~30초
+  getHeavy(stockCode) {
+    return apiClient.get(`/stock/${stockCode}/heavy`, { timeout: 60000 });
   },
   // 종목 펀더멘털 진단 (재무/수급/기술적 분석)
   getDiagnosis(stockCode) {

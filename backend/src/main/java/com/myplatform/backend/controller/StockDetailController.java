@@ -77,4 +77,60 @@ public class StockDetailController {
             return ResponseEntity.internalServerError().body(response);
         }
     }
+
+    @GetMapping("/{stockCode}/quick")
+    @Operation(
+        summary = "종목 빠른 조회 (1단계)",
+        description = "시세/수급/차트/재무 데이터를 빠르게 반환합니다. 평균 3~5초."
+    )
+    public ResponseEntity<Map<String, Object>> getStockQuick(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        log.info("[StockDetail API] 종목 {} Quick 조회 요청", stockCode);
+        long startTime = System.currentTimeMillis();
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            StockDetailDto detail = stockDetailService.getStockDetailQuick(stockCode);
+            response.put("success", true);
+            response.put("data", detail);
+            response.put("timestamp", LocalDateTime.now());
+            response.put("elapsed", System.currentTimeMillis() - startTime + "ms");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[StockDetail API] Quick 조회 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "빠른 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/heavy")
+    @Operation(
+        summary = "종목 무거운 데이터 조회 (2단계)",
+        description = "리스크/AI분석/피어비교 등 시간이 걸리는 데이터를 반환합니다. 캐시 적용."
+    )
+    public ResponseEntity<Map<String, Object>> getStockHeavy(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        log.info("[StockDetail API] 종목 {} Heavy 조회 요청", stockCode);
+        long startTime = System.currentTimeMillis();
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            Map<String, Object> heavyData = stockDetailService.getStockDetailHeavy(stockCode);
+            response.put("success", true);
+            response.put("data", heavyData);
+            response.put("timestamp", LocalDateTime.now());
+            response.put("elapsed", System.currentTimeMillis() - startTime + "ms");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[StockDetail API] Heavy 조회 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "상세 분석 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 }

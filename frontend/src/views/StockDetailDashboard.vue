@@ -516,6 +516,11 @@
 
         <!-- Zone B: 안전 점수 게이지 + AI 전략 -->
         <div class="zone zone-b">
+          <!-- 2단계 로딩 인디케이터 -->
+          <div v-if="heavyLoading && !riskInfo && !aiAnalysis" class="heavy-loading-indicator">
+            <div class="heavy-loading-spinner"></div>
+            <span>리스크/AI 분석 로딩 중...</span>
+          </div>
           <!-- 안전 점수 게이지 (원형) -->
           <div class="risk-gauge-section" :class="safetyStatusClass">
             <div class="gauge-header">
@@ -974,6 +979,9 @@ const chartData = ref(null);
 const peerComparisons = ref(null);
 const sectorAvgPbr = ref(null);
 const sectorName = ref(null);
+
+// 2단계 로딩 상태
+const heavyLoading = ref(false);
 
 // 펀더멘털 진단
 const diagnosisData = ref(null);
@@ -1492,37 +1500,42 @@ const searchStock = async () => {
   }
 };
 
-// 모든 데이터 가져오기
+// 모든 데이터 가져오기 (점진적 로딩: Quick → Heavy + Diagnosis 병렬)
 const fetchAllData = async (code, searchedName) => {
   try {
-    // summary + diagnosis 병렬 호출
-    const [summaryRes, diagnosisRes] = await Promise.allSettled([
-      stockDetailAPI.getSummary(code),
-      stockDetailAPI.getDiagnosis(code)
-    ]);
+    // ★ 1단계: Quick (시세/수급/차트/재무) — 빠르게 화면 표시
+    const quickRes = await stockDetailAPI.getQuick(code);
 
-    // Summary 처리
-    if (summaryRes.status === 'fulfilled' && summaryRes.value.data.success && summaryRes.value.data.data) {
-      const data = summaryRes.value.data.data;
-
-      // ★ 종목명 우선순위: 로컬매핑 > API응답 > 검색어 > 코드
+    if (quickRes.data.success && quickRes.data.data) {
+      const data = quickRes.data.data;
       const localName = CODE_TO_NAME[code];
       const apiName = data.stockName && data.stockName !== code ? data.stockName : null;
       stockName.value = localName || apiName || searchedName || code;
       priceInfo.value = data.price;
       supplyDemand.value = data.supplyDemand;
       financial.value = data.financial;
-      riskInfo.value = data.risk;
-      aiAnalysis.value = data.aiAnalysis;
       chartData.value = data.chartData;
-      peerComparisons.value = data.peerComparisons;
-      sectorAvgPbr.value = data.sectorAvgPbr;
-      sectorName.value = data.sectorName;
-
       lastUpdated.value = new Date();
     }
 
-    // Diagnosis 처리 (실패 시 해당 섹션만 숨김)
+    // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
+    heavyLoading.value = true;
+    const [heavyRes, diagnosisRes] = await Promise.allSettled([
+      stockDetailAPI.getHeavy(code),
+      stockDetailAPI.getDiagnosis(code)
+    ]);
+
+    // Heavy 처리
+    if (heavyRes.status === 'fulfilled' && heavyRes.value.data.success && heavyRes.value.data.data) {
+      const data = heavyRes.value.data.data;
+      riskInfo.value = data.risk;
+      aiAnalysis.value = data.aiAnalysis;
+      peerComparisons.value = data.peerComparisons;
+      sectorAvgPbr.value = data.sectorAvgPbr;
+      sectorName.value = data.sectorName;
+    }
+
+    // Diagnosis 처리
     if (diagnosisRes.status === 'fulfilled' && diagnosisRes.value.data.success) {
       diagnosisData.value = diagnosisRes.value.data.data;
     } else {
@@ -1530,22 +1543,23 @@ const fetchAllData = async (code, searchedName) => {
     }
   } catch (error) {
     console.error('데이터 로드 오류:', error);
+  } finally {
+    heavyLoading.value = false;
   }
 };
 
-// 실시간 갱신 (체결강도, 가격 등)
+// 실시간 갱신 (체결강도, 가격 등) — Quick API 사용으로 빠르게
 const refreshRealtimeData = async () => {
   if (!stockCode.value || !autoRefresh.value) return;
 
   try {
-    const response = await stockDetailAPI.getSummary(stockCode.value);
+    const response = await stockDetailAPI.getQuick(stockCode.value);
     if (response.data.success && response.data.data) {
       const data = response.data.data;
       // 실시간 데이터만 갱신
       priceInfo.value = data.price;
       supplyDemand.value = data.supplyDemand;
       lastUpdated.value = new Date();
-
     }
   } catch (error) {
     console.error('실시간 갱신 오류:', error);
@@ -3935,4 +3949,22 @@ onUnmounted(() => {
 .inv-amount-row .value.negative { color: #3b82f6 !important; }
 .inv-detail-row .value.positive { color: #e53e3e !important; }
 .inv-detail-row .value.negative { color: #3b82f6 !important; }
+
+/* 2단계 로딩 인디케이터 */
+.heavy-loading-indicator {
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 20px; margin-bottom: 12px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 12px;
+  color: rgba(255,255,255,0.7); font-size: 13px;
+}
+.heavy-loading-spinner {
+  width: 18px; height: 18px;
+  border: 2px solid rgba(99, 102, 241, 0.3);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: heavy-spin 0.8s linear infinite;
+}
+@keyframes heavy-spin { to { transform: rotate(360deg); } }
 </style>
