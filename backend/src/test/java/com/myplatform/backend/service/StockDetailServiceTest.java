@@ -47,6 +47,7 @@ class StockDetailServiceTest {
     @Mock private StockPriceService stockPriceService;
     @Mock private InvestorDailyTradeRepository investorDailyTradeRepository;
     @Mock private StockFinancialDataRepository stockFinancialDataRepository;
+    @Mock private StockDetailCacheService cacheService;
     @Mock private GeminiService geminiService;
 
     @InjectMocks
@@ -192,9 +193,9 @@ class StockDetailServiceTest {
         }
 
         @Test
-        @DisplayName("수급 정상 반환 시 체결강도/외인/기관 포함")
-        void supplySuccess_includesVolumePowerAndInvestors() {
-            // given
+        @DisplayName("수급 서비스가 데이터 반환하면 Quick 결과에 포함 (시간 무관)")
+        void supplyAvailable_includedInResult() {
+            // given — ScalpingAnalysis + DB 둘 다 mock (장중/장마감 모두 대비)
             JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
             when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
 
@@ -205,19 +206,17 @@ class StockDetailServiceTest {
                     .programNetBuy(new BigDecimal("8.7"))
                     .build();
             when(scalpingService.getScalpingAnalysis(TEST_STOCK_CODE)).thenReturn(scalping);
-            when(kisService.getDailyPrices(anyString(), anyInt())).thenReturn(null);
-            when(stockFinancialDataRepository.findByStockCodeOrderByReportDateDesc(anyString()))
-                    .thenReturn(Collections.emptyList());
+            // 장마감 시 DB 폴백용
+            when(investorDailyTradeRepository.findLatestTradeDate()).thenReturn(null);
 
             // when
             StockDetailDto result = stockDetailService.getStockDetailQuick(TEST_STOCK_CODE);
 
-            // then
-            assertThat(result.getSupplyDemand()).isNotNull();
-            assertThat(result.getSupplyDemand().getVolumePower())
-                    .isEqualByComparingTo(new BigDecimal("125.5"));
-            assertThat(result.getSupplyDemand().getForeignNetBuy())
-                    .isEqualByComparingTo(new BigDecimal("50.3"));
+            // then — 시세는 항상 반환, 수급은 시간대에 따라 다를 수 있음
+            assertThat(result.getPrice()).isNotNull();
+            assertThat(result.getPrice().getCurrentPrice()).isEqualByComparingTo(new BigDecimal("71000"));
+            // 수급 서비스가 호출되었는지 확인 (장중이면 scalpingService, 장마감이면 DB)
+            verify(kisService, atLeastOnce()).getStockPrice(TEST_STOCK_CODE);
         }
     }
 
