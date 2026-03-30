@@ -432,14 +432,14 @@ onMounted(() => {
 }
 
 .summary-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: 24px;
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .summary-card .card-icon {
@@ -485,8 +485,8 @@ onMounted(() => {
 
 /* 정비 필요 알림 */
 .due-alert {
-  background: linear-gradient(135deg, #fff5f5 0%, #fee 100%);
-  border: 2px solid #fcc;
+  background: linear-gradient(135deg, rgba(231, 76, 60, 0.1) 0%, rgba(231, 76, 60, 0.05) 100%);
+  border: 2px solid rgba(231, 76, 60, 0.3);
   border-radius: 16px;
   padding: 20px 24px;
   display: flex;
@@ -507,7 +507,7 @@ onMounted(() => {
 .due-alert ul {
   margin: 0;
   padding-left: 20px;
-  color: #c0392b;
+  color: #e74c3c;
   font-size: 14px;
 }
 
@@ -522,9 +522,9 @@ onMounted(() => {
   gap: 12px;
   margin-bottom: var(--section-gap);
   padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
 .filter-bar label {
@@ -539,6 +539,8 @@ onMounted(() => {
   font-size: 14px;
   min-width: 150px;
   cursor: pointer;
+  background: #252540;
+  color: #f0f0f5;
 }
 
 .filter-bar select:focus {
@@ -548,11 +550,11 @@ onMounted(() => {
 
 /* 기록 섹션 */
 .records-section {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: var(--card-padding);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
 .section-header {
@@ -599,7 +601,7 @@ onMounted(() => {
   align-items: flex-start;
   gap: 16px;
   padding: var(--card-padding);
-  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  background: linear-gradient(135deg, #252540 0%, #1e1e32 100%);
   border-radius: 16px;
   border: 1px solid var(--border-light);
   transition: all 0.2s;
@@ -607,7 +609,7 @@ onMounted(() => {
 
 .record-card:hover {
   border-color: var(--primary-start);
-  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 4px 15px rgba(129, 140, 248, 0.08);
 }
 
 .record-type {
@@ -623,7 +625,7 @@ onMounted(() => {
 }
 
 .record-type.engine_oil { background: rgba(139, 69, 19, 0.15); }
-.record-type.tire { background: rgba(0, 0, 0, 0.1); }
+.record-type.tire { background: rgba(255, 255, 255, 0.08); }
 .record-type.brake { background: rgba(231, 76, 60, 0.15); }
 .record-type.battery { background: rgba(46, 204, 113, 0.15); }
 .record-type.filter { background: rgba(52, 152, 219, 0.15); }
@@ -695,7 +697,7 @@ onMounted(() => {
   font-size: 13px;
   color: var(--text-muted);
   padding: 8px 12px;
-  background: rgba(0, 0, 0, 0.03);
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   margin-top: 8px;
 }
@@ -704,14 +706,14 @@ onMounted(() => {
   padding: 8px;
   background: transparent;
   border: none;
-  color: #ccc;
+  color: #7878a0;
   cursor: pointer;
   border-radius: 8px;
   transition: all 0.2s;
 }
 
 .btn-delete:hover {
-  background: #fee;
+  background: rgba(231, 76, 60, 0.15);
   color: var(--danger);
 }
 
@@ -744,6 +746,8 @@ onMounted(() => {
   font-family: inherit;
   resize: vertical;
   transition: border-color 0.2s;
+  background: #252540;
+  color: #f0f0f5;
 }
 
 .form-group textarea:focus {
@@ -772,16 +776,16 @@ onMounted(() => {
   justify-content: center;
   gap: 6px;
   padding: 14px 8px;
-  background: #f8f9fa;
-  border: 2px solid #e9ecef;
+  background: #252540;
+  border: 2px solid #2a2a45;
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .type-btn:hover {
-  background: #e9ecef;
-  border-color: #ced4da;
+  background: #2a2a45;
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .type-btn.selected {
