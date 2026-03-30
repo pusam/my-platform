@@ -4,59 +4,61 @@
    ======================================== */
 :root {
   /* Primary Colors - 메인 브랜드 컬러 */
-  --primary-start: #667eea;
-  --primary-end: #764ba2;
+  --primary-start: #818cf8;
+  --primary-end: #a78bfa;
   --primary-gradient: linear-gradient(135deg, var(--primary-start) 0%, var(--primary-end) 100%);
-  --primary-light: #818cf8;
+  --primary-light: #a5b4fc;
 
   /* Secondary Colors */
-  --secondary-start: #4facfe;
-  --secondary-end: #00f2fe;
+  --secondary-start: #38bdf8;
+  --secondary-end: #22d3ee;
 
-  /* Background - 밝고 깔끔한 배경 */
-  --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --bg-page: #f5f7fa;
-  --bg-white: #ffffff;
+  /* Background - 다크 테마 */
+  --bg-gradient: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  --bg-page: #141422;
+  --bg-white: #1e1e32;
+  --bg-surface: #252540;
+  --bg-elevated: #2a2a45;
 
-  /* Text Colors - 가독성 좋은 텍스트 */
-  --text-primary: #1a202c;
-  --text-secondary: #4a5568;
-  --text-muted: #718096;
-  --text-light: #a0aec0;
+  /* Text Colors */
+  --text-primary: #f0f0f5;
+  --text-secondary: #b0b0c8;
+  --text-muted: #7878a0;
+  --text-light: #55557a;
   --text-white: #ffffff;
 
   /* Card & Surface */
-  --card-bg: rgba(255, 255, 255, 0.98);
-  --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  --card-shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --card-bg: rgba(30, 30, 50, 0.85);
+  --card-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  --card-shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.35);
   --card-radius: 16px;
 
   /* Border */
-  --border-color: #e2e8f0;
-  --border-light: #f1f5f9;
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.05);
 
-  /* Status Colors - 선명한 상태 색상 */
-  --success: #10b981;
-  --success-light: #d1fae5;
-  --warning: #f59e0b;
-  --warning-light: #fef3c7;
-  --danger: #ef4444;
-  --danger-light: #fee2e2;
-  --info: #3b82f6;
-  --info-light: #dbeafe;
+  /* Status Colors */
+  --success: #34d399;
+  --success-light: rgba(52, 211, 153, 0.12);
+  --warning: #fbbf24;
+  --warning-light: rgba(251, 191, 36, 0.12);
+  --danger: #f87171;
+  --danger-light: rgba(248, 113, 113, 0.12);
+  --info: #60a5fa;
+  --info-light: rgba(96, 165, 250, 0.12);
 
-  /* Stock Colors - 주식 전용 */
-  --stock-up: #ef4444;
-  --stock-down: #3b82f6;
-  --stock-neutral: #6b7280;
+  /* Stock Colors */
+  --stock-up: #f87171;
+  --stock-down: #60a5fa;
+  --stock-neutral: #9ca3af;
 
   /* Gold & Silver */
-  --gold-primary: #f59e0b;
-  --gold-secondary: #d97706;
-  --gold-light: #fef3c7;
-  --silver-primary: #9ca3af;
-  --silver-secondary: #6b7280;
-  --silver-light: #f3f4f6;
+  --gold-primary: #fbbf24;
+  --gold-secondary: #f59e0b;
+  --gold-light: rgba(251, 191, 36, 0.12);
+  --silver-primary: #d1d5db;
+  --silver-secondary: #9ca3af;
+  --silver-light: rgba(209, 213, 219, 0.12);
 
   /* Spacing */
   --spacing-xs: 8px;
@@ -117,9 +119,8 @@ body {
   right: 0;
   bottom: 0;
   background:
-    radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.25) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(102, 126, 234, 0.25) 0%, transparent 50%),
-    radial-gradient(circle at 40% 40%, rgba(240, 147, 251, 0.12) 0%, transparent 40%);
+    radial-gradient(circle at 20% 80%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
 }
@@ -138,11 +139,12 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
-  background: var(--card-bg);
+  background: rgba(20, 20, 38, 0.9);
+  backdrop-filter: blur(12px);
   padding: 16px var(--card-padding);
   border-radius: var(--card-radius);
   margin-bottom: var(--header-margin-bottom);
-  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-color);
   min-height: var(--header-min-height);
   position: sticky;
   top: 0;
@@ -154,10 +156,7 @@ body {
   flex: 1;
   font-size: var(--header-title-size);
   font-weight: var(--header-title-weight);
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-white);
 }
 
 /* ========================================
@@ -204,7 +203,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 8px 16px;
-  background: var(--bg-page);
+  background: var(--bg-surface);
   border-radius: 10px;
   border: 1px solid var(--border-color);
 }
@@ -275,13 +274,13 @@ body {
 }
 
 .btn-secondary {
-  background: var(--bg-white);
+  background: var(--bg-surface);
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-page);
+  background: var(--bg-elevated);
   border-color: var(--primary-start);
   color: var(--primary-start);
 }
@@ -298,14 +297,14 @@ body {
 }
 
 .btn-back {
-  background: var(--bg-white);
+  background: var(--bg-surface);
   color: var(--text-secondary);
   border: 1px solid var(--border-color);
   padding: 10px 20px;
 }
 
 .btn-back:hover {
-  background: var(--bg-page);
+  background: var(--bg-elevated);
   border-color: var(--primary-start);
   color: var(--primary-start);
 }
@@ -352,7 +351,7 @@ select:focus,
 textarea:focus {
   outline: none;
   border-color: var(--primary-start);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.2);
 }
 
 input::placeholder {
@@ -426,7 +425,7 @@ table {
 }
 
 thead {
-  background: var(--bg-page);
+  background: var(--bg-surface);
 }
 
 th {
@@ -452,7 +451,7 @@ tr:last-child td {
 }
 
 tbody tr:hover {
-  background: rgba(102, 126, 234, 0.04);
+  background: rgba(129, 140, 248, 0.06);
 }
 
 /* ========================================
@@ -520,7 +519,7 @@ tbody tr:hover {
 .modal-close {
   width: 36px;
   height: 36px;
-  background: var(--bg-page);
+  background: var(--bg-surface);
   border: none;
   border-radius: 50%;
   cursor: pointer;
@@ -533,7 +532,7 @@ tbody tr:hover {
 }
 
 .modal-close:hover {
-  background: var(--border-color);
+  background: var(--bg-elevated);
   color: var(--text-primary);
 }
 

@@ -376,17 +376,18 @@ export default {
 <style scoped>
 /* 환영 카드 */
 .welcome-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: var(--card-padding);
   margin-bottom: var(--section-gap);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   display: flex;
   justify-content: space-between;
   align-items: center;
   overflow: hidden;
   position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .welcome-content {
@@ -448,11 +449,11 @@ export default {
   margin-bottom: 1rem;
   padding: 12px 16px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   border-left: 4px solid;
-  border-image: linear-gradient(135deg, #667eea 0%, #764ba2 100%) 1;
+  border-image: linear-gradient(135deg, #818cf8 0%, #764ba2 100%) 1;
 }
 
 .section-icon {
@@ -464,8 +465,8 @@ export default {
   font-size: 1.25rem;
   font-weight: 700;
   margin: 0;
-  color: #1a1a2e;
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
+  color: #f0f0f5;
+  text-shadow: none;
 }
 
 /* 메뉴 그리드 */
@@ -476,20 +477,20 @@ export default {
 }
 
 .menu-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: var(--card-padding);
   cursor: pointer;
   transition: all 0.3s ease;
-  border: 2px solid transparent;
+  border: 2px solid rgba(255, 255, 255, 0.08);
   position: relative;
   overflow: hidden;
 }
 
 .menu-card:hover {
   transform: translateY(-6px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
   border-color: var(--primary-start);
 }
 
@@ -539,8 +540,8 @@ export default {
 }
 
 .card-icon.car-icon {
-  background: linear-gradient(135deg, rgba(52, 73, 94, 0.15) 0%, rgba(44, 62, 80, 0.15) 100%);
-  color: #34495e;
+  background: linear-gradient(135deg, rgba(52, 73, 94, 0.25) 0%, rgba(44, 62, 80, 0.25) 100%);
+  color: #94b8d8;
 }
 
 .card-icon.sector-icon {
@@ -549,30 +550,30 @@ export default {
 }
 
 .menu-card.car {
-  background: linear-gradient(135deg, rgba(245, 247, 250, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(52, 73, 94, 0.2);
+  background: linear-gradient(135deg, rgba(20, 25, 40, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
+  border: 2px solid rgba(52, 73, 94, 0.3);
 }
 
 .menu-card.car:hover {
   border-color: #34495e;
-  box-shadow: 0 20px 40px rgba(52, 73, 94, 0.15);
+  box-shadow: 0 20px 40px rgba(52, 73, 94, 0.25);
 }
 
 .menu-card.car h3 {
-  color: #2c3e50;
+  color: #94b8d8;
 }
 
 /* 식단 카드 */
 .card-icon.diet-icon { background: linear-gradient(135deg, rgba(251,191,36,0.15) 0%, rgba(245,158,11,0.15) 100%); color: #f59e0b; }
-.menu-card.diet { background: linear-gradient(135deg, rgba(255,251,235,0.95) 0%, rgba(255,255,255,0.95) 100%); border: 2px solid rgba(245,158,11,0.2); }
-.menu-card.diet:hover { border-color: #f59e0b; box-shadow: 0 20px 40px rgba(245,158,11,0.15); }
-.menu-card.diet h3 { color: #92400e; }
+.menu-card.diet { background: linear-gradient(135deg, rgba(30, 25, 15, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%); border: 2px solid rgba(245,158,11,0.2); }
+.menu-card.diet:hover { border-color: #f59e0b; box-shadow: 0 20px 40px rgba(245,158,11,0.25); }
+.menu-card.diet h3 { color: #fbbf24; }
 
 /* 운동 카드 */
 .card-icon.exercise-icon { background: linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(5,150,105,0.15) 100%); color: #10b981; }
-.menu-card.exercise { background: linear-gradient(135deg, rgba(236,253,245,0.95) 0%, rgba(255,255,255,0.95) 100%); border: 2px solid rgba(16,185,129,0.2); }
-.menu-card.exercise:hover { border-color: #10b981; box-shadow: 0 20px 40px rgba(16,185,129,0.15); }
-.menu-card.exercise h3 { color: #065f46; }
+.menu-card.exercise { background: linear-gradient(135deg, rgba(15, 30, 25, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%); border: 2px solid rgba(16,185,129,0.2); }
+.menu-card.exercise:hover { border-color: #10b981; box-shadow: 0 20px 40px rgba(16,185,129,0.25); }
+.menu-card.exercise h3 { color: #6ee7b7; }
 
 /* AI 분석 카드 */
 .card-icon.ai-analysis-icon {
@@ -581,17 +582,17 @@ export default {
 }
 
 .menu-card.ai-analysis {
-  background: linear-gradient(135deg, rgba(253, 244, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(25, 15, 35, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(168, 85, 247, 0.3);
 }
 
 .menu-card.ai-analysis:hover {
   border-color: #a855f7;
-  box-shadow: 0 20px 40px rgba(168, 85, 247, 0.2);
+  box-shadow: 0 20px 40px rgba(168, 85, 247, 0.25);
 }
 
 .menu-card.ai-analysis h3 {
-  color: #9333ea;
+  color: #c084fc;
 }
 
 /* ===== 투자 섹션 ===== */
@@ -605,7 +606,7 @@ export default {
   overflow: hidden;
   margin-bottom: 16px;
   transition: all 0.3s ease;
-  border: 1px solid rgba(102, 126, 234, 0.25);
+  border: 1px solid rgba(129, 140, 248, 0.25);
 }
 
 .invest-hero-bg {
@@ -713,16 +714,16 @@ export default {
   gap: 14px;
   padding: 18px 20px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(30, 30, 50, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
   transition: all 0.25s ease;
 }
 
 .invest-sub-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1);
-  border-color: transparent;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .invest-sub-icon {
@@ -754,13 +755,13 @@ export default {
   margin: 0 0 2px;
   font-size: 14px;
   font-weight: 700;
-  color: #1e293b;
+  color: #f0f0f5;
 }
 
 .invest-sub-text p {
   margin: 0;
   font-size: 12px;
-  color: #94a3b8;
+  color: #7878a0;
 }
 
 @media (max-width: 768px) {
@@ -782,17 +783,17 @@ export default {
 }
 
 .menu-card.asset {
-  background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(30, 25, 15, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(247, 183, 51, 0.3);
 }
 
 .menu-card.asset:hover {
   border-color: #f7b733;
-  box-shadow: 0 20px 40px rgba(247, 183, 51, 0.15);
+  box-shadow: 0 20px 40px rgba(247, 183, 51, 0.25);
 }
 
 .menu-card.asset h3 {
-  color: #d97706;
+  color: #fbbf24;
 }
 
 /* 가계부 카드 */
@@ -807,31 +808,31 @@ export default {
 }
 
 .menu-card.stock {
-  background: linear-gradient(135deg, rgba(255, 245, 245, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(35, 15, 15, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(231, 76, 60, 0.3);
 }
 
 .menu-card.stock:hover {
   border-color: #e74c3c;
-  box-shadow: 0 20px 40px rgba(231, 76, 60, 0.2);
+  box-shadow: 0 20px 40px rgba(231, 76, 60, 0.25);
 }
 
 .menu-card.stock h3 {
-  color: #c0392b;
+  color: #f87171;
 }
 
 .menu-card.finance {
-  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(15, 30, 20, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(46, 204, 113, 0.3);
 }
 
 .menu-card.finance:hover {
   border-color: #2ecc71;
-  box-shadow: 0 20px 40px rgba(46, 204, 113, 0.15);
+  box-shadow: 0 20px 40px rgba(46, 204, 113, 0.25);
 }
 
 .menu-card.finance h3 {
-  color: #16a34a;
+  color: #6ee7b7;
 }
 
 /* 뉴스 카드 */
@@ -841,17 +842,17 @@ export default {
 }
 
 .menu-card.news {
-  background: linear-gradient(135deg, rgba(239, 246, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(15, 20, 40, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(59, 130, 246, 0.3);
 }
 
 .menu-card.news:hover {
   border-color: #3b82f6;
-  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.25);
 }
 
 .menu-card.news h3 {
-  color: #2563eb;
+  color: #93c5fd;
 }
 
 
@@ -862,17 +863,17 @@ export default {
 }
 
 .menu-card.investor {
-  background: linear-gradient(135deg, rgba(243, 244, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
-  border: 2px solid rgba(102, 126, 234, 0.3);
+  background: linear-gradient(135deg, rgba(20, 20, 45, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
+  border: 2px solid rgba(129, 140, 248, 0.3);
 }
 
 .menu-card.investor:hover {
-  border-color: #667eea;
-  box-shadow: 0 20px 40px rgba(102, 126, 234, 0.15);
+  border-color: #818cf8;
+  box-shadow: 0 20px 40px rgba(129, 140, 248, 0.25);
 }
 
 .menu-card.investor h3 {
-  color: #5568d3;
+  color: #a5b4fc;
 }
 
 /* 연속 매수 카드 */
@@ -882,17 +883,17 @@ export default {
 }
 
 .menu-card.consecutive {
-  background: linear-gradient(135deg, rgba(255, 250, 240, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(30, 22, 12, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(237, 137, 54, 0.3);
 }
 
 .menu-card.consecutive:hover {
   border-color: #ed8936;
-  box-shadow: 0 20px 40px rgba(237, 137, 54, 0.15);
+  box-shadow: 0 20px 40px rgba(237, 137, 54, 0.25);
 }
 
 .menu-card.consecutive h3 {
-  color: #dd6b20;
+  color: #fdba74;
 }
 
 /* 수급 급증 카드 */
@@ -902,17 +903,17 @@ export default {
 }
 
 .menu-card.surge {
-  background: linear-gradient(135deg, rgba(254, 242, 242, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(35, 15, 15, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(229, 62, 62, 0.3);
 }
 
 .menu-card.surge:hover {
   border-color: #e53e3e;
-  box-shadow: 0 20px 40px rgba(229, 62, 62, 0.15);
+  box-shadow: 0 20px 40px rgba(229, 62, 62, 0.25);
 }
 
 .menu-card.surge h3 {
-  color: #c53030;
+  color: #fca5a5;
 }
 
 /* 실적 스크리너 카드 */
@@ -922,17 +923,17 @@ export default {
 }
 
 .menu-card.screener {
-  background: linear-gradient(135deg, rgba(240, 253, 244, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(15, 30, 20, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(74, 222, 128, 0.3);
 }
 
 .menu-card.screener:hover {
   border-color: #4ade80;
-  box-shadow: 0 20px 40px rgba(74, 222, 128, 0.15);
+  box-shadow: 0 20px 40px rgba(74, 222, 128, 0.25);
 }
 
 .menu-card.screener h3 {
-  color: #16a34a;
+  color: #6ee7b7;
 }
 
 /* 시장 지표 카드 */
@@ -942,17 +943,17 @@ export default {
 }
 
 .menu-card.market-timing {
-  background: linear-gradient(135deg, rgba(255, 251, 235, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(30, 25, 15, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(245, 158, 11, 0.3);
 }
 
 .menu-card.market-timing:hover {
   border-color: #f59e0b;
-  box-shadow: 0 20px 40px rgba(245, 158, 11, 0.15);
+  box-shadow: 0 20px 40px rgba(245, 158, 11, 0.25);
 }
 
 .menu-card.market-timing h3 {
-  color: #d97706;
+  color: #fbbf24;
 }
 
 /* 트레이딩 지표 카드 */
@@ -962,17 +963,17 @@ export default {
 }
 
 .menu-card.trading-indicators {
-  background: linear-gradient(135deg, rgba(245, 243, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(22, 18, 40, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(139, 92, 246, 0.3);
 }
 
 .menu-card.trading-indicators:hover {
   border-color: #8b5cf6;
-  box-shadow: 0 20px 40px rgba(139, 92, 246, 0.15);
+  box-shadow: 0 20px 40px rgba(139, 92, 246, 0.25);
 }
 
 .menu-card.trading-indicators h3 {
-  color: #7c3aed;
+  color: #a78bfa;
 }
 
 /* 종목 종합상세 카드 */
@@ -982,23 +983,23 @@ export default {
 }
 
 .menu-card.stock-detail {
-  background: linear-gradient(135deg, rgba(236, 254, 255, 0.95) 0%, rgba(255, 255, 255, 0.95) 100%);
+  background: linear-gradient(135deg, rgba(12, 25, 30, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%);
   border: 2px solid rgba(6, 182, 212, 0.3);
 }
 
 .menu-card.stock-detail:hover {
   border-color: #06b6d4;
-  box-shadow: 0 20px 40px rgba(6, 182, 212, 0.15);
+  box-shadow: 0 20px 40px rgba(6, 182, 212, 0.25);
 }
 
 .menu-card.stock-detail h3 {
-  color: #0891b2;
+  color: #67e8f9;
 }
 
 /* AI 뱃지 (메뉴 카드용) */
 .menu-ai-badge {
   display: inline-block;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #818cf8 0%, #764ba2 100%);
   color: white;
   padding: 2px 8px;
   border-radius: 8px;
@@ -1142,9 +1143,10 @@ export default {
   display: flex;
   gap: 4px;
   margin-bottom: 24px;
-  background: #e5e7eb;
+  background: rgba(30, 30, 50, 0.85);
   border-radius: 12px;
   padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 .dash-tab {
   flex: 1;
@@ -1154,17 +1156,17 @@ export default {
   border-radius: 10px;
   font-size: 15px;
   font-weight: 700;
-  color: #6b7280;
+  color: #7878a0;
   cursor: pointer;
   transition: all 0.2s;
 }
 .dash-tab:hover {
-  color: #111827;
-  background: rgba(255, 255, 255, 0.5);
+  color: #f0f0f5;
+  background: rgba(255, 255, 255, 0.08);
 }
 .dash-tab.active {
-  background: #fff;
-  color: #111827;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f0f0f5;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 </style>
