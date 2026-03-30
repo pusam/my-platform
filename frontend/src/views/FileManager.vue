@@ -772,7 +772,7 @@ onUnmounted(() => {
 }
 
 .breadcrumb {
-  background: #f5f5f5;
+  background: #252540;
   padding: 12px 20px;
   border-radius: 8px;
   margin-bottom: var(--section-gap);
@@ -784,7 +784,7 @@ onUnmounted(() => {
 .breadcrumb-item {
   display: inline-flex;
   align-items: center;
-  color: #666;
+  color: #b0b0c8;
   cursor: pointer;
   transition: color 0.2s;
 }
@@ -795,7 +795,7 @@ onUnmounted(() => {
 
 .breadcrumb-item .separator {
   margin: 0 10px;
-  color: #999;
+  color: #7878a0;
 }
 
 .breadcrumb-item.active,
@@ -828,25 +828,25 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: white;
+  background: #1e1e32;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid rgba(255,255,255,0.08);
 }
 
 .sort-dropdown label {
   font-size: 14px;
-  color: #666;
+  color: #b0b0c8;
   font-weight: 500;
 }
 
 .sort-dropdown select {
   padding: 6px 12px;
-  border: 1px solid #ddd;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 6px;
   font-size: 14px;
-  color: #333;
-  background: white;
+  color: #f0f0f5;
+  background: #1e1e32;
   cursor: pointer;
   outline: none;
   min-width: 140px;
@@ -858,7 +858,7 @@ onUnmounted(() => {
 }
 
 .sort-dropdown select:hover {
-  border-color: #999;
+  border-color: #7878a0;
 }
 
 
@@ -879,8 +879,8 @@ onUnmounted(() => {
 
 .file-item {
   position: relative;
-  background: white;
-  border: 2px solid #e0e0e0;
+  background: #1e1e32;
+  border: 2px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   padding: var(--card-padding);
   text-align: center;
@@ -895,7 +895,7 @@ onUnmounted(() => {
 }
 
 .file-item.folder-item {
-  background: linear-gradient(135deg, #f5f7fa 0%, #e8ebf0 100%);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
 }
 
 .file-item .icon {
@@ -914,7 +914,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   margin-bottom: 10px;
-  background: #f5f5f5;
+  background: #1e1e32;
   border-radius: 6px;
   overflow: hidden;
 }
@@ -931,28 +931,28 @@ onUnmounted(() => {
 }
 
 .thumbnail-loading {
-  color: #999;
+  color: #7878a0;
   font-size: 12px;
 }
 
 .file-item .name {
   font-weight: 500;
-  color: #333;
+  color: #f0f0f5;
   margin-bottom: 5px;
   word-break: break-word;
 }
 
 .file-item .meta {
   font-size: 12px;
-  color: #999;
+  color: #7878a0;
 }
 
 .empty-message {
   grid-column: 1 / -1;
   text-align: center;
   padding: 60px 20px;
-  color: #999;
-  background: #f9f9f9;
+  color: #7878a0;
+  background: #252540;
   border-radius: 8px;
 }
 
@@ -992,8 +992,8 @@ onUnmounted(() => {
 }
 
 .btn-secondary {
-  background: #ccc;
-  color: #333;
+  background: #2a2a45;
+  color: #f0f0f5;
 }
 
 .modal-overlay {
@@ -1010,7 +1010,7 @@ onUnmounted(() => {
 }
 
 .modal-content {
-  background: white;
+  background: #1e1e32;
   border-radius: 12px;
   padding: 30px;
   width: 90%;
@@ -1021,7 +1021,7 @@ onUnmounted(() => {
 
 .modal-content h2 {
   margin-bottom: var(--section-gap);
-  color: #333;
+  color: #f0f0f5;
 }
 
 .form-group {
@@ -1032,23 +1032,25 @@ onUnmounted(() => {
   display: block;
   margin-bottom: 8px;
   font-weight: 500;
-  color: #555;
+  color: #b0b0c8;
 }
 
 .file-info {
   margin-top: 5px;
   font-size: 12px;
-  color: #666;
+  color: #b0b0c8;
   font-style: italic;
 }
 
 .form-group input {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 6px;
   font-size: 14px;
   box-sizing: border-box;
+  background: #252540;
+  color: #f0f0f5;
 }
 
 .form-group input:focus {
@@ -1057,7 +1059,7 @@ onUnmounted(() => {
 }
 
 .file-preview {
-  background: #f5f5f5;
+  background: #252540;
   padding: 15px;
   border-radius: 6px;
   margin-bottom: 15px;
@@ -1067,7 +1069,7 @@ onUnmounted(() => {
   margin: 6px 0 0;
   padding-left: 18px;
   font-size: 13px;
-  color: #555;
+  color: #b0b0c8;
   max-height: 120px;
   overflow-y: auto;
 }
@@ -1077,7 +1079,7 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 .progress-bar-container {
-  background: #e0e0e0;
+  background: #2a2a45;
   border-radius: 8px;
   height: 8px;
   overflow: hidden;
@@ -1092,7 +1094,7 @@ onUnmounted(() => {
 .progress-text {
   text-align: center;
   font-size: 13px;
-  color: #666;
+  color: #b0b0c8;
   font-weight: 500;
 }
 
@@ -1129,8 +1131,8 @@ onUnmounted(() => {
 
 .context-menu {
   position: fixed;
-  background: white;
-  border: 1px solid #ddd;
+  background: #1e1e32;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 2000;
@@ -1141,17 +1143,18 @@ onUnmounted(() => {
   padding: 12px 20px;
   cursor: pointer;
   transition: background 0.2s;
+  color: #f0f0f5;
 }
 
 .context-menu-item:hover {
-  background: #f5f5f5;
+  background: #252540;
 }
 
 .image-viewer {
   position: relative;
   max-width: 90vw;
   max-height: 90vh;
-  background: white;
+  background: #1e1e32;
   border-radius: 12px;
   padding: var(--card-padding);
 }
@@ -1167,7 +1170,7 @@ onUnmounted(() => {
 .image-info {
   text-align: center;
   margin-top: 15px;
-  color: #333;
+  color: #f0f0f5;
   font-weight: 500;
 }
 
@@ -1196,7 +1199,7 @@ onUnmounted(() => {
   position: relative;
   max-width: 90vw;
   max-height: 90vh;
-  background: white;
+  background: #1e1e32;
   border-radius: 12px;
   padding: var(--card-padding);
 }
@@ -1212,13 +1215,13 @@ onUnmounted(() => {
 .video-info {
   text-align: center;
   margin-top: 15px;
-  color: #333;
+  color: #f0f0f5;
   font-weight: 500;
 }
 
 .file-total-count {
   font-size: 13px;
-  color: #888;
+  color: #7878a0;
   font-weight: 500;
 }
 
@@ -1231,7 +1234,7 @@ onUnmounted(() => {
 
 .file-count-info {
   font-size: 12px;
-  color: #999;
+  color: #7878a0;
 }
 
 /* 반응형 */
