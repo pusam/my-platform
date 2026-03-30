@@ -595,13 +595,13 @@ export default {
 
 .search-input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(10px);
 }
 
 .btn-search {
   padding: 14px 18px;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(10px);
   border: 2px solid var(--border-color);
   border-radius: 12px;
@@ -650,7 +650,7 @@ export default {
 }
 
 .board-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: 24px;
@@ -676,7 +676,7 @@ export default {
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
   padding: 4px 12px;
   border-radius: 20px;
 }
@@ -707,7 +707,7 @@ export default {
   gap: 4px;
   font-size: 12px;
   color: var(--primary-start);
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
   padding: 4px 10px;
   border-radius: 12px;
   font-weight: 500;
@@ -766,11 +766,11 @@ export default {
 }
 
 .write-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: 40px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
 
 .write-header {
@@ -794,7 +794,7 @@ export default {
 .btn-close {
   width: 44px;
   height: 44px;
-  background: #f8f9fa;
+  background: #252540;
   border: none;
   border-radius: 50%;
   cursor: pointer;
@@ -857,12 +857,12 @@ export default {
   transition: all 0.3s;
   color: var(--text-muted);
   gap: 12px;
-  background: linear-gradient(135deg, #fafbfc 0%, #f5f7fa 100%);
+  background: linear-gradient(135deg, #1e1e32 0%, #1e1e32 100%);
 }
 
 .file-drop-zone:hover {
   border-color: var(--primary-start);
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
   color: var(--primary-start);
 }
 
@@ -886,8 +886,8 @@ export default {
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border: 1px solid var(--border-color);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px;
   font-size: 14px;
 }
@@ -939,11 +939,11 @@ export default {
 }
 
 .detail-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: 48px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   max-width: 900px;
   margin: 0 auto;
 }
@@ -1013,7 +1013,7 @@ export default {
   border-left: 4px solid var(--primary-start);
   padding: 16px 20px;
   margin: 20px 0;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
   border-radius: 0 12px 12px 0;
   color: var(--text-secondary);
 }
@@ -1021,7 +1021,7 @@ export default {
 .detail-files {
   margin-bottom: 32px;
   padding: 24px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f5 100%);
+  background: linear-gradient(135deg, #252540 0%, rgba(255,255,255,0.05) 100%);
   border-radius: 16px;
 }
 
@@ -1045,15 +1045,15 @@ export default {
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
-  background: white;
-  border: 1px solid var(--border-color);
+  background: #1e1e32;
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: 12px;
   transition: all 0.2s;
 }
 
 .file-item:hover {
   border-color: var(--primary-start);
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 4px 16px rgba(129, 140, 248, 0.1);
 }
 
 .file-link {
@@ -1087,9 +1087,9 @@ export default {
 
 .btn-file-delete {
   padding: 8px 16px;
-  background: linear-gradient(135deg, #fee 0%, #fdd 100%);
+  background: linear-gradient(135deg, rgba(255,50,50,0.15) 0%, rgba(255,50,50,0.1) 100%);
   color: var(--danger);
-  border: 1px solid #fcc;
+  border: 1px solid rgba(255,50,50,0.3);
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
@@ -1130,14 +1130,35 @@ export default {
 .content-editor :deep(.ql-toolbar) {
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border-color: var(--border-color);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
+  border-color: rgba(255,255,255,0.08);
+}
+
+.content-editor :deep(.ql-toolbar .ql-stroke) {
+  stroke: #b0b0c8;
+}
+
+.content-editor :deep(.ql-toolbar .ql-fill) {
+  fill: #b0b0c8;
+}
+
+.content-editor :deep(.ql-toolbar .ql-picker-label) {
+  color: #b0b0c8;
 }
 
 .content-editor :deep(.ql-container) {
   border-bottom-left-radius: 12px;
   border-bottom-right-radius: 12px;
-  border-color: var(--border-color);
+  border-color: rgba(255,255,255,0.08);
+  background: #1e1e32;
+}
+
+.content-editor :deep(.ql-editor) {
+  color: #f0f0f5;
+}
+
+.content-editor :deep(.ql-editor.ql-blank::before) {
+  color: #7878a0;
 }
 
 /* 반응형 */
