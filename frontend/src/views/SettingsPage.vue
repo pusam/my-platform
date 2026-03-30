@@ -344,7 +344,7 @@ onMounted(() => {
 }
 
 .settings-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   overflow: hidden;
@@ -353,11 +353,11 @@ onMounted(() => {
 
 .settings-card .card-header {
   padding: 20px var(--card-padding);
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
   display: flex;
   align-items: center;
   gap: 16px;
-  border-bottom: 2px solid var(--border-light);
+  border-bottom: 2px solid rgba(255,255,255,0.08);
 }
 
 .settings-card .card-header .card-icon {
@@ -411,8 +411,8 @@ onMounted(() => {
 }
 
 .disabled-input {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  color: var(--text-muted);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
+  color: #7878a0;
   cursor: not-allowed;
 }
 
@@ -456,7 +456,7 @@ onMounted(() => {
   align-items: center;
   margin-bottom: 28px;
   padding-bottom: 28px;
-  border-bottom: 2px solid var(--border-light);
+  border-bottom: 2px solid rgba(255,255,255,0.08);
 }
 
 .profile-image-preview {
@@ -477,11 +477,11 @@ onMounted(() => {
 .profile-image-placeholder {
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
+  color: #7878a0;
 }
 
 .profile-image-actions {
@@ -495,9 +495,9 @@ onMounted(() => {
 }
 
 .btn-secondary {
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  color: var(--text-secondary);
-  border: 2px solid var(--border-color);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
+  color: #b0b0c8;
+  border: 2px solid rgba(255,255,255,0.08);
   cursor: pointer;
   transition: all 0.2s;
 }
