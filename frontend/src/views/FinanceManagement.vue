@@ -1067,12 +1067,12 @@ onMounted(() => {
 
 /* 상단 바 */
 .top-bar {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: 20px 24px;
   margin-bottom: var(--section-gap);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -1087,18 +1087,19 @@ onMounted(() => {
 
 .select-box {
   padding: 10px 20px;
-  border: 2px solid var(--border-color);
+  border: 2px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   font-size: 14px;
   font-weight: 500;
-  background: white;
+  background: #1e1e32;
+  color: #f0f0f5;
   cursor: pointer;
   transition: all 0.2s;
   min-width: 100px;
   appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23b0b0c8' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
@@ -1125,8 +1126,8 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 20px;
-  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-  border: 2px solid var(--border-color);
+  background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
+  border: 2px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -1144,9 +1145,10 @@ onMounted(() => {
   top: 100%;
   right: 0;
   margin-top: 8px;
-  background: white;
+  background: #1e1e32;
   border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   overflow: hidden;
   z-index: 100;
   min-width: 150px;
@@ -1160,17 +1162,17 @@ onMounted(() => {
   border: none;
   text-align: left;
   font-size: 14px;
-  color: var(--text-primary);
+  color: #f0f0f5;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .export-menu button:hover {
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(129, 140, 248, 0.1);
 }
 
 .export-menu button:not(:last-child) {
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .btn-income {
@@ -1226,14 +1228,14 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: var(--card-padding);
   display: flex;
   align-items: center;
   gap: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   border: 2px solid transparent;
 }
 
@@ -1256,11 +1258,11 @@ onMounted(() => {
 }
 
 .stat-card.balance {
-  border-color: rgba(102, 126, 234, 0.2);
+  border-color: rgba(129, 140, 248, 0.2);
 }
 
 .stat-card.balance .stat-icon {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
   color: var(--primary-start);
 }
 
@@ -1312,11 +1314,11 @@ onMounted(() => {
 
 /* 거래 내역 섹션 */
 .transactions-section {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 20px;
   padding: var(--card-padding);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
 .section-header {
@@ -1376,7 +1378,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  background: #f8f9fa;
+  background: #252540;
   border-radius: 12px;
   border-left: 4px solid transparent;
   transition: all 0.2s;
@@ -1391,7 +1393,7 @@ onMounted(() => {
 }
 
 .transaction-item:hover {
-  background: #f1f3f5;
+  background: #2a2a45;
 }
 
 .tx-left {
@@ -1501,12 +1503,13 @@ onMounted(() => {
 }
 
 .modal-content {
-  background: white;
+  background: #1e1e32;
   border-radius: 20px;
   width: 100%;
   max-width: 440px;
   overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .modal-header {
@@ -1572,10 +1575,12 @@ onMounted(() => {
 .form-input {
   width: 100%;
   padding: 12px 14px;
-  border: 2px solid var(--border-color);
+  border: 2px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   font-size: 15px;
   transition: all 0.2s;
+  background: #252540;
+  color: #f0f0f5;
 }
 
 .form-input:focus {
@@ -1609,18 +1614,18 @@ onMounted(() => {
 .btn-cancel {
   flex: 1;
   padding: 14px;
-  background: #f1f3f5;
+  background: #252540;
   border: none;
   border-radius: 10px;
   font-size: 15px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: #b0b0c8;
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .btn-cancel:hover {
-  background: #e9ecef;
+  background: #2a2a45;
 }
 
 .btn-submit {
@@ -1661,11 +1666,11 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   margin-bottom: var(--section-gap);
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 12px;
   padding: 6px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .tab-btn {
@@ -1687,18 +1692,18 @@ onMounted(() => {
 }
 
 .tab-btn:hover:not(.active) {
-  background: rgba(102, 126, 234, 0.1);
+  background: rgba(129, 140, 248, 0.1);
   color: var(--primary-start);
 }
 
 /* 고정 수입/지출 탭 */
 .recurring-header {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: var(--card-padding);
   margin-bottom: var(--section-gap);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .recurring-header h2 {
@@ -1721,12 +1726,12 @@ onMounted(() => {
 
 /* 고정 수입/지출 섹션 */
 .recurring-section {
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(30, 30, 50, 0.85);
   backdrop-filter: blur(20px);
   border-radius: 16px;
   padding: var(--card-padding);
   margin-bottom: var(--section-gap);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .section-title {
@@ -1759,7 +1764,7 @@ onMounted(() => {
 }
 
 .recurring-item {
-  background: #f8f9fa;
+  background: #252540;
   border-radius: 12px;
   padding: 16px;
   border-left: 4px solid transparent;
@@ -1795,7 +1800,7 @@ onMounted(() => {
 .recurring-category {
   font-size: 12px;
   color: var(--text-muted);
-  background: rgba(0, 0, 0, 0.05);
+  background: rgba(255, 255, 255, 0.05);
   padding: 2px 8px;
   border-radius: 4px;
   display: inline-block;
@@ -1857,7 +1862,7 @@ onMounted(() => {
 }
 
 .history-list {
-  background: rgba(102, 126, 234, 0.05);
+  background: rgba(129, 140, 248, 0.05);
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 12px;
@@ -1869,7 +1874,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 12px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .history-item:last-child {
@@ -1893,7 +1898,7 @@ onMounted(() => {
   gap: 8px;
   margin-top: 8px;
   padding-top: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .btn-edit {
@@ -1961,11 +1966,11 @@ onMounted(() => {
 }
 
 .chart-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: rgba(30, 30, 50, 0.85);
   border-radius: 16px;
   padding: var(--card-padding);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-  border: 1px solid var(--border-light);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .chart-title {
