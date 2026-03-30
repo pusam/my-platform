@@ -270,22 +270,24 @@ const handleSignup = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
   padding: 20px;
 }
 
 .signup-box {
-  background: white;
+  background: rgba(30, 30, 50, 0.9);
+  backdrop-filter: blur(20px);
   padding: 40px;
   border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   width: 100%;
   max-width: 450px;
 }
 
 .signup-box h2 {
   text-align: center;
-  color: #333;
+  color: #f0f0f5;
   margin-bottom: 30px;
   font-size: 28px;
   font-weight: 600;
@@ -298,7 +300,7 @@ const handleSignup = async () => {
 .form-group label {
   display: block;
   margin-bottom: 8px;
-  color: #555;
+  color: #b0b0c8;
   font-weight: 500;
   font-size: 14px;
 }
@@ -306,18 +308,20 @@ const handleSignup = async () => {
 .form-group input {
   width: 100%;
   padding: 12px 15px;
-  border: 1px solid #ddd;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   font-size: 14px;
   transition: border-color 0.3s;
   box-sizing: border-box;
+  background: #252540;
+  color: #f0f0f5;
 }
 
 .form-group .hint {
   display: block;
   margin-top: 5px;
   font-size: 12px;
-  color: #888;
+  color: #7878a0;
   font-style: italic;
 }
 
@@ -349,29 +353,36 @@ const handleSignup = async () => {
 }
 
 .btn-verify:disabled {
-  background: #ccc;
+  background: #3a3a5c;
+  color: #7878a0;
   cursor: not-allowed;
   transform: none;
 }
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2);
+}
+
+.form-group input::placeholder {
+  color: #7878a0;
 }
 
 .error-message {
-  background-color: #fee;
-  color: #c33;
+  background-color: rgba(248, 113, 113, 0.12);
+  color: #f87171;
   padding: 12px;
   border-radius: 6px;
   margin-bottom: 20px;
   font-size: 14px;
   text-align: center;
+  border: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 .success-message {
-  background-color: #efe;
-  color: #2a2;
+  background-color: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
   padding: 12px;
   border-radius: 6px;
   margin-bottom: 20px;
@@ -379,9 +390,7 @@ const handleSignup = async () => {
   text-align: center;
   white-space: pre-line;
   line-height: 1.6;
-}
-
-.btn {
+  border: 1px solid rgba(74, 222, 128, 0.2);
 }
 
 .btn {
@@ -413,12 +422,12 @@ const handleSignup = async () => {
 .login-link {
   text-align: center;
   margin-top: 20px;
-  color: #666;
+  color: #7878a0;
   font-size: 14px;
 }
 
 .login-link a {
-  color: #667eea;
+  color: #818cf8;
   text-decoration: none;
   font-weight: 600;
 }
