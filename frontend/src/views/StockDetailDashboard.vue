@@ -1533,6 +1533,8 @@ const fetchAllData = async (code, searchedName) => {
       peerComparisons.value = data.peerComparisons;
       sectorAvgPbr.value = data.sectorAvgPbr;
       sectorName.value = data.sectorName;
+      // Heavy에서 상세 재무(배당/Forward/투자태그)가 오면 Quick 경량 재무를 덮어씀
+      if (data.financial) financial.value = data.financial;
     }
 
     // Diagnosis 처리

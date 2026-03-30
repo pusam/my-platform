@@ -53,6 +53,7 @@ public class StockDetailService {
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final GeminiService geminiService;
+    private final StockDetailCacheService cacheService;
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
@@ -291,40 +292,15 @@ public class StockDetailService {
                 .stockCode(stockCode)
                 .fetchedAt(LocalDateTime.now());
 
-        // 1. 현재가 조회 (필수)
-        String stockName = stockCode;
-        StockPriceDto naverData = null;
-        JsonNode priceData = kisService.getStockPrice(stockCode);
-        if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
-            PriceInfo priceInfo = parsePriceInfo(priceData);
-            builder.price(priceInfo);
-            String name = getFieldValue(priceData, "output", "hts_kor_isnm");
-            if (name != null && !name.isEmpty()) {
-                stockName = name;
-            }
-        } else {
-            try {
-                naverData = stockPriceService.getStockPrice(stockCode);
-                if (naverData != null && naverData.getCurrentPrice() != null) {
-                    stockName = naverData.getStockName() != null ? naverData.getStockName() : stockCode;
-                    builder.price(convertNaverToPriceInfo(naverData));
-                } else {
-                    List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
-                    if (searchResult != null && !searchResult.isEmpty()) {
-                        stockName = searchResult.get(0).getStockName();
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[StockDetail:Quick] 시세 폴백 실패: {}", e.getMessage());
-            }
-        }
-        builder.stockName(stockName);
-        final String finalStockName = stockName;
-
+        // ★ 시세 + 수급 + 차트 + 재무 모두 병렬 실행
         boolean isAfterMarket = isAfterMarketHours();
         boolean isBeforeMarket = isBeforeMarketHours();
 
-        // 2. 수급 + 차트 병렬 조회
+        // 1. 시세 (비동기)
+        CompletableFuture<JsonNode> priceFuture =
+                CompletableFuture.supplyAsync(() -> kisService.getStockPrice(stockCode));
+
+        // 2. 수급 (비동기)
         CompletableFuture<SupplyDemand> supplyFuture =
                 CompletableFuture.supplyAsync(() -> {
                     try {
@@ -337,31 +313,44 @@ public class StockDetailService {
                     }
                 });
 
+        // 3. 차트 (비동기 + 캐시 — 별도 빈이라 @Cacheable 동작)
         CompletableFuture<ChartData> chartFuture =
-                CompletableFuture.supplyAsync(() -> getCachedChartData(stockCode));
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedChartData(stockCode));
 
-        // 3. 재무 정보 (캐시됨)
-        FinancialInfo financial = getCachedFinancialInfo(stockCode, priceData);
-        if (financial == null && naverData != null) {
-            financial = convertNaverToFinancialInfo(naverData);
-        }
+        // 4. 재무 (비동기 + 캐시 — 별도 빈이라 @Cacheable 동작)
+        CompletableFuture<FinancialInfo> financialFuture =
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedFinancialInfo(stockCode));
 
-        // 네이버 크롤링 (배당수익률 + Forward 지표)
-        Document naverMainDoc = fetchNaverMainPage(stockCode);
-        if (financial != null) {
-            enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
-            enrichWithForwardMetrics(financial, builder.build().getPrice());
-            financial.setInvestmentTags(generateInvestmentTags(financial, stockName));
-        }
-        builder.financial(financial);
-
+        // ★ 모든 Future 결과 수집
         try {
-            SupplyDemand supplyDemand = supplyFuture.get(30, TimeUnit.SECONDS);
-            if (!isBeforeMarket && (supplyDemand == null || isEmptySupplyDemand(supplyDemand))) {
-                SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
-                if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) {
-                    supplyDemand = naverSupply;
+            // 시세 처리
+            String stockName = stockCode;
+            JsonNode priceData = priceFuture.get(15, TimeUnit.SECONDS);
+            if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
+                builder.price(parsePriceInfo(priceData));
+                String name = getFieldValue(priceData, "output", "hts_kor_isnm");
+                if (name != null && !name.isEmpty()) stockName = name;
+            } else {
+                // KIS 실패 → 네이버 폴백 (여기서만 순차)
+                try {
+                    StockPriceDto naverData = stockPriceService.getStockPrice(stockCode);
+                    if (naverData != null && naverData.getCurrentPrice() != null) {
+                        stockName = naverData.getStockName() != null ? naverData.getStockName() : stockCode;
+                        builder.price(convertNaverToPriceInfo(naverData));
+                    }
+                } catch (Exception e) {
+                    log.warn("[StockDetail:Quick] 시세 폴백 실패: {}", e.getMessage());
                 }
+            }
+            builder.stockName(stockName);
+
+            // 수급 처리
+            SupplyDemand supplyDemand = supplyFuture.get(15, TimeUnit.SECONDS);
+            if (!isBeforeMarket && (supplyDemand == null || isEmptySupplyDemand(supplyDemand))) {
+                try {
+                    SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
+                    if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) supplyDemand = naverSupply;
+                } catch (Exception e) { /* skip */ }
             }
             if (supplyDemand != null) {
                 if (isBeforeMarket) supplyDemand.setDataSource("장전(초기화)");
@@ -370,8 +359,14 @@ public class StockDetailService {
                 builder.supplyDemand(supplyDemand);
             }
 
-            ChartData chart = chartFuture.get(30, TimeUnit.SECONDS);
+            // 차트 처리
+            ChartData chart = chartFuture.get(15, TimeUnit.SECONDS);
             if (chart != null) builder.chartData(chart);
+
+            // 재무 처리 (Quick 경량 버전 — KIS PER/PBR만, 네이버 크롤링 없음)
+            FinancialInfo financial = financialFuture.get(15, TimeUnit.SECONDS);
+            builder.financial(financial);
+
         } catch (Exception e) {
             log.warn("[StockDetail:Quick] 병렬 조회 오류: {}", e.getMessage());
         }
@@ -391,27 +386,52 @@ public class StockDetailService {
 
         Map<String, Object> result = new HashMap<>();
 
-        // 종목명 확보 (AI 프롬프트용)
+        // 종목명 확보 (AI 프롬프트용) + 시세 (KIS 1회만)
         String stockName = stockCode;
+        PriceInfo priceInfo = null;
+        JsonNode priceData = null;
         try {
-            JsonNode priceData = kisService.getStockPrice(stockCode);
+            priceData = kisService.getStockPrice(stockCode);
             if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
                 String name = getFieldValue(priceData, "output", "hts_kor_isnm");
                 if (name != null && !name.isEmpty()) stockName = name;
+                priceInfo = parsePriceInfo(priceData);
             }
         } catch (Exception e) {
             log.debug("[StockDetail:Heavy] 종목명 조회 실패: {}", e.getMessage());
         }
         final String finalStockName = stockName;
+        final PriceInfo finalPriceInfo = priceInfo;
+        final JsonNode finalPriceData = priceData;
 
-        // 리스크 + 피어 + AI 병렬 조회 (모두 캐시 적용)
+        // ★ 리스크 + 네이버크롤링 + AI규칙기반 + 피어비교 모두 병렬
         CompletableFuture<RiskInfo> riskFuture =
                 CompletableFuture.supplyAsync(() -> getCachedRiskInfo(finalStockName, stockCode));
 
         CompletableFuture<Map<String, Object>> peerFuture =
                 CompletableFuture.supplyAsync(() -> getCachedPeerData(stockCode, finalStockName));
 
-        // AI 분석은 quick 결과가 필요하므로 별도 처리
+        // 네이버 크롤링 (배당수익률 + Forward 지표 + 목표주가) — Heavy로 이동
+        CompletableFuture<Map<String, Object>> naverEnrichFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    Map<String, Object> enrichData = new HashMap<>();
+                    try {
+                        Document naverMainDoc = fetchNaverMainPage(stockCode);
+                        FinancialInfo financial = fetchFinancialInfo(stockCode, finalPriceData);
+                        if (financial != null) {
+                            enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
+                            enrichWithForwardMetrics(financial, finalPriceInfo);
+                            financial.setInvestmentTags(generateInvestmentTags(financial, finalStockName));
+                        }
+                        enrichData.put("financial", financial);
+                        enrichData.put("naverDoc", naverMainDoc);
+                    } catch (Exception e) {
+                        log.warn("[StockDetail:Heavy] 네이버 크롤링 실패: {}", e.getMessage());
+                    }
+                    return enrichData;
+                });
+
+        // AI 분석 (Gemini 또는 규칙기반)
         CompletableFuture<AiAnalysis> aiFuture =
                 CompletableFuture.supplyAsync(() -> getCachedAiAnalysis(stockCode));
 
@@ -424,17 +444,16 @@ public class StockDetailService {
             result.put("sectorAvgPbr", peerData.get("sectorAvgPbr"));
             result.put("sectorName", peerData.get("sectorName"));
 
+            // 네이버 크롤링 결과 (상세 재무 + 배당 + Forward)
+            Map<String, Object> naverEnrich = naverEnrichFuture.get(30, TimeUnit.SECONDS);
+            if (naverEnrich.get("financial") != null) {
+                result.put("financial", naverEnrich.get("financial"));
+            }
+
             AiAnalysis aiAnalysis = aiFuture.get(60, TimeUnit.SECONDS);
-            // 목표주가 컨센서스 보강
             if (aiAnalysis != null) {
-                Document naverMainDoc = fetchNaverMainPage(stockCode);
-                // Quick 데이터에서 priceInfo 가져오기
-                JsonNode priceData = kisService.getStockPrice(stockCode);
-                PriceInfo priceInfo = null;
-                if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
-                    priceInfo = parsePriceInfo(priceData);
-                }
-                enrichWithConsensusTargetFromDoc(aiAnalysis, naverMainDoc, stockCode, priceInfo);
+                Document naverDoc = (Document) naverEnrich.get("naverDoc");
+                enrichWithConsensusTargetFromDoc(aiAnalysis, naverDoc, stockCode, finalPriceInfo);
             }
             result.put("aiAnalysis", aiAnalysis);
 
