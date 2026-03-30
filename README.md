@@ -9,7 +9,7 @@
 ![MariaDB](https://img.shields.io/badge/MariaDB-11.2-003545?logo=mariadb)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
-![Tests](https://img.shields.io/badge/Tests-30%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/Tests-53%20passed-brightgreen)
 
 ---
 
@@ -176,16 +176,18 @@ my-platform/
 ## 테스트
 
 ```bash
-./gradlew :backend:test        # 30 tests, JaCoCo 리포트 생성
+./gradlew :backend:test        # 53 tests, JaCoCo 리포트 생성
 ```
 
-| 테스트 클래스 | 검증 포인트 |
-|---|---|
-| `StockDetailServiceTest` | KIS 폴백 체인, Quick/Heavy 분리, 병렬 실패 허용 |
-| `RiskManagementServiceTest` | 위험 공시 DANGER 판정, 뉴스 폴백, 전체 API 실패 시 SAFE |
-| `GeminiServiceTest` | API 키 검증, Rate Limit 재시도, 네트워크 에러 복구 |
-| `StockDetailControllerTest` | summary/quick/heavy 응답 스펙, 500 에러 처리 |
-| `AuthControllerTest` | 로그인 JWT 반환, 회원가입 검증 |
+| 테스트 클래스 | 테스트 수 | 검증 포인트 |
+|---|---|---|
+| `AuthServiceTest` | 16 | 로그인 성공/실패, 10회→잠금, PENDING/REJECTED 거부, 회원가입 8단계 검증 |
+| `StockDetailServiceTest` | 8 | KIS 폴백 체인, Quick/Heavy 분리, 병렬 실패 허용 |
+| `DietServiceTest` | 7 | CRUD, userId 소유권 검증, 타인 기록 차단, 칼로리 합산 |
+| `RiskManagementServiceTest` | 5 | 위험 공시 DANGER 판정, 뉴스 폴백, 전체 API 실패 시 SAFE |
+| `GeminiServiceTest` | 6 | API 키 검증, Rate Limit 재시도, 네트워크 에러 복구 |
+| `StockDetailControllerTest` | 5 | summary/quick/heavy 응답 스펙, 500 에러 처리 |
+| `AuthControllerTest` | 6 | 로그인 JWT 반환, 실패 응답, 회원가입 성공/중복 |
 
 ---
 
