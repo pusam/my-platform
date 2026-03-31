@@ -89,7 +89,7 @@ public class AutoTradingBotService {
     // ╠══════════════════════════════════════════════════════════════╣
     // ║  매수: 순매수≥10억 + 체결강도≥130%(필수) + 양봉 + 보조 2/3   ║
     // ║  매도: 손절-1.2% / 익절+1.2%(반) / 트레일링-0.8% / 15~20분  ║
-    // ║  청산: 15:15 장 마감 전 스캘핑 전량 청산                      ║
+    // ║  청산: 15:10 장 마감 전 스캘핑 전량 청산 (종가매수 15:15 전)   ║
     // ╚══════════════════════════════════════════════════════════════╝
 
     // -- 필수 매수 조건 --
@@ -158,7 +158,7 @@ public class AutoTradingBotService {
     private static final BigDecimal CLOSING_RSI_LIMIT = new BigDecimal("70");
     private static final int CLOSING_MAX_HOLDING = 2;
     private static final BigDecimal CLOSING_INVESTMENT_RATIO = new BigDecimal("0.15");
-    private static final BigDecimal CLOSING_EARLY_EXIT_MIN_PROFIT = new BigDecimal("0.3"); // 갭업 미발생 시 조기 청산 기준
+    private static final BigDecimal CLOSING_EARLY_EXIT_MIN_PROFIT = new BigDecimal("0.5"); // 갭업 미발생 시 조기 청산 기준 (수수료 ~0.25% 고려)
     private static final LocalTime CLOSING_EARLY_EXIT_TIME = LocalTime.of(10, 0);   // 익일 10시까지 판단
 
     // ╔══════════════════════════════════════════════════════════════╗
@@ -170,7 +170,7 @@ public class AutoTradingBotService {
     private static final LocalTime REGULAR_START = LocalTime.of(9, 0);
     private static final LocalTime REGULAR_END = LocalTime.of(15, 25);
     private static final LocalTime AFTER_MARKET_END = LocalTime.of(20, 0);
-    private static final LocalTime SCALPING_CLEARANCE_TIME = LocalTime.of(15, 15);  // 스캘핑 장 마감 전 청산
+    private static final LocalTime SCALPING_CLEARANCE_TIME = LocalTime.of(15, 10);  // 스캘핑 장 마감 전 청산 (종가매수 15:15 전)
     private static final LocalTime EOD_CLEARANCE_TIME = LocalTime.of(19, 50);       // 스윙/종가 비상 청산
     private static final BigDecimal KILL_SWITCH_SCALPING_RATE = new BigDecimal("-1.5"); // 스캘핑 킬스위치: -1.5%
     private static final BigDecimal KILL_SWITCH_TOTAL_RATE = new BigDecimal("-3.0");    // 전체 킬스위치: -3%
@@ -1386,7 +1386,7 @@ public class AutoTradingBotService {
 
     // ==================== 장 마감 청산 ====================
 
-    @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingClearance() {
         if (!botActive.get()) {
             return;
@@ -1396,7 +1396,7 @@ public class AutoTradingBotService {
             return;
         }
 
-        log.info("[스캘핑봇] ===== 15:15 스캘핑 청산 시작 (스윙/종가매수 유지) =====");
+        log.info("[스캘핑봇] ===== 15:10 스캘핑 청산 시작 (스윙/종가매수 유지) =====");
 
         try {
             // 스윙 + 종가매수 포지션은 보유 유지
@@ -1412,7 +1412,7 @@ public class AutoTradingBotService {
             // 스캘핑 포지션만 정리
             scalpingPositions.clear();
 
-            log.info("[스캘핑봇] 15:15 스캘핑 청산 완료 - {}종목 매도(스윙 {}종목 유지), 총 손익: {}원",
+            log.info("[스캘핑봇] 15:10 스캘핑 청산 완료 - {}종목 매도(스윙 {}종목 유지), 총 손익: {}원",
                     result.soldCount, keepCodes.size(), formatNumber(result.totalProfitLoss));
 
         } catch (Exception e) {
