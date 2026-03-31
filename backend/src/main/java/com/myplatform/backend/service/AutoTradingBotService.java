@@ -147,7 +147,8 @@ public class AutoTradingBotService {
     // ╠══════════════════════════════════════════════════════════════╣
     // ║  매수: 외인+기관 동시 순매수 ≥50억 + 양봉 + RSI<70           ║
     // ║  매도: 손절-2% / 익절+2% / 트레일링-1%(+1%후) / 최대2일     ║
-    // ║  ★ 익일 10:00까지 수익 < +0.3% 시 조기 청산 (갭업 미발생)    ║
+    // ║  ★ 시가 갭하락 -1% → 09:05 즉시 청산                         ║
+    // ║  ★ 익일 10:00까지 수익 < +0.5% → 조기 청산 (갭업 미발생)     ║
     // ╚══════════════════════════════════════════════════════════════╝
     private static final BigDecimal CLOSING_STOP_LOSS = new BigDecimal("-2.0");
     private static final BigDecimal CLOSING_TAKE_PROFIT = new BigDecimal("2.0");
@@ -160,6 +161,8 @@ public class AutoTradingBotService {
     private static final BigDecimal CLOSING_INVESTMENT_RATIO = new BigDecimal("0.15");
     private static final BigDecimal CLOSING_EARLY_EXIT_MIN_PROFIT = new BigDecimal("0.5"); // 갭업 미발생 시 조기 청산 기준 (수수료 ~0.25% 고려)
     private static final LocalTime CLOSING_EARLY_EXIT_TIME = LocalTime.of(10, 0);   // 익일 10시까지 판단
+    private static final BigDecimal CLOSING_GAP_DOWN_LIMIT = new BigDecimal("-1.0"); // 시가 갭하락 즉시 청산 기준
+    private static final LocalTime CLOSING_GAP_DOWN_CHECK_TIME = LocalTime.of(9, 5); // 갭하락 확인 시점
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  공통: 시장 시간 / 킬 스위치 / VIX                           ║
@@ -2003,7 +2006,16 @@ public class AutoTradingBotService {
                         && highDropRate.compareTo(CLOSING_TRAILING_STOP) <= 0) {
                     sellReason = "TRAILING_STOP";
                 }
-                // 4. 갭업 미발생 조기 청산: 익일 10시까지 +0.3% 미달 시 손실 줄이며 청산
+                // 4. 시가 갭하락 즉시 청산: 익일 09:05 이후, 수익률 -1% 이하 → 대외변수 급락 방어
+                else if (holdDays >= 1
+                        && LocalTime.now().isAfter(CLOSING_GAP_DOWN_CHECK_TIME)
+                        && LocalTime.now().isBefore(CLOSING_EARLY_EXIT_TIME)
+                        && profitRate.compareTo(CLOSING_GAP_DOWN_LIMIT) <= 0) {
+                    sellReason = "GAP_DOWN_EXIT";
+                    log.info("[종가매수] 시가 갭하락 즉시청산: {} 손익률 {}% (시가 -1% 이하)",
+                            position.stockName, profitRate);
+                }
+                // 5. 갭업 미발생 조기 청산: 익일 10시까지 +0.5% 미달 시 손실 줄이며 청산
                 else if (holdDays >= 1
                         && LocalTime.now().isAfter(CLOSING_EARLY_EXIT_TIME)
                         && profitRate.compareTo(CLOSING_EARLY_EXIT_MIN_PROFIT) < 0) {
