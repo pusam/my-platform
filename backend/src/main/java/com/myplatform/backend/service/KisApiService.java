@@ -288,6 +288,72 @@ public class KisApiService {
         return result;
     }
 
+    /**
+     * 국내 선물 현재가 조회 (KIS API)
+     * @param contractCode 종목코드 (예: "10166" = KOSPI200 2026년 6월물)
+     * @return 선물 시세 정보 Map (null if failed)
+     */
+    public Map<String, Object> getFuturesCurrentPrice(String contractCode) {
+        if (kisApiProperties.getAppKey() == null || kisApiProperties.getAppKey().isBlank()) {
+            log.warn("KIS API 키가 설정되지 않았습니다 (선물 조회).");
+            return null;
+        }
+
+        try {
+            refreshAccessToken();
+            if (accessToken == null) {
+                return null;
+            }
+
+            String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-futureoption/v1/quotations/inquire-price";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("appkey", kisApiProperties.getAppKey());
+            headers.set("appsecret", kisApiProperties.getAppSecret());
+            headers.set("tr_id", "FHMIF10000000");
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            StringBuilder urlWithParams = new StringBuilder(url + "?");
+            urlWithParams.append("FID_COND_MRKT_DIV_CODE=F&");
+            urlWithParams.append("FID_INPUT_ISCD=").append(contractCode);
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                urlWithParams.toString(), HttpMethod.GET, entity, String.class);
+
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                log.warn("[KIS선물] 응답 오류: {}", response.getStatusCode());
+                return null;
+            }
+
+            JsonNode root = objectMapper.readTree(response.getBody());
+            String rtCd = root.path("rt_cd").asText("");
+            if (!"0".equals(rtCd)) {
+                log.warn("[KIS선물] API 에러: {} - {}", root.path("msg_cd").asText(), root.path("msg1").asText());
+                return null;
+            }
+
+            JsonNode output = root.path("output");
+            if (output.isMissingNode()) {
+                log.warn("[KIS선물] output 누락");
+                return null;
+            }
+
+            // 응답 필드를 범용적으로 Map에 담아서 반환
+            Map<String, Object> result = new HashMap<>();
+            output.fields().forEachRemaining(f -> result.put(f.getKey(), f.getValue().asText("")));
+
+            log.debug("[KIS선물] {} 조회 성공: {}", contractCode,
+                result.getOrDefault("futs_prpr", result.getOrDefault("stck_prpr", "N/A")));
+            return result;
+
+        } catch (Exception e) {
+            log.error("[KIS선물] {} 조회 실패: {}", contractCode, e.getMessage());
+            return null;
+        }
+    }
+
     private List<SupplySurgeStockDto> parseSupplySurgeResponse(String responseBody) {
         List<SupplySurgeStockDto> result = new ArrayList<>();
         try {

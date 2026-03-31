@@ -167,13 +167,15 @@
       <span>해외선물 시세 조회 중...</span>
     </div>
 
-    <!-- 메인 카드 (코스피200 지수) -->
+    <!-- 메인 카드 (코스피200 선물) -->
     <div v-if="kospiQuote" class="main-card" :class="[getCardClass(kospiQuote), { stale: kospiQuote.stale }]">
       <div class="main-header">
         <div class="main-title">
           <span class="exchange-badge">{{ kospiQuote.exchange }}</span>
           <h2>{{ kospiQuote.name }}</h2>
-          <span v-if="kospiQuote.stale" class="stale-badge">장 마감</span>
+          <span v-if="kospiQuote.marketStatus === 'NIGHT'" class="session-badge night">🌙 야간</span>
+          <span v-else-if="kospiQuote.marketStatus === 'OPEN'" class="session-badge open">정규장</span>
+          <span v-else-if="kospiQuote.stale" class="stale-badge">장 마감</span>
         </div>
         <span class="main-status" :class="getSignClass(kospiQuote)">
           {{ getSignText(kospiQuote) }}
@@ -210,7 +212,7 @@
         </div>
       </div>
       <div v-if="kospiQuote.stale" class="stale-notice">
-        KRX 장중(09:00~15:30)에만 실시간 업데이트됩니다
+        정규장 09:00~15:45 / 야간선물 18:00~05:00
       </div>
     </div>
 
@@ -1260,7 +1262,7 @@ onUnmounted(() => {
 .fng-label-neutral { color: #9ca3af; }
 .fng-label-greed { color: #4ade80; }
 
-/* 메인 카드 (코스피200 야간선물) */
+/* 메인 카드 (코스피200 선물) */
 .main-card {
   background: linear-gradient(135deg, #1a1a3a 0%, #252550 100%);
   border: 1px solid rgba(255,255,255,0.1);
@@ -1283,6 +1285,24 @@ onUnmounted(() => {
   border-radius: 10px;
   margin-left: 8px;
   vertical-align: middle;
+}
+
+.session-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.session-badge.night {
+  background: rgba(139,92,246,0.2);
+  color: #a78bfa;
+}
+.session-badge.open {
+  background: rgba(74,222,128,0.2);
+  color: #4ade80;
 }
 
 .stale-time { color: #f59e0b !important; }
