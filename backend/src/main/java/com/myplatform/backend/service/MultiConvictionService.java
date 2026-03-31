@@ -29,6 +29,10 @@ public class MultiConvictionService {
 
     private final InvestorDailyTradeRepository tradeRepository;
 
+    // 등락률 필터: 급락/급등 종목은 시그널 신뢰도 낮음
+    private static final BigDecimal EXTREME_DROP_LIMIT = new BigDecimal("-10");  // 매수 시그널 제외 기준
+    private static final BigDecimal EXTREME_SURGE_LIMIT = new BigDecimal("15");  // 매도 시그널 제외 기준
+
     // 분석 대상 투자자 유형
     private static final List<String> INVESTOR_TYPES = List.of(
             "FOREIGN", "INVEST_TRUST", "PRIVATE_EQUITY", "PENSION", "INSURANCE"
@@ -159,31 +163,41 @@ public class MultiConvictionService {
                         .build());
             }
             // 멀티 컨빅션 매수: 2개+ 투자자 유형 동시 순매수
+            // ★ 급락 종목 제외: -10% 이하는 낙폭 매수/물타기일 뿐 신뢰도 낮음
             else if (buyerCount >= 2) {
-                int stars = buyerCount >= 3 ? 3 : 2;
-                buySignals.add(ConvictionSignal.builder()
-                        .stockCode(sim.stockCode).stockName(sim.stockName)
-                        .currentPrice(sim.currentPrice).changeRate(sim.changeRate)
-                        .signalType("MULTI_BUY")
-                        .convictionCount(buyerCount)
-                        .stars(stars)
-                        .buyInvestors(buyers).sellInvestors(List.of())
-                        .totalAmount(totalBuyAmount)
-                        .description(String.join(" + ", buyers) + " → " + buyerCount + "중 동시 매수")
-                        .build());
+                if (sim.changeRate != null && sim.changeRate.compareTo(EXTREME_DROP_LIMIT) <= 0) {
+                    log.debug("[멀티컨빅션] 급락 종목 매수 시그널 제외: {} ({}%)", sim.stockName, sim.changeRate);
+                } else {
+                    int stars = buyerCount >= 3 ? 3 : 2;
+                    buySignals.add(ConvictionSignal.builder()
+                            .stockCode(sim.stockCode).stockName(sim.stockName)
+                            .currentPrice(sim.currentPrice).changeRate(sim.changeRate)
+                            .signalType("MULTI_BUY")
+                            .convictionCount(buyerCount)
+                            .stars(stars)
+                            .buyInvestors(buyers).sellInvestors(List.of())
+                            .totalAmount(totalBuyAmount)
+                            .description(String.join(" + ", buyers) + " → " + buyerCount + "중 동시 매수")
+                            .build());
+                }
             }
             // 멀티 컨빅션 매도: 2개+ 투자자 유형 동시 순매도
+            // ★ 급등 종목 제외: +15% 이상은 상한가 매도이며 시그널 의미 없음
             else if (sellerCount >= 2) {
-                sellSignals.add(ConvictionSignal.builder()
-                        .stockCode(sim.stockCode).stockName(sim.stockName)
-                        .currentPrice(sim.currentPrice).changeRate(sim.changeRate)
-                        .signalType("MULTI_SELL")
-                        .convictionCount(sellerCount)
-                        .stars(sellerCount >= 3 ? 3 : 2)
-                        .buyInvestors(List.of()).sellInvestors(sellers)
-                        .totalAmount(totalSellAmount.negate())
-                        .description(String.join(" + ", sellers) + " → " + sellerCount + "중 동시 매도")
-                        .build());
+                if (sim.changeRate != null && sim.changeRate.compareTo(EXTREME_SURGE_LIMIT) >= 0) {
+                    log.debug("[멀티컨빅션] 급등 종목 매도 시그널 제외: {} (+{}%)", sim.stockName, sim.changeRate);
+                } else {
+                    sellSignals.add(ConvictionSignal.builder()
+                            .stockCode(sim.stockCode).stockName(sim.stockName)
+                            .currentPrice(sim.currentPrice).changeRate(sim.changeRate)
+                            .signalType("MULTI_SELL")
+                            .convictionCount(sellerCount)
+                            .stars(sellerCount >= 3 ? 3 : 2)
+                            .buyInvestors(List.of()).sellInvestors(sellers)
+                            .totalAmount(totalSellAmount.negate())
+                            .description(String.join(" + ", sellers) + " → " + sellerCount + "중 동시 매도")
+                            .build());
+                }
             }
         }
 
