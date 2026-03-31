@@ -83,6 +83,7 @@ public class AutoTradingBotService {
     private final ShortSellingService shortSellingService;
     private final StockStatusService stockStatusService;
     private final InvestorTradeService investorTradeService;
+    private final GlobalMarketService globalMarketService;
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
@@ -165,9 +166,10 @@ public class AutoTradingBotService {
     private static final LocalTime CLOSING_GAP_DOWN_CHECK_TIME = LocalTime.of(9, 5); // 갭하락 확인 시점
 
     // ╔══════════════════════════════════════════════════════════════╗
-    // ║  공통: 시장 시간 / 킬 스위치 / VIX                           ║
+    // ║  공통: 시장 시간 / 킬 스위치 / 글로벌 리스크                  ║
     // ╠══════════════════════════════════════════════════════════════╣
     // ║  킬스위치: 스캘핑 -1.5% / 전체(스윙+종가 포함) -3%           ║
+    // ║  나스닥 선물 ≤ -1% → 스캘핑 매수 보류                        ║
     // ╚══════════════════════════════════════════════════════════════╝
     private static final LocalTime PRE_MARKET_START = LocalTime.of(8, 0);
     private static final LocalTime REGULAR_START = LocalTime.of(9, 0);
@@ -325,7 +327,8 @@ public class AutoTradingBotService {
             SectorTradingService sectorTradingService,
             ShortSellingService shortSellingService,
             StockStatusService stockStatusService,
-            InvestorTradeService investorTradeService) {
+            InvestorTradeService investorTradeService,
+            GlobalMarketService globalMarketService) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -341,6 +344,7 @@ public class AutoTradingBotService {
         this.shortSellingService = shortSellingService;
         this.stockStatusService = stockStatusService;
         this.investorTradeService = investorTradeService;
+        this.globalMarketService = globalMarketService;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -556,6 +560,25 @@ public class AutoTradingBotService {
         return currentMode;
     }
 
+    // ==================== 나스닥 선물 기반 매수 보류 ====================
+
+    /**
+     * 나스닥 선물 -1% 이하 시 스캘핑 매수 보류
+     * (장 시작 전 글로벌 리스크 사전 차단)
+     */
+    private boolean checkNasdaqHalt() {
+        try {
+            boolean shouldHalt = globalMarketService.shouldHaltBuying();
+            if (shouldHalt) {
+                log.info("[스캘핑봇] 🌐 나스닥 선물 급락 감지 — 매수 보류");
+            }
+            return shouldHalt;
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] 나스닥 체크 실패 (매수 허용): {}", e.getMessage());
+            return false;
+        }
+    }
+
     // ==================== VIX 기반 매수 일시정지 ====================
 
     /**
@@ -757,6 +780,11 @@ public class AutoTradingBotService {
 
         // ★ 하루 최대 스캘핑 매수 제한
         if (todayBuyCount.get() >= MAX_SCALPING_TRADES_PER_DAY) {
+            return;
+        }
+
+        // ★ 나스닥 선물 -1% 이하 → 글로벌 리스크, 매수 보류
+        if (checkNasdaqHalt()) {
             return;
         }
 
