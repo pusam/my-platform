@@ -193,7 +193,7 @@ export default {
   .dashboard-header {
     flex-wrap: wrap;
     gap: 10px;
-    top: 40px;
+    top: 77px;
   }
   .header-center {
     order: 3;

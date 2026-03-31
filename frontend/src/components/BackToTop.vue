@@ -60,7 +60,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
 
 @media (max-width: 768px) {
   .back-to-top {
-    bottom: 72px; /* 모바일 하단 탭바 위 */
+    bottom: 24px;
     left: 16px;
     width: 40px;
     height: 40px;
