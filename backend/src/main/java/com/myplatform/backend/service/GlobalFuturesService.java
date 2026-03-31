@@ -398,9 +398,9 @@ public class GlobalFuturesService {
             riskFactors.add(createFactor("VIX", vixRate, vixSignal, 15));
         }
 
-        // KOSPI200 보정
+        // KOSPI200 보정 (stale 데이터는 제외 — 전날 야간선물 데이터로 오늘 분석 왜곡 방지)
         FuturesQuote kospi = quoteMap.get("KM");
-        if (kospi != null && kospi.getChangeRate() != null) {
+        if (kospi != null && kospi.getChangeRate() != null && !kospi.isStale()) {
             double kRate = kospi.getChangeRate().doubleValue();
             weightedScore += clampContrib(kRate * 3.0) * 0.10; // 소폭 보정
         }
@@ -586,9 +586,13 @@ public class GlobalFuturesService {
 
     // ==================== 코스피200 선물 (KIS API) ====================
 
+    // KIS 코스피 선물 마지막 성공 데이터 (장 갭 05:00~09:00 대비)
+    private volatile FuturesQuote lastKisKospiQuote = null;
+
     /**
      * KIS API를 통한 코스피200 선물 현재가 조회
      * - 정규장(09:00~15:45) + 야간(18:00~05:00) 모두 지원
+     * - 장 갭(05:00~09:00) 시 마지막 KIS 성공 데이터 반환
      */
     private FuturesQuote fetchKospiNightFutures(FuturesInfo info) {
         try {
@@ -597,6 +601,12 @@ public class GlobalFuturesService {
 
             Map<String, Object> data = kisApiService.getFuturesCurrentPrice(contractCode);
             if (data == null || data.isEmpty()) {
+                // KIS 실패 시 마지막 성공 데이터 반환 (장 갭 대비)
+                if (lastKisKospiQuote != null) {
+                    log.debug("[코스피선물] KIS API 미응답, 마지막 성공 데이터 사용 ({})",
+                            lastKisKospiQuote.getTradingTime());
+                    return lastKisKospiQuote;
+                }
                 return null;
             }
 
@@ -638,7 +648,7 @@ public class GlobalFuturesService {
 
             String tradingTime = nowKst.format(DateTimeFormatter.ofPattern("MM/dd HH:mm (E)", Locale.KOREAN)) + " KST";
 
-            return FuturesQuote.builder()
+            FuturesQuote quote = FuturesQuote.builder()
                     .symbol("KM")
                     .name(futuresName)
                     .shortName("코스피200")
@@ -659,8 +669,17 @@ public class GlobalFuturesService {
                     .success(true)
                     .build();
 
+            // 성공 데이터 저장 (장 갭 시 폴백용)
+            lastKisKospiQuote = quote;
+            return quote;
+
         } catch (Exception e) {
             log.error("[코스피선물] KIS API 조회 실패: {}", e.getMessage());
+            // 실패 시 마지막 성공 데이터 반환
+            if (lastKisKospiQuote != null) {
+                log.debug("[코스피선물] 예외 발생, 마지막 성공 데이터 사용");
+                return lastKisKospiQuote;
+            }
             return null;
         }
     }
@@ -738,8 +757,10 @@ public class GlobalFuturesService {
 
         try {
             HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            headers.set("Accept", "application/json");
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            headers.set("Accept", "application/json, text/plain, */*");
+            headers.set("Referer", "https://edition.cnn.com/markets/fear-and-greed");
+            headers.set("Accept-Language", "en-US,en;q=0.9");
 
             HttpEntity<String> request = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(FEAR_GREED_URL, HttpMethod.GET, request, String.class);
