@@ -26,6 +26,7 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -655,7 +656,11 @@ public class MarketTimingService {
 
         // DB 데이터가 오늘이 아니면 무조건 갱신 (과거 데이터 방지)
         boolean isOldData = status.getTradeDate() != null && !status.getTradeDate().equals(LocalDate.now());
+        // ★ 장중(09:00~15:30)에는 항상 실시간 갱신 (DB에 stale 데이터가 저장됐을 수 있음)
+        LocalTime now = LocalTime.now();
+        boolean isDuringMarketHours = !now.isBefore(LocalTime.of(9, 0)) && !now.isAfter(LocalTime.of(15, 30));
         boolean needsRefresh = isOldData
+                || isDuringMarketHours
                 || status.getIndexClose() == null
                 || status.getIndexChangeRate() == null
                 || status.getIndexChangeRate().compareTo(BigDecimal.ZERO) == 0;
