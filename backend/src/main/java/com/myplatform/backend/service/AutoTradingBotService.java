@@ -57,8 +57,9 @@ import java.util.stream.Collectors;
  * ========================================
  * [전략 C] 종가 매수 — 비활성
  * ========================================
- *    장 20시 마감으로 15:15 수급 미확정 + 스캘핑 포지션 충돌 문제
- *    재활성화 시 @Scheduled 주석 해제
+ *    1) 스캘핑 매도가 종가매수 포지션을 타임컷으로 잘못 청산하는 구조적 충돌
+ *    2) 15:15 수급 데이터 신뢰성 문제 (장 마감까지 뒤집힐 수 있음)
+ *    → 2026-09-14 거래시간 연장(애프터마켓 20시) 도입 후 전략 재설계 필요
  *
  * ========================================
  */
@@ -141,8 +142,8 @@ public class AutoTradingBotService {
     private static final int SWING_MAX_HOLDING = 2;
     private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.20");
 
-    // [C] 종가매수 전략 — 비활성 (장 20시 마감으로 15:15 수급 미확정, 스캘핑 포지션 충돌 문제)
-    // 필요 시 재활성화 가능 (상수 및 로직 보존)
+    // [C] 종가매수 전략 — 비활성 (포지션 충돌 + 수급 미확정)
+    // 2026-09-14 거래시간 연장 후 재설계 필요. 상수 및 로직 보존.
     private static final BigDecimal CLOSING_STOP_LOSS = new BigDecimal("-2.0");
     private static final BigDecimal CLOSING_TAKE_PROFIT = new BigDecimal("2.0");
     private static final BigDecimal CLOSING_TRAILING_STOP = new BigDecimal("-1.0");
@@ -1861,8 +1862,8 @@ public class AutoTradingBotService {
     // ==================== [전략 C] 종가 매수 — 비활성 ====================
 
     /**
-     * 종가 매수 (비활성 — 장 20시 마감으로 15:15 수급 미확정)
-     * 재활성화 시 @Scheduled 주석 해제
+     * 종가 매수 (비활성 — 포지션 충돌 + 수급 미확정)
+     * 2026-09-14 거래시간 연장 후 재설계 필요. 재활성화 시 @Scheduled 주석 해제
      */
     // @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeClosingBuyLogic() {
