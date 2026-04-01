@@ -40,7 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * 자동 매매 봇 서비스 (3전략: 스캘핑(모의만) + 스윙 + 종가매수)
+ * 자동 매매 봇 서비스 (2전략: 스캘핑(모의만) + 스윙)
  *
  * ========================================
  * [전략 A] 스캘핑 — ★ 모의투자 전용 (실전 비활성)
@@ -50,17 +50,15 @@ import java.util.stream.Collectors;
  * ========================================
  * [전략 B] 스윙 (수급 추종, 2~5일 보유)
  * ========================================
- *    매수: 외국인/기관 3일+ 연속매수 + MA20 지지 + RSI < 65
+ *    매수: 외국인/기관 3일+ 연속매수 + MA20 지지 + RSI < 60
  *    매도: 익절 +5%, 손절 -3%, 최대 5일 보유
  *    시간: 14:00 체크
  *
  * ========================================
- * [전략 C] 종가 매수 (확정 수급, 1~2일 보유)
+ * [전략 C] 종가 매수 — 비활성
  * ========================================
- *    매수: 15:15 장 마감 직전, 당일 외국인+기관 동시 순매수 상위
- *         + 등락률 양봉 + RSI < 70
- *    매도: 다음날 갭업 시 익절 +2%, 손절 -2%, 최대 2일 보유
- *    최대 2종목
+ *    장 20시 마감으로 15:15 수급 미확정 + 스캘핑 포지션 충돌 문제
+ *    재활성화 시 @Scheduled 주석 해제
  *
  * ========================================
  */
@@ -143,32 +141,26 @@ public class AutoTradingBotService {
     private static final int SWING_MAX_HOLDING = 2;
     private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.20");
 
-    // ╔══════════════════════════════════════════════════════════════╗
-    // ║  [C] 종가 매수 전략 (확정 수급, 1~2일 보유, 15:15 실행)       ║
-    // ╠══════════════════════════════════════════════════════════════╣
-    // ║  매수: 외인+기관 동시 순매수 ≥50억 + 양봉 + RSI<70           ║
-    // ║  매도: 손절-2% / 익절+2% / 트레일링-1%(+1%후) / 최대2일     ║
-    // ║  ★ 시가 갭하락 -1% → 09:05 즉시 청산                         ║
-    // ║  ★ 익일 10:00까지 수익 < +0.5% → 조기 청산 (갭업 미발생)     ║
-    // ╚══════════════════════════════════════════════════════════════╝
+    // [C] 종가매수 전략 — 비활성 (장 20시 마감으로 15:15 수급 미확정, 스캘핑 포지션 충돌 문제)
+    // 필요 시 재활성화 가능 (상수 및 로직 보존)
     private static final BigDecimal CLOSING_STOP_LOSS = new BigDecimal("-2.0");
     private static final BigDecimal CLOSING_TAKE_PROFIT = new BigDecimal("2.0");
     private static final BigDecimal CLOSING_TRAILING_STOP = new BigDecimal("-1.0");
-    private static final BigDecimal CLOSING_TRAILING_MIN_PROFIT = new BigDecimal("1.0"); // 트레일링 발동 최소 수익률
+    private static final BigDecimal CLOSING_TRAILING_MIN_PROFIT = new BigDecimal("1.0");
     private static final int CLOSING_MAX_HOLD_DAYS = 2;
-    private static final BigDecimal CLOSING_MIN_NET_BUY = new BigDecimal("50");     // 합산 순매수 ≥ 50억
+    private static final BigDecimal CLOSING_MIN_NET_BUY = new BigDecimal("50");
     private static final BigDecimal CLOSING_RSI_LIMIT = new BigDecimal("70");
     private static final int CLOSING_MAX_HOLDING = 2;
     private static final BigDecimal CLOSING_INVESTMENT_RATIO = new BigDecimal("0.15");
-    private static final BigDecimal CLOSING_EARLY_EXIT_MIN_PROFIT = new BigDecimal("0.5"); // 갭업 미발생 시 조기 청산 기준 (수수료 ~0.25% 고려)
-    private static final LocalTime CLOSING_EARLY_EXIT_TIME = LocalTime.of(10, 0);   // 익일 10시까지 판단
-    private static final BigDecimal CLOSING_GAP_DOWN_LIMIT = new BigDecimal("-1.0"); // 시가 갭하락 즉시 청산 기준
-    private static final LocalTime CLOSING_GAP_DOWN_CHECK_TIME = LocalTime.of(9, 5); // 갭하락 확인 시점
+    private static final BigDecimal CLOSING_EARLY_EXIT_MIN_PROFIT = new BigDecimal("0.5");
+    private static final LocalTime CLOSING_EARLY_EXIT_TIME = LocalTime.of(10, 0);
+    private static final BigDecimal CLOSING_GAP_DOWN_LIMIT = new BigDecimal("-1.0");
+    private static final LocalTime CLOSING_GAP_DOWN_CHECK_TIME = LocalTime.of(9, 5);
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  공통: 시장 시간 / 킬 스위치 / 글로벌 리스크                  ║
     // ╠══════════════════════════════════════════════════════════════╣
-    // ║  킬스위치: 스캘핑 -1.5% / 전체(스윙+종가 포함) -3%           ║
+    // ║  킬스위치: 스캘핑 -1.5% / 전체(스윙 포함) -3%                ║
     // ║  나스닥 선물 ≤ -1% → 스캘핑 매수 보류                        ║
     // ╚══════════════════════════════════════════════════════════════╝
     private static final LocalTime PRE_MARKET_START = LocalTime.of(8, 0);
@@ -1866,15 +1858,13 @@ public class AutoTradingBotService {
         }
     }
 
-    // ==================== [전략 C] 종가 매수 (15:15, 평일) ====================
+    // ==================== [전략 C] 종가 매수 — 비활성 ====================
 
     /**
-     * 종가 매수: 장 마감 직전 확정 수급 데이터로 매수
-     * - 15:15 실행 (장 마감 5분 전, 수급 거의 확정)
-     * - 외국인+기관 동시 순매수 상위 종목
-     * - 다음날 갭업 노림 (익절 +2%, 손절 -2%)
+     * 종가 매수 (비활성 — 장 20시 마감으로 15:15 수급 미확정)
+     * 재활성화 시 @Scheduled 주석 해제
      */
-    @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
+    // @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeClosingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
@@ -2022,9 +2012,9 @@ public class AutoTradingBotService {
     // ==================== [전략 C] 종가 매수 포지션 감시 (30초 간격) ====================
 
     /**
-     * 종가 매수 포지션 감시: 익절/손절/트레일링/일수 타임컷
+     * 종가 매수 포지션 감시 (비활성)
      */
-    @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    // @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeClosingSellLogic() {
         if (!botActive.get() || closingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
