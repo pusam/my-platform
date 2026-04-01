@@ -1312,14 +1312,18 @@ public class AutoTradingBotService {
                     continue;
                 }
 
+                // ★ 스윙/종가매수 포지션은 스캘핑 매도에서 제외 (각자 매도 로직이 있음)
+                String stockCode = portfolio.getStockCode();
+                if (swingPositions.containsKey(stockCode) || closingPositions.containsKey(stockCode)) {
+                    continue;
+                }
+
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
-                ScalpingPosition position = scalpingPositions.get(portfolio.getStockCode());
+                ScalpingPosition position = scalpingPositions.get(stockCode);
 
                 if (position == null) {
-                    // 포지션 정보 없으면 새로 생성 (기존 보유 종목)
-                    position = new ScalpingPosition(portfolio.getStockCode(), portfolio.getStockName(),
-                            portfolio.getAveragePrice(), portfolio.getQuantity());
-                    scalpingPositions.put(portfolio.getStockCode(), position);
+                    // 스캘핑 포지션 정보 없으면 스킵 (다른 전략 포지션일 수 있음)
+                    continue;
                 }
 
                 // 고점 갱신
