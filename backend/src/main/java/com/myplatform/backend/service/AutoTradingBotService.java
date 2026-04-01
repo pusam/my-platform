@@ -642,6 +642,7 @@ public class AutoTradingBotService {
      * KOSPI -1.5% 이상 하락 시 신규 매수 차단
      * - 시장 전체가 빠지는 날 스캘핑은 역풍
      * - 1분마다 체크 (API 부하 방지)
+     * - 네이버 모바일 API로 실시간 KOSPI 지수 조회 (장중 갱신)
      */
     private boolean checkKospiDrop() {
         try {
@@ -652,13 +653,11 @@ public class AutoTradingBotService {
             }
             lastKospiCheckTime = LocalDateTime.now();
 
-            // KOSPI 지수 조회 (코스피: 0001)
-            StockPriceDto kospiDto = stockPriceService.getStockPrice("0001");
-            if (kospiDto == null || kospiDto.getChangeRate() == null) {
+            // 네이버 모바일 API로 실시간 KOSPI 등락률 조회
+            BigDecimal kospiChangeRate = fetchKospiChangeRate();
+            if (kospiChangeRate == null) {
                 return kospiDropPaused.get();
             }
-
-            BigDecimal kospiChangeRate = kospiDto.getChangeRate();
 
             if (kospiChangeRate.compareTo(KOSPI_DROP_LIMIT) <= 0) {
                 if (!kospiDropPaused.getAndSet(true)) {
@@ -689,6 +688,38 @@ public class AutoTradingBotService {
             log.debug("[스캘핑봇] KOSPI 조회 실패 (무시): {}", e.getMessage());
         }
         return kospiDropPaused.get();
+    }
+
+    /**
+     * 네이버 모바일 API로 실시간 KOSPI 등락률 조회
+     * (기존 stockPriceService.getStockPrice("0001")은 지수 코드라 조회 실패)
+     */
+    private BigDecimal fetchKospiChangeRate() {
+        try {
+            String url = "https://m.stock.naver.com/api/index/KOSPI/basic";
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.set("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36");
+            headers.set("Referer", "https://m.stock.naver.com");
+            headers.setAccept(List.of(org.springframework.http.MediaType.APPLICATION_JSON));
+
+            org.springframework.http.ResponseEntity<String> response = new org.springframework.web.client.RestTemplate()
+                    .exchange(url, org.springframework.http.HttpMethod.GET,
+                            new org.springframework.http.HttpEntity<>(headers), String.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                com.fasterxml.jackson.databind.JsonNode root = new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(response.getBody());
+                if (root.has("fluctuationsRatio")) {
+                    String ratioStr = root.get("fluctuationsRatio").asText().replace(",", "");
+                    BigDecimal rate = new BigDecimal(ratioStr);
+                    log.debug("[스캘핑봇] KOSPI 실시간 등락률: {}%", rate);
+                    return rate;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] KOSPI 실시간 조회 실패: {}", e.getMessage());
+        }
+        return null;
     }
 
     // ==================== 섹터 OUTFLOW 체크 ====================
