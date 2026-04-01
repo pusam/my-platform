@@ -41,37 +41,32 @@ public class FinancialDataScheduler {
      * 매일 08:30 자동 수집 (장 시작 전)
      * - 원버튼 전체 데이터 수집 (4단계)
      */
+    /**
+     * 매일 08:30 자동 수집 (장 시작 전)
+     * ★ 비동기 실행 — 스케줄러 스레드 즉시 반환 (16분+ 동기 실행으로 스케줄러 죽는 문제 수정)
+     */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
-        log.info("=== [배치] 08:30 원버튼 전체 데이터 자동 수집 시작 ===");
+        log.info("=== [배치] 08:30 원버튼 전체 데이터 비동기 수집 시작 ===");
         try {
-            Map<String, Object> result = asyncCrawlerService.collectAllInOneSync();
-            boolean success = (boolean) result.getOrDefault("success", false);
-            if (success) {
-                log.info("=== [배치] 08:30 원버튼 수집 완료: {} ===", result.get("message"));
-            } else {
-                log.error("=== [배치] 08:30 원버튼 수집 실패: {} ===", result.get("message"));
-            }
+            asyncCrawlerService.collectAllInOneAsync();
         } catch (Exception e) {
-            log.error("[배치] 아침 수집 실패: {}", e.getMessage(), e);
+            log.error("[배치] 아침 수집 시작 실패: {}", e.getMessage(), e);
             batchMonitor.alertFailure("재무데이터_아침수집", e.getMessage());
         }
     }
 
+    /**
+     * 매일 15:38 자동 수집 (장 마감 직후)
+     * ★ 비동기 실행
+     */
     @Scheduled(cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
-        log.info("=== [배치] 15:38 원버튼 전체 데이터 자동 수집 시작 ===");
+        log.info("=== [배치] 15:38 원버튼 전체 데이터 비동기 수집 시작 ===");
         try {
-            Map<String, Object> result = asyncCrawlerService.collectAllInOneSync();
-            boolean success = (boolean) result.getOrDefault("success", false);
-            if (success) {
-                log.info("=== [배치] 15:38 원버튼 수집 완료: {} ===", result.get("message"));
-            } else {
-                log.error("=== [배치] 15:38 원버튼 수집 실패: {} ===", result.get("message"));
-                batchMonitor.alertFailure("재무데이터_오후수집", String.valueOf(result.get("message")));
-            }
+            asyncCrawlerService.collectAllInOneAsync();
         } catch (Exception e) {
-            log.error("[배치] 오후 수집 실패: {}", e.getMessage(), e);
+            log.error("[배치] 오후 수집 시작 실패: {}", e.getMessage(), e);
             batchMonitor.alertFailure("재무데이터_오후수집", e.getMessage());
         }
     }
