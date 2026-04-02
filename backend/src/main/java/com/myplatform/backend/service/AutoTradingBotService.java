@@ -782,28 +782,38 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/5 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
-        if (!botActive.get() || isScalpingBlocked()) {
+        if (!botActive.get()) {
+            log.info("[스캘핑봇] SKIP: botActive=false");
+            return;
+        }
+        if (isScalpingBlocked()) {
+            log.info("[스캘핑봇] SKIP: 스캘핑 킬스위치 발동 중 (scalping={}, total={})",
+                    scalpingKillSwitchTriggered.get(), killSwitchTriggered.get());
             return;
         }
 
-        // ★ 실전투자 모드에서 스캘핑 비활성 (지연 데이터 기반 단타는 구조적 열위)
+        // ★ 실전투자 모드에서 스캘핑 비활성
         if (currentMode == TradingMode.REAL) {
             return;
         }
 
         // 연속 손절 3회 시 당일 정지
         if (consecutiveStopLossPaused.get()) {
+            log.info("[스캘핑봇] SKIP: 연속 손절 3회 당일 정지");
             return;
         }
 
         // 09:45~10:30만 스캘핑 매수 허용 (골든타임 집중)
         LocalTime now = LocalTime.now();
         if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(MORNING_ENTRY_END)) {
-            return;
+            return; // 시간 밖은 정상 동작이므로 로그 불필요
         }
+
+        log.info("[스캘핑봇] ===== 골든타임 진입 ({}) =====", now);
 
         // ★ 하루 최대 스캘핑 매수 제한
         if (todayBuyCount.get() >= MAX_SCALPING_TRADES_PER_DAY) {
+            log.info("[스캘핑봇] SKIP: 하루 매수 {}회 달성", todayBuyCount.get());
             return;
         }
 
