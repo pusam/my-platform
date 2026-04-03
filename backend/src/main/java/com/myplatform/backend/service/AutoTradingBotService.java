@@ -97,7 +97,7 @@ public class AutoTradingBotService {
     private static final long MIN_TRADING_VALUE = 50_000_000_000L;                  // 거래대금 ≥ 500억
     private static final int MIN_VOLUME_RATIO = 200;                                // 전일 대비 거래량 ≥ 200%
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");     // 장중 변동폭 ≥ 1.5%
-    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("130");       // ★ 필수: 체결강도 ≥ 130%
+    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");       // ★ 필수: 체결강도 ≥ 120%
     private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 45);       // 진입 시작
     private static final LocalTime MORNING_ENTRY_END = LocalTime.of(10, 30);        // 진입 종료
 
