@@ -98,8 +98,8 @@ public class AutoTradingBotService {
     private static final int MIN_VOLUME_RATIO = 200;                                // 전일 대비 거래량 ≥ 200%
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");     // 장중 변동폭 ≥ 1.5%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");       // ★ 필수: 체결강도 ≥ 120%
-    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 45);       // 진입 시작
-    private static final LocalTime MORNING_ENTRY_END = LocalTime.of(10, 30);        // 진입 종료
+    private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 10);       // 진입 시작 (테스트: 09:10~15:00)
+    private static final LocalTime MORNING_ENTRY_END = LocalTime.of(15, 0);        // 진입 종료
 
     // -- 보조 매수 조건 (3개 중 2개 충족) --
     private static final BigDecimal RSI_ENTRY_LIMIT = new BigDecimal("55");         // 보조A: RSI < 55
@@ -119,7 +119,7 @@ public class AutoTradingBotService {
     // -- 리스크 관리 --
     private static final BigDecimal MAX_INVESTMENT_RATIO = new BigDecimal("0.15");  // 종목당 최대 투자비율 15%
     private static final int MAX_HOLDING_STOCKS = 3;                                // 최대 보유 종목 수
-    private static final int MAX_SCALPING_TRADES_PER_DAY = 2;                       // 일일 최대 매수 횟수
+    private static final int MAX_SCALPING_TRADES_PER_DAY = 10;                      // 일일 최대 매수 횟수 (테스트: 10회)
     private static final int SELL_COOLDOWN_MINUTES = 30;                            // 매도 후 재매수 쿨다운
     private static final BigDecimal MIN_BALANCE = new BigDecimal("100000");         // 최소 잔액: 10만원
     private static final int CONSECUTIVE_STOP_LOSS_LIMIT = 3;                       // 연속 손절 중지 한도
