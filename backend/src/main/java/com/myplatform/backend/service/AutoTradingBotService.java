@@ -907,21 +907,21 @@ public class AutoTradingBotService {
 
                 // ★ 섹터 OUTFLOW 종목 진입 차단 ★
                 if (isOutflowSectorStock(surge.getStockCode())) {
-                    log.debug("[스캘핑봇] Skip [{}({})] 섹터 OUTFLOW — 자금 유출 섹터 진입 차단",
+                    log.info("[스캘핑봇] Skip [{}({})] 섹터 OUTFLOW — 자금 유출 섹터 진입 차단",
                             surge.getStockName(), surge.getStockCode());
                     continue;
                 }
 
                 // ★ 거래정지/상폐 종목 진입 차단 ★
                 if (!stockStatusService.isActive(surge.getStockCode())) {
-                    log.debug("[스캘핑봇] Skip [{}({})] 거래정지/상폐 종목",
+                    log.info("[스캘핑봇] Skip [{}({})] 거래정지/상폐 종목",
                             surge.getStockName(), surge.getStockCode());
                     continue;
                 }
 
                 // ★ 고공매도 종목 진입 차단 ★
                 if (isHighShortSellingStock(surge.getStockCode())) {
-                    log.debug("[스캘핑봇] Skip [{}({})] 공매도 비율 5% 이상 — 고공매도 종목 진입 차단",
+                    log.info("[스캘핑봇] Skip [{}({})] 공매도 비율 5% 이상 — 고공매도 종목 진입 차단",
                             surge.getStockName(), surge.getStockCode());
                     continue;
                 }
@@ -1026,7 +1026,7 @@ public class AutoTradingBotService {
             // ==================== 필수 조건 1: 순매수금액 ≥ 1억 ====================
             BigDecimal netBuyAmount = surge.getNetBuyAmount();
             if (netBuyAmount == null || netBuyAmount.compareTo(MIN_NET_BUY_AMOUNT) < 0) {
-                log.debug("[스캘핑봇] Skip [{}({})] 순매수 부족 (현재: {}억 < 기준: {}억)",
+                log.info("[스캘핑봇] Skip [{}({})] 순매수 부족 (현재: {}억 < 기준: {}억)",
                         stockName, stockCode, netBuyAmount, MIN_NET_BUY_AMOUNT);
                 return ScalpingEntryResult.fail("순매수 부족: " + netBuyAmount + "억");
             }
@@ -1034,7 +1034,7 @@ public class AutoTradingBotService {
             // ==================== 필수 조건 2: 현재가 조회 ====================
             StockPriceDto priceDto = stockPriceService.getStockPrice(stockCode);
             if (priceDto == null || priceDto.getCurrentPrice() == null) {
-                log.debug("[스캘핑봇] Skip [{}({})] 현재가 조회 실패", stockName, stockCode);
+                log.info("[스캘핑봇] Skip [{}({})] 현재가 조회 실패", stockName, stockCode);
                 return ScalpingEntryResult.fail("현재가 조회 실패");
             }
 
@@ -1057,7 +1057,7 @@ public class AutoTradingBotService {
             }
 
             if (!tradingValueOk && !volumeRatioOk) {
-                log.debug("[스캘핑봇] Skip [{}({})] 거래대금/거래량 부족 (거래대금: {}, 전일거래량비율 충족: {})",
+                log.info("[스캘핑봇] Skip [{}({})] 거래대금/거래량 부족 (거래대금: {}, 전일거래량비율 충족: {})",
                         stockName, stockCode, tradingValue, volumeRatioOk);
                 return ScalpingEntryResult.fail("거래대금/거래량 부족");
             }
@@ -1070,7 +1070,7 @@ public class AutoTradingBotService {
                         .divide(lowPrice, 4, RoundingMode.HALF_UP)
                         .multiply(new BigDecimal("100"));
                 if (intradayRange.compareTo(MIN_INTRADAY_RANGE) < 0) {
-                    log.debug("[스캘핑봇] Skip [{}({})] 저변동성 종목 (일중변동폭: {}% < 기준: {}%)",
+                    log.info("[스캘핑봇] Skip [{}({})] 저변동성 종목 (일중변동폭: {}% < 기준: {}%)",
                             stockName, stockCode, intradayRange.setScale(1, RoundingMode.HALF_UP), MIN_INTRADAY_RANGE);
                     return ScalpingEntryResult.fail("저변동성 종목: 일중변동폭 " + intradayRange.setScale(1, RoundingMode.HALF_UP) + "%");
                 }
@@ -1080,12 +1080,12 @@ public class AutoTradingBotService {
             if (openPrice == null || openPrice.compareTo(BigDecimal.ZERO) <= 0) {
                 BigDecimal changeRate = priceDto.getChangeRate();
                 if (changeRate == null || changeRate.compareTo(BigDecimal.ZERO) <= 0) {
-                    log.debug("[스캘핑봇] Skip [{}({})] 양봉 조건 미충족 (등락률: {}%)",
+                    log.info("[스캘핑봇] Skip [{}({})] 양봉 조건 미충족 (등락률: {}%)",
                             stockName, stockCode, changeRate);
                     return ScalpingEntryResult.fail("양봉 조건 미충족");
                 }
             } else if (currentPrice.compareTo(openPrice) <= 0) {
-                log.debug("[스캘핑봇] Skip [{}({})] 음봉 (현재가: {} <= 시초가: {})",
+                log.info("[스캘핑봇] Skip [{}({})] 음봉 (현재가: {} <= 시초가: {})",
                         stockName, stockCode, currentPrice, openPrice);
                 return ScalpingEntryResult.fail("현재가 <= 시초가");
             }
@@ -1109,7 +1109,7 @@ public class AutoTradingBotService {
                 log.debug("[스캘핑봇] 체결강도 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
             if (volumePower == null || volumePower.compareTo(MIN_VOLUME_POWER) < 0) {
-                log.debug("[스캘핑봇] Skip [{}({})] 체결강도 미달 ({}% < {}%)",
+                log.info("[스캘핑봇] Skip [{}({})] 체결강도 미달 ({}% < {}%)",
                         stockName, stockCode, volumePower, MIN_VOLUME_POWER);
                 return ScalpingEntryResult.fail("체결강도 미달: " + (volumePower != null ? volumePower + "%" : "데이터 없음"));
             }
