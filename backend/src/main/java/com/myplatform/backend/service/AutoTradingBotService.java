@@ -866,10 +866,10 @@ public class AutoTradingBotService {
                 return;
             }
 
-            log.info("[스캘핑봇] 수급 급증 후보: {}종목 (상위 5개만 체크)", targetStocks.size());
-            // ★ 상위 5종목만 체크 (KIS API 레이트리밋으로 30종목 전체 체크 시 6분+ 소요)
-            if (targetStocks.size() > 5) {
-                targetStocks = targetStocks.subList(0, 5);
+            log.info("[스캘핑봇] 수급 급증 후보: {}종목 (상위 10개만 체크)", targetStocks.size());
+            // ★ 상위 10종목만 체크 (중소형 상위 5개만으론 거래대금/체결강도 통과 어려움)
+            if (targetStocks.size() > 10) {
+                targetStocks = targetStocks.subList(0, 10);
             }
 
             // 계좌 정보 조회
