@@ -87,7 +87,7 @@ public class AutoTradingBotService {
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
     // ╠══════════════════════════════════════════════════════════════╣
-    // ║  매수: 순매수≥10억 + 체결강도≥130%(필수) + 양봉 + 보조 2/3   ║
+    // ║  매수: 순매수≥10억 + 양봉 + 변동폭≥1.5% + 보조 2/4          ║
     // ║  매도: 손절-1.2% / 익절+1.2%(반) / 트레일링-0.8% / 15~20분  ║
     // ║  청산: 15:10 장 마감 전 스캘핑 전량 청산 (종가매수 15:15 전)   ║
     // ╚══════════════════════════════════════════════════════════════╝
@@ -97,7 +97,7 @@ public class AutoTradingBotService {
     private static final long MIN_TRADING_VALUE = 20_000_000_000L;                  // 거래대금 ≥ 200억
     private static final int MIN_VOLUME_RATIO = 200;                                // 전일 대비 거래량 ≥ 200%
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");     // 장중 변동폭 ≥ 1.5%
-    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");       // ★ 필수: 체결강도 ≥ 120%
+    private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");       // 보조: 체결강도 ≥ 120% (null 시 스킵)
     private static final LocalTime MORNING_ENTRY_START = LocalTime.of(9, 10);       // 진입 시작 (테스트: 09:10~15:00)
     private static final LocalTime MORNING_ENTRY_END = LocalTime.of(15, 0);        // 진입 종료
 
@@ -1098,7 +1098,8 @@ public class AutoTradingBotService {
                         .multiply(new BigDecimal("100"));
             }
 
-            // ==================== 필수 조건 4: 체결강도 ≥ 130% ====================
+            // ==================== 보조 조건 스코어링 (4개 중 2개 이상) ====================
+            // 체결강도를 필수→보조로 변경 (KIS API가 null 반환하는 종목이 50%+ 차지)
             BigDecimal volumePower = null;
             try {
                 ScalpingAnalysisDto scalpingData = scalpingAnalysisService.getVolumePowerRefresh(stockCode);
@@ -1108,19 +1109,25 @@ public class AutoTradingBotService {
             } catch (Exception e) {
                 log.debug("[스캘핑봇] 체결강도 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
-            if (volumePower == null || volumePower.compareTo(MIN_VOLUME_POWER) < 0) {
-                log.info("[스캘핑봇] Skip [{}({})] 체결강도 미달 ({}% < {}%)",
-                        stockName, stockCode, volumePower, MIN_VOLUME_POWER);
-                return ScalpingEntryResult.fail("체결강도 미달: " + (volumePower != null ? volumePower + "%" : "데이터 없음"));
-            }
 
-            // ==================== 보조 조건 스코어링 (3개 중 2개 이상) ====================
             int subScore = 0;
-            int subTotal = 3;
+            int subTotal = 4;
             List<String> passedSubs = new java.util.ArrayList<>();
             List<String> failedSubs = new java.util.ArrayList<>();
 
-            // ===== 보조 A: RSI(14) < 55 =====
+            // ===== 보조 A: 체결강도 ≥ 120% (null이면 스킵) =====
+            if (volumePower != null) {
+                if (volumePower.compareTo(MIN_VOLUME_POWER) >= 0) {
+                    subScore++;
+                    passedSubs.add("체결강도 " + volumePower + "%");
+                } else {
+                    failedSubs.add("체결강도 " + volumePower + "% < " + MIN_VOLUME_POWER + "%");
+                }
+            } else {
+                failedSubs.add("체결강도 데이터 없음(스킵)");
+            }
+
+            // ===== 보조 B: RSI(14) < 55 =====
             try {
                 boolean rsiOk = false; // 조회 실패 시 실패 처리 (안전 우선)
                 boolean rsiChecked = false;
