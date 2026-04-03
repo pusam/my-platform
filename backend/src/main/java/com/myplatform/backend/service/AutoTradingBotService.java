@@ -94,7 +94,7 @@ public class AutoTradingBotService {
 
     // -- 필수 매수 조건 --
     private static final BigDecimal MIN_NET_BUY_AMOUNT = new BigDecimal("10");      // 순매수 ≥ 10억
-    private static final long MIN_TRADING_VALUE = 50_000_000_000L;                  // 거래대금 ≥ 500억
+    private static final long MIN_TRADING_VALUE = 20_000_000_000L;                  // 거래대금 ≥ 200억
     private static final int MIN_VOLUME_RATIO = 200;                                // 전일 대비 거래량 ≥ 200%
     private static final BigDecimal MIN_INTRADAY_RANGE = new BigDecimal("1.5");     // 장중 변동폭 ≥ 1.5%
     private static final BigDecimal MIN_VOLUME_POWER = new BigDecimal("120");       // ★ 필수: 체결강도 ≥ 120%
