@@ -30,6 +30,7 @@ public class InvestorTradeController {
     private final InvestorTradeService investorTradeService;
     private final InvestorSurgeService investorSurgeService;
     private final com.myplatform.backend.service.KoreaInvestmentService koreaInvestmentService;
+    private final com.myplatform.backend.service.MultiConvictionService multiConvictionService;
 
     @Operation(summary = "투자자별 상위 매수/매도 종목 조회")
     @GetMapping("/top-trades")
@@ -262,5 +263,11 @@ public class InvestorTradeController {
         }
 
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @Operation(summary = "멀티 컨빅션 시그널 (투자자 교차 분석)")
+    @GetMapping("/conviction")
+    public ResponseEntity<ApiResponse<com.myplatform.backend.service.MultiConvictionService.ConvictionResult>> getConvictionSignals() {
+        return ResponseEntity.ok(ApiResponse.success(multiConvictionService.getConvictionSignals()));
     }
 }

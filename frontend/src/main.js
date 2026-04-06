@@ -19,19 +19,13 @@ const AssetManagement = () => import('./views/AssetManagement.vue')
 const FileManager = () => import('./views/FileManager.vue')
 const FinanceManagement = () => import('./views/FinanceManagement.vue')
 const CarManagement = () => import('./views/CarManagement.vue')
+const DietManagement = () => import('./views/DietManagement.vue')
+const ExerciseManagement = () => import('./views/ExerciseManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
-// SectorTradingPage, EarningsScreenerPage → ResearchPage에 탭으로 통합됨 (redirect)
-// InvestorAnalysisPage → ResearchPage에 탭으로 통합됨 (redirect)
-// InvestorTradePage, ConsecutiveBuyPage, InvestorSurgePage → ResearchPage에 통합됨 (redirect)
-const NewsPage = () => import('./views/NewsPage.vue')
-const ResearchPage = () => import('./views/ResearchPage.vue')
-const MarketTimingPage = () => import('./views/MarketTimingPage.vue')
-// TradingIndicatorsPage → StockDetailDashboard에 탭으로 통합됨 (redirect)
-// AiStrategyDashboardPage → StockTradingDashboardV2에 AI전략 탭으로 통합됨 (redirect)
+// ResearchPage, PaperTradingPage → StockTradingDashboardV2에 탭으로 통합됨 (redirect)
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
-const PaperTradingPage = () => import('./views/PaperTradingPage.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
 
@@ -132,28 +126,40 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/diet',
+      name: 'DietManagement',
+      component: DietManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/exercise',
+      name: 'ExerciseManagement',
+      component: ExerciseManagement,
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/sector',
-      redirect: '/research'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/news',
-      redirect: '/research?tab=news'
+      redirect: '/stock-dashboard?tab=news'
     },
     {
       path: '/investor',
-      redirect: '/research'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/investor-trades',
-      redirect: '/research'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/consecutive-buy',
-      redirect: '/research'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/investor-surge',
-      redirect: '/research'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/investor-stock/:stockCode',
@@ -161,17 +167,15 @@ const router = createRouter({
     },
     {
       path: '/earnings-screener',
-      redirect: '/research'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/research',
-      name: 'Research',
-      component: ResearchPage,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/market-timing',
-      redirect: '/research?tab=timing'
+      redirect: '/stock-dashboard?tab=analysis'
     },
     {
       path: '/trading-indicators',
@@ -203,9 +207,7 @@ const router = createRouter({
     },
     {
       path: '/paper-trading',
-      name: 'PaperTrading',
-      component: PaperTradingPage,
-      meta: { requiresAuth: true }
+      redirect: '/stock-dashboard?tab=trading'
     },
     {
       path: '/oil',

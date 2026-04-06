@@ -242,22 +242,24 @@ const goBackToStep1 = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
   padding: 20px;
 }
 
 .forgot-password-box {
-  background: white;
+  background: rgba(30, 30, 50, 0.9);
+  backdrop-filter: blur(20px);
   padding: 40px;
   border-radius: 12px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   width: 100%;
   max-width: 450px;
 }
 
 .forgot-password-box h2 {
   text-align: center;
-  color: #333;
+  color: #f0f0f5;
   margin-bottom: 30px;
   font-size: 28px;
   font-weight: 600;
@@ -270,7 +272,7 @@ const goBackToStep1 = () => {
 .form-group label {
   display: block;
   margin-bottom: 8px;
-  color: #555;
+  color: #b0b0c8;
   font-weight: 500;
   font-size: 14px;
 }
@@ -278,21 +280,28 @@ const goBackToStep1 = () => {
 .form-group input {
   width: 100%;
   padding: 12px 15px;
-  border: 1px solid #ddd;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   font-size: 14px;
   transition: border-color 0.3s;
   box-sizing: border-box;
+  background: #252540;
+  color: #f0f0f5;
 }
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #818cf8;
+  box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.2);
+}
+
+.form-group input::placeholder {
+  color: #7878a0;
 }
 
 .info-message {
-  background: #e3f2fd;
-  border-left: 4px solid #2196f3;
+  background: rgba(129, 140, 248, 0.1);
+  border-left: 4px solid #818cf8;
   padding: 15px;
   margin-bottom: 20px;
   border-radius: 4px;
@@ -300,28 +309,28 @@ const goBackToStep1 = () => {
 
 .info-message p {
   margin: 5px 0;
-  color: #1976d2;
+  color: #a5b4fc;
   font-size: 14px;
 }
 
 .error-message {
-  background: #ffebee;
-  color: #c62828;
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
   padding: 12px;
   border-radius: 6px;
   margin-bottom: 15px;
   font-size: 14px;
-  border-left: 4px solid #c62828;
+  border-left: 4px solid #f87171;
 }
 
 .success-message {
-  background: #e8f5e9;
-  color: #2e7d32;
+  background: rgba(74, 222, 128, 0.12);
+  color: #4ade80;
   padding: 12px;
   border-radius: 6px;
   margin-bottom: 15px;
   font-size: 14px;
-  border-left: 4px solid #4caf50;
+  border-left: 4px solid #4ade80;
 }
 
 .btn {
@@ -356,7 +365,7 @@ const goBackToStep1 = () => {
 }
 
 .back-link a {
-  color: #667eea;
+  color: #818cf8;
   text-decoration: none;
   font-size: 14px;
 }

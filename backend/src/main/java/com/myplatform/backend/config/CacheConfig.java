@@ -62,7 +62,19 @@ public class CacheConfig {
             buildCache("marketCapHigh", 300, 100),
             buildCache("tradingValue", 300, 100),
             buildCache("priceRiseTop", 300, 100),
-            buildCache("priceFallTop", 300, 100)
+            buildCache("priceFallTop", 300, 100),
+
+            // ========== 종목 상세 캐시 (점진적 로딩용) ==========
+            // 재무 데이터: 거의 안 변함 → 10분 TTL
+            buildCache("stockDetailFinancial", 600, 200),
+            // 리스크 분석 (뉴스/공시): 3분 TTL
+            buildCache("stockDetailRisk", 180, 200),
+            // 차트 데이터: 2분 TTL (장중 갱신 필요)
+            buildCache("stockDetailChart", 120, 200),
+            // AI 분석 (Gemini): 15분 TTL (비용 절감)
+            buildCache("stockDetailAi", 900, 200),
+            // 피어 비교: 10분 TTL
+            buildCache("stockDetailPeer", 600, 100)
         ));
 
         log.info("Caffeine 캐시 매니저 초기화 완료 - 캐시 수: {}", cacheManager.getCacheNames().size());

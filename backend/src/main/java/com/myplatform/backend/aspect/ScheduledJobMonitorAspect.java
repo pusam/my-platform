@@ -33,6 +33,17 @@ public class ScheduledJobMonitorAspect {
             return joinPoint.proceed();
         }
 
+        // 고빈도 스케줄러(3~5초 간격)는 DB 부하 방지를 위해 모니터링 제외
+        // 스캘핑 매수/매도, 캐시 워머 등
+        if (className.contains("AutoTradingBot") || className.contains("MarketCacheWarmer")) {
+            return joinPoint.proceed();
+        }
+
+        // 헬스체크 자기 자신 제외 (자신을 "행 의심"으로 보고하는 문제 방지)
+        if ("sendDailyHealthCheck".equals(methodName)) {
+            return joinPoint.proceed();
+        }
+
         String jobName = toReadableJobName(methodName);
         String jobClass = joinPoint.getTarget().getClass().getName();
 

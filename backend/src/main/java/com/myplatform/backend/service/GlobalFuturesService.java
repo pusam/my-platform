@@ -18,9 +18,9 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 글로벌 선물 시세 서비스 (Yahoo Finance 기반)
+ * 글로벌 선물 시세 서비스 (Yahoo Finance + KIS API 기반)
  *
- * - 코스피200 지수 (^KS200) — KRX 장중(09:00~15:30)만 업데이트, 야간선물 미지원
+ * - 코스피200 선물 — KIS API (정규장 + 야간선물 지원)
  * - 나스닥100 선물 (NQ=F)
  * - S&P500 선물 (ES=F)
  * - 다우 선물 (YM=F)
@@ -41,6 +41,7 @@ public class GlobalFuturesService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final KisApiService kisApiService;
 
     private static final String YAHOO_FINANCE_URL = "https://query1.finance.yahoo.com/v8/finance/chart/%s?interval=1d&range=1d";
 
@@ -48,7 +49,7 @@ public class GlobalFuturesService {
     private static final Map<String, FuturesInfo> FUTURES_MAP = new LinkedHashMap<>();
 
     static {
-        FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "KOSPI200 지수", "코스피200", "index", "KRX"));
+        FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "코스피200 선물", "코스피200", "index", "KRX"));
         FUTURES_MAP.put("NQ", new FuturesInfo("NQ", "NQ=F", "나스닥100 선물", "나스닥100", "index", "CME"));
         FUTURES_MAP.put("ES", new FuturesInfo("ES", "ES=F", "S&P500 E-mini", "S&P500", "index", "CME"));
         FUTURES_MAP.put("YM", new FuturesInfo("YM", "YM=F", "다우 E-mini", "다우존스", "index", "CBOT"));
@@ -131,7 +132,9 @@ public class GlobalFuturesService {
     }
 
     /**
-     * 개별 선물 시세 조회 (Yahoo Finance)
+     * 개별 선물 시세 조회
+     * - KM(코스피200 선물): KIS API 우선, Yahoo 폴백
+     * - 기타: Yahoo Finance
      */
     public FuturesQuote getFuturesQuote(String symbol) {
         // 캐시 확인
@@ -148,6 +151,16 @@ public class GlobalFuturesService {
                     .errorMessage("알 수 없는 선물 심볼: " + symbol)
                     .fetchedAt(LocalDateTime.now())
                     .build();
+        }
+
+        // KM(코스피200): KIS API로 선물 데이터 조회 시도
+        if ("KM".equals(symbol)) {
+            FuturesQuote kisQuote = fetchKospiNightFutures(info);
+            if (kisQuote != null && kisQuote.isSuccess()) {
+                cache.put(symbol, new CachedFutures(kisQuote));
+                return kisQuote;
+            }
+            log.info("[코스피선물] KIS API 실패, Yahoo 폴백 사용");
         }
 
         try {
@@ -344,27 +357,39 @@ public class GlobalFuturesService {
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
             double vixRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
-            // VIX 절대 수준 + 변동률 복합
-            double vixContrib = 0;
-            if (vixLevel >= 30) vixContrib = -15; // 극심한 공포
-            else if (vixLevel >= 25) vixContrib = -10;
-            else if (vixLevel >= 20) vixContrib = -5;
-            else if (vixLevel < 15) vixContrib = 3; // 안정
+            boolean vixStale = vix.isStale() || vix.getDataAgeMinutes() > 120;
 
-            // VIX 급등 시 추가 약세 반영
-            if (vixRate > 10) vixContrib -= 8;
-            else if (vixRate > 5) vixContrib -= 4;
-            // VIX 급락 시 진정 국면 반영 — 절대값이 높아도 빠르게 하락 중이면 페널티 경감
-            else if (vixRate <= -10) vixContrib += 8;  // VIX 10%+ 급락 → 큰 진정
-            else if (vixRate <= -5) vixContrib += 5;   // VIX 5%+ 급락 → 진정
+            double vixContrib = 0;
+
+            if (vixStale) {
+                // ★ stale 데이터: 가중치 절반으로 축소 (2시간+ 지난 데이터는 신뢰도 낮음)
+                if (vixLevel >= 30) vixContrib = -7;
+                else if (vixLevel >= 25) vixContrib = -5;
+                else if (vixLevel >= 20) vixContrib = -2;
+                else if (vixLevel < 15) vixContrib = 1;
+                log.debug("[코스피 전망] VIX stale 데이터 ({}분 전) — 가중치 절반 적용", vix.getDataAgeMinutes());
+            } else {
+                // 실시간 데이터: 정상 가중치
+                if (vixLevel >= 30) vixContrib = -15;
+                else if (vixLevel >= 25) vixContrib = -10;
+                else if (vixLevel >= 20) vixContrib = -5;
+                else if (vixLevel < 15) vixContrib = 3;
+
+                // VIX 급등/급락 시 추가 조정 (stale이 아닐 때만)
+                if (vixRate > 10) vixContrib -= 8;
+                else if (vixRate > 5) vixContrib -= 4;
+                else if (vixRate <= -10) vixContrib += 8;
+                else if (vixRate <= -5) vixContrib += 5;
+            }
 
             vixContrib = clampContrib(vixContrib);
             weightedScore += vixContrib * 0.15;
 
-            // VIX 시그널: 절대값 기준 (25 이상이면 무조건 부정)
             String vixSignal;
-            if (vixLevel >= 25) {
-                vixSignal = "NEGATIVE"; // 공포 구간 → 항상 부정
+            if (vixStale) {
+                vixSignal = "NEUTRAL"; // stale 데이터는 중립 처리
+            } else if (vixLevel >= 25) {
+                vixSignal = "NEGATIVE";
             } else if (vixLevel < 18) {
                 vixSignal = "POSITIVE";
             } else {
@@ -373,9 +398,9 @@ public class GlobalFuturesService {
             riskFactors.add(createFactor("VIX", vixRate, vixSignal, 15));
         }
 
-        // KOSPI200 보정
+        // KOSPI200 보정 (stale 데이터는 제외 — 전날 야간선물 데이터로 오늘 분석 왜곡 방지)
         FuturesQuote kospi = quoteMap.get("KM");
-        if (kospi != null && kospi.getChangeRate() != null) {
+        if (kospi != null && kospi.getChangeRate() != null && !kospi.isStale()) {
             double kRate = kospi.getChangeRate().doubleValue();
             weightedScore += clampContrib(kRate * 3.0) * 0.10; // 소폭 보정
         }
@@ -390,39 +415,44 @@ public class GlobalFuturesService {
         List<String> overrideReasons = new ArrayList<>();
 
         // 조건 1: VIX >= 25 (공포 구간)
-        // 예외: VIX가 전일 대비 5% 이상 하락 중이고, 하위 지표(WTI/환율)가 긍정이면
-        //       시장 진정 국면으로 판단 → 폭락 경계 오버라이드 해제
+        // ★ stale 데이터(2시간+)인 경우 CRISIS 오버라이드 발동하지 않음
         if (vix != null && vix.getCurrentPrice() != null) {
             double vixLevel = vix.getCurrentPrice().doubleValue();
             double vixChangeRate = vix.getChangeRate() != null ? vix.getChangeRate().doubleValue() : 0;
+            boolean vixStale = vix.isStale() || vix.getDataAgeMinutes() > 120;
 
-            boolean isVixCalming = vixChangeRate <= -5.0; // VIX 전일 대비 5% 이상 급락 중
+            if (vixStale) {
+                // stale 데이터: CRISIS 오버라이드 발동하지 않음 (가중치 점수만 반영)
+                log.info("[코스피 전망] VIX {} (≥25) but stale ({}분 전) — CRISIS 오버라이드 스킵",
+                        String.format("%.1f", vixLevel), vix.getDataAgeMinutes());
+            } else {
+                boolean isVixCalming = vixChangeRate <= -5.0;
 
-            // 하위 지표 긍정 여부 체크 (WTI 안정 + 환율 안정/강세)
-            boolean subIndicatorsPositive = false;
-            if (isVixCalming) {
-                boolean wtiOk = true;  // WTI가 폭등하지 않으면 OK
-                boolean krwOk = true;  // 환율이 급등하지 않으면 OK
-                if (cl != null && cl.getChangeRate() != null) {
-                    wtiOk = cl.getChangeRate().doubleValue() < 5.0; // WTI +5% 미만
+                boolean subIndicatorsPositive = false;
+                if (isVixCalming) {
+                    boolean wtiOk = true;
+                    boolean krwOk = true;
+                    if (cl != null && cl.getChangeRate() != null) {
+                        wtiOk = cl.getChangeRate().doubleValue() < 5.0;
+                    }
+                    if (krw != null && krw.getChangeRate() != null) {
+                        krwOk = krw.getChangeRate().doubleValue() < 0.5;
+                    }
+                    subIndicatorsPositive = wtiOk && krwOk;
                 }
-                if (krw != null && krw.getChangeRate() != null) {
-                    krwOk = krw.getChangeRate().doubleValue() < 0.5; // 환율 +0.5% 미만 (원화 약세 제한적)
+
+                boolean marketCalming = isVixCalming && subIndicatorsPositive;
+
+                if (vixLevel >= 30 && !marketCalming) {
+                    thresholdOverride = true;
+                    overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
+                } else if (vixLevel >= 25 && !marketCalming) {
+                    thresholdOverride = true;
+                    overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
+                } else if (vixLevel >= 25 && marketCalming) {
+                    log.info("[코스피 전망] VIX {} (≥25) but 진정 국면 — VIX 변동 {}%, 오버라이드 해제",
+                            String.format("%.1f", vixLevel), String.format("%.1f", vixChangeRate));
                 }
-                subIndicatorsPositive = wtiOk && krwOk;
-            }
-
-            boolean marketCalming = isVixCalming && subIndicatorsPositive;
-
-            if (vixLevel >= 30 && !marketCalming) {
-                thresholdOverride = true;
-                overrideReasons.add(String.format("VIX %.1f (극심한 공포)", vixLevel));
-            } else if (vixLevel >= 25 && !marketCalming) {
-                thresholdOverride = true;
-                overrideReasons.add(String.format("VIX %.1f (공포)", vixLevel));
-            } else if (vixLevel >= 25 && marketCalming) {
-                log.info("[코스피 전망] VIX {} (≥25) but 진정 국면 — VIX 변동 {}%, 오버라이드 해제",
-                        String.format("%.1f", vixLevel), String.format("%.1f", vixChangeRate));
             }
         }
 
@@ -554,6 +584,156 @@ public class GlobalFuturesService {
         return sb.toString();
     }
 
+    // ==================== 코스피200 선물 (KIS API) ====================
+
+    // KIS 코스피 선물 마지막 성공 데이터 (장 갭 05:00~09:00 대비)
+    private volatile FuturesQuote lastKisKospiQuote = null;
+
+    /**
+     * KIS API를 통한 코스피200 선물 현재가 조회
+     * - 정규장(09:00~15:45) + 야간(18:00~05:00) 모두 지원
+     * - 장 갭(05:00~09:00) 시 마지막 KIS 성공 데이터 반환
+     */
+    private FuturesQuote fetchKospiNightFutures(FuturesInfo info) {
+        try {
+            String contractCode = calculateFrontMonthCode();
+            log.debug("[코스피선물] 근월물 코드: {}", contractCode);
+
+            Map<String, Object> data = kisApiService.getFuturesCurrentPrice(contractCode);
+            if (data == null || data.isEmpty()) {
+                // KIS 실패 시 마지막 성공 데이터 반환 (장 갭 대비)
+                if (lastKisKospiQuote != null) {
+                    log.debug("[코스피선물] KIS API 미응답, 마지막 성공 데이터 사용 ({})",
+                            lastKisKospiQuote.getTradingTime());
+                    return lastKisKospiQuote;
+                }
+                return null;
+            }
+
+            // KIS API 필드 파싱 (futs_prpr / stck_prpr 등 다양한 필드명 대응)
+            BigDecimal currentPrice = parseBd(getField(data, "futs_prpr", "stck_prpr"));
+            if (currentPrice == null) {
+                log.warn("[코스피선물] 현재가 필드를 찾을 수 없음. 응답 키: {}", data.keySet());
+                return null;
+            }
+
+            BigDecimal changePrice = parseBd(getField(data, "futs_prdy_vrss", "prdy_vrss"));
+            BigDecimal changeRate = parseBd(getField(data, "futs_prdy_ctrt", "prdy_ctrt"));
+            BigDecimal highPrice = parseBd(getField(data, "futs_hgpr", "stck_hgpr"));
+            BigDecimal lowPrice = parseBd(getField(data, "futs_lwpr", "stck_lwpr"));
+            BigDecimal volume = parseBd(getField(data, "acml_vol"));
+            String sign = getField(data, "prdy_vrss_sign");
+
+            // 선물 이름 결정 (KIS 응답에 이름이 있으면 사용)
+            String futuresName = getField(data, "rprs_mrkt_kor_name", "bstp_kor_isnm");
+            if (futuresName == null || futuresName.isBlank()) {
+                futuresName = "코스피200 선물";
+            }
+
+            // 시장 세션 판별 (KST 기준)
+            ZonedDateTime nowKst = ZonedDateTime.now(ZoneId.of("Asia/Seoul"));
+            int hour = nowKst.getHour();
+            String marketStatus;
+            boolean stale;
+            if (hour >= 9 && hour < 16) {
+                marketStatus = "OPEN";      // 정규장
+                stale = false;
+            } else if (hour >= 18 || hour < 5) {
+                marketStatus = "NIGHT";     // 야간선물
+                stale = false;
+            } else {
+                marketStatus = "CLOSED";    // 장 마감 (05:00~09:00, 16:00~18:00)
+                stale = true;
+            }
+
+            String tradingTime = nowKst.format(DateTimeFormatter.ofPattern("MM/dd HH:mm (E)", Locale.KOREAN)) + " KST";
+
+            FuturesQuote quote = FuturesQuote.builder()
+                    .symbol("KM")
+                    .name(futuresName)
+                    .shortName("코스피200")
+                    .category("index")
+                    .exchange("KRX")
+                    .currentPrice(currentPrice.setScale(2, RoundingMode.HALF_UP))
+                    .changePrice(changePrice != null ? changePrice.setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO)
+                    .changeRate(changeRate != null ? changeRate.setScale(2, RoundingMode.HALF_UP) : BigDecimal.ZERO)
+                    .highPrice(highPrice != null ? highPrice.setScale(2, RoundingMode.HALF_UP) : null)
+                    .lowPrice(lowPrice != null ? lowPrice.setScale(2, RoundingMode.HALF_UP) : null)
+                    .volume(volume)
+                    .sign(sign != null ? sign : "3")
+                    .tradingTime(tradingTime)
+                    .marketStatus(marketStatus)
+                    .dataAgeMinutes(0)
+                    .stale(stale)
+                    .fetchedAt(LocalDateTime.now())
+                    .success(true)
+                    .build();
+
+            // 성공 데이터 저장 (장 갭 시 폴백용)
+            lastKisKospiQuote = quote;
+            return quote;
+
+        } catch (Exception e) {
+            log.error("[코스피선물] KIS API 조회 실패: {}", e.getMessage());
+            // 실패 시 마지막 성공 데이터 반환
+            if (lastKisKospiQuote != null) {
+                log.debug("[코스피선물] 예외 발생, 마지막 성공 데이터 사용");
+                return lastKisKospiQuote;
+            }
+            return null;
+        }
+    }
+
+    /**
+     * KOSPI200 선물 근월물 코드 계산
+     * 분기 만기: 3월, 6월, 9월, 12월 두번째 목요일
+     * 코드 형식: 101 + 월코드(3/6/9/C) + 연도끝자리
+     */
+    String calculateFrontMonthCode() {
+        LocalDate today = LocalDate.now();
+
+        int[][] quarters = {{3, '3'}, {6, '6'}, {9, '9'}, {12, 'C'}};
+
+        for (int[] q : quarters) {
+            int month = q[0];
+            int monthCode = q[1];
+            int year = today.getYear();
+            if (month < today.getMonthValue()) {
+                continue; // 이미 지난 분기
+            }
+
+            // 해당 분기월의 두 번째 목요일 계산
+            LocalDate firstDay = LocalDate.of(year, month, 1);
+            LocalDate firstThursday = firstDay.with(java.time.temporal.TemporalAdjusters.firstInMonth(DayOfWeek.THURSDAY));
+            LocalDate secondThursday = firstThursday.plusWeeks(1);
+
+            if (today.isBefore(secondThursday) || today.isEqual(secondThursday)) {
+                // 만기일 이전이면 이 근월물 사용
+                return "101" + (char) monthCode + (year % 10);
+            }
+        }
+
+        // 올해 모든 분기가 지났으면 내년 3월물
+        int nextYear = today.getYear() + 1;
+        return "101" + "3" + (nextYear % 10);
+    }
+
+    private String getField(Map<String, Object> data, String... keys) {
+        for (String key : keys) {
+            Object val = data.get(key);
+            if (val != null) {
+                String s = val.toString().trim();
+                if (!s.isEmpty() && !"0".equals(s)) return s;
+            }
+        }
+        // 0도 유효한 값일 수 있으므로 재검사
+        for (String key : keys) {
+            Object val = data.get(key);
+            if (val != null) return val.toString().trim();
+        }
+        return null;
+    }
+
     public void clearCache() {
         cache.clear();
         fearGreedCache = null;
@@ -577,8 +757,10 @@ public class GlobalFuturesService {
 
         try {
             HttpHeaders headers = new HttpHeaders();
-            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            headers.set("Accept", "application/json");
+            headers.set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36");
+            headers.set("Accept", "application/json, text/plain, */*");
+            headers.set("Referer", "https://edition.cnn.com/markets/fear-and-greed");
+            headers.set("Accept-Language", "en-US,en;q=0.9");
 
             HttpEntity<String> request = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(FEAR_GREED_URL, HttpMethod.GET, request, String.class);

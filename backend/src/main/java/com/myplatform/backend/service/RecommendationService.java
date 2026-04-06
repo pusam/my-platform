@@ -140,17 +140,18 @@ public class RecommendationService {
         return new Top5Response(items, dataTime, realtime, deltaMap);
     }
 
-    /** 장중 스냅샷 (11:30, 14:00) — 장중 흐름 변화 히스토리 */
+    /** 장중 스냅샷 (11:30, 14:00, 17:00) — 장중 흐름 변화 히스토리 */
     @Scheduled(cron = "0 30 11 * * MON-FRI", zone = "Asia/Seoul")
     @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 17 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveIntradaySnapshot() {
         log.info("[종합추천] 장중 스냅샷 저장");
         saveSnapshotInternal();
     }
 
-    /** 마감 스냅샷 (15:45) */
-    @Scheduled(cron = "0 45 15 * * MON-FRI", zone = "Asia/Seoul")
+    /** 마감 스냅샷 (20:05 — 애프터마켓 종료 후) */
+    @Scheduled(cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         log.info("[종합추천] 마감 스냅샷 저장 시작");
@@ -202,6 +203,8 @@ public class RecommendationService {
         scoreSectorMomentum(scoreMap);
         // 기술: 마지막 (모든 종목 수집 후)
         scoreTechnical(scoreMap);
+        // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
+        applyRealtimeChecks(scoreMap);
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
@@ -553,6 +556,114 @@ public class RecommendationService {
         }
     }
 
+    // ==================== ⑥ 실시간 교차검증 (상세페이지 정합성) ====================
+
+    /**
+     * 랭킹 점수와 상세페이지 점수의 괴리 방지
+     * - 실시간 시세로 MA20 대비 확인 (priceHistory 비동기 수집 문제 해결)
+     * - 기술지표 재검증: 골든크로스 등 오래된 태그 제거
+     * - 수급 괴리 (주가↑ + 기관/외인 매도): 수급 페널티 + 경고 태그
+     */
+    private void applyRealtimeChecks(Map<String, StockScore> scoreMap) {
+        int ma20Penalty = 0, divergencePenalty = 0, tagFixed = 0;
+
+        // 상위 후보만 선별 (전체 종목 시세 조회 시 타임아웃 방지)
+        List<StockScore> topCandidates = scoreMap.values().stream()
+                .filter(s -> countValidCategories(s) >= 4)
+                .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
+                .limit(10)
+                .collect(Collectors.toList());
+
+        if (topCandidates.isEmpty()) return;
+
+        // 상위 10개만 실시간 시세 조회
+        List<String> codes = topCandidates.stream().map(s -> s.stockCode).collect(Collectors.toList());
+        Map<String, StockPriceDto> priceMap;
+        try {
+            priceMap = stockPriceService.getStockPrices(codes);
+        } catch (Exception e) {
+            log.warn("[종합추천] 실시간 시세 조회 실패 (교차검증 스킵): {}", e.getMessage());
+            return; // 시세 조회 실패 시 교차검증 자체를 스킵 (기존 점수 유지)
+        }
+
+        for (StockScore stock : topCandidates) {
+            try {
+                StockPriceDto livePrice = priceMap.get(stock.stockCode);
+
+                // 1. MA20 하회 체크 — 실시간 현재가 vs priceHistory MA20
+                List<StockPriceHistory> history = priceHistoryRepository
+                        .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 25));
+                if (history != null && history.size() >= 20) {
+                    List<BigDecimal> prices = history.stream()
+                            .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
+                            .map(StockPriceHistory::getClosePrice)
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList());
+
+                    if (prices.size() >= 20) {
+                        BigDecimal ma20Sum = BigDecimal.ZERO;
+                        for (int i = prices.size() - 20; i < prices.size(); i++) {
+                            ma20Sum = ma20Sum.add(prices.get(i));
+                        }
+                        BigDecimal ma20 = ma20Sum.divide(BigDecimal.valueOf(20), 0, java.math.RoundingMode.HALF_UP);
+
+                        // 실시간 현재가 우선, 없으면 최근 종가 사용
+                        BigDecimal checkPrice = (livePrice != null && livePrice.getCurrentPrice() != null)
+                                ? livePrice.getCurrentPrice()
+                                : prices.get(prices.size() - 1);
+
+                        if (checkPrice.compareTo(ma20) < 0) {
+                            int penalty = Math.min(stock.technical, 8);
+                            stock.technical = Math.max(0, stock.technical - penalty);
+                            stock.tags.add("⚠MA20하회");
+                            ma20Penalty++;
+                            log.debug("[종합추천] MA20 페널티: {} (현재가:{} < MA20:{}, 기술 -{}점)",
+                                    stock.stockName, checkPrice, ma20, penalty);
+                        }
+
+                        // 2. 기술지표 재검증 — 골든크로스/정배열 태그가 실제와 맞는지 확인
+                        TechnicalIndicatorsDto freshIndicators = technicalIndicatorService.calculate(prices);
+                        if (freshIndicators != null) {
+                            boolean gcNow = Boolean.TRUE.equals(freshIndicators.getIsGoldenCross());
+                            boolean auNow = Boolean.TRUE.equals(freshIndicators.getIsArrangedUp());
+
+                            // 골든크로스 태그 있는데 실제로는 아닌 경우 → 태그 제거 + 페널티
+                            if (stock.tags.contains("골든크로스") && !gcNow) {
+                                stock.tags.remove("골든크로스");
+                                stock.technical = Math.max(0, stock.technical - 3);
+                                tagFixed++;
+                                log.debug("[종합추천] 골든크로스 태그 제거: {} (실제 GC=false)", stock.stockName);
+                            }
+                            if (stock.tags.contains("정배열") && !auNow) {
+                                stock.tags.remove("정배열");
+                                stock.technical = Math.max(0, stock.technical - 2);
+                                tagFixed++;
+                            }
+                        }
+                    }
+                }
+
+                // 3. 수급-가격 괴리: 주가 상승 + 수급 점수 없음 → 개인 주도 의심
+                BigDecimal cr = (livePrice != null && livePrice.getChangeRate() != null)
+                        ? livePrice.getChangeRate() : stock.changeRate;
+                if (cr != null && cr.doubleValue() > 1.0 && stock.supplyDemand <= 0) {
+                    stock.technical = Math.max(0, stock.technical - 3);
+                    stock.tags.add("⚠수급괴리");
+                    divergencePenalty++;
+                    log.debug("[종합추천] 수급 괴리: {} (등락률:+{}% but 수급 점수:{})",
+                            stock.stockName, cr, stock.supplyDemand);
+                }
+            } catch (Exception e) {
+                log.debug("[종합추천] 실시간 체크 실패: {} - {}", stock.stockName, e.getMessage());
+            }
+        }
+
+        if (ma20Penalty > 0 || divergencePenalty > 0 || tagFixed > 0) {
+            log.info("[종합추천] 실시간 교차검증: MA20페널티 {}건, 수급괴리 {}건, 태그보정 {}건",
+                    ma20Penalty, divergencePenalty, tagFixed);
+        }
+    }
+
     // ==================== N/A & Util ====================
 
     private int countValidCategories(StockScore s) {
@@ -607,7 +718,7 @@ public class RecommendationService {
         DayOfWeek dow = now.getDayOfWeek();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return false;
         LocalTime time = now.toLocalTime();
-        return time.isAfter(LocalTime.of(9, 0)) && time.isBefore(LocalTime.of(15, 35));
+        return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
     /** 유효 항목 수별 상한: 5개=100, 4개=88, 3개=75, 2개=60 */

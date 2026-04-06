@@ -10,6 +10,7 @@ import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import org.jsoup.Jsoup;
@@ -52,6 +53,7 @@ public class StockDetailService {
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final GeminiService geminiService;
+    private final StockDetailCacheService cacheService;
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
@@ -276,6 +278,267 @@ public class StockDetailService {
         return dto;
     }
 
+    // ========== 점진적 로딩용 API (Quick + Heavy 분리) ==========
+
+    /**
+     * 1단계: 빠른 데이터 (시세 + 수급 + 차트 + 재무)
+     * 외부 API 최소 호출 → 평균 3~5초 내 응답
+     */
+    public StockDetailDto getStockDetailQuick(String stockCode) {
+        log.info("[StockDetail:Quick] 종목 {} 빠른 조회 시작", stockCode);
+        long startTime = System.currentTimeMillis();
+
+        StockDetailDto.StockDetailDtoBuilder builder = StockDetailDto.builder()
+                .stockCode(stockCode)
+                .fetchedAt(LocalDateTime.now());
+
+        // ★ 시세 + 수급 + 차트 + 재무 모두 병렬 실행
+        boolean isAfterMarket = isAfterMarketHours();
+        boolean isBeforeMarket = isBeforeMarketHours();
+
+        // 1. 시세 (비동기)
+        CompletableFuture<JsonNode> priceFuture =
+                CompletableFuture.supplyAsync(() -> kisService.getStockPrice(stockCode));
+
+        // 2. 수급 (비동기)
+        CompletableFuture<SupplyDemand> supplyFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        if (isBeforeMarket) return buildEmptySupplyDemand();
+                        else if (isAfterMarket) return getDailySummaryFromDb(stockCode);
+                        else return parseSupplyDemand(scalpingService.getScalpingAnalysis(stockCode));
+                    } catch (Exception e) {
+                        log.error("[StockDetail:Quick] 수급 조회 실패: {}", e.getMessage());
+                        return null;
+                    }
+                });
+
+        // 3. 차트 (비동기 + 캐시 — 별도 빈이라 @Cacheable 동작)
+        CompletableFuture<ChartData> chartFuture =
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedChartData(stockCode));
+
+        // 4. 재무 (비동기 + 캐시 — 별도 빈이라 @Cacheable 동작)
+        CompletableFuture<FinancialInfo> financialFuture =
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedFinancialInfo(stockCode));
+
+        // ★ 모든 Future 결과 수집
+        try {
+            // 시세 처리
+            String stockName = stockCode;
+            JsonNode priceData = priceFuture.get(15, TimeUnit.SECONDS);
+            if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
+                builder.price(parsePriceInfo(priceData));
+                String name = getFieldValue(priceData, "output", "hts_kor_isnm");
+                if (name != null && !name.isEmpty()) stockName = name;
+            } else {
+                // KIS 실패 → 네이버 폴백 (여기서만 순차)
+                try {
+                    StockPriceDto naverData = stockPriceService.getStockPrice(stockCode);
+                    if (naverData != null && naverData.getCurrentPrice() != null) {
+                        stockName = naverData.getStockName() != null ? naverData.getStockName() : stockCode;
+                        builder.price(convertNaverToPriceInfo(naverData));
+                    }
+                } catch (Exception e) {
+                    log.warn("[StockDetail:Quick] 시세 폴백 실패: {}", e.getMessage());
+                }
+            }
+            builder.stockName(stockName);
+
+            // 수급 처리
+            SupplyDemand supplyDemand = supplyFuture.get(15, TimeUnit.SECONDS);
+            if (!isBeforeMarket && (supplyDemand == null || isEmptySupplyDemand(supplyDemand))) {
+                try {
+                    SupplyDemand naverSupply = fetchInvestorFromNaver(stockCode);
+                    if (naverSupply != null && !isEmptySupplyDemand(naverSupply)) supplyDemand = naverSupply;
+                } catch (Exception e) { /* skip */ }
+            }
+            if (supplyDemand != null) {
+                if (isBeforeMarket) supplyDemand.setDataSource("장전(초기화)");
+                else if (isAfterMarket) supplyDemand.setDataSource("일별(DB)");
+                else supplyDemand.setDataSource("실시간");
+                builder.supplyDemand(supplyDemand);
+            }
+
+            // 차트 처리
+            ChartData chart = chartFuture.get(15, TimeUnit.SECONDS);
+            if (chart != null) builder.chartData(chart);
+
+            // 재무 처리 (Quick 경량 버전 — KIS PER/PBR만, 네이버 크롤링 없음)
+            FinancialInfo financial = financialFuture.get(15, TimeUnit.SECONDS);
+            builder.financial(financial);
+
+        } catch (Exception e) {
+            log.warn("[StockDetail:Quick] 병렬 조회 오류: {}", e.getMessage());
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("[StockDetail:Quick] 종목 {} 빠른 조회 완료: {}ms", stockCode, elapsed);
+        return builder.build();
+    }
+
+    /**
+     * 2단계: 무거운 데이터 (리스크 + AI분석 + 피어비교)
+     * 캐시 적극 활용 → 캐시 히트 시 1초 이내, 미스 시 10~30초
+     */
+    public Map<String, Object> getStockDetailHeavy(String stockCode) {
+        log.info("[StockDetail:Heavy] 종목 {} 무거운 데이터 조회 시작", stockCode);
+        long startTime = System.currentTimeMillis();
+
+        Map<String, Object> result = new HashMap<>();
+
+        // 종목명 확보 (AI 프롬프트용) + 시세 (KIS 1회만)
+        String stockName = stockCode;
+        PriceInfo priceInfo = null;
+        JsonNode priceData = null;
+        try {
+            priceData = kisService.getStockPrice(stockCode);
+            if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
+                String name = getFieldValue(priceData, "output", "hts_kor_isnm");
+                if (name != null && !name.isEmpty()) stockName = name;
+                priceInfo = parsePriceInfo(priceData);
+            }
+        } catch (Exception e) {
+            log.debug("[StockDetail:Heavy] 종목명 조회 실패: {}", e.getMessage());
+        }
+        final String finalStockName = stockName;
+        final PriceInfo finalPriceInfo = priceInfo;
+        final JsonNode finalPriceData = priceData;
+
+        // ★ 리스크 + 네이버크롤링 + AI규칙기반 + 피어비교 모두 병렬
+        CompletableFuture<RiskInfo> riskFuture =
+                CompletableFuture.supplyAsync(() -> getCachedRiskInfo(finalStockName, stockCode));
+
+        CompletableFuture<Map<String, Object>> peerFuture =
+                CompletableFuture.supplyAsync(() -> getCachedPeerData(stockCode, finalStockName));
+
+        // 네이버 크롤링 (배당수익률 + Forward 지표 + 목표주가) — Heavy로 이동
+        CompletableFuture<Map<String, Object>> naverEnrichFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    Map<String, Object> enrichData = new HashMap<>();
+                    try {
+                        Document naverMainDoc = fetchNaverMainPage(stockCode);
+                        FinancialInfo financial = fetchFinancialInfo(stockCode, finalPriceData);
+                        if (financial != null) {
+                            enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
+                            enrichWithForwardMetrics(financial, finalPriceInfo);
+                            financial.setInvestmentTags(generateInvestmentTags(financial, finalStockName));
+                        }
+                        enrichData.put("financial", financial);
+                        enrichData.put("naverDoc", naverMainDoc);
+                    } catch (Exception e) {
+                        log.warn("[StockDetail:Heavy] 네이버 크롤링 실패: {}", e.getMessage());
+                    }
+                    return enrichData;
+                });
+
+        // AI 분석 (Gemini 또는 규칙기반)
+        CompletableFuture<AiAnalysis> aiFuture =
+                CompletableFuture.supplyAsync(() -> getCachedAiAnalysis(stockCode));
+
+        try {
+            RiskInfo riskInfo = riskFuture.get(60, TimeUnit.SECONDS);
+            result.put("risk", riskInfo);
+
+            Map<String, Object> peerData = peerFuture.get(30, TimeUnit.SECONDS);
+            result.put("peerComparisons", peerData.get("peers"));
+            result.put("sectorAvgPbr", peerData.get("sectorAvgPbr"));
+            result.put("sectorName", peerData.get("sectorName"));
+
+            // 네이버 크롤링 결과 (상세 재무 + 배당 + Forward)
+            Map<String, Object> naverEnrich = naverEnrichFuture.get(30, TimeUnit.SECONDS);
+            if (naverEnrich.get("financial") != null) {
+                result.put("financial", naverEnrich.get("financial"));
+            }
+
+            AiAnalysis aiAnalysis = aiFuture.get(60, TimeUnit.SECONDS);
+            if (aiAnalysis != null) {
+                Document naverDoc = (Document) naverEnrich.get("naverDoc");
+                enrichWithConsensusTargetFromDoc(aiAnalysis, naverDoc, stockCode, finalPriceInfo);
+            }
+            result.put("aiAnalysis", aiAnalysis);
+
+        } catch (Exception e) {
+            log.warn("[StockDetail:Heavy] 병렬 조회 오류: {}", e.getMessage());
+        }
+
+        long elapsed = System.currentTimeMillis() - startTime;
+        log.info("[StockDetail:Heavy] 종목 {} 무거운 데이터 조회 완료: {}ms", stockCode, elapsed);
+        return result;
+    }
+
+    // ========== 캐시 적용 메서드들 ==========
+
+    @Cacheable(value = "stockDetailChart", key = "#stockCode")
+    public ChartData getCachedChartData(String stockCode) {
+        return fetchChartData(stockCode);
+    }
+
+    @Cacheable(value = "stockDetailFinancial", key = "#stockCode")
+    public FinancialInfo getCachedFinancialInfo(String stockCode, JsonNode priceData) {
+        return fetchFinancialInfo(stockCode, priceData);
+    }
+
+    @Cacheable(value = "stockDetailRisk", key = "#stockCode")
+    public RiskInfo getCachedRiskInfo(String stockName, String stockCode) {
+        try {
+            RiskAnalysisDto risk = riskService.analyzeRisk(stockName, stockCode);
+            if (risk != null) {
+                enrichNewsWithPositiveItems(risk, stockName);
+                return parseRiskInfo(risk);
+            }
+        } catch (Exception e) {
+            log.error("[StockDetail:Cache] 리스크 조회 실패: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    @Cacheable(value = "stockDetailPeer", key = "#stockCode")
+    public Map<String, Object> getCachedPeerData(String stockCode, String stockName) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            // 재무정보 (캐시됨)
+            FinancialInfo financial = getCachedFinancialInfo(stockCode, null);
+
+            String sector = detectSector(stockCode, stockName);
+            List<StockDetailDto.PeerComparison> peers = buildPeerComparisons(stockCode, stockName, financial);
+            result.put("peers", peers);
+            result.put("sectorName", sector);
+
+            if (peers != null && !peers.isEmpty()) {
+                BigDecimal pbrSum = BigDecimal.ZERO;
+                int count = 0;
+                for (StockDetailDto.PeerComparison p : peers) {
+                    if (p.getPbr() != null && p.getPbr().compareTo(BigDecimal.ZERO) > 0) {
+                        pbrSum = pbrSum.add(p.getPbr());
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    result.put("sectorAvgPbr", pbrSum.divide(BigDecimal.valueOf(count), 2, java.math.RoundingMode.HALF_UP));
+                }
+            }
+        } catch (Exception e) {
+            log.error("[StockDetail:Cache] 피어 조회 실패: {}", e.getMessage());
+        }
+        return result;
+    }
+
+    @Cacheable(value = "stockDetailAi", key = "#stockCode")
+    public AiAnalysis getCachedAiAnalysis(String stockCode) {
+        try {
+            // Quick 데이터로 StockDetailDto 구성
+            StockDetailDto quickDto = getStockDetailQuick(stockCode);
+            AiAnalysis aiAnalysis = generateGeminiAnalysis(quickDto);
+            if (aiAnalysis == null) {
+                aiAnalysis = generateAiAnalysis(quickDto);
+            }
+            return aiAnalysis;
+        } catch (Exception e) {
+            log.warn("[StockDetail:Cache] AI 분석 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * 가격 정보 파싱 (KIS API 실시간 시세)
      */
@@ -426,21 +689,22 @@ public class StockDetailService {
      */
     private ChartData fetchChartData(String stockCode) {
         try {
-            JsonNode dailyData = kisService.getDailyPrices(stockCode, 60);
+            // 120일 + 여유분으로 요청 (MA120 계산용)
+            JsonNode dailyData = kisService.getDailyPrices(stockCode, 150);
             if (dailyData == null) return null;
 
             JsonNode output2 = dailyData.get("output2");
             if (output2 == null || !output2.isArray()) return null;
 
-            List<CandlePoint> candles = new ArrayList<>();
-            List<VolumePoint> volumes = new ArrayList<>();
-            List<BigDecimal> closes = new ArrayList<>();
+            List<CandlePoint> allCandles = new ArrayList<>();
+            List<VolumePoint> allVolumes = new ArrayList<>();
+            List<BigDecimal> allCloses = new ArrayList<>();
 
             for (JsonNode item : output2) {
                 String date = item.has("stck_bsop_date") ? item.get("stck_bsop_date").asText() : "";
                 BigDecimal close = parseBigDecimal(item.get("stck_clpr"));
 
-                candles.add(CandlePoint.builder()
+                allCandles.add(CandlePoint.builder()
                         .date(date)
                         .open(parseBigDecimal(item.get("stck_oprc")))
                         .high(parseBigDecimal(item.get("stck_hgpr")))
@@ -448,18 +712,49 @@ public class StockDetailService {
                         .close(close)
                         .build());
 
-                volumes.add(VolumePoint.builder()
+                allVolumes.add(VolumePoint.builder()
                         .date(date)
                         .volume(parseLong(item.get("acml_vol")))
                         .build());
 
-                closes.add(close);
+                allCloses.add(close);
             }
 
-            // 이동평균 계산
-            BigDecimal ma5 = calculateMA(closes, 5);
-            BigDecimal ma20 = calculateMA(closes, 20);
-            BigDecimal ma60 = calculateMA(closes, 60);
+            // 표시용 캔들 (최근 60개)
+            int displayCount = Math.min(60, allCandles.size());
+            List<CandlePoint> candles = allCandles.subList(0, displayCount);
+            List<VolumePoint> volumes = allVolumes.subList(0, displayCount);
+
+            // 현재값 이동평균
+            BigDecimal ma5 = calculateMA(allCloses, 5);
+            BigDecimal ma20 = calculateMA(allCloses, 20);
+            BigDecimal ma60 = calculateMA(allCloses, 60);
+
+            // 이동평균선 배열 (각 캔들별 MA값, 차트 오버레이용)
+            List<BigDecimal> maLine5 = calculateMALine(allCloses, 5, displayCount);
+            List<BigDecimal> maLine20 = calculateMALine(allCloses, 20, displayCount);
+            List<BigDecimal> maLine60 = calculateMALine(allCloses, 60, displayCount);
+            List<BigDecimal> maLine120 = calculateMALine(allCloses, 120, displayCount);
+
+            // 볼린저밴드 (20일 기준)
+            List<BigDecimal> bbUpper = new ArrayList<>();
+            List<BigDecimal> bbLower = new ArrayList<>();
+            for (int i = 0; i < displayCount; i++) {
+                if (i + 20 <= allCloses.size()) {
+                    List<BigDecimal> window = allCloses.subList(i, i + 20);
+                    BigDecimal mean = window.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
+                            .divide(BigDecimal.valueOf(20), 2, RoundingMode.HALF_UP);
+                    double variance = window.stream()
+                            .mapToDouble(p -> Math.pow(p.subtract(mean).doubleValue(), 2))
+                            .average().orElse(0);
+                    BigDecimal stdDev = BigDecimal.valueOf(Math.sqrt(variance)).setScale(2, RoundingMode.HALF_UP);
+                    bbUpper.add(mean.add(stdDev.multiply(BigDecimal.valueOf(2))));
+                    bbLower.add(mean.subtract(stdDev.multiply(BigDecimal.valueOf(2))));
+                } else {
+                    bbUpper.add(null);
+                    bbLower.add(null);
+                }
+            }
 
             // VWAP
             BigDecimal vwap = null;
@@ -475,10 +770,10 @@ public class StockDetailService {
             return ChartData.builder()
                     .candles(candles)
                     .volumes(volumes)
-                    .ma5(ma5)
-                    .ma20(ma20)
-                    .ma60(ma60)
+                    .ma5(ma5).ma20(ma20).ma60(ma60)
                     .vwap(vwap)
+                    .maLine5(maLine5).maLine20(maLine20).maLine60(maLine60).maLine120(maLine120)
+                    .bbUpper(bbUpper).bbLower(bbLower)
                     .build();
 
         } catch (Exception e) {
@@ -913,6 +1208,23 @@ public class StockDetailService {
             sum = sum.add(prices.get(i));
         }
         return sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP);
+    }
+
+    /** 각 캔들 위치별 이동평균값 배열 생성 (차트 오버레이용) */
+    private List<BigDecimal> calculateMALine(List<BigDecimal> allCloses, int period, int displayCount) {
+        List<BigDecimal> line = new ArrayList<>();
+        for (int i = 0; i < displayCount; i++) {
+            if (i + period <= allCloses.size()) {
+                BigDecimal sum = BigDecimal.ZERO;
+                for (int j = i; j < i + period; j++) {
+                    sum = sum.add(allCloses.get(j));
+                }
+                line.add(sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP));
+            } else {
+                line.add(null);
+            }
+        }
+        return line;
     }
 
     // ========== 장 마감 후 일별 데이터 조회 ==========

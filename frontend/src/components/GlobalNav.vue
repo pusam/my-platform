@@ -58,7 +58,6 @@ const route = useRoute()
 
 const navItems = [
   { path: '/stock-dashboard', icon: '📈', label: '시장' },
-  { path: '/research', icon: '🔬', label: '분석' },
   { path: '/global-futures', icon: '🌍', label: '글로벌' }
 ]
 
@@ -66,9 +65,6 @@ const isActive = (itemPath) => {
   const current = route.path
   if (itemPath === '/stock-dashboard') {
     return current === '/stock-dashboard' || current.startsWith('/stock/')
-  }
-  if (itemPath === '/research') {
-    return current === '/research' || current === '/market-timing'
   }
   return current.startsWith(itemPath)
 }
@@ -182,43 +178,40 @@ const isActive = (itemPath) => {
   .nav-inner { height: 40px; padding: 0 12px; }
   .nav-sub { max-width: 200px; font-size: 14px; font-weight: 700; }
 
-  /* 하단 탭바 */
+  /* 모바일 탭바: 상단 GNB 바로 아래 */
   .mobile-tabbar {
     display: flex;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 56px;
-    background: rgba(15, 15, 26, 0.95);
+    background: rgba(15, 15, 26, 0.98);
     backdrop-filter: blur(16px);
-    border-top: 1px solid rgba(255,255,255,0.06);
-    z-index: 900;
-    padding: 0 4px;
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding: 4px 8px;
+    gap: 4px;
   }
 
   .mobile-tab {
     flex: 1;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: 2px;
+    gap: 5px;
     text-decoration: none;
     color: rgba(255,255,255,0.35);
-    transition: color 0.15s;
+    font-size: 13px;
+    padding: 8px 0;
+    border-radius: 8px;
+    transition: all 0.15s;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
-    min-height: 44px;
   }
 
   .mobile-tab.active {
     color: #fff;
+    background: rgba(255,255,255,0.1);
   }
 
-  .mobile-icon { font-size: 20px; }
-  .mobile-label { font-size: 10px; font-weight: 600; }
+  .mobile-icon { font-size: 15px; }
+  .mobile-label { font-size: 13px; font-weight: 600; }
 }
 </style>

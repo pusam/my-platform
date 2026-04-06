@@ -1,8 +1,8 @@
 <template>
   <div class="ai-dashboard">
     <div class="content-wrapper">
-      <!-- 헤더 -->
-      <div class="page-header-unified">
+      <!-- 헤더 (embedded 모드에서 숨김) -->
+      <div v-if="!embedded" class="page-header-unified">
         <BackButton :dark="true" />
         <div class="header-title">
           <h1>AI 트레이딩 전략</h1>
@@ -149,12 +149,19 @@
                 </span>
               </div>
 
-              <!-- AI 스코어 배지 + 한줄 코멘트 말풍선 -->
+              <!-- AI 스코어 배지 + 진단 점수 + 한줄 코멘트 말풍선 -->
               <div v-if="stock.aiScore != null" class="ai-score-section">
                 <div class="ai-score-badge" :class="getAiScoreClass(stock.aiScore)">
                   <span class="ai-badge-icon">🤖</span>
                   <span class="ai-badge-label">AI</span>
                   <span class="ai-badge-score">{{ stock.aiScore }}</span>
+                </div>
+                <!-- 실시간 진단 점수 (괴리 경고) -->
+                <div v-if="diagnosisCache[stock.stockCode]" class="diagnosis-badge"
+                     :class="getDiagnosisClass(diagnosisCache[stock.stockCode])">
+                  <span class="diag-label">진단</span>
+                  <span class="diag-score">{{ diagnosisCache[stock.stockCode].score }}</span>
+                  <span class="diag-verdict">{{ diagnosisCache[stock.stockCode].verdict }}</span>
                 </div>
                 <div v-if="stock.aiComment" class="ai-comment-bubble">
                   <div class="bubble-tail"></div>
@@ -267,15 +274,23 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch, defineProps } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
-import { aiStrategyAPI, marketAPI, tradingIndicatorAPI } from '../utils/api';
+
+const props = defineProps({
+  embedded: { type: Boolean, default: false }
+});
+import { aiStrategyAPI, marketAPI, tradingIndicatorAPI, stockDetailAPI } from '../utils/api';
 
 const router = useRouter();
 const activeTab = ref('scalping');
 const lastUpdated = ref(new Date());
 const loading = ref(false);
+
+// 종목별 진단 점수 캐시 (stockCode → { score, verdict, verdictLevel })
+const diagnosisCache = ref({});
+const diagnosisLoading = ref(false);
 
 // 4분할 전략 점수 (API 데이터 기반 계산)
 const strategyScores = ref({
@@ -680,20 +695,60 @@ const getAiScoreClass = (score) => {
   return 'ai-very-low';
 };
 
+const getDiagnosisClass = (diag) => {
+  if (!diag || diag.score == null) return '';
+  if (diag.score >= 70) return 'diag-good';
+  if (diag.score >= 50) return 'diag-neutral';
+  return 'diag-caution';
+};
+
 const goToDetail = (stockCode) => {
   router.push(`/stock/${stockCode}`);
 };
 
 // ========== 초기화 ==========
+// 현재 탭 종목들의 진단 점수 비동기 로드
+const loadDiagnosisScores = async () => {
+  const stocks = currentRecommendations.value
+  if (!stocks || stocks.length === 0) return
+
+  // 이미 캐시된 종목 제외
+  const needCodes = stocks
+    .map(s => s.stockCode)
+    .filter(code => !diagnosisCache.value[code])
+  if (needCodes.length === 0) return
+
+  diagnosisLoading.value = true
+  try {
+    const res = await stockDetailAPI.batchScores(needCodes)
+    const scores = res?.data?.data || res?.data || {}
+    for (const [code, data] of Object.entries(scores)) {
+      diagnosisCache.value[code] = {
+        score: data.overallScore || data.score || null,
+        verdict: data.verdict || null,
+        verdictLevel: data.verdictLevel || null
+      }
+    }
+  } catch (e) {
+    console.debug('진단 점수 로드 실패:', e.message)
+  } finally {
+    diagnosisLoading.value = false
+  }
+}
+
+// 탭 변경 시 진단 점수 로드
+watch(activeTab, () => { loadDiagnosisScores() })
+
 onMounted(async () => {
   loading.value = true;
   try {
-    // 스냅샷 API 단일 호출로 모든 전략 데이터 로드 (외부 API 호출 X, DB만)
     await Promise.all([
       loadSnapshotData(),
       loadMarketSummary()
     ]);
     lastUpdated.value = new Date();
+    // 초기 탭 진단 점수 로드
+    loadDiagnosisScores()
   } catch (error) {
     console.error('데이터 로드 오류:', error);
   } finally {
@@ -1515,6 +1570,43 @@ onMounted(async () => {
   background: rgba(156, 163, 175, 0.2);
   color: #9ca3af;
   border: 1px solid rgba(156, 163, 175, 0.3);
+}
+
+/* 진단 점수 배지 */
+.diagnosis-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.diagnosis-badge .diag-label {
+  opacity: 0.7;
+  font-size: 10px;
+}
+.diagnosis-badge .diag-score {
+  font-weight: 800;
+}
+.diagnosis-badge .diag-verdict {
+  font-size: 10px;
+  opacity: 0.8;
+}
+.diag-good {
+  background: rgba(34,197,94,0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34,197,94,0.3);
+}
+.diag-neutral {
+  background: rgba(245,158,11,0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.3);
+}
+.diag-caution {
+  background: rgba(239,68,68,0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239,68,68,0.3);
 }
 
 .ai-comment-bubble {

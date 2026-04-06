@@ -2,7 +2,7 @@
   <div class="section-card">
     <div class="section-title-row">
       <h2><span class="section-icon">🤖</span> AI 트레이딩 전략</h2>
-      <router-link to="/research" class="more-link">전체 보기 →</router-link>
+      <router-link to="/stock-dashboard?tab=analysis" class="more-link">전체 보기 →</router-link>
     </div>
 
     <SkeletonLoader v-if="loading" type="score" />

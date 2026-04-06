@@ -42,7 +42,7 @@ public class GlobalMarketService {
     public static final String VIX = "^VIX";                 // VIX (공포지수)
 
     // 글로벌 악재 필터 임계값
-    private static final BigDecimal HALT_THRESHOLD = new BigDecimal("-0.5");   // 매수 보류 임계값
+    private static final BigDecimal HALT_THRESHOLD = new BigDecimal("-1.0");   // 매수 보류 임계값 (나스닥 -1% 이하)
     private static final BigDecimal CAUTION_THRESHOLD = new BigDecimal("-0.5");
     private static final BigDecimal NEGATIVE_THRESHOLD = new BigDecimal("-1.0");
     private static final BigDecimal POSITIVE_THRESHOLD = new BigDecimal("0.5");

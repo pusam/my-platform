@@ -141,10 +141,10 @@ public class AiStrategySnapshotService {
      * - 기존 5분 → 30분 (Gemini 호출이 Rate Limit의 주범)
      * - 장중 09:05 ~ 15:20
      */
-    @Scheduled(cron = "0 0,30 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0,30 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void collectScalpingSnapshot() {
         LocalTime now = LocalTime.now();
-        if (now.isBefore(LocalTime.of(9, 5)) || now.isAfter(LocalTime.of(15, 20))) {
+        if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
             return;
         }
 
@@ -163,10 +163,10 @@ public class AiStrategySnapshotService {
      * - 평일만 실행
      * - SWING, TURNAROUND, VALUE 전략을 로테이션 수집 (매 시간 1개씩)
      */
-    @Scheduled(cron = "0 0 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void collectLongTermSnapshots() {
         LocalTime now = LocalTime.now();
-        if (now.isAfter(LocalTime.of(15, 30))) return;
+        if (now.isAfter(LocalTime.of(20, 0))) return;
 
         int hour = now.getHour();
 

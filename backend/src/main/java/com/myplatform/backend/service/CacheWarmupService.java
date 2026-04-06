@@ -48,7 +48,7 @@ public class CacheWarmupService {
         DayOfWeek dow = LocalDate.now().getDayOfWeek();
         LocalTime now = LocalTime.now();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY
-                || now.isBefore(LocalTime.of(9, 0)) || now.isAfter(LocalTime.of(15, 40))) {
+                || now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 5))) {
             log.info("=== 장외 시간 - 캐시 워밍업 스킵 (스케줄러가 장중 자동 워밍) ===");
             return;
         }

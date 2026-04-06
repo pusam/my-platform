@@ -2,7 +2,7 @@
   <div class="section-card">
     <div class="section-title-row">
       <h2><span class="section-icon">🔬</span> AI 리서치</h2>
-      <router-link to="/research" class="more-link">더 보기 →</router-link>
+      <router-link to="/stock-dashboard?tab=analysis" class="more-link">더 보기 →</router-link>
     </div>
 
     <SkeletonLoader v-if="loading" type="card" />

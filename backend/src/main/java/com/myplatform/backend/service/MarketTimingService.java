@@ -26,6 +26,7 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -188,27 +189,65 @@ public class MarketTimingService {
         String diagnosis = generateDiagnosis(kospiStatus, kosdaqStatus, combinedAdr);
         String strategy = overallCondition != null ? overallCondition.getSuggestion() : "";
 
-        // ★ 당일 폭락 오버라이드: KOSPI/KOSDAQ -3% 이하 시 ADR 무시하고 강제 폭락/패닉
-        boolean crashOverride = false;
-        StringBuilder crashReasons = new StringBuilder();
-
-        if (kospiStatus != null && kospiStatus.getIndexChangeRate() != null
-                && kospiStatus.getIndexChangeRate().compareTo(new BigDecimal("-3.0")) <= 0) {
-            crashOverride = true;
-            crashReasons.append(String.format("KOSPI %+.2f%% 폭락", kospiStatus.getIndexChangeRate()));
+        // ★ 당일 급락/폭락 오버라이드: ADR이 정상이더라도 당일 등락률이 크면 상태 보정
+        BigDecimal kospiRate = (kospiStatus != null) ? kospiStatus.getIndexChangeRate() : null;
+        BigDecimal kosdaqRate = (kosdaqStatus != null) ? kosdaqStatus.getIndexChangeRate() : null;
+        BigDecimal worstRate = null;
+        if (kospiRate != null && kosdaqRate != null) {
+            worstRate = kospiRate.min(kosdaqRate);
+        } else if (kospiRate != null) {
+            worstRate = kospiRate;
+        } else if (kosdaqRate != null) {
+            worstRate = kosdaqRate;
         }
-        if (kosdaqStatus != null && kosdaqStatus.getIndexChangeRate() != null
-                && kosdaqStatus.getIndexChangeRate().compareTo(new BigDecimal("-3.0")) <= 0) {
-            if (crashOverride) crashReasons.append(" + ");
+
+        boolean crashOverride = false;
+        boolean dropOverride = false;
+        StringBuilder overrideReasons = new StringBuilder();
+
+        // -3% 이하: 폭락/패닉
+        if (kospiRate != null && kospiRate.compareTo(new BigDecimal("-3.0")) <= 0) {
             crashOverride = true;
-            crashReasons.append(String.format("KOSDAQ %+.2f%% 폭락", kosdaqStatus.getIndexChangeRate()));
+            overrideReasons.append(String.format("KOSPI %+.2f%% 폭락", kospiRate));
+        }
+        if (kosdaqRate != null && kosdaqRate.compareTo(new BigDecimal("-3.0")) <= 0) {
+            if (crashOverride) overrideReasons.append(" + ");
+            crashOverride = true;
+            overrideReasons.append(String.format("KOSDAQ %+.2f%% 폭락", kosdaqRate));
+        }
+
+        // -2% 이하 (양쪽 모두 또는 한쪽 -2.5% 이하): 급락 → 침체 이상으로 보정
+        if (!crashOverride && worstRate != null) {
+            boolean bothDown2 = kospiRate != null && kosdaqRate != null
+                    && kospiRate.compareTo(new BigDecimal("-2.0")) <= 0
+                    && kosdaqRate.compareTo(new BigDecimal("-2.0")) <= 0;
+            boolean oneDown25 = worstRate.compareTo(new BigDecimal("-2.5")) <= 0;
+
+            if (bothDown2 || oneDown25) {
+                dropOverride = true;
+                if (kospiRate != null && kospiRate.compareTo(new BigDecimal("-2.0")) <= 0) {
+                    overrideReasons.append(String.format("KOSPI %+.2f%%", kospiRate));
+                }
+                if (kosdaqRate != null && kosdaqRate.compareTo(new BigDecimal("-2.0")) <= 0) {
+                    if (overrideReasons.length() > 0) overrideReasons.append(" + ");
+                    overrideReasons.append(String.format("KOSDAQ %+.2f%%", kosdaqRate));
+                }
+            }
         }
 
         if (crashOverride) {
             overallCondition = MarketCondition.CRASH;
-            diagnosis = String.format("폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.", crashReasons);
+            diagnosis = String.format("폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.", overrideReasons);
             strategy = MarketCondition.CRASH.getSuggestion();
-            log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", crashReasons);
+            log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", overrideReasons);
+        } else if (dropOverride) {
+            // ADR이 정상이더라도 당일 급락 시 최소 OVERSOLD로 보정
+            if (overallCondition == MarketCondition.NORMAL || overallCondition == MarketCondition.OVERHEATED) {
+                overallCondition = MarketCondition.OVERSOLD;
+            }
+            diagnosis = String.format("당일 급락 — %s. %s", overrideReasons, overallCondition.getSuggestion());
+            strategy = overallCondition.getSuggestion();
+            log.warn("[시장 타이밍] 급락 보정 발동: {} → {}", overrideReasons, overallCondition);
         }
 
         return MarketTimingDto.builder()
@@ -617,7 +656,11 @@ public class MarketTimingService {
 
         // DB 데이터가 오늘이 아니면 무조건 갱신 (과거 데이터 방지)
         boolean isOldData = status.getTradeDate() != null && !status.getTradeDate().equals(LocalDate.now());
+        // ★ 장중(09:00~15:30)에는 항상 실시간 갱신 (DB에 stale 데이터가 저장됐을 수 있음)
+        LocalTime now = LocalTime.now();
+        boolean isDuringMarketHours = !now.isBefore(LocalTime.of(9, 0)) && !now.isAfter(LocalTime.of(15, 30));
         boolean needsRefresh = isOldData
+                || isDuringMarketHours
                 || status.getIndexClose() == null
                 || status.getIndexChangeRate() == null
                 || status.getIndexChangeRate().compareTo(BigDecimal.ZERO) == 0;

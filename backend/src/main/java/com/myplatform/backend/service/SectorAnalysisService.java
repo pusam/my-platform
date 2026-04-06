@@ -179,7 +179,20 @@ public class SectorAnalysisService {
             // 대장주 업데이트 (가장 높은 등락률)
             if (leadingStockChange == null || changeRate.compareTo(leadingStockChange) > 0) {
                 leadingStockCode = stockCode;
-                leadingStockName = priceDto.getStockName() != null ? priceDto.getStockName() : stockName;
+                // 종목명: priceDto → sectorConfig → 직접 조회 순으로 시도
+                String name = priceDto.getStockName();
+                if (name == null || name.isBlank() || name.equals(stockCode)) {
+                    name = stockName;
+                }
+                if (name == null || name.isBlank() || name.equals(stockCode)) {
+                    try {
+                        StockPriceDto fresh = stockPriceService.getStockPrice(stockCode);
+                        if (fresh != null && fresh.getStockName() != null) {
+                            name = fresh.getStockName();
+                        }
+                    } catch (Exception ignored) {}
+                }
+                leadingStockName = (name != null && !name.isBlank()) ? name : stockCode;
                 leadingStockChange = changeRate;
             }
         }

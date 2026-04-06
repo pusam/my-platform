@@ -734,11 +734,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, inject, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import GlobalNav from '../components/GlobalNav.vue';
+
+const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 
 const props = defineProps({
   embedded: { type: Boolean, default: false }
@@ -954,7 +956,7 @@ const refreshPortfolio = async () => {
     }
   } catch (error) {
     console.error('포트폴리오 새로고침 오류:', error);
-    alert('새로고침에 실패했습니다.');
+    toast.error('새로고침에 실패했습니다');
   } finally {
     portfolioLoading.value = false;
   }
@@ -977,7 +979,7 @@ const refreshRealPortfolio = async () => {
     }
   } catch (error) {
     console.error('실전 포트폴리오 새로고침 오류:', error);
-    alert('새로고침에 실패했습니다.');
+    toast.error('새로고침에 실패했습니다');
   } finally {
     realPortfolioLoading.value = false;
   }
@@ -1016,11 +1018,11 @@ const startBot = async (mode) => {
     if (res.data.success) {
       botStatus.value = res.data.data;
       const modeName = mode === 'REAL' ? '실전투자' : '모의투자';
-      alert(`자동매매 봇이 ${modeName} 모드로 시작되었습니다.`);
+      toast.success(`자동매매 봇이 ${modeName} 모드로 시작되었습니다`);
     }
   } catch (error) {
     console.error('봇 시작 오류:', error);
-    alert('봇 시작에 실패했습니다: ' + (error.response?.data?.error || error.message));
+    toast.error('봇 시작 실패: ' + (error.response?.data?.error || error.message));
   } finally {
     botLoading.value = false;
   }
@@ -1033,11 +1035,11 @@ const stopBot = async () => {
     const res = await paperTradingAPI.stopBot();
     if (res.data.success) {
       botStatus.value = res.data.data;
-      alert('자동매매 봇이 중지되었습니다.');
+      toast.warning('자동매매 봇이 중지되었습니다');
     }
   } catch (error) {
     console.error('봇 중지 오류:', error);
-    alert('봇 중지에 실패했습니다.');
+    toast.error('봇 중지에 실패했습니다');
   } finally {
     botLoading.value = false;
   }
@@ -1053,7 +1055,7 @@ const openTradeModal = (mode) => {
 // 수동 거래 실행
 const executeTrade = async () => {
   if (!tradeForm.value.stockCode || !tradeForm.value.quantity || !tradeForm.value.price) {
-    alert('모든 필드를 입력해주세요.');
+    toast.warning('모든 필드를 입력해주세요');
     return;
   }
 
@@ -1076,7 +1078,7 @@ const executeTrade = async () => {
       : await paperTradingAPI.placeTrade(tradeData);
 
     if (res.data.success) {
-      alert(res.data.message);
+      toast.success(res.data.message || '거래가 체결되었습니다');
       showTradeModal.value = false;
       tradeForm.value = { stockCode: '', quantity: 1, price: 0, tradeType: 'BUY' };
       if (tradeMode.value === 'real') {
@@ -1085,11 +1087,11 @@ const executeTrade = async () => {
         await loadData();
       }
     } else {
-      alert(res.data.error || '거래 실패');
+      toast.error(res.data.error || '거래 실패');
     }
   } catch (error) {
     console.error('거래 실행 오류:', error);
-    alert(error.response?.data?.error || '거래 실행에 실패했습니다.');
+    toast.error(error.response?.data?.error || '거래 실행에 실패했습니다');
   } finally {
     tradeLoading.value = false;
   }
@@ -1112,12 +1114,12 @@ const openSellModal = (item, mode) => {
 // 매도 실행
 const executeSell = async () => {
   if (!sellForm.value.quantity || !sellForm.value.price) {
-    alert('수량과 가격을 입력해주세요.');
+    toast.warning('수량과 가격을 입력해주세요');
     return;
   }
 
   if (sellForm.value.quantity > sellForm.value.maxQuantity) {
-    alert('보유 수량을 초과할 수 없습니다.');
+    toast.warning('보유 수량을 초과할 수 없습니다');
     return;
   }
 
@@ -1140,7 +1142,7 @@ const executeSell = async () => {
       : await paperTradingAPI.placeTrade(tradeData);
 
     if (res.data.success) {
-      alert(res.data.message);
+      toast.success(res.data.message || '매도가 체결되었습니다');
       showSellModal.value = false;
       if (sellMode.value === 'real') {
         await loadRealData();
@@ -1148,11 +1150,11 @@ const executeSell = async () => {
         await loadData();
       }
     } else {
-      alert(res.data.error || '매도 실패');
+      toast.error(res.data.error || '매도 실패');
     }
   } catch (error) {
     console.error('매도 실행 오류:', error);
-    alert(error.response?.data?.error || '매도 실행에 실패했습니다.');
+    toast.error(error.response?.data?.error || '매도 실행에 실패했습니다');
   } finally {
     tradeLoading.value = false;
   }
@@ -1164,14 +1166,14 @@ const initializeAccount = async () => {
   try {
     const res = await paperTradingAPI.initializeAccount(initForm.value.initialBalance);
     if (res.data.success) {
-      alert(res.data.message);
+      toast.success('계좌가 초기화되었습니다');
       showInitializeConfirm.value = false;
       initForm.value.initialBalance = 10000000; // 기본값으로 리셋
       await loadData();
     }
   } catch (error) {
     console.error('계좌 초기화 오류:', error);
-    alert('계좌 초기화에 실패했습니다.');
+    toast.error('계좌 초기화에 실패했습니다');
   } finally {
     initLoading.value = false;
   }
@@ -1383,7 +1385,7 @@ onUnmounted(() => {
   background: #1a1a3a;
   border-radius: 15px;
   padding: 1.5rem;
-  border: 2px solid #2a2a4a;
+  border: 1px solid rgba(255,255,255,0.1);
   transition: all 0.3s;
 }
 
@@ -1531,7 +1533,9 @@ onUnmounted(() => {
 
 /* 상태 클래스 */
 .positive { color: #e53e3e !important; }
+.positive::before { content: '▲ '; font-size: 0.75em; }
 .negative { color: #3182ce !important; }
+.negative::before { content: '▼ '; font-size: 0.75em; }
 .running { color: #48bb78 !important; }
 .stopped { color: #888 !important; }
 .error { color: #ed8936 !important; }
@@ -1622,6 +1626,10 @@ onUnmounted(() => {
 
 .stock-name {
   font-weight: 600;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stock-code {
@@ -1710,7 +1718,7 @@ onUnmounted(() => {
   padding: 2rem;
   width: 90%;
   max-width: 400px;
-  border: 2px solid #2a2a4a;
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
 .modal.real-modal {
@@ -1769,7 +1777,7 @@ onUnmounted(() => {
 .trade-type-buttons button {
   flex: 1;
   padding: 0.75rem;
-  border: 2px solid #3a3a5a;
+  border: 1px solid rgba(255,255,255,0.15);
   background: transparent;
   color: #888;
   border-radius: 8px;

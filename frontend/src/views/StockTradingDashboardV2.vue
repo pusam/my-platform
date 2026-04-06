@@ -2,7 +2,7 @@
   <div class="v2-dashboard">
     <GlobalNav />
     <div class="v2-content">
-      <!-- 헤더 (GNB 3탭 통합) -->
+      <!-- 헤더 (4탭: 개요/분석/뉴스/매매) -->
       <DashboardHeader
         :activeTab="activeGnbTab"
         @open-search="showSearch = true"
@@ -99,7 +99,7 @@
               </div>
             </div>
           </div>
-          <div v-else class="empty-signal">추천 종목이 없습니다</div>
+          <div v-else class="empty-signal">장 마감 후 또는 데이터 수집 중입니다<br><small style="opacity:0.7">장중에는 자동으로 갱신됩니다</small></div>
           <!-- ⑥ 등급 기준선 범례 -->
           <div class="rec-legend" v-if="topRecommendations.length">
             <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>75↑ 강력매수</span>
@@ -148,6 +148,9 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
+        <!-- ②-c 멀티 컨빅션 시그널 -->
+        <SectionConviction @stock-click="goToStock" />
+
         <!-- ③ 시간대별 신호 (자동 전환) -->
         <div class="today-signals section-card">
           <div class="section-title-row">
@@ -191,7 +194,7 @@
         <div class="watchlist-summary section-card" v-if="watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
-            <router-link to="/research" class="more-link">전체 보기 →</router-link>
+            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'analysis'">전체 보기 →</a>
           </div>
           <div class="wl-list">
             <div
@@ -247,6 +250,34 @@
         />
       </div>
 
+      <!-- ═══ Tab 2: 분석 ═══ -->
+      <div v-if="activeGnbTab === 'analysis'" class="tab-panel">
+        <div class="sub-tabs">
+          <button v-for="st in analysisTabs" :key="st.key"
+            :class="['sub-tab-btn', { active: activeAnalysisTab === st.key }]"
+            @click="activeAnalysisTab = st.key">
+            {{ st.label }}
+          </button>
+        </div>
+        <div class="embedded-content">
+          <AiStrategyDashboardPage v-if="activeAnalysisTab === 'ai-strategy'" :embedded="true" />
+          <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
+          <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
+          <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
+          <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
+        </div>
+      </div>
+
+      <!-- ═══ Tab 3: 뉴스 ═══ -->
+      <div v-if="activeGnbTab === 'news'" class="tab-panel">
+        <NewsPage :embedded="true" />
+      </div>
+
+      <!-- ═══ Tab 4: 매매 ═══ -->
+      <div v-if="activeGnbTab === 'trading'" class="tab-panel">
+        <PaperTradingPage :embedded="true" />
+      </div>
+
       <!-- 종목 검색 모달 -->
       <StockSearchModal
         :visible="showSearch"
@@ -260,9 +291,19 @@
 <script>
 import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
-// 시장 뷰 전용 (AI전략/스마트머니/리서치는 /research로 이동)
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
+import SectionConviction from '../components/v2/SectionConviction.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
+// 분석 탭 (ResearchPage에서 흡수)
+import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
+import EarningsScreenerPage from './EarningsScreenerPage.vue'
+import SectorTradingPage from './SectorTradingPage.vue'
+import InvestorAnalysisPage from './InvestorAnalysisPage.vue'
+import MarketTimingPage from './MarketTimingPage.vue'
+// 뉴스 탭
+import NewsPage from './NewsPage.vue'
+// 매매 탭 (PaperTradingPage 흡수)
+import PaperTradingPage from './PaperTradingPage.vue'
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
@@ -311,7 +352,15 @@ export default {
     GlobalNav,
     DashboardHeader,
     SectionMarketMap,
-    StockSearchModal
+    SectionConviction,
+    StockSearchModal,
+    AiStrategyDashboardPage,
+    EarningsScreenerPage,
+    SectorTradingPage,
+    InvestorAnalysisPage,
+    MarketTimingPage,
+    NewsPage,
+    PaperTradingPage
   },
   provide() {
     return {
@@ -320,7 +369,15 @@ export default {
   },
   data() {
     return {
-      activeGnbTab: 'market',
+      activeGnbTab: this.$route?.query?.tab || 'market',
+      activeAnalysisTab: 'ai-strategy',
+      analysisTabs: [
+        { key: 'ai-strategy', label: 'AI전략' },
+        { key: 'screener', label: '스크리너' },
+        { key: 'sector', label: '섹터' },
+        { key: 'investor', label: '투자자' },
+        { key: 'timing', label: '시장타이밍' }
+      ],
       showSearch: false,
       dataLoaded: { market: false },
       sections: {
@@ -356,9 +413,17 @@ export default {
       investorTop5: []     // 외국인/기관 TOP 5
     }
   },
+  inject: { toast: { default: () => ({ success(){}, error(){}, warning(){}, info(){} }) } },
   watch: {
     activeGnbTab(tab) {
       this.loadTabData(tab)
+      // 탭 전환 시 스크롤 초기화
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    },
+    '$route.query.tab'(tab) {
+      if (tab && tab !== this.activeGnbTab) {
+        this.activeGnbTab = tab
+      }
     }
   },
   mounted() {
@@ -388,9 +453,9 @@ export default {
       const mins = h * 60 + m
       // 주말 → 장 후
       if (day === 0 || day === 6) return 'post'
-      if (mins < 540) return 'pre'        // ~09:00
-      if (mins < 930) return 'during'     // 09:00~15:30
-      return 'post'                       // 15:30~
+      if (mins < 480) return 'pre'        // ~08:00
+      if (mins < 1200) return 'during'   // 08:00~20:00 (프리+정규+애프터)
+      return 'post'                       // 20:00~
     },
     marketPhase() {
       const phases = {
@@ -924,6 +989,41 @@ export default {
   padding: 20px 24px 60px;
 }
 
+/* ===== 분석 서브탭 ===== */
+.sub-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+.sub-tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 9px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+.sub-tab-btn:hover {
+  color: rgba(255,255,255,0.75);
+  background: rgba(255,255,255,0.04);
+}
+.sub-tab-btn.active {
+  background: rgba(102,126,234,0.18);
+  color: #a5b4fc;
+  font-weight: 600;
+}
+.embedded-content {
+  min-height: 400px;
+}
+
 /* ===== 시장 상태 바 ===== */
 .market-status-bar {
   display: flex;
@@ -936,9 +1036,9 @@ export default {
   border-radius: 10px;
   flex-wrap: wrap;
 }
-.market-status-bar.skeleton { justify-content: center; color: rgba(255,255,255,0.3); font-size: 13px; }
+.market-status-bar.skeleton { justify-content: center; color: rgba(255,255,255,0.5); font-size: 13px; }
 .msb-item { display: flex; align-items: center; gap: 6px; }
-.msb-label { font-size: 12px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.msb-label { font-size: 12px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .msb-value { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.8); }
 .msb-item.positive .msb-value { color: #ef4444; }
 .msb-item.negative .msb-value { color: #3b82f6; }
@@ -958,9 +1058,10 @@ export default {
 .sig-badge { font-size: 11px; font-weight: 700; white-space: nowrap; }
 .sig-info { flex: 1; min-width: 0; }
 .sig-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
-.sig-reason { font-size: 12px; color: rgba(255,255,255,0.4); }
+.sig-reason { font-size: 12px; color: rgba(255,255,255,0.6); }
 .sig-right { font-size: 13px; font-weight: 700; }
-.empty-signal { text-align: center; padding: 24px; color: rgba(255,255,255,0.3); font-size: 13px; }
+.empty-signal { text-align: center; padding: 32px 16px; color: rgba(255,255,255,0.5); font-size: 13px; }
+.empty-signal::before { content: '📭'; display: block; font-size: 28px; margin-bottom: 8px; opacity: 0.6; }
 
 /* ===== AI 종합 추천 ===== */
 .rec-data-time {
@@ -998,14 +1099,14 @@ export default {
 .rec-delta.negative { color: #3b82f6; background: rgba(59,130,246,0.1); }
 /* 등급 기준선 범례 */
 .rec-legend { display: flex; justify-content: center; gap: 12px; padding: 8px 0 4px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 8px; }
-.rec-legend-item { font-size: 10px; color: rgba(255,255,255,0.4); display: flex; align-items: center; gap: 4px; }
+.rec-legend-item { font-size: 10px; color: rgba(255,255,255,0.55); display: flex; align-items: center; gap: 4px; }
 .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
 .legend-dot.grade-strong { background: #ef4444; }
 .legend-dot.grade-buy { background: #f59e0b; }
 .legend-dot.grade-hold { background: rgba(255,255,255,0.3); }
 .legend-dot.grade-exclude { background: rgba(59,130,246,0.3); }
 .rec-score-num { font-size: 20px; font-weight: 800; color: rgba(255,255,255,0.9); }
-.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.25); margin-left: 2px; }
+.rec-score-basis { font-size: 10px; color: rgba(255,255,255,0.55); margin-left: 2px; }
 .rec-grade { font-size: 10px; font-weight: 700; margin-left: 4px; }
 .rec-grade.grade-strong { color: #ef4444; }
 .rec-grade.grade-buy { color: #f59e0b; }
@@ -1021,13 +1122,13 @@ export default {
 /* 세부 항목별 바 */
 .rec-detail-bars { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .rec-detail-row { display: flex; align-items: center; gap: 4px; }
-.rec-detail-label { font-size: 9px; color: rgba(255,255,255,0.4); width: 32px; text-align: right; flex-shrink: 0; }
+.rec-detail-label { font-size: 9px; color: rgba(255,255,255,0.55); width: 32px; text-align: right; flex-shrink: 0; }
 .rec-detail-track { flex: 1; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; min-width: 40px; }
 .rec-detail-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
 .rec-detail-score { font-size: 9px; font-weight: 700; width: 20px; text-align: right; flex-shrink: 0; }
 .rec-detail-track.na { opacity: 0.3; }
 .rec-detail-na-line { height: 1px; margin-top: 1px; background: repeating-linear-gradient(90deg, rgba(255,255,255,0.2) 0, rgba(255,255,255,0.2) 3px, transparent 3px, transparent 6px); }
-.na-text { color: rgba(255,255,255,0.2); font-size: 8px; }
+.na-text { color: rgba(255,255,255,0.45); font-size: 9px; }
 .rec-price-area { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .rec-current-price { font-size: 12px; color: rgba(255,255,255,0.7); font-weight: 500; }
 .rec-change { font-size: 12px; font-weight: 600; display: block; text-align: right; }
@@ -1039,7 +1140,7 @@ export default {
 .supply-amount { font-size: 16px; font-weight: 800; }
 .supply-amount.positive { color: #ef4444; }
 .supply-amount.negative { color: #3b82f6; }
-.supply-sub-title { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 6px; font-weight: 600; }
+.supply-sub-title { font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 6px; font-weight: 600; }
 .supply-consecutive { margin-top: 4px; }
 .supply-stock-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 8px; cursor: pointer; transition: background 0.15s; }
 .supply-stock-row:hover { background: rgba(255,255,255,0.04); }
@@ -1047,7 +1148,7 @@ export default {
 .supply-investor-badge.foreign { background: rgba(239,68,68,0.15); color: #ef4444; }
 .supply-investor-badge.inst { background: rgba(59,130,246,0.15); color: #3b82f6; }
 .supply-stock-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
-.supply-days { font-size: 11px; color: rgba(255,255,255,0.4); font-weight: 600; }
+.supply-days { font-size: 11px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .supply-signal { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
 .supply-signal.real { background: rgba(34,197,94,0.15); color: #22c55e; }
 .supply-signal.fake { background: rgba(245,158,11,0.15); color: #f59e0b; }
@@ -1093,14 +1194,16 @@ export default {
   transition: all 0.15s;
 }
 .pick-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); }
-.pick-strategy { font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 4px; }
+.pick-strategy { font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 4px; }
 .pick-name { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); margin-bottom: 4px; }
 .pick-score { font-size: 18px; font-weight: 800; color: #ef4444; margin-bottom: 4px; }
 .pick-tags { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
 .pick-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(102,126,234,0.12); color: #8b9cf7; }
 
 .positive { color: #ef4444 !important; }
+.positive::before { content: '▲ '; font-size: 0.75em; }
 .negative { color: #3b82f6 !important; }
+.negative::before { content: '▼ '; font-size: 0.75em; }
 
 @media (max-width: 768px) {
   .market-status-bar { gap: 4px; padding: 8px 10px; }

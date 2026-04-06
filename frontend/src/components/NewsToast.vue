@@ -28,6 +28,8 @@ import { TokenManager } from '../utils/auth'
 
 const toasts = ref([])
 let pollTimer = null
+let initTimer = null
+const dismissTimers = []
 let toastIdCounter = 0
 const seenIds = new Set()
 
@@ -43,7 +45,7 @@ const pollUrgentNews = async () => {
       const id = ++toastIdCounter
       toasts.value.push({ id, ...item })
       // 8초 후 자동 dismiss
-      setTimeout(() => dismiss(id), 8000)
+      dismissTimers.push(setTimeout(() => dismiss(id), 8000))
     })
 
     // seenIds가 너무 커지지 않도록 관리 (최대 200개)
@@ -71,11 +73,13 @@ onMounted(() => {
   // 60초마다 폴링
   pollTimer = setInterval(pollUrgentNews, 60000)
   // 초기 1회 실행 (5초 후 - 앱 로딩 대기)
-  setTimeout(pollUrgentNews, 5000)
+  initTimer = setTimeout(pollUrgentNews, 5000)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (initTimer) clearTimeout(initTimer)
+  dismissTimers.forEach(t => clearTimeout(t))
 })
 </script>
 
