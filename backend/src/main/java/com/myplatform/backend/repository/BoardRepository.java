@@ -17,8 +17,8 @@ public interface BoardRepository extends JpaRepository<Board, Long> {
 
     Page<Board> findByAuthorOrderByCreatedAtDesc(String author, Pageable pageable);
 
-    @Query("SELECT b FROM Board b WHERE b.title LIKE %:keyword% OR b.content LIKE %:keyword% ORDER BY b.createdAt DESC")
-    Page<Board> searchByKeyword(String keyword, Pageable pageable);
+    @Query("SELECT b FROM Board b WHERE b.title LIKE CONCAT('%', :keyword, '%') ESCAPE '\\' OR b.content LIKE CONCAT('%', :keyword, '%') ESCAPE '\\' ORDER BY b.createdAt DESC")
+    Page<Board> searchByKeyword(@Param("keyword") String keyword, Pageable pageable);
 
     // 관리자 통계용
     Long countByAuthor(String author);
