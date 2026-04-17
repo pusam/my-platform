@@ -11,7 +11,10 @@ import com.myplatform.backend.dto.SectorRotationDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.BotConfig;
+import com.myplatform.backend.entity.BotTradingPosition;
+import com.myplatform.backend.entity.BotTradingPosition.Strategy;
 import com.myplatform.backend.repository.BotConfigRepository;
+import com.myplatform.backend.repository.BotTradingPositionRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -83,6 +86,7 @@ public class AutoTradingBotService {
     private final StockStatusService stockStatusService;
     private final InvestorTradeService investorTradeService;
     private final GlobalMarketService globalMarketService;
+    private final BotTradingPositionRepository positionRepository;
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
@@ -321,7 +325,8 @@ public class AutoTradingBotService {
             ShortSellingService shortSellingService,
             StockStatusService stockStatusService,
             InvestorTradeService investorTradeService,
-            GlobalMarketService globalMarketService) {
+            GlobalMarketService globalMarketService,
+            BotTradingPositionRepository positionRepository) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -338,6 +343,7 @@ public class AutoTradingBotService {
         this.stockStatusService = stockStatusService;
         this.investorTradeService = investorTradeService;
         this.globalMarketService = globalMarketService;
+        this.positionRepository = positionRepository;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -348,6 +354,9 @@ public class AutoTradingBotService {
     public void restoreBotStateOnStartup() {
         try {
             Thread.sleep(5000);
+
+            // 포지션 메타데이터 복구 (재시작 시 halfSold/highPrice/buyTime 유지)
+            restorePositionsFromDb();
 
             BotState savedState = loadBotState();
             if (savedState != null && STATUS_RUNNING.equals(savedState.status)) {
@@ -384,6 +393,105 @@ public class AutoTradingBotService {
             log.warn("[스캘핑봇] 봇 상태 복구 중단됨");
         } catch (Exception e) {
             log.error("[스캘핑봇] 봇 상태 복구 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    // ==================== 포지션 영속화 (재시작 복구용) ====================
+
+    /**
+     * DB에서 포지션 메타데이터를 읽어 in-memory Map 복구.
+     * - halfSold, buyTime, highPrice 등 전략 상태를 재시작 후에도 유지
+     * - 같은 종목을 두 번 "절반 익절"하거나, 타임컷 시계 리셋되는 버그 방지
+     */
+    private void restorePositionsFromDb() {
+        try {
+            int scalping = 0, swing = 0, closing = 0;
+            for (BotTradingPosition p : positionRepository.findAll()) {
+                switch (p.getStrategy()) {
+                    case SCALPING -> {
+                        ScalpingPosition sp = new ScalpingPosition(
+                                p.getStockCode(), p.getStockName(), p.getBuyPrice(),
+                                p.getOriginalQuantity() != null ? p.getOriginalQuantity() : 0);
+                        sp.buyTime = p.getBuyTime();
+                        sp.highPrice = p.getHighPrice();
+                        sp.halfSold = Boolean.TRUE.equals(p.getHalfSold());
+                        sp.timeExtended = Boolean.TRUE.equals(p.getTimeExtended());
+                        scalpingPositions.put(p.getStockCode(), sp);
+                        scalping++;
+                    }
+                    case SWING -> {
+                        SwingPosition sw = new SwingPosition(p.getStockCode(), p.getStockName(),
+                                p.getBuyPrice(), p.getBuyReason());
+                        sw.buyTime = p.getBuyTime();
+                        sw.highPrice = p.getHighPrice();
+                        swingPositions.put(p.getStockCode(), sw);
+                        swing++;
+                    }
+                    case CLOSING -> {
+                        SwingPosition cp = new SwingPosition(p.getStockCode(), p.getStockName(),
+                                p.getBuyPrice(), p.getBuyReason());
+                        cp.buyTime = p.getBuyTime();
+                        cp.highPrice = p.getHighPrice();
+                        closingPositions.put(p.getStockCode(), cp);
+                        closing++;
+                    }
+                }
+            }
+            if (scalping + swing + closing > 0) {
+                log.info("[봇 복구] 포지션 메타 복원 완료 — 스캘핑 {} / 스윙 {} / 종가 {}",
+                        scalping, swing, closing);
+            }
+        } catch (Exception e) {
+            log.error("[봇 복구] 포지션 메타 복원 실패 (계속 진행): {}", e.getMessage(), e);
+        }
+    }
+
+    private void persistScalpingPosition(ScalpingPosition sp) {
+        try {
+            BotTradingPosition entity = positionRepository
+                    .findByStrategyAndStockCode(Strategy.SCALPING, sp.stockCode)
+                    .orElseGet(() -> BotTradingPosition.builder()
+                            .strategy(Strategy.SCALPING)
+                            .stockCode(sp.stockCode)
+                            .build());
+            entity.setStockName(sp.stockName);
+            entity.setBuyPrice(sp.buyPrice);
+            entity.setHighPrice(sp.highPrice);
+            entity.setBuyTime(sp.buyTime);
+            entity.setHalfSold(sp.halfSold);
+            entity.setTimeExtended(sp.timeExtended);
+            entity.setOriginalQuantity(sp.originalQuantity);
+            positionRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("[봇 영속화] 스캘핑 포지션 저장 실패 {}: {}", sp.stockCode, e.getMessage());
+        }
+    }
+
+    private void persistSwingPosition(SwingPosition sw, Strategy strategy) {
+        try {
+            BotTradingPosition entity = positionRepository
+                    .findByStrategyAndStockCode(strategy, sw.stockCode)
+                    .orElseGet(() -> BotTradingPosition.builder()
+                            .strategy(strategy)
+                            .stockCode(sw.stockCode)
+                            .build());
+            entity.setStockName(sw.stockName);
+            entity.setBuyPrice(sw.buyPrice);
+            entity.setHighPrice(sw.highPrice);
+            entity.setBuyTime(sw.buyTime);
+            entity.setBuyReason(sw.buyReason);
+            positionRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("[봇 영속화] {} 포지션 저장 실패 {}: {}", strategy, sw.stockCode, e.getMessage());
+        }
+    }
+
+    @Transactional
+    protected void deletePersistedPosition(Strategy strategy, String stockCode) {
+        try {
+            positionRepository.deleteByStrategyAndStockCode(strategy, stockCode);
+        } catch (Exception e) {
+            log.warn("[봇 영속화] {} 포지션 삭제 실패 {}: {}", strategy, stockCode, e.getMessage());
         }
     }
 
@@ -952,9 +1060,10 @@ public class AutoTradingBotService {
                     todayBuyCount.incrementAndGet();
 
                     // 스캘핑 포지션 등록
-                    scalpingPositions.put(surge.getStockCode(),
-                            new ScalpingPosition(surge.getStockCode(), surge.getStockName(),
-                                    entryResult.currentPrice, quantity));
+                    ScalpingPosition newPos = new ScalpingPosition(surge.getStockCode(), surge.getStockName(),
+                            entryResult.currentPrice, quantity);
+                    scalpingPositions.put(surge.getStockCode(), newPos);
+                    persistScalpingPosition(newPos);
 
                     log.info("[스캘핑봇-{}] ★ 진입 완료 ★", currentMode.name());
                     log.info("  종목: {} ({})", surge.getStockName(), surge.getStockCode());
@@ -1370,6 +1479,7 @@ public class AutoTradingBotService {
                     if (sellQuantity > 0) {
                         isPartialSell = true;
                         position.halfSold = true;
+                        persistScalpingPosition(position);  // 재시작 대비: halfSold 플래그 영속화
                         log.info("[스캘핑봇] 1차 익절: {} - 손익률 {}%, 절반({}) 매도",
                                 portfolio.getStockName(), profitRate, sellQuantity);
                     }
@@ -1435,6 +1545,7 @@ public class AutoTradingBotService {
             // 전량 매도 시 포지션 정리 + 쿨다운 기록
             if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
+                deletePersistedPosition(Strategy.SCALPING, portfolio.getStockCode());
                 sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now());
 
                 // 연속 손절 카운터 관리
@@ -1716,9 +1827,10 @@ public class AutoTradingBotService {
                     activeTradeService.buy(candidate.getStockCode(), candidate.getStockName(),
                             currentPrice, quantity, reason);
 
-                    swingPositions.put(candidate.getStockCode(),
-                            new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
-                                    currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속"));
+                    SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
+                            currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속");
+                    swingPositions.put(candidate.getStockCode(), newSwing);
+                    persistSwingPosition(newSwing, Strategy.SWING);
 
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
@@ -1821,6 +1933,7 @@ public class AutoTradingBotService {
                 PortfolioItemDto portfolio = portfolioMap.get(position.stockCode);
                 if (portfolio == null) {
                     swingPositions.remove(position.stockCode);
+                    deletePersistedPosition(Strategy.SWING, position.stockCode);
                     continue;
                 }
 
@@ -1883,6 +1996,7 @@ public class AutoTradingBotService {
                         }
 
                         swingPositions.remove(position.stockCode);
+                        deletePersistedPosition(Strategy.SWING, position.stockCode);
                         sellCooldownMap.put(position.stockCode, LocalDateTime.now());
                     } catch (Exception e) {
                         log.error("[스윙봇] 매도 실패: {} - {}", position.stockName, e.getMessage());
@@ -2015,8 +2129,10 @@ public class AutoTradingBotService {
 
                     activeTradeService.buy(code, surge.getStockName(), currentPrice, quantity, "CLOSING_BUY");
 
-                    closingPositions.put(code, new SwingPosition(code, surge.getStockName(),
-                            currentPrice, String.format("외국인%.0f억+기관%.0f억", fAmt, iAmt)));
+                    SwingPosition newClosing = new SwingPosition(code, surge.getStockName(),
+                            currentPrice, String.format("외국인%.0f억+기관%.0f억", fAmt, iAmt));
+                    closingPositions.put(code, newClosing);
+                    persistSwingPosition(newClosing, Strategy.CLOSING);
 
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
@@ -2072,6 +2188,7 @@ public class AutoTradingBotService {
                 PortfolioItemDto portfolio = portfolioMap.get(position.stockCode);
                 if (portfolio == null) {
                     closingPositions.remove(position.stockCode);
+                    deletePersistedPosition(Strategy.CLOSING, position.stockCode);
                     continue;
                 }
 
@@ -2145,6 +2262,7 @@ public class AutoTradingBotService {
                         }
 
                         closingPositions.remove(position.stockCode);
+                        deletePersistedPosition(Strategy.CLOSING, position.stockCode);
                         sellCooldownMap.put(position.stockCode, LocalDateTime.now());
                     } catch (Exception e) {
                         log.error("[종가매수] 매도 실패: {} - {}", position.stockName, e.getMessage());
