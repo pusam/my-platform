@@ -100,7 +100,7 @@
         </button>
         <ul v-if="showNews" class="news-list">
           <li v-for="(news, idx) in riskData.relatedNews.slice(0, 5)" :key="idx">
-            <a :href="news.link" target="_blank" rel="noopener">
+            <a :href="news.link" target="_blank" rel="noopener noreferrer">
               {{ news.title }}
             </a>
             <span class="news-date">{{ formatNewsDate(news.pubDate) }}</span>

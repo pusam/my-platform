@@ -13,6 +13,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -74,8 +75,9 @@ public class SecurityConfig {
                         .httpStrictTransportSecurity(hsts -> hsts                      // HTTPS 강제
                                 .includeSubDomains(true)
                                 .maxAgeInSeconds(31536000))
-                        .permissionsPolicy(permissions -> permissions                  // 불필요한 브라우저 기능 차단
-                                .policy("camera=(), microphone=(), geolocation=()"))
+                        // 불필요한 브라우저 기능 차단 (StaticHeadersWriter — Spring Security 6.x 호환)
+                        .addHeaderWriter(new StaticHeadersWriter(
+                                "Permissions-Policy", "camera=(), microphone=(), geolocation=()"))
                 )
                 .exceptionHandling(exception -> exception
                         .authenticationEntryPoint(jwtAuthenticationEntryPoint))

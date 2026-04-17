@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -154,7 +155,7 @@ public class RealTimeDataCache {
         if (openPrice != null && openPrice.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal changeRate = price.subtract(openPrice)
                     .multiply(BigDecimal.valueOf(100))
-                    .divide(openPrice, 2, BigDecimal.ROUND_HALF_UP);
+                    .divide(openPrice, 2, RoundingMode.HALF_UP);
             currentBar.setChangeRate(changeRate);
         }
     }

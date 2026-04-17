@@ -228,7 +228,7 @@
             </div>
           </div>
 
-          <div class="detail-content" v-html="selectedBoard.content"></div>
+          <div class="detail-content" v-html="sanitizedContent"></div>
 
           <div v-if="selectedBoard.files && selectedBoard.files.length > 0" class="detail-files">
             <h3>
@@ -275,6 +275,7 @@
 
 <script>
 import axios from 'axios';
+import DOMPurify from 'dompurify';
 import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -319,6 +320,15 @@ export default {
   mounted() {
     this.currentUsername = localStorage.getItem('username') || '';
     this.loadBoards();
+  },
+  computed: {
+    sanitizedContent() {
+      if (!this.selectedBoard || !this.selectedBoard.content) return '';
+      // Quill 에디터 출력물 허용 + XSS 제거 (script/iframe/on* 등 차단)
+      return DOMPurify.sanitize(this.selectedBoard.content, {
+        ADD_ATTR: ['target', 'rel']
+      });
+    }
   },
   methods: {
     async loadBoards(page = 0) {

@@ -430,7 +430,7 @@
           <div class="news-list" v-if="dedupedNews.length">
             <div v-for="(news, index) in dedupedNews" :key="index" class="news-item">
               <div class="news-content">
-                <a :href="news.link" target="_blank">{{ truncate(news.title, 60) }}</a>
+                <a :href="news.link" target="_blank" rel="noopener noreferrer">{{ truncate(news.title, 60) }}</a>
                 <p v-if="news.description" class="news-desc">{{ truncate(news.description, 80) }}</p>
               </div>
               <span class="news-date">{{ formatPubDate(news.pubDate) }}</span>

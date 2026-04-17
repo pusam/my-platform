@@ -214,7 +214,7 @@
           <!-- DART 원문 링크 -->
           <div v-if="summaryModal.rceptNo" class="dart-link-row">
             <a :href="'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=' + summaryModal.rceptNo"
-               target="_blank" class="dart-link">
+               target="_blank" rel="noopener noreferrer" class="dart-link">
               DART 원문 보기 &rarr;
             </a>
           </div>
