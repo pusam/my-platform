@@ -51,6 +51,15 @@ public class VirtualTradeService implements TradeService {
     private static final BigDecimal TAX_RATE = new BigDecimal("0.0018"); // 0.18% (2023년~ 증권거래세)
     private static final BigDecimal INITIAL_BALANCE = new BigDecimal("10000000"); // 1,000만원
 
+    private static void validateTradeInput(BigDecimal price, Integer quantity) {
+        if (price == null || price.signum() <= 0) {
+            throw new IllegalArgumentException("가격은 0보다 커야 합니다: " + price);
+        }
+        if (quantity == null || quantity <= 0) {
+            throw new IllegalArgumentException("수량은 1 이상이어야 합니다: " + quantity);
+        }
+    }
+
     /**
      * 서버 시작 시 계좌 상태 확인 (디버깅용)
      */
@@ -237,6 +246,9 @@ public class VirtualTradeService implements TradeService {
      */
     private TradeHistoryDto executeBuy(VirtualAccount account, String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
 
+        // 입력값 방어 (잔액 조작 공격 방지: 음수 수량/가격 거부)
+        validateTradeInput(price, quantity);
+
         // 총 금액 계산
         BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
         BigDecimal commission = totalAmount.multiply(COMMISSION_RATE).setScale(0, RoundingMode.CEILING);
@@ -316,6 +328,9 @@ public class VirtualTradeService implements TradeService {
      */
     @Override
     public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason) {
+        // 입력값 방어 (음수 수량/가격 거부)
+        validateTradeInput(price, quantity);
+
         // 비관적 락으로 계좌 조회 (동시 접근 차단)
         VirtualAccount account = getOrCreateActiveAccountWithLock();
 

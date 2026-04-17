@@ -7,6 +7,7 @@ import com.myplatform.backend.service.AutoTradingBotService.TradingMode;
 import com.myplatform.backend.service.BotPerformanceService;
 import com.myplatform.backend.service.RealTradeService;
 import com.myplatform.backend.service.VirtualTradeService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -113,7 +114,7 @@ public class PaperTradingController {
      * POST /api/paper-trading/trades
      */
     @PostMapping("/trades")
-    public ResponseEntity<Map<String, Object>> placeTrade(@RequestBody TradeRequestDto request) {
+    public ResponseEntity<Map<String, Object>> placeTrade(@Valid @RequestBody TradeRequestDto request) {
         validateTradeType(request.getTradeType());
 
         TradeHistoryDto result;
@@ -271,7 +272,7 @@ public class PaperTradingController {
      * POST /api/paper-trading/real/trades
      */
     @PostMapping("/real/trades")
-    public ResponseEntity<Map<String, Object>> placeRealTrade(@RequestBody TradeRequestDto request) {
+    public ResponseEntity<Map<String, Object>> placeRealTrade(@Valid @RequestBody TradeRequestDto request) {
         validateTradeType(request.getTradeType());
 
         TradeHistoryDto result;

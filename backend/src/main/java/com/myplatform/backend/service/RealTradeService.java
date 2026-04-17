@@ -42,6 +42,15 @@ public class RealTradeService implements TradeService {
     private volatile LocalDateTime lastBalanceUpdate;
     private static final long BALANCE_CACHE_SECONDS = 30;
 
+    private static void validateTradeInput(BigDecimal price, Integer quantity) {
+        if (price == null || price.signum() <= 0) {
+            throw new IllegalArgumentException("가격은 0보다 커야 합니다: " + price);
+        }
+        if (quantity == null || quantity <= 0) {
+            throw new IllegalArgumentException("수량은 1 이상이어야 합니다: " + quantity);
+        }
+    }
+
     /**
      * 실전 매수 처리 (종목명 포함 버전)
      */
@@ -84,6 +93,9 @@ public class RealTradeService implements TradeService {
      * 매수 실행 (공통 로직)
      */
     private TradeHistoryDto executeBuy(String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
+        // 입력값 방어 (KIS API 전에 필수 1차 검증)
+        validateTradeInput(price, quantity);
+
         // KIS API 매수 주문 (지정가 - 슬리피지 방지)
         JsonNode orderResult = kisService.buyStock(stockCode, quantity, price);
         if (orderResult == null) {
@@ -142,6 +154,9 @@ public class RealTradeService implements TradeService {
     @Override
     public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason) {
         log.info("[실전매매] 매도 주문 시작: {} x {} @ {}원", stockCode, quantity, price);
+
+        // 입력값 방어 (음수 수량/가격 거부)
+        validateTradeInput(price, quantity);
 
         // KIS API 설정 확인
         if (!kisService.isRealTradingConfigured()) {
