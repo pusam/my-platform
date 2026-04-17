@@ -1681,6 +1681,9 @@ public class AutoTradingBotService {
                 if (swingPositions.size() >= SWING_MAX_HOLDING) break;
                 if (holdingCodes.contains(candidate.getStockCode())) continue;
                 if (swingPositions.containsKey(candidate.getStockCode())) continue;
+                // 스캘핑/종가매수 봇이 동일 종목 보유 중이면 중복 진입 방지
+                if (scalpingPositions.containsKey(candidate.getStockCode())) continue;
+                if (closingPositions.containsKey(candidate.getStockCode())) continue;
                 if (sellCooldownMap.containsKey(candidate.getStockCode())) continue;
 
                 // 기술적 조건 체크

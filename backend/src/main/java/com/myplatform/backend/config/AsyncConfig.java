@@ -93,6 +93,30 @@ public class AsyncConfig {
     }
 
     /**
+     * 종목 상세 조회용 I/O Executor
+     * - 종목 상세 페이지 로드 시 8~10개 병렬 외부 API 호출(KIS/Naver/FnGuide/Gemini)
+     * - ForkJoinPool.commonPool() 대신 전용 풀 사용 → 공용 풀 고갈 방지
+     */
+    @Bean(name = "stockDetailExecutor")
+    public Executor stockDetailExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(8);
+        executor.setMaxPoolSize(16);
+        executor.setQueueCapacity(50);
+        executor.setKeepAliveSeconds(60);
+        executor.setThreadNamePrefix("StockDetail-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.initialize();
+
+        log.info("종목 상세 Executor 초기화 완료 - core: {}, max: {}, queue: {}",
+                executor.getCorePoolSize(), executor.getMaxPoolSize(), 50);
+
+        return executor;
+    }
+
+    /**
      * 크롤러용 비동기 Executor
      * - 영업이익률 크롤링, 분기별 재무제표 수집 등
      * - 코어 풀: 2개 (동시 크롤링 작업 제한)

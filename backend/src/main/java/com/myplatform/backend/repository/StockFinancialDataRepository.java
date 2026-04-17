@@ -144,6 +144,10 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     // 종목코드와 날짜로 조회
     Optional<StockFinancialData> findByStockCodeAndReportDate(String stockCode, LocalDate reportDate);
 
+    // 종목코드로 시장 구분 조회 (KOSPI/KOSDAQ/KONEX)
+    @Query("SELECT DISTINCT s.market FROM StockFinancialData s WHERE s.stockCode = :stockCode AND s.market IS NOT NULL")
+    List<String> findMarketsByStockCode(@Param("stockCode") String stockCode);
+
     // ========== [성능 최적화] 턴어라운드 스크리너용 Bulk 조회 ==========
 
     /**

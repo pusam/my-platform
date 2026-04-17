@@ -5,6 +5,9 @@ import com.myplatform.backend.dto.StockDetailDto.*;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+import java.util.function.Supplier;
+
 /**
  * StockDetailService의 캐시 메서드를 별도 빈으로 분리
  * → self-invocation 문제 해결 (@Cacheable 프록시 정상 동작)
@@ -28,6 +31,25 @@ public class StockDetailCacheService {
     @Cacheable(value = "stockDetailFinancial", key = "#stockCode")
     public FinancialInfo getCachedFinancialInfo(String stockCode) {
         return fetchFinancialInfo(stockCode);
+    }
+
+    /**
+     * Supplier 기반 래퍼 — 호출측(StockDetailService) 로직을 유지하면서
+     * 캐시 프록시만 빌려 쓰기 위해 사용. key=#stockCode로만 캐시됨.
+     */
+    @Cacheable(value = "stockDetailRisk", key = "#stockCode")
+    public RiskInfo getCachedRiskInfo(String stockCode, Supplier<RiskInfo> supplier) {
+        return supplier.get();
+    }
+
+    @Cacheable(value = "stockDetailPeer", key = "#stockCode")
+    public Map<String, Object> getCachedPeerData(String stockCode, Supplier<Map<String, Object>> supplier) {
+        return supplier.get();
+    }
+
+    @Cacheable(value = "stockDetailAi", key = "#stockCode")
+    public AiAnalysis getCachedAiAnalysis(String stockCode, Supplier<AiAnalysis> supplier) {
+        return supplier.get();
     }
 
     /**

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import com.myplatform.backend.repository.StockFinancialDataRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.*;
@@ -54,6 +55,7 @@ public class InvestorDailyTradeService {
     private final ObjectMapper objectMapper;
     private final InvestorDailyTradeRepository tradeRepository;
     private final StockPriceRepository stockPriceRepository;
+    private final StockFinancialDataRepository stockFinancialDataRepository;
 
     // 시장 구분 캐시 (종목코드 -> 시장타입)
     private final Map<String, String> marketTypeCache = new ConcurrentHashMap<>();
@@ -61,19 +63,23 @@ public class InvestorDailyTradeService {
     public InvestorDailyTradeService(RestTemplate restTemplate, ObjectMapper objectMapper,
                                       InvestorDailyTradeRepository tradeRepository,
                                       KoreaInvestmentService kisService,
-                                      StockPriceRepository stockPriceRepository) {
+                                      StockPriceRepository stockPriceRepository,
+                                      StockFinancialDataRepository stockFinancialDataRepository) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.tradeRepository = tradeRepository;
         this.kisService = kisService;
         this.stockPriceRepository = stockPriceRepository;
+        this.stockFinancialDataRepository = stockFinancialDataRepository;
     }
 
     /**
      * 종목 코드로 시장 구분 판별
-     * - 한국 주식 시장의 종목 코드 규칙 기반
-     * - KOSPI: 00xxxx, 01xxxx, 02xxxx (주로 0으로 시작)
-     * - KOSDAQ: 그 외 (1, 2, 3, 4 등으로 시작)
+     * 1순위: StockFinancialData DB 조회 (정확)
+     * 2순위: 종목코드 패턴 추정 (근사)
+     *
+     * 종목코드 패턴만으로는 207940(삼바), 373220(LG엔솔) 같은 KOSPI 신규 상장주가
+     * KOSDAQ으로 오분류되므로 DB 우선 조회.
      */
     private String determineMarketType(String stockCode) {
         if (stockCode == null || stockCode.length() < 6) {
@@ -86,33 +92,41 @@ public class InvestorDailyTradeService {
             return cachedMarket;
         }
 
-        String marketType;
-
-        // 종목 코드 첫 자리 기반 판별 (일반적인 규칙)
-        char firstChar = stockCode.charAt(0);
-
-        // KOSPI 종목: 0으로 시작 (삼성전자 005930, SK하이닉스 000660 등)
-        // KOSDAQ 종목: 1~9로 시작 (카카오 035720은 예외지만, 대부분 패턴 따름)
-        // 추가 규칙: 종목 코드가 0으로 시작하고, 두 번째 자리도 0~2면 KOSPI 확률 높음
-        if (firstChar == '0') {
-            char secondChar = stockCode.charAt(1);
-            // 00xxxx, 01xxxx, 02xxxx, 03xxxx -> KOSPI
-            // 035720(카카오) 같은 예외가 있지만, 대부분 KOSPI
-            if (secondChar >= '0' && secondChar <= '3') {
-                marketType = "KOSPI";
-            } else {
-                // 04~09 시작은 KOSDAQ 가능성
-                marketType = "KOSDAQ";
+        // 1순위: DB에서 정확한 시장 구분 조회
+        try {
+            List<String> markets = stockFinancialDataRepository.findMarketsByStockCode(stockCode);
+            if (!markets.isEmpty()) {
+                String market = markets.get(0);
+                if ("KOSPI".equalsIgnoreCase(market) || "KOSDAQ".equalsIgnoreCase(market) || "KONEX".equalsIgnoreCase(market)) {
+                    String normalized = market.toUpperCase();
+                    marketTypeCache.put(stockCode, normalized);
+                    return normalized;
+                }
             }
-        } else {
-            // 1~9로 시작하면 KOSDAQ
-            marketType = "KOSDAQ";
+        } catch (Exception e) {
+            log.debug("시장 구분 DB 조회 실패, 패턴 추정으로 fallback - {}: {}", stockCode, e.getMessage());
         }
 
-        // 캐시에 저장
+        // 2순위: 종목코드 패턴 추정 (부정확하므로 DB에 없을 때만 사용)
+        String marketType = guessMarketByCodePattern(stockCode);
         marketTypeCache.put(stockCode, marketType);
-
         return marketType;
+    }
+
+    /**
+     * 종목코드 첫 두 자리로 시장 추정 — DB 조회 실패 시 fallback 전용.
+     * 207xxx, 323xxx, 373xxx 등 KOSPI 신규상장 종목은 오분류될 수 있음.
+     */
+    private String guessMarketByCodePattern(String stockCode) {
+        char firstChar = stockCode.charAt(0);
+        if (firstChar == '0') {
+            char secondChar = stockCode.charAt(1);
+            if (secondChar >= '0' && secondChar <= '3') {
+                return "KOSPI";
+            }
+            return "KOSDAQ";
+        }
+        return "KOSDAQ";
     }
 
     /**
@@ -335,11 +349,11 @@ public class InvestorDailyTradeService {
                             stockName = getStringValue(item, "ISU_NM");
                         }
 
-                        // 순매수 금액
+                        // 순매수 금액 = 매수(BID) - 매도(ASK)
                         BigDecimal netBuy = getBigDecimalValue(item, "NETBID_AMT");
                         if (netBuy.equals(BigDecimal.ZERO)) {
-                            netBuy = getBigDecimalValue(item, "ASK_TRDVAL")
-                                    .subtract(getBigDecimalValue(item, "BID_TRDVAL"));
+                            netBuy = getBigDecimalValue(item, "BID_TRDVAL")
+                                    .subtract(getBigDecimalValue(item, "ASK_TRDVAL"));
                         }
 
                         // 매수 금액

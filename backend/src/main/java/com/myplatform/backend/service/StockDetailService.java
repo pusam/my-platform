@@ -10,7 +10,7 @@ import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.Cacheable;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import org.jsoup.Jsoup;
@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -54,6 +55,9 @@ public class StockDetailService {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final GeminiService geminiService;
     private final StockDetailCacheService cacheService;
+
+    @Qualifier("stockDetailExecutor")
+    private final Executor stockDetailExecutor;
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
@@ -129,7 +133,7 @@ public class StockDetailService {
         String marketPhase = isBeforeMarket ? "장전" : (isAfterMarket ? "장마감" : "장중");
         log.info("[StockDetail] 현재 시간: {}, 시장 상태: {}", LocalTime.now(KST), marketPhase);
 
-        // 2. 병렬 조회 (수급, 리스크, 차트)
+        // 2. 병렬 조회 (수급, 리스크, 차트) — 전용 Executor 사용 (commonPool 고갈 방지)
         CompletableFuture<SupplyDemand> supplyFuture =
                 CompletableFuture.supplyAsync(() -> {
                     try {
@@ -149,7 +153,7 @@ public class StockDetailService {
                         log.error("[StockDetail] 수급 조회 실패: {}", e.getMessage());
                         return null;
                     }
-                });
+                }, stockDetailExecutor);
 
         // ★★★ 뉴스: 네이버 금융 종목별 뉴스 (종목코드 기반) ★★★
         CompletableFuture<RiskAnalysisDto> riskFuture =
@@ -161,10 +165,10 @@ public class StockDetailService {
                         log.error("[StockDetail] 리스크 조회 실패: {}", e.getMessage());
                         return null;
                     }
-                });
+                }, stockDetailExecutor);
 
         CompletableFuture<ChartData> chartFuture =
-                CompletableFuture.supplyAsync(() -> fetchChartData(stockCode));
+                CompletableFuture.supplyAsync(() -> fetchChartData(stockCode), stockDetailExecutor);
 
         try {
             // 수급 정보 - 장 마감 여부에 따라 다른 소스 사용
@@ -296,9 +300,9 @@ public class StockDetailService {
         boolean isAfterMarket = isAfterMarketHours();
         boolean isBeforeMarket = isBeforeMarketHours();
 
-        // 1. 시세 (비동기)
+        // 1. 시세 (비동기) — 전용 Executor
         CompletableFuture<JsonNode> priceFuture =
-                CompletableFuture.supplyAsync(() -> kisService.getStockPrice(stockCode));
+                CompletableFuture.supplyAsync(() -> kisService.getStockPrice(stockCode), stockDetailExecutor);
 
         // 2. 수급 (비동기)
         CompletableFuture<SupplyDemand> supplyFuture =
@@ -311,15 +315,15 @@ public class StockDetailService {
                         log.error("[StockDetail:Quick] 수급 조회 실패: {}", e.getMessage());
                         return null;
                     }
-                });
+                }, stockDetailExecutor);
 
         // 3. 차트 (비동기 + 캐시 — 별도 빈이라 @Cacheable 동작)
         CompletableFuture<ChartData> chartFuture =
-                CompletableFuture.supplyAsync(() -> cacheService.getCachedChartData(stockCode));
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedChartData(stockCode), stockDetailExecutor);
 
         // 4. 재무 (비동기 + 캐시 — 별도 빈이라 @Cacheable 동작)
         CompletableFuture<FinancialInfo> financialFuture =
-                CompletableFuture.supplyAsync(() -> cacheService.getCachedFinancialInfo(stockCode));
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedFinancialInfo(stockCode), stockDetailExecutor);
 
         // ★ 모든 Future 결과 수집
         try {
@@ -404,12 +408,15 @@ public class StockDetailService {
         final PriceInfo finalPriceInfo = priceInfo;
         final JsonNode finalPriceData = priceData;
 
-        // ★ 리스크 + 네이버크롤링 + AI규칙기반 + 피어비교 모두 병렬
+        // ★ 리스크 + 네이버크롤링 + AI규칙기반 + 피어비교 모두 병렬 — 전용 Executor
+        // Supplier 패턴으로 cacheService 프록시 경유 → @Cacheable 실제 동작
         CompletableFuture<RiskInfo> riskFuture =
-                CompletableFuture.supplyAsync(() -> getCachedRiskInfo(finalStockName, stockCode));
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedRiskInfo(
+                        stockCode, () -> fetchRiskInfo(finalStockName, stockCode)), stockDetailExecutor);
 
         CompletableFuture<Map<String, Object>> peerFuture =
-                CompletableFuture.supplyAsync(() -> getCachedPeerData(stockCode, finalStockName));
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedPeerData(
+                        stockCode, () -> fetchPeerData(stockCode, finalStockName)), stockDetailExecutor);
 
         // 네이버 크롤링 (배당수익률 + Forward 지표 + 목표주가) — Heavy로 이동
         CompletableFuture<Map<String, Object>> naverEnrichFuture =
@@ -429,11 +436,12 @@ public class StockDetailService {
                         log.warn("[StockDetail:Heavy] 네이버 크롤링 실패: {}", e.getMessage());
                     }
                     return enrichData;
-                });
+                }, stockDetailExecutor);
 
         // AI 분석 (Gemini 또는 규칙기반)
         CompletableFuture<AiAnalysis> aiFuture =
-                CompletableFuture.supplyAsync(() -> getCachedAiAnalysis(stockCode));
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedAiAnalysis(
+                        stockCode, () -> fetchAiAnalysis(stockCode)), stockDetailExecutor);
 
         try {
             RiskInfo riskInfo = riskFuture.get(60, TimeUnit.SECONDS);
@@ -466,20 +474,10 @@ public class StockDetailService {
         return result;
     }
 
-    // ========== 캐시 적용 메서드들 ==========
+    // ========== 캐시 적용 메서드들 (cacheService를 통해서만 노출) ==========
 
-    @Cacheable(value = "stockDetailChart", key = "#stockCode")
-    public ChartData getCachedChartData(String stockCode) {
-        return fetchChartData(stockCode);
-    }
-
-    @Cacheable(value = "stockDetailFinancial", key = "#stockCode")
-    public FinancialInfo getCachedFinancialInfo(String stockCode, JsonNode priceData) {
-        return fetchFinancialInfo(stockCode, priceData);
-    }
-
-    @Cacheable(value = "stockDetailRisk", key = "#stockCode")
-    public RiskInfo getCachedRiskInfo(String stockName, String stockCode) {
+    // 캐시는 cacheService.getCachedRiskInfo 래퍼가 담당 (self-invocation 방지)
+    private RiskInfo fetchRiskInfo(String stockName, String stockCode) {
         try {
             RiskAnalysisDto risk = riskService.analyzeRisk(stockName, stockCode);
             if (risk != null) {
@@ -492,12 +490,13 @@ public class StockDetailService {
         return null;
     }
 
-    @Cacheable(value = "stockDetailPeer", key = "#stockCode")
-    public Map<String, Object> getCachedPeerData(String stockCode, String stockName) {
+    // 캐시는 cacheService.getCachedPeerData 래퍼가 담당 (self-invocation 방지)
+    private Map<String, Object> fetchPeerData(String stockCode, String stockName) {
         Map<String, Object> result = new HashMap<>();
         try {
-            // 재무정보 (캐시됨)
-            FinancialInfo financial = getCachedFinancialInfo(stockCode, null);
+            // 피어 비교용 재무정보는 FnGuide 기반 rich 버전 사용 (ROE/배당까지 필요)
+            // getCachedPeerData 자체가 cacheService 래퍼로 캐시되므로, 내부 직접 호출 OK
+            FinancialInfo financial = fetchFinancialInfo(stockCode, null);
 
             String sector = detectSector(stockCode, stockName);
             List<StockDetailDto.PeerComparison> peers = buildPeerComparisons(stockCode, stockName, financial);
@@ -523,8 +522,8 @@ public class StockDetailService {
         return result;
     }
 
-    @Cacheable(value = "stockDetailAi", key = "#stockCode")
-    public AiAnalysis getCachedAiAnalysis(String stockCode) {
+    // 캐시는 cacheService.getCachedAiAnalysis 래퍼가 담당 (self-invocation 방지)
+    private AiAnalysis fetchAiAnalysis(String stockCode) {
         try {
             // Quick 데이터로 StockDetailDto 구성
             StockDetailDto quickDto = getStockDetailQuick(stockCode);
@@ -2121,7 +2120,7 @@ public class StockDetailService {
                         log.debug("[StockDetail] Peer {} KIS 조회 실패: {}", peer[0], e.getMessage());
                         return null;
                     }
-                }));
+                }, stockDetailExecutor));
             } else {
                 peerCodes.add(null); // 현재 종목 자리 표시
                 peerFutures.add(null);
