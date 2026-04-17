@@ -191,5 +191,15 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
      */
     @Query("SELECT MAX(s.updatedAt) FROM StockFinancialData s")
     Optional<LocalDateTime> findLastUpdatedAt();
+
+    /**
+     * 종목명이 누락/오류인 레코드만 조회 (fixAllStockNames 최적화)
+     * - stockName이 null, 빈 문자열, 또는 종목코드와 동일한 경우
+     * - 6자리 숫자 형태 체크는 호출측에서 보강
+     * - 전체 스캔 대신 수정 대상만 필터링 → 메모리/속도 개선
+     */
+    @Query("SELECT s FROM StockFinancialData s WHERE " +
+           "s.stockName IS NULL OR s.stockName = '' OR s.stockName = s.stockCode")
+    List<StockFinancialData> findByInvalidStockName();
 }
 

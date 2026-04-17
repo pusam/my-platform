@@ -874,16 +874,20 @@ public class AutoTradingBotService {
 
             // 계좌 정보 조회
             AccountSummaryDto accountSummary = activeTradeService.getAccountSummary();
-            BigDecimal totalAsset = accountSummary.getCurrentBalance().add(
+            BigDecimal currentBalance = accountSummary.getCurrentBalance() != null
+                    ? accountSummary.getCurrentBalance() : BigDecimal.ZERO;
+            BigDecimal totalAsset = currentBalance.add(
                     accountSummary.getTotalEvaluation() != null ? accountSummary.getTotalEvaluation() : BigDecimal.ZERO);
             BigDecimal maxPerStock = totalAsset.multiply(MAX_INVESTMENT_RATIO);
+            // 가용현금 초과 방지
+            if (maxPerStock.compareTo(currentBalance) > 0) {
+                maxPerStock = currentBalance;
+            }
 
             // 이미 보유 중인 종목 코드
             List<String> holdingCodes = currentPortfolio.stream()
                     .map(PortfolioItemDto::getStockCode)
                     .collect(Collectors.toList());
-
-            BigDecimal currentBalance = accountSummary.getCurrentBalance();
 
             for (InvestorSurgeDto surge : targetStocks) {
                 // 잔액 확인
@@ -1056,6 +1060,7 @@ public class AutoTradingBotService {
                 volumeRatioOk = ratio.compareTo(new BigDecimal(MIN_VOLUME_RATIO)) >= 0;
             }
 
+            // 둘 중 하나라도 충족하면 통과(OR) — 유동성 지표 관대 적용
             if (!tradingValueOk && !volumeRatioOk) {
                 log.info("[스캘핑봇] Skip [{}({})] 거래대금/거래량 부족 (거래대금: {}, 전일거래량비율 충족: {})",
                         stockName, stockCode, tradingValue, volumeRatioOk);
@@ -1669,9 +1674,15 @@ public class AutoTradingBotService {
 
             // 잔고 확인
             AccountSummaryDto account = activeTradeService.getAccountSummary();
-            BigDecimal totalAsset = account.getCurrentBalance().add(
+            BigDecimal currentBalance = account.getCurrentBalance() != null
+                    ? account.getCurrentBalance() : BigDecimal.ZERO;
+            BigDecimal totalAsset = currentBalance.add(
                     account.getTotalEvaluation() != null ? account.getTotalEvaluation() : BigDecimal.ZERO);
             BigDecimal maxPerStock = totalAsset.multiply(SWING_INVESTMENT_RATIO);
+            // 가용현금 초과 방지: 한 종목 매수액이 보유 현금을 넘지 않도록 캡
+            if (maxPerStock.compareTo(currentBalance) > 0) {
+                maxPerStock = currentBalance;
+            }
 
             // 이미 보유 중인 종목 제외
             Set<String> holdingCodes = activeTradeService.getPortfolio().stream()
@@ -1946,9 +1957,14 @@ public class AutoTradingBotService {
 
             // 잔고 확인
             AccountSummaryDto account = activeTradeService.getAccountSummary();
-            BigDecimal totalAsset = account.getCurrentBalance().add(
+            BigDecimal currentBalance = account.getCurrentBalance() != null
+                    ? account.getCurrentBalance() : BigDecimal.ZERO;
+            BigDecimal totalAsset = currentBalance.add(
                     account.getTotalEvaluation() != null ? account.getTotalEvaluation() : BigDecimal.ZERO);
             BigDecimal maxPerStock = totalAsset.multiply(CLOSING_INVESTMENT_RATIO);
+            if (maxPerStock.compareTo(currentBalance) > 0) {
+                maxPerStock = currentBalance;
+            }
 
             // 이미 보유 중인 종목 제외
             Set<String> holdingCodes = activeTradeService.getPortfolio().stream()

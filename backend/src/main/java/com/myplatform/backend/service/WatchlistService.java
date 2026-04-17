@@ -93,17 +93,55 @@ public class WatchlistService {
 
     /**
      * 목표가 알림 체크 (스케줄러에서 호출 - 전체 사용자 대상)
+     *
+     * 알림 재발화 정책:
+     * - 한 번 발동되면 중복 알림 방지 (alertTriggered=true)
+     * - 단, 가격이 목표가 반대 방향으로 돌아가면 자동 재무장(알림 플래그 리셋)
+     *   예) BELOW 9000원 알림 발동 → 가격 10000원 상승 → 재무장 → 다시 9000 하락시 알림
      */
     @Transactional
     public void checkWatchlistAlerts() {
-        List<StockWatchlist> activeAlerts = watchlistRepository
+        // 1. 발동 대기 상태 (미발동 + 활성) — 알림 발송 대상
+        List<StockWatchlist> pendingAlerts = watchlistRepository
                 .findByIsActiveAndAlertTriggeredAndTargetPriceIsNotNull(true, false);
+        // 2. 이미 발동된 상태 — 재무장(리셋) 대상 체크
+        List<StockWatchlist> triggeredAlerts = watchlistRepository
+                .findByIsActiveAndAlertTriggeredAndTargetPriceIsNotNull(true, true);
 
-        if (activeAlerts.isEmpty()) return;
+        // 재무장: 가격이 목표가 반대로 돌아갔으면 alertTriggered=false로 리셋
+        for (StockWatchlist item : triggeredAlerts) {
+            try {
+                StockPriceDto price = stockPriceService.getStockPrice(item.getStockCode());
+                if (price == null || price.getCurrentPrice() == null) continue;
 
-        log.info("관심종목 알림 체크: {}건", activeAlerts.size());
+                BigDecimal currentPrice = price.getCurrentPrice();
+                boolean shouldRearm = false;
+                // ABOVE 알림: 가격이 목표가 아래로 내려가면 재무장
+                if ("ABOVE".equals(item.getAlertCondition())
+                        && currentPrice.compareTo(item.getTargetPrice()) < 0) {
+                    shouldRearm = true;
+                // BELOW 알림: 가격이 목표가 위로 올라가면 재무장
+                } else if ("BELOW".equals(item.getAlertCondition())
+                        && currentPrice.compareTo(item.getTargetPrice()) > 0) {
+                    shouldRearm = true;
+                }
 
-        for (StockWatchlist item : activeAlerts) {
+                if (shouldRearm) {
+                    item.setAlertTriggered(false);
+                    watchlistRepository.save(item);
+                    log.info("관심종목 알림 재무장: {} - 현재가 {} / 목표가 {} {}",
+                            item.getStockName(), currentPrice, item.getTargetPrice(), item.getAlertCondition());
+                }
+            } catch (Exception e) {
+                log.debug("알림 재무장 체크 실패: {} - {}", item.getStockCode(), e.getMessage());
+            }
+        }
+
+        if (pendingAlerts.isEmpty()) return;
+
+        log.info("관심종목 알림 체크: {}건", pendingAlerts.size());
+
+        for (StockWatchlist item : pendingAlerts) {
             try {
                 StockPriceDto price = stockPriceService.getStockPrice(item.getStockCode());
                 if (price == null || price.getCurrentPrice() == null) continue;

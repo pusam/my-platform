@@ -481,23 +481,28 @@ public class FinancialDataCrawlerService {
 
         log.info("========== 종목명 일괄 수정 시작 ==========");
 
-        List<StockFinancialData> allData = stockFinancialDataRepository.findAll();
-        int totalCount = allData.size();
+        // 수정 대상만 DB에서 필터링해서 가져오기 (findAll 대용량 로딩 방지)
+        List<StockFinancialData> candidates = stockFinancialDataRepository.findByInvalidStockName();
+        // 6자리 숫자 형태 stockName은 DB 쿼리에서 안 잡히므로 추가 보강
+        List<StockFinancialData> targetData = new ArrayList<>();
+        int skipCount = 0;
+        for (StockFinancialData d : candidates) {
+            String name = d.getStockName();
+            if (name == null || name.isEmpty() || name.equals(d.getStockCode())) {
+                targetData.add(d);
+            } else {
+                skipCount++;
+            }
+        }
+        int totalCount = targetData.size();
         int fixedCount = 0;
         int failCount = 0;
-        int skipCount = 0;
 
-        for (int i = 0; i < allData.size(); i++) {
-            StockFinancialData data = allData.get(i);
+        log.info("종목명 수정 대상: {}건 (전체 스캔 대신 수정 필요 레코드만 조회)", totalCount);
+
+        for (int i = 0; i < targetData.size(); i++) {
+            StockFinancialData data = targetData.get(i);
             String stockCode = data.getStockCode();
-            String stockName = data.getStockName();
-
-            // 종목명이 유효하면 스킵
-            if (stockName != null && !stockName.isEmpty()
-                    && !stockName.equals(stockCode) && !stockName.matches("^\\d{6}$")) {
-                skipCount++;
-                continue;
-            }
 
             try {
                 // Rate limit
@@ -516,8 +521,8 @@ public class FinancialDataCrawlerService {
 
                 // 진행률
                 if ((i + 1) % 100 == 0) {
-                    log.info("진행률: {}/{} - 수정: {}, 실패: {}, 스킵: {}",
-                            i + 1, totalCount, fixedCount, failCount, skipCount);
+                    log.info("진행률: {}/{} - 수정: {}, 실패: {}",
+                            i + 1, totalCount, fixedCount, failCount);
                 }
 
             } catch (Exception e) {
