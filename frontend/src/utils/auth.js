@@ -1,3 +1,5 @@
+import { NativeBridge } from './nativeBridge';
+
 // localStorage 안전 래퍼 (시크릿 모드/용량 초과 대비)
 function safeGetItem(key) {
   try {
@@ -26,9 +28,11 @@ function safeRemoveItem(key) {
 
 // JWT 토큰 관리 유틸리티
 export const TokenManager = {
-  // 토큰 저장
+  // 토큰 저장 (네이티브 앱이면 secure storage로도 복사)
   setToken(token) {
     safeSetItem('jwt_token', token);
+    // 파이어앤드포겟 — 실패해도 웹 로그인 흐름은 방해하지 않음
+    NativeBridge.saveAuthToken(token).catch(() => {});
   },
 
   // 토큰 가져오기
@@ -39,6 +43,7 @@ export const TokenManager = {
   // 토큰 삭제
   removeToken() {
     safeRemoveItem('jwt_token');
+    NativeBridge.clearAuthToken().catch(() => {});
   },
 
   // 토큰 존재 여부 확인
@@ -93,4 +98,3 @@ export const UserManager = {
     safeRemoveItem('role');
   }
 };
-

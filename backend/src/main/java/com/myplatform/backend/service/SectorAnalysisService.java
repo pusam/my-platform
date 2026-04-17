@@ -190,7 +190,9 @@ public class SectorAnalysisService {
                         if (fresh != null && fresh.getStockName() != null) {
                             name = fresh.getStockName();
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        log.debug("종목명 조회 실패 - {}: {}", stockCode, e.getMessage());
+                    }
                 }
                 leadingStockName = (name != null && !name.isBlank()) ? name : stockCode;
                 leadingStockChange = changeRate;

@@ -247,7 +247,9 @@ public class InvestorDailyTradeService {
                         if (!volumeStr.isEmpty()) {
                             try {
                                 trade.setTradeVolume(Long.parseLong(volumeStr.replace(",", "")));
-                            } catch (NumberFormatException ignored) {}
+                            } catch (NumberFormatException e) {
+                                log.debug("거래량 파싱 실패: {}", volumeStr);
+                            }
                         }
 
                         trades.add(trade);

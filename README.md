@@ -194,7 +194,7 @@ my-platform/
 ## 배포
 
 ```
-GitHub Actions (main/develop push)
+GitHub Actions (main push)
     ├── build-frontend (Node 20)
     ├── build-backend (JDK 17, bootJar)
     └── build-python (Docker)

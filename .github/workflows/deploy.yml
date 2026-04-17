@@ -2,7 +2,7 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "main" ]
 
 jobs:
   # ================================================================
@@ -73,14 +73,6 @@ jobs:
       - name: Checkout source code
         uses: actions/checkout@v4
 
-      - name: Set Docker Tag
-        run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "DOCKER_TAG=prod" >> $GITHUB_ENV
-          else
-            echo "DOCKER_TAG=dev" >> $GITHUB_ENV
-          fi
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -95,7 +87,7 @@ jobs:
         with:
           context: ./python-backend
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/my-python:${{ env.DOCKER_TAG }}
+          tags: ${{ secrets.DOCKER_USERNAME }}/my-python:prod
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-python:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-python:buildcache,mode=max
 
@@ -132,14 +124,6 @@ jobs:
           echo "✅ Found JAR: $JAR_FILE ($(du -h "$JAR_FILE" | cut -f1))"
           mv "$JAR_FILE" app.jar
 
-      - name: Set Docker Tag
-        run: |
-          if [[ "${{ github.ref_name }}" == "main" ]]; then
-            echo "DOCKER_TAG=prod" >> $GITHUB_ENV
-          else
-            echo "DOCKER_TAG=dev" >> $GITHUB_ENV
-          fi
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -154,15 +138,14 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/my-server:${{ env.DOCKER_TAG }}
+          tags: ${{ secrets.DOCKER_USERNAME }}/my-server:prod
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-server:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/my-server:buildcache,mode=max
 
       # ================================================================
-      # 서버 배포 (develop 브랜치만 — prod 서버 준비되면 main도 추가)
+      # 서버 배포 (단일 환경)
       # ================================================================
       - name: Setup SSH
-        if: github.ref == 'refs/heads/develop'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.KEY_DEV }}" > ~/.ssh/deploy_key
@@ -172,11 +155,9 @@ jobs:
           echo "LogLevel ERROR" >> ~/.ssh/config
 
       - name: Copy files to server
-        if: github.ref == 'refs/heads/develop'
         run: |
           HOST="${{ secrets.HOST_DEV }}"
           USER="${{ secrets.USERNAME_DEV }}"
-          NGINX_CONF="nginx/dev.conf"
           PORT="${{ secrets.PORT }}"
           TARGET="/home/dev/my-platform"
           SSH_CMD="ssh -p $PORT -i ~/.ssh/deploy_key"
@@ -187,9 +168,9 @@ jobs:
           # 타겟 디렉토리 생성
           $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/nginx $TARGET/frontend"
 
-          # docker-compose.yml + nginx conf
+          # docker-compose.yml + nginx default.conf
           $SCP_CMD docker-compose.yml "$USER@$HOST:$TARGET/"
-          $SCP_CMD "$NGINX_CONF" "$USER@$HOST:$TARGET/$NGINX_CONF"
+          $SCP_CMD nginx/default.conf "$USER@$HOST:$TARGET/nginx/default.conf"
 
           # frontend/dist (tar 압축 전송)
           tar -czf /tmp/frontend-dist.tar.gz -C frontend dist
@@ -199,27 +180,20 @@ jobs:
           echo "✅ 파일 전송 완료"
 
       - name: Deploy to Server
-        if: github.ref == 'refs/heads/develop'
         run: |
           HOST="${{ secrets.HOST_DEV }}"
           USER="${{ secrets.USERNAME_DEV }}"
           PORT="${{ secrets.PORT }}"
 
           ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" << DEPLOY_EOF
-            cd /home/dev/my-platform/nginx
-
-            if [ -f "dev.conf" ]; then
-              mv dev.conf default.conf
-            fi
-
-            cd ..
+            cd /home/dev/my-platform
 
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-            echo "🚀 배포 시작: dev 환경"
+            echo "🚀 배포 시작"
 
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:dev
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-python:dev
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:prod
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-python:prod
 
             docker compose up -d --force-recreate --no-deps backend python-backend
             docker compose up -d --force-recreate --no-deps nginx

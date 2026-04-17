@@ -1097,7 +1097,9 @@ public class QuantScreenerService {
                                             updated = true;
                                         }
                                     }
-                                } catch (NumberFormatException ignored) {}
+                                } catch (NumberFormatException e) {
+                                    log.debug("PER 파싱 실패 - {}: {}", stockCode, perStr);
+                                }
                             }
                         }
 
@@ -1114,7 +1116,9 @@ public class QuantScreenerService {
                                             updated = true;
                                         }
                                     }
-                                } catch (NumberFormatException ignored) {}
+                                } catch (NumberFormatException e) {
+                                    log.debug("PBR 파싱 실패 - {}: {}", stockCode, pbrStr);
+                                }
                             }
                         }
                     }

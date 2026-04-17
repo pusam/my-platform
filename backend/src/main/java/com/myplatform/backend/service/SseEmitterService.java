@@ -49,7 +49,9 @@ public class SseEmitterService {
             SseEmitter oldEmitter = emitters.get(clientId);
             try {
                 oldEmitter.complete();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                log.debug("이전 SSE 연결 정리 실패 - clientId: {}: {}", clientId, e.getMessage());
+            }
         }
 
         emitters.put(clientId, emitter);

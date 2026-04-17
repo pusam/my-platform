@@ -1,6 +1,8 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
+import { TokenManager } from './utils/auth'
+import { consumeInjectedAuthToken } from './utils/nativeBridge'
 
 // 초기 로딩에 필요한 페이지만 정적 import
 import Login from './views/Login.vue'
@@ -257,6 +259,15 @@ router.beforeEach((to, from, next) => {
   }
 
   next()
+})
+
+// 네이티브 앱(지문 로그인 성공) 토큰 수신 → 자동 로그인
+consumeInjectedAuthToken((token) => {
+  if (!token) return
+  TokenManager.setToken(token)
+  if (window.location.pathname === '/login' || window.location.pathname === '/') {
+    router.push('/user').catch(() => {})
+  }
 })
 
 const app = createApp(App)

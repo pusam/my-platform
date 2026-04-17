@@ -53,8 +53,17 @@ public class BoardService {
 
     @Transactional(readOnly = true)
     public Page<BoardDto> searchBoards(String keyword, Pageable pageable) {
-        return boardRepository.searchByKeyword(keyword, pageable)
+        String safeKeyword = escapeLikeKeyword(keyword);
+        return boardRepository.searchByKeyword(safeKeyword, pageable)
                 .map(this::convertToDto);
+    }
+
+    private String escapeLikeKeyword(String keyword) {
+        if (keyword == null) return "";
+        return keyword
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
     }
 
     @Transactional(readOnly = true)
