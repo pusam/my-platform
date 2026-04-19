@@ -109,8 +109,10 @@ public class SecurityConfig {
                         // SSE (Server-Sent Events) - EventSource는 Authorization 헤더 불가
                         .requestMatchers("/api/sse/**").permitAll()
 
-                        // 자동매매 봇/투자자 API - 인증 필요 (ADMIN만 허용)
-                        .requestMatchers("/api/paper-trading/bot/trigger-buy").hasRole("ADMIN")
+                        // 자동매매 봇 + 실전투자 API - ADMIN만 허용
+                        .requestMatchers("/api/paper-trading/bot/**").hasRole("ADMIN")
+                        .requestMatchers("/api/paper-trading/bot-performance").hasRole("ADMIN")
+                        .requestMatchers("/api/paper-trading/real/**").hasRole("ADMIN")
                         .requestMatchers("/api/investor/test-api").hasRole("ADMIN")
                         .requestMatchers("/api/investor/collect").hasRole("ADMIN")
 

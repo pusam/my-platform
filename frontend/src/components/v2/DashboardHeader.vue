@@ -6,7 +6,7 @@
     <div class="header-center">
       <div class="gnb-tabs">
         <button
-          v-for="tab in gnbTabs"
+          v-for="tab in visibleTabs"
           :key="tab.key"
           :class="['gnb-btn', { active: activeTab === tab.key }]"
           @click="$emit('tab-change', tab.key)"
@@ -48,8 +48,16 @@ export default {
         { key: 'market', label: '개요', icon: '📊' },
         { key: 'analysis', label: '분석', icon: '🔬' },
         { key: 'news', label: '뉴스', icon: '📰' },
-        { key: 'trading', label: '매매', icon: '🤖' }
+        { key: 'trading', label: '매매', icon: '🤖', adminOnly: true }
       ]
+    }
+  },
+  computed: {
+    isAdmin() {
+      return localStorage.getItem('role') === 'ADMIN'
+    },
+    visibleTabs() {
+      return this.gnbTabs.filter(tab => !tab.adminOnly || this.isAdmin)
     }
   },
   mounted() {

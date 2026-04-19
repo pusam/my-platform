@@ -368,8 +368,10 @@ export default {
     }
   },
   data() {
+    const requestedTab = this.$route?.query?.tab || 'market'
+    const isAdmin = localStorage.getItem('role') === 'ADMIN'
     return {
-      activeGnbTab: this.$route?.query?.tab || 'market',
+      activeGnbTab: (requestedTab === 'trading' && !isAdmin) ? 'market' : requestedTab,
       activeAnalysisTab: 'ai-strategy',
       analysisTabs: [
         { key: 'ai-strategy', label: 'AI전략' },
@@ -422,7 +424,8 @@ export default {
     },
     '$route.query.tab'(tab) {
       if (tab && tab !== this.activeGnbTab) {
-        this.activeGnbTab = tab
+        const isAdmin = localStorage.getItem('role') === 'ADMIN'
+        this.activeGnbTab = (tab === 'trading' && !isAdmin) ? 'market' : tab
       }
     }
   },

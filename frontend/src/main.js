@@ -209,7 +209,8 @@ const router = createRouter({
     },
     {
       path: '/paper-trading',
-      redirect: '/stock-dashboard?tab=trading'
+      redirect: '/stock-dashboard?tab=trading',
+      meta: { requiresAuth: true, adminOnly: true }
     },
     {
       path: '/oil',
@@ -249,6 +250,12 @@ router.beforeEach((to, from, next) => {
   // 인증이 필요한 페이지인데 토큰이 없는 경우
   if (to.meta.requiresAuth && !token) {
     next('/login')
+    return
+  }
+
+  // ADMIN 전용 페이지 가드
+  if (to.meta.adminOnly && localStorage.getItem('role') !== 'ADMIN') {
+    next('/user')
     return
   }
 
