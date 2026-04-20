@@ -57,7 +57,9 @@ services:
     environment:
       # 프로필 설정 (dev 또는 prod)
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
-      - DB_URL=jdbc:mariadb://mariadb:3306/myplatform?autoReconnect=true&connectTimeout=10000&socketTimeout=60000
+      # jdbc:mysql:// 사용 필수 — Flyway 의 MySQLDatabaseType 이 'jdbc:mysql:' 스킴만 인식.
+      # MariaDB JDBC 드라이버는 mysql 스킴도 동일하게 처리하므로 실제 연결엔 영향 없음.
+      - DB_URL=jdbc:mysql://mariadb:3306/myplatform?autoReconnect=true&connectTimeout=10000&socketTimeout=60000
       - DB_USERNAME=myplatform
       - DB_PASSWORD=${MYSQL_PASSWORD}
       - JWT_SECRET=${JWT_SECRET}
