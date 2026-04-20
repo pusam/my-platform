@@ -32,10 +32,10 @@ dependencies {
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client:3.3.1'
 
     // Flyway Database Migration
-    // 주의: flyway-mysql 의 MySQLDatabaseType 은 'jdbc:mysql:' URL 만 인식.
-    // MariaDB 사용 시 DB_URL 을 'jdbc:mysql://...' 형식으로 써야 Flyway 가
-    // DatabaseType 매칭 — MariaDB 드라이버(org.mariadb.jdbc.Driver) 는 두 스킴 모두 처리.
-    implementation 'org.flywaydb:flyway-core'
+    // Spring Boot 4.0 부터 Flyway autoconfig 가 starter 로 분리 — 이 의존성을 빼면
+    // flyway-core 가 classpath 에 있어도 FlywayAutoConfiguration 이 로드되지 않음.
+    // flyway-mysql 은 MariaDB 지원에도 필요 (단, DB_URL 은 jdbc:mysql:// 형태여야 함)
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.flywaydb:flyway-mysql'
 
     // Lombok
