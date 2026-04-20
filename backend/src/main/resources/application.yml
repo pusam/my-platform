@@ -35,10 +35,13 @@ spring:
         order_updates: true
 
   # 2-1. Flyway 데이터베이스 마이그레이션 설정
+  # 주의: prod 는 Hibernate ddl-auto: update 로 수명주기 내내 관리됐음.
+  # Flyway 를 뒤늦게 도입하므로 baseline-version 을 현재 최신 V 번호(14)로 설정 →
+  # 과거 V1~V14 는 "이미 적용됨" 으로 간주하고, V15+ 부터 관리 시작.
   flyway:
     enabled: true
     baseline-on-migrate: true      # 기존 DB가 있어도 마이그레이션 시작
-    baseline-version: 0            # 기존 DB 버전을 0으로 설정
+    baseline-version: 14           # V14 까지는 기존 ddl-auto 로 생성됐음으로 간주
     locations: classpath:db/migration
     validate-on-migrate: true
     out-of-order: false            # 순차적 마이그레이션 강제
