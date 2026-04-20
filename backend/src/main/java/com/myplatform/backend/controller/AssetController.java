@@ -8,6 +8,7 @@ import com.myplatform.core.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -31,7 +32,7 @@ public class AssetController {
     @PostMapping
     public ResponseEntity<ApiResponse<AssetDto>> addAsset(
             Authentication authentication,
-            @RequestBody AssetRequest request) {
+            @Valid @RequestBody AssetRequest request) {
         String username = ((UserDetails) authentication.getPrincipal()).getUsername();
         AssetDto asset = assetService.addAsset(username, request);
         return ResponseEntity.ok(ApiResponse.success("자산이 등록되었습니다.", asset));

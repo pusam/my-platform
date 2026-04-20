@@ -1,6 +1,9 @@
 package com.myplatform.backend.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -8,6 +11,7 @@ import java.time.LocalDate;
 @Schema(description = "자산 등록 요청")
 public class AssetRequest {
 
+    @NotBlank(message = "자산 유형은 필수입니다")
     @Schema(description = "자산 유형 (GOLD, SILVER, STOCK, OTHER)", example = "GOLD")
     private String assetType;
 
@@ -20,9 +24,13 @@ public class AssetRequest {
     @Schema(description = "기타 자산명 (기타인 경우)", example = "비트코인")
     private String otherName;
 
+    @NotNull(message = "보유량은 필수입니다")
+    @DecimalMin(value = "0.0", inclusive = false, message = "보유량은 0보다 커야 합니다")
     @Schema(description = "보유량 (그램 또는 주)", example = "10.5")
     private BigDecimal quantity;
 
+    @NotNull(message = "구매 가격은 필수입니다")
+    @DecimalMin(value = "0.0", inclusive = false, message = "구매 가격은 0보다 커야 합니다")
     @Schema(description = "구매 당시 그램당 가격", example = "75000")
     private BigDecimal purchasePrice;
 
