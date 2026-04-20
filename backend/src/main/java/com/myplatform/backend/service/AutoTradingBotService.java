@@ -446,43 +446,52 @@ public class AutoTradingBotService {
         }
     }
 
+    // 저장 실패 시 호출자가 알림/보상 처리를 할 수 있도록 예외를 던진다.
     private void persistScalpingPosition(ScalpingPosition sp) {
-        try {
-            BotTradingPosition entity = positionRepository
-                    .findByStrategyAndStockCode(Strategy.SCALPING, sp.stockCode)
-                    .orElseGet(() -> BotTradingPosition.builder()
-                            .strategy(Strategy.SCALPING)
-                            .stockCode(sp.stockCode)
-                            .build());
-            entity.setStockName(sp.stockName);
-            entity.setBuyPrice(sp.buyPrice);
-            entity.setHighPrice(sp.highPrice);
-            entity.setBuyTime(sp.buyTime);
-            entity.setHalfSold(sp.halfSold);
-            entity.setTimeExtended(sp.timeExtended);
-            entity.setOriginalQuantity(sp.originalQuantity);
-            positionRepository.save(entity);
-        } catch (Exception e) {
-            log.warn("[봇 영속화] 스캘핑 포지션 저장 실패 {}: {}", sp.stockCode, e.getMessage());
-        }
+        BotTradingPosition entity = positionRepository
+                .findByStrategyAndStockCode(Strategy.SCALPING, sp.stockCode)
+                .orElseGet(() -> BotTradingPosition.builder()
+                        .strategy(Strategy.SCALPING)
+                        .stockCode(sp.stockCode)
+                        .build());
+        entity.setStockName(sp.stockName);
+        entity.setBuyPrice(sp.buyPrice);
+        entity.setHighPrice(sp.highPrice);
+        entity.setBuyTime(sp.buyTime);
+        entity.setHalfSold(sp.halfSold);
+        entity.setTimeExtended(sp.timeExtended);
+        entity.setOriginalQuantity(sp.originalQuantity);
+        positionRepository.save(entity);
     }
 
     private void persistSwingPosition(SwingPosition sw, Strategy strategy) {
+        BotTradingPosition entity = positionRepository
+                .findByStrategyAndStockCode(strategy, sw.stockCode)
+                .orElseGet(() -> BotTradingPosition.builder()
+                        .strategy(strategy)
+                        .stockCode(sw.stockCode)
+                        .build());
+        entity.setStockName(sw.stockName);
+        entity.setBuyPrice(sw.buyPrice);
+        entity.setHighPrice(sw.highPrice);
+        entity.setBuyTime(sw.buyTime);
+        entity.setBuyReason(sw.buyReason);
+        positionRepository.save(entity);
+    }
+
+    // 저장 실패 시 관리자에게 즉시 알림 — 재시작 시 메모리 포지션이 복원되지 않아
+    // 자동 매도 로직이 해당 종목을 놓칠 수 있으므로 수동 대응이 필요함을 알린다.
+    private void alertPersistFailure(String strategyTag, String stockCode, String stockName, Exception e) {
+        log.error("[봇 영속화] {} 포지션 DB 저장 실패 {} ({}): {}", strategyTag, stockCode, stockName, e.getMessage(), e);
         try {
-            BotTradingPosition entity = positionRepository
-                    .findByStrategyAndStockCode(strategy, sw.stockCode)
-                    .orElseGet(() -> BotTradingPosition.builder()
-                            .strategy(strategy)
-                            .stockCode(sw.stockCode)
-                            .build());
-            entity.setStockName(sw.stockName);
-            entity.setBuyPrice(sw.buyPrice);
-            entity.setHighPrice(sw.highPrice);
-            entity.setBuyTime(sw.buyTime);
-            entity.setBuyReason(sw.buyReason);
-            positionRepository.save(entity);
-        } catch (Exception e) {
-            log.warn("[봇 영속화] {} 포지션 저장 실패 {}: {}", strategy, sw.stockCode, e.getMessage());
+            if (telegramService.isEnabled()) {
+                telegramService.sendRisk(String.format(
+                        "<b>⚠️ [%s] 포지션 DB 저장 실패</b>\n\n🎯 %s (%s)\n\n현재 세션에서는 추적되지만 <b>재시작 시 포지션이 사라져 자동 매도가 중단</b>됩니다.\n수동 매도 또는 DB 점검이 필요합니다.\n\n오류: %s",
+                        strategyTag, stockName == null ? "-" : stockName, stockCode,
+                        e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            }
+        } catch (Exception alertEx) {
+            log.warn("[봇 영속화] 텔레그램 실패 알림 전송 실패: {}", alertEx.getMessage());
         }
     }
 
@@ -1080,11 +1089,16 @@ public class AutoTradingBotService {
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
 
-                    // 스캘핑 포지션 등록
+                    // 스캘핑 포지션 등록 — 메모리 저장은 현재 세션의 자동 매도를 위해 항상 수행하고,
+                    // DB 영속화 실패 시에는 관리자에게 알려 재시작 리스크를 인지시킨다.
                     ScalpingPosition newPos = new ScalpingPosition(surge.getStockCode(), surge.getStockName(),
                             entryResult.currentPrice, quantity);
                     scalpingPositions.put(surge.getStockCode(), newPos);
-                    persistScalpingPosition(newPos);
+                    try {
+                        persistScalpingPosition(newPos);
+                    } catch (Exception persistEx) {
+                        alertPersistFailure("스캘핑", surge.getStockCode(), surge.getStockName(), persistEx);
+                    }
 
                     log.info("[스캘핑봇-{}] ★ 진입 완료 ★", currentMode.name());
                     log.info("  종목: {} ({})", surge.getStockName(), surge.getStockCode());
@@ -1500,7 +1514,11 @@ public class AutoTradingBotService {
                     if (sellQuantity > 0) {
                         isPartialSell = true;
                         position.halfSold = true;
-                        persistScalpingPosition(position);  // 재시작 대비: halfSold 플래그 영속화
+                        try {
+                            persistScalpingPosition(position);  // 재시작 대비: halfSold 플래그 영속화
+                        } catch (Exception persistEx) {
+                            alertPersistFailure("스캘핑(halfSold)", position.stockCode, position.stockName, persistEx);
+                        }
                         log.info("[스캘핑봇] 1차 익절: {} - 손익률 {}%, 절반({}) 매도",
                                 portfolio.getStockName(), profitRate, sellQuantity);
                     }
@@ -1851,7 +1869,11 @@ public class AutoTradingBotService {
                     SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
                             currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속");
                     swingPositions.put(candidate.getStockCode(), newSwing);
-                    persistSwingPosition(newSwing, Strategy.SWING);
+                    try {
+                        persistSwingPosition(newSwing, Strategy.SWING);
+                    } catch (Exception persistEx) {
+                        alertPersistFailure("스윙", candidate.getStockCode(), candidate.getStockName(), persistEx);
+                    }
 
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
@@ -2153,7 +2175,11 @@ public class AutoTradingBotService {
                     SwingPosition newClosing = new SwingPosition(code, surge.getStockName(),
                             currentPrice, String.format("외국인%.0f억+기관%.0f억", fAmt, iAmt));
                     closingPositions.put(code, newClosing);
-                    persistSwingPosition(newClosing, Strategy.CLOSING);
+                    try {
+                        persistSwingPosition(newClosing, Strategy.CLOSING);
+                    } catch (Exception persistEx) {
+                        alertPersistFailure("종가매수", code, surge.getStockName(), persistEx);
+                    }
 
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();

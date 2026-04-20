@@ -51,6 +51,24 @@ export const TokenManager = {
     return !!this.getToken();
   },
 
+  // JWT payload의 exp 클레임을 디코드해 만료 여부 확인
+  // 반환: true = 유효 / false = 없음·손상·만료
+  isTokenValid() {
+    const token = this.getToken();
+    if (!token) return false;
+    try {
+      const parts = token.split('.');
+      if (parts.length !== 3) return false;
+      // base64url → base64
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(b64));
+      if (!payload || typeof payload.exp !== 'number') return false;
+      return payload.exp * 1000 > Date.now();
+    } catch (e) {
+      return false;
+    }
+  },
+
   // Authorization 헤더 생성
   getAuthHeader() {
     const token = this.getToken();

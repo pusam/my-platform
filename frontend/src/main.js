@@ -1,7 +1,7 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
-import { TokenManager } from './utils/auth'
+import { TokenManager, UserManager } from './utils/auth'
 import { consumeInjectedAuthToken } from './utils/nativeBridge'
 
 // 초기 로딩에 필요한 페이지만 정적 import
@@ -245,10 +245,15 @@ const router = createRouter({
 
 // Navigation guard for authentication
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('jwt_token')
+  const hasToken = TokenManager.hasToken()
+  // 토큰은 있지만 만료/손상된 경우: 조용히 세션 정리 후 로그인으로 보낸다
+  const tokenValid = hasToken && TokenManager.isTokenValid()
+  if (hasToken && !tokenValid) {
+    UserManager.logout()
+  }
 
-  // 인증이 필요한 페이지인데 토큰이 없는 경우
-  if (to.meta.requiresAuth && !token) {
+  // 인증이 필요한 페이지인데 유효 토큰이 없는 경우
+  if (to.meta.requiresAuth && !tokenValid) {
     next('/login')
     return
   }
@@ -259,8 +264,8 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  // 로그인된 상태에서 로그인 접근 시 유저 대시보드로 이동
-  if (to.path === '/login' && token) {
+  // 이미 유효 토큰이 있는 상태에서 로그인 접근 시 유저 대시보드로
+  if (to.path === '/login' && tokenValid) {
     next('/user')
     return
   }
