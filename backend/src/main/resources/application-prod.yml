@@ -6,7 +6,7 @@ spring:
       on-profile: prod
   jpa:
     hibernate:
-      ddl-auto: validate # Flyway가 스키마를 전담 — 드리프트 방지
+      ddl-auto: update # TODO: prod DB 스키마 드리프트 정리 후 validate 로 복구 (diet_record 누락 이슈)
     show-sql: false
 springdoc:
   api-docs:
