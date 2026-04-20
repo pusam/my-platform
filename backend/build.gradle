@@ -32,12 +32,10 @@ dependencies {
     runtimeOnly 'org.mariadb.jdbc:mariadb-java-client:3.3.1'
 
     // Flyway Database Migration
-    // Flyway 10+ 부터 DB 별 지원이 모듈 분리 — MariaDB 는 전용 모듈 필수
-    // (flyway-mysql 만 있으면 MariaDB DataSource 를 인식하지 못해 조용히 비활성화됨)
-    // Spring Boot 4.0 BOM 은 flyway-database-mariadb 를 관리하지 않아 버전 명시 필요.
-    // flyway-core 가 SB BOM 에서 11.10.x 로 내려오므로 같은 메이저에 맞춤.
+    // 주의: flyway-mysql 의 MySQLDatabaseType 은 'jdbc:mysql:' URL 만 인식.
+    // MariaDB 사용 시 DB_URL 을 'jdbc:mysql://...' 형식으로 써야 Flyway 가
+    // DatabaseType 매칭 — MariaDB 드라이버(org.mariadb.jdbc.Driver) 는 두 스킴 모두 처리.
     implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-mariadb:11.10.0'
     implementation 'org.flywaydb:flyway-mysql'
 
     // Lombok
