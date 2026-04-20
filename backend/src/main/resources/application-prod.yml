@@ -17,3 +17,5 @@ logging:
   level:
     root: WARN
     com.myplatform: INFO
+    org.flywaydb: INFO                  # 마이그레이션 진행 가시성 확보
+    org.hibernate.tool.schema: INFO     # ddl-auto 동작/스키마 검증 로그 노출
