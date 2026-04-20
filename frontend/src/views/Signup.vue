@@ -336,7 +336,7 @@ const handleSignup = async () => {
 
 .btn-verify {
   padding: 12px 20px;
-  background: #667eea;
+  background: var(--primary-start);
   color: white;
   border: none;
   border-radius: 6px;
@@ -405,7 +405,7 @@ const handleSignup = async () => {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   color: white;
 }
 

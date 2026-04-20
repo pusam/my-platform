@@ -1032,7 +1032,7 @@ export default {
 .detail-files {
   margin-bottom: 32px;
   padding: 24px;
-  background: linear-gradient(135deg, #252540 0%, rgba(255,255,255,0.05) 100%);
+  background: linear-gradient(135deg, #252540 0%, var(--border-light) 100%);
   border-radius: 16px;
 }
 

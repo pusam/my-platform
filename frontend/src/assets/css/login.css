@@ -30,7 +30,7 @@
 .shape-1 {
     width: 400px;
     height: 400px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
     top: -10%;
     left: -10%;
     animation-delay: 0s;
@@ -107,7 +107,7 @@
     width: 72px;
     height: 72px;
     margin: 0 auto;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
     border-radius: 20px;
     display: flex;
     align-items: center;
@@ -256,8 +256,8 @@
 }
 
 .checkbox-label input[type="checkbox"]:checked + .checkbox-custom {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-color: #667eea;
+    background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
+    border-color: var(--primary-start);
 }
 
 .checkbox-label input[type="checkbox"]:checked + .checkbox-custom::after {
@@ -293,7 +293,7 @@
 .login-btn {
     width: 100%;
     padding: 16px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
     color: white;
     border: none;
     border-radius: 12px;

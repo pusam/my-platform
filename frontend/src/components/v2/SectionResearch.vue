@@ -327,7 +327,7 @@ export default {
 
 <style scoped>
 .section-card {
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   padding: 24px;
@@ -339,7 +339,7 @@ export default {
 }
 .section-title-row h2 { margin: 0; font-size: 16px; font-weight: 700; color: rgba(255,255,255,0.95); }
 .section-icon { margin-right: 6px; }
-.more-link { font-size: 13px; color: #667eea; text-decoration: none; }
+.more-link { font-size: 13px; color: var(--primary-start); text-decoration: none; }
 .more-link:hover { color: #8b9cf7; }
 .state-box {
   display: flex;
@@ -359,7 +359,7 @@ export default {
   background: rgba(102,126,234,0.12);
   border: 1px solid rgba(102,126,234,0.25);
   border-radius: 10px;
-  color: #667eea;
+  color: var(--primary-start);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -367,7 +367,7 @@ export default {
 }
 .state-btn:hover {
   background: rgba(102,126,234,0.22);
-  border-color: #667eea;
+  border-color: var(--primary-start);
 }
 
 /* Tabs */
@@ -494,7 +494,7 @@ export default {
 
 .more-links { margin-top: 8px; }
 .more-links a { font-size: 12px; color: rgba(255,255,255,0.4); text-decoration: none; }
-.more-links a:hover { color: #667eea; }
+.more-links a:hover { color: var(--primary-start); }
 
 .empty-msg { text-align: center; color: rgba(255,255,255,0.3); font-size: 13px; padding: 20px 0; }
 

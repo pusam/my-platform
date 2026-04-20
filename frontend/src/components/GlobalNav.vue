@@ -151,7 +151,7 @@ const isActive = (itemPath) => {
 
 .nav-tab:hover {
   color: rgba(255,255,255,0.7);
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
 }
 
 .nav-tab.active {

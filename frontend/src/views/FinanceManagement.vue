@@ -1801,7 +1801,7 @@ onMounted(() => {
 .recurring-category {
   font-size: 12px;
   color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   padding: 2px 8px;
   border-radius: 4px;
   display: inline-block;
@@ -1875,7 +1875,7 @@ onMounted(() => {
   gap: 8px;
   font-size: 12px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .history-item:last-child {
@@ -1899,7 +1899,7 @@ onMounted(() => {
   gap: 8px;
   margin-top: 8px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--border-light);
 }
 
 .btn-edit {

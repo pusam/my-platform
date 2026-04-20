@@ -58,8 +58,8 @@ export default {
 }
 
 .back-button:hover {
-  background: var(--primary-start, #667eea);
-  border-color: var(--primary-start, #667eea);
+  background: var(--primary-start, var(--primary-start));
+  border-color: var(--primary-start, var(--primary-start));
   color: #fff;
   transform: translateX(-2px);
 }

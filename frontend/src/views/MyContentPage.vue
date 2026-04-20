@@ -272,7 +272,7 @@ onMounted(() => {
 
 .action-btn {
   padding: 12px 24px;
-  background: #667eea;
+  background: var(--primary-start);
   color: white;
   border: none;
   border-radius: 5px;
@@ -293,7 +293,7 @@ onMounted(() => {
 
 .page-btn {
   padding: 8px 16px;
-  background: #667eea;
+  background: var(--primary-start);
   color: white;
   border: none;
   border-radius: 5px;

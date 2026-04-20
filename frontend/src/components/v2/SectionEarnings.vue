@@ -532,7 +532,7 @@ export default {
 
 <style scoped>
 .section-card {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   padding: 20px;
@@ -759,7 +759,7 @@ export default {
 .load-more-btn {
   margin-top: 8px;
   padding: 10px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   color: #888;
@@ -1035,7 +1035,7 @@ export default {
   padding: 10px;
   font-size: 13px;
   color: #ccc;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .fin-name {

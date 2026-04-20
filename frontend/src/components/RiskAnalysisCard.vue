@@ -420,7 +420,7 @@ defineExpose({
   width: 40px;
   height: 40px;
   border: 3px solid #2a2a4a;
-  border-top-color: #667eea;
+  border-top-color: var(--primary-start);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }

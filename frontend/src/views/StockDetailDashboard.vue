@@ -1925,12 +1925,12 @@ const invChartOptions = computed(() => ({
     }
   },
   scales: {
-    x: { ticks: { color: '#888', maxTicksLimit: 15 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+    x: { ticks: { color: '#888', maxTicksLimit: 15 }, grid: { color: 'rgba(255, 255, 255, 0.05)' } },
     'y-price': {
       type: 'linear', display: true, position: 'left',
       title: { display: true, text: '주가 (원)', color: '#888' },
       ticks: { color: '#888', callback: (v) => Number(v).toLocaleString() },
-      grid: { color: 'rgba(255,255,255,0.05)' }
+      grid: { color: 'rgba(255, 255, 255, 0.05)' }
     },
     'y-cumulative': {
       type: 'linear', display: true, position: 'right',
@@ -2170,7 +2170,7 @@ onUnmounted(() => {
 
 .search-bar button {
   padding: 14px 28px;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--primary-start), #764ba2);
   border: none;
   border-radius: 12px;
   color: #fff;
@@ -2244,7 +2244,7 @@ onUnmounted(() => {
   width: 50px;
   height: 50px;
   border: 4px solid #3a3a6a;
-  border-top-color: #667eea;
+  border-top-color: var(--primary-start);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 16px;
@@ -2541,7 +2541,7 @@ onUnmounted(() => {
 .peer-bar-container {
   position: relative;
   height: 14px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   border-radius: 7px;
   overflow: visible;
 }
@@ -2750,7 +2750,7 @@ onUnmounted(() => {
   color: rgba(255,255,255,0.5);
   margin-top: 8px;
   padding-top: 6px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--border-light);
 }
 
 /* 안전 점수 WARNING 레벨 */
@@ -3077,7 +3077,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: flex-start;
   padding: 10px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .news-content {
@@ -3309,7 +3309,7 @@ onUnmounted(() => {
   transition: all 0.2s;
 }
 
-.fund-tab-btn:hover { color: #ccc; background: rgba(255,255,255,0.05); }
+.fund-tab-btn:hover { color: #ccc; background: var(--border-light); }
 .fund-tab-btn.active {
   color: #fff;
   background: rgba(102, 126, 234, 0.3);
@@ -3703,7 +3703,7 @@ onUnmounted(() => {
   transition: all 0.3s;
 }
 
-.main-tab-btn:hover { color: #ccc; background: rgba(255,255,255,0.05); }
+.main-tab-btn:hover { color: #ccc; background: var(--border-light); }
 .main-tab-btn.active {
   color: #fff;
   background: linear-gradient(135deg, rgba(102,126,234,0.3), rgba(118,75,162,0.3));
@@ -3918,7 +3918,7 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.2);
   border-radius: 10px;
   padding: 12px;
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid var(--border-light);
   border-left: 3px solid;
 }
 

@@ -1007,7 +1007,7 @@ onMounted(() => {
 }
 
 .adr-value strong {
-  color: var(--accent-color, #667eea);
+  color: var(--accent-color, var(--primary-start));
   font-size: 1.5rem;
 }
 
@@ -1487,7 +1487,7 @@ onMounted(() => {
 }
 
 .btn-collect {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   color: white;
 }
 
@@ -1559,7 +1559,7 @@ onMounted(() => {
   width: 48px;
   height: 48px;
   border: 4px solid var(--border-color, #3f3f46);
-  border-top-color: var(--accent-color, #667eea);
+  border-top-color: var(--accent-color, var(--primary-start));
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -1732,9 +1732,9 @@ onMounted(() => {
 .btn-backfill {
   padding: 0.5rem 1rem;
   border-radius: 8px;
-  border: 1px solid var(--accent-color, #667eea);
+  border: 1px solid var(--accent-color, var(--primary-start));
   background: transparent;
-  color: var(--accent-color, #667eea);
+  color: var(--accent-color, var(--primary-start));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -1746,7 +1746,7 @@ onMounted(() => {
 }
 
 .btn-backfill:hover:not(:disabled) {
-  background: var(--accent-color, #667eea);
+  background: var(--accent-color, var(--primary-start));
   color: white;
 }
 

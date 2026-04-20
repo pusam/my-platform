@@ -83,7 +83,7 @@ export default {
   display: flex;
   gap: 12px;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .skeleton-cell {

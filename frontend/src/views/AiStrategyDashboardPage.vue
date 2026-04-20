@@ -802,7 +802,7 @@ onMounted(async () => {
 
 /* 4분할 전략 점수 패널 */
 .score-panel {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.02) 100%);
+  background: linear-gradient(135deg, var(--border-light) 0%, rgba(255, 255, 255, 0.02) 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   padding: 24px;
@@ -987,7 +987,7 @@ onMounted(async () => {
   align-items: center;
   gap: 4px;
   padding: 16px 24px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   border: 2px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   color: #888;
@@ -1004,7 +1004,7 @@ onMounted(async () => {
 
 .tab-btn.active {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
-  border-color: #667eea;
+  border-color: var(--primary-start);
   color: #fff;
   box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
 }
@@ -1065,7 +1065,7 @@ onMounted(async () => {
 }
 
 .criteria-label {
-  color: #667eea;
+  color: var(--primary-start);
   font-weight: 600;
   font-size: 0.9rem;
 }
@@ -1103,7 +1103,7 @@ onMounted(async () => {
 }
 
 .recommendation-card:hover {
-  border-color: #667eea;
+  border-color: var(--primary-start);
   transform: translateY(-5px);
   box-shadow: 0 10px 40px rgba(102, 126, 234, 0.2);
 }
@@ -1263,7 +1263,7 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .suggestion-row:last-child {
@@ -1380,7 +1380,7 @@ onMounted(async () => {
 .detail-btn {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   border: none;
   border-radius: 10px;
   color: #fff;
@@ -1475,7 +1475,7 @@ onMounted(async () => {
   width: 40px;
   height: 40px;
   border: 3px solid rgba(102, 126, 234, 0.2);
-  border-top-color: #667eea;
+  border-top-color: var(--primary-start);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 16px;

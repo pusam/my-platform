@@ -179,7 +179,7 @@ onUnmounted(() => {
 .update-time {
   font-size: 0.75rem;
   color: #888;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   padding: 4px 10px;
   border-radius: 12px;
 }
@@ -197,7 +197,7 @@ onUnmounted(() => {
 }
 
 .info-card {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   border-radius: 12px;
   padding: 16px;
   border: 1px solid rgba(255, 255, 255, 0.1);

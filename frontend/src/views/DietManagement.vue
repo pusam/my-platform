@@ -220,7 +220,7 @@ onMounted(loadRecords);
 .empty-state { text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4); }
 
 .record-list { display: flex; flex-direction: column; gap: 10px; }
-.record-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }
+.record-card { background: var(--border-light); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; }
 .record-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .type-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
 .type-badge.breakfast { background: rgba(251,191,36,0.2); color: #fbbf24; }

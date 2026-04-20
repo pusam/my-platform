@@ -269,7 +269,7 @@ export default {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #667eea;
+  background: var(--primary-start);
   color: white;
   border: none;
   border-radius: 6px;

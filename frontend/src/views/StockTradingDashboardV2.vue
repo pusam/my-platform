@@ -1224,7 +1224,7 @@ export default {
 
 /* News Panel in Market Tab */
 .news-panel {
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   padding: 24px;
@@ -1242,7 +1242,7 @@ export default {
   color: rgba(255,255,255,0.95);
 }
 .section-icon { margin-right: 6px; }
-.more-link { font-size: 13px; color: #667eea; text-decoration: none; }
+.more-link { font-size: 13px; color: var(--primary-start); text-decoration: none; }
 .more-link:hover { color: #8b9cf7; }
 
 .news-row {

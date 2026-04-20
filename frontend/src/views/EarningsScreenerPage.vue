@@ -1840,7 +1840,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 0.75rem 1.25rem;
-  background: linear-gradient(135deg, #667eea15, #764ba215);
+  background: linear-gradient(135deg, var(--primary-start)15, #764ba215);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   margin-bottom: 1.5rem;
@@ -2385,8 +2385,8 @@ onUnmounted(() => {
 
 /* 원버튼 전체 수집 스타일 */
 .action-card.primary-action {
-  background: linear-gradient(135deg, #667eea15, #764ba215);
-  border: 2px solid #667eea;
+  background: linear-gradient(135deg, var(--primary-start)15, #764ba215);
+  border: 2px solid var(--primary-start);
   margin-bottom: 1.5rem;
 }
 
@@ -2397,7 +2397,7 @@ onUnmounted(() => {
 }
 
 .recommended-badge {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--primary-start), #764ba2);
   color: white;
   font-size: 0.7rem;
   padding: 0.2rem 0.5rem;
@@ -2411,7 +2411,7 @@ onUnmounted(() => {
 }
 
 .info-tag.highlight {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--primary-start), #764ba2);
   color: white;
 }
 
@@ -3044,7 +3044,7 @@ onUnmounted(() => {
 }
 
 .log-item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
 }
 
 .log-time {
@@ -3714,7 +3714,7 @@ onUnmounted(() => {
 
 .collecting-status {
   text-align: center;
-  color: #667eea;
+  color: var(--primary-start);
   font-weight: 600;
   margin: 1rem 0;
   animation: pulse 1.5s infinite;

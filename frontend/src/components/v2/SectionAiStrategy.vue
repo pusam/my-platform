@@ -162,7 +162,7 @@ export default {
 
 <style scoped>
 .section-card {
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   padding: 24px;
@@ -187,7 +187,7 @@ export default {
 
 .more-link {
   font-size: 13px;
-  color: #667eea;
+  color: var(--primary-start);
   text-decoration: none;
   transition: color 0.2s;
 }
@@ -211,7 +211,7 @@ export default {
   background: rgba(102,126,234,0.12);
   border: 1px solid rgba(102,126,234,0.25);
   border-radius: 10px;
-  color: #667eea;
+  color: var(--primary-start);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -219,7 +219,7 @@ export default {
 }
 .state-btn:hover {
   background: rgba(102,126,234,0.22);
-  border-color: #667eea;
+  border-color: var(--primary-start);
 }
 
 /* Strategy Scores */
@@ -260,7 +260,7 @@ export default {
   transition: width 0.6s ease;
 }
 .score-bar-fill.scalping { background: linear-gradient(90deg, #f59e0b, #ef4444); }
-.score-bar-fill.swing { background: linear-gradient(90deg, #3b82f6, #667eea); }
+.score-bar-fill.swing { background: linear-gradient(90deg, #3b82f6, var(--primary-start)); }
 .score-bar-fill.turnaround { background: linear-gradient(90deg, #10b981, #06b6d4); }
 .score-bar-fill.value { background: linear-gradient(90deg, #8b5cf6, #a855f7); }
 

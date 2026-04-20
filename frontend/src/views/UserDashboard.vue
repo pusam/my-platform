@@ -859,7 +859,7 @@ export default {
 /* 투자자 매매 동향 카드 */
 .card-icon.investor-icon {
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
-  color: #667eea;
+  color: var(--primary-start);
 }
 
 .menu-card.investor {
@@ -1050,7 +1050,7 @@ export default {
   bottom: -50px;
   width: 200px;
   height: 200px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--border-light);
   border-radius: 50%;
 }
 

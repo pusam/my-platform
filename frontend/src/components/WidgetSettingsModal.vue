@@ -265,7 +265,7 @@ watch(() => props.visible, (newVal) => {
 
 .widget-icon.investor {
   background: rgba(102, 126, 234, 0.12);
-  color: #667eea;
+  color: var(--primary-start);
 }
 
 .widget-icon.news {

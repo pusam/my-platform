@@ -220,7 +220,7 @@ onMounted(() => {
 
 .news-badge {
   margin-left: auto;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   color: white;
   padding: 6px 14px;
   border-radius: 20px;

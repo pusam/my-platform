@@ -697,7 +697,7 @@ onUnmounted(() => {
   justify-content: center;
   gap: 8px;
   margin-bottom: 1.5rem;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   padding: 6px;
   border-radius: 14px;
   max-width: 600px;
@@ -765,7 +765,7 @@ onUnmounted(() => {
 
 .type-btn.active {
   background: rgba(102,126,234,0.2);
-  border-color: #667eea;
+  border-color: var(--primary-start);
   color: #8b9cf7;
 }
 
@@ -796,7 +796,7 @@ onUnmounted(() => {
 }
 
 .collecting-status {
-  color: #667eea;
+  color: var(--primary-start);
   font-weight: 600;
   text-align: center;
   animation: pulse 1.5s infinite;
@@ -831,8 +831,8 @@ onUnmounted(() => {
 }
 
 .tab-btn.active {
-  color: #667eea;
-  border-bottom-color: #667eea;
+  color: var(--primary-start);
+  border-bottom-color: var(--primary-start);
 }
 
 /* 필터 */
@@ -860,7 +860,7 @@ onUnmounted(() => {
   border-radius: 8px;
   font-size: 13px;
   cursor: pointer;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   color: #fff;
 }
 
@@ -878,7 +878,7 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   color: rgba(255,255,255,0.7);
   transition: all 0.2s;
 }
@@ -961,7 +961,7 @@ td {
 .trade-row { cursor: pointer; transition: background 0.2s; }
 .trade-row:hover { background: rgba(255,255,255,0.04); }
 
-.rank { font-weight: 700; color: #667eea; text-align: center; }
+.rank { font-weight: 700; color: var(--primary-start); text-align: center; }
 .stock-name { font-weight: 600; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stock-code { color: rgba(255,255,255,0.4); font-family: monospace; }
 
@@ -1052,7 +1052,7 @@ td {
 .card-stock-code { font-size: 12px; color: rgba(255,255,255,0.35); font-family: monospace; }
 
 .consecutive-badge {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--primary-start), #764ba2);
   color: white;
   padding: 4px 12px;
   border-radius: 20px;
@@ -1175,7 +1175,7 @@ td {
   border: 1px solid rgba(102,126,234,0.2);
 }
 
-.status-message { color: #667eea; font-weight: 600; margin-bottom: 10px; }
+.status-message { color: var(--primary-start); font-weight: 600; margin-bottom: 10px; }
 
 .status-details {
   display: flex;
@@ -1187,7 +1187,7 @@ td {
 }
 
 .status-details span {
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   padding: 4px 12px;
   border-radius: 20px;
   border: 1px solid rgba(255,255,255,0.08);

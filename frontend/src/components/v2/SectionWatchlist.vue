@@ -181,7 +181,7 @@ export default {
 
 <style scoped>
 .section-card {
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   padding: 24px;
@@ -203,7 +203,7 @@ export default {
 .section-icon { margin-right: 6px; }
 .count-badge {
   font-size: 12px;
-  color: #667eea;
+  color: var(--primary-start);
   background: rgba(102,126,234,0.15);
   padding: 2px 10px;
   border-radius: 10px;
@@ -280,7 +280,7 @@ export default {
   width: 28px;
   height: 28px;
   border: none;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
@@ -340,7 +340,7 @@ export default {
   box-sizing: border-box;
 }
 .form-input:focus {
-  border-color: #667eea;
+  border-color: var(--primary-start);
 }
 .condition-btns { display: flex; gap: 8px; }
 .cond-btn {
@@ -355,7 +355,7 @@ export default {
   transition: all 0.2s;
 }
 .cond-btn.active {
-  border-color: #667eea;
+  border-color: var(--primary-start);
   background: rgba(102,126,234,0.15);
   color: #8b9cf7;
 }
@@ -374,7 +374,7 @@ export default {
   color: rgba(255,255,255,0.6);
 }
 .btn-save {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--primary-start), #764ba2);
   color: #fff;
 }
 .btn-save:disabled {

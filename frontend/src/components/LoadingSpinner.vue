@@ -52,7 +52,7 @@ defineProps({
   width: 56px;
   height: 56px;
   border: 5px solid #f0f0f0;
-  border-top: 5px solid #667eea;
+  border-top: 5px solid var(--primary-start);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
@@ -65,7 +65,7 @@ defineProps({
 
 .loading-spinner p {
   margin: 0;
-  color: #667eea;
+  color: var(--primary-start);
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.5px;

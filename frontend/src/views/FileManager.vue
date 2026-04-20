@@ -791,7 +791,7 @@ onUnmounted(() => {
 }
 
 .breadcrumb-item:hover {
-  color: #667eea;
+  color: var(--primary-start);
 }
 
 .breadcrumb-item .separator {
@@ -801,7 +801,7 @@ onUnmounted(() => {
 
 .breadcrumb-item.active,
 .breadcrumb-item .active {
-  color: #667eea;
+  color: var(--primary-start);
   font-weight: 600;
 }
 
@@ -854,7 +854,7 @@ onUnmounted(() => {
 }
 
 .sort-dropdown select:focus {
-  border-color: #667eea;
+  border-color: var(--primary-start);
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
 }
 
@@ -890,7 +890,7 @@ onUnmounted(() => {
 }
 
 .file-item:hover {
-  border-color: #667eea;
+  border-color: var(--primary-start);
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
 }
@@ -973,7 +973,7 @@ onUnmounted(() => {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   color: white;
 }
 
@@ -1056,7 +1056,7 @@ onUnmounted(() => {
 
 .form-group input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--primary-start);
 }
 
 .file-preview {

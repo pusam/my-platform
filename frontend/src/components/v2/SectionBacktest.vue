@@ -255,7 +255,7 @@ export default {
 
 <style scoped>
 .section-card {
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   padding: 24px;
@@ -289,7 +289,7 @@ export default {
 }
 .period-btn.active {
   background: rgba(102,126,234,0.2);
-  border-color: #667eea;
+  border-color: var(--primary-start);
   color: #8b9cf7;
 }
 
@@ -308,7 +308,7 @@ export default {
   background: rgba(102,126,234,0.12);
   border: 1px solid rgba(102,126,234,0.25);
   border-radius: 10px;
-  color: #667eea;
+  color: var(--primary-start);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -377,7 +377,7 @@ export default {
   font-size: 10px;
   padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   color: rgba(255,255,255,0.45);
 }
 
@@ -467,7 +467,7 @@ export default {
   cursor: pointer;
   transition: background 0.2s;
 }
-.pick-row:hover { background: rgba(255,255,255,0.05); }
+.pick-row:hover { background: var(--border-light); }
 .pick-info { flex: 1; min-width: 0; }
 .pick-name { font-size: 13px; color: rgba(255,255,255,0.8); }
 .pick-code { font-size: 10px; color: rgba(255,255,255,0.3); margin-left: 4px; }

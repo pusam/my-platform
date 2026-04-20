@@ -667,11 +667,11 @@ onUnmounted(() => {
 }
 .main-tab:hover {
   color: rgba(255,255,255,0.8);
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
 }
 .main-tab.active {
   color: #fff;
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, var(--primary-start), #764ba2);
 }
 
 .page-container {
@@ -714,7 +714,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 10px;
   padding: 6px 14px;
@@ -787,7 +787,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.auto-toggle input { accent-color: #667eea; }
+.auto-toggle input { accent-color: var(--primary-start); }
 
 /* 코스피 영향 배너 */
 .impact-banner {
@@ -1028,7 +1028,7 @@ onUnmounted(() => {
   font-size: 0.7rem;
   color: #888;
   padding: 2px 8px;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border-radius: 4px;
 }
 
@@ -1138,7 +1138,7 @@ onUnmounted(() => {
   font-size: 0.7rem;
   color: #888;
   padding: 2px 8px;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border-radius: 4px;
 }
 
@@ -1337,7 +1337,7 @@ onUnmounted(() => {
 .exchange-badge {
   padding: 3px 10px;
   background: rgba(102,126,234,0.2);
-  color: #667eea;
+  color: var(--primary-start);
   border-radius: 6px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1432,7 +1432,7 @@ onUnmounted(() => {
   font-size: 0.7rem;
   color: #888;
   padding: 2px 8px;
-  background: rgba(255,255,255,0.05);
+  background: var(--border-light);
   border-radius: 4px;
 }
 
@@ -1462,7 +1462,7 @@ onUnmounted(() => {
   font-size: 0.75rem;
   color: #666;
   padding-top: 8px;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--border-light);
 }
 
 /* 테이블 */
@@ -1489,7 +1489,7 @@ onUnmounted(() => {
 
 .futures-table td {
   padding: 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--border-light);
   color: #ddd;
 }
 
@@ -1518,7 +1518,7 @@ onUnmounted(() => {
   width: 40px;
   height: 40px;
   border: 3px solid #2a2a4a;
-  border-top-color: #667eea;
+  border-top-color: var(--primary-start);
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -1546,7 +1546,7 @@ onUnmounted(() => {
   font-size: 0.75rem;
   color: #555;
   padding: 20px 0;
-  border-top: 1px solid rgba(255,255,255,0.05);
+  border-top: 1px solid var(--border-light);
 }
 
 /* 반응형 */

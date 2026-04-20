@@ -657,7 +657,7 @@ export default {
   padding: 8px 16px;
   border: none;
   border-radius: 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   color: white;
   font-weight: 600;
   cursor: pointer;
@@ -971,7 +971,7 @@ export default {
 
 .stock-input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--primary-start);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
@@ -979,7 +979,7 @@ export default {
   padding: 12px 24px;
   border: none;
   border-radius: 8px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary-start) 0%, #764ba2 100%);
   color: white;
   font-weight: 600;
   cursor: pointer;
@@ -1403,7 +1403,7 @@ export default {
 
 .lookback-select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--primary-start);
 }
 
 .divergence-result {
