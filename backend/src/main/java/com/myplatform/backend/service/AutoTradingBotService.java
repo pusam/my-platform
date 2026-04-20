@@ -545,7 +545,28 @@ public class AutoTradingBotService {
             return getBotStatus();
         }
 
-        currentMode = mode != null ? mode : TradingMode.VIRTUAL;
+        TradingMode newMode = mode != null ? mode : TradingMode.VIRTUAL;
+
+        // 모드 전환 시 in-memory + DB 포지션 모두 정리.
+        // 이유: BotTradingPosition은 mode 컬럼이 없어 REAL↔VIRTUAL 포지션 구분 불가.
+        //      전환 후 이전 모드 포지션을 새 모드 계좌로 매도 시도하면 "보유 없음" 오류.
+        if (currentMode != newMode) {
+            int cleared = scalpingPositions.size() + swingPositions.size() + closingPositions.size();
+            if (cleared > 0) {
+                log.warn("[스캘핑봇] 모드 전환 감지 ({} → {}): 기존 포지션 {}개 정리",
+                        currentMode.getDisplayName(), newMode.getDisplayName(), cleared);
+                scalpingPositions.clear();
+                swingPositions.clear();
+                closingPositions.clear();
+                try {
+                    positionRepository.deleteAll();
+                } catch (Exception e) {
+                    log.error("[스캘핑봇] 모드 전환 시 포지션 DB 삭제 실패: {}", e.getMessage());
+                }
+            }
+        }
+
+        currentMode = newMode;
         activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
 
         botActive.set(true);

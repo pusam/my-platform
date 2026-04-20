@@ -11,13 +11,14 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, provide } from 'vue';
+import { ref, computed, watch, provide, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import NotificationBell from './components/NotificationBell.vue';
 import NewsToast from './components/NewsToast.vue';
 import AppToast from './components/AppToast.vue';
 import BackToTop from './components/BackToTop.vue';
 import { TokenManager } from './utils/auth';
+import { setToastHandler } from './utils/toast';
 
 const router = useRouter();
 const route = useRoute();
@@ -28,13 +29,17 @@ const isStockPage = computed(() => {
   return stockPaths.some(p => route.path.startsWith(p));
 });
 
-// 토스트 알림 글로벌 제공
+// 토스트 알림 글로벌 제공 (Vue inject + utils/api.js 등 비-Vue 모듈 양쪽에서 사용)
 const appToast = ref(null)
 provide('toast', {
   success: (msg) => appToast.value?.show(msg, 'success'),
   error: (msg) => appToast.value?.show(msg, 'error', 5000),
   warning: (msg) => appToast.value?.show(msg, 'warning'),
   info: (msg) => appToast.value?.show(msg, 'info')
+})
+
+onMounted(() => {
+  setToastHandler((msg, type, duration) => appToast.value?.show(msg, type, duration))
 })
 
 watch(

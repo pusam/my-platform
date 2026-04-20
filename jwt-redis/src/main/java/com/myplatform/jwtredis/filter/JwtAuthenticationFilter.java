@@ -65,6 +65,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
             return bearerToken.substring(7);
         }
+        // EventSource는 Authorization 헤더를 지원하지 않음 → SSE 경로에 한해 쿼리 파라미터 허용
+        String uri = request.getRequestURI();
+        if (uri != null && uri.startsWith("/api/sse/")) {
+            String tokenParam = request.getParameter("token");
+            if (StringUtils.hasText(tokenParam)) {
+                return tokenParam;
+            }
+        }
         return null;
     }
 }

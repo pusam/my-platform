@@ -106,8 +106,8 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/v3/api-docs.yaml").permitAll()
 
-                        // SSE (Server-Sent Events) - EventSource는 Authorization 헤더 불가
-                        .requestMatchers("/api/sse/**").permitAll()
+                        // SSE (Server-Sent Events) - JwtAuthenticationFilter가 ?token= 쿼리 파라미터 허용
+                        .requestMatchers("/api/sse/**").authenticated()
 
                         // 자동매매 봇 + 실전투자 API - ADMIN만 허용
                         .requestMatchers("/api/paper-trading/bot/**").hasRole("ADMIN")

@@ -34,19 +34,21 @@ public class CacheConfig {
         cacheManager.setCaches(Arrays.asList(
             // ========== 섹터 거래대금 캐시 (5분 TTL) ==========
             // 실시간성보다 성능 우선 (API 호출 최소화)
-            buildCache("sectorTrading", 300, 100),
-            buildCache("sectorTradingToday", 300, 100),
-            buildCache("sectorTradingMin5", 300, 100),
-            buildCache("sectorTradingMin30", 300, 100),
+            // 섹터 카디널리티 200+ → 충분한 크기로 조정
+            buildCache("sectorTrading", 300, 300),
+            buildCache("sectorTradingToday", 300, 300),
+            buildCache("sectorTradingMin5", 300, 300),
+            buildCache("sectorTradingMin30", 300, 300),
 
             // ========== 주식 시세 캐시 (3분 TTL) ==========
-            buildCache("stockPrice", 180, 500),
-            buildCache("stockPriceBatch", 180, 50),
+            buildCache("stockPrice", 180, 1000),
+            buildCache("stockPriceBatch", 180, 100),
 
             // ========== 투자자 매매동향 캐시 (5분 TTL) ==========
-            buildCache("investorTrend", 300, 200),
-            buildCache("continuousBuy", 300, 200),
-            buildCache("supplySurge", 300, 200),
+            // 투자자 × 시장 × 종목 조합 → 카디널리티 폭발 대비
+            buildCache("investorTrend", 300, 500),
+            buildCache("continuousBuy", 300, 500),
+            buildCache("supplySurge", 300, 500),
 
             // ========== 연속 매수 종목 캐시 (1시간 TTL) ==========
             // 장 마감 후 하루에 한 번 변경되므로 긴 TTL 적용

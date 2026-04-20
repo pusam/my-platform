@@ -6,8 +6,13 @@ spring:
       on-profile: prod
   jpa:
     hibernate:
-      ddl-auto: update # 컬럼 추가 후 validate로 변경 권장
+      ddl-auto: validate # Flyway가 스키마를 전담 — 드리프트 방지
     show-sql: false
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 logging:
   level:
     root: WARN

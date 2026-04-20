@@ -920,8 +920,10 @@ const startSseSubscription = (taskType) => {
   showProgressBar.value = true;
 
   // SSE 연결 (API 베이스 URL 사용)
+  // EventSource는 Authorization 헤더를 지원하지 않아 쿼리 파라미터로 JWT 전달
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  const sseUrl = `${baseUrl}/api/sse/subscribe?taskType=${taskType}&clientId=${Date.now()}`;
+  const jwt = localStorage.getItem('jwt_token') || '';
+  const sseUrl = `${baseUrl}/api/sse/subscribe?taskType=${taskType}&clientId=${Date.now()}&token=${encodeURIComponent(jwt)}`;
 
   const eventSource = new EventSource(sseUrl, { withCredentials: true });
   sseConnection.value = eventSource;

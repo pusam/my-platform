@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { TokenManager, UserManager } from './auth';
+import { toast } from './toast';
 
 // Axios 인스턴스 생성
 const apiClient = axios.create({
@@ -35,7 +36,7 @@ apiClient.interceptors.response.use(
   },
   (error) => {
     if (error.response && error.response.status === 429) {
-      alert('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
+      toast.warning('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
       return Promise.reject(error);
     }
     if (error.response && error.response.status === 401 && !isRedirecting) {
