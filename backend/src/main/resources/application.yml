@@ -24,7 +24,9 @@ spring:
   jpa:
     database-platform: org.hibernate.dialect.MariaDBDialect
     open-in-view: false
-    defer-datasource-initialization: true  # Flyway 이후 JPA 초기화
+    # defer-datasource-initialization 은 data.sql/schema.sql 전용 속성이며
+    # SB 4.0 에서 Flyway autoconfig 와 결합 시 flyway ↔ entityManagerFactory
+    # 순환 의존을 유발 → 사용하지 않음 (마이그레이션은 Flyway 가 담당)
     properties:
       hibernate:
         format_sql: true
