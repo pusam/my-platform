@@ -6,7 +6,9 @@ spring:
       on-profile: prod
   jpa:
     hibernate:
-      ddl-auto: update # TODO: prod DB 스키마 드리프트 정리 후 validate 로 복구 (diet_record 누락 이슈)
+      # Flyway 로 스키마 관리 정상화 + V16 고아 테이블 정리 완료 후 validate 로 복귀.
+      # 이후 스키마 변경은 모두 V17+ Flyway 마이그레이션으로 적용.
+      ddl-auto: validate
     show-sql: false
 springdoc:
   api-docs:
