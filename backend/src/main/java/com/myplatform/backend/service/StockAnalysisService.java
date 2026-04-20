@@ -558,7 +558,14 @@ public class StockAnalysisService {
             // ⚠️ Rate Limit 방어: API 호출 전 딜레이
             try {
                 Thread.sleep(200);
-            } catch (InterruptedException ignored) {}
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return TechnicalAnalysisDto.builder()
+                        .score(50)
+                        .assessment("분석 중단됨")
+                        .signalDescription("스레드 인터럽트로 중단")
+                        .build();
+            }
 
             // KIS API에서 OHLCV 데이터 조회 (재시도 포함)
             int maxRetries = 2;
@@ -566,8 +573,15 @@ public class StockAnalysisService {
                 if (retry > 0) {
                     log.info("종목 {} KIS API 재시도 {}/{}", stockCode, retry, maxRetries);
                     try {
-                        Thread.sleep(500 * retry);  // 재시도 시 더 긴 딜레이
-                    } catch (InterruptedException ignored) {}
+                        Thread.sleep(500L * retry);  // 재시도 시 더 긴 딜레이
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return TechnicalAnalysisDto.builder()
+                                .score(50)
+                                .assessment("분석 중단됨")
+                                .signalDescription("스레드 인터럽트로 중단")
+                                .build();
+                    }
                 }
 
                 try {

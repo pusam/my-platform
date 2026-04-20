@@ -7,6 +7,7 @@ import com.myplatform.backend.service.BoardService;
 import com.myplatform.core.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
@@ -82,7 +83,7 @@ public class BoardController {
     @Operation(summary = "게시글 작성", description = "새 게시글을 작성합니다.")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<BoardDto>> createBoard(
-            @RequestPart("board") BoardRequest request,
+            @Valid @RequestPart("board") BoardRequest request,
             @RequestPart(value = "files", required = false) List<MultipartFile> files,
             Authentication authentication) {
 
@@ -98,7 +99,7 @@ public class BoardController {
     @PutMapping(value = "/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<BoardDto>> updateBoard(
             @PathVariable Long id,
-            @RequestPart("board") BoardRequest request,
+            @Valid @RequestPart("board") BoardRequest request,
             @RequestPart(value = "files", required = false) List<MultipartFile> files,
             Authentication authentication) {
 

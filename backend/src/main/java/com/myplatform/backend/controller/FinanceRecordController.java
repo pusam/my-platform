@@ -11,6 +11,7 @@ import com.myplatform.backend.service.FinanceTransactionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -84,7 +85,7 @@ public class FinanceRecordController {
     @PostMapping("/transactions")
     public ResponseEntity<ApiResponse<FinanceTransactionDto>> addTransaction(
             Authentication authentication,
-            @RequestBody FinanceTransactionRequest request) {
+            @Valid @RequestBody FinanceTransactionRequest request) {
         String username = authentication.getName();
         FinanceTransactionDto saved = transactionService.addTransaction(username, request);
         return ResponseEntity.ok(ApiResponse.success(saved));
