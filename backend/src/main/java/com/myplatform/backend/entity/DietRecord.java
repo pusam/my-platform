@@ -34,7 +34,9 @@ public class DietRecord {
     @Column(name = "fat", precision = 6, scale = 1)
     private BigDecimal fat;
 
-    @Column(name = "portion", length = 50)
+    // `portion` 은 MariaDB 11+ 에서 application-time period (FOR PORTION OF) 용 예약어라
+    // 백틱 미감쌈 DDL 에서 문법 에러 발생 → 컬럼명만 portion_size 로 우회 (JSON 필드명은 그대로)
+    @Column(name = "portion_size", length = 50)
     private String portion;
 
     @Column(name = "meal_date", nullable = false)

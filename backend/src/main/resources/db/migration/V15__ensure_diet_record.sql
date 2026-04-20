@@ -10,7 +10,9 @@ CREATE TABLE IF NOT EXISTS diet_record (
     protein DECIMAL(6,1) DEFAULT 0,
     carbs DECIMAL(6,1) DEFAULT 0,
     fat DECIMAL(6,1) DEFAULT 0,
-    portion VARCHAR(50),
+    -- MariaDB 11+ 에서 PORTION 이 application-time period 용 예약어로 잡혀
+    -- Hibernate 자동생성 DDL 이 문법 에러를 내므로 컬럼명을 portion_size 로 사용
+    portion_size VARCHAR(50),
     meal_date DATE NOT NULL,
     memo VARCHAR(500),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
