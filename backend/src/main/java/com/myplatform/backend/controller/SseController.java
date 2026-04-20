@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.service.SseEmitterService;
+import com.myplatform.jwtredis.provider.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -8,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -26,7 +28,29 @@ import java.util.UUID;
 @Tag(name = "SSE", description = "Server-Sent Events 실시간 스트리밍 API")
 public class SseController {
 
+    private static final long SSE_TICKET_TTL_MS = 30_000L; // 30초
+
     private final SseEmitterService sseEmitterService;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    /**
+     * SSE 연결용 단기 토큰(티켓) 발급
+     * - 기본 JWT 는 수명이 길어 URL 쿼리 파라미터로 노출되면 위험
+     * - 이 엔드포인트는 Authorization 헤더로 JWT 검증 후,
+     *   30초만 유효한 단기 JWT 를 발급해 SSE URL 에 사용하도록 함
+     */
+    @PostMapping("/auth-ticket")
+    @Operation(summary = "SSE 연결용 단기 토큰 발급",
+               description = "30초 유효한 단기 JWT 를 발급합니다. SSE 연결 시 ?token=<단기토큰> 으로 사용하세요.")
+    public ResponseEntity<Map<String, Object>> issueSseTicket(Authentication authentication) {
+        String username = authentication.getName();
+        String ticket = jwtTokenProvider.generateToken(username, SSE_TICKET_TTL_MS);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "ticket", ticket,
+                "expiresInSeconds", SSE_TICKET_TTL_MS / 1000
+        ));
+    }
 
     /**
      * SSE 구독 엔드포인트

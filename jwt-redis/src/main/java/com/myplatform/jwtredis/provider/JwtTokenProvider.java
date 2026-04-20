@@ -32,8 +32,15 @@ public class JwtTokenProvider {
     }
 
     public String generateToken(String username) {
+        return generateToken(username, jwtExpiration);
+    }
+
+    /**
+     * 커스텀 TTL(ms) 로 토큰 발급 — SSE 쿼리 파라미터 등 짧게 유효해야 하는 경우용
+     */
+    public String generateToken(String username, long ttlMs) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + jwtExpiration);
+        Date expiryDate = new Date(now.getTime() + ttlMs);
 
         return Jwts.builder()
                 .setSubject(username)

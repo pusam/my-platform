@@ -902,7 +902,7 @@ const collectAllFinancialData = async () => {
 };
 
 // SSE 구독 시작
-const startSseSubscription = (taskType) => {
+const startSseSubscription = async (taskType) => {
   // 기존 연결 종료
   if (sseConnection.value) {
     sseConnection.value.close();
@@ -921,10 +921,22 @@ const startSseSubscription = (taskType) => {
   showProgressBar.value = true;
 
   // SSE 연결 (API 베이스 URL 사용)
-  // EventSource는 Authorization 헤더를 지원하지 않아 쿼리 파라미터로 JWT 전달
+  // EventSource는 Authorization 헤더 미지원 → 쿼리 파라미터로 토큰 전달해야 하는데
+  // 장기 JWT 를 쿼리에 노출하면 access log / referrer / 브라우저 히스토리에 남아 위험.
+  // 대신 30초만 유효한 단기 티켓을 발급받아 사용.
   const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  const jwt = localStorage.getItem('jwt_token') || '';
-  const sseUrl = `${baseUrl}/api/sse/subscribe?taskType=${taskType}&clientId=${Date.now()}&token=${encodeURIComponent(jwt)}`;
+  let ticket = '';
+  try {
+    const ticketRes = await api.post('/sse/auth-ticket');
+    ticket = ticketRes?.data?.ticket || '';
+  } catch (err) {
+    console.error('SSE 티켓 발급 실패:', err);
+    toast.error('SSE 인증 실패 — 다시 로그인해주세요.');
+    showProgressBar.value = false;
+    return;
+  }
+
+  const sseUrl = `${baseUrl}/api/sse/subscribe?taskType=${taskType}&clientId=${Date.now()}&token=${encodeURIComponent(ticket)}`;
 
   const eventSource = new EventSource(sseUrl, { withCredentials: true });
   sseConnection.value = eventSource;
