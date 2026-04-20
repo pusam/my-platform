@@ -945,6 +945,7 @@ import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';
 import api from '../utils/api';
+import { toast } from '../utils/toast';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -1460,13 +1461,13 @@ const searchStock = async () => {
             searchedName = searchResult.data.data[0].stockName;
             stockName.value = searchedName;
           } else {
-            alert('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
+            toast.warning('종목을 찾을 수 없습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
             loading.value = false;
             return;
           }
         } catch (apiError) {
           console.warn('[StockDetail] API 검색 실패:', apiError);
-          alert('종목 검색에 실패했습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
+          toast.error('종목 검색에 실패했습니다. 정확한 종목명이나 6자리 코드를 입력해주세요.');
           loading.value = false;
           return;
         }
@@ -1494,7 +1495,7 @@ const searchStock = async () => {
     }
   } catch (error) {
     console.error('종목 조회 오류:', error);
-    alert('종목 조회에 실패했습니다.');
+    toast.error('종목 조회에 실패했습니다.');
   } finally {
     loading.value = false;
   }

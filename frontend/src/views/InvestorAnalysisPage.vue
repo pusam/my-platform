@@ -307,6 +307,7 @@
 import { ref, computed, onMounted, onUnmounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
 import { investorAPI } from '../utils/api'
+import { toast } from '../utils/toast'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
 
@@ -576,12 +577,12 @@ const collectSurgeSnapshot = async () => {
   try {
     const response = await investorAPI.collectSurge()
     if (response.data.success) {
-      alert('스냅샷 수집 완료!')
+      toast.success('스냅샷 수집 완료!')
       await fetchSurge()
     }
   } catch (error) {
     console.error('스냅샷 수집 오류:', error)
-    alert('스냅샷 수집 실패')
+    toast.error('스냅샷 수집 실패')
   } finally {
     surgeCollecting.value = false
   }

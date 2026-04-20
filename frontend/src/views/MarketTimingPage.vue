@@ -450,6 +450,7 @@ const props = defineProps({
 });
 import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
+import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
 import { Line } from 'vue-chartjs';
 import {
@@ -743,13 +744,13 @@ const collectBackfillData = async () => {
       backfillResult.value = response.data.data;
       // 수집 후 히스토리 새로고침
       await fetchAdrHistory();
-      alert('기간별 데이터 수집이 완료되었습니다.');
+      toast.success('기간별 데이터 수집이 완료되었습니다.');
     } else {
-      alert('수집 실패: ' + response.data.message);
+      toast.error('수집 실패: ' + response.data.message);
     }
   } catch (error) {
     console.error('기간별 데이터 수집 실패:', error);
-    alert('기간별 데이터 수집에 실패했습니다.');
+    toast.error('기간별 데이터 수집에 실패했습니다.');
   } finally {
     isBackfilling.value = false;
   }
@@ -851,13 +852,13 @@ const collectData = async () => {
     if (response.data.success) {
       marketData.value = response.data.data;
       await fetchAdrHistory();
-      alert('시장 데이터 수집이 완료되었습니다.');
+      toast.success('시장 데이터 수집이 완료되었습니다.');
     } else {
-      alert('수집 실패: ' + response.data.message);
+      toast.error('수집 실패: ' + response.data.message);
     }
   } catch (error) {
     console.error('시장 데이터 수집 실패:', error);
-    alert('시장 데이터 수집에 실패했습니다.');
+    toast.error('시장 데이터 수집에 실패했습니다.');
   } finally {
     isCollecting.value = false;
   }

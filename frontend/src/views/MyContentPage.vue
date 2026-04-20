@@ -76,6 +76,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { boardAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
+import { toast } from '../utils/toast'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
 
@@ -143,7 +144,7 @@ const deleteBoard = async () => {
     fetchMyBoards(currentPage.value)
   } catch (err) {
     console.error('게시글 삭제 실패:', err)
-    alert('게시글 삭제에 실패했습니다.')
+    toast.error('게시글 삭제에 실패했습니다.')
   }
 }
 

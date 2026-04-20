@@ -482,6 +482,7 @@ import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { financeAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 import { Chart, ArcElement, Tooltip, Legend, DoughnutController } from 'chart.js';
@@ -872,7 +873,7 @@ const closeRecurringModal = () => {
 // 고정 수입/지출 등록/수정
 const submitRecurring = async () => {
   if (!recurringForm.value.name || !recurringForm.value.amount) {
-    alert('항목명과 금액은 필수 입력입니다.');
+    toast.warning('항목명과 금액은 필수 입력입니다.');
     return;
   }
 
@@ -895,7 +896,7 @@ const submitRecurring = async () => {
     } else {
       // 신규 등록
       if (!recurringForm.value.category || !recurringForm.value.startDate) {
-        alert('카테고리와 시작일은 필수 입력입니다.');
+        toast.warning('카테고리와 시작일은 필수 입력입니다.');
         return;
       }
       const data = {
@@ -914,7 +915,7 @@ const submitRecurring = async () => {
     }
   } catch (error) {
     console.error('Failed to save recurring:', error);
-    alert('저장에 실패했습니다.');
+    toast.error('저장에 실패했습니다.');
   } finally {
     savingRecurring.value = false;
   }
@@ -931,7 +932,7 @@ const deactivateRecurring = async (id) => {
     }
   } catch (error) {
     console.error('Failed to deactivate recurring:', error);
-    alert('비활성화에 실패했습니다.');
+    toast.error('비활성화에 실패했습니다.');
   }
 };
 
@@ -946,7 +947,7 @@ const deleteRecurring = async (id) => {
     }
   } catch (error) {
     console.error('Failed to delete recurring:', error);
-    alert('삭제에 실패했습니다.');
+    toast.error('삭제에 실패했습니다.');
   }
 };
 
@@ -961,7 +962,7 @@ const toggleHistory = (itemId) => {
 
 const submitTransaction = async () => {
   if (!form.value.category || !form.value.amount || !form.value.transactionDate) {
-    alert('카테고리, 금액, 날짜는 필수 입력입니다.');
+    toast.warning('카테고리, 금액, 날짜는 필수 입력입니다.');
     return;
   }
 
@@ -982,7 +983,7 @@ const submitTransaction = async () => {
     }
   } catch (error) {
     console.error('Failed to add transaction:', error);
-    alert('등록에 실패했습니다.');
+    toast.error('등록에 실패했습니다.');
   } finally {
     saving.value = false;
   }
@@ -996,7 +997,7 @@ const deleteTransaction = async (id) => {
     await loadTransactions();
   } catch (error) {
     console.error('Failed to delete transaction:', error);
-    alert('삭제에 실패했습니다.');
+    toast.error('삭제에 실패했습니다.');
   }
 };
 
@@ -1048,7 +1049,7 @@ const exportData = async (format) => {
     window.URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Export failed:', error);
-    alert('내보내기에 실패했습니다.');
+    toast.error('내보내기에 실패했습니다.');
   }
 };
 

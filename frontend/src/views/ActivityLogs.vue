@@ -109,6 +109,7 @@
 <script>
 import { adminAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import BackButton from '../components/BackButton.vue';
 
 export default {
@@ -149,7 +150,7 @@ export default {
         }
       } catch (error) {
         console.error('Failed to load logs:', error);
-        alert('로그를 불러오는데 실패했습니다.');
+        toast.error('로그를 불러오는데 실패했습니다.');
       } finally {
         this.loading = false;
       }

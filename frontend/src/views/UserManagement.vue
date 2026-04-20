@@ -91,6 +91,7 @@
 <script>
 import { adminAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import BackButton from '../components/BackButton.vue';
 
 export default {
@@ -120,7 +121,7 @@ export default {
         }
       } catch (error) {
         console.error('Failed to load users:', error);
-        alert('사용자 목록을 불러오는데 실패했습니다.');
+        toast.error('사용자 목록을 불러오는데 실패했습니다.');
       } finally {
         this.loading = false;
       }
@@ -139,11 +140,11 @@ export default {
       try {
         const response = await adminAPI.updateUserRole(user.id, user.role);
         if (response.data.success) {
-          alert('권한이 변경되었습니다.');
+          toast.success('권한이 변경되었습니다.');
         }
       } catch (error) {
         console.error('Failed to update role:', error);
-        alert('권한 변경에 실패했습니다.');
+        toast.error('권한 변경에 실패했습니다.');
         this.loadUsers();
       }
     },
@@ -151,12 +152,12 @@ export default {
       try {
         const response = await adminAPI.updateUserStatus(user.id, user.status);
         if (response.data.success) {
-          alert('상태가 변경되었습니다.');
+          toast.success('상태가 변경되었습니다.');
           this.loadStats();
         }
       } catch (error) {
         console.error('Failed to update status:', error);
-        alert('상태 변경에 실패했습니다.');
+        toast.error('상태 변경에 실패했습니다.');
         this.loadUsers();
       }
     },
@@ -164,12 +165,12 @@ export default {
       try {
         const response = await adminAPI.unlockUser(user.id);
         if (response.data.success) {
-          alert(`'${user.username}' 계정 잠금이 해제되었습니다.`);
+          toast.success(`'${user.username}' 계정 잠금이 해제되었습니다.`);
           this.loadUsers();
         }
       } catch (error) {
         console.error('Failed to unlock user:', error);
-        alert('잠금 해제에 실패했습니다.');
+        toast.error('잠금 해제에 실패했습니다.');
       }
     },
     async confirmDelete(user) {
@@ -179,13 +180,13 @@ export default {
       try {
         const response = await adminAPI.deleteUser(user.id);
         if (response.data.success) {
-          alert('사용자가 삭제되었습니다.');
+          toast.success('사용자가 삭제되었습니다.');
           this.loadUsers();
           this.loadStats();
         }
       } catch (error) {
         console.error('Failed to delete user:', error);
-        alert('삭제에 실패했습니다.');
+        toast.error('삭제에 실패했습니다.');
       }
     },
     formatDate(dateStr) {

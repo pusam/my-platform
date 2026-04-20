@@ -406,6 +406,7 @@
 
 <script>
 import apiClient, { adminAPI, telegramAPI } from '../utils/api';
+import { toast } from '../utils/toast';
 
 export default {
   name: 'AdminDashboard',
@@ -573,7 +574,7 @@ export default {
         }
       } catch (error) {
         console.error('API 통계 로딩 실패:', error)
-        alert('API 통계를 불러올 수 없습니다.')
+        toast.error('API 통계를 불러올 수 없습니다.')
       }
     },
     async clearCache() {
@@ -581,14 +582,14 @@ export default {
         try {
           const response = await apiClient.post('/admin/clear-cache')
           if (response.data.success) {
-            alert(response.data.message || '캐시가 초기화되었습니다.')
+            toast.success(response.data.message || '캐시가 초기화되었습니다.')
             this.loadStats() // 통계 새로고침
           } else {
-            alert(response.data.message || '캐시 초기화에 실패했습니다.')
+            toast.error(response.data.message || '캐시 초기화에 실패했습니다.')
           }
         } catch (error) {
           console.error('캐시 초기화 실패:', error)
-          alert('캐시 초기화에 실패했습니다.')
+          toast.error('캐시 초기화에 실패했습니다.')
         }
       }
     },
@@ -609,7 +610,7 @@ export default {
           alert(msg)
         }
       } catch (e) {
-        alert('디스크 정보 조회 실패')
+        toast.error('디스크 정보 조회 실패')
       }
     },
     viewSettings() {
@@ -652,13 +653,13 @@ export default {
         this.telegramTestLoading = true
         const response = await telegramAPI.sendTest()
         if (response.data.success) {
-          alert('테스트 메시지가 전송되었습니다. 텔레그램을 확인해주세요.')
+          toast.success('테스트 메시지가 전송되었습니다. 텔레그램을 확인해주세요.')
         } else {
-          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+          toast.error('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
         }
       } catch (error) {
         console.error('텔레그램 테스트 실패:', error)
-        alert('텔레그램 메시지 전송에 실패했습니다.')
+        toast.error('텔레그램 메시지 전송에 실패했습니다.')
       } finally {
         this.telegramTestLoading = false
       }
@@ -668,13 +669,13 @@ export default {
         this.telegramTestLoading = true
         const response = await telegramAPI.sendStockAlertTest()
         if (response.data.success) {
-          alert('종목 알림 테스트 메시지가 전송되었습니다.')
+          toast.success('종목 알림 테스트 메시지가 전송되었습니다.')
         } else {
-          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+          toast.error('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
         }
       } catch (error) {
         console.error('종목 알림 테스트 실패:', error)
-        alert('종목 알림 테스트에 실패했습니다.')
+        toast.error('종목 알림 테스트에 실패했습니다.')
       } finally {
         this.telegramTestLoading = false
       }
@@ -685,13 +686,13 @@ export default {
         const response = await telegramAPI.testChannel(channel)
         if (response.data.success) {
           const names = { all: '전체(3채널)', briefing: '브리핑', signal: '시그널', risk: '리스크' }
-          alert(`${names[channel] || channel} 채널 테스트 메시지가 전송되었습니다.`)
+          toast.success(`${names[channel] || channel} 채널 테스트 메시지가 전송되었습니다.`)
         } else {
-          alert('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
+          toast.error('전송 실패: ' + (response.data.message || '알 수 없는 오류'))
         }
       } catch (error) {
         console.error('채널 테스트 실패:', error)
-        alert('채널 테스트에 실패했습니다.')
+        toast.error('채널 테스트에 실패했습니다.')
       } finally {
         this.channelTestLoading = false
       }

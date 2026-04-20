@@ -276,6 +276,7 @@
 <script>
 import axios from 'axios';
 import DOMPurify from 'dompurify';
+import { toast } from '../utils/toast';
 import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
@@ -347,7 +348,7 @@ export default {
         }
       } catch (error) {
         console.error('게시글 로드 실패:', error);
-        alert('게시글을 불러오는데 실패했습니다.');
+        toast.error('게시글을 불러오는데 실패했습니다.');
       } finally {
         this.loading = false;
       }
@@ -373,7 +374,7 @@ export default {
         }
       } catch (error) {
         console.error('검색 실패:', error);
-        alert('검색에 실패했습니다.');
+        toast.error('검색에 실패했습니다.');
       } finally {
         this.loading = false;
       }
@@ -390,7 +391,7 @@ export default {
         }
       } catch (error) {
         console.error('게시글 조회 실패:', error);
-        alert('게시글을 불러오는데 실패했습니다.');
+        toast.error('게시글을 불러오는데 실패했습니다.');
       }
     },
     goToWrite() {
@@ -412,7 +413,7 @@ export default {
     },
     async submitForm() {
       if (!this.form.title.trim() || !this.form.content.trim()) {
-        alert('제목과 내용을 입력하세요.');
+        toast.warning('제목과 내용을 입력하세요.');
         return;
       }
 
@@ -445,13 +446,13 @@ export default {
         }
 
         if (response.data.success) {
-          alert(response.data.message);
+          toast.success(response.data.message);
           this.isWriting = false;
           this.loadBoards();
         }
       } catch (error) {
         console.error('게시글 작성/수정 실패:', error);
-        alert('게시글 작성/수정에 실패했습니다.');
+        toast.error('게시글 작성/수정에 실패했습니다.');
       }
     },
     confirmCancel() {
@@ -480,13 +481,13 @@ export default {
         });
 
         if (response.data.success) {
-          alert(response.data.message);
+          toast.success(response.data.message);
           this.selectedBoard = null;
           this.loadBoards();
         }
       } catch (error) {
         console.error('게시글 삭제 실패:', error);
-        alert('게시글 삭제에 실패했습니다.');
+        toast.error('게시글 삭제에 실패했습니다.');
       }
     },
     async deleteFile(boardId, fileId) {
@@ -500,7 +501,7 @@ export default {
         this.viewBoard(boardId);
       } catch (error) {
         console.error('파일 삭제 실패:', error);
-        alert('파일 삭제에 실패했습니다.');
+        toast.error('파일 삭제에 실패했습니다.');
       }
     },
     async downloadFile(fileId, filename) {
@@ -520,7 +521,7 @@ export default {
         link.remove();
       } catch (error) {
         console.error('파일 다운로드 실패:', error);
-        alert('파일 다운로드에 실패했습니다.');
+        toast.error('파일 다운로드에 실패했습니다.');
       }
     },
     handleFileChange(event) {
@@ -530,7 +531,7 @@ export default {
 
       for (const file of files) {
         if (file.size > maxFileSize) {
-          alert(`${file.name} 파일이 너무 큽니다. (최대 10MB)\n현재 크기: ${this.formatFileSize(file.size)}`);
+          toast.warning(`${file.name} 파일이 너무 큽니다. (최대 10MB) — 현재 ${this.formatFileSize(file.size)}`);
           event.target.value = '';
           return;
         }
@@ -540,7 +541,7 @@ export default {
       const totalSize = newFiles.reduce((sum, file) => sum + file.size, 0);
 
       if (totalSize > maxTotalSize) {
-        alert(`전체 파일 크기가 50MB를 초과합니다.\n현재 크기: ${this.formatFileSize(totalSize)}`);
+        toast.warning(`전체 파일 크기가 50MB를 초과합니다 — 현재 ${this.formatFileSize(totalSize)}`);
         event.target.value = '';
         return;
       }

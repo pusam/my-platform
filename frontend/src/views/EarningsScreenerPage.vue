@@ -706,6 +706,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
+import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -867,7 +868,7 @@ const collectAllInOne = async () => {
   } catch (error) {
     console.error('전체 데이터 수집 오류:', error);
     collectAllProgress.value = '❌ 수집 시작 오류';
-    alert('수집 시작 중 오류가 발생했습니다: ' + (error.response?.data?.message || error.message));
+    toast.error('수집 시작 중 오류가 발생했습니다: ' + (error.response?.data?.message || error.message));
     isCollectingAll.value = false;
     closeProgressBar();
   }

@@ -412,6 +412,7 @@ import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { assetAPI, stockAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -549,7 +550,7 @@ const deleteAsset = async (assetId) => {
     await loadData();
   } catch (error) {
     console.error('Failed to delete asset:', error);
-    alert('자산 삭제에 실패했습니다.');
+    toast.error('자산 삭제에 실패했습니다.');
   }
 };
 
@@ -736,7 +737,7 @@ const exportData = async (format) => {
     window.URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Export failed:', error);
-    alert('내보내기에 실패했습니다.');
+    toast.error('내보내기에 실패했습니다.');
   }
 };
 

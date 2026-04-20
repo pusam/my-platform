@@ -253,6 +253,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { carAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -344,7 +345,7 @@ const deleteRecord = async (id) => {
     await loadData();
   } catch (error) {
     console.error('Failed to delete record:', error);
-    alert('삭제에 실패했습니다.');
+    toast.error('삭제에 실패했습니다.');
   }
 };
 

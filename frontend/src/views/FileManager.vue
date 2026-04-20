@@ -223,6 +223,7 @@ import { ref, reactive, computed, onMounted, onUnmounted, watch, nextTick } from
 import { useRouter } from 'vue-router';
 import { fileAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 const router = useRouter();
@@ -427,7 +428,7 @@ const uploadFile = async () => {
     if (failed.length) {
       modalError.value = `${failed.join(', ')} 업로드 실패 (${total - failed.length}/${total} 성공)`;
     } else {
-      alert(`${total}개 파일 업로드 완료!`);
+      toast.success(`${total}개 파일 업로드 완료!`);
       closeUploadModal();
     }
     await loadFolder(currentFolderId.value);
@@ -498,7 +499,7 @@ const deleteSelected = async () => {
     await loadFolder(currentFolderId.value);
   } catch (error) {
     console.error('Failed to delete selected:', error);
-    alert('일부 항목 삭제에 실패했습니다.');
+    toast.error('일부 항목 삭제에 실패했습니다.');
     await loadFolder(currentFolderId.value);
   }
 };
@@ -517,7 +518,7 @@ const deleteItem = async () => {
     await loadFolder(currentFolderId.value);
   } catch (error) {
     console.error('Failed to delete:', error);
-    alert('삭제에 실패했습니다.');
+    toast.error('삭제에 실패했습니다.');
   } finally {
     closeContextMenu();
   }
@@ -540,7 +541,7 @@ const viewFile = async (file) => {
       };
     } catch (e) {
       console.error('이미지 로드 실패:', e);
-      alert('이미지를 불러올 수 없습니다: ' + e.message);
+      toast.error('이미지를 불러올 수 없습니다: ' + e.message);
     } finally {
       viewerLoading.value = false;
     }
@@ -555,7 +556,7 @@ const viewFile = async (file) => {
       };
     } catch (e) {
       console.error('비디오 로드 실패:', e);
-      alert('비디오를 불러올 수 없습니다: ' + e.message);
+      toast.error('비디오를 불러올 수 없습니다: ' + e.message);
     } finally {
       viewerLoading.value = false;
     }
@@ -604,7 +605,7 @@ const downloadFile = async (file) => {
     URL.revokeObjectURL(url);
   } catch (e) {
     console.error('다운로드 실패:', e);
-    alert('파일을 다운로드할 수 없습니다.');
+    toast.error('파일을 다운로드할 수 없습니다.');
   }
 };
 

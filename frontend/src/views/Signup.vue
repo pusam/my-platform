@@ -130,6 +130,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { signup } from '../utils/api';
+import { toast } from '../utils/toast';
 
 const router = useRouter();
 
@@ -246,8 +247,7 @@ const handleSignup = async () => {
 
     if (response.success) {
       successMessage.value = response.message;
-      // 성공 메시지를 alert로도 표시
-      alert(response.message);
+      toast.success(response.message);
       // 3초 후 로그인 페이지로 이동
       setTimeout(() => {
         router.push('/login');

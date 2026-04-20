@@ -136,6 +136,7 @@ import { ref, onMounted } from 'vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
 import { exerciseAPI } from '../utils/api';
+import { toast } from '../utils/toast';
 
 const loading = ref(false);
 const records = ref([]);
@@ -188,7 +189,7 @@ const submitForm = async () => {
     }
     closeModal();
     loadRecords();
-  } catch (e) { alert('저장 실패: ' + e.message); }
+  } catch (e) { toast.error('저장 실패: ' + e.message); }
 };
 
 const openEdit = (r) => {
@@ -211,7 +212,7 @@ const closeModal = () => {
 const deleteRecord = async (id) => {
   if (!confirm('삭제하시겠습니까?')) return;
   try { await exerciseAPI.deleteRecord(id); loadRecords(); }
-  catch (e) { alert('삭제 실패'); }
+  catch (e) { toast.error('삭제 실패'); }
 };
 
 onMounted(loadRecords);

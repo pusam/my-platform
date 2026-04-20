@@ -84,6 +84,7 @@ const props = defineProps({
 import { useRouter } from 'vue-router';
 import { newsAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
+import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
 
@@ -166,7 +167,7 @@ const fetchNews = async () => {
     await loadNews();
   } catch (error) {
     console.error('뉴스 수집 실패:', error);
-    alert('뉴스 수집에 실패했습니다. AI 서버(Ollama)가 실행 중인지 확인해주세요.');
+    toast.error('뉴스 수집에 실패했습니다. AI 서버(Ollama)가 실행 중인지 확인해주세요.');
   } finally {
     fetchingNews.value = false;
   }
