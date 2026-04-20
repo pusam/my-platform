@@ -215,6 +215,7 @@ const createChartFromData = (historyData) => {
           display: true,
           position: 'top',
           labels: {
+            color: '#b0b0c8',
             font: {
               size: 14,
               family: "'Noto Sans KR', sans-serif"
@@ -223,7 +224,11 @@ const createChartFromData = (historyData) => {
           }
         },
         tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          backgroundColor: 'rgba(15, 15, 26, 0.95)',
+          titleColor: '#f0f0f5',
+          bodyColor: '#f0f0f5',
+          borderColor: 'rgba(209, 213, 219, 0.4)',
+          borderWidth: 1,
           padding: 12,
           titleFont: {
             size: 14
@@ -242,6 +247,7 @@ const createChartFromData = (historyData) => {
         y: {
           beginAtZero: false,
           ticks: {
+            color: '#b0b0c8',
             callback: function(value) {
               return formatPrice(value) + '원'
             },
@@ -250,11 +256,12 @@ const createChartFromData = (historyData) => {
             }
           },
           grid: {
-            color: 'rgba(0, 0, 0, 0.05)'
+            color: 'rgba(255, 255, 255, 0.06)'
           }
         },
         x: {
           ticks: {
+            color: '#b0b0c8',
             font: {
               size: 12
             }
@@ -303,6 +310,7 @@ const createChart = () => {
           display: true,
           position: 'top',
           labels: {
+            color: '#b0b0c8',
             font: {
               size: 14,
               family: "'Noto Sans KR', sans-serif"
@@ -311,7 +319,11 @@ const createChart = () => {
           }
         },
         tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          backgroundColor: 'rgba(15, 15, 26, 0.95)',
+          titleColor: '#f0f0f5',
+          bodyColor: '#f0f0f5',
+          borderColor: 'rgba(209, 213, 219, 0.4)',
+          borderWidth: 1,
           padding: 12,
           titleFont: {
             size: 14
@@ -330,6 +342,7 @@ const createChart = () => {
         y: {
           beginAtZero: false,
           ticks: {
+            color: '#b0b0c8',
             callback: function(value) {
               return formatPrice(value) + '원'
             },
@@ -338,11 +351,12 @@ const createChart = () => {
             }
           },
           grid: {
-            color: 'rgba(0, 0, 0, 0.05)'
+            color: 'rgba(255, 255, 255, 0.06)'
           }
         },
         x: {
           ticks: {
+            color: '#b0b0c8',
             font: {
               size: 12
             }
@@ -460,12 +474,8 @@ onUnmounted(() => {
 <style scoped>
 @import '../assets/css/common.css';
 
-.silver-theme {
-  background: linear-gradient(135deg, #c0c0c0 0%, #708090 100%);
-}
-
 .silver-theme .common-header h1 {
-  background: linear-gradient(135deg, #708090 0%, #c0c0c0 100%);
+  background: linear-gradient(135deg, var(--silver-primary) 0%, var(--silver-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -478,57 +488,29 @@ onUnmounted(() => {
   min-height: 300px;
 }
 
-.silver-price-widget {
-  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-  border: 2px solid #c0c0c0;
-  border-radius: 10px;
-  padding: 30px;
-  margin-bottom: 30px;
-  position: relative;
-  min-height: 200px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-/* Keep remaining widget styles - remove duplicate header styles */
-.logout-btn-placeholder {
-  /* placeholder to maintain file structure */
-  display: none;
-  background: #f44336;
-  color: white;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background 0.3s;
-}
-
-.logout-btn:hover {
-  background: #d32f2f;
-}
-
 .page-content {
   max-width: 800px;
   margin: 0 auto;
 }
 
 .silver-price-widget {
-  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
-  border: 2px solid #c0c0c0;
-  border-radius: 10px;
-  padding: 30px;
-  margin-bottom: 30px;
+  background: var(--card-bg);
+  border: 1px solid rgba(209, 213, 219, 0.25);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  margin-bottom: var(--spacing-lg);
   position: relative;
   min-height: 200px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--card-shadow);
 }
 
 .widget-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-md);
   padding-bottom: 16px;
-  border-bottom: 2px solid #e0e0e0;
+  border-bottom: 1px solid rgba(209, 213, 219, 0.2);
 }
 
 .widget-title {
@@ -543,40 +525,45 @@ onUnmounted(() => {
 
 .widget-header h2 {
   margin: 0;
-  color: #708090;
-  font-size: 24px;
+  color: var(--silver-primary);
+  font-size: var(--header-title-size);
+  font-weight: var(--header-title-weight);
 }
 
 .update-time {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .price-main {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .price-label {
   font-size: 16px;
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
 .price-value {
   font-size: 48px;
   font-weight: bold;
-  color: #708090;
+  background: linear-gradient(135deg, var(--silver-primary) 0%, var(--silver-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .price-details {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
   padding: 16px;
-  background: rgba(192, 192, 192, 0.1);
-  border-radius: 10px;
+  background: var(--silver-light);
+  border: 1px solid rgba(209, 213, 219, 0.18);
+  border-radius: 12px;
 }
 
 .detail-item {
@@ -587,29 +574,29 @@ onUnmounted(() => {
 
 .detail-item .label {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .detail-item .value {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .detail-item .value.positive {
-  color: #e74c3c;
+  color: var(--stock-up);
 }
 
 .detail-item .value.negative {
-  color: #3498db;
+  color: var(--stock-down);
 }
 
 .price-range {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
 }
 
 .range-item {
@@ -617,28 +604,29 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   padding: 12px;
-  background: white;
+  background: var(--bg-surface);
   border-radius: 8px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border-light);
 }
 
 .range-item .label {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .range-item .value {
   font-size: 14px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .range-item .value.high {
-  color: #e74c3c;
+  color: var(--stock-up);
 }
 
 .range-item .value.low {
-  color: #3498db;
+  color: var(--stock-down);
 }
 
 .widget-footer {
@@ -646,28 +634,29 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding-top: 16px;
-  border-top: 1px solid #e0e0e0;
+  border-top: 1px solid rgba(209, 213, 219, 0.2);
 }
 
 .next-update {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .refresh-btn {
-  background: linear-gradient(135deg, #c0c0c0, #a8a8a8);
-  color: #333;
+  background: linear-gradient(135deg, var(--silver-primary) 0%, var(--silver-secondary) 100%);
+  color: #1a1a2e;
   border: none;
   padding: 12px 24px;
-  border-radius: 5px;
+  border-radius: 10px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #d0d0d0, #c0c0c0);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(209, 213, 219, 0.4);
 }
 
 .refresh-btn:disabled {
@@ -678,14 +667,14 @@ onUnmounted(() => {
 .loading, .error {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #e0e0e0;
-  border-top-color: #c0c0c0;
+  border: 4px solid rgba(209, 213, 219, 0.2);
+  border-top-color: var(--silver-primary);
   border-radius: 50%;
   margin: 0 auto 16px;
   animation: spin 1s linear infinite;
@@ -697,32 +686,40 @@ onUnmounted(() => {
 
 .retry-btn {
   margin-top: 16px;
-  background: linear-gradient(135deg, #c0c0c0, #a8a8a8);
-  color: #333;
+  background: linear-gradient(135deg, var(--silver-primary) 0%, var(--silver-secondary) 100%);
+  color: #1a1a2e;
   border: none;
   padding: 12px 24px;
-  border-radius: 5px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.retry-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(209, 213, 219, 0.4);
 }
 
 /* 차트 섹션 */
 .chart-section {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
+  margin-bottom: var(--spacing-md);
 }
 
 .chart-header {
-  margin-bottom: 25px;
+  margin-bottom: var(--spacing-md);
 }
 
 .chart-header h2 {
   margin: 0;
-  color: #333;
-  font-size: 22px;
+  color: var(--text-white);
+  font-size: var(--header-title-size);
   font-weight: 600;
 }
 
@@ -738,22 +735,24 @@ onUnmounted(() => {
 }
 
 .info-section {
-  background: white;
-  padding: 25px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .info-section h3 {
-  margin: 0 0 20px 0;
-  color: #333;
+  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-white);
   font-size: 20px;
+  font-weight: 700;
 }
 
 .info-section ul {
   margin: 0;
   padding-left: 20px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .info-section li {
