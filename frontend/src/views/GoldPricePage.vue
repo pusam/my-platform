@@ -211,6 +211,7 @@ const createChartFromData = (historyData) => {
           display: true,
           position: 'top',
           labels: {
+            color: '#b0b0c8',
             font: {
               size: 14,
               family: "'Noto Sans KR', sans-serif"
@@ -219,7 +220,11 @@ const createChartFromData = (historyData) => {
           }
         },
         tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          backgroundColor: 'rgba(15, 15, 26, 0.95)',
+          titleColor: '#f0f0f5',
+          bodyColor: '#f0f0f5',
+          borderColor: 'rgba(251, 191, 36, 0.4)',
+          borderWidth: 1,
           padding: 12,
           titleFont: {
             size: 14
@@ -238,6 +243,7 @@ const createChartFromData = (historyData) => {
         y: {
           beginAtZero: false,
           ticks: {
+            color: '#b0b0c8',
             callback: function(value) {
               return formatPrice(value) + '원'
             },
@@ -246,11 +252,12 @@ const createChartFromData = (historyData) => {
             }
           },
           grid: {
-            color: 'rgba(0, 0, 0, 0.05)'
+            color: 'rgba(255, 255, 255, 0.06)'
           }
         },
         x: {
           ticks: {
+            color: '#b0b0c8',
             font: {
               size: 12
             }
@@ -299,6 +306,7 @@ const createChart = () => {
           display: true,
           position: 'top',
           labels: {
+            color: '#b0b0c8',
             font: {
               size: 14,
               family: "'Noto Sans KR', sans-serif"
@@ -307,7 +315,11 @@ const createChart = () => {
           }
         },
         tooltip: {
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          backgroundColor: 'rgba(15, 15, 26, 0.95)',
+          titleColor: '#f0f0f5',
+          bodyColor: '#f0f0f5',
+          borderColor: 'rgba(251, 191, 36, 0.4)',
+          borderWidth: 1,
           padding: 12,
           titleFont: {
             size: 14
@@ -326,6 +338,7 @@ const createChart = () => {
         y: {
           beginAtZero: false,
           ticks: {
+            color: '#b0b0c8',
             callback: function(value) {
               return formatPrice(value) + '원'
             },
@@ -334,11 +347,12 @@ const createChart = () => {
             }
           },
           grid: {
-            color: 'rgba(0, 0, 0, 0.05)'
+            color: 'rgba(255, 255, 255, 0.06)'
           }
         },
         x: {
           ticks: {
+            color: '#b0b0c8',
             font: {
               size: 12
             }
@@ -467,12 +481,9 @@ onUnmounted(() => {
 <style scoped>
 @import '../assets/css/common.css';
 
-.gold-theme {
-  background: linear-gradient(135deg, #f7b733 0%, #fc4a1a 100%);
-}
-
+/* gold-theme 은 이제 다크 테마 기본 + 금색 액센트로만 작동 */
 .gold-theme .common-header h1 {
-  background: linear-gradient(135deg, #b8860b 0%, #daa520 100%);
+  background: linear-gradient(135deg, var(--gold-primary) 0%, var(--gold-secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -486,23 +497,23 @@ onUnmounted(() => {
 }
 
 .gold-price-widget {
-  background: linear-gradient(135deg, #fff9e6 0%, #ffffff 100%);
-  border: 2px solid #ffd700;
-  border-radius: 10px;
-  padding: 30px;
-  margin-bottom: 30px;
+  background: var(--card-bg);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  margin-bottom: var(--spacing-lg);
   position: relative;
   min-height: 200px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--card-shadow);
 }
 
 .widget-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-md);
   padding-bottom: 16px;
-  border-bottom: 2px solid #f0e68c;
+  border-bottom: 1px solid rgba(251, 191, 36, 0.2);
 }
 
 .widget-title {
@@ -517,40 +528,45 @@ onUnmounted(() => {
 
 .widget-header h2 {
   margin: 0;
-  color: #b8860b;
-  font-size: 24px;
+  color: var(--gold-primary);
+  font-size: var(--header-title-size);
+  font-weight: var(--header-title-weight);
 }
 
 .update-time {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .price-main {
   text-align: center;
-  margin-bottom: 30px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .price-label {
   font-size: 16px;
-  color: #666;
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 
 .price-value {
   font-size: 48px;
   font-weight: bold;
-  color: #b8860b;
+  background: linear-gradient(135deg, var(--gold-primary) 0%, var(--gold-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .price-details {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
   padding: 16px;
-  background: rgba(255, 215, 0, 0.1);
-  border-radius: 10px;
+  background: var(--gold-light);
+  border: 1px solid rgba(251, 191, 36, 0.18);
+  border-radius: 12px;
 }
 
 .detail-item {
@@ -561,29 +577,29 @@ onUnmounted(() => {
 
 .detail-item .label {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .detail-item .value {
   font-size: 16px;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .detail-item .value.positive {
-  color: #e74c3c;
+  color: var(--stock-up);
 }
 
 .detail-item .value.negative {
-  color: #3498db;
+  color: var(--stock-down);
 }
 
 .price-range {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
 }
 
 .range-item {
@@ -591,28 +607,29 @@ onUnmounted(() => {
   flex-direction: column;
   align-items: center;
   padding: 12px;
-  background: white;
+  background: var(--bg-surface);
   border-radius: 8px;
-  border: 1px solid #eee;
+  border: 1px solid var(--border-light);
 }
 
 .range-item .label {
   font-size: 12px;
-  color: #888;
+  color: var(--text-muted);
   margin-bottom: 4px;
 }
 
 .range-item .value {
   font-size: 14px;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
 .range-item .value.high {
-  color: #e74c3c;
+  color: var(--stock-up);
 }
 
 .range-item .value.low {
-  color: #3498db;
+  color: var(--stock-down);
 }
 
 .widget-footer {
@@ -620,28 +637,29 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding-top: 16px;
-  border-top: 1px solid #f0e68c;
+  border-top: 1px solid rgba(251, 191, 36, 0.2);
 }
 
 .next-update {
   font-size: 13px;
-  color: #888;
+  color: var(--text-muted);
 }
 
 .refresh-btn {
-  background: linear-gradient(135deg, #ffd700, #daa520);
-  color: #333;
+  background: linear-gradient(135deg, var(--gold-primary) 0%, var(--gold-secondary) 100%);
+  color: #1a1a2e;
   border: none;
   padding: 12px 24px;
-  border-radius: 5px;
+  border-radius: 10px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ffed4a, #ffd700);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(251, 191, 36, 0.4);
 }
 
 .refresh-btn:disabled {
@@ -652,14 +670,14 @@ onUnmounted(() => {
 .loading, .error {
   text-align: center;
   padding: 60px 20px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .spinner {
   width: 40px;
   height: 40px;
-  border: 4px solid #f0e68c;
-  border-top-color: #ffd700;
+  border: 4px solid rgba(251, 191, 36, 0.2);
+  border-top-color: var(--gold-primary);
   border-radius: 50%;
   margin: 0 auto 16px;
   animation: spin 1s linear infinite;
@@ -671,32 +689,40 @@ onUnmounted(() => {
 
 .retry-btn {
   margin-top: 16px;
-  background: linear-gradient(135deg, #ffd700, #daa520);
-  color: #333;
+  background: linear-gradient(135deg, var(--gold-primary) 0%, var(--gold-secondary) 100%);
+  color: #1a1a2e;
   border: none;
   padding: 12px 24px;
-  border-radius: 5px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.retry-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(251, 191, 36, 0.4);
 }
 
 /* 차트 섹션 */
 .chart-section {
-  background: white;
-  padding: 30px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  margin-bottom: 20px;
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
+  margin-bottom: var(--spacing-md);
 }
 
 .chart-header {
-  margin-bottom: 25px;
+  margin-bottom: var(--spacing-md);
 }
 
 .chart-header h2 {
   margin: 0;
-  color: #333;
-  font-size: 22px;
+  color: var(--text-white);
+  font-size: var(--header-title-size);
   font-weight: 600;
 }
 
@@ -712,22 +738,24 @@ onUnmounted(() => {
 }
 
 .info-section {
-  background: white;
-  padding: 25px;
-  border-radius: 10px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .info-section h3 {
-  margin: 0 0 20px 0;
-  color: #333;
+  margin: 0 0 var(--spacing-md) 0;
+  color: var(--text-white);
   font-size: 20px;
+  font-weight: 700;
 }
 
 .info-section ul {
   margin: 0;
   padding-left: 20px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .info-section li {

@@ -713,29 +713,30 @@ export default {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
 }
 
 .stat-card {
-  background: white;
-  padding: 25px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
   display: flex;
   align-items: center;
   gap: 15px;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--card-shadow-hover);
 }
 
 .stat-icon {
   font-size: 48px;
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .stat-info {
@@ -745,7 +746,7 @@ export default {
 .stat-info h3 {
   margin: 0 0 8px 0;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -753,50 +754,52 @@ export default {
   margin: 0;
   font-size: 32px;
   font-weight: bold;
-  color: #333;
+  color: var(--text-white);
 }
 
 .stat-status {
   margin: 0;
   font-size: 24px;
   font-weight: bold;
+  color: var(--text-white);
 }
 
 .stat-status.healthy {
-  color: #4CAF50;
+  color: var(--success);
 }
 
 .stat-detail {
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
 }
 
-/* 색상 테마 */
-.stat-card.users { border-left: 4px solid #2196F3; }
-.stat-card.boards { border-left: 4px solid #4CAF50; }
-.stat-card.files { border-left: 4px solid #FF9800; }
-.stat-card.assets { border-left: 4px solid #9C27B0; }
-.stat-card.status { border-left: 4px solid #4CAF50; }
-.stat-card.admin { border-left: 4px solid #F44336; }
+/* 색상 테마 - border-left 액센트 */
+.stat-card.users { border-left: 4px solid var(--info); }
+.stat-card.boards { border-left: 4px solid var(--success); }
+.stat-card.files { border-left: 4px solid var(--warning); }
+.stat-card.assets { border-left: 4px solid var(--primary-start); }
+.stat-card.status { border-left: 4px solid var(--success); }
+.stat-card.admin { border-left: 4px solid var(--danger); }
 
 /* 관리 섹션 */
 .admin-sections {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 20px;
-  margin-bottom: 30px;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
 }
 
 .section {
-  background: white;
-  padding: 25px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .section.highlight {
-  border: 2px solid #FF9800;
-  background: linear-gradient(135deg, #FFF3E0 0%, #FFE0B2 100%);
+  border: 2px solid var(--warning);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.12) 0%, rgba(245, 158, 11, 0.08) 100%);
 }
 
 .section-header {
@@ -809,11 +812,12 @@ export default {
 .section-header h2 {
   margin: 0;
   font-size: 18px;
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .badge {
-  background: #F44336;
+  background: var(--danger);
   color: white;
   padding: 4px 12px;
   border-radius: 20px;
@@ -822,7 +826,7 @@ export default {
 }
 
 .section p {
-  color: #666;
+  color: var(--text-secondary);
   margin: 0 0 15px 0;
   font-size: 14px;
 }
@@ -835,42 +839,50 @@ export default {
 
 .action-btn {
   padding: 10px 20px;
-  background: #2196F3;
+  background: var(--primary-gradient);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 14px;
-  font-weight: 500;
-  transition: background 0.2s;
+  font-weight: 600;
+  transition: all var(--transition-normal);
 }
 
-.action-btn:hover {
-  background: #1976D2;
+.action-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(129, 140, 248, 0.35);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .action-btn.primary {
-  background: #FF9800;
+  background: linear-gradient(135deg, var(--warning) 0%, var(--gold-secondary) 100%);
   font-size: 16px;
   padding: 12px 24px;
 }
 
 .action-btn.primary:hover {
-  background: #F57C00;
+  box-shadow: 0 4px 14px rgba(251, 191, 36, 0.4);
 }
 
 /* 최근 활동 */
 .recent-activity {
-  background: white;
-  padding: 25px;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  padding: var(--card-padding);
+  border-radius: var(--card-radius);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .recent-activity h2 {
-  margin: 0 0 20px 0;
+  margin: 0 0 var(--spacing-md) 0;
   font-size: 18px;
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .activity-list {
@@ -884,8 +896,9 @@ export default {
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: #F5F5F5;
+  background: var(--bg-surface);
   border-radius: 8px;
+  border: 1px solid var(--border-light);
 }
 
 .activity-icon {
@@ -894,12 +907,12 @@ export default {
 
 .activity-text {
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 /* 관리자 배지 */
 .admin-badge {
-  background: linear-gradient(135deg, #F44336 0%, #E91E63 100%);
+  background: linear-gradient(135deg, var(--danger) 0%, #ec4899 100%);
   color: white;
   padding: 4px 12px;
   border-radius: 20px;
@@ -910,18 +923,19 @@ export default {
 
 /* 서버 모니터링 섹션 */
 .server-monitor-section {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 30px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  margin-bottom: var(--spacing-lg);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .server-monitor-section .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--spacing-md);
   flex-wrap: wrap;
   gap: 16px;
 }
@@ -929,7 +943,8 @@ export default {
 .server-monitor-section .section-header h2 {
   margin: 0;
   font-size: 20px;
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .monitor-actions {
@@ -943,7 +958,7 @@ export default {
   align-items: center;
   gap: 6px;
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
   cursor: pointer;
 }
 
@@ -956,21 +971,23 @@ export default {
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #667eea;
+  background: var(--primary-gradient);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all var(--transition-normal);
 }
 
 .refresh-btn:hover:not(:disabled) {
-  background: #5568d3;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(129, 140, 248, 0.35);
 }
 
 .refresh-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -986,15 +1003,15 @@ export default {
 .monitor-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 20px;
-  margin-bottom: 24px;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
 }
 
 .monitor-card {
-  background: #f8f9fa;
+  background: var(--bg-surface);
   border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #e9ecef;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-light);
 }
 
 .monitor-header {
@@ -1005,13 +1022,14 @@ export default {
 }
 
 .monitor-header svg {
-  color: #667eea;
+  color: var(--primary-start);
 }
 
 .monitor-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .monitor-content {
@@ -1022,7 +1040,7 @@ export default {
 
 .usage-bar-container {
   height: 12px;
-  background: #e9ecef;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 6px;
   overflow: hidden;
 }
@@ -1034,32 +1052,32 @@ export default {
 }
 
 .usage-bar.normal {
-  background: linear-gradient(90deg, #4caf50, #66bb6a);
+  background: linear-gradient(90deg, var(--success), #10b981);
 }
 
 .usage-bar.warning {
-  background: linear-gradient(90deg, #ff9800, #ffb74d);
+  background: linear-gradient(90deg, var(--warning), var(--gold-secondary));
 }
 
 .usage-bar.critical {
-  background: linear-gradient(90deg, #f44336, #e57373);
+  background: linear-gradient(90deg, var(--danger), #ef4444);
 }
 
 .usage-value {
   font-size: 24px;
   font-weight: bold;
-  color: #333;
+  color: var(--text-white);
 }
 
 .monitor-details {
-  border-top: 1px solid #e9ecef;
+  border-top: 1px solid var(--border-light);
   padding-top: 12px;
 }
 
 .monitor-details p {
   margin: 0 0 6px 0;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .monitor-details p:last-child {
@@ -1068,16 +1086,17 @@ export default {
 
 /* 시스템 정보 카드 */
 .system-info-card {
-  background: #f8f9fa;
+  background: var(--bg-surface);
   border-radius: 12px;
-  padding: 20px;
-  border: 1px solid #e9ecef;
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-light);
 }
 
 .system-info-card h3 {
   margin: 0 0 16px 0;
   font-size: 16px;
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 600;
 }
 
 .system-info-grid {
@@ -1094,35 +1113,36 @@ export default {
 
 .info-label {
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
   text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .info-value {
   font-size: 14px;
-  color: #333;
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .monitor-error {
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 /* 상태 카드 온라인/오프라인 */
 .stat-status.online {
-  color: #4caf50;
+  color: var(--success);
 }
 
 .stat-status.offline {
-  color: #ff9800;
+  color: var(--warning);
 }
 
 /* 모의투자 섹션 */
 .paper-trading-section {
-  border-left: 4px solid #9f7aea;
-  background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+  border-left: 4px solid #a78bfa;
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.10) 0%, rgba(129, 140, 248, 0.06) 100%);
 }
 
 .trading-buttons {
@@ -1140,8 +1160,8 @@ export default {
   border: 2px solid;
   border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s;
-  background: white;
+  transition: all var(--transition-normal);
+  background: var(--bg-surface);
 }
 
 .trading-btn .btn-icon {
@@ -1161,48 +1181,48 @@ export default {
 
 .trading-btn .btn-text small {
   font-size: 12px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .trading-btn.virtual {
-  border-color: #48bb78;
-  color: #276749;
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .trading-btn.virtual:hover {
-  background: #f0fff4;
-  border-color: #38a169;
+  background: rgba(52, 211, 153, 0.08);
+  border-color: #10b981;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);
+  box-shadow: 0 4px 12px rgba(52, 211, 153, 0.25);
 }
 
 .trading-btn.real {
-  border-color: #e53e3e;
-  color: #c53030;
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .trading-btn.real:hover {
-  background: #fff5f5;
-  border-color: #c53030;
+  background: rgba(248, 113, 113, 0.08);
+  border-color: #ef4444;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(229, 62, 62, 0.3);
+  box-shadow: 0 4px 12px rgba(248, 113, 113, 0.25);
 }
 
 /* 텔레그램 섹션 */
 .telegram-section {
-  border-left: 4px solid #0088cc;
+  border-left: 4px solid var(--info);
 }
 
 .channel-test-group {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid #e9ecef;
+  border-top: 1px solid var(--border-light);
 }
 
 .channel-test-label {
   font-size: 13px;
   font-weight: 600;
-  color: #6c757d;
+  color: var(--text-secondary);
   display: block;
   margin-bottom: 8px;
 }
@@ -1213,10 +1233,11 @@ export default {
 }
 
 .telegram-info {
-  background: #f8f9fa;
+  background: var(--bg-surface);
   padding: 12px 16px;
   border-radius: 8px;
   margin-bottom: 16px;
+  border: 1px solid var(--border-light);
 }
 
 .telegram-detail {
@@ -1225,10 +1246,11 @@ export default {
   gap: 8px;
   font-size: 14px;
   padding: 4px 0;
+  color: var(--text-primary);
 }
 
 .telegram-detail .label {
-  color: #666;
+  color: var(--text-secondary);
   min-width: 60px;
 }
 
@@ -1240,22 +1262,24 @@ export default {
 }
 
 .status-badge.active {
-  background: #d4edda;
-  color: #155724;
+  background: var(--success-light);
+  color: var(--success);
+  border: 1px solid rgba(52, 211, 153, 0.3);
 }
 
 .status-badge.inactive {
-  background: #f8d7da;
-  color: #721c24;
+  background: var(--danger-light);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.3);
 }
 
 .text-positive {
-  color: #28a745;
+  color: var(--success);
   font-weight: 500;
 }
 
 .text-negative {
-  color: #dc3545;
+  color: var(--danger);
   font-weight: 500;
 }
 

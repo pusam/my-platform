@@ -211,11 +211,12 @@ export default {
 }
 
 .filters-section {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 24px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  margin-bottom: var(--section-gap);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
   display: flex;
   gap: 16px;
   align-items: flex-end;
@@ -230,78 +231,89 @@ export default {
 
 .filter-group label {
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .filter-group input,
 .filter-group select {
   padding: 10px 14px;
-  border: 1px solid #ddd;
-  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
   font-size: 14px;
   min-width: 150px;
+  background: var(--bg-white);
+  color: var(--text-primary);
 }
 
 .btn-search {
   padding: 10px 20px;
-  background: #667eea;
+  background: var(--primary-gradient);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all var(--transition-normal);
 }
 
 .btn-search:hover {
-  background: #5568d3;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(129, 140, 248, 0.35);
 }
 
 .btn-reset {
   padding: 10px 20px;
-  background: #f1f3f5;
-  color: #666;
-  border: none;
-  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all var(--transition-fast);
 }
 
 .btn-reset:hover {
-  background: #e9ecef;
+  background: var(--bg-elevated);
+  color: var(--primary-start);
+  border-color: var(--primary-start);
 }
 
 .logs-section {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background: var(--card-bg);
+  border-radius: var(--card-radius);
+  padding: var(--card-padding);
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-light);
 }
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-md);
   padding-bottom: 16px;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .section-header h2 {
   margin: 0;
   font-size: 18px;
-  color: #333;
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 .log-count {
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .loading, .empty-state {
   text-align: center;
   padding: 40px;
-  color: #666;
+  color: var(--text-muted);
 }
 
 .logs-list {
@@ -314,29 +326,32 @@ export default {
   display: flex;
   gap: 16px;
   padding: 16px;
-  background: #f8f9fa;
+  background: var(--bg-surface);
   border-radius: 10px;
-  border-left: 4px solid #ccc;
+  border-left: 4px solid var(--text-light);
+  border-top: 1px solid var(--border-light);
+  border-right: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .log-item.login {
-  border-left-color: #4caf50;
+  border-left-color: var(--success);
 }
 
 .log-item.logout {
-  border-left-color: #9e9e9e;
+  border-left-color: var(--text-muted);
 }
 
 .log-item.role {
-  border-left-color: #ff9800;
+  border-left-color: var(--warning);
 }
 
 .log-item.status {
-  border-left-color: #2196f3;
+  border-left-color: var(--info);
 }
 
 .log-item.delete {
-  border-left-color: #f44336;
+  border-left-color: var(--danger);
 }
 
 .log-icon {
@@ -346,28 +361,28 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: white;
+  background: var(--bg-elevated);
   flex-shrink: 0;
 }
 
 .log-item.login .log-icon {
-  color: #4caf50;
+  color: var(--success);
 }
 
 .log-item.logout .log-icon {
-  color: #9e9e9e;
+  color: var(--text-muted);
 }
 
 .log-item.role .log-icon {
-  color: #ff9800;
+  color: var(--warning);
 }
 
 .log-item.status .log-icon {
-  color: #2196f3;
+  color: var(--info);
 }
 
 .log-item.delete .log-icon {
-  color: #f44336;
+  color: var(--danger);
 }
 
 .log-content {
@@ -383,28 +398,28 @@ export default {
 
 .log-username {
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .log-action-type {
   font-size: 12px;
   padding: 2px 8px;
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 4px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .log-description {
   margin: 0 0 8px 0;
   font-size: 14px;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .log-meta {
   display: flex;
   gap: 16px;
   font-size: 12px;
-  color: #999;
+  color: var(--text-muted);
 }
 
 .pagination {
@@ -412,28 +427,35 @@ export default {
   justify-content: center;
   align-items: center;
   gap: 16px;
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top: 1px solid #eee;
+  margin-top: var(--section-gap);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--border-light);
 }
 
 .page-btn {
   padding: 8px 16px;
-  background: #667eea;
+  background: var(--primary-gradient);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
+  font-weight: 600;
+  transition: all var(--transition-normal);
+}
+
+.page-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(129, 140, 248, 0.35);
 }
 
 .page-btn:disabled {
-  background: #ccc;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .page-info {
   font-size: 14px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 768px) {
