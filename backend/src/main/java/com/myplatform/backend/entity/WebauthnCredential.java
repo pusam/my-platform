@@ -18,8 +18,7 @@ public class WebauthnCredential {
     @Column(name = "credential_id", nullable = false, length = 512)
     private byte[] credentialId;
 
-    @Lob
-    @Column(name = "public_key", nullable = false)
+    @Column(name = "public_key", nullable = false, length = 65535)
     private byte[] publicKey;
 
     @Column(name = "sign_count", nullable = false)
