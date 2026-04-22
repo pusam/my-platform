@@ -8,8 +8,14 @@ export default defineConfig(({ mode }) => ({
     vue(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['pwa-icon.svg', 'pwa-icon-maskable.svg'],
+      includeAssets: [
+        'pwa-icon.svg', 'pwa-icon-maskable.svg',
+        'pwa-icon-192.png', 'pwa-icon-512.png',
+        'pwa-icon-maskable-192.png', 'pwa-icon-maskable-512.png',
+        'apple-touch-icon.png',
+      ],
       manifest: {
+        id: '/',
         name: 'MyPlatform',
         short_name: 'MyPlatform',
         description: '주식 매매·관심종목·가계부를 한 곳에서',
@@ -21,18 +27,14 @@ export default defineConfig(({ mode }) => ({
         start_url: '/',
         scope: '/',
         icons: [
-          {
-            src: '/pwa-icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'any'
-          },
-          {
-            src: '/pwa-icon-maskable.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'maskable'
-          }
+          // PNG (Chrome/Android/iOS 호환성 1순위)
+          { src: '/pwa-icon-192.png',         sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-icon-512.png',         sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-icon-maskable-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: '/pwa-icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          // SVG (가능한 환경에서는 벡터 사용 — 어떤 사이즈로도 깨짐 없음)
+          { src: '/pwa-icon.svg',          sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+          { src: '/pwa-icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ]
       },
       workbox: {
