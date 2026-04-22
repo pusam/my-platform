@@ -123,6 +123,54 @@
             <div class="alert alert-error" v-if="passwordError">{{ passwordError }}</div>
           </div>
         </section>
+
+        <!-- 생체인증 (WebAuthn) 섹션 -->
+        <section class="settings-card" v-if="webauthnSupported">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 11c-3 0-3 5-6 5M12 11c3 0 3 5 6 5M12 11V7M12 7a4 4 0 014 4M12 7a4 4 0 00-4 4"/>
+                <path d="M4 11a8 8 0 0116 0v4a8 8 0 01-16 0z"/>
+              </svg>
+            </div>
+            <h2>지문 / Face ID 로그인</h2>
+          </div>
+
+          <div class="card-body">
+            <p class="input-hint">비밀번호 대신 지문/Face ID 로 로그인할 수 있어요. 한 계정에 여러 기기 등록 가능합니다.</p>
+
+            <div v-if="loadingCredentials" class="input-hint">불러오는 중…</div>
+
+            <div v-else-if="credentials.length === 0" class="input-hint" style="margin: 12px 0;">
+              아직 등록된 기기가 없습니다.
+            </div>
+
+            <ul v-else class="webauthn-list">
+              <li v-for="c in credentials" :key="c.id" class="webauthn-item">
+                <div>
+                  <strong>{{ c.deviceName || '기기' }}</strong>
+                  <div class="input-hint">
+                    등록: {{ formatDate(c.createdAt) }}
+                    <span v-if="c.lastUsedAt"> · 마지막 사용: {{ formatDate(c.lastUsedAt) }}</span>
+                  </div>
+                </div>
+                <button @click="removeCredential(c.id)" class="btn btn-danger btn-sm">삭제</button>
+              </li>
+            </ul>
+
+            <div class="form-group" style="margin-top: 16px;">
+              <label>기기 이름 (선택)</label>
+              <input type="text" v-model="newDeviceName" placeholder="예: 내 아이폰" maxlength="50" />
+            </div>
+
+            <button @click="registerWebauthn" :disabled="registering" class="btn btn-primary">
+              {{ registering ? '등록 중…' : '이 기기 생체인증 등록' }}
+            </button>
+
+            <div class="alert alert-success" v-if="webauthnMessage">{{ webauthnMessage }}</div>
+            <div class="alert alert-error" v-if="webauthnError">{{ webauthnError }}</div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -134,6 +182,12 @@ import { useRouter } from 'vue-router'
 import { userSettingsAPI } from '../utils/api'
 import { UserManager } from '../utils/auth'
 import BackButton from '../components/BackButton.vue'
+import {
+  isWebauthnSupported,
+  registerWebauthn as doRegisterWebauthn,
+  listCredentials as fetchCredentials,
+  deleteCredential as removeCredentialApi,
+} from '../utils/webauthn'
 
 const router = useRouter()
 
@@ -167,6 +221,60 @@ const profileMessage = ref('')
 const profileError = ref('')
 const passwordMessage = ref('')
 const passwordError = ref('')
+
+// WebAuthn
+const webauthnSupported = ref(false)
+const credentials = ref([])
+const loadingCredentials = ref(false)
+const registering = ref(false)
+const newDeviceName = ref('')
+const webauthnMessage = ref('')
+const webauthnError = ref('')
+
+const loadCredentials = async () => {
+  if (!webauthnSupported.value) return
+  loadingCredentials.value = true
+  try {
+    credentials.value = await fetchCredentials()
+  } catch (e) {
+    webauthnError.value = e.message || '목록 조회 실패'
+  } finally {
+    loadingCredentials.value = false
+  }
+}
+
+const registerWebauthn = async () => {
+  webauthnMessage.value = ''
+  webauthnError.value = ''
+  registering.value = true
+  try {
+    await doRegisterWebauthn(newDeviceName.value)
+    webauthnMessage.value = '지문/생체인증이 등록되었습니다.'
+    newDeviceName.value = ''
+    await loadCredentials()
+  } catch (e) {
+    if (e?.name === 'NotAllowedError') {
+      webauthnError.value = '사용자가 취소했거나 이 기기에 생체인증을 사용할 수 없습니다.'
+    } else {
+      webauthnError.value = e.message || '등록 실패'
+    }
+  } finally {
+    registering.value = false
+  }
+}
+
+const removeCredential = async (id) => {
+  if (!confirm('이 기기 등록을 삭제할까요?')) return
+  webauthnMessage.value = ''
+  webauthnError.value = ''
+  try {
+    await removeCredentialApi(id)
+    webauthnMessage.value = '삭제되었습니다.'
+    await loadCredentials()
+  } catch (e) {
+    webauthnError.value = e.message || '삭제 실패'
+  }
+}
 
 const goBack = () => {
   router.back()
@@ -331,6 +439,10 @@ const formatDate = (dateStr) => {
 
 onMounted(() => {
   fetchProfile()
+  webauthnSupported.value = isWebauthnSupported()
+  if (webauthnSupported.value) {
+    loadCredentials()
+  }
 })
 </script>
 
@@ -524,6 +636,25 @@ onMounted(() => {
   margin-top: 10px;
   font-size: 13px;
   color: var(--danger);
+}
+
+.webauthn-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.webauthn-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 @media (max-width: 768px) {

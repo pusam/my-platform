@@ -56,6 +56,9 @@ dependencies {
 
     // Web Scraping (Jsoup)
     implementation 'org.jsoup:jsoup:1.17.2'
+
+    // WebAuthn (지문/Face ID/패스키 로그인)
+    implementation 'com.webauthn4j:webauthn4j-core:0.28.4.RELEASE'
 }
 
 // 프론트엔드 빌드 태스크 (CI에서는 -PskipFrontend로 건너뛰기)

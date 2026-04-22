@@ -174,6 +174,15 @@ cache:
   redis:
     enabled: ${CACHE_REDIS_ENABLED:false}
 
+# WebAuthn (지문/Face ID/패스키) 설정
+# 운영: WEBAUTHN_RP_ID=dhkim-lab.duckdns.org, WEBAUTHN_ORIGIN=https://dhkim-lab.duckdns.org
+# 개발: localhost 기본값 사용
+webauthn:
+  rp-id: ${WEBAUTHN_RP_ID:localhost}
+  rp-name: ${WEBAUTHN_RP_NAME:MyPlatform}
+  origin: ${WEBAUTHN_ORIGIN:http://localhost:5173}
+  timeout-ms: 60000
+
 # 7. Swagger - 기본 비활성화. dev 프로필 또는 환경변수 SPRINGDOC_ENABLED=true 로 명시 활성화.
 springdoc:
   api-docs:

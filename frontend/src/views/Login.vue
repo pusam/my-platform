@@ -86,6 +86,21 @@
             로그인 중...
           </span>
         </button>
+
+        <!-- WebAuthn (지문/Face ID) 로그인 -->
+        <button
+          v-if="webauthnSupported"
+          type="button"
+          class="webauthn-btn"
+          :disabled="webauthnLoading || !username"
+          @click="handleWebauthnLogin"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 11c-3 0-3 5-6 5M12 11c3 0 3 5 6 5M12 11V7M12 7a4 4 0 014 4M12 7a4 4 0 00-4 4"/>
+            <path d="M4 11a8 8 0 0116 0v4a8 8 0 01-16 0z"/>
+          </svg>
+          {{ webauthnLoading ? '인증 중…' : '지문 / Face ID 로 로그인' }}
+        </button>
       </form>
 
       <div class="card-footer">
@@ -96,10 +111,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { authAPI } from '../utils/api'
 import { TokenManager, UserManager } from '../utils/auth'
+import { isWebauthnSupported, loginWebauthn } from '../utils/webauthn'
 
 const router = useRouter()
 
@@ -108,6 +124,40 @@ const password = ref('')
 const remember = ref(false)
 const errorMessage = ref('')
 const loading = ref(false)
+
+const webauthnSupported = ref(false)
+const webauthnLoading = ref(false)
+
+onMounted(() => {
+  webauthnSupported.value = isWebauthnSupported()
+})
+
+const handleWebauthnLogin = async () => {
+  errorMessage.value = ''
+  if (!username.value.trim()) {
+    errorMessage.value = '아이디를 먼저 입력하세요.'
+    return
+  }
+  webauthnLoading.value = true
+  try {
+    const result = await loginWebauthn(username.value.trim())
+    TokenManager.setToken(result.token)
+    UserManager.setUser({
+      username: result.username,
+      name: result.name,
+      role: result.role
+    })
+    await router.push('/user')
+  } catch (e) {
+    if (e?.name === 'NotAllowedError') {
+      errorMessage.value = '생체인증이 취소되었습니다.'
+    } else {
+      errorMessage.value = e.message || '지문 로그인 실패'
+    }
+  } finally {
+    webauthnLoading.value = false
+  }
+}
 
 const handleLogin = async () => {
   errorMessage.value = ''
@@ -143,5 +193,35 @@ const handleLogin = async () => {
 
 <style scoped>
 @import '../assets/css/login.css';
+
+.webauthn-btn {
+  margin-top: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.webauthn-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.webauthn-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.webauthn-btn svg {
+  width: 20px;
+  height: 20px;
+}
 </style>
 
