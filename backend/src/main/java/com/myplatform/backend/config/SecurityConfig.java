@@ -100,8 +100,9 @@ public class SecurityConfig {
                         // 비밀번호 재설정 API
                         .requestMatchers("/api/password/**").permitAll()
 
-                        // WebAuthn 로그인 — 비로그인 상태에서 호출 필요
+                        // WebAuthn 로그인 / 패스키 — 비로그인 상태에서 호출 필요
                         .requestMatchers("/api/webauthn/login/**").permitAll()
+                        .requestMatchers("/api/webauthn/passkey/**").permitAll()
                         // WebAuthn 등록/관리 — 로그인 필요
                         .requestMatchers("/api/webauthn/**").authenticated()
 

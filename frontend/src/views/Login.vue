@@ -87,7 +87,22 @@
           </span>
         </button>
 
-        <!-- WebAuthn (지문/Face ID) 로그인 -->
+        <!-- 패스키 (아이디 없이 OS 패스키 picker) -->
+        <button
+          v-if="webauthnSupported"
+          type="button"
+          class="webauthn-btn passkey-btn"
+          :disabled="passkeyLoading"
+          @click="handlePasskeyLogin"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <path d="M7 11V7a5 5 0 0110 0v4"/>
+          </svg>
+          {{ passkeyLoading ? '패스키 인증 중…' : '패스키로 로그인' }}
+        </button>
+
+        <!-- WebAuthn (아이디 + 지문) 로그인 -->
         <button
           v-if="webauthnSupported"
           type="button"
@@ -99,7 +114,7 @@
             <path d="M12 11c-3 0-3 5-6 5M12 11c3 0 3 5 6 5M12 11V7M12 7a4 4 0 014 4M12 7a4 4 0 00-4 4"/>
             <path d="M4 11a8 8 0 0116 0v4a8 8 0 01-16 0z"/>
           </svg>
-          {{ webauthnLoading ? '인증 중…' : '지문 / Face ID 로 로그인' }}
+          {{ webauthnLoading ? '인증 중…' : '아이디 + 지문 로그인' }}
         </button>
       </form>
 
@@ -118,6 +133,7 @@ import { TokenManager, UserManager } from '../utils/auth'
 import {
   isWebauthnSupported,
   loginWebauthn,
+  loginPasskey,
   registerWebauthn,
   listCredentials,
 } from '../utils/webauthn'
@@ -132,10 +148,34 @@ const loading = ref(false)
 
 const webauthnSupported = ref(false)
 const webauthnLoading = ref(false)
+const passkeyLoading = ref(false)
 
 onMounted(() => {
   webauthnSupported.value = isWebauthnSupported()
 })
+
+const handlePasskeyLogin = async () => {
+  errorMessage.value = ''
+  passkeyLoading.value = true
+  try {
+    const result = await loginPasskey()
+    TokenManager.setToken(result.token)
+    UserManager.setUser({
+      username: result.username,
+      name: result.name,
+      role: result.role
+    })
+    await router.push('/user')
+  } catch (e) {
+    if (e?.name === 'NotAllowedError') {
+      errorMessage.value = '패스키 인증이 취소되었습니다.'
+    } else {
+      errorMessage.value = e.message || '패스키 로그인 실패. 등록된 패스키가 없을 수 있어요.'
+    }
+  } finally {
+    passkeyLoading.value = false
+  }
+}
 
 const handleWebauthnLogin = async () => {
   errorMessage.value = ''
@@ -273,6 +313,14 @@ async function maybePromptEnroll(username) {
 .webauthn-btn svg {
   width: 20px;
   height: 20px;
+}
+.passkey-btn {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.18), rgba(118, 75, 162, 0.18));
+  border-color: rgba(118, 75, 162, 0.45);
+}
+.passkey-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.32), rgba(118, 75, 162, 0.32));
+  border-color: rgba(118, 75, 162, 0.7);
 }
 </style>
 

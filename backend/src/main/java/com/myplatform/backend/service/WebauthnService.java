@@ -106,8 +106,8 @@ public class WebauthnService {
                 new RegistrationOptionsResponse.AuthenticatorSelection(
                         "platform",        // 내장 인증기 (지문/Face ID)
                         "required",        // 반드시 사용자 인증
-                        "preferred",       // 가능하면 discoverable
-                        false
+                        "required",        // 패스키(discoverable credential) 강제 — 사용자명 없이 로그인 가능
+                        true
                 ),
                 excludeCredentials
         );
@@ -187,6 +187,83 @@ public class WebauthnService {
     // ============================================================
     //  AUTHENTICATION
     // ============================================================
+
+    /**
+     * 패스키(discoverable credential) 로그인 — 사용자명 없이 시작.
+     * 브라우저가 OS 에 등록된 패스키 목록을 띄워주고, 사용자가 선택 + 생체인증.
+     * sessionKey 는 challenge 자체를 base64url 한 값.
+     */
+    public AuthenticationOptionsResponse startPasskeyAuthentication() {
+        byte[] challenge = randomBytes(CHALLENGE_BYTES);
+        saveChallenge(passkeySessionKey(challenge), WebauthnChallenge.Ceremony.LOGIN, challenge, null);
+        return new AuthenticationOptionsResponse(
+                Base64UrlUtil.encodeToString(challenge),
+                props.getRpId(),
+                props.getTimeoutMs(),
+                "required",
+                List.of() // empty allowCredentials → 브라우저가 OS 패스키 picker 표시
+        );
+    }
+
+    /**
+     * 패스키 로그인 검증 — 사용자명 받지 않고 credentialId 로 사용자 식별.
+     */
+    public User finishPasskeyAuthentication(AuthenticationVerifyRequest req) {
+        byte[] credentialId = Base64UrlUtil.decode(req.id());
+        byte[] clientDataJSON = Base64UrlUtil.decode(req.response().clientDataJSON());
+        byte[] authenticatorData = Base64UrlUtil.decode(req.response().authenticatorData());
+        byte[] signature = Base64UrlUtil.decode(req.response().signature());
+
+        // clientDataJSON 에서 challenge 추출 → 그걸로 저장된 ceremony 찾기
+        byte[] challengeFromClient = extractChallenge(clientDataJSON);
+        WebauthnChallenge stored = requireValidChallenge(
+                passkeySessionKey(challengeFromClient), WebauthnChallenge.Ceremony.LOGIN);
+
+        WebauthnCredential cred = credentialRepository.findByCredentialId(credentialId)
+                .orElseThrow(() -> new IllegalStateException("등록되지 않은 패스키입니다."));
+        User user = userRepository.findById(cred.getUserId())
+                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
+
+        AttestedCredentialData attested = attestedCredentialDataConverter.convert(cred.getPublicKey());
+        CredentialRecord credentialRecord = new CredentialRecordImpl(
+                null, null,
+                cred.isBackupEligible(), cred.isBackupState(),
+                cred.getSignCount(), attested,
+                null, null, null, null
+        );
+
+        ServerProperty serverProperty = new ServerProperty(
+                new Origin(props.getOrigin()),
+                props.getRpId(),
+                new DefaultChallenge(stored.getChallenge())
+        );
+
+        AuthenticationRequest authenticationRequest = new AuthenticationRequest(
+                credentialId, authenticatorData, clientDataJSON, signature
+        );
+        AuthenticationParameters authenticationParameters = new AuthenticationParameters(
+                serverProperty,
+                credentialRecord,
+                List.of(credentialId),
+                true, true
+        );
+
+        AuthenticationData authData;
+        try {
+            authData = manager.parse(authenticationRequest);
+            manager.validate(authData, authenticationParameters);
+        } catch (Exception e) {
+            throw new IllegalStateException("패스키 인증 검증 실패: " + e.getMessage(), e);
+        }
+
+        cred.setSignCount(authData.getAuthenticatorData().getSignCount());
+        cred.setLastUsedAt(LocalDateTime.now());
+        credentialRepository.save(cred);
+
+        challengeRepository.deleteBySessionKeyAndCeremony(
+                passkeySessionKey(challengeFromClient), WebauthnChallenge.Ceremony.LOGIN);
+        return user;
+    }
 
     public AuthenticationOptionsResponse startAuthentication(String username) {
         byte[] challenge = randomBytes(CHALLENGE_BYTES);
@@ -348,5 +425,22 @@ public class WebauthnService {
             return "내 기기";
         }
         return "보안 키";
+    }
+
+    /** 패스키 ceremony 의 sessionKey — challenge 자체를 base64url + prefix */
+    private static String passkeySessionKey(byte[] challenge) {
+        return "pk:" + Base64UrlUtil.encodeToString(challenge);
+    }
+
+    /** clientDataJSON 에서 "challenge" 필드만 뽑아 base64url 디코드 */
+    private static byte[] extractChallenge(byte[] clientDataJSON) {
+        String json = new String(clientDataJSON, java.nio.charset.StandardCharsets.UTF_8);
+        // clientDataJSON 은 "challenge":"<base64url>" 형식이 항상 포함됨
+        int i = json.indexOf("\"challenge\"");
+        if (i < 0) throw new IllegalStateException("clientDataJSON 에 challenge 가 없습니다.");
+        int start = json.indexOf('"', json.indexOf(':', i) + 1) + 1;
+        int end = json.indexOf('"', start);
+        if (start <= 0 || end <= start) throw new IllegalStateException("challenge 파싱 실패");
+        return Base64UrlUtil.decode(json.substring(start, end));
     }
 }

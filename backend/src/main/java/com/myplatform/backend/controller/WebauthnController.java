@@ -95,22 +95,43 @@ public class WebauthnController {
             }
             AuthenticationVerifyRequest credential = mapToVerifyRequest(body);
             User user = webauthnService.finishAuthentication(username, credential);
-
-            if (!"APPROVED".equals(user.getStatus())) {
-                return ResponseEntity.ok(new LoginResponse(false, "승인되지 않은 계정입니다."));
-            }
-
-            String token = jwtTokenProvider.generateToken(user.getUsername());
-            redisTokenService.ifPresent(s ->
-                    s.saveToken(user.getUsername(), token, jwtTokenProvider.getExpirationTime()));
-
-            return ResponseEntity.ok(new LoginResponse(true, "로그인 성공",
-                    token, user.getUsername(), user.getName(), user.getRole()));
+            return issueLoginResponse(user);
         } catch (IllegalStateException e) {
             return ResponseEntity.ok(new LoginResponse(false, e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.ok(new LoginResponse(false, "인증 처리 중 오류: " + e.getMessage()));
         }
+    }
+
+    @Operation(summary = "패스키 로그인 options", description = "사용자명 없이 OS 패스키 picker 트리거")
+    @PostMapping("/passkey/options")
+    public ResponseEntity<ApiResponse<AuthenticationOptionsResponse>> passkeyOptions() {
+        return ResponseEntity.ok(ApiResponse.success(webauthnService.startPasskeyAuthentication()));
+    }
+
+    @Operation(summary = "패스키 로그인 검증")
+    @PostMapping("/passkey/verify")
+    public ResponseEntity<LoginResponse> passkeyVerify(@RequestBody Map<String, Object> body) {
+        try {
+            AuthenticationVerifyRequest credential = mapToVerifyRequest(body);
+            User user = webauthnService.finishPasskeyAuthentication(credential);
+            return issueLoginResponse(user);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.ok(new LoginResponse(false, e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.ok(new LoginResponse(false, "인증 처리 중 오류: " + e.getMessage()));
+        }
+    }
+
+    private ResponseEntity<LoginResponse> issueLoginResponse(User user) {
+        if (!"APPROVED".equals(user.getStatus())) {
+            return ResponseEntity.ok(new LoginResponse(false, "승인되지 않은 계정입니다."));
+        }
+        String token = jwtTokenProvider.generateToken(user.getUsername());
+        redisTokenService.ifPresent(s ->
+                s.saveToken(user.getUsername(), token, jwtTokenProvider.getExpirationTime()));
+        return ResponseEntity.ok(new LoginResponse(true, "로그인 성공",
+                token, user.getUsername(), user.getName(), user.getRole()));
     }
 
     // ---- 등록된 credential 관리 (인증 필요) ----

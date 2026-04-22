@@ -68,6 +68,33 @@ export async function loginWebauthn(username) {
   };
 }
 
+/**
+ * 패스키 로그인 — 아이디 입력 없이 OS 패스키 picker 트리거.
+ * 등록 시 residentKey: required 로 저장된 credential 만 노출됨.
+ * @returns {Promise<{token, username, name, role}>}
+ */
+export async function loginPasskey() {
+  const optRes = await apiClient.post('/webauthn/passkey/options');
+  if (!optRes.data?.success) {
+    throw new Error(optRes.data?.message || '패스키 옵션 발급 실패');
+  }
+  const options = optRes.data.data;
+
+  const assertResp = await startAuthentication({ optionsJSON: options });
+
+  const verifyRes = await apiClient.post('/webauthn/passkey/verify', assertResp);
+  const body = verifyRes.data;
+  if (!body?.success) {
+    throw new Error(body?.message || '패스키 로그인 실패');
+  }
+  return {
+    token: body.token,
+    username: body.username,
+    name: body.name,
+    role: body.role,
+  };
+}
+
 /** 등록된 자격증명 목록 */
 export async function listCredentials() {
   const res = await apiClient.get('/webauthn/credentials');
