@@ -57,6 +57,10 @@ db_data/
 nginx_logs/
 *.tar.gz
 
+### TLS / Let's Encrypt ###
+nginx/ssl/
+nginx/certbot-webroot/
+
 ### Deploy Config (contains server credentials) ###
 deploy-config.bat
 deploy-config.sh

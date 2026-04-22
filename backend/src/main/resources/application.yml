@@ -174,11 +174,24 @@ cache:
   redis:
     enabled: ${CACHE_REDIS_ENABLED:false}
 
-# 7. Swagger
+# 7. Swagger - 기본 비활성화. dev 프로필 또는 환경변수 SPRINGDOC_ENABLED=true 로 명시 활성화.
 springdoc:
   api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /v3/api-docs
   swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}
     path: /swagger-ui.html
     tags-sorter: alpha
     operations-sorter: alpha
+
+# Actuator 글로벌 디폴트 — health 만 노출 (prod 에서 동일하게 한 번 더 확정)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      show-components: never

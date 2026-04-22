@@ -2,6 +2,7 @@ package com.myplatform.backend.config;
 
 import com.myplatform.jwtredis.entrypoint.JwtAuthenticationEntryPoint;
 import com.myplatform.jwtredis.filter.JwtAuthenticationFilter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -28,6 +29,13 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
+    /**
+     * CORS 허용 origin (콤마 구분). 환경변수 CORS_ALLOWED_ORIGINS 로 주입.
+     * 미지정 시 로컬 개발용 localhost 만 허용한다.
+     */
+    @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:8080}")
+    private String allowedOriginsCsv;
+
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
@@ -48,14 +56,17 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // 허용할 Origin 명시 (credentials 사용 시 와일드카드 불가)
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173",   // Vite 개발 서버
-                "http://localhost:8080",   // 로컬 배포
-                "http://127.0.0.1:5173",
-                "http://127.0.0.1:8080"
-        ));
+        // app.cors.allowed-origins (env: CORS_ALLOWED_ORIGINS) 로 운영 도메인 주입.
+        List<String> origins = Arrays.stream(allowedOriginsCsv.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        configuration.setAllowedHeaders(Arrays.asList("*"));
+        // 와일드카드 대신 실제 사용 헤더만 명시 (정보 누출/오남용 방지)
+        configuration.setAllowedHeaders(Arrays.asList(
+                "Authorization", "Content-Type", "X-Requested-With", "Accept", "Origin"));
+        configuration.setExposedHeaders(Arrays.asList("Authorization"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 

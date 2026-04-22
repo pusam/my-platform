@@ -6,6 +6,7 @@ import com.myplatform.backend.dto.SignupRequest;
 import com.myplatform.backend.dto.SignupResponse;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.backend.util.PasswordPolicy;
 import com.myplatform.jwtredis.provider.JwtTokenProvider;
 import com.myplatform.jwtredis.service.RedisTokenService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -117,9 +118,10 @@ public class AuthService {
             return new SignupResponse(false, "비밀번호가 일치하지 않습니다. 다시 확인해주세요.");
         }
 
-        // 3. 비밀번호 길이 검증
-        if (request.getPassword().length() < 4) {
-            return new SignupResponse(false, "비밀번호는 최소 4자 이상이어야 합니다.");
+        // 3. 비밀번호 정책 검증 (12자 이상 + 대소문자/숫자/특수문자 + 아이디/이메일 포함 금지)
+        String pwError = PasswordPolicy.validate(request.getPassword(), request.getUsername(), request.getEmail());
+        if (pwError != null) {
+            return new SignupResponse(false, pwError);
         }
 
         // 4. 이메일 형식 검증 (도메인 부분에 최소 1글자.1글자 필요)

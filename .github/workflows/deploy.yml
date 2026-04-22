@@ -165,12 +165,17 @@ jobs:
 
           echo "📦 파일 전송: $HOST:$PORT → $TARGET"
 
-          # 타겟 디렉토리 생성
-          $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/nginx $TARGET/frontend"
+          # 타겟 디렉토리 생성 (인증서 디렉토리 포함)
+          $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/nginx $TARGET/frontend $TARGET/scripts $TARGET/nginx/ssl $TARGET/nginx/certbot-webroot"
 
-          # docker-compose.yml + nginx default.conf
+          # docker-compose.yml + nginx 전체 설정
           $SCP_CMD docker-compose.yml "$USER@$HOST:$TARGET/"
           $SCP_CMD nginx/default.conf "$USER@$HOST:$TARGET/nginx/default.conf"
+          $SCP_CMD nginx/nginx.conf "$USER@$HOST:$TARGET/nginx/nginx.conf"
+
+          # 운영 스크립트 (init-https / harden-server)
+          $SCP_CMD scripts/*.sh "$USER@$HOST:$TARGET/scripts/"
+          $SSH_CMD "$USER@$HOST" "chmod +x $TARGET/scripts/*.sh"
 
           # frontend/dist (tar 압축 전송)
           tar -czf /tmp/frontend-dist.tar.gz -C frontend dist
@@ -185,17 +190,33 @@ jobs:
           USER="${{ secrets.USERNAME_DEV }}"
           PORT="${{ secrets.PORT }}"
 
-          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" << DEPLOY_EOF
+          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" << 'DEPLOY_EOF'
+            set -e
             cd /home/dev/my-platform
 
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
             echo "🚀 배포 시작"
 
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-server:prod
-            docker pull ${{ secrets.DOCKER_USERNAME }}/my-python:prod
+            docker pull "${{ secrets.DOCKER_USERNAME }}/my-server:prod"
+            docker pull "${{ secrets.DOCKER_USERNAME }}/my-python:prod"
 
+            # 백엔드/파이썬은 안전하게 재기동
             docker compose up -d --force-recreate --no-deps backend python-backend
+
+            # nginx 재기동 전 SSL 인증서 존재 확인.
+            # 없으면 nginx 가 부팅 실패 → 사이트 다운. 미리 차단하고 안내.
+            CERT="./nginx/ssl/live/dhkim-lab.duckdns.org/fullchain.pem"
+            if [ ! -f "$CERT" ]; then
+              echo "❌ SSL 인증서가 없습니다: $CERT"
+              echo "   서버에서 다음을 먼저 실행하세요:"
+              echo "     sudo bash /home/dev/my-platform/scripts/init-https.sh"
+              echo "   인증서 발급 전이므로 nginx 재기동을 건너뜁니다 (기존 컨테이너 유지)."
+              exit 0
+            fi
+
             docker compose up -d --force-recreate --no-deps nginx
+            # certbot 자동 갱신 컨테이너 (없으면 기동)
+            docker compose up -d --no-deps certbot || true
             docker image prune -f
           DEPLOY_EOF

@@ -4,6 +4,7 @@ import com.myplatform.backend.entity.PasswordResetToken;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.PasswordResetTokenRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.backend.util.PasswordPolicy;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -89,8 +90,23 @@ public class PasswordResetService {
             throw new RuntimeException("아이디와 이메일이 일치하지 않습니다.");
         }
 
-        // 비밀번호 변경
+        // 비밀번호 정책 검증
+        String pwError = PasswordPolicy.validate(newPassword, username, email);
+        if (pwError != null) {
+            throw new RuntimeException(pwError);
+        }
+
+        // 이전 비밀번호와 동일 여부 차단
+        if (passwordEncoder.matches(newPassword, user.getPassword())) {
+            throw new RuntimeException("이전 비밀번호와 동일한 비밀번호로 변경할 수 없습니다.");
+        }
+
+        // 비밀번호 변경 + 잠긴 계정/실패 카운터 리셋
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setFailedLoginAttempts(0);
+        if ("LOCKED".equals(user.getStatus())) {
+            user.setStatus("APPROVED");
+        }
         userRepository.save(user);
 
         // 토큰 사용 처리

@@ -1,5 +1,25 @@
 server:
   port: 8080
+  # nginx 가 X-Forwarded-Proto/For 를 보내도록 설정돼 있으므로 신뢰한다.
+  # 이 설정이 있어야 isSecure(), HSTS, 정확한 클라이언트 IP가 동작한다.
+  forward-headers-strategy: native
+  # 에러 응답에 stacktrace / 내부 메시지 / 바인딩 에러 노출 금지 (정보 누출 방지)
+  error:
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+    include-exception: false
+    whitelabel:
+      enabled: false
+  # 헤더 사이즈 제한 (Slowloris/Header bomb 완화)
+  max-http-request-header-size: 16KB
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        secure: true        # HTTPS 에서만 전송
+        http-only: true     # JS 접근 차단 (XSS 시 탈취 방지)
+        same-site: strict   # 크로스사이트 요청 시 쿠키 미전송
 spring:
   config:
     activate:
@@ -15,6 +35,20 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+# Actuator: health 만 노출, 그 외 모두 차단
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+        exclude: "*"
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
+  info:
+    env:
+      enabled: false
 logging:
   level:
     root: WARN
