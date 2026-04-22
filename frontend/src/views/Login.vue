@@ -115,7 +115,12 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { authAPI } from '../utils/api'
 import { TokenManager, UserManager } from '../utils/auth'
-import { isWebauthnSupported, loginWebauthn } from '../utils/webauthn'
+import {
+  isWebauthnSupported,
+  loginWebauthn,
+  registerWebauthn,
+  listCredentials,
+} from '../utils/webauthn'
 
 const router = useRouter()
 
@@ -178,6 +183,9 @@ const handleLogin = async () => {
         role: data.role
       })
 
+      // 비번 로그인 성공 시 지문 등록 프롬프트 (등록 안 된 사용자에게만 1회)
+      await maybePromptEnroll(data.username)
+
       // 대시보드로 이동
       await router.push('/user')
     } else {
@@ -187,6 +195,49 @@ const handleLogin = async () => {
     errorMessage.value = error.response?.data?.message || '로그인 처리 중 오류가 발생했습니다.'
   } finally {
     loading.value = false
+  }
+}
+
+/**
+ * 비번 로그인 성공 직후 지문/Face ID 등록을 제안.
+ * 조건:
+ *  - 브라우저가 WebAuthn 지원
+ *  - 이 사용자 이 브라우저에서 이전에 "안 묻기" 선택하지 않음
+ *  - 현재 등록된 credential 이 0개
+ */
+async function maybePromptEnroll(username) {
+  if (!isWebauthnSupported()) return
+
+  const dismissKey = `webauthn:enroll-dismissed:${username}`
+  if (localStorage.getItem(dismissKey) === '1') return
+
+  let existing
+  try {
+    existing = await listCredentials()
+  } catch {
+    return // 목록 조회 실패하면 조용히 넘김
+  }
+  if (existing.length > 0) return
+
+  const yes = confirm(
+    '다음부터 지문 / Face ID 로 빠르게 로그인하시겠습니까?\n\n' +
+    '지금 이 기기를 등록하면 다음 로그인부터 비밀번호 없이 생체인증으로 들어올 수 있어요.\n\n' +
+    '[확인] 지금 등록\n[취소] 나중에 (마이페이지에서 언제든 등록 가능)'
+  )
+  if (!yes) {
+    localStorage.setItem(dismissKey, '1')
+    return
+  }
+  try {
+    await registerWebauthn('이 기기')
+    alert('✅ 등록 완료! 다음 로그인부터 지문/Face ID 로 로그인 가능합니다.')
+  } catch (e) {
+    if (e?.name === 'NotAllowedError') {
+      alert('생체인증이 취소되었습니다. 나중에 마이페이지에서 등록할 수 있어요.')
+    } else {
+      alert('등록 실패: ' + (e.message || e))
+    }
+    // 실패해도 로그인은 계속 진행 (try 밖에서 router.push)
   }
 }
 </script>
