@@ -124,6 +124,84 @@
           </div>
         </section>
 
+        <!-- ADMIN: 매매 비상 정지 -->
+        <section class="settings-card kill-card" v-if="isAdmin">
+          <div class="card-header">
+            <div class="card-icon kill-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M15 9l-6 6M9 9l6 6"/>
+              </svg>
+            </div>
+            <h2>🚨 매매 비상 정지</h2>
+          </div>
+
+          <div class="card-body">
+            <p class="input-hint">실전매매가 즉시 차단됩니다. 자동매매 봇 + 수동 매수/매도 모두 적용.</p>
+
+            <div v-if="loadingSafety" class="input-hint">상태 조회 중…</div>
+
+            <div v-else-if="safetyStatus" class="kill-status">
+              <div class="kill-row">
+                <span>현재 상태</span>
+                <strong :class="safetyStatus.killSwitchEnabled ? 'kill-on' : 'kill-off'">
+                  {{ safetyStatus.killSwitchEnabled ? '⛔ 차단 중' : '✅ 정상 (매매 가능)' }}
+                </strong>
+              </div>
+              <div class="kill-row" v-if="safetyStatus.killSwitchEnabled">
+                <span>사유</span>
+                <em>{{ safetyStatus.killSwitchReason || '-' }}</em>
+              </div>
+              <div class="kill-row">
+                <span>오늘 매수 누적</span>
+                <strong>{{ formatKrw(safetyStatus.todayBuyAmountKrw) }}원</strong>
+              </div>
+              <div class="kill-row">
+                <span>일일 한도</span>
+                <strong>{{ formatKrw(safetyStatus.dailyBuyLimitKrw) }}원</strong>
+              </div>
+              <div class="kill-row">
+                <span>잔여 한도</span>
+                <strong :class="Number(safetyStatus.remainingKrw) <= 0 ? 'kill-on' : ''">
+                  {{ formatKrw(safetyStatus.remainingKrw) }}원
+                </strong>
+              </div>
+              <div class="kill-row">
+                <span>대형거래 알림 임계</span>
+                <strong>{{ formatKrw(safetyStatus.alertThresholdKrw) }}원 이상</strong>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 16px;">
+              <label>사유 (선택)</label>
+              <input type="text" v-model="killReason" placeholder="예: 시장 변동성 급증, 점검" maxlength="200" />
+            </div>
+
+            <div class="kill-actions">
+              <button
+                v-if="!safetyStatus?.killSwitchEnabled"
+                @click="enableKill"
+                :disabled="killBusy"
+                class="btn btn-danger"
+              >
+                {{ killBusy ? '처리 중…' : '⛔ 매매 비상 정지' }}
+              </button>
+              <button
+                v-else
+                @click="disableKill"
+                :disabled="killBusy"
+                class="btn btn-primary"
+              >
+                {{ killBusy ? '처리 중…' : '✅ 매매 재개' }}
+              </button>
+              <button @click="loadSafety" :disabled="loadingSafety" class="btn btn-secondary">새로고침</button>
+            </div>
+
+            <div class="alert alert-success" v-if="killMessage">{{ killMessage }}</div>
+            <div class="alert alert-error" v-if="killError">{{ killError }}</div>
+          </div>
+        </section>
+
         <!-- 생체인증 (WebAuthn) 섹션 -->
         <section class="settings-card" v-if="webauthnSupported">
           <div class="card-header">
@@ -177,9 +255,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { userSettingsAPI } from '../utils/api'
+import apiClient from '../utils/api'
 import { UserManager } from '../utils/auth'
 import BackButton from '../components/BackButton.vue'
 import {
@@ -221,6 +300,81 @@ const profileMessage = ref('')
 const profileError = ref('')
 const passwordMessage = ref('')
 const passwordError = ref('')
+
+const isAdmin = computed(() => (profile.value?.role || localStorage.getItem('role')) === 'ADMIN')
+
+// 매매 안전장치
+const safetyStatus = ref(null)
+const loadingSafety = ref(false)
+const killReason = ref('')
+const killBusy = ref(false)
+const killMessage = ref('')
+const killError = ref('')
+
+const formatKrw = (n) => {
+  if (n == null || n === '') return '-'
+  return Number(n).toLocaleString('ko-KR')
+}
+
+const loadSafety = async () => {
+  if (!isAdmin.value) return
+  loadingSafety.value = true
+  killError.value = ''
+  try {
+    const res = await apiClient.get('/admin/trading/safety/status')
+    if (res.data?.success) {
+      safetyStatus.value = res.data.data
+    } else {
+      killError.value = res.data?.message || '상태 조회 실패'
+    }
+  } catch (e) {
+    killError.value = e.message || '상태 조회 실패'
+  } finally {
+    loadingSafety.value = false
+  }
+}
+
+const enableKill = async () => {
+  if (!confirm('정말 매매를 비상 정지하시겠습니까?\n자동매매 봇 + 수동 매매 모두 즉시 차단됩니다.')) return
+  killBusy.value = true
+  killMessage.value = ''
+  killError.value = ''
+  try {
+    const res = await apiClient.post('/admin/trading/safety/kill-switch/enable', { reason: killReason.value })
+    if (res.data?.success) {
+      killMessage.value = '⛔ 매매 비상 정지 활성화됨'
+      killReason.value = ''
+      await loadSafety()
+    } else {
+      killError.value = res.data?.message || '실패'
+    }
+  } catch (e) {
+    killError.value = e.message || '실패'
+  } finally {
+    killBusy.value = false
+  }
+}
+
+const disableKill = async () => {
+  if (!confirm('매매를 재개하시겠습니까?')) return
+  killBusy.value = true
+  killMessage.value = ''
+  killError.value = ''
+  try {
+    const res = await apiClient.post('/admin/trading/safety/kill-switch/disable', { reason: killReason.value })
+    if (res.data?.success) {
+      killMessage.value = '✅ 매매 재개됨'
+      killReason.value = ''
+      await loadSafety()
+    } else {
+      killError.value = res.data?.message || '실패'
+    }
+  } catch (e) {
+    killError.value = e.message || '실패'
+  } finally {
+    killBusy.value = false
+  }
+}
 
 // WebAuthn
 const webauthnSupported = ref(false)
@@ -443,6 +597,9 @@ onMounted(() => {
   if (webauthnSupported.value) {
     loadCredentials()
   }
+  if (isAdmin.value) {
+    loadSafety()
+  }
 })
 </script>
 
@@ -655,6 +812,36 @@ onMounted(() => {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.kill-card {
+  border: 1px solid rgba(252, 92, 125, 0.4);
+}
+.kill-icon {
+  background: linear-gradient(135deg, #fc5c7d, #6a82fb);
+}
+.kill-status {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.kill-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+.kill-row span { opacity: 0.7; }
+.kill-on  { color: #fc5c7d; }
+.kill-off { color: #2ecc71; }
+.kill-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 768px) {

@@ -174,6 +174,12 @@ cache:
   redis:
     enabled: ${CACHE_REDIS_ENABLED:false}
 
+# 매매 안전장치 — 실투자 한도/알림 임계금액
+# 환경변수: TRADING_DAILY_BUY_LIMIT_KRW, TRADING_ALERT_THRESHOLD_KRW
+trading:
+  daily-buy-limit-krw: ${TRADING_DAILY_BUY_LIMIT_KRW:5000000}
+  alert-threshold-krw: ${TRADING_ALERT_THRESHOLD_KRW:1000000}
+
 # WebAuthn (지문/Face ID/패스키) 설정
 # 운영: WEBAUTHN_RP_ID=dhkim-lab.duckdns.org, WEBAUTHN_ORIGIN=https://dhkim-lab.duckdns.org
 # 개발: localhost 기본값 사용

@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.PaperTradingDto.*;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.TradingAuditLog;
 import com.myplatform.backend.entity.VirtualTradeHistory;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
 import com.myplatform.backend.service.KoreaInvestmentService.BalanceInfo;
@@ -33,6 +34,8 @@ public class RealTradeService implements TradeService {
     private final StockPriceService stockPriceService;
     private final TelegramNotificationService telegramService;
     private final VirtualTradeHistoryRepository tradeHistoryRepository;
+    private final TradingSafetyService safetyService;
+    private final TradingAuditService auditService;
 
     // 실전매매용 계좌 ID (가상 ID - 실제 계좌와 구분)
     private static final Long REAL_ACCOUNT_ID = 999999L;
@@ -96,16 +99,40 @@ public class RealTradeService implements TradeService {
         // 입력값 방어 (KIS API 전에 필수 1차 검증)
         validateTradeInput(price, quantity);
 
-        // KIS API 매수 주문 (지정가 - 슬리피지 방지)
-        JsonNode orderResult = kisService.buyStock(stockCode, quantity, price);
+        BigDecimal totalCheck = price.multiply(BigDecimal.valueOf(quantity));
+
+        // 1) 안전장치 체크 (킬스위치 + 일일 한도)
+        TradingSafetyService.Decision decision = safetyService.checkBuy(totalCheck);
+        if (!decision.allowed()) {
+            auditService.blocked(TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason, decision.reason());
+            log.warn("[실전매매] 매수 차단: {} ({}) — {}", stockName, stockCode, decision.reason());
+            throw new IllegalStateException("매수 차단: " + decision.reason());
+        }
+
+        // 2) 감사 로그 시작
+        TradingAuditService.Ctx audit = auditService.start(
+                TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
+                stockCode, stockName, quantity, price, reason);
+
+        // 3) KIS API 매수 주문
+        JsonNode orderResult;
+        try {
+            orderResult = kisService.buyStock(stockCode, quantity, price);
+        } catch (RuntimeException e) {
+            auditService.failure(audit, null, null, e);
+            throw e;
+        }
+
         if (orderResult == null) {
+            auditService.failure(audit, null, "API 응답 null", null);
             throw new IllegalStateException("매수 주문 API 호출 실패");
         }
 
-        // 주문 결과 확인
         String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
+        String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
         if (!"0".equals(rtCd)) {
-            String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "알 수 없는 오류";
+            auditService.failure(audit, rtCd, msg, null);
             throw new IllegalStateException("매수 주문 실패: " + msg);
         }
 
@@ -115,7 +142,10 @@ public class RealTradeService implements TradeService {
             orderNo = orderResult.get("output").get("ODNO").asText();
         }
 
-        // 총 금액 계산 (시장가이므로 현재가로 추정)
+        // 감사 로그 success
+        auditService.success(audit, rtCd, msg, orderNo);
+
+        // 총 금액 계산
         BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
         BigDecimal commission = totalAmount.multiply(new BigDecimal("0.00015"))
                 .setScale(0, RoundingMode.CEILING);
@@ -187,16 +217,38 @@ public class RealTradeService implements TradeService {
                 ? holding.getAveragePrice()
                 : BigDecimal.ZERO;
 
-        // KIS API 매도 주문 (지정가 - 슬리피지 방지)
-        JsonNode orderResult = kisService.sellStock(stockCode, quantity, price);
+        // 1) 안전장치 체크 (매도는 한도 적용 X — 손절은 항상 가능. 킬스위치만 체크)
+        TradingSafetyService.Decision decision = safetyService.checkSell();
+        if (!decision.allowed()) {
+            auditService.blocked(TradingAuditLog.Action.SELL, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason, decision.reason());
+            log.warn("[실전매매] 매도 차단: {} ({}) — {}", stockName, stockCode, decision.reason());
+            throw new IllegalStateException("매도 차단: " + decision.reason());
+        }
+
+        // 2) 감사 로그 시작
+        TradingAuditService.Ctx audit = auditService.start(
+                TradingAuditLog.Action.SELL, TradingAuditLog.Mode.REAL,
+                stockCode, stockName, quantity, price, reason);
+
+        // 3) KIS API 매도 주문
+        JsonNode orderResult;
+        try {
+            orderResult = kisService.sellStock(stockCode, quantity, price);
+        } catch (RuntimeException e) {
+            auditService.failure(audit, null, null, e);
+            throw e;
+        }
+
         if (orderResult == null) {
+            auditService.failure(audit, null, "API 응답 null", null);
             throw new IllegalStateException("매도 주문 API 호출 실패");
         }
 
-        // 주문 결과 확인
         String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
+        String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
         if (!"0".equals(rtCd)) {
-            String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "알 수 없는 오류";
+            auditService.failure(audit, rtCd, msg, null);
             throw new IllegalStateException("매도 주문 실패: " + msg);
         }
 
@@ -205,6 +257,8 @@ public class RealTradeService implements TradeService {
         if (orderResult.has("output") && orderResult.get("output").has("ODNO")) {
             orderNo = orderResult.get("output").get("ODNO").asText();
         }
+
+        auditService.success(audit, rtCd, msg, orderNo);
 
         // 총 금액 및 손익 계산
         BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
@@ -454,9 +508,15 @@ public class RealTradeService implements TradeService {
     private void sendRealBuyAlert(String stockName, String stockCode, BigDecimal price, Integer quantity, String orderNo) {
         if (!telegramService.isEnabled()) return;
 
+        BigDecimal total = price.multiply(BigDecimal.valueOf(quantity));
+        boolean large = safetyService.isLargeTrade(total);
+        String header = large
+                ? "<b>⚠️ [실전투자] 대형 매수 주문!</b>"
+                : "<b>💰 [실전투자] 매수 주문!</b>";
+
         String message = String.format(
                 """
-                <b>💰 [실전투자] 매수 주문!</b>
+                %s
 
                 📊 <b>%s</b> (%s)
                 💰 %s원 x %d주
@@ -467,14 +527,20 @@ public class RealTradeService implements TradeService {
                 ━━━━━━━━━━━━━━━━
                 🔴 MyPlatform 실전투자
                 """,
+                header,
                 stockName, stockCode,
                 formatNumber(price), quantity,
-                formatNumber(price.multiply(BigDecimal.valueOf(quantity))),
+                formatNumber(total),
                 orderNo,
                 LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
-        telegramService.sendSignal(message);
+        if (large) {
+            // 대형 거래는 RISK 채널로
+            telegramService.sendRisk(message);
+        } else {
+            telegramService.sendSignal(message);
+        }
     }
 
     /**

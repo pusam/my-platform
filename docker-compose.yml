@@ -78,6 +78,9 @@ services:
       - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-dhkim-lab.duckdns.org}
       - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-https://dhkim-lab.duckdns.org}
       - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-MyPlatform}
+      # 매매 안전장치 — 일일 매수 한도 / 대형 거래 알림 임계금액 (원)
+      - TRADING_DAILY_BUY_LIMIT_KRW=${TRADING_DAILY_BUY_LIMIT_KRW:-5000000}
+      - TRADING_ALERT_THRESHOLD_KRW=${TRADING_ALERT_THRESHOLD_KRW:-1000000}
     deploy:
       resources:
         limits:
