@@ -787,6 +787,17 @@ const realAccount = ref({
 });
 const realPortfolio = ref([]);
 
+// 백엔드 AccountSummaryDto → UI 가 기대하는 필드명으로 변환
+const mapRealAccount = (data) => ({
+  ...data,
+  cashBalance:   data.cashBalance   ?? data.currentBalance ?? 0,
+  totalAsset:    data.totalAsset    ?? ((data.currentBalance || 0) + (data.totalEvaluation || 0)),
+  profitRate:    data.profitRate    ?? data.totalProfitRate ?? 0,
+  totalEvaluation: data.totalEvaluation ?? 0,
+  totalInvested:   data.totalInvested   ?? 0,
+  unrealizedProfitLoss: data.unrealizedProfitLoss ?? 0,
+});
+
 // 페이징
 const currentPage = ref(0);
 const totalPages = ref(0);
@@ -943,7 +954,7 @@ const loadRealData = async () => {
     ]);
 
     if (accountRes.data.success) {
-      realAccount.value = accountRes.data.data;
+      realAccount.value = mapRealAccount(accountRes.data.data);
     }
     if (portfolioRes.data.success) {
       realPortfolio.value = portfolioRes.data.data;
@@ -988,7 +999,7 @@ const refreshRealPortfolio = async () => {
     ]);
 
     if (accountRes.data.success) {
-      realAccount.value = accountRes.data.data;
+      realAccount.value = mapRealAccount(accountRes.data.data);
     }
     if (portfolioRes.data.success) {
       realPortfolio.value = portfolioRes.data.data;
