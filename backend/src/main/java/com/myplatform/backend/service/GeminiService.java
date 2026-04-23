@@ -333,6 +333,7 @@ public class GeminiService {
 
     /**
      * 주간 매매 일지 분석 — 통계/거래 요약을 받아 마크다운 리포트 생성.
+     * 다른 실시간 Gemini 호출과 쿼터 충돌이 잦으므로 전용 patient 호출 사용.
      */
     public String generateWeeklyTradingReport(String tradingSummary) {
         if (tradingSummary == null || tradingSummary.isBlank()) {
@@ -360,7 +361,41 @@ public class GeminiService {
                 - 차단된 주문 (blocked) 이 있으면 안전장치 동작 여부 평가
                 """, tradingSummary);
 
-        return callGeminiApiWithRetry(prompt);
+        // 전역 quotaResetTime / consecutiveErrors 영향 받지 않는 patient 호출.
+        // 주 1회 호출이라 길게 기다려도 OK.
+        return callGeminiApiPatient(prompt, 5, 60_000L);
+    }
+
+    /**
+     * 배치/스케줄 작업용 호출 — 전역 쿼터 카운터 변경 없이 길게 기다리며 재시도.
+     * @param maxAttempts 최대 시도 횟수
+     * @param baseWaitMs  Rate Limit 시 기본 대기 (지수 백오프 적용)
+     */
+    private String callGeminiApiPatient(String prompt, int maxAttempts, long baseWaitMs) {
+        if (apiKey == null || apiKey.isEmpty()) {
+            log.warn("[Gemini patient] API 키 미설정");
+            return null;
+        }
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                String result = callGeminiApi(prompt);
+                if (result != null) return result;
+            } catch (HttpClientErrorException.TooManyRequests e) {
+                long retryDelay = baseWaitMs * (1L << Math.min(attempt, 3)); // 1x, 2x, 4x, 8x, 8x
+                log.warn("[Gemini patient] Rate Limit 시도 {}/{} — {}ms 후 재시도",
+                        attempt + 1, maxAttempts, retryDelay);
+                try { Thread.sleep(retryDelay); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
+            } catch (Exception e) {
+                log.error("[Gemini patient] 호출 실패 시도 {}/{}: {}",
+                        attempt + 1, maxAttempts, e.getMessage());
+                // 일시적 네트워크 에러일 수 있어 한 번 더 기다렸다 시도
+                try { Thread.sleep(baseWaitMs); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
+            }
+        }
+        log.warn("[Gemini patient] {} 회 시도 후에도 실패", maxAttempts);
+        return null;
     }
 
     /**
