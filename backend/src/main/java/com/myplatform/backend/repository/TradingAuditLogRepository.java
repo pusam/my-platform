@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * INSERT 와 SELECT 만 사용. UPDATE/DELETE 는 Repository 메서드로 노출하지 않는다.
@@ -25,4 +26,15 @@ public interface TradingAuditLogRepository extends JpaRepository<TradingAuditLog
            AND t.createdAt >= :since
         """)
     BigDecimal sumSuccessfulRealBuyAmountSince(@Param("since") LocalDateTime since);
+
+    @Query("""
+        SELECT t FROM TradingAuditLog t
+         WHERE t.mode = com.myplatform.backend.entity.TradingAuditLog.Mode.REAL
+           AND t.createdAt >= :start
+           AND t.createdAt <  :end
+         ORDER BY t.createdAt
+        """)
+    List<TradingAuditLog> findAllRealInRange(@Param("start") LocalDateTime start,
+                                              @Param("end") LocalDateTime end);
 }
+

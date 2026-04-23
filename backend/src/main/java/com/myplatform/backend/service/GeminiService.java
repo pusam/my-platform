@@ -332,6 +332,38 @@ public class GeminiService {
     }
 
     /**
+     * 주간 매매 일지 분석 — 통계/거래 요약을 받아 마크다운 리포트 생성.
+     */
+    public String generateWeeklyTradingReport(String tradingSummary) {
+        if (tradingSummary == null || tradingSummary.isBlank()) {
+            return null;
+        }
+        String prompt = String.format("""
+                당신은 개인 투자자의 매매 코치입니다. 아래 일주일치 한국 주식 매매 데이터를 분석하여
+                **냉정하지만 건설적인 코칭 리포트**를 작성하세요.
+
+                === 매매 데이터 ===
+                %s
+
+                === 작성 규칙 ===
+                - 마크다운 형식 (### 제목, - 불릿)
+                - 한국어, 1500자 이내
+                - 다음 5개 섹션 순서로:
+                  ### 📊 성과 요약
+                  ### ✅ 잘한 점 (계속 유지)
+                  ### ❌ 못한 점 (개선 필요)
+                  ### 📈 종목별 / 시간대별 패턴
+                  ### 💡 다음주 행동 제안 (3가지 구체적으로)
+                - 데이터로 뒷받침되는 사실만 (가짜 통계 금지)
+                - 매매 횟수가 적으면 "데이터 부족" 솔직히 표시
+                - 자동매매와 수동 매매가 섞여있으면 별도로 평가
+                - 차단된 주문 (blocked) 이 있으면 안전장치 동작 여부 평가
+                """, tradingSummary);
+
+        return callGeminiApiWithRetry(prompt);
+    }
+
+    /**
      * AI 4대장 앙상블 의견 생성
      * @param stocksSummary 전체 종목 요약
      * @return 앙상블 의견

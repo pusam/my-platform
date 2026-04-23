@@ -124,6 +124,70 @@
           </div>
         </section>
 
+        <!-- ADMIN: 주간 매매 일지 (AI) -->
+        <section class="settings-card" v-if="isAdmin">
+          <div class="card-header">
+            <div class="card-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+              </svg>
+            </div>
+            <h2>📒 주간 매매 일지 (AI)</h2>
+          </div>
+
+          <div class="card-body">
+            <p class="input-hint">매주 일요일 19시 자동 생성. Gemini 가 지난주 매매를 분석해 코칭 리포트를 만듭니다.</p>
+
+            <div v-if="loadingDiary" class="input-hint">불러오는 중…</div>
+
+            <div v-else-if="!latestReport" class="input-hint" style="margin: 12px 0;">
+              아직 생성된 리포트가 없습니다. "지금 생성" 버튼으로 즉시 만들 수 있어요.
+            </div>
+
+            <div v-else class="diary-latest">
+              <div class="diary-meta">
+                <strong>{{ latestReport.weekStart }} ~ {{ latestReport.weekEnd }}</strong>
+                <span class="input-hint" style="margin-left: 8px;">생성: {{ formatDateTime(latestReport.createdAt) }}</span>
+              </div>
+              <div class="diary-stats">
+                <div>💰 손익 <strong :class="Number(latestReport.realizedPnl) >= 0 ? 'pnl-up' : 'pnl-down'">{{ formatKrw(latestReport.realizedPnl) }}원</strong></div>
+                <div>📈 매수 {{ latestReport.totalBuys }}회 / 📉 매도 {{ latestReport.totalSells }}회</div>
+                <div>✅ 승 {{ latestReport.winCount }} / ❌ 패 {{ latestReport.lossCount }}</div>
+                <div v-if="latestReport.blockedCount > 0">⛔ 차단 {{ latestReport.blockedCount }}건</div>
+              </div>
+              <pre class="diary-report">{{ latestReport.aiReport }}</pre>
+            </div>
+
+            <div class="kill-actions" style="margin-top: 16px;">
+              <button @click="generateDiary" :disabled="generatingDiary" class="btn btn-primary">
+                {{ generatingDiary ? '생성 중… (10~30초)' : '📊 지난주 리포트 지금 생성' }}
+              </button>
+              <button @click="loadRecentDiary" :disabled="loadingDiary" class="btn btn-secondary">새로고침</button>
+              <button v-if="recentReports.length > 0" @click="showHistory = !showHistory" class="btn btn-secondary">
+                {{ showHistory ? '과거 리포트 닫기' : `과거 ${recentReports.length}주 보기` }}
+              </button>
+            </div>
+
+            <div v-if="showHistory" class="diary-history" style="margin-top: 16px;">
+              <div v-for="r in recentReports" :key="r.id" class="diary-history-item">
+                <div class="diary-meta">
+                  <strong>{{ r.weekStart }} ~ {{ r.weekEnd }}</strong>
+                  <span :class="Number(r.realizedPnl) >= 0 ? 'pnl-up' : 'pnl-down'" style="margin-left: 12px;">
+                    {{ formatKrw(r.realizedPnl) }}원
+                  </span>
+                </div>
+                <details>
+                  <summary class="input-hint" style="cursor: pointer;">본문 보기</summary>
+                  <pre class="diary-report">{{ r.aiReport }}</pre>
+                </details>
+              </div>
+            </div>
+
+            <div class="alert alert-error" v-if="diaryError">{{ diaryError }}</div>
+          </div>
+        </section>
+
         <!-- ADMIN: 매매 비상 정지 -->
         <section class="settings-card kill-card" v-if="isAdmin">
           <div class="card-header">
@@ -302,6 +366,61 @@ const passwordMessage = ref('')
 const passwordError = ref('')
 
 const isAdmin = computed(() => (profile.value?.role || localStorage.getItem('role')) === 'ADMIN')
+
+// 매매 일지 (AI)
+const latestReport = ref(null)
+const recentReports = ref([])
+const loadingDiary = ref(false)
+const generatingDiary = ref(false)
+const diaryError = ref('')
+const showHistory = ref(false)
+
+const formatDateTime = (s) => {
+  if (!s) return '-'
+  const d = new Date(s)
+  return d.toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+const loadDiaryLatest = async () => {
+  if (!isAdmin.value) return
+  loadingDiary.value = true
+  diaryError.value = ''
+  try {
+    const res = await apiClient.get('/admin/trading/diary/latest')
+    if (res.data?.success) latestReport.value = res.data.data
+  } catch (e) {
+    diaryError.value = e.message || '리포트 조회 실패'
+  } finally {
+    loadingDiary.value = false
+  }
+}
+
+const loadRecentDiary = async () => {
+  await loadDiaryLatest()
+  try {
+    const res = await apiClient.get('/admin/trading/diary/recent')
+    if (res.data?.success) recentReports.value = res.data.data || []
+  } catch (e) { /* noop */ }
+}
+
+const generateDiary = async () => {
+  if (!confirm('지난주 매매 리포트를 지금 생성할까요? AI 호출이라 10~30초 걸릴 수 있어요.')) return
+  generatingDiary.value = true
+  diaryError.value = ''
+  try {
+    const res = await apiClient.post('/admin/trading/diary/generate')
+    if (res.data?.success) {
+      latestReport.value = res.data.data
+      await loadRecentDiary()
+    } else {
+      diaryError.value = res.data?.message || '생성 실패'
+    }
+  } catch (e) {
+    diaryError.value = e.message || '생성 실패'
+  } finally {
+    generatingDiary.value = false
+  }
+}
 
 // 매매 안전장치
 const safetyStatus = ref(null)
@@ -599,6 +718,7 @@ onMounted(() => {
   }
   if (isAdmin.value) {
     loadSafety()
+    loadRecentDiary()
   }
 })
 </script>
@@ -843,6 +963,42 @@ onMounted(() => {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+.diary-meta { font-size: 14px; margin-bottom: 8px; }
+.diary-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px 14px;
+  font-size: 14px;
+  margin: 10px 0;
+}
+.diary-report {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 14px;
+  margin: 8px 0 0;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  max-height: 600px;
+  overflow-y: auto;
+}
+.diary-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diary-history-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.pnl-up   { color: #2ecc71; }
+.pnl-down { color: #fc5c7d; }
 
 @media (max-width: 768px) {
   .settings-grid {
