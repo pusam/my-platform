@@ -139,6 +139,16 @@
           <div class="card-body">
             <p class="input-hint">매주 일요일 19시 자동 생성. Gemini 가 지난주 매매를 분석해 코칭 리포트를 만듭니다.</p>
 
+            <!-- 모드 탭 -->
+            <div class="diary-tabs">
+              <button :class="['diary-tab', { active: diaryMode === 'REAL' }]" @click="switchDiaryMode('REAL')">
+                🔴 실전
+              </button>
+              <button :class="['diary-tab', { active: diaryMode === 'VIRTUAL' }]" @click="switchDiaryMode('VIRTUAL')">
+                🤖 모의
+              </button>
+            </div>
+
             <div v-if="loadingDiary" class="input-hint">불러오는 중…</div>
 
             <div v-else-if="!latestReport" class="input-hint" style="margin: 12px 0;">
@@ -266,8 +276,8 @@
           </div>
         </section>
 
-        <!-- 생체인증 (WebAuthn) 섹션 -->
-        <section class="settings-card" v-if="webauthnSupported">
+        <!-- 생체인증 (WebAuthn) 섹션 — 모바일(폰)에서만 표시 -->
+        <section class="settings-card" v-if="webauthnSupported && isMobile">
           <div class="card-header">
             <div class="card-icon">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -368,12 +378,18 @@ const passwordError = ref('')
 const isAdmin = computed(() => (profile.value?.role || localStorage.getItem('role')) === 'ADMIN')
 
 // 매매 일지 (AI)
+const diaryMode = ref('REAL')
 const latestReport = ref(null)
 const recentReports = ref([])
 const loadingDiary = ref(false)
 const generatingDiary = ref(false)
 const diaryError = ref('')
 const showHistory = ref(false)
+
+const switchDiaryMode = (m) => {
+  diaryMode.value = m
+  loadRecentDiary()
+}
 
 const formatDateTime = (s) => {
   if (!s) return '-'
@@ -386,7 +402,7 @@ const loadDiaryLatest = async () => {
   loadingDiary.value = true
   diaryError.value = ''
   try {
-    const res = await apiClient.get('/admin/trading/diary/latest')
+    const res = await apiClient.get('/admin/trading/diary/latest', { params: { mode: diaryMode.value } })
     if (res.data?.success) latestReport.value = res.data.data
   } catch (e) {
     diaryError.value = e.message || '리포트 조회 실패'
@@ -398,17 +414,18 @@ const loadDiaryLatest = async () => {
 const loadRecentDiary = async () => {
   await loadDiaryLatest()
   try {
-    const res = await apiClient.get('/admin/trading/diary/recent')
+    const res = await apiClient.get('/admin/trading/diary/recent', { params: { mode: diaryMode.value } })
     if (res.data?.success) recentReports.value = res.data.data || []
   } catch (e) { /* noop */ }
 }
 
 const generateDiary = async () => {
-  if (!confirm('지난주 매매 리포트를 지금 생성할까요? AI 호출이라 10~30초 걸릴 수 있어요.')) return
+  const label = diaryMode.value === 'REAL' ? '실전' : '모의'
+  if (!confirm(`지난주 ${label} 매매 리포트를 지금 생성할까요? AI 호출이라 10~30초 걸릴 수 있어요.`)) return
   generatingDiary.value = true
   diaryError.value = ''
   try {
-    const res = await apiClient.post('/admin/trading/diary/generate')
+    const res = await apiClient.post('/admin/trading/diary/generate', null, { params: { mode: diaryMode.value } })
     if (res.data?.success) {
       latestReport.value = res.data.data
       await loadRecentDiary()
@@ -494,6 +511,13 @@ const disableKill = async () => {
     killBusy.value = false
   }
 }
+
+// 모바일(폰/태블릿) 판별 — PC 에서는 지문 카드 숨김
+const isMobile = computed(() => {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(ua)
+})
 
 // WebAuthn
 const webauthnSupported = ref(false)
@@ -712,9 +736,12 @@ const formatDate = (dateStr) => {
 
 onMounted(() => {
   fetchProfile()
-  webauthnSupported.value = isWebauthnSupported()
-  if (webauthnSupported.value) {
-    loadCredentials()
+  // 모바일에서만 WebAuthn 카드 노출 (PC 에서도 지원하지만 사용 안 함)
+  if (isMobile.value) {
+    webauthnSupported.value = isWebauthnSupported()
+    if (webauthnSupported.value) {
+      loadCredentials()
+    }
   }
   if (isAdmin.value) {
     loadSafety()
@@ -964,6 +991,28 @@ onMounted(() => {
   flex-wrap: wrap;
 }
 
+.diary-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0 14px;
+}
+.diary-tab {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #ccc;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s;
+}
+.diary-tab.active {
+  background: rgba(102, 126, 234, 0.25);
+  border-color: rgba(102, 126, 234, 0.6);
+  color: #fff;
+  font-weight: 600;
+}
+.diary-tab:hover:not(.active) { background: rgba(255, 255, 255, 0.08); }
 .diary-meta { font-size: 14px; margin-bottom: 8px; }
 .diary-stats {
   display: grid;

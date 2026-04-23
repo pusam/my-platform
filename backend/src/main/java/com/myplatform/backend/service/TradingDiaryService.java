@@ -58,24 +58,32 @@ public class TradingDiaryService {
         this.telegram = telegram;
     }
 
-    /** 지난주(월~일) 리포트 생성. 같은 주 이미 있으면 덮어씀 (재생성). */
+    /** 지난주(월~일) 리포트 생성. mode = REAL or VIRTUAL. 같은 주+모드 이미 있으면 덮어씀. */
     @Transactional
-    public WeeklyTradingReport generateLastWeekReport(String triggeredBy) {
+    public WeeklyTradingReport generateLastWeekReport(String mode, String triggeredBy) {
         LocalDate today = LocalDate.now(KST);
         LocalDate weekEnd   = today.with(DayOfWeek.SUNDAY).minusWeeks(today.getDayOfWeek() == DayOfWeek.SUNDAY ? 0 : 1);
         LocalDate weekStart = weekEnd.minusDays(6);
-        return generateForWeek(weekStart, weekEnd, triggeredBy);
+        return generateForWeek(weekStart, weekEnd, mode, triggeredBy);
     }
 
     @Transactional
-    public WeeklyTradingReport generateForWeek(LocalDate weekStart, LocalDate weekEnd, String triggeredBy) {
+    public WeeklyTradingReport generateForWeek(LocalDate weekStart, LocalDate weekEnd, String mode, String triggeredBy) {
+        String normMode = "VIRTUAL".equalsIgnoreCase(mode) ? "VIRTUAL" : "REAL";
         LocalDateTime startTs = weekStart.atStartOfDay();
-        LocalDateTime endTs   = weekEnd.atTime(LocalTime.MAX);
+        LocalDateTime endTs   = weekEnd.plusDays(1).atStartOfDay();
 
-        // 1) 데이터 수집
-        List<TradingAuditLog> auditLogs = auditRepo.findAllRealInRange(startTs, endTs);
-        List<VirtualTradeHistory> histories = historyRepo
-                .findByAccountIdAndTradeDateBetween(REAL_ACCOUNT_ID, startTs, endTs);
+        // 1) 데이터 수집 — 모드별로 다른 소스
+        List<TradingAuditLog> auditLogs;
+        List<VirtualTradeHistory> histories;
+        if ("REAL".equals(normMode)) {
+            auditLogs = auditRepo.findAllRealInRange(startTs, endTs);
+            histories = historyRepo.findByAccountIdAndTradeDateBetween(REAL_ACCOUNT_ID, startTs, endTs);
+        } else {
+            // 가상은 audit_log 미사용 → 비움. virtual_trade_history 의 가상 계좌만.
+            auditLogs = List.of();
+            histories = historyRepo.findVirtualBetween(REAL_ACCOUNT_ID, startTs, endTs);
+        }
 
         // 2) 통계 집계
         Stats stats = aggregate(auditLogs, histories);
@@ -97,11 +105,11 @@ public class TradingDiaryService {
 
         // 5) 저장 (이미 있으면 업데이트)
         WeeklyTradingReport entity = reportRepo
-                .findFirstByWeekStartAndWeekEndAndModeOrderByCreatedAtDesc(weekStart, weekEnd, "REAL")
+                .findFirstByWeekStartAndWeekEndAndModeOrderByCreatedAtDesc(weekStart, weekEnd, normMode)
                 .orElseGet(WeeklyTradingReport::new);
         entity.setWeekStart(weekStart);
         entity.setWeekEnd(weekEnd);
-        entity.setMode("REAL");
+        entity.setMode(normMode);
         entity.setTotalBuys(stats.totalBuys);
         entity.setTotalSells(stats.totalSells);
         entity.setRealizedPnl(stats.realizedPnl);
@@ -115,11 +123,11 @@ public class TradingDiaryService {
         entity.setGeneratedBy(triggeredBy == null ? "system" : triggeredBy);
         WeeklyTradingReport saved = reportRepo.save(entity);
 
-        // 6) 텔레그램 (RISK 채널)
-        if (telegram.isEnabled()) {
+        // 6) 텔레그램 (RISK 채널) — 매매가 0건이면 알림 생략 (스팸 방지)
+        if (telegram.isEnabled() && (stats.totalBuys + stats.totalSells > 0)) {
             try {
                 String tg = String.format("""
-                        📒 <b>주간 매매 리포트 (%s ~ %s)</b>
+                        📒 <b>주간 매매 리포트 [%s] (%s ~ %s)</b>
 
                         💰 실현손익: <b>%,.0f원</b>
                         📈 매수 %d회 / 📉 매도 %d회
@@ -128,6 +136,7 @@ public class TradingDiaryService {
 
                         %s
                         """,
+                        normMode,
                         weekStart, weekEnd,
                         stats.realizedPnl,
                         stats.totalBuys, stats.totalSells,
@@ -142,12 +151,14 @@ public class TradingDiaryService {
         return saved;
     }
 
-    public Optional<WeeklyTradingReport> getLatest() {
-        return reportRepo.findFirstByModeOrderByWeekStartDesc("REAL");
+    public Optional<WeeklyTradingReport> getLatest(String mode) {
+        String normMode = "VIRTUAL".equalsIgnoreCase(mode) ? "VIRTUAL" : "REAL";
+        return reportRepo.findFirstByModeOrderByWeekStartDesc(normMode);
     }
 
-    public List<WeeklyTradingReport> getRecent() {
-        return reportRepo.findTop12ByModeOrderByWeekStartDesc("REAL");
+    public List<WeeklyTradingReport> getRecent(String mode) {
+        String normMode = "VIRTUAL".equalsIgnoreCase(mode) ? "VIRTUAL" : "REAL";
+        return reportRepo.findTop12ByModeOrderByWeekStartDesc(normMode);
     }
 
     // ============================================================

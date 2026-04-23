@@ -33,6 +33,18 @@ public interface VirtualTradeHistoryRepository extends JpaRepository<VirtualTrad
     List<VirtualTradeHistory> findByAccountIdAndTradeDateBetween(
             Long accountId, LocalDateTime start, LocalDateTime end);
 
+    /** 가상(모의) 매매 — REAL_ACCOUNT_ID(999999L) 제외한 모든 가상 계좌 매매 */
+    @Query("""
+        SELECT v FROM VirtualTradeHistory v
+         WHERE v.accountId <> :realAccountId
+           AND v.tradeDate >= :start
+           AND v.tradeDate <  :end
+         ORDER BY v.tradeDate
+        """)
+    List<VirtualTradeHistory> findVirtualBetween(@Param("realAccountId") Long realAccountId,
+                                                  @Param("start") LocalDateTime start,
+                                                  @Param("end") LocalDateTime end);
+
     /**
      * 계좌별 거래 유형별 조회 (페이징)
      */

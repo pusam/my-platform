@@ -87,9 +87,9 @@
           </span>
         </button>
 
-        <!-- 패스키 (아이디 없이 OS 패스키 picker) -->
+        <!-- 패스키 (아이디 없이 OS 패스키 picker) — 모바일에서만 -->
         <button
-          v-if="webauthnSupported"
+          v-if="webauthnSupported && isMobile"
           type="button"
           class="webauthn-btn passkey-btn"
           :disabled="passkeyLoading"
@@ -102,9 +102,9 @@
           {{ passkeyLoading ? '패스키 인증 중…' : '패스키로 로그인' }}
         </button>
 
-        <!-- WebAuthn (아이디 + 지문) 로그인 -->
+        <!-- WebAuthn (아이디 + 지문) 로그인 — 모바일에서만 -->
         <button
-          v-if="webauthnSupported"
+          v-if="webauthnSupported && isMobile"
           type="button"
           class="webauthn-btn"
           :disabled="webauthnLoading || !username"
@@ -126,7 +126,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { authAPI } from '../utils/api'
 import { TokenManager, UserManager } from '../utils/auth'
@@ -149,6 +149,11 @@ const loading = ref(false)
 const webauthnSupported = ref(false)
 const webauthnLoading = ref(false)
 const passkeyLoading = ref(false)
+
+const isMobile = computed(() => {
+  if (typeof navigator === 'undefined') return false
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
+})
 
 onMounted(() => {
   webauthnSupported.value = isWebauthnSupported()
@@ -246,6 +251,8 @@ const handleLogin = async () => {
  *  - 현재 등록된 credential 이 0개
  */
 async function maybePromptEnroll(username) {
+  // PC 에서는 지문 등록 권유 안 함 (모바일 전용 UX)
+  if (!isMobile.value) return
   if (!isWebauthnSupported()) return
 
   const dismissKey = `webauthn:enroll-dismissed:${username}`
