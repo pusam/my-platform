@@ -641,9 +641,9 @@ export const paperTradingAPI = {
   placeRealTrade(data) {
     return apiClient.post('/paper-trading/real/trades', data);
   },
-  // 봇 성과 분석 조회
-  getBotPerformance(days = 30) {
-    return apiClient.get('/paper-trading/bot-performance', { params: { days } });
+  // 봇 성과 분석 조회 (mode: REAL | VIRTUAL)
+  getBotPerformance(days = 30, mode = 'VIRTUAL') {
+    return apiClient.get('/paper-trading/bot-performance', { params: { days, mode } });
   }
 };
 

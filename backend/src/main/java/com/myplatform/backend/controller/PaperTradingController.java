@@ -235,12 +235,13 @@ public class PaperTradingController {
 
     /**
      * 봇 성과 분석
-     * GET /api/paper-trading/bot-performance?days=30
+     * GET /api/paper-trading/bot-performance?days=30&mode=REAL|VIRTUAL
      */
     @GetMapping("/bot-performance")
     public ResponseEntity<Map<String, Object>> getBotPerformance(
-            @RequestParam(required = false, defaultValue = "30") Integer days) {
-        BotPerformanceDto performance = botPerformanceService.getPerformance(days);
+            @RequestParam(required = false, defaultValue = "30") Integer days,
+            @RequestParam(required = false, defaultValue = "VIRTUAL") String mode) {
+        BotPerformanceDto performance = botPerformanceService.getPerformance(days, mode);
         return ResponseEntity.ok(buildSuccessResponse(performance));
     }
 

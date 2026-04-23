@@ -453,6 +453,16 @@
           <div class="section-header">
             <h2>봇 성과 분석</h2>
             <div class="perf-controls">
+              <div class="perf-mode-toggle">
+                <button
+                  :class="['mode-btn', { active: perfMode === 'VIRTUAL' }]"
+                  @click="switchPerfMode('VIRTUAL')"
+                >🤖 모의</button>
+                <button
+                  :class="['mode-btn', { active: perfMode === 'REAL' }]"
+                  @click="switchPerfMode('REAL')"
+                >🔴 실전</button>
+              </div>
               <select v-model="perfDays" @change="loadBotPerformance" class="perf-select">
                 <option :value="7">최근 7일</option>
                 <option :value="14">최근 14일</option>
@@ -813,7 +823,13 @@ const initForm = ref({
 // 봇 성과 분석 데이터
 const perfLoading = ref(false);
 const perfDays = ref(30);
+const perfMode = ref('VIRTUAL');
 const botPerf = ref(null);
+
+const switchPerfMode = (mode) => {
+  perfMode.value = mode;
+  loadBotPerformance();
+};
 
 // 자동 새로고침
 let refreshTimer = null;
@@ -841,7 +857,7 @@ const switchToBotPerformanceTab = () => {
 const loadBotPerformance = async () => {
   perfLoading.value = true;
   try {
-    const res = await paperTradingAPI.getBotPerformance(perfDays.value);
+    const res = await paperTradingAPI.getBotPerformance(perfDays.value, perfMode.value);
     if (res.data.success) {
       botPerf.value = res.data.data;
     }
@@ -1952,6 +1968,32 @@ onUnmounted(() => {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.perf-mode-toggle {
+  display: inline-flex;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #3a3a5a;
+}
+.perf-mode-toggle .mode-btn {
+  padding: 0.5rem 0.9rem;
+  background: #2a2a4a;
+  color: #aaa;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.15s, color 0.15s;
+}
+.perf-mode-toggle .mode-btn.active {
+  background: rgba(102, 126, 234, 0.35);
+  color: #fff;
+  font-weight: 600;
+}
+.perf-mode-toggle .mode-btn:hover:not(.active) {
+  background: #34345a;
+  color: #ddd;
 }
 
 .perf-select {

@@ -52,11 +52,19 @@ public class BotPerformanceService {
             "AUTO_SELL", "자동 매도"
     );
 
-    /**
-     * 봇 종합 성과 분석
-     */
+    private static final Long REAL_ACCOUNT_ID = 999999L;
+
+    /** 하위 호환 — mode 미지정 시 가상(모의) */
     public BotPerformanceDto getPerformance(Integer days) {
-        Long accountId = getActiveAccountId();
+        return getPerformance(days, "VIRTUAL");
+    }
+
+    /**
+     * 봇 종합 성과 분석.
+     * @param mode "REAL" (실전, accountId=999999) 또는 "VIRTUAL" (활성 가상 계좌)
+     */
+    public BotPerformanceDto getPerformance(Integer days, String mode) {
+        Long accountId = "REAL".equalsIgnoreCase(mode) ? REAL_ACCOUNT_ID : getActiveAccountId();
         if (accountId == null) {
             return buildEmptyPerformance();
         }
