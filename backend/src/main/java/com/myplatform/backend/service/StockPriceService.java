@@ -151,7 +151,7 @@ public class StockPriceService {
 
         Map<String, StockPriceDto> result = new HashMap<>();
 
-        // 1. 캐시에서 먼저 조회
+        // 1. 메모리 캐시에서 먼저 조회
         List<String> missingCodes = new ArrayList<>();
         int cacheMinutes = kisService.isConfigured() ? 1 : 10;
 
@@ -164,7 +164,27 @@ public class StockPriceService {
             }
         }
 
-        // 2. 캐시 미스 종목들 API 조회 (순차 처리 - 안정성 우선)
+        // 2. 메모리 캐시 미스 → DB에서 추가 조회 (KIS 호출량 감소)
+        // 대시보드 진입 시 수십 종목을 한 번에 요청하는데, 메모리 캐시 콜드일 때도
+        // DB 에 최근 1분 이내 값이 있으면 재활용 → EGW00201 유발을 줄인다.
+        if (!missingCodes.isEmpty()) {
+            List<String> stillMissing = new ArrayList<>(missingCodes.size());
+            for (String code : missingCodes) {
+                Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code);
+                if (dbPrice.isPresent()) {
+                    StockPriceDto dto = entityToDto(dbPrice.get());
+                    if (isValidCache(dto, cacheMinutes)) {
+                        priceCache.put(code, dto);
+                        result.put(code, dto);
+                        continue;
+                    }
+                }
+                stillMissing.add(code);
+            }
+            missingCodes = stillMissing;
+        }
+
+        // 3. 여전히 미스인 종목만 API 호출 (순차 처리 - 안정성 우선)
         if (!missingCodes.isEmpty()) {
             // KIS 사용 불가 시 네이버 폴백 → 더 긴 딜레이 적용
             boolean usingKis = kisService.isConfigured() && kisService.isTokenAvailable();

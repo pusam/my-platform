@@ -284,7 +284,12 @@
           <!-- 실제 계좌 카드 -->
           <div class="summary-card account-card real-account">
             <div class="card-icon">💳</div>
-            <h3>실제 계좌</h3>
+            <h3>
+              실제 계좌
+              <span v-if="realFreshnessLabel" class="freshness-badge" :class="realFreshnessClass">
+                {{ realFreshnessLabel }}
+              </span>
+            </h3>
             <div class="card-content">
               <div class="stat-row">
                 <span class="label">예수금</span>
@@ -786,6 +791,29 @@ const realAccount = ref({
   profitRate: 0
 });
 const realPortfolio = ref([]);
+
+// Live/Cached 배지 (5초마다 틱으로 갱신)
+const nowTick = ref(Date.now());
+let freshnessTickTimer = null;
+
+const realFreshnessLabel = computed(() => {
+  const ts = realAccount.value?.updatedAt;
+  if (!ts) return '';
+  const past = new Date(ts).getTime();
+  if (isNaN(past)) return '';
+  const secs = Math.max(0, Math.floor((nowTick.value - past) / 1000));
+  if (secs < 5) return '🟢 Live';
+  if (secs < 60) return `🟡 ${secs}초 전`;
+  const mins = Math.floor(secs / 60);
+  return `🟠 ${mins}분 전`;
+});
+
+const realFreshnessClass = computed(() => {
+  const label = realFreshnessLabel.value;
+  if (label.startsWith('🟢')) return 'fresh-live';
+  if (label.startsWith('🟡')) return 'fresh-recent';
+  return 'fresh-stale';
+});
 
 // 백엔드 AccountSummaryDto → UI 가 기대하는 필드명으로 변환
 const mapRealAccount = (data) => ({
@@ -1301,11 +1329,18 @@ onMounted(() => {
       loadRealData();
     }
   }, 30000);
+  // 배지 갱신 틱 (5초)
+  freshnessTickTimer = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 5000);
 });
 
 onUnmounted(() => {
   if (refreshTimer) {
     clearInterval(refreshTimer);
+  }
+  if (freshnessTickTimer) {
+    clearInterval(freshnessTickTimer);
   }
 });
 </script>
@@ -1433,6 +1468,34 @@ onUnmounted(() => {
   color: #fff;
   font-size: 1.1rem;
   margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.freshness-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.freshness-badge.fresh-live {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.3);
+}
+
+.freshness-badge.fresh-recent {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.freshness-badge.fresh-stale {
+  color: #f97316;
+  border-color: rgba(249, 115, 22, 0.3);
 }
 
 .card-content {

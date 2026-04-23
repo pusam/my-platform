@@ -420,6 +420,10 @@ public class RealTradeService implements TradeService {
 
         int holdingCount = balance.getHoldings() != null ? balance.getHoldings().size() : 0;
 
+        // updatedAt 은 실제 KIS 잔고가 성공적으로 조회된 시점(lastBalanceUpdate) 을 반환한다.
+        // 캐시 폴백인 경우에도 "마지막 성공 시각" 이 찍혀야 UI 에서 Live/Cached 구분 가능.
+        LocalDateTime dataTimestamp = lastBalanceUpdate != null ? lastBalanceUpdate : LocalDateTime.now();
+
         return AccountSummaryDto.builder()
                 .accountId(REAL_ACCOUNT_ID)
                 .accountName("실전투자 계좌")
@@ -434,7 +438,7 @@ public class RealTradeService implements TradeService {
                 .holdingCount(holdingCount)
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
+                .updatedAt(dataTimestamp)
                 .build();
     }
 

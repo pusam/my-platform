@@ -430,9 +430,12 @@ export default {
     }
   },
   mounted() {
-    this.loadTabData('market')
-    this.loadNews()
-    this.loadTodaySummary() // 오늘의 핵심 요약
+    // 초기 로드 스태거 — 한꺼번에 같은 KIS 창구로 몰려 EGW00201 을 유발하던 것 완화.
+    // 백엔드 KisApiRateLimiter 가 400ms 간격으로 직렬화하지만, 큐가 과부하일 땐
+    // 뒤쪽 요청이 10초 타임아웃을 맞을 수 있어 프론트에서 미리 간격을 둔다.
+    this.loadTabData('market')            // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
+    setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
+    setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
     this.setupKeyboardShortcut()
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
@@ -562,9 +565,11 @@ export default {
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
       if (tab === 'market' && !this.dataLoaded.market) {
+        // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격.
+        // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, 나머지는 뒤로.
         this.loadMarketMap()
-        this.loadAiStrategy()  // 시간대별 신호용
-        this.loadSmartMoney()  // 수급급증 신호용
+        setTimeout(() => this.loadAiStrategy(), 500)   // 시간대별 신호용
+        setTimeout(() => this.loadSmartMoney(), 1000)  // 수급급증 신호용
         this.dataLoaded.market = true
       }
     },
