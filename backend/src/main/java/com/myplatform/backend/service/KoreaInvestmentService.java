@@ -545,20 +545,6 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * 앱키 반환 (외부에서 필요시)
-     */
-    public String getAppKey() {
-        return appKey;
-    }
-
-    /**
-     * 앱시크릿 반환 (외부에서 필요시)
-     */
-    public String getAppSecret() {
-        return appSecret;
-    }
-
-    /**
      * 국내기관_외국인 매매종목가집계 조회
      * 외국인/기관 순매수/순매도 상위 종목 조회
      *

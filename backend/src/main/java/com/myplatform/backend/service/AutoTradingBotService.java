@@ -446,37 +446,56 @@ public class AutoTradingBotService {
         }
     }
 
+    /** 영속화 재시도 — DB 일시 장애 (커넥션 끊김 등) 대비. 3회 시도 후에도 실패면 호출자가 알림. */
+    private <T> void retryPersist(java.util.function.Supplier<T> action) {
+        Exception last = null;
+        for (int i = 0; i < 3; i++) {
+            try { action.get(); return; }
+            catch (Exception e) {
+                last = e;
+                try { Thread.sleep(200L * (i + 1)); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+        }
+        if (last instanceof RuntimeException re) throw re;
+        throw new RuntimeException(last);
+    }
+
     // 저장 실패 시 호출자가 알림/보상 처리를 할 수 있도록 예외를 던진다.
     private void persistScalpingPosition(ScalpingPosition sp) {
-        BotTradingPosition entity = positionRepository
-                .findByStrategyAndStockCode(Strategy.SCALPING, sp.stockCode)
-                .orElseGet(() -> BotTradingPosition.builder()
-                        .strategy(Strategy.SCALPING)
-                        .stockCode(sp.stockCode)
-                        .build());
-        entity.setStockName(sp.stockName);
-        entity.setBuyPrice(sp.buyPrice);
-        entity.setHighPrice(sp.highPrice);
-        entity.setBuyTime(sp.buyTime);
-        entity.setHalfSold(sp.halfSold);
-        entity.setTimeExtended(sp.timeExtended);
-        entity.setOriginalQuantity(sp.originalQuantity);
-        positionRepository.save(entity);
+        retryPersist(() -> {
+            BotTradingPosition entity = positionRepository
+                    .findByStrategyAndStockCode(Strategy.SCALPING, sp.stockCode)
+                    .orElseGet(() -> BotTradingPosition.builder()
+                            .strategy(Strategy.SCALPING)
+                            .stockCode(sp.stockCode)
+                            .build());
+            entity.setStockName(sp.stockName);
+            entity.setBuyPrice(sp.buyPrice);
+            entity.setHighPrice(sp.highPrice);
+            entity.setBuyTime(sp.buyTime);
+            entity.setHalfSold(sp.halfSold);
+            entity.setTimeExtended(sp.timeExtended);
+            entity.setOriginalQuantity(sp.originalQuantity);
+            return positionRepository.save(entity);
+        });
     }
 
     private void persistSwingPosition(SwingPosition sw, Strategy strategy) {
-        BotTradingPosition entity = positionRepository
-                .findByStrategyAndStockCode(strategy, sw.stockCode)
-                .orElseGet(() -> BotTradingPosition.builder()
-                        .strategy(strategy)
-                        .stockCode(sw.stockCode)
-                        .build());
-        entity.setStockName(sw.stockName);
-        entity.setBuyPrice(sw.buyPrice);
-        entity.setHighPrice(sw.highPrice);
-        entity.setBuyTime(sw.buyTime);
-        entity.setBuyReason(sw.buyReason);
-        positionRepository.save(entity);
+        retryPersist(() -> {
+            BotTradingPosition entity = positionRepository
+                    .findByStrategyAndStockCode(strategy, sw.stockCode)
+                    .orElseGet(() -> BotTradingPosition.builder()
+                            .strategy(strategy)
+                            .stockCode(sw.stockCode)
+                            .build());
+            entity.setStockName(sw.stockName);
+            entity.setBuyPrice(sw.buyPrice);
+            entity.setHighPrice(sw.highPrice);
+            entity.setBuyTime(sw.buyTime);
+            entity.setBuyReason(sw.buyReason);
+            return positionRepository.save(entity);
+        });
     }
 
     // 저장 실패 시 관리자에게 즉시 알림 — 재시작 시 메모리 포지션이 복원되지 않아
@@ -548,7 +567,7 @@ public class AutoTradingBotService {
 
     // ==================== 봇 시작/중지 ====================
 
-    public BotStatusDto startBot(TradingMode mode) {
+    public synchronized BotStatusDto startBot(TradingMode mode) {
         if (botActive.get()) {
             log.info("[스캘핑봇] 이미 실행 중입니다. 현재 모드: {}", currentMode.getDisplayName());
             return getBotStatus();
@@ -573,6 +592,9 @@ public class AutoTradingBotService {
                     log.error("[스캘핑봇] 모드 전환 시 포지션 DB 삭제 실패: {}", e.getMessage());
                 }
             }
+            // 진행 중인 스케줄러가 옛 service 로 buy/sell 호출하지 않도록 잠시 대기.
+            // (모든 scheduled 메서드는 botActive=false 면 바로 리턴 → 잠깐 false 로 돌렸다가 다시 켬)
+            try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
 
         currentMode = newMode;
@@ -1082,18 +1104,27 @@ public class AutoTradingBotService {
                     continue;
                 }
 
-                // 매수 실행
+                // 매수 실행 — 모드 전환 race 방어: 중간에 mode 가 바뀌었으면 중단
+                if (!botActive.get() || currentMode != TradingMode.VIRTUAL) {
+                    log.warn("[스캘핑봇] 매수 직전 봇 비활성화 또는 모드 전환 감지 — 중단");
+                    return;
+                }
                 try {
                     activeTradeService.buy(surge.getStockCode(), surge.getStockName(),
                             entryResult.currentPrice, quantity, "SCALPING_ENTRY");
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
 
-                    // 스캘핑 포지션 등록 — 메모리 저장은 현재 세션의 자동 매도를 위해 항상 수행하고,
-                    // DB 영속화 실패 시에는 관리자에게 알려 재시작 리스크를 인지시킨다.
+                    // 스캘핑 포지션 등록 — putIfAbsent 로 동일 종목 동시 진입 race 방지.
+                    // 이미 있으면 다른 스레드/사이클이 먼저 put 한 것 → 새로 만든 건 버림.
                     ScalpingPosition newPos = new ScalpingPosition(surge.getStockCode(), surge.getStockName(),
                             entryResult.currentPrice, quantity);
-                    scalpingPositions.put(surge.getStockCode(), newPos);
+                    ScalpingPosition prev = scalpingPositions.putIfAbsent(surge.getStockCode(), newPos);
+                    if (prev != null) {
+                        log.warn("[스캘핑봇] 동시 진입 race 감지 - 종목: {} (기존 매수가 {}원), 신규 등록 skip",
+                                surge.getStockName(), prev.buyPrice);
+                        continue;
+                    }
                     try {
                         persistScalpingPosition(newPos);
                     } catch (Exception persistEx) {
@@ -1615,7 +1646,17 @@ public class AutoTradingBotService {
                     profitLoss, quantity, reason, isPartialSell);
 
         } catch (Exception e) {
-            log.error("[스캘핑봇] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage());
+            log.error("[스캘핑봇] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage(), e);
+            // 매도 실패는 손절 못 하면 손실 누적 → RISK 채널 즉시 알림
+            if (telegramService.isEnabled()) {
+                try {
+                    telegramService.sendRisk(String.format(
+                            "🚨 <b>[스캘핑봇] 매도 실패</b>\n\n종목: %s (%s)\n수량: %d주 @ %s원\n사유: %s\n에러: %s\n\n수동 확인 필요",
+                            portfolio.getStockName(), portfolio.getStockCode(),
+                            quantity, formatNumber(currentPrice), reason,
+                            e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+                } catch (Exception ignore) {}
+            }
         }
     }
 
@@ -1780,13 +1821,17 @@ public class AutoTradingBotService {
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
 
+        // 모드/서비스 스냅샷 — 진행 중 모드 전환되어도 시작 시점 service 로 일관 동작
+        final TradingMode runMode = currentMode;
+        final TradeService runTrader = activeTradeService;
+
         // 스윙 보유 한도 체크
         if (swingPositions.size() >= SWING_MAX_HOLDING) {
             log.debug("[스윙봇] 최대 보유 {}종목 도달 — 신규 진입 스킵", SWING_MAX_HOLDING);
             return;
         }
 
-        log.info("[스윙봇] ===== 스윙 진입 체크 시작 =====");
+        log.info("[스윙봇] ===== 스윙 진입 체크 시작 (mode={}) =====", runMode);
 
         try {
             // 외국인 + 기관 연속매수 조회
@@ -1858,12 +1903,16 @@ public class AutoTradingBotService {
                 int quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
                 if (quantity <= 0) continue;
 
-                // 매수 실행
+                // 매수 실행 — 모드 전환 race 방어
+                if (!botActive.get() || currentMode != runMode) {
+                    log.warn("[스윙봇] 매수 직전 봇 비활성화 또는 모드 전환 감지 — 중단");
+                    return;
+                }
                 try {
                     String investorLabel = candidate.getInvestorType().equals("FOREIGN") ? "외국인" : "기관";
                     String reason = "SWING_" + candidate.getInvestorType();
 
-                    activeTradeService.buy(candidate.getStockCode(), candidate.getStockName(),
+                    runTrader.buy(candidate.getStockCode(), candidate.getStockName(),
                             currentPrice, quantity, reason);
 
                     SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
@@ -2042,7 +2091,16 @@ public class AutoTradingBotService {
                         deletePersistedPosition(Strategy.SWING, position.stockCode);
                         sellCooldownMap.put(position.stockCode, LocalDateTime.now());
                     } catch (Exception e) {
-                        log.error("[스윙봇] 매도 실패: {} - {}", position.stockName, e.getMessage());
+                        log.error("[스윙봇] 매도 실패: {} - {}", position.stockName, e.getMessage(), e);
+                        if (telegramService.isEnabled()) {
+                            try {
+                                telegramService.sendRisk(String.format(
+                                        "🚨 <b>[스윙봇] 매도 실패</b>\n\n종목: %s (%s)\n수량: %d주 @ %s원\n사유: %s\n에러: %s\n\n수동 확인 필요",
+                                        position.stockName, position.stockCode,
+                                        portfolio.getQuantity(), formatNumber(currentPrice), sellReason,
+                                        e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+                            } catch (Exception ignore) {}
+                        }
                     }
                 }
             }
@@ -2631,8 +2689,13 @@ public class AutoTradingBotService {
             LocalDate.of(2026, 10, 5)   // 개천절 대체휴일 (10/3 토요일)
     );
 
+    /** KRX 정규장 시간 (한국시간 기준). 09:00:00 이전 또는 15:30:00 이후는 장 외. */
+    private static final LocalTime MARKET_OPEN  = LocalTime.of(9, 0);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
+
     private boolean isMarketClosed() {
-        LocalDate today = LocalDate.now();
+        java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
+        LocalDate today = LocalDate.now(KST);
         DayOfWeek dayOfWeek = today.getDayOfWeek();
 
         if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
@@ -2649,6 +2712,12 @@ public class AutoTradingBotService {
             return true;
         }
         if (year == 2026 && KOREA_HOLIDAYS_2026.contains(today)) {
+            return true;
+        }
+
+        // 정규장 시간 체크 (09:00 ~ 15:30 KST)
+        LocalTime now = LocalTime.now(KST);
+        if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
             return true;
         }
 

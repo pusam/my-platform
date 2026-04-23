@@ -40,10 +40,40 @@ public class RealTradeService implements TradeService {
     // 실전매매용 계좌 ID (가상 ID - 실제 계좌와 구분)
     private static final Long REAL_ACCOUNT_ID = 999999L;
 
-    // 캐시된 잔고 정보
+    // 캐시된 잔고 정보 — 매수/매도 직전엔 force=true 로 항상 재조회.
+    // 표시·통계 용도일 때만 캐시 사용.
     private volatile BalanceInfo cachedBalance;
     private volatile LocalDateTime lastBalanceUpdate;
-    private static final long BALANCE_CACHE_SECONDS = 30;
+    private static final long BALANCE_CACHE_SECONDS = 5;
+
+    /**
+     * KIS 응답이 불확실 (timeout / null / RuntimeException) 한 경우, 주문이 실제로
+     * 들어갔을 가능성을 배제할 수 없으므로 비상 정지를 자동 발동.
+     * 봇/사용자가 KIS 화면에서 실제 주문 상태를 확인 후 수동으로 해제해야 함.
+     */
+    private void triggerKillSwitchOnUncertainty(String action, String stockName, String stockCode, String detail) {
+        try {
+            if (!safetyService.isKilled()) {
+                String reason = String.format("KIS %s 응답 불확실 — %s(%s) — %s. 실제 주문 여부 확인 후 해제하세요.",
+                        action, stockName, stockCode, detail);
+                safetyService.enable(reason, "system-auto");
+                log.error("⛔ 자동 비상정지 발동: {}", reason);
+                if (telegramService.isEnabled()) {
+                    telegramService.sendRisk(String.format(
+                            "🚨 <b>자동 비상정지 발동</b>\n\nKIS %s 응답이 불확실합니다.\n종목: %s (%s)\n사유: %s\n\n실제 주문 여부 확인 후 마이페이지에서 해제하세요.",
+                            action, stockName, stockCode, detail));
+                }
+            }
+        } catch (Exception ex) {
+            log.error("[킬스위치 발동 실패] {}", ex.getMessage(), ex);
+        }
+    }
+
+    /** 주문번호는 일반 로그에선 마지막 4자리만. 감사 로그/텔레그램은 전체 사용. */
+    private static String maskOrderNo(String orderNo) {
+        if (orderNo == null || orderNo.length() <= 4) return orderNo;
+        return "****" + orderNo.substring(orderNo.length() - 4);
+    }
 
     private static void validateTradeInput(BigDecimal price, Integer quantity) {
         if (price == null || price.signum() <= 0) {
@@ -110,28 +140,49 @@ public class RealTradeService implements TradeService {
             throw new IllegalStateException("매수 차단: " + decision.reason());
         }
 
-        // 2) 감사 로그 시작
+        // 2) 매수 직전 KIS 실시간 잔고 확인 — 캐시로 인한 중복 매수 방지
+        BalanceInfo realtime = getBalanceInfo(true);
+        if (realtime == null) {
+            auditService.blocked(TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason, "잔고 조회 실패");
+            throw new IllegalStateException("잔고 조회 실패 — 안전을 위해 매수 중단");
+        }
+        BigDecimal available = realtime.getAvailableBalance() != null
+                ? realtime.getAvailableBalance() : BigDecimal.ZERO;
+        if (available.compareTo(totalCheck) < 0) {
+            String why = String.format("실시간 잔고 부족: 가용 %,.0f원 < 시도 %,.0f원", available, totalCheck);
+            auditService.blocked(TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason, why);
+            throw new IllegalStateException(why);
+        }
+
+        // 3) 감사 로그 시작
         TradingAuditService.Ctx audit = auditService.start(
                 TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
                 stockCode, stockName, quantity, price, reason);
 
         // 3) KIS API 매수 주문
+        //    예외/null 응답은 "주문이 들어갔는지 알 수 없음" 상태 → 봇 재시도 시 중복 주문 위험.
+        //    이 경우 자동 킬스위치 발동해서 재시도 자체를 차단한다 (수동 확인 후 해제).
         JsonNode orderResult;
         try {
             orderResult = kisService.buyStock(stockCode, quantity, price);
         } catch (RuntimeException e) {
-            auditService.failure(audit, null, null, e);
+            auditService.failure(audit, null, "EXCEPTION", e);
+            triggerKillSwitchOnUncertainty("매수", stockName, stockCode, e.getMessage());
             throw e;
         }
 
         if (orderResult == null) {
             auditService.failure(audit, null, "API 응답 null", null);
+            triggerKillSwitchOnUncertainty("매수", stockName, stockCode, "API 응답 null");
             throw new IllegalStateException("매수 주문 API 호출 실패");
         }
 
         String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
         String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
         if (!"0".equals(rtCd)) {
+            // KIS 가 명시적으로 거부 — 주문 안 들어간 게 확실하므로 킬스위치는 발동하지 않음
             auditService.failure(audit, rtCd, msg, null);
             throw new IllegalStateException("매수 주문 실패: " + msg);
         }
@@ -167,7 +218,7 @@ public class RealTradeService implements TradeService {
         tradeHistoryRepository.save(trade);
 
         log.info("[실전매매] 매수 주문 완료: {} ({}) x {} @ {}원, 주문번호: {}",
-                stockName, stockCode, quantity, price, orderNo);
+                stockName, stockCode, quantity, price, maskOrderNo(orderNo));
 
         // 캐시 무효화
         cachedBalance = null;
@@ -196,15 +247,16 @@ public class RealTradeService implements TradeService {
         // 종목명 조회
         String stockName = getStockName(stockCode);
 
-        // 보유 확인
-        BalanceInfo balance = getBalanceInfo();
-        HoldingStock holding = null;
-        if (balance != null && balance.getHoldings() != null) {
-            holding = balance.getHoldings().stream()
+        // 보유 확인 — 매도는 항상 캐시 무시하고 KIS 에서 실시간 조회
+        BalanceInfo balance = getBalanceInfo(true);
+        if (balance == null) {
+            throw new IllegalStateException("잔고 조회 실패 — 안전을 위해 매도 중단");
+        }
+        HoldingStock holding = balance.getHoldings() == null ? null
+                : balance.getHoldings().stream()
                     .filter(h -> stockCode.equals(h.getStockCode()))
                     .findFirst()
                     .orElse(null);
-        }
 
         if (holding == null || holding.getQuantity() < quantity) {
             int availableQty = holding != null ? holding.getQuantity() : 0;
@@ -231,23 +283,26 @@ public class RealTradeService implements TradeService {
                 TradingAuditLog.Action.SELL, TradingAuditLog.Mode.REAL,
                 stockCode, stockName, quantity, price, reason);
 
-        // 3) KIS API 매도 주문
+        // 3) KIS API 매도 주문 — 매수와 동일한 안전장치
         JsonNode orderResult;
         try {
             orderResult = kisService.sellStock(stockCode, quantity, price);
         } catch (RuntimeException e) {
-            auditService.failure(audit, null, null, e);
+            auditService.failure(audit, null, "EXCEPTION", e);
+            triggerKillSwitchOnUncertainty("매도", stockName, stockCode, e.getMessage());
             throw e;
         }
 
         if (orderResult == null) {
             auditService.failure(audit, null, "API 응답 null", null);
+            triggerKillSwitchOnUncertainty("매도", stockName, stockCode, "API 응답 null");
             throw new IllegalStateException("매도 주문 API 호출 실패");
         }
 
         String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
         String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
         if (!"0".equals(rtCd)) {
+            // KIS 명시적 거부 — 주문 안 들어감
             auditService.failure(audit, rtCd, msg, null);
             throw new IllegalStateException("매도 주문 실패: " + msg);
         }
@@ -288,7 +343,7 @@ public class RealTradeService implements TradeService {
         tradeHistoryRepository.save(trade);
 
         log.info("[실전매매] 매도 주문 완료: {} ({}) x {} @ {}원, 손익: {}원, 주문번호: {}",
-                stockName, stockCode, quantity, price, profitLoss, orderNo);
+                stockName, stockCode, quantity, price, profitLoss, maskOrderNo(orderNo));
 
         // 캐시 무효화
         cachedBalance = null;
@@ -425,24 +480,29 @@ public class RealTradeService implements TradeService {
     }
 
     /**
-     * 잔고 정보 조회 (캐싱)
+     * 잔고 정보 조회 (캐싱). 표시·통계 등 비매매 용도.
      */
     private BalanceInfo getBalanceInfo() {
-        // 캐시 유효성 확인
-        if (cachedBalance != null && lastBalanceUpdate != null) {
+        return getBalanceInfo(false);
+    }
+
+    /**
+     * 매매 직전엔 반드시 force=true 로 호출. 캐시 무시 + 실패 시 캐시 반환 안 함 (null).
+     */
+    private BalanceInfo getBalanceInfo(boolean force) {
+        if (!force && cachedBalance != null && lastBalanceUpdate != null) {
             long elapsed = java.time.Duration.between(lastBalanceUpdate, LocalDateTime.now()).getSeconds();
             if (elapsed < BALANCE_CACHE_SECONDS) {
                 return cachedBalance;
             }
         }
 
-        // KIS API 호출
         JsonNode balanceResponse = kisService.getBalance();
         if (balanceResponse == null) {
-            return cachedBalance;  // 실패 시 기존 캐시 반환
+            // 매매 직전에는 stale 캐시로 결정 내리지 않도록 null 반환 → 호출자가 거래 중단.
+            return force ? null : cachedBalance;
         }
 
-        // 파싱 및 캐시 업데이트
         BalanceInfo balance = kisService.parseBalance(balanceResponse);
         if (balance != null) {
             cachedBalance = balance;
