@@ -80,6 +80,28 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * KIS rate-limit 에러(EGW00201 / HTTP 429 / "초당 거래건수 초과")면 RuntimeException 으로
+     * 던져 KisApiRateLimiter 가 재시도하도록 한다. 그 외 에러는 호출부의 기존 처리 유지.
+     *
+     * 각 internal 메서드의 catch 블록 맨 앞에서 호출하면 기존 로그/null 리턴은 그대로 둔 채
+     * rate-limit 에러만 선별적으로 재시도를 태울 수 있다.
+     */
+    private void rethrowIfRateLimit(Exception e) {
+        if (e instanceof org.springframework.web.client.HttpServerErrorException) {
+            String body = ((org.springframework.web.client.HttpServerErrorException) e).getResponseBodyAsString();
+            if (body != null && (body.contains("EGW00201") || body.contains("초당 거래건수"))) {
+                throw new RuntimeException("KIS rate limit (EGW00201): " + body, e);
+            }
+        }
+        if (e instanceof org.springframework.web.client.HttpClientErrorException) {
+            int status = ((org.springframework.web.client.HttpClientErrorException) e).getStatusCode().value();
+            if (status == 429) {
+                throw new RuntimeException("KIS rate limit (HTTP 429)", e);
+            }
+        }
+    }
+
+    /**
      * API 설정이 유효한지 확인
      */
     public boolean isConfigured() {
@@ -242,6 +264,7 @@ public class KoreaInvestmentService {
                 return objectMapper.readTree(response.getBody());
             }
         } catch (Exception e) {
+            rethrowIfRateLimit(e);
             log.error("주식 현재가 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
@@ -276,6 +299,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.error("주식 기본정보 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -325,6 +349,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.error("투자자별 매매동향 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -362,6 +387,7 @@ public class KoreaInvestmentService {
             } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
                 log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -397,6 +423,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.error("지수 현재가 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
 
@@ -433,6 +460,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.error("지수 분봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
 
@@ -486,6 +514,7 @@ public class KoreaInvestmentService {
                     log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -537,6 +566,7 @@ public class KoreaInvestmentService {
                     log.warn("일봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.warn("일봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -604,6 +634,7 @@ public class KoreaInvestmentService {
                     log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
                         investorType, isBuy, e.getMessage(), e);
             }
@@ -693,6 +724,7 @@ public class KoreaInvestmentService {
                     return result;
                 }
             } catch (Exception e) {
+                rethrowIfRateLimit(e);
                 log.error("[거래량급증] 조회 실패: {}", e.getMessage(), e);
             }
 
@@ -763,6 +795,7 @@ public class KoreaInvestmentService {
                 return result;
             }
         } catch (Exception e) {
+            rethrowIfRateLimit(e);
             log.error("일봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 

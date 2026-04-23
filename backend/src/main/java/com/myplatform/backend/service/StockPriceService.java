@@ -168,10 +168,12 @@ public class StockPriceService {
         if (!missingCodes.isEmpty()) {
             // KIS 사용 불가 시 네이버 폴백 → 더 긴 딜레이 적용
             boolean usingKis = kisService.isConfigured() && kisService.isTokenAvailable();
-            int delayMs = usingKis ? REQUEST_DELAY_MS : NAVER_REQUEST_DELAY_MS;
+            // KIS 는 KisApiRateLimiter 가 400ms 간격을 이미 보장하므로 여기서는 추가 sleep 불필요.
+            // 네이버 폴백 시에는 자체 간격 유지 (limiter 밖 경로).
+            int delayMs = usingKis ? 0 : NAVER_REQUEST_DELAY_MS;
             String apiSource = usingKis ? "KIS" : "Naver(폴백)";
 
-            log.info("Batch 시세 조회 시작 - 소스: {}, 캐시 히트: {}, 미스: {} (순차 처리, {}ms 간격)",
+            log.info("Batch 시세 조회 시작 - 소스: {}, 캐시 히트: {}, 미스: {} (순차 처리, {}ms 추가 간격)",
                     apiSource, result.size(), missingCodes.size(), delayMs);
             long startTime = System.currentTimeMillis();
             int successCount = 0;
@@ -186,8 +188,8 @@ public class StockPriceService {
                 }
 
                 try {
-                    // Rate Limit 제어
-                    if (i > 0) {
+                    // 네이버 경로일 때만 추가 sleep (KIS 는 limiter 가 간격 제어)
+                    if (i > 0 && delayMs > 0) {
                         Thread.sleep(delayMs);
                     }
 
