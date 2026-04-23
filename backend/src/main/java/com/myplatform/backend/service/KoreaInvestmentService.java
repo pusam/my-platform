@@ -1047,7 +1047,8 @@ public class KoreaInvestmentService {
      * @return 잔고 정보 JsonNode
      */
     public JsonNode getBalance() {
-        return rateLimiter.execute(KisApiRateLimiter.Priority.HIGH, () -> getBalanceInternal());
+        // 매매 전 필수 조회 — CRITICAL 로 승격 (다른 호출에 밀리지 않게) + 재시도 3회
+        return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL, () -> getBalanceInternal(), 3);
     }
 
     private JsonNode getBalanceInternal() {
@@ -1097,6 +1098,11 @@ public class KoreaInvestmentService {
 
                 return result;
             }
+        } catch (org.springframework.web.client.HttpServerErrorException e) {
+            // rate limit 등은 rateLimiter 가 재시도할 수 있도록 예외를 그대로 던진다.
+            String body = e.getResponseBodyAsString();
+            log.error("[실전매매] 잔고 조회 실패: {} {}", e.getStatusCode(), body);
+            throw new RuntimeException("잔고 조회 실패: " + body, e);
         } catch (Exception e) {
             log.error("[실전매매] 잔고 조회 실패: {}", e.getMessage());
         }

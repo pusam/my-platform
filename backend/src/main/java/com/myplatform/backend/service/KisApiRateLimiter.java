@@ -161,14 +161,19 @@ public class KisApiRateLimiter {
     }
 
     /**
-     * Rate Limit 관련 에러 메시지 확인
+     * Rate Limit 관련 에러 메시지 확인.
+     * KIS 는 rate limit 를 500 Internal Server Error 로 반환하고 본문에
+     * "EGW00201" / "초당 거래건수를 초과하였습니다" 를 담는다 — 문자열로 감지.
      */
     private boolean isRateLimitError(Exception e) {
         String msg = e.getMessage();
         if (msg == null) return false;
         return msg.contains("Too Many Requests")
                 || msg.contains("rate limit")
-                || msg.contains("Rate limit");
+                || msg.contains("Rate limit")
+                || msg.contains("EGW00201")
+                || msg.contains("초당 거래건수")
+                || msg.contains("초당거래건수");
     }
 
     /**
