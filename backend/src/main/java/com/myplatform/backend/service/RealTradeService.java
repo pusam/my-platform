@@ -41,10 +41,10 @@ public class RealTradeService implements TradeService {
     private static final Long REAL_ACCOUNT_ID = 999999L;
 
     // 캐시된 잔고 정보 — 매수/매도 직전엔 force=true 로 항상 재조회.
-    // 표시·통계 용도일 때만 캐시 사용.
+    // 표시·통계 용도는 30초 캐시 (KIS rate limit 완화).
     private volatile BalanceInfo cachedBalance;
     private volatile LocalDateTime lastBalanceUpdate;
-    private static final long BALANCE_CACHE_SECONDS = 5;
+    private static final long BALANCE_CACHE_SECONDS = 30;
 
     /**
      * KIS 응답이 불확실 (timeout / null / RuntimeException) 한 경우, 주문이 실제로
@@ -360,8 +360,29 @@ public class RealTradeService implements TradeService {
     @Override
     public AccountSummaryDto getAccountSummary() {
         BalanceInfo balance = getBalanceInfo();
+        if (balance == null && cachedBalance != null) {
+            // 직전 성공 캐시로 폴백 — UI 가 "0원" 으로 플리킹하지 않게
+            balance = cachedBalance;
+        }
         if (balance == null) {
-            throw new IllegalStateException("잔고 정보를 조회할 수 없습니다.");
+            // 정말 한 번도 성공 못했으면 빈 DTO (예외 대신) — UI 가 최소한 구조는 받음
+            log.warn("[실전매매] 잔고 정보 조회 실패 — 빈 요약 반환");
+            return AccountSummaryDto.builder()
+                    .accountId(REAL_ACCOUNT_ID)
+                    .accountName("실전투자 계좌 (조회 중)")
+                    .initialBalance(BigDecimal.ZERO)
+                    .currentBalance(BigDecimal.ZERO)
+                    .totalInvested(BigDecimal.ZERO)
+                    .totalEvaluation(BigDecimal.ZERO)
+                    .totalProfitLoss(BigDecimal.ZERO)
+                    .totalProfitRate(BigDecimal.ZERO)
+                    .realizedProfitLoss(BigDecimal.ZERO)
+                    .unrealizedProfitLoss(BigDecimal.ZERO)
+                    .holdingCount(0)
+                    .isActive(true)
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
         }
 
         // 총 투자금액 계산
