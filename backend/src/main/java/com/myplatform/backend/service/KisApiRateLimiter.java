@@ -23,9 +23,9 @@ import java.util.function.Supplier;
 @Slf4j
 public class KisApiRateLimiter {
 
-    // KIS API 제한: 초당 약 20회 (엔드포인트별 상이)
-    // 안전 목표: 200ms 간격 = 초당 5회
-    private static final long MIN_INTERVAL_MS = 200;
+    // KIS API 제한: 초당 약 20회 (엔드포인트별 상이, 실전계좌는 더 빡빡함)
+    // 안전 목표: 400ms 간격 = 초당 2.5회 — 실전 잔고/주문 + 다른 스케줄 호출 병렬성 고려
+    private static final long MIN_INTERVAL_MS = 400;
 
     /**
      * API 호출 우선순위
