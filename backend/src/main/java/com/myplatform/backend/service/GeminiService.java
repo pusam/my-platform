@@ -392,14 +392,18 @@ public class GeminiService {
                 String result = callGeminiApi(prompt);
                 if (result != null) return result;
             } catch (HttpClientErrorException.TooManyRequests e) {
-                long retryDelay = baseWaitMs * (1L << Math.min(attempt, 3)); // 1x, 2x, 4x, 8x, 8x
+                // 서버가 Retry-After 헤더로 알려준 값이 있으면 그걸 우선, 없으면 지수 백오프.
+                // 단 상한을 넘진 않도록 min 처리.
+                long serverHint = parseRetryDelay(e);
+                long expBackoff = baseWaitMs * (1L << Math.min(attempt, 3)); // 1x, 2x, 4x, 8x, 8x
+                long retryDelay = Math.min(serverHint, expBackoff);
                 if (totalWaited + retryDelay > MAX_TOTAL_WAIT_MS) {
                     log.warn("[Gemini patient] 누적 대기 상한({}ms) 도달 — 포기",
                             MAX_TOTAL_WAIT_MS);
                     return null;
                 }
-                log.warn("[Gemini patient] Rate Limit 시도 {}/{} — {}ms 후 재시도 (누적 {}ms)",
-                        attempt + 1, maxAttempts, retryDelay, totalWaited);
+                log.warn("[Gemini patient] Rate Limit 시도 {}/{} — {}ms 후 재시도 (누적 {}ms, server hint {}ms)",
+                        attempt + 1, maxAttempts, retryDelay, totalWaited, serverHint);
                 try { Thread.sleep(retryDelay); totalWaited += retryDelay; }
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
             } catch (Exception e) {
@@ -1038,7 +1042,7 @@ public class GeminiService {
                 return null;
 
             } catch (HttpClientErrorException.TooManyRequests e) {
-                long baseDelay = parseRetryDelay(e.getMessage());
+                long baseDelay = parseRetryDelay(e);  // Retry-After 헤더 우선
                 long retryDelay = baseDelay * (1L << attempt);
                 consecutiveErrors.incrementAndGet();
                 log.warn("[Gemini JSON] Rate Limit (시도 {}/{}) - {}ms 후 재시도",
@@ -1104,7 +1108,7 @@ public class GeminiService {
                 return result;
 
             } catch (HttpClientErrorException.TooManyRequests e) {
-                long baseDelay = parseRetryDelay(e.getMessage());
+                long baseDelay = parseRetryDelay(e);  // Retry-After 헤더 우선
                 // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x)
                 long retryDelay = baseDelay * (1L << attempt);
                 consecutiveErrors.incrementAndGet();
@@ -1224,6 +1228,31 @@ public class GeminiService {
             }
         }
         return DEFAULT_RETRY_DELAY_MS;
+    }
+
+    /**
+     * 429 응답에서 retry 대기 시간 계산.
+     * 우선순위:
+     *   1) HTTP Retry-After 헤더 (RFC 7231 — 초 단위 숫자 지원, HTTP-date 는 스킵)
+     *   2) Gemini 응답 본문의 retryDelay 필드 (기존 parseRetryDelay(String))
+     *   3) DEFAULT_RETRY_DELAY_MS
+     * 헤더를 우선하는 이유: 서버가 정확히 알려주는 값이라 고정 백오프보다 효율적.
+     */
+    private long parseRetryDelay(org.springframework.web.client.HttpClientErrorException e) {
+        org.springframework.http.HttpHeaders headers = e.getResponseHeaders();
+        if (headers != null) {
+            String retryAfter = headers.getFirst(org.springframework.http.HttpHeaders.RETRY_AFTER);
+            if (retryAfter != null && !retryAfter.isBlank()) {
+                try {
+                    long seconds = Long.parseLong(retryAfter.trim());
+                    // 0 이하/비정상 값 방어 + 여유 500ms
+                    return Math.max(1000L, seconds * 1000L) + 500L;
+                } catch (NumberFormatException ignored) {
+                    // HTTP-date 형식이면 본문 파싱으로 fallback
+                }
+            }
+        }
+        return parseRetryDelay(e.getMessage());
     }
 
     /**
