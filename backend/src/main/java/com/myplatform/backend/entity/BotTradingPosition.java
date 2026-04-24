@@ -70,6 +70,17 @@ public class BotTradingPosition {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+    /**
+     * 낙관적 잠금 — 포지션 업데이트가 동시 스레드에서 충돌할 때 감지.
+     * 스캘핑 매도 경로에서 halfSold/highPrice/timeExtended 를 갱신하는데,
+     * 같은 포지션이 여러 스레드에서 동시에 update 되면 lost-update 발생 가능.
+     * V21 마이그레이션에서 version 컬럼을 추가하고 기본값 0 으로 채움.
+     */
+    @Version
+    @Column(name = "version", nullable = false)
+    @Builder.Default
+    private Long version = 0L;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();

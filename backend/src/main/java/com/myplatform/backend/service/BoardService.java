@@ -6,6 +6,8 @@ import com.myplatform.backend.entity.Board;
 import com.myplatform.backend.entity.BoardFile;
 import com.myplatform.backend.repository.BoardRepository;
 import com.myplatform.backend.repository.BoardFileRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +29,8 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class BoardService {
+
+    private static final Logger log = LoggerFactory.getLogger(BoardService.class);
 
     private final BoardRepository boardRepository;
     private final BoardFileRepository boardFileRepository;
@@ -201,12 +205,12 @@ public class BoardService {
             if (file.exists()) {
                 boolean deleted = file.delete();
                 if (!deleted) {
-                    System.err.println("파일 삭제 실패: " + filePath);
+                    log.warn("파일 삭제 실패: {}", filePath);
                 }
             }
         } catch (Exception e) {
             // 파일 삭제 실패는 로그만 남기고 계속 진행
-            System.err.println("파일 삭제 오류: " + filePath);
+            log.warn("파일 삭제 오류: {} ({})", filePath, e.getMessage());
         }
     }
 

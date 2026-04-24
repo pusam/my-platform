@@ -1,13 +1,17 @@
 package com.myplatform.jwtredis.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.RedisTemplate;
 
 import java.util.concurrent.TimeUnit;
 
 public class RedisTokenService {
 
-    private final RedisTemplate<String, String> redisTemplate;
+    private static final Logger log = LoggerFactory.getLogger(RedisTokenService.class);
     private static final String TOKEN_PREFIX = "jwt:token:";
+
+    private final RedisTemplate<String, String> redisTemplate;
 
     public RedisTokenService(RedisTemplate<String, String> redisTemplate) {
         this.redisTemplate = redisTemplate;
@@ -18,8 +22,8 @@ public class RedisTokenService {
             String key = TOKEN_PREFIX + username;
             redisTemplate.opsForValue().set(key, token, expirationMs, TimeUnit.MILLISECONDS);
         } catch (Exception e) {
-            // Redis 연결 실패 시 무시 (로그만 남김)
-            System.err.println("Redis save failed: " + e.getMessage());
+            // Redis 연결 실패 시 로그만 남기고 무시 (토큰 저장 실패는 치명 아님)
+            log.warn("Redis save failed for {}: {}", username, e.getMessage());
         }
     }
 
@@ -28,7 +32,7 @@ public class RedisTokenService {
             String key = TOKEN_PREFIX + username;
             return redisTemplate.opsForValue().get(key);
         } catch (Exception e) {
-            System.err.println("Redis get failed: " + e.getMessage());
+            log.warn("Redis get failed for {}: {}", username, e.getMessage());
             return null;
         }
     }
@@ -38,7 +42,7 @@ public class RedisTokenService {
             String key = TOKEN_PREFIX + username;
             redisTemplate.delete(key);
         } catch (Exception e) {
-            System.err.println("Redis delete failed: " + e.getMessage());
+            log.warn("Redis delete failed for {}: {}", username, e.getMessage());
         }
     }
 
@@ -47,9 +51,8 @@ public class RedisTokenService {
             String key = TOKEN_PREFIX + username;
             return Boolean.TRUE.equals(redisTemplate.hasKey(key));
         } catch (Exception e) {
-            System.err.println("Redis hasKey failed: " + e.getMessage());
+            log.warn("Redis hasKey failed for {}: {}", username, e.getMessage());
             return false;
         }
     }
 }
-
