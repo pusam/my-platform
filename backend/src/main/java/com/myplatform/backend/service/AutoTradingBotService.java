@@ -131,8 +131,13 @@ public class AutoTradingBotService {
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [B] 스윙 전략 (수급 추종, 2~5일 보유, 14:00 체크)            ║
     // ╠══════════════════════════════════════════════════════════════╣
-    // ║  매수: 외인/기관 3일+ 연속순매수 + MA20 지지 + RSI<60        ║
+    // ║  매수: 외인/기관 3일+ 연속순매수 + MA20 지지 + RSI<65        ║
     // ║  매도: 손절-3% / 익절+5% / 트레일링-2%(+2%후) / 최대5일     ║
+    // ║  2026-04-24 튜닝: 매수 기회 확대 + 분산 개선 (손절선은 유지)  ║
+    // ║    - MAX_HOLDING      2 → 3     (슬롯 +1, 분산도 ↑)         ║
+    // ║    - INVESTMENT_RATIO 20% → 25% (최대 노출 40% → 75%)      ║
+    // ║    - MIN_AVG_AMOUNT   10억 → 7억 (후보 종목 풀 확대)        ║
+    // ║    - RSI_LIMIT        60 → 65   (조금 늦은 진입도 허용)     ║
     // ╚══════════════════════════════════════════════════════════════╝
     private static final BigDecimal SWING_STOP_LOSS = new BigDecimal("-3.0");
     private static final BigDecimal SWING_TAKE_PROFIT = new BigDecimal("5.0");
@@ -140,11 +145,11 @@ public class AutoTradingBotService {
     private static final BigDecimal SWING_TRAILING_MIN_PROFIT = new BigDecimal("2.0"); // 트레일링 발동 최소 수익률
     private static final int SWING_MAX_HOLD_DAYS = 5;
     private static final int SWING_MIN_CONSEC_DAYS = 3;                             // 최소 연속 순매수 일수
-    private static final BigDecimal SWING_MIN_AVG_AMOUNT = new BigDecimal("10");    // 일평균 순매수 ≥ 10억
-    private static final BigDecimal SWING_RSI_LIMIT = new BigDecimal("60");         // RSI 상한: 60 (과매수 직전 방지)
+    private static final BigDecimal SWING_MIN_AVG_AMOUNT = new BigDecimal("7");     // 일평균 순매수 ≥ 7억 (10억 → 7억)
+    private static final BigDecimal SWING_RSI_LIMIT = new BigDecimal("65");         // RSI 상한: 65 (60 → 65, 조금 늦은 진입 허용)
     private static final BigDecimal SWING_MA20_SUPPORT = new BigDecimal("0.97");    // MA20 × 0.97 (-3% 이내)
-    private static final int SWING_MAX_HOLDING = 2;
-    private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.20");
+    private static final int SWING_MAX_HOLDING = 3;                                 // 최대 보유: 3종목 (2 → 3)
+    private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.25"); // 종목당 투자비율 25% (20% → 25%)
 
     // [C] 종가매수 전략 — 비활성 (포지션 충돌 + 수급 미확정)
     // 2026-09-14 거래시간 연장 후 재설계 필요. 상수 및 로직 보존.
