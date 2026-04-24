@@ -288,7 +288,14 @@ public class StockPriceService {
     }
 
     /**
-     * 종목코드로 주식 시세 조회
+     * 종목코드로 주식 시세 조회.
+     *
+     * 단건 조회는 사용자가 종목 상세 진입 시 반드시 필요한 값이라 완전히 KIS 를
+     * 끊을 수는 없음. 대신 다음 두 단계로 KIS 부하를 완화:
+     *  1) 메모리 캐시 TTL = 1분 (KIS) / 10분 (네이버 모드) 으로 기존 유지
+     *  2) DB 재활용 허용 시간을 15분으로 완화 → 대부분의 요청이 DB 히트로 흡수
+     *     (장중 분 단위 정확도는 트레이딩 봇만 필요, UI 상세는 15분 허용 가능)
+     *  3) 그래도 미스인 경우에만 KIS 호출 — 사용자가 직접 누른 "진짜 필요한 순간"
      */
     public StockPriceDto getStockPrice(String stockCode) {
         // 캐시 확인 (한투 API는 1분, 네이버는 10분)
@@ -298,17 +305,19 @@ public class StockPriceService {
             return cached;
         }
 
-        // DB에서 최근 데이터 조회
+        // DB 에서 최근 데이터 조회 — 단건 UI 조회는 DB 15분 이내면 충분.
+        // (기존: cacheMinutes 와 동일 = 1분 → 캐시 미스 시 거의 무조건 KIS 호출되던 문제)
+        int dbRecentMinutes = 15;
         Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode);
         if (dbPrice.isPresent()) {
             StockPriceDto dto = entityToDto(dbPrice.get());
-            if (isValidCache(dto, cacheMinutes)) {
+            if (isValidCache(dto, dbRecentMinutes)) {
                 priceCache.put(stockCode, dto);
                 return dto;
             }
         }
 
-        // API에서 조회
+        // API에서 조회 (정말 오래된 경우만)
         StockPriceDto fetched = fetchStockPrice(stockCode);
         if (fetched != null) {
             // DB 저장
@@ -603,17 +612,25 @@ public class StockPriceService {
                             dto.setChangeRate(BigDecimal.ZERO);
                             dto.setFetchedAt(LocalDateTime.now());
 
-                            // 상위 10개 종목만 현재가 조회 (성능 고려)
+                            // 검색 결과 현재가는 DB / 메모리 캐시만 사용 — KIS 호출 금지.
+                            // (사용자가 해당 종목을 선택해 상세로 진입할 때 정확한 가격 조회됨.
+                            //  검색 응답에 가격을 함께 주기 위해 매번 KIS 를 때릴 이유 없음)
                             if (results.size() < 10) {
-                                try {
-                                    StockPriceDto priceInfo = fetchStockPrice(stockCode);
-                                    if (priceInfo != null) {
-                                        dto.setCurrentPrice(priceInfo.getCurrentPrice());
-                                        dto.setChangeRate(priceInfo.getChangeRate());
-                                        dto.setDataSource(priceInfo.getDataSource());
+                                StockPriceDto cached = priceCache.get(stockCode);
+                                int cacheMinutes = kisService.isConfigured() ? 15 : 60;
+                                if (cached == null || !isValidCache(cached, cacheMinutes)) {
+                                    Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode);
+                                    if (dbPrice.isPresent()) {
+                                        StockPriceDto dbDto = entityToDto(dbPrice.get());
+                                        if (isValidCache(dbDto, cacheMinutes)) {
+                                            cached = dbDto;
+                                        }
                                     }
-                                } catch (Exception e) {
-                                    log.warn("검색 중 시세 조회 실패: {}", stockCode);
+                                }
+                                if (cached != null) {
+                                    dto.setCurrentPrice(cached.getCurrentPrice());
+                                    dto.setChangeRate(cached.getChangeRate());
+                                    dto.setDataSource(cached.getDataSource());
                                 }
                             }
 

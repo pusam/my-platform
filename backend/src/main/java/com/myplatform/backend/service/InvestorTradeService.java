@@ -96,26 +96,9 @@ public class InvestorTradeService {
             return cached.size() > limit ? cached.subList(0, limit) : cached;
         }
 
-        LocalTime now = LocalTime.now(KST);
-        boolean isMarketHours = !now.isBefore(MARKET_OPEN) && !now.isAfter(MARKET_CLOSE);
-
-        if (isMarketHours && koreaInvestmentService.isConfigured()) {
-            try {
-                String kisInvestorCode = "FOREIGN".equals(investorType) ? "1" : "2";
-                JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(kisInvestorCode, true, true);
-                if (response != null) {
-                    List<InvestorTradeDto> result = parseKisRealtimeResponse(response, investorType, limit);
-                    if (!result.isEmpty()) {
-                        log.info("[SmartMoney] 실시간 KIS API 조회 성공 - {} {}건", investorType, result.size());
-                        return result;
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[SmartMoney] 실시간 KIS API 실패, DB 폴백 - {}: {}", investorType, e.getMessage());
-            }
-        }
-
-        // 장외 또는 API 실패 시 DB 폴백
+        // Redis MISS 시 KIS 직접 호출은 하지 않는다 — 프론트 트래픽이 KIS 를 때리지 않게.
+        // 워머가 주기적으로 Redis 를 갱신하므로 Redis MISS 는 정상 상태가 아님. DB 폴백만 사용.
+        // (2026-04-23 장애 재발 방지 — 프론트 요청 × EGW00201 백오프 누적으로 서버 다운)
         return getTopTradesByInvestor(investorType, "BUY", limit);
     }
 
