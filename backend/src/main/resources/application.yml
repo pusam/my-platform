@@ -190,6 +190,12 @@ trading:
   daily-buy-limit-krw: ${TRADING_DAILY_BUY_LIMIT_KRW:5000000}
   alert-threshold-krw: ${TRADING_ALERT_THRESHOLD_KRW:1000000}
 
+# 뉴스 요약 Gemini 일간 호출 상한 — 쿼터 보호
+# 초과 시 Gemini 호출 없이 본문 앞부분만 summary 로 저장 (다음날 자동 리셋)
+news:
+  gemini:
+    daily-limit: ${NEWS_GEMINI_DAILY_LIMIT:500}
+
 # WebAuthn (지문/Face ID/패스키) 설정
 # 운영: WEBAUTHN_RP_ID=dhkim-lab.duckdns.org, WEBAUTHN_ORIGIN=https://dhkim-lab.duckdns.org
 # 개발: localhost 기본값 사용

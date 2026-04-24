@@ -7,6 +7,7 @@ import com.myplatform.backend.service.EarningSurpriseService;
 import com.myplatform.backend.service.FinancialDataCrawlerService;
 import com.myplatform.backend.service.GeminiService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.RedisCacheService;
 import com.myplatform.backend.service.StockFinancialDataCollector;
 import com.myplatform.backend.service.StockFinancialDataService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,11 @@ public class QuantScreenerController {
     private final QuantScreenerService quantScreenerService;
     private final EarningSurpriseService earningSurpriseService;
     private final GeminiService geminiService;
+    private final RedisCacheService redisCacheService;
+
+    // 스크리너 AI 분석 — 같은 조건 반복 호출 시 Gemini 쿼터 보호 (5분 캐시)
+    private static final String CACHE_SCREENER_AI = "screenerAi";
+    private static final Duration SCREENER_AI_TTL = Duration.ofMinutes(5);
     private final StockFinancialDataService stockFinancialDataService;
     private final FinancialDataCrawlerService financialDataCrawlerService;
     private final AsyncCrawlerService asyncCrawlerService;
@@ -172,8 +179,21 @@ public class QuantScreenerController {
                 return ResponseEntity.ok(response);
             }
 
+            String cacheKey = "magic_" + limit + "_" + (minMarketCap != null ? minMarketCap : "none");
+            String cached = redisCacheService.get(CACHE_SCREENER_AI, cacheKey, String.class);
+            if (cached != null) {
+                response.put("success", true);
+                response.put("analysis", cached);
+                response.put("cached", true);
+                response.put("message", "AI 분석 완료 (캐시)");
+                return ResponseEntity.ok(response);
+            }
+
             List<ScreenerResultDto> stocks = quantScreenerService.getMagicFormulaStocks(limit, minMarketCap);
             String analysis = geminiService.analyzeMagicFormula(stocks);
+            if (analysis != null) {
+                redisCacheService.put(CACHE_SCREENER_AI, cacheKey, analysis, SCREENER_AI_TTL);
+            }
 
             response.put("success", true);
             response.put("analysis", analysis);
@@ -208,8 +228,22 @@ public class QuantScreenerController {
                 return ResponseEntity.ok(response);
             }
 
+            String cacheKey = "peg_" + limit + "_" + (maxPeg != null ? maxPeg : "none")
+                    + "_" + (minEpsGrowth != null ? minEpsGrowth : "none");
+            String cached = redisCacheService.get(CACHE_SCREENER_AI, cacheKey, String.class);
+            if (cached != null) {
+                response.put("success", true);
+                response.put("analysis", cached);
+                response.put("cached", true);
+                response.put("message", "AI 분석 완료 (캐시)");
+                return ResponseEntity.ok(response);
+            }
+
             List<ScreenerResultDto> stocks = quantScreenerService.getLowPegStocks(maxPeg, minEpsGrowth, limit);
             String analysis = geminiService.analyzePegStocks(stocks);
+            if (analysis != null) {
+                redisCacheService.put(CACHE_SCREENER_AI, cacheKey, analysis, SCREENER_AI_TTL);
+            }
 
             response.put("success", true);
             response.put("analysis", analysis);
@@ -242,8 +276,21 @@ public class QuantScreenerController {
                 return ResponseEntity.ok(response);
             }
 
+            String cacheKey = "turnaround_" + limit;
+            String cached = redisCacheService.get(CACHE_SCREENER_AI, cacheKey, String.class);
+            if (cached != null) {
+                response.put("success", true);
+                response.put("analysis", cached);
+                response.put("cached", true);
+                response.put("message", "AI 분석 완료 (캐시)");
+                return ResponseEntity.ok(response);
+            }
+
             List<ScreenerResultDto> stocks = quantScreenerService.getTurnaroundStocks(limit);
             String analysis = geminiService.analyzeTurnaroundStocks(stocks);
+            if (analysis != null) {
+                redisCacheService.put(CACHE_SCREENER_AI, cacheKey, analysis, SCREENER_AI_TTL);
+            }
 
             response.put("success", true);
             response.put("analysis", analysis);

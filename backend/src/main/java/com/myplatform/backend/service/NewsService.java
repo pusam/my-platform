@@ -12,6 +12,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.safety.Safelist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -35,6 +37,13 @@ public class NewsService {
 
     private final NewsSummaryRepository newsSummaryRepository;
     private final GeminiService geminiService;
+
+    // Gemini 뉴스 요약 일간 상한 — 쿼터 보호용.
+    // 초과 시 요약/감성분석 스킵하고 본문 앞부분만 summary 로 저장.
+    @Value("${news.gemini.daily-limit:500}")
+    private int newsGeminiDailyLimit;
+    private final AtomicInteger newsGeminiCount = new AtomicInteger(0);
+    private volatile LocalDate newsGeminiResetDate = LocalDate.now();
 
     // 경제 뉴스 RSS 피드 URL 목록
     private static final String[] RSS_FEEDS = {
@@ -319,9 +328,31 @@ public class NewsService {
     }
 
     /**
+     * 일간 카운터 리셋 + 상한 체크. true 반환 시 호출 가능.
+     */
+    private synchronized boolean withinNewsGeminiQuota() {
+        LocalDate today = LocalDate.now();
+        if (!today.equals(newsGeminiResetDate)) {
+            newsGeminiCount.set(0);
+            newsGeminiResetDate = today;
+        }
+        return newsGeminiCount.get() < newsGeminiDailyLimit;
+    }
+
+    /**
      * AI를 사용하여 뉴스 요약 + 감성 분석
      */
     private SummaryResult summarizeWithAi(String title, String content) {
+        // 일간 쿼터 상한 체크 — 초과 시 Gemini 호출 없이 원문 앞부분 반환
+        if (!withinNewsGeminiQuota()) {
+            log.debug("[News] Gemini 일간 상한({}회) 도달 — 요약 스킵: {}",
+                    newsGeminiDailyLimit, title);
+            String fallback = (content != null && content.length() > 200)
+                    ? content.substring(0, 200) + "..."
+                    : (content != null ? content : title);
+            return new SummaryResult(fallback, "NEUTRAL");
+        }
+
         String prompt = String.format("""
             [뉴스 원문]
             제목: %s
@@ -356,6 +387,9 @@ public class NewsService {
             """;
 
         String response = geminiService.chat(prompt);
+        if (response != null) {
+            newsGeminiCount.incrementAndGet();
+        }
 
         // 응답에서 감성 태그 파싱
         String sentiment = "NEUTRAL";

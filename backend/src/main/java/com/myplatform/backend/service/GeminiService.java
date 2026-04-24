@@ -418,37 +418,6 @@ public class GeminiService {
         return null;
     }
 
-    /**
-     * AI 4대장 앙상블 의견 생성
-     * @param stocksSummary 전체 종목 요약
-     * @return 앙상블 의견
-     */
-    public String generateEnsembleOpinion(String stocksSummary) {
-        if (stocksSummary == null || stocksSummary.isEmpty()) {
-            return "데이터가 부족합니다.";
-        }
-
-        String prompt = String.format("""
-                당신은 GPT, Claude, Gemini, Deepseek 4개 AI의 의견을 종합하는 앙상블 분석가입니다.
-
-                아래 종목들에 대해 4개 AI가 분석했다고 가정하고, 각 AI의 관점에서 의견을 제시한 후
-                종합적인 컨센서스 의견을 도출해주세요.
-
-                [분석 대상]
-                %s
-
-                각 AI별 특성:
-                - GPT: 기술적 분석 중심, 차트 패턴 중시
-                - Claude: 기본적 분석 중심, 재무제표 중시
-                - Gemini: 수급 분석 중심, 외국인/기관 동향 중시
-                - Deepseek: 모멘텀 분석 중심, 단기 추세 중시
-
-                100자 이내로 간결한 종합 의견만 답변해주세요.
-                """, stocksSummary);
-
-        return callWithFallback(prompt, "AI 앙상블 의견");
-    }
-
     // ========== AI 시장 예측 (Market Forecast) ==========
 
     /**
