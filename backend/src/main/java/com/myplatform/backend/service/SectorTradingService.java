@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.config.SectorStockConfig.SectorInfo;
 import com.myplatform.backend.dto.SectorRotationDto;
@@ -61,6 +62,7 @@ public class SectorTradingService {
     private final StockPriceService stockPriceService;
     private final StockStatusService stockStatusService;
     private final ThreadPoolTaskExecutor sectorTradingExecutor;
+    private final RedisCacheService redisCacheService;
 
     // ========== 스냅샷 저장소 ==========
     // Key: 종목코드, Value: 시간순 정렬된 누적 거래대금 (TreeMap)
@@ -278,6 +280,14 @@ public class SectorTradingService {
     }
 
     public List<SectorTradingDto> getAllSectorTrading(TradingPeriod period) {
+        // Redis L2 우선 — 워머가 60초마다 period 별로 저장
+        List<SectorTradingDto> l2 = redisCacheService.get(
+                MarketCacheWarmerService.getCacheSectorTrading(), period.name(),
+                new TypeReference<List<SectorTradingDto>>() {});
+        if (l2 != null && !l2.isEmpty()) {
+            return l2;
+        }
+
         List<SectorTradingDto> cached = cachedResultByPeriod.get(period);
         if (cached != null && !cached.isEmpty()) {
             log.debug("[섹터거래대금] {} 캐시 HIT - {} 섹터", period, cached.size());

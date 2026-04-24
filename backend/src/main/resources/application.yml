@@ -176,10 +176,13 @@ naver:
     client-id: ${NAVER_CLIENT_ID:}
     client-secret: ${NAVER_CLIENT_SECRET:}
 
-# 13. Redis L2 캐시 설정
+# 13. Redis L2 캐시 설정 — 기본 ON.
+# MarketCacheWarmerService 가 시장 데이터(섹터, 스마트머니, 수급급증, AI전략)를
+# 배치로 Redis 에 적재하고, 조회 서비스가 Redis HIT 면 KIS 호출 없이 반환.
+# 프론트 트래픽이 KIS TPS 에 직접 영향 안 주게 하는 핵심 장벽.
 cache:
   redis:
-    enabled: ${CACHE_REDIS_ENABLED:false}
+    enabled: ${CACHE_REDIS_ENABLED:true}
 
 # 매매 안전장치 — 실투자 한도/알림 임계금액
 # 환경변수: TRADING_DAILY_BUY_LIMIT_KRW, TRADING_ALERT_THRESHOLD_KRW

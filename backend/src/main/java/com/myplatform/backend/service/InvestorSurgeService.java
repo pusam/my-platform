@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.StockPriceDto;
@@ -40,6 +41,7 @@ public class InvestorSurgeService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final TelegramNotificationService telegramService;
     private final StockPriceService stockPriceService;
+    private final RedisCacheService redisCacheService;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -339,6 +341,17 @@ public class InvestorSurgeService {
      */
     @Transactional(readOnly = true)
     public Map<String, List<InvestorSurgeDto>> getAllSurgeStocks(BigDecimal minChange) {
+        // Redis L2 우선 — 워머가 10분마다 all_0 키로 저장.
+        // minChange == 0 요청(대시보드 진입 시 기본값)에 대해서만 캐시 적용.
+        if (minChange != null && minChange.compareTo(BigDecimal.ZERO) == 0) {
+            Map<String, List<InvestorSurgeDto>> l2 = redisCacheService.get(
+                    MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
+                    new TypeReference<Map<String, List<InvestorSurgeDto>>>() {});
+            if (l2 != null && !l2.isEmpty()) {
+                return l2;
+            }
+        }
+
         Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
 
         List<InvestorSurgeDto> foreignStocks = getSurgeStocks("FOREIGN", minChange);

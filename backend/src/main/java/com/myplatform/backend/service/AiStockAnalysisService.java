@@ -38,6 +38,7 @@ public class AiStockAnalysisService {
     private final TelegramNotificationService telegramService;
     private final MarketTimingService marketTimingService;
     private final GeminiService geminiService;
+    private final RedisCacheService redisCacheService;
 
     // 분석 결과 캐시
     private volatile AiAnalysisResponseDto cachedAnalysis;
@@ -52,10 +53,21 @@ public class AiStockAnalysisService {
     private static final int ALERT_SCORE_THRESHOLD = 90;
 
     /**
-     * AI 분석 결과 조회 (캐시된 데이터 반환)
+     * AI 분석 결과 조회 (캐시된 데이터 반환).
+     *
+     * Redis L2 → 내부 메모리 캐시 → 즉시 재계산 순으로 fallback.
+     * 워머(MarketCacheWarmerService) 가 2분마다 Redis 를 갱신하므로 평시에는
+     * Redis HIT 로 끝나고 KIS / 무거운 계산은 안 탐. 프론트 트래픽과 계산 경로 분리.
      */
     public AiAnalysisResponseDto getAnalysis() {
-        // 캐시가 없거나 1시간 이상 경과하면 새로 분석
+        // 1) Redis L2 우선
+        AiAnalysisResponseDto l2 = redisCacheService.get(
+                MarketCacheWarmerService.getCacheAiStrategy(), "snapshot",
+                AiAnalysisResponseDto.class);
+        if (l2 != null) {
+            return l2;
+        }
+        // 2) 내부 메모리 캐시 (1시간 이내면 재사용)
         if (cachedAnalysis == null || lastAnalysisTime == null ||
             lastAnalysisTime.isBefore(LocalDateTime.now().minusHours(1))) {
             runAnalysis();

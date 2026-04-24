@@ -85,6 +85,9 @@ services:
       # 장애/디버깅 시 .env 에 BOT_SCHEDULER_ENABLED=false 넣고 컨테이너 재기동하면
       # 모든 @Scheduled 매수/매도 루프가 최상단에서 즉시 return (재배포 불필요).
       - BOT_SCHEDULER_ENABLED=${BOT_SCHEDULER_ENABLED:-true}
+      # Redis L2 캐시 — 기본 ON. MarketCacheWarmerService 가 시장 데이터를 배치로
+      # Redis 에 적재하고 프론트는 Redis HIT 로 응답 받음 → KIS 호출 격리.
+      - CACHE_REDIS_ENABLED=${CACHE_REDIS_ENABLED:-true}
     deploy:
       resources:
         limits:
