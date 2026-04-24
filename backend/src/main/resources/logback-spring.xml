@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    로그 파일 rolling 설정 — 디스크 폭주 방지용.
+    2026-04-23 장애 추정 원인 중 하나: 로그 파일 크기 제한 없어서 디스크 가득 차면
+    모든 시스템 서비스(SSH 포함) 마비 가능. 용량과 히스토리 상한을 명시.
+
+    Docker 컨테이너 로그는 docker logs driver 가 따로 관리하므로,
+    여기서는 파일 로그를 쓰지 않고 stdout/stderr 로만 내보낸다.
+    도커 호스트는 /etc/docker/daemon.json 에서 log-opts 로 size 제한하는 게 정석.
+-->
+<configuration>
+
+    <!-- Spring Boot 기본 설정 상속 -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- 핫 루프 로거들 레벨 상향 — 로그 폭주 방지.
+         @Scheduled 30초/15초 주기 메서드들이 log.info/debug 를 너무 많이 찍어
+         docker stdout 에 몰려 호스트 로그 수집기가 먹통이 되던 문제 방지.
+         문제 디버깅이 필요할 땐 환경변수 LOGGING_LEVEL_<PACKAGE>=DEBUG 로 일시 override 가능. -->
+    <logger name="com.myplatform.backend.service.MarketCacheWarmerService" level="WARN"/>
+    <logger name="com.myplatform.backend.service.RedisCacheService" level="WARN"/>
+    <logger name="com.myplatform.backend.service.KisApiRateLimiter" level="INFO"/>
+    <!-- KIS API 원시 요청/응답 로그는 너무 verbose — WARN 이상만 -->
+    <logger name="com.myplatform.backend.service.KoreaInvestmentService" level="WARN"/>
+
+    <!-- Hikari/JPA/Hibernate — INFO 이상 -->
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.hibernate.type.descriptor.sql" level="WARN"/>
+
+    <!-- 루트 -->
+    <springProfile name="prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <springProfile name="!prod">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+</configuration>

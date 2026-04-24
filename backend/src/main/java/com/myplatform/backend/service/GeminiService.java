@@ -376,21 +376,35 @@ public class GeminiService {
             log.warn("[Gemini patient] API 키 미설정");
             return null;
         }
+        // 전체 대기시간 상한 — 호출 스레드가 너무 오래 블록되는 것 방지.
+        // 2026-04-24 감사에서 발견: 기존엔 최악 40분+ 블록 가능 → 주간 리포트 스케줄러가
+        // 40분 점유하면 그동안 다른 스케줄 틱이 밀려 장애 유발 가능.
+        final long MAX_TOTAL_WAIT_MS = 5 * 60 * 1000L; // 5분 상한
+        long totalWaited = 0L;
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             try {
                 String result = callGeminiApi(prompt);
                 if (result != null) return result;
             } catch (HttpClientErrorException.TooManyRequests e) {
                 long retryDelay = baseWaitMs * (1L << Math.min(attempt, 3)); // 1x, 2x, 4x, 8x, 8x
-                log.warn("[Gemini patient] Rate Limit 시도 {}/{} — {}ms 후 재시도",
-                        attempt + 1, maxAttempts, retryDelay);
-                try { Thread.sleep(retryDelay); }
+                if (totalWaited + retryDelay > MAX_TOTAL_WAIT_MS) {
+                    log.warn("[Gemini patient] 누적 대기 상한({}ms) 도달 — 포기",
+                            MAX_TOTAL_WAIT_MS);
+                    return null;
+                }
+                log.warn("[Gemini patient] Rate Limit 시도 {}/{} — {}ms 후 재시도 (누적 {}ms)",
+                        attempt + 1, maxAttempts, retryDelay, totalWaited);
+                try { Thread.sleep(retryDelay); totalWaited += retryDelay; }
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
             } catch (Exception e) {
                 log.error("[Gemini patient] 호출 실패 시도 {}/{}: {}",
                         attempt + 1, maxAttempts, e.getMessage());
                 // 일시적 네트워크 에러일 수 있어 한 번 더 기다렸다 시도
-                try { Thread.sleep(baseWaitMs); }
+                if (totalWaited + baseWaitMs > MAX_TOTAL_WAIT_MS) {
+                    log.warn("[Gemini patient] 누적 대기 상한 도달 — 포기");
+                    return null;
+                }
+                try { Thread.sleep(baseWaitMs); totalWaited += baseWaitMs; }
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
             }
         }
