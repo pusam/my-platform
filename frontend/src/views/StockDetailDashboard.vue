@@ -588,6 +588,27 @@
           <!-- AI 매매 전략 -->
           <div class="ai-strategy-section">
             <h2>AI 매매 전략</h2>
+
+            <!-- 차트 시그널 칩 (규칙 기반 확정 신호) -->
+            <div v-if="aiAnalysis?.chartSignals?.length" class="chart-signal-chips">
+              <span
+                v-for="sig in aiAnalysis.chartSignals"
+                :key="sig.code"
+                class="chip"
+                :class="'chip-' + (sig.tone || 'neutral')"
+                :title="sig.detail"
+              >{{ sig.label }}</span>
+            </div>
+
+            <!-- AI 차트 해석 카드 -->
+            <div v-if="aiAnalysis?.chartAnalysis" class="chart-analysis-card">
+              <div class="chart-analysis-head">
+                <span class="chart-analysis-icon">📈</span>
+                <span class="chart-analysis-title">AI 차트 해석</span>
+              </div>
+              <p class="chart-analysis-body">{{ aiAnalysis.chartAnalysis }}</p>
+            </div>
+
             <div class="strategy-box" :class="aiRecommendationClass">
               <div class="strategy-header">
                 <span class="strategy-signal">{{ aiAnalysis?.technicalSignal || '-' }}</span>
@@ -2980,6 +3001,58 @@ onUnmounted(() => {
 }
 
 .ai-strategy-section h2 { font-size: 1rem; margin-bottom: 12px; }
+
+/* 차트 시그널 칩 */
+.chart-signal-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 10px;
+}
+.chip {
+  font-size: 11px; font-weight: 600;
+  padding: 3px 10px; border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.75);
+  cursor: default;
+}
+.chip-positive {
+  color: #4ade80;
+  background: rgba(74,222,128,0.1);
+  border-color: rgba(74,222,128,0.3);
+}
+.chip-negative {
+  color: #f87171;
+  background: rgba(248,113,113,0.1);
+  border-color: rgba(248,113,113,0.3);
+}
+.chip-neutral {
+  color: rgba(255,255,255,0.7);
+}
+
+/* AI 차트 해석 카드 */
+.chart-analysis-card {
+  padding: 12px 14px;
+  background: rgba(99,102,241,0.08);
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+.chart-analysis-head {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 6px;
+}
+.chart-analysis-icon { font-size: 14px; }
+.chart-analysis-title {
+  font-size: 12px; font-weight: 700;
+  color: #a5b4fc;
+  letter-spacing: 0.3px;
+}
+.chart-analysis-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255,255,255,0.82);
+  white-space: pre-wrap;
+}
 
 .strategy-box {
   padding: 16px;

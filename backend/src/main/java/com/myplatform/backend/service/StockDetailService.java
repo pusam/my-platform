@@ -24,6 +24,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -55,9 +56,14 @@ public class StockDetailService {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final GeminiService geminiService;
     private final StockDetailCacheService cacheService;
+    private final ChartSignalService chartSignalService;
+    private final RedisCacheService redisCacheService;
 
     @Qualifier("stockDetailExecutor")
     private final Executor stockDetailExecutor;
+
+    // Gemini 차트 해석 캐시 — 종목별 10분. 매 조회마다 LLM 호출하지 않게.
+    private static final String GEMINI_CHART_CACHE = "geminiChartAnalysis";
 
     // 장 마감 시간 (15:30)
     private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
@@ -271,6 +277,8 @@ public class StockDetailService {
         AiAnalysis aiAnalysis = generateGeminiAnalysis(dto);
         if (aiAnalysis == null) {
             aiAnalysis = generateAiAnalysis(dto);
+            // 폴백 경로에도 규칙 기반 차트 시그널 주입
+            if (aiAnalysis != null) aiAnalysis.setChartSignals(chartSignalService.detect(dto));
         }
         // ★ 목표주가 컨센서스 (위에서 이미 크롤링한 doc 재사용)
         enrichWithConsensusTargetFromDoc(aiAnalysis, naverMainDoc, stockCode, dto.getPrice());
@@ -530,6 +538,7 @@ public class StockDetailService {
             AiAnalysis aiAnalysis = generateGeminiAnalysis(quickDto);
             if (aiAnalysis == null) {
                 aiAnalysis = generateAiAnalysis(quickDto);
+                if (aiAnalysis != null) aiAnalysis.setChartSignals(chartSignalService.detect(quickDto));
             }
             return aiAnalysis;
         } catch (Exception e) {
@@ -2343,13 +2352,31 @@ public class StockDetailService {
             String prompt = buildGeminiPrompt(dto);
             if (prompt == null) return null;
 
+            // Redis L2 캐시 확인 — 매 종목 조회마다 Gemini 호출하지 않게.
+            // 10분 TTL. 같은 종목을 짧은 간격으로 여러 명이 봐도 LLM 쿼터 1회만 소모.
+            String cacheKey = dto.getStockCode();
+            AiAnalysis cached = redisCacheService.get(GEMINI_CHART_CACHE, cacheKey, AiAnalysis.class);
+            if (cached != null) {
+                log.debug("[StockDetail] Gemini 분석 Redis HIT - {}", cacheKey);
+                // 시그널은 최신 시세 기준으로 재계산 (캐시하지 않음)
+                cached.setChartSignals(chartSignalService.detect(dto));
+                return cached;
+            }
+
             // Gemini AI 분석 - 실패 시 null → 규칙기반 폴백
             String response = geminiService.analyzeStockDetail(prompt);
             if (response == null) return null;
 
             log.info("[StockDetail] Gemini AI 분석 응답: {}", response);
 
-            return parseGeminiResponse(response, dto);
+            AiAnalysis result = parseGeminiResponse(response, dto);
+            if (result != null) {
+                // 차트 시그널 주입 (코드 기반, LLM 과 별개)
+                result.setChartSignals(chartSignalService.detect(dto));
+                // 캐시 저장 — chartSignals 는 위에서 매번 재계산하므로 제외해도 되지만 호환성 위해 포함
+                redisCacheService.put(GEMINI_CHART_CACHE, cacheKey, result, Duration.ofMinutes(10));
+            }
+            return result;
         } catch (Exception e) {
             log.warn("[StockDetail] Gemini AI 분석 실패: {} - 규칙기반 폴백", e.getMessage());
             return null;
@@ -2416,14 +2443,51 @@ public class StockDetailService {
             }
         }
 
-        // 차트 기술적 지표
+        // 차트 기술적 지표 — AI 가 해석할 수 있게 풍부하게 제공
         if (dto.getChartData() != null) {
             ChartData c = dto.getChartData();
+            BigDecimal current = dto.getPrice().getCurrentPrice();
             sb.append(String.format("MA5: %s, MA20: %s, MA60: %s, VWAP: %s\n",
                     c.getMa5() != null ? c.getMa5() : "N/A",
                     c.getMa20() != null ? c.getMa20() : "N/A",
                     c.getMa60() != null ? c.getMa60() : "N/A",
                     c.getVwap() != null ? c.getVwap() : "N/A"));
+
+            // 현재가 대비 MA 괴리율
+            if (current != null) {
+                if (c.getMa20() != null && c.getMa20().signum() > 0) {
+                    BigDecimal diff = current.subtract(c.getMa20())
+                            .divide(c.getMa20(), 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100));
+                    sb.append(String.format("MA20 괴리율: %+.2f%%\n", diff.doubleValue()));
+                }
+                if (c.getMa60() != null && c.getMa60().signum() > 0) {
+                    BigDecimal diff = current.subtract(c.getMa60())
+                            .divide(c.getMa60(), 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100));
+                    sb.append(String.format("MA60 괴리율: %+.2f%%\n", diff.doubleValue()));
+                }
+            }
+
+            // 볼린저 밴드 현재 범위
+            if (c.getBbUpper() != null && !c.getBbUpper().isEmpty()
+                    && c.getBbLower() != null && !c.getBbLower().isEmpty()) {
+                BigDecimal up = c.getBbUpper().get(c.getBbUpper().size() - 1);
+                BigDecimal lo = c.getBbLower().get(c.getBbLower().size() - 1);
+                sb.append(String.format("볼린저: 상단 %s, 하단 %s\n",
+                        up != null ? up : "N/A", lo != null ? lo : "N/A"));
+            }
+
+            // 코드가 확정한 차트 시그널 — AI 가 이를 참고해서 해석 생성
+            List<ChartSignal> signals = chartSignalService.detect(dto);
+            if (!signals.isEmpty()) {
+                sb.append("감지된 시그널: ");
+                for (int i = 0; i < Math.min(6, signals.size()); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(signals.get(i).getLabel());
+                }
+                sb.append("\n");
+            }
         }
 
         // 수급-가격 괴리 감지
@@ -2613,6 +2677,9 @@ public class StockDetailService {
         // ★ 동적 가격 가이드
         String priceGuide = generatePriceGuide(dto, recommendation, score);
 
+        // ★ "차트 해석" 섹션 추출 — Gemini 응답에서 ■ 차트 해석 ~ ■ 다음 섹션 사이 텍스트
+        String chartAnalysis = extractSection(response, "차트 해석");
+
         return AiAnalysis.builder()
                 .overallScore(score)
                 .recommendation(recommendation)
@@ -2622,7 +2689,26 @@ public class StockDetailService {
                 .sellReasons(sellReasons)
                 .conflictAnalysis(conflictAnalysis)
                 .priceGuide(priceGuide)
+                .chartAnalysis(chartAnalysis)
                 .build();
+    }
+
+    /**
+     * Gemini 응답에서 "■ XX" 섹션 본문 추출.
+     * 다음 "■" 나 문서 끝까지.
+     */
+    private String extractSection(String response, String sectionTitle) {
+        if (response == null || sectionTitle == null) return null;
+        int start = response.indexOf("■ " + sectionTitle);
+        if (start < 0) return null;
+        int bodyStart = response.indexOf("\n", start);
+        if (bodyStart < 0) return null;
+        int nextSection = response.indexOf("\n■", bodyStart);
+        String body = nextSection > 0
+                ? response.substring(bodyStart, nextSection)
+                : response.substring(bodyStart);
+        String trimmed = body.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     // ========== 유틸리티 ==========

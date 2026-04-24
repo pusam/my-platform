@@ -186,10 +186,29 @@ public class StockDetailDto {
         private String conflictAnalysis;      // 단기/장기 점수 충돌 분석 텍스트
         private String priceGuide;            // 동적 가격 가이드 (예: "160,000원대 진입 시 강력 매수")
 
+        // ========== 차트/기술 분석 (2026-04-24 추가) ==========
+        private String chartAnalysis;                // AI 가 차트/지표를 해석한 문단
+        private List<ChartSignal> chartSignals;      // 규칙 기반 확정 시그널 (RSI, MA, 볼린저, MFI, 거래량)
+
         // ========== 목표주가 컨센서스 ==========
         private BigDecimal consensusTargetPrice;  // 증권사 평균 목표주가
         private BigDecimal targetUpside;          // 현재가 대비 상승여력 (%)
         private String consensusSource;           // 데이터 출처
+    }
+
+    /**
+     * 규칙 기반 차트 시그널 — AI 해석과 별개로 코드가 확정할 수 있는 신호.
+     * tone: "positive" / "negative" / "neutral" — UI 색상용.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ChartSignal {
+        private String code;        // RSI_OVERSOLD, MA5_CROSS_UP 등 (식별자)
+        private String label;       // "RSI 과매도" (UI 표시용)
+        private String detail;      // "RSI 28.5 — 반등 기대" (보조 텍스트)
+        private String tone;        // positive / negative / neutral
     }
 
     /**
