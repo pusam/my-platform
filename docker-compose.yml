@@ -81,6 +81,10 @@ services:
       # 매매 안전장치 — 일일 매수 한도 / 대형 거래 알림 임계금액 (원)
       - TRADING_DAILY_BUY_LIMIT_KRW=${TRADING_DAILY_BUY_LIMIT_KRW:-5000000}
       - TRADING_ALERT_THRESHOLD_KRW=${TRADING_ALERT_THRESHOLD_KRW:-1000000}
+      # 봇 스케줄러 전면 kill switch — 기본 true (기존 동작).
+      # 장애/디버깅 시 .env 에 BOT_SCHEDULER_ENABLED=false 넣고 컨테이너 재기동하면
+      # 모든 @Scheduled 매수/매도 루프가 최상단에서 즉시 return (재배포 불필요).
+      - BOT_SCHEDULER_ENABLED=${BOT_SCHEDULER_ENABLED:-true}
     deploy:
       resources:
         limits:

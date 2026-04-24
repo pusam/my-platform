@@ -111,8 +111,11 @@ public class KisApiRateLimiter {
                         attempt++;
                         retryRequests.incrementAndGet();
                         if (attempt <= maxRetries) {
-                            long backoff = (long) (1000 * Math.pow(2, attempt)); // 2초, 4초
-                            log.warn("[RateLimiter] 429 Rate Limited → {}ms 백오프 (attempt {}/{})",
+                            // 2026-04-23 장애: 기존 2초/4초 백오프가 봇 3초 스케줄 주기보다 길어
+                            // 스케줄러 스레드 누적 → 풀 고갈 → 호스트 다운. 백오프 자체를 줄여 누적 방지.
+                            // 500ms → 1000ms → 2000ms. 최악 3.5초로 단축 (이전 6초).
+                            long backoff = 250L * (long) Math.pow(2, attempt); // 500, 1000, 2000
+                            log.warn("[RateLimiter] Rate Limited → {}ms 백오프 (attempt {}/{})",
                                     backoff, attempt, maxRetries);
                             Thread.sleep(backoff);
                         } else {

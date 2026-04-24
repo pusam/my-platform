@@ -152,6 +152,13 @@ alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
 
+# 10-2. 봇 스케줄러 전면 kill switch
+# false 로 두면 AutoTradingBotService 의 모든 @Scheduled 루프가 최상단에서 return.
+# 2026-04-23 장애(3초 주기 × EGW00201 백오프 누적 → 호스트 다운) 재발 시 긴급 차단용.
+bot:
+  scheduler:
+    enabled: ${BOT_SCHEDULER_ENABLED:true}
+
 # 10-1. 한국수출입은행 환율 API 설정
 koreaexim:
   api:

@@ -19,6 +19,7 @@ import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -185,6 +186,18 @@ public class AutoTradingBotService {
     private static final String BOT_CONFIG_KEY = "trading_bot";
     private static final String STATUS_RUNNING = "RUNNING";
     private static final String STATUS_STOPPED = "STOPPED";
+
+    // ========== 긴급 kill switch / 동시실행 가드 ==========
+    // .env 또는 환경변수 BOT_SCHEDULER_ENABLED=false 로 주면 모든 @Scheduled 루프가
+    // 최상단에서 즉시 return. 재배포 없이 컨테이너 재기동만으로 봇 전면 OFF 가능.
+    @Value("${bot.scheduler.enabled:true}")
+    private boolean schedulerEnabled;
+
+    // 이전 실행이 아직 돌고 있으면 다음 틱 스킵 — 스케줄러 스레드풀(24) 고갈 방지.
+    // 2026-04-23 장애: 3초 주기 + EGW00201 백오프 6초 조합으로 스레드가 누적되어 호스트 다운.
+    private final AtomicBoolean scalpingBuyRunning = new AtomicBoolean(false);
+    private final AtomicBoolean scalpingSellRunning = new AtomicBoolean(false);
+    private final AtomicBoolean swingSellRunning = new AtomicBoolean(false);
 
     // ========== 봇 상태 변수 ==========
     private volatile TradeService activeTradeService;
@@ -937,11 +950,27 @@ public class AutoTradingBotService {
 
     /**
      * 스캘핑 매수 로직
-     * - 실행 시간: 09:00~11:30 (장 전반부, 5초 간격, 평일만)
+     * - 실행 시간: 09:00~11:30 (장 전반부, 30초 간격, 평일만)
      * - 수급 급증 종목 중 스캘핑 조건 충족 시 진입
+     *
+     * 2026-04-24: 주기 5초 → 30초로 완화. KIS EGW00201 재시도 백오프와 충돌 방지.
+     *   스캘핑 전략은 분 단위로 움직이므로 30초 간격으로 충분.
      */
-    @Scheduled(cron = "*/5 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/30 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
+        if (!schedulerEnabled) return;  // 긴급 kill switch
+        if (!scalpingBuyRunning.compareAndSet(false, true)) {
+            log.warn("[스캘핑봇] 이전 실행 아직 진행 중 — 이번 틱 스킵 (스레드 누적 방지)");
+            return;
+        }
+        try {
+            executeScalpingBuyLogicInternal();
+        } finally {
+            scalpingBuyRunning.set(false);
+        }
+    }
+
+    private void executeScalpingBuyLogicInternal() {
         if (!botActive.get()) {
             log.info("[스캘핑봇] SKIP: botActive=false");
             return;
@@ -1466,10 +1495,28 @@ public class AutoTradingBotService {
     /**
      * 스캘핑 매도 로직
      * - 익절/손절/트레일링/타임컷 체크
-     * - 3초 간격으로 실행 (08:00~20:00, 프리/정규/애프터마켓 전체)
+     * - 15초 간격으로 실행 (08:00~20:00, 프리/정규/애프터마켓 전체)
+     *
+     * 2026-04-23 장애 원인: 3초 주기 × EGW00201 백오프(2~4초) = 스케줄러 스레드풀 고갈
+     *   → 컨테이너 OOM → Docker 재시작 루프 → 호스트 다운 (SSH 마비)
+     * 2026-04-24 수정: 3초 → 15초 완화 + 동시실행 가드 + 긴급 kill switch.
+     *   15초면 손절 체결까지 지연 평균 7.5초 — 충분히 허용 범위.
      */
-    @Scheduled(cron = "*/3 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/15 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
+        if (!schedulerEnabled) return;  // 긴급 kill switch
+        if (!scalpingSellRunning.compareAndSet(false, true)) {
+            log.warn("[스캘핑봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
+            return;
+        }
+        try {
+            executeScalpingSellLogicInternal();
+        } finally {
+            scalpingSellRunning.set(false);
+        }
+    }
+
+    private void executeScalpingSellLogicInternal() {
         if (!botActive.get()) {
             return;
         }
@@ -1664,6 +1711,7 @@ public class AutoTradingBotService {
 
     @Scheduled(cron = "0 10 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingClearance() {
+        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!botActive.get()) {
             return;
         }
@@ -1818,6 +1866,7 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingBuyLogic() {
+        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
 
@@ -2010,6 +2059,19 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingSellLogic() {
+        if (!schedulerEnabled) return;  // 긴급 kill switch
+        if (!swingSellRunning.compareAndSet(false, true)) {
+            log.warn("[스윙봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
+            return;
+        }
+        try {
+            executeSwingSellLogicInternal();
+        } finally {
+            swingSellRunning.set(false);
+        }
+    }
+
+    private void executeSwingSellLogicInternal() {
         if (!botActive.get() || swingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
 
