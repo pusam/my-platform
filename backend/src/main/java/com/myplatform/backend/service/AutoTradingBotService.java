@@ -19,7 +19,6 @@ import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
@@ -186,12 +185,6 @@ public class AutoTradingBotService {
     private static final String BOT_CONFIG_KEY = "trading_bot";
     private static final String STATUS_RUNNING = "RUNNING";
     private static final String STATUS_STOPPED = "STOPPED";
-
-    // ========== 긴급 kill switch / 동시실행 가드 ==========
-    // .env 또는 환경변수 BOT_SCHEDULER_ENABLED=false 로 주면 모든 @Scheduled 루프가
-    // 최상단에서 즉시 return. 재배포 없이 컨테이너 재기동만으로 봇 전면 OFF 가능.
-    @Value("${bot.scheduler.enabled:true}")
-    private boolean schedulerEnabled;
 
     // 이전 실행이 아직 돌고 있으면 다음 틱 스킵 — 스케줄러 스레드풀(24) 고갈 방지.
     // 2026-04-23 장애: 3초 주기 + EGW00201 백오프 6초 조합으로 스레드가 누적되어 호스트 다운.
@@ -958,7 +951,6 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/30 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
-        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!scalpingBuyRunning.compareAndSet(false, true)) {
             log.warn("[스캘핑봇] 이전 실행 아직 진행 중 — 이번 틱 스킵 (스레드 누적 방지)");
             return;
@@ -1504,7 +1496,6 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/15 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
-        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!scalpingSellRunning.compareAndSet(false, true)) {
             log.warn("[스캘핑봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
             return;
@@ -1711,7 +1702,6 @@ public class AutoTradingBotService {
 
     @Scheduled(cron = "0 10 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingClearance() {
-        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!botActive.get()) {
             return;
         }
@@ -1866,7 +1856,6 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingBuyLogic() {
-        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
 
@@ -2059,7 +2048,6 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingSellLogic() {
-        if (!schedulerEnabled) return;  // 긴급 kill switch
         if (!swingSellRunning.compareAndSet(false, true)) {
             log.warn("[스윙봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
             return;

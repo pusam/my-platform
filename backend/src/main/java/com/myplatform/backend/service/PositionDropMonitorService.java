@@ -5,7 +5,6 @@ import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -38,9 +37,6 @@ public class PositionDropMonitorService {
     private static final Duration COOLDOWN = Duration.ofMinutes(30);
     private static final int NEWS_LOOKBACK_HOURS = 6;
 
-    @Value("${bot.scheduler.enabled:true}")
-    private boolean schedulerEnabled;
-
     private final RealTradeService realTradeService;
     private final StockPriceService stockPriceService;
     private final NewsService newsService;
@@ -56,7 +52,6 @@ public class PositionDropMonitorService {
      */
     @Scheduled(cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkDrops() {
-        if (!schedulerEnabled) return;
         if (!kisService.isRealTradingConfigured()) return;
 
         try {

@@ -4,7 +4,6 @@ import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.dto.RiskAnalysisDto.DartDisclosure;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -33,9 +32,6 @@ public class DartDisclosureMonitorService {
     private static final String CACHE_SEEN = "dartSeen";
     private static final Duration SEEN_TTL = Duration.ofDays(3);
 
-    @Value("${bot.scheduler.enabled:true}")
-    private boolean schedulerEnabled;
-
     private final DartService dartService;
     private final RealTradeService realTradeService;
     private final KoreaInvestmentService kisService;
@@ -59,7 +55,6 @@ public class DartDisclosureMonitorService {
     }
 
     private void runCheck(String mode) {
-        if (!schedulerEnabled) return;
         if (!dartService.isAvailable()) return;
 
         try {
