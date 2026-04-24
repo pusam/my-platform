@@ -36,6 +36,7 @@ public class MarketCacheWarmerService {
     private final SectorTradingService sectorTradingService;
     private final SectorAnalysisService sectorAnalysisService;
     private final AiStockAnalysisService aiStockAnalysisService;
+    private final SectorOpportunityService sectorOpportunityService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
@@ -186,6 +187,23 @@ public class MarketCacheWarmerService {
             log.info("[Cache Warmer] 연속 매수 분석 워밍 완료 - {}개 유형", data != null ? data.size() : 0);
         } catch (Exception e) {
             log.warn("[Cache Warmer] 연속 매수 분석 워밍 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 섹터 기회 발굴 (주도 섹터 × 유망 종목) - 2분마다
+     * 섹터 랭킹/스마트머니/시세 워머가 먼저 돌고 그 결과를 조합함.
+     */
+    @Scheduled(fixedRate = 120000)
+    public void warmSectorOpportunity() {
+        if (!isMarketHours() && !isStartup()) return;
+        try {
+            // 기본 파라미터(top4 × pick3) 조합을 강제 재계산 → Redis 갱신
+            redisCacheService.evict(SectorOpportunityService.CACHE_SECTOR_OPPORTUNITY, "top4_pick3");
+            sectorOpportunityService.getSectorOpportunities(4, 3);
+            log.debug("[Cache Warmer] 섹터 기회 발굴 워밍 완료");
+        } catch (Exception e) {
+            log.warn("[Cache Warmer] 섹터 기회 발굴 워밍 실패: {}", e.getMessage());
         }
     }
 

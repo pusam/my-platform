@@ -288,6 +288,13 @@ export const sectorAPI = {
   // 섹터 로테이션 (전일 대비 자금 흐름)
   getSectorRotation() {
     return apiClient.get('/sector/trading/rotation');
+  },
+  // 섹터 기회 발굴 — 주도 섹터 × 유망 종목 TOP N
+  // 서버가 Redis/메모리 캐시에서 조합만 함 (KIS 재호출 X)
+  getSectorOpportunities(topSectors = 4, picksPerSector = 3) {
+    return apiClient.get('/sector/opportunities', {
+      params: { topSectors, picksPerSector }
+    });
   }
 };
 

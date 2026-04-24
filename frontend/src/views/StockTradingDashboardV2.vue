@@ -239,6 +239,53 @@
           </div>
         </div>
 
+        <!-- ④-b 수급 주도 섹터 × 유망 종목 -->
+        <div class="sector-opportunity section-card" v-if="sectorOpportunities.length || sectorOppLoading">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🎯</span> 수급 주도 섹터 & 유망 종목</h2>
+            <span class="rec-data-time">배치 3분 갱신</span>
+          </div>
+          <div v-if="sectorOppLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'so-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="sectorOpportunities.length" class="so-grid">
+            <div v-for="(sec, si) in sectorOpportunities" :key="'so-'+sec.sectorCode+si" class="so-sector-card">
+              <div class="so-sector-head">
+                <span class="so-sector-name">{{ sec.sectorName }}</span>
+                <span class="so-sector-rate"
+                      :class="Number(sec.sectorAverageChangeRate) >= 0 ? 'positive' : 'negative'">
+                  {{ Number(sec.sectorAverageChangeRate) >= 0 ? '+' : '' }}{{ Number(sec.sectorAverageChangeRate).toFixed(2) }}%
+                </span>
+              </div>
+              <div class="so-picks">
+                <div v-for="pick in sec.picks" :key="'pick-'+pick.stockCode"
+                     class="so-pick-row" @click="goToStock(pick.stockCode)">
+                  <span class="so-pick-rank">#{{ pick.rank }}</span>
+                  <div class="so-pick-main">
+                    <div class="so-pick-name-row">
+                      <span class="so-pick-name">{{ pick.stockName }}</span>
+                      <span class="so-pick-score">{{ pick.opportunityScore }}</span>
+                    </div>
+                    <div class="so-pick-meta">
+                      <span v-if="pick.currentPrice" class="so-pick-price">
+                        {{ Number(pick.currentPrice).toLocaleString() }}원
+                      </span>
+                      <span v-if="pick.changeRate != null"
+                            :class="Number(pick.changeRate) >= 0 ? 'positive' : 'negative'">
+                        {{ Number(pick.changeRate) >= 0 ? '+' : '' }}{{ Number(pick.changeRate).toFixed(2) }}%
+                      </span>
+                    </div>
+                    <div v-if="pick.reasons && pick.reasons.length" class="so-pick-tags">
+                      <span v-for="r in pick.reasons" :key="r" class="so-tag">{{ r }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">주도 섹터 데이터 수집 중입니다</div>
+        </div>
+
         <!-- ⑤ 섹터 히트맵 (기존 유지) -->
         <SectionMarketMap
           :sectorData="sectorData"
@@ -408,6 +455,8 @@ export default {
       topRecRealtime: true,
       topRecDelta: {},
       supplyPanelData: null,
+      sectorOpportunities: [],
+      sectorOppLoading: false,
       // 시간대별 신호
       phaseLoading: false,
       preMarketData: [],   // 장 전
@@ -570,7 +619,22 @@ export default {
         this.loadMarketMap()
         setTimeout(() => this.loadAiStrategy(), 500)   // 시간대별 신호용
         setTimeout(() => this.loadSmartMoney(), 1000)  // 수급급증 신호용
+        setTimeout(() => this.loadSectorOpportunity(), 1500)  // 섹터 × 유망 종목
         this.dataLoaded.market = true
+      }
+    },
+
+    // ---- 섹터 기회 발굴 로드 (서버 Redis 배치 결과만 받아옴, KIS 호출 유발 X) ----
+    async loadSectorOpportunity() {
+      this.sectorOppLoading = true
+      try {
+        const res = await sectorAPI.getSectorOpportunities(4, 3)
+        const data = this.extractData(res)
+        this.sectorOpportunities = Array.isArray(data) ? data : []
+      } catch (e) {
+        this.sectorOpportunities = []
+      } finally {
+        this.sectorOppLoading = false
       }
     },
 
@@ -1070,6 +1134,65 @@ export default {
 .sig-right { font-size: 13px; font-weight: 700; }
 .empty-signal { text-align: center; padding: 32px 16px; color: rgba(255,255,255,0.5); font-size: 13px; }
 .empty-signal::before { content: '📭'; display: block; font-size: 28px; margin-bottom: 8px; opacity: 0.6; }
+
+/* ===== 섹터 기회 발굴 (수급 주도 섹터 × 유망 종목) ===== */
+.so-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+.so-sector-card {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 12px;
+}
+.so-sector-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin-bottom: 8px;
+}
+.so-sector-name { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.9); }
+.so-sector-rate { font-size: 13px; font-weight: 700; }
+.so-picks { display: flex; flex-direction: column; gap: 6px; }
+.so-pick-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 8px; border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.so-pick-row:hover { background: rgba(255,255,255,0.06); }
+.so-pick-rank {
+  font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.4);
+  padding-top: 2px; min-width: 20px;
+}
+.so-pick-main { flex: 1; min-width: 0; }
+.so-pick-name-row {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 2px;
+}
+.so-pick-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); }
+.so-pick-score {
+  font-size: 11px; font-weight: 700;
+  color: #4ade80;
+  background: rgba(74,222,128,0.12);
+  padding: 1px 6px; border-radius: 8px;
+}
+.so-pick-meta {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 11px; color: rgba(255,255,255,0.5);
+  margin-bottom: 4px;
+}
+.so-pick-price { color: rgba(255,255,255,0.65); }
+.so-pick-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.so-tag {
+  font-size: 10px;
+  padding: 1px 6px; border-radius: 6px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.6);
+}
 
 /* ===== AI 종합 추천 ===== */
 .rec-data-time {

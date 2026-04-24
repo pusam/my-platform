@@ -1,7 +1,9 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.SectorOpportunityDto;
 import com.myplatform.backend.dto.SectorRotationDto;
 import com.myplatform.backend.dto.SectorTradingDto;
+import com.myplatform.backend.service.SectorOpportunityService;
 import com.myplatform.backend.service.SectorTradingService;
 import com.myplatform.core.dto.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,9 +22,12 @@ import java.util.List;
 public class SectorTradingController {
 
     private final SectorTradingService sectorTradingService;
+    private final SectorOpportunityService sectorOpportunityService;
 
-    public SectorTradingController(SectorTradingService sectorTradingService) {
+    public SectorTradingController(SectorTradingService sectorTradingService,
+                                    SectorOpportunityService sectorOpportunityService) {
         this.sectorTradingService = sectorTradingService;
+        this.sectorOpportunityService = sectorOpportunityService;
     }
 
     @Operation(summary = "전체 섹터 거래대금 조회", description = "모든 섹터의 거래대금을 조회합니다. period 파라미터: TODAY(오늘누적), MIN_5(5분파워), MIN_30(30분파워)")
@@ -79,5 +84,24 @@ public class SectorTradingController {
     @GetMapping("/trading/status")
     public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getCacheStatus() {
         return ResponseEntity.ok(ApiResponse.success(sectorTradingService.getCacheStatus()));
+    }
+
+    @Operation(summary = "섹터 기회 발굴",
+            description = "주도 섹터를 선별하고 각 섹터 내 유망 종목 TOP N 을 반환합니다. " +
+                    "모든 데이터가 Redis/메모리 캐시에서 조합되므로 KIS 를 추가로 때리지 않습니다.")
+    @GetMapping("/opportunities")
+    public ResponseEntity<ApiResponse<List<SectorOpportunityDto>>> getSectorOpportunities(
+            @Parameter(description = "반환할 섹터 수 (상위 N)")
+            @RequestParam(value = "topSectors", defaultValue = "4") int topSectors,
+            @Parameter(description = "섹터당 종목 수 (TOP M)")
+            @RequestParam(value = "picksPerSector", defaultValue = "3") int picksPerSector) {
+        try {
+            List<SectorOpportunityDto> result = sectorOpportunityService.getSectorOpportunities(
+                    Math.max(1, Math.min(10, topSectors)),
+                    Math.max(1, Math.min(10, picksPerSector)));
+            return ResponseEntity.ok(ApiResponse.success("섹터 기회 발굴 조회 성공", result));
+        } catch (Exception e) {
+            return ResponseEntity.ok(ApiResponse.fail("섹터 기회 발굴 조회 실패: " + e.getMessage()));
+        }
     }
 }
