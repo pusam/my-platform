@@ -44,8 +44,8 @@ public class AiStockAnalysisService {
     private volatile AiAnalysisResponseDto cachedAnalysis;
     private volatile LocalDateTime lastAnalysisTime;
 
-    // 점수 가중치 (TA 점수는 실시간 데이터 미연동 → 가중치 0으로 비활성화)
-    private static final double TECHNICAL_WEIGHT = 0.0;    // 기술적 분석 0% (placeholder 50 → 무의미)
+    // 점수 가중치 (TA 점수는 실시간 일봉 미연동 → 가중치 0으로 비활성화. TechnicalIndicatorService 연동 시 활성화)
+    private static final double TECHNICAL_WEIGHT = 0.0;    // 기술적 분석 0%
     private static final double SUPPLY_WEIGHT = 0.55;      // 수급 분석 55%
     private static final double FUNDAMENTAL_WEIGHT = 0.45; // 기본적 분석 45%
 
@@ -337,12 +337,8 @@ public class AiStockAnalysisService {
         AiStockRecommendationDto.ScoreDetails.ScoreDetailsBuilder builder =
                 AiStockRecommendationDto.ScoreDetails.builder();
 
-        // TA 점수: 실시간 데이터 미연동 → 중립값(50) 유지 (TECHNICAL_WEIGHT=0이므로 총점에 영향 없음)
-        // TODO: TechnicalIndicatorService 연동 시 실제 RSI/VWAP/BB/MACD 점수로 교체
-        builder.rsiScore(50);
-        builder.vwapScore(50);
-        builder.bollingerScore(50);
-        builder.macdScore(50);
+        // TA 점수: 실시간 일봉 미연동이므로 null 유지 (TECHNICAL_WEIGHT=0이라 총점 영향 없음).
+        // TechnicalIndicatorService 연동 시 RSI/VWAP/BB/MACD 실제 값을 채워 가중치만 올리면 됨.
 
         // 외국인 연속 매수 점수
         if (foreignConsec != null) {
@@ -417,9 +413,8 @@ public class AiStockAnalysisService {
                 builder.profitabilityScore(50);
             }
 
-            // 성장성 점수
-            // TODO: 전년 대비 매출/이익 성장률 계산
-            builder.growthScore(50);
+            // 성장성 점수 (매출/이익 성장률 기반)
+            builder.growthScore(calculateGrowthScore(financial.getRevenueGrowth(), financial.getProfitGrowth()));
         } else {
             builder.valuationScore(50);
             builder.profitabilityScore(50);
@@ -491,6 +486,29 @@ public class AiStockAnalysisService {
         int growth = details.getGrowthScore() != null ? details.getGrowthScore() : 50;
 
         return (int) Math.round(valuation * 0.4 + profitability * 0.35 + growth * 0.25);
+    }
+
+    /**
+     * 성장성 점수 (매출/이익 성장률)
+     *  - 둘 중 더 강한 쪽을 기준으로 평가 (이익 성장이 매출보다 빠르게 점수 상승)
+     *  - 둘 다 음수면 역성장으로 감점
+     */
+    private int calculateGrowthScore(BigDecimal revenueGrowth, BigDecimal profitGrowth) {
+        if (revenueGrowth == null && profitGrowth == null) {
+            return 50;
+        }
+
+        double rev = revenueGrowth != null ? revenueGrowth.doubleValue() : 0.0;
+        double profit = profitGrowth != null ? profitGrowth.doubleValue() : 0.0;
+
+        if ((revenueGrowth != null && rev < 0) && (profitGrowth != null && profit < 0)) {
+            return 30; // 둘 다 역성장
+        }
+        if (rev >= 30 || profit >= 50) return 90;  // 고성장
+        if (rev >= 15 || profit >= 25) return 75;
+        if (rev >= 5 || profit >= 10) return 60;
+        if (rev >= 0 && profit >= 0) return 50;     // 정체
+        return 40;                                   // 한쪽 마이너스
     }
 
     /**

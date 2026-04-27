@@ -1313,10 +1313,8 @@ public class AiStrategySnapshotService {
         int score = 0;
 
         if ("LOSS_TO_PROFIT".equals(turnaroundType)) {
-            // 흑자전환은 기본 70점
-            score = 70;
-            // 추가 보너스 가능 (시가총액, 업종 등 고려 가능)
-            score += 15; // 임시 보너스
+            // 흑자전환은 기본 70점 + 우대 보너스 15점 (적자 → 흑자 전환의 시그널 강도가 크다는 판단)
+            score = 85;
         } else if ("PROFIT_GROWTH".equals(turnaroundType) && changeRate != null) {
             // 이익 성장률 기반 (50% = 25점, 100% = 50점, 최대 80점)
             double growthScore = Math.min(80, changeRate.doubleValue() / 2);
