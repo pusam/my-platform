@@ -4,12 +4,16 @@ import com.myplatform.backend.dto.AiAnalysisResponseDto;
 import com.myplatform.backend.dto.AiStockRecommendationDto;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.entity.StockFinancialData;
+import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -33,21 +37,28 @@ public class AiStockAnalysisService {
 
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final StockPriceHistoryRepository stockPriceHistoryRepository;
     private final InvestorTradeService investorTradeService;
     private final StockPriceService stockPriceService;
     private final TelegramNotificationService telegramService;
     private final MarketTimingService marketTimingService;
     private final GeminiService geminiService;
     private final RedisCacheService redisCacheService;
+    private final TechnicalIndicatorService technicalIndicatorService;
 
     // 분석 결과 캐시
     private volatile AiAnalysisResponseDto cachedAnalysis;
     private volatile LocalDateTime lastAnalysisTime;
 
-    // 점수 가중치 (TA 점수는 실시간 일봉 미연동 → 가중치 0으로 비활성화. TechnicalIndicatorService 연동 시 활성화)
-    private static final double TECHNICAL_WEIGHT = 0.0;    // 기술적 분석 0%
-    private static final double SUPPLY_WEIGHT = 0.55;      // 수급 분석 55%
-    private static final double FUNDAMENTAL_WEIGHT = 0.45; // 기본적 분석 45%
+    // 점수 가중치 (TA = DB 일봉 캐시 기반. 데이터 부족 종목은 점수 50으로 폴백되므로 영향 안전)
+    private static final double TECHNICAL_WEIGHT = 0.15;   // 기술적 분석 15%
+    private static final double SUPPLY_WEIGHT = 0.50;      // 수급 분석 50%
+    private static final double FUNDAMENTAL_WEIGHT = 0.35; // 기본적 분석 35%
+
+    // TA 계산을 위한 최소 일봉 데이터 (RSI 14 + 여유분)
+    private static final int MIN_DAYS_FOR_TA = 30;
+    // TA 계산용 일봉 조회 개수
+    private static final int TA_LOOKBACK_DAYS = 60;
 
     // 텔레그램 알림 임계값
     private static final int ALERT_SCORE_THRESHOLD = 90;
@@ -266,14 +277,14 @@ public class AiStockAnalysisService {
         // 기본적 점수 (밸류에이션, 수익성)
         int fundamentalScore = calculateFundamentalScore(scoreDetails);
 
-        // 단기 점수 (수급 중심 — TA 데이터 미연동이므로 수급+펀더멘탈만 사용)
+        // 단기 점수 (수급 + TA 모멘텀 중심)
         int shortTermScore = (int) Math.round(
-                supplyScore * 0.7 + fundamentalScore * 0.3
+                technicalScore * 0.30 + supplyScore * 0.55 + fundamentalScore * 0.15
         );
 
-        // 중장기 점수 (펀더멘탈 중심)
+        // 중장기 점수 (펀더멘털 중심, TA 비중 작게)
         int longTermScore = (int) Math.round(
-                supplyScore * 0.35 + fundamentalScore * 0.65
+                technicalScore * 0.10 + supplyScore * 0.30 + fundamentalScore * 0.60
         );
 
         // 종합 점수
@@ -337,8 +348,8 @@ public class AiStockAnalysisService {
         AiStockRecommendationDto.ScoreDetails.ScoreDetailsBuilder builder =
                 AiStockRecommendationDto.ScoreDetails.builder();
 
-        // TA 점수: 실시간 일봉 미연동이므로 null 유지 (TECHNICAL_WEIGHT=0이라 총점 영향 없음).
-        // TechnicalIndicatorService 연동 시 RSI/VWAP/BB/MACD 실제 값을 채워 가중치만 올리면 됨.
+        // TA 점수: DB 일봉 캐시 기반 계산 (KIS 추가 호출 없음). 데이터 부족 종목은 null 유지.
+        enrichTechnicalScores(builder, stockCode, priceDto.getCurrentPrice());
 
         // 외국인 연속 매수 점수
         if (foreignConsec != null) {
@@ -486,6 +497,111 @@ public class AiStockAnalysisService {
         int growth = details.getGrowthScore() != null ? details.getGrowthScore() : 50;
 
         return (int) Math.round(valuation * 0.4 + profitability * 0.35 + growth * 0.25);
+    }
+
+    /**
+     * TA 점수 채우기 (DB 일봉 캐시 → RSI / 이동평균 / 볼린저)
+     * - KIS 추가 호출 없이 stock_price_history 테이블만 읽음
+     * - 데이터 30일 미만이면 점수 null 유지 → calculateTechnicalScore에서 50으로 폴백
+     */
+    private void enrichTechnicalScores(AiStockRecommendationDto.ScoreDetails.ScoreDetailsBuilder builder,
+                                        String stockCode,
+                                        BigDecimal currentPrice) {
+        try {
+            List<StockPriceHistory> history = stockPriceHistoryRepository
+                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, TA_LOOKBACK_DAYS));
+
+            if (history.size() < MIN_DAYS_FOR_TA) {
+                return;
+            }
+
+            List<BigDecimal> closePrices = history.stream()
+                    .map(StockPriceHistory::getClosePrice)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            if (closePrices.size() < MIN_DAYS_FOR_TA) {
+                return;
+            }
+
+            TechnicalIndicatorsDto indicators = technicalIndicatorService.calculate(closePrices);
+            TechnicalIndicatorService.BollingerBandsResult bb =
+                    technicalIndicatorService.calculateBollingerBands(closePrices);
+
+            // RSI 점수
+            if (indicators.getRsi14() != null) {
+                builder.rsiScore(scoreFromRsi(indicators.getRsi14()));
+                builder.rsi(indicators.getRsi14().doubleValue());
+            }
+
+            // VWAP 자리에 이동평균 위치 점수 (현재가 vs MA20/MA60 + 정배열/골든크로스)
+            builder.vwapScore(scoreFromMovingAverages(indicators));
+
+            // 볼린저밴드 점수
+            if (bb != null && currentPrice != null) {
+                builder.bollingerScore(scoreFromBollinger(currentPrice, bb));
+            }
+
+            // MACD는 미연동 → null 유지 (calculateTechnicalScore에서 50으로 폴백)
+
+        } catch (Exception e) {
+            log.debug("TA 점수 계산 실패 [{}]: {}", stockCode, e.getMessage());
+        }
+    }
+
+    /**
+     * RSI → 점수 매핑
+     * - 30 이하(과매도): 80 (매수 기회)
+     * - 30~40: 70 (반등권)
+     * - 40~60: 55 (중립)
+     * - 60~70: 45 (약간 과열)
+     * - 70 이상(과매수): 25 (진입 부적합)
+     */
+    private int scoreFromRsi(BigDecimal rsi) {
+        double v = rsi.doubleValue();
+        if (v <= 30) return 80;
+        if (v <= 40) return 70;
+        if (v <= 60) return 55;
+        if (v <= 70) return 45;
+        return 25;
+    }
+
+    /**
+     * 이동평균 위치 → 점수 (정배열/골든크로스 우대, 역배열 감점)
+     */
+    private int scoreFromMovingAverages(TechnicalIndicatorsDto ind) {
+        int score = 50;
+        if (Boolean.TRUE.equals(ind.getIsAboveMa20())) score += 10;
+        else if (Boolean.FALSE.equals(ind.getIsAboveMa20())) score -= 10;
+
+        if (Boolean.TRUE.equals(ind.getIsAboveMa60())) score += 10;
+        else if (Boolean.FALSE.equals(ind.getIsAboveMa60())) score -= 5;
+
+        if (Boolean.TRUE.equals(ind.getIsArrangedUp())) score += 15;
+        if (Boolean.TRUE.equals(ind.getIsArrangedDown())) score -= 15;
+        if (Boolean.TRUE.equals(ind.getIsGoldenCross())) score += 10;
+        if (Boolean.TRUE.equals(ind.getIsDeadCross())) score -= 10;
+
+        return Math.max(0, Math.min(100, score));
+    }
+
+    /**
+     * 볼린저밴드 위치 → 점수
+     * - 하단 이탈: 80 (반등 기대)
+     * - 하단 ~ 중단: 60
+     * - 중단 ~ 상단: 50
+     * - 상단 돌파: 25 (단기 과열)
+     */
+    private int scoreFromBollinger(BigDecimal currentPrice, TechnicalIndicatorService.BollingerBandsResult bb) {
+        BigDecimal upper = bb.getUpperBand();
+        BigDecimal middle = bb.getMiddleBand();
+        BigDecimal lower = bb.getLowerBand();
+        if (upper == null || middle == null || lower == null) return 50;
+
+        if (currentPrice.compareTo(lower) <= 0) return 80;
+        if (currentPrice.compareTo(upper) >= 0) return 25;
+        if (currentPrice.compareTo(middle) > 0) return 50;
+        return 60; // 중단 아래(하단 위) — 반등권
     }
 
     /**
