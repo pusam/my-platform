@@ -754,6 +754,20 @@ export const screenerAPI = {
   }
 };
 
+// TA(기술적 분석) 퀀트 API — DB 캐시만, AI/외부 호출 없음
+export const quantTaAPI = {
+  // 조건 조합 종목 필터링
+  // filter: { rsiBelow, rsiAbove, goldenCross, arrangedUp, aboveMa20, belowMa20,
+  //           volumeRatioMin, bollingerLowerTouch, bollingerSqueeze, changeRateMin, changeRateMax }
+  screen(filter, limit = 50) {
+    return apiClient.post('/quant-ta/screen', { filter, limit });
+  },
+  // 종목 리스트 상관관계 매트릭스
+  correlation(stockCodes, days = 60) {
+    return apiClient.post('/quant-ta/correlation', { stockCodes, days });
+  }
+};
+
 // AI Strategy Snapshot API (스냅샷 기반 - DB 조회만)
 export const aiStrategyAPI = {
   // 모든 전략의 최신 스냅샷 조회

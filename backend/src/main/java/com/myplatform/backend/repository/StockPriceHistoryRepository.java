@@ -59,4 +59,21 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
      * 특정 종목의 모든 데이터 삭제
      */
     void deleteByStockCode(String stockCode);
+
+    /**
+     * 일정 기간 이상 데이터를 가진 종목 코드 목록 (TA 스크리너 universe)
+     */
+    @Query("SELECT h.stockCode FROM StockPriceHistory h " +
+           "GROUP BY h.stockCode HAVING COUNT(h) >= :minDays")
+    List<String> findStockCodesWithMinHistory(@Param("minDays") long minDays);
+
+    /**
+     * 여러 종목의 최근 일봉 일괄 조회 (스크리너/상관관계 벌크 로딩용)
+     */
+    @Query("SELECT h FROM StockPriceHistory h " +
+           "WHERE h.stockCode IN :codes AND h.tradeDate >= :startDate " +
+           "ORDER BY h.stockCode ASC, h.tradeDate DESC")
+    List<StockPriceHistory> findByStockCodesSince(
+            @Param("codes") List<String> codes,
+            @Param("startDate") LocalDate startDate);
 }

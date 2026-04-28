@@ -309,6 +309,7 @@
         <div class="embedded-content">
           <AiStrategyDashboardPage v-if="activeAnalysisTab === 'ai-strategy'" :embedded="true" />
           <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
+          <SectionQuantTa v-if="activeAnalysisTab === 'quant-ta'" />
           <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
           <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
           <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
@@ -340,6 +341,7 @@ import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionConviction from '../components/v2/SectionConviction.vue'
+import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
@@ -400,6 +402,7 @@ export default {
     DashboardHeader,
     SectionMarketMap,
     SectionConviction,
+    SectionQuantTa,
     StockSearchModal,
     AiStrategyDashboardPage,
     EarningsScreenerPage,
@@ -423,6 +426,7 @@ export default {
       analysisTabs: [
         { key: 'ai-strategy', label: 'AI전략' },
         { key: 'screener', label: '스크리너' },
+        { key: 'quant-ta', label: '퀀트(TA)' },
         { key: 'sector', label: '섹터' },
         { key: 'investor', label: '투자자' },
         { key: 'timing', label: '시장타이밍' }
