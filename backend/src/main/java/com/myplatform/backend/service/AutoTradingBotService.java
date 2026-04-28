@@ -148,8 +148,8 @@ public class AutoTradingBotService {
     private static final BigDecimal SWING_MIN_AVG_AMOUNT = new BigDecimal("7");     // 일평균 순매수 ≥ 7억 (10억 → 7억)
     private static final BigDecimal SWING_RSI_LIMIT = new BigDecimal("65");         // RSI 상한: 65 (60 → 65, 조금 늦은 진입 허용)
     private static final BigDecimal SWING_MA20_SUPPORT = new BigDecimal("0.97");    // MA20 × 0.97 (-3% 이내)
-    private static final int SWING_MAX_HOLDING = 3;                                 // 최대 보유: 3종목 (2 → 3)
-    private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.25"); // 종목당 투자비율 25% (20% → 25%)
+    private static final int SWING_MAX_HOLDING = 2;                                 // 최대 보유: 2종목 (3 → 2, 50만 소액 운용)
+    private static final BigDecimal SWING_INVESTMENT_RATIO = new BigDecimal("0.50"); // 종목당 투자비율 50% (25% → 50%, 소액 운용 시 매수가능 종목 풀 확장)
 
     // [C] 종가매수 전략 — 비활성 (포지션 충돌 + 수급 미확정)
     // 2026-09-14 거래시간 연장 후 재설계 필요. 상수 및 로직 보존.
