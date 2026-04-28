@@ -38,26 +38,23 @@ export default {
   name: 'DashboardHeader',
   components: { BackButton },
   props: {
-    activeTab: { type: String, default: 'market' }
+    activeTab: { type: String, default: 'premarket' }
   },
   emits: ['open-search', 'tab-change'],
   data() {
     return {
       currentTime: '',
+      // 시간 기반 GNB — 장전(준비) / 장중(매매) / 장후(연구)
       gnbTabs: [
-        { key: 'market', label: '개요', icon: '📊' },
-        { key: 'analysis', label: '분석', icon: '🔬' },
-        { key: 'news', label: '뉴스', icon: '📰' },
-        { key: 'trading', label: '매매', icon: '🤖', adminOnly: true }
+        { key: 'premarket', label: '장전', icon: '🌅' },
+        { key: 'live', label: '장중', icon: '⚡' },
+        { key: 'research', label: '장후/연구', icon: '🔍' }
       ]
     }
   },
   computed: {
-    isAdmin() {
-      return localStorage.getItem('role') === 'ADMIN'
-    },
     visibleTabs() {
-      return this.gnbTabs.filter(tab => !tab.adminOnly || this.isAdmin)
+      return this.gnbTabs
     }
   },
   mounted() {

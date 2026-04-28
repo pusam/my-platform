@@ -9,10 +9,10 @@
         @tab-change="activeGnbTab = $event"
       />
 
-      <!-- ═══ Tab 1: 오늘의 핵심 요약 ═══ -->
-      <div v-if="activeGnbTab === 'market'" class="tab-panel">
+      <!-- ═══ Tab 1·2: 장전 + 장중 (공유 패널) ═══ -->
+      <div v-if="['premarket','live'].includes(activeGnbTab)" class="tab-panel">
 
-        <!-- ① 시장 상태 바 -->
+        <!-- ① 시장 상태 바 (장전·장중 공통) -->
         <div class="market-status-bar" v-if="marketData">
           <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
             <span class="msb-label">KOSPI</span>
@@ -36,8 +36,8 @@
         </div>
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
 
-        <!-- ② AI 종합 추천 TOP 5 -->
-        <div class="top-rec section-card">
+        <!-- ② AI 종합 추천 TOP 5 (장전 전용) -->
+        <div class="top-rec section-card" v-if="activeGnbTab === 'premarket'">
           <div class="section-title-row">
             <h2><span class="section-icon">🏆</span> AI 종합 추천 TOP 5</h2>
             <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
@@ -109,7 +109,7 @@
           </div>
         </div>
 
-        <!-- ②-b 수급 현황 패널 -->
+        <!-- ②-b 수급 현황 패널 (장전·장중 공통) -->
         <div class="supply-panel section-card" v-if="supplyPanelData">
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
@@ -148,11 +148,11 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
-        <!-- ②-c 멀티 컨빅션 시그널 -->
-        <SectionConviction @stock-click="goToStock" />
+        <!-- ②-c 멀티 컨빅션 시그널 (장전 전용) -->
+        <SectionConviction v-if="activeGnbTab === 'premarket'" @stock-click="goToStock" />
 
-        <!-- ③ 시간대별 신호 (자동 전환) -->
-        <div class="today-signals section-card">
+        <!-- ③ 시간대별 신호 (장중 전용) -->
+        <div class="today-signals section-card" v-if="activeGnbTab === 'live'">
           <div class="section-title-row">
             <h2>
               <span class="section-icon">{{ marketPhase.icon }}</span>
@@ -190,11 +190,11 @@
           <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
         </div>
 
-        <!-- ③ 관심종목 현황 -->
-        <div class="watchlist-summary section-card" v-if="watchlistItems.length">
+        <!-- ③ 관심종목 현황 (장전 전용) -->
+        <div class="watchlist-summary section-card" v-if="activeGnbTab === 'premarket' && watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
-            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'analysis'">전체 보기 →</a>
+            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'research'">전체 보기 →</a>
           </div>
           <div class="wl-list">
             <div
@@ -217,8 +217,8 @@
           </div>
         </div>
 
-        <!-- ④ AI 전략 TOP 픽 -->
-        <div class="ai-top-picks section-card" v-if="aiTopPicks.length">
+        <!-- ④ AI 전략 TOP 픽 (장전 전용) -->
+        <div class="ai-top-picks section-card" v-if="activeGnbTab === 'premarket' && aiTopPicks.length">
           <div class="section-title-row">
             <h2><span class="section-icon">🤖</span> AI 전략 TOP 픽</h2>
           </div>
@@ -239,8 +239,8 @@
           </div>
         </div>
 
-        <!-- ④-b 수급 주도 섹터 × 유망 종목 -->
-        <div class="sector-opportunity section-card" v-if="sectorOpportunities.length || sectorOppLoading">
+        <!-- ④-b 수급 주도 섹터 × 유망 종목 (장전 전용) -->
+        <div class="sector-opportunity section-card" v-if="activeGnbTab === 'premarket' && (sectorOpportunities.length || sectorOppLoading)">
           <div class="section-title-row">
             <h2><span class="section-icon">🎯</span> 수급 주도 섹터 & 유망 종목</h2>
             <span class="rec-data-time">배치 3분 갱신</span>
@@ -286,8 +286,9 @@
           <div v-else class="empty-signal">주도 섹터 데이터 수집 중입니다</div>
         </div>
 
-        <!-- ⑤ 섹터 히트맵 (기존 유지) -->
+        <!-- ⑤ 섹터 히트맵 (장전 전용) -->
         <SectionMarketMap
+          v-if="activeGnbTab === 'premarket'"
           :sectorData="sectorData"
           :marketData="marketData"
           :globalData="globalData"
@@ -295,12 +296,17 @@
           :error="sections.marketMap.error"
           @retry="loadMarketMap"
         />
+
+        <!-- ⑥ 페이퍼 트레이딩 (장중·관리자 전용) -->
+        <div v-if="activeGnbTab === 'live' && isAdmin" class="embedded-content">
+          <PaperTradingPage :embedded="true" />
+        </div>
       </div>
 
-      <!-- ═══ Tab 2: 분석 ═══ -->
-      <div v-if="activeGnbTab === 'analysis'" class="tab-panel">
+      <!-- ═══ Tab 3: 장후/연구 (분석 + 뉴스) ═══ -->
+      <div v-if="activeGnbTab === 'research'" class="tab-panel">
         <div class="sub-tabs">
-          <button v-for="st in analysisTabs" :key="st.key"
+          <button v-for="st in researchTabs" :key="st.key"
             :class="['sub-tab-btn', { active: activeAnalysisTab === st.key }]"
             @click="activeAnalysisTab = st.key">
             {{ st.label }}
@@ -313,17 +319,8 @@
           <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
           <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
           <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
+          <NewsPage v-if="activeAnalysisTab === 'news'" :embedded="true" />
         </div>
-      </div>
-
-      <!-- ═══ Tab 3: 뉴스 ═══ -->
-      <div v-if="activeGnbTab === 'news'" class="tab-panel">
-        <NewsPage :embedded="true" />
-      </div>
-
-      <!-- ═══ Tab 4: 매매 ═══ -->
-      <div v-if="activeGnbTab === 'trading'" class="tab-panel">
-        <PaperTradingPage :embedded="true" />
       </div>
 
       <!-- 종목 검색 모달 -->
@@ -418,18 +415,17 @@ export default {
     }
   },
   data() {
-    const requestedTab = this.$route?.query?.tab || 'market'
-    const isAdmin = localStorage.getItem('role') === 'ADMIN'
     return {
-      activeGnbTab: (requestedTab === 'trading' && !isAdmin) ? 'market' : requestedTab,
-      activeAnalysisTab: 'ai-strategy',
-      analysisTabs: [
+      activeGnbTab: this.resolveInitialTab(),
+      activeAnalysisTab: this.resolveInitialSubTab(),
+      researchTabs: [
         { key: 'ai-strategy', label: 'AI전략' },
         { key: 'screener', label: '스크리너' },
         { key: 'quant-ta', label: '퀀트(TA)' },
         { key: 'sector', label: '섹터' },
         { key: 'investor', label: '투자자' },
-        { key: 'timing', label: '시장타이밍' }
+        { key: 'timing', label: '시장타이밍' },
+        { key: 'news', label: '뉴스' }
       ],
       showSearch: false,
       dataLoaded: { market: false },
@@ -476,24 +472,22 @@ export default {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     },
     '$route.query.tab'(tab) {
-      if (tab && tab !== this.activeGnbTab) {
-        const isAdmin = localStorage.getItem('role') === 'ADMIN'
-        this.activeGnbTab = (tab === 'trading' && !isAdmin) ? 'market' : tab
-      }
+      if (!tab) return
+      const mapped = this.mapLegacyTab(tab)
+      if (mapped !== this.activeGnbTab) this.activeGnbTab = mapped
     }
   },
   mounted() {
     // 초기 로드 스태거 — 한꺼번에 같은 KIS 창구로 몰려 EGW00201 을 유발하던 것 완화.
     // 백엔드 KisApiRateLimiter 가 400ms 간격으로 직렬화하지만, 큐가 과부하일 땐
     // 뒤쪽 요청이 10초 타임아웃을 맞을 수 있어 프론트에서 미리 간격을 둔다.
-    this.loadTabData('market')            // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
+    this.loadTabData(this.activeGnbTab)   // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
     setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
     setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
     this.setupKeyboardShortcut()
-    // 60초마다 활성 탭 데이터 자동 갱신
+    // 60초마다 활성 탭 데이터 자동 갱신 (장전·장중 패널은 시장맵 공유)
     this._refreshTimer = setInterval(() => {
-      if (this.activeGnbTab === 'market') this.loadMarketMap()
-      // 시장 뷰만 사용
+      if (this.activeGnbTab === 'premarket') this.loadMarketMap()
     }, 60000)
   },
   beforeUnmount() {
@@ -504,6 +498,9 @@ export default {
     }
   },
   computed: {
+    isAdmin() {
+      return localStorage.getItem('role') === 'ADMIN'
+    },
     currentPhaseKey() {
       const now = new Date()
       const day = now.getDay()
@@ -615,9 +612,33 @@ export default {
     }
   },
   methods: {
+    // ---- 탭 키 호환 매핑 (이전 URL ?tab=market/analysis/news/trading 지원) ----
+    mapLegacyTab(tab) {
+      const map = { market: 'premarket', analysis: 'research', news: 'research', trading: 'live' }
+      return map[tab] || tab
+    },
+    // ---- 시간대 기반 초기 탭 자동 선택 ----
+    resolveInitialTab() {
+      const requested = this.$route?.query?.tab
+      if (requested) return this.mapLegacyTab(requested)
+      // ?tab= 없으면 현재 시각 기반으로 추천
+      const h = new Date().getHours()
+      if (h < 9) return 'premarket'              // 새벽~장 시작 전
+      if (h < 16) return 'live'                  // 장중 (09~15:30+α)
+      return 'research'                          // 장 마감 이후
+    },
+    resolveInitialSubTab() {
+      const sub = this.$route?.query?.sub
+      const requested = this.$route?.query?.tab
+      // ?tab=news → research/news
+      if (requested === 'news') return 'news'
+      return sub || 'ai-strategy'
+    },
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
-      if (tab === 'market' && !this.dataLoaded.market) {
+      // 장전·장중 모두 동일한 시장 데이터 사용 (시장상태바·수급 공유)
+      const needMarket = (tab === 'premarket' || tab === 'live')
+      if (needMarket && !this.dataLoaded.market) {
         // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격.
         // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, 나머지는 뒤로.
         this.loadMarketMap()
