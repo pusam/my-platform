@@ -1032,8 +1032,6 @@ public class KoreaInvestmentService {
         try {
             String url = baseUrl + "/uapi/domestic-stock/v1/trading/order-cash";
 
-            HttpHeaders headers = createHeaders(token, trId);
-
             // 요청 바디 (지정가 주문)
             Map<String, String> body = new HashMap<>();
             body.put("CANO", accountPrefix);              // 계좌번호 앞 8자리
@@ -1042,6 +1040,16 @@ public class KoreaInvestmentService {
             body.put("ORD_DVSN", "00");                   // 주문구분: 00=지정가 (슬리피지 방지)
             body.put("ORD_QTY", String.valueOf(quantity)); // 주문수량
             body.put("ORD_UNPR", price.setScale(0, java.math.RoundingMode.DOWN).toString()); // 주문단가
+
+            // KIS 주문 API 는 hashkey 헤더 필수 — 누락 시 게이트웨이가 EGW00202(GW라우팅 오류)로 거부.
+            String hashKey = createHashKey(body);
+
+            HttpHeaders headers = createHeaders(token, trId);
+            if (hashKey != null) {
+                headers.set("hashkey", hashKey);
+            } else {
+                log.warn("[실전매매] hashkey 발급 실패 — KIS 거부 가능성 매우 높음");
+            }
 
             HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
 
@@ -1066,10 +1074,53 @@ public class KoreaInvestmentService {
 
                 return result;
             }
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            // KIS 가 4xx/5xx 로 명시적 거부 (예: EGW00202 GW라우팅, EGW00121 모의/실전 키 불일치 등).
+            // 주문 안 들어간 게 확실하므로 body 의 rt_cd/msg 를 파싱해서 반환 →
+            // RealTradeService 가 "응답 null = 불확실" 대신 "명시적 거부" 로 처리, 자동 킬스위치 안 발동.
+            String errorBody = e.getResponseBodyAsString();
+            log.error("[실전매매] {} 주문 실패 [{}]: {} - body: {}",
+                    orderType.toUpperCase(), stockCode, e.getStatusCode(), errorBody);
+            try {
+                JsonNode parsed = objectMapper.readTree(errorBody);
+                if (parsed.has("rt_cd")) {
+                    return parsed;
+                }
+            } catch (Exception ignore) { /* body parsing 실패 시 null fall-through */ }
         } catch (Exception e) {
             log.error("[실전매매] {} 주문 실패 [{}]: {}", orderType.toUpperCase(), stockCode, e.getMessage());
         }
 
+        return null;
+    }
+
+    /**
+     * KIS HASH KEY 발급 — 주문 같은 데이터 변경(POST) API 호출 시 필수 헤더.
+     * /uapi/hashkey 에 body 를 POST 해서 HASH 값을 받아온다.
+     * appkey/appsecret 만 필요하고 access token 은 불필요.
+     * 발급 실패 시 null 반환 → 호출부가 hashkey 없이 진행 (KIS 가 EGW00202 로 거부).
+     */
+    private String createHashKey(Map<String, String> body) {
+        try {
+            String url = baseUrl + "/uapi/hashkey";
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("appkey", appKey);
+            headers.set("appsecret", appSecret);
+
+            HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+                if (result.has("HASH")) {
+                    return result.get("HASH").asText();
+                }
+                log.error("[KIS hashkey] 응답에 HASH 필드 없음 - body: {}", response.getBody());
+            }
+        } catch (Exception e) {
+            log.error("[KIS hashkey] 발급 실패: {}", e.getMessage());
+        }
         return null;
     }
 
