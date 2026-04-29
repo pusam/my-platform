@@ -3685,6 +3685,8 @@ onUnmounted(() => {
   .header-left { flex-direction: column; }
   .stock-name { font-size: 1.4rem; }
   .current-price { font-size: 1.6rem; }
+  .ai-score-box { padding: 10px 16px; }
+  .score-value { font-size: 2rem; }
 
   .search-bar { flex-direction: column; }
   .realtime-status { flex-wrap: wrap; gap: 8px; }
@@ -3693,11 +3695,43 @@ onUnmounted(() => {
 
   .dual-score-header { flex-direction: column; }
   .alerts-section { grid-template-columns: 1fr; }
-  .fund-tabs { flex-direction: column; }
+  /* fund-tabs는 가로 스크롤 + wrap이 더 자연스러움 (column보다) */
+  .fund-tabs { flex-wrap: wrap; }
+  .fund-tab-btn { flex: 1 1 30%; min-width: 0; padding: 8px 12px; font-size: 12px; }
   .inv-investor-grid { grid-template-columns: 1fr; }
   .inv-surge-grid { grid-template-columns: 1fr; }
   .inv-investor-tabs { flex-wrap: wrap; }
   .inv-tab-btn { flex: 1; min-width: 100px; text-align: center; }
+
+  /* 메인 탭 바 — 작은 폰 패딩/폰트 축소 */
+  .main-tab-btn { padding: 9px 10px; font-size: 13px; }
+
+  /* 차트 영역 — 350px → 260px 축소 */
+  .inv-chart-wrapper { height: 260px; padding: 12px; }
+  .inv-chart-legend { gap: 14px; }
+  .inv-legend-item { font-size: 0.78rem; }
+}
+
+@media (max-width: 480px) {
+  .trading-dashboard { padding: 10px; }
+  .stock-header { padding: 14px; }
+  .stock-name { font-size: 1.2rem; }
+  .current-price { font-size: 1.4rem; }
+  .change-info { font-size: 0.95rem; }
+  .score-value { font-size: 1.7rem; }
+  .ai-score-box { padding: 8px 14px; }
+
+  /* 메인 탭 — 더 컴팩트 */
+  .main-tab-btn { padding: 8px 6px; font-size: 12px; }
+
+  /* 차트 — 더 작게 */
+  .inv-chart-wrapper { height: 220px; padding: 10px; }
+
+  /* 피어 비교 바 — 고정폭 압축 (80/90/70 → 60/65/55) */
+  .peer-bar-row { grid-template-columns: 60px 1fr 65px 55px; gap: 6px; padding: 5px 8px; font-size: 0.72rem; }
+
+  /* 재무정보 그리드 — 너무 좁아 한 줄로 */
+  .financial-grid { grid-template-columns: 1fr; gap: 6px; }
 }
 
 /* ========== 메인 탭 바 ========== */
@@ -3752,6 +3786,13 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .quick-summary-bar { grid-template-columns: repeat(3, 1fr); }
   .qs-value { font-size: 14px; }
+}
+@media (max-width: 480px) {
+  .quick-summary-bar { grid-template-columns: repeat(2, 1fr); gap: 6px; padding: 10px; }
+  .qs-value { font-size: 13px; }
+  .qs-label { font-size: 9.5px; }
+  .qs-sub { font-size: 9.5px; }
+  .qs-badge { font-size: 9.5px; padding: 1px 5px; }
 }
 
 .main-tab-bar {
