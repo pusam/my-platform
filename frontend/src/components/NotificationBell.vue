@@ -13,9 +13,28 @@
     <div v-if="showDropdown" class="notification-dropdown" :class="{ dark }" @click.stop>
       <div class="dropdown-header">
         <h3>알림</h3>
-        <button v-if="unreadCount > 0" @click="markAllAsRead" class="btn-mark-all">
-          모두 읽음
-        </button>
+        <div class="header-actions">
+          <button @click="toggleFilters" class="btn-filter" :class="{ active: showFilters }" title="카테고리 필터">
+            ⚙️
+          </button>
+          <button v-if="unreadCount > 0" @click="markAllAsRead" class="btn-mark-all">
+            모두 읽음
+          </button>
+        </div>
+      </div>
+
+      <!-- 카테고리 필터 패널 -->
+      <div v-if="showFilters" class="filter-panel">
+        <div class="filter-title">표시할 카테고리</div>
+        <div class="filter-grid">
+          <label v-for="cat in categories" :key="cat.key" class="filter-item">
+            <input type="checkbox" :checked="!disabledCategories.includes(cat.key)"
+                   @change="toggleCategory(cat.key)" />
+            <span class="filter-icon">{{ cat.icon }}</span>
+            <span>{{ cat.label }}</span>
+          </label>
+        </div>
+        <div class="filter-hint">설정은 이 브라우저에만 저장됩니다 (텔레그램에는 영향 없음)</div>
       </div>
 
       <div class="dropdown-body">
@@ -23,17 +42,18 @@
           <span>로딩 중...</span>
         </div>
 
-        <div v-else-if="notifications.length === 0" class="empty-state">
+        <div v-else-if="filteredNotifications.length === 0" class="empty-state">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
             <path d="M13.73 21a2 2 0 01-3.46 0"/>
           </svg>
-          <p>알림이 없습니다</p>
+          <p v-if="notifications.length === 0">알림이 없습니다</p>
+          <p v-else>필터링되어 모두 숨겨졌습니다</p>
         </div>
 
         <div v-else class="notification-list">
           <div
-            v-for="notification in notifications"
+            v-for="notification in filteredNotifications"
             :key="notification.id"
             class="notification-item"
             :class="{ unread: !notification.isRead, [notification.type?.toLowerCase()]: true }"
@@ -86,12 +106,64 @@ defineProps({
 const router = useRouter();
 
 const showDropdown = ref(false);
+const showFilters = ref(false);
 const notifications = ref([]);
 const unreadCount = ref(0);
 const loading = ref(false);
 let pollInterval = null;
 
 const isLoggedIn = computed(() => !!TokenManager.getToken());
+
+// ===== 카테고리 분류 =====
+const categories = [
+  { key: 'BUY_SIGNAL', label: '매수 신호', icon: '🚀',
+    keywords: ['강력매수', '매수후보', '매수신호', 'AI', '도달', '수익', '손실'] },
+  { key: 'SUPPLY', label: '수급/외인기관', icon: '💰',
+    keywords: ['외국인', '기관', '수급', '복합', '연속', '레이더'] },
+  { key: 'FUNDAMENTAL', label: '펀더멘털', icon: '📊',
+    keywords: ['마법공식', '턴어라운드', '어닝', '실적', 'PEG', '서프라이즈'] },
+  { key: 'MARKET', label: '시장 분위기', icon: '🌅',
+    keywords: ['모닝브리핑', '브리핑', '시장', '장 마감', '장마감'] },
+  { key: 'RISK', label: '리스크', icon: '⚠️',
+    keywords: ['공매도', '리스크', '위험', '경보', '주의'] },
+  { key: 'ETC', label: '기타', icon: '📌', keywords: [] }
+];
+
+const STORAGE_KEY = 'notif_disabled_categories';
+const disabledCategories = ref(loadDisabled());
+
+function loadDisabled() {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY);
+    return v ? JSON.parse(v) : [];
+  } catch { return []; }
+}
+function saveDisabled() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(disabledCategories.value)); } catch {}
+}
+
+const classifyCategory = (notif) => {
+  const text = (notif.title || '') + ' ' + (notif.message || '');
+  for (const cat of categories) {
+    if (cat.key === 'ETC') continue;
+    if (cat.keywords.some(k => text.includes(k))) return cat.key;
+  }
+  return 'ETC';
+};
+
+const filteredNotifications = computed(() => {
+  if (disabledCategories.value.length === 0) return notifications.value;
+  return notifications.value.filter(n => !disabledCategories.value.includes(classifyCategory(n)));
+});
+
+const toggleFilters = () => { showFilters.value = !showFilters.value; };
+
+const toggleCategory = (key) => {
+  const idx = disabledCategories.value.indexOf(key);
+  if (idx >= 0) disabledCategories.value.splice(idx, 1);
+  else disabledCategories.value.push(key);
+  saveDisabled();
+};
 
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value;
@@ -478,4 +550,75 @@ onUnmounted(() => {
 .notification-dropdown.dark .loading-state {
   color: rgba(255,255,255,0.5);
 }
+
+/* ===== 카테고리 필터 ===== */
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.btn-filter {
+  background: none;
+  border: 1px solid var(--border-light, #e9ecef);
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-filter:hover, .btn-filter.active {
+  background: rgba(102,126,234,0.12);
+  border-color: rgba(102,126,234,0.4);
+}
+
+.filter-panel {
+  padding: 12px 16px;
+  background: rgba(102,126,234,0.04);
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+.filter-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted, #888);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.filter-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 5px;
+  transition: background 0.1s;
+}
+.filter-item:hover { background: rgba(102,126,234,0.08); }
+.filter-item input[type="checkbox"] { accent-color: #667eea; }
+.filter-icon { font-size: 13px; }
+.filter-hint {
+  font-size: 10.5px;
+  color: var(--text-light, #aaa);
+  margin-top: 8px;
+  font-style: italic;
+}
+
+/* dark variant */
+.notification-dropdown.dark .btn-filter {
+  border-color: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.75);
+}
+.notification-dropdown.dark .btn-filter:hover,
+.notification-dropdown.dark .btn-filter.active {
+  background: rgba(124,58,237,0.18);
+  border-color: rgba(124,58,237,0.5);
+}
+.notification-dropdown.dark .filter-panel {
+  background: rgba(124,58,237,0.06);
+  border-bottom-color: rgba(255,255,255,0.06);
+}
+.notification-dropdown.dark .filter-title { color: rgba(255,255,255,0.55); }
+.notification-dropdown.dark .filter-item { color: rgba(255,255,255,0.85); }
+.notification-dropdown.dark .filter-item:hover { background: rgba(255,255,255,0.05); }
+.notification-dropdown.dark .filter-hint { color: rgba(255,255,255,0.4); }
 </style>
