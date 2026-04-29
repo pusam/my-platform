@@ -12,6 +12,17 @@
       <!-- ═══ Tab 1·2: 장전 + 장중 (공유 패널) ═══ -->
       <div v-if="['premarket','live'].includes(activeGnbTab)" class="tab-panel">
 
+        <!-- ⓪ 오늘의 브리핑 (장전 전용 — 한눈 요약) -->
+        <SectionBriefing
+          v-if="activeGnbTab === 'premarket'"
+          :marketData="marketData"
+          :globalData="globalData"
+          :topRecommendations="topRecommendations"
+          :supplyPanelData="supplyPanelData"
+          :watchlistItems="watchlistItems"
+          :watchlistRisks="watchlistRisks"
+        />
+
         <!-- ① 시장 상태 바 (장전·장중 공통) -->
         <div class="market-status-bar" v-if="marketData">
           <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
@@ -339,6 +350,7 @@ import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionConviction from '../components/v2/SectionConviction.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
+import SectionBriefing from '../components/v2/SectionBriefing.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
@@ -400,6 +412,7 @@ export default {
     SectionMarketMap,
     SectionConviction,
     SectionQuantTa,
+    SectionBriefing,
     StockSearchModal,
     AiStrategyDashboardPage,
     EarningsScreenerPage,
