@@ -168,6 +168,12 @@
           :recommendations="topRecommendations"
         />
 
+        <!-- ②-e 실시간 급등/급락 (장중 전용) -->
+        <SectionLiveMovers
+          v-if="activeGnbTab === 'live'"
+          :active="activeGnbTab === 'live'"
+        />
+
         <!-- ③ 시간대별 신호 (장중 전용) -->
         <div class="today-signals section-card" v-if="activeGnbTab === 'live'">
           <div class="section-title-row">
@@ -358,6 +364,7 @@ import SectionConviction from '../components/v2/SectionConviction.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionBriefing from '../components/v2/SectionBriefing.vue'
 import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
+import SectionLiveMovers from '../components/v2/SectionLiveMovers.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
@@ -421,6 +428,7 @@ export default {
     SectionQuantTa,
     SectionBriefing,
     SectionLiveTracker,
+    SectionLiveMovers,
     StockSearchModal,
     AiStrategyDashboardPage,
     EarningsScreenerPage,

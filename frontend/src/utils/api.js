@@ -559,6 +559,14 @@ export const marketAPI = {
       params: { startDate, endDate },
       timeout: 180000  // 3분 (60일 데이터 수집에 약 1~2분 소요)
     });
+  },
+  // 급등주 (당일 등락률 상위 TOP 50)
+  getPriceRise() {
+    return apiClient.get('/market/price-rise');
+  },
+  // 급락주 (당일 등락률 하위 TOP 50)
+  getPriceFall() {
+    return apiClient.get('/market/price-fall');
   }
 };
 
