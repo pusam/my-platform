@@ -3,13 +3,16 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
+import com.myplatform.backend.repository.StockPriceRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -17,6 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -32,12 +37,26 @@ import java.util.stream.Collectors;
 public class QuantTaService {
 
     private final StockPriceHistoryRepository priceHistoryRepository;
+    private final StockPriceRepository stockPriceRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
+    private final StockAnalysisService stockAnalysisService;
 
     private static final int MIN_HISTORY_DAYS = 25;       // 최소 일봉 수 (MA20 + RSI 안정성)
     private static final int LOAD_WINDOW_DAYS = 130;      // 로드 창 (영업일 기준 약 6개월)
     private static final int CORRELATION_DAYS = 60;       // 상관관계 기본 윈도우
     private static final int MAX_CORRELATION_STOCKS = 30; // 매트릭스 상한 (n^2 폭증 방지)
+    private static final int BULK_COLLECT_RATE_MS = 450;  // KIS 호출 간격 (Rate Limit 보호)
+    private static final int BULK_COLLECT_MAX = 1000;     // 단일 작업 상한
+
+    // ==================== 일괄 수집 진행 상태 ====================
+    private final AtomicBoolean bulkRunning = new AtomicBoolean(false);
+    private final AtomicInteger bulkTotal = new AtomicInteger(0);
+    private final AtomicInteger bulkProcessed = new AtomicInteger(0);
+    private final AtomicInteger bulkSucceeded = new AtomicInteger(0);
+    private final AtomicInteger bulkFailed = new AtomicInteger(0);
+    private volatile LocalDateTime bulkStartedAt;
+    private volatile LocalDateTime bulkFinishedAt;
+    private volatile String bulkLastMessage;
 
     // ==================== 1. TA 스크리너 ====================
 
@@ -336,6 +355,118 @@ public class QuantTaService {
         if (denom == 0) return 0;
         double r = num / denom;
         return Math.round(r * 1000.0) / 1000.0;
+    }
+
+    // ==================== 3. 데이터 상태 + 일괄 수집 ====================
+
+    /**
+     * 현재 universe 현황 — 스크리너 결과의 신뢰성 판단용.
+     */
+    public Map<String, Object> getUniverseStatus() {
+        long ready = priceHistoryRepository.findStockCodesWithMinHistory(MIN_HISTORY_DAYS).size();
+        long anyHistory = priceHistoryRepository.findStockCodesWithMinHistory(1).size();
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("readyCount", ready);          // ≥ MIN_HISTORY_DAYS 일 보유한 종목 (스크리너 universe)
+        r.put("anyHistoryCount", anyHistory); // 1일이라도 데이터가 있는 종목
+        r.put("minHistoryDays", MIN_HISTORY_DAYS);
+        return r;
+    }
+
+    /**
+     * 거래량 상위 N개 종목의 일봉을 KIS API로 일괄 수집.
+     * - 비동기 백그라운드 실행. {@link #getBulkProgress()}로 진행률 폴링.
+     * - 동시에 1건만 실행 가능.
+     * - rate limit 보호: 호출당 BULK_COLLECT_RATE_MS 대기.
+     */
+    public Map<String, Object> startBulkCollection(int requestedTopN) {
+        if (!bulkRunning.compareAndSet(false, true)) {
+            return Map.of(
+                    "success", false,
+                    "message", "이미 수집 작업이 실행 중입니다. 진행 상태를 확인하세요."
+            );
+        }
+
+        int topN = Math.min(Math.max(requestedTopN, 10), BULK_COLLECT_MAX);
+        List<String> codes;
+        try {
+            codes = stockPriceRepository.findTopVolumeStockCodes(PageRequest.of(0, topN));
+        } catch (Exception e) {
+            bulkRunning.set(false);
+            log.error("[일괄수집] universe 조회 실패", e);
+            return Map.of("success", false, "message", "종목 추출 실패: " + e.getMessage());
+        }
+
+        if (codes == null || codes.isEmpty()) {
+            bulkRunning.set(false);
+            return Map.of("success", false, "message", "거래량 데이터가 없습니다");
+        }
+
+        bulkTotal.set(codes.size());
+        bulkProcessed.set(0);
+        bulkSucceeded.set(0);
+        bulkFailed.set(0);
+        bulkStartedAt = LocalDateTime.now();
+        bulkFinishedAt = null;
+        bulkLastMessage = null;
+
+        log.info("[일괄수집] 시작 - {}종목, KIS rate {}ms", codes.size(), BULK_COLLECT_RATE_MS);
+
+        Thread worker = new Thread(() -> runBulkCollection(codes), "quant-ta-bulk-collect");
+        worker.setDaemon(true);
+        worker.start();
+
+        long etaSec = (long) Math.ceil(codes.size() * (BULK_COLLECT_RATE_MS / 1000.0));
+        return Map.of(
+                "success", true,
+                "started", true,
+                "total", codes.size(),
+                "etaSeconds", etaSec,
+                "message", String.format("%d종목 수집 시작 (예상 %d초)", codes.size(), etaSec)
+        );
+    }
+
+    private void runBulkCollection(List<String> codes) {
+        try {
+            for (String code : codes) {
+                try {
+                    stockAnalysisService.collectPriceHistory(code);
+                    bulkSucceeded.incrementAndGet();
+                } catch (Exception e) {
+                    bulkFailed.incrementAndGet();
+                    log.debug("[일괄수집] 실패 {}: {}", code, e.getMessage());
+                } finally {
+                    bulkProcessed.incrementAndGet();
+                }
+                try {
+                    Thread.sleep(BULK_COLLECT_RATE_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    bulkLastMessage = "중단됨";
+                    return;
+                }
+            }
+            bulkLastMessage = String.format("완료 — 성공 %d / 실패 %d", bulkSucceeded.get(), bulkFailed.get());
+            log.info("[일괄수집] {}", bulkLastMessage);
+        } finally {
+            bulkFinishedAt = LocalDateTime.now();
+            bulkRunning.set(false);
+        }
+    }
+
+    public Map<String, Object> getBulkProgress() {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("running", bulkRunning.get());
+        r.put("total", bulkTotal.get());
+        r.put("processed", bulkProcessed.get());
+        r.put("succeeded", bulkSucceeded.get());
+        r.put("failed", bulkFailed.get());
+        r.put("startedAt", bulkStartedAt);
+        r.put("finishedAt", bulkFinishedAt);
+        r.put("message", bulkLastMessage);
+        int total = bulkTotal.get();
+        int processed = bulkProcessed.get();
+        r.put("percent", total == 0 ? 0 : (int) Math.round(processed * 100.0 / total));
+        return r;
     }
 
     // ==================== DTOs ====================

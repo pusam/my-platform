@@ -765,6 +765,18 @@ export const quantTaAPI = {
   // 종목 리스트 상관관계 매트릭스
   correlation(stockCodes, days = 60) {
     return apiClient.post('/quant-ta/correlation', { stockCodes, days });
+  },
+  // universe 현황 (스크리너 가용 종목 수)
+  universeStatus() {
+    return apiClient.get('/quant-ta/universe-status');
+  },
+  // 거래량 상위 N개 일봉 일괄 수집 (admin)
+  collectHistory(topN = 200) {
+    return apiClient.post('/quant-ta/collect-history', { topN });
+  },
+  // 수집 진행률
+  collectHistoryProgress() {
+    return apiClient.get('/quant-ta/collect-history/progress');
   }
 };
 

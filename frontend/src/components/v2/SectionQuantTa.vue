@@ -5,6 +5,43 @@
       <span class="badge-offline">DB 캐시 · AI 호출 없음</span>
     </div>
 
+    <!-- universe 상태 + 수집 -->
+    <div class="universe-bar">
+      <div class="universe-info">
+        <span class="universe-label">스크리너 universe:</span>
+        <span class="universe-value" v-if="universe">
+          <strong>{{ universe.readyCount }}</strong> 종목
+          <span class="universe-sub">(≥{{ universe.minHistoryDays }}일 보유 / 전체 {{ universe.anyHistoryCount }})</span>
+        </span>
+        <span v-else class="universe-value subtle">로딩...</span>
+      </div>
+
+      <div class="collect-controls" v-if="isAdmin">
+        <select v-model.number="collectTopN" :disabled="collecting" class="collect-select">
+          <option :value="50">상위 50</option>
+          <option :value="100">상위 100</option>
+          <option :value="200">상위 200</option>
+          <option :value="500">상위 500</option>
+          <option :value="1000">상위 1000</option>
+        </select>
+        <button class="ghost-btn" :disabled="collecting" @click="startCollect">
+          {{ collecting ? '수집 중…' : '🔄 일봉 수집' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 진행률 바 -->
+    <div v-if="collecting || collectProgress.processed > 0" class="progress-row">
+      <div class="progress-meta">
+        <span>{{ collectProgress.processed }} / {{ collectProgress.total }}</span>
+        <span>성공 {{ collectProgress.succeeded }} · 실패 {{ collectProgress.failed }}</span>
+        <span v-if="collectProgress.message" class="progress-msg">{{ collectProgress.message }}</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" :style="{ width: (collectProgress.percent || 0) + '%' }"></div>
+      </div>
+    </div>
+
     <!-- 내부 탭 -->
     <div class="inner-tabs">
       <button :class="['tab-btn', { active: activeTab === 'screener' }]"
@@ -245,10 +282,86 @@ export default {
       corrDaysUsed: 0,
       corrLoaded: false,
       corrLoading: false,
-      defaultLoading: false
+      defaultLoading: false,
+      // universe + 일괄 수집
+      universe: null,
+      collectTopN: 200,
+      collecting: false,
+      collectProgress: { processed: 0, total: 0, succeeded: 0, failed: 0, percent: 0, message: null },
+      _progressTimer: null
     }
   },
+  computed: {
+    isAdmin() {
+      return localStorage.getItem('role') === 'ADMIN'
+    }
+  },
+  mounted() {
+    this.loadUniverseStatus()
+    // 페이지 진입 시 진행 중인 수집 작업이 있으면 폴링 재개
+    this.checkProgressOnMount()
+  },
+  beforeUnmount() {
+    if (this._progressTimer) clearInterval(this._progressTimer)
+  },
   methods: {
+    // ===== Universe + 일괄 수집 =====
+    async loadUniverseStatus() {
+      try {
+        const res = await quantTaAPI.universeStatus()
+        if (res.data?.success) this.universe = res.data.data
+      } catch (e) {
+        console.warn('[QuantTa] universe 조회 실패', e)
+      }
+    },
+    async checkProgressOnMount() {
+      try {
+        const res = await quantTaAPI.collectHistoryProgress()
+        const p = res.data?.data
+        if (p && p.running) {
+          this.collecting = true
+          this.collectProgress = { ...p }
+          this.startProgressPolling()
+        }
+      } catch { /* ignore */ }
+    },
+    async startCollect() {
+      if (this.collecting) return
+      try {
+        const res = await quantTaAPI.collectHistory(this.collectTopN)
+        if (!res.data?.success) {
+          alert(res.data?.data?.message || '수집 시작 실패')
+          return
+        }
+        this.collecting = true
+        this.collectProgress = {
+          processed: 0, total: res.data.data?.total || 0,
+          succeeded: 0, failed: 0, percent: 0, message: null
+        }
+        this.startProgressPolling()
+      } catch (e) {
+        console.error('[QuantTa] 수집 시작 실패', e)
+        alert('수집 시작 실패: ' + (e.message || 'unknown'))
+      }
+    },
+    startProgressPolling() {
+      if (this._progressTimer) clearInterval(this._progressTimer)
+      this._progressTimer = setInterval(async () => {
+        try {
+          const res = await quantTaAPI.collectHistoryProgress()
+          const p = res.data?.data
+          if (!p) return
+          this.collectProgress = { ...p }
+          if (!p.running) {
+            this.collecting = false
+            clearInterval(this._progressTimer)
+            this._progressTimer = null
+            // 완료 시 universe 재로딩
+            this.loadUniverseStatus()
+          }
+        } catch { /* ignore */ }
+      }, 2000)
+    },
     // ===== 스크리너 =====
     applyPreset(p) {
       this.activePreset = p.key
@@ -400,6 +513,52 @@ export default {
   color: #81c784;
   border: 1px solid rgba(76, 175, 80, 0.35);
 }
+/* universe 상태 + 수집 */
+.universe-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.universe-info { font-size: 13px; color: rgba(255,255,255,0.85); }
+.universe-label { color: rgba(255,255,255,0.55); margin-right: 8px; }
+.universe-value strong { color: #c084fc; font-size: 16px; margin-right: 4px; }
+.universe-sub { color: rgba(255,255,255,0.45); font-size: 11px; margin-left: 4px; }
+.universe-value.subtle { color: rgba(255,255,255,0.4); }
+.collect-controls { display: flex; gap: 8px; align-items: center; }
+.collect-select {
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: #fff;
+  font-size: 12px;
+}
+
+.progress-row { margin-bottom: 14px; }
+.progress-meta {
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  font-size: 11.5px; color: rgba(255,255,255,0.65); margin-bottom: 4px;
+}
+.progress-msg { color: #81c784; }
+.progress-track {
+  height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  transition: width 0.4s;
+}
+
 .inner-tabs { display: flex; gap: 8px; margin-bottom: 14px; }
 .tab-btn {
   background: rgba(255,255,255,0.05);
