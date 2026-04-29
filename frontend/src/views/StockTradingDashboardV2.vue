@@ -24,7 +24,7 @@
         />
 
         <!-- ① 시장 상태 바 (장전·장중 공통) -->
-        <div class="market-status-bar" v-if="marketData">
+        <div id="briefing-section-market" class="market-status-bar" v-if="marketData">
           <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
             <span class="msb-label">KOSPI</span>
             <span class="msb-value">{{ formatChange(marketData.kospiChangeRate) }}%</span>
@@ -48,7 +48,7 @@
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
 
         <!-- ② AI 종합 추천 TOP 5 (장전 전용) -->
-        <div class="top-rec section-card" v-if="activeGnbTab === 'premarket'">
+        <div id="briefing-section-rec" class="top-rec section-card" v-if="activeGnbTab === 'premarket'">
           <div class="section-title-row">
             <h2><span class="section-icon">🏆</span> AI 종합 추천 TOP 5</h2>
             <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
@@ -121,7 +121,7 @@
         </div>
 
         <!-- ②-b 수급 현황 패널 (장전·장중 공통) -->
-        <div class="supply-panel section-card" v-if="supplyPanelData">
+        <div id="briefing-section-supply" class="supply-panel section-card" v-if="supplyPanelData">
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
           </div>
@@ -208,7 +208,7 @@
         </div>
 
         <!-- ③ 관심종목 현황 (장전 전용) -->
-        <div class="watchlist-summary section-card" v-if="activeGnbTab === 'premarket' && watchlistItems.length">
+        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'premarket' && watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
             <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'research'">전체 보기 →</a>
@@ -1459,5 +1459,17 @@ export default {
 @media (max-width: 768px) {
   .v2-content { padding: 12px 16px 40px; }
   .tab-panel { gap: 14px; }
+}
+</style>
+
+<!-- 브리핑→섹션 스크롤 도착 강조 (scoped 외부) -->
+<style>
+.briefing-scroll-flash {
+  animation: briefing-flash 1.4s ease-out;
+}
+@keyframes briefing-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
+  20%  { box-shadow: 0 0 0 6px rgba(124, 58, 237, 0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
 }
 </style>

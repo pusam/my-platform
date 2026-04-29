@@ -14,33 +14,37 @@
       </div>
     </div>
 
-    <!-- 상세 4줄 -->
+    <!-- 상세 4줄 (클릭 시 해당 섹션으로 스크롤) -->
     <div class="briefing-lines">
       <!-- 시장 -->
-      <div class="line">
+      <div class="line" :class="{ clickable: marketLine }" @click="marketLine && scrollTo('market')">
         <span class="line-icon">📊</span>
         <span class="line-text" v-if="marketLine">{{ marketLine }}</span>
         <span class="line-text muted" v-else>시장 데이터 로딩 중…</span>
+        <span class="line-arrow" v-if="marketLine">→</span>
       </div>
 
       <!-- 수급 -->
-      <div class="line">
+      <div class="line" :class="{ clickable: supplyLine }" @click="supplyLine && scrollTo('supply')">
         <span class="line-icon">💰</span>
         <span class="line-text" v-if="supplyLine">{{ supplyLine }}</span>
         <span class="line-text muted" v-else>수급 데이터 로딩 중…</span>
+        <span class="line-arrow" v-if="supplyLine">→</span>
       </div>
 
       <!-- 매수 후보 -->
-      <div class="line">
+      <div class="line" :class="{ clickable: recLine }" @click="recLine && scrollTo('rec')">
         <span class="line-icon">🏆</span>
         <span class="line-text" v-if="recLine">{{ recLine }}</span>
         <span class="line-text muted" v-else>AI 추천 분석 중…</span>
+        <span class="line-arrow" v-if="recLine">→</span>
       </div>
 
       <!-- 리스크 -->
-      <div class="line" v-if="riskLine">
+      <div class="line clickable" v-if="riskLine" @click="scrollTo('watchlist')">
         <span class="line-icon">⚠️</span>
         <span class="line-text">{{ riskLine }}</span>
+        <span class="line-arrow">→</span>
       </div>
     </div>
   </div>
@@ -172,6 +176,19 @@ export default {
       }
       return { cls: 'rec-hold', icon: '👀', label: '관망', reason: '시장 약세 — 진입 타이밍 대기' }
     }
+  },
+  methods: {
+    scrollTo(key) {
+      const id = `briefing-section-${key}`
+      const el = document.getElementById(id)
+      if (!el) return
+      // sticky 헤더(약 80px) 보정
+      const top = el.getBoundingClientRect().top + window.pageYOffset - 80
+      window.scrollTo({ top, behavior: 'smooth' })
+      // 깜빡임 효과로 도착 위치 강조
+      el.classList.add('briefing-scroll-flash')
+      setTimeout(() => el.classList.remove('briefing-scroll-flash'), 1400)
+    }
   }
 }
 </script>
@@ -250,11 +267,28 @@ export default {
   gap: 8px;
   font-size: 13px;
   color: rgba(255,255,255,0.85);
-  padding: 4px 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: background 0.15s, transform 0.15s;
+}
+.line.clickable { cursor: pointer; }
+.line.clickable:hover {
+  background: rgba(255,255,255,0.06);
+  transform: translateX(2px);
+}
+.line.clickable:hover .line-arrow {
+  opacity: 1;
+  transform: translateX(2px);
 }
 .line-icon { width: 20px; flex-shrink: 0; text-align: center; font-size: 14px; }
 .line-text { flex: 1; }
 .line-text.muted { color: rgba(255,255,255,0.4); font-style: italic; }
+.line-arrow {
+  font-size: 13px;
+  color: rgba(255,255,255,0.3);
+  opacity: 0;
+  transition: opacity 0.15s, transform 0.15s;
+}
 
 @media (max-width: 600px) {
   .briefing-card { padding: 14px 16px; }
