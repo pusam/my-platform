@@ -11,6 +11,9 @@
         </div>
       </div>
 
+      <!-- 매매 안전장치 위젯 (admin) -->
+      <TradingSafetyWidget />
+
       <!-- 탭 네비게이션 -->
       <div class="tab-navigation">
         <button
@@ -892,6 +895,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import GlobalNav from '../components/GlobalNav.vue';
+import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
 
 const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 

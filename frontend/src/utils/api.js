@@ -810,6 +810,22 @@ export const quantTaAPI = {
   }
 };
 
+// 매매 안전장치 (admin only)
+export const tradingSafetyAPI = {
+  // 현재 상태 조회
+  getStatus() {
+    return apiClient.get('/admin/trading/safety/status');
+  },
+  // 비상 정지 ON
+  enableKillSwitch(reason = null) {
+    return apiClient.post('/admin/trading/safety/kill-switch/enable', { reason });
+  },
+  // 비상 정지 OFF
+  disableKillSwitch(reason = null) {
+    return apiClient.post('/admin/trading/safety/kill-switch/disable', { reason });
+  }
+};
+
 // 공매도 잔고 API
 export const shortSellingAPI = {
   // 공매도 비율 상위 종목 (기본 20개)
