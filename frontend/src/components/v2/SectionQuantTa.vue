@@ -175,8 +175,8 @@
         <div v-if="parsedCodes.length" class="code-preview-row">
           <span v-for="code in parsedCodes" :key="'p-' + code"
                 :class="['code-chip', { unknown: !nameMap[code] || nameMap[code] === code }]">
-            <span class="code-chip-code">{{ code }}</span>
             <span class="code-chip-name">{{ nameMap[code] && nameMap[code] !== code ? nameMap[code] : '미확인' }}</span>
+            <span class="code-chip-code">{{ code }}</span>
           </span>
         </div>
 
@@ -762,21 +762,21 @@ export default {
   padding: 4px 0;
 }
 .code-chip {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; flex-direction: column; align-items: flex-start;
   background: rgba(124,58,237,0.18);
   border: 1px solid rgba(124,58,237,0.35);
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11.5px;
+  padding: 5px 10px;
+  border-radius: 10px;
   color: rgba(255,255,255,0.9);
+  line-height: 1.2;
 }
 .code-chip.unknown {
   background: rgba(255,255,255,0.04);
   border-color: rgba(255,193,7,0.4);
   color: rgba(255,193,7,0.85);
 }
-.code-chip-code { font-family: monospace; font-weight: 600; opacity: 0.7; }
-.code-chip-name { font-weight: 600; }
+.code-chip-name { font-size: 12.5px; font-weight: 600; }
+.code-chip-code { font-family: monospace; font-size: 10px; opacity: 0.55; margin-top: 1px; }
 
 /* 매트릭스 헤더 — 이름 + 코드 2줄 */
 .hm-head-name, .hm-side-name { font-size: 11px; font-weight: 600; }

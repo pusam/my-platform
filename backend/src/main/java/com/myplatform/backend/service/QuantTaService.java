@@ -96,6 +96,21 @@ public class QuantTaService {
         hits.sort(Comparator.comparingInt(ScreenerHit::getMatchScore).reversed());
         List<ScreenerHit> top = hits.stream().limit(finalLimit).collect(Collectors.toList());
 
+        // 5. 종목명 누락 보정 — history에 stockName 없는 종목은 stock_price fallback
+        List<String> missingNameCodes = top.stream()
+                .filter(h -> h.stockName == null || h.stockName.isBlank())
+                .map(ScreenerHit::getStockCode)
+                .collect(Collectors.toList());
+        if (!missingNameCodes.isEmpty()) {
+            Map<String, String> resolved = resolveNames(missingNameCodes);
+            for (ScreenerHit h : top) {
+                if (h.stockName == null || h.stockName.isBlank()) {
+                    String name = resolved.get(h.stockCode);
+                    if (name != null && !name.equals(h.stockCode)) h.stockName = name;
+                }
+            }
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("results", top);
         result.put("universeSize", universe.size());
@@ -320,6 +335,15 @@ public class QuantTaService {
                 r[i - 1] = prev == 0 ? 0 : (curr - prev) / prev;
             }
             returnsMap.put(code, r);
+        }
+
+        // 종목명 누락 보정 — history에 없는 종목은 stock_price fallback
+        List<String> missingForName = validCodes.stream()
+                .filter(c -> nameMap.get(c) == null || nameMap.get(c).isBlank())
+                .collect(Collectors.toList());
+        if (!missingForName.isEmpty()) {
+            Map<String, String> resolved = resolveNames(missingForName);
+            resolved.forEach((k, v) -> { if (v != null && !v.equals(k)) nameMap.put(k, v); });
         }
 
         // 매트릭스 계산
