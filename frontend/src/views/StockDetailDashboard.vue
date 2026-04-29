@@ -77,6 +77,13 @@
       </button>
     </div>
 
+    <!-- 행동 권고 헤드라인 (펀더멘털+AI+수급 종합) -->
+    <StockBriefingHeadline
+      v-if="hasData && !loading"
+      :diagnosisData="diagnosisData"
+      :aiAnalysis="aiAnalysis"
+    />
+
     <!-- 핵심 요약 카드 (항상 고정) -->
     <div v-if="hasData && !loading" class="quick-summary-bar">
       <div class="qs-item">
@@ -962,6 +969,7 @@ import { useRoute, useRouter } from 'vue-router';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
 import StockSearchModal from '../components/v2/StockSearchModal.vue';
+import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';
