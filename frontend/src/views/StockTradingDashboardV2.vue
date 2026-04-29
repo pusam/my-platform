@@ -162,6 +162,12 @@
         <!-- ②-c 멀티 컨빅션 시그널 (장전 전용) -->
         <SectionConviction v-if="activeGnbTab === 'premarket'" @stock-click="goToStock" />
 
+        <!-- ②-d 매수 후보 트래커 (장중 전용 — 추천 종목 실시간 추적) -->
+        <SectionLiveTracker
+          v-if="activeGnbTab === 'live'"
+          :recommendations="topRecommendations"
+        />
+
         <!-- ③ 시간대별 신호 (장중 전용) -->
         <div class="today-signals section-card" v-if="activeGnbTab === 'live'">
           <div class="section-title-row">
@@ -351,6 +357,7 @@ import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionConviction from '../components/v2/SectionConviction.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionBriefing from '../components/v2/SectionBriefing.vue'
+import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
@@ -413,6 +420,7 @@ export default {
     SectionConviction,
     SectionQuantTa,
     SectionBriefing,
+    SectionLiveTracker,
     StockSearchModal,
     AiStrategyDashboardPage,
     EarningsScreenerPage,
@@ -498,9 +506,11 @@ export default {
     setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
     setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
     this.setupKeyboardShortcut()
-    // 60초마다 활성 탭 데이터 자동 갱신 (장전·장중 패널은 시장맵 공유)
+    // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
       if (this.activeGnbTab === 'premarket') this.loadMarketMap()
+      // 장중 — 추천 TOP5 등락률 실시간 추적용으로 갱신
+      if (this.activeGnbTab === 'live') this.refreshRecommendations()
     }, 60000)
   },
   beforeUnmount() {
@@ -647,6 +657,18 @@ export default {
       if (requested === 'news') return 'news'
       return sub || 'ai-strategy'
     },
+    // ---- AI 추천 TOP 5 갱신 (장중 트래커에서 60초마다 호출) ----
+    async refreshRecommendations() {
+      try {
+        const res = await recommendationAPI.getTop5()
+        const body = res?.data || res
+        this.topRecommendations = (body?.data) || []
+        this.topRecDataTime = body?.dataTime || ''
+        this.topRecRealtime = body?.realtime !== false
+        this.topRecDelta = body?.delta || {}
+      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+    },
+
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
       // 장전·장중 모두 동일한 시장 데이터 사용 (시장상태바·수급 공유)
@@ -715,14 +737,7 @@ export default {
 
       // AI 종합 추천 TOP 5
       this.topRecLoading = true
-      try {
-        const res = await recommendationAPI.getTop5()
-        const body = res?.data || res
-        this.topRecommendations = (body?.data) || []
-        this.topRecDataTime = body?.dataTime || ''
-        this.topRecRealtime = body?.realtime !== false
-        this.topRecDelta = body?.delta || {}
-      } catch { this.topRecommendations = []; this.topRecDelta = {} }
+      await this.refreshRecommendations()
       this.topRecLoading = false
 
       // 수급 현황 패널
