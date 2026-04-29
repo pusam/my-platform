@@ -810,6 +810,22 @@ export const quantTaAPI = {
   }
 };
 
+// 공매도 잔고 API
+export const shortSellingAPI = {
+  // 공매도 비율 상위 종목 (기본 20개)
+  getTop(limit = 20) {
+    return apiClient.get('/short-selling/top', { params: { limit } });
+  },
+  // 특정 종목 공매도 이력
+  getStockHistory(stockCode) {
+    return apiClient.get(`/short-selling/${stockCode}`);
+  },
+  // 수동 수집 (admin)
+  collect() {
+    return apiClient.post('/short-selling/collect', null, { timeout: 120000 });
+  }
+};
+
 // AI Strategy Snapshot API (스냅샷 기반 - DB 조회만)
 export const aiStrategyAPI = {
   // 모든 전략의 최신 스냅샷 조회

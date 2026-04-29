@@ -299,6 +299,60 @@
           </div>
         </template>
       </div>
+
+      <!-- ===== 탭4: 공매도 ===== -->
+      <div v-if="activeTab === 'shortSelling'" class="tab-content">
+        <div class="section-header">
+          <h2>📉 공매도 비율 상위</h2>
+          <div class="section-controls">
+            <button class="refresh-btn" :disabled="shortLoading" @click="fetchShortSelling">
+              {{ shortLoading ? '로딩...' : '🔄 갱신' }}
+            </button>
+          </div>
+        </div>
+        <p class="hint">최근 거래일 기준 공매도 비율 상위 종목. 비율이 높을수록 하락 베팅이 많은 종목.</p>
+
+        <LoadingSpinner v-if="shortLoading && shortStocks.length === 0" />
+
+        <template v-else>
+          <div v-if="shortStocks.length > 0" class="short-table-wrap">
+            <table class="short-table">
+              <thead>
+                <tr>
+                  <th class="rank-col">#</th>
+                  <th>종목</th>
+                  <th class="right">공매도 비율</th>
+                  <th class="right">거래량</th>
+                  <th class="right">금액</th>
+                  <th class="right">기준일</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, i) in shortStocks" :key="s.stockCode + s.tradeDate"
+                    @click="goStock(s.stockCode)" class="short-row">
+                  <td class="rank-col">{{ i + 1 }}</td>
+                  <td>
+                    <div class="stock-cell">
+                      <span class="name">{{ s.stockName || s.stockCode }}</span>
+                      <span class="code">{{ s.stockCode }}</span>
+                    </div>
+                  </td>
+                  <td class="right ratio-cell" :class="getShortRatioClass(s.shortSellingRatio)">
+                    {{ formatShortRatio(s.shortSellingRatio) }}%
+                  </td>
+                  <td class="right">{{ formatShortVolume(s.shortSellingVolume) }}</td>
+                  <td class="right">{{ formatShortAmount(s.shortSellingAmount) }}</td>
+                  <td class="right date-cell">{{ formatShortDate(s.tradeDate) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="no-data">
+            <p>공매도 데이터가 없습니다.</p>
+            <p class="hint">매일 19시 자동 수집됩니다 (네이버 금융).</p>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -306,7 +360,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
-import { investorAPI } from '../utils/api'
+import { investorAPI, shortSellingAPI } from '../utils/api'
 import { toast } from '../utils/toast'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
@@ -322,13 +376,15 @@ const activeTab = ref('trades')
 const mainTabs = [
   { key: 'trades', label: '매매 동향', icon: '📊' },
   { key: 'consecutive', label: '연속 매수', icon: '🔥' },
-  { key: 'surge', label: '수급 급증', icon: '⚡' }
+  { key: 'surge', label: '수급 급증', icon: '⚡' },
+  { key: 'shortSelling', label: '공매도', icon: '📉' }
 ]
 
 // 탭별 데이터 로드 플래그
 const tradesLoaded = ref(false)
 const consecLoaded = ref(false)
 const surgeLoaded = ref(false)
+const shortLoaded = ref(false)
 
 const switchTab = (key) => {
   activeTab.value = key
@@ -338,6 +394,7 @@ const switchTab = (key) => {
     fetchSurge()
     startSurgeAutoRefresh()
   }
+  if (key === 'shortSelling' && !shortLoaded.value) fetchShortSelling()
 }
 
 // ===== 탭1: 매매 동향 =====
@@ -625,6 +682,67 @@ const getRankChangeClass = (change) => {
 }
 
 const hasFormattedChange = (val) => val && val !== '-'
+
+// ===== 탭4: 공매도 =====
+const shortLoading = ref(false)
+const shortStocks = ref([])
+
+const fetchShortSelling = async () => {
+  shortLoading.value = true
+  try {
+    const res = await shortSellingAPI.getTop(30)
+    if (res.data?.success) {
+      shortStocks.value = Array.isArray(res.data.data) ? res.data.data : []
+      shortLoaded.value = true
+    } else {
+      toast.error(res.data?.message || '공매도 데이터 조회 실패')
+    }
+  } catch (e) {
+    console.error('공매도 조회 실패', e)
+    toast.error('공매도 데이터 조회 실패')
+  } finally {
+    shortLoading.value = false
+  }
+}
+
+const getShortRatioClass = (ratio) => {
+  const r = Number(ratio)
+  if (!Number.isFinite(r)) return ''
+  if (r >= 10) return 'ratio-very-high'
+  if (r >= 5) return 'ratio-high'
+  if (r >= 2) return 'ratio-medium'
+  return ''
+}
+
+const formatShortRatio = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '-'
+  return n.toFixed(2)
+}
+
+const formatShortVolume = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '-'
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M'
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + 'K'
+  return String(Math.round(n))
+}
+
+const formatShortAmount = (v) => {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return '-'
+  // 단위: 원 → 억으로 표시
+  const eok = n / 100_000_000
+  if (eok >= 1) return eok.toFixed(1) + '억'
+  const man = n / 10_000
+  return man.toFixed(0) + '만'
+}
+
+const formatShortDate = (d) => {
+  if (!d) return '-'
+  const date = new Date(d)
+  return `${date.getMonth() + 1}/${date.getDate()}`
+}
 
 // ===== 공통 유틸 =====
 const goToStock = (code) => router.push(`/stock/${code}`)
@@ -1205,5 +1323,50 @@ td {
   table { font-size: 12px; }
   th, td { padding: 8px; }
   .trade-type-selector { flex-direction: column; }
+}
+
+/* ===== 공매도 탭 ===== */
+.short-table-wrap { overflow-x: auto; }
+.short-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.short-table thead th {
+  padding: 10px 12px;
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #888;
+  background: #f8f9fa;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+.short-table th.right, .short-table td.right { text-align: right; }
+.short-table .rank-col { width: 36px; text-align: center; color: #aaa; font-weight: 600; }
+.short-row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.short-row:hover { background: rgba(102,126,234,0.04); }
+.short-row td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.short-table .stock-cell { display: flex; flex-direction: column; gap: 2px; }
+.short-table .stock-cell .name { font-weight: 600; color: #333; font-size: 13px; }
+.short-table .stock-cell .code { font-family: monospace; font-size: 10.5px; color: #999; }
+
+.ratio-cell { font-weight: 800; font-family: monospace; }
+.ratio-cell.ratio-very-high { color: #ef4444; }
+.ratio-cell.ratio-high { color: #f59e0b; }
+.ratio-cell.ratio-medium { color: #888; }
+
+.date-cell { font-family: monospace; color: #999; font-size: 12px; }
+
+@media (max-width: 600px) {
+  .short-table thead th, .short-row td { padding: 7px 6px; font-size: 11.5px; }
+  .short-table .stock-cell .name { font-size: 12px; }
+  .short-table .stock-cell .code { font-size: 9.5px; }
 }
 </style>
