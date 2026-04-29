@@ -777,6 +777,10 @@ export const quantTaAPI = {
   // 수집 진행률
   collectHistoryProgress() {
     return apiClient.get('/quant-ta/collect-history/progress');
+  },
+  // 종목 코드 → 종목명 매핑
+  resolveNames(stockCodes) {
+    return apiClient.post('/quant-ta/resolve-names', { stockCodes });
   }
 };
 

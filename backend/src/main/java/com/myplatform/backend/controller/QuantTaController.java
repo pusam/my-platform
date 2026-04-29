@@ -72,6 +72,24 @@ public class QuantTaController {
         }
     }
 
+    @PostMapping("/resolve-names")
+    @Operation(summary = "종목명 해석", description = "종목 코드 리스트를 종목명으로 매핑합니다.")
+    public ResponseEntity<Map<String, Object>> resolveNames(
+            @RequestBody ResolveNamesRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<String> codes = request != null ? request.getStockCodes() : null;
+            response.put("success", true);
+            response.put("data", quantTaService.resolveNames(codes));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("종목명 해석 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @GetMapping("/universe-status")
     @Operation(summary = "데이터 universe 현황", description = "스크리너에 사용 가능한 종목 수(일봉 N일 이상 보유)를 반환합니다.")
     public ResponseEntity<Map<String, Object>> universeStatus() {
@@ -134,5 +152,10 @@ public class QuantTaController {
     @lombok.Data
     public static class BulkCollectRequest {
         private Integer topN;
+    }
+
+    @lombok.Data
+    public static class ResolveNamesRequest {
+        private List<String> stockCodes;
     }
 }

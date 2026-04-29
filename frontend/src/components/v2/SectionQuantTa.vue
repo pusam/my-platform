@@ -170,6 +170,16 @@
       <div class="corr-input-row">
         <label>종목 코드 (쉼표로 구분, 최대 30개)</label>
         <input type="text" v-model="corrCodesInput" placeholder="005930,000660,035420 …" />
+
+        <!-- 입력 코드 미리보기 칩 -->
+        <div v-if="parsedCodes.length" class="code-preview-row">
+          <span v-for="code in parsedCodes" :key="'p-' + code"
+                :class="['code-chip', { unknown: !nameMap[code] || nameMap[code] === code }]">
+            <span class="code-chip-code">{{ code }}</span>
+            <span class="code-chip-name">{{ nameMap[code] && nameMap[code] !== code ? nameMap[code] : '미확인' }}</span>
+          </span>
+        </div>
+
         <div class="corr-controls">
           <label>기간:</label>
           <select v-model.number="corrDays">
@@ -198,14 +208,18 @@
             <thead>
               <tr>
                 <th></th>
-                <th v-for="s in corrStocks" :key="'h-' + s.stockCode" :title="s.stockName">
-                  {{ s.stockName ? s.stockName.slice(0, 4) : s.stockCode }}
+                <th v-for="s in corrStocks" :key="'h-' + s.stockCode" :title="(s.stockName || s.stockCode) + ' (' + s.stockCode + ')'">
+                  <div class="hm-head-name">{{ s.stockName ? s.stockName.slice(0, 5) : s.stockCode }}</div>
+                  <div class="hm-head-code">{{ s.stockCode }}</div>
                 </th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="(s, i) in corrStocks" :key="'r-' + s.stockCode">
-                <th :title="s.stockName">{{ s.stockName ? s.stockName.slice(0, 6) : s.stockCode }}</th>
+                <th :title="(s.stockName || s.stockCode) + ' (' + s.stockCode + ')'">
+                  <div class="hm-side-name">{{ s.stockName ? s.stockName.slice(0, 7) : s.stockCode }}</div>
+                  <div class="hm-side-code">{{ s.stockCode }}</div>
+                </th>
                 <td v-for="(val, j) in corrMatrix[i]" :key="'c-' + i + '-' + j"
                     :style="cellStyle(val, i === j)"
                     :title="`${corrStocks[i].stockName} × ${corrStocks[j].stockName}: ${val.toFixed(3)}`">
@@ -288,12 +302,31 @@ export default {
       collectTopN: 200,
       collecting: false,
       collectProgress: { processed: 0, total: 0, succeeded: 0, failed: 0, percent: 0, message: null },
-      _progressTimer: null
+      _progressTimer: null,
+      // 종목명 해석 캐시
+      nameMap: {},
+      _resolveDebounce: null
     }
   },
   computed: {
     isAdmin() {
       return localStorage.getItem('role') === 'ADMIN'
+    },
+    parsedCodes() {
+      return this.corrCodesInput
+        .split(/[,\s]+/)
+        .map(s => s.trim())
+        .filter(s => /^\d{4,}$/.test(s))
+        .slice(0, 30)
+    }
+  },
+  watch: {
+    parsedCodes(newCodes) {
+      // 디바운스 — 입력 중에 과한 호출 방지
+      if (this._resolveDebounce) clearTimeout(this._resolveDebounce)
+      const missing = newCodes.filter(c => !(c in this.nameMap))
+      if (missing.length === 0) return
+      this._resolveDebounce = setTimeout(() => this.resolveNames(missing), 400)
     }
   },
   mounted() {
@@ -305,6 +338,19 @@ export default {
     if (this._progressTimer) clearInterval(this._progressTimer)
   },
   methods: {
+    // ===== 종목명 해석 =====
+    async resolveNames(codes) {
+      if (!codes || codes.length === 0) return
+      try {
+        const res = await quantTaAPI.resolveNames(codes)
+        if (res.data?.success && res.data.data) {
+          this.nameMap = { ...this.nameMap, ...res.data.data }
+        }
+      } catch (e) {
+        console.warn('[QuantTa] 종목명 해석 실패', e)
+      }
+    },
+
     // ===== Universe + 일괄 수집 =====
     async loadUniverseStatus() {
       try {
@@ -708,6 +754,35 @@ export default {
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
   color: #fff;
+}
+
+/* 입력 코드 미리보기 칩 */
+.code-preview-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 4px 0;
+}
+.code-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(124,58,237,0.18);
+  border: 1px solid rgba(124,58,237,0.35);
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.9);
+}
+.code-chip.unknown {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,193,7,0.4);
+  color: rgba(255,193,7,0.85);
+}
+.code-chip-code { font-family: monospace; font-weight: 600; opacity: 0.7; }
+.code-chip-name { font-weight: 600; }
+
+/* 매트릭스 헤더 — 이름 + 코드 2줄 */
+.hm-head-name, .hm-side-name { font-size: 11px; font-weight: 600; }
+.hm-head-code, .hm-side-code {
+  font-size: 9.5px; font-family: monospace;
+  color: rgba(255,255,255,0.4); margin-top: 1px;
 }
 
 .warn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }

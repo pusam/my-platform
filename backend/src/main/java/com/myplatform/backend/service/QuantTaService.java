@@ -278,6 +278,19 @@ public class QuantTaService {
             nameMap.put(code, hs.get(0).getStockName());
         }
 
+        // 데이터 부족 종목도 종목명을 찾아서 warning 메시지에 포함
+        for (int i = 0; i < warnings.size(); i++) {
+            String w = warnings.get(i);
+            int colonIdx = w.indexOf(':');
+            if (colonIdx > 0) {
+                String code = w.substring(0, colonIdx).trim();
+                List<StockPriceHistory> hs = byCode.get(code);
+                if (hs != null && !hs.isEmpty() && hs.get(0).getStockName() != null) {
+                    warnings.set(i, code + " " + hs.get(0).getStockName() + w.substring(colonIdx));
+                }
+            }
+        }
+
         List<String> validCodes = codes.stream().filter(closeMap::containsKey).collect(Collectors.toList());
         if (validCodes.size() < 2) {
             return Map.of("matrix", List.of(), "stocks", List.of(), "warnings", warnings);
@@ -355,6 +368,46 @@ public class QuantTaService {
         if (denom == 0) return 0;
         double r = num / denom;
         return Math.round(r * 1000.0) / 1000.0;
+    }
+
+    // ==================== 종목명 해석 ====================
+
+    /**
+     * 종목 코드 → 종목명 매핑.
+     * 1. stock_price_history 에서 가장 최근 stockName 사용
+     * 2. 없으면 stock_price (실시간 시세) fallback
+     * 3. 그래도 없으면 코드 자체를 name으로
+     */
+    public Map<String, String> resolveNames(List<String> codes) {
+        if (codes == null || codes.isEmpty()) return Map.of();
+        Map<String, String> nameMap = new LinkedHashMap<>();
+
+        // 1차: history 에서
+        try {
+            LocalDate since = LocalDate.now().minusDays(LOAD_WINDOW_DAYS);
+            List<StockPriceHistory> rows = priceHistoryRepository.findByStockCodesSince(codes, since);
+            for (StockPriceHistory r : rows) {
+                if (r.getStockName() != null && !nameMap.containsKey(r.getStockCode())) {
+                    nameMap.put(r.getStockCode(), r.getStockName());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("history 종목명 조회 실패: {}", e.getMessage());
+        }
+
+        // 2차: 미해결 코드 → stock_price
+        for (String code : codes) {
+            if (nameMap.containsKey(code)) continue;
+            try {
+                stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code).ifPresent(p -> {
+                    if (p.getStockName() != null) nameMap.put(code, p.getStockName());
+                });
+            } catch (Exception ignore) {}
+        }
+
+        // 미해결 → 코드 그대로
+        for (String code : codes) nameMap.putIfAbsent(code, code);
+        return nameMap;
     }
 
     // ==================== 3. 데이터 상태 + 일괄 수집 ====================
