@@ -53,6 +53,14 @@ public class RecommendationService {
     private static final int STRONG_BUY_THRESHOLD = 75;
     private volatile java.time.LocalDate lastAlertDate = null;
 
+    // 가격 도달 알림 — 임계점 (오를 때 / 내릴 때)
+    private static final double[] PRICE_UP_THRESHOLDS = {5.0, 10.0};
+    private static final double[] PRICE_DOWN_THRESHOLDS = {-3.0, -5.0};
+    // 종목별로 오늘 어떤 임계점을 발송했는지 (재발송 방지)
+    private final java.util.concurrent.ConcurrentMap<String, java.util.Set<Double>> priceAlertedToday
+            = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile java.time.LocalDate priceAlertedDate = null;
+
     private volatile List<RecommendationDto> cachedTop5 = null;
     private volatile LocalDateTime cacheTime = null;
     private static final long CACHE_MINUTES = 30;
@@ -165,6 +173,109 @@ public class RecommendationService {
         log.info("[종합추천] 마감 스냅샷 저장 시작");
         saveSnapshotInternal();
         snapshotRepository.deleteOlderThan(LocalDateTime.now().minusDays(7));
+    }
+
+    /**
+     * 매수 후보(TOP5)의 가격 도달 알림 (장중 5분 간격)
+     * - 추천 종목이 +5%/+10% 도달 시 → 익절/모멘텀 신호
+     * - 추천 종목이 -3%/-5% 도달 시 → 손절/진입 재검토 신호
+     * - 종목별로 임계점별 일 1회만 발송 (재발송 방지)
+     */
+    @Scheduled(cron = "0 0/5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkRecommendationPriceTargets() {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        if (!today.equals(priceAlertedDate)) {
+            priceAlertedToday.clear();
+            priceAlertedDate = today;
+        }
+
+        try {
+            List<RecommendationDto> top5;
+            try {
+                top5 = getTop5().getItems();
+            } catch (Exception e) {
+                log.debug("[가격알림] TOP5 조회 실패: {}", e.getMessage());
+                return;
+            }
+            if (top5 == null || top5.isEmpty()) return;
+
+            // 실시간 시세 — 추천 캐시는 stale할 수 있으니 별도 조회
+            List<String> codes = top5.stream().map(RecommendationDto::getStockCode).collect(Collectors.toList());
+            Map<String, StockPriceDto> priceMap;
+            try {
+                priceMap = stockPriceService.getStockPrices(codes);
+            } catch (Exception e) {
+                log.debug("[가격알림] 실시간 시세 조회 실패: {}", e.getMessage());
+                return;
+            }
+
+            for (RecommendationDto rec : top5) {
+                StockPriceDto live = priceMap.get(rec.getStockCode());
+                if (live == null || live.getChangeRate() == null) continue;
+                double rate = live.getChangeRate().doubleValue();
+
+                java.util.Set<Double> alerted = priceAlertedToday
+                        .computeIfAbsent(rec.getStockCode(), k -> java.util.concurrent.ConcurrentHashMap.newKeySet());
+
+                // 상승 임계점 — 가장 높은 도달 임계점만 1회 (5%, 10% 두번 발송 방지)
+                Double highestUp = null;
+                for (double th : PRICE_UP_THRESHOLDS) {
+                    if (rate >= th && !alerted.contains(th)) highestUp = th;
+                }
+                if (highestUp != null) {
+                    alerted.add(highestUp);
+                    sendPriceAlert(rec, live, highestUp, true);
+                }
+
+                // 하락 임계점 — 가장 낮은 도달 임계점만 1회
+                Double lowestDown = null;
+                for (double th : PRICE_DOWN_THRESHOLDS) {
+                    if (rate <= th && !alerted.contains(th)) lowestDown = th;
+                }
+                if (lowestDown != null) {
+                    alerted.add(lowestDown);
+                    sendPriceAlert(rec, live, lowestDown, false);
+                }
+            }
+        } catch (Exception e) {
+            log.error("[가격알림] 처리 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    private void sendPriceAlert(RecommendationDto rec, StockPriceDto live, double threshold, boolean isUp) {
+        String emoji = isUp ? (threshold >= 10 ? "🚀" : "📈") : (threshold <= -5 ? "🔻" : "⚠️");
+        String label = isUp ? "수익" : "손실";
+        String thLabel = (threshold > 0 ? "+" : "") + (int) threshold + "%";
+        String currentRate = live.getChangeRate() != null
+                ? (live.getChangeRate().doubleValue() >= 0 ? "+" : "") + String.format("%.2f%%", live.getChangeRate().doubleValue())
+                : "-";
+        String currentPrice = live.getCurrentPrice() != null
+                ? String.format("%,d원", live.getCurrentPrice().intValue()) : "-";
+
+        String tgMsg = String.format(
+                "%s <b>매수후보 %s 도달 (%s)</b>\n\n• %s (%s)\n• 현재가: %s · 등락률: %s\n• 추천점수: %d점",
+                emoji, label, thLabel,
+                rec.getStockName(), rec.getStockCode(),
+                currentPrice, currentRate, rec.getTotalScore()
+        );
+        try { telegramService.sendSignal(tgMsg); } catch (Exception ignore) {}
+
+        // 앱 알림
+        try {
+            List<User> admins = userRepository.findByRole("ADMIN");
+            String title = String.format("%s %s %s 도달", emoji, rec.getStockName(), thLabel);
+            String body = String.format("현재가 %s (%s) · 추천 %d점",
+                    currentPrice, currentRate, rec.getTotalScore());
+            String link = "/stock/" + rec.getStockCode();
+            String notifType = isUp ? "SUCCESS" : "WARNING";
+            for (User u : admins) {
+                notificationService.createNotificationForUser(u.getId(), notifType, title, body, link);
+            }
+        } catch (Exception e) {
+            log.debug("[가격알림] 앱 알림 실패: {}", e.getMessage());
+        }
+        log.info("[가격알림] {} {} {}% 도달 (점수 {})",
+                rec.getStockName(), rec.getStockCode(), threshold, rec.getTotalScore());
     }
 
     /**
