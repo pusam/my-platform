@@ -9,6 +9,7 @@ import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
+import com.myplatform.backend.repository.StockPriceRepository;
 import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,7 @@ public class StockAnalysisService {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockPriceHistoryRepository stockPriceHistoryRepository;
+    private final StockPriceRepository stockPriceRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final KoreaInvestmentService koreaInvestmentService;
 
@@ -958,6 +960,12 @@ public class StockAnalysisService {
             int skippedCount = 0;
             int fallbackIndex = 0;
 
+            // 종목명 1회 조회: stock_price → 하드코딩 맵 → null
+            String stockName = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode)
+                    .map(p -> p.getStockName())
+                    .filter(n -> n != null && !n.isBlank())
+                    .orElseGet(() -> StockNameResolver.getName(stockCode));
+
             for (KoreaInvestmentService.OhlcvData data : ohlcvData) {
                 // API에서 제공한 거래일자 사용, 없으면 인덱스로 추정
                 LocalDate tradeDate = data.getTradeDate();
@@ -983,6 +991,7 @@ public class StockAnalysisService {
 
                 StockPriceHistory history = StockPriceHistory.builder()
                         .stockCode(stockCode)
+                        .stockName(stockName)
                         .tradeDate(tradeDate)
                         .openPrice(data.getOpen())
                         .highPrice(data.getHigh())

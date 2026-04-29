@@ -781,6 +781,10 @@ export const quantTaAPI = {
   // 종목 코드 → 종목명 매핑
   resolveNames(stockCodes) {
     return apiClient.post('/quant-ta/resolve-names', { stockCodes });
+  },
+  // history의 빈 종목명 일괄 보정 (admin)
+  backfillNames() {
+    return apiClient.post('/quant-ta/backfill-names');
   }
 };
 

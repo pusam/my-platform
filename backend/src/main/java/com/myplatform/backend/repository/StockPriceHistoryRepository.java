@@ -3,6 +3,7 @@ package com.myplatform.backend.repository;
 import com.myplatform.backend.entity.StockPriceHistory;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -76,4 +77,18 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     List<StockPriceHistory> findByStockCodesSince(
             @Param("codes") List<String> codes,
             @Param("startDate") LocalDate startDate);
+
+    /**
+     * stockName 이 비어있는(NULL/빈문자열) 종목 코드 목록
+     */
+    @Query("SELECT DISTINCT h.stockCode FROM StockPriceHistory h " +
+           "WHERE h.stockName IS NULL OR h.stockName = ''")
+    List<String> findStockCodesWithMissingName();
+
+    /**
+     * 특정 종목의 모든 history 행에 stockName 일괄 업데이트
+     */
+    @Modifying
+    @Query("UPDATE StockPriceHistory h SET h.stockName = :name WHERE h.stockCode = :code")
+    int updateStockNameByCode(@Param("code") String code, @Param("name") String name);
 }

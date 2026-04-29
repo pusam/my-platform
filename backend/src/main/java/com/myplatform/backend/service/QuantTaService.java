@@ -4,10 +4,12 @@ import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockPriceRepository;
+import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -406,32 +408,77 @@ public class QuantTaService {
         if (codes == null || codes.isEmpty()) return Map.of();
         Map<String, String> nameMap = new LinkedHashMap<>();
 
-        // 1차: history 에서
+        // 1차: history 에서 (빈 문자열은 무효 처리)
         try {
             LocalDate since = LocalDate.now().minusDays(LOAD_WINDOW_DAYS);
             List<StockPriceHistory> rows = priceHistoryRepository.findByStockCodesSince(codes, since);
             for (StockPriceHistory r : rows) {
-                if (r.getStockName() != null && !nameMap.containsKey(r.getStockCode())) {
-                    nameMap.put(r.getStockCode(), r.getStockName());
+                String n = r.getStockName();
+                if (n != null && !n.isBlank() && !nameMap.containsKey(r.getStockCode())) {
+                    nameMap.put(r.getStockCode(), n);
                 }
             }
         } catch (Exception e) {
             log.debug("history 종목명 조회 실패: {}", e.getMessage());
         }
 
-        // 2차: 미해결 코드 → stock_price
+        // 2차: 미해결 코드 → stock_price (실시간 시세 캐시)
         for (String code : codes) {
             if (nameMap.containsKey(code)) continue;
             try {
                 stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code).ifPresent(p -> {
-                    if (p.getStockName() != null) nameMap.put(code, p.getStockName());
+                    String n = p.getStockName();
+                    if (n != null && !n.isBlank()) nameMap.put(code, n);
                 });
             } catch (Exception ignore) {}
+        }
+
+        // 3차: 하드코딩된 주요 종목 매핑 (StockNameResolver)
+        for (String code : codes) {
+            if (nameMap.containsKey(code)) continue;
+            String n = StockNameResolver.getName(code);
+            if (n != null) nameMap.put(code, n);
         }
 
         // 미해결 → 코드 그대로
         for (String code : codes) nameMap.putIfAbsent(code, code);
         return nameMap;
+    }
+
+    /**
+     * stockName이 빈/NULL인 history 행에 종목명을 일괄 보정.
+     * stock_price → 하드코딩 매핑 순으로 해석 후 UPDATE.
+     */
+    @Transactional
+    public Map<String, Object> backfillMissingNames() {
+        List<String> codes = priceHistoryRepository.findStockCodesWithMissingName();
+        if (codes.isEmpty()) {
+            return Map.of("totalCodes", 0, "updated", 0, "stillMissing", 0);
+        }
+        Map<String, String> resolved = resolveNames(codes);
+        int updatedCodes = 0;
+        int updatedRows = 0;
+        int stillMissing = 0;
+        for (String code : codes) {
+            String n = resolved.get(code);
+            if (n == null || n.isBlank() || n.equals(code)) {
+                stillMissing++;
+                continue;
+            }
+            int rows = priceHistoryRepository.updateStockNameByCode(code, n);
+            if (rows > 0) {
+                updatedCodes++;
+                updatedRows += rows;
+            }
+        }
+        log.info("[종목명보정] 대상 {}종목 / 보정 {}종목 ({} 행) / 미해결 {}",
+                codes.size(), updatedCodes, updatedRows, stillMissing);
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("totalCodes", codes.size());
+        r.put("updatedCodes", updatedCodes);
+        r.put("updatedRows", updatedRows);
+        r.put("stillMissing", stillMissing);
+        return r;
     }
 
     // ==================== 3. 데이터 상태 + 일괄 수집 ====================

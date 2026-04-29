@@ -27,6 +27,13 @@
         <button class="ghost-btn" :disabled="collecting" @click="startCollect">
           {{ collecting ? '수집 중…' : '🔄 일봉 수집' }}
         </button>
+        <button class="ghost-btn" :disabled="backfilling" @click="runBackfill" title="종목명이 빈 history 행을 보정">
+          {{ backfilling ? '보정 중…' : '🏷️ 종목명 보정' }}
+        </button>
+      </div>
+      <div v-if="backfillResult" class="backfill-result">
+        보정 완료 — {{ backfillResult.updatedCodes }}/{{ backfillResult.totalCodes }}종목 ({{ backfillResult.updatedRows }}행)
+        <span v-if="backfillResult.stillMissing > 0">· 미해결 {{ backfillResult.stillMissing }}</span>
       </div>
     </div>
 
@@ -305,7 +312,10 @@ export default {
       _progressTimer: null,
       // 종목명 해석 캐시
       nameMap: {},
-      _resolveDebounce: null
+      _resolveDebounce: null,
+      // 종목명 보정 (admin)
+      backfilling: false,
+      backfillResult: null
     }
   },
   computed: {
@@ -348,6 +358,28 @@ export default {
         }
       } catch (e) {
         console.warn('[QuantTa] 종목명 해석 실패', e)
+      }
+    },
+
+    // ===== 종목명 일괄 보정 (admin) =====
+    async runBackfill() {
+      if (this.backfilling) return
+      this.backfilling = true
+      this.backfillResult = null
+      try {
+        const res = await quantTaAPI.backfillNames()
+        if (res.data?.success) {
+          this.backfillResult = res.data.data
+          // 화면에 표시된 캐시 무효화 (재요청 시 새 이름이 보이도록)
+          this.nameMap = {}
+        } else {
+          alert(res.data?.message || '보정 실패')
+        }
+      } catch (e) {
+        console.error('[QuantTa] 종목명 보정 실패', e)
+        alert('보정 실패: ' + (e.message || 'unknown'))
+      } finally {
+        this.backfilling = false
       }
     },
 
@@ -585,6 +617,17 @@ export default {
   border-radius: 8px;
   color: #fff;
   font-size: 12px;
+}
+
+.backfill-result {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: rgba(76,175,80,0.12);
+  border: 1px solid rgba(76,175,80,0.3);
+  border-radius: 8px;
+  font-size: 11.5px;
+  color: #81c784;
 }
 
 .progress-row { margin-bottom: 14px; }

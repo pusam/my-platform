@@ -126,6 +126,23 @@ public class QuantTaController {
         }
     }
 
+    @PostMapping("/backfill-names")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "종목명 일괄 보정 (admin)", description = "stockName이 비어있는 history 행을 stock_price/하드코딩 매핑으로 채워 넣습니다.")
+    public ResponseEntity<Map<String, Object>> backfillNames() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", quantTaService.backfillMissingNames());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("종목명 보정 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @GetMapping("/collect-history/progress")
     @Operation(summary = "일괄 수집 진행 상태", description = "현재 실행 중인 일괄 수집 작업의 진행률을 조회합니다.")
     public ResponseEntity<Map<String, Object>> collectHistoryProgress() {
