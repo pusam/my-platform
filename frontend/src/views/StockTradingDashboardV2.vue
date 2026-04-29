@@ -75,7 +75,7 @@
               <div class="rec-score-area">
                 <div class="rec-score-head">
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
-                  <span class="rec-score-basis">{{ rec.validCount }}/5항목</span>
+                  <span class="rec-score-basis">{{ rec.validCount }}/6항목</span>
                   <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
                         :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
                     {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
@@ -918,6 +918,7 @@ export default {
         { key: 'supply', label: '수급', raw: rec.supplyDemand, color: '#3b82f6' },
         { key: 'tech', label: '기술적', raw: rec.technical, color: '#f59e0b' },
         { key: 'sector', label: '섹터', raw: rec.sectorMomentum, color: '#ef4444' },
+        { key: 'value', label: '가치', raw: rec.valueStability, color: '#06b6d4' },
       ]
       return items.map(item => ({
         ...item,

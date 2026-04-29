@@ -36,6 +36,9 @@ public class RecommendationSnapshot {
     @Column(name = "sector_momentum", nullable = false)
     private int sectorMomentum;
 
+    @Column(name = "value_stability", nullable = false)
+    private int valueStability;
+
     @Column(name = "tags", length = 500)
     private String tags;
 
@@ -83,6 +86,8 @@ public class RecommendationSnapshot {
 
     public int getSectorMomentum() { return sectorMomentum; }
     public void setSectorMomentum(int sectorMomentum) { this.sectorMomentum = sectorMomentum; }
+    public int getValueStability() { return valueStability; }
+    public void setValueStability(int valueStability) { this.valueStability = valueStability; }
 
     public String getTags() { return tags; }
     public void setTags(String tags) { this.tags = tags; }

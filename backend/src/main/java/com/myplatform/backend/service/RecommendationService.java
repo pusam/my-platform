@@ -2,9 +2,11 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.entity.RecommendationSnapshot;
+import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
+import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.UserRepository;
 import lombok.*;
@@ -46,6 +48,8 @@ public class RecommendationService {
     private final StockPriceService stockPriceService;
     private final StockPriceHistoryRepository priceHistoryRepository;
     private final RecommendationSnapshotRepository snapshotRepository;
+    private final StockFinancialDataRepository financialDataRepository;
+    private final RiskManagementService riskManagementService;
     private final TelegramNotificationService telegramService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
@@ -383,6 +387,7 @@ public class RecommendationService {
                 entity.setSupplyDemand(dto.getSupplyDemand());
                 entity.setTechnical(dto.getTechnical());
                 entity.setSectorMomentum(dto.getSectorMomentum());
+                entity.setValueStability(dto.getValueStability());
                 entity.setTags(dto.getTags() != null ? String.join(",", dto.getTags()) : "");
                 entity.setChangeRate(dto.getChangeRate());
                 entity.setRankOrder(i + 1);
@@ -409,21 +414,23 @@ public class RecommendationService {
         scoreSectorMomentum(scoreMap);
         // 기술: 마지막 (모든 종목 수집 후)
         scoreTechnical(scoreMap);
+        // 가치/안정성: PBR·ROE·부채비율·리스크 페널티 (모멘텀 편향 완화)
+        scoreValueStability(scoreMap);
         // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
         applyRealtimeChecks(scoreMap);
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
-            log.debug("[종합추천] {} — AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} (유효 {}개)",
+            log.debug("[종합추천] {} — AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} 가치:{} (유효 {}개)",
                     s.stockName, s.aiStrategy, s.earnings, s.supplyDemand, s.technical, s.sectorMomentum,
-                    countValidCategories(s));
+                    s.valueStability, countValidCategories(s));
         }
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()
                 .filter(s -> countValidCategories(s) >= 4)
                 .filter(s -> normalizeScore(
-                        s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum,
+                        s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability,
                         countValidCategories(s)) >= 60) // 관망(59↓) 종목 제외
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
                         .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
@@ -433,13 +440,85 @@ public class RecommendationService {
                 .toList();
 
         for (RecommendationDto r : results) {
-            log.info("[종합추천] #{} {} — 총{}점 (AI:{} 실적:{} 수급:{} 기술:{} 섹터:{}) 유효{}개",
+            log.info("[종합추천] #{} {} — 총{}점 (AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} 가치:{}) 유효{}개",
                     results.indexOf(r) + 1, r.getStockName(), r.getTotalScore(),
                     r.getAiStrategy(), r.getEarnings(), r.getSupplyDemand(),
-                    r.getTechnical(), r.getSectorMomentum(), r.getValidCount());
+                    r.getTechnical(), r.getSectorMomentum(), r.getValueStability(), r.getValidCount());
         }
         log.info("[종합추천] TOP {} 계산 완료", results.size());
         return results;
+    }
+
+    // ==================== ⑥ 가치/안정성 (/20) ====================
+    // PBR·ROE·부채비율·흑자 + 대주주 리스크 페널티
+    // 모멘텀 카테고리 비중 다이루션해 저평가 우량주 부각
+    private void scoreValueStability(Map<String, StockScore> scoreMap) {
+        int calc = 0, miss = 0;
+        for (StockScore stock : scoreMap.values()) {
+            try {
+                Optional<StockFinancialData> opt = financialDataRepository
+                        .findTopByStockCodeOrderByReportDateDesc(stock.stockCode);
+                if (opt.isEmpty()) { miss++; continue; }
+                StockFinancialData fin = opt.get();
+                int score = 0;
+                List<String> tags = new ArrayList<>();
+
+                // 1) PBR (8점) — 저평가 핵심
+                BigDecimal pbr = fin.getPbr();
+                if (pbr != null && pbr.signum() > 0) {
+                    double v = pbr.doubleValue();
+                    if (v <= 0.7) { score += 8; tags.add("PBR저평가"); }
+                    else if (v <= 1.0) { score += 6; tags.add("PBR<1"); }
+                    else if (v <= 1.5) score += 4;
+                    else if (v <= 2.0) score += 2;
+                }
+
+                // 2) ROE×(1/PBR) 결합 (5점) — 자본효율+저평가 (마법공식 변형)
+                BigDecimal roe = fin.getRoe();
+                if (roe != null && pbr != null && pbr.signum() > 0) {
+                    double combined = roe.doubleValue() / pbr.doubleValue();
+                    if (combined >= 15) { score += 5; tags.add("우량+저평가"); }
+                    else if (combined >= 10) score += 4;
+                    else if (combined >= 7) score += 3;
+                    else if (combined >= 4) score += 1;
+                }
+
+                // 3) 부채비율 (4점) — 재무 안정성
+                BigDecimal debtRatio = fin.getDebtRatio();
+                if (debtRatio != null && debtRatio.signum() >= 0) {
+                    double v = debtRatio.doubleValue();
+                    if (v <= 50) { score += 4; tags.add("저부채"); }
+                    else if (v <= 100) score += 3;
+                    else if (v <= 200) score += 1;
+                }
+
+                // 4) 영업이익+자본총계 양수 (3점) — 흑자 + 자본잠식 없음
+                BigDecimal opProfit = fin.getOperatingProfit();
+                BigDecimal equity = fin.getTotalEquity();
+                if (opProfit != null && opProfit.signum() > 0
+                        && equity != null && equity.signum() > 0) {
+                    score += 3;
+                }
+
+                // 5) 대주주 리스크 페널티 (-5) — 위험 공시 빠른 체크
+                try {
+                    if (riskManagementService.quickDangerCheck(stock.stockName)) {
+                        score = Math.max(0, score - 5);
+                        tags.add("⚠리스크공시");
+                    }
+                } catch (Exception ignore) { /* 리스크 조회 실패 시 페널티 안 줌 */ }
+
+                stock.valueStability = Math.min(20, score);
+                if (stock.valueStability > 0) {
+                    stock.tags.addAll(tags);
+                    calc++;
+                }
+            } catch (Exception e) {
+                log.debug("[종합추천] 가치/안정성 계산 실패 {}: {}", stock.stockCode, e.getMessage());
+                miss++;
+            }
+        }
+        log.debug("[종합추천] 가치: {}건 계산, {}건 데이터부족", calc, miss);
     }
 
     // ==================== ① AI전략 (/20) ====================
@@ -879,6 +958,7 @@ public class RecommendationService {
         if (s.supplyDemand > 0) c++;
         if (s.technical > 0) c++;
         if (s.sectorMomentum > 0) c++;
+        if (s.valueStability > 0) c++;
         return c;
     }
 
@@ -893,12 +973,15 @@ public class RecommendationService {
                 if (s.getSupplyDemand() > 0) vc++;
                 if (s.getTechnical() > 0) vc++;
                 if (s.getSectorMomentum() > 0) vc++;
+                if (s.getValueStability() > 0) vc++;
                 return RecommendationDto.builder()
                     .stockCode(s.getStockCode()).stockName(s.getStockName())
                     .totalScore(s.getTotalScore())
                     .aiStrategy(s.getAiStrategy()).earnings(s.getEarnings())
                     .supplyDemand(s.getSupplyDemand()).technical(s.getTechnical())
-                    .sectorMomentum(s.getSectorMomentum()).validCount(vc)
+                    .sectorMomentum(s.getSectorMomentum())
+                    .valueStability(s.getValueStability())
+                    .validCount(vc)
                     .tags(s.getTags() != null && !s.getTags().isBlank()
                             ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())
                     .changeRate(s.getChangeRate()).build();
@@ -927,13 +1010,15 @@ public class RecommendationService {
         return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
-    /** 유효 항목 수별 상한: 5개=100, 4개=88, 3개=75, 2개=60 */
+    /** 유효 항목 수별 상한: 6개=100, 5개=92, 4개=80, 3개=65, 2개=50 */
     private static int normalizeScore(int raw, int validCount) {
-        if (validCount >= 5) return raw;
+        if (validCount >= 6) return Math.min(100, raw * 100 / 120);
         if (validCount <= 0) return 0;
-        int scaled = raw * 5 / validCount;
+        // raw는 valid * 20점 만점 → 100점 만점으로 환산 후 cap
+        int scaled = raw * 100 / (validCount * 20);
         int cap = switch (validCount) {
-            case 4 -> 85;
+            case 5 -> 92;
+            case 4 -> 80;
             case 3 -> 65;
             case 2 -> 50;
             default -> 50;
@@ -943,7 +1028,7 @@ public class RecommendationService {
 
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
-        int raw = s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum;
+        int raw = s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability;
         int total = normalizeScore(raw, vc);
 
         return RecommendationDto.builder()
@@ -954,6 +1039,7 @@ public class RecommendationService {
                 .supplyDemand(s.supplyDemand > 0 ? s.supplyDemand : NA)
                 .technical(s.technical > 0 ? s.technical : NA)
                 .sectorMomentum(s.sectorMomentum > 0 ? s.sectorMomentum : NA)
+                .valueStability(s.valueStability > 0 ? s.valueStability : NA)
                 .validCount(vc)
                 .tags(new ArrayList<>(s.tags))
                 .changeRate(s.changeRate).build();
@@ -963,7 +1049,7 @@ public class RecommendationService {
 
     private static class StockScore {
         String stockCode, stockName;
-        int aiStrategy = 0, earnings = 0, supplyDemand = 0, technical = 0, sectorMomentum = 0;
+        int aiStrategy = 0, earnings = 0, supplyDemand = 0, technical = 0, sectorMomentum = 0, valueStability = 0;
         Set<String> tags = new LinkedHashSet<>();
         BigDecimal changeRate;
         StockScore(String code, String name) { stockCode = code; stockName = name; }
@@ -975,6 +1061,7 @@ public class RecommendationService {
             if (supplyDemand > 0) { v++; sum += supplyDemand; }
             if (technical > 0) { v++; sum += technical; }
             if (sectorMomentum > 0) { v++; sum += sectorMomentum; }
+            if (valueStability > 0) { v++; sum += valueStability; }
             return normalizeScore(sum, v);
         }
     }
@@ -982,7 +1069,7 @@ public class RecommendationService {
     @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
     public static class RecommendationDto {
         private String stockCode, stockName;
-        private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, validCount;
+        private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, valueStability, validCount;
         private List<String> tags;
         private BigDecimal changeRate;
         private BigDecimal currentPrice;
