@@ -247,4 +247,17 @@ export default {
   text-align: center; padding: 24px;
   color: rgba(255,255,255,0.4); font-size: 12.5px;
 }
+
+@media (max-width: 600px) {
+  .section-card { padding: 14px 16px; }
+  .section-title-row h2 { font-size: 15px; }
+  .meta { font-size: 10px; }
+  .tracker-row { padding: 8px 10px; gap: 8px; }
+  .rank { font-size: 11px; width: 22px; }
+  .stock-name { font-size: 13px; }
+  .score-pill { padding: 1px 5px; font-size: 9.5px; }
+  .price { font-size: 12px; }
+  .change { font-size: 12px; }
+  .tracker-summary { gap: 10px; font-size: 10.5px; }
+}
 </style>

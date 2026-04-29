@@ -1396,6 +1396,57 @@ export default {
   .pick-score { font-size: 16px; }
 }
 
+/* ───── 모바일 대응: 480~600px ───── */
+@media (max-width: 600px) {
+  /* AI 추천 TOP5 — 점수 영역 공간 압축 */
+  .rec-card { padding: 8px 10px; gap: 8px; }
+  .rec-rank { min-width: 22px; font-size: 13px; }
+  .rec-name { font-size: 13px; }
+  .rec-score-area { min-width: 110px; }
+  .rec-score-num { font-size: 17px; }
+  .rec-score-basis { display: none; }       /* 5/5항목 라벨 모바일 숨김 */
+  .rec-detail-label { font-size: 8.5px; width: 26px; }
+  .rec-detail-score { font-size: 8.5px; width: 16px; }
+  .rec-detail-track { min-width: 24px; }
+  .rec-tags { display: none; }              /* 태그 숨김 — 점수에 집중 */
+  .rec-current-price { font-size: 11px; }
+  .rec-change { font-size: 11px; }
+  .rec-grade { font-size: 9px; }
+  .rec-legend { gap: 8px; }
+  .rec-legend-item { font-size: 9px; }
+
+  /* 수급 패널 */
+  .supply-summary { gap: 8px; }
+  .supply-item { padding: 8px 10px; }
+  .supply-amount { font-size: 14px; }
+  .supply-stock-row { padding: 6px 8px; gap: 6px; }
+  .supply-stock-name { font-size: 12px; }
+
+  /* 시간대별 신호 */
+  .signal-card { padding: 10px; gap: 8px; }
+  .sig-name { font-size: 13px; }
+  .sig-reason { font-size: 11px; }
+
+  /* 섹터 기회 — 모바일은 1열 */
+  .so-grid { grid-template-columns: 1fr; }
+
+  /* 관심종목 */
+  .wl-row { padding: 7px 8px; gap: 6px; }
+  .wl-name { font-size: 12px; }
+  .wl-price { font-size: 12px; }
+  .wl-change { font-size: 11px; width: 50px; }
+
+  /* 분석 sub-tabs — 화면 가득 채우지 말고 가로 스크롤 */
+  .sub-tab-btn { padding: 7px 12px; font-size: 12px; }
+}
+
+/* ───── 매우 작은 화면(아이폰 mini 등): 380px 이하 ───── */
+@media (max-width: 380px) {
+  .rec-detail-bars { gap: 1px; }
+  .rec-score-area { min-width: 95px; }
+  .rec-grade { display: none; }             /* 강력매수/매수고려 라벨 숨김 — 색깔로 구분 */
+}
+
 /* Tab Panel */
 .tab-panel {
   display: flex;

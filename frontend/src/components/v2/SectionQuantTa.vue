@@ -873,4 +873,41 @@ export default {
   font-size: 11px; color: rgba(255,255,255,0.5);
   margin-top: 6px;
 }
+
+@media (max-width: 600px) {
+  .section-card { padding: 14px 16px; }
+  .section-title-row h2 { font-size: 15px; }
+  .badge-offline { font-size: 10px; padding: 3px 8px; }
+
+  /* universe 바 — 세로 스택 */
+  .universe-bar { padding: 10px 12px; }
+  .universe-info, .collect-controls { width: 100%; }
+  .collect-controls { justify-content: space-between; }
+  .collect-controls .ghost-btn { padding: 6px 10px; font-size: 11px; }
+
+  /* 스크리너 프리셋/조건 영역 */
+  .preset-chip { font-size: 11px; padding: 5px 9px; }
+  .filter-grid { padding: 10px; gap: 6px 10px; }
+  .filter-row { font-size: 12px; }
+  .filter-row.range input { width: 64px; font-size: 11px; }
+  .primary-btn { padding: 7px 14px; font-size: 12px; }
+
+  /* 결과 테이블 — 폰트 축소 + 가로 스크롤 강제 */
+  .result-table { font-size: 11.5px; }
+  .result-table th, .result-table td { padding: 6px 7px; }
+  .stock-name { font-size: 12px; }
+  .stock-code { font-size: 9.5px; }
+  .tag-chip { font-size: 9.5px; padding: 1px 5px; }
+
+  /* 상관관계 칩 */
+  .code-chip { padding: 4px 8px; }
+  .code-chip-name { font-size: 11.5px; }
+  .code-chip-code { font-size: 9px; }
+
+  /* 매트릭스 */
+  .heatmap-table th, .heatmap-table td { padding: 4px 6px; }
+  .heatmap-table { font-size: 10.5px; }
+  .hm-head-name, .hm-side-name { font-size: 10px; }
+  .hm-head-code, .hm-side-code { font-size: 8.5px; }
+}
 </style>
