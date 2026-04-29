@@ -337,6 +337,7 @@
         </div>
         <div class="embedded-content">
           <AiStrategyDashboardPage v-if="activeAnalysisTab === 'ai-strategy'" :embedded="true" />
+          <SectionBacktest v-if="activeAnalysisTab === 'backtest'" />
           <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
           <SectionQuantTa v-if="activeAnalysisTab === 'quant-ta'" />
           <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
@@ -365,6 +366,7 @@ import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionBriefing from '../components/v2/SectionBriefing.vue'
 import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
 import SectionLiveMovers from '../components/v2/SectionLiveMovers.vue'
+import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
@@ -429,6 +431,7 @@ export default {
     SectionBriefing,
     SectionLiveTracker,
     SectionLiveMovers,
+    SectionBacktest,
     StockSearchModal,
     AiStrategyDashboardPage,
     EarningsScreenerPage,
@@ -449,6 +452,7 @@ export default {
       activeAnalysisTab: this.resolveInitialSubTab(),
       researchTabs: [
         { key: 'ai-strategy', label: 'AI전략' },
+        { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
         { key: 'quant-ta', label: '퀀트(TA)' },
         { key: 'sector', label: '섹터' },
