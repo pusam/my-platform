@@ -600,6 +600,20 @@ export const telegramAPI = {
 
 // Paper Trading (모의투자) API
 export const paperTradingAPI = {
+  // ===== 주간 매매 리포트 (admin) =====
+  getLatestWeeklyReport(mode = 'REAL') {
+    return apiClient.get('/admin/trading/diary/latest', { params: { mode } });
+  },
+  getRecentWeeklyReports(mode = 'REAL') {
+    return apiClient.get('/admin/trading/diary/recent', { params: { mode } });
+  },
+  generateWeeklyReport(mode = 'REAL') {
+    return apiClient.post('/admin/trading/diary/generate', null, {
+      params: { mode },
+      timeout: 60000  // AI 생성 시간 고려
+    });
+  },
+
   // 계좌 요약 조회
   getAccountSummary() {
     return apiClient.get('/paper-trading/account/summary');

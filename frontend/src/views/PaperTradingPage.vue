@@ -31,6 +31,12 @@
         >
           📊 봇 성과
         </button>
+        <button
+          :class="['tab-btn', { active: activeTab === 'weeklyReport' }]"
+          @click="switchToWeeklyReportTab"
+        >
+          📝 주간 리포트
+        </button>
       </div>
 
       <!-- 모의투자 탭 -->
@@ -644,6 +650,138 @@
         </div>
       </div>
 
+      <!-- 주간 매매 리포트 탭 -->
+      <div v-if="activeTab === 'weeklyReport'" class="tab-content">
+        <div class="section">
+          <div class="section-header">
+            <h2>주간 매매 리포트</h2>
+            <div class="perf-controls">
+              <div class="perf-mode-toggle">
+                <button
+                  :class="['mode-btn', { active: weeklyMode === 'VIRTUAL' }]"
+                  @click="switchWeeklyMode('VIRTUAL')"
+                >🤖 모의</button>
+                <button
+                  :class="['mode-btn real', { active: weeklyMode === 'REAL' }]"
+                  @click="switchWeeklyMode('REAL')"
+                >🔴 실전</button>
+              </div>
+              <button
+                class="btn-generate-report"
+                :disabled="weeklyGenerating"
+                @click="generateWeeklyReport"
+                title="지난주 리포트를 즉시 생성/재생성"
+              >
+                {{ weeklyGenerating ? '생성 중…' : '🔄 리포트 생성' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 최신 리포트 -->
+          <div v-if="weeklyLatest" class="weekly-latest-card">
+            <div class="weekly-head">
+              <div>
+                <span class="weekly-label">최신 리포트</span>
+                <span class="weekly-period">
+                  {{ formatDate(weeklyLatest.weekStart) }} ~ {{ formatDate(weeklyLatest.weekEnd) }}
+                </span>
+              </div>
+              <span class="weekly-mode-badge" :class="weeklyLatest.mode === 'REAL' ? 'real' : ''">
+                {{ weeklyLatest.mode === 'REAL' ? '실전' : '모의' }}
+              </span>
+            </div>
+
+            <!-- 핵심 지표 -->
+            <div class="weekly-stats">
+              <div class="weekly-stat">
+                <span class="stat-label">실현 손익</span>
+                <span class="stat-value" :class="getProfitClass(weeklyLatest.realizedPnl)">
+                  {{ formatProfitLoss(weeklyLatest.realizedPnl) }}
+                </span>
+              </div>
+              <div class="weekly-stat">
+                <span class="stat-label">매수/매도</span>
+                <span class="stat-value">{{ weeklyLatest.totalBuys }} / {{ weeklyLatest.totalSells }}</span>
+              </div>
+              <div class="weekly-stat">
+                <span class="stat-label">승/패</span>
+                <span class="stat-value">
+                  <span class="win">{{ weeklyLatest.winCount }}</span> / <span class="loss">{{ weeklyLatest.lossCount }}</span>
+                </span>
+              </div>
+              <div class="weekly-stat">
+                <span class="stat-label">승률</span>
+                <span class="stat-value" :class="getWinRateClass(getWeeklyWinRate(weeklyLatest))">
+                  {{ formatPercent(getWeeklyWinRate(weeklyLatest)) }}
+                </span>
+              </div>
+              <div class="weekly-stat">
+                <span class="stat-label">매수/매도 금액</span>
+                <span class="stat-value small">
+                  {{ formatCurrency(weeklyLatest.totalBuyAmount) }}<br>
+                  / {{ formatCurrency(weeklyLatest.totalSellAmount) }}
+                </span>
+              </div>
+              <div class="weekly-stat" v-if="weeklyLatest.blockedCount > 0">
+                <span class="stat-label">차단된 거래</span>
+                <span class="stat-value">{{ weeklyLatest.blockedCount }}건</span>
+              </div>
+            </div>
+
+            <!-- AI 리포트 -->
+            <div v-if="weeklyLatest.aiReport" class="weekly-ai-section">
+              <h3 class="weekly-ai-title">🤖 AI 분석 리포트</h3>
+              <div class="weekly-ai-body" v-html="formatAiReport(weeklyLatest.aiReport)"></div>
+            </div>
+            <div v-else class="weekly-no-ai">
+              AI 분석이 아직 생성되지 않았습니다. [리포트 생성] 버튼으로 만들 수 있습니다.
+            </div>
+          </div>
+
+          <!-- 12주 히스토리 -->
+          <div v-if="weeklyHistory.length > 1" class="weekly-history">
+            <h3 class="weekly-history-title">최근 {{ weeklyHistory.length }}주 히스토리</h3>
+            <div class="weekly-history-table-wrap">
+              <table class="weekly-history-table">
+                <thead>
+                  <tr>
+                    <th>주차</th>
+                    <th class="right">실현 손익</th>
+                    <th class="right">매수/매도</th>
+                    <th class="right">승률</th>
+                    <th class="right">차단</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in weeklyHistory" :key="r.id"
+                      :class="{ 'row-active': weeklyLatest && r.id === weeklyLatest.id }">
+                    <td>{{ formatDate(r.weekStart) }}~{{ formatDate(r.weekEnd) }}</td>
+                    <td class="right" :class="getProfitClass(r.realizedPnl)">
+                      {{ formatProfitLoss(r.realizedPnl) }}
+                    </td>
+                    <td class="right">{{ r.totalBuys }} / {{ r.totalSells }}</td>
+                    <td class="right" :class="getWinRateClass(getWeeklyWinRate(r))">
+                      {{ formatPercent(getWeeklyWinRate(r)) }}
+                    </td>
+                    <td class="right">{{ r.blockedCount }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 데이터 없음 -->
+          <div v-if="!weeklyLoading && !weeklyLatest" class="no-data">
+            <p>주간 리포트가 없습니다. [리포트 생성] 버튼으로 지난주 데이터로 생성하세요.</p>
+          </div>
+
+          <!-- 로딩 -->
+          <div v-if="weeklyLoading" class="no-data">
+            <p>리포트 데이터를 불러오는 중...</p>
+          </div>
+        </div>
+      </div>
+
       <!-- 수동 거래 모달 -->
       <div v-if="showTradeModal" class="modal-overlay" @click.self="showTradeModal = false">
         <div class="modal" :class="{ 'real-modal': tradeMode === 'real' }">
@@ -890,6 +1028,84 @@ const switchToBotPerformanceTab = () => {
   if (!botPerf.value) {
     loadBotPerformance();
   }
+};
+
+// ===== 주간 리포트 =====
+const weeklyMode = ref('REAL');
+const weeklyLatest = ref(null);
+const weeklyHistory = ref([]);
+const weeklyLoading = ref(false);
+const weeklyGenerating = ref(false);
+
+const switchToWeeklyReportTab = () => {
+  activeTab.value = 'weeklyReport';
+  if (!weeklyLatest.value) loadWeeklyReports();
+};
+
+const switchWeeklyMode = (mode) => {
+  weeklyMode.value = mode;
+  loadWeeklyReports();
+};
+
+const loadWeeklyReports = async () => {
+  weeklyLoading.value = true;
+  try {
+    const [latestRes, historyRes] = await Promise.all([
+      paperTradingAPI.getLatestWeeklyReport(weeklyMode.value),
+      paperTradingAPI.getRecentWeeklyReports(weeklyMode.value)
+    ]);
+    weeklyLatest.value = latestRes.data?.data || null;
+    weeklyHistory.value = Array.isArray(historyRes.data?.data) ? historyRes.data.data : [];
+  } catch (e) {
+    console.error('주간 리포트 로드 실패', e);
+    toast.error('주간 리포트 로드 실패');
+  } finally {
+    weeklyLoading.value = false;
+  }
+};
+
+const generateWeeklyReport = async () => {
+  if (weeklyGenerating.value) return;
+  weeklyGenerating.value = true;
+  try {
+    const res = await paperTradingAPI.generateWeeklyReport(weeklyMode.value);
+    if (res.data?.success) {
+      toast.success('리포트가 생성되었습니다');
+      await loadWeeklyReports();
+    } else {
+      toast.error('리포트 생성 실패');
+    }
+  } catch (e) {
+    console.error('주간 리포트 생성 실패', e);
+    toast.error('리포트 생성 실패: ' + (e.message || ''));
+  } finally {
+    weeklyGenerating.value = false;
+  }
+};
+
+const getWeeklyWinRate = (r) => {
+  if (!r) return 0;
+  const total = (r.winCount || 0) + (r.lossCount || 0);
+  if (total === 0) return 0;
+  return ((r.winCount || 0) / total) * 100;
+};
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '-';
+  const d = new Date(dateStr);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
+
+const formatAiReport = (text) => {
+  if (!text) return '';
+  // 간단한 마크다운 풍 렌더링: ** -> <strong>, 줄바꿈 -> <br>
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
 };
 
 // 봇 성과 데이터 로드
@@ -2223,5 +2439,151 @@ onUnmounted(() => {
   .portfolio-table td:nth-child(5) {
     display: none;
   }
+}
+
+/* ===== 주간 리포트 ===== */
+.btn-generate-report {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.btn-generate-report:hover:not(:disabled) { opacity: 0.9; }
+.btn-generate-report:disabled { opacity: 0.5; cursor: wait; }
+
+.weekly-latest-card {
+  background: rgba(255,255,255,0.95);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+.weekly-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+}
+.weekly-label {
+  font-size: 11px;
+  color: #888;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-right: 8px;
+}
+.weekly-period { font-size: 14px; font-weight: 600; color: #333; }
+.weekly-mode-badge {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(102,126,234,0.15);
+  color: #667eea;
+  font-weight: 700;
+}
+.weekly-mode-badge.real {
+  background: rgba(252,92,125,0.15);
+  color: #fc5c7d;
+}
+
+.weekly-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.weekly-stat {
+  background: #f8f9fa;
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+.weekly-stat .stat-label {
+  display: block;
+  font-size: 11px;
+  color: #888;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.weekly-stat .stat-value {
+  display: block;
+  font-size: 16px;
+  font-weight: 800;
+  color: #333;
+}
+.weekly-stat .stat-value.small { font-size: 12px; line-height: 1.4; }
+.weekly-stat .stat-value .win { color: #22c55e; }
+.weekly-stat .stat-value .loss { color: #ef4444; }
+
+.weekly-ai-section {
+  background: linear-gradient(135deg, rgba(102,126,234,0.05), rgba(118,75,162,0.05));
+  border: 1px solid rgba(102,126,234,0.15);
+  border-radius: 10px;
+  padding: 16px;
+}
+.weekly-ai-title {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #667eea;
+}
+.weekly-ai-body {
+  font-size: 13px;
+  color: #444;
+  line-height: 1.7;
+}
+.weekly-ai-body strong { color: #333; }
+
+.weekly-no-ai {
+  padding: 16px;
+  background: rgba(245,158,11,0.08);
+  border: 1px dashed rgba(245,158,11,0.3);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #92400e;
+  text-align: center;
+}
+
+.weekly-history { margin-top: 24px; }
+.weekly-history-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #555;
+}
+.weekly-history-table-wrap { overflow-x: auto; }
+.weekly-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.weekly-history-table th,
+.weekly-history-table td {
+  padding: 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+.weekly-history-table th {
+  background: #f8f9fa;
+  color: #666;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.weekly-history-table td.right,
+.weekly-history-table th.right { text-align: right; }
+.weekly-history-table tr.row-active {
+  background: rgba(102,126,234,0.05);
+  font-weight: 600;
+}
+
+@media (max-width: 600px) {
+  .weekly-stats { grid-template-columns: repeat(2, 1fr); }
+  .weekly-history-table th,
+  .weekly-history-table td { padding: 8px 6px; font-size: 11.5px; }
 }
 </style>
