@@ -1,6 +1,6 @@
 <template>
-  <div class="notification-wrapper" v-if="isLoggedIn">
-    <button @click="toggleDropdown" class="notification-bell" :class="{ 'has-unread': unreadCount > 0 }">
+  <div class="notification-wrapper" :class="{ dark }" v-if="isLoggedIn">
+    <button @click="toggleDropdown" class="notification-bell" :class="{ 'has-unread': unreadCount > 0, dark }">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
         <path d="M13.73 21a2 2 0 01-3.46 0"/>
@@ -10,7 +10,7 @@
       </span>
     </button>
 
-    <div v-if="showDropdown" class="notification-dropdown" @click.stop>
+    <div v-if="showDropdown" class="notification-dropdown" :class="{ dark }" @click.stop>
       <div class="dropdown-header">
         <h3>알림</h3>
         <button v-if="unreadCount > 0" @click="markAllAsRead" class="btn-mark-all">
@@ -74,10 +74,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, defineProps } from 'vue';
 import { useRouter } from 'vue-router';
 import { notificationAPI } from '../utils/api';
 import { TokenManager } from '../utils/auth';
+
+defineProps({
+  dark: { type: Boolean, default: false }   // V2 다크 테마 페이지에서 true
+});
 
 const router = useRouter();
 
@@ -417,5 +421,61 @@ onUnmounted(() => {
     right: 10px;
     width: auto;
   }
+}
+
+/* ===== 다크 테마 (V2 대시보드/종목 상세 페이지용) ===== */
+.notification-bell.dark {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.75);
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+}
+.notification-bell.dark:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  transform: none;
+  box-shadow: none;
+}
+
+.notification-dropdown.dark {
+  background: #1a1a2e;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.9);
+}
+.notification-dropdown.dark .dropdown-header {
+  border-bottom-color: rgba(255,255,255,0.08);
+}
+.notification-dropdown.dark .dropdown-header h3 {
+  color: rgba(255,255,255,0.95);
+}
+.notification-dropdown.dark .btn-mark-all {
+  color: #a5b4fc;
+}
+.notification-dropdown.dark .notification-item {
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.notification-dropdown.dark .notification-item:hover {
+  background: rgba(255,255,255,0.04);
+}
+.notification-dropdown.dark .notification-item.unread {
+  background: rgba(124,58,237,0.08);
+}
+.notification-dropdown.dark .notification-item.unread:hover {
+  background: rgba(124,58,237,0.12);
+}
+.notification-dropdown.dark .notification-title {
+  color: rgba(255,255,255,0.95);
+}
+.notification-dropdown.dark .notification-message {
+  color: rgba(255,255,255,0.65);
+}
+.notification-dropdown.dark .notification-time {
+  color: rgba(255,255,255,0.4);
+}
+.notification-dropdown.dark .empty-state,
+.notification-dropdown.dark .loading-state {
+  color: rgba(255,255,255,0.5);
 }
 </style>

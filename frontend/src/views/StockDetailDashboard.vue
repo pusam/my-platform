@@ -15,6 +15,7 @@
         <button class="search-btn" @click="showSearch = true" title="종목 검색 (Ctrl+K)">
           🔍
         </button>
+        <NotificationBell :dark="true" />
       </div>
       <div class="header-center">
         <div class="price-info" v-if="priceInfo">
@@ -970,6 +971,7 @@ import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
 import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
+import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import { stockDetailAPI, stockAPI } from '../utils/api';

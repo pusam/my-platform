@@ -23,6 +23,7 @@
         </svg>
         <kbd>Ctrl+K</kbd>
       </button>
+      <NotificationBell :dark="true" />
       <span class="update-time">
         <span class="pulse-dot"></span>
         {{ currentTime }}
@@ -33,10 +34,11 @@
 
 <script>
 import BackButton from '../BackButton.vue'
+import NotificationBell from '../NotificationBell.vue'
 
 export default {
   name: 'DashboardHeader',
-  components: { BackButton },
+  components: { BackButton, NotificationBell },
   props: {
     activeTab: { type: String, default: 'premarket' }
   },
