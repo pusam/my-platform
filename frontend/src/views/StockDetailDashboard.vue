@@ -85,6 +85,13 @@
       :aiAnalysis="aiAnalysis"
     />
 
+    <!-- 리스크 체크 카드 (DART 공시 + 뉴스 + AI 분석) -->
+    <StockRiskCard
+      v-if="hasData && stockName"
+      :stockName="stockName"
+      :stockCode="stockCode"
+    />
+
     <!-- 핵심 요약 카드 (항상 고정) -->
     <div v-if="hasData && !loading" class="quick-summary-bar">
       <div class="qs-item">
@@ -971,6 +978,7 @@ import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
 import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
+import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
