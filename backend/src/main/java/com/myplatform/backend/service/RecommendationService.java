@@ -3,8 +3,10 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.entity.RecommendationSnapshot;
 import com.myplatform.backend.entity.StockPriceHistory;
+import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
+import com.myplatform.backend.repository.UserRepository;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
@@ -44,6 +46,12 @@ public class RecommendationService {
     private final StockPriceService stockPriceService;
     private final StockPriceHistoryRepository priceHistoryRepository;
     private final RecommendationSnapshotRepository snapshotRepository;
+    private final TelegramNotificationService telegramService;
+    private final NotificationService notificationService;
+    private final UserRepository userRepository;
+
+    private static final int STRONG_BUY_THRESHOLD = 75;
+    private volatile java.time.LocalDate lastAlertDate = null;
 
     private volatile List<RecommendationDto> cachedTop5 = null;
     private volatile LocalDateTime cacheTime = null;
@@ -157,6 +165,93 @@ public class RecommendationService {
         log.info("[종합추천] 마감 스냅샷 저장 시작");
         saveSnapshotInternal();
         snapshotRepository.deleteOlderThan(LocalDateTime.now().minusDays(7));
+    }
+
+    /**
+     * 신규 강력매수(75+) 등장 알림 (평일 09:00 — 장 시작 직후)
+     * - 어제 마감 스냅샷에 없고 오늘 75+ 진입한 종목만 텔레그램·앱 알림
+     * - 일 1회만 (lastAlertDate 체크)
+     */
+    @Scheduled(cron = "0 0 9 * * MON-FRI", zone = "Asia/Seoul")
+    @Transactional
+    public void detectAndAlertNewStrongBuys() {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        if (today.equals(lastAlertDate)) {
+            log.debug("[강력매수알림] 오늘({}) 이미 발송됨", today);
+            return;
+        }
+
+        try {
+            // 오늘 신규 계산
+            List<RecommendationDto> todayList = calculate();
+            if (todayList.isEmpty()) {
+                log.info("[강력매수알림] 오늘 추천 데이터 없음 — 스킵");
+                return;
+            }
+
+            // 어제 마감 스냅샷 (오늘 0시 이전)
+            LocalDateTime todayStart = today.atStartOfDay();
+            List<RecommendationSnapshot> yesterday = snapshotRepository.findPreviousSnapshot(todayStart);
+            Set<String> yesterdayStrongCodes = yesterday.stream()
+                    .filter(s -> s.getTotalScore() >= STRONG_BUY_THRESHOLD)
+                    .map(RecommendationSnapshot::getStockCode)
+                    .collect(Collectors.toSet());
+
+            // 오늘 75+ 진입 - 어제 75+ 명단에 없던 종목
+            List<RecommendationDto> newStrongBuys = todayList.stream()
+                    .filter(d -> d.getTotalScore() >= STRONG_BUY_THRESHOLD)
+                    .filter(d -> d.getValidCount() >= 3)  // 데이터 부족 종목 제외
+                    .filter(d -> !yesterdayStrongCodes.contains(d.getStockCode()))
+                    .collect(Collectors.toList());
+
+            if (newStrongBuys.isEmpty()) {
+                log.info("[강력매수알림] 신규 진입 종목 없음 (어제 75+: {}종목)", yesterdayStrongCodes.size());
+                lastAlertDate = today;
+                return;
+            }
+
+            // 메시지 빌드
+            StringBuilder msg = new StringBuilder("🚀 <b>오늘 새로 강력매수 등장</b>\n\n");
+            for (RecommendationDto d : newStrongBuys) {
+                msg.append(String.format("• %s (%s) — %d점",
+                        d.getStockName(), d.getStockCode(), d.getTotalScore()));
+                if (d.getTags() != null && !d.getTags().isEmpty()) {
+                    msg.append(" · ").append(String.join("/", d.getTags().subList(0, Math.min(3, d.getTags().size()))));
+                }
+                msg.append("\n");
+            }
+            msg.append(String.format("\n📊 어제 강력매수: %d종목 → 오늘 신규: %d종목",
+                    yesterdayStrongCodes.size(), newStrongBuys.size()));
+
+            // 텔레그램 시그널 채널
+            try {
+                telegramService.sendSignal(msg.toString());
+            } catch (Exception e) {
+                log.warn("[강력매수알림] 텔레그램 발송 실패: {}", e.getMessage());
+            }
+
+            // 앱 알림 (관리자 사용자에게)
+            try {
+                List<User> admins = userRepository.findByRole("ADMIN");
+                String title = String.format("새 강력매수 %d종목 등장", newStrongBuys.size());
+                String body = newStrongBuys.stream()
+                        .limit(3)
+                        .map(d -> String.format("%s(%d)", d.getStockName(), d.getTotalScore()))
+                        .collect(Collectors.joining(", "));
+                String link = "/stock-dashboard?tab=premarket";
+                for (User u : admins) {
+                    notificationService.createNotificationForUser(u.getId(), "SUCCESS", title, body, link);
+                }
+                log.info("[강력매수알림] 발송 완료 — {}종목 / 관리자 {}명",
+                        newStrongBuys.size(), admins.size());
+            } catch (Exception e) {
+                log.warn("[강력매수알림] 앱 알림 실패: {}", e.getMessage());
+            }
+
+            lastAlertDate = today;
+        } catch (Exception e) {
+            log.error("[강력매수알림] 처리 실패: {}", e.getMessage(), e);
+        }
     }
 
     private void saveSnapshotInternal() {
