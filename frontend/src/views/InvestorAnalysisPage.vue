@@ -499,6 +499,7 @@ const consecDataStatus = ref(null)
 const consecInvestorTypes = [
   { value: 'FOREIGN', label: '외국인', icon: '🌍' },
   { value: 'INSTITUTION', label: '기관', icon: '🏢' },
+  { value: 'PENSION', label: '연기금', icon: '💎' },
   { value: 'COMMON', label: '외국인+기관 공통', icon: '🤝' }
 ]
 
@@ -552,7 +553,11 @@ const fetchConsecutive = async () => {
     const response = await investorAPI.getAllConsecutiveBuy(consecMinDays.value)
     if (response.data.success) {
       const data = response.data.data
-      allConsecStocks.value = { FOREIGN: data.FOREIGN || [], INSTITUTION: data.INSTITUTION || [] }
+      allConsecStocks.value = {
+        FOREIGN: data.FOREIGN || [],
+        INSTITUTION: data.INSTITUTION || [],
+        PENSION: data.PENSION || []
+      }
       consecDataStatus.value = data.dataStatus
       consecLoaded.value = true
     }
