@@ -284,9 +284,34 @@ public class RiskManagementService {
     /**
      * 빠른 위험 체크 (공시만 확인)
      * - 뉴스/AI 분석 없이 공시만 빠르게 확인
+     * - 1시간 메모리 캐시: RecommendationService.scoreValueStability 가 calculate 마다 200+종목을
+     *   순회하며 호출 — DART API 종목당 2~3초로 calculate 가 5~10분 걸리던 진짜 병목.
+     *   공시는 분 단위로 바뀌지 않으므로 1시간 캐시로 충분.
      */
     public boolean quickDangerCheck(String stockName) {
+        DangerCheckCacheEntry cached = dangerCheckCache.get(stockName);
+        if (cached != null && cached.isValid()) {
+            return cached.result;
+        }
         List<DartDisclosure> disclosures = fetchDisclosures(stockName);
-        return dartService.hasDangerousDisclosure(disclosures);
+        boolean result = dartService.hasDangerousDisclosure(disclosures);
+        dangerCheckCache.put(stockName, new DangerCheckCacheEntry(result));
+        return result;
+    }
+
+    private static final long DANGER_CHECK_TTL_MS = 60 * 60 * 1000L; // 1시간
+    private final java.util.concurrent.ConcurrentHashMap<String, DangerCheckCacheEntry> dangerCheckCache
+            = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static class DangerCheckCacheEntry {
+        final boolean result;
+        final long timestamp;
+        DangerCheckCacheEntry(boolean result) {
+            this.result = result;
+            this.timestamp = System.currentTimeMillis();
+        }
+        boolean isValid() {
+            return System.currentTimeMillis() - timestamp < DANGER_CHECK_TTL_MS;
+        }
     }
 }
