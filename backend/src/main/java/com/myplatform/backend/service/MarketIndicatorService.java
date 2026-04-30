@@ -264,12 +264,12 @@ public class MarketIndicatorService {
             return;
         }
         try {
-            List<MarketIndicatorStockDto> rise = fetchRankingDataFromApi("FHKST01010500", TYPE_PRICE_RISE, "등락률 상위");
+            List<MarketIndicatorStockDto> rise = fetchPriceMoversFromApi(true, TYPE_PRICE_RISE, "등락률 상위");
             if (rise != null && !rise.isEmpty()) {
                 redisCacheService.put(CACHE_PRICE_MOVERS, KEY_RISE, rise, TTL_PRICE_MOVERS);
             }
             Thread.sleep(300);
-            List<MarketIndicatorStockDto> fall = fetchRankingDataFromApi("FHKST01010600", TYPE_PRICE_FALL, "등락률 하위");
+            List<MarketIndicatorStockDto> fall = fetchPriceMoversFromApi(false, TYPE_PRICE_FALL, "등락률 하위");
             if (fall != null && !fall.isEmpty()) {
                 redisCacheService.put(CACHE_PRICE_MOVERS, KEY_FALL, fall, TTL_PRICE_MOVERS);
             }
@@ -277,6 +277,61 @@ public class MarketIndicatorService {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.warn("[PriceMovers] KIS 갱신 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * KIS 등락률 순위 API 전용 호출.
+     * <p>tr_id: <b>FHPST01700000</b> (상위/하위 공통, {@code FID_RANK_SORT_CLS_CODE} 로 정렬방향 구분).
+     * 기존 공용 {@link #fetchRankingDataFromApi} 와 분리한 이유 — 그쪽이 사용 중이던 tr_id 들
+     * (FHKST01010500/600 등) 이 KIS 명세에 없는 코드여서 응답이 비어있었음(2026-04-30 진단으로 확인).
+     * 등락률만 격리해 다른 지표(52주/시총/거래대금) 수정 시 충돌 없게.
+     */
+    private List<MarketIndicatorStockDto> fetchPriceMoversFromApi(boolean isRise, String indicatorType, String description) {
+        try {
+            String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/ranking/fluctuation";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("appkey", kisApiProperties.getAppKey());
+            headers.set("appsecret", kisApiProperties.getAppSecret());
+            headers.set("tr_id", "FHPST01700000");
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("FID_COND_MRKT_DIV_CODE", "J");                  // 시장: 주식
+            params.put("FID_COND_SCR_DIV_CODE", "20170");               // 화면구분
+            params.put("FID_INPUT_ISCD", "0000");                       // 전체
+            params.put("FID_RANK_SORT_CLS_CODE", isRise ? "0" : "1");   // 0=상승률, 1=하락률
+            params.put("FID_INPUT_CNT_1", "0");                         // 0=전체
+            params.put("FID_PRC_CLS_CODE", "0");                        // 가격구분: 전체
+            params.put("FID_INPUT_PRICE_1", "");
+            params.put("FID_INPUT_PRICE_2", "");
+            params.put("FID_VOL_CNT", "");
+            params.put("FID_TRGT_CLS_CODE", "0");
+            params.put("FID_TRGT_EXLS_CLS_CODE", "0");
+            params.put("FID_DIV_CLS_CODE", "0");
+            params.put("FID_RSFL_RATE1", "");
+            params.put("FID_RSFL_RATE2", "");
+
+            StringBuilder urlWithParams = new StringBuilder(url + "?");
+            params.forEach((k, v) -> urlWithParams.append(k).append("=").append(v).append("&"));
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                urlWithParams.toString(), HttpMethod.GET, entity, String.class);
+
+            List<MarketIndicatorStockDto> parsed = parseRankingResponse(response.getBody(), indicatorType);
+            log.info("{} API 조회 완료 - {}건", description, parsed.size());
+            if (parsed.isEmpty()) {
+                String body = response.getBody();
+                String preview = body == null ? "(null)" : body.substring(0, Math.min(800, body.length()));
+                log.warn("[{}] 파싱 결과 0건 - KIS 응답 앞 800자: {}", indicatorType, preview);
+            }
+            return parsed;
+        } catch (Exception e) {
+            log.error("{} API 조회 실패", description, e);
+            return new ArrayList<>();
         }
     }
 
