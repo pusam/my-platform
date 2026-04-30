@@ -92,7 +92,9 @@ public class MarketCacheWarmerService {
 
         try {
             for (String type : new String[]{"FOREIGN", "INSTITUTION"}) {
-                List<InvestorTradeDto> data = investorTradeService.getTopTradesRealtime(type, 20);
+                // 워머가 KIS 를 직접 호출 — getTopTradesRealtime() 는 Redis 만 보므로 자기 자신을 부르면
+                // DB 데이터(전일 마감)가 다시 Redis 에 채워져 장중에도 어제자만 보였음.
+                List<InvestorTradeDto> data = investorTradeService.refreshSmartMoneyFromKis(type, 20);
                 if (data != null && !data.isEmpty()) {
                     redisCacheService.put(CACHE_SMART_MONEY, type, data, TTL_SMART_MONEY);
                 }

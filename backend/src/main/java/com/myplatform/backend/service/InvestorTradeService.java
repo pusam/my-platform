@@ -103,6 +103,23 @@ public class InvestorTradeService {
     }
 
     /**
+     * KIS API 직접 호출로 외국인/기관 실시간 순매수 상위 종목 조회 (워머 전용).
+     *
+     * <p>공개 API {@link #getTopTradesRealtime} 는 Redis-only + DB 폴백을 유지해 프론트 트래픽이
+     * KIS 를 직접 때리지 않게 한다(2026-04-23 장애 재발 방지). 이 메서드는
+     * {@code MarketCacheWarmerService} 에서만 호출되어 Redis L2 를 KIS 실시간 데이터로 채운다.
+     */
+    public List<InvestorTradeDto> refreshSmartMoneyFromKis(String investorType, int limit) {
+        String kisInvestorCode = "FOREIGN".equals(investorType) ? "1" : "2";
+        JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(kisInvestorCode, true, true);
+        if (response == null) {
+            log.warn("[SmartMoney KIS] 응답 없음 - {}", investorType);
+            return Collections.emptyList();
+        }
+        return parseKisRealtimeResponse(response, investorType, limit);
+    }
+
+    /**
      * KIS API 실시간 응답을 InvestorTradeDto로 변환
      */
     private List<InvestorTradeDto> parseKisRealtimeResponse(JsonNode response, String investorType, int limit) {
