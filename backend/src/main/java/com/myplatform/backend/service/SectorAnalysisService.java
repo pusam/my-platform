@@ -75,13 +75,16 @@ public class SectorAnalysisService {
                 allStockCodes.addAll(sector.getStockCodes());
             }
 
-            // 3. 시세 조회 (SectorTradingService 캐시 우선 → 없으면 직접 조회)
+            // 3. 시세 조회 (SectorTradingService 캐시 우선 → 없으면 stockPriceService 의 메모리/DB 캐시)
+            // cache-only 로 fallback: 시작 직후·캐시 콜드 시점에 워머가 N개 종목 KIS HTTP 호출하던
+            // 패턴(connection leak 의 trigger) 차단. 첫 사이클은 정확도 떨어질 수 있지만 다음 사이클에
+            // SectorTrading 워머가 캐시 채우면 자동 회복.
             Map<String, StockPriceDto> priceMap = sectorTradingService.getCachedPriceMap();
             if (priceMap.isEmpty()) {
-                log.info("섹터 분석: SectorTrading 캐시 없음 → StockPriceService 직접 조회");
-                priceMap = stockPriceService.getStockPrices(new ArrayList<>(allStockCodes));
+                log.debug("섹터 분석: SectorTrading 캐시 없음 → StockPriceService cache-only 폴백");
+                priceMap = stockPriceService.getStockPricesFromCacheOnly(new ArrayList<>(allStockCodes));
             }
-            log.info("섹터 분석용 시세 조회 완료: {}/{} 종목", priceMap.size(), allStockCodes.size());
+            log.debug("섹터 분석용 시세 조회 완료: {}/{} 종목", priceMap.size(), allStockCodes.size());
 
             // 4. 섹터별 평균 등락률 계산
             List<SectorRanking> sectorRankings = new ArrayList<>();
