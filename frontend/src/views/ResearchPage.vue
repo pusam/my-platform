@@ -124,9 +124,13 @@ export default {
       this.smartLoading = true
       this.smartError = false
       try {
+        // realtime 우선 (Redis L2 + 워머가 KIS 갱신, 장중 신선 데이터),
+        // 미스/실패 시 일배치 DB 폴백. V2 대시보드와 동일 패턴.
         const [fRes, iRes, cRes, sRes] = await Promise.allSettled([
-          investorAPI.getTopTrades('FOREIGN', 'BUY', 10),
-          investorAPI.getTopTrades('INSTITUTION', 'BUY', 10),
+          investorAPI.getTopTradesRealtime('FOREIGN', 10)
+            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)),
+          investorAPI.getTopTradesRealtime('INSTITUTION', 10)
+            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)),
           investorAPI.getAllConsecutiveBuy(3),
           investorAPI.getAllSurgeStocks()
         ])
