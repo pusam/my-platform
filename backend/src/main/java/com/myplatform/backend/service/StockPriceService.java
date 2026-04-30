@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
@@ -144,9 +145,15 @@ public class StockPriceService {
     /**
      * [개선 1] 여러 종목 시세 일괄 조회 (N+1 문제 해결)
      *
+     * <p>외부 HTTP 호출(KIS/네이버)을 종목 수만큼 순차 처리하므로 클래스 레벨 {@code @Transactional}
+     * 영향권에 들면 외부 호출 대기시간 동안 DB 커넥션을 점유 → Hikari leakDetectionThreshold(60s)
+     * 초과로 leak 경고 발생. {@code NOT_SUPPORTED} 로 트랜잭션을 끊고, 내부의 {@code repository.save()}
+     * 는 Spring Data 가 자체 짧은 트랜잭션을 만들어 처리.
+     *
      * @param stockCodes 종목코드 리스트
      * @return 종목코드 -> 시세 DTO 맵
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public Map<String, StockPriceDto> getStockPrices(List<String> stockCodes) {
         if (stockCodes == null || stockCodes.isEmpty()) {
             return new HashMap<>();
@@ -299,7 +306,11 @@ public class StockPriceService {
      *  2) DB 재활용 허용 시간을 15분으로 완화 → 대부분의 요청이 DB 히트로 흡수
      *     (장중 분 단위 정확도는 트레이딩 봇만 필요, UI 상세는 15분 허용 가능)
      *  3) 그래도 미스인 경우에만 KIS 호출 — 사용자가 직접 누른 "진짜 필요한 순간"
+     *
+     * <p>{@link #getStockPrices} 와 동일한 이유로 {@code NOT_SUPPORTED} — KIS HTTP 호출 대기로
+     * 인한 커넥션 점유 방지.
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public StockPriceDto getStockPrice(String stockCode) {
         // 캐시 확인 (한투 API는 1분, 네이버는 10분)
         StockPriceDto cached = priceCache.get(stockCode);
