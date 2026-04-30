@@ -867,26 +867,44 @@ export default {
       return []
     },
     async loadSupplyPanel() {
+      // 패널 즉시 노출 (v-if 통과) — 데이터는 비동기 도착 후 갱신.
+      // 기존 직렬 await 3회 누적 지연 동안 v-if 가 false 라 메뉴 자체가 늦게 떴음.
+      if (!this.supplyPanelData) {
+        this.supplyPanelData = { daily: [], consecutive: [], rallySignal: null }
+      }
       try {
-        // 연속매수 조회
-        const consRes = await investorAPI.getAllConsecutiveBuy(2)
-        const consecutive = this.extractData(consRes) || []
+        // 3개 호출 병렬화 — 직렬 누적 시간 제거 (consecutive-buy 가 캐시 콜드면 특히 느렸음)
+        const [consRes, fRes, iRes] = await Promise.allSettled([
+          investorAPI.getAllConsecutiveBuy(2),
+          investorAPI.getTopTradesRealtime('FOREIGN', 10)
+            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)),
+          investorAPI.getTopTradesRealtime('INSTITUTION', 10)
+            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))
+        ])
+
+        // consecutive 응답은 Map<String, List<...>> 형태일 수 있어 flatten 필요.
+        // 기존엔 raw 를 array 로 가정하고 .map() 호출 → 객체일 때 빈 catch 진입해 "로딩 중..." 표시.
+        let consecutive = []
+        if (consRes.status === 'fulfilled') {
+          const cd = this.extractData(consRes.value)
+          consecutive = this.flattenInvestorMap(cd)
+        }
 
         // 당일 순매수 금액 — realtime(Redis L2 + KIS 워머) 우선, 미스 시 DB 폴백.
-        // KisInvestorDataCollector 일배치는 16시 cron 이라 장중 DB 는 비거나 어제자 → 화면 0원으로 보임.
+        // KisInvestorDataCollector 일배치는 16시 cron 이라 장중 DB 는 비거나 어제자.
         let foreignNet = 0, instNet = 0
-        try {
-          const fRes = await investorAPI.getTopTradesRealtime('FOREIGN', 10)
-            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10))
-          const fData = this.extractData(fRes) || []
-          foreignNet = fData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
-        } catch { /* ignore */ }
-        try {
-          const iRes = await investorAPI.getTopTradesRealtime('INSTITUTION', 10)
-            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))
-          const iData = this.extractData(iRes) || []
-          instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
-        } catch { /* ignore */ }
+        if (fRes.status === 'fulfilled') {
+          const fData = this.extractData(fRes.value)
+          if (Array.isArray(fData)) {
+            foreignNet = fData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
+          }
+        }
+        if (iRes.status === 'fulfilled') {
+          const iData = this.extractData(iRes.value)
+          if (Array.isArray(iData)) {
+            instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
+          }
+        }
 
         // 진짜 반등 판단: 외국인 3일+ 연속 + 양의 등락률 + 순매수 양
         const foreignConsecutive = consecutive.filter(c => c.investorType === 'FOREIGN')
