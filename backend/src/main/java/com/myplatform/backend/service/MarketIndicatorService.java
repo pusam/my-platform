@@ -173,11 +173,9 @@ public class MarketIndicatorService {
                 urlWithParams.toString(), HttpMethod.GET, entity, String.class);
 
             List<MarketIndicatorStockDto> parsed = parseRankingResponse(response.getBody(), indicatorType);
-            log.info("{} API 조회 완료 - {}건", description, parsed.size());
+            log.debug("{} API 조회 완료 - {}건", description, parsed.size());
             if (parsed.isEmpty()) {
-                String body = response.getBody();
-                String preview = body == null ? "(null)" : body.substring(0, Math.min(800, body.length()));
-                log.warn("[{}] 파싱 결과 0건 - KIS 응답 앞 800자: {}", indicatorType, preview);
+                log.warn("[{}] KIS 응답 파싱 결과 0건 — tr_id/파라미터 변경 의심", indicatorType);
             }
             return parsed;
         } catch (Exception e) {

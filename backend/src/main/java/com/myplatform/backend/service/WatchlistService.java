@@ -26,10 +26,7 @@ public class WatchlistService {
     @Transactional(readOnly = true)
     public List<WatchlistDto.WatchlistItem> getWatchlist(String username) {
         List<StockWatchlist> list = watchlistRepository.findByUsernameOrderByCreatedAtDesc(username);
-        if (list.isEmpty()) {
-            log.info("[Watchlist] {} - 등록 종목 없음", username);
-            return List.of();
-        }
+        if (list.isEmpty()) return List.of();
 
         int priceOk = 0;
         int priceFail = 0;
@@ -44,7 +41,6 @@ public class WatchlistService {
                     priceOk++;
                 } else {
                     priceFail++;
-                    log.warn("[Watchlist] 시세 응답 비어있음: {} ({})", w.getStockName(), w.getStockCode());
                 }
             } catch (Exception e) {
                 priceFail++;
@@ -53,8 +49,11 @@ public class WatchlistService {
             }
             result.add(item);
         }
-        log.info("[Watchlist] {} - {}건 (시세 OK {} / 실패 {})",
-                username, list.size(), priceOk, priceFail);
+        if (priceFail > 0) {
+            // 한 번이라도 실패가 있을 때만 통계 노출 (성공만 있으면 조용히)
+            log.warn("[Watchlist] {} - {}건 (시세 OK {} / 실패 {})",
+                    username, list.size(), priceOk, priceFail);
+        }
         return result;
     }
 
