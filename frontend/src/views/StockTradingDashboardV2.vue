@@ -867,15 +867,18 @@ export default {
         const consRes = await investorAPI.getAllConsecutiveBuy(2)
         const consecutive = this.extractData(consRes) || []
 
-        // 당일 순매수 금액
+        // 당일 순매수 금액 — realtime(Redis L2 + KIS 워머) 우선, 미스 시 DB 폴백.
+        // KisInvestorDataCollector 일배치는 16시 cron 이라 장중 DB 는 비거나 어제자 → 화면 0원으로 보임.
         let foreignNet = 0, instNet = 0
         try {
-          const fRes = await investorAPI.getTopTrades('FOREIGN', 'BUY', 10)
+          const fRes = await investorAPI.getTopTradesRealtime('FOREIGN', 10)
+            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10))
           const fData = this.extractData(fRes) || []
           foreignNet = fData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
         } catch { /* ignore */ }
         try {
-          const iRes = await investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)
+          const iRes = await investorAPI.getTopTradesRealtime('INSTITUTION', 10)
+            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10))
           const iData = this.extractData(iRes) || []
           instNet = iData.reduce((sum, t) => sum + (Number(t.netBuyAmount) || 0), 0)
         } catch { /* ignore */ }
