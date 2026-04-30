@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -25,20 +26,36 @@ public class WatchlistService {
     @Transactional(readOnly = true)
     public List<WatchlistDto.WatchlistItem> getWatchlist(String username) {
         List<StockWatchlist> list = watchlistRepository.findByUsernameOrderByCreatedAtDesc(username);
+        if (list.isEmpty()) {
+            log.info("[Watchlist] {} - 등록 종목 없음", username);
+            return List.of();
+        }
 
-        return list.stream().map(w -> {
+        int priceOk = 0;
+        int priceFail = 0;
+        List<WatchlistDto.WatchlistItem> result = new ArrayList<>(list.size());
+        for (StockWatchlist w : list) {
             WatchlistDto.WatchlistItem item = toDto(w);
             try {
                 StockPriceDto price = stockPriceService.getStockPrice(w.getStockCode());
-                if (price != null) {
+                if (price != null && price.getCurrentPrice() != null) {
                     item.setCurrentPrice(price.getCurrentPrice());
                     item.setChangeRate(price.getChangeRate());
+                    priceOk++;
+                } else {
+                    priceFail++;
+                    log.warn("[Watchlist] 시세 응답 비어있음: {} ({})", w.getStockName(), w.getStockCode());
                 }
             } catch (Exception e) {
-                log.debug("관심종목 현재가 조회 실패: {} - {}", w.getStockCode(), e.getMessage());
+                priceFail++;
+                log.warn("[Watchlist] 시세 조회 실패: {} ({}) - {}",
+                        w.getStockName(), w.getStockCode(), e.getMessage());
             }
-            return item;
-        }).collect(Collectors.toList());
+            result.add(item);
+        }
+        log.info("[Watchlist] {} - {}건 (시세 OK {} / 실패 {})",
+                username, list.size(), priceOk, priceFail);
+        return result;
     }
 
     @Transactional

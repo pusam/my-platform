@@ -37,6 +37,7 @@ public class MarketCacheWarmerService {
     private final SectorAnalysisService sectorAnalysisService;
     private final AiStockAnalysisService aiStockAnalysisService;
     private final SectorOpportunityService sectorOpportunityService;
+    private final MarketIndicatorService marketIndicatorService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
@@ -206,6 +207,22 @@ public class MarketCacheWarmerService {
             log.debug("[Cache Warmer] 섹터 기회 발굴 워밍 완료");
         } catch (Exception e) {
             log.warn("[Cache Warmer] 섹터 기회 발굴 워밍 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 실시간 등락률 상위/하위 - 60초마다 (장중)
+     * - KIS FHKST01010500/600 호출 → Redis L2 갱신
+     * - 일배치(18:00 DB 스냅샷)는 그대로 두고, 장중에만 Redis 우선 조회로 실시간화.
+     */
+    @Scheduled(fixedRate = 60000)
+    public void warmPriceMovers() {
+        if (!isMarketHours()) return;
+        try {
+            marketIndicatorService.refreshPriceMoversFromKis();
+            log.debug("[Cache Warmer] 실시간 등락률 상위/하위 워밍 완료");
+        } catch (Exception e) {
+            log.warn("[Cache Warmer] 등락률 워밍 실패: {}", e.getMessage());
         }
     }
 

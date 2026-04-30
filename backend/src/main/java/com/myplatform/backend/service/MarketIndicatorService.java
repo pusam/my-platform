@@ -21,6 +21,7 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -45,10 +46,17 @@ public class MarketIndicatorService {
     private static final String TYPE_PRICE_RISE = "PRICE_RISE";
     private static final String TYPE_PRICE_FALL = "PRICE_FALL";
 
+    // 장중 실시간 등락률 워머용 Redis L2 캐시
+    private static final String CACHE_PRICE_MOVERS = "priceMovers";
+    private static final String KEY_RISE = "RISE";
+    private static final String KEY_FALL = "FALL";
+    private static final Duration TTL_PRICE_MOVERS = Duration.ofMinutes(2);
+
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final KisApiProperties kisApiProperties;
     private final MarketIndicatorSnapshotRepository snapshotRepository;
+    private final RedisCacheService redisCacheService;
 
     private String accessToken;
     private long tokenExpireTime = 0;
@@ -56,11 +64,13 @@ public class MarketIndicatorService {
     public MarketIndicatorService(RestTemplate restTemplate,
                                  ObjectMapper objectMapper,
                                  KisApiProperties kisApiProperties,
-                                 MarketIndicatorSnapshotRepository snapshotRepository) {
+                                 MarketIndicatorSnapshotRepository snapshotRepository,
+                                 RedisCacheService redisCacheService) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.kisApiProperties = kisApiProperties;
         this.snapshotRepository = snapshotRepository;
+        this.redisCacheService = redisCacheService;
     }
 
     /**
@@ -213,8 +223,16 @@ public class MarketIndicatorService {
 
     /**
      * 급등주 (등락률 상위)
+     * - 장중 워머가 1분 단위로 KIS 호출해 채워두는 Redis L2 먼저 조회.
+     * - 미스 시 일배치 DB 스냅샷으로 폴백(전일자).
      */
     public List<MarketIndicatorStockDto> getPriceRiseTopStocks() {
+        List<MarketIndicatorStockDto> cached = redisCacheService.get(
+                CACHE_PRICE_MOVERS, KEY_RISE,
+                new TypeReference<List<MarketIndicatorStockDto>>() {});
+        if (cached != null && !cached.isEmpty()) {
+            return cached;
+        }
         return getIndicatorData(TYPE_PRICE_RISE, "등락률 상위");
     }
 
@@ -222,7 +240,44 @@ public class MarketIndicatorService {
      * 급락주 (등락률 하위)
      */
     public List<MarketIndicatorStockDto> getPriceFallTopStocks() {
+        List<MarketIndicatorStockDto> cached = redisCacheService.get(
+                CACHE_PRICE_MOVERS, KEY_FALL,
+                new TypeReference<List<MarketIndicatorStockDto>>() {});
+        if (cached != null && !cached.isEmpty()) {
+            return cached;
+        }
         return getIndicatorData(TYPE_PRICE_FALL, "등락률 하위");
+    }
+
+    /**
+     * 장중 실시간 등락률 상위/하위 KIS 갱신 (워머 전용).
+     * - {@code MarketCacheWarmerService} 가 장중에 1분 주기로 호출.
+     * - KIS FHKST01010500/600 → Redis L2 만 갱신, DB 스냅샷은 일 1회 18시 배치 그대로 둠.
+     */
+    public void refreshPriceMoversFromKis() {
+        if (kisApiProperties.getAppKey() == null || kisApiProperties.getAppKey().isBlank()) {
+            return;
+        }
+        refreshAccessToken();
+        if (accessToken == null) {
+            log.warn("[PriceMovers] 액세스 토큰 발급 실패 - KIS 갱신 스킵");
+            return;
+        }
+        try {
+            List<MarketIndicatorStockDto> rise = fetchRankingDataFromApi("FHKST01010500", TYPE_PRICE_RISE, "등락률 상위");
+            if (rise != null && !rise.isEmpty()) {
+                redisCacheService.put(CACHE_PRICE_MOVERS, KEY_RISE, rise, TTL_PRICE_MOVERS);
+            }
+            Thread.sleep(300);
+            List<MarketIndicatorStockDto> fall = fetchRankingDataFromApi("FHKST01010600", TYPE_PRICE_FALL, "등락률 하위");
+            if (fall != null && !fall.isEmpty()) {
+                redisCacheService.put(CACHE_PRICE_MOVERS, KEY_FALL, fall, TTL_PRICE_MOVERS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warn("[PriceMovers] KIS 갱신 실패: {}", e.getMessage());
+        }
     }
 
     /**
