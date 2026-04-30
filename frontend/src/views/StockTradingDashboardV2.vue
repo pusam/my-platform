@@ -694,6 +694,11 @@ export default {
         setTimeout(() => this.loadSectorOpportunity(), 1500)  // 섹터 × 유망 종목
         this.dataLoaded.market = true
       }
+      // 장중 매수 후보 트래커 — 즉시 1회 호출. 기존엔 60초 setInterval 첫 발화까지 빈 화면이었고
+      // 그 안에 탭 떠나면 영영 호출 안 됨(topRecommendations 가 refreshRecommendations 외엔 채워질 곳 없음).
+      if (tab === 'live') {
+        this.refreshRecommendations()
+      }
     },
 
     // ---- 섹터 기회 발굴 로드 (서버 Redis 배치 결과만 받아옴, KIS 호출 유발 X) ----
