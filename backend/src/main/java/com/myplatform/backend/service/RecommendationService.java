@@ -70,6 +70,10 @@ public class RecommendationService {
     private static final long CACHE_MINUTES = 30;
     private static final int NA = -1;
 
+    // 백그라운드 calculate 중복 방지
+    private final java.util.concurrent.atomic.AtomicBoolean calculating
+            = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("MM/dd HH:mm");
 
     // ==================== Public API ====================
@@ -78,11 +82,25 @@ public class RecommendationService {
         LocalDateTime now = LocalDateTime.now();
         boolean trading = isTradingHours(now);
 
+        // 1) in-memory 캐시 hit → 즉시
+        if (cachedTop5 != null && cacheTime != null
+                && cacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildResponse(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", trading);
+        }
+
+        // 2) 캐시 콜드 — DB 스냅샷 즉시 반환 (장중·장외 모두).
+        //    장중이면 백그라운드에서 fresh calculate 트리거 → 다음 호출은 새 캐시 hit.
+        //    [기존 로직 문제] 장중 + 캐시 콜드 시 calculate() 동기 실행이 30초+ 걸려
+        //    프론트 axios(timeout=30s) 가 끊고 cachedTop5 저장 전이라 매 호출이 다시 calculate
+        //    → 영원히 빈 응답 루프. 그래서 axios 가 항상 timeout(nginx 499).
+        List<RecommendationDto> fromDb = loadFromDb();
+        if (!fromDb.isEmpty()) {
+            if (trading) triggerBackgroundCalculate();
+            return buildResponse(fromDb, getSnapshotTimeLabel(), false);
+        }
+
+        // 3) DB 도 비어있으면(콜드 스타트) 동기 calculate — 어쩔 수 없이 대기
         if (trading) {
-            if (cachedTop5 != null && cacheTime != null
-                    && cacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
-                return buildResponse(cachedTop5, cacheTime.format(TIME_FMT) + " 기준", true);
-            }
             try {
                 List<RecommendationDto> result = calculate();
                 if (!result.isEmpty()) {
@@ -95,28 +113,30 @@ public class RecommendationService {
             }
         }
 
-        if (cachedTop5 != null && !cachedTop5.isEmpty()) {
-            String label = cacheTime != null ? cacheTime.format(TIME_FMT) + " 기준" : "캐시 데이터";
-            return buildResponse(cachedTop5, label, false);
-        }
-
-        List<RecommendationDto> fromDb = loadFromDb();
-        if (!fromDb.isEmpty()) {
-            return buildResponse(fromDb, getSnapshotTimeLabel(), false);
-        }
-
-        try {
-            List<RecommendationDto> result = calculate();
-            if (!result.isEmpty()) {
-                cachedTop5 = result;
-                cacheTime = now;
-                return buildResponse(result, now.format(TIME_FMT) + " 기준", false);
-            }
-        } catch (Exception e) {
-            log.debug("[종합추천] 장 외 폴백 계산 실패: {}", e.getMessage());
-        }
-
         return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap());
+    }
+
+    /**
+     * 백그라운드에서 fresh 계산 후 cachedTop5 갱신.
+     * - AtomicBoolean 으로 중복 호출 차단(N개 동시 요청 들어와도 한 번만 계산)
+     * - 결과는 다음 getTop5() 호출에서 캐시 hit
+     */
+    private void triggerBackgroundCalculate() {
+        if (!calculating.compareAndSet(false, true)) return;
+        new Thread(() -> {
+            try {
+                List<RecommendationDto> result = calculate();
+                if (!result.isEmpty()) {
+                    cachedTop5 = result;
+                    cacheTime = LocalDateTime.now();
+                    log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
+                }
+            } catch (Exception e) {
+                log.error("[종합추천] 백그라운드 계산 실패: {}", e.getMessage(), e);
+            } finally {
+                calculating.set(false);
+            }
+        }, "rec-calc").start();
     }
 
     /**
