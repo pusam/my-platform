@@ -140,12 +140,15 @@ public class RecommendationService {
     }
 
     /**
-     * TOP5 종목의 changeRate/currentPrice를 실시간 시세로 갱신
+     * TOP5 종목의 changeRate/currentPrice를 캐시된 시세로 갱신.
+     * <p>buildResponse 가 매 호출마다 부르는 hot path 라 KIS 직접 호출은 위험 — 메모리(5분)/DB(15분)
+     * 캐시만 사용해 응답 시간 영향 0. 신선도는 stockPriceService 의 cleanup·캐시 정책에 위임.
      */
     private void refreshPrices(List<RecommendationDto> items) {
         try {
             List<String> codes = items.stream().map(RecommendationDto::getStockCode).toList();
-            Map<String, com.myplatform.backend.dto.StockPriceDto> prices = stockPriceService.getStockPrices(codes);
+            Map<String, com.myplatform.backend.dto.StockPriceDto> prices =
+                    stockPriceService.getStockPricesFromCacheOnly(codes);
             for (RecommendationDto dto : items) {
                 com.myplatform.backend.dto.StockPriceDto p = prices.get(dto.getStockCode());
                 if (p != null) {
@@ -427,17 +430,31 @@ public class RecommendationService {
     private List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
+        // 단계별 소요 시간 측정 — 백그라운드 calculate 가 30초+ 걸리던 병목 식별용.
+        // (calculate 자체가 백그라운드라 사용자 응답엔 영향 없지만 KIS rate limiter 큐 점유로
+        //  다른 워머/요청에 영향. 어디가 느린지 보이면 다음 라운드에서 핀포인트 fix 가능.)
+        long t0 = System.currentTimeMillis();
         int aiCount = scoreAiStrategy(scoreMap);
+        long aiMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         scoreEarnings(scoreMap);
+        long erMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         scoreSupplyDemand(scoreMap);
+        long sdMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 섹터: AI 스냅샷 + 시장분위기 (모든 scoreMap 종목에 부여)
         scoreSectorMomentum(scoreMap);
+        long scMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 기술: 마지막 (모든 종목 수집 후)
         scoreTechnical(scoreMap);
+        long tcMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 가치/안정성: PBR·ROE·부채비율·리스크 페널티 (모멘텀 편향 완화)
         scoreValueStability(scoreMap);
+        long vsMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
         applyRealtimeChecks(scoreMap);
+        long rtMs = System.currentTimeMillis() - t0;
+        log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 실시간:{}ms (합 {}ms)",
+                aiMs, erMs, sdMs, scMs, tcMs, vsMs, rtMs,
+                aiMs + erMs + sdMs + scMs + tcMs + vsMs + rtMs);
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
@@ -881,13 +898,14 @@ public class RecommendationService {
 
         if (topCandidates.isEmpty()) return;
 
-        // 상위 10개만 실시간 시세 조회
+        // 상위 10개 시세 — 캐시(메모리+DB)만 사용. MA20(20일 평균) 비교는 5분 캐시로도 충분 정확.
+        // KIS 직접 호출하던 기존 방식은 calculate 가 30초+ 걸리는 주범(rate limit 큐잉)이었음.
         List<String> codes = topCandidates.stream().map(s -> s.stockCode).collect(Collectors.toList());
         Map<String, StockPriceDto> priceMap;
         try {
-            priceMap = stockPriceService.getStockPrices(codes);
+            priceMap = stockPriceService.getStockPricesFromCacheOnly(codes);
         } catch (Exception e) {
-            log.warn("[종합추천] 실시간 시세 조회 실패 (교차검증 스킵): {}", e.getMessage());
+            log.warn("[종합추천] 시세 조회 실패 (교차검증 스킵): {}", e.getMessage());
             return; // 시세 조회 실패 시 교차검증 자체를 스킵 (기존 점수 유지)
         }
 
