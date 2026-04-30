@@ -374,8 +374,14 @@ public class MarketIndicatorService {
             ResponseEntity<String> response = restTemplate.exchange(
                 urlWithParams.toString(), HttpMethod.GET, entity, String.class);
 
-            log.info("{} API 조회 완료", description);
-            return parseRankingResponse(response.getBody(), indicatorType);
+            List<MarketIndicatorStockDto> parsed = parseRankingResponse(response.getBody(), indicatorType);
+            log.info("{} API 조회 완료 - {}건", description, parsed.size());
+            if (parsed.isEmpty()) {
+                String body = response.getBody();
+                String preview = body == null ? "(null)" : body.substring(0, Math.min(600, body.length()));
+                log.warn("[{}] 파싱 결과 0건 - KIS 응답 앞 600자: {}", indicatorType, preview);
+            }
+            return parsed;
         } catch (Exception e) {
             log.error("{} API 조회 실패", description, e);
             return new ArrayList<>();
