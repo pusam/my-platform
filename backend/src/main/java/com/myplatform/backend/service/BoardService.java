@@ -70,9 +70,10 @@ public class BoardService {
                 .replace("_", "\\_");
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public BoardDto getBoard(Long id) {
-        Board board = boardRepository.findById(id)
+        // @EntityGraph 로 files 함께 fetch — convertToDto가 board.getFiles() 접근 시 N+1 방지
+        Board board = boardRepository.findWithFilesById(id)
                 .orElseThrow(() -> new RuntimeException("게시글을 찾을 수 없습니다."));
 
         board.incrementViews();
@@ -135,7 +136,8 @@ public class BoardService {
     }
 
     public void deleteBoard(Long id, String username) {
-        Board board = boardRepository.findById(id)
+        // files도 함께 fetch — 삭제 직전 물리 파일 정리 시 LAZY N+1 방지
+        Board board = boardRepository.findWithFilesById(id)
                 .orElseThrow(() -> new RuntimeException("게시글을 찾을 수 없습니다."));
 
         if (!board.getAuthor().equals(username)) {

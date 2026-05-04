@@ -88,6 +88,25 @@ public class NotificationService {
         notificationRepository.save(notification);
     }
 
+    /**
+     * 다수 사용자에게 동일 알림 일괄 생성 (saveAll 배치)
+     * — 관리자/전체 사용자 알림처럼 N명에게 같은 메시지 보낼 때 N쿼리 → 1배치 INSERT
+     */
+    public void createNotificationsForUsers(java.util.List<Long> userIds, String type, String title, String message, String link) {
+        if (userIds == null || userIds.isEmpty()) return;
+        java.util.List<Notification> notifications = userIds.stream().map(uid -> {
+            Notification n = new Notification();
+            n.setUserId(uid);
+            n.setType(type != null ? type : "INFO");
+            n.setTitle(title);
+            n.setMessage(message);
+            n.setLink(link);
+            n.setIsRead(false);
+            return n;
+        }).collect(java.util.stream.Collectors.toList());
+        notificationRepository.saveAll(notifications);
+    }
+
     public void deleteOldNotifications(String username, int daysOld) {
         Long userId = getUserId(username);
         LocalDateTime cutoffDate = LocalDateTime.now().minusDays(daysOld);

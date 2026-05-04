@@ -287,7 +287,7 @@ public class RecommendationService {
         );
         try { telegramService.sendSignal(tgMsg); } catch (Exception ignore) {}
 
-        // 앱 알림
+        // 앱 알림 — N명 관리자 → 1회 배치 INSERT (saveAll)
         try {
             List<User> admins = userRepository.findByRole("ADMIN");
             String title = String.format("%s %s %s 도달", emoji, rec.getStockName(), thLabel);
@@ -295,9 +295,8 @@ public class RecommendationService {
                     currentPrice, currentRate, rec.getTotalScore());
             String link = "/stock/" + rec.getStockCode();
             String notifType = isUp ? "SUCCESS" : "WARNING";
-            for (User u : admins) {
-                notificationService.createNotificationForUser(u.getId(), notifType, title, body, link);
-            }
+            List<Long> adminIds = admins.stream().map(User::getId).collect(Collectors.toList());
+            notificationService.createNotificationsForUsers(adminIds, notifType, title, body, link);
         } catch (Exception e) {
             log.debug("[가격알림] 앱 알림 실패: {}", e.getMessage());
         }
@@ -399,6 +398,7 @@ public class RecommendationService {
             if (result.isEmpty()) { log.warn("[종합추천] 스냅샷 — 데이터 없음"); return; }
 
             LocalDateTime snapTime = LocalDateTime.now();
+            List<RecommendationSnapshot> entities = new ArrayList<>(result.size());
             for (int i = 0; i < result.size(); i++) {
                 RecommendationDto dto = result.get(i);
                 RecommendationSnapshot entity = new RecommendationSnapshot();
@@ -415,8 +415,9 @@ public class RecommendationService {
                 entity.setChangeRate(dto.getChangeRate());
                 entity.setRankOrder(i + 1);
                 entity.setSnapshotAt(snapTime);
-                snapshotRepository.save(entity);
+                entities.add(entity);
             }
+            snapshotRepository.saveAll(entities);
             cachedTop5 = result;
             cacheTime = snapTime;
             log.info("[종합추천] 스냅샷 {}건 저장 ({})", result.size(), snapTime.format(TIME_FMT));
@@ -810,10 +811,27 @@ public class RecommendationService {
         // 부족 종목은 모아뒀다가 비동기로 수집 (API 응답 블로킹 방지)
         List<String> needsCollection = new ArrayList<>();
 
+        // N+1 제거: 종목별 fetch → 1쿼리 배치 (100 종목 → 100쿼리에서 1쿼리로)
+        // findByStockCodesSince 는 ORDER BY stockCode ASC, tradeDate DESC 보장.
+        // 60 거래일 ≈ 약 90 캘린더일이지만 안전 마진으로 120일.
+        List<String> allCodes = scoreMap.values().stream()
+                .map(s -> s.stockCode)
+                .collect(Collectors.toList());
+        Map<String, List<StockPriceHistory>> historyMap;
+        try {
+            List<StockPriceHistory> all = priceHistoryRepository.findByStockCodesSince(
+                    allCodes, java.time.LocalDate.now().minusDays(120));
+            historyMap = all.stream().collect(Collectors.groupingBy(StockPriceHistory::getStockCode));
+        } catch (Exception e) {
+            log.warn("[종합추천] priceHistory 일괄 조회 실패: {}", e.getMessage());
+            historyMap = java.util.Collections.emptyMap();
+        }
+
         for (StockScore stock : new ArrayList<>(scoreMap.values())) {
             try {
-                List<StockPriceHistory> history = priceHistoryRepository
-                        .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 60));
+                List<StockPriceHistory> history = historyMap.getOrDefault(stock.stockCode, java.util.Collections.emptyList());
+                // 60건 초과는 컷 — 기존 PageRequest.of(0, 60) 동등 의미 (이미 tradeDate DESC 정렬됨)
+                if (history.size() > 60) history = history.subList(0, 60);
 
                 if (history == null || history.size() < 5) {
                     needsCollection.add(stock.stockCode);
@@ -909,13 +927,24 @@ public class RecommendationService {
             return; // 시세 조회 실패 시 교차검증 자체를 스킵 (기존 점수 유지)
         }
 
+        // N+1 제거: 종목별 priceHistory fetch → 1쿼리 배치 (10 종목 → 10쿼리에서 1쿼리로)
+        Map<String, List<StockPriceHistory>> historyByCode;
+        try {
+            List<StockPriceHistory> all = priceHistoryRepository.findByStockCodesSince(
+                    codes, java.time.LocalDate.now().minusDays(50));
+            historyByCode = all.stream().collect(Collectors.groupingBy(StockPriceHistory::getStockCode));
+        } catch (Exception e) {
+            log.warn("[종합추천] priceHistory 일괄 조회 실패 (교차검증 스킵): {}", e.getMessage());
+            return;
+        }
+
         for (StockScore stock : topCandidates) {
             try {
                 StockPriceDto livePrice = priceMap.get(stock.stockCode);
 
                 // 1. MA20 하회 체크 — 실시간 현재가 vs priceHistory MA20
-                List<StockPriceHistory> history = priceHistoryRepository
-                        .findByStockCodeOrderByTradeDateDesc(stock.stockCode, PageRequest.of(0, 25));
+                List<StockPriceHistory> history = historyByCode.getOrDefault(stock.stockCode, java.util.Collections.emptyList());
+                if (history.size() > 25) history = history.subList(0, 25);
                 if (history != null && history.size() >= 20) {
                     List<BigDecimal> prices = history.stream()
                             .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
