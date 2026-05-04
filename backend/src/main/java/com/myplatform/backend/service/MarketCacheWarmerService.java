@@ -90,9 +90,10 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * Smart Money 실시간 (외국인/기관) - 30초마다
+     * Smart Money 실시간 (외국인/기관) - 이전 호출 종료 후 30초.
+     * fixedDelay 사용: KIS 400ms 직렬화로 호출이 늘어질 때 누적 락업 방지
      */
-    @Scheduled(fixedRate = 30000)
+    @Scheduled(fixedDelay = 30000)
     public void warmSmartMoneyRealtime() {
         if (!isMarketHours()) return;
 
@@ -112,9 +113,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * KIS 투자자 매매동향 (매수/매도 전체) - 5분마다
+     * KIS 투자자 매매동향 (매수/매도 전체) - 이전 호출 종료 후 5분
      */
-    @Scheduled(fixedRate = 300000)
+    @Scheduled(fixedDelay = 300000)
     public void warmKisApiData() {
         if (!isMarketHours()) return;
 
@@ -138,9 +139,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 섹터 거래대금 (TODAY/MIN5/MIN30) - 60초마다
+     * 섹터 거래대금 (TODAY/MIN5/MIN30) - 이전 호출 종료 후 60초
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedDelay = 60000)
     public void warmSectorTrading() {
         if (!isMarketHours() && !isStartup()) return;
 
@@ -165,9 +166,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * AI 전략 스냅샷 - 2분마다
+     * AI 전략 스냅샷 - 이전 호출 종료 후 2분
      */
-    @Scheduled(fixedRate = 120000)
+    @Scheduled(fixedDelay = 120000)
     public void warmAiStrategy() {
         if (!isMarketHours() && !isStartup()) return;
         try {
@@ -199,10 +200,10 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 섹터 기회 발굴 (주도 섹터 × 유망 종목) - 2분마다
+     * 섹터 기회 발굴 (주도 섹터 × 유망 종목) - 이전 호출 종료 후 2분.
      * 섹터 랭킹/스마트머니/시세 워머가 먼저 돌고 그 결과를 조합함.
      */
-    @Scheduled(fixedRate = 120000)
+    @Scheduled(fixedDelay = 120000)
     public void warmSectorOpportunity() {
         if (!isMarketHours() && !isStartup()) return;
         try {
@@ -216,11 +217,11 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 실시간 등락률 상위/하위 - 60초마다 (장중)
+     * 실시간 등락률 상위/하위 - 이전 호출 종료 후 60초 (장중)
      * - KIS FHKST01010500/600 호출 → Redis L2 갱신
      * - 일배치(18:00 DB 스냅샷)는 그대로 두고, 장중에만 Redis 우선 조회로 실시간화.
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedDelay = 60000)
     public void warmPriceMovers() {
         if (!isMarketHours()) return;
         try {
@@ -232,9 +233,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 수급 급증 종목 - 10분마다
+     * 수급 급증 종목 - 이전 호출 종료 후 10분
      */
-    @Scheduled(fixedRate = 600000)
+    @Scheduled(fixedDelay = 600000)
     public void warmInvestorSurge() {
         if (!isMarketHours() && !isStartup()) return;
 

@@ -49,9 +49,9 @@ public class WatchlistRiskMonitorService {
     }
 
     /**
-     * 장중 10분 주기 리스크 감시 (09:10~15:20)
+     * 거래시간(NXT 8:00~20:00 + KRX 정규장) 10분 주기 리스크 감시
      */
-    @Scheduled(cron = "0 0/10 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledRiskMonitor() {
         monitorWatchlistRisks();
     }

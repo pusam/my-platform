@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -235,8 +236,9 @@ public class AutoTradingBotService {
     // KOSPI 하락 기반 매수 일시정지
     private final AtomicBoolean kospiDropPaused = new AtomicBoolean(false);
     private volatile LocalDateTime lastKospiCheckTime = null;
-    // 섹터 OUTFLOW 캐시 (5분마다 갱신)
-    private volatile Set<String> outflowSectorStocks = ConcurrentHashMap.newKeySet();
+    // 섹터 OUTFLOW 캐시 (5분마다 갱신) — AtomicReference로 Set 재할당 race 차단
+    private final AtomicReference<Set<String>> outflowSectorStocks =
+            new AtomicReference<>(ConcurrentHashMap.newKeySet());
     private volatile LocalDateTime outflowCacheTime = null;
     private static final long OUTFLOW_CACHE_SECONDS = 300; // 5분 캐시
 
@@ -898,7 +900,7 @@ public class AutoTradingBotService {
             // 5분 캐시
             if (outflowCacheTime != null &&
                     java.time.Duration.between(outflowCacheTime, LocalDateTime.now()).getSeconds() < OUTFLOW_CACHE_SECONDS) {
-                return outflowSectorStocks.contains(stockCode);
+                return outflowSectorStocks.get().contains(stockCode);
             }
 
             // 섹터 로테이션 데이터 조회
@@ -915,14 +917,14 @@ public class AutoTradingBotService {
                 }
             }
 
-            outflowSectorStocks = newOutflowStocks;
+            outflowSectorStocks.set(newOutflowStocks);
             outflowCacheTime = LocalDateTime.now();
 
             if (!newOutflowStocks.isEmpty()) {
                 log.debug("[스캘핑봇] OUTFLOW 섹터 종목 {}개 차단 중", newOutflowStocks.size());
             }
 
-            return outflowSectorStocks.contains(stockCode);
+            return newOutflowStocks.contains(stockCode);
         } catch (Exception e) {
             log.debug("[스캘핑봇] 섹터 OUTFLOW 체크 실패 (무시): {}", e.getMessage());
             return false;
@@ -1698,7 +1700,9 @@ public class AutoTradingBotService {
                             portfolio.getStockName(), portfolio.getStockCode(),
                             quantity, formatNumber(currentPrice), reason,
                             e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-                } catch (Exception ignore) {}
+                } catch (Exception telegramErr) {
+                    log.warn("[봇] 텔레그램 RISK 알람 전송 실패: {}", telegramErr.getMessage());
+                }
             }
         }
     }
@@ -2154,7 +2158,9 @@ public class AutoTradingBotService {
                                         position.stockName, position.stockCode,
                                         portfolio.getQuantity(), formatNumber(currentPrice), sellReason,
                                         e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
-                            } catch (Exception ignore) {}
+                            } catch (Exception telegramErr) {
+                    log.warn("[봇] 텔레그램 RISK 알람 전송 실패: {}", telegramErr.getMessage());
+                }
                         }
                     }
                 }
@@ -2600,7 +2606,7 @@ public class AutoTradingBotService {
             kospiDropPaused.set(false);
             scalpingPositions.clear();
             sellCooldownMap.clear();
-            outflowSectorStocks.clear();
+            outflowSectorStocks.set(ConcurrentHashMap.newKeySet());
             outflowCacheTime = null;
             lastResetDate = today;
             initializeDailyAsset();

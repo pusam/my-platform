@@ -78,7 +78,10 @@ public class GoogleNewsService {
             }
 
             SyndFeedInput input = new SyndFeedInput();
-            SyndFeed feed = input.build(new StringReader(response.getBody()));
+            SyndFeed feed;
+            try (StringReader reader = new StringReader(response.getBody())) {
+                feed = input.build(reader);
+            }
 
             List<NewsItem> allNews = new ArrayList<>();
             LocalDate cutoffDate = LocalDate.now().minusDays(MAX_NEWS_AGE_DAYS);
