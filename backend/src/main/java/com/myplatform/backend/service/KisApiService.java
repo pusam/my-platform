@@ -12,7 +12,9 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -48,8 +50,9 @@ public class KisApiService {
 
     /**
      * 액세스 토큰 발급 (24시간 유효)
+     * synchronized: KIS는 토큰 발급 분당 1회 제한 — 동시 요청 시 중복 호출 차단
      */
-    private void refreshAccessToken() {
+    private synchronized void refreshAccessToken() {
         if (System.currentTimeMillis() < tokenExpireTime && accessToken != null) {
             return;
         }
@@ -115,21 +118,19 @@ public class KisApiService {
 
             String today = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE);
 
-            // 쿼리 파라미터
-            Map<String, String> params = new HashMap<>();
-            params.put("FID_COND_MRKT_DIV_CODE", "J"); // 시장구분: J=주식
-            params.put("FID_COND_SCR_DIV_CODE", "20171"); // 화면구분코드
-            params.put("FID_INPUT_ISCD", "0000"); // 입력 종목코드: 전체
-            params.put("FID_DIV_CLS_CODE", "0"); // 분류구분: 0=전체
-            params.put("FID_INPUT_DATE_1", today); // 조회일자
-            params.put("FID_RANK_SORT_CLS_CODE", "0"); // 순위정렬: 0=순매수상위
-
-            StringBuilder urlWithParams = new StringBuilder(url + "?");
-            params.forEach((key, value) -> urlWithParams.append(key).append("=").append(value).append("&"));
+            URI uri = UriComponentsBuilder.fromUriString(url)
+                .queryParam("FID_COND_MRKT_DIV_CODE", "J")     // J=주식
+                .queryParam("FID_COND_SCR_DIV_CODE", "20171")  // 화면구분
+                .queryParam("FID_INPUT_ISCD", "0000")          // 전체
+                .queryParam("FID_DIV_CLS_CODE", "0")           // 전체
+                .queryParam("FID_INPUT_DATE_1", today)
+                .queryParam("FID_RANK_SORT_CLS_CODE", "0")     // 순매수 상위
+                .build()
+                .toUri();
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                urlWithParams.toString(), HttpMethod.GET, entity, String.class);
+                uri, HttpMethod.GET, entity, String.class);
 
             return parseInvestorTrendResponse(response.getBody());
         } catch (Exception e) {
@@ -164,20 +165,18 @@ public class KisApiService {
             headers.set("tr_id", "FHKST01010800");
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            // 쿼리 파라미터
-            Map<String, String> params = new HashMap<>();
-            params.put("FID_COND_MRKT_DIV_CODE", "J"); // 시장구분
-            params.put("FID_COND_SCR_DIV_CODE", "20170"); // 화면구분
-            params.put("FID_INPUT_ISCD", "0000"); // 종목코드
-            params.put("FID_DIV_CLS_CODE", "0"); // 분류구분
-            params.put("FID_RANK_SORT_CLS_CODE", "0"); // 순위정렬
-
-            StringBuilder urlWithParams = new StringBuilder(url + "?");
-            params.forEach((key, value) -> urlWithParams.append(key).append("=").append(value).append("&"));
+            URI uri = UriComponentsBuilder.fromUriString(url)
+                .queryParam("FID_COND_MRKT_DIV_CODE", "J")
+                .queryParam("FID_COND_SCR_DIV_CODE", "20170")
+                .queryParam("FID_INPUT_ISCD", "0000")
+                .queryParam("FID_DIV_CLS_CODE", "0")
+                .queryParam("FID_RANK_SORT_CLS_CODE", "0")
+                .build()
+                .toUri();
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                urlWithParams.toString(), HttpMethod.GET, entity, String.class);
+                uri, HttpMethod.GET, entity, String.class);
 
             return parseContinuousBuyResponse(response.getBody());
         } catch (Exception e) {
@@ -212,22 +211,20 @@ public class KisApiService {
             headers.set("tr_id", "FHKST01010600");
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            // 쿼리 파라미터
-            Map<String, String> params = new HashMap<>();
-            params.put("FID_COND_MRKT_DIV_CODE", "J"); // 시장구분
-            params.put("FID_COND_SCR_DIV_CODE", "20171"); // 화면구분
-            params.put("FID_INPUT_ISCD", "0000"); // 종목코드
-            params.put("FID_DIV_CLS_CODE", "0"); // 분류구분
-            params.put("FID_RANK_SORT_CLS_CODE", "0"); // 순위정렬
-            params.put("FID_INPUT_PRICE_1", ""); // 입력가격1
-            params.put("FID_INPUT_PRICE_2", ""); // 입력가격2
-
-            StringBuilder urlWithParams = new StringBuilder(url + "?");
-            params.forEach((key, value) -> urlWithParams.append(key).append("=").append(value).append("&"));
+            URI uri = UriComponentsBuilder.fromUriString(url)
+                .queryParam("FID_COND_MRKT_DIV_CODE", "UN")  // KRX+NXT 통합 — 8-20시 거래량 반영
+                .queryParam("FID_COND_SCR_DIV_CODE", "20171")
+                .queryParam("FID_INPUT_ISCD", "0000")
+                .queryParam("FID_DIV_CLS_CODE", "0")
+                .queryParam("FID_RANK_SORT_CLS_CODE", "0")
+                .queryParam("FID_INPUT_PRICE_1", "")
+                .queryParam("FID_INPUT_PRICE_2", "")
+                .build()
+                .toUri();
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                urlWithParams.toString(), HttpMethod.GET, entity, String.class);
+                uri, HttpMethod.GET, entity, String.class);
 
             return parseSupplySurgeResponse(response.getBody());
         } catch (Exception e) {
@@ -249,7 +246,7 @@ public class KisApiService {
                     dto.setStockName(item.get("hts_kor_isnm").asText());
                     dto.setCurrentPrice(new BigDecimal(item.get("stck_prpr").asText()));
                     dto.setChangeAmount(new BigDecimal(item.get("prdy_vrss").asText()));
-                    dto.setChangeRate(new BigDecimal(item.get("prdy_vrss_sign").asText()));
+                    dto.setChangeRate(new BigDecimal(item.get("prdy_ctrt").asText()));
                     dto.setForeignerVolume(Long.parseLong(item.get("frgn_ntby_qty").asText()));
                     dto.setInstitutionVolume(Long.parseLong(item.get("orgn_ntby_qty").asText()));
 
@@ -314,13 +311,15 @@ public class KisApiService {
             headers.set("tr_id", "FHMIF10000000");
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            StringBuilder urlWithParams = new StringBuilder(url + "?");
-            urlWithParams.append("FID_COND_MRKT_DIV_CODE=F&");
-            urlWithParams.append("FID_INPUT_ISCD=").append(contractCode);
+            URI uri = UriComponentsBuilder.fromUriString(url)
+                .queryParam("FID_COND_MRKT_DIV_CODE", "F")
+                .queryParam("FID_INPUT_ISCD", contractCode)
+                .build()
+                .toUri();
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                urlWithParams.toString(), HttpMethod.GET, entity, String.class);
+                uri, HttpMethod.GET, entity, String.class);
 
             if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
                 log.warn("[KIS선물] 응답 오류: {}", response.getStatusCode());

@@ -21,7 +21,11 @@ import java.util.Map;
 /**
  * 시장 데이터 Redis L2 캐시 워머
  * - cache.redis.enabled=true 일 때만 활성화
- * - 장중에만 스케줄 동작 (Asia/Seoul 기준 09:00~15:30)
+ * - 거래시간 동안만 스케줄 동작 (Asia/Seoul 기준 08:00~20:00)
+ *   · 08:00~09:00: NXT 프리마켓
+ *   · 09:00~15:30: KRX 정규장 + NXT
+ *   · 15:30~18:00: KRX 시간외 + NXT 갭
+ *   · 18:00~20:00: NXT 애프터마켓
  * - 기존 서비스 메서드 호출 → Caffeine L1도 자동 갱신 → Redis L2에도 저장
  */
 @Service
@@ -40,8 +44,9 @@ public class MarketCacheWarmerService {
     private final MarketIndicatorService marketIndicatorService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
+    // NXT/시간외 거래 시간까지 커버 (2025-03 NXT 도입, 2026-09 KRX 본 장 연장 예정)
+    private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(20, 0);
 
     // ===== Redis 캐시명 상수 =====
     private static final String CACHE_SMART_MONEY = "smartMoneyRealtime";

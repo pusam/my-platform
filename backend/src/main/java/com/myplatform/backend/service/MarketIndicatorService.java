@@ -150,7 +150,7 @@ public class MarketIndicatorService {
             headers.setContentType(MediaType.APPLICATION_JSON);
 
             Map<String, String> params = new LinkedHashMap<>();
-            params.put("FID_COND_MRKT_DIV_CODE", "J");                  // 시장: 주식
+            params.put("FID_COND_MRKT_DIV_CODE", "UN");                 // KRX+NXT 통합 — 8-20시 등락률 반영
             params.put("FID_COND_SCR_DIV_CODE", "20170");               // 화면구분
             params.put("FID_INPUT_ISCD", "0000");                       // 전체
             params.put("FID_RANK_SORT_CLS_CODE", isRise ? "0" : "1");   // 0=상승률, 1=하락률
