@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.myplatform.backend.entity.PasswordResetToken;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.PasswordResetTokenRepository;
@@ -10,7 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @Transactional
@@ -20,6 +24,13 @@ public class PasswordResetService {
     private final PasswordResetTokenRepository tokenRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+
+    // 이메일별 verifyToken 시도 횟수 — 5회 실패 시 토큰 강제 invalidate (브루트포스 차단)
+    private static final int MAX_VERIFY_ATTEMPTS = 5;
+    private final Cache<String, AtomicInteger> verifyAttempts = Caffeine.newBuilder()
+            .expireAfterWrite(Duration.ofMinutes(10))
+            .maximumSize(10_000)
+            .build();
 
     public PasswordResetService(
             UserRepository userRepository,
@@ -63,12 +74,24 @@ public class PasswordResetService {
     }
 
     /**
-     * 인증번호 확인
+     * 인증번호 확인 — 5회 실패 시 토큰 자체 invalidate (1M 조합 brute force 차단)
      */
     public boolean verifyToken(String email, String token) {
-        return tokenRepository.findByEmailAndTokenAndUsedFalseAndExpiresAtAfter(
+        boolean valid = tokenRepository.findByEmailAndTokenAndUsedFalseAndExpiresAtAfter(
                 email, token, LocalDateTime.now()
         ).isPresent();
+
+        if (!valid) {
+            AtomicInteger count = verifyAttempts.get(email, k -> new AtomicInteger(0));
+            if (count.incrementAndGet() >= MAX_VERIFY_ATTEMPTS) {
+                // N회 연속 실패 → 해당 이메일의 모든 토큰 사용 처리하여 강제 invalidate
+                tokenRepository.deleteByEmail(email);
+                verifyAttempts.invalidate(email);
+            }
+        } else {
+            verifyAttempts.invalidate(email);
+        }
+        return valid;
     }
 
     /**

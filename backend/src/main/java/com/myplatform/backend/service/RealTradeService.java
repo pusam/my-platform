@@ -25,7 +25,7 @@ import java.util.List;
  * - 지정가 주문 사용 (슬리피지 방지)
  */
 @Service("realTradeService")
-@Transactional
+@Transactional(rollbackFor = Exception.class)
 @RequiredArgsConstructor
 @Slf4j
 public class RealTradeService implements TradeService {

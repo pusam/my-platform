@@ -94,10 +94,17 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.getWriter().write("{\"success\":false,\"message\":\"요청이 너무 많습니다. 잠시 후 다시 시도해주세요.\"}");
     }
 
+    /**
+     * 클라이언트 IP 추출.
+     * X-Forwarded-For 첫 값을 그대로 신뢰하면 클라이언트가 헤더 spoofing 으로 IP 우회 가능.
+     * 표준 nginx 설정($proxy_add_x_forwarded_for)에서 마지막 값이 nginx가 추가한 실제 직전 클라이언트 IP.
+     * → 마지막 값 사용 + X-Real-IP fallback.
+     */
     private String getClientIp(HttpServletRequest request) {
         String xForwardedFor = request.getHeader("X-Forwarded-For");
         if (xForwardedFor != null && !xForwardedFor.isEmpty()) {
-            return xForwardedFor.split(",")[0].trim();
+            String[] ips = xForwardedFor.split(",");
+            return ips[ips.length - 1].trim();
         }
         String xRealIp = request.getHeader("X-Real-IP");
         if (xRealIp != null && !xRealIp.isEmpty()) {
