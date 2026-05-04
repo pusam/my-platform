@@ -46,11 +46,12 @@ export default {
   data() {
     return {
       currentTime: '',
-      // 시간 기반 GNB — 장전(준비) / 장중(매매) / 장후(연구)
+      // 시간 기반 GNB — 장전(준비) / 장중(매매) / 장후(연구) / 글로벌(야간/해외)
       gnbTabs: [
         { key: 'premarket', label: '장전', icon: '🌅' },
         { key: 'live', label: '장중', icon: '⚡' },
-        { key: 'research', label: '장후/연구', icon: '🔍' }
+        { key: 'research', label: '장후/연구', icon: '🔍' },
+        { key: 'global', label: '글로벌', icon: '🌍' }
       ]
     }
   },

@@ -262,13 +262,14 @@
           </div>
         </div>
 
-        <!-- ④-b 수급 주도 섹터 × 유망 종목 (장전 전용) -->
-        <div class="sector-opportunity section-card" v-if="activeGnbTab === 'premarket' && (sectorOpportunities.length || sectorOppLoading)">
+        <!-- ④-b 수급 주도 섹터 × 유망 종목 (장전 전용) — IntersectionObserver로 lazy fetch -->
+        <div ref="sectorOppSection" class="sector-opportunity section-card"
+             v-if="activeGnbTab === 'premarket'">
           <div class="section-title-row">
             <h2><span class="section-icon">🎯</span> 수급 주도 섹터 & 유망 종목</h2>
             <span class="rec-data-time">배치 3분 갱신</span>
           </div>
-          <div v-if="sectorOppLoading" class="signal-skeleton">
+          <div v-if="!sectorOppLoaded || sectorOppLoading" class="signal-skeleton">
             <div class="skel-row" v-for="i in 3" :key="'so-sk-'+i"><div class="skel-bar"></div></div>
           </div>
           <div v-else-if="sectorOpportunities.length" class="so-grid">
@@ -385,6 +386,7 @@ import {
   globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
   recommendationAPI
 } from '../utils/api'
+import { observeOnce } from '../utils/lazyObserver'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
 function withTimeout(promise, ms = 3000) {
@@ -490,6 +492,7 @@ export default {
       supplyPanelData: null,
       sectorOpportunities: [],
       sectorOppLoading: false,
+      sectorOppLoaded: false,  // lazy 가드 — viewport 진입 1회만 fetch
       // 시간대별 신호
       phaseLoading: false,
       preMarketData: [],   // 장 전
@@ -500,6 +503,11 @@ export default {
   inject: { toast: { default: () => ({ success(){}, error(){}, warning(){}, info(){} }) } },
   watch: {
     activeGnbTab(tab) {
+      // 글로벌 탭은 별도 페이지(/global-futures)로 라우팅 — 코드 스플리팅(207KB chunk) 보존
+      if (tab === 'global') {
+        this.$router.push('/global-futures')
+        return
+      }
       this.loadTabData(tab)
       // 탭 전환 시 스크롤 초기화
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -517,6 +525,8 @@ export default {
     this.loadTabData(this.activeGnbTab)   // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
     setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
     setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
+    // 첫 마운트 시점에 섹터 기회 박스가 이미 DOM에 있으면 관찰 시작 (장전 탭 진입)
+    this.$nextTick(() => this.setupLazySections())
     this.setupKeyboardShortcut()
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
@@ -691,13 +701,29 @@ export default {
         this.loadMarketMap()
         setTimeout(() => this.loadAiStrategy(), 500)   // 시간대별 신호용
         setTimeout(() => this.loadSmartMoney(), 1000)  // 수급급증 신호용
-        setTimeout(() => this.loadSectorOpportunity(), 1500)  // 섹터 × 유망 종목
+        // 섹터 기회 발굴은 IntersectionObserver lazy로 분리 (setupLazySections)
         this.dataLoaded.market = true
       }
       // 장중 매수 후보 트래커 — 즉시 1회 호출. 기존엔 60초 setInterval 첫 발화까지 빈 화면이었고
       // 그 안에 탭 떠나면 영영 호출 안 됨(topRecommendations 가 refreshRecommendations 외엔 채워질 곳 없음).
       if (tab === 'live') {
         this.refreshRecommendations()
+      }
+      // 섹터 기회 박스(장전 전용)는 v-if로 늦게 마운트되므로 nextTick 후 관찰자 재등록
+      if (tab === 'premarket') {
+        this.$nextTick(() => this.setupLazySections())
+      }
+    },
+
+    // ---- IntersectionObserver lazy load 등록 ----
+    setupLazySections() {
+      // 섹터 기회 발굴 — 뷰포트 진입 시 1회만 fetch (rootMargin 200px로 첫 화면 직후 로드됨)
+      const sectorOppEl = this.$refs.sectorOppSection
+      if (sectorOppEl && !this.sectorOppLoaded) {
+        observeOnce(sectorOppEl, () => {
+          this.sectorOppLoaded = true
+          this.loadSectorOpportunity()
+        })
       }
     },
 

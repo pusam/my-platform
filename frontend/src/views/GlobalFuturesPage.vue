@@ -1,6 +1,12 @@
 <template>
   <div class="page-container">
     <GlobalNav />
+    <!-- 통합 GNB — stock-dashboard와 같은 4탭 (장전/장중/장후·연구/글로벌) -->
+    <DashboardHeader
+      activeTab="global"
+      @open-search="() => {}"
+      @tab-change="onGnbTabChange"
+    />
     <!-- 메인 탭 -->
     <div class="main-tab-bar">
       <button class="main-tab" :class="{ active: mainTab === 'futures' }" @click="mainTab = 'futures'">선물 시세</button>
@@ -352,12 +358,23 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { globalFuturesAPI } from '../utils/api';
 import { getVixStatus, getVixMeterWidth } from '../composables/useMarketStatus';
 import GoldPricePage from './GoldPricePage.vue';
 import SilverPricePage from './SilverPricePage.vue';
 import OilPricePage from './OilPricePage.vue';
 import GlobalNav from '../components/GlobalNav.vue';
+import DashboardHeader from '../components/v2/DashboardHeader.vue';
+
+const router = useRouter();
+// stock-dashboard 4탭 중 글로벌 외 클릭 시 라우팅
+const TAB_TO_QUERY = { premarket: undefined, live: 'trading', research: 'analysis' };
+const onGnbTabChange = (tab) => {
+  if (tab === 'global') return;
+  const query = TAB_TO_QUERY[tab];
+  router.push(query ? `/stock-dashboard?tab=${query}` : '/stock-dashboard');
+};
 
 const mainTab = ref('futures');
 const loading = ref(false);
