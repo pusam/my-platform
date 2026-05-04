@@ -82,8 +82,9 @@ let pollingInterval = null
 let countdownInterval = null
 let nextUpdateTimestamp = null
 
-// 은 시세 조회
+// 은 시세 조회 — 탭 비활성화 시 폴링 스킵
 const fetchSilverPrice = async () => {
+  if (typeof document !== 'undefined' && document.hidden) return
   try {
     loading.value = true
     error.value = null

@@ -281,6 +281,7 @@ import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+import { TokenManager } from '../utils/auth';
 
 export default {
   name: 'BoardPage',
@@ -335,7 +336,7 @@ export default {
     async loadBoards(page = 0) {
       try {
         this.loading = true;
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(`/api/board?page=${page}&size=${this.pageSize}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -361,7 +362,7 @@ export default {
 
       try {
         this.loading = true;
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(
           `/api/board/search?keyword=${encodeURIComponent(this.searchKeyword)}&page=${this.currentPage}&size=${this.pageSize}`,
           { headers: { 'Authorization': `Bearer ${token}` } }
@@ -381,7 +382,7 @@ export default {
     },
     async viewBoard(id) {
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(`/api/board/${id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -418,7 +419,7 @@ export default {
       }
 
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const formData = new FormData();
 
         const boardBlob = new Blob([JSON.stringify(this.form)], { type: 'application/json' });
@@ -475,7 +476,7 @@ export default {
     },
     async deleteBoard() {
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.delete(`/api/board/${this.selectedBoard.id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -494,7 +495,7 @@ export default {
       if (!confirm('파일을 삭제하시겠습니까?')) return;
 
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         await axios.delete(`/api/board/${boardId}/file/${fileId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -506,7 +507,7 @@ export default {
     },
     async downloadFile(fileId, filename) {
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(`/api/board/file/${fileId}`, {
           headers: { 'Authorization': `Bearer ${token}` },
           responseType: 'blob'

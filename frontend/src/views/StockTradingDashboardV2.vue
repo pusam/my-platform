@@ -450,6 +450,8 @@ export default {
   },
   data() {
     return {
+      // mount 시 1회만 읽음 — computed에서 매 렌더마다 localStorage 접근 회피
+      isAdmin: localStorage.getItem('role') === 'ADMIN',
       activeGnbTab: this.resolveInitialTab(),
       activeAnalysisTab: this.resolveInitialSubTab(),
       researchTabs: [
@@ -543,9 +545,6 @@ export default {
     }
   },
   computed: {
-    isAdmin() {
-      return localStorage.getItem('role') === 'ADMIN'
-    },
     currentPhaseKey() {
       const now = new Date()
       const day = now.getDay()

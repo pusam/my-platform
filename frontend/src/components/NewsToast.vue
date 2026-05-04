@@ -29,7 +29,8 @@ import { TokenManager } from '../utils/auth'
 const toasts = ref([])
 let pollTimer = null
 let initTimer = null
-const dismissTimers = []
+// Map<toastId, timeoutId> — dismiss 시 해당 타이머도 같이 정리해서 누수 방지
+const dismissTimers = new Map()
 let toastIdCounter = 0
 const seenIds = new Set()
 
@@ -45,7 +46,7 @@ const pollUrgentNews = async () => {
       const id = ++toastIdCounter
       toasts.value.push({ id, ...item })
       // 8초 후 자동 dismiss
-      dismissTimers.push(setTimeout(() => dismiss(id), 8000))
+      dismissTimers.set(id, setTimeout(() => dismiss(id), 8000))
     })
 
     // seenIds가 너무 커지지 않도록 관리 (최대 200개)
@@ -60,6 +61,11 @@ const pollUrgentNews = async () => {
 
 const dismiss = (id) => {
   toasts.value = toasts.value.filter(t => t.id !== id)
+  const timer = dismissTimers.get(id)
+  if (timer) {
+    clearTimeout(timer)
+    dismissTimers.delete(id)
+  }
 }
 
 const openNews = (toast) => {
@@ -80,6 +86,7 @@ onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   if (initTimer) clearTimeout(initTimer)
   dismissTimers.forEach(t => clearTimeout(t))
+  dismissTimers.clear()
 })
 </script>
 

@@ -78,8 +78,9 @@ let pollingInterval = null
 let countdownInterval = null
 let nextUpdateTimestamp = null
 
-// 금 시세 조회
+// 금 시세 조회 — 탭 비활성화 시 폴링 스킵 (배경 API 호출 누적 방지)
 const fetchGoldPrice = async () => {
+  if (typeof document !== 'undefined' && document.hidden) return
   try {
     loading.value = true
     error.value = null

@@ -190,6 +190,8 @@ const loadNotifications = async () => {
 
 const loadUnreadCount = async () => {
   if (!isLoggedIn.value) return;
+  // 탭 비활성화 시 폴링 스킵 (배경 API 호출 누적 방지)
+  if (typeof document !== 'undefined' && document.hidden) return;
 
   try {
     const response = await notificationAPI.getUnreadCount();
