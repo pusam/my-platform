@@ -442,7 +442,7 @@ export default {
 
     openDart(rceptNo) {
       if (rceptNo) {
-        window.open(`https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rceptNo}`, '_blank')
+        window.open(`https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${rceptNo}`, '_blank', 'noopener,noreferrer')
       }
     },
 

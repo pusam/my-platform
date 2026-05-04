@@ -69,8 +69,10 @@ const dismiss = (id) => {
 }
 
 const openNews = (toast) => {
-  if (toast.sourceUrl) {
-    window.open(toast.sourceUrl, '_blank')
+  // URL 스킴 가드(javascript: 인젝션 차단) + noopener,noreferrer (tabnabbing 방지)
+  const url = toast.sourceUrl
+  if (url && /^https?:\/\//i.test(url)) {
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
   dismiss(toast.id)
 }

@@ -348,7 +348,7 @@ export default {
           this.totalElements = response.data.data.totalElements || 0;
         }
       } catch (error) {
-        console.error('게시글 로드 실패:', error);
+        console.error('게시글 로드 실패:', error?.response?.status || error?.message);
         toast.error('게시글을 불러오는데 실패했습니다.');
       } finally {
         this.loading = false;
@@ -374,7 +374,7 @@ export default {
           this.totalElements = response.data.data.totalElements || 0;
         }
       } catch (error) {
-        console.error('검색 실패:', error);
+        console.error('검색 실패:', error?.response?.status || error?.message);
         toast.error('검색에 실패했습니다.');
       } finally {
         this.loading = false;
@@ -391,7 +391,7 @@ export default {
           this.selectedBoard = response.data.data;
         }
       } catch (error) {
-        console.error('게시글 조회 실패:', error);
+        console.error('게시글 조회 실패:', error?.response?.status || error?.message);
         toast.error('게시글을 불러오는데 실패했습니다.');
       }
     },
@@ -452,7 +452,7 @@ export default {
           this.loadBoards();
         }
       } catch (error) {
-        console.error('게시글 작성/수정 실패:', error);
+        console.error('게시글 작성/수정 실패:', error?.response?.status || error?.message);
         toast.error('게시글 작성/수정에 실패했습니다.');
       }
     },
@@ -487,7 +487,7 @@ export default {
           this.loadBoards();
         }
       } catch (error) {
-        console.error('게시글 삭제 실패:', error);
+        console.error('게시글 삭제 실패:', error?.response?.status || error?.message);
         toast.error('게시글 삭제에 실패했습니다.');
       }
     },
@@ -501,7 +501,7 @@ export default {
         });
         this.viewBoard(boardId);
       } catch (error) {
-        console.error('파일 삭제 실패:', error);
+        console.error('파일 삭제 실패:', error?.response?.status || error?.message);
         toast.error('파일 삭제에 실패했습니다.');
       }
     },
@@ -521,7 +521,7 @@ export default {
         link.click();
         link.remove();
       } catch (error) {
-        console.error('파일 다운로드 실패:', error);
+        console.error('파일 다운로드 실패:', error?.response?.status || error?.message);
         toast.error('파일 다운로드에 실패했습니다.');
       }
     },

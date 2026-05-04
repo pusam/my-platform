@@ -174,8 +174,9 @@ const fetchNews = async () => {
 };
 
 const openNewsUrl = (url) => {
-  if (url) {
-    window.open(url, '_blank');
+  // URL 스킴 가드 + noopener,noreferrer (javascript: 인젝션 + tabnabbing 차단)
+  if (url && /^https?:\/\//i.test(url)) {
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 };
 

@@ -226,19 +226,19 @@ const router = createRouter({
       path: '/admin/users',
       name: 'UserManagement',
       component: UserManagement,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, adminOnly: true }
     },
     {
       path: '/admin/logs',
       name: 'ActivityLogs',
       component: ActivityLogs,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, adminOnly: true }
     },
     {
       path: '/admin/batch',
       name: 'BatchJobMonitor',
       component: BatchJobMonitor,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, adminOnly: true }
     }
   ]
 })
