@@ -156,11 +156,6 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
-        <!-- ②-f 섹터별 거래대금 (장중 시간대 — 5분/30분 파워, 5분 폴링) -->
-        <div v-if="currentPhaseKey === 'during'" class="embedded-content">
-          <SectorTradingPage :embedded="true" />
-        </div>
-
         <!-- ③ 시간대별 신호 (장전·장후 전용 — 장중엔 LiveSurge가 상위호환) -->
         <div class="today-signals section-card" v-if="currentPhaseKey !== 'during'">
           <div class="section-title-row">
@@ -236,15 +231,31 @@
         <!-- AI 전략 TOP 픽 카드는 종합 추천 TOP10에 흡수되어 제거됨.
              aiTopPicks 데이터는 phaseSignals(장전·장후)의 신호 카드 일부로 계속 사용됨. -->
 
-        <!-- ⑤ 섹터 히트맵 (트레이드 탭 상시) -->
-        <SectionMarketMap
-          :sectorData="sectorData"
-          :marketData="marketData"
-          :globalData="globalData"
-          :loading="sections.marketMap.loading"
-          :error="sections.marketMap.error"
-          @retry="loadMarketMap"
-        />
+        <!-- ⑤ 섹터 동향 — 거래대금(장중)/시장지도(히트맵·로테이션·예측) 토글 -->
+        <div class="sector-combined">
+          <div class="sector-view-toggle" v-if="currentPhaseKey === 'during'">
+            <button
+              :class="['sector-toggle-btn', { active: activeSectorView === 'volume' }]"
+              @click="activeSectorView = 'volume'"
+            >📊 거래대금</button>
+            <button
+              :class="['sector-toggle-btn', { active: activeSectorView === 'map' }]"
+              @click="activeSectorView = 'map'"
+            >🗺️ 시장 지도</button>
+          </div>
+          <div v-if="currentPhaseKey === 'during' && activeSectorView === 'volume'" class="embedded-content">
+            <SectorTradingPage :embedded="true" />
+          </div>
+          <SectionMarketMap
+            v-else
+            :sectorData="sectorData"
+            :marketData="marketData"
+            :globalData="globalData"
+            :loading="sections.marketMap.loading"
+            :error="sections.marketMap.error"
+            @retry="loadMarketMap"
+          />
+        </div>
 
         <!-- ⑥ 페이퍼 트레이딩 (장중 시간대 · 관리자 전용) -->
         <div v-if="currentPhaseKey === 'during' && isAdmin" class="embedded-content">
@@ -408,6 +419,8 @@ export default {
       topRecRealtime: true,
       topRecDelta: {},
       topRecScoreMap: {},  // { stockCode: { tradingScore, fundamentalScore, ... } } — 트래커 단기/중장기 부가 표시용
+      // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
+      activeSectorView: 'map',
       supplyPanelData: null,
       // 시간대별 신호
       phaseLoading: false,
@@ -441,6 +454,8 @@ export default {
     this.loadTabData(this.activeGnbTab)   // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
     setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
     setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
+    // 섹터 카드 초기 뷰 — 장중 시간대 기본은 거래대금, 그 외엔 시장 지도
+    this.activeSectorView = this.currentPhaseKey === 'during' ? 'volume' : 'map'
     this.setupKeyboardShortcut()
     // 60초마다 트레이드 탭 데이터 자동 갱신 — 장중 시간대엔 추가로 실시간 신호도 갱신
     this._refreshTimer = setInterval(() => {
@@ -1125,6 +1140,32 @@ export default {
 }
 .embedded-content {
   min-height: 400px;
+}
+
+/* ===== 섹터 동향 통합 카드 (거래대금 ↔ 시장지도 토글) ===== */
+.sector-combined { display: flex; flex-direction: column; gap: 8px; }
+.sector-view-toggle {
+  display: flex; gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 10px;
+  align-self: flex-start;
+}
+.sector-toggle-btn {
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: all 0.15s;
+}
+.sector-toggle-btn:hover { color: rgba(255,255,255,0.85); }
+.sector-toggle-btn.active {
+  background: rgba(102,126,234,0.18);
+  color: #a5b4fc;
 }
 
 /* ===== 시장 상태 바 ===== */
