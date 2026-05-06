@@ -504,15 +504,7 @@ export default {
     },
     preMarketSignals() {
       const signals = []
-      // 나스닥 선물 방향
-      if (this.globalData?.nasdaqFutures) {
-        const nq = this.globalData.nasdaqFutures
-        signals.push({
-          type: 'global', badge: '🌙 야간', stockName: '나스닥 선물',
-          reason: `${Number(nq.currentPrice).toLocaleString()} (${Number(nq.changeRate) >= 0 ? '+' : ''}${Number(nq.changeRate).toFixed(2)}%)`,
-          stockCode: null, changeRate: nq.changeRate
-        })
-      }
+      // 나스닥 선물 방향은 상단 시장 상태 바와 중복되어 제거됨
       // AI 전략 TOP 픽
       this.aiTopPicks.slice(0, 2).forEach(p => {
         signals.push({
