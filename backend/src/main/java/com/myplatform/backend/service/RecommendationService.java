@@ -25,9 +25,15 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * AI 종합 추천 TOP 5 — v6
+ * 종합 추천 TOP 10 — v7
  *
- * v6 핵심 수정:
+ * v7 핵심 수정:
+ * - AI전략 카테고리를 totalScore 산식에서 제외 (5카테고리: 실적·수급·기술·섹터·가치)
+ *   * AI전략은 후보 발굴/태그 용도로만 유지하여 추천 다양성은 보존
+ * - TOP 5 → TOP 10 — 사용자 선택지 확대
+ * - normalizeScore cap 테이블을 5카테고리 기준으로 재조정
+ *
+ * v6 (이전):
  * - 섹터 점수를 AI 스냅샷에서 분리 (수급 종목에게도 시장분위기 점수 부여)
  * - validCount=2 cap 80점으로 상향 (실적+기술만으로도 유의미)
  * - 디버그 로그 info→debug 레벨 조정
@@ -466,14 +472,15 @@ public class RecommendationService {
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()
-                .filter(s -> countValidCategories(s) >= 4)
+                .filter(s -> countValidCategories(s) >= 3)  // 5카테고리 중 최소 3개 valid (60% 커버리지)
                 .filter(s -> normalizeScore(
-                        s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability,
+                        // AI전략 카테고리는 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용
+                        s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability,
                         countValidCategories(s)) >= 60) // 관망(59↓) 종목 제외
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
                         .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
                                 Comparator.reverseOrder()))
-                .limit(5)
+                .limit(10)
                 .map(this::toDto)
                 .toList();
 
@@ -483,7 +490,7 @@ public class RecommendationService {
                     r.getAiStrategy(), r.getEarnings(), r.getSupplyDemand(),
                     r.getTechnical(), r.getSectorMomentum(), r.getValueStability(), r.getValidCount());
         }
-        log.info("[종합추천] TOP {} 계산 완료", results.size());
+        log.info("[종합추천] TOP 10 계산 완료 ({}건)", results.size());
         return results;
     }
 
@@ -1019,8 +1026,8 @@ public class RecommendationService {
     // ==================== N/A & Util ====================
 
     private int countValidCategories(StockScore s) {
+        // AI전략은 totalScore 산식에서 제외되었으므로 valid 카운트에도 미포함
         int c = 0;
-        if (s.aiStrategy > 0) c++;
         if (s.earnings > 0) c++;
         if (s.supplyDemand > 0) c++;
         if (s.technical > 0) c++;
@@ -1034,8 +1041,8 @@ public class RecommendationService {
             List<RecommendationSnapshot> snapshots = snapshotRepository.findLatestSnapshot();
             if (snapshots.isEmpty()) return Collections.emptyList();
             List<RecommendationDto> result = snapshots.stream().map(s -> {
+                // AI전략은 valid 카운트에서 제외 (산식에서 빠짐)
                 int vc = 0;
-                if (s.getAiStrategy() > 0) vc++;
                 if (s.getEarnings() > 0) vc++;
                 if (s.getSupplyDemand() > 0) vc++;
                 if (s.getTechnical() > 0) vc++;
@@ -1077,25 +1084,25 @@ public class RecommendationService {
         return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
-    /** 유효 항목 수별 상한: 6개=100, 5개=92, 4개=80, 3개=65, 2개=50 */
+    /** 유효 항목 수별 상한 (5카테고리 기준): 5개=100, 4개=88, 3개=72, 2개=55, 1개=35 */
     private static int normalizeScore(int raw, int validCount) {
-        if (validCount >= 6) return Math.min(100, raw * 100 / 120);
+        if (validCount >= 5) return Math.min(100, raw);  // 5카테고리 × 20점 = 100점 만점
         if (validCount <= 0) return 0;
         // raw는 valid * 20점 만점 → 100점 만점으로 환산 후 cap
         int scaled = raw * 100 / (validCount * 20);
         int cap = switch (validCount) {
-            case 5 -> 92;
-            case 4 -> 80;
-            case 3 -> 65;
-            case 2 -> 50;
-            default -> 50;
+            case 4 -> 88;
+            case 3 -> 72;
+            case 2 -> 55;
+            default -> 35;
         };
         return Math.min(cap, scaled);
     }
 
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
-        int raw = s.aiStrategy + s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability;
+        // AI전략은 산식에서 제외 (5카테고리 합산)
+        int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability;
         int total = normalizeScore(raw, vc);
 
         return RecommendationDto.builder()
@@ -1122,8 +1129,8 @@ public class RecommendationService {
         StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
+            // AI전략은 산식에서 제외 (5카테고리 합산)
             int v = 0, sum = 0;
-            if (aiStrategy > 0) { v++; sum += aiStrategy; }
             if (earnings > 0) { v++; sum += earnings; }
             if (supplyDemand > 0) { v++; sum += supplyDemand; }
             if (technical > 0) { v++; sum += technical; }
