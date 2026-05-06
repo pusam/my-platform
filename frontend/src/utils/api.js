@@ -909,11 +909,8 @@ export const investorAPI = {
     const params = {};
     if (minChange) params.minChange = minChange;
     return apiClient.get('/investor/surge/common', { params });
-  },
-  // 멀티 컨빅션 시그널
-  getConvictionSignals() {
-    return apiClient.get('/investor/conviction');
   }
+  // [제거] getConvictionSignals — SectionConviction 위젯 제거 후 미사용. 백엔드 엔드포인트는 보존.
 };
 
 // Risk Analysis API (리스크 분석)

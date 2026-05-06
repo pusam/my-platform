@@ -315,7 +315,7 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
-  globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
+  globalFuturesAPI, watchlistAPI, earningsAPI, paperTradingAPI,
   recommendationAPI, stockDetailAPI
 } from '../utils/api'
 
@@ -396,22 +396,17 @@ export default {
       sections: {
         marketMap: { loading: true, error: false },
         aiStrategy: { loading: false, error: false },
-        smartMoney: { loading: false, error: false },
         research: { loading: false, error: false }
       },
       aiStrategyData: null,  // phaseSignals에서 사용
       sectorData: [],
       marketData: {},
       globalData: {},
-      tradesData: { foreign: [], institution: [] },
-      consecutiveData: [],
-      surgeData: [],
       screenerData: {},
       newsData: [],
       // 오늘의 핵심 요약
       watchlistItems: [],
       watchlistRisks: {},
-      radarSignals: [],
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -457,15 +452,12 @@ export default {
     // 섹터 카드 초기 뷰 — 장중 시간대 기본은 거래대금, 그 외엔 시장 지도
     this.activeSectorView = this.currentPhaseKey === 'during' ? 'volume' : 'map'
     this.setupKeyboardShortcut()
-    // 60초마다 트레이드 탭 데이터 자동 갱신 — 장중 시간대엔 추가로 실시간 신호도 갱신
+    // 60초마다 트레이드 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
       if (this.activeGnbTab !== 'premarket') return
       this.loadMarketMap()
       this.refreshRecommendations()
       this.loadSupplyPanel()
-      if (this.currentPhaseKey === 'during') {
-        this.refreshLiveSignals()
-      }
     }, 60000)
   },
   beforeUnmount() {
@@ -497,9 +489,10 @@ export default {
       return phases[this.currentPhaseKey]
     },
     phaseSignals() {
+      // 장중(during)엔 today-signals 카드 자체가 v-if로 숨김 — phaseSignals 호출 안 됨
+      // (LiveSurge가 장중 신호 카드 상위호환)
       const phase = this.currentPhaseKey
       if (phase === 'pre') return this.preMarketSignals
-      if (phase === 'during') return this.duringMarketSignals
       return this.postMarketSignals
     },
     preMarketSignals() {
@@ -523,27 +516,7 @@ export default {
       })
       return signals.slice(0, 6)
     },
-    duringMarketSignals() {
-      const signals = []
-      if (this.surgeData?.length) {
-        this.surgeData.filter(s => s.surgeLevel === 'HOT').slice(0, 3).forEach(s => {
-          signals.push({
-            type: 'hot', badge: '🔥 HOT', stockCode: s.stockCode,
-            stockName: s.stockName, reason: '수급 급증', changeRate: s.changeRate
-          })
-        })
-      }
-      if (this.radarSignals?.length) {
-        this.radarSignals.slice(0, 3).forEach(r => {
-          signals.push({
-            type: 'radar', badge: '📰 정책',
-            stockName: r.title?.substring(0, 30), reason: (r.matchedSectors || []).join(' · '),
-            stockCode: null, changeRate: null
-          })
-        })
-      }
-      return signals.slice(0, 6)
-    },
+    // [제거] duringMarketSignals — 장중 today-signals 카드 숨김 + LiveSurge가 상위호환
     postMarketSignals() {
       const signals = []
       // 봇 성과
@@ -630,29 +603,14 @@ export default {
       } catch { /* 부가 표시 실패는 무시 */ }
     },
 
-    // ---- 장중 시간대별 신호 갱신 (수급 급증 HOT + 정책 레이더) ----
-    async refreshLiveSignals() {
-      try {
-        const res = await investorAPI.getAllSurgeStocks()
-        const sd = this.extractData(res)
-        this.surgeData = this.flattenInvestorMap(sd)
-      } catch { /* keep existing */ }
-      try {
-        const res = await radarAPI.getPolicyNews()
-        const list = this.extractData(res)
-        if (Array.isArray(list)) this.radarSignals = list.slice(0, 5)
-      } catch { /* keep existing */ }
-    },
-
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
-      // 트레이드 탭은 시장 데이터(시장상태바·수급·시간대별 신호) 공유
+      // 트레이드 탭은 시장 데이터(시장상태바·시장맵) + AI 전략 스냅샷(phaseSignals용) 공유
       if (tab === 'premarket' && !this.dataLoaded.market) {
         // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격.
-        // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, 나머지는 뒤로.
+        // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, AI 전략은 뒤로.
         this.loadMarketMap()
-        setTimeout(() => this.loadAiStrategy(), 500)   // 시간대별 신호용
-        setTimeout(() => this.loadSmartMoney(), 1000)  // 수급급증 신호용
+        setTimeout(() => this.loadAiStrategy(), 500)   // phaseSignals(pre/post)용 aiTopPicks
         this.dataLoaded.market = true
       }
       // 장중 시간대 매수 후보 트래커 — 즉시 1회 호출 (60초 폴링 첫 발화까지 빈 화면 방지)
@@ -705,24 +663,6 @@ export default {
 
       // 수급 현황 패널
       this.loadSupplyPanel()
-
-      // 선점 레이더 신호
-      try {
-        const res = await radarAPI.getPolicyNews()
-        this.radarSignals = (this.extractData(res) || []).slice(0, 5)
-      } catch { this.radarSignals = [] }
-
-      // 수급급증 데이터 (시장 뷰에서도 필요)
-      if (!this.surgeData?.length) {
-        try {
-          let sd = null
-          try {
-            const res = await withTimeout(investorAPI.getAllSurgeStocks(), 10000)
-            sd = this.extractData(res)
-          } catch { /* 실패 */ }
-          this.surgeData = this.flattenInvestorMap(sd)
-        } catch { /* ignore */ }
-      }
 
       // 시간대별 추가 데이터
       this.phaseLoading = true
@@ -786,10 +726,6 @@ export default {
     hasSectorChangeRate(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(s => s.changeRate && s.changeRate !== 0)
-    },
-    hasTradeData(arr) {
-      if (!Array.isArray(arr) || arr.length === 0) return false
-      return arr.some(t => t.netBuyAmount && t.netBuyAmount !== 0)
     },
     flattenInvestorMap(data) {
       if (!data) return []
@@ -1016,36 +952,9 @@ export default {
       }
     },
 
-    // Section C: 스마트 머니 (실시간 KIS API 우선, 폴백: V2 → Java DB)
-    async loadSmartMoney() {
-      try {
-        this.sections.smartMoney.loading = true
-        this.sections.smartMoney.error = false
-        const [foreignRes, instRes, consecutiveRes, surgeRes] = await Promise.allSettled([
-          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10)
-            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)), 10000),
-          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10)
-            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)), 10000),
-          withTimeout(investorAPI.getAllConsecutiveBuy(3), 10000),
-          withTimeout(investorAPI.getAllSurgeStocks(), 10000)
-        ])
-        const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
-        this.tradesData.foreign = this.hasTradeData(fd) ? fd : []
-        const id = instRes.status === 'fulfilled' ? this.extractData(instRes.value) : null
-        this.tradesData.institution = this.hasTradeData(id) ? id : []
-        const cd = consecutiveRes.status === 'fulfilled' ? this.extractData(consecutiveRes.value) : null
-        this.consecutiveData = this.flattenInvestorMap(cd)
-        const sd = surgeRes.status === 'fulfilled' ? this.extractData(surgeRes.value) : null
-        this.surgeData = this.flattenInvestorMap(sd)
-      } catch {
-        this.tradesData = { foreign: [], institution: [] }
-        this.consecutiveData = []
-        this.surgeData = []
-        this.sections.smartMoney.error = true
-      } finally {
-        this.sections.smartMoney.loading = false
-      }
-    },
+    // [제거] loadSmartMoney — dashboard에 SectionSmartMoney 위젯 없음.
+    //       ResearchPage가 자체 loadSmartMoney를 가지고 있어 정보는 그쪽에서 표시됨.
+    //       이 dashboard에서 호출하던 KIS API 4종은 헛호출이라 제거.
 
     // Section D: AI 리서치 (V2 → Java, 3초 타임아웃)
     async loadResearch() {
