@@ -63,16 +63,22 @@
 <script>
 import { investorAPI } from '../../utils/api'
 
+const REFRESH_MS = 60000
+
 export default {
   name: 'SectionConviction',
   emits: ['stock-click'],
+  props: {
+    active: { type: Boolean, default: true }
+  },
   data() {
     return {
       loading: false,
       buySignals: [],
       sellSignals: [],
       conflictSignals: [],
-      analysisDate: ''
+      analysisDate: '',
+      _timer: null
     }
   },
   computed: {
@@ -80,8 +86,21 @@ export default {
       return this.buySignals.length > 0 || this.sellSignals.length > 0 || this.conflictSignals.length > 0
     }
   },
-  mounted() {
-    this.loadData()
+  watch: {
+    active: {
+      immediate: true,
+      handler(v) {
+        if (v) {
+          this.loadData()
+          this.startPolling()
+        } else {
+          this.stopPolling()
+        }
+      }
+    }
+  },
+  beforeUnmount() {
+    this.stopPolling()
   },
   methods: {
     async loadData() {
@@ -97,6 +116,16 @@ export default {
         console.debug('멀티컨빅션 조회 실패:', e.message)
       } finally {
         this.loading = false
+      }
+    },
+    startPolling() {
+      this.stopPolling()
+      this._timer = setInterval(() => this.loadData(), REFRESH_MS)
+    },
+    stopPolling() {
+      if (this._timer) {
+        clearInterval(this._timer)
+        this._timer = null
       }
     }
   }

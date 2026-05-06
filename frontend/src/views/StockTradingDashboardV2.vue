@@ -543,7 +543,12 @@ export default {
     this.setupKeyboardShortcut()
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
-      if (this.activeGnbTab === 'premarket') this.loadMarketMap()
+      if (this.activeGnbTab === 'premarket') {
+        // 장전 09:00 직전·직후 — 추천 점수·수급 변동 반영
+        this.loadMarketMap()
+        this.refreshRecommendations()
+        this.loadSupplyPanel()
+      }
       if (this.activeGnbTab === 'live') {
         // 장중에 멈춰 있던 4개 — 시장상태바·수급패널·시간대별 신호(HOT/정책)
         this.loadMarketMap()
