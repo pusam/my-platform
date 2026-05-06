@@ -25,7 +25,7 @@ const DietManagement = () => import('./views/DietManagement.vue')
 const ExerciseManagement = () => import('./views/ExerciseManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
-// ResearchPage, PaperTradingPage → StockTradingDashboardV2에 탭으로 통합됨 (redirect)
+// /research, /paper-trading 등 레거시 경로는 StockTradingDashboardV2 sub-tab으로 redirect
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
