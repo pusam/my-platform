@@ -42,6 +42,7 @@ public class InvestorSurgeService {
     private final TelegramNotificationService telegramService;
     private final StockPriceService stockPriceService;
     private final RedisCacheService redisCacheService;
+    private final SchedulerLockService schedulerLockService;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -65,6 +66,12 @@ public class InvestorSurgeService {
 
         // 08:00 이전, 20:00 이후는 수집하지 않음
         if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
+            return;
+        }
+
+        // 멀티 인스턴스 중복 수집 방지 — 10분 cron 이라 TTL 5분이면 다음 cron 까진 락 풀림
+        if (!schedulerLockService.tryLock("investor-surge.snapshot", java.time.Duration.ofMinutes(5))) {
+            log.debug("장중 스냅샷 수집 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
 
@@ -587,6 +594,10 @@ public class InvestorSurgeService {
      */
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldData() {
+        if (!schedulerLockService.tryLock("investor-surge.cleanup", java.time.Duration.ofMinutes(30))) {
+            log.debug("스냅샷 정리 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         LocalDate cutoffDate = LocalDate.now().minusDays(7);
         snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);
         log.info("오래된 스냅샷 정리 완료: {} 이전", cutoffDate);
