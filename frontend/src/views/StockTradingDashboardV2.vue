@@ -315,7 +315,7 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
-  globalFuturesAPI, watchlistAPI, earningsAPI, paperTradingAPI,
+  globalFuturesAPI, watchlistAPI, paperTradingAPI,
   recommendationAPI, stockDetailAPI
 } from '../utils/api'
 

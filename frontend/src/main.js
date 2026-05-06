@@ -10,7 +10,6 @@ import Signup from './views/Signup.vue'
 import ForgotPassword from './views/ForgotPassword.vue'
 
 // 나머지는 lazy loading (코드 스플리팅)
-const Dashboard = () => import('./views/Dashboard.vue')
 const AdminDashboard = () => import('./views/AdminDashboard.vue')
 const UserDashboard = () => import('./views/UserDashboard.vue')
 const BoardPage = () => import('./views/BoardPage.vue')
