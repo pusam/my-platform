@@ -145,6 +145,31 @@ public class SectorTradingService {
     // ========== 스케줄러: 1분마다 스냅샷 수집 ==========
 
     /**
+     * 매일 08:00 일별 캐시 초기화
+     * - 프론트 currentPhaseKey 가 08:00부터 'during' 으로 전환돼 거래대금 탭이 노출되는데,
+     *   스냅샷 스케줄러는 09:00부터 도는 탓에 08~09시 사이엔 어제 마지막(15:39경) 데이터가
+     *   그대로 잔존하던 버그. 8시에 비워두면 9시 첫 스냅샷까지 빈 상태로 노출됨.
+     * - 휴장일은 어제 데이터 유지 (collectSnapshot 의 isMarketClosed 분기와 동일 의도).
+     */
+    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
+    public void resetDailyCache() {
+        if (isMarketClosed()) return;
+        log.info("[섹터거래대금] 08:00 일별 캐시 초기화 — 9시 첫 스냅샷 대기");
+        tradingHistoryStore.clear();
+        latestPriceCache = new ConcurrentHashMap<>();
+        cachedResultByPeriod.clear();
+        lastCalculateTime.clear();
+        lastSnapshotTime = null;
+        try {
+            for (TradingPeriod p : TradingPeriod.values()) {
+                redisCacheService.evict(MarketCacheWarmerService.getCacheSectorTrading(), p.name());
+            }
+        } catch (Exception e) {
+            log.warn("[섹터거래대금] Redis L2 evict 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
      * 매분 스냅샷 수집 (09:00~15:40, 평일)
      * - stockPriceService.getStockPrices()로 전체 종목 시세 조회
      * - accumulatedTradingValue를 시간별로 저장

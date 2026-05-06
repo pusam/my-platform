@@ -209,6 +209,19 @@ public class RecommendationService {
     }
 
     /**
+     * 매일 08:00 장전 캐시 무효화
+     * - 어제 장후 30분 캐시(메모리) 또는 stale DB 스냅샷이 8시 이후에도
+     *   sectorMomentum=0(장외 시간 보너스 0)으로 굳어 N/A 무더기로 노출되던 문제 해결.
+     * - 다음 getTop5() 호출에서 fresh calculate (장중) 또는 최신 DB 스냅샷 (장전) 사용.
+     */
+    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
+    public void invalidateMorningCache() {
+        log.info("[종합추천] 08:00 장전 캐시 무효화 — 다음 호출에서 fresh 계산");
+        cachedTop5 = null;
+        cacheTime = null;
+    }
+
+    /**
      * 매수 후보(TOP5)의 가격 도달 알림 (장중 5분 간격)
      * - 추천 종목이 +5%/+10% 도달 시 → 익절/모멘텀 신호
      * - 추천 종목이 -3%/-5% 도달 시 → 손절/진입 재검토 신호
@@ -476,7 +489,7 @@ public class RecommendationService {
                 .filter(s -> normalizeScore(
                         // AI전략 카테고리는 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용
                         s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability,
-                        countValidCategories(s)) >= 60) // 관망(59↓) 종목 제외
+                        countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
                         .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
                                 Comparator.reverseOrder()))

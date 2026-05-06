@@ -40,7 +40,7 @@
         <!-- ② 종합 추천 TOP 10 (트레이드 탭 상시 표시 — 5카테고리: 실적·수급·기술·섹터·가치) -->
         <div id="briefing-section-rec" class="top-rec section-card">
           <div class="section-title-row">
-            <h2><span class="section-icon">🏆</span> 종합 추천 TOP 10</h2>
+            <h2><span class="section-icon">🏆</span> 종합 추천 TOP {{ topRecommendations.length > 0 ? topRecommendations.length : 10 }}</h2>
             <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
               {{ topRecRealtime ? '🟢' : '🟡' }} {{ topRecDataTime }}
             </span>
