@@ -66,7 +66,10 @@
               class="rec-card"
               @click="goToStock(rec.stockCode)"
             >
-              <span class="rec-rank">#{{ i + 1 }}</span>
+              <span class="rec-rank">
+                #{{ i + 1 }}
+                <span v-if="i < 5 && currentPhaseKey === 'during'" class="rec-live-dot" title="장중 실시간 추적"></span>
+              </span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
                 <div class="rec-tags">
@@ -76,7 +79,11 @@
               <div class="rec-score-area">
                 <div class="rec-score-head">
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
-                  <span class="rec-score-basis">{{ rec.validCount }}/6항목</span>
+                  <span class="rec-score-basis">{{ rec.validCount }}/5항목</span>
+                  <span v-if="topRecScoreMap[rec.stockCode]" class="rec-score-detail"
+                        title="상세 페이지 단기 트레이딩 / 중장기 펀더멘털 점수">
+                    단기 {{ topRecScoreMap[rec.stockCode].tradingScore }} · 중장기 {{ topRecScoreMap[rec.stockCode].fundamentalScore }}
+                  </span>
                   <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
                         :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
                     {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
@@ -160,20 +167,13 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
-        <!-- ②-d 매수 후보 트래커 (장중 시간대 — 추천 종목 실시간 추적) -->
-        <SectionLiveTracker
-          v-if="currentPhaseKey === 'during'"
-          :recommendations="topRecommendations"
-          :score-map="topRecScoreMap"
-        />
-
         <!-- ②-f 섹터별 거래대금 (장중 시간대 — 5분/30분 파워, 5분 폴링) -->
         <div v-if="currentPhaseKey === 'during'" class="embedded-content">
           <SectorTradingPage :embedded="true" />
         </div>
 
-        <!-- ③ 시간대별 신호 (트레이드 탭 상시 — phaseSignals 가 시간대별로 자동 변경) -->
-        <div class="today-signals section-card">
+        <!-- ③ 시간대별 신호 (장전·장후 전용 — 장중엔 LiveSurge가 상위호환) -->
+        <div class="today-signals section-card" v-if="currentPhaseKey !== 'during'">
           <div class="section-title-row">
             <h2>
               <span class="section-icon">{{ marketPhase.icon }}</span>
@@ -244,27 +244,8 @@
           </div>
         </div>
 
-        <!-- ④ AI 전략 TOP 픽 (트레이드 탭 상시 — 4개 전략별 1픽씩) -->
-        <div class="ai-top-picks section-card" v-if="aiTopPicks.length">
-          <div class="section-title-row">
-            <h2><span class="section-icon">🤖</span> AI 전략 TOP 픽</h2>
-          </div>
-          <div class="top-picks-grid">
-            <div
-              v-for="pick in aiTopPicks"
-              :key="'pick-' + pick.stockCode"
-              class="pick-card"
-              @click="goToStock(pick.stockCode)"
-            >
-              <div class="pick-strategy">{{ pick.strategyLabel }}</div>
-              <div class="pick-name">{{ pick.stockName }}</div>
-              <div class="pick-score">{{ pick.aiScore || pick.score }}점</div>
-              <div class="pick-tags" v-if="pick.aiThemes">
-                <span v-for="t in pick.aiThemes.split(',').slice(0, 2)" :key="t" class="pick-tag">{{ t.trim() }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- AI 전략 TOP 픽 카드는 종합 추천 TOP10에 흡수되어 제거됨.
+             aiTopPicks 데이터는 phaseSignals(장전·장후)의 신호 카드 일부로 계속 사용됨. -->
 
         <!-- ⑤ 섹터 히트맵 (트레이드 탭 상시) -->
         <SectionMarketMap
@@ -318,7 +299,6 @@ import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionBriefing from '../components/v2/SectionBriefing.vue'
-import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
@@ -382,7 +362,6 @@ export default {
     SectionMarketMap,
     SectionQuantTa,
     SectionBriefing,
-    SectionLiveTracker,
     SectionLiveSurge,
     SectionBacktest,
     StockSearchModal,
@@ -1279,8 +1258,27 @@ export default {
 .rec-rank {
   font-size: 14px; font-weight: 800; color: #f59e0b;
   min-width: 28px; text-align: center;
+  position: relative;
 }
 .rec-card:first-child .rec-rank { color: #ef4444; }
+/* 장중 실시간 추적 인디케이터 — 트래커 위젯 흡수 */
+.rec-live-dot {
+  display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #4ade80;
+  margin-left: 3px;
+  vertical-align: middle;
+  animation: rec-pulse 2s infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+/* 단기/중장기 부가 점수 — 상세 페이지와 매칭 */
+.rec-score-detail {
+  font-size: 10px; color: rgba(255,255,255,0.5);
+  font-weight: 500; margin-left: 4px; white-space: nowrap;
+}
 .rec-info { flex: 1; min-width: 0; }
 .rec-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
 .rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
