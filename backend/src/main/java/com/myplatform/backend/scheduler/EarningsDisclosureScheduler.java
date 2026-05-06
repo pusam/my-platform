@@ -1,6 +1,7 @@
 package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.EarningsDisclosureService;
+import com.myplatform.backend.service.SchedulerLockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -8,6 +9,8 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
 
 /**
  * 실적공시 자동 수집 스케줄러
@@ -23,12 +26,17 @@ import org.springframework.stereotype.Component;
 public class EarningsDisclosureScheduler {
 
     private final EarningsDisclosureService earningsService;
+    private final SchedulerLockService schedulerLockService;
 
     /**
      * 매일 08:00 - 장 시작 전 실적공시 수집
      */
     @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
+        if (!schedulerLockService.tryLock("earnings.morning", Duration.ofMinutes(30))) {
+            log.debug("[실적공시] 08:00 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         log.info("=== [실적공시] 08:00 자동 수집 시작 ===");
         try {
             int collected = earningsService.collectEarningsDisclosures();
@@ -43,6 +51,10 @@ public class EarningsDisclosureScheduler {
      */
     @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoonAndNotify() {
+        if (!schedulerLockService.tryLock("earnings.afternoon", Duration.ofMinutes(30))) {
+            log.debug("[실적공시] 16:30 다른 인스턴스에서 진행 중 — 스킵 (텔레그램 중복 방지)");
+            return;
+        }
         log.info("=== [실적공시] 16:30 자동 수집 + 알림 시작 ===");
         try {
             int collected = earningsService.collectEarningsDisclosures();

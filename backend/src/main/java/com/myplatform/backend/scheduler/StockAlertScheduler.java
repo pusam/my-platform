@@ -5,6 +5,7 @@ import com.myplatform.backend.service.EarningSurpriseService;
 import com.myplatform.backend.service.MarketTimingService;
 import com.myplatform.backend.service.MorningBriefingService;
 import com.myplatform.backend.service.QuantScreenerService;
+import com.myplatform.backend.service.SchedulerLockService;
 import com.myplatform.backend.service.ShortSellingService;
 import com.myplatform.backend.service.WatchlistService;
 import lombok.RequiredArgsConstructor;
@@ -12,6 +13,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
 
 /**
  * 주식 알림 스케줄러
@@ -43,6 +46,7 @@ public class StockAlertScheduler {
     private final QuantScreenerService quantScreenerService;
     private final ShortSellingService shortSellingService;
     private final WatchlistService watchlistService;
+    private final SchedulerLockService schedulerLockService;
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
@@ -55,6 +59,10 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
     public void morningBriefing() {
         if (!schedulerEnabled) return;
+        if (!schedulerLockService.tryLock("alert.morning-briefing", Duration.ofMinutes(15))) {
+            log.debug("모닝 브리핑 다른 인스턴스에서 발송 중 — 스킵");
+            return;
+        }
         try {
             morningBriefingService.sendMorningBriefing();
         } catch (Exception e) {
@@ -71,6 +79,10 @@ public class StockAlertScheduler {
     public void afterMarketCloseAlert() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");
+            return;
+        }
+        if (!schedulerLockService.tryLock("alert.after-close", Duration.ofMinutes(15))) {
+            log.debug("장 마감 후 알림 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
 
@@ -96,6 +108,10 @@ public class StockAlertScheduler {
     public void morningAlert() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");
+            return;
+        }
+        if (!schedulerLockService.tryLock("alert.morning", Duration.ofMinutes(15))) {
+            log.debug("아침 알림 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
 
@@ -125,6 +141,11 @@ public class StockAlertScheduler {
             log.debug("스케줄러 비활성화 상태");
             return;
         }
+        // 5분 cron — TTL 4분 이면 다음 cron 까지 락 풀림
+        if (!schedulerLockService.tryLock("alert.watchlist", Duration.ofMinutes(4))) {
+            log.debug("관심종목 알림 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
 
         try {
             watchlistService.checkWatchlistAlerts();
@@ -141,6 +162,10 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkCompositeAlerts() {
         if (!schedulerEnabled) return;
+        if (!schedulerLockService.tryLock("alert.composite", Duration.ofMinutes(8))) {
+            log.debug("복합 조건 알림 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         try {
             compositeAlertService.checkCompositeSignals();
         } catch (Exception e) {
@@ -156,6 +181,10 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 0 8 * * MON", zone = "Asia/Seoul")
     public void checkEarningSurprises() {
         if (!schedulerEnabled) return;
+        if (!schedulerLockService.tryLock("alert.earning-surprise", Duration.ofMinutes(30))) {
+            log.debug("어닝 서프라이즈 알림 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         try {
             log.info("=== 어닝 서프라이즈 주간 알림 시작 ===");
             earningSurpriseService.sendEarningSurpriseAlert();
@@ -172,6 +201,10 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
     public void collectShortSellingBalance() {
         if (!schedulerEnabled) return;
+        if (!schedulerLockService.tryLock("alert.short-collect", Duration.ofMinutes(20))) {
+            log.debug("공매도 잔고 수집 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         try {
             log.info("=== 공매도 잔고 수집 시작 (18:30) ===");
             shortSellingService.collectShortSellingData();
@@ -188,6 +221,10 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkShortSellingAlert() {
         if (!schedulerEnabled) return;
+        if (!schedulerLockService.tryLock("alert.short-notify", Duration.ofMinutes(15))) {
+            log.debug("공매도 경보 발송 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         try {
             log.info("=== 공매도 경보 발송 시작 (19:00) ===");
             shortSellingService.sendHighShortSellingAlert();

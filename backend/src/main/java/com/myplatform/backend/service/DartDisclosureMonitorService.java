@@ -37,6 +37,7 @@ public class DartDisclosureMonitorService {
     private final KoreaInvestmentService kisService;
     private final TelegramNotificationService telegramService;
     private final RedisCacheService redisCacheService;
+    private final SchedulerLockService schedulerLockService;
 
     /**
      * 거래시간(NXT 8-20 + KRX) 5분마다.
@@ -65,6 +66,12 @@ public class DartDisclosureMonitorService {
 
     private void runCheck(String mode) {
         if (!dartService.isAvailable()) return;
+        // 가장 짧은 cron(5분)에 맞춰 TTL 4분. dartSeen 캐시가 텔레그램 중복은 이미 막지만,
+        // DART API 호출/loop 자체가 두 번 도는 부담을 줄임.
+        if (!schedulerLockService.tryLock("dart-disclosure.check", Duration.ofMinutes(4))) {
+            log.debug("[DartMonitor] {} 다른 인스턴스에서 진행 중 — 스킵", mode);
+            return;
+        }
 
         try {
             Set<String> stockNames = collectTargetStockNames();

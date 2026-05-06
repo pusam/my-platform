@@ -43,6 +43,7 @@ public class PositionDropMonitorService {
     private final GeminiService geminiService;
     private final TelegramNotificationService telegramService;
     private final KoreaInvestmentService kisService;
+    private final SchedulerLockService schedulerLockService;
 
     // 종목별 마지막 알림 시각 — 서버 재기동 시 초기화 (쿨다운 리셋은 허용)
     private final Map<String, LocalDateTime> lastAlertTime = new ConcurrentHashMap<>();
@@ -53,6 +54,12 @@ public class PositionDropMonitorService {
     @Scheduled(cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkDrops() {
         if (!kisService.isRealTradingConfigured()) return;
+        // 2분 cron — TTL 90초. 알림 쿨다운(30분)은 lastAlertTime 으로 별도 관리이므로
+        // 락은 한 인스턴스만 KIS 호출/Gemini 호출하도록 보호하는 용도.
+        if (!schedulerLockService.tryLock("position-drop.check", Duration.ofSeconds(90))) {
+            log.debug("[PositionDrop] 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
 
         try {
             List<PortfolioItemDto> portfolio = realTradeService.getPortfolio();
