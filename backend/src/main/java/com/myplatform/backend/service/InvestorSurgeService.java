@@ -348,15 +348,17 @@ public class InvestorSurgeService {
      */
     @Transactional(readOnly = true)
     public Map<String, List<InvestorSurgeDto>> getAllSurgeStocks(BigDecimal minChange) {
-        // Redis L2 우선 — 워머가 10분마다 all_0 키로 저장.
-        // minChange == 0 요청(대시보드 진입 시 기본값)에 대해서만 캐시 적용.
-        if (minChange != null && minChange.compareTo(BigDecimal.ZERO) == 0) {
-            Map<String, List<InvestorSurgeDto>> l2 = redisCacheService.get(
-                    MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
-                    new TypeReference<Map<String, List<InvestorSurgeDto>>>() {});
-            if (l2 != null && !l2.isEmpty()) {
-                return l2;
-            }
+        // Redis L2 우선 — 워머가 10분마다 all_0 키로 모든 데이터 저장.
+        // minChange 필터는 in-memory 로 적용 → 모든 minChange 값에 대해 캐시 hit.
+        Map<String, List<InvestorSurgeDto>> l2 = redisCacheService.get(
+                MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
+                new TypeReference<Map<String, List<InvestorSurgeDto>>>() {});
+        if (l2 != null && !l2.isEmpty()) {
+            Map<String, List<InvestorSurgeDto>> result = (minChange != null && minChange.compareTo(BigDecimal.ZERO) > 0)
+                    ? filterByMinChange(l2, minChange) : l2;
+            // 캐시는 워머 시점 가격으로 굳어 있어 stale — stockPriceService L1 캐시에서 가격만 최신화
+            enrichWithRealTimePrices(result);
+            return result;
         }
 
         Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
@@ -372,6 +374,24 @@ public class InvestorSurgeService {
         enrichWithRealTimePrices(result);
 
         return result;
+    }
+
+    /**
+     * 캐시된 전체 데이터에서 minChange(누적 순매수) 이상만 추출.
+     * - 캐시 hit 시 in-memory filter 로 모든 minChange 값 처리
+     */
+    private Map<String, List<InvestorSurgeDto>> filterByMinChange(
+            Map<String, List<InvestorSurgeDto>> source, BigDecimal minChange) {
+        Map<String, List<InvestorSurgeDto>> filtered = new HashMap<>();
+        for (Map.Entry<String, List<InvestorSurgeDto>> e : source.entrySet()) {
+            List<InvestorSurgeDto> list = e.getValue() == null ? Collections.emptyList()
+                    : e.getValue().stream()
+                            .filter(s -> s.getNetBuyAmount() != null
+                                    && s.getNetBuyAmount().compareTo(minChange) >= 0)
+                            .collect(Collectors.toList());
+            filtered.put(e.getKey(), list);
+        }
+        return filtered;
     }
 
     /**
@@ -590,19 +610,15 @@ public class InvestorSurgeService {
     }
 
     /**
-     * 오래된 스냅샷 및 알림 기록 정리 (7일 이전)
+     * 오래된 알림 기록(24시간 이상) 정리.
+     * 스냅샷 정리는 BatchJobCleanupService.cleanOldSnapshots(30일)가 master — 여기서는 alert 만 담당.
      */
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
-    public void cleanupOldData() {
-        if (!schedulerLockService.tryLock("investor-surge.cleanup", java.time.Duration.ofMinutes(30))) {
-            log.debug("스냅샷 정리 다른 인스턴스에서 진행 중 — 스킵");
+    public void cleanupExpiredSurgeAlerts() {
+        if (!schedulerLockService.tryLock("investor-surge.alert-cleanup", java.time.Duration.ofMinutes(30))) {
+            log.debug("알림 기록 정리 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
-        LocalDate cutoffDate = LocalDate.now().minusDays(7);
-        snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);
-        log.info("오래된 스냅샷 정리 완료: {} 이전", cutoffDate);
-
-        // 오래된 알림 기록 정리 (24시간 이상)
         cleanupExpiredAlerts();
     }
 
