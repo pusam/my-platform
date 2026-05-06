@@ -174,6 +174,11 @@
           :active="activeGnbTab === 'live'"
         />
 
+        <!-- ②-f 섹터별 거래대금 (장중 전용 — 5분/30분 파워, 5분 폴링) -->
+        <div v-if="activeGnbTab === 'live'" class="embedded-content">
+          <SectorTradingPage :embedded="true" />
+        </div>
+
         <!-- ③ 시간대별 신호 (장중 전용) -->
         <div class="today-signals section-card" v-if="activeGnbTab === 'live'">
           <div class="section-title-row">
@@ -347,7 +352,6 @@
           <SectionBacktest v-if="activeAnalysisTab === 'backtest'" />
           <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
           <SectionQuantTa v-if="activeAnalysisTab === 'quant-ta'" />
-          <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
           <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
           <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
           <NewsPage v-if="activeAnalysisTab === 'news'" :embedded="true" />
@@ -467,7 +471,6 @@ export default {
         { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
         { key: 'quant-ta', label: '퀀트(TA)' },
-        { key: 'sector', label: '섹터' },
         { key: 'investor', label: '투자자' },
         { key: 'timing', label: '시장타이밍' },
         { key: 'news', label: '뉴스' }
