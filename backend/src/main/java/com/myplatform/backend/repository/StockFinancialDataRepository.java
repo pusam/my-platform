@@ -19,6 +19,13 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
 
     Optional<StockFinancialData> findTopByStockCodeOrderByReportDateDesc(String stockCode);
 
+    /**
+     * 가치 점수 산정용 — 최신 10건.
+     * 단일 row 가 일부 컬럼만 채워진 케이스(예: 미래 일자 annual row 는 영업이익만, 일별 row 는 PBR/ROE 만)
+     * 대비해 호출측에서 first non-null 로 합성.
+     */
+    List<StockFinancialData> findTop10ByStockCodeOrderByReportDateDesc(String stockCode);
+
     List<StockFinancialData> findByStockCode(String stockCode);
 
     List<StockFinancialData> findByReportDate(LocalDate reportDate);

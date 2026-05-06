@@ -510,19 +510,31 @@ public class RecommendationService {
     // ==================== ⑥ 가치/안정성 (/20) ====================
     // PBR·ROE·부채비율·흑자 + 대주주 리스크 페널티
     // 모멘텀 카테고리 비중 다이루션해 저평가 우량주 부각
+    //
+    // [수정 이력] 같은 종목인데 row 마다 일부 컬럼만 채워지는 데이터 패턴 발견:
+    //   예) 005930 (삼성전자) — 미래 일자 12-31 annual row 엔 영업이익만, 5-07 row 엔 PBR/ROE 만,
+    //       5-06 row 엔 PBR + (placeholder 0의) ROE/debt_ratio.
+    // 단일 row 픽하면 NULL/0 무더기로 0점→NA 노출. 최신 10건에서 first non-null 로 합성하고,
+    // 0 placeholder 의심값(특히 debt_ratio) 은 점수 가산에서 배제.
     private void scoreValueStability(Map<String, StockScore> scoreMap) {
         int calc = 0, miss = 0;
         for (StockScore stock : scoreMap.values()) {
             try {
-                Optional<StockFinancialData> opt = financialDataRepository
-                        .findTopByStockCodeOrderByReportDateDesc(stock.stockCode);
-                if (opt.isEmpty()) { miss++; continue; }
-                StockFinancialData fin = opt.get();
+                List<StockFinancialData> recent = financialDataRepository
+                        .findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode);
+                if (recent.isEmpty()) { miss++; continue; }
+
+                // 각 필드별 first non-null — 단일 row 의 결손 컬럼을 다른 최근 row 로 보완
+                BigDecimal pbr = firstNonNull(recent, StockFinancialData::getPbr);
+                BigDecimal roe = firstNonNull(recent, StockFinancialData::getRoe);
+                BigDecimal debtRatio = firstNonNull(recent, StockFinancialData::getDebtRatio);
+                BigDecimal opProfit = firstNonNull(recent, StockFinancialData::getOperatingProfit);
+                BigDecimal equity = firstNonNull(recent, StockFinancialData::getTotalEquity);
+
                 int score = 0;
                 List<String> tags = new ArrayList<>();
 
                 // 1) PBR (8점) — 저평가 핵심
-                BigDecimal pbr = fin.getPbr();
                 if (pbr != null && pbr.signum() > 0) {
                     double v = pbr.doubleValue();
                     if (v <= 0.7) { score += 8; tags.add("PBR저평가"); }
@@ -532,7 +544,6 @@ public class RecommendationService {
                 }
 
                 // 2) ROE×(1/PBR) 결합 (5점) — 자본효율+저평가 (마법공식 변형)
-                BigDecimal roe = fin.getRoe();
                 if (roe != null && pbr != null && pbr.signum() > 0) {
                     double combined = roe.doubleValue() / pbr.doubleValue();
                     if (combined >= 15) { score += 5; tags.add("우량+저평가"); }
@@ -542,8 +553,9 @@ public class RecommendationService {
                 }
 
                 // 3) 부채비율 (4점) — 재무 안정성
-                BigDecimal debtRatio = fin.getDebtRatio();
-                if (debtRatio != null && debtRatio.signum() >= 0) {
+                // signum()>=0 → >0 변경: 0.00 placeholder 가 "저부채 +4점" 으로 오인되던 버그 차단.
+                // 실제 0% 무차입 회사는 드물고, 데이터 신뢰성 우선.
+                if (debtRatio != null && debtRatio.signum() > 0) {
                     double v = debtRatio.doubleValue();
                     if (v <= 50) { score += 4; tags.add("저부채"); }
                     else if (v <= 100) score += 3;
@@ -551,8 +563,6 @@ public class RecommendationService {
                 }
 
                 // 4) 영업이익+자본총계 양수 (3점) — 흑자 + 자본잠식 없음
-                BigDecimal opProfit = fin.getOperatingProfit();
-                BigDecimal equity = fin.getTotalEquity();
                 if (opProfit != null && opProfit.signum() > 0
                         && equity != null && equity.signum() > 0) {
                     score += 3;
@@ -566,6 +576,8 @@ public class RecommendationService {
                     }
                 } catch (Exception ignore) { /* 리스크 조회 실패 시 페널티 안 줌 */ }
 
+                // 데이터 row 가 존재하면 valueStability=0 이상으로 확정 (NA(-1) 와 구분).
+                // 0 점은 "데이터는 있으나 가치주 기준(저PBR) 미달" 의미 — UI 에서 "0/20" 으로 표기.
                 stock.valueStability = Math.min(20, score);
                 if (stock.valueStability > 0) {
                     stock.tags.addAll(tags);
@@ -577,6 +589,15 @@ public class RecommendationService {
             }
         }
         log.debug("[종합추천] 가치: {}건 계산, {}건 데이터부족", calc, miss);
+    }
+
+    private static BigDecimal firstNonNull(List<StockFinancialData> rows,
+                                            java.util.function.Function<StockFinancialData, BigDecimal> getter) {
+        for (StockFinancialData r : rows) {
+            BigDecimal v = getter.apply(r);
+            if (v != null) return v;
+        }
+        return null;
     }
 
     // ==================== ① AI전략 (/20) ====================
@@ -1114,8 +1135,9 @@ public class RecommendationService {
 
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
-        // AI전략은 산식에서 제외 (5카테고리 합산)
-        int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability;
+        // AI전략은 산식에서 제외 (5카테고리 합산) — valueStability=-1(NA) 인 경우 raw 합에서 차감 보정
+        int rawValue = Math.max(0, s.valueStability);
+        int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + rawValue;
         int total = normalizeScore(raw, vc);
 
         return RecommendationDto.builder()
@@ -1126,7 +1148,9 @@ public class RecommendationService {
                 .supplyDemand(s.supplyDemand > 0 ? s.supplyDemand : NA)
                 .technical(s.technical > 0 ? s.technical : NA)
                 .sectorMomentum(s.sectorMomentum > 0 ? s.sectorMomentum : NA)
-                .valueStability(s.valueStability > 0 ? s.valueStability : NA)
+                // valueStability 만 -1(데이터 자체 없음) 과 0(데이터 있음·점수 0) 구분.
+                // -1 → NA, 0 → "0/20" 표기 (가치주 기준 미달).
+                .valueStability(s.valueStability >= 0 ? s.valueStability : NA)
                 .validCount(vc)
                 .tags(new ArrayList<>(s.tags))
                 .changeRate(s.changeRate).build();
@@ -1136,13 +1160,16 @@ public class RecommendationService {
 
     private static class StockScore {
         String stockCode, stockName;
-        int aiStrategy = 0, earnings = 0, supplyDemand = 0, technical = 0, sectorMomentum = 0, valueStability = 0;
+        int aiStrategy = 0, earnings = 0, supplyDemand = 0, technical = 0, sectorMomentum = 0;
+        // valueStability — 다른 카테고리와 달리 "데이터 자체 없음" 과 "데이터 있으나 점수 0" 구분.
+        // -1 = financial_data row 없음(NA), 0+ = row 있음 (점수 0이면 가치주 기준 미달, UI에 "0/20" 표기).
+        int valueStability = -1;
         Set<String> tags = new LinkedHashSet<>();
         BigDecimal changeRate;
         StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
-            // AI전략은 산식에서 제외 (5카테고리 합산)
+            // AI전략은 산식에서 제외 (5카테고리 합산) — valueStability 0 점은 valid 카운트에서 제외
             int v = 0, sum = 0;
             if (earnings > 0) { v++; sum += earnings; }
             if (supplyDemand > 0) { v++; sum += supplyDemand; }
