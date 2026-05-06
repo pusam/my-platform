@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.MarketTimingDto;
@@ -8,6 +9,7 @@ import com.myplatform.backend.entity.MarketDailyStatus;
 import com.myplatform.backend.repository.MarketDailyStatusRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.time.Duration;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -44,11 +46,19 @@ public class MarketTimingService {
 
     private final MarketDailyStatusRepository marketDailyStatusRepository;
     private final TelegramNotificationService telegramNotificationService;
+    private final RedisCacheService redisCacheService;
+
+    // 시장 상태 Redis L2 캐시 — 60초 폴링 부담 완화
+    private static final String CACHE_MARKET_STATUS = "marketStatus";
+    private static final String KEY_CURRENT = "current";
+    private static final Duration TTL_MARKET_STATUS = Duration.ofMinutes(2);
 
     public MarketTimingService(MarketDailyStatusRepository marketDailyStatusRepository,
-                               TelegramNotificationService telegramNotificationService) {
+                               TelegramNotificationService telegramNotificationService,
+                               RedisCacheService redisCacheService) {
         this.marketDailyStatusRepository = marketDailyStatusRepository;
         this.telegramNotificationService = telegramNotificationService;
+        this.redisCacheService = redisCacheService;
     }
 
     // ADR 기준값
@@ -122,9 +132,35 @@ public class MarketTimingService {
     }
 
     /**
-     * 현재 시장 타이밍 분석
+     * 현재 시장 타이밍 분석 — Redis L2 캐시 우선 (TTL 2분).
+     * 워머({@code MarketCacheWarmerService.warmMarketStatus})가 60초 마다 직접 채워두므로
+     * 프론트 60초 폴링은 대부분 캐시 hit. miss 시 즉시 계산 후 반환(저장하지 않음 — 워머가 마스터).
      */
     public MarketTimingDto getCurrentMarketTiming() {
+        MarketTimingDto cached = redisCacheService.get(
+                CACHE_MARKET_STATUS, KEY_CURRENT,
+                new TypeReference<MarketTimingDto>() {});
+        if (cached != null) {
+            return cached;
+        }
+        return computeCurrentMarketTiming();
+    }
+
+    /**
+     * 워머 전용 — 외부 소스에서 새로 계산 후 Redis 갱신.
+     */
+    public void refreshMarketTimingToCache() {
+        try {
+            MarketTimingDto fresh = computeCurrentMarketTiming();
+            if (fresh != null) {
+                redisCacheService.put(CACHE_MARKET_STATUS, KEY_CURRENT, fresh, TTL_MARKET_STATUS);
+            }
+        } catch (Exception e) {
+            log.warn("[MarketTiming] 캐시 갱신 실패: {}", e.getMessage());
+        }
+    }
+
+    private MarketTimingDto computeCurrentMarketTiming() {
         log.info("시장 타이밍 분석 시작");
 
         // 최신 데이터 조회

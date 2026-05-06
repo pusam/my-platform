@@ -42,6 +42,7 @@ public class MarketCacheWarmerService {
     private final AiStockAnalysisService aiStockAnalysisService;
     private final SectorOpportunityService sectorOpportunityService;
     private final MarketIndicatorService marketIndicatorService;
+    private final MarketTimingService marketTimingService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // NXT/시간외 거래 시간까지 커버 (2025-03 NXT 도입, 2026-09 KRX 본 장 연장 예정)
@@ -229,6 +230,21 @@ public class MarketCacheWarmerService {
             log.debug("[Cache Warmer] 실시간 등락률 상위/하위 워밍 완료");
         } catch (Exception e) {
             log.warn("[Cache Warmer] 등락률 워밍 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 시장 상태(KOSPI/KOSDAQ/ADR) - 이전 호출 종료 후 60초.
+     * 프론트 60초 폴링이 매번 네이버 크롤링 + ADR 계산을 트리거하던 부담 제거.
+     * 장외에도 동작 — 사용자가 장 마감 후 들어와도 최신 데이터 보이도록.
+     */
+    @Scheduled(fixedDelay = 60000)
+    public void warmMarketStatus() {
+        try {
+            marketTimingService.refreshMarketTimingToCache();
+            log.debug("[Cache Warmer] 시장 상태 워밍 완료");
+        } catch (Exception e) {
+            log.warn("[Cache Warmer] 시장 상태 워밍 실패: {}", e.getMessage());
         }
     }
 
