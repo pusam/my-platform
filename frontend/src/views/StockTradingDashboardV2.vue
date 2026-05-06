@@ -213,6 +213,12 @@
           <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
         </div>
 
+        <!-- ③-b 실시간 수급 급증 (장중 전용) -->
+        <SectionLiveSurge
+          v-if="activeGnbTab === 'live'"
+          :active="activeGnbTab === 'live'"
+        />
+
         <!-- ③ 관심종목 현황 (장전 전용) -->
         <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'premarket' && watchlistItems.length">
           <div class="section-title-row">
@@ -367,6 +373,7 @@ import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionBriefing from '../components/v2/SectionBriefing.vue'
 import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
 import SectionLiveMovers from '../components/v2/SectionLiveMovers.vue'
+import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
@@ -433,6 +440,7 @@ export default {
     SectionBriefing,
     SectionLiveTracker,
     SectionLiveMovers,
+    SectionLiveSurge,
     SectionBacktest,
     StockSearchModal,
     AiStrategyDashboardPage,
@@ -533,8 +541,13 @@ export default {
     // 60초마다 활성 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
       if (this.activeGnbTab === 'premarket') this.loadMarketMap()
-      // 장중 — 추천 TOP5 등락률 실시간 추적용으로 갱신
-      if (this.activeGnbTab === 'live') this.refreshRecommendations()
+      if (this.activeGnbTab === 'live') {
+        // 장중에 멈춰 있던 4개 — 시장상태바·수급패널·시간대별 신호(HOT/정책)
+        this.loadMarketMap()
+        this.refreshRecommendations()
+        this.loadSupplyPanel()
+        this.refreshLiveSignals()
+      }
     }, 60000)
   },
   beforeUnmount() {
@@ -688,6 +701,20 @@ export default {
         this.topRecRealtime = body?.realtime !== false
         this.topRecDelta = body?.delta || {}
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
+    },
+
+    // ---- 장중 시간대별 신호 갱신 (수급 급증 HOT + 정책 레이더) ----
+    async refreshLiveSignals() {
+      try {
+        const res = await investorAPI.getAllSurgeStocks()
+        const sd = this.extractData(res)
+        this.surgeData = this.flattenInvestorMap(sd)
+      } catch { /* keep existing */ }
+      try {
+        const res = await radarAPI.getPolicyNews()
+        const list = this.extractData(res)
+        if (Array.isArray(list)) this.radarSignals = list.slice(0, 5)
+      } catch { /* keep existing */ }
     },
 
     // ---- 탭별 데이터 로딩 ----

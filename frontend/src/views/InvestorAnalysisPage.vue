@@ -191,115 +191,6 @@
         </template>
       </div>
 
-      <!-- ========== 탭3: 수급 급증 ========== -->
-      <div v-if="activeTab === 'surge'" class="tab-content">
-        <LoadingSpinner v-if="surgeLoading" />
-        <template v-else>
-          <div class="sub-header">
-            <div class="filter-group">
-              <div class="filter-item">
-                <label>최소 변화량</label>
-                <select v-model="surgeMinChange" @change="fetchSurge">
-                  <option :value="30">30억 이상</option>
-                  <option :value="50">50억 이상</option>
-                  <option :value="100">100억 이상</option>
-                  <option :value="200">200억 이상</option>
-                </select>
-              </div>
-            </div>
-            <div class="action-buttons">
-              <div class="auto-refresh-badge" :class="{ active: isSurgeAutoRefresh }">
-                <span class="status-dot"></span>
-                <span v-if="isSurgeAutoRefresh">실시간 ({{ surgeNextRefresh }}s)</span>
-                <span v-else class="inactive-text">장 외</span>
-              </div>
-              <button @click="collectSurgeSnapshot" class="action-btn danger" :disabled="surgeCollecting">
-                {{ surgeCollecting ? '수집 중...' : '스냅샷 수집' }}
-              </button>
-              <button @click="fetchSurge" class="action-btn">새로고침</button>
-            </div>
-          </div>
-          <div class="last-update" v-if="surgeLastUpdate">마지막: {{ surgeLastUpdate }}</div>
-
-          <div class="investor-tabs">
-            <button v-for="type in surgeInvestorTypes" :key="type.value"
-                    :class="['tab-btn', { active: surgeInvestor === type.value }]"
-                    @click="surgeInvestor = type.value">
-              {{ type.icon }} {{ type.label }}
-            </button>
-          </div>
-
-          <div v-if="currentSurgeStocks.length > 0" class="stocks-grid">
-            <div v-for="stock in currentSurgeStocks" :key="stock.stockCode"
-                 :class="['stock-card', 'surge-card', stock.surgeLevel?.toLowerCase(), getTrendClass(stock.trendStatus), { common: surgeInvestor === 'COMMON', outdated: stock.outdated }]"
-                 @click="goToStock(stock.stockCode)">
-              <div class="surge-badge-label" :class="stock.surgeLevel?.toLowerCase()"
-                   v-if="shouldShowHotBadge(stock)">
-                {{ getSurgeLevelText(stock.surgeLevel) }}
-              </div>
-              <div class="trend-badge" :class="getTrendClass(stock.trendStatus)"
-                   v-if="stock.trendStatus && stock.trendStatus !== 'NORMAL' && stock.trendStatusName">
-                {{ getTrendIcon(stock.trendStatus) }} {{ stock.trendStatusName }}
-              </div>
-              <div class="stock-header">
-                <div class="stock-info">
-                  <span class="card-stock-name">{{ stock.stockName }}</span>
-                  <span class="card-stock-code">{{ stock.stockCode }}</span>
-                </div>
-                <div class="rank-info">
-                  <span class="current-rank">#{{ stock.currentRank }}</span>
-                  <span class="rank-change-badge" :class="getRankChangeClass(stock.rankChange)" v-if="stock.rankChange">
-                    {{ formatRankChange(stock.rankChange) }}
-                  </span>
-                </div>
-              </div>
-              <div class="stock-details">
-                <div class="detail-row highlight">
-                  <span class="label">{{ surgeInvestor === 'COMMON' ? '합산 순매수' : '누적 순매수' }}</span>
-                  <span class="value amount" :class="getAmountClass(stock.netBuyAmount)">
-                    {{ stock.formattedNetBuyAmount || '-' }}
-                  </span>
-                </div>
-                <template v-if="surgeInvestor === 'COMMON'">
-                  <div class="detail-row foreign-row">
-                    <span class="label">🌍 외국인</span>
-                    <span class="value" :class="getAmountClass(stock.foreignNetBuy)">
-                      {{ stock.formattedForeignNetBuy || '-' }}
-                    </span>
-                  </div>
-                  <div class="detail-row institution-row">
-                    <span class="label">🏢 기관</span>
-                    <span class="value" :class="getAmountClass(stock.institutionNetBuy)">
-                      {{ stock.formattedInstitutionNetBuy || '-' }}
-                    </span>
-                  </div>
-                </template>
-                <div class="detail-row" v-if="hasFormattedChange(stock.formattedChangeAmount) && surgeInvestor !== 'COMMON'">
-                  <span class="label">변화량</span>
-                  <span class="value" :class="getAmountClass(stock.amountChange)">
-                    {{ stock.formattedChangeAmount }}
-                  </span>
-                </div>
-                <div class="detail-row" v-if="stock.currentPrice">
-                  <span class="label">현재가</span>
-                  <span class="value">{{ formatNumber(stock.currentPrice) }}원</span>
-                </div>
-                <div class="detail-row" v-if="stock.changeRate">
-                  <span class="label">등락률</span>
-                  <span class="value rate" :class="getRateClass(stock.changeRate)">
-                    {{ formatRate(stock.changeRate) }}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="no-data">
-            <p>수급 급증 종목이 없습니다.</p>
-            <p class="hint">장중(09:10~15:20)에 자동 수집되며, "스냅샷 수집"으로 수동 수집 가능합니다.</p>
-          </div>
-        </template>
-      </div>
-
       <!-- ===== 탭4: 공매도 ===== -->
       <div v-if="activeTab === 'shortSelling'" class="tab-content">
         <div class="section-header">
@@ -358,7 +249,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, defineProps } from 'vue'
+import { ref, computed, onMounted, defineProps } from 'vue'
 import { useRouter } from 'vue-router'
 import { investorAPI, shortSellingAPI } from '../utils/api'
 import { toast } from '../utils/toast'
@@ -376,24 +267,18 @@ const activeTab = ref('trades')
 const mainTabs = [
   { key: 'trades', label: '매매 동향', icon: '📊' },
   { key: 'consecutive', label: '연속 매수', icon: '🔥' },
-  { key: 'surge', label: '수급 급증', icon: '⚡' },
   { key: 'shortSelling', label: '공매도', icon: '📉' }
 ]
 
 // 탭별 데이터 로드 플래그
 const tradesLoaded = ref(false)
 const consecLoaded = ref(false)
-const surgeLoaded = ref(false)
 const shortLoaded = ref(false)
 
 const switchTab = (key) => {
   activeTab.value = key
   if (key === 'trades' && !tradesLoaded.value) fetchTrades()
   if (key === 'consecutive' && !consecLoaded.value) fetchConsecutive()
-  if (key === 'surge' && !surgeLoaded.value) {
-    fetchSurge()
-    startSurgeAutoRefresh()
-  }
   if (key === 'shortSelling' && !shortLoaded.value) fetchShortSelling()
 }
 
@@ -568,126 +453,6 @@ const fetchConsecutive = async () => {
   }
 }
 
-// ===== 탭3: 수급 급증 =====
-const surgeLoading = ref(false)
-const surgeCollecting = ref(false)
-const surgeMinChange = ref(50)
-const surgeInvestor = ref('FOREIGN')
-const allSurgeStocks = ref({})
-const surgeLastUpdate = ref('')
-const surgeAutoTimer = ref(null)
-const surgeCountdownTimer = ref(null)
-const isSurgeAutoRefresh = ref(false)
-const surgeNextRefresh = ref(30)
-
-const surgeInvestorTypes = [
-  { value: 'FOREIGN', label: '외국인', icon: '🌍' },
-  { value: 'INSTITUTION', label: '기관', icon: '🏢' },
-  { value: 'COMMON', label: '공통', icon: '🤝' }
-]
-
-const currentSurgeStocks = computed(() => allSurgeStocks.value[surgeInvestor.value] || [])
-
-const isMarketOpen = () => {
-  const now = new Date()
-  const day = now.getDay()
-  if (day === 0 || day === 6) return false
-  const mins = now.getHours() * 60 + now.getMinutes()
-  return mins >= 540 && mins <= 930 // 09:00 ~ 15:30
-}
-
-const startSurgeAutoRefresh = () => {
-  if (!isMarketOpen()) { isSurgeAutoRefresh.value = false; return }
-  isSurgeAutoRefresh.value = true
-  surgeNextRefresh.value = 30
-  surgeCountdownTimer.value = setInterval(() => {
-    surgeNextRefresh.value--
-    if (surgeNextRefresh.value <= 0) surgeNextRefresh.value = 30
-  }, 1000)
-  surgeAutoTimer.value = setInterval(async () => {
-    if (!isMarketOpen()) { stopSurgeAutoRefresh(); return }
-    await fetchSurge()
-    surgeNextRefresh.value = 30
-  }, 30000)
-}
-
-const stopSurgeAutoRefresh = () => {
-  if (surgeAutoTimer.value) { clearInterval(surgeAutoTimer.value); surgeAutoTimer.value = null }
-  if (surgeCountdownTimer.value) { clearInterval(surgeCountdownTimer.value); surgeCountdownTimer.value = null }
-  isSurgeAutoRefresh.value = false
-}
-
-const fetchSurge = async () => {
-  surgeLoading.value = true
-  try {
-    const response = await investorAPI.getAllSurgeStocks(surgeMinChange.value)
-    if (response.data.success) {
-      allSurgeStocks.value = response.data.data
-      surgeLastUpdate.value = new Date().toLocaleTimeString('ko-KR')
-      surgeLoaded.value = true
-    }
-  } catch (error) {
-    console.error('수급 급증 종목 조회 오류:', error)
-  } finally {
-    surgeLoading.value = false
-  }
-}
-
-const collectSurgeSnapshot = async () => {
-  if (surgeCollecting.value) return
-  surgeCollecting.value = true
-  try {
-    const response = await investorAPI.collectSurge()
-    if (response.data.success) {
-      toast.success('스냅샷 수집 완료!')
-      await fetchSurge()
-    }
-  } catch (error) {
-    console.error('스냅샷 수집 오류:', error)
-    toast.error('스냅샷 수집 실패')
-  } finally {
-    surgeCollecting.value = false
-  }
-}
-
-const shouldShowHotBadge = (stock) => {
-  if (!stock.surgeLevel || stock.surgeLevel === 'NORMAL') return false
-  if (stock.trendStatus === 'PROFIT_TAKING') return false
-  return (stock.amountChange && Number(stock.amountChange) > 0) || stock.trendStatus === 'ACCUMULATING'
-}
-
-const getSurgeLevelText = (level) => {
-  if (level === 'HOT') return '🔥 HOT'
-  if (level === 'WARM') return '⚡ WARM'
-  return ''
-}
-
-const getTrendClass = (status) => {
-  if (status === 'ACCUMULATING') return 'trend-accumulating'
-  if (status === 'PROFIT_TAKING') return 'trend-profit-taking'
-  return 'trend-normal'
-}
-
-const getTrendIcon = (status) => {
-  if (status === 'ACCUMULATING') return '🚀'
-  if (status === 'PROFIT_TAKING') return '💰'
-  return ''
-}
-
-const formatRankChange = (change) => {
-  if (!change) return ''
-  if (change > 0) return `▲${change}`
-  if (change < 0) return `▼${Math.abs(change)}`
-  return '-'
-}
-
-const getRankChangeClass = (change) => {
-  if (!change) return ''
-  return change > 0 ? 'rank-up' : change < 0 ? 'rank-down' : ''
-}
-
-const hasFormattedChange = (val) => val && val !== '-'
-
 // ===== 탭4: 공매도 =====
 const shortLoading = ref(false)
 const shortStocks = ref([])
@@ -789,10 +554,6 @@ const formatDateRange = (start, end) => {
 // ===== Lifecycle =====
 onMounted(() => {
   autoCollectTrades()
-})
-
-onUnmounted(() => {
-  stopSurgeAutoRefresh()
 })
 </script>
 
@@ -987,72 +748,6 @@ onUnmounted(() => {
   color: #fff;
 }
 
-/* 액션 버튼 */
-.action-buttons {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.action-btn {
-  padding: 6px 14px;
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  background: var(--border-light);
-  color: rgba(255,255,255,0.7);
-  transition: all 0.2s;
-}
-
-.action-btn:hover { background: rgba(255,255,255,0.1); }
-.action-btn.danger { background: rgba(239,68,68,0.15); color: #ef4444; border-color: rgba(239,68,68,0.3); }
-.action-btn.danger:hover:not(:disabled) { background: rgba(239,68,68,0.25); }
-.action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.auto-refresh-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 20px;
-  font-size: 12px;
-  color: rgba(255,255,255,0.3);
-}
-
-.auto-refresh-badge.active {
-  border-color: rgba(72,187,120,0.5);
-  color: #48bb78;
-}
-
-.auto-refresh-badge .status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.2);
-}
-
-.auto-refresh-badge.active .status-dot {
-  background: #48bb78;
-  animation: pulse-dot 1.5s infinite;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(72,187,120,0.7); }
-  50% { opacity: 0.8; box-shadow: 0 0 0 3px rgba(72,187,120,0); }
-}
-
-.inactive-text { color: rgba(255,255,255,0.25); }
-
-.last-update {
-  text-align: right;
-  color: rgba(255,255,255,0.3);
-  font-size: 12px;
-  margin-bottom: 12px;
-}
-
 /* ===== 테이블 (매매 동향) ===== */
 .trades-table {
   overflow-x: auto;
@@ -1218,67 +913,6 @@ td {
   padding: 6px 8px;
   border-radius: 8px;
 }
-
-.detail-row.foreign-row {
-  background: rgba(72,187,120,0.08);
-  padding: 4px 8px;
-  border-radius: 6px;
-  border-left: 3px solid #48bb78;
-}
-
-.detail-row.institution-row {
-  background: rgba(66,153,225,0.08);
-  padding: 4px 8px;
-  border-radius: 6px;
-  border-left: 3px solid #4299e1;
-}
-
-/* Surge card specifics */
-.surge-card.hot { border-color: rgba(239,68,68,0.4); background: rgba(239,68,68,0.04); }
-.surge-card.warm { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.04); }
-.surge-card.common { border-color: rgba(159,122,234,0.4); background: rgba(159,122,234,0.04); }
-
-.surge-card.outdated { opacity: 0.5; filter: grayscale(30%); }
-.surge-card.outdated:hover { opacity: 0.7; transform: translateY(-2px); }
-
-.surge-card.trend-accumulating {
-  border-color: rgba(72,187,120,0.5) !important;
-  box-shadow: 0 0 16px rgba(72,187,120,0.2);
-}
-
-.surge-badge-label {
-  position: absolute;
-  top: -8px;
-  right: 12px;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.surge-badge-label.hot { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; }
-.surge-badge-label.warm { background: linear-gradient(135deg, #f59e0b, #d97706); color: white; }
-
-.trend-badge {
-  position: absolute;
-  top: -8px;
-  left: 12px;
-  padding: 3px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 700;
-  color: white;
-}
-
-.trend-badge.trend-accumulating { background: linear-gradient(135deg, #48bb78, #38a169); }
-.trend-badge.trend-profit-taking { background: linear-gradient(135deg, #ed8936, #dd6b20); }
-.trend-badge.trend-normal { display: none; }
-
-.rank-info { text-align: right; }
-.current-rank { font-size: 15px; font-weight: 700; color: #ef4444; }
-.rank-change-badge { display: block; font-size: 11px; margin-top: 2px; }
-.rank-change-badge.rank-up { color: #ef4444; }
-.rank-change-badge.rank-down { color: #3b82f6; }
 
 /* 데이터 없음 */
 .no-data {
