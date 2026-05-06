@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -28,24 +29,31 @@ public class WatchlistService {
         List<StockWatchlist> list = watchlistRepository.findByUsernameOrderByCreatedAtDesc(username);
         if (list.isEmpty()) return List.of();
 
+        // N+1 제거: 종목별 1쿼리 → 일괄 배치 조회 (50 종목 → 50쿼리에서 1쿼리로)
+        List<String> codes = list.stream()
+                .map(StockWatchlist::getStockCode)
+                .distinct()
+                .collect(java.util.stream.Collectors.toList());
+        Map<String, StockPriceDto> priceMap;
+        try {
+            priceMap = stockPriceService.getStockPrices(codes);
+        } catch (Exception e) {
+            log.warn("[Watchlist] 시세 일괄 조회 실패 - {}", e.getMessage());
+            priceMap = java.util.Collections.emptyMap();
+        }
+
         int priceOk = 0;
         int priceFail = 0;
         List<WatchlistDto.WatchlistItem> result = new ArrayList<>(list.size());
         for (StockWatchlist w : list) {
             WatchlistDto.WatchlistItem item = toDto(w);
-            try {
-                StockPriceDto price = stockPriceService.getStockPrice(w.getStockCode());
-                if (price != null && price.getCurrentPrice() != null) {
-                    item.setCurrentPrice(price.getCurrentPrice());
-                    item.setChangeRate(price.getChangeRate());
-                    priceOk++;
-                } else {
-                    priceFail++;
-                }
-            } catch (Exception e) {
+            StockPriceDto price = priceMap.get(w.getStockCode());
+            if (price != null && price.getCurrentPrice() != null) {
+                item.setCurrentPrice(price.getCurrentPrice());
+                item.setChangeRate(price.getChangeRate());
+                priceOk++;
+            } else {
                 priceFail++;
-                log.warn("[Watchlist] 시세 조회 실패: {} ({}) - {}",
-                        w.getStockName(), w.getStockCode(), e.getMessage());
             }
             result.add(item);
         }
@@ -124,42 +132,55 @@ public class WatchlistService {
         List<StockWatchlist> triggeredAlerts = watchlistRepository
                 .findByIsActiveAndAlertTriggeredAndTargetPriceIsNotNull(true, true);
 
-        // 재무장: 가격이 목표가 반대로 돌아갔으면 alertTriggered=false로 리셋
+        // N+1 제거: 두 리스트 종목코드 합쳐 1회 배치 조회
+        List<String> allCodes = new ArrayList<>();
+        triggeredAlerts.forEach(w -> allCodes.add(w.getStockCode()));
+        pendingAlerts.forEach(w -> allCodes.add(w.getStockCode()));
+        Map<String, StockPriceDto> priceMap;
+        try {
+            priceMap = stockPriceService.getStockPrices(
+                    allCodes.stream().distinct().collect(Collectors.toList()));
+        } catch (Exception e) {
+            log.warn("[Watchlist] 시세 일괄 조회 실패: {}", e.getMessage());
+            priceMap = java.util.Collections.emptyMap();
+        }
+
+        // 재무장: 가격이 목표가 반대로 돌아갔으면 alertTriggered=false로 리셋 (saveAll 배치)
+        List<StockWatchlist> toRearm = new ArrayList<>();
         for (StockWatchlist item : triggeredAlerts) {
-            try {
-                StockPriceDto price = stockPriceService.getStockPrice(item.getStockCode());
-                if (price == null || price.getCurrentPrice() == null) continue;
+            StockPriceDto price = priceMap.get(item.getStockCode());
+            if (price == null || price.getCurrentPrice() == null) continue;
 
-                BigDecimal currentPrice = price.getCurrentPrice();
-                boolean shouldRearm = false;
-                // ABOVE 알림: 가격이 목표가 아래로 내려가면 재무장
-                if ("ABOVE".equals(item.getAlertCondition())
-                        && currentPrice.compareTo(item.getTargetPrice()) < 0) {
-                    shouldRearm = true;
-                // BELOW 알림: 가격이 목표가 위로 올라가면 재무장
-                } else if ("BELOW".equals(item.getAlertCondition())
-                        && currentPrice.compareTo(item.getTargetPrice()) > 0) {
-                    shouldRearm = true;
-                }
+            BigDecimal currentPrice = price.getCurrentPrice();
+            boolean shouldRearm = false;
+            // ABOVE 알림: 가격이 목표가 아래로 내려가면 재무장
+            if ("ABOVE".equals(item.getAlertCondition())
+                    && currentPrice.compareTo(item.getTargetPrice()) < 0) {
+                shouldRearm = true;
+            // BELOW 알림: 가격이 목표가 위로 올라가면 재무장
+            } else if ("BELOW".equals(item.getAlertCondition())
+                    && currentPrice.compareTo(item.getTargetPrice()) > 0) {
+                shouldRearm = true;
+            }
 
-                if (shouldRearm) {
-                    item.setAlertTriggered(false);
-                    watchlistRepository.save(item);
-                    log.info("관심종목 알림 재무장: {} - 현재가 {} / 목표가 {} {}",
-                            item.getStockName(), currentPrice, item.getTargetPrice(), item.getAlertCondition());
-                }
-            } catch (Exception e) {
-                log.debug("알림 재무장 체크 실패: {} - {}", item.getStockCode(), e.getMessage());
+            if (shouldRearm) {
+                item.setAlertTriggered(false);
+                toRearm.add(item);
+                log.info("관심종목 알림 재무장: {} - 현재가 {} / 목표가 {} {}",
+                        item.getStockName(), currentPrice, item.getTargetPrice(), item.getAlertCondition());
             }
         }
+        if (!toRearm.isEmpty()) watchlistRepository.saveAll(toRearm);
 
         if (pendingAlerts.isEmpty()) return;
 
         log.info("관심종목 알림 체크: {}건", pendingAlerts.size());
 
+        // 발동: 텔레그램은 개별 발송하되 DB save는 한 번에 모아서
+        List<StockWatchlist> toTrigger = new ArrayList<>();
         for (StockWatchlist item : pendingAlerts) {
             try {
-                StockPriceDto price = stockPriceService.getStockPrice(item.getStockCode());
+                StockPriceDto price = priceMap.get(item.getStockCode());
                 if (price == null || price.getCurrentPrice() == null) continue;
 
                 BigDecimal currentPrice = price.getCurrentPrice();
@@ -175,7 +196,7 @@ public class WatchlistService {
 
                 if (triggered) {
                     item.setAlertTriggered(true);
-                    watchlistRepository.save(item);
+                    toTrigger.add(item);
 
                     String condition = "ABOVE".equals(item.getAlertCondition()) ? "이상 돌파" : "이하 하락";
                     String message = String.format(
@@ -202,6 +223,7 @@ public class WatchlistService {
                 log.warn("관심종목 알림 체크 실패: {} - {}", item.getStockCode(), e.getMessage());
             }
         }
+        if (!toTrigger.isEmpty()) watchlistRepository.saveAll(toTrigger);
     }
 
     private WatchlistDto.WatchlistItem toDto(StockWatchlist entity) {

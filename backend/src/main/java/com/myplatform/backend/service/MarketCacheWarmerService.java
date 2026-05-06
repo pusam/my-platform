@@ -21,7 +21,11 @@ import java.util.Map;
 /**
  * 시장 데이터 Redis L2 캐시 워머
  * - cache.redis.enabled=true 일 때만 활성화
- * - 장중에만 스케줄 동작 (Asia/Seoul 기준 09:00~15:30)
+ * - 거래시간 동안만 스케줄 동작 (Asia/Seoul 기준 08:00~20:00)
+ *   · 08:00~09:00: NXT 프리마켓
+ *   · 09:00~15:30: KRX 정규장 + NXT
+ *   · 15:30~18:00: KRX 시간외 + NXT 갭
+ *   · 18:00~20:00: NXT 애프터마켓
  * - 기존 서비스 메서드 호출 → Caffeine L1도 자동 갱신 → Redis L2에도 저장
  */
 @Service
@@ -38,10 +42,12 @@ public class MarketCacheWarmerService {
     private final AiStockAnalysisService aiStockAnalysisService;
     private final SectorOpportunityService sectorOpportunityService;
     private final MarketIndicatorService marketIndicatorService;
+    private final MarketTimingService marketTimingService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
+    // NXT/시간외 거래 시간까지 커버 (2025-03 NXT 도입, 2026-09 KRX 본 장 연장 예정)
+    private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(20, 0);
 
     // ===== Redis 캐시명 상수 =====
     private static final String CACHE_SMART_MONEY = "smartMoneyRealtime";
@@ -85,9 +91,10 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * Smart Money 실시간 (외국인/기관) - 30초마다
+     * Smart Money 실시간 (외국인/기관) - 이전 호출 종료 후 30초.
+     * fixedDelay 사용: KIS 400ms 직렬화로 호출이 늘어질 때 누적 락업 방지
      */
-    @Scheduled(fixedRate = 30000)
+    @Scheduled(fixedDelay = 30000)
     public void warmSmartMoneyRealtime() {
         if (!isMarketHours()) return;
 
@@ -107,9 +114,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * KIS 투자자 매매동향 (매수/매도 전체) - 5분마다
+     * KIS 투자자 매매동향 (매수/매도 전체) - 이전 호출 종료 후 5분
      */
-    @Scheduled(fixedRate = 300000)
+    @Scheduled(fixedDelay = 300000)
     public void warmKisApiData() {
         if (!isMarketHours()) return;
 
@@ -133,9 +140,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 섹터 거래대금 (TODAY/MIN5/MIN30) - 60초마다
+     * 섹터 거래대금 (TODAY/MIN5/MIN30) - 이전 호출 종료 후 60초
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedDelay = 60000)
     public void warmSectorTrading() {
         if (!isMarketHours() && !isStartup()) return;
 
@@ -160,9 +167,9 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * AI 전략 스냅샷 - 2분마다
+     * AI 전략 스냅샷 - 이전 호출 종료 후 2분
      */
-    @Scheduled(fixedRate = 120000)
+    @Scheduled(fixedDelay = 120000)
     public void warmAiStrategy() {
         if (!isMarketHours() && !isStartup()) return;
         try {
@@ -194,10 +201,10 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 섹터 기회 발굴 (주도 섹터 × 유망 종목) - 2분마다
+     * 섹터 기회 발굴 (주도 섹터 × 유망 종목) - 이전 호출 종료 후 2분.
      * 섹터 랭킹/스마트머니/시세 워머가 먼저 돌고 그 결과를 조합함.
      */
-    @Scheduled(fixedRate = 120000)
+    @Scheduled(fixedDelay = 120000)
     public void warmSectorOpportunity() {
         if (!isMarketHours() && !isStartup()) return;
         try {
@@ -210,35 +217,39 @@ public class MarketCacheWarmerService {
         }
     }
 
+    // [제거] warmPriceMovers - 장중 실시간 급등/급락 위젯(SectionLiveMovers) 제거에 따라 워머 중단.
+    //        marketIndicatorService.refreshPriceMoversFromKis() / /api/market/price-{rise,fall} 엔드포인트는
+    //        다른 페이지에서도 사용 가능하므로 유지하고, 60초 폴링 워머만 끔.
+
     /**
-     * 실시간 등락률 상위/하위 - 60초마다 (장중)
-     * - KIS FHKST01010500/600 호출 → Redis L2 갱신
-     * - 일배치(18:00 DB 스냅샷)는 그대로 두고, 장중에만 Redis 우선 조회로 실시간화.
+     * 시장 상태(KOSPI/KOSDAQ/ADR) - 이전 호출 종료 후 60초.
+     * 프론트 60초 폴링이 매번 네이버 크롤링 + ADR 계산을 트리거하던 부담 제거.
+     * 장외에도 동작 — 사용자가 장 마감 후 들어와도 최신 데이터 보이도록.
      */
-    @Scheduled(fixedRate = 60000)
-    public void warmPriceMovers() {
-        if (!isMarketHours()) return;
+    @Scheduled(fixedDelay = 60000)
+    public void warmMarketStatus() {
         try {
-            marketIndicatorService.refreshPriceMoversFromKis();
-            log.debug("[Cache Warmer] 실시간 등락률 상위/하위 워밍 완료");
+            marketTimingService.refreshMarketTimingToCache();
+            log.debug("[Cache Warmer] 시장 상태 워밍 완료");
         } catch (Exception e) {
-            log.warn("[Cache Warmer] 등락률 워밍 실패: {}", e.getMessage());
+            log.warn("[Cache Warmer] 시장 상태 워밍 실패: {}", e.getMessage());
         }
     }
 
     /**
-     * 수급 급증 종목 - 10분마다
+     * 수급 급증 종목 - 이전 호출 종료 후 10분.
+     * <p>
+     * 주의: getAllSurgeStocks 는 Redis 캐시 우선 조회라 여기서 호출하면 stale 무한 루프.
+     * refreshAllSurgeStocksCache 가 캐시 우회하고 DB 에서 fresh compute → Redis put 까지 한 번에.
      */
-    @Scheduled(fixedRate = 600000)
+    @Scheduled(fixedDelay = 600000)
     public void warmInvestorSurge() {
         if (!isMarketHours() && !isStartup()) return;
 
         try {
-            Map<String, List<InvestorSurgeDto>> surgeData = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
-            if (surgeData != null && !surgeData.isEmpty()) {
-                redisCacheService.put(CACHE_INVESTOR_SURGE, "all_0", surgeData, TTL_INVESTOR_SURGE);
-            }
+            investorSurgeService.refreshAllSurgeStocksCache();
 
+            // common_30 은 getCommonSurgeStocks 가 getSurgeStocks(DB 직접) 두 번 호출이라 stale 루프 없음
             List<InvestorSurgeDto> commonSurge = investorSurgeService.getCommonSurgeStocks(new BigDecimal("30"));
             if (commonSurge != null && !commonSurge.isEmpty()) {
                 redisCacheService.put(CACHE_INVESTOR_SURGE, "common_30", commonSurge, TTL_INVESTOR_SURGE);

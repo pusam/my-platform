@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -37,6 +38,7 @@ public class WatchlistRiskMonitorService {
     private final DartService dartService;
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final TelegramNotificationService telegramService;
+    private final SchedulerLockService schedulerLockService;
 
     private static final int COOLDOWN_MINUTES = 60;
     private static final String ALERT_TYPE_RISK = "WATCHLIST_RISK";
@@ -49,10 +51,15 @@ public class WatchlistRiskMonitorService {
     }
 
     /**
-     * 장중 10분 주기 리스크 감시 (09:10~15:20)
+     * 거래시간(NXT 8:00~20:00 + KRX 정규장) 10분 주기 리스크 감시
      */
-    @Scheduled(cron = "0 0/10 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledRiskMonitor() {
+        // 10분 cron — TTL 8분 으로 다음 cron 까지 락 풀림. monitorWatchlistRisks 는 public 이라 직접 호출도 가능 — 락은 cron 만 보호.
+        if (!schedulerLockService.tryLock("watchlist-risk.monitor", Duration.ofMinutes(8))) {
+            log.debug("관심종목 리스크 감시 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         monitorWatchlistRisks();
     }
 

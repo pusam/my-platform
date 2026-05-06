@@ -2,6 +2,7 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.service.AsyncCrawlerService;
+import com.myplatform.backend.service.SchedulerLockService;
 import com.myplatform.backend.service.StockFinancialDataService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,6 +12,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -36,6 +38,7 @@ public class FinancialDataScheduler {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final AsyncCrawlerService asyncCrawlerService;
     private final com.myplatform.backend.service.BatchJobMonitorService batchMonitor;
+    private final SchedulerLockService schedulerLockService;
 
     /**
      * 매일 08:30 자동 수집 (장 시작 전)
@@ -47,6 +50,11 @@ public class FinancialDataScheduler {
      */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
+        // 비동기 작업 trigger 라 lock TTL 짧게 잡고 빠르게 빠짐 — 다음 cron 까지 충분
+        if (!schedulerLockService.tryLock("financial-data.morning", Duration.ofMinutes(5))) {
+            log.debug("[배치] 08:30 다른 인스턴스에서 비동기 수집 트리거 — 스킵");
+            return;
+        }
         log.info("=== [배치] 08:30 원버튼 전체 데이터 비동기 수집 시작 ===");
         try {
             asyncCrawlerService.collectAllInOneAsync();
@@ -62,6 +70,10 @@ public class FinancialDataScheduler {
      */
     @Scheduled(cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
+        if (!schedulerLockService.tryLock("financial-data.afternoon", Duration.ofMinutes(5))) {
+            log.debug("[배치] 15:38 다른 인스턴스에서 비동기 수집 트리거 — 스킵");
+            return;
+        }
         log.info("=== [배치] 15:38 원버튼 전체 데이터 비동기 수집 시작 ===");
         try {
             asyncCrawlerService.collectAllInOneAsync();

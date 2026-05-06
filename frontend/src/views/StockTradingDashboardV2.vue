@@ -10,18 +10,8 @@
       />
 
       <!-- ═══ Tab 1·2: 장전 + 장중 (공유 패널) ═══ -->
-      <div v-if="['premarket','live'].includes(activeGnbTab)" class="tab-panel">
-
-        <!-- ⓪ 오늘의 브리핑 (장전 전용 — 한눈 요약) -->
-        <SectionBriefing
-          v-if="activeGnbTab === 'premarket'"
-          :marketData="marketData"
-          :globalData="globalData"
-          :topRecommendations="topRecommendations"
-          :supplyPanelData="supplyPanelData"
-          :watchlistItems="watchlistItems"
-          :watchlistRisks="watchlistRisks"
-        />
+      <!-- ═══ Tab: 트레이드 (장전+장중 통합 — 시장 시간대로 위젯 자동 토글) ═══ -->
+      <div v-if="activeGnbTab === 'premarket'" class="tab-panel">
 
         <!-- ① 시장 상태 바 (장전·장중 공통) -->
         <div id="briefing-section-market" class="market-status-bar" v-if="marketData">
@@ -47,10 +37,10 @@
         </div>
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
 
-        <!-- ② AI 종합 추천 TOP 5 (장전 전용) -->
-        <div id="briefing-section-rec" class="top-rec section-card" v-if="activeGnbTab === 'premarket'">
+        <!-- ② 종합 추천 TOP 10 (트레이드 탭 상시 표시 — 5카테고리: 실적·수급·기술·섹터·가치) -->
+        <div id="briefing-section-rec" class="top-rec section-card">
           <div class="section-title-row">
-            <h2><span class="section-icon">🏆</span> AI 종합 추천 TOP 5</h2>
+            <h2><span class="section-icon">🏆</span> 종합 추천 TOP 10</h2>
             <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
               {{ topRecRealtime ? '🟢' : '🟡' }} {{ topRecDataTime }}
             </span>
@@ -65,7 +55,10 @@
               class="rec-card"
               @click="goToStock(rec.stockCode)"
             >
-              <span class="rec-rank">#{{ i + 1 }}</span>
+              <span class="rec-rank">
+                #{{ i + 1 }}
+                <span v-if="i < 5 && currentPhaseKey === 'during'" class="rec-live-dot" title="장중 실시간 추적"></span>
+              </span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
                 <div class="rec-tags">
@@ -75,7 +68,11 @@
               <div class="rec-score-area">
                 <div class="rec-score-head">
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
-                  <span class="rec-score-basis">{{ rec.validCount }}/6항목</span>
+                  <span class="rec-score-basis">{{ rec.validCount }}/5항목</span>
+                  <span v-if="topRecScoreMap[rec.stockCode]" class="rec-score-detail"
+                        title="상세 페이지 단기 트레이딩 / 중장기 펀더멘털 점수">
+                    단기 {{ topRecScoreMap[rec.stockCode].tradingScore }} · 중장기 {{ topRecScoreMap[rec.stockCode].fundamentalScore }}
+                  </span>
                   <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
                         :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
                     {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
@@ -159,23 +156,8 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
-        <!-- ②-c 멀티 컨빅션 시그널 (장전 전용) -->
-        <SectionConviction v-if="activeGnbTab === 'premarket'" @stock-click="goToStock" />
-
-        <!-- ②-d 매수 후보 트래커 (장중 전용 — 추천 종목 실시간 추적) -->
-        <SectionLiveTracker
-          v-if="activeGnbTab === 'live'"
-          :recommendations="topRecommendations"
-        />
-
-        <!-- ②-e 실시간 급등/급락 (장중 전용) -->
-        <SectionLiveMovers
-          v-if="activeGnbTab === 'live'"
-          :active="activeGnbTab === 'live'"
-        />
-
-        <!-- ③ 시간대별 신호 (장중 전용) -->
-        <div class="today-signals section-card" v-if="activeGnbTab === 'live'">
+        <!-- ③ 시간대별 신호 (장전·장후 전용 — 장중엔 LiveSurge가 상위호환) -->
+        <div class="today-signals section-card" v-if="currentPhaseKey !== 'during'">
           <div class="section-title-row">
             <h2>
               <span class="section-icon">{{ marketPhase.icon }}</span>
@@ -213,8 +195,14 @@
           <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
         </div>
 
-        <!-- ③ 관심종목 현황 (장전 전용) -->
-        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'premarket' && watchlistItems.length">
+        <!-- ③-b 실시간 수급 급증 (장중 시간대) -->
+        <SectionLiveSurge
+          v-if="currentPhaseKey === 'during'"
+          :active="currentPhaseKey === 'during'"
+        />
+
+        <!-- ③ 관심종목 현황 (장전 시간대 전용) -->
+        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="currentPhaseKey === 'pre' && watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
             <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'research'">전체 보기 →</a>
@@ -240,93 +228,42 @@
           </div>
         </div>
 
-        <!-- ④ AI 전략 TOP 픽 (장전 전용) -->
-        <div class="ai-top-picks section-card" v-if="activeGnbTab === 'premarket' && aiTopPicks.length">
-          <div class="section-title-row">
-            <h2><span class="section-icon">🤖</span> AI 전략 TOP 픽</h2>
+        <!-- AI 전략 TOP 픽 카드는 종합 추천 TOP10에 흡수되어 제거됨.
+             aiTopPicks 데이터는 phaseSignals(장전·장후)의 신호 카드 일부로 계속 사용됨. -->
+
+        <!-- ⑤ 섹터 동향 — 거래대금(장중)/시장지도(히트맵·로테이션·예측) 토글 -->
+        <div class="sector-combined">
+          <div class="sector-view-toggle" v-if="currentPhaseKey === 'during'">
+            <button
+              :class="['sector-toggle-btn', { active: activeSectorView === 'volume' }]"
+              @click="activeSectorView = 'volume'"
+            >📊 거래대금</button>
+            <button
+              :class="['sector-toggle-btn', { active: activeSectorView === 'map' }]"
+              @click="activeSectorView = 'map'"
+            >🗺️ 시장 지도</button>
           </div>
-          <div class="top-picks-grid">
-            <div
-              v-for="pick in aiTopPicks"
-              :key="'pick-' + pick.stockCode"
-              class="pick-card"
-              @click="goToStock(pick.stockCode)"
-            >
-              <div class="pick-strategy">{{ pick.strategyLabel }}</div>
-              <div class="pick-name">{{ pick.stockName }}</div>
-              <div class="pick-score">{{ pick.aiScore || pick.score }}점</div>
-              <div class="pick-tags" v-if="pick.aiThemes">
-                <span v-for="t in pick.aiThemes.split(',').slice(0, 2)" :key="t" class="pick-tag">{{ t.trim() }}</span>
-              </div>
-            </div>
+          <div v-if="currentPhaseKey === 'during' && activeSectorView === 'volume'" class="embedded-content">
+            <SectorTradingPage :embedded="true" />
           </div>
+          <SectionMarketMap
+            v-else
+            :sectorData="sectorData"
+            :marketData="marketData"
+            :globalData="globalData"
+            :loading="sections.marketMap.loading"
+            :error="sections.marketMap.error"
+            @retry="loadMarketMap"
+          />
         </div>
 
-        <!-- ④-b 수급 주도 섹터 × 유망 종목 (장전 전용) -->
-        <div class="sector-opportunity section-card" v-if="activeGnbTab === 'premarket' && (sectorOpportunities.length || sectorOppLoading)">
-          <div class="section-title-row">
-            <h2><span class="section-icon">🎯</span> 수급 주도 섹터 & 유망 종목</h2>
-            <span class="rec-data-time">배치 3분 갱신</span>
-          </div>
-          <div v-if="sectorOppLoading" class="signal-skeleton">
-            <div class="skel-row" v-for="i in 3" :key="'so-sk-'+i"><div class="skel-bar"></div></div>
-          </div>
-          <div v-else-if="sectorOpportunities.length" class="so-grid">
-            <div v-for="(sec, si) in sectorOpportunities" :key="'so-'+sec.sectorCode+si" class="so-sector-card">
-              <div class="so-sector-head">
-                <span class="so-sector-name">{{ sec.sectorName }}</span>
-                <span class="so-sector-rate"
-                      :class="Number(sec.sectorAverageChangeRate) >= 0 ? 'positive' : 'negative'">
-                  {{ Number(sec.sectorAverageChangeRate) >= 0 ? '+' : '' }}{{ Number(sec.sectorAverageChangeRate).toFixed(2) }}%
-                </span>
-              </div>
-              <div class="so-picks">
-                <div v-for="pick in sec.picks" :key="'pick-'+pick.stockCode"
-                     class="so-pick-row" @click="goToStock(pick.stockCode)">
-                  <span class="so-pick-rank">#{{ pick.rank }}</span>
-                  <div class="so-pick-main">
-                    <div class="so-pick-name-row">
-                      <span class="so-pick-name">{{ pick.stockName }}</span>
-                      <span class="so-pick-score">{{ pick.opportunityScore }}</span>
-                    </div>
-                    <div class="so-pick-meta">
-                      <span v-if="pick.currentPrice" class="so-pick-price">
-                        {{ Number(pick.currentPrice).toLocaleString() }}원
-                      </span>
-                      <span v-if="pick.changeRate != null"
-                            :class="Number(pick.changeRate) >= 0 ? 'positive' : 'negative'">
-                        {{ Number(pick.changeRate) >= 0 ? '+' : '' }}{{ Number(pick.changeRate).toFixed(2) }}%
-                      </span>
-                    </div>
-                    <div v-if="pick.reasons && pick.reasons.length" class="so-pick-tags">
-                      <span v-for="r in pick.reasons" :key="r" class="so-tag">{{ r }}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-signal">주도 섹터 데이터 수집 중입니다</div>
-        </div>
-
-        <!-- ⑤ 섹터 히트맵 (장전 전용) -->
-        <SectionMarketMap
-          v-if="activeGnbTab === 'premarket'"
-          :sectorData="sectorData"
-          :marketData="marketData"
-          :globalData="globalData"
-          :loading="sections.marketMap.loading"
-          :error="sections.marketMap.error"
-          @retry="loadMarketMap"
-        />
-
-        <!-- ⑥ 페이퍼 트레이딩 (장중·관리자 전용) -->
-        <div v-if="activeGnbTab === 'live' && isAdmin" class="embedded-content">
+        <!-- ⑥ 페이퍼 트레이딩 (장중 시간대 · 관리자 전용) -->
+        <div v-if="currentPhaseKey === 'during' && isAdmin" class="embedded-content">
           <PaperTradingPage :embedded="true" />
         </div>
       </div>
 
-      <!-- ═══ Tab 3: 장후/연구 (분석 + 뉴스) ═══ -->
+      <!-- ═══ Tab 2: 연구 (분석 + 뉴스) ═══ -->
       <div v-if="activeGnbTab === 'research'" class="tab-panel">
         <div class="sub-tabs">
           <button v-for="st in researchTabs" :key="st.key"
@@ -340,7 +277,6 @@
           <SectionBacktest v-if="activeAnalysisTab === 'backtest'" />
           <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
           <SectionQuantTa v-if="activeAnalysisTab === 'quant-ta'" />
-          <SectorTradingPage v-if="activeAnalysisTab === 'sector'" :embedded="true" />
           <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
           <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
           <NewsPage v-if="activeAnalysisTab === 'news'" :embedded="true" />
@@ -361,11 +297,8 @@
 import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
-import SectionConviction from '../components/v2/SectionConviction.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
-import SectionBriefing from '../components/v2/SectionBriefing.vue'
-import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
-import SectionLiveMovers from '../components/v2/SectionLiveMovers.vue'
+import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 // 분석 탭 (ResearchPage에서 흡수)
@@ -382,8 +315,8 @@ import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
-  globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
-  recommendationAPI
+  globalFuturesAPI, watchlistAPI, paperTradingAPI,
+  recommendationAPI, stockDetailAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -426,11 +359,8 @@ export default {
     GlobalNav,
     DashboardHeader,
     SectionMarketMap,
-    SectionConviction,
     SectionQuantTa,
-    SectionBriefing,
-    SectionLiveTracker,
-    SectionLiveMovers,
+    SectionLiveSurge,
     SectionBacktest,
     StockSearchModal,
     AiStrategyDashboardPage,
@@ -448,6 +378,8 @@ export default {
   },
   data() {
     return {
+      // mount 시 1회만 읽음 — computed에서 매 렌더마다 localStorage 접근 회피
+      isAdmin: localStorage.getItem('role') === 'ADMIN',
       activeGnbTab: this.resolveInitialTab(),
       activeAnalysisTab: this.resolveInitialSubTab(),
       researchTabs: [
@@ -455,7 +387,6 @@ export default {
         { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
         { key: 'quant-ta', label: '퀀트(TA)' },
-        { key: 'sector', label: '섹터' },
         { key: 'investor', label: '투자자' },
         { key: 'timing', label: '시장타이밍' },
         { key: 'news', label: '뉴스' }
@@ -465,31 +396,27 @@ export default {
       sections: {
         marketMap: { loading: true, error: false },
         aiStrategy: { loading: false, error: false },
-        smartMoney: { loading: false, error: false },
         research: { loading: false, error: false }
       },
       aiStrategyData: null,  // phaseSignals에서 사용
       sectorData: [],
       marketData: {},
       globalData: {},
-      tradesData: { foreign: [], institution: [] },
-      consecutiveData: [],
-      surgeData: [],
       screenerData: {},
       newsData: [],
       // 오늘의 핵심 요약
       watchlistItems: [],
       watchlistRisks: {},
-      radarSignals: [],
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
       topRecDataTime: '',
       topRecRealtime: true,
       topRecDelta: {},
+      topRecScoreMap: {},  // { stockCode: { tradingScore, fundamentalScore, ... } } — 트래커 단기/중장기 부가 표시용
+      // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
+      activeSectorView: 'map',
       supplyPanelData: null,
-      sectorOpportunities: [],
-      sectorOppLoading: false,
       // 시간대별 신호
       phaseLoading: false,
       preMarketData: [],   // 장 전
@@ -500,6 +427,11 @@ export default {
   inject: { toast: { default: () => ({ success(){}, error(){}, warning(){}, info(){} }) } },
   watch: {
     activeGnbTab(tab) {
+      // 글로벌 탭은 별도 페이지(/global-futures)로 라우팅 — 코드 스플리팅(207KB chunk) 보존
+      if (tab === 'global') {
+        this.$router.push('/global-futures')
+        return
+      }
       this.loadTabData(tab)
       // 탭 전환 시 스크롤 초기화
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -517,12 +449,15 @@ export default {
     this.loadTabData(this.activeGnbTab)   // 즉시 (시장맵/AI전략/수급 — 내부적으로도 스태거됨)
     setTimeout(() => this.loadTodaySummary(), 400)  // 관심종목 + AI TOP5 등
     setTimeout(() => this.loadNews(), 1200)         // 뉴스는 비KIS 경로라 가장 늦어도 OK
+    // 섹터 카드 초기 뷰 — 장중 시간대 기본은 거래대금, 그 외엔 시장 지도
+    this.activeSectorView = this.currentPhaseKey === 'during' ? 'volume' : 'map'
     this.setupKeyboardShortcut()
-    // 60초마다 활성 탭 데이터 자동 갱신
+    // 60초마다 트레이드 탭 데이터 자동 갱신
     this._refreshTimer = setInterval(() => {
-      if (this.activeGnbTab === 'premarket') this.loadMarketMap()
-      // 장중 — 추천 TOP5 등락률 실시간 추적용으로 갱신
-      if (this.activeGnbTab === 'live') this.refreshRecommendations()
+      if (this.activeGnbTab !== 'premarket') return
+      this.loadMarketMap()
+      this.refreshRecommendations()
+      this.loadSupplyPanel()
     }, 60000)
   },
   beforeUnmount() {
@@ -533,9 +468,6 @@ export default {
     }
   },
   computed: {
-    isAdmin() {
-      return localStorage.getItem('role') === 'ADMIN'
-    },
     currentPhaseKey() {
       const now = new Date()
       const day = now.getDay()
@@ -557,22 +489,15 @@ export default {
       return phases[this.currentPhaseKey]
     },
     phaseSignals() {
+      // 장중(during)엔 today-signals 카드 자체가 v-if로 숨김 — phaseSignals 호출 안 됨
+      // (LiveSurge가 장중 신호 카드 상위호환)
       const phase = this.currentPhaseKey
       if (phase === 'pre') return this.preMarketSignals
-      if (phase === 'during') return this.duringMarketSignals
       return this.postMarketSignals
     },
     preMarketSignals() {
       const signals = []
-      // 나스닥 선물 방향
-      if (this.globalData?.nasdaqFutures) {
-        const nq = this.globalData.nasdaqFutures
-        signals.push({
-          type: 'global', badge: '🌙 야간', stockName: '나스닥 선물',
-          reason: `${Number(nq.currentPrice).toLocaleString()} (${Number(nq.changeRate) >= 0 ? '+' : ''}${Number(nq.changeRate).toFixed(2)}%)`,
-          stockCode: null, changeRate: nq.changeRate
-        })
-      }
+      // 나스닥 선물 방향은 상단 시장 상태 바와 중복되어 제거됨
       // AI 전략 TOP 픽
       this.aiTopPicks.slice(0, 2).forEach(p => {
         signals.push({
@@ -591,27 +516,7 @@ export default {
       })
       return signals.slice(0, 6)
     },
-    duringMarketSignals() {
-      const signals = []
-      if (this.surgeData?.length) {
-        this.surgeData.filter(s => s.surgeLevel === 'HOT').slice(0, 3).forEach(s => {
-          signals.push({
-            type: 'hot', badge: '🔥 HOT', stockCode: s.stockCode,
-            stockName: s.stockName, reason: '수급 급증', changeRate: s.changeRate
-          })
-        })
-      }
-      if (this.radarSignals?.length) {
-        this.radarSignals.slice(0, 3).forEach(r => {
-          signals.push({
-            type: 'radar', badge: '📰 정책',
-            stockName: r.title?.substring(0, 30), reason: (r.matchedSectors || []).join(' · '),
-            stockCode: null, changeRate: null
-          })
-        })
-      }
-      return signals.slice(0, 6)
-    },
+    // [제거] duringMarketSignals — 장중 today-signals 카드 숨김 + LiveSurge가 상위호환
     postMarketSignals() {
       const signals = []
       // 봇 성과
@@ -647,20 +552,21 @@ export default {
     }
   },
   methods: {
-    // ---- 탭 키 호환 매핑 (이전 URL ?tab=market/analysis/news/trading 지원) ----
+    // ---- 탭 키 호환 매핑 (장전+장중 통합 — 'live'/'trading'/'market'/'premarket' 모두 'premarket'(트레이드)로) ----
     mapLegacyTab(tab) {
-      const map = { market: 'premarket', analysis: 'research', news: 'research', trading: 'live' }
+      const map = {
+        market: 'premarket', premarket: 'premarket', live: 'premarket', trading: 'premarket',
+        analysis: 'research', news: 'research'
+      }
       return map[tab] || tab
     },
-    // ---- 시간대 기반 초기 탭 자동 선택 ----
+    // ---- 초기 탭 자동 선택 ----
     resolveInitialTab() {
       const requested = this.$route?.query?.tab
       if (requested) return this.mapLegacyTab(requested)
-      // ?tab= 없으면 현재 시각 기반으로 추천
+      // ?tab= 없으면 시각 기반: 장 마감 이후엔 연구 탭, 그 외엔 트레이드 탭
       const h = new Date().getHours()
-      if (h < 9) return 'premarket'              // 새벽~장 시작 전
-      if (h < 16) return 'live'                  // 장중 (09~15:30+α)
-      return 'research'                          // 장 마감 이후
+      return h < 16 ? 'premarket' : 'research'
     },
     resolveInitialSubTab() {
       const sub = this.$route?.query?.sub
@@ -678,40 +584,38 @@ export default {
         this.topRecDataTime = body?.dataTime || ''
         this.topRecRealtime = body?.realtime !== false
         this.topRecDelta = body?.delta || {}
+        this.refreshTopRecScores()
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
+    },
+    // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
+    // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.
+    // batchScores 는 무거운 호출이라 실패해도 트래커는 totalScore 만으로 정상 동작.
+    async refreshTopRecScores() {
+      const codes = (this.topRecommendations || [])
+        .slice(0, 5)
+        .map(r => r.stockCode)
+        .filter(Boolean)
+      if (!codes.length) { this.topRecScoreMap = {}; return }
+      try {
+        const res = await stockDetailAPI.batchScores(codes)
+        const data = res?.data?.data || res?.data || {}
+        if (data && typeof data === 'object') this.topRecScoreMap = data
+      } catch { /* 부가 표시 실패는 무시 */ }
     },
 
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
-      // 장전·장중 모두 동일한 시장 데이터 사용 (시장상태바·수급 공유)
-      const needMarket = (tab === 'premarket' || tab === 'live')
-      if (needMarket && !this.dataLoaded.market) {
+      // 트레이드 탭은 시장 데이터(시장상태바·시장맵) + AI 전략 스냅샷(phaseSignals용) 공유
+      if (tab === 'premarket' && !this.dataLoaded.market) {
         // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격.
-        // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, 나머지는 뒤로.
+        // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, AI 전략은 뒤로.
         this.loadMarketMap()
-        setTimeout(() => this.loadAiStrategy(), 500)   // 시간대별 신호용
-        setTimeout(() => this.loadSmartMoney(), 1000)  // 수급급증 신호용
-        setTimeout(() => this.loadSectorOpportunity(), 1500)  // 섹터 × 유망 종목
+        setTimeout(() => this.loadAiStrategy(), 500)   // phaseSignals(pre/post)용 aiTopPicks
         this.dataLoaded.market = true
       }
-      // 장중 매수 후보 트래커 — 즉시 1회 호출. 기존엔 60초 setInterval 첫 발화까지 빈 화면이었고
-      // 그 안에 탭 떠나면 영영 호출 안 됨(topRecommendations 가 refreshRecommendations 외엔 채워질 곳 없음).
-      if (tab === 'live') {
+      // 장중 시간대 매수 후보 트래커 — 즉시 1회 호출 (60초 폴링 첫 발화까지 빈 화면 방지)
+      if (tab === 'premarket' && this.currentPhaseKey === 'during') {
         this.refreshRecommendations()
-      }
-    },
-
-    // ---- 섹터 기회 발굴 로드 (서버 Redis 배치 결과만 받아옴, KIS 호출 유발 X) ----
-    async loadSectorOpportunity() {
-      this.sectorOppLoading = true
-      try {
-        const res = await sectorAPI.getSectorOpportunities(4, 3)
-        const data = this.extractData(res)
-        this.sectorOpportunities = Array.isArray(data) ? data : []
-      } catch (e) {
-        this.sectorOpportunities = []
-      } finally {
-        this.sectorOppLoading = false
       }
     },
 
@@ -759,24 +663,6 @@ export default {
 
       // 수급 현황 패널
       this.loadSupplyPanel()
-
-      // 선점 레이더 신호
-      try {
-        const res = await radarAPI.getPolicyNews()
-        this.radarSignals = (this.extractData(res) || []).slice(0, 5)
-      } catch { this.radarSignals = [] }
-
-      // 수급급증 데이터 (시장 뷰에서도 필요)
-      if (!this.surgeData?.length) {
-        try {
-          let sd = null
-          try {
-            const res = await withTimeout(investorAPI.getAllSurgeStocks(), 10000)
-            sd = this.extractData(res)
-          } catch { /* 실패 */ }
-          this.surgeData = this.flattenInvestorMap(sd)
-        } catch { /* ignore */ }
-      }
 
       // 시간대별 추가 데이터
       this.phaseLoading = true
@@ -840,10 +726,6 @@ export default {
     hasSectorChangeRate(arr) {
       if (!Array.isArray(arr) || arr.length === 0) return false
       return arr.some(s => s.changeRate && s.changeRate !== 0)
-    },
-    hasTradeData(arr) {
-      if (!Array.isArray(arr) || arr.length === 0) return false
-      return arr.some(t => t.netBuyAmount && t.netBuyAmount !== 0)
     },
     flattenInvestorMap(data) {
       if (!data) return []
@@ -938,8 +820,8 @@ export default {
       }
     },
     getScoreBreakdown(rec) {
+      // 5카테고리 (AI전략은 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용)
       const items = [
-        { key: 'ai', label: 'AI전략', raw: rec.aiStrategy, color: '#8b5cf6' },
         { key: 'earn', label: '실적', raw: rec.earnings, color: '#22c55e' },
         { key: 'supply', label: '수급', raw: rec.supplyDemand, color: '#3b82f6' },
         { key: 'tech', label: '기술적', raw: rec.technical, color: '#f59e0b' },
@@ -1070,36 +952,9 @@ export default {
       }
     },
 
-    // Section C: 스마트 머니 (실시간 KIS API 우선, 폴백: V2 → Java DB)
-    async loadSmartMoney() {
-      try {
-        this.sections.smartMoney.loading = true
-        this.sections.smartMoney.error = false
-        const [foreignRes, instRes, consecutiveRes, surgeRes] = await Promise.allSettled([
-          withTimeout(investorAPI.getTopTradesRealtime('FOREIGN', 10)
-            .catch(() => investorAPI.getTopTrades('FOREIGN', 'BUY', 10)), 10000),
-          withTimeout(investorAPI.getTopTradesRealtime('INSTITUTION', 10)
-            .catch(() => investorAPI.getTopTrades('INSTITUTION', 'BUY', 10)), 10000),
-          withTimeout(investorAPI.getAllConsecutiveBuy(3), 10000),
-          withTimeout(investorAPI.getAllSurgeStocks(), 10000)
-        ])
-        const fd = foreignRes.status === 'fulfilled' ? this.extractData(foreignRes.value) : null
-        this.tradesData.foreign = this.hasTradeData(fd) ? fd : []
-        const id = instRes.status === 'fulfilled' ? this.extractData(instRes.value) : null
-        this.tradesData.institution = this.hasTradeData(id) ? id : []
-        const cd = consecutiveRes.status === 'fulfilled' ? this.extractData(consecutiveRes.value) : null
-        this.consecutiveData = this.flattenInvestorMap(cd)
-        const sd = surgeRes.status === 'fulfilled' ? this.extractData(surgeRes.value) : null
-        this.surgeData = this.flattenInvestorMap(sd)
-      } catch {
-        this.tradesData = { foreign: [], institution: [] }
-        this.consecutiveData = []
-        this.surgeData = []
-        this.sections.smartMoney.error = true
-      } finally {
-        this.sections.smartMoney.loading = false
-      }
-    },
+    // [제거] loadSmartMoney — dashboard에 SectionSmartMoney 위젯 없음.
+    //       ResearchPage가 자체 loadSmartMoney를 가지고 있어 정보는 그쪽에서 표시됨.
+    //       이 dashboard에서 호출하던 KIS API 4종은 헛호출이라 제거.
 
     // Section D: AI 리서치 (V2 → Java, 3초 타임아웃)
     async loadResearch() {
@@ -1186,6 +1041,32 @@ export default {
 }
 .embedded-content {
   min-height: 400px;
+}
+
+/* ===== 섹터 동향 통합 카드 (거래대금 ↔ 시장지도 토글) ===== */
+.sector-combined { display: flex; flex-direction: column; gap: 8px; }
+.sector-view-toggle {
+  display: flex; gap: 4px;
+  background: rgba(255,255,255,0.04);
+  padding: 4px;
+  border-radius: 10px;
+  align-self: flex-start;
+}
+.sector-toggle-btn {
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 7px;
+  transition: all 0.15s;
+}
+.sector-toggle-btn:hover { color: rgba(255,255,255,0.85); }
+.sector-toggle-btn.active {
+  background: rgba(102,126,234,0.18);
+  color: #a5b4fc;
 }
 
 /* ===== 시장 상태 바 ===== */
@@ -1306,8 +1187,27 @@ export default {
 .rec-rank {
   font-size: 14px; font-weight: 800; color: #f59e0b;
   min-width: 28px; text-align: center;
+  position: relative;
 }
 .rec-card:first-child .rec-rank { color: #ef4444; }
+/* 장중 실시간 추적 인디케이터 — 트래커 위젯 흡수 */
+.rec-live-dot {
+  display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #4ade80;
+  margin-left: 3px;
+  vertical-align: middle;
+  animation: rec-pulse 2s infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+/* 단기/중장기 부가 점수 — 상세 페이지와 매칭 */
+.rec-score-detail {
+  font-size: 10px; color: rgba(255,255,255,0.5);
+  font-weight: 500; margin-left: 4px; white-space: nowrap;
+}
 .rec-info { flex: 1; min-width: 0; }
 .rec-name { font-size: 14px; font-weight: 600; color: rgba(255,255,255,0.9); display: block; }
 .rec-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }

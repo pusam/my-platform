@@ -281,6 +281,7 @@ import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+import { TokenManager } from '../utils/auth';
 
 export default {
   name: 'BoardPage',
@@ -335,7 +336,7 @@ export default {
     async loadBoards(page = 0) {
       try {
         this.loading = true;
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(`/api/board?page=${page}&size=${this.pageSize}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -347,7 +348,7 @@ export default {
           this.totalElements = response.data.data.totalElements || 0;
         }
       } catch (error) {
-        console.error('게시글 로드 실패:', error);
+        console.error('게시글 로드 실패:', error?.response?.status || error?.message);
         toast.error('게시글을 불러오는데 실패했습니다.');
       } finally {
         this.loading = false;
@@ -361,7 +362,7 @@ export default {
 
       try {
         this.loading = true;
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(
           `/api/board/search?keyword=${encodeURIComponent(this.searchKeyword)}&page=${this.currentPage}&size=${this.pageSize}`,
           { headers: { 'Authorization': `Bearer ${token}` } }
@@ -373,7 +374,7 @@ export default {
           this.totalElements = response.data.data.totalElements || 0;
         }
       } catch (error) {
-        console.error('검색 실패:', error);
+        console.error('검색 실패:', error?.response?.status || error?.message);
         toast.error('검색에 실패했습니다.');
       } finally {
         this.loading = false;
@@ -381,7 +382,7 @@ export default {
     },
     async viewBoard(id) {
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(`/api/board/${id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -390,7 +391,7 @@ export default {
           this.selectedBoard = response.data.data;
         }
       } catch (error) {
-        console.error('게시글 조회 실패:', error);
+        console.error('게시글 조회 실패:', error?.response?.status || error?.message);
         toast.error('게시글을 불러오는데 실패했습니다.');
       }
     },
@@ -418,7 +419,7 @@ export default {
       }
 
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const formData = new FormData();
 
         const boardBlob = new Blob([JSON.stringify(this.form)], { type: 'application/json' });
@@ -451,7 +452,7 @@ export default {
           this.loadBoards();
         }
       } catch (error) {
-        console.error('게시글 작성/수정 실패:', error);
+        console.error('게시글 작성/수정 실패:', error?.response?.status || error?.message);
         toast.error('게시글 작성/수정에 실패했습니다.');
       }
     },
@@ -475,7 +476,7 @@ export default {
     },
     async deleteBoard() {
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.delete(`/api/board/${this.selectedBoard.id}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -486,7 +487,7 @@ export default {
           this.loadBoards();
         }
       } catch (error) {
-        console.error('게시글 삭제 실패:', error);
+        console.error('게시글 삭제 실패:', error?.response?.status || error?.message);
         toast.error('게시글 삭제에 실패했습니다.');
       }
     },
@@ -494,19 +495,19 @@ export default {
       if (!confirm('파일을 삭제하시겠습니까?')) return;
 
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         await axios.delete(`/api/board/${boardId}/file/${fileId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         this.viewBoard(boardId);
       } catch (error) {
-        console.error('파일 삭제 실패:', error);
+        console.error('파일 삭제 실패:', error?.response?.status || error?.message);
         toast.error('파일 삭제에 실패했습니다.');
       }
     },
     async downloadFile(fileId, filename) {
       try {
-        const token = localStorage.getItem('jwt_token');
+        const token = TokenManager.getToken();
         const response = await axios.get(`/api/board/file/${fileId}`, {
           headers: { 'Authorization': `Bearer ${token}` },
           responseType: 'blob'
@@ -520,7 +521,7 @@ export default {
         link.click();
         link.remove();
       } catch (error) {
-        console.error('파일 다운로드 실패:', error);
+        console.error('파일 다운로드 실패:', error?.response?.status || error?.message);
         toast.error('파일 다운로드에 실패했습니다.');
       }
     },

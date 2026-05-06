@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
  * - 거래 내역 관리
  */
 @Service("virtualTradeService")
-@Transactional
+@Transactional(rollbackFor = Exception.class)
 @RequiredArgsConstructor
 @Slf4j
 public class VirtualTradeService implements TradeService {

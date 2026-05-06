@@ -42,6 +42,7 @@ public class InvestorSurgeService {
     private final TelegramNotificationService telegramService;
     private final StockPriceService stockPriceService;
     private final RedisCacheService redisCacheService;
+    private final SchedulerLockService schedulerLockService;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -65,6 +66,12 @@ public class InvestorSurgeService {
 
         // 08:00 이전, 20:00 이후는 수집하지 않음
         if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
+            return;
+        }
+
+        // 멀티 인스턴스 중복 수집 방지 — 10분 cron 이라 TTL 5분이면 다음 cron 까진 락 풀림
+        if (!schedulerLockService.tryLock("investor-surge.snapshot", java.time.Duration.ofMinutes(5))) {
+            log.debug("장중 스냅샷 수집 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
 
@@ -292,14 +299,14 @@ public class InvestorSurgeService {
 
         LocalTime latestTime = latestTimeOpt.get();
 
-        // ★ Freshness check: 장중(평일 09:00~15:30)에 30분 이상 오래된 스냅샷이면 경고
+        // ★ Freshness check: 거래시간(평일 08:00~20:00, NXT 포함)에 30분 이상 오래된 스냅샷이면 경고
         LocalDateTime snapshotDateTime = LocalDateTime.of(today, latestTime);
         LocalDateTime now = LocalDateTime.now();
         long staleMinutes = java.time.Duration.between(snapshotDateTime, now).toMinutes();
         boolean isTradingHours = now.getDayOfWeek() != DayOfWeek.SATURDAY
                 && now.getDayOfWeek() != DayOfWeek.SUNDAY
-                && now.toLocalTime().isAfter(LocalTime.of(9, 0))
-                && now.toLocalTime().isBefore(LocalTime.of(15, 30));
+                && now.toLocalTime().isAfter(LocalTime.of(8, 0))
+                && now.toLocalTime().isBefore(LocalTime.of(20, 0));
         if (isTradingHours && staleMinutes > 30) {
             log.warn("[InvestorSurge] ⚠ 스냅샷 데이터 오래됨! 최신: {} {} ({}분 전) - investorType={}",
                     today, latestTime, staleMinutes, investorType);
@@ -341,30 +348,71 @@ public class InvestorSurgeService {
      */
     @Transactional(readOnly = true)
     public Map<String, List<InvestorSurgeDto>> getAllSurgeStocks(BigDecimal minChange) {
-        // Redis L2 우선 — 워머가 10분마다 all_0 키로 저장.
-        // minChange == 0 요청(대시보드 진입 시 기본값)에 대해서만 캐시 적용.
-        if (minChange != null && minChange.compareTo(BigDecimal.ZERO) == 0) {
-            Map<String, List<InvestorSurgeDto>> l2 = redisCacheService.get(
-                    MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
-                    new TypeReference<Map<String, List<InvestorSurgeDto>>>() {});
-            if (l2 != null && !l2.isEmpty()) {
-                return l2;
-            }
+        // Redis L2 우선 — 워머가 10분마다 all_0 키로 모든 데이터 저장.
+        // minChange 필터는 in-memory 로 적용 → 모든 minChange 값에 대해 캐시 hit.
+        Map<String, List<InvestorSurgeDto>> l2 = redisCacheService.get(
+                MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
+                new TypeReference<Map<String, List<InvestorSurgeDto>>>() {});
+        if (l2 != null && !l2.isEmpty()) {
+            Map<String, List<InvestorSurgeDto>> result = (minChange != null && minChange.compareTo(BigDecimal.ZERO) > 0)
+                    ? filterByMinChange(l2, minChange) : l2;
+            // 캐시는 워머 시점 가격으로 굳어 있어 stale — stockPriceService L1 캐시에서 가격만 최신화
+            enrichWithRealTimePrices(result);
+            return result;
         }
 
-        Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
+        // Cache miss — DB 직접 조회 (워머 첫 사이클 또는 TTL 만료 직후의 짧은 윈도우)
+        Map<String, List<InvestorSurgeDto>> fresh = computeAllSurgeStocksFromDb(minChange);
+        enrichWithRealTimePrices(fresh);
+        return fresh;
+    }
 
+    /**
+     * DB 에서 직접 compute — 캐시 우회. 워머/리프레시 전용.
+     */
+    private Map<String, List<InvestorSurgeDto>> computeAllSurgeStocksFromDb(BigDecimal minChange) {
+        Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
         List<InvestorSurgeDto> foreignStocks = getSurgeStocks("FOREIGN", minChange);
         List<InvestorSurgeDto> institutionStocks = getSurgeStocks("INSTITUTION", minChange);
-
         result.put("FOREIGN", foreignStocks);
         result.put("INSTITUTION", institutionStocks);
         result.put("COMMON", getCommonStocks(foreignStocks, institutionStocks));
-
-        // 스냅샷 가격 → 실시간 가격으로 보정
-        enrichWithRealTimePrices(result);
-
         return result;
+    }
+
+    /**
+     * 워머 전용 — 캐시 우회하고 DB 에서 새로 compute 한 결과를 Redis 에 직접 저장.
+     * <p>
+     * Phase 3 이전에는 워머가 {@link #getAllSurgeStocks}(0)을 호출했는데 그 메서드가 Redis 우선
+     * 조회라 캐시 hit 시 stale 데이터를 그대로 받아 다시 put → 영원히 stale 한 데이터로 굳던 버그.
+     * Phase 3 에서 캐시 사용 범위가 minChange 전체로 넓어지면서 프론트에도 stale 가시화됨.
+     */
+    @Transactional(readOnly = true)
+    public void refreshAllSurgeStocksCache() {
+        Map<String, List<InvestorSurgeDto>> fresh = computeAllSurgeStocksFromDb(BigDecimal.ZERO);
+        if (fresh != null && !fresh.isEmpty()) {
+            redisCacheService.put(
+                    MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
+                    fresh, java.time.Duration.ofMinutes(15));
+        }
+    }
+
+    /**
+     * 캐시된 전체 데이터에서 minChange(누적 순매수) 이상만 추출.
+     * - 캐시 hit 시 in-memory filter 로 모든 minChange 값 처리
+     */
+    private Map<String, List<InvestorSurgeDto>> filterByMinChange(
+            Map<String, List<InvestorSurgeDto>> source, BigDecimal minChange) {
+        Map<String, List<InvestorSurgeDto>> filtered = new HashMap<>();
+        for (Map.Entry<String, List<InvestorSurgeDto>> e : source.entrySet()) {
+            List<InvestorSurgeDto> list = e.getValue() == null ? Collections.emptyList()
+                    : e.getValue().stream()
+                            .filter(s -> s.getNetBuyAmount() != null
+                                    && s.getNetBuyAmount().compareTo(minChange) >= 0)
+                            .collect(Collectors.toList());
+            filtered.put(e.getKey(), list);
+        }
+        return filtered;
     }
 
     /**
@@ -583,15 +631,15 @@ public class InvestorSurgeService {
     }
 
     /**
-     * 오래된 스냅샷 및 알림 기록 정리 (7일 이전)
+     * 오래된 알림 기록(24시간 이상) 정리.
+     * 스냅샷 정리는 BatchJobCleanupService.cleanOldSnapshots(30일)가 master — 여기서는 alert 만 담당.
      */
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
-    public void cleanupOldData() {
-        LocalDate cutoffDate = LocalDate.now().minusDays(7);
-        snapshotRepository.deleteBySnapshotDateBefore(cutoffDate);
-        log.info("오래된 스냅샷 정리 완료: {} 이전", cutoffDate);
-
-        // 오래된 알림 기록 정리 (24시간 이상)
+    public void cleanupExpiredSurgeAlerts() {
+        if (!schedulerLockService.tryLock("investor-surge.alert-cleanup", java.time.Duration.ofMinutes(30))) {
+            log.debug("알림 기록 정리 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         cleanupExpiredAlerts();
     }
 

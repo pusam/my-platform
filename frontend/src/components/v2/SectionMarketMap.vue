@@ -110,72 +110,8 @@
         </div>
       </div>
 
-      <!-- 시장 지표 -->
-      <div v-if="activeTab === 'market'" class="market-indicators">
-        <div v-if="marketData.analysisDate" class="analysis-date">
-          기준일: {{ marketData.analysisDate }}
-        </div>
-        <div class="indicator-card">
-          <span class="ind-label">KOSPI</span>
-          <span class="ind-value">{{ marketData.kospiIndex || '-' }}</span>
-          <span class="ind-change" :class="(marketData.kospiChangeRate || 0) >= 0 ? 'up' : 'down'">
-            {{ (marketData.kospiChangeRate || 0) >= 0 ? '+' : '' }}{{ (marketData.kospiChangeRate || 0).toFixed(2) }}%
-          </span>
-        </div>
-        <div class="indicator-card">
-          <span class="ind-label">KOSDAQ</span>
-          <span class="ind-value">{{ marketData.kosdaqIndex || '-' }}</span>
-          <span class="ind-change" :class="(marketData.kosdaqChangeRate || 0) >= 0 ? 'up' : 'down'">
-            {{ (marketData.kosdaqChangeRate || 0) >= 0 ? '+' : '' }}{{ (marketData.kosdaqChangeRate || 0).toFixed(2) }}%
-          </span>
-        </div>
-        <!-- ADR Gauge — 폭락 시 ADR 수치 무시, 강제 빨간색 -->
-        <div class="adr-gauge">
-          <span class="adr-label" v-if="isCrashStatus" style="color: #fca5a5; font-weight: 700;">⚠️ 폭락 감지 — ADR 무시됨</span>
-          <span class="adr-label" v-else>{{ marketData.dailyRatio ? '당일 등락비' : 'ADR (20일)' }}</span>
-          <div class="gauge-bar">
-            <div class="gauge-fill" :style="{ width: isCrashStatus ? '100%' : (Math.min(100, marketData.dailyRatio || marketData.adr || 0) + '%') }" :class="getAdrClass()"></div>
-          </div>
-          <span class="adr-value" v-if="!isCrashStatus">{{ (marketData.dailyRatio || marketData.adr || 0).toFixed(1) }}%</span>
-        </div>
-        <!-- USD/KRW 환율 — 데이터 없으면 '데이터 지연' -->
-        <div class="indicator-card">
-          <span class="ind-label">USD/KRW</span>
-          <span class="ind-value" :class="{ 'data-delayed': !globalData.usdKrw || !globalData.usdKrw.price }">{{ usdKrwDisplay }}</span>
-          <span v-if="globalData.usdKrw && globalData.usdKrw.price" class="ind-change" :class="(globalData.usdKrw.changeRate || 0) >= 0 ? 'up' : 'down'">
-            {{ (globalData.usdKrw.changeRate || 0) >= 0 ? '+' : '' }}{{ (globalData.usdKrw.changeRate || 0).toFixed(2) }}%
-          </span>
-        </div>
-        <!-- 시장 상태 — 폭락 시 항상 표시 -->
-        <div class="market-status" :class="isCrashStatus ? 'crash-status' : ''" v-if="isCrashStatus || displayMarketStatus">
-          {{ displayMarketStatus || '시장 상태 로딩 중...' }}
-        </div>
-        <div class="more-links">
-          <router-link to="/market-timing">시장 타이밍 →</router-link>
-        </div>
-      </div>
-
-      <!-- 글로벌 -->
-      <div v-if="activeTab === 'global'" class="global-area">
-        <div class="indicator-card" v-if="globalData.nasdaqFutures">
-          <span class="ind-label">나스닥 선물</span>
-          <span class="ind-value">{{ globalData.nasdaqFutures.price || '-' }}</span>
-          <span class="ind-change" :class="(globalData.nasdaqFutures.changeRate || 0) >= 0 ? 'up' : 'down'">
-            {{ (globalData.nasdaqFutures.changeRate || 0) >= 0 ? '+' : '' }}{{ (globalData.nasdaqFutures.changeRate || 0).toFixed(2) }}%
-          </span>
-        </div>
-        <div class="indicator-card" v-if="globalData.leadingSectors && globalData.leadingSectors.length > 0">
-          <span class="ind-label">주도 섹터</span>
-          <span class="ind-value">{{ globalData.leadingSectors[0].sectorName || '-' }}</span>
-        </div>
-        <div v-if="!globalData.nasdaqFutures && (!globalData.leadingSectors || globalData.leadingSectors.length === 0)" class="state-box state-box-sm">
-          <span class="state-icon">🌐</span>
-          <p class="state-text">글로벌 데이터가 없습니다</p>
-        </div>
-        <div class="more-links">
-          <router-link to="/market-timing">시장 타이밍 →</router-link>
-        </div>
-      </div>
+      <!-- '시장 지표' 탭은 상단 시장 상태 바와 중복되어 제거됨.
+           '글로벌' 탭은 GNB 글로벌 탭(/global-futures) 풀 페이지와 중복되어 제거됨. -->
 
       <!-- AI 예측 -->
       <div v-if="activeTab === 'forecast'" class="forecast-section">
@@ -258,7 +194,6 @@ import {
   Filler
 } from 'chart.js'
 import { marketAPI, sectorAPI } from '../../utils/api'
-import { checkCrash, getMarketStatus } from '../../composables/useMarketStatus'
 import { formatChange } from '../../utils/marketFormatters'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
@@ -280,8 +215,6 @@ export default {
       tabs: [
         { key: 'heatmap', label: '섹터 히트맵' },
         { key: 'rotation', label: '자금 흐름' },
-        { key: 'market', label: '시장 지표' },
-        { key: 'global', label: '글로벌' },
         { key: 'forecast', label: 'AI 예측' }
       ],
       forecastData: null,
@@ -295,23 +228,7 @@ export default {
     }
   },
   computed: {
-    // 폭락 감지 (공통 컴포저블 사용)
-    isCrashStatus() {
-      return checkCrash(this.marketData)
-    },
-    // 시장 상태 텍스트 (폭락 시 하드코딩 오버라이드)
-    displayMarketStatus() {
-      if (this.isCrashStatus) {
-        return getMarketStatus(true).displayText
-      }
-      return this.marketData.marketStatus || ''
-    },
-    // USD/KRW 표시값
-    usdKrwDisplay() {
-      const krw = this.globalData.usdKrw
-      if (!krw || !krw.price) return '데이터 지연'
-      return krw.price
-    },
+    // [정리됨] isCrashStatus / displayMarketStatus / usdKrwDisplay 는 시장지표 탭 제거에 따라 미사용
     maxTradingValue() {
       if (this.sectorData.length === 0) return 1
       return Math.max(...this.sectorData.map(s => s.totalTradingValue || s.tradingValue || 1))
@@ -509,9 +426,6 @@ export default {
     shortenName(name) {
       if (!name) return ''
       return name.length > 5 ? name.substring(0, 5) + '..' : name
-    },
-    getAdrClass() {
-      return getMarketStatus(this.isCrashStatus, this.marketData.adr || 0).adrClass
     }
   }
 }

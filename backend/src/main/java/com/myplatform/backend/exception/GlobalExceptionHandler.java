@@ -172,11 +172,12 @@ public class GlobalExceptionHandler {
 
     /**
      * 500 Internal Server Error - RuntimeException
+     * 내부 메시지는 로그만, 응답에는 generic 메시지 (정보 노출 방지)
      */
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiErrorResponse> handleRuntimeException(RuntimeException ex) {
         log.error("런타임 오류: {}", ex.getMessage(), ex);
-        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.", ex.getMessage());
+        return buildErrorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "서버 내부 오류가 발생했습니다.", null);
     }
 
     /**

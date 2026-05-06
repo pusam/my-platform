@@ -11,8 +11,8 @@
         <span class="nav-sub" v-if="subtitle">{{ subtitle }}</span>
       </div>
 
-      <!-- PC: 상단 탭 -->
-      <div class="nav-tabs">
+      <!-- PC: 상단 탭 — 항목 없으면 영역 자체 숨김 -->
+      <div class="nav-tabs" v-if="navItems.length">
         <router-link
           v-for="item in navItems"
           :key="item.path"
@@ -30,8 +30,8 @@
       </div>
     </div>
 
-    <!-- 모바일: 하단 탭바 -->
-    <div class="mobile-tabbar">
+    <!-- 모바일: 하단 탭바 — 항목 없으면 숨김 -->
+    <div class="mobile-tabbar" v-if="navItems.length">
       <router-link
         v-for="item in navItems"
         :key="'m-' + item.path"
@@ -56,10 +56,9 @@ defineProps({
 
 const route = useRoute()
 
-const navItems = [
-  { path: '/stock-dashboard', icon: '📈', label: '시장' },
-  { path: '/global-futures', icon: '🌍', label: '글로벌' }
-]
+// 시장/글로벌은 DashboardHeader의 4탭(장전/장중/장후·연구/글로벌)으로 통합됨.
+// 다른 페이지(StockDetail/Research/MarketTiming 등)는 BackButton/홈 버튼으로 복귀.
+const navItems = []
 
 const isActive = (itemPath) => {
   const current = route.path

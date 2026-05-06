@@ -3,6 +3,7 @@ package com.myplatform.backend.scheduler;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.service.InvestorTradeService;
 import com.myplatform.backend.service.KoreaInvestmentService;
+import com.myplatform.backend.service.SchedulerLockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -11,6 +12,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -35,6 +37,7 @@ public class InvestorTradeScheduler {
     private final InvestorTradeService investorTradeService;
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final KoreaInvestmentService koreaInvestmentService;
+    private final SchedulerLockService schedulerLockService;
 
     /**
      * 매일 15:50 자동 수집 (장 마감 직후)
@@ -42,6 +45,10 @@ public class InvestorTradeScheduler {
      */
     @Scheduled(cron = "0 50 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfterMarketClose() {
+        if (!schedulerLockService.tryLock("investor-trade.after-close", Duration.ofMinutes(30))) {
+            log.debug("[배치] 15:50 다른 인스턴스에서 진행 중 — 스킵");
+            return;
+        }
         log.info("=== [배치] 15:50 투자자 매매 데이터 자동 수집 시작 ===");
         try {
             LocalDate today = LocalDate.now();
@@ -66,6 +73,11 @@ public class InvestorTradeScheduler {
         boolean hasData = investorDailyTradeRepository.existsByTradeDate(today);
         if (hasData) {
             log.debug("[배치] 18:00 - 오늘 데이터 이미 존재, 스킵");
+            return;
+        }
+
+        if (!schedulerLockService.tryLock("investor-trade.evening", Duration.ofMinutes(30))) {
+            log.debug("[배치] 18:00 다른 인스턴스에서 진행 중 — 스킵");
             return;
         }
 
@@ -111,6 +123,12 @@ public class InvestorTradeScheduler {
             if (hasData) {
                 long tradeDays = investorDailyTradeRepository.countDistinctTradeDates();
                 log.info("[시작시 수집] 오늘 데이터 존재 - 현재 {}일치 데이터 보유", tradeDays);
+                return;
+            }
+
+            // ApplicationReady 는 인스턴스마다 발생 — 멀티 인스턴스 부팅 시 KIS 중복 호출 방지
+            if (!schedulerLockService.tryLock("investor-trade.startup", Duration.ofMinutes(30))) {
+                log.info("[시작시 수집] 다른 인스턴스가 수집 중 — 스킵");
                 return;
             }
 

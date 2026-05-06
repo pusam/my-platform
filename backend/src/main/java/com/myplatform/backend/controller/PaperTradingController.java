@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -159,6 +160,7 @@ public class PaperTradingController {
      * - 봇 활성화 후 즉시 매수 로직 1회 실행
      */
     @PostMapping("/bot/start")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> startBot(
             @RequestParam(defaultValue = "VIRTUAL") String mode) {
         TradingMode tradingMode = parseTradingMode(mode);
@@ -187,6 +189,7 @@ public class PaperTradingController {
      * POST /api/paper-trading/bot/stop
      */
     @PostMapping("/bot/stop")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> stopBot() {
         BotStatusDto status = autoTradingBotService.stopBot();
         Map<String, Object> response = buildSuccessResponse(status);
@@ -199,6 +202,7 @@ public class PaperTradingController {
      * POST /api/paper-trading/bot/trigger-buy
      */
     @PostMapping("/bot/trigger-buy")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> triggerBuyLogic() {
         log.info("===== 수동 매수 로직 트리거 =====");
 
@@ -252,6 +256,7 @@ public class PaperTradingController {
      * GET /api/paper-trading/real/account/summary
      */
     @GetMapping("/real/account/summary")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getRealAccountSummary() {
         AccountSummaryDto summary = realTradeService.getAccountSummary();
         return ResponseEntity.ok(buildSuccessResponse(summary));
@@ -262,6 +267,7 @@ public class PaperTradingController {
      * GET /api/paper-trading/real/portfolio
      */
     @GetMapping("/real/portfolio")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> getRealPortfolio() {
         realTradeService.updatePortfolioPrices();
         List<PortfolioItemDto> portfolio = realTradeService.getPortfolio();
@@ -273,6 +279,7 @@ public class PaperTradingController {
      * POST /api/paper-trading/real/trades
      */
     @PostMapping("/real/trades")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, Object>> placeRealTrade(@Valid @RequestBody TradeRequestDto request) {
         validateTradeType(request.getTradeType());
 

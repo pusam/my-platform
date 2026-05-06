@@ -69,18 +69,6 @@ export const authAPI = {
   }
 };
 
-export const userAPI = {
-  // 현재 사용자 정보 조회
-  getCurrentUser() {
-    return apiClient.get('/me');
-  },
-
-  // 테스트 API
-  test() {
-    return apiClient.get('/test');
-  }
-};
-
 // Gold Price API
 export const goldAPI = {
   // 금 시세 조회
@@ -469,68 +457,6 @@ export const exportAPI = {
   }
 };
 
-// Investor Daily Trade API (투자자별 일별 상위 종목)
-export const investorTradeAPI = {
-  // 데이터 수집 (당일)
-  collect() {
-    return apiClient.post('/investor-trades/collect');
-  },
-  // 데이터 수집 (특정일)
-  collectByDate(date) {
-    return apiClient.post(`/investor-trades/collect/${date}`);
-  },
-  // 일자별 전체 조회
-  getByDate(date) {
-    return apiClient.get('/investor-trades', { params: { date } });
-  },
-  // 시장별 조회
-  getByMarket(marketType, date) {
-    return apiClient.get(`/investor-trades/market/${marketType}`, { params: { date } });
-  },
-  // 투자자별 조회
-  getByInvestor(investorType, date) {
-    return apiClient.get(`/investor-trades/investor/${investorType}`, { params: { date } });
-  },
-  // 시장 + 투자자별 조회
-  getByMarketAndInvestor(marketType, investorType, date) {
-    return apiClient.get(`/investor-trades/market/${marketType}/investor/${investorType}`, { params: { date } });
-  },
-  // 연기금 코스피 조회
-  getPensionKospi(date) {
-    return apiClient.get('/investor-trades/pension/kospi', { params: { date } });
-  },
-  // 연기금 코스닥 조회
-  getPensionKosdaq(date) {
-    return apiClient.get('/investor-trades/pension/kosdaq', { params: { date } });
-  },
-  // 기간별 투자자 조회
-  getByInvestorRange(investorType, startDate, endDate) {
-    return apiClient.get(`/investor-trades/investor/${investorType}/range`, {
-      params: { startDate, endDate }
-    });
-  },
-  // 기간별 종목 조회
-  getByStockRange(stockCode, startDate, endDate) {
-    return apiClient.get(`/investor-trades/stock/${stockCode}/range`, {
-      params: { startDate, endDate }
-    });
-  },
-  // 누적 통계 조회
-  getStats(investorType, marketType, startDate, endDate) {
-    return apiClient.get(`/investor-trades/stats/${investorType}/${marketType}`, {
-      params: { startDate, endDate }
-    });
-  },
-  // 데이터 있는 날짜 목록
-  getAvailableDates(marketType, investorType) {
-    return apiClient.get(`/investor-trades/dates/${marketType}/${investorType}`);
-  },
-  // 데이터 재수집
-  recollect(marketType, investorType, date) {
-    return apiClient.post(`/investor-trades/recollect/${marketType}/${investorType}/${date}`);
-  }
-};
-
 // 시장 지표 API
 export const marketAPI = {
   // 현재 시장 상태 조회
@@ -676,18 +602,6 @@ export const paperTradingAPI = {
   }
 };
 
-// Scalping Analysis API (단타 분석)
-export const scalpingAPI = {
-  // 단타 분석 조회 (체결강도, 프로그램매매, 투자자 매매)
-  getAnalysis(stockCode) {
-    return apiClient.get(`/scalping/${stockCode}`);
-  },
-  // 체결강도만 빠르게 갱신 (자동 갱신용)
-  refreshVolumePower(stockCode) {
-    return apiClient.get(`/scalping/${stockCode}/refresh`);
-  }
-};
-
 // Exchange Rate API (환율)
 export const exchangeRateAPI = {
   // 현재 환율 조회 (USD/KRW)
@@ -736,18 +650,6 @@ export const tradingIndicatorAPI = {
   // 종합 분석
   getComprehensive(stockCode) {
     return apiClient.get(`/trading-indicators/comprehensive/${stockCode}`);
-  }
-};
-
-// AI Analysis API (AI 주식 분석)
-export const aiAnalysisAPI = {
-  // AI 분석 결과 조회
-  getAnalysis() {
-    return apiClient.get('/ai-analysis');
-  },
-  // AI 분석 새로고침
-  refresh() {
-    return apiClient.post('/ai-analysis/refresh');
   }
 };
 
@@ -909,11 +811,8 @@ export const investorAPI = {
     const params = {};
     if (minChange) params.minChange = minChange;
     return apiClient.get('/investor/surge/common', { params });
-  },
-  // 멀티 컨빅션 시그널
-  getConvictionSignals() {
-    return apiClient.get('/investor/conviction');
   }
+  // [제거] getConvictionSignals — SectionConviction 위젯 제거 후 미사용. 백엔드 엔드포인트는 보존.
 };
 
 // Risk Analysis API (리스크 분석)
@@ -1024,51 +923,6 @@ export const globalFuturesAPI = {
 export const recommendationAPI = {
   getTop5() {
     return apiClient.get('/recommendation/top5', { timeout: 30000 });
-  }
-};
-
-export const radarAPI = {
-  getFull() {
-    return apiClient.get('/radar', { timeout: 60000 });
-  },
-  getPolicyNews() {
-    return apiClient.get('/radar/policy-news');
-  },
-  getNearHigh() {
-    return apiClient.get('/radar/near-high', { timeout: 30000 });
-  },
-  getLargeHoldings() {
-    return apiClient.get('/radar/large-holdings');
-  },
-  getEarningsPredictions() {
-    return apiClient.get('/radar/earnings-predictions');
-  }
-};
-
-export const earningsAPI = {
-  getRecent(months = 3) {
-    return apiClient.get('/earnings/recent', { params: { months } });
-  },
-  getCalendar(year, month) {
-    return apiClient.get('/earnings/calendar', { params: { year, month } });
-  },
-  getWatchlist() {
-    return apiClient.get('/earnings/watchlist');
-  },
-  search(q) {
-    return apiClient.get('/earnings/search', { params: { q } });
-  },
-  getStats(months = 3) {
-    return apiClient.get('/earnings/stats', { params: { months } });
-  },
-  collect() {
-    return apiClient.post('/earnings/collect');
-  },
-  getSummary(corpName, corpCode, reportType) {
-    return apiClient.get('/earnings/summary', {
-      params: { corpName, corpCode, reportType },
-      timeout: 60000
-    });
   }
 };
 

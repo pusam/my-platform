@@ -273,7 +273,11 @@ public class NewsService {
 
         URL url = new URL(feedUrl);
         SyndFeedInput input = new SyndFeedInput();
-        SyndFeed feed = input.build(new XmlReader(url));
+        // try-with-resources: XmlReader가 감싸는 소켓 스트림 누수 방지
+        SyndFeed feed;
+        try (XmlReader reader = new XmlReader(url)) {
+            feed = input.build(reader);
+        }
 
         String sourceName = extractSourceName(feedUrl);
 

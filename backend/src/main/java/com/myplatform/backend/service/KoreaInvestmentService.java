@@ -250,8 +250,10 @@ public class KoreaInvestmentService {
 
         try {
             // 국내주식 현재가 조회 API
+            // 시장구분: UN(통합) — KRX + NXT 통합시세, 8-20시 거래시간 전체 커버
+            // (J=KRX 단독, NX=NXT 단독)
             String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-price"
-                    + "?FID_COND_MRKT_DIV_CODE=J"  // J: 주식, ETF, ETN
+                    + "?FID_COND_MRKT_DIV_CODE=UN"
                     + "&FID_INPUT_ISCD=" + stockCode;
 
             HttpHeaders headers = createHeaders(token, "FHKST01010100");
@@ -490,14 +492,15 @@ public class KoreaInvestmentService {
             }
 
             try {
-                // 현재 시간 또는 장 마감 시간 (HHMMSS 형식)
+                // 현재 시간 또는 NXT 거래종료 시간 (HHMMSS 형식)
+                // NXT 애프터마켓 20:00까지 분봉 수집 (이전엔 KRX 15:30 가드)
                 java.time.LocalTime now = java.time.LocalTime.now();
-                java.time.LocalTime marketClose = java.time.LocalTime.of(15, 30);
+                java.time.LocalTime marketClose = java.time.LocalTime.of(20, 0);
                 java.time.LocalTime queryTime = now.isAfter(marketClose) ? marketClose : now;
                 String timeStr = String.format("%02d%02d%02d", queryTime.getHour(), queryTime.getMinute(), 0);
 
                 String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
-                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "?FID_COND_MRKT_DIV_CODE=UN"  // KRX+NXT 통합
                         + "&FID_INPUT_ISCD=" + stockCode
                         + "&FID_INPUT_HOUR_1=" + timeStr
                         + "&FID_PW_DATA_INCU_YN=Y";

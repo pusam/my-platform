@@ -10,7 +10,6 @@ import Signup from './views/Signup.vue'
 import ForgotPassword from './views/ForgotPassword.vue'
 
 // 나머지는 lazy loading (코드 스플리팅)
-const Dashboard = () => import('./views/Dashboard.vue')
 const AdminDashboard = () => import('./views/AdminDashboard.vue')
 const UserDashboard = () => import('./views/UserDashboard.vue')
 const BoardPage = () => import('./views/BoardPage.vue')
@@ -25,7 +24,7 @@ const DietManagement = () => import('./views/DietManagement.vue')
 const ExerciseManagement = () => import('./views/ExerciseManagement.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
-// ResearchPage, PaperTradingPage → StockTradingDashboardV2에 탭으로 통합됨 (redirect)
+// /research, /paper-trading 등 레거시 경로는 StockTradingDashboardV2 sub-tab으로 redirect
 const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
@@ -226,19 +225,19 @@ const router = createRouter({
       path: '/admin/users',
       name: 'UserManagement',
       component: UserManagement,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, adminOnly: true }
     },
     {
       path: '/admin/logs',
       name: 'ActivityLogs',
       component: ActivityLogs,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, adminOnly: true }
     },
     {
       path: '/admin/batch',
       name: 'BatchJobMonitor',
       component: BatchJobMonitor,
-      meta: { requiresAuth: true }
+      meta: { requiresAuth: true, adminOnly: true }
     }
   ]
 })

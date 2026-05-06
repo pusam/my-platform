@@ -37,13 +37,15 @@ public class AuthService {
     }
 
     private static final int MAX_FAILED_ATTEMPTS = 10;
+    private static final String INVALID_CREDENTIALS_MESSAGE = "아이디 또는 비밀번호가 올바르지 않습니다.";
 
     public LoginResponse login(LoginRequest request) {
         User user = userRepository.findByUsername(request.getUsername())
                 .orElse(null);
 
+        // 계정 열거(account enumeration) 방지: 사용자 부재와 비밀번호 불일치를 동일 메시지로 응답
         if (user == null) {
-            return new LoginResponse(false, "존재하지 않는 사용자입니다.");
+            return new LoginResponse(false, INVALID_CREDENTIALS_MESSAGE);
         }
 
         // 계정 잠금 체크
@@ -70,7 +72,8 @@ public class AuthService {
                 return new LoginResponse(false, "로그인 " + MAX_FAILED_ATTEMPTS + "회 실패로 계정이 잠겼습니다. 관리자에게 문의하세요.");
             }
             userRepository.save(user);
-            return new LoginResponse(false, "비밀번호가 일치하지 않습니다. (실패 " + attempts + "/" + MAX_FAILED_ATTEMPTS + ")");
+            // 시도 횟수 노출도 계정 존재 여부 누설로 이어짐 → 동일 메시지로 통합
+            return new LoginResponse(false, INVALID_CREDENTIALS_MESSAGE);
         }
 
         // 로그인 성공 시 실패 횟수 초기화

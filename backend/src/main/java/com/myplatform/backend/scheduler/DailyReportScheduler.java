@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
+import com.myplatform.backend.service.SchedulerLockService;
 import com.myplatform.backend.service.TelegramNotificationService;
 import com.myplatform.backend.service.VirtualTradeService;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +15,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -30,6 +32,7 @@ public class DailyReportScheduler {
     private final VirtualTradeService virtualTradeService;
     private final AiStrategySnapshotRepository aiStrategySnapshotRepository;
     private final TelegramNotificationService telegramNotificationService;
+    private final SchedulerLockService schedulerLockService;
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
@@ -41,6 +44,11 @@ public class DailyReportScheduler {
     public void sendDailyReport() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태 - 일일 리포트 생략");
+            return;
+        }
+
+        if (!schedulerLockService.tryLock("daily-report.send", Duration.ofMinutes(30))) {
+            log.debug("일일 리포트 다른 인스턴스에서 발송 중 — 스킵 (텔레그램 중복 방지)");
             return;
         }
 

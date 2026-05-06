@@ -45,7 +45,7 @@ public class EmailVerificationService {
     }
 
     /**
-     * 인증번호 확인
+     * 인증번호 확인 — 검증 후 만료시간을 30분 연장하여 회원가입 윈도우 확보
      */
     public boolean verifyToken(String email, String token) {
         EmailVerificationToken verificationToken = tokenRepository
@@ -56,6 +56,8 @@ public class EmailVerificationService {
 
         if (verificationToken != null) {
             verificationToken.setVerified(true);
+            // 회원가입 게이트는 expiresAt 만료 전까지만 통과 — 30분 윈도우
+            verificationToken.setExpiresAt(LocalDateTime.now().plusMinutes(30));
             tokenRepository.save(verificationToken);
             return true;
         }
@@ -64,10 +66,10 @@ public class EmailVerificationService {
 
     /**
      * 이메일 인증 완료 여부 확인 (회원가입 시 사용)
-     * 최근 30분 이내에 인증 완료된 토큰이 있으면 true
+     * verified=true 이면서 expiresAt 안 지났을 때만 true — 오래된 verified 토큰 재사용 차단
      */
     public boolean isEmailVerified(String email) {
-        return tokenRepository.existsByEmailAndVerifiedTrue(email);
+        return tokenRepository.existsByEmailAndVerifiedTrueAndExpiresAtAfter(email, LocalDateTime.now());
     }
 
     /**

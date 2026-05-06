@@ -37,25 +37,41 @@ public class DartDisclosureMonitorService {
     private final KoreaInvestmentService kisService;
     private final TelegramNotificationService telegramService;
     private final RedisCacheService redisCacheService;
+    private final SchedulerLockService schedulerLockService;
 
     /**
-     * 장중 5분마다.
+     * 거래시간(NXT 8-20 + KRX) 5분마다.
      */
-    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkIntraday() {
         runCheck("장중");
     }
 
     /**
-     * 장외 1시간마다 (16시 ~ 다음날 08시). 공시는 장 마감 후 대거 발표됨.
+     * 장외 야간 (20시~23시). 평일 야간 공시 대응.
      */
-    @Scheduled(cron = "0 0 16-23,0-8 * * MON-FRI", zone = "Asia/Seoul")
-    public void checkAfterHours() {
-        runCheck("장외");
+    @Scheduled(cron = "0 0 20-23 * * MON-FRI", zone = "Asia/Seoul")
+    public void checkAfterHoursEvening() {
+        runCheck("장외-야간");
+    }
+
+    /**
+     * 장외 새벽 (00시~07시) — 다음날 새벽이므로 화/수/목/금/토 실행.
+     * 기존 0-8 with MON-FRI 패턴은 토요일 새벽도 잘못 포함되는 cross-day 버그가 있어 분리.
+     */
+    @Scheduled(cron = "0 0 0-7 * * TUE-SAT", zone = "Asia/Seoul")
+    public void checkAfterHoursDawn() {
+        runCheck("장외-새벽");
     }
 
     private void runCheck(String mode) {
         if (!dartService.isAvailable()) return;
+        // 가장 짧은 cron(5분)에 맞춰 TTL 4분. dartSeen 캐시가 텔레그램 중복은 이미 막지만,
+        // DART API 호출/loop 자체가 두 번 도는 부담을 줄임.
+        if (!schedulerLockService.tryLock("dart-disclosure.check", Duration.ofMinutes(4))) {
+            log.debug("[DartMonitor] {} 다른 인스턴스에서 진행 중 — 스킵", mode);
+            return;
+        }
 
         try {
             Set<String> stockNames = collectTargetStockNames();
