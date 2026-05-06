@@ -13,17 +13,6 @@
       <!-- ═══ Tab: 트레이드 (장전+장중 통합 — 시장 시간대로 위젯 자동 토글) ═══ -->
       <div v-if="activeGnbTab === 'premarket'" class="tab-panel">
 
-        <!-- ⓪ 오늘의 브리핑 (장전 시간대 한눈 요약) -->
-        <SectionBriefing
-          v-if="currentPhaseKey === 'pre'"
-          :marketData="marketData"
-          :globalData="globalData"
-          :topRecommendations="topRecommendations"
-          :supplyPanelData="supplyPanelData"
-          :watchlistItems="watchlistItems"
-          :watchlistRisks="watchlistRisks"
-        />
-
         <!-- ① 시장 상태 바 (장전·장중 공통) -->
         <div id="briefing-section-market" class="market-status-bar" v-if="marketData">
           <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
@@ -298,7 +287,6 @@ import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
-import SectionBriefing from '../components/v2/SectionBriefing.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
@@ -361,7 +349,6 @@ export default {
     DashboardHeader,
     SectionMarketMap,
     SectionQuantTa,
-    SectionBriefing,
     SectionLiveSurge,
     SectionBacktest,
     StockSearchModal,
