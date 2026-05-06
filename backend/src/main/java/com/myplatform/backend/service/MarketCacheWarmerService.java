@@ -249,18 +249,19 @@ public class MarketCacheWarmerService {
     }
 
     /**
-     * 수급 급증 종목 - 이전 호출 종료 후 10분
+     * 수급 급증 종목 - 이전 호출 종료 후 10분.
+     * <p>
+     * 주의: getAllSurgeStocks 는 Redis 캐시 우선 조회라 여기서 호출하면 stale 무한 루프.
+     * refreshAllSurgeStocksCache 가 캐시 우회하고 DB 에서 fresh compute → Redis put 까지 한 번에.
      */
     @Scheduled(fixedDelay = 600000)
     public void warmInvestorSurge() {
         if (!isMarketHours() && !isStartup()) return;
 
         try {
-            Map<String, List<InvestorSurgeDto>> surgeData = investorSurgeService.getAllSurgeStocks(BigDecimal.ZERO);
-            if (surgeData != null && !surgeData.isEmpty()) {
-                redisCacheService.put(CACHE_INVESTOR_SURGE, "all_0", surgeData, TTL_INVESTOR_SURGE);
-            }
+            investorSurgeService.refreshAllSurgeStocksCache();
 
+            // common_30 은 getCommonSurgeStocks 가 getSurgeStocks(DB 직접) 두 번 호출이라 stale 루프 없음
             List<InvestorSurgeDto> commonSurge = investorSurgeService.getCommonSurgeStocks(new BigDecimal("30"));
             if (commonSurge != null && !commonSurge.isEmpty()) {
                 redisCacheService.put(CACHE_INVESTOR_SURGE, "common_30", commonSurge, TTL_INVESTOR_SURGE);

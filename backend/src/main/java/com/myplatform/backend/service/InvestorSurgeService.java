@@ -361,19 +361,40 @@ public class InvestorSurgeService {
             return result;
         }
 
-        Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
+        // Cache miss — DB 직접 조회 (워머 첫 사이클 또는 TTL 만료 직후의 짧은 윈도우)
+        Map<String, List<InvestorSurgeDto>> fresh = computeAllSurgeStocksFromDb(minChange);
+        enrichWithRealTimePrices(fresh);
+        return fresh;
+    }
 
+    /**
+     * DB 에서 직접 compute — 캐시 우회. 워머/리프레시 전용.
+     */
+    private Map<String, List<InvestorSurgeDto>> computeAllSurgeStocksFromDb(BigDecimal minChange) {
+        Map<String, List<InvestorSurgeDto>> result = new HashMap<>();
         List<InvestorSurgeDto> foreignStocks = getSurgeStocks("FOREIGN", minChange);
         List<InvestorSurgeDto> institutionStocks = getSurgeStocks("INSTITUTION", minChange);
-
         result.put("FOREIGN", foreignStocks);
         result.put("INSTITUTION", institutionStocks);
         result.put("COMMON", getCommonStocks(foreignStocks, institutionStocks));
-
-        // 스냅샷 가격 → 실시간 가격으로 보정
-        enrichWithRealTimePrices(result);
-
         return result;
+    }
+
+    /**
+     * 워머 전용 — 캐시 우회하고 DB 에서 새로 compute 한 결과를 Redis 에 직접 저장.
+     * <p>
+     * Phase 3 이전에는 워머가 {@link #getAllSurgeStocks}(0)을 호출했는데 그 메서드가 Redis 우선
+     * 조회라 캐시 hit 시 stale 데이터를 그대로 받아 다시 put → 영원히 stale 한 데이터로 굳던 버그.
+     * Phase 3 에서 캐시 사용 범위가 minChange 전체로 넓어지면서 프론트에도 stale 가시화됨.
+     */
+    @Transactional(readOnly = true)
+    public void refreshAllSurgeStocksCache() {
+        Map<String, List<InvestorSurgeDto>> fresh = computeAllSurgeStocksFromDb(BigDecimal.ZERO);
+        if (fresh != null && !fresh.isEmpty()) {
+            redisCacheService.put(
+                    MarketCacheWarmerService.getCacheInvestorSurge(), "all_0",
+                    fresh, java.time.Duration.ofMinutes(15));
+        }
     }
 
     /**
