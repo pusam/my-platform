@@ -24,7 +24,14 @@
         <div class="info">
           <div class="name-line">
             <span class="stock-name">{{ rec.stockName || rec.stockCode }}</span>
-            <span class="score-pill">{{ rec.totalScore }}점</span>
+            <span class="score-pill" title="추천 종합 점수 (6카테고리 정규화)">{{ rec.totalScore }}점</span>
+            <span
+              v-if="scoreMap && scoreMap[rec.stockCode]"
+              class="score-detail"
+              title="상세 페이지 단기 트레이딩 / 중장기 펀더멘털 점수"
+            >
+              단기 {{ scoreMap[rec.stockCode].tradingScore }} · 중장기 {{ scoreMap[rec.stockCode].fundamentalScore }}
+            </span>
           </div>
           <div class="code-line">{{ rec.stockCode }}</div>
         </div>
@@ -64,7 +71,9 @@ const SURGE_THRESHOLD = 2.0  // |%| 이상 변동시 하이라이트
 export default {
   name: 'SectionLiveTracker',
   props: {
-    recommendations: { type: Array, default: () => [] }
+    recommendations: { type: Array, default: () => [] },
+    // { stockCode: { tradingScore, fundamentalScore, ... } } — 부가 표시용. 비어 있어도 트래커는 정상 동작.
+    scoreMap: { type: Object, default: () => ({}) }
   },
   data() {
     return {
@@ -207,6 +216,13 @@ export default {
   font-size: 10.5px;
   font-weight: 600;
 }
+.score-detail {
+  font-size: 10px;
+  color: rgba(255,255,255,0.5);
+  font-weight: 500;
+  margin-left: 2px;
+  white-space: nowrap;
+}
 .code-line {
   font-family: monospace; font-size: 10px;
   color: rgba(255,255,255,0.35);
@@ -256,6 +272,7 @@ export default {
   .rank { font-size: 11px; width: 22px; }
   .stock-name { font-size: 13px; }
   .score-pill { padding: 1px 5px; font-size: 9.5px; }
+  .score-detail { font-size: 9px; }
   .price { font-size: 12px; }
   .change { font-size: 12px; }
   .tracker-summary { gap: 10px; font-size: 10.5px; }

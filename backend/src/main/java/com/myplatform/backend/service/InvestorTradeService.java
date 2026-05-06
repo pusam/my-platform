@@ -37,6 +37,7 @@ public class InvestorTradeService {
     private final KisInvestorDataCollector kisInvestorDataCollector;
     private final KoreaInvestmentService koreaInvestmentService;
     private final RedisCacheService redisCacheService;
+    private final InvestorDailyTradeService investorDailyTradeService;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);   // 프리마켓 포함
@@ -369,7 +370,28 @@ public class InvestorTradeService {
             log.info("데이터 삭제 확인: {} 데이터 없음", tradeDate);
         }
 
-        return kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);
+        Map<String, Integer> result = kisInvestorDataCollector.collectDailyInvestorTrades(tradeDate);
+
+        // [KRX 보충] 연기금 데이터 안전망
+        // - KIS의 fund_ntby_tr_pbmn 추출 경로가 빈 응답을 줄 때 PENSION이 0건이 되는 사고 방지
+        // - 보유 시장: KIS는 KOSPI만, KRX는 KOSPI+KOSDAQ — KOSDAQ은 항상 보충 가치 있음
+        // - 중복 방지: collectPensionFromKrx 내부에서 existsByMarketTypeAndInvestorTypeAndTradeDate 체크 후 스킵
+        try {
+            boolean kisPensionEmpty = !investorTradeRepository
+                    .existsByInvestorTypeAndTradeDate("PENSION", tradeDate);
+            if (kisPensionEmpty) {
+                log.warn("KIS 연기금 수집 결과 0건 — KRX KOSPI 보충 시도: {}", tradeDate);
+                int kospiCount = investorDailyTradeService.collectPensionFromKrx("KOSPI", tradeDate);
+                result.put("KOSPI_PENSION_KRX_FALLBACK", kospiCount);
+            }
+            // KOSDAQ 연기금은 KIS가 커버하지 않으므로 항상 KRX로 보충
+            int kosdaqCount = investorDailyTradeService.collectPensionFromKrx("KOSDAQ", tradeDate);
+            result.put("KOSDAQ_PENSION_KRX", kosdaqCount);
+        } catch (Exception e) {
+            log.warn("KRX 연기금 보충 수집 실패: {} - {}", tradeDate, e.getMessage());
+        }
+
+        return result;
     }
 
     /**
@@ -455,7 +477,11 @@ public class InvestorTradeService {
      * @param investorType 투자자 유형 (FOREIGN, INSTITUTION, INDIVIDUAL)
      * @param minDays 최소 연속 일수 (기본 3일)
      */
-    @Cacheable(value = "consecutiveBuys", key = "#investorType + '_' + (#minDays != null ? #minDays : 3)")
+    @Cacheable(
+            value = "consecutiveBuys",
+            key = "#investorType + '_' + (#minDays != null ? #minDays : 3)",
+            unless = "#result == null || #result.isEmpty()"
+    )
     public List<ConsecutiveBuyDto> getConsecutiveBuyStocks(String investorType, Integer minDays) {
         if (minDays == null || minDays < 1) {
             minDays = 3;
@@ -632,14 +658,15 @@ public class InvestorTradeService {
     }
 
     /**
-     * 장 마감 후 캐시 자동 초기화 (매일 16:05)
-     * - 16:00에 데이터 수집이 실행되고, 10분 후 캐시 초기화
-     * - 16:05 warmConsecutiveBuys와 레이스 방지 (기존 16:05 → 16:10)
+     * 장 마감 후 캐시 자동 초기화 (매일 15:55)
+     * - 15:50 InvestorTradeScheduler.collectAfterMarketClose 직후, 16:05 warmConsecutiveBuys 직전에 실행
+     * - 순서: 15:50 수집(@CacheEvict 포함) → 15:55 evict(보강) → 16:05 warm(최종 캐시 채우기)
+     * - 기존 16:10은 16:05 warm 결과를 도로 비워버려 워밍이 무의미해지는 버그였음
      */
-    @Scheduled(cron = "0 10 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 55 15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledCacheEvict() {
         clearConsecutiveBuysCache();
-        log.info("장 마감 후 연속 매수 캐시 스케줄 초기화 완료 (16:10)");
+        log.info("장 마감 후 연속 매수 캐시 스케줄 초기화 완료 (15:55)");
     }
 
     /**

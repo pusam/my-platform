@@ -166,12 +166,7 @@
         <SectionLiveTracker
           v-if="activeGnbTab === 'live'"
           :recommendations="topRecommendations"
-        />
-
-        <!-- ②-e 실시간 급등/급락 (장중 전용) -->
-        <SectionLiveMovers
-          v-if="activeGnbTab === 'live'"
-          :active="activeGnbTab === 'live'"
+          :score-map="topRecScoreMap"
         />
 
         <!-- ②-f 섹터별 거래대금 (장중 전용 — 5분/30분 파워, 5분 폴링) -->
@@ -376,7 +371,6 @@ import SectionConviction from '../components/v2/SectionConviction.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionBriefing from '../components/v2/SectionBriefing.vue'
 import SectionLiveTracker from '../components/v2/SectionLiveTracker.vue'
-import SectionLiveMovers from '../components/v2/SectionLiveMovers.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
@@ -395,7 +389,7 @@ import {
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
   globalFuturesAPI, radarAPI, watchlistAPI, earningsAPI, paperTradingAPI,
-  recommendationAPI
+  recommendationAPI, stockDetailAPI
 } from '../utils/api'
 import { observeOnce } from '../utils/lazyObserver'
 
@@ -443,7 +437,6 @@ export default {
     SectionQuantTa,
     SectionBriefing,
     SectionLiveTracker,
-    SectionLiveMovers,
     SectionLiveSurge,
     SectionBacktest,
     StockSearchModal,
@@ -502,6 +495,7 @@ export default {
       topRecDataTime: '',
       topRecRealtime: true,
       topRecDelta: {},
+      topRecScoreMap: {},  // { stockCode: { tradingScore, fundamentalScore, ... } } — 트래커 단기/중장기 부가 표시용
       supplyPanelData: null,
       sectorOpportunities: [],
       sectorOppLoading: false,
@@ -708,7 +702,23 @@ export default {
         this.topRecDataTime = body?.dataTime || ''
         this.topRecRealtime = body?.realtime !== false
         this.topRecDelta = body?.delta || {}
+        this.refreshTopRecScores()
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
+    },
+    // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
+    // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.
+    // batchScores 는 무거운 호출이라 실패해도 트래커는 totalScore 만으로 정상 동작.
+    async refreshTopRecScores() {
+      const codes = (this.topRecommendations || [])
+        .slice(0, 5)
+        .map(r => r.stockCode)
+        .filter(Boolean)
+      if (!codes.length) { this.topRecScoreMap = {}; return }
+      try {
+        const res = await stockDetailAPI.batchScores(codes)
+        const data = res?.data?.data || res?.data || {}
+        if (data && typeof data === 'object') this.topRecScoreMap = data
+      } catch { /* 부가 표시 실패는 무시 */ }
     },
 
     // ---- 장중 시간대별 신호 갱신 (수급 급증 HOT + 정책 레이더) ----

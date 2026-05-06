@@ -217,21 +217,9 @@ public class MarketCacheWarmerService {
         }
     }
 
-    /**
-     * 실시간 등락률 상위/하위 - 이전 호출 종료 후 60초 (장중)
-     * - KIS FHKST01010500/600 호출 → Redis L2 갱신
-     * - 일배치(18:00 DB 스냅샷)는 그대로 두고, 장중에만 Redis 우선 조회로 실시간화.
-     */
-    @Scheduled(fixedDelay = 60000)
-    public void warmPriceMovers() {
-        if (!isMarketHours()) return;
-        try {
-            marketIndicatorService.refreshPriceMoversFromKis();
-            log.debug("[Cache Warmer] 실시간 등락률 상위/하위 워밍 완료");
-        } catch (Exception e) {
-            log.warn("[Cache Warmer] 등락률 워밍 실패: {}", e.getMessage());
-        }
-    }
+    // [제거] warmPriceMovers - 장중 실시간 급등/급락 위젯(SectionLiveMovers) 제거에 따라 워머 중단.
+    //        marketIndicatorService.refreshPriceMoversFromKis() / /api/market/price-{rise,fall} 엔드포인트는
+    //        다른 페이지에서도 사용 가능하므로 유지하고, 60초 폴링 워머만 끔.
 
     /**
      * 시장 상태(KOSPI/KOSDAQ/ADR) - 이전 호출 종료 후 60초.
