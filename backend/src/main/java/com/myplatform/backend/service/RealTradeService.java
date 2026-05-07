@@ -69,6 +69,34 @@ public class RealTradeService implements TradeService {
         }
     }
 
+    /**
+     * KIS 주문 성공 + DB save 실패 → 가장 위험한 비일관 상태.
+     * 운영자가 즉시 인지하도록 별도 critical 알림. (kill switch 는 호출자에서 발동)
+     */
+    private void alertDbInconsistency(String action, String stockName, String stockCode,
+                                       Integer quantity, BigDecimal price, String orderNo, Throwable err) {
+        log.error("⛔⛔ [DB 불일치] KIS {} 성공했으나 DB save 실패 — {}({}) {}주 @ {}원, 주문번호: {}",
+                action, stockName, stockCode, quantity, price, orderNo, err);
+        if (telegramService.isEnabled()) {
+            try {
+                telegramService.sendRisk(String.format(
+                        "⛔⛔ <b>[CRITICAL] DB 불일치 감지</b>\n\n" +
+                        "KIS %s 주문은 <b>성공</b> 했으나 로컬 DB 저장 실패.\n" +
+                        "→ KIS 잔고와 우리 DB 가 어긋난 상태\n\n" +
+                        "📌 종목: %s (%s)\n" +
+                        "📌 수량: %d주 @ %s원\n" +
+                        "📌 KIS 주문번호: %s\n" +
+                        "📌 에러: %s\n\n" +
+                        "⚠️ 봇 자동 정지됨. KIS HTS 에서 실제 잔고 확인 후\n" +
+                        "    DB 수동 보정 → 비상정지 해제 필요.",
+                        action, stockName, stockCode, quantity, price, orderNo,
+                        err.getMessage() == null ? err.getClass().getSimpleName() : err.getMessage()));
+            } catch (Exception telegramErr) {
+                log.warn("[CRITICAL DB 불일치] 텔레그램 알림 실패: {}", telegramErr.getMessage());
+            }
+        }
+    }
+
     /** 주문번호는 일반 로그에선 마지막 4자리만. 감사 로그/텔레그램은 전체 사용. */
     private static String maskOrderNo(String orderNo) {
         if (orderNo == null || orderNo.length() <= 4) return orderNo;
@@ -164,6 +192,12 @@ public class RealTradeService implements TradeService {
         // 3) KIS API 매수 주문
         //    예외/null 응답은 "주문이 들어갔는지 알 수 없음" 상태 → 봇 재시도 시 중복 주문 위험.
         //    이 경우 자동 킬스위치 발동해서 재시도 자체를 차단한다 (수동 확인 후 해제).
+        //
+        //    [의도적으로 backoff 재시도 안 함]
+        //    KIS 주문 API 는 멱등 보장 안 됨 — timeout 후 재시도하면 같은 주문 2번 체결 위험.
+        //    네트워크 일시 장애와 서버 처리 후 응답 손실은 클라이언트에서 구분 불가능하므로,
+        //    "확실히 안 들어간 케이스"(HttpStatusCodeException → rt_cd 파싱)만 KoreaInvestmentService
+        //    가 정상 응답으로 변환해서 돌려주고, 그 외엔 모두 불확실로 간주해 kill switch.
         JsonNode orderResult;
         try {
             orderResult = kisService.buyStock(stockCode, quantity, price);
@@ -202,6 +236,11 @@ public class RealTradeService implements TradeService {
                 .setScale(0, RoundingMode.CEILING);
 
         // 거래 내역 저장 (DB)
+        // ★ KIS 주문 성공 후 DB save 실패는 가장 위험한 상태:
+        //   - KIS 에 실제 주문 들어감 (rollback 불가)
+        //   - DB 는 트랜잭션 rollback 으로 비어있음
+        //   - 봇이 다음 사이클에 같은 종목 평가 → 또 매수 발사 (이중 주문 위험)
+        //   → 즉시 kill switch + RISK 알림으로 봇 정지. 운영자 수동 보정 필요.
         VirtualTradeHistory trade = VirtualTradeHistory.builder()
                 .accountId(REAL_ACCOUNT_ID)
                 .stockCode(stockCode)
@@ -215,7 +254,14 @@ public class RealTradeService implements TradeService {
                 .tradeReason(reason != null ? reason : "MANUAL")
                 .tradeDate(LocalDateTime.now())
                 .build();
-        tradeHistoryRepository.save(trade);
+        try {
+            tradeHistoryRepository.save(trade);
+        } catch (RuntimeException dbErr) {
+            alertDbInconsistency("매수", stockName, stockCode, quantity, price, orderNo, dbErr);
+            triggerKillSwitchOnUncertainty("매수-DB저장",
+                    stockName, stockCode, "DB save 실패: " + dbErr.getMessage());
+            throw dbErr;
+        }
 
         log.info("[실전매매] 매수 주문 완료: {} ({}) x {} @ {}원, 주문번호: {}",
                 stockName, stockCode, quantity, price, maskOrderNo(orderNo));
@@ -325,7 +371,7 @@ public class RealTradeService implements TradeService {
         BigDecimal investedAmount = avgPrice.multiply(BigDecimal.valueOf(quantity));
         BigDecimal profitLoss = netAmount.subtract(investedAmount);
 
-        // 거래 내역 저장 (DB)
+        // 거래 내역 저장 (DB) — 매수와 동일한 정책: KIS 성공 + DB 실패 = 즉시 kill switch
         VirtualTradeHistory trade = VirtualTradeHistory.builder()
                 .accountId(REAL_ACCOUNT_ID)
                 .stockCode(stockCode)
@@ -340,7 +386,14 @@ public class RealTradeService implements TradeService {
                 .tradeReason(reason != null ? reason : "MANUAL")
                 .tradeDate(LocalDateTime.now())
                 .build();
-        tradeHistoryRepository.save(trade);
+        try {
+            tradeHistoryRepository.save(trade);
+        } catch (RuntimeException dbErr) {
+            alertDbInconsistency("매도", stockName, stockCode, quantity, price, orderNo, dbErr);
+            triggerKillSwitchOnUncertainty("매도-DB저장",
+                    stockName, stockCode, "DB save 실패: " + dbErr.getMessage());
+            throw dbErr;
+        }
 
         log.info("[실전매매] 매도 주문 완료: {} ({}) x {} @ {}원, 손익: {}원, 주문번호: {}",
                 stockName, stockCode, quantity, price, profitLoss, maskOrderNo(orderNo));

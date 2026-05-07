@@ -218,6 +218,15 @@ public class AutoTradingBotService {
     private final Map<String, SwingPosition> closingPositions = new ConcurrentHashMap<>(); // SwingPosition 재사용
     // 종목별 마지막 매도 시간 (재매수 쿨다운용)
     private final Map<String, LocalDateTime> sellCooldownMap = new ConcurrentHashMap<>();
+    // 진행 중인 trade 메서드 카운터 — 모드 전환 시 in-flight 종료 대기용.
+    // 매수/매도 로직 진입 시 increment, finally 에서 decrement.
+    private final AtomicInteger inFlightTrades = new AtomicInteger(0);
+    // 종목별 매도 실패 횟수 — 무한 재시도 방지 + 알림 폭주 방지
+    private final Map<String, AtomicInteger> sellFailCount = new ConcurrentHashMap<>();
+    // 종목별 마지막 매도 실패 알림 시간 — 알림 dedup (5분 cooldown)
+    private final Map<String, LocalDateTime> sellFailLastAlert = new ConcurrentHashMap<>();
+    private static final int SELL_FAIL_GIVE_UP = 5;          // 5회 실패 시 포기
+    private static final long SELL_FAIL_ALERT_COOLDOWN_SEC = 300;  // 5분
     // 당일 시작 자산 (킬 스위치용)
     private volatile BigDecimal dailyStartAsset = BigDecimal.ZERO;
     // 킬 스위치 발동 여부
@@ -246,14 +255,17 @@ public class AutoTradingBotService {
      * 스캘핑 포지션 정보
      */
     private static class ScalpingPosition {
-        String stockCode;
-        String stockName;
-        BigDecimal buyPrice;           // 매수가
-        LocalDateTime buyTime;         // 매수 시간
-        BigDecimal highPrice;          // 최고가 (트레일링용)
-        boolean halfSold;              // 절반 익절 완료 여부
-        boolean timeExtended;          // 타임컷 동적 연장 사용 여부
-        int originalQuantity;          // 원래 수량
+        // 멀티스레드 visibility 보장 — 매도 평가/persist/halfSold 갱신이
+        // 다른 스레드에서 일어날 때 stale value 로 판단하지 않도록 volatile 표시.
+        // (compound read-modify-write atomicity 는 scalpingSellRunning 가드로 보장)
+        final String stockCode;
+        final String stockName;
+        volatile BigDecimal buyPrice;           // 매수가
+        volatile LocalDateTime buyTime;         // 매수 시간
+        volatile BigDecimal highPrice;          // 최고가 (트레일링용)
+        volatile boolean halfSold;              // 절반 익절 완료 여부
+        volatile boolean timeExtended;          // 타임컷 동적 연장 사용 여부
+        volatile int originalQuantity;          // 원래 수량
 
         ScalpingPosition(String stockCode, String stockName, BigDecimal buyPrice, int quantity) {
             this.stockCode = stockCode;
@@ -277,12 +289,12 @@ public class AutoTradingBotService {
      * 스윙 포지션 정보
      */
     private static class SwingPosition {
-        String stockCode;
-        String stockName;
-        BigDecimal buyPrice;
-        LocalDateTime buyTime;
-        BigDecimal highPrice;
-        String buyReason; // "외국인3일연속" 등
+        final String stockCode;
+        final String stockName;
+        volatile BigDecimal buyPrice;
+        volatile LocalDateTime buyTime;
+        volatile BigDecimal highPrice;
+        final String buyReason; // "외국인3일연속" 등
 
         SwingPosition(String stockCode, String stockName, BigDecimal buyPrice, String reason) {
             this.stockCode = stockCode;
@@ -613,6 +625,18 @@ public class AutoTradingBotService {
         // 이유: BotTradingPosition은 mode 컬럼이 없어 REAL↔VIRTUAL 포지션 구분 불가.
         //      전환 후 이전 모드 포지션을 새 모드 계좌로 매도 시도하면 "보유 없음" 오류.
         if (currentMode != newMode) {
+            // 1) 진행 중인 trade 가 끝날 때까지 대기 (최대 10초).
+            //    옛 sleep(2000) 은 in-flight 보장 못 함 — 카운터로 정확히 대기.
+            int waited = 0;
+            while (inFlightTrades.get() > 0 && waited < 100) {
+                try { Thread.sleep(100); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                waited++;
+            }
+            if (inFlightTrades.get() > 0) {
+                log.warn("[봇] 모드 전환 — 10초 대기 후에도 in-flight {}건 남음, 강제 진행",
+                        inFlightTrades.get());
+            }
+
             int cleared = scalpingPositions.size() + swingPositions.size() + closingPositions.size();
             if (cleared > 0) {
                 log.warn("[스캘핑봇] 모드 전환 감지 ({} → {}): 기존 포지션 {}개 정리",
@@ -626,9 +650,6 @@ public class AutoTradingBotService {
                     log.error("[스캘핑봇] 모드 전환 시 포지션 DB 삭제 실패: {}", e.getMessage());
                 }
             }
-            // 진행 중인 스케줄러가 옛 service 로 buy/sell 호출하지 않도록 잠시 대기.
-            // (모든 scheduled 메서드는 botActive=false 면 바로 리턴 → 잠깐 false 로 돌렸다가 다시 켬)
-            try { Thread.sleep(2000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
 
         currentMode = newMode;
@@ -1163,6 +1184,23 @@ public class AutoTradingBotService {
                     log.warn("[스캘핑봇] 매수 직전 봇 비활성화 또는 모드 전환 감지 — 중단");
                     return;
                 }
+
+                // ★ 진입 직전 현재가 재확인 — 신호 평가 후 ~수백 ms 동안 가격 변동 방어.
+                //   surge cache (30s) 데이터가 stale 한 상태에서 매수 발사 시 잘못된 수량 위험.
+                //   KIS 호출 1회 추가 비용 발생 — 변동률 ±2% 이상이면 skip.
+                BigDecimal latestPrice = fetchLatestPriceQuiet(surge.getStockCode());
+                if (latestPrice != null && latestPrice.signum() > 0) {
+                    BigDecimal drift = latestPrice.subtract(entryResult.currentPrice).abs()
+                            .divide(entryResult.currentPrice, 4, RoundingMode.HALF_UP);
+                    if (drift.compareTo(new BigDecimal("0.02")) > 0) {
+                        log.info("[스캘핑봇] 진입 직전 가격 {}% 변동 감지 — skip {} ({}원 → {}원)",
+                                drift.multiply(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
+                                surge.getStockName(),
+                                formatNumber(entryResult.currentPrice), formatNumber(latestPrice));
+                        continue;
+                    }
+                }
+
                 // ★ 메모리 포지션 선등록 (KIS 호출 전) — 동시 진입 race 방지 ★
                 // buy() 가 KIS API 라 응답까지 ~수백 ms. 그 사이 다른 사이클이 같은 종목
                 // 진입 평가 시 putIfAbsent 가 prev != null 반환 → 즉시 skip 되어
@@ -1177,6 +1215,7 @@ public class AutoTradingBotService {
                 }
 
                 boolean buyOk = false;
+                inFlightTrades.incrementAndGet();
                 try {
                     activeTradeService.buy(surge.getStockCode(), surge.getStockName(),
                             entryResult.currentPrice, quantity, "SCALPING_ENTRY");
@@ -1218,6 +1257,7 @@ public class AutoTradingBotService {
                 } catch (Exception e) {
                     log.error("[스캘핑봇] 매수 실패: {} - {}", surge.getStockName(), e.getMessage());
                 } finally {
+                    inFlightTrades.decrementAndGet();
                     // 매수 실패 시 메모리 등록 롤백 — 안 그러면 가짜 포지션이 매도 로직에서
                     // 매도 시도되어 KIS 에서 "보유 없음" 에러 반복
                     if (!buyOk) {
@@ -1544,9 +1584,13 @@ public class AutoTradingBotService {
             log.warn("[스캘핑봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
             return;
         }
+        // 모드 전환 race 방어 — 진행 중 trade 카운터에 등록.
+        // startBot 의 모드 전환은 inFlightTrades.get() == 0 될 때까지 대기.
+        inFlightTrades.incrementAndGet();
         try {
             executeScalpingSellLogicInternal();
         } finally {
+            inFlightTrades.decrementAndGet();
             scalpingSellRunning.set(false);
         }
     }
@@ -1694,6 +1738,10 @@ public class AutoTradingBotService {
                     currentMode.name(), reason, portfolio.getStockName(),
                     quantity, formatNumber(currentPrice), formatNumber(profitLoss));
 
+            // 매도 성공 → 실패 카운터 리셋 (부분/전량 무관)
+            sellFailCount.remove(portfolio.getStockCode());
+            sellFailLastAlert.remove(portfolio.getStockCode());
+
             // 전량 매도 시 포지션 정리 + 쿨다운 기록
             if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
@@ -1729,19 +1777,72 @@ public class AutoTradingBotService {
 
         } catch (Exception e) {
             log.error("[스캘핑봇] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage(), e);
-            // 매도 실패는 손절 못 하면 손실 누적 → RISK 채널 즉시 알림
-            if (telegramService.isEnabled()) {
+
+            // 종목별 실패 카운트 — 5회 누적 시 포기 (무한 재시도 / 알림 폭주 방지)
+            String code = portfolio.getStockCode();
+            int failCount = sellFailCount.computeIfAbsent(code, k -> new AtomicInteger(0))
+                    .incrementAndGet();
+            boolean giveUp = failCount >= SELL_FAIL_GIVE_UP;
+
+            // 알림 dedup — 같은 종목은 5분에 1회만 (포기 시점은 무조건 알림)
+            boolean shouldAlert = giveUp || shouldSendSellFailAlert(code);
+            if (shouldAlert && telegramService.isEnabled()) {
                 try {
+                    String header = giveUp
+                            ? "🚨 <b>[스캘핑봇] 매도 " + failCount + "회 실패 — 포기</b>"
+                            : "⚠️ <b>[스캘핑봇] 매도 실패 (" + failCount + "/" + SELL_FAIL_GIVE_UP + ")</b>";
                     telegramService.sendRisk(String.format(
-                            "🚨 <b>[스캘핑봇] 매도 실패</b>\n\n종목: %s (%s)\n수량: %d주 @ %s원\n사유: %s\n에러: %s\n\n수동 확인 필요",
+                            "%s\n\n종목: %s (%s)\n수량: %d주 @ %s원\n사유: %s\n에러: %s%s",
+                            header,
                             portfolio.getStockName(), portfolio.getStockCode(),
                             quantity, formatNumber(currentPrice), reason,
-                            e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+                            e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(),
+                            giveUp ? "\n\n⚠️ 메모리 포지션 정리됨 — 실거래 보유는 수동 확인 필요" : ""));
                 } catch (Exception telegramErr) {
                     log.warn("[봇] 텔레그램 RISK 알람 전송 실패: {}", telegramErr.getMessage());
                 }
             }
+
+            if (giveUp) {
+                // 5회 연속 실패 — 메모리 포지션 강제 cleanup. 실거래 보유는 운영자 수동 처리.
+                scalpingPositions.remove(code);
+                deletePersistedPosition(Strategy.SCALPING, code);
+                sellFailCount.remove(code);
+                sellFailLastAlert.remove(code);
+            }
         }
+    }
+
+    /**
+     * KIS 현재가 빠른 조회 — 진입 직전 가격 검증용. 실패 시 null (조용히 skip).
+     * skip 시 호출자는 surge cache 가격 신뢰.
+     */
+    private BigDecimal fetchLatestPriceQuiet(String stockCode) {
+        try {
+            JsonNode resp = kisService.getStockPriceWithPriority(stockCode,
+                    KisApiRateLimiter.Priority.HIGH);
+            if (resp == null || !resp.has("output")) return null;
+            JsonNode output = resp.get("output");
+            if (!output.has("stck_prpr")) return null;
+            String s = output.get("stck_prpr").asText();
+            if (s == null || s.isEmpty()) return null;
+            return new BigDecimal(s.replace(",", ""));
+        } catch (Exception e) {
+            log.debug("[스캘핑봇] 진입 직전 가격 재조회 실패 — surge cache 가격으로 진행: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 매도 실패 알림 dedup — 같은 종목은 5분에 한 번만. */
+    private boolean shouldSendSellFailAlert(String stockCode) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime lastAlert = sellFailLastAlert.get(stockCode);
+        if (lastAlert != null
+                && java.time.Duration.between(lastAlert, now).getSeconds() < SELL_FAIL_ALERT_COOLDOWN_SEC) {
+            return false;
+        }
+        sellFailLastAlert.put(stockCode, now);
+        return true;
     }
 
     // ==================== 장 마감 청산 ====================
