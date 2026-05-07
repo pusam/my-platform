@@ -984,6 +984,10 @@ export const globalFuturesAPI = {
 export const recommendationAPI = {
   getTop5() {
     return apiClient.get('/recommendation/top5', { timeout: 30000 });
+  },
+  // 저평가 TOP 10 — 종합 추천과 별도 트랙. PBR·ROE 기반 가치주.
+  getValueTop10() {
+    return apiClient.get('/recommendation/value-top10', { timeout: 30000 });
   }
 };
 

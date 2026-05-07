@@ -37,7 +37,7 @@
         </div>
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
 
-        <!-- ② 종합 추천 TOP 10 (트레이드 탭 상시 표시 — 5카테고리: 실적·수급·기술·섹터·가치) -->
+        <!-- ② 종합 추천 TOP 10 (현재 매수 신호 — 4 카테고리: 실적·수급·기술·섹터) -->
         <div id="briefing-section-rec" class="top-rec section-card">
           <div class="section-title-row">
             <h2><span class="section-icon">🏆</span> 종합 추천 TOP {{ topRecommendations.length > 0 ? topRecommendations.length : 10 }}</h2>
@@ -68,7 +68,7 @@
               <div class="rec-score-area">
                 <div class="rec-score-head">
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
-                  <span class="rec-score-basis">{{ rec.validCount }}/5항목</span>
+                  <span class="rec-score-basis">{{ rec.validCount }}/4항목</span>
                   <span v-if="topRecScoreMap[rec.stockCode]" class="rec-score-detail"
                         title="상세 페이지 단기 트레이딩 / 중장기 펀더멘털 점수">
                     단기 {{ topRecScoreMap[rec.stockCode].tradingScore }} · 중장기 {{ topRecScoreMap[rec.stockCode].fundamentalScore }}
@@ -115,6 +115,42 @@
             <span class="rec-legend-item"><span class="legend-dot grade-hold"></span>40~59 관망</span>
             <span class="rec-legend-item"><span class="legend-dot grade-exclude"></span>40↓ 제외</span>
           </div>
+        </div>
+
+        <!-- ②-a 저평가 TOP 10 (별도 트랙 — PBR·ROE·부채비율·흑자 기반 가치주) -->
+        <div id="briefing-section-value" class="top-rec section-card">
+          <div class="section-title-row">
+            <h2><span class="section-icon">💎</span> 저평가 TOP {{ valueTop10.length > 0 ? valueTop10.length : 10 }}</h2>
+            <span v-if="valueTopDataTime" class="rec-data-time">{{ valueTopDataTime }}</span>
+          </div>
+          <div v-if="valueTopLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'val-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="valueTop10.length" class="rec-list">
+            <div v-for="(rec, i) in valueTop10" :key="'val-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 4)" :key="'vt-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-basis">/100</span>
+                </div>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small style="opacity:0.7">PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
         </div>
 
         <!-- ②-b 수급 현황 패널 (장전·장중 공통) -->
@@ -414,6 +450,10 @@ export default {
       topRecRealtime: true,
       topRecDelta: {},
       topRecScoreMap: {},  // { stockCode: { tradingScore, fundamentalScore, ... } } — 트래커 단기/중장기 부가 표시용
+      // 저평가 TOP 10 — 종합 추천과 별도 트랙
+      valueTop10: [],
+      valueTopLoading: false,
+      valueTopDataTime: '',
       // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
       activeSectorView: 'map',
       supplyPanelData: null,
@@ -613,6 +653,18 @@ export default {
         this.refreshTopRecScores()
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
     },
+    // 저평가 TOP 10 — 가치 데이터는 분기 단위라 자주 갱신 불필요. 첫 진입 + 30분 캐시.
+    async refreshValueTop10() {
+      if (this.valueTopLoading) return
+      this.valueTopLoading = true
+      try {
+        const res = await recommendationAPI.getValueTop10()
+        const body = res?.data || res
+        this.valueTop10 = (body?.data) || []
+        this.valueTopDataTime = body?.dataTime || ''
+      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+      finally { this.valueTopLoading = false }
+    },
     // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
     // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.
     // batchScores 는 무거운 호출이라 실패해도 트래커는 totalScore 만으로 정상 동작.
@@ -686,6 +738,9 @@ export default {
       this.topRecLoading = true
       await this.refreshRecommendations()
       this.topRecLoading = false
+
+      // 저평가 TOP 10 — 종합 추천과 별도 트랙. 분기 단위로만 변하므로 가벼운 호출.
+      this.refreshValueTop10()
 
       // 수급 현황 패널
       this.loadSupplyPanel()
@@ -846,14 +901,12 @@ export default {
       }
     },
     getScoreBreakdown(rec) {
-      // 5카테고리 (AI전략은 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용)
-      // '저평가' 는 PBR·ROE 기반 가치주 컷 — 성장주(삼전·하닉 등)는 0점이 정상이라 라벨/툴팁 명확화.
+      // 종합 추천 = 4 카테고리 (실적·수급·기술·섹터). 저평가/AI전략 별도 트랙.
       const items = [
         { key: 'earn', label: '실적', raw: rec.earnings, color: '#22c55e' },
         { key: 'supply', label: '수급', raw: rec.supplyDemand, color: '#3b82f6' },
         { key: 'tech', label: '기술적', raw: rec.technical, color: '#f59e0b' },
         { key: 'sector', label: '섹터', raw: rec.sectorMomentum, color: '#ef4444' },
-        { key: 'value', label: '저평가', tooltip: 'PBR·ROE 기반 가치주 점수 (저PBR/저평가 우량주 부각). PBR>2 성장주는 0점이 정상.', raw: rec.valueStability, color: '#06b6d4' },
       ]
       return items.map(item => ({
         ...item,

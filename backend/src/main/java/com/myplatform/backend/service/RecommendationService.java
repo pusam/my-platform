@@ -79,6 +79,10 @@ public class RecommendationService {
     private static final long CACHE_MINUTES = 30;
     private static final int NA = -1;
 
+    // 저평가 TOP 10 별도 캐시 — 가치 점수는 분기 단위로 거의 안 변하므로 30분 캐시 충분.
+    private volatile List<RecommendationDto> cachedValueTop10 = null;
+    private volatile LocalDateTime valueCacheTime = null;
+
     // 백그라운드 calculate 중복 방지
     private final java.util.concurrent.atomic.AtomicBoolean calculating
             = new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -460,6 +464,155 @@ public class RecommendationService {
         } catch (Exception e) {
             log.error("[종합추천] 스냅샷 실패: {}", e.getMessage());
         }
+    }
+
+    // ==================== 저평가 TOP 10 (별도 트랙) ====================
+
+    /**
+     * 저평가 TOP 10 — PBR·ROE·부채비율·흑자 기반 가치주 점수 만으로 산정.
+     * 종합 추천(매수 신호) 과 별도 트랙 — 모멘텀/실적/수급/기술 무시.
+     *
+     * 캐시 30분 (가치 데이터는 분기 단위로 거의 안 변함).
+     */
+    public Top5Response getValueTop10() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+        if (cachedValueTop10 != null && valueCacheTime != null
+                && valueCacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildValueResponse(cachedValueTop10, valueCacheTime.format(TIME_FMT) + " 기준", trading);
+        }
+        List<RecommendationDto> result;
+        try {
+            result = calculateValueTop10();
+            if (!result.isEmpty()) {
+                cachedValueTop10 = result;
+                valueCacheTime = now;
+            }
+        } catch (Exception e) {
+            log.error("[저평가TOP10] 계산 실패: {}", e.getMessage(), e);
+            result = cachedValueTop10 != null ? cachedValueTop10 : Collections.emptyList();
+        }
+        return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
+    }
+
+    private Top5Response buildValueResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
+        refreshPrices(items);  // 가격은 실시간 — 가치 점수는 캐시
+        return new Top5Response(items, dataTime, realtime, Collections.emptyMap());
+    }
+
+    private List<RecommendationDto> calculateValueTop10() {
+        long t0 = System.currentTimeMillis();
+        List<StockFinancialData> all = financialDataRepository.findLatestPerStock();
+        log.info("[저평가TOP10] financial_data {}종목 평가", all.size());
+
+        // 점수 산정 + 0점 초과만 필터
+        List<ValueScoredStock> scored = new ArrayList<>();
+        for (StockFinancialData fin : all) {
+            if (fin.getStockCode() == null || fin.getStockName() == null) continue;
+            int score = computeValueScore(fin);
+            if (score <= 0) continue;
+            ValueScoredStock vs = new ValueScoredStock();
+            vs.stockCode = fin.getStockCode();
+            vs.stockName = fin.getStockName();
+            vs.score = score;
+            vs.tags = computeValueTags(fin);
+            scored.add(vs);
+        }
+
+        // 점수 desc 정렬 후 상위 30 만 리스크 검사 (DART 호출 부담 차단)
+        scored.sort((a, b) -> Integer.compare(b.score, a.score));
+        List<ValueScoredStock> shortlist = scored.stream().limit(30).collect(Collectors.toList());
+        for (ValueScoredStock vs : shortlist) {
+            try {
+                if (riskManagementService.quickDangerCheck(vs.stockCode, vs.stockName)) {
+                    vs.score = Math.max(0, vs.score - 5);
+                    vs.tags.add("⚠리스크공시");
+                }
+            } catch (Exception ignore) { /* 페널티 안 줌 */ }
+        }
+        // 페널티 후 재정렬 + top 10
+        shortlist.sort((a, b) -> Integer.compare(b.score, a.score));
+        List<ValueScoredStock> top = shortlist.stream().limit(10).collect(Collectors.toList());
+
+        log.info("[저평가TOP10] 계산 완료 — {}건 후보 → 상위 30 리스크검사 → top10 ({}ms)",
+                scored.size(), System.currentTimeMillis() - t0);
+
+        return top.stream().map(vs -> RecommendationDto.builder()
+                .stockCode(vs.stockCode)
+                .stockName(vs.stockName)
+                .totalScore(Math.min(100, vs.score * 5))   // 20점 만점 → 100점 환산
+                .aiStrategy(NA)
+                .earnings(NA)
+                .supplyDemand(NA)
+                .technical(NA)
+                .sectorMomentum(NA)
+                .valueStability(vs.score)
+                .validCount(1)
+                .tags(new ArrayList<>(vs.tags))
+                .build()).toList();
+    }
+
+    private int computeValueScore(StockFinancialData fin) {
+        int score = 0;
+        BigDecimal pbr = fin.getPbr();
+        if (pbr != null && pbr.signum() > 0) {
+            double v = pbr.doubleValue();
+            if (v <= 0.7) score += 8;
+            else if (v <= 1.0) score += 6;
+            else if (v <= 1.5) score += 4;
+            else if (v <= 2.0) score += 2;
+        }
+        BigDecimal roe = fin.getRoe();
+        if (roe != null && pbr != null && pbr.signum() > 0) {
+            double combined = roe.doubleValue() / pbr.doubleValue();
+            if (combined >= 15) score += 5;
+            else if (combined >= 10) score += 4;
+            else if (combined >= 7) score += 3;
+            else if (combined >= 4) score += 1;
+        }
+        BigDecimal debtRatio = fin.getDebtRatio();
+        if (debtRatio != null && debtRatio.signum() > 0) {
+            double v = debtRatio.doubleValue();
+            if (v <= 50) score += 4;
+            else if (v <= 100) score += 3;
+            else if (v <= 200) score += 1;
+        }
+        if (fin.getOperatingProfit() != null && fin.getOperatingProfit().signum() > 0
+                && fin.getTotalEquity() != null && fin.getTotalEquity().signum() > 0) {
+            score += 3;
+        }
+        return Math.min(20, score);
+    }
+
+    private List<String> computeValueTags(StockFinancialData fin) {
+        List<String> tags = new ArrayList<>();
+        BigDecimal pbr = fin.getPbr();
+        if (pbr != null && pbr.signum() > 0) {
+            double v = pbr.doubleValue();
+            if (v <= 0.7) tags.add("PBR저평가");
+            else if (v <= 1.0) tags.add("PBR<1");
+        }
+        BigDecimal roe = fin.getRoe();
+        if (roe != null && pbr != null && pbr.signum() > 0) {
+            double combined = roe.doubleValue() / pbr.doubleValue();
+            if (combined >= 15) tags.add("우량+저평가");
+        }
+        BigDecimal debtRatio = fin.getDebtRatio();
+        if (debtRatio != null && debtRatio.signum() > 0 && debtRatio.doubleValue() <= 50) {
+            tags.add("저부채");
+        }
+        if (fin.getOperatingProfit() != null && fin.getOperatingProfit().signum() > 0
+                && fin.getTotalEquity() != null && fin.getTotalEquity().signum() > 0) {
+            tags.add("흑자+자본정상");
+        }
+        return tags;
+    }
+
+    private static class ValueScoredStock {
+        String stockCode;
+        String stockName;
+        int score;
+        List<String> tags;
     }
 
     // ==================== Core Calculation ====================
@@ -1106,13 +1259,15 @@ public class RecommendationService {
     // ==================== N/A & Util ====================
 
     private int countValidCategories(StockScore s) {
-        // AI전략은 totalScore 산식에서 제외되었으므로 valid 카운트에도 미포함
+        // 종합 추천은 "현재 매수 신호" 트랙 — 4 카테고리 (실적·수급·기술·섹터).
+        // AI전략 / 저평가(가치) 는 별도 트랙으로 분리:
+        //   - AI전략: 후보 발굴/태그 용도로만 유지
+        //   - 저평가: /api/recommendation/value-top10 별도 endpoint 로 노출
         int c = 0;
         if (s.earnings > 0) c++;
         if (s.supplyDemand > 0) c++;
         if (s.technical > 0) c++;
         if (s.sectorMomentum > 0) c++;
-        if (s.valueStability > 0) c++;
         return c;
     }
 
@@ -1164,28 +1319,25 @@ public class RecommendationService {
         return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
-    /** 유효 항목 수별 상한 (5카테고리 기준): 5개=100, 4개=92, 3개=78, 2개=58, 1개=35
-     *  4개 cap 88→92: 4 카테고리 다 만점인 종목이 "강력매수(75+)"는 충분히 받되 "특A(95+)"는 5개 다
-     *  완전한 종목에만 부여하도록 layered 차이 유지. */
+    /** 유효 항목 수별 상한 (4 카테고리 기준): 4개=100, 3개=85, 2개=65, 1개=40.
+     *  v8 변경: 가치/저평가를 별도 트랙으로 분리하면서 5 카테고리 → 4 카테고리.
+     *  3 valid 도 75% 커버리지라 cap 85 까지 허용 (강력매수/매수고려 모두 가능). */
     private static int normalizeScore(int raw, int validCount) {
-        if (validCount >= 5) return Math.min(100, raw);  // 5카테고리 × 20점 = 100점 만점
+        if (validCount >= 4) return Math.min(100, raw);  // 4 카테고리 × 20점 = 80점 → 그대로 100 cap
         if (validCount <= 0) return 0;
-        // raw는 valid * 20점 만점 → 100점 만점으로 환산 후 cap
         int scaled = raw * 100 / (validCount * 20);
         int cap = switch (validCount) {
-            case 4 -> 92;
-            case 3 -> 78;
-            case 2 -> 58;
-            default -> 35;
+            case 3 -> 85;
+            case 2 -> 65;
+            default -> 40;
         };
         return Math.min(cap, scaled);
     }
 
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
-        // AI전략은 산식에서 제외 (5카테고리 합산) — valueStability=-1(NA) 인 경우 raw 합에서 차감 보정
-        int rawValue = Math.max(0, s.valueStability);
-        int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + rawValue;
+        // 4 카테고리 합산 — 가치/AI전략 분리.
+        int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum;
         int total = normalizeScore(raw, vc);
 
         return RecommendationDto.builder()
@@ -1217,13 +1369,12 @@ public class RecommendationService {
         StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
-            // AI전략은 산식에서 제외 (5카테고리 합산) — valueStability 0 점은 valid 카운트에서 제외
+            // 4 카테고리 합산 — AI전략 / 저평가 분리 (별도 트랙).
             int v = 0, sum = 0;
             if (earnings > 0) { v++; sum += earnings; }
             if (supplyDemand > 0) { v++; sum += supplyDemand; }
             if (technical > 0) { v++; sum += technical; }
             if (sectorMomentum > 0) { v++; sum += sectorMomentum; }
-            if (valueStability > 0) { v++; sum += valueStability; }
             return normalizeScore(sum, v);
         }
     }
