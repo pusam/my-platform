@@ -133,6 +133,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/investor/test-api").hasRole("ADMIN")
                         .requestMatchers("/api/investor/collect").hasRole("ADMIN")
 
+                        // Telegram 메시지 발송 — 운영자 전용. 일반 인증만이면 임의 사용자가 봇 알림 폭주 가능.
+                        .requestMatchers("/api/telegram/**").hasRole("ADMIN")
+
                         // Admin API는 ADMIN 권한 필요
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/test/admin").hasRole("ADMIN")

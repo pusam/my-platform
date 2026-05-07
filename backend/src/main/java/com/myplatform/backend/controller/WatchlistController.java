@@ -71,11 +71,12 @@ public class WatchlistController {
     @PutMapping("/{id}/alert")
     @Operation(summary = "목표가 알림 설정")
     public ResponseEntity<Map<String, Object>> updateAlert(
+            Authentication authentication,
             @PathVariable Long id,
             @RequestBody WatchlistDto.AlertRequest request) {
         Map<String, Object> response = new HashMap<>();
         try {
-            WatchlistDto.WatchlistItem item = watchlistService.updateAlert(id, request);
+            WatchlistDto.WatchlistItem item = watchlistService.updateAlert(getUsername(authentication), id, request);
             response.put("success", true);
             response.put("data", item);
         } catch (IllegalArgumentException e) {
@@ -93,10 +94,12 @@ public class WatchlistController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "관심종목 삭제")
-    public ResponseEntity<Map<String, Object>> deleteWatchlist(@PathVariable Long id) {
+    public ResponseEntity<Map<String, Object>> deleteWatchlist(
+            Authentication authentication,
+            @PathVariable Long id) {
         Map<String, Object> response = new HashMap<>();
         try {
-            watchlistService.deleteWatchlist(id);
+            watchlistService.deleteWatchlist(getUsername(authentication), id);
             response.put("success", true);
             response.put("message", "관심종목이 삭제되었습니다.");
         } catch (IllegalArgumentException e) {

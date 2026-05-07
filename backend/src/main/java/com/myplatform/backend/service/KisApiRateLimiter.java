@@ -24,8 +24,9 @@ import java.util.function.Supplier;
 public class KisApiRateLimiter {
 
     // KIS API 제한: 초당 약 20회 (엔드포인트별 상이, 실전계좌는 더 빡빡함)
-    // 안전 목표: 400ms 간격 = 초당 2.5회 — 실전 잔고/주문 + 다른 스케줄 호출 병렬성 고려
-    private static final long MIN_INTERVAL_MS = 400;
+    // 안전 목표: 250ms 간격 = 초당 4회 — KIS 한도의 20%, CRITICAL(매매주문) 큐 우선순위로 봇 호출은 보호됨.
+    // 운영 로그에서 134종목 batch 가 100~140초 걸리던 게 60~80초로 단축 → connection leak·KIS 큐 점유 감소.
+    private static final long MIN_INTERVAL_MS = 250;
 
     /**
      * API 호출 우선순위

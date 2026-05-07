@@ -86,9 +86,13 @@ public class WatchlistService {
     }
 
     @Transactional
-    public WatchlistDto.WatchlistItem updateAlert(Long id, WatchlistDto.AlertRequest request) {
+    public WatchlistDto.WatchlistItem updateAlert(String username, Long id, WatchlistDto.AlertRequest request) {
         StockWatchlist entity = watchlistRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("관심종목을 찾을 수 없습니다."));
+        // 본인 소유 확인 — 다른 사용자 의 관심종목 수정 차단.
+        if (!username.equals(entity.getUsername())) {
+            throw new IllegalArgumentException("관심종목을 찾을 수 없습니다.");  // 존재 노출 방지로 동일 메시지
+        }
 
         entity.setTargetPrice(request.getTargetPrice());
         entity.setAlertCondition(request.getAlertCondition());
@@ -96,17 +100,21 @@ public class WatchlistService {
         entity.setIsActive(true);
 
         watchlistRepository.save(entity);
-        log.info("관심종목 알림 설정: {} - {} {}원",
-                entity.getStockName(), request.getAlertCondition(), request.getTargetPrice());
+        log.info("관심종목 알림 설정: {} - {} {}원 (user={})",
+                entity.getStockName(), request.getAlertCondition(), request.getTargetPrice(), username);
 
         return toDto(entity);
     }
 
     @Transactional
-    public void deleteWatchlist(Long id) {
+    public void deleteWatchlist(String username, Long id) {
         StockWatchlist entity = watchlistRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("관심종목을 찾을 수 없습니다."));
-        log.info("관심종목 삭제: {} ({})", entity.getStockName(), entity.getStockCode());
+        // 본인 소유 확인 — 다른 사용자 의 관심종목 삭제 차단.
+        if (!username.equals(entity.getUsername())) {
+            throw new IllegalArgumentException("관심종목을 찾을 수 없습니다.");
+        }
+        log.info("관심종목 삭제: {} ({}) (user={})", entity.getStockName(), entity.getStockCode(), username);
         watchlistRepository.delete(entity);
     }
 
