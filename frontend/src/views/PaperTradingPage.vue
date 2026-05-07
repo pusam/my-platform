@@ -793,8 +793,12 @@
             실제 계좌에서 주문이 체결됩니다!
           </div>
           <div class="form-group">
-            <label>종목코드</label>
-            <input v-model="tradeForm.stockCode" placeholder="예: 005930" maxlength="6" />
+            <label>종목</label>
+            <StockCodeInput
+              v-model="tradeForm.stockCode"
+              placeholder="종목명 또는 종목코드 (예: 삼성전자, 005930)"
+              @select="onTradeStockSelected"
+            />
           </div>
           <div class="form-group">
             <label>수량</label>
@@ -896,6 +900,7 @@ import { paperTradingAPI } from '../utils/api';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
+import StockCodeInput from '../components/StockCodeInput.vue';
 
 const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 
@@ -1325,6 +1330,13 @@ const openTradeModal = (mode) => {
   tradeMode.value = mode;
   tradeForm.value = { stockCode: '', quantity: 1, price: 0, tradeType: 'BUY' };
   showTradeModal.value = true;
+};
+
+// 종목 선택 시 — 캐시된 현재가가 있으면 가격 폼에 자동 채움
+const onTradeStockSelected = (stock) => {
+  if (stock?.currentPrice && stock.currentPrice > 0 && !tradeForm.value.price) {
+    tradeForm.value.price = Number(stock.currentPrice);
+  }
 };
 
 // 수동 거래 실행
