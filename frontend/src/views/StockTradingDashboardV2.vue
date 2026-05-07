@@ -452,19 +452,29 @@ export default {
     // 섹터 카드 초기 뷰 — 장중 시간대 기본은 거래대금, 그 외엔 시장 지도
     this.activeSectorView = this.currentPhaseKey === 'during' ? 'volume' : 'map'
     this.setupKeyboardShortcut()
-    // 60초마다 트레이드 탭 데이터 자동 갱신
-    this._refreshTimer = setInterval(() => {
-      if (this.activeGnbTab !== 'premarket') return
-      this.loadMarketMap()
-      this.refreshRecommendations()
-      this.loadSupplyPanel()
-    }, 60000)
+    // 60초마다 트레이드 탭 데이터 자동 갱신 — 페이지 가시성에 따라 자동 일시정지/재개
+    this._startPolling()
+    this._onVisibilityChange = () => {
+      if (document.hidden) {
+        this._stopPolling()
+      } else {
+        this._startPolling()
+        // 다시 보이는 순간 한 번 즉시 갱신 (탭 복귀 시 stale 화면 방지)
+        if (this.activeGnbTab === 'premarket') {
+          this.loadMarketMap()
+          this.refreshRecommendations()
+          this.loadSupplyPanel()
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', this._onVisibilityChange)
   },
   beforeUnmount() {
     this.removeKeyboardShortcut()
-    if (this._refreshTimer) {
-      clearInterval(this._refreshTimer)
-      this._refreshTimer = null
+    this._stopPolling()
+    if (this._onVisibilityChange) {
+      document.removeEventListener('visibilitychange', this._onVisibilityChange)
+      this._onVisibilityChange = null
     }
   },
   computed: {
@@ -552,6 +562,22 @@ export default {
     }
   },
   methods: {
+    // ---- polling 시작/중지 — 페이지 비가시 시 멈춰서 배터리/네트워크 절약 ----
+    _startPolling() {
+      if (this._refreshTimer) return
+      this._refreshTimer = setInterval(() => {
+        if (this.activeGnbTab !== 'premarket') return
+        this.loadMarketMap()
+        this.refreshRecommendations()
+        this.loadSupplyPanel()
+      }, 60000)
+    },
+    _stopPolling() {
+      if (this._refreshTimer) {
+        clearInterval(this._refreshTimer)
+        this._refreshTimer = null
+      }
+    },
     // ---- 탭 키 호환 매핑 (장전+장중 통합 — 'live'/'trading'/'market'/'premarket' 모두 'premarket'(트레이드)로) ----
     mapLegacyTab(tab) {
       const map = {

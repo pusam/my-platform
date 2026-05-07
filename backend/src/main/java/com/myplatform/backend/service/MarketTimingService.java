@@ -62,9 +62,8 @@ public class MarketTimingService {
     }
 
     // ADR 기준값
+    // ADR 임계점 — 120 이상 과열, 80 이하 공포. NORMAL 구간은 두 임계 사이.
     private static final BigDecimal ADR_OVERHEATED = new BigDecimal("120");
-    private static final BigDecimal ADR_NORMAL_HIGH = new BigDecimal("120");
-    private static final BigDecimal ADR_NORMAL_LOW = new BigDecimal("80");
     private static final BigDecimal ADR_OVERSOLD = new BigDecimal("80");
     private static final BigDecimal ADR_EXTREME_FEAR = new BigDecimal("60");
 

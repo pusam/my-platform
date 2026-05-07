@@ -266,23 +266,39 @@ const logout = () => {
   router.push('/login');
 };
 
+// 페이지 가시성에 따라 polling 자동 일시정지/재개
+const startPolling = () => {
+  if (!refreshInterval) {
+    refreshInterval = setInterval(loadData, 5 * 60 * 1000);
+  }
+  if (!tickInterval) {
+    tickInterval = setInterval(() => { nowTick.value = new Date(); }, 60 * 1000);
+  }
+};
+const stopPolling = () => {
+  if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+  if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+};
+const onVisibilityChange = () => {
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    startPolling();
+    loadData();  // 탭 복귀 시 즉시 갱신
+  }
+};
+
 onMounted(() => {
   loadData();
-  // 5분마다 자동 갱신
-  refreshInterval = setInterval(loadData, 5 * 60 * 1000);
-  // 1분마다 시계 tick — isPreMarket 갱신용 (9시 정각에 안내 자동 사라지게)
-  tickInterval = setInterval(() => { nowTick.value = new Date(); }, 60 * 1000);
+  startPolling();
+  document.addEventListener('visibilitychange', onVisibilityChange);
 });
 
 onUnmounted(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval);
-  }
+  stopPolling();
+  document.removeEventListener('visibilitychange', onVisibilityChange);
   if (retryTimeout) {
     clearTimeout(retryTimeout);
-  }
-  if (tickInterval) {
-    clearInterval(tickInterval);
   }
 });
 </script>

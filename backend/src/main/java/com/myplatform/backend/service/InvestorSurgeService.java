@@ -113,18 +113,25 @@ public class InvestorSurgeService {
                     .withSecond(0).withNano(0)
                     .withMinute((LocalTime.now().getMinute() / 10) * 10);
 
-            // 직전 스냅샷 시간 조회
+            // 직전 스냅샷 시간 조회 — 단, 시간 갭이 너무 크면(15분 초과) prev 무시.
+            // 시나리오: 스냅샷 수집 실패로 09:02 누락 시 09:12 호출에서 08:52 데이터를 prev 로 가져와
+            // "10분 변화" 라벨인데 실제로는 20분 변화 → 임계값 의미 깨짐.
             Optional<LocalTime> prevTimeOpt = snapshotRepository.findPreviousSnapshotTime(
                     today, investorType, snapshotTime);
 
-            // 직전 스냅샷 데이터 맵 (종목코드 -> 스냅샷)
             Map<String, InvestorIntradaySnapshot> prevSnapshots = new HashMap<>();
             if (prevTimeOpt.isPresent()) {
-                List<InvestorIntradaySnapshot> prevList = snapshotRepository
-                        .findBySnapshotDateAndSnapshotTimeAndInvestorTypeOrderByRankNumAsc(
-                                today, prevTimeOpt.get(), investorType);
-                prevSnapshots = prevList.stream()
-                        .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
+                long gapMinutes = Math.abs(java.time.Duration.between(prevTimeOpt.get(), snapshotTime).toMinutes());
+                if (gapMinutes > 15) {
+                    log.warn("[수급급증] 직전 스냅샷 시간 갭 {}분 초과 — 변화량 비교 스킵 (이전: {}, 현재: {})",
+                            gapMinutes, prevTimeOpt.get(), snapshotTime);
+                } else {
+                    List<InvestorIntradaySnapshot> prevList = snapshotRepository
+                            .findBySnapshotDateAndSnapshotTimeAndInvestorTypeOrderByRankNumAsc(
+                                    today, prevTimeOpt.get(), investorType);
+                    prevSnapshots = prevList.stream()
+                            .collect(Collectors.toMap(InvestorIntradaySnapshot::getStockCode, s -> s, (a, b) -> a));
+                }
             }
 
             // API 호출하여 현재 데이터 수집
