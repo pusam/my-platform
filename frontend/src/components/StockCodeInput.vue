@@ -60,7 +60,10 @@ export default {
       debounceTimer: null,
       // 우리가 emit 한 값을 watch 에서 echo 로 무시하기 위한 가드.
       // 이게 없으면 onInput 의 emit('') → watch → keyword='' 로 사용자 입력이 지워짐.
-      lastEmitted: null
+      lastEmitted: null,
+      // 빠른 타이핑 시 응답 reorder 로 stale 결과가 fresh 결과 덮어쓰는 것 방지.
+      // doSearch 시작 시 ++ 후 await, 응답 도착 시 카운터가 변했으면 폐기.
+      searchSeq: 0
     }
   },
   computed: {
@@ -131,19 +134,23 @@ export default {
       this.debounceTimer = setTimeout(() => this.doSearch(kw), 200)
     },
     async doSearch(kw) {
+      const mySeq = ++this.searchSeq
       this.loading = true
       try {
         const res = await stockAPI.searchStocks(kw)
+        // 응답 도착 시 더 새로운 검색이 진행 중이면 — 폐기 (stale)
+        if (mySeq !== this.searchSeq) return
         if (res.data?.success) {
           this.results = (res.data.data || []).slice(0, 10)
         } else {
           this.results = []
         }
       } catch (e) {
+        if (mySeq !== this.searchSeq) return
         console.error('종목 검색 실패:', e)
         this.results = []
       } finally {
-        this.loading = false
+        if (mySeq === this.searchSeq) this.loading = false
       }
     },
     moveCursor(dir) {
@@ -154,14 +161,25 @@ export default {
       else if (next >= this.results.length) this.cursor = 0
       else this.cursor = next
     },
-    onEnter() {
+    async onEnter() {
+      // 사용자가 타이핑 후 즉시 Enter — debounce 가 아직 안 끝났거나 검색 in-flight 라면
+      // flush 하고 결과 await. 안 그러면 results=[] 라 no-op 으로 끝남.
+      const kw = this.keyword.trim()
+      if (kw && (this.debounceTimer || this.loading) && !this.results.length) {
+        if (this.debounceTimer) {
+          clearTimeout(this.debounceTimer)
+          this.debounceTimer = null
+          await this.doSearch(kw)
+        } else {
+          // loading 중 — 현재 응답을 기다림 (단순화: 짧은 폴 대신 한 번 더 발사)
+          await this.doSearch(kw)
+        }
+      }
       if (this.open && this.cursor >= 0 && this.results[this.cursor]) {
         this.select(this.results[this.cursor])
       } else if (this.results.length > 0 && this.keyword) {
-        // 첫 결과 자동 선택
         this.select(this.results[0])
       } else if (this.modelValue) {
-        // 이미 선택된 종목 — 그대로 enter 동작
         this.$emit('enter', this.modelValue)
       }
     },

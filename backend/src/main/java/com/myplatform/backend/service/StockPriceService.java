@@ -588,7 +588,8 @@ public class StockPriceService {
      */
     @org.springframework.cache.annotation.Cacheable(
             value = "stockSearch",
-            key = "T(java.util.Objects).toString(#keyword,'').toLowerCase().trim()")
+            key = "T(java.util.Objects).toString(#keyword,'').toLowerCase().trim()",
+            sync = true)
     public List<StockPriceDto> searchStocks(String keyword) {
         if (keyword == null || keyword.isBlank()) return java.util.Collections.emptyList();
 
