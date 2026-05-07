@@ -44,6 +44,10 @@ public class CacheConfig {
             buildCache("stockPrice", 180, 1000),
             buildCache("stockPriceBatch", 180, 100),
 
+            // ========== 종목 검색 결과 캐시 (1분 TTL) ==========
+            // 자동완성용 — 키워드별 동일 응답. Naver 호출/N+1 방지.
+            buildCache("stockSearch", 60, 200),
+
             // ========== 투자자 매매동향 캐시 (5분 TTL) ==========
             // 투자자 × 시장 × 종목 조합 → 카디널리티 폭발 대비
             buildCache("investorTrend", 300, 500),

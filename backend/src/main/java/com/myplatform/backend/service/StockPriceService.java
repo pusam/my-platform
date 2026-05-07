@@ -579,113 +579,139 @@ public class StockPriceService {
     }
 
     /**
-     * 종목 검색 (종목명 또는 종목코드로 검색)
-     * - 한투 API는 종목 검색 API가 별도로 없어서 네이버 사용
+     * 종목 검색 (종목명 또는 종목코드로 검색).
+     *
+     * 응답 시간 최적화:
+     *  - @Cacheable("stockSearch", 1분 TTL): 동일 키워드 재요청은 캐시 히트
+     *  - DB 결과가 있으면 Naver 호출 skip (Naver 는 100ms~수초 + 차단 위험)
+     *  - 결과 가격 채우기는 batch 쿼리 1회 (이전엔 N+1)
      */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "stockSearch",
+            key = "T(java.util.Objects).toString(#keyword,'').toLowerCase().trim()")
     public List<StockPriceDto> searchStocks(String keyword) {
+        if (keyword == null || keyword.isBlank()) return java.util.Collections.emptyList();
+
         List<StockPriceDto> results = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
 
-        // 1순위: stock_master DB — 빠르고, 항상 작동, 코드/이름 모두 매치.
-        // fillCachedPrice 는 첫 10건만 (검색당 DB 쿼리 폭주 방지)
+        // 1순위: stock_master DB
         try {
             for (com.myplatform.backend.entity.StockMaster m :
                     stockMasterService.search(keyword, 20)) {
                 if (!seen.add(m.getStockCode())) continue;
-                StockPriceDto dto = new StockPriceDto();
-                dto.setStockCode(m.getStockCode());
-                dto.setStockName(m.getStockName());
-                dto.setCurrentPrice(BigDecimal.ZERO);
-                dto.setChangeRate(BigDecimal.ZERO);
-                dto.setFetchedAt(LocalDateTime.now());
-                if (results.size() < 10) fillCachedPrice(dto);
-                results.add(dto);
+                results.add(buildBareDto(m.getStockCode(), m.getStockName()));
                 if (results.size() >= 20) break;
             }
         } catch (Exception e) {
             log.warn("stock_master 검색 실패: {}", e.getMessage());
         }
 
-        // DB 결과가 충분하면 네이버 호출 생략 (응답 속도 + 차단 위험 감소)
-        if (results.size() >= 5) {
-            return results;
+        // DB 에서 1건이라도 찾으면 Naver 안 감 (응답 속도 + 차단 위험 감소).
+        // Naver 는 마스터에 아예 없는 케이스 (신규 상장 등) 에만 호출.
+        if (results.isEmpty()) {
+            searchFromNaver(keyword, results, seen);
         }
 
-        // 2순위: 네이버 (신규 상장 등 마스터에 아직 없는 케이스)
+        // 가격은 마지막에 batch 로 한 번만 채움 (첫 10건만).
+        fillCachedPricesBatch(results);
+
+        return results;
+    }
+
+    /** Naver 검색 — DB 에서 0건일 때만 호출되는 fallback. */
+    private void searchFromNaver(String keyword, List<StockPriceDto> results, java.util.Set<String> seen) {
         try {
             String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
             String url = String.format(NAVER_SEARCH_API, encodedKeyword);
-            log.info("종목 검색 보강(Naver): {} - URL: {}", keyword, url);
+            log.debug("종목 검색 폴백(Naver): {}", keyword);
 
             HttpHeaders headers = createNaverHeaders();
             HttpEntity<String> entity = new HttpEntity<>(headers);
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
 
             String responseBody = response.getBody();
-            log.info("종목 검색 응답 길이: {}", responseBody != null ? responseBody.length() : 0);
-            log.info("종목 검색 응답 내용: {}", responseBody != null ? responseBody.substring(0, Math.min(500, responseBody.length())) : "null");
+            if (responseBody == null) return;
 
-            if (responseBody != null) {
-                JsonNode root = objectMapper.readTree(responseBody);
-                log.info("종목 검색 JSON 구조: {}", root.fieldNames().hasNext() ? root.fieldNames().next() : "empty");
-                JsonNode resultNode = root.get("result");
-                if (resultNode == null) {
-                    // 새로운 API 구조 시도: stocks 필드
-                    resultNode = root.get("stocks");
-                    log.info("stocks 필드 시도: {}", resultNode != null ? "found" : "not found");
-                }
-                JsonNode items = resultNode != null ? resultNode.get("items") : null;
-                if (items == null && resultNode != null && resultNode.isArray()) {
-                    // resultNode 자체가 배열인 경우
-                    items = resultNode;
-                    log.info("resultNode 자체가 배열: size={}", items.size());
-                }
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode resultNode = root.get("result");
+            if (resultNode == null) resultNode = root.get("stocks");
+            JsonNode items = resultNode != null ? resultNode.get("items") : null;
+            if (items == null && resultNode != null && resultNode.isArray()) items = resultNode;
+            if (items == null || !items.isArray()) return;
 
-                if (items != null && items.isArray()) {
-                    log.info("종목 검색 items 수: {}", items.size());
-                    for (JsonNode item : items) {
-                        // 다양한 필드명 지원
-                        String stockCode = getFirstAvailableText(item, "code", "stockCode", "itemCode", "cd", "srtnCd");
-                        String stockName = getFirstAvailableText(item, "name", "stockName", "itemName", "nm", "itmsNm");
+            for (JsonNode item : items) {
+                String stockCode = getFirstAvailableText(item, "code", "stockCode", "itemCode", "cd", "srtnCd");
+                String stockName = getFirstAvailableText(item, "name", "stockName", "itemName", "nm", "itmsNm");
+                if (stockCode == null || !stockCode.matches("[0-9A-Z]{6}")) continue;
+                if (!seen.add(stockCode)) continue;
 
-                        // 한국 주식만 필터링 (6자리 종목코드)
-                        if (stockCode != null && stockCode.matches("[0-9A-Z]{6}")) {
-                            if (!seen.add(stockCode)) continue; // stock_master 결과와 중복 제거
-                            StockPriceDto dto = new StockPriceDto();
-                            dto.setStockCode(stockCode);
-                            dto.setStockName(stockName);
-                            dto.setCurrentPrice(BigDecimal.ZERO);
-                            dto.setChangeRate(BigDecimal.ZERO);
-                            dto.setFetchedAt(LocalDateTime.now());
-
-                            // 신규 상장 → 마스터에 자동 적재
-                            stockMasterService.cacheName(stockCode, stockName, "NAVER");
-
-                            // 검색 결과 현재가는 DB / 메모리 캐시만 사용 — KIS 호출 금지.
-                            if (results.size() < 10) {
-                                fillCachedPrice(dto);
-                            }
-
-                            results.add(dto);
-
-                            // 최대 20개까지만
-                            if (results.size() >= 20) {
-                                break;
-                            }
-                        }
-                    }
-                }
+                results.add(buildBareDto(stockCode, stockName));
+                // 신규 상장 → 마스터에 자동 적재
+                stockMasterService.cacheName(stockCode, stockName, "NAVER");
+                if (results.size() >= 20) break;
             }
-
         } catch (Exception e) {
-            log.error("종목 검색 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage(), e);
+            log.warn("Naver 종목 검색 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage());
         }
+    }
 
-        return results;
+    private StockPriceDto buildBareDto(String stockCode, String stockName) {
+        StockPriceDto dto = new StockPriceDto();
+        dto.setStockCode(stockCode);
+        dto.setStockName(stockName);
+        dto.setCurrentPrice(BigDecimal.ZERO);
+        dto.setChangeRate(BigDecimal.ZERO);
+        dto.setFetchedAt(LocalDateTime.now());
+        return dto;
     }
 
     /**
-     * 검색 결과 항목에 캐시(메모리/DB)된 가격을 채워넣음. KIS 호출 안 함.
+     * 검색 결과의 첫 10건에 대해 캐시된 가격을 batch 로 채움.
+     *  - priceCache (메모리) 먼저 → miss 만 DB 한 번에 IN 쿼리 → KIS 호출 X
+     *  - 이전: 종목당 별도 DB 쿼리 (N+1)
+     */
+    private void fillCachedPricesBatch(List<StockPriceDto> dtos) {
+        if (dtos.isEmpty()) return;
+        int limit = Math.min(dtos.size(), 10);
+        int cacheMinutes = kisService.isConfigured() ? 15 : 60;
+
+        java.util.Map<String, StockPriceDto> priceMap = new java.util.HashMap<>();
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        for (int i = 0; i < limit; i++) {
+            String code = dtos.get(i).getStockCode();
+            StockPriceDto cached = priceCache.get(code);
+            if (cached != null && isValidCache(cached, cacheMinutes)) {
+                priceMap.put(code, cached);
+            } else {
+                missing.add(code);
+            }
+        }
+        if (!missing.isEmpty()) {
+            try {
+                for (StockPrice sp : stockPriceRepository.findLatestByStockCodes(missing)) {
+                    StockPriceDto dbDto = entityToDto(sp);
+                    if (isValidCache(dbDto, cacheMinutes)) {
+                        priceMap.put(sp.getStockCode(), dbDto);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("배치 가격 조회 실패: {}", e.getMessage());
+            }
+        }
+        for (int i = 0; i < limit; i++) {
+            StockPriceDto dto = dtos.get(i);
+            StockPriceDto price = priceMap.get(dto.getStockCode());
+            if (price != null) {
+                dto.setCurrentPrice(price.getCurrentPrice());
+                dto.setChangeRate(price.getChangeRate());
+                dto.setDataSource(price.getDataSource());
+            }
+        }
+    }
+
+    /**
+     * 단건 가격 채우기 (사용처 거의 없으나 호환 유지).
      */
     private void fillCachedPrice(StockPriceDto dto) {
         String stockCode = dto.getStockCode();
