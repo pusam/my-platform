@@ -79,10 +79,17 @@
   --header-title-size: 22px;
   --header-title-weight: 700;
   --header-subtitle-size: 13px;
+  /* GlobalNav 높이 — sticky 헤더 top offset 의 단일 소스.
+     모바일에서는 mediaquery 로 40px 로 override (페이지마다 미디어쿼리 중복 X). */
+  --gnb-height: 48px;
 
   /* Animation */
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
+}
+
+@media (max-width: 768px) {
+  :root { --gnb-height: 40px; }
 }
 
 /* Reset and Base */
@@ -147,7 +154,7 @@ body {
   border: 1px solid var(--border-color);
   min-height: var(--header-min-height);
   position: sticky;
-  top: 0;
+  top: var(--gnb-height);
   z-index: 100;
 }
 
@@ -170,7 +177,7 @@ body {
   margin-bottom: var(--header-margin-bottom);
   min-height: var(--header-min-height);
   position: sticky;
-  top: 0;
+  top: var(--gnb-height);
   z-index: 100;
   background: #0f0f1a;
 }

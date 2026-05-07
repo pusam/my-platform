@@ -2103,13 +2103,8 @@ onUnmounted(() => {
   flex-wrap: wrap;
   gap: 16px;
   position: sticky;
-  top: 48px;
+  top: var(--gnb-height);  /* common.css 의 단일 소스 — 모바일 자동 40px */
   z-index: 100;
-}
-
-@media (max-width: 768px) {
-  /* 모바일에선 GlobalNav 가 40px (PC 48px) — sticky offset 도 맞춤 */
-  .dashboard-header { top: 40px; }
 }
 
 .header-left {

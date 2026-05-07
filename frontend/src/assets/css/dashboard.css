@@ -13,7 +13,7 @@
     justify-content: space-between;
     align-items: center;
     position: sticky;
-    top: 0;
+    top: var(--gnb-height);
     z-index: 100;
 }
 

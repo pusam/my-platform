@@ -84,7 +84,7 @@ export default {
   margin-bottom: 20px;
   gap: 12px;
   position: sticky;
-  top: 48px;
+  top: var(--gnb-height);
   z-index: 100;
   background: #0f0f1a;
 }
