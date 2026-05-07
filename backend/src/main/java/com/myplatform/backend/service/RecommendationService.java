@@ -483,15 +483,18 @@ public class RecommendationService {
         // 기술: 마지막 (모든 종목 수집 후)
         scoreTechnical(scoreMap);
         long tcMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 가치/안정성: PBR·ROE·부채비율·리스크 페널티 (모멘텀 편향 완화)
+        // 가치/안정성: PBR·ROE·부채비율 (DB 만 — 빠름)
         scoreValueStability(scoreMap);
         long vsMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
+        // 리스크 공시 페널티: DART API 호출 — 종목당 2~3초 소요 → 상위 후보(30개) 만 검사.
+        applyRiskPenalty(scoreMap);
+        long rkMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
         applyRealtimeChecks(scoreMap);
         long rtMs = System.currentTimeMillis() - t0;
-        log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 실시간:{}ms (합 {}ms)",
-                aiMs, erMs, sdMs, scMs, tcMs, vsMs, rtMs,
-                aiMs + erMs + sdMs + scMs + tcMs + vsMs + rtMs);
+        log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 리스크:{}ms 실시간:{}ms (합 {}ms)",
+                aiMs, erMs, sdMs, scMs, tcMs, vsMs, rkMs, rtMs,
+                aiMs + erMs + sdMs + scMs + tcMs + vsMs + rkMs + rtMs);
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
@@ -585,13 +588,9 @@ public class RecommendationService {
                     score += 3;
                 }
 
-                // 5) 대주주 리스크 페널티 (-5) — 위험 공시 빠른 체크
-                try {
-                    if (riskManagementService.quickDangerCheck(stock.stockName)) {
-                        score = Math.max(0, score - 5);
-                        tags.add("⚠리스크공시");
-                    }
-                } catch (Exception ignore) { /* 리스크 조회 실패 시 페널티 안 줌 */ }
+                // 5) 대주주 리스크 페널티 — applyRiskPenalty() 로 분리.
+                //    quickDangerCheck 가 DART API 호출이라 종목당 2~3초 소요 →
+                //    261종목 × 2.5초 ≈ 10분 bottleneck 이었음. 상위 후보(~30개) 만 검사.
 
                 // 데이터 row 가 존재하면 valueStability=0 이상으로 확정 (NA(-1) 와 구분).
                 // 0 점은 "데이터는 있으나 가치주 기준(저PBR) 미달" 의미 — UI 에서 "0/20" 으로 표기.
@@ -615,6 +614,29 @@ public class RecommendationService {
             if (v != null) return v;
         }
         return null;
+    }
+
+    // ==================== ⑦ 리스크 공시 페널티 (-5) ====================
+    // riskManagementService.quickDangerCheck 가 DART API 호출이라 종목당 2~3초 소요.
+    // 261종목 전체 검사 시 ~10분 소요로 calculate 전체 시간을 사실상 결정.
+    // → 추천 후보(상위 30개)만 검사: 30 × 2.5s ≈ 75초로 단축 + TOP10 정확도 유지.
+    private void applyRiskPenalty(Map<String, StockScore> scoreMap) {
+        List<StockScore> top = scoreMap.values().stream()
+                .filter(s -> countValidCategories(s) >= 3)
+                .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
+                .limit(30)
+                .collect(Collectors.toList());
+        int hit = 0;
+        for (StockScore stock : top) {
+            try {
+                if (riskManagementService.quickDangerCheck(stock.stockName)) {
+                    stock.valueStability = Math.max(0, stock.valueStability - 5);
+                    stock.tags.add("⚠리스크공시");
+                    hit++;
+                }
+            } catch (Exception ignore) { /* 리스크 조회 실패 시 페널티 안 줌 */ }
+        }
+        log.info("[종합추천] 리스크 공시 검사: {}건 후보 중 {}건 히트", top.size(), hit);
     }
 
     // ==================== ① AI전략 (/20) ====================
