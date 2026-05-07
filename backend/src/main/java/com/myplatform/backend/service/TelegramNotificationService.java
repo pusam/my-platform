@@ -370,12 +370,35 @@ public class TelegramNotificationService {
             log.debug("텔레그램 비활성화 - {} 메시지 발송 생략", channelName);
             return;
         }
-        try {
-            doSendMessage(token, targetChatId, message, "HTML");
-            log.info("텔레그램 {} 채널 발송 완료", channelName);
-        } catch (Exception e) {
-            log.error("텔레그램 {} 채널 발송 실패: {}", channelName, e.getMessage());
+        // 트레이딩 신호는 놓치면 안 됨 — 일시 장애(Telegram API 30초 다운, 네트워크 블립)에 대비해
+        // 지수 백오프 재시도 (1s, 3s, 9s — 총 13초 내 3회 시도). HTTP 429(Too Many Requests) 도 같은 정책.
+        Exception last = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                doSendMessage(token, targetChatId, message, "HTML");
+                if (attempt > 1) {
+                    log.info("텔레그램 {} 채널 발송 성공 (재시도 {}/3)", channelName, attempt);
+                } else {
+                    log.info("텔레그램 {} 채널 발송 완료", channelName);
+                }
+                return;
+            } catch (Exception e) {
+                last = e;
+                if (attempt < 3) {
+                    long backoffMs = (long) Math.pow(3, attempt - 1) * 1000L; // 1s, 3s
+                    log.warn("텔레그램 {} 발송 실패 (시도 {}/3): {} — {}ms 후 재시도",
+                            channelName, attempt, e.getMessage(), backoffMs);
+                    try { Thread.sleep(backoffMs); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        log.error("텔레그램 {} 재시도 중단됨", channelName);
+                        return;
+                    }
+                }
+            }
         }
+        log.error("텔레그램 {} 채널 발송 최종 실패 (3회 시도): {}",
+                channelName, last == null ? "unknown" : last.getMessage(), last);
     }
 
     private void doSendMessage(String token, String targetChatId, String text, String parseMode) {

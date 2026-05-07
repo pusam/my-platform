@@ -31,6 +31,7 @@ import com.webauthn4j.data.client.Origin;
 import com.webauthn4j.data.client.challenge.DefaultChallenge;
 import com.webauthn4j.server.ServerProperty;
 import com.webauthn4j.util.Base64UrlUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,7 @@ import java.util.Optional;
 
 @Service
 @Transactional
+@Slf4j
 public class WebauthnService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -256,7 +258,16 @@ public class WebauthnService {
             throw new IllegalStateException("패스키 인증 검증 실패: " + e.getMessage(), e);
         }
 
-        cred.setSignCount(authData.getAuthenticatorData().getSignCount());
+        // W3C WebAuthn signCount 복제 탐지 — stored > 0 인데 new <= stored 면 복제 의심.
+        // platform authenticator (TouchID/FaceID 등) 는 signCount 를 항상 0 으로 두므로 stored=0 이면 검증 안 함.
+        long newSignCount = authData.getAuthenticatorData().getSignCount();
+        long storedSignCount = cred.getSignCount();
+        if (storedSignCount > 0 && newSignCount <= storedSignCount) {
+            log.warn("[WebAuthn] signCount 복제 의심: user={}, stored={}, received={}",
+                    user.getUsername(), storedSignCount, newSignCount);
+            throw new IllegalStateException("인증 검증 실패: 복제된 인증기로 의심됩니다. 관리자에게 문의하세요.");
+        }
+        cred.setSignCount(newSignCount);
         cred.setLastUsedAt(LocalDateTime.now());
         credentialRepository.save(cred);
 
@@ -346,7 +357,14 @@ public class WebauthnService {
             throw new IllegalStateException("인증 검증 실패: " + e.getMessage(), e);
         }
 
+        // W3C signCount 복제 탐지 (위 finishPasskeyAuthentication 동일 패턴)
         long newSignCount = authData.getAuthenticatorData().getSignCount();
+        long storedSignCount = cred.getSignCount();
+        if (storedSignCount > 0 && newSignCount <= storedSignCount) {
+            log.warn("[WebAuthn] signCount 복제 의심: user={}, stored={}, received={}",
+                    user.getUsername(), storedSignCount, newSignCount);
+            throw new IllegalStateException("인증 검증 실패: 복제된 인증기로 의심됩니다. 관리자에게 문의하세요.");
+        }
         cred.setSignCount(newSignCount);
         cred.setLastUsedAt(LocalDateTime.now());
         credentialRepository.save(cred);
