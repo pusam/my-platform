@@ -365,13 +365,29 @@ public class TelegramNotificationService {
 
     // ==================== 내부 메서드 ====================
 
+    /**
+     * Telegram 429 응답의 retry_after 추출.
+     * 응답 body 예: {"ok":false,"error_code":429,"description":"...","parameters":{"retry_after":33}}
+     */
+    private static long parseTelegramRetryAfter(org.springframework.web.client.HttpClientErrorException e) {
+        try {
+            String body = e.getResponseBodyAsString();
+            if (body != null) {
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("\"retry_after\"\\s*:\\s*(\\d+)").matcher(body);
+                if (m.find()) return Long.parseLong(m.group(1));
+            }
+        } catch (Exception ignore) { /* fallthrough */ }
+        return 5L;  // 알 수 없으면 기본 5초 — 보수적으로 drop 결정
+    }
+
     private void sendToChannel(String token, String targetChatId, String message, String channelName) {
         if (!isEnabled()) {
             log.debug("텔레그램 비활성화 - {} 메시지 발송 생략", channelName);
             return;
         }
-        // 트레이딩 신호는 놓치면 안 됨 — 일시 장애(Telegram API 30초 다운, 네트워크 블립)에 대비해
-        // 지수 백오프 재시도 (1s, 3s, 9s — 총 13초 내 3회 시도). HTTP 429(Too Many Requests) 도 같은 정책.
+        // 일시 장애(API 30초 다운, 네트워크 블립) 대비 재시도. 단 429 시 retry_after 헤더 존중 —
+        // Telegram 이 30s+ 기다리라고 하는데 1s/3s 재시도하면 더 폭주만 시킴 → 즉시 drop.
         Exception last = null;
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
@@ -382,6 +398,25 @@ public class TelegramNotificationService {
                     log.info("텔레그램 {} 채널 발송 완료", channelName);
                 }
                 return;
+            } catch (org.springframework.web.client.HttpClientErrorException.TooManyRequests e) {
+                last = e;
+                long retryAfterSec = parseTelegramRetryAfter(e);
+                if (retryAfterSec >= 5L) {
+                    // 한도 회복까지 5초+ 면 재시도 의미 없음 (다른 thread/채널도 동시 폭주 가능) → drop.
+                    log.warn("텔레그램 {} 채널 429 (retry_after {}s) — 즉시 drop (다음 사이클 대기)",
+                            channelName, retryAfterSec);
+                    return;
+                }
+                if (attempt < 3) {
+                    long backoffMs = retryAfterSec * 1000L;
+                    log.warn("텔레그램 {} 429 (시도 {}/3) — retry_after {}s 후 재시도",
+                            channelName, attempt, retryAfterSec);
+                    try { Thread.sleep(backoffMs); }
+                    catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
             } catch (Exception e) {
                 last = e;
                 if (attempt < 3) {
