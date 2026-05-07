@@ -3694,24 +3694,63 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .trading-dashboard { padding: 12px; }
 
+  /* 헤더 컴팩트 — 3행 구조: [←/종목명/검색/알림] / [가격] / [점수2개] */
   .dashboard-header {
     flex-direction: column;
     text-align: center;
-    gap: 12px;
+    gap: 8px;
+    padding: 12px;
   }
 
-  .header-left { flex-direction: column; }
-  .stock-name { font-size: 1.4rem; }
-  .current-price { font-size: 1.6rem; }
-  .ai-score-box { padding: 10px 16px; }
-  .score-value { font-size: 2rem; }
+  /* 좌측: 가로 정렬로 되돌림 (기본 mobile 규칙이 column 이라 명시 필요) */
+  .header-left {
+    flex-direction: row;
+    width: 100%;
+    align-items: center;
+    gap: 8px;
+  }
+  .stock-info {
+    flex: 1;
+    min-width: 0;
+    align-items: flex-start;
+    overflow: hidden;
+  }
+  .stock-name {
+    font-size: 1.2rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stock-code { font-size: 0.78rem; }
+  /* "돌아가기" 텍스트는 모바일에서 숨기고 아이콘만 */
+  .back-button span { display: none; }
+  .back-button { padding: 6px 8px; }
+
+  /* 가운데: 가격 */
+  .header-center { width: 100%; }
+  .current-price { font-size: 1.4rem; }
+  .change-info { font-size: 0.9rem; }
+
+  /* 우측: 두 점수 박스를 가로로 (기본 .dual-score-header column 규칙 override) */
+  .dual-score-header {
+    flex-direction: row;
+    width: 100%;
+    gap: 8px;
+  }
+  .ai-score-box {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 10px;
+  }
+  .score-value { font-size: 1.6rem; }
+  .score-label { font-size: 0.7rem; }
+  .score-badge { font-size: 0.7rem; }
 
   .search-bar { flex-direction: column; }
   .realtime-status { flex-wrap: wrap; gap: 8px; }
 
   .reasons-section { grid-template-columns: 1fr; }
 
-  .dual-score-header { flex-direction: column; }
   .alerts-section { grid-template-columns: 1fr; }
   /* fund-tabs는 가로 스크롤 + wrap이 더 자연스러움 (column보다) */
   .fund-tabs { flex-wrap: wrap; }
@@ -3733,11 +3772,13 @@ onUnmounted(() => {
 @media (max-width: 480px) {
   .trading-dashboard { padding: 10px; }
   .stock-header { padding: 14px; }
-  .stock-name { font-size: 1.2rem; }
-  .current-price { font-size: 1.4rem; }
-  .change-info { font-size: 0.95rem; }
-  .score-value { font-size: 1.7rem; }
-  .ai-score-box { padding: 8px 14px; }
+  .stock-name { font-size: 1rem; }
+  .current-price { font-size: 1.2rem; }
+  .change-info { font-size: 0.85rem; }
+  .score-value { font-size: 1.3rem; }
+  .score-label { font-size: 0.65rem; }
+  .score-badge { font-size: 0.65rem; padding: 1px 6px; }
+  .ai-score-box { padding: 6px 8px; gap: 2px; }
 
   /* 메인 탭 — 더 컴팩트 */
   .main-tab-btn { padding: 8px 6px; font-size: 12px; }
