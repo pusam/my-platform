@@ -48,6 +48,15 @@ public class CacheConfig {
             // 자동완성용 — 키워드별 동일 응답. Naver 호출/N+1 방지.
             buildCache("stockSearch", 60, 200),
 
+            // ========== AI 스크리너 분석 캐시 (1시간 TTL) ==========
+            // QuantScreener (마법공식/PEG/턴어라운드) 분석 응답.
+            // 종목 리스트는 일 단위로만 변경 → 1시간 캐시로 Gemini API 호출 절감.
+            buildCache("aiScreenerAnalysis", 3600, 50),
+
+            // ========== 실적 공시 요약 캐시 (6시간 TTL) ==========
+            // 분기 실적은 발표 후 며칠간 동일. 사용자 새로고침마다 DART + Gemini 호출 방지.
+            buildCache("earningsSummary", 21600, 200),
+
             // ========== 투자자 매매동향 캐시 (5분 TTL) ==========
             // 투자자 × 시장 × 종목 조합 → 카디널리티 폭발 대비
             buildCache("investorTrend", 300, 500),

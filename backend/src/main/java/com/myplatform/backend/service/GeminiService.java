@@ -59,7 +59,23 @@ public class GeminiService {
     // 캐시 갱신 동기화
     private final Object forecastCacheLock = new Object();
 
-    public GeminiService() {
+    // 호출 카운터 — Prometheus 노출. 비용 추적 / quota 모니터링.
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+    private final io.micrometer.core.instrument.Counter callOk;
+    private final io.micrometer.core.instrument.Counter callFail;
+    private final io.micrometer.core.instrument.Counter callRateLimit;
+
+    public GeminiService(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+        this.callOk = io.micrometer.core.instrument.Counter.builder("gemini.api.calls")
+                .description("Gemini API 호출 성공")
+                .tag("outcome", "success").register(meterRegistry);
+        this.callFail = io.micrometer.core.instrument.Counter.builder("gemini.api.calls")
+                .description("Gemini API 호출 실패 (rate limit 제외)")
+                .tag("outcome", "fail").register(meterRegistry);
+        this.callRateLimit = io.micrometer.core.instrument.Counter.builder("gemini.api.calls")
+                .description("Gemini API 호출 rate limit / quota")
+                .tag("outcome", "rate_limit").register(meterRegistry);
         // Gemini API 전용 RestTemplate (타임아웃 설정)
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);   // 연결 5초
@@ -75,8 +91,13 @@ public class GeminiService {
     }
 
     /**
-     * 마법의 공식 스크리너 결과 분석
+     * 마법의 공식 스크리너 결과 분석.
+     * 1시간 캐시 — 종목 리스트는 일 단위 변경. 사용자 새로고침마다 Gemini 호출 방지.
      */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "aiScreenerAnalysis",
+            key = "'magic:' + #stocks.![stockCode]",
+            condition = "#stocks != null && !#stocks.isEmpty()")
     public String analyzeMagicFormula(List<ScreenerResultDto> stocks) {
         if (stocks == null || stocks.isEmpty()) {
             return "분석할 종목이 없습니다.";
@@ -116,8 +137,12 @@ public class GeminiService {
     }
 
     /**
-     * PEG 스크리너 결과 분석
+     * PEG 스크리너 결과 분석. 1시간 캐시 (analyzeMagicFormula 와 동일 정책).
      */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "aiScreenerAnalysis",
+            key = "'peg:' + #stocks.![stockCode]",
+            condition = "#stocks != null && !#stocks.isEmpty()")
     public String analyzePegStocks(List<ScreenerResultDto> stocks) {
         if (stocks == null || stocks.isEmpty()) {
             return "분석할 종목이 없습니다.";
@@ -156,8 +181,12 @@ public class GeminiService {
     }
 
     /**
-     * 턴어라운드 스크리너 결과 분석
+     * 턴어라운드 스크리너 결과 분석. 1시간 캐시.
      */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "aiScreenerAnalysis",
+            key = "'turnaround:' + #stocks.![stockCode]",
+            condition = "#stocks != null && !#stocks.isEmpty()")
     public String analyzeTurnaroundStocks(List<ScreenerResultDto> stocks) {
         if (stocks == null || stocks.isEmpty()) {
             return "분석할 종목이 없습니다.";
@@ -1107,6 +1136,7 @@ public class GeminiService {
             try {
                 String result = callGeminiApi(prompt);
                 consecutiveErrors.set(0); // 성공 시 에러 카운터 리셋
+                callOk.increment();
                 return result;
 
             } catch (HttpClientErrorException.TooManyRequests e) {
@@ -1114,6 +1144,7 @@ public class GeminiService {
                 // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x). cap 60s 적용 — thread 점유 최소화.
                 long retryDelay = Math.min(baseDelay * (1L << attempt), 60_000L);
                 consecutiveErrors.incrementAndGet();
+                callRateLimit.increment();
 
                 log.warn("Gemini Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",
                         attempt + 1, MAX_RETRIES, retryDelay);
@@ -1133,6 +1164,7 @@ public class GeminiService {
                 }
 
             } catch (Exception e) {
+                callFail.increment();
                 log.error("Gemini API 호출 실패: {}", e.getMessage());
                 return null;
             }

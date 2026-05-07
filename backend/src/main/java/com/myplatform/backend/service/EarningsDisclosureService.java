@@ -449,10 +449,13 @@ public class EarningsDisclosureService {
     // ======================== 실적 요약 ========================
 
     /**
-     * DART 재무 수치 조회 + Gemini AI 요약
-     * - /fnlttSinglAcnt.json 으로 핵심 재무 수치 조회
-     * - Gemini AI 로 투자자 관점 코멘트 생성
+     * DART 재무 수치 조회 + Gemini AI 요약.
+     * 6시간 캐시 — 분기 실적은 발표 후 며칠간 동일.
      */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "earningsSummary",
+            key = "#corpCode + ':' + #reportType",
+            condition = "#corpCode != null && !#corpCode.isEmpty()")
     public Map<String, Object> getEarningsSummary(String corpCode, String corpName, String reportType) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("corpName", corpName);
