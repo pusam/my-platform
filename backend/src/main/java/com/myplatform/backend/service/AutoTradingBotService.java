@@ -889,7 +889,12 @@ public class AutoTradingBotService {
             headers.set("Referer", "https://m.stock.naver.com");
             headers.setAccept(List.of(org.springframework.http.MediaType.APPLICATION_JSON));
 
-            org.springframework.http.ResponseEntity<String> response = new org.springframework.web.client.RestTemplate()
+            // RestTemplate timeout 명시 — 무한 hang 방지. 봇 매매 thread 가 점유되면 매도 타이밍 놓침.
+            org.springframework.http.client.SimpleClientHttpRequestFactory rtFactory =
+                    new org.springframework.http.client.SimpleClientHttpRequestFactory();
+            rtFactory.setConnectTimeout(3000);
+            rtFactory.setReadTimeout(5000);
+            org.springframework.http.ResponseEntity<String> response = new org.springframework.web.client.RestTemplate(rtFactory)
                     .exchange(url, org.springframework.http.HttpMethod.GET,
                             new org.springframework.http.HttpEntity<>(headers), String.class);
 

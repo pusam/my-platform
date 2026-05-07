@@ -36,8 +36,18 @@ public class ExchangeRateService {
     private static final String NAVER_EXCHANGE_URL =
             "https://finance.naver.com/marketindex/exchangeDetail.naver?marketindexCd=FX_USDKRW";
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    // RestTemplate timeout 명시 — 외부 API hang 시 thread 무한 점유 방지.
+    // koreaexim/네이버 응답이 5초 안에 안 오면 폴백 또는 캐시 활용.
+    private final RestTemplate restTemplate = createRestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static RestTemplate createRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory f
+                = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(3000);
+        f.setReadTimeout(5000);
+        return new RestTemplate(f);
+    }
 
     // 캐시 (환율은 자주 안 바뀌므로 10분 캐시)
     private volatile ExchangeRateDto cachedRate;
