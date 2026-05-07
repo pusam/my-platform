@@ -1,0 +1,183 @@
+package com.myplatform.backend.service;
+
+import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.netty.http.client.HttpClient;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+
+/**
+ * KRX 상장법인목록을 다운로드해서 stock_master 테이블에 시드.
+ *
+ * 소스: https://kind.krx.co.kr/corpgeneral/corpList.do
+ *  - searchType=13 : 전체
+ *  - marketType=stockMkt | kosdaqMkt
+ *  - 응답: HTML table (XLS 형태로 떨어지지만 사실은 HTML)
+ *  - 컬럼: 회사명 / 종목코드 / 업종 / 주요제품 / 상장일 / 결산월 / 대표자명 / 홈페이지 / 지역
+ *
+ * 동작:
+ *  1) ApplicationReady 시: 마스터가 비어있으면(< 100건) 자동 시드
+ *  2) @Scheduled: 매일 06:00에 KOSPI/KOSDAQ 모두 refresh
+ *
+ * 실패해도 앱은 살아있고, 기존 StockNameResolver 하드코딩 폴백으로 동작.
+ */
+@Service
+@Slf4j
+public class KrxStockMasterSeeder {
+
+    private static final String KRX_URL =
+            "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13&marketType=";
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final int EMPTY_THRESHOLD = 100;
+
+    private final StockMasterService stockMasterService;
+    private final WebClient krxWebClient;
+
+    public KrxStockMasterSeeder(StockMasterService stockMasterService) {
+        this.stockMasterService = stockMasterService;
+
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(Duration.ofSeconds(30));
+        this.krxWebClient = WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .defaultHeader("User-Agent",
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                .build();
+    }
+
+    /** 부팅 시 비어있으면 자동 시드 (비동기로 부팅 차단 방지). */
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
+    public void seedOnStartupIfEmpty() {
+        try {
+            if (stockMasterService.cachedCount() < EMPTY_THRESHOLD) {
+                log.info("StockMaster 비어있음({}) — KRX 시드 시작", stockMasterService.cachedCount());
+                seedAll();
+            }
+        } catch (Exception e) {
+            log.warn("KRX 자동 시드 실패: {}", e.getMessage());
+        }
+    }
+
+    /** 매일 06:00 한국시간에 KRX 마스터 갱신. */
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    public void refreshDaily() {
+        try {
+            log.info("KRX 마스터 일일 갱신 시작");
+            seedAll();
+        } catch (Exception e) {
+            log.warn("KRX 일일 갱신 실패: {}", e.getMessage());
+        }
+    }
+
+    public int seedAll() {
+        int total = 0;
+        total += seedMarket("stockMkt", "KOSPI");
+        total += seedMarket("kosdaqMkt", "KOSDAQ");
+        log.info("KRX 시드 완료 — 총 {} 종목", total);
+        return total;
+    }
+
+    private int seedMarket(String marketType, String marketLabel) {
+        String html;
+        try {
+            html = krxWebClient.get()
+                    .uri(KRX_URL + marketType)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block(Duration.ofSeconds(30));
+        } catch (Exception e) {
+            log.warn("KRX {} 다운로드 실패: {}", marketLabel, e.getMessage());
+            return 0;
+        }
+        if (html == null || html.isEmpty()) {
+            log.warn("KRX {} 응답이 비어있음", marketLabel);
+            return 0;
+        }
+
+        Document doc = Jsoup.parse(html);
+        Elements rows = doc.select("table tr");
+        if (rows.size() < 2) {
+            log.warn("KRX {} 파싱 실패 — row {} 개", marketLabel, rows.size());
+            return 0;
+        }
+
+        // 헤더 인덱스 매핑 (KRX가 컬럼 순서를 바꿀 수 있어 이름으로 매핑)
+        Map<String, Integer> col = new HashMap<>();
+        Elements headerCells = rows.first().select("th, td");
+        for (int i = 0; i < headerCells.size(); i++) {
+            col.put(headerCells.get(i).text().trim(), i);
+        }
+        Integer iName = col.get("회사명");
+        Integer iCode = col.get("종목코드");
+        Integer iSector = col.get("업종");
+        Integer iListed = col.get("상장일");
+        if (iName == null || iCode == null) {
+            log.warn("KRX {} 헤더 매핑 실패 — 컬럼: {}", marketLabel, col.keySet());
+            return 0;
+        }
+
+        int upserted = 0;
+        for (int r = 1; r < rows.size(); r++) {
+            Elements cells = rows.get(r).select("td");
+            if (cells.size() <= Math.max(iName, iCode)) continue;
+
+            String name = cells.get(iName).text().trim();
+            String code = padCode(cells.get(iCode).text().trim());
+            if (name.isEmpty() || code.isEmpty()) continue;
+
+            String sector = (iSector != null && cells.size() > iSector)
+                    ? cells.get(iSector).text().trim() : null;
+            LocalDate listed = parseDate(
+                    (iListed != null && cells.size() > iListed) ? cells.get(iListed).text().trim() : null);
+
+            try {
+                stockMasterService.upsertFromKrx(code, name, marketLabel,
+                        emptyToNull(sector), listed);
+                upserted++;
+            } catch (Exception e) {
+                log.debug("upsert 실패 {} {}: {}", code, name, e.getMessage());
+            }
+        }
+        log.info("KRX {} 시드: {} 종목", marketLabel, upserted);
+        return upserted;
+    }
+
+    /** KRX는 종목코드를 정수형으로 떨굴 때가 있어서 6자리 zero-pad. */
+    private static String padCode(String code) {
+        if (code == null) return "";
+        String digits = code.replaceAll("\\D", "");
+        if (digits.isEmpty()) return "";
+        if (digits.length() >= 6) return digits;
+        return String.format("%6s", digits).replace(' ', '0');
+    }
+
+    private static LocalDate parseDate(String s) {
+        if (s == null || s.isBlank()) return null;
+        try {
+            return LocalDate.parse(s.trim(), DATE_FMT);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
+    }
+}

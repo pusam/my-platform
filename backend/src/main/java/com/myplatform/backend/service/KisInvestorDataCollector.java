@@ -32,6 +32,7 @@ public class KisInvestorDataCollector {
     private final InvestorDailyTradeRepository investorTradeRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final ObjectMapper objectMapper;
+    private final StockMasterService stockMasterService;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -237,6 +238,7 @@ public class KisInvestorDataCollector {
                         log.debug("필수 필드 누락: rank {}", rank);
                         continue;
                     }
+                    stockMasterService.cacheName(stockCode, stockName, "KIS");
 
                     // 순매수 금액 - 투자자 유형에 따라 다른 필드 사용
                     // frgn_ntby_tr_pbmn: 외국인, orgn_ntby_tr_pbmn: 기관 (백만원 단위)
@@ -400,6 +402,7 @@ public class KisInvestorDataCollector {
                 if (stockCode == null || stockCode.isEmpty()) {
                     continue;
                 }
+                stockMasterService.cacheName(stockCode, stockName, "KIS");
 
                 // 연기금 순매수 금액 (백만원 단위 -> 억원 단위)
                 BigDecimal pensionAmount = getJsonBigDecimal(item, "fund_ntby_tr_pbmn");

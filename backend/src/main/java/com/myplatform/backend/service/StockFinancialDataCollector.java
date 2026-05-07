@@ -41,6 +41,7 @@ public class StockFinancialDataCollector {
     private final KoreaInvestmentService koreaInvestmentService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final StockMasterService stockMasterService;
 
     @Value("${kis.api.base-url:https://openapi.koreainvestment.com:9443}")
     private String baseUrl;
@@ -250,6 +251,8 @@ public class StockFinancialDataCollector {
             String stockName = output.path("hts_kor_isnm").asText("");
             if (stockName.isEmpty()) {
                 stockName = stockCode;
+            } else {
+                stockMasterService.cacheName(stockCode, stockName, "KIS");
             }
 
             String market = "KOSPI";

@@ -2,13 +2,23 @@ package com.myplatform.backend.util;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * 종목명 조회 유틸리티
- * - API나 DB에서 종목명을 가져오지 못했을 때 최후의 폴백으로 사용
- * - 주요 종목 50개+ 하드코딩
+ * - 1순위: StockMasterService 캐시 (DB 적재된 KRX 마스터 + KIS 응답에서 lazy upsert)
+ * - 2순위: 아래 하드코딩 맵 (DB 적재 실패 / 신규 상장 미반영 시 폴백)
+ *
+ * StockMasterService 가 부팅 시 setMasterLookup() 으로 자기 자신을 등록.
  */
 public class StockNameResolver {
+
+    /** 외부(StockMasterService)에서 주입되는 조회 함수. null 이면 폴백 맵만 사용. */
+    private static volatile Function<String, String> masterLookup;
+
+    public static void setMasterLookup(Function<String, String> lookup) {
+        masterLookup = lookup;
+    }
 
     private static final Map<String, String> STOCK_NAME_MAP = new HashMap<>();
 
@@ -101,6 +111,13 @@ public class StockNameResolver {
         if (stockCode == null || stockCode.isEmpty()) {
             return null;
         }
+        // 1순위: StockMaster (DB)
+        Function<String, String> lookup = masterLookup;
+        if (lookup != null) {
+            String fromMaster = lookup.apply(stockCode);
+            if (fromMaster != null) return fromMaster;
+        }
+        // 2순위: 하드코딩 폴백
         return STOCK_NAME_MAP.get(stockCode);
     }
 

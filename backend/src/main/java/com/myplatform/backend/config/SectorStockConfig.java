@@ -1,5 +1,6 @@
 package com.myplatform.backend.config;
 
+import com.myplatform.backend.util.StockNameResolver;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -557,8 +558,11 @@ public class SectorStockConfig {
 
     /**
      * 종목코드로 종목명 조회
+     * - 1순위: StockMaster (DB) 캐시 → 2순위: 섹터 하드코딩 맵 → 3순위: stockCode 그대로
      */
     public String getStockName(String stockCode) {
+        String fromMaster = StockNameResolver.getName(stockCode);
+        if (fromMaster != null) return fromMaster;
         return stockNameMap.getOrDefault(stockCode, stockCode);
     }
 

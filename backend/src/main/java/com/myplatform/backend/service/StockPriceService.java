@@ -68,6 +68,7 @@ public class StockPriceService {
     private final StockPriceRepository stockPriceRepository;
     private final ObjectMapper objectMapper;
     private final KoreaInvestmentService kisService;
+    private final StockMasterService stockMasterService;
 
     // 캐시 (종목코드 -> 시세)
     private final ConcurrentHashMap<String, StockPriceDto> priceCache = new ConcurrentHashMap<>();
@@ -94,11 +95,13 @@ public class StockPriceService {
     public StockPriceService(RestTemplate restTemplate,
                              StockPriceRepository stockPriceRepository,
                              ObjectMapper objectMapper,
-                             KoreaInvestmentService kisService) {
+                             KoreaInvestmentService kisService,
+                             StockMasterService stockMasterService) {
         this.restTemplate = restTemplate;
         this.stockPriceRepository = stockPriceRepository;
         this.objectMapper = objectMapper;
         this.kisService = kisService;
+        this.stockMasterService = stockMasterService;
     }
 
     /**
@@ -421,6 +424,7 @@ public class StockPriceService {
             StockPriceDto dto = new StockPriceDto();
             dto.setStockCode(stockCode);
             dto.setStockName(getTextValue(output, "hts_kor_isnm")); // 종목명
+            stockMasterService.cacheName(stockCode, dto.getStockName(), "KIS");
             dto.setCurrentPrice(getBigDecimalValue(output, "stck_prpr")); // 현재가
             dto.setOpenPrice(getBigDecimalValue(output, "stck_oprc")); // 시가
             dto.setHighPrice(getBigDecimalValue(output, "stck_hgpr")); // 고가
