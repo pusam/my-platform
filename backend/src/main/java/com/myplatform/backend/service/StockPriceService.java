@@ -586,7 +586,8 @@ public class StockPriceService {
         List<StockPriceDto> results = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
 
-        // 1순위: stock_master DB — 빠르고, 항상 작동, 코드/이름 모두 매치
+        // 1순위: stock_master DB — 빠르고, 항상 작동, 코드/이름 모두 매치.
+        // fillCachedPrice 는 첫 10건만 (검색당 DB 쿼리 폭주 방지)
         try {
             for (com.myplatform.backend.entity.StockMaster m :
                     stockMasterService.search(keyword, 20)) {
@@ -597,7 +598,7 @@ public class StockPriceService {
                 dto.setCurrentPrice(BigDecimal.ZERO);
                 dto.setChangeRate(BigDecimal.ZERO);
                 dto.setFetchedAt(LocalDateTime.now());
-                fillCachedPrice(dto);
+                if (results.size() < 10) fillCachedPrice(dto);
                 results.add(dto);
                 if (results.size() >= 20) break;
             }

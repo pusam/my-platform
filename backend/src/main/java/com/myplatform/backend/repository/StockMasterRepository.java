@@ -46,12 +46,12 @@ public interface StockMasterRepository extends JpaRepository<StockMaster, String
         INSERT INTO stock_master (stock_code, stock_name, market, sector, listed_date, is_active, source, updated_at)
         VALUES (:stockCode, :stockName, :market, :sector, :listedDate, 1, :source, NOW())
         ON DUPLICATE KEY UPDATE
-            stock_name  = VALUES(stock_name),
+            stock_name  = CASE WHEN source = 'MANUAL' THEN stock_name ELSE VALUES(stock_name) END,
             market      = COALESCE(VALUES(market), market),
             sector      = COALESCE(VALUES(sector), sector),
             listed_date = COALESCE(VALUES(listed_date), listed_date),
             is_active   = 1,
-            source      = VALUES(source),
+            source      = CASE WHEN source = 'MANUAL' THEN source ELSE VALUES(source) END,
             updated_at  = NOW()
         """, nativeQuery = true)
     void upsert(@Param("stockCode") String stockCode,

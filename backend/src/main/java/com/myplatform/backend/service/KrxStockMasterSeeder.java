@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
@@ -49,6 +50,8 @@ public class KrxStockMasterSeeder {
 
     private final StockMasterService stockMasterService;
     private final WebClient krxWebClient;
+    /** 부팅 자동 시드와 06:00 cron 이 동시 발화 시 중복 작업 방지. */
+    private final AtomicBoolean seeding = new AtomicBoolean(false);
 
     public KrxStockMasterSeeder(StockMasterService stockMasterService) {
         this.stockMasterService = stockMasterService;
@@ -89,11 +92,19 @@ public class KrxStockMasterSeeder {
     }
 
     public int seedAll() {
-        int total = 0;
-        total += seedMarket("stockMkt", "KOSPI");
-        total += seedMarket("kosdaqMkt", "KOSDAQ");
-        log.info("KRX 시드 완료 — 총 {} 종목", total);
-        return total;
+        if (!seeding.compareAndSet(false, true)) {
+            log.info("KRX 시드가 이미 실행 중 — skip");
+            return 0;
+        }
+        try {
+            int total = 0;
+            total += seedMarket("stockMkt", "KOSPI");
+            total += seedMarket("kosdaqMkt", "KOSDAQ");
+            log.info("KRX 시드 완료 — 총 {} 종목", total);
+            return total;
+        } finally {
+            seeding.set(false);
+        }
     }
 
     private int seedMarket(String marketType, String marketLabel) {
