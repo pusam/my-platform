@@ -345,33 +345,13 @@
             </div>
 
             <div v-if="newAsset.assetType === 'STOCK'" class="form-group">
-              <label>종목 검색</label>
-              <input type="text" v-model="stockSearchKeyword" placeholder="종목명 또는 종목코드 입력 (2글자 이상)" @input="searchStocksDebounced"/>
-              <p class="input-hint">검색어를 입력하면 관련 종목이 표시됩니다</p>
-            </div>
-
-            <div v-if="newAsset.assetType === 'STOCK' && stockSearchResults.length > 0" class="form-group">
-              <label>검색 결과 ({{ stockSearchResults.length }}개)</label>
-              <div class="stock-results">
-                <div v-for="stock in stockSearchResults" :key="stock.stockCode" class="stock-item" :class="{ selected: newAsset.stockCode === stock.stockCode }" @click="selectStock(stock)">
-                  <div class="stock-info">
-                    <span class="stock-name">{{ stock.stockName }}</span>
-                    <span class="stock-code">{{ stock.stockCode }}</span>
-                  </div>
-                  <span class="stock-price">{{ formatCurrency(stock.currentPrice) }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="newAsset.assetType === 'STOCK' && newAsset.stockCode" class="form-group">
-              <label>선택된 종목</label>
-              <div class="selected-stock">
-                <div class="stock-info">
-                  <strong>{{ newAsset.stockName }}</strong>
-                  <span>({{ newAsset.stockCode }})</span>
-                </div>
-                <button type="button" @click="clearStockSelection" class="btn-clear">취소</button>
-              </div>
+              <label>종목</label>
+              <StockCodeInput
+                v-model="newAsset.stockCode"
+                placeholder="종목명 또는 종목코드 입력 (예: 삼성전자, 005930)"
+                @select="onStockSelected"
+              />
+              <p class="input-hint">선택 시 현재가가 자동 입력됩니다</p>
             </div>
 
             <div class="form-group">
@@ -415,6 +395,7 @@ import { UserManager } from '../utils/auth';
 import { toast } from '../utils/toast';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+import StockCodeInput from '../components/StockCodeInput.vue';
 
 const router = useRouter();
 
@@ -422,11 +403,8 @@ const summary = ref(null);
 const assets = ref([]);
 const showAddModal = ref(false);
 const errorMessage = ref('');
-const stockSearchKeyword = ref('');
-const stockSearchResults = ref([]);
 const loading = ref(false);
 const showExportMenu = ref(false);
-let searchTimeout = null;
 
 const newAsset = ref({
   assetType: 'GOLD',
@@ -456,34 +434,11 @@ const onAssetTypeChange = () => {
   newAsset.value.stockCode = '';
   newAsset.value.stockName = '';
   newAsset.value.otherName = '';
-  stockSearchKeyword.value = '';
-  stockSearchResults.value = [];
 };
 
-const searchStocksDebounced = () => {
-  if (searchTimeout) {
-    clearTimeout(searchTimeout);
-  }
-  searchTimeout = setTimeout(searchStocks, 500);
-};
-
-const searchStocks = async () => {
-  if (!stockSearchKeyword.value || stockSearchKeyword.value.length < 2) {
-    stockSearchResults.value = [];
-    return;
-  }
-
-  try {
-    const response = await stockAPI.searchStocks(stockSearchKeyword.value);
-    stockSearchResults.value = response.data.data || [];
-  } catch (error) {
-    console.error('Stock search failed:', error);
-    stockSearchResults.value = [];
-  }
-};
-
-const selectStock = async (stock) => {
-  newAsset.value.stockCode = stock.stockCode;
+// StockCodeInput 에서 종목 선택 시 — stockCode 는 v-model 로 자동 반영됨.
+// 여기선 stockName 채우고 현재가를 매수가로 자동 입력.
+const onStockSelected = async (stock) => {
   newAsset.value.stockName = stock.stockName;
 
   if (stock.currentPrice && stock.currentPrice > 0) {
@@ -500,11 +455,13 @@ const selectStock = async (stock) => {
   }
 };
 
-const clearStockSelection = () => {
-  newAsset.value.stockCode = '';
-  newAsset.value.stockName = '';
-  newAsset.value.purchasePrice = '';
-};
+// StockCodeInput 의 X 버튼으로 stockCode 가 비워지면 이름/가격도 같이 비움
+watch(() => newAsset.value.stockCode, (code) => {
+  if (!code) {
+    newAsset.value.stockName = '';
+    newAsset.value.purchasePrice = '';
+  }
+});
 
 const addAsset = async () => {
   try {
@@ -557,8 +514,6 @@ const deleteAsset = async (assetId) => {
 const closeModal = () => {
   showAddModal.value = false;
   errorMessage.value = '';
-  stockSearchKeyword.value = '';
-  stockSearchResults.value = [];
   newAsset.value = {
     assetType: 'GOLD',
     stockCode: '',

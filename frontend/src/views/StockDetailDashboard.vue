@@ -43,11 +43,10 @@
     <!-- 검색바 + 실시간 상태 -->
     <div class="control-section">
       <div class="search-bar">
-        <input
-          type="text"
+        <StockCodeInput
           v-model="searchQuery"
-          @keyup.enter="searchStock"
           placeholder="종목명 또는 종목코드 입력 (예: 삼성전자, 005930)"
+          @enter="searchStock"
         />
         <button @click="searchStock" :disabled="loading">
           {{ loading ? '분석 중...' : '종합 분석' }}
@@ -976,6 +975,7 @@ import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
+import StockCodeInput from '../components/StockCodeInput.vue';
 import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import StockRiskCard from '../components/v2/StockRiskCard.vue';
