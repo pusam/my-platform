@@ -584,11 +584,37 @@ public class StockPriceService {
      */
     public List<StockPriceDto> searchStocks(String keyword) {
         List<StockPriceDto> results = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
 
+        // 1순위: stock_master DB — 빠르고, 항상 작동, 코드/이름 모두 매치
+        try {
+            for (com.myplatform.backend.entity.StockMaster m :
+                    stockMasterService.search(keyword, 20)) {
+                if (!seen.add(m.getStockCode())) continue;
+                StockPriceDto dto = new StockPriceDto();
+                dto.setStockCode(m.getStockCode());
+                dto.setStockName(m.getStockName());
+                dto.setCurrentPrice(BigDecimal.ZERO);
+                dto.setChangeRate(BigDecimal.ZERO);
+                dto.setFetchedAt(LocalDateTime.now());
+                fillCachedPrice(dto);
+                results.add(dto);
+                if (results.size() >= 20) break;
+            }
+        } catch (Exception e) {
+            log.warn("stock_master 검색 실패: {}", e.getMessage());
+        }
+
+        // DB 결과가 충분하면 네이버 호출 생략 (응답 속도 + 차단 위험 감소)
+        if (results.size() >= 5) {
+            return results;
+        }
+
+        // 2순위: 네이버 (신규 상장 등 마스터에 아직 없는 케이스)
         try {
             String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
             String url = String.format(NAVER_SEARCH_API, encodedKeyword);
-            log.info("종목 검색: {} - URL: {}", keyword, url);
+            log.info("종목 검색 보강(Naver): {} - URL: {}", keyword, url);
 
             HttpHeaders headers = createNaverHeaders();
             HttpEntity<String> entity = new HttpEntity<>(headers);
@@ -623,6 +649,7 @@ public class StockPriceService {
 
                         // 한국 주식만 필터링 (6자리 종목코드)
                         if (stockCode != null && stockCode.matches("[0-9A-Z]{6}")) {
+                            if (!seen.add(stockCode)) continue; // stock_master 결과와 중복 제거
                             StockPriceDto dto = new StockPriceDto();
                             dto.setStockCode(stockCode);
                             dto.setStockName(stockName);
@@ -630,26 +657,12 @@ public class StockPriceService {
                             dto.setChangeRate(BigDecimal.ZERO);
                             dto.setFetchedAt(LocalDateTime.now());
 
+                            // 신규 상장 → 마스터에 자동 적재
+                            stockMasterService.cacheName(stockCode, stockName, "NAVER");
+
                             // 검색 결과 현재가는 DB / 메모리 캐시만 사용 — KIS 호출 금지.
-                            // (사용자가 해당 종목을 선택해 상세로 진입할 때 정확한 가격 조회됨.
-                            //  검색 응답에 가격을 함께 주기 위해 매번 KIS 를 때릴 이유 없음)
                             if (results.size() < 10) {
-                                StockPriceDto cached = priceCache.get(stockCode);
-                                int cacheMinutes = kisService.isConfigured() ? 15 : 60;
-                                if (cached == null || !isValidCache(cached, cacheMinutes)) {
-                                    Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode);
-                                    if (dbPrice.isPresent()) {
-                                        StockPriceDto dbDto = entityToDto(dbPrice.get());
-                                        if (isValidCache(dbDto, cacheMinutes)) {
-                                            cached = dbDto;
-                                        }
-                                    }
-                                }
-                                if (cached != null) {
-                                    dto.setCurrentPrice(cached.getCurrentPrice());
-                                    dto.setChangeRate(cached.getChangeRate());
-                                    dto.setDataSource(cached.getDataSource());
-                                }
+                                fillCachedPrice(dto);
                             }
 
                             results.add(dto);
@@ -668,6 +681,29 @@ public class StockPriceService {
         }
 
         return results;
+    }
+
+    /**
+     * 검색 결과 항목에 캐시(메모리/DB)된 가격을 채워넣음. KIS 호출 안 함.
+     */
+    private void fillCachedPrice(StockPriceDto dto) {
+        String stockCode = dto.getStockCode();
+        StockPriceDto cached = priceCache.get(stockCode);
+        int cacheMinutes = kisService.isConfigured() ? 15 : 60;
+        if (cached == null || !isValidCache(cached, cacheMinutes)) {
+            Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode);
+            if (dbPrice.isPresent()) {
+                StockPriceDto dbDto = entityToDto(dbPrice.get());
+                if (isValidCache(dbDto, cacheMinutes)) {
+                    cached = dbDto;
+                }
+            }
+        }
+        if (cached != null) {
+            dto.setCurrentPrice(cached.getCurrentPrice());
+            dto.setChangeRate(cached.getChangeRate());
+            dto.setDataSource(cached.getDataSource());
+        }
     }
 
     /**

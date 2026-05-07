@@ -16,6 +16,31 @@ public interface StockMasterRepository extends JpaRepository<StockMaster, String
 
     List<StockMaster> findByIsActive(Boolean isActive);
 
+    /**
+     * 종목명/코드로 검색 — 자동완성용.
+     * 우선순위:
+     *   1) 종목코드 prefix 매치 (정확)
+     *   2) 종목명 prefix 매치 (정확)
+     *   3) 종목명 부분 매치 (퍼지)
+     * 활성 종목만, 종목명 길이 짧은 순 (관련도 우선).
+     */
+    @Query(value = """
+        SELECT * FROM stock_master
+        WHERE is_active = 1
+          AND (stock_code LIKE CONCAT(:kw, '%')
+               OR stock_name LIKE CONCAT(:kw, '%')
+               OR stock_name LIKE CONCAT('%', :kw, '%'))
+        ORDER BY
+          CASE
+            WHEN stock_code LIKE CONCAT(:kw, '%') THEN 0
+            WHEN stock_name LIKE CONCAT(:kw, '%') THEN 1
+            ELSE 2
+          END,
+          CHAR_LENGTH(stock_name) ASC
+        LIMIT :limit
+        """, nativeQuery = true)
+    List<StockMaster> search(@Param("kw") String keyword, @Param("limit") int limit);
+
     @Modifying
     @Query(value = """
         INSERT INTO stock_master (stock_code, stock_name, market, sector, listed_date, is_active, source, updated_at)

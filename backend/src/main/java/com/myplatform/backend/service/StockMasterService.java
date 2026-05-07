@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -112,5 +113,11 @@ public class StockMasterService {
 
     public Optional<StockMaster> findByCode(String stockCode) {
         return repository.findById(stockCode);
+    }
+
+    /** 자동완성 검색 — 종목명 또는 종목코드. */
+    public List<StockMaster> search(String keyword, int limit) {
+        if (keyword == null || keyword.isBlank()) return List.of();
+        return repository.search(keyword.trim(), limit);
     }
 }

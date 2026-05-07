@@ -171,11 +171,10 @@
         </div>
 
         <div class="vwap-search">
-          <input
+          <StockCodeInput
             v-model="vwapStockCode"
-            placeholder="종목코드 입력 (예: 005930)"
-            @keyup.enter="loadVwap"
-            class="stock-input"
+            placeholder="종목명 또는 종목코드 (예: 삼성전자, 005930)"
+            @enter="loadVwap"
           />
           <button @click="loadVwap" class="search-btn" :disabled="loading.vwap || !vwapStockCode">
             {{ loading.vwap ? '분석 중...' : 'VWAP 분석' }}
@@ -271,10 +270,10 @@
         </div>
 
         <div class="divergence-search">
-          <input
+          <StockCodeInput
             v-model="divergenceStockCode"
-            placeholder="종목코드 입력 (예: 005930)"
-            class="stock-input"
+            placeholder="종목명 또는 종목코드 (예: 삼성전자, 005930)"
+            @enter="loadDivergence"
           />
           <select v-model="divergenceLookback" class="lookback-select">
             <option :value="20">20일</option>
@@ -373,11 +372,10 @@
         </div>
 
         <div class="comprehensive-search">
-          <input
+          <StockCodeInput
             v-model="comprehensiveStockCode"
-            placeholder="종목코드 입력 (예: 005930)"
-            @keyup.enter="loadComprehensive"
-            class="stock-input"
+            placeholder="종목명 또는 종목코드 (예: 삼성전자, 005930)"
+            @enter="loadComprehensive"
           />
           <button @click="loadComprehensive" class="search-btn" :disabled="loading.comprehensive || !comprehensiveStockCode">
             {{ loading.comprehensive ? '분석 중...' : '종합 분석' }}
@@ -401,10 +399,11 @@
 <script>
 import { tradingIndicatorAPI } from '../utils/api'
 import BackButton from '../components/BackButton.vue'
+import StockCodeInput from '../components/StockCodeInput.vue'
 
 export default {
   name: 'TradingIndicatorsPage',
-  components: { BackButton },
+  components: { BackButton, StockCodeInput },
   props: {
     embedded: {
       type: Boolean,
