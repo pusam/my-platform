@@ -95,21 +95,25 @@ public class KrxStockMasterSeeder {
     }
 
     private int seedMarket(String marketType, String marketLabel) {
-        String html;
+        // KRX corpList 응답은 charset 헤더가 일관적이지 않아 한글이 깨질 수 있음 → byte 받아 EUC-KR 디코드.
+        // EUC-KR 로 깨진 문자가 보이면 UTF-8 폴백.
+        byte[] bytes;
         try {
-            html = krxWebClient.get()
+            bytes = krxWebClient.get()
                     .uri(KRX_URL + marketType)
                     .retrieve()
-                    .bodyToMono(String.class)
+                    .bodyToMono(byte[].class)
                     .block(Duration.ofSeconds(30));
         } catch (Exception e) {
             log.warn("KRX {} 다운로드 실패: {}", marketLabel, e.getMessage());
             return 0;
         }
-        if (html == null || html.isEmpty()) {
+        if (bytes == null || bytes.length == 0) {
             log.warn("KRX {} 응답이 비어있음", marketLabel);
             return 0;
         }
+        // EUC-KR / UTF-8 둘 다 디코드해서 깨진 char 가 적은 쪽 채택 (KRX 가 charset 정책을 바꿔도 안전).
+        String html = pickBetterDecode(bytes);
 
         Document doc = Jsoup.parse(html);
         Elements rows = doc.select("table tr");
@@ -157,6 +161,20 @@ public class KrxStockMasterSeeder {
         }
         log.info("KRX {} 시드: {} 종목", marketLabel, upserted);
         return upserted;
+    }
+
+    private static String pickBetterDecode(byte[] bytes) {
+        String euc = new String(bytes, java.nio.charset.Charset.forName("EUC-KR"));
+        String utf = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        return countReplacementChars(euc) <= countReplacementChars(utf) ? euc : utf;
+    }
+
+    private static int countReplacementChars(String s) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) {
+            if (s.charAt(i) == '�') n++;
+        }
+        return n;
     }
 
     /** KRX는 종목코드를 정수형으로 떨굴 때가 있어서 6자리 zero-pad. */

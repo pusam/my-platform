@@ -6,7 +6,7 @@
       :value="displayValue"
       :placeholder="placeholder"
       @input="onInput"
-      @focus="onFocus"
+      @focus="onFocus($event)"
       @blur="onBlur"
       @keydown.down.prevent="moveCursor(1)"
       @keydown.up.prevent="moveCursor(-1)"
@@ -53,7 +53,10 @@ export default {
       open: false,
       loading: false,
       cursor: -1,
-      debounceTimer: null
+      debounceTimer: null,
+      // 우리가 emit 한 값을 watch 에서 echo 로 무시하기 위한 가드.
+      // 이게 없으면 onInput 의 emit('') → watch → keyword='' 로 사용자 입력이 지워짐.
+      lastEmitted: null
     }
   },
   computed: {
@@ -67,10 +70,14 @@ export default {
     modelValue: {
       immediate: true,
       handler(val) {
-        // 외부에서 값이 바뀌면(초기 마운트 등) 종목명 lookup
-        if (val && val !== this.lastResolvedCode) {
+        // 우리가 방금 emit 한 값이 prop 으로 돌아온 경우 → 무시 (echo).
+        // 그렇지 않으면 onInput 직후의 emit('') 가 watch 를 발동시켜
+        // 사용자가 입력 중인 keyword 를 지워버림.
+        if (val === this.lastEmitted) return
+        this.lastEmitted = val
+        if (val) {
           this.resolveNameForCode(val)
-        } else if (!val) {
+        } else {
           this.selectedName = ''
           this.keyword = ''
         }
@@ -82,13 +89,22 @@ export default {
       const v = e.target.value
       this.keyword = v
       this.selectedName = '' // 새로 입력하면 이전 선택 무효화
-      this.$emit('update:modelValue', '') // 확정 전엔 빈값 (부모가 빈 값일 때 버튼 disable 처리되도록)
+      // 확정 전엔 빈값 (부모가 빈 값일 때 버튼 disable 처리되도록).
+      // emit 전에 lastEmitted 를 먼저 세팅 → watch 가 이걸 echo 로 인식하고 무시.
+      if (this.modelValue !== '') {
+        this.lastEmitted = ''
+        this.$emit('update:modelValue', '')
+      }
       this.cursor = -1
       this.open = true
       this.scheduleSearch()
     },
-    onFocus() {
+    onFocus(e) {
       if (this.results.length > 0) this.open = true
+      // 선택된 종목이 표시 중이면 텍스트 전체 선택 → 사용자가 한 글자 치면 즉시 대체됨
+      if (this.selectedName) {
+        this.$nextTick(() => e.target?.select?.())
+      }
     },
     onBlur() {
       // mousedown.prevent 가 select/clear 처리하므로 여기는 짧은 지연 후 닫기만
@@ -144,7 +160,7 @@ export default {
     select(stock) {
       this.selectedName = stock.stockName
       this.keyword = ''
-      this.lastResolvedCode = stock.stockCode
+      this.lastEmitted = stock.stockCode
       this.$emit('update:modelValue', stock.stockCode)
       this.$emit('select', stock)
       this.open = false
@@ -154,14 +170,13 @@ export default {
     clear() {
       this.keyword = ''
       this.selectedName = ''
-      this.lastResolvedCode = ''
+      this.lastEmitted = ''
       this.$emit('update:modelValue', '')
       this.results = []
       this.$nextTick(() => this.$refs.inputRef?.focus())
     },
     async resolveNameForCode(code) {
-      // 외부에서 코드만 들어왔을 때 종목명 매핑 — 그냥 그대로 두지만 검색해서 찾으면 표시 보강
-      this.lastResolvedCode = code
+      // 외부에서 코드만 들어왔을 때 종목명 매핑 — 검색해서 찾으면 표시 보강
       try {
         const res = await stockAPI.searchStocks(code)
         if (res.data?.success) {

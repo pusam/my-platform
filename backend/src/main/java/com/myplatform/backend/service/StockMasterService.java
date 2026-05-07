@@ -115,9 +115,14 @@ public class StockMasterService {
         return repository.findById(stockCode);
     }
 
-    /** 자동완성 검색 — 종목명 또는 종목코드. */
+    /** 자동완성 검색 — 종목명 또는 종목코드.
+     *  사용자 입력에 LIKE 와일드카드(%, _) 가 들어오면 의도치 않은 매치가 되므로 escape. */
     public List<StockMaster> search(String keyword, int limit) {
         if (keyword == null || keyword.isBlank()) return List.of();
-        return repository.search(keyword.trim(), limit);
+        String escaped = keyword.trim()
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+        return repository.search(escaped, limit);
     }
 }
