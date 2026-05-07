@@ -1163,22 +1163,27 @@ public class AutoTradingBotService {
                     log.warn("[스캘핑봇] 매수 직전 봇 비활성화 또는 모드 전환 감지 — 중단");
                     return;
                 }
+                // ★ 메모리 포지션 선등록 (KIS 호출 전) — 동시 진입 race 방지 ★
+                // buy() 가 KIS API 라 응답까지 ~수백 ms. 그 사이 다른 사이클이 같은 종목
+                // 진입 평가 시 putIfAbsent 가 prev != null 반환 → 즉시 skip 되어
+                // 같은 종목 2번 주문 발사 차단.
+                ScalpingPosition newPos = new ScalpingPosition(surge.getStockCode(), surge.getStockName(),
+                        entryResult.currentPrice, quantity);
+                ScalpingPosition prev = scalpingPositions.putIfAbsent(surge.getStockCode(), newPos);
+                if (prev != null) {
+                    log.warn("[스캘핑봇] 동시 진입 race 감지 - 종목: {} (기존 매수가 {}원), 신규 진입 skip",
+                            surge.getStockName(), prev.buyPrice);
+                    continue;
+                }
+
+                boolean buyOk = false;
                 try {
                     activeTradeService.buy(surge.getStockCode(), surge.getStockName(),
                             entryResult.currentPrice, quantity, "SCALPING_ENTRY");
+                    buyOk = true;
                     lastTradeTime = LocalDateTime.now();
                     todayBuyCount.incrementAndGet();
 
-                    // 스캘핑 포지션 등록 — putIfAbsent 로 동일 종목 동시 진입 race 방지.
-                    // 이미 있으면 다른 스레드/사이클이 먼저 put 한 것 → 새로 만든 건 버림.
-                    ScalpingPosition newPos = new ScalpingPosition(surge.getStockCode(), surge.getStockName(),
-                            entryResult.currentPrice, quantity);
-                    ScalpingPosition prev = scalpingPositions.putIfAbsent(surge.getStockCode(), newPos);
-                    if (prev != null) {
-                        log.warn("[스캘핑봇] 동시 진입 race 감지 - 종목: {} (기존 매수가 {}원), 신규 등록 skip",
-                                surge.getStockName(), prev.buyPrice);
-                        continue;
-                    }
                     try {
                         persistScalpingPosition(newPos);
                     } catch (Exception persistEx) {
@@ -1212,6 +1217,12 @@ public class AutoTradingBotService {
 
                 } catch (Exception e) {
                     log.error("[스캘핑봇] 매수 실패: {} - {}", surge.getStockName(), e.getMessage());
+                } finally {
+                    // 매수 실패 시 메모리 등록 롤백 — 안 그러면 가짜 포지션이 매도 로직에서
+                    // 매도 시도되어 KIS 에서 "보유 없음" 에러 반복
+                    if (!buyOk) {
+                        scalpingPositions.remove(surge.getStockCode());
+                    }
                 }
             }
 
@@ -1894,6 +1905,10 @@ public class AutoTradingBotService {
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
 
+        // 일일 손실률 평가 — 스캘핑 손실로 -3% 도달 시 스윙 신규 진입도 막아야 함.
+        // (이 호출은 KIS 자산 조회 1회 비용. 스윙 매수는 14:00 1회 발사라 부담 없음)
+        if (checkKillSwitch()) return;
+
         // 모드/서비스 스냅샷 — 진행 중 모드 전환되어도 시작 시점 service 로 일관 동작
         final TradingMode runMode = currentMode;
         final TradeService runTrader = activeTradeService;
@@ -1981,16 +1996,24 @@ public class AutoTradingBotService {
                     log.warn("[스윙봇] 매수 직전 봇 비활성화 또는 모드 전환 감지 — 중단");
                     return;
                 }
-                try {
-                    String investorLabel = candidate.getInvestorType().equals("FOREIGN") ? "외국인" : "기관";
-                    String reason = "SWING_" + candidate.getInvestorType();
+                String investorLabel = candidate.getInvestorType().equals("FOREIGN") ? "외국인" : "기관";
+                String reason = "SWING_" + candidate.getInvestorType();
 
+                // ★ 메모리 포지션 선등록 — KIS 호출 전. 동시 진입 race 차단 ★
+                SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
+                        currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속");
+                SwingPosition prevSwing = swingPositions.putIfAbsent(candidate.getStockCode(), newSwing);
+                if (prevSwing != null) {
+                    log.warn("[스윙봇] 동시 진입 race - {} 이미 보유, skip", candidate.getStockName());
+                    continue;
+                }
+
+                boolean swingBuyOk = false;
+                try {
                     runTrader.buy(candidate.getStockCode(), candidate.getStockName(),
                             currentPrice, quantity, reason);
+                    swingBuyOk = true;
 
-                    SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
-                            currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속");
-                    swingPositions.put(candidate.getStockCode(), newSwing);
                     try {
                         persistSwingPosition(newSwing, Strategy.SWING);
                     } catch (Exception persistEx) {
@@ -2020,6 +2043,11 @@ public class AutoTradingBotService {
                     Thread.sleep(BUY_DELAY_VIRTUAL_MS);
                 } catch (Exception e) {
                     log.error("[스윙봇] 매수 실패: {} - {}", candidate.getStockName(), e.getMessage());
+                } finally {
+                    // 매수 실패 시 메모리 등록 롤백 (스캘핑과 동일 패턴)
+                    if (!swingBuyOk) {
+                        swingPositions.remove(candidate.getStockCode());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -2206,6 +2234,8 @@ public class AutoTradingBotService {
     public void executeClosingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
+        // 일일 손실률 평가 — 스윙과 동일하게 -3% 한도 검출 위해
+        if (checkKillSwitch()) return;
 
         if (closingPositions.size() >= CLOSING_MAX_HOLDING) {
             log.debug("[종가매수] 최대 보유 {}종목 도달 — 스킵", CLOSING_MAX_HOLDING);
