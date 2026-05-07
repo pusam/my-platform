@@ -83,7 +83,7 @@
                 </div>
                 <!-- 세부 항목별 점수 바 -->
                 <div class="rec-detail-bars">
-                  <div v-for="item in getScoreBreakdown(rec)" :key="item.key" class="rec-detail-row">
+                  <div v-for="item in getScoreBreakdown(rec)" :key="item.key" class="rec-detail-row" :title="item.tooltip || ''">
                     <span class="rec-detail-label">{{ item.label }}</span>
                     <template v-if="item.isNA">
                       <div class="rec-detail-track na"><div class="rec-detail-na-line"></div></div>
@@ -821,12 +821,13 @@ export default {
     },
     getScoreBreakdown(rec) {
       // 5카테고리 (AI전략은 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용)
+      // '저평가' 는 PBR·ROE 기반 가치주 컷 — 성장주(삼전·하닉 등)는 0점이 정상이라 라벨/툴팁 명확화.
       const items = [
         { key: 'earn', label: '실적', raw: rec.earnings, color: '#22c55e' },
         { key: 'supply', label: '수급', raw: rec.supplyDemand, color: '#3b82f6' },
         { key: 'tech', label: '기술적', raw: rec.technical, color: '#f59e0b' },
         { key: 'sector', label: '섹터', raw: rec.sectorMomentum, color: '#ef4444' },
-        { key: 'value', label: '가치', raw: rec.valueStability, color: '#06b6d4' },
+        { key: 'value', label: '저평가', tooltip: 'PBR·ROE 기반 가치주 점수 (저PBR/저평가 우량주 부각). PBR>2 성장주는 0점이 정상.', raw: rec.valueStability, color: '#06b6d4' },
       ]
       return items.map(item => ({
         ...item,
