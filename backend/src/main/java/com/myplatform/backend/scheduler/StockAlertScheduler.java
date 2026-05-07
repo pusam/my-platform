@@ -2,6 +2,7 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.CompositeAlertService;
 import com.myplatform.backend.service.EarningSurpriseService;
+import com.myplatform.backend.service.MarketCalendarService;
 import com.myplatform.backend.service.MarketTimingService;
 import com.myplatform.backend.service.MorningBriefingService;
 import com.myplatform.backend.service.QuantScreenerService;
@@ -47,6 +48,7 @@ public class StockAlertScheduler {
     private final ShortSellingService shortSellingService;
     private final WatchlistService watchlistService;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendar;
 
     @Value("${alert.scheduler.enabled:false}")
     private boolean schedulerEnabled;
@@ -59,6 +61,7 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
     public void morningBriefing() {
         if (!schedulerEnabled) return;
+        if (marketCalendar.isMarketClosed()) { log.debug("[모닝브리핑] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.morning-briefing", Duration.ofMinutes(15))) {
             log.debug("모닝 브리핑 다른 인스턴스에서 발송 중 — 스킵");
             return;
@@ -81,6 +84,7 @@ public class StockAlertScheduler {
             log.debug("스케줄러 비활성화 상태");
             return;
         }
+        if (marketCalendar.isMarketClosed()) { log.debug("[장마감알림] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.after-close", Duration.ofMinutes(15))) {
             log.debug("장 마감 후 알림 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -110,6 +114,7 @@ public class StockAlertScheduler {
             log.debug("스케줄러 비활성화 상태");
             return;
         }
+        if (marketCalendar.isMarketClosed()) { log.debug("[아침알림] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.morning", Duration.ofMinutes(15))) {
             log.debug("아침 알림 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -141,6 +146,7 @@ public class StockAlertScheduler {
             log.debug("스케줄러 비활성화 상태");
             return;
         }
+        if (marketCalendar.isMarketClosed()) { log.debug("[관심종목알림] 휴장일 — 스킵"); return; }
         // 5분 cron — TTL 4분 이면 다음 cron 까지 락 풀림
         if (!schedulerLockService.tryLock("alert.watchlist", Duration.ofMinutes(4))) {
             log.debug("관심종목 알림 다른 인스턴스에서 진행 중 — 스킵");
@@ -162,6 +168,7 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkCompositeAlerts() {
         if (!schedulerEnabled) return;
+        if (marketCalendar.isMarketClosed()) { log.debug("[복합알림] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.composite", Duration.ofMinutes(8))) {
             log.debug("복합 조건 알림 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -181,6 +188,7 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 0 8 * * MON", zone = "Asia/Seoul")
     public void checkEarningSurprises() {
         if (!schedulerEnabled) return;
+        if (marketCalendar.isMarketClosed()) { log.debug("[어닝서프라이즈] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.earning-surprise", Duration.ofMinutes(30))) {
             log.debug("어닝 서프라이즈 알림 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -201,6 +209,7 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
     public void collectShortSellingBalance() {
         if (!schedulerEnabled) return;
+        if (marketCalendar.isMarketClosed()) { log.debug("[공매도수집] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.short-collect", Duration.ofMinutes(20))) {
             log.debug("공매도 잔고 수집 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -221,6 +230,7 @@ public class StockAlertScheduler {
     @Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkShortSellingAlert() {
         if (!schedulerEnabled) return;
+        if (marketCalendar.isMarketClosed()) { log.debug("[공매도경보] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.short-notify", Duration.ofMinutes(15))) {
             log.debug("공매도 경보 발송 다른 인스턴스에서 진행 중 — 스킵");
             return;

@@ -2,6 +2,7 @@ package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.service.AsyncCrawlerService;
+import com.myplatform.backend.service.MarketCalendarService;
 import com.myplatform.backend.service.SchedulerLockService;
 import com.myplatform.backend.service.StockFinancialDataService;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,7 @@ public class FinancialDataScheduler {
     private final AsyncCrawlerService asyncCrawlerService;
     private final com.myplatform.backend.service.BatchJobMonitorService batchMonitor;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendar;
 
     /**
      * 매일 08:30 자동 수집 (장 시작 전)
@@ -50,6 +52,10 @@ public class FinancialDataScheduler {
      */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
+        if (marketCalendar.isMarketClosed()) {
+            log.info("[배치] 08:30 휴장일 — 재무데이터 수집 스킵");
+            return;
+        }
         // 비동기 작업 trigger 라 lock TTL 짧게 잡고 빠르게 빠짐 — 다음 cron 까지 충분
         if (!schedulerLockService.tryLock("financial-data.morning", Duration.ofMinutes(5))) {
             log.debug("[배치] 08:30 다른 인스턴스에서 비동기 수집 트리거 — 스킵");
@@ -70,6 +76,10 @@ public class FinancialDataScheduler {
      */
     @Scheduled(cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
+        if (marketCalendar.isMarketClosed()) {
+            log.info("[배치] 15:38 휴장일 — 재무데이터 수집 스킵");
+            return;
+        }
         if (!schedulerLockService.tryLock("financial-data.afternoon", Duration.ofMinutes(5))) {
             log.debug("[배치] 15:38 다른 인스턴스에서 비동기 수집 트리거 — 스킵");
             return;

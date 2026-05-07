@@ -244,7 +244,7 @@ public class RecommendationService {
      * - 추천 종목이 -3%/-5% 도달 시 → 손절/진입 재검토 신호
      * - 종목별로 임계점별 일 1회만 발송 (재발송 방지)
      */
-    @Scheduled(cron = "0 0/5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0/5 9-19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkRecommendationPriceTargets() {
         java.time.LocalDate today = java.time.LocalDate.now();
         if (!today.equals(priceAlertedDate)) {
@@ -905,8 +905,10 @@ public class RecommendationService {
                     continue;
                 }
 
+                // ⚠ TechnicalIndicatorService 는 "index 0이 최신" (tradeDate DESC) 가정.
+                // ASC 로 넘기면 MA/RSI/골든크로스 가 가장 오래된 N일치로 계산되는 critical 버그.
                 List<BigDecimal> prices = history.stream()
-                        .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
+                        .sorted(Comparator.comparing(StockPriceHistory::getTradeDate).reversed())
                         .map(StockPriceHistory::getClosePrice)
                         .filter(Objects::nonNull)
                         .collect(Collectors.toList());
@@ -965,11 +967,11 @@ public class RecommendationService {
     private void applyRealtimeChecks(Map<String, StockScore> scoreMap) {
         int ma20Penalty = 0, divergencePenalty = 0, tagFixed = 0;
 
-        // 상위 후보만 선별 (전체 종목 시세 조회 시 타임아웃 방지)
+        // 상위 후보 — TOP10 노출 + 후보군 11~20위까지 검증해 다음 회차 승격 시 정확도 ↑
         List<StockScore> topCandidates = scoreMap.values().stream()
                 .filter(s -> countValidCategories(s) >= 4)
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
-                .limit(10)
+                .limit(20)
                 .collect(Collectors.toList());
 
         if (topCandidates.isEmpty()) return;
@@ -1032,7 +1034,11 @@ public class RecommendationService {
                         }
 
                         // 2. 기술지표 재검증 — 골든크로스/정배열 태그가 실제와 맞는지 확인
-                        TechnicalIndicatorsDto freshIndicators = technicalIndicatorService.calculate(prices);
+                        // ⚠ TechnicalIndicatorService 는 "index 0이 최신" (DESC) 가정. 위 prices 는 ASC 라
+                        //   reverse 새 리스트로 넘겨야 골든크로스/RSI/MA가 가장 최근 N일 기준으로 계산됨.
+                        List<BigDecimal> pricesDesc = new ArrayList<>(prices);
+                        java.util.Collections.reverse(pricesDesc);
+                        TechnicalIndicatorsDto freshIndicators = technicalIndicatorService.calculate(pricesDesc);
                         if (freshIndicators != null) {
                             boolean gcNow = Boolean.TRUE.equals(freshIndicators.getIsGoldenCross());
                             boolean auNow = Boolean.TRUE.equals(freshIndicators.getIsArrangedUp());
@@ -1135,16 +1141,18 @@ public class RecommendationService {
         return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
-    /** 유효 항목 수별 상한 (5카테고리 기준): 5개=100, 4개=88, 3개=72, 2개=55, 1개=35 */
+    /** 유효 항목 수별 상한 (5카테고리 기준): 5개=100, 4개=92, 3개=78, 2개=58, 1개=35
+     *  4개 cap 88→92: 4 카테고리 다 만점인 종목이 "강력매수(75+)"는 충분히 받되 "특A(95+)"는 5개 다
+     *  완전한 종목에만 부여하도록 layered 차이 유지. */
     private static int normalizeScore(int raw, int validCount) {
         if (validCount >= 5) return Math.min(100, raw);  // 5카테고리 × 20점 = 100점 만점
         if (validCount <= 0) return 0;
         // raw는 valid * 20점 만점 → 100점 만점으로 환산 후 cap
         int scaled = raw * 100 / (validCount * 20);
         int cap = switch (validCount) {
-            case 4 -> 88;
-            case 3 -> 72;
-            case 2 -> 55;
+            case 4 -> 92;
+            case 3 -> 78;
+            case 2 -> 58;
             default -> 35;
         };
         return Math.min(cap, scaled);

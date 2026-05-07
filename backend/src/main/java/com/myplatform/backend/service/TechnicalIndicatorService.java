@@ -208,36 +208,45 @@ public class TechnicalIndicatorService {
             return null;
         }
 
+        // Wilder's smoothing — TA-Lib / TradingView / 야후 표준 RSI.
+        // 기존 단순 산술평균은 너무 민감해 거짓 oversold/overbought 자주 발생 → 표준화.
+        // prices 는 "index 0이 최신" (DESC) 가정. 시간 순방향(오래된→최신) 으로 reverse 해서 처리.
+        List<BigDecimal> chrono = new java.util.ArrayList<>(prices);
+        java.util.Collections.reverse(chrono);
+        int n = chrono.size();
+
+        // 1. 시드 — 가장 오래된 period 일치 변화량 SMA
         BigDecimal totalGain = BigDecimal.ZERO;
         BigDecimal totalLoss = BigDecimal.ZERO;
-        int validChanges = 0;
-
-        // 가격 변화량 계산 (최신 데이터부터)
-        for (int i = 0; i < period && i < prices.size() - 1; i++) {
-            BigDecimal current = prices.get(i);
-            BigDecimal previous = prices.get(i + 1);
-
-            if (current == null || previous == null ||
-                previous.compareTo(BigDecimal.ZERO) == 0) {
-                continue;
-            }
-
-            BigDecimal change = current.subtract(previous);
-            validChanges++;
-
-            if (change.compareTo(BigDecimal.ZERO) > 0) {
-                totalGain = totalGain.add(change);
-            } else {
-                totalLoss = totalLoss.add(change.abs());
-            }
+        int validSeed = 0;
+        for (int i = 1; i <= period && i < n; i++) {
+            BigDecimal cur = chrono.get(i);
+            BigDecimal prev = chrono.get(i - 1);
+            if (cur == null || prev == null || prev.compareTo(BigDecimal.ZERO) == 0) continue;
+            BigDecimal change = cur.subtract(prev);
+            if (change.signum() > 0) totalGain = totalGain.add(change);
+            else totalLoss = totalLoss.add(change.abs());
+            validSeed++;
         }
+        if (validSeed == 0) return null;
 
-        if (validChanges == 0) {
-            return null;
+        BigDecimal periodBd = BigDecimal.valueOf(period);
+        BigDecimal periodMinus1 = BigDecimal.valueOf(period - 1);
+        BigDecimal avgGain = totalGain.divide(periodBd, SCALE, RoundingMode.HALF_UP);
+        BigDecimal avgLoss = totalLoss.divide(periodBd, SCALE, RoundingMode.HALF_UP);
+
+        // 2. Wilder's smoothing — period+1 일째 변화량부터 끝까지 누적.
+        //    avgGain[t] = (avgGain[t-1] * (period-1) + currentGain) / period
+        for (int i = period + 1; i < n; i++) {
+            BigDecimal cur = chrono.get(i);
+            BigDecimal prev = chrono.get(i - 1);
+            if (cur == null || prev == null || prev.compareTo(BigDecimal.ZERO) == 0) continue;
+            BigDecimal change = cur.subtract(prev);
+            BigDecimal gain = change.signum() > 0 ? change : BigDecimal.ZERO;
+            BigDecimal loss = change.signum() < 0 ? change.abs() : BigDecimal.ZERO;
+            avgGain = avgGain.multiply(periodMinus1).add(gain).divide(periodBd, SCALE, RoundingMode.HALF_UP);
+            avgLoss = avgLoss.multiply(periodMinus1).add(loss).divide(periodBd, SCALE, RoundingMode.HALF_UP);
         }
-
-        BigDecimal avgGain = totalGain.divide(BigDecimal.valueOf(validChanges), SCALE, RoundingMode.HALF_UP);
-        BigDecimal avgLoss = totalLoss.divide(BigDecimal.valueOf(validChanges), SCALE, RoundingMode.HALF_UP);
 
         // 하락이 전혀 없는 경우 RSI = 100
         if (avgLoss.compareTo(BigDecimal.ZERO) == 0) {

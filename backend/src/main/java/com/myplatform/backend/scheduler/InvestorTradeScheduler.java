@@ -3,6 +3,7 @@ package com.myplatform.backend.scheduler;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.service.InvestorTradeService;
 import com.myplatform.backend.service.KoreaInvestmentService;
+import com.myplatform.backend.service.MarketCalendarService;
 import com.myplatform.backend.service.SchedulerLockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,6 +39,7 @@ public class InvestorTradeScheduler {
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendar;
 
     /**
      * 매일 15:50 자동 수집 (장 마감 직후)
@@ -45,6 +47,7 @@ public class InvestorTradeScheduler {
      */
     @Scheduled(cron = "0 50 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfterMarketClose() {
+        if (marketCalendar.isMarketClosed()) { log.info("[배치] 15:50 휴장일 — 수집 스킵"); return; }
         if (!schedulerLockService.tryLock("investor-trade.after-close", Duration.ofMinutes(30))) {
             log.debug("[배치] 15:50 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -67,6 +70,8 @@ public class InvestorTradeScheduler {
      */
     @Scheduled(cron = "0 0 18 * * MON-FRI", zone = "Asia/Seoul")
     public void collectEvening() {
+        if (marketCalendar.isMarketClosed()) { log.info("[배치] 18:00 휴장일 — 보완 수집 스킵"); return; }
+
         LocalDate today = LocalDate.now();
 
         // 오늘 데이터가 있는지 확인
@@ -105,10 +110,9 @@ public class InvestorTradeScheduler {
 
             LocalDate today = LocalDate.now();
 
-            // 주말이면 스킵
-            int dayOfWeek = today.getDayOfWeek().getValue();
-            if (dayOfWeek >= 6) {
-                log.info("[시작시 수집] 주말이므로 투자자 데이터 수집 스킵");
+            // 휴장일(주말 + 고정 공휴일) 스킵
+            if (marketCalendar.isMarketClosed(today)) {
+                log.info("[시작시 수집] 휴장일이므로 투자자 데이터 수집 스킵");
                 return;
             }
 
