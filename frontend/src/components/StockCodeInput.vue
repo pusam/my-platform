@@ -17,8 +17,9 @@
     <span v-if="selectedName" class="selection-code">{{ modelValue }}</span>
     <button v-if="selectedName" type="button" class="clear-btn" @mousedown.prevent="clear">×</button>
 
-    <div v-if="open && (results.length > 0 || loading)" class="dropdown">
+    <div v-if="open && (loading || results.length > 0 || showEmpty)" class="dropdown">
       <div v-if="loading" class="dropdown-loading">검색 중...</div>
+      <div v-else-if="showEmpty" class="dropdown-empty">검색 결과가 없습니다</div>
       <div
         v-for="(s, idx) in results"
         :key="s.stockCode"
@@ -45,6 +46,9 @@ export default {
     placeholder: { type: String, default: '종목명 또는 종목코드' }
   },
   emits: ['update:modelValue', 'enter', 'select'],
+  beforeUnmount() {
+    if (this.debounceTimer) clearTimeout(this.debounceTimer)
+  },
   data() {
     return {
       keyword: '',
@@ -64,6 +68,10 @@ export default {
       // 선택된 종목이 있고, keyword 가 비어있으면 종목명을 표시
       if (this.selectedName && !this.keyword) return this.selectedName
       return this.keyword
+    },
+    showEmpty() {
+      // 검색 끝났는데 결과 0건 → "결과 없음" 표시
+      return !this.loading && this.keyword.trim().length >= 1 && this.results.length === 0
     }
   },
   watch: {
@@ -265,7 +273,8 @@ export default {
   z-index: 100;
 }
 
-.dropdown-loading {
+.dropdown-loading,
+.dropdown-empty {
   padding: 12px;
   text-align: center;
   color: rgba(255,255,255,0.4);

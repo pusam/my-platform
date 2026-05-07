@@ -14,7 +14,9 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.web.reactive.function.client.WebClient;
@@ -137,7 +139,8 @@ public class KrxStockMasterSeeder {
             return 0;
         }
 
-        int upserted = 0;
+        // 파싱 → 행 리스트 (네트워크 I/O 끝난 뒤 단일 tx 로 일괄 upsert)
+        List<StockMasterService.KrxRow> batch = new ArrayList<>(rows.size());
         for (int r = 1; r < rows.size(); r++) {
             Elements cells = rows.get(r).select("td");
             if (cells.size() <= Math.max(iName, iCode)) continue;
@@ -151,15 +154,12 @@ public class KrxStockMasterSeeder {
             LocalDate listed = parseDate(
                     (iListed != null && cells.size() > iListed) ? cells.get(iListed).text().trim() : null);
 
-            try {
-                stockMasterService.upsertFromKrx(code, name, marketLabel,
-                        emptyToNull(sector), listed);
-                upserted++;
-            } catch (Exception e) {
-                log.debug("upsert 실패 {} {}: {}", code, name, e.getMessage());
-            }
+            batch.add(new StockMasterService.KrxRow(code, name, marketLabel,
+                    emptyToNull(sector), listed));
         }
-        log.info("KRX {} 시드: {} 종목", marketLabel, upserted);
+
+        int upserted = stockMasterService.upsertBatchFromKrx(batch);
+        log.info("KRX {} 시드: {} 종목 (파싱 {})", marketLabel, upserted, batch.size());
         return upserted;
     }
 

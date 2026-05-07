@@ -101,7 +101,7 @@ public class StockMasterService {
         }
     }
 
-    /** KRX 시드용 — full row upsert. */
+    /** KRX 시드용 — full row upsert (단건). */
     @Transactional
     public void upsertFromKrx(String stockCode, String stockName, String market,
                               String sector, LocalDate listedDate) {
@@ -110,6 +110,29 @@ public class StockMasterService {
         nameCache.put(stockCode, stockName);
         if (market != null) marketCache.put(stockCode, market);
     }
+
+    /** KRX 시드용 — 다건 일괄. 단일 트랜잭션으로 묶어 commit fsync 비용 절감. */
+    @Transactional
+    public int upsertBatchFromKrx(List<KrxRow> rows) {
+        int n = 0;
+        for (KrxRow r : rows) {
+            if (r.stockCode() == null || r.stockName() == null) continue;
+            try {
+                repository.upsert(r.stockCode(), r.stockName(), r.market(),
+                        r.sector(), r.listedDate(), "KRX");
+                nameCache.put(r.stockCode(), r.stockName());
+                if (r.market() != null) marketCache.put(r.stockCode(), r.market());
+                n++;
+            } catch (Exception e) {
+                log.debug("KRX 행 upsert 실패 {}: {}", r.stockCode(), e.getMessage());
+            }
+        }
+        return n;
+    }
+
+    /** KRX 시드 row carrier. */
+    public static record KrxRow(String stockCode, String stockName, String market,
+                                String sector, LocalDate listedDate) {}
 
     public Optional<StockMaster> findByCode(String stockCode) {
         return repository.findById(stockCode);
