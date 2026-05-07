@@ -218,8 +218,9 @@ const handleLogin = async () => {
     const data = response.data
 
     if (data.success) {
-      // JWT 토큰 저장
+      // JWT 토큰 저장 (access + refresh)
       TokenManager.setToken(data.token)
+      TokenManager.setRefreshToken(data.refreshToken)
 
       // 사용자 정보 저장 (role 포함)
       UserManager.setUser({

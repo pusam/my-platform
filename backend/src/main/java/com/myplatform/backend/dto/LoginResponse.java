@@ -11,8 +11,11 @@ public class LoginResponse {
     @Schema(description = "응답 메시지", example = "로그인 성공")
     private String message;
 
-    @Schema(description = "JWT 토큰", example = "eyJhbGciOiJIUzUxMiJ9...")
+    @Schema(description = "JWT Access Token (15분 TTL)", example = "eyJhbGciOiJIUzUxMiJ9...")
     private String token;
+
+    @Schema(description = "JWT Refresh Token (7일 TTL) — /api/auth/refresh 호출용", example = "eyJhbGciOiJIUzUxMiJ9...")
+    private String refreshToken;
 
     @Schema(description = "사용자 아이디", example = "admin")
     private String username;
@@ -32,9 +35,15 @@ public class LoginResponse {
     }
 
     public LoginResponse(boolean success, String message, String token, String username, String name, String role) {
+        this(success, message, token, null, username, name, role);
+    }
+
+    public LoginResponse(boolean success, String message, String token, String refreshToken,
+                         String username, String name, String role) {
         this.success = success;
         this.message = message;
         this.token = token;
+        this.refreshToken = refreshToken;
         this.username = username;
         this.name = name;
         this.role = role;
@@ -62,6 +71,14 @@ public class LoginResponse {
 
     public void setToken(String token) {
         this.token = token;
+    }
+
+    public String getRefreshToken() {
+        return refreshToken;
+    }
+
+    public void setRefreshToken(String refreshToken) {
+        this.refreshToken = refreshToken;
     }
 
     public String getUsername() {

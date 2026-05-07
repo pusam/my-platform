@@ -13,12 +13,27 @@ import java.util.Date;
 
 public class JwtTokenProvider {
 
-    private final String jwtSecret;
-    private final long jwtExpiration;
+    /** JWT claim 이름 — 토큰 종류(ACCESS/REFRESH) 식별용. */
+    public static final String CLAIM_TOKEN_TYPE = "type";
+    public static final String TYPE_ACCESS = "ACCESS";
+    public static final String TYPE_REFRESH = "REFRESH";
 
+    private final String jwtSecret;
+    /** Legacy 단일 만료시간 — backward compat 위해 유지. */
+    private final long jwtExpiration;
+    private final long accessExpiration;
+    private final long refreshExpiration;
+
+    /** Legacy 생성자 — access/refresh 분리 안 된 옛 설정 호환. */
     public JwtTokenProvider(String jwtSecret, long jwtExpiration) {
+        this(jwtSecret, jwtExpiration, jwtExpiration, jwtExpiration * 7);
+    }
+
+    public JwtTokenProvider(String jwtSecret, long jwtExpiration, long accessExpiration, long refreshExpiration) {
         this.jwtSecret = jwtSecret;
         this.jwtExpiration = jwtExpiration;
+        this.accessExpiration = accessExpiration;
+        this.refreshExpiration = refreshExpiration;
     }
 
     private SecretKey getSigningKey() {
@@ -31,12 +46,14 @@ public class JwtTokenProvider {
         return generateToken(userDetails.getUsername());
     }
 
+    /** Legacy 메서드 — type=ACCESS 의 access token 발급으로 동작. backward compat. */
     public String generateToken(String username) {
-        return generateToken(username, jwtExpiration);
+        return generateAccessToken(username);
     }
 
     /**
-     * 커스텀 TTL(ms) 로 토큰 발급 — SSE 쿼리 파라미터 등 짧게 유효해야 하는 경우용
+     * 커스텀 TTL(ms) 로 토큰 발급 — SSE 쿼리 파라미터 등 짧게 유효해야 하는 경우용.
+     * type 클레임 없이 발급되어 validateAccessToken 도 통과 (legacy 호환).
      */
     public String generateToken(String username, long ttlMs) {
         Date now = new Date();
@@ -50,30 +67,81 @@ public class JwtTokenProvider {
                 .compact();
     }
 
+    public String generateAccessToken(String username) {
+        return buildToken(username, accessExpiration, TYPE_ACCESS);
+    }
+
+    public String generateRefreshToken(String username) {
+        return buildToken(username, refreshExpiration, TYPE_REFRESH);
+    }
+
+    private String buildToken(String username, long ttlMs, String type) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + ttlMs);
+
+        return Jwts.builder()
+                .setSubject(username)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .claim(CLAIM_TOKEN_TYPE, type)
+                .signWith(getSigningKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
     public String getUsernameFromToken(String token) {
-        Claims claims = Jwts.parserBuilder()
+        return parseClaims(token).getSubject();
+    }
+
+    /** 토큰 type claim 추출. type 없는 legacy 토큰은 null 반환. */
+    public String getTokenType(String token) {
+        try {
+            Object t = parseClaims(token).get(CLAIM_TOKEN_TYPE);
+            return t == null ? null : t.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parserBuilder()
                 .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody();
-
-        return claims.getSubject();
     }
 
+    /** 토큰 서명·만료 검증만. type 검증 안 함 — legacy 호환. */
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder()
-                    .setSigningKey(getSigningKey())
-                    .build()
-                    .parseClaimsJws(token);
+            parseClaims(token);
             return true;
         } catch (Exception e) {
             return false;
         }
     }
 
+    /** Access Token 검증 — type 이 ACCESS 또는 null(legacy) 인 경우만 통과. REFRESH 는 거부. */
+    public boolean validateAccessToken(String token) {
+        if (!validateToken(token)) return false;
+        String type = getTokenType(token);
+        return type == null || TYPE_ACCESS.equals(type);
+    }
+
+    /** Refresh Token 검증 — type 이 REFRESH 인 경우만 통과. */
+    public boolean validateRefreshToken(String token) {
+        if (!validateToken(token)) return false;
+        return TYPE_REFRESH.equals(getTokenType(token));
+    }
+
     public long getExpirationTime() {
         return jwtExpiration;
     }
-}
 
+    public long getAccessExpiration() {
+        return accessExpiration;
+    }
+
+    public long getRefreshExpiration() {
+        return refreshExpiration;
+    }
+}

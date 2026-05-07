@@ -43,7 +43,19 @@ export const TokenManager = {
   // 토큰 삭제
   removeToken() {
     safeRemoveItem('jwt_token');
+    safeRemoveItem('jwt_refresh_token');
     NativeBridge.clearAuthToken().catch(() => {});
+  },
+
+  // Refresh Token — 7일 TTL, /api/auth/refresh 호출용
+  setRefreshToken(refreshToken) {
+    if (refreshToken) safeSetItem('jwt_refresh_token', refreshToken);
+  },
+  getRefreshToken() {
+    return safeGetItem('jwt_refresh_token');
+  },
+  removeRefreshToken() {
+    safeRemoveItem('jwt_refresh_token');
   },
 
   // 토큰 존재 여부 확인

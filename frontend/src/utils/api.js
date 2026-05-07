@@ -29,25 +29,86 @@ apiClient.interceptors.request.use(
 let isRedirecting = false;
 let redirectTimer = null;
 
-// 응답 인터셉터 - 401 에러 시 로그아웃 처리
+// ─── Refresh Token 자동 갱신 ───
+// access token 이 짧게(15분) 유지되어 자주 만료 → 401 받으면 refreshToken 으로 한 번에 갱신.
+// 동시 요청 여러 개가 401 을 받으면 refresh 는 한 번만 호출되고 나머지는 큐에서 대기 후 재시도.
+let isRefreshing = false;
+let refreshSubscribers = [];
+const subscribeTokenRefresh = (cb) => { refreshSubscribers.push(cb); };
+const notifyRefreshDone = (newToken) => {
+  refreshSubscribers.forEach((cb) => cb(newToken));
+  refreshSubscribers = [];
+};
+const notifyRefreshFailed = () => {
+  refreshSubscribers.forEach((cb) => cb(null));
+  refreshSubscribers = [];
+};
+
+// /refresh 자체는 별도 axios 인스턴스로 호출 — interceptor 재진입 방지.
+const refreshClient = axios.create({ baseURL: '/api', timeout: 10000 });
+
+const handleAuthFailure = (originalError) => {
+  if (isRedirecting) return Promise.reject(originalError);
+  isRedirecting = true;
+  UserManager.logout();
+  clearTimeout(redirectTimer);
+  redirectTimer = setTimeout(() => { isRedirecting = false; }, 3000);
+  window.location.href = '/login';
+  return Promise.reject(originalError);
+};
+
+// 응답 인터셉터 - 401 시 refresh 시도 → 실패 시 로그아웃
 apiClient.interceptors.response.use(
-  (response) => {
-    return response;
-  },
-  (error) => {
+  (response) => response,
+  async (error) => {
     if (error.response && error.response.status === 429) {
       toast.warning('요청이 너무 많습니다. 잠시 후 다시 시도해주세요.');
       return Promise.reject(error);
     }
-    if (error.response && error.response.status === 401 && !isRedirecting) {
-      isRedirecting = true;
-      UserManager.logout();
-      // 3초 후 플래그 해제 (리다이렉트 실패 대비)
-      clearTimeout(redirectTimer);
-      redirectTimer = setTimeout(() => { isRedirecting = false; }, 3000);
-      window.location.href = '/login';
+
+    const originalRequest = error.config;
+    if (!error.response || error.response.status !== 401 || !originalRequest || originalRequest._retry) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    const refreshToken = TokenManager.getRefreshToken();
+    if (!refreshToken) {
+      // RT 없으면 즉시 로그아웃 (legacy 토큰만 가진 사용자 또는 로그아웃 후 잔여 호출)
+      return handleAuthFailure(error);
+    }
+
+    originalRequest._retry = true;
+
+    // 이미 refresh 가 진행 중이면 큐에 등록하고 끝나면 재시도
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        subscribeTokenRefresh((newToken) => {
+          if (!newToken) { reject(error); return; }
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          resolve(apiClient(originalRequest));
+        });
+      });
+    }
+
+    isRefreshing = true;
+    try {
+      const resp = await refreshClient.post('/auth/refresh', { refreshToken });
+      const data = resp.data;
+      if (!data || !data.success || !data.token) {
+        notifyRefreshFailed();
+        return handleAuthFailure(error);
+      }
+      TokenManager.setToken(data.token);
+      if (data.refreshToken) TokenManager.setRefreshToken(data.refreshToken);
+      notifyRefreshDone(data.token);
+      originalRequest.headers.Authorization = `Bearer ${data.token}`;
+      return apiClient(originalRequest);
+    } catch (e) {
+      notifyRefreshFailed();
+      return handleAuthFailure(error);
+    } finally {
+      isRefreshing = false;
+    }
   }
 );
 

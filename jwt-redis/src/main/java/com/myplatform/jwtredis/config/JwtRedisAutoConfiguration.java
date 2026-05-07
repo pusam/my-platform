@@ -15,7 +15,14 @@ public class JwtRedisAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public JwtTokenProvider jwtTokenProvider(JwtProperties jwtProperties) {
-        return new JwtTokenProvider(jwtProperties.getSecret(), jwtProperties.getExpiration());
+        // access/refresh 분리 — 새 properties 가 0 이면 legacy expiration 으로 fallback.
+        long access = jwtProperties.getAccessExpiration() > 0
+                ? jwtProperties.getAccessExpiration()
+                : jwtProperties.getExpiration();
+        long refresh = jwtProperties.getRefreshExpiration() > 0
+                ? jwtProperties.getRefreshExpiration()
+                : access * 7L;
+        return new JwtTokenProvider(jwtProperties.getSecret(), jwtProperties.getExpiration(), access, refresh);
     }
 
     @Bean

@@ -82,14 +82,62 @@ public class AuthService {
             userRepository.save(user);
         }
 
-        String token = jwtTokenProvider.generateToken(user.getUsername());
+        String accessToken = jwtTokenProvider.generateAccessToken(user.getUsername());
+        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUsername());
 
-        // Redis가 있으면 토큰 저장
-        redisTokenService.ifPresent(service ->
-            service.saveToken(user.getUsername(), token, jwtTokenProvider.getExpirationTime())
-        );
+        // Redis가 있으면 AT/RT 둘 다 저장 — RT 는 회전(rotation) 시 매칭 검증용.
+        redisTokenService.ifPresent(service -> {
+            service.saveToken(user.getUsername(), accessToken, jwtTokenProvider.getAccessExpiration());
+            service.saveRefreshToken(user.getUsername(), refreshToken, jwtTokenProvider.getRefreshExpiration());
+        });
 
-        return new LoginResponse(true, "로그인 성공", token, user.getUsername(), user.getName(), user.getRole());
+        return new LoginResponse(true, "로그인 성공", accessToken, refreshToken,
+                user.getUsername(), user.getName(), user.getRole());
+    }
+
+    /**
+     * Refresh Token 으로 새 Access/Refresh Token 발급.
+     * - RT 검증: 서명·만료·type=REFRESH 모두 통과해야 함
+     * - Redis 매칭: 저장된 RT 와 일치해야 함 (회전 후 옛 RT 재사용 차단)
+     * - 매칭 실패 시 모든 토큰 무효화 (탈취 의심 — 안전한 쪽)
+     * - 성공 시 새 AT + 새 RT 동시 발급 (rotation)
+     */
+    public LoginResponse refresh(String refreshToken) {
+        if (refreshToken == null || !jwtTokenProvider.validateRefreshToken(refreshToken)) {
+            return new LoginResponse(false, "유효하지 않은 refresh token 입니다. 다시 로그인 해주세요.");
+        }
+
+        String username = jwtTokenProvider.getUsernameFromToken(refreshToken);
+        String storedRt = redisTokenService.map(s -> s.getRefreshToken(username)).orElse(null);
+
+        // Redis 가 비어있을 수 있는 환경(개발/Redis 다운) — RT 자체 검증만 통과하면 허용.
+        // Redis 가 살아있고 저장된 값과 다르면 → 옛 RT 재사용·탈취 의심 → 모든 토큰 무효화.
+        if (storedRt != null && !storedRt.equals(refreshToken)) {
+            redisTokenService.ifPresent(service -> {
+                service.deleteToken(username);
+                service.deleteRefreshToken(username);
+            });
+            return new LoginResponse(false, "refresh token 이 갱신되었습니다. 다시 로그인 해주세요.");
+        }
+
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user == null || !"APPROVED".equals(user.getStatus()) || "LOCKED".equals(user.getStatus())) {
+            redisTokenService.ifPresent(service -> {
+                service.deleteToken(username);
+                service.deleteRefreshToken(username);
+            });
+            return new LoginResponse(false, "계정 상태가 변경되었습니다. 다시 로그인 해주세요.");
+        }
+
+        String newAccessToken = jwtTokenProvider.generateAccessToken(username);
+        String newRefreshToken = jwtTokenProvider.generateRefreshToken(username);
+        redisTokenService.ifPresent(service -> {
+            service.saveToken(username, newAccessToken, jwtTokenProvider.getAccessExpiration());
+            service.saveRefreshToken(username, newRefreshToken, jwtTokenProvider.getRefreshExpiration());
+        });
+
+        return new LoginResponse(true, "토큰 갱신 성공", newAccessToken, newRefreshToken,
+                username, user.getName(), user.getRole());
     }
 
     public SignupResponse signup(SignupRequest request) {
@@ -166,8 +214,11 @@ public class AuthService {
     }
 
     public void logout(String username) {
-        // Redis가 있으면 토큰 삭제
-        redisTokenService.ifPresent(service -> service.deleteToken(username));
+        // Redis 가 있으면 AT + RT 둘 다 삭제 — 로그아웃 후 옛 RT 로 재인증 차단.
+        redisTokenService.ifPresent(service -> {
+            service.deleteToken(username);
+            service.deleteRefreshToken(username);
+        });
     }
 }
 

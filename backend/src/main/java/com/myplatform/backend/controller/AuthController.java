@@ -31,11 +31,22 @@ public class AuthController {
         this.emailVerificationService = emailVerificationService;
     }
 
-    @Operation(summary = "로그인", description = "사용자 로그인을 수행하고 JWT 토큰을 발급합니다.")
+    @Operation(summary = "로그인", description = "사용자 로그인을 수행하고 access + refresh JWT 토큰을 발급합니다.")
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
         return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "토큰 갱신",
+            description = "Refresh Token 으로 새 Access/Refresh Token 발급. 매번 RT 도 회전(rotation)되므로 응답의 새 RT 로 교체 저장 필요.")
+    @PostMapping("/refresh")
+    public ResponseEntity<LoginResponse> refresh(@RequestBody Map<String, String> request) {
+        String refreshToken = request.get("refreshToken");
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return ResponseEntity.badRequest().body(new LoginResponse(false, "refreshToken 이 누락되었습니다."));
+        }
+        return ResponseEntity.ok(authService.refresh(refreshToken));
     }
 
     @Operation(summary = "회원가입", description = "새로운 사용자를 등록합니다. 관리자 승인 후 로그인할 수 있습니다.")
