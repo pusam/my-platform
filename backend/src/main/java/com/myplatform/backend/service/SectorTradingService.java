@@ -81,6 +81,12 @@ public class SectorTradingService {
     private volatile Map<String, BigDecimal> yesterdayTradingValueCache = new ConcurrentHashMap<>();
     private volatile LocalDate yesterdayCacheDate = null;
 
+    // 스냅샷 수집 동시 실행 방지 — KIS batch 가 100~140초 걸리는데 cron 이 3분이라
+    // 새 사이클이 직전 사이클과 겹쳐 SectorTrading-1/2/3 가 동시 실행 → connection leak·KIS 큐 경합.
+    // 진행 중이면 다음 사이클 스킵.
+    private final java.util.concurrent.atomic.AtomicBoolean snapshotInProgress
+            = new java.util.concurrent.atomic.AtomicBoolean(false);
+
     // 설정 — 정규장 시간 상수는 MarketCalendarService 가 단일 소스
     private static final LocalTime MARKET_OPEN = MarketCalendarService.MARKET_OPEN;
     private static final LocalTime MARKET_CLOSE = MarketCalendarService.MARKET_CLOSE;
@@ -175,11 +181,19 @@ public class SectorTradingService {
             return;
         }
 
+        // 진행 중이면 스킵 — 이전 사이클이 끝난 뒤 다음 cron 사이클부터 재개.
+        if (!snapshotInProgress.compareAndSet(false, true)) {
+            log.warn("[섹터거래대금] 이전 수집이 아직 진행 중 — 이번 사이클 스킵 (KIS 호출 부하·connection leak 방지)");
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
             try {
                 collectSnapshot();
             } catch (Exception e) {
-                log.error("[섹터거래대금] 스냅샷 수집 실패: {}", e.getMessage());
+                log.error("[섹터거래대금] 스냅샷 수집 실패: {}", e.getMessage(), e);
+            } finally {
+                snapshotInProgress.set(false);
             }
         }, sectorTradingExecutor);
     }

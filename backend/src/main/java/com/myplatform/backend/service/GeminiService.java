@@ -1043,7 +1043,9 @@ public class GeminiService {
 
             } catch (HttpClientErrorException.TooManyRequests e) {
                 long baseDelay = parseRetryDelay(e);  // Retry-After 헤더 우선
-                long retryDelay = baseDelay * (1L << attempt);
+                // 백오프 cap 60s — 운영 로그에서 시도 3 시 240s 까지 늘어 thread 6분 점유 발견.
+                // 서버 hint 가 길면 어차피 같은 사이클에 재시도해도 fail 가능성 높아 cap 적용.
+                long retryDelay = Math.min(baseDelay * (1L << attempt), 60_000L);
                 consecutiveErrors.incrementAndGet();
                 log.warn("[Gemini JSON] Rate Limit (시도 {}/{}) - {}ms 후 재시도",
                         attempt + 1, MAX_RETRIES, retryDelay);
@@ -1109,8 +1111,8 @@ public class GeminiService {
 
             } catch (HttpClientErrorException.TooManyRequests e) {
                 long baseDelay = parseRetryDelay(e);  // Retry-After 헤더 우선
-                // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x)
-                long retryDelay = baseDelay * (1L << attempt);
+                // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x). cap 60s 적용 — thread 점유 최소화.
+                long retryDelay = Math.min(baseDelay * (1L << attempt), 60_000L);
                 consecutiveErrors.incrementAndGet();
 
                 log.warn("Gemini Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",

@@ -402,9 +402,11 @@ public class DartService {
     /**
      * 위험 키워드 체크
      */
-    // 종속회사/자회사 경유 공시는 본체 위험이 아닌 것으로 제외
+    // 종속회사/자회사 경유 공시 + 담보 제공 등 일반 상행위는 본체 위험에서 제외.
+    // 운영 로그에서 "최대주주변경을수반하는주식담보제공계약체결" 11건 false positive 발견 — 일반 담보계약은
+    // 실제 최대주주 변경 위험이 아니라 자금 조달 행위이므로 제외.
     private static final List<String> EXCLUDE_PATTERNS = Arrays.asList(
-            "종속회사", "자회사", "타법인"
+            "종속회사", "자회사", "타법인", "주식담보제공"
     );
 
     private void checkDangerKeywords(DartDisclosure disclosure) {
