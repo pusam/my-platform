@@ -17,7 +17,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "bot_trading_position", indexes = {
         @Index(name = "idx_btp_strategy", columnList = "strategy"),
-        @Index(name = "uk_strategy_stock", columnList = "strategy,stock_code", unique = true)
+        // 같은 종목을 VIRTUAL/REAL 양쪽에서 동시 보유 가능하도록 trading_mode 포함 unique.
+        @Index(name = "uk_strategy_stock_mode", columnList = "strategy,stock_code,trading_mode", unique = true)
 })
 @Data
 @Builder
@@ -63,6 +64,14 @@ public class BotTradingPosition {
 
     @Column(name = "buy_reason", length = 100)
     private String buyReason;
+
+    /**
+     * 매수 시점의 거래 모드 — VIRTUAL(모의) 또는 REAL(실전).
+     * 모드 전환 시 다른 모드 포지션이 잘못 활성화되어 자동 매도되는 사고 방지.
+     */
+    @Column(name = "trading_mode", nullable = false, length = 20)
+    @Builder.Default
+    private String tradingMode = "VIRTUAL";
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;

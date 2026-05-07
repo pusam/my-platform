@@ -368,16 +368,22 @@ public class AutoTradingBotService {
         try {
             Thread.sleep(5000);
 
-            // 포지션 메타데이터 복구 (재시작 시 halfSold/highPrice/buyTime 유지)
+            // 모드 먼저 복원 — 그래야 restorePositionsFromDb 가 현재 모드 포지션만 복원 가능.
+            // (이전엔 default VIRTUAL 인 상태에서 복원해 다른 모드 포지션이 잘못 활성화될 수 있었음)
+            BotState savedState = loadBotState();
+            if (savedState != null && savedState.mode != null) {
+                try {
+                    currentMode = TradingMode.valueOf(savedState.mode);
+                    activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
+                } catch (IllegalArgumentException ignore) { /* unknown mode → default VIRTUAL 유지 */ }
+            }
+
+            // 포지션 메타데이터 복구 (재시작 시 halfSold/highPrice/buyTime 유지) — 현재 모드만.
             restorePositionsFromDb();
 
-            BotState savedState = loadBotState();
             if (savedState != null && STATUS_RUNNING.equals(savedState.status)) {
                 log.info("[스캘핑봇] 서버 재시작 감지 - 이전 상태 복구 중... (모드: {})", savedState.mode);
 
-                TradingMode mode = TradingMode.valueOf(savedState.mode);
-                currentMode = mode;
-                activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
                 botActive.set(true);
                 resetDailyCounters();
                 initializeDailyAsset();
@@ -419,7 +425,15 @@ public class AutoTradingBotService {
     private void restorePositionsFromDb() {
         try {
             int scalping = 0, swing = 0, closing = 0;
-            for (BotTradingPosition p : positionRepository.findAll()) {
+            // 현재 모드 포지션만 in-memory 로 복원.
+            // 다른 모드 포지션은 DB 에 그대로 두고 무시 — 잘못된 자동 매도 방지.
+            String mode = currentMode.name();
+            List<BotTradingPosition> positions = positionRepository.findByTradingMode(mode);
+            int skipped = (int) positionRepository.count() - positions.size();
+            if (skipped > 0) {
+                log.info("[봇 복구] 현재 모드({}) 외 포지션 {}건은 복원 스킵", mode, skipped);
+            }
+            for (BotTradingPosition p : positions) {
                 switch (p.getStrategy()) {
                     case SCALPING -> {
                         ScalpingPosition sp = new ScalpingPosition(
@@ -475,13 +489,16 @@ public class AutoTradingBotService {
     }
 
     // 저장 실패 시 호출자가 알림/보상 처리를 할 수 있도록 예외를 던진다.
+    // tradingMode 는 현재 봇 모드(REAL/VIRTUAL)로 기록 — 같은 종목 양쪽 모드 동시 보유 가능.
     private void persistScalpingPosition(ScalpingPosition sp) {
         retryPersist(() -> {
+            String mode = currentMode.name();
             BotTradingPosition entity = positionRepository
-                    .findByStrategyAndStockCode(Strategy.SCALPING, sp.stockCode)
+                    .findByStrategyAndStockCodeAndTradingMode(Strategy.SCALPING, sp.stockCode, mode)
                     .orElseGet(() -> BotTradingPosition.builder()
                             .strategy(Strategy.SCALPING)
                             .stockCode(sp.stockCode)
+                            .tradingMode(mode)
                             .build());
             entity.setStockName(sp.stockName);
             entity.setBuyPrice(sp.buyPrice);
@@ -490,23 +507,27 @@ public class AutoTradingBotService {
             entity.setHalfSold(sp.halfSold);
             entity.setTimeExtended(sp.timeExtended);
             entity.setOriginalQuantity(sp.originalQuantity);
+            entity.setTradingMode(mode);
             return positionRepository.save(entity);
         });
     }
 
     private void persistSwingPosition(SwingPosition sw, Strategy strategy) {
         retryPersist(() -> {
+            String mode = currentMode.name();
             BotTradingPosition entity = positionRepository
-                    .findByStrategyAndStockCode(strategy, sw.stockCode)
+                    .findByStrategyAndStockCodeAndTradingMode(strategy, sw.stockCode, mode)
                     .orElseGet(() -> BotTradingPosition.builder()
                             .strategy(strategy)
                             .stockCode(sw.stockCode)
+                            .tradingMode(mode)
                             .build());
             entity.setStockName(sw.stockName);
             entity.setBuyPrice(sw.buyPrice);
             entity.setHighPrice(sw.highPrice);
             entity.setBuyTime(sw.buyTime);
             entity.setBuyReason(sw.buyReason);
+            entity.setTradingMode(mode);
             return positionRepository.save(entity);
         });
     }
