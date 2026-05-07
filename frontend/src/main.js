@@ -68,7 +68,10 @@ const router = createRouter({
       path: '/admin',
       name: 'AdminDashboard',
       component: AdminDashboard,
-      meta: { requiresAuth: true }
+      // /admin/users, /admin/logs, /admin/batch 는 adminOnly 있는데 메인은 빠져있던 누락 보정.
+      // 백엔드 SecurityConfig 가 /api/admin/** 를 hasRole("ADMIN") 으로 막아 데이터는 안 새지만
+      // 일반 USER 가 페이지 진입해서 빈 화면/401 보는 UX 깨짐 방지.
+      meta: { requiresAuth: true, adminOnly: true }
     },
     {
       path: '/user',
