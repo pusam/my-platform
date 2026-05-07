@@ -24,13 +24,21 @@ public class StockPriceController {
         this.stockPriceService = stockPriceService;
     }
 
+    /** 검색 키워드 길이 cap — @Cacheable 키 메모리 / 다운스트림 LIKE 부하 차단. */
+    private static final int MAX_KEYWORD_LEN = 50;
+
     @Operation(summary = "종목 검색", description = "종목명 또는 종목코드로 검색합니다.")
     @GetMapping("/search")
     public ResponseEntity<ApiResponse<List<StockPriceDto>>> searchStocks(
             @Parameter(description = "검색 키워드 (종목명 또는 종목코드)")
             @RequestParam String keyword) {
         try {
-            List<StockPriceDto> results = stockPriceService.searchStocks(keyword);
+            // 입력 정규화 + DoS 방어: trim → 길이 cap. @Cacheable 키 계산 전에 처리.
+            String safe = keyword == null ? "" : keyword.trim();
+            if (safe.length() > MAX_KEYWORD_LEN) {
+                safe = safe.substring(0, MAX_KEYWORD_LEN);
+            }
+            List<StockPriceDto> results = stockPriceService.searchStocks(safe);
             return ResponseEntity.ok(ApiResponse.success("종목 검색 완료", results));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("종목 검색 실패: " + e.getMessage()));
