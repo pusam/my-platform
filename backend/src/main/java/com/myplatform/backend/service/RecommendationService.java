@@ -509,12 +509,17 @@ public class RecommendationService {
         List<ValueScoredStock> scored = new ArrayList<>();
         for (StockFinancialData fin : all) {
             if (fin.getStockCode() == null || fin.getStockName() == null) continue;
-            int score = computeValueScore(fin);
+            int[] parts = computeValueScoreParts(fin);
+            int score = Math.min(20, parts[0] + parts[1] + parts[2] + parts[3]);
             if (score <= 0) continue;
             ValueScoredStock vs = new ValueScoredStock();
             vs.stockCode = fin.getStockCode();
             vs.stockName = fin.getStockName();
             vs.score = score;
+            vs.pbrScore = parts[0];
+            vs.roeCombinedScore = parts[1];
+            vs.debtScore = parts[2];
+            vs.profitEquityScore = parts[3];
             vs.tags = computeValueTags(fin);
             scored.add(vs);
         }
@@ -549,39 +554,51 @@ public class RecommendationService {
                 .valueStability(vs.score)
                 .validCount(1)
                 .tags(new ArrayList<>(vs.tags))
+                // 4 항목 분해 점수 — UI 막대 표시용
+                .valuePbrScore(vs.pbrScore)
+                .valueRoeCombinedScore(vs.roeCombinedScore)
+                .valueDebtScore(vs.debtScore)
+                .valueProfitEquityScore(vs.profitEquityScore)
                 .build()).toList();
     }
 
+    /** 점수 합만 계산 — 후보 1차 정렬용 (분해 점수 필요 없음). */
     private int computeValueScore(StockFinancialData fin) {
-        int score = 0;
+        int[] parts = computeValueScoreParts(fin);
+        return Math.min(20, parts[0] + parts[1] + parts[2] + parts[3]);
+    }
+
+    /** 점수 분해 — UI 막대 표시용. {pbr, roeCombined, debt, profitEquity}. */
+    private int[] computeValueScoreParts(StockFinancialData fin) {
+        int pbrScore = 0, roeCombinedScore = 0, debtScore = 0, profitEquityScore = 0;
         BigDecimal pbr = fin.getPbr();
         if (pbr != null && pbr.signum() > 0) {
             double v = pbr.doubleValue();
-            if (v <= 0.7) score += 8;
-            else if (v <= 1.0) score += 6;
-            else if (v <= 1.5) score += 4;
-            else if (v <= 2.0) score += 2;
+            if (v <= 0.7) pbrScore = 8;
+            else if (v <= 1.0) pbrScore = 6;
+            else if (v <= 1.5) pbrScore = 4;
+            else if (v <= 2.0) pbrScore = 2;
         }
         BigDecimal roe = fin.getRoe();
         if (roe != null && pbr != null && pbr.signum() > 0) {
             double combined = roe.doubleValue() / pbr.doubleValue();
-            if (combined >= 15) score += 5;
-            else if (combined >= 10) score += 4;
-            else if (combined >= 7) score += 3;
-            else if (combined >= 4) score += 1;
+            if (combined >= 15) roeCombinedScore = 5;
+            else if (combined >= 10) roeCombinedScore = 4;
+            else if (combined >= 7) roeCombinedScore = 3;
+            else if (combined >= 4) roeCombinedScore = 1;
         }
         BigDecimal debtRatio = fin.getDebtRatio();
         if (debtRatio != null && debtRatio.signum() > 0) {
             double v = debtRatio.doubleValue();
-            if (v <= 50) score += 4;
-            else if (v <= 100) score += 3;
-            else if (v <= 200) score += 1;
+            if (v <= 50) debtScore = 4;
+            else if (v <= 100) debtScore = 3;
+            else if (v <= 200) debtScore = 1;
         }
         if (fin.getOperatingProfit() != null && fin.getOperatingProfit().signum() > 0
                 && fin.getTotalEquity() != null && fin.getTotalEquity().signum() > 0) {
-            score += 3;
+            profitEquityScore = 3;
         }
-        return Math.min(20, score);
+        return new int[]{pbrScore, roeCombinedScore, debtScore, profitEquityScore};
     }
 
     private List<String> computeValueTags(StockFinancialData fin) {
@@ -613,6 +630,11 @@ public class RecommendationService {
         String stockName;
         int score;
         List<String> tags;
+        // 항목별 점수 — UI 막대 그래프 분해 표시용
+        int pbrScore;             // 0~8
+        int roeCombinedScore;     // 0~5
+        int debtScore;            // 0~4
+        int profitEquityScore;    // 0~3
     }
 
     // ==================== Core Calculation ====================
@@ -1386,6 +1408,11 @@ public class RecommendationService {
         private List<String> tags;
         private BigDecimal changeRate;
         private BigDecimal currentPrice;
+        // 저평가 TOP 10 전용 — 4 항목 점수 분해 (UI 막대 그래프용). 종합 추천은 모두 null.
+        private Integer valuePbrScore;             // 0~8
+        private Integer valueRoeCombinedScore;     // 0~5
+        private Integer valueDebtScore;            // 0~4
+        private Integer valueProfitEquityScore;    // 0~3
     }
 
     @Getter @AllArgsConstructor

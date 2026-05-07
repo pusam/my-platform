@@ -140,6 +140,16 @@
                   <span class="rec-score-num">{{ rec.totalScore }}</span>
                   <span class="rec-score-basis">/100</span>
                 </div>
+                <!-- 항목별 점수 분해 (PBR/ROE/부채/흑자) -->
+                <div class="rec-detail-bars">
+                  <div v-for="item in getValueScoreBreakdown(rec)" :key="item.key" class="rec-detail-row" :title="item.tooltip">
+                    <span class="rec-detail-label">{{ item.label }}</span>
+                    <div class="rec-detail-track">
+                      <div class="rec-detail-fill" :style="{ width: (item.score / item.max * 100) + '%', background: item.color }"></div>
+                    </div>
+                    <span class="rec-detail-score" :style="{ color: item.score >= item.max * 0.7 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}/{{ item.max }}</span>
+                  </div>
+                </div>
                 <div class="rec-price-area">
                   <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
                   <span v-if="rec.changeRate != null" class="rec-change"
@@ -913,6 +923,19 @@ export default {
         score: item.raw != null && item.raw >= 0 ? item.raw : -1,
         isNA: item.raw == null || item.raw < 0
       }))
+    },
+    getValueScoreBreakdown(rec) {
+      // 저평가 4 항목 분해 — PBR(8) + ROE×(1/PBR)(5) + 부채비율(4) + 흑자+자본(3) = 20점 만점.
+      return [
+        { key: 'pbr', label: 'PBR', score: rec.valuePbrScore || 0, max: 8, color: '#06b6d4',
+          tooltip: 'PBR ≤ 0.7 → 8점 / ≤ 1.0 → 6점 / ≤ 1.5 → 4점 / ≤ 2.0 → 2점' },
+        { key: 'roe', label: 'ROE/PBR', score: rec.valueRoeCombinedScore || 0, max: 5, color: '#8b5cf6',
+          tooltip: 'ROE × (1/PBR) — 마법공식 변형. ≥15 → 5점, ≥10 → 4점, ≥7 → 3점, ≥4 → 1점' },
+        { key: 'debt', label: '부채율', score: rec.valueDebtScore || 0, max: 4, color: '#10b981',
+          tooltip: '부채비율 ≤ 50% → 4점 / ≤ 100% → 3점 / ≤ 200% → 1점' },
+        { key: 'profit', label: '흑자', score: rec.valueProfitEquityScore || 0, max: 3, color: '#f59e0b',
+          tooltip: '영업이익 + 자본총계 모두 양수 → 3점 (재무 안정성)' },
+      ]
     },
     getRecGradeClass(score, validCount) {
       if (validCount != null && validCount < 3) return 'grade-low-confidence'
