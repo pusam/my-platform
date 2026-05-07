@@ -169,6 +169,9 @@ public class BoardService {
     }
 
     private BoardFile saveFile(MultipartFile file, Board board) throws IOException {
+        // 보안 검증 — 실행 파일/서버 코드/XSS 위험 형식 차단.
+        com.myplatform.backend.util.FileUploadValidator.validate(file);
+
         // 업로드 디렉토리 생성
         String dateDir = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         Path uploadPath = Paths.get(uploadDir, dateDir);

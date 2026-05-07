@@ -67,6 +67,16 @@ public class UserService {
     }
 
     public UserDto uploadProfileImage(String username, MultipartFile file) {
+        // 보안 검증 — 일반 차단(.exe/.jsp/.svg 등) + 이미지 확장자만 화이트리스트.
+        com.myplatform.backend.util.FileUploadValidator.validate(file);
+        String origName = file.getOriginalFilename();
+        if (origName != null) {
+            String ext = origName.contains(".") ? origName.substring(origName.lastIndexOf(".")).toLowerCase() : "";
+            if (!java.util.Set.of(".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp").contains(ext)) {
+                throw new IllegalArgumentException("프로필은 이미지 파일만 업로드 가능합니다 (jpg/png/gif/webp).");
+            }
+        }
+
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
 

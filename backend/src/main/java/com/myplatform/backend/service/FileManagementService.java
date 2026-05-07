@@ -119,6 +119,9 @@ public class FileManagementService {
     }
 
     public FileDto uploadFile(String username, Long folderId, MultipartFile file, LocalDate uploadDate) throws IOException {
+        // 보안 검증 — 실행 파일/서버 코드/XSS 위험 형식 차단 (+ 경로 traversal 도 함께 검사).
+        com.myplatform.backend.util.FileUploadValidator.validate(file);
+
         var user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
 
