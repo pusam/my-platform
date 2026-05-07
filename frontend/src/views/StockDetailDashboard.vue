@@ -2108,7 +2108,8 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-  .stock-header { top: 40px; }
+  /* 모바일에선 GlobalNav 가 40px (PC 48px) — sticky offset 도 맞춤 */
+  .dashboard-header { top: 40px; }
 }
 
 .header-left {
@@ -3771,7 +3772,7 @@ onUnmounted(() => {
 
 @media (max-width: 480px) {
   .trading-dashboard { padding: 10px; }
-  .stock-header { padding: 14px; }
+  .dashboard-header { padding: 10px; }
   .stock-name { font-size: 1rem; }
   .current-price { font-size: 1.2rem; }
   .change-info { font-size: 0.85rem; }
