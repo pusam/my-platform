@@ -1,6 +1,7 @@
 package com.myplatform.backend.scheduler;
 
 import com.myplatform.backend.service.EarningsDisclosureService;
+import com.myplatform.backend.service.MarketCalendarService;
 import com.myplatform.backend.service.SchedulerLockService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,12 +28,17 @@ public class EarningsDisclosureScheduler {
 
     private final EarningsDisclosureService earningsService;
     private final SchedulerLockService schedulerLockService;
+    private final MarketCalendarService marketCalendar;
 
     /**
      * 매일 08:00 - 장 시작 전 실적공시 수집
      */
     @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
+        if (marketCalendar.isMarketClosed()) {
+            log.info("[실적공시] 08:00 휴장일 — 수집 스킵");
+            return;
+        }
         if (!schedulerLockService.tryLock("earnings.morning", Duration.ofMinutes(30))) {
             log.debug("[실적공시] 08:00 다른 인스턴스에서 진행 중 — 스킵");
             return;
@@ -42,7 +48,7 @@ public class EarningsDisclosureScheduler {
             int collected = earningsService.collectEarningsDisclosures();
             log.info("=== [실적공시] 08:00 수집 완료: {}건 ===", collected);
         } catch (Exception e) {
-            log.error("=== [실적공시] 08:00 수집 실패: {} ===", e.getMessage());
+            log.error("=== [실적공시] 08:00 수집 실패: {} ===", e.getMessage(), e);
         }
     }
 
@@ -51,6 +57,10 @@ public class EarningsDisclosureScheduler {
      */
     @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoonAndNotify() {
+        if (marketCalendar.isMarketClosed()) {
+            log.info("[실적공시] 16:30 휴장일 — 수집/알림 스킵");
+            return;
+        }
         if (!schedulerLockService.tryLock("earnings.afternoon", Duration.ofMinutes(30))) {
             log.debug("[실적공시] 16:30 다른 인스턴스에서 진행 중 — 스킵 (텔레그램 중복 방지)");
             return;
@@ -63,7 +73,7 @@ public class EarningsDisclosureScheduler {
             int notified = earningsService.checkAndNotifyWatchlist();
             log.info("=== [실적공시] 16:30 완료 - 수집: {}건, 알림: {}건 ===", collected, notified);
         } catch (Exception e) {
-            log.error("=== [실적공시] 16:30 수집/알림 실패: {} ===", e.getMessage());
+            log.error("=== [실적공시] 16:30 수집/알림 실패: {} ===", e.getMessage(), e);
         }
     }
 

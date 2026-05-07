@@ -109,7 +109,7 @@ public class MarketCacheWarmerService {
             }
             log.debug("[Cache Warmer] Smart Money 실시간 워밍 완료");
         } catch (Exception e) {
-            log.warn("[Cache Warmer] Smart Money 워밍 실패: {}", e.getMessage());
+            log.error("[Cache Warmer] Smart Money 워밍 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -135,7 +135,7 @@ public class MarketCacheWarmerService {
 
             log.debug("[Cache Warmer] 투자자 매매동향 워밍 완료");
         } catch (Exception e) {
-            log.warn("[Cache Warmer] 투자자 매매동향 워밍 실패: {}", e.getMessage());
+            log.error("[Cache Warmer] 투자자 매매동향 워밍 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -162,7 +162,7 @@ public class MarketCacheWarmerService {
 
             log.debug("[Cache Warmer] 섹터 거래대금 워밍 완료");
         } catch (Exception e) {
-            log.warn("[Cache Warmer] 섹터 거래대금 워밍 실패: {}", e.getMessage());
+            log.error("[Cache Warmer] 섹터 거래대금 워밍 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -179,7 +179,7 @@ public class MarketCacheWarmerService {
             }
             log.debug("[Cache Warmer] AI 전략 스냅샷 워밍 완료");
         } catch (Exception e) {
-            log.warn("[Cache Warmer] AI 전략 스냅샷 워밍 실패: {}", e.getMessage());
+            log.error("[Cache Warmer] AI 전략 스냅샷 워밍 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -196,7 +196,7 @@ public class MarketCacheWarmerService {
             }
             log.info("[Cache Warmer] 연속 매수 분석 워밍 완료 - {}개 유형", data != null ? data.size() : 0);
         } catch (Exception e) {
-            log.warn("[Cache Warmer] 연속 매수 분석 워밍 실패: {}", e.getMessage());
+            log.error("[Cache Warmer] 연속 매수 분석 워밍 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -213,7 +213,7 @@ public class MarketCacheWarmerService {
             sectorOpportunityService.getSectorOpportunities(4, 3);
             log.debug("[Cache Warmer] 섹터 기회 발굴 워밍 완료");
         } catch (Exception e) {
-            log.warn("[Cache Warmer] 섹터 기회 발굴 워밍 실패: {}", e.getMessage());
+            log.error("[Cache Warmer] 섹터 기회 발굴 워밍 실패: {}", e.getMessage(), e);
         }
     }
 

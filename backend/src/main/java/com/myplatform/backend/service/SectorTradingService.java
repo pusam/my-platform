@@ -63,6 +63,7 @@ public class SectorTradingService {
     private final StockStatusService stockStatusService;
     private final ThreadPoolTaskExecutor sectorTradingExecutor;
     private final RedisCacheService redisCacheService;
+    private final MarketCalendarService marketCalendar;
 
     // ========== 스냅샷 저장소 ==========
     // Key: 종목코드, Value: 시간순 정렬된 누적 거래대금 (TreeMap)
@@ -80,36 +81,14 @@ public class SectorTradingService {
     private volatile Map<String, BigDecimal> yesterdayTradingValueCache = new ConcurrentHashMap<>();
     private volatile LocalDate yesterdayCacheDate = null;
 
-    // 설정
-    private static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 40);  // 운영: 15:40
+    // 설정 — 정규장 시간 상수는 MarketCalendarService 가 단일 소스
+    private static final LocalTime MARKET_OPEN = MarketCalendarService.MARKET_OPEN;
+    private static final LocalTime MARKET_CLOSE = MarketCalendarService.MARKET_CLOSE;
     private static final int HISTORY_RETENTION_MINUTES = 40;  // 최근 40분 데이터만 유지
 
-    // 한국 공휴일 (고정)
-    private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
-            MonthDay.of(1, 1),   // 신정
-            MonthDay.of(3, 1),   // 삼일절
-            MonthDay.of(5, 5),   // 어린이날
-            MonthDay.of(6, 6),   // 현충일
-            MonthDay.of(8, 15),  // 광복절
-            MonthDay.of(10, 3),  // 개천절
-            MonthDay.of(10, 9),  // 한글날
-            MonthDay.of(12, 25)  // 크리스마스
-    );
-
-    // 휴장일 여부 확인
+    // 휴장일 체크는 marketCalendar 위임 (다른 스케줄러도 같은 기준 사용)
     private boolean isMarketClosed() {
-        LocalDate today = LocalDate.now();
-        DayOfWeek dayOfWeek = today.getDayOfWeek();
-
-        // 주말 체크
-        if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
-            return true;
-        }
-
-        // 고정 공휴일 체크
-        MonthDay todayMonthDay = MonthDay.from(today);
-        return KOREA_FIXED_HOLIDAYS.contains(todayMonthDay);
+        return marketCalendar.isMarketClosed();
     }
 
     // ========== 초기화 ==========
@@ -127,7 +106,9 @@ public class SectorTradingService {
             }
             log.info("[섹터거래대금] 시작 시 L2 캐시 evict 완료");
         } catch (Exception e) {
-            log.warn("[섹터거래대금] 시작 시 L2 evict 실패: {}", e.getMessage());
+            // 메모리 캐시는 자동 비어있는 상태로 시작하지만 L2 evict 실패 시 stale 응답 가능 →
+            // warn 이 아니라 error 로 승격해 운영 모니터링이 잡을 수 있게.
+            log.error("[섹터거래대금] 시작 시 L2 evict 실패 — stale 응답 우려: {}", e.getMessage(), e);
         }
 
         // 장외 시간이면 초기 수집 스킵 (스케줄러가 장중에 자동 수집)
@@ -172,12 +153,13 @@ public class SectorTradingService {
         cachedResultByPeriod.clear();
         lastCalculateTime.clear();
         lastSnapshotTime = null;
-        try {
-            for (TradingPeriod p : TradingPeriod.values()) {
+        // L2 evict 는 키별 try/catch — 한 키 실패해도 나머지 진행. 실패는 error 로 승격.
+        for (TradingPeriod p : TradingPeriod.values()) {
+            try {
                 redisCacheService.evict(MarketCacheWarmerService.getCacheSectorTrading(), p.name());
+            } catch (Exception e) {
+                log.error("[섹터거래대금] 08:00 L2 evict 실패 ({}): {} — 메모리만 reset 됐고 L2 stale 가능", p.name(), e.getMessage(), e);
             }
-        } catch (Exception e) {
-            log.warn("[섹터거래대금] Redis L2 evict 실패: {}", e.getMessage());
         }
     }
 

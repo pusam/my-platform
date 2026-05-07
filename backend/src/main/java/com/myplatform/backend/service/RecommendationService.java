@@ -11,6 +11,8 @@ import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.UserRepository;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -59,6 +61,7 @@ public class RecommendationService {
     private final TelegramNotificationService telegramService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
+    private final MarketCalendarService marketCalendar;
 
     private static final int STRONG_BUY_THRESHOLD = 75;
     private volatile java.time.LocalDate lastAlertDate = null;
@@ -219,6 +222,20 @@ public class RecommendationService {
         log.info("[종합추천] 08:00 장전 캐시 무효화 — 다음 호출에서 fresh 계산");
         cachedTop5 = null;
         cacheTime = null;
+    }
+
+    /**
+     * 컨테이너 시작 시점이 08:00 이후라 그날 invalidateMorningCache 가 영구 미스되는
+     * 케이스 catch-up. 평일 + 08:00~12:00 사이 시작이면 한 번 호출.
+     * (메모리 캐시는 컨테이너 새 시작이라 자동으로 비어있지만, 명시적 호출로 의도 일치 + 향후
+     *  L2 캐시 추가 시 자동으로 catch-up 범위에 포함되게.)
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void catchUpMorningTaskOnStartup() {
+        if (marketCalendar.shouldCatchUpMorningTask()) {
+            log.info("[종합추천] 시작 시 08:00 catch-up — 컨테이너가 아침 cron 이후 시작됨");
+            invalidateMorningCache();
+        }
     }
 
     /**

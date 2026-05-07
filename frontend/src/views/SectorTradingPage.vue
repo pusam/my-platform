@@ -45,6 +45,12 @@
       <!-- 로딩 상태 -->
       <LoadingSpinner v-if="loading" message="섹터별 거래대금을 불러오는 중..." />
 
+      <!-- 정규장 개장(09:00) 전 — 빈 데이터를 "수집 실패" 로 오해하지 않게 안내 -->
+      <div v-else-if="!sectors.length && isPreMarket" class="collecting-state premarket">
+        <p>🕘 정규장 개장 대기 중 (09:00 시작)</p>
+        <p class="collecting-hint">9시 첫 거래대금 스냅샷부터 자동으로 채워집니다</p>
+      </div>
+
       <!-- 데이터 수집 중 (로딩 끝났는데 데이터 없음) -->
       <div v-else-if="!sectors.length" class="collecting-state">
         <div class="collecting-spinner"></div>
@@ -169,6 +175,19 @@ const totalTradingValue = computed(() => {
   }, 0);
 });
 
+// 정규장 개장(09:00) 전 평일 — 사용자에게 "곧 시작" 안내 노출.
+// 백엔드 스냅샷 스케줄러가 09:00부터 시작하므로 8~9시는 의도적으로 빈 상태.
+// 시계 갱신용 reactive ref (1분마다 업데이트).
+const nowTick = ref(new Date());
+let tickInterval = null;
+const isPreMarket = computed(() => {
+  const d = nowTick.value;
+  const day = d.getDay();
+  if (day === 0 || day === 6) return false;
+  const mins = d.getHours() * 60 + d.getMinutes();
+  return mins >= 480 && mins < 540; // 08:00 ~ 08:59
+});
+
 let retryTimeout = null;
 let retryCount = 0;
 const MAX_RETRIES = 3;
@@ -251,6 +270,8 @@ onMounted(() => {
   loadData();
   // 5분마다 자동 갱신
   refreshInterval = setInterval(loadData, 5 * 60 * 1000);
+  // 1분마다 시계 tick — isPreMarket 갱신용 (9시 정각에 안내 자동 사라지게)
+  tickInterval = setInterval(() => { nowTick.value = new Date(); }, 60 * 1000);
 });
 
 onUnmounted(() => {
@@ -259,6 +280,9 @@ onUnmounted(() => {
   }
   if (retryTimeout) {
     clearTimeout(retryTimeout);
+  }
+  if (tickInterval) {
+    clearInterval(tickInterval);
   }
 });
 </script>
