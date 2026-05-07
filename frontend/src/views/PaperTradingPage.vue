@@ -2449,6 +2449,11 @@ onUnmounted(() => {
     grid-template-columns: 1fr;
   }
 
+  /* 큰 폰트 축소 — 데스크톱 2.5rem 은 모바일에서 한 줄 폭 초과 가능 */
+  .pf-value { font-size: 1.5rem; }
+  .summary-card .card-icon { font-size: 1.5rem; margin-bottom: 0.25rem; }
+  .summary-card h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+
   .portfolio-table th:nth-child(4),
   .portfolio-table th:nth-child(5),
   .portfolio-table td:nth-child(4),

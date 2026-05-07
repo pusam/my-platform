@@ -1673,6 +1673,11 @@ onMounted(async () => {
   .summary-cards {
     grid-template-columns: 1fr 1fr;
   }
+
+  /* 모바일 아이콘 축소 — 데스크톱 1.8rem/2.5rem 은 좁은 화면에서 과함 */
+  .tab-icon { font-size: 1.2rem; }
+  .strategy-icon { font-size: 1.5rem; }
+  .strategy-text h3 { font-size: 1rem; }
 }
 
 /* 가격 변동 플래시 효과 */
