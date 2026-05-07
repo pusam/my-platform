@@ -32,8 +32,9 @@ public class AsyncCrawlerService {
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final SseEmitterService sseEmitterService;
 
-    // 작업 상태 플래그
-    private final Map<String, AtomicBoolean> runningTasks = new HashMap<>();
+    // 작업 상태 플래그 — @Async crawlerExecutor 에서 동시 호출 가능하므로 ConcurrentHashMap 필수.
+    // 일반 HashMap 이면 computeIfAbsent 동시 호출 시 race condition (resize 도중 쓰기 충돌).
+    private final Map<String, AtomicBoolean> runningTasks = new java.util.concurrent.ConcurrentHashMap<>();
 
     // 마지막 자동 수집 결과 저장
     private volatile LocalDateTime lastAutoCollectTime;
