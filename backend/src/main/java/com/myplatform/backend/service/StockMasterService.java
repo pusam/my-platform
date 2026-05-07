@@ -3,6 +3,8 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.entity.StockMaster;
 import com.myplatform.backend.repository.StockMasterRepository;
 import com.myplatform.backend.util.StockNameResolver;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,20 +32,41 @@ import java.util.concurrent.ConcurrentHashMap;
 public class StockMasterService {
 
     private final StockMasterRepository repository;
+    private final MeterRegistry meterRegistry;
 
     // stock_code -> stock_name (가장 많이 쓰이는 조회)
     private final Map<String, String> nameCache = new ConcurrentHashMap<>();
     // stock_code -> 시장구분
     private final Map<String, String> marketCache = new ConcurrentHashMap<>();
 
-    public StockMasterService(StockMasterRepository repository) {
+    // KIS 응답 → lazy upsert 결과별 카운터 (메트릭으로 자동 노출).
+    private Counter lazyUpsertNew;     // 캐시에 없던 신규 종목
+    private Counter lazyUpsertChanged; // 캐시에 있지만 이름 변경
+    private Counter lazyUpsertFail;    // DB write 실패
+
+    public StockMasterService(StockMasterRepository repository, MeterRegistry meterRegistry) {
         this.repository = repository;
+        this.meterRegistry = meterRegistry;
     }
 
     @PostConstruct
     public void warmup() {
         // 정적 유틸 (StockNameResolver) 이 우리를 통해 조회하도록 등록
         StockNameResolver.setMasterLookup(this::getName);
+
+        // 메트릭 초기화
+        lazyUpsertNew = Counter.builder("stock_master.lazy_upsert")
+                .description("KIS 응답에서 종목명 lazy upsert (신규)")
+                .tag("outcome", "new").register(meterRegistry);
+        lazyUpsertChanged = Counter.builder("stock_master.lazy_upsert")
+                .description("KIS 응답에서 종목명 lazy upsert (변경)")
+                .tag("outcome", "changed").register(meterRegistry);
+        lazyUpsertFail = Counter.builder("stock_master.lazy_upsert")
+                .description("KIS 응답에서 종목명 lazy upsert (실패)")
+                .tag("outcome", "fail").register(meterRegistry);
+        // 메모리 캐시 종목 수 Gauge — Prometheus 가 폴링 시점에 size() 평가
+        meterRegistry.gauge("stock_master.cached_count", nameCache, Map::size);
+
         try {
             int count = 0;
             for (StockMaster m : repository.findAll()) {
@@ -97,7 +120,10 @@ public class StockMasterService {
         try {
             repository.upsertNameOnly(stockCode, name, source != null ? source : "KIS");
             nameCache.put(stockCode, name);
+            if (existing == null) lazyUpsertNew.increment();
+            else lazyUpsertChanged.increment();
         } catch (Exception e) {
+            lazyUpsertFail.increment();
             log.warn("StockMaster upsert 실패 stockCode={}: {}", stockCode, e.getMessage());
         }
     }

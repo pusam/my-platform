@@ -69,6 +69,9 @@ public class StockPriceService {
     private final ObjectMapper objectMapper;
     private final KoreaInvestmentService kisService;
     private final StockMasterService stockMasterService;
+    private final io.micrometer.core.instrument.MeterRegistry meterRegistry;
+    private io.micrometer.core.instrument.Timer searchTimer;
+    private io.micrometer.core.instrument.DistributionSummary searchResultCount;
 
     // 캐시 (종목코드 -> 시세)
     private final ConcurrentHashMap<String, StockPriceDto> priceCache = new ConcurrentHashMap<>();
@@ -96,12 +99,23 @@ public class StockPriceService {
                              StockPriceRepository stockPriceRepository,
                              ObjectMapper objectMapper,
                              KoreaInvestmentService kisService,
-                             StockMasterService stockMasterService) {
+                             StockMasterService stockMasterService,
+                             io.micrometer.core.instrument.MeterRegistry meterRegistry) {
         this.restTemplate = restTemplate;
         this.stockPriceRepository = stockPriceRepository;
         this.objectMapper = objectMapper;
         this.kisService = kisService;
         this.stockMasterService = stockMasterService;
+        this.meterRegistry = meterRegistry;
+        // 검색 latency / 결과수 / 출처 메트릭
+        this.searchTimer = io.micrometer.core.instrument.Timer.builder("stock_search.duration")
+                .description("종목 검색 응답 시간 (캐시 hit 포함)")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meterRegistry);
+        this.searchResultCount = io.micrometer.core.instrument.DistributionSummary
+                .builder("stock_search.result_count")
+                .description("검색 1회당 반환 결과 수")
+                .register(meterRegistry);
     }
 
     /**
@@ -593,8 +607,14 @@ public class StockPriceService {
     public List<StockPriceDto> searchStocks(String keyword) {
         if (keyword == null || keyword.isBlank()) return java.util.Collections.emptyList();
 
+        // 메트릭: 캐시 hit 는 Caffeine recordStats() 로 자동 노출되므로,
+        // 이 timer 는 cache miss 처리 시간(검색 본체)만 측정.
+        io.micrometer.core.instrument.Timer.Sample sample =
+                io.micrometer.core.instrument.Timer.start(meterRegistry);
+
         List<StockPriceDto> results = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        String source = "empty";
 
         // 1순위: stock_master DB
         try {
@@ -604,6 +624,7 @@ public class StockPriceService {
                 results.add(buildBareDto(m.getStockCode(), m.getStockName()));
                 if (results.size() >= 20) break;
             }
+            if (!results.isEmpty()) source = "db";
         } catch (Exception e) {
             log.warn("stock_master 검색 실패: {}", e.getMessage());
         }
@@ -612,10 +633,17 @@ public class StockPriceService {
         // Naver 는 마스터에 아예 없는 케이스 (신규 상장 등) 에만 호출.
         if (results.isEmpty()) {
             searchFromNaver(keyword, results, seen);
+            if (!results.isEmpty()) source = "naver";
         }
 
         // 가격은 마지막에 batch 로 한 번만 채움 (첫 10건만).
         fillCachedPricesBatch(results);
+
+        // 메트릭 기록 — 출처별 카운터, 결과수, 응답시간
+        io.micrometer.core.instrument.Counter.builder("stock_search.total")
+                .tag("source", source).register(meterRegistry).increment();
+        searchResultCount.record(results.size());
+        sample.stop(searchTimer);
 
         return results;
     }

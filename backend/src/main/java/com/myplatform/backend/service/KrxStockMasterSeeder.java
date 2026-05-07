@@ -1,5 +1,7 @@
 package com.myplatform.backend.service;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -49,12 +51,21 @@ public class KrxStockMasterSeeder {
     private static final int EMPTY_THRESHOLD = 100;
 
     private final StockMasterService stockMasterService;
+    private final MeterRegistry meterRegistry;
     private final WebClient krxWebClient;
     /** 부팅 자동 시드와 06:00 cron 이 동시 발화 시 중복 작업 방지. */
     private final AtomicBoolean seeding = new AtomicBoolean(false);
 
-    public KrxStockMasterSeeder(StockMasterService stockMasterService) {
+    // 메트릭 — 마지막 시드 결과를 Gauge 로 노출 (Prometheus 가 폴링 시 평가)
+    private volatile long lastSeedEpochSeconds = 0;
+    private final java.util.concurrent.atomic.AtomicInteger lastKospiCount =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+    private final java.util.concurrent.atomic.AtomicInteger lastKosdaqCount =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
+    public KrxStockMasterSeeder(StockMasterService stockMasterService, MeterRegistry meterRegistry) {
         this.stockMasterService = stockMasterService;
+        this.meterRegistry = meterRegistry;
 
         HttpClient httpClient = HttpClient.create()
                 .responseTimeout(Duration.ofSeconds(30));
@@ -64,6 +75,21 @@ public class KrxStockMasterSeeder {
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                 .build();
+
+        // Gauge 등록 — 마지막 시드 시각(epoch) / 시장별 적재 수
+        meterRegistry.gauge("stock_master.last_seed_time_seconds", this,
+                self -> (double) self.lastSeedEpochSeconds);
+        meterRegistry.gauge("stock_master.last_seed_count",
+                java.util.List.of(io.micrometer.core.instrument.Tag.of("market", "KOSPI")),
+                lastKospiCount, java.util.concurrent.atomic.AtomicInteger::get);
+        meterRegistry.gauge("stock_master.last_seed_count",
+                java.util.List.of(io.micrometer.core.instrument.Tag.of("market", "KOSDAQ")),
+                lastKosdaqCount, java.util.concurrent.atomic.AtomicInteger::get);
+    }
+
+    /** Health indicator / 메트릭에서 마지막 시드 시각 조회. 0 = 시드 한 번도 안 됨. */
+    public long getLastSeedEpochSeconds() {
+        return lastSeedEpochSeconds;
     }
 
     /** 부팅 시 비어있으면 자동 시드 (비동기로 부팅 차단 방지). */
@@ -97,11 +123,20 @@ public class KrxStockMasterSeeder {
             return 0;
         }
         try {
-            int total = 0;
-            total += seedMarket("stockMkt", "KOSPI");
-            total += seedMarket("kosdaqMkt", "KOSDAQ");
-            log.info("KRX 시드 완료 — 총 {} 종목", total);
+            int kospi = seedMarket("stockMkt", "KOSPI");
+            int kosdaq = seedMarket("kosdaqMkt", "KOSDAQ");
+            lastKospiCount.set(kospi);
+            lastKosdaqCount.set(kosdaq);
+            lastSeedEpochSeconds = System.currentTimeMillis() / 1000;
+            int total = kospi + kosdaq;
+            log.info("KRX 시드 완료 — 총 {} 종목 (KOSPI {} / KOSDAQ {})", total, kospi, kosdaq);
+            Counter.builder("stock_master.seed").tag("outcome", "success")
+                    .register(meterRegistry).increment();
             return total;
+        } catch (RuntimeException e) {
+            Counter.builder("stock_master.seed").tag("outcome", "failure")
+                    .register(meterRegistry).increment();
+            throw e;
         } finally {
             seeding.set(false);
         }
