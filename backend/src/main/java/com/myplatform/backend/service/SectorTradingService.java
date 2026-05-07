@@ -118,6 +118,18 @@ public class SectorTradingService {
     public void initializeCache() {
         log.info("[섹터거래대금] ========== 스냅샷 기반 서비스 시작 ==========");
 
+        // 컨테이너 시작 시 어제 워머가 남긴 stale L2 캐시 제거.
+        // deploy 가 8AM 이후에 일어나면 그날 resetDailyCache 가 영구 미스되는 케이스 방어 —
+        // 시작 시점에 항상 sectorTrading L2 비워두고 신선 데이터로 다시 채우게 함.
+        try {
+            for (TradingPeriod p : TradingPeriod.values()) {
+                redisCacheService.evict(MarketCacheWarmerService.getCacheSectorTrading(), p.name());
+            }
+            log.info("[섹터거래대금] 시작 시 L2 캐시 evict 완료");
+        } catch (Exception e) {
+            log.warn("[섹터거래대금] 시작 시 L2 evict 실패: {}", e.getMessage());
+        }
+
         // 장외 시간이면 초기 수집 스킵 (스케줄러가 장중에 자동 수집)
         if (isMarketClosed()) {
             log.info("[섹터거래대금] 휴장일 - 초기 스냅샷 수집 스킵");
