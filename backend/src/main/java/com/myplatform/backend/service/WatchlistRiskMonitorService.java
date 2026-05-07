@@ -177,7 +177,7 @@ public class WatchlistRiskMonitorService {
     private void checkDartRisk(String stockCode, String stockName, List<RiskDetail> risks) {
         if (!dartService.isAvailable()) return;
         try {
-            List<RiskAnalysisDto.DartDisclosure> disclosures = dartService.searchDisclosuresByName(stockName);
+            List<RiskAnalysisDto.DartDisclosure> disclosures = dartService.searchDisclosuresByStockCode(stockCode, stockName);
             List<RiskAnalysisDto.DartDisclosure> dangerous = dartService.filterDangerousDisclosures(disclosures);
 
             if (!dangerous.isEmpty()) {

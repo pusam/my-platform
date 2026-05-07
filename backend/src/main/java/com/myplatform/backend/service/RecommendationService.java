@@ -629,7 +629,8 @@ public class RecommendationService {
         int hit = 0;
         for (StockScore stock : top) {
             try {
-                if (riskManagementService.quickDangerCheck(stock.stockName)) {
+                // stockCode 우선 매핑 — DartService corpCode 캐시 hit 으로 정확한 공시 조회.
+                if (riskManagementService.quickDangerCheck(stock.stockCode, stock.stockName)) {
                     stock.valueStability = Math.max(0, stock.valueStability - 5);
                     stock.tags.add("⚠리스크공시");
                     hit++;

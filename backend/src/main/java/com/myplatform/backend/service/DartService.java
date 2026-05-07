@@ -5,14 +5,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.RiskAnalysisDto.DartDisclosure;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
 /**
  * DART(전자공시시스템) API 연동 서비스
@@ -42,14 +54,134 @@ public class DartService {
     );
 
     private final RestTemplate restTemplate;
+    private final RestTemplate corpCodeRestTemplate;  // zip 다운로드용 — 더 긴 timeout
     private final ObjectMapper objectMapper;
+
+    // ========== corpCode 캐시 ==========
+    // DART 의 모든 기업 매핑 (corpCode.xml). 시작 시 다운로드 + 매일 06:00 갱신.
+    // 기존엔 19개 종목만 하드코딩 매핑이라 매핑 실패 폭발 → 캐시로 정상화.
+    private final ConcurrentHashMap<String, String> corpCodeByStockCode = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, String> corpCodeByName = new ConcurrentHashMap<>();
+    private volatile LocalDate corpCodeLoadedDate = null;
 
     public DartService() {
         org.springframework.http.client.SimpleClientHttpRequestFactory factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(10000);
         this.restTemplate = new RestTemplate(factory);
+
+        org.springframework.http.client.SimpleClientHttpRequestFactory corpFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        corpFactory.setConnectTimeout(10000);
+        corpFactory.setReadTimeout(60000);  // zip 다운로드 — 큰 파일이라 1분
+        this.corpCodeRestTemplate = new RestTemplate(corpFactory);
+
         this.objectMapper = new ObjectMapper();
+    }
+
+    // ========== corpCode 캐시 로드/갱신 ==========
+
+    /**
+     * 컨테이너 시작 시 corpCode 캐시 로드 — 다른 초기화와 경합 방지 위해 20초 지연.
+     * 비동기 — 시작 차단 없음.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
+    public void loadCorpCodesOnStartup() {
+        try {
+            Thread.sleep(20000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        loadCorpCodes();
+    }
+
+    /** 매일 06:00 — 신규 상장/상호 변경 반영. */
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    public void refreshCorpCodesScheduled() {
+        loadCorpCodes();
+    }
+
+    /**
+     * DART corpCode.xml 다운로드 → ZIP 압축 해제 → 파싱.
+     * stock_code 가 있는 상장 종목만 인덱싱 (비상장 수만 개는 노이즈).
+     */
+    public synchronized void loadCorpCodes() {
+        if (dartApiKey == null || dartApiKey.isEmpty()) {
+            log.warn("[DART] API Key 없음 — corpCode 캐시 로드 스킵");
+            return;
+        }
+        long startMs = System.currentTimeMillis();
+        try {
+            String url = DART_BASE_URL + "/corpCode.xml?crtfc_key=" + dartApiKey;
+            byte[] zipBytes = corpCodeRestTemplate.getForObject(url, byte[].class);
+            if (zipBytes == null || zipBytes.length == 0) {
+                log.error("[DART] corpCode.xml 다운로드 응답 없음");
+                return;
+            }
+            log.info("[DART] corpCode.xml 다운로드 완료 — {}KB, 파싱 시작", zipBytes.length / 1024);
+
+            Map<String, String> nameMap = new HashMap<>();
+            Map<String, String> stockMap = new HashMap<>();
+
+            try (ByteArrayInputStream bis = new ByteArrayInputStream(zipBytes);
+                 ZipInputStream zis = new ZipInputStream(bis)) {
+                ZipEntry entry;
+                while ((entry = zis.getNextEntry()) != null) {
+                    if (!entry.getName().toUpperCase().endsWith(".XML")) continue;
+                    DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+                    // XXE 방어
+                    dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                    dbf.setFeature("http://xml.org/sax/features/external-general-entities", false);
+                    dbf.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+                    Document doc = dbf.newDocumentBuilder().parse(zis);
+                    NodeList list = doc.getElementsByTagName("list");
+                    for (int i = 0; i < list.getLength(); i++) {
+                        Element el = (Element) list.item(i);
+                        String corpCode = textOf(el, "corp_code");
+                        String corpName = textOf(el, "corp_name");
+                        String stockCode = textOf(el, "stock_code");
+                        if (corpCode == null || corpCode.isBlank()) continue;
+                        // stock_code 가 있는 상장 종목만 인덱싱
+                        if (stockCode != null && !stockCode.isBlank() && !stockCode.equals(" ")) {
+                            String normCode = stockCode.trim();
+                            if (normCode.length() == 6) {
+                                stockMap.put(normCode, corpCode.trim());
+                                if (corpName != null && !corpName.isBlank()) {
+                                    nameMap.put(corpName.trim(), corpCode.trim());
+                                }
+                            }
+                        }
+                    }
+                    break;  // 첫 XML 만 처리
+                }
+            }
+
+            corpCodeByStockCode.clear();
+            corpCodeByStockCode.putAll(stockMap);
+            corpCodeByName.clear();
+            corpCodeByName.putAll(nameMap);
+            corpCodeLoadedDate = LocalDate.now();
+            log.info("[DART] corpCode 캐시 로드 완료 — 상장코드 {}개, 회사명 {}개 ({}ms)",
+                    stockMap.size(), nameMap.size(), System.currentTimeMillis() - startMs);
+        } catch (Exception e) {
+            log.error("[DART] corpCode 캐시 로드 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    private static String textOf(Element parent, String tag) {
+        NodeList nl = parent.getElementsByTagName(tag);
+        if (nl.getLength() == 0) return null;
+        return nl.item(0).getTextContent();
+    }
+
+    /**
+     * 종목코드(6자리) → DART corpCode. 매핑 실패 시 null.
+     * stockCode 매칭이 stockName 매칭보다 정확 (회사명 표기 차이 영향 없음).
+     */
+    public String getCorpCodeByStockCode(String stockCode) {
+        if (stockCode == null || stockCode.isBlank()) return null;
+        return corpCodeByStockCode.get(stockCode.trim());
     }
 
     /**
@@ -101,7 +233,7 @@ public class DartService {
      * @return 공시 목록 (위험 키워드 체크 완료)
      */
     public List<DartDisclosure> searchDisclosuresByName(String stockName) {
-        // 기업코드 조회
+        // 기업코드 조회 — 캐시(이름) → 하드코딩 fallback
         String corpCode = getCorpCodeByName(stockName);
         if (corpCode == null) {
             log.warn("[DART] 기업코드를 찾을 수 없음: {}", stockName);
@@ -116,6 +248,22 @@ public class DartService {
             checkDangerKeywords(disclosure);
         }
 
+        return disclosures;
+    }
+
+    /**
+     * 종목코드(6자리) 기반 공시 검색 — 가장 정확한 매핑.
+     * DART corpCode.xml 의 stock_code 인덱스로 매번 정확히 매칭.
+     * stockName 은 매핑 실패 시 fallback (캐시 미로드 등).
+     */
+    public List<DartDisclosure> searchDisclosuresByStockCode(String stockCode, String stockName) {
+        String corpCode = getCorpCodeByStockCode(stockCode);
+        if (corpCode == null) {
+            // 캐시 미로드 또는 신규 상장 → 이름 fallback
+            return searchDisclosuresByName(stockName);
+        }
+        List<DartDisclosure> disclosures = getRecentDisclosures(corpCode);
+        for (DartDisclosure d : disclosures) checkDangerKeywords(d);
         return disclosures;
     }
 
@@ -165,29 +313,18 @@ public class DartService {
     }
 
     /**
-     * 종목명으로 DART 기업코드 조회
+     * 종목명으로 DART 기업코드 조회 — 메모리 캐시 우선 + 하드코딩 fallback.
+     * 캐시는 corpCode.xml 다운로드(시작 시 + 매일 06:00) 로 채워짐.
+     * 정확한 매핑은 종목코드(stockCode) 가 더 안정적이므로 가능하면 getCorpCodeByStockCode 사용 권장.
      */
     public String getCorpCodeByName(String stockName) {
-        if (dartApiKey == null || dartApiKey.isEmpty()) {
-            return null;
-        }
-
-        try {
-            // 기업개황 API로 검색
-            String url = UriComponentsBuilder.fromUriString(DART_BASE_URL + "/corpCode.xml")
-                    .queryParam("crtfc_key", dartApiKey)
-                    .build()
-                    .toUriString();
-
-            // Note: 실제로는 corpCode.xml을 다운로드 후 파싱해야 함
-            // 여기서는 간단히 주요 기업 매핑 테이블 사용
-            return getCorpCodeFromMapping(stockName);
-
-        } catch (Exception e) {
-            log.error("[DART] 기업코드 조회 실패: {}", e.getMessage());
-        }
-
-        return null;
+        if (stockName == null || stockName.isBlank()) return null;
+        String trimmed = stockName.trim();
+        // 1차: corpCode 캐시
+        String cached = corpCodeByName.get(trimmed);
+        if (cached != null) return cached;
+        // 2차: 하드코딩 매핑 (캐시 미로드 시 안전망)
+        return getCorpCodeFromMapping(trimmed);
     }
 
     /**

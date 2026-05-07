@@ -96,15 +96,27 @@ public class RiskManagementService {
     }
 
     /**
-     * DART 공시 조회
+     * DART 공시 조회 — 종목명만 받는 기존 버전.
+     * 가능하면 stockCode 같이 받는 fetchDisclosures(stockCode, stockName) 사용 권장.
      */
     private List<DartDisclosure> fetchDisclosures(String stockName) {
+        return fetchDisclosures(null, stockName);
+    }
+
+    /**
+     * DART 공시 조회 — 종목코드 우선 매핑 (corpCode 캐시 hit).
+     * stockCode 가 null 이면 stockName 으로 fallback (기존 동작).
+     */
+    private List<DartDisclosure> fetchDisclosures(String stockCode, String stockName) {
         if (!dartService.isAvailable()) {
             log.warn("[RiskManagement] DART API 사용 불가");
             return List.of();
         }
 
         try {
+            if (stockCode != null && !stockCode.isBlank()) {
+                return dartService.searchDisclosuresByStockCode(stockCode, stockName);
+            }
             return dartService.searchDisclosuresByName(stockName);
         } catch (Exception e) {
             log.error("[RiskManagement] DART 공시 조회 실패: {}", e.getMessage());
@@ -289,13 +301,24 @@ public class RiskManagementService {
      *   공시는 분 단위로 바뀌지 않으므로 1시간 캐시로 충분.
      */
     public boolean quickDangerCheck(String stockName) {
-        DangerCheckCacheEntry cached = dangerCheckCache.get(stockName);
+        return quickDangerCheck(null, stockName);
+    }
+
+    /**
+     * 종목코드 우선 위험 체크 — corpCode 캐시 hit 으로 정확한 공시 조회.
+     * stockCode 매핑이 stockName 매핑보다 안정적 (회사명 표기 차이 영향 없음).
+     * 캐시 key 는 stockCode 우선 — 코드별로 캐싱되어 다른 호출에서도 재사용.
+     */
+    public boolean quickDangerCheck(String stockCode, String stockName) {
+        String cacheKey = (stockCode != null && !stockCode.isBlank()) ? stockCode : stockName;
+        if (cacheKey == null) return false;
+        DangerCheckCacheEntry cached = dangerCheckCache.get(cacheKey);
         if (cached != null && cached.isValid()) {
             return cached.result;
         }
-        List<DartDisclosure> disclosures = fetchDisclosures(stockName);
+        List<DartDisclosure> disclosures = fetchDisclosures(stockCode, stockName);
         boolean result = dartService.hasDangerousDisclosure(disclosures);
-        dangerCheckCache.put(stockName, new DangerCheckCacheEntry(result));
+        dangerCheckCache.put(cacheKey, new DangerCheckCacheEntry(result));
         return result;
     }
 
