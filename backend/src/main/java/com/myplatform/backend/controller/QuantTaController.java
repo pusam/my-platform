@@ -34,6 +34,28 @@ public class QuantTaController {
     private final QuantTaService quantTaService;
     private final ChartPatternService chartPatternService;
 
+    @GetMapping("/scan/top-volume")
+    @Operation(summary = "거래량 상위 종목 차트 패턴 자동 스캔",
+            description = "watchlist 비어있을 때 fallback universe — stock_price MAX(volume) 상위 N개 자동 스캔. " +
+                    "limit 5~50, 기본 30.")
+    public ResponseEntity<Map<String, Object>> scanTopVolume(
+            @RequestParam(defaultValue = "30") int limit) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<ChartPatternService.ScanResult> results = chartPatternService.scanTopVolumeStocks(limit);
+            response.put("success", true);
+            response.put("data", results);
+            response.put("count", results.size());
+            response.put("source", "TOP_VOLUME");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("거래량 상위 패턴 스캔 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @PostMapping("/scan/patterns")
     @Operation(summary = "다종목 차트 패턴 일괄 스캔",
             description = "여러 종목의 차트 패턴을 한 번에 검출. 종목별 가장 강한 패턴 1개씩. " +

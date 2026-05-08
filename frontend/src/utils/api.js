@@ -763,6 +763,10 @@ export const quantTaAPI = {
   scanPatterns(stockCodes) {
     return apiClient.post('/quant-ta/scan/patterns', { stockCodes });
   },
+  // 거래량 상위 fallback — watchlist 비어있을 때 사용
+  scanTopVolume(limit = 30) {
+    return apiClient.get('/quant-ta/scan/top-volume', { params: { limit } });
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

@@ -35,6 +35,8 @@ import java.util.List;
 public class ChartPatternService {
 
     private final KoreaInvestmentService kisService;
+    private final com.myplatform.backend.repository.StockPriceRepository stockPriceRepository;
+    private final StockMasterService stockMasterService;
     /** self-injection — 같은 클래스 내 호출 시 AOP proxy 거치도록 (@Cacheable 동작 위함). */
     @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
@@ -404,12 +406,24 @@ public class ChartPatternService {
                         .sorted((a, b) -> Integer.compare(rank(b), rank(a)))
                         .findFirst().orElse(null);
                 if (top == null) continue;
-                results.add(new ScanResult(code, top, patterns.size()));
+                String name = stockMasterService.getNameOrDefault(code, code);
+                results.add(new ScanResult(code, name, top, patterns.size()));
             } catch (Exception e) {
                 log.debug("[ChartPattern] scan {} 실패: {}", code, e.getMessage());
             }
         }
         return results;
+    }
+
+    /**
+     * 거래대금/거래량 상위 종목 fallback universe — watchlist 비어있을 때 사용.
+     * stock_price 의 MAX(volume) 기준 상위 N개 → scanForPatterns 위임.
+     */
+    public List<ScanResult> scanTopVolumeStocks(int limit) {
+        int safeLimit = Math.min(Math.max(limit, 5), 50);
+        List<String> codes = stockPriceRepository.findTopVolumeStockCodes(
+                org.springframework.data.domain.PageRequest.of(0, safeLimit));
+        return scanForPatterns(codes);
     }
 
     /** confidence + signal 가중치 — BULLISH HIGH 가 가장 높음. */
@@ -422,7 +436,8 @@ public class ChartPatternService {
     }
 
     /** 다종목 스캔 결과 — 종목당 가장 강한 패턴 1개. */
-    public record ScanResult(String stockCode, ChartPatternDto topPattern, int totalPatternCount) {}
+    public record ScanResult(String stockCode, String stockName,
+                             ChartPatternDto topPattern, int totalPatternCount) {}
 
     // ==================== 지지/저항 검출 ====================
 

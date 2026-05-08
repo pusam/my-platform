@@ -278,7 +278,9 @@
         <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="chartSignals.length">
           <div class="section-title-row">
             <h2><span class="section-icon">📊</span> 차트 신호 종목</h2>
-            <span class="cs-disclaimer">관심종목 기반 · 참고용</span>
+            <span class="cs-disclaimer">
+              {{ chartSignalsSource === 'WATCHLIST' ? '관심종목 기반' : '거래량 상위 기반' }} · 참고용
+            </span>
           </div>
           <div class="cs-list">
             <div
@@ -287,7 +289,7 @@
               class="cs-row" :class="'sig-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()"
               @click="goToStock(sig.stockCode)"
             >
-              <span class="cs-name">{{ getCsStockName(sig.stockCode) }}</span>
+              <span class="cs-name">{{ getCsStockName(sig) }}</span>
               <span class="cs-pattern">{{ sig.topPattern?.label }}</span>
               <span class="cs-confidence" :class="'cf-' + (sig.topPattern?.confidence || 'MEDIUM').toLowerCase()">
                 {{ getCsConfidenceLabel(sig.topPattern?.confidence) }}
@@ -481,6 +483,7 @@ export default {
       watchlistRisks: {},
       // 관심종목 차트 패턴 스캔 결과 (top 1 패턴/종목)
       chartSignals: [],
+      chartSignalsSource: '', // 'WATCHLIST' or 'TOP_VOLUME'
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -640,10 +643,39 @@ export default {
     }
   },
   methods: {
+    // ---- 차트 신호 universe 로드: watchlist 우선, 비었으면 거래량 상위 fallback ----
+    async loadChartSignals() {
+      try {
+        if (this.watchlistItems.length) {
+          const codes = this.watchlistItems.map(w => w.stockCode)
+          const res = await quantTaAPI.scanPatterns(codes)
+          if (res.data?.success) {
+            this.chartSignals = res.data.data || []
+            this.chartSignalsSource = 'WATCHLIST'
+            return
+          }
+        }
+        // fallback: 거래량 상위
+        const res = await quantTaAPI.scanTopVolume(30)
+        if (res.data?.success) {
+          this.chartSignals = res.data.data || []
+          this.chartSignalsSource = 'TOP_VOLUME'
+        }
+      } catch (e) {
+        console.warn('차트 신호 로드 실패:', e?.message)
+        this.chartSignals = []
+      }
+    },
+
     // ---- 차트 신호 helpers ----
-    getCsStockName(stockCode) {
-      const item = this.watchlistItems.find(w => w.stockCode === stockCode)
-      return item ? item.stockName : stockCode
+    getCsStockName(sigOrCode) {
+      // sig 객체면 백엔드 stockName 사용 (top-volume fallback 도 종목명 옴)
+      if (typeof sigOrCode === 'object') {
+        return sigOrCode.stockName || sigOrCode.stockCode
+      }
+      // 코드 string 으로 호출된 경우 watchlist 매핑
+      const item = this.watchlistItems.find(w => w.stockCode === sigOrCode)
+      return item ? item.stockName : sigOrCode
     },
     getCsConfidenceLabel(c) {
       return ({ HIGH: '강', MEDIUM: '중', LOW: '약' })[c] || '중'
@@ -774,21 +806,17 @@ export default {
         const res = await watchlistAPI.getList()
         const list = this.extractData(res)
         this.watchlistItems = Array.isArray(list) ? list : []
-        // 리스크 상태 + 차트 패턴 스캔
+        // 리스크 상태
         if (this.watchlistItems.length) {
           const codes = this.watchlistItems.map(w => w.stockCode)
           try {
             const riskRes = await watchlistAPI.getRiskStatus(codes)
             this.watchlistRisks = this.extractData(riskRes) || {}
           } catch { this.watchlistRisks = {} }
-          // 차트 패턴 스캔 (fire-and-forget — 화면 진입 안 막음)
-          quantTaAPI.scanPatterns(codes)
-            .then(res => {
-              if (res.data?.success) this.chartSignals = res.data.data || []
-            })
-            .catch(() => { this.chartSignals = [] })
         }
       } catch { this.watchlistItems = [] }
+      // 차트 패턴 스캔 — watchlist 우선, 비었으면 거래량 상위 fallback (모두 fire-and-forget)
+      this.loadChartSignals()
 
       // AI 종합 추천 TOP 5
       this.topRecLoading = true
