@@ -220,6 +220,10 @@ springdoc:
 # JVM 힙/GC, HikariCP pool, Tomcat 스레드, 캐시 히트율, 스케줄러 큐 등 자동 메트릭 제공.
 management:
   endpoints:
+    # Spring Boot 3.4+ 의 새 access 모델. 4.0 에서 endpoint 의 기본 access 가 적용 안 되면
+    # exposure.include 에 명시해도 endpoint 가 매핑 안 됨 → /actuator/health 404.
+    access:
+      default: read-only
     web:
       exposure:
         include: health,prometheus,metrics,info
@@ -227,6 +231,7 @@ management:
     health:
       show-details: never
       show-components: never
+      access: read-only
     prometheus:
       access: unrestricted
   metrics:
