@@ -755,6 +755,10 @@ export const quantTaAPI = {
   patterns(stockCode) {
     return apiClient.get(`/quant-ta/${stockCode}/patterns`);
   },
+  // 지지/저항 레벨 검출 (피벗 클러스터링)
+  supportResistance(stockCode) {
+    return apiClient.get(`/quant-ta/${stockCode}/support-resistance`);
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

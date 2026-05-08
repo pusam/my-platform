@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.ChartPatternDto;
+import com.myplatform.backend.dto.SupportResistanceDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -378,10 +380,126 @@ public class ChartPatternService {
         return n == 0 ? BigDecimal.ZERO : sum.divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP);
     }
 
+    // ==================== 지지/저항 검출 ====================
+
+    /** 같은 가격대로 묶을 허용 오차 — ±2% 이내면 동일 레벨로 본다. */
+    private static final BigDecimal LEVEL_CLUSTER_TOL = new BigDecimal("0.02");
+    /** 노출할 위/아래 레벨 최대 개수. */
+    private static final int LEVEL_MAX_COUNT = 5;
+
+    /**
+     * 지지/저항 레벨 검출 (메인 엔트리). 30분 캐시.
+     * 일봉 90일 피벗을 가격대로 클러스터링 → 같은 레벨 여러 번 터치한 곳이 강한 레벨.
+     */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "chartPatterns",
+            key = "'sr:' + #stockCode",
+            condition = "#stockCode != null && !#stockCode.isEmpty()")
+    public SupportResistanceDto detectSupportResistance(String stockCode) {
+        List<Candle> candles = fetchCandles(stockCode);
+        if (candles.size() < PIVOT_WINDOW * 4) {
+            return SupportResistanceDto.builder()
+                    .resistance(Collections.emptyList())
+                    .support(Collections.emptyList())
+                    .build();
+        }
+        BigDecimal currentPrice = candles.get(candles.size() - 1).close;
+
+        // 모든 피벗 (high + low) 모음 — 지지/저항 모두 후보
+        List<Pivot> allPivots = new ArrayList<>();
+        allPivots.addAll(findPivotHighs(candles));
+        allPivots.addAll(findPivotLows(candles));
+
+        // 가격대 클러스터링 — sort + ±2% 이내면 같은 클러스터
+        allPivots.sort(Comparator.comparing(p -> p.price));
+        List<Cluster> clusters = clusterPivots(allPivots);
+
+        // 현재가 기준 위/아래 분리 + Level 변환
+        List<SupportResistanceDto.Level> resistance = new ArrayList<>();
+        List<SupportResistanceDto.Level> support = new ArrayList<>();
+        for (Cluster c : clusters) {
+            SupportResistanceDto.Level level = toLevel(c, currentPrice);
+            if (c.avgPrice.compareTo(currentPrice) > 0) {
+                resistance.add(level);
+            } else {
+                support.add(level);
+            }
+        }
+
+        // 정렬: 가까운 순 + top N
+        resistance.sort(Comparator.comparing(l -> l.getPrice()));
+        support.sort(Comparator.comparing((SupportResistanceDto.Level l) -> l.getPrice()).reversed());
+
+        return SupportResistanceDto.builder()
+                .currentPrice(currentPrice)
+                .resistance(resistance.stream().limit(LEVEL_MAX_COUNT).toList())
+                .support(support.stream().limit(LEVEL_MAX_COUNT).toList())
+                .build();
+    }
+
+    private List<Cluster> clusterPivots(List<Pivot> sortedByPrice) {
+        List<Cluster> clusters = new ArrayList<>();
+        if (sortedByPrice.isEmpty()) return clusters;
+
+        Cluster current = new Cluster(sortedByPrice.get(0));
+        for (int i = 1; i < sortedByPrice.size(); i++) {
+            Pivot p = sortedByPrice.get(i);
+            BigDecimal diff = p.price.subtract(current.avgPrice).abs()
+                    .divide(current.avgPrice, 4, RoundingMode.HALF_UP);
+            if (diff.compareTo(LEVEL_CLUSTER_TOL) <= 0) {
+                current.add(p);
+            } else {
+                clusters.add(current);
+                current = new Cluster(p);
+            }
+        }
+        clusters.add(current);
+        return clusters;
+    }
+
+    private SupportResistanceDto.Level toLevel(Cluster c, BigDecimal currentPrice) {
+        String strength = c.touches >= 3 ? "HIGH" : (c.touches >= 2 ? "MEDIUM" : "LOW");
+        BigDecimal distancePct = c.avgPrice.subtract(currentPrice)
+                .divide(currentPrice, 4, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .setScale(2, RoundingMode.HALF_UP);
+        return SupportResistanceDto.Level.builder()
+                .price(c.avgPrice.setScale(0, RoundingMode.HALF_UP))
+                .touches(c.touches)
+                .lastTouchDate(c.lastTouchDate)
+                .strength(strength)
+                .distancePct(distancePct)
+                .build();
+    }
+
     // ==================== 내부 데이터 클래스 ====================
 
     private record Candle(LocalDate date, BigDecimal open, BigDecimal high, BigDecimal low,
                           BigDecimal close, long volume) {}
 
     private record Pivot(int index, LocalDate date, BigDecimal price, long volume) {}
+
+    /** 같은 가격대 피벗 클러스터 — 평균가, 터치횟수, 최신터치일 누적. */
+    private static class Cluster {
+        BigDecimal sumPrice;
+        BigDecimal avgPrice;
+        int touches;
+        LocalDate lastTouchDate;
+
+        Cluster(Pivot first) {
+            this.sumPrice = first.price;
+            this.avgPrice = first.price;
+            this.touches = 1;
+            this.lastTouchDate = first.date;
+        }
+
+        void add(Pivot p) {
+            this.sumPrice = this.sumPrice.add(p.price);
+            this.touches++;
+            this.avgPrice = this.sumPrice.divide(BigDecimal.valueOf(touches), 2, RoundingMode.HALF_UP);
+            if (p.date.isAfter(this.lastTouchDate)) {
+                this.lastTouchDate = p.date;
+            }
+        }
+    }
 }

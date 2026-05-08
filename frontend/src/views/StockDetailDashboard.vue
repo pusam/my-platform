@@ -91,6 +91,45 @@
       :stockCode="stockCode"
     />
 
+    <!-- 지지/저항 레벨 (피벗 클러스터링) -->
+    <section v-if="hasData && supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
+             class="sr-section">
+      <div class="sr-header">
+        <span class="sr-header-icon">🛡️</span>
+        <h3 class="sr-title">지지/저항 레벨</h3>
+        <span class="sr-disclaimer">최근 90일 피벗 기준</span>
+      </div>
+      <div class="sr-body">
+        <!-- 위 저항선 (가까운 순으로 거꾸로 — 화면 위에서 멀리, 아래로 가까이) -->
+        <div v-if="supportResistance.resistance?.length > 0" class="sr-list">
+          <div v-for="(lv, i) in [...supportResistance.resistance].reverse()" :key="'r'+i"
+               class="sr-row sr-resistance" :class="'st-' + lv.strength?.toLowerCase()">
+            <span class="sr-arrow">▲</span>
+            <span class="sr-price">{{ Number(lv.price).toLocaleString() }}원</span>
+            <span class="sr-touches">{{ lv.touches }}회 터치</span>
+            <span class="sr-strength" :class="'st-' + lv.strength?.toLowerCase()">{{ getSrStrengthLabel(lv.strength) }}</span>
+            <span class="sr-distance">+{{ Number(lv.distancePct).toFixed(1) }}%</span>
+          </div>
+        </div>
+        <!-- 현재가 -->
+        <div class="sr-current">
+          <span class="sr-current-label">현재가</span>
+          <span class="sr-current-price">{{ Number(supportResistance.currentPrice).toLocaleString() }}원</span>
+        </div>
+        <!-- 아래 지지선 -->
+        <div v-if="supportResistance.support?.length > 0" class="sr-list">
+          <div v-for="(lv, i) in supportResistance.support" :key="'s'+i"
+               class="sr-row sr-support" :class="'st-' + lv.strength?.toLowerCase()">
+            <span class="sr-arrow">▼</span>
+            <span class="sr-price">{{ Number(lv.price).toLocaleString() }}원</span>
+            <span class="sr-touches">{{ lv.touches }}회 터치</span>
+            <span class="sr-strength" :class="'st-' + lv.strength?.toLowerCase()">{{ getSrStrengthLabel(lv.strength) }}</span>
+            <span class="sr-distance">{{ Number(lv.distancePct).toFixed(1) }}%</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- 차트 패턴 검출 (참고용 인디케이터) -->
     <section v-if="hasData && chartPatterns.length > 0" class="chart-patterns-section">
       <div class="cps-header">
@@ -1049,6 +1088,7 @@ const peerComparisons = ref(null);
 const sectorAvgPbr = ref(null);
 const sectorName = ref(null);
 const chartPatterns = ref([]);  // 차트 패턴 검출 결과
+const supportResistance = ref(null);  // 지지/저항 레벨
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1588,13 +1628,19 @@ const fetchAllData = async (code, searchedName) => {
       lastUpdated.value = new Date();
     }
 
-    // 차트 패턴 검출 (Quick 단계와 병렬, fire-and-forget — 결과 늦어도 화면 진입 안 막음)
+    // 차트 패턴 + 지지/저항 검출 (병렬 fire-and-forget)
     chartPatterns.value = [];
+    supportResistance.value = null;
     quantTaAPI.patterns(code)
       .then(res => {
         if (res.data?.success) chartPatterns.value = res.data.data || [];
       })
       .catch(err => console.warn('차트 패턴 검출 실패:', err.message));
+    quantTaAPI.supportResistance(code)
+      .then(res => {
+        if (res.data?.success) supportResistance.value = res.data.data;
+      })
+      .catch(err => console.warn('지지/저항 검출 실패:', err.message));
 
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
@@ -1783,6 +1829,7 @@ const PATTERN_ICONS = {
 const getCpsIcon = (type) => PATTERN_ICONS[type] || '📊';
 const getCpsConfidenceLabel = (c) => ({ HIGH: '높음', MEDIUM: '보통', LOW: '낮음' }[c] || c || '보통');
 const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 신호', NEUTRAL: '관찰' }[s] || s || '중립');
+const getSrStrengthLabel = (s) => ({ HIGH: '강', MEDIUM: '중', LOW: '약' }[s] || s || '중');
 
 const formatBillion = (value) => {
   if (value === null || value === undefined) return 'N/A';
@@ -3835,6 +3882,64 @@ onUnmounted(() => {
 
   /* 재무정보 그리드 — 너무 좁아 한 줄로 */
   .financial-grid { grid-template-columns: 1fr; gap: 6px; }
+}
+
+/* ========== 지지/저항 레벨 섹션 ========== */
+.sr-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.sr-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.sr-header-icon { font-size: 18px; }
+.sr-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; flex: 1; }
+.sr-disclaimer {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
+}
+.sr-body { display: flex; flex-direction: column; gap: 4px; }
+.sr-list { display: flex; flex-direction: column; gap: 4px; }
+.sr-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.sr-resistance .sr-arrow { color: #ef4444; }   /* 한국 관행: 위로=빨강 */
+.sr-support .sr-arrow { color: #3b82f6; }      /* 아래로=파랑 */
+.sr-row.st-high { background: rgba(255,255,255,0.06); border-left: 2px solid #4ade80; padding-left: 8px; }
+.sr-row.st-medium { border-left: 2px solid #facc15; padding-left: 8px; }
+.sr-price { color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; font-weight: 600; }
+.sr-touches { color: rgba(255,255,255,0.55); font-size: 11px; }
+.sr-strength {
+  font-size: 11px; padding: 1px 6px; border-radius: 8px; min-width: 18px; text-align: center;
+}
+.sr-strength.st-high { background: rgba(34,197,94,0.18); color: #4ade80; }
+.sr-strength.st-medium { background: rgba(234,179,8,0.18); color: #facc15; }
+.sr-strength.st-low { background: rgba(156,163,175,0.18); color: #d1d5db; }
+.sr-distance {
+  font-size: 11px; color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums; min-width: 50px; text-align: right;
+}
+.sr-resistance .sr-distance { color: #f87171; }
+.sr-support .sr-distance { color: #60a5fa; }
+.sr-current {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 8px; margin: 6px 0;
+  background: rgba(99,102,241,0.12);
+  border: 1px dashed rgba(99,102,241,0.35);
+  border-radius: 6px;
+}
+.sr-current-label { font-size: 11px; color: rgba(255,255,255,0.5); }
+.sr-current-price {
+  color: #fff; font-weight: 700; font-size: 15px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ========== 차트 패턴 검출 섹션 ========== */

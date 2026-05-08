@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.ChartPatternDto;
+import com.myplatform.backend.dto.SupportResistanceDto;
 import com.myplatform.backend.service.ChartPatternService;
 import com.myplatform.backend.service.QuantTaService;
 import com.myplatform.backend.service.QuantTaService.ScreenerFilter;
@@ -32,6 +33,25 @@ public class QuantTaController {
 
     private final QuantTaService quantTaService;
     private final ChartPatternService chartPatternService;
+
+    @GetMapping("/{stockCode}/support-resistance")
+    @Operation(summary = "지지/저항 레벨 검출",
+            description = "일봉 90일 피벗을 가격대로 클러스터링하여 자주 터치된 가격대를 강한 레벨로 평가. " +
+                    "현재가 기준 위쪽=저항, 아래쪽=지지. 사용자 참고용.")
+    public ResponseEntity<Map<String, Object>> supportResistance(@PathVariable String stockCode) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            SupportResistanceDto data = chartPatternService.detectSupportResistance(stockCode);
+            response.put("success", true);
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("지지/저항 검출 오류 [{}]", stockCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 
     @GetMapping("/{stockCode}/patterns")
     @Operation(summary = "차트 패턴 검출",
