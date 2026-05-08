@@ -20,6 +20,9 @@
     </div>
 
     <div v-if="loading && !items.length" class="tr-loading">로딩 중...</div>
+    <div v-else-if="warming" class="tr-loading">
+      🔄 데이터 준비 중... 첫 평가는 1~2분 걸려요. 잠시 후 자동으로 표시됩니다.
+    </div>
     <div v-else-if="!filtered.length" class="tr-empty">조건에 맞는 종목이 없습니다.</div>
 
     <div class="tr-list">
@@ -53,8 +56,13 @@ export default {
     return {
       items: [],
       loading: false,
-      filter: 'ALL'
+      filter: 'ALL',
+      warming: false,
+      retryTimer: null
     }
+  },
+  beforeUnmount() {
+    if (this.retryTimer) clearTimeout(this.retryTimer)
   },
   computed: {
     filtered() {
@@ -71,7 +79,18 @@ export default {
       this.loading = true
       try {
         const res = await quantTaAPI.compositeRanking(30)
-        if (res.data?.success) this.items = res.data.data || []
+        if (res.data?.success) {
+          const data = res.data.data || []
+          this.items = data
+          // 빈 결과 = 백엔드가 백그라운드 평가 시작. 30초 후 재시도.
+          if (data.length === 0) {
+            this.warming = true
+            if (this.retryTimer) clearTimeout(this.retryTimer)
+            this.retryTimer = setTimeout(() => this.reload(), 30000)
+          } else {
+            this.warming = false
+          }
+        }
       } catch (e) {
         console.warn('종합 추천 로드 실패:', e?.message)
       } finally {

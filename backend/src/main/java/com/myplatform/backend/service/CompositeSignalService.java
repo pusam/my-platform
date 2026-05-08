@@ -10,7 +10,11 @@ import com.myplatform.backend.dto.SupportResistanceDto;
 import com.myplatform.backend.dto.VolumeProfileDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -39,6 +43,10 @@ public class CompositeSignalService {
     private final AiStockAnalysisService aiStockAnalysisService;
     private final StockMasterService stockMasterService;
     private final com.myplatform.backend.repository.StockPriceRepository stockPriceRepository;
+    private final CacheManager cacheManager;
+    /** scanTopRanked 백그라운드 평가 동시 실행 방지. */
+    private final java.util.concurrent.atomic.AtomicBoolean rankingComputing =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
     /** self-injection — evaluateBatch 에서 self.evaluate() 호출 시 @Cacheable 동작 위함. */
     @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
@@ -94,19 +102,70 @@ public class CompositeSignalService {
     /**
      * 거래량 상위 universe 에서 종합 점수 desc 정렬 — "종합 추천 리서치" 용.
      * 5개 신호 매칭 개수 기준. 동점이면 BULLISH 패턴 가중.
-     * 30분 캐시 (universe 자체가 거래량 기반이라 변동 빠름).
+     *
+     * UX:
+     * - 캐시 hit → 즉시 반환.
+     * - 캐시 miss → 빈 리스트 즉시 반환 + 백그라운드 평가 시작.
+     *   (50 종목 × 5 신호 평가는 1~3분 걸려 사용자 입장에서 timeout. nginx/cloudflare 도 끊어짐.)
+     * - 백그라운드 워머가 부팅 + 매 25분 자동 갱신해서 hit 률 상승.
      */
-    @Cacheable(value = "chartPatterns", key = "'rank:' + #limit")
     public List<CompositeSignalDto> scanTopRanked(int limit) {
         int safeLimit = Math.min(Math.max(limit, 10), 100);
-        // top volume N (universe 더 넓혀서 결과 다양성)
+        String cacheKey = "rank:" + safeLimit;
+        Cache cache = cacheManager.getCache("chartPatterns");
+        if (cache != null) {
+            Cache.ValueWrapper hit = cache.get(cacheKey);
+            if (hit != null && hit.get() instanceof List<?> list) {
+                @SuppressWarnings("unchecked")
+                List<CompositeSignalDto> typed = (List<CompositeSignalDto>) list;
+                return typed;
+            }
+        }
+        // miss → 백그라운드 시작, 빈 결과 즉시 반환
+        triggerRankingComputation(safeLimit);
+        return Collections.emptyList();
+    }
+
+    /**
+     * 백그라운드 평가 트리거. 동시 1건만 진행 (nFlag).
+     * 결과는 cache 에 직접 put → 다음 호출이 hit.
+     */
+    @Async
+    public void triggerRankingComputation(int limit) {
+        if (!rankingComputing.compareAndSet(false, true)) {
+            log.debug("[종합추천] 이미 백그라운드 평가 중 — skip");
+            return;
+        }
+        long start = System.currentTimeMillis();
+        try {
+            List<CompositeSignalDto> ranked = computeRanking(limit);
+            Cache cache = cacheManager.getCache("chartPatterns");
+            if (cache != null) {
+                cache.put("rank:" + limit, ranked);
+            }
+            log.info("[종합추천] 백그라운드 평가 완료 — {} 종목, {}ms",
+                    ranked.size(), System.currentTimeMillis() - start);
+        } catch (Exception e) {
+            log.warn("[종합추천] 백그라운드 평가 실패: {}", e.getMessage());
+        } finally {
+            rankingComputing.set(false);
+        }
+    }
+
+    /** 부팅 5분 후 + 매 25분 자동 워밍 (캐시 30분 TTL 살짝 안쪽). */
+    @Scheduled(initialDelay = 300_000L, fixedDelay = 1_500_000L)
+    public void scheduledWarmup() {
+        log.info("[종합추천] 스케줄 워밍 시작 (limit=30)");
+        triggerRankingComputation(30);
+    }
+
+    private List<CompositeSignalDto> computeRanking(int safeLimit) {
         int universeSize = Math.min(safeLimit + 20, 80);
         List<String> codes = stockPriceRepository.findTopVolumeStockCodes(
                 org.springframework.data.domain.PageRequest.of(0, universeSize));
         if (codes.isEmpty()) return Collections.emptyList();
 
         List<CompositeSignalDto> all = evaluateBatch(codes);
-        // matched desc, 동점이면 BULLISH 신호 보유 우선
         all.sort((a, b) -> {
             int cmp = Integer.compare(b.getMatchedCount(), a.getMatchedCount());
             if (cmp != 0) return cmp;
