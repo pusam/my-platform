@@ -4,8 +4,11 @@ import com.myplatform.backend.entity.StockPrice;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.QueryHint;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,11 +19,25 @@ public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
     Optional<StockPrice> findTopByStockCodeOrderByFetchedAtDesc(String stockCode);
 
     /**
-     * 여러 종목의 가장 최근 시세를 한 쿼리로 조회 (검색 결과 가격 채우기용).
-     * id 가 auto-increment 라 stockCode 별 MAX(id) = 최신 행.
+     * 여러 종목의 가장 최근 시세를 한 쿼리로 조회.
+     * 이전: WHERE id IN (subquery GROUP BY) 패턴 — MariaDB optimizer 가 semi-join 으로
+     *      최적화 못해 connection 120s+ 점유 → leak 경고.
+     * 변경: INNER JOIN (subquery) 패턴 + native — 인덱스 (stock_code, fetched_at) 의 PK
+     *      포함 leaf 활용. 1초 이내 종료 기대.
+     * read-only + timeout 명시로 안전망.
      */
-    @Query("SELECT sp FROM StockPrice sp WHERE sp.id IN " +
-           "(SELECT MAX(sp2.id) FROM StockPrice sp2 WHERE sp2.stockCode IN :codes GROUP BY sp2.stockCode)")
+    @Query(value = "SELECT sp.* FROM stock_price sp " +
+                   "INNER JOIN (" +
+                   "  SELECT stock_code, MAX(id) AS max_id " +
+                   "  FROM stock_price " +
+                   "  WHERE stock_code IN (:codes) " +
+                   "  GROUP BY stock_code" +
+                   ") latest ON sp.id = latest.max_id",
+           nativeQuery = true)
+    @Transactional(readOnly = true, timeout = 10)
+    @QueryHints({
+        @QueryHint(name = "org.hibernate.readOnly", value = "true")
+    })
     List<StockPrice> findLatestByStockCodes(@org.springframework.data.repository.query.Param("codes") List<String> codes);
 
     /**
