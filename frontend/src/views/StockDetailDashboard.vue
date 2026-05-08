@@ -91,6 +91,32 @@
       :stockCode="stockCode"
     />
 
+    <!-- Volume Profile (가격대별 누적 거래량) -->
+    <section v-if="hasData && volumeProfile && volumeProfile.bins?.length > 0" class="vp-section">
+      <div class="vp-header">
+        <span class="vp-header-icon">📊</span>
+        <h3 class="vp-title">Volume Profile</h3>
+        <span class="vp-stat">POC <strong>{{ Number(volumeProfile.poc).toLocaleString() }}원</strong></span>
+        <span class="vp-stat">VA {{ Number(volumeProfile.val).toLocaleString() }} ~ {{ Number(volumeProfile.vah).toLocaleString() }}</span>
+        <span class="vp-disclaimer">{{ volumeProfile.periodDays }}일 누적</span>
+      </div>
+      <div class="vp-grid">
+        <!-- 가격 높은 순으로 위→아래 배치 -->
+        <div v-for="(bin, i) in [...volumeProfile.bins].reverse()" :key="'vp'+i"
+             class="vp-row"
+             :class="{
+               'vp-poc': isVpPoc(bin),
+               'vp-in-va': isVpInValueArea(bin)
+             }">
+          <span class="vp-price">{{ Math.round((Number(bin.priceLow) + Number(bin.priceHigh)) / 2 / 100) * 100 }}</span>
+          <div class="vp-bar-wrap">
+            <div class="vp-bar" :style="{ width: vpBarWidth(bin) + '%' }"></div>
+          </div>
+          <span class="vp-pct">{{ bin.volumePct.toFixed(1) }}%</span>
+        </div>
+      </div>
+    </section>
+
     <!-- 지지/저항 레벨 (피벗 클러스터링) -->
     <section v-if="hasData && supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
              class="sr-section">
@@ -1125,6 +1151,7 @@ const sectorAvgPbr = ref(null);
 const sectorName = ref(null);
 const chartPatterns = ref([]);  // 차트 패턴 검출 결과
 const supportResistance = ref(null);  // 지지/저항 레벨
+const volumeProfile = ref(null);  // Volume Profile (가격대별 누적 거래량)
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1667,9 +1694,10 @@ const fetchAllData = async (code, searchedName) => {
       lastUpdated.value = new Date();
     }
 
-    // 차트 패턴 + 지지/저항 검출 (병렬 fire-and-forget)
+    // 차트 패턴 + 지지/저항 + Volume Profile (병렬 fire-and-forget)
     chartPatterns.value = [];
     supportResistance.value = null;
+    volumeProfile.value = null;
     quantTaAPI.patterns(code)
       .then(res => {
         if (res.data?.success) chartPatterns.value = res.data.data || [];
@@ -1680,6 +1708,11 @@ const fetchAllData = async (code, searchedName) => {
         if (res.data?.success) supportResistance.value = res.data.data;
       })
       .catch(err => console.warn('지지/저항 검출 실패:', err.message));
+    quantTaAPI.volumeProfile(code)
+      .then(res => {
+        if (res.data?.success) volumeProfile.value = res.data.data;
+      })
+      .catch(err => console.warn('Volume Profile 실패:', err.message));
 
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
@@ -1919,12 +1952,32 @@ const formatPercent = (value) => {
 const PATTERN_ICONS = {
   DOUBLE_TOP: '📉', DOUBLE_BOTTOM: '📈',
   HEAD_AND_SHOULDERS: '🏔️', INVERSE_HEAD_AND_SHOULDERS: '🪨',
-  TRIANGLE_ASCENDING: '📈', TRIANGLE_DESCENDING: '📉', TRIANGLE_SYMMETRIC: '⚖️'
+  TRIANGLE_ASCENDING: '📈', TRIANGLE_DESCENDING: '📉', TRIANGLE_SYMMETRIC: '⚖️',
+  CUP_AND_HANDLE: '☕'
 };
 const getCpsIcon = (type) => PATTERN_ICONS[type] || '📊';
 const getCpsConfidenceLabel = (c) => ({ HIGH: '높음', MEDIUM: '보통', LOW: '낮음' }[c] || c || '보통');
 const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 신호', NEUTRAL: '관찰' }[s] || s || '중립');
 const getSrStrengthLabel = (s) => ({ HIGH: '강', MEDIUM: '중', LOW: '약' }[s] || s || '중');
+
+// ===== Volume Profile helpers =====
+const vpMaxPct = computed(() => {
+  if (!volumeProfile.value?.bins) return 1;
+  return Math.max(...volumeProfile.value.bins.map(b => b.volumePct), 1);
+});
+const vpBarWidth = (bin) => (bin.volumePct / vpMaxPct.value) * 100;
+const isVpPoc = (bin) => {
+  if (!volumeProfile.value) return false;
+  const poc = Number(volumeProfile.value.poc);
+  return poc >= Number(bin.priceLow) && poc < Number(bin.priceHigh);
+};
+const isVpInValueArea = (bin) => {
+  if (!volumeProfile.value) return false;
+  const vah = Number(volumeProfile.value.vah);
+  const val = Number(volumeProfile.value.val);
+  const mid = (Number(bin.priceLow) + Number(bin.priceHigh)) / 2;
+  return mid >= val && mid <= vah;
+};
 
 const formatBillion = (value) => {
   if (value === null || value === undefined) return 'N/A';
@@ -4007,6 +4060,55 @@ onUnmounted(() => {
   /* 재무정보 그리드 — 너무 좁아 한 줄로 */
   .financial-grid { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* ========== Volume Profile 섹션 ========== */
+.vp-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.vp-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.vp-header-icon { font-size: 18px; }
+.vp-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; }
+.vp-stat {
+  font-size: 11px; color: rgba(255,255,255,0.65);
+  padding: 3px 8px; background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.vp-stat strong { color: #fff; }
+.vp-disclaimer {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
+  margin-left: auto;
+}
+.vp-grid { display: flex; flex-direction: column; gap: 1px; }
+.vp-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 50px;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 3px;
+}
+.vp-row.vp-in-va { background: rgba(99,102,241,0.06); }
+.vp-row.vp-poc { background: rgba(234,179,8,0.15); }
+.vp-price { color: rgba(255,255,255,0.7); text-align: right; }
+.vp-row.vp-poc .vp-price { color: #facc15; font-weight: 700; }
+.vp-bar-wrap { height: 10px; background: rgba(255,255,255,0.03); border-radius: 2px; overflow: hidden; }
+.vp-bar {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(99,102,241,0.4), rgba(99,102,241,0.7));
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+.vp-row.vp-poc .vp-bar { background: linear-gradient(90deg, rgba(234,179,8,0.5), #facc15); }
+.vp-pct { color: rgba(255,255,255,0.55); text-align: right; }
+.vp-row.vp-poc .vp-pct { color: #facc15; font-weight: 700; }
 
 /* ========== 지지/저항 레벨 섹션 ========== */
 .sr-section {

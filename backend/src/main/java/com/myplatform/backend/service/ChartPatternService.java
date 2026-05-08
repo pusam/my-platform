@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.ChartPatternDto;
 import com.myplatform.backend.dto.SupportResistanceDto;
+import com.myplatform.backend.dto.VolumeProfileDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -76,6 +77,7 @@ public class ChartPatternService {
         addIfNotNull(results, detectHeadAndShoulders(highs));
         addIfNotNull(results, detectInverseHeadAndShoulders(lows));
         addIfNotNull(results, detectTriangle(candles, highs, lows));
+        addIfNotNull(results, detectCupAndHandle(candles, highs, lows));
         return results;
     }
 
@@ -386,6 +388,109 @@ public class ChartPatternService {
         return n == 0 ? BigDecimal.ZERO : sum.divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP);
     }
 
+    // ==================== 컵앤핸들 ====================
+
+    /** 컵 최소 깊이 — 좌측 림 대비 5% 이상 하락해야 컵으로 인정. */
+    private static final BigDecimal CUP_MIN_DEPTH = new BigDecimal("0.05");
+    /** 컵 최대 깊이 — 너무 깊으면 (30%+) 추세전환 아닌 폭락 후 회복 — 컵 아님. */
+    private static final BigDecimal CUP_MAX_DEPTH = new BigDecimal("0.30");
+    /** 양쪽 림 가격 차이 허용 — ±5% 이내. */
+    private static final BigDecimal CUP_RIM_TOL = new BigDecimal("0.05");
+    /** 핸들 최대 깊이 — 컵 깊이의 50% 미만 (얕은 pullback). */
+    private static final BigDecimal HANDLE_MAX_DEPTH_RATIO = new BigDecimal("0.5");
+
+    /**
+     * 컵앤핸들 검출 — U자 컵 + 우측 짧은 핸들(pullback).
+     * 검출 노이즈 큰 패턴이라 임계치 보수적. 사용자 참고용.
+     *
+     * 단순화된 로직 (정확한 컵 곡률 회귀 X):
+     *  1) 최근 60일 내에 두 개의 비슷한 high pivot (±5%) — 좌/우 림 후보
+     *  2) 두 림 사이에 깊은 low pivot (림 대비 5~30% 하락) — 컵 바닥
+     *  3) 우측 림 이후 작은 pullback (컵 깊이의 50% 미만) — 핸들
+     */
+    private ChartPatternDto detectCupAndHandle(List<Candle> candles, List<Pivot> highs, List<Pivot> lows) {
+        if (highs.size() < 2 || lows.isEmpty() || candles.size() < 30) return null;
+
+        // 최근 N개 후보만 — 60일 안 또는 candles 절반 안의 high pivots
+        int from = Math.max(0, candles.size() - 60);
+        List<Pivot> recentHighs = highs.stream().filter(h -> h.index >= from).toList();
+        if (recentHighs.size() < 2) return null;
+
+        // 좌/우 림: 가장 최근 두 개의 비슷한 가격 high pivots
+        Pivot rightRim = null, leftRim = null;
+        for (int i = recentHighs.size() - 1; i >= 0; i--) {
+            Pivot rh = recentHighs.get(i);
+            for (int j = i - 1; j >= 0; j--) {
+                Pivot lh = recentHighs.get(j);
+                BigDecimal rimDiff = rh.price.subtract(lh.price).abs()
+                        .divide(lh.price, 4, RoundingMode.HALF_UP);
+                if (rimDiff.compareTo(CUP_RIM_TOL) > 0) continue;
+                // 두 림 사이 거리 — 컵 형성에 충분한 시간 (10일+)
+                if (rh.index - lh.index < 10) continue;
+                rightRim = rh;
+                leftRim = lh;
+                break;
+            }
+            if (rightRim != null) break;
+        }
+        if (rightRim == null) return null;
+
+        // 컵 바닥: 두 림 사이의 가장 낮은 low pivot
+        final int leftIdx = leftRim.index;
+        final int rightIdx = rightRim.index;
+        Pivot bottom = lows.stream()
+                .filter(l -> l.index > leftIdx && l.index < rightIdx)
+                .min(Comparator.comparing(l -> l.price))
+                .orElse(null);
+        if (bottom == null) return null;
+
+        BigDecimal cupDepth = leftRim.price.subtract(bottom.price)
+                .divide(leftRim.price, 4, RoundingMode.HALF_UP);
+        if (cupDepth.compareTo(CUP_MIN_DEPTH) < 0 || cupDepth.compareTo(CUP_MAX_DEPTH) > 0) return null;
+
+        // 핸들: 우측 림 이후 가격이 다시 하락했는데 (그리고 회복 진행 중)
+        // 가장 최근 캔들까지 최저점을 핸들 바닥으로
+        BigDecimal handleLow = leftRim.price; // initial high
+        for (int i = rightIdx + 1; i < candles.size(); i++) {
+            BigDecimal l = candles.get(i).low;
+            if (l.compareTo(handleLow) < 0) handleLow = l;
+        }
+        if (rightIdx + 1 >= candles.size()) return null; // 핸들 형성 안 됨
+        BigDecimal handleDepth = rightRim.price.subtract(handleLow)
+                .divide(rightRim.price, 4, RoundingMode.HALF_UP);
+        // 핸들이 너무 깊으면 컵 아님
+        if (handleDepth.compareTo(cupDepth.multiply(HANDLE_MAX_DEPTH_RATIO)) > 0) return null;
+        // 핸들이 너무 얕으면 (거의 0) — 아직 형성 중. skip
+        if (handleDepth.compareTo(new BigDecimal("0.01")) < 0) return null;
+
+        // 신뢰도: 좌우 림 비슷할수록 + 컵 깊이 적당할수록 (10~20%) HIGH
+        BigDecimal rimDiff = leftRim.price.subtract(rightRim.price).abs()
+                .divide(leftRim.price, 4, RoundingMode.HALF_UP);
+        boolean rimMatch = rimDiff.compareTo(new BigDecimal("0.02")) <= 0;
+        boolean depthIdeal = cupDepth.compareTo(new BigDecimal("0.10")) >= 0
+                && cupDepth.compareTo(new BigDecimal("0.20")) <= 0;
+        String confidence = (rimMatch && depthIdeal) ? "HIGH" : "MEDIUM";
+
+        return ChartPatternDto.builder()
+                .type("CUP_AND_HANDLE")
+                .label("컵앤핸들")
+                .confidence(confidence)
+                .signal("BULLISH")
+                .description(String.format("컵 깊이 %.1f%% + 핸들 깊이 %.1f%% 형태. " +
+                        "우측 림(저항) 상향 돌파 시 강한 상승 신호 가능.",
+                        cupDepth.multiply(BigDecimal.valueOf(100)).doubleValue(),
+                        handleDepth.multiply(BigDecimal.valueOf(100)).doubleValue()))
+                .startDate(leftRim.date)
+                .endDate(candles.get(candles.size() - 1).date)
+                .referencePrice(leftRim.price.add(rightRim.price)
+                        .divide(BigDecimal.valueOf(2), 0, RoundingMode.HALF_UP))
+                .keyPoints(List.of(
+                        new ChartPatternDto.KeyPoint(leftRim.date, leftRim.price, "LEFT_RIM"),
+                        new ChartPatternDto.KeyPoint(bottom.date, bottom.price, "CUP_BOTTOM"),
+                        new ChartPatternDto.KeyPoint(rightRim.date, rightRim.price, "RIGHT_RIM")))
+                .build();
+    }
+
     // ==================== 다종목 일괄 스캔 ====================
 
     /**
@@ -528,6 +633,108 @@ public class ChartPatternService {
                 .lastTouchDate(c.lastTouchDate)
                 .strength(strength)
                 .distancePct(distancePct)
+                .build();
+    }
+
+    // ==================== Volume Profile ====================
+
+    /** Volume Profile 가격 bin 개수 — 30개면 차트 보기 적당. */
+    private static final int VP_BIN_COUNT = 30;
+    /** Value Area 누적 비율 — 표준 70%. */
+    private static final double VP_VALUE_AREA_PCT = 0.70;
+
+    /**
+     * 가격대별 누적 거래량 (Volume Profile) 계산. 30분 캐시.
+     * - bin: 90일 일봉 가격 범위를 30등분
+     * - 각 일봉: typical_price = (high+low+close)/3 의 bin 에 volume 100% 할당
+     * - POC: 최다 거래량 bin 의 중간가
+     * - VAH/VAL: POC 부터 양옆 bin 누적 70% 도달 영역의 상/하한
+     */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "chartPatterns",
+            key = "'vp:' + #stockCode",
+            condition = "#stockCode != null && !#stockCode.isEmpty()")
+    public VolumeProfileDto computeVolumeProfile(String stockCode) {
+        List<Candle> candles = fetchCandles(stockCode);
+        if (candles.size() < PIVOT_WINDOW * 4) {
+            return VolumeProfileDto.builder()
+                    .bins(Collections.emptyList())
+                    .totalVolume(0L)
+                    .periodDays(candles.size())
+                    .build();
+        }
+
+        // 가격 범위
+        BigDecimal pMin = candles.stream().map(c -> c.low).min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+        BigDecimal pMax = candles.stream().map(c -> c.high).max(BigDecimal::compareTo).orElse(BigDecimal.ONE);
+        BigDecimal range = pMax.subtract(pMin);
+        if (range.signum() <= 0) {
+            return VolumeProfileDto.builder().bins(Collections.emptyList()).totalVolume(0L).build();
+        }
+        BigDecimal binWidth = range.divide(BigDecimal.valueOf(VP_BIN_COUNT), 4, RoundingMode.HALF_UP);
+
+        // bin 초기화
+        long[] binVolumes = new long[VP_BIN_COUNT];
+        long total = 0;
+        for (Candle c : candles) {
+            // typical_price = (high+low+close)/3
+            BigDecimal typical = c.high.add(c.low).add(c.close)
+                    .divide(BigDecimal.valueOf(3), 4, RoundingMode.HALF_UP);
+            int idx = typical.subtract(pMin).divide(binWidth, 4, RoundingMode.HALF_DOWN).intValue();
+            if (idx < 0) idx = 0;
+            if (idx >= VP_BIN_COUNT) idx = VP_BIN_COUNT - 1;
+            binVolumes[idx] += c.volume;
+            total += c.volume;
+        }
+
+        // bins DTO 생성
+        List<VolumeProfileDto.Bin> bins = new ArrayList<>();
+        int pocIdx = 0;
+        long pocVol = 0;
+        for (int i = 0; i < VP_BIN_COUNT; i++) {
+            BigDecimal bLow = pMin.add(binWidth.multiply(BigDecimal.valueOf(i)));
+            BigDecimal bHigh = bLow.add(binWidth);
+            double pct = total > 0 ? (binVolumes[i] * 100.0 / total) : 0.0;
+            bins.add(new VolumeProfileDto.Bin(
+                    bLow.setScale(0, RoundingMode.HALF_UP),
+                    bHigh.setScale(0, RoundingMode.HALF_UP),
+                    binVolumes[i],
+                    Math.round(pct * 100) / 100.0));
+            if (binVolumes[i] > pocVol) {
+                pocVol = binVolumes[i];
+                pocIdx = i;
+            }
+        }
+        BigDecimal poc = pMin.add(binWidth.multiply(BigDecimal.valueOf(pocIdx))).add(binWidth.divide(BigDecimal.valueOf(2), 4, RoundingMode.HALF_UP));
+
+        // Value Area: POC 에서 양옆으로 확장하며 누적 70% 도달
+        long target = (long) (total * VP_VALUE_AREA_PCT);
+        long cumulative = pocVol;
+        int low = pocIdx, high = pocIdx;
+        while (cumulative < target && (low > 0 || high < VP_BIN_COUNT - 1)) {
+            long leftVol = low > 0 ? binVolumes[low - 1] : -1;
+            long rightVol = high < VP_BIN_COUNT - 1 ? binVolumes[high + 1] : -1;
+            // 양옆 중 거래량 큰 쪽으로 확장
+            if (rightVol >= leftVol) {
+                high++;
+                cumulative += binVolumes[high];
+            } else {
+                low--;
+                cumulative += binVolumes[low];
+            }
+        }
+        BigDecimal val = pMin.add(binWidth.multiply(BigDecimal.valueOf(low))).setScale(0, RoundingMode.HALF_UP);
+        BigDecimal vah = pMin.add(binWidth.multiply(BigDecimal.valueOf(high + 1))).setScale(0, RoundingMode.HALF_UP);
+
+        return VolumeProfileDto.builder()
+                .priceMin(pMin.setScale(0, RoundingMode.HALF_UP))
+                .priceMax(pMax.setScale(0, RoundingMode.HALF_UP))
+                .bins(bins)
+                .poc(poc.setScale(0, RoundingMode.HALF_UP))
+                .vah(vah)
+                .val(val)
+                .totalVolume(total)
+                .periodDays(candles.size())
                 .build();
     }
 

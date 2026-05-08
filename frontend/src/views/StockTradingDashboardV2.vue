@@ -278,13 +278,23 @@
         <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="chartSignals.length">
           <div class="section-title-row">
             <h2><span class="section-icon">📊</span> 차트 신호 종목</h2>
-            <span class="cs-disclaimer">
-              {{ chartSignalsSource === 'WATCHLIST' ? '관심종목 기반' : '거래량 상위 기반' }} · 참고용
-            </span>
+            <div class="cs-controls">
+              <div class="cs-filter">
+                <button :class="['cs-filter-btn', { active: chartSignalFilter === 'ALL' }]"
+                        @click="chartSignalFilter = 'ALL'">전체</button>
+                <button :class="['cs-filter-btn bull', { active: chartSignalFilter === 'BULLISH' }]"
+                        @click="chartSignalFilter = 'BULLISH'">↑상승</button>
+                <button :class="['cs-filter-btn high', { active: chartSignalFilter === 'HIGH' }]"
+                        @click="chartSignalFilter = 'HIGH'">신뢰도 강</button>
+              </div>
+              <span class="cs-disclaimer">
+                {{ chartSignalsSource === 'WATCHLIST' ? '관심종목' : '거래량 상위' }}
+              </span>
+            </div>
           </div>
           <div class="cs-list">
             <div
-              v-for="(sig, idx) in chartSignals.slice(0, 8)"
+              v-for="(sig, idx) in filteredChartSignals"
               :key="'cs-' + idx"
               class="cs-row" :class="'sig-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()"
               @click="goToStock(sig.stockCode)"
@@ -484,6 +494,7 @@ export default {
       // 관심종목 차트 패턴 스캔 결과 (top 1 패턴/종목)
       chartSignals: [],
       chartSignalsSource: '', // 'WATCHLIST' or 'TOP_VOLUME'
+      chartSignalFilter: 'ALL', // 'ALL' | 'BULLISH' | 'HIGH'
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -559,6 +570,18 @@ export default {
     }
   },
   computed: {
+    // 차트 신호 필터링 (필터 + slice 8)
+    filteredChartSignals() {
+      const filter = this.chartSignalFilter
+      let arr = this.chartSignals
+      if (filter === 'BULLISH') {
+        arr = arr.filter(s => s.topPattern?.signal === 'BULLISH')
+      } else if (filter === 'HIGH') {
+        arr = arr.filter(s => s.topPattern?.confidence === 'HIGH')
+      }
+      return arr.slice(0, 8)
+    },
+
     currentPhaseKey() {
       const now = new Date()
       const day = now.getDay()
@@ -1487,11 +1510,23 @@ export default {
 .wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
 
 /* ===== 차트 신호 카드 ===== */
+.chart-signals .cs-controls {
+  display: flex; align-items: center; gap: 8px; margin-left: auto;
+}
 .chart-signals .cs-disclaimer {
   font-size: 11px; color: rgba(255,255,255,0.4);
   padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
-  margin-left: 8px;
 }
+.cs-filter { display: flex; gap: 2px; padding: 2px; background: rgba(255,255,255,0.04); border-radius: 8px; }
+.cs-filter-btn {
+  padding: 4px 10px; border: none; background: transparent;
+  color: rgba(255,255,255,0.55); font-size: 11px; font-weight: 600;
+  border-radius: 6px; cursor: pointer; transition: all 0.15s;
+}
+.cs-filter-btn:hover { color: rgba(255,255,255,0.85); }
+.cs-filter-btn.active { background: rgba(99,102,241,0.25); color: #fff; }
+.cs-filter-btn.bull.active { background: rgba(239,68,68,0.25); color: #f87171; }
+.cs-filter-btn.high.active { background: rgba(34,197,94,0.25); color: #4ade80; }
 .cs-list { display: flex; flex-direction: column; gap: 4px; }
 .cs-row {
   display: grid;

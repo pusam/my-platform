@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.ChartPatternDto;
 import com.myplatform.backend.dto.SupportResistanceDto;
+import com.myplatform.backend.dto.VolumeProfileDto;
 import com.myplatform.backend.service.ChartPatternService;
 import com.myplatform.backend.service.QuantTaService;
 import com.myplatform.backend.service.QuantTaService.ScreenerFilter;
@@ -80,6 +81,24 @@ public class QuantTaController {
     @lombok.Data
     public static class ScanRequest {
         private List<String> stockCodes;
+    }
+
+    @GetMapping("/{stockCode}/volume-profile")
+    @Operation(summary = "Volume Profile (가격대별 누적 거래량)",
+            description = "일봉 90일 가격 범위 30 bin → 거래량 누적. POC / VAH / VAL 함께 반환.")
+    public ResponseEntity<Map<String, Object>> volumeProfile(@PathVariable String stockCode) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            VolumeProfileDto data = chartPatternService.computeVolumeProfile(stockCode);
+            response.put("success", true);
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Volume Profile 오류 [{}]", stockCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 
     @GetMapping("/{stockCode}/support-resistance")
