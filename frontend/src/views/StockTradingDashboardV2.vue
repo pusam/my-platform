@@ -299,7 +299,10 @@
               class="cs-row" :class="'sig-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()"
               @click="goToStock(sig.stockCode)"
             >
-              <span class="cs-name">{{ getCsStockName(sig) }}</span>
+              <span class="cs-name-block">
+                <span class="cs-name">{{ getCsStockName(sig) }}</span>
+                <span class="cs-code">{{ sig.stockCode }}</span>
+              </span>
               <span class="cs-pattern">{{ sig.topPattern?.label }}</span>
               <span class="cs-confidence" :class="'cf-' + (sig.topPattern?.confidence || 'MEDIUM').toLowerCase()">
                 {{ getCsConfidenceLabel(sig.topPattern?.confidence) }}
@@ -1540,7 +1543,9 @@ export default {
 .cs-row.sig-bullish { border-left-color: #ef4444; }   /* 한국 관행 */
 .cs-row.sig-bearish { border-left-color: #3b82f6; }
 .cs-row.sig-neutral { border-left-color: #9ca3af; }
+.cs-name-block { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .cs-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); }
+.cs-code { font-size: 11px; color: rgba(255,255,255,0.4); font-variant-numeric: tabular-nums; }
 .cs-pattern { font-size: 12px; color: rgba(255,255,255,0.65); }
 .cs-confidence, .cs-signal {
   font-size: 11px; padding: 1px 7px; border-radius: 8px;
