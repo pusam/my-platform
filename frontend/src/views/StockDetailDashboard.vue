@@ -359,6 +359,18 @@
                 @click="activeIndicators[ind.key] = !activeIndicators[ind.key]">
                 {{ ind.label }}
               </button>
+              <button v-if="chartSrLines.length"
+                :class="['ind-toggle sr-toggle', { active: showSrLines }]"
+                @click="showSrLines = !showSrLines"
+                title="지지/저항 가로선 토글">
+                S/R
+              </button>
+              <button v-if="chartPatternMarkers.length"
+                :class="['ind-toggle pattern-toggle', { active: showPatternMarkers }]"
+                @click="showPatternMarkers = !showPatternMarkers"
+                title="패턴 마커 토글">
+                패턴
+              </button>
             </div>
           </div>
           <div class="candlestick-container">
@@ -389,7 +401,31 @@
                   <polyline v-if="maLinePath('bbLower')"
                     :points="maLinePath('bbLower')" fill="none" stroke="#6b7280" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
                 </template>
+                <!-- 지지/저항 가로선 (토글 가능) -->
+                <template v-if="showSrLines">
+                  <line v-for="(l, i) in chartSrLines" :key="'srL'+i"
+                    x1="0" x2="100" :y1="l.y" :y2="l.y"
+                    :stroke="l.type === 'resistance' ? '#ef4444' : '#3b82f6'"
+                    :stroke-width="l.strength === 'HIGH' ? 0.5 : 0.3"
+                    stroke-dasharray="1,0.6" :opacity="l.strength === 'HIGH' ? 0.85 : 0.55"
+                    vector-effect="non-scaling-stroke"/>
+                </template>
+                <!-- 차트 패턴 마커 (토글 가능) — 표시 30일 안에 있는 keyPoints 만 -->
+                <template v-if="showPatternMarkers">
+                  <circle v-for="(m, i) in chartPatternMarkers" :key="'mk'+i"
+                    :cx="m.x" :cy="m.y" r="1.2"
+                    :fill="m.signal === 'BULLISH' ? '#ef4444' : (m.signal === 'BEARISH' ? '#3b82f6' : '#9ca3af')"
+                    stroke="#fff" stroke-width="0.3" vector-effect="non-scaling-stroke"/>
+                </template>
               </svg>
+              <!-- 지지/저항 가격 라벨 (HTML 오버레이 — 폰트 크기 안정) -->
+              <div v-if="showSrLines && chartSrLines.length" class="sr-line-labels">
+                <span v-for="(l, i) in chartSrLines" :key="'srLab'+i"
+                      class="sr-line-label" :class="['type-' + l.type, 'st-' + l.strength?.toLowerCase()]"
+                      :style="{ top: l.y + '%' }">
+                  {{ Number(l.price).toLocaleString() }}
+                </span>
+              </div>
             </div>
           </div>
           <div class="volume-chart">
@@ -1257,6 +1293,9 @@ const displayVolumes = computed(() => {
 const activeIndicators = reactive({
   ma5: true, ma20: true, ma60: false, ma120: false, bb: false
 });
+// 지지/저항 + 패턴 마커 토글 (default ON — 결과 있으면 자동 노출)
+const showSrLines = ref(true);
+const showPatternMarkers = ref(true);
 const indicatorList = [
   { key: 'ma5', label: 'MA5', color: '#f59e0b' },
   { key: 'ma20', label: 'MA20', color: '#3b82f6' },
@@ -1725,6 +1764,62 @@ const chartPriceRange = computed(() => {
 const maxVolume = computed(() => {
   if (!displayVolumes.value.length) return 1;
   return Math.max(...displayVolumes.value.map(v => v.volume));
+});
+
+// 차트 위 지지/저항 가로선 — 차트 가격 범위 안에 있는 레벨만 표시
+const chartSrLines = computed(() => {
+  if (!supportResistance.value || !displayCandles.value.length) return [];
+  const range = chartPriceRange.value;
+  const span = range.max - range.min;
+  if (span <= 0) return [];
+  const lines = [];
+  const toY = (price) => ((range.max - Number(price)) / span) * 100;
+
+  for (const lv of (supportResistance.value.resistance || [])) {
+    const price = Number(lv.price);
+    if (price < range.min || price > range.max) continue;
+    lines.push({ y: toY(price), price, type: 'resistance', strength: lv.strength });
+  }
+  for (const lv of (supportResistance.value.support || [])) {
+    const price = Number(lv.price);
+    if (price < range.min || price > range.max) continue;
+    lines.push({ y: toY(price), price, type: 'support', strength: lv.strength });
+  }
+  return lines;
+});
+
+// 차트 위 패턴 마커 — keyPoints 일자가 표시 30일 안에 있는 것만
+const chartPatternMarkers = computed(() => {
+  if (!chartPatterns.value.length || !displayCandles.value.length) return [];
+  // displayCandles 의 date 기준 인덱스 매핑 (yyyy-MM-dd 또는 epoch 가능, 둘 다 처리)
+  const dateToIndex = new Map();
+  displayCandles.value.forEach((c, i) => {
+    const d = c.date || c.tradeDate;
+    if (d) dateToIndex.set(String(d).substring(0, 10), i);
+  });
+  const range = chartPriceRange.value;
+  const span = range.max - range.min;
+  if (span <= 0) return [];
+  const count = displayCandles.value.length;
+
+  const markers = [];
+  for (const p of chartPatterns.value) {
+    if (!p.keyPoints) continue;
+    for (const kp of p.keyPoints) {
+      const idx = dateToIndex.get(String(kp.date).substring(0, 10));
+      if (idx === undefined) continue;
+      const price = Number(kp.price);
+      if (price < range.min || price > range.max) continue;
+      markers.push({
+        x: ((idx + 0.5) / count) * 100,
+        y: ((range.max - price) / span) * 100,
+        signal: p.signal,
+        label: p.label,
+        role: kp.role
+      });
+    }
+  }
+  return markers;
 });
 
 const getCandleStyle = (candle) => {
@@ -2468,6 +2563,35 @@ onUnmounted(() => {
   pointer-events: none;
   viewBox: 0 0 100 100;
 }
+
+/* 지지/저항 가격 라벨 (HTML 오버레이 — SVG 폰트 안 흔들리게) */
+.sr-line-labels {
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 60px;
+  pointer-events: none;
+}
+.sr-line-label {
+  position: absolute;
+  right: 2px;
+  transform: translateY(-50%);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: rgba(15, 15, 26, 0.85);
+  border: 1px solid;
+}
+.sr-line-label.type-resistance { color: #f87171; border-color: rgba(239,68,68,0.45); }
+.sr-line-label.type-support    { color: #60a5fa; border-color: rgba(59,130,246,0.45); }
+.sr-line-label.st-high { font-weight: 700; }
+.sr-line-label.st-low  { opacity: 0.7; }
+
+/* SR / 패턴 토글 */
+.ind-toggle.sr-toggle.active { background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.4); color: #f87171; }
+.ind-toggle.pattern-toggle.active { background: rgba(168,85,247,0.18); border-color: rgba(168,85,247,0.4); color: #c084fc; }
 
 /* 차트 지표 토글 버튼 */
 .chart-toggles {
