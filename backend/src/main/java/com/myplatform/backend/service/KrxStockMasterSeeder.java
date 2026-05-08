@@ -166,19 +166,23 @@ public class KrxStockMasterSeeder {
         // EUC-KR 로 깨진 문자가 보이면 UTF-8 폴백.
         byte[] bytes;
         try {
+            log.info("KRX {} 다운로드 시작: {}{}", marketLabel, KRX_URL, marketType);
             bytes = krxWebClient.get()
                     .uri(KRX_URL + marketType)
                     .retrieve()
                     .bodyToMono(byte[].class)
                     .block(Duration.ofSeconds(30));
         } catch (Exception e) {
-            log.warn("KRX {} 다운로드 실패: {}", marketLabel, e.getMessage());
+            log.warn("KRX {} 다운로드 실패 [{}]: {}", marketLabel,
+                    e.getClass().getSimpleName(), e.getMessage());
             return 0;
         }
         if (bytes == null || bytes.length == 0) {
-            log.warn("KRX {} 응답이 비어있음", marketLabel);
+            log.warn("KRX {} 응답이 비어있음 (bytes={})", marketLabel,
+                    bytes == null ? "null" : 0);
             return 0;
         }
+        log.info("KRX {} 응답 수신: {} bytes", marketLabel, bytes.length);
         // EUC-KR / UTF-8 둘 다 디코드해서 깨진 char 가 적은 쪽 채택 (KRX 가 charset 정책을 바꿔도 안전).
         String html = pickBetterDecode(bytes);
 
