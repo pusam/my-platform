@@ -1,6 +1,7 @@
 package com.myplatform.backend.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -14,12 +15,18 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * 외국인/기관 수급 급증 종목 DTO
+ * 외국인/기관 수급 급증 종목 DTO.
+ *
+ * @JsonIgnoreProperties(ignoreUnknown = true): Lombok @Data 가 만드는 getter 메서드들
+ * (getFormattedChangeAmount 등) 이 직렬화 시 가상 필드로 출력되는데, 역직렬화 시
+ * setter 없어 fail. Redis L2 캐시 schema 변경 / Jackson getter-only 필드 호환성 위해
+ * unknown property 무시.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class InvestorSurgeDto {
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
