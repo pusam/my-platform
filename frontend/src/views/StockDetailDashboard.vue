@@ -96,6 +96,16 @@
       <div class="vp-header">
         <span class="vp-header-icon">📊</span>
         <h3 class="vp-title">Volume Profile</h3>
+        <InfoTooltip title="가격대별 누적 거래량">
+          <p><strong>POC</strong>(노란 막대): 90일간 가장 거래 많이 일어난 가격.
+            시장이 "공정가" 로 보는 자석 — 가격이 멀어지면 돌아오려는 경향.</p>
+          <p><strong>Value Area</strong>(보라 영역): 누적 70% 거래가 일어난 구간.
+            대부분 거래가 이 안에서 발생.</p>
+          <div class="tip-row" style="margin-top:8px"><b>활용</b></div>
+          <div class="tip-row">현재가 < VAL → <em>저평가</em> 영역, 매수 검토</div>
+          <div class="tip-row">현재가 > VAH → <em>과열</em> 영역, 매도 검토</div>
+          <div class="tip-row">큰 막대 = 미래 지지/저항 가능성 ↑</div>
+        </InfoTooltip>
         <span class="vp-stat">POC <strong>{{ Number(volumeProfile.poc).toLocaleString() }}원</strong></span>
         <span class="vp-stat">VA {{ Number(volumeProfile.val).toLocaleString() }} ~ {{ Number(volumeProfile.vah).toLocaleString() }}</span>
         <span class="vp-disclaimer">{{ volumeProfile.periodDays }}일 누적</span>
@@ -123,6 +133,19 @@
       <div class="sr-header">
         <span class="sr-header-icon">🛡️</span>
         <h3 class="sr-title">지지/저항 레벨</h3>
+        <InfoTooltip title="자주 닿은 가격대">
+          <p><strong>저항선</strong>(▲ 빨강, 위): 가격이 올라갈 때 매도 압력 강한 가격.
+            깨고 올라가기 어려움.</p>
+          <p><strong>지지선</strong>(▼ 파랑, 아래): 가격이 내려갈 때 매수 압력 강한 가격.
+            받쳐줌.</p>
+          <p><strong>강도</strong>: 같은 가격대 닿은 횟수. 강(3+) > 중(2) > 약(1).
+            많이 닿을수록 의미 큼.</p>
+          <div class="tip-row" style="margin-top:8px"><b>활용</b></div>
+          <div class="tip-row">강한 지지 근처 → <em>매수 검토</em> (반등 가능성)</div>
+          <div class="tip-row">강한 저항 근처 → <em>매도/관망</em></div>
+          <div class="tip-row">지지 깨짐 → 다음 지지선까지 추가 하락</div>
+          <div class="tip-row">저항 돌파(거래량↑) → 추세 전환 가능</div>
+        </InfoTooltip>
         <span class="sr-disclaimer">최근 90일 피벗 기준</span>
       </div>
       <div class="sr-body">
@@ -161,6 +184,15 @@
       <div class="cps-header">
         <span class="cps-header-icon">📊</span>
         <h3 class="cps-title">차트 패턴 검출</h3>
+        <InfoTooltip title="차트에서 자주 보이는 모양">
+          <p><strong>↑ 상승 신호</strong>: 더블바텀 · 역헤드앤숄더 · 컵앤핸들 · 상승삼각형</p>
+          <p><strong>↓ 하락 신호</strong>: 더블탑 · 헤드앤숄더 · 하락삼각형</p>
+          <p><strong>관찰</strong>: 대칭삼각형 — 방향 결정 임박</p>
+          <div class="tip-row" style="margin-top:8px"><b>주의</b></div>
+          <div class="tip-row">모든 패턴은 <em>참고용</em>. 단독 매수/매도 X</div>
+          <div class="tip-row">신뢰도 높음 + 거래량 동반 시 의미</div>
+          <div class="tip-row">지지/저항 + Volume Profile 과 함께 보면 유용</div>
+        </InfoTooltip>
         <span class="cps-disclaimer">참고용 · 자동매매 신호 아님</span>
       </div>
       <div class="cps-list">
@@ -1106,6 +1138,7 @@ import { useRoute, useRouter } from 'vue-router';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
 import StockCodeInput from '../components/StockCodeInput.vue';
+import InfoTooltip from '../components/InfoTooltip.vue';
 import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import StockRiskCard from '../components/v2/StockRiskCard.vue';
