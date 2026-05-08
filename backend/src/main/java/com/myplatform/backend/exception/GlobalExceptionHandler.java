@@ -18,6 +18,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -120,6 +121,17 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNoHandlerFound(NoHandlerFoundException ex) {
         String message = String.format("요청하신 경로 '%s'를 찾을 수 없습니다.", ex.getRequestURL());
+        log.warn(message);
+        return buildErrorResponse(HttpStatus.NOT_FOUND, message, null);
+    }
+
+    /**
+     * 404 Not Found - Spring 6.1+ 의 ResourceHttpRequestHandler 미해결.
+     * 이전: 미처리 → 500 으로 떨어졌음 (예: actuator endpoint 가 등록되기 전 ResourceHandler 가 잡음).
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNoResourceFound(NoResourceFoundException ex) {
+        String message = String.format("리소스를 찾을 수 없습니다: %s", ex.getResourcePath());
         log.warn(message);
         return buildErrorResponse(HttpStatus.NOT_FOUND, message, null);
     }

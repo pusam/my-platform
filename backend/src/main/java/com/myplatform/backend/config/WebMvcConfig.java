@@ -1,6 +1,7 @@
 package com.myplatform.backend.config;
 
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.Ordered;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.Resource;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
@@ -14,6 +15,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // ResourceHandler 가 actuator endpoint / 컨트롤러 매핑을 가로채지 않도록 가장 낮은 우선순위로 명시.
+        // 운영 사고: /actuator/health 요청이 ResourceHttpRequestHandler 에 먼저 잡혀
+        // NoResourceFoundException 발생 → GlobalExceptionHandler 가 500 으로 응답.
+        registry.setOrder(Ordered.LOWEST_PRECEDENCE);
+
         registry.addResourceHandler("/assets/**")
                 .addResourceLocations("classpath:/static/assets/")
                 .setCachePeriod(3600)
