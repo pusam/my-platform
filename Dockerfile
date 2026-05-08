@@ -22,9 +22,9 @@ USER spring
 
 EXPOSE 8080
 
-# 4. 헬스체크
+# 4. 헬스체크 — 자체 경량 ping (Spring Boot 4.0 actuator/health access 이슈 우회)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8080/actuator/health || exit 1
+    CMD curl -f http://localhost:8080/api/health || exit 1
 
 # 5. 실행
 ENTRYPOINT ["java", \

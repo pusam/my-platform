@@ -116,6 +116,9 @@ public class SecurityConfig {
                         // Actuator health check
                         .requestMatchers("/actuator/health/**").permitAll()
 
+                        // Docker healthcheck 전용 (actuator/health 매핑 이슈 우회)
+                        .requestMatchers("/api/health").permitAll()
+
                         // 테스트 API - public 엔드포인트
                         .requestMatchers("/api/test/public").permitAll()
 
