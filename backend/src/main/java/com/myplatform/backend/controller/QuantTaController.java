@@ -1,5 +1,7 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.ChartPatternDto;
+import com.myplatform.backend.service.ChartPatternService;
 import com.myplatform.backend.service.QuantTaService;
 import com.myplatform.backend.service.QuantTaService.ScreenerFilter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +31,27 @@ import java.util.Map;
 public class QuantTaController {
 
     private final QuantTaService quantTaService;
+    private final ChartPatternService chartPatternService;
+
+    @GetMapping("/{stockCode}/patterns")
+    @Operation(summary = "차트 패턴 검출",
+            description = "더블탑/바텀, 헤드앤숄더/역, 삼각수렴 패턴을 일봉 90일 기준으로 검출. " +
+                    "사용자 참고용 인디케이터 — 자동매매 신호로 사용 금지.")
+    public ResponseEntity<Map<String, Object>> patterns(@PathVariable String stockCode) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<ChartPatternDto> patterns = chartPatternService.detectPatterns(stockCode);
+            response.put("success", true);
+            response.put("data", patterns);
+            response.put("count", patterns.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("차트 패턴 검출 오류 [{}]", stockCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 
     @PostMapping("/screen")
     @Operation(summary = "TA 스크리너", description = "RSI, 골든크로스, 거래량, 볼린저 등 조건 조합으로 종목 필터링.")

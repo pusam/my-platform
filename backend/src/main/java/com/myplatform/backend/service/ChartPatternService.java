@@ -1,0 +1,387 @@
+package com.myplatform.backend.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.myplatform.backend.dto.ChartPatternDto;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * 차트 패턴 검출 서비스.
+ *
+ * 검출 가능 패턴:
+ *  - 더블탑 / 더블바텀
+ *  - 헤드앤숄더 / 역헤드앤숄더
+ *  - 삼각수렴 (대칭/상승/하락)
+ *
+ * 주의:
+ *  - 사용자 참고용 인디케이터로만 사용. 자동매매 신호로 사용 금지.
+ *  - 검출은 본질적으로 노이즈가 있어 confidence 와 함께 표시.
+ *  - 임계치들은 단순 휴리스틱. 정확도 vs 회수율 trade-off.
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ChartPatternService {
+
+    private final KoreaInvestmentService kisService;
+
+    /** 일봉 조회 일수 — 90일이면 대부분 패턴 검출 가능 (3개월 추세). */
+    private static final int LOOKBACK_DAYS = 90;
+    /** 피벗 검출 시 양옆 비교 윈도우 — 5일이면 너무 잡음, 7-10일이 적절. */
+    private static final int PIVOT_WINDOW = 5;
+    /** 가격 동등성 허용 오차 — 더블탑의 두 peak 가 ±3% 이내면 같은 가격으로 본다. */
+    private static final BigDecimal PRICE_EQUAL_TOL = new BigDecimal("0.03");
+    /** H&S 어깨/머리 비율 — head 는 어깨 대비 5% 이상 높아야 함. */
+    private static final BigDecimal HEAD_PROMINENCE_MIN = new BigDecimal("0.05");
+
+    private static final DateTimeFormatter KIS_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * 종목 차트 패턴 검출 (메인 엔트리). 30분 캐시.
+     */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "chartPatterns",
+            key = "#stockCode",
+            condition = "#stockCode != null && !#stockCode.isEmpty()")
+    public List<ChartPatternDto> detectPatterns(String stockCode) {
+        List<Candle> candles = fetchCandles(stockCode);
+        if (candles.size() < PIVOT_WINDOW * 4) {
+            log.debug("[ChartPattern] {} - 일봉 부족: {} 건", stockCode, candles.size());
+            return Collections.emptyList();
+        }
+
+        List<Pivot> highs = findPivotHighs(candles);
+        List<Pivot> lows = findPivotLows(candles);
+
+        List<ChartPatternDto> results = new ArrayList<>();
+        addIfNotNull(results, detectDoubleTop(highs));
+        addIfNotNull(results, detectDoubleBottom(lows));
+        addIfNotNull(results, detectHeadAndShoulders(highs));
+        addIfNotNull(results, detectInverseHeadAndShoulders(lows));
+        addIfNotNull(results, detectTriangle(candles, highs, lows));
+        return results;
+    }
+
+    private static void addIfNotNull(List<ChartPatternDto> list, ChartPatternDto pattern) {
+        if (pattern != null) list.add(pattern);
+    }
+
+    // ==================== 데이터 조회 / 파싱 ====================
+
+    private List<Candle> fetchCandles(String stockCode) {
+        try {
+            JsonNode resp = kisService.getDailyPrices(stockCode, LOOKBACK_DAYS);
+            if (resp == null || !resp.has("output2") || !resp.get("output2").isArray()) {
+                return Collections.emptyList();
+            }
+            List<Candle> out = new ArrayList<>();
+            for (JsonNode row : resp.get("output2")) {
+                String dateStr = row.path("stck_bsop_date").asText("");
+                if (dateStr.isEmpty()) continue;
+                try {
+                    Candle c = new Candle(
+                            LocalDate.parse(dateStr, KIS_DATE),
+                            parseDecimal(row.path("stck_oprc").asText()),
+                            parseDecimal(row.path("stck_hgpr").asText()),
+                            parseDecimal(row.path("stck_lwpr").asText()),
+                            parseDecimal(row.path("stck_clpr").asText()),
+                            parseLong(row.path("acml_vol").asText())
+                    );
+                    if (c.high.signum() > 0) out.add(c);
+                } catch (Exception e) {
+                    log.debug("[ChartPattern] 일봉 파싱 실패 {}: {}", dateStr, e.getMessage());
+                }
+            }
+            // KIS 응답은 최신순 → 시간순(과거→현재)으로 정렬
+            out.sort((a, b) -> a.date.compareTo(b.date));
+            return out;
+        } catch (Exception e) {
+            log.warn("[ChartPattern] 일봉 조회 실패 {}: {}", stockCode, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    private static BigDecimal parseDecimal(String s) {
+        if (s == null || s.isEmpty()) return BigDecimal.ZERO;
+        return new BigDecimal(s.replace(",", ""));
+    }
+
+    private static long parseLong(String s) {
+        if (s == null || s.isEmpty()) return 0L;
+        try { return Long.parseLong(s.replace(",", "")); } catch (Exception e) { return 0L; }
+    }
+
+    // ==================== 피벗 검출 ====================
+
+    private List<Pivot> findPivotHighs(List<Candle> candles) {
+        List<Pivot> pivots = new ArrayList<>();
+        for (int i = PIVOT_WINDOW; i < candles.size() - PIVOT_WINDOW; i++) {
+            BigDecimal h = candles.get(i).high;
+            boolean isPivot = true;
+            for (int j = 1; j <= PIVOT_WINDOW; j++) {
+                if (candles.get(i - j).high.compareTo(h) >= 0
+                        || candles.get(i + j).high.compareTo(h) >= 0) {
+                    isPivot = false;
+                    break;
+                }
+            }
+            if (isPivot) pivots.add(new Pivot(i, candles.get(i).date, h, candles.get(i).volume));
+        }
+        return pivots;
+    }
+
+    private List<Pivot> findPivotLows(List<Candle> candles) {
+        List<Pivot> pivots = new ArrayList<>();
+        for (int i = PIVOT_WINDOW; i < candles.size() - PIVOT_WINDOW; i++) {
+            BigDecimal l = candles.get(i).low;
+            boolean isPivot = true;
+            for (int j = 1; j <= PIVOT_WINDOW; j++) {
+                if (candles.get(i - j).low.compareTo(l) <= 0
+                        || candles.get(i + j).low.compareTo(l) <= 0) {
+                    isPivot = false;
+                    break;
+                }
+            }
+            if (isPivot) pivots.add(new Pivot(i, candles.get(i).date, l, candles.get(i).volume));
+        }
+        return pivots;
+    }
+
+    // ==================== 더블탑 / 더블바텀 ====================
+
+    private ChartPatternDto detectDoubleTop(List<Pivot> highs) {
+        if (highs.size() < 2) return null;
+        // 가장 최근 두 피벗 비교
+        Pivot p1 = highs.get(highs.size() - 2);
+        Pivot p2 = highs.get(highs.size() - 1);
+        if (p2.index - p1.index < PIVOT_WINDOW * 2) return null; // 너무 가까우면 동일 피크
+
+        BigDecimal diff = p1.price.subtract(p2.price).abs()
+                .divide(p1.price, 4, RoundingMode.HALF_UP);
+        if (diff.compareTo(PRICE_EQUAL_TOL) > 0) return null;
+
+        // 신뢰도: 두 번째 거래량이 줄었으면 HIGH (전형적 weakening)
+        String confidence = (p2.volume > 0 && p2.volume < p1.volume * 0.85) ? "HIGH" : "MEDIUM";
+
+        return ChartPatternDto.builder()
+                .type("DOUBLE_TOP")
+                .label("더블탑 의심")
+                .confidence(confidence)
+                .signal("BEARISH")
+                .description(String.format("최근 두 고점이 ±%.1f%% 이내로 형성. " +
+                        "넥라인 하향 돌파 시 추세 전환 신호 가능.",
+                        diff.multiply(BigDecimal.valueOf(100)).doubleValue()))
+                .startDate(p1.date)
+                .endDate(p2.date)
+                .referencePrice(p1.price.add(p2.price).divide(BigDecimal.valueOf(2), 0, RoundingMode.HALF_UP))
+                .keyPoints(List.of(
+                        new ChartPatternDto.KeyPoint(p1.date, p1.price, "PEAK_1"),
+                        new ChartPatternDto.KeyPoint(p2.date, p2.price, "PEAK_2")))
+                .build();
+    }
+
+    private ChartPatternDto detectDoubleBottom(List<Pivot> lows) {
+        if (lows.size() < 2) return null;
+        Pivot p1 = lows.get(lows.size() - 2);
+        Pivot p2 = lows.get(lows.size() - 1);
+        if (p2.index - p1.index < PIVOT_WINDOW * 2) return null;
+
+        BigDecimal diff = p1.price.subtract(p2.price).abs()
+                .divide(p1.price, 4, RoundingMode.HALF_UP);
+        if (diff.compareTo(PRICE_EQUAL_TOL) > 0) return null;
+
+        String confidence = (p2.volume > 0 && p2.volume > p1.volume * 1.15) ? "HIGH" : "MEDIUM";
+
+        return ChartPatternDto.builder()
+                .type("DOUBLE_BOTTOM")
+                .label("더블바텀 의심")
+                .confidence(confidence)
+                .signal("BULLISH")
+                .description(String.format("최근 두 저점이 ±%.1f%% 이내로 형성. " +
+                        "넥라인 상향 돌파 시 추세 전환 신호 가능.",
+                        diff.multiply(BigDecimal.valueOf(100)).doubleValue()))
+                .startDate(p1.date)
+                .endDate(p2.date)
+                .referencePrice(p1.price.add(p2.price).divide(BigDecimal.valueOf(2), 0, RoundingMode.HALF_UP))
+                .keyPoints(List.of(
+                        new ChartPatternDto.KeyPoint(p1.date, p1.price, "TROUGH_1"),
+                        new ChartPatternDto.KeyPoint(p2.date, p2.price, "TROUGH_2")))
+                .build();
+    }
+
+    // ==================== 헤드앤숄더 / 역H&S ====================
+
+    private ChartPatternDto detectHeadAndShoulders(List<Pivot> highs) {
+        if (highs.size() < 3) return null;
+        Pivot ls = highs.get(highs.size() - 3);
+        Pivot hd = highs.get(highs.size() - 2);
+        Pivot rs = highs.get(highs.size() - 1);
+
+        // head 가 두 어깨보다 충분히 높아야
+        BigDecimal headOverLeft = hd.price.subtract(ls.price)
+                .divide(ls.price, 4, RoundingMode.HALF_UP);
+        BigDecimal headOverRight = hd.price.subtract(rs.price)
+                .divide(rs.price, 4, RoundingMode.HALF_UP);
+        if (headOverLeft.compareTo(HEAD_PROMINENCE_MIN) < 0
+                || headOverRight.compareTo(HEAD_PROMINENCE_MIN) < 0) return null;
+
+        // 두 어깨 비슷한 높이 (±5%)
+        BigDecimal shoulderDiff = ls.price.subtract(rs.price).abs()
+                .divide(ls.price, 4, RoundingMode.HALF_UP);
+        if (shoulderDiff.compareTo(new BigDecimal("0.05")) > 0) return null;
+
+        String confidence = shoulderDiff.compareTo(new BigDecimal("0.02")) <= 0 ? "HIGH" : "MEDIUM";
+
+        return ChartPatternDto.builder()
+                .type("HEAD_AND_SHOULDERS")
+                .label("헤드앤숄더")
+                .confidence(confidence)
+                .signal("BEARISH")
+                .description("좌 어깨 - 머리 - 우 어깨 형태 형성. " +
+                        "넥라인 하향 돌파 시 강한 하락 전환 신호.")
+                .startDate(ls.date)
+                .endDate(rs.date)
+                .referencePrice(ls.price.add(rs.price).divide(BigDecimal.valueOf(2), 0, RoundingMode.HALF_UP))
+                .keyPoints(List.of(
+                        new ChartPatternDto.KeyPoint(ls.date, ls.price, "LEFT_SHOULDER"),
+                        new ChartPatternDto.KeyPoint(hd.date, hd.price, "HEAD"),
+                        new ChartPatternDto.KeyPoint(rs.date, rs.price, "RIGHT_SHOULDER")))
+                .build();
+    }
+
+    private ChartPatternDto detectInverseHeadAndShoulders(List<Pivot> lows) {
+        if (lows.size() < 3) return null;
+        Pivot ls = lows.get(lows.size() - 3);
+        Pivot hd = lows.get(lows.size() - 2);
+        Pivot rs = lows.get(lows.size() - 1);
+
+        // 역방향 — head 가 두 어깨보다 충분히 낮아야
+        BigDecimal leftOverHead = ls.price.subtract(hd.price)
+                .divide(hd.price, 4, RoundingMode.HALF_UP);
+        BigDecimal rightOverHead = rs.price.subtract(hd.price)
+                .divide(hd.price, 4, RoundingMode.HALF_UP);
+        if (leftOverHead.compareTo(HEAD_PROMINENCE_MIN) < 0
+                || rightOverHead.compareTo(HEAD_PROMINENCE_MIN) < 0) return null;
+
+        BigDecimal shoulderDiff = ls.price.subtract(rs.price).abs()
+                .divide(ls.price, 4, RoundingMode.HALF_UP);
+        if (shoulderDiff.compareTo(new BigDecimal("0.05")) > 0) return null;
+
+        String confidence = shoulderDiff.compareTo(new BigDecimal("0.02")) <= 0 ? "HIGH" : "MEDIUM";
+
+        return ChartPatternDto.builder()
+                .type("INVERSE_HEAD_AND_SHOULDERS")
+                .label("역헤드앤숄더")
+                .confidence(confidence)
+                .signal("BULLISH")
+                .description("좌 어깨 - 머리 - 우 어깨 (모두 저점) 형태 형성. " +
+                        "넥라인 상향 돌파 시 강한 상승 전환 신호.")
+                .startDate(ls.date)
+                .endDate(rs.date)
+                .referencePrice(ls.price.add(rs.price).divide(BigDecimal.valueOf(2), 0, RoundingMode.HALF_UP))
+                .keyPoints(List.of(
+                        new ChartPatternDto.KeyPoint(ls.date, ls.price, "LEFT_SHOULDER"),
+                        new ChartPatternDto.KeyPoint(hd.date, hd.price, "HEAD"),
+                        new ChartPatternDto.KeyPoint(rs.date, rs.price, "RIGHT_SHOULDER")))
+                .build();
+    }
+
+    // ==================== 삼각수렴 ====================
+
+    private ChartPatternDto detectTriangle(List<Candle> candles, List<Pivot> highs, List<Pivot> lows) {
+        // 최근 절반 구간만 평가 (오래된 추세는 무관)
+        int from = candles.size() / 2;
+        List<Pivot> recentHighs = highs.stream().filter(p -> p.index >= from).toList();
+        List<Pivot> recentLows = lows.stream().filter(p -> p.index >= from).toList();
+        if (recentHighs.size() < 2 || recentLows.size() < 2) return null;
+
+        // 단순 선형 회귀로 high/low 트렌드 기울기 추정
+        double highSlope = linearSlope(recentHighs);
+        double lowSlope = linearSlope(recentLows);
+
+        // 최근 high-low 폭 / 과거 high-low 폭 비교 — 좁아져야 수렴
+        BigDecimal recentRange = avgRange(candles, candles.size() - 10, candles.size());
+        BigDecimal earlierRange = avgRange(candles, from, from + 10);
+        if (earlierRange.signum() == 0) return null;
+        BigDecimal narrowing = recentRange.divide(earlierRange, 4, RoundingMode.HALF_UP);
+        if (narrowing.compareTo(new BigDecimal("0.7")) > 0) return null; // 30% 이상 좁아져야
+
+        String type;
+        String label;
+        String signal;
+        String desc;
+
+        // 평탄 기준 — abs slope < 평균가의 0.001 (대략 일당 0.1%)
+        BigDecimal avgPrice = recentHighs.get(0).price;
+        double flatTol = avgPrice.doubleValue() * 0.001;
+
+        boolean highFlat = Math.abs(highSlope) < flatTol;
+        boolean lowFlat = Math.abs(lowSlope) < flatTol;
+
+        if (highFlat && lowSlope > flatTol) {
+            type = "TRIANGLE_ASCENDING"; label = "상승 삼각형"; signal = "BULLISH";
+            desc = "고점 평탄 + 저점 상승 — 매수 압력 우세. 저항 돌파 시 상승 가능.";
+        } else if (lowFlat && highSlope < -flatTol) {
+            type = "TRIANGLE_DESCENDING"; label = "하락 삼각형"; signal = "BEARISH";
+            desc = "저점 평탄 + 고점 하락 — 매도 압력 우세. 지지 이탈 시 하락 가능.";
+        } else if (highSlope < -flatTol && lowSlope > flatTol) {
+            type = "TRIANGLE_SYMMETRIC"; label = "대칭 삼각형"; signal = "NEUTRAL";
+            desc = "고점/저점 모두 수렴 — 추세 결정 임박. 어느 쪽 돌파인지 관찰 필요.";
+        } else {
+            return null;
+        }
+
+        return ChartPatternDto.builder()
+                .type(type)
+                .label(label)
+                .confidence("MEDIUM")
+                .signal(signal)
+                .description(desc)
+                .startDate(candles.get(from).date)
+                .endDate(candles.get(candles.size() - 1).date)
+                .build();
+    }
+
+    /** 단순 선형 회귀 기울기 (least-squares). x=index, y=price. */
+    private static double linearSlope(List<Pivot> pivots) {
+        int n = pivots.size();
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (Pivot p : pivots) {
+            double x = p.index;
+            double y = p.price.doubleValue();
+            sumX += x; sumY += y; sumXY += x * y; sumX2 += x * x;
+        }
+        double denom = n * sumX2 - sumX * sumX;
+        if (Math.abs(denom) < 1e-9) return 0.0;
+        return (n * sumXY - sumX * sumY) / denom;
+    }
+
+    private static BigDecimal avgRange(List<Candle> candles, int from, int to) {
+        int n = 0;
+        BigDecimal sum = BigDecimal.ZERO;
+        int end = Math.min(to, candles.size());
+        int start = Math.max(0, from);
+        for (int i = start; i < end; i++) {
+            Candle c = candles.get(i);
+            sum = sum.add(c.high.subtract(c.low));
+            n++;
+        }
+        return n == 0 ? BigDecimal.ZERO : sum.divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP);
+    }
+
+    // ==================== 내부 데이터 클래스 ====================
+
+    private record Candle(LocalDate date, BigDecimal open, BigDecimal high, BigDecimal low,
+                          BigDecimal close, long volume) {}
+
+    private record Pivot(int index, LocalDate date, BigDecimal price, long volume) {}
+}

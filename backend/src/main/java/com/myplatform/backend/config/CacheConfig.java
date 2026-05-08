@@ -57,6 +57,10 @@ public class CacheConfig {
             // 분기 실적은 발표 후 며칠간 동일. 사용자 새로고침마다 DART + Gemini 호출 방지.
             buildCache("earningsSummary", 21600, 200),
 
+            // ========== 차트 패턴 검출 캐시 (30분 TTL) ==========
+            // 일봉 90일 기준 검출 — 장중에도 1-2번만 갱신되면 충분. KIS 호출 절감.
+            buildCache("chartPatterns", 1800, 300),
+
             // ========== 투자자 매매동향 캐시 (5분 TTL) ==========
             // 투자자 × 시장 × 종목 조합 → 카디널리티 폭발 대비
             buildCache("investorTrend", 300, 500),

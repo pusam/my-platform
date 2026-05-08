@@ -751,6 +751,10 @@ export const quantTaAPI = {
   correlation(stockCodes, days = 60) {
     return apiClient.post('/quant-ta/correlation', { stockCodes, days });
   },
+  // 차트 패턴 검출 (더블탑/바텀, H&S/역, 삼각수렴)
+  patterns(stockCode) {
+    return apiClient.get(`/quant-ta/${stockCode}/patterns`);
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

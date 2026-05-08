@@ -91,6 +91,35 @@
       :stockCode="stockCode"
     />
 
+    <!-- 차트 패턴 검출 (참고용 인디케이터) -->
+    <section v-if="hasData && chartPatterns.length > 0" class="chart-patterns-section">
+      <div class="cps-header">
+        <span class="cps-header-icon">📊</span>
+        <h3 class="cps-title">차트 패턴 검출</h3>
+        <span class="cps-disclaimer">참고용 · 자동매매 신호 아님</span>
+      </div>
+      <div class="cps-list">
+        <div v-for="(p, idx) in chartPatterns" :key="idx"
+             class="cps-card" :class="'sig-' + (p.signal || 'NEUTRAL').toLowerCase()">
+          <div class="cps-card-head">
+            <span class="cps-card-icon">{{ getCpsIcon(p.type) }}</span>
+            <span class="cps-card-label">{{ p.label }}</span>
+            <span class="cps-badge cps-confidence" :class="'cf-' + (p.confidence || 'MEDIUM').toLowerCase()">
+              신뢰도 {{ getCpsConfidenceLabel(p.confidence) }}
+            </span>
+            <span class="cps-badge cps-signal" :class="'sg-' + (p.signal || 'NEUTRAL').toLowerCase()">
+              {{ getCpsSignalLabel(p.signal) }}
+            </span>
+          </div>
+          <p class="cps-card-desc">{{ p.description }}</p>
+          <div class="cps-dates" v-if="p.startDate && p.endDate">
+            {{ p.startDate }} ~ {{ p.endDate }}
+            <span v-if="p.referencePrice" class="cps-ref">· 기준가 {{ Number(p.referencePrice).toLocaleString() }}원</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- 핵심 요약 카드 (항상 고정) -->
     <div v-if="hasData && !loading" class="quick-summary-bar">
       <div class="qs-item">
@@ -982,7 +1011,7 @@ import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
-import { stockDetailAPI, stockAPI } from '../utils/api';
+import { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import api from '../utils/api';
 import { toast } from '../utils/toast';
 import { Line } from 'vue-chartjs';
@@ -1019,6 +1048,7 @@ const chartData = ref(null);
 const peerComparisons = ref(null);
 const sectorAvgPbr = ref(null);
 const sectorName = ref(null);
+const chartPatterns = ref([]);  // 차트 패턴 검출 결과
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1558,6 +1588,14 @@ const fetchAllData = async (code, searchedName) => {
       lastUpdated.value = new Date();
     }
 
+    // 차트 패턴 검출 (Quick 단계와 병렬, fire-and-forget — 결과 늦어도 화면 진입 안 막음)
+    chartPatterns.value = [];
+    quantTaAPI.patterns(code)
+      .then(res => {
+        if (res.data?.success) chartPatterns.value = res.data.data || [];
+      })
+      .catch(err => console.warn('차트 패턴 검출 실패:', err.message));
+
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
     const [heavyRes, diagnosisRes] = await Promise.allSettled([
@@ -1735,6 +1773,16 @@ const formatPercent = (value) => {
   if (value === null || value === undefined) return '-';
   return `${Number(value).toFixed(2)}%`;
 };
+
+// ===== 차트 패턴 helpers =====
+const PATTERN_ICONS = {
+  DOUBLE_TOP: '📉', DOUBLE_BOTTOM: '📈',
+  HEAD_AND_SHOULDERS: '🏔️', INVERSE_HEAD_AND_SHOULDERS: '🪨',
+  TRIANGLE_ASCENDING: '📈', TRIANGLE_DESCENDING: '📉', TRIANGLE_SYMMETRIC: '⚖️'
+};
+const getCpsIcon = (type) => PATTERN_ICONS[type] || '📊';
+const getCpsConfidenceLabel = (c) => ({ HIGH: '높음', MEDIUM: '보통', LOW: '낮음' }[c] || c || '보통');
+const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 신호', NEUTRAL: '관찰' }[s] || s || '중립');
 
 const formatBillion = (value) => {
   if (value === null || value === undefined) return 'N/A';
@@ -3788,6 +3836,48 @@ onUnmounted(() => {
   /* 재무정보 그리드 — 너무 좁아 한 줄로 */
   .financial-grid { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* ========== 차트 패턴 검출 섹션 ========== */
+.chart-patterns-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.cps-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.cps-header-icon { font-size: 18px; }
+.cps-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; flex: 1; }
+.cps-disclaimer {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  padding: 2px 8px; background: rgba(255,255,255,0.05);
+  border-radius: 10px;
+}
+.cps-list { display: flex; flex-direction: column; gap: 8px; }
+.cps-card {
+  background: rgba(255,255,255,0.04);
+  border-left: 3px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.cps-card.sig-bullish { border-left-color: #ef4444; }   /* 한국 관행: 상승=빨강 */
+.cps-card.sig-bearish { border-left-color: #3b82f6; }   /* 하락=파랑 */
+.cps-card.sig-neutral { border-left-color: #9ca3af; }
+.cps-card-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.cps-card-icon { font-size: 16px; }
+.cps-card-label { color: rgba(255,255,255,0.95); font-weight: 600; font-size: 14px; flex: 1; min-width: 0; }
+.cps-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+.cps-confidence.cf-high   { background: rgba(34,197,94,0.18); color: #4ade80; }
+.cps-confidence.cf-medium { background: rgba(234,179,8,0.18); color: #facc15; }
+.cps-confidence.cf-low    { background: rgba(156,163,175,0.18); color: #d1d5db; }
+.cps-signal.sg-bullish { background: rgba(239,68,68,0.18); color: #f87171; }
+.cps-signal.sg-bearish { background: rgba(59,130,246,0.18); color: #60a5fa; }
+.cps-signal.sg-neutral { background: rgba(156,163,175,0.18); color: #d1d5db; }
+.cps-card-desc {
+  margin: 0 0 6px 0; color: rgba(255,255,255,0.7); font-size: 13px; line-height: 1.5;
+}
+.cps-dates { font-size: 11px; color: rgba(255,255,255,0.45); font-variant-numeric: tabular-nums; }
+.cps-ref { margin-left: 4px; }
 
 /* ========== 메인 탭 바 ========== */
 /* 핵심 요약 카드 */
