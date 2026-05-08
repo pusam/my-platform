@@ -9,7 +9,7 @@ RUN mkdir -p /app/uploads && \
     addgroup -S spring && \
     adduser -S spring -G spring && \
     chown -R spring:spring /app && \
-    apk add --no-cache curl
+    apk add --no-cache curl libgcc
 
 # 2. JAR 파일 복사
 # GitHub Actions가 빌드한 'app.jar'를 이미지 안으로 복사합니다.

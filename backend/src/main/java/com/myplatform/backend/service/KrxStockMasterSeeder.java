@@ -13,6 +13,10 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -21,10 +25,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import org.springframework.web.reactive.function.client.WebClient;
-import reactor.netty.http.client.HttpClient;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 
 /**
  * KRX 상장법인목록을 다운로드해서 stock_master 테이블에 시드.
@@ -50,9 +50,22 @@ public class KrxStockMasterSeeder {
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final int EMPTY_THRESHOLD = 100;
 
+    private static final String USER_AGENT =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
     private final StockMasterService stockMasterService;
     private final MeterRegistry meterRegistry;
-    private final WebClient krxWebClient;
+    /**
+     * 표준 java.net.http.HttpClient 사용.
+     * 이전: WebClient (reactor-netty) → 부팅 시 io.netty.handler.codec.quic.Quiche 가
+     * libnetty_quiche42_linux_x86_64.so 로드 시도 → 컨테이너 이미지에 libgcc_s.so.1 없어
+     * UnsatisfiedLinkError (fatal) → 시드 영구 실패. 시드는 단발 호출이라 reactive 불필요.
+     */
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
     /** 부팅 자동 시드와 06:00 cron 이 동시 발화 시 중복 작업 방지. */
     private final AtomicBoolean seeding = new AtomicBoolean(false);
 
@@ -66,15 +79,6 @@ public class KrxStockMasterSeeder {
     public KrxStockMasterSeeder(StockMasterService stockMasterService, MeterRegistry meterRegistry) {
         this.stockMasterService = stockMasterService;
         this.meterRegistry = meterRegistry;
-
-        HttpClient httpClient = HttpClient.create()
-                .responseTimeout(Duration.ofSeconds(30));
-        this.krxWebClient = WebClient.builder()
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
-                .defaultHeader("User-Agent",
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                .build();
 
         // Gauge 등록 — 마지막 시드 시각(epoch) / 시장별 적재 수
         meterRegistry.gauge("stock_master.last_seed_time_seconds", this,
@@ -167,11 +171,18 @@ public class KrxStockMasterSeeder {
         byte[] bytes;
         try {
             log.info("KRX {} 다운로드 시작: {}{}", marketLabel, KRX_URL, marketType);
-            bytes = krxWebClient.get()
-                    .uri(KRX_URL + marketType)
-                    .retrieve()
-                    .bodyToMono(byte[].class)
-                    .block(Duration.ofSeconds(30));
+            HttpRequest req = HttpRequest.newBuilder(URI.create(KRX_URL + marketType))
+                    .header("User-Agent", USER_AGENT)
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> res = httpClient.send(req, HttpResponse.BodyHandlers.ofByteArray());
+            if (res.statusCode() / 100 != 2) {
+                log.warn("KRX {} HTTP {} — body {} bytes", marketLabel, res.statusCode(),
+                        res.body() == null ? 0 : res.body().length);
+                return 0;
+            }
+            bytes = res.body();
         } catch (Exception e) {
             log.warn("KRX {} 다운로드 실패 [{}]: {}", marketLabel,
                     e.getClass().getSimpleName(), e.getMessage());
