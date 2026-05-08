@@ -167,6 +167,27 @@ public class QuantTaController {
         }
     }
 
+    @GetMapping("/composite/ranking")
+    @Operation(summary = "종합 추천 ranking — 거래량 상위 universe 에서 5개 신호 점수 desc",
+            description = "리서치 탭의 종합 추천 — top volume 80 → composite 평가 → matched desc 정렬. " +
+                    "동점은 BULLISH 패턴 보유 가중. 30분 캐시.")
+    public ResponseEntity<Map<String, Object>> compositeRanking(
+            @RequestParam(defaultValue = "30") int limit) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<CompositeSignalDto> data = compositeSignalService.scanTopRanked(limit);
+            response.put("success", true);
+            response.put("data", data);
+            response.put("count", data.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("종합 ranking 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @PostMapping("/composite/batch")
     @Operation(summary = "종합 신호 다종목 일괄 평가",
             description = "여러 종목 5개 신호 평가 — 메인 대시보드 차트 신호 카드용. 최대 50종목.")

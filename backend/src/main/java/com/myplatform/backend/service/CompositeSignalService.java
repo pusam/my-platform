@@ -38,6 +38,7 @@ public class CompositeSignalService {
     private final InvestorTradeService investorTradeService;
     private final AiStockAnalysisService aiStockAnalysisService;
     private final StockMasterService stockMasterService;
+    private final com.myplatform.backend.repository.StockPriceRepository stockPriceRepository;
     /** self-injection — evaluateBatch 에서 self.evaluate() 호출 시 @Cacheable 동작 위함. */
     @org.springframework.context.annotation.Lazy
     @org.springframework.beans.factory.annotation.Autowired
@@ -88,6 +89,41 @@ public class CompositeSignalService {
                     }
                 })
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 거래량 상위 universe 에서 종합 점수 desc 정렬 — "종합 추천 리서치" 용.
+     * 5개 신호 매칭 개수 기준. 동점이면 BULLISH 패턴 가중.
+     * 30분 캐시 (universe 자체가 거래량 기반이라 변동 빠름).
+     */
+    @Cacheable(value = "chartPatterns", key = "'rank:' + #limit")
+    public List<CompositeSignalDto> scanTopRanked(int limit) {
+        int safeLimit = Math.min(Math.max(limit, 10), 100);
+        // top volume N (universe 더 넓혀서 결과 다양성)
+        int universeSize = Math.min(safeLimit + 20, 80);
+        List<String> codes = stockPriceRepository.findTopVolumeStockCodes(
+                org.springframework.data.domain.PageRequest.of(0, universeSize));
+        if (codes.isEmpty()) return Collections.emptyList();
+
+        List<CompositeSignalDto> all = evaluateBatch(codes);
+        // matched desc, 동점이면 BULLISH 신호 보유 우선
+        all.sort((a, b) -> {
+            int cmp = Integer.compare(b.getMatchedCount(), a.getMatchedCount());
+            if (cmp != 0) return cmp;
+            int aBull = countBullish(a);
+            int bBull = countBullish(b);
+            return Integer.compare(bBull, aBull);
+        });
+        return all.stream().limit(safeLimit).collect(Collectors.toList());
+    }
+
+    private static int countBullish(CompositeSignalDto dto) {
+        if (dto.getSignals() == null) return 0;
+        return (int) dto.getSignals().stream()
+                .filter(s -> s.isMatched()
+                        && ("PATTERN".equals(s.getId()) || "VALUE_AREA".equals(s.getId())
+                            || "SUPPORT".equals(s.getId())))
+                .count();
     }
 
     private CompositeSignalDto empty(String code) {

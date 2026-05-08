@@ -778,6 +778,10 @@ export const quantTaAPI = {
   compositeBatch(stockCodes) {
     return apiClient.post('/quant-ta/composite/batch', { stockCodes });
   },
+  // 종합 추천 ranking (거래량 상위 universe → 5개 신호 점수 정렬)
+  compositeRanking(limit = 30) {
+    return apiClient.get('/quant-ta/composite/ranking', { params: { limit } });
+  },
   // 관련 종목 (같은 섹터 + correlation 0.5+)
   relatedStocks(stockCode, limit = 5) {
     return apiClient.get(`/quant-ta/${stockCode}/related`, { params: { limit } });

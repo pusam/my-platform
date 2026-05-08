@@ -401,6 +401,7 @@
           </button>
         </div>
         <div class="embedded-content">
+          <SectionTotalRecommendation v-if="activeAnalysisTab === 'total'" />
           <AiStrategyDashboardPage v-if="activeAnalysisTab === 'ai-strategy'" :embedded="true" />
           <SectionBacktest v-if="activeAnalysisTab === 'backtest'" />
           <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
@@ -429,6 +430,7 @@ import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
+import SectionTotalRecommendation from '../components/v2/SectionTotalRecommendation.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
@@ -491,6 +493,7 @@ export default {
     SectionLiveSurge,
     SectionBacktest,
     StockSearchModal,
+    SectionTotalRecommendation,
     AiStrategyDashboardPage,
     EarningsScreenerPage,
     SectorTradingPage,
@@ -511,6 +514,7 @@ export default {
       activeGnbTab: this.resolveInitialTab(),
       activeAnalysisTab: this.resolveInitialSubTab(),
       researchTabs: [
+        { key: 'total', label: '🎯 종합' },
         { key: 'ai-strategy', label: 'AI전략' },
         { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
