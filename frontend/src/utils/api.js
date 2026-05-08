@@ -771,6 +771,13 @@ export const quantTaAPI = {
   volumeProfile(stockCode) {
     return apiClient.get(`/quant-ta/${stockCode}/volume-profile`);
   },
+  // 종합 신호 평가 (5가지 — 패턴/지지선/저평가/수급/AI)
+  compositeSignal(stockCode) {
+    return apiClient.get(`/quant-ta/${stockCode}/composite`);
+  },
+  compositeBatch(stockCodes) {
+    return apiClient.post('/quant-ta/composite/batch', { stockCodes });
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

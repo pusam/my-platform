@@ -10,7 +10,24 @@
         <BackButton :dark="true" />
         <div class="stock-info">
           <h1 class="stock-name">{{ stockName || '종목 검색' }}</h1>
-          <span class="stock-code">{{ stockCode }}</span>
+          <div class="stock-meta">
+            <span class="stock-code">{{ stockCode }}</span>
+            <!-- 종합 신호 매칭 뱃지 — 클릭 시 5개 분해 -->
+            <span v-if="compositeSignal && compositeSignal.totalCount > 0"
+                  class="composite-badge" :class="getCompositeBadgeClass()">
+              신호 {{ compositeSignal.matchedCount }}/{{ compositeSignal.totalCount }}
+              <InfoTooltip title="5가지 신호 매칭" position="left">
+                <p>의사결정 단순화 — 단일 신호 X, 여러 개 같은 방향이면 적중률 ↑</p>
+                <div v-for="s in compositeSignal.signals" :key="s.id" class="tip-row">
+                  <span :style="{ color: s.matched ? '#4ade80' : 'rgba(255,255,255,0.35)' }">
+                    {{ s.matched ? '✓' : '○' }}
+                  </span>
+                  <b>{{ s.label }}</b>
+                  <em v-if="s.matched && s.detail" style="opacity:0.85">{{ s.detail }}</em>
+                </div>
+              </InfoTooltip>
+            </span>
+          </div>
         </div>
         <button class="search-btn" @click="showSearch = true" title="종목 검색 (Ctrl+K)">
           🔍
@@ -1185,6 +1202,7 @@ const sectorName = ref(null);
 const chartPatterns = ref([]);  // 차트 패턴 검출 결과
 const supportResistance = ref(null);  // 지지/저항 레벨
 const volumeProfile = ref(null);  // Volume Profile (가격대별 누적 거래량)
+const compositeSignal = ref(null);  // 5개 신호 종합 평가
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1746,6 +1764,12 @@ const fetchAllData = async (code, searchedName) => {
         if (res.data?.success) volumeProfile.value = res.data.data;
       })
       .catch(err => console.warn('Volume Profile 실패:', err.message));
+    compositeSignal.value = null;
+    quantTaAPI.compositeSignal(code)
+      .then(res => {
+        if (res.data?.success) compositeSignal.value = res.data.data;
+      })
+      .catch(err => console.warn('종합 신호 실패:', err.message));
 
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
@@ -1992,6 +2016,16 @@ const getCpsIcon = (type) => PATTERN_ICONS[type] || '📊';
 const getCpsConfidenceLabel = (c) => ({ HIGH: '높음', MEDIUM: '보통', LOW: '낮음' }[c] || c || '보통');
 const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 신호', NEUTRAL: '관찰' }[s] || s || '중립');
 const getSrStrengthLabel = (s) => ({ HIGH: '강', MEDIUM: '중', LOW: '약' }[s] || s || '중');
+
+// ===== 종합 신호 뱃지 helpers =====
+const getCompositeBadgeClass = () => {
+  if (!compositeSignal.value) return '';
+  const m = compositeSignal.value.matchedCount;
+  if (m >= 4) return 'cb-strong';
+  if (m >= 3) return 'cb-medium';
+  if (m >= 1) return 'cb-weak';
+  return 'cb-none';
+};
 
 // ===== Volume Profile helpers =====
 const vpMaxPct = computed(() => {
@@ -4093,6 +4127,24 @@ onUnmounted(() => {
   /* 재무정보 그리드 — 너무 좁아 한 줄로 */
   .financial-grid { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* ========== 종합 신호 뱃지 ========== */
+.stock-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.composite-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 10px;
+  border: 1px solid;
+  font-variant-numeric: tabular-nums;
+}
+.composite-badge.cb-strong { background: rgba(34,197,94,0.18); color: #4ade80; border-color: rgba(34,197,94,0.4); }
+.composite-badge.cb-medium { background: rgba(234,179,8,0.18); color: #facc15; border-color: rgba(234,179,8,0.4); }
+.composite-badge.cb-weak { background: rgba(249,115,22,0.18); color: #fb923c; border-color: rgba(249,115,22,0.4); }
+.composite-badge.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.4); border-color: rgba(156,163,175,0.2); }
 
 /* ========== Volume Profile 섹션 ========== */
 .vp-section {

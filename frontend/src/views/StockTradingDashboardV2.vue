@@ -303,6 +303,11 @@
                 <span class="cs-name">{{ getCsStockName(sig) }}</span>
                 <span class="cs-code">{{ sig.stockCode }}</span>
               </span>
+              <span v-if="compositeMap[sig.stockCode]"
+                    class="cs-composite" :class="getCompositeClass(compositeMap[sig.stockCode].matched)"
+                    :title="`5가지 신호 중 ${compositeMap[sig.stockCode].matched}개 매칭`">
+                {{ compositeMap[sig.stockCode].matched }}/{{ compositeMap[sig.stockCode].total }}
+              </span>
               <span class="cs-pattern">{{ sig.topPattern?.label }}</span>
               <span class="cs-confidence" :class="'cf-' + (sig.topPattern?.confidence || 'MEDIUM').toLowerCase()">
                 {{ getCsConfidenceLabel(sig.topPattern?.confidence) }}
@@ -498,6 +503,8 @@ export default {
       chartSignals: [],
       chartSignalsSource: '', // 'WATCHLIST' or 'TOP_VOLUME'
       chartSignalFilter: 'ALL', // 'ALL' | 'BULLISH' | 'HIGH'
+      // 종합 신호 점수 (stockCode → matchedCount/totalCount)
+      compositeMap: {},
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -678,6 +685,7 @@ export default {
           if (res.data?.success) {
             this.chartSignals = res.data.data || []
             this.chartSignalsSource = 'WATCHLIST'
+            this.loadCompositeBatch(this.chartSignals.map(s => s.stockCode))
             return
           }
         }
@@ -686,6 +694,7 @@ export default {
         if (res.data?.success) {
           this.chartSignals = res.data.data || []
           this.chartSignalsSource = 'TOP_VOLUME'
+          this.loadCompositeBatch(this.chartSignals.map(s => s.stockCode))
         }
       } catch (e) {
         console.warn('차트 신호 로드 실패:', e?.message)
@@ -693,7 +702,30 @@ export default {
       }
     },
 
+    // ---- 종합 신호 점수 batch 로드 (fire-and-forget) ----
+    async loadCompositeBatch(codes) {
+      if (!codes || !codes.length) return
+      try {
+        const res = await quantTaAPI.compositeBatch(codes)
+        if (res.data?.success) {
+          const map = {}
+          for (const item of (res.data.data || [])) {
+            map[item.stockCode] = { matched: item.matchedCount, total: item.totalCount }
+          }
+          this.compositeMap = map
+        }
+      } catch (e) {
+        console.warn('종합 신호 batch 실패:', e?.message)
+      }
+    },
+
     // ---- 차트 신호 helpers ----
+    getCompositeClass(matched) {
+      if (matched >= 4) return 'cb-strong'
+      if (matched >= 3) return 'cb-medium'
+      if (matched >= 1) return 'cb-weak'
+      return 'cb-none'
+    },
     getCsStockName(sigOrCode) {
       // sig 객체면 백엔드 stockName 사용 (top-volume fallback 도 종목명 옴)
       if (typeof sigOrCode === 'object') {
@@ -1533,7 +1565,7 @@ export default {
 .cs-list { display: flex; flex-direction: column; gap: 4px; }
 .cs-row {
   display: grid;
-  grid-template-columns: 1fr auto auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto auto;
   align-items: center; gap: 8px;
   padding: 8px 12px; border-radius: 8px; cursor: pointer;
   transition: background 0.15s;
@@ -1557,6 +1589,16 @@ export default {
 .cs-signal.sg-bearish { background: rgba(59,130,246,0.18); color: #60a5fa; }
 .cs-signal.sg-neutral { background: rgba(156,163,175,0.18); color: #d1d5db; }
 .cs-extra { font-size: 11px; color: rgba(255,255,255,0.4); }
+.cs-composite {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 7px; border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid;
+}
+.cs-composite.cb-strong { background: rgba(34,197,94,0.18); color: #4ade80; border-color: rgba(34,197,94,0.4); }
+.cs-composite.cb-medium { background: rgba(234,179,8,0.18); color: #facc15; border-color: rgba(234,179,8,0.4); }
+.cs-composite.cb-weak { background: rgba(249,115,22,0.18); color: #fb923c; border-color: rgba(249,115,22,0.4); }
+.cs-composite.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.4); border-color: rgba(156,163,175,0.2); }
 
 /* ===== AI TOP 픽 ===== */
 .top-picks-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

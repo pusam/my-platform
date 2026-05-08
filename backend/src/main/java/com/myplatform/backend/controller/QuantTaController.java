@@ -1,9 +1,11 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.ChartPatternDto;
+import com.myplatform.backend.dto.CompositeSignalDto;
 import com.myplatform.backend.dto.SupportResistanceDto;
 import com.myplatform.backend.dto.VolumeProfileDto;
 import com.myplatform.backend.service.ChartPatternService;
+import com.myplatform.backend.service.CompositeSignalService;
 import com.myplatform.backend.service.QuantTaService;
 import com.myplatform.backend.service.QuantTaService.ScreenerFilter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,6 +36,7 @@ public class QuantTaController {
 
     private final QuantTaService quantTaService;
     private final ChartPatternService chartPatternService;
+    private final CompositeSignalService compositeSignalService;
 
     @GetMapping("/scan/top-volume")
     @Operation(summary = "거래량 상위 종목 차트 패턴 자동 스캔",
@@ -81,6 +84,45 @@ public class QuantTaController {
     @lombok.Data
     public static class ScanRequest {
         private List<String> stockCodes;
+    }
+
+    @GetMapping("/{stockCode}/composite")
+    @Operation(summary = "종합 신호 평가 (5가지)",
+            description = "차트 패턴 / 지지선 / Volume Profile 저평가 / 수급 / AI 추천 — 매칭 개수 반환. " +
+                    "사용자 의사결정 단순화용. 자동매매 신호로 사용 X.")
+    public ResponseEntity<Map<String, Object>> compositeSignal(@PathVariable String stockCode) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            CompositeSignalDto data = compositeSignalService.evaluate(stockCode);
+            response.put("success", true);
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("종합 신호 평가 오류 [{}]", stockCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @PostMapping("/composite/batch")
+    @Operation(summary = "종합 신호 다종목 일괄 평가",
+            description = "여러 종목 5개 신호 평가 — 메인 대시보드 차트 신호 카드용. 최대 50종목.")
+    public ResponseEntity<Map<String, Object>> compositeBatch(@RequestBody ScanRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<String> codes = request != null ? request.getStockCodes() : null;
+            List<CompositeSignalDto> results = compositeSignalService.evaluateBatch(codes);
+            response.put("success", true);
+            response.put("data", results);
+            response.put("count", results.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("종합 신호 batch 평가 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 
     @GetMapping("/{stockCode}/volume-profile")

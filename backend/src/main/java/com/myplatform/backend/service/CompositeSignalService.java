@@ -1,0 +1,217 @@
+package com.myplatform.backend.service;
+
+import com.myplatform.backend.dto.AiAnalysisResponseDto;
+import com.myplatform.backend.dto.AiStockRecommendationDto;
+import com.myplatform.backend.dto.ChartPatternDto;
+import com.myplatform.backend.dto.CompositeSignalDto;
+import com.myplatform.backend.dto.ConsecutiveBuyDto;
+import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.dto.SupportResistanceDto;
+import com.myplatform.backend.dto.VolumeProfileDto;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * 종합 신호 평가 — 5개 신호의 합산.
+ *
+ * 사용자 의사결정 단순화 — 5곳 보고 종합하지 말고 한 점수로.
+ * 단, 단일 신호 기반 매매 X. 3-4개 동시 충족 시 적중률 살짝 ↑.
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class CompositeSignalService {
+
+    private final ChartPatternService chartPatternService;
+    private final StockPriceService stockPriceService;
+    private final InvestorTradeService investorTradeService;
+    private final AiStockAnalysisService aiStockAnalysisService;
+    private final StockMasterService stockMasterService;
+
+    /** 지지선 근처로 판정할 거리 — 현재가 -5% 이내 + HIGH/MEDIUM 강도. */
+    private static final BigDecimal SUPPORT_NEAR_PCT = new BigDecimal("-5");
+    /** AI 추천 매칭 — TOP 픽 안에 있거나 점수 60+. */
+    private static final int AI_SCORE_MIN = 60;
+
+    /**
+     * 단일 종목 5개 신호 평가. 30분 캐시.
+     */
+    @Cacheable(value = "chartPatterns", key = "'cs:' + #stockCode",
+            condition = "#stockCode != null && !#stockCode.isEmpty()")
+    public CompositeSignalDto evaluate(String stockCode) {
+        if (stockCode == null || stockCode.isEmpty()) {
+            return empty(stockCode);
+        }
+
+        List<CompositeSignalDto.Signal> signals = new ArrayList<>();
+        signals.add(evalPattern(stockCode));
+        signals.add(evalSupport(stockCode));
+        signals.add(evalValueArea(stockCode));
+        signals.add(evalSupply(stockCode));
+        signals.add(evalAiRecommend(stockCode));
+
+        int matched = (int) signals.stream().filter(CompositeSignalDto.Signal::isMatched).count();
+
+        return CompositeSignalDto.builder()
+                .stockCode(stockCode)
+                .stockName(stockMasterService.getNameOrDefault(stockCode, stockCode))
+                .matchedCount(matched)
+                .totalCount(signals.size())
+                .signals(signals)
+                .build();
+    }
+
+    /** 다종목 일괄 평가 — 종목당 캐시 활용. */
+    public List<CompositeSignalDto> evaluateBatch(List<String> stockCodes) {
+        if (stockCodes == null || stockCodes.isEmpty()) return Collections.emptyList();
+        return stockCodes.stream().distinct().limit(50)
+                .map(code -> {
+                    try { return evaluate(code); }
+                    catch (Exception e) {
+                        log.debug("composite eval 실패 {}: {}", code, e.getMessage());
+                        return empty(code);
+                    }
+                })
+                .collect(Collectors.toList());
+    }
+
+    private CompositeSignalDto empty(String code) {
+        return CompositeSignalDto.builder()
+                .stockCode(code).matchedCount(0).totalCount(5)
+                .signals(Collections.emptyList()).build();
+    }
+
+    // ==================== 개별 신호 평가 ====================
+
+    private CompositeSignalDto.Signal evalPattern(String stockCode) {
+        try {
+            List<ChartPatternDto> patterns = chartPatternService.detectPatterns(stockCode);
+            ChartPatternDto bullish = patterns.stream()
+                    .filter(p -> "BULLISH".equals(p.getSignal()))
+                    .findFirst().orElse(null);
+            return CompositeSignalDto.Signal.builder()
+                    .id("PATTERN").label("차트 패턴 ↑상승")
+                    .matched(bullish != null)
+                    .detail(bullish != null ? bullish.getLabel() : null)
+                    .build();
+        } catch (Exception e) {
+            return signalFalse("PATTERN", "차트 패턴 ↑상승");
+        }
+    }
+
+    private CompositeSignalDto.Signal evalSupport(String stockCode) {
+        try {
+            SupportResistanceDto sr = chartPatternService.detectSupportResistance(stockCode);
+            // 첫 번째 지지선 (가장 가까운) 평가
+            SupportResistanceDto.Level first = sr.getSupport() != null && !sr.getSupport().isEmpty()
+                    ? sr.getSupport().get(0) : null;
+            boolean matched = first != null
+                    && first.getDistancePct() != null
+                    && first.getDistancePct().compareTo(SUPPORT_NEAR_PCT) >= 0  // -5% 이내 (거리 % 음수)
+                    && !"LOW".equals(first.getStrength());
+            String detail = matched
+                    ? String.format("지지선 %s원 (%s%%)",
+                        first.getPrice(), first.getDistancePct().setScale(1, RoundingMode.HALF_UP))
+                    : null;
+            return CompositeSignalDto.Signal.builder()
+                    .id("SUPPORT").label("강한 지지선 근처")
+                    .matched(matched).detail(detail).build();
+        } catch (Exception e) {
+            return signalFalse("SUPPORT", "강한 지지선 근처");
+        }
+    }
+
+    private CompositeSignalDto.Signal evalValueArea(String stockCode) {
+        try {
+            VolumeProfileDto vp = chartPatternService.computeVolumeProfile(stockCode);
+            if (vp == null || vp.getVal() == null) return signalFalse("VALUE_AREA", "저평가 영역");
+
+            // 현재가 — stockPriceService 캐시/DB
+            StockPriceDto price = stockPriceService.getStockPrice(stockCode);
+            if (price == null || price.getCurrentPrice() == null
+                    || price.getCurrentPrice().signum() <= 0) {
+                return signalFalse("VALUE_AREA", "저평가 영역");
+            }
+            boolean matched = price.getCurrentPrice().compareTo(vp.getVal()) <= 0;
+            String detail = matched
+                    ? String.format("현재 %s ≤ VAL %s",
+                        price.getCurrentPrice(), vp.getVal())
+                    : null;
+            return CompositeSignalDto.Signal.builder()
+                    .id("VALUE_AREA").label("저평가 영역 (≤ VAL)")
+                    .matched(matched).detail(detail).build();
+        } catch (Exception e) {
+            return signalFalse("VALUE_AREA", "저평가 영역");
+        }
+    }
+
+    private CompositeSignalDto.Signal evalSupply(String stockCode) {
+        try {
+            // 외국인 + 기관 연속매수 종목 (3일+) 풀 — 둘 중 하나라도 포함되면 매칭
+            Set<String> codes = new HashSet<>();
+            try {
+                List<ConsecutiveBuyDto> foreign = investorTradeService
+                        .getConsecutiveBuyStocks("FOREIGN", 3);
+                foreign.forEach(d -> codes.add(d.getStockCode()));
+            } catch (Exception ignore) {}
+            try {
+                List<ConsecutiveBuyDto> inst = investorTradeService
+                        .getConsecutiveBuyStocks("INSTITUTION", 3);
+                inst.forEach(d -> codes.add(d.getStockCode()));
+            } catch (Exception ignore) {}
+
+            boolean matched = codes.contains(stockCode);
+            return CompositeSignalDto.Signal.builder()
+                    .id("SUPPLY").label("외국인/기관 순매수")
+                    .matched(matched)
+                    .detail(matched ? "3일+ 연속 매수 풀" : null).build();
+        } catch (Exception e) {
+            return signalFalse("SUPPLY", "외국인/기관 순매수");
+        }
+    }
+
+    private CompositeSignalDto.Signal evalAiRecommend(String stockCode) {
+        try {
+            AiAnalysisResponseDto analysis = aiStockAnalysisService.getAnalysis();
+            if (analysis == null) return signalFalse("AI_RECOMMEND", "AI 추천");
+
+            // 단기 + 중장기 TOP 픽 합쳐서 종목 매칭
+            List<AiStockRecommendationDto> all = new ArrayList<>();
+            if (analysis.getShortTermPicks() != null) all.addAll(analysis.getShortTermPicks());
+            if (analysis.getLongTermPicks() != null) all.addAll(analysis.getLongTermPicks());
+
+            AiStockRecommendationDto match = all.stream()
+                    .filter(r -> stockCode.equals(r.getStockCode()))
+                    .findFirst().orElse(null);
+            boolean matched = match != null
+                    && (match.getTotalScore() == null
+                        || match.getTotalScore() >= AI_SCORE_MIN);
+            String detail = matched
+                    ? (match.getTotalScore() != null
+                        ? String.format("AI 점수 %d", match.getTotalScore())
+                        : "AI 추천 풀 포함")
+                    : null;
+            return CompositeSignalDto.Signal.builder()
+                    .id("AI_RECOMMEND").label("AI 추천")
+                    .matched(matched).detail(detail).build();
+        } catch (Exception e) {
+            return signalFalse("AI_RECOMMEND", "AI 추천");
+        }
+    }
+
+    private CompositeSignalDto.Signal signalFalse(String id, String label) {
+        return CompositeSignalDto.Signal.builder()
+                .id(id).label(label).matched(false).build();
+    }
+}
