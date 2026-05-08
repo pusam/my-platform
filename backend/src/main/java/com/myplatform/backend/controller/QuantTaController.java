@@ -86,6 +86,27 @@ public class QuantTaController {
         private List<String> stockCodes;
     }
 
+    @GetMapping("/sectors/{sectorCode}/keywords")
+    @Operation(summary = "섹터 공통 키워드 (NewsSummary co-occurrence)",
+            description = "섹터 안 종목명이 등장한 오늘 뉴스에서 단어 빈도 추출. " +
+                    "stopword + 종목명 자체 제외. AI 호출 0건. 1시간 캐시.")
+    public ResponseEntity<Map<String, Object>> sectorKeywords(
+            @PathVariable String sectorCode,
+            @RequestParam(defaultValue = "8") int limit) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<QuantTaService.KeywordDto> data = quantTaService.getSectorKeywords(sectorCode, limit);
+            response.put("success", true);
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("섹터 키워드 추출 오류 [{}]", sectorCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @GetMapping("/strong-sectors")
     @Operation(summary = "오늘 강세 섹터 (avg 등락률 +0.5%+)",
             description = "16개 섹터 평균 등락률 desc. 강세 섹터당 안 종목 top 3 함께. 30분 캐시.")

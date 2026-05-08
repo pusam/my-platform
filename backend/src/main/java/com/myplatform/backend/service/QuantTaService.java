@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +51,7 @@ public class QuantTaService {
     @Autowired private SectorStockConfig sectorStockConfig;
     @Autowired private StockMasterService stockMasterService;
     @Autowired private StockPriceService stockPriceService;
+    @Autowired private com.myplatform.backend.repository.NewsSummaryRepository newsSummaryRepository;
 
     private static final int MIN_HISTORY_DAYS = 25;       // 최소 일봉 수 (MA20 + RSI 안정성)
     private static final int LOAD_WINDOW_DAYS = 130;      // 로드 창 (영업일 기준 약 6개월)
@@ -395,6 +397,114 @@ public class QuantTaService {
                                   List<SectorStock> topStocks) {
         public record SectorStock(String stockCode, String stockName, BigDecimal changeRate) {}
     }
+
+    // ==================== 2-3. 섹터 공통 키워드 (co-occurrence, AI 없이) ====================
+
+    /** 한국어 주식 도메인 stopword — 자주 등장하지만 의미 없는 단어. */
+    private static final Set<String> KEYWORD_STOPWORDS = Set.of(
+            "오늘", "내일", "어제", "이번", "지난", "다음", "최근", "올해", "작년",
+            "있다", "없다", "되다", "한다", "하는", "있는", "없는", "되는", "위해",
+            "기업", "회사", "관련", "전망", "예상", "가능", "기대", "확대", "확보",
+            "발생", "진행", "통해", "특히", "정도", "수준", "가운데",
+            "증권", "주식", "종목", "투자", "시장", "거래", "주가", "투자자",
+            "코스피", "코스닥", "지수", "달러", "원화", "환율",
+            "이날", "이번주", "지난주", "이번달", "지난달",
+            "으로", "에서", "보다", "함께", "대한", "대해", "통해",
+            "보고", "분석", "발표", "공시", "공개", "결정", "추진", "계획"
+    );
+    /** 단어 정의 — 2~10글자 한글/영문/숫자/하이픈. 조사 어절 끝에 붙은 것 후처리. */
+    private static final java.util.regex.Pattern WORD_PATTERN =
+            java.util.regex.Pattern.compile("[가-힣A-Za-z0-9-]{2,10}");
+    /** 어절 끝 흔한 조사 — 추출 후 제거. */
+    private static final java.util.regex.Pattern KOREAN_PARTICLE_TAIL =
+            java.util.regex.Pattern.compile("(은|는|이|가|을|를|에|의|와|과|도|만|로|으로|에서|에게|부터|까지|라고|이라고|이라는|라는)$");
+
+    /**
+     * 강세 섹터의 공통 키워드 추출 (AI 0건).
+     * 알고리즘:
+     *  1. 오늘 NewsSummary 모두 가져옴
+     *  2. 섹터 안 종목명이 제목/요약에 등장한 뉴스 = "관련 뉴스"
+     *  3. 그 뉴스들의 단어 빈도 → stopword + 종목명 자체 제외 → top N
+     *
+     * 1시간 캐시 (뉴스는 자주 변하지 않음).
+     */
+    @org.springframework.cache.annotation.Cacheable(value = "chartPatterns",
+            key = "'kw:' + #sectorCode")
+    public List<KeywordDto> getSectorKeywords(String sectorCode, int limit) {
+        SectorStockConfig.SectorInfo sector = sectorStockConfig.getSector(sectorCode);
+        if (sector == null) return Collections.emptyList();
+
+        // 섹터 안 종목명 모음 (소문자 비교용 X — 한글이라 case 무관)
+        Map<String, String> codeToName = new HashMap<>();
+        for (String code : sector.getStockCodes()) {
+            codeToName.put(code, stockMasterService.getNameOrDefault(code, code));
+        }
+        Set<String> stockNames = new HashSet<>(codeToName.values());
+        if (stockNames.isEmpty()) return Collections.emptyList();
+
+        // 오늘 뉴스 가져옴
+        java.time.LocalDateTime startOfDay = java.time.LocalDate.now().atStartOfDay();
+        List<com.myplatform.backend.entity.NewsSummary> todayNews;
+        try {
+            todayNews = newsSummaryRepository.findTodayNews(startOfDay);
+        } catch (Exception e) {
+            log.warn("[키워드] 오늘 뉴스 조회 실패: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+        if (todayNews.isEmpty()) return Collections.emptyList();
+
+        // 종목명 매칭 뉴스만 필터
+        List<String> relevantTexts = new ArrayList<>();
+        for (var news : todayNews) {
+            String text = (news.getTitle() != null ? news.getTitle() : "")
+                    + " " + (news.getSummary() != null ? news.getSummary() : "");
+            for (String name : stockNames) {
+                if (name.length() >= 2 && text.contains(name)) {
+                    relevantTexts.add(text);
+                    break;
+                }
+            }
+        }
+        if (relevantTexts.isEmpty()) return Collections.emptyList();
+
+        // 단어 빈도 카운트
+        Map<String, Integer> wordCount = new HashMap<>();
+        for (String text : relevantTexts) {
+            java.util.regex.Matcher m = WORD_PATTERN.matcher(text);
+            while (m.find()) {
+                String word = stripParticle(m.group());
+                if (word.length() < 2) continue;
+                if (KEYWORD_STOPWORDS.contains(word)) continue;
+                if (stockNames.contains(word)) continue;       // 종목명 자체 제외
+                if (sector.getName().contains(word)) continue; // 섹터명도 제외
+                wordCount.merge(word, 1, Integer::sum);
+            }
+        }
+        if (wordCount.isEmpty()) return Collections.emptyList();
+
+        // top N (빈도 desc, 동점이면 단어 길이 desc — 더 구체적인 단어 선호)
+        return wordCount.entrySet().stream()
+                .filter(e -> e.getValue() >= 2)  // 최소 2번 등장
+                .sorted((a, b) -> {
+                    int cmp = b.getValue().compareTo(a.getValue());
+                    return cmp != 0 ? cmp : Integer.compare(b.getKey().length(), a.getKey().length());
+                })
+                .limit(Math.max(1, Math.min(limit, 15)))
+                .map(e -> new KeywordDto(e.getKey(), e.getValue()))
+                .collect(Collectors.toList());
+    }
+
+    /** 한국어 어절 끝의 조사 제거 (간단 휴리스틱). */
+    private static String stripParticle(String word) {
+        java.util.regex.Matcher m = KOREAN_PARTICLE_TAIL.matcher(word);
+        if (m.find() && word.length() - m.group().length() >= 2) {
+            return word.substring(0, m.start());
+        }
+        return word;
+    }
+
+    /** 키워드 결과 DTO. */
+    public record KeywordDto(String keyword, int frequency) {}
 
     // ==================== 2. 상관관계 매트릭스 ====================
 

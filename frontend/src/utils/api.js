@@ -786,6 +786,10 @@ export const quantTaAPI = {
   strongSectors() {
     return apiClient.get('/quant-ta/strong-sectors');
   },
+  // 섹터 공통 키워드 (NewsSummary co-occurrence)
+  sectorKeywords(sectorCode, limit = 8) {
+    return apiClient.get(`/quant-ta/sectors/${sectorCode}/keywords`, { params: { limit } });
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

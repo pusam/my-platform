@@ -299,6 +299,13 @@
                   </span>
                 </span>
               </div>
+              <div class="ss-keywords" v-if="sectorKeywordsMap[sec.sectorCode]?.length">
+                <span class="ss-kw-label">키워드</span>
+                <span v-for="kw in sectorKeywordsMap[sec.sectorCode]" :key="kw.keyword"
+                      class="ss-keyword" :title="`뉴스 ${kw.frequency}회`">
+                  {{ kw.keyword }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -536,6 +543,8 @@ export default {
       compositeMap: {},
       // 오늘 강세 섹터
       strongSectors: [],
+      // 섹터별 공통 키워드 (sectorCode → KeywordDto[])
+      sectorKeywordsMap: {},
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -737,9 +746,27 @@ export default {
     async loadStrongSectors() {
       try {
         const res = await quantTaAPI.strongSectors()
-        if (res.data?.success) this.strongSectors = res.data.data || []
+        if (res.data?.success) {
+          this.strongSectors = res.data.data || []
+          // 강세 섹터 top 5 의 공통 키워드 fire-and-forget 로드
+          for (const sec of this.strongSectors.slice(0, 5)) {
+            this.loadSectorKeywords(sec.sectorCode)
+          }
+        }
       } catch (e) {
         console.warn('강세 섹터 로드 실패:', e?.message)
+      }
+    },
+
+    async loadSectorKeywords(sectorCode) {
+      try {
+        const res = await quantTaAPI.sectorKeywords(sectorCode, 8)
+        if (res.data?.success && res.data.data?.length) {
+          // Vue reactivity for object key — 새 객체 할당
+          this.sectorKeywordsMap = { ...this.sectorKeywordsMap, [sectorCode]: res.data.data }
+        }
+      } catch (e) {
+        console.warn(`섹터 키워드 ${sectorCode} 실패:`, e?.message)
       }
     },
 
@@ -1617,6 +1644,21 @@ export default {
   transition: background 0.15s;
 }
 .ss-stock:hover { background: rgba(99,102,241,0.18); }
+.ss-keywords {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  margin-top: 6px; padding-top: 6px;
+  border-top: 1px dashed rgba(255,255,255,0.08);
+  align-items: center;
+}
+.ss-kw-label { font-size: 10px; color: rgba(255,255,255,0.4); margin-right: 4px; }
+.ss-keyword {
+  font-size: 10px;
+  padding: 2px 7px;
+  background: rgba(99,102,241,0.15);
+  color: #a5b4fc;
+  border-radius: 8px;
+  font-weight: 500;
+}
 
 /* ===== 차트 신호 카드 ===== */
 .chart-signals .cs-controls {
