@@ -274,6 +274,32 @@
           </div>
         </div>
 
+        <!-- 관심종목 차트 신호 — 패턴 검출된 종목만 노출 -->
+        <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="chartSignals.length">
+          <div class="section-title-row">
+            <h2><span class="section-icon">📊</span> 차트 신호 종목</h2>
+            <span class="cs-disclaimer">관심종목 기반 · 참고용</span>
+          </div>
+          <div class="cs-list">
+            <div
+              v-for="(sig, idx) in chartSignals.slice(0, 8)"
+              :key="'cs-' + idx"
+              class="cs-row" :class="'sig-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()"
+              @click="goToStock(sig.stockCode)"
+            >
+              <span class="cs-name">{{ getCsStockName(sig.stockCode) }}</span>
+              <span class="cs-pattern">{{ sig.topPattern?.label }}</span>
+              <span class="cs-confidence" :class="'cf-' + (sig.topPattern?.confidence || 'MEDIUM').toLowerCase()">
+                {{ getCsConfidenceLabel(sig.topPattern?.confidence) }}
+              </span>
+              <span class="cs-signal" :class="'sg-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()">
+                {{ getCsSignalLabel(sig.topPattern?.signal) }}
+              </span>
+              <span class="cs-extra" v-if="sig.totalPatternCount > 1">+{{ sig.totalPatternCount - 1 }}</span>
+            </div>
+          </div>
+        </div>
+
         <!-- AI 전략 TOP 픽 카드는 종합 추천 TOP10에 흡수되어 제거됨.
              aiTopPicks 데이터는 phaseSignals(장전·장후)의 신호 카드 일부로 계속 사용됨. -->
 
@@ -362,7 +388,7 @@ import {
   investorAPI, screenerAPI, newsAPI,
   // v2 API 제거 — 모두 v1으로 통합 (v2 서버 없으면 503 에러 방지)
   globalFuturesAPI, watchlistAPI, paperTradingAPI,
-  recommendationAPI, stockDetailAPI
+  recommendationAPI, stockDetailAPI, quantTaAPI
 } from '../utils/api'
 
 // ===================== 유틸: 타임아웃 래퍼 =====================
@@ -453,6 +479,8 @@ export default {
       // 오늘의 핵심 요약
       watchlistItems: [],
       watchlistRisks: {},
+      // 관심종목 차트 패턴 스캔 결과 (top 1 패턴/종목)
+      chartSignals: [],
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -612,6 +640,18 @@ export default {
     }
   },
   methods: {
+    // ---- 차트 신호 helpers ----
+    getCsStockName(stockCode) {
+      const item = this.watchlistItems.find(w => w.stockCode === stockCode)
+      return item ? item.stockName : stockCode
+    },
+    getCsConfidenceLabel(c) {
+      return ({ HIGH: '강', MEDIUM: '중', LOW: '약' })[c] || '중'
+    },
+    getCsSignalLabel(s) {
+      return ({ BULLISH: '↑상승', BEARISH: '↓하락', NEUTRAL: '관찰' })[s] || s || '중립'
+    },
+
     // ---- polling 시작/중지 — 페이지 비가시 시 멈춰서 배터리/네트워크 절약 ----
     _startPolling() {
       if (this._refreshTimer) return
@@ -734,13 +774,19 @@ export default {
         const res = await watchlistAPI.getList()
         const list = this.extractData(res)
         this.watchlistItems = Array.isArray(list) ? list : []
-        // 리스크 상태
+        // 리스크 상태 + 차트 패턴 스캔
         if (this.watchlistItems.length) {
           const codes = this.watchlistItems.map(w => w.stockCode)
           try {
             const riskRes = await watchlistAPI.getRiskStatus(codes)
             this.watchlistRisks = this.extractData(riskRes) || {}
           } catch { this.watchlistRisks = {} }
+          // 차트 패턴 스캔 (fire-and-forget — 화면 진입 안 막음)
+          quantTaAPI.scanPatterns(codes)
+            .then(res => {
+              if (res.data?.success) this.chartSignals = res.data.data || []
+            })
+            .catch(() => { this.chartSignals = [] })
         }
       } catch { this.watchlistItems = [] }
 
@@ -1411,6 +1457,38 @@ export default {
 .wl-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
 .wl-price { font-size: 13px; color: rgba(255,255,255,0.6); font-family: monospace; }
 .wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
+
+/* ===== 차트 신호 카드 ===== */
+.chart-signals .cs-disclaimer {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
+  margin-left: 8px;
+}
+.cs-list { display: flex; flex-direction: column; gap: 4px; }
+.cs-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto;
+  align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  transition: background 0.15s;
+  border-left: 3px solid transparent;
+}
+.cs-row:hover { background: rgba(255,255,255,0.05); }
+.cs-row.sig-bullish { border-left-color: #ef4444; }   /* 한국 관행 */
+.cs-row.sig-bearish { border-left-color: #3b82f6; }
+.cs-row.sig-neutral { border-left-color: #9ca3af; }
+.cs-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.9); }
+.cs-pattern { font-size: 12px; color: rgba(255,255,255,0.65); }
+.cs-confidence, .cs-signal {
+  font-size: 11px; padding: 1px 7px; border-radius: 8px;
+}
+.cs-confidence.cf-high { background: rgba(34,197,94,0.18); color: #4ade80; }
+.cs-confidence.cf-medium { background: rgba(234,179,8,0.18); color: #facc15; }
+.cs-confidence.cf-low { background: rgba(156,163,175,0.18); color: #d1d5db; }
+.cs-signal.sg-bullish { background: rgba(239,68,68,0.18); color: #f87171; }
+.cs-signal.sg-bearish { background: rgba(59,130,246,0.18); color: #60a5fa; }
+.cs-signal.sg-neutral { background: rgba(156,163,175,0.18); color: #d1d5db; }
+.cs-extra { font-size: 11px; color: rgba(255,255,255,0.4); }
 
 /* ===== AI TOP 픽 ===== */
 .top-picks-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

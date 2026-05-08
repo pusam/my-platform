@@ -34,6 +34,32 @@ public class QuantTaController {
     private final QuantTaService quantTaService;
     private final ChartPatternService chartPatternService;
 
+    @PostMapping("/scan/patterns")
+    @Operation(summary = "다종목 차트 패턴 일괄 스캔",
+            description = "여러 종목의 차트 패턴을 한 번에 검출. 종목별 가장 강한 패턴 1개씩. " +
+                    "최대 50종목. 사용자 watchlist 등에서 universe 결정 후 호출.")
+    public ResponseEntity<Map<String, Object>> scanPatterns(@RequestBody ScanRequest request) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<String> codes = request != null ? request.getStockCodes() : null;
+            List<ChartPatternService.ScanResult> results = chartPatternService.scanForPatterns(codes);
+            response.put("success", true);
+            response.put("data", results);
+            response.put("count", results.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("패턴 스캔 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @lombok.Data
+    public static class ScanRequest {
+        private List<String> stockCodes;
+    }
+
     @GetMapping("/{stockCode}/support-resistance")
     @Operation(summary = "지지/저항 레벨 검출",
             description = "일봉 90일 피벗을 가격대로 클러스터링하여 자주 터치된 가격대를 강한 레벨로 평가. " +

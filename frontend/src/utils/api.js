@@ -759,6 +759,10 @@ export const quantTaAPI = {
   supportResistance(stockCode) {
     return apiClient.get(`/quant-ta/${stockCode}/support-resistance`);
   },
+  // 다종목 차트 패턴 일괄 스캔 (최대 50종목)
+  scanPatterns(stockCodes) {
+    return apiClient.post('/quant-ta/scan/patterns', { stockCodes });
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

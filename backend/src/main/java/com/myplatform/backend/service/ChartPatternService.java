@@ -35,6 +35,10 @@ import java.util.List;
 public class ChartPatternService {
 
     private final KoreaInvestmentService kisService;
+    /** self-injection — 같은 클래스 내 호출 시 AOP proxy 거치도록 (@Cacheable 동작 위함). */
+    @org.springframework.context.annotation.Lazy
+    @org.springframework.beans.factory.annotation.Autowired
+    private ChartPatternService self;
 
     /** 일봉 조회 일수 — 90일이면 대부분 패턴 검출 가능 (3개월 추세). */
     private static final int LOOKBACK_DAYS = 90;
@@ -379,6 +383,46 @@ public class ChartPatternService {
         }
         return n == 0 ? BigDecimal.ZERO : sum.divide(BigDecimal.valueOf(n), 2, RoundingMode.HALF_UP);
     }
+
+    // ==================== 다종목 일괄 스캔 ====================
+
+    /**
+     * 여러 종목 일괄 스캔. 각 종목별 detectPatterns 캐시(30분)를 활용 — 첫 호출만 KIS 발생.
+     * 입력 종목 수 제한: 50개 (KIS rate limit 보호).
+     */
+    public List<ScanResult> scanForPatterns(List<String> stockCodes) {
+        if (stockCodes == null || stockCodes.isEmpty()) return Collections.emptyList();
+        List<String> capped = stockCodes.stream().distinct().limit(50).toList();
+        List<ScanResult> results = new ArrayList<>();
+        for (String code : capped) {
+            try {
+                // self proxy 경유 — @Cacheable hit 시 KIS 호출 skip
+                List<ChartPatternDto> patterns = self.detectPatterns(code);
+                if (patterns.isEmpty()) continue;
+                // 가장 강한 신호 1개 — confidence HIGH > MEDIUM > LOW, BULLISH 우선
+                ChartPatternDto top = patterns.stream()
+                        .sorted((a, b) -> Integer.compare(rank(b), rank(a)))
+                        .findFirst().orElse(null);
+                if (top == null) continue;
+                results.add(new ScanResult(code, top, patterns.size()));
+            } catch (Exception e) {
+                log.debug("[ChartPattern] scan {} 실패: {}", code, e.getMessage());
+            }
+        }
+        return results;
+    }
+
+    /** confidence + signal 가중치 — BULLISH HIGH 가 가장 높음. */
+    private static int rank(ChartPatternDto p) {
+        int conf = "HIGH".equals(p.getConfidence()) ? 3 :
+                   ("MEDIUM".equals(p.getConfidence()) ? 2 : 1);
+        int sig = "BULLISH".equals(p.getSignal()) ? 2 :
+                  ("BEARISH".equals(p.getSignal()) ? 1 : 0);
+        return conf * 10 + sig;
+    }
+
+    /** 다종목 스캔 결과 — 종목당 가장 강한 패턴 1개. */
+    public record ScanResult(String stockCode, ChartPatternDto topPattern, int totalPatternCount) {}
 
     // ==================== 지지/저항 검출 ====================
 
