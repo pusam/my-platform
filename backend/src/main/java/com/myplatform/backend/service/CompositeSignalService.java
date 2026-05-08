@@ -115,7 +115,8 @@ public class CompositeSignalService {
         Cache cache = cacheManager.getCache("chartPatterns");
         if (cache != null) {
             Cache.ValueWrapper hit = cache.get(cacheKey);
-            if (hit != null && hit.get() instanceof List<?> list) {
+            // 빈 리스트는 hit 으로 보지 않음 — polling 무한 회피
+            if (hit != null && hit.get() instanceof List<?> list && !list.isEmpty()) {
                 @SuppressWarnings("unchecked")
                 List<CompositeSignalDto> typed = (List<CompositeSignalDto>) list;
                 return typed;
@@ -139,9 +140,12 @@ public class CompositeSignalService {
         long start = System.currentTimeMillis();
         try {
             List<CompositeSignalDto> ranked = computeRanking(limit);
-            Cache cache = cacheManager.getCache("chartPatterns");
-            if (cache != null) {
-                cache.put("rank:" + limit, ranked);
+            // 빈 리스트는 cache put 안 함 — 다음 호출이 또 미스로 인식, retry 가능.
+            if (!ranked.isEmpty()) {
+                Cache cache = cacheManager.getCache("chartPatterns");
+                if (cache != null) {
+                    cache.put("rank:" + limit, ranked);
+                }
             }
             log.info("[종합추천] 백그라운드 평가 완료 — {} 종목, {}ms",
                     ranked.size(), System.currentTimeMillis() - start);
@@ -160,11 +164,16 @@ public class CompositeSignalService {
     }
 
     private List<CompositeSignalDto> computeRanking(int safeLimit) {
-        int universeSize = Math.min(safeLimit + 20, 80);
+        // universe 줄임 — 50→30, 평가 시간 1/2 단축. 평가 종료 시간 < cloudflare timeout.
+        int universeSize = Math.min(safeLimit + 5, 35);
         List<String> codes = stockPriceRepository.findTopVolumeStockCodes(
                 org.springframework.data.domain.PageRequest.of(0, universeSize));
-        if (codes.isEmpty()) return Collections.emptyList();
+        if (codes.isEmpty()) {
+            log.warn("[종합추천] universe 비어있음 — stock_price 캐시 비어있을 수 있음");
+            return Collections.emptyList();
+        }
 
+        log.info("[종합추천] 평가 시작 — universe {} 종목", codes.size());
         List<CompositeSignalDto> all = evaluateBatch(codes);
         all.sort((a, b) -> {
             int cmp = Integer.compare(b.getMatchedCount(), a.getMatchedCount());
