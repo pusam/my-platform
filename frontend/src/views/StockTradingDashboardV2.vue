@@ -1624,6 +1624,16 @@ export default {
   .msb-label { font-size: 10px; } .msb-value { font-size: 12px; }
   .top-picks-grid { grid-template-columns: repeat(2, 1fr); }
   .pick-score { font-size: 16px; }
+
+  /* 차트 신호 카드 — 6 column 좁은 화면 압축 */
+  .cs-row {
+    grid-template-columns: 1fr auto auto auto;  /* 이름블록 / composite / signal / extra */
+    gap: 6px; padding: 7px 10px;
+  }
+  .cs-pattern { display: none; }     /* 패턴명 숨김 — confidence 뱃지로 대체 */
+  .cs-confidence { display: none; }  /* 신뢰도 숨김 — composite 점수로 충분 */
+  .cs-name { font-size: 12px; }
+  .cs-code { font-size: 10px; }
 }
 
 /* ───── 모바일 대응: 480~600px ───── */

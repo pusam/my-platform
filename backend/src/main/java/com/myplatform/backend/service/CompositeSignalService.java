@@ -38,6 +38,10 @@ public class CompositeSignalService {
     private final InvestorTradeService investorTradeService;
     private final AiStockAnalysisService aiStockAnalysisService;
     private final StockMasterService stockMasterService;
+    /** self-injection — evaluateBatch 에서 self.evaluate() 호출 시 @Cacheable 동작 위함. */
+    @org.springframework.context.annotation.Lazy
+    @org.springframework.beans.factory.annotation.Autowired
+    private CompositeSignalService self;
 
     /** 지지선 근처로 판정할 거리 — 현재가 -5% 이내 + HIGH/MEDIUM 강도. */
     private static final BigDecimal SUPPORT_NEAR_PCT = new BigDecimal("-5");
@@ -77,7 +81,7 @@ public class CompositeSignalService {
         if (stockCodes == null || stockCodes.isEmpty()) return Collections.emptyList();
         return stockCodes.stream().distinct().limit(50)
                 .map(code -> {
-                    try { return evaluate(code); }
+                    try { return self.evaluate(code); }  // proxy 경유 — 캐시 hit
                     catch (Exception e) {
                         log.debug("composite eval 실패 {}: {}", code, e.getMessage());
                         return empty(code);

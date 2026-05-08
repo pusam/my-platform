@@ -59,7 +59,9 @@ public class CacheConfig {
 
             // ========== 차트 패턴 검출 캐시 (30분 TTL) ==========
             // 일봉 90일 기준 검출 — 장중에도 1-2번만 갱신되면 충분. KIS 호출 절감.
-            buildCache("chartPatterns", 1800, 300),
+            // 4가지 prefix 사용 (no-prefix=patterns, sr:, vp:, cs:) — 종목당 4 키.
+            // 종목 200개 분석해도 800 키. 여유 있게 1500.
+            buildCache("chartPatterns", 1800, 1500),
 
             // ========== 투자자 매매동향 캐시 (5분 TTL) ==========
             // 투자자 × 시장 × 종목 조합 → 카디널리티 폭발 대비
