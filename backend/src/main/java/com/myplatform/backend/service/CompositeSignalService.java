@@ -164,16 +164,57 @@ public class CompositeSignalService {
     }
 
     private List<CompositeSignalDto> computeRanking(int safeLimit) {
-        // universe 줄임 — 50→30, 평가 시간 1/2 단축. 평가 종료 시간 < cloudflare timeout.
-        int universeSize = Math.min(safeLimit + 5, 35);
-        List<String> codes = stockPriceRepository.findTopVolumeStockCodes(
-                org.springframework.data.domain.PageRequest.of(0, universeSize));
-        if (codes.isEmpty()) {
-            log.warn("[종합추천] universe 비어있음 — stock_price 캐시 비어있을 수 있음");
+        // universe 합집합: 거래량 상위 + AI 추천 picks + 외국인/기관 연속매수 풀.
+        // 이전: 거래량만 사용 → AI/SUPPLY 신호 매칭 거의 0 → 3점+ 종목 안 나옴.
+        // 변경: 5개 신호의 source 가 모두 universe 에 들어와 자연스럽게 다신호 매칭 종목 발견.
+        java.util.LinkedHashSet<String> uniq = new java.util.LinkedHashSet<>();
+
+        // 1) 거래량 상위 (시장 주목도 — 25개)
+        try {
+            List<String> volume = stockPriceRepository.findTopVolumeStockCodes(
+                    org.springframework.data.domain.PageRequest.of(0, 25));
+            uniq.addAll(volume);
+        } catch (Exception e) {
+            log.debug("[종합추천] 거래량 universe 조회 실패: {}", e.getMessage());
+        }
+
+        // 2) AI 추천 picks (단기 + 장기)
+        try {
+            AiAnalysisResponseDto analysis = aiStockAnalysisService.getAnalysis();
+            if (analysis != null) {
+                if (analysis.getShortTermPicks() != null) {
+                    analysis.getShortTermPicks().forEach(r -> {
+                        if (r.getStockCode() != null) uniq.add(r.getStockCode());
+                    });
+                }
+                if (analysis.getLongTermPicks() != null) {
+                    analysis.getLongTermPicks().forEach(r -> {
+                        if (r.getStockCode() != null) uniq.add(r.getStockCode());
+                    });
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[종합추천] AI picks universe 조회 실패: {}", e.getMessage());
+        }
+
+        // 3) 외국인/기관 3일+ 연속 매수 풀
+        try {
+            investorTradeService.getConsecutiveBuyStocks("FOREIGN", 3)
+                    .forEach(d -> { if (d.getStockCode() != null) uniq.add(d.getStockCode()); });
+        } catch (Exception ignore) {}
+        try {
+            investorTradeService.getConsecutiveBuyStocks("INSTITUTION", 3)
+                    .forEach(d -> { if (d.getStockCode() != null) uniq.add(d.getStockCode()); });
+        } catch (Exception ignore) {}
+
+        if (uniq.isEmpty()) {
+            log.warn("[종합추천] universe 비어있음 — 시세/AI/수급 모두 비어있음");
             return Collections.emptyList();
         }
 
-        log.info("[종합추천] 평가 시작 — universe {} 종목", codes.size());
+        // 평가 비용 통제 — 합집합 너무 크지 않게 cap (35개)
+        List<String> codes = uniq.stream().limit(35).collect(Collectors.toList());
+        log.info("[종합추천] 평가 시작 — universe {} 종목 (합집합)", codes.size());
         List<CompositeSignalDto> all = evaluateBatch(codes);
         all.sort((a, b) -> {
             int cmp = Integer.compare(b.getMatchedCount(), a.getMatchedCount());
