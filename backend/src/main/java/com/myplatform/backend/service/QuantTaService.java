@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
+import com.myplatform.backend.entity.StockPrice;
 import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockPriceRepository;
@@ -685,15 +686,22 @@ public class QuantTaService {
             log.debug("history 종목명 조회 실패: {}", e.getMessage());
         }
 
-        // 2차: 미해결 코드 → stock_price (실시간 시세 캐시)
-        for (String code : codes) {
-            if (nameMap.containsKey(code)) continue;
-            try {
-                stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code).ifPresent(p -> {
+        // 2차: 미해결 코드 → stock_price (실시간 시세 캐시) — batch 로 한 번에.
+        // 이전: per-code findTopBy 루프 → connection 체류 시간 누적, leak 경고.
+        try {
+            List<String> remaining = codes.stream()
+                    .filter(c -> !nameMap.containsKey(c))
+                    .toList();
+            if (!remaining.isEmpty()) {
+                for (StockPrice p : stockPriceRepository.findLatestByStockCodes(remaining)) {
                     String n = p.getStockName();
-                    if (n != null && !n.isBlank()) nameMap.put(code, n);
-                });
-            } catch (Exception ignore) {}
+                    if (n != null && !n.isBlank() && !nameMap.containsKey(p.getStockCode())) {
+                        nameMap.put(p.getStockCode(), n);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("stock_price 종목명 batch 조회 실패: {}", e.getMessage());
         }
 
         // 3차: 하드코딩된 주요 종목 매핑 (StockNameResolver)

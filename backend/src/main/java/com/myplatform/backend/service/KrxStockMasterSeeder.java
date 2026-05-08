@@ -117,6 +117,25 @@ public class KrxStockMasterSeeder {
         }
     }
 
+    /**
+     * 빈 상태 watcher — 매시간 EMPTY_THRESHOLD 미만이면 재시도.
+     * 이전: 부팅 시 ApplicationReadyEvent 1회만 시도 → 실패하면 다음 06:00 cron 까지 대기.
+     * 운영 사고: 66 종목만 캐시된 상태로 종일 머묾. 매시간 watcher 가 자가 치유.
+     * initialDelay 20분: 부팅 시드와 충돌 방지.
+     */
+    @Scheduled(fixedDelay = 3_600_000L, initialDelay = 1_200_000L)
+    public void retryIfEmpty() {
+        try {
+            int count = stockMasterService.cachedCount();
+            if (count < EMPTY_THRESHOLD) {
+                log.info("StockMaster 여전히 비어있음({}) — KRX 시드 재시도", count);
+                seedAll();
+            }
+        } catch (Exception e) {
+            log.warn("KRX 시드 재시도 실패: {}", e.getMessage());
+        }
+    }
+
     public int seedAll() {
         if (!seeding.compareAndSet(false, true)) {
             log.info("KRX 시드가 이미 실행 중 — skip");

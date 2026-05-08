@@ -32,8 +32,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
                             return requestedResource;
                         }
 
-                        // API 요청은 제외
-                        if (resourcePath.startsWith("api/")) {
+                        // API / actuator / docs 요청은 SPA fallback 안 됨.
+                        // 이전: /actuator/health 도 index.html HTML 반환 → health check 무용지물.
+                        if (resourcePath.startsWith("api/")
+                                || resourcePath.startsWith("actuator/")
+                                || resourcePath.startsWith("v3/api-docs")
+                                || resourcePath.startsWith("swagger-ui")) {
                             return null;
                         }
 

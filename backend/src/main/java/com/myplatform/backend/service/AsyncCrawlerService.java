@@ -70,13 +70,10 @@ public class AsyncCrawlerService {
             List<StockFinancialData> allData = stockFinancialDataRepository.findByReportDate(today);
 
             if (allData.isEmpty()) {
-                List<String> stockCodes = stockFinancialDataRepository.findAllStockCodes();
-                log.info("오늘 날짜 데이터 없음. StockFinancialData에서 {}개 종목 코드 조회", stockCodes.size());
-
-                for (String code : stockCodes) {
-                    stockFinancialDataRepository.findTopByStockCodeOrderByReportDateDesc(code)
-                            .ifPresent(allData::add);
-                }
+                // 이전: findAllStockCodes() 후 per-code findTopBy 루프 → N개 query, connection 체류 누적.
+                // 변경: findLatestPerStock() 단일 native query (이미 존재) → 1번 호출로 종료.
+                allData = stockFinancialDataRepository.findLatestPerStock();
+                log.info("오늘 날짜 데이터 없음. 종목별 최신 데이터 batch 조회: {}건", allData.size());
             }
 
             int totalCount = allData.size();
