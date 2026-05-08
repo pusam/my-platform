@@ -191,15 +191,32 @@ public class StockPriceService {
             }
         }
 
-        // 2. 메모리 캐시 미스 → DB에서 추가 조회 (KIS 호출량 감소)
-        // 대시보드 진입 시 수십 종목을 한 번에 요청하는데, 메모리 캐시 콜드일 때도
-        // DB 에 최근 1분 이내 값이 있으면 재활용 → EGW00201 유발을 줄인다.
+        // 2. 메모리 캐시 미스 → DB에서 추가 조회 (KIS 호출량 감소).
+        //    [N+1 → batch IN 쿼리로 변경]
+        //    이전: missingCodes.size() 만큼 findTopBy... 호출 — 종목당 자동 read-tx
+        //          → 100종목이면 100번 connection acquire/release. KIS 호출 끼면 누적 60s+
+        //          → Hikari leakDetectionThreshold 발동 (false positive 일 수 있으나 부하 ↑)
+        //    변경: findLatestByStockCodes(List) 1회 호출 — 단일 짧은 tx → connection 즉시 release.
         if (!missingCodes.isEmpty()) {
+            Map<String, StockPrice> dbMap;
+            try {
+                dbMap = stockPriceRepository.findLatestByStockCodes(missingCodes).stream()
+                        .collect(Collectors.toMap(
+                                StockPrice::getStockCode,
+                                p -> p,
+                                (a, b) -> a.getFetchedAt() != null
+                                        && (b.getFetchedAt() == null
+                                            || a.getFetchedAt().isAfter(b.getFetchedAt())) ? a : b));
+            } catch (Exception e) {
+                log.warn("DB batch lookup 실패 — 종목 {}건 KIS 폴백: {}", missingCodes.size(), e.getMessage());
+                dbMap = new HashMap<>();
+            }
+
             List<String> stillMissing = new ArrayList<>(missingCodes.size());
             for (String code : missingCodes) {
-                Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code);
-                if (dbPrice.isPresent()) {
-                    StockPriceDto dto = entityToDto(dbPrice.get());
+                StockPrice dbPrice = dbMap.get(code);
+                if (dbPrice != null) {
+                    StockPriceDto dto = entityToDto(dbPrice);
                     if (isValidCache(dto, cacheMinutes)) {
                         priceCache.put(code, dto);
                         result.put(code, dto);
@@ -290,24 +307,42 @@ public class StockPriceService {
         Map<String, StockPriceDto> result = new HashMap<>();
         int cacheMinutes = kisService.isConfigured() ? 5 : 30; // 캐시 유효시간 늘림
 
+        // 1. 메모리 캐시에서 먼저 조회
+        List<String> dbLookupCodes = new ArrayList<>();
         for (String code : stockCodes) {
-            // 1. 메모리 캐시에서 조회
             StockPriceDto cached = priceCache.get(code);
             if (cached != null && isValidCache(cached, cacheMinutes)) {
                 result.put(code, cached);
-                continue;
+            } else {
+                dbLookupCodes.add(code);
             }
+        }
 
-            // 2. DB에서 조회
-            Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code);
-            if (dbPrice.isPresent()) {
-                StockPriceDto dto = entityToDto(dbPrice.get());
-                if (isValidCache(dto, cacheMinutes)) {
-                    priceCache.put(code, dto);
-                    result.put(code, dto);
-                }
+        // 2. DB batch lookup (N+1 → 1 query, connection 점유 시간 ↓)
+        if (!dbLookupCodes.isEmpty()) {
+            Map<String, StockPrice> dbMap;
+            try {
+                dbMap = stockPriceRepository.findLatestByStockCodes(dbLookupCodes).stream()
+                        .collect(Collectors.toMap(
+                                StockPrice::getStockCode, p -> p,
+                                (a, b) -> a.getFetchedAt() != null
+                                        && (b.getFetchedAt() == null
+                                            || a.getFetchedAt().isAfter(b.getFetchedAt())) ? a : b));
+            } catch (Exception e) {
+                log.warn("DB batch lookup 실패 (cacheOnly): {}", e.getMessage());
+                dbMap = new HashMap<>();
             }
-            // API 호출은 하지 않음 - 없으면 그냥 null
+            for (String code : dbLookupCodes) {
+                StockPrice dbPrice = dbMap.get(code);
+                if (dbPrice != null) {
+                    StockPriceDto dto = entityToDto(dbPrice);
+                    if (isValidCache(dto, cacheMinutes)) {
+                        priceCache.put(code, dto);
+                        result.put(code, dto);
+                    }
+                }
+                // API 호출은 하지 않음 - 없으면 그냥 null
+            }
         }
 
         log.debug("캐시 전용 시세 조회 - 요청: {}, 캐시 히트: {}", stockCodes.size(), result.size());
