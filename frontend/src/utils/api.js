@@ -778,6 +778,14 @@ export const quantTaAPI = {
   compositeBatch(stockCodes) {
     return apiClient.post('/quant-ta/composite/batch', { stockCodes });
   },
+  // 관련 종목 (같은 섹터 + correlation 0.5+)
+  relatedStocks(stockCode, limit = 5) {
+    return apiClient.get(`/quant-ta/${stockCode}/related`, { params: { limit } });
+  },
+  // 오늘 강세 섹터 (평균 등락률 +0.5% 이상)
+  strongSectors() {
+    return apiClient.get('/quant-ta/strong-sectors');
+  },
   // universe 현황 (스크리너 가용 종목 수)
   universeStatus() {
     return apiClient.get('/quant-ta/universe-status');

@@ -274,6 +274,35 @@
           </div>
         </div>
 
+        <!-- 오늘 강세 섹터 — 평균 등락률 +0.5%+ -->
+        <div id="briefing-section-strong-sectors" class="strong-sectors section-card" v-if="strongSectors.length">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🔥</span> 오늘 강세 섹터</h2>
+            <span class="ss-disclaimer">평균 등락률 기준 · 30분 캐시</span>
+          </div>
+          <div class="ss-list">
+            <div v-for="(sec, i) in strongSectors.slice(0, 5)" :key="'ss-' + i" class="ss-row">
+              <div class="ss-row-head">
+                <span class="ss-color-dot" :style="{ background: sec.color }"></span>
+                <span class="ss-name">{{ sec.sectorName }}</span>
+                <span class="ss-avg" :class="Number(sec.avgChangeRate) >= 0 ? 'positive' : 'negative'">
+                  {{ Number(sec.avgChangeRate) >= 0 ? '+' : '' }}{{ Number(sec.avgChangeRate).toFixed(2) }}%
+                </span>
+                <span class="ss-count">{{ sec.stockCount }}종목</span>
+              </div>
+              <div class="ss-stocks">
+                <span v-for="t in sec.topStocks" :key="t.stockCode"
+                      class="ss-stock" @click="goToStock(t.stockCode)">
+                  {{ t.stockName }}
+                  <span :class="Number(t.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(t.changeRate) >= 0 ? '+' : '' }}{{ Number(t.changeRate).toFixed(1) }}%
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 관심종목 차트 신호 — 패턴 검출된 종목만 노출 -->
         <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="chartSignals.length">
           <div class="section-title-row">
@@ -505,6 +534,8 @@ export default {
       chartSignalFilter: 'ALL', // 'ALL' | 'BULLISH' | 'HIGH'
       // 종합 신호 점수 (stockCode → matchedCount/totalCount)
       compositeMap: {},
+      // 오늘 강세 섹터
+      strongSectors: [],
       // AI 종합 추천
       topRecommendations: [],
       topRecLoading: false,
@@ -702,6 +733,16 @@ export default {
       }
     },
 
+    // ---- 오늘 강세 섹터 로드 ----
+    async loadStrongSectors() {
+      try {
+        const res = await quantTaAPI.strongSectors()
+        if (res.data?.success) this.strongSectors = res.data.data || []
+      } catch (e) {
+        console.warn('강세 섹터 로드 실패:', e?.message)
+      }
+    },
+
     // ---- 종합 신호 점수 batch 로드 (fire-and-forget) ----
     async loadCompositeBatch(codes) {
       if (!codes || !codes.length) return
@@ -875,6 +916,8 @@ export default {
       } catch { this.watchlistItems = [] }
       // 차트 패턴 스캔 — watchlist 우선, 비었으면 거래량 상위 fallback (모두 fire-and-forget)
       this.loadChartSignals()
+      // 오늘 강세 섹터
+      this.loadStrongSectors()
 
       // AI 종합 추천 TOP 5
       this.topRecLoading = true
@@ -1543,6 +1586,37 @@ export default {
 .wl-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
 .wl-price { font-size: 13px; color: rgba(255,255,255,0.6); font-family: monospace; }
 .wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
+
+/* ===== 오늘 강세 섹터 카드 ===== */
+.strong-sectors .ss-disclaimer {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
+}
+.ss-list { display: flex; flex-direction: column; gap: 8px; }
+.ss-row {
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  border-left: 3px solid rgba(255,255,255,0.1);
+}
+.ss-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.ss-color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.ss-name { font-size: 13px; font-weight: 700; color: #fff; flex: 1; }
+.ss-avg {
+  font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ss-count { font-size: 11px; color: rgba(255,255,255,0.5); }
+.ss-stocks { display: flex; flex-wrap: wrap; gap: 6px; }
+.ss-stock {
+  font-size: 11px;
+  padding: 3px 8px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.ss-stock:hover { background: rgba(99,102,241,0.18); }
 
 /* ===== 차트 신호 카드 ===== */
 .chart-signals .cs-controls {

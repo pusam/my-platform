@@ -196,6 +196,30 @@
       </div>
     </section>
 
+    <!-- 관련 종목 (correlation 기반) — "함께 움직이는 종목" -->
+    <section v-if="hasData && relatedStocks.length > 0" class="related-section">
+      <div class="related-header">
+        <span class="related-icon">🔗</span>
+        <h3 class="related-title">함께 움직이는 종목</h3>
+        <InfoTooltip title="관련 종목 (correlation)">
+          <p>같은 섹터 종목 중 최근 60일 일변화율이 비슷한 패턴을 보인 top 5.</p>
+          <p><strong>상관 0.5+</strong>: 같이 움직이는 경향. <strong>0.7+</strong>: 매우 강함.</p>
+          <p>왜 유용? <em>한 종목 보유 시 같이 움직이는 종목도 영향 받을 수 있음.</em>
+            분산투자 / 동반 매수·매도 결정에 참고.</p>
+        </InfoTooltip>
+      </div>
+      <div class="related-list">
+        <div v-for="r in relatedStocks" :key="r.stockCode"
+             class="related-row" @click="goToRelatedStock(r.stockCode)">
+          <span class="related-name">{{ r.stockName }}</span>
+          <span class="related-code">{{ r.stockCode }}</span>
+          <span class="related-corr" :class="getCorrClass(r.correlation)">
+            상관 {{ Number(r.correlation).toFixed(2) }}
+          </span>
+        </div>
+      </div>
+    </section>
+
     <!-- 차트 패턴 검출 (참고용 인디케이터) -->
     <section v-if="hasData && chartPatterns.length > 0" class="chart-patterns-section">
       <div class="cps-header">
@@ -1203,6 +1227,7 @@ const chartPatterns = ref([]);  // 차트 패턴 검출 결과
 const supportResistance = ref(null);  // 지지/저항 레벨
 const volumeProfile = ref(null);  // Volume Profile (가격대별 누적 거래량)
 const compositeSignal = ref(null);  // 5개 신호 종합 평가
+const relatedStocks = ref([]);  // 관련 종목 (correlation 기반)
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1765,11 +1790,17 @@ const fetchAllData = async (code, searchedName) => {
       })
       .catch(err => console.warn('Volume Profile 실패:', err.message));
     compositeSignal.value = null;
+    relatedStocks.value = [];
     quantTaAPI.compositeSignal(code)
       .then(res => {
         if (res.data?.success) compositeSignal.value = res.data.data;
       })
       .catch(err => console.warn('종합 신호 실패:', err.message));
+    quantTaAPI.relatedStocks(code, 5)
+      .then(res => {
+        if (res.data?.success) relatedStocks.value = res.data.data || [];
+      })
+      .catch(err => console.warn('관련 종목 실패:', err.message));
 
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
@@ -2025,6 +2056,18 @@ const getCompositeBadgeClass = () => {
   if (m >= 3) return 'cb-medium';
   if (m >= 1) return 'cb-weak';
   return 'cb-none';
+};
+
+// ===== 관련 종목 helpers =====
+const getCorrClass = (corr) => {
+  const c = Number(corr);
+  if (c >= 0.8) return 'corr-strong';
+  if (c >= 0.65) return 'corr-medium';
+  return 'corr-weak';
+};
+const goToRelatedStock = (code) => {
+  searchQuery.value = code;
+  searchStock();
 };
 
 // ===== Volume Profile helpers =====
@@ -4145,6 +4188,40 @@ onUnmounted(() => {
 .composite-badge.cb-medium { background: rgba(234,179,8,0.18); color: #facc15; border-color: rgba(234,179,8,0.4); }
 .composite-badge.cb-weak { background: rgba(249,115,22,0.18); color: #fb923c; border-color: rgba(249,115,22,0.4); }
 .composite-badge.cb-none { background: rgba(156,163,175,0.12); color: rgba(255,255,255,0.4); border-color: rgba(156,163,175,0.2); }
+
+/* ========== 관련 종목 섹션 ========== */
+.related-section {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.related-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.related-icon { font-size: 18px; }
+.related-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; }
+.related-list { display: flex; flex-direction: column; gap: 4px; }
+.related-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.related-row:hover { background: rgba(99,102,241,0.1); }
+.related-name { color: rgba(255,255,255,0.95); font-weight: 600; font-size: 13px; }
+.related-code { color: rgba(255,255,255,0.4); font-size: 11px; font-variant-numeric: tabular-nums; }
+.related-corr {
+  font-size: 11px; padding: 2px 8px; border-radius: 8px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.related-corr.corr-strong { background: rgba(34,197,94,0.18); color: #4ade80; }
+.related-corr.corr-medium { background: rgba(234,179,8,0.18); color: #facc15; }
+.related-corr.corr-weak { background: rgba(156,163,175,0.18); color: #d1d5db; }
 
 /* ========== Volume Profile 섹션 ========== */
 .vp-section {

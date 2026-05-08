@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
@@ -7,15 +8,19 @@ import com.myplatform.backend.repository.StockPriceRepository;
 import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -42,6 +47,9 @@ public class QuantTaService {
     private final StockPriceRepository stockPriceRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final StockAnalysisService stockAnalysisService;
+    @Autowired private SectorStockConfig sectorStockConfig;
+    @Autowired private StockMasterService stockMasterService;
+    @Autowired private StockPriceService stockPriceService;
 
     private static final int MIN_HISTORY_DAYS = 25;       // 최소 일봉 수 (MA20 + RSI 안정성)
     private static final int LOAD_WINDOW_DAYS = 130;      // 로드 창 (영업일 기준 약 6개월)
@@ -253,6 +261,139 @@ public class QuantTaService {
         BigDecimal avg = sum.divide(BigDecimal.valueOf(n), 4, RoundingMode.HALF_UP);
         if (avg.signum() == 0) return null;
         return latest.divide(avg, 2, RoundingMode.HALF_UP);
+    }
+
+    // ==================== 2-1. 관련 종목 (correlation 기반) ====================
+
+    /**
+     * 종목 → 함께 움직이는 관련 종목 top N.
+     * 같은 섹터 종목들과 60일 종가 correlation 계산 → 0.5+ desc 정렬.
+     *
+     * Universe 결정:
+     *  - SectorStockConfig 의 모든 섹터 중 입력 종목이 속한 섹터 합집합
+     *  - 자기 자신 제외, 중복 제거, 최대 25개 (correlation 30개 cap 안에서)
+     */
+    public List<RelatedStockDto> getRelatedStocks(String stockCode, int limit) {
+        if (stockCode == null || stockCode.isEmpty()) return Collections.emptyList();
+
+        // 같은 섹터 종목 universe
+        Set<String> universe = new LinkedHashSet<>();
+        for (SectorStockConfig.SectorInfo sector : sectorStockConfig.getAllSectors()) {
+            if (sector.getStockCodes().contains(stockCode)) {
+                for (String code : sector.getStockCodes()) {
+                    if (!code.equals(stockCode)) universe.add(code);
+                }
+            }
+        }
+        if (universe.isEmpty()) return Collections.emptyList();
+
+        // correlation 호출용 universe = 자기 + 비교 후보 (자기 row 가 있어야 매트릭스에서 추출 가능)
+        List<String> codes = new ArrayList<>();
+        codes.add(stockCode);
+        codes.addAll(universe.stream().limit(MAX_CORRELATION_STOCKS - 1).toList());
+
+        Map<String, Object> corrResult = correlation(codes, CORRELATION_DAYS);
+        double[][] matrix = (double[][]) corrResult.get("matrix");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> stocksList = (List<Map<String, Object>>) corrResult.get("stocks");
+        if (matrix == null || stocksList == null || matrix.length == 0) return Collections.emptyList();
+
+        // stockCode 의 row 인덱스 찾기
+        int myIdx = -1;
+        for (int i = 0; i < stocksList.size(); i++) {
+            if (stockCode.equals(stocksList.get(i).get("stockCode"))) { myIdx = i; break; }
+        }
+        if (myIdx < 0 || myIdx >= matrix.length) return Collections.emptyList();
+
+        // 자기 row 의 다른 종목 correlation 추출 → 0.5+ desc top N
+        List<RelatedStockDto> results = new ArrayList<>();
+        double[] myRow = matrix[myIdx];
+        for (int j = 0; j < stocksList.size() && j < myRow.length; j++) {
+            if (j == myIdx) continue;
+            double corr = myRow[j];
+            if (corr < 0.5) continue;
+            Map<String, Object> peer = stocksList.get(j);
+            String code = (String) peer.get("stockCode");
+            String name = (String) peer.get("stockName");
+            if (name == null || name.isBlank()) name = stockMasterService.getNameOrDefault(code, code);
+            results.add(new RelatedStockDto(code, name,
+                    BigDecimal.valueOf(corr).setScale(3, RoundingMode.HALF_UP)));
+        }
+        results.sort((a, b) -> b.correlation().compareTo(a.correlation()));
+        return results.stream().limit(Math.max(1, Math.min(limit, 10))).toList();
+    }
+
+    /** 관련 종목 결과 DTO. */
+    public record RelatedStockDto(String stockCode, String stockName, BigDecimal correlation) {}
+
+    // ==================== 2-2. 강세 섹터 ====================
+
+    /** 강세 판정 임계 — 섹터 평균 등락률 +0.5% 이상. */
+    private static final BigDecimal STRONG_SECTOR_MIN = new BigDecimal("0.5");
+
+    /**
+     * 오늘 강세 섹터 — 섹터 종목들 평균 등락률 desc top N.
+     * 각 섹터의 강세 종목(개별 등락률 desc) top 3 함께 반환.
+     * 30분 캐시 (장중 변동 빠름).
+     */
+    @org.springframework.cache.annotation.Cacheable(value = "chartPatterns", key = "'ss:all'")
+    public List<StrongSectorDto> getStrongSectors() {
+        // 모든 섹터의 종목 모음 (중복 제거)
+        Set<String> allCodes = new LinkedHashSet<>();
+        for (SectorStockConfig.SectorInfo sector : sectorStockConfig.getAllSectors()) {
+            allCodes.addAll(sector.getStockCodes());
+        }
+        if (allCodes.isEmpty()) return Collections.emptyList();
+
+        // batch 시세 조회 — KIS 비용 큼. 캐시 활용.
+        Map<String, com.myplatform.backend.dto.StockPriceDto> priceMap;
+        try {
+            priceMap = stockPriceService.getStockPrices(new ArrayList<>(allCodes));
+        } catch (Exception e) {
+            log.warn("[강세섹터] 시세 batch 실패: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+        if (priceMap == null || priceMap.isEmpty()) return Collections.emptyList();
+
+        // 섹터별 평균 등락률 계산
+        List<StrongSectorDto> sectors = new ArrayList<>();
+        for (SectorStockConfig.SectorInfo sector : sectorStockConfig.getAllSectors()) {
+            List<StrongSectorDto.SectorStock> stocks = new ArrayList<>();
+            BigDecimal sumChange = BigDecimal.ZERO;
+            int count = 0;
+            for (String code : sector.getStockCodes()) {
+                com.myplatform.backend.dto.StockPriceDto p = priceMap.get(code);
+                if (p == null || p.getChangeRate() == null) continue;
+                stocks.add(new StrongSectorDto.SectorStock(
+                        code,
+                        p.getStockName() != null ? p.getStockName()
+                                : stockMasterService.getNameOrDefault(code, code),
+                        p.getChangeRate()));
+                sumChange = sumChange.add(p.getChangeRate());
+                count++;
+            }
+            if (count == 0) continue;
+            BigDecimal avg = sumChange.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
+            // 강세 섹터만 (+0.5% 이상)
+            if (avg.compareTo(STRONG_SECTOR_MIN) < 0) continue;
+
+            // 섹터 안 강세 종목 top 3 (개별 등락률 desc)
+            stocks.sort((a, b) -> b.changeRate().compareTo(a.changeRate()));
+            sectors.add(new StrongSectorDto(
+                    sector.getCode(), sector.getName(), sector.getColor(),
+                    avg, count, stocks.stream().limit(3).toList()));
+        }
+
+        // 평균 등락률 desc 정렬
+        sectors.sort((a, b) -> b.avgChangeRate().compareTo(a.avgChangeRate()));
+        return sectors;
+    }
+
+    /** 강세 섹터 결과 DTO. */
+    public record StrongSectorDto(String sectorCode, String sectorName, String color,
+                                  BigDecimal avgChangeRate, int stockCount,
+                                  List<SectorStock> topStocks) {
+        public record SectorStock(String stockCode, String stockName, BigDecimal changeRate) {}
     }
 
     // ==================== 2. 상관관계 매트릭스 ====================

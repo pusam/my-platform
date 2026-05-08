@@ -86,6 +86,47 @@ public class QuantTaController {
         private List<String> stockCodes;
     }
 
+    @GetMapping("/strong-sectors")
+    @Operation(summary = "오늘 강세 섹터 (avg 등락률 +0.5%+)",
+            description = "16개 섹터 평균 등락률 desc. 강세 섹터당 안 종목 top 3 함께. 30분 캐시.")
+    public ResponseEntity<Map<String, Object>> strongSectors() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<QuantTaService.StrongSectorDto> data = quantTaService.getStrongSectors();
+            response.put("success", true);
+            response.put("data", data);
+            response.put("count", data.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("강세 섹터 조회 오류", e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/related")
+    @Operation(summary = "관련 종목 (correlation 기반)",
+            description = "같은 섹터 종목들과 60일 종가 correlation 계산. " +
+                    "0.5+ 종목만 desc 정렬해서 top N 반환. 기본 5개.")
+    public ResponseEntity<Map<String, Object>> related(
+            @PathVariable String stockCode,
+            @RequestParam(defaultValue = "5") int limit) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            List<QuantTaService.RelatedStockDto> data = quantTaService.getRelatedStocks(stockCode, limit);
+            response.put("success", true);
+            response.put("data", data);
+            response.put("count", data.size());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("관련 종목 검색 오류 [{}]", stockCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @GetMapping("/{stockCode}/composite")
     @Operation(summary = "종합 신호 평가 (5가지)",
             description = "차트 패턴 / 지지선 / Volume Profile 저평가 / 수급 / AI 추천 — 매칭 개수 반환. " +
