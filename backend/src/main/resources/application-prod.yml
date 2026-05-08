@@ -35,17 +35,23 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
-# Actuator: health 만 노출, 그 외 모두 차단
+# Actuator: health + prometheus 노출. prometheus 는 nginx 외부 차단.
+# 이전: exclude: "*" 가 include 보다 우선이라 모든 endpoint 차단됨 → /actuator/health 404.
+# Spring Boot 3.4+ 에서 endpoint 매핑은 access 모델도 함께 명시해야 함.
 management:
   endpoints:
+    access:
+      default: read-only
     web:
       exposure:
-        include: health
-        exclude: "*"
+        include: health,prometheus
   endpoint:
     health:
       show-details: never
       show-components: never
+      access: read-only
+    prometheus:
+      access: unrestricted
   info:
     env:
       enabled: false
