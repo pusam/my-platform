@@ -38,6 +38,10 @@ public class AdminController {
     private final AiStrategySnapshotService aiStrategySnapshotService;
     private final BatchJobMonitorService batchJobMonitorService;
     private final com.myplatform.backend.service.KisApiRateLimiter kisApiRateLimiter;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.myplatform.backend.service.KrxStockMasterSeeder krxStockMasterSeeder;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.myplatform.backend.service.StockMasterService stockMasterService;
 
     public AdminController(UserManagementService userManagementService,
                           AdminStatsService adminStatsService,
@@ -55,6 +59,41 @@ public class AdminController {
         this.aiStrategySnapshotService = aiStrategySnapshotService;
         this.batchJobMonitorService = batchJobMonitorService;
         this.kisApiRateLimiter = kisApiRateLimiter;
+    }
+
+    @PostMapping("/stock-master/seed")
+    @Operation(summary = "stock_master KRX 시드 강제 실행",
+            description = "KOSPI/KOSDAQ 전체 종목코드/종목명 매핑을 KRX 에서 다운로드하여 적재. " +
+                    "@Scheduled (매일 06:00) 와 동일 로직 — 즉시 트리거.")
+    public ResponseEntity<java.util.Map<String, Object>> seedStockMaster() {
+        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        try {
+            int beforeCount = stockMasterService.cachedCount();
+            int total = krxStockMasterSeeder.seedAll();
+            int afterCount = stockMasterService.cachedCount();
+            response.put("success", true);
+            response.put("seeded", total);
+            response.put("cachedBefore", beforeCount);
+            response.put("cachedAfter", afterCount);
+            response.put("message",
+                    String.format("시드 완료 — %d 종목 적재. 캐시 %d → %d.",
+                            total, beforeCount, afterCount));
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "시드 실패: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/stock-master/status")
+    @Operation(summary = "stock_master 캐시 현황", description = "현재 메모리 캐시된 종목 수 + 샘플 5개")
+    public ResponseEntity<java.util.Map<String, Object>> stockMasterStatus() {
+        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        response.put("success", true);
+        response.put("cachedCount", stockMasterService.cachedCount());
+        response.put("lastSeedEpochSeconds", krxStockMasterSeeder.getLastSeedEpochSeconds());
+        return ResponseEntity.ok(response);
     }
 
     @Operation(summary = "시스템 통계 조회", description = "시스템 전체 통계 정보를 조회합니다.")
