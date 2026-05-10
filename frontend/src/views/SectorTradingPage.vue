@@ -17,6 +17,11 @@
         </div>
       </header>
 
+      <!-- 데이터 갱신 상태 -->
+      <div class="freshness-bar">
+        <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+      </div>
+
       <!-- 설명 -->
       <div class="info-banner">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -147,6 +152,8 @@ import { UserManager } from '../utils/auth';
 import { formatTradingValue } from '../utils/marketFormatters';
 import LoadingSpinner from '../components/LoadingSpinner.vue';
 import BackButton from '../components/BackButton.vue';
+import DataFreshness from '../components/DataFreshness.vue';
+import { useAutoRefresh } from '../composables/useAutoRefresh.js';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false }
@@ -159,7 +166,6 @@ const loading = ref(false);
 const expandedSector = ref(null);
 const lastUpdate = ref('-');
 const selectedPeriod = ref('TODAY');
-let refreshInterval = null;
 
 // 기간 선택 탭
 const periodTabs = [
@@ -268,15 +274,11 @@ const logout = () => {
 
 // 페이지 가시성에 따라 polling 자동 일시정지/재개
 const startPolling = () => {
-  if (!refreshInterval) {
-    refreshInterval = setInterval(loadData, 5 * 60 * 1000);
-  }
   if (!tickInterval) {
     tickInterval = setInterval(() => { nowTick.value = new Date(); }, 60 * 1000);
   }
 };
 const stopPolling = () => {
-  if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
 };
 const onVisibilityChange = () => {
@@ -284,12 +286,16 @@ const onVisibilityChange = () => {
     stopPolling();
   } else {
     startPolling();
-    loadData();  // 탭 복귀 시 즉시 갱신
   }
 };
 
+// 데이터 자동 갱신 (60초)
+const { lastUpdated, isRefreshing, nextRefreshIn, manualRefresh } = useAutoRefresh(
+  async () => { await loadData(); },
+  { interval: 60 * 1000 }
+);
+
 onMounted(() => {
-  loadData();
   startPolling();
   document.addEventListener('visibilitychange', onVisibilityChange);
 });
@@ -779,4 +785,7 @@ onUnmounted(() => {
   padding: 0;
   background: none;
 }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>

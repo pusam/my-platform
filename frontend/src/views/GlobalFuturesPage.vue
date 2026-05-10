@@ -16,6 +16,9 @@
     </div>
 
     <div v-show="mainTab === 'futures'">
+    <div class="freshness-bar">
+      <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+    </div>
     <div class="page-header">
       <div class="header-left">
         <h1>글로벌 선물 대시보드</h1>
@@ -366,6 +369,7 @@ import SilverPricePage from './SilverPricePage.vue';
 import OilPricePage from './OilPricePage.vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import DashboardHeader from '../components/v2/DashboardHeader.vue';
+import DataFreshness from '../components/DataFreshness.vue';
 
 const router = useRouter();
 // stock-dashboard 4탭 중 글로벌 외 클릭 시 라우팅
@@ -386,7 +390,12 @@ const lastUpdated = ref(null);
 const autoRefresh = ref(true);
 const dataTimestamp = ref('');
 const currentMarketStatus = ref('');
+const isRefreshing = ref(false);
+const nextRefreshIn = ref(30);
 let refreshTimer = null;
+let countdownTimer = null;
+
+const manualRefresh = () => { fetchData(); };
 
 // 카테고리 필터
 const kospiQuote = computed(() =>
@@ -512,6 +521,7 @@ const marketStatusClass = computed(() => {
 // 데이터 fetch
 const fetchData = async () => {
   loading.value = true;
+  isRefreshing.value = true;
   error.value = '';
 
   try {
@@ -543,6 +553,8 @@ const fetchData = async () => {
     console.error('GlobalFutures fetch error:', e);
   } finally {
     loading.value = false;
+    isRefreshing.value = false;
+    nextRefreshIn.value = 30;
   }
 };
 
@@ -557,13 +569,22 @@ const toggleAutoRefresh = () => {
 
 const startAutoRefresh = () => {
   stopAutoRefresh();
-  refreshTimer = setInterval(fetchData, 30000);
+  refreshTimer = setInterval(() => {
+    if (!document.hidden) fetchData();
+  }, 30000);
+  countdownTimer = setInterval(() => {
+    if (!document.hidden && nextRefreshIn.value > 0) nextRefreshIn.value--;
+  }, 1000);
 };
 
 const stopAutoRefresh = () => {
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
   }
 };
 
@@ -1587,4 +1608,7 @@ onUnmounted(() => {
   .card-price { font-size: 1.1rem; }
   .sentiment-price, .fng-score { font-size: 1.2rem; }
 }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>

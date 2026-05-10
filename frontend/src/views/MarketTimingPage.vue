@@ -8,6 +8,11 @@
       </div>
     </div>
 
+    <!-- 데이터 갱신 상태 -->
+    <div class="freshness-bar">
+      <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+    </div>
+
     <!-- 시장 상태 카드 -->
     <div class="status-overview">
       <div class="status-card main-status" :class="getConditionClass(marketData?.overallCondition)">
@@ -452,6 +457,8 @@ import { useRouter } from 'vue-router';
 import { marketAPI, globalFuturesAPI, goldAPI, silverAPI, oilAPI, exchangeRateAPI } from '../utils/api';
 import { toast } from '../utils/toast';
 import GlobalNav from '../components/GlobalNav.vue';
+import DataFreshness from '../components/DataFreshness.vue';
+import { useAutoRefresh } from '../composables/useAutoRefresh.js';
 import { Line } from 'vue-chartjs';
 import {
   Chart as ChartJS,
@@ -912,8 +919,13 @@ const getAdrClass = (adr) => {
   return 'adr-normal';
 };
 
+// 자동 갱신 (60초) — 메인 시장 데이터
+const { lastUpdated, isRefreshing, nextRefreshIn, manualRefresh } = useAutoRefresh(
+  async () => { await fetchData(); },
+  { interval: 60 * 1000 }
+);
+
 onMounted(() => {
-  fetchData();
   fetchAdrHistory();
   fetchFutures();
 });
@@ -2049,5 +2061,8 @@ onMounted(() => {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>
 

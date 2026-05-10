@@ -57,6 +57,11 @@
       </div>
     </header>
 
+    <!-- 데이터 갱신 상태 -->
+    <div class="freshness-bar" v-if="hasData">
+      <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+    </div>
+
     <!-- 검색바 + 실시간 상태 -->
     <div class="control-section">
       <div class="search-bar">
@@ -1186,6 +1191,7 @@ import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
+import DataFreshness from '../components/DataFreshness.vue';
 import { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import api from '../utils/api';
 import { toast } from '../utils/toast';
@@ -1263,7 +1269,10 @@ const invChartPeriods = [
 // 실시간 갱신
 const autoRefresh = ref(true);
 const lastUpdated = ref(null);
+const isRefreshing = ref(false);
+const nextRefreshIn = ref(15);
 let refreshInterval = null;
+let countdownTimer = null;
 
 const hasData = computed(() => priceInfo.value !== null);
 
@@ -1838,6 +1847,7 @@ const fetchAllData = async (code, searchedName) => {
 const refreshRealtimeData = async () => {
   if (!stockCode.value || !autoRefresh.value) return;
 
+  isRefreshing.value = true;
   try {
     const response = await stockDetailAPI.getQuick(stockCode.value);
     if (response.data.success && response.data.data) {
@@ -1849,6 +1859,15 @@ const refreshRealtimeData = async () => {
     }
   } catch (error) {
     console.error('실시간 갱신 오류:', error);
+  } finally {
+    isRefreshing.value = false;
+    nextRefreshIn.value = 15;
+  }
+};
+
+const manualRefresh = () => {
+  if (stockCode.value) {
+    refreshRealtimeData();
   }
 };
 
@@ -1862,13 +1881,23 @@ const toggleAutoRefresh = () => {
 
 const startAutoRefresh = () => {
   if (refreshInterval) clearInterval(refreshInterval);
-  refreshInterval = setInterval(refreshRealtimeData, 10000);
+  if (countdownTimer) clearInterval(countdownTimer);
+  refreshInterval = setInterval(() => {
+    if (!document.hidden) refreshRealtimeData();
+  }, 15000);
+  countdownTimer = setInterval(() => {
+    if (!document.hidden && nextRefreshIn.value > 0) nextRefreshIn.value--;
+  }, 1000);
 };
 
 const stopAutoRefresh = () => {
   if (refreshInterval) {
     clearInterval(refreshInterval);
     refreshInterval = null;
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
+    countdownTimer = null;
   }
 };
 
@@ -4722,4 +4751,7 @@ onUnmounted(() => {
   animation: heavy-spin 0.8s linear infinite;
 }
 @keyframes heavy-spin { to { transform: rotate(360deg); } }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>

@@ -9,6 +9,11 @@
         </div>
       </div>
 
+      <!-- 데이터 갱신 상태 -->
+      <div class="freshness-bar">
+        <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+      </div>
+
       <!-- 메인 탭 -->
       <div class="main-tabs">
         <button v-for="tab in mainTabs" :key="tab.key"
@@ -255,6 +260,8 @@ import { investorAPI, shortSellingAPI } from '../utils/api'
 import { toast } from '../utils/toast'
 import LoadingSpinner from '../components/LoadingSpinner.vue'
 import BackButton from '../components/BackButton.vue'
+import DataFreshness from '../components/DataFreshness.vue'
+import { useAutoRefresh } from '../composables/useAutoRefresh.js'
 
 const props = defineProps({
   embedded: { type: Boolean, default: false }
@@ -552,6 +559,20 @@ const formatDateRange = (start, end) => {
 }
 
 // ===== Lifecycle =====
+// 활성 탭 기반 자동 갱신 (120초)
+const { lastUpdated, isRefreshing, nextRefreshIn, manualRefresh } = useAutoRefresh(
+  async () => {
+    if (activeTab.value === 'trades') {
+      await fetchTrades()
+    } else if (activeTab.value === 'consecutive') {
+      await fetchConsecutive()
+    } else if (activeTab.value === 'shortSelling') {
+      await fetchShortSelling()
+    }
+  },
+  { interval: 120 * 1000, immediate: false }
+)
+
 onMounted(() => {
   autoCollectTrades()
 })
@@ -1016,4 +1037,7 @@ td {
   .stocks-grid { grid-template-columns: 1fr; gap: 10px; }
   .card-stock-name { font-size: 14px; }
 }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>

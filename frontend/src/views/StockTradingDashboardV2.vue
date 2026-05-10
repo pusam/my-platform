@@ -9,6 +9,16 @@
         @tab-change="activeGnbTab = $event"
       />
 
+      <!-- 데이터 갱신 상태 — 트레이드 탭에서만 노출 -->
+      <div class="freshness-bar" v-if="activeGnbTab === 'premarket'">
+        <DataFreshness
+          :lastUpdated="lastUpdated"
+          :isRefreshing="isRefreshing"
+          :nextRefreshIn="nextRefreshIn"
+          @refresh="manualRefresh"
+        />
+      </div>
+
       <!-- ═══ Tab 1·2: 장전 + 장중 (공유 패널) ═══ -->
       <!-- ═══ Tab: 트레이드 (장전+장중 통합 — 시장 시간대로 위젯 자동 토글) ═══ -->
       <div v-if="activeGnbTab === 'premarket'" class="tab-panel">
@@ -425,6 +435,7 @@
 <script>
 import GlobalNav from '../components/GlobalNav.vue'
 import DashboardHeader from '../components/v2/DashboardHeader.vue'
+import DataFreshness from '../components/DataFreshness.vue'
 import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
@@ -488,6 +499,7 @@ export default {
   components: {
     GlobalNav,
     DashboardHeader,
+    DataFreshness,
     SectionMarketMap,
     SectionQuantTa,
     SectionLiveSurge,
@@ -567,7 +579,12 @@ export default {
       phaseLoading: false,
       preMarketData: [],   // 장 전
       postMarketData: [],  // 장 후
-      investorTop5: []     // 외국인/기관 TOP 5
+      investorTop5: [],    // 외국인/기관 TOP 5
+      // 데이터 갱신 추적 — DataFreshness 컴포넌트용
+      lastUpdated: null,
+      isRefreshing: false,
+      nextRefreshIn: 60,
+      _countdownTimer: null
     }
   },
   inject: { toast: { default: () => ({ success(){}, error(){}, warning(){}, info(){} }) } },
@@ -600,6 +617,14 @@ export default {
     this.setupKeyboardShortcut()
     // 60초마다 트레이드 탭 데이터 자동 갱신 — 페이지 가시성에 따라 자동 일시정지/재개
     this._startPolling()
+    this._startCountdown()
+    // 초기 로드 후 lastUpdated 마킹 (스태거 로드가 끝나는 1.5초 뒤)
+    setTimeout(() => {
+      if (this.activeGnbTab === 'premarket' && !this.lastUpdated) {
+        this.lastUpdated = new Date()
+        this.nextRefreshIn = 60
+      }
+    }, 1500)
     this._onVisibilityChange = () => {
       if (document.hidden) {
         this._stopPolling()
@@ -607,9 +632,7 @@ export default {
         this._startPolling()
         // 다시 보이는 순간 한 번 즉시 갱신 (탭 복귀 시 stale 화면 방지)
         if (this.activeGnbTab === 'premarket') {
-          this.loadMarketMap()
-          this.refreshRecommendations()
-          this.loadSupplyPanel()
+          this._refreshAll()
         }
       }
     }
@@ -618,6 +641,7 @@ export default {
   beforeUnmount() {
     this.removeKeyboardShortcut()
     this._stopPolling()
+    this._stopCountdown()
     if (this._onVisibilityChange) {
       document.removeEventListener('visibilitychange', this._onVisibilityChange)
       this._onVisibilityChange = null
@@ -819,15 +843,46 @@ export default {
       if (this._refreshTimer) return
       this._refreshTimer = setInterval(() => {
         if (this.activeGnbTab !== 'premarket') return
-        this.loadMarketMap()
-        this.refreshRecommendations()
-        this.loadSupplyPanel()
+        this._refreshAll()
       }, 60000)
     },
     _stopPolling() {
       if (this._refreshTimer) {
         clearInterval(this._refreshTimer)
         this._refreshTimer = null
+      }
+    },
+    // ---- 트레이드 탭 핵심 데이터 일괄 갱신 + lastUpdated 추적 ----
+    async _refreshAll() {
+      if (this.isRefreshing) return
+      this.isRefreshing = true
+      try {
+        await Promise.allSettled([
+          this.loadMarketMap(),
+          this.refreshRecommendations(),
+          this.loadSupplyPanel()
+        ])
+        this.lastUpdated = new Date()
+        this.nextRefreshIn = 60
+      } finally {
+        this.isRefreshing = false
+      }
+    },
+    manualRefresh() {
+      this._refreshAll()
+    },
+    _startCountdown() {
+      if (this._countdownTimer) return
+      this._countdownTimer = setInterval(() => {
+        if (document.hidden) return
+        if (this.activeGnbTab !== 'premarket') return
+        if (this.nextRefreshIn > 0) this.nextRefreshIn -= 1
+      }, 1000)
+    },
+    _stopCountdown() {
+      if (this._countdownTimer) {
+        clearInterval(this._countdownTimer)
+        this._countdownTimer = null
       }
     },
     // ---- 탭 키 호환 매핑 (장전+장중 통합 — 'live'/'trading'/'market'/'premarket' 모두 'premarket'(트레이드)로) ----
@@ -1315,6 +1370,15 @@ export default {
   max-width: 1400px;
   margin: 0 auto;
   padding: 20px 24px 60px;
+}
+
+.freshness-bar {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 12px;
+}
+@media (max-width: 480px) {
+  .freshness-bar { margin: -4px 0 10px; justify-content: center; }
 }
 
 /* ===== 분석 서브탭 ===== */

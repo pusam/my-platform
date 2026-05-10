@@ -7,6 +7,11 @@
         <h1>트레이딩 지표</h1>
       </header>
 
+      <!-- 데이터 갱신 상태 -->
+      <div class="freshness-bar">
+        <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+      </div>
+
       <!-- 글로벌 시장 섹션 -->
       <section class="indicator-section">
         <div class="section-header">
@@ -400,10 +405,11 @@
 import { tradingIndicatorAPI } from '../utils/api'
 import BackButton from '../components/BackButton.vue'
 import StockCodeInput from '../components/StockCodeInput.vue'
+import DataFreshness from '../components/DataFreshness.vue'
 
 export default {
   name: 'TradingIndicatorsPage',
-  components: { BackButton, StockCodeInput },
+  components: { BackButton, StockCodeInput, DataFreshness },
   props: {
     embedded: {
       type: Boolean,
@@ -430,14 +436,41 @@ export default {
       divergenceLookback: 40,
       divergenceResult: null,
       comprehensiveStockCode: '',
-      comprehensiveResult: null
+      comprehensiveResult: null,
+      lastUpdated: null,
+      isRefreshing: false,
+      nextRefreshIn: 60,
+      _refreshTimer: null,
+      _countdownTimer: null
     }
   },
   mounted() {
-    this.loadGlobalMarket()
-    this.loadLeadingSectors()
+    this.refreshMainData()
+    this._refreshTimer = setInterval(() => {
+      if (!document.hidden) this.refreshMainData()
+    }, 60 * 1000)
+    this._countdownTimer = setInterval(() => {
+      if (!document.hidden && this.nextRefreshIn > 0) this.nextRefreshIn--
+    }, 1000)
+  },
+  beforeUnmount() {
+    if (this._refreshTimer) clearInterval(this._refreshTimer)
+    if (this._countdownTimer) clearInterval(this._countdownTimer)
   },
   methods: {
+    async refreshMainData() {
+      this.isRefreshing = true
+      try {
+        await Promise.all([this.loadGlobalMarket(), this.loadLeadingSectors()])
+      } finally {
+        this.isRefreshing = false
+        this.lastUpdated = new Date()
+        this.nextRefreshIn = 60
+      }
+    },
+    manualRefresh() {
+      this.refreshMainData()
+    },
     async loadGlobalMarket() {
       this.loading.global = true
       try {
@@ -1554,4 +1587,7 @@ export default {
     font-size: 1.6rem;
   }
 }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>

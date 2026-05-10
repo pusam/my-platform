@@ -11,6 +11,11 @@
         </div>
       </div>
 
+      <!-- 데이터 갱신 상태 -->
+      <div class="freshness-bar">
+        <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
+      </div>
+
       <!-- 매매 안전장치 위젯 (admin) -->
       <TradingSafetyWidget />
 
@@ -901,6 +906,7 @@ import LoadingSpinner from '../components/LoadingSpinner.vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
 import StockCodeInput from '../components/StockCodeInput.vue';
+import DataFreshness from '../components/DataFreshness.vue';
 
 const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 
@@ -1019,6 +1025,19 @@ const switchPerfMode = (mode) => {
 
 // 자동 새로고침
 let refreshTimer = null;
+let countdownTimer = null;
+
+// 데이터 신선도 상태
+const lastUpdated = ref(null);
+const isRefreshing = ref(false);
+const nextRefreshIn = ref(30);
+
+const manualRefresh = async () => {
+  await loadData();
+  if (activeTab.value === 'real') {
+    await loadRealData();
+  }
+};
 
 // 총 자산 계산
 const totalAsset = computed(() => {
@@ -1162,6 +1181,8 @@ const getProfitFactorClass = (value) => {
 
 // 모의투자 데이터 로드 (각 API 독립적으로 처리 - 하나 실패해도 다른 것 표시)
 const loadData = async () => {
+  isRefreshing.value = true;
+  try {
   const loadAccount = async () => {
     try {
       const res = await paperTradingAPI.getAccountSummary();
@@ -1195,6 +1216,11 @@ const loadData = async () => {
 
   await Promise.all([loadAccount(), loadPortfolio(), loadTrades(), loadBotStatus()]);
   loading.value = false;
+  } finally {
+    isRefreshing.value = false;
+    lastUpdated.value = new Date();
+    nextRefreshIn.value = 30;
+  }
 };
 
 // 실전투자 데이터 로드
@@ -1556,11 +1582,16 @@ onMounted(() => {
   }
   // 30초마다 자동 새로고침
   refreshTimer = setInterval(() => {
+    if (document.hidden) return;
     loadData();
     if (activeTab.value === 'real') {
       loadRealData();
     }
   }, 30000);
+  // 카운트다운 (1초)
+  countdownTimer = setInterval(() => {
+    if (!document.hidden && nextRefreshIn.value > 0) nextRefreshIn.value--;
+  }, 1000);
   // 배지 갱신 틱 (5초)
   freshnessTickTimer = setInterval(() => {
     nowTick.value = Date.now();
@@ -1570,6 +1601,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (refreshTimer) {
     clearInterval(refreshTimer);
+  }
+  if (countdownTimer) {
+    clearInterval(countdownTimer);
   }
   if (freshnessTickTimer) {
     clearInterval(freshnessTickTimer);
@@ -2620,4 +2654,7 @@ onUnmounted(() => {
   .btn-generate-report { padding: 7px 12px; font-size: 12px; }
   .tab-btn { padding: 0.6rem 0.75rem; font-size: 13px; }
 }
+
+.freshness-bar { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+@media (max-width: 480px) { .freshness-bar { justify-content: center; } }
 </style>
