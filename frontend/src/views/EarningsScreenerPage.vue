@@ -3805,6 +3805,26 @@ onUnmounted(() => {
   }
 }
 
+@media (max-width: 480px) {
+  .screener-page {
+    padding: 10px;
+  }
+
+  .content-wrapper {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  .stocks-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .stock-card {
+    padding: 12px;
+  }
+}
+
 .screener-page.embedded {
   min-height: auto;
   padding: 0;

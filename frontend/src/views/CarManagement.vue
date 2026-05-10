@@ -867,4 +867,27 @@ onMounted(() => {
     width: 100%;
   }
 }
+
+@media (max-width: 480px) {
+  .car-content {
+    padding: 10px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .summary-card {
+    padding: 14px;
+  }
+
+  .summary-card .value {
+    font-size: 17px;
+  }
+
+  .type-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 </style>

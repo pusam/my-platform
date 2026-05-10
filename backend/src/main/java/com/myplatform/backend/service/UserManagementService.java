@@ -41,6 +41,13 @@ public class UserManagementService {
         return UserManagementDto.fromEntity(user);
     }
 
+    @Transactional(readOnly = true)
+    public Map<String, Object> getUserMap(Long id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        return userToMap(user);
+    }
+
     public UserManagementDto updateUserRole(Long userId, String newRole, String adminUsername) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));

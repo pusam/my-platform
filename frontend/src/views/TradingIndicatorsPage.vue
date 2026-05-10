@@ -1526,4 +1526,32 @@ export default {
     max-width: 100%;
   }
 }
+
+@media (max-width: 480px) {
+  .indicator-section {
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+
+  .section-header h2 {
+    font-size: 1rem;
+  }
+
+  .global-market-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .market-card {
+    padding: 12px;
+  }
+
+  .sectors-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .score-value {
+    font-size: 1.6rem;
+  }
+}
 </style>

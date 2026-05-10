@@ -2607,4 +2607,17 @@ onUnmounted(() => {
   .weekly-history-table th,
   .weekly-history-table td { padding: 8px 6px; font-size: 11.5px; }
 }
+
+@media (max-width: 480px) {
+  .paper-trading-page { padding: 0.6rem; }
+  .content-wrapper { padding: 0.6rem; }
+  .pf-value { font-size: 1.25rem; }
+  .summary-card h3 { font-size: 0.9rem; }
+  .summary-card .card-icon { font-size: 1.2rem; }
+  .weekly-latest-card { padding: 14px; }
+  .weekly-stats { grid-template-columns: 1fr; }
+  .weekly-stat .stat-value { font-size: 14px; }
+  .btn-generate-report { padding: 7px 12px; font-size: 12px; }
+  .tab-btn { padding: 0.6rem 0.75rem; font-size: 13px; }
+}
 </style>

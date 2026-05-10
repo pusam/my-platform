@@ -471,4 +471,24 @@ onMounted(() => {
     -webkit-line-clamp: 2;
   }
 }
+
+@media (max-width: 480px) {
+  .info-banner {
+    padding: 12px;
+    font-size: 13px;
+  }
+
+  .news-card {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .news-content h3 {
+    font-size: 15px;
+  }
+
+  .news-empty {
+    padding: 40px 16px;
+  }
+}
 </style>

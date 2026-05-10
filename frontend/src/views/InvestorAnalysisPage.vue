@@ -1008,4 +1008,12 @@ td {
   .short-table .stock-cell .name { font-size: 12px; }
   .short-table .stock-cell .code { font-size: 9.5px; }
 }
+
+@media (max-width: 480px) {
+  .investor-analysis-page { padding: 10px; }
+  .tab-content { padding: 12px; }
+  .main-tab-btn { font-size: 12px; padding: 8px 10px; }
+  .stocks-grid { grid-template-columns: 1fr; gap: 10px; }
+  .card-stock-name { font-size: 14px; }
+}
 </style>

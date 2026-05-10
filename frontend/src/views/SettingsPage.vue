@@ -1058,4 +1058,29 @@ onMounted(() => {
     padding: 20px;
   }
 }
+
+@media (max-width: 480px) {
+  .settings-grid {
+    padding: 10px;
+    gap: 12px;
+  }
+
+  .settings-card .card-header {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .settings-card .card-header h2 {
+    font-size: 16px;
+  }
+
+  .settings-card .card-body {
+    padding: 14px;
+  }
+
+  .profile-image-preview {
+    width: 96px;
+    height: 96px;
+  }
+}
 </style>

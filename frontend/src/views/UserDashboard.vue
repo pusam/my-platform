@@ -1169,4 +1169,32 @@ export default {
   color: #f0f0f5;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
+
+@media (max-width: 768px) {
+  .dashboard-tabs {
+    padding: 3px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+  }
+  .dashboard-tabs::-webkit-scrollbar { display: none; }
+  .dash-tab {
+    padding: 10px 12px;
+    font-size: 13px;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    min-width: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  .welcome-content h2 { font-size: 18px; }
+  .welcome-card { padding: 16px; }
+  .ai-banner { padding: 16px; }
+  .ai-icon { width: 52px; height: 52px; }
+  .ai-text h3 { font-size: 17px; }
+  .news-section { padding: 14px; }
+  .news-item { padding: 12px 14px; }
+}
 </style>

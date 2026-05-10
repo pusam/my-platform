@@ -1263,5 +1263,24 @@ onUnmounted(() => {
     max-width: 200px;
   }
 }
+
+@media (max-width: 480px) {
+  .file-manager-content {
+    padding: 10px;
+  }
+
+  .breadcrumb {
+    padding: 10px 12px;
+  }
+
+  .file-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .file-item {
+    padding: 12px;
+  }
+}
 </style>
 

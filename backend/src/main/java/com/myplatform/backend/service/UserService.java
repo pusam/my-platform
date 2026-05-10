@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.UpdateProfileRequest;
 import com.myplatform.backend.dto.UserDto;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -12,12 +13,14 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @Transactional
 public class UserService {
@@ -101,9 +104,11 @@ public class UserService {
             String newFilename = "profile_" + user.getId() + "_" + UUID.randomUUID().toString().substring(0, 8) + extension;
             String relativePath = "profiles/" + newFilename;
 
-            // 파일 저장
+            // 파일 저장 (InputStream try-with-resources로 누수 방지)
             Path targetPath = profileDir.resolve(newFilename);
-            Files.copy(file.getInputStream(), targetPath);
+            try (InputStream in = file.getInputStream()) {
+                Files.copy(in, targetPath);
+            }
 
             // DB 업데이트
             user.setProfileImage(relativePath);
@@ -124,7 +129,8 @@ public class UserService {
                 Path filePath = Paths.get(uploadDir, user.getProfileImage());
                 Files.deleteIfExists(filePath);
             } catch (IOException e) {
-                // 파일 삭제 실패해도 계속 진행
+                // 파일 삭제 실패해도 DB 정리는 진행 (고아 파일은 별도 GC로 회수)
+                log.warn("프로필 이미지 파일 삭제 실패: user={}, path={}", username, user.getProfileImage(), e);
             }
             user.setProfileImage(null);
             userRepository.save(user);

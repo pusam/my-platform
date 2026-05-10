@@ -479,4 +479,32 @@ export default {
     height: 32px;
   }
 }
+
+@media (max-width: 480px) {
+  .logs-content {
+    padding: 10px;
+  }
+
+  .filters-section {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .logs-section {
+    padding: 12px;
+  }
+
+  .section-header h2 {
+    font-size: 16px;
+  }
+
+  .log-item {
+    padding: 12px;
+  }
+
+  .log-meta {
+    flex-direction: column;
+    gap: 4px;
+  }
+}
 </style>

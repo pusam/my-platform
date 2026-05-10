@@ -1149,4 +1149,32 @@ td.amount {
     font-size: 13px;
   }
 }
+
+@media (max-width: 480px) {
+  .asset-content {
+    padding: 10px;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .summary-card .card-header {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .summary-card .card-header h2 {
+    font-size: 16px;
+  }
+
+  .summary-card .card-body {
+    padding: 14px;
+  }
+
+  .history-section {
+    padding: 12px;
+  }
+}
 </style>

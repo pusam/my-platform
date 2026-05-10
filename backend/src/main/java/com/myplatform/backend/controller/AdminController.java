@@ -144,11 +144,8 @@ public class AdminController {
     @GetMapping("/users/{userId}")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getUser(@PathVariable Long userId) {
         try {
-            List<Map<String, Object>> users = userManagementService.getAllUsers();
-            Map<String, Object> user = users.stream()
-                    .filter(u -> u.get("id").equals(userId))
-                    .findFirst()
-                    .orElseThrow(() -> new RuntimeException("User not found"));
+            // findById 한 번으로 조회 (전체 사용자 스트림 필터 → 단건 조회 최적화)
+            Map<String, Object> user = userManagementService.getUserMap(userId);
             return ResponseEntity.ok(ApiResponse.success("조회 성공", user));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));

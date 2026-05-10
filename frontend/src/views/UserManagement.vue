@@ -404,4 +404,31 @@ export default {
     padding: 8px;
   }
 }
+
+@media (max-width: 480px) {
+  .user-management-content {
+    padding: 10px;
+  }
+
+  .stats-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 12px 14px;
+  }
+
+  .stat-value {
+    font-size: 17px;
+  }
+
+  .users-section {
+    padding: 12px;
+  }
+
+  .section-header h2 {
+    font-size: 16px;
+  }
+}
 </style>

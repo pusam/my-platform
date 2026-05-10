@@ -1304,6 +1304,34 @@ export default {
   }
 }
 
+@media (max-width: 480px) {
+  .dashboard-content {
+    padding: 10px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .stat-icon {
+    font-size: 36px;
+  }
+
+  .stat-number {
+    font-size: 22px;
+  }
+
+  .stat-status {
+    font-size: 17px;
+  }
+}
+
 .page-container.embedded {
   min-height: auto;
   background: none;

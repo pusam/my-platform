@@ -259,4 +259,13 @@ onMounted(loadRecords);
   .summary-cards { grid-template-columns: 1fr; }
   .form-row { flex-direction: column; gap: 0; }
 }
+
+@media (max-width: 480px) {
+  .management-page { padding: 10px; }
+  .page-header h1 { font-size: 17px; }
+  .summary-cards { grid-template-columns: 1fr; gap: 10px; }
+  .summary-card { padding: 12px; }
+  .card-value { font-size: 17px; }
+  .record-card { padding: 12px; }
+}
 </style>

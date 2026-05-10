@@ -2020,5 +2020,34 @@ onMounted(() => {
   .futures-price { font-size: 13px; }
   .futures-name { font-size: 10px; }
 }
+
+@media (max-width: 480px) {
+  .market-timing-page {
+    padding: 10px;
+  }
+
+  .main-status {
+    padding: 14px;
+    gap: 12px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .status-value {
+    font-size: 1rem;
+  }
+
+  .adr-value strong {
+    font-size: 1.05rem;
+  }
+
+  .global-futures-section {
+    padding: 12px;
+  }
+
+  .futures-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 </style>
 

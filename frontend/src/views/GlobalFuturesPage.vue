@@ -1577,4 +1577,14 @@ onUnmounted(() => {
   .sentiment-grid { grid-template-columns: 1fr; }
   .sentiment-price, .fng-score { font-size: 1.5rem; }
 }
+
+@media (max-width: 480px) {
+  .page-container { padding: 10px; }
+  .main-price .price { font-size: 1.4rem; }
+  .main-details { grid-template-columns: 1fr; }
+  .section-title { font-size: 1rem; }
+  .futures-card { padding: 12px; }
+  .card-price { font-size: 1.1rem; }
+  .sentiment-price, .fng-score { font-size: 1.2rem; }
+}
 </style>

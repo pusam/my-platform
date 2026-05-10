@@ -1219,4 +1219,33 @@ export default {
     flex: 1;
   }
 }
+
+@media (max-width: 480px) {
+  .action-bar {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .write-card,
+  .detail-card {
+    padding: 14px;
+  }
+
+  .detail-title {
+    font-size: 17px;
+  }
+
+  .board-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .board-card {
+    padding: 12px;
+  }
+
+  .card-title {
+    font-size: 15px;
+  }
+}
 </style>

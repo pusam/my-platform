@@ -2069,4 +2069,41 @@ onMounted(() => {
     align-self: flex-start;
   }
 }
+
+@media (max-width: 480px) {
+  .finance-content {
+    padding: 10px;
+  }
+
+  .top-bar {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .summary-cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .stat-value {
+    font-size: 16px;
+  }
+
+  .transactions-section {
+    padding: 14px;
+  }
+
+  .charts-section {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .chart-card {
+    padding: 12px;
+  }
+
+  .chart-container {
+    height: 200px;
+  }
+}
 </style>

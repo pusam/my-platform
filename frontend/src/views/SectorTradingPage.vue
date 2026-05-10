@@ -747,6 +747,33 @@ onUnmounted(() => {
   }
 }
 
+@media (max-width: 480px) {
+  .sector-card {
+    padding: 12px;
+  }
+
+  .sector-title h3 {
+    font-size: 15px;
+  }
+
+  .sector-total-box {
+    padding: 12px;
+  }
+
+  .total-value {
+    font-size: 18px;
+  }
+
+  .summary-value {
+    font-size: 16px;
+  }
+
+  .summary-bar {
+    padding: 14px;
+    gap: 12px;
+  }
+}
+
 .page-container.embedded {
   min-height: auto;
   padding: 0;

@@ -1680,6 +1680,22 @@ onMounted(async () => {
   .strategy-text h3 { font-size: 1rem; }
 }
 
+@media (max-width: 480px) {
+  .ai-dashboard {
+    padding: 0.6rem;
+  }
+  .summary-cards {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .tab-btn {
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  .strategy-icon { font-size: 1.3rem; }
+  .strategy-text h3 { font-size: 0.95rem; }
+}
+
 /* 가격 변동 플래시 효과 */
 .price-info.flash-up {
   animation: flash-up 0.5s ease-out;
