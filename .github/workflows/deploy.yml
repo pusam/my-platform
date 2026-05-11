@@ -231,3 +231,56 @@ jobs:
             docker compose up -d --no-deps certbot || true
             docker image prune -f
           DEPLOY_EOF
+
+      # ================================================================
+      # Post-deploy 헬스체크 — 배포 후 실제 컨텍스트 부팅 확인
+      # ----------------------------------------------------------------
+      # 단위 테스트 통과해도 prod context 시작 시 실패 가능 (Sentry 같은 의존성 비호환 / Flyway 등).
+      # 60초까지 /api/health 폴링 → 실패 시 컨테이너 로그를 artifact 로 끌어와 즉시 진단.
+      # ================================================================
+      - name: Health check (60s poll)
+        id: healthcheck
+        run: |
+          HOST="${{ secrets.HOST_DEV }}"
+          USER="${{ secrets.USERNAME_DEV }}"
+          PORT="${{ secrets.PORT }}"
+
+          # 컨테이너 부팅 시간 확보 (Flyway 마이그레이션 + JPA 초기화 ~30s)
+          sleep 20
+
+          for i in $(seq 1 20); do
+            STATUS=$(ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" \
+              "curl -fsS -o /dev/null -w '%{http_code}' --max-time 5 http://localhost:8080/api/health 2>/dev/null || echo 000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Backend health OK (시도 $i/20)"
+              exit 0
+            fi
+            echo "⏳ 헬스체크 대기 (시도 $i/20, status=$STATUS)"
+            sleep 3
+          done
+
+          echo "❌ 헬스체크 실패 — 60초 동안 200 응답 없음"
+          exit 1
+
+      - name: Collect failure logs (on failure only)
+        if: failure() && steps.healthcheck.outcome == 'failure'
+        run: |
+          HOST="${{ secrets.HOST_DEV }}"
+          USER="${{ secrets.USERNAME_DEV }}"
+          PORT="${{ secrets.PORT }}"
+
+          mkdir -p deploy-failure-logs
+          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" \
+            "cd /home/dev/my-platform && docker compose logs --tail 200 backend 2>&1" \
+            > deploy-failure-logs/backend.log || true
+          ssh -p "$PORT" -i ~/.ssh/deploy_key "$USER@$HOST" \
+            "docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}'" \
+            > deploy-failure-logs/containers.txt || true
+
+      - name: Upload failure logs
+        if: failure() && steps.healthcheck.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-failure-logs
+          path: deploy-failure-logs/
+          retention-days: 7
