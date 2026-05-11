@@ -1010,9 +1010,18 @@ public class KoreaInvestmentService {
      * @param price 주문단가 (지정가 주문)
      * @return 주문 결과 JsonNode (주문번호 포함)
      */
+    @CircuitBreaker(name = "kisApi", fallbackMethod = "buyStockFallback")
     public JsonNode buyStock(String stockCode, int quantity, java.math.BigDecimal price) {
         return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
                 () -> placeOrder(stockCode, quantity, price, "TTTC0802U", "buy"), 3);
+    }
+
+    /** CircuitBreaker OPEN — RealTradeService 가 null 받아 거래 중단 + 운영자 알림 발동 */
+    @SuppressWarnings("unused")
+    private JsonNode buyStockFallback(String stockCode, int quantity, java.math.BigDecimal price, Throwable t) {
+        log.error("[KIS CircuitBreaker] buyStock fallback — code: {}, qty: {}, cause: {}",
+                stockCode, quantity, t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
     }
 
     /**
@@ -1024,9 +1033,17 @@ public class KoreaInvestmentService {
      * @param price 주문단가 (지정가 주문)
      * @return 주문 결과 JsonNode (주문번호 포함)
      */
+    @CircuitBreaker(name = "kisApi", fallbackMethod = "sellStockFallback")
     public JsonNode sellStock(String stockCode, int quantity, java.math.BigDecimal price) {
         return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
                 () -> placeOrder(stockCode, quantity, price, "TTTC0801U", "sell"), 3);
+    }
+
+    @SuppressWarnings("unused")
+    private JsonNode sellStockFallback(String stockCode, int quantity, java.math.BigDecimal price, Throwable t) {
+        log.error("[KIS CircuitBreaker] sellStock fallback — code: {}, qty: {}, cause: {}",
+                stockCode, quantity, t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
     }
 
     /**
@@ -1147,9 +1164,18 @@ public class KoreaInvestmentService {
      *
      * @return 잔고 정보 JsonNode
      */
+    @CircuitBreaker(name = "kisApi", fallbackMethod = "getBalanceFallback")
     public JsonNode getBalance() {
         // 매매 전 필수 조회 — CRITICAL 로 승격 (다른 호출에 밀리지 않게) + 재시도 3회
         return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL, () -> getBalanceInternal(), 3);
+    }
+
+    /** CircuitBreaker OPEN — RealTradeService.getBalanceInfo(force=true) 가 null 받아 매매 abort */
+    @SuppressWarnings("unused")
+    private JsonNode getBalanceFallback(Throwable t) {
+        log.error("[KIS CircuitBreaker] getBalance fallback — cause: {}",
+                t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
     }
 
     private JsonNode getBalanceInternal() {

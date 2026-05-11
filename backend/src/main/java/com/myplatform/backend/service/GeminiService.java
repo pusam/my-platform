@@ -84,10 +84,20 @@ public class GeminiService {
     }
 
     /**
-     * 범용 Gemini AI 호출 (뉴스 요약 등)
+     * 범용 Gemini AI 호출 (뉴스 요약 등).
+     * CircuitBreaker — Gemini quota 초과/일시 장애에 cascading 호출 차단 + fallback.
      */
+    @io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker(
+            name = "geminiApi", fallbackMethod = "chatFallback")
     public String chat(String prompt) {
         return callWithFallback(prompt, "범용 AI 호출");
+    }
+
+    @SuppressWarnings("unused")
+    private String chatFallback(String prompt, Throwable t) {
+        log.warn("[Gemini CircuitBreaker] chat fallback — cause: {}",
+                t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
     }
 
     /**

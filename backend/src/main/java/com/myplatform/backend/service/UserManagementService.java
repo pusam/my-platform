@@ -115,6 +115,22 @@ public class UserManagementService {
                 String.format("사용자 '%s' 삭제", username));
     }
 
+    /**
+     * 현재 SecurityContext 의 인증된 사용자명 — admin 액션 audit actor.
+     * 인증 컨텍스트 없으면 "SYSTEM" (스케줄러/시스템 호출).
+     */
+    private String currentActor() {
+        try {
+            var auth = org.springframework.security.core.context.SecurityContextHolder
+                    .getContext().getAuthentication();
+            if (auth != null && auth.isAuthenticated()
+                    && !"anonymousUser".equals(auth.getName())) {
+                return auth.getName();
+            }
+        } catch (Exception ignored) {}
+        return "SYSTEM";
+    }
+
     @Transactional(readOnly = true)
     public long getTotalUserCount() {
         return userRepository.count();
@@ -139,7 +155,7 @@ public class UserManagementService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setStatus("APPROVED");
         userRepository.save(user);
-        activityLogService.log("SYSTEM", "STATUS_CHANGE",
+        activityLogService.log(currentActor(), "STATUS_CHANGE",
                 String.format("사용자 '%s' 승인됨", user.getUsername()));
     }
 
@@ -149,7 +165,7 @@ public class UserManagementService {
         String username = user.getUsername();
         user.setStatus("REJECTED");
         userRepository.save(user);
-        activityLogService.log("SYSTEM", "STATUS_CHANGE",
+        activityLogService.log(currentActor(), "STATUS_CHANGE",
                 String.format("사용자 '%s' 거부됨", username));
     }
 
@@ -158,7 +174,7 @@ public class UserManagementService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setStatus("REJECTED");
         userRepository.save(user);
-        activityLogService.log("SYSTEM", "STATUS_CHANGE",
+        activityLogService.log(currentActor(), "STATUS_CHANGE",
                 String.format("사용자 '%s' 비활성화됨", user.getUsername()));
     }
 
@@ -167,7 +183,7 @@ public class UserManagementService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         user.setStatus("APPROVED");
         userRepository.save(user);
-        activityLogService.log("SYSTEM", "STATUS_CHANGE",
+        activityLogService.log(currentActor(), "STATUS_CHANGE",
                 String.format("사용자 '%s' 활성화됨", user.getUsername()));
     }
 
@@ -177,7 +193,7 @@ public class UserManagementService {
         user.setStatus("APPROVED");
         user.setFailedLoginAttempts(0);
         userRepository.save(user);
-        activityLogService.log("SYSTEM", "STATUS_CHANGE",
+        activityLogService.log(currentActor(), "STATUS_CHANGE",
                 String.format("사용자 '%s' 잠금 해제됨", user.getUsername()));
     }
 
@@ -187,7 +203,7 @@ public class UserManagementService {
         String oldRole = user.getRole();
         user.setRole(role);
         userRepository.save(user);
-        activityLogService.log("SYSTEM", "ROLE_CHANGE",
+        activityLogService.log(currentActor(), "ROLE_CHANGE",
                 String.format("사용자 '%s'의 권한 변경: %s -> %s", user.getUsername(), oldRole, role));
     }
 
@@ -196,7 +212,7 @@ public class UserManagementService {
                 .orElseThrow(() -> new RuntimeException("User not found"));
         String username = user.getUsername();
         userRepository.delete(user);
-        activityLogService.log("SYSTEM", "USER_DELETE",
+        activityLogService.log(currentActor(), "USER_DELETE",
                 String.format("사용자 '%s' 삭제됨", username));
     }
 

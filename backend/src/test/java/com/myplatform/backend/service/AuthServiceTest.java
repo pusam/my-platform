@@ -77,14 +77,16 @@ class AuthServiceTest {
         void approvedUser_correctPassword_returnsToken() {
             User user = buildUser("admin", "password123", "APPROVED", 0);
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
-            when(jwtTokenProvider.generateToken("admin")).thenReturn("jwt-token-xxx");
+            // 현재 AuthService 는 generateAccessToken + generateRefreshToken 두 토큰 발급
+            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("jwt-token-xxx");
+            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("refresh-xxx");
 
             LoginResponse response = authService.login(new LoginRequest("admin", "password123"));
 
             assertThat(response.isSuccess()).isTrue();
             assertThat(response.getToken()).isEqualTo("jwt-token-xxx");
             assertThat(response.getUsername()).isEqualTo("admin");
-            verify(jwtTokenProvider).generateToken("admin");
+            verify(jwtTokenProvider).generateAccessToken("admin");
         }
 
         @Test
@@ -92,7 +94,8 @@ class AuthServiceTest {
         void loginSuccess_resetsFailedAttempts() {
             User user = buildUser("admin", "password123", "APPROVED", 5);
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
-            when(jwtTokenProvider.generateToken("admin")).thenReturn("token");
+            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("token");
+            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("refresh");
 
             authService.login(new LoginRequest("admin", "password123"));
 
@@ -189,8 +192,9 @@ class AuthServiceTest {
         private SignupRequest validRequest() {
             SignupRequest req = new SignupRequest();
             req.setUsername("newuser");
-            req.setPassword("password123");
-            req.setPasswordConfirm("password123");
+            // PasswordPolicy: 12자+대소문자+숫자+특수문자, username("newuser")/email-local("hong") 미포함
+            req.setPassword("Strong!Pass123");
+            req.setPasswordConfirm("Strong!Pass123");
             req.setName("홍길동");
             req.setEmail("hong@example.com");
             req.setPhone("010-1234-5678");
