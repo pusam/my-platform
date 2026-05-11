@@ -9,7 +9,6 @@ import com.myplatform.backend.repository.StockPriceRepository;
 import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,14 +44,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class QuantTaService {
 
+    // @RequiredArgsConstructor 로 모든 final 필드 일관 생성자 주입
     private final StockPriceHistoryRepository priceHistoryRepository;
     private final StockPriceRepository stockPriceRepository;
     private final TechnicalIndicatorService technicalIndicatorService;
     private final StockAnalysisService stockAnalysisService;
-    @Autowired private SectorStockConfig sectorStockConfig;
-    @Autowired private StockMasterService stockMasterService;
-    @Autowired private StockPriceService stockPriceService;
-    @Autowired private com.myplatform.backend.repository.NewsSummaryRepository newsSummaryRepository;
+    private final SectorStockConfig sectorStockConfig;
+    private final StockMasterService stockMasterService;
+    private final StockPriceService stockPriceService;
+    private final com.myplatform.backend.repository.NewsSummaryRepository newsSummaryRepository;
 
     private static final int MIN_HISTORY_DAYS = 25;       // 최소 일봉 수 (MA20 + RSI 안정성)
     private static final int LOAD_WINDOW_DAYS = 130;      // 로드 창 (영업일 기준 약 6개월)

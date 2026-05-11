@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.RiskAnalysisDto.DartDisclosure;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -190,6 +191,7 @@ public class DartService {
      * @param corpCode DART 기업코드 (8자리)
      * @return 공시 목록
      */
+    @CircuitBreaker(name = "dartApi", fallbackMethod = "disclosuresFallback")
     public List<DartDisclosure> getRecentDisclosures(String corpCode) {
         if (dartApiKey == null || dartApiKey.isEmpty()) {
             log.warn("[DART] API Key가 설정되지 않았습니다.");
@@ -443,6 +445,14 @@ public class DartService {
         return disclosures.stream()
                 .filter(DartDisclosure::isDangerous)
                 .toList();
+    }
+
+    /** CircuitBreaker OPEN / 모든 retry 실패 시 fallback — 빈 리스트로 호출자가 안전하게 진행 */
+    @SuppressWarnings("unused")
+    private List<DartDisclosure> disclosuresFallback(String corpCode, Throwable t) {
+        log.warn("[DART CircuitBreaker] 공시 조회 fallback — corpCode: {}, cause: {}",
+                corpCode, t.getClass().getSimpleName() + ": " + t.getMessage());
+        return Collections.emptyList();
     }
 
     private String getTextValue(JsonNode node, String field) {

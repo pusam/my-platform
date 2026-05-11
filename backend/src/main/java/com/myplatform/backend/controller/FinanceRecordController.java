@@ -43,7 +43,7 @@ public class FinanceRecordController {
     @PostMapping
     public ResponseEntity<ApiResponse<FinanceRecordDto>> saveRecord(
             Authentication authentication,
-            @RequestBody FinanceRecordRequest request) {
+            @jakarta.validation.Valid @RequestBody FinanceRecordRequest request) {
         String username = authentication.getName();
         FinanceRecordDto saved = financeRecordService.saveRecord(username, request);
         return ResponseEntity.ok(ApiResponse.success(saved));
