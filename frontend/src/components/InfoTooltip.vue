@@ -16,13 +16,14 @@ export default {
     position: { type: String, default: 'left' } // 'left' or 'right'
   },
   data() {
-    return { show: false }
+    return { show: false, _hideTimer: null }
   },
   mounted() {
     document.addEventListener('click', this.handleOutsideClick)
   },
   beforeUnmount() {
     document.removeEventListener('click', this.handleOutsideClick)
+    if (this._hideTimer) { clearTimeout(this._hideTimer); this._hideTimer = null }
   },
   methods: {
     toggle() {
@@ -30,8 +31,9 @@ export default {
     },
     onMouseLeave() {
       // 모바일은 click 토글이라 mouseleave 무시. PC에서만 자동 닫기.
-      // 간단하게: hover-out 후 짧은 지연
-      setTimeout(() => { this.show = false }, 200)
+      // 간단하게: hover-out 후 짧은 지연. unmount 시 cleanup.
+      if (this._hideTimer) clearTimeout(this._hideTimer)
+      this._hideTimer = setTimeout(() => { this.show = false; this._hideTimer = null }, 200)
     },
     handleOutsideClick() {
       this.show = false

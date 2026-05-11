@@ -47,11 +47,17 @@ onBeforeUnmount(() => {
   if (tickTimer) clearInterval(tickTimer)
 })
 
-// 갱신 직후 점등 효과
+// 갱신 직후 점등 효과 — unmount 시 cleanup 보장
 const isLive = ref(false)
+let liveTimer = null
 watch(() => props.lastUpdated, () => {
   isLive.value = true
-  setTimeout(() => { isLive.value = false }, 1500)
+  if (liveTimer) clearTimeout(liveTimer)
+  liveTimer = setTimeout(() => { isLive.value = false; liveTimer = null }, 1500)
+})
+
+onBeforeUnmount(() => {
+  if (liveTimer) { clearTimeout(liveTimer); liveTimer = null }
 })
 
 const elapsedText = computed(() => {

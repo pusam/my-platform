@@ -478,7 +478,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { financeAPI, exportAPI } from '../utils/api';
 import { UserManager } from '../utils/auth';
@@ -770,12 +770,27 @@ const renderCharts = () => {
   });
 };
 
-// 데이터 변경 시 차트 업데이트
-watch([transactions, summary], () => {
-  if (activeTab.value === 'transactions') {
-    renderCharts();
+// 데이터 변경 시 차트 업데이트.
+// deep:true + 큰 배열 watch는 reactivity 그래프 전체 순회 → 성능 부담.
+// transactions.value 길이와 summary 핵심 필드만 추적해서 동일 효과 + 비용 절감.
+watch(
+  () => [
+    transactions.value.length,
+    summary.value.totalIncome,
+    summary.value.totalExpense,
+    summary.value.balance,
+    activeTab.value
+  ],
+  () => {
+    if (activeTab.value === 'transactions') renderCharts();
   }
-}, { deep: true });
+);
+
+// 페이지 언마운트 시 Chart.js 인스턴스 명시 destroy — canvas 메모리 누수 방지
+onBeforeUnmount(() => {
+  if (incomeChart) { incomeChart.destroy(); incomeChart = null; }
+  if (expenseChart) { expenseChart.destroy(); expenseChart = null; }
+});
 
 const loadTransactions = async () => {
   try {

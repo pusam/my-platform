@@ -496,6 +496,8 @@ export default {
       }
     },
     startAutoRefresh() {
+      // 기존 interval 있으면 먼저 정리 — 토글 ON/OFF 반복 시 누적 방지
+      if (this.refreshInterval) clearInterval(this.refreshInterval)
       this.refreshInterval = setInterval(() => {
         this.loadServerStatus()
       }, 5000)
