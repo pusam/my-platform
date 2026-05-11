@@ -1,5 +1,7 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.NewsFetchAsyncResponse;
+import com.myplatform.backend.dto.NewsPollItemDto;
 import com.myplatform.backend.dto.NewsSummaryDto;
 import com.myplatform.backend.service.NewsService;
 import com.myplatform.core.dto.ApiResponse;
@@ -10,9 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Tag(name = "뉴스 요약", description = "경제 뉴스 AI 요약 API")
@@ -43,25 +43,25 @@ public class NewsController {
 
     @Operation(summary = "최신 뉴스 폴링", description = "지정된 분 이내에 새로 수집된 뉴스를 조회합니다. 긴급(HOT) 뉴스는 urgent=true로 표시됩니다.")
     @GetMapping("/poll")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> pollNews(
+    public ResponseEntity<ApiResponse<List<NewsPollItemDto>>> pollNews(
             @RequestParam(defaultValue = "15") int minutes
     ) {
         LocalDateTime since = LocalDateTime.now().minusMinutes(minutes);
         List<NewsSummaryDto> recent = newsService.getNewsSince(since);
 
-        List<Map<String, Object>> result = recent.stream().map(dto -> {
-            Map<String, Object> item = new HashMap<>();
-            item.put("id", dto.getId());
-            item.put("title", dto.getTitle());
-            item.put("summary", dto.getSummary());
-            item.put("sourceName", dto.getSourceName());
-            item.put("sourceUrl", dto.getSourceUrl());
-            item.put("sentiment", dto.getSentiment());
-            item.put("sentimentLabel", dto.getSentimentLabel());
-            item.put("summarizedAt", dto.getSummarizedAt());
-            item.put("urgent", newsService.isUrgentNews(dto.getTitle()));
-            return item;
-        }).collect(Collectors.toList());
+        List<NewsPollItemDto> result = recent.stream()
+                .map(dto -> NewsPollItemDto.builder()
+                        .id(dto.getId())
+                        .title(dto.getTitle())
+                        .summary(dto.getSummary())
+                        .sourceName(dto.getSourceName())
+                        .sourceUrl(dto.getSourceUrl())
+                        .sentiment(dto.getSentiment())
+                        .sentimentLabel(dto.getSentimentLabel())
+                        .summarizedAt(dto.getSummarizedAt())
+                        .urgent(newsService.isUrgentNews(dto.getTitle()))
+                        .build())
+                .collect(Collectors.toList());
 
         return ResponseEntity.ok(ApiResponse.success("최신 뉴스 폴링 완료", result));
     }
@@ -71,13 +71,14 @@ public class NewsController {
         description = "경제 뉴스를 백그라운드에서 수집하고 요약합니다. 즉시 응답을 반환하며, 수집은 백그라운드에서 진행됩니다."
     )
     @PostMapping("/fetch")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> fetchNews() {
+    public ResponseEntity<ApiResponse<NewsFetchAsyncResponse>> fetchNews() {
         // 비동기로 뉴스 수집 시작 (결과를 기다리지 않음)
         newsService.manualFetchNewsAsync();
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("status", "STARTED");
-        result.put("message", "뉴스 수집 작업이 백그라운드에서 시작되었습니다. 완료까지 1~2분 소요될 수 있습니다.");
+        NewsFetchAsyncResponse result = NewsFetchAsyncResponse.builder()
+                .status("STARTED")
+                .message("뉴스 수집 작업이 백그라운드에서 시작되었습니다. 완료까지 1~2분 소요될 수 있습니다.")
+                .build();
 
         return ResponseEntity.ok(ApiResponse.success("뉴스 수집 작업 시작됨", result));
     }

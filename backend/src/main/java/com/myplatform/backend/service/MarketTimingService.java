@@ -953,10 +953,9 @@ public class MarketTimingService {
      * @return 수집 결과 (성공 일수, 실패 일수, 스킵 일수)
      */
     @Transactional
-    public java.util.Map<String, Object> collectMarketDataForPeriod(LocalDate startDate, LocalDate endDate) {
+    public com.myplatform.backend.dto.MarketDataCollectionResult collectMarketDataForPeriod(LocalDate startDate, LocalDate endDate) {
         log.info("========== 기간별 시장 데이터 수집 시작: {} ~ {} ==========", startDate, endDate);
 
-        java.util.Map<String, Object> result = new java.util.HashMap<>();
         int successCount = 0;
         int failCount = 0;
         int skipCount = 0;
@@ -997,12 +996,15 @@ public class MarketTimingService {
             currentDate = currentDate.plusDays(1);
         }
 
-        result.put("startDate", startDate.toString());
-        result.put("endDate", endDate.toString());
-        result.put("successCount", successCount);
-        result.put("failCount", failCount);
-        result.put("skipCount", skipCount);
-        result.put("totalDays", java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1);
+        com.myplatform.backend.dto.MarketDataCollectionResult result =
+                com.myplatform.backend.dto.MarketDataCollectionResult.builder()
+                        .startDate(startDate.toString())
+                        .endDate(endDate.toString())
+                        .successCount(successCount)
+                        .failCount(failCount)
+                        .skipCount(skipCount)
+                        .totalDays(java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1)
+                        .build();
 
         log.info("========== 기간별 시장 데이터 수집 완료 - 성공: {}, 실패: {}, 스킵: {} ==========",
                 successCount, failCount, skipCount);

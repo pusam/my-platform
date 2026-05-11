@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
+import com.myplatform.backend.dto.InvestorDataStatusDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
 import com.myplatform.backend.dto.StockInvestorDetailDto;
 import com.myplatform.backend.entity.InvestorDailyTrade;
@@ -672,31 +673,34 @@ public class InvestorTradeService {
     /**
      * 데이터 수집 상태 조회
      */
-    public Map<String, Object> getDataStatus() {
-        Map<String, Object> status = new HashMap<>();
-
+    public InvestorDataStatusDto getDataStatus() {
         // 외국인 거래일 수
         List<LocalDate> foreignDates = investorTradeRepository.findDistinctTradeDates("FOREIGN");
-        status.put("foreignTradeDays", foreignDates.size());
-        status.put("foreignLatestDate", foreignDates.isEmpty() ? null : foreignDates.get(0));
-        status.put("foreignOldestDate", foreignDates.isEmpty() ? null : foreignDates.get(foreignDates.size() - 1));
+        LocalDate foreignLatestDate = foreignDates.isEmpty() ? null : foreignDates.get(0);
+        LocalDate foreignOldestDate = foreignDates.isEmpty() ? null : foreignDates.get(foreignDates.size() - 1);
 
         // 기관 거래일 수
         List<LocalDate> instDates = investorTradeRepository.findDistinctTradeDates("INSTITUTION");
-        status.put("institutionTradeDays", instDates.size());
-        status.put("institutionLatestDate", instDates.isEmpty() ? null : instDates.get(0));
+        LocalDate institutionLatestDate = instDates.isEmpty() ? null : instDates.get(0);
 
         // 전체 최근 거래일
         LocalDate latestDate = investorTradeRepository.findLatestTradeDate();
-        status.put("latestTradeDate", latestDate);
 
         // 데이터 충분 여부 (최소 3일)
         boolean hasEnoughData = foreignDates.size() >= 3 && instDates.size() >= 3;
-        status.put("hasEnoughData", hasEnoughData);
-        status.put("message", hasEnoughData
+        String message = hasEnoughData
                 ? "충분한 데이터가 있습니다. (" + foreignDates.size() + "일치)"
-                : "데이터 수집 중입니다. 매일 15:50에 자동 수집되며, 3일 이상 누적되면 연속 매수 패턴 분석이 가능합니다. (현재 " + foreignDates.size() + "일치)");
+                : "데이터 수집 중입니다. 매일 15:50에 자동 수집되며, 3일 이상 누적되면 연속 매수 패턴 분석이 가능합니다. (현재 " + foreignDates.size() + "일치)";
 
-        return status;
+        return InvestorDataStatusDto.builder()
+                .foreignTradeDays(foreignDates.size())
+                .foreignLatestDate(foreignLatestDate)
+                .foreignOldestDate(foreignOldestDate)
+                .institutionTradeDays(instDates.size())
+                .institutionLatestDate(institutionLatestDate)
+                .latestTradeDate(latestDate)
+                .hasEnoughData(hasEnoughData)
+                .message(message)
+                .build();
     }
 }

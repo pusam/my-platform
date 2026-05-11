@@ -1,5 +1,6 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.ConsecutiveBuyAllResponse;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.InvestorTradeDto;
@@ -132,16 +133,16 @@ public class InvestorTradeController {
 
     @Operation(summary = "전체 투자자 연속 매수 종목 조회", description = "외국인, 기관의 연속 매수 종목을 모두 조회합니다.")
     @GetMapping("/consecutive-buy/all")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getAllConsecutiveBuyStocks(
+    public ResponseEntity<ApiResponse<ConsecutiveBuyAllResponse>> getAllConsecutiveBuyStocks(
             @RequestParam(required = false, defaultValue = "3") Integer minDays) {
 
         Map<String, List<ConsecutiveBuyDto>> stocks = investorTradeService.getAllConsecutiveBuyStocks(minDays);
 
-        // 데이터 상태 정보 추가
-        Map<String, Object> result = new HashMap<>();
-        result.put("FOREIGN", stocks.get("FOREIGN"));
-        result.put("INSTITUTION", stocks.get("INSTITUTION"));
-        result.put("dataStatus", investorTradeService.getDataStatus());
+        ConsecutiveBuyAllResponse result = ConsecutiveBuyAllResponse.builder()
+                .foreign(stocks.get("FOREIGN"))
+                .institution(stocks.get("INSTITUTION"))
+                .dataStatus(investorTradeService.getDataStatus())
+                .build();
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }
