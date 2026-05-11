@@ -60,7 +60,7 @@ dependencies {
     implementation 'org.jsoup:jsoup:1.17.2'
 
     // WebAuthn (지문/Face ID/패스키 로그인)
-    implementation 'com.webauthn4j:webauthn4j-core:0.28.4.RELEASE'
+    implementation 'com.webauthn4j:webauthn4j-core:0.31.5.RELEASE'
 
     // Resilience4j — 외부 API (KIS/DART/Gemini) 호출 보호.
     // CircuitBreaker: 연속 실패 시 회로 OPEN → 빠른 실패 + fallback. retry: 일시 오류 자동 재시도.
