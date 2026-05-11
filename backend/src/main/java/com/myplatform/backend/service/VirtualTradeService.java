@@ -93,9 +93,8 @@ public class VirtualTradeService implements TradeService {
                 log.warn("   → 원인: DB에 계좌 데이터가 없음 (첫 실행 또는 DB 초기화됨)");
             } else {
                 log.warn("   → 원인: 모든 계좌가 비활성화됨 (is_active=false)");
-                // 가장 최근 계좌 정보 출력
-                accountRepository.findAll().stream()
-                        .max((a, b) -> a.getId().compareTo(b.getId()))
+                // 가장 최근 계좌 정보 출력 — findAll().stream().max() 전체 로드 회피
+                accountRepository.findFirstByOrderByIdDesc()
                         .ifPresent(lastAccount -> {
                             log.warn("   → 마지막 계좌: ID={}, is_active={}, 생성일={}",
                                     lastAccount.getId(), lastAccount.getIsActive(), lastAccount.getCreatedAt());

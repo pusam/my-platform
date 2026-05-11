@@ -40,4 +40,10 @@ public interface VirtualAccountRepository extends JpaRepository<VirtualAccount, 
      * 계좌명으로 조회
      */
     Optional<VirtualAccount> findByAccountName(String accountName);
+
+    /**
+     * 가장 최근 계좌 (활성/비활성 무관) — 진단/로그용.
+     * findAll().stream().max() 같은 전체 로드 회피.
+     */
+    Optional<VirtualAccount> findFirstByOrderByIdDesc();
 }

@@ -81,7 +81,22 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    emptyOutDir: true
+    emptyOutDir: true,
+    // 큰 vendor / chart 라이브러리를 별도 chunk 로 분리 — 페이지 코드 변경 시 vendor 캐시 보존.
+    // BoardPage(296KB) / V2(280KB) 등의 chunk 가 매번 무효화되는 비용 절감.
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router'],
+          'vendor-chart': ['chart.js', 'chartjs-plugin-annotation', 'vue-chartjs'],
+          'vendor-http': ['axios'],
+          'vendor-editor': ['@vueup/vue-quill', 'dompurify'],
+          'vendor-webauthn': ['@simplewebauthn/browser']
+        }
+      }
+    },
+    // 페이지 chunk 가 500KB 를 살짝 넘는 경우가 있어 경고 임계치 600KB 로 상향.
+    chunkSizeWarningLimit: 600
   },
   esbuild: {
     drop: mode === 'production' ? ['console', 'debugger'] : []

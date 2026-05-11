@@ -18,4 +18,9 @@ public interface StockWatchlistRepository extends JpaRepository<StockWatchlist, 
 
     List<StockWatchlist> findByIsActiveAndAlertTriggeredAndTargetPriceIsNotNull(
             Boolean isActive, Boolean alertTriggered);
+
+    /**
+     * 활성 관심종목 전체 — findAll().filter(isActive) 전체 로드 회피.
+     */
+    List<StockWatchlist> findByIsActiveTrue();
 }

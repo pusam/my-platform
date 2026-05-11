@@ -69,10 +69,8 @@ public class WatchlistRiskMonitorService {
     public List<WatchlistRiskDto> monitorWatchlistRisks() {
         // 모든 사용자의 활성 관심종목 수집 (중복 제거)
         List<StockWatchlist> allWatchlist = watchlistRepository.findByIsActiveAndAlertTriggeredAndTargetPriceIsNotNull(true, false);
-        // targetPrice null인 것도 포함해야 하므로 전체 활성 목록 조회
-        List<StockWatchlist> allActive = watchlistRepository.findAll().stream()
-                .filter(w -> w.getIsActive() != null && w.getIsActive())
-                .toList();
+        // targetPrice null인 것도 포함해야 하므로 전체 활성 목록 조회 — DB 단 필터
+        List<StockWatchlist> allActive = watchlistRepository.findByIsActiveTrue();
 
         Set<String> uniqueCodes = allActive.stream()
                 .map(StockWatchlist::getStockCode)
