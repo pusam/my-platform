@@ -2,6 +2,8 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -236,10 +238,22 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * 주식 현재가 조회 (우선순위 지정)
+     * 주식 현재가 조회 (우선순위 지정).
+     * CircuitBreaker — KIS 연속 실패 시 OPEN 으로 빠른 실패 + fallback(null) → 매매 봇이 stale 시세 의존 방지.
+     * Retry — 일시적 IO/timeout 자동 재시도 (300ms·600ms·1200ms).
      */
+    @CircuitBreaker(name = "kisApi", fallbackMethod = "getStockPriceFallback")
+    @Retry(name = "kisApi")
     public JsonNode getStockPriceWithPriority(String stockCode, KisApiRateLimiter.Priority priority) {
         return rateLimiter.execute(priority, () -> getStockPriceInternal(stockCode));
+    }
+
+    /** CircuitBreaker OPEN / 모든 retry 실패 시 fallback. 호출자는 null 체크로 거래 중단 판단. */
+    @SuppressWarnings("unused")
+    private JsonNode getStockPriceFallback(String stockCode, KisApiRateLimiter.Priority priority, Throwable t) {
+        log.warn("[KIS CircuitBreaker] 시세 조회 실패 fallback — code: {}, cause: {}",
+                stockCode, t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
     }
 
     private JsonNode getStockPriceInternal(String stockCode) {

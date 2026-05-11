@@ -237,3 +237,46 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+
+# 8. Resilience4j — 외부 API 회복성.
+# CircuitBreaker: 슬라이딩 윈도우에서 실패율 초과 → OPEN(차단) → 일정 시간 후 HALF_OPEN(시도)
+# Retry: 일시적 IO/timeout 에 자동 재시도. KIS rate limit (5 req/sec) 고려해 짧은 백오프.
+resilience4j:
+  circuitbreaker:
+    instances:
+      kisApi:
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50         # 실패 50% 이상이면 OPEN
+        slowCallRateThreshold: 70
+        slowCallDurationThreshold: 5s
+        waitDurationInOpenState: 30s     # OPEN 유지 30초 후 HALF_OPEN
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        registerHealthIndicator: true
+      geminiApi:
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 60         # AI 호출은 더 관대 (Gemini 자체 rate limit 있음)
+        waitDurationInOpenState: 60s
+        permittedNumberOfCallsInHalfOpenState: 2
+        registerHealthIndicator: true
+  retry:
+    instances:
+      kisApi:
+        maxAttempts: 3
+        waitDuration: 300ms
+        exponentialBackoffMultiplier: 2
+        retryExceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - java.util.concurrent.TimeoutException
+        ignoreExceptions:
+          - java.lang.IllegalArgumentException
+
+# 9. Sentry (선택). SENTRY_DSN 환경변수가 있을 때만 활성. 없으면 noop.
+sentry:
+  dsn: ${SENTRY_DSN:}
+  environment: ${SPRING_PROFILES_ACTIVE:dev}
+  send-default-pii: false
+  traces-sample-rate: 0.1
+  enabled: ${SENTRY_DSN:+true}
