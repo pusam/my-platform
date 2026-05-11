@@ -4,6 +4,7 @@ import com.myplatform.backend.dto.AiStrategySnapshotDto;
 import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
+import com.myplatform.backend.dto.SnapshotStatsResponse;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
@@ -1591,21 +1592,24 @@ public class AiStrategySnapshotService {
      * 스냅샷 통계 조회 (디버깅용)
      */
     @Transactional(readOnly = true)
-    public Map<String, Object> getSnapshotStats() {
-        Map<String, Object> stats = new LinkedHashMap<>();
-
+    public SnapshotStatsResponse getSnapshotStats() {
         List<Object[]> counts = snapshotRepository.countByStrategyType();
         Map<String, Long> countByType = new LinkedHashMap<>();
         for (Object[] row : counts) {
             countByType.put(((StrategyType) row[0]).name(), (Long) row[1]);
         }
-        stats.put("countByType", countByType);
 
+        Map<StrategyType, LocalDateTime> latestByType = new EnumMap<>(StrategyType.class);
         for (StrategyType type : StrategyType.values()) {
-            Optional<LocalDateTime> latestTime = snapshotRepository.findLatestCreatedAt(type);
-            stats.put(type.name() + "_lastUpdated", latestTime.orElse(null));
+            latestByType.put(type, snapshotRepository.findLatestCreatedAt(type).orElse(null));
         }
 
-        return stats;
+        return SnapshotStatsResponse.builder()
+                .countByType(countByType)
+                .scalpingLastUpdated(latestByType.get(StrategyType.SCALPING))
+                .swingLastUpdated(latestByType.get(StrategyType.SWING))
+                .turnaroundLastUpdated(latestByType.get(StrategyType.TURNAROUND))
+                .valueLastUpdated(latestByType.get(StrategyType.VALUE))
+                .build();
     }
 }

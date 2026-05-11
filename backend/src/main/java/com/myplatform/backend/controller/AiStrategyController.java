@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.AiStrategySnapshotDto;
 import com.myplatform.backend.dto.BacktestDto;
+import com.myplatform.backend.dto.SnapshotStatsResponse;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.service.AiStrategySnapshotService;
 import com.myplatform.backend.service.BacktestService;
@@ -91,8 +92,8 @@ public class AiStrategyController {
      * GET /api/ai-strategy/stats
      */
     @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getStats() {
-        Map<String, Object> stats = snapshotService.getSnapshotStats();
+    public ResponseEntity<SnapshotStatsResponse> getStats() {
+        SnapshotStatsResponse stats = snapshotService.getSnapshotStats();
         return ResponseEntity.ok(stats);
     }
 

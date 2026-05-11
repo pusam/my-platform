@@ -1,7 +1,13 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.ApiStatsResponse;
 import com.myplatform.backend.dto.BatchJobExecutionDto;
 import com.myplatform.backend.dto.BatchJobSummaryDto;
+import com.myplatform.backend.dto.RateLimiterStatsResponse;
+import com.myplatform.backend.dto.SnapshotFixResponse;
+import com.myplatform.backend.dto.SnapshotStatsResponse;
+import com.myplatform.backend.dto.StockMasterSeedResponse;
+import com.myplatform.backend.dto.StockMasterStatusResponse;
 import com.myplatform.backend.dto.SystemStatsDto;
 import com.myplatform.backend.dto.UserManagementDto;
 import com.myplatform.backend.dto.UserStatsResponseDto;
@@ -71,34 +77,37 @@ public class AdminController {
     @Operation(summary = "stock_master KRX 시드 강제 실행",
             description = "KOSPI/KOSDAQ 전체 종목코드/종목명 매핑을 KRX 에서 다운로드하여 적재. " +
                     "@Scheduled (매일 06:00) 와 동일 로직 — 즉시 트리거.")
-    public ResponseEntity<java.util.Map<String, Object>> seedStockMaster() {
-        java.util.Map<String, Object> response = new java.util.HashMap<>();
+    public ResponseEntity<StockMasterSeedResponse> seedStockMaster() {
         try {
             int beforeCount = stockMasterService.cachedCount();
             int total = krxStockMasterSeeder.seedAll();
             int afterCount = stockMasterService.cachedCount();
-            response.put("success", true);
-            response.put("seeded", total);
-            response.put("cachedBefore", beforeCount);
-            response.put("cachedAfter", afterCount);
-            response.put("message",
-                    String.format("시드 완료 — %d 종목 적재. 캐시 %d → %d.",
-                            total, beforeCount, afterCount));
+            StockMasterSeedResponse response = StockMasterSeedResponse.builder()
+                    .success(true)
+                    .seeded(total)
+                    .cachedBefore(beforeCount)
+                    .cachedAfter(afterCount)
+                    .message(String.format("시드 완료 — %d 종목 적재. 캐시 %d → %d.",
+                            total, beforeCount, afterCount))
+                    .build();
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            response.put("success", false);
-            response.put("message", "시드 실패: " + e.getMessage());
+            StockMasterSeedResponse response = StockMasterSeedResponse.builder()
+                    .success(false)
+                    .message("시드 실패: " + e.getMessage())
+                    .build();
             return ResponseEntity.internalServerError().body(response);
         }
     }
 
     @GetMapping("/stock-master/status")
     @Operation(summary = "stock_master 캐시 현황", description = "현재 메모리 캐시된 종목 수 + 샘플 5개")
-    public ResponseEntity<java.util.Map<String, Object>> stockMasterStatus() {
-        java.util.Map<String, Object> response = new java.util.HashMap<>();
-        response.put("success", true);
-        response.put("cachedCount", stockMasterService.cachedCount());
-        response.put("lastSeedEpochSeconds", krxStockMasterSeeder.getLastSeedEpochSeconds());
+    public ResponseEntity<StockMasterStatusResponse> stockMasterStatus() {
+        StockMasterStatusResponse response = StockMasterStatusResponse.builder()
+                .success(true)
+                .cachedCount(stockMasterService.cachedCount())
+                .lastSeedEpochSeconds(krxStockMasterSeeder.getLastSeedEpochSeconds())
+                .build();
         return ResponseEntity.ok(response);
     }
 
@@ -261,27 +270,22 @@ public class AdminController {
 
     @Operation(summary = "API 통계 조회", description = "KIS API 등의 사용 통계 및 캐시 상태를 조회합니다.")
     @GetMapping("/api-stats")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getApiStats() {
+    public ResponseEntity<ApiResponse<ApiStatsResponse>> getApiStats() {
         try {
-            Map<String, Object> stats = new HashMap<>();
-
-            // 캐시 통계
-            Map<String, Object> cacheStats = new HashMap<>();
             String[] cacheNames = {"investorTrend", "continuousBuy", "supplySurge",
                                    "goldPrice", "silverPrice"};
 
+            Map<String, String> cacheStats = new HashMap<>();
             for (String cacheName : cacheNames) {
                 var cache = cacheManager.getCache(cacheName);
-                if (cache != null) {
-                    cacheStats.put(cacheName, "활성");
-                } else {
-                    cacheStats.put(cacheName, "비활성");
-                }
+                cacheStats.put(cacheName, cache != null ? "활성" : "비활성");
             }
 
-            stats.put("caches", cacheStats);
-            stats.put("totalCaches", cacheNames.length);
-            stats.put("message", "캐시는 API 응답 속도를 개선하고 외부 API 호출을 줄입니다.");
+            ApiStatsResponse stats = ApiStatsResponse.builder()
+                    .caches(cacheStats)
+                    .totalCaches(cacheNames.length)
+                    .message("캐시는 API 응답 속도를 개선하고 외부 API 호출을 줄입니다.")
+                    .build();
 
             return ResponseEntity.ok(ApiResponse.success("API 통계 조회 성공", stats));
         } catch (Exception e) {
@@ -411,16 +415,17 @@ public class AdminController {
 
     @Operation(summary = "스냅샷 데이터 보정", description = "모든 전략 스냅샷의 가격/등락률 데이터를 최신 API 데이터로 업데이트합니다.")
     @GetMapping("/fix-data")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> fixSnapshotData() {
+    public ResponseEntity<ApiResponse<SnapshotFixResponse>> fixSnapshotData() {
         try {
             long startTime = System.currentTimeMillis();
             int updatedCount = aiStrategySnapshotService.fixAllSnapshotData();
             long elapsed = System.currentTimeMillis() - startTime;
 
-            Map<String, Object> result = new HashMap<>();
-            result.put("updatedCount", updatedCount);
-            result.put("elapsedMs", elapsed);
-            result.put("message", String.format("%d건의 스냅샷 데이터가 보정되었습니다.", updatedCount));
+            SnapshotFixResponse result = SnapshotFixResponse.builder()
+                    .updatedCount(updatedCount)
+                    .elapsedMs(elapsed)
+                    .message(String.format("%d건의 스냅샷 데이터가 보정되었습니다.", updatedCount))
+                    .build();
 
             return ResponseEntity.ok(ApiResponse.success("데이터 보정 완료", result));
         } catch (Exception e) {
@@ -430,7 +435,7 @@ public class AdminController {
 
     @Operation(summary = "장 마감 데이터 업데이트", description = "모든 전략 스냅샷을 최종 종가로 강제 업데이트합니다.")
     @PostMapping("/update-closing-prices")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> updateClosingPrices() {
+    public ResponseEntity<ApiResponse<SnapshotFixResponse>> updateClosingPrices() {
         try {
             long startTime = System.currentTimeMillis();
             int updatedCount = 0;
@@ -442,10 +447,11 @@ public class AdminController {
 
             long elapsed = System.currentTimeMillis() - startTime;
 
-            Map<String, Object> result = new HashMap<>();
-            result.put("updatedCount", updatedCount);
-            result.put("elapsedMs", elapsed);
-            result.put("message", String.format("%d건의 스냅샷이 최신 종가로 업데이트되었습니다.", updatedCount));
+            SnapshotFixResponse result = SnapshotFixResponse.builder()
+                    .updatedCount(updatedCount)
+                    .elapsedMs(elapsed)
+                    .message(String.format("%d건의 스냅샷이 최신 종가로 업데이트되었습니다.", updatedCount))
+                    .build();
 
             return ResponseEntity.ok(ApiResponse.success("종가 업데이트 완료", result));
         } catch (Exception e) {
@@ -455,9 +461,9 @@ public class AdminController {
 
     @Operation(summary = "스냅샷 통계 조회", description = "AI 전략 스냅샷의 현재 상태를 조회합니다.")
     @GetMapping("/snapshot-stats")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getSnapshotStats() {
+    public ResponseEntity<ApiResponse<SnapshotStatsResponse>> getSnapshotStats() {
         try {
-            Map<String, Object> stats = aiStrategySnapshotService.getSnapshotStats();
+            SnapshotStatsResponse stats = aiStrategySnapshotService.getSnapshotStats();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", stats));
         } catch (Exception e) {
             return ApiResponses.error(e, "조회 실패: ");
@@ -506,9 +512,9 @@ public class AdminController {
 
     @Operation(summary = "KIS API Rate Limiter 통계", description = "KIS API 호출 통계를 조회합니다. (대기/총호출/스로틀/재시도/드랍)")
     @GetMapping("/rate-limiter-stats")
-    public ResponseEntity<ApiResponse<Map<String, Integer>>> getRateLimiterStats() {
+    public ResponseEntity<ApiResponse<RateLimiterStatsResponse>> getRateLimiterStats() {
         try {
-            Map<String, Integer> stats = kisApiRateLimiter.getStats();
+            RateLimiterStatsResponse stats = kisApiRateLimiter.getStats();
             return ResponseEntity.ok(ApiResponse.success("Rate Limiter 통계 조회 성공", stats));
         } catch (Exception e) {
             return ApiResponses.error(e, "통계 조회 실패: ");

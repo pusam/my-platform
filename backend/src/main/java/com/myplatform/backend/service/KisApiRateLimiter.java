@@ -1,9 +1,9 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.dto.RateLimiterStatsResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -183,14 +183,14 @@ public class KisApiRateLimiter {
     /**
      * 모니터링용 통계 반환
      */
-    public Map<String, Integer> getStats() {
-        return Map.of(
-                "pending", pendingRequests.get(),
-                "total", totalRequests.get(),
-                "throttled", throttledRequests.get(),
-                "retried", retryRequests.get(),
-                "dropped", droppedRequests.get()
-        );
+    public RateLimiterStatsResponse getStats() {
+        return RateLimiterStatsResponse.builder()
+                .pending(pendingRequests.get())
+                .total(totalRequests.get())
+                .throttled(throttledRequests.get())
+                .retried(retryRequests.get())
+                .dropped(droppedRequests.get())
+                .build();
     }
 
     /**
