@@ -4,6 +4,7 @@ import com.myplatform.backend.dto.NotificationDto;
 import com.myplatform.backend.entity.Notification;
 import com.myplatform.backend.repository.NotificationRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -115,7 +116,7 @@ public class NotificationService {
 
     private Long getUserId(String username) {
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."))
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND))
                 .getId();
     }
 }

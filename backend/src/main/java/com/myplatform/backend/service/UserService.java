@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.UpdateProfileRequest;
 import com.myplatform.backend.dto.UserDto;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -174,7 +175,7 @@ public class UserService {
             user.setStatus(status);
             userRepository.save(user);
         } else {
-            throw new RuntimeException("유효하지 않은 상태값입니다.");
+            throw new RuntimeException(ErrorMessages.INVALID_STATUS);
         }
     }
 

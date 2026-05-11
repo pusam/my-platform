@@ -4,6 +4,7 @@ import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.dto.WatchlistDto;
 import com.myplatform.backend.entity.StockWatchlist;
 import com.myplatform.backend.repository.StockWatchlistRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -88,10 +89,10 @@ public class WatchlistService {
     @Transactional
     public WatchlistDto.WatchlistItem updateAlert(String username, Long id, WatchlistDto.AlertRequest request) {
         StockWatchlist entity = watchlistRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("관심종목을 찾을 수 없습니다."));
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.WATCHLIST_NOT_FOUND));
         // 본인 소유 확인 — 다른 사용자 의 관심종목 수정 차단.
         if (!username.equals(entity.getUsername())) {
-            throw new IllegalArgumentException("관심종목을 찾을 수 없습니다.");  // 존재 노출 방지로 동일 메시지
+            throw new IllegalArgumentException(ErrorMessages.WATCHLIST_NOT_FOUND);  // 존재 노출 방지로 동일 메시지
         }
 
         entity.setTargetPrice(request.getTargetPrice());
@@ -109,10 +110,10 @@ public class WatchlistService {
     @Transactional
     public void deleteWatchlist(String username, Long id) {
         StockWatchlist entity = watchlistRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("관심종목을 찾을 수 없습니다."));
+                .orElseThrow(() -> new IllegalArgumentException(ErrorMessages.WATCHLIST_NOT_FOUND));
         // 본인 소유 확인 — 다른 사용자 의 관심종목 삭제 차단.
         if (!username.equals(entity.getUsername())) {
-            throw new IllegalArgumentException("관심종목을 찾을 수 없습니다.");
+            throw new IllegalArgumentException(ErrorMessages.WATCHLIST_NOT_FOUND);
         }
         log.info("관심종목 삭제: {} ({}) (user={})", entity.getStockName(), entity.getStockCode(), username);
         watchlistRepository.delete(entity);

@@ -7,6 +7,7 @@ import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.PasswordResetTokenRepository;
 import com.myplatform.backend.repository.UserRepository;
 import com.myplatform.backend.util.PasswordPolicy;
+import com.myplatform.core.exception.ErrorMessages;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -103,7 +104,7 @@ public class PasswordResetService {
                 .findByEmailAndTokenAndUsedFalseAndExpiresAtAfter(
                         email, token, LocalDateTime.now()
                 )
-                .orElseThrow(() -> new RuntimeException("유효하지 않거나 만료된 인증번호입니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.INVALID_TOKEN));
 
         // 사용자 확인 (아이디 + 이메일)
         User user = userRepository.findByUsername(username)

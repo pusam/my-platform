@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.UserFolder;
 import com.myplatform.backend.repository.UserFileRepository;
 import com.myplatform.backend.repository.UserFolderRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -59,7 +60,7 @@ public class FileManagementService {
     @Transactional(readOnly = true)
     public FolderContentDto getFolderContent(String username, Long folderId) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         FolderContentDto content = new FolderContentDto();
 
@@ -73,10 +74,10 @@ public class FileManagementService {
         } else {
             // 특정 폴더
             UserFolder folder = folderRepository.findById(folderId)
-                    .orElseThrow(() -> new RuntimeException("폴더를 찾을 수 없습니다."));
+                    .orElseThrow(() -> new RuntimeException(ErrorMessages.FOLDER_NOT_FOUND));
 
             if (!folder.getUserId().equals(user.getId())) {
-                throw new RuntimeException("권한이 없습니다.");
+                throw new RuntimeException(ErrorMessages.FORBIDDEN);
             }
 
             content.setCurrentFolder(convertFolderToDto(folder));
@@ -92,7 +93,7 @@ public class FileManagementService {
 
     public FolderDto createFolder(String username, Long parentId, String folderName) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         // 중복 체크
         var existing = folderRepository.findByUserIdAndParentIdAndName(user.getId(), parentId, folderName);
@@ -123,14 +124,14 @@ public class FileManagementService {
         com.myplatform.backend.util.FileUploadValidator.validate(file);
 
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         // 폴더 검증
         if (folderId != null) {
             UserFolder folder = folderRepository.findById(folderId)
-                    .orElseThrow(() -> new RuntimeException("폴더를 찾을 수 없습니다."));
+                    .orElseThrow(() -> new RuntimeException(ErrorMessages.FOLDER_NOT_FOUND));
             if (!folder.getUserId().equals(user.getId())) {
-                throw new RuntimeException("권한이 없습니다.");
+                throw new RuntimeException(ErrorMessages.FORBIDDEN);
             }
         }
 
@@ -198,13 +199,13 @@ public class FileManagementService {
 
     public void deleteFolder(String username, Long folderId) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         UserFolder folder = folderRepository.findById(folderId)
-                .orElseThrow(() -> new RuntimeException("폴더를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.FOLDER_NOT_FOUND));
 
         if (!folder.getUserId().equals(user.getId())) {
-            throw new RuntimeException("권한이 없습니다.");
+            throw new RuntimeException(ErrorMessages.FORBIDDEN);
         }
 
         folderRepository.delete(folder);
@@ -212,13 +213,13 @@ public class FileManagementService {
 
     public void deleteFile(String username, Long fileId) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         UserFile file = fileRepository.findById(fileId)
-                .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.FILE_NOT_FOUND));
 
         if (!file.getUserId().equals(user.getId())) {
-            throw new RuntimeException("권한이 없습니다.");
+            throw new RuntimeException(ErrorMessages.FORBIDDEN);
         }
 
         // 물리적 파일 삭제
@@ -234,13 +235,13 @@ public class FileManagementService {
     @Transactional(readOnly = true)
     public void validateFileOwnership(String username, Long fileId) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         UserFile file = fileRepository.findById(fileId)
-                .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.FILE_NOT_FOUND));
 
         if (!file.getUserId().equals(user.getId())) {
-            throw new RuntimeException("권한이 없습니다.");
+            throw new RuntimeException(ErrorMessages.FORBIDDEN);
         }
     }
 

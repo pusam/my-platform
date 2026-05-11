@@ -6,6 +6,7 @@ import com.myplatform.backend.entity.Board;
 import com.myplatform.backend.entity.BoardFile;
 import com.myplatform.backend.repository.BoardRepository;
 import com.myplatform.backend.repository.BoardFileRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -74,7 +75,7 @@ public class BoardService {
     public BoardDto getBoard(Long id) {
         // @EntityGraph 로 files 함께 fetch — convertToDto가 board.getFiles() 접근 시 N+1 방지
         Board board = boardRepository.findWithFilesById(id)
-                .orElseThrow(() -> new RuntimeException("게시글을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.BOARD_NOT_FOUND));
 
         board.incrementViews();
         boardRepository.save(board);
@@ -109,7 +110,7 @@ public class BoardService {
 
     public BoardDto updateBoard(Long id, BoardRequest request, String username, List<MultipartFile> files) {
         Board board = boardRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("게시글을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.BOARD_NOT_FOUND));
 
         if (!board.getAuthor().equals(username)) {
             throw new RuntimeException("수정 권한이 없습니다.");
@@ -138,7 +139,7 @@ public class BoardService {
     public void deleteBoard(Long id, String username) {
         // files도 함께 fetch — 삭제 직전 물리 파일 정리 시 LAZY N+1 방지
         Board board = boardRepository.findWithFilesById(id)
-                .orElseThrow(() -> new RuntimeException("게시글을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.BOARD_NOT_FOUND));
 
         if (!board.getAuthor().equals(username)) {
             throw new RuntimeException("삭제 권한이 없습니다.");
@@ -155,14 +156,14 @@ public class BoardService {
 
     public void deleteFile(Long boardId, Long fileId, String username) {
         Board board = boardRepository.findById(boardId)
-                .orElseThrow(() -> new RuntimeException("게시글을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.BOARD_NOT_FOUND));
 
         if (!board.getAuthor().equals(username)) {
             throw new RuntimeException("삭제 권한이 없습니다.");
         }
 
         BoardFile file = boardFileRepository.findById(fileId)
-                .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.FILE_NOT_FOUND));
 
         deletePhysicalFile(file.getFilePath());
         boardFileRepository.delete(file);
@@ -246,7 +247,7 @@ public class BoardService {
     @Transactional(readOnly = true)
     public BoardFile getFile(Long fileId) {
         return boardFileRepository.findById(fileId)
-                .orElseThrow(() -> new RuntimeException("파일을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.FILE_NOT_FOUND));
     }
 }
 

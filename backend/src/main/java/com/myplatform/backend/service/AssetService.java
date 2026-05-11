@@ -11,6 +11,7 @@ import com.myplatform.backend.repository.GoldPriceRepository;
 import com.myplatform.backend.repository.SilverPriceRepository;
 import com.myplatform.backend.repository.UserAssetRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,7 +46,7 @@ public class AssetService {
 
     public AssetDto addAsset(String username, AssetRequest request) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         UserAsset asset = new UserAsset();
         asset.setUserId(user.getId());
@@ -74,7 +75,7 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetDto> getMyAssets(String username) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         return userAssetRepository.findByUserId(user.getId()).stream()
                 .map(this::convertToDto)
@@ -84,7 +85,7 @@ public class AssetService {
     @Transactional(readOnly = true)
     public AssetSummaryDto getAssetSummary(String username) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         List<UserAsset> allAssets = userAssetRepository.findByUserId(user.getId());
         List<UserAsset> goldAssets = allAssets.stream()
@@ -218,10 +219,10 @@ public class AssetService {
 
     public void deleteAsset(String username, Long assetId) {
         var user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND));
 
         UserAsset asset = userAssetRepository.findById(assetId)
-                .orElseThrow(() -> new RuntimeException("자산을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.ASSET_NOT_FOUND));
 
         if (!asset.getUserId().equals(user.getId())) {
             throw new RuntimeException("본인의 자산만 삭제할 수 있습니다.");

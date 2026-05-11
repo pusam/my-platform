@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.CarRecordRequest;
 import com.myplatform.backend.entity.CarRecord;
 import com.myplatform.backend.repository.CarRecordRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,7 +26,7 @@ public class CarRecordService {
 
     private Long getUserId(String username) {
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."))
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND))
                 .getId();
     }
 
@@ -81,7 +82,7 @@ public class CarRecordService {
     public void deleteRecord(String username, Long recordId) {
         Long userId = getUserId(username);
         CarRecord record = carRecordRepository.findByIdAndUserId(recordId, userId)
-                .orElseThrow(() -> new RuntimeException("기록을 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.RECORD_NOT_FOUND));
         carRecordRepository.delete(record);
     }
 

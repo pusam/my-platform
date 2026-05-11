@@ -5,6 +5,7 @@ import com.myplatform.backend.dto.DietRequest;
 import com.myplatform.backend.entity.DietRecord;
 import com.myplatform.backend.repository.DietRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +29,7 @@ public class DietService {
 
     private Long getUserId(String username) {
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."))
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND))
                 .getId();
     }
 

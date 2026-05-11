@@ -5,6 +5,7 @@ import com.myplatform.backend.entity.FinanceTransaction;
 import com.myplatform.backend.repository.UserAssetRepository;
 import com.myplatform.backend.repository.FinanceTransactionRepository;
 import com.myplatform.backend.repository.UserRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.stereotype.Service;
@@ -209,7 +210,7 @@ public class ExportService {
 
     private Long getUserId(String username) {
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."))
+                .orElseThrow(() -> new RuntimeException(ErrorMessages.USER_NOT_FOUND))
                 .getId();
     }
 

@@ -12,6 +12,7 @@ import com.myplatform.backend.entity.WebauthnCredential;
 import com.myplatform.backend.repository.UserRepository;
 import com.myplatform.backend.repository.WebauthnChallengeRepository;
 import com.myplatform.backend.repository.WebauthnCredentialRepository;
+import com.myplatform.core.exception.ErrorMessages;
 import com.webauthn4j.WebAuthnManager;
 import com.webauthn4j.converter.AttestedCredentialDataConverter;
 import com.webauthn4j.converter.util.ObjectConverter;
@@ -224,7 +225,7 @@ public class WebauthnService {
         WebauthnCredential cred = credentialRepository.findByCredentialId(credentialId)
                 .orElseThrow(() -> new IllegalStateException("등록되지 않은 패스키입니다."));
         User user = userRepository.findById(cred.getUserId())
-                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new IllegalStateException(ErrorMessages.USER_NOT_FOUND));
 
         AttestedCredentialData attested = attestedCredentialDataConverter.convert(cred.getPublicKey());
         CredentialRecord credentialRecord = new CredentialRecordImpl(
@@ -312,7 +313,7 @@ public class WebauthnService {
                 .orElseThrow(() -> new IllegalStateException("등록되지 않은 인증기입니다."));
 
         User user = userRepository.findById(cred.getUserId())
-                .orElseThrow(() -> new IllegalStateException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new IllegalStateException(ErrorMessages.USER_NOT_FOUND));
 
         if (!user.getUsername().equals(username)) {
             throw new IllegalStateException("사용자와 인증기가 일치하지 않습니다.");
