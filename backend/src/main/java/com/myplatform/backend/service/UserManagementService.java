@@ -4,6 +4,10 @@ import com.myplatform.backend.dto.UserManagementDto;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,18 +24,39 @@ public class UserManagementService {
     private final UserRepository userRepository;
     private final ActivityLogService activityLogService;
 
+    /**
+     * legacy 전체 조회의 메모리 보호 상한.
+     * 1000명 초과 시 페이징 endpoint(getUsersPage) 사용해야 함.
+     */
+    private static final int SAFE_FETCH_LIMIT = 1000;
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "id");
+    private static final Pageable SAFE_LIMIT_PAGE = PageRequest.of(0, SAFE_FETCH_LIMIT, DEFAULT_SORT);
+
     @Transactional(readOnly = true)
     public List<UserManagementDto> getAllUsersDto() {
-        return userRepository.findAll().stream()
+        // 안전 상한 적용 — 사용자 수 증가 시에도 OOM 방지
+        return userRepository.findAll(SAFE_LIMIT_PAGE).stream()
                 .map(UserManagementDto::fromEntity)
                 .collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> getAllUsers() {
-        return userRepository.findAll().stream()
+        // 안전 상한 적용 — 기존 응답 포맷 호환 유지
+        return userRepository.findAll(SAFE_LIMIT_PAGE).stream()
                 .map(this::userToMap)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 페이지네이션 + 정렬 조회. 1000명 초과 환경에서 admin UI가 사용.
+     * AdminController GET /api/admin/users/page 에서 노출.
+     */
+    @Transactional(readOnly = true)
+    public Page<Map<String, Object>> getUsersPage(Pageable pageable) {
+        Pageable effective = pageable.getSort().isSorted() ? pageable
+                : PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), DEFAULT_SORT);
+        return userRepository.findAll(effective).map(this::userToMap);
     }
 
     @Transactional(readOnly = true)

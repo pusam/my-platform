@@ -133,12 +133,30 @@ public class AdminController {
         }
     }
 
-    @Operation(summary = "전체 사용자 목록 조회", description = "모든 사용자 목록을 조회합니다.")
+    @Operation(summary = "전체 사용자 목록 조회",
+            description = "모든 사용자 목록을 조회합니다. 내부적으로 1000명 안전 상한 적용. " +
+                    "대량 환경에서는 /users/page 페이지네이션 endpoint 사용.")
     @GetMapping("/users")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getAllUsers() {
         try {
             List<Map<String, Object>> users = userManagementService.getAllUsers();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", users));
+        } catch (Exception e) {
+            return ApiResponses.error(e, "조회 실패: ");
+        }
+    }
+
+    @Operation(summary = "사용자 페이지네이션 조회",
+            description = "page/size 기반 사용자 목록. 응답은 Spring Data Page 구조 (content + totalPages + ...).")
+    @GetMapping("/users/page")
+    public ResponseEntity<ApiResponse<Page<Map<String, Object>>>> getUsersPage(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        try {
+            int safeSize = Math.min(Math.max(size, 1), 200);  // 1~200 클램프
+            Page<Map<String, Object>> result = userManagementService.getUsersPage(
+                    org.springframework.data.domain.PageRequest.of(page, safeSize));
+            return ResponseEntity.ok(ApiResponse.success("조회 성공", result));
         } catch (Exception e) {
             return ApiResponses.error(e, "조회 실패: ");
         }

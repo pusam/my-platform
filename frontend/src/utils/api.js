@@ -439,6 +439,10 @@ export const adminAPI = {
   getAllUsers() {
     return apiClient.get('/admin/users');
   },
+  // 페이지네이션 사용자 조회 — 1000명 초과 환경. 응답 data는 Page 구조 (content/totalPages/...)
+  getUsersPage(page = 0, size = 50) {
+    return apiClient.get('/admin/users/page', { params: { page, size } });
+  },
   getUser(id) {
     return apiClient.get(`/admin/users/${id}`);
   },
