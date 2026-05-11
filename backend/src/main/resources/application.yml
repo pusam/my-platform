@@ -2,6 +2,11 @@ spring:
   application:
     name: my-platform-backend
 
+  # Jackson — API 응답/요청 timezone 명시. JVM TZ 누락 환경 대비.
+  jackson:
+    time-zone: Asia/Seoul
+    date-format: yyyy-MM-dd'T'HH:mm:ss
+    default-property-inclusion: non_null
 
   # 1. DB 설정
   datasource:

@@ -4,12 +4,17 @@ FROM eclipse-temurin:17-jre-alpine
 
 WORKDIR /app
 
-# 1. 필요한 패키지 설치 및 사용자 설정
+# 1. 필요한 패키지 설치 + KST timezone 고정 + 사용자 설정
+# tzdata 추가 — alpine 기본엔 timezone 정의 없음 → -Duser.timezone 만으로는 ZoneId.of() 실패 가능
 RUN mkdir -p /app/uploads && \
     addgroup -S spring && \
     adduser -S spring -G spring && \
     chown -R spring:spring /app && \
-    apk add --no-cache curl libgcc
+    apk add --no-cache curl libgcc tzdata && \
+    cp /usr/share/zoneinfo/Asia/Seoul /etc/localtime && \
+    echo "Asia/Seoul" > /etc/timezone
+
+ENV TZ=Asia/Seoul
 
 # 2. JAR 파일 복사
 # GitHub Actions가 빌드한 'app.jar'를 이미지 안으로 복사합니다.
@@ -26,9 +31,10 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/api/health || exit 1
 
-# 5. 실행
+# 5. 실행 — JVM timezone 명시 (시스템 TZ 누락 환경에서도 KST 강제)
 ENTRYPOINT ["java", \
     "-Djava.security.egd=file:/dev/./urandom", \
+    "-Duser.timezone=Asia/Seoul", \
     "-XX:+UseContainerSupport", \
     "-XX:MaxRAMPercentage=75.0", \
     "-jar", \
