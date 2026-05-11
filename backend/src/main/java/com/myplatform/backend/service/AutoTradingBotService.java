@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -89,6 +90,10 @@ public class AutoTradingBotService {
     private final InvestorTradeService investorTradeService;
     private final GlobalMarketService globalMarketService;
     private final BotTradingPositionRepository positionRepository;
+    // KST Clock — 시간 의존 로직(킬스위치/시장시간)을 테스트 가능하게 분리.
+    // 운영: ClockConfig#kstClock() → Clock.system(Asia/Seoul) 주입 → 기존 동작 동일.
+    // 테스트: Clock.fixed(...) 로 결정론적 시각 주입.
+    private final Clock clock;
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
@@ -272,7 +277,8 @@ public class AutoTradingBotService {
             this.stockCode = stockCode;
             this.stockName = stockName;
             this.buyPrice = buyPrice;
-            this.buyTime = DateTimeUtil.kstNow();
+            // static nested class — outer instance clock 미접근. KST 명시.
+            this.buyTime = LocalDateTime.now(DateTimeUtil.KST);
             this.highPrice = buyPrice;
             this.halfSold = false;
             this.timeExtended = false;
@@ -301,7 +307,8 @@ public class AutoTradingBotService {
             this.stockCode = stockCode;
             this.stockName = stockName;
             this.buyPrice = buyPrice;
-            this.buyTime = DateTimeUtil.kstNow();
+            // static nested class — outer instance clock 미접근. KST 명시.
+            this.buyTime = LocalDateTime.now(DateTimeUtil.KST);
             this.highPrice = buyPrice;
             this.buyReason = reason;
         }
@@ -313,7 +320,8 @@ public class AutoTradingBotService {
         }
 
         long holdDays() {
-            return java.time.Duration.between(buyTime, DateTimeUtil.kstNow()).toDays();
+            // static nested class — outer instance clock 미접근. KST 명시.
+            return java.time.Duration.between(buyTime, LocalDateTime.now(DateTimeUtil.KST)).toDays();
         }
     }
 
@@ -352,7 +360,8 @@ public class AutoTradingBotService {
             StockStatusService stockStatusService,
             InvestorTradeService investorTradeService,
             GlobalMarketService globalMarketService,
-            BotTradingPositionRepository positionRepository) {
+            BotTradingPositionRepository positionRepository,
+            Clock clock) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -370,6 +379,7 @@ public class AutoTradingBotService {
         this.investorTradeService = investorTradeService;
         this.globalMarketService = globalMarketService;
         this.positionRepository = positionRepository;
+        this.clock = clock;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -578,7 +588,7 @@ public class AutoTradingBotService {
 
             config.setIsActive(STATUS_RUNNING.equals(status));
             config.setTradingMode(mode.name());
-            config.setLastStatusChange(DateTimeUtil.kstNow());
+            config.setLastStatusChange(LocalDateTime.now(clock));
 
             botConfigRepository.save(config);
             log.debug("[스캘핑봇] 봇 상태 DB 저장: status={}, mode={}", status, mode);
@@ -746,7 +756,7 @@ public class AutoTradingBotService {
         } else if (kospiDropPaused.get()) {
             status = "KOSPI_DROP_PAUSED";
         } else if (lastError != null && lastErrorTime != null &&
-                   lastErrorTime.isAfter(DateTimeUtil.kstNow().minusMinutes(30))) {
+                   lastErrorTime.isAfter(LocalDateTime.now(clock).minusMinutes(30))) {
             status = "ERROR";
         } else {
             status = "RUNNING";
@@ -807,7 +817,7 @@ public class AutoTradingBotService {
                     log.warn("[스캘핑봇] ⚠️ VIX {} → 매수 일시정지!", vixPrice);
                     sendVixAlert(vixPrice, true);
                 } else if (lastVixAlertTime == null ||
-                        lastVixAlertTime.isBefore(DateTimeUtil.kstNow().minusHours(1))) {
+                        lastVixAlertTime.isBefore(LocalDateTime.now(clock).minusHours(1))) {
                     // 1시간마다 반복 알림
                     sendVixAlert(vixPrice, false);
                 }
@@ -831,7 +841,7 @@ public class AutoTradingBotService {
     }
 
     private void sendVixAlert(double vixPrice, boolean isFirstAlert) {
-        lastVixAlertTime = DateTimeUtil.kstNow();
+        lastVixAlertTime = LocalDateTime.now(clock);
         if (telegramService.isEnabled()) {
             String prefix = isFirstAlert ? "🚨 VIX 급등 — 매수 일시정지!" : "⚠️ VIX 고공 유지 중";
             telegramService.sendSignal(
@@ -857,10 +867,10 @@ public class AutoTradingBotService {
         try {
             // 1분마다만 체크 (API 부하 방지)
             if (lastKospiCheckTime != null &&
-                    java.time.Duration.between(lastKospiCheckTime, DateTimeUtil.kstNow()).getSeconds() < 60) {
+                    java.time.Duration.between(lastKospiCheckTime, LocalDateTime.now(clock)).getSeconds() < 60) {
                 return kospiDropPaused.get();
             }
-            lastKospiCheckTime = DateTimeUtil.kstNow();
+            lastKospiCheckTime = LocalDateTime.now(clock);
 
             // 네이버 모바일 API로 실시간 KOSPI 등락률 조회
             BigDecimal kospiChangeRate = fetchKospiChangeRate();
@@ -947,7 +957,7 @@ public class AutoTradingBotService {
         try {
             // 5분 캐시
             if (outflowCacheTime != null &&
-                    java.time.Duration.between(outflowCacheTime, DateTimeUtil.kstNow()).getSeconds() < OUTFLOW_CACHE_SECONDS) {
+                    java.time.Duration.between(outflowCacheTime, LocalDateTime.now(clock)).getSeconds() < OUTFLOW_CACHE_SECONDS) {
                 return outflowSectorStocks.get().contains(stockCode);
             }
 
@@ -966,7 +976,7 @@ public class AutoTradingBotService {
             }
 
             outflowSectorStocks.set(newOutflowStocks);
-            outflowCacheTime = DateTimeUtil.kstNow();
+            outflowCacheTime = LocalDateTime.now(clock);
 
             if (!newOutflowStocks.isEmpty()) {
                 log.debug("[스캘핑봇] OUTFLOW 섹터 종목 {}개 차단 중", newOutflowStocks.size());
@@ -1040,7 +1050,7 @@ public class AutoTradingBotService {
         }
 
         // 09:45~10:30만 스캘핑 매수 허용 (골든타임 집중)
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(clock);
         if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(MORNING_ENTRY_END)) {
             return; // 시간 밖은 정상 동작이므로 로그 불필요
         }
@@ -1072,7 +1082,7 @@ public class AutoTradingBotService {
             return;
         }
 
-        log.debug("[스캘핑봇] ===== 매수 로직 시작 ({}) =====", LocalTime.now());
+        log.debug("[스캘핑봇] ===== 매수 로직 시작 ({}) =====", LocalTime.now(clock));
         resetDailyCounters();
 
         try {
@@ -1139,9 +1149,9 @@ public class AutoTradingBotService {
 
                 // 쿨다운: 최근 30분 이내 매도한 종목 재매수 금지
                 LocalDateTime lastSell = sellCooldownMap.get(surge.getStockCode());
-                if (lastSell != null && java.time.Duration.between(lastSell, DateTimeUtil.kstNow()).toMinutes() < SELL_COOLDOWN_MINUTES) {
+                if (lastSell != null && java.time.Duration.between(lastSell, LocalDateTime.now(clock)).toMinutes() < SELL_COOLDOWN_MINUTES) {
                     log.debug("[스캘핑봇] 쿨다운: {} - 매도 후 {}분 경과 (기준: {}분)",
-                            surge.getStockName(), java.time.Duration.between(lastSell, DateTimeUtil.kstNow()).toMinutes(), SELL_COOLDOWN_MINUTES);
+                            surge.getStockName(), java.time.Duration.between(lastSell, LocalDateTime.now(clock)).toMinutes(), SELL_COOLDOWN_MINUTES);
                     continue;
                 }
 
@@ -1221,7 +1231,7 @@ public class AutoTradingBotService {
                     activeTradeService.buy(surge.getStockCode(), surge.getStockName(),
                             entryResult.currentPrice, quantity, "SCALPING_ENTRY");
                     buyOk = true;
-                    lastTradeTime = DateTimeUtil.kstNow();
+                    lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
 
                     try {
@@ -1269,7 +1279,7 @@ public class AutoTradingBotService {
 
         } catch (Exception e) {
             lastError = e.getMessage();
-            lastErrorTime = DateTimeUtil.kstNow();
+            lastErrorTime = LocalDateTime.now(clock);
             log.error("[스캘핑봇] 매수 로직 오류", e);
         }
     }
@@ -1279,7 +1289,7 @@ public class AutoTradingBotService {
      * 스냅샷은 10분마다 갱신되므로 매 사이클(5초)마다 DB 조회할 필요 없음
      */
     private synchronized Map<String, List<InvestorSurgeDto>> getCachedSurgeStocks() {
-        LocalDateTime now = DateTimeUtil.kstNow();
+        LocalDateTime now = LocalDateTime.now(clock);
         if (cachedSurgeStocks != null && surgeStocksCacheTime != null
                 && java.time.Duration.between(surgeStocksCacheTime, now).getSeconds() < SURGE_CACHE_SECONDS) {
             return cachedSurgeStocks;
@@ -1605,7 +1615,7 @@ public class AutoTradingBotService {
             return;
         }
 
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(clock);
         if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) {
             return;
         }
@@ -1654,7 +1664,7 @@ public class AutoTradingBotService {
                 BigDecimal highDropRate = calcHighDropRate(currentPrice, position.highPrice);
 
                 // 매수 후 경과 시간
-                long minutesElapsed = java.time.Duration.between(position.buyTime, DateTimeUtil.kstNow()).toMinutes();
+                long minutesElapsed = java.time.Duration.between(position.buyTime, LocalDateTime.now(clock)).toMinutes();
 
                 String sellReason = null;
                 int sellQuantity = portfolio.getQuantity();
@@ -1717,7 +1727,7 @@ public class AutoTradingBotService {
 
         } catch (Exception e) {
             lastError = e.getMessage();
-            lastErrorTime = DateTimeUtil.kstNow();
+            lastErrorTime = LocalDateTime.now(clock);
             log.error("[스캘핑봇] 매도 로직 오류", e);
         }
     }
@@ -1730,7 +1740,7 @@ public class AutoTradingBotService {
                                      int quantity, String reason, boolean isPartialSell) {
         try {
             activeTradeService.sell(portfolio.getStockCode(), currentPrice, quantity, reason);
-            lastTradeTime = DateTimeUtil.kstNow();
+            lastTradeTime = LocalDateTime.now(clock);
             todaySellCount.incrementAndGet();
 
             BigDecimal profitLoss = currentPrice.subtract(buyPrice).multiply(BigDecimal.valueOf(quantity));
@@ -1747,7 +1757,7 @@ public class AutoTradingBotService {
             if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
                 deletePersistedPosition(Strategy.SCALPING, portfolio.getStockCode());
-                sellCooldownMap.put(portfolio.getStockCode(), DateTimeUtil.kstNow());
+                sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now(clock));
 
                 // 연속 손절 카운터 관리
                 if ("STOP_LOSS".equals(reason)) {
@@ -1836,7 +1846,7 @@ public class AutoTradingBotService {
 
     /** 매도 실패 알림 dedup — 같은 종목은 5분에 한 번만. */
     private boolean shouldSendSellFailAlert(String stockCode) {
-        LocalDateTime now = DateTimeUtil.kstNow();
+        LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime lastAlert = sellFailLastAlert.get(stockCode);
         if (lastAlert != null
                 && java.time.Duration.between(lastAlert, now).getSeconds() < SELL_FAIL_ALERT_COOLDOWN_SEC) {
@@ -1879,7 +1889,7 @@ public class AutoTradingBotService {
 
         } catch (Exception e) {
             lastError = e.getMessage();
-            lastErrorTime = DateTimeUtil.kstNow();
+            lastErrorTime = LocalDateTime.now(clock);
             log.error("[스캘핑봇] 장 마감 청산 오류", e);
         }
     }
@@ -1914,10 +1924,10 @@ public class AutoTradingBotService {
                 TradeHistoryDto result = activeTradeService.sell(
                         portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), "END_OF_DAY");
 
-                lastTradeTime = DateTimeUtil.kstNow();
+                lastTradeTime = LocalDateTime.now(clock);
                 todaySellCount.incrementAndGet();
                 soldCount++;
-                sellCooldownMap.put(portfolio.getStockCode(), DateTimeUtil.kstNow());
+                sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now(clock));
 
                 BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
                 totalProfitLoss = totalProfitLoss.add(profitLoss);
@@ -1975,10 +1985,10 @@ public class AutoTradingBotService {
             try {
                 TradeHistoryDto result = activeTradeService.sell(
                         portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), "END_OF_DAY");
-                lastTradeTime = DateTimeUtil.kstNow();
+                lastTradeTime = LocalDateTime.now(clock);
                 todaySellCount.incrementAndGet();
                 soldCount++;
-                sellCooldownMap.put(portfolio.getStockCode(), DateTimeUtil.kstNow());
+                sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now(clock));
                 BigDecimal profitLoss = result.getProfitLoss() != null ? result.getProfitLoss() : BigDecimal.ZERO;
                 totalProfitLoss = totalProfitLoss.add(profitLoss);
                 BigDecimal avgPrice = portfolio.getAveragePrice();
@@ -2122,7 +2132,7 @@ public class AutoTradingBotService {
                         alertPersistFailure("스윙", candidate.getStockCode(), candidate.getStockName(), persistEx);
                     }
 
-                    lastTradeTime = DateTimeUtil.kstNow();
+                    lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
 
                     log.info("[스윙봇-{}] ★ 스윙 진입 ★ {} ({}) {}원 x {}주 | {}",
@@ -2228,7 +2238,7 @@ public class AutoTradingBotService {
         if (!botActive.get() || swingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
 
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(clock);
         if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) return;
 
         try {
@@ -2282,7 +2292,7 @@ public class AutoTradingBotService {
                     try {
                         activeTradeService.sell(portfolio.getStockCode(), currentPrice,
                                 portfolio.getQuantity(), sellReason);
-                        lastTradeTime = DateTimeUtil.kstNow();
+                        lastTradeTime = LocalDateTime.now(clock);
                         todaySellCount.incrementAndGet();
 
                         BigDecimal profitLoss = currentPrice.subtract(position.buyPrice)
@@ -2304,7 +2314,7 @@ public class AutoTradingBotService {
 
                         swingPositions.remove(position.stockCode);
                         deletePersistedPosition(Strategy.SWING, position.stockCode);
-                        sellCooldownMap.put(position.stockCode, DateTimeUtil.kstNow());
+                        sellCooldownMap.put(position.stockCode, LocalDateTime.now(clock));
                     } catch (Exception e) {
                         log.error("[스윙봇] 매도 실패: {} - {}", position.stockName, e.getMessage(), e);
                         if (telegramService.isEnabled()) {
@@ -2458,7 +2468,7 @@ public class AutoTradingBotService {
                         alertPersistFailure("종가매수", code, surge.getStockName(), persistEx);
                     }
 
-                    lastTradeTime = DateTimeUtil.kstNow();
+                    lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
 
                     log.info("[종가매수-{}] ★ 진입 ★ {} ({}) {}원 x {}주 | 외국인 {}억 + 기관 {}억",
@@ -2500,7 +2510,7 @@ public class AutoTradingBotService {
         if (!botActive.get() || closingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
 
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(clock);
         if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) return;
 
         try {
@@ -2543,8 +2553,8 @@ public class AutoTradingBotService {
                 }
                 // 4. 시가 갭하락 즉시 청산: 익일 09:05 이후, 수익률 -1% 이하 → 대외변수 급락 방어
                 else if (holdDays >= 1
-                        && LocalTime.now().isAfter(CLOSING_GAP_DOWN_CHECK_TIME)
-                        && LocalTime.now().isBefore(CLOSING_EARLY_EXIT_TIME)
+                        && LocalTime.now(clock).isAfter(CLOSING_GAP_DOWN_CHECK_TIME)
+                        && LocalTime.now(clock).isBefore(CLOSING_EARLY_EXIT_TIME)
                         && profitRate.compareTo(CLOSING_GAP_DOWN_LIMIT) <= 0) {
                     sellReason = "GAP_DOWN_EXIT";
                     log.info("[종가매수] 시가 갭하락 즉시청산: {} 손익률 {}% (시가 -1% 이하)",
@@ -2552,7 +2562,7 @@ public class AutoTradingBotService {
                 }
                 // 5. 갭업 미발생 조기 청산: 익일 10시까지 +0.5% 미달 시 손실 줄이며 청산
                 else if (holdDays >= 1
-                        && LocalTime.now().isAfter(CLOSING_EARLY_EXIT_TIME)
+                        && LocalTime.now(clock).isAfter(CLOSING_EARLY_EXIT_TIME)
                         && profitRate.compareTo(CLOSING_EARLY_EXIT_MIN_PROFIT) < 0) {
                     sellReason = "EARLY_EXIT";
                     log.info("[종가매수] 갭업 미발생 조기청산: {} 손익률 {}% (기준 {}% 미달)",
@@ -2567,7 +2577,7 @@ public class AutoTradingBotService {
                     try {
                         activeTradeService.sell(portfolio.getStockCode(), currentPrice,
                                 portfolio.getQuantity(), sellReason);
-                        lastTradeTime = DateTimeUtil.kstNow();
+                        lastTradeTime = LocalDateTime.now(clock);
                         todaySellCount.incrementAndGet();
 
                         BigDecimal profitLoss = currentPrice.subtract(position.buyPrice)
@@ -2587,7 +2597,7 @@ public class AutoTradingBotService {
 
                         closingPositions.remove(position.stockCode);
                         deletePersistedPosition(Strategy.CLOSING, position.stockCode);
-                        sellCooldownMap.put(position.stockCode, DateTimeUtil.kstNow());
+                        sellCooldownMap.put(position.stockCode, LocalDateTime.now(clock));
                     } catch (Exception e) {
                         log.error("[종가매수] 매도 실패: {} - {}", position.stockName, e.getMessage());
                     }
@@ -2753,7 +2763,7 @@ public class AutoTradingBotService {
     }
 
     private synchronized void resetDailyCounters() {
-        LocalDate today = LocalDate.now();
+        LocalDate today = LocalDate.now(clock);
         if (lastResetDate == null || !lastResetDate.equals(today)) {
             todayBuyCount.set(0);
             todaySellCount.set(0);
@@ -2854,7 +2864,7 @@ public class AutoTradingBotService {
 
         StringBuilder message = new StringBuilder();
         message.append(String.format("<b>🔔 [%s] 스캘핑 장마감 청산</b>\n\n", modeTag));
-        message.append("⏰ ").append(LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))).append("\n\n");
+        message.append("⏰ ").append(LocalTime.now(clock).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))).append("\n\n");
 
         if (result.soldCount == 0) {
             message.append("📭 청산할 보유 종목 없음\n");
@@ -2913,8 +2923,7 @@ public class AutoTradingBotService {
     private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
 
     private boolean isMarketClosed() {
-        java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
-        LocalDate today = LocalDate.now(KST);
+        LocalDate today = LocalDate.now(clock);
         DayOfWeek dayOfWeek = today.getDayOfWeek();
 
         if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
@@ -2935,7 +2944,7 @@ public class AutoTradingBotService {
         }
 
         // 정규장 시간 체크 (09:00 ~ 15:30 KST)
-        LocalTime now = LocalTime.now(KST);
+        LocalTime now = LocalTime.now(clock);
         if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
             return true;
         }

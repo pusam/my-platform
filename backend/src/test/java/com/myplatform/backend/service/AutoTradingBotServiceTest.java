@@ -17,7 +17,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Optional;
@@ -73,6 +79,33 @@ class AutoTradingBotServiceTest {
 
     private AutoTradingBotService botService;
 
+    // 고정 시계 — KST 평일 정규장 (2026-05-11 월요일 10:00 KST). 기본 테스트는 모두 "시장 열림" 상태.
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    private Clock fixedClock;
+
+    /** 테스트별로 다른 시각이 필요할 때 botService 를 새 Clock 으로 재생성. */
+    private AutoTradingBotService rebuildBotWithClock(Clock clock) {
+        return new AutoTradingBotService(
+                virtualTradeService,
+                realTradeService,
+                portfolioRepository,
+                investorSurgeService,
+                scalpingAnalysisService,
+                stockPriceService,
+                telegramService,
+                botConfigRepository,
+                technicalIndicatorService,
+                kisService,
+                globalFuturesService,
+                sectorTradingService,
+                shortSellingService,
+                stockStatusService,
+                investorTradeService,
+                globalMarketService,
+                positionRepository,
+                clock);
+    }
+
     @BeforeEach
     void setUp() {
         // 텔레그램 비활성 default — 알림 무시
@@ -97,24 +130,11 @@ class AutoTradingBotServiceTest {
         when(positionRepository.findByTradingMode(anyString())).thenReturn(Collections.emptyList());
         when(positionRepository.count()).thenReturn(0L);
 
-        botService = new AutoTradingBotService(
-                virtualTradeService,
-                realTradeService,
-                portfolioRepository,
-                investorSurgeService,
-                scalpingAnalysisService,
-                stockPriceService,
-                telegramService,
-                botConfigRepository,
-                technicalIndicatorService,
-                kisService,
-                globalFuturesService,
-                sectorTradingService,
-                shortSellingService,
-                stockStatusService,
-                investorTradeService,
-                globalMarketService,
-                positionRepository);
+        // 평일 월요일 10:00 KST — 정규장 시간 + 영업일.
+        Instant marketOpen = ZonedDateTime.of(2026, 5, 11, 10, 0, 0, 0, KST).toInstant();
+        fixedClock = Clock.fixed(marketOpen, KST);
+
+        botService = rebuildBotWithClock(fixedClock);
     }
 
     // ================================================================
@@ -342,10 +362,10 @@ class AutoTradingBotServiceTest {
         @DisplayName("kill switch ON → KILL_SWITCH 상태 반환")
         void killSwitchOn_reportsKillSwitch() throws Exception {
             // resetDailyCounters() 가 lastResetDate==null 일 때 killSwitchTriggered=false 로 reset 하므로
-            // lastResetDate 를 오늘로 먼저 set 해서 reset 방지
+            // lastResetDate 를 fixedClock 기준 오늘로 먼저 set 해서 reset 방지
             Field lastReset = AutoTradingBotService.class.getDeclaredField("lastResetDate");
             lastReset.setAccessible(true);
-            lastReset.set(botService, java.time.LocalDate.now());
+            lastReset.set(botService, LocalDate.now(fixedClock));
 
             // killSwitchTriggered 를 true 로 강제 set
             Field f = AutoTradingBotService.class.getDeclaredField("killSwitchTriggered");
@@ -355,6 +375,121 @@ class AutoTradingBotServiceTest {
 
             BotStatusDto status = botService.getBotStatus();
             assertThat(status.getStatus()).isEqualTo("KILL_SWITCH");
+        }
+    }
+
+    // ================================================================
+    // KillSwitch / Market Hours — Clock 주입 기반 결정론적 검증
+    // ================================================================
+
+    @Nested
+    @DisplayName("KillSwitch / isMarketClosed — 시간 의존 로직 (Clock 주입)")
+    class KillSwitchTests {
+
+        /** private 메서드를 reflection 으로 호출. */
+        private boolean invokeCheckKillSwitch(AutoTradingBotService svc) throws Exception {
+            Method m = AutoTradingBotService.class.getDeclaredMethod("checkKillSwitch");
+            m.setAccessible(true);
+            return (boolean) m.invoke(svc);
+        }
+
+        private boolean invokeIsMarketClosed(AutoTradingBotService svc) throws Exception {
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isMarketClosed");
+            m.setAccessible(true);
+            return (boolean) m.invoke(svc);
+        }
+
+        /** 0원 계좌(dailyStartAsset==0 + currentAsset==0) → dailyStartAsset 초기화 후 false 반환. */
+        @Test
+        @DisplayName("checkKillSwitch — 정상 자산(0원, 미발동) 평일 10시 → false")
+        void killSwitch_marketOpen_normalDay_returnsFalse() throws Exception {
+            // setUp 의 fixedClock = 2026-05-11(월) 10:00 KST. 평일 정규장.
+            // 빈 계좌 → dailyStartAsset == 0 분기로 진입, false 반환.
+            boolean result = invokeCheckKillSwitch(botService);
+
+            assertThat(result).isFalse();
+        }
+
+        /** 이미 killSwitchTriggered=true 면 시각과 무관하게 true 반환. */
+        @Test
+        @DisplayName("checkKillSwitch — killSwitchTriggered=true 이면 true 즉시 반환")
+        void killSwitch_alreadyTriggered_returnsTrue() throws Exception {
+            Field f = AutoTradingBotService.class.getDeclaredField("killSwitchTriggered");
+            f.setAccessible(true);
+            ((AtomicBoolean) f.get(botService)).set(true);
+
+            boolean result = invokeCheckKillSwitch(botService);
+
+            assertThat(result).isTrue();
+        }
+
+        /** 평일 월요일 10:00 KST → 시장 열림. */
+        @Test
+        @DisplayName("isMarketClosed — 평일 월요일 10:00 KST → false (시장 열림)")
+        void marketClosed_weekdayDuringHours_returnsFalse() throws Exception {
+            boolean closed = invokeIsMarketClosed(botService);
+
+            assertThat(closed).isFalse();
+        }
+
+        /** 평일 16:30 KST (장 마감 후) → 시장 닫힘. */
+        @Test
+        @DisplayName("isMarketClosed — 평일 16:30 KST (장 마감 후) → true")
+        void marketClosed_weekdayAfterClose_returnsTrue() throws Exception {
+            Instant afterClose = ZonedDateTime.of(2026, 5, 11, 16, 30, 0, 0, KST).toInstant();
+            AutoTradingBotService svc = rebuildBotWithClock(Clock.fixed(afterClose, KST));
+
+            boolean closed = invokeIsMarketClosed(svc);
+
+            assertThat(closed).isTrue();
+        }
+
+        /** 평일 08:30 KST (장 시작 전) → 시장 닫힘. */
+        @Test
+        @DisplayName("isMarketClosed — 평일 08:30 KST (장 시작 전) → true")
+        void marketClosed_weekdayBeforeOpen_returnsTrue() throws Exception {
+            Instant beforeOpen = ZonedDateTime.of(2026, 5, 11, 8, 30, 0, 0, KST).toInstant();
+            AutoTradingBotService svc = rebuildBotWithClock(Clock.fixed(beforeOpen, KST));
+
+            boolean closed = invokeIsMarketClosed(svc);
+
+            assertThat(closed).isTrue();
+        }
+
+        /** 토요일 10:00 KST → 시장 닫힘. (2026-05-09 = 토요일) */
+        @Test
+        @DisplayName("isMarketClosed — 토요일 10:00 KST → true (주말)")
+        void marketClosed_saturday_returnsTrue() throws Exception {
+            Instant saturday = ZonedDateTime.of(2026, 5, 9, 10, 0, 0, 0, KST).toInstant();
+            AutoTradingBotService svc = rebuildBotWithClock(Clock.fixed(saturday, KST));
+
+            boolean closed = invokeIsMarketClosed(svc);
+
+            assertThat(closed).isTrue();
+        }
+
+        /** 일요일 10:00 KST → 시장 닫힘. (2026-05-10 = 일요일) */
+        @Test
+        @DisplayName("isMarketClosed — 일요일 10:00 KST → true (주말)")
+        void marketClosed_sunday_returnsTrue() throws Exception {
+            Instant sunday = ZonedDateTime.of(2026, 5, 10, 10, 0, 0, 0, KST).toInstant();
+            AutoTradingBotService svc = rebuildBotWithClock(Clock.fixed(sunday, KST));
+
+            boolean closed = invokeIsMarketClosed(svc);
+
+            assertThat(closed).isTrue();
+        }
+
+        /** 2026-05-24 부처님오신날(공휴일) 10:00 KST → 시장 닫힘. */
+        @Test
+        @DisplayName("isMarketClosed — 공휴일(2026-05-24 부처님오신날) → true")
+        void marketClosed_holiday_returnsTrue() throws Exception {
+            Instant holiday = ZonedDateTime.of(2026, 5, 24, 10, 0, 0, 0, KST).toInstant();
+            AutoTradingBotService svc = rebuildBotWithClock(Clock.fixed(holiday, KST));
+
+            boolean closed = invokeIsMarketClosed(svc);
+
+            assertThat(closed).isTrue();
         }
     }
 }
