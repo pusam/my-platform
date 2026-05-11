@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -461,7 +462,7 @@ public class AsyncCrawlerService {
             log.info("========== [Scheduled] 원버튼 전체 데이터 수집 완료 - 소요시간: {}초 ==========", elapsedTime / 1000);
 
             // 마지막 수집 결과 저장
-            lastAutoCollectTime = LocalDateTime.now();
+            lastAutoCollectTime = DateTimeUtil.kstNow();
             lastAutoCollectSuccess = true;
             lastAutoCollectMessage = result.get("message").toString();
             lastAutoCollectResult = new HashMap<>(result);
@@ -474,7 +475,7 @@ public class AsyncCrawlerService {
             result.put("message", "수집 중 오류 발생: " + e.getMessage());
 
             // 실패 결과 저장
-            lastAutoCollectTime = LocalDateTime.now();
+            lastAutoCollectTime = DateTimeUtil.kstNow();
             lastAutoCollectSuccess = false;
             lastAutoCollectMessage = "수집 실패: " + e.getMessage();
             lastAutoCollectResult = new HashMap<>(result);

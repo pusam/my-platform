@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.*;
@@ -135,7 +136,7 @@ public class StockStatusService {
 
         activeStockCodes.clear();
         activeStockCodes.addAll(newActiveCodes);
-        lastSyncTime = LocalDateTime.now();
+        lastSyncTime = DateTimeUtil.kstNow();
         log.info("[종목상태] KRX 동기화 완료 — 총 {}건 ({})", activeStockCodes.size(), lastSyncTime);
     }
 
@@ -166,7 +167,7 @@ public class StockStatusService {
                             .map(c -> "  • " + c)
                             .reduce((a, b) -> a + "\n" + b)
                             .orElse(""),
-                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+                    DateTimeUtil.kstNow().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
             );
             telegramService.sendRisk(msg);
             log.warn("[종목상태] 거래정지/상폐 감지 {}건: {}", suspended.size(), suspended);

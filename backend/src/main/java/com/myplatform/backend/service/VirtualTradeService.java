@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.VirtualTradeHistory;
 import com.myplatform.backend.repository.VirtualAccountRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -108,7 +109,7 @@ public class VirtualTradeService implements TradeService {
                         "전체 계좌 수: " + totalAccounts + "개\n" +
                         "활성 계좌: 없음\n\n" +
                         "첫 거래 시 새 계좌가 자동 생성됩니다.\n" +
-                        "⏰ " + LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "\n\n" +
+                        "⏰ " + DateTimeUtil.kstNow().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "\n\n" +
                         "━━━━━━━━━━━━━━━━\n" +
                         "🤖 MyPlatform 모의투자"
                 );
@@ -158,7 +159,7 @@ public class VirtualTradeService implements TradeService {
                     "<b>⚠️ [모의투자] 계좌 초기화됨</b>\n\n" +
                     "새 계좌 ID: " + account.getId() + "\n" +
                     "초기 자본금: " + String.format("%,d", balance.longValue()) + "원\n" +
-                    "⏰ " + java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "\n\n" +
+                    "⏰ " + DateTimeUtil.kstNow().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "\n\n" +
                     "━━━━━━━━━━━━━━━━\n" +
                     "🤖 MyPlatform 모의투자"
             );
@@ -305,7 +306,7 @@ public class VirtualTradeService implements TradeService {
                 .commission(commission)
                 .tax(BigDecimal.ZERO)
                 .tradeReason(reason != null ? reason : "MANUAL")
-                .tradeDate(LocalDateTime.now())
+                .tradeDate(DateTimeUtil.kstNow())
                 .build();
         tradeHistoryRepository.save(trade);
 
@@ -378,7 +379,7 @@ public class VirtualTradeService implements TradeService {
                 .tax(tax)
                 .profitLoss(profitLoss)
                 .tradeReason(reason != null ? reason : "MANUAL")
-                .tradeDate(LocalDateTime.now())
+                .tradeDate(DateTimeUtil.kstNow())
                 .build();
         tradeHistoryRepository.save(trade);
 
@@ -646,7 +647,7 @@ public class VirtualTradeService implements TradeService {
                 formatNumber(price), quantity,
                 formatNumber(price.multiply(BigDecimal.valueOf(quantity))),
                 formatNumber(balance),
-                java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                DateTimeUtil.kstNow().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         telegramService.sendSignal(message);
@@ -689,7 +690,7 @@ public class VirtualTradeService implements TradeService {
                 formatNumber(price), quantity,
                 reasonText,
                 profitEmoji, profitSign, formatNumber(profitLoss),
-                java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                DateTimeUtil.kstNow().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         telegramService.sendSignal(message);

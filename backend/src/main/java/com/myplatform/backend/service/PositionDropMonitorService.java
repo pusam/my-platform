@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.NewsSummaryDto;
 import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -80,7 +81,7 @@ public class PositionDropMonitorService {
         // 쿨다운 체크 — 같은 종목에 30분 간격 이상으로만 알림
         String code = item.getStockCode();
         LocalDateTime last = lastAlertTime.get(code);
-        if (last != null && Duration.between(last, LocalDateTime.now()).compareTo(COOLDOWN) < 0) {
+        if (last != null && Duration.between(last, DateTimeUtil.kstNow()).compareTo(COOLDOWN) < 0) {
             return;
         }
 
@@ -98,7 +99,7 @@ public class PositionDropMonitorService {
 
             String reason = buildReason(item, currentPrice, dailyChangeRate);
             telegramService.sendRisk(reason);
-            lastAlertTime.put(code, LocalDateTime.now());
+            lastAlertTime.put(code, DateTimeUtil.kstNow());
             log.info("[PositionDrop] 급락 알림 발송: {} ({}) 손익률 {}%",
                     item.getStockName(), code, rate);
         } catch (Exception e) {
@@ -148,7 +149,7 @@ public class PositionDropMonitorService {
     private String summarizeRelatedNews(String stockName) {
         if (stockName == null || stockName.isBlank()) return null;
         try {
-            LocalDateTime since = LocalDateTime.now().minusHours(NEWS_LOOKBACK_HOURS);
+            LocalDateTime since = DateTimeUtil.kstNow().minusHours(NEWS_LOOKBACK_HOURS);
             List<NewsSummaryDto> all = newsService.getNewsSince(since);
             if (all == null || all.isEmpty()) return null;
 

@@ -8,6 +8,7 @@ import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.AiStrategySnapshot;
 import com.myplatform.backend.entity.AiStrategySnapshot.StrategyType;
 import com.myplatform.backend.repository.AiStrategySnapshotRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -322,14 +323,14 @@ public class AiStrategySnapshotService {
     @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
         // 안전장치: 최근 24시간 내 스냅샷이 있을 때만 정리 실행
-        LocalDateTime recentCheck = LocalDateTime.now().minusHours(24);
+        LocalDateTime recentCheck = DateTimeUtil.kstNow().minusHours(24);
         List<AiStrategySnapshot> recent = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
         if (recent.isEmpty() || recent.get(0).getCreatedAt().isBefore(recentCheck)) {
             log.error("[스냅샷 정리] 최근 24시간 내 스냅샷 없음 → 정리 중단 (데이터 보호)");
             return;
         }
 
-        LocalDateTime cutoffTime = LocalDateTime.now().minusDays(7);
+        LocalDateTime cutoffTime = DateTimeUtil.kstNow().minusDays(7);
         int deleted = snapshotRepository.deleteOldSnapshots(cutoffTime);
         log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", 7, deleted);
     }
@@ -366,7 +367,7 @@ public class AiStrategySnapshotService {
      */
     @Transactional
     public void collectAndSaveSnapshot(StrategyType strategyType) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = DateTimeUtil.kstNow();
         List<AiStrategySnapshot> candidates = new ArrayList<>();
 
         switch (strategyType) {
@@ -1439,7 +1440,7 @@ public class AiStrategySnapshotService {
             // ★ Freshness check: 장중에 오래된 스냅샷이면 경고 (하지만 데이터는 반환)
             if (!snapshots.isEmpty()) {
                 LocalDateTime latestCreatedAt = snapshots.get(0).getCreatedAt();
-                LocalDateTime now = LocalDateTime.now();
+                LocalDateTime now = DateTimeUtil.kstNow();
                 long staleMinutes = Duration.between(latestCreatedAt, now).toMinutes();
                 if (staleMinutes > 120) {
                     log.warn("[AiStrategy] ⚠ {} 스냅샷 {}분 전 데이터 — stale이지만 반환 (빈 응답 방지)",
@@ -1465,7 +1466,7 @@ public class AiStrategySnapshotService {
         return AiStrategySnapshotDto.AllStrategiesResponse.builder()
                 .strategies(strategies)
                 .lastUpdated(lastUpdated)
-                .responseTime(LocalDateTime.now())
+                .responseTime(DateTimeUtil.kstNow())
                 .build();
     }
 
@@ -1509,7 +1510,7 @@ public class AiStrategySnapshotService {
             return dto;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = DateTimeUtil.kstNow();
         BigDecimal currentPrice = entity.getCurrentPrice();
         String stockCode = entity.getStockCode();
 
@@ -1569,7 +1570,7 @@ public class AiStrategySnapshotService {
      */
     public Map<String, Integer> collectAllSnapshotsManually() {
         Map<String, Integer> result = new LinkedHashMap<>();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = DateTimeUtil.kstNow();
 
         for (StrategyType type : StrategyType.values()) {
             try {

@@ -9,6 +9,7 @@ import com.myplatform.backend.entity.StockFinancialData;
 import com.myplatform.backend.repository.NewsSummaryRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.config.SectorStockConfig;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -67,9 +68,9 @@ public class PreemptiveRadarService {
      * 최근 24시간 뉴스에서 정책/테마 키워드 감지
      */
     public List<PolicyNewsDto> detectPolicyNews() {
-        LocalDateTime since = LocalDateTime.now().minusHours(24);
+        LocalDateTime since = DateTimeUtil.kstNow().minusHours(24);
         List<NewsSummary> recentNews = newsRepository.findBySummarizedAtBetweenOrderBySummarizedAtDesc(
-                since, LocalDateTime.now());
+                since, DateTimeUtil.kstNow());
 
         List<PolicyNewsDto> results = new ArrayList<>();
         for (NewsSummary news : recentNews) {
@@ -275,7 +276,7 @@ public class PreemptiveRadarService {
                 .nearHighStocks(detectNearHighStocks())
                 .largeHoldings(detectLargeHoldings())
                 .earningsPredictions(detectEarningsPredictions())
-                .updatedAt(LocalDateTime.now())
+                .updatedAt(DateTimeUtil.kstNow())
                 .build();
     }
 

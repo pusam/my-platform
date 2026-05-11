@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.StockWatchlist;
 import com.myplatform.backend.repository.AlertHistoryRepository;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockWatchlistRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -121,7 +122,7 @@ public class WatchlistRiskMonitorService {
                         .changeRate(price != null ? price.getChangeRate() : null)
                         .riskLevel(level)
                         .risks(risks)
-                        .detectedAt(LocalDateTime.now())
+                        .detectedAt(DateTimeUtil.kstNow())
                         .build();
 
                 allRisks.add(dto);
@@ -286,7 +287,7 @@ public class WatchlistRiskMonitorService {
 
         // 쿨다운 체크 (1시간)
         if (alertHistoryRepository.existsRecentAlert(alertKey,
-                LocalDateTime.now().minusMinutes(COOLDOWN_MINUTES))) {
+                DateTimeUtil.kstNow().minusMinutes(COOLDOWN_MINUTES))) {
             return;
         }
 
@@ -316,7 +317,7 @@ public class WatchlistRiskMonitorService {
             }
         }
 
-        sb.append(String.format("\n⏰ %s\n", LocalDateTime.now().format(TIME_FMT)));
+        sb.append(String.format("\n⏰ %s\n", DateTimeUtil.kstNow().format(TIME_FMT)));
         sb.append("━━━━━━━━━━━━━━━━\n🤖 MyPlatform 리스크 알리미");
 
         telegramService.sendRisk(sb.toString());
@@ -328,7 +329,7 @@ public class WatchlistRiskMonitorService {
         history.setStockName(dto.getStockName());
         history.setInvestorType("SYSTEM");
         history.setAlertType(ALERT_TYPE_RISK);
-        history.setSentAt(LocalDateTime.now());
+        history.setSentAt(DateTimeUtil.kstNow());
         alertHistoryRepository.save(history);
 
         log.info("[리스크모니터] 알림 발송: {} [{}] - {}",

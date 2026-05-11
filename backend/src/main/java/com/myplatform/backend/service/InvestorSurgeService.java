@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.AlertHistory;
 import com.myplatform.backend.entity.InvestorIntradaySnapshot;
 import com.myplatform.backend.repository.AlertHistoryRepository;
 import com.myplatform.backend.repository.InvestorIntradaySnapshotRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -308,7 +309,7 @@ public class InvestorSurgeService {
 
         // ★ Freshness check: 거래시간(평일 08:00~20:00, NXT 포함)에 30분 이상 오래된 스냅샷이면 경고
         LocalDateTime snapshotDateTime = LocalDateTime.of(today, latestTime);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = DateTimeUtil.kstNow();
         long staleMinutes = java.time.Duration.between(snapshotDateTime, now).toMinutes();
         boolean isTradingHours = now.getDayOfWeek() != DayOfWeek.SATURDAY
                 && now.getDayOfWeek() != DayOfWeek.SUNDAY
@@ -926,7 +927,7 @@ public class InvestorSurgeService {
             formatAmount(instChange),
             formatPrice(foreign.getCurrentPrice()),
             formatChangeRate(foreign.getChangeRate()),
-            LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+            DateTimeUtil.kstNow().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         telegramService.sendSignal(message);
@@ -968,7 +969,7 @@ public class InvestorSurgeService {
             formatAmount(amountChange),
             formatPrice(snapshot.getCurrentPrice()),
             formatChangeRate(snapshot.getChangeRate()),
-            LocalDateTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+            DateTimeUtil.kstNow().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         telegramService.sendSignal(message);
@@ -982,7 +983,7 @@ public class InvestorSurgeService {
      */
     private boolean canSendAlert(String stockCode, String investorType) {
         String key = stockCode + "_" + investorType;
-        LocalDateTime cutoffTime = LocalDateTime.now().minusMinutes(ALERT_COOLDOWN_MINUTES);
+        LocalDateTime cutoffTime = DateTimeUtil.kstNow().minusMinutes(ALERT_COOLDOWN_MINUTES);
         return !alertHistoryRepository.existsRecentAlert(key, cutoffTime);
     }
 
@@ -996,7 +997,7 @@ public class InvestorSurgeService {
         alert.setStockName(stockName);
         alert.setInvestorType(investorType);
         alert.setAlertType(alertType);
-        alert.setSentAt(LocalDateTime.now());
+        alert.setSentAt(DateTimeUtil.kstNow());
         alertHistoryRepository.save(alert);
     }
 
@@ -1005,7 +1006,7 @@ public class InvestorSurgeService {
      */
     @Transactional
     public void cleanupExpiredAlerts() {
-        LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
+        LocalDateTime cutoff = DateTimeUtil.kstNow().minusHours(24);
         alertHistoryRepository.deleteOldAlerts(cutoff);
         log.debug("오래된 알림 기록 정리 완료: {} 이전", cutoff);
     }

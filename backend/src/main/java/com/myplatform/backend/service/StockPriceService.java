@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockPrice;
 import com.myplatform.backend.repository.StockPriceRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
@@ -488,7 +489,7 @@ public class StockPriceService {
                     && dto.getVolume().compareTo(BigDecimal.ZERO) > 0) {
                 dto.setAccumulatedTradingValue(dto.getCurrentPrice().multiply(dto.getVolume()));
             }
-            dto.setFetchedAt(LocalDateTime.now());
+            dto.setFetchedAt(DateTimeUtil.kstNow());
             dto.setDataSource("KIS"); // 데이터 출처
 
             // 등락률이 없거나 0인지 확인
@@ -539,7 +540,7 @@ public class StockPriceService {
      * 주말은 제외 (토,일은 장 안 열림)
      */
     private boolean isPreMarketTime() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = DateTimeUtil.kstNow();
         int hour = now.getHour();
         java.time.DayOfWeek dayOfWeek = now.getDayOfWeek();
 
@@ -726,7 +727,7 @@ public class StockPriceService {
         dto.setStockName(stockName);
         dto.setCurrentPrice(BigDecimal.ZERO);
         dto.setChangeRate(BigDecimal.ZERO);
-        dto.setFetchedAt(LocalDateTime.now());
+        dto.setFetchedAt(DateTimeUtil.kstNow());
         return dto;
     }
 
@@ -838,7 +839,7 @@ public class StockPriceService {
                         .computeIfAbsent(stockCode, k -> new AtomicInteger(0))
                         .incrementAndGet();
                 if (stockFails >= NAVER_BLACKLIST_THRESHOLD) {
-                    naverBlacklist.put(stockCode, LocalDateTime.now().plusMinutes(NAVER_BLACKLIST_MINUTES));
+                    naverBlacklist.put(stockCode, DateTimeUtil.kstNow().plusMinutes(NAVER_BLACKLIST_MINUTES));
                     log.warn("네이버 블랙리스트 추가 [{}] - {}분간 스킵 ({}회 연속 409)", stockCode, NAVER_BLACKLIST_MINUTES, stockFails);
                 }
 
@@ -848,7 +849,7 @@ public class StockPriceService {
                 if (errors >= NAVER_MAX_CONSECUTIVE_ERRORS) {
                     int openCount = naverCircuitOpenCount.incrementAndGet();
                     int cooldownSeconds = Math.min(NAVER_BASE_COOLDOWN_SECONDS * openCount, 600); // 60s → 120s → 180s, 최대 10분
-                    naverCooldownUntil = LocalDateTime.now().plusSeconds(cooldownSeconds);
+                    naverCooldownUntil = DateTimeUtil.kstNow().plusSeconds(cooldownSeconds);
                     log.error("네이버 서킷브레이커 오픈 ({}회차) - {}초간 요청 차단 (쿨다운: {})", openCount, cooldownSeconds, naverCooldownUntil);
                 }
             } else if (statusCode == 429) {
@@ -857,7 +858,7 @@ public class StockPriceService {
                 if (errors >= NAVER_MAX_CONSECUTIVE_ERRORS) {
                     int openCount = naverCircuitOpenCount.incrementAndGet();
                     int cooldownSeconds = Math.min(NAVER_BASE_COOLDOWN_SECONDS * openCount, 600);
-                    naverCooldownUntil = LocalDateTime.now().plusSeconds(cooldownSeconds);
+                    naverCooldownUntil = DateTimeUtil.kstNow().plusSeconds(cooldownSeconds);
                 }
             } else {
                 log.error("네이버 API HTTP {} [{}]: {}", statusCode, stockCode, e.getMessage());
@@ -888,7 +889,7 @@ public class StockPriceService {
      */
     private boolean isNaverCircuitOpen() {
         if (naverCooldownUntil != null) {
-            if (LocalDateTime.now().isBefore(naverCooldownUntil)) {
+            if (DateTimeUtil.kstNow().isBefore(naverCooldownUntil)) {
                 return true;  // 아직 쿨다운 중
             }
             // 쿨다운 만료 → 서킷 닫기
@@ -905,7 +906,7 @@ public class StockPriceService {
     private boolean isNaverBlacklisted(String stockCode) {
         LocalDateTime until = naverBlacklist.get(stockCode);
         if (until == null) return false;
-        if (LocalDateTime.now().isAfter(until)) {
+        if (DateTimeUtil.kstNow().isAfter(until)) {
             naverBlacklist.remove(stockCode);
             naverFailCount.remove(stockCode);
             return false;
@@ -983,7 +984,7 @@ public class StockPriceService {
                 dto.setBps(parsePrice(root.get("bps")));
             }
 
-            dto.setFetchedAt(LocalDateTime.now());
+            dto.setFetchedAt(DateTimeUtil.kstNow());
             dto.setDataSource("NAVER"); // 데이터 출처
 
             return dto;
@@ -1052,7 +1053,7 @@ public class StockPriceService {
         if (dto == null || dto.getFetchedAt() == null) {
             return false;
         }
-        return dto.getFetchedAt().isAfter(LocalDateTime.now().minusMinutes(minutes));
+        return dto.getFetchedAt().isAfter(DateTimeUtil.kstNow().minusMinutes(minutes));
     }
 
     /**

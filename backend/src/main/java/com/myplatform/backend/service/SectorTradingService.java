@@ -7,6 +7,7 @@ import com.myplatform.backend.dto.SectorRotationDto;
 import com.myplatform.backend.dto.SectorTradingDto;
 import com.myplatform.backend.dto.SectorTradingDto.StockTradingInfo;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.core.util.DateTimeUtil;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -203,7 +204,7 @@ public class SectorTradingService {
      */
     private void collectSnapshot() {
         long startTime = System.currentTimeMillis();
-        LocalDateTime snapshotTime = LocalDateTime.now();
+        LocalDateTime snapshotTime = DateTimeUtil.kstNow();
         boolean isClosedDay = isMarketClosed();
 
         if (isClosedDay) {
@@ -291,7 +292,7 @@ public class SectorTradingService {
             try {
                 List<SectorTradingDto> result = calculateSectorTrading(period);
                 cachedResultByPeriod.put(period, result);
-                lastCalculateTime.put(period, LocalDateTime.now());
+                lastCalculateTime.put(period, DateTimeUtil.kstNow());
             } catch (Exception e) {
                 log.error("[섹터거래대금] {} 캐시 갱신 실패: {}", period, e.getMessage());
             }
@@ -338,7 +339,7 @@ public class SectorTradingService {
                     first.getTopStocks() != null ? first.getTopStocks().size() : 0);
         }
         cachedResultByPeriod.put(period, result);
-        lastCalculateTime.put(period, LocalDateTime.now());
+        lastCalculateTime.put(period, DateTimeUtil.kstNow());
         return result;
     }
 

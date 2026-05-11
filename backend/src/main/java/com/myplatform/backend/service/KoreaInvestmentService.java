@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.core.util.DateTimeUtil;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
@@ -118,11 +119,11 @@ public class KoreaInvestmentService {
     public boolean isTokenAvailable() {
         // 이미 유효한 토큰이 있으면 true
         if (accessToken != null && tokenExpireTime != null
-            && LocalDateTime.now().isBefore(tokenExpireTime.minusHours(1))) {
+            && DateTimeUtil.kstNow().isBefore(tokenExpireTime.minusHours(1))) {
             return true;
         }
         // 쿨다운 중이면 false
-        if (tokenCooldownUntil != null && LocalDateTime.now().isBefore(tokenCooldownUntil)) {
+        if (tokenCooldownUntil != null && DateTimeUtil.kstNow().isBefore(tokenCooldownUntil)) {
             return false;
         }
         // 설정이 안 되어 있으면 false
@@ -138,12 +139,12 @@ public class KoreaInvestmentService {
     public synchronized String getAccessToken() {
         // 토큰이 유효하면 재사용
         if (accessToken != null && tokenExpireTime != null
-            && LocalDateTime.now().isBefore(tokenExpireTime.minusHours(1))) {
+            && DateTimeUtil.kstNow().isBefore(tokenExpireTime.minusHours(1))) {
             return accessToken;
         }
 
         // 쿨다운 중이면 null 반환 (Rate Limit 방지)
-        if (tokenCooldownUntil != null && LocalDateTime.now().isBefore(tokenCooldownUntil)) {
+        if (tokenCooldownUntil != null && DateTimeUtil.kstNow().isBefore(tokenCooldownUntil)) {
             log.debug("토큰 발급 쿨다운 중 ({}까지 대기)", tokenCooldownUntil);
             return null;
         }
@@ -184,7 +185,7 @@ public class KoreaInvestmentService {
                 if (root.has("access_token")) {
                     accessToken = root.get("access_token").asText();
                     // 토큰 만료시간 설정 (24시간)
-                    tokenExpireTime = LocalDateTime.now().plusHours(24);
+                    tokenExpireTime = DateTimeUtil.kstNow().plusHours(24);
                     // 쿨다운 해제
                     tokenCooldownUntil = null;
                     log.info("KIS Access Token 발급 성공 (만료: {})", tokenExpireTime);
@@ -196,7 +197,7 @@ public class KoreaInvestmentService {
                     String errorDesc = root.has("error_description") ? root.get("error_description").asText() : "";
                     log.error("KIS 토큰 발급 실패 - code: {}, msg: {}, desc: {}, 전체 응답: {}",
                             errorCode, errorMsg, errorDesc, response.getBody());
-                    tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+                    tokenCooldownUntil = DateTimeUtil.kstNow().plusSeconds(TOKEN_COOLDOWN_SECONDS);
                     log.info("KIS 토큰 쿨다운 설정: {}까지 대기", tokenCooldownUntil);
                 }
             } else {
@@ -214,13 +215,13 @@ public class KoreaInvestmentService {
             } else if (statusCode == 429) {
                 log.error("KIS 토큰 429 Too Many Requests - 분당 요청 한도 초과");
             }
-            tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS);
+            tokenCooldownUntil = DateTimeUtil.kstNow().plusSeconds(TOKEN_COOLDOWN_SECONDS);
             log.info("KIS 토큰 쿨다운 설정: {}초 ({}까지)", TOKEN_COOLDOWN_SECONDS, tokenCooldownUntil);
         } catch (Exception e) {
             log.error("KIS 토큰 발급 예외 - appKey: {}, baseUrl: {}", maskedKey, baseUrl, e);
             String msg = e.getMessage() != null ? e.getMessage() : "";
             if (msg.contains("Connection refused") || msg.contains("Connect timed out")) {
-                tokenCooldownUntil = LocalDateTime.now().plusSeconds(TOKEN_COOLDOWN_SECONDS * 2);
+                tokenCooldownUntil = DateTimeUtil.kstNow().plusSeconds(TOKEN_COOLDOWN_SECONDS * 2);
                 log.error("KIS API 서버 연결 불가 - {}초 쿨다운", TOKEN_COOLDOWN_SECONDS * 2);
             }
         }

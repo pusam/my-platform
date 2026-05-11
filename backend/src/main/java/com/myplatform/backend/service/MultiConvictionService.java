@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.entity.InvestorDailyTrade;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -56,7 +57,7 @@ public class MultiConvictionService {
      */
     public ConvictionResult getConvictionSignals() {
         if (cachedResult != null && cacheTime != null
-                && cacheTime.isAfter(LocalDateTime.now().minusMinutes(CACHE_MINUTES))) {
+                && cacheTime.isAfter(DateTimeUtil.kstNow().minusMinutes(CACHE_MINUTES))) {
             return cachedResult;
         }
 
@@ -68,7 +69,7 @@ public class MultiConvictionService {
 
         if (!result.getBuySignals().isEmpty() || !result.getSellSignals().isEmpty()) {
             cachedResult = result;
-            cacheTime = LocalDateTime.now();
+            cacheTime = DateTimeUtil.kstNow();
         }
         return result;
     }
@@ -218,7 +219,7 @@ public class MultiConvictionService {
                 .buySignals(buySignals.stream().limit(10).collect(Collectors.toList()))
                 .sellSignals(sellSignals.stream().limit(10).collect(Collectors.toList()))
                 .conflictSignals(conflictSignals.stream().limit(5).collect(Collectors.toList()))
-                .analyzedAt(LocalDateTime.now())
+                .analyzedAt(DateTimeUtil.kstNow())
                 .build();
     }
 
@@ -288,7 +289,7 @@ public class MultiConvictionService {
                     .buySignals(List.of())
                     .sellSignals(List.of())
                     .conflictSignals(List.of())
-                    .analyzedAt(LocalDateTime.now())
+                    .analyzedAt(DateTimeUtil.kstNow())
                     .build();
         }
     }

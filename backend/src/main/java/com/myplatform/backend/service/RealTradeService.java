@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.VirtualTradeHistory;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
 import com.myplatform.backend.service.KoreaInvestmentService.BalanceInfo;
 import com.myplatform.backend.service.KoreaInvestmentService.HoldingStock;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -252,7 +253,7 @@ public class RealTradeService implements TradeService {
                 .commission(commission)
                 .tax(BigDecimal.ZERO)
                 .tradeReason(reason != null ? reason : "MANUAL")
-                .tradeDate(LocalDateTime.now())
+                .tradeDate(DateTimeUtil.kstNow())
                 .build();
         try {
             tradeHistoryRepository.save(trade);
@@ -384,7 +385,7 @@ public class RealTradeService implements TradeService {
                 .tax(tax)
                 .profitLoss(profitLoss)
                 .tradeReason(reason != null ? reason : "MANUAL")
-                .tradeDate(LocalDateTime.now())
+                .tradeDate(DateTimeUtil.kstNow())
                 .build();
         try {
             tradeHistoryRepository.save(trade);
@@ -433,8 +434,8 @@ public class RealTradeService implements TradeService {
                     .unrealizedProfitLoss(BigDecimal.ZERO)
                     .holdingCount(0)
                     .isActive(true)
-                    .createdAt(LocalDateTime.now())
-                    .updatedAt(LocalDateTime.now())
+                    .createdAt(DateTimeUtil.kstNow())
+                    .updatedAt(DateTimeUtil.kstNow())
                     .build();
         }
 
@@ -475,7 +476,7 @@ public class RealTradeService implements TradeService {
 
         // updatedAt 은 실제 KIS 잔고가 성공적으로 조회된 시점(lastBalanceUpdate) 을 반환한다.
         // 캐시 폴백인 경우에도 "마지막 성공 시각" 이 찍혀야 UI 에서 Live/Cached 구분 가능.
-        LocalDateTime dataTimestamp = lastBalanceUpdate != null ? lastBalanceUpdate : LocalDateTime.now();
+        LocalDateTime dataTimestamp = lastBalanceUpdate != null ? lastBalanceUpdate : DateTimeUtil.kstNow();
 
         return AccountSummaryDto.builder()
                 .accountId(REAL_ACCOUNT_ID)
@@ -490,7 +491,7 @@ public class RealTradeService implements TradeService {
                 .unrealizedProfitLoss(unrealizedProfitLoss)
                 .holdingCount(holdingCount)
                 .isActive(true)
-                .createdAt(LocalDateTime.now())
+                .createdAt(DateTimeUtil.kstNow())
                 .updatedAt(dataTimestamp)
                 .build();
     }
@@ -532,7 +533,7 @@ public class RealTradeService implements TradeService {
                     .totalEvaluation(totalEvaluation)
                     .profitLoss(profitLoss)
                     .profitRate(profitRate)
-                    .updatedAt(LocalDateTime.now())
+                    .updatedAt(DateTimeUtil.kstNow())
                     .build());
         }
 
@@ -569,7 +570,7 @@ public class RealTradeService implements TradeService {
      */
     private BalanceInfo getBalanceInfo(boolean force) {
         if (!force && cachedBalance != null && lastBalanceUpdate != null) {
-            long elapsed = java.time.Duration.between(lastBalanceUpdate, LocalDateTime.now()).getSeconds();
+            long elapsed = java.time.Duration.between(lastBalanceUpdate, DateTimeUtil.kstNow()).getSeconds();
             if (elapsed < BALANCE_CACHE_SECONDS) {
                 return cachedBalance;
             }
@@ -584,7 +585,7 @@ public class RealTradeService implements TradeService {
         BalanceInfo balance = kisService.parseBalance(balanceResponse);
         if (balance != null) {
             cachedBalance = balance;
-            lastBalanceUpdate = LocalDateTime.now();
+            lastBalanceUpdate = DateTimeUtil.kstNow();
         }
 
         return balance;
@@ -670,7 +671,7 @@ public class RealTradeService implements TradeService {
                 formatNumber(price), quantity,
                 formatNumber(total),
                 orderNo,
-                LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                DateTimeUtil.kstNow().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         if (large) {
@@ -721,7 +722,7 @@ public class RealTradeService implements TradeService {
                 reasonText,
                 orderNo,
                 profitEmoji, profitSign, formatNumber(profitLoss),
-                LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                DateTimeUtil.kstNow().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
         );
 
         telegramService.sendSignal(message);

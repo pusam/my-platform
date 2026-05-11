@@ -2,6 +2,7 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.ScalpingAnalysisDto;
+import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +37,7 @@ public class ScalpingAnalysisService {
 
         ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder = ScalpingAnalysisDto.builder()
                 .stockCode(stockCode)
-                .fetchedAt(LocalDateTime.now());
+                .fetchedAt(DateTimeUtil.kstNow());
 
         // 1. 현재가 및 체결강도 조회 (FHKST01010100)
         log.debug("[단타분석] 1. 현재가 조회 시작");
@@ -97,7 +98,7 @@ public class ScalpingAnalysisService {
 
         ScalpingAnalysisDto.ScalpingAnalysisDtoBuilder builder = ScalpingAnalysisDto.builder()
                 .stockCode(stockCode)
-                .fetchedAt(LocalDateTime.now());
+                .fetchedAt(DateTimeUtil.kstNow());
 
         // 현재가 및 체결강도만 조회
         JsonNode priceData = kisService.getStockPrice(stockCode);
