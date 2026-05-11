@@ -1,7 +1,13 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.PaperTradingDto.AccountSummaryDto;
 import com.myplatform.backend.dto.PaperTradingDto.BotStatusDto;
+import com.myplatform.backend.dto.ScalpingAnalysisDto;
+import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.dto.TechnicalIndicatorsDto;
 import com.myplatform.backend.entity.BotConfig;
 import com.myplatform.backend.entity.BotTradingPosition;
 import com.myplatform.backend.repository.BotConfigRepository;
@@ -22,10 +28,14 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -33,8 +43,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -490,6 +502,334 @@ class AutoTradingBotServiceTest {
             boolean closed = invokeIsMarketClosed(svc);
 
             assertThat(closed).isTrue();
+        }
+    }
+
+    // ================================================================
+    // executeScalpingBuyLogicInternal — 전체 매수 흐름 (gate 통과/거절)
+    // ================================================================
+
+    @Nested
+    @DisplayName("executeScalpingBuyLogicInternal — gate 통합 시나리오")
+    class ScalpingBuyTests {
+
+        private static final String STOCK_CODE = "005930";
+        private static final String STOCK_NAME = "삼성전자";
+
+        /**
+         * 모든 gate 가 green 인 happy-path 의 기본 stub 세팅.
+         * 개별 테스트에서 한 gate 만 빨강으로 뒤집어 reject 시나리오 검증.
+         *
+         * 가정:
+         *  - VIRTUAL 모드 (서비스가 REAL 일 때 스캘핑 skip 이므로 happy path 는 VIRTUAL 필수)
+         *  - 평일 10:00 KST (setUp 의 fixedClock — 골든타임 09:10~15:00 안)
+         *  - 단일 종목 005930 / 삼성전자, 순매수 50억, 현재가 70,000, 시초가 68,000
+         */
+        private void setupHappyPathStubs() throws Exception {
+            // ===== 글로벌 시장 gate (전부 green) =====
+            when(globalMarketService.shouldHaltBuying()).thenReturn(false);
+            when(globalFuturesService.getFuturesQuote("^VIX")).thenReturn(null); // null → checkVixPause false
+
+            // KOSPI gate: 외부 RestTemplate HTTP 호출이라 mock 불가 → 캐시 시간을 최근으로 박아
+            // 60초 cooldown 분기로 진입시켜 fetchKospiChangeRate() 호출 skip.
+            // kospiDropPaused 도 false 로 둬서 false 반환.
+            Field lastKospi = AutoTradingBotService.class.getDeclaredField("lastKospiCheckTime");
+            lastKospi.setAccessible(true);
+            lastKospi.set(botService, LocalDateTime.now(fixedClock));
+
+            // ===== 계좌: 100만원 (MIN_BALANCE=10만원 통과, 70,000원 × 14주 = 98만원 매수 가능) =====
+            AccountSummaryDto richAccount = AccountSummaryDto.builder()
+                    .accountId(1L)
+                    .currentBalance(new BigDecimal("1000000"))
+                    .totalEvaluation(BigDecimal.ZERO)
+                    .build();
+            when(virtualTradeService.getAccountSummary()).thenReturn(richAccount);
+            when(virtualTradeService.getPortfolio()).thenReturn(new ArrayList<>());
+
+            // ===== 수급 급증 데이터 (FOREIGN 매핑에 005930 1종목) =====
+            InvestorSurgeDto surge = InvestorSurgeDto.builder()
+                    .stockCode(STOCK_CODE)
+                    .stockName(STOCK_NAME)
+                    .investorType("FOREIGN")
+                    .netBuyAmount(new BigDecimal("50"))  // MIN_NET_BUY_AMOUNT=10 통과
+                    .build();
+            Map<String, List<InvestorSurgeDto>> surgeMap = new HashMap<>();
+            surgeMap.put("FOREIGN", List.of(surge));
+            when(investorSurgeService.getAllSurgeStocks(any())).thenReturn(surgeMap);
+
+            // ===== 종목 상태: 정상 거래 =====
+            when(stockStatusService.isActive(STOCK_CODE)).thenReturn(true);
+
+            // ===== 공매도: 정상 =====
+            when(shortSellingService.isHighShortSellingStock(STOCK_CODE)).thenReturn(false);
+
+            // ===== 섹터 OUTFLOW: 비어있음 =====
+            when(sectorTradingService.getSectorRotation()).thenReturn(Collections.emptyList());
+
+            // ===== 현재가 (필수3 + 변동성 + 거래대금/거래량 통과) =====
+            StockPriceDto priceDto = new StockPriceDto();
+            priceDto.setStockCode(STOCK_CODE);
+            priceDto.setCurrentPrice(new BigDecimal("70000"));
+            priceDto.setOpenPrice(new BigDecimal("68000"));            // 현재가 > 시초가 (양봉)
+            priceDto.setHighPrice(new BigDecimal("70500"));
+            priceDto.setLowPrice(new BigDecimal("67500"));             // 일중변동폭 ~4.4% > 1.5%
+            priceDto.setVolume(new BigDecimal("5000000"));
+            priceDto.setPreviousDayVolume(new BigDecimal("1000000"));  // 500% > MIN_VOLUME_RATIO 200%
+            priceDto.setAccumulatedTradingValue(new BigDecimal("300000000000"));  // 3000억 > 200억
+            priceDto.setChangePrice(new BigDecimal("1500"));           // prevClose = 70000-1500 = 68500 → gap = (68000-68500)/68500 = -0.7% < 5%
+            priceDto.setChangeRate(new BigDecimal("2.19"));
+            when(stockPriceService.getStockPrice(STOCK_CODE)).thenReturn(priceDto);
+
+            // ===== 체결강도 (보조A pass: 150 ≥ 120) =====
+            ScalpingAnalysisDto scalp = ScalpingAnalysisDto.builder()
+                    .stockCode(STOCK_CODE)
+                    .volumePower(new BigDecimal("150"))
+                    .build();
+            when(scalpingAnalysisService.getVolumePowerRefresh(STOCK_CODE)).thenReturn(scalp);
+
+            // ===== RSI/MA: kisService 일봉 30개 returns 평탄한 시계열 =====
+            // 평탄 데이터(70000 × 30) → RSI 계산 시 변화 0 → null 반환 가능 — 약간 변동 부여.
+            List<BigDecimal> closePrices = new ArrayList<>();
+            for (int i = 0; i < 30; i++) {
+                // 일정 패턴 (오르락내리락) → RSI ~ 50 부근 (< 55)
+                closePrices.add(new BigDecimal(70000 + (i % 2 == 0 ? 100 : -100)));
+            }
+            when(kisService.getDailyClosePricesWithPriority(eq(STOCK_CODE), anyInt(), any()))
+                    .thenReturn(closePrices);
+
+            // 분봉 RSI: null 반환 → 일봉 폴백 경로 사용 (controlled).
+            when(kisService.getStockMinuteChartWithPriority(eq(STOCK_CODE), any()))
+                    .thenReturn(null);
+
+            // technicalIndicatorService.calculate(): RSI < 55, MA20 = currentPrice 와 거의 같게 → 이격도 ~0% < 3%
+            TechnicalIndicatorsDto goodIndicators = TechnicalIndicatorsDto.builder()
+                    .rsi14(new BigDecimal("45"))
+                    .ma20(new BigDecimal("70000"))
+                    .build();
+            when(technicalIndicatorService.calculate(any())).thenReturn(goodIndicators);
+            when(technicalIndicatorService.calculateSimple(any())).thenReturn(goodIndicators);
+
+            // ===== 진입 직전 가격 재확인: null → drift check skip =====
+            when(kisService.getStockPriceWithPriority(eq(STOCK_CODE), any())).thenReturn(null);
+
+            // ===== buy mock: 정상 결과 (any 반환은 mockito default Object) =====
+            // TradeService.buy 반환값(TradeHistoryDto)은 서비스에서 사용하지 않으니 default null OK.
+        }
+
+        @Test
+        @DisplayName("Happy path — 모든 gate green → virtualTradeService.buy 1회 호출")
+        void happyPath_allGatesGreen_buyInvokedOnce() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+
+            // private executeScalpingBuyLogicInternal 직접 호출
+            invokeBuyInternal(botService);
+
+            // ★ 핵심: 매수 호출 발생
+            verify(virtualTradeService, times(1)).buy(
+                    eq(STOCK_CODE), eq(STOCK_NAME), any(BigDecimal.class), anyInt(), eq("SCALPING_ENTRY"));
+            // 실전 모드는 호출되지 않아야 함
+            verify(realTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 시장 폐장 (16:30 KST) → buy 미호출")
+        void gate_marketClosed_skips() throws Exception {
+            // 16:30 KST 로 시계 변경 (장 마감 후)
+            Instant afterClose = ZonedDateTime.of(2026, 5, 11, 16, 30, 0, 0, KST).toInstant();
+            AutoTradingBotService svc = rebuildBotWithClock(Clock.fixed(afterClose, KST));
+            svc.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+
+            invokeBuyInternal(svc);
+
+            // 16:30 은 MORNING_ENTRY_END(15:00) 초과 → 시간 분기에서 즉시 return
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 글로벌 OUTFLOW (나스닥 선물 급락) → buy 미호출")
+        void gate_globalOutflow_nasdaqHalt_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // 글로벌 시장이 매수 보류 신호 → checkNasdaqHalt 가 true 반환
+            when(globalMarketService.shouldHaltBuying()).thenReturn(true);
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: KOSPI 전체장 급락 (-2%) → buy 미호출")
+        void gate_kospiDropPaused_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // checkKospiDrop() 의 외부 HTTP 호출은 mock 불가 → kospiDropPaused 플래그를 reflection 으로 true 설정.
+            // 캐시 시간이 60초 이내라 fetchKospiChangeRate 스킵 후 kospiDropPaused.get() 그대로 반환.
+            Field kospiPaused = AutoTradingBotService.class.getDeclaredField("kospiDropPaused");
+            kospiPaused.setAccessible(true);
+            ((AtomicBoolean) kospiPaused.get(botService)).set(true);
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 거래정지 종목 → buy 미호출")
+        void gate_tradingHalt_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // stockStatusService 가 비활성 종목으로 분류 → 종목 루프에서 continue
+            when(stockStatusService.isActive(STOCK_CODE)).thenReturn(false);
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 공매도 비율 과다 → buy 미호출")
+        void gate_highShortSelling_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            when(shortSellingService.isHighShortSellingStock(STOCK_CODE)).thenReturn(true);
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 잔고 부족 (currentBalance < MIN_BALANCE=10만원) → buy 미호출")
+        void gate_lowBalance_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // 잔고 5만원 → MIN_BALANCE(10만원) 미달 → for-loop 첫 종목에서 break
+            AccountSummaryDto poor = AccountSummaryDto.builder()
+                    .accountId(1L)
+                    .currentBalance(new BigDecimal("50000"))
+                    .totalEvaluation(BigDecimal.ZERO)
+                    .build();
+            when(virtualTradeService.getAccountSummary()).thenReturn(poor);
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 체결강도 미달 (volumePower < 120) — 보조 1점 → 2점 미달 → buy 미호출")
+        void gate_lowVolumePower_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // 체결강도 미달 (보조 A fail)
+            ScalpingAnalysisDto weak = ScalpingAnalysisDto.builder()
+                    .stockCode(STOCK_CODE)
+                    .volumePower(new BigDecimal("80"))  // < 120
+                    .build();
+            when(scalpingAnalysisService.getVolumePowerRefresh(STOCK_CODE)).thenReturn(weak);
+            // 갭 fail (보조 D fail): changePrice 를 음수로 → prevClose > open → gap 음수지만
+            // 더 확실히 fail 시키려면 RSI 도 fail 시켜 보조점수 1점만 통과하게 만들어 2점 미달.
+            // RSI 과열 (>= 55) 로 보조 B fail
+            TechnicalIndicatorsDto badRsi = TechnicalIndicatorsDto.builder()
+                    .rsi14(new BigDecimal("75"))     // ≥ 55 → fail
+                    .ma20(new BigDecimal("70000"))   // 이격도 0% → pass (1점)
+                    .build();
+            when(technicalIndicatorService.calculate(any())).thenReturn(badRsi);
+            when(technicalIndicatorService.calculateSimple(any())).thenReturn(badRsi);
+            // 갭 fail: change=-5000 → prevClose=75000 → gap=(68000-75000)/75000 = -9.3% < 5% → 보조 D pass (1점)
+            // 합계: 이격도 1점 + 갭 1점 = 2점 → 통과? 갭도 fail 시키자.
+            // 갭상승은 (open - prevClose)/prevClose 로 계산. 5% 이상 갭상승 시 fail.
+            // changePrice=+10000 → prevClose=70000-10000=60000 → gap=(68000-60000)/60000 = 13.3% ≥ 5% → fail
+            StockPriceDto priceWithBadGap = new StockPriceDto();
+            priceWithBadGap.setStockCode(STOCK_CODE);
+            priceWithBadGap.setCurrentPrice(new BigDecimal("70000"));
+            priceWithBadGap.setOpenPrice(new BigDecimal("68000"));
+            priceWithBadGap.setHighPrice(new BigDecimal("70500"));
+            priceWithBadGap.setLowPrice(new BigDecimal("67500"));
+            priceWithBadGap.setVolume(new BigDecimal("5000000"));
+            priceWithBadGap.setPreviousDayVolume(new BigDecimal("1000000"));
+            priceWithBadGap.setAccumulatedTradingValue(new BigDecimal("300000000000"));
+            priceWithBadGap.setChangePrice(new BigDecimal("10000"));  // gap +13% → 보조 D fail
+            priceWithBadGap.setChangeRate(new BigDecimal("16.6"));
+            when(stockPriceService.getStockPrice(STOCK_CODE)).thenReturn(priceWithBadGap);
+
+            invokeBuyInternal(botService);
+
+            // 보조 4개 중: A(체결강도) fail, B(RSI 75) fail, C(이격도 0%) pass, D(갭 +13%) fail
+            // → 1/4 < 2 → 미달, buy 미호출
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: RSI 과매수 (≥55) + 다른 보조 fail → 보조점수 미달 → buy 미호출")
+        void gate_rsiOverbought_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // RSI 과열 — 보조 B fail. 추가로 갭 fail 시켜 4-2 미달.
+            TechnicalIndicatorsDto overbought = TechnicalIndicatorsDto.builder()
+                    .rsi14(new BigDecimal("85"))        // ≥ 55 → fail
+                    .ma20(new BigDecimal("100000"))     // 현재가 70000 vs 100000 → 이격도 -30% < 3% → pass(1점)
+                    .build();
+            when(technicalIndicatorService.calculate(any())).thenReturn(overbought);
+            when(technicalIndicatorService.calculateSimple(any())).thenReturn(overbought);
+            // 체결강도 fail: 80 < 120 (보조 A fail)
+            ScalpingAnalysisDto weakVol = ScalpingAnalysisDto.builder()
+                    .stockCode(STOCK_CODE)
+                    .volumePower(new BigDecimal("80"))
+                    .build();
+            when(scalpingAnalysisService.getVolumePowerRefresh(STOCK_CODE)).thenReturn(weakVol);
+            // 갭 fail: changePrice +10000 → prevClose 60000 → gap +13%
+            StockPriceDto p = new StockPriceDto();
+            p.setStockCode(STOCK_CODE);
+            p.setCurrentPrice(new BigDecimal("70000"));
+            p.setOpenPrice(new BigDecimal("68000"));
+            p.setHighPrice(new BigDecimal("70500"));
+            p.setLowPrice(new BigDecimal("67500"));
+            p.setVolume(new BigDecimal("5000000"));
+            p.setPreviousDayVolume(new BigDecimal("1000000"));
+            p.setAccumulatedTradingValue(new BigDecimal("300000000000"));
+            p.setChangePrice(new BigDecimal("10000"));
+            p.setChangeRate(new BigDecimal("16.6"));
+            when(stockPriceService.getStockPrice(STOCK_CODE)).thenReturn(p);
+
+            invokeBuyInternal(botService);
+
+            // 보조: A fail, B fail, C pass(이격도), D fail → 1/4 < 2 → 미달
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("Gate: 섹터 약세 (OUTFLOW 섹터 포함) → buy 미호출")
+        void gate_sectorOutflow_skips() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            // isOutflowSectorStock 의 캐시를 reflection 으로 직접 set —
+            // sectorTradingService.getSectorConfig() chain stub 보다 안정적.
+            Field cacheTimeField = AutoTradingBotService.class.getDeclaredField("outflowCacheTime");
+            cacheTimeField.setAccessible(true);
+            cacheTimeField.set(botService, LocalDateTime.now(fixedClock));
+            Field outflowField = AutoTradingBotService.class.getDeclaredField("outflowSectorStocks");
+            outflowField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.concurrent.atomic.AtomicReference<java.util.Set<String>> ref =
+                    (java.util.concurrent.atomic.AtomicReference<java.util.Set<String>>) outflowField.get(botService);
+            java.util.Set<String> outflowSet = java.util.concurrent.ConcurrentHashMap.newKeySet();
+            outflowSet.add(STOCK_CODE);  // 005930 = OUTFLOW 섹터 종목
+            ref.set(outflowSet);
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        /** private executeScalpingBuyLogicInternal 을 reflection 으로 직접 호출. */
+        private void invokeBuyInternal(AutoTradingBotService svc) throws Exception {
+            Method m = AutoTradingBotService.class.getDeclaredMethod("executeScalpingBuyLogicInternal");
+            m.setAccessible(true);
+            m.invoke(svc);
         }
     }
 }
