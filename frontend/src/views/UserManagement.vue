@@ -26,13 +26,24 @@
         <div class="users-section">
           <div class="section-header">
             <h2>사용자 목록</h2>
-            <button @click="loadUsers" class="btn-refresh">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="23 4 23 10 17 10"/>
-                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-              </svg>
-              새로고침
-            </button>
+            <div class="section-tools">
+              <label class="page-size-label">
+                페이지당
+                <select v-model.number="pageSize" @change="onPageSizeChange" class="page-size-select">
+                  <option :value="10">10</option>
+                  <option :value="25">25</option>
+                  <option :value="50">50</option>
+                  <option :value="100">100</option>
+                </select>
+              </label>
+              <button @click="loadUsers" class="btn-refresh">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                새로고침
+              </button>
+            </div>
           </div>
 
           <div v-if="loading" class="loading">로딩 중...</div>
@@ -82,6 +93,20 @@
               </tbody>
             </table>
           </div>
+
+          <!-- 페이지네이션 -->
+          <div v-if="!loading && totalElements > 0" class="pagination">
+            <button class="page-btn" :disabled="currentPage === 0" @click="goToPage(0)">«</button>
+            <button class="page-btn" :disabled="currentPage === 0" @click="goToPage(currentPage - 1)">‹ 이전</button>
+            <span class="page-info">
+              <strong class="current-page">{{ currentPage + 1 }}</strong>
+              <span>/</span>
+              <span>{{ totalPages || 1 }}</span>
+              <span class="page-total">(총 {{ totalElements }}명)</span>
+            </span>
+            <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="goToPage(currentPage + 1)">다음 ›</button>
+            <button class="page-btn" :disabled="currentPage >= totalPages - 1" @click="goToPage(totalPages - 1)">»</button>
+          </div>
         </div>
       </div>
     </div>
@@ -104,7 +129,12 @@ export default {
       stats: {
         totalUsers: 0,
         activeUsers: 0
-      }
+      },
+      // 페이지네이션
+      currentPage: 0,
+      pageSize: 25,
+      totalPages: 0,
+      totalElements: 0
     }
   },
   mounted() {
@@ -115,9 +145,18 @@ export default {
     async loadUsers() {
       try {
         this.loading = true;
-        const response = await adminAPI.getAllUsers();
+        const response = await adminAPI.getUsersPage(this.currentPage, this.pageSize);
         if (response.data.success) {
-          this.users = response.data.data;
+          const page = response.data.data;
+          // Spring Data Page 구조: { content, totalPages, totalElements, number, size, ... }
+          this.users = page.content || [];
+          this.totalPages = page.totalPages || 0;
+          this.totalElements = page.totalElements || 0;
+          // 마지막 페이지 삭제 후 빈 페이지가 되면 이전 페이지로
+          if (this.users.length === 0 && this.currentPage > 0 && this.totalElements > 0) {
+            this.currentPage = Math.max(0, this.totalPages - 1);
+            await this.loadUsers();
+          }
         }
       } catch (error) {
         console.error('Failed to load users:', error);
@@ -125,6 +164,17 @@ export default {
       } finally {
         this.loading = false;
       }
+    },
+    goToPage(page) {
+      if (page < 0 || (this.totalPages > 0 && page >= this.totalPages)) return;
+      this.currentPage = page;
+      this.loadUsers();
+      // 페이지 전환 시 스크롤 상단으로
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    onPageSizeChange() {
+      this.currentPage = 0;  // 사이즈 변경 시 첫 페이지로
+      this.loadUsers();
     },
     async loadStats() {
       try {
@@ -285,6 +335,52 @@ export default {
   text-align: center;
   padding: 40px;
   color: #666;
+}
+
+.section-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-size-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.page-size-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  width: auto;
+}
+
+.pagination {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-light);
+}
+
+.page-total {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+@media (max-width: 480px) {
+  .section-tools { gap: 8px; }
+  .page-size-label { font-size: 12px; }
+  .pagination { gap: 4px; }
+  .page-btn { padding: 8px 10px; font-size: 12px; }
+  .page-total { display: none; }
 }
 
 .users-table-wrap {
