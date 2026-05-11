@@ -39,13 +39,13 @@ public class UserService {
     @Transactional(readOnly = true)
     public UserDto getUserByUsername(String username) {
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(com.myplatform.core.exception.ErrorMessages.USER_NOT_FOUND));
         return convertToDto(user);
     }
 
     public UserDto updateProfile(String username, UpdateProfileRequest request) {
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(com.myplatform.core.exception.ErrorMessages.USER_NOT_FOUND));
 
         if (request.getName() != null && !request.getName().isBlank()) {
             user.setName(request.getName());
@@ -56,7 +56,7 @@ public class UserService {
             userRepository.findByEmail(request.getEmail())
                     .filter(u -> !u.getId().equals(user.getId()))
                     .ifPresent(u -> {
-                        throw new RuntimeException("이미 사용 중인 이메일입니다.");
+                        throw new RuntimeException(com.myplatform.core.exception.ErrorMessages.EMAIL_ALREADY_USED);
                     });
             user.setEmail(request.getEmail());
         }
@@ -81,7 +81,7 @@ public class UserService {
         }
 
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(com.myplatform.core.exception.ErrorMessages.USER_NOT_FOUND));
 
         try {
             // 업로드 디렉토리 생성
@@ -122,7 +122,7 @@ public class UserService {
 
     public UserDto deleteProfileImage(String username) {
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(com.myplatform.core.exception.ErrorMessages.USER_NOT_FOUND));
 
         if (user.getProfileImage() != null) {
             try {
@@ -141,7 +141,7 @@ public class UserService {
 
     public void changePassword(String username, ChangePasswordRequest request) {
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(com.myplatform.core.exception.ErrorMessages.USER_NOT_FOUND));
 
         // 현재 비밀번호 확인
         if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
@@ -168,7 +168,7 @@ public class UserService {
 
     public void approveUser(Long userId, String status) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new RuntimeException(com.myplatform.core.exception.ErrorMessages.USER_NOT_FOUND));
 
         if ("APPROVED".equals(status) || "REJECTED".equals(status)) {
             user.setStatus(status);

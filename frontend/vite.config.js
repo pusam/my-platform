@@ -41,6 +41,12 @@ export default defineConfig(({ mode }) => ({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
         // 실시간 시세/거래 API는 절대 캐시 금지
         navigateFallbackDenylist: [/^\/api/],
+        // 신규 배포 즉시 적용 — 사용자가 stale index.html + new bundle 미스매치로 깨지지 않게.
+        // 기존 SW 가 controlling 상태로 클라이언트 점유하던 시간 제거.
+        skipWaiting: true,
+        clientsClaim: true,
+        // 배포 후 1주일 지난 캐시는 자동 정리 — 디스크 누적 방지
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             // API 요청: 네트워크 우선, 5초 타임아웃 후에만 캐시 폴백
