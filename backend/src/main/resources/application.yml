@@ -285,10 +285,11 @@ resilience4j:
         ignoreExceptions:
           - java.lang.IllegalArgumentException
 
-# 9. Sentry (선택). SENTRY_DSN 환경변수가 있을 때만 활성. 없으면 noop.
-sentry:
-  dsn: ${SENTRY_DSN:}
-  environment: ${SPRING_PROFILES_ACTIVE:dev}
-  send-default-pii: false
-  traces-sample-rate: 0.1
-  enabled: ${SENTRY_DSN:+true}
+# 9. Sentry — 보류. Spring Boot 4.x 호환 버전 출시 후 재활성.
+# 7.18.0 은 SB 3.x 용으로 4.0 의 WebClientAutoConfiguration 경로 불일치 → 컨텍스트 초기화 실패.
+# sentry:
+#   dsn: ${SENTRY_DSN:}
+#   environment: ${SPRING_PROFILES_ACTIVE:dev}
+#   send-default-pii: false
+#   traces-sample-rate: 0.1
+#   enabled: ${SENTRY_DSN:+true}

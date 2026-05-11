@@ -68,10 +68,10 @@ dependencies {
     implementation 'io.github.resilience4j:resilience4j-circuitbreaker:2.2.0'
     implementation 'io.github.resilience4j:resilience4j-retry:2.2.0'
 
-    // Sentry — 운영 에러 모니터링. SENTRY_DSN 환경변수 없으면 자동 비활성 (noop).
-    // 비용 없이 의존성 + 골격만 추가 — DSN 설정 시점부터 동작.
-    implementation 'io.sentry:sentry-spring-boot-starter-jakarta:7.18.0'
-    implementation 'io.sentry:sentry-logback:7.18.0'
+    // Sentry 보류 — 7.18.0 은 Spring Boot 3.x 용이라 4.0 의 WebClientAutoConfiguration 패키지 경로와 불일치 →
+    // ClassNotFoundException 로 컨텍스트 초기화 실패. SB 4.x 호환 버전 출시 후 재추가 예정.
+    // implementation 'io.sentry:sentry-spring-boot-starter-jakarta:7.18.0'
+    // implementation 'io.sentry:sentry-logback:7.18.0'
 }
 
 // 프론트엔드 빌드 태스크 (CI에서는 -PskipFrontend로 건너뛰기)
