@@ -30,6 +30,11 @@ spring:
       # 이후 스키마 변경은 모두 V17+ Flyway 마이그레이션으로 적용.
       ddl-auto: validate
     show-sql: false
+    # PROD: SQL 포매팅/주석 OFF — 운영 부하에서 문자열 가공 비용 누적 회피
+    properties:
+      hibernate:
+        format_sql: false
+        use_sql_comments: false
 springdoc:
   api-docs:
     enabled: false
