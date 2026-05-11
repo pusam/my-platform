@@ -5,8 +5,9 @@
 --  finance_transactions.username + transaction_date :
 --      월별 가계부 조회 (findByUsernameAndTransactionDateBetween).
 --      복합 인덱스 — username으로 좁힌 후 날짜 범위 scan.
---  board.author_id + created_at :
+--  board.author_name + created_at :
 --      "내가 쓴 글" 조회 + 최신순 정렬.
+--      (Board entity 는 author_id 가 아니라 author_name 으로 작성자 식별)
 -- ------------------------------------------------------------------
 --  MariaDB는 CREATE INDEX IF NOT EXISTS 미지원 → 사전에 information_schema 체크.
 -- ==================================================================
@@ -37,20 +38,22 @@ SET @sql := IF(@idx_exists = 0,
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
--- board(author_id, created_at DESC) — 내 글 최신순
-SET @table_exists := (
-    SELECT COUNT(1) FROM information_schema.tables
+-- board(author_name, created_at) — 내 글 최신순.
+-- 테이블/컬럼 존재 동시 가드 (board 가 다른 환경에서 없거나, 스키마가 다를 경우 대비)
+SET @col_exists := (
+    SELECT COUNT(1) FROM information_schema.columns
     WHERE table_schema = DATABASE()
       AND table_name   = 'board'
+      AND column_name  = 'author_name'
 );
-SET @idx_exists := IF(@table_exists = 0, 1, (
+SET @idx_exists := IF(@col_exists = 0, 1, (
     SELECT COUNT(1) FROM information_schema.statistics
     WHERE table_schema = DATABASE()
       AND table_name   = 'board'
       AND index_name   = 'idx_board_author_created'
 ));
 SET @sql := IF(@idx_exists = 0,
-    'CREATE INDEX idx_board_author_created ON board (author_id, created_at)',
-    'SELECT "skip — idx_board_author_created already exists or table absent"'
+    'CREATE INDEX idx_board_author_created ON board (author_name, created_at)',
+    'SELECT "skip — idx_board_author_created already exists or column absent"'
 );
 PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
