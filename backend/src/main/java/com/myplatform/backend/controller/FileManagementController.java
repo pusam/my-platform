@@ -7,6 +7,7 @@ import com.myplatform.backend.entity.UserFile;
 import com.myplatform.backend.repository.UserFileRepository;
 import com.myplatform.backend.service.FileManagementService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -82,7 +83,7 @@ public class FileManagementController {
             FileDto uploadedFile = fileManagementService.uploadFile(username, folderId, file, uploadDate);
             return ResponseEntity.ok(ApiResponse.success("파일이 업로드되었습니다.", uploadedFile));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("파일 업로드 실패: " + e.getMessage()));
+            return ApiResponses.error(e, "파일 업로드 실패: ");
         }
     }
 

@@ -3,8 +3,10 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.service.PasswordResetService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,7 +28,7 @@ public class PasswordResetController {
             passwordResetService.sendResetToken(request.getUsername(), request.getEmail());
             return ResponseEntity.ok(ApiResponse.success("인증번호가 이메일로 발송되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail(e.getMessage()));
+            return ApiResponses.error(e, "");
         }
     }
 
@@ -38,10 +40,10 @@ public class PasswordResetController {
             if (valid) {
                 return ResponseEntity.ok(ApiResponse.success("인증번호가 확인되었습니다.", null));
             } else {
-                return ResponseEntity.ok(ApiResponse.fail("유효하지 않거나 만료된 인증번호입니다."));
+                return ApiResponses.error(HttpStatus.BAD_REQUEST, "유효하지 않거나 만료된 인증번호입니다.");
             }
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail(e.getMessage()));
+            return ApiResponses.error(e, "");
         }
     }
 
@@ -52,7 +54,7 @@ public class PasswordResetController {
             passwordResetService.resetPassword(request.getUsername(), request.getEmail(), request.getToken(), request.getNewPassword());
             return ResponseEntity.ok(ApiResponse.success("비밀번호가 변경되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail(e.getMessage()));
+            return ApiResponses.error(e, "");
         }
     }
 }

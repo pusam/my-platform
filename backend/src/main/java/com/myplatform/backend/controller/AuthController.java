@@ -7,9 +7,11 @@ import com.myplatform.backend.dto.SignupResponse;
 import com.myplatform.backend.service.AuthService;
 import com.myplatform.backend.service.EmailVerificationService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -62,13 +64,13 @@ public class AuthController {
         try {
             String email = request.get("email");
             if (email == null || email.trim().isEmpty()) {
-                return ResponseEntity.ok(ApiResponse.fail("이메일을 입력해주세요."));
+                return ApiResponses.error(HttpStatus.BAD_REQUEST, "이메일을 입력해주세요.");
             }
 
             emailVerificationService.sendVerificationToken(email);
             return ResponseEntity.ok(ApiResponse.success("인증번호가 이메일로 발송되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("이메일 발송에 실패했습니다: " + e.getMessage()));
+            return ApiResponses.error(e, "이메일 발송에 실패했습니다: ");
         }
     }
 
@@ -80,17 +82,17 @@ public class AuthController {
             String token = request.get("token");
 
             if (email == null || token == null) {
-                return ResponseEntity.ok(ApiResponse.fail("이메일과 인증번호를 모두 입력해주세요."));
+                return ApiResponses.error(HttpStatus.BAD_REQUEST, "이메일과 인증번호를 모두 입력해주세요.");
             }
 
             boolean isVerified = emailVerificationService.verifyToken(email, token);
             if (isVerified) {
                 return ResponseEntity.ok(ApiResponse.success("이메일 인증이 완료되었습니다.", null));
             } else {
-                return ResponseEntity.ok(ApiResponse.fail("인증번호가 올바르지 않거나 만료되었습니다."));
+                return ApiResponses.error(HttpStatus.BAD_REQUEST, "인증번호가 올바르지 않거나 만료되었습니다.");
             }
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("인증 확인에 실패했습니다: " + e.getMessage()));
+            return ApiResponses.error(e, "인증 확인에 실패했습니다: ");
         }
     }
 }

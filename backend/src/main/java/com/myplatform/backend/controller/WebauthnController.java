@@ -10,10 +10,12 @@ import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.UserRepository;
 import com.myplatform.backend.service.WebauthnService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import com.myplatform.jwtredis.provider.JwtTokenProvider;
 import com.myplatform.jwtredis.service.RedisTokenService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -67,7 +69,7 @@ public class WebauthnController {
             RegisteredCredentialDto dto = webauthnService.finishRegistration(user, req);
             return ResponseEntity.ok(ApiResponse.success("지문/생체인증 등록 완료", dto));
         } catch (IllegalStateException e) {
-            return ResponseEntity.ok(ApiResponse.fail(e.getMessage()));
+            return ApiResponses.error(e, "");
         }
     }
 
@@ -79,7 +81,7 @@ public class WebauthnController {
             @RequestBody Map<String, String> body) {
         String username = body.getOrDefault("username", "").trim();
         if (username.isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.fail("아이디를 입력해주세요."));
+            return ApiResponses.error(HttpStatus.BAD_REQUEST, "아이디를 입력해주세요.");
         }
         return ResponseEntity.ok(ApiResponse.success(webauthnService.startAuthentication(username)));
     }

@@ -3,9 +3,11 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.MarketIndicatorStockDto;
 import com.myplatform.backend.service.MarketIndicatorService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -33,7 +35,7 @@ public class MarketIndicatorController {
     public ResponseEntity<ApiResponse<List<MarketIndicatorStockDto>>> getPriceRise() {
         List<MarketIndicatorStockDto> data = marketIndicatorService.getPriceRiseTopStocks();
         if (data.isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.fail("데이터를 가져올 수 없습니다. API 키를 확인하세요."));
+            return ApiResponses.error(HttpStatus.SERVICE_UNAVAILABLE, "데이터를 가져올 수 없습니다. API 키를 확인하세요.");
         }
         return ResponseEntity.ok(ApiResponse.success("급등주 조회 성공", data));
     }
@@ -46,7 +48,7 @@ public class MarketIndicatorController {
     public ResponseEntity<ApiResponse<List<MarketIndicatorStockDto>>> getPriceFall() {
         List<MarketIndicatorStockDto> data = marketIndicatorService.getPriceFallTopStocks();
         if (data.isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.fail("데이터를 가져올 수 없습니다. API 키를 확인하세요."));
+            return ApiResponses.error(HttpStatus.SERVICE_UNAVAILABLE, "데이터를 가져올 수 없습니다. API 키를 확인하세요.");
         }
         return ResponseEntity.ok(ApiResponse.success("급락주 조회 성공", data));
     }

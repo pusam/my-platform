@@ -3,10 +3,12 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.service.StockPriceService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -41,7 +43,7 @@ public class StockPriceController {
             List<StockPriceDto> results = stockPriceService.searchStocks(safe);
             return ResponseEntity.ok(ApiResponse.success("종목 검색 완료", results));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("종목 검색 실패: " + e.getMessage()));
+            return ApiResponses.error(e, "종목 검색 실패: ");
         }
     }
 
@@ -52,7 +54,7 @@ public class StockPriceController {
             @PathVariable String stockCode) {
         StockPriceDto price = stockPriceService.getStockPrice(stockCode);
         if (price == null) {
-            return ResponseEntity.ok(ApiResponse.fail("종목을 찾을 수 없습니다."));
+            return ApiResponses.error(HttpStatus.NOT_FOUND, "종목을 찾을 수 없습니다.");
         }
         return ResponseEntity.ok(ApiResponse.success("시세 조회 성공", price));
     }

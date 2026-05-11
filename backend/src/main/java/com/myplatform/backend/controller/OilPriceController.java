@@ -3,7 +3,9 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.OilPriceDto;
 import com.myplatform.backend.service.OilPriceService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,7 +22,7 @@ public class OilPriceController {
     public ResponseEntity<ApiResponse<OilPriceDto>> getOilPrice() {
         OilPriceDto oilPrice = oilPriceService.getOilPrice();
         if (oilPrice == null) {
-            return ResponseEntity.ok(ApiResponse.fail("원유 시세 정보를 가져올 수 없습니다. KIS API 키를 확인하세요."));
+            return ApiResponses.error(HttpStatus.SERVICE_UNAVAILABLE, "원유 시세 정보를 가져올 수 없습니다. KIS API 키를 확인하세요.");
         }
         return ResponseEntity.ok(ApiResponse.success("원유 시세 조회 성공", oilPrice));
     }

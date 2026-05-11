@@ -7,10 +7,12 @@ import com.myplatform.backend.dto.StockInvestorDetailDto;
 import com.myplatform.backend.service.InvestorSurgeService;
 import com.myplatform.backend.service.InvestorTradeService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -78,7 +80,7 @@ public class InvestorTradeController {
         StockInvestorDetailDto detail = investorTradeService.getStockInvestorDetail(stockCode, days);
         
         if (detail == null) {
-            return ResponseEntity.ok(ApiResponse.fail("해당 종목의 투자자 매매 데이터가 없습니다."));
+            return ApiResponses.error(HttpStatus.NOT_FOUND, "해당 종목의 투자자 매매 데이터가 없습니다.");
         }
         
         return ResponseEntity.ok(ApiResponse.success(detail));

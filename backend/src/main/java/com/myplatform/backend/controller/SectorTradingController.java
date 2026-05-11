@@ -6,10 +6,12 @@ import com.myplatform.backend.dto.SectorTradingDto;
 import com.myplatform.backend.service.SectorOpportunityService;
 import com.myplatform.backend.service.SectorTradingService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -39,7 +41,7 @@ public class SectorTradingController {
             List<SectorTradingDto> results = sectorTradingService.getAllSectorTradingByPeriod(period);
             return ResponseEntity.ok(ApiResponse.success("섹터별 거래대금 조회 성공", results));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("섹터별 거래대금 조회 실패: " + e.getMessage()));
+            return ApiResponses.error(e, "섹터별 거래대금 조회 실패: ");
         }
     }
 
@@ -51,11 +53,11 @@ public class SectorTradingController {
         try {
             SectorTradingDto result = sectorTradingService.getSectorDetail(sectorCode);
             if (result == null) {
-                return ResponseEntity.ok(ApiResponse.fail("해당 섹터를 찾을 수 없습니다."));
+                return ApiResponses.error(HttpStatus.NOT_FOUND, "해당 섹터를 찾을 수 없습니다.");
             }
             return ResponseEntity.ok(ApiResponse.success("섹터 상세 조회 성공", result));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("섹터 상세 조회 실패: " + e.getMessage()));
+            return ApiResponses.error(e, "섹터 상세 조회 실패: ");
         }
     }
 
@@ -66,7 +68,7 @@ public class SectorTradingController {
             List<SectorRotationDto> rotation = sectorTradingService.getSectorRotation();
             return ResponseEntity.ok(ApiResponse.success("섹터 로테이션 데이터", rotation));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("섹터 로테이션 조회 실패: " + e.getMessage()));
+            return ApiResponses.error(e, "섹터 로테이션 조회 실패: ");
         }
     }
 
@@ -101,7 +103,7 @@ public class SectorTradingController {
                     Math.max(1, Math.min(10, picksPerSector)));
             return ResponseEntity.ok(ApiResponse.success("섹터 기회 발굴 조회 성공", result));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("섹터 기회 발굴 조회 실패: " + e.getMessage()));
+            return ApiResponses.error(e, "섹터 기회 발굴 조회 실패: ");
         }
     }
 }

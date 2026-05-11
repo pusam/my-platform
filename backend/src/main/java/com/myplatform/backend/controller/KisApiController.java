@@ -5,9 +5,11 @@ import com.myplatform.backend.dto.InvestorTrendDto;
 import com.myplatform.backend.dto.SupplySurgeStockDto;
 import com.myplatform.backend.service.KisApiService;
 import com.myplatform.core.dto.ApiResponse;
+import com.myplatform.core.util.ApiResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,7 +34,7 @@ public class KisApiController {
     public ResponseEntity<ApiResponse<List<InvestorTrendDto>>> getInvestorTrend() {
         List<InvestorTrendDto> data = kisApiService.getInvestorTrend();
         if (data.isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.fail("데이터를 가져올 수 없습니다. API 키를 확인하세요."));
+            return ApiResponses.error(HttpStatus.SERVICE_UNAVAILABLE, "데이터를 가져올 수 없습니다. API 키를 확인하세요.");
         }
         return ResponseEntity.ok(ApiResponse.success("투자자 매매동향 조회 성공", data));
     }
@@ -42,7 +44,7 @@ public class KisApiController {
     public ResponseEntity<ApiResponse<List<ContinuousBuyStockDto>>> getContinuousBuyStocks() {
         List<ContinuousBuyStockDto> data = kisApiService.getContinuousBuyStocks();
         if (data.isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.fail("데이터를 가져올 수 없습니다. API 키를 확인하세요."));
+            return ApiResponses.error(HttpStatus.SERVICE_UNAVAILABLE, "데이터를 가져올 수 없습니다. API 키를 확인하세요.");
         }
         return ResponseEntity.ok(ApiResponse.success("연속 매수 종목 조회 성공", data));
     }
@@ -52,7 +54,7 @@ public class KisApiController {
     public ResponseEntity<ApiResponse<List<SupplySurgeStockDto>>> getSupplySurgeStocks() {
         List<SupplySurgeStockDto> data = kisApiService.getSupplySurgeStocks();
         if (data.isEmpty()) {
-            return ResponseEntity.ok(ApiResponse.fail("데이터를 가져올 수 없습니다. API 키를 확인하세요."));
+            return ApiResponses.error(HttpStatus.SERVICE_UNAVAILABLE, "데이터를 가져올 수 없습니다. API 키를 확인하세요.");
         }
         return ResponseEntity.ok(ApiResponse.success("수급 급등 종목 조회 성공", data));
     }
