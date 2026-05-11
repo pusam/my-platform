@@ -39,7 +39,8 @@ class GeminiServiceTest {
 
     @BeforeEach
     void setUp() {
-        geminiService = new GeminiService();
+        // SimpleMeterRegistry — 테스트용 노옵 MeterRegistry (의존성 추가 없이 기본 제공)
+        geminiService = new GeminiService(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         mockRestTemplate = mock(RestTemplate.class);
 
         ReflectionTestUtils.setField(geminiService, "restTemplate", mockRestTemplate);
