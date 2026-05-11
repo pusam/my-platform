@@ -27,6 +27,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
@@ -98,7 +99,11 @@ public class AiStrategySnapshotService {
      */
     @EventListener(ApplicationReadyEvent.class)
     @Async
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void warmUpSnapshots() {
+        // NOT_SUPPORTED: 클래스 레벨 @Transactional 회피.
+        // 외부 API 호출 + Thread.sleep 동안 DB 커넥션 보유하면 HikariCP leak detection (120s) 위반.
+        // 내부 repository.save 호출은 Spring Data JPA 자체 트랜잭션으로 짧게 처리.
         try {
             // 다른 서비스 초기화 완료 대기 (SectorTrading, InvestorTrade 등)
             Thread.sleep(30000);
@@ -144,6 +149,7 @@ public class AiStrategySnapshotService {
      * - 장중 09:05 ~ 15:20
      */
     @Scheduled(cron = "0 0,30 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void collectScalpingSnapshot() {
         LocalTime now = LocalTime.now();
         if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
@@ -166,6 +172,7 @@ public class AiStrategySnapshotService {
      * - SWING, TURNAROUND, VALUE 전략을 로테이션 수집 (매 시간 1개씩)
      */
     @Scheduled(cron = "0 0 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void collectLongTermSnapshots() {
         LocalTime now = LocalTime.now();
         if (now.isAfter(LocalTime.of(20, 0))) return;
