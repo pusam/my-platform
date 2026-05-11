@@ -18,7 +18,9 @@ import org.springframework.scheduling.config.ScheduledTaskRegistrar;
 @Slf4j
 public class SchedulingConfig implements SchedulingConfigurer {
 
-    private static final int POOL_SIZE = 24;
+    // 60+ @Scheduled 작업 보유 — 장 마감 시각(15:50~16:45) 집중 실행 시 24 풀이 작아 후순위 작업 지연.
+    // 32로 확장: 동시 active 60% (≈20) 가정 + headroom 12.
+    private static final int POOL_SIZE = 32;
     private static final String THREAD_NAME_PREFIX = "scheduled-task-";
 
     @Override

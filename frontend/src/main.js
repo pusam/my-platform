@@ -285,5 +285,19 @@ consumeInjectedAuthToken((token) => {
 })
 
 const app = createApp(App)
+
+// 전역 에러 핸들러 — Vue 렌더/setup/watch/mounted 등에서 발생하는 미처리 예외를 캐치.
+// 기존엔 silently 무시되어 디버깅 어려웠음. 콘솔에 컨텍스트와 함께 출력.
+// 차후 Sentry 등 도입 시 여기서 ship.
+app.config.errorHandler = (err, instance, info) => {
+  const componentName = instance?.$options?.name || instance?.$?.type?.name || 'unknown'
+  console.error(`[Vue ${info}] ${componentName}:`, err)
+}
+
+// 라우터 navigation 실패 핸들러 — push().catch 누락 시 silent 실패 회피
+router.onError((err) => {
+  console.error('[Router Error]', err)
+})
+
 app.use(router)
 app.mount('#app')
