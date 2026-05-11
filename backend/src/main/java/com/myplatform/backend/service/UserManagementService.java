@@ -11,9 +11,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -41,10 +39,10 @@ public class UserManagementService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getAllUsers() {
-        // 안전 상한 적용 — 기존 응답 포맷 호환 유지
+    public List<UserManagementDto> getAllUsers() {
+        // 안전 상한 적용 — 응답은 UserManagementDto 로 직렬화 (기존 Map 9 필드와 동일 shape)
         return userRepository.findAll(SAFE_LIMIT_PAGE).stream()
-                .map(this::userToMap)
+                .map(UserManagementDto::fromEntity)
                 .collect(Collectors.toList());
     }
 
@@ -53,10 +51,10 @@ public class UserManagementService {
      * AdminController GET /api/admin/users/page 에서 노출.
      */
     @Transactional(readOnly = true)
-    public Page<Map<String, Object>> getUsersPage(Pageable pageable) {
+    public Page<UserManagementDto> getUsersPage(Pageable pageable) {
         Pageable effective = pageable.getSort().isSorted() ? pageable
                 : PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), DEFAULT_SORT);
-        return userRepository.findAll(effective).map(this::userToMap);
+        return userRepository.findAll(effective).map(UserManagementDto::fromEntity);
     }
 
     @Transactional(readOnly = true)
@@ -66,11 +64,12 @@ public class UserManagementService {
         return UserManagementDto.fromEntity(user);
     }
 
+    /**
+     * 단건 조회 — 기존 getUserMap() 호환. DTO 직렬화 결과는 9-key Map 과 동일 JSON shape.
+     */
     @Transactional(readOnly = true)
-    public Map<String, Object> getUserMap(Long id) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        return userToMap(user);
+    public UserManagementDto getUserMap(Long id) {
+        return getUserById(id);
     }
 
     public UserManagementDto updateUserRole(Long userId, String newRole, String adminUsername) {
@@ -144,9 +143,9 @@ public class UserManagementService {
     // ==================== 기존 AdminController 호환 메서드 ====================
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> getPendingUsers() {
+    public List<UserManagementDto> getPendingUsers() {
         return userRepository.findByStatus("PENDING").stream()
-                .map(this::userToMap)
+                .map(UserManagementDto::fromEntity)
                 .collect(Collectors.toList());
     }
 
@@ -216,17 +215,4 @@ public class UserManagementService {
                 String.format("사용자 '%s' 삭제됨", username));
     }
 
-    private Map<String, Object> userToMap(User user) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("id", user.getId());
-        map.put("username", user.getUsername());
-        map.put("name", user.getName());
-        map.put("email", user.getEmail());
-        map.put("phone", user.getPhone());
-        map.put("role", user.getRole());
-        map.put("status", user.getStatus());
-        map.put("createdAt", user.getCreatedAt());
-        map.put("updatedAt", user.getUpdatedAt());
-        return map;
-    }
 }

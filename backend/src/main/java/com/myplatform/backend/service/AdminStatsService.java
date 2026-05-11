@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.SystemStatsDto;
+import com.myplatform.backend.dto.UserStatsResponseDto;
 import com.myplatform.backend.entity.User;
 import com.myplatform.backend.repository.*;
 import org.springframework.stereotype.Service;
@@ -9,8 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.lang.management.ManagementFactory;
 import java.time.LocalDateTime;
 import java.time.LocalDate;
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * 관리자 통계 서비스
@@ -87,35 +86,32 @@ public class AdminStatsService {
 
     /**
      * 사용자별 통계 조회
+     * 응답 shape: { boardCount, fileCount, assetCount, transactionCount } — 기존 Map 과 동일.
      */
-    public Map<String, Object> getUserStats(Long userId) {
-        Map<String, Object> stats = new HashMap<>();
-
+    public UserStatsResponseDto getUserStats(Long userId) {
         // 사용자 정보 조회
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) {
-            stats.put("boardCount", 0L);
-            stats.put("fileCount", 0L);
-            stats.put("assetCount", 0L);
-            stats.put("transactionCount", 0L);
-            return stats;
+            return UserStatsResponseDto.builder()
+                    .boardCount(0L)
+                    .fileCount(0L)
+                    .assetCount(0L)
+                    .transactionCount(0L)
+                    .build();
         }
 
         String username = user.getUsername();
 
-        // 사용자 게시글 수 (author는 username)
-        stats.put("boardCount", boardRepository.countByAuthor(username));
-
-        // 사용자 파일 수
-        stats.put("fileCount", userFileRepository.countByUserId(userId));
-
-        // 사용자 자산 수
-        stats.put("assetCount", userAssetRepository.countByUserId(userId));
-
-        // 사용자 거래 내역 수
-        stats.put("transactionCount", financeTransactionRepository.countByUsername(username));
-
-        return stats;
+        return UserStatsResponseDto.builder()
+                // 사용자 게시글 수 (author는 username)
+                .boardCount(boardRepository.countByAuthor(username))
+                // 사용자 파일 수
+                .fileCount(userFileRepository.countByUserId(userId))
+                // 사용자 자산 수
+                .assetCount(userAssetRepository.countByUserId(userId))
+                // 사용자 거래 내역 수
+                .transactionCount(financeTransactionRepository.countByUsername(username))
+                .build();
     }
 
     /**

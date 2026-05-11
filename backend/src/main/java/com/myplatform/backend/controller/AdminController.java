@@ -3,6 +3,8 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.BatchJobExecutionDto;
 import com.myplatform.backend.dto.BatchJobSummaryDto;
 import com.myplatform.backend.dto.SystemStatsDto;
+import com.myplatform.backend.dto.UserManagementDto;
+import com.myplatform.backend.dto.UserStatsResponseDto;
 import com.myplatform.backend.service.AdminStatsService;
 import com.myplatform.backend.dto.ActivityLogDto;
 import com.myplatform.backend.dto.ServerStatusDto;
@@ -113,9 +115,9 @@ public class AdminController {
 
     @Operation(summary = "사용자별 통계 조회", description = "특정 사용자의 활동 통계를 조회합니다.")
     @GetMapping("/users/{userId}/stats")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getUserStats(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<UserStatsResponseDto>> getUserStats(@PathVariable Long userId) {
         try {
-            Map<String, Object> stats = adminStatsService.getUserStats(userId);
+            UserStatsResponseDto stats = adminStatsService.getUserStats(userId);
             return ResponseEntity.ok(ApiResponse.success("사용자 통계 조회 성공", stats));
         } catch (Exception e) {
             return ApiResponses.error(e, "통계 조회 실패: ");
@@ -124,9 +126,9 @@ public class AdminController {
 
     @Operation(summary = "승인 대기 중인 사용자 목록 조회", description = "회원가입 승인 대기 중인 사용자 목록을 조회합니다.")
     @GetMapping("/users/pending")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getPendingUsers() {
+    public ResponseEntity<ApiResponse<List<UserManagementDto>>> getPendingUsers() {
         try {
-            List<Map<String, Object>> users = userManagementService.getPendingUsers();
+            List<UserManagementDto> users = userManagementService.getPendingUsers();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", users));
         } catch (Exception e) {
             return ApiResponses.error(e, "조회 실패: ");
@@ -137,9 +139,9 @@ public class AdminController {
             description = "모든 사용자 목록을 조회합니다. 내부적으로 1000명 안전 상한 적용. " +
                     "대량 환경에서는 /users/page 페이지네이션 endpoint 사용.")
     @GetMapping("/users")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getAllUsers() {
+    public ResponseEntity<ApiResponse<List<UserManagementDto>>> getAllUsers() {
         try {
-            List<Map<String, Object>> users = userManagementService.getAllUsers();
+            List<UserManagementDto> users = userManagementService.getAllUsers();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", users));
         } catch (Exception e) {
             return ApiResponses.error(e, "조회 실패: ");
@@ -149,12 +151,12 @@ public class AdminController {
     @Operation(summary = "사용자 페이지네이션 조회",
             description = "page/size 기반 사용자 목록. 응답은 Spring Data Page 구조 (content + totalPages + ...).")
     @GetMapping("/users/page")
-    public ResponseEntity<ApiResponse<Page<Map<String, Object>>>> getUsersPage(
+    public ResponseEntity<ApiResponse<Page<UserManagementDto>>> getUsersPage(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size) {
         try {
             int safeSize = Math.min(Math.max(size, 1), 200);  // 1~200 클램프
-            Page<Map<String, Object>> result = userManagementService.getUsersPage(
+            Page<UserManagementDto> result = userManagementService.getUsersPage(
                     org.springframework.data.domain.PageRequest.of(page, safeSize));
             return ResponseEntity.ok(ApiResponse.success("조회 성공", result));
         } catch (Exception e) {
@@ -164,10 +166,10 @@ public class AdminController {
 
     @Operation(summary = "사용자 상세 조회", description = "특정 사용자 정보를 조회합니다.")
     @GetMapping("/users/{userId}")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> getUser(@PathVariable Long userId) {
+    public ResponseEntity<ApiResponse<UserManagementDto>> getUser(@PathVariable Long userId) {
         try {
             // findById 한 번으로 조회 (전체 사용자 스트림 필터 → 단건 조회 최적화)
-            Map<String, Object> user = userManagementService.getUserMap(userId);
+            UserManagementDto user = userManagementService.getUserMap(userId);
             return ResponseEntity.ok(ApiResponse.success("조회 성공", user));
         } catch (Exception e) {
             return ApiResponses.error(e, "조회 실패: ");
