@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.cache.CacheManager;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -61,6 +62,29 @@ public class AdminController {
         this.kisApiRateLimiter = kisApiRateLimiter;
     }
 
+    /**
+     * 예외 메시지 기반 HTTP status 추론.
+     * service 레이어가 RuntimeException 메시지로 도메인 에러를 알려주는 기존 패턴 보존.
+     */
+    private HttpStatus httpStatusFor(Exception e) {
+        String msg = e.getMessage();
+        if (msg == null) return HttpStatus.INTERNAL_SERVER_ERROR;
+        if (msg.contains("찾을 수 없") || msg.contains("존재하지 않")) return HttpStatus.NOT_FOUND;
+        if (msg.contains("이미") || msg.contains("유효하지") || msg.contains("일치하지")
+                || msg.contains("올바른") || msg.contains("잘못된") || msg.contains("입력")) {
+            return HttpStatus.BAD_REQUEST;
+        }
+        return HttpStatus.INTERNAL_SERVER_ERROR;
+    }
+
+    /**
+     * catch 블록 공용 — 메시지 prefix 유지 + 적절한 HTTP status 반환.
+     */
+    private <T> ResponseEntity<ApiResponse<T>> errorResponse(Exception e, String prefix) {
+        return ResponseEntity.status(httpStatusFor(e))
+                .body(ApiResponse.fail(prefix + e.getMessage()));
+    }
+
     @PostMapping("/stock-master/seed")
     @Operation(summary = "stock_master KRX 시드 강제 실행",
             description = "KOSPI/KOSDAQ 전체 종목코드/종목명 매핑을 KRX 에서 다운로드하여 적재. " +
@@ -103,7 +127,7 @@ public class AdminController {
             SystemStatsDto stats = adminStatsService.getSystemStats();
             return ResponseEntity.ok(ApiResponse.success("통계 조회 성공", stats));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+            return errorResponse(e, "통계 조회 실패: ");
         }
     }
 
@@ -114,7 +138,7 @@ public class AdminController {
             Map<String, Object> stats = adminStatsService.getUserStats(userId);
             return ResponseEntity.ok(ApiResponse.success("사용자 통계 조회 성공", stats));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+            return errorResponse(e, "통계 조회 실패: ");
         }
     }
 
@@ -125,7 +149,7 @@ public class AdminController {
             List<Map<String, Object>> users = userManagementService.getPendingUsers();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", users));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -136,7 +160,7 @@ public class AdminController {
             List<Map<String, Object>> users = userManagementService.getAllUsers();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", users));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -148,7 +172,7 @@ public class AdminController {
             Map<String, Object> user = userManagementService.getUserMap(userId);
             return ResponseEntity.ok(ApiResponse.success("조회 성공", user));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -159,7 +183,7 @@ public class AdminController {
             userManagementService.approveUser(userId);
             return ResponseEntity.ok(ApiResponse.success("회원가입이 승인되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("승인 실패: " + e.getMessage()));
+            return errorResponse(e, "승인 실패: ");
         }
     }
 
@@ -170,7 +194,7 @@ public class AdminController {
             userManagementService.rejectUser(userId);
             return ResponseEntity.ok(ApiResponse.success("회원가입이 거부되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("거부 실패: " + e.getMessage()));
+            return errorResponse(e, "거부 실패: ");
         }
     }
 
@@ -181,7 +205,7 @@ public class AdminController {
             userManagementService.deactivateUser(userId);
             return ResponseEntity.ok(ApiResponse.success("계정이 비활성화되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("비활성화 실패: " + e.getMessage()));
+            return errorResponse(e, "비활성화 실패: ");
         }
     }
 
@@ -192,7 +216,7 @@ public class AdminController {
             userManagementService.activateUser(userId);
             return ResponseEntity.ok(ApiResponse.success("계정이 활성화되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("활성화 실패: " + e.getMessage()));
+            return errorResponse(e, "활성화 실패: ");
         }
     }
 
@@ -203,7 +227,7 @@ public class AdminController {
             userManagementService.unlockUser(userId);
             return ResponseEntity.ok(ApiResponse.success("계정 잠금이 해제되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("잠금 해제 실패: " + e.getMessage()));
+            return errorResponse(e, "잠금 해제 실패: ");
         }
     }
 
@@ -214,7 +238,7 @@ public class AdminController {
             userManagementService.deleteUser(userId);
             return ResponseEntity.ok(ApiResponse.success("사용자가 삭제되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("삭제 실패: " + e.getMessage()));
+            return errorResponse(e, "삭제 실패: ");
         }
     }
 
@@ -226,12 +250,12 @@ public class AdminController {
         try {
             String role = request.get("role");
             if (role == null || (!role.equals("USER") && !role.equals("ADMIN"))) {
-                return ResponseEntity.ok(ApiResponse.fail("올바른 권한을 입력해주세요. (USER 또는 ADMIN)"));
+                return ResponseEntity.badRequest().body(ApiResponse.fail("올바른 권한을 입력해주세요. (USER 또는 ADMIN)"));
             }
             userManagementService.changeUserRole(userId, role);
             return ResponseEntity.ok(ApiResponse.success("권한이 변경되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("권한 변경 실패: " + e.getMessage()));
+            return errorResponse(e, "권한 변경 실패: ");
         }
     }
 
@@ -261,7 +285,7 @@ public class AdminController {
 
             return ResponseEntity.ok(ApiResponse.success("API 통계 조회 성공", stats));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+            return errorResponse(e, "통계 조회 실패: ");
         }
     }
 
@@ -282,7 +306,7 @@ public class AdminController {
                 null
             ));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("캐시 초기화 실패: " + e.getMessage()));
+            return errorResponse(e, "캐시 초기화 실패: ");
         }
     }
 
@@ -298,10 +322,10 @@ public class AdminController {
                     null
                 ));
             } else {
-                return ResponseEntity.ok(ApiResponse.fail("존재하지 않는 캐시입니다: " + cacheName));
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResponse.fail("존재하지 않는 캐시입니다: " + cacheName));
             }
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("캐시 초기화 실패: " + e.getMessage()));
+            return errorResponse(e, "캐시 초기화 실패: ");
         }
     }
 
@@ -313,7 +337,7 @@ public class AdminController {
         try {
             String status = request.get("status");
             if (status == null) {
-                return ResponseEntity.ok(ApiResponse.fail("상태를 입력해주세요."));
+                return ResponseEntity.badRequest().body(ApiResponse.fail("상태를 입력해주세요."));
             }
             if (status.equals("APPROVED")) {
                 userManagementService.approveUser(userId);
@@ -324,7 +348,7 @@ public class AdminController {
             }
             return ResponseEntity.ok(ApiResponse.success("상태가 변경되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("상태 변경 실패: " + e.getMessage()));
+            return errorResponse(e, "상태 변경 실패: ");
         }
     }
 
@@ -338,7 +362,7 @@ public class AdminController {
             );
             return ResponseEntity.ok(ApiResponse.success("조회 성공", stats));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -351,7 +375,7 @@ public class AdminController {
             ServerStatusDto status = serverStatusService.getServerStatus();
             return ResponseEntity.ok(ApiResponse.success("서버 상태 조회 성공", status));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -368,7 +392,7 @@ public class AdminController {
             Page<ActivityLogDto> logs = activityLogService.getLogsWithFilters(username, actionType, page, size);
             return ResponseEntity.ok(ApiResponse.success("조회 성공", logs));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -379,7 +403,7 @@ public class AdminController {
             List<ActivityLogDto> logs = activityLogService.getRecentLogs();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", logs));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -400,7 +424,7 @@ public class AdminController {
 
             return ResponseEntity.ok(ApiResponse.success("데이터 보정 완료", result));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("데이터 보정 실패: " + e.getMessage()));
+            return errorResponse(e, "데이터 보정 실패: ");
         }
     }
 
@@ -425,7 +449,7 @@ public class AdminController {
 
             return ResponseEntity.ok(ApiResponse.success("종가 업데이트 완료", result));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("종가 업데이트 실패: " + e.getMessage()));
+            return errorResponse(e, "종가 업데이트 실패: ");
         }
     }
 
@@ -436,7 +460,7 @@ public class AdminController {
             Map<String, Object> stats = aiStrategySnapshotService.getSnapshotStats();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", stats));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -452,7 +476,7 @@ public class AdminController {
             Page<BatchJobExecutionDto> executions = batchJobMonitorService.getRecentExecutions(jobName, page, size);
             return ResponseEntity.ok(ApiResponse.success("조회 성공", executions));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -463,7 +487,7 @@ public class AdminController {
             BatchJobSummaryDto summary = batchJobMonitorService.getSummary();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", summary));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -474,7 +498,7 @@ public class AdminController {
             List<String> names = batchJobMonitorService.getJobNames();
             return ResponseEntity.ok(ApiResponse.success("조회 성공", names));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("조회 실패: " + e.getMessage()));
+            return errorResponse(e, "조회 실패: ");
         }
     }
 
@@ -487,7 +511,7 @@ public class AdminController {
             Map<String, Integer> stats = kisApiRateLimiter.getStats();
             return ResponseEntity.ok(ApiResponse.success("Rate Limiter 통계 조회 성공", stats));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("통계 조회 실패: " + e.getMessage()));
+            return errorResponse(e, "통계 조회 실패: ");
         }
     }
 
@@ -498,7 +522,7 @@ public class AdminController {
             kisApiRateLimiter.resetStats();
             return ResponseEntity.ok(ApiResponse.success("Rate Limiter 통계가 초기화되었습니다.", null));
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.fail("초기화 실패: " + e.getMessage()));
+            return errorResponse(e, "초기화 실패: ");
         }
     }
 }
