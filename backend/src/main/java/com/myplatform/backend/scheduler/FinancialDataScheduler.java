@@ -50,7 +50,7 @@ public class FinancialDataScheduler {
      * 매일 08:30 자동 수집 (장 시작 전)
      * ★ 비동기 실행 — 스케줄러 스레드 즉시 반환 (16분+ 동기 실행으로 스케줄러 죽는 문제 수정)
      */
-    @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
         if (marketCalendar.isMarketClosed()) {
             log.info("[배치] 08:30 휴장일 — 재무데이터 수집 스킵");
@@ -74,7 +74,7 @@ public class FinancialDataScheduler {
      * 매일 15:38 자동 수집 (장 마감 직후)
      * ★ 비동기 실행
      */
-    @Scheduled(cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 38 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoon() {
         if (marketCalendar.isMarketClosed()) {
             log.info("[배치] 15:38 휴장일 — 재무데이터 수집 스킵");

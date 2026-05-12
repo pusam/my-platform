@@ -127,7 +127,7 @@ public class StockPriceService {
      * 2026-04-24 주기 확대: 평일 16시 1회 → 매시간 정각.
      * 주말/야간에도 수시 cleanup (priceCache 가 며칠간 누적되던 문제 해결).
      */
-    @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 * * * *", zone = "Asia/Seoul")
     public void cleanupExpiredCache() {
         int priceRemoved = 0;
         int minuteRemoved = 0;

@@ -131,6 +131,17 @@ kis:
     account-number: ${KIS_ACCOUNT_NUMBER:}  # 계좌번호 (예: 50012345-01)
     account-prefix: ${KIS_ACCOUNT_PREFIX:}  # 계좌번호 앞 8자리 (CANO)
     account-suffix: ${KIS_ACCOUNT_SUFFIX:01}  # 계좌번호 뒤 2자리 (ACNT_PRDT_CD)
+  # KIS 실시간 WebSocket — 시세/호가/체결 push 채널.
+  # 폴링(stockPriceService) 만으로는 매도 시점 지연이 발생 → 보유 종목/감시 종목은 push 로 보완.
+  # 구독 한도: 실전 41건 / 모의 41건. customer-type: P(개인), B(법인).
+  websocket:
+    enabled: ${KIS_WEBSOCKET_ENABLED:false}
+    url: ${KIS_WEBSOCKET_URL:ws://ops.koreainvestment.com:21000}
+    # 모의투자: ws://ops.koreainvestment.com:31000
+    customer-type: ${KIS_WEBSOCKET_CUSTOMER_TYPE:P}
+    # 자동 재연결 — 최대 시도 횟수와 최대 백오프(초). 무한 재시도하되 백오프 천장.
+    reconnect-max-attempts: 999
+    reconnect-max-backoff-sec: 60
 
 # 8. Reddit API 설정
 reddit:

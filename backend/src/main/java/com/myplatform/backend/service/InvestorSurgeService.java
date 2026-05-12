@@ -61,7 +61,7 @@ public class InvestorSurgeService {
      * 장중 10분마다 외국인/기관 순매수 데이터 수집
      * 평일 08:00 ~ 20:00 (프리마켓/정규장/애프터마켓 전체)
      */
-    @Scheduled(cron = "0 2/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "tradingScheduler", cron = "0 2/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void collectIntradaySnapshot() {
         LocalTime now = LocalTime.now();
 
@@ -642,7 +642,7 @@ public class InvestorSurgeService {
      * 오래된 알림 기록(24시간 이상) 정리.
      * 스냅샷 정리는 BatchJobCleanupService.cleanOldSnapshots(30일)가 master — 여기서는 alert 만 담당.
      */
-    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupExpiredSurgeAlerts() {
         if (!schedulerLockService.tryLock("investor-surge.alert-cleanup", java.time.Duration.ofMinutes(30))) {
             log.debug("알림 기록 정리 다른 인스턴스에서 진행 중 — 스킵");

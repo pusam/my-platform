@@ -219,7 +219,7 @@ public class PreemptiveRadarService {
     /**
      * 16:30 대량보유 공시 텔레그램 알림
      */
-    @Scheduled(cron = "0 35 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 35 16 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledLargeHoldingAlert() {
         List<LargeHoldingDto> holdings = detectLargeHoldings();
         if (holdings.isEmpty()) return;

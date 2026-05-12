@@ -44,7 +44,7 @@ public class KisInvestorDataCollector {
      *      이 스케줄러는 백업/보완 역할로만 동작
      *      데이터 삭제는 InvestorTradeService.collectInvestorTradeData에서 처리
      */
-    @Scheduled(cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledDailyCollection() {
         LocalDate today = LocalDate.now();
 

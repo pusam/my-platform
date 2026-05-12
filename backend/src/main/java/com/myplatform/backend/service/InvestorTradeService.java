@@ -664,7 +664,7 @@ public class InvestorTradeService {
      * - 순서: 15:50 수집(@CacheEvict 포함) → 15:55 evict(보강) → 16:05 warm(최종 캐시 채우기)
      * - 기존 16:10은 16:05 warm 결과를 도로 비워버려 워밍이 무의미해지는 버그였음
      */
-    @Scheduled(cron = "0 55 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 55 15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledCacheEvict() {
         clearConsecutiveBuysCache();
         log.info("장 마감 후 연속 매수 캐시 스케줄 초기화 완료 (15:55)");

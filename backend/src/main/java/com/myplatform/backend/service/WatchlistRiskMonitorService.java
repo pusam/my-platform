@@ -54,7 +54,7 @@ public class WatchlistRiskMonitorService {
     /**
      * 거래시간(NXT 8:00~20:00 + KRX 정규장) 10분 주기 리스크 감시
      */
-    @Scheduled(cron = "0 0/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 0/10 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledRiskMonitor() {
         // 10분 cron — TTL 8분 으로 다음 cron 까지 락 풀림. monitorWatchlistRisks 는 public 이라 직접 호출도 가능 — 락은 cron 만 보호.
         if (!schedulerLockService.tryLock("watchlist-risk.monitor", Duration.ofMinutes(8))) {

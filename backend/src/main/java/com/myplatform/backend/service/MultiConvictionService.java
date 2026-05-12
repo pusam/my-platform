@@ -236,7 +236,7 @@ public class MultiConvictionService {
     /**
      * 장 마감 후 자동 분석 (16:10)
      */
-    @Scheduled(cron = "0 10 20 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 10 20 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduleAnalysis() {
         log.info("[멀티컨빅션] 스케줄 분석 시작");
         cachedResult = null; // 캐시 무효화

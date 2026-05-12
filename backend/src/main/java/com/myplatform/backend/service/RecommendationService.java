@@ -197,9 +197,9 @@ public class RecommendationService {
     }
 
     /** 장중 스냅샷 (11:30, 14:00, 17:00) — 장중 흐름 변화 히스토리 */
-    @Scheduled(cron = "0 30 11 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 0 17 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 30 11 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 17 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveIntradaySnapshot() {
         log.info("[종합추천] 장중 스냅샷 저장");
@@ -207,7 +207,7 @@ public class RecommendationService {
     }
 
     /** 마감 스냅샷 (20:05 — 애프터마켓 종료 후) */
-    @Scheduled(cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
         log.info("[종합추천] 마감 스냅샷 저장 시작");
@@ -221,7 +221,7 @@ public class RecommendationService {
      *   sectorMomentum=0(장외 시간 보너스 0)으로 굳어 N/A 무더기로 노출되던 문제 해결.
      * - 다음 getTop5() 호출에서 fresh calculate (장중) 또는 최신 DB 스냅샷 (장전) 사용.
      */
-    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
     public void invalidateMorningCache() {
         log.info("[종합추천] 08:00 장전 캐시 무효화 — 다음 호출에서 fresh 계산");
         cachedTop5 = null;
@@ -248,7 +248,7 @@ public class RecommendationService {
      * - 추천 종목이 -3%/-5% 도달 시 → 손절/진입 재검토 신호
      * - 종목별로 임계점별 일 1회만 발송 (재발송 방지)
      */
-    @Scheduled(cron = "0 0/5 9-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0/5 9-19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkRecommendationPriceTargets() {
         java.time.LocalDate today = java.time.LocalDate.now();
         if (!today.equals(priceAlertedDate)) {
@@ -349,7 +349,7 @@ public class RecommendationService {
      * - 어제 마감 스냅샷에 없고 오늘 75+ 진입한 종목만 텔레그램·앱 알림
      * - 일 1회만 (lastAlertDate 체크)
      */
-    @Scheduled(cron = "0 0 9 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 9 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void detectAndAlertNewStrongBuys() {
         java.time.LocalDate today = java.time.LocalDate.now();

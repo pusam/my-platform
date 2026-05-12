@@ -94,7 +94,7 @@ public class MarketCacheWarmerService {
      * Smart Money 실시간 (외국인/기관) - 이전 호출 종료 후 30초.
      * fixedDelay 사용: KIS 400ms 직렬화로 호출이 늘어질 때 누적 락업 방지
      */
-    @Scheduled(fixedDelay = 30000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 30000)
     public void warmSmartMoneyRealtime() {
         if (!isMarketHours()) return;
 
@@ -116,7 +116,7 @@ public class MarketCacheWarmerService {
     /**
      * KIS 투자자 매매동향 (매수/매도 전체) - 이전 호출 종료 후 5분
      */
-    @Scheduled(fixedDelay = 300000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 300000)
     public void warmKisApiData() {
         if (!isMarketHours()) return;
 
@@ -142,7 +142,7 @@ public class MarketCacheWarmerService {
     /**
      * 섹터 거래대금 (TODAY/MIN5/MIN30) - 이전 호출 종료 후 60초
      */
-    @Scheduled(fixedDelay = 60000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 60000)
     public void warmSectorTrading() {
         if (!isMarketHours() && !isStartup()) return;
 
@@ -169,7 +169,7 @@ public class MarketCacheWarmerService {
     /**
      * AI 전략 스냅샷 - 이전 호출 종료 후 2분
      */
-    @Scheduled(fixedDelay = 120000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 120000)
     public void warmAiStrategy() {
         if (!isMarketHours() && !isStartup()) return;
         try {
@@ -186,8 +186,8 @@ public class MarketCacheWarmerService {
     /**
      * 연속 매수 분석 - 08:50, 16:05
      */
-    @Scheduled(cron = "0 50 8 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(cron = "0 5 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 50 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 5 16 * * MON-FRI", zone = "Asia/Seoul")
     public void warmConsecutiveBuys() {
         try {
             Map<String, List<ConsecutiveBuyDto>> data = investorTradeService.getAllConsecutiveBuyStocks(3);
@@ -204,7 +204,7 @@ public class MarketCacheWarmerService {
      * 섹터 기회 발굴 (주도 섹터 × 유망 종목) - 이전 호출 종료 후 2분.
      * 섹터 랭킹/스마트머니/시세 워머가 먼저 돌고 그 결과를 조합함.
      */
-    @Scheduled(fixedDelay = 120000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 120000)
     public void warmSectorOpportunity() {
         if (!isMarketHours() && !isStartup()) return;
         try {
@@ -226,7 +226,7 @@ public class MarketCacheWarmerService {
      * 프론트 60초 폴링이 매번 네이버 크롤링 + ADR 계산을 트리거하던 부담 제거.
      * 장외에도 동작 — 사용자가 장 마감 후 들어와도 최신 데이터 보이도록.
      */
-    @Scheduled(fixedDelay = 60000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 60000)
     public void warmMarketStatus() {
         try {
             marketTimingService.refreshMarketTimingToCache();
@@ -242,7 +242,7 @@ public class MarketCacheWarmerService {
      * 주의: getAllSurgeStocks 는 Redis 캐시 우선 조회라 여기서 호출하면 stale 무한 루프.
      * refreshAllSurgeStocksCache 가 캐시 우회하고 DB 에서 fresh compute → Redis put 까지 한 번에.
      */
-    @Scheduled(fixedDelay = 600000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 600000)
     public void warmInvestorSurge() {
         if (!isMarketHours() && !isStartup()) return;
 

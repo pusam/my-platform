@@ -88,6 +88,7 @@ class AutoTradingBotServiceTest {
     @Mock private InvestorTradeService investorTradeService;
     @Mock private GlobalMarketService globalMarketService;
     @Mock private BotTradingPositionRepository positionRepository;
+    @Mock private RealtimePriceBus realtimePriceBus;
 
     private AutoTradingBotService botService;
 
@@ -115,6 +116,7 @@ class AutoTradingBotServiceTest {
                 investorTradeService,
                 globalMarketService,
                 positionRepository,
+                realtimePriceBus,
                 clock);
     }
 
@@ -830,6 +832,95 @@ class AutoTradingBotServiceTest {
             Method m = AutoTradingBotService.class.getDeclaredMethod("executeScalpingBuyLogicInternal");
             m.setAccessible(true);
             m.invoke(svc);
+        }
+    }
+
+    // ================================================================
+    // surge 신선도 / 가격 stale 가드 (private — reflection)
+    // ================================================================
+
+    @Nested
+    @DisplayName("실시간성 가드 — surge 신선도 / 가격 stale")
+    class FreshnessGuardTests {
+
+        @Test
+        @DisplayName("isSurgeDataFresh — snapshotTime 16분 경과면 false (15분 기준)")
+        void isSurgeDataFresh_returnsFalse_whenSnapshotOlderThan15Minutes() throws Exception {
+            // fixedClock 은 10:00 KST. 15분+ 이전 snapshot = 09:43 → 17분 경과
+            InvestorSurgeDto stale = InvestorSurgeDto.builder()
+                    .stockCode("005930").stockName("삼성전자")
+                    .snapshotTime(java.time.LocalTime.of(9, 43))
+                    .build();
+            Map<String, List<InvestorSurgeDto>> data = new HashMap<>();
+            data.put("FOREIGN", List.of(stale));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isSurgeDataFresh", Map.class);
+            m.setAccessible(true);
+            boolean fresh = (boolean) m.invoke(botService, data);
+
+            assertThat(fresh).isFalse();
+        }
+
+        @Test
+        @DisplayName("isSurgeDataFresh — snapshotTime 5분 전이면 true (기준 내)")
+        void isSurgeDataFresh_returnsTrue_whenSnapshotWithinThreshold() throws Exception {
+            // 10:00 - 5분 = 09:55
+            InvestorSurgeDto fresh = InvestorSurgeDto.builder()
+                    .stockCode("005930").stockName("삼성전자")
+                    .snapshotTime(java.time.LocalTime.of(9, 55))
+                    .build();
+            Map<String, List<InvestorSurgeDto>> data = new HashMap<>();
+            data.put("FOREIGN", List.of(fresh));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isSurgeDataFresh", Map.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, data)).isTrue();
+        }
+
+        @Test
+        @DisplayName("isSurgeDataFresh — snapshotTime null 이면 true (판단 불가시 보수적 통과)")
+        void isSurgeDataFresh_returnsTrue_whenSnapshotTimeMissing() throws Exception {
+            InvestorSurgeDto noTime = InvestorSurgeDto.builder()
+                    .stockCode("005930").stockName("삼성전자")
+                    .build();
+            Map<String, List<InvestorSurgeDto>> data = new HashMap<>();
+            data.put("FOREIGN", List.of(noTime));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isSurgeDataFresh", Map.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, data)).isTrue();
+        }
+
+        @Test
+        @DisplayName("isPriceStale — fetchedAt 90초 전이면 true (60초 기준 초과)")
+        void isPriceStale_returnsTrue_whenFetchedAtOlderThan60Seconds() throws Exception {
+            StockPriceDto dto = new StockPriceDto();
+            dto.setFetchedAt(LocalDateTime.now(fixedClock).minusSeconds(90));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isPriceStale", StockPriceDto.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, dto)).isTrue();
+        }
+
+        @Test
+        @DisplayName("isPriceStale — fetchedAt 30초 전이면 false (기준 내)")
+        void isPriceStale_returnsFalse_whenFetchedAtRecent() throws Exception {
+            StockPriceDto dto = new StockPriceDto();
+            dto.setFetchedAt(LocalDateTime.now(fixedClock).minusSeconds(30));
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isPriceStale", StockPriceDto.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, dto)).isFalse();
+        }
+
+        @Test
+        @DisplayName("isPriceStale — fetchedAt null 이면 true (보수적)")
+        void isPriceStale_returnsTrue_whenFetchedAtMissing() throws Exception {
+            StockPriceDto dto = new StockPriceDto();
+
+            Method m = AutoTradingBotService.class.getDeclaredMethod("isPriceStale", StockPriceDto.class);
+            m.setAccessible(true);
+            assertThat((boolean) m.invoke(botService, dto)).isTrue();
         }
     }
 }
