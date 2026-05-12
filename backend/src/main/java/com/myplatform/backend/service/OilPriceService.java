@@ -65,7 +65,7 @@ public class OilPriceService {
      * 평일 주기적 시세 갱신
      * - 07:00, 10:00, 14:00, 18:00, 22:00
      */
-    @Scheduled(cron = "0 0 7,10,14,18,22 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 7,10,14,18,22 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledFetch() {
         log.info("스케줄 작업: WTI 원유 시세 갱신 시작");
         fetchAndCache();

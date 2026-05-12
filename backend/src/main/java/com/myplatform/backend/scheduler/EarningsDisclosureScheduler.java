@@ -33,7 +33,7 @@ public class EarningsDisclosureScheduler {
     /**
      * 매일 08:00 - 장 시작 전 실적공시 수집
      */
-    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
     public void collectMorning() {
         if (marketCalendar.isMarketClosed()) {
             log.info("[실적공시] 08:00 휴장일 — 수집 스킵");
@@ -55,7 +55,7 @@ public class EarningsDisclosureScheduler {
     /**
      * 매일 16:30 - 장 마감 후 실적공시 수집 + 관심종목 알림
      */
-    @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfternoonAndNotify() {
         if (marketCalendar.isMarketClosed()) {
             log.info("[실적공시] 16:30 휴장일 — 수집/알림 스킵");

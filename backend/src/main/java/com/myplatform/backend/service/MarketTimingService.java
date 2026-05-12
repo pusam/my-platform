@@ -344,7 +344,7 @@ public class MarketTimingService {
      * 매일 장 마감 후 ADR 시장 지표 자동 수집 (평일 16:30)
      * - 15:30 장 마감 후 1시간 여유를 두고 수집
      */
-    @Scheduled(cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 30 16 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void scheduledMarketDataCollection() {
         log.info("=== ADR 시장 지표 자동 수집 시작 (16:30) ===");

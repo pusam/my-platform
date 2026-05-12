@@ -154,7 +154,7 @@ public class NewsService {
     /**
      * 장중 실시간 수집 (평일 08:00~17:45, 15분 간격)
      */
-    @Scheduled(cron = "0 */15 8-17 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 */15 8-17 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledMarketHours() {
         log.info("[스케줄] 장중 15분 주기 뉴스 수집 시작");
         fetchAndSummarizeNews(3);  // 장중에는 최대 3건씩 빠르게
@@ -163,7 +163,7 @@ public class NewsService {
     /**
      * 장 마감 직후 수집 (평일 18:00)
      */
-    @Scheduled(cron = "0 0 18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 18 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledAfterClose() {
         log.info("[스케줄] 장 마감 후 뉴스 수집");
         fetchAndSummarizeNews(5);
@@ -172,7 +172,7 @@ public class NewsService {
     /**
      * 아침 프리마켓 배치 (평일 07:30 - 야간 뉴스 한 번에 수집)
      */
-    @Scheduled(cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledMorningBatch() {
         log.info("[스케줄] 아침 07:30 배치 뉴스 수집");
         fetchAndSummarizeNews(8);  // 밤새 쌓인 뉴스 넉넉하게

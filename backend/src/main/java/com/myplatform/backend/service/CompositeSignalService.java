@@ -157,7 +157,7 @@ public class CompositeSignalService {
     }
 
     /** 부팅 5분 후 + 매 25분 자동 워밍 (캐시 30분 TTL 살짝 안쪽). */
-    @Scheduled(initialDelay = 300_000L, fixedDelay = 1_500_000L)
+    @Scheduled(scheduler = "cacheScheduler", initialDelay = 300_000L, fixedDelay = 1_500_000L)
     public void scheduledWarmup() {
         log.info("[종합추천] 스케줄 워밍 시작 (limit=30)");
         triggerRankingComputation(30);

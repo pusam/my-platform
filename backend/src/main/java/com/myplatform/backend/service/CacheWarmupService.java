@@ -70,7 +70,7 @@ public class CacheWarmupService {
      * 장 시작 전 캐시 갱신 (평일 08:50)
      * - MarketCacheWarmerService가 활성화되어 있으면 스킵
      */
-    @Scheduled(cron = "0 50 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 50 8 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledWarmup() {
         if (marketCacheWarmerService != null) return;
 
