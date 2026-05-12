@@ -97,7 +97,7 @@ public class AiStockAnalysisService {
     /**
      * 정기 분석 스케줄 (장 시작 전, 장중, 장 마감 후)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 9,12,15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 9,12,15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledAnalysis() {
         log.info("AI 주식 분석 스케줄 실행");
         runAnalysis();

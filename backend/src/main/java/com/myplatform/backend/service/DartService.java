@@ -98,7 +98,7 @@ public class DartService {
     }
 
     /** 매일 06:00 — 신규 상장/상호 변경 반영. */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void refreshCorpCodesScheduled() {
         loadCorpCodes();
     }

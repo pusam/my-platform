@@ -67,7 +67,7 @@ public class BatchJobMonitorService {
      * 일일 스케줄러 헬스체크 — 매일 23:30 텔레그램 발송
      * 오늘 실행된 전체 배치 작업의 성공/실패 요약 + 실패 작업 상세
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 23 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 23 * * MON-FRI", zone = "Asia/Seoul")
     public void sendDailyHealthCheck() {
         LocalDateTime todayStart = LocalDate.now().atStartOfDay();
         String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));

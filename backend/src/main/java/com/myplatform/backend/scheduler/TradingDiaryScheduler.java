@@ -23,7 +23,7 @@ public class TradingDiaryScheduler {
     }
 
     /** 매주 일요일 19:00 KST — 지난주(월~일) 분석 리포트 자동 생성 (REAL + VIRTUAL 둘 다) */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 19 * * SUN", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 19 * * SUN", zone = "Asia/Seoul")
     public void generateWeeklyReport() {
         if (!schedulerLockService.tryLock("trading-diary.weekly", Duration.ofHours(1))) {
             log.debug("[주간리포트] 다른 인스턴스에서 진행 중 — 스킵");

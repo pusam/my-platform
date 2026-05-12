@@ -30,7 +30,7 @@ public class StockFinancialDataService {
     /**
      * 매일 밤 재무 데이터 업데이트 체크 (23:00)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 23 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 23 * * MON-FRI", zone = "Asia/Seoul")
     public void collectDailyFinancialData() {
         log.info("=== 재무 데이터 일일 수집 시작 (23:00) ===");
         collectFinancialDataFromTopStocks();

@@ -40,7 +40,7 @@ public class DailyReportScheduler {
     /**
      * 매일 평일 16:00 장 마감 후 일일 리포트 발송
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 16 * * MON-FRI", zone = "Asia/Seoul")
     public void sendDailyReport() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태 - 일일 리포트 생략");

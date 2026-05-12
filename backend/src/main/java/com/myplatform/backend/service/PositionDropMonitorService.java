@@ -52,7 +52,7 @@ public class PositionDropMonitorService {
     /**
      * 장중 2분마다 점검. 장외에는 동작 안 함.
      */
-    @Scheduled(scheduler = "tradingScheduler", cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */2 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkDrops() {
         if (!kisService.isRealTradingConfigured()) return;
         // 2분 cron — TTL 90초. 알림 쿨다운(30분)은 lastAlertTime 으로 별도 관리이므로

@@ -148,7 +148,7 @@ public class AiStrategySnapshotService {
      * - 기존 5분 → 30분 (Gemini 호출이 Rate Limit의 주범)
      * - 장중 09:05 ~ 15:20
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0,30 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0,30 8-19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void collectScalpingSnapshot() {
         LocalTime now = LocalTime.now();
@@ -171,7 +171,7 @@ public class AiStrategySnapshotService {
      * - 평일만 실행
      * - SWING, TURNAROUND, VALUE 전략을 로테이션 수집 (매 시간 1개씩)
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 8-19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void collectLongTermSnapshots() {
         LocalTime now = LocalTime.now();
@@ -213,7 +213,7 @@ public class AiStrategySnapshotService {
      * - 모든 전략 스냅샷의 현재가/등락률을 최종 종가로 업데이트
      * - 장중 데이터가 아닌 확정 종가로 보정
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
     public void updateClosingPrices() {
         log.info("[Closing Batch] 장 마감 확정 배치 시작");
         long startTime = System.currentTimeMillis();
@@ -328,7 +328,7 @@ public class AiStrategySnapshotService {
      * 오래된 스냅샷 정리 (매일 06:00)
      * - 7일 이상 된 데이터 삭제
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
         // 안전장치: 최근 24시간 내 스냅샷이 있을 때만 정리 실행
         LocalDateTime recentCheck = DateTimeUtil.kstNow().minusHours(24);

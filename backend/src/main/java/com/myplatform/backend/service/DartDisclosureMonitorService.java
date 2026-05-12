@@ -42,7 +42,7 @@ public class DartDisclosureMonitorService {
     /**
      * 거래시간(NXT 8-20 + KRX) 5분마다.
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 */5 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkIntraday() {
         runCheck("장중");
     }
@@ -50,7 +50,7 @@ public class DartDisclosureMonitorService {
     /**
      * 장외 야간 (20시~23시). 평일 야간 공시 대응.
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 20-23 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 20-23 * * MON-FRI", zone = "Asia/Seoul")
     public void checkAfterHoursEvening() {
         runCheck("장외-야간");
     }
@@ -59,7 +59,7 @@ public class DartDisclosureMonitorService {
      * 장외 새벽 (00시~07시) — 다음날 새벽이므로 화/수/목/금/토 실행.
      * 기존 0-8 with MON-FRI 패턴은 토요일 새벽도 잘못 포함되는 cross-day 버그가 있어 분리.
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 0-7 * * TUE-SAT", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 0-7 * * TUE-SAT", zone = "Asia/Seoul")
     public void checkAfterHoursDawn() {
         runCheck("장외-새벽");
     }

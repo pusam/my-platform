@@ -45,7 +45,7 @@ public class InvestorTradeScheduler {
      * 매일 15:50 자동 수집 (장 마감 직후)
      * - 당일 외국인/기관 순매수/순매도 상위 종목 수집
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 50 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 50 15 * * MON-FRI", zone = "Asia/Seoul")
     public void collectAfterMarketClose() {
         if (marketCalendar.isMarketClosed()) { log.info("[배치] 15:50 휴장일 — 수집 스킵"); return; }
         if (!schedulerLockService.tryLock("investor-trade.after-close", Duration.ofMinutes(30))) {
@@ -68,7 +68,7 @@ public class InvestorTradeScheduler {
      * 매일 18:00 보완 수집 (누락 방지)
      * - 장 마감 수집이 실패했거나 데이터가 누락된 경우 재시도
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 18 * * MON-FRI", zone = "Asia/Seoul")
     public void collectEvening() {
         if (marketCalendar.isMarketClosed()) { log.info("[배치] 18:00 휴장일 — 보완 수집 스킵"); return; }
 

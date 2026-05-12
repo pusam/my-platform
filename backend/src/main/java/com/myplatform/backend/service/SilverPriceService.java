@@ -81,8 +81,8 @@ public class SilverPriceService {
     /**
      * 평일 9시, 12시, 15시30분, 18시 은 시세 갱신 (금 시세와 동일한 스케줄)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 1 9,12,18 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(scheduler = "batchScheduler", cron = "0 31 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 1 9,12,18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 31 15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledFetchSilverPrice() {
         log.info("스케줄 작업: 은 시세 갱신 시작");
         fetchAndCacheSilverPrice();

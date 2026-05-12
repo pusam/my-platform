@@ -151,7 +151,7 @@ public class SectorTradingService {
      *   그대로 잔존하던 버그. 8시에 비워두면 9시 첫 스냅샷까지 빈 상태로 노출됨.
      * - 휴장일은 어제 데이터 유지 (collectSnapshot 의 isMarketClosed 분기와 동일 의도).
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 8 * * MON-FRI", zone = "Asia/Seoul")
     public void resetDailyCache() {
         if (isMarketClosed()) return;
         log.info("[섹터거래대금] 08:00 일별 캐시 초기화 — 9시 첫 스냅샷 대기");
@@ -175,7 +175,7 @@ public class SectorTradingService {
      * - stockPriceService.getStockPrices()로 전체 종목 시세 조회
      * - accumulatedTradingValue를 시간별로 저장
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 */3 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */3 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSnapshotCollection() {
         LocalTime now = LocalTime.now();
         if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
@@ -612,7 +612,7 @@ public class SectorTradingService {
      * 장 마감 시 당일 섹터별 거래대금을 '전일 캐시'로 저장
      * - 매일 15:35에 실행 (장 마감 직전)
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 35 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 35 15 * * MON-FRI", zone = "Asia/Seoul")
     public void saveYesterdaySnapshot() {
         if (isMarketClosed()) return;
 

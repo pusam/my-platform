@@ -58,7 +58,7 @@ public class StockAlertScheduler {
      * - 장 시작 전 전일 시장 요약 텔레그램 발송
      * - 시장 상태, 외국인/기관 연속매수, 관심종목, 마법의 공식 정보
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 7 * * MON-FRI", zone = "Asia/Seoul")
     public void morningBriefing() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[모닝브리핑] 휴장일 — 스킵"); return; }
@@ -78,7 +78,7 @@ public class StockAlertScheduler {
      * - 16:00 투자자 데이터 수집, 16:30 ADR 수집이 완료된 후 실행
      * - 시장 상태 알림 (과열/공포 구간만)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 45 16 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 45 16 * * MON-FRI", zone = "Asia/Seoul")
     public void afterMarketCloseAlert() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");
@@ -108,7 +108,7 @@ public class StockAlertScheduler {
      * - 마법의 공식 Top 5 종목
      * - 턴어라운드 종목
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void morningAlert() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");
@@ -140,7 +140,7 @@ public class StockAlertScheduler {
      * 관심종목 목표가 알림 (장중 5분 간격)
      * - 09:00~15:30 사이 5분마다 실행
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkWatchlistAlerts() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");
@@ -165,7 +165,7 @@ public class StockAlertScheduler {
      * - 09:00~15:50 사이 10분마다 실행
      * - 여러 조건 동시 충족 종목 감지
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkCompositeAlerts() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[복합알림] 휴장일 — 스킵"); return; }
@@ -185,7 +185,7 @@ public class StockAlertScheduler {
      * - 분기 실적 비교 → 영업이익 20%+ 변동 종목 감지
      * - 적자→흑자 전환 종목 포함
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 8 * * MON", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 8 * * MON", zone = "Asia/Seoul")
     public void checkEarningSurprises() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[어닝서프라이즈] 휴장일 — 스킵"); return; }
@@ -206,7 +206,7 @@ public class StockAlertScheduler {
      * 공매도 잔고 수집 (평일 18:30, 장 마감 후)
      * - 네이버 금융에서 공매도 잔고 데이터 크롤링
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
     public void collectShortSellingBalance() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[공매도수집] 휴장일 — 스킵"); return; }
@@ -227,7 +227,7 @@ public class StockAlertScheduler {
      * 공매도 경보 발송 (평일 19:00)
      * - 공매도 비율 5% 이상 종목 텔레그램 알림
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
     public void checkShortSellingAlert() {
         if (!schedulerEnabled) return;
         if (marketCalendar.isMarketClosed()) { log.debug("[공매도경보] 휴장일 — 스킵"); return; }

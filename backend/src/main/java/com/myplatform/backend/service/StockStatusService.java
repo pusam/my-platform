@@ -95,7 +95,7 @@ public class StockStatusService {
      * 매일 08:30 KRX 상장종목 동기화 (장 시작 전)
      * + 섹터 종목 중 거래정지/상폐 감지 → 텔레그램 알림
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSync() {
         syncFromKrx();
         if (!activeStockCodes.isEmpty()) {

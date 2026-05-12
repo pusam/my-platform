@@ -82,8 +82,8 @@ public class GoldPriceService {
      * 평일 9시, 12시, 15시30분, 18시 금 시세 갱신
      * (무료 플랜 월 100회 제한 고려: 하루 4회 × 약 22일 = 88회)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 9,12,18 * * MON-FRI", zone = "Asia/Seoul")
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 9,12,18 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledFetchGoldPrice() {
         log.info("스케줄 작업: 금 시세 갱신 시작");
         fetchAndCacheGoldPrice();

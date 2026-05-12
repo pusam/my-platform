@@ -33,7 +33,7 @@ public class BatchJobCleanupService {
         this.recommendationSnapshotRepo = recommendationSnapshotRepo;
     }
 
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 3 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 3 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void cleanOldExecutions() {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
@@ -49,7 +49,7 @@ public class BatchJobCleanupService {
      * - 시장 지표 스냅샷: 90일 (월간 트렌드 비교)
      * - 추천 스냅샷: 30일 (전일/전주 delta 비교)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 3 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 30 3 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void cleanOldSnapshots() {
         LocalDate today = LocalDate.now();

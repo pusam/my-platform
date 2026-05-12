@@ -90,9 +90,6 @@ public class AutoTradingBotService {
     private final InvestorTradeService investorTradeService;
     private final GlobalMarketService globalMarketService;
     private final BotTradingPositionRepository positionRepository;
-    // KIS WebSocket 실시간 시세 — 보유 종목 push 구독 + 매도 평가 가격 즉시 갱신.
-    // null-safe: WebSocket 비활성 환경에서도 동작.
-    private final RealtimePriceBus realtimePriceBus;
     // KST Clock — 시간 의존 로직(킬스위치/시장시간)을 테스트 가능하게 분리.
     // 운영: ClockConfig#kstClock() → Clock.system(Asia/Seoul) 주입 → 기존 동작 동일.
     // 테스트: Clock.fixed(...) 로 결정론적 시각 주입.
@@ -248,11 +245,6 @@ public class AutoTradingBotService {
     private volatile Map<String, List<InvestorSurgeDto>> cachedSurgeStocks = null;
     private volatile LocalDateTime surgeStocksCacheTime = null;
     private static final long SURGE_CACHE_SECONDS = 30; // 30초 캐시
-    // 스냅샷 자체의 신선도 임계 — 정상 갱신 주기는 10분(InvestorSurgeService cron). 15분 넘으면 stale.
-    // 데이터 stale 상태로 매수 진입 시 의도하지 않은 시점의 시그널로 거래되어 손실 위험.
-    private static final long SURGE_DATA_MAX_AGE_MINUTES = 15;
-    private volatile LocalDateTime lastStaleSurgeAlertTime = null;
-    private static final long STALE_DATA_ALERT_COOLDOWN_MINUTES = 30;
     // 연속 손절 카운터 (3회 연속 시 당일 정지)
     private final AtomicInteger consecutiveStopLossCount = new AtomicInteger(0);
     private final AtomicBoolean consecutiveStopLossPaused = new AtomicBoolean(false);
@@ -369,7 +361,6 @@ public class AutoTradingBotService {
             InvestorTradeService investorTradeService,
             GlobalMarketService globalMarketService,
             BotTradingPositionRepository positionRepository,
-            RealtimePriceBus realtimePriceBus,
             Clock clock) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
@@ -388,7 +379,6 @@ public class AutoTradingBotService {
         this.investorTradeService = investorTradeService;
         this.globalMarketService = globalMarketService;
         this.positionRepository = positionRepository;
-        this.realtimePriceBus = realtimePriceBus;
         this.clock = clock;
         this.activeTradeService = virtualTradeService;
     }
@@ -500,14 +490,6 @@ public class AutoTradingBotService {
             if (scalping + swing + closing > 0) {
                 log.info("[봇 복구] 포지션 메타 복원 완료 — 스캘핑 {} / 스윙 {} / 종가 {}",
                         scalping, swing, closing);
-                // 복원된 보유 종목 WebSocket 자동 구독 — 매도 평가 가격 즉시 신선화.
-                Set<String> codes = new java.util.HashSet<>();
-                codes.addAll(scalpingPositions.keySet());
-                codes.addAll(swingPositions.keySet());
-                codes.addAll(closingPositions.keySet());
-                for (String code : codes) {
-                    try { realtimePriceBus.subscribe(code); } catch (Exception ignore) {}
-                }
             }
         } catch (Exception e) {
             log.error("[봇 복구] 포지션 메타 복원 실패 (계속 진행): {}", e.getMessage(), e);
@@ -1032,7 +1014,7 @@ public class AutoTradingBotService {
      * 2026-04-24: 주기 5초 → 30초로 완화. KIS EGW00201 재시도 백오프와 충돌 방지.
      *   스캘핑 전략은 분 단위로 움직이므로 30초 간격으로 충분.
      */
-    @Scheduled(scheduler = "tradingScheduler", cron = "*/30 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/30 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
         if (!scalpingBuyRunning.compareAndSet(false, true)) {
             log.warn("[스캘핑봇] 이전 실행 아직 진행 중 — 이번 틱 스킵 (스레드 누적 방지)");
@@ -1120,12 +1102,6 @@ public class AutoTradingBotService {
             Map<String, List<InvestorSurgeDto>> surgeStocks = getCachedSurgeStocks();
             if (surgeStocks == null || surgeStocks.isEmpty()) {
                 log.info("[스캘핑봇] 수급 급증 데이터 없음 — 스냅샷 미수집 상태");
-                return;
-            }
-
-            // ★ 스냅샷 stale 가드 — 정상 갱신 주기(10분) 초과 시 매수 보류.
-            //   collectIntradaySnapshot cron 실패 시 어제 마지막 데이터로 의도치 않은 진입을 차단.
-            if (!isSurgeDataFresh(surgeStocks)) {
                 return;
             }
 
@@ -1258,12 +1234,6 @@ public class AutoTradingBotService {
                     lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
 
-                    // ★ WebSocket 실시간 시세 구독 — 매도 평가 시 polling 대신 push 사용.
-                    //   비활성/한도 초과 시 no-op. 해제는 전량 매도 시 (scalpingPositions.remove 직후).
-                    try {
-                        realtimePriceBus.subscribe(surge.getStockCode());
-                    } catch (Exception ignore) { /* WebSocket 비활성 환경 무시 */ }
-
                     try {
                         persistScalpingPosition(newPos);
                     } catch (Exception persistEx) {
@@ -1311,58 +1281,6 @@ public class AutoTradingBotService {
             lastError = e.getMessage();
             lastErrorTime = LocalDateTime.now(clock);
             log.error("[스캘핑봇] 매수 로직 오류", e);
-        }
-    }
-
-    /**
-     * surge 스냅샷이 매매에 사용해도 될 만큼 신선한지 검증.
-     *
-     * 정상 흐름: InvestorSurgeService.collectIntradaySnapshot 가 10분마다 새 snapshot 생성 →
-     *           surgeStocksCacheTime(30s TTL) 와 별개로 데이터 자체의 snapshotTime 도 신선해야 한다.
-     * stale 케이스: cron 실패, DB 락, KIS 호출 실패 등으로 어제 마지막 snapshot 만 남는 상황.
-     *               이 데이터로 매수 진입하면 어제 시점의 시그널로 오늘 거래되어 손실 위험.
-     *
-     * 첫 데이터의 snapshotTime 만 검사 — 동일 cron 에서 일괄 적재되므로 대표값으로 충분.
-     */
-    private boolean isSurgeDataFresh(Map<String, List<InvestorSurgeDto>> surgeStocks) {
-        InvestorSurgeDto sample = surgeStocks.values().stream()
-                .filter(list -> list != null && !list.isEmpty())
-                .map(list -> list.get(0))
-                .findFirst().orElse(null);
-        if (sample == null || sample.getSnapshotTime() == null) {
-            // snapshotTime 미설정 — 신선도 판단 불가. 안전 측으로 통과(기존 동작 유지).
-            return true;
-        }
-        LocalTime now = LocalTime.now(clock);
-        long ageMinutes = java.time.Duration.between(sample.getSnapshotTime(), now).toMinutes();
-        // 자정 경유는 음수 — 정상 갱신으로 간주
-        if (ageMinutes < 0) return true;
-        if (ageMinutes > SURGE_DATA_MAX_AGE_MINUTES) {
-            log.warn("[스캘핑봇] surge 스냅샷 stale {}분 (기준: {}분) — 매수 보류. snapshotTime={}",
-                    ageMinutes, SURGE_DATA_MAX_AGE_MINUTES, sample.getSnapshotTime());
-            notifyStaleSurgeData(ageMinutes);
-            return false;
-        }
-        return true;
-    }
-
-    /** stale 알림 dedup — 30분에 한 번. cron 실패가 지속될 때 텔레그램 폭주 방지. */
-    private void notifyStaleSurgeData(long ageMinutes) {
-        LocalDateTime now = LocalDateTime.now(clock);
-        if (lastStaleSurgeAlertTime != null
-                && java.time.Duration.between(lastStaleSurgeAlertTime, now).toMinutes() < STALE_DATA_ALERT_COOLDOWN_MINUTES) {
-            return;
-        }
-        lastStaleSurgeAlertTime = now;
-        if (telegramService.isEnabled()) {
-            try {
-                telegramService.sendRisk(
-                        "<b>⚠️ surge 스냅샷 stale 감지</b>\n\n" +
-                        "데이터 " + ageMinutes + "분 경과 (기준 " + SURGE_DATA_MAX_AGE_MINUTES + "분).\n" +
-                        "InvestorSurgeService 수집 cron 또는 KIS 응답을 확인하세요.\n" +
-                        "자동매수는 신선도 회복까지 보류됩니다."
-                );
-            } catch (Exception ignore) {}
         }
     }
 
@@ -1671,7 +1589,7 @@ public class AutoTradingBotService {
      * 2026-04-24 수정: 3초 → 15초 완화 + 동시실행 가드 + 긴급 kill switch.
      *   15초면 손절 체결까지 지연 평균 7.5초 — 충분히 허용 범위.
      */
-    @Scheduled(scheduler = "tradingScheduler", cron = "*/15 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/15 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
         if (!scalpingSellRunning.compareAndSet(false, true)) {
             log.warn("[스캘핑봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
@@ -1732,19 +1650,6 @@ public class AutoTradingBotService {
                 }
 
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
-                // ★ 매도 평가 가격 신선도 검증 — stockPriceService 캐시(KIS 1분 / Naver 10분) 가
-                //    stale 한 시점에 익절/트레일링 임계값을 잘못 통과시키지 않도록 KIS 재조회.
-                //    재조회 실패 시 보류(continue) — 다음 15초 사이클에서 재시도.
-                if (isPriceStale(priceDto)) {
-                    BigDecimal fresh = fetchLatestPriceQuiet(stockCode);
-                    if (fresh != null && fresh.signum() > 0) {
-                        currentPrice = fresh;
-                    } else {
-                        log.warn("[스캘핑봇] 매도 평가 가격 stale + 재조회 실패 — 보류: {} (fetchedAt={})",
-                                portfolio.getStockName(), priceDto.getFetchedAt());
-                        continue;
-                    }
-                }
                 ScalpingPosition position = scalpingPositions.get(stockCode);
 
                 if (position == null) {
@@ -1853,10 +1758,6 @@ public class AutoTradingBotService {
                 scalpingPositions.remove(portfolio.getStockCode());
                 deletePersistedPosition(Strategy.SCALPING, portfolio.getStockCode());
                 sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now(clock));
-                // WebSocket 구독 해제 — 구독 슬롯 41 한도 보호.
-                try {
-                    realtimePriceBus.unsubscribe(portfolio.getStockCode());
-                } catch (Exception ignore) {}
 
                 // 연속 손절 카운터 관리
                 if ("STOP_LOSS".equals(reason)) {
@@ -1923,34 +1824,11 @@ public class AutoTradingBotService {
         }
     }
 
-    // 매도 평가 가격 신선도 임계 — KIS 설정 시 stockPriceService 캐시 윈도우(1분)와 동일.
-    // 이보다 오래된 가격은 익절/트레일링 임계값 통과 결정에 신뢰하지 않는다.
-    private static final long PRICE_STALE_SECONDS = 60;
-
-    /**
-     * 가격 DTO 가 매도 평가에 사용해도 될 만큼 신선한지 검증.
-     * - fetchedAt 미설정: 신선도 판단 불가 → stale 로 간주 (보수적)
-     * - fetchedAt 이 PRICE_STALE_SECONDS 초과: stale
-     */
-    private boolean isPriceStale(StockPriceDto priceDto) {
-        LocalDateTime fetchedAt = priceDto.getFetchedAt();
-        if (fetchedAt == null) return true;
-        long ageSec = java.time.Duration.between(fetchedAt, LocalDateTime.now(clock)).getSeconds();
-        return ageSec > PRICE_STALE_SECONDS;
-    }
-
     /**
      * KIS 현재가 빠른 조회 — 진입 직전 가격 검증용. 실패 시 null (조용히 skip).
      * skip 시 호출자는 surge cache 가격 신뢰.
-     *
-     * 우선순위:
-     *  1) WebSocket push 캐시 (≤2초): rate-limit 부담 0, 사실상 즉시값
-     *  2) KIS REST 호출: WebSocket 비활성/구독 안 됨/첫 틱 도착 전인 경우
      */
     private BigDecimal fetchLatestPriceQuiet(String stockCode) {
-        // 1) WebSocket push 캐시 우선 — 2초 이내 신선하면 사용.
-        BigDecimal pushed = realtimePriceBus.getCurrentPriceIfFresh(stockCode, 2);
-        if (pushed != null && pushed.signum() > 0) return pushed;
         try {
             JsonNode resp = kisService.getStockPriceWithPriority(stockCode,
                     KisApiRateLimiter.Priority.HIGH);
@@ -1980,7 +1858,7 @@ public class AutoTradingBotService {
 
     // ==================== 장 마감 청산 ====================
 
-    @Scheduled(scheduler = "tradingScheduler", cron = "0 10 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 10 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingClearance() {
         if (!botActive.get()) {
             return;
@@ -2134,7 +2012,7 @@ public class AutoTradingBotService {
      * - 14:00 실행 (장 마감 전 수급 확정)
      * - 3일+ 연속매수 + 일평균 10억+ + MA20 지지 + RSI < 65
      */
-    @Scheduled(scheduler = "tradingScheduler", cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingBuyLogic() {
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
@@ -2343,7 +2221,7 @@ public class AutoTradingBotService {
     /**
      * 스윙 포지션 감시: 익절/손절/트레일링/일수 타임컷
      */
-    @Scheduled(scheduler = "tradingScheduler", cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingSellLogic() {
         if (!swingSellRunning.compareAndSet(false, true)) {
             log.warn("[스윙봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");

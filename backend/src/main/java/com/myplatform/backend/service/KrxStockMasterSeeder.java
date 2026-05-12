@@ -111,7 +111,7 @@ public class KrxStockMasterSeeder {
     }
 
     /** 매일 06:00 한국시간에 KRX 마스터 갱신. */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 6 * * *", zone = "Asia/Seoul")
     public void refreshDaily() {
         try {
             log.info("KRX 마스터 일일 갱신 시작");
@@ -127,7 +127,7 @@ public class KrxStockMasterSeeder {
      * 운영 사고: 66 종목만 캐시된 상태로 종일 머묾. 매시간 watcher 가 자가 치유.
      * initialDelay 20분: 부팅 시드와 충돌 방지.
      */
-    @Scheduled(scheduler = "batchScheduler", fixedDelay = 3_600_000L, initialDelay = 1_200_000L)
+    @Scheduled(fixedDelay = 3_600_000L, initialDelay = 1_200_000L)
     public void retryIfEmpty() {
         try {
             int count = stockMasterService.cachedCount();
