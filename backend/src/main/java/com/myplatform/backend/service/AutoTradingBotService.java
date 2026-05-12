@@ -245,6 +245,14 @@ public class AutoTradingBotService {
     private volatile Map<String, List<InvestorSurgeDto>> cachedSurgeStocks = null;
     private volatile LocalDateTime surgeStocksCacheTime = null;
     private static final long SURGE_CACHE_SECONDS = 30; // 30초 캐시
+    // 스냅샷 자체의 신선도 임계 — 정상 갱신 주기는 10분(InvestorSurgeService cron). 15분 넘으면 stale.
+    // stale 상태로 매수 진입 시 의도하지 않은 시점의 시그널로 거래되어 손실 위험.
+    private static final long SURGE_DATA_MAX_AGE_MINUTES = 15;
+    private volatile LocalDateTime lastStaleSurgeAlertTime = null;
+    private static final long STALE_DATA_ALERT_COOLDOWN_MINUTES = 30;
+    // 매도 평가 가격 신선도 임계 — KIS 설정 시 stockPriceService 캐시 윈도우(1분)와 동일.
+    // 이보다 오래된 가격은 익절/트레일링 임계값 통과 결정에 신뢰하지 않는다.
+    private static final long PRICE_STALE_SECONDS = 60;
     // 연속 손절 카운터 (3회 연속 시 당일 정지)
     private final AtomicInteger consecutiveStopLossCount = new AtomicInteger(0);
     private final AtomicBoolean consecutiveStopLossPaused = new AtomicBoolean(false);
@@ -1105,6 +1113,12 @@ public class AutoTradingBotService {
                 return;
             }
 
+            // ★ 스냅샷 stale 가드 — 정상 갱신 주기(10분) 초과 시 매수 보류.
+            //   collectIntradaySnapshot cron 실패 시 어제 마지막 데이터로 의도치 않은 진입 차단.
+            if (!isSurgeDataFresh(surgeStocks)) {
+                return;
+            }
+
             // 외국인 + 기관 순매수 종목 합치기 (중복 제거)
             List<InvestorSurgeDto> targetStocks = mergeAndFilterSurgeStocks(surgeStocks);
             if (targetStocks.isEmpty()) {
@@ -1282,6 +1296,70 @@ public class AutoTradingBotService {
             lastErrorTime = LocalDateTime.now(clock);
             log.error("[스캘핑봇] 매수 로직 오류", e);
         }
+    }
+
+    /**
+     * surge 스냅샷이 매매에 사용해도 될 만큼 신선한지 검증.
+     *
+     * 정상 흐름: InvestorSurgeService.collectIntradaySnapshot 가 10분마다 새 snapshot 생성 →
+     *           surgeStocksCacheTime(30s TTL) 와 별개로 데이터 자체의 snapshotTime 도 신선해야 한다.
+     * stale 케이스: cron 실패, DB 락, KIS 호출 실패 등으로 어제 마지막 snapshot 만 남는 상황.
+     *               이 데이터로 매수 진입하면 어제 시점의 시그널로 오늘 거래되어 손실 위험.
+     *
+     * 첫 데이터의 snapshotTime 만 검사 — 동일 cron 에서 일괄 적재되므로 대표값으로 충분.
+     */
+    private boolean isSurgeDataFresh(Map<String, List<InvestorSurgeDto>> surgeStocks) {
+        InvestorSurgeDto sample = surgeStocks.values().stream()
+                .filter(list -> list != null && !list.isEmpty())
+                .map(list -> list.get(0))
+                .findFirst().orElse(null);
+        if (sample == null || sample.getSnapshotTime() == null) {
+            // snapshotTime 미설정 — 신선도 판단 불가. 안전 측으로 통과(기존 동작 유지).
+            return true;
+        }
+        LocalTime now = LocalTime.now(clock);
+        long ageMinutes = java.time.Duration.between(sample.getSnapshotTime(), now).toMinutes();
+        // 자정 경유는 음수 — 정상 갱신으로 간주
+        if (ageMinutes < 0) return true;
+        if (ageMinutes > SURGE_DATA_MAX_AGE_MINUTES) {
+            log.warn("[스캘핑봇] surge 스냅샷 stale {}분 (기준: {}분) — 매수 보류. snapshotTime={}",
+                    ageMinutes, SURGE_DATA_MAX_AGE_MINUTES, sample.getSnapshotTime());
+            notifyStaleSurgeData(ageMinutes);
+            return false;
+        }
+        return true;
+    }
+
+    /** stale 알림 dedup — 30분에 한 번. cron 실패가 지속될 때 텔레그램 폭주 방지. */
+    private void notifyStaleSurgeData(long ageMinutes) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (lastStaleSurgeAlertTime != null
+                && java.time.Duration.between(lastStaleSurgeAlertTime, now).toMinutes() < STALE_DATA_ALERT_COOLDOWN_MINUTES) {
+            return;
+        }
+        lastStaleSurgeAlertTime = now;
+        if (telegramService.isEnabled()) {
+            try {
+                telegramService.sendRisk(
+                        "<b>⚠️ surge 스냅샷 stale 감지</b>\n\n" +
+                        "데이터 " + ageMinutes + "분 경과 (기준 " + SURGE_DATA_MAX_AGE_MINUTES + "분).\n" +
+                        "InvestorSurgeService 수집 cron 또는 KIS 응답을 확인하세요.\n" +
+                        "자동매수는 신선도 회복까지 보류됩니다."
+                );
+            } catch (Exception ignore) {}
+        }
+    }
+
+    /**
+     * 가격 DTO 가 매도 평가에 사용해도 될 만큼 신선한지 검증.
+     * - fetchedAt 미설정: 신선도 판단 불가 → stale 로 간주 (보수적)
+     * - fetchedAt 이 PRICE_STALE_SECONDS 초과: stale
+     */
+    private boolean isPriceStale(StockPriceDto priceDto) {
+        LocalDateTime fetchedAt = priceDto.getFetchedAt();
+        if (fetchedAt == null) return true;
+        long ageSec = java.time.Duration.between(fetchedAt, LocalDateTime.now(clock)).getSeconds();
+        return ageSec > PRICE_STALE_SECONDS;
     }
 
     /**
@@ -1650,6 +1728,19 @@ public class AutoTradingBotService {
                 }
 
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
+                // ★ 매도 평가 가격 신선도 검증 — stockPriceService 캐시(KIS 1분 / Naver 10분) 가
+                //    stale 한 시점에 익절/트레일링 임계값을 잘못 통과시키지 않도록 KIS 재조회.
+                //    재조회 실패 시 보류(continue) — 다음 15초 사이클에서 재시도.
+                if (isPriceStale(priceDto)) {
+                    BigDecimal fresh = fetchLatestPriceQuiet(stockCode);
+                    if (fresh != null && fresh.signum() > 0) {
+                        currentPrice = fresh;
+                    } else {
+                        log.warn("[스캘핑봇] 매도 평가 가격 stale + 재조회 실패 — 보류: {} (fetchedAt={})",
+                                portfolio.getStockName(), priceDto.getFetchedAt());
+                        continue;
+                    }
+                }
                 ScalpingPosition position = scalpingPositions.get(stockCode);
 
                 if (position == null) {
