@@ -94,7 +94,7 @@ public class MarketCacheWarmerService {
      * Smart Money 실시간 (외국인/기관) - 이전 호출 종료 후 30초.
      * fixedDelay 사용: KIS 400ms 직렬화로 호출이 늘어질 때 누적 락업 방지
      */
-    @Scheduled(fixedDelay = 30000)
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 30000)
     public void warmSmartMoneyRealtime() {
         if (!isMarketHours()) return;
 
