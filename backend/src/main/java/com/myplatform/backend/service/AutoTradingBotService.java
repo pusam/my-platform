@@ -90,6 +90,9 @@ public class AutoTradingBotService {
     private final InvestorTradeService investorTradeService;
     private final GlobalMarketService globalMarketService;
     private final BotTradingPositionRepository positionRepository;
+    // KIS WebSocket 실시간 시세 — kis.websocket.enabled=true 일 때만 빈이 등록되므로
+    // ObjectProvider 로 optional 주입. 비활성 환경에서도 봇이 정상 동작.
+    private final org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider;
     // KST Clock — 시간 의존 로직(킬스위치/시장시간)을 테스트 가능하게 분리.
     // 운영: ClockConfig#kstClock() → Clock.system(Asia/Seoul) 주입 → 기존 동작 동일.
     // 테스트: Clock.fixed(...) 로 결정론적 시각 주입.
@@ -369,6 +372,7 @@ public class AutoTradingBotService {
             InvestorTradeService investorTradeService,
             GlobalMarketService globalMarketService,
             BotTradingPositionRepository positionRepository,
+            org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider,
             Clock clock) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
@@ -387,6 +391,7 @@ public class AutoTradingBotService {
         this.investorTradeService = investorTradeService;
         this.globalMarketService = globalMarketService;
         this.positionRepository = positionRepository;
+        this.realtimePriceBusProvider = realtimePriceBusProvider;
         this.clock = clock;
         this.activeTradeService = virtualTradeService;
     }
@@ -498,6 +503,17 @@ public class AutoTradingBotService {
             if (scalping + swing + closing > 0) {
                 log.info("[봇 복구] 포지션 메타 복원 완료 — 스캘핑 {} / 스윙 {} / 종가 {}",
                         scalping, swing, closing);
+                // 복원된 보유 종목 WebSocket 자동 구독 (활성 시) — 매도 평가 가격 즉시 신선화.
+                RealtimePriceBus bus = getBus();
+                if (bus != null) {
+                    Set<String> codes = new java.util.HashSet<>();
+                    codes.addAll(scalpingPositions.keySet());
+                    codes.addAll(swingPositions.keySet());
+                    codes.addAll(closingPositions.keySet());
+                    for (String code : codes) {
+                        try { bus.subscribe(code); } catch (Exception ignore) {}
+                    }
+                }
             }
         } catch (Exception e) {
             log.error("[봇 복구] 포지션 메타 복원 실패 (계속 진행): {}", e.getMessage(), e);
@@ -1248,6 +1264,13 @@ public class AutoTradingBotService {
                     lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
 
+                    // WebSocket 실시간 시세 구독 — 매도 평가 시 polling 대신 push 사용.
+                    // 빈 미등록(disabled) 시 no-op.
+                    RealtimePriceBus bus = getBus();
+                    if (bus != null) {
+                        try { bus.subscribe(surge.getStockCode()); } catch (Exception ignore) {}
+                    }
+
                     try {
                         persistScalpingPosition(newPos);
                     } catch (Exception persistEx) {
@@ -1849,6 +1872,11 @@ public class AutoTradingBotService {
                 scalpingPositions.remove(portfolio.getStockCode());
                 deletePersistedPosition(Strategy.SCALPING, portfolio.getStockCode());
                 sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now(clock));
+                // WebSocket 구독 해제 — 41 슬롯 한도 보호.
+                RealtimePriceBus bus = getBus();
+                if (bus != null) {
+                    try { bus.unsubscribe(portfolio.getStockCode()); } catch (Exception ignore) {}
+                }
 
                 // 연속 손절 카운터 관리
                 if ("STOP_LOSS".equals(reason)) {
@@ -1915,11 +1943,24 @@ public class AutoTradingBotService {
         }
     }
 
+    /** WebSocket 빈이 등록되어 있으면 인스턴스, 아니면 null. ObjectProvider 가 매번 안전 반환. */
+    private RealtimePriceBus getBus() {
+        return realtimePriceBusProvider.getIfAvailable();
+    }
+
     /**
      * KIS 현재가 빠른 조회 — 진입 직전 가격 검증용. 실패 시 null (조용히 skip).
-     * skip 시 호출자는 surge cache 가격 신뢰.
+     *
+     * 우선순위:
+     *  1) WebSocket push 캐시 (≤2초): rate-limit 부담 0, 사실상 즉시값
+     *  2) KIS REST 호출: WebSocket 비활성/구독 안 됨/첫 틱 도착 전인 경우
      */
     private BigDecimal fetchLatestPriceQuiet(String stockCode) {
+        RealtimePriceBus bus = getBus();
+        if (bus != null) {
+            BigDecimal pushed = bus.getCurrentPriceIfFresh(stockCode, 2);
+            if (pushed != null && pushed.signum() > 0) return pushed;
+        }
         try {
             JsonNode resp = kisService.getStockPriceWithPriority(stockCode,
                     KisApiRateLimiter.Priority.HIGH);

@@ -88,6 +88,9 @@ class AutoTradingBotServiceTest {
     @Mock private InvestorTradeService investorTradeService;
     @Mock private GlobalMarketService globalMarketService;
     @Mock private BotTradingPositionRepository positionRepository;
+    // RealtimePriceBus 는 @ConditionalOnProperty 로 등록되어 단위 테스트에서는 빈 자체가 없음.
+    // ObjectProvider 모킹 → getIfAvailable() = null 반환하도록 BeforeEach 에서 설정.
+    @Mock private org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider;
 
     private AutoTradingBotService botService;
 
@@ -115,6 +118,7 @@ class AutoTradingBotServiceTest {
                 investorTradeService,
                 globalMarketService,
                 positionRepository,
+                realtimePriceBusProvider,
                 clock);
     }
 
@@ -122,6 +126,9 @@ class AutoTradingBotServiceTest {
     void setUp() {
         // 텔레그램 비활성 default — 알림 무시
         when(telegramService.isEnabled()).thenReturn(false);
+
+        // WebSocket 빈 미등록 시나리오 — getIfAvailable() = null
+        when(realtimePriceBusProvider.getIfAvailable()).thenReturn(null);
 
         // 빈 포트폴리오 + 0원 계좌 default
         AccountSummaryDto emptyAccount = AccountSummaryDto.builder()
