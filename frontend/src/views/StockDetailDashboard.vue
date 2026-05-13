@@ -204,29 +204,8 @@
       </div>
     </section>
 
-    <!-- 관련 종목 (correlation 기반) — "함께 움직이는 종목" -->
-    <section v-if="hasData && relatedStocks.length > 0" class="related-section">
-      <div class="related-header">
-        <span class="related-icon">🔗</span>
-        <h3 class="related-title">함께 움직이는 종목</h3>
-        <InfoTooltip title="관련 종목 (correlation)">
-          <p>같은 섹터 종목 중 최근 60일 일변화율이 비슷한 패턴을 보인 top 5.</p>
-          <p><strong>상관 0.5+</strong>: 같이 움직이는 경향. <strong>0.7+</strong>: 매우 강함.</p>
-          <p>왜 유용? <em>한 종목 보유 시 같이 움직이는 종목도 영향 받을 수 있음.</em>
-            분산투자 / 동반 매수·매도 결정에 참고.</p>
-        </InfoTooltip>
-      </div>
-      <div class="related-list">
-        <div v-for="r in relatedStocks" :key="r.stockCode"
-             class="related-row" @click="goToRelatedStock(r.stockCode)">
-          <span class="related-name">{{ r.stockName }}</span>
-          <span class="related-code">{{ r.stockCode }}</span>
-          <span class="related-corr" :class="getCorrClass(r.correlation)">
-            상관 {{ Number(r.correlation).toFixed(2) }}
-          </span>
-        </div>
-      </div>
-    </section>
+    <!-- 관련 종목 (phase 28 분리 — RelatedStocksList.vue) -->
+    <RelatedStocksList v-if="hasData" :stocks="relatedStocks" @select="goToRelatedStock" />
 
     <!-- 차트 패턴 검출 (phase 27 분리 — ChartPatternList.vue) -->
     <ChartPatternList v-if="hasData" :patterns="chartPatterns" />
@@ -1158,6 +1137,7 @@ import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import StockConclusionCard from '../components/v2/StockConclusionCard.vue';
 import ChartPatternList from '../components/v2/ChartPatternList.vue';
+import RelatedStocksList from '../components/v2/RelatedStocksList.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
