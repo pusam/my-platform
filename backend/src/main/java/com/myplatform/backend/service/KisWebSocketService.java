@@ -83,6 +83,9 @@ public class KisWebSocketService {
 
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
+    // Gap-filling 용 — phase 30. 재연결 직후 REST 폴백으로 보유 종목 시세 동기화.
+    // ObjectProvider 로 받아 순환 의존 / 미구성 환경 방어.
+    private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisRestProvider;
 
     // 상태
     private volatile WebSocket webSocket;
@@ -109,9 +112,11 @@ public class KisWebSocketService {
                 return t;
             });
 
-    public KisWebSocketService(ObjectMapper objectMapper, WebClient.Builder webClientBuilder) {
+    public KisWebSocketService(ObjectMapper objectMapper, WebClient.Builder webClientBuilder,
+                               org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisRestProvider) {
         this.objectMapper = objectMapper;
         this.webClient = webClientBuilder.build();
+        this.kisRestProvider = kisRestProvider;
     }
 
     @PostConstruct
@@ -256,6 +261,7 @@ public class KisWebSocketService {
 
         this.webSocket = future.get(15, TimeUnit.SECONDS);
         log.info("[KIS-WS] 연결 완료 → {}", wsUrl);
+        boolean wasReconnect = reconnectAttempts.get() > 0;
         reconnectAttempts.set(0);
 
         // 재연결 시 기존 구독 자동 복원.
@@ -264,6 +270,56 @@ public class KisWebSocketService {
                 sendSubscribeFrame(this.webSocket, trId, entry.getKey(), true);
             }
         }
+
+        // 재연결인 경우 Gap-filling 실행 (phase 30) — 끊긴 동안 누락된 시세를 REST 로 보완.
+        // 첫 연결은 활성 구독 0건이므로 자동 skip.
+        if (wasReconnect && !activeSubscriptions.isEmpty()) {
+            scheduler.execute(this::fillGapAfterReconnect);
+        }
+    }
+
+    /**
+     * 재연결 직후 보유/감시 종목 현재가를 KIS REST 로 1회 조회하여 priceListeners 에 dispatch.
+     * WebSocket 끊긴 동안 누락된 시세 갭을 메꿈 (phase 30, Gemini 제안).
+     *
+     * 부하: 보유 종목 수 × 1 회 호출. 보통 5~10건이라 KIS rate limit (5/s) 영향 적음.
+     * 실패 시 조용히 skip — 다음 push 가 들어오면 자연 복원.
+     */
+    private void fillGapAfterReconnect() {
+        KoreaInvestmentService kis = kisRestProvider.getIfAvailable();
+        if (kis == null || !kis.isConfigured()) {
+            log.debug("[KIS-WS] Gap-fill skip — KIS REST 미구성");
+            return;
+        }
+        Set<String> codes = new java.util.HashSet<>(activeSubscriptions.keySet());
+        if (codes.isEmpty()) return;
+        log.info("[KIS-WS] Gap-fill 시작 — {}종목 REST 폴백", codes.size());
+        int filled = 0;
+        for (String code : codes) {
+            try {
+                JsonNode resp = kis.getStockPriceWithPriority(code, KisApiRateLimiter.Priority.HIGH);
+                if (resp == null || !resp.has("output")) continue;
+                JsonNode out = resp.get("output");
+                BigDecimal price = parseDecimalSafe(out.has("stck_prpr") ? out.get("stck_prpr").asText() : null);
+                if (price == null || price.signum() <= 0) continue;
+                KisRealtimePriceDto dto = KisRealtimePriceDto.builder()
+                        .stockCode(code)
+                        .currentPrice(price)
+                        .changeRate(parseDecimalSafe(out.has("prdy_ctrt") ? out.get("prdy_ctrt").asText() : null))
+                        .openPrice(parseDecimalSafe(out.has("stck_oprc") ? out.get("stck_oprc").asText() : null))
+                        .highPrice(parseDecimalSafe(out.has("stck_hgpr") ? out.get("stck_hgpr").asText() : null))
+                        .lowPrice(parseDecimalSafe(out.has("stck_lwpr") ? out.get("stck_lwpr").asText() : null))
+                        .receivedAt(LocalDateTime.now())
+                        .build();
+                for (Consumer<KisRealtimePriceDto> listener : priceListeners.values()) {
+                    try { listener.accept(dto); } catch (Exception ignore) {}
+                }
+                filled++;
+            } catch (Exception e) {
+                log.debug("[KIS-WS] Gap-fill {} 실패: {}", code, e.getMessage());
+            }
+        }
+        log.info("[KIS-WS] Gap-fill 완료 {}/{}", filled, codes.size());
     }
 
     private String issueApprovalKey() throws Exception {
