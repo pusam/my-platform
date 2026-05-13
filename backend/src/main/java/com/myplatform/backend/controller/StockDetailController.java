@@ -1,7 +1,9 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.BuyChecklistDto;
 import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockDetailDto;
+import com.myplatform.backend.service.BuyChecklistService;
 import com.myplatform.backend.service.StockConclusionService;
 import com.myplatform.backend.service.StockDetailService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,6 +37,7 @@ public class StockDetailController {
 
     private final StockDetailService stockDetailService;
     private final StockConclusionService stockConclusionService;
+    private final BuyChecklistService buyChecklistService;
 
     @GetMapping("/{stockCode}/summary")
     @Operation(
@@ -131,6 +134,32 @@ public class StockDetailController {
             log.error("[StockConclusion API] 종목 {} 결론 조회 실패: {}", stockCode, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "결론 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/checklist")
+    @Operation(
+        summary = "수동 매수 체크리스트",
+        description = "자동매매 봇 hard rule(거래상태/공매도/연속매수/복합신호/종합결론)을 사용자에게 노출. " +
+                     "5개 중 N개 충족에 따라 STRONG/MODERATE/CAUTION/NOT_RECOMMENDED 4단계 권고. " +
+                     "프론트 모달에서 매수 버튼 클릭 직전 표시 권장."
+    )
+    public ResponseEntity<Map<String, Object>> getBuyChecklist(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            BuyChecklistDto checklist = buyChecklistService.evaluate(stockCode);
+            response.put("success", true);
+            response.put("data", checklist);
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[BuyChecklist API] 종목 {} 체크리스트 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "체크리스트 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }
