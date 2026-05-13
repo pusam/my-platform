@@ -608,6 +608,8 @@
           <!-- 일별 손익 -->
           <div v-if="!perfLoading && botPerf && botPerf.dailyPnl && botPerf.dailyPnl.length > 0" class="perf-section">
             <h3>일별 손익 추이</h3>
+            <!-- 차트 (phase 29) — 일별 손익 바 + 누적 손익 라인 -->
+            <BotPnlChart :daily-pnl="botPerf.dailyPnl" />
             <div class="table-container">
               <table class="perf-table">
                 <thead>
@@ -918,6 +920,7 @@ import GlobalNav from '../components/GlobalNav.vue';
 import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
 import StockCodeInput from '../components/StockCodeInput.vue';
 import DataFreshness from '../components/DataFreshness.vue';
+import BotPnlChart from '../components/v2/BotPnlChart.vue';
 
 const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 
