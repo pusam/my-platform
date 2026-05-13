@@ -2,6 +2,17 @@
 
 > 최종 업데이트: 2026-03-09 (페이지 통합 반영)
 
+> ⚠️ **STALE 경고 — 2026-05-13 기준**
+> 이 문서는 2026-03-09 작성 시점의 화면/서비스/임계값 스냅샷입니다. 그 이후 도입된
+> **Phase 1~21 변경(점수 100점 만점, StockConclusionService, BuyChecklistService, KIS WebSocket,
+> signal_outcome + BM alpha 평가, MDD 등)은 이 문서에 반영되지 않았습니다.**
+>
+> 최신 시스템 개요(2026-05-13, Phase 21)는 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
+> 외부 AI 에게 컨텍스트를 줄 때도 SYSTEM_OVERVIEW.md 한 파일로 충분합니다.
+>
+> 이 문서는 화면 라우트 / 점수 임계값 / 외부 API 연동 / 스케줄 작업 / DB 스키마 같은
+> 세부 reference 용으로만 활용하세요. 일부 항목은 phase 도입 후 변경됐을 수 있습니다.
+
 ---
 
 ## 목차
