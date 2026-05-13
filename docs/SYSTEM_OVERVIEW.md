@@ -1,9 +1,10 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.13 Phase 22
-> 작성: 2026-05-13 (phase 1~21 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
-> 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약. 자세한 코드/스키마는
-> [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md) (851줄) 참고.
+> **Version**: 2026.05.13 Phase 30
+> 작성: 2026-05-13 (phase 1~30 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
+> 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
+> 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
 
 ---
 
@@ -372,7 +373,16 @@ frontend/src/
 | 19 | 체크리스트 가중치 차등 — 필수(tradable/shortSelling) + 가산 분리 |
 | 20 | 시그널 적중률에 BM(KOSPI) alpha 도입 — 시장 베타 분리 |
 | 21 | 문서 보강 — Core Design Principle, 시그널 추적 여부 컬럼, phase 18~21 반영 |
-| **22a** | **문서 — Risk Management 별도 섹션, 신선도/리스크 원칙 명시, 시그널 충돌 해설 High 격상** |
+| 22a | 문서 — Risk Management 별도 섹션, 신선도/리스크 원칙 명시 |
+| 22b | **StockConclusionService.detectConflicts() — 6가지 상태 조합형 멘트** (저평가+단기약함 / 단기강+가치약 / 섹터강+차트약 / 실적강+관심없음 / 모두평범 등) |
+| 23 | 결론 카드 신선도 신호등 (녹/노/빨, 5/15분 임계) |
+| 24 | AI 분석 시그널 record() 통합 — AI_STRONG/AI_BUY (총 8종 추적) |
+| 25 | MFE/MAE 측정 — signal_outcome 에 max_high/max_low/mfe/mae 컬럼 (V28) |
+| 26 | 거래 내역에 수수료+세금 비용 컬럼 노출 |
+| 27 | ChartPatternList.vue 컴포넌트 분리 |
+| 28 | RelatedStocksList.vue 컴포넌트 분리 |
+| 29 | BotPnlChart.vue — 봇 손익 차트 (바+라인 콤보) |
+| **30** | **KIS WebSocket Gap-filling — 재연결 시 REST 폴백 시세 동기화** |
 
 ---
 
@@ -380,8 +390,12 @@ frontend/src/
 
 | 영역 | 현재 상태 | 개선 방향 | 우선순위 |
 |---|---|---|---|
-| **시그널 충돌 해설** | 룰 5단계 분기 (StockConclusionService) | "장기 매집 유효하나 단기 진입 불리" 같은 상태 조합형 멘트 추가 | **High** (사용자 혼란 주요 원인) |
-| **Time-to-Stale 시각화** | 백엔드 가드만 | 프론트 카운트다운/신호등 | Medium |
+| ~~시그널 충돌 해설~~ | ✅ **완료 (phase 22b)** — `detectConflicts()` 6가지 룰 | (저평가+단기약함 / 종합강+기술약 / 수급+가치강+기술약 / 실적강+관심없음 / 섹터강+차트약 / 모두평범) | Done |
+| ~~Time-to-Stale 시각화~~ | ✅ **완료 (phase 23)** — 결론 카드 신호등 | 녹(≤5분) / 노(5~15분) / 빨(>15분) | Done |
+| ~~봇 성과 차트~~ | ✅ **완료 (phase 29)** — BotPnlChart 바+라인 콤보 | dailyPnl 시각화 + MDD | Done |
+| ~~AI 분석 적중률 추적~~ | ✅ **완료 (phase 24)** — AI_STRONG/AI_BUY | 8종 시그널 타입 추적 | Done |
+| ~~MFE/MAE 측정~~ | ✅ **완료 (phase 25)** — V28 마이그레이션 | 보유 기간 최고/최저 일봉 추적 | Done |
+| ~~WebSocket Gap-filling~~ | ✅ **완료 (phase 30)** — 재연결 시 REST 폴백 | 활성 종목 일괄 동기화 | Done |
 | **백테스트** | 부분 구현 | 4전략 과거 수익률 검증 강화 | Medium |
 | **MFE/MAE 측정** | 3일 종가만 | 보유 기간 중 최대 상승/하락 추적 — 최적 익절/손절 도출 | Low |
 | **포지션 사이징 (ATR)** | 자동매매 비율 고정 | ATR 기반 동적 사이징 (백테스트 누적 후) | Low |
@@ -400,4 +414,4 @@ frontend/src/
 2. **트레이딩 시간**: KRX 정규장 09:00~15:30 KST, 프리/애프터마켓 08:00~20:00
 3. **현재 활성**: 자동매매 모의 / 스윙 실전 / 텔레그램 3채널 / 시그널 적중률 추적 (3일 후 평가)
 4. **현재 비활성**: 종가 매수 전략, Sentry, KIS WebSocket(`KIS_WEBSOCKET_ENABLED=true` 로 켤 수 있음)
-5. **최근 페인 해결**: 점수 불일치 → 룰 기반 결론 카드 + 매수 체크리스트 모달 (phase 13). 만점 버그 → 100 스케일링 (phase 14). 시장 베타 분리 → BM alpha 평가 (phase 20)
+5. **최근 페인 해결**: 점수 불일치 → 룰 기반 결론 카드 + 매수 체크리스트 모달 (phase 13). 만점 버그 → 100 스케일링 (phase 14). 시장 베타 분리 → BM alpha 평가 (phase 20). 시그널 충돌 → 6가지 상태 조합형 멘트 (phase 22b). 신선도 가시화 → 결론 카드 신호등 (phase 23). 봇 가시성 → MDD + PnL 차트 (phase 18/29).
