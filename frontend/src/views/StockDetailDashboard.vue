@@ -57,6 +57,9 @@
       </div>
     </header>
 
+    <!-- 종합 결론 카드 — 룰 기반 한 줄 결론 + 체크리스트 트리거 (phase 13) -->
+    <StockConclusionCard v-if="stockCode" :stock-code="stockCode" />
+
     <!-- 데이터 갱신 상태 -->
     <div class="freshness-bar" v-if="hasData">
       <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
@@ -1188,6 +1191,7 @@ import InfoTooltip from '../components/InfoTooltip.vue';
 import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import StockRiskCard from '../components/v2/StockRiskCard.vue';
+import StockConclusionCard from '../components/v2/StockConclusionCard.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
