@@ -1,0 +1,71 @@
+package com.myplatform.backend.entity;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+/**
+ * 시그널 적중률 추적 — V26 참조.
+ *
+ * 시그널 발생 시 INSERT, 일일 배치가 3일 후 평가해 price_after_3d / pct_change_3d / hit / evaluated_at 채움.
+ */
+@Entity
+@Table(name = "signal_outcome", indexes = {
+        @Index(name = "idx_so_type_date", columnList = "signal_type, signal_date"),
+        @Index(name = "idx_so_unevaluated", columnList = "signal_date, evaluated_at"),
+        @Index(name = "idx_so_stock_code", columnList = "stock_code")
+})
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class SignalOutcome {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "signal_type", nullable = false, length = 50)
+    private String signalType;
+
+    @Column(name = "stock_code", nullable = false, length = 20)
+    private String stockCode;
+
+    @Column(name = "stock_name", length = 100)
+    private String stockName;
+
+    @Column(name = "signal_date", nullable = false)
+    private LocalDate signalDate;
+
+    @Column(name = "signal_score")
+    private Integer signalScore;
+
+    @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
+    private BigDecimal priceAtSignal;
+
+    @Column(name = "price_after_3d", precision = 15, scale = 2)
+    private BigDecimal priceAfter3d;
+
+    @Column(name = "pct_change_3d", precision = 10, scale = 4)
+    private BigDecimal pctChange3d;
+
+    @Column(name = "hit")
+    private Boolean hit;
+
+    @Column(name = "evaluated_at")
+    private LocalDateTime evaluatedAt;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @PrePersist
+    void onCreate() {
+        if (createdAt == null) createdAt = LocalDateTime.now();
+    }
+}
