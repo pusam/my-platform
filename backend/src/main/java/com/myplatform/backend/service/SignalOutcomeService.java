@@ -76,6 +76,48 @@ public class SignalOutcomeService {
         }
     }
 
+    /**
+     * 시그널 이후 3거래일 OHLC 에서 max_high / max_low / MFE / MAE 계산 채움 (phase 25).
+     * KIS getDailyOhlcv 가 최신 N일 반환 — signalDate 이후 항목만 필터링하여 high/low 누적.
+     * KIS 미설정 또는 조회 실패 시 모든 필드 NULL 유지 (기존 평가는 영향 없음).
+     */
+    private void fillMfeMae(SignalOutcome outcome) {
+        try {
+            KoreaInvestmentService kis = kisProvider.getIfAvailable();
+            if (kis == null || !kis.isConfigured()) return;
+            // 시그널 이후 3거래일 + 안전 마진 = 7일 조회. 주말/공휴일 포함.
+            java.util.List<KoreaInvestmentService.OhlcvData> ohlcv =
+                    kis.getDailyOhlcv(outcome.getStockCode(), 7);
+            if (ohlcv == null || ohlcv.isEmpty()) return;
+            BigDecimal maxHigh = null;
+            BigDecimal minLow = null;
+            for (KoreaInvestmentService.OhlcvData candle : ohlcv) {
+                if (candle.getTradeDate() == null) continue;
+                if (!candle.getTradeDate().isAfter(outcome.getSignalDate())) continue; // 시그널일 이후만
+                if (candle.getHigh() != null && (maxHigh == null || candle.getHigh().compareTo(maxHigh) > 0)) {
+                    maxHigh = candle.getHigh();
+                }
+                if (candle.getLow() != null && (minLow == null || candle.getLow().compareTo(minLow) < 0)) {
+                    minLow = candle.getLow();
+                }
+            }
+            if (maxHigh != null) {
+                outcome.setMaxHigh3d(maxHigh);
+                outcome.setMfePct3d(maxHigh.subtract(outcome.getPriceAtSignal())
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(outcome.getPriceAtSignal(), 4, RoundingMode.HALF_UP));
+            }
+            if (minLow != null) {
+                outcome.setMaxLow3d(minLow);
+                outcome.setMaePct3d(minLow.subtract(outcome.getPriceAtSignal())
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(outcome.getPriceAtSignal(), 4, RoundingMode.HALF_UP));
+            }
+        } catch (Exception e) {
+            log.debug("[SignalOutcome] MFE/MAE 채우기 실패 id={}: {}", outcome.getId(), e.getMessage());
+        }
+    }
+
     /** KOSPI 종합지수 현재가 조회 — phase 20. KIS 미설정 시 null. */
     private BigDecimal fetchKospiPriceQuiet() {
         KoreaInvestmentService kis = kisProvider.getIfAvailable();
@@ -144,6 +186,11 @@ public class SignalOutcomeService {
                 outcome.setBmReturn3d(bmReturn);
                 outcome.setAlpha3d(alpha);
                 outcome.setHit(hit);
+
+                // MFE / MAE — phase 25. 시그널일 이후 3거래일 OHLC 수집.
+                // KIS getDailyOhlcv 가 최신순 반환. signalDate 이후 항목만 필터링.
+                fillMfeMae(outcome);
+
                 outcome.setEvaluatedAt(LocalDateTime.now());
                 repository.save(outcome);
                 evaluated++;

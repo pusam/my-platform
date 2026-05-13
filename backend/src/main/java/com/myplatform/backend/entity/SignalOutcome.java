@@ -56,6 +56,14 @@ public class SignalOutcome {
     @Column(name = "price_after_3d", precision = 15, scale = 2)
     private BigDecimal priceAfter3d;
 
+    /** 시그널 후 3거래일 최고가 (절대값) — phase 25 MFE 계산 input. */
+    @Column(name = "max_high_3d", precision = 15, scale = 2)
+    private BigDecimal maxHigh3d;
+
+    /** 시그널 후 3거래일 최저가 (절대값) — phase 25 MAE 계산 input. */
+    @Column(name = "max_low_3d", precision = 15, scale = 2)
+    private BigDecimal maxLow3d;
+
     @Column(name = "pct_change_3d", precision = 10, scale = 4)
     private BigDecimal pctChange3d;
 
@@ -66,6 +74,14 @@ public class SignalOutcome {
     /** 초과수익률 alpha = pctChange3d - bmReturn3d — phase 20 추가. */
     @Column(name = "alpha_3d", precision = 10, scale = 4)
     private BigDecimal alpha3d;
+
+    /** Max Favorable Excursion % — phase 25. (max_high - price_at_signal) / price_at_signal × 100. */
+    @Column(name = "mfe_pct_3d", precision = 10, scale = 4)
+    private BigDecimal mfePct3d;
+
+    /** Max Adverse Excursion % — phase 25. (max_low - price_at_signal) / price_at_signal × 100. 음수. */
+    @Column(name = "mae_pct_3d", precision = 10, scale = 4)
+    private BigDecimal maePct3d;
 
     @Column(name = "hit")
     private Boolean hit;
