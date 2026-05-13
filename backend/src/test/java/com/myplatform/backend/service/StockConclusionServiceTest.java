@@ -131,4 +131,86 @@ class StockConclusionServiceTest {
         assertThat(result.getLevel()).isEqualTo(Level.WAIT);
         assertThat(result.getFactors()).isEmpty();
     }
+
+    // ================================================================
+    // phase 22b — 시그널 충돌 해설 (conflictNote)
+    // ================================================================
+
+    @Test
+    @DisplayName("conflict: 단기 강(80) + 장기 가치 매우 약(2) → 익절 짧게 멘트")
+    void conflict_strongMomentumLowValue() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 14, 14, 2)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).isNotNull();
+        assertThat(result.getConflictNote()).contains("익절 3% 내");
+    }
+
+    @Test
+    @DisplayName("conflict: 종합 강(80) + 기술 약(5) → 고점 추격 경고")
+    void conflict_strongTotalWeakTechnical() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 5, 14, 10)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).contains("고점 추격");
+    }
+
+    @Test
+    @DisplayName("conflict: 장기 강(15) + 수급 강(13) + 기술 약(7) → 분할 매수")
+    void conflict_longTermSupplyButTechnicalWeak() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(45, 8, 13, 7, 6, 15)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).contains("분할 매수");
+    }
+
+    @Test
+    @DisplayName("conflict: 실적 강(16) + 종합 낮음(45) → 매집 후보")
+    void conflict_strongEarningsLowAttention() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(45, 16, 5, 5, 5, 8)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).contains("매집 후보");
+    }
+
+    @Test
+    @DisplayName("conflict: 섹터 강(16) + 기술 약(5) → 섹터 ETF 대안")
+    void conflict_strongSectorWeakTechnical() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(55, 12, 12, 5, 16, 6)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).contains("섹터 ETF");
+    }
+
+    @Test
+    @DisplayName("conflict: 모든 카테고리 6~10 평범 → 더 매력적 후보 우선")
+    void conflict_allMidRange() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(50, 8, 9, 7, 10, 6)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).contains("뚜렷한 강점 없음");
+    }
+
+    @Test
+    @DisplayName("conflict: 깔끔한 STRONG_BUY (4 카테고리 균형) → 충돌 없음 null")
+    void conflict_none_cleanStrongBuy() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 14, 14, 12)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getConflictNote()).isNull();
+    }
 }

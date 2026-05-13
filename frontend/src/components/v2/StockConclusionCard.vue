@@ -8,6 +8,7 @@
       <div class="conclusion-text">
         <p class="headline">{{ conclusion.headline }}</p>
         <p v-if="conclusion.guidance" class="guidance">{{ conclusion.guidance }}</p>
+        <p v-if="conclusion.conflictNote" class="conflict-note">{{ conclusion.conflictNote }}</p>
       </div>
       <button class="checklist-btn" @click="openChecklist" title="매수 체크리스트">
         ✅ 매수 체크리스트
@@ -192,6 +193,15 @@ const openChecklist = () => { showChecklist.value = true; };
 .conclusion-text { flex: 1; }
 .headline { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
 .guidance { margin: 6px 0 0; font-size: 13px; opacity: 0.78; }
+.conflict-note {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  padding: 6px 10px;
+  background: rgba(234, 179, 8, 0.10);
+  border-left: 3px solid #eab308;
+  border-radius: 4px;
+  line-height: 1.45;
+}
 .checklist-btn {
   background: rgba(59, 130, 246, 0.18);
   color: #93c5fd;

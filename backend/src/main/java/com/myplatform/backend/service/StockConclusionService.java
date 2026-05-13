@@ -108,10 +108,67 @@ public class StockConclusionService {
                 .level(level)
                 .headline(headline)
                 .guidance(guidance)
+                .conflictNote(detectConflicts(s))
                 .factors(factors)
                 .dataAt(s.getSnapshotAt())
                 .dataAvailable(true)
                 .build();
+    }
+
+    /**
+     * 시그널 간 충돌 / 주의 사항 감지 (phase 22b).
+     *
+     * 4-level 헤드라인이 단일 결론을 주는 반면, 이 메서드는 카테고리 간 충돌이나 특이 조합을
+     * 따로 짚어준다. 사용자가 "왜 BUY 인데 익절 짧게?" 같은 의문에 답이 된다.
+     *
+     * 룰 (첫 매칭만 반환 — 가장 중요한 충돌 1개):
+     *  1) 단기 강 + 장기 매우 약 → 익절 짧게
+     *  2) 단기 강 + 기술 약 → 고점 추격 가능성
+     *  3) 장기+수급 동조 + 단기 차트 약 → 분할 매수 / 눌림목 대기
+     *  4) 실적 강 + 시장 관심 없음 → 매집 후보
+     *  5) 섹터 강 + 종목 차트 약 → 섹터 ETF 대안
+     *  6) 모든 카테고리 평범 → 더 매력적 후보 우선
+     */
+    private String detectConflicts(RecommendationSnapshot s) {
+        int total = s.getTotalScore();
+        int earnings = s.getEarnings();
+        int supplyDemand = s.getSupplyDemand();
+        int technical = s.getTechnical();
+        int sector = s.getSectorMomentum();
+        int value = s.getValueStability();
+
+        // 1. 단기 강 + 장기 매우 약 — 펀더멘털 받쳐주지 않는 모멘텀 진입은 익절 짧게.
+        if (total >= STRONG_BUY_THRESHOLD && value >= 0 && value < 4) {
+            return "⚠️ 단기 모멘텀 강함 + 장기 가치 매우 낮음 — 익절 3% 내, 손절 타이트.";
+        }
+        // 2. 단기 강 + 기술 약 — 거래량/모멘텀은 좋은데 차트 기준이 안 받쳐줌 → 고점 추격 위험.
+        if (total >= STRONG_BUY_THRESHOLD && technical > 0 && technical < 6) {
+            return "⚠️ 종합 점수 높으나 기술적 지표 약함 — 고점 추격 가능성, RSI 과열 확인 권장.";
+        }
+        // 3. 장기+수급 동조 + 단기 차트 약 — 매집 진행 중이나 기술적 진입 타이밍 미성숙.
+        if (value >= VALUE_STRONG_THRESHOLD && supplyDemand >= 12 && technical > 0 && technical < 8) {
+            return "💡 장기 저평가 + 수급 강 + 단기 차트 약함 — 분할 매수 또는 20일선 지지 대기.";
+        }
+        // 4. 실적 강 + 시장 관심 없음 — 컨센서스 형성 전 매집 기회.
+        if (earnings >= 15 && total < BUY_THRESHOLD) {
+            return "💡 실적 우수하나 시장 관심 부족 — 컨센서스 형성 전 매집 후보.";
+        }
+        // 5. 섹터 강 + 종목 차트 약 — 종목보다 섹터 ETF 가 더 효율적일 수 있음.
+        if (sector >= 15 && technical > 0 && technical < 6) {
+            return "💡 섹터 흐름 강하나 종목 차트 약함 — 섹터 ETF 대안 고려.";
+        }
+        // 6. 모든 카테고리 평범 (각각 6~10점) — 뚜렷한 강점 없는 평균 종목.
+        if (allMidRange(earnings, supplyDemand, technical, sector)) {
+            return "⚪ 모든 카테고리 평범 — 뚜렷한 강점 없음, 더 매력적인 후보 우선 검토.";
+        }
+        return null;
+    }
+
+    private boolean allMidRange(int... scores) {
+        for (int s : scores) {
+            if (s < 6 || s > 10) return false;
+        }
+        return true;
     }
 
     private List<Factor> buildFactors(RecommendationSnapshot s) {

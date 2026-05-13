@@ -36,6 +36,13 @@ public class StockConclusionDto {
     /** 추가 가이드 1~2줄 — 다음 행동 제안 ("분할 매수 후보", "외인 순매수 전환 대기" 등). */
     private String guidance;
 
+    /**
+     * 시그널 충돌 / 주의 사항 (phase 22b).
+     * 예: "단기 모멘텀 강함 + 장기 가치 매우 낮음 — 익절 짧게".
+     * 충돌 없으면 null. 단순 헤드라인보다 입체적 상태 조합 정보 제공.
+     */
+    private String conflictNote;
+
     /** 결론 산출에 기여한 factor 목록. */
     private List<Factor> factors;
 
