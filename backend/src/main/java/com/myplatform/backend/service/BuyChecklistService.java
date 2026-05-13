@@ -95,6 +95,7 @@ public class BuyChecklistService {
                     .value(active ? "정상" : "거래정지/상폐")
                     .threshold("정상 거래")
                     .note(active ? "" : "거래정지 또는 상폐 종목 — 매수 불가.")
+                    .dimension("META")
                     .build();
         } catch (Exception e) {
             return errorItem("tradable", "거래 가능 상태", e);
@@ -112,6 +113,7 @@ public class BuyChecklistService {
                     .value(ratio.setScale(2, java.math.RoundingMode.HALF_UP) + "%")
                     .threshold("< 5%")
                     .note(passed ? "" : "공매도 압력 높음 — 진입 시 손절선 짧게.")
+                    .dimension("SHORT")
                     .build();
         } catch (Exception e) {
             return errorItem("shortSelling", "공매도 비율", e);
@@ -135,6 +137,7 @@ public class BuyChecklistService {
                     .value(who)
                     .threshold("≥ 3일")
                     .note(passed ? "" : "수급 주체 진입 신호 없음 — 추세 형성 전.")
+                    .dimension("SHORT")
                     .build();
         } catch (Exception e) {
             return errorItem("consecutiveBuy", "외국인/기관 연속매수", e);
@@ -160,6 +163,7 @@ public class BuyChecklistService {
                     .value("신호 " + matched + "/" + total)
                     .threshold("≥ 3/5")
                     .note(passed ? "" : "차트·지지·가치·수급·AI 중 매칭 부족 — 후보 검증 더 필요.")
+                    .dimension("MID")
                     .build();
         } catch (Exception e) {
             return errorItem("compositeSignal", "복합 신호 매칭", e);
@@ -184,6 +188,7 @@ public class BuyChecklistService {
                     .value("데이터 부족")
                     .threshold("BUY 이상")
                     .note("종합 추천 스냅샷에 포함되지 않은 종목 — 다음 스냅샷까지 대기.")
+                    .dimension("MID")
                     .build();
         }
         StockConclusionDto.Level level = conclusion.getLevel();
@@ -195,6 +200,7 @@ public class BuyChecklistService {
                 .value(level == null ? "N/A" : level.name())
                 .threshold("BUY 이상")
                 .note(passed ? "" : "종합 결론이 매수 단계 미달 — 분할 매수 또는 관망 권장.")
+                .dimension("MID")
                 .build();
     }
 

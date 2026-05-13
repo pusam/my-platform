@@ -53,5 +53,7 @@ public class BuyChecklistDto {
         private String threshold;
         /** 설명 — 미충족 시 가이드. */
         private String note;
+        /** 시간 척도 — SHORT / MID / LONG / META. UI 태그용. */
+        private String dimension;
     }
 }
