@@ -28,6 +28,15 @@
       </div>
     </div>
 
+    <div v-if="accuracyStat" class="accuracy-line">
+      <span class="acc-label">📊 {{ accuracyStat.signalType }} 시그널 지난 30일 적중률</span>
+      <span class="acc-rate" :class="accuracyClass">{{ accuracyStat.hitRate }}%</span>
+      <span class="acc-detail">({{ accuracyStat.hitCount }}/{{ accuracyStat.totalSignals }}건, 평균 {{ accuracyStat.avgPctChange }}%)</span>
+    </div>
+    <div v-else-if="accuracyEmpty" class="accuracy-line empty">
+      <span class="acc-label">📊 적중률 데이터 누적 중 — 3일 후 첫 평가 결과 확보</span>
+    </div>
+
     <div v-if="conclusion.dataAt" class="conclusion-meta">
       <span>스냅샷: {{ formatDataAt(conclusion.dataAt) }}</span>
     </div>
@@ -51,6 +60,8 @@ const conclusion = ref(null);
 const loading = ref(false);
 const error = ref(false);
 const showChecklist = ref(false);
+const accuracyStats = ref([]);   // 전체 시그널 타입별 통계 (배열)
+const accuracyEmpty = ref(false); // 데이터 누적 중 표시 플래그
 
 const fetchConclusion = async (code) => {
   if (!code) return;
@@ -70,7 +81,38 @@ const fetchConclusion = async (code) => {
   }
 };
 
-watch(() => props.stockCode, (code) => fetchConclusion(code), { immediate: true });
+const fetchAccuracy = async () => {
+  try {
+    const { data } = await apiClient.get('/signal-outcomes/accuracy', { params: { days: 30 } });
+    if (data?.success) {
+      const stats = data.data?.stats || [];
+      accuracyStats.value = stats;
+      accuracyEmpty.value = stats.length === 0;
+    }
+  } catch (e) {
+    // 데이터 부족 / API 오류 시 조용히 무시
+  }
+};
+
+watch(() => props.stockCode, (code) => {
+  fetchConclusion(code);
+  fetchAccuracy();
+}, { immediate: true });
+
+// 현재 결론 level 에 해당하는 시그널 타입의 적중률 통계 1건.
+// STRONG_BUY/BUY level 만 노출 (HOLD/WAIT 은 시그널이 발생하지 않으므로 통계 없음).
+const accuracyStat = computed(() => {
+  const level = conclusion.value?.level;
+  if (level !== 'STRONG_BUY' && level !== 'BUY') return null;
+  return accuracyStats.value.find(s => s.signalType === level) || null;
+});
+
+const accuracyClass = computed(() => {
+  const rate = Number(accuracyStat.value?.hitRate || 0);
+  if (rate >= 60) return 'acc-good';
+  if (rate >= 40) return 'acc-mid';
+  return 'acc-low';
+});
 
 const levelLabel = computed(() => {
   switch (conclusion.value?.level) {
@@ -199,4 +241,30 @@ const openChecklist = () => { showChecklist.value = true; };
   opacity: 0.55;
   text-align: right;
 }
+
+.accuracy-line {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.accuracy-line.empty {
+  opacity: 0.55;
+}
+.acc-label { opacity: 0.8; }
+.acc-rate {
+  font-weight: 700;
+  font-size: 14px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.acc-good { color: #22c55e; background: rgba(34, 197, 94, 0.18); }
+.acc-mid  { color: #eab308; background: rgba(234, 179, 8, 0.18); }
+.acc-low  { color: #ef4444; background: rgba(239, 68, 68, 0.18); }
+.acc-detail { opacity: 0.65; font-size: 11px; }
 </style>
