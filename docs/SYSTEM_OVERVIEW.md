@@ -1,7 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.13 Phase 17
-> 작성: 2026-05-13 (phase 1~17 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.13 Phase 21
+> 작성: 2026-05-13 (phase 1~21 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약. 자세한 코드/스키마는
 > [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md) (851줄) 참고.
 
@@ -13,7 +13,20 @@
 **Spring Boot 4.0** 백엔드 + **Vue 3** 프론트엔드 + **MariaDB** + **Redis(L2 캐시)** + **KIS WebSocket(실시간 시세, 옵션)**.
 
 핵심: 어떤 종목을 사야 하는가 결정을 돕는 시그널 11종 + 자동매매 봇 + 텔레그램 알림 3채널 +
-종목별 룰 기반 결론 + 매수 체크리스트 + 시그널 적중률 추적.
+종목별 룰 기반 결론 + 매수 체크리스트 + 시그널 적중률 추적 (시장 alpha 기반).
+
+### Core Design Principle
+
+- **하나의 종목에 대해 여러 시간 척도와 차원의 답변을 동시에 제공한다.** 단기 모멘텀과 장기
+  가치가 충돌하는 것은 정상이며, 사용자가 종합 판단할 수 있도록 투명하게 노출한다.
+- **모든 강력 추천에는 적중률 + 체크리스트 + 리스크를 함께 제시한다** — 추천 한 줄로 사용자를
+  움직이지 않고, 데이터로 의사결정을 뒷받침.
+- **시그널의 실력은 시장 베타와 분리해 평가한다** (phase 20) — 코스피가 오른 날 종목이 오른
+  것을 적중으로 잡지 않고, BM 대비 alpha 가 양수인 경우만 hit.
+- **봇 hard rule 은 수동 매매에도 동일하게 적용한다** (phase 6/19) — 필수 항목(거래상태/공매도)
+  미충족 시 가산 항목이 양호해도 진입 비권장.
+- **데이터 신선도가 깨지면 거래를 멈춘다** (phase 1) — 오래된 시그널로 진입하느니 기회를 놓치는
+  쪽 선택.
 
 ---
 
@@ -35,19 +48,19 @@
 
 각 시그널은 **다른 시간 척도 + 다른 차원**의 정보를 본다. 결론이 서로 다를 수 있다.
 
-| # | 시그널 | 무엇 | 입력 차원 | 시간 척도 | 출력 |
-|---|---|---|---|---|---|
-| 1 | **종합 추천 TOP10** (`RecommendationService`) | 실적·수급·기술·섹터 4카테고리 합산 (가치/AI는 별도 트랙) | 펀더멘털+기술+수급 | 30분 캐시 / 11:30·14:00·17:00·20:05 스냅샷 | **0~100점** (75+ 강력매수 / 55~74 매수 / <55 관망) |
-| 2 | **AI 분석 TOP PICK** (`AiStockAnalysisService`) | Gemini + 기술 15%·수급 50%·펀더멘털 35% | RSI/MA + 외국인·기관 + PER/PBR | 09:00·12:00·15:00 일 3회 | 0~100점 (풀매수/매수/관망/매도) |
-| 3 | **수급 급증** (`InvestorSurgeService`) | 외국인/기관 순매수 순위 변화 | KIS 투자자 매매동향 | 초단기 (10분 cron, 08:00~20:00) | HOT(100억+) / WARM(50억+) / NORMAL |
-| 4 | **복합 신호 (5종 매칭)** (`CompositeSignalService`) | 차트패턴·지지선·저평가·수급·AI 5개 중 N개 매칭 | 기술+가치+수급+AI | 30분 캐시 | 1~5점 + 매칭 신호 목록 |
-| 5 | **AI 전략 스냅샷** (`AiStrategySnapshotService`) | SCALPING/SWING/TURNAROUND/VALUE 전략별 후보 | 전략별 상이 | SCALPING 2분 / 그 외 30분 | 전략별 5~10종목 + BUY/SELL/HOLD |
-| 6 | **섹터 흐름** (`SectorTradingService`) | 섹터별 거래대금 1분 스냅샷 → 5/30분 파워 계산 | 거래대금 | 초단기 (1분) | INFLOW / OUTFLOW |
-| 7 | **차트 패턴** (`ChartPatternService`) | 더블탑/바텀, H&S, 삼각수렴, 컵앤핸들 6종 검출 | 90일 일봉 OHLC | 중기 (30분 캐시) | 패턴명 + BULLISH/BEARISH + 신뢰도 |
-| 8 | **선점 레이더** (`PreemptiveRadarService`) | 정책뉴스 + 신고가 전 눌림목 + 5%+ 대량취득 + 어닝 서프라이즈 | 뉴스+공시+실적예측 | 중·장기 | 정책키워드 매칭 종목 |
-| 9 | **멀티컨빅션** (`MultiConvictionService`) | 외국인/투신/사모/연기금/보험 중 2개+ 동시매수 | 투자자 일일거래 | 단기 (일일) | BuySignal / SellSignal |
-| 10 | **저평가 점수** (`RecommendationService.calculateValueTop10`) | PBR≤0.7·ROE/PBR≥15·부채≤50%·흑자 가산 | **순수 펀더멘털** | **장기** | 0~20점 → "우량+저평가" 태그 |
-| 11 | **관심종목 리스크** (`WatchlistRiskMonitorService`) | 공시/급락/대량공급/거래정지 4대 위험 | DART + 시세 + 수급 | 초단기 (10분, 쿨다운 60분) | DANGER / WARNING |
+| # | 시그널 | 무엇 | 입력 차원 | 시간 척도 | 출력 | 적중률 추적 |
+|---|---|---|---|---|---|---|
+| 1 | **종합 추천 TOP10** (`RecommendationService`) | 실적·수급·기술·섹터 4카테고리 합산 (가치/AI는 별도 트랙) | 펀더멘털+기술+수급 | 30분 캐시 / 11:30·14:00·17:00·20:05 스냅샷 | **0~100점** (75+ 강력매수 / 55~74 매수 / <55 관망) | ✅ STRONG_BUY / BUY |
+| 2 | **AI 분석 TOP PICK** (`AiStockAnalysisService`) | Gemini + 기술 15%·수급 50%·펀더멘털 35% | RSI/MA + 외국인·기관 + PER/PBR | 09:00·12:00·15:00 일 3회 | 0~100점 (풀매수/매수/관망/매도) | ❌ |
+| 3 | **수급 급증** (`InvestorSurgeService`) | 외국인/기관 순매수 순위 변화 | KIS 투자자 매매동향 | 초단기 (10분 cron, 08:00~20:00) | HOT(100억+) / WARM(50억+) / NORMAL | ✅ SURGE_HOT / WARM |
+| 4 | **복합 신호 (5종 매칭)** (`CompositeSignalService`) | 차트패턴·지지선·저평가·수급·AI 5개 중 N개 매칭 | 기술+가치+수급+AI | 30분 캐시 | 1~5점 + 매칭 신호 목록 | ✅ COMPOSITE_4PLUS / 5OF5 |
+| 5 | **AI 전략 스냅샷** (`AiStrategySnapshotService`) | SCALPING/SWING/TURNAROUND/VALUE 전략별 후보 | 전략별 상이 | SCALPING 2분 / 그 외 30분 | 전략별 5~10종목 + BUY/SELL/HOLD | ❌ |
+| 6 | **섹터 흐름** (`SectorTradingService`) | 섹터별 거래대금 1분 스냅샷 → 5/30분 파워 계산 | 거래대금 | 초단기 (1분) | INFLOW / OUTFLOW | ❌ |
+| 7 | **차트 패턴** (`ChartPatternService`) | 더블탑/바텀, H&S, 삼각수렴, 컵앤핸들 6종 검출 | 90일 일봉 OHLC | 중기 (30분 캐시) | 패턴명 + BULLISH/BEARISH + 신뢰도 | ❌ |
+| 8 | **선점 레이더** (`PreemptiveRadarService`) | 정책뉴스 + 신고가 전 눌림목 + 5%+ 대량취득 + 어닝 서프라이즈 | 뉴스+공시+실적예측 | 중·장기 | 정책키워드 매칭 종목 | ❌ |
+| 9 | **멀티컨빅션** (`MultiConvictionService`) | 외국인/투신/사모/연기금/보험 중 2개+ 동시매수 | 투자자 일일거래 | 단기 (일일) | BuySignal / SellSignal | ❌ |
+| 10 | **저평가 점수** (`RecommendationService.calculateValueTop10`) | PBR≤0.7·ROE/PBR≥15·부채≤50%·흑자 가산 | **순수 펀더멘털** | **장기** | 0~20점 → "우량+저평가" 태그 | ❌ |
+| 11 | **관심종목 리스크** (`WatchlistRiskMonitorService`) | 공시/급락/대량공급/거래정지 4대 위험 | DART + 시세 + 수급 | 초단기 (10분, 쿨다운 60분) | DANGER / WARNING | ❌ (리스크 시그널) |
 
 ### 시그널 차원 매트릭스
 
@@ -122,13 +135,17 @@ else:
 **해결 (phase 5~13)**:
 - `StockConclusionService` (phase 5): 종합 추천 점수 + 카테고리별 점수를 입력으로 받아 4-level
   (STRONG_BUY/BUY/HOLD/WAIT) + 한 줄 헤드라인 + 6개 factor 출력.
-- `BuyChecklistService` (phase 6): 봇 hard rule 5개 항목 노출 — 5/5 STRONG, 4/5 MODERATE,
-  3/5 CAUTION, < 3/5 NOT_RECOMMENDED. **5개 항목**:
+- `BuyChecklistService` (phase 6 + 19): 봇 hard rule 5개 항목 — **필수 / 가산 차등 (phase 19)**.
+  **필수 항목** (1개라도 미충족 → 즉시 NOT_RECOMMENDED):
     1. **tradable** (META) — `StockStatusService.isActive` 거래 가능 (정지/상폐 아님)
     2. **shortSelling** (SHORT) — `ShortSellingService.getShortSellingRatio` < 5%
+
+  **가산 항목** (3개 중 충족 수에 따라 등급):
     3. **consecutiveBuy** (SHORT) — 외국인 또는 기관 ≥ 3일 연속매수
     4. **compositeSignal** (MID) — `CompositeSignalService.evaluate` 매칭 ≥ 3/5
     5. **conclusion** (MID) — `StockConclusionService` 결론이 BUY 이상
+
+  **등급**: 가산 3/3 → STRONG, 2/3 → MODERATE, 1/3 → CAUTION, 0/3 → NOT_RECOMMENDED.
 - 프론트 통합 (phase 13): 종목 상세 페이지 상단에 결론 카드 + 매수 체크리스트 모달.
 
 → 사용자는 페이지 진입 즉시 한 줄 결론을 보고, 체크리스트로 봇 룰 충족 여부 확인 가능.
@@ -212,7 +229,12 @@ else:
    - **COMPOSITE_4PLUS** (4/5 매칭) / **COMPOSITE_5OF5** (5/5) — `CompositeSignalService.evaluate` (phase 16)
    - 같은 (type/stock/date) 중복 방지
 2. **3일 후 batch 평가**: 매일 19:30 KST `evaluatePendingSignals` (batchScheduler)
-   - unevaluated 항목의 현재 가격 조회 → 변동률 계산 → +3% 이상이면 `hit=true`
+   - unevaluated 항목의 현재 가격 + KOSPI 현재 지수 조회
+   - `pct_change_3d` = (priceAfter - priceAtSignal) / priceAtSignal × 100
+   - `bm_return_3d` = (KOSPI - bmAtSignal) / bmAtSignal × 100
+   - `alpha_3d` = pct_change_3d - bm_return_3d
+   - **hit 기준** (phase 20): `alpha_3d ≥ 0 AND pct_change_3d > 0` (시장 이김 + 절대 수익)
+   - BM 데이터 없으면 기존 +3% 폴백
 3. **통계 조회**: `GET /api/signal-outcomes/accuracy?days=30` — 시그널별 적중률 / 평균 변동률
 4. **UI 노출** (phase 15): 종목 상세 페이지 결론 카드에 level별 적중률 한 줄 표시
    - "📊 STRONG_BUY 시그널 지난 30일 적중률 62% (28/45건, 평균 +2.4%)"
@@ -312,7 +334,7 @@ frontend/src/
 
 ---
 
-## 11. 변경 이력 (Phase 1~17)
+## 11. 변경 이력 (Phase 1~21)
 
 | Phase | 변경 |
 |---|---|
@@ -332,7 +354,11 @@ frontend/src/
 | 14 | normalizeScore 100 스케일링 — 만점 80→100 버그 수정 |
 | 15 | 결론 카드에 적중률 한 줄 추가 — UI 노출 |
 | 16 | surge / composite 시그널 record() 통합 — 4종 시그널 추적 |
-| **17** | **문서 보강 — BuyChecklist 5개 항목 명시, normalizeScore 의도, 버전 명시** |
+| 17 | 문서 보강 — BuyChecklist 5개 항목 명시, normalizeScore 의도, 버전 명시 |
+| 18 | 봇 성과 탭에 MDD 노출 (실전 스윙 가시성) |
+| 19 | 체크리스트 가중치 차등 — 필수(tradable/shortSelling) + 가산 분리 |
+| 20 | 시그널 적중률에 BM(KOSPI) alpha 도입 — 시장 베타 분리 |
+| **21** | **문서 보강 — Core Design Principle, 시그널 추적 여부 컬럼, phase 18~21 반영** |
 
 ---
 
@@ -340,16 +366,17 @@ frontend/src/
 
 | 영역 | 현재 상태 | 개선 방향 | 우선순위 |
 |---|---|---|---|
-| **봇 성과 카드** | API 강화 (MDD 추가) | 프론트 대시보드 차트 통합 | High |
-| **시그널 충돌 해설** | 룰 5단계 분기 | "상태 조합형 멘트" 추가 | Medium |
+| **시그널 충돌 해설** | 룰 5단계 분기 (StockConclusionService) | "장기 매집 유효하나 단기 진입 불리" 같은 상태 조합형 멘트 추가 | Medium |
 | **Time-to-Stale 시각화** | 백엔드 가드만 | 프론트 카운트다운/신호등 | Medium |
 | **백테스트** | 부분 구현 | 4전략 과거 수익률 검증 강화 | Medium |
-| **BM 대비 alpha 측정** | 단순 +3% hit | 지수 변동폭 차감 후 평가 | Medium |
-| **MFE/MAE 측정** | 3일 종가만 | 보유 기간 중 최대 상승/하락 추적 | Low |
-| **포지션 사이징** | 자동매매 비율 고정 | ATR 기반 동적 사이징 (백테스트 누적 후) | Low |
+| **MFE/MAE 측정** | 3일 종가만 | 보유 기간 중 최대 상승/하락 추적 — 최적 익절/손절 도출 | Low |
+| **포지션 사이징 (ATR)** | 자동매매 비율 고정 | ATR 기반 동적 사이징 (백테스트 누적 후) | Low |
+| **MDD 기반 자산 배분** | MDD 노출만 | 낙폭 구간에서 베팅 사이즈 자동 축소 | Low |
 | **Gemini Fallback AI** | 한도 알림만 | 로컬 LLM 대체 경로 | Low |
 | **WebSocket Gap-filling** | 단순 재연결 | 끊긴 동안 REST 폴백 | Low |
 | **세금/수수료** | 실전 매매 수동 계산 | 자동 차감 표시 | Low |
+| **StockDetailDashboard.vue 분리** | 4757줄 단일 파일 | 기능별 컴포넌트 분리 (유지보수성) | Low |
+| **AI 분석 / 전략 / 섹터 적중률** | 미추적 | record() 추가 통합 (phase 16 패턴 복사) | Low |
 
 ---
 
@@ -359,4 +386,4 @@ frontend/src/
 2. **트레이딩 시간**: KRX 정규장 09:00~15:30 KST, 프리/애프터마켓 08:00~20:00
 3. **현재 활성**: 자동매매 모의 / 스윙 실전 / 텔레그램 3채널 / 시그널 적중률 추적 (3일 후 평가)
 4. **현재 비활성**: 종가 매수 전략, Sentry, KIS WebSocket(`KIS_WEBSOCKET_ENABLED=true` 로 켤 수 있음)
-5. **최근 페인 해결**: 점수 불일치 → 룰 기반 결론 카드 + 매수 체크리스트 모달 (phase 13). 만점 버그 → 100 스케일링 (phase 14)
+5. **최근 페인 해결**: 점수 불일치 → 룰 기반 결론 카드 + 매수 체크리스트 모달 (phase 13). 만점 버그 → 100 스케일링 (phase 14). 시장 베타 분리 → BM alpha 평가 (phase 20)
