@@ -252,6 +252,7 @@
                   <th class="right">수량</th>
                   <th class="right">가격</th>
                   <th class="right">금액</th>
+                  <th class="right" title="수수료 0.015% + 매도세 0.18%">비용</th>
                   <th class="right">손익</th>
                   <th>사유</th>
                 </tr>
@@ -264,6 +265,10 @@
                   <td class="right">{{ trade.quantity }}주</td>
                   <td class="right">{{ formatNumber(trade.price) }}원</td>
                   <td class="right">{{ formatCurrency(trade.totalAmount) }}</td>
+                  <td class="right cost-cell"
+                      :title="`수수료 ${formatNumber(trade.commission || 0)}원${trade.tax ? ' + 세금 ' + formatNumber(trade.tax) + '원' : ''}`">
+                    -{{ formatNumber((Number(trade.commission || 0) + Number(trade.tax || 0))) }}원
+                  </td>
                   <td class="right" :class="getProfitClass(trade.profitLoss)">
                     {{ trade.profitLoss ? formatProfitLoss(trade.profitLoss) : '-' }}
                   </td>
