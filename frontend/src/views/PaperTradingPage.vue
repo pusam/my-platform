@@ -548,6 +548,12 @@
                   <span class="label">최대 손실</span>
                   <span class="value negative">{{ formatProfitLoss(botPerf.maxLoss) }}</span>
                 </div>
+                <div class="stat-row" v-if="botPerf.maxDrawdown != null">
+                  <span class="label">최대 낙폭 (MDD)
+                    <small class="hint" title="누적 손익 곡선의 고점 대비 최대 하락폭. 자산 보호 핵심 지표">ⓘ</small>
+                  </span>
+                  <span class="value negative">{{ formatProfitLoss(botPerf.maxDrawdown) }}</span>
+                </div>
               </div>
             </div>
 
