@@ -26,6 +26,7 @@ public class BotPerformanceDto {
     private BigDecimal maxWin;      // 최대 수익
     private BigDecimal maxLoss;     // 최대 손실
     private BigDecimal profitFactor; // 수익팩터 (총수익/총손실)
+    private BigDecimal maxDrawdown;  // 최대 낙폭 (peak-to-trough, 누적 손익 그래프 기준)
 
     private Double avgHoldingMinutes; // 평균 보유 시간(분)
 

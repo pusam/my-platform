@@ -103,6 +103,27 @@ public class BotPerformanceService {
         BigDecimal maxWin = BigDecimal.ZERO;
         BigDecimal maxLoss = BigDecimal.ZERO;
 
+        // MDD 계산용 — 시간순 누적 손익 곡선의 peak-to-trough 최대 낙폭.
+        // 매도 거래 시간순 정렬 후 누적합 추적.
+        List<VirtualTradeHistory> sellTradesByTime = sellTrades.stream()
+                .sorted(Comparator.comparing(VirtualTradeHistory::getTradeDate))
+                .toList();
+        BigDecimal cumulative = BigDecimal.ZERO;
+        BigDecimal peak = BigDecimal.ZERO;
+        BigDecimal maxDrawdown = BigDecimal.ZERO;
+
+        for (VirtualTradeHistory trade : sellTradesByTime) {
+            BigDecimal pnl = trade.getProfitLoss() != null ? trade.getProfitLoss() : BigDecimal.ZERO;
+            cumulative = cumulative.add(pnl);
+            if (cumulative.compareTo(peak) > 0) {
+                peak = cumulative;
+            }
+            BigDecimal drawdown = peak.subtract(cumulative); // 양수 = 낙폭
+            if (drawdown.compareTo(maxDrawdown) > 0) {
+                maxDrawdown = drawdown;
+            }
+        }
+
         for (VirtualTradeHistory trade : sellTrades) {
             BigDecimal pnl = trade.getProfitLoss() != null ? trade.getProfitLoss() : BigDecimal.ZERO;
             totalPnl = totalPnl.add(pnl);
@@ -156,6 +177,7 @@ public class BotPerformanceService {
                 .maxWin(maxWin)
                 .maxLoss(maxLoss)
                 .profitFactor(profitFactor)
+                .maxDrawdown(maxDrawdown)
                 .avgHoldingMinutes(avgHoldingMinutes)
                 .dailyPnl(dailyPnl)
                 .stockPnl(stockPnl)
@@ -355,6 +377,7 @@ public class BotPerformanceService {
                 .maxWin(BigDecimal.ZERO)
                 .maxLoss(BigDecimal.ZERO)
                 .profitFactor(BigDecimal.ZERO)
+                .maxDrawdown(BigDecimal.ZERO)
                 .avgHoldingMinutes(null)
                 .dailyPnl(Collections.emptyList())
                 .stockPnl(Collections.emptyList())
