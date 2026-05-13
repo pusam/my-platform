@@ -69,7 +69,7 @@ public class BuyChecklistService {
 
         int passed = (int) items.stream().filter(ChecklistItem::isPassed).count();
         int total = items.size();
-        Recommendation recommendation = decideRecommendation(passed, total);
+        Recommendation recommendation = decideRecommendation(items);
         String summary = summary(recommendation, passed, total);
 
         return BuyChecklistDto.builder()
@@ -216,21 +216,51 @@ public class BuyChecklistService {
                 .build();
     }
 
-    // ============================== 권고 산출 ==============================
+    // ============================== 권고 산출 (가중치 차등) ==============================
 
-    private Recommendation decideRecommendation(int passed, int total) {
-        if (passed >= 5) return Recommendation.STRONG;
-        if (passed >= 4) return Recommendation.MODERATE;
-        if (passed >= 3) return Recommendation.CAUTION;
+    /**
+     * 필수 항목 + 가산 항목 차등 룰 (phase 19).
+     *
+     * 필수 항목 (1개라도 미충족 → 즉시 NOT_RECOMMENDED, 가산 점수 무관):
+     *   - tradable (거래정지/상폐 아님)
+     *   - shortSelling (공매도 < 5%)
+     *
+     * 가산 항목 (3개 중 충족 개수에 따라 등급):
+     *   - consecutiveBuy / compositeSignal / conclusion
+     *
+     * 등급:
+     *   - 가산 3/3 → STRONG (필수 통과 + 모든 가산)
+     *   - 가산 2/3 → MODERATE
+     *   - 가산 1/3 → CAUTION
+     *   - 가산 0/3 → NOT_RECOMMENDED (필수만 통과는 진입 근거 부족)
+     */
+    private static final java.util.Set<String> REQUIRED_KEYS = java.util.Set.of("tradable", "shortSelling");
+
+    private Recommendation decideRecommendation(List<ChecklistItem> items) {
+        // 필수 항목 검사 — 1개라도 fail 이면 즉시 NOT_RECOMMENDED
+        boolean requiredAllPassed = items.stream()
+                .filter(i -> REQUIRED_KEYS.contains(i.getKey()))
+                .allMatch(ChecklistItem::isPassed);
+        if (!requiredAllPassed) {
+            return Recommendation.NOT_RECOMMENDED;
+        }
+        // 가산 항목 충족 개수
+        long bonusPassed = items.stream()
+                .filter(i -> !REQUIRED_KEYS.contains(i.getKey()))
+                .filter(ChecklistItem::isPassed)
+                .count();
+        if (bonusPassed >= 3) return Recommendation.STRONG;
+        if (bonusPassed >= 2) return Recommendation.MODERATE;
+        if (bonusPassed >= 1) return Recommendation.CAUTION;
         return Recommendation.NOT_RECOMMENDED;
     }
 
     private String summary(Recommendation r, int passed, int total) {
         return switch (r) {
-            case STRONG -> "5/5 모두 충족 — 봇 룰 전부 통과. 진입 권장.";
-            case MODERATE -> passed + "/" + total + " 충족 — 일부 미충족이나 양호. 포지션 분할 권장.";
-            case CAUTION -> passed + "/" + total + " 충족 — 절반 수준. 미충족 항목 확인 후 신중 진입.";
-            case NOT_RECOMMENDED -> passed + "/" + total + " 충족 — 봇 룰 다수 미충족. 진입 비권장.";
+            case STRONG -> passed + "/" + total + " 충족 — 필수+가산 전부 통과. 진입 권장.";
+            case MODERATE -> passed + "/" + total + " 충족 — 가산 2/3. 포지션 분할 권장.";
+            case CAUTION -> passed + "/" + total + " 충족 — 가산 1/3. 미충족 항목 확인 후 신중 진입.";
+            case NOT_RECOMMENDED -> passed + "/" + total + " 충족 — 필수 미통과 또는 가산 0/3. 진입 비권장.";
         };
     }
 }

@@ -81,9 +81,9 @@ class BuyChecklistServiceTest {
     }
 
     @Test
-    @DisplayName("거래정지 → tradable 미충족")
-    void tradingHalted() {
-        when(stockStatusService.isActive(anyString())).thenReturn(false);
+    @DisplayName("필수(tradable) 미충족 → 가산 다 충족해도 NOT_RECOMMENDED (phase19)")
+    void requiredFail_tradable_overridesBonuses() {
+        when(stockStatusService.isActive(anyString())).thenReturn(false); // 필수 실패
         when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("2.5"));
         when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
                 .thenReturn(List.of(consecutive("005930")));
@@ -93,27 +93,73 @@ class BuyChecklistServiceTest {
 
         BuyChecklistDto result = service.evaluate("005930");
 
-        assertThat(result.getPassedCount()).isEqualTo(4);
-        assertThat(result.getRecommendation()).isEqualTo(Recommendation.MODERATE);
-        assertThat(result.getItems()).filteredOn(i -> "tradable".equals(i.getKey()))
-                .extracting(BuyChecklistDto.ChecklistItem::isPassed).containsExactly(false);
+        // 가산 3개 모두 통과해도 필수 1개 실패면 즉시 NOT_RECOMMENDED
+        assertThat(result.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
     }
 
     @Test
-    @DisplayName("공매도 6% → shortSelling 미충족, 3/5 CAUTION")
-    void highShortSelling_caution() {
+    @DisplayName("필수(shortSelling) 미충족 → 가산 다 충족해도 NOT_RECOMMENDED (phase19)")
+    void requiredFail_shortSelling_overridesBonuses() {
         when(stockStatusService.isActive(anyString())).thenReturn(true);
-        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("6.5"));
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("6.5")); // 필수 실패
         when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
-                .thenReturn(Collections.emptyList()); // 연속매수 X
+                .thenReturn(List.of(consecutive("005930")));
+        when(compositeSignalService.evaluate(anyString())).thenReturn(composite(4));
+        when(stockConclusionService.getConclusion(anyString()))
+                .thenReturn(conclusion(StockConclusionDto.Level.STRONG_BUY));
+
+        BuyChecklistDto result = service.evaluate("005930");
+
+        assertThat(result.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
+    }
+
+    @Test
+    @DisplayName("필수 OK + 가산 2/3 → MODERATE (phase19)")
+    void requiredOk_bonus2_moderate() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("2.0"));
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
+                .thenReturn(Collections.emptyList()); // 가산 1개 실패
         when(compositeSignalService.evaluate(anyString())).thenReturn(composite(4));
         when(stockConclusionService.getConclusion(anyString()))
                 .thenReturn(conclusion(StockConclusionDto.Level.BUY));
 
         BuyChecklistDto result = service.evaluate("005930");
 
-        assertThat(result.getPassedCount()).isEqualTo(3);
+        assertThat(result.getRecommendation()).isEqualTo(Recommendation.MODERATE);
+    }
+
+    @Test
+    @DisplayName("필수 OK + 가산 1/3 → CAUTION (phase19)")
+    void requiredOk_bonus1_caution() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("2.0"));
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
+                .thenReturn(Collections.emptyList());
+        when(compositeSignalService.evaluate(anyString())).thenReturn(composite(2)); // 매칭 부족
+        when(stockConclusionService.getConclusion(anyString()))
+                .thenReturn(conclusion(StockConclusionDto.Level.BUY)); // 가산 1개 통과
+
+        BuyChecklistDto result = service.evaluate("005930");
+
         assertThat(result.getRecommendation()).isEqualTo(Recommendation.CAUTION);
+    }
+
+    @Test
+    @DisplayName("필수 OK + 가산 0/3 → NOT_RECOMMENDED (phase19)")
+    void requiredOk_bonus0_notRecommended() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("2.0"));
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
+                .thenReturn(Collections.emptyList());
+        when(compositeSignalService.evaluate(anyString())).thenReturn(composite(2));
+        when(stockConclusionService.getConclusion(anyString()))
+                .thenReturn(conclusion(StockConclusionDto.Level.WAIT));
+
+        BuyChecklistDto result = service.evaluate("005930");
+
+        // 필수만 통과는 진입 근거 부족 → NOT_RECOMMENDED
+        assertThat(result.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
     }
 
     @Test
@@ -150,5 +196,7 @@ class BuyChecklistServiceTest {
         assertThat(result.getItems()).filteredOn(i -> "tradable".equals(i.getKey()))
                 .extracting(BuyChecklistDto.ChecklistItem::getValue)
                 .containsExactly("체크 불가");
+        // 필수 항목(tradable) 실패 → phase19 룰에 따라 NOT_RECOMMENDED
+        assertThat(result.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
     }
 }
