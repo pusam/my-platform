@@ -44,6 +44,8 @@ public class CompositeSignalService {
     private final StockMasterService stockMasterService;
     private final com.myplatform.backend.repository.StockPriceRepository stockPriceRepository;
     private final CacheManager cacheManager;
+    // 시그널 적중률 — phase 16 통합. ObjectProvider 로 안전 주입.
+    private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
     /** scanTopRanked 백그라운드 평가 동시 실행 방지. */
     private final java.util.concurrent.atomic.AtomicBoolean rankingComputing =
             new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -76,6 +78,24 @@ public class CompositeSignalService {
 
         int matched = (int) signals.stream().filter(CompositeSignalDto.Signal::isMatched).count();
 
+        // 시그널 적중률 추적 — 4+ 매칭 시 COMPOSITE_4PLUS, 5/5 매칭 시 COMPOSITE_5OF5 기록 (phase 16).
+        // @Cacheable 가 30분 캐시 — 미스 시점에만 호출되므로 자연스럽게 시그널 발생 지점만 기록됨.
+        // 같은 (type/stock/date) 중복은 SignalOutcomeService 가 차단.
+        if (matched >= 4) {
+            SignalOutcomeService outcome = signalOutcomeProvider.getIfAvailable();
+            if (outcome != null) {
+                try {
+                    BigDecimal price = getCurrentPriceForRecord(stockCode);
+                    if (price != null && price.signum() > 0) {
+                        String type = matched >= 5 ? "COMPOSITE_5OF5" : "COMPOSITE_4PLUS";
+                        outcome.record(type, stockCode,
+                                stockMasterService.getNameOrDefault(stockCode, stockCode),
+                                matched, price);
+                    }
+                } catch (Exception ignore) { /* best-effort */ }
+            }
+        }
+
         return CompositeSignalDto.builder()
                 .stockCode(stockCode)
                 .stockName(stockMasterService.getNameOrDefault(stockCode, stockCode))
@@ -83,6 +103,16 @@ public class CompositeSignalService {
                 .totalCount(signals.size())
                 .signals(signals)
                 .build();
+    }
+
+    /** record 용 현재가 — 빠른 조회 (StockPriceService 캐시 우선). 실패 시 null. */
+    private BigDecimal getCurrentPriceForRecord(String stockCode) {
+        try {
+            StockPriceDto dto = stockPriceService.getStockPrice(stockCode);
+            return dto != null ? dto.getCurrentPrice() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 다종목 일괄 평가 — 종목당 캐시 활용. */

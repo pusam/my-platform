@@ -44,6 +44,8 @@ public class InvestorSurgeService {
     private final StockPriceService stockPriceService;
     private final RedisCacheService redisCacheService;
     private final SchedulerLockService schedulerLockService;
+    // 시그널 적중률 — phase 16 통합. ObjectProvider 로 안전 주입.
+    private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -96,8 +98,39 @@ public class InvestorSurgeService {
 
             // HOT 등급 또는 쌍끌이 종목 알림 발송
             sendSurgeAlerts(foreignSnapshots, institutionSnapshots);
+
+            // 시그널 적중률 추적 — HOT/WARM 등급 종목 발생 기록 (phase 16).
+            // 같은 (type/stock/date) 중복은 SignalOutcomeService 가 차단.
+            recordSurgeOutcomes(foreignSnapshots);
+            recordSurgeOutcomes(institutionSnapshots);
         } catch (Exception e) {
             log.error("장중 스냅샷 수집 실패", e);
+        }
+    }
+
+    /** HOT/WARM surge 종목을 signal_outcome 테이블에 기록 — 3일 후 batch 가 평가. */
+    private void recordSurgeOutcomes(List<InvestorIntradaySnapshot> snapshots) {
+        if (snapshots == null || snapshots.isEmpty()) return;
+        SignalOutcomeService outcomeService = signalOutcomeProvider.getIfAvailable();
+        if (outcomeService == null) return;
+        for (InvestorIntradaySnapshot snap : snapshots) {
+            try {
+                BigDecimal price = snap.getCurrentPrice();
+                if (price == null || price.signum() <= 0) continue;
+                BigDecimal netBuy = snap.getNetBuyAmount() != null ? snap.getNetBuyAmount() : BigDecimal.ZERO;
+                BigDecimal change = snap.getAmountChange() != null ? snap.getAmountChange() : BigDecimal.ZERO;
+                BigDecimal check = change.compareTo(BigDecimal.ZERO) > 0 ? change : netBuy;
+                String signalType;
+                if (check.compareTo(SURGE_THRESHOLD_HOT) >= 0) {
+                    signalType = "SURGE_HOT";
+                } else if (check.compareTo(SURGE_THRESHOLD_WARM) >= 0) {
+                    signalType = "SURGE_WARM";
+                } else {
+                    continue; // NORMAL 은 시그널 아님
+                }
+                outcomeService.record(signalType, snap.getStockCode(), snap.getStockName(),
+                        netBuy.intValue(), price);
+            } catch (Exception ignore) { /* best-effort */ }
         }
     }
 
