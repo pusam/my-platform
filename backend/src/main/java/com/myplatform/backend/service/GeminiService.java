@@ -17,6 +17,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,8 +66,21 @@ public class GeminiService {
     private final io.micrometer.core.instrument.Counter callFail;
     private final io.micrometer.core.instrument.Counter callRateLimit;
 
-    public GeminiService(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+    // 일일 호출 한도 임계 알림 — 80% / 90% 도달 시 텔레그램 risk 채널 1회 알림.
+    // 자정 (KST) 에 카운터 리셋. quota 소진 직전에 사용자에게 경고해 비핵심 호출 차단 결정 가능.
+    @Value("${gemini.usage.daily-limit:${news.gemini.daily-limit:500}}")
+    private int dailyLimit;
+    private final AtomicInteger dailyCount = new AtomicInteger(0);
+    private volatile LocalDate dailyCountDate = LocalDate.now();
+    private volatile boolean alerted80 = false;
+    private volatile boolean alerted90 = false;
+    // 순환 의존성 회피용 — TelegramNotificationService 가 직접 Gemini 를 안 부르지만 안전 위해 ObjectProvider.
+    private final org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider;
+
+    public GeminiService(io.micrometer.core.instrument.MeterRegistry meterRegistry,
+                         org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider) {
         this.meterRegistry = meterRegistry;
+        this.telegramProvider = telegramProvider;
         this.callOk = io.micrometer.core.instrument.Counter.builder("gemini.api.calls")
                 .description("Gemini API 호출 성공")
                 .tag("outcome", "success").register(meterRegistry);
@@ -1124,11 +1138,61 @@ public class GeminiService {
             return "AI 분석 서비스가 일시적으로 사용 불가능합니다. (Gemini Rate Limit)";
         }
 
+        // 1-1. 일일 호출 카운트 + 임계 알림 (호출 직전).
+        trackDailyUsage();
+
         // 2. Gemini API 호출 시도 (재시도 로직 포함)
         String result = callGeminiApiWithRetry(prompt);
 
         return result;
     }
+
+    /**
+     * 일일 호출 카운트 + 80% / 90% 임계 도달 시 텔레그램 risk 알림.
+     * 자정 (KST) 에 카운터 + 알림 플래그 리셋. dailyLimit 0/음수면 비활성.
+     */
+    private void trackDailyUsage() {
+        if (dailyLimit <= 0) return;
+        LocalDate today = LocalDate.now();
+        if (!today.equals(dailyCountDate)) {
+            synchronized (this) {
+                if (!today.equals(dailyCountDate)) {
+                    dailyCount.set(0);
+                    dailyCountDate = today;
+                    alerted80 = false;
+                    alerted90 = false;
+                }
+            }
+        }
+        int count = dailyCount.incrementAndGet();
+        int ratio = (count * 100) / dailyLimit;
+        if (!alerted80 && ratio >= 80) {
+            alerted80 = true;
+            sendUsageAlert(count, ratio, "⚠️ Gemini 일일 한도 80% 도달");
+        }
+        if (!alerted90 && ratio >= 90) {
+            alerted90 = true;
+            sendUsageAlert(count, ratio, "🚨 Gemini 일일 한도 90% 도달 — 비핵심 호출 차단 권장");
+        }
+    }
+
+    private void sendUsageAlert(int count, int ratio, String title) {
+        try {
+            TelegramNotificationService telegram = telegramProvider.getIfAvailable();
+            if (telegram == null || !telegram.isEnabled()) return;
+            telegram.sendRisk(
+                    "<b>" + title + "</b>\n\n" +
+                    "호출 수: <b>" + count + " / " + dailyLimit + "</b> (" + ratio + "%)\n" +
+                    "남은 호출: " + Math.max(0, dailyLimit - count) + "회\n" +
+                    "자정(KST) 카운터 리셋. 한도 초과 시 AI 시그널이 빈값으로 응답합니다.");
+        } catch (Exception e) {
+            log.debug("[Gemini Usage] 텔레그램 알림 실패: {}", e.getMessage());
+        }
+    }
+
+    /** 외부 노출 — 디버그/통계용. */
+    public int getDailyCallCount() { return dailyCount.get(); }
+    public int getDailyLimit() { return dailyLimit; }
 
     /**
      * Gemini API 호출 (지수 백오프 재시도)
