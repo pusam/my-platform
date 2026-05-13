@@ -228,43 +228,8 @@
       </div>
     </section>
 
-    <!-- 차트 패턴 검출 (참고용 인디케이터) -->
-    <section v-if="hasData && chartPatterns.length > 0" class="chart-patterns-section">
-      <div class="cps-header">
-        <span class="cps-header-icon">📊</span>
-        <h3 class="cps-title">차트 패턴 검출</h3>
-        <InfoTooltip title="차트에서 자주 보이는 모양">
-          <p><strong>↑ 상승 신호</strong>: 더블바텀 · 역헤드앤숄더 · 컵앤핸들 · 상승삼각형</p>
-          <p><strong>↓ 하락 신호</strong>: 더블탑 · 헤드앤숄더 · 하락삼각형</p>
-          <p><strong>관찰</strong>: 대칭삼각형 — 방향 결정 임박</p>
-          <div class="tip-row" style="margin-top:8px"><b>주의</b></div>
-          <div class="tip-row">모든 패턴은 <em>참고용</em>. 단독 매수/매도 X</div>
-          <div class="tip-row">신뢰도 높음 + 거래량 동반 시 의미</div>
-          <div class="tip-row">지지/저항 + Volume Profile 과 함께 보면 유용</div>
-        </InfoTooltip>
-        <span class="cps-disclaimer">참고용 · 자동매매 신호 아님</span>
-      </div>
-      <div class="cps-list">
-        <div v-for="(p, idx) in chartPatterns" :key="idx"
-             class="cps-card" :class="'sig-' + (p.signal || 'NEUTRAL').toLowerCase()">
-          <div class="cps-card-head">
-            <span class="cps-card-icon">{{ getCpsIcon(p.type) }}</span>
-            <span class="cps-card-label">{{ p.label }}</span>
-            <span class="cps-badge cps-confidence" :class="'cf-' + (p.confidence || 'MEDIUM').toLowerCase()">
-              신뢰도 {{ getCpsConfidenceLabel(p.confidence) }}
-            </span>
-            <span class="cps-badge cps-signal" :class="'sg-' + (p.signal || 'NEUTRAL').toLowerCase()">
-              {{ getCpsSignalLabel(p.signal) }}
-            </span>
-          </div>
-          <p class="cps-card-desc">{{ p.description }}</p>
-          <div class="cps-dates" v-if="p.startDate && p.endDate">
-            {{ p.startDate }} ~ {{ p.endDate }}
-            <span v-if="p.referencePrice" class="cps-ref">· 기준가 {{ Number(p.referencePrice).toLocaleString() }}원</span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- 차트 패턴 검출 (phase 27 분리 — ChartPatternList.vue) -->
+    <ChartPatternList v-if="hasData" :patterns="chartPatterns" />
 
     <!-- 핵심 요약 카드 (항상 고정) -->
     <div v-if="hasData && !loading" class="quick-summary-bar">
@@ -1192,6 +1157,7 @@ import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import StockConclusionCard from '../components/v2/StockConclusionCard.vue';
+import ChartPatternList from '../components/v2/ChartPatternList.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
