@@ -1372,25 +1372,25 @@ public class RecommendationService {
     private static final int TOTAL_CATEGORIES = 4;
 
     /**
-     * 유효 카테고리 수별 점수 정규화 — 커버리지 비율 기반 동적 cap.
+     * 유효 카테고리 수별 점수 정규화 — 0~100 스케일링 + 커버리지 기반 cap.
      *
-     * 공식: cap = 25 + 75 × (validCount / TOTAL_CATEGORIES)
-     *   - 25 = 최소 신뢰 기준점 (1 카테고리만 충족해도 완전 0점은 아님)
-     *   - 75 = 잔여 커버리지에 따른 가산
+     * 스케일링: scaled = raw × 100 / (TOTAL_CATEGORIES × 20)
+     *   - 4 카테고리 × 카테고리당 최대 20점 = raw 만점 80 → scaled 100
+     *   - 이전 버그(phase 14 이전): 4 valid 일 때 raw 그대로 반환하여 만점이 80 → 임계값
+     *     75 가 "거의 만점" 의미였음. v7 (5→4 카테고리) 전환 시 임계값 미조정 잔존.
+     *   - 수정 후: 4 valid full = 100, 임계값 75/55 가 의도된 의미 회복.
      *
-     * 4-카테고리 기준 매핑 (기존 하드코딩과 거의 동치 — ±5 차이):
-     *   - 1/4 (25%) → 43 (기존 40)
-     *   - 2/4 (50%) → 62 (기존 65)
-     *   - 3/4 (75%) → 81 (기존 85)
-     *   - 4/4 (100%) → 100 (변동 없음)
+     * cap (validCount < TOTAL_CATEGORIES 만 적용):
+     *   25 + 75 × (validCount / TOTAL_CATEGORIES)
+     *   - 1/4 → 43, 2/4 → 62, 3/4 → 81, 4/4 → 100 (cap 미적용 — scaled 그대로)
      *
-     * 시그널 추가/삭제 시 TOTAL_CATEGORIES 만 바꾸면 자동 재계산 — 하드코딩 매핑 유지보수 불필요.
+     * 시그널 추가/삭제 시 TOTAL_CATEGORIES 만 바꾸면 자동 재계산.
      */
     private static int normalizeScore(int raw, int validCount) {
         if (validCount <= 0) return 0;
-        if (validCount >= TOTAL_CATEGORIES) return Math.min(100, raw);
         int rawCap = TOTAL_CATEGORIES * 20;
         int scaled = raw * 100 / rawCap;
+        if (validCount >= TOTAL_CATEGORIES) return Math.min(100, scaled);
         int cap = 25 + (75 * validCount / TOTAL_CATEGORIES);
         return Math.min(cap, scaled);
     }
