@@ -1,6 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> 작성: 2026-05-13 (phase 14 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.13 Phase 17
+> 작성: 2026-05-13 (phase 1~17 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약. 자세한 코드/스키마는
 > [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md) (851줄) 참고.
 
@@ -82,6 +83,9 @@
 
 ### normalizeScore 공식 (phase 14)
 
+**의도**: 4 카테고리 raw 만점 80점을 사용자에게는 100점 만점으로 일관되게 노출. 카테고리 수가
+바뀌어도(TOTAL_CATEGORIES 상수만 조정) 임계값(75/55/40) 의미가 보존되도록 동적 비율 기반.
+
 ```
 rawCap = TOTAL_CATEGORIES × 20 = 80
 scaled = raw × 100 / rawCap
@@ -119,7 +123,12 @@ else:
 - `StockConclusionService` (phase 5): 종합 추천 점수 + 카테고리별 점수를 입력으로 받아 4-level
   (STRONG_BUY/BUY/HOLD/WAIT) + 한 줄 헤드라인 + 6개 factor 출력.
 - `BuyChecklistService` (phase 6): 봇 hard rule 5개 항목 노출 — 5/5 STRONG, 4/5 MODERATE,
-  3/5 CAUTION, < 3/5 NOT_RECOMMENDED.
+  3/5 CAUTION, < 3/5 NOT_RECOMMENDED. **5개 항목**:
+    1. **tradable** (META) — `StockStatusService.isActive` 거래 가능 (정지/상폐 아님)
+    2. **shortSelling** (SHORT) — `ShortSellingService.getShortSellingRatio` < 5%
+    3. **consecutiveBuy** (SHORT) — 외국인 또는 기관 ≥ 3일 연속매수
+    4. **compositeSignal** (MID) — `CompositeSignalService.evaluate` 매칭 ≥ 3/5
+    5. **conclusion** (MID) — `StockConclusionService` 결론이 BUY 이상
 - 프론트 통합 (phase 13): 종목 상세 페이지 상단에 결론 카드 + 매수 체크리스트 모달.
 
 → 사용자는 페이지 진입 즉시 한 줄 결론을 보고, 체크리스트로 봇 룰 충족 여부 확인 가능.
@@ -197,17 +206,17 @@ else:
 ### 흐름
 
 1. **시그널 발생 시 INSERT**: `signal_outcome` 테이블에 (signal_type, stock_code, signal_date, price_at_signal)
-   - `RecommendationService.saveSnapshotInternal` 에서 STRONG_BUY (75+) / BUY (55~74) 종목 자동 기록 (phase 12)
-   - 같은 날 같은 (type/stock) 중복 방지
+   추적 중인 시그널 타입 (phase 12 + 16):
+   - **STRONG_BUY** (≥75) / **BUY** (55~74) — `RecommendationService.saveSnapshotInternal`
+   - **SURGE_HOT** (100억+) / **SURGE_WARM** (50억+) — `InvestorSurgeService.collectIntradaySnapshot` (phase 16)
+   - **COMPOSITE_4PLUS** (4/5 매칭) / **COMPOSITE_5OF5** (5/5) — `CompositeSignalService.evaluate` (phase 16)
+   - 같은 (type/stock/date) 중복 방지
 2. **3일 후 batch 평가**: 매일 19:30 KST `evaluatePendingSignals` (batchScheduler)
    - unevaluated 항목의 현재 가격 조회 → 변동률 계산 → +3% 이상이면 `hit=true`
 3. **통계 조회**: `GET /api/signal-outcomes/accuracy?days=30` — 시그널별 적중률 / 평균 변동률
-
-### 다음 작업 후보
-
-- `InvestorSurgeService.collectIntradaySnapshot` 에 `SURGE_HOT/WARM` record() 통합
-- `CompositeSignalService` 의 4+ 매칭 종목도 `COMPOSITE_4PLUS` record() 통합
-- 프론트 — 종목 상세 페이지에 "지난 30일 적중률 X%" 카드
+4. **UI 노출** (phase 15): 종목 상세 페이지 결론 카드에 level별 적중률 한 줄 표시
+   - "📊 STRONG_BUY 시그널 지난 30일 적중률 62% (28/45건, 평균 +2.4%)"
+   - ≥ 60% 녹색 / 40~60% 노랑 / < 40% 빨강
 
 ---
 
@@ -320,20 +329,27 @@ frontend/src/
 | 11 | normalizeScore 동적 비율 리팩토링 |
 | 12 | RecommendationService 에서 SignalOutcome.record() 통합 |
 | 13 | 프론트 결론 카드 + 매수 체크리스트 모달 |
-| **14** | **normalizeScore 100 스케일링 — 만점 80→100 버그 수정** |
+| 14 | normalizeScore 100 스케일링 — 만점 80→100 버그 수정 |
+| 15 | 결론 카드에 적중률 한 줄 추가 — UI 노출 |
+| 16 | surge / composite 시그널 record() 통합 — 4종 시그널 추적 |
+| **17** | **문서 보강 — BuyChecklist 5개 항목 명시, normalizeScore 의도, 버전 명시** |
 
 ---
 
 ## 12. 알려진 한계 / 다음 작업 후보
 
-| 영역 | 현재 상태 | 개선 방향 |
-|---|---|---|
-| **시그널 추적 확장** | RecommendationService 만 통합 | InvestorSurgeService / CompositeSignalService 통합 |
-| **적중률 화면 노출** | API 만 있음 | 종목 상세 페이지에 "지난 30일 적중률 X%" 카드 |
-| **봇 성과 카드** | API 강화 (MDD 추가) | 프론트 대시보드에 차트 통합 |
-| **백테스트** | 부분 구현 | 4전략 과거 수익률 검증 강화 |
-| **포지션 사이징** | 자동매매 비율 고정 | ATR 기반 동적 사이징 |
-| **세금/수수료** | 실전 매매 수동 계산 | 자동 차감 표시 |
+| 영역 | 현재 상태 | 개선 방향 | 우선순위 |
+|---|---|---|---|
+| **봇 성과 카드** | API 강화 (MDD 추가) | 프론트 대시보드 차트 통합 | High |
+| **시그널 충돌 해설** | 룰 5단계 분기 | "상태 조합형 멘트" 추가 | Medium |
+| **Time-to-Stale 시각화** | 백엔드 가드만 | 프론트 카운트다운/신호등 | Medium |
+| **백테스트** | 부분 구현 | 4전략 과거 수익률 검증 강화 | Medium |
+| **BM 대비 alpha 측정** | 단순 +3% hit | 지수 변동폭 차감 후 평가 | Medium |
+| **MFE/MAE 측정** | 3일 종가만 | 보유 기간 중 최대 상승/하락 추적 | Low |
+| **포지션 사이징** | 자동매매 비율 고정 | ATR 기반 동적 사이징 (백테스트 누적 후) | Low |
+| **Gemini Fallback AI** | 한도 알림만 | 로컬 LLM 대체 경로 | Low |
+| **WebSocket Gap-filling** | 단순 재연결 | 끊긴 동안 REST 폴백 | Low |
+| **세금/수수료** | 실전 매매 수동 계산 | 자동 차감 표시 | Low |
 
 ---
 
