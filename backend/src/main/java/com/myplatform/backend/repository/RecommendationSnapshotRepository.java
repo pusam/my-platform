@@ -27,4 +27,13 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
     @Modifying
     @Query("DELETE FROM RecommendationSnapshot r WHERE r.snapshotAt < :cutoff")
     void deleteOlderThan(@Param("cutoff") LocalDateTime cutoff);
+
+    /**
+     * 종목코드로 가장 최근 스냅샷 1건 조회 — StockConclusionService 가 종목별 결론 산출 시 사용.
+     * 종목이 어떤 스냅샷에도 포함된 적 없으면 empty.
+     */
+    @Query(value = "SELECT r FROM RecommendationSnapshot r " +
+            "WHERE r.stockCode = :stockCode " +
+            "ORDER BY r.snapshotAt DESC LIMIT 1")
+    java.util.Optional<RecommendationSnapshot> findLatestByStockCode(@Param("stockCode") String stockCode);
 }

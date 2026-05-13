@@ -1,6 +1,8 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockDetailDto;
+import com.myplatform.backend.service.StockConclusionService;
 import com.myplatform.backend.service.StockDetailService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,6 +34,7 @@ import java.util.Map;
 public class StockDetailController {
 
     private final StockDetailService stockDetailService;
+    private final StockConclusionService stockConclusionService;
 
     @GetMapping("/{stockCode}/summary")
     @Operation(
@@ -102,6 +105,32 @@ public class StockDetailController {
             log.error("[StockDetail API] Quick 조회 실패: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("message", "빠른 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/conclusion")
+    @Operation(
+        summary = "종목 룰 기반 결론 한 줄",
+        description = "여러 시그널을 단일 룰 엔진으로 합쳐 4-level 결론(STRONG_BUY/BUY/HOLD/WAIT) + " +
+                     "한 줄 헤드라인 + 근거 factor 목록을 제공. 사용자가 점수 불일치로 혼란을 겪지 않도록 " +
+                     "최종 권고를 명시. 데이터 없으면 dataAvailable=false."
+    )
+    public ResponseEntity<Map<String, Object>> getStockConclusion(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            StockConclusionDto conclusion = stockConclusionService.getConclusion(stockCode);
+            response.put("success", true);
+            response.put("data", conclusion);
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[StockConclusion API] 종목 {} 결론 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "결론 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }
