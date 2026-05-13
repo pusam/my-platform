@@ -62,6 +62,8 @@ public class RecommendationService {
     private final NotificationService notificationService;
     private final UserRepository userRepository;
     private final MarketCalendarService marketCalendar;
+    // 시그널 적중률 추적 — phase 12 통합. ObjectProvider 로 안전 주입 (순환/누락 방어).
+    private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
 
     private static final int STRONG_BUY_THRESHOLD = 75;
     private volatile java.time.LocalDate lastAlertDate = null;
@@ -460,6 +462,28 @@ public class RecommendationService {
             snapshotRepository.saveAll(entities);
             cachedTop5 = result;
             cacheTime = snapTime;
+
+            // 시그널 적중률 추적 — STRONG_BUY (75+) / BUY (55~74) 종목 발생 기록.
+            // 3일 후 batch 가 평가. record() 실패해도 스냅샷 저장은 영향 없음 (try/catch 격리).
+            SignalOutcomeService outcomeService = signalOutcomeProvider.getIfAvailable();
+            if (outcomeService != null) {
+                for (RecommendationDto dto : result) {
+                    if (dto.getCurrentPrice() == null || dto.getCurrentPrice().signum() <= 0) continue;
+                    String signalType;
+                    if (dto.getTotalScore() >= STRONG_BUY_THRESHOLD) {
+                        signalType = "STRONG_BUY";
+                    } else if (dto.getTotalScore() >= 55) {
+                        signalType = "BUY";
+                    } else {
+                        continue;
+                    }
+                    try {
+                        outcomeService.record(signalType, dto.getStockCode(), dto.getStockName(),
+                                dto.getTotalScore(), dto.getCurrentPrice());
+                    } catch (Exception ignore) { /* 적중률 추적은 best-effort */ }
+                }
+            }
+
             log.info("[종합추천] 스냅샷 {}건 저장 ({})", result.size(), snapTime.format(TIME_FMT));
         } catch (Exception e) {
             log.error("[종합추천] 스냅샷 실패: {}", e.getMessage());
