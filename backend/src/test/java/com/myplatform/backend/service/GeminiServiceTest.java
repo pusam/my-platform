@@ -40,7 +40,14 @@ class GeminiServiceTest {
     @BeforeEach
     void setUp() {
         // SimpleMeterRegistry — 테스트용 노옵 MeterRegistry (의존성 추가 없이 기본 제공)
-        geminiService = new GeminiService(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        // ObjectProvider 는 빈 미등록 시나리오 — getIfAvailable() = null (텔레그램 비활성 환경 동일).
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(telegramProvider.getIfAvailable()).thenReturn(null);
+        geminiService = new GeminiService(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                telegramProvider);
         mockRestTemplate = mock(RestTemplate.class);
 
         ReflectionTestUtils.setField(geminiService, "restTemplate", mockRestTemplate);

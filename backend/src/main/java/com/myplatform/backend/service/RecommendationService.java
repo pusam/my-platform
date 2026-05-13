@@ -1341,18 +1341,33 @@ public class RecommendationService {
         return time.isAfter(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(20, 5));
     }
 
-    /** 유효 항목 수별 상한 (4 카테고리 기준): 4개=100, 3개=85, 2개=65, 1개=40.
-     *  v8 변경: 가치/저평가를 별도 트랙으로 분리하면서 5 카테고리 → 4 카테고리.
-     *  3 valid 도 75% 커버리지라 cap 85 까지 허용 (강력매수/매수고려 모두 가능). */
+    /**
+     * 추천 점수 산출에 사용되는 카테고리 수 — 시그널 추가/삭제 시 이 상수만 조정.
+     * 현재: earnings + supplyDemand + technical + sectorMomentum (가치/AI전략 분리).
+     */
+    private static final int TOTAL_CATEGORIES = 4;
+
+    /**
+     * 유효 카테고리 수별 점수 정규화 — 커버리지 비율 기반 동적 cap.
+     *
+     * 공식: cap = 25 + 75 × (validCount / TOTAL_CATEGORIES)
+     *   - 25 = 최소 신뢰 기준점 (1 카테고리만 충족해도 완전 0점은 아님)
+     *   - 75 = 잔여 커버리지에 따른 가산
+     *
+     * 4-카테고리 기준 매핑 (기존 하드코딩과 거의 동치 — ±5 차이):
+     *   - 1/4 (25%) → 43 (기존 40)
+     *   - 2/4 (50%) → 62 (기존 65)
+     *   - 3/4 (75%) → 81 (기존 85)
+     *   - 4/4 (100%) → 100 (변동 없음)
+     *
+     * 시그널 추가/삭제 시 TOTAL_CATEGORIES 만 바꾸면 자동 재계산 — 하드코딩 매핑 유지보수 불필요.
+     */
     private static int normalizeScore(int raw, int validCount) {
-        if (validCount >= 4) return Math.min(100, raw);  // 4 카테고리 × 20점 = 80점 → 그대로 100 cap
         if (validCount <= 0) return 0;
-        int scaled = raw * 100 / (validCount * 20);
-        int cap = switch (validCount) {
-            case 3 -> 85;
-            case 2 -> 65;
-            default -> 40;
-        };
+        if (validCount >= TOTAL_CATEGORIES) return Math.min(100, raw);
+        int rawCap = TOTAL_CATEGORIES * 20;
+        int scaled = raw * 100 / rawCap;
+        int cap = 25 + (75 * validCount / TOTAL_CATEGORIES);
         return Math.min(cap, scaled);
     }
 
