@@ -45,6 +45,8 @@ public class AiStockAnalysisService {
     private final GeminiService geminiService;
     private final RedisCacheService redisCacheService;
     private final TechnicalIndicatorService technicalIndicatorService;
+    // 시그널 적중률 — phase 24 통합. ObjectProvider 로 안전 주입.
+    private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
 
     // 분석 결과 캐시
     private volatile AiAnalysisResponseDto cachedAnalysis;
@@ -171,6 +173,8 @@ public class AiStockAnalysisService {
                     );
                     if (recommendation != null && recommendation.getTotalScore() > 50) {
                         allRecommendations.add(recommendation);
+                        // 시그널 적중률 추적 — 90+ 점만 AI_STRONG, 70+ 는 AI_BUY (phase 24).
+                        recordAiSignal(recommendation, priceDto);
                     }
                 } catch (Exception e) {
                     log.warn("종목 분석 실패: {} - {}", stockCode, e.getMessage());
@@ -246,6 +250,29 @@ public class AiStockAnalysisService {
         } catch (Exception e) {
             log.error("AI 분석 실패: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * AI 분석 시그널 적중률 추적 (phase 24).
+     * - 90+점 → AI_STRONG (풀매수)
+     * - 70~89점 → AI_BUY
+     * - <70 → 미기록 (관망/매도는 시그널 아님)
+     * 같은 (type/stock/date) 중복은 SignalOutcomeService 가 차단.
+     */
+    private void recordAiSignal(AiStockRecommendationDto rec, StockPriceDto priceDto) {
+        try {
+            SignalOutcomeService outcome = signalOutcomeProvider.getIfAvailable();
+            if (outcome == null) return;
+            if (priceDto == null || priceDto.getCurrentPrice() == null
+                    || priceDto.getCurrentPrice().signum() <= 0) return;
+            int score = rec.getTotalScore() != null ? rec.getTotalScore() : 0;
+            String signalType;
+            if (score >= 90) signalType = "AI_STRONG";
+            else if (score >= 70) signalType = "AI_BUY";
+            else return;
+            outcome.record(signalType, rec.getStockCode(), rec.getStockName(),
+                    score, priceDto.getCurrentPrice());
+        } catch (Exception ignore) { /* best-effort */ }
     }
 
     /**
