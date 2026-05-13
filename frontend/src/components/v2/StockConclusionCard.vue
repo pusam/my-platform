@@ -39,7 +39,9 @@
     </div>
 
     <div v-if="conclusion.dataAt" class="conclusion-meta">
-      <span>스냅샷: {{ formatDataAt(conclusion.dataAt) }}</span>
+      <span class="freshness-dot" :class="freshnessClass"
+            :title="`데이터 ${minutesAgo}분 경과 — ${freshnessLabel}`"></span>
+      <span>스냅샷: {{ formatDataAt(conclusion.dataAt) }} · {{ minutesAgo }}분 전</span>
     </div>
 
     <BuyChecklistModal v-if="showChecklist" :stock-code="stockCode" @close="showChecklist = false" />
@@ -154,6 +156,29 @@ const formatDataAt = (iso) => {
   } catch { return ''; }
 };
 
+// 신선도 신호등 (phase 23) — dataAt 기준 경과 분
+const minutesAgo = computed(() => {
+  if (!conclusion.value?.dataAt) return 0;
+  try {
+    const ms = Date.now() - new Date(conclusion.value.dataAt).getTime();
+    return Math.max(0, Math.floor(ms / 60000));
+  } catch { return 0; }
+});
+const freshnessClass = computed(() => {
+  const m = minutesAgo.value;
+  if (m <= 5) return 'fresh-good';   // 녹: 5분 이내
+  if (m <= 15) return 'fresh-mid';   // 노: 5~15분
+  return 'fresh-stale';              // 빨: 15분 초과
+});
+const freshnessLabel = computed(() => {
+  switch (freshnessClass.value) {
+    case 'fresh-good': return '신선';
+    case 'fresh-mid': return '주의 — 곧 갱신';
+    case 'fresh-stale': return 'stale — 다음 스냅샷 대기 권장';
+    default: return '';
+  }
+});
+
 const openChecklist = () => { showChecklist.value = true; };
 </script>
 
@@ -248,9 +273,22 @@ const openChecklist = () => { showChecklist.value = true; };
 .conclusion-meta {
   margin-top: 10px;
   font-size: 11px;
-  opacity: 0.55;
+  opacity: 0.75;
   text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
 }
+.freshness-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.fresh-good  { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
+.fresh-mid   { background: #eab308; box-shadow: 0 0 6px rgba(234, 179, 8, 0.5); }
+.fresh-stale { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
 
 .accuracy-line {
   margin-top: 12px;
