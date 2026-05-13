@@ -49,11 +49,23 @@ public class SignalOutcome {
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 
+    /** KOSPI 시그널 발생 시점 지수값 — phase 20 추가. record() 시점에 채워짐. */
+    @Column(name = "bm_price_at_signal", precision = 15, scale = 2)
+    private BigDecimal bmPriceAtSignal;
+
     @Column(name = "price_after_3d", precision = 15, scale = 2)
     private BigDecimal priceAfter3d;
 
     @Column(name = "pct_change_3d", precision = 10, scale = 4)
     private BigDecimal pctChange3d;
+
+    /** 같은 기간 KOSPI 종합지수 변동률 % — phase 20 추가. */
+    @Column(name = "bm_return_3d", precision = 10, scale = 4)
+    private BigDecimal bmReturn3d;
+
+    /** 초과수익률 alpha = pctChange3d - bmReturn3d — phase 20 추가. */
+    @Column(name = "alpha_3d", precision = 10, scale = 4)
+    private BigDecimal alpha3d;
 
     @Column(name = "hit")
     private Boolean hit;

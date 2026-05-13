@@ -1,5 +1,6 @@
 package com.myplatform.backend.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.SignalAccuracyDto;
 import com.myplatform.backend.dto.SignalAccuracyDto.SignalStat;
 import com.myplatform.backend.dto.StockPriceDto;
@@ -34,9 +35,14 @@ public class SignalOutcomeService {
 
     private final SignalOutcomeRepository repository;
     private final StockPriceService stockPriceService;
+    // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
+    // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
+    private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
-    private static final BigDecimal HIT_THRESHOLD_PCT = new BigDecimal("3.00");
+    /** hit 기준 — phase 20 변경: 시장 대비 alpha 양수 + 절대 수익률 양수. */
+    private static final BigDecimal HIT_ALPHA_THRESHOLD = BigDecimal.ZERO;
+    private static final String KOSPI_INDEX_CODE = "0001";
 
     /**
      * 시그널 발생 기록. 같은 (type/stockCode/날짜) 중복은 무시 — 첫 발생 시점만 보존.
@@ -53,6 +59,9 @@ public class SignalOutcomeService {
             return;
         }
         try {
+            // KOSPI 지수 가격을 한 번 조회 — alpha 계산용 (phase 20).
+            // 실패 시 null 로 저장 (기존 evaluate 로직과 호환).
+            BigDecimal bmPrice = fetchKospiPriceQuiet();
             repository.save(SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -60,9 +69,27 @@ public class SignalOutcomeService {
                     .signalDate(today)
                     .signalScore(signalScore)
                     .priceAtSignal(priceAtSignal)
+                    .bmPriceAtSignal(bmPrice)
                     .build());
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
+        }
+    }
+
+    /** KOSPI 종합지수 현재가 조회 — phase 20. KIS 미설정 시 null. */
+    private BigDecimal fetchKospiPriceQuiet() {
+        KoreaInvestmentService kis = kisProvider.getIfAvailable();
+        if (kis == null || !kis.isConfigured()) return null;
+        try {
+            JsonNode resp = kis.getIndexPrice(KOSPI_INDEX_CODE);
+            if (resp == null || !resp.has("output")) return null;
+            JsonNode output = resp.get("output");
+            JsonNode priceNode = output.has("bstp_nmix_prpr") ? output.get("bstp_nmix_prpr") : null;
+            if (priceNode == null || priceNode.asText().isEmpty()) return null;
+            return new BigDecimal(priceNode.asText().replace(",", ""));
+        } catch (Exception e) {
+            log.debug("[SignalOutcome] KOSPI 가격 조회 실패: {}", e.getMessage());
+            return null;
         }
     }
 
@@ -78,6 +105,8 @@ public class SignalOutcomeService {
         if (pending.isEmpty()) return;
 
         log.info("[SignalOutcome] 평가 대상 {}건 (signalDate ≤ {})", pending.size(), cutoff);
+        // KOSPI 현재가 한 번 조회 (모든 outcome에 동일 시점) — phase 20 alpha 계산.
+        BigDecimal kospiNow = fetchKospiPriceQuiet();
         int evaluated = 0;
         for (SignalOutcome outcome : pending) {
             try {
@@ -90,10 +119,30 @@ public class SignalOutcomeService {
                 BigDecimal pct = priceNow.subtract(outcome.getPriceAtSignal())
                         .multiply(BigDecimal.valueOf(100))
                         .divide(outcome.getPriceAtSignal(), 4, RoundingMode.HALF_UP);
-                boolean hit = pct.compareTo(HIT_THRESHOLD_PCT) >= 0;
+
+                // BM 변동률 + alpha — phase 20.
+                BigDecimal bmReturn = null;
+                BigDecimal alpha = null;
+                BigDecimal bmAtSignal = outcome.getBmPriceAtSignal();
+                if (kospiNow != null && bmAtSignal != null && bmAtSignal.signum() > 0) {
+                    bmReturn = kospiNow.subtract(bmAtSignal)
+                            .multiply(BigDecimal.valueOf(100))
+                            .divide(bmAtSignal, 4, RoundingMode.HALF_UP);
+                    alpha = pct.subtract(bmReturn);
+                }
+
+                // hit 기준 — phase 20: alpha 양수 + 절대 수익 양수. BM 데이터 없으면 기존 +3% 폴백.
+                boolean hit;
+                if (alpha != null) {
+                    hit = alpha.compareTo(HIT_ALPHA_THRESHOLD) >= 0 && pct.signum() > 0;
+                } else {
+                    hit = pct.compareTo(new BigDecimal("3.00")) >= 0;
+                }
 
                 outcome.setPriceAfter3d(priceNow);
                 outcome.setPctChange3d(pct);
+                outcome.setBmReturn3d(bmReturn);
+                outcome.setAlpha3d(alpha);
                 outcome.setHit(hit);
                 outcome.setEvaluatedAt(LocalDateTime.now());
                 repository.save(outcome);
@@ -102,7 +151,8 @@ public class SignalOutcomeService {
                 log.debug("[SignalOutcome] 평가 실패 id={}: {}", outcome.getId(), e.getMessage());
             }
         }
-        log.info("[SignalOutcome] 평가 완료 {}/{}", evaluated, pending.size());
+        log.info("[SignalOutcome] 평가 완료 {}/{} (BM alpha: {})",
+                evaluated, pending.size(), kospiNow != null ? "활성" : "비활성(폴백)");
     }
 
     /** 시그널별 적중률 통계 — 최근 days 일 기준. */
