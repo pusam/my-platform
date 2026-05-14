@@ -474,6 +474,12 @@ public class RecommendationService {
             if (result.isEmpty() && cachedTop5 != null && !cachedTop5.isEmpty()) result = cachedTop5;
             if (result.isEmpty()) { log.warn("[종합추천] 스냅샷 — 데이터 없음"); return; }
 
+            // phase 38 fix — 가격 채우기. saveSnapshotInternal 경로는 buildResponse 안 거치므로
+            // dto.currentPrice 가 null 인 상태. line 506 의 record() 진입 조건이 항상 fail 해
+            // STRONG_BUY/BUY 시그널이 signal_outcome 에 0 건 record 되던 잠재 버그(phase 12부터).
+            // refreshPrices 가 메모리/DB 캐시만 사용해 응답 시간 영향 0.
+            refreshPrices(result);
+
             LocalDateTime snapTime = LocalDateTime.now();
             List<RecommendationSnapshot> entities = new ArrayList<>(result.size());
             for (int i = 0; i < result.size(); i++) {
