@@ -53,4 +53,16 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
             @Param("since") LocalDateTime since,
             @Param("scoreMin") int scoreMin,
             @Param("valueMin") int valueMin);
+
+    /** phase 35b 진단 — 마지막 스냅샷 시점. */
+    @Query("SELECT MAX(r.snapshotAt) FROM RecommendationSnapshot r")
+    java.util.Optional<LocalDateTime> findMaxSnapshotAt();
+
+    /** phase 35b 진단 — 최근 24시간 스냅샷 건수 (cron 정상 작동 확인). */
+    @Query("SELECT COUNT(r) FROM RecommendationSnapshot r WHERE r.snapshotAt >= :since")
+    long countSince(@Param("since") LocalDateTime since);
+
+    /** phase 35b 진단 — 최근 24시간 STRONG_BUY (≥75) 종목 수. */
+    @Query("SELECT COUNT(r) FROM RecommendationSnapshot r WHERE r.snapshotAt >= :since AND r.totalScore >= 75")
+    long countStrongBuySince(@Param("since") LocalDateTime since);
 }

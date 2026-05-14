@@ -126,7 +126,8 @@ public class SecurityConfig {
                                 "/api/signal-outcomes/accuracy",
                                 "/api/signal-outcomes/compare",
                                 "/api/signal-outcomes/timeseries",
-                                "/api/recommendation/strong-value-frequency"
+                                "/api/recommendation/strong-value-frequency",
+                                "/api/diagnostics/**"
                         ).permitAll()
 
                         // 테스트 API - public 엔드포인트

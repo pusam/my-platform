@@ -92,4 +92,21 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
         """)
     java.math.BigDecimal averageAlphaSince(@Param("type") String signalType,
                                             @Param("from") LocalDate from);
+
+    /** phase 35b 진단 — 마지막 signal_date. */
+    @Query("SELECT MAX(s.signalDate) FROM SignalOutcome s")
+    java.util.Optional<LocalDate> findMaxSignalDate();
+
+    /** phase 35b 진단 — 평가 완료 건수. */
+    @Query("SELECT COUNT(s) FROM SignalOutcome s WHERE s.evaluatedAt IS NOT NULL")
+    long countEvaluated();
+
+    /** phase 35b 진단 — 시그널 type 별 카운트 [type, total]. */
+    @Query("""
+        SELECT s.signalType, COUNT(s)
+          FROM SignalOutcome s
+         GROUP BY s.signalType
+         ORDER BY s.signalType
+        """)
+    List<Object[]> countByType();
 }
