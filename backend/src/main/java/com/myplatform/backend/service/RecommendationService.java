@@ -1328,6 +1328,13 @@ public class RecommendationService {
                 else if (v > 0.5) ss += 2;
                 else if (v > 0) ss += 1;
             }
+            // phase 37: BULL regime 일 때 모든 종목에 sector +4 일괄 부여 (phase 31b 부분 복원).
+            // BULL 검증된 강세장에서는 시장이 종목 전반에 우호적이라는 시그널 자체가 점수에 들어가야
+            // 추천 풀이 형성됨. 변별력 일부 손실 vs 추천 풀 회복 trade-off — 운영 데이터(LG디스플레이
+            // sector 4점, 75 미달) 기반 조정. BEAR/SIDEWAYS 에서는 일괄 가산 없음(phase 31b 유지).
+            if (regime == MarketRegime.BULL) {
+                ss += 4;
+            }
             // 장중이면 최소 2점 (시장 열림 = 기본 모멘텀)
             if (ss == 0 && isTradingHours(LocalDateTime.now())) {
                 ss = 2;
@@ -1634,10 +1641,13 @@ public class RecommendationService {
      * 종목 깎는 거 완화), sector 0.90→1.00 (BULL 은 시장이 이미 강한 거 검증된 상태라 보정 불필요).
      * BEAR/SIDEWAYS 는 데이터 없어 그대로 유지.
      *
-     * <p>multiplier 표 (phase 36):
+     * <p><b>phase 37</b>: phase 36 후에도 max 67/STRONG_BUY 0건. LG디스플레이 sector=4 가 병목.
+     * BULL sectorMomentum 1.00 → 1.20 으로 추가 우대 (scoreSectorMomentum 의 BULL +4 boost 와 시너지).
+     *
+     * <p>multiplier 표 (phase 37):
      * <pre>
      *   regime       earnings   supplyDemand  technical   sectorMomentum
-     *   BULL         × 0.95     × 1.10        × 1.05      × 1.00      ← phase 36 좁힘
+     *   BULL         × 0.95     × 1.10        × 1.05      × 1.20      ← phase 37 sector 강화
      *   BEAR         × 1.20     × 0.85        × 0.90      × 0.80
      *   SIDEWAYS     × 1.00     × 1.00        × 1.00      × 0.90      ← 섹터만 시간 척도 보정
      * </pre>
@@ -1650,7 +1660,7 @@ public class RecommendationService {
     private void applyMarketRegimeWeighting(Map<String, StockScore> scoreMap, MarketRegime regime) {
         double wE, wSD, wTC, wSC;
         switch (regime) {
-            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.00; }  // phase 36 좁힘
+            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.20; }  // phase 37 sector 강화
             case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
             default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
         }
