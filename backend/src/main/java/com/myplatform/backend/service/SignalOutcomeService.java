@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.SignalAccuracyDto;
 import com.myplatform.backend.dto.SignalAccuracyDto.SignalStat;
+import com.myplatform.backend.dto.SignalCompareDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.SignalOutcome;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
@@ -17,7 +18,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 시그널 적중률 추적.
@@ -228,5 +233,127 @@ public class SignalOutcomeService {
                 .daysWindow(days)
                 .stats(stats)
                 .build();
+    }
+
+    /**
+     * cutoff 시점 전후 windowDays 일 통계 비교 — phase 32.
+     *
+     * <p>용도: phase 31 추격매수 방지 산식이 alpha/hit-rate 를 실제로 개선했는지 검증.
+     * 운영 관찰 기반 산식 변경이 누적되면 검증 없이는 over-fit 위험이 있어 도입.
+     *
+     * <p>구간: <b>[cutoff − windowDays, cutoff)</b> vs <b>[cutoff, cutoff + windowDays)</b>.
+     * before 윈도우는 cutoff 미포함 (반열린 구간).
+     *
+     * <p>표본이 너무 적으면(< 3) delta 의 의미가 약하므로 sufficientSample 플래그로 표시.
+     *
+     * @param signalTypeFilter null/blank 이면 전체 시그널, 값이 있으면 해당 type 만
+     * @param cutoff phase 변경 적용 시점
+     * @param windowDays before/after 각 윈도우의 일수 (기본 30)
+     */
+    public SignalCompareDto compareAroundCutoff(String signalTypeFilter,
+                                                LocalDate cutoff, int windowDays) {
+        if (cutoff == null) cutoff = LocalDate.now();
+        int w = windowDays < 1 ? 30 : windowDays;
+        LocalDate beforeFrom = cutoff.minusDays(w);
+        LocalDate afterTo = cutoff.plusDays(w);
+
+        Map<String, SignalCompareDto.Stat> beforeStats =
+                toStatMap(repository.aggregateStatsBetween(beforeFrom, cutoff));
+        Map<String, SignalCompareDto.Stat> afterStats =
+                toStatMap(repository.aggregateStatsBetween(cutoff, afterTo));
+
+        // signalType 필터 적용 (있으면)
+        if (signalTypeFilter != null && !signalTypeFilter.isBlank()) {
+            beforeStats = filterByType(beforeStats, signalTypeFilter);
+            afterStats = filterByType(afterStats, signalTypeFilter);
+        }
+
+        // delta 계산 — before/after 중 하나라도 등장한 타입 모두 포함, type 정렬 보존
+        Set<String> allTypes = new LinkedHashSet<>();
+        allTypes.addAll(beforeStats.keySet());
+        allTypes.addAll(afterStats.keySet());
+
+        List<SignalCompareDto.Delta> deltas = new ArrayList<>();
+        for (String type : allTypes) {
+            SignalCompareDto.Stat b = beforeStats.get(type);
+            SignalCompareDto.Stat a = afterStats.get(type);
+            deltas.add(SignalCompareDto.Delta.builder()
+                    .signalType(type)
+                    .hitRateChange(subtractOrNull(
+                            a != null ? a.getHitRate() : null,
+                            b != null ? b.getHitRate() : null))
+                    .avgAlphaChange(subtractOrNull(
+                            a != null ? a.getAvgAlpha() : null,
+                            b != null ? b.getAvgAlpha() : null))
+                    .avgPctChange(subtractOrNull(
+                            a != null ? a.getAvgPctChange() : null,
+                            b != null ? b.getAvgPctChange() : null))
+                    .avgMfeChange(subtractOrNull(
+                            a != null ? a.getAvgMfe() : null,
+                            b != null ? b.getAvgMfe() : null))
+                    .avgMaeChange(subtractOrNull(
+                            a != null ? a.getAvgMae() : null,
+                            b != null ? b.getAvgMae() : null))
+                    .sufficientSample(b != null && b.getTotalSignals() >= 3
+                            && a != null && a.getTotalSignals() >= 3)
+                    .build());
+        }
+
+        return SignalCompareDto.builder()
+                .cutoff(cutoff)
+                .windowDays(w)
+                .signalTypeFilter(signalTypeFilter)
+                .before(SignalCompareDto.Window.builder()
+                        .from(beforeFrom).to(cutoff)
+                        .stats(new ArrayList<>(beforeStats.values()))
+                        .build())
+                .after(SignalCompareDto.Window.builder()
+                        .from(cutoff).to(afterTo)
+                        .stats(new ArrayList<>(afterStats.values()))
+                        .build())
+                .deltas(deltas)
+                .build();
+    }
+
+    /** aggregateStatsBetween 결과 row 를 signalType → Stat 맵으로 변환. */
+    private static Map<String, SignalCompareDto.Stat> toStatMap(List<Object[]> rows) {
+        Map<String, SignalCompareDto.Stat> map = new HashMap<>();
+        for (Object[] row : rows) {
+            String type = (String) row[0];
+            long total = ((Number) row[1]).longValue();
+            long hits = row[2] == null ? 0L : ((Number) row[2]).longValue();
+            BigDecimal hitRate = total == 0 ? BigDecimal.ZERO
+                    : BigDecimal.valueOf(hits)
+                            .multiply(BigDecimal.valueOf(100))
+                            .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+            map.put(type, SignalCompareDto.Stat.builder()
+                    .signalType(type)
+                    .totalSignals(total)
+                    .hitCount(hits)
+                    .hitRate(hitRate)
+                    .avgPctChange(scaleOrNull(row[3]))
+                    .avgAlpha(scaleOrNull(row[4]))
+                    .avgMfe(scaleOrNull(row[5]))
+                    .avgMae(scaleOrNull(row[6]))
+                    .build());
+        }
+        return map;
+    }
+
+    private static Map<String, SignalCompareDto.Stat> filterByType(
+            Map<String, SignalCompareDto.Stat> source, String type) {
+        Map<String, SignalCompareDto.Stat> filtered = new HashMap<>();
+        if (source.containsKey(type)) filtered.put(type, source.get(type));
+        return filtered;
+    }
+
+    private static BigDecimal scaleOrNull(Object value) {
+        if (value == null) return null;
+        return new BigDecimal(value.toString()).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal subtractOrNull(BigDecimal a, BigDecimal b) {
+        if (a == null || b == null) return null;
+        return a.subtract(b).setScale(2, RoundingMode.HALF_UP);
     }
 }

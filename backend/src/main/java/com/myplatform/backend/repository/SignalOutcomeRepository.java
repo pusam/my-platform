@@ -35,4 +35,27 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
          ORDER BY s.signalType
         """)
     List<Object[]> aggregateStats(@Param("from") LocalDate from);
+
+    /**
+     * 시그널별 확장 통계 — 지정 기간 [from, to). alpha / MFE / MAE 포함.
+     * phase 32: phase 31 추격매수 방지 변경 전후 비교에 사용.
+     * <p>리턴: [signalType, total, hitCount, avgPctChange, avgAlpha, avgMfe, avgMae]
+     */
+    @Query("""
+        SELECT s.signalType,
+               COUNT(s),
+               SUM(CASE WHEN s.hit = TRUE THEN 1 ELSE 0 END),
+               AVG(s.pctChange3d),
+               AVG(s.alpha3d),
+               AVG(s.mfePct3d),
+               AVG(s.maePct3d)
+          FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.signalDate >= :from
+           AND s.signalDate < :to
+         GROUP BY s.signalType
+         ORDER BY s.signalType
+        """)
+    List<Object[]> aggregateStatsBetween(@Param("from") LocalDate from,
+                                         @Param("to") LocalDate to);
 }

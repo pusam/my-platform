@@ -887,7 +887,21 @@ public class RecommendationService {
         log.info("[종합추천] 리스크 공시 검사: {}건 후보 중 {}건 히트", top.size(), hit);
     }
 
-    // ==================== ① AI전략 (/20) ====================
+    // ==================== ① AI전략 (/20) — 후보 발굴 트랙 ====================
+    //
+    // 위상 명시 (phase 32):
+    //   * 본 산식 (toDto / getNormalizedTotal / countValidCategories) 에 aiStrategy 는 포함 안 됨.
+    //     v7 (5→4 카테고리) 전환의 핵심 결정 — AI 전략 1·2·3위 시드 +8/+5/+3 은 최종 정렬에
+    //     0 영향. delta tie-break (phase 31) 도 4 카테고리 정규화 점수만 본다.
+    //   * 그렇다면 왜 scoreMap 에 entry 를 만드나? → "후보 풀 확장기" 로만 동작.
+    //     AI 가 발굴한 종목이 scoreMap 에 등록되면, 후속 단계 (실적/수급/기술/섹터/가치) 에서
+    //     점수를 부여받을 기회가 생긴다. 다른 카테고리 점수가 0 인 채로 끝나는 종목은
+    //     countValidCategories(s) >= 3 필터에서 자연 탈락 → 최종 TOP10 에 노출 안 됨.
+    //   * 결과: AI 시드 단독으로는 추천에 오를 수 없고, 발굴된 종목 중 펀더멘털/모멘텀이
+    //     동시에 받쳐주는 것만 추천 풀에 진입. "AI가 주관하지 않고 발굴만 한다" 가 의도.
+    //   * 만약 향후 AI 점수를 산식에 정식 포함하고 싶으면 TOTAL_CATEGORIES (line 근처) 를
+    //     5 로 올리고 countValidCategories / toDto raw 합산에 aiStrategy 추가하면 cap 표 자동
+    //     재조정.
 
     private int scoreAiStrategy(Map<String, StockScore> scoreMap) {
         int scored = 0;
