@@ -349,34 +349,6 @@ else:
 | 40~54 | HOLD (관망) |
 | < 40 | WAIT (제외) |
 
-### 시장 국면 적응형 가중치 (phase 34)
-
-`scoreSectorMomentum` 가 전체 섹터 평균 등락률로 시장 국면 판정 후 반환, `calculate()` 끝부분
-`applyMarketRegimeWeighting(scoreMap, regime)` 가 카테고리 점수에 multiplier 적용.
-
-| regime | 판정 | earnings | supplyDemand | technical | sector |
-|---|---|---|---|---|---|
-| BULL | 섹터 평균 > +1% | ×0.90 | ×1.15 | ×1.10 | ×0.90 |
-| BEAR | 섹터 평균 < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
-| SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
-
-- 점수 자체에 적용 → UI/정렬 일관 (phase 31d 원칙 유지)
-- SIDEWAYS 의 섹터 0.9 는 phase 31b 시간 척도 불일치 부분 보정
-- BULL/BEAR 시 tag `regime:BULL` / `regime:BEAR` 명시
-- multiplier 4개 모두 1.0 으로 바꾸면 즉시 disable
-
-### STRONG_BUY + 강한 가치 보너스 (phase 34)
-
-`total ≥ 75` AND `valueStability ≥ 12` → 정규화 점수 +2 (cap 100). `getNormalizedTotal`(정렬)
-+ `toDto`(UI) 양쪽 일관. tag `STRONG+VALUE`. v7 분리 철학은 유지하면서 희소한 모멘텀+가치
-교집합만 우대.
-
-### MDD 기반 포지션 스케일 (phase 34, 인프라)
-
-`BotPerformanceService.recommendPositionScale(mode, days, mddLimit)` — 최근 N일 MDD 절대값을
-사용자 지정 mddLimit 으로 나눈 비율 기반 0.50~1.00 배율. 봇 코드에서 호출은 사용자 직접 결정
-(잘못 끼우면 매매 사고).
-
 ### 추격매수 방지 페널티 (phase 31)
 
 운영 중 "추천 상위 종목 = 이미 한참 오른 종목 + 다음날 조정" 패턴이 반복 관측되어 산식
@@ -438,6 +410,34 @@ else:
 이전엔 컷 필터의 raw 합산에만 `valueStability` 가 포함되고 `toDto`/`getNormalizedTotal`
 에선 빠져 "55점 컷 통과했는데 UI 표시 점수는 50점" 일관성 깨짐 발생. v7 (5→4 카테고리)
 전환 시 필터 라인만 누락된 것으로 추정. phase31d 에서 필터도 4 카테고리로 통일.
+
+### 시장 국면 적응형 가중치 (phase 34)
+
+`scoreSectorMomentum` 가 전체 섹터 평균 등락률로 시장 국면 판정 후 반환, `calculate()` 끝부분
+`applyMarketRegimeWeighting(scoreMap, regime)` 가 카테고리 점수에 multiplier 적용.
+
+| regime | 판정 | earnings | supplyDemand | technical | sector |
+|---|---|---|---|---|---|
+| BULL | 섹터 평균 > +1% | ×0.90 | ×1.15 | ×1.10 | ×0.90 |
+| BEAR | 섹터 평균 < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
+| SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
+
+- 점수 자체에 적용 → UI/정렬 일관 (phase 31d 원칙 유지)
+- SIDEWAYS 의 섹터 0.9 는 phase 31b 시간 척도 불일치 부분 보정
+- BULL/BEAR 시 tag `regime:BULL` / `regime:BEAR` 명시
+- multiplier 4개 모두 1.0 으로 바꾸면 즉시 disable
+
+### STRONG_BUY + 강한 가치 보너스 (phase 34)
+
+`total ≥ 75` AND `valueStability ≥ 12` → 정규화 점수 +2 (cap 100). `getNormalizedTotal`(정렬)
++ `toDto`(UI) 양쪽 일관. tag `STRONG+VALUE`. v7 분리 철학은 유지하면서 희소한 모멘텀+가치
+교집합만 우대.
+
+### MDD 기반 포지션 스케일 (phase 34, 인프라)
+
+`BotPerformanceService.recommendPositionScale(mode, days, mddLimit)` — 최근 N일 MDD 절대값을
+사용자 지정 mddLimit 으로 나눈 비율 기반 0.50~1.00 배율. 봇 코드에서 호출은 사용자 직접 결정
+(잘못 끼우면 매매 사고).
 
 ---
 
