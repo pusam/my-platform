@@ -666,6 +666,20 @@ public class RecommendationService {
     private List<RecommendationDto> calculate() {
         Map<String, StockScore> scoreMap = new HashMap<>();
 
+        // 정렬 tie-break 용 — 어제(또는 20시간 전) 스냅샷 점수. delta = 오늘 - 어제 desc 로
+        // "막 올라온 종목"이 "이미 다 올라간 종목" 보다 우선. prevScoreMap 비어있으면 0 으로
+        // 폴백 → 최후 tie-break 인 changeRate desc 로 위임.
+        final Map<String, Integer> prevScoreMap = new HashMap<>();
+        try {
+            LocalDateTime cutoff = LocalDateTime.now().minusHours(20);
+            List<RecommendationSnapshot> prev = snapshotRepository.findPreviousSnapshot(cutoff);
+            for (RecommendationSnapshot s : prev) {
+                prevScoreMap.put(s.getStockCode(), s.getTotalScore());
+            }
+        } catch (Exception e) {
+            log.debug("[종합추천] prev 스냅샷 조회 실패 (delta 0 으로 fallback): {}", e.getMessage());
+        }
+
         // 단계별 소요 시간 측정 — 백그라운드 calculate 가 30초+ 걸리던 병목 식별용.
         // (calculate 자체가 백그라운드라 사용자 응답엔 영향 없지만 KIS rate limiter 큐 점유로
         //  다른 워머/요청에 영향. 어디가 느린지 보이면 다음 라운드에서 핀포인트 fix 가능.)
@@ -709,7 +723,15 @@ public class RecommendationService {
                         // AI전략 카테고리는 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용
                         s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability,
                         countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
+                // tie-break 우선순위:
+                //   1) normalized total desc
+                //   2) delta(오늘 - 어제) desc — 막 올라온 종목 우선 (추격매수 방지)
+                //   3) changeRate desc — 최후 보루
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
+                        .thenComparing((StockScore s) -> {
+                            Integer prev = prevScoreMap.get(s.stockCode);
+                            return s.getNormalizedTotal() - (prev != null ? prev : 0);
+                        }, Comparator.reverseOrder())
                         .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
                                 Comparator.reverseOrder()))
                 .limit(10)
@@ -932,11 +954,14 @@ public class RecommendationService {
                             k -> new StockScore(k, cb.getStockName()));
                     int days = cb.getConsecutiveDays() != null ? cb.getConsecutiveDays() : 2;
                     double avg = safeDouble(cb.getAvgDailyAmount());
-                    int dp = (days >= 5) ? 10 : (days >= 4) ? 8 : (days >= 3) ? 6 : 4;
+                    // 수급 곡선 뒤집기 — 2~3일 정점, 5일+ 는 후반(이미 다 산 후) 으로 가점 ↓.
+                    // 5일 연속매수는 외국인이 매물 받아갈 카운터파티 만든 후일 가능성이 높음.
+                    int dp = (days >= 5) ? 4 : (days >= 4) ? 6 : (days >= 3) ? 10 : 8;
                     int ab = (avg >= 50) ? 4 : (avg >= 20) ? 2 : (avg >= 5) ? 1 : 0;
                     score.supplyDemand = Math.min(20, score.supplyDemand + dp + ab);
                     String amtStr = avg >= 1 ? String.format("(일%.0f억)", avg) : "";
-                    score.tags.add("외국인" + days + "일연속" + amtStr);
+                    String phase = days >= 5 ? "후반" : (days >= 3 ? "초기" : "시작");
+                    score.tags.add("외국인" + days + "일연속" + phase + amtStr);
                     if (cb.getChangeRate() != null) score.changeRate = cb.getChangeRate();
                 }
             }
@@ -949,10 +974,12 @@ public class RecommendationService {
                             k -> new StockScore(k, cb.getStockName()));
                     int days = cb.getConsecutiveDays() != null ? cb.getConsecutiveDays() : 2;
                     double avg = safeDouble(cb.getAvgDailyAmount());
-                    int dp = (days >= 5) ? 8 : (days >= 4) ? 6 : (days >= 3) ? 4 : 3;
+                    // 외국인과 동일 — 2~3일 정점, 5일+ 후반 가점 축소.
+                    int dp = (days >= 5) ? 3 : (days >= 4) ? 5 : (days >= 3) ? 8 : 6;
                     int ab = (avg >= 50) ? 3 : (avg >= 20) ? 1 : 0;
                     score.supplyDemand = Math.min(20, score.supplyDemand + dp + ab);
-                    score.tags.add("기관" + days + "일연속");
+                    String phase = days >= 5 ? "후반" : (days >= 3 ? "초기" : "시작");
+                    score.tags.add("기관" + days + "일연속" + phase);
                 }
             }
 
@@ -1156,7 +1183,29 @@ public class RecommendationService {
                 boolean au = Boolean.TRUE.equals(ind.getIsArrangedUp());
                 if (gc && au) ts += 5; else if (gc) ts += 3; else if (au) ts += 2;
 
-                stock.technical = Math.min(20, ts);
+                // 과열 페널티 — 추격매수 방지. RSI 75+, 볼린저 상단 돌파, 5일 누적 +20% 모두 점수 차감.
+                // ts 가 음수로 떨어질 수 있고 그 경우 technical=0 → validCount 에서 빠져 추천 탈락(의도).
+                if (rsi != null && rsi.doubleValue() >= 75) {
+                    ts -= 5;
+                    stock.tags.add("⚠RSI" + rsi.intValue() + "과열");
+                }
+                if (Boolean.TRUE.equals(ind.getIsBreakout())) {
+                    ts -= 3;
+                    stock.tags.add("⚠볼린저상단돌파");
+                }
+                if (prices.size() >= 6) {
+                    BigDecimal fiveAgo = prices.get(5);
+                    if (fiveAgo != null && fiveAgo.signum() > 0) {
+                        double pct = prices.get(0).subtract(fiveAgo).doubleValue()
+                                / fiveAgo.doubleValue() * 100.0;
+                        if (pct >= 20.0) {
+                            ts -= 5;
+                            stock.tags.add("⚠5일+" + (int) pct + "%과열");
+                        }
+                    }
+                }
+
+                stock.technical = Math.min(20, Math.max(0, ts));
                 if (gc) stock.tags.add("골든크로스");
                 else if (au) stock.tags.add("정배열");
                 if (rsi != null && rsi.intValue() < 35) stock.tags.add("RSI" + rsi.intValue());
