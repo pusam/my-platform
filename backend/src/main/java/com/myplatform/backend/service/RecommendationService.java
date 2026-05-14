@@ -741,10 +741,13 @@ public class RecommendationService {
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()
-                .filter(s -> countValidCategories(s) >= 3)  // 5카테고리 중 최소 3개 valid (60% 커버리지)
+                .filter(s -> countValidCategories(s) >= 3)  // 4카테고리 중 최소 3개 valid (75% 커버리지)
                 .filter(s -> normalizeScore(
-                        // AI전략 카테고리는 totalScore 산식에서 제외 — 후보 발굴/태그 용도로만 사용
-                        s.earnings + s.supplyDemand + s.technical + s.sectorMomentum + s.valueStability,
+                        // AI전략·가치는 totalScore 산식에서 제외 — 후보 발굴/태그 용도.
+                        // phase31c 후속: 필터 raw 합산에서도 valueStability 제거 — 기존엔 필터에만
+                        // 포함되고 toDto/getNormalizedTotal 에선 빠져서 "55점 컷 통과 후 표시 점수는
+                        // 50점" 같은 일관성 깨짐 발생. v7 (5→4 카테고리) 전환 시 누락된 부분.
+                        s.earnings + s.supplyDemand + s.technical + s.sectorMomentum,
                         countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
                 // tie-break 우선순위:
                 //   1) normalized total desc
