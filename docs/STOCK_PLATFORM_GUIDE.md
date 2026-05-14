@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 37
+> **Version**: 2026.05.14 Phase 38
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~37)](#16-phase-변경-이력-137)
+16. [Phase 변경 이력 (1~38)](#16-phase-변경-이력-138)
 
 ---
 
@@ -713,7 +713,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~37)
+## 16. Phase 변경 이력 (1~38)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -756,7 +756,8 @@ GET /api/ai-strategy/performance
 | 34 | 점수/봇 | 시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + `BotPerformanceService.recommendPositionScale` MDD 포지션 스케일 인프라(봇 호출은 사용자 책임) |
 | 35 | 검증 API + 안정성 | `/api/recommendation/strong-value-frequency` (보너스 dead code 검증용 일자별 빈도) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단) + 진단 API `/api/diagnostics/data` (35b/c — 데이터 누적/점수 분포 즉시 확인) + 검증 API permitAll |
 | 36 | 튜닝 | BULL 강세장 over-penalty 완화 — 운영 데이터(STRONG_BUY 0건, max 71) 진단 후: 신규 진입 페널티 BULL 스킵 + BULL multiplier 폭 ±0.20 → ±0.10 (earnings 0.95 / sd 1.10 / tc 1.05 / sec 1.00). phase 36b 캐시 진단 + refresh 트리거. |
-| **37** | **튜닝** | **BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단. `scoreSectorMomentum` BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL sector multiplier 1.00 → 1.20** |
+| 37 | 튜닝 | BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단. `scoreSectorMomentum` BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL sector multiplier 1.00 → 1.20 |
+| **38** | **fix** | **`saveSnapshotInternal` 에 `refreshPrices(result)` 추가 — phase 12 부터 dto.currentPrice 가 null 이라 STRONG_BUY/BUY record() 진입 0건이던 잠재 버그. signal_outcome 에 시그널 추적 시작** |
 
 ---
 

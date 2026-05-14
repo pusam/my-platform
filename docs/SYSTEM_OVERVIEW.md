@@ -1,7 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.14 Phase 37
-> 작성: 2026-05-14 (phase 1~36 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.14 Phase 38
+> 작성: 2026-05-14 (phase 1~38 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
 > 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
@@ -451,7 +451,7 @@ frontend/src/
 
 ---
 
-## 12. 변경 이력 (Phase 1~37)
+## 12. 변경 이력 (Phase 1~38)
 
 | Phase | 변경 |
 |---|---|
@@ -495,7 +495,8 @@ frontend/src/
 | 34 | 시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + MDD 포지션 스케일 인프라(BotPerformanceService.recommendPositionScale, 봇 호출은 사용자 책임) |
 | 35 | STRONG+VALUE 빈도 검증 API `/strong-value-frequency` (보너스 dead code 여부 확인) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단) + 진단 API `/api/diagnostics/data` (35b/c — 데이터 누적/점수 분포 즉시 확인) + 보안 — 검증 API permitAll |
 | 36 | BULL 강세장 over-penalty 완화 — 운영 데이터(STRONG_BUY 0건, max 71) 진단 후: 신규 진입 페널티(phase 31c) BULL 스킵 + BULL multiplier 폭 ±0.20 → ±0.10 (earnings 0.95 / sd 1.10 / tc 1.05 / sec 1.00). phase 36b 캐시 진단 + refresh 트리거 (`/data?refresh=true`). |
-| **37** | **BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단(LG디스플레이 sector=4 병목). `scoreSectorMomentum` 안에서 BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL multiplier sector 1.00 → 1.20. BEAR/SIDEWAYS 는 유지.** |
+| 37 | BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단(LG디스플레이 sector=4 병목). `scoreSectorMomentum` 안에서 BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL multiplier sector 1.00 → 1.20. BEAR/SIDEWAYS 는 유지. |
+| **38** | **fix(잠재 버그) — `saveSnapshotInternal` 경로에 `refreshPrices(result)` 추가. phase 12 부터 dto.currentPrice 가 null 이라 record() 진입 0건 (signal_outcome 에 STRONG_BUY/BUY 영원히 비어있던 원인). 이 fix 로 phase 31~37 검증 도구가 실제로 작동.** |
 
 ---
 
