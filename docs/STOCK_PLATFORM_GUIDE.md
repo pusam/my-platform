@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 32
+> **Version**: 2026.05.14 Phase 33
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~32)](#16-phase-변경-이력-132)
+16. [Phase 변경 이력 (1~33)](#16-phase-변경-이력-133)
 
 ---
 
@@ -221,13 +221,15 @@ MAX_HOLDING_STOCKS = 3
 | 4 | total ≥ 55 | BUY | 매수 신호 양호 |
 | 5 | total < 55 | WAIT | 관망 권장 |
 
-**`detectConflicts()`** (phase 22b) — 6가지 조합 멘트:
+**`detectConflicts()`** (phase 22b + 33) — 8가지 조합 멘트:
 1. 단기 강 + 장기 매우 약 → 익절 3% 내
 2. 종합 강 + 기술 약 → 고점 추격 경고
 3. 장기+수급 강 + 기술 약 → 분할 매수
 4. 실적 강 + 시장 관심 부족 → 매집 후보
 5. 섹터 강 + 차트 약 → 섹터 ETF 대안
-6. 모든 카테고리 평범 → 더 매력 후보 우선
+6. **(phase 33)** tags 에 "후반" + total ≥ BUY → 수급 5일+ 카운터파티 만든 단계 경고
+7. **(phase 33)** aiStrategy>0 + total < BUY → AI 발굴 후보, 객관 지표 가속 대기
+8. 모든 카테고리 평범 → 더 매력 후보 우선
 
 ### § BuyChecklistService (매수 체크리스트)
 
@@ -515,6 +517,8 @@ POST /api/paper-trading/bot/stop
 GET /api/signal-outcomes/accuracy?days=30
 GET /api/signal-outcomes/compare?signalType=STRONG_BUY&cutoff=2026-05-14&windowDays=30
   (phase 32) — cutoff 전후 hit-rate/alpha/MFE/MAE 비교, phase 변경 검증용
+GET /api/signal-outcomes/timeseries?signalType=STRONG_BUY&days=60
+  (phase 33) — 일별 hit-rate/alpha 시계열, 프론트 그래프용
 ```
 
 ### 수급
@@ -668,7 +672,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~32)
+## 16. Phase 변경 이력 (1~33)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -706,7 +710,8 @@ GET /api/ai-strategy/performance
 | 31b | 알림/룰 | 09시 알림 delta 재정의(꼭지 → 가속, Δ≥+10 & 오늘≥65) + 섹터 시장분위기 일괄가산 제거 (P1) |
 | 31c | 점수 | 신규 진입 + 5일 누적 +15% 종목 감점 (P2) — 추천 풀 밖에서 갑자기 등장한 추격 패턴 차단 |
 | 31d | 점수 | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
-| **32** | **검증 API** | **phase 31 검증용 `/api/signal-outcomes/compare` — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향)** |
+| 32 | 검증 API | phase 31 검증용 `/api/signal-outcomes/compare` — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
+| **33** | **충돌 룰 + 검증 + 가드** | **detectConflicts 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + `/timeseries` 일별 시계열 API + STRONG_BUY 7일 평균 alpha 음수 시 risk 텔레그램 (관찰 가드, 산식 영향 0)** |
 
 ---
 

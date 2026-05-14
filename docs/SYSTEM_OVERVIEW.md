@@ -1,7 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.14 Phase 32
-> 작성: 2026-05-14 (phase 1~32 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.14 Phase 33
+> 작성: 2026-05-14 (phase 1~33 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
 > 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
@@ -292,6 +292,7 @@ Core Design Principle 의 "신선도와 리스크가 모든 의사결정에 우�
 | `GET /api/stock/{code}/checklist` | BuyChecklistDto | 5개 매수 체크리스트 + 권고 |
 | `GET /api/signal-outcomes/accuracy?days=30` | SignalAccuracyDto | 시그널별 적중률 통계 (3일 후 평가 누적) |
 | `GET /api/signal-outcomes/compare?signalType=&cutoff=&windowDays=` | SignalCompareDto | **phase 32** — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 (phase 변경 검증) |
+| `GET /api/signal-outcomes/timeseries?signalType=&days=60` | SignalTimeseriesDto | **phase 33** — 일별 hit-rate/alpha 시계열 (프론트 그래프) |
 
 ---
 
@@ -411,7 +412,7 @@ frontend/src/
 
 ---
 
-## 12. 변경 이력 (Phase 1~32)
+## 12. 변경 이력 (Phase 1~33)
 
 | Phase | 변경 |
 |---|---|
@@ -450,7 +451,8 @@ frontend/src/
 | 31b | 09시 알림 delta 재정의(꼭지 → 가속, Δ≥+10 & 오늘≥65) + 섹터 시장분위기 일괄가산 제거 (P1) |
 | 31c | 신규 진입 + 5일 누적 +15% 종목 감점 (P2) — 추천 풀 밖에서 갑자기 등장한 추격 패턴 차단 |
 | 31d | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
-| **32** | **phase 31 검증용 cutoff 전후 비교 API — `/api/signal-outcomes/compare` (hit-rate/alpha/MFE/MAE delta) + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향)** |
+| 32 | phase 31 검증용 cutoff 전후 비교 API — `/api/signal-outcomes/compare` (hit-rate/alpha/MFE/MAE delta) + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
+| **33** | **충돌 해설 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + 일별 시계열 API `/timeseries` + STRONG_BUY 7일 평균 alpha 음수면 risk 채널 알림 (관찰 가드, 산식 영향 0)** |
 
 ---
 
