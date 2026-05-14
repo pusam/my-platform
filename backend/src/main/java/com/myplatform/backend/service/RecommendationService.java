@@ -347,16 +347,21 @@ public class RecommendationService {
     }
 
     /**
-     * 신규 강력매수(75+) 등장 알림 (평일 09:00 — 장 시작 직후)
-     * - 어제 마감 스냅샷에 없고 오늘 75+ 진입한 종목만 텔레그램·앱 알림
-     * - 일 1회만 (lastAlertDate 체크)
+     * 상승 가속 종목 알림 (평일 09:00 — 장 시작 직후)
+     * <p>phase31 P1: "어제 75+ 없던 신규 75+ 진입" 기존 로직은 본질적으로 꼭지에서 알림 보내는
+     * 구조였음 — 어제 늦게 점수 오른 종목 = 이미 한참 오른 후 마지막 신호.
+     * <p>변경: <b>delta(오늘 − 어제) ≥ +10 이고 오늘 totalScore ≥ 65</b> 종목만 알림.
+     * 상승 가속 중 + 아직 STRONG_BUY(75) 도달 전 = 진짜 진입 기회.
+     * <p>안전장치: prev 스냅샷 비어있으면(콜드스타트/DB 클린업 직후) 알림 스킵 (모든 종목이
+     * delta = todayScore 로 보여 스팸 방지).
+     * <p>일 1회만 (lastAlertDate 체크).
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 9 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void detectAndAlertNewStrongBuys() {
         java.time.LocalDate today = java.time.LocalDate.now();
         if (today.equals(lastAlertDate)) {
-            log.debug("[강력매수알림] 오늘({}) 이미 발송됨", today);
+            log.debug("[상승가속알림] 오늘({}) 이미 발송됨", today);
             return;
         }
 
@@ -364,72 +369,88 @@ public class RecommendationService {
             // 오늘 신규 계산
             List<RecommendationDto> todayList = calculate();
             if (todayList.isEmpty()) {
-                log.info("[강력매수알림] 오늘 추천 데이터 없음 — 스킵");
+                log.info("[상승가속알림] 오늘 추천 데이터 없음 — 스킵");
                 return;
             }
 
-            // 어제 마감 스냅샷 (오늘 0시 이전)
+            // 어제 마감 스냅샷 (오늘 0시 이전) — code → totalScore 매핑.
             LocalDateTime todayStart = today.atStartOfDay();
             List<RecommendationSnapshot> yesterday = snapshotRepository.findPreviousSnapshot(todayStart);
-            Set<String> yesterdayStrongCodes = yesterday.stream()
-                    .filter(s -> s.getTotalScore() >= STRONG_BUY_THRESHOLD)
-                    .map(RecommendationSnapshot::getStockCode)
-                    .collect(Collectors.toSet());
+            if (yesterday.isEmpty()) {
+                log.info("[상승가속알림] 어제 스냅샷 비어있음 — 알림 스킵 (delta 계산 불가)");
+                lastAlertDate = today;
+                return;
+            }
+            Map<String, Integer> prevScores = yesterday.stream()
+                    .collect(Collectors.toMap(
+                            RecommendationSnapshot::getStockCode,
+                            RecommendationSnapshot::getTotalScore,
+                            (a, b) -> a));
 
-            // 오늘 75+ 진입 - 어제 75+ 명단에 없던 종목
+            // 상승 가속 조건: delta ≥ +10, 오늘 ≥ 65, 어제 스냅샷 존재(신규 종목은 제외 — delta 의미 없음)
+            final int DELTA_THRESHOLD = 10;
+            final int TODAY_THRESHOLD = 65;
             List<RecommendationDto> newStrongBuys = todayList.stream()
-                    .filter(d -> d.getTotalScore() >= STRONG_BUY_THRESHOLD)
-                    .filter(d -> d.getValidCount() >= 3)  // 데이터 부족 종목 제외
-                    .filter(d -> !yesterdayStrongCodes.contains(d.getStockCode()))
+                    .filter(d -> d.getValidCount() >= 3)
+                    .filter(d -> prevScores.containsKey(d.getStockCode()))
+                    .filter(d -> d.getTotalScore() >= TODAY_THRESHOLD)
+                    .filter(d -> d.getTotalScore() - prevScores.get(d.getStockCode()) >= DELTA_THRESHOLD)
+                    .sorted(Comparator.comparingInt((RecommendationDto d) ->
+                            d.getTotalScore() - prevScores.get(d.getStockCode())).reversed())
                     .collect(Collectors.toList());
 
             if (newStrongBuys.isEmpty()) {
-                log.info("[강력매수알림] 신규 진입 종목 없음 (어제 75+: {}종목)", yesterdayStrongCodes.size());
+                log.info("[상승가속알림] 가속 종목 없음 (어제 스냅샷 {}건, 컷: Δ≥+{} & 오늘≥{})",
+                        yesterday.size(), DELTA_THRESHOLD, TODAY_THRESHOLD);
                 lastAlertDate = today;
                 return;
             }
 
-            // 메시지 빌드
-            StringBuilder msg = new StringBuilder("🚀 <b>오늘 새로 강력매수 등장</b>\n\n");
+            // 메시지 빌드 — 점수 + delta 같이 노출
+            StringBuilder msg = new StringBuilder("🚀 <b>오늘 상승 가속 종목</b>\n\n");
             for (RecommendationDto d : newStrongBuys) {
-                msg.append(String.format("• %s (%s) — %d점",
-                        d.getStockName(), d.getStockCode(), d.getTotalScore()));
+                int delta = d.getTotalScore() - prevScores.get(d.getStockCode());
+                msg.append(String.format("• %s (%s) — %d점 (Δ+%d)",
+                        d.getStockName(), d.getStockCode(), d.getTotalScore(), delta));
                 if (d.getTags() != null && !d.getTags().isEmpty()) {
                     msg.append(" · ").append(String.join("/", d.getTags().subList(0, Math.min(3, d.getTags().size()))));
                 }
                 msg.append("\n");
             }
-            msg.append(String.format("\n📊 어제 강력매수: %d종목 → 오늘 신규: %d종목",
-                    yesterdayStrongCodes.size(), newStrongBuys.size()));
+            msg.append(String.format("\n📊 조건: Δ≥+%d & 오늘≥%d — %d종목 매칭",
+                    DELTA_THRESHOLD, TODAY_THRESHOLD, newStrongBuys.size()));
 
             // 텔레그램 시그널 채널
             try {
                 telegramService.sendSignal(msg.toString());
             } catch (Exception e) {
-                log.warn("[강력매수알림] 텔레그램 발송 실패: {}", e.getMessage());
+                log.warn("[상승가속알림] 텔레그램 발송 실패: {}", e.getMessage());
             }
 
-            // 앱 알림 (관리자 사용자에게)
+            // 앱 알림 (관리자 사용자에게) — delta 같이 노출.
             try {
                 List<User> admins = userRepository.findByRole("ADMIN");
-                String title = String.format("새 강력매수 %d종목 등장", newStrongBuys.size());
+                String title = String.format("상승 가속 %d종목 포착", newStrongBuys.size());
                 String body = newStrongBuys.stream()
                         .limit(3)
-                        .map(d -> String.format("%s(%d)", d.getStockName(), d.getTotalScore()))
+                        .map(d -> {
+                            int delta = d.getTotalScore() - prevScores.get(d.getStockCode());
+                            return String.format("%s(%d, Δ+%d)", d.getStockName(), d.getTotalScore(), delta);
+                        })
                         .collect(Collectors.joining(", "));
                 String link = "/stock-dashboard?tab=premarket";
                 for (User u : admins) {
                     notificationService.createNotificationForUser(u.getId(), "SUCCESS", title, body, link);
                 }
-                log.info("[강력매수알림] 발송 완료 — {}종목 / 관리자 {}명",
+                log.info("[상승가속알림] 발송 완료 — {}종목 / 관리자 {}명",
                         newStrongBuys.size(), admins.size());
             } catch (Exception e) {
-                log.warn("[강력매수알림] 앱 알림 실패: {}", e.getMessage());
+                log.warn("[상승가속알림] 앱 알림 실패: {}", e.getMessage());
             }
 
             lastAlertDate = today;
         } catch (Exception e) {
-            log.error("[강력매수알림] 처리 실패: {}", e.getMessage(), e);
+            log.error("[상승가속알림] 처리 실패: {}", e.getMessage(), e);
         }
     }
 
@@ -1024,10 +1045,13 @@ public class RecommendationService {
     }
 
     // ==================== ④ 섹터 (/20) ====================
-    // v6 FIX: AI 스냅샷 의존 분리 — 모든 scoreMap 종목에게 시장분위기 보너스 부여
+    // v6: AI 스냅샷 의존 분리.
+    // phase31 P1: 시장분위기 보너스 일괄 부여 제거 — 모든 종목에 +2~6 동일 offset 깔면 점수가
+    // 아니라 상수 가산이라 변별력 깎임("강세장에 추천 다 떠있다 다음날 다 조정"의 구조적 원인).
+    // marketMoodBonus 는 운영 로그에만 노출 (시장 메타 정보).
 
     private void scoreSectorMomentum(Map<String, StockScore> scoreMap) {
-        // 1. 섹터 로테이션 데이터에서 시장분위기 보너스 계산
+        // 1. 섹터 로테이션 — 시장 분위기 메타 (점수엔 부여 안 함, 로그용)
         int marketMoodBonus = 0;
         try {
             List<SectorRotationDto> rotations = sectorTradingService.getSectorRotation();
@@ -1081,15 +1105,13 @@ public class RecommendationService {
             log.debug("[종합추천] AI테마 조회 실패: {}", e.getMessage());
         }
 
-        // 3. 모든 scoreMap 종목에게 섹터 점수 부여 (AI 의존 제거!)
+        // 3. 종목별 섹터 점수 — AI 테마 + 종목 등락률만 (시장분위기 일괄 가산 제거, P1).
         int scored = 0;
         for (StockScore stock : scoreMap.values()) {
             int ss = 0;
             // AI 테마 점수 (있으면)
             Integer ts = themeScores.get(stock.stockCode);
             if (ts != null) ss += ts;
-            // 시장분위기 보너스 (모든 종목에 부여)
-            ss += marketMoodBonus;
             // 종목 자체 등락률 보너스
             BigDecimal cr = snapChangeRates.getOrDefault(stock.stockCode, stock.changeRate);
             if (cr != null) {
