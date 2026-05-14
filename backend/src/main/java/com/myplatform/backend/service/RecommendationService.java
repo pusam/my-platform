@@ -726,6 +726,8 @@ public class RecommendationService {
         // 실시간 교차검증: MA20 하회/수급 괴리 감지 → 점수 보정
         applyRealtimeChecks(scoreMap);
         long rtMs = System.currentTimeMillis() - t0;
+        // P2: 신규 진입 + 5일 가속 종목 감점 (어제 스냅샷 밖에서 갑자기 등장 + 이미 많이 오른 패턴)
+        applyNewEntryPenalty(scoreMap, prevScoreMap);
         log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 리스크:{}ms 실시간:{}ms (합 {}ms)",
                 aiMs, erMs, sdMs, scMs, tcMs, vsMs, rkMs, rtMs,
                 aiMs + erMs + sdMs + scMs + tcMs + vsMs + rkMs + rtMs);
@@ -1220,6 +1222,7 @@ public class RecommendationService {
                     if (fiveAgo != null && fiveAgo.signum() > 0) {
                         double pct = prices.get(0).subtract(fiveAgo).doubleValue()
                                 / fiveAgo.doubleValue() * 100.0;
+                        stock.fiveDayReturn = pct; // P2 신규 진입 감점에서 사용
                         if (pct >= 20.0) {
                             ts -= 5;
                             stock.tags.add("⚠5일+" + (int) pct + "%과열");
@@ -1373,6 +1376,36 @@ public class RecommendationService {
         }
     }
 
+    // ==================== ⑦ 신규 진입 감점 (phase31 P2) ====================
+
+    /**
+     * 어제 스냅샷 밖에서 갑자기 등장 + 5일 누적 +15% 이상 → 추격 패턴으로 보고 감점.
+     * <p>의도: tie-break delta desc(P0-3)는 "어제 60 → 오늘 78" 같은 <b>추천 풀 안에서</b>의 가속을
+     * 우대하는 반면, P2 는 "어제 추천 풀 밖(점수 부족 or 데이터 없음)에서 오늘 갑자기 진입한 종목이
+     * 동시에 5일 +15% 이상 올랐다면" 추격 매수 신호로 간주해 감점.
+     * <p>페널티는 technical 카테고리에서 -5 (음수 클램프). technical=0 이 되면 validCount 에서
+     * 빠져 자연 탈락. P0-1 의 5일 +20%+ 페널티와는 중첩 가능 (의도 — 신규 + 더 가속이면 더 큰 페널티).
+     * <p>prevScoreMap 비어있는 콜드스타트는 스킵 (모든 종목이 "신규" 로 잘못 분류되는 거 방지).
+     */
+    private void applyNewEntryPenalty(Map<String, StockScore> scoreMap,
+                                       Map<String, Integer> prevScoreMap) {
+        if (prevScoreMap.isEmpty()) return;
+        final double THRESHOLD = 15.0;
+        int penalized = 0;
+        for (StockScore stock : scoreMap.values()) {
+            if (prevScoreMap.containsKey(stock.stockCode)) continue;     // 어제 추천 풀 안
+            if (stock.fiveDayReturn < THRESHOLD) continue;                // 5일 누적 미달
+            if (stock.technical <= 0) continue;                            // 이미 0 이면 의미 없음
+            stock.technical = Math.max(0, stock.technical - 5);
+            stock.tags.add("⚠신규+5일+" + (int) stock.fiveDayReturn + "%");
+            penalized++;
+        }
+        if (penalized > 0) {
+            log.info("[종합추천] 신규 진입 감점: {}건 (어제 스냅샷 밖 + 5일 +{}%↑)",
+                    penalized, (int) THRESHOLD);
+        }
+    }
+
     // ==================== N/A & Util ====================
 
     private int countValidCategories(StockScore s) {
@@ -1498,6 +1531,8 @@ public class RecommendationService {
         int valueStability = -1;
         Set<String> tags = new LinkedHashSet<>();
         BigDecimal changeRate;
+        // phase31 P2 — 5거래일 누적 등락률 (%). scoreTechnical 에서 채움. 신규 진입 감점에 사용.
+        double fiveDayReturn = 0.0;
         StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
