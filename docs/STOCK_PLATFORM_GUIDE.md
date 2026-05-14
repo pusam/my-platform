@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 31d
+> **Version**: 2026.05.14 Phase 32
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~31)](#16-phase-변경-이력-131)
+16. [Phase 변경 이력 (1~32)](#16-phase-변경-이력-132)
 
 ---
 
@@ -513,6 +513,8 @@ POST /api/paper-trading/bot/stop
 ### 시그널 적중률
 ```
 GET /api/signal-outcomes/accuracy?days=30
+GET /api/signal-outcomes/compare?signalType=STRONG_BUY&cutoff=2026-05-14&windowDays=30
+  (phase 32) — cutoff 전후 hit-rate/alpha/MFE/MAE 비교, phase 변경 검증용
 ```
 
 ### 수급
@@ -666,7 +668,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~31)
+## 16. Phase 변경 이력 (1~32)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -704,6 +706,7 @@ GET /api/ai-strategy/performance
 | 31b | 알림/룰 | 09시 알림 delta 재정의(꼭지 → 가속, Δ≥+10 & 오늘≥65) + 섹터 시장분위기 일괄가산 제거 (P1) |
 | 31c | 점수 | 신규 진입 + 5일 누적 +15% 종목 감점 (P2) — 추천 풀 밖에서 갑자기 등장한 추격 패턴 차단 |
 | 31d | 점수 | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
+| **32** | **검증 API** | **phase 31 검증용 `/api/signal-outcomes/compare` — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향)** |
 
 ---
 
