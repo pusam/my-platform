@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
+import com.myplatform.backend.service.RecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -9,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
@@ -30,14 +32,25 @@ public class DiagnosticsController {
 
     private final RecommendationSnapshotRepository snapshotRepo;
     private final SignalOutcomeRepository outcomeRepo;
+    private final RecommendationService recommendationService;
 
     @GetMapping("/data")
     @Operation(
         summary = "데이터 누적 상태 진단",
-        description = "recommendation_snapshot / signal_outcome 카운트와 마지막 날짜, 시그널 타입별 분포. " +
-                     "검증 API 가 비어있을 때 '데이터가 없는 건지 / 검증 조건 미달인지' 구분용."
+        description = "recommendation_snapshot / signal_outcome 카운트와 마지막 날짜, 시그널 타입별 분포 + " +
+                     "메모리 캐시(phase 36b) 점수 분포. refresh=true 면 캐시 무효화 + 백그라운드 " +
+                     "calculate 트리거 (응답엔 직전 캐시, 1~2분 후 재호출 시 fresh)."
     )
-    public ResponseEntity<Map<String, Object>> data() {
+    public ResponseEntity<Map<String, Object>> data(
+            @RequestParam(defaultValue = "false") boolean refresh) {
+        if (refresh) {
+            try {
+                recommendationService.warmCache();
+                log.info("[Diagnostics] refresh=true — warmCache 트리거됨");
+            } catch (Exception e) {
+                log.warn("[Diagnostics] warmCache 실패: {}", e.getMessage());
+            }
+        }
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime since24h = now.minusHours(24);
 
@@ -82,8 +95,18 @@ public class DiagnosticsController {
         outcome.put("latestSignalDate", outcomeRepo.findMaxSignalDate().orElse(null));
         outcome.put("byType", byType);
 
+        // phase 36b — 메모리 캐시 점수 분포 (DB 스냅샷과 별개, calculate() 후 즉시 갱신)
+        Map<String, Object> cache;
+        try {
+            cache = recommendationService.getCacheDiagnostics();
+        } catch (Exception e) {
+            log.debug("[Diagnostics] getCacheDiagnostics 실패: {}", e.getMessage());
+            cache = Map.of("error", e.getMessage());
+        }
+
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("recommendationSnapshot", snap);
+        data.put("recommendationCache", cache);
         data.put("signalOutcome", outcome);
         data.put("now", now);
 

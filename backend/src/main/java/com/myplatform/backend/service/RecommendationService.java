@@ -525,6 +525,96 @@ public class RecommendationService {
         }
     }
 
+    // ==================== 캐시 진단 (phase 36b) ====================
+
+    /**
+     * 메모리 캐시(cachedTop5) 의 현재 상태 — phase 36b.
+     *
+     * <p>cron 사이 (14:00 / 17:00 등) 기다리지 않고 phase 변경의 즉시 효과를 확인하기 위한 진단.
+     * 점수 분포, STRONG_BUY/BUY 카운트, regime 태그, top3 종목 반환.
+     *
+     * <p>스냅샷 DB 와 다른 점: cron 마다만 INSERT 되는 DB 와 달리 메모리 캐시는 calculate() 호출
+     * 후 즉시 갱신됨. {@link #warmCache} 로 강제 트리거 가능.
+     */
+    public Map<String, Object> getCacheDiagnostics() {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        List<RecommendationDto> cache = this.cachedTop5;
+        LocalDateTime cTime = this.cacheTime;
+        result.put("cacheTime", cTime);
+        result.put("cacheSize", cache == null ? 0 : cache.size());
+
+        if (cache == null || cache.isEmpty()) {
+            result.put("scoreDistribution", null);
+            result.put("strongBuyCount", 0);
+            result.put("buyPlusCount", 0);
+            result.put("regime", null);
+            result.put("top3", java.util.Collections.emptyList());
+            return result;
+        }
+
+        int min = 100, max = 0, sum = 0;
+        int strongBuyCount = 0, buyPlusCount = 0;
+        String regimeTag = null;
+        for (RecommendationDto dto : cache) {
+            int score = dto.getTotalScore();
+            if (score < min) min = score;
+            if (score > max) max = score;
+            sum += score;
+            if (score >= STRONG_BUY_THRESHOLD) strongBuyCount++;
+            if (score >= 55) buyPlusCount++;
+            if (regimeTag == null && dto.getTags() != null) {
+                for (String tag : dto.getTags()) {
+                    if (tag != null && tag.startsWith("regime:")) {
+                        regimeTag = tag.substring("regime:".length());
+                        break;
+                    }
+                }
+            }
+        }
+
+        Map<String, Object> dist = new java.util.LinkedHashMap<>();
+        dist.put("min", min);
+        dist.put("max", max);
+        dist.put("avg", Math.round(sum * 100.0 / cache.size()) / 100.0);
+        result.put("scoreDistribution", dist);
+        result.put("strongBuyCount", strongBuyCount);
+        result.put("buyPlusCount", buyPlusCount);
+        // SIDEWAYS 는 태그 X — null 이면 SIDEWAYS 또는 cache 비어있음
+        result.put("regime", regimeTag != null ? regimeTag : "SIDEWAYS_OR_UNKNOWN");
+
+        List<Map<String, Object>> top3 = new ArrayList<>();
+        for (int i = 0; i < Math.min(3, cache.size()); i++) {
+            RecommendationDto dto = cache.get(i);
+            Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("rank", i + 1);
+            item.put("stockCode", dto.getStockCode());
+            item.put("stockName", dto.getStockName());
+            item.put("totalScore", dto.getTotalScore());
+            item.put("earnings", dto.getEarnings());
+            item.put("supplyDemand", dto.getSupplyDemand());
+            item.put("technical", dto.getTechnical());
+            item.put("sectorMomentum", dto.getSectorMomentum());
+            item.put("valueStability", dto.getValueStability());
+            item.put("tags", dto.getTags());
+            top3.add(item);
+        }
+        result.put("top3", top3);
+        return result;
+    }
+
+    /**
+     * 캐시 강제 트리거 — phase 36b. 진단 API 의 refresh=true 가 호출.
+     * <p>{@link #getTop5} 와 동일 로직: 캐시 hit 이면 그대로, miss 면 백그라운드 calculate.
+     * 즉시 fresh 캐시를 만들고 싶으면 cachedTop5 를 명시적으로 null 로 set 후 호출. 다만
+     * 진단 용도라 단순 트리거만 — 1~2분 후 다시 /data 호출하면 fresh 캐시 확인 가능.
+     */
+    public void warmCache() {
+        // cachedTop5 비우면 다음 호출에서 DB 폴백 + 백그라운드 calculate 트리거
+        this.cachedTop5 = null;
+        this.cacheTime = null;
+        getTop5();
+    }
+
     // ==================== STRONG+VALUE 빈도 조회 (phase 35) ====================
 
     /**
