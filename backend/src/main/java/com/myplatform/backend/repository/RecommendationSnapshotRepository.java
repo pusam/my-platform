@@ -65,4 +65,13 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
     /** phase 35b 진단 — 최근 24시간 STRONG_BUY (≥75) 종목 수. */
     @Query("SELECT COUNT(r) FROM RecommendationSnapshot r WHERE r.snapshotAt >= :since AND r.totalScore >= 75")
     long countStrongBuySince(@Param("since") LocalDateTime since);
+
+    /** phase 35c 진단 — 최근 24시간 BUY+ (≥55) 종목 수. */
+    @Query("SELECT COUNT(r) FROM RecommendationSnapshot r WHERE r.snapshotAt >= :since AND r.totalScore >= 55")
+    long countBuyPlusSince(@Param("since") LocalDateTime since);
+
+    /** phase 35c 진단 — 최근 24시간 점수 분포 [min, max, avg]. */
+    @Query("SELECT MIN(r.totalScore), MAX(r.totalScore), AVG(r.totalScore) " +
+           "FROM RecommendationSnapshot r WHERE r.snapshotAt >= :since")
+    Object[] scoreStatsSince(@Param("since") LocalDateTime since);
 }

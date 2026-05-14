@@ -46,6 +46,31 @@ public class DiagnosticsController {
         snap.put("latestSnapshotAt", snapshotRepo.findMaxSnapshotAt().orElse(null));
         snap.put("countLast24h", snapshotRepo.countSince(since24h));
         snap.put("strongBuyCountLast24h", snapshotRepo.countStrongBuySince(since24h));
+        snap.put("buyPlusCountLast24h", snapshotRepo.countBuyPlusSince(since24h));
+
+        // 점수 분포 — 산식이 빡센지 시장이 약한지 판별 (phase 35c)
+        Object[] stats = null;
+        try {
+            Object raw = snapshotRepo.scoreStatsSince(since24h);
+            // JPA 가 단일 row aggregate 를 Object[] 또는 Object[][1] 로 반환할 수 있어 양쪽 처리
+            if (raw instanceof Object[] arr) {
+                if (arr.length > 0 && arr[0] instanceof Object[] inner) stats = inner;
+                else stats = arr;
+            }
+        } catch (Exception e) {
+            log.debug("[Diagnostics] scoreStats 조회 실패: {}", e.getMessage());
+        }
+        Map<String, Object> scoreDist = new LinkedHashMap<>();
+        if (stats != null && stats.length >= 3) {
+            scoreDist.put("min", stats[0]);
+            scoreDist.put("max", stats[1]);
+            scoreDist.put("avg", stats[2]);
+        } else {
+            scoreDist.put("min", null);
+            scoreDist.put("max", null);
+            scoreDist.put("avg", null);
+        }
+        snap.put("scoreDistributionLast24h", scoreDist);
 
         Map<String, Long> byType = new LinkedHashMap<>();
         for (Object[] row : outcomeRepo.countByType()) {
