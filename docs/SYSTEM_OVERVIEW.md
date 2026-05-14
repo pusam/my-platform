@@ -1,9 +1,10 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.14 Phase 38
-> 작성: 2026-05-14 (phase 1~38 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.15 Phase 39
+> 작성: 2026-05-15 (phase 1~39 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
-> 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
+> 1분 안에 핵심만 보려면 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md).
+> 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
 
 ---
@@ -284,7 +285,7 @@ Core Design Principle 의 "신선도와 리스크가 모든 의사결정에 우�
 |---|---|---|---|---|
 | **스캘핑** | 모의 전용 | 순매수≥10억 + 양봉 + 변동폭≥1.5% + 보조 2/4 | 손절 -1.5% / 익절 +1.2% 절반 / 트레일링 -1% / 타임컷 15~20분 | 09:45~10:30 |
 | **스윙** | 모의 + 실전 | 외국인/기관 3일+ 연속매수 + MA20 지지 + RSI<65 | 익절 +5% / 손절 -3% / 최대 5일 | 14:00 체크 |
-| ~~종가 매수~~ | 비활성 | (2026-09-14 거래시간 연장 후 재설계) | | |
+| ~~종가 매수~~ | 비활성 | KRX 거래시간 연장 시행 후 재설계 예정 (~2026 하반기 잠정) | | |
 
 봇이 적용하는 안전 가드는 §5 Risk & Safety Management 참고.
 
@@ -451,12 +452,12 @@ frontend/src/
 
 ---
 
-## 12. 변경 이력 (Phase 1~38)
+## 12. 변경 이력 (Phase 1~39)
 
 | Phase | 변경 |
 |---|---|
 | 1 | stale 데이터 가드 (surge 15분 + 가격 60초) |
-| 2 | 스케줄러 풀 32→48 |
+| 2 | 스케줄러 풀 단일 32 → 단일 48 (phase 3 에서 3개로 분리되기 전 중간 상태) |
 | 3a/b | 풀 3개 분리 (taskScheduler/cache/batch) + 60+ @Scheduled 분배 |
 | 4 | KIS WebSocket — `@ConditionalOnProperty` + ObjectProvider |
 | 5 | StockConclusionService — 룰 기반 한 줄 결론 + 4-level |
@@ -496,29 +497,29 @@ frontend/src/
 | 35 | STRONG+VALUE 빈도 검증 API `/strong-value-frequency` (보너스 dead code 여부 확인) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단) + 진단 API `/api/diagnostics/data` (35b/c — 데이터 누적/점수 분포 즉시 확인) + 보안 — 검증 API permitAll |
 | 36 | BULL 강세장 over-penalty 완화 — 운영 데이터(STRONG_BUY 0건, max 71) 진단 후: 신규 진입 페널티(phase 31c) BULL 스킵 + BULL multiplier 폭 ±0.20 → ±0.10 (earnings 0.95 / sd 1.10 / tc 1.05 / sec 1.00). phase 36b 캐시 진단 + refresh 트리거 (`/data?refresh=true`). |
 | 37 | BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단(LG디스플레이 sector=4 병목). `scoreSectorMomentum` 안에서 BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL multiplier sector 1.00 → 1.20. BEAR/SIDEWAYS 는 유지. |
-| **38** | **fix(잠재 버그) — `saveSnapshotInternal` 경로에 `refreshPrices(result)` 추가. phase 12 부터 dto.currentPrice 가 null 이라 record() 진입 0건 (signal_outcome 에 STRONG_BUY/BUY 영원히 비어있던 원인). 이 fix 로 phase 31~37 검증 도구가 실제로 작동.** |
+| 38 | fix(잠재 버그) — `saveSnapshotInternal` 경로에 `refreshPrices(result)` 추가. phase 12 부터 dto.currentPrice 가 null 이라 record() 진입 0건 (signal_outcome 에 STRONG_BUY/BUY 영원히 비어있던 원인). 이 fix 로 phase 31~37 검증 도구가 실제로 작동. |
+| **39** | **문서 정리 — §13 알려진 한계의 완료/미완료 중복 제거 (MFE/MAE / WebSocket Gap-filling), 종가 매수 날짜 명확화, phase 2 풀 크기 의미 명시, [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md) 신규 (한 장 요약).** |
 
 ---
 
-## 13. 알려진 한계 / 다음 작업 후보
+## 13. 다음 작업 후보 (미완료 한계만)
 
 | 영역 | 현재 상태 | 개선 방향 | 우선순위 |
 |---|---|---|---|
-| ~~시그널 충돌 해설~~ | ✅ **완료 (phase 22b)** — `detectConflicts()` 6가지 룰 | (저평가+단기약함 / 종합강+기술약 / 수급+가치강+기술약 / 실적강+관심없음 / 섹터강+차트약 / 모두평범) | Done |
-| ~~Time-to-Stale 시각화~~ | ✅ **완료 (phase 23)** — 결론 카드 신호등 | 녹(≤5분) / 노(5~15분) / 빨(>15분) | Done |
-| ~~봇 성과 차트~~ | ✅ **완료 (phase 29)** — BotPnlChart 바+라인 콤보 | dailyPnl 시각화 + MDD | Done |
-| ~~AI 분석 적중률 추적~~ | ✅ **완료 (phase 24)** — AI_STRONG/AI_BUY | 8종 시그널 타입 추적 | Done |
-| ~~MFE/MAE 측정~~ | ✅ **완료 (phase 25)** — V28 마이그레이션 | 보유 기간 최고/최저 일봉 추적 | Done |
-| ~~WebSocket Gap-filling~~ | ✅ **완료 (phase 30)** — 재연결 시 REST 폴백 | 활성 종목 일괄 동기화 | Done |
-| **백테스트** | 부분 구현 | 4전략 과거 수익률 검증 강화 | Medium |
-| **MFE/MAE 측정** | 3일 종가만 | 보유 기간 중 최대 상승/하락 추적 — 최적 익절/손절 도출 | Low |
-| **포지션 사이징 (ATR)** | 자동매매 비율 고정 | ATR 기반 동적 사이징 (백테스트 누적 후) | Low |
-| **MDD 기반 자산 배분** | MDD 노출만 | 낙폭 구간에서 베팅 사이즈 자동 축소 | Low |
-| **Gemini Fallback AI** | 한도 알림만 | 로컬 LLM 대체 경로 | Low |
-| **WebSocket Gap-filling** | 단순 재연결 | 끊긴 동안 REST 폴백 | Low |
-| **세금/수수료** | 실전 매매 수동 계산 | 자동 차감 표시 | Low |
-| **StockDetailDashboard.vue 분리** | 4757줄 단일 파일 | 기능별 컴포넌트 분리 (유지보수성) | Low |
-| **AI 분석 / 전략 / 섹터 적중률** | 미추적 | record() 추가 통합 (phase 16 패턴 복사) | Low |
+| **백테스트** | 부분 구현 (signal_outcome 3일 alpha 누적 중) | 4전략 과거 수익률 검증 강화 | Medium |
+| **포지션 사이징 (ATR)** | 자동매매 비율 고정 + phase 34 MDD 인프라(`recommendPositionScale`) 만 제공 | ATR 기반 동적 사이징, 봇 호출 통합 (백테스트 누적 후) | Low |
+| **MDD 기반 자산 배분** | phase 34 인프라 메서드만 (호출 X) | 낙폭 구간에서 베팅 사이즈 자동 축소 — 모의 봇 먼저 연결 | Low |
+| **Gemini Fallback AI** | 한도 알림만 (phase 8) | 로컬 LLM 대체 경로 | Low |
+| **세금/수수료** | 거래내역에 표시(phase 26) | 봇 진입 결정 시 자동 차감해 ROI 계산 | Low |
+| **StockDetailDashboard.vue 분리** | 4708줄 단일 파일 | 기능별 컴포넌트 추가 분리 (phase 27/28 이후) | Low |
+| **AI 분석/전략/섹터 적중률** | AI 분석은 추적(phase 24). 전략/섹터 미추적 | 전략/섹터 record() 통합 (phase 16 패턴) | Low |
+
+### 완료된 한계 (변경 이력 참고)
+
+§12 변경 이력에 phase 별 완료 항목 기록. 주요:
+- 시그널 충돌 해설 (phase 22b) / Time-to-Stale 신호등 (phase 23) / AI 분석 적중률 (phase 24) /
+  MFE/MAE 측정 (phase 25) / 봇 성과 차트 (phase 29) / WebSocket Gap-filling (phase 30) /
+  추격매수 방지 전체 (phase 31~37) / record() 진입 fix (phase 38).
 
 ---
 

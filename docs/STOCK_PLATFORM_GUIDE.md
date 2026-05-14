@@ -1,7 +1,8 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 38
+> **Version**: 2026.05.15 Phase 39
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
+> 1분 요약은 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md).
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
 
@@ -24,7 +25,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~38)](#16-phase-변경-이력-138)
+16. [Phase 변경 이력 (1~39)](#16-phase-변경-이력-139)
 
 ---
 
@@ -458,7 +459,7 @@ else:
 |---|---|---|---|
 | **스캘핑** | 모의 전용 | 순매수 ≥ 10억 + 양봉 + 변동폭 ≥ 1.5% + 보조 2/4 (체결강도/RSI/이격도/갭) | 손절 -1.5% / 익절 +1.2% 절반 / 트레일링 -1% / 타임컷 15~20분 |
 | **스윙** | 모의 + 실전 | 외인/기관 3일+ 연속매수 + MA20 지지 + RSI < 65 | 익절 +5% / 손절 -3% / 최대 5일 |
-| ~~종가 매수~~ | 비활성 | (2026-09-14 거래시간 연장 후 재설계) | |
+| ~~종가 매수~~ | 비활성 | KRX 거래시간 연장 시행 후 재설계 예정 (~2026 하반기 잠정) | |
 
 **활성 시각**: 스캘핑 09:45~10:30 골든타임 / 스윙 14:00 체크
 
@@ -713,12 +714,12 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~38)
+## 16. Phase 변경 이력 (1~39)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
 | 1 | 안전 | stale 데이터 가드 (surge 15분 + 가격 60초) |
-| 2 | 인프라 | 스케줄러 풀 32 → 48 |
+| 2 | 인프라 | 스케줄러 풀 단일 32 → 단일 48 (phase 3에서 3개 풀로 분리되기 전 중간 상태) |
 | 3a/b | 인프라 | 풀 3개 분리 (taskScheduler/cache/batch) + 60+ @Scheduled 분배 |
 | 4 | 인프라 | KIS WebSocket — @ConditionalOnProperty + ObjectProvider |
 | 5 | 의사결정 | StockConclusionService — 룰 기반 한 줄 결론 + 4-level |
@@ -757,7 +758,8 @@ GET /api/ai-strategy/performance
 | 35 | 검증 API + 안정성 | `/api/recommendation/strong-value-frequency` (보너스 dead code 검증용 일자별 빈도) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단) + 진단 API `/api/diagnostics/data` (35b/c — 데이터 누적/점수 분포 즉시 확인) + 검증 API permitAll |
 | 36 | 튜닝 | BULL 강세장 over-penalty 완화 — 운영 데이터(STRONG_BUY 0건, max 71) 진단 후: 신규 진입 페널티 BULL 스킵 + BULL multiplier 폭 ±0.20 → ±0.10 (earnings 0.95 / sd 1.10 / tc 1.05 / sec 1.00). phase 36b 캐시 진단 + refresh 트리거. |
 | 37 | 튜닝 | BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단. `scoreSectorMomentum` BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL sector multiplier 1.00 → 1.20 |
-| **38** | **fix** | **`saveSnapshotInternal` 에 `refreshPrices(result)` 추가 — phase 12 부터 dto.currentPrice 가 null 이라 STRONG_BUY/BUY record() 진입 0건이던 잠재 버그. signal_outcome 에 시그널 추적 시작** |
+| 38 | fix | `saveSnapshotInternal` 에 `refreshPrices(result)` 추가 — phase 12 부터 dto.currentPrice 가 null 이라 STRONG_BUY/BUY record() 진입 0건이던 잠재 버그. signal_outcome 에 시그널 추적 시작 |
+| **39** | **문서** | **§13 알려진 한계 중복 제거 (MFE/MAE / WebSocket Gap-filling 완료/미완료 행 정리) + 종가 매수 날짜 명확화 + phase 2 풀 크기 의미 명시 + [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md) 신규 (한 장 요약)** |
 
 ---
 
