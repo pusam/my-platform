@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 33
+> **Version**: 2026.05.14 Phase 34
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~33)](#16-phase-변경-이력-133)
+16. [Phase 변경 이력 (1~34)](#16-phase-변경-이력-134)
 
 ---
 
@@ -349,6 +349,34 @@ else:
 | 40~54 | HOLD (관망) |
 | < 40 | WAIT (제외) |
 
+### 시장 국면 적응형 가중치 (phase 34)
+
+`scoreSectorMomentum` 가 전체 섹터 평균 등락률로 시장 국면 판정 후 반환, `calculate()` 끝부분
+`applyMarketRegimeWeighting(scoreMap, regime)` 가 카테고리 점수에 multiplier 적용.
+
+| regime | 판정 | earnings | supplyDemand | technical | sector |
+|---|---|---|---|---|---|
+| BULL | 섹터 평균 > +1% | ×0.90 | ×1.15 | ×1.10 | ×0.90 |
+| BEAR | 섹터 평균 < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
+| SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
+
+- 점수 자체에 적용 → UI/정렬 일관 (phase 31d 원칙 유지)
+- SIDEWAYS 의 섹터 0.9 는 phase 31b 시간 척도 불일치 부분 보정
+- BULL/BEAR 시 tag `regime:BULL` / `regime:BEAR` 명시
+- multiplier 4개 모두 1.0 으로 바꾸면 즉시 disable
+
+### STRONG_BUY + 강한 가치 보너스 (phase 34)
+
+`total ≥ 75` AND `valueStability ≥ 12` → 정규화 점수 +2 (cap 100). `getNormalizedTotal`(정렬)
++ `toDto`(UI) 양쪽 일관. tag `STRONG+VALUE`. v7 분리 철학은 유지하면서 희소한 모멘텀+가치
+교집합만 우대.
+
+### MDD 기반 포지션 스케일 (phase 34, 인프라)
+
+`BotPerformanceService.recommendPositionScale(mode, days, mddLimit)` — 최근 N일 MDD 절대값을
+사용자 지정 mddLimit 으로 나눈 비율 기반 0.50~1.00 배율. 봇 코드에서 호출은 사용자 직접 결정
+(잘못 끼우면 매매 사고).
+
 ### 추격매수 방지 페널티 (phase 31)
 
 운영 중 "추천 상위 종목 = 이미 한참 오른 종목 + 다음날 조정" 패턴이 반복 관측되어 산식
@@ -672,7 +700,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~33)
+## 16. Phase 변경 이력 (1~34)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -711,7 +739,8 @@ GET /api/ai-strategy/performance
 | 31c | 점수 | 신규 진입 + 5일 누적 +15% 종목 감점 (P2) — 추천 풀 밖에서 갑자기 등장한 추격 패턴 차단 |
 | 31d | 점수 | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
 | 32 | 검증 API | phase 31 검증용 `/api/signal-outcomes/compare` — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
-| **33** | **충돌 룰 + 검증 + 가드** | **detectConflicts 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + `/timeseries` 일별 시계열 API + STRONG_BUY 7일 평균 alpha 음수 시 risk 텔레그램 (관찰 가드, 산식 영향 0)** |
+| 33 | 충돌 룰 + 검증 + 가드 | detectConflicts 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + `/timeseries` 일별 시계열 API + STRONG_BUY 7일 평균 alpha 음수 시 risk 텔레그램 (관찰 가드, 산식 영향 0) |
+| **34** | **점수/봇** | **시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + `BotPerformanceService.recommendPositionScale` MDD 포지션 스케일 인프라(봇 호출은 사용자 책임)** |
 
 ---
 

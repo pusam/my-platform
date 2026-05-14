@@ -1,7 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.14 Phase 33
-> 작성: 2026-05-14 (phase 1~33 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.14 Phase 34
+> 작성: 2026-05-14 (phase 1~34 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
 > 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
@@ -152,6 +152,33 @@ else:
 - 프론트 통합 (phase 13): 종목 상세 페이지 상단에 결론 카드 + 매수 체크리스트 모달.
 
 → 사용자는 페이지 진입 즉시 한 줄 결론을 보고, 체크리스트로 봇 룰 충족 여부 확인 가능.
+
+### 시장 국면 적응형 가중치 (phase 34)
+
+`scoreSectorMomentum` 의 전체 섹터 평균 등락률로 시장 국면 판정, `applyMarketRegimeWeighting`
+에서 카테고리 점수에 multiplier 적용 (점수 자체 갱신 → UI/정렬 일관성).
+
+| regime | 판정 | earnings | supplyDemand | technical | sectorMomentum |
+|---|---|---|---|---|---|
+| BULL | 섹터 평균 > +1% | ×0.90 | ×1.15 | ×1.10 | ×0.90 |
+| BEAR | 섹터 평균 < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
+| SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
+
+SIDEWAYS 의 섹터 0.9 는 phase 31b 가 가리킨 "1분 스냅샷 → 30분 추천" 시간 척도 불일치를 부분
+보정한다. tag 에 `regime:BULL` / `regime:BEAR` 표시. multiplier 4개 모두 1.0 으로 바꾸면 즉시
+비활성.
+
+### STRONG_BUY + 강한 가치 보너스 (phase 34)
+
+`total ≥ 75` AND `valueStability ≥ 12` 종목에 정규화 점수 +2 (cap 100). v7 분리 철학(가치를
+산식 일반 포함 X) 은 그대로 두고 "강한 모멘텀 + 강한 가치" 의 희소한 교집합만 우대.
+`StockScore.getNormalizedTotal` 과 `toDto` 양쪽 적용 — phase 31d 일관성 유지. tag `STRONG+VALUE`.
+
+### MDD 기반 포지션 스케일 인프라 (phase 34)
+
+`BotPerformanceService.recommendPositionScale(mode, days, mddLimit)` — 최근 N일 MDD / mddLimit
+비율로 0.50~1.00 배율 반환 (ratio<0.5 → 1.0, ratio≥1.0 → 0.5, 그 사이 선형 보간). 호출은 봇 코드
+에서 사용자 직접 추가 (잘못 끼우면 매매 사고이므로 인프라만 제공).
 
 ### 추격매수 방지 (phase 31)
 
@@ -412,7 +439,7 @@ frontend/src/
 
 ---
 
-## 12. 변경 이력 (Phase 1~33)
+## 12. 변경 이력 (Phase 1~34)
 
 | Phase | 변경 |
 |---|---|
@@ -452,7 +479,8 @@ frontend/src/
 | 31c | 신규 진입 + 5일 누적 +15% 종목 감점 (P2) — 추천 풀 밖에서 갑자기 등장한 추격 패턴 차단 |
 | 31d | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
 | 32 | phase 31 검증용 cutoff 전후 비교 API — `/api/signal-outcomes/compare` (hit-rate/alpha/MFE/MAE delta) + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
-| **33** | **충돌 해설 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + 일별 시계열 API `/timeseries` + STRONG_BUY 7일 평균 alpha 음수면 risk 채널 알림 (관찰 가드, 산식 영향 0)** |
+| 33 | 충돌 해설 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + 일별 시계열 API `/timeseries` + STRONG_BUY 7일 평균 alpha 음수면 risk 채널 알림 (관찰 가드, 산식 영향 0) |
+| **34** | **시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + MDD 포지션 스케일 인프라(BotPerformanceService.recommendPositionScale, 봇 호출은 사용자 책임)** |
 
 ---
 
