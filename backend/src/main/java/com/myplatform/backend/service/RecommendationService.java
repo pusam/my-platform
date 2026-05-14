@@ -66,6 +66,11 @@ public class RecommendationService {
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
 
     private static final int STRONG_BUY_THRESHOLD = 75;
+    // phase 34 — STRONG_BUY 종목 중 가치 점수 ≥ STRONG_VALUE_THRESHOLD 이면 정규화 점수 +
+    // STRONG_VALUE_BONUS. v7 분리 철학은 유지(가치를 산식에 일반 포함 X) 하면서 "강한 모멘텀
+    // + 강한 가치" 의 희소한 교집합만 추가 가산해 우대.
+    private static final int STRONG_VALUE_THRESHOLD = 12;
+    private static final int STRONG_VALUE_BONUS = 2;
     private volatile java.time.LocalDate lastAlertDate = null;
 
     // 가격 도달 알림 — 임계점 (오를 때 / 내릴 때)
@@ -90,6 +95,10 @@ public class RecommendationService {
             = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("MM/dd HH:mm");
+
+    // phase 34 — 시장 국면 enum. scoreSectorMomentum 의 전체 섹터 평균 등락률로 판정.
+    // 가중치 multiplier 표는 applyMarketRegimeWeighting 참고.
+    private enum MarketRegime { BULL, BEAR, SIDEWAYS }
 
     // ==================== Public API ====================
 
@@ -711,8 +720,8 @@ public class RecommendationService {
         long erMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         scoreSupplyDemand(scoreMap);
         long sdMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
-        // 섹터: AI 스냅샷 + 시장분위기 (모든 scoreMap 종목에 부여)
-        scoreSectorMomentum(scoreMap);
+        // 섹터: AI 스냅샷 + 시장분위기 (모든 scoreMap 종목에 부여) + phase 34 regime 판정
+        MarketRegime regime = scoreSectorMomentum(scoreMap);
         long scMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 기술: 마지막 (모든 종목 수집 후)
         scoreTechnical(scoreMap);
@@ -728,6 +737,8 @@ public class RecommendationService {
         long rtMs = System.currentTimeMillis() - t0;
         // P2: 신규 진입 + 5일 가속 종목 감점 (어제 스냅샷 밖에서 갑자기 등장 + 이미 많이 오른 패턴)
         applyNewEntryPenalty(scoreMap, prevScoreMap);
+        // phase 34: 시장 국면 적응형 가중치 — BULL/BEAR/SIDEWAYS 별 카테고리 multiplier
+        applyMarketRegimeWeighting(scoreMap, regime);
         log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 리스크:{}ms 실시간:{}ms (합 {}ms)",
                 aiMs, erMs, sdMs, scMs, tcMs, vsMs, rkMs, rtMs,
                 aiMs + erMs + sdMs + scMs + tcMs + vsMs + rkMs + rtMs);
@@ -1069,12 +1080,24 @@ public class RecommendationService {
     // 아니라 상수 가산이라 변별력 깎임("강세장에 추천 다 떠있다 다음날 다 조정"의 구조적 원인).
     // marketMoodBonus 는 운영 로그에만 노출 (시장 메타 정보).
 
-    private void scoreSectorMomentum(Map<String, StockScore> scoreMap) {
-        // 1. 섹터 로테이션 — 시장 분위기 메타 (점수엔 부여 안 함, 로그용)
+    private MarketRegime scoreSectorMomentum(Map<String, StockScore> scoreMap) {
+        // 1. 섹터 로테이션 — 시장 분위기 메타 (점수엔 부여 안 함, 로그용) + phase 34 regime 판정.
         int marketMoodBonus = 0;
+        MarketRegime regime = MarketRegime.SIDEWAYS;
         try {
             List<SectorRotationDto> rotations = sectorTradingService.getSectorRotation();
             if (rotations != null && !rotations.isEmpty()) {
+                // phase 34: 전체 섹터 평균 등락률로 시장 국면 판정. 양봉/INFLOW 필터링 없는 raw 평균
+                // 이라야 약세장도 음수로 잡힘.
+                double overallAvg = rotations.stream()
+                        .mapToDouble(r -> safeDouble(r.getAvgChangeRate()))
+                        .average().orElse(0.0);
+                if (overallAvg > 1.0) regime = MarketRegime.BULL;
+                else if (overallAvg < -1.0) regime = MarketRegime.BEAR;
+                log.info("[종합추천] 시장 국면: {} (전체 섹터 평균 등락률 {}%)",
+                        regime, String.format("%.2f", overallAvg));
+
+                // 기존 marketMoodBonus (로그용) — 양봉/INFLOW 만 본 강세 강도
                 List<SectorRotationDto> topSectors = rotations.stream()
                         .filter(r -> safeDouble(r.getAvgChangeRate()) > 0 || "INFLOW".equals(r.getFlowDirection()))
                         .sorted(Comparator.comparing(r -> safeDouble(r.getAvgChangeRate()), Comparator.reverseOrder()))
@@ -1150,6 +1173,7 @@ public class RecommendationService {
             }
         }
         log.info("[종합추천] 섹터: {}종목 부여, 시장분위기 +{}", scored, marketMoodBonus);
+        return regime;
     }
 
     // ==================== ⑤ 기술적 (/20) ====================
@@ -1423,6 +1447,56 @@ public class RecommendationService {
         }
     }
 
+    // ==================== ⑧ 시장 국면 적응형 가중치 (phase 34) ====================
+
+    /**
+     * 시장 국면에 따라 카테고리 점수 multiplier 적용.
+     *
+     * <p>의도: 강세장은 모멘텀 (수급/기술/섹터) 비중을 높이고, 약세장은 펀더멘털 (실적/가치) 우선.
+     * SIDEWAYS 는 기본이지만 섹터만 0.90 배 — phase 31b 의 "섹터 1분 스냅샷 → 30분 추천" 시간
+     * 척도 불일치를 부분 보정 (외부 피드백 반영).
+     *
+     * <p>multiplier 표:
+     * <pre>
+     *   regime       earnings   supplyDemand  technical   sectorMomentum
+     *   BULL         × 0.90     × 1.15        × 1.10      × 0.90
+     *   BEAR         × 1.20     × 0.85        × 0.90      × 0.80
+     *   SIDEWAYS     × 1.00     × 1.00        × 1.00      × 0.90  ← 섹터만 시간 척도 보정
+     * </pre>
+     *
+     * <p>각 카테고리 점수는 카테고리 만점(20) 안에서 clamp — 만점 80 / 정규화 100 구조 그대로 보존.
+     * 결과적으로 multiplier > 1 효과는 만점 종목엔 작고, 중간 점수(10~15) 종목에 가장 크게 나타남.
+     *
+     * <p>비활성화: multiplier 를 1.0/1.0/1.0/1.0 으로 모두 바꾸면 즉시 disable.
+     */
+    private void applyMarketRegimeWeighting(Map<String, StockScore> scoreMap, MarketRegime regime) {
+        double wE, wSD, wTC, wSC;
+        switch (regime) {
+            case BULL -> { wE = 0.90; wSD = 1.15; wTC = 1.10; wSC = 0.90; }
+            case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
+            default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
+        }
+        // SIDEWAYS + 섹터만 0.9 라 SIDEWAYS 도 변화 있음. 그래도 BULL/BEAR 만 명시 태그.
+        String tag = switch (regime) {
+            case BULL -> "regime:BULL";
+            case BEAR -> "regime:BEAR";
+            default -> null;
+        };
+        for (StockScore s : scoreMap.values()) {
+            s.earnings = clampCategory((int) Math.round(s.earnings * wE));
+            s.supplyDemand = clampCategory((int) Math.round(s.supplyDemand * wSD));
+            s.technical = clampCategory((int) Math.round(s.technical * wTC));
+            s.sectorMomentum = clampCategory((int) Math.round(s.sectorMomentum * wSC));
+            if (tag != null) s.tags.add(tag);
+        }
+        log.info("[종합추천] regime weighting 적용: {} (E:{} SD:{} TC:{} SC:{})",
+                regime, wE, wSD, wTC, wSC);
+    }
+
+    private static int clampCategory(int v) {
+        return Math.max(0, Math.min(20, v));
+    }
+
     // ==================== N/A & Util ====================
 
     private int countValidCategories(StockScore s) {
@@ -1521,6 +1595,11 @@ public class RecommendationService {
         // 4 카테고리 합산 — 가치/AI전략 분리.
         int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum;
         int total = normalizeScore(raw, vc);
+        // phase 34: STRONG_BUY + 강한 가치 교집합 가산 (정렬용 getNormalizedTotal 과 일관성 유지)
+        if (total >= STRONG_BUY_THRESHOLD && s.valueStability >= STRONG_VALUE_THRESHOLD) {
+            total = Math.min(100, total + STRONG_VALUE_BONUS);
+            s.tags.add("STRONG+VALUE");
+        }
 
         return RecommendationDto.builder()
                 .stockCode(s.stockCode).stockName(s.stockName)
@@ -1559,7 +1638,12 @@ public class RecommendationService {
             if (supplyDemand > 0) { v++; sum += supplyDemand; }
             if (technical > 0) { v++; sum += technical; }
             if (sectorMomentum > 0) { v++; sum += sectorMomentum; }
-            return normalizeScore(sum, v);
+            int total = normalizeScore(sum, v);
+            // phase 34: STRONG_BUY + 강한 가치 교집합 가산 (toDto 와 일관성)
+            if (total >= STRONG_BUY_THRESHOLD && valueStability >= STRONG_VALUE_THRESHOLD) {
+                total = Math.min(100, total + STRONG_VALUE_BONUS);
+            }
+            return total;
         }
     }
 

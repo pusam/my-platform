@@ -60,6 +60,41 @@ public class BotPerformanceService {
     }
 
     /**
+     * MDD 기반 포지션 사이즈 배율 추천 (phase 34, 인프라 메서드 — 호출은 사용자 책임).
+     *
+     * <p>최근 {@code days} 일 봇 성과에서 maxDrawdown 절대값과 사용자가 지정한 임계 mddLimit
+     * 의 비율로 사이즈 축소 계수 반환:
+     * <pre>
+     *   ratio = mdd / mddLimit
+     *   ratio &lt; 0.5  → 1.00 (정상)
+     *   ratio == 0.5 → 1.00 → 점진 축소 시작
+     *   ratio == 1.00 → 0.50 (반토막)
+     *   ratio &gt; 1.00 → 0.50 cap
+     * </pre>
+     *
+     * <p>의도: 운영 데이터로 본 손실 위험 확장 시 자동으로 베팅 축소. AutoTradingBotService
+     * 가 매수 결정 시 호출하면 활성화 (예: {@code int adjustedQty = (int)(qty * scale.doubleValue())}).
+     * 잘못 호출하면 매매 사고이므로 인프라만 제공하고 봇 코드 변경은 사용자 직접 검토.
+     *
+     * @param mode "REAL" 또는 "VIRTUAL"
+     * @param days 측정 기간 (예: 30)
+     * @param mddLimit 사용자가 견딜 수 있는 MDD 한도 (절대값 원, 양수). 예: 100_000원.
+     * @return 0.50 ~ 1.00 배율
+     */
+    public BigDecimal recommendPositionScale(String mode, Integer days, BigDecimal mddLimit) {
+        if (mddLimit == null || mddLimit.signum() <= 0) return BigDecimal.ONE;
+        BotPerformanceDto perf = getPerformance(days, mode);
+        BigDecimal mdd = perf == null ? null : perf.getMaxDrawdown();
+        if (mdd == null || mdd.signum() <= 0) return BigDecimal.ONE;
+        BigDecimal ratio = mdd.divide(mddLimit, 4, RoundingMode.HALF_UP);
+        BigDecimal half = BigDecimal.valueOf(0.5);
+        if (ratio.compareTo(half) < 0) return BigDecimal.ONE;
+        if (ratio.compareTo(BigDecimal.ONE) >= 0) return half;
+        // 선형 보간: ratio=0.5→1.0, ratio=1.0→0.5
+        return BigDecimal.ONE.subtract(ratio.subtract(half));
+    }
+
+    /**
      * 봇 종합 성과 분석.
      * @param mode "REAL" (실전, accountId=999999) 또는 "VIRTUAL" (활성 가상 계좌)
      */
