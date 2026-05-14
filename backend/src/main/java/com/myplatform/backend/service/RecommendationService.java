@@ -795,7 +795,9 @@ public class RecommendationService {
         applyRealtimeChecks(scoreMap);
         long rtMs = System.currentTimeMillis() - t0;
         // P2: 신규 진입 + 5일 가속 종목 감점 (어제 스냅샷 밖에서 갑자기 등장 + 이미 많이 오른 패턴)
-        applyNewEntryPenalty(scoreMap, prevScoreMap);
+        // phase 36: BULL 강세장에서는 5일 +15% 가 정상 추세 종목에서도 흔하게 발생 → 무차별
+        // 페널티 부작용 차단 위해 regime 인자 추가, BULL 이면 스킵.
+        applyNewEntryPenalty(scoreMap, prevScoreMap, regime);
         // phase 34: 시장 국면 적응형 가중치 — BULL/BEAR/SIDEWAYS 별 카테고리 multiplier
         applyMarketRegimeWeighting(scoreMap, regime);
         log.info("[종합추천] 단계별 소요 - AI:{}ms 실적:{}ms 수급:{}ms 섹터:{}ms 기술:{}ms 가치:{}ms 리스크:{}ms 실시간:{}ms (합 {}ms)",
@@ -1500,9 +1502,17 @@ public class RecommendationService {
      * <p>페널티는 technical 카테고리에서 -5 (음수 클램프). technical=0 이 되면 validCount 에서
      * 빠져 자연 탈락. P0-1 의 5일 +20%+ 페널티와는 중첩 가능 (의도 — 신규 + 더 가속이면 더 큰 페널티).
      * <p>prevScoreMap 비어있는 콜드스타트는 스킵 (모든 종목이 "신규" 로 잘못 분류되는 거 방지).
+     * <p><b>phase 36</b>: regime == BULL 이면 스킵. BULL 강세장에서는 5일 +15% 가 정상 추세
+     * 종목에서도 흔하게 발생해 운영 데이터(2026-05-14)에 46건 무차별 페널티 → STRONG_BUY 0건
+     * 부작용 확인. 강세장은 추격이 아니라 추세 추종이 정상이므로 해당 페널티 비활성.
      */
     private void applyNewEntryPenalty(Map<String, StockScore> scoreMap,
-                                       Map<String, Integer> prevScoreMap) {
+                                       Map<String, Integer> prevScoreMap,
+                                       MarketRegime regime) {
+        if (regime == MarketRegime.BULL) {
+            log.debug("[종합추천] 신규 진입 감점: BULL 강세장 — 스킵 (정상 추세 종목 페널티 차단)");
+            return;
+        }
         if (prevScoreMap.isEmpty()) return;
         final double THRESHOLD = 15.0;
         int penalized = 0;
@@ -1529,12 +1539,17 @@ public class RecommendationService {
      * SIDEWAYS 는 기본이지만 섹터만 0.90 배 — phase 31b 의 "섹터 1분 스냅샷 → 30분 추천" 시간
      * 척도 불일치를 부분 보정 (외부 피드백 반영).
      *
-     * <p>multiplier 표:
+     * <p><b>phase 36</b>: BULL multiplier 폭 ±0.20 → ±0.10 으로 좁힘. 운영 데이터(2026-05-14
+     * BULL 강세장)에서 max 71 / STRONG_BUY 0건 부작용 확인 후 — earnings 0.90→0.95 (강한 실적
+     * 종목 깎는 거 완화), sector 0.90→1.00 (BULL 은 시장이 이미 강한 거 검증된 상태라 보정 불필요).
+     * BEAR/SIDEWAYS 는 데이터 없어 그대로 유지.
+     *
+     * <p>multiplier 표 (phase 36):
      * <pre>
      *   regime       earnings   supplyDemand  technical   sectorMomentum
-     *   BULL         × 0.90     × 1.15        × 1.10      × 0.90
+     *   BULL         × 0.95     × 1.10        × 1.05      × 1.00      ← phase 36 좁힘
      *   BEAR         × 1.20     × 0.85        × 0.90      × 0.80
-     *   SIDEWAYS     × 1.00     × 1.00        × 1.00      × 0.90  ← 섹터만 시간 척도 보정
+     *   SIDEWAYS     × 1.00     × 1.00        × 1.00      × 0.90      ← 섹터만 시간 척도 보정
      * </pre>
      *
      * <p>각 카테고리 점수는 카테고리 만점(20) 안에서 clamp — 만점 80 / 정규화 100 구조 그대로 보존.
@@ -1545,7 +1560,7 @@ public class RecommendationService {
     private void applyMarketRegimeWeighting(Map<String, StockScore> scoreMap, MarketRegime regime) {
         double wE, wSD, wTC, wSC;
         switch (regime) {
-            case BULL -> { wE = 0.90; wSD = 1.15; wTC = 1.10; wSC = 0.90; }
+            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.00; }  // phase 36 좁힘
             case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
             default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
         }
