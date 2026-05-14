@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.SignalAccuracyDto;
 import com.myplatform.backend.dto.SignalCompareDto;
+import com.myplatform.backend.dto.SignalTimeseriesDto;
 import com.myplatform.backend.service.SignalOutcomeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -47,6 +48,30 @@ public class SignalOutcomeController {
             log.error("[SignalOutcome API] 적중률 조회 실패: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("message", "적중률 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/timeseries")
+    @Operation(
+        summary = "시그널 일별 시계열 (phase 33)",
+        description = "최근 N일(기본 60) 시그널별 일자별 hit-rate / 평균 변동률 / 평균 alpha. " +
+                     "phase 변경 시점 전후 그래프 표시용. signalType 미지정 시 전체 시그널."
+    )
+    public ResponseEntity<Map<String, Object>> timeseries(
+            @RequestParam(required = false) String signalType,
+            @RequestParam(defaultValue = "60") int days) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            SignalTimeseriesDto ts = signalOutcomeService.getTimeseries(signalType, days);
+            response.put("success", true);
+            response.put("data", ts);
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[SignalOutcome API] 시계열 조회 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "시계열 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }

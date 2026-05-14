@@ -116,7 +116,7 @@ public class StockConclusionService {
     }
 
     /**
-     * 시그널 간 충돌 / 주의 사항 감지 (phase 22b).
+     * 시그널 간 충돌 / 주의 사항 감지 (phase 22b + phase 33 룰 7~8).
      *
      * 4-level 헤드라인이 단일 결론을 주는 반면, 이 메서드는 카테고리 간 충돌이나 특이 조합을
      * 따로 짚어준다. 사용자가 "왜 BUY 인데 익절 짧게?" 같은 의문에 답이 된다.
@@ -127,7 +127,9 @@ public class StockConclusionService {
      *  3) 장기+수급 동조 + 단기 차트 약 → 분할 매수 / 눌림목 대기
      *  4) 실적 강 + 시장 관심 없음 → 매집 후보
      *  5) 섹터 강 + 종목 차트 약 → 섹터 ETF 대안
-     *  6) 모든 카테고리 평범 → 더 매력적 후보 우선
+     *  6) 수급 후반 페이즈 + BUY 이상 → 카운터파티 만들어진 단계 (phase 33)
+     *  7) AI 전략 발굴 + 객관 지표 미충족 → 후속 시그널 대기 (phase 33)
+     *  8) 모든 카테고리 평범 → 더 매력적 후보 우선
      */
     private String detectConflicts(RecommendationSnapshot s) {
         int total = s.getTotalScore();
@@ -136,6 +138,7 @@ public class StockConclusionService {
         int technical = s.getTechnical();
         int sector = s.getSectorMomentum();
         int value = s.getValueStability();
+        String tags = s.getTags();
 
         // 1. 단기 강 + 장기 매우 약 — 펀더멘털 받쳐주지 않는 모멘텀 진입은 익절 짧게.
         if (total >= STRONG_BUY_THRESHOLD && value >= 0 && value < 4) {
@@ -157,7 +160,17 @@ public class StockConclusionService {
         if (sector >= 15 && technical > 0 && technical < 6) {
             return "💡 섹터 흐름 강하나 종목 차트 약함 — 섹터 ETF 대안 고려.";
         }
-        // 6. 모든 카테고리 평범 (각각 6~10점) — 뚜렷한 강점 없는 평균 종목.
+        // 6. (phase 33) 수급 후반 페이즈 + 매수 신호 — phase 31 P0-2 의 "외국인 5일+ 후반" 태그 활용.
+        //    외국인/기관이 카운터파티 만든 단계로 진입했을 가능성, 추격 매수 신중.
+        if (tags != null && tags.contains("후반") && total >= BUY_THRESHOLD) {
+            return "⚠️ 수급 5일+ 후반 페이즈 — 외국인/기관 카운터파티 만든 단계 가능성, 분할 진입 권장.";
+        }
+        // 7. (phase 33) AI 전략 발굴 + 객관 지표 미충족 — AI 시드는 후보 풀에 들어왔지만
+        //    4 카테고리 정량 점수가 BUY 컷에 미달. 후속 시그널(실적/수급/기술) 가속 대기.
+        if (s.getAiStrategy() > 0 && total < BUY_THRESHOLD) {
+            return "💡 AI 전략 발굴 후보 — 4 카테고리 객관 지표 미흡, 실적/수급/기술 가속 대기.";
+        }
+        // 8. 모든 카테고리 평범 (각각 6~10점) — 뚜렷한 강점 없는 평균 종목.
         if (allMidRange(earnings, supplyDemand, technical, sector)) {
             return "⚪ 모든 카테고리 평범 — 뚜렷한 강점 없음, 더 매력적인 후보 우선 검토.";
         }

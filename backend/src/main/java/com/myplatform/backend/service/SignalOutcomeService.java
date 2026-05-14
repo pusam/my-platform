@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.myplatform.backend.dto.SignalAccuracyDto;
 import com.myplatform.backend.dto.SignalAccuracyDto.SignalStat;
 import com.myplatform.backend.dto.SignalCompareDto;
+import com.myplatform.backend.dto.SignalTimeseriesDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.SignalOutcome;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
@@ -43,6 +44,10 @@ public class SignalOutcomeService {
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
+    // phase 33: STRONG_BUY 평균 alpha 음수 지속 시 risk 채널 헬스 알림. ObjectProvider 로 받아
+    // 텔레그램 미설정 환경(예: 로컬 테스트)에서도 null-safe.
+    private final org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider;
+    private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
     /** hit 기준 — phase 20 변경: 시장 대비 alpha 양수 + 절대 수익률 양수. */
@@ -149,7 +154,11 @@ public class SignalOutcomeService {
     public void evaluatePendingSignals() {
         LocalDate cutoff = LocalDate.now().minusDays(EVALUATION_DELAY_DAYS);
         List<SignalOutcome> pending = repository.findPendingEvaluation(cutoff);
-        if (pending.isEmpty()) return;
+        if (pending.isEmpty()) {
+            // 평가 대상 없어도 헬스 체크는 실행 — 누적 표본 기준이라 신규 평가 0건이어도 의미 있음.
+            checkStrongBuyAlphaHealth();
+            return;
+        }
 
         log.info("[SignalOutcome] 평가 대상 {}건 (signalDate ≤ {})", pending.size(), cutoff);
         // KOSPI 현재가 한 번 조회 (모든 outcome에 동일 시점) — phase 20 alpha 계산.
@@ -205,6 +214,47 @@ public class SignalOutcomeService {
         }
         log.info("[SignalOutcome] 평가 완료 {}/{} (BM alpha: {})",
                 evaluated, pending.size(), kospiNow != null ? "활성" : "비활성(폴백)");
+        checkStrongBuyAlphaHealth();
+    }
+
+    /**
+     * STRONG_BUY 평균 alpha 헬스 체크 — phase 33.
+     *
+     * <p>최근 7일 STRONG_BUY 시그널의 평균 alpha (vs KOSPI) 가 음수면 risk 채널 알림.
+     * 산식에 영향 주는 가드가 아니라 <b>관찰 가드</b>: 운영 관찰 기반 튜닝 (phase 31 등)
+     * 이 over-fit 됐을 때 빠르게 감지하기 위함.
+     *
+     * <p>스팸 방지: 일 1회 (lastAlphaAlertDate). 표본 부족 (null) 이면 스킵.
+     * 텔레그램 미설정 환경에서는 로그만 출력.
+     */
+    private void checkStrongBuyAlphaHealth() {
+        try {
+            LocalDate today = LocalDate.now();
+            if (today.equals(lastAlphaAlertDate)) return;
+            BigDecimal avgAlpha = repository.averageAlphaSince("STRONG_BUY", today.minusDays(7));
+            if (avgAlpha == null) return;
+            if (avgAlpha.signum() >= 0) return;
+
+            BigDecimal scaled = avgAlpha.setScale(2, RoundingMode.HALF_UP);
+            log.warn("[SignalOutcome] ⚠ STRONG_BUY 최근 7일 평균 alpha 음수: {}% (산식 검토 권장)", scaled);
+
+            TelegramNotificationService telegram = telegramProvider.getIfAvailable();
+            if (telegram != null) {
+                try {
+                    telegram.sendRisk(String.format(
+                            "⚠️ <b>STRONG_BUY 평균 alpha 음수</b>\n\n"
+                                    + "• 최근 7일 평균 alpha: <b>%s%%</b>\n"
+                                    + "• 추천 산식이 시장 대비 underperform 중\n"
+                                    + "• /api/signal-outcomes/compare 로 phase 변경 시점 전후 비교 권장",
+                            scaled.toPlainString()));
+                } catch (Exception e) {
+                    log.debug("[SignalOutcome] alpha 헬스 텔레그램 발송 실패: {}", e.getMessage());
+                }
+            }
+            lastAlphaAlertDate = today;
+        } catch (Exception e) {
+            log.debug("[SignalOutcome] STRONG_BUY 헬스 체크 실패: {}", e.getMessage());
+        }
     }
 
     /** 시그널별 적중률 통계 — 최근 days 일 기준. */
@@ -355,5 +405,42 @@ public class SignalOutcomeService {
     private static BigDecimal subtractOrNull(BigDecimal a, BigDecimal b) {
         if (a == null || b == null) return null;
         return a.subtract(b).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 일별 시계열 — phase 33. 프론트 그래프용.
+     * 최근 N일 (signalDate 기준) 의 시그널별 hit-rate / 평균 변동률 / 평균 alpha 를 일자별로 반환.
+     */
+    public SignalTimeseriesDto getTimeseries(String signalTypeFilter, int days) {
+        int d = days < 1 ? 60 : days;
+        LocalDate from = LocalDate.now().minusDays(d);
+        List<Object[]> rows = repository.aggregateDailyTimeseries(from);
+        List<SignalTimeseriesDto.Point> points = new ArrayList<>();
+        boolean filterActive = signalTypeFilter != null && !signalTypeFilter.isBlank();
+        for (Object[] row : rows) {
+            LocalDate date = (LocalDate) row[0];
+            String type = (String) row[1];
+            if (filterActive && !signalTypeFilter.equals(type)) continue;
+            long total = ((Number) row[2]).longValue();
+            long hits = row[3] == null ? 0L : ((Number) row[3]).longValue();
+            BigDecimal hitRate = total == 0 ? BigDecimal.ZERO
+                    : BigDecimal.valueOf(hits)
+                            .multiply(BigDecimal.valueOf(100))
+                            .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+            points.add(SignalTimeseriesDto.Point.builder()
+                    .date(date)
+                    .signalType(type)
+                    .totalSignals(total)
+                    .hitCount(hits)
+                    .hitRate(hitRate)
+                    .avgPctChange(scaleOrNull(row[4]))
+                    .avgAlpha(scaleOrNull(row[5]))
+                    .build());
+        }
+        return SignalTimeseriesDto.builder()
+                .daysWindow(d)
+                .signalTypeFilter(signalTypeFilter)
+                .points(points)
+                .build();
     }
 }

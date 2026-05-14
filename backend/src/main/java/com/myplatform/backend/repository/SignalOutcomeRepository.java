@@ -58,4 +58,38 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
         """)
     List<Object[]> aggregateStatsBetween(@Param("from") LocalDate from,
                                          @Param("to") LocalDate to);
+
+    /**
+     * 일별 시그널별 시계열 — phase 33. 그래프 표시용.
+     * <p>리턴: [signalDate, signalType, total, hitCount, avgPctChange, avgAlpha]
+     */
+    @Query("""
+        SELECT s.signalDate,
+               s.signalType,
+               COUNT(s),
+               SUM(CASE WHEN s.hit = TRUE THEN 1 ELSE 0 END),
+               AVG(s.pctChange3d),
+               AVG(s.alpha3d)
+          FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.signalDate >= :from
+         GROUP BY s.signalDate, s.signalType
+         ORDER BY s.signalDate ASC, s.signalType ASC
+        """)
+    List<Object[]> aggregateDailyTimeseries(@Param("from") LocalDate from);
+
+    /**
+     * 최근 N일 특정 시그널의 평균 alpha — phase 33 헬스 가드.
+     * <p>리턴: 단일 BigDecimal (없으면 null).
+     */
+    @Query("""
+        SELECT AVG(s.alpha3d)
+          FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.signalType = :type
+           AND s.signalDate >= :from
+           AND s.alpha3d IS NOT NULL
+        """)
+    java.math.BigDecimal averageAlphaSince(@Param("type") String signalType,
+                                            @Param("from") LocalDate from);
 }
