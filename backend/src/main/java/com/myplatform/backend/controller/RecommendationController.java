@@ -40,4 +40,17 @@ public class RecommendationController {
                 "realtime", response.isRealtime()
         ));
     }
+
+    /**
+     * STRONG_BUY + 강한 가치 동시 충족 빈도 — phase 35.
+     * phase 34 의 STRONG+VALUE +2 보너스가 dead code 인지 운영 데이터로 확인.
+     */
+    @GetMapping("/strong-value-frequency")
+    public ResponseEntity<?> getStrongValueFrequency(
+            @RequestParam(defaultValue = "30") int days) {
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", recommendationService.getStrongValueFrequency(days)
+        ));
+    }
 }

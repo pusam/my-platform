@@ -36,4 +36,21 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
             "WHERE r.stockCode = :stockCode " +
             "ORDER BY r.snapshotAt DESC LIMIT 1")
     java.util.Optional<RecommendationSnapshot> findLatestByStockCode(@Param("stockCode") String stockCode);
+
+    /**
+     * phase 35: STRONG_BUY (총점 ≥ threshold) + 강한 가치 (valueStability ≥ valueThreshold) 동시 충족
+     * 종목을 since 이후 스냅샷에서 모두 조회. 일자별 빈도 + 종목명 샘플 노출용.
+     * <p>같은 종목이 여러 스냅샷에 나오면 모두 반환 — 호출하는 쪽에서 일자별 집계/중복 제거.
+     */
+    @Query("""
+        SELECT r FROM RecommendationSnapshot r
+         WHERE r.snapshotAt >= :since
+           AND r.totalScore >= :scoreMin
+           AND r.valueStability >= :valueMin
+         ORDER BY r.snapshotAt DESC, r.rankOrder ASC
+        """)
+    List<RecommendationSnapshot> findStrongValueSince(
+            @Param("since") LocalDateTime since,
+            @Param("scoreMin") int scoreMin,
+            @Param("valueMin") int valueMin);
 }

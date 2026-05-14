@@ -100,6 +100,11 @@ public class RecommendationService {
     // 가중치 multiplier 표는 applyMarketRegimeWeighting 참고.
     private enum MarketRegime { BULL, BEAR, SIDEWAYS }
 
+    // phase 35 — hysteresis. 직전 calculate() 사이클의 regime 기억.
+    // dead band 0.5 적용으로 임계 근처 흔들림(예: avg=-1.1 한 번 찍었다고 BULL→BEAR 즉시 전환)
+    // 방지. 강한 시장 반전(avg±1.0 통과 + dead band 도 통과)은 한 번에 전환 가능.
+    private volatile MarketRegime lastRegime = MarketRegime.SIDEWAYS;
+
     // ==================== Public API ====================
 
     public Top5Response getTop5() {
@@ -518,6 +523,60 @@ public class RecommendationService {
         } catch (Exception e) {
             log.error("[종합추천] 스냅샷 실패: {}", e.getMessage());
         }
+    }
+
+    // ==================== STRONG+VALUE 빈도 조회 (phase 35) ====================
+
+    /**
+     * STRONG_BUY (≥75) AND value (≥12) 동시 충족 종목 빈도 — phase 35.
+     * <p>phase 34 의 STRONG+VALUE +2 보너스가 실제로 작동하는지 운영 데이터 확인용.
+     * 외부 평가에서 "이 조건 만족 종목이 거의 없으면 dead code, 많으면 v7 분리 철학을 슬쩍 깬 것"
+     * 이라는 우려가 있어 빠르게 검증할 API 제공.
+     * <p>리턴 구조:
+     * <pre>
+     * {
+     *   daysWindow: 30, scoreThreshold: 75, valueThreshold: 12,
+     *   totalOccurrences: int (중복 포함 모든 스냅샷),
+     *   uniqueStocks: int (distinct 종목 수),
+     *   dailyCounts: [ {date, count, stocks: [name1, name2, ...]} ]
+     * }
+     * </pre>
+     */
+    public Map<String, Object> getStrongValueFrequency(int days) {
+        int d = days < 1 ? 30 : days;
+        LocalDateTime since = LocalDateTime.now().minusDays(d);
+        List<RecommendationSnapshot> rows = snapshotRepository.findStrongValueSince(
+                since, STRONG_BUY_THRESHOLD, STRONG_VALUE_THRESHOLD);
+
+        // 일자별 집계 — 같은 종목이 같은 날 여러 스냅샷에 나와도 1로 카운트
+        Map<java.time.LocalDate, Map<String, String>> perDay = new java.util.TreeMap<>(
+                Comparator.reverseOrder());
+        java.util.Set<String> distinctStocks = new java.util.HashSet<>();
+        for (RecommendationSnapshot s : rows) {
+            java.time.LocalDate date = s.getSnapshotAt().toLocalDate();
+            perDay.computeIfAbsent(date, k -> new java.util.LinkedHashMap<>())
+                    .putIfAbsent(s.getStockCode(), s.getStockName());
+            distinctStocks.add(s.getStockCode());
+        }
+
+        List<Map<String, Object>> daily = new ArrayList<>();
+        for (var entry : perDay.entrySet()) {
+            Map<String, String> stockMap = entry.getValue();
+            Map<String, Object> dayInfo = new java.util.LinkedHashMap<>();
+            dayInfo.put("date", entry.getKey().toString());
+            dayInfo.put("count", stockMap.size());
+            dayInfo.put("stocks", new ArrayList<>(stockMap.values()));
+            daily.add(dayInfo);
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("daysWindow", d);
+        result.put("scoreThreshold", STRONG_BUY_THRESHOLD);
+        result.put("valueThreshold", STRONG_VALUE_THRESHOLD);
+        result.put("totalOccurrences", rows.size());
+        result.put("uniqueStocks", distinctStocks.size());
+        result.put("dailyCounts", daily);
+        return result;
     }
 
     // ==================== 저평가 TOP 10 (별도 트랙) ====================
@@ -1092,10 +1151,24 @@ public class RecommendationService {
                 double overallAvg = rotations.stream()
                         .mapToDouble(r -> safeDouble(r.getAvgChangeRate()))
                         .average().orElse(0.0);
-                if (overallAvg > 1.0) regime = MarketRegime.BULL;
-                else if (overallAvg < -1.0) regime = MarketRegime.BEAR;
-                log.info("[종합추천] 시장 국면: {} (전체 섹터 평균 등락률 {}%)",
-                        regime, String.format("%.2f", overallAvg));
+                MarketRegime fresh;
+                if (overallAvg > 1.0) fresh = MarketRegime.BULL;
+                else if (overallAvg < -1.0) fresh = MarketRegime.BEAR;
+                else fresh = MarketRegime.SIDEWAYS;
+
+                // phase 35: hysteresis dead band 0.5 — 임계 근처 흔들림(예: -1.1% 한 번 찍었다고
+                // BULL→BEAR 즉시 전환) 방지. 강한 반전(avg ±1.0 통과 + dead band 위반)은 한 번에 전환.
+                //  · 직전 BULL AND avg > -0.5  → BULL 유지
+                //  · 직전 BEAR AND avg < +0.5  → BEAR 유지
+                //  · 그 외                      → fresh 판정 채택
+                MarketRegime previous = lastRegime;
+                if (previous == MarketRegime.BULL && overallAvg > -0.5) regime = MarketRegime.BULL;
+                else if (previous == MarketRegime.BEAR && overallAvg < 0.5) regime = MarketRegime.BEAR;
+                else regime = fresh;
+                lastRegime = regime;
+
+                log.info("[종합추천] 시장 국면: {} (전체 섹터 평균 {}%, hysteresis prev={}, fresh={})",
+                        regime, String.format("%.2f", overallAvg), previous, fresh);
 
                 // 기존 marketMoodBonus (로그용) — 양봉/INFLOW 만 본 강세 강도
                 List<SectorRotationDto> topSectors = rotations.stream()
