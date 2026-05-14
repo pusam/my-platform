@@ -119,6 +119,16 @@ public class SecurityConfig {
                         // Docker healthcheck 전용 (actuator/health 매핑 이슈 우회)
                         .requestMatchers("/api/health").permitAll()
 
+                        // phase 32~35 — 시스템 검증/분석 API. 종목별 매매 정보가 아니라 시스템
+                        // 성능 메타데이터(시그널 hit-rate, alpha, 카테고리 빈도) 라 외부 노출 OK.
+                        // 운영자가 토큰 없이 curl 로 빠르게 검증할 수 있도록 permitAll.
+                        .requestMatchers(
+                                "/api/signal-outcomes/accuracy",
+                                "/api/signal-outcomes/compare",
+                                "/api/signal-outcomes/timeseries",
+                                "/api/recommendation/strong-value-frequency"
+                        ).permitAll()
+
                         // 테스트 API - public 엔드포인트
                         .requestMatchers("/api/test/public").permitAll()
 
