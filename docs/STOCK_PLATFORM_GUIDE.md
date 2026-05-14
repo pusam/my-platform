@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.13 Phase 30
+> **Version**: 2026.05.14 Phase 31d
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~30)](#16-phase-변경-이력-130)
+16. [Phase 변경 이력 (1~31)](#16-phase-변경-이력-131)
 
 ---
 
@@ -191,13 +191,21 @@ MAX_HOLDING_STOCKS = 3
 
 **핵심 메서드**:
 - `getTop5()` — 메모리 캐시 → DB 폴백 → 백그라운드 fresh 계산 (cold start race 방어)
-- `calculate()` — 5카테고리 점수 + normalizeScore
+- `calculate()` — 4 카테고리 점수 + normalizeScore + 페널티 파이프라인
+- `applyRiskPenalty()` — 상위 30 후보 DART 공시 검사 (-5 + ⚠리스크공시 태그)
+- `applyRealtimeChecks()` — MA20 하회 / 골든크로스 태그 재검증 / 수급괴리 -3
+- `applyNewEntryPenalty()` — phase 31c: 어제 스냅샷 밖 + 5일 +15% → -5 (추격 차단)
 - `saveSnapshotInternal()` — TOP10 DB 저장 + STRONG_BUY/BUY record (phase 12)
+- `detectAndAlertNewStrongBuys()` — 평일 09:00 상승 가속 알림 (phase 31b 재정의)
 - `calculateValueTop10()` — 저평가 별도 트랙
 
 **입력 서비스** (의존):
 - AiStrategySnapshotService, InvestorTradeService, EarningSurpriseService
 - QuantScreenerService, TechnicalIndicatorService, SectorTradingService
+
+**추격매수 방지 (phase 31)** — 상세는 §6 점수 산정 로직 참고. 과열 페널티, 수급 곡선
+뒤집기, tie-break delta desc, 신규 진입 감점, 09시 알림 가속 재정의, 시장분위기 일괄가산
+제거.
 
 ### § StockConclusionService (룰 기반 결론)
 
@@ -338,6 +346,68 @@ else:
 | 55~74 | BUY (매수) |
 | 40~54 | HOLD (관망) |
 | < 40 | WAIT (제외) |
+
+### 추격매수 방지 페널티 (phase 31)
+
+운영 중 "추천 상위 종목 = 이미 한참 오른 종목 + 다음날 조정" 패턴이 반복 관측되어 산식
+자체를 재정의. 모든 페널티는 해당 카테고리 점수 안에서 차감(음수 클램프) → 카테고리=0 이
+되면 validCount 에서 빠져 자연 탈락.
+
+**1) 과열 페널티 (`scoreTechnical`)**
+
+| 페널티 | 조건 | 차감 | 도입 |
+|---|---|---|---|
+| RSI 과열 | RSI ≥ 75 | technical −5 | 31 (P0-1) |
+| 볼린저 상단 돌파 | `isBreakout=true` | technical −3 | 31 (P0-1) |
+| 5일 가속 (모든 종목) | 5거래일 누적 ≥ +20% | technical −5 | 31 (P0-1) |
+| 5일 가속 + 신규 진입 | 어제 스냅샷 밖 + 5일 ≥ +15% | technical −5 (중첩) | 31c (P2) |
+
+**2) 수급 곡선 뒤집기 (`scoreSupplyDemand`) — phase 31 P0-2**
+
+외국인/기관 연속매수 가점을 "3일 정점, 5일+ 후반 축소" 곡선으로 변경. 5일+ 연속매수는
+이미 카운터파티가 만들어진 후 단계로 간주.
+
+| 일수 | 외국인 (이전→변경) | 기관 (이전→변경) |
+|---|---|---|
+| 2일 | 4 → **8** | 3 → **6** |
+| 3일 | 6 → **10** (정점) | 4 → **8** (정점) |
+| 4일 | 8 → 6 | 6 → 5 |
+| 5일+ | 10 → **4** | 8 → **3** |
+
+태그에 "시작 / 초기 / 후반" 페이즈 표시.
+
+**3) 정렬 tie-break (`calculate`) — phase 31 P0-3**
+
+```
+① normalized total desc
+② delta (오늘 − 어제 스냅샷 점수) desc   ← phase 31 추가
+③ changeRate desc                       ← 최후 보루
+```
+
+"어제 60 → 오늘 78" 같은 추천 풀 안에서의 가속이 "어제 78 유지" 보다 우선. prev 스냅샷
+비어있는 콜드스타트는 ③ 으로 자연 위임.
+
+**4) 섹터 시장분위기 일괄가산 제거 (`scoreSectorMomentum`) — phase 31b P1-2**
+
+기존엔 `marketMoodBonus(2~6)` 를 모든 종목에 동일 가산해 변별력 깎임(강세장에 추천 다
+떠있다 다음날 다 조정의 구조적 원인). 일괄 가산만 제거하고 marketMoodBonus 계산은 유지
+하되 운영 로그에만 노출. "장중 최소 2점 폴백"(ss==0 케이스만 영향)은 유지.
+
+**5) 09시 알림 재정의 (`detectAndAlertNewStrongBuys`) — phase 31b P1-1**
+
+| | 이전 (꼭지 알림) | 변경 (가속 알림) |
+|---|---|---|
+| 조건 | 어제 75+ 없고 오늘 75+ 진입 | Δ ≥ +10 & 오늘 ≥ 65 & 어제 스냅샷 존재 |
+| 의미 | 막 피크 친 종목 | 상승 가속 중 + 과열 전 |
+| 정렬 | 입력 순서 | Δ desc |
+| 안전장치 | 없음 | prev 스냅샷 비어있으면 스킵 (콜드스타트 스팸 방지) |
+| 라벨 | 강력매수알림 | 상승가속알림 |
+
+**6) 필터/표시 점수 일관성 — phase 31d**
+
+이전엔 컷 필터의 raw 합산에만 `valueStability` 가 포함되고 `toDto`/`getNormalizedTotal`
+에선 빠져 "55점 컷 통과했는데 UI 표시 점수는 50점" 일관성 깨짐 발생. v7 (5→4 카테고리)
+전환 시 필터 라인만 누락된 것으로 추정. phase31d 에서 필터도 4 카테고리로 통일.
 
 ---
 
@@ -596,7 +666,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~30)
+## 16. Phase 변경 이력 (1~31)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -630,6 +700,10 @@ GET /api/ai-strategy/performance
 | 28 | 리팩토링 | RelatedStocksList.vue 분리 |
 | 29 | UI | BotPnlChart.vue — 봇 손익 차트 |
 | 30 | 인프라 | KIS WebSocket Gap-filling |
+| 31 | 점수/룰 | **추격매수 방지 P0** — 과열 페널티(RSI≥75 / 볼린저 상단 / 5일+20%) + 수급 곡선 뒤집기(3일 정점, 5일+ 축소) + tie-break delta desc |
+| 31b | 알림/룰 | 09시 알림 delta 재정의(꼭지 → 가속, Δ≥+10 & 오늘≥65) + 섹터 시장분위기 일괄가산 제거 (P1) |
+| 31c | 점수 | 신규 진입 + 5일 누적 +15% 종목 감점 (P2) — 추천 풀 밖에서 갑자기 등장한 추격 패턴 차단 |
+| 31d | 점수 | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
 
 ---
 
