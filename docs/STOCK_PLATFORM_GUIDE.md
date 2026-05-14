@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 35
+> **Version**: 2026.05.14 Phase 36
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~35)](#16-phase-변경-이력-135)
+16. [Phase 변경 이력 (1~36)](#16-phase-변경-이력-136)
 
 ---
 
@@ -418,9 +418,13 @@ else:
 
 | regime | 판정 | earnings | supplyDemand | technical | sector |
 |---|---|---|---|---|---|
-| BULL | 섹터 평균 > +1% | ×0.90 | ×1.15 | ×1.10 | ×0.90 |
+| BULL | 섹터 평균 > +1% | ×0.95 | ×1.10 | ×1.05 | ×1.00 |
 | BEAR | 섹터 평균 < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
 | SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
+
+**phase 36**: BULL 폭 ±0.20 → ±0.10 으로 좁힘 (운영 데이터 STRONG_BUY 0건 부작용 후 조정). 신규
+진입 페널티(phase 31c)도 regime BULL 이면 스킵 — BULL 강세장에서 5일+15% 가 정상 추세 종목에
+서도 흔하므로 무차별 페널티 차단.
 
 - 점수 자체에 적용 → UI/정렬 일관 (phase 31d 원칙 유지)
 - SIDEWAYS 의 섹터 0.9 는 phase 31b 시간 척도 불일치 부분 보정
@@ -709,7 +713,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~35)
+## 16. Phase 변경 이력 (1~36)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -750,7 +754,8 @@ GET /api/ai-strategy/performance
 | 32 | 검증 API | phase 31 검증용 `/api/signal-outcomes/compare` — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
 | 33 | 충돌 룰 + 검증 + 가드 | detectConflicts 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + `/timeseries` 일별 시계열 API + STRONG_BUY 7일 평균 alpha 음수 시 risk 텔레그램 (관찰 가드, 산식 영향 0) |
 | 34 | 점수/봇 | 시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + `BotPerformanceService.recommendPositionScale` MDD 포지션 스케일 인프라(봇 호출은 사용자 책임) |
-| **35** | **검증 API + 안정성** | **`/api/recommendation/strong-value-frequency` (보너스 dead code 검증용 일자별 빈도) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단)** |
+| 35 | 검증 API + 안정성 | `/api/recommendation/strong-value-frequency` (보너스 dead code 검증용 일자별 빈도) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단) + 진단 API `/api/diagnostics/data` (35b/c — 데이터 누적/점수 분포 즉시 확인) + 검증 API permitAll |
+| **36** | **튜닝** | **BULL 강세장 over-penalty 완화 — 운영 데이터(STRONG_BUY 0건, max 71) 진단 후: 신규 진입 페널티 BULL 스킵 + BULL multiplier 폭 ±0.20 → ±0.10 (earnings 0.95 / sd 1.10 / tc 1.05 / sec 1.00)** |
 
 ---
 

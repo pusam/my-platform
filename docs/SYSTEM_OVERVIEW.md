@@ -1,7 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.14 Phase 35
-> 작성: 2026-05-14 (phase 1~35 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.14 Phase 36
+> 작성: 2026-05-14 (phase 1~36 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
 > 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
@@ -166,7 +166,7 @@ validCount 에서 빠져 자연 탈락.
 | RSI 과열 | RSI ≥ 75 | technical −5 | 31 (P0-1) |
 | 볼린저 상단 돌파 | `isBreakout=true` | technical −3 | 31 (P0-1) |
 | 5일 가속 (모든 종목) | 5거래일 누적 ≥ +20% | technical −5 | 31 (P0-1) |
-| 5일 가속 + 신규 진입 | 어제 스냅샷 밖 + 5일 ≥ +15% | technical −5 (중첩) | 31c (P2) |
+| 5일 가속 + 신규 진입 | 어제 스냅샷 밖 + 5일 ≥ +15% (BULL 강세장은 phase 36에서 스킵) | technical −5 (중첩) | 31c (P2) + 36 |
 
 **2) 수급 곡선 뒤집기 (`scoreSupplyDemand`) — phase 31 P0-2**
 
@@ -222,10 +222,12 @@ validCount 에서 빠져 자연 탈락.
 
 | regime | 판정 | earnings | supplyDemand | technical | sectorMomentum |
 |---|---|---|---|---|---|
-| BULL | 섹터 평균 > +1% | ×0.90 | ×1.15 | ×1.10 | ×0.90 |
+| BULL | 섹터 평균 > +1% | ×0.95 | ×1.10 | ×1.05 | ×1.00 |
 | BEAR | 섹터 평균 < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
 | SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
 
+**phase 36**: BULL 폭 ±0.20 → ±0.10 으로 좁힘. 운영 데이터(2026-05-14 BULL)에서 max 71/STRONG_BUY
+0건 부작용 확인 후 — earnings 0.90→0.95, sector 0.90→1.00. BEAR/SIDEWAYS 는 데이터 없어 유지.
 SIDEWAYS 의 섹터 0.9 는 phase 31b 가 가리킨 "1분 스냅샷 → 30분 추천" 시간 척도 불일치를 부분
 보정한다. tag 에 `regime:BULL` / `regime:BEAR` 표시. multiplier 4개 모두 1.0 으로 바꾸면 즉시
 비활성.
@@ -448,7 +450,7 @@ frontend/src/
 
 ---
 
-## 12. 변경 이력 (Phase 1~35)
+## 12. 변경 이력 (Phase 1~36)
 
 | Phase | 변경 |
 |---|---|
@@ -490,7 +492,8 @@ frontend/src/
 | 32 | phase 31 검증용 cutoff 전후 비교 API — `/api/signal-outcomes/compare` (hit-rate/alpha/MFE/MAE delta) + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
 | 33 | 충돌 해설 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + 일별 시계열 API `/timeseries` + STRONG_BUY 7일 평균 alpha 음수면 risk 채널 알림 (관찰 가드, 산식 영향 0) |
 | 34 | 시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + MDD 포지션 스케일 인프라(BotPerformanceService.recommendPositionScale, 봇 호출은 사용자 책임) |
-| **35** | **STRONG+VALUE 빈도 검증 API `/strong-value-frequency` (보너스 dead code 여부 확인) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단)** |
+| 35 | STRONG+VALUE 빈도 검증 API `/strong-value-frequency` (보너스 dead code 여부 확인) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단) + 진단 API `/api/diagnostics/data` (35b/c — 데이터 누적/점수 분포 즉시 확인) + 보안 — 검증 API permitAll |
+| **36** | **BULL 강세장 over-penalty 완화 — 운영 데이터(STRONG_BUY 0건, max 71) 진단 후: 신규 진입 페널티(phase 31c) BULL 스킵 + BULL multiplier 폭 ±0.20 → ±0.10 (earnings 0.95 / sd 1.10 / tc 1.05 / sec 1.00)** |
 
 ---
 
