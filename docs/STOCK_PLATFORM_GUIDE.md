@@ -1,6 +1,6 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.14 Phase 34
+> **Version**: 2026.05.14 Phase 35
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
@@ -24,7 +24,7 @@
 13. [스케줄 작업 (60+ @Scheduled)](#13-스케줄-작업-60-scheduled)
 14. [인프라 (캐시 / 스케줄러 풀 / WebSocket)](#14-인프라-캐시--스케줄러-풀--websocket)
 15. [핵심 사용자 흐름](#15-핵심-사용자-흐름)
-16. [Phase 변경 이력 (1~34)](#16-phase-변경-이력-134)
+16. [Phase 변경 이력 (1~35)](#16-phase-변경-이력-135)
 
 ---
 
@@ -411,7 +411,7 @@ else:
 에선 빠져 "55점 컷 통과했는데 UI 표시 점수는 50점" 일관성 깨짐 발생. v7 (5→4 카테고리)
 전환 시 필터 라인만 누락된 것으로 추정. phase31d 에서 필터도 4 카테고리로 통일.
 
-### 시장 국면 적응형 가중치 (phase 34)
+### 시장 국면 적응형 가중치 (phase 34 + 35 hysteresis)
 
 `scoreSectorMomentum` 가 전체 섹터 평균 등락률로 시장 국면 판정 후 반환, `calculate()` 끝부분
 `applyMarketRegimeWeighting(scoreMap, regime)` 가 카테고리 점수에 multiplier 적용.
@@ -426,6 +426,13 @@ else:
 - SIDEWAYS 의 섹터 0.9 는 phase 31b 시간 척도 불일치 부분 보정
 - BULL/BEAR 시 tag `regime:BULL` / `regime:BEAR` 명시
 - multiplier 4개 모두 1.0 으로 바꾸면 즉시 disable
+
+**hysteresis (phase 35)** — dead band 0.5 로 임계 근처 흔들림 차단:
+- 직전 BULL AND avg > −0.5 → BULL 유지
+- 직전 BEAR AND avg < +0.5 → BEAR 유지
+- 그 외 → fresh 판정 채택
+
+`lastRegime` volatile field. 강한 반전(±1.0 통과 + dead band 위반)은 한 번에 전환 가능.
 
 ### STRONG_BUY + 강한 가치 보너스 (phase 34)
 
@@ -527,6 +534,8 @@ GET /api/stock/{code}/checklist     매수 체크리스트 (phase 6)
 ```
 GET /api/recommendation/top5         TOP 10 추천
 GET /api/recommendation/value-top10  저평가 TOP 10
+GET /api/recommendation/strong-value-frequency?days=30
+  (phase 35) STRONG_BUY+value≥12 일자별 빈도 — 보너스 dead code 검증용
 ```
 
 ### 자동매매
@@ -700,7 +709,7 @@ GET /api/ai-strategy/performance
 
 ---
 
-## 16. Phase 변경 이력 (1~34)
+## 16. Phase 변경 이력 (1~35)
 
 | Phase | 영역 | 변경 |
 |---|---|---|
@@ -740,7 +749,8 @@ GET /api/ai-strategy/performance
 | 31d | 점수 | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
 | 32 | 검증 API | phase 31 검증용 `/api/signal-outcomes/compare` — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
 | 33 | 충돌 룰 + 검증 + 가드 | detectConflicts 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + `/timeseries` 일별 시계열 API + STRONG_BUY 7일 평균 alpha 음수 시 risk 텔레그램 (관찰 가드, 산식 영향 0) |
-| **34** | **점수/봇** | **시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + `BotPerformanceService.recommendPositionScale` MDD 포지션 스케일 인프라(봇 호출은 사용자 책임)** |
+| 34 | 점수/봇 | 시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + `BotPerformanceService.recommendPositionScale` MDD 포지션 스케일 인프라(봇 호출은 사용자 책임) |
+| **35** | **검증 API + 안정성** | **`/api/recommendation/strong-value-frequency` (보너스 dead code 검증용 일자별 빈도) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단)** |
 
 ---
 

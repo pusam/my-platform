@@ -1,7 +1,7 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.14 Phase 34
-> 작성: 2026-05-14 (phase 1~34 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
+> **Version**: 2026.05.14 Phase 35
+> 작성: 2026-05-14 (phase 1~35 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
 > 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
 > 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (642줄).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
@@ -215,7 +215,7 @@ validCount 에서 빠져 자연 탈락.
 에선 빠져 "55점 컷 통과했는데 UI 점수는 50점" 일관성 깨짐 발생. v7 (5→4 카테고리) 전환
 시 필터 라인만 누락된 것으로 추정. phase31d 에서 필터도 4 카테고리로 통일.
 
-### 시장 국면 적응형 가중치 (phase 34)
+### 시장 국면 적응형 가중치 (phase 34 + 35 hysteresis)
 
 `scoreSectorMomentum` 의 전체 섹터 평균 등락률로 시장 국면 판정, `applyMarketRegimeWeighting`
 에서 카테고리 점수에 multiplier 적용 (점수 자체 갱신 → UI/정렬 일관성).
@@ -229,6 +229,14 @@ validCount 에서 빠져 자연 탈락.
 SIDEWAYS 의 섹터 0.9 는 phase 31b 가 가리킨 "1분 스냅샷 → 30분 추천" 시간 척도 불일치를 부분
 보정한다. tag 에 `regime:BULL` / `regime:BEAR` 표시. multiplier 4개 모두 1.0 으로 바꾸면 즉시
 비활성.
+
+**hysteresis (phase 35)** — 임계 근처 흔들림 차단:
+- 직전 BULL AND avg > −0.5 → BULL 유지
+- 직전 BEAR AND avg < +0.5 → BEAR 유지
+- 그 외 → fresh 판정 채택 (기존 ±1.0 임계)
+
+강한 시장 반전(±1.0 통과 + dead band 위반)은 한 번에 전환 가능. `lastRegime` volatile field 로
+직전 사이클 regime 기억. 로그에 prev/fresh 동시 출력해 작동 확인 가능.
 
 ### STRONG_BUY + 강한 가치 보너스 (phase 34)
 
@@ -320,6 +328,7 @@ Core Design Principle 의 "신선도와 리스크가 모든 의사결정에 우�
 | `GET /api/signal-outcomes/accuracy?days=30` | SignalAccuracyDto | 시그널별 적중률 통계 (3일 후 평가 누적) |
 | `GET /api/signal-outcomes/compare?signalType=&cutoff=&windowDays=` | SignalCompareDto | **phase 32** — cutoff 전후 hit-rate/alpha/MFE/MAE 비교 (phase 변경 검증) |
 | `GET /api/signal-outcomes/timeseries?signalType=&days=60` | SignalTimeseriesDto | **phase 33** — 일별 hit-rate/alpha 시계열 (프론트 그래프) |
+| `GET /api/recommendation/strong-value-frequency?days=30` | Map | **phase 35** — STRONG_BUY+value≥12 동시 충족 일자별 빈도 (보너스 dead code 검증) |
 
 ---
 
@@ -439,7 +448,7 @@ frontend/src/
 
 ---
 
-## 12. 변경 이력 (Phase 1~34)
+## 12. 변경 이력 (Phase 1~35)
 
 | Phase | 변경 |
 |---|---|
@@ -480,7 +489,8 @@ frontend/src/
 | 31d | 필터 점수 valueStability 제거 — 컷 필터 raw 와 toDto/getNormalizedTotal 불일치 수정 |
 | 32 | phase 31 검증용 cutoff 전후 비교 API — `/api/signal-outcomes/compare` (hit-rate/alpha/MFE/MAE delta) + AI전략 시드 위상 코멘트 명시 (후보 풀 확장기, 산식엔 0 영향) |
 | 33 | 충돌 해설 룰 7~8 (수급 후반 페이즈 / AI 발굴+객관 미충족) + 일별 시계열 API `/timeseries` + STRONG_BUY 7일 평균 alpha 음수면 risk 채널 알림 (관찰 가드, 산식 영향 0) |
-| **34** | **시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + MDD 포지션 스케일 인프라(BotPerformanceService.recommendPositionScale, 봇 호출은 사용자 책임)** |
+| 34 | 시장 국면 적응형 가중치 (BULL/BEAR/SIDEWAYS × 카테고리 multiplier, 섹터 0.9로 시간 척도 부분 보정) + STRONG_BUY 강한 가치(value≥12) +2 보너스 + MDD 포지션 스케일 인프라(BotPerformanceService.recommendPositionScale, 봇 호출은 사용자 책임) |
+| **35** | **STRONG+VALUE 빈도 검증 API `/strong-value-frequency` (보너스 dead code 여부 확인) + 시장 국면 hysteresis dead band 0.5 (임계 근처 BULL↔BEAR 즉시 전환 차단)** |
 
 ---
 
