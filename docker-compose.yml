@@ -162,9 +162,6 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ./frontend/dist:/usr/share/nginx/html:ro
-      # jewelry-leads SPA — 같은 nginx 가 서브도메인으로 서빙.
-      # 옆 디렉터리(../jewelry-leads/frontend/dist) 빌드물을 마운트.
-      - ../jewelry-leads/frontend/dist:/usr/share/nginx/html/jewelry:ro
       - nginx_logs:/var/log/nginx
       # Let's Encrypt 인증서 / ACME 챌린지 웹루트
       - ./nginx/ssl:/etc/nginx/ssl:ro
@@ -204,7 +201,4 @@ volumes:
 
 networks:
   myplatform-network:
-    # 명시적 이름 — 옆 프로젝트(jewelry-leads)가 external network 로 참조하기 위함.
-    # 이 이름이 없으면 compose 가 프로젝트명 접두사를 붙여 만들어 외부 참조가 깨짐.
-    name: myplatform-network
     driver: bridge
