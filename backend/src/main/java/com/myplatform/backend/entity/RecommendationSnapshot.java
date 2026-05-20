@@ -39,6 +39,11 @@ public class RecommendationSnapshot {
     @Column(name = "value_stability", nullable = false)
     private int valueStability;
 
+    // 성장성 점수 (매출/이익 성장률 + PEG). -1 = 데이터 없음(NA), 0+ = 산출됨.
+    // 기존 행은 V29 마이그레이션 default(-1)로 NA 처리 → UI 에서 "—" 노출.
+    @Column(name = "growth", nullable = false)
+    private int growth;
+
     @Column(name = "tags", length = 500)
     private String tags;
 
@@ -88,6 +93,9 @@ public class RecommendationSnapshot {
     public void setSectorMomentum(int sectorMomentum) { this.sectorMomentum = sectorMomentum; }
     public int getValueStability() { return valueStability; }
     public void setValueStability(int valueStability) { this.valueStability = valueStability; }
+
+    public int getGrowth() { return growth; }
+    public void setGrowth(int growth) { this.growth = growth; }
 
     public String getTags() { return tags; }
     public void setTags(String tags) { this.tags = tags; }

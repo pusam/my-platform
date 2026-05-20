@@ -24,7 +24,7 @@
             {{ dimensionLabel(f.dimension) }}
           </span>
         </div>
-        <div class="factor-score">{{ f.score }}</div>
+        <div class="factor-score">{{ displayScore(f.score) }}</div>
         <div class="factor-note">{{ f.note }}</div>
       </div>
     </div>
@@ -138,6 +138,9 @@ const levelIcon = computed(() => {
 });
 
 const levelClass = computed(() => 'level-' + (conclusion.value?.level || 'wait').toLowerCase().replace('_', '-'));
+
+// 점수 표시 — 음수(-1)는 "데이터 없음(NA)" 의미이므로 "—" 로 표기 (밸류/성장성 등 LONG factor).
+const displayScore = (score) => (score == null || score < 0 ? '—' : score);
 
 const dimensionLabel = (dim) => {
   switch (dim) {

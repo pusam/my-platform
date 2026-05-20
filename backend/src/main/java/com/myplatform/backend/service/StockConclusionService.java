@@ -82,8 +82,8 @@ public class StockConclusionService {
             level = Level.STRONG_BUY;
             headline = "단기 모멘텀 + 다수 시그널 합의 — 매수 적기로 평가.";
             guidance = value >= VALUE_STRONG_THRESHOLD
-                    ? "장기 가치도 양호 — 전량 진입 고려."
-                    : "단기 추세 강하지만 가치 점수는 보통 — 익절 가까이 잡고 진입.";
+                    ? "밸류(저평가)도 양호 — 전량 진입 고려."
+                    : "단기 추세 강하지만 밸류 매력도는 보통 — 익절 가까이 잡고 진입.";
         } else if (value >= VALUE_STRONG_THRESHOLD && total < BUY_THRESHOLD) {
             level = Level.HOLD;
             headline = "장기 저평가 우량주이나 단기 추세 약함 — 분할 매수 후보.";
@@ -142,7 +142,7 @@ public class StockConclusionService {
 
         // 1. 단기 강 + 장기 매우 약 — 펀더멘털 받쳐주지 않는 모멘텀 진입은 익절 짧게.
         if (total >= STRONG_BUY_THRESHOLD && value >= 0 && value < 4) {
-            return "⚠️ 단기 모멘텀 강함 + 장기 가치 매우 낮음 — 익절 3% 내, 손절 타이트.";
+            return "⚠️ 단기 모멘텀 강함 + 밸류 매력도 매우 낮음 — 익절 3% 내, 손절 타이트.";
         }
         // 2. 단기 강 + 기술 약 — 거래량/모멘텀은 좋은데 차트 기준이 안 받쳐줌 → 고점 추격 위험.
         if (total >= STRONG_BUY_THRESHOLD && technical > 0 && technical < 6) {
@@ -228,11 +228,21 @@ public class StockConclusionService {
                 .build());
         list.add(Factor.builder()
                 .key("valueStability")
-                .label("장기 가치")
+                .label("밸류 매력도")
                 .dimension("LONG")
                 .score(s.getValueStability())
                 .verdict(verdictFor(s.getValueStability(), 8, VALUE_STRONG_THRESHOLD))
-                .note("PBR / ROE / 부채비율 / 영업흑자")
+                // 라벨/노트 정정 — "지금 싼가(저평가 정도)"를 보는 밸류 지표. 산업 전망/성장성은
+                // 아래 '성장성' factor 가 담당. 점수 낮음 = "안 싸다"이지 "장기 전망 나쁨"이 아님.
+                .note("저평가 정도 (PBR·ROE·부채비율·흑자) — 전망 아님")
+                .build());
+        list.add(Factor.builder()
+                .key("growth")
+                .label("성장성")
+                .dimension("LONG")
+                .score(s.getGrowth())
+                .verdict(verdictFor(s.getGrowth(), 8, VALUE_STRONG_THRESHOLD))
+                .note("매출·이익 성장률 + PEG (산업/실적 성장)")
                 .build());
         return list;
     }

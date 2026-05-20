@@ -494,6 +494,7 @@ public class RecommendationService {
                 entity.setTechnical(dto.getTechnical());
                 entity.setSectorMomentum(dto.getSectorMomentum());
                 entity.setValueStability(dto.getValueStability());
+                entity.setGrowth(dto.getGrowth());
                 entity.setTags(dto.getTags() != null ? String.join(",", dto.getTags()) : "");
                 entity.setChangeRate(dto.getChangeRate());
                 entity.setRankOrder(i + 1);
@@ -883,6 +884,8 @@ public class RecommendationService {
         long tcMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 가치/안정성: PBR·ROE·부채비율 (DB 만 — 빠름)
         scoreValueStability(scoreMap);
+        // 성장성: 매출/이익 성장률 + PEG (DB 만 — 빠름). 가치와 분리된 별도 LONG 트랙.
+        scoreGrowth(scoreMap);
         long vsMs = System.currentTimeMillis() - t0; t0 = System.currentTimeMillis();
         // 리스크 공시 페널티: DART API 호출 — 종목당 2~3초 소요 → 상위 후보(30개) 만 검사.
         applyRiskPenalty(scoreMap);
@@ -902,9 +905,9 @@ public class RecommendationService {
 
         // 디버그 로그
         for (StockScore s : scoreMap.values()) {
-            log.debug("[종합추천] {} — AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} 가치:{} (유효 {}개)",
+            log.debug("[종합추천] {} — AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} 가치:{} 성장:{} (유효 {}개)",
                     s.stockName, s.aiStrategy, s.earnings, s.supplyDemand, s.technical, s.sectorMomentum,
-                    s.valueStability, countValidCategories(s));
+                    s.valueStability, s.growth, countValidCategories(s));
         }
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
@@ -959,12 +962,18 @@ public class RecommendationService {
                         .findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode);
                 if (recent.isEmpty()) { miss++; continue; }
 
-                // 각 필드별 first non-null — 단일 row 의 결손 컬럼을 다른 최근 row 로 보완
-                BigDecimal pbr = firstNonNull(recent, StockFinancialData::getPbr);
-                BigDecimal roe = firstNonNull(recent, StockFinancialData::getRoe);
-                BigDecimal debtRatio = firstNonNull(recent, StockFinancialData::getDebtRatio);
-                BigDecimal opProfit = firstNonNull(recent, StockFinancialData::getOperatingProfit);
-                BigDecimal equity = firstNonNull(recent, StockFinancialData::getTotalEquity);
+                // 각 필드별 합성 — 단일 row 의 결손 컬럼을 다른 최근 row 로 보완.
+                // [버그 fix] 기존 firstNonNull 은 최신 row 의 0.00 placeholder 를 "값 있음"으로
+                //   잡고 멈춰서, 뒤쪽 row 의 진짜 값에 도달하지 못했음 (예: 005930 debt_ratio=0.00
+                //   placeholder → 부채 4점 + 흑자 3점 누락 → 18점이어야 할 삼성전자가 5점).
+                //   → 0/음수가 비현실적인 필드(pbr·debt·equity)는 firstPositive 로 placeholder 를
+                //     건너뛰고, 0 이 placeholder 인 필드(roe·영업이익, 단 음수=적자는 의미 보존)는
+                //     firstNonZero 로 0 만 건너뛴다.
+                BigDecimal pbr = firstPositive(recent, StockFinancialData::getPbr);
+                BigDecimal roe = firstNonZero(recent, StockFinancialData::getRoe);
+                BigDecimal debtRatio = firstPositive(recent, StockFinancialData::getDebtRatio);
+                BigDecimal opProfit = firstNonZero(recent, StockFinancialData::getOperatingProfit);
+                BigDecimal equity = firstPositive(recent, StockFinancialData::getTotalEquity);
 
                 int score = 0;
                 List<String> tags = new ArrayList<>();
@@ -1022,11 +1031,99 @@ public class RecommendationService {
         log.debug("[종합추천] 가치: {}건 계산, {}건 데이터부족", calc, miss);
     }
 
+    // ==================== ⑥ 성장성 (/20) — 별도 LONG 트랙 ====================
+    // 가치(valueStability)는 "지금 싼가"만 본다. 시클리컬/성장주(예: 반도체)는 사이클 바닥에서
+    // ROE 급락·PBR 상승으로 밸류 점수가 오히려 낮게 찍히는 구조적 한계가 있음.
+    // → 매출/이익 성장률 + PEG 로 "성장성"을 별도 축으로 분리해 보완한다.
+    //   valueStability 와 동일하게 totalScore 산식엔 미포함 (후보 발굴/표시용 LONG factor).
+    // placeholder 0 처리: revenueGrowth/profitGrowth 는 음수(역성장)가 의미 있으므로 firstNonZero,
+    //   PEG 는 0 이하가 무의미(EPS 역성장)하므로 firstPositive.
+    private void scoreGrowth(Map<String, StockScore> scoreMap) {
+        int calc = 0, miss = 0;
+        for (StockScore stock : scoreMap.values()) {
+            try {
+                List<StockFinancialData> recent = financialDataRepository
+                        .findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode);
+                if (recent.isEmpty()) { miss++; continue; }
+
+                BigDecimal revGrowth = firstNonZero(recent, StockFinancialData::getRevenueGrowth);
+                BigDecimal profitGrowth = firstNonZero(recent, StockFinancialData::getProfitGrowth);
+                BigDecimal peg = firstPositive(recent, StockFinancialData::getPeg);
+
+                // 셋 다 데이터 없으면 NA(-1) 로 두고 표시에서 제외 (valueStability 와 동일).
+                if (revGrowth == null && profitGrowth == null && peg == null) { miss++; continue; }
+
+                int score = 0;
+                List<String> tags = new ArrayList<>();
+
+                // 1) 매출 성장률 (7점)
+                if (revGrowth != null) {
+                    double v = revGrowth.doubleValue();
+                    if (v >= 30) { score += 7; tags.add("매출고성장"); }
+                    else if (v >= 20) score += 5;
+                    else if (v >= 10) score += 3;
+                    else if (v >= 0) score += 1;
+                    // 음수(역성장) → 0
+                }
+
+                // 2) 순이익 성장률 (8점) — 이익 성장 우선
+                if (profitGrowth != null) {
+                    double v = profitGrowth.doubleValue();
+                    if (v >= 50) { score += 8; tags.add("이익급증"); }
+                    else if (v >= 30) score += 6;
+                    else if (v >= 15) score += 4;
+                    else if (v >= 0) score += 2;
+                }
+
+                // 3) PEG (5점) — 저평가 성장주 (PEG = PER / EPS성장률, 낮을수록 매력)
+                if (peg != null) {
+                    double v = peg.doubleValue();
+                    if (v <= 0.7) { score += 5; tags.add("저평가성장(PEG<1)"); }
+                    else if (v <= 1.0) { score += 4; tags.add("PEG<1"); }
+                    else if (v <= 1.5) score += 2;
+                    else if (v <= 2.0) score += 1;
+                }
+
+                stock.growth = Math.min(20, score);
+                if (stock.growth > 0) {
+                    stock.tags.addAll(tags);
+                    calc++;
+                }
+            } catch (Exception e) {
+                log.debug("[종합추천] 성장성 계산 실패 {}: {}", stock.stockCode, e.getMessage());
+                miss++;
+            }
+        }
+        log.debug("[종합추천] 성장성: {}건 계산, {}건 데이터부족", calc, miss);
+    }
+
     private static BigDecimal firstNonNull(List<StockFinancialData> rows,
                                             java.util.function.Function<StockFinancialData, BigDecimal> getter) {
         for (StockFinancialData r : rows) {
             BigDecimal v = getter.apply(r);
             if (v != null) return v;
+        }
+        return null;
+    }
+
+    /** 첫 번째 "양수" 값 — 0/음수 placeholder 를 건너뛰고 진짜 값을 찾는다.
+     *  0 이나 음수가 비현실적인 필드(PBR·부채비율·자본총계)용. */
+    private static BigDecimal firstPositive(List<StockFinancialData> rows,
+                                            java.util.function.Function<StockFinancialData, BigDecimal> getter) {
+        for (StockFinancialData r : rows) {
+            BigDecimal v = getter.apply(r);
+            if (v != null && v.signum() > 0) return v;
+        }
+        return null;
+    }
+
+    /** 첫 번째 "0이 아닌" 값 — 0.00 placeholder 만 건너뛰고 음수(적자 등)는 보존한다.
+     *  ROE·영업이익처럼 음수가 의미를 갖는 필드용. */
+    private static BigDecimal firstNonZero(List<StockFinancialData> rows,
+                                           java.util.function.Function<StockFinancialData, BigDecimal> getter) {
+        for (StockFinancialData r : rows) {
+            BigDecimal v = getter.apply(r);
+            if (v != null && v.signum() != 0) return v;
         }
         return null;
     }
@@ -1806,6 +1903,8 @@ public class RecommendationService {
                 // valueStability 만 -1(데이터 자체 없음) 과 0(데이터 있음·점수 0) 구분.
                 // -1 → NA, 0 → "0/20" 표기 (가치주 기준 미달).
                 .valueStability(s.valueStability >= 0 ? s.valueStability : NA)
+                // growth 도 valueStability 와 동일 NA(-1) 시맨틱.
+                .growth(s.growth >= 0 ? s.growth : NA)
                 .validCount(vc)
                 .tags(new ArrayList<>(s.tags))
                 .changeRate(s.changeRate).build();
@@ -1819,6 +1918,10 @@ public class RecommendationService {
         // valueStability — 다른 카테고리와 달리 "데이터 자체 없음" 과 "데이터 있으나 점수 0" 구분.
         // -1 = financial_data row 없음(NA), 0+ = row 있음 (점수 0이면 가치주 기준 미달, UI에 "0/20" 표기).
         int valueStability = -1;
+        // growth(성장성) — valueStability 와 동일한 NA(-1) 시맨틱. 매출·이익 성장률 + PEG 기반.
+        // 가치(저평가)와 분리된 별도 LONG 트랙: 시클리컬/성장주가 밸류 지표로 저평가되는 한계 보완.
+        // valueStability 처럼 totalScore 산식엔 미포함 (별도 표시 factor).
+        int growth = -1;
         Set<String> tags = new LinkedHashSet<>();
         BigDecimal changeRate;
         // phase31 P2 — 5거래일 누적 등락률 (%). scoreTechnical 에서 채움. 신규 진입 감점에 사용.
@@ -1844,7 +1947,7 @@ public class RecommendationService {
     @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
     public static class RecommendationDto {
         private String stockCode, stockName;
-        private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, valueStability, validCount;
+        private int totalScore, aiStrategy, earnings, supplyDemand, technical, sectorMomentum, valueStability, growth, validCount;
         private List<String> tags;
         private BigDecimal changeRate;
         private BigDecimal currentPrice;

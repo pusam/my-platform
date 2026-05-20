@@ -66,7 +66,8 @@ class StockConclusionServiceTest {
         assertThat(result.getLevel()).isEqualTo(Level.STRONG_BUY);
         assertThat(result.isDataAvailable()).isTrue();
         assertThat(result.getHeadline()).contains("매수 적기");
-        assertThat(result.getFactors()).hasSize(6);
+        // 종합·실적·수급·기술·섹터·밸류·성장성 = 7 factors (phase: 성장성 분리 추가)
+        assertThat(result.getFactors()).hasSize(7);
     }
 
     @Test
