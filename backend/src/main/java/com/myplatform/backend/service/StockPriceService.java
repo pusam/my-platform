@@ -492,6 +492,13 @@ public class StockPriceService {
             dto.setFetchedAt(DateTimeUtil.kstNow());
             dto.setDataSource("KIS"); // 데이터 출처
 
+            // ★ 가격 이상치 진단 가드 — 현재가가 화면마다 실거래가의 정수배(예: ×10)로
+            //    표시되던 버그 추적용. 파싱/저장 코드엔 ×10 로직이 없음을 확인했으므로,
+            //    KIS 응답 자체 또는 통합시세(UN) 필드 매핑 문제인지 운영 로그로 확정한다.
+            //    가격을 보정하지는 않는다(정상 종목 훼손 방지) — 탐지·로깅만.
+            //    정상: 저가 ≤ 현재가 ≤ 고가. 현재가만 ×10이면 이 범위를 크게 벗어남.
+            warnIfPriceOutlier(stockCode, output, dto);
+
             // 등락률이 없거나 0인지 확인
             boolean changeRateIsZeroOrNull = dto.getChangeRate() == null
                     || dto.getChangeRate().compareTo(BigDecimal.ZERO) == 0;
@@ -1029,6 +1036,41 @@ public class StockPriceService {
             }
         }
         return null;
+    }
+
+    /**
+     * 가격 이상치 진단 (현재가가 실거래가의 정수배로 표시되는 버그 추적).
+     *
+     * <p>현재가는 정상적으로 당일 저가~고가 범위 안에 있어야 한다. 현재가만 비정상 배수면
+     * 이 범위를 벗어나므로 즉시 탐지된다. 모든 가격 필드가 동일 배수면 KIS 응답 자체 문제로,
+     * raw 필드를 로그에 남겨 원인을 확정할 수 있게 한다. <b>가격은 보정하지 않는다</b> —
+     * 잘못 보정하면 정상 종목을 훼손하므로 탐지·경고만 수행.
+     */
+    private void warnIfPriceOutlier(String stockCode, JsonNode output, StockPriceDto dto) {
+        try {
+            BigDecimal cur = dto.getCurrentPrice();
+            if (cur == null || cur.compareTo(BigDecimal.ZERO) <= 0) return;
+            BigDecimal high = dto.getHighPrice();
+            BigDecimal low = dto.getLowPrice();
+            // 당일 고/저가가 유효할 때만 검증 (장전 등 0이면 스킵)
+            boolean haveBand = high != null && low != null
+                    && high.compareTo(BigDecimal.ZERO) > 0 && low.compareTo(BigDecimal.ZERO) > 0
+                    && high.compareTo(low) >= 0;
+            if (haveBand) {
+                // 현재가가 [저가, 고가] 범위를 10% 이상 벗어나면 이상치 — 현재가만 배수 오염 가능성.
+                BigDecimal lowBound = low.multiply(new BigDecimal("0.9"));
+                BigDecimal highBound = high.multiply(new BigDecimal("1.1"));
+                if (cur.compareTo(lowBound) < 0 || cur.compareTo(highBound) > 0) {
+                    log.error("[가격이상] {} 현재가 {} 가 당일 [{}~{}] 범위 밖 — 배수/필드 오염 의심. "
+                                    + "KIS raw: stck_prpr={}, stck_hgpr={}, stck_lwpr={}, stck_sdpr={}",
+                            stockCode, cur, low, high,
+                            getTextValue(output, "stck_prpr"), getTextValue(output, "stck_hgpr"),
+                            getTextValue(output, "stck_lwpr"), getTextValue(output, "stck_sdpr"));
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[가격이상] {} 진단 중 오류(무시): {}", stockCode, e.getMessage());
+        }
     }
 
     /**

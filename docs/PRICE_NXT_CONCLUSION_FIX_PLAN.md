@@ -27,16 +27,28 @@
 - `StockPriceDto` → `PriceInfo` 변환 헬퍼 신설(`convertDtoToPriceInfo`, 기존 `convertNaverToPriceInfo` L1240대 패턴 재사용). 종목명도 dto에서.
 - KIS 직접 호출은 폴백/보조로만. `parsePriceInfo`는 유지(다른 호출부 영향 최소).
 
-### 사용자 직접 확인 (코드 밖 — 선행)
-```powershell
-echo $env:KIS_BASE_URL   # openapi(실전):9443 vs openapivts(모의):29443
-```
+### 배수오류 (삼성전자/SK하이닉스 ×10) — 조사 결론 (2026-06-01)
+- **KIS = 실전 서버 확정**: `.env`에 `KIS_BASE_URL` 없음 + 환경변수 비어 있음 → `application.yml`
+  기본값 `openapi.koreainvestment.com:9443`(실전) 사용. 모의서버 아님.
+- **앱 코드엔 ×10 로직 없음** (조사 3건 + 직접 확인 일치):
+  - `getBigDecimalValue`/`parsePrice`(L1037, L1000): 콤마만 제거 후 `BigDecimal` 변환, 곱셈 없음.
+  - `entityToDto`/`dtoToEntity`(L1062, L1079): 단순 복사.
+  - `StockPrice.currentPrice` `DECIMAL(15,2)`: 233300 → 233300.00 (×10 아님).
+  - 종목코드↔종목명 매핑 정상.
+  → 함부로 `÷10` 보정하면 **정상 종목을 훼손**하므로 금지.
+- **남은 가설**: (a) KIS 응답 자체가 그 값을 반환, (b) 통합시세(`UN`)에서 엉뚱한 종목/필드 매핑.
+  실제 KIS raw 응답을 봐야 확정 가능.
+- **적용한 조치 — 진단 가드(`warnIfPriceOutlier`, 가격 미변경)**:
+  현재가가 당일 [저가~고가] 범위를 ±10% 벗어나면 `ERROR` 로그 + KIS raw(stck_prpr/hgpr/lwpr/sdpr) 출력.
+  현재가만 ×10이면 즉시 탐지, 전 필드 ×10이면 raw 로그로 KIS 응답 문제 확정 가능.
+- **다음 단계(운영 로그 확보 후)**: `[가격이상]` 로그로 원인 확정 → 필요 시 특정 종목/필드 보정 또는 KIS 문의.
+
 ```sql
+-- 참고: DB 실측 (원인 확정 시)
 SELECT stock_code,current_price,change_rate,fetched_at,data_source
 FROM stock_price WHERE stock_code IN ('006400','005930','000660')
 ORDER BY fetched_at DESC LIMIT 5;
 ```
-→ 모의서버면 ①의 코드수정과 별개로 배수오류 원인. 실전인데도 배수 틀리면 stock_master 매핑/분할 이력 점검.
 
 ---
 
