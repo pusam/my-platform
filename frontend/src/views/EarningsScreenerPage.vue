@@ -542,7 +542,7 @@
               <div class="card-body" v-if="diagnosisData.supplyDemand">
                 <!-- 장 시작 전 안내 -->
                 <div v-if="isBeforeMarketOpen()" class="before-market-notice">
-                  ⏰ 장 시작 전입니다. 전일 기준 데이터입니다.
+                  ⏰ 거래 시작 전입니다 (NXT 08:00~). 전일 기준 데이터입니다.
                 </div>
                 <div class="supply-row">
                   <span class="investor-type">외국인</span>
@@ -1578,12 +1578,11 @@ const getRsiStatusLabel = (status) => {
   return '중립';
 };
 
-// 장 시작 전인지 확인 (09:00 이전)
+// 거래 시작 전인지 확인 — NXT 프리마켓(08:00)부터 실시간 등락률 제공되므로 08:00 기준.
+// (기존 09:00 기준 → 08:00~09:00 NXT 프리마켓에도 "전일 기준" 안내가 잘못 떴음)
 const isBeforeMarketOpen = () => {
   const now = new Date();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  return hours < 9 || (hours === 9 && minutes === 0);
+  return now.getHours() < 8;
 };
 
 // 수급 데이터가 유효한지 확인 (0이 아닌 실제 데이터인지)

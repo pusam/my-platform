@@ -65,9 +65,11 @@ public class StockDetailService {
     // Gemini 차트 해석 캐시 — 종목별 10분. 매 조회마다 LLM 호출하지 않게.
     private static final String GEMINI_CHART_CACHE = "geminiChartAnalysis";
 
-    // 장 마감 시간 (15:30)
-    private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(15, 30);
-    private static final LocalTime MARKET_PRE_OPEN_TIME = LocalTime.of(9, 0);
+    // 거래 시간 경계 — NXT(대체거래소) 반영: 08:00~20:00 사실상 거래.
+    //   프리 08:00~08:50 · KRX 정규 09:00~15:30 · 애프터 15:30~20:00.
+    //   (기존 09:00~15:30 KRX 기준 → 08:30 등 NXT 프리마켓에 "장전(초기화)"로 빈 데이터 표시되던 문제)
+    private static final LocalTime MARKET_CLOSE_TIME = LocalTime.of(20, 0);   // NXT 애프터마켓 종료
+    private static final LocalTime MARKET_PRE_OPEN_TIME = LocalTime.of(8, 0); // NXT 프리마켓 시작
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
@@ -85,46 +87,33 @@ public class StockDetailService {
                 .fetchedAt(LocalDateTime.now());
 
         // 1. 현재가 조회 (필수) - 종목명 먼저 확보
+        // ★ 화면 간 가격 불일치 해소: 목록(RecommendationService)과 동일한 공용 경로
+        //    stockPriceService.getStockPrice() 사용 → priceCache + stock_price DB 공유.
+        //    (기존: KIS 직접 호출로 목록과 다른 소스를 봐서 같은 종목이 화면마다 다른 가격/등락률)
+        //    등락률 0·부호 보정도 StockPriceService 에 일원화되어 있음.
         String stockName = stockCode;  // 기본값 (종목코드)
-        StockPriceDto naverData = null; // 네이버 PER/PBR/BPS 교차검증용
-        JsonNode priceData = kisService.getStockPrice(stockCode);
-        if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
-            PriceInfo priceInfo = parsePriceInfo(priceData);
-            builder.price(priceInfo);
-
-            // 종목명 설정 (KIS API에서 가져오기)
-            String name = getFieldValue(priceData, "output", "hts_kor_isnm");
-            if (name != null && !name.isEmpty()) {
-                stockName = name;
+        StockPriceDto priceDto = null;
+        try {
+            priceDto = stockPriceService.getStockPrice(stockCode);
+        } catch (Exception e) {
+            log.warn("[StockDetail] 공용 시세 조회 실패: {} - {}", stockCode, e.getMessage());
+        }
+        if (priceDto != null && priceDto.getCurrentPrice() != null) {
+            builder.price(convertDtoToPriceInfo(priceDto));
+            if (priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
+                stockName = priceDto.getStockName();
             }
-            log.info("[StockDetail] 종목명: {}, 현재가: {}", stockName, priceInfo.getCurrentPrice());
+            log.info("[StockDetail] 종목명: {}, 현재가: {} (소스: {})",
+                    stockName, priceDto.getCurrentPrice(), priceDto.getDataSource());
         } else {
-            log.warn("[StockDetail] KIS 현재가 조회 실패: {} - 네이버 폴백 시도", stockCode);
-            // KIS 실패 → stockPriceService (내부 KIS→Naver 자동 폴백)
+            log.warn("[StockDetail] 현재가 조회 실패: {} - 종목명 별도 조회", stockCode);
             try {
-                naverData = stockPriceService.getStockPrice(stockCode);
-                if (naverData != null && naverData.getCurrentPrice() != null) {
-                    stockName = naverData.getStockName() != null ? naverData.getStockName() : stockCode;
-                    PriceInfo priceInfo = convertNaverToPriceInfo(naverData);
-                    builder.price(priceInfo);
-                    log.info("[StockDetail] 네이버 폴백 성공: {} - 현재가: {}", stockName, naverData.getCurrentPrice());
-                } else {
-                    log.warn("[StockDetail] 네이버 폴백도 데이터 없음 - 종목명 별도 조회");
-                    List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
-                    if (searchResult != null && !searchResult.isEmpty()) {
-                        stockName = searchResult.get(0).getStockName();
-                    }
+                List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
+                if (searchResult != null && !searchResult.isEmpty()) {
+                    stockName = searchResult.get(0).getStockName();
                 }
-            } catch (Exception e) {
-                log.warn("[StockDetail] 네이버 폴백 실패: {} - 종목명 별도 조회", e.getMessage());
-                try {
-                    List<StockPriceDto> searchResult = stockPriceService.searchStocks(stockCode);
-                    if (searchResult != null && !searchResult.isEmpty()) {
-                        stockName = searchResult.get(0).getStockName();
-                    }
-                } catch (Exception e2) {
-                    log.debug("[StockDetail] 종목명 별도 조회 실패: {}", e2.getMessage());
-                }
+            } catch (Exception e2) {
+                log.debug("[StockDetail] 종목명 별도 조회 실패: {}", e2.getMessage());
             }
         }
         // ★★★ 항상 stockName 설정 ★★★
@@ -230,11 +219,11 @@ public class StockDetailService {
             log.warn("[StockDetail] 병렬 조회 중 오류: {}", e.getMessage(), e);
         }
 
-        // 3. 재무 정보 조회 (이미 가져온 priceData 재사용, KIS 실패 시 네이버 폴백)
-        FinancialInfo financial = fetchFinancialInfo(stockCode, priceData);
-        if (financial == null && naverData != null) {
-            financial = convertNaverToFinancialInfo(naverData);
-            log.info("[StockDetail] 재무 정보 네이버 폴백 적용 - PER: {}, PBR: {}",
+        // 3. 재무 정보 조회 (KIS 가격은 fetchFinancialInfo 내부에서 재조회, 실패 시 공용 DTO 폴백)
+        FinancialInfo financial = fetchFinancialInfo(stockCode, null);
+        if (financial == null && priceDto != null) {
+            financial = convertNaverToFinancialInfo(priceDto);
+            log.info("[StockDetail] 재무 정보 공용 시세 폴백 적용 - PER: {}, PBR: {}",
                     financial != null ? financial.getPer() : null,
                     financial != null ? financial.getPbr() : null);
         }
@@ -309,8 +298,16 @@ public class StockDetailService {
         boolean isBeforeMarket = isBeforeMarketHours();
 
         // 1. 시세 (비동기) — 전용 Executor
-        CompletableFuture<JsonNode> priceFuture =
-                CompletableFuture.supplyAsync(() -> kisService.getStockPrice(stockCode), stockDetailExecutor);
+        // ★ 공용 경로(stockPriceService) 사용 → 목록 화면과 동일 캐시/DB 소스 (가격 불일치 해소)
+        CompletableFuture<StockPriceDto> priceFuture =
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return stockPriceService.getStockPrice(stockCode);
+                    } catch (Exception e) {
+                        log.warn("[StockDetail:Quick] 시세 조회 실패: {}", e.getMessage());
+                        return null;
+                    }
+                }, stockDetailExecutor);
 
         // 2. 수급 (비동기)
         CompletableFuture<SupplyDemand> supplyFuture =
@@ -335,23 +332,13 @@ public class StockDetailService {
 
         // ★ 모든 Future 결과 수집
         try {
-            // 시세 처리
+            // 시세 처리 — 공용 StockPriceDto (목록과 동일 소스)
             String stockName = stockCode;
-            JsonNode priceData = priceFuture.get(15, TimeUnit.SECONDS);
-            if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
-                builder.price(parsePriceInfo(priceData));
-                String name = getFieldValue(priceData, "output", "hts_kor_isnm");
-                if (name != null && !name.isEmpty()) stockName = name;
-            } else {
-                // KIS 실패 → 네이버 폴백 (여기서만 순차)
-                try {
-                    StockPriceDto naverData = stockPriceService.getStockPrice(stockCode);
-                    if (naverData != null && naverData.getCurrentPrice() != null) {
-                        stockName = naverData.getStockName() != null ? naverData.getStockName() : stockCode;
-                        builder.price(convertNaverToPriceInfo(naverData));
-                    }
-                } catch (Exception e) {
-                    log.warn("[StockDetail:Quick] 시세 폴백 실패: {}", e.getMessage());
+            StockPriceDto priceDto = priceFuture.get(15, TimeUnit.SECONDS);
+            if (priceDto != null && priceDto.getCurrentPrice() != null) {
+                builder.price(convertDtoToPriceInfo(priceDto));
+                if (priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
+                    stockName = priceDto.getStockName();
                 }
             }
             builder.stockName(stockName);
@@ -398,23 +385,22 @@ public class StockDetailService {
 
         Map<String, Object> result = new HashMap<>();
 
-        // 종목명 확보 (AI 프롬프트용) + 시세 (KIS 1회만)
+        // 종목명 확보 (AI 프롬프트용) + 시세 — 공용 경로(목록과 동일 소스)
         String stockName = stockCode;
         PriceInfo priceInfo = null;
-        JsonNode priceData = null;
         try {
-            priceData = kisService.getStockPrice(stockCode);
-            if (priceData != null && "0".equals(getFieldValue(priceData, "rt_cd"))) {
-                String name = getFieldValue(priceData, "output", "hts_kor_isnm");
-                if (name != null && !name.isEmpty()) stockName = name;
-                priceInfo = parsePriceInfo(priceData);
+            StockPriceDto priceDto = stockPriceService.getStockPrice(stockCode);
+            if (priceDto != null && priceDto.getCurrentPrice() != null) {
+                if (priceDto.getStockName() != null && !priceDto.getStockName().isEmpty()) {
+                    stockName = priceDto.getStockName();
+                }
+                priceInfo = convertDtoToPriceInfo(priceDto);
             }
         } catch (Exception e) {
-            log.debug("[StockDetail:Heavy] 종목명 조회 실패: {}", e.getMessage());
+            log.debug("[StockDetail:Heavy] 시세/종목명 조회 실패: {}", e.getMessage());
         }
         final String finalStockName = stockName;
         final PriceInfo finalPriceInfo = priceInfo;
-        final JsonNode finalPriceData = priceData;
 
         // ★ 리스크 + 네이버크롤링 + AI규칙기반 + 피어비교 모두 병렬 — 전용 Executor
         // Supplier 패턴으로 cacheService 프록시 경유 → @Cacheable 실제 동작
@@ -432,7 +418,7 @@ public class StockDetailService {
                     Map<String, Object> enrichData = new HashMap<>();
                     try {
                         Document naverMainDoc = fetchNaverMainPage(stockCode);
-                        FinancialInfo financial = fetchFinancialInfo(stockCode, finalPriceData);
+                        FinancialInfo financial = fetchFinancialInfo(stockCode, null);
                         if (financial != null) {
                             enrichWithDividendYieldFromDoc(financial, naverMainDoc, stockCode);
                             enrichWithForwardMetrics(financial, finalPriceInfo);
@@ -1393,9 +1379,14 @@ public class StockDetailService {
     // ========== 네이버 폴백 변환 ==========
 
     /**
-     * 네이버 StockPriceDto → PriceInfo 변환
+     * StockPriceDto → PriceInfo 변환.
+     *
+     * <p>원래 네이버 폴백 전용이었으나, 화면 간 가격 불일치(목록 vs 상세) 해소를 위해
+     * 상세 1차 시세도 {@code StockPriceService.getStockPrice()}(공용 캐시/DB/API 폴백 +
+     * 등락률 0·부호 보정 일원화) 를 거치도록 통일하면서 공용 변환기로 승격.
+     * KIS/네이버 어느 소스의 DTO든 동일하게 변환한다.
      */
-    private PriceInfo convertNaverToPriceInfo(StockPriceDto naverData) {
+    private PriceInfo convertDtoToPriceInfo(StockPriceDto naverData) {
         BigDecimal tradingValue = null;
         if (naverData.getAccumulatedTradingValue() != null) {
             tradingValue = naverData.getAccumulatedTradingValue()

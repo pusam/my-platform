@@ -53,7 +53,7 @@
       <!-- 정규장 개장(09:00) 전 — 빈 데이터를 "수집 실패" 로 오해하지 않게 안내 -->
       <div v-else-if="!sectors.length && isPreMarket" class="collecting-state premarket">
         <p>🕘 정규장 개장 대기 중 (09:00 시작)</p>
-        <p class="collecting-hint">9시 첫 거래대금 스냅샷부터 자동으로 채워집니다</p>
+        <p class="collecting-hint">섹터 거래대금은 KRX 정규장 기준 — 9시 첫 스냅샷부터 채워집니다 (NXT 프리마켓 08:00~08:50 제외)</p>
       </div>
 
       <!-- 데이터 수집 중 (로딩 끝났는데 데이터 없음) -->

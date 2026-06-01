@@ -25,7 +25,7 @@
 
     <div class="description">
       <p v-if="isPreMarket" class="pre-market-text">
-        {{ isBeforeMarket ? '09:00 장 시작 후 체결강도가 표시됩니다' : '체결 데이터를 수집하고 있습니다...' }}
+        {{ isBeforeMarket ? 'NXT 프리마켓(08:00) 이후 체결강도가 표시됩니다' : '체결 데이터를 수집하고 있습니다...' }}
       </p>
       <p v-else-if="isAfterMarket && hasValidData" class="post-market-text">
         장 마감 (Today's Close) - 오늘의 최종 체결강도
@@ -63,19 +63,21 @@ const currentTimeMinutes = computed(() => {
   return now.getHours() * 60 + now.getMinutes();
 });
 
-// 장 시작 전 (09:00 이전)
+// NXT(대체거래소) 반영: 08:00~20:00 사실상 거래.
+//   프리 08:00~08:50 · KRX 정규 09:00~15:30 · 애프터 15:30~20:00
+// 거래 시작 전 (08:00 이전 — NXT 프리마켓도 안 열림)
 const isBeforeMarket = computed(() => {
-  return currentTimeMinutes.value < 540; // 09:00 이전
+  return currentTimeMinutes.value < 480; // 08:00 이전
 });
 
-// 장중 (09:00 ~ 15:30)
+// 거래 중 (08:00 ~ 20:00, NXT 프리·정규·애프터 포함)
 const isMarketHours = computed(() => {
-  return currentTimeMinutes.value >= 540 && currentTimeMinutes.value <= 930;
+  return currentTimeMinutes.value >= 480 && currentTimeMinutes.value <= 1200;
 });
 
-// 장 마감 후 (15:30 이후)
+// 거래 종료 후 (20:00 이후)
 const isAfterMarket = computed(() => {
-  return currentTimeMinutes.value > 930; // 15:30 이후
+  return currentTimeMinutes.value > 1200; // 20:00 이후
 });
 
 // 데이터가 유효한지 확인 (0이거나 null이면 무효)
@@ -129,7 +131,7 @@ const barClass = computed(() => {
 const signalText = computed(() => {
   // 장 시작 전이거나 데이터가 없으면 대기 상태 표시
   if (isPreMarket.value) {
-    return isBeforeMarket.value ? '장 시작 대기' : '데이터 수집 중';
+    return isBeforeMarket.value ? '거래 시작 대기 (NXT 08:00~)' : '데이터 수집 중';
   }
   // 장 마감 후 데이터가 있으면 마감 상태 표시
   if (isAfterMarket.value && hasValidData.value) {

@@ -7,6 +7,9 @@
       </div>
       <div class="conclusion-text">
         <p class="headline">{{ conclusion.headline }}</p>
+        <p class="source-caption" title="이 결론은 종합추천 스냅샷(전 종목 비교 랭킹, 5카테고리)을 기준으로 합니다. 상단 헤더의 '단기 트레이딩'·'중장기 펀더멘털' 점수와는 산출 기준·시점이 달라 결론이 다를 수 있습니다.">
+          ⓘ 종합추천 스냅샷 기준 — 상단 단기/중장기 점수와 산출 기준이 다릅니다
+        </p>
         <p v-if="conclusion.guidance" class="guidance">{{ conclusion.guidance }}</p>
         <p v-if="conclusion.conflictNote" class="conflict-note">{{ conclusion.conflictNote }}</p>
       </div>
@@ -220,6 +223,12 @@ const openChecklist = () => { showChecklist.value = true; };
 .level-label { font-size: 13px; font-weight: 700; margin-top: 4px; }
 .conclusion-text { flex: 1; }
 .headline { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
+.source-caption {
+  margin: 4px 0 0;
+  font-size: 11px;
+  opacity: 0.6;
+  cursor: help;
+}
 .guidance { margin: 6px 0 0; font-size: 13px; opacity: 0.78; }
 .conflict-note {
   margin: 8px 0 0;
