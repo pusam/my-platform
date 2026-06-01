@@ -1,8 +1,5 @@
 package com.myplatform.backend.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.dto.StockDetailDto.*;
 import com.myplatform.backend.repository.InvestorDailyTradeRepository;
@@ -66,7 +63,6 @@ class StockDetailServiceTest {
 
     private StockDetailService stockDetailService;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private static final String TEST_STOCK_CODE = "005930";
     private static final String TEST_STOCK_NAME = "삼성전자";
 
@@ -105,39 +101,20 @@ class StockDetailServiceTest {
     }
 
     /**
-     * KIS API 성공 응답 JSON 생성
+     * 공용 시세 DTO 생성 — Quick/Heavy 시세는 stockPriceService.getStockPrice() 경로 사용.
+     * (목록 화면과 동일 캐시/DB 소스로 통일하면서 시세 소스가 KIS JsonNode → StockPriceDto 로 바뀜)
      */
-    private JsonNode buildKisPriceResponse(String price, String change, String changeRate, String stockName) {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("rt_cd", "0");
-        ObjectNode output = root.putObject("output");
-        output.put("stck_prpr", price);
-        output.put("prdy_vrss", change);
-        output.put("prdy_ctrt", changeRate);
-        output.put("hts_kor_isnm", stockName);
-        output.put("acml_vol", "10000000");
-        output.put("acml_tr_pbmn", "500000000000");
-        output.put("stck_hgpr", "72000");
-        output.put("stck_lwpr", "69000");
-        output.put("stck_oprc", "70000");
-        output.put("stck_sdpr", "70000");
-        output.put("per", "12.5");
-        output.put("pbr", "1.3");
-        output.put("eps", "5600");
-        output.put("bps", "53000");
-        output.put("hts_avls", "4300000");
-        output.put("hts_frgn_ehrt", "55.2");
-        return root;
-    }
-
-    /**
-     * KIS API 실패 응답 JSON 생성
-     */
-    private JsonNode buildKisFailResponse() {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("rt_cd", "1");
-        root.put("msg1", "조회 실패");
-        return root;
+    private StockPriceDto buildPriceDto(String price, String rate, String name) {
+        StockPriceDto dto = new StockPriceDto();
+        dto.setStockCode(TEST_STOCK_CODE);
+        dto.setStockName(name);
+        dto.setCurrentPrice(new BigDecimal(price));
+        dto.setChangeRate(new BigDecimal(rate));
+        dto.setHighPrice(new BigDecimal("72000"));
+        dto.setLowPrice(new BigDecimal("69000"));
+        dto.setOpenPrice(new BigDecimal("70000"));
+        dto.setDataSource("KIS");
+        return dto;
     }
 
     private FinancialInfo dummyFinancial() {
@@ -160,8 +137,8 @@ class StockDetailServiceTest {
         @DisplayName("KIS 성공 시 시세/종목명 + 캐시된 차트/재무 반환")
         void kisSuccess_returnsPriceAndName() {
             // given
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
             when(scalpingService.getScalpingAnalysis(TEST_STOCK_CODE)).thenReturn(
                     ScalpingAnalysisDto.builder()
                             .volumePower(new BigDecimal("110"))
@@ -185,16 +162,15 @@ class StockDetailServiceTest {
             assertThat(result.getFinancial()).isNotNull();
             assertThat(result.getFinancial().getPer()).isEqualByComparingTo(new BigDecimal("12.5"));
 
-            verify(kisService).getStockPrice(TEST_STOCK_CODE);
+            verify(stockPriceService).getStockPrice(TEST_STOCK_CODE);
             verify(cacheService).getCachedFinancialInfo(TEST_STOCK_CODE);
         }
 
         @Test
-        @DisplayName("KIS 실패 → 네이버 폴백으로 시세 반환")
-        void kisFail_fallbackToNaver() {
-            // given
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(buildKisFailResponse());
-
+        @DisplayName("공용 시세 경로(stockPriceService)로 시세 반환 — KIS→네이버 폴백은 내부 책임")
+        void priceFromCommonService() {
+            // given — 시세 소스는 stockPriceService.getStockPrice() 로 통일됨(목록과 동일).
+            //         KIS→네이버 폴백은 stockPriceService 내부에서 처리되므로 여기선 결과만 stub.
             StockPriceDto naverData = new StockPriceDto();
             naverData.setStockCode(TEST_STOCK_CODE);
             naverData.setStockName(TEST_STOCK_NAME);
@@ -214,15 +190,13 @@ class StockDetailServiceTest {
             assertThat(result.getPrice()).isNotNull();
             assertThat(result.getPrice().getCurrentPrice()).isEqualByComparingTo(new BigDecimal("70500"));
 
-            verify(kisService, atLeastOnce()).getStockPrice(TEST_STOCK_CODE);
             verify(stockPriceService).getStockPrice(TEST_STOCK_CODE);
         }
 
         @Test
         @DisplayName("KIS + 네이버 모두 실패해도 예외 없이 빈 DTO 반환")
         void allFail_returnsEmptyDto() {
-            // given
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(buildKisFailResponse());
+            // given — 공용 시세 경로가 null 반환 (KIS+네이버 모두 실패는 내부에서 처리됨)
             when(stockPriceService.getStockPrice(TEST_STOCK_CODE)).thenReturn(null);
             when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
             when(cacheService.getCachedFinancialInfo(TEST_STOCK_CODE)).thenReturn(null);
@@ -240,8 +214,8 @@ class StockDetailServiceTest {
         @DisplayName("수급 조회 실패해도 시세는 정상 반환 (부분 실패 허용)")
         void supplyFail_priceStillReturned() {
             // given
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
             when(scalpingService.getScalpingAnalysis(TEST_STOCK_CODE))
                     .thenThrow(new RuntimeException("KIS API timeout"));
             when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
@@ -260,8 +234,8 @@ class StockDetailServiceTest {
         @DisplayName("차트 캐시 미스(null) 시에도 다른 데이터는 정상 반환")
         void chartCacheMiss_otherDataStillReturned() {
             // given
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
             when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
             when(cacheService.getCachedFinancialInfo(TEST_STOCK_CODE)).thenReturn(dummyFinancial());
 
@@ -278,8 +252,8 @@ class StockDetailServiceTest {
         @DisplayName("차트 캐시 히트 시 ChartData 가 DTO 에 주입됨")
         void chartCacheHit_chartDataInjected() {
             // given
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
 
             ChartData cachedChart = ChartData.builder()
                     .ma5(new BigDecimal("70500"))
@@ -307,9 +281,9 @@ class StockDetailServiceTest {
         @Test
         @DisplayName("리스크 + 피어 + AI 정상 반환")
         void heavySuccess_returnsAllSections() {
-            // given
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            // given — Heavy 시세/종목명도 공용 경로(stockPriceService) 사용
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
 
             RiskAnalysisDto riskDto = RiskAnalysisDto.builder()
                     .riskScore(25)
@@ -346,8 +320,8 @@ class StockDetailServiceTest {
         @DisplayName("리스크 실패해도 result Map 반환 + 나머지 키 존재 (부분 실패 허용)")
         void riskFail_resultStillReturned() {
             // given
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
             when(riskService.analyzeRisk(anyString(), eq(TEST_STOCK_CODE)))
                     .thenThrow(new RuntimeException("DART API timeout"));
 
@@ -387,8 +361,8 @@ class StockDetailServiceTest {
             AiAnalysis aiStub = AiAnalysis.builder().overallScore(72).recommendation("BUY").build();
             doReturn(aiStub).when(cacheService).getCachedAiAnalysis(anyString(), any());
 
-            JsonNode kisResponse = buildKisPriceResponse("71000", "+1000", "1.43", TEST_STOCK_NAME);
-            when(kisService.getStockPrice(TEST_STOCK_CODE)).thenReturn(kisResponse);
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "1.43", TEST_STOCK_NAME));
 
             // when
             Map<String, Object> result = stockDetailService.getStockDetailHeavy(TEST_STOCK_CODE);
