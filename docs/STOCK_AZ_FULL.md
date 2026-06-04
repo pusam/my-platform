@@ -1,7 +1,7 @@
 # 주식 플랫폼 A-Z — 화면 / 백엔드 / 배치 전수 정리
 
 > 작성: 2026-06-04 (코드 직접 전수 조사 기준 — `@Scheduled` 어노테이션·서비스·라우트 실측 반영).
-> 직전 버전(2026-06-01) 대비: 스케줄러 cron 전수 검증, 자동매매 봇 4트랙 시간대 정정, 가격 ×10 진단 가드/테스트 갱신 반영.
+> 직전 버전(2026-06-01) 대비: 스케줄러 cron 전수 검증, 자동매매 봇 5활성트랙(+청산봇 2 비활성) 정정, 가격 ×10 진단 가드/테스트 갱신 반영.
 > 한 줄 요약은 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md), 화면→코드→DB 상세는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md).
 
 한국 주식(KRX 정규장 + NXT 대체거래) 종목 **발굴 / 분석 / 모의·실전 자동매매** 통합 개인 플랫폼.
@@ -225,8 +225,8 @@ VolumePowerGauge: `<480` before / `480~1200` market / `>1200` after. SectorTradi
 | 1시간(initial 20분) | KRX 마스터 retryIfEmpty(<100건이면 재시드) | batch |
 - 워밍 잡은 `isMarketHours()`(08:00~20:00) 밖이면 early-return (일부는 startup 예외).
 
-## 3.4 자동매매 봇 — 활성 2봇 / 6크론 (`AutoTradingBotService`, taskScheduler)
-> 봇 단위로는 **스캘핑·스윙 2개**. 크론(트랙) 단위로는 아래 6개(청산봇 매수·매도는 주석처리=비활성).
+## 3.4 자동매매 봇 — 활성 2전략 / 5크론(+청산봇 2 비활성) (`AutoTradingBotService`, taskScheduler)
+> 전략 단위로는 **스캘핑·스윙 2개**. `@Scheduled` 크론 단위로는 **활성 5개**(아래 표) + **청산봇 매수·매도 2개 비활성**(`@Scheduled` 주석처리) = 코드상 cron 메서드 7개. (정합 가드: `AutoTradingBotTrackTest`)
 
 | 트랙(크론) | cron | 의미 |
 |---|---|---|

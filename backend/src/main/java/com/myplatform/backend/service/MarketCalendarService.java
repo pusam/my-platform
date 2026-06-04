@@ -21,9 +21,13 @@ import java.util.Set;
 public class MarketCalendarService {
 
     public static final LocalTime MARKET_OPEN = LocalTime.of(9, 0);
+    /**
+     * 정규장 종료 = 15:40 (KRX 접속매매는 15:30 까지). 15:30~15:40 은 <b>종가 단일가매매</b> 구간으로,
+     * 봇/섹터 판정이 이 버퍼까지 정규장으로 봐야 종가 체결을 정상 처리한다. 의도된 값(15:30 아님). (P2-7)
+     */
     public static final LocalTime MARKET_CLOSE = LocalTime.of(15, 40);
 
-    /** 한국 고정 공휴일 (음력 공휴일·임시공휴일은 별도 캘린더 API 가 없으면 누락 가능 — 운영중 보강) */
+    /** 한국 고정(양력) 공휴일 */
     private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
             MonthDay.of(1, 1),   // 신정
             MonthDay.of(3, 1),   // 삼일절
@@ -35,7 +39,27 @@ public class MarketCalendarService {
             MonthDay.of(12, 25)  // 크리스마스
     );
 
-    /** 휴장일 = 주말 또는 고정 공휴일 */
+    /**
+     * 음력 유래 공휴일(설날·추석·부처님오신날)의 <b>양력 환산일</b> 테이블. (P2-8)
+     *
+     * <p>Java 표준엔 한국 음력 달력이 없어 매년 발표되는 공식 휴장일을 양력으로 박아 둔다.
+     * <b>⚠ 매년 갱신 필요</b> — 미수록 연도는 이 휴일들이 "정상 거래일"로 처리됨(false negative, 안전한 열화).
+     * 임시공휴일·대체공휴일·근로자의날(5/1)·연말폐장(12/31) 은 본 테이블 범위 밖(별도 보강 대상).
+     */
+    private static final Set<LocalDate> KOREA_LUNAR_DERIVED_HOLIDAYS = Set.of(
+            // 설날 연휴
+            LocalDate.of(2025, 1, 28), LocalDate.of(2025, 1, 29), LocalDate.of(2025, 1, 30),
+            LocalDate.of(2026, 2, 16), LocalDate.of(2026, 2, 17), LocalDate.of(2026, 2, 18),
+            LocalDate.of(2027, 2, 6),  LocalDate.of(2027, 2, 7),  LocalDate.of(2027, 2, 8),
+            // 추석 연휴
+            LocalDate.of(2025, 10, 5), LocalDate.of(2025, 10, 6), LocalDate.of(2025, 10, 7),
+            LocalDate.of(2026, 9, 24), LocalDate.of(2026, 9, 25), LocalDate.of(2026, 9, 26),
+            LocalDate.of(2027, 9, 14), LocalDate.of(2027, 9, 15), LocalDate.of(2027, 9, 16),
+            // 부처님오신날 (음력 4/8)
+            LocalDate.of(2025, 5, 5),  LocalDate.of(2026, 5, 24), LocalDate.of(2027, 5, 13)
+    );
+
+    /** 휴장일 = 주말 또는 (고정 양력 + 음력 유래) 공휴일 */
     public boolean isMarketClosed() {
         return isMarketClosed(LocalDate.now());
     }
@@ -43,14 +67,19 @@ public class MarketCalendarService {
     public boolean isMarketClosed(LocalDate date) {
         DayOfWeek dow = date.getDayOfWeek();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return true;
-        return KOREA_FIXED_HOLIDAYS.contains(MonthDay.from(date));
+        return KOREA_FIXED_HOLIDAYS.contains(MonthDay.from(date))
+                || KOREA_LUNAR_DERIVED_HOLIDAYS.contains(date);
     }
 
     /** 정규장 시간(09:00~15:40) — 프리/애프터마켓 제외 */
     public boolean isRegularSession() {
-        if (isMarketClosed()) return false;
-        LocalTime t = LocalTime.now();
-        return !t.isBefore(MARKET_OPEN) && !t.isAfter(MARKET_CLOSE);
+        return isRegularSession(LocalDate.now(), LocalTime.now());
+    }
+
+    /** 테스트 가능 오버로드 — 경계(15:30·15:31·15:40·15:41) 검증용. (P2-7) */
+    public boolean isRegularSession(LocalDate date, LocalTime time) {
+        if (isMarketClosed(date)) return false;
+        return !time.isBefore(MARKET_OPEN) && !time.isAfter(MARKET_CLOSE);
     }
 
     /** 오늘이 평일이고, 컨테이너 시작 시점이 cron 시각 이후라 catch-up 이 의미있는지.

@@ -68,6 +68,18 @@ import java.util.stream.Collectors;
  *    → 2026-09-14 거래시간 연장(애프터마켓 20시) 도입 후 전략 재설계 필요
  *
  * ========================================
+ * [트랙 정합 — 코드 기준 확정] (P2-6, 가드: AutoTradingBotTrackTest)
+ * ========================================
+ *   ★ 활성 @Scheduled 5개 (cron 은 메서드 위 어노테이션 참조 — 주석엔 시각만):
+ *     1) executeScalpingBuyLogic   30초/9-11시   스캘핑 매수(모의 전용)
+ *     2) executeScalpingSellLogic  15초/8-19시   스캘핑 매도
+ *     3) executeScalpingClearance  15:10        스캘핑 청산
+ *     4) executeSwingBuyLogic      14:00        스윙 매수
+ *     5) executeSwingSellLogic     30초/8-19시   스윙 매도
+ *   ☓ 비활성(@Scheduled 주석처리) 2개:
+ *     6) executeClosingBuyLogic / 7) executeClosingSellLogic — 종가 전략(재설계 대기)
+ *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 5개. 청산봇 재활성은 별도 결정 사항.
+ * ========================================
  */
 @Service
 @Slf4j
