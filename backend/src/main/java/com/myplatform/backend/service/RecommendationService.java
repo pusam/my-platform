@@ -98,7 +98,7 @@ public class RecommendationService {
 
     // phase 34 — 시장 국면 enum. scoreSectorMomentum 의 전체 섹터 평균 등락률로 판정.
     // 가중치 multiplier 표는 applyMarketRegimeWeighting 참고.
-    private enum MarketRegime { BULL, BEAR, SIDEWAYS }
+    enum MarketRegime { BULL, BEAR, SIDEWAYS } // package-private: P1-5 regime 가중 테스트
 
     // phase 35 — hysteresis. 직전 calculate() 사이클의 regime 기억.
     // dead band 0.5 적용으로 임계 근처 흔들림(예: avg=-1.1 한 번 찍었다고 BULL→BEAR 즉시 전환)
@@ -1761,12 +1761,6 @@ public class RecommendationService {
      * <p>비활성화: multiplier 를 1.0/1.0/1.0/1.0 으로 모두 바꾸면 즉시 disable.
      */
     private void applyMarketRegimeWeighting(Map<String, StockScore> scoreMap, MarketRegime regime) {
-        double wE, wSD, wTC, wSC;
-        switch (regime) {
-            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.20; }  // phase 37 sector 강화
-            case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
-            default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
-        }
         // SIDEWAYS + 섹터만 0.9 라 SIDEWAYS 도 변화 있음. 그래도 BULL/BEAR 만 명시 태그.
         String tag = switch (regime) {
             case BULL -> "regime:BULL";
@@ -1774,14 +1768,14 @@ public class RecommendationService {
             default -> null;
         };
         for (StockScore s : scoreMap.values()) {
-            s.earnings = clampCategory((int) Math.round(s.earnings * wE));
-            s.supplyDemand = clampCategory((int) Math.round(s.supplyDemand * wSD));
-            s.technical = clampCategory((int) Math.round(s.technical * wTC));
-            s.sectorMomentum = clampCategory((int) Math.round(s.sectorMomentum * wSC));
+            int[] w = applyRegimeWeights(s.earnings, s.supplyDemand, s.technical, s.sectorMomentum, regime);
+            s.earnings = w[0];
+            s.supplyDemand = w[1];
+            s.technical = w[2];
+            s.sectorMomentum = w[3];
             if (tag != null) s.tags.add(tag);
         }
-        log.info("[종합추천] regime weighting 적용: {} (E:{} SD:{} TC:{} SC:{})",
-                regime, wE, wSD, wTC, wSC);
+        log.info("[종합추천] regime weighting 적용: {}", regime);
     }
 
     private static int clampCategory(int v) {
@@ -1795,12 +1789,45 @@ public class RecommendationService {
         // AI전략 / 저평가(가치) 는 별도 트랙으로 분리:
         //   - AI전략: 후보 발굴/태그 용도로만 유지
         //   - 저평가: /api/recommendation/value-top10 별도 endpoint 로 노출
+        return validCount(s.earnings, s.supplyDemand, s.technical, s.sectorMomentum);
+    }
+
+    /** 유효 카테고리 수(>0인 4개 중 몇 개). P1-5 테스트 대상 — validCount≥3 채택 컷의 분모. */
+    static int validCount(int earnings, int supplyDemand, int technical, int sectorMomentum) {
         int c = 0;
-        if (s.earnings > 0) c++;
-        if (s.supplyDemand > 0) c++;
-        if (s.technical > 0) c++;
-        if (s.sectorMomentum > 0) c++;
+        if (earnings > 0) c++;
+        if (supplyDemand > 0) c++;
+        if (technical > 0) c++;
+        if (sectorMomentum > 0) c++;
         return c;
+    }
+
+    /** STRONG+VALUE 가산 — total≥75 AND valueStability≥12 이면 +2(상한 100). P1-5 테스트 대상. */
+    static int strongValueBonus(int total, int valueStability) {
+        if (total >= STRONG_BUY_THRESHOLD && valueStability >= STRONG_VALUE_THRESHOLD) {
+            return Math.min(100, total + STRONG_VALUE_BONUS);
+        }
+        return total;
+    }
+
+    /**
+     * 시장 국면별 카테고리 가중 + clamp[0,20]. P1-5 테스트 대상 — BULL/BEAR 승수 반영 확인.
+     * @return [earnings, supplyDemand, technical, sectorMomentum] 가중·clamp 결과
+     */
+    static int[] applyRegimeWeights(int earnings, int supplyDemand, int technical, int sectorMomentum,
+                                    MarketRegime regime) {
+        double wE, wSD, wTC, wSC;
+        switch (regime) {
+            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.20; }
+            case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
+            default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
+        }
+        return new int[] {
+                clampCategory((int) Math.round(earnings * wE)),
+                clampCategory((int) Math.round(supplyDemand * wSD)),
+                clampCategory((int) Math.round(technical * wTC)),
+                clampCategory((int) Math.round(sectorMomentum * wSC)),
+        };
     }
 
     private List<RecommendationDto> loadFromDb() {
@@ -1872,7 +1899,7 @@ public class RecommendationService {
      *
      * 시그널 추가/삭제 시 TOTAL_CATEGORIES 만 바꾸면 자동 재계산.
      */
-    private static int normalizeScore(int raw, int validCount) {
+    static int normalizeScore(int raw, int validCount) { // P1-4/5: 테스트 가능하도록 package-private
         if (validCount <= 0) return 0;
         int rawCap = TOTAL_CATEGORIES * 20;
         int scaled = raw * 100 / rawCap;
@@ -1888,9 +1915,9 @@ public class RecommendationService {
         int total = normalizeScore(raw, vc);
         // phase 34: STRONG_BUY + 강한 가치 교집합 가산 (정렬용 getNormalizedTotal 과 일관성 유지)
         if (total >= STRONG_BUY_THRESHOLD && s.valueStability >= STRONG_VALUE_THRESHOLD) {
-            total = Math.min(100, total + STRONG_VALUE_BONUS);
             s.tags.add("STRONG+VALUE");
         }
+        total = strongValueBonus(total, s.valueStability);
 
         return RecommendationDto.builder()
                 .stockCode(s.stockCode).stockName(s.stockName)

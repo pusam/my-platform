@@ -52,7 +52,23 @@ public class SignalOutcomeService {
     private static final int EVALUATION_DELAY_DAYS = 3;
     /** hit 기준 — phase 20 변경: 시장 대비 alpha 양수 + 절대 수익률 양수. */
     private static final BigDecimal HIT_ALPHA_THRESHOLD = BigDecimal.ZERO;
+    /** BM(KOSPI) 데이터 없을 때 hit 폴백 임계 — 절대 수익률 +3%. */
+    private static final BigDecimal FALLBACK_PCT_THRESHOLD = new BigDecimal("3.00");
     private static final String KOSPI_INDEX_CODE = "0001";
+
+    /**
+     * 시그널 hit 판정 (phase 20) — 순수 함수로 분리(P1-4 테스트 대상).
+     *
+     * <p>BM(KOSPI) 대비 alpha 가 있으면 <b>alpha ≥ 0 AND 절대 수익률 &gt; 0</b> 둘 다여야 hit.
+     * alpha 가 없으면(BM 데이터 부재) 절대 수익률 ≥ +3% 폴백. 동작은 기존 인라인 로직과 동일.
+     */
+    static boolean isHit(BigDecimal alpha, BigDecimal pct) {
+        if (pct == null) return false;
+        if (alpha != null) {
+            return alpha.compareTo(HIT_ALPHA_THRESHOLD) >= 0 && pct.signum() > 0;
+        }
+        return pct.compareTo(FALLBACK_PCT_THRESHOLD) >= 0;
+    }
 
     /**
      * 시그널 발생 기록. 같은 (type/stockCode/날짜) 중복은 무시 — 첫 발생 시점만 보존.
@@ -187,13 +203,8 @@ public class SignalOutcomeService {
                     alpha = pct.subtract(bmReturn);
                 }
 
-                // hit 기준 — phase 20: alpha 양수 + 절대 수익 양수. BM 데이터 없으면 기존 +3% 폴백.
-                boolean hit;
-                if (alpha != null) {
-                    hit = alpha.compareTo(HIT_ALPHA_THRESHOLD) >= 0 && pct.signum() > 0;
-                } else {
-                    hit = pct.compareTo(new BigDecimal("3.00")) >= 0;
-                }
+                // hit 기준 — phase 20: alpha 양수 + 절대 수익 양수. BM 데이터 없으면 +3% 폴백. (isHit 로 분리)
+                boolean hit = isHit(alpha, pct);
 
                 outcome.setPriceAfter3d(priceNow);
                 outcome.setPctChange3d(pct);

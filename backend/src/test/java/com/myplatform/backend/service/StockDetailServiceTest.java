@@ -373,4 +373,48 @@ class StockDetailServiceTest {
             verify(riskService, never()).analyzeRisk(anyString(), anyString());
         }
     }
+
+    // ========== P1-3: 시세 단일 경로 회귀 가드 ==========
+
+    @Nested
+    @DisplayName("P1-3 시세 단일 경로 — getQuick/getHeavy 는 StockPriceService.getStockPrice() 만 경유")
+    class SinglePriceSourceGuard {
+
+        @Test
+        @DisplayName("getQuick 표시가격은 stockPriceService sentinel 그대로 + KIS 직접 시세호출 0회")
+        void quick_displayPriceFromSinglePathOnly() {
+            // 구분 가능한 sentinel — 별도 시세 경로가 끼면 이 값이 그대로 안 나온다.
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("88888", "1.11", TEST_STOCK_NAME));
+            when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
+            when(cacheService.getCachedFinancialInfo(TEST_STOCK_CODE)).thenReturn(null);
+
+            StockDetailDto result = stockDetailService.getStockDetailQuick(TEST_STOCK_CODE);
+
+            assertThat(result.getPrice()).isNotNull();
+            assertThat(result.getPrice().getCurrentPrice()).isEqualByComparingTo("88888");
+            verify(stockPriceService).getStockPrice(TEST_STOCK_CODE);
+            // 회귀 가드: getQuick 이 표시가격을 KIS 에서 직접 당겨오면(병렬 경로) 이 검증이 깨진다.
+            verify(kisService, never()).getStockPrice(anyString());
+        }
+
+        @Test
+        @DisplayName("getHeavy 도 시세를 stockPriceService.getStockPrice() 경유로 받음")
+        void heavy_routesPriceThroughSinglePath() {
+            doReturn(RiskInfo.builder().riskScore(10).riskStatus("SAFE")
+                    .news(Collections.emptyList()).disclosures(Collections.emptyList()).build())
+                    .when(cacheService).getCachedRiskInfo(anyString(), any());
+            Map<String, Object> peerMap = new HashMap<>();
+            peerMap.put("peers", Collections.emptyList());
+            doReturn(peerMap).when(cacheService).getCachedPeerData(anyString(), any());
+            doReturn(AiAnalysis.builder().overallScore(72).recommendation("BUY").build())
+                    .when(cacheService).getCachedAiAnalysis(anyString(), any());
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("88888", "1.11", TEST_STOCK_NAME));
+
+            stockDetailService.getStockDetailHeavy(TEST_STOCK_CODE);
+
+            verify(stockPriceService, atLeastOnce()).getStockPrice(TEST_STOCK_CODE);
+        }
+    }
 }
