@@ -46,4 +46,18 @@ public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
      */
     @Query("SELECT s.stockCode FROM StockPrice s GROUP BY s.stockCode ORDER BY MAX(s.volume) DESC")
     List<String> findTopVolumeStockCodes(Pageable pageable);
+
+    /**
+     * P0-2 진단: 일정 기간 시세 이력을 종목코드·시각 순으로 조회 (×10 스케일 이상치 스캔용).
+     * read-only + timeout 으로 본 흐름에 영향 없도록 보호. 진단 온디맨드 호출 전용.
+     */
+    @Query(value = "SELECT sp.* FROM stock_price sp " +
+                   "WHERE sp.fetched_at >= :since " +
+                   "ORDER BY sp.stock_code, sp.fetched_at",
+           nativeQuery = true)
+    @Transactional(readOnly = true, timeout = 30)
+    @QueryHints({
+        @QueryHint(name = "org.hibernate.readOnly", value = "true")
+    })
+    List<StockPrice> findAllSince(@org.springframework.data.repository.query.Param("since") java.time.LocalDateTime since);
 }

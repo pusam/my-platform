@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
+import com.myplatform.backend.service.PriceScalingDiagnosticService;
 import com.myplatform.backend.service.RecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -33,6 +34,7 @@ public class DiagnosticsController {
     private final RecommendationSnapshotRepository snapshotRepo;
     private final SignalOutcomeRepository outcomeRepo;
     private final RecommendationService recommendationService;
+    private final PriceScalingDiagnosticService priceScalingDiagnosticService;
 
     @GetMapping("/data")
     @Operation(
@@ -113,6 +115,22 @@ public class DiagnosticsController {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("success", true);
         response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/price-scaling")
+    @Operation(
+        summary = "P0-2 ×10 가격 스케일 이상치 진단·분류 (읽기 전용)",
+        description = "stock_price 이력에서 정상가(median) 대비 ×N(기본 5배+)으로 튄 행을 찾아 두 가설" +
+                     "(BATCH_SCALED=응답 자체 ×N / CURRENT_FIELD_OUTLIER=현재가 필드 매핑)으로 분류하고, " +
+                     "market·세션시간대(NXT 단독 구간 08~09·15:40~20:00)별로 군집을 집계한다. 가격 보정 없음."
+    )
+    public ResponseEntity<Map<String, Object>> priceScaling(
+            @RequestParam(defaultValue = "720") int hoursBack,
+            @RequestParam(defaultValue = "200") int maxEvents) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("data", priceScalingDiagnosticService.scan(hoursBack, maxEvents));
         return ResponseEntity.ok(response);
     }
 }
