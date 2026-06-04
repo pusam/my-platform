@@ -86,3 +86,5 @@
   - 저측 글리치(×0.2)·손상 등락률(900%)은 P0-1 기존 그물이 이미 발화 → `StockPriceOutlierGuardTest`
     회귀 케이스로 동작 고정(신규 보정 코드 없음).
   - 전체 `./gradlew test` green.
+  - **운영 점검 절차**: `docs/OPS_STALE_FEED_CHECK_P2-11.md` (엔드포인트 호출 → ACTIVE_FROZEN 판정 →
+    거래정지 동기화 누락/피드 스테일 분기, 재배포 전 SQL 대체 포함).
