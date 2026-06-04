@@ -16,6 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -29,13 +30,16 @@ class PriceScalingDiagnosticServiceTest {
 
     private StockPriceRepository priceRepo;
     private StockMasterRepository masterRepo;
+    private StockStatusService statusService;
     private PriceScalingDiagnosticService service;
 
     @BeforeEach
     void setUp() {
         priceRepo = mock(StockPriceRepository.class);
         masterRepo = mock(StockMasterRepository.class);
-        service = new PriceScalingDiagnosticService(priceRepo, masterRepo);
+        statusService = mock(StockStatusService.class);
+        when(statusService.isActive(anyString())).thenReturn(true); // 기본: 활성
+        service = new PriceScalingDiagnosticService(priceRepo, masterRepo, statusService);
     }
 
     private StockPrice row(String code, String name, BigDecimal cur, BigDecimal high,
@@ -163,5 +167,110 @@ class PriceScalingDiagnosticServiceTest {
                 .isEqualTo("NXT_AFTERHOURS");
         assertThat(PriceScalingDiagnosticService.sessionOf(LocalDateTime.of(2026, 6, 4, 20, 1)))
                 .isEqualTo("OFF_HOURS");
+    }
+
+    // ===================== P2-11 스테일/동결 피드 =====================
+
+    /** 정규장(09:00~)에서 같은 가격으로 n틱 연속 적재. */
+    private List<StockPrice> frozenRegularRows(String code, String name, BigDecimal price, int n) {
+        List<StockPrice> rows = new ArrayList<>();
+        LocalDateTime t = LocalDateTime.of(2026, 6, 1, 9, 0);
+        for (int i = 0; i < n; i++) {
+            rows.add(row(code, name, price, price, price, bd("0"), t));
+            t = t.plusMinutes(3);
+        }
+        return rows;
+    }
+
+    @Test
+    @DisplayName("활성 종목이 정규장 임계 이상 동결 → ACTIVE_FROZEN (이상)")
+    void activeFrozen_isFlagged() {
+        List<StockPrice> rows = new ArrayList<>(frozenRegularRows("001230", "동국홀딩스", bd("11400"), 6));
+        when(priceRepo.findAllSince(any())).thenReturn(rows);
+        when(statusService.isActive("001230")).thenReturn(true);
+        when(masterRepo.findAllById(anyList())).thenReturn(List.of(
+                StockMaster.builder().stockCode("001230").stockName("동국홀딩스").market("KOSPI").build()));
+
+        PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 5, 200);
+
+        assertThat(r.activeFrozen()).isEqualTo(1);
+        assertThat(r.suspendedFrozen()).isZero();
+        assertThat(r.frozen()).hasSize(1);
+        assertThat(r.frozen().get(0).kind()).isEqualTo("ACTIVE_FROZEN");
+        assertThat(r.frozen().get(0).frozenTicks()).isGreaterThanOrEqualTo(5);
+        assertThat(r.frozen().get(0).market()).isEqualTo("KOSPI");
+    }
+
+    @Test
+    @DisplayName("정지/상폐 종목 동결 → SUSPENDED_FROZEN (정상, 이상 카운트 제외)")
+    void suspendedFrozen_isExpected() {
+        List<StockPrice> rows = new ArrayList<>(frozenRegularRows("900100", "정지주", bd("5000"), 6));
+        when(priceRepo.findAllSince(any())).thenReturn(rows);
+        when(statusService.isActive("900100")).thenReturn(false); // 정지/상폐
+
+        PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 5, 200);
+
+        assertThat(r.activeFrozen()).isZero();
+        assertThat(r.suspendedFrozen()).isEqualTo(1);
+        assertThat(r.frozen().get(0).kind()).isEqualTo("SUSPENDED_FROZEN");
+    }
+
+    @Test
+    @DisplayName("동결 틱이 임계 미만이면 미발화 (오탐 방지 경계)")
+    void belowThreshold_notFlagged() {
+        List<StockPrice> rows = new ArrayList<>(frozenRegularRows("005930", "삼성전자", bd("70000"), 4));
+        when(priceRepo.findAllSince(any())).thenReturn(rows);
+
+        PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 5, 200);
+
+        assertThat(r.frozen()).isEmpty();
+        assertThat(r.activeFrozen()).isZero();
+    }
+
+    @Test
+    @DisplayName("장외/프리마켓 동결은 정상 → 미발화 (정규장 한정)")
+    void offHoursFrozen_notFlagged() {
+        // 08:30 NXT_PREMARKET 에서 동일가 반복 — 정규장 아님 → 동결 판정 제외
+        List<StockPrice> rows = new ArrayList<>();
+        LocalDateTime t = LocalDateTime.of(2026, 6, 1, 8, 30);
+        for (int i = 0; i < 10; i++) {
+            rows.add(row("005930", "삼성전자", bd("70000"), bd("0"), bd("0"), bd("0"), t));
+            t = t.plusMinutes(3);
+        }
+        when(priceRepo.findAllSince(any())).thenReturn(rows);
+
+        PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 5, 200);
+
+        assertThat(r.frozen()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("손상 등락률(900%) 행 → corruptCtrt 보고")
+    void corruptChangeRate_reported() {
+        LocalDateTime t = LocalDateTime.of(2026, 6, 1, 9, 0);
+        List<StockPrice> rows = new ArrayList<>(List.of(
+                row("011930", "신성이엔지", bd("39950"), bd("0"), bd("0"), bd("900.00"), t)));
+        when(priceRepo.findAllSince(any())).thenReturn(rows);
+
+        PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 5, 200);
+
+        assertThat(r.corruptCtrtRows()).isGreaterThanOrEqualTo(1);
+        assertThat(r.corruptCtrt().get(0).changeRate()).isEqualByComparingTo("900.00");
+    }
+
+    @Test
+    @DisplayName("동결/손상 없음 → note '없음'")
+    void nothing_noteEmpty() {
+        LocalDateTime t = LocalDateTime.of(2026, 6, 1, 9, 0);
+        List<StockPrice> rows = new ArrayList<>(List.of(
+                row("005930", "삼성전자", bd("70000"), bd("70500"), bd("69500"), bd("0.3"), t),
+                row("005930", "삼성전자", bd("70500"), bd("71000"), bd("70000"), bd("0.5"), t.plusMinutes(3))));
+        when(priceRepo.findAllSince(any())).thenReturn(rows);
+
+        PriceScalingDiagnosticService.StaleReport r = service.scanStaleFeeds(720, 5, 200);
+
+        assertThat(r.frozen()).isEmpty();
+        assertThat(r.corruptCtrtRows()).isZero();
+        assertThat(r.note()).contains("없음");
     }
 }

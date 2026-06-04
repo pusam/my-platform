@@ -5,6 +5,7 @@ import com.myplatform.backend.entity.StockPrice;
 import com.myplatform.backend.repository.StockMasterRepository;
 import com.myplatform.backend.repository.StockPriceRepository;
 import com.myplatform.backend.util.PriceOutlierDiagnostics;
+import com.myplatform.backend.util.StaleFeedDetector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,12 +45,15 @@ public class PriceScalingDiagnosticService {
 
     private final StockPriceRepository stockPriceRepository;
     private final StockMasterRepository stockMasterRepository;
+    private final StockStatusService stockStatusService;
 
     /** 정상가 대비 이 배수 이상(또는 역수 이하)으로 튀면 스케일 이상치 후보. (P0-1 가드와 동일 임계) */
     private static final BigDecimal HIGH = new BigDecimal("5");
     private static final BigDecimal LOW = new BigDecimal("0.2");
     /** 한 종목당 최소 이 정도 행이 있어야 median(정상 앵커) 이 신뢰 가능. */
     private static final int MIN_ROWS_FOR_ANCHOR = 3;
+    /** 등락률 절대값이 이 값을 넘으면 손상 의심 (KRX 일일 변동제한 ±30% + 여유). P0-1 그물2 와 동일. */
+    private static final BigDecimal CTRT_LIMIT = new BigDecimal("31");
 
     public record Event(String stockCode, String stockName, String market, String session,
                         String kind, BigDecimal multiple, BigDecimal price, BigDecimal anchorMedian,
@@ -153,6 +157,107 @@ public class PriceScalingDiagnosticService {
         if (n % 2 == 1) return prices.get(n / 2);
         return prices.get(n / 2 - 1).add(prices.get(n / 2))
                 .divide(new BigDecimal("2"), 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    // ================== P2-11 스테일/글리치 피드 진단 (읽기 전용, 가격 보정 없음) ==================
+
+    public record StaleEvent(String stockCode, String stockName, String market, int frozenTicks,
+                             BigDecimal lastPrice, LocalDateTime lastAt, String kind) {}
+
+    public record CorruptCtrtEvent(String stockCode, BigDecimal changeRate, LocalDateTime fetchedAt) {}
+
+    public record StaleReport(int hoursBack, int tickThreshold, long scannedRows, int distinctStocks,
+                              int activeFrozen, int suspendedFrozen, int corruptCtrtRows,
+                              List<StaleEvent> frozen, List<CorruptCtrtEvent> corruptCtrt, String note) {}
+
+    /**
+     * 정규장 구간에서 현재가가 {@code tickThreshold} 틱 이상 연속 동일(동결)인 종목 + 손상 등락률 행을 찾는다.
+     *
+     * <p>동결은 {@link StockStatusService#isActive}로 활성/정지 교차해 분류한다:
+     * 정지·상폐 종목 동결은 정상({@code SUSPENDED_FROZEN}), 활성 종목 동결은 이상({@code ACTIVE_FROZEN}).
+     * 휴장/장외 동결은 정상이므로 정규장(09:00–15:30) 구간만 본다. 가격은 보정하지 않으며 관측·로깅 전용.
+     *
+     * @param tickThreshold 연속 동일 틱 임계 (기본 권장 20 ≈ 3분틱 1시간). 정상 저유동 종목 오탐 방지 위해 넉넉히.
+     */
+    public StaleReport scanStaleFeeds(int hoursBack, int tickThreshold, int maxEvents) {
+        LocalDateTime since = LocalDateTime.now().minusHours(Math.max(1, hoursBack));
+        List<StockPrice> rows;
+        try {
+            rows = stockPriceRepository.findAllSince(since); // stock_code, fetched_at ASC 정렬
+        } catch (Exception e) {
+            log.warn("[P2-11] stock_price 스캔 실패: {}", e.getMessage());
+            rows = List.of();
+        }
+
+        Map<String, List<StockPrice>> byCode = rows.stream()
+                .filter(r -> r.getStockCode() != null && r.getCurrentPrice() != null)
+                .collect(Collectors.groupingBy(StockPrice::getStockCode, LinkedHashMap::new, Collectors.toList()));
+
+        List<StaleEvent> frozen = new ArrayList<>();
+        List<CorruptCtrtEvent> corruptCtrt = new ArrayList<>();
+
+        for (Map.Entry<String, List<StockPrice>> e : byCode.entrySet()) {
+            List<StockPrice> list = e.getValue();
+
+            // 동결: 정규장 구간만 시간순으로 추려 꼬리 동결 길이 계산
+            List<StockPrice> reg = list.stream()
+                    .filter(sp -> "KRX_REGULAR".equals(sessionOf(sp.getFetchedAt())))
+                    .collect(Collectors.toList());
+            if (!reg.isEmpty()) {
+                List<BigDecimal> prices = reg.stream().map(StockPrice::getCurrentPrice).collect(Collectors.toList());
+                int run = StaleFeedDetector.trailingFrozenRun(prices);
+                if (run >= tickThreshold) {
+                    StockPrice lastReg = reg.get(reg.size() - 1);
+                    boolean active = stockStatusService.isActive(e.getKey());
+                    frozen.add(new StaleEvent(e.getKey(), lastReg.getStockName(), null, run,
+                            lastReg.getCurrentPrice(), lastReg.getFetchedAt(),
+                            active ? "ACTIVE_FROZEN" : "SUSPENDED_FROZEN"));
+                }
+            }
+
+            // 손상 등락률: 일일 변동제한(±30%) 황당 초과 (예: 900%)
+            for (StockPrice sp : list) {
+                BigDecimal c = sp.getChangeRate();
+                if (c != null && c.abs().compareTo(CTRT_LIMIT) > 0) {
+                    corruptCtrt.add(new CorruptCtrtEvent(e.getKey(), c, sp.getFetchedAt()));
+                }
+            }
+        }
+
+        // market 조인 (동결 종목만)
+        List<String> codes = frozen.stream().map(StaleEvent::stockCode).distinct().collect(Collectors.toList());
+        Map<String, String> marketByCode = new LinkedHashMap<>();
+        if (!codes.isEmpty()) {
+            try {
+                for (StockMaster m : stockMasterRepository.findAllById(codes)) {
+                    marketByCode.put(m.getStockCode(), m.getMarket() != null ? m.getMarket() : "UNKNOWN");
+                }
+            } catch (Exception ex) {
+                log.debug("[P2-11] stock_master 조인 실패: {}", ex.getMessage());
+            }
+        }
+        List<StaleEvent> enrichedFrozen = frozen.stream()
+                .map(f -> new StaleEvent(f.stockCode(), f.stockName(),
+                        marketByCode.getOrDefault(f.stockCode(), "UNKNOWN"),
+                        f.frozenTicks(), f.lastPrice(), f.lastAt(), f.kind()))
+                .sorted((a, b) -> Integer.compare(b.frozenTicks(), a.frozenTicks()))
+                .collect(Collectors.toList());
+
+        int activeFrozen = (int) enrichedFrozen.stream().filter(f -> "ACTIVE_FROZEN".equals(f.kind())).count();
+        int suspendedFrozen = enrichedFrozen.size() - activeFrozen;
+
+        List<StaleEvent> cappedFrozen = enrichedFrozen.size() > maxEvents
+                ? enrichedFrozen.subList(0, maxEvents) : enrichedFrozen;
+        List<CorruptCtrtEvent> cappedCtrt = corruptCtrt.size() > maxEvents
+                ? corruptCtrt.subList(0, maxEvents) : corruptCtrt;
+
+        String note = (enrichedFrozen.isEmpty() && corruptCtrt.isEmpty())
+                ? "스캔 기간 내 동결/손상 등락률 없음."
+                : "ACTIVE_FROZEN = 활성종목인데 정규장 동결(이상). SUSPENDED_FROZEN = 정지/상폐 동결(정상). "
+                  + "corruptCtrt = 등락률 ±31% 초과(손상 의심). 모두 관측용 — 가격 보정 없음.";
+
+        return new StaleReport(hoursBack, tickThreshold, rows.size(), byCode.size(),
+                activeFrozen, suspendedFrozen, corruptCtrt.size(), cappedFrozen, cappedCtrt, note);
     }
 
     /** fetched_at → 세션 시간대. NXT 단독 구간을 별도 라벨로 분리 (NXT 관여 프록시). */

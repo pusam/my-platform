@@ -133,4 +133,21 @@ public class DiagnosticsController {
         response.put("data", priceScalingDiagnosticService.scan(hoursBack, maxEvents));
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/stale-feeds")
+    @Operation(
+        summary = "P2-11 스테일/동결 피드 + 손상 등락률 진단 (읽기 전용)",
+        description = "stock_price 이력에서 정규장(09:00~15:30) 현재가가 tickThreshold 틱 이상 연속 동일(동결)인 " +
+                     "종목을 찾아 활성/정지 교차로 분류(ACTIVE_FROZEN=이상 / SUSPENDED_FROZEN=정상)하고, " +
+                     "등락률 ±31% 초과(손상 의심) 행을 함께 보고한다. 가격 보정 없음 — 관측 전용."
+    )
+    public ResponseEntity<Map<String, Object>> staleFeeds(
+            @RequestParam(defaultValue = "720") int hoursBack,
+            @RequestParam(defaultValue = "20") int tickThreshold,
+            @RequestParam(defaultValue = "200") int maxEvents) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("data", priceScalingDiagnosticService.scanStaleFeeds(hoursBack, tickThreshold, maxEvents));
+        return ResponseEntity.ok(response);
+    }
 }

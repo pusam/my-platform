@@ -257,4 +257,34 @@ class StockPriceOutlierGuardTest {
             assertThat(errorCount()).as("×5.1 은 임계 이상이라 발화").isGreaterThanOrEqualTo(1);
         }
     }
+
+    // ---- P2-11: 저측 글리치 / 손상 등락률 (P0-1 기존 그물 동작 고정) -----------
+
+    @Nested
+    @DisplayName("P2-11: 저측 글리치 ×0.2 / 손상 등락률은 P0-1 그물이 이미 잡는다")
+    class P2_11_DataQuality {
+        @Test
+        @DisplayName("저측 글리치 ×0.1 (7000 vs 직전 70000) → DB 앵커 그물(≤0.2) 발화")
+        void lowGlitch_fires() {
+            givenLastSavedPrice(new BigDecimal("70000"));
+            // 현재가가 자기 밴드 안(7000∈[6900,7100])·등락률 정상 → 그물1·2 미발화, 그물3(0.1배) 발화
+            StockPriceDto d = dto(new BigDecimal("7000"), new BigDecimal("7100"),
+                    new BigDecimal("6900"), new BigDecimal("0.5"));
+            invokeGuard(rawOutput("7000", "7100", "6900", "7000", "0.5"), d);
+
+            assertThat(errorCount()).as("0.1배는 ≤0.2 임계로 발화").isGreaterThanOrEqualTo(1);
+        }
+
+        @Test
+        @DisplayName("손상 등락률 900% → 전일대비율 그물(±31%) 발화")
+        void corruptChangeRate_fires() {
+            givenLastSavedPrice(new BigDecimal("70000"));
+            // 밴드 정상·배수 정상이지만 등락률만 900 → 그물2 발화
+            StockPriceDto d = dto(new BigDecimal("70500"), new BigDecimal("71000"),
+                    new BigDecimal("70000"), new BigDecimal("900"));
+            invokeGuard(rawOutput("70500", "71000", "70000", "70000", "900"), d);
+
+            assertThat(errorCount()).as("900% 는 ±31% 초과로 발화").isGreaterThanOrEqualTo(1);
+        }
+    }
 }
