@@ -1050,23 +1050,56 @@ public class StockPriceService {
         try {
             BigDecimal cur = dto.getCurrentPrice();
             if (cur == null || cur.compareTo(BigDecimal.ZERO) <= 0) return;
+
+            String raw = String.format(
+                    "stck_prpr=%s, stck_hgpr=%s, stck_lwpr=%s, stck_sdpr=%s, prdy_ctrt=%s",
+                    getTextValue(output, "stck_prpr"), getTextValue(output, "stck_hgpr"),
+                    getTextValue(output, "stck_lwpr"), getTextValue(output, "stck_sdpr"),
+                    getTextValue(output, "prdy_ctrt"));
+
+            // [그물 1] 당일 밴드 — 현재가만 오염된 경우를 잡는다.
+            //   ※ ×10 이 응답 전체(현재가·고가·저가)에 일괄로 걸리면 현재가가 [저가,고가] 안에
+            //     그대로 머물러 이 체크로는 절대 안 잡힌다. 그래서 그물 2·3 을 함께 둔다.
             BigDecimal high = dto.getHighPrice();
             BigDecimal low = dto.getLowPrice();
-            // 당일 고/저가가 유효할 때만 검증 (장전 등 0이면 스킵)
             boolean haveBand = high != null && low != null
                     && high.compareTo(BigDecimal.ZERO) > 0 && low.compareTo(BigDecimal.ZERO) > 0
                     && high.compareTo(low) >= 0;
             if (haveBand) {
-                // 현재가가 [저가, 고가] 범위를 10% 이상 벗어나면 이상치 — 현재가만 배수 오염 가능성.
                 BigDecimal lowBound = low.multiply(new BigDecimal("0.9"));
                 BigDecimal highBound = high.multiply(new BigDecimal("1.1"));
                 if (cur.compareTo(lowBound) < 0 || cur.compareTo(highBound) > 0) {
-                    log.error("[가격이상] {} 현재가 {} 가 당일 [{}~{}] 범위 밖 — 배수/필드 오염 의심. "
-                                    + "KIS raw: stck_prpr={}, stck_hgpr={}, stck_lwpr={}, stck_sdpr={}",
-                            stockCode, cur, low, high,
-                            getTextValue(output, "stck_prpr"), getTextValue(output, "stck_hgpr"),
-                            getTextValue(output, "stck_lwpr"), getTextValue(output, "stck_sdpr"));
+                    log.error("[가격이상] {} 현재가 {} 가 당일 [{}~{}] 범위 밖 — 현재가 단독 오염 의심. KIS raw: {}",
+                            stockCode, cur, low, high, raw);
                 }
+            }
+
+            // [그물 2] 전일대비율(prdy_ctrt) 상한 — KIS 가 직접 계산한 등락률이 KRX 일일 변동제한(±30%)을
+            //   크게 넘으면 응답 자체가 깨졌다는 신호. (단, 신규상장 첫날은 정상적으로 초과 가능 → 로깅만)
+            BigDecimal ctrt = dto.getChangeRate();
+            if (ctrt != null && ctrt.abs().compareTo(new BigDecimal("31")) > 0) {
+                log.error("[가격이상] {} 전일대비율 {}% 가 일일 변동제한(±30%) 초과 — 배수/필드 오염 또는 신규상장 확인. KIS raw: {}",
+                        stockCode, ctrt, raw);
+            }
+
+            // [그물 3] DB 앵커 배수 — 일괄 스케일링을 잡는 유일하게 견고한 그물.
+            //   응답 전체가 ×10 이어도 직전에 저장된(정상) DB 가격과 비교하면 비율이 ~10 으로 튄다.
+            //   임계 5배/0.2배: 6 연속 상한가도 불가능한 수준이라 정상 등락 오탐 없음.
+            //   (신규상장 공모가 대비 최대 4배 밴드보다도 위 → IPO 첫날도 안전)
+            try {
+                stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode)
+                        .map(StockPrice::getCurrentPrice)
+                        .filter(prev -> prev != null && prev.compareTo(BigDecimal.ZERO) > 0)
+                        .ifPresent(prev -> {
+                            BigDecimal ratio = cur.divide(prev, 2, java.math.RoundingMode.HALF_UP);
+                            if (ratio.compareTo(new BigDecimal("5")) >= 0
+                                    || ratio.compareTo(new BigDecimal("0.2")) <= 0) {
+                                log.error("[가격이상] {} 현재가 {} 가 직전 저장가 {} 의 {}배 — 응답 일괄 배수 오염 강력 의심. KIS raw: {}",
+                                        stockCode, cur, prev, ratio, raw);
+                            }
+                        });
+            } catch (Exception ignore) {
+                // DB 조회 실패는 진단 보조일 뿐 — 본 시세 흐름에 영향 주지 않음
             }
         } catch (Exception e) {
             log.debug("[가격이상] {} 진단 중 오류(무시): {}", stockCode, e.getMessage());
