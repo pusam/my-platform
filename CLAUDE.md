@@ -13,12 +13,13 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
   - 특정만: `./gradlew test --tests "*StockDetailServiceTest"`
   - 빌드: `./gradlew build`
   - ⚠️ Maven이면 `./mvnw test`로 교체.
-- **프론트(Vue/Vite)**: ⚠️ **현재 package.json에 test 스크립트 없음(테스트 러너 미설정).**
-  - 검증은 빌드 통과로만: `cd frontend && npm run build`
-  - 프론트에 단위테스트가 필요한 작업이면 **vitest 셋업을 먼저 별도 티켓으로** 진행한 뒤 테스트 루프 가동.
+- **프론트(Vue/Vite)**: ✅ **vitest 셋업 완료** (`vitest.config.js` — vite.config 와 분리, jsdom + @vue/test-utils).
+  - 테스트: `cd frontend && npm test` (= `vitest run`) / watch: `npm run test:watch`
+  - 빌드: `cd frontend && npm run build` (lint 스크립트는 아직 없음)
+  - 테스트 파일 규약: `src/**/*.{test,spec}.js`. 브라우저 API 스텁은 `vitest.setup.js`.
 - **python-backend(FastAPI)**: 테스트 설정 확인 후 명령 기입(있으면 `cd python-backend && pytest`).
 
-> 정리: **현재 자동 "구현→테스트" 루프가 보장되는 건 백엔드(`./gradlew test`)뿐.** 프론트는 빌드 검증, 또는 테스트 러너 셋업 후 가동.
+> 정리: **백엔드(`./gradlew test`) + 프론트(`npm test`) 모두 "구현→테스트" 루프 가동 가능.** python-backend 만 미확인.
 
 ## 작업 완료 기준 (반드시 지킬 것)
 1. 버그 수정은 **재현 테스트(고치기 전엔 실패)부터** 작성한 뒤 구현한다.
