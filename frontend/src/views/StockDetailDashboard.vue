@@ -116,93 +116,13 @@
       :stockCode="stockCode"
     />
 
-    <!-- Volume Profile (가격대별 누적 거래량) -->
-    <section v-if="hasData && volumeProfile && volumeProfile.bins?.length > 0" class="vp-section">
-      <div class="vp-header">
-        <span class="vp-header-icon">📊</span>
-        <h3 class="vp-title">Volume Profile</h3>
-        <InfoTooltip title="가격대별 누적 거래량">
-          <p><strong>POC</strong>(노란 막대): 90일간 가장 거래 많이 일어난 가격.
-            시장이 "공정가" 로 보는 자석 — 가격이 멀어지면 돌아오려는 경향.</p>
-          <p><strong>Value Area</strong>(보라 영역): 누적 70% 거래가 일어난 구간.
-            대부분 거래가 이 안에서 발생.</p>
-          <div class="tip-row" style="margin-top:8px"><b>활용</b></div>
-          <div class="tip-row">현재가 < VAL → <em>저평가</em> 영역, 매수 검토</div>
-          <div class="tip-row">현재가 > VAH → <em>과열</em> 영역, 매도 검토</div>
-          <div class="tip-row">큰 막대 = 미래 지지/저항 가능성 ↑</div>
-        </InfoTooltip>
-        <span class="vp-stat">POC <strong>{{ Number(volumeProfile.poc).toLocaleString() }}원</strong></span>
-        <span class="vp-stat">VA {{ Number(volumeProfile.val).toLocaleString() }} ~ {{ Number(volumeProfile.vah).toLocaleString() }}</span>
-        <span class="vp-disclaimer">{{ volumeProfile.periodDays }}일 누적</span>
-      </div>
-      <div class="vp-grid">
-        <!-- 가격 높은 순으로 위→아래 배치 -->
-        <div v-for="(bin, i) in [...volumeProfile.bins].reverse()" :key="'vp'+i"
-             class="vp-row"
-             :class="{
-               'vp-poc': isVpPoc(bin),
-               'vp-in-va': isVpInValueArea(bin)
-             }">
-          <span class="vp-price">{{ Math.round((Number(bin.priceLow) + Number(bin.priceHigh)) / 2 / 100) * 100 }}</span>
-          <div class="vp-bar-wrap">
-            <div class="vp-bar" :style="{ width: vpBarWidth(bin) + '%' }"></div>
-          </div>
-          <span class="vp-pct">{{ bin.volumePct.toFixed(1) }}%</span>
-        </div>
-      </div>
-    </section>
+    <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
+    <VolumeProfileCard v-if="hasData && volumeProfile && volumeProfile.bins?.length > 0"
+                       :volume-profile="volumeProfile" />
 
-    <!-- 지지/저항 레벨 (피벗 클러스터링) -->
-    <section v-if="hasData && supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
-             class="sr-section">
-      <div class="sr-header">
-        <span class="sr-header-icon">🛡️</span>
-        <h3 class="sr-title">지지/저항 레벨</h3>
-        <InfoTooltip title="자주 닿은 가격대">
-          <p><strong>저항선</strong>(▲ 빨강, 위): 가격이 올라갈 때 매도 압력 강한 가격.
-            깨고 올라가기 어려움.</p>
-          <p><strong>지지선</strong>(▼ 파랑, 아래): 가격이 내려갈 때 매수 압력 강한 가격.
-            받쳐줌.</p>
-          <p><strong>강도</strong>: 같은 가격대 닿은 횟수. 강(3+) > 중(2) > 약(1).
-            많이 닿을수록 의미 큼.</p>
-          <div class="tip-row" style="margin-top:8px"><b>활용</b></div>
-          <div class="tip-row">강한 지지 근처 → <em>매수 검토</em> (반등 가능성)</div>
-          <div class="tip-row">강한 저항 근처 → <em>매도/관망</em></div>
-          <div class="tip-row">지지 깨짐 → 다음 지지선까지 추가 하락</div>
-          <div class="tip-row">저항 돌파(거래량↑) → 추세 전환 가능</div>
-        </InfoTooltip>
-        <span class="sr-disclaimer">최근 90일 피벗 기준</span>
-      </div>
-      <div class="sr-body">
-        <!-- 위 저항선 (가까운 순으로 거꾸로 — 화면 위에서 멀리, 아래로 가까이) -->
-        <div v-if="supportResistance.resistance?.length > 0" class="sr-list">
-          <div v-for="(lv, i) in [...supportResistance.resistance].reverse()" :key="'r'+i"
-               class="sr-row sr-resistance" :class="'st-' + lv.strength?.toLowerCase()">
-            <span class="sr-arrow">▲</span>
-            <span class="sr-price">{{ Number(lv.price).toLocaleString() }}원</span>
-            <span class="sr-touches">{{ lv.touches }}회 터치</span>
-            <span class="sr-strength" :class="'st-' + lv.strength?.toLowerCase()">{{ getSrStrengthLabel(lv.strength) }}</span>
-            <span class="sr-distance">+{{ Number(lv.distancePct).toFixed(1) }}%</span>
-          </div>
-        </div>
-        <!-- 현재가 -->
-        <div class="sr-current">
-          <span class="sr-current-label">현재가</span>
-          <span class="sr-current-price">{{ Number(supportResistance.currentPrice).toLocaleString() }}원</span>
-        </div>
-        <!-- 아래 지지선 -->
-        <div v-if="supportResistance.support?.length > 0" class="sr-list">
-          <div v-for="(lv, i) in supportResistance.support" :key="'s'+i"
-               class="sr-row sr-support" :class="'st-' + lv.strength?.toLowerCase()">
-            <span class="sr-arrow">▼</span>
-            <span class="sr-price">{{ Number(lv.price).toLocaleString() }}원</span>
-            <span class="sr-touches">{{ lv.touches }}회 터치</span>
-            <span class="sr-strength" :class="'st-' + lv.strength?.toLowerCase()">{{ getSrStrengthLabel(lv.strength) }}</span>
-            <span class="sr-distance">{{ Number(lv.distancePct).toFixed(1) }}%</span>
-          </div>
-        </div>
-      </div>
-    </section>
+    <!-- 지지/저항 레벨 (피벗 클러스터링) — 분리: SupportResistanceCard.vue (P2-10) -->
+    <SupportResistanceCard v-if="hasData && supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
+                           :support-resistance="supportResistance" />
 
     <!-- 관련 종목 (phase 28 분리 — RelatedStocksList.vue) -->
     <RelatedStocksList v-if="hasData" :stocks="relatedStocks" @select="goToRelatedStock" />
@@ -1138,6 +1058,8 @@ import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import StockConclusionCard from '../components/v2/StockConclusionCard.vue';
 import ChartPatternList from '../components/v2/ChartPatternList.vue';
 import RelatedStocksList from '../components/v2/RelatedStocksList.vue';
+import VolumeProfileCard from '../components/v2/VolumeProfileCard.vue';
+import SupportResistanceCard from '../components/v2/SupportResistanceCard.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
@@ -2025,7 +1947,7 @@ const PATTERN_ICONS = {
 const getCpsIcon = (type) => PATTERN_ICONS[type] || '📊';
 const getCpsConfidenceLabel = (c) => ({ HIGH: '높음', MEDIUM: '보통', LOW: '낮음' }[c] || c || '보통');
 const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 신호', NEUTRAL: '관찰' }[s] || s || '중립');
-const getSrStrengthLabel = (s) => ({ HIGH: '강', MEDIUM: '중', LOW: '약' }[s] || s || '중');
+// getSrStrengthLabel → SupportResistanceCard.vue 로 이동 (P2-10)
 
 // ===== 종합 신호 뱃지 helpers =====
 const getCompositeBadgeClass = () => {
@@ -2049,24 +1971,7 @@ const goToRelatedStock = (code) => {
   searchStock();
 };
 
-// ===== Volume Profile helpers =====
-const vpMaxPct = computed(() => {
-  if (!volumeProfile.value?.bins) return 1;
-  return Math.max(...volumeProfile.value.bins.map(b => b.volumePct), 1);
-});
-const vpBarWidth = (bin) => (bin.volumePct / vpMaxPct.value) * 100;
-const isVpPoc = (bin) => {
-  if (!volumeProfile.value) return false;
-  const poc = Number(volumeProfile.value.poc);
-  return poc >= Number(bin.priceLow) && poc < Number(bin.priceHigh);
-};
-const isVpInValueArea = (bin) => {
-  if (!volumeProfile.value) return false;
-  const vah = Number(volumeProfile.value.vah);
-  const val = Number(volumeProfile.value.val);
-  const mid = (Number(bin.priceLow) + Number(bin.priceHigh)) / 2;
-  return mid >= val && mid <= vah;
-};
+// Volume Profile helpers → VolumeProfileCard.vue 로 이동 (P2-10)
 
 const formatBillion = (value) => {
   if (value === null || value === undefined) return 'N/A';
@@ -4202,112 +4107,8 @@ onUnmounted(() => {
 .related-corr.corr-medium { background: rgba(234,179,8,0.18); color: #facc15; }
 .related-corr.corr-weak { background: rgba(156,163,175,0.18); color: #d1d5db; }
 
-/* ========== Volume Profile 섹션 ========== */
-.vp-section {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-}
-.vp-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-.vp-header-icon { font-size: 18px; }
-.vp-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; }
-.vp-stat {
-  font-size: 11px; color: rgba(255,255,255,0.65);
-  padding: 3px 8px; background: rgba(255,255,255,0.06);
-  border-radius: 10px;
-  font-variant-numeric: tabular-nums;
-}
-.vp-stat strong { color: #fff; }
-.vp-disclaimer {
-  font-size: 11px; color: rgba(255,255,255,0.4);
-  padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
-  margin-left: auto;
-}
-.vp-grid { display: flex; flex-direction: column; gap: 1px; }
-.vp-row {
-  display: grid;
-  grid-template-columns: 60px 1fr 50px;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 4px;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  border-radius: 3px;
-}
-.vp-row.vp-in-va { background: rgba(99,102,241,0.06); }
-.vp-row.vp-poc { background: rgba(234,179,8,0.15); }
-.vp-price { color: rgba(255,255,255,0.7); text-align: right; }
-.vp-row.vp-poc .vp-price { color: #facc15; font-weight: 700; }
-.vp-bar-wrap { height: 10px; background: rgba(255,255,255,0.03); border-radius: 2px; overflow: hidden; }
-.vp-bar {
-  height: 100%;
-  background: linear-gradient(90deg, rgba(99,102,241,0.4), rgba(99,102,241,0.7));
-  border-radius: 2px;
-  transition: width 0.3s;
-}
-.vp-row.vp-poc .vp-bar { background: linear-gradient(90deg, rgba(234,179,8,0.5), #facc15); }
-.vp-pct { color: rgba(255,255,255,0.55); text-align: right; }
-.vp-row.vp-poc .vp-pct { color: #facc15; font-weight: 700; }
-
-/* ========== 지지/저항 레벨 섹션 ========== */
-.sr-section {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-}
-.sr-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.sr-header-icon { font-size: 18px; }
-.sr-title { margin: 0; color: rgba(255,255,255,0.9); font-size: 15px; font-weight: 600; flex: 1; }
-.sr-disclaimer {
-  font-size: 11px; color: rgba(255,255,255,0.4);
-  padding: 2px 8px; background: rgba(255,255,255,0.05); border-radius: 10px;
-}
-.sr-body { display: flex; flex-direction: column; gap: 4px; }
-.sr-list { display: flex; flex-direction: column; gap: 4px; }
-.sr-row {
-  display: grid;
-  grid-template-columns: 18px 1fr auto auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: rgba(255,255,255,0.03);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.sr-resistance .sr-arrow { color: #ef4444; }   /* 한국 관행: 위로=빨강 */
-.sr-support .sr-arrow { color: #3b82f6; }      /* 아래로=파랑 */
-.sr-row.st-high { background: rgba(255,255,255,0.06); border-left: 2px solid #4ade80; padding-left: 8px; }
-.sr-row.st-medium { border-left: 2px solid #facc15; padding-left: 8px; }
-.sr-price { color: rgba(255,255,255,0.95); font-variant-numeric: tabular-nums; font-weight: 600; }
-.sr-touches { color: rgba(255,255,255,0.55); font-size: 11px; }
-.sr-strength {
-  font-size: 11px; padding: 1px 6px; border-radius: 8px; min-width: 18px; text-align: center;
-}
-.sr-strength.st-high { background: rgba(34,197,94,0.18); color: #4ade80; }
-.sr-strength.st-medium { background: rgba(234,179,8,0.18); color: #facc15; }
-.sr-strength.st-low { background: rgba(156,163,175,0.18); color: #d1d5db; }
-.sr-distance {
-  font-size: 11px; color: rgba(255,255,255,0.5);
-  font-variant-numeric: tabular-nums; min-width: 50px; text-align: right;
-}
-.sr-resistance .sr-distance { color: #f87171; }
-.sr-support .sr-distance { color: #60a5fa; }
-.sr-current {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  padding: 8px; margin: 6px 0;
-  background: rgba(99,102,241,0.12);
-  border: 1px dashed rgba(99,102,241,0.35);
-  border-radius: 6px;
-}
-.sr-current-label { font-size: 11px; color: rgba(255,255,255,0.5); }
-.sr-current-price {
-  color: #fff; font-weight: 700; font-size: 15px;
-  font-variant-numeric: tabular-nums;
-}
+/* Volume Profile(.vp-*) / 지지·저항(.sr-*) 섹션 스타일 → 각 컴포넌트로 이동 (P2-10)
+   VolumeProfileCard.vue · SupportResistanceCard.vue */
 
 /* ========== 차트 패턴 검출 섹션 ========== */
 .chart-patterns-section {
