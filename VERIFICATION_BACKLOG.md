@@ -17,8 +17,8 @@
 - **불변식 보존**: 백엔드/시세경로/산식 무변경, 프론트 currentPhaseKey(08~20)와 KRX(09~15:40) 분리 유지(불변식2),
   스태거/폴링/useAutoRefresh 동작 보존. 전체 69 tests green, build 통과.
 - **남은 폴리시(선택)**: ① currentPhaseKey "강조 전환" 세부 UX(장중 실시간 우선/장후 성과 강조)는 현재 phase v-if 유지로
-  최소 적용 — 추가 강조 디자인은 후속. ② Peer 카드는 main-grid 잔류(심화 이동은 비연속이라 보류). ③ **운영 시각 QA 필요**
-  (탭 전환/딥링크/장중 폴링 실동작은 런타임 확인 권장) → 체크리스트: `docs/OPS_QA_IA_REDESIGN.md`.
+  적용 완료(`896fefb` — phase-strip 배너 + 패널 phase 클래스로 장중/장후 강조). ② Peer 카드 심화존 이동 완료(`6389972`).
+  ③ **운영 시각 QA 필요**(탭 전환/딥링크/장중 폴링 실동작은 런타임 확인 권장) → 체크리스트: `docs/OPS_QA_IA_REDESIGN.md`.
 
 ---
 
