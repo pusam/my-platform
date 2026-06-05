@@ -1,8 +1,10 @@
 <template>
-  <div class="page-container">
-    <GlobalNav />
+  <div class="page-container" :class="{ embedded }">
+    <!-- embedded(시장 탭 내 섹션) 모드에서는 자체 GlobalNav/GNB 숨김 — 부모 대시보드가 이미 보유 (P-IA) -->
+    <GlobalNav v-if="!embedded" />
     <!-- 통합 GNB — stock-dashboard와 같은 4탭 (장전/장중/장후·연구/글로벌) -->
     <DashboardHeader
+      v-if="!embedded"
       activeTab="global"
       @open-search="() => {}"
       @tab-change="onGnbTabChange"
@@ -370,6 +372,11 @@ import OilPricePage from './OilPricePage.vue';
 import GlobalNav from '../components/GlobalNav.vue';
 import DashboardHeader from '../components/v2/DashboardHeader.vue';
 import DataFreshness from '../components/DataFreshness.vue';
+
+// embedded: 시장 탭 내 섹션으로 임베드될 때 자체 nav/GNB 숨김 (P-IA)
+defineProps({
+  embedded: { type: Boolean, default: false }
+});
 
 const router = useRouter();
 // stock-dashboard 4탭 중 글로벌 외 클릭 시 라우팅
