@@ -5,6 +5,23 @@
 
 ---
 
+## P-IA. 프론트 화면 정보구조(IA) 재설계 — ✅ 완료 (2026-06-05)
+- **목표**: GNB를 **시장(거시) / 발굴(추천·전략) / 매매(봇·페이퍼)** 3탭으로 재정의, 글로벌 통합, 종목 상세 요약/근거/심화 3섹션화.
+- **1단계** `753cadd`: `GlobalFuturesPage` embedded prop(자체 nav 숨김). 행동테스트 3.
+- **2단계** `04371d9`: GNB premarket/research/global → market/discover/trade. 단일 라이브 패널 내 **블록별 탭 게이팅**
+  (대량 이동 없이 소스 순서=탭별 표시 순서). `isLiveTab`(시장||발굴) computed 로 폴링/스태거/freshness/visibility 게이트
+  일괄 치환 → **폴링·탭숨김정지·스태거 보존**. mapLegacyTab/resolveInitialTab/Sub 재정의 + main.js redirect 동기화.
+  글로벌은 시장 서브탭에 `defineAsyncComponent`로 임베드(별도 청크 유지). 매핑 테스트 18.
+- **3단계** `b36b7b6`: 상세 요약(헤더+결론+QuickSummary)/근거(헤드라인+리스크+main-grid)/심화(볼륨·지지저항·패턴·관련)
+  3섹션. `DetailSection.vue`(v-show 마운트 유지=API 타이밍 보존)로 심화 기본 접힘. 행동테스트 5.
+- **불변식 보존**: 백엔드/시세경로/산식 무변경, 프론트 currentPhaseKey(08~20)와 KRX(09~15:40) 분리 유지(불변식2),
+  스태거/폴링/useAutoRefresh 동작 보존. 전체 69 tests green, build 통과.
+- **남은 폴리시(선택)**: ① currentPhaseKey "강조 전환" 세부 UX(장중 실시간 우선/장후 성과 강조)는 현재 phase v-if 유지로
+  최소 적용 — 추가 강조 디자인은 후속. ② Peer 카드는 main-grid 잔류(심화 이동은 비연속이라 보류). ③ **운영 시각 QA 필요**
+  (탭 전환/딥링크/장중 폴링 실동작은 런타임 확인 권장).
+
+---
+
 ## P0-1. 가격 outlier 가드 맹점 (실제 버그)
 - **문제**: `warnIfPriceOutlier`가 "현재가가 당일 [저가~고가]±10%"로만 보는데, 현재가·고가·저가가 **일괄 ×10**되면 현재가가 여전히 범위 안이라 가드가 발화하지 않는다. 당일 범위 조건은 일괄 스케일링에 무용지물.
 - **합격 기준**:
