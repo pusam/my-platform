@@ -39,4 +39,22 @@ describe('StockTradingDashboardV2 IA 매핑 (P-IA 2단계)', () => {
       expect(['market', 'discover']).toContain(call('resolveInitialTab', fakeThis(null)))
     })
   })
+
+  describe('phaseBanner 강조 (위젯 교체 X, 같은 탭 내 강조)', () => {
+    const banner = (phase) => Comp.computed.phaseBanner.call({ currentPhaseKey: phase })
+    it('during → 실시간 강조(phase-during)', () => {
+      const b = banner('during')
+      expect(b.cls).toBe('phase-during')
+      expect(b.label).toContain('진행')
+    })
+    it('pre → 준비(phase-pre)', () => {
+      expect(banner('pre').cls).toBe('phase-pre')
+    })
+    it('post → 결산(phase-post)', () => {
+      expect(banner('post').cls).toBe('phase-post')
+    })
+    it('알 수 없는 phase → post 폴백', () => {
+      expect(banner('zzz').cls).toBe('phase-post')
+    })
+  })
 })

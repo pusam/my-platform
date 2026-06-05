@@ -20,7 +20,14 @@
       </div>
 
       <!-- ═══ 라이브 패널: 시장 + 발굴 공유 (블록별 탭 게이팅, 소스 순서가 탭별 표시 순서) ═══ -->
-      <div v-if="isLiveTab" class="tab-panel">
+      <div v-if="isLiveTab" class="tab-panel" :class="phaseBanner.cls">
+
+        <!-- 시각대 강조 배너 (P-IA): 위젯 교체 X, 같은 탭 내 강조 전환 -->
+        <div class="phase-strip" :class="phaseBanner.cls">
+          <span class="phase-strip-icon">{{ phaseBanner.icon }}</span>
+          <span class="phase-strip-label">{{ phaseBanner.label }}</span>
+          <span class="phase-strip-hint">{{ phaseBanner.hint }}</span>
+        </div>
 
         <!-- ① 시장 상태 바 → 시장 탭 -->
         <template v-if="activeGnbTab === 'market'">
@@ -697,6 +704,15 @@ export default {
       if (mins < 480) return 'pre'        // ~08:00
       if (mins < 1200) return 'during'   // 08:00~20:00 (프리+정규+애프터)
       return 'post'                       // 20:00~
+    },
+    // P-IA: 시각대 강조 배너 — 위젯 교체가 아니라 "같은 탭 내 강조"(장중=실시간 / 장후=결산).
+    phaseBanner() {
+      const banners = {
+        pre:    { icon: '🌅', label: '장 준비',    hint: '개장 전 — 추천·관심종목 점검', cls: 'phase-pre' },
+        during: { icon: '🟢', label: '장 진행 중',  hint: '실시간 추적 중 · 60초 자동 갱신', cls: 'phase-during' },
+        post:   { icon: '📊', label: '장 마감',    hint: '오늘 결산 · 성과/수급 중심',     cls: 'phase-post' }
+      }
+      return banners[this.currentPhaseKey] || banners.post
     },
     marketPhase() {
       const phases = {
@@ -1908,6 +1924,47 @@ export default {
   flex-direction: column;
   gap: 20px;
 }
+
+/* ===== P-IA: 시각대 강조 배너 (위젯 교체 X, 같은 탭 내 강조) ===== */
+.phase-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+}
+.phase-strip-icon { font-size: 14px; }
+.phase-strip-label { font-weight: 700; color: rgba(255,255,255,0.92); }
+.phase-strip-hint { font-size: 12px; color: rgba(255,255,255,0.55); }
+/* 장중: 실시간 강조(초록 펄스) */
+.phase-strip.phase-during {
+  border-color: rgba(34,197,94,0.35);
+  background: rgba(34,197,94,0.08);
+}
+.phase-strip.phase-during .phase-strip-icon { animation: phase-pulse 1.6s infinite; }
+.phase-strip.phase-during .phase-strip-label { color: #4ade80; }
+/* 장전: 준비(앰버) */
+.phase-strip.phase-pre {
+  border-color: rgba(245,158,11,0.3);
+  background: rgba(245,158,11,0.07);
+}
+.phase-strip.phase-pre .phase-strip-label { color: #fbbf24; }
+/* 장후: 결산(차분한 블루-그레이) */
+.phase-strip.phase-post {
+  border-color: rgba(96,165,250,0.25);
+  background: rgba(96,165,250,0.06);
+}
+.phase-strip.phase-post .phase-strip-label { color: #93c5fd; }
+@keyframes phase-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* 장중엔 추천 카드(발굴) 살짝 강조 — 실시간 추적 대상 부각 */
+.tab-panel.phase-during .top-rec { border-color: rgba(34,197,94,0.25); }
+/* 장후엔 강세섹터/수급(시장) 강조 — 결산 중심 */
+.tab-panel.phase-post .strong-sectors,
+.tab-panel.phase-post .supply-panel { border-color: rgba(96,165,250,0.25); }
 
 /* News Panel in Market Tab */
 .news-panel {
