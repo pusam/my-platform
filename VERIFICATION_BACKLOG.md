@@ -18,7 +18,7 @@
   스태거/폴링/useAutoRefresh 동작 보존. 전체 69 tests green, build 통과.
 - **남은 폴리시(선택)**: ① currentPhaseKey "강조 전환" 세부 UX(장중 실시간 우선/장후 성과 강조)는 현재 phase v-if 유지로
   최소 적용 — 추가 강조 디자인은 후속. ② Peer 카드는 main-grid 잔류(심화 이동은 비연속이라 보류). ③ **운영 시각 QA 필요**
-  (탭 전환/딥링크/장중 폴링 실동작은 런타임 확인 권장).
+  (탭 전환/딥링크/장중 폴링 실동작은 런타임 확인 권장) → 체크리스트: `docs/OPS_QA_IA_REDESIGN.md`.
 
 ---
 
