@@ -123,7 +123,13 @@
     />
 
     <!-- ===== [심화] 볼륨·지지저항·패턴·관련종목 — 기본 접힘 (자식은 v-show 로 마운트 유지) ===== -->
-    <DetailSection v-if="hasData" title="🔬 심화 분석 (볼륨·지지/저항·패턴·관련종목)">
+    <DetailSection v-if="hasData" title="🔬 심화 분석 (볼륨·지지/저항·패턴·관련종목·Peer)">
+      <!-- Peer Group 비교 — 분리: PeerComparisonCard.vue (P2-10), 심화존 이동(P-IA) -->
+      <PeerComparisonCard v-if="peerComparisons?.length"
+                          :peer-comparisons="peerComparisons"
+                          :sector-name="sectorName"
+                          :sector-avg-pbr="sectorAvgPbr" />
+
       <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
       <VolumeProfileCard v-if="volumeProfile && volumeProfile.bins?.length > 0"
                          :volume-profile="volumeProfile" />
@@ -433,11 +439,7 @@
           </div>
         </div>
 
-        <!-- Peer Group 비교 — 분리: PeerComparisonCard.vue (P2-10) -->
-        <PeerComparisonCard v-if="peerComparisons?.length"
-                            :peer-comparisons="peerComparisons"
-                            :sector-name="sectorName"
-                            :sector-avg-pbr="sectorAvgPbr" />
+        <!-- Peer Group 비교 → 심화존(DetailSection)으로 이동 (P-IA) -->
 
         <!-- 관련 뉴스 (좌측 하단) -->
         <div class="news-section-left">
