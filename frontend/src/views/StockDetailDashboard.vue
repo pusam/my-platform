@@ -57,8 +57,13 @@
       </div>
     </header>
 
+    <!-- ===== [요약] 시세·AI점수(헤더) + 결론 + 핵심요약 (P-IA 3단계) ===== -->
     <!-- 종합 결론 카드 — 룰 기반 한 줄 결론 + 체크리스트 트리거 (phase 13) -->
     <StockConclusionCard v-if="stockCode" :stock-code="stockCode" />
+
+    <!-- 핵심 요약 카드 (RSI/20일선/외인/기관/리스크/AI) — 요약존으로 이동 -->
+    <QuickSummaryBar :has-data="hasData" :loading="loading"
+                     :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" />
 
     <!-- 데이터 갱신 상태 -->
     <div class="freshness-bar" v-if="hasData">
@@ -102,6 +107,7 @@
       </button>
     </div>
 
+    <!-- ===== [근거] 행동권고 + 리스크 (점수·수급·기술 근거는 아래 main-grid) ===== -->
     <!-- 행동 권고 헤드라인 (펀더멘털+AI+수급 종합) -->
     <StockBriefingHeadline
       v-if="hasData && !loading"
@@ -116,23 +122,22 @@
       :stockCode="stockCode"
     />
 
-    <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
-    <VolumeProfileCard v-if="hasData && volumeProfile && volumeProfile.bins?.length > 0"
-                       :volume-profile="volumeProfile" />
+    <!-- ===== [심화] 볼륨·지지저항·패턴·관련종목 — 기본 접힘 (자식은 v-show 로 마운트 유지) ===== -->
+    <DetailSection v-if="hasData" title="🔬 심화 분석 (볼륨·지지/저항·패턴·관련종목)">
+      <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
+      <VolumeProfileCard v-if="volumeProfile && volumeProfile.bins?.length > 0"
+                         :volume-profile="volumeProfile" />
 
-    <!-- 지지/저항 레벨 (피벗 클러스터링) — 분리: SupportResistanceCard.vue (P2-10) -->
-    <SupportResistanceCard v-if="hasData && supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
-                           :support-resistance="supportResistance" />
+      <!-- 지지/저항 레벨 (피벗 클러스터링) — 분리: SupportResistanceCard.vue (P2-10) -->
+      <SupportResistanceCard v-if="supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
+                             :support-resistance="supportResistance" />
 
-    <!-- 관련 종목 (phase 28 분리 — RelatedStocksList.vue) -->
-    <RelatedStocksList v-if="hasData" :stocks="relatedStocks" @select="goToRelatedStock" />
+      <!-- 관련 종목 (phase 28 분리 — RelatedStocksList.vue) -->
+      <RelatedStocksList :stocks="relatedStocks" @select="goToRelatedStock" />
 
-    <!-- 차트 패턴 검출 (phase 27 분리 — ChartPatternList.vue) -->
-    <ChartPatternList v-if="hasData" :patterns="chartPatterns" />
-
-    <!-- 핵심 요약 카드 (항상 고정) — 분리: QuickSummaryBar.vue (P2-10) -->
-    <QuickSummaryBar :has-data="hasData" :loading="loading"
-                     :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" />
+      <!-- 차트 패턴 검출 (phase 27 분리 — ChartPatternList.vue) -->
+      <ChartPatternList :patterns="chartPatterns" />
+    </DetailSection>
 
     <!-- 로딩 -->
     <div v-if="loading" class="loading-overlay">
@@ -986,6 +991,7 @@ import VolumeProfileCard from '../components/v2/VolumeProfileCard.vue';
 import SupportResistanceCard from '../components/v2/SupportResistanceCard.vue';
 import QuickSummaryBar from '../components/v2/QuickSummaryBar.vue';
 import PeerComparisonCard from '../components/v2/PeerComparisonCard.vue';
+import DetailSection from '../components/v2/DetailSection.vue';
 import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
