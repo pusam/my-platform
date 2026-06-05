@@ -40,17 +40,17 @@ export default {
   name: 'DashboardHeader',
   components: { BackButton, NotificationBell },
   props: {
-    activeTab: { type: String, default: 'premarket' }
+    activeTab: { type: String, default: 'market' }
   },
   emits: ['open-search', 'tab-change'],
   data() {
     return {
       currentTime: '',
-      // GNB — 장전+장중을 '트레이드' 단일 탭으로 통합 (시장 시간대로 위젯 자동 토글)
+      // GNB(P-IA): 시장(거시) / 발굴(추천·전략) / 매매(봇·페이퍼). 시각은 탭 내 강조로만 반영.
       gnbTabs: [
-        { key: 'premarket', label: '트레이드', icon: '⚡' },
-        { key: 'research', label: '연구', icon: '🔍' },
-        { key: 'global', label: '글로벌', icon: '🌍' }
+        { key: 'market', label: '시장', icon: '🌐' },
+        { key: 'discover', label: '발굴', icon: '🔍' },
+        { key: 'trade', label: '매매', icon: '⚡' }
       ]
     }
   },

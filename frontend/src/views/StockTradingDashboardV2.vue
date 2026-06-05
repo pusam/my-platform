@@ -9,8 +9,8 @@
         @tab-change="activeGnbTab = $event"
       />
 
-      <!-- 데이터 갱신 상태 — 트레이드 탭에서만 노출 -->
-      <div class="freshness-bar" v-if="activeGnbTab === 'premarket'">
+      <!-- 데이터 갱신 상태 — 라이브 탭(시장·발굴)에서만 노출 -->
+      <div class="freshness-bar" v-if="isLiveTab">
         <DataFreshness
           :lastUpdated="lastUpdated"
           :isRefreshing="isRefreshing"
@@ -19,11 +19,11 @@
         />
       </div>
 
-      <!-- ═══ Tab 1·2: 장전 + 장중 (공유 패널) ═══ -->
-      <!-- ═══ Tab: 트레이드 (장전+장중 통합 — 시장 시간대로 위젯 자동 토글) ═══ -->
-      <div v-if="activeGnbTab === 'premarket'" class="tab-panel">
+      <!-- ═══ 라이브 패널: 시장 + 발굴 공유 (블록별 탭 게이팅, 소스 순서가 탭별 표시 순서) ═══ -->
+      <div v-if="isLiveTab" class="tab-panel">
 
-        <!-- ① 시장 상태 바 (장전·장중 공통) -->
+        <!-- ① 시장 상태 바 → 시장 탭 -->
+        <template v-if="activeGnbTab === 'market'">
         <div id="briefing-section-market" class="market-status-bar" v-if="marketData">
           <div class="msb-item" :class="getChangeClass(marketData.kospiChangeRate)">
             <span class="msb-label">KOSPI</span>
@@ -46,9 +46,10 @@
           </div>
         </div>
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
+        </template>
 
-        <!-- ② 종합 추천 TOP 10 (현재 매수 신호 — 4 카테고리: 실적·수급·기술·섹터) -->
-        <div id="briefing-section-rec" class="top-rec section-card">
+        <!-- ② 종합 추천 TOP 10 (현재 매수 신호 — 4 카테고리: 실적·수급·기술·섹터) → 발굴 탭 -->
+        <div id="briefing-section-rec" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
           <div class="section-title-row">
             <h2><span class="section-icon">🏆</span> 종합 추천 TOP {{ topRecommendations.length > 0 ? topRecommendations.length : 10 }}</h2>
             <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
@@ -127,8 +128,8 @@
           </div>
         </div>
 
-        <!-- ②-a 저평가 TOP 10 (별도 트랙 — PBR·ROE·부채비율·흑자 기반 가치주) -->
-        <div id="briefing-section-value" class="top-rec section-card">
+        <!-- ②-a 저평가 TOP 10 (별도 트랙) → 발굴 탭 -->
+        <div id="briefing-section-value" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
           <div class="section-title-row">
             <h2><span class="section-icon">💎</span> 저평가 TOP {{ valueTop10.length > 0 ? valueTop10.length : 10 }}</h2>
             <span v-if="valueTopDataTime" class="rec-data-time">{{ valueTopDataTime }}</span>
@@ -173,8 +174,8 @@
           <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small style="opacity:0.7">PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
         </div>
 
-        <!-- ②-b 수급 현황 패널 (장전·장중 공통) -->
-        <div id="briefing-section-supply" class="supply-panel section-card" v-if="supplyPanelData">
+        <!-- ②-b 수급 현황 패널 → 시장 탭 -->
+        <div id="briefing-section-supply" class="supply-panel section-card" v-if="activeGnbTab === 'market' && supplyPanelData">
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 외국인·기관 수급 현황</h2>
           </div>
@@ -212,8 +213,8 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
-        <!-- ③ 시간대별 신호 (장전·장후 전용 — 장중엔 LiveSurge가 상위호환) -->
-        <div class="today-signals section-card" v-if="currentPhaseKey !== 'during'">
+        <!-- ③ 시간대별 신호 (장전·장후 전용) → 발굴 탭 -->
+        <div class="today-signals section-card" v-if="activeGnbTab === 'discover' && currentPhaseKey !== 'during'">
           <div class="section-title-row">
             <h2>
               <span class="section-icon">{{ marketPhase.icon }}</span>
@@ -251,17 +252,17 @@
           <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
         </div>
 
-        <!-- ③-b 실시간 수급 급증 (장중 시간대) -->
+        <!-- ③-b 실시간 수급 급증 (장중) → 발굴 탭 -->
         <SectionLiveSurge
-          v-if="currentPhaseKey === 'during'"
+          v-if="activeGnbTab === 'discover' && currentPhaseKey === 'during'"
           :active="currentPhaseKey === 'during'"
         />
 
         <!-- ③ 관심종목 현황 (장전 시간대 전용) -->
-        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="currentPhaseKey === 'pre' && watchlistItems.length">
+        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'discover' && currentPhaseKey === 'pre' && watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
-            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'research'">전체 보기 →</a>
+            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'discover'">전체 보기 →</a>
           </div>
           <div class="wl-list">
             <div
@@ -284,8 +285,8 @@
           </div>
         </div>
 
-        <!-- 오늘 강세 섹터 — 평균 등락률 +0.5%+ -->
-        <div id="briefing-section-strong-sectors" class="strong-sectors section-card" v-if="strongSectors.length">
+        <!-- 오늘 강세 섹터 → 시장 탭 -->
+        <div id="briefing-section-strong-sectors" class="strong-sectors section-card" v-if="activeGnbTab === 'market' && strongSectors.length">
           <div class="section-title-row">
             <h2><span class="section-icon">🔥</span> 오늘 강세 섹터</h2>
             <span class="ss-disclaimer">평균 등락률 기준 · 30분 캐시</span>
@@ -320,8 +321,8 @@
           </div>
         </div>
 
-        <!-- 관심종목 차트 신호 — 패턴 검출된 종목만 노출 -->
-        <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="chartSignals.length">
+        <!-- 관심종목 차트 신호 → 발굴 탭 -->
+        <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="activeGnbTab === 'discover' && chartSignals.length">
           <div class="section-title-row">
             <h2><span class="section-icon">📊</span> 차트 신호 종목</h2>
             <div class="cs-controls">
@@ -369,8 +370,8 @@
         <!-- AI 전략 TOP 픽 카드는 종합 추천 TOP10에 흡수되어 제거됨.
              aiTopPicks 데이터는 phaseSignals(장전·장후)의 신호 카드 일부로 계속 사용됨. -->
 
-        <!-- ⑤ 섹터 동향 — 거래대금(장중)/시장지도(히트맵·로테이션·예측) 토글 -->
-        <div class="sector-combined">
+        <!-- ⑤ 섹터 동향 — 거래대금(장중)/시장지도 토글 → 시장 탭 -->
+        <div class="sector-combined" v-if="activeGnbTab === 'market'">
           <div class="sector-view-toggle" v-if="currentPhaseKey === 'during'">
             <button
               :class="['sector-toggle-btn', { active: activeSectorView === 'volume' }]"
@@ -395,31 +396,46 @@
           />
         </div>
 
-        <!-- ⑥ 페이퍼 트레이딩 (장중 시간대 · 관리자 전용) -->
-        <div v-if="currentPhaseKey === 'during' && isAdmin" class="embedded-content">
-          <PaperTradingPage :embedded="true" />
-        </div>
+        <!-- 발굴 탭 — 심화 도구 서브탭 (종합/AI전략/백테스트/스크리너/퀀트TA) -->
+        <template v-if="activeGnbTab === 'discover'">
+          <div class="sub-tabs">
+            <button v-for="st in discoverSubTabs" :key="st.key"
+              :class="['sub-tab-btn', { active: discoverSubTab === st.key }]"
+              @click="discoverSubTab = st.key">
+              {{ st.label }}
+            </button>
+          </div>
+          <div class="embedded-content">
+            <SectionTotalRecommendation v-if="discoverSubTab === 'total'" />
+            <AiStrategyDashboardPage v-if="discoverSubTab === 'ai-strategy'" :embedded="true" />
+            <SectionBacktest v-if="discoverSubTab === 'backtest'" />
+            <EarningsScreenerPage v-if="discoverSubTab === 'screener'" :embedded="true" />
+            <SectionQuantTa v-if="discoverSubTab === 'quant-ta'" />
+          </div>
+        </template>
+
+        <!-- 시장 탭 — 심화 도구 서브탭 (수급/시장타이밍/뉴스/글로벌) -->
+        <template v-if="activeGnbTab === 'market'">
+          <div class="sub-tabs">
+            <button v-for="st in marketSubTabs" :key="st.key"
+              :class="['sub-tab-btn', { active: marketSubTab === st.key }]"
+              @click="marketSubTab = st.key">
+              {{ st.label }}
+            </button>
+          </div>
+          <div class="embedded-content">
+            <InvestorAnalysisPage v-if="marketSubTab === 'investor'" :embedded="true" />
+            <MarketTimingPage v-if="marketSubTab === 'timing'" :embedded="true" />
+            <NewsPage v-if="marketSubTab === 'news'" :embedded="true" />
+            <GlobalFuturesPage v-if="marketSubTab === 'global'" :embedded="true" />
+          </div>
+        </template>
       </div>
 
-      <!-- ═══ Tab 2: 연구 (분석 + 뉴스) ═══ -->
-      <div v-if="activeGnbTab === 'research'" class="tab-panel">
-        <div class="sub-tabs">
-          <button v-for="st in researchTabs" :key="st.key"
-            :class="['sub-tab-btn', { active: activeAnalysisTab === st.key }]"
-            @click="activeAnalysisTab = st.key">
-            {{ st.label }}
-          </button>
-        </div>
-        <div class="embedded-content">
-          <SectionTotalRecommendation v-if="activeAnalysisTab === 'total'" />
-          <AiStrategyDashboardPage v-if="activeAnalysisTab === 'ai-strategy'" :embedded="true" />
-          <SectionBacktest v-if="activeAnalysisTab === 'backtest'" />
-          <EarningsScreenerPage v-if="activeAnalysisTab === 'screener'" :embedded="true" />
-          <SectionQuantTa v-if="activeAnalysisTab === 'quant-ta'" />
-          <InvestorAnalysisPage v-if="activeAnalysisTab === 'investor'" :embedded="true" />
-          <MarketTimingPage v-if="activeAnalysisTab === 'timing'" :embedded="true" />
-          <NewsPage v-if="activeAnalysisTab === 'news'" :embedded="true" />
-        </div>
+      <!-- ═══ 매매 탭 — 자동매매봇·페이퍼·봇성과 (관리자) ═══ -->
+      <div v-if="activeGnbTab === 'trade'" class="tab-panel">
+        <PaperTradingPage v-if="isAdmin" :embedded="true" />
+        <div v-else class="empty-signal" style="padding:24px">매매(봇·페이퍼) 화면은 관리자 전용입니다.</div>
       </div>
 
       <!-- 종목 검색 모달 -->
@@ -452,6 +468,9 @@ import MarketTimingPage from './MarketTimingPage.vue'
 import NewsPage from './NewsPage.vue'
 // 매매 탭 (PaperTradingPage 흡수)
 import PaperTradingPage from './PaperTradingPage.vue'
+// 시장 탭 — 글로벌 선물/환율 (embedded). async 로 별도 청크 유지(코드 스플리팅 보존, 글로벌 서브탭 열 때만 로드)
+import { defineAsyncComponent } from 'vue'
+const GlobalFuturesPage = defineAsyncComponent(() => import('./GlobalFuturesPage.vue'))
 import {
   aiStrategyAPI, sectorAPI, marketAPI, tradingIndicatorAPI,
   investorAPI, screenerAPI, newsAPI,
@@ -512,7 +531,8 @@ export default {
     InvestorAnalysisPage,
     MarketTimingPage,
     NewsPage,
-    PaperTradingPage
+    PaperTradingPage,
+    GlobalFuturesPage
   },
   provide() {
     return {
@@ -524,16 +544,21 @@ export default {
       // mount 시 1회만 읽음 — computed에서 매 렌더마다 localStorage 접근 회피
       isAdmin: localStorage.getItem('role') === 'ADMIN',
       activeGnbTab: this.resolveInitialTab(),
-      activeAnalysisTab: this.resolveInitialSubTab(),
-      researchTabs: [
+      // P-IA: 발굴 탭 deep-tool 서브탭 / 시장 탭 deep-tool 서브탭
+      discoverSubTab: this.resolveInitialSubTab(),
+      marketSubTab: this.resolveInitialMarketSub(),
+      discoverSubTabs: [
         { key: 'total', label: '🎯 종합' },
         { key: 'ai-strategy', label: 'AI전략' },
         { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
-        { key: 'quant-ta', label: '퀀트(TA)' },
-        { key: 'investor', label: '투자자' },
+        { key: 'quant-ta', label: '퀀트(TA)' }
+      ],
+      marketSubTabs: [
+        { key: 'investor', label: '수급' },
         { key: 'timing', label: '시장타이밍' },
-        { key: 'news', label: '뉴스' }
+        { key: 'news', label: '뉴스' },
+        { key: 'global', label: '글로벌' }
       ],
       showSearch: false,
       dataLoaded: { market: false },
@@ -590,11 +615,7 @@ export default {
   inject: { toast: { default: () => ({ success(){}, error(){}, warning(){}, info(){} }) } },
   watch: {
     activeGnbTab(tab) {
-      // 글로벌 탭은 별도 페이지(/global-futures)로 라우팅 — 코드 스플리팅(207KB chunk) 보존
-      if (tab === 'global') {
-        this.$router.push('/global-futures')
-        return
-      }
+      // P-IA: 글로벌은 시장 탭의 서브섹션으로 임베드됨 — 더 이상 별도 라우팅하지 않음.
       this.loadTabData(tab)
       // 탭 전환 시 스크롤 초기화
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -620,7 +641,7 @@ export default {
     this._startCountdown()
     // 초기 로드 후 lastUpdated 마킹 (스태거 로드가 끝나는 1.5초 뒤)
     setTimeout(() => {
-      if (this.activeGnbTab === 'premarket' && !this.lastUpdated) {
+      if (this.isLiveTab && !this.lastUpdated) {
         this.lastUpdated = new Date()
         this.nextRefreshIn = 60
       }
@@ -631,7 +652,7 @@ export default {
       } else {
         this._startPolling()
         // 다시 보이는 순간 한 번 즉시 갱신 (탭 복귀 시 stale 화면 방지)
-        if (this.activeGnbTab === 'premarket') {
+        if (this.isLiveTab) {
           this._refreshAll()
         }
       }
@@ -660,6 +681,11 @@ export default {
       return arr.slice(0, 8)
     },
 
+    // P-IA: 라이브 시세/추천 데이터를 쓰는 탭(시장·발굴) — 폴링/스태거/freshness 게이트.
+    // 매매(trade) 탭은 라이브 폴링 불필요(봇/페이퍼는 자체 갱신).
+    isLiveTab() {
+      return this.activeGnbTab === 'market' || this.activeGnbTab === 'discover'
+    },
     currentPhaseKey() {
       const now = new Date()
       const day = now.getDay()
@@ -842,7 +868,7 @@ export default {
     _startPolling() {
       if (this._refreshTimer) return
       this._refreshTimer = setInterval(() => {
-        if (this.activeGnbTab !== 'premarket') return
+        if (!this.isLiveTab) return
         this._refreshAll()
       }, 60000)
     },
@@ -875,7 +901,7 @@ export default {
       if (this._countdownTimer) return
       this._countdownTimer = setInterval(() => {
         if (document.hidden) return
-        if (this.activeGnbTab !== 'premarket') return
+        if (!this.isLiveTab) return
         if (this.nextRefreshIn > 0) this.nextRefreshIn -= 1
       }, 1000)
     },
@@ -887,26 +913,31 @@ export default {
     },
     // ---- 탭 키 호환 매핑 (장전+장중 통합 — 'live'/'trading'/'market'/'premarket' 모두 'premarket'(트레이드)로) ----
     mapLegacyTab(tab) {
+      // P-IA: 시장(거시) / 발굴(추천·전략) / 매매(봇). 레거시 값도 흡수.
       const map = {
-        market: 'premarket', premarket: 'premarket', live: 'premarket', trading: 'premarket',
-        analysis: 'research', news: 'research'
+        market: 'market', sector: 'market', news: 'market', investor: 'market', timing: 'market', global: 'market',
+        discover: 'discover', analysis: 'discover', research: 'discover', premarket: 'discover', live: 'discover',
+        trade: 'trade', trading: 'trade', 'paper-trading': 'trade'
       }
-      return map[tab] || tab
+      return map[tab] || 'discover'
     },
     // ---- 초기 탭 자동 선택 ----
     resolveInitialTab() {
       const requested = this.$route?.query?.tab
       if (requested) return this.mapLegacyTab(requested)
-      // ?tab= 없으면 시각 기반: 장 마감 이후엔 연구 탭, 그 외엔 트레이드 탭
+      // ?tab= 없으면 시각 기반: 낮(장중)엔 발굴, 장 마감 이후엔 시장(결산·거시).
       const h = new Date().getHours()
-      return h < 16 ? 'premarket' : 'research'
+      return h < 16 ? 'discover' : 'market'
     },
     resolveInitialSubTab() {
       const sub = this.$route?.query?.sub
-      const requested = this.$route?.query?.tab
-      // ?tab=news → research/news
-      if (requested === 'news') return 'news'
-      return sub || 'ai-strategy'
+      const valid = ['total', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
+      return valid.includes(sub) ? sub : 'ai-strategy'
+    },
+    resolveInitialMarketSub() {
+      const sub = this.$route?.query?.sub
+      const valid = ['investor', 'timing', 'news', 'global']
+      return valid.includes(sub) ? sub : 'investor'
     },
     // ---- AI 추천 TOP 5 갱신 (장중 트래커에서 60초마다 호출) ----
     async refreshRecommendations() {
@@ -950,16 +981,16 @@ export default {
 
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
-      // 트레이드 탭은 시장 데이터(시장상태바·시장맵) + AI 전략 스냅샷(phaseSignals용) 공유
-      if (tab === 'premarket' && !this.dataLoaded.market) {
-        // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격.
+      // P-IA: 시장·발굴 탭은 라이브 시장 데이터(시장상태바·시장맵) + AI 스냅샷(phaseSignals용) 공유.
+      if ((tab === 'market' || tab === 'discover') && !this.dataLoaded.market) {
+        // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격(순서·간격 보존).
         // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, AI 전략은 뒤로.
         this.loadMarketMap()
         setTimeout(() => this.loadAiStrategy(), 500)   // phaseSignals(pre/post)용 aiTopPicks
         this.dataLoaded.market = true
       }
-      // 장중 시간대 매수 후보 트래커 — 즉시 1회 호출 (60초 폴링 첫 발화까지 빈 화면 방지)
-      if (tab === 'premarket' && this.currentPhaseKey === 'during') {
+      // 발굴 탭 장중 — 매수 후보 트래커 즉시 1회 호출 (60초 폴링 첫 발화까지 빈 화면 방지)
+      if (tab === 'discover' && this.currentPhaseKey === 'during') {
         this.refreshRecommendations()
       }
     },

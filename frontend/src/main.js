@@ -143,27 +143,27 @@ const router = createRouter({
     },
     {
       path: '/sector',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=market'
     },
     {
       path: '/news',
-      redirect: '/stock-dashboard?tab=news'
+      redirect: '/stock-dashboard?tab=market&sub=news'
     },
     {
       path: '/investor',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=market&sub=investor'
     },
     {
       path: '/investor-trades',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=market&sub=investor'
     },
     {
       path: '/consecutive-buy',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=market&sub=investor'
     },
     {
       path: '/investor-surge',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=market&sub=investor'
     },
     {
       path: '/investor-stock/:stockCode',
@@ -171,15 +171,15 @@ const router = createRouter({
     },
     {
       path: '/earnings-screener',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=discover&sub=screener'
     },
     {
       path: '/research',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=discover'
     },
     {
       path: '/market-timing',
-      redirect: '/stock-dashboard?tab=analysis'
+      redirect: '/stock-dashboard?tab=market&sub=timing'
     },
     {
       path: '/trading-indicators',
@@ -211,7 +211,7 @@ const router = createRouter({
     },
     {
       path: '/paper-trading',
-      redirect: '/stock-dashboard?tab=trading',
+      redirect: '/stock-dashboard?tab=trade',
       meta: { requiresAuth: true, adminOnly: true }
     },
     {
