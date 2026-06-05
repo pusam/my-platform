@@ -193,11 +193,11 @@ const router = createRouter({
     },
     {
       path: '/ai-stock',
-      redirect: '/stock-dashboard'
+      redirect: '/stock-dashboard?tab=discover'
     },
     {
       path: '/ai-strategy',
-      redirect: '/stock-dashboard'
+      redirect: '/stock-dashboard?tab=discover&sub=ai-strategy'
     },
     {
       path: '/stock-detail',

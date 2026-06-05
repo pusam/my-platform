@@ -927,7 +927,7 @@ export default {
         this._countdownTimer = null
       }
     },
-    // ---- 탭 키 호환 매핑 (장전+장중 통합 — 'live'/'trading'/'market'/'premarket' 모두 'premarket'(트레이드)로) ----
+    // ---- 탭 키 호환 매핑 (레거시 쿼리/경로 → market/discover/trade) ----
     mapLegacyTab(tab) {
       // P-IA: 시장(거시) / 발굴(추천·전략) / 매매(봇). 레거시 값도 흡수.
       const map = {
