@@ -18,3 +18,8 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Playwright (E2E 산출물)
+test-results/
+playwright-report/
+playwright/.cache/
+
