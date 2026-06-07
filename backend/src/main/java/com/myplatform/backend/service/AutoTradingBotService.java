@@ -70,6 +70,7 @@ import java.util.stream.Collectors;
  * ========================================
  * [트랙 정합 — 코드 기준 확정] (P2-6, 가드: AutoTradingBotTrackTest)
  * ========================================
+ *   ▶ 한 줄 요약: <b>전략 2 / 활성 크론 5 / cron 메서드 7</b> (= 활성 5 + 청산봇 2 비활성)
  *   ★ 활성 @Scheduled 5개 (cron 은 메서드 위 어노테이션 참조 — 주석엔 시각만):
  *     1) executeScalpingBuyLogic   30초/9-11시   스캘핑 매수(모의 전용)
  *     2) executeScalpingSellLogic  15초/8-19시   스캘핑 매도
@@ -78,7 +79,10 @@ import java.util.stream.Collectors;
  *     5) executeSwingSellLogic     30초/8-19시   스윙 매도
  *   ☓ 비활성(@Scheduled 주석처리) 2개:
  *     6) executeClosingBuyLogic / 7) executeClosingSellLogic — 종가 전략(재설계 대기)
- *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 5개. 청산봇 재활성은 별도 결정 사항.
+ *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 5개 ≠ "cron 메서드" 7개(비활성 청산봇 2 포함).
+ *      청산봇 재활성은 별도 판단 사항 — 15:10 스캘핑 청산은 청산봇 포지션을 보존(2021줄)하고,
+ *      스캘핑/스윙 매도도 closingPositions 를 명시적으로 제외(1761줄 등)하므로 "중복 청산"은 아님.
+ *      재활성의 실질 블로커는 15:15 수급 미확정 + 2026-09-14 거래시간 연장 재설계 대기(아래 [전략 C] 참조).
  * ========================================
  */
 @Service

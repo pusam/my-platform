@@ -71,7 +71,13 @@ public class MarketCalendarService {
                 || KOREA_LUNAR_DERIVED_HOLIDAYS.contains(date);
     }
 
-    /** 정규장 시간(09:00~15:40) — 프리/애프터마켓 제외 */
+    /**
+     * 정규장 시간(09:00~{@link #MARKET_CLOSE 15:40}) — 프리/애프터마켓 제외.
+     *
+     * <p><b>종료가 15:40 인 이유</b>: KRX 접속(연속)매매는 15:30 까지지만 15:30~15:40 은
+     * <b>종가 단일가매매</b> 구간이다. 봇·섹터 판정이 이 10분 버퍼까지 정규장으로 봐야
+     * 종가 체결을 정상 처리한다 → 의도적으로 15:30 이 아닌 15:40. 상수 정의는 {@link #MARKET_CLOSE}. (P2-7)
+     */
     public boolean isRegularSession() {
         return isRegularSession(LocalDate.now(), LocalTime.now());
     }

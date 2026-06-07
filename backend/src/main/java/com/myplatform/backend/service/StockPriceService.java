@@ -1057,6 +1057,9 @@ public class StockPriceService {
                     getTextValue(output, "stck_lwpr"), getTextValue(output, "stck_sdpr"),
                     getTextValue(output, "prdy_ctrt"));
 
+            // 세 그물 중 하나라도 발화하면 아래에서 UN vs J raw 를 1회 동시 조회해 원인 분류 로깅.
+            boolean outlierDetected = false;
+
             // [그물 1] 당일 밴드 — 현재가만 오염된 경우를 잡는다.
             //   ※ ×10 이 응답 전체(현재가·고가·저가)에 일괄로 걸리면 현재가가 [저가,고가] 안에
             //     그대로 머물러 이 체크로는 절대 안 잡힌다. 그래서 그물 2·3 을 함께 둔다.
@@ -1069,6 +1072,7 @@ public class StockPriceService {
                 BigDecimal lowBound = low.multiply(new BigDecimal("0.9"));
                 BigDecimal highBound = high.multiply(new BigDecimal("1.1"));
                 if (cur.compareTo(lowBound) < 0 || cur.compareTo(highBound) > 0) {
+                    outlierDetected = true;
                     log.error("[가격이상] {} 현재가 {} 가 당일 [{}~{}] 범위 밖 — 현재가 단독 오염 의심. KIS raw: {}",
                             stockCode, cur, low, high, raw);
                 }
@@ -1078,6 +1082,7 @@ public class StockPriceService {
             //   크게 넘으면 응답 자체가 깨졌다는 신호. (단, 신규상장 첫날은 정상적으로 초과 가능 → 로깅만)
             BigDecimal ctrt = dto.getChangeRate();
             if (ctrt != null && ctrt.abs().compareTo(new BigDecimal("31")) > 0) {
+                outlierDetected = true;
                 log.error("[가격이상] {} 전일대비율 {}% 가 일일 변동제한(±30%) 초과 — 배수/필드 오염 또는 신규상장 확인. KIS raw: {}",
                         stockCode, ctrt, raw);
             }
@@ -1087,22 +1092,67 @@ public class StockPriceService {
             //   임계 5배/0.2배: 6 연속 상한가도 불가능한 수준이라 정상 등락 오탐 없음.
             //   (신규상장 공모가 대비 최대 4배 밴드보다도 위 → IPO 첫날도 안전)
             try {
-                stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode)
+                java.util.Optional<BigDecimal> prevOpt = stockPriceRepository
+                        .findTopByStockCodeOrderByFetchedAtDesc(stockCode)
                         .map(StockPrice::getCurrentPrice)
-                        .filter(prev -> prev != null && prev.compareTo(BigDecimal.ZERO) > 0)
-                        .ifPresent(prev -> {
-                            BigDecimal ratio = cur.divide(prev, 2, java.math.RoundingMode.HALF_UP);
-                            if (ratio.compareTo(new BigDecimal("5")) >= 0
-                                    || ratio.compareTo(new BigDecimal("0.2")) <= 0) {
-                                log.error("[가격이상] {} 현재가 {} 가 직전 저장가 {} 의 {}배 — 응답 일괄 배수 오염 강력 의심. KIS raw: {}",
-                                        stockCode, cur, prev, ratio, raw);
-                            }
-                        });
+                        .filter(prev -> prev != null && prev.compareTo(BigDecimal.ZERO) > 0);
+                if (prevOpt.isPresent()) {
+                    BigDecimal prev = prevOpt.get();
+                    BigDecimal ratio = cur.divide(prev, 2, java.math.RoundingMode.HALF_UP);
+                    if (ratio.compareTo(new BigDecimal("5")) >= 0
+                            || ratio.compareTo(new BigDecimal("0.2")) <= 0) {
+                        outlierDetected = true;
+                        log.error("[가격이상] {} 현재가 {} 가 직전 저장가 {} 의 {}배 — 응답 일괄 배수 오염 강력 의심. KIS raw: {}",
+                                stockCode, cur, prev, ratio, raw);
+                    }
+                }
             } catch (Exception ignore) {
                 // DB 조회 실패는 진단 보조일 뿐 — 본 시세 흐름에 영향 주지 않음
             }
+
+            // [원인 분류] 위 그물 중 하나라도 발화 → UN(통합, 시세 경로가 쓰는 값) vs J(KRX 단독) raw 동시 조회 로깅.
+            //   UN 만 배수가 튀고 J 는 정상이면 통합시세(UN) 파싱/필드 규약 차이로 확정. 이상치 종목에서만 1회
+            //   호출되므로 정상 경로 rate-limit 영향 없음. 보정·캐시·저장은 하지 않는다(로깅 전용, 불변식 유지).
+            if (outlierDetected) {
+                logUnVsJDiagnostic(stockCode, raw);
+            }
         } catch (Exception e) {
             log.debug("[가격이상] {} 진단 중 오류(무시): {}", stockCode, e.getMessage());
+        }
+    }
+
+    /**
+     * ×10 배수오염 원인 분류용 — UN(getStockPrice 가 쓰는 통합시세) vs J(KRX 단독) 의 raw 필드
+     * (stck_prpr/hgpr/lwpr/sdpr/prdy_ctrt)를 나란히 ERROR 로깅한다.
+     *
+     * <p>판독: UN 만 배수가 튀고 J 는 정상 → 통합시세(UN) 필드 규약/파싱 차이로 확정. 둘 다 같으면 KIS 원천
+     * 데이터 문제. J 응답이 비면(rt_cd≠0/output 없음) NXT 전용·KRX 미상장 신호 자체가 단서.
+     * <b>로깅만 — 보정/캐시/저장 없음.</b> 조회 실패는 본 시세 흐름에 영향 주지 않도록 모두 흡수.
+     */
+    private void logUnVsJDiagnostic(String stockCode, String unRaw) {
+        try {
+            JsonNode jResp = kisService.getStockPriceByMarketDiv(stockCode, "J");
+            if (jResp == null) {
+                log.error("[가격이상-진단] {} UN vs J 대조 — J(KRX단독) 응답 없음(NXT 전용/미상장 가능). UN raw: {}",
+                        stockCode, unRaw);
+                return;
+            }
+            String jRtCd = jResp.has("rt_cd") ? jResp.get("rt_cd").asText() : "";
+            JsonNode jOut = jResp.get("output");
+            if (!"0".equals(jRtCd) || jOut == null) {
+                String jMsg = jResp.has("msg1") ? jResp.get("msg1").asText() : "";
+                log.error("[가격이상-진단] {} UN vs J 대조 — J 응답 오류(rt_cd={}, msg={}). UN raw: {}",
+                        stockCode, jRtCd, jMsg, unRaw);
+                return;
+            }
+            String jRaw = String.format(
+                    "stck_prpr=%s, stck_hgpr=%s, stck_lwpr=%s, stck_sdpr=%s, prdy_ctrt=%s",
+                    getTextValue(jOut, "stck_prpr"), getTextValue(jOut, "stck_hgpr"),
+                    getTextValue(jOut, "stck_lwpr"), getTextValue(jOut, "stck_sdpr"),
+                    getTextValue(jOut, "prdy_ctrt"));
+            log.error("[가격이상-진단] {} UN vs J raw 대조 → UN[{}] | J[{}]", stockCode, unRaw, jRaw);
+        } catch (Exception e) {
+            log.warn("[가격이상-진단] {} UN/J 대조 조회 실패(무시): {}", stockCode, e.getMessage());
         }
     }
 

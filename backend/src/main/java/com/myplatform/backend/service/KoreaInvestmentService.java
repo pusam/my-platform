@@ -257,7 +257,26 @@ public class KoreaInvestmentService {
         return null;
     }
 
+    /**
+     * 진단용 시장구분 지정 현재가 조회 — ×10 배수오염 발생 시 UN(통합) vs J(KRX 단독) raw 대조에 사용.
+     * <p>이상치 종목에서만 1회 호출되므로 LOW 우선순위(정상 매매 호출 비간섭). CircuitBreaker 미적용 —
+     * 호출부({@code StockPriceService.warnIfPriceOutlier})가 null/예외를 모두 흡수하며 본 시세 흐름엔 영향 없음.
+     * UN/J/NX 모두 동일 TR(FHKST01010100)·동일 output 구조라 호출부 파싱을 그대로 재사용한다.
+     */
+    public JsonNode getStockPriceByMarketDiv(String stockCode, String marketDiv) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.LOW,
+                () -> getStockPriceInternal(stockCode, marketDiv));
+    }
+
     private JsonNode getStockPriceInternal(String stockCode) {
+        return getStockPriceInternal(stockCode, "UN");
+    }
+
+    /**
+     * 현재가 조회 (시장구분 지정). 기본 경로는 UN(통합) — {@link #getStockPriceInternal(String)}.
+     * marketDiv: UN(KRX+NXT 통합) / J(KRX 단독) / NX(NXT 단독). 8-20시 거래시간 전체 커버는 UN.
+     */
+    private JsonNode getStockPriceInternal(String stockCode, String marketDiv) {
         String token = getAccessToken();
         if (token == null) {
             return null;
@@ -268,7 +287,7 @@ public class KoreaInvestmentService {
             // 시장구분: UN(통합) — KRX + NXT 통합시세, 8-20시 거래시간 전체 커버
             // (J=KRX 단독, NX=NXT 단독)
             String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-price"
-                    + "?FID_COND_MRKT_DIV_CODE=UN"
+                    + "?FID_COND_MRKT_DIV_CODE=" + marketDiv
                     + "&FID_INPUT_ISCD=" + stockCode;
 
             HttpHeaders headers = createHeaders(token, "FHKST01010100");
@@ -282,7 +301,7 @@ public class KoreaInvestmentService {
             }
         } catch (Exception e) {
             rethrowIfRateLimit(e);
-            log.error("주식 현재가 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            log.error("주식 현재가 조회 실패 [{}/{}]: {}", stockCode, marketDiv, e.getMessage());
         }
 
         return null;

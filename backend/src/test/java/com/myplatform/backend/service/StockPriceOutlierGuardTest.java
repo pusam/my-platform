@@ -25,6 +25,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -53,6 +54,7 @@ class StockPriceOutlierGuardTest {
     private StockPriceService service;
     private StockPriceRepository stockPriceRepository;
     private ObjectMapper objectMapper;
+    private KoreaInvestmentService kisService;
 
     private Logger guardLogger;
     private ListAppender<ILoggingEvent> appender;
@@ -62,7 +64,7 @@ class StockPriceOutlierGuardTest {
         RestTemplate restTemplate = mock(RestTemplate.class);
         stockPriceRepository = mock(StockPriceRepository.class);
         objectMapper = new ObjectMapper();
-        KoreaInvestmentService kisService = mock(KoreaInvestmentService.class);
+        kisService = mock(KoreaInvestmentService.class);
         StockMasterService stockMasterService = mock(StockMasterService.class);
 
         service = new StockPriceService(
@@ -285,6 +287,68 @@ class StockPriceOutlierGuardTest {
             invokeGuard(rawOutput("70500", "71000", "70000", "70000", "900"), d);
 
             assertThat(errorCount()).as("900% 는 ±31% 초과로 발화").isGreaterThanOrEqualTo(1);
+        }
+    }
+
+    // ---- ①: UN vs J raw 대조 진단 (×10 원인 분류) ---------------------------
+
+    @Nested
+    @DisplayName("①: 이상치 발화 시 UN(통합) vs J(KRX단독) raw 대조 로깅")
+    class UnVsJDiagnostic {
+        @Test
+        @DisplayName("일괄 ×10 발화 → J 재조회 후 [가격이상-진단] UN/J 대조 ERROR 로깅 (보정 없음)")
+        void outlier_logsUnVsJ() {
+            givenLastSavedPrice(new BigDecimal("70000"));
+            // J(KRX 단독) 응답은 정상가(70500) — UN(700000)만 ×10 임을 대조로 드러낸다.
+            ObjectNode jResp = objectMapper.createObjectNode();
+            jResp.put("rt_cd", "0");
+            jResp.set("output", rawOutput("70500", "71000", "70000", "70000", "0.71"));
+            when(kisService.getStockPriceByMarketDiv(CODE, "J")).thenReturn(jResp);
+
+            StockPriceDto d = dto(new BigDecimal("700000"), new BigDecimal("710000"),
+                    new BigDecimal("690000"), new BigDecimal("0.5"));
+            invokeGuard(rawOutput("700000", "710000", "690000", "697000", "0.5"), d);
+
+            assertThat(appender.list.stream()
+                    .anyMatch(e -> e.getLevel() == Level.ERROR
+                            && e.getFormattedMessage().contains("[가격이상-진단]")
+                            && e.getFormattedMessage().contains("UN[")
+                            && e.getFormattedMessage().contains("J[")))
+                    .as("이상치 발화 시 UN vs J raw 대조 로그가 남아야 한다")
+                    .isTrue();
+            // 진단도 가격은 보정하지 않는다(로깅 전용).
+            assertThat(d.getCurrentPrice()).isEqualByComparingTo("700000");
+        }
+
+        @Test
+        @DisplayName("J 응답 없음(NXT 전용/미상장) → 그 사실을 단서로 로깅, 예외 없음")
+        void jResponseNull_logsAsClue() {
+            givenLastSavedPrice(new BigDecimal("70000"));
+            when(kisService.getStockPriceByMarketDiv(CODE, "J")).thenReturn(null);
+
+            StockPriceDto d = dto(new BigDecimal("700000"), new BigDecimal("710000"),
+                    new BigDecimal("690000"), new BigDecimal("0.5"));
+            assertThatCode(() -> invokeGuard(
+                    rawOutput("700000", "710000", "690000", "697000", "0.5"), d))
+                    .doesNotThrowAnyException();
+
+            assertThat(appender.list.stream()
+                    .anyMatch(e -> e.getFormattedMessage().contains("J(KRX단독) 응답 없음")))
+                    .as("J 응답이 없으면 그 사실 자체를 진단 단서로 남긴다").isTrue();
+        }
+
+        @Test
+        @DisplayName("정상 종목 → J 재조회 안 함 (진단 로그·KIS 호출 없음)")
+        void normal_noDiagnostic() {
+            givenLastSavedPrice(new BigDecimal("70000"));
+            StockPriceDto d = dto(new BigDecimal("70500"), new BigDecimal("71000"),
+                    new BigDecimal("70000"), new BigDecimal("0.71"));
+            invokeGuard(rawOutput("70500", "71000", "70000", "70000", "0.71"), d);
+
+            assertThat(appender.list.stream()
+                    .noneMatch(e -> e.getFormattedMessage().contains("[가격이상-진단]")))
+                    .as("정상 종목은 UN/J 대조 진단을 호출하지 않는다").isTrue();
+            verifyNoInteractions(kisService);
         }
     }
 }
