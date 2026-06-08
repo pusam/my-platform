@@ -3,6 +3,7 @@
 > 작성: 2026-06-08 (코드 직접 전수 조사 기준 — `@Scheduled` 어노테이션·서비스·라우트 실측 반영).
 > 직전 버전(2026-06-04) 대비: **P-IA 프론트 IA 재설계 전면 반영** — GNB 3탭(시장/발굴/매매)+서브탭, phase 강조(currentPhaseKey), 종목 상세 요약/근거/심화 3존+심화 접기(DetailSection), 위젯 v2 분리(QuickSummaryBar·PeerComparisonCard 등), 레거시 리다이렉트 `?tab=` 정합, vitest+Playwright E2E 셋업.
 > **2026-06-08 추가**: ① 종목상세 후속 분리 — `InvestorTrendTab`·`FundamentalDiagnosisPanel`·`AIStrategyCard`·composable `useChartCalculations`(본체 4,195→2,289, **−45%**, 동작 변화 0, 전체 101 테스트 green). ② 백엔드 ×10 진단 — `warnIfPriceOutlier` 발화 시 **UN vs J raw 대조 로깅** 추가(로깅 전용). ③ `AutoTradingBotService` 트랙 요약 주석(전략2/활성크론5/메서드7) + `MarketCalendarService` 15:40 사유 주석.
+> **2026-06-08~09 코드 점검(5건 — 전부 의도된 동작 확정 → 주석·문서만 명확화)**: ① 시세 캐시 **Redis 비경유**(L1 메모리+DB) ② `normalizeScore` 분모 고정·`cap` 죽은 코드·vc=3 실효 max 75 ③ +2 보너스 **등급 변경 없음**(STRONG_BUY 내 정렬용) ④ 봇 매도 윈도우 08~20 NXT(cron 8-19 binding)·봇 `REGULAR_END=15:25`≠MarketCalendar 15:40 ⑤ 봇 **단일 인스턴스 전제 락 미사용**(멀티 확장 시 fail-closed 필수 → 티켓 `P3-1`). + 추격매수 페널티 **오기 정정**(옛 "65+/−10" → 코드 실측 **−5**, 과열·신규진입 2규칙).
 > 한 줄 요약은 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md), 화면→코드→DB 상세는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md), IA 재설계 운영 QA는 [`OPS_QA_IA_REDESIGN.md`](./OPS_QA_IA_REDESIGN.md).
 
 한국 주식(KRX 정규장 + NXT 대체거래) 종목 **발굴 / 분석 / 모의·실전 자동매매** 통합 개인 플랫폼.
@@ -137,7 +138,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 - **핵심 4카테고리 × 20 = raw 80** → `normalizeScore = min(100, raw×100/80)` → **0~100**. validCount(**>0점** 카테고리) **≥3** 이어야 채택(coverage 75%). **분모는 고정 80**(dynamic 아님) → 결측 1개(vc=3) 종목은 실효 최대 **75점**(=STRONG_BUY 임계, 남은 3카테고리 전부 만점일 때만) — 의도된 커버리지 페널티. 코드의 `cap` 변수는 고정 분모 하에선 **비발동=죽은 코드**(향후 dynamic 분모 대비 보존).
   - **earnings**(실적: EPS서프라이즈/매출/영업이익률/현금흐름) · **supplyDemand**(외국인·기관 5일 순매수+추세slope) · **technical**(MA정배열20/60/120·RSI·거래량·골든크로스) · **sectorMomentum**(섹터 거래대금 INFLOW 순위 + regime 승수)
   - **valueStability**(PBR/ROE/부채/흑자, ≤20) · **growth**(매출·이익 YoY·PEG) · **aiStrategy**는 **별도 트랙**(후보발굴/태그/저평가TOP10), 총점 산식 제외.
-- **임계**: **≥75 STRONG_BUY / 55~74 BUY / 40~54 HOLD / <40 제외**. + phase34: total≥75 & valueStability≥12 (**valueStability는 0~20 척도 → 12 = 60%↑ 수준**) → **+2 보너스**.
+- **임계**: **≥75 STRONG_BUY / 55~74 BUY / 40~54 HOLD / <40 제외**. + phase34: total≥75 & valueStability≥12 (**valueStability는 0~20 척도 → 12 = 60%↑ 수준**) → **+2 보너스**(`min(100,+2)`). ※ 게이트가 75라 **등급 변경 없음** — BUY 미승격, **STRONG_BUY 내 정렬·`STRONG+VALUE` 태그용**.
 - **시장 국면(MarketRegime)**: 섹터 평균 등락률로 BULL(>+1%, dead band 0.5)/BEAR(<-1%)/SIDEWAYS 히스테리시스 판정 → 카테고리 multiplier(BULL: 실적·수급×1.2, 섹터×1.5 / BEAR: 수급×0.8, 섹터×0.75).
 - **추격매수 방지** (서로 다른 2규칙 — 둘 다 `technical`에서 차감, 중첩 가능): ① **과열 페널티**(전 종목, `scoreTechnical`) — RSI≥75 **−5** / 볼린저상단돌파 **−3** / 5일누적 +20% **−5** (각 독립 적용) · ② **신규진입 감점**(`applyNewEntryPenalty`) — 어제 스냅샷 밖 & 5일 +15% & technical>0 → **`technical −5`** (BULL 스킵, ※ "65+ 게이트" 없음 — 옛 문서 오기). 신규+5일+20%면 ①+② 중첩으로 −10. · delta tie-break.
 - **정렬**: total → delta(오늘-어제) → changeRate.
@@ -294,17 +295,22 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 | 항목 | 값 |
 |---|---|
 | STRONG_BUY / BUY / HOLD | 75 / 55 / 40 |
-| 핵심 카테고리 | 4×20 = raw80 → 0~100 (validCount≥3) |
-| STRONG+VALUE 보너스 | total≥75 & value≥12 → +2 |
+| 정규화 | `min(100, raw×100/80)` 분모 고정 80, validCount(>0)≥3, vc=3 실효 max 75 (cap 죽은 코드) |
+| STRONG+VALUE 보너스 | total≥75 & value≥12(0~20척도) → `min(100,+2)`, **등급 변경 없음(정렬용)** |
+| 추격매수 페널티 | 과열 RSI−5/볼린저−3/5일+20%−5 · 신규진입 −5(BULL 스킵) · 둘 다 technical, 중첩 가능 |
 | 시그널 hit | alpha≥0 & pct>0 (3거래일), 폴백 pct≥3% |
 | 수급 HOT/WARM/공통 | 100억 / 50억 / 30억 |
 | 공매도 컷 / 연속매수 / 복합신호 | <5% / ≥3일 / ≥3of5 |
 | AI 가중 | 기술15 / 수급50 / 펀더35 (알림 90+) |
-| 가격 캐시 | L1 KIS 1분·Naver 10분 / DB 5분 / KIS 5req/s |
+| 시세 캐시 | L1 메모리(KIS 1분·Naver 10분) / DB 15분 / **Redis 비경유** / KIS 5req/s |
 | 시장국면 | BULL >+1% / BEAR <-1% (dead band 0.5) |
 | Gemini 뉴스 | 일 500 한도 |
-| 봇 스캘핑 | 09~11시 진입, 15:10 청산 |
-| 봇 스윙 | 익절+5%/손절-3%/최대5일, 14:00 진입 |
+| 봇 스캘핑 | 09~11 진입·15:10 청산 (모의 전용) |
+| 봇 스윙 | 14:00 진입·익절+5%/손절-3%/최대5일 |
+| 봇 매도 윈도우 | 08:00~20:00 NXT (cron 8-19 binding) |
+| 봇 정규장종료 | 봇 `REGULAR_END=15:25` ≠ MarketCalendar 15:40 |
+| 킬스위치 | 계좌 −3% / 스캘핑 −1.5% / 연속손절 3회 |
+| 봇 분산락 | 단일 인스턴스 전제 미사용 (멀티 시 fail-closed → P3-1) |
 | JWT | access 15분 / refresh 7일 |
 | 일일 매수한도 | 500만(알림 100만) |
 
