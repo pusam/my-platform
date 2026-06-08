@@ -373,7 +373,7 @@ else:
 | RSI 과열 | RSI ≥ 75 | technical −5 | 31 (P0-1) |
 | 볼린저 상단 돌파 | `isBreakout=true` | technical −3 | 31 (P0-1) |
 | 5일 가속 (모든 종목) | 5거래일 누적 ≥ +20% | technical −5 | 31 (P0-1) |
-| 5일 가속 + 신규 진입 | 어제 스냅샷 밖 + 5일 ≥ +15% | technical −5 (중첩) | 31c (P2) |
+| 5일 가속 + 신규 진입 | 어제 스냅샷 밖 + 5일 ≥ +15% (BULL 강세장은 phase 36에서 스킵) | technical −5 (중첩) | 31c (P2) + 36 |
 
 **2) 수급 곡선 뒤집기 (`scoreSupplyDemand`) — phase 31 P0-2**
 
