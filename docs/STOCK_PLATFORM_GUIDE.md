@@ -1,8 +1,8 @@
 # 주식 플랫폼 — 상세 가이드 (A-Z)
 
-> **Version**: 2026.05.15 Phase 39
+> **Version**: 2026.06.08 (Phase 39 + P-IA 프론트 IA 재설계·종목상세 컴포넌트 분리)
 > 화면 / 컴포넌트 / 백엔드 서비스 / DB 스키마 / 로직 흐름 / 스케줄 / 알림까지 모두 a-z.
-> 1분 요약은 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md).
+> 1분 요약은 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md), 화면·배치 전수는 [`STOCK_AZ_FULL.md`](./STOCK_AZ_FULL.md).
 > 외부 AI 컨텍스트 요약은 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
 > 본 문서는 운영자/개발자가 화면→코드→DB까지 추적할 때 사용.
 
@@ -53,7 +53,7 @@
 |---|---|---|---|
 | `/user` | UserDashboard | requiresAuth | 메인 대시보드 (투자 + 일상 관리) |
 | `/stock-dashboard` | StockTradingDashboardV2 | requiresAuth | V2 통합 (4탭: 개요/분석/뉴스/매매) |
-| `/stock/:stockCode` | StockDetailDashboard | requiresAuth | 종목 종합 상세 (4708줄) |
+| `/stock/:stockCode` | StockDetailDashboard | requiresAuth | 종목 종합 상세 (~2,289줄, 컴포넌트 분리 후) |
 | `/global-futures` | GlobalFuturesPage | requiresAuth | 선물·금·은·원유 통합 |
 | `/ai-strategy` | AiStrategyDashboardPage | requiresAuth | AI 4분할 전략 |
 | `/paper-trading` | PaperTradingPage | requiresAuth | 모의/실전 자동매매 |
@@ -75,42 +75,39 @@
 
 ## 3. 화면별 위젯 + 호출 API
 
-### § StockDetailDashboard.vue (4708줄, 가장 중요)
+### § StockDetailDashboard.vue (~2,289줄 — P-IA/③후속으로 4,707→2,289, −51% 분리. 본체는 헤더·로딩·자동갱신·검색·심화존 컨테이너만 보유)
+
+> **분리 현황(2026-06-08, 동작 변화 0)**: 큰 탭/카드/계산은 전부 v2 컴포넌트·composable로 분해. 헤더 듀얼점수가 쓰는 `getRecommendationLabel`/`getAdjustedVerdict`/`isRsiOverbought`만 부모-카드 의도적 중복 유지. 각 `.test.js` 동반(이번 분리분 28건, 프론트 전체 101 green).
 
 **헤더**:
 - 종목명 + 코드 + **신호 뱃지 (X/5 매칭)** — 클릭 시 분해
 - 현재가 + 등락률 (컬러)
-- **듀얼 점수**: 단기 트레이딩 + 중장기 펀더멘털
+- **듀얼 점수**: 단기 트레이딩(`aiAnalysis`) + 중장기 펀더멘털(`diagnosisData`)
 
-**상단 (phase 13/15 도입)**:
-- **`StockConclusionCard`** — 4-level 결론 + 6 factor + 적중률 + 신선도 신호등
+**요약/근거/심화 3존**:
+- **① 요약존** — `StockConclusionCard`(4-level 결론+6 factor+적중률+신선도) + `QuickSummaryBar`(RSI/MA괴리/외인·기관 5일/리스크/AI점수 6지표)
+- **② 근거존** — `StockBriefingHeadline` + `StockRiskCard` + 메인 2컬럼 그리드 + `.main-tab-bar` 3탭(아래)
+- **③ 심화존** — `DetailSection`(기본 접힘, v-show 마운트 유지)에 `PeerComparisonCard`·`VolumeProfileCard`·`SupportResistanceCard`·`RelatedStocksList`·`ChartPatternList`
 
-**탭 1 — 종합 분석**:
-| 위젯 | API | 용도 |
+**메인 탭 (`.main-tab-bar`)**:
+| 탭 | 구성 | 분리 컴포넌트 |
 |---|---|---|
-| StockBriefingHeadline | 로컬 계산 | 펀더멘털+AI+수급 행동권고 |
-| StockRiskCard | `/risk/check` | DART 공시+뉴스+AI 리스크 |
-| Volume Profile | `quantTaAPI.volumeProfile()` | 가격대별 거래량 (POC/VA) |
-| 지지/저항 | `quantTaAPI.supportResistance()` | 피벗 강도 표시 |
-| RelatedStocksList | `quantTaAPI.relatedStocks()` | 같은 섹터 상관 0.5+ 종목 |
-| ChartPatternList | `quantTaAPI.patterns()` | 더블탑·H&S·삼각수렴 검출 |
-| 차트 (Chart.js) | (자체) | 일봉 + MA20/60/120 + 볼린저 + 지지선 |
-| 핵심 재무 | (heavy API) | PER/PBR/EPS/BPS/시가총액 (TTM) |
-| Peer Group | (heavy API) | 동일 섹터 PBR 비교 |
-| 빠른 요약 바 | 로컬 | RSI/MA/외인기관/AI점수 |
+| **종합분석**(기본) | 차트/시세/수급/재무 + 펀더멘털 진단 + AI 매매전략 | 차트 좌표·스타일 계산=composable **`useChartCalculations`** / 펀더멘털 진단=**`FundamentalDiagnosisPanel`**(재무/수급/기술 3탭) / AI 매매전략=**`AIStrategyCard`**(칩·전략박스·목표가 컨센서스·근거) |
+| **투자자동향** | 주가 vs 누적 순매수 + 장중 수급 + 일별 매매 | **`InvestorTrendTab`**(:stock-code, 마운트 시 1회 fetch) |
+| **트레이딩지표** | 글로벌·주도섹터·RSI | `TradingIndicatorsPage`(embedded) |
 
-**탭 2 — 투자자 동향**: 주가 vs 누적 순매수 + 장중 수급
+**호출 API**: `stockDetailAPI.getQuick()` (3~5초) → `.getHeavy()` (캐시 1초/미스 10~30초) → `getDiagnosis()` → `quantTaAPI.*()`. 시세는 공용 `stockPriceService.getStockPrice()` 경유(목록 동일 캐시).
 
-**호출 API**: `stockDetailAPI.getQuick()` (3~5초) → `.getHeavy()` (캐시 1초/미스 10~30초) → `getDiagnosis()` → `quantTaAPI.*()`
+### § StockTradingDashboardV2.vue (P-IA GNB 3탭 — 시장/발굴/매매)
 
-### § StockTradingDashboardV2.vue
-
-| 탭 | 위젯 | API |
+| 탭 | 서브탭 | 위젯 / API |
 |---|---|---|
-| **개요** | 시장 상태 / TOP10 추천 / 저평가 / 강세 섹터 | `marketAPI.getStatus()` / `recommendationAPI.getTop5()` / `getValueTop10()` / `quantTaAPI.strongSectors()` |
-| **분석** | 마법공식 / 차트패턴 스캔 / 퀀트 TA | `quantTaAPI.compositeBatch()` / `scanPatterns()` |
-| **뉴스** | (별도 페이지) | - |
-| **매매** | 모의/실전 임베드 | (PaperTradingPage 컴포넌트 재사용) |
+| **🌐 시장**(market) | 수급·시장타이밍·뉴스·글로벌 | 시장상태바·외인기관 수급·강세섹터·섹터동향 / `marketAPI.getStatus()`·`investorAPI.*`·`sectorAPI.getSectorTrading()` |
+| **🔍 발굴**(discover) | 종합·AI전략·백테스트·스크리너·퀀트TA | 종합추천 TOP10·저평가 TOP10·(장중)실시간급증·차트신호 / `recommendationAPI.getTop5()`·`getValueTop10()`·`quantTaAPI.scanPatterns()` |
+| **⚡ 매매**(trade) | (없음, 단일 패널) | ADMIN→PaperTradingPage embed / USER→"관리자 전용" 안내 |
+
+- **phase 강조**(`currentPhaseKey`, 08:00/20:00 경계로 pre/during/post) + `isLiveTab`(시장·발굴) 게이트 — 60초 폴링·`freshness-bar`는 라이브 탭에서만, 탭 비가시 시 정지(매매 탭 미발생).
+- **글로벌**은 시장 탭 서브탭에 `GlobalFuturesPage`(embedded) 임베드. 레거시 `/sector`·`/news`·`/investor`·`/paper-trading` 등은 `?tab=`+`&sub=`로 리다이렉트.
 
 ### § PaperTradingPage.vue
 
@@ -143,14 +140,22 @@
 
 | 컴포넌트 | 줄 수 | 용도 | Props / Emits |
 |---|---|---|---|
-| **StockConclusionCard** | 318 | 결론 카드 + 적중률 + 신선도 (phase 5/13/15/23) | stockCode |
+| **FundamentalDiagnosisPanel** | 883 | 펀더멘털 진단 — 재무/수급/기술 3탭 (③-2차 분리) | diagnosisData, supplyDemand |
+| **InvestorTrendTab** | 616 | 투자자 동향 탭 — 차트/장중수급/일별 (③-1차 분리) | stockCode |
+| **AIStrategyCard** | 427 | AI 매매전략 — 칩/전략박스/목표가 컨센서스/근거 (③ 후속 분리) | aiAnalysis, diagnosisData, currentPrice |
+| **QuickSummaryBar** | 192 | 요약존 6지표 바 (P2-10 분리) | (시세/수급/진단 props) |
+| **PeerComparisonCard** | 181 | Peer PBR/배당 비교 — 심화존 (P2-10 분리) | peerComparisons, sectorName, sectorAvgPbr |
+| **SupportResistanceCard** | 123 | 지지/저항 피벗 (P2-10 분리) | supportResistance |
+| **VolumeProfileCard** | 116 | 가격대별 거래량 POC/VA (P2-10 분리) | volumeProfile |
+| **DetailSection** | 56 | 심화존 접기 컨테이너 (v-show 마운트 유지) | title, defaultOpen |
+| **StockConclusionCard** | 330 | 결론 카드 + 적중률 + 신선도 (phase 5/13/15/23) | stockCode |
 | **BuyChecklistModal** | 194 | 매수 체크리스트 (phase 6/19) | stockCode, @close |
 | **ChartPatternList** | 117 | 차트 패턴 검출 (phase 27 분리) | patterns |
-| **RelatedStocksList** | 89 | 관련 종목 (phase 28 분리) | stocks, @select |
+| **RelatedStocksList** | 86 | 관련 종목 (phase 28 분리) | stocks, @select |
 | **BotPnlChart** | 110 | 봇 손익 차트 (phase 29) | dailyPnl |
 | StockBriefingHeadline | 181 | 펀더멘털/AI/수급 종합 멘트 | diagnosisData, aiAnalysis |
 | StockRiskCard | 346 | DART·뉴스·AI 리스크 | stockName, stockCode |
-| DashboardHeader | 220 | GNB 4탭 | activeTab |
+| DashboardHeader | 220 | GNB 3탭(시장/발굴/매매, P-IA) | activeTab |
 | StockSearchModal | 243 | 종목 검색 (Ctrl+K) | @select, @close |
 | TradingSafetyWidget | 297 | 매매 안전장치 (ADMIN) | - |
 | SectionTotalRecommendation | 205 | 5개 신호 매칭 랭킹 | - |
@@ -160,6 +165,8 @@
 | SectionBacktest | 510 | AI 전략 백테스트 | - |
 | SectionLiveSurge | 486 | 수급 급증 실시간 | - |
 | ForecastDetailModal | 422 | AI 예측 상세 | - |
+
+**composables** (`frontend/src/composables/`): `useChartCalculations`(157, 종목상세 캔들/거래량/MA·볼린저·지지저항·패턴 마커 좌표·스타일 — ③-3차 분리) · `useAutoRefresh`(109) · `useMarketStatus`(106).
 
 ---
 
@@ -760,6 +767,7 @@ GET /api/ai-strategy/performance
 | 37 | 튜닝 | BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단. `scoreSectorMomentum` BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL sector multiplier 1.00 → 1.20 |
 | 38 | fix | `saveSnapshotInternal` 에 `refreshPrices(result)` 추가 — phase 12 부터 dto.currentPrice 가 null 이라 STRONG_BUY/BUY record() 진입 0건이던 잠재 버그. signal_outcome 에 시그널 추적 시작 |
 | **39** | **문서** | **§13 알려진 한계 중복 제거 (MFE/MAE / WebSocket Gap-filling 완료/미완료 행 정리) + 종가 매수 날짜 명확화 + phase 2 풀 크기 의미 명시 + [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md) 신규 (한 장 요약)** |
+| **P-IA / ③** (2026-06) | **프론트 / 진단** (산식 무변경) | **P-IA IA 재설계**(GNB 3탭 시장/발굴/매매+서브탭, phase 강조, 종목상세 요약/근거/심화 3존) + **종목상세 컴포넌트 분리**(`InvestorTrendTab`·`FundamentalDiagnosisPanel`·`AIStrategyCard`·composable `useChartCalculations` 등, 4,707→2,289줄 −51%, 동작 변화 0, 단위테스트 101 green) + **×10 배수오염 진단** `warnIfPriceOutlier` 발화 시 UN vs J raw 대조 로깅(로깅 전용) + 봇 트랙 요약 주석·MarketCalendar 15:40 사유 주석 |
 
 ---
 
