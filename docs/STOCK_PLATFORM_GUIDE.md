@@ -309,6 +309,7 @@ CircuitBreaker(`geminiApi`) + dailyCount 추적 (phase 8). 80%/90% 도달 → �
 ### § StockPriceService
 
 KIS REST → 네이버 폴백. 캐시 1분(KIS) / 10분(Naver). `fetchedAt` 필드로 신선도 추적 (phase 1).
+시세 캐시 경로 = **L1 로컬(`ConcurrentHashMap`) → DB(MariaDB, 단건 15분) → KIS/Naver**, **Redis 비경유**(시세 단일 경로 불변식 — 전역 L2=Redis는 다른 도메인 캐시).
 
 ---
 
@@ -334,6 +335,8 @@ else:
 | 3/4 | 60 | 75 | 81 | 75 |
 | 2/4 | 40 | 50 | 62 | 50 |
 | 1/4 | 20 | 25 | 43 | 25 |
+
+> **주의(2026-06)**: 위 표의 `cap` 컬럼은 **실제로는 절대 발동하지 않는다(죽은 코드)** — 고정 분모(80)+카테고리 clamp[0,20] 하에서 scaled(≤ vc×25)가 항상 cap보다 작아 `결과 = scaled`. 즉 normalizeScore ≈ `min(100, raw×100/80)`. 결측 1개(vc=3)는 **실효 최대 75점(=STRONG_BUY 임계, 남은 3카테고리 전부 만점일 때만)** — 의도된 커버리지 페널티(불완전 데이터는 최상위 등급 불가). 고정 분모 현행 유지, cap 변수는 dynamic 분모 전환 대비 보존.
 
 ### 카테고리 (각 0~20점)
 
@@ -448,7 +451,8 @@ else:
 
 ### STRONG_BUY + 강한 가치 보너스 (phase 34)
 
-`total ≥ 75` AND `valueStability ≥ 12` → 정규화 점수 +2 (cap 100). `getNormalizedTotal`(정렬)
+`total ≥ 75` AND `valueStability ≥ 12` → 정규화 점수 +2 (`Math.min(100, …)`). **게이트가 75(이미
+STRONG_BUY)라 등급은 안 바뀐다** — BUY(55~74)를 승격시키지 않고 STRONG_BUY 내 정렬·태그용. `getNormalizedTotal`(정렬)
 + `toDto`(UI) 양쪽 일관. tag `STRONG+VALUE`. v7 분리 철학은 유지하면서 희소한 모멘텀+가치
 교집합만 우대.
 
@@ -469,6 +473,10 @@ else:
 | ~~종가 매수~~ | 비활성 | KRX 거래시간 연장 시행 후 재설계 예정 (~2026 하반기 잠정) | |
 
 **활성 시각**: 스캘핑 09:45~10:30 골든타임 / 스윙 14:00 체크
+
+**매도/청산 시간 윈도우(의도된 비대칭)**: 진입은 KRX 중심이지만 매도/청산 가드는 **08:00~20:00**(NXT 프리+정규+애프터마켓) — 시장 열린 동안 언제든 손절/익절. 매도 cron은 8-19시(애프터마켓 정식 도입 2026-09-14 전 방어, cron이 binding). 15:10 스캘핑 청산(`scalpingPositions.clear`) 후 매도 cron이 19시까지 돌아도 스캘핑 포지션이 비어 무해(`position==null` skip, 스윙/종가는 명시 제외). 봇 자체 `REGULAR_END`(15:25)는 `MarketCalendarService.MARKET_CLOSE`(15:40, 종가단일가 버퍼)와 별개.
+
+**동시성 전제(단일 인스턴스)**: 봇은 `SchedulerLockService`(분산락)를 **사용하지 않는다** — 중복 진입 방지는 JVM 내 가드(`scalpingPositions.putIfAbsent`·보유종목 체크·매도 쿨다운)뿐, 인스턴스 간엔 무력. 멀티 인스턴스 확장 시 봇 크론에 **fail-closed 락 필수**(현 `SchedulerLockService`는 fail-open이라 Redis 장애 시 둘 다 통과 → 중복 주문 못 막음).
 
 ---
 
@@ -648,8 +656,8 @@ GET /api/ai-strategy/performance
 
 ### 캐시 계층
 
-- **L1 (Caffeine, in-memory)**: 30분 TTL. 종목별 시세/지표.
-- **L2 (Redis)**: 시장 데이터 (섹터/스마트머니/수급급증/AI전략). `MarketCacheWarmerService` 워밍.
+- **L1 (Caffeine, in-memory)**: 30분 TTL. 지표 등. **단 시세(`StockPriceService`)는 Caffeine이 아닌 로컬 `ConcurrentHashMap` + DB(MariaDB)만 사용 — Redis 비경유**(시세 단일 경로).
+- **L2 (Redis)**: 시장 데이터 (섹터/스마트머니/수급급증/AI전략). `MarketCacheWarmerService` 워밍. **시세는 여기 안 올라감.**
 - **목적**: 프론트 트래픽이 KIS rate limit(5/s) 직접 때리지 않게 격리.
 
 ### KIS WebSocket (phase 4 + 30, 옵션)
