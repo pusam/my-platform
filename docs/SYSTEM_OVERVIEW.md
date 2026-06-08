@@ -122,6 +122,8 @@ else:
 | 1/4 | 20 | 25 | 43 | 25 |
 | 0/4 | - | - | - | 0 |
 
+> **⚠ cap 컬럼은 죽은 코드 (2026-06)**: 고정 분모(80)+clamp[0,20] 하에서 scaled(≤vc×25)가 항상 cap보다 작아 `결과 = scaled`(cap 미발동). 즉 normalizeScore ≈ `min(100, raw×100/80)`. 결측 1개(vc=3)는 실효 최대 75점 = 의도된 커버리지 페널티. 고정 분모 현행 유지, cap은 dynamic 분모 전환 대비 보존.
+
 ### 임계값 (`RecommendationService` + `StockConclusionService`)
 
 | 점수 | 레벨 | 의미 |
@@ -244,7 +246,7 @@ boost** (phase 31b 부분 복원) + BULL multiplier sector 1.00 → 1.20 추가 
 
 ### STRONG_BUY + 강한 가치 보너스 (phase 34)
 
-`total ≥ 75` AND `valueStability ≥ 12` 종목에 정규화 점수 +2 (cap 100). v7 분리 철학(가치를
+`total ≥ 75` AND `valueStability ≥ 12` 종목에 정규화 점수 +2 (`min(100)`). **게이트 75라 등급 변경 없음(BUY 미승격) — STRONG_BUY 내 정렬용**. v7 분리 철학(가치를
 산식 일반 포함 X) 은 그대로 두고 "강한 모멘텀 + 강한 가치" 의 희소한 교집합만 우대.
 `StockScore.getNormalizedTotal` 과 `toDto` 양쪽 적용 — phase 31d 일관성 유지. tag `STRONG+VALUE`.
 
@@ -288,6 +290,9 @@ Core Design Principle 의 "신선도와 리스크가 모든 의사결정에 우�
 | ~~종가 매수~~ | 비활성 | KRX 거래시간 연장 시행 후 재설계 예정 (~2026 하반기 잠정) | | |
 
 봇이 적용하는 안전 가드는 §5 Risk & Safety Management 참고.
+
+> **매도 윈도우(의도된 비대칭)**: 진입은 KRX 중심이나 매도/청산 가드는 08:00~20:00(NXT 확장시간) — 시장 열린 동안 언제든 손절/익절. 15:10 스캘핑 청산 후 매도 cron이 19시까지 돌아도 포지션이 비어 무해.
+> **동시성(단일 인스턴스 전제)**: 봇은 `SchedulerLockService`(fail-open 분산락)를 **미사용** — 중복 진입 방지는 JVM 내 가드뿐. 멀티 인스턴스 확장 시 봇 크론에 **fail-closed 락 필수**(fail-open으론 Redis 장애 시 중복 주문 못 막음).
 
 ### 봇 성과 (`BotPerformanceService` + phase 9)
 
@@ -376,8 +381,8 @@ Core Design Principle 의 "신선도와 리스크가 모든 의사결정에 우�
 
 ### 캐시 계층
 
-- **L1 (Caffeine, in-memory)**: 30분 TTL, 종목별 시세/지표
-- **L2 (Redis)**: 시장 데이터 (섹터 / 스마트머니 / 수급급증 / AI전략)
+- **L1 (Caffeine, in-memory)**: 30분 TTL, 지표 등. **단 시세(`StockPriceService`)는 Caffeine 아닌 로컬 `ConcurrentHashMap` + DB(MariaDB)만, Redis 비경유**(시세 단일 경로)
+- **L2 (Redis)**: 시장 데이터 (섹터 / 스마트머니 / 수급급증 / AI전략) — **시세 비포함**
 - **목적**: 프론트 트래픽이 KIS API rate limit(5/s) 직접 때리지 않게 격리
 
 ### KIS WebSocket (phase 4, 옵션)

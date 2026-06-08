@@ -45,7 +45,7 @@ Spring Boot 4 + Vue 3 + MariaDB + Redis(L2) + KIS WebSocket(옵션).
 
 ## 4. 종합 추천 점수 산식 (요지)
 
-**카테고리 4개 × 20점 = raw 80** → **0~100 정규화**.
+**카테고리 4개 × 20점 = raw 80** → **0~100 정규화** (`min(100, raw×100/80)`, **분모 고정 80**). 결측 1개(validCount=3)는 실효 최대 **75점**(=STRONG_BUY 임계) — 의도된 커버리지 페널티(코드의 `cap` 변수는 비발동=죽은 코드).
 
 | 카테고리 | 입력 |
 |---|---|
@@ -66,7 +66,7 @@ Spring Boot 4 + Vue 3 + MariaDB + Redis(L2) + KIS WebSocket(옵션).
 | BEAR | < −1% | ×1.20 | ×0.85 | ×0.90 | ×0.80 |
 | SIDEWAYS | 그 외 | ×1.00 | ×1.00 | ×1.00 | ×0.90 |
 
-**보너스 (phase 34)**: `total ≥ 75 AND valueStability ≥ 12` → +2 (cap 100) + `STRONG+VALUE` 태그.
+**보너스 (phase 34)**: `total ≥ 75 AND valueStability ≥ 12` → +2 (`min(100)`) + `STRONG+VALUE` 태그. **게이트가 75라 등급 변경 없음 — STRONG_BUY 내 정렬용**.
 
 **정렬 tie-break**: ① total desc → ② **delta(오늘-어제) desc** → ③ changeRate desc.
 
