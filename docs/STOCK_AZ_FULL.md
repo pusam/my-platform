@@ -139,7 +139,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
   - **earnings**(실적: EPS서프라이즈/매출/영업이익률/현금흐름) · **supplyDemand**(외국인·기관 5일 순매수+추세slope) · **technical**(MA정배열20/60/120·RSI·거래량·골든크로스) · **sectorMomentum**(섹터 거래대금 INFLOW 순위 + regime 승수)
   - **valueStability**(PBR/ROE/부채/흑자, ≤20) · **growth**(매출·이익 YoY·PEG) · **aiStrategy**는 **별도 트랙**(후보발굴/태그/저평가TOP10), 총점 산식 제외.
 - **임계**: **≥75 STRONG_BUY / 55~74 BUY / 40~54 HOLD / <40 제외**. + phase34: total≥75 & valueStability≥12 (**valueStability는 0~20 척도 → 12 = 60%↑ 수준**) → **+2 보너스**(`min(100,+2)`). ※ 게이트가 75라 **등급 변경 없음** — BUY 미승격, **STRONG_BUY 내 정렬·`STRONG+VALUE` 태그용**.
-- **시장 국면(MarketRegime)**: 섹터 평균 등락률로 BULL(>+1%, dead band 0.5)/BEAR(<-1%)/SIDEWAYS 히스테리시스 판정 → 카테고리 multiplier(BULL: 실적·수급×1.2, 섹터×1.5 / BEAR: 수급×0.8, 섹터×0.75).
+- **시장 국면(MarketRegime)**: 섹터 평균 등락률로 BULL(>+1%, dead band 0.5)/BEAR(<-1%)/SIDEWAYS 히스테리시스 판정 → 카테고리 multiplier(`applyMarketRegimeWeighting`, **phase 37**) — **BULL** earnings×0.95·수급×1.10·기술×1.05·섹터×1.20 / **BEAR** earnings×1.20·수급×0.85·기술×0.90·섹터×0.80 / **SIDEWAYS** 섹터만×0.90. ※ phase 36이 BULL 폭을 ±0.10으로 좁힌 뒤(earnings 0.95/sd 1.10/tc 1.05) **phase 37이 섹터만 1.20으로 재확대**(의도된 예외 — BULL +4 boost 시너지). 각 카테고리 20점 clamp.
 - **추격매수 방지** (서로 다른 2규칙 — 둘 다 `technical`에서 차감, 중첩 가능): ① **과열 페널티**(전 종목, `scoreTechnical`) — RSI≥75 **−5** / 볼린저상단돌파 **−3** / 5일누적 +20% **−5** (각 독립 적용) · ② **신규진입 감점**(`applyNewEntryPenalty`) — 어제 스냅샷 밖 & 5일 +15% & technical>0 → **`technical −5`** (BULL 스킵, ※ "65+ 게이트" 없음 — 옛 문서 오기). 신규+5일+20%면 ①+② 중첩으로 −10. · delta tie-break.
 - **정렬**: total → delta(오늘-어제) → changeRate.
 - **캐시/저장**: 메모리 30분 TTL(top5/value-top10) → DB 스냅샷 폴백. 스냅샷 INSERT 시 STRONG_BUY/BUY → `SignalOutcomeService.record()`(currentPrice>0 보장, phase38).
@@ -267,7 +267,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 ## 3.5 자가치유 / 멀티인스턴스 락 (`SchedulerLockService`, Redis SET NX EX, fail-open)
 - **KrxStockMasterSeeder**: ApplicationReady(<100건) 시드 + 06시 refreshDaily + 1시간 retryIfEmpty. 메트릭 `stock_master.last_seed_*`.
 - **락 TTL(주요)**: 모닝브리핑/마감알림/모닝알림 15분 · 관심종목 4분(5분 cron) · 복합 8분(10분 cron) · 수급급증 5분(10분 cron) · DART 4분(5분 cron) · 실적/투자자수집/주간다이어리 30분~1시간. TTL<cron으로 누락 시 다음 cron 재시도.
-- **매매봇 주의(단일 인스턴스 전제)**: `AutoTradingBotService`(실주문)는 이 락을 **미사용** — 중복 진입 방지는 JVM 내 가드(`putIfAbsent`·보유체크·매도 쿨다운)뿐. fail-open이라 Redis 장애 시 전 인스턴스 통과. **멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(현 구조론 중복 주문 방어 불가).
+- **매매봇 주의(단일 인스턴스 전제)**: `AutoTradingBotService`(실주문)는 이 락을 **미사용** — 중복 진입 방지는 JVM 내 가드(`putIfAbsent`·보유체크·매도 쿨다운)뿐. fail-open이라 Redis 장애 시 전 인스턴스 통과. **멀티 인스턴스 확장 시 봇 매수 주문에 fail-closed 락 필수**(매도는 fail-open 유지 — P3-1 매수/매도 비대칭. 현 구조론 중복 주문 방어 불가).
 
 ## 3.6 알림 — 텔레그램 3채널
 | 채널 | 내용(트리거) | 빈도 |
@@ -301,7 +301,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 | 시그널 hit | alpha≥0 & pct>0 (3거래일), 폴백 pct≥3% |
 | 수급 HOT/WARM/공통 | 100억 / 50억 / 30억 |
 | 공매도 컷 / 연속매수 / 복합신호 | <5% / ≥3일 / ≥3of5 |
-| AI 가중 | 기술15 / 수급50 / 펀더35 (알림 90+) |
+| AI 가중 (`AiStockAnalysisService`, §2.6) | 기술15 / 수급50 / 펀더35 (알림 90+) |
 | 시세 캐시 | L1 메모리(KIS 1분·Naver 10분) / DB 15분 / **Redis 비경유** / KIS 5req/s |
 | 시장국면 | BULL >+1% / BEAR <-1% (dead band 0.5) |
 | Gemini 뉴스 | 일 500 한도 |
