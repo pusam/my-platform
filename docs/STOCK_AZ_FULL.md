@@ -1,7 +1,8 @@
 # 주식 플랫폼 A-Z — 화면 / 백엔드 / 배치 전수 정리
 
 > 작성: 2026-06-08 (코드 직접 전수 조사 기준 — `@Scheduled` 어노테이션·서비스·라우트 실측 반영).
-> 직전 버전(2026-06-04) 대비: **P-IA 프론트 IA 재설계 전면 반영** — GNB 3탭(시장/발굴/매매)+서브탭, phase 강조(currentPhaseKey), 종목 상세 요약/근거/심화 3존+심화 접기(DetailSection), 위젯 v2 분리(QuickSummaryBar·PeerComparisonCard 등), 레거시 리다이렉트 `?tab=` 정합, vitest+Playwright E2E 셋업. **백엔드(2~5부)는 6/4 이후 무변경.**
+> 직전 버전(2026-06-04) 대비: **P-IA 프론트 IA 재설계 전면 반영** — GNB 3탭(시장/발굴/매매)+서브탭, phase 강조(currentPhaseKey), 종목 상세 요약/근거/심화 3존+심화 접기(DetailSection), 위젯 v2 분리(QuickSummaryBar·PeerComparisonCard 등), 레거시 리다이렉트 `?tab=` 정합, vitest+Playwright E2E 셋업.
+> **2026-06-08 추가**: ① 종목상세 후속 분리 — `InvestorTrendTab`·`FundamentalDiagnosisPanel`·`AIStrategyCard`·composable `useChartCalculations`(본체 4,195→2,289, **−45%**, 동작 변화 0, 전체 101 테스트 green). ② 백엔드 ×10 진단 — `warnIfPriceOutlier` 발화 시 **UN vs J raw 대조 로깅** 추가(로깅 전용). ③ `AutoTradingBotService` 트랙 요약 주석(전략2/활성크론5/메서드7) + `MarketCalendarService` 15:40 사유 주석.
 > 한 줄 요약은 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md), 화면→코드→DB 상세는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md), IA 재설계 운영 QA는 [`OPS_QA_IA_REDESIGN.md`](./OPS_QA_IA_REDESIGN.md).
 
 한국 주식(KRX 정규장 + NXT 대체거래) 종목 **발굴 / 분석 / 모의·실전 자동매매** 통합 개인 플랫폼.
@@ -32,7 +33,7 @@ Spring Boot + Vue 3 + MariaDB + Redis(L2) + KIS REST/WebSocket(옵션) + Gemini 
 | `/dashboard` → `/user` | — | 리다이렉트 | — |
 | `/user` | UserDashboard | 메인 홈(투자+일상 메뉴) | auth |
 | `/stock-dashboard` | StockTradingDashboardV2 | **주식 통합 허브(GNB 3탭: 시장/발굴/매매)** | auth |
-| `/stock/:stockCode` | StockDetailDashboard | **종목 상세(~4,195줄)** | auth |
+| `/stock/:stockCode` | StockDetailDashboard | **종목 상세(~2,289줄)** | auth |
 | `/global-futures` | GlobalFuturesPage | 글로벌 선물·VIX·금/은/원유(독립 진입 시 자체 nav) | auth |
 | `/board`·`/asset`·`/finance`·`/files`·`/car`·`/diet`·`/exercise`·`/my-content`·`/settings` | 각 페이지 | 일상/자산/파일 등 | auth |
 | `/admin`·`/admin/users`·`/admin/logs`·`/admin/batch` | Admin* | 관리자(사용자/로그/배치모니터) | auth+admin |
@@ -68,11 +69,12 @@ Spring Boot + Vue 3 + MariaDB + Redis(L2) + KIS REST/WebSocket(옵션) + Gemini 
 - **phase 강조(`currentPhaseKey`, `StockTradingDashboardV2.vue:696~707`)**: 주말→`post`, `mins<480`(08:00 이전)→`pre`, `<1200`(08:00~20:00)→`during`, 그 외→`post`. 상단 `.phase-strip` 배너(🌅장 준비 `phase-pre` / 🟢장 진행 중 `phase-during`(펄스) / 📊장 마감 `phase-post`)로 **라이브 탭(시장·발굴)에 항상 노출**. 같은 탭 내 위젯 교체 없이 색/테두리만 강조(장중엔 추천·수급 카드 강조).
 - **`isLiveTab`**(시장·발굴) 게이트: `.freshness-bar`(DataFreshness)·60초 폴링 모두 라이브 탭에서만. **매매 탭은 폴링·freshness 미발생.** 탭 비가시(`visibilitychange`) 시 폴링 정지, 복귀 시 즉시 1회 갱신.
 
-### StockDetailDashboard (종목 상세, ~4,195줄 — P-IA 위젯 분리로 598줄 축소) — **요약/근거/심화 3존**
+### StockDetailDashboard (종목 상세, **~2,289줄** — 위젯/컴포넌트 분리로 4,707→2,289, **~51% 축소**) — **요약/근거/심화 3존**
 - **헤더 듀얼 점수**: 단기 트레이딩(`aiAnalysis.overallScore`) + 중장기 펀더멘털(`diagnosisData.overallScore`, RSI 과열 시 강등). 두 점수 **소스 다름**(Heavy vs Diagnosis) — 유지.
 - **① 요약존**: `StockConclusionCard`(룰 기반 결론) + **`QuickSummaryBar`**(`.quick-summary-bar`, 6지표 — RSI/20일선 괴리/외국인 5일/기관 5일/리스크등급/AI점수, skeleton 로딩).
-- **② 근거존**: `StockBriefingHeadline`(행동권고 헤드라인) + `StockRiskCard`(DART+뉴스+AI) + **메인 2컬럼 그리드**(차트/시세/수급/AI전략/안전점수/재무). `.main-tab-bar` 3탭 — **종합분석(기본)·투자자동향·트레이딩지표**.
+- **② 근거존**: `StockBriefingHeadline`(행동권고 헤드라인) + `StockRiskCard`(DART+뉴스+AI) + **메인 2컬럼 그리드**(차트/시세/수급/안전점수/재무). `.main-tab-bar` 3탭 — **종합분석(기본)·투자자동향(`InvestorTrendTab`)·트레이딩지표(`TradingIndicatorsPage` embed)**. 종합분석탭 내 **펀더멘털 진단=`FundamentalDiagnosisPanel`**, **AI 매매전략=`AIStrategyCard`**, 캔들/오버레이 좌표계산=composable **`useChartCalculations`**.
 - **③ 심화존**: **`DetailSection`**(`.detail-section-toggle`, `aria-expanded`, **기본 접힘**, **`v-show`라 자식 마운트 유지** → 접혀도 보조 API/타이머 보존)에 **`PeerComparisonCard`(P-IA에서 근거 그리드→심화존 이동, 동일섹터 PBR/배당 비교)** + `VolumeProfileCard`(POC/VA) + `SupportResistanceCard`(피벗) + `RelatedStocksList`(상관) + `ChartPatternList`.
+- **분해 현황(2026-06-08)**: 본체는 헤더·로딩·자동갱신·검색·심화존 컨테이너만 보유. 큰 탭/카드/계산은 전부 v2 컴포넌트·composable로 분리(동작 변화 0, 각 `.test.js` 동반). 헤더 듀얼점수가 쓰는 `getRecommendationLabel`/`getAdjustedVerdict`/`isRsiOverbought`만 부모-카드 **의도적 중복** 유지.
 - **2단계 로딩**(`getQuick`→병렬 보조→`getHeavy`+`getDiagnosis`): Quick(시세/수급/차트/재무)으로 즉시 렌더 + 병렬 보조(patterns/지지저항/volumeProfile/composite/related, fire-and-forget) → Heavy(리스크/AI/peer/sectorAvgPbr)+Diagnosis(펀더멘털) `allSettled` 백그라운드. 자동갱신 **15초(Quick만, 탭 숨김 시 정지)**.
 - **시세 소스**: `getQuick/Heavy` 모두 백엔드 **공용 `stockPriceService.getStockPrice()`** 경유(목록과 동일 캐시/DB).
 
@@ -85,12 +87,14 @@ Spring Boot + Vue 3 + MariaDB + Redis(L2) + KIS REST/WebSocket(옵션) + Gemini 
 - **UserDashboard**(1,200줄): 홈(시장위젯+투자 히어로카드+관리/일상 메뉴), 관리자는 시스템 탭(AdminDashboard 임베드).
 
 ## 1.3 v2 컴포넌트 (`components/v2/`, 줄수)
-SectionMarketMap(848,히트맵/자금흐름/예측) · SectionQuantTa(913,스크리너/상관) · MagicFormulaSmartTable(962,AI스코어 테이블) · SectionLiveSurge(486,장중 실시간급증) · SectionBacktest(510) · ForecastDetailModal(422,AI예측) · StockRiskCard(346,DART+AI) · StockConclusionCard(330) · TradingSafetyWidget(297,킬스위치) · StockSearchModal(243,Ctrl+K) · DashboardHeader(220,GNB 3탭) · SectionTotalRecommendation(205) · **QuickSummaryBar(192,요약존 6지표)** · BuyChecklistModal(194) · **PeerComparisonCard(181,Peer PBR/배당 — 심화존)** · StockBriefingHeadline(181) · SkeletonLoader(169) · **SupportResistanceCard(123,피벗)** · ChartPatternList(117) · **VolumeProfileCard(116,POC/VA)** · BotPnlChart(110) · RelatedStocksList(86,동일섹터+상관0.5+) · **DetailSection(56,심화 접기 컨테이너 v-show)**.
-**P-IA 신규/이동(2026-06-05)**: StockDetailDashboard에서 QuickSummaryBar·PeerComparisonCard·VolumeProfileCard·SupportResistanceCard 분리, DetailSection으로 심화존 접기. 각 컴포넌트 `.test.js` 단위 테스트 동반.
+SectionMarketMap(848,히트맵/자금흐름/예측) · SectionQuantTa(913,스크리너/상관) · MagicFormulaSmartTable(962,AI스코어 테이블) · **FundamentalDiagnosisPanel(883,펀더멘털 진단 — 재무/수급/기술 3탭)** · SectionLiveSurge(486,장중 실시간급증) · SectionBacktest(510) · **AIStrategyCard(427,AI 매매전략 — 칩/전략박스/목표가 컨센서스/근거)** · ForecastDetailModal(422,AI예측) · StockRiskCard(346,DART+AI) · StockConclusionCard(330) · TradingSafetyWidget(297,킬스위치) · StockSearchModal(243,Ctrl+K) · DashboardHeader(220,GNB 3탭) · SectionTotalRecommendation(205) · **QuickSummaryBar(192,요약존 6지표)** · BuyChecklistModal(194) · **PeerComparisonCard(181,Peer PBR/배당 — 심화존)** · StockBriefingHeadline(181) · SkeletonLoader(169) · **SupportResistanceCard(123,피벗)** · ChartPatternList(117) · **VolumeProfileCard(116,POC/VA)** · BotPnlChart(110) · RelatedStocksList(86,동일섹터+상관0.5+) · **InvestorTrendTab(616,투자자동향 탭 — 차트/장중수급/일별)** · **DetailSection(56,심화 접기 컨테이너 v-show)**.
+**StockDetail 분해 이력**:
+- **P2-10(2026-06-04)**: QuickSummaryBar·PeerComparisonCard·VolumeProfileCard·SupportResistanceCard 분리, DetailSection 심화존 접기.
+- **③ 후속(2026-06-08)**: InvestorTrendTab(−572)·FundamentalDiagnosisPanel(−838)·`useChartCalculations`(−121)·AIStrategyCard(−375) 분리 → 본체 4,195→2,289(−45%). 각 `.test.js`(28건) 동반, build·전체 101 테스트 green, 동작 변화 0.
 **루트**: VolumePowerGauge(체결강도), GlobalNav, DataFreshness, MarketInfoWidget, NotificationBell, AppToast, BackButton.
 
 ## 1.4 공통 모듈
-- **composables**: `useAutoRefresh.js`(109줄, 폴링+카운트다운, 비가시 정지, 옵션 interval/immediate/pauseWhenHidden) · `useMarketStatus.js`(106줄, 폭락판정 KOSPI/KOSDAQ≤-3%, ADR 5단계, VIX 5단계)
+- **composables**: `useAutoRefresh.js`(109줄, 폴링+카운트다운, 비가시 정지, 옵션 interval/immediate/pauseWhenHidden) · `useMarketStatus.js`(106줄, 폭락판정 KOSPI/KOSDAQ≤-3%, ADR 5단계, VIX 5단계) · **`useChartCalculations.js`(157줄, 종목상세 캔들/거래량/MA·볼린저·지지저항·패턴 마커 좌표·스타일 계산 — ③ 후속 분리)**
 - **utils**: `api.js`(1,045줄, 모듈 30+) · `marketFormatters.js`(formatNumber/formatChange/getChangeClass/formatTradingValue) · `auth.js`(TokenManager/UserManager, JWT exp 검증) · `lazyObserver.js`(IntersectionObserver 1회) · `nativeBridge.js`(네이티브 지문로그인) · `toast.js` · `webauthn.js`
 - **api.js 모듈**: authAPI·stockAPI·stockDetailAPI·marketAPI·sectorAPI·quantTaAPI·screenerAPI·investorAPI·aiStrategyAPI·tradingIndicatorAPI·globalFuturesAPI·recommendationAPI·paperTradingAPI·riskAPI·tradingSafetyAPI·newsAPI·userSettingsAPI·assetAPI·exchangeRateAPI·goldAPI·silverAPI·oilAPI·shortSellingAPI·watchlistAPI·telegramAPI·adminAPI·batchJobAPI
 - **인터셉터**: 요청 시 JWT 자동첨부 / 429→경고토스트 / 401→리프레시토큰 큐잉 갱신.
@@ -307,10 +311,10 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 
 # 5부. 미해결 / 다음 작업
 - **배수오류(×10) — 가드 강화 완료(2026-06-04)**: 기존 가드는 당일 밴드 체크 **단일** 이라, ×10이 응답 전체에 일괄로 걸리면 현재가가 [저가,고가] 안에 머물러 **검출 불가능한 맹점**이 있었음. → **DB 앵커 배수(직전 저장가 대비 ≥5배/≤0.2배) + 전일대비율 ±31% 초과** 그물 추가. 응답 내부 필드끼리의 비교는 일괄 스케일링에 무력하므로 외부 앵커(DB)가 핵심. 여전히 **로깅만**(미보정).
-- **×10 원인 — UN 통합시세 종목군 의심**: 시세 경로만 `FID_COND_MRKT_DIV_CODE=UN`(KRX+NXT 통합), 투자자/프로그램매매는 `J`(KRX 단독). ×10 종목이 **NXT/이중상장/특정 구간**에 한정되는지 `[가격이상]` 로그로 대조 → 그렇다면 UN 응답 필드 규약 차이(파싱)로 확정. 다음 진단 단계: 이상치 발생 시 **UN vs J 동시 조회 비교** 또는 NXT 플래그 동봉 로깅. (※ 샘플 종목코드 확보되면 패턴 대조 가능)
+- **×10 원인 진단 — UN vs J 대조 로깅 추가 완료(2026-06-08)**: 시세 경로만 `FID_COND_MRKT_DIV_CODE=UN`(KRX+NXT 통합). `warnIfPriceOutlier`의 3그물 중 하나라도 발화 시 **J(KRX 단독) 1회 재조회 → UN raw vs J raw 를 `[가격이상-진단]`으로 나란히 ERROR 로깅**(`getStockPriceByMarketDiv(code,"J")`, LOW 우선순위·이상치에서만 1회). `inquire-price`(TR FHKST01010100)는 UN/J/NX 동일 구조라 파싱 재사용. UN만 배수 튀고 J 정상이면 통합시세(UN) 파싱/필드 규약 차이로 확정, J 응답 없으면 NXT 전용/미상장 단서. 보정·캐시·저장 없음(로깅 전용, 불변식 #3 유지). **다음 단계: 운영 로그에서 ×10 종목 패턴 확정 후 보정 여부 결정.**
 - StockDetailServiceTest 공용 시세 경로로 갱신 완료.
 - **화면 간 가격 일치**: getQuick/Heavy 공용 `stockPriceService` 경유로 정리됨(목록 동일 캐시). 결론카드 vs 헤더 점수 소스 차이는 캡션 명시로 혼동 정리.
 - **P-IA 프론트 IA 재설계 — 완료(2026-06-05)**: GNB 3탭(시장/발굴/매매)+서브탭, phase 강조(currentPhaseKey), 종목 상세 요약/근거/심화 3존, DetailSection 심화 접기(v-show 마운트 유지), GlobalFuturesPage embedded, QuickSummaryBar/PeerComparisonCard 등 v2 분리, 레거시 리다이렉트 `?tab=` 정합. 백엔드 무변경·기존 테스트 green. 운영 시각 QA는 [`OPS_QA_IA_REDESIGN.md`](./OPS_QA_IA_REDESIGN.md) 체크리스트로 추적.
-- 백테스트 강화 / ATR 포지션 사이징 / 전략·섹터 적중률 추적. StockDetail(~4,195줄)은 P2-10/P-IA로 위젯 분리됐으나 본체 여전히 큼 — 추가 분리 여지.
-- 청산봇(executeClosing*) 주석처리 상태 — 재활성 여부 결정 필요.
+- 백테스트 강화 / ATR 포지션 사이징 / 전략·섹터 적중률 추적. **StockDetail 분리 — 사실상 완료(2026-06-08)**: P2-10/P-IA/③후속으로 **4,707→2,289(−51%)**(InvestorTrendTab·FundamentalDiagnosisPanel·AIStrategyCard·useChartCalculations). 잔여 후보(SafetyScoreGauge·useDiagnosisHelpers)는 규모·이득 작아 보류.
+- 청산봇(executeClosing*) 주석처리 상태 — **분석 결론(2026-06-08): 스캘핑 15:10 청산이 청산봇 포지션 보존(2021줄), 스캘핑/스윙 매도도 closingPositions 명시 제외(1761줄 등) → "중복 청산" 아님**(주석의 구조적 충돌은 이미 가드됨). 재활성 실질 블로커는 15:15 수급 미확정 + 9/14 거래시간 연장 재설계 — 코드 충돌 아닌 **전략 유효성 판단** 사항.
 - MarketCalendar 음력 공휴일 보강 / KRX 정규 애프터마켓(예정) 반영 시 KRX·NXT 경계 재정렬.
