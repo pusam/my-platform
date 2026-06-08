@@ -1,8 +1,8 @@
 # 주식 플랫폼 — 시스템 개요 (외부 AI용 컨텍스트)
 
-> **Version**: 2026.05.15 Phase 39
-> 작성: 2026-05-15 (phase 1~39 반영). 외부 AI 에게 "이 시스템이 무엇이고, 어떤 시그널이 있고,
-> 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
+> **Version**: 2026.06.08 (Phase 39 + P-IA 프론트 IA 재설계·종목상세 컴포넌트 분리)
+> 작성: 2026-05-15 (phase 1~39), 2026-06-08 갱신(P-IA·분리·×10 진단). 외부 AI 에게 "이 시스템이 무엇이고,
+> 어떤 시그널이 있고, 어떻게 매수 결정을 내리는지" 컨텍스트를 주기 위한 요약.
 > 1분 안에 핵심만 보려면 [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md).
 > 화면→코드→DB 까지 상세 가이드는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md).
 > 레거시 reference (2026-03-09 stale) 는 [`STOCK_SYSTEM_DOCUMENTATION.md`](./STOCK_SYSTEM_DOCUMENTATION.md).
@@ -444,10 +444,17 @@ backend/src/main/java/com/myplatform/backend/
 
 frontend/src/
 ├── views/
-│   └── StockDetailDashboard.vue         종목 상세 (4757줄, 헤더 아래 결론 카드 통합)
-└── components/v2/
-    ├── StockConclusionCard.vue          phase 13 — 4-level + factor 그리드
-    └── BuyChecklistModal.vue            phase 13 — 5개 항목 모달
+│   └── StockDetailDashboard.vue         종목 상세 (~2,289줄 — P-IA/③후속 분리, 4,707→2,289 −51%)
+├── components/v2/
+│   ├── StockConclusionCard.vue          phase 13 — 4-level + factor 그리드
+│   ├── BuyChecklistModal.vue            phase 13 — 5개 항목 모달
+│   ├── QuickSummaryBar.vue              요약존 6지표 (P2-10 분리)
+│   ├── FundamentalDiagnosisPanel.vue    펀더멘털 진단 재무/수급/기술 3탭 (③-2차)
+│   ├── AIStrategyCard.vue               AI 매매전략 칩/전략박스/컨센서스 (③ 후속)
+│   ├── InvestorTrendTab.vue             투자자 동향 탭 (③-1차)
+│   └── PeerComparison·VolumeProfile·SupportResistance·DetailSection.vue  심화존 (P2-10/P-IA)
+└── composables/
+    └── useChartCalculations.js          차트 좌표·스타일 계산 (③-3차)
 ```
 
 ---
@@ -499,6 +506,7 @@ frontend/src/
 | 37 | BULL 강세장 sector 점수 회복 — phase 36 후에도 max 67/STRONG_BUY 0건 진단(LG디스플레이 sector=4 병목). `scoreSectorMomentum` 안에서 BULL 일 때 +4 일괄 boost (phase 31b 부분 복원) + BULL multiplier sector 1.00 → 1.20. BEAR/SIDEWAYS 는 유지. |
 | 38 | fix(잠재 버그) — `saveSnapshotInternal` 경로에 `refreshPrices(result)` 추가. phase 12 부터 dto.currentPrice 가 null 이라 record() 진입 0건 (signal_outcome 에 STRONG_BUY/BUY 영원히 비어있던 원인). 이 fix 로 phase 31~37 검증 도구가 실제로 작동. |
 | **39** | **문서 정리 — §13 알려진 한계의 완료/미완료 중복 제거 (MFE/MAE / WebSocket Gap-filling), 종가 매수 날짜 명확화, phase 2 풀 크기 의미 명시, [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md) 신규 (한 장 요약).** |
+| **P-IA / ③** (2026-06) | **프론트/진단 (산식 무변경)** — P-IA IA 재설계(GNB 3탭 시장/발굴/매매+서브탭, phase 강조, 종목상세 요약/근거/심화 3존). **종목상세 컴포넌트 분리**: InvestorTrendTab·FundamentalDiagnosisPanel·AIStrategyCard·composable useChartCalculations 등 → 4,707→2,289줄(−51%), 동작 변화 0, 단위 테스트 101 green. **×10 배수오염 진단**: `warnIfPriceOutlier` 발화 시 UN(통합) vs J(KRX 단독) raw 대조 로깅(원인 분류용, 보정 없는 로깅 전용). 봇 트랙 요약 주석(전략2/활성크론5/메서드7)·MarketCalendar 15:40 사유 주석. |
 
 ---
 
@@ -511,8 +519,8 @@ frontend/src/
 | **MDD 기반 자산 배분** | phase 34 인프라 메서드만 (호출 X) | 낙폭 구간에서 베팅 사이즈 자동 축소 — 모의 봇 먼저 연결 | Low |
 | **Gemini Fallback AI** | 한도 알림만 (phase 8) | 로컬 LLM 대체 경로 | Low |
 | **세금/수수료** | 거래내역에 표시(phase 26) | 봇 진입 결정 시 자동 차감해 ROI 계산 | Low |
-| **StockDetailDashboard.vue 분리** | 4708줄 단일 파일 | 기능별 컴포넌트 추가 분리 (phase 27/28 이후) | Low |
 | **AI 분석/전략/섹터 적중률** | AI 분석은 추적(phase 24). 전략/섹터 미추적 | 전략/섹터 record() 통합 (phase 16 패턴) | Low |
+| **×10 배수오염 보정 여부** | UN vs J 대조 로깅만(미보정, 2026-06) | 운영 로그로 ×10 종목 패턴 확정 후 보정 채택 결정 | Low |
 
 ### 완료된 한계 (변경 이력 참고)
 
@@ -520,6 +528,7 @@ frontend/src/
 - 시그널 충돌 해설 (phase 22b) / Time-to-Stale 신호등 (phase 23) / AI 분석 적중률 (phase 24) /
   MFE/MAE 측정 (phase 25) / 봇 성과 차트 (phase 29) / WebSocket Gap-filling (phase 30) /
   추격매수 방지 전체 (phase 31~37) / record() 진입 fix (phase 38).
+- **StockDetailDashboard.vue 분리 — 완료 (2026-06)**: P-IA/③후속으로 4,707→2,289줄(−51%), InvestorTrendTab·FundamentalDiagnosisPanel·AIStrategyCard·useChartCalculations 등 기능별 컴포넌트·composable 분해(동작 변화 0). 잔여 후보(SafetyScoreGauge·useDiagnosisHelpers)는 규모·이득 작아 보류.
 
 ---
 
