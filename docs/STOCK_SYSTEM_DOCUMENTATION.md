@@ -1,17 +1,20 @@
 # 주식 시스템 종합 문서
 
-> 최종 업데이트: 2026-03-09 (페이지 통합 반영)
+> 최종 업데이트: 2026-03-09 (페이지 통합 반영) · STALE 경고 갱신 2026-06-08
 
-> ⚠️ **STALE 경고 — 2026-05-13 기준**
-> 이 문서는 2026-03-09 작성 시점의 화면/서비스/임계값 스냅샷입니다. 그 이후 도입된
-> **Phase 1~21 변경(점수 100점 만점, StockConclusionService, BuyChecklistService, KIS WebSocket,
-> signal_outcome + BM alpha 평가, MDD 등)은 이 문서에 반영되지 않았습니다.**
+> ⚠️ **STALE 경고 — 2026-06-08 기준 (본문은 Phase 14 이전 스냅샷)**
+> 이 문서는 2026-03-09 시점의 화면/서비스/임계값 스냅샷입니다. 그 이후의 **Phase 1~39 + P-IA 프론트 재설계**
+> (점수 100점 정규화·고정 분모, StockConclusionService, BuyChecklistService, KIS WebSocket,
+> signal_outcome + BM alpha 평가, MDD, GNB 3탭, 종목상세 컴포넌트 분리 등)는 **이 문서에 반영되지 않았습니다.**
+> 예: 본문 §6 점수는 `score ≥ 75 − warningCount×10`(옛 산식)으로, 현행 4카테고리 `normalizeScore`와 **무관**합니다.
 >
-> 최신 시스템 개요(2026-05-13, Phase 21)는 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) 참고.
-> 외부 AI 에게 컨텍스트를 줄 때도 SYSTEM_OVERVIEW.md 한 파일로 충분합니다.
+> **현행 + 2026-06 정밀 점검 결과는 아래 문서에 있습니다(본 문서엔 미반영):**
+> - 점수 정규화(분모 고정 80 · vc=3 실효 75 · `cap`은 죽은 코드) · STRONG+VALUE 보너스(등급 변경 없음=정렬용),
+>   시세 캐시(L1 로컬 `ConcurrentHashMap` + DB, **Redis 비경유**), 봇 매도 윈도우(08:00~20:00 NXT 비대칭) ·
+>   **단일 인스턴스 전제 락**(`SchedulerLockService` fail-open, 봇은 미사용) → [`STOCK_AZ_FULL.md`](./STOCK_AZ_FULL.md) ·
+>   [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) · [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) · [`STOCK_PLATFORM_ONEPAGER.md`](./STOCK_PLATFORM_ONEPAGER.md)
 >
-> 이 문서는 화면 라우트 / 점수 임계값 / 외부 API 연동 / 스케줄 작업 / DB 스키마 같은
-> 세부 reference 용으로만 활용하세요. 일부 항목은 phase 도입 후 변경됐을 수 있습니다.
+> 이 문서는 옛 화면 라우트 / 외부 API 연동 / DB 스키마 같은 **레거시 reference 용으로만** 활용하세요.
 
 ---
 
