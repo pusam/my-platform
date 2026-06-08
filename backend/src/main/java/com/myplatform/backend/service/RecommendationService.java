@@ -1802,7 +1802,11 @@ public class RecommendationService {
         return c;
     }
 
-    /** STRONG+VALUE 가산 — total≥75 AND valueStability≥12 이면 +2(상한 100). P1-5 테스트 대상. */
+    /**
+     * STRONG+VALUE 가산 — total≥75 AND valueStability≥12 이면 +2(상한 100, Math.min). P1-5 테스트 대상.
+     * ※ 게이트가 75(이미 STRONG_BUY)라 <b>등급은 절대 안 바뀐다</b> — BUY(55~74)를 STRONG_BUY로 승격시키지 않는다.
+     *   목적은 "STRONG_BUY ∩ 강한 가치" 종목을 정렬 상위로 올리고 STRONG+VALUE 태그를 부여하는 것(phase 34).
+     */
     static int strongValueBonus(int total, int valueStability) {
         if (total >= STRONG_BUY_THRESHOLD && valueStability >= STRONG_VALUE_THRESHOLD) {
             return Math.min(100, total + STRONG_VALUE_BONUS);
@@ -1893,9 +1897,14 @@ public class RecommendationService {
      *     75 가 "거의 만점" 의미였음. v7 (5→4 카테고리) 전환 시 임계값 미조정 잔존.
      *   - 수정 후: 4 valid full = 100, 임계값 75/55 가 의도된 의미 회복.
      *
-     * cap (validCount < TOTAL_CATEGORIES 만 적용):
-     *   25 + 75 × (validCount / TOTAL_CATEGORIES)
-     *   - 1/4 → 43, 2/4 → 62, 3/4 → 81, 4/4 → 100 (cap 미적용 — scaled 그대로)
+     * cap (validCount < TOTAL_CATEGORIES 만 적용 — 단, 아래 ⚠ 참조):
+     *   25 + 75 × (validCount / TOTAL_CATEGORIES) → vc=1:43 / vc=2:62 / vc=3:81
+     *
+     * ⚠ <b>고정 분모(80) + 카테고리 clamp[0,20]</b> 하에서는 raw ≤ vc×20 → scaled ≤ vc×25 가
+     *   항상 cap(=25+18.75×vc)보다 작다(vc&lt;4). 즉 <b>cap 은 현재 산식에선 절대 발동 안 함(죽은 코드)</b>.
+     *   실효 최댓값은 고정 분모가 결정: vc=1→25 / vc=2→50 / <b>vc=3→75</b> / vc=4→100.
+     *   따라서 결측 1개(vc=3) 종목은 최대 <b>75점(=STRONG_BUY 임계)</b> — 남은 3카테고리가 전부 만점일 때만.
+     *   이는 의도된 "커버리지 페널티"(불완전 데이터는 최상위 등급 불가). dynamic 분모로 바꾸지 않고 현행 유지.
      *
      * 시그널 추가/삭제 시 TOTAL_CATEGORIES 만 바꾸면 자동 재계산.
      */
@@ -1904,6 +1913,8 @@ public class RecommendationService {
         int rawCap = TOTAL_CATEGORIES * 20;
         int scaled = raw * 100 / rawCap;
         if (validCount >= TOTAL_CATEGORIES) return Math.min(100, scaled);
+        // 고정 분모(80) 하에서는 항상 scaled<cap 이라 cap 은 미발동(죽은 코드).
+        // 향후 dynamic 분모(validCount×20) 전환 가능성 대비해 삭제하지 않고 보존. (Javadoc ⚠ 참조)
         int cap = 25 + (75 * validCount / TOTAL_CATEGORIES);
         return Math.min(cap, scaled);
     }

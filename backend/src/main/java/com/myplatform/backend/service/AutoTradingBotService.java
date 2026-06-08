@@ -48,6 +48,11 @@ import java.util.stream.Collectors;
 /**
  * 자동 매매 봇 서비스 (2전략: 스캘핑(모의만) + 스윙)
  *
+ * ⚠ [동시성 전제] 이 봇은 <b>단일 인스턴스 전제</b>로 SchedulerLockService(분산락)를 사용하지 않는다.
+ *   중복 진입 방지는 JVM 내 가드(scalpingPositions.putIfAbsent · 보유종목 체크 · 매도 쿨다운)뿐 — 인스턴스 간엔 무력.
+ *   멀티 인스턴스로 확장하면 봇 크론에 <b>fail-closed 락</b>이 필수다(현 SchedulerLockService 는 fail-open 이라
+ *   Redis 장애 시 둘 다 통과 → 중복 주문을 못 막음). 확장 전 별도 설계 필요.
+ *
  * ========================================
  * [전략 A] 스캘핑 — ★ 모의투자 전용 (실전 비활성)
  * ========================================
@@ -199,6 +204,14 @@ public class AutoTradingBotService {
     // ║  킬스위치: 스캘핑 -1.5% / 전체(스윙 포함) -3%                ║
     // ║  나스닥 선물 ≤ -1% → 스캘핑 매수 보류                        ║
     // ╚══════════════════════════════════════════════════════════════╝
+    // [매도/청산 시간 윈도우 — 의도된 비대칭]
+    //   진입(매수)은 KRX 중심(스캘핑 09~11, 스윙 14:00)이지만, 매도/청산 가드는
+    //   PRE_MARKET_START~AFTER_MARKET_END = 08:00~20:00(NXT 프리+정규+애프터마켓)이다.
+    //   시장이 열려 있는 동안 언제든 손절/익절 가능하게 한 의도 — 과한 윈도우가 아님.
+    //   매도 cron 은 8-19시(애프터마켓 정식 도입 2026-09-14 전 방어), 가드는 20시까지(확장 대비) → cron 이 binding.
+    //   ※ REGULAR_END(15:25)는 봇 자체 상수로, MarketCalendarService.MARKET_CLOSE(15:40, 종가단일가 버퍼)와 다름 — 봇은 별도 판정.
+    //   ※ 15:10 스캘핑 청산(scalpingPositions.clear) 이후 매도 cron 이 19시까지 돌아도, 스캘핑 포지션이 비어
+    //     position==null 즉시 skip + 스윙/종가는 명시 제외라 무해.
     private static final LocalTime PRE_MARKET_START = LocalTime.of(8, 0);
     private static final LocalTime REGULAR_START = LocalTime.of(9, 0);
     private static final LocalTime REGULAR_END = LocalTime.of(15, 25);

@@ -49,9 +49,9 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 시그널 hit = **alpha_3d ≥ 0 AND pct_change_3d > 0** (3거래일), alpha 없으면 폴백 pct≥3%.
 
 ### 5. 인프라 관련
-- 스케줄러 락(`SchedulerLockService`)은 **fail-open** (Redis SET NX EX, 멀티인스턴스). TTL < cron 으로 누락 시 다음 cron 재시도하는 구조.
+- 스케줄러 락(`SchedulerLockService`)은 **fail-open** (Redis SET NX EX). TTL < cron 으로 누락 시 다음 cron 재시도. **단일 인스턴스 전제 — 매매봇(`AutoTradingBotService` 실주문)은 이 락 미사용(JVM 내 가드만). 멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(fail-open으론 Redis 장애 시 중복 주문 못 막음).
 - 봇은 **Clock 주입**으로 테스트 결정성 확보 — 시간 의존 로직에 `Clock`을 그대로 사용할 것.
-- 캐시 계층 L1 Caffeine → L2 Redis(CacheWarmer 워밍) → L3 MariaDB. 워밍 잡은 `isMarketHours()` 밖이면 early-return.
+- 캐시 계층 L1 Caffeine → L2 Redis(CacheWarmer 워밍) → L3 MariaDB. 워밍 잡은 `isMarketHours()` 밖이면 early-return. **단 시세(`StockPriceService.getStockPrice`)는 예외 — L1 로컬(ConcurrentHashMap) → DB(MariaDB)만, Redis 비경유**(시세 단일 경로 불변식). 전역 L2=Redis는 섹터/수급/AI전략 등 다른 도메인 캐시.
 - cron 시각들은 튜닝된 값이다. 근거 없이 바꾸지 말 것.
 
 ---

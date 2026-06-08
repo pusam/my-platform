@@ -365,6 +365,9 @@ public class StockPriceService {
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public StockPriceDto getStockPrice(String stockCode) {
+        // 시세 캐시 경로 = L1 로컬(priceCache, ConcurrentHashMap) → DB(MariaDB) → KIS/Naver.
+        //   ※ 시세는 Redis(L2) 비경유다. 전역 "L1 Caffeine → L2 Redis → L3 MariaDB"는 섹터·수급·
+        //     AI전략 등 '다른 도메인' 캐시 얘기이고, 시세는 단일 경로 불변식 유지를 위해 메모리+DB만 쓴다.
         // 캐시 확인 (한투 API는 1분, 네이버는 10분)
         StockPriceDto cached = priceCache.get(stockCode);
         int cacheMinutes = kisService.isConfigured() ? 1 : 10;

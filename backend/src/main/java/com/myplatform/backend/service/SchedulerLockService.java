@@ -10,9 +10,13 @@ import java.time.Duration;
 
 /**
  * 스케줄러 분산락 — Redis SET NX EX 기반 경량 lock.
- * - Redis 비활성화 환경에서는 항상 acquired=true 반환 (단일 인스턴스 fallback)
+ * - Redis 비활성화/예외 시 항상 acquired=true 반환 (<b>fail-open</b> — 단일 인스턴스 fallback)
  * - 키 컨벤션: java:scheduler-lock:{name}
  * - TTL 만료 시 자동 해제. 명시 release() 호출 가능.
+ *
+ * <p>⚠ <b>[매매봇 주의]</b> AutoTradingBotService(실주문)는 이 락을 <b>사용하지 않는다</b> — 단일 인스턴스 전제.
+ * fail-open 특성상 Redis 장애 시 모든 인스턴스가 통과하므로, 멀티 인스턴스에서 봇 실주문 중복을 막으려면
+ * 봇 크론에 별도의 <b>fail-closed</b>(락 실패 시 skip) 경로가 필요하다. 현 구조로는 중복 주문 방어가 불가능하다.
  */
 @Service
 @Slf4j

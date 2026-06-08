@@ -134,7 +134,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 | DiagnosticsController | `/api/diagnostics` | `/data` (운영 헬스) |
 
 ## 2.2 종합 추천 점수 산식 (`RecommendationService`)
-- **핵심 4카테고리 × 20 = raw 80** → `normalizeScore` → **0~100**. validCount(≥0점 카테고리) **≥3** 이어야 채택(coverage 75%).
+- **핵심 4카테고리 × 20 = raw 80** → `normalizeScore = min(100, raw×100/80)` → **0~100**. validCount(**>0점** 카테고리) **≥3** 이어야 채택(coverage 75%). **분모는 고정 80**(dynamic 아님) → 결측 1개(vc=3) 종목은 실효 최대 **75점**(=STRONG_BUY 임계, 남은 3카테고리 전부 만점일 때만) — 의도된 커버리지 페널티. 코드의 `cap` 변수는 고정 분모 하에선 **비발동=죽은 코드**(향후 dynamic 분모 대비 보존).
   - **earnings**(실적: EPS서프라이즈/매출/영업이익률/현금흐름) · **supplyDemand**(외국인·기관 5일 순매수+추세slope) · **technical**(MA정배열20/60/120·RSI·거래량·골든크로스) · **sectorMomentum**(섹터 거래대금 INFLOW 순위 + regime 승수)
   - **valueStability**(PBR/ROE/부채/흑자, ≤20) · **growth**(매출·이익 YoY·PEG) · **aiStrategy**는 **별도 트랙**(후보발굴/태그/저평가TOP10), 총점 산식 제외.
 - **임계**: **≥75 STRONG_BUY / 55~74 BUY / 40~54 HOLD / <40 제외**. + phase34: total≥75 & valueStability≥12 → **+2 보너스**.
@@ -154,7 +154,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 - 평가 후 **STRONG_BUY 7일 평균 alpha 음수 시 risk 채널 경고**(일 1회).
 
 ## 2.5 시세 서비스 (`StockPriceService`) — 공용 경로 통일
-- **`getStockPrice(code)`**: L1 priceCache(KIS 1분 / Naver 10분) → L2 DB(5분) → KIS REST(`FHKST01010100`, `UN` 통합시세, rate limit 5req/s) → Naver 폴백(15분 지연). 등락률 0 보정·부호 일원화.
+- **`getStockPrice(code)`**: L1 priceCache(**로컬 ConcurrentHashMap**, KIS 1분 / Naver 10분) → **DB(MariaDB, 단건 15분)** → KIS REST(`FHKST01010100`, `UN` 통합시세, rate limit 5req/s) → Naver 폴백. **시세는 Redis(L2) 비경유** — 전역 L2=Redis는 다른 도메인 캐시. 등락률 0 보정·부호 일원화.
 - **`getStockPrices(list)`**: `@Transactional(NOT_SUPPORTED)` — 외부 API 중 DB 커넥션 미점유, IN 배치쿼리로 N+1 회피, 비동기 save.
 - **`getStockPricesFromCacheOnly`**: 목록용(API 미호출).
 - **`warnIfPriceOutlier`**(진단 가드, **로깅만 / 가격 미보정**): **×10 배수오류** 근본원인(파싱 vs 응답) 추적용. 다중 그물 — ① 당일 밴드(현재가 vs [저가,고가]±10%, *현재가 단독 오염*만 잡힘) ② 전일대비율 `prdy_ctrt` >±31%(일일 변동제한 초과) ③ **DB 앵커 배수**(현재가 vs 직전 저장가 ≥5배/≤0.2배). ※ ①은 응답 전체가 일괄 ×10되면 현재가가 밴드 안에 머물러 **절대 안 잡힘** → 일괄 스케일링은 외부 앵커인 ③(DB 직전가)으로만 검출 가능. KIS raw(`stck_prpr/hgpr/lwpr/sdpr/prdy_ctrt`) 동봉 로깅.
@@ -266,6 +266,7 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 ## 3.5 자가치유 / 멀티인스턴스 락 (`SchedulerLockService`, Redis SET NX EX, fail-open)
 - **KrxStockMasterSeeder**: ApplicationReady(<100건) 시드 + 06시 refreshDaily + 1시간 retryIfEmpty. 메트릭 `stock_master.last_seed_*`.
 - **락 TTL(주요)**: 모닝브리핑/마감알림/모닝알림 15분 · 관심종목 4분(5분 cron) · 복합 8분(10분 cron) · 수급급증 5분(10분 cron) · DART 4분(5분 cron) · 실적/투자자수집/주간다이어리 30분~1시간. TTL<cron으로 누락 시 다음 cron 재시도.
+- **매매봇 주의(단일 인스턴스 전제)**: `AutoTradingBotService`(실주문)는 이 락을 **미사용** — 중복 진입 방지는 JVM 내 가드(`putIfAbsent`·보유체크·매도 쿨다운)뿐. fail-open이라 Redis 장애 시 전 인스턴스 통과. **멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(현 구조론 중복 주문 방어 불가).
 
 ## 3.6 알림 — 텔레그램 3채널
 | 채널 | 내용(트리거) | 빈도 |
