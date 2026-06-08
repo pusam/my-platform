@@ -1,8 +1,8 @@
 # 주식 플랫폼 — 한 장 요약 (One-Pager)
 
-> **Version**: 2026.05.15 Phase 39
-> 1분 안에 시스템을 이해하려는 사람용. 상세는 [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) (532줄)
-> 또는 [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md) (770줄).
+> **Version**: 2026.06.08 (Phase 39 + P-IA 프론트 IA 재설계·종목상세 컴포넌트 분리)
+> 1분 안에 시스템을 이해하려는 사람용. 전수 상세는 [`STOCK_AZ_FULL.md`](./STOCK_AZ_FULL.md),
+> [`SYSTEM_OVERVIEW.md`](./SYSTEM_OVERVIEW.md) · [`STOCK_PLATFORM_GUIDE.md`](./STOCK_PLATFORM_GUIDE.md).
 
 ---
 
@@ -143,4 +143,10 @@ curl 'https://dhkim-lab.duckdns.org/api/diagnostics/data'
 | 37 | BULL sector +4 boost + multiplier 1.20 |
 | 38 | `saveSnapshotInternal` 의 `refreshPrices` fix (record 진입 0건 잠재 버그) |
 
-상세는 `SYSTEM_OVERVIEW.md` §12 변경 이력 참고.
+**2026-06 프론트/진단 (Phase 외, 산식 무변경)**
+
+- **P-IA 프론트 IA 재설계** — GNB 3탭(시장/발굴/매매)+서브탭, phase 강조(장전/장중/장후), 종목 상세 **요약/근거/심화 3존**.
+- **종목 상세 컴포넌트 분리** — `InvestorTrendTab`·`FundamentalDiagnosisPanel`·`AIStrategyCard`·`QuickSummaryBar`·`PeerComparisonCard`·`Volume Profile`/`SupportResistance` 등 + composable `useChartCalculations` 로 분해. **4,707→2,289줄(−51%)**, 동작 변화 0, 단위 테스트 101 green.
+- **×10 배수오염 진단** — `warnIfPriceOutlier` 발화 시 **UN(통합) vs J(KRX 단독) raw 대조 로깅**(원인 분류용, 보정 없는 로깅 전용).
+
+상세는 [`STOCK_AZ_FULL.md`](./STOCK_AZ_FULL.md), 변경 이력은 `SYSTEM_OVERVIEW.md` §12 참고.
