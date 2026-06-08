@@ -146,3 +146,52 @@
   - 전체 `./gradlew test` green.
   - **운영 점검 절차**: `docs/OPS_STALE_FEED_CHECK_P2-11.md` (엔드포인트 호출 → ACTIVE_FROZEN 판정 →
     거래정지 동기화 누락/피드 스테일 분기, 재배포 전 SQL 대체 포함).
+
+---
+
+## P3-1. 멀티 인스턴스 확장 시 봇 fail-closed 락 (설계 — 현재 단일 인스턴스라 **보류**, 확장 결정 시 착수)
+
+> **선결 조건**: 이 티켓은 **backend 멀티 인스턴스 배포를 결정하는 시점**에만 착수한다. 현재 `docker-compose.yml`
+> backend = replicas 1(단일 컨테이너)이라 **실위험 없음** → 지금 락을 붙이면 단일 인스턴스에서 손해만 본다(아래 ④).
+> 출처: 2026-06-08 코드 점검 ⑤ (`AutoTradingBotService`/`SchedulerLockService`/`RealTradeService` 실측).
+
+- **문제 (멀티 인스턴스 시 실주문 중복 = 즉시 손실)**:
+  1. `AutoTradingBotService`는 `SchedulerLockService`(분산락)를 **사용하지 않는다**. `@Scheduled` 봇 크론은 모든
+     인스턴스에서 중복 실행된다. 중복 진입 방지는 **JVM 내 가드뿐**(`scalpingPositions.putIfAbsent` · `holdingCodes`
+     보유체크 · 매도 쿨다운) → **인스턴스 간엔 무력**(메모리 맵은 JVM 로컬).
+  2. `SchedulerLockService.tryLock`은 **fail-open**(Redis 비활성/예외 시 `return true`). **그대로 봇에 붙여도
+     Redis 장애 시 모든 인스턴스가 통과** → 중복 주문을 못 막는다. 봇엔 **fail-closed 경로가 별도로 필요**.
+  3. `RealTradeService.executeBuy`는 매수 직전 `getBalanceInfo(true)`(KIS 강제 재조회)로 보유를 확인하나 **멱등성
+     키/주문 dedup 없음** + KIS 포트폴리오 반영 지연 → 두 인스턴스가 동시 평가하면 **둘 다 "미보유" → 중복 실주문**.
+
+- **핵심 설계 — 매수/매도 비대칭(중요)**:
+  - **매수(진입)는 fail-closed 안전**: 락 실패 시 그 사이클 skip → 다음 cron 재시도. 손실 없음. **여기에만 fail-closed.**
+  - **매도/청산은 fail-closed 금물**: Redis 장애로 락 실패 시 매도를 skip하면 **손절/익절을 놓쳐 손실 확대**. 게다가
+    중복 매도는 RealTradeService가 보유 0이면 거절하므로 대체로 멱등 → **매도엔 락 미적용(또는 fail-open 유지)**.
+    (단 절반 익절 등 **부분 매도 중복**은 별도 검토 — 같은 종목 2회 절반 매도로 의도보다 많이 팔릴 수 있음.)
+  - **모의/실전 구분**: 스캘핑은 **모의 전용**(가상 포트폴리오) → 실손실 없으나 가상 중복 방지 위해 적용 권장.
+    **실손실 위험은 스윙 매수(REAL 모드) + 청산봇(재활성 시)** 이 핵심.
+
+- **합격 기준 (구현 시)**:
+  1. `SchedulerLockService`에 **fail-closed 변형** 추가(예: `tryLockStrict` — Redis **예외 시 `false` 반환**).
+     기존 `tryLock`(fail-open)은 다른 잡들이 쓰므로 **건드리지 않는다**.
+  2. **진입 크론에만** strict 락: `executeScalpingBuyLogic` · `executeSwingBuyLogic` · (재활성 시)`executeClosingBuyLogic`
+     → `tryLockStrict("bot:{strategy}-buy", ttl)` 실패 시 즉시 return(진입 skip). **매도/청산 크론엔 적용 금지.**
+  3. **락 granularity**: 전략별 단일 락(`bot:scalping-buy`/`bot:swing-buy`/`bot:closing-buy`). TTL은 **cron 주기보다
+     짧게**(누락 시 다음 cron 재시도) + **작업 1회 소요보다 길게**. `try/finally`로 `release()`.
+  4. **단일 인스턴스/Redis 비활성 회귀**: Redis 비활성 환경에서 strict 락이 봇을 영구 차단하면 안 됨 → 정책 결정 필요.
+     권장: **"멀티 인스턴스 = Redis 필수"를 기동 시 강제**(Redis 없으면 봇 비활성 또는 기동 실패)하고, strict는 Redis
+     활성 전제. 단일 인스턴스(Redis 비활성)에선 기존 동작 그대로 유지.
+  5. (선택, 2차 방어) `RealTradeService.executeBuy`에 **fencing/멱등성**: 종목별 in-flight 마커(`SET NX EX` per
+     stockCode) 또는 주문 dedup 키 → 락 누수 시에도 동일 종목 중복 주문 차단.
+  6. **검증**: 두 인스턴스 동시 구동 시나리오에서 **동일 종목 중복 실매수 0건**.
+
+- **테스트**:
+  - `tryLockStrict` 단위: 미잠김→true / 이미 잠김→false / **Redis 예외→false(fail-closed)** / (정책)Redis 비활성→해당 동작.
+  - 진입 크론: 락 실패 시 **진입 skip(주문 0건)** — `Clock` 주입 + mock 결정론.
+  - 매도 크론: strict 락 미적용(매도 skip 없음) 확인 — fail-closed 회귀 방지.
+  - 단일 인스턴스 회귀: 락 획득 성공 시 기존 진입 동작 동일.
+
+- **비고**: 코드 충돌이 아니라 **확장 안전성** 이슈. 현 단일 인스턴스에선 동작 정상.
+  관련 주석: `SchedulerLockService`·`AutoTradingBotService` 클래스 Javadoc(2026-06-08 추가),
+  `CLAUDE.md`/`STOCK_AZ_FULL.md`(§3.5)/`STOCK_PLATFORM_GUIDE.md`(§7)에 동일 가정 명시됨.
