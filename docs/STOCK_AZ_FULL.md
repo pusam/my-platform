@@ -137,9 +137,9 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 - **핵심 4카테고리 × 20 = raw 80** → `normalizeScore = min(100, raw×100/80)` → **0~100**. validCount(**>0점** 카테고리) **≥3** 이어야 채택(coverage 75%). **분모는 고정 80**(dynamic 아님) → 결측 1개(vc=3) 종목은 실효 최대 **75점**(=STRONG_BUY 임계, 남은 3카테고리 전부 만점일 때만) — 의도된 커버리지 페널티. 코드의 `cap` 변수는 고정 분모 하에선 **비발동=죽은 코드**(향후 dynamic 분모 대비 보존).
   - **earnings**(실적: EPS서프라이즈/매출/영업이익률/현금흐름) · **supplyDemand**(외국인·기관 5일 순매수+추세slope) · **technical**(MA정배열20/60/120·RSI·거래량·골든크로스) · **sectorMomentum**(섹터 거래대금 INFLOW 순위 + regime 승수)
   - **valueStability**(PBR/ROE/부채/흑자, ≤20) · **growth**(매출·이익 YoY·PEG) · **aiStrategy**는 **별도 트랙**(후보발굴/태그/저평가TOP10), 총점 산식 제외.
-- **임계**: **≥75 STRONG_BUY / 55~74 BUY / 40~54 HOLD / <40 제외**. + phase34: total≥75 & valueStability≥12 → **+2 보너스**.
+- **임계**: **≥75 STRONG_BUY / 55~74 BUY / 40~54 HOLD / <40 제외**. + phase34: total≥75 & valueStability≥12 (**valueStability는 0~20 척도 → 12 = 60%↑ 수준**) → **+2 보너스**.
 - **시장 국면(MarketRegime)**: 섹터 평균 등락률로 BULL(>+1%, dead band 0.5)/BEAR(<-1%)/SIDEWAYS 히스테리시스 판정 → 카테고리 multiplier(BULL: 실적·수급×1.2, 섹터×1.5 / BEAR: 수급×0.8, 섹터×0.75).
-- **추격매수 방지**: RSI≥75/볼린저상단/5일+15~20% 과열 페널티 · "신규진입(어제 없던 종목)이 65+ & 5일+15%" → -10(BULL 제외) · delta tie-break.
+- **추격매수 방지** (서로 다른 2규칙 — 둘 다 `technical`에서 차감, 중첩 가능): ① **과열 페널티**(전 종목, `scoreTechnical`) — RSI≥75 **−5** / 볼린저상단돌파 **−3** / 5일누적 +20% **−5** (각 독립 적용) · ② **신규진입 감점**(`applyNewEntryPenalty`) — 어제 스냅샷 밖 & 5일 +15% & technical>0 → **`technical −5`** (BULL 스킵, ※ "65+ 게이트" 없음 — 옛 문서 오기). 신규+5일+20%면 ①+② 중첩으로 −10. · delta tie-break.
 - **정렬**: total → delta(오늘-어제) → changeRate.
 - **캐시/저장**: 메모리 30분 TTL(top5/value-top10) → DB 스냅샷 폴백. 스냅샷 INSERT 시 STRONG_BUY/BUY → `SignalOutcomeService.record()`(currentPrice>0 보장, phase38).
 
@@ -256,10 +256,10 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 | 트랙(크론) | cron | 의미 |
 |---|---|---|
 | 스캘핑 매수 | `*/30 * 9-11` | **09~11시(골든아워) 30초마다** — 순매수≥10억·거래량비≥200%·당일변동≥1.5%·RSI<55·이격<3%·갭<5% (모의 전용) |
-| 스캘핑 매도 | `*/15 * 8-19` | 08~19시 15초마다 익절/손절 감시 |
+| 스캘핑 매도 | `*/15 * 8-19` | 08~19시 15초마다 익절/손절 감시. **가드 08:00~20:00, cron 8-19가 binding** |
 | 스캘핑 청산 | `0 10 15` | **15:10 전량 청산**(종가 직전 정리) |
 | 스윙 매수 | `0 0 14` | 14:00 — 연속매수3일+20일선지지+RSI<65, 최대 3종목 25% |
-| 스윙 매도 | `*/30 * 8-19` | 08~19시 30초마다 — 익절+5%/손절-3%/트레일링/최대5일 |
+| 스윙 매도 | `*/30 * 8-19` | 08~19시 30초마다 — 익절+5%/손절-3%/트레일링/최대5일. **가드 08:00~20:00, cron 8-19가 binding** |
 | 청산봇 매수·매도 | (주석처리) | **비활성** |
 - Hard rule(BuyChecklist 동일) + 킬스위치(`tradingSafetyAPI`) + Clock 주입(테스트 결정성).
 
@@ -278,15 +278,15 @@ mins < 1200 (08:00~20:00)    → 'during' // 거래중(프리+정규+애프터 �
 ## 3.7 시간대 경계 파편화 (의도적 분리, 현황)
 | 모듈 | 시간 | 비고 |
 |---|---|---|
-| MarketCalendarService.isRegularSession | 09:00~15:40 | KRX 실제 정규장은 **15:30** — 15:40은 종가단일가/버퍼 의도로 추정(주석 명시 필요). 고정 공휴일(음력 누락 가능) |
-| AutoTradingBotService | 스캘핑 09~11/매도~19, 스윙 14:00/매도~19 | **봇 KRX 중심(의도)** |
+| MarketCalendarService.isRegularSession (**섹터·정규장 판정**) | 09:00~**15:40** | KRX 접속매매 15:30 + 종가단일가 10분 버퍼(코드 주석 명시됨). 음력 공휴일 테이블(매년 갱신) |
+| AutoTradingBotService (**봇 진입**) | 진입: 스캘핑 09~11·스윙 14:00 / 매도·청산: 08:00~20:00(cron 8-19) | 봇 자체 **`REGULAR_END=15:25`** — MarketCalendar 15:40과 **별개**(§3.4 "봇은 별도 판정") |
 | SectorTradingService(cron) | 09~15시 | 섹터 KRX 기준 |
 | DartDisclosureMonitor | 08~19/20~23/00~07 | 24시간 커버 |
 | MarketCacheWarmerService.isMarketHours | 08:00~20:00 | **NXT** |
 | InvestorSurge/StockDetail/Recommendation 표시 | 08:00~20:00 | NXT |
 | 프론트 VolumePowerGauge | 08:00~20:00 | NXT |
 
-→ **표시/추천/수급/캐시워밍 = NXT(08~20)**, **봇·섹터·정규장 판정 = KRX(09~15:30/40)**. 의도적 분리.
+→ **표시/추천/수급/캐시워밍 = NXT(08~20)** · **봇 진입·섹터 = KRX(09~15)** · **봇 자체 정규장종료 `REGULAR_END=15:25`(봇 상수) ≠ `MarketCalendar` 정규장판정 15:40**. 봇 매도/청산은 NXT 확장(08~20). 의도적 분리.
 
 ---
 

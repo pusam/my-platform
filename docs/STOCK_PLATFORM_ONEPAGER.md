@@ -93,7 +93,7 @@ Spring Boot 4 + Vue 3 + MariaDB + Redis(L2) + KIS WebSocket(옵션).
 | 진입 직전 가격 검증 | 신호 평가 후 ±2% | 진입 스킵 |
 | 섹터 OUTFLOW 차단 | 자금 유출 섹터 | 해당 섹터 매수 거절 |
 | MA20 하회 페널티 (phase 31) | technical −최대 8 | 점수 차감 |
-| 추격매수 페널티 (phase 31) | RSI≥75 / 볼린저 / 5일+20% | technical −3~−5 |
+| 추격매수 페널티 (phase 31) | 과열: RSI≥75(−5)·볼린저상단(−3)·5일+20%(−5) / 신규진입: 어제풀밖 & 5일+15%(−5, BULL 스킵) | technical 차감, 두 규칙 중첩 가능 |
 | 헬스 알림 (phase 33) | STRONG_BUY 7일 평균 alpha < 0 | risk 텔레그램 |
 
 전체 11가지는 `SYSTEM_OVERVIEW.md` §5 참고.
