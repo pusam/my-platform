@@ -1176,9 +1176,9 @@ const goToRelatedStock = (code) => {
 // Volume Profile helpers → VolumeProfileCard.vue 로 이동 (P2-10)
 
 // ★ 헤더(중장기 점수 뱃지)가 쓰는 getAdjustedVerdict 의 의존 헬퍼 — 패널과 의도적 중복 유지.
+//    rsiStatus 는 StockDiagnosisDto 의 technicalAnalysis 안에만 있다 (최상위 X).
 const isRsiOverbought = (data) => {
-  if (!data || !data.rsiStatus) return false;
-  return data.rsiStatus === '과열';
+  return data?.technicalAnalysis?.rsiStatus === '과열';
 };
 
 const getAdjustedVerdict = (data) => {

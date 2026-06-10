@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import FundamentalDiagnosisPanel from './FundamentalDiagnosisPanel.vue'
 
+// 실제 API 응답 형태(StockDiagnosisDto): rsiStatus 는 technicalAnalysis 안에만 있다 — 최상위엔 없음.
 const baseDiag = {
   overallScore: 75,
   verdict: '매수 추천',
   verdictLevel: 'BUY',
-  rsiStatus: '정상',
   warnings: ['부채비율 높음'],
   positives: ['영업이익 증가'],
   financialHealth: {
@@ -65,7 +65,11 @@ describe('FundamentalDiagnosisPanel (P-IA ③-2차 분리)', () => {
   })
 
   it('RSI 과열 + STRONG_BUY → 관망 강등(getAdjustedVerdict) + caution 클래스/태그', () => {
-    const w = mountPanel({ ...baseDiag, verdict: '적극 매수', verdictLevel: 'STRONG_BUY', rsiStatus: '과열' })
+    // 실제 API 형태: rsiStatus 는 technicalAnalysis 안에 nested (최상위 X)
+    const w = mountPanel({
+      ...baseDiag, verdict: '적극 매수', verdictLevel: 'STRONG_BUY',
+      technicalAnalysis: { ...baseDiag.technicalAnalysis, rsiStatus: '과열' }
+    })
     expect(w.find('.verdict-label').text()).toBe('관망')
     expect(w.find('.verdict-section').classes()).toContain('verdict-caution')
     expect(w.find('.verdict-caution-tag').exists()).toBe(true)

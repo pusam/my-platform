@@ -338,9 +338,9 @@ const getVerdictIcon = (level) => {
 };
 
 // ※ 부모 헤더(중장기 점수 뱃지)도 동일 로직을 보유 — 의도된 복제.
+//    rsiStatus 는 StockDiagnosisDto 의 technicalAnalysis 안에만 있다 (최상위 X).
 const isRsiOverbought = (data) => {
-  if (!data || !data.rsiStatus) return false;
-  return data.rsiStatus === '과열';
+  return data?.technicalAnalysis?.rsiStatus === '과열';
 };
 
 const getAdjustedVerdictClass = (data) => {
