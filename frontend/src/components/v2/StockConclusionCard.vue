@@ -327,4 +327,12 @@ const openChecklist = () => { showChecklist.value = true; };
 .acc-mid  { color: #eab308; background: rgba(234, 179, 8, 0.18); }
 .acc-low  { color: #ef4444; background: rgba(239, 68, 68, 0.18); }
 .acc-detail { opacity: 0.65; font-size: 11px; }
+
+/* 모바일 — 레벨(90px)+텍스트+버튼(nowrap) 한 줄이면 헤드라인이 ~50px 로 짓눌림 → 버튼을 아랫줄 전체폭으로 */
+@media (max-width: 600px) {
+  .conclusion-card { padding: 14px 14px; margin: 12px 10px; }
+  .conclusion-main { flex-wrap: wrap; gap: 12px; }
+  .conclusion-level { min-width: 64px; }
+  .checklist-btn { flex-basis: 100%; text-align: center; }
+}
 </style>

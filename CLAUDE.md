@@ -17,9 +17,9 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
   - 테스트: `cd frontend && npm test` (= `vitest run`) / watch: `npm run test:watch`
   - 빌드: `cd frontend && npm run build` (lint 스크립트는 아직 없음)
   - 테스트 파일 규약: `src/**/*.{test,spec}.js`. 브라우저 API 스텁은 `vitest.setup.js`.
-- **python-backend(FastAPI)**: 테스트 설정 확인 후 명령 기입(있으면 `cd python-backend && pytest`).
+- **python-backend(FastAPI)**: ❌ **테스트 없음 확인(2026-06-10)** — 테스트 파일 0개, requirements 에 pytest 없음, pytest.ini/pyproject 없음. 테스트 도입 시 여기 갱신.
 
-> 정리: **백엔드(`./gradlew test`) + 프론트(`npm test`) 모두 "구현→테스트" 루프 가동 가능.** python-backend 만 미확인.
+> 정리: **백엔드(`./gradlew test`) + 프론트(`npm test`) 모두 "구현→테스트" 루프 가동 가능.** python-backend 는 테스트 미도입.
 
 ## 작업 완료 기준 (반드시 지킬 것)
 1. 버그 수정은 **재현 테스트(고치기 전엔 실패)부터** 작성한 뒤 구현한다.
