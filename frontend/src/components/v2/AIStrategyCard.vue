@@ -409,11 +409,6 @@ const formatPrice = (price) => {
   border-radius: 10px;
 }
 
-.score-diff-comment .diff-icon {
-  font-size: 1.2rem;
-  flex-shrink: 0;
-}
-
 .score-diff-comment p {
   margin: 0;
   font-size: 0.9rem;

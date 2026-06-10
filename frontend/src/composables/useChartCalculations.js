@@ -114,13 +114,6 @@ export function useChartCalculations(chartData, supportResistance, chartPatterns
     return points.length >= 2 ? points.join(' ') : null;
   };
 
-  const getCandleStyle = (candle) => {
-    const range = chartPriceRange.value;
-    const height = ((Math.max(candle.open, candle.close) - Math.min(candle.open, candle.close)) / (range.max - range.min)) * 100;
-    const bottom = ((Math.min(candle.open, candle.close) - range.min) / (range.max - range.min)) * 100;
-    return { height: Math.max(height, 1) + '%', bottom: bottom + '%' };
-  };
-
   const getWickStyle = (candle) => {
     const range = chartPriceRange.value;
     const height = ((candle.high - candle.low) / (range.max - range.min)) * 100;
@@ -136,6 +129,9 @@ export function useChartCalculations(chartData, supportResistance, chartPatterns
     const bottom = ((bodyBottom - range.min) / (range.max - range.min)) * 100;
     return { height: Math.max(height, 1) + '%', bottom: bottom + '%' };
   };
+
+  // .candle 래퍼와 .body 가 같은 박스(시가~종가 몸통)를 쓴다 — 동일 계산이라 별도 구현 대신 alias.
+  const getCandleStyle = getBodyStyle;
 
   const getVolumeHeight = (volume) => {
     return (volume / maxVolume.value) * 100;
