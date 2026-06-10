@@ -46,6 +46,12 @@ public class StockConclusionDto {
     /** 결론 산출에 기여한 factor 목록. */
     private List<Factor> factors;
 
+    /**
+     * 매매 계획 — STRONG_BUY / BUY 일 때만 채움 (HOLD/WAIT 은 null).
+     * "점수는 아는데 얼마에 자르고 어디서 파는지"를 숫자로 제시.
+     */
+    private TradePlan tradePlan;
+
     /** 결론이 만들어진 시점의 데이터 스냅샷 시각. */
     private LocalDateTime dataAt;
 
@@ -60,6 +66,36 @@ public class StockConclusionDto {
         BUY,          // 신호는 양호하나 일부 조건 미충족
         HOLD,         // 보유는 OK 이나 신규 진입은 신중
         WAIT          // 진입 신호 약함 — 대기 권장
+    }
+
+    /**
+     * 진입가 기준 손절/목표가 + 과거 동일 시그널의 실측 변동폭(MFE/MAE).
+     *
+     * 손절/익절 % 는 자동매매 봇 스윙 기준(-3%/+5%)과 동일. 단, "단기 강 + 밸류 매우 약"
+     * 충돌(conflictNote 룰 1)이 발화하면 타이트하게(-2%/+3%) 조정 — 가이드 문구와 일관 유지.
+     * basePrice 는 현재가 조회 실패 시 null (% 만 표시).
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TradePlan {
+        /** 계획 기준가 (현재가). 조회 실패 시 null. */
+        private java.math.BigDecimal basePrice;
+        /** 손절 % (음수, 예: -3). */
+        private java.math.BigDecimal stopLossPct;
+        /** 목표 % (양수, 예: +5). */
+        private java.math.BigDecimal targetPct;
+        /** 손절가 (원, basePrice 없으면 null). */
+        private java.math.BigDecimal stopLossPrice;
+        /** 목표가 (원, basePrice 없으면 null). */
+        private java.math.BigDecimal targetPrice;
+        /** 과거 동일 시그널(최근 90일)의 3거래일 내 평균 최대 상승 % (MFE). 표본 없으면 null. */
+        private java.math.BigDecimal avgMfePct;
+        /** 과거 동일 시그널의 3거래일 내 평균 최대 하락 % (MAE, 음수). 표본 없으면 null. */
+        private java.math.BigDecimal avgMaePct;
+        /** MFE/MAE 표본 수. */
+        private long mfeMaeSampleCount;
     }
 
     @Data

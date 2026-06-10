@@ -3,12 +3,18 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockConclusionDto.Factor;
 import com.myplatform.backend.dto.StockConclusionDto.Level;
+import com.myplatform.backend.dto.StockConclusionDto.TradePlan;
+import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.RecommendationSnapshot;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
+import com.myplatform.backend.repository.SignalOutcomeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -36,6 +42,8 @@ import java.util.Optional;
 public class StockConclusionService {
 
     private final RecommendationSnapshotRepository snapshotRepository;
+    private final SignalOutcomeRepository signalOutcomeRepository;
+    private final StockPriceService stockPriceService;
 
     // 결론 임계값 — RecommendationService 상수와 동기화 필요.
     private static final int STRONG_BUY_THRESHOLD = 75;
@@ -43,6 +51,15 @@ public class StockConclusionService {
     private static final int VALUE_STRONG_THRESHOLD = 12;       // calculateValueTop10 의 cap 20점 기준
     private static final int SUPPLY_DEMAND_STRONG = 15;
     private static final int TECHNICAL_WEAK = 8;
+
+    // 매매 계획 % — AutoTradingBotService 스윙 기준(-3%/+5%)과 동일.
+    private static final BigDecimal PLAN_STOP_PCT = new BigDecimal("-3");
+    private static final BigDecimal PLAN_TARGET_PCT = new BigDecimal("5");
+    // "단기 강 + 밸류 매우 약" 충돌 시 타이트 조정 — conflictNote 룰 1("익절 3% 내")과 일관.
+    private static final BigDecimal PLAN_STOP_PCT_TIGHT = new BigDecimal("-2");
+    private static final BigDecimal PLAN_TARGET_PCT_TIGHT = new BigDecimal("3");
+    /** MFE/MAE 집계 윈도우 (일) — 표본 안정성 위해 적중률(30일)보다 길게. */
+    private static final int MFE_MAE_WINDOW_DAYS = 90;
 
     public StockConclusionDto getConclusion(String stockCode) {
         Optional<RecommendationSnapshot> snapshotOpt = snapshotRepository.findLatestByStockCode(stockCode);
@@ -110,9 +127,74 @@ public class StockConclusionService {
                 .guidance(guidance)
                 .conflictNote(detectConflicts(s))
                 .factors(factors)
+                .tradePlan(buildTradePlan(s, level))
                 .dataAt(s.getSnapshotAt())
                 .dataAvailable(true)
                 .build();
+    }
+
+    /**
+     * 매매 계획 — STRONG_BUY / BUY 일 때만. 손절/목표 % 는 스윙 봇 기준(-3/+5),
+     * "단기 강 + 밸류 매우 약"(conflictNote 룰 1) 조합이면 타이트(-2/+3).
+     * 현재가는 공용 단일 경로(StockPriceService.getStockPrice) 경유 — 실패 시 % 만 제공.
+     * 과거 동일 시그널의 MFE/MAE 평균을 함께 실어 손절/목표선의 현실성을 보여준다.
+     */
+    private TradePlan buildTradePlan(RecommendationSnapshot s, Level level) {
+        if (level != Level.STRONG_BUY && level != Level.BUY) return null;
+
+        boolean tight = s.getTotalScore() >= STRONG_BUY_THRESHOLD
+                && s.getValueStability() >= 0 && s.getValueStability() < 4;
+        BigDecimal stopPct = tight ? PLAN_STOP_PCT_TIGHT : PLAN_STOP_PCT;
+        BigDecimal targetPct = tight ? PLAN_TARGET_PCT_TIGHT : PLAN_TARGET_PCT;
+
+        BigDecimal basePrice = null;
+        try {
+            StockPriceDto price = stockPriceService.getStockPrice(s.getStockCode());
+            if (price != null && price.getCurrentPrice() != null
+                    && price.getCurrentPrice().signum() > 0) {
+                basePrice = price.getCurrentPrice();
+            }
+        } catch (Exception e) {
+            log.debug("[Conclusion] 매매 계획 기준가 조회 실패 {}: {}", s.getStockCode(), e.getMessage());
+        }
+
+        BigDecimal avgMfe = null, avgMae = null;
+        long sampleCount = 0;
+        try {
+            List<Object[]> rows = signalOutcomeRepository.aggregateMfeMae(
+                    level.name(), LocalDate.now().minusDays(MFE_MAE_WINDOW_DAYS));
+            if (!rows.isEmpty() && rows.get(0)[0] != null) {
+                Object[] row = rows.get(0);
+                sampleCount = ((Number) row[0]).longValue();
+                if (sampleCount > 0) {
+                    avgMfe = row[1] == null ? null
+                            : new BigDecimal(row[1].toString()).setScale(2, RoundingMode.HALF_UP);
+                    avgMae = row[2] == null ? null
+                            : new BigDecimal(row[2].toString()).setScale(2, RoundingMode.HALF_UP);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("[Conclusion] MFE/MAE 집계 실패: {}", e.getMessage());
+        }
+
+        return TradePlan.builder()
+                .basePrice(basePrice)
+                .stopLossPct(stopPct)
+                .targetPct(targetPct)
+                .stopLossPrice(applyPct(basePrice, stopPct))
+                .targetPrice(applyPct(basePrice, targetPct))
+                .avgMfePct(avgMfe)
+                .avgMaePct(avgMae)
+                .mfeMaeSampleCount(sampleCount)
+                .build();
+    }
+
+    /** basePrice × (1 + pct/100), 원 단위 반올림. basePrice null 이면 null. */
+    private static BigDecimal applyPct(BigDecimal basePrice, BigDecimal pct) {
+        if (basePrice == null) return null;
+        return basePrice.multiply(BigDecimal.ONE.add(
+                        pct.divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP)))
+                .setScale(0, RoundingMode.HALF_UP);
     }
 
     /**
@@ -185,6 +267,7 @@ public class StockConclusionService {
     }
 
     private List<Factor> buildFactors(RecommendationSnapshot s) {
+        String tags = s.getTags();
         List<Factor> list = new ArrayList<>();
         list.add(Factor.builder()
                 .key("total")
@@ -200,7 +283,7 @@ public class StockConclusionService {
                 .dimension("LONG")
                 .score(s.getEarnings())
                 .verdict(verdictFor(s.getEarnings(), 8, 15))
-                .note("어닝 서프라이즈 + 매출/영업이익 추세")
+                .note(withEvidence("어닝 서프라이즈 + 매출/영업이익 추세", tags, "earnings"))
                 .build());
         list.add(Factor.builder()
                 .key("supplyDemand")
@@ -208,7 +291,7 @@ public class StockConclusionService {
                 .dimension("SHORT")
                 .score(s.getSupplyDemand())
                 .verdict(verdictFor(s.getSupplyDemand(), 8, SUPPLY_DEMAND_STRONG))
-                .note("외국인/기관 순매수 추세")
+                .note(withEvidence("외국인/기관 순매수 추세", tags, "supplyDemand"))
                 .build());
         list.add(Factor.builder()
                 .key("technical")
@@ -216,7 +299,7 @@ public class StockConclusionService {
                 .dimension("SHORT")
                 .score(s.getTechnical())
                 .verdict(verdictFor(s.getTechnical(), TECHNICAL_WEAK, 15))
-                .note("RSI / 이동평균선 / 모멘텀")
+                .note(withEvidence("RSI / 이동평균선 / 모멘텀", tags, "technical"))
                 .build());
         list.add(Factor.builder()
                 .key("sectorMomentum")
@@ -224,7 +307,7 @@ public class StockConclusionService {
                 .dimension("SHORT")
                 .score(s.getSectorMomentum())
                 .verdict(verdictFor(s.getSectorMomentum(), 8, 15))
-                .note("섹터 거래대금 INFLOW/OUTFLOW")
+                .note(withEvidence("섹터 거래대금 INFLOW/OUTFLOW", tags, "sectorMomentum"))
                 .build());
         list.add(Factor.builder()
                 .key("valueStability")
@@ -234,7 +317,7 @@ public class StockConclusionService {
                 .verdict(verdictFor(s.getValueStability(), 8, VALUE_STRONG_THRESHOLD))
                 // 라벨/노트 정정 — "지금 싼가(저평가 정도)"를 보는 밸류 지표. 산업 전망/성장성은
                 // 아래 '성장성' factor 가 담당. 점수 낮음 = "안 싸다"이지 "장기 전망 나쁨"이 아님.
-                .note("저평가 정도 (PBR·ROE·부채비율·흑자) — 전망 아님")
+                .note(withEvidence("저평가 정도 (PBR·ROE·부채비율·흑자) — 전망 아님", tags, "valueStability"))
                 .build());
         list.add(Factor.builder()
                 .key("growth")
@@ -242,9 +325,50 @@ public class StockConclusionService {
                 .dimension("LONG")
                 .score(s.getGrowth())
                 .verdict(verdictFor(s.getGrowth(), 8, VALUE_STRONG_THRESHOLD))
-                .note("매출·이익 성장률 + PEG (산업/실적 성장)")
+                .note(withEvidence("매출·이익 성장률 + PEG (산업/실적 성장)", tags, "growth"))
                 .build());
         return list;
+    }
+
+    // 카테고리별 근거 태그 키워드 — RecommendationService 가 스냅샷에 남기는 태그 어휘 기준.
+    // 태그가 "왜 이 점수인지"의 실측 근거 (예: 수급 16점 ← "외국인3일연속(초기), 기관순매수").
+    private static final String[] EARNINGS_KEYWORDS = {"실적", "흑자전환", "어닝"};
+    private static final String[] SUPPLY_KEYWORDS = {"외국인", "기관", "수급"};
+    private static final String[] TECHNICAL_KEYWORDS = {"골든크로스", "정배열", "RSI", "볼린저", "MA20", "과열", "기술"};
+    private static final String[] SECTOR_KEYWORDS = {"섹터"};
+    private static final String[] VALUE_KEYWORDS = {"PBR", "저부채", "흑자+자본", "우량", "STRONG+VALUE"};
+    private static final String[] GROWTH_KEYWORDS = {"성장", "이익급증", "PEG"};
+
+    /**
+     * 스냅샷 태그 중 해당 카테고리 근거를 base note 에 덧붙인다 (최대 3개).
+     * 매칭 태그 없으면 base 그대로 — 과거 행/태그 빈약 종목에서도 안전.
+     */
+    static String withEvidence(String base, String tagsCsv, String factorKey) {
+        if (tagsCsv == null || tagsCsv.isBlank()) return base;
+        String[] keywords = switch (factorKey) {
+            case "earnings" -> EARNINGS_KEYWORDS;
+            case "supplyDemand" -> SUPPLY_KEYWORDS;
+            case "technical" -> TECHNICAL_KEYWORDS;
+            case "sectorMomentum" -> SECTOR_KEYWORDS;
+            case "valueStability" -> VALUE_KEYWORDS;
+            case "growth" -> GROWTH_KEYWORDS;
+            default -> null;
+        };
+        if (keywords == null) return base;
+        List<String> matched = new ArrayList<>();
+        for (String tag : tagsCsv.split(",")) {
+            String t = tag.trim();
+            if (t.isEmpty()) continue;
+            for (String kw : keywords) {
+                if (t.contains(kw)) {
+                    matched.add(t);
+                    break;
+                }
+            }
+            if (matched.size() >= 3) break;
+        }
+        if (matched.isEmpty()) return base;
+        return base + " · 근거: " + String.join(", ", matched);
     }
 
     private String verdictFor(int score, int neutralMin, int positiveMin) {

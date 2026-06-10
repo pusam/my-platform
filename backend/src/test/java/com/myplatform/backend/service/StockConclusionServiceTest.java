@@ -2,8 +2,10 @@ package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockConclusionDto.Level;
+import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.RecommendationSnapshot;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
+import com.myplatform.backend.repository.SignalOutcomeRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,11 +13,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
@@ -33,12 +40,18 @@ import static org.mockito.Mockito.when;
 class StockConclusionServiceTest {
 
     @Mock private RecommendationSnapshotRepository snapshotRepository;
+    @Mock private SignalOutcomeRepository signalOutcomeRepository;
+    @Mock private StockPriceService stockPriceService;
 
     private StockConclusionService service;
 
     @BeforeEach
     void setUp() {
-        service = new StockConclusionService(snapshotRepository);
+        service = new StockConclusionService(snapshotRepository, signalOutcomeRepository, stockPriceService);
+        // 기본: 시세/MFE 데이터 없음 — tradePlan 은 % 만 채워짐. 개별 테스트에서 덮어씀.
+        lenient().when(stockPriceService.getStockPrice(anyString())).thenReturn(null);
+        lenient().when(signalOutcomeRepository.aggregateMfeMae(anyString(), any()))
+                .thenReturn(List.of());
     }
 
     private RecommendationSnapshot snapshot(int total, int earnings, int supply, int technical, int sector, int value) {
@@ -213,5 +226,133 @@ class StockConclusionServiceTest {
         StockConclusionDto result = service.getConclusion("005930");
 
         assertThat(result.getConflictNote()).isNull();
+    }
+
+    // ================================================================
+    // 매매 계획 (tradePlan) — 손절/목표가 + MFE/MAE
+    // ================================================================
+
+    @Test
+    @DisplayName("tradePlan: STRONG_BUY + 현재가 70,000 → 손절 -3%(67,900) / 목표 +5%(73,500)")
+    void tradePlan_strongBuy_defaultPcts() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 15, 14, 10)));
+        StockPriceDto price = new StockPriceDto();
+        price.setCurrentPrice(new BigDecimal("70000"));
+        when(stockPriceService.getStockPrice("005930")).thenReturn(price);
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan()).isNotNull();
+        assertThat(result.getTradePlan().getStopLossPct()).isEqualByComparingTo("-3");
+        assertThat(result.getTradePlan().getTargetPct()).isEqualByComparingTo("5");
+        assertThat(result.getTradePlan().getStopLossPrice()).isEqualByComparingTo("67900");
+        assertThat(result.getTradePlan().getTargetPrice()).isEqualByComparingTo("73500");
+        assertThat(result.getTradePlan().getBasePrice()).isEqualByComparingTo("70000");
+    }
+
+    @Test
+    @DisplayName("tradePlan: 단기 강 + 밸류 매우 약(2) → 타이트 -2%/+3% (conflictNote 룰 1과 일관)")
+    void tradePlan_tightWhenValueVeryLow() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(80, 16, 16, 14, 14, 2)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan()).isNotNull();
+        assertThat(result.getTradePlan().getStopLossPct()).isEqualByComparingTo("-2");
+        assertThat(result.getTradePlan().getTargetPct()).isEqualByComparingTo("3");
+    }
+
+    @Test
+    @DisplayName("tradePlan: WAIT 레벨 → tradePlan null")
+    void tradePlan_nullForWait() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(40, 8, 8, 8, 8, 5)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan()).isNull();
+    }
+
+    @Test
+    @DisplayName("tradePlan: 현재가 조회 실패 → 가격 null, % 는 유지")
+    void tradePlan_pctOnlyWhenPriceUnavailable() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
+        when(stockPriceService.getStockPrice(anyString())).thenReturn(null);
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan()).isNotNull();
+        assertThat(result.getTradePlan().getBasePrice()).isNull();
+        assertThat(result.getTradePlan().getStopLossPrice()).isNull();
+        assertThat(result.getTradePlan().getStopLossPct()).isEqualByComparingTo("-3");
+    }
+
+    @Test
+    @DisplayName("tradePlan: 과거 BUY 시그널 MFE/MAE 평균 + 표본 수 동봉")
+    void tradePlan_includesMfeMaeStats() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
+        when(signalOutcomeRepository.aggregateMfeMae(eq("BUY"), any()))
+                .thenReturn(List.<Object[]>of(new Object[]{12L, new BigDecimal("4.1234"), new BigDecimal("-2.5678")}));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan().getMfeMaeSampleCount()).isEqualTo(12);
+        assertThat(result.getTradePlan().getAvgMfePct()).isEqualByComparingTo("4.12");
+        assertThat(result.getTradePlan().getAvgMaePct()).isEqualByComparingTo("-2.57");
+    }
+
+    // ================================================================
+    // factor 근거 텍스트 — 스냅샷 태그 → 카테고리 매핑
+    // ================================================================
+
+    @Test
+    @DisplayName("근거: 수급 factor 에 외국인/기관 태그, 기술 factor 에 골든크로스 태그 표시")
+    void factorEvidence_tagsMappedToCategories() {
+        RecommendationSnapshot s = snapshot(80, 16, 16, 15, 14, 10);
+        s.setTags("외국인3일연속(초기),골든크로스,PBR저평가,기관순매수");
+        when(snapshotRepository.findLatestByStockCode(anyString())).thenReturn(Optional.of(s));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        String supplyNote = factorNote(result, "supplyDemand");
+        assertThat(supplyNote).contains("근거:").contains("외국인3일연속(초기)").contains("기관순매수");
+        assertThat(factorNote(result, "technical")).contains("골든크로스");
+        assertThat(factorNote(result, "valueStability")).contains("PBR저평가");
+        // 매칭 태그 없는 factor 는 base note 그대로
+        assertThat(factorNote(result, "earnings")).doesNotContain("근거:");
+    }
+
+    @Test
+    @DisplayName("근거: 태그 없으면 base note 그대로 (NPE/포맷 깨짐 없음)")
+    void factorEvidence_noTags() {
+        RecommendationSnapshot s = snapshot(60, 12, 10, 10, 10, 8);
+        s.setTags(null);
+        when(snapshotRepository.findLatestByStockCode(anyString())).thenReturn(Optional.of(s));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(factorNote(result, "supplyDemand")).isEqualTo("외국인/기관 순매수 추세");
+    }
+
+    @Test
+    @DisplayName("근거: 카테고리당 최대 3개 태그까지만")
+    void factorEvidence_capsAtThree() {
+        String tags = "외국인3일연속,기관5일연속,외국인순매수200억,기관순매수,수급괴리";
+        String note = StockConclusionService.withEvidence("base", tags, "supplyDemand");
+
+        // "근거: " 뒤 콤마 구분 3개
+        assertThat(note).startsWith("base · 근거: ");
+        assertThat(note.substring(note.indexOf("근거: ")).split(",")).hasSize(3);
+    }
+
+    private String factorNote(StockConclusionDto dto, String key) {
+        return dto.getFactors().stream()
+                .filter(f -> f.getKey().equals(key))
+                .findFirst().orElseThrow()
+                .getNote();
     }
 }

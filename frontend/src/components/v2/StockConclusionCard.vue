@@ -32,10 +32,25 @@
       </div>
     </div>
 
+    <div v-if="conclusion.tradePlan" class="trade-plan">
+      <div class="tp-row">
+        <span class="tp-title">📐 매매 계획 <span class="tp-basis">스윙 기준{{ isTightPlan ? ' · 타이트(밸류 약)' : '' }}</span></span>
+        <span v-if="conclusion.tradePlan.basePrice" class="tp-item">진입 <b>{{ formatPrice(conclusion.tradePlan.basePrice) }}원</b></span>
+        <span class="tp-item tp-stop">손절 <b>{{ planPriceLabel(conclusion.tradePlan.stopLossPrice, conclusion.tradePlan.stopLossPct) }}</b></span>
+        <span class="tp-item tp-target">목표 <b>{{ planPriceLabel(conclusion.tradePlan.targetPrice, conclusion.tradePlan.targetPct) }}</b></span>
+      </div>
+      <div v-if="conclusion.tradePlan.mfeMaeSampleCount > 0" class="tp-mfe">
+        과거 {{ levelLabel }} 시그널 {{ conclusion.tradePlan.mfeMaeSampleCount }}건 실측 — 3거래일 내 평균 최고
+        <b class="tp-pos">{{ signedPct(conclusion.tradePlan.avgMfePct) }}</b> / 최저
+        <b class="tp-neg">{{ signedPct(conclusion.tradePlan.avgMaePct) }}</b>
+      </div>
+    </div>
+
     <div v-if="accuracyStat" class="accuracy-line">
       <span class="acc-label">📊 {{ accuracyStat.signalType }} 시그널 지난 30일 적중률</span>
       <span class="acc-rate" :class="accuracyClass">{{ accuracyStat.hitRate }}%</span>
       <span class="acc-detail">({{ accuracyStat.hitCount }}/{{ accuracyStat.totalSignals }}건, 평균 {{ accuracyStat.avgPctChange }}%)</span>
+      <span v-if="bandStat" class="acc-detail band">· 이 점수대({{ bandStat.band }}) {{ bandStat.hitRate }}% ({{ bandStat.totalSignals }}건/90일)</span>
     </div>
     <div v-else-if="accuracyEmpty" class="accuracy-line empty">
       <span class="acc-label">📊 적중률 데이터 누적 중 — 3일 후 첫 평가 결과 확보</span>
@@ -68,6 +83,7 @@ const error = ref(false);
 const showChecklist = ref(false);
 const accuracyStats = ref([]);   // 전체 시그널 타입별 통계 (배열)
 const accuracyEmpty = ref(false); // 데이터 누적 중 표시 플래그
+const bandStats = ref([]);        // 점수 구간별 적중률 (V30, 90일 윈도우)
 
 const fetchConclusion = async (code) => {
   if (!code) return;
@@ -98,6 +114,12 @@ const fetchAccuracy = async () => {
   } catch (e) {
     // 데이터 부족 / API 오류 시 조용히 무시
   }
+  try {
+    const { data } = await apiClient.get('/signal-outcomes/accuracy-by-band', { params: { days: 90 } });
+    if (data?.success) bandStats.value = data.data?.bands || [];
+  } catch (e) {
+    // V30 집계 미가용 시 조용히 무시 (기존 적중률 라인은 그대로 표시)
+  }
 };
 
 watch(() => props.stockCode, (code) => {
@@ -112,6 +134,27 @@ const accuracyStat = computed(() => {
   if (level !== 'STRONG_BUY' && level !== 'BUY') return null;
   return accuracyStats.value.find(s => s.signalType === level) || null;
 });
+
+// 현재 종목의 종합 점수가 속한 구간의 적중률 (표본 있을 때만).
+const bandStat = computed(() => {
+  const total = conclusion.value?.factors?.find(f => f.key === 'total')?.score;
+  if (total == null) return null;
+  const band = bandStats.value.find(b => total >= b.scoreFrom && total <= b.scoreTo);
+  return band && band.totalSignals > 0 ? band : null;
+});
+
+// 타이트 계획 여부 — 백엔드가 -2%/+3% 로 내려준 경우 (단기 강 + 밸류 매우 약 충돌).
+const isTightPlan = computed(() => Number(conclusion.value?.tradePlan?.targetPct) === 3);
+
+const formatPrice = (v) => Number(v).toLocaleString();
+
+// 가격 있으면 "67,900원 (-3%)", 없으면 "% 만" 표시.
+const planPriceLabel = (price, pct) => {
+  const pctLabel = `${Number(pct) > 0 ? '+' : ''}${pct}%`;
+  return price != null ? `${formatPrice(price)}원 (${pctLabel})` : pctLabel;
+};
+
+const signedPct = (v) => (v == null ? '—' : `${Number(v) > 0 ? '+' : ''}${v}%`);
 
 const accuracyClass = computed(() => {
   const rate = Number(accuracyStat.value?.hitRate || 0);
@@ -301,6 +344,33 @@ const openChecklist = () => { showChecklist.value = true; };
 .fresh-good  { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.5); }
 .fresh-mid   { background: #eab308; box-shadow: 0 0 6px rgba(234, 179, 8, 0.5); }
 .fresh-stale { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+
+.trade-plan {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(59, 130, 246, 0.07);
+  border: 1px solid rgba(147, 197, 253, 0.18);
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+.tp-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.tp-title { font-weight: 700; }
+.tp-basis { font-weight: 400; font-size: 11px; opacity: 0.6; }
+.tp-item b { font-weight: 700; }
+.tp-stop b { color: #f87171; }
+.tp-target b { color: #4ade80; }
+.tp-mfe {
+  margin-top: 6px;
+  font-size: 11.5px;
+  opacity: 0.75;
+}
+.tp-pos { color: #4ade80; }
+.tp-neg { color: #f87171; }
 
 .accuracy-line {
   margin-top: 12px;

@@ -265,6 +265,9 @@
         </div>
       </div>
 
+      <!-- 추천 트랙레코드 (백테스트) -->
+      <BacktestPerformancePanel />
+
       <!-- 면책 조항 -->
       <div class="disclaimer">
         <p>본 추천은 AI 알고리즘에 의한 참고 자료이며, 투자 결정은 본인의 판단과 책임 하에 이루어져야 합니다.</p>
@@ -277,6 +280,7 @@
 import { ref, computed, onMounted, watch, defineProps } from 'vue';
 import { useRouter } from 'vue-router';
 import BackButton from '../components/BackButton.vue';
+import BacktestPerformancePanel from '../components/v2/BacktestPerformancePanel.vue';
 
 const props = defineProps({
   embedded: { type: Boolean, default: false }

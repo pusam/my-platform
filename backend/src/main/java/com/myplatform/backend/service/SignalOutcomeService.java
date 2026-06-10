@@ -76,6 +76,19 @@ public class SignalOutcomeService {
     @Transactional
     public void record(String signalType, String stockCode, String stockName,
                        Integer signalScore, BigDecimal priceAtSignal) {
+        record(signalType, stockCode, stockName, signalScore, priceAtSignal,
+                null, null, null, null);
+    }
+
+    /**
+     * 카테고리 점수 스냅샷 포함 기록 — V30. 카테고리 조건부 적중률("수급 주도 vs 기술 주도
+     * 추천 중 뭐가 먹혔나") 집계를 위해 시그널 시점의 4 카테고리 점수를 함께 저장.
+     */
+    @Transactional
+    public void record(String signalType, String stockCode, String stockName,
+                       Integer signalScore, BigDecimal priceAtSignal,
+                       Integer earnings, Integer supplyDemand,
+                       Integer technical, Integer sectorMomentum) {
         if (signalType == null || stockCode == null || priceAtSignal == null
                 || priceAtSignal.signum() <= 0) {
             return;
@@ -96,6 +109,10 @@ public class SignalOutcomeService {
                     .signalScore(signalScore)
                     .priceAtSignal(priceAtSignal)
                     .bmPriceAtSignal(bmPrice)
+                    .earningsAtSignal(earnings)
+                    .supplyDemandAtSignal(supplyDemand)
+                    .technicalAtSignal(technical)
+                    .sectorMomentumAtSignal(sectorMomentum)
                     .build());
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
@@ -416,6 +433,113 @@ public class SignalOutcomeService {
     private static BigDecimal subtractOrNull(BigDecimal a, BigDecimal b) {
         if (a == null || b == null) return null;
         return a.subtract(b).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    // ================================================================
+    // 조건부 적중률 — 점수 구간별 + 카테고리 강세별 (V30)
+    // ================================================================
+
+    /** 점수 구간 정의 — BUY 컷(55)부터. [from, to] 닫힌 구간. */
+    private static final int[][] SCORE_BANDS = {{55, 64}, {65, 74}, {75, 84}, {85, 100}};
+    /** 카테고리 "강세" 판정 임계 — 결론 카드 POSITIVE 기준(15)과 동일. */
+    static final int CATEGORY_STRONG_THRESHOLD = 15;
+
+    /** 조건부 적중률 — 최근 days 일 평가 완료분 기준. */
+    public com.myplatform.backend.dto.SignalBandAccuracyDto getAccuracyByBand(int days) {
+        int d = days < 1 ? 90 : days;
+        LocalDate from = LocalDate.now().minusDays(d);
+        List<SignalOutcome> rows = repository.findEvaluatedSince(from);
+        return com.myplatform.backend.dto.SignalBandAccuracyDto.builder()
+                .daysWindow(d)
+                .bands(aggregateBands(rows))
+                .categories(aggregateCategories(rows))
+                .build();
+    }
+
+    /** 점수 구간별 집계 — 순수 함수 (테스트 대상). signalScore 없는 행은 제외. */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.BandStat> aggregateBands(
+            List<SignalOutcome> rows) {
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.BandStat> result = new ArrayList<>();
+        for (int[] band : SCORE_BANDS) {
+            long total = 0, hits = 0;
+            BigDecimal pctSum = BigDecimal.ZERO, alphaSum = BigDecimal.ZERO;
+            long pctCount = 0, alphaCount = 0;
+            for (SignalOutcome s : rows) {
+                Integer score = s.getSignalScore();
+                if (score == null || score < band[0] || score > band[1]) continue;
+                total++;
+                if (Boolean.TRUE.equals(s.getHit())) hits++;
+                if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+                if (s.getAlpha3d() != null) { alphaSum = alphaSum.add(s.getAlpha3d()); alphaCount++; }
+            }
+            result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.BandStat.builder()
+                    .band(band[0] + "~" + band[1])
+                    .scoreFrom(band[0])
+                    .scoreTo(band[1])
+                    .totalSignals(total)
+                    .hitCount(hits)
+                    .hitRate(rate(hits, total))
+                    .avgPctChange(avg(pctSum, pctCount))
+                    .avgAlpha(avg(alphaSum, alphaCount))
+                    .build());
+        }
+        return result;
+    }
+
+    /** 카테고리 강세(≥15) 표본별 집계 — 순수 함수. V30 컬럼 NULL 행(과거 데이터)은 제외. */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat> aggregateCategories(
+            List<SignalOutcome> rows) {
+        String[][] defs = {
+                {"earnings", "실적"},
+                {"supplyDemand", "수급"},
+                {"technical", "기술"},
+                {"sectorMomentum", "섹터"},
+        };
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat> result = new ArrayList<>();
+        for (String[] def : defs) {
+            long total = 0, hits = 0;
+            BigDecimal pctSum = BigDecimal.ZERO;
+            long pctCount = 0;
+            for (SignalOutcome s : rows) {
+                Integer score = categoryScore(s, def[0]);
+                if (score == null || score < CATEGORY_STRONG_THRESHOLD) continue;
+                total++;
+                if (Boolean.TRUE.equals(s.getHit())) hits++;
+                if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+            }
+            result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat.builder()
+                    .key(def[0])
+                    .label(def[1])
+                    .strongThreshold(CATEGORY_STRONG_THRESHOLD)
+                    .totalSignals(total)
+                    .hitCount(hits)
+                    .hitRate(rate(hits, total))
+                    .avgPctChange(avg(pctSum, pctCount))
+                    .build());
+        }
+        return result;
+    }
+
+    private static Integer categoryScore(SignalOutcome s, String key) {
+        return switch (key) {
+            case "earnings" -> s.getEarningsAtSignal();
+            case "supplyDemand" -> s.getSupplyDemandAtSignal();
+            case "technical" -> s.getTechnicalAtSignal();
+            case "sectorMomentum" -> s.getSectorMomentumAtSignal();
+            default -> null;
+        };
+    }
+
+    private static BigDecimal rate(long hits, long total) {
+        if (total == 0) return BigDecimal.ZERO;
+        return BigDecimal.valueOf(hits)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal avg(BigDecimal sum, long count) {
+        if (count == 0) return null;
+        return sum.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
     }
 
     /**

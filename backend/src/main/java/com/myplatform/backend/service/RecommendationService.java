@@ -520,8 +520,11 @@ public class RecommendationService {
                         continue;
                     }
                     try {
+                        // V30 — 카테고리 점수 스냅샷 동봉: 카테고리 조건부 적중률 집계용.
                         outcomeService.record(signalType, dto.getStockCode(), dto.getStockName(),
-                                dto.getTotalScore(), dto.getCurrentPrice());
+                                dto.getTotalScore(), dto.getCurrentPrice(),
+                                dto.getEarnings(), dto.getSupplyDemand(),
+                                dto.getTechnical(), dto.getSectorMomentum());
                     } catch (Exception ignore) { /* 적중률 추적은 best-effort */ }
                 }
             }

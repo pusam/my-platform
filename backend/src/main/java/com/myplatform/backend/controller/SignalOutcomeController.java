@@ -52,6 +52,30 @@ public class SignalOutcomeController {
         }
     }
 
+    @GetMapping("/accuracy-by-band")
+    @Operation(
+        summary = "조건부 적중률 — 점수 구간별 + 카테고리 강세별 (V30)",
+        description = "최근 N일(기본 90) 평가 완료 시그널을 (1) signalScore 구간(55~64/65~74/75~84/85~100)별, " +
+                     "(2) 시그널 시점 카테고리 점수 강세(≥15) 표본별로 집계. " +
+                     "'75점과 90점의 적중률이 실제로 다른가', '수급 주도 vs 기술 주도 추천 중 뭐가 먹혔나' 검증용. " +
+                     "카테고리 집계는 V30 이후 누적분만 포함."
+    )
+    public ResponseEntity<Map<String, Object>> accuracyByBand(
+            @RequestParam(defaultValue = "90") int days) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", signalOutcomeService.getAccuracyByBand(days));
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[SignalOutcome API] 조건부 적중률 조회 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "조건부 적중률 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
     @GetMapping("/timeseries")
     @Operation(
         summary = "시그널 일별 시계열 (phase 33)",

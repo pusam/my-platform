@@ -46,6 +46,22 @@ public class SignalOutcome {
     @Column(name = "signal_score")
     private Integer signalScore;
 
+    /** 시그널 시점 실적 점수 (0~20) — V30. 카테고리 조건부 적중률 집계용. 기존 행은 NULL. */
+    @Column(name = "earnings_at_signal")
+    private Integer earningsAtSignal;
+
+    /** 시그널 시점 수급 점수 (0~20) — V30. */
+    @Column(name = "supply_demand_at_signal")
+    private Integer supplyDemandAtSignal;
+
+    /** 시그널 시점 기술 점수 (0~20) — V30. */
+    @Column(name = "technical_at_signal")
+    private Integer technicalAtSignal;
+
+    /** 시그널 시점 섹터 점수 (0~20) — V30. */
+    @Column(name = "sector_momentum_at_signal")
+    private Integer sectorMomentumAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 

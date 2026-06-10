@@ -93,6 +93,32 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     java.math.BigDecimal averageAlphaSince(@Param("type") String signalType,
                                             @Param("from") LocalDate from);
 
+    /**
+     * 특정 시그널 타입의 MFE / MAE 평균 — 매매 계획(손절/목표) 현실성 표시용.
+     * <p>리턴: [count, avgMfe, avgMae]. MFE/MAE 둘 다 채워진(평가 + KIS OHLC 성공) 행만 집계.
+     */
+    @Query("""
+        SELECT COUNT(s),
+               AVG(s.mfePct3d),
+               AVG(s.maePct3d)
+          FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.signalType = :type
+           AND s.signalDate >= :from
+           AND s.mfePct3d IS NOT NULL
+           AND s.maePct3d IS NOT NULL
+        """)
+    List<Object[]> aggregateMfeMae(@Param("type") String signalType,
+                                   @Param("from") LocalDate from);
+
+    /** 평가 완료된 시그널 전체 — 점수 구간/카테고리 조건부 적중률 집계 입력 (서비스에서 순수 함수로 집계). */
+    @Query("""
+        SELECT s FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.signalDate >= :from
+        """)
+    List<SignalOutcome> findEvaluatedSince(@Param("from") LocalDate from);
+
     /** phase 35b 진단 — 마지막 signal_date. */
     @Query("SELECT MAX(s.signalDate) FROM SignalOutcome s")
     java.util.Optional<LocalDate> findMaxSignalDate();
