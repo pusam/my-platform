@@ -725,6 +725,10 @@ public class MarketTimingService {
      * 당일 등락비가 없으면 실시간 크롤링으로 보충
      * - 지수는 실시간 API로 갱신되지만 등락비는 16:30 스케줄 수집에 의존
      * - 장중에는 DB에 오늘 데이터가 없으므로 등락비도 실시간으로 보충
+     * - ★ condition 은 건드리지 않는다 (점검 수정 2026-06-11): 과거엔 당일 등락비를
+     *   determineCondition(ADR 임계 120/80/60)에 넣어 ADR 기반 판정을 덮어썼는데,
+     *   하루짜리 등락비는 20일 ADR 보다 변동성이 훨씬 커서 평범한 상승일(등락비 150)도
+     *   장중 '과열', 평범한 하락일(70)도 '침체'로 오판되는 버그였음.
      */
     private void refreshDailyRatioIfMissing(MarketStatusDto status, String marketType) {
         if (status == null || status.getDailyRatio() != null) {
@@ -733,18 +737,28 @@ public class MarketTimingService {
         try {
             int adv = crawlStockCount(marketType, "rise");
             int dec = crawlStockCount(marketType, "fall");
-            if (dec > 0) {
-                BigDecimal dailyRatio = BigDecimal.valueOf(adv)
-                        .divide(BigDecimal.valueOf(dec), 2, RoundingMode.HALF_UP)
-                        .multiply(new BigDecimal("100"));
-                status.setDailyRatio(dailyRatio);
-                // 당일 등락비 기준으로 condition도 갱신
-                status.setCondition(determineCondition(dailyRatio));
+            BigDecimal dailyRatio = applyDailyRatio(status, adv, dec);
+            if (dailyRatio != null) {
                 log.info("{} 당일 등락비 실시간 보충: {} (상승={}, 하락={})", marketType, dailyRatio, adv, dec);
             }
         } catch (Exception e) {
             log.debug("{} 당일 등락비 실시간 보충 실패: {}", marketType, e.getMessage());
         }
+    }
+
+    /**
+     * 당일 등락비 계산·세팅 — 순수 로직 (테스트 대상). dailyRatio 만 채우고
+     * ADR(20일) 기반 condition 은 보존한다. 분모(하락 종목 수) 0 이하이면 no-op.
+     */
+    static BigDecimal applyDailyRatio(MarketStatusDto status, int adv, int dec) {
+        if (status == null || dec <= 0) {
+            return null;
+        }
+        BigDecimal dailyRatio = BigDecimal.valueOf(adv)
+                .divide(BigDecimal.valueOf(dec), 2, RoundingMode.HALF_UP)
+                .multiply(new BigDecimal("100"));
+        status.setDailyRatio(dailyRatio);
+        return dailyRatio;
     }
 
     /**
