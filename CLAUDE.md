@@ -47,6 +47,13 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 종합추천: 핵심 4카테고리(earnings/supplyDemand/technical/sectorMomentum) ×20 = raw80 → normalize 0~100, **validCount≥3**(coverage 75%) 이어야 채택.
 - 임계: **STRONG_BUY ≥75 / BUY 55~74 / HOLD 40~54 / <40 제외**. total≥75 & valueStability≥12 → +2 보너스.
 - 시그널 hit = **alpha_3d ≥ 0 AND pct_change_3d > 0** (3거래일), alpha 없으면 폴백 pct≥3%.
+- 매매계획(결론카드 tradePlan): 손절/익절 % 는 **스윙 봇과 동기(-3%/+5%)**, "단기 강+밸류<4" 충돌 시 -2%/+3% 타이트. 봇 상수 바꾸면 `StockConclusionService.PLAN_*` 도 같이.
+- `signal_outcome` 에 record 시점 스냅샷 누적: **V30 카테고리 점수 4종 + V31 재료(catalyst)**. 조건부 적중률(`/api/signal-outcomes/accuracy-by-band` — 점수구간/카테고리강세/재료방향별) 검증용. NULL=미수집(집계 제외) 의미 유지할 것.
+
+### 4b. 재료(catalyst) 태그는 산식 미편입 (의도)
+- 네이버 뉴스 → Gemini 분류(`StockCatalystService`) → `stock_catalyst` **일캐시(종목·일자 1회)**. 용도는 **배지 표시 + 시그널 스냅샷(검증)뿐** — 재료별 적중률이 데이터로 검증되기 전엔 점수 산식에 넣지 말 것.
+- 알림: **신규 분류 시에만** 호재→시그널 채널 / 악재→리스크 채널 (캐시 히트 무알림 = 스팸 방지). 분류 실패(Gemini circuit open 등)는 **캐시 안 함** → 다음 기회 재시도.
+- 모닝브리핑(07:30) 후행 워밍: BUY 컷(55) 이상 **상한 5종목** — Gemini quota 가드. 근거 없이 늘리지 말 것.
 
 ### 5. 인프라 관련
 - 스케줄러 락(`SchedulerLockService`)은 **fail-open** (Redis SET NX EX). TTL < cron 으로 누락 시 다음 cron 재시도. **단일 인스턴스 전제 — 매매봇(`AutoTradingBotService` 실주문)은 이 락 미사용(JVM 내 가드만). 멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(fail-open으론 Redis 장애 시 중복 주문 못 막음).
@@ -57,10 +64,18 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 ---
 
 ## 코드 위치 힌트 (탐색 시작점)
-- 점수: `RecommendationService`, 결론: `StockConclusionService`, 체크리스트: `BuyChecklistService`
-- 시그널 평가: `SignalOutcomeService` (19:30 배치, 3거래일 후)
+- 점수: `RecommendationService`, 결론+매매계획: `StockConclusionService`, 체크리스트: `BuyChecklistService`
+- 시그널 평가: `SignalOutcomeService` (19:30 배치, 3거래일 후) — 조건부 적중률 집계(`getAccuracyByBand`)도 여기
+- 재료: `StockCatalystService` (V31, 네이버→Gemini→일캐시), API 는 `StockDetailController` `/api/stock/{code}/catalyst`
+- 백테스트 API: `BacktestController` `/api/backtest/performance` (서비스는 기존 `BacktestService`)
+- 모닝브리핑+재료워밍: `MorningBriefingService` (크론은 `StockAlertScheduler` 07:30)
 - 시세: `StockPriceService`, KIS: `KoreaInvestmentService`
 - 봇: `AutoTradingBotService`, 성과: `BotPerformanceService`
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
 - 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)
 - 최대 화면: `StockDetailDashboard.vue` (~4,707줄)
+
+## 프론트 IA (P-IA 3단계, 2026-06-11)
+- 주식 허브 = `StockTradingDashboardV2` 단일 화면, **GNB 4탭: 오늘/시장/발굴/매매** (`DashboardHeader.vue`). 레거시 경로(/sector, /news, /ai-strategy 등)는 main.js 에서 탭 쿼리로 redirect — **새 주식 화면(라우트)을 만들지 말고 탭/서브탭에 흡수할 것.**
+- 기본 진입은 **'오늘' 탭**(`TodayBriefingTab.vue` — 시장 한줄·매수 후보(55점 컷)·신뢰도·포지션·도구 바로가기). `resolveInitialTab` 쿼리 없으면 today 고정 — 시각 기반 분기로 되돌리지 말 것. 탭 매핑 회귀 테스트: `StockTradingDashboardV2.ia.test.js`.
+- 결론 카드(`StockConclusionCard.vue`): 매매계획(손절/목표가+MFE/MAE) · 점수대 적중률 · 재료 배지까지 표시. 데이터 없으면 각 블록 조용히 숨김(배지 생략)이 규약.
