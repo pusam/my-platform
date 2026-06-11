@@ -348,8 +348,9 @@
         <!-- Zone A: 체결강도 + 수급 -->
         <div class="zone zone-a">
           <!-- 체결강도 게이지 -->
+          <!-- volumePower null/미수집 → 0 전달: 게이지가 "데이터 없음" 상태 표시 (과거 || 100 폴백이 항상-100% 버그 원인) -->
           <VolumePowerGauge
-            :volumePower="supplyDemand?.dataSource === '장전(초기화)' ? 0 : (supplyDemand?.volumePower || 100)"
+            :volumePower="supplyDemand?.dataSource === '장전(초기화)' ? 0 : (Number(supplyDemand?.volumePower) || 0)"
             :signal="supplyDemand?.volumeSignal || 'NEUTRAL'"
             :dataSource="supplyDemand?.dataSource || ''"
           />

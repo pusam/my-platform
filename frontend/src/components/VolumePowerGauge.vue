@@ -25,7 +25,7 @@
 
     <div class="description">
       <p v-if="isPreMarket" class="pre-market-text">
-        {{ isBeforeMarket ? 'NXT 프리마켓(08:00) 이후 체결강도가 표시됩니다' : '체결 데이터를 수집하고 있습니다...' }}
+        {{ noDataText }}
       </p>
       <p v-else-if="isAfterMarket && hasValidData" class="post-market-text">
         장 마감 (Today's Close) - 오늘의 최종 체결강도
@@ -43,9 +43,10 @@
 import { computed } from 'vue';
 
 const props = defineProps({
+  // 0 또는 null = 데이터 없음 (백엔드가 미수집을 100 으로 위장하지 않음 — "데이터 없음" 상태로 표시)
   volumePower: {
     type: Number,
-    default: 100
+    default: 0
   },
   signal: {
     type: String,
@@ -97,29 +98,36 @@ const isPreMarket = computed(() => {
   return isBeforeMarket.value || !hasValidData.value;
 });
 
+// 데이터 없음 안내 — 시간대별로 정확한 문구 (장 마감 후 "수집 중" 표기는 오해 유발)
+const noDataText = computed(() => {
+  if (isBeforeMarket.value) return 'NXT 프리마켓(08:00) 이후 체결강도가 표시됩니다';
+  if (isAfterMarket.value) return '장 마감 — 당일 체결강도 데이터가 없습니다';
+  return '체결 데이터를 수집하고 있습니다...';
+});
+
 const formattedPower = computed(() => {
   if (isPreMarket.value) return '-';
   return props.volumePower?.toFixed(1) || '0.0';
 });
 
-// 게이지 채우기 너비 (0~200% -> 0~100%)
+// 게이지 채우기 너비 (0~200% -> 0~100%) — isPreMarket 가드 통과 시 hasValidData 보장
 const fillWidth = computed(() => {
   if (isPreMarket.value) return 50; // 중앙에 위치
-  const power = props.volumePower || 100;
+  const power = props.volumePower || 0;
   return Math.min(100, Math.max(0, power / 2));
 });
 
 // 마커 위치 (0~200% -> 0~100%)
 const markerPosition = computed(() => {
   if (isPreMarket.value) return 50; // 중앙에 위치
-  const power = props.volumePower || 100;
+  const power = props.volumePower || 0;
   return Math.min(100, Math.max(0, power / 2));
 });
 
 // 바 색상 클래스
 const barClass = computed(() => {
   if (isPreMarket.value) return 'pre-market';
-  const power = props.volumePower || 100;
+  const power = props.volumePower || 0;
   if (power >= 120) return 'strong-buy';
   if (power >= 100) return 'buy';
   if (power >= 80) return 'neutral';
@@ -131,7 +139,9 @@ const barClass = computed(() => {
 const signalText = computed(() => {
   // 장 시작 전이거나 데이터가 없으면 대기 상태 표시
   if (isPreMarket.value) {
-    return isBeforeMarket.value ? '거래 시작 대기 (NXT 08:00~)' : '데이터 수집 중';
+    if (isBeforeMarket.value) return '거래 시작 대기 (NXT 08:00~)';
+    if (isAfterMarket.value) return '데이터 없음';
+    return '데이터 수집 중';
   }
   // 장 마감 후 데이터가 있으면 마감 상태 표시
   if (isAfterMarket.value && hasValidData.value) {

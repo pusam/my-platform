@@ -308,6 +308,42 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 주식 현재가 체결 조회 (FHKST01010300) — 체결강도(tday_rltv) 소스.
+     *
+     * <p>현재가 시세(FHKST01010100) 응답에는 체결강도 필드가 없어 체결강도가 항상 null
+     * → 화면에 기본값 100% 고정 표시되던 버그의 근본 원인. 이 API 의 output 배열(최근 체결)
+     * 각 항목에 tday_rltv(당일 체결강도)가 들어 있다. 장 마감 후에도 당일 마지막 체결 기준
+     * 값을 반환한다. 시세(가격) 조회 용도가 아님 — 시세 단일 경로 불변식과 무관.
+     */
+    public JsonNode getStockCcnl(String stockCode) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return null;
+            }
+            try {
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-ccnl"
+                        + "?FID_COND_MRKT_DIV_CODE=J"
+                        + "&FID_INPUT_ISCD=" + stockCode;
+
+                HttpHeaders headers = createHeaders(token, "FHKST01010300");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    return objectMapper.readTree(response.getBody());
+                }
+            } catch (Exception e) {
+                rethrowIfRateLimit(e);
+                log.error("주식 체결 조회 실패 [{}]: {}", stockCode, e.getMessage());
+            }
+            return null;
+        });
+    }
+
+    /**
      * 주식 기본 정보 조회 (종목명 등)
      * @param stockCode 종목코드
      * @return API 응답 JsonNode

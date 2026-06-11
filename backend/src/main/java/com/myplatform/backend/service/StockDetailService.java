@@ -567,7 +567,8 @@ public class StockDetailService {
     /**
      * 수급 정보 변환 (null/0 처리 개선)
      *
-     * ★ 체결강도가 null 또는 0이면 기본값 100% (균형) 사용
+     * ★ 체결강도가 null 또는 0이면 null 유지 — "데이터 없음"을 100%(균형)으로 위장하지 않는다.
+     *   (과거 100 강제 변환이 화면 체결강도 항상-100% 버그의 한 축이었음)
      * ★ 외국인/기관/프로그램 값이 있으면 그대로 사용, 없으면 0
      */
     private SupplyDemand parseSupplyDemand(ScalpingAnalysisDto scalping) {
@@ -576,10 +577,10 @@ public class StockDetailService {
             return buildEmptySupplyDemand();
         }
 
-        // ★ 체결강도: null 또는 0이면 기본값 100 (균형)
+        // ★ 체결강도: 0 은 미수집 의미 — null 로 정규화 (프론트가 "데이터 없음" 표시)
         BigDecimal volumePower = scalping.getVolumePower();
-        if (volumePower == null || volumePower.compareTo(BigDecimal.ZERO) == 0) {
-            volumePower = new BigDecimal("100");
+        if (volumePower != null && volumePower.signum() == 0) {
+            volumePower = null;
         }
 
         // ★ 외국인/기관/프로그램 데이터 로깅
@@ -1339,9 +1340,9 @@ public class StockDetailService {
             log.warn("[StockDetail] 프로그램/체결강도 조회 실패: {}", e.getMessage());
         }
 
-        // 체결강도가 없으면 기본값 100 (균형)
-        if (volumePower == null || volumePower.compareTo(BigDecimal.ZERO) == 0) {
-            volumePower = new BigDecimal("100");
+        // 체결강도 없으면 null 유지 — 100(균형) 위장 금지. 프론트가 "데이터 없음" 표시.
+        if (volumePower != null && volumePower.signum() == 0) {
+            volumePower = null;
         }
 
         String volumeSignal = ScalpingAnalysisDto.calculateVolumeSignal(volumePower);
@@ -1367,7 +1368,7 @@ public class StockDetailService {
      */
     private SupplyDemand buildEmptySupplyDemand() {
         return SupplyDemand.builder()
-                .volumePower(new BigDecimal("100"))  // 기본값 100% (균형)
+                .volumePower(null)  // 데이터 없음 — 100(균형) 위장 금지
                 .volumeSignal("NEUTRAL")
                 .foreignNetBuy(BigDecimal.ZERO)
                 .instNetBuy(BigDecimal.ZERO)

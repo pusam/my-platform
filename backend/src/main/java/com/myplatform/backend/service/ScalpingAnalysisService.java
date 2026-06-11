@@ -72,6 +72,12 @@ public class ScalpingAnalysisService {
 
         ScalpingAnalysisDto result = builder.build();
 
+        // 체결강도 폴백 — 현재가 시세(FHKST01010100) 응답엔 체결강도 필드가 없어 항상 null 이던
+        // 근본 원인 수정: 체결 API(FHKST01010300)의 tday_rltv 로 보충. 실패 시 null 유지(100 위장 금지).
+        if (result.getVolumePower() == null) {
+            result.setVolumePower(getCcnlVolumePower(stockCode));
+        }
+
         // 신호 및 추세 계산
         result.setVolumeSignal(ScalpingAnalysisDto.calculateVolumeSignal(result.getVolumePower()));
         result.setProgramTrend(ScalpingAnalysisDto.calculateProgramTrend(result.getProgramNetBuy()));
@@ -107,9 +113,51 @@ public class ScalpingAnalysisService {
         }
 
         ScalpingAnalysisDto result = builder.build();
+        if (result.getVolumePower() == null) {
+            result.setVolumePower(getCcnlVolumePower(stockCode));
+        }
         result.setVolumeSignal(ScalpingAnalysisDto.calculateVolumeSignal(result.getVolumePower()));
 
         return result;
+    }
+
+    /**
+     * 체결강도 단독 조회 — 체결 API(FHKST01010300) 의 tday_rltv(당일 체결강도).
+     * 현재가 시세 응답에 체결강도 필드가 없을 때의 폴백 + 장 마감 후 당일 최종 체결강도 조회용.
+     * 실패/데이터 없음이면 null (호출측은 "데이터 없음"으로 표시 — 100 위장 금지).
+     */
+    public BigDecimal getCcnlVolumePower(String stockCode) {
+        try {
+            JsonNode ccnl = kisService.getStockCcnl(stockCode);
+            if (ccnl == null || !"0".equals(getFieldValue(ccnl, "rt_cd"))) {
+                return null;
+            }
+            return parseCcnlVolumePower(ccnl);
+        } catch (Exception e) {
+            log.debug("[단타분석] 체결 API 체결강도 조회 실패 ({}): {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 체결 API 응답에서 최신 체결강도(tday_rltv) 추출 — output 배열(최신순) 첫 유효값.
+     * 순수 함수 (테스트 대상).
+     */
+    static BigDecimal parseCcnlVolumePower(JsonNode response) {
+        if (response == null) return null;
+        JsonNode output = response.get("output");
+        if (output == null || !output.isArray()) return null;
+        for (JsonNode tick : output) {
+            JsonNode node = tick.get("tday_rltv");
+            if (node == null || node.asText().isEmpty()) continue;
+            try {
+                BigDecimal power = new BigDecimal(node.asText());
+                if (power.signum() > 0) return power;
+            } catch (NumberFormatException ignore) {
+                // 다음 체결 항목 시도
+            }
+        }
+        return null;
     }
 
     /**
