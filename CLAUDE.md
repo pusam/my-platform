@@ -55,6 +55,12 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 알림: **신규 분류 시에만** 호재→시그널 채널 / 악재→리스크 채널 (캐시 히트 무알림 = 스팸 방지). 분류 실패(Gemini circuit open 등)는 **캐시 안 함** → 다음 기회 재시도.
 - 모닝브리핑(07:30) 후행 워밍: BUY 컷(55) 이상 **상한 5종목** — Gemini quota 가드. 근거 없이 늘리지 말 것.
 
+### 4c. "데이터 없음"을 그럴듯한 값으로 위장하지 않는다 (2026-06-11 점검에서 3건 제거)
+- **체결강도**: 소스는 **체결 API(FHKST01010300, inquire-ccnl)의 `tday_rltv`** — 현재가 시세 API(FHKST01010100)엔 체결강도 필드가 없다(여기서 읽으려던 게 항상-100% 버그의 근원). 미수집이면 **null 유지** → 프론트 게이지가 '-' + 시간대별 안내 표시. **null→100(균형) 강제 변환 금지.** 봇 `isVolumeIncreasing` 도 이 값에 의존.
+- **시장 진단 condition 은 ADR(20일) 기반만**. 당일 등락비(`applyDailyRatio`)는 dailyRatio 표시값만 채운다 — ADR 임계(120/80/60)로 당일 등락비를 판정해 condition 을 덮어쓰면 평범한 상승일도 장중 '과열'로 오판.
+- **섹터 거래대금은 실측만**(`SectorTradingService.resolveAccumulatedValue`): KIS 누적거래대금 → 현재가×거래량 폴백, 둘 다 없으면 스냅샷 제외. 시총×0.1% 같은 임시값 생성 금지. 휴장일엔 3분 크론 early-return(가드만, cron 시각 불변) — 휴장일 표시는 on-demand 수집의 마지막 거래일 실측이 담당.
+- 신규 코드도 같은 원칙: 결측은 null/생략으로 정직하게. (단, RecommendationSnapshot.growth 의 -1=NA 같은 명시적 sentinel 은 기존 규약 유지.)
+
 ### 5. 인프라 관련
 - 스케줄러 락(`SchedulerLockService`)은 **fail-open** (Redis SET NX EX). TTL < cron 으로 누락 시 다음 cron 재시도. **단일 인스턴스 전제 — 매매봇(`AutoTradingBotService` 실주문)은 이 락 미사용(JVM 내 가드만). 멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(fail-open으론 Redis 장애 시 중복 주문 못 막음).
 - 봇은 **Clock 주입**으로 테스트 결정성 확보 — 시간 의존 로직에 `Clock`을 그대로 사용할 것.
@@ -70,6 +76,8 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 백테스트 API: `BacktestController` `/api/backtest/performance` (서비스는 기존 `BacktestService`)
 - 모닝브리핑+재료워밍: `MorningBriefingService` (크론은 `StockAlertScheduler` 07:30)
 - 시세: `StockPriceService`, KIS: `KoreaInvestmentService`
+- 체결강도: `ScalpingAnalysisService` (ccnl 폴백 `getCcnlVolumePower`), 게이지: `VolumePowerGauge.vue`
+- 시장 진단(ADR): `MarketTimingService`, 섹터 거래대금: `SectorTradingService`
 - 봇: `AutoTradingBotService`, 성과: `BotPerformanceService`
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
 - 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)
