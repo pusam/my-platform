@@ -26,6 +26,11 @@ public class SignalBandAccuracyDto {
     private int daysWindow;
     private List<BandStat> bands;
     private List<CategoryStat> categories;
+    /**
+     * 재료 방향별 적중률 (V31) — 호재/악재/중립/재료없음 표본별.
+     * "재료 있는 추천이 실제로 더 먹히는지" 검증용. 미수집(NULL) 행은 제외.
+     */
+    private List<CatalystStat> catalysts;
 
     @Data
     @Builder
@@ -41,6 +46,21 @@ public class SignalBandAccuracyDto {
         private BigDecimal hitRate;
         private BigDecimal avgPctChange;
         private BigDecimal avgAlpha;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CatalystStat {
+        /** POSITIVE / NEGATIVE / NEUTRAL / NONE. */
+        private String direction;
+        /** 호재 / 악재 / 중립 / 재료없음. */
+        private String label;
+        private long totalSignals;
+        private long hitCount;
+        private BigDecimal hitRate;
+        private BigDecimal avgPctChange;
     }
 
     @Data

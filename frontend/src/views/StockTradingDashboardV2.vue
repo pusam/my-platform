@@ -19,6 +19,15 @@
         />
       </div>
 
+      <!-- ═══ 오늘 탭 (P-IA 3단계): 아침에 이 한 장만 보면 되는 '오늘의 결론' 홈 ═══ -->
+      <div v-if="activeGnbTab === 'today'" class="tab-panel">
+        <TodayBriefingTab
+          :marketData="marketData"
+          @open-stock="goToStock"
+          @navigate="activeGnbTab = $event"
+        />
+      </div>
+
       <!-- ═══ 라이브 패널: 시장 + 발굴 공유 (블록별 탭 게이팅, 소스 순서가 탭별 표시 순서) ═══ -->
       <div v-if="isLiveTab" class="tab-panel" :class="phaseBanner.cls">
 
@@ -465,6 +474,7 @@ import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import SectionTotalRecommendation from '../components/v2/SectionTotalRecommendation.vue'
+import TodayBriefingTab from '../components/v2/TodayBriefingTab.vue'
 // 분석 탭 (ResearchPage에서 흡수)
 import AiStrategyDashboardPage from './AiStrategyDashboardPage.vue'
 import EarningsScreenerPage from './EarningsScreenerPage.vue'
@@ -532,6 +542,7 @@ export default {
     SectionBacktest,
     StockSearchModal,
     SectionTotalRecommendation,
+    TodayBriefingTab,
     AiStrategyDashboardPage,
     EarningsScreenerPage,
     SectorTradingPage,
@@ -929,8 +940,9 @@ export default {
     },
     // ---- 탭 키 호환 매핑 (레거시 쿼리/경로 → market/discover/trade) ----
     mapLegacyTab(tab) {
-      // P-IA: 시장(거시) / 발굴(추천·전략) / 매매(봇). 레거시 값도 흡수.
+      // P-IA: 오늘(홈) / 시장(거시) / 발굴(추천·전략) / 매매(봇). 레거시 값도 흡수.
       const map = {
+        today: 'today', home: 'today', briefing: 'today',
         market: 'market', sector: 'market', news: 'market', investor: 'market', timing: 'market', global: 'market',
         discover: 'discover', analysis: 'discover', research: 'discover', premarket: 'discover', live: 'discover',
         trade: 'trade', trading: 'trade', 'paper-trading': 'trade'
@@ -941,9 +953,8 @@ export default {
     resolveInitialTab() {
       const requested = this.$route?.query?.tab
       if (requested) return this.mapLegacyTab(requested)
-      // ?tab= 없으면 시각 기반: 낮(장중)엔 발굴, 장 마감 이후엔 시장(결산·거시).
-      const h = new Date().getHours()
-      return h < 16 ? 'discover' : 'market'
+      // P-IA 3단계: 쿼리 없으면 무조건 '오늘' 홈 — 아침에 한 장으로 결론 보는 진입점.
+      return 'today'
     },
     resolveInitialSubTab() {
       const sub = this.$route?.query?.sub
@@ -998,7 +1009,8 @@ export default {
     // ---- 탭별 데이터 로딩 ----
     loadTabData(tab) {
       // P-IA: 시장·발굴 탭은 라이브 시장 데이터(시장상태바·시장맵) + AI 스냅샷(phaseSignals용) 공유.
-      if ((tab === 'market' || tab === 'discover') && !this.dataLoaded.market) {
+      // '오늘' 탭도 시장 한 줄 표시를 위해 marketData 로드 (후보/적중률은 컴포넌트가 자체 fetch).
+      if ((tab === 'today' || tab === 'market' || tab === 'discover') && !this.dataLoaded.market) {
         // 스태거 발사 — 같은 KIS 창구로 몰리지 않게 500ms 간격(순서·간격 보존).
         // 시장맵(섹터 시세 Batch)이 가장 무거우므로 가장 먼저, AI 전략은 뒤로.
         this.loadMarketMap()

@@ -41,6 +41,8 @@ public class SignalOutcomeService {
 
     private final SignalOutcomeRepository repository;
     private final StockPriceService stockPriceService;
+    // V31 — 시그널 record 시 당일 재료 캐시 스냅샷 (best-effort, Gemini 호출 없음).
+    private final com.myplatform.backend.repository.StockCatalystRepository catalystRepository;
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
@@ -101,6 +103,17 @@ public class SignalOutcomeService {
             // KOSPI 지수 가격을 한 번 조회 — alpha 계산용 (phase 20).
             // 실패 시 null 로 저장 (기존 evaluate 로직과 호환).
             BigDecimal bmPrice = fetchKospiPriceQuiet();
+
+            // V31 — 당일 재료 캐시가 있으면 스냅샷 (없으면 NULL=미수집, Gemini 호출은 안 함).
+            String catalystType = null, catalystDirection = null;
+            try {
+                var catalyst = catalystRepository.findByStockCodeAndCatalystDate(stockCode, today);
+                if (catalyst.isPresent()) {
+                    catalystType = catalyst.get().getCatalystType().name();
+                    catalystDirection = catalyst.get().getDirection().name();
+                }
+            } catch (Exception ignore) { /* 재료 스냅샷은 best-effort */ }
+
             repository.save(SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -113,6 +126,8 @@ public class SignalOutcomeService {
                     .supplyDemandAtSignal(supplyDemand)
                     .technicalAtSignal(technical)
                     .sectorMomentumAtSignal(sectorMomentum)
+                    .catalystTypeAtSignal(catalystType)
+                    .catalystDirectionAtSignal(catalystDirection)
                     .build());
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
@@ -453,7 +468,43 @@ public class SignalOutcomeService {
                 .daysWindow(d)
                 .bands(aggregateBands(rows))
                 .categories(aggregateCategories(rows))
+                .catalysts(aggregateCatalysts(rows))
                 .build();
+    }
+
+    /**
+     * 재료 방향별 집계 (V31) — 순수 함수. "재료 있는 추천이 더 먹히나" 검증용.
+     * catalyst 컬럼 NULL(미수집) 행은 제외. NONE = 뉴스는 봤으나 재료 없음.
+     */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.CatalystStat> aggregateCatalysts(
+            List<SignalOutcome> rows) {
+        String[][] defs = {
+                {"POSITIVE", "호재"},
+                {"NEGATIVE", "악재"},
+                {"NEUTRAL", "중립"},
+                {"NONE", "재료없음"},
+        };
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.CatalystStat> result = new ArrayList<>();
+        for (String[] def : defs) {
+            long total = 0, hits = 0;
+            BigDecimal pctSum = BigDecimal.ZERO;
+            long pctCount = 0;
+            for (SignalOutcome s : rows) {
+                if (!def[0].equals(s.getCatalystDirectionAtSignal())) continue;
+                total++;
+                if (Boolean.TRUE.equals(s.getHit())) hits++;
+                if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+            }
+            result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.CatalystStat.builder()
+                    .direction(def[0])
+                    .label(def[1])
+                    .totalSignals(total)
+                    .hitCount(hits)
+                    .hitRate(rate(hits, total))
+                    .avgPctChange(avg(pctSum, pctCount))
+                    .build());
+        }
+        return result;
     }
 
     /** 점수 구간별 집계 — 순수 함수 (테스트 대상). signalScore 없는 행은 제외. */

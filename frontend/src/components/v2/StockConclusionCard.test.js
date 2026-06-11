@@ -45,9 +45,10 @@ const bandResponse = {
   ] } }
 }
 
-function stubApi(conclusion = conclusionData) {
+function stubApi(conclusion = conclusionData, catalyst = null) {
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/conclusion')) return Promise.resolve({ data: { success: true, data: conclusion } })
+    if (url.includes('/catalyst')) return Promise.resolve({ data: { success: true, data: catalyst } })
     if (url.includes('accuracy-by-band')) return Promise.resolve(bandResponse)
     if (url.includes('accuracy')) return Promise.resolve(accuracyResponse)
     return Promise.resolve({ data: { success: false } })
@@ -129,5 +130,23 @@ describe('StockConclusionCard — 매매 계획 / 조건부 적중률', () => {
     stubApi()
     const w = await mountCard()
     expect(w.text()).toContain('근거: 외국인3일연속(초기)')
+  })
+
+  it('재료 배지(V31) — 호재면 헤드라인 아래 표시', async () => {
+    stubApi(conclusionData, {
+      catalystType: 'ORDER_WIN', typeLabel: '수주', direction: 'POSITIVE', summary: '2조원 공급계약'
+    })
+    const w = await mountCard()
+    const line = w.find('.catalyst-line')
+    expect(line.exists()).toBe(true)
+    expect(line.text()).toContain('재료: 수주(호재)')
+    expect(line.text()).toContain('2조원 공급계약')
+    expect(line.classes()).toContain('cat-positive')
+  })
+
+  it('재료 NONE/null 이면 배지 미표시', async () => {
+    stubApi(conclusionData, { catalystType: 'NONE', direction: 'NONE' })
+    const w = await mountCard()
+    expect(w.find('.catalyst-line').exists()).toBe(false)
   })
 })

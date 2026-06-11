@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.SignalBandAccuracyDto.BandStat;
+import com.myplatform.backend.dto.SignalBandAccuracyDto.CatalystStat;
 import com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat;
 import com.myplatform.backend.entity.SignalOutcome;
 import org.junit.jupiter.api.DisplayName;
@@ -90,6 +91,34 @@ class SignalOutcomeBandAccuracyTest {
         assertThat(supply.getHitRate()).isEqualByComparingTo("100");
         assertThat(tech.getTotalSignals()).isZero();   // 15 미만 — 강세 표본 아님
         assertThat(sector.getTotalSignals()).isZero(); // null — V30 이전 행 제외
+    }
+
+    @Test
+    @DisplayName("catalysts(V31): 호재 hit / 재료없음 miss / 미수집(null) 제외")
+    void catalysts_groupedByDirection() {
+        SignalOutcome positive = outcome(80, true, "4.00");
+        positive.setCatalystTypeAtSignal("ORDER_WIN");
+        positive.setCatalystDirectionAtSignal("POSITIVE");
+        SignalOutcome none = outcome(60, false, "-1.00");
+        none.setCatalystTypeAtSignal("NONE");
+        none.setCatalystDirectionAtSignal("NONE");
+        SignalOutcome uncollected = outcome(70, true, "5.00"); // catalyst null — V31 이전 행
+
+        List<CatalystStat> cats = SignalOutcomeService.aggregateCatalysts(
+                List.of(positive, none, uncollected));
+
+        CatalystStat pos = cats.stream().filter(c -> c.getDirection().equals("POSITIVE")).findFirst().orElseThrow();
+        CatalystStat noneStat = cats.stream().filter(c -> c.getDirection().equals("NONE")).findFirst().orElseThrow();
+
+        assertThat(cats).hasSize(4); // POSITIVE/NEGATIVE/NEUTRAL/NONE 항상 반환
+        assertThat(pos.getTotalSignals()).isEqualTo(1);
+        assertThat(pos.getHitRate()).isEqualByComparingTo("100");
+        assertThat(pos.getLabel()).isEqualTo("호재");
+        assertThat(noneStat.getTotalSignals()).isEqualTo(1);
+        assertThat(noneStat.getHitRate()).isEqualByComparingTo("0");
+        // 미수집 행은 어느 그룹에도 안 들어감: 전체 표본 합 = 2
+        long sum = cats.stream().mapToLong(CatalystStat::getTotalSignals).sum();
+        assertThat(sum).isEqualTo(2);
     }
 
     @Test

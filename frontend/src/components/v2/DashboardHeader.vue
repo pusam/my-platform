@@ -46,8 +46,9 @@ export default {
   data() {
     return {
       currentTime: '',
-      // GNB(P-IA): 시장(거시) / 발굴(추천·전략) / 매매(봇·페이퍼). 시각은 탭 내 강조로만 반영.
+      // GNB(P-IA): 오늘(홈·결론) / 시장(거시) / 발굴(추천·전략) / 매매(봇·페이퍼). 시각은 탭 내 강조로만 반영.
       gnbTabs: [
+        { key: 'today', label: '오늘', icon: '📌' },
         { key: 'market', label: '시장', icon: '🌐' },
         { key: 'discover', label: '발굴', icon: '🔍' },
         { key: 'trade', label: '매매', icon: '⚡' }

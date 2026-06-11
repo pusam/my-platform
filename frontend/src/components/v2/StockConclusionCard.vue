@@ -10,6 +10,9 @@
         <p class="source-caption" title="이 결론은 종합추천 스냅샷(전 종목 비교 랭킹, 5카테고리)을 기준으로 합니다. 상단 헤더의 '단기 트레이딩'·'중장기 펀더멘털' 점수와는 산출 기준·시점이 달라 결론이 다를 수 있습니다.">
           ⓘ 종합추천 스냅샷 기준 — 상단 단기/중장기 점수와 산출 기준이 다릅니다
         </p>
+        <p v-if="catalyst" class="catalyst-line" :class="'cat-' + catalyst.direction.toLowerCase()">
+          🔥 재료: {{ catalyst.typeLabel }}({{ catalystDirectionLabel }})<template v-if="catalyst.summary"> — {{ catalyst.summary }}</template>
+        </p>
         <p v-if="conclusion.guidance" class="guidance">{{ conclusion.guidance }}</p>
         <p v-if="conclusion.conflictNote" class="conflict-note">{{ conclusion.conflictNote }}</p>
       </div>
@@ -84,6 +87,7 @@ const showChecklist = ref(false);
 const accuracyStats = ref([]);   // 전체 시그널 타입별 통계 (배열)
 const accuracyEmpty = ref(false); // 데이터 누적 중 표시 플래그
 const bandStats = ref([]);        // 점수 구간별 적중률 (V30, 90일 윈도우)
+const catalyst = ref(null);       // 재료 태그 (V31) — NONE/실패 시 null (배지 생략)
 
 const fetchConclusion = async (code) => {
   if (!code) return;
@@ -93,6 +97,7 @@ const fetchConclusion = async (code) => {
     const { data } = await apiClient.get(`/stock/${code}/conclusion`);
     if (data?.success) {
       conclusion.value = data.data;
+      fetchCatalyst(code, data.data?.stockName);
     } else {
       error.value = true;
     }
@@ -101,6 +106,18 @@ const fetchConclusion = async (code) => {
   } finally {
     loading.value = false;
   }
+};
+
+// 재료 태그 (V31) — best-effort: 실패/재료없음(NONE)이면 배지 생략
+const fetchCatalyst = async (code, stockName) => {
+  catalyst.value = null;
+  try {
+    const { data } = await apiClient.get(`/stock/${code}/catalyst`, {
+      params: stockName ? { stockName } : {}
+    });
+    const cat = data?.data;
+    if (cat && cat.catalystType !== 'NONE') catalyst.value = cat;
+  } catch (e) { /* 배지 생략 */ }
 };
 
 const fetchAccuracy = async () => {
@@ -145,6 +162,9 @@ const bandStat = computed(() => {
 
 // 타이트 계획 여부 — 백엔드가 -2%/+3% 로 내려준 경우 (단기 강 + 밸류 매우 약 충돌).
 const isTightPlan = computed(() => Number(conclusion.value?.tradePlan?.targetPct) === 3);
+
+const catalystDirectionLabel = computed(() =>
+  ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[catalyst.value?.direction] || ''));
 
 const formatPrice = (v) => Number(v).toLocaleString();
 
@@ -273,6 +293,17 @@ const openChecklist = () => { showChecklist.value = true; };
   cursor: help;
 }
 .guidance { margin: 6px 0 0; font-size: 13px; opacity: 0.78; }
+.catalyst-line {
+  margin: 7px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 4px;
+  display: inline-block;
+}
+.cat-positive { color: #fbbf24; background: rgba(251, 191, 36, 0.12); border-left: 3px solid #fbbf24; }
+.cat-negative { color: #f87171; background: rgba(239, 68, 68, 0.12); border-left: 3px solid #f87171; }
+.cat-neutral  { color: #cbd5e1; background: rgba(203, 213, 225, 0.10); border-left: 3px solid #94a3b8; }
 .conflict-note {
   margin: 8px 0 0;
   font-size: 12.5px;

@@ -62,6 +62,14 @@ public class SignalOutcome {
     @Column(name = "sector_momentum_at_signal")
     private Integer sectorMomentumAtSignal;
 
+    /** 시그널 시점 재료 유형 (V31) — stock_catalyst 일캐시 스냅샷. NULL=미수집. */
+    @Column(name = "catalyst_type_at_signal", length = 20)
+    private String catalystTypeAtSignal;
+
+    /** 시그널 시점 재료 방향 (V31) — POSITIVE/NEGATIVE/NEUTRAL/NONE. NULL=미수집. */
+    @Column(name = "catalyst_direction_at_signal", length = 10)
+    private String catalystDirectionAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 

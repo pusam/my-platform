@@ -1,9 +1,11 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.BuyChecklistDto;
+import com.myplatform.backend.dto.StockCatalystDto;
 import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockDetailDto;
 import com.myplatform.backend.service.BuyChecklistService;
+import com.myplatform.backend.service.StockCatalystService;
 import com.myplatform.backend.service.StockConclusionService;
 import com.myplatform.backend.service.StockDetailService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,6 +40,7 @@ public class StockDetailController {
     private final StockDetailService stockDetailService;
     private final StockConclusionService stockConclusionService;
     private final BuyChecklistService buyChecklistService;
+    private final StockCatalystService stockCatalystService;
 
     @GetMapping("/{stockCode}/summary")
     @Operation(
@@ -160,6 +163,35 @@ public class StockDetailController {
             log.error("[BuyChecklist API] 종목 {} 체크리스트 조회 실패: {}", stockCode, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "체크리스트 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/catalyst")
+    @Operation(
+        summary = "종목 재료 태그 (V31)",
+        description = "최근 7일 뉴스를 Gemini 로 분류한 재료 태그 (수주/실적/M&A/신사업/규제/소송/지배구조/기타/없음 + 호재/악재). " +
+                     "종목·일자별 1회 분류 후 캐시. stockName 미지정 시 캐시 lookup 만 (신규 분류 안 함). " +
+                     "분류 불가(뉴스/Gemini 미가용)면 data=null — 프론트는 배지 생략. 산식 미편입(표시·검증용)."
+    )
+    public ResponseEntity<Map<String, Object>> getCatalyst(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode,
+            @Parameter(description = "종목명 (뉴스 검색용)", example = "삼성전자")
+            @RequestParam(required = false) String stockName) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            StockCatalystDto catalyst = StockCatalystDto.from(
+                    stockCatalystService.getCatalyst(stockCode, stockName));
+            response.put("success", true);
+            response.put("data", catalyst);
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[Catalyst API] 종목 {} 재료 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "재료 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }

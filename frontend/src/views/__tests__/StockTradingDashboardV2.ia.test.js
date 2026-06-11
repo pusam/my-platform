@@ -9,8 +9,9 @@ function call(name, thisArg, ...args) {
 }
 
 describe('StockTradingDashboardV2 IA 매핑 (P-IA 2단계)', () => {
-  describe('mapLegacyTab → market/discover/trade', () => {
+  describe('mapLegacyTab → today/market/discover/trade', () => {
     const cases = {
+      today: ['today', 'home', 'briefing'],
       market: ['market', 'sector', 'news', 'investor', 'timing', 'global'],
       discover: ['discover', 'analysis', 'research', 'premarket', 'live'],
       trade: ['trade', 'trading', 'paper-trading']
@@ -35,8 +36,8 @@ describe('StockTradingDashboardV2 IA 매핑 (P-IA 2단계)', () => {
     it('?tab=sector → market', () => {
       expect(call('resolveInitialTab', fakeThis('sector'))).toBe('market')
     })
-    it('쿼리 없으면 market/discover 중 하나(시각 기반)', () => {
-      expect(['market', 'discover']).toContain(call('resolveInitialTab', fakeThis(null)))
+    it('쿼리 없으면 today — P-IA 3단계: 홈은 항상 오늘의 결론', () => {
+      expect(call('resolveInitialTab', fakeThis(null))).toBe('today')
     })
   })
 
