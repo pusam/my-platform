@@ -1,7 +1,7 @@
 # 주식 플랫폼 — Claude Code 작업 지침
 
 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
-Spring Boot(backend, 메인 API·스케줄러·매매봇) + FastAPI(python-backend, pykrx·Naver 크롤링·보조분석)
+Spring Boot(backend, 메인 API·스케줄러·매매봇) + FastAPI(python-backend, **pykrx 보조분석 전용** — 2026-06-11 재편)
 + Vue 3/Vite(frontend) + MariaDB + Redis(L2) + KIS REST/WS + Gemini + DART + 텔레그램(3채널).
 Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) · redis(6379).
 
@@ -48,7 +48,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 임계: **STRONG_BUY ≥75 / BUY 55~74 / HOLD 40~54 / <40 제외**. total≥75 & valueStability≥12 → +2 보너스.
 - 시그널 hit = **alpha_3d ≥ 0 AND pct_change_3d > 0** (3거래일), alpha 없으면 폴백 pct≥3%.
 - 매매계획(결론카드 tradePlan): 손절/익절 % 는 **스윙 봇과 동기(-3%/+5%)**, "단기 강+밸류<4" 충돌 시 -2%/+3% 타이트. 봇 상수 바꾸면 `StockConclusionService.PLAN_*` 도 같이.
-- `signal_outcome` 에 record 시점 스냅샷 누적: **V30 카테고리 점수 4종 + V31 재료(catalyst)**. 조건부 적중률(`/api/signal-outcomes/accuracy-by-band` — 점수구간/카테고리강세/재료방향별) 검증용. NULL=미수집(집계 제외) 의미 유지할 것.
+- `signal_outcome` 에 record 시점 스냅샷 누적: **V30 카테고리 점수 4종 + V31 재료(catalyst) + V32 시장 국면(regime)**. 조건부 적중률(`/api/signal-outcomes/accuracy-by-band` — 점수구간/카테고리강세/재료방향/국면별) 검증용. NULL=미수집(집계 제외) 의미 유지할 것.
 
 ### 4b. 재료(catalyst) 태그는 산식 미편입 (의도)
 - 네이버 뉴스 → Gemini 분류(`StockCatalystService`) → `stock_catalyst` **일캐시(종목·일자 1회)**. 용도는 **배지 표시 + 시그널 스냅샷(검증)뿐** — 재료별 적중률이 데이터로 검증되기 전엔 점수 산식에 넣지 말 것.
@@ -59,7 +59,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **체결강도**: 소스는 **체결 API(FHKST01010300, inquire-ccnl)의 `tday_rltv`** — 현재가 시세 API(FHKST01010100)엔 체결강도 필드가 없다(여기서 읽으려던 게 항상-100% 버그의 근원). 미수집이면 **null 유지** → 프론트 게이지가 '-' + 시간대별 안내 표시. **null→100(균형) 강제 변환 금지.** 봇 `isVolumeIncreasing` 도 이 값에 의존.
 - **시장 진단 condition 은 ADR(20일) 기반만**. 당일 등락비(`applyDailyRatio`)는 dailyRatio 표시값만 채운다 — ADR 임계(120/80/60)로 당일 등락비를 판정해 condition 을 덮어쓰면 평범한 상승일도 장중 '과열'로 오판.
 - **섹터 거래대금은 실측만**(`SectorTradingService.resolveAccumulatedValue`): KIS 누적거래대금 → 현재가×거래량 폴백, 둘 다 없으면 스냅샷 제외. 시총×0.1% 같은 임시값 생성 금지. 휴장일엔 3분 크론 early-return(가드만, cron 시각 불변) — 휴장일 표시는 on-demand 수집의 마지막 거래일 실측이 담당.
-- **python-backend 도 동일 원칙** (2026-06-11 점검에서 5건 제거): 스크리너 가짜 펀더멘털(등락률 선형식 PER/ROE/PEG 생성), 연속매수일 날조(max(3,8-i)), adr=50 상수, Gemini aiScore 기본 50, 선물 price="0" — 전부 제거/None 화. python 스크리너는 **모멘텀 후보만**(dataBasis=MOMENTUM_ONLY), 실제 재무 스크리닝·연속매수·ADR 은 Java 가 정답 소스. 참고: python-backend 는 현재 활성 소비자 없음(프론트 v1 통합, nginx /api/v2 라우팅만 유지).
+- **python-backend 재편 (2026-06-11)**: 가짜 데이터 점검(5건) 후 자바 중복 라우터(네이버 크롤/yfinance/Gemini/스크리너) **전부 삭제** — 현재 역할은 `/api/v2/health` + `/api/v2/regime/current`(pykrx 시장 국면) 뿐. 새 기능은 "Java/KIS 로 비싼 일(히스토리·벌크)"일 때만 추가. 국면 규칙(v1): KOSPI 종가 vs MA60 + MA20 5거래일 슬로프 → BULL/BEAR/SIDEWAYS — 검증 데이터 쌓이기 전 임의 변경 금지. Java 는 `MarketRegimeClient`(1h 캐시, best-effort)로 소비, 미가용 시 regime_at_signal=NULL(미수집).
 - 신규 코드도 같은 원칙: 결측은 null/생략으로 정직하게. (단, RecommendationSnapshot.growth 의 -1=NA 같은 명시적 sentinel 은 기존 규약 유지.)
 
 ### 5. 인프라 관련
@@ -79,6 +79,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 시세: `StockPriceService`, KIS: `KoreaInvestmentService`
 - 체결강도: `ScalpingAnalysisService` (ccnl 폴백 `getCcnlVolumePower`), 게이지: `VolumePowerGauge.vue`
 - 시장 진단(ADR): `MarketTimingService`, 섹터 거래대금: `SectorTradingService`
+- 시장 국면(V32): python `regime_service.py` ↔ Java `MarketRegimeClient`
 - 봇: `AutoTradingBotService`, 성과: `BotPerformanceService`
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
 - 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)

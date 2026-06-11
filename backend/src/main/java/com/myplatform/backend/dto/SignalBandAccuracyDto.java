@@ -32,6 +32,12 @@ public class SignalBandAccuracyDto {
      */
     private List<CatalystStat> catalysts;
 
+    /**
+     * 시장 국면별 적중률 (V32) — 상승장/하락장/횡보장 표본별.
+     * "하락장에서도 이 추천이 먹히는지" 검증용. 미수집(NULL) 행은 제외.
+     */
+    private List<RegimeStat> regimes;
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -46,6 +52,21 @@ public class SignalBandAccuracyDto {
         private BigDecimal hitRate;
         private BigDecimal avgPctChange;
         private BigDecimal avgAlpha;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class RegimeStat {
+        /** BULL / BEAR / SIDEWAYS. */
+        private String regime;
+        /** 상승장 / 하락장 / 횡보장. */
+        private String label;
+        private long totalSignals;
+        private long hitCount;
+        private BigDecimal hitRate;
+        private BigDecimal avgPctChange;
     }
 
     @Data

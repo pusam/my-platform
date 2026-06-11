@@ -54,11 +54,12 @@ public class SignalOutcomeController {
 
     @GetMapping("/accuracy-by-band")
     @Operation(
-        summary = "조건부 적중률 — 점수 구간별 + 카테고리 강세별 (V30)",
+        summary = "조건부 적중률 — 점수 구간/카테고리/재료/국면별 (V30~V32)",
         description = "최근 N일(기본 90) 평가 완료 시그널을 (1) signalScore 구간(55~64/65~74/75~84/85~100)별, " +
-                     "(2) 시그널 시점 카테고리 점수 강세(≥15) 표본별로 집계. " +
-                     "'75점과 90점의 적중률이 실제로 다른가', '수급 주도 vs 기술 주도 추천 중 뭐가 먹혔나' 검증용. " +
-                     "카테고리 집계는 V30 이후 누적분만 포함."
+                     "(2) 카테고리 강세(≥15) 표본별, (3) 재료 방향(호재/악재/중립/없음)별, " +
+                     "(4) 시장 국면(상승장/하락장/횡보장)별로 집계. " +
+                     "'75점과 90점이 다른가', '수급 주도 vs 기술 주도', '재료 유무', '하락장에서도 먹히나' 검증용. " +
+                     "각 차원은 해당 스냅샷 컬럼(V30/V31/V32) 누적분만 포함 (NULL=미수집 제외)."
     )
     public ResponseEntity<Map<String, Object>> accuracyByBand(
             @RequestParam(defaultValue = "90") int days) {

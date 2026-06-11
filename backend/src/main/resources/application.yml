@@ -121,6 +121,10 @@ gemini:
     key: ${GEMINI_API_KEY:}
     url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
 
+# python-backend (pykrx 보조분석 — V32 시장 국면 소스). 도커에선 PYTHON_BACKEND_URL=http://python-backend:8000
+python-backend:
+  base-url: ${PYTHON_BACKEND_URL:http://localhost:8000}
+
 # 7. 한국투자증권 API 설정
 kis:
   api:

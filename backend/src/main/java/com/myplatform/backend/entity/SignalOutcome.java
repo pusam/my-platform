@@ -70,6 +70,10 @@ public class SignalOutcome {
     @Column(name = "catalyst_direction_at_signal", length = 10)
     private String catalystDirectionAtSignal;
 
+    /** 시그널 시점 시장 국면 (V32) — BULL/BEAR/SIDEWAYS. NULL=미수집(python-backend 미가용). */
+    @Column(name = "regime_at_signal", length = 10)
+    private String regimeAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 

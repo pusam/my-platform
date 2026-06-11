@@ -43,6 +43,8 @@ public class SignalOutcomeService {
     private final StockPriceService stockPriceService;
     // V31 — 시그널 record 시 당일 재료 캐시 스냅샷 (best-effort, Gemini 호출 없음).
     private final com.myplatform.backend.repository.StockCatalystRepository catalystRepository;
+    // V32 — 시장 국면 스냅샷 (python-backend pykrx, 1h 캐시·best-effort). ObjectProvider 로 null-safe.
+    private final org.springframework.beans.factory.ObjectProvider<MarketRegimeClient> regimeProvider;
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
@@ -114,6 +116,15 @@ public class SignalOutcomeService {
                 }
             } catch (Exception ignore) { /* 재료 스냅샷은 best-effort */ }
 
+            // V32 — 시장 국면 스냅샷 (클라이언트 1h 캐시 — record 루프에서 HTTP 부담 없음).
+            String regime = null;
+            try {
+                MarketRegimeClient regimeClient = regimeProvider.getIfAvailable();
+                if (regimeClient != null) {
+                    regime = regimeClient.getCurrentRegimeQuiet();
+                }
+            } catch (Exception ignore) { /* 국면 스냅샷은 best-effort */ }
+
             repository.save(SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -128,6 +139,7 @@ public class SignalOutcomeService {
                     .sectorMomentumAtSignal(sectorMomentum)
                     .catalystTypeAtSignal(catalystType)
                     .catalystDirectionAtSignal(catalystDirection)
+                    .regimeAtSignal(regime)
                     .build());
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
@@ -469,7 +481,42 @@ public class SignalOutcomeService {
                 .bands(aggregateBands(rows))
                 .categories(aggregateCategories(rows))
                 .catalysts(aggregateCatalysts(rows))
+                .regimes(aggregateRegimes(rows))
                 .build();
+    }
+
+    /**
+     * 시장 국면별 집계 (V32) — 순수 함수. "하락장에서도 먹히나" 검증용.
+     * regime 컬럼 NULL(미수집) 행은 제외.
+     */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.RegimeStat> aggregateRegimes(
+            List<SignalOutcome> rows) {
+        String[][] defs = {
+                {"BULL", "상승장"},
+                {"BEAR", "하락장"},
+                {"SIDEWAYS", "횡보장"},
+        };
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.RegimeStat> result = new ArrayList<>();
+        for (String[] def : defs) {
+            long total = 0, hits = 0;
+            BigDecimal pctSum = BigDecimal.ZERO;
+            long pctCount = 0;
+            for (SignalOutcome s : rows) {
+                if (!def[0].equals(s.getRegimeAtSignal())) continue;
+                total++;
+                if (Boolean.TRUE.equals(s.getHit())) hits++;
+                if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+            }
+            result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.RegimeStat.builder()
+                    .regime(def[0])
+                    .label(def[1])
+                    .totalSignals(total)
+                    .hitCount(hits)
+                    .hitRate(rate(hits, total))
+                    .avgPctChange(avg(pctSum, pctCount))
+                    .build());
+        }
+        return result;
     }
 
     /**

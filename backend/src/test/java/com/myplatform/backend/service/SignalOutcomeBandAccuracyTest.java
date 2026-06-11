@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.SignalBandAccuracyDto.BandStat;
 import com.myplatform.backend.dto.SignalBandAccuracyDto.CatalystStat;
 import com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat;
+import com.myplatform.backend.dto.SignalBandAccuracyDto.RegimeStat;
 import com.myplatform.backend.entity.SignalOutcome;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -118,6 +119,33 @@ class SignalOutcomeBandAccuracyTest {
         assertThat(noneStat.getHitRate()).isEqualByComparingTo("0");
         // 미수집 행은 어느 그룹에도 안 들어감: 전체 표본 합 = 2
         long sum = cats.stream().mapToLong(CatalystStat::getTotalSignals).sum();
+        assertThat(sum).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("regimes(V32): 상승장 hit / 하락장 miss / 미수집(null) 제외")
+    void regimes_groupedByRegime() {
+        SignalOutcome bull = outcome(80, true, "4.00");
+        bull.setRegimeAtSignal("BULL");
+        SignalOutcome bear = outcome(76, false, "-2.00");
+        bear.setRegimeAtSignal("BEAR");
+        SignalOutcome uncollected = outcome(70, true, "5.00"); // regime null — V32 이전 행
+
+        List<RegimeStat> regimes = SignalOutcomeService.aggregateRegimes(
+                List.of(bull, bear, uncollected));
+
+        RegimeStat bullStat = regimes.stream().filter(r -> r.getRegime().equals("BULL")).findFirst().orElseThrow();
+        RegimeStat bearStat = regimes.stream().filter(r -> r.getRegime().equals("BEAR")).findFirst().orElseThrow();
+        RegimeStat sideStat = regimes.stream().filter(r -> r.getRegime().equals("SIDEWAYS")).findFirst().orElseThrow();
+
+        assertThat(regimes).hasSize(3); // BULL/BEAR/SIDEWAYS 항상 반환
+        assertThat(bullStat.getTotalSignals()).isEqualTo(1);
+        assertThat(bullStat.getHitRate()).isEqualByComparingTo("100");
+        assertThat(bullStat.getLabel()).isEqualTo("상승장");
+        assertThat(bearStat.getHitRate()).isEqualByComparingTo("0");
+        assertThat(sideStat.getTotalSignals()).isZero();
+        // 미수집 행은 어느 국면에도 안 들어감: 전체 표본 합 = 2
+        long sum = regimes.stream().mapToLong(RegimeStat::getTotalSignals).sum();
         assertThat(sum).isEqualTo(2);
     }
 

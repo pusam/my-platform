@@ -1,9 +1,17 @@
+"""python-backend — pykrx 보조분석 마이크로서비스.
+
+2026-06-11 재편: 과거 네이버 크롤링/yfinance/Gemini 라우터들은 Java backend 의
+열화 복제 + 가짜 데이터 생성 문제로 전부 제거 (git 히스토리 보존). 현재 역할:
+  - /api/v2/health          : 도커 헬스체크
+  - /api/v2/regime/current  : pykrx 기반 시장 국면 (Java 시그널 스냅샷 V32 가 소비)
+새 기능은 "Java/KIS 로 비싼 일(히스토리·벌크 분석)"일 때만 여기에 추가할 것.
+"""
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 
 from app.config import get_settings
 from app.services.cache_service import redis_client, close_redis
-from app.routers import health, market, investor, research, analysis, ai_strategy
+from app.routers import health, regime
 
 
 @asynccontextmanager
@@ -21,15 +29,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="My Platform - Python Backend",
-    version="2.0.0",
+    title="My Platform - Python Backend (pykrx 보조분석)",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
 # Routers
 app.include_router(health.router)
-app.include_router(market.router)
-app.include_router(investor.router)
-app.include_router(research.router)
-app.include_router(analysis.router)
-app.include_router(ai_strategy.router)
+app.include_router(regime.router)
