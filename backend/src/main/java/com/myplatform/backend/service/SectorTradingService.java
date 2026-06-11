@@ -177,6 +177,11 @@ public class SectorTradingService {
      */
     @Scheduled(scheduler = "cacheScheduler", cron = "0 */3 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSnapshotCollection() {
+        // 휴장일(공휴일) — 정적 데이터에 3분마다 KIS 배치(사이클당 100~140초) 낭비 방지.
+        // 휴장일 화면 표시는 on-demand 수집(calculateSectorTrading 캐시 미스 경로)이 담당.
+        if (isMarketClosed()) {
+            return;
+        }
         LocalTime now = LocalTime.now();
         if (now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE)) {
             return;
@@ -205,10 +210,11 @@ public class SectorTradingService {
     private void collectSnapshot() {
         long startTime = System.currentTimeMillis();
         LocalDateTime snapshotTime = DateTimeUtil.kstNow();
-        boolean isClosedDay = isMarketClosed();
 
-        if (isClosedDay) {
-            log.info("[섹터거래대금] 휴장일 - 마지막 거래일 데이터 유지");
+        if (isMarketClosed()) {
+            // 휴장일 on-demand 수집: KIS 가 주는 마지막 거래일 실측(누적거래대금)만 저장.
+            // 가짜 거래대금(시총×0.1% 등) 생성은 하지 않는다 — 점검 수정 2026-06-11.
+            log.info("[섹터거래대금] 휴장일 - 마지막 거래일 실측 데이터만 저장 (임시값 생성 안 함)");
         }
 
         // 1. 모든 종목 코드 수집 (거래정지/상폐 종목 제외)
@@ -231,29 +237,9 @@ public class SectorTradingService {
             String stockCode = entry.getKey();
             StockPriceDto price = entry.getValue();
 
-            BigDecimal accumulatedValue = price.getAccumulatedTradingValue();
-            if (accumulatedValue == null || accumulatedValue.compareTo(BigDecimal.ZERO) <= 0) {
-                // 누적 거래대금이 없으면 현재가 * 거래량으로 계산
-                if (price.getCurrentPrice() != null && price.getVolume() != null) {
-                    accumulatedValue = price.getCurrentPrice().multiply(price.getVolume());
-                }
-            }
+            BigDecimal accumulatedValue = resolveAccumulatedValue(price);
 
-            // 휴장일에는 거래대금이 0이어도 현재가 기준으로 임시값 저장 (UI 표시용)
-            if (isClosedDay && (accumulatedValue == null || accumulatedValue.compareTo(BigDecimal.ZERO) <= 0)) {
-                if (price.getCurrentPrice() != null) {
-                    // 휴장일: 시가총액의 0.1%를 임시 거래대금으로 사용 (정렬/표시용)
-                    BigDecimal marketCap = price.getMarketCap();
-                    if (marketCap != null && marketCap.compareTo(BigDecimal.ZERO) > 0) {
-                        accumulatedValue = marketCap.multiply(new BigDecimal("0.001"));
-                    } else {
-                        // 시가총액도 없으면 현재가 * 10000 (임시값)
-                        accumulatedValue = price.getCurrentPrice().multiply(new BigDecimal("10000"));
-                    }
-                }
-            }
-
-            if (accumulatedValue != null && accumulatedValue.compareTo(BigDecimal.ZERO) > 0) {
+            if (accumulatedValue != null) {
                 // TreeMap에 스냅샷 추가
                 tradingHistoryStore
                         .computeIfAbsent(stockCode, k -> new TreeMap<>())
@@ -282,6 +268,31 @@ public class SectorTradingService {
         long elapsed = System.currentTimeMillis() - startTime;
         log.info("[섹터거래대금] 스냅샷 수집 완료 - 저장: {}, 정리: {}, 소요: {}ms",
                 savedCount, cleanedCount, elapsed);
+    }
+
+    /**
+     * 스냅샷에 저장할 누적 거래대금 결정 — 실측만 (테스트 대상).
+     *
+     * <p>우선순위: KIS 누적거래대금 → 현재가×거래량(실측 기반 폴백). 둘 다 없으면 null
+     * — 해당 종목은 스냅샷에서 제외한다. 과거엔 휴장일에 시가총액×0.1% / 현재가×10000
+     * "임시값"을 거래대금으로 저장해 휴장일 섹터 랭킹이 사실상 시총 랭킹으로 위장되던
+     * 버그가 있었음 (점검 수정 2026-06-11). 거래대금 위장 생성 금지.
+     */
+    static BigDecimal resolveAccumulatedValue(StockPriceDto price) {
+        if (price == null) {
+            return null;
+        }
+        BigDecimal accumulated = price.getAccumulatedTradingValue();
+        if (accumulated != null && accumulated.compareTo(BigDecimal.ZERO) > 0) {
+            return accumulated;
+        }
+        if (price.getCurrentPrice() != null && price.getVolume() != null) {
+            BigDecimal computed = price.getCurrentPrice().multiply(price.getVolume());
+            if (computed.compareTo(BigDecimal.ZERO) > 0) {
+                return computed;
+            }
+        }
+        return null;
     }
 
     /**
