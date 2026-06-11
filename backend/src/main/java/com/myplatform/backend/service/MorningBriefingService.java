@@ -4,6 +4,8 @@ import com.myplatform.backend.dto.ConsecutiveBuyDto;
 import com.myplatform.backend.dto.MarketTimingDto;
 import com.myplatform.backend.dto.ScreenerResultDto;
 import com.myplatform.backend.dto.WatchlistDto;
+import com.myplatform.backend.entity.RecommendationSnapshot;
+import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -11,12 +13,16 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 모닝 브리핑 서비스
  * - 매일 07:30 장 시작 전 텔레그램으로 전일 시장 요약 발송
  * - 시장 상태, 외국인/기관 연속매수, 관심종목, 마법의 공식 종목 정보 포함
+ * - 브리핑 발송 후 재료 분류 워밍 (V31) — 최신 추천 BUY 컷 이상 종목의 뉴스 재료를
+ *   미리 분류해 호재/악재 알림이 장 시작 전 도착하게 함 (화면 조회 없이도).
  */
 @Service
 @RequiredArgsConstructor
@@ -28,9 +34,16 @@ public class MorningBriefingService {
     private final MarketTimingService marketTimingService;
     private final QuantScreenerService quantScreenerService;
     private final TelegramNotificationService telegramNotificationService;
+    private final RecommendationSnapshotRepository snapshotRepository;
+    private final StockCatalystService stockCatalystService;
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final String DEFAULT_USERNAME = "admin";
+
+    /** 재료 워밍 대상 컷 — 종합추천 BUY 임계(55)와 동일. */
+    static final int CATALYST_WARM_SCORE_CUT = 55;
+    /** 워밍 상한 — 종목당 네이버+Gemini 1회씩이라 Gemini quota 보호 위해 제한. */
+    static final int CATALYST_WARM_MAX = 5;
 
     /**
      * 모닝 브리핑 발송
@@ -66,6 +79,45 @@ public class MorningBriefingService {
         telegramNotificationService.sendMessage(message);
 
         log.info("=== 모닝 브리핑 발송 완료 ===");
+
+        // 6. 재료 분류 워밍 (V31) — 브리핑 발송 후 실행. 실패해도 브리핑에는 영향 없음.
+        //    분류 과정에서 호재→시그널 / 악재→리스크 채널 알림이 자동 발송된다.
+        warmCatalysts();
+    }
+
+    /**
+     * 최신 추천 스냅샷의 BUY 컷(55점) 이상 종목 재료를 미리 분류 (최대 5종목).
+     *
+     * 기존엔 사용자가 오늘 탭/결론 카드를 열어야 분류가 트리거됐는데, 이 워밍으로
+     * 장 시작 전(07:30 브리핑 직후)에 분류 + 호재/악재 알림이 선제 도착한다.
+     * 일캐시 구조라 이미 오늘 분류된 종목은 스킵되고, 사용자가 나중에 화면을 열면
+     * 캐시 히트로 즉시 배지가 뜬다.
+     */
+    void warmCatalysts() {
+        try {
+            List<RecommendationSnapshot> latest = snapshotRepository.findLatestSnapshot();
+            if (latest == null || latest.isEmpty()) {
+                log.debug("[모닝브리핑] 재료 워밍 — 추천 스냅샷 없음, 스킵");
+                return;
+            }
+            Set<String> seen = new HashSet<>();
+            int warmed = 0;
+            for (RecommendationSnapshot s : latest) {
+                if (warmed >= CATALYST_WARM_MAX) break;
+                if (s.getTotalScore() < CATALYST_WARM_SCORE_CUT) continue;
+                if (!seen.add(s.getStockCode())) continue;
+                try {
+                    stockCatalystService.getCatalyst(s.getStockCode(), s.getStockName());
+                    warmed++;
+                } catch (Exception e) {
+                    log.debug("[모닝브리핑] 재료 워밍 실패 ({}): {}", s.getStockCode(), e.getMessage());
+                }
+            }
+            log.info("[모닝브리핑] 재료 워밍 완료 — {}건 (BUY 컷 {}점 이상, 상한 {})",
+                    warmed, CATALYST_WARM_SCORE_CUT, CATALYST_WARM_MAX);
+        } catch (Exception e) {
+            log.warn("[모닝브리핑] 재료 워밍 실패: {}", e.getMessage());
+        }
     }
 
     /**
