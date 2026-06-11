@@ -41,7 +41,7 @@ public class StockCatalystDto {
                 .build();
     }
 
-    static String labelOf(StockCatalyst.CatalystType type) {
+    public static String labelOf(StockCatalyst.CatalystType type) {
         return switch (type) {
             case ORDER_WIN -> "수주";
             case EARNINGS -> "실적";

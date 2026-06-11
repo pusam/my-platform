@@ -37,6 +37,7 @@ public class StockCatalystService {
     // 미설정 환경(로컬 테스트 등)에서도 컨텍스트 로딩 가능하도록 ObjectProvider.
     private final ObjectProvider<NaverSearchService> naverProvider;
     private final ObjectProvider<GeminiService> geminiProvider;
+    private final ObjectProvider<TelegramNotificationService> telegramProvider;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_NEWS_FOR_PROMPT = 5;
@@ -76,8 +77,11 @@ public class StockCatalystService {
                         response.length() > 120 ? response.substring(0, 120) : response);
                 return null;
             }
-            return save(stockCode, stockName, today, parsed.type, parsed.direction,
+            StockCatalyst saved = save(stockCode, stockName, today, parsed.type, parsed.direction,
                     truncate(parsed.headline, 300), truncate(parsed.summary, 500));
+            // 신규 분류 시에만 알림 — 일캐시 덕에 종목당 하루 최대 1회 (캐시 히트 경로는 알림 없음).
+            notifyIfMeaningful(saved);
+            return saved;
         } catch (Exception e) {
             log.debug("[Catalyst] 분류 실패 ({}): {}", stockCode, e.getMessage());
             return null;
@@ -100,6 +104,49 @@ public class StockCatalystService {
             // 동시 요청 unique 충돌 등 — 기존 행 반환 시도
             return repository.findByStockCodeAndCatalystDate(stockCode, date).orElse(null);
         }
+    }
+
+    /**
+     * 재료 텔레그램 알림 — 호재는 시그널 채널, 악재는 리스크 채널. 중립/없음은 무알림.
+     * best-effort: 텔레그램 미설정/발송 실패가 분류 저장에 영향 주지 않음.
+     */
+    private void notifyIfMeaningful(StockCatalyst catalyst) {
+        if (catalyst == null) return;
+        Direction d = catalyst.getDirection();
+        if (d != Direction.POSITIVE && d != Direction.NEGATIVE) return;
+        TelegramNotificationService telegram = telegramProvider.getIfAvailable();
+        if (telegram == null) return;
+        try {
+            String message = buildAlertMessage(catalyst);
+            if (d == Direction.POSITIVE) {
+                telegram.sendSignal(message);
+            } else {
+                telegram.sendRisk(message);
+            }
+        } catch (Exception e) {
+            log.debug("[Catalyst] 텔레그램 알림 실패 ({}): {}", catalyst.getStockCode(), e.getMessage());
+        }
+    }
+
+    /** 알림 메시지 — 순수 함수 (테스트 대상). 기존 알림 포맷(HTML + 구분선 + 봇 서명) 준수. */
+    static String buildAlertMessage(StockCatalyst c) {
+        boolean positive = c.getDirection() == Direction.POSITIVE;
+        StringBuilder sb = new StringBuilder();
+        sb.append(positive ? "<b>🔥 재료 포착 (호재)</b>\n\n" : "<b>⚠️ 재료 경보 (악재)</b>\n\n");
+        sb.append("📊 <b>").append(c.getStockName() != null ? c.getStockName() : c.getStockCode())
+                .append("</b> (").append(c.getStockCode()).append(")\n");
+        sb.append("🏷 유형: <b>").append(com.myplatform.backend.dto.StockCatalystDto.labelOf(c.getCatalystType()))
+                .append("</b>\n");
+        if (c.getSummary() != null && !c.getSummary().isBlank()) {
+            sb.append("📝 ").append(c.getSummary()).append('\n');
+        }
+        if (c.getHeadline() != null && !c.getHeadline().isBlank()) {
+            sb.append("📰 ").append(c.getHeadline()).append('\n');
+        }
+        sb.append("\nℹ️ 뉴스 기반 자동 분류 — 산식 미반영, 직접 확인 후 판단하세요.\n");
+        sb.append("━━━━━━━━━━━━━━━━\n");
+        sb.append("🤖 MyPlatform 재료 알림");
+        return sb.toString();
     }
 
     /** Gemini 분류 프롬프트 — JSON 강제. 유형/방향 어휘는 CatalystType/Direction enum 과 동기. */
