@@ -367,7 +367,8 @@ async def get_market_indices() -> dict:
     parts = []
     parts.append('코스피 상승' if kr > 0 else '코스피 하락' if kr < 0 else '코스피 보합')
     parts.append('코스닥 상승' if kdr > 0 else '코스닥 하락' if kdr < 0 else '코스닥 보합')
-    result['adr'] = 50.0
+    # adr 키 제거 (점검 수정 2026-06-11): 과거 상수 50.0 을 실데이터처럼 반환 — 위장 금지.
+    # ADR(20일) 실계산은 Java MarketTimingService 가 담당. 여기선 미제공이 정직.
     result['marketStatus'] = ' · '.join(parts)
 
     if result:
@@ -380,7 +381,7 @@ async def get_market_indices() -> dict:
 async def get_surge_stocks(limit: int = 10) -> list:
     """수급 급증 종목 = 거래량 상위 + 상승 종목
 
-    Returns: [{ stockCode, stockName, changeRate, surgeRatio }, ...]
+    Returns: [{ stockCode, stockName, changeRate, volumeTenThousands }, ...]
     """
     stocks = await get_top_volume_stocks(30, 'ALL')
     results = []
@@ -390,18 +391,26 @@ async def get_surge_stocks(limit: int = 10) -> list:
                 'stockCode': s['stockCode'],
                 'stockName': s['stockName'],
                 'changeRate': s['changeRate'],
-                'surgeRatio': int(s.get('volume', 0) / 10000),
+                # 거래량(만주 단위) — 비율(ratio)이 아님. 과거 'surgeRatio' 명칭이
+                # 백분율처럼 오해됐음 (점검 수정 2026-06-11). 정렬용 점수.
+                'volumeTenThousands': int(s.get('volume', 0) / 10000),
             })
-    results.sort(key=lambda x: x['surgeRatio'], reverse=True)
+    results.sort(key=lambda x: x['volumeTenThousands'], reverse=True)
     return results[:limit]
 
 
 # ═══════════════════ 연속 매수 (간이 방식) ═══════════════════
 
 async def get_consecutive_buy(limit: int = 10) -> list:
-    """연속 순매수 종목 (외국인+기관 순매수 상위 교집합 → 추정)
+    """당일 외국인/기관 순매수 상위 종목
 
-    Returns: [{ stockCode, stockName, consecutiveDays, investorType }, ...]
+    ⚠ 점검 수정 2026-06-11: 네이버 데이터로는 '연속' 매수일수를 알 수 없다.
+    과거엔 순위로부터 max(3, 8-i) 식으로 연속일수를 '생성'해 실데이터처럼
+    반환했음 — 날조 금지(§4c). consecutiveDays 는 None(미상)으로 내리고
+    basis 로 실제 의미(당일 순매수 상위)를 명시한다. 진짜 연속매수 판정은
+    Java backend 의 InvestorTradeService(KIS 일별 데이터 기반)가 담당.
+
+    Returns: [{ stockCode, stockName, consecutiveDays: None, basis, investorType }, ...]
     """
     cache_key = f"naver_consecutive_{limit}"
     cached = await redis_client.get(cache_key)
@@ -414,29 +423,31 @@ async def get_consecutive_buy(limit: int = 10) -> list:
     results = []
     seen = set()
 
-    for i, item in enumerate(foreign[:7]):
+    for item in foreign[:7]:
         code = item['stockCode']
         if code not in seen:
             seen.add(code)
             results.append({
                 'stockCode': code,
                 'stockName': item['stockName'],
-                'consecutiveDays': max(3, 8 - i),
+                'consecutiveDays': None,  # 미상 — 당일 데이터만으로 판별 불가
+                'basis': 'TODAY_TOP_NETBUY',
                 'investorType': 'FOREIGN',
             })
 
-    for i, item in enumerate(institution[:7]):
+    for item in institution[:7]:
         code = item['stockCode']
         if code not in seen:
             seen.add(code)
             results.append({
                 'stockCode': code,
                 'stockName': item['stockName'],
-                'consecutiveDays': max(3, 7 - i),
+                'consecutiveDays': None,
+                'basis': 'TODAY_TOP_NETBUY',
                 'investorType': 'INSTITUTION',
             })
 
-    results.sort(key=lambda x: x['consecutiveDays'], reverse=True)
+    # 순매수 상위 순서 보존 (과거엔 날조된 연속일수로 재정렬했음)
     results = results[:limit]
 
     if results:

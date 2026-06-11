@@ -124,7 +124,12 @@ PBR: {stock_data.get('pbr', 0)}
 
     try:
         result = _parse_json(text)
-        result["aiScore"] = max(0, min(100, int(result.get("aiScore", 50))))
+        # aiScore 누락 응답은 실패 취급 — 기본값 50(중립)으로 위장하면 호출측이
+        # "AI 가 중립 평가" 와 "점수 없음" 을 구분 못 함 (점검 수정 2026-06-11)
+        if "aiScore" not in result:
+            logger.warning("[AI] aiScore 누락 응답 — 분석 실패 취급")
+            return None
+        result["aiScore"] = max(0, min(100, int(result["aiScore"])))
         result["aiComment"] = str(result.get("aiComment", ""))[:40]
         themes = result.get("themes", [])
         if isinstance(themes, list):
@@ -194,10 +199,11 @@ async def score_candidates(candidates: list, strategy_type: str) -> dict:
         result = {}
         for item in arr:
             code = str(item.get("stockCode", ""))
-            if not code:
+            # aiScore 없는 항목은 제외 — 50점(중립) 위장 금지 (점검 수정 2026-06-11)
+            if not code or "aiScore" not in item:
                 continue
             result[code] = {
-                "aiScore": max(0, min(100, int(item.get("aiScore", 50)))),
+                "aiScore": max(0, min(100, int(item["aiScore"]))),
                 "aiComment": str(item.get("aiComment", ""))[:40],
                 "themes": item.get("themes", [])[:3],
             }

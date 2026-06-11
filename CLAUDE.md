@@ -59,6 +59,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **체결강도**: 소스는 **체결 API(FHKST01010300, inquire-ccnl)의 `tday_rltv`** — 현재가 시세 API(FHKST01010100)엔 체결강도 필드가 없다(여기서 읽으려던 게 항상-100% 버그의 근원). 미수집이면 **null 유지** → 프론트 게이지가 '-' + 시간대별 안내 표시. **null→100(균형) 강제 변환 금지.** 봇 `isVolumeIncreasing` 도 이 값에 의존.
 - **시장 진단 condition 은 ADR(20일) 기반만**. 당일 등락비(`applyDailyRatio`)는 dailyRatio 표시값만 채운다 — ADR 임계(120/80/60)로 당일 등락비를 판정해 condition 을 덮어쓰면 평범한 상승일도 장중 '과열'로 오판.
 - **섹터 거래대금은 실측만**(`SectorTradingService.resolveAccumulatedValue`): KIS 누적거래대금 → 현재가×거래량 폴백, 둘 다 없으면 스냅샷 제외. 시총×0.1% 같은 임시값 생성 금지. 휴장일엔 3분 크론 early-return(가드만, cron 시각 불변) — 휴장일 표시는 on-demand 수집의 마지막 거래일 실측이 담당.
+- **python-backend 도 동일 원칙** (2026-06-11 점검에서 5건 제거): 스크리너 가짜 펀더멘털(등락률 선형식 PER/ROE/PEG 생성), 연속매수일 날조(max(3,8-i)), adr=50 상수, Gemini aiScore 기본 50, 선물 price="0" — 전부 제거/None 화. python 스크리너는 **모멘텀 후보만**(dataBasis=MOMENTUM_ONLY), 실제 재무 스크리닝·연속매수·ADR 은 Java 가 정답 소스. 참고: python-backend 는 현재 활성 소비자 없음(프론트 v1 통합, nginx /api/v2 라우팅만 유지).
 - 신규 코드도 같은 원칙: 결측은 null/생략으로 정직하게. (단, RecommendationSnapshot.growth 의 -1=NA 같은 명시적 sentinel 은 기존 규약 유지.)
 
 ### 5. 인프라 관련

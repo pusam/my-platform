@@ -173,6 +173,7 @@ async def fetch_fundamentals_batch(codes: list[str]) -> dict[str, dict]:
                 per = float(info.get("trailingPE", 0) or 0)
                 pbr = float(info.get("priceToBook", 0) or 0)
                 eps = float(info.get("trailingEps", 0) or 0)
+                # ROE 근사 = PBR/PER ×100 — (P/B)÷(P/E) = E/B 회계 항등식 기반 (날조 아님)
                 roe = (pbr / per * 100) if per > 0 and pbr > 0 else 0
                 result[code] = {
                     "per": round(per, 1),
@@ -249,7 +250,8 @@ async def get_nasdaq_futures() -> dict:
     data = await asyncio.to_thread(_fetch)
     if data:
         await redis_client.set(cache_key, data, get_cache_ttl(120))
-    return data or {"price": "0", "changeRate": 0}
+    # 조회 실패 시 빈 dict — price "0"/changeRate 0 은 "보합"처럼 보이는 위장값 (점검 수정 2026-06-11)
+    return data or {}
 
 
 async def get_sp500_futures() -> dict:
@@ -274,4 +276,5 @@ async def get_sp500_futures() -> dict:
     data = await asyncio.to_thread(_fetch)
     if data:
         await redis_client.set(cache_key, data, get_cache_ttl(120))
-    return data or {"price": "0", "changeRate": 0}
+    # 조회 실패 시 빈 dict — 위장값 금지 (점검 수정 2026-06-11)
+    return data or {}
