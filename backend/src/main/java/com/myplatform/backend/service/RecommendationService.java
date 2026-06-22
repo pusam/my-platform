@@ -1428,6 +1428,8 @@ public class RecommendationService {
             // BULL 검증된 강세장에서는 시장이 종목 전반에 우호적이라는 시그널 자체가 점수에 들어가야
             // 추천 풀이 형성됨. 변별력 일부 손실 vs 추천 풀 회복 trade-off — 운영 데이터(LG디스플레이
             // sector 4점, 75 미달) 기반 조정. BEAR/SIDEWAYS 에서는 일괄 가산 없음(phase 31b 유지).
+            // ⚠ phase 38: 이 +4 floor 위에 applyRegimeWeights 가 ×1.20 까지 곱해 섹터가 이중 가산되던
+            //   문제로 BULL 섹터 승수는 1.0 으로 내림. floor(여기) 만 유지. 둘 다 키우지 말 것.
             if (regime == MarketRegime.BULL) {
                 ss += 4;
             }
@@ -1870,13 +1872,19 @@ public class RecommendationService {
 
     /**
      * 시장 국면별 카테고리 가중 + clamp[0,20]. P1-5 테스트 대상 — BULL/BEAR 승수 반영 확인.
+     *
+     * <p><b>phase 38</b>: BULL 섹터 승수 1.20 → 1.0. BULL 에서는 scoreSectorMomentum 이 이미
+     * 전 종목에 +4 floor 를 더하는데, 그 위에 ×1.20 을 또 곱해 섹터가 <b>이중 가산</b>되던 문제
+     * (오른 종목일수록 섹터 점수가 부풀어 발굴 상위 노출)를 해소. floor(+4)는 추천 풀 안정용으로
+     * 유지하고, 증폭(×1.20)만 제거 — "둘 중 하나만" 남기는 절충. BEAR/SIDEWAYS 는 불변.
+     *
      * @return [earnings, supplyDemand, technical, sectorMomentum] 가중·clamp 결과
      */
     static int[] applyRegimeWeights(int earnings, int supplyDemand, int technical, int sectorMomentum,
                                     MarketRegime regime) {
         double wE, wSD, wTC, wSC;
         switch (regime) {
-            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.20; }
+            case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.00; }
             case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
             default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
         }

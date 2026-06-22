@@ -87,14 +87,14 @@ class RecommendationScoreTest {
     @DisplayName("MarketRegime 가중 승수 (BULL/BEAR) + clamp[0,20]")
     class RegimeWeights {
         @Test
-        @DisplayName("BULL: 섹터 ×1.20 강화, 실적 ×0.95 약화")
+        @DisplayName("BULL: 섹터 ×1.0 (phase 38 — +4 floor 와 이중가산 제거), 실적 ×0.95 약화")
         void bull() {
             // e=20,sd=10,tc=10,sc=15
             int[] w = RecommendationService.applyRegimeWeights(20, 10, 10, 15, MarketRegime.BULL);
             assertThat(w[0]).isEqualTo(19);  // 20*0.95=19
             assertThat(w[1]).isEqualTo(11);  // 10*1.10=11
             assertThat(w[2]).isEqualTo(11);  // 10*1.05=10.5 → 11 (half-up)
-            assertThat(w[3]).isEqualTo(18);  // 15*1.20=18
+            assertThat(w[3]).isEqualTo(15);  // 15*1.0=15 (기존 ×1.20 증폭 제거 — scoreSectorMomentum 의 +4 floor 만 유지)
         }
 
         @Test
