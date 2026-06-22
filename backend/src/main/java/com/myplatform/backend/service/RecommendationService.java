@@ -923,17 +923,7 @@ public class RecommendationService {
                         // 50점" 같은 일관성 깨짐 발생. v7 (5→4 카테고리) 전환 시 누락된 부분.
                         s.earnings + s.supplyDemand + s.technical + s.sectorMomentum,
                         countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
-                // tie-break 우선순위:
-                //   1) normalized total desc
-                //   2) delta(오늘 - 어제) desc — 막 올라온 종목 우선 (추격매수 방지)
-                //   3) changeRate desc — 최후 보루
-                .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
-                        .thenComparing((StockScore s) -> {
-                            Integer prev = prevScoreMap.get(s.stockCode);
-                            return s.getNormalizedTotal() - (prev != null ? prev : 0);
-                        }, Comparator.reverseOrder())
-                        .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0,
-                                Comparator.reverseOrder()))
+                .sorted(recommendationComparator(prevScoreMap))
                 .limit(10)
                 .map(this::toDto)
                 .toList();
@@ -1526,27 +1516,31 @@ public class RecommendationService {
                 boolean au = Boolean.TRUE.equals(ind.getIsArrangedUp());
                 if (gc && au) ts += 5; else if (gc) ts += 3; else if (au) ts += 2;
 
-                // 과열 페널티 — 추격매수 방지. RSI 75+, 볼린저 상단 돌파, 5일 누적 +20% 모두 점수 차감.
-                // ts 가 음수로 떨어질 수 있고 그 경우 technical=0 → validCount 에서 빠져 추천 탈락(의도).
-                if (rsi != null && rsi.doubleValue() >= 75) {
-                    ts -= 5;
-                    stock.tags.add("⚠RSI" + rsi.intValue() + "과열");
-                }
-                if (Boolean.TRUE.equals(ind.getIsBreakout())) {
-                    ts -= 3;
-                    stock.tags.add("⚠볼린저상단돌파");
-                }
+                // 5일 누적 등락률 — 과열 판정 + P2 신규 진입 감점에서 사용
+                Double fiveDayPct = null;
                 if (prices.size() >= 6) {
                     BigDecimal fiveAgo = prices.get(5);
                     if (fiveAgo != null && fiveAgo.signum() > 0) {
                         double pct = prices.get(0).subtract(fiveAgo).doubleValue()
                                 / fiveAgo.doubleValue() * 100.0;
-                        stock.fiveDayReturn = pct; // P2 신규 진입 감점에서 사용
-                        if (pct >= 20.0) {
-                            ts -= 5;
-                            stock.tags.add("⚠5일+" + (int) pct + "%과열");
-                        }
+                        stock.fiveDayReturn = pct;
+                        fiveDayPct = pct;
                     }
+                }
+                boolean breakout = Boolean.TRUE.equals(ind.getIsBreakout());
+                Double rsiVal = rsi != null ? rsi.doubleValue() : null;
+
+                // 과열 페널티 — 추격매수 방지. 산식은 overheatPenalty() 단일 출처(테스트 대상).
+                // ts 가 음수로 떨어지면 technical=0 → validCount 에서 빠져 추천 탈락(의도).
+                ts -= overheatPenalty(rsiVal, breakout, fiveDayPct);
+                if (rsiVal != null && rsiVal >= OVERHEAT_RSI_MIN) {
+                    stock.tags.add("⚠RSI" + rsi.intValue() + "과열");
+                }
+                if (breakout) {
+                    stock.tags.add("⚠볼린저상단돌파");
+                }
+                if (fiveDayPct != null && fiveDayPct >= OVERHEAT_5D_MIN) {
+                    stock.tags.add("⚠5일+" + fiveDayPct.intValue() + "%과열");
                 }
 
                 stock.technical = Math.min(20, Math.max(0, ts));
@@ -1817,6 +1811,63 @@ public class RecommendationService {
         return total;
     }
 
+    // 과열 페널티 임계 — 태그 표시 임계와 동일(가장 낮은 차감 구간). overheatPenalty() 와 동기.
+    static final double OVERHEAT_RSI_MIN = 70.0;
+    static final double OVERHEAT_5D_MIN = 15.0;
+
+    /**
+     * 과열(추격매수) 페널티 — technical 점수에서 차감할 점수(양수). P1-5 패턴 테스트 대상.
+     *
+     * <p>RSI·볼린저 상단 돌파·5일 누적 등락률을 단일 출처로 합산. ts 에서 빼며, ts 가 음수면
+     * technical=0 → validCount 에서 빠져 추천 탈락(의도). BULL 강세장에서도 적용된다(섹터 가산과 별개).
+     *
+     * <p><b>phase 38 임계 강화</b>: 기존 RSI≥75 -5 / 5일≥20% -5 단일 임계는 임계 바로 아래
+     * (RSI 72·5일 18%) 과열주를 무페널티로 통과시켜 발굴 상위에 노출하는 문제가 있었다.
+     * 단계별로 바꿔 임계 바로 아래 구간도 잡고 극과열은 더 크게 차감한다(기존 임계의 차감폭은 유지):
+     * RSI 70/75/80 → 3/5/8, 5일 15/20/30% → 3/5/8.
+     *
+     * @param rsi RSI14 (null 허용)
+     * @param isBreakout 볼린저 밴드 상단 돌파 여부
+     * @param fiveDayReturn 5거래일 누적 등락률 % (null 허용)
+     * @return 차감 점수(0 이상)
+     */
+    static int overheatPenalty(Double rsi, boolean isBreakout, Double fiveDayReturn) {
+        int p = 0;
+        if (rsi != null) {
+            if (rsi >= 80.0) p += 8;
+            else if (rsi >= 75.0) p += 5;
+            else if (rsi >= 70.0) p += 3;
+        }
+        if (isBreakout) p += 3;
+        if (fiveDayReturn != null) {
+            if (fiveDayReturn >= 30.0) p += 8;
+            else if (fiveDayReturn >= 20.0) p += 5;
+            else if (fiveDayReturn >= 15.0) p += 3;
+        }
+        return p;
+    }
+
+    /**
+     * 발굴 TOP10 정렬 comparator. 테스트 대상.
+     *
+     * <p>tie-break 우선순위:
+     * <ol>
+     *   <li>normalized total desc</li>
+     *   <li>delta(오늘 - 어제) desc — 추천 풀 안에서 막 가속한 종목 우선</li>
+     *   <li>changeRate <b>asc</b> — 점수·delta 동률이면 <b>덜 오른 종목</b> 우선(추격 인상 완화).
+     *       기존엔 desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가 상위 노출 요인이었음(phase 38 약화).</li>
+     * </ol>
+     */
+    static Comparator<StockScore> recommendationComparator(Map<String, Integer> prevScoreMap) {
+        return Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
+                .thenComparing((StockScore s) -> {
+                    Integer prev = prevScoreMap.get(s.stockCode);
+                    return s.getNormalizedTotal() - (prev != null ? prev : 0);
+                }, Comparator.reverseOrder())
+                // changeRate asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
+                .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0);
+    }
+
     /**
      * 시장 국면별 카테고리 가중 + clamp[0,20]. P1-5 테스트 대상 — BULL/BEAR 승수 반영 확인.
      * @return [earnings, supplyDemand, technical, sectorMomentum] 가중·clamp 결과
@@ -1953,7 +2004,7 @@ public class RecommendationService {
 
     // ==================== Inner Classes ====================
 
-    private static class StockScore {
+    static class StockScore {  // package-private: recommendationComparator 테스트 접근
         String stockCode, stockName;
         int aiStrategy = 0, earnings = 0, supplyDemand = 0, technical = 0, sectorMomentum = 0;
         // valueStability — 다른 카테고리와 달리 "데이터 자체 없음" 과 "데이터 있으나 점수 0" 구분.
