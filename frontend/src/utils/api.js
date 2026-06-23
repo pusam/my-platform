@@ -1041,6 +1041,10 @@ export const recommendationAPI = {
   // 저평가 TOP 10 — 종합 추천과 별도 트랙. PBR·ROE 기반 가치주.
   getValueTop10() {
     return apiClient.get('/recommendation/value-top10', { timeout: 30000 });
+  },
+  // 성장주 TOP 10 — 매출·이익 성장률 + PEG 기반. 저평가와 짝.
+  getGrowthTop10() {
+    return apiClient.get('/recommendation/growth-top10', { timeout: 30000 });
   }
 };
 

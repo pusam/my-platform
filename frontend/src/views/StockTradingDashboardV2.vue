@@ -113,6 +113,52 @@
           <div v-else class="empty-signal">저평가 종목 데이터 수집 중<br><small style="opacity:0.7">PBR·ROE·부채비율 기반 가치주만 산정 (분기 단위 갱신)</small></div>
         </div>
 
+        <!-- ②-b 성장주 TOP 10 (발굴 탭 — 빠르게 크는 종목, 저평가와 짝) -->
+        <div id="briefing-section-growth" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🚀</span> 성장주 TOP {{ growthTop10.length > 0 ? growthTop10.length : 10 }}</h2>
+            <span v-if="growthTopDataTime" class="rec-data-time">{{ growthTopDataTime }}</span>
+          </div>
+          <div v-if="growthTopLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'grw-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="growthTop10.length" class="rec-list">
+            <div v-for="(rec, i) in growthTop10" :key="'grw-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 4)" :key="'gt-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-basis">/100</span>
+                </div>
+                <!-- 항목별 점수 분해 (매출성장/이익성장/PEG) -->
+                <div class="rec-detail-bars">
+                  <div v-for="item in getGrowthScoreBreakdown(rec)" :key="item.key" class="rec-detail-row" :title="item.tooltip">
+                    <span class="rec-detail-label">{{ item.label }}</span>
+                    <div class="rec-detail-track">
+                      <div class="rec-detail-fill" :style="{ width: (item.score / item.max * 100) + '%', background: item.color }"></div>
+                    </div>
+                    <span class="rec-detail-score" :style="{ color: item.score >= item.max * 0.7 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}/{{ item.max }}</span>
+                  </div>
+                </div>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">성장주 데이터 수집 중<br><small style="opacity:0.7">매출·이익 성장률 + PEG 기반 (분기 단위 갱신)</small></div>
+        </div>
+
         <!-- ②-b 수급 현황 패널 → 시장 탭 -->
         <div id="briefing-section-supply" class="supply-panel section-card" v-if="activeGnbTab === 'market' && supplyPanelData">
           <div class="section-title-row">
@@ -538,6 +584,9 @@ export default {
       valueTop10: [],
       valueTopLoading: false,
       valueTopDataTime: '',
+      growthTop10: [],
+      growthTopLoading: false,
+      growthTopDataTime: '',
       // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
       activeSectorView: 'map',
       supplyPanelData: null,
@@ -912,6 +961,18 @@ export default {
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
       finally { this.valueTopLoading = false }
     },
+    // 성장주 TOP 10 — 저평가와 별도 트랙. 분기 데이터라 첫 진입 + 30분 캐시.
+    async refreshGrowthTop10() {
+      if (this.growthTopLoading) return
+      this.growthTopLoading = true
+      try {
+        const res = await recommendationAPI.getGrowthTop10()
+        const body = res?.data || res
+        this.growthTop10 = (body?.data) || []
+        this.growthTopDataTime = body?.dataTime || ''
+      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+      finally { this.growthTopLoading = false }
+    },
     // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
     // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.
     // batchScores 는 무거운 호출이라 실패해도 트래커는 totalScore 만으로 정상 동작.
@@ -943,6 +1004,9 @@ export default {
       // 가치 데이터는 분기 단위라 한 번만 로드 (비었을 때만).
       if (tab === 'discover' && !this.valueTop10.length) {
         this.refreshValueTop10()
+      }
+      if (tab === 'discover' && !this.growthTop10.length) {
+        this.refreshGrowthTop10()
       }
     },
 
@@ -987,9 +1051,10 @@ export default {
       // 오늘 강세 섹터
       this.loadStrongSectors()
 
-      // 저평가 TOP 10 — 발굴 탭 메인 트랙. 분기 단위로만 변하므로 가벼운 호출.
+      // 저평가·성장주 TOP 10 — 발굴 탭 메인 트랙. 분기 단위로만 변하므로 가벼운 호출.
       // (모멘텀 종합추천은 오늘 탭으로 일원화 — 여기서 미로드)
       this.refreshValueTop10()
+      this.refreshGrowthTop10()
 
       // 수급 현황 패널
       this.loadSupplyPanel()
@@ -1174,6 +1239,17 @@ export default {
           tooltip: '부채비율 ≤ 50% → 4점 / ≤ 100% → 3점 / ≤ 200% → 1점' },
         { key: 'profit', label: '흑자', score: rec.valueProfitEquityScore || 0, max: 3, color: '#f59e0b',
           tooltip: '영업이익 + 자본총계 모두 양수 → 3점 (재무 안정성)' },
+      ]
+    },
+    getGrowthScoreBreakdown(rec) {
+      // 성장 3 항목 — 매출성장(7) + 이익성장(8) + PEG(5) = 20점 만점.
+      return [
+        { key: 'rev', label: '매출성장', score: rec.growthRevScore || 0, max: 7, color: '#06b6d4',
+          tooltip: '매출성장률 ≥30% → 7점 / ≥20 → 5 / ≥10 → 3 / ≥0 → 1' },
+        { key: 'profit', label: '이익성장', score: rec.growthProfitScore || 0, max: 8, color: '#8b5cf6',
+          tooltip: '순이익성장률 ≥50% → 8점 / ≥30 → 6 / ≥15 → 4 / ≥0 → 2' },
+        { key: 'peg', label: 'PEG', score: rec.growthPegScore || 0, max: 5, color: '#10b981',
+          tooltip: 'PEG(PER/EPS성장률) ≤0.7 → 5점 / ≤1.0 → 4 / ≤1.5 → 2 / ≤2.0 → 1 (낮을수록 저평가 성장주)' },
       ]
     },
     getRecGradeClass(score, validCount) {

@@ -42,6 +42,20 @@ public class RecommendationController {
     }
 
     /**
+     * 성장주 TOP 10 — 매출·이익 성장률 + PEG 기반. 저평가와 짝(싸다/빠르게 큰다), 별도 트랙.
+     */
+    @GetMapping("/growth-top10")
+    public ResponseEntity<?> getGrowthTop10() {
+        var response = recommendationService.getGrowthTop10();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", response.getItems(),
+                "dataTime", response.getDataTime(),
+                "realtime", response.isRealtime()
+        ));
+    }
+
+    /**
      * STRONG_BUY + 강한 가치 동시 충족 빈도 — phase 35.
      * phase 34 의 STRONG+VALUE +2 보너스가 dead code 인지 운영 데이터로 확인.
      */

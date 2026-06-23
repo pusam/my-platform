@@ -89,6 +89,8 @@ public class RecommendationService {
     // 저평가 TOP 10 별도 캐시 — 가치 점수는 분기 단위로 거의 안 변하므로 30분 캐시 충분.
     private volatile List<RecommendationDto> cachedValueTop10 = null;
     private volatile LocalDateTime valueCacheTime = null;
+    private volatile List<RecommendationDto> cachedGrowthTop10 = null;
+    private volatile LocalDateTime growthCacheTime = null;
 
     // 백그라운드 calculate 중복 방지
     private final java.util.concurrent.atomic.AtomicBoolean calculating
@@ -850,6 +852,100 @@ public class RecommendationService {
         int profitEquityScore;    // 0~3
     }
 
+    // ==================== 성장주 TOP 10 (별도 트랙) ====================
+
+    /**
+     * 성장주 TOP 10 — 매출·이익 성장률 + PEG 기반 성장 점수만으로 산정.
+     * 저평가(싸다)와 짝 — "빠르게 크는" 종목. 종합추천(매수 신호)·저평가와 별도 트랙. 캐시 30분(분기 데이터).
+     */
+    public Top5Response getGrowthTop10() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+        if (cachedGrowthTop10 != null && growthCacheTime != null
+                && growthCacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildValueResponse(cachedGrowthTop10, growthCacheTime.format(TIME_FMT) + " 기준", trading);
+        }
+        List<RecommendationDto> result;
+        try {
+            result = calculateGrowthTop10();
+            if (!result.isEmpty()) {
+                cachedGrowthTop10 = result;
+                growthCacheTime = now;
+            }
+        } catch (Exception e) {
+            log.error("[성장주TOP10] 계산 실패: {}", e.getMessage(), e);
+            result = cachedGrowthTop10 != null ? cachedGrowthTop10 : Collections.emptyList();
+        }
+        return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
+    }
+
+    private List<RecommendationDto> calculateGrowthTop10() {
+        long t0 = System.currentTimeMillis();
+        List<StockFinancialData> all = financialDataRepository.findLatestPerStock();
+
+        List<GrowthScoredStock> scored = new ArrayList<>();
+        for (StockFinancialData fin : all) {
+            if (fin.getStockCode() == null || fin.getStockName() == null) continue;
+            int[] parts = computeGrowthScoreParts(fin.getRevenueGrowth(), fin.getProfitGrowth(), fin.getPeg());
+            int score = Math.min(20, parts[0] + parts[1] + parts[2]);
+            if (score <= 0) continue;
+            GrowthScoredStock gs = new GrowthScoredStock();
+            gs.stockCode = fin.getStockCode();
+            gs.stockName = fin.getStockName();
+            gs.score = score;
+            gs.revScore = parts[0];
+            gs.profitScore = parts[1];
+            gs.pegScore = parts[2];
+            gs.tags = growthTags(fin.getRevenueGrowth(), fin.getProfitGrowth(), fin.getPeg());
+            scored.add(gs);
+        }
+
+        // 점수 desc → 상위 30 만 리스크 검사(DART) → 페널티 후 재정렬 → top10 (저평가와 동일 골격)
+        scored.sort((a, b) -> Integer.compare(b.score, a.score));
+        List<GrowthScoredStock> shortlist = scored.stream().limit(30).collect(Collectors.toList());
+        for (GrowthScoredStock gs : shortlist) {
+            try {
+                if (riskManagementService.quickDangerCheck(gs.stockCode, gs.stockName)) {
+                    gs.score = Math.max(0, gs.score - 5);
+                    gs.tags.add("⚠리스크공시");
+                }
+            } catch (Exception ignore) { /* 페널티 안 줌 */ }
+        }
+        shortlist.sort((a, b) -> Integer.compare(b.score, a.score));
+        List<GrowthScoredStock> top = shortlist.stream().limit(10).collect(Collectors.toList());
+
+        log.info("[성장주TOP10] financial_data {}종목 → {}건 후보 → top10 ({}ms)",
+                all.size(), scored.size(), System.currentTimeMillis() - t0);
+
+        return top.stream().map(gs -> RecommendationDto.builder()
+                .stockCode(gs.stockCode)
+                .stockName(gs.stockName)
+                .totalScore(Math.min(100, gs.score * 5))   // 20점 만점 → 100점 환산
+                .aiStrategy(NA)
+                .earnings(NA)
+                .supplyDemand(NA)
+                .technical(NA)
+                .sectorMomentum(NA)
+                .valueStability(NA)
+                .growth(gs.score)
+                .validCount(1)
+                .tags(new ArrayList<>(gs.tags))
+                .growthRevScore(gs.revScore)
+                .growthProfitScore(gs.profitScore)
+                .growthPegScore(gs.pegScore)
+                .build()).toList();
+    }
+
+    private static class GrowthScoredStock {
+        String stockCode;
+        String stockName;
+        int score;
+        List<String> tags;
+        int revScore;       // 0~7
+        int profitScore;    // 0~8
+        int pegScore;       // 0~5
+    }
+
     // ==================== Core Calculation ====================
 
     private List<RecommendationDto> calculate() {
@@ -1031,6 +1127,40 @@ public class RecommendationService {
     //   valueStability 와 동일하게 totalScore 산식엔 미포함 (후보 발굴/표시용 LONG factor).
     // placeholder 0 처리: revenueGrowth/profitGrowth 는 음수(역성장)가 의미 있으므로 firstNonZero,
     //   PEG 는 0 이하가 무의미(EPS 역성장)하므로 firstPositive.
+    /**
+     * 성장 점수 분해 — {매출(0~7), 이익(0~8), PEG(0~5)}. scoreGrowth(종합추천 성장factor)와
+     * 성장주 TOP10 의 <b>단일 산식 출처</b> — 둘 중 한 곳만 바꾸지 말 것. 순수 함수(테스트 대상).
+     */
+    static int[] computeGrowthScoreParts(BigDecimal revGrowth, BigDecimal profitGrowth, BigDecimal peg) {
+        int rev = 0, profit = 0, pegScore = 0;
+        if (revGrowth != null) {
+            double v = revGrowth.doubleValue();   // 음수(역성장) → 0
+            if (v >= 30) rev = 7; else if (v >= 20) rev = 5; else if (v >= 10) rev = 3; else if (v >= 0) rev = 1;
+        }
+        if (profitGrowth != null) {
+            double v = profitGrowth.doubleValue();
+            if (v >= 50) profit = 8; else if (v >= 30) profit = 6; else if (v >= 15) profit = 4; else if (v >= 0) profit = 2;
+        }
+        if (peg != null) {
+            double v = peg.doubleValue();         // PEG = PER / EPS성장률, 낮을수록 매력
+            if (v <= 0.7) pegScore = 5; else if (v <= 1.0) pegScore = 4; else if (v <= 1.5) pegScore = 2; else if (v <= 2.0) pegScore = 1;
+        }
+        return new int[]{rev, profit, pegScore};
+    }
+
+    /** 성장 태그 — computeGrowthScoreParts 와 동일 임계 기반. 단일 출처. */
+    static List<String> growthTags(BigDecimal revGrowth, BigDecimal profitGrowth, BigDecimal peg) {
+        List<String> tags = new ArrayList<>();
+        if (revGrowth != null && revGrowth.doubleValue() >= 30) tags.add("매출고성장");
+        if (profitGrowth != null && profitGrowth.doubleValue() >= 50) tags.add("이익급증");
+        if (peg != null) {
+            double v = peg.doubleValue();
+            if (v <= 0.7) tags.add("저평가성장(PEG<1)");
+            else if (v <= 1.0) tags.add("PEG<1");
+        }
+        return tags;
+    }
+
     private void scoreGrowth(Map<String, StockScore> scoreMap) {
         int calc = 0, miss = 0;
         for (StockScore stock : scoreMap.values()) {
@@ -1046,40 +1176,11 @@ public class RecommendationService {
                 // 셋 다 데이터 없으면 NA(-1) 로 두고 표시에서 제외 (valueStability 와 동일).
                 if (revGrowth == null && profitGrowth == null && peg == null) { miss++; continue; }
 
-                int score = 0;
-                List<String> tags = new ArrayList<>();
-
-                // 1) 매출 성장률 (7점)
-                if (revGrowth != null) {
-                    double v = revGrowth.doubleValue();
-                    if (v >= 30) { score += 7; tags.add("매출고성장"); }
-                    else if (v >= 20) score += 5;
-                    else if (v >= 10) score += 3;
-                    else if (v >= 0) score += 1;
-                    // 음수(역성장) → 0
-                }
-
-                // 2) 순이익 성장률 (8점) — 이익 성장 우선
-                if (profitGrowth != null) {
-                    double v = profitGrowth.doubleValue();
-                    if (v >= 50) { score += 8; tags.add("이익급증"); }
-                    else if (v >= 30) score += 6;
-                    else if (v >= 15) score += 4;
-                    else if (v >= 0) score += 2;
-                }
-
-                // 3) PEG (5점) — 저평가 성장주 (PEG = PER / EPS성장률, 낮을수록 매력)
-                if (peg != null) {
-                    double v = peg.doubleValue();
-                    if (v <= 0.7) { score += 5; tags.add("저평가성장(PEG<1)"); }
-                    else if (v <= 1.0) { score += 4; tags.add("PEG<1"); }
-                    else if (v <= 1.5) score += 2;
-                    else if (v <= 2.0) score += 1;
-                }
-
-                stock.growth = Math.min(20, score);
+                // 산식은 computeGrowthScoreParts/growthTags 단일 출처 (성장주 TOP10 과 공용).
+                int[] parts = computeGrowthScoreParts(revGrowth, profitGrowth, peg);
+                stock.growth = Math.min(20, parts[0] + parts[1] + parts[2]);
                 if (stock.growth > 0) {
-                    stock.tags.addAll(tags);
+                    stock.tags.addAll(growthTags(revGrowth, profitGrowth, peg));
                     calc++;
                 }
             } catch (Exception e) {
@@ -2056,6 +2157,10 @@ public class RecommendationService {
         private Integer valueRoeCombinedScore;     // 0~5
         private Integer valueDebtScore;            // 0~4
         private Integer valueProfitEquityScore;    // 0~3
+        // 성장주 TOP 10 전용 — 3 항목 점수 분해 (UI 막대 그래프용). 그 외 트랙은 null.
+        private Integer growthRevScore;            // 0~7 (매출성장률)
+        private Integer growthProfitScore;         // 0~8 (이익성장률)
+        private Integer growthPegScore;            // 0~5 (PEG)
     }
 
     @Getter @AllArgsConstructor
