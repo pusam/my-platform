@@ -67,8 +67,17 @@
         <!-- ② 종합 추천(모멘텀) TOP10 은 '오늘' 탭으로 일원화 — 발굴 탭은 저평가/소외주 전용 (P-IA: 오늘=모멘텀, 발굴=저평가).
              모멘텀 점수(getTop5)는 오늘 탭(TodayBriefingTab)이 단독 노출. 발굴에서 중복 제거(2026-06). -->
 
-        <!-- ②-a 저평가 TOP 10 (발굴 탭 메인 — 아직 안 오른 가치주) -->
-        <div id="briefing-section-value" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
+        <!-- 발굴 리스트 서브탭 (저평가 / 성장 / 낙폭과대) — 한 번에 하나만 표시해 정리 -->
+        <div class="sub-tabs" v-if="activeGnbTab === 'discover'">
+          <button v-for="st in discoverListTabs" :key="st.key"
+            :class="['sub-tab-btn', { active: discoverListTab === st.key }]"
+            @click="selectDiscoverList(st.key)">
+            {{ st.label }}
+          </button>
+        </div>
+
+        <!-- ②-a 저평가 TOP 10 (아직 안 오른 가치주) -->
+        <div id="briefing-section-value" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'value'">
           <div class="section-title-row">
             <h2><span class="section-icon">💎</span> 저평가 TOP {{ valueTop10.length > 0 ? valueTop10.length : 10 }}</h2>
             <span v-if="valueTopDataTime" class="rec-data-time">{{ valueTopDataTime }}</span>
@@ -114,7 +123,7 @@
         </div>
 
         <!-- ②-b 성장주 TOP 10 (발굴 탭 — 빠르게 크는 종목, 저평가와 짝) -->
-        <div id="briefing-section-growth" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
+        <div id="briefing-section-growth" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'growth'">
           <div class="section-title-row">
             <h2><span class="section-icon">🚀</span> 성장주 TOP {{ growthTop10.length > 0 ? growthTop10.length : 10 }}</h2>
             <span v-if="growthTopDataTime" class="rec-data-time">{{ growthTopDataTime }}</span>
@@ -160,7 +169,7 @@
         </div>
 
         <!-- ②-c 낙폭과대 반등 TOP 10 (발굴 탭 — 많이 빠진 과매도 + 반등 조짐, 추격의 반대) -->
-        <div id="briefing-section-oversold" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
+        <div id="briefing-section-oversold" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'oversold'">
           <div class="section-title-row">
             <h2><span class="section-icon">📉</span> 낙폭과대 반등 TOP {{ oversoldTop10.length > 0 ? oversoldTop10.length : 10 }}</h2>
             <span v-if="oversoldTopDataTime" class="rec-data-time">{{ oversoldTopDataTime }}</span>
@@ -586,6 +595,13 @@ export default {
         { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
         { key: 'quant-ta', label: '퀀트(TA)' }
+      ],
+      // 발굴 리스트 서브탭 — 저평가/성장/낙폭과대 중 하나만 표시 (기본 저평가)
+      discoverListTab: 'value',
+      discoverListTabs: [
+        { key: 'value', label: '💎 저평가' },
+        { key: 'growth', label: '🚀 성장' },
+        { key: 'oversold', label: '📉 낙폭과대' }
       ],
       marketSubTabs: [
         { key: 'investor', label: '수급' },
@@ -1022,6 +1038,17 @@ export default {
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
       finally { this.growthTopLoading = false }
     },
+    // 발굴 리스트 서브탭 전환 — 선택 + 해당 리스트 lazy 로드.
+    selectDiscoverList(key) {
+      this.discoverListTab = key
+      this.ensureDiscoverListLoaded(key)
+    },
+    // 선택된 발굴 리스트가 비었으면 로드 (캐시되어 있으면 재호출 안 함).
+    ensureDiscoverListLoaded(key) {
+      if (key === 'value' && !this.valueTop10.length) this.refreshValueTop10()
+      else if (key === 'growth' && !this.growthTop10.length) this.refreshGrowthTop10()
+      else if (key === 'oversold' && !this.oversoldTop10.length) this.refreshOversoldTop10()
+    },
     // 낙폭과대 반등 TOP 10 — RSI 과매도 + 낙폭 + 반등. 장중 변하므로 첫 진입 + 30분 캐시.
     async refreshOversoldTop10() {
       if (this.oversoldTopLoading) return
@@ -1061,16 +1088,10 @@ export default {
         setTimeout(() => this.loadAiStrategy(), 500)   // phaseSignals(pre/post)용 aiTopPicks
         this.dataLoaded.market = true
       }
-      // 발굴 탭 진입 — 저평가 TOP10 로드 (모멘텀 TOP10 은 오늘 탭으로 일원화되어 발굴에선 미사용).
-      // 가치 데이터는 분기 단위라 한 번만 로드 (비었을 때만).
-      if (tab === 'discover' && !this.valueTop10.length) {
-        this.refreshValueTop10()
-      }
-      if (tab === 'discover' && !this.growthTop10.length) {
-        this.refreshGrowthTop10()
-      }
-      if (tab === 'discover' && !this.oversoldTop10.length) {
-        this.refreshOversoldTop10()
+      // 발굴 탭 진입 — 현재 선택된 리스트 서브탭만 lazy 로드 (낙폭과대 스캔이 무거워 안 볼 땐 호출 안 함).
+      // 모멘텀 TOP10 은 오늘 탭으로 일원화되어 발굴에선 미사용.
+      if (tab === 'discover') {
+        this.ensureDiscoverListLoaded(this.discoverListTab)
       }
     },
 
@@ -1115,11 +1136,9 @@ export default {
       // 오늘 강세 섹터
       this.loadStrongSectors()
 
-      // 저평가·성장주 TOP 10 — 발굴 탭 메인 트랙. 분기 단위로만 변하므로 가벼운 호출.
+      // 발굴 리스트 — 현재 선택된 서브탭만 로드 (나머지는 서브탭 전환 시 lazy 로드).
       // (모멘텀 종합추천은 오늘 탭으로 일원화 — 여기서 미로드)
-      this.refreshValueTop10()
-      this.refreshGrowthTop10()
-      this.refreshOversoldTop10()
+      this.ensureDiscoverListLoaded(this.discoverListTab)
 
       // 수급 현황 패널
       this.loadSupplyPanel()
