@@ -446,6 +446,9 @@ public class AutoTradingBotService {
             // 포지션 메타데이터 복구 (재시작 시 halfSold/highPrice/buyTime 유지) — 현재 모드만.
             restorePositionsFromDb();
 
+            // 재시작 시 KIS 실잔고와 봇 추적 포지션 대조 — 불일치는 경고만(자동 매매 안 함).
+            reconcilePositionsWithKis();
+
             if (savedState != null && STATUS_RUNNING.equals(savedState.status)) {
                 log.info("[스캘핑봇] 서버 재시작 감지 - 이전 상태 복구 중... (모드: {})", savedState.mode);
 
@@ -546,6 +549,70 @@ public class AutoTradingBotService {
             }
         } catch (Exception e) {
             log.error("[봇 복구] 포지션 메타 복원 실패 (계속 진행): {}", e.getMessage(), e);
+        }
+    }
+
+    /** 포지션-KIS 정합성 점검 결과. orphaned=봇 추적O/KIS X, untracked=KIS O/봇 추적X. */
+    record ReconciliationResult(java.util.Set<String> orphaned, java.util.Set<String> untracked) {
+        boolean isClean() { return orphaned.isEmpty() && untracked.isEmpty(); }
+    }
+
+    /**
+     * KIS 실보유 종목과 봇이 추적하는 포지션의 차집합 계산 (순수 함수 — 테스트 대상).
+     * @param kisCodes   KIS 실계좌 보유 종목코드
+     * @param trackedCodes 봇 메모리 포지션(스캘핑+스윙+종가) 종목코드
+     */
+    static ReconciliationResult computeReconciliation(java.util.Set<String> kisCodes,
+                                                      java.util.Set<String> trackedCodes) {
+        java.util.Set<String> orphaned = new java.util.TreeSet<>(trackedCodes);
+        orphaned.removeAll(kisCodes);                 // 봇은 추적하나 KIS 잔고에 없음
+        java.util.Set<String> untracked = new java.util.TreeSet<>(kisCodes);
+        untracked.removeAll(trackedCodes);            // KIS 잔고엔 있으나 봇이 추적 안 함
+        return new ReconciliationResult(orphaned, untracked);
+    }
+
+    /**
+     * 재시작 시 KIS 실잔고 ↔ 봇 추적 포지션 대조 (REAL 모드 한정, best-effort).
+     * <p>불일치를 발견해도 <b>자동 매매/정정은 하지 않는다</b> — 로그 + 텔레그램 경고로 운영자 수동 확인 유도.
+     * KIS 잔고는 봇 외 수동 매매와 공유될 수 있어 untracked 가 곧 버그는 아님(판단은 운영자 몫).
+     */
+    private void reconcilePositionsWithKis() {
+        if (currentMode != TradingMode.REAL) return;  // 실계좌 대조는 실전 모드만 의미 있음
+        try {
+            java.util.Set<String> kisCodes = new java.util.TreeSet<>();
+            for (PortfolioItemDto p : realTradeService.getPortfolio()) {
+                if (p.getStockCode() != null) kisCodes.add(p.getStockCode());
+            }
+            java.util.Set<String> tracked = new java.util.TreeSet<>();
+            tracked.addAll(scalpingPositions.keySet());
+            tracked.addAll(swingPositions.keySet());
+            tracked.addAll(closingPositions.keySet());
+
+            ReconciliationResult r = computeReconciliation(kisCodes, tracked);
+            if (r.isClean()) {
+                log.info("[봇 복구] 포지션-KIS 정합성 OK (봇 추적 {}종목 / KIS {}종목)", tracked.size(), kisCodes.size());
+                return;
+            }
+            log.warn("[봇 복구] ⚠ 포지션-KIS 불일치 — orphaned(봇O/KIS X)={}, untracked(KIS O/봇X)={}",
+                    r.orphaned(), r.untracked());
+            if (telegramService.isEnabled()) {
+                StringBuilder sb = new StringBuilder("<b>⚠️ [봇 복구] 포지션 정합성 불일치</b>\n\n");
+                if (!r.orphaned().isEmpty()) {
+                    sb.append("🔸 <b>봇은 보유로 추적하나 KIS 잔고에 없음</b>\n")
+                      .append("(이미 매도됐거나 부분체결 잔재 — 봇이 매도 시도 반복 실패 가능)\n")
+                      .append(String.join(", ", r.orphaned())).append("\n\n");
+                }
+                if (!r.untracked().isEmpty()) {
+                    sb.append("🔹 <b>KIS 잔고엔 있으나 봇이 추적 안 함</b>\n")
+                      .append("(봇 매수의 DB 유실분이면 자동 매도 안 됨 — 수동 확인. 단순 수동 보유면 무시)\n")
+                      .append(String.join(", ", r.untracked())).append("\n\n");
+                }
+                sb.append("⚠️ 자동 보정은 하지 않습니다 — KIS 화면 확인 후 수동 정리하세요.");
+                try { telegramService.sendRisk(sb.toString()); } catch (Exception ignore) {}
+            }
+        } catch (Exception e) {
+            // KIS 잔고 조회 실패 등 — 정합성 점검은 best-effort. 복구 흐름은 막지 않는다.
+            log.error("[봇 복구] 포지션-KIS 정합성 점검 실패 (계속 진행): {}", e.getMessage(), e);
         }
     }
 
