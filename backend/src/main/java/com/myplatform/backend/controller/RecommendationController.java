@@ -56,6 +56,20 @@ public class RecommendationController {
     }
 
     /**
+     * 낙폭과대 반등 TOP 10 — RSI 과매도 + MA20 낙폭 + 반등 조짐. 추격의 정반대, 별도 트랙.
+     */
+    @GetMapping("/oversold-top10")
+    public ResponseEntity<?> getOversoldTop10() {
+        var response = recommendationService.getOversoldTop10();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", response.getItems(),
+                "dataTime", response.getDataTime(),
+                "realtime", response.isRealtime()
+        ));
+    }
+
+    /**
      * STRONG_BUY + 강한 가치 동시 충족 빈도 — phase 35.
      * phase 34 의 STRONG+VALUE +2 보너스가 dead code 인지 운영 데이터로 확인.
      */

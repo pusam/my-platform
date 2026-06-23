@@ -159,6 +159,52 @@
           <div v-else class="empty-signal">성장주 데이터 수집 중<br><small style="opacity:0.7">매출·이익 성장률 + PEG 기반 (분기 단위 갱신)</small></div>
         </div>
 
+        <!-- ②-c 낙폭과대 반등 TOP 10 (발굴 탭 — 많이 빠진 과매도 + 반등 조짐, 추격의 반대) -->
+        <div id="briefing-section-oversold" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
+          <div class="section-title-row">
+            <h2><span class="section-icon">📉</span> 낙폭과대 반등 TOP {{ oversoldTop10.length > 0 ? oversoldTop10.length : 10 }}</h2>
+            <span v-if="oversoldTopDataTime" class="rec-data-time">{{ oversoldTopDataTime }}</span>
+          </div>
+          <div v-if="oversoldTopLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'ovs-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="oversoldTop10.length" class="rec-list">
+            <div v-for="(rec, i) in oversoldTop10" :key="'ovs-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 4)" :key="'ot-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-basis">/100</span>
+                </div>
+                <!-- 항목별 점수 분해 (RSI과매도/낙폭/반등) -->
+                <div class="rec-detail-bars">
+                  <div v-for="item in getOversoldScoreBreakdown(rec)" :key="item.key" class="rec-detail-row" :title="item.tooltip">
+                    <span class="rec-detail-label">{{ item.label }}</span>
+                    <div class="rec-detail-track">
+                      <div class="rec-detail-fill" :style="{ width: (item.score / item.max * 100) + '%', background: item.color }"></div>
+                    </div>
+                    <span class="rec-detail-score" :style="{ color: item.score >= item.max * 0.7 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}/{{ item.max }}</span>
+                  </div>
+                </div>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">낙폭과대 반등 후보 없음<br><small style="opacity:0.7">RSI 과매도 + MA20 −5%↓ 낙폭 + 반등 조짐 (장중 갱신)</small></div>
+        </div>
+
         <!-- ②-b 수급 현황 패널 → 시장 탭 -->
         <div id="briefing-section-supply" class="supply-panel section-card" v-if="activeGnbTab === 'market' && supplyPanelData">
           <div class="section-title-row">
@@ -587,6 +633,9 @@ export default {
       growthTop10: [],
       growthTopLoading: false,
       growthTopDataTime: '',
+      oversoldTop10: [],
+      oversoldTopLoading: false,
+      oversoldTopDataTime: '',
       // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
       activeSectorView: 'map',
       supplyPanelData: null,
@@ -973,6 +1022,18 @@ export default {
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
       finally { this.growthTopLoading = false }
     },
+    // 낙폭과대 반등 TOP 10 — RSI 과매도 + 낙폭 + 반등. 장중 변하므로 첫 진입 + 30분 캐시.
+    async refreshOversoldTop10() {
+      if (this.oversoldTopLoading) return
+      this.oversoldTopLoading = true
+      try {
+        const res = await recommendationAPI.getOversoldTop10()
+        const body = res?.data || res
+        this.oversoldTop10 = (body?.data) || []
+        this.oversoldTopDataTime = body?.dataTime || ''
+      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+      finally { this.oversoldTopLoading = false }
+    },
     // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
     // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.
     // batchScores 는 무거운 호출이라 실패해도 트래커는 totalScore 만으로 정상 동작.
@@ -1007,6 +1068,9 @@ export default {
       }
       if (tab === 'discover' && !this.growthTop10.length) {
         this.refreshGrowthTop10()
+      }
+      if (tab === 'discover' && !this.oversoldTop10.length) {
+        this.refreshOversoldTop10()
       }
     },
 
@@ -1055,6 +1119,7 @@ export default {
       // (모멘텀 종합추천은 오늘 탭으로 일원화 — 여기서 미로드)
       this.refreshValueTop10()
       this.refreshGrowthTop10()
+      this.refreshOversoldTop10()
 
       // 수급 현황 패널
       this.loadSupplyPanel()
@@ -1250,6 +1315,17 @@ export default {
           tooltip: '순이익성장률 ≥50% → 8점 / ≥30 → 6 / ≥15 → 4 / ≥0 → 2' },
         { key: 'peg', label: 'PEG', score: rec.growthPegScore || 0, max: 5, color: '#10b981',
           tooltip: 'PEG(PER/EPS성장률) ≤0.7 → 5점 / ≤1.0 → 4 / ≤1.5 → 2 / ≤2.0 → 1 (낮을수록 저평가 성장주)' },
+      ]
+    },
+    getOversoldScoreBreakdown(rec) {
+      // 낙폭과대 반등 3 항목 — RSI과매도(8) + 낙폭/이격도(7) + 반등조짐(5) = 20점 만점.
+      return [
+        { key: 'rsi', label: 'RSI과매도', score: rec.oversoldRsiScore || 0, max: 8, color: '#06b6d4',
+          tooltip: 'RSI ≤25 → 8점 / ≤30 → 6 / ≤35 → 4 / ≤40 → 2 (낮을수록 과매도)' },
+        { key: 'drop', label: '낙폭', score: rec.oversoldDropScore || 0, max: 7, color: '#8b5cf6',
+          tooltip: 'MA20 대비 이격도 ≤-25% → 7점 / ≤-18 → 5 / ≤-12 → 3 / ≤-5 → 1 (많이 빠질수록)' },
+        { key: 'rebound', label: '반등조짐', score: rec.oversoldReboundScore || 0, max: 5, color: '#10b981',
+          tooltip: '당일 양봉 +3, 거래량 20일평균 ×1.5↑ +2 (돌아서는 신호)' },
       ]
     },
     getRecGradeClass(score, validCount) {

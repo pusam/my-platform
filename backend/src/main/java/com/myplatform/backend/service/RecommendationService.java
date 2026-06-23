@@ -91,6 +91,8 @@ public class RecommendationService {
     private volatile LocalDateTime valueCacheTime = null;
     private volatile List<RecommendationDto> cachedGrowthTop10 = null;
     private volatile LocalDateTime growthCacheTime = null;
+    private volatile List<RecommendationDto> cachedOversoldTop10 = null;
+    private volatile LocalDateTime oversoldCacheTime = null;
 
     // 백그라운드 calculate 중복 방지
     private final java.util.concurrent.atomic.AtomicBoolean calculating
@@ -944,6 +946,163 @@ public class RecommendationService {
         int revScore;       // 0~7
         int profitScore;    // 0~8
         int pegScore;       // 0~5
+    }
+
+    // ==================== 낙폭과대 반등 TOP 10 (별도 트랙) ====================
+
+    private static final int OVERSOLD_MIN_HISTORY = 25;   // MA20 + RSI 안정성 (QuantTa 와 동일)
+    private static final int OVERSOLD_LOAD_DAYS = 130;    // 로드 창 ≈ 영업일 6개월
+
+    /**
+     * 낙폭과대 반등 점수 분해 — {RSI과매도(0~8), 낙폭/이격도(0~7), 반등조짐(0~5)}. 순수 함수(테스트 대상).
+     * <p>게이트: RSI ≤ 40 <b>AND</b> MA20 대비 −5% 이하(낙폭) 이어야 후보 — 둘 중 하나라도 미달이면 {0,0,0}.
+     * 추격(이미 오른 종목)의 정반대 — "많이 빠졌고 과매도인데 돌아설 조짐" 종목을 발굴.
+     *
+     * @param rsi RSI14, disparityPct (종가−MA20)/MA20×100 (음수=MA20 아래), volRatio 최근/20일평균 거래량, changeRate 당일%
+     */
+    static int[] computeOversoldScoreParts(Double rsi, Double disparityPct, Double volRatio, Double changeRate) {
+        if (rsi == null || rsi > 40.0) return new int[]{0, 0, 0};
+        if (disparityPct == null || disparityPct > -5.0) return new int[]{0, 0, 0};
+        int rsiScore = rsi <= 25 ? 8 : rsi <= 30 ? 6 : rsi <= 35 ? 4 : 2;
+        double d = disparityPct;
+        int dropScore = d <= -25 ? 7 : d <= -18 ? 5 : d <= -12 ? 3 : 1;
+        int reboundScore = 0;
+        if (changeRate != null && changeRate > 0) reboundScore += 3;   // 당일 양봉 = 반등 시작
+        if (volRatio != null && volRatio >= 1.5) reboundScore += 2;    // 거래량 동반
+        return new int[]{rsiScore, dropScore, reboundScore};
+    }
+
+    static List<String> oversoldTags(Double rsi, Double disparityPct, Double volRatio, Double changeRate) {
+        List<String> tags = new ArrayList<>();
+        if (rsi != null && rsi <= 30) tags.add("RSI" + (int) Math.round(rsi) + "과매도");
+        if (disparityPct != null && disparityPct <= -12) tags.add("이격도" + (int) Math.round(disparityPct) + "%");
+        if (changeRate != null && changeRate > 0) tags.add("반등시작");
+        if (volRatio != null && volRatio >= 1.5) tags.add("거래량급증");
+        return tags;
+    }
+
+    /** 최근 거래량 / 직전 window 일 평균 (rowsDesc: tradeDate DESC, 0=최신). */
+    private static Double computeVolRatio(List<StockPriceHistory> rowsDesc, int window) {
+        if (rowsDesc.size() < window + 1) return null;
+        BigDecimal latest = rowsDesc.get(0).getVolume();
+        if (latest == null || latest.signum() <= 0) return null;
+        BigDecimal sum = BigDecimal.ZERO;
+        int n = 0;
+        for (int i = 1; i <= window && i < rowsDesc.size(); i++) {
+            BigDecimal v = rowsDesc.get(i).getVolume();
+            if (v != null && v.signum() > 0) { sum = sum.add(v); n++; }
+        }
+        if (n == 0) return null;
+        BigDecimal avg = sum.divide(BigDecimal.valueOf(n), 4, java.math.RoundingMode.HALF_UP);
+        if (avg.signum() <= 0) return null;
+        return latest.doubleValue() / avg.doubleValue();
+    }
+
+    /**
+     * 낙폭과대 반등 TOP 10 — 가격 히스토리로 RSI 과매도 + MA20 낙폭 + 반등 조짐 스캔.
+     * 저평가·성장과 별도 트랙, 추격의 정반대(많이 빠진 종목). 캐시 30분.
+     */
+    public Top5Response getOversoldTop10() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+        if (cachedOversoldTop10 != null && oversoldCacheTime != null
+                && oversoldCacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildValueResponse(cachedOversoldTop10, oversoldCacheTime.format(TIME_FMT) + " 기준", trading);
+        }
+        List<RecommendationDto> result;
+        try {
+            result = calculateOversoldTop10();
+            if (!result.isEmpty()) {
+                cachedOversoldTop10 = result;
+                oversoldCacheTime = now;
+            }
+        } catch (Exception e) {
+            log.error("[낙폭과대TOP10] 계산 실패: {}", e.getMessage(), e);
+            result = cachedOversoldTop10 != null ? cachedOversoldTop10 : Collections.emptyList();
+        }
+        return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
+    }
+
+    private List<RecommendationDto> calculateOversoldTop10() {
+        long t0 = System.currentTimeMillis();
+        List<String> universe = priceHistoryRepository.findStockCodesWithMinHistory(OVERSOLD_MIN_HISTORY);
+        if (universe.isEmpty()) return Collections.emptyList();
+        List<StockPriceHistory> all = priceHistoryRepository.findByStockCodesSince(
+                universe, java.time.LocalDate.now().minusDays(OVERSOLD_LOAD_DAYS));
+        Map<String, List<StockPriceHistory>> byCode = all.stream()
+                .collect(Collectors.groupingBy(StockPriceHistory::getStockCode));
+
+        List<OversoldScoredStock> scored = new ArrayList<>();
+        for (Map.Entry<String, List<StockPriceHistory>> e : byCode.entrySet()) {
+            List<StockPriceHistory> rows = e.getValue();   // tradeDate DESC (findByStockCodesSince 보장)
+            if (rows.size() < OVERSOLD_MIN_HISTORY) continue;
+            List<BigDecimal> prices = rows.stream().map(StockPriceHistory::getClosePrice)
+                    .filter(Objects::nonNull).collect(Collectors.toList());
+            if (prices.size() < OVERSOLD_MIN_HISTORY) continue;
+            StockPriceHistory latest = rows.get(0);
+            BigDecimal price = latest.getClosePrice();
+            if (price == null || price.signum() <= 0) continue;
+            TechnicalIndicatorsDto ind = technicalIndicatorService.calculate(prices);
+            if (ind == null || ind.getRsi14() == null || ind.getMa20() == null || ind.getMa20().signum() <= 0) continue;
+
+            double rsi = ind.getRsi14().doubleValue();
+            double disparity = price.subtract(ind.getMa20()).doubleValue() / ind.getMa20().doubleValue() * 100.0;
+            Double volRatio = computeVolRatio(rows, 20);
+            Double changeRate = latest.getChangeRate() != null ? latest.getChangeRate().doubleValue() : null;
+
+            int[] parts = computeOversoldScoreParts(rsi, disparity, volRatio, changeRate);
+            int score = Math.min(20, parts[0] + parts[1] + parts[2]);
+            if (score <= 0) continue;
+
+            OversoldScoredStock os = new OversoldScoredStock();
+            os.stockCode = e.getKey();
+            os.stockName = latest.getStockName();
+            os.score = score;
+            os.rsiScore = parts[0];
+            os.dropScore = parts[1];
+            os.reboundScore = parts[2];
+            os.tags = oversoldTags(rsi, disparity, volRatio, changeRate);
+            scored.add(os);
+        }
+
+        scored.sort((a, b) -> Integer.compare(b.score, a.score));
+        List<OversoldScoredStock> shortlist = scored.stream().limit(30).collect(Collectors.toList());
+        for (OversoldScoredStock os : shortlist) {
+            try {
+                if (riskManagementService.quickDangerCheck(os.stockCode, os.stockName)) {
+                    os.score = Math.max(0, os.score - 5);
+                    os.tags.add("⚠리스크공시");
+                }
+            } catch (Exception ignore) { /* 페널티 안 줌 */ }
+        }
+        shortlist.sort((a, b) -> Integer.compare(b.score, a.score));
+        List<OversoldScoredStock> top = shortlist.stream().limit(10).collect(Collectors.toList());
+
+        log.info("[낙폭과대TOP10] universe {}종목 → {}건 후보 → top10 ({}ms)",
+                universe.size(), scored.size(), System.currentTimeMillis() - t0);
+
+        return top.stream().map(os -> RecommendationDto.builder()
+                .stockCode(os.stockCode)
+                .stockName(os.stockName)
+                .totalScore(Math.min(100, os.score * 5))
+                .aiStrategy(NA).earnings(NA).supplyDemand(NA).technical(NA).sectorMomentum(NA)
+                .valueStability(NA).growth(NA)
+                .validCount(1)
+                .tags(new ArrayList<>(os.tags))
+                .oversoldRsiScore(os.rsiScore)
+                .oversoldDropScore(os.dropScore)
+                .oversoldReboundScore(os.reboundScore)
+                .build()).toList();
+    }
+
+    private static class OversoldScoredStock {
+        String stockCode;
+        String stockName;
+        int score;
+        List<String> tags;
+        int rsiScore;       // 0~8
+        int dropScore;      // 0~7
+        int reboundScore;   // 0~5
     }
 
     // ==================== Core Calculation ====================
@@ -2161,6 +2320,10 @@ public class RecommendationService {
         private Integer growthRevScore;            // 0~7 (매출성장률)
         private Integer growthProfitScore;         // 0~8 (이익성장률)
         private Integer growthPegScore;            // 0~5 (PEG)
+        // 낙폭과대 반등 TOP 10 전용 — 3 항목 점수 분해. 그 외 트랙은 null.
+        private Integer oversoldRsiScore;          // 0~8 (RSI 과매도)
+        private Integer oversoldDropScore;         // 0~7 (MA20 이격도/낙폭)
+        private Integer oversoldReboundScore;      // 0~5 (반등 조짐: 양봉+거래량)
     }
 
     @Getter @AllArgsConstructor

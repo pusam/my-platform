@@ -1045,6 +1045,10 @@ export const recommendationAPI = {
   // 성장주 TOP 10 — 매출·이익 성장률 + PEG 기반. 저평가와 짝.
   getGrowthTop10() {
     return apiClient.get('/recommendation/growth-top10', { timeout: 30000 });
+  },
+  // 낙폭과대 반등 TOP 10 — RSI 과매도 + MA20 낙폭 + 반등 조짐.
+  getOversoldTop10() {
+    return apiClient.get('/recommendation/oversold-top10', { timeout: 30000 });
   }
 };
 
