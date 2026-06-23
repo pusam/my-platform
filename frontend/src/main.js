@@ -248,14 +248,19 @@ const router = createRouter({
 // Navigation guard for authentication
 router.beforeEach((to, from, next) => {
   const hasToken = TokenManager.hasToken()
-  // 토큰은 있지만 만료/손상된 경우: 조용히 세션 정리 후 로그인으로 보낸다
-  const tokenValid = hasToken && TokenManager.isTokenValid()
-  if (hasToken && !tokenValid) {
+  const atValid = hasToken && TokenManager.isTokenValid()
+  // AT(15분) 가 만료됐어도 RT(7일) 가 있으면 API 계층(401 인터셉터)이 자동 갱신하므로 세션 유지.
+  // 예전엔 exp 만 보고 RT 까지 지워서 로그인 15분 뒤 첫 이동에 강제 로그아웃되던 버그.
+  const canRefresh = !!TokenManager.getRefreshToken()
+  const sessionAlive = atValid || canRefresh
+
+  // AT 만료·손상 + RT 도 없을 때만 세션 정리 (RT 가 있으면 보존)
+  if (hasToken && !atValid && !canRefresh) {
     UserManager.logout()
   }
 
-  // 인증이 필요한 페이지인데 유효 토큰이 없는 경우
-  if (to.meta.requiresAuth && !tokenValid) {
+  // 인증이 필요한 페이지인데 살아있는 세션이 없는 경우
+  if (to.meta.requiresAuth && !sessionAlive) {
     next('/login')
     return
   }
@@ -266,8 +271,8 @@ router.beforeEach((to, from, next) => {
     return
   }
 
-  // 이미 유효 토큰이 있는 상태에서 로그인 접근 시 유저 대시보드로
-  if (to.path === '/login' && tokenValid) {
+  // 이미 살아있는 세션이 있는 상태에서 로그인 접근 시 유저 대시보드로
+  if (to.path === '/login' && sessionAlive) {
     next('/user')
     return
   }

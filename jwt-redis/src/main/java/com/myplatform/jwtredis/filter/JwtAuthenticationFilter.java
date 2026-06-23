@@ -39,7 +39,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             logger.debug("Request URI: {}", request.getRequestURI());
             logger.debug("JWT Token present: {}", jwt != null);
 
-            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
+            // 인증은 Access Token 만 허용 — Refresh 토큰을 Authorization 헤더로 보내 API 를 통과하는 것 차단.
+            // validateToken 은 서명·만료만 보므로 type=REFRESH 도 통과했었음(보안 결함). validateAccessToken 은 REFRESH 거부.
+            if (StringUtils.hasText(jwt) && tokenProvider.validateAccessToken(jwt)) {
                 String username = tokenProvider.getUsernameFromToken(jwt);
                 logger.debug("Valid JWT token found for user: {}", username);
 

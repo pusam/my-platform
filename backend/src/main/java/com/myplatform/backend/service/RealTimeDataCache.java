@@ -129,22 +129,22 @@ public class RealTimeDataCache {
 
         List<MinuteBar> bars = minuteBarStore.computeIfAbsent(stockCode, k -> Collections.synchronizedList(new ArrayList<>()));
 
-        // 현재 분봉 찾기 또는 생성
-        MinuteBar currentBar = null;
-        if (!bars.isEmpty()) {
-            MinuteBar lastBar = bars.get(bars.size() - 1);
-            if (lastBar.getTime().equals(minuteKey)) {
+        // 현재 분봉 찾기 또는 생성.
+        // ⚠ synchronizedList 는 개별 메서드만 원자적 — get(size-1)/remove(0) 같은 check-then-act
+        //   복합연산은 동시 틱(같은 종목)에서 IndexOutOfBounds/데이터 손실 가능. 명시적 락으로 묶는다.
+        MinuteBar currentBar;
+        synchronized (bars) {
+            MinuteBar lastBar = bars.isEmpty() ? null : bars.get(bars.size() - 1);
+            if (lastBar != null && lastBar.getTime().equals(minuteKey)) {
                 currentBar = lastBar;
-            }
-        }
+            } else {
+                currentBar = new MinuteBar(minuteKey, price);
+                bars.add(currentBar);
 
-        if (currentBar == null) {
-            currentBar = new MinuteBar(minuteKey, price);
-            bars.add(currentBar);
-
-            // 오래된 분봉 제거
-            while (bars.size() > MAX_MINUTE_BARS) {
-                bars.remove(0);
+                // 오래된 분봉 제거
+                while (bars.size() > MAX_MINUTE_BARS) {
+                    bars.remove(0);
+                }
             }
         }
 

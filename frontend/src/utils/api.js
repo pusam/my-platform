@@ -116,9 +116,10 @@ export default apiClient;
 
 // API 함수들
 export const authAPI = {
-  // 로그인
+  // 로그인 — apiClient 경유(baseURL /api + 인터셉터 일관). 로그인 실패는 200+success:false 로
+  // 내려오므로 401 자동갱신 인터셉터의 영향을 받지 않음(에러 메시지 정상 노출).
   login(username, password) {
-    return axios.post('/api/auth/login', {
+    return apiClient.post('/auth/login', {
       username,
       password
     });
@@ -126,7 +127,12 @@ export const authAPI = {
 
   // 회원가입
   signup(signupData) {
-    return axios.post('/api/auth/signup', signupData);
+    return apiClient.post('/auth/signup', signupData);
+  },
+
+  // 로그아웃 — 서버 Redis 의 AT/RT 삭제(옛 RT 재인증 차단). 실패해도 호출측은 로컬 로그아웃 진행(fail-open).
+  logout() {
+    return apiClient.post('/auth/logout');
   }
 };
 

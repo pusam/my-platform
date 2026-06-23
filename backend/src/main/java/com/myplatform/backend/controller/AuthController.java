@@ -13,6 +13,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +51,19 @@ public class AuthController {
             return ResponseEntity.badRequest().body(new LoginResponse(false, "refreshToken 이 누락되었습니다."));
         }
         return ResponseEntity.ok(authService.refresh(refreshToken));
+    }
+
+    @Operation(summary = "로그아웃",
+            description = "서버의 Access/Refresh 토큰(Redis)을 삭제해 로그아웃 후 옛 RT 로 재인증되는 것을 차단합니다.")
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout() {
+        // 인증 필터가 Access Token 으로 채운 SecurityContext 에서 username 추출.
+        // 토큰이 없거나 익명이면 서버에 지울 게 없으므로 조용히 성공 처리(멱등).
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getName())) {
+            authService.logout(auth.getName());
+        }
+        return ResponseEntity.ok(ApiResponse.success("로그아웃 되었습니다.", null));
     }
 
     @Operation(summary = "회원가입", description = "새로운 사용자를 등록합니다. 관리자 승인 후 로그인할 수 있습니다.")

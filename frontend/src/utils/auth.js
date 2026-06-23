@@ -123,6 +123,18 @@ export const UserManager = {
 
   // 로그아웃 (토큰 및 사용자 정보 모두 삭제)
   logout() {
+    // 서버 Redis 의 AT/RT 도 best-effort 삭제 — 로그아웃 후 옛 RT 로 재인증되는 것 차단.
+    // api.js(apiClient) 를 import 하면 순환참조라 raw fetch 사용. keepalive 로 이동/언로드 중에도 전송 보장.
+    const token = TokenManager.getToken();
+    if (token) {
+      try {
+        fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          keepalive: true
+        }).catch(() => {});
+      } catch (e) { /* fetch 미지원/실패 무시 — 로컬 로그아웃은 계속 */ }
+    }
     TokenManager.removeToken();
     this.removeUser();
     safeRemoveItem('role');
