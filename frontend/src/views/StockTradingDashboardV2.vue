@@ -64,87 +64,10 @@
         <div v-else class="market-status-bar skeleton"><span>시장 데이터 로딩 중...</span></div>
         </template>
 
-        <!-- ② 종합 추천 TOP 10 (현재 매수 신호 — 4 카테고리: 실적·수급·기술·섹터) → 발굴 탭 -->
-        <div id="briefing-section-rec" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
-          <div class="section-title-row">
-            <h2><span class="section-icon">🏆</span> 종합 추천 TOP {{ topRecommendations.length > 0 ? topRecommendations.length : 10 }}</h2>
-            <span v-if="topRecDataTime" class="rec-data-time" :class="{ 'is-cached': !topRecRealtime }">
-              {{ topRecRealtime ? '🟢' : '🟡' }} {{ topRecDataTime }}
-            </span>
-          </div>
-          <div v-if="topRecLoading" class="signal-skeleton">
-            <div class="skel-row" v-for="i in 3" :key="'rec-sk-'+i"><div class="skel-bar"></div></div>
-          </div>
-          <div v-else-if="topRecommendations.length" class="rec-list">
-            <div
-              v-for="(rec, i) in topRecommendations"
-              :key="'rec-' + i"
-              class="rec-card"
-              @click="goToStock(rec.stockCode)"
-            >
-              <span class="rec-rank">
-                #{{ i + 1 }}
-                <span v-if="i < 5 && currentPhaseKey === 'during'" class="rec-live-dot" title="장중 실시간 추적"></span>
-              </span>
-              <div class="rec-info">
-                <span class="rec-name">{{ rec.stockName }}</span>
-                <div class="rec-tags">
-                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 3)" :key="'t-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
-                </div>
-              </div>
-              <div class="rec-score-area">
-                <div class="rec-score-head">
-                  <span class="rec-score-num">{{ rec.totalScore }}</span>
-                  <span class="rec-score-basis">{{ rec.validCount }}/4항목</span>
-                  <span v-if="topRecScoreMap[rec.stockCode]" class="rec-score-detail"
-                        title="상세 페이지 단기 트레이딩 / 중장기 펀더멘털 점수">
-                    단기 {{ topRecScoreMap[rec.stockCode].tradingScore }} · 중장기 {{ topRecScoreMap[rec.stockCode].fundamentalScore }}
-                  </span>
-                  <span v-if="topRecDelta[rec.stockCode] != null" class="rec-delta"
-                        :class="topRecDelta[rec.stockCode] > 0 ? 'positive' : topRecDelta[rec.stockCode] < 0 ? 'negative' : ''">
-                    {{ topRecDelta[rec.stockCode] > 0 ? '+' : '' }}{{ topRecDelta[rec.stockCode] }}
-                  </span>
-                  <span class="rec-grade" :class="getRecGradeClass(rec.totalScore, rec.validCount)">
-                    {{ getRecGradeLabel(rec.totalScore, rec.validCount) }}
-                  </span>
-                </div>
-                <!-- 세부 항목별 점수 바 -->
-                <div class="rec-detail-bars">
-                  <div v-for="item in getScoreBreakdown(rec)" :key="item.key" class="rec-detail-row" :title="item.tooltip || ''">
-                    <span class="rec-detail-label">{{ item.label }}</span>
-                    <template v-if="item.isNA">
-                      <div class="rec-detail-track na"><div class="rec-detail-na-line"></div></div>
-                      <span class="rec-detail-score na-text">N/A</span>
-                    </template>
-                    <template v-else>
-                      <div class="rec-detail-track">
-                        <div class="rec-detail-fill" :style="{ width: (item.score / 20 * 100) + '%', background: item.color }"></div>
-                      </div>
-                      <span class="rec-detail-score" :style="{ color: item.score >= 14 ? item.color : 'rgba(255,255,255,0.4)' }">{{ item.score }}</span>
-                    </template>
-                  </div>
-                </div>
-                <div class="rec-price-area">
-                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
-                  <span v-if="rec.changeRate != null" class="rec-change"
-                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
-                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-signal">장 마감 후 또는 데이터 수집 중입니다<br><small style="opacity:0.7">장중에는 자동으로 갱신됩니다</small></div>
-          <!-- ⑥ 등급 기준선 범례 -->
-          <div class="rec-legend" v-if="topRecommendations.length">
-            <span class="rec-legend-item"><span class="legend-dot grade-strong"></span>75↑ 강력매수</span>
-            <span class="rec-legend-item"><span class="legend-dot grade-buy"></span>60~74 매수고려</span>
-            <span class="rec-legend-item"><span class="legend-dot grade-hold"></span>40~59 관망</span>
-            <span class="rec-legend-item"><span class="legend-dot grade-exclude"></span>40↓ 제외</span>
-          </div>
-        </div>
+        <!-- ② 종합 추천(모멘텀) TOP10 은 '오늘' 탭으로 일원화 — 발굴 탭은 저평가/소외주 전용 (P-IA: 오늘=모멘텀, 발굴=저평가).
+             모멘텀 점수(getTop5)는 오늘 탭(TodayBriefingTab)이 단독 노출. 발굴에서 중복 제거(2026-06). -->
 
-        <!-- ②-a 저평가 TOP 10 (별도 트랙) → 발굴 탭 -->
+        <!-- ②-a 저평가 TOP 10 (발굴 탭 메인 — 아직 안 오른 가치주) -->
         <div id="briefing-section-value" class="top-rec section-card" v-if="activeGnbTab === 'discover'">
           <div class="section-title-row">
             <h2><span class="section-icon">💎</span> 저평가 TOP {{ valueTop10.length > 0 ? valueTop10.length : 10 }}</h2>
@@ -912,7 +835,6 @@ export default {
       try {
         await Promise.allSettled([
           this.loadMarketMap(),
-          this.refreshRecommendations(),
           this.loadSupplyPanel()
         ])
         this.lastUpdated = new Date()
@@ -1017,9 +939,10 @@ export default {
         setTimeout(() => this.loadAiStrategy(), 500)   // phaseSignals(pre/post)용 aiTopPicks
         this.dataLoaded.market = true
       }
-      // 발굴 탭 장중 — 매수 후보 트래커 즉시 1회 호출 (60초 폴링 첫 발화까지 빈 화면 방지)
-      if (tab === 'discover' && this.currentPhaseKey === 'during') {
-        this.refreshRecommendations()
+      // 발굴 탭 진입 — 저평가 TOP10 로드 (모멘텀 TOP10 은 오늘 탭으로 일원화되어 발굴에선 미사용).
+      // 가치 데이터는 분기 단위라 한 번만 로드 (비었을 때만).
+      if (tab === 'discover' && !this.valueTop10.length) {
+        this.refreshValueTop10()
       }
     },
 
@@ -1064,12 +987,8 @@ export default {
       // 오늘 강세 섹터
       this.loadStrongSectors()
 
-      // AI 종합 추천 TOP 5
-      this.topRecLoading = true
-      await this.refreshRecommendations()
-      this.topRecLoading = false
-
-      // 저평가 TOP 10 — 종합 추천과 별도 트랙. 분기 단위로만 변하므로 가벼운 호출.
+      // 저평가 TOP 10 — 발굴 탭 메인 트랙. 분기 단위로만 변하므로 가벼운 호출.
+      // (모멘텀 종합추천은 오늘 탭으로 일원화 — 여기서 미로드)
       this.refreshValueTop10()
 
       // 수급 현황 패널
