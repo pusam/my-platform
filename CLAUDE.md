@@ -49,6 +49,9 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 시그널 hit = **alpha_3d ≥ 0 AND pct_change_3d > 0** (3거래일), alpha 없으면 폴백 pct≥3%.
 - 매매계획(결론카드 tradePlan): 손절/익절 % 는 **스윙 봇과 동기(-3%/+5%)**, "단기 강+밸류<4" 충돌 시 -2%/+3% 타이트. 봇 상수 바꾸면 `StockConclusionService.PLAN_*` 도 같이.
 - `signal_outcome` 에 record 시점 스냅샷 누적: **V30 카테고리 점수 4종 + V31 재료(catalyst) + V32 시장 국면(regime)**. 조건부 적중률(`/api/signal-outcomes/accuracy-by-band` — 점수구간/카테고리강세/재료방향/국면별) 검증용. NULL=미수집(집계 제외) 의미 유지할 것.
+- **과열(추격) 페널티 — `RecommendationService.overheatPenalty()` 단일 출처, 단계화(phase 38)**: RSI 70/75/80 → −3/−5/−8, 5일 누적 15/20/30% → −3/−5/−8, 볼린저 상단 돌파 −3. BULL 강세장에도 적용(섹터 가산과 별개). 임계 올리거나 단계 합치지 말 것 — "이미 많이 오른 종목" 추격 방지가 목적.
+- **발굴 TOP10 정렬 tie-break(`recommendationComparator`) = 점수 desc → delta(오늘−어제) desc → changeRate asc**. 마지막이 **asc(덜 오른 종목 우선)** — 추격 인상 완화(phase 38). desc로 되돌리지 말 것.
+- **BULL 섹터 가산은 하나만**: `scoreSectorMomentum` 의 +4 floor(추천 풀 안정)만 유지하고 `applyRegimeWeights` BULL 섹터 승수는 **1.0**(phase 38, 이중가산 제거). ×1.20 재도입 금지(오른 종목 섹터 점수 부풀림).
 
 ### 4b. 재료(catalyst) 태그는 산식 미편입 (의도)
 - 네이버 뉴스 → Gemini 분류(`StockCatalystService`) → `stock_catalyst` **일캐시(종목·일자 1회)**. 용도는 **배지 표시 + 시그널 스냅샷(검증)뿐** — 재료별 적중률이 데이터로 검증되기 전엔 점수 산식에 넣지 말 것.
@@ -62,11 +65,26 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **python-backend 재편 (2026-06-11)**: 가짜 데이터 점검(5건) 후 자바 중복 라우터(네이버 크롤/yfinance/Gemini/스크리너) **전부 삭제** — 현재 역할은 `/api/v2/health` + `/api/v2/regime/current`(pykrx 시장 국면) 뿐. 새 기능은 "Java/KIS 로 비싼 일(히스토리·벌크)"일 때만 추가. 국면 규칙(v1): KOSPI 종가 vs MA60 + MA20 5거래일 슬로프 → BULL/BEAR/SIDEWAYS — 검증 데이터 쌓이기 전 임의 변경 금지. Java 는 `MarketRegimeClient`(1h 캐시, best-effort)로 소비, 미가용 시 regime_at_signal=NULL(미수집).
 - 신규 코드도 같은 원칙: 결측은 null/생략으로 정직하게. (단, RecommendationSnapshot.growth 의 -1=NA 같은 명시적 sentinel 은 기존 규약 유지.)
 
+### 4d. 봇 실주문 정합성·체결 안전 (B2-A/B3-A, 2026-06-23)
+- **재시작 reconciliation**(`AutoTradingBotService.reconcilePositionsWithKis`): 재시작 복구 시 REAL 모드면 KIS 실잔고(`realTradeService.getPortfolio`) vs 봇 추적 포지션을 대조해 orphaned(봇O/KIS X)·untracked(KIS O/봇X)를 **로그+텔레그램 경고만**. **자동 매매/정정 절대 금지**(KIS 계좌는 수동매매와 공유 가능 — untracked 가 곧 버그 아님). diff 는 순수함수 `computeReconciliation`.
+- **매도 체결 확인**(`RealTradeService.confirmFill` → KIS `inquireDailyCcld` TTTC0081R, 읽기전용): 지정가는 부분/미체결 가능 — "주문 접수=체결"로 간주하면 잔량이 KIS orphan 됨. 매도 3경로(스캘핑·스윙·종가)는 `isSellConfirmedShort` 로 **확정 미달이면 포지션 유지(다음 사이클 재시도)**, 전량체결/조회실패(UNKNOWN)면 현행대로 제거. 판정은 순수함수 `resolveFill`.
+  - **불변식**: ① 조회 실패=UNKNOWN=현행 제거(안전 기본값) 유지. ② VIRTUAL 무영향(REAL 한정). ③ `confirmFill` 은 클래스가 `@Transactional` 이라 **`@Transactional(NOT_SUPPORTED)`** 로 폴링 sleep 이 DB 트랜잭션을 잡지 않게 — 이 어노테이션 제거 금지.
+  - Phase 2(미체결 잔여분 능동 취소 `order-rvsecncl`)는 미구현 — 주문변경 API라 모의계좌 검증 필수.
+  - ⚠ `inquireDailyCcld` 응답 필드(`output1`/`odno`/`tot_ccld_qty`)·TR_ID 는 규격 기준 — 실전 첫 매도 로그로 1회 확인(틀려도 null→UNKNOWN→현행이라 안전).
+- **KIS 주문 성공 + 로컬 DB 저장 실패 = 즉시 killswitch**(`triggerKillSwitchOnUncertainty`). KIS 비멱등이라 의도된 보수 동작 — 자동 재시도/롤백으로 바꾸지 말 것. killswitch 는 DB 기반이라 재시작해도 유지(매매 차단).
+
 ### 5. 인프라 관련
 - 스케줄러 락(`SchedulerLockService`)은 **fail-open** (Redis SET NX EX). TTL < cron 으로 누락 시 다음 cron 재시도. **단일 인스턴스 전제 — 매매봇(`AutoTradingBotService` 실주문)은 이 락 미사용(JVM 내 가드만). 멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(fail-open으론 Redis 장애 시 중복 주문 못 막음).
 - 봇은 **Clock 주입**으로 테스트 결정성 확보 — 시간 의존 로직에 `Clock`을 그대로 사용할 것.
 - 캐시 계층 L1 Caffeine → L2 Redis(CacheWarmer 워밍) → L3 MariaDB. 워밍 잡은 `isMarketHours()` 밖이면 early-return. **단 시세(`StockPriceService.getStockPrice`)는 예외 — L1 로컬(ConcurrentHashMap) → DB(MariaDB)만, Redis 비경유**(시세 단일 경로 불변식). 전역 L2=Redis는 섹터/수급/AI전략 등 다른 도메인 캐시.
 - cron 시각들은 튜닝된 값이다. 근거 없이 바꾸지 말 것.
+
+### 6. 인증/세션·실시간 동시성 (2026-06-22 점검)
+- **인증 필터는 Access Token 만 통과**: `JwtAuthenticationFilter` 는 `validateAccessToken`(type 검사) 사용 — `validateToken`(서명·만료만)으로 되돌리면 REFRESH 토큰을 Authorization 헤더로 보내 API 통과(보안 결함). 레거시 type=null 토큰은 여전히 허용.
+- **라우터 가드는 RT 보존**(`frontend/src/main.js` beforeEach): AT(15분) 만료라도 RT(7일) 있으면 세션 유지(API 401 인터셉터가 자동 갱신). AT `exp` 만 보고 `UserManager.logout()`(=RT까지 삭제)으로 `/login` 튕기지 말 것 — "로그인 15분 뒤 풀림" 버그의 원인이었음.
+- **authAPI 는 `apiClient` 경유**(raw axios 금지 — baseURL `/api`·인터셉터 일관). 로그인 실패는 200+success:false(401 아님)라 자동갱신 인터셉터 영향 없음.
+- **로그아웃은 서버 토큰도 삭제**: `UserManager.logout()` 가 best-effort `POST /api/auth/logout`(raw fetch — api.js 순환참조 회피) 호출 → Redis AT/RT 삭제. 백엔드 `AuthController.logout`(SecurityContext username, 멱등).
+- **`RealTimeDataCache.updateMinuteBar`**: `synchronizedList` 복합연산(get(size-1)/remove(0))은 `synchronized(bars)` 블록으로 보호 — 풀지 말 것(동시 틱 IndexOutOfBounds).
 
 ---
 
@@ -81,6 +99,8 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 시장 진단(ADR): `MarketTimingService`, 섹터 거래대금: `SectorTradingService`
 - 시장 국면(V32): python `regime_service.py` ↔ Java `MarketRegimeClient`
 - 봇: `AutoTradingBotService`, 성과: `BotPerformanceService`
+- 봇 실주문: `RealTradeService`(체결확인 `confirmFill`/`resolveFill`, KIS주문성공+DB실패→killswitch), 재시작 정합성 `AutoTradingBotService.reconcilePositionsWithKis`/`computeReconciliation`, KIS 체결조회 `KoreaInvestmentService.inquireDailyCcld`(TTTC0081R)
+- 인증: `JwtAuthenticationFilter`·`JwtTokenProvider`(jwt-redis 모듈, 테스트 인프라 없음), `AuthController`/`AuthService`, 프론트 `utils/auth.js`·`utils/api.js`·`main.js`(라우터 가드)
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
 - 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)
 - 최대 화면: `StockDetailDashboard.vue` (~4,707줄)
@@ -88,4 +108,5 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 ## 프론트 IA (P-IA 3단계, 2026-06-11)
 - 주식 허브 = `StockTradingDashboardV2` 단일 화면, **GNB 4탭: 오늘/시장/발굴/매매** (`DashboardHeader.vue`). 레거시 경로(/sector, /news, /ai-strategy 등)는 main.js 에서 탭 쿼리로 redirect — **새 주식 화면(라우트)을 만들지 말고 탭/서브탭에 흡수할 것.**
 - 기본 진입은 **'오늘' 탭**(`TodayBriefingTab.vue` — 시장 한줄·매수 후보(55점 컷)·신뢰도·포지션·도구 바로가기). `resolveInitialTab` 쿼리 없으면 today 고정 — 시각 기반 분기로 되돌리지 말 것. 탭 매핑 회귀 테스트: `StockTradingDashboardV2.ia.test.js`.
+- **역할 분리(2026-06-23): 오늘=모멘텀, 발굴=저평가.** 모멘텀 종합추천 TOP10(`getTop5`)은 '오늘' 탭 전용. **발굴 탭 메인은 저평가 TOP10(`getValueTop10`, PBR·ROE·부채·흑자) + 종합신호 서브탭** — 발굴에 모멘텀 TOP10 다시 넣지 말 것(오늘과 중복 + "오른 종목만" 노출의 원인이었음).
 - 결론 카드(`StockConclusionCard.vue`): 매매계획(손절/목표가+MFE/MAE) · 점수대 적중률 · 재료 배지까지 표시. 데이터 없으면 각 블록 조용히 숨김(배지 생략)이 규약.
