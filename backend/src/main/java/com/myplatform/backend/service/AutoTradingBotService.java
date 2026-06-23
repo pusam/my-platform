@@ -616,6 +616,23 @@ public class AutoTradingBotService {
         }
     }
 
+    /**
+     * 매도가 부분/미체결로 <b>확정</b>됐는지 — 실전 모드에서 KIS 체결조회(confirmFill)로 확인 (B2-A).
+     * <p>REAL 모드 + ODNO 있을 때만 실제 확인. 전량체결(FULL)·조회실패(UNKNOWN)는 false →
+     * 호출측이 현행대로 포지션을 제거(조회 실패해도 최악이 현행과 동일). 확정 미달(부분/미체결)이면 true
+     * → 호출측이 포지션을 유지해 다음 사이클에 재시도(잔량 KIS orphan 방지).
+     */
+    private boolean isSellConfirmedShort(String stockCode, TradeHistoryDto sellDto, int requestedQty) {
+        if (currentMode != TradingMode.REAL) return false;          // 모의는 전량체결 가정
+        if (sellDto == null || sellDto.getOrderNo() == null) return false;
+        RealTradeService.FillResult f = realTradeService.confirmFill(stockCode, sellDto.getOrderNo(), requestedQty);
+        if (f.isConfirmedShort()) {
+            log.warn("[봇] 매도 체결 미달 확인 — {} 체결 {}/{}주 → 포지션 유지", stockCode, f.filledQty(), requestedQty);
+            return true;
+        }
+        return false;
+    }
+
     /** 영속화 재시도 — DB 일시 장애 (커넥션 끊김 등) 대비. 3회 시도 후에도 실패면 호출자가 알림. */
     private <T> void retryPersist(java.util.function.Supplier<T> action) {
         Exception last = null;
@@ -1949,7 +1966,7 @@ public class AutoTradingBotService {
                                      BigDecimal buyPrice, BigDecimal profitRate,
                                      int quantity, String reason, boolean isPartialSell) {
         try {
-            activeTradeService.sell(portfolio.getStockCode(), currentPrice, quantity, reason);
+            TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice, quantity, reason);
             lastTradeTime = LocalDateTime.now(clock);
             todaySellCount.incrementAndGet();
 
@@ -1963,8 +1980,19 @@ public class AutoTradingBotService {
             sellFailCount.remove(portfolio.getStockCode());
             sellFailLastAlert.remove(portfolio.getStockCode());
 
-            // 전량 매도 시 포지션 정리 + 쿨다운 기록
-            if (!isPartialSell) {
+            // 전량 매도 시 포지션 정리 + 쿨다운 기록.
+            // B2-A: 실전 지정가가 부분/미체결로 확정되면 포지션을 제거하지 않고 유지 → 잔량 KIS orphan 방지.
+            //       (전량체결/조회불가는 현행대로 제거 — 조회 실패해도 최악이 현행과 동일)
+            if (!isPartialSell && isSellConfirmedShort(portfolio.getStockCode(), sellDto, quantity)) {
+                log.warn("[스캘핑봇] 매도 부분/미체결 확정 — 포지션 유지, 다음 사이클 재시도: {}", portfolio.getStockName());
+                if (telegramService.isEnabled()) {
+                    try {
+                        telegramService.sendRisk(String.format(
+                                "⚠️ <b>[스캘핑봇] 매도 부분/미체결</b>\n\n종목: %s (%s)\n지정가 %s원 주문이 전량 체결되지 않아 포지션을 유지하고 다음 사이클에 재시도합니다.",
+                                portfolio.getStockName(), portfolio.getStockCode(), formatNumber(currentPrice)));
+                    } catch (Exception ignore) {}
+                }
+            } else if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
                 deletePersistedPosition(Strategy.SCALPING, portfolio.getStockCode());
                 sellCooldownMap.put(portfolio.getStockCode(), LocalDateTime.now(clock));
@@ -2518,7 +2546,7 @@ public class AutoTradingBotService {
 
                 if (sellReason != null) {
                     try {
-                        activeTradeService.sell(portfolio.getStockCode(), currentPrice,
+                        TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice,
                                 portfolio.getQuantity(), sellReason);
                         lastTradeTime = LocalDateTime.now(clock);
                         todaySellCount.incrementAndGet();
@@ -2540,9 +2568,21 @@ public class AutoTradingBotService {
                                     holdDays, sellReason));
                         }
 
-                        swingPositions.remove(position.stockCode);
-                        deletePersistedPosition(Strategy.SWING, position.stockCode);
-                        sellCooldownMap.put(position.stockCode, LocalDateTime.now(clock));
+                        // B2-A: 부분/미체결 확정이면 포지션 유지(다음 사이클 재시도), 아니면 현행대로 제거
+                        if (isSellConfirmedShort(position.stockCode, sellDto, portfolio.getQuantity())) {
+                            log.warn("[스윙봇] 매도 부분/미체결 확정 — 포지션 유지, 재시도: {}", position.stockName);
+                            if (telegramService.isEnabled()) {
+                                try {
+                                    telegramService.sendRisk(String.format(
+                                            "⚠️ <b>[스윙봇] 매도 부분/미체결</b>\n\n종목: %s (%s)\n전량 체결되지 않아 포지션을 유지하고 재시도합니다.",
+                                            position.stockName, position.stockCode));
+                                } catch (Exception ignore) {}
+                            }
+                        } else {
+                            swingPositions.remove(position.stockCode);
+                            deletePersistedPosition(Strategy.SWING, position.stockCode);
+                            sellCooldownMap.put(position.stockCode, LocalDateTime.now(clock));
+                        }
                     } catch (Exception e) {
                         log.error("[스윙봇] 매도 실패: {} - {}", position.stockName, e.getMessage(), e);
                         if (telegramService.isEnabled()) {
@@ -2803,7 +2843,7 @@ public class AutoTradingBotService {
 
                 if (sellReason != null) {
                     try {
-                        activeTradeService.sell(portfolio.getStockCode(), currentPrice,
+                        TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice,
                                 portfolio.getQuantity(), sellReason);
                         lastTradeTime = LocalDateTime.now(clock);
                         todaySellCount.incrementAndGet();
@@ -2823,9 +2863,14 @@ public class AutoTradingBotService {
                                     formatNumber(profitLoss), profitRate.setScale(2, RoundingMode.HALF_UP), holdDays));
                         }
 
-                        closingPositions.remove(position.stockCode);
-                        deletePersistedPosition(Strategy.CLOSING, position.stockCode);
-                        sellCooldownMap.put(position.stockCode, LocalDateTime.now(clock));
+                        // B2-A: 부분/미체결 확정이면 포지션 유지(다음 사이클 재시도), 아니면 현행대로 제거
+                        if (isSellConfirmedShort(position.stockCode, sellDto, portfolio.getQuantity())) {
+                            log.warn("[종가매수] 매도 부분/미체결 확정 — 포지션 유지, 재시도: {}", position.stockName);
+                        } else {
+                            closingPositions.remove(position.stockCode);
+                            deletePersistedPosition(Strategy.CLOSING, position.stockCode);
+                            sellCooldownMap.put(position.stockCode, LocalDateTime.now(clock));
+                        }
                     } catch (Exception e) {
                         log.error("[종가매수] 매도 실패: {} - {}", position.stockName, e.getMessage());
                     }

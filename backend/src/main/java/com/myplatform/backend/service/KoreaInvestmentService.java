@@ -1294,6 +1294,66 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 주문 체결 조회 (TTTC0081R, inquire-daily-ccld) — 특정 주문(ODNO)의 총체결수량 반환.
+     * <p>읽기 전용·best-effort. 지정가 부분/미체결 확인용. 실패·주문없음·미설정 시 <b>null</b> 반환 →
+     * 호출측이 "체결 확인 불가(UNKNOWN)"로 보수 처리하도록 한다.
+     * <p>⚠ 응답 필드명(output1/odno/tot_ccld_qty)은 KIS inquire-daily-ccld 규격 기준 — 운영 로그로 1회 확인 권장.
+     *
+     * @return 총체결수량(같은 ODNO 의 체결 row 합산), 조회 실패/주문 미발견 시 null
+     */
+    public Integer inquireDailyCcld(String stockCode, String orderNo) {
+        String token = getAccessToken();
+        if (token == null || !isRealTradingConfigured() || orderNo == null || orderNo.isBlank()) {
+            return null;
+        }
+        try {
+            String today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"))
+                    .format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE); // yyyyMMdd
+            String url = baseUrl + "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+                    + "?CANO=" + accountPrefix
+                    + "&ACNT_PRDT_CD=" + accountSuffix
+                    + "&INQR_STRT_DT=" + today
+                    + "&INQR_END_DT=" + today
+                    + "&SLL_BUY_DVSN_CD=00"   // 00=전체(매수/매도)
+                    + "&INQR_DVSN=00"          // 정렬: 역순
+                    + "&PDNO=" + stockCode
+                    + "&CCLD_DVSN=00"          // 00=전체
+                    + "&ORD_GNO_BRNO="
+                    + "&ODNO=" + orderNo
+                    + "&INQR_DVSN_3=00"
+                    + "&INQR_DVSN_1="
+                    + "&CTX_AREA_FK100="
+                    + "&CTX_AREA_NK100=";
+            HttpHeaders headers = createHeaders(token, "TTTC0081R");
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+                if (!"0".equals(result.path("rt_cd").asText())) {
+                    log.warn("[실전매매] 체결조회 실패 [{}] ODNO {}: {}", stockCode, orderNo,
+                            result.path("msg1").asText());
+                    return null;
+                }
+                JsonNode arr = result.get("output1");
+                if (arr == null || !arr.isArray()) return null;
+                int totalCcld = 0;
+                boolean found = false;
+                for (JsonNode row : arr) {
+                    if (orderNo.equals(row.path("odno").asText())) {
+                        totalCcld += row.path("tot_ccld_qty").asInt(0);
+                        found = true;
+                    }
+                }
+                return found ? totalCcld : null;
+            }
+        } catch (Exception e) {
+            log.warn("[실전매매] 체결조회 예외 [{}] ODNO {}: {}", stockCode, orderNo, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
      * 주문 결과 DTO
      */
     @lombok.Data

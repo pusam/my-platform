@@ -12,6 +12,7 @@ import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -40,6 +41,52 @@ public class RealTradeService implements TradeService {
 
     // 실전매매용 계좌 ID (가상 ID - 실제 계좌와 구분)
     private static final Long REAL_ACCOUNT_ID = 999999L;
+
+    // ==================== 주문 체결 확인 (B2-A Phase 1) ====================
+
+    /** 주문 체결 상태. UNKNOWN=체결조회 실패(보수적으로 현행 동작 유지). */
+    enum FillStatus { FULL, PARTIAL, NONE, UNKNOWN }
+
+    /** 체결 확인 결과 — filledQty=실체결수량, status=판정. */
+    record FillResult(int filledQty, FillStatus status) {
+        boolean isFull() { return status == FillStatus.FULL; }
+        boolean isConfirmedShort() { return status == FillStatus.PARTIAL || status == FillStatus.NONE; }
+    }
+
+    /**
+     * 주문 체결 판정 (순수 함수 — 테스트 대상).
+     * <p>지정가 주문은 부분/미체결 가능. KIS 체결조회(총체결수량)로 실제 체결을 판정한다.
+     * 조회 실패(null)는 UNKNOWN → 호출측은 보수적으로 "요청수량 체결"로 간주해 현행 동작을 보존
+     * (체결조회가 틀려도 최악이 현행과 동일하도록).
+     *
+     * @param requestedQty 주문 수량
+     * @param totCcldQty   KIS 총체결수량 (조회 실패 시 null)
+     */
+    static FillResult resolveFill(int requestedQty, Integer totCcldQty) {
+        if (totCcldQty == null) return new FillResult(requestedQty, FillStatus.UNKNOWN);
+        if (totCcldQty <= 0) return new FillResult(0, FillStatus.NONE);
+        if (totCcldQty >= requestedQty) return new FillResult(requestedQty, FillStatus.FULL);
+        return new FillResult(totCcldQty, FillStatus.PARTIAL);
+    }
+
+    /**
+     * 주문 체결 확인 — KIS 체결조회(inquireDailyCcld)를 짧게 폴링(최대 3회, ~1.4s)해 실체결 판정.
+     * <p>봇이 매도/매수 직후 호출. 클래스가 @Transactional 이라 <b>NOT_SUPPORTED</b> 로 트랜잭션 밖에서
+     * 실행 — 폴링 sleep 이 DB 트랜잭션을 잡지 않도록. 조회 실패는 UNKNOWN(보수적, 현행 동작 보존).
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public FillResult confirmFill(String stockCode, String orderNo, int requestedQty) {
+        Integer ccld = null;
+        for (int i = 0; i < 3; i++) {
+            if (i > 0) {
+                try { Thread.sleep(700L); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+            ccld = kisService.inquireDailyCcld(stockCode, orderNo);
+            if (ccld != null && ccld >= requestedQty) break;  // 전량 확인되면 즉시 종료
+        }
+        return resolveFill(requestedQty, ccld);
+    }
 
     // 캐시된 잔고 정보 — 매수/매도 직전엔 force=true 로 항상 재조회.
     // 표시·통계 용도는 30초 캐시 (KIS rate limit 완화).
@@ -273,7 +320,9 @@ public class RealTradeService implements TradeService {
         // 텔레그램 알림
         sendRealBuyAlert(stockName, stockCode, price, quantity, orderNo);
 
-        return toTradeHistoryDto(trade);
+        TradeHistoryDto dto = toTradeHistoryDto(trade);
+        dto.setOrderNo(orderNo);  // B2-A: 봇이 체결조회(confirmFill)에 사용
+        return dto;
     }
 
     /**
@@ -405,7 +454,9 @@ public class RealTradeService implements TradeService {
         // 텔레그램 알림
         sendRealSellAlert(stockName, stockCode, price, quantity, profitLoss, reason, orderNo);
 
-        return toTradeHistoryDto(trade);
+        TradeHistoryDto dto = toTradeHistoryDto(trade);
+        dto.setOrderNo(orderNo);  // B2-A: 봇이 체결조회(confirmFill)에 사용
+        return dto;
     }
 
     /**

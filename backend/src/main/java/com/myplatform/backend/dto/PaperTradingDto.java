@@ -90,6 +90,7 @@ public class PaperTradingDto {
         private String tradeReason;             // AUTO_BUY, STOP_LOSS, TAKE_PROFIT, MANUAL
         private String tradeReasonName;         // 자동매수, 손절, 익절, 수동
         private LocalDateTime tradeDate;
+        private String orderNo;                 // KIS 주문번호(ODNO) — 실전 체결조회용(B2-A). 모의는 null.
     }
 
     /**
