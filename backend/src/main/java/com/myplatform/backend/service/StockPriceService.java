@@ -150,14 +150,22 @@ public class StockPriceService {
             }
         }
 
-        // 네이버 블랙리스트 & 서킷 카운터 일괄 리셋
-        int blacklistSize = naverBlacklist.size();
-        naverBlacklist.clear();
-        naverFailCount.clear();
-        naverCircuitOpenCount.set(0);
+        // 네이버 블랙리스트 — 만료된 엔트리만 제거(아직 유효한 차단은 보존, isBlacklisted 자가만료와 일관).
+        // 기존엔 매시간 전체 clear 라 아직 안 끝난 차단까지 풀려 문제 종목 반복 재시도 → 차단 무력화였음.
+        int blacklistRemoved = 0;
+        LocalDateTime nowTs = DateTimeUtil.kstNow();
+        var blIt = naverBlacklist.entrySet().iterator();
+        while (blIt.hasNext()) {
+            if (blIt.next().getValue().isBefore(nowTs)) {
+                blIt.remove();
+                blacklistRemoved++;
+            }
+        }
+        naverFailCount.clear();              // 실패 카운터는 시간당 리셋(차단 전 누적값 — 신선한 재시도 기회)
+        naverCircuitOpenCount.set(0);        // 서킷 반복오픈 카운터(전역 건전성) 리셋
 
-        log.info("[캐시정리] priceCache {}건 제거 (잔여 {}건), minuteTradingCache {}건 제거 (잔여 {}건), 네이버 블랙리스트 {}건 리셋",
-                priceRemoved, priceCache.size(), minuteRemoved, minuteTradingCache.size(), blacklistSize);
+        log.info("[캐시정리] priceCache {}건 제거 (잔여 {}건), minuteTradingCache {}건 제거 (잔여 {}건), 네이버 블랙리스트 만료 {}건 제거 (잔여 {}건)",
+                priceRemoved, priceCache.size(), minuteRemoved, minuteTradingCache.size(), blacklistRemoved, naverBlacklist.size());
     }
 
     /**

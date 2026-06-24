@@ -2049,32 +2049,34 @@ public class RecommendationService {
      * <p>페널티는 technical 카테고리에서 -5 (음수 클램프). technical=0 이 되면 validCount 에서
      * 빠져 자연 탈락. P0-1 의 5일 +20%+ 페널티와는 중첩 가능 (의도 — 신규 + 더 가속이면 더 큰 페널티).
      * <p>prevScoreMap 비어있는 콜드스타트는 스킵 (모든 종목이 "신규" 로 잘못 분류되는 거 방지).
-     * <p><b>phase 36</b>: regime == BULL 이면 스킵. BULL 강세장에서는 5일 +15% 가 정상 추세
-     * 종목에서도 흔하게 발생해 운영 데이터(2026-05-14)에 46건 무차별 페널티 → STRONG_BUY 0건
-     * 부작용 확인. 강세장은 추격이 아니라 추세 추종이 정상이므로 해당 페널티 비활성.
+     * <p><b>phase 36</b>: BULL 이면 5일 +15% 가 정상 추세에서도 흔해(운영 데이터 2026-05-14: 46건
+     * 무차별 페널티 → STRONG_BUY 0건) 완전 비활성했었음.
+     * <p><b>phase 38</b>: 완전 비활성 대신 <b>BULL 임계를 +25%(극단 급등)로 상향</b> — 소수의 진짜 추격성
+     * 신규만 감점하고 정상 추세 종목 풀은 보존(완전 비활성 시 BULL 에서 추격 무방비였던 점 보완).
      */
     private void applyNewEntryPenalty(Map<String, StockScore> scoreMap,
                                        Map<String, Integer> prevScoreMap,
                                        MarketRegime regime) {
-        if (regime == MarketRegime.BULL) {
-            log.debug("[종합추천] 신규 진입 감점: BULL 강세장 — 스킵 (정상 추세 종목 페널티 차단)");
-            return;
-        }
         if (prevScoreMap.isEmpty()) return;
-        final double THRESHOLD = 15.0;
+        final double threshold = newEntryPenaltyThreshold(regime);
         int penalized = 0;
         for (StockScore stock : scoreMap.values()) {
             if (prevScoreMap.containsKey(stock.stockCode)) continue;     // 어제 추천 풀 안
-            if (stock.fiveDayReturn < THRESHOLD) continue;                // 5일 누적 미달
+            if (stock.fiveDayReturn < threshold) continue;                // 5일 누적 미달
             if (stock.technical <= 0) continue;                            // 이미 0 이면 의미 없음
             stock.technical = Math.max(0, stock.technical - 5);
             stock.tags.add("⚠신규+5일+" + (int) stock.fiveDayReturn + "%");
             penalized++;
         }
         if (penalized > 0) {
-            log.info("[종합추천] 신규 진입 감점: {}건 (어제 스냅샷 밖 + 5일 +{}%↑)",
-                    penalized, (int) THRESHOLD);
+            log.info("[종합추천] 신규 진입 감점: {}건 (어제 스냅샷 밖 + 5일 +{}%↑, regime={})",
+                    penalized, (int) threshold, regime);
         }
+    }
+
+    /** 신규 진입 감점 5일 누적 임계 — BULL 은 25%(극단만), 그 외 15%. P38 테스트 대상. */
+    static double newEntryPenaltyThreshold(MarketRegime regime) {
+        return regime == MarketRegime.BULL ? 25.0 : 15.0;
     }
 
     // ==================== ⑧ 시장 국면 적응형 가중치 (phase 34) ====================

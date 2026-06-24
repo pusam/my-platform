@@ -114,4 +114,17 @@ class RecommendationScoreTest {
             assertThat(w).containsExactly(20, 10, 10, 14); // 15*0.9=13.5 → 14
         }
     }
+
+    @Nested
+    @DisplayName("신규 진입 감점 임계 (phase 38 — BULL 은 극단만)")
+    class NewEntryThreshold {
+        @Test @DisplayName("BULL → 25% (극단 급등만 감점, 정상 추세 풀 보존)")
+        void bull() { assertThat(RecommendationService.newEntryPenaltyThreshold(MarketRegime.BULL)).isEqualTo(25.0); }
+
+        @Test @DisplayName("BEAR → 15%")
+        void bear() { assertThat(RecommendationService.newEntryPenaltyThreshold(MarketRegime.BEAR)).isEqualTo(15.0); }
+
+        @Test @DisplayName("SIDEWAYS → 15%")
+        void sideways() { assertThat(RecommendationService.newEntryPenaltyThreshold(MarketRegime.SIDEWAYS)).isEqualTo(15.0); }
+    }
 }
