@@ -90,6 +90,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 
 ## 코드 위치 힌트 (탐색 시작점)
 - 점수: `RecommendationService`, 결론+매매계획: `StockConclusionService`, 체크리스트: `BuyChecklistService`
+- 발굴 5트랙(모두 `RecommendationService` + `/api/recommendation/*` + `RecommendationDto`): 저평가 `getValueTop10`/value-top10, 성장 `getGrowthTop10`/growth-top10, 낙폭과대 `getOversoldTop10`/oversold-top10, 실적 `getEarningsTop10`/earnings-top10, 수급 `getSmartMoneyTop10`/smartmoney-top10. 프론트는 `StockTradingDashboardV2.vue` 발굴 리스트 서브탭(`discoverListTabs`/`ensureDiscoverListLoaded`).
 - 시그널 평가: `SignalOutcomeService` (19:30 배치, 3거래일 후) — 조건부 적중률 집계(`getAccuracyByBand`)도 여기
 - 재료: `StockCatalystService` (V31, 네이버→Gemini→일캐시), API 는 `StockDetailController` `/api/stock/{code}/catalyst`
 - 백테스트 API: `BacktestController` `/api/backtest/performance` (서비스는 기존 `BacktestService`)
@@ -108,5 +109,9 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 ## 프론트 IA (P-IA 3단계, 2026-06-11)
 - 주식 허브 = `StockTradingDashboardV2` 단일 화면, **GNB 4탭: 오늘/시장/발굴/매매** (`DashboardHeader.vue`). 레거시 경로(/sector, /news, /ai-strategy 등)는 main.js 에서 탭 쿼리로 redirect — **새 주식 화면(라우트)을 만들지 말고 탭/서브탭에 흡수할 것.**
 - 기본 진입은 **'오늘' 탭**(`TodayBriefingTab.vue` — 시장 한줄·매수 후보(55점 컷)·신뢰도·포지션·도구 바로가기). `resolveInitialTab` 쿼리 없으면 today 고정 — 시각 기반 분기로 되돌리지 말 것. 탭 매핑 회귀 테스트: `StockTradingDashboardV2.ia.test.js`.
-- **역할 분리(2026-06-23): 오늘=모멘텀, 발굴=저평가.** 모멘텀 종합추천 TOP10(`getTop5`)은 '오늘' 탭 전용. **발굴 탭 메인은 저평가 TOP10(`getValueTop10`, PBR·ROE·부채·흑자) + 종합신호 서브탭** — 발굴에 모멘텀 TOP10 다시 넣지 말 것(오늘과 중복 + "오른 종목만" 노출의 원인이었음).
+- **역할 분리(2026-06-23~24): 오늘=모멘텀, 발굴=다각도 선별.** 모멘텀 종합추천 TOP10(`getTop5`)은 '오늘' 탭 전용 — **발굴에 모멘텀 TOP10 다시 넣지 말 것**(오늘과 중복 + "오른 종목만" 노출의 원인이었음).
+- **발굴 리스트 = 5트랙 서브탭(`discoverListTab`, 택1, 기본 💎저평가) + 심화도구 서브탭(종합/AI전략/백테스트/스크리너/퀀트)** 2단. 5트랙은 모두 별도 엔드포인트·산식·성격:
+  - 💎저평가 `getValueTop10` (PBR·ROE·부채·흑자) / 🚀성장 `getGrowthTop10` (매출·이익 성장률+PEG) / 📉낙폭과대 `getOversoldTop10` (RSI 과매도+MA20 낙폭+반등, 가격히스토리 스캔) / 💰실적 `getEarningsTop10` (흑자전환·이익급증) / 🏦수급 `getSmartMoneyTop10` (외국인·기관 순매수).
+  - **lazy 로드**: `ensureDiscoverListLoaded(key)` 가 보고 있는 트랙만 호출(특히 낙폭과대 universe 스캔이 무거움), 각 30분 캐시. 5트랙 동시 eager 로드로 되돌리지 말 것.
+  - 백엔드 5트랙 공통 골격: financial/price/투자자 데이터 broad 스캔 → 점수 → 상위30 `quickDangerCheck`(DART) → top10. 실적/수급은 기존 `scoreEarnings`/`scoreSupplyDemand` 산식 **재사용**(`calculateCategoryTop10`, 단일 출처). 성장 산식 `computeGrowthScoreParts`/낙폭 `computeOversoldScoreParts` 는 순수함수(테스트 有).
 - 결론 카드(`StockConclusionCard.vue`): 매매계획(손절/목표가+MFE/MAE) · 점수대 적중률 · 재료 배지까지 표시. 데이터 없으면 각 블록 조용히 숨김(배지 생략)이 규약.
