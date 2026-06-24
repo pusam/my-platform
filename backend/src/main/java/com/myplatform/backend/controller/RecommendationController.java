@@ -70,6 +70,34 @@ public class RecommendationController {
     }
 
     /**
+     * 실적 서프라이즈 TOP 10 — 흑자전환/영업이익 급증. 별도 트랙.
+     */
+    @GetMapping("/earnings-top10")
+    public ResponseEntity<?> getEarningsTop10() {
+        var response = recommendationService.getEarningsTop10();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", response.getItems(),
+                "dataTime", response.getDataTime(),
+                "realtime", response.isRealtime()
+        ));
+    }
+
+    /**
+     * 스마트머니(수급) TOP 10 — 외국인·기관 연속/대량 순매수. 별도 트랙.
+     */
+    @GetMapping("/smartmoney-top10")
+    public ResponseEntity<?> getSmartMoneyTop10() {
+        var response = recommendationService.getSmartMoneyTop10();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", response.getItems(),
+                "dataTime", response.getDataTime(),
+                "realtime", response.isRealtime()
+        ));
+    }
+
+    /**
      * STRONG_BUY + 강한 가치 동시 충족 빈도 — phase 35.
      * phase 34 의 STRONG+VALUE +2 보너스가 dead code 인지 운영 데이터로 확인.
      */

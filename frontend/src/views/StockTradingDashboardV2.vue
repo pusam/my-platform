@@ -214,6 +214,78 @@
           <div v-else class="empty-signal">낙폭과대 반등 후보 없음<br><small style="opacity:0.7">RSI 과매도 + MA20 −5%↓ 낙폭 + 반등 조짐 (장중 갱신)</small></div>
         </div>
 
+        <!-- ②-d 실적 서프라이즈 TOP 10 (흑자전환·영업이익 급증) -->
+        <div id="briefing-section-earnings" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'earnings'">
+          <div class="section-title-row">
+            <h2><span class="section-icon">💰</span> 실적 서프라이즈 TOP {{ earningsTop10.length > 0 ? earningsTop10.length : 10 }}</h2>
+            <span v-if="earningsTopDataTime" class="rec-data-time">{{ earningsTopDataTime }}</span>
+          </div>
+          <div v-if="earningsTopLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'ern-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="earningsTop10.length" class="rec-list">
+            <div v-for="(rec, i) in earningsTop10" :key="'ern-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 5)" :key="'et-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-basis">/100</span>
+                </div>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">실적 서프라이즈 후보 없음<br><small style="opacity:0.7">흑자전환·영업이익 급증 종목 (분기 실적 기반)</small></div>
+        </div>
+
+        <!-- ②-e 스마트머니(수급) TOP 10 (외국인·기관 순매수) -->
+        <div id="briefing-section-smartmoney" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'smartmoney'">
+          <div class="section-title-row">
+            <h2><span class="section-icon">🏦</span> 스마트머니 TOP {{ smartMoneyTop10.length > 0 ? smartMoneyTop10.length : 10 }}</h2>
+            <span v-if="smartMoneyTopDataTime" class="rec-data-time">{{ smartMoneyTopDataTime }}</span>
+          </div>
+          <div v-if="smartMoneyTopLoading" class="signal-skeleton">
+            <div class="skel-row" v-for="i in 3" :key="'smt-sk-'+i"><div class="skel-bar"></div></div>
+          </div>
+          <div v-else-if="smartMoneyTop10.length" class="rec-list">
+            <div v-for="(rec, i) in smartMoneyTop10" :key="'smt-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+              <span class="rec-rank">#{{ i + 1 }}</span>
+              <div class="rec-info">
+                <span class="rec-name">{{ rec.stockName }}</span>
+                <div class="rec-tags">
+                  <span v-for="(tag, ti) in (rec.tags || []).slice(0, 5)" :key="'st-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
+                </div>
+              </div>
+              <div class="rec-score-area">
+                <div class="rec-score-head">
+                  <span class="rec-score-num">{{ rec.totalScore }}</span>
+                  <span class="rec-score-basis">/100</span>
+                </div>
+                <div class="rec-price-area">
+                  <span v-if="rec.currentPrice" class="rec-current-price">{{ Number(rec.currentPrice).toLocaleString('ko-KR') }}원</span>
+                  <span v-if="rec.changeRate != null" class="rec-change"
+                        :class="Number(rec.changeRate) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(rec.changeRate) >= 0 ? '+' : '' }}{{ Number(rec.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="empty-signal">수급 우위 종목 없음<br><small style="opacity:0.7">외국인·기관 연속/대량 순매수 (장중 갱신)</small></div>
+        </div>
+
         <!-- ②-b 수급 현황 패널 → 시장 탭 -->
         <div id="briefing-section-supply" class="supply-panel section-card" v-if="activeGnbTab === 'market' && supplyPanelData">
           <div class="section-title-row">
@@ -601,7 +673,9 @@ export default {
       discoverListTabs: [
         { key: 'value', label: '💎 저평가' },
         { key: 'growth', label: '🚀 성장' },
-        { key: 'oversold', label: '📉 낙폭과대' }
+        { key: 'oversold', label: '📉 낙폭과대' },
+        { key: 'earnings', label: '💰 실적' },
+        { key: 'smartmoney', label: '🏦 수급' }
       ],
       marketSubTabs: [
         { key: 'investor', label: '수급' },
@@ -652,6 +726,12 @@ export default {
       oversoldTop10: [],
       oversoldTopLoading: false,
       oversoldTopDataTime: '',
+      earningsTop10: [],
+      earningsTopLoading: false,
+      earningsTopDataTime: '',
+      smartMoneyTop10: [],
+      smartMoneyTopLoading: false,
+      smartMoneyTopDataTime: '',
       // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
       activeSectorView: 'map',
       supplyPanelData: null,
@@ -1048,6 +1128,8 @@ export default {
       if (key === 'value' && !this.valueTop10.length) this.refreshValueTop10()
       else if (key === 'growth' && !this.growthTop10.length) this.refreshGrowthTop10()
       else if (key === 'oversold' && !this.oversoldTop10.length) this.refreshOversoldTop10()
+      else if (key === 'earnings' && !this.earningsTop10.length) this.refreshEarningsTop10()
+      else if (key === 'smartmoney' && !this.smartMoneyTop10.length) this.refreshSmartMoneyTop10()
     },
     // 낙폭과대 반등 TOP 10 — RSI 과매도 + 낙폭 + 반등. 장중 변하므로 첫 진입 + 30분 캐시.
     async refreshOversoldTop10() {
@@ -1060,6 +1142,30 @@ export default {
         this.oversoldTopDataTime = body?.dataTime || ''
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
       finally { this.oversoldTopLoading = false }
+    },
+    // 실적 서프라이즈 TOP 10
+    async refreshEarningsTop10() {
+      if (this.earningsTopLoading) return
+      this.earningsTopLoading = true
+      try {
+        const res = await recommendationAPI.getEarningsTop10()
+        const body = res?.data || res
+        this.earningsTop10 = (body?.data) || []
+        this.earningsTopDataTime = body?.dataTime || ''
+      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+      finally { this.earningsTopLoading = false }
+    },
+    // 스마트머니(수급) TOP 10
+    async refreshSmartMoneyTop10() {
+      if (this.smartMoneyTopLoading) return
+      this.smartMoneyTopLoading = true
+      try {
+        const res = await recommendationAPI.getSmartMoneyTop10()
+        const body = res?.data || res
+        this.smartMoneyTop10 = (body?.data) || []
+        this.smartMoneyTopDataTime = body?.dataTime || ''
+      } catch { /* 갱신 실패 시 기존 값 유지 */ }
+      finally { this.smartMoneyTopLoading = false }
     },
     // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
     // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.

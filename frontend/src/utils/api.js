@@ -1049,6 +1049,14 @@ export const recommendationAPI = {
   // 낙폭과대 반등 TOP 10 — RSI 과매도 + MA20 낙폭 + 반등 조짐.
   getOversoldTop10() {
     return apiClient.get('/recommendation/oversold-top10', { timeout: 30000 });
+  },
+  // 실적 서프라이즈 TOP 10 — 흑자전환/영업이익 급증.
+  getEarningsTop10() {
+    return apiClient.get('/recommendation/earnings-top10', { timeout: 30000 });
+  },
+  // 스마트머니(수급) TOP 10 — 외국인·기관 순매수.
+  getSmartMoneyTop10() {
+    return apiClient.get('/recommendation/smartmoney-top10', { timeout: 30000 });
   }
 };
 

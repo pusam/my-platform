@@ -93,6 +93,10 @@ public class RecommendationService {
     private volatile LocalDateTime growthCacheTime = null;
     private volatile List<RecommendationDto> cachedOversoldTop10 = null;
     private volatile LocalDateTime oversoldCacheTime = null;
+    private volatile List<RecommendationDto> cachedEarningsTop10 = null;
+    private volatile LocalDateTime earningsCacheTime = null;
+    private volatile List<RecommendationDto> cachedSmartMoneyTop10 = null;
+    private volatile LocalDateTime smartMoneyCacheTime = null;
 
     // 백그라운드 calculate 중복 방지
     private final java.util.concurrent.atomic.AtomicBoolean calculating
@@ -1103,6 +1107,90 @@ public class RecommendationService {
         int rsiScore;       // 0~8
         int dropScore;      // 0~7
         int reboundScore;   // 0~5
+    }
+
+    // ==================== 실적 서프라이즈 / 스마트머니(수급) TOP 10 (별도 트랙) ====================
+    // 둘 다 기존 카테고리 산식(scoreEarnings/scoreSupplyDemand)을 빈 map 에 그대로 적용해 랭킹만 —
+    // 산식 단일 출처(종합추천과 동일). 데이터 소스가 candidate 제한 없이 broad 라 그대로 전체 스캔이 됨.
+
+    /** 실적 서프라이즈 TOP 10 — 흑자전환/영업이익 급증. 캐시 30분. */
+    public Top5Response getEarningsTop10() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+        if (cachedEarningsTop10 != null && earningsCacheTime != null
+                && earningsCacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildValueResponse(cachedEarningsTop10, earningsCacheTime.format(TIME_FMT) + " 기준", trading);
+        }
+        List<RecommendationDto> result;
+        try {
+            result = calculateCategoryTop10(true);
+            if (!result.isEmpty()) { cachedEarningsTop10 = result; earningsCacheTime = now; }
+        } catch (Exception e) {
+            log.error("[실적TOP10] 계산 실패: {}", e.getMessage(), e);
+            result = cachedEarningsTop10 != null ? cachedEarningsTop10 : Collections.emptyList();
+        }
+        return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
+    }
+
+    /** 스마트머니(수급) TOP 10 — 외국인·기관 연속/대량 순매수. 캐시 30분. */
+    public Top5Response getSmartMoneyTop10() {
+        LocalDateTime now = LocalDateTime.now();
+        boolean trading = isTradingHours(now);
+        if (cachedSmartMoneyTop10 != null && smartMoneyCacheTime != null
+                && smartMoneyCacheTime.isAfter(now.minusMinutes(CACHE_MINUTES))) {
+            return buildValueResponse(cachedSmartMoneyTop10, smartMoneyCacheTime.format(TIME_FMT) + " 기준", trading);
+        }
+        List<RecommendationDto> result;
+        try {
+            result = calculateCategoryTop10(false);
+            if (!result.isEmpty()) { cachedSmartMoneyTop10 = result; smartMoneyCacheTime = now; }
+        } catch (Exception e) {
+            log.error("[스마트머니TOP10] 계산 실패: {}", e.getMessage(), e);
+            result = cachedSmartMoneyTop10 != null ? cachedSmartMoneyTop10 : Collections.emptyList();
+        }
+        return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
+    }
+
+    /**
+     * 실적/수급 단일 카테고리 TOP10 공통 — 빈 map 에 기존 산식 적용 후 해당 카테고리 점수로 랭킹.
+     * @param earnings true=실적(scoreEarnings), false=수급(scoreSupplyDemand)
+     */
+    private List<RecommendationDto> calculateCategoryTop10(boolean earnings) {
+        Map<String, StockScore> map = new java.util.HashMap<>();
+        if (earnings) scoreEarnings(map); else scoreSupplyDemand(map);
+
+        java.util.function.ToIntFunction<StockScore> pick = earnings ? (s -> s.earnings) : (s -> s.supplyDemand);
+        List<StockScore> scored = map.values().stream()
+                .filter(s -> pick.applyAsInt(s) > 0)
+                .sorted((a, b) -> Integer.compare(pick.applyAsInt(b), pick.applyAsInt(a)))
+                .collect(Collectors.toList());
+
+        List<StockScore> shortlist = scored.stream().limit(30).collect(Collectors.toList());
+        for (StockScore s : shortlist) {
+            try {
+                if (riskManagementService.quickDangerCheck(s.stockCode, s.stockName)) {
+                    if (earnings) s.earnings = Math.max(0, s.earnings - 5);
+                    else s.supplyDemand = Math.max(0, s.supplyDemand - 5);
+                    s.tags.add("⚠리스크공시");
+                }
+            } catch (Exception ignore) { /* 페널티 안 줌 */ }
+        }
+        shortlist.sort((a, b) -> Integer.compare(pick.applyAsInt(b), pick.applyAsInt(a)));
+        List<StockScore> top = shortlist.stream().limit(10).collect(Collectors.toList());
+
+        log.info("[{}TOP10] {}건 후보 → top10", earnings ? "실적" : "스마트머니", scored.size());
+
+        return top.stream().map(s -> RecommendationDto.builder()
+                .stockCode(s.stockCode)
+                .stockName(s.stockName)
+                .totalScore(Math.min(100, pick.applyAsInt(s) * 5))
+                .aiStrategy(NA)
+                .earnings(earnings ? s.earnings : NA)
+                .supplyDemand(earnings ? NA : s.supplyDemand)
+                .technical(NA).sectorMomentum(NA).valueStability(NA).growth(NA)
+                .validCount(1)
+                .tags(new ArrayList<>(s.tags))
+                .build()).toList();
     }
 
     // ==================== Core Calculation ====================
