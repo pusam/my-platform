@@ -52,6 +52,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **과열(추격) 페널티 — `RecommendationService.overheatPenalty()` 단일 출처, 단계화(phase 38)**: RSI 70/75/80 → −3/−5/−8, 5일 누적 15/20/30% → −3/−5/−8, 볼린저 상단 돌파 −3. BULL 강세장에도 적용(섹터 가산과 별개). 임계 올리거나 단계 합치지 말 것 — "이미 많이 오른 종목" 추격 방지가 목적.
 - **발굴 TOP10 정렬 tie-break(`recommendationComparator`) = 점수 desc → delta(오늘−어제) desc → changeRate asc**. 마지막이 **asc(덜 오른 종목 우선)** — 추격 인상 완화(phase 38). desc로 되돌리지 말 것.
 - **BULL 섹터 가산은 하나만**: `scoreSectorMomentum` 의 +4 floor(추천 풀 안정)만 유지하고 `applyRegimeWeights` BULL 섹터 승수는 **1.0**(phase 38, 이중가산 제거). ×1.20 재도입 금지(오른 종목 섹터 점수 부풀림).
+- **신규 진입 감점 임계(`applyNewEntryPenalty`/`newEntryPenaltyThreshold`)**: 어제 추천 풀 밖에서 갑자기 진입 + 5일 누적 급등 → technical −5(추격 방지). 임계 = **BULL 25% / 그 외 15%**(phase 38). BULL 은 5일 +15% 가 정상 추세에도 흔해(2026-05-14 46건 무차별 → STRONG_BUY 0) **완전 비활성(phase36)했다가, 극단(25%)만 잡도록 복원** — BULL 에서 다시 완전 비활성하거나 임계를 15%로 낮추지 말 것(정상 추세 풀 보존 vs 추격 방지 균형).
 
 ### 4b. 재료(catalyst) 태그는 산식 미편입 (의도)
 - 네이버 뉴스 → Gemini 분류(`StockCatalystService`) → `stock_catalyst` **일캐시(종목·일자 1회)**. 용도는 **배지 표시 + 시그널 스냅샷(검증)뿐** — 재료별 적중률이 데이터로 검증되기 전엔 점수 산식에 넣지 말 것.
