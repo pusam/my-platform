@@ -39,6 +39,9 @@ public class ChartPatternClient {
     private volatile Map<String, Object> cachedSectorStrength = null;
     private volatile Instant sectorCachedAt = null;
 
+    // ⚠ 생성자 2개(아래 테스트용 포함) → 운영 생성자에 @Autowired 필수. 없으면 Spring 이 no-arg 생성자를
+    //   찾다 실패(NoSuchMethodException <init>()) → 컨텍스트 기동 불가. (ApplicationContextSmokeTest 가드)
+    @org.springframework.beans.factory.annotation.Autowired
     public ChartPatternClient(@Value("${python-backend.base-url:http://localhost:8000}") String baseUrl,
                               PythonBackendHealthTracker health) {
         this.baseUrl = baseUrl;

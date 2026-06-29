@@ -38,7 +38,12 @@ public class BotLeaderElectionService {
 
     private volatile boolean leader = false;
 
-    /** 운영 생성자 — RedisConnectionFactory 에서 자체 StringRedisTemplate 생성. */
+    /**
+     * 운영 생성자 — RedisConnectionFactory 에서 자체 StringRedisTemplate 생성.
+     * ⚠ 생성자 2개(아래 테스트용 포함) → @Autowired 필수. 없으면 Spring 이 no-arg 생성자를 찾다 실패해
+     * 컨텍스트 기동 불가(NoSuchMethodException). ApplicationContextSmokeTest 가 가드.
+     */
+    @org.springframework.beans.factory.annotation.Autowired
     public BotLeaderElectionService(
             ObjectProvider<RedisConnectionFactory> connectionFactoryProvider,
             @Value("${bot.leader-election.enabled:true}") boolean enabled,

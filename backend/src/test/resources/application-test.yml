@@ -1,0 +1,51 @@
+# @SpringBootTest 컨텍스트 로드 스모크용 프로파일.
+# 목적: 외부 인프라(MariaDB/Redis/KIS/DART/Gemini) 없이 Spring 컨텍스트가 기동되는지 검증
+#       → "앱 부팅 깨짐"(빈 와이어링/설정 오류)을 CI 에서 잡는다(이번 맹점 보완).
+# 실 시크릿은 모두 더미 — 외부 호출 빈은 키 미설정 시 연결 스킵(@PostConstruct 가드)으로 오프라인 안전.
+
+spring:
+  # 인메모리 H2 (MySQL 호환 모드) — 엔티티에서 DDL 생성. base 의 ${DB_URL} 등을 프로파일이 덮어씀.
+  datasource:
+    url: jdbc:h2:mem:smoketest;MODE=MySQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop      # 엔티티 → 스키마 자동 생성(프로드 Flyway 대체)
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false               # MariaDB 마이그레이션은 H2 에 미적용
+  # 메일 — 더미(JavaMailSender 빈 구성만, 발송 안 함)
+  mail:
+    username: smoke@test.local
+    password: dummy
+    host: localhost
+    port: 25
+
+# JWT — HS256 서명용 ≥256bit 더미 시크릿
+jwt:
+  secret: smoke-test-only-jwt-secret-key-please-do-not-use-in-prod-0123456789
+
+# L2 Redis 캐시 비활성(cacheRedisTemplate 빈 미생성) — jwt-redis 의 RedisConnectionFactory 는 lazy 라 무방.
+cache:
+  redis:
+    enabled: false
+
+# 봇 리더 선출 — 스모크에선 비활성(단일/탈출구)
+bot:
+  leader-election:
+    enabled: false
+
+# 기본값 없는(required) placeholder 더미 — 빈 구성만(실제 사용 안 함)
+file:
+  upload:
+    dir: ./build/smoke-uploads
+gold:
+  api:
+    key: dummy
+silver:
+  api:
+    key: dummy
