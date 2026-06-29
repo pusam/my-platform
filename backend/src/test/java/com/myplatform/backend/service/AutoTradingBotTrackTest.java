@@ -13,9 +13,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * P2-6: 자동매매 봇 트랙 수 — 문서·코드 정합 가드.
  *
- * <p>활성 @Scheduled 트랙은 정확히 5개(스캘핑 매수/매도/청산 + 스윙 매수/매도),
+ * <p>활성 @Scheduled 트랙은 정확히 6개 — 전략 5(스캘핑 매수/매도/청산 + 스윙 매수/매도)
+ * + 정규장 마감 강제청산(executeRegularSessionLiquidation, 작업2/2026-06-29, 오버나잇 방지).
  * 종가봇 매수/매도 2개는 비활성(@Scheduled 주석처리). 누군가 트랙을 켜고/끄면 이 테스트가 깨져
  * 문서(AutoTradingBotService 헤더 · STOCK_AZ_FULL.md §3.4) 갱신을 강제한다.
+ * (리더 선출 하트비트는 BotLeaderElectionService 소속이라 이 카운트에 미포함.)
  */
 class AutoTradingBotTrackTest {
 
@@ -24,7 +26,8 @@ class AutoTradingBotTrackTest {
             "executeScalpingSellLogic",
             "executeScalpingClearance",
             "executeSwingBuyLogic",
-            "executeSwingSellLogic");
+            "executeSwingSellLogic",
+            "executeRegularSessionLiquidation");
 
     private static final List<String> INACTIVE_TRACKS = List.of(
             "executeClosingBuyLogic",
@@ -39,7 +42,7 @@ class AutoTradingBotTrackTest {
     }
 
     @Test
-    @DisplayName("활성 트랙 5개는 @Scheduled 보유")
+    @DisplayName("활성 트랙 6개는 @Scheduled 보유")
     void activeTracksScheduled() {
         for (String name : ACTIVE_TRACKS) {
             assertThat(hasScheduled(name)).as("%s 는 활성(@Scheduled) 이어야 함", name).isTrue();
@@ -55,11 +58,11 @@ class AutoTradingBotTrackTest {
     }
 
     @Test
-    @DisplayName("@Scheduled 메서드 총 5개 — 활성 트랙 수 고정")
-    void exactlyFiveScheduled() {
+    @DisplayName("@Scheduled 메서드 총 6개 — 활성 트랙 수 고정")
+    void exactlySixScheduled() {
         long count = Arrays.stream(AutoTradingBotService.class.getDeclaredMethods())
                 .filter(m -> m.isAnnotationPresent(Scheduled.class))
                 .count();
-        assertThat(count).as("활성 @Scheduled 트랙은 정확히 5개").isEqualTo(5);
+        assertThat(count).as("활성 @Scheduled 트랙은 정확히 6개(전략 5 + 정규장 마감 강제청산)").isEqualTo(6);
     }
 }

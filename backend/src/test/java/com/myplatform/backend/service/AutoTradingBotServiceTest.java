@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.PaperTradingDto.AccountSummaryDto;
 import com.myplatform.backend.dto.PaperTradingDto.BotStatusDto;
+import com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto;
+import com.myplatform.backend.dto.PaperTradingDto.TradeHistoryDto;
 import com.myplatform.backend.dto.ScalpingAnalysisDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
@@ -24,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.time.LocalTime;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -927,6 +930,43 @@ class AutoTradingBotServiceTest {
             Method m = AutoTradingBotService.class.getDeclaredMethod("isPriceStale", StockPriceDto.class);
             m.setAccessible(true);
             assertThat((boolean) m.invoke(botService, dto)).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("정규장 마감 강제청산 (작업2)")
+    class RegularSessionLiquidation {
+        private final LocalTime T = LocalTime.of(15, 20);
+
+        @Test
+        @DisplayName("shouldForceLiquidate — 리더+활성+미killed+ON+시각≥15:20 만 true")
+        void truthTable() {
+            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, false, true, T, T)).isTrue();
+            assertThat(AutoTradingBotService.shouldForceLiquidate(false, true, false, true, T, T)).isFalse();   // 비리더
+            assertThat(AutoTradingBotService.shouldForceLiquidate(true, false, false, true, T, T)).isFalse();   // 봇 비활성
+            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, true, true, T, T)).isFalse();     // killswitch
+            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, false, false, T, T)).isFalse();   // 설정 OFF
+            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, false, true, LocalTime.of(15, 19), T)).isFalse(); // 시각 전
+        }
+
+        @Test
+        @DisplayName("sellAllPortfolio(reason) — 보유 전 종목을 지정 사유로 매도(VIRTUAL/REAL 공용 activeTradeService)")
+        void sellsAllWithReason() {
+            String code = "005930";
+            PortfolioItemDto pos = PortfolioItemDto.builder()
+                    .stockCode(code).stockName("종목").quantity(10)
+                    .averagePrice(new BigDecimal("70000")).build();
+            when(virtualTradeService.getPortfolio()).thenReturn(List.of(pos));
+            StockPriceDto price = new StockPriceDto();
+            price.setStockCode(code);
+            price.setCurrentPrice(new BigDecimal("71000"));
+            when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(code, price));
+            when(virtualTradeService.sell(any(), any(), anyInt(), anyString()))
+                    .thenReturn(TradeHistoryDto.builder().profitLoss(BigDecimal.TEN).build());
+
+            botService.sellAllPortfolio("REGULAR_SESSION_CLOSE");
+
+            verify(virtualTradeService).sell(eq(code), eq(new BigDecimal("71000")), eq(10), eq("REGULAR_SESSION_CLOSE"));
         }
     }
 }

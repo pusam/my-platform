@@ -45,6 +45,14 @@ public class BotConfig {
     private String tradingMode = "VIRTUAL";
 
     /**
+     * 정규장 마감(KRX 15:20) 강제청산 여부 — 기본 ON. 봇이 포지션 들고 마감하는 오버나잇 노출 방지.
+     * null(레거시 행)은 ON 으로 해석. ⚠ NXT 연장장(08~20) 청산은 후속 과제(여기선 정규 연속세션 끝만).
+     */
+    @Column(name = "force_regular_session_liquidation", nullable = false)
+    @Builder.Default
+    private Boolean forceRegularSessionLiquidation = true;
+
+    /**
      * 마지막 상태 변경 시간
      */
     @Column(name = "last_status_change")

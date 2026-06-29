@@ -220,6 +220,7 @@ public class AutoTradingBotService {
     private static final LocalTime REGULAR_END = LocalTime.of(15, 25);
     private static final LocalTime AFTER_MARKET_END = LocalTime.of(20, 0);
     private static final LocalTime SCALPING_CLEARANCE_TIME = LocalTime.of(15, 10);  // 스캘핑 장 마감 전 청산 (종가매수 15:15 전)
+    private static final LocalTime FORCE_LIQUIDATION_TIME = LocalTime.of(15, 20);   // 정규장 마감 강제청산 — 연속세션 끝(체결 확실). 종가단일가(15:20~15:30)/NXT 청산은 후속.
     private static final LocalTime EOD_CLEARANCE_TIME = LocalTime.of(19, 50);       // 스윙/종가 비상 청산
     private static final BigDecimal KILL_SWITCH_SCALPING_RATE = new BigDecimal("-1.5"); // 스캘핑 킬스위치: -1.5%
     private static final BigDecimal KILL_SWITCH_TOTAL_RATE = new BigDecimal("-3.0");    // 전체 킬스위치: -3%
@@ -2159,11 +2160,65 @@ public class AutoTradingBotService {
         }
     }
 
+    /**
+     * 정규장 마감(15:20) 강제청산 — 봇이 포지션 들고 마감하는 오버나잇 노출 방지. BotConfig.forceRegularSessionLiquidation(기본 ON).
+     *
+     * <p>가드: 리더(작업1, fail-CLOSED) AND 봇활성 AND 미killed AND 설정 ON AND 시각≥15:20 — 모두 통과해야 청산(둘 다 통과해야 주문 원칙).
+     * DB killswitch(TradingSafetyService, KIS 불확실성)는 {@code activeTradeService.sell()} 내부에서 추가로 주문을 차단한다.
+     * VIRTUAL/REAL 공용({@code activeTradeService}). ⚠ NXT 연장장(08~20)·종가단일가(15:20~15:30) 청산은 후속 과제.
+     */
+    @Scheduled(cron = "0 20 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeRegularSessionLiquidation() {
+        if (!shouldForceLiquidate(botLeader.isLeaderForBot(), botActive.get(), killSwitchTriggered.get(),
+                isForceRegularLiquidationEnabled(), LocalTime.now(clock), FORCE_LIQUIDATION_TIME)) {
+            return;
+        }
+        log.info("[봇] ===== 15:20 정규장 마감 강제청산 시작 (전 포지션) =====");
+        try {
+            TimeCutResult result = sellAllPortfolio("REGULAR_SESSION_CLOSE");
+            scalpingPositions.clear();
+            swingPositions.clear();
+            closingPositions.clear();
+            log.info("[봇] 정규장 마감 강제청산 완료 - {}종목 매도, 총 손익: {}원",
+                    result.soldCount, formatNumber(result.totalProfitLoss));
+            if (telegramService.isEnabled()) {
+                sendEndOfDayReport(result);
+            }
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            lastErrorTime = LocalDateTime.now(clock);
+            log.error("[봇] 정규장 마감 강제청산 오류", e);
+        }
+    }
+
+    /** 정규장 마감 강제청산 실행 여부 — 순수 함수(테스트 대상). 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각도달. */
+    static boolean shouldForceLiquidate(boolean isLeader, boolean botActive, boolean killed,
+                                        boolean configOn, LocalTime now, LocalTime threshold) {
+        return isLeader && botActive && !killed && configOn && !now.isBefore(threshold);
+    }
+
+    /** BotConfig.forceRegularSessionLiquidation — null/조회실패 시 ON(오버나잇 회피 우선). */
+    private boolean isForceRegularLiquidationEnabled() {
+        try {
+            return botConfigRepository.findByConfigKey(BOT_CONFIG_KEY)
+                    .map(c -> c.getForceRegularSessionLiquidation() == null || c.getForceRegularSessionLiquidation())
+                    .orElse(true);
+        } catch (Exception e) {
+            log.warn("[봇] forceRegularSessionLiquidation 조회 실패 — 기본 ON 처리: {}", e.getMessage());
+            return true;
+        }
+    }
+
     public TimeCutResult sellAllPortfolio() {
+        return sellAllPortfolio("END_OF_DAY");
+    }
+
+    /** 전 포지션 청산 — sell 사유(reason)를 호출자가 지정(예: END_OF_DAY / REGULAR_SESSION_CLOSE). */
+    public TimeCutResult sellAllPortfolio(String reason) {
         List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
 
         if (portfolios.isEmpty()) {
-            log.info("[스캘핑봇] 보유 종목 없음 - 청산 스킵");
+            log.info("[봇] 보유 종목 없음 - 청산 스킵");
             return new TimeCutResult(0, BigDecimal.ZERO, List.of());
         }
 
@@ -2187,7 +2242,7 @@ public class AutoTradingBotService {
 
             try {
                 TradeHistoryDto result = activeTradeService.sell(
-                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), "END_OF_DAY");
+                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), reason);
 
                 lastTradeTime = LocalDateTime.now(clock);
                 todaySellCount.incrementAndGet();
