@@ -256,3 +256,15 @@
 - **과제**: `signal_outcome` 에 `(signal_type, stock_code, signal_date)` unique 제약(또는 INSERT ... ON DUP) 추가 검토. 기존 중복 행 정리 선행 필요.
 - **선결**: P3-1(멀티 인스턴스) 착수 시 함께. 현재는 보류(단일 인스턴스 실위험 없음).
 - **관련**: `SignalOutcomeService.record()`/`evaluatePendingSignals`(멱등성 주석), `SignalOutcomeRepository.findExisting`.
+
+---
+
+## P3-3. RecommendationSnapshot growth/valueStability `-1=NA` → nullable 전환 검토 (방어, 2026-06-29 신규, 작업6)
+
+> **배경**: `growth`/`valueStability`(int)는 `-1`을 NA(데이터 없음) sentinel 로 쓴다. 작업6에서 `StockConclusionService.verdictFor`가
+> `-1`을 실제 **NEGATIVE 로 오판**하던 버그를 `score<0→"N/A"` 가드 + NA factor 숨김으로 수정했고, 엔티티/사용처에 경고 주석을 달았다.
+> 그러나 **sentinel 자체는 위험 패턴** — 새 코드가 `growth > 0`/`>= 0` 필터를 짜면 음수로 오작동할 수 있다.
+
+- **과제**: `int growth`/`int valueStability` → `Integer`(nullable) 전환 + 컬럼 nullable + 사용처(`>= 0` 가드)를 `!= null` 로 정리. 또는 sentinel 유지하되 모든 사용처에 가드 강제.
+- **비용/보류 사유**: V29 마이그레이션 default(-1)로 기존 행 다수 → 컬럼 타입 변경 + 데이터 백필 비용 큼. 현재는 verdictFor 가드 + 경고 주석으로 1차 방어, 근본 전환은 보류.
+- **관련**: `RecommendationSnapshot.growth`/`valueStability`(경고 주석), `StockConclusionService.verdictFor`(score<0 가드), `RecommendationService.scoreGrowth`.

@@ -309,24 +309,30 @@ public class StockConclusionService {
                 .verdict(verdictFor(s.getSectorMomentum(), 8, 15))
                 .note(withEvidence("섹터 거래대금 INFLOW/OUTFLOW", tags, "sectorMomentum"))
                 .build());
-        list.add(Factor.builder()
-                .key("valueStability")
-                .label("밸류 매력도")
-                .dimension("LONG")
-                .score(s.getValueStability())
-                .verdict(verdictFor(s.getValueStability(), 8, VALUE_STRONG_THRESHOLD))
-                // 라벨/노트 정정 — "지금 싼가(저평가 정도)"를 보는 밸류 지표. 산업 전망/성장성은
-                // 아래 '성장성' factor 가 담당. 점수 낮음 = "안 싸다"이지 "장기 전망 나쁨"이 아님.
-                .note(withEvidence("저평가 정도 (PBR·ROE·부채비율·흑자) — 전망 아님", tags, "valueStability"))
-                .build());
-        list.add(Factor.builder()
-                .key("growth")
-                .label("성장성")
-                .dimension("LONG")
-                .score(s.getGrowth())
-                .verdict(verdictFor(s.getGrowth(), 8, VALUE_STRONG_THRESHOLD))
-                .note(withEvidence("매출·이익 성장률 + PEG (산업/실적 성장)", tags, "growth"))
-                .build());
+        // ⚠ valueStability/growth 는 -1=NA(데이터 없음) sentinel. NA 면 factor 자체를 숨긴다
+        //   (결론카드 "데이터 없으면 조용히 숨김" 규약 — NA 를 NEGATIVE 로 오표시하지 않기 위함).
+        if (s.getValueStability() >= 0) {
+            list.add(Factor.builder()
+                    .key("valueStability")
+                    .label("밸류 매력도")
+                    .dimension("LONG")
+                    .score(s.getValueStability())
+                    .verdict(verdictFor(s.getValueStability(), 8, VALUE_STRONG_THRESHOLD))
+                    // 라벨/노트 정정 — "지금 싼가(저평가 정도)"를 보는 밸류 지표. 산업 전망/성장성은
+                    // 아래 '성장성' factor 가 담당. 점수 낮음 = "안 싸다"이지 "장기 전망 나쁨"이 아님.
+                    .note(withEvidence("저평가 정도 (PBR·ROE·부채비율·흑자) — 전망 아님", tags, "valueStability"))
+                    .build());
+        }
+        if (s.getGrowth() >= 0) {
+            list.add(Factor.builder()
+                    .key("growth")
+                    .label("성장성")
+                    .dimension("LONG")
+                    .score(s.getGrowth())
+                    .verdict(verdictFor(s.getGrowth(), 8, VALUE_STRONG_THRESHOLD))
+                    .note(withEvidence("매출·이익 성장률 + PEG (산업/실적 성장)", tags, "growth"))
+                    .build());
+        }
         return list;
     }
 
@@ -371,7 +377,13 @@ public class StockConclusionService {
         return base + " · 근거: " + String.join(", ", matched);
     }
 
-    private String verdictFor(int score, int neutralMin, int positiveMin) {
+    /**
+     * 점수 → 판정. <b>테스트 대상(static)</b>.
+     * ⚠ score &lt; 0 = NA(데이터 없음) sentinel(growth/valueStability) → <b>"N/A"</b>. -1 을 실제 NEGATIVE 로
+     * 오판하지 않는다(기존 버그). 호출부는 보통 NA factor 자체를 숨기지만, 다른 호출부 보호용 방어 가드.
+     */
+    static String verdictFor(int score, int neutralMin, int positiveMin) {
+        if (score < 0) return "N/A";
         if (score >= positiveMin) return "POSITIVE";
         if (score >= neutralMin) return "NEUTRAL";
         return "NEGATIVE";

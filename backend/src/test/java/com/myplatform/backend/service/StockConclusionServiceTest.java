@@ -355,4 +355,26 @@ class StockConclusionServiceTest {
                 .findFirst().orElseThrow()
                 .getNote();
     }
+
+    @Test
+    @DisplayName("verdictFor — NA(-1)는 N/A (기존 NEGATIVE 오판 버그 수정), 경계값 정상")
+    void verdictFor_naGuard() {
+        assertThat(StockConclusionService.verdictFor(-1, 8, 12)).isEqualTo("N/A");      // 버그: 기존엔 NEGATIVE
+        assertThat(StockConclusionService.verdictFor(0, 8, 12)).isEqualTo("NEGATIVE");
+        assertThat(StockConclusionService.verdictFor(8, 8, 12)).isEqualTo("NEUTRAL");
+        assertThat(StockConclusionService.verdictFor(12, 8, 12)).isEqualTo("POSITIVE");
+    }
+
+    @Test
+    @DisplayName("growth -1(NA) → 성장성 factor 숨김(6개), NEGATIVE 오표시 안 함")
+    void growthNa_factorHidden() {
+        RecommendationSnapshot s = snapshot(80, 16, 16, 15, 14, 10);
+        s.setGrowth(-1);   // NA(데이터 없음)
+        when(snapshotRepository.findLatestByStockCode(anyString())).thenReturn(Optional.of(s));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getFactors()).hasSize(6);   // 성장성 빠짐(정상 7 → NA 숨김 6)
+        assertThat(result.getFactors()).noneMatch(f -> "growth".equals(f.getKey()));
+    }
 }

@@ -36,10 +36,14 @@ public class RecommendationSnapshot {
     @Column(name = "sector_momentum", nullable = false)
     private int sectorMomentum;
 
+    // ⚠ -1 = NA(데이터 없음) sentinel, 0+ = 산출됨(0~20). valueStability/growth 공통.
+    //   주의: `score > 0` / `score >= 0` 식 필터를 짤 때 -1 을 "실제 음수 점수"로 오작동시키지 말 것
+    //   (예: verdictFor 가 -1 을 NEGATIVE 로 오판했던 버그 — 작업6에서 score<0 가드로 수정).
+    //   nullable(Integer) 전환은 마이그레이션 비용 커 보류 — VERIFICATION_BACKLOG 참조.
     @Column(name = "value_stability", nullable = false)
     private int valueStability;
 
-    // 성장성 점수 (매출/이익 성장률 + PEG). -1 = 데이터 없음(NA), 0+ = 산출됨.
+    // 성장성 점수 (매출/이익 성장률 + PEG). -1 = 데이터 없음(NA), 0+ = 산출됨(0~20). 위 valueStability 주의사항 동일.
     // 기존 행은 V29 마이그레이션 default(-1)로 NA 처리 → UI 에서 "—" 노출.
     @Column(name = "growth", nullable = false)
     private int growth;
