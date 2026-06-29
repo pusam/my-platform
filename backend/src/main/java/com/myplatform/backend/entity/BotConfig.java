@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -51,6 +52,13 @@ public class BotConfig {
     @Column(name = "force_regular_session_liquidation", nullable = false)
     @Builder.Default
     private Boolean forceRegularSessionLiquidation = true;
+
+    /**
+     * 정규장 강제청산 완료 일자 — 멱등 가드. 청산 윈도우(15:20~15:28) 내 완전 청산 시 오늘 날짜로 기록.
+     * 새 리더가 페일오버 승계 시 "오늘 == lastForceLiquidationDate" 면 캐치업 skip(중복 청산 방지). null=미실행.
+     */
+    @Column(name = "last_force_liquidation_date")
+    private LocalDate lastForceLiquidationDate;
 
     /**
      * 마지막 상태 변경 시간

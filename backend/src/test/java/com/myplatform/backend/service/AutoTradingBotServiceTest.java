@@ -936,17 +936,81 @@ class AutoTradingBotServiceTest {
     @Nested
     @DisplayName("정규장 마감 강제청산 (작업2)")
     class RegularSessionLiquidation {
-        private final LocalTime T = LocalTime.of(15, 20);
+        private final LocalTime START = LocalTime.of(15, 20);
+        private final LocalTime END = LocalTime.of(15, 28);
+
+        private java.time.Clock clockAt(int h, int m) {
+            return java.time.Clock.fixed(
+                    java.time.ZonedDateTime.of(2026, 5, 11, h, m, 0, 0, KST).toInstant(), KST);
+        }
+
+        private void setBotActive(AutoTradingBotService bot, boolean v) throws Exception {
+            Field f = AutoTradingBotService.class.getDeclaredField("botActive");
+            f.setAccessible(true);
+            ((java.util.concurrent.atomic.AtomicBoolean) f.get(bot)).set(v);
+        }
 
         @Test
-        @DisplayName("shouldForceLiquidate — 리더+활성+미killed+ON+시각≥15:20 만 true")
-        void truthTable() {
-            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, false, true, T, T)).isTrue();
-            assertThat(AutoTradingBotService.shouldForceLiquidate(false, true, false, true, T, T)).isFalse();   // 비리더
-            assertThat(AutoTradingBotService.shouldForceLiquidate(true, false, false, true, T, T)).isFalse();   // 봇 비활성
-            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, true, true, T, T)).isFalse();     // killswitch
-            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, false, false, T, T)).isFalse();   // 설정 OFF
-            assertThat(AutoTradingBotService.shouldForceLiquidate(true, true, false, true, LocalTime.of(15, 19), T)).isFalse(); // 시각 전
+        @DisplayName("shouldRunLiquidationWindow — 미완료+자격+윈도우내(15:20~15:28 경계 포함)만 true")
+        void runWindowTruthTable() {
+            LocalTime mid = LocalTime.of(15, 22);
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, mid, START, END)).isTrue();
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, START, START, END)).isTrue();  // 시작 경계
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, END, START, END)).isTrue();    // 종료 경계
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, true, mid, START, END)).isFalse();    // 이미 완료
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(false, false, true, false, mid, START, END)).isFalse();  // 봇 비활성
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, true, true, false, mid, START, END)).isFalse();    // killswitch
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, false, false, mid, START, END)).isFalse();  // 설정 OFF
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, LocalTime.of(15, 19), START, END)).isFalse(); // 윈도우 전
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, LocalTime.of(15, 29), START, END)).isFalse(); // 윈도우 후
+        }
+
+        @Test
+        @DisplayName("shouldWarnLiquidationMissed — 자격 있는데 당일 미완료면 경고")
+        void warnTruthTable() {
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, false, true, false)).isTrue();   // 미완료 → 경고
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, false, true, true)).isFalse();   // 완료
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(false, false, true, false)).isFalse(); // 비활성
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, true, true, false)).isFalse();   // killswitch
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, false, false, false)).isFalse(); // 설정 OFF
+        }
+
+        @Test
+        @DisplayName("캐치업 — 윈도우내+미완료 → 매도 + 완료표기(config save)")
+        void windowCatchUp() throws Exception {
+            AutoTradingBotService bot = rebuildBotWithClock(clockAt(15, 22));
+            setBotActive(bot, true);
+            // findByConfigKey empty(default) → isLiquidatedToday=false, configOn=true(기본 ON)
+            String code = "005930";
+            PortfolioItemDto pos = PortfolioItemDto.builder()
+                    .stockCode(code).stockName("종목").quantity(10).averagePrice(new BigDecimal("70000")).build();
+            // sellAllPortfolio 가 1번, 이후 완전청산 확인이 1번 → 매도 후 빈 포트폴리오
+            when(virtualTradeService.getPortfolio()).thenReturn(List.of(pos), Collections.emptyList());
+            StockPriceDto price = new StockPriceDto();
+            price.setStockCode(code); price.setCurrentPrice(new BigDecimal("71000"));
+            when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(code, price));
+            when(virtualTradeService.sell(any(), any(), anyInt(), anyString()))
+                    .thenReturn(TradeHistoryDto.builder().profitLoss(BigDecimal.TEN).build());
+
+            bot.executeRegularSessionLiquidation();
+
+            verify(virtualTradeService).sell(eq(code), any(), eq(10), eq("REGULAR_SESSION_CLOSE"));
+            verify(botConfigRepository).save(any(BotConfig.class));   // markLiquidatedToday
+        }
+
+        @Test
+        @DisplayName("이미 청산된 날 → 윈도우 재시도 no-op(매도 안 함)")
+        void alreadyLiquidatedNoOp() throws Exception {
+            AutoTradingBotService bot = rebuildBotWithClock(clockAt(15, 22));
+            setBotActive(bot, true);
+            BotConfig done = BotConfig.builder().configKey("trading_bot")
+                    .forceRegularSessionLiquidation(true)
+                    .lastForceLiquidationDate(LocalDate.of(2026, 5, 11)).build();
+            when(botConfigRepository.findByConfigKey(anyString())).thenReturn(Optional.of(done));
+
+            bot.executeRegularSessionLiquidation();
+
+            verify(virtualTradeService, never()).sell(any(), any(), anyInt(), anyString());
         }
 
         @Test

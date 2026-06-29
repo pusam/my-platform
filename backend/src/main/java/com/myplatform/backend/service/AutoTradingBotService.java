@@ -220,7 +220,8 @@ public class AutoTradingBotService {
     private static final LocalTime REGULAR_END = LocalTime.of(15, 25);
     private static final LocalTime AFTER_MARKET_END = LocalTime.of(20, 0);
     private static final LocalTime SCALPING_CLEARANCE_TIME = LocalTime.of(15, 10);  // 스캘핑 장 마감 전 청산 (종가매수 15:15 전)
-    private static final LocalTime FORCE_LIQUIDATION_TIME = LocalTime.of(15, 20);   // 정규장 마감 강제청산 — 연속세션 끝(체결 확실). 종가단일가(15:20~15:30)/NXT 청산은 후속.
+    private static final LocalTime FORCE_LIQUIDATION_TIME = LocalTime.of(15, 20);       // 정규장 마감 강제청산 윈도우 시작 — 연속세션 끝(체결 확실).
+    private static final LocalTime FORCE_LIQUIDATION_WINDOW_END = LocalTime.of(15, 28); // 청산 윈도우 끝 — 매분 재시도(리더 페일오버 캐치업). 종가단일가(~15:30)/NXT 청산은 후속.
     private static final LocalTime EOD_CLEARANCE_TIME = LocalTime.of(19, 50);       // 스윙/종가 비상 청산
     private static final BigDecimal KILL_SWITCH_SCALPING_RATE = new BigDecimal("-1.5"); // 스캘핑 킬스위치: -1.5%
     private static final BigDecimal KILL_SWITCH_TOTAL_RATE = new BigDecimal("-3.0");    // 전체 킬스위치: -3%
@@ -2167,22 +2168,31 @@ public class AutoTradingBotService {
      * DB killswitch(TradingSafetyService, KIS 불확실성)는 {@code activeTradeService.sell()} 내부에서 추가로 주문을 차단한다.
      * VIRTUAL/REAL 공용({@code activeTradeService}). ⚠ NXT 연장장(08~20)·종가단일가(15:20~15:30) 청산은 후속 과제.
      */
-    @Scheduled(cron = "0 20 15 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 20-28 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeRegularSessionLiquidation() {
-        if (!shouldForceLiquidate(botLeader.isLeaderForBot(), botActive.get(), killSwitchTriggered.get(),
-                isForceRegularLiquidationEnabled(), LocalTime.now(clock), FORCE_LIQUIDATION_TIME)) {
+        if (!botLeader.isLeaderForBot()) return;   // 리더 게이트(fail-CLOSED)
+        if (!shouldRunLiquidationWindow(botActive.get(), killSwitchTriggered.get(),
+                isForceRegularLiquidationEnabled(), isLiquidatedToday(),
+                LocalTime.now(clock), FORCE_LIQUIDATION_TIME, FORCE_LIQUIDATION_WINDOW_END)) {
             return;
         }
-        log.info("[봇] ===== 15:20 정규장 마감 강제청산 시작 (전 포지션) =====");
+        log.info("[봇] ===== 정규장 마감 강제청산 시도 (윈도우 15:20~15:28) =====");
         try {
             TimeCutResult result = sellAllPortfolio("REGULAR_SESSION_CLOSE");
-            scalpingPositions.clear();
-            swingPositions.clear();
-            closingPositions.clear();
-            log.info("[봇] 정규장 마감 강제청산 완료 - {}종목 매도, 총 손익: {}원",
-                    result.soldCount, formatNumber(result.totalProfitLoss));
-            if (telegramService.isEnabled()) {
-                sendEndOfDayReport(result);
+            // 완전 청산 확인 후에만 완료 표기 → 부분 미체결은 다음 분 재시도(리더 페일오버 캐치업).
+            if (activeTradeService.getPortfolio().isEmpty()) {
+                scalpingPositions.clear();
+                swingPositions.clear();
+                closingPositions.clear();
+                markLiquidatedToday();
+                log.info("[봇] 정규장 마감 강제청산 완료 - {}종목 매도, 총 손익: {}원",
+                        result.soldCount, formatNumber(result.totalProfitLoss));
+                if (telegramService.isEnabled()) {
+                    sendEndOfDayReport(result);
+                }
+            } else {
+                log.warn("[봇] 정규장 청산 일부 미체결 — 다음 분 재시도 (잔여 {}종목)",
+                        activeTradeService.getPortfolio().size());
             }
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -2191,10 +2201,60 @@ public class AutoTradingBotService {
         }
     }
 
-    /** 정규장 마감 강제청산 실행 여부 — 순수 함수(테스트 대상). 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각도달. */
-    static boolean shouldForceLiquidate(boolean isLeader, boolean botActive, boolean killed,
-                                        boolean configOn, LocalTime now, LocalTime threshold) {
-        return isLeader && botActive && !killed && configOn && !now.isBefore(threshold);
+    /**
+     * 정규장 청산 윈도우(15:29) 종료 후에도 미완료면 텔레그램 리스크 경고 — 청산 실패를 사람이 인지하게.
+     * 리더가 15:19에 죽고 승계 공백으로 윈도우 내 캐치업도 못 한 극단 케이스 등을 잡는다.
+     */
+    @Scheduled(cron = "0 29 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void warnIfLiquidationMissed() {
+        if (!botLeader.isLeaderForBot()) return;
+        if (!shouldWarnLiquidationMissed(botActive.get(), killSwitchTriggered.get(),
+                isForceRegularLiquidationEnabled(), isLiquidatedToday())) {
+            return;
+        }
+        log.error("[봇] 정규장 강제청산 미완료 — 윈도우(15:20~15:28) 종료. 오버나잇 노출, 수동 점검 필요.");
+        if (telegramService.isEnabled()) {
+            telegramService.sendRisk("⚠️ [봇] 정규장 마감 강제청산 미완료 — 윈도우 종료 후에도 청산 안 됨. 오버나잇 포지션 수동 점검 필요.");
+        }
+    }
+
+    /** 청산 윈도우 실행 여부 — 순수 함수(테스트 대상). 리더는 호출부 별도 게이트. 당일 미완료 AND 자격 AND 윈도우 내. */
+    static boolean shouldRunLiquidationWindow(boolean botActive, boolean killed, boolean configOn,
+                                              boolean doneToday, LocalTime now,
+                                              LocalTime windowStart, LocalTime windowEnd) {
+        if (doneToday) return false;
+        if (!configOn || !botActive || killed) return false;
+        return !now.isBefore(windowStart) && !now.isAfter(windowEnd);
+    }
+
+    /** 윈도우 종료 후 미완료 경고 여부 — 순수 함수(테스트 대상). 자격 있는데 당일 미완료면 경고. */
+    static boolean shouldWarnLiquidationMissed(boolean botActive, boolean killed, boolean configOn, boolean doneToday) {
+        return configOn && botActive && !killed && !doneToday;
+    }
+
+    /** 오늘 정규장 강제청산 완료 여부 — BotConfig.lastForceLiquidationDate == 오늘. 조회 실패 시 미완료(청산 시도 우선). */
+    private boolean isLiquidatedToday() {
+        try {
+            LocalDate today = LocalDate.now(clock);
+            return botConfigRepository.findByConfigKey(BOT_CONFIG_KEY)
+                    .map(c -> today.equals(c.getLastForceLiquidationDate()))
+                    .orElse(false);
+        } catch (Exception e) {
+            log.warn("[봇] lastForceLiquidationDate 조회 실패 — 미완료로 간주: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /** 오늘 청산 완료 표기 — 영속(새 리더 승계 시 캐치업 판단 기준). 단일 save 라 원자적. */
+    private void markLiquidatedToday() {
+        try {
+            BotConfig config = botConfigRepository.findByConfigKey(BOT_CONFIG_KEY)
+                    .orElse(BotConfig.builder().configKey(BOT_CONFIG_KEY).build());
+            config.setLastForceLiquidationDate(LocalDate.now(clock));
+            botConfigRepository.save(config);
+        } catch (Exception e) {
+            log.error("[봇] lastForceLiquidationDate 저장 실패: {}", e.getMessage());
+        }
     }
 
     /** BotConfig.forceRegularSessionLiquidation — null/조회실패 시 ON(오버나잇 회피 우선). */
