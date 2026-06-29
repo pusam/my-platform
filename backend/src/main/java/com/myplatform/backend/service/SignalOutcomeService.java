@@ -98,6 +98,8 @@ public class SignalOutcomeService {
             return;
         }
         LocalDate today = LocalDate.now();
+        // 중복 INSERT 방지는 앱레벨 dedup 뿐 — (signalType, stockCode, today) DB unique 제약은 없다.
+        // 멀티 인스턴스/경합 시 동시 통과 가능(드묾). DB unique 제약 검토는 VERIFICATION_BACKLOG 참조(작업4).
         if (!repository.findExisting(signalType, stockCode, today).isEmpty()) {
             return;
         }
@@ -208,6 +210,13 @@ public class SignalOutcomeService {
     /**
      * 매일 19:30 — 3일 전 unevaluated 시그널 평가.
      * batchScheduler 로 트레이딩 부담 0.
+     *
+     * <p><b>멱등성(확인됨 2026-06-29, 작업4)</b>: {@code findPendingEvaluation(cutoff)} 로 <b>이미 존재하는
+     * pending 행을 조회 → 필드 채움 → {@code save()} 로 동일 PK UPDATE</b> 한다(신규 INSERT 아님). 평가 후
+     * {@code evaluatedAt} 이 채워지면 다음 조회의 pending 에서 빠지므로, 배치 락(fail-open)이 Redis 장애로
+     * 중복 실행돼도 같은 행을 같은 값으로 재기록할 뿐 <b>중복 레코드가 생기지 않는다</b>. 따라서 이 잡엔 별도
+     * fail-closed 락이 불필요. (단 {@code checkStrongBuyAlphaHealth()} 텔레그램은 더블런 시 1회 중복 발송 — 경미.)
+     * 시그널 <b>생성</b>(record())의 중복 INSERT 방지는 앱레벨 dedup 뿐 — DB unique 제약 검토는 VERIFICATION_BACKLOG 참조.
      */
     @Scheduled(scheduler = "batchScheduler", cron = "0 30 19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional

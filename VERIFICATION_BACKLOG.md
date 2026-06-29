@@ -243,3 +243,15 @@
   3. `FORCE_LIQUIDATION_TIME`(현 15:20)·청산 대상(정규/연장 분리) 파라미터화.
 - **선결**: 2026-09-14 애프터마켓 정식 도입 규격 확정 후 착수(현재는 정규장 청산으로 오버나잇 1차 방어).
 - **관련**: `AutoTradingBotService.executeRegularSessionLiquidation`/`FORCE_LIQUIDATION_TIME`, 봇 시간대 상수(REGULAR_END 15:25 / AFTER_MARKET_END 20:00).
+
+---
+
+## P3-2. signal_outcome 생성 DB unique 제약 (방어, 우선순위 낮음 — 2026-06-29 신규, 작업4)
+
+> **배경**: 작업4에서 19:30 평가 배치(`evaluatePendingSignals`)는 **멱등 확인됨**(기존 pending 행 UPDATE → 중복 INSERT 없음).
+> 단 시그널 **생성** `record()` 의 중복 INSERT 방지는 **앱레벨 dedup(`findExisting`)뿐**, DB unique 제약은 없다.
+> 단일 인스턴스에선 실위험 없으나, 멀티 인스턴스(P3-1)·경합 시 동시 통과로 중복 행 가능(드묾).
+
+- **과제**: `signal_outcome` 에 `(signal_type, stock_code, signal_date)` unique 제약(또는 INSERT ... ON DUP) 추가 검토. 기존 중복 행 정리 선행 필요.
+- **선결**: P3-1(멀티 인스턴스) 착수 시 함께. 현재는 보류(단일 인스턴스 실위험 없음).
+- **관련**: `SignalOutcomeService.record()`/`evaluatePendingSignals`(멱등성 주석), `SignalOutcomeRepository.findExisting`.
