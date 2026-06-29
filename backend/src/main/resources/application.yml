@@ -210,6 +210,15 @@ trading:
   daily-buy-limit-krw: ${TRADING_DAILY_BUY_LIMIT_KRW:5000000}
   alert-threshold-krw: ${TRADING_ALERT_THRESHOLD_KRW:1000000}
 
+# 봇 리더 선출 — 멀티 인스턴스 중복 실주문 방지(fail-CLOSED). BotLeaderElectionService.
+# enabled=true 면 Redis 리스를 잡은 리더 인스턴스만 봇 크론 실주문. Redis 장애 시 주문 중단(fail-closed).
+# ⚠ 단일 인스턴스 + Redis 미사용 환경에선 false 로 둬야 봇이 동작(현 단일 인스턴스 전제). 멀티 배포 시 반드시 true.
+bot:
+  leader-election:
+    enabled: ${BOT_LEADER_ELECTION_ENABLED:true}
+    lease-ttl-seconds: ${BOT_LEADER_LEASE_TTL_SEC:30}
+    heartbeat-ms: ${BOT_LEADER_HEARTBEAT_MS:10000}
+
 # 뉴스 요약 Gemini 일간 호출 상한 — 쿼터 보호
 # 초과 시 Gemini 호출 없이 본문 앞부분만 summary 로 저장 (다음날 자동 리셋)
 news:

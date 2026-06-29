@@ -119,7 +119,9 @@ class AutoTradingBotServiceTest {
                 globalMarketService,
                 positionRepository,
                 realtimePriceBusProvider,
-                clock);
+                clock,
+                // 리더 선출 비활성(enabled=false) → isLeaderForBot()=true 항상 통과 → 기존 봇 동작 보존
+                new BotLeaderElectionService(null, false, 30L, "test"));
     }
 
     @BeforeEach

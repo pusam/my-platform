@@ -119,6 +119,9 @@ public class AutoTradingBotService {
     // 테스트: Clock.fixed(...) 로 결정론적 시각 주입.
     private final Clock clock;
 
+    // 멀티 인스턴스 중복 주문 방지 — 봇 크론은 리더일 때만 실주문(fail-CLOSED). SchedulerLockService(fail-open)와 별개.
+    private final BotLeaderElectionService botLeader;
+
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
     // ╠══════════════════════════════════════════════════════════════╣
@@ -402,7 +405,8 @@ public class AutoTradingBotService {
             GlobalMarketService globalMarketService,
             BotTradingPositionRepository positionRepository,
             org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider,
-            Clock clock) {
+            Clock clock,
+            BotLeaderElectionService botLeader) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -422,6 +426,7 @@ public class AutoTradingBotService {
         this.positionRepository = positionRepository;
         this.realtimePriceBusProvider = realtimePriceBusProvider;
         this.clock = clock;
+        this.botLeader = botLeader;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -1153,6 +1158,8 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/30 * 9-11 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingBuyLogic() {
+        // 리더 게이트(fail-CLOSED) — 멀티 인스턴스면 리더 1개만 주문. Redis 미가용 시 주문 안 함. killswitch 와 별개로 둘 다 통과해야 함.
+        if (!botLeader.isLeaderForBot()) return;
         if (!scalpingBuyRunning.compareAndSet(false, true)) {
             log.warn("[스캘핑봇] 이전 실행 아직 진행 중 — 이번 틱 스킵 (스레드 누적 방지)");
             return;
@@ -1805,6 +1812,7 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/15 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingSellLogic() {
+        if (!botLeader.isLeaderForBot()) return;   // 리더 게이트(fail-CLOSED)
         if (!scalpingSellRunning.compareAndSet(false, true)) {
             log.warn("[스캘핑봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
             return;
@@ -2116,6 +2124,7 @@ public class AutoTradingBotService {
 
     @Scheduled(cron = "0 10 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeScalpingClearance() {
+        if (!botLeader.isLeaderForBot()) return;   // 리더 게이트(fail-CLOSED)
         if (!botActive.get()) {
             return;
         }
@@ -2270,6 +2279,7 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "0 0 14 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingBuyLogic() {
+        if (!botLeader.isLeaderForBot()) return;   // 리더 게이트(fail-CLOSED)
         if (!botActive.get() || killSwitchTriggered.get()) return;
         if (isMarketClosed()) return;
 
@@ -2479,6 +2489,7 @@ public class AutoTradingBotService {
      */
     @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeSwingSellLogic() {
+        if (!botLeader.isLeaderForBot()) return;   // 리더 게이트(fail-CLOSED)
         if (!swingSellRunning.compareAndSet(false, true)) {
             log.warn("[스윙봇] 매도 로직 이전 실행 아직 진행 중 — 이번 틱 스킵");
             return;
