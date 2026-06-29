@@ -152,16 +152,19 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 ### 4-3. 봇·실주문 (CLAUDE.md §4d 안전식)
 | 서비스 | 책임 |
 |---|---|
-| `AutoTradingBotService` | 모드(REAL/VIRTUAL), 5 @Scheduled 크론, 포지션추적, 재시작정합성 `reconcilePositionsWithKis`/`computeReconciliation`(경고만), killswitch |
+| `AutoTradingBotService` | 모드(REAL/VIRTUAL), **6 @Scheduled 크론**(전략5 + 정규장 마감 강제청산), 포지션추적, 재시작정합성 `reconcilePositionsWithKis`/`computeReconciliation`(경고만), killswitch |
+| `BotLeaderElectionService` ⭐신규(2026-06-29) | **멀티 인스턴스 리더 선출(fail-CLOSED)**: Redis 리스(`SET NX EX bot:leader`)+10s 하트비트(TTL 30s). 봇 크론 6개가 `isLeaderForBot()` 통과해야 주문 → 리더 1개만. Redis 장애 시 주문 중단(SchedulerLockService fail-open과 정반대). `bot.leader-election.enabled`(기본 true). **2개 생성자 → 운영 생성자 `@Autowired` 필수**(누락 시 컨텍스트 기동 불가, ApplicationContextSmokeTest 가드) |
 | `RealTradeService` | KIS 실주문, 체결확인 `confirmFill`/`resolveFill`(미체결→포지션유지), KIS성공+DB실패→`triggerKillSwitchOnUncertainty` |
 | `VirtualTradeService` / `BotPerformanceService` | 모의계좌 / 성과(MDD/Sharpe) |
 | `PositionDropMonitorService` | 포지션 낙폭 감시(2분) |
+
+- **정규장 마감 강제청산(2026-06-29)**: `executeRegularSessionLiquidation`(15:20) — 봇이 포지션 들고 마감하는 오버나잇 노출 방지. `BotConfig.forceRegularSessionLiquidation`(기본 ON). 가드 = 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각≥15:20 → `sellAllPortfolio("REGULAR_SESSION_CLOSE")`. NXT 연장장/종가단일가 청산은 후속(P2-13).
 
 ### 4-4. 시장·섹터·수급
 `SectorTradingService`(거래대금 실측만, `resolveAccumulatedValue` 폴백, 가짜값 금지) · `MarketTimingService`(ADR 20일, condition은 ADR만) · `InvestorTradeService`/`InvestorSurgeService`.
 
 ### 4-5. 외부연동 서비스
-`KoreaInvestmentService`(KIS REST·OAuth·rate limiter·@Retry/@CircuitBreaker) · `KisWebSocketService`(실시간 틱) · `KisInvestorDataCollector` · `DartService` · `GeminiService` · `NaverSearchService`/`NewsService` · `TelegramNotificationService`(3채널) · **`MarketRegimeClient`/`ChartPatternClient`**(python 소비, best-effort).
+`KoreaInvestmentService`(KIS REST·OAuth·rate limiter·@Retry/@CircuitBreaker) · `KisWebSocketService`(실시간 틱) · `KisInvestorDataCollector` · `DartService` · `GeminiService` · `NaverSearchService`/`NewsService` · `TelegramNotificationService`(3채널) · **`MarketRegimeClient`/`ChartPatternClient`**(python 소비, best-effort) · **`PythonBackendHealthTracker`** ⭐신규: python 호출 소스별(regime/chart-timing/chart-sector) 성공·실패·연속실패 집계, 연속 3회 실패→텔레그램 리스크 1회. `/api/diagnostics/python-health` 노출(조용히 죽는 best-effort 가시화).
 
 ### 4-6. 캐시·스케줄·기타
 `CacheWarmupService`/`MarketCacheWarmerService`(워밍) · `RealTimeDataCache`(1분봉, synchronized 보호) · `SchedulerLockService`(fail-open) · `MorningBriefingService`(07:30) · `BacktestService` · `AiStrategySnapshotService` · `QuantScreenerService`/`QuantTaService` · `ChartPatternService`(자바 차트패턴 검출, python `ChartPatternClient`와 별개).
@@ -170,7 +173,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 
 ## 5. 스케줄러 / 일과 타임라인
 
-스레드풀(`SchedulingConfig`): `taskScheduler`(매매·기본) · `cacheScheduler`(워밍) · `batchScheduler`(크롤·리포트), 각 16스레드. 락: `SchedulerLockService` fail-open(Redis SET NX EX, TTL<cron). **봇 크론은 락 미사용**(JVM 내 가드만, 단일 인스턴스 전제).
+스레드풀(`SchedulingConfig`): `taskScheduler`(매매·기본) · `cacheScheduler`(워밍) · `batchScheduler`(크롤·리포트), 각 16스레드. 락: `SchedulerLockService` fail-open(Redis SET NX EX, TTL<cron). **봇 크론은 SchedulerLockService 미사용** — 대신 **`BotLeaderElectionService` 리더 게이트(fail-CLOSED, 2026-06-29)**로 멀티 인스턴스 중복 주문 차단(리더 하트비트는 10s `@Scheduled`).
 
 | 시각(Seoul) | 잡 | 출처 |
 |---|---|---|
@@ -187,7 +190,9 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | 08~17 매15분 | 뉴스 크롤 | `NewsService` |
 | 08~19 매5분 | DART 실시간 모니터 | `DartDisclosureMonitorService` |
 | 11:30/14:00/17:00 | TOP5 갱신 | `RecommendationService` |
-| 14:00 / 15:10 | 스윙 봇 중간점검 / 사이클 | `AutoTradingBotService` |
+| 14:00 / 15:10 | 스윙 봇 중간점검 / 스캘핑 청산 | `AutoTradingBotService` |
+| **15:20** ⭐ | **정규장 마감 강제청산**(리더+killswitch 게이트, 설정 ON 시) | `AutoTradingBotService` |
+| 상시 10초 | 봇 리더 리스 하트비트 | `BotLeaderElectionService` |
 | 15:35 | 섹터 마감 정산 | `SectorTradingService` |
 | 15:50 / 18:00 | KIS 투자자 데이터 수집/정산 | `InvestorTradeScheduler` |
 | 16:30 | ADR 수집·국면 갱신 / DART 마감 | MarketTiming/Earnings |
@@ -197,7 +202,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | 23:00 | 재무 영속화 | `StockFinancialDataService` |
 | 03:00 | 배치 정리 | `BatchJobCleanupService` |
 
-> ⚠ 위 cron은 매핑 근사. **정확값은 각 서비스 `@Scheduled`가 출처.** 미적용(주석) 2건: 종가청산(2026-09 연장장 대비 재설계 필요), 저녁 sweep.
+> ⚠ 위 cron은 매핑 근사. **정확값은 각 서비스 `@Scheduled`가 출처.** 미적용(주석) 2건: 종가봇 매수/매도(`executeClosingBuyLogic`/`SellLogic`, 2026-09 연장장 대비 재설계 필요). ※ 오버나잇은 15:20 정규장 강제청산(2026-06-29)으로 1차 방어, 연장장 청산은 후속(P2-13).
 
 ---
 
@@ -354,7 +359,8 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 1. **재시작 정합성**: REAL 모드 KIS 실잔고 vs 봇 포지션 대조 → orphaned/untracked **로그+텔레그램 경고만**(자동정정 금지, 수동매매 공유 가능). `computeReconciliation` 순수함수.
 2. **매도 체결확인**: 지정가 부분/미체결 가능 → `resolveFill`로 확정 미달이면 포지션 유지(다음 사이클 재시도). 조회실패=UNKNOWN=현행 제거(안전 기본값). `confirmFill`은 `@Transactional(NOT_SUPPORTED)`(폴링이 DB 트랜잭션 미점유).
 3. **KIS 주문성공 + 로컬 DB 저장 실패 = 즉시 killswitch**(KIS 비멱등, 재시도/롤백 금지). killswitch는 DB 기반(재시작 유지).
-4. **멀티 인스턴스 미지원**: 봇 크론 fail-open 락 미사용(단일 인스턴스 전제). 확장 시 fail-closed 필수(VERIFICATION_BACKLOG P3-1).
+4. **멀티 인스턴스 — 봇 크론 리더 게이트(fail-CLOSED, 2026-06-29 부분 해소)**: `BotLeaderElectionService`로 리더 1개만 주문, Redis 장애 시 주문 중단. killswitch와 독립(둘 다 통과해야 주문). 잔여(P3-1): RealTradeService 멱등키/부분청산 가드 미구현.
+5. **오버나잇 방어**: 정규장 마감 15:20 강제청산(`forceRegularSessionLiquidation` 기본 ON). 리더+killswitch 게이트 탑승.
 
 ---
 
@@ -367,6 +373,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - **섹터지수 = 합성지수**(기존 `SectorStockConfig` 16섹터×구성원 평균, Java→python 전달). 타이밍 유니버스 = `getAllStockCodes()` ~134종목.
 - **미검증**(`unverified=true`) → 봇/종합추천/매수후보 랭킹 편입 금지. 검증 = **VERIFICATION_BACKLOG P2-12**(적중률/MDD 백테스트) 통과 시 매수후보 타이밍으로 승격.
 - 모듈: python `app/indicators/*`(+pytest) + Java `ChartPatternClient`(best-effort)/`ChartSignalRanker`(순수+테스트)/`ChartSignalController`. 프론트: `TodayBriefingTab`(타이밍)·`StockTradingDashboardV2`(섹터배지).
+- **가시성(2026-06-29)**: 차트 응답에 **`dataAvailable`** — 빈 결과가 '신호 없음'인지 'python 다운'인지 구분(프론트 "분석서버 일시 미가용" 표기). 호출 헬스는 `PythonBackendHealthTracker` + `/api/diagnostics/python-health` + 연속실패 텔레그램 알림.
 
 ---
 
@@ -384,13 +391,40 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
-## 17. 관련 문서 인덱스
+## 17. 테스트 / CI 인프라
+
+- **백엔드**: `./gradlew test`. 단위(Mockito) 다수 + **`ApplicationContextSmokeTest`(`@SpringBootTest`, 2026-06-29 신규)** — 이 프로젝트 **첫 @SpringBootTest**. H2 인메모리 + Flyway off + 더미 시크릿(`application-test.yml`)으로 외부 인프라 없이 전체 컨텍스트를 eager 로드 → **"앱 부팅 깨짐"(빈 와이어링/설정 오류)을 CI 에서 잡는다.** (그간 맹점 — 단위테스트만으론 "기동 실패"를 못 잡음.)
+  - 순수함수 + 테스트 패턴: `recommendationComparator`·`computeOversoldScoreParts`·`resolveFill`·`computeReconciliation`·`BotLeaderElectionService.decideLeadership`·`shouldForceLiquidate`·`verdictFor`·`PythonBackendHealthTracker` 등.
+  - ⚠ **다중 생성자 빈은 운영 생성자에 `@Autowired` 필수**(테스트용 생성자 추가 시) — 누락하면 컨텍스트 기동 불가. 스모크 테스트가 이 회귀를 가드.
+- **프론트**: `cd frontend && npm test`(vitest) + `npm run build`.
+- **python-backend**: `cd python-backend && pytest`(지표 순수함수). **로컬엔 Python 인터프리터 없음 → Docker 내 실행.**
+- **CI/배포**(`.github/workflows/deploy.yml`): gradle 빌드 → 도커 이미지 → SSH 배포 → **post-deploy 헬스체크**(`curl /api/health` 80초 폴링, 실패 시 `docker compose logs backend` artifact). status=000 = 컨테이너 미기동(앱 500 아님). ⚠ 호스트 OOM/SSH 다운은 인프라 영역(컨테이너 死 ≠ 호스트 死) — docker-compose 메모리 합산 ~3.5GB, swap/RAM 여유 점검 권장.
+
+---
+
+## 18. 2026-06-29 세션 변경 요약 (봇 안전 6작업 + 스모크)
+
+각 항목 독립 커밋. 불변식(시세경로·산식·차트분리·SchedulerLockService fail-open) 무변경.
+
+1. **봇 리더 가드 fail-CLOSED** — `BotLeaderElectionService`(Redis 리스+하트비트). 봇 크론 6개 게이트. 멀티 인스턴스 중복 주문 차단. (P3-1 부분 해소)
+2. **정규장 15:20 강제청산** — `BotConfig.forceRegularSessionLiquidation`(기본 ON)+Flyway V33, `executeRegularSessionLiquidation`. NXT 청산은 P2-13 후속.
+3. **python 가시성** — `PythonBackendHealthTracker`+`/api/diagnostics/python-health`+텔레그램, 차트 응답 `dataAvailable`.
+4. **19:30 평가 멱등성** — 확인됨(pending 행 UPDATE, 중복 INSERT 없음). 코드변경 없음. record() DB unique 제약은 P3-2.
+5. **tie-break ↔ 차트 타이밍 충돌** — `recommendationComparator` 경고주석(승격 시 이중작용 점검, P2-12 #3).
+6. **growth/valueStability -1=NA 가드** — `verdictFor` `score<0→N/A`(NEGATIVE 오표시 버그 수정)+NA factor 숨김+경고주석. nullable 전환은 P3-3.
+7. **(후속) `@SpringBootTest` 스모크 + 이중생성자 DI 버그 수정** — 스모크가 작업1·3의 `@Autowired` 누락(컨텍스트 기동 불가)을 즉시 검출 → `ChartPatternClient`/`BotLeaderElectionService` 운영 생성자에 `@Autowired` 추가.
+
+신규 백로그: P2-13(NXT 청산)·P3-2(signal_outcome unique)·P3-3(growth nullable).
+
+---
+
+## 19. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓(P2-12 차트 타이밍 백테스트, P3-1 멀티인스턴스 락)
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓(P2-12 차트 백테스트·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·P3-2 signal unique·P3-3 growth nullable)
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - `docs/STOCK_PLATFORM_GUIDE.md` — 화면→코드→DB 추적
 - `docs/STOCK_AZ_FULL.md` — 2026-06-08판(stale, 본 문서가 대체)
 - `docs/SYSTEM_OVERVIEW.md` · `docs/STOCK_PLATFORM_ONEPAGER.md` — 요약
 
-> 본 문서는 매핑 시점(2026-06-29) 스냅샷. 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 스냅샷(세션 변경 반영). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
