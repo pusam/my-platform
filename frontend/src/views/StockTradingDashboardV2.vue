@@ -77,6 +77,10 @@
             {{ s.sector }} <b>{{ s.rel_strength >= 0 ? '+' : '' }}{{ s.rel_strength }}%p</b>
           </span>
         </div>
+        <!-- 분석서버(python) 미가용 — '데이터 없음'과 구분 명시 -->
+        <div v-else-if="activeGnbTab === 'discover' && !sectorStrengthAvailable" class="sector-strength-row">
+          <span class="sector-strength-label" style="opacity:0.6">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
+        </div>
 
         <!-- 발굴 리스트 서브탭 (저평가 / 성장 / 낙폭과대) — 한 번에 하나만 표시해 정리 -->
         <div class="sub-tabs" v-if="activeGnbTab === 'discover'">
@@ -746,6 +750,7 @@ export default {
       // 섹터 상대강도('덜 빠지는 섹터') — 차트기법 발굴 필터(검증 전 베타). 발굴 탭 상단 배지.
       // (타이밍 신호는 '오늘' 탭 TodayBriefingTab 으로 이동)
       sectorStrength: [],   // [{sector, rel_strength, rank, sector_ret}]
+      sectorStrengthAvailable: true,   // dataAvailable=false → 분석서버 미가용(빈 배지와 구분)
       // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
       activeSectorView: 'map',
       supplyPanelData: null,
@@ -1190,7 +1195,8 @@ export default {
         const res = await recommendationAPI.getSectorStrength()
         const body = res?.data || res
         this.sectorStrength = (body?.data?.ranked) || []
-      } catch { /* 갱신 실패 시 배지 생략 */ }
+        this.sectorStrengthAvailable = body?.dataAvailable !== false   // 분석서버 미가용 구분
+      } catch { this.sectorStrengthAvailable = false /* 네트워크 실패 = 미가용 */ }
     },
     // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
     // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.

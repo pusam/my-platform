@@ -35,6 +35,17 @@ public class DiagnosticsController {
     private final SignalOutcomeRepository outcomeRepo;
     private final RecommendationService recommendationService;
     private final PriceScalingDiagnosticService priceScalingDiagnosticService;
+    private final com.myplatform.backend.service.PythonBackendHealthTracker pythonBackendHealthTracker;
+
+    @GetMapping("/python-health")
+    @Operation(
+        summary = "python-backend 호출 헬스",
+        description = "regime / chart-timing / chart-sector 소스별 성공·실패·연속실패·가용여부. " +
+                     "best-effort 클라이언트가 조용히 죽는지 가시화(차트 베타 빈 게 '신호 없음'인지 '다운'인지 구분)."
+    )
+    public ResponseEntity<Map<String, Object>> pythonHealth() {
+        return ResponseEntity.ok(pythonBackendHealthTracker.snapshot());
+    }
 
     @GetMapping("/data")
     @Operation(

@@ -33,30 +33,50 @@ public class ChartPatternClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String baseUrl;
+    private final PythonBackendHealthTracker health;
 
     // 섹터 강도는 일 단위 저속 지표 — 1시간 인메모리 캐시
     private volatile Map<String, Object> cachedSectorStrength = null;
     private volatile Instant sectorCachedAt = null;
 
-    public ChartPatternClient(@Value("${python-backend.base-url:http://localhost:8000}") String baseUrl) {
+    public ChartPatternClient(@Value("${python-backend.base-url:http://localhost:8000}") String baseUrl,
+                              PythonBackendHealthTracker health) {
         this.baseUrl = baseUrl;
+        this.health = health;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(TIMEOUT_MS);
         factory.setReadTimeout(TIMEOUT_MS);
         this.restTemplate = new RestTemplate(factory);
     }
 
-    /** 매수후보 타이밍 신호(종목별). 미가용/실패 시 빈 리스트(위장값 금지). */
-    public List<TimingSignal> getTimingSignals(List<String> tickers) {
-        if (tickers == null || tickers.isEmpty()) return List.of();
+    /** 테스트용 — RestTemplate(mock) 직접 주입. */
+    ChartPatternClient(String baseUrl, RestTemplate restTemplate, PythonBackendHealthTracker health) {
+        this.baseUrl = baseUrl;
+        this.restTemplate = restTemplate;
+        this.health = health;
+    }
+
+    /**
+     * 매수후보 타이밍 신호(종목별). 결과에 <b>가용/미가용(available)</b>을 명시 — 빈 리스트가
+     * "신호 없음"인지 "python 다운"인지 호출자가 구분할 수 있게 한다(null/empty 로 뭉개지 않음).
+     */
+    public TimingFetch getTimingSignals(List<String> tickers) {
+        if (tickers == null || tickers.isEmpty()) return new TimingFetch(true, List.of());  // 빈 입력=요청 안 함=가용
         try {
             String body = restTemplate.postForObject(
                     baseUrl + "/api/v2/chart/timing", Map.of("tickers", tickers), String.class);
             JsonNode root = body == null ? null : objectMapper.readTree(body);
-            return parseTimingSignals(root);
+            boolean ok = root != null && root.path("success").asBoolean(false);
+            if (ok) {
+                health.recordSuccess(PythonBackendHealthTracker.SOURCE_TIMING);
+                return new TimingFetch(true, parseTimingSignals(root));
+            }
+            health.recordFailure(PythonBackendHealthTracker.SOURCE_TIMING, "non-success response");
+            return new TimingFetch(false, List.of());
         } catch (Exception e) {
             log.debug("[ChartPattern] 타이밍 조회 실패: {}", e.getMessage());
-            return List.of();
+            health.recordFailure(PythonBackendHealthTracker.SOURCE_TIMING, e.getMessage());
+            return new TimingFetch(false, List.of());
         }
     }
 
@@ -81,12 +101,15 @@ public class ChartPatternClient {
                 if (data != null && data.get("ranked") != null) {
                     cachedSectorStrength = data;
                     sectorCachedAt = now;
+                    health.recordSuccess(PythonBackendHealthTracker.SOURCE_SECTOR);
                     return data;
                 }
             }
+            health.recordFailure(PythonBackendHealthTracker.SOURCE_SECTOR, "non-success/empty response");
             return cachedSectorStrength;  // 일시 실패 시 직전 성공값 폴백
         } catch (Exception e) {
             log.debug("[ChartPattern] 섹터강도 조회 실패: {}", e.getMessage());
+            health.recordFailure(PythonBackendHealthTracker.SOURCE_SECTOR, e.getMessage());
             return cachedSectorStrength;
         }
     }
@@ -116,4 +139,7 @@ public class ChartPatternClient {
     public record TimingSignal(String ticker, boolean available,
                                Integer timingScore, boolean riskExcluded,
                                List<String> signals) {}
+
+    /** 타이밍 조회 결과 묶음 — available=python 가용 여부(빈 signals 가 '신호 없음'인지 '다운'인지 구분). */
+    public record TimingFetch(boolean available, List<TimingSignal> signals) {}
 }

@@ -51,8 +51,8 @@
     </div>
 
     <!-- ②-b 차트 타이밍 매수 후보 (검증 전 베타) — momentum 후보와 별도 모듈.
-         정배열 안에서 눌린 자리 진입(mean-reversion 타이밍). 후보 없으면 섹션 숨김. -->
-    <div class="today-section" v-if="timingCandidates.length || timingLoading">
+         정배열 안에서 눌린 자리 진입(mean-reversion 타이밍). 후보 없으면 숨김, 단 분석서버 미가용은 명시. -->
+    <div class="today-section" v-if="timingCandidates.length || timingLoading || !timingAvailable">
       <div class="ts-title-row">
         <h2>🪝 차트 타이밍 매수 후보</h2>
         <span class="ts-beta">검증 전 베타</span>
@@ -62,6 +62,8 @@
         적중률/MDD 검증 전이라 참고용이며 실거래·봇 신호가 아닙니다.
       </div>
       <div v-if="timingLoading" class="ts-state">타이밍 분석 중...</div>
+      <!-- 분석서버(python) 미가용 — '신호 없음'과 구분해 명시 -->
+      <div v-else-if="!timingAvailable" class="ts-state">⚠ 분석서버 일시 미가용 — 잠시 후 다시 확인해 주세요.</div>
       <div v-else class="candidate-list">
         <div v-for="(c, i) in timingCandidates" :key="c.code"
              class="candidate-card" @click="$emit('open-stock', c.code)">
@@ -139,6 +141,7 @@ const candidatesLoading = ref(false);
 const buyCandidates = ref([]);
 const timingLoading = ref(false);
 const timingCandidates = ref([]);    // 차트 타이밍(검증 전 베타) — momentum 과 별도
+const timingAvailable = ref(true);   // dataAvailable=false → 분석서버 미가용(빈 결과와 구분)
 const catalysts = ref({});           // stockCode → catalyst dto
 const accuracyStats = ref([]);
 const backtestOverall = ref(null);
@@ -194,15 +197,17 @@ const loadCatalysts = async () => {
 };
 
 // 차트 타이밍 매수 후보 — momentum 과 정반대 objective(추세 안 눌림목). 별도 미검증 모듈.
-// best-effort: 실패/후보없음이면 timingCandidates=[] → 섹션 자체 숨김. 상위 5만(momentum 패리티).
+// best-effort: 후보없음이면 숨김. dataAvailable=false(분석서버 다운)는 '신호 없음'과 구분해 표기.
 const loadTimingCandidates = async () => {
   timingLoading.value = true;
   try {
     const { data } = await recommendationAPI.getTrendPullbackTop10();
     const items = data?.data || [];
     timingCandidates.value = items.slice(0, MAX_CANDIDATES);
+    timingAvailable.value = data?.dataAvailable !== false;   // 명시적 false 만 미가용
   } catch (e) {
     timingCandidates.value = [];
+    timingAvailable.value = false;   // 네트워크 실패 = 미가용
   } finally {
     timingLoading.value = false;
   }

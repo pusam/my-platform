@@ -29,12 +29,15 @@ public class MarketRegimeClient {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final String baseUrl;
+    private final PythonBackendHealthTracker health;
 
     private volatile String cachedRegime = null;
     private volatile Instant cachedAt = null;
 
-    public MarketRegimeClient(@Value("${python-backend.base-url:http://localhost:8000}") String baseUrl) {
+    public MarketRegimeClient(@Value("${python-backend.base-url:http://localhost:8000}") String baseUrl,
+                              PythonBackendHealthTracker health) {
         this.baseUrl = baseUrl;
+        this.health = health;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(TIMEOUT_MS);
         factory.setReadTimeout(TIMEOUT_MS);
@@ -57,10 +60,13 @@ public class MarketRegimeClient {
             if (regime != null) {
                 cachedRegime = regime;
                 cachedAt = now;
+                health.recordSuccess(PythonBackendHealthTracker.SOURCE_REGIME);
             }
+            // regime==null(응답은 왔으나 국면 산출 불가)은 python 다운이 아니므로 실패로 집계하지 않음.
             return regime != null ? regime : cachedRegime; // 일시 실패 시 직전 성공값 폴백 (있으면)
         } catch (Exception e) {
             log.debug("[Regime] python-backend 국면 조회 실패: {}", e.getMessage());
+            health.recordFailure(PythonBackendHealthTracker.SOURCE_REGIME, e.getMessage());
             return cachedRegime; // 미기동 시 null — 스냅샷 미수집 처리
         }
     }

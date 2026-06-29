@@ -40,14 +40,15 @@ public class ChartSignalController {
     @GetMapping("/trend-pullback-top10")
     public ResponseEntity<?> getTrendPullbackTop10() {
         List<String> universe = new ArrayList<>(sectorStockConfig.getAllStockCodes());
-        List<TimingSignal> signals = chartPatternClient.getTimingSignals(universe);
-        List<Map<String, Object>> items = ChartSignalRanker.topByScore(signals, TOP_N).stream()
+        ChartPatternClient.TimingFetch fetch = chartPatternClient.getTimingSignals(universe);
+        List<Map<String, Object>> items = ChartSignalRanker.topByScore(fetch.signals(), TOP_N).stream()
                 .map(this::toItem)
                 .toList();
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "data", items,
-                "unverified", true  // 미검증 보조 시그널 — 실거래/봇 신호 아님
+                "unverified", true,            // 미검증 보조 시그널 — 실거래/봇 신호 아님
+                "dataAvailable", fetch.available()  // false=분석서버 다운(빈 결과가 '신호 없음'과 구분)
         ));
     }
 
@@ -61,10 +62,12 @@ public class ChartSignalController {
         sectorStockConfig.getAllSectors().forEach(
                 s -> sectors.put(s.getName(), s.getStockCodes()));
         Map<String, Object> data = chartPatternClient.getSectorStrength(sectors);
+        boolean available = data != null && data.get("ranked") != null;
         return ResponseEntity.ok(Map.of(
-                "success", data != null,
+                "success", available,
                 "data", data == null ? Map.of() : data,
-                "unverified", true
+                "unverified", true,
+                "dataAvailable", available   // false=분석서버 미가용
         ));
     }
 
