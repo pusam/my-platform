@@ -155,7 +155,11 @@
 > 도입. **봇 크론 5개**(`executeScalpingBuyLogic`·`executeScalpingSellLogic`·`executeScalpingClearance`·`executeSwingBuyLogic`·`executeSwingSellLogic`)가
 > `isLeaderForBot()` 통과해야 실행 → 멀티 인스턴스 중 리더 1개만 주문, Redis 장애 시 주문 중단. `SchedulerLockService`(fail-open)는
 > 미변경(별개 메커니즘). 설정 `bot.leader-election.enabled`(기본 true, 단일+Redis미사용 환경은 false). 테스트 `BotLeaderElectionServiceTest`(2인스턴스/Redis다운/단일/bypass).
-> **잔여(미해소)**: 아래 ③ `RealTradeService.executeBuy` 멱등성 키/fencing(2차 방어) + 부분청산 과청산 가드는 여전히 미구현 — 확장 결정 시 착수.
+> **✅ 추가 해소 (2026-06-30, 작업2)**: 리더 전환 순간 중복 BUY 방지 — `BotOrderIntentService` + `bot_order_intent`(V35).
+> 리더 A가 KIS BUY 쏜 직후(응답 전, 포지션 저장 전) 死 → B 승계 시 같은 (종목,BUY,거래일,시그널) 재매수를 **KIS 호출 직전 선기록 멱등키**로 차단
+> (PENDING/DONE→SKIP, FAILED→재시도 허용). REQUIRES_NEW 라 주문 트랜잭션 롤백에도 키 생존. killswitch(KIS성공+DB실패)와 무충돌.
+> **BUY 전용**(SELL은 보유수량 체크로 자연 멱등 + 작업1 청산 재시도와 충돌 회피). 테스트 `BotOrderIntentServiceTest`(페일오버 차단/재시도/완료).
+> **잔여(미해소)**: ③ `RealTradeService` fencing 2차 방어의 **SELL 부분청산 과청산 가드**는 여전히 미구현 — 확장 결정 시 착수.
 
 > **선결 조건**: 이 티켓은 **backend 멀티 인스턴스 배포를 결정하는 시점**에만 착수한다. 현재 `docker-compose.yml`
 > backend = replicas 1(단일 컨테이너)이라 **실위험 없음** → 지금 락을 붙이면 단일 인스턴스에서 손해만 본다(아래 ④).

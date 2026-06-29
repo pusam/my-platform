@@ -38,6 +38,7 @@ public class RealTradeService implements TradeService {
     private final VirtualTradeHistoryRepository tradeHistoryRepository;
     private final TradingSafetyService safetyService;
     private final TradingAuditService auditService;
+    private final BotOrderIntentService orderIntentService;   // BUY 멱등키(리더 전환 중복 매수 방지)
 
     // 실전매매용 계좌 ID (가상 ID - 실제 계좌와 구분)
     private static final Long REAL_ACCOUNT_ID = 999999L;
@@ -232,6 +233,16 @@ public class RealTradeService implements TradeService {
             throw new IllegalStateException(why);
         }
 
+        // 2.5) 멱등키 선기록 (KIS 호출 직전) — 리더 전환 순간 같은 (종목,BUY,거래일,시그널) 중복 매수 차단.
+        //      A가 주문 쏜 직후 응답 전 死 → PENDING 키 잔존 → B 승계 시 재매수 SKIP.
+        //      DB 오류 시 tryAcquire 가 던짐 → 가드 없이 주문 금지(여기서 abort).
+        if (orderIntentService.tryAcquire(stockCode, "BUY", reason) == BotOrderIntentService.OrderGate.SKIP_DUPLICATE) {
+            auditService.blocked(TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason, "중복 주문 멱등키 차단");
+            log.warn("[실전매매] 중복 매수 차단(멱등키): {} ({}) reason={}", stockName, stockCode, reason);
+            throw new IllegalStateException("중복 매수 차단 — 오늘 동일 (종목,BUY,시그널) 주문 이미 시도/완료됨");
+        }
+
         // 3) 감사 로그 시작
         TradingAuditService.Ctx audit = auditService.start(
                 TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
@@ -264,8 +275,10 @@ public class RealTradeService implements TradeService {
         String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
         String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
         if (!"0".equals(rtCd)) {
-            // KIS 가 명시적으로 거부 — 주문 안 들어간 게 확실하므로 킬스위치는 발동하지 않음
+            // KIS 가 명시적으로 거부 — 주문 안 들어간 게 확실하므로 킬스위치는 발동하지 않음.
+            // 멱등키 FAILED → 정상 재시도 허용(확정 거부라 중복 위험 없음).
             auditService.failure(audit, rtCd, msg, null);
+            orderIntentService.markFailed(stockCode, "BUY", reason);
             throw new IllegalStateException("매수 주문 실패: " + msg);
         }
 
@@ -277,6 +290,9 @@ public class RealTradeService implements TradeService {
 
         // 감사 로그 success
         auditService.success(audit, rtCd, msg, orderNo);
+
+        // 멱등키 DONE — KIS 주문 성사 확정 → 재주문 영구 차단(이후 DB save 실패해도 키는 DONE 유지 → 일관).
+        orderIntentService.markDone(stockCode, "BUY", reason, orderNo);
 
         // 총 금액 계산
         BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));

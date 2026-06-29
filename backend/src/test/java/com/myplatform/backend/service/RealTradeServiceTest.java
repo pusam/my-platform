@@ -29,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -56,6 +57,7 @@ class RealTradeServiceTest {
     @Mock private VirtualTradeHistoryRepository tradeHistoryRepository;
     @Mock private TradingSafetyService safetyService;
     @Mock private TradingAuditService auditService;
+    @Mock private BotOrderIntentService orderIntentService;
 
     @InjectMocks
     private RealTradeService service;
@@ -75,6 +77,10 @@ class RealTradeServiceTest {
         when(safetyService.checkSell()).thenReturn(new TradingSafetyService.Decision(true, null));
         when(safetyService.isKilled()).thenReturn(false);
         when(safetyService.isLargeTrade(any())).thenReturn(false);
+
+        // 멱등키: 기본 PROCEED(중복 아님) — 기존 buy 테스트가 게이트를 통과해 KIS 까지 가도록.
+        lenient().when(orderIntentService.tryAcquire(anyString(), anyString(), any()))
+                .thenReturn(BotOrderIntentService.OrderGate.PROCEED);
         when(safetyService.enable(anyString(), anyString())).thenReturn(new TradingKillSwitch());
 
         // auditService.start 는 Ctx 반환 — 내부 필드만 들고 있어 mock 으로 충분
