@@ -17,7 +17,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
   - 테스트: `cd frontend && npm test` (= `vitest run`) / watch: `npm run test:watch`
   - 빌드: `cd frontend && npm run build` (lint 스크립트는 아직 없음)
   - 테스트 파일 규약: `src/**/*.{test,spec}.js`. 브라우저 API 스텁은 `vitest.setup.js`.
-- **python-backend(FastAPI)**: ❌ **테스트 없음 확인(2026-06-10)** — 테스트 파일 0개, requirements 에 pytest 없음, pytest.ini/pyproject 없음. 테스트 도입 시 여기 갱신.
+- **python-backend(FastAPI)**: ✅ **pytest 도입(2026-06-29)** — 차트기법 지표 순수함수용. 테스트: `cd python-backend && pytest`(`pytest.ini` pythonpath=., `tests/test_indicators.py`). 그 외 도메인(regime 등)은 여전히 테스트 미도입.
 
 > 정리: **백엔드(`./gradlew test`) + 프론트(`npm test`) 모두 "구현→테스트" 루프 가동 가능.** python-backend 는 테스트 미도입.
 
@@ -64,6 +64,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **시장 진단 condition 은 ADR(20일) 기반만**. 당일 등락비(`applyDailyRatio`)는 dailyRatio 표시값만 채운다 — ADR 임계(120/80/60)로 당일 등락비를 판정해 condition 을 덮어쓰면 평범한 상승일도 장중 '과열'로 오판.
 - **섹터 거래대금은 실측만**(`SectorTradingService.resolveAccumulatedValue`): KIS 누적거래대금 → 현재가×거래량 폴백, 둘 다 없으면 스냅샷 제외. 시총×0.1% 같은 임시값 생성 금지. 휴장일엔 3분 크론 early-return(가드만, cron 시각 불변) — 휴장일 표시는 on-demand 수집의 마지막 거래일 실측이 담당.
 - **python-backend 재편 (2026-06-11)**: 가짜 데이터 점검(5건) 후 자바 중복 라우터(네이버 크롤/yfinance/Gemini/스크리너) **전부 삭제** — 현재 역할은 `/api/v2/health` + `/api/v2/regime/current`(pykrx 시장 국면) 뿐. 새 기능은 "Java/KIS 로 비싼 일(히스토리·벌크)"일 때만 추가. 국면 규칙(v1): KOSPI 종가 vs MA60 + MA20 5거래일 슬로프 → BULL/BEAR/SIDEWAYS — 검증 데이터 쌓이기 전 임의 변경 금지. Java 는 `MarketRegimeClient`(1h 캐시, best-effort)로 소비, 미가용 시 regime_at_signal=NULL(미수집).
+- **차트기법 보조 시그널 (2026-06-29)**: 펨코 추세추종 기법을 별도 모듈로 추가 — `/api/v2/chart/timing`(정배열·이격도·엔벨로프 눌림목·박스 타이밍)·`/api/v2/chart/sector-strength`(섹터 상대강도). 지표는 `app/indicators/*` 순수함수(pytest 有). ⚠ **산식 미검증** — 발굴 탭 '추세눌림(보조)' 트랙 + 섹터강도 배지로만 노출, 봇/종합추천/매수후보 랭킹 편입 금지(검증 = VERIFICATION_BACKLOG P2-12). Java 소비 = `ChartPatternClient`(best-effort) → `ChartSignalController`(`/api/recommendation/trend-pullback-top10`·`/sector-strength`).
 - 신규 코드도 같은 원칙: 결측은 null/생략으로 정직하게. (단, RecommendationSnapshot.growth 의 -1=NA 같은 명시적 sentinel 은 기존 규약 유지.)
 
 ### 4d. 봇 실주문 정합성·체결 안전 (B2-A/B3-A, 2026-06-23)
@@ -100,6 +101,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 체결강도: `ScalpingAnalysisService` (ccnl 폴백 `getCcnlVolumePower`), 게이지: `VolumePowerGauge.vue`
 - 시장 진단(ADR): `MarketTimingService`, 섹터 거래대금: `SectorTradingService`
 - 시장 국면(V32): python `regime_service.py` ↔ Java `MarketRegimeClient`
+- 차트기법 보조 시그널(미검증): python 지표 `app/indicators/*`(순수, `tests/test_indicators.py`) + `chart_pattern_service.py`/`sector_strength_service.py` + `routers/chart_patterns.py`. 파라미터 `ChartPatternConfig`(config.py). Java `ChartPatternClient`/`ChartSignalRanker`(순수, `ChartSignalRankerTest`)/`ChartSignalController`. 프론트 `StockTradingDashboardV2.vue` '추세눌림' 서브탭
 - 봇: `AutoTradingBotService`, 성과: `BotPerformanceService`
 - 봇 실주문: `RealTradeService`(체결확인 `confirmFill`/`resolveFill`, KIS주문성공+DB실패→killswitch), 재시작 정합성 `AutoTradingBotService.reconcilePositionsWithKis`/`computeReconciliation`, KIS 체결조회 `KoreaInvestmentService.inquireDailyCcld`(TTTC0081R)
 - 인증: `JwtAuthenticationFilter`·`JwtTokenProvider`(jwt-redis 모듈, 테스트 인프라 없음), `AuthController`/`AuthService`, 프론트 `utils/auth.js`·`utils/api.js`·`main.js`(라우터 가드)
@@ -111,6 +113,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 주식 허브 = `StockTradingDashboardV2` 단일 화면, **GNB 4탭: 오늘/시장/발굴/매매** (`DashboardHeader.vue`). 레거시 경로(/sector, /news, /ai-strategy 등)는 main.js 에서 탭 쿼리로 redirect — **새 주식 화면(라우트)을 만들지 말고 탭/서브탭에 흡수할 것.**
 - 기본 진입은 **'오늘' 탭**(`TodayBriefingTab.vue` — 시장 한줄·매수 후보(55점 컷)·신뢰도·포지션·도구 바로가기). `resolveInitialTab` 쿼리 없으면 today 고정 — 시각 기반 분기로 되돌리지 말 것. 탭 매핑 회귀 테스트: `StockTradingDashboardV2.ia.test.js`.
 - **역할 분리(2026-06-23~24): 오늘=모멘텀, 발굴=다각도 선별.** 모멘텀 종합추천 TOP10(`getTop5`)은 '오늘' 탭 전용 — **발굴에 모멘텀 TOP10 다시 넣지 말 것**(오늘과 중복 + "오른 종목만" 노출의 원인이었음).
+- **차트 기법 통합 시 발굴/매수후보 스코어러는 항상 분리한다(2026-06-29).** 추세추종 기법은 성격이 다른 두 신호로 쪼개진다: ① 섹터 상대강도='덜 빠지는 섹터' = 발굴 유니버스 필터, ② 정배열+눌림목 진입 타이밍(momentum 아님, 추세 안의 mean-reversion) = 매수후보 타이밍. **기존 momentum 스코어러(`RecommendationService`)에 욱여넣지 말고 별도 모듈**(python `app/indicators/*` + Java `ChartPatternClient`/`ChartSignalRanker`/`ChartSignalController`)로 둘 것. 검증 전엔 발굴 보조 시그널(`unverified=true` 배지) 전용.
 - **발굴 리스트 = 5트랙 서브탭(`discoverListTab`, 택1, 기본 💎저평가) + 심화도구 서브탭(종합/AI전략/백테스트/스크리너/퀀트)** 2단. 5트랙은 모두 별도 엔드포인트·산식·성격:
   - 💎저평가 `getValueTop10` (PBR·ROE·부채·흑자) / 🚀성장 `getGrowthTop10` (매출·이익 성장률+PEG) / 📉낙폭과대 `getOversoldTop10` (RSI 과매도+MA20 낙폭+반등, 가격히스토리 스캔) / 💰실적 `getEarningsTop10` (흑자전환·이익급증) / 🏦수급 `getSmartMoneyTop10` (외국인·기관 순매수).
   - **lazy 로드**: `ensureDiscoverListLoaded(key)` 가 보고 있는 트랙만 호출(특히 낙폭과대 universe 스캔이 무거움), 각 30분 캐시. 5트랙 동시 eager 로드로 되돌리지 말 것.
