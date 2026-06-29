@@ -2209,6 +2209,12 @@ public class RecommendationService {
      *   <li>changeRate <b>asc</b> — 점수·delta 동률이면 <b>덜 오른 종목</b> 우선(추격 인상 완화).
      *       기존엔 desc(많이 오른 종목 우선)라 "이미 많이 올랐다"가 상위 노출 요인이었음(phase 38 약화).</li>
      * </ol>
+     *
+     * <p>⚠ <b>차트 타이밍 승격 시 점검(P2-12, 작업5)</b>: 3차 tie-break(changeRate asc, "덜 오른 종목")는
+     * 차트 타이밍 눌림목 신호(정배열 안에서 "이미 빠진 자리" 진입)와 <b>같은 방향</b>이다. 현재는 차트 타이밍이
+     * 발굴/매수후보 momentum 랭킹과 <b>완전 분리(unverified 베타)</b>라 무관하지만, P2-12 검증 통과로 타이밍을
+     * 매수후보 랭킹에 <b>편입/승격</b>하면 이 comparator 와 <b>이중 작용</b>(덜 오른 종목 과대 가중) 위험이 있다.
+     * 승격 PR 에서 반드시 점검할 것 — 여기에 타이밍 점수를 섞지 말 것.
      */
     static Comparator<StockScore> recommendationComparator(Map<String, Integer> prevScoreMap) {
         return Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()

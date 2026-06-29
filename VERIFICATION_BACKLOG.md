@@ -226,6 +226,7 @@
 - **합격 기준 (실거래 승격 조건)**:
   1. 충분한 표본(예: 최소 N개 신호, 복수 국면 BULL/BEAR/SIDEWAYS 포함)에서 **기준 대비 유의한 우위**(예: 동일기간 buy&hold·종합추천 대비 승률/손익비).
   2. 검증 통과 시에만 **매수후보 타이밍 스코어로 승격**(`unverified` 해제 + 별도 PR). 통과 전까지 보조 시그널 유지.
+  3. **⚠ 승격 시 tie-break 이중작용 점검(작업5)**: 발굴/매수후보 정렬 `RecommendationService.recommendationComparator` 의 3차 tie-break `changeRate asc`("덜 오른 종목 우선")와 차트 타이밍 눌림목("이미 빠진 자리")은 **같은 방향** → 타이밍을 momentum 랭킹에 편입하면 **덜 오른 종목 과대 가중(이중 작용)** 위험. 승격 PR 에서 comparator 에 타이밍 점수를 섞지 않는지 + 별도 트랙 유지 여부 점검(코드 주석으로 표기 完).
 - **테스트**: 백테스트 스크립트(표본/기간/국면 분리 집계) + 결과 요약. 산식 변경 시 기존 지표 pytest(`python-backend/tests/test_indicators.py`) 회귀 green.
 - **비고**: 산식은 미검증이나 **구조(타이밍↔섹터 분리, momentum 과 별도 모듈)는 확정** — CLAUDE.md §4 "차트 기법 통합 시 발굴/매수후보 스코어러는 항상 분리" 불변식 참조.
 
