@@ -14,6 +14,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 앱 복사
 COPY app/ app/
 
+# 테스트 포함 — `docker compose run --rm python-backend pytest` 로 지표 순수함수 검증(CI/재실행).
+# uvicorn 운영엔 무영향(테스트 파일은 import 안 됨).
+COPY tests/ tests/
+COPY pytest.ini .
+
 # 환경변수
 ENV TZ=Asia/Seoul
 ENV PYTHONPATH=/app
