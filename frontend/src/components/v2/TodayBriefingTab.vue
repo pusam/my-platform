@@ -50,6 +50,35 @@
       </div>
     </div>
 
+    <!-- ②-b 차트 타이밍 매수 후보 (검증 전 베타) — momentum 후보와 별도 모듈.
+         정배열 안에서 눌린 자리 진입(mean-reversion 타이밍). 후보 없으면 섹션 숨김. -->
+    <div class="today-section" v-if="timingCandidates.length || timingLoading">
+      <div class="ts-title-row">
+        <h2>🪝 차트 타이밍 매수 후보</h2>
+        <span class="ts-beta">검증 전 베타</span>
+      </div>
+      <div class="beta-banner">
+        ⚠ <strong>검증 전 베타</strong> — 차트기법(정배열·이격도·엔벨로프 눌림목) 기반 진입 타이밍.
+        적중률/MDD 검증 전이라 참고용이며 실거래·봇 신호가 아닙니다.
+      </div>
+      <div v-if="timingLoading" class="ts-state">타이밍 분석 중...</div>
+      <div v-else class="candidate-list">
+        <div v-for="(c, i) in timingCandidates" :key="c.code"
+             class="candidate-card" @click="$emit('open-stock', c.code)">
+          <span class="cc-rank">#{{ i + 1 }}</span>
+          <div class="cc-main">
+            <div class="cc-head">
+              <span class="cc-name">{{ c.name }}</span>
+              <span class="cc-score">{{ c.timingScore }}/10</span>
+            </div>
+            <div class="cc-tags">
+              <span v-for="(tag, ti) in (c.signals || []).slice(0, 4)" :key="ti" class="cc-tag">{{ tag }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ③ 신뢰도 스트립 — 이 추천을 얼마나 믿어도 되나 -->
     <div v-if="trustLine" class="today-trust">
       <span class="tt-icon">📊</span>
@@ -108,6 +137,8 @@ const MAX_CANDIDATES = 5;
 
 const candidatesLoading = ref(false);
 const buyCandidates = ref([]);
+const timingLoading = ref(false);
+const timingCandidates = ref([]);    // 차트 타이밍(검증 전 베타) — momentum 과 별도
 const catalysts = ref({});           // stockCode → catalyst dto
 const accuracyStats = ref([]);
 const backtestOverall = ref(null);
@@ -162,6 +193,21 @@ const loadCatalysts = async () => {
   }
 };
 
+// 차트 타이밍 매수 후보 — momentum 과 정반대 objective(추세 안 눌림목). 별도 미검증 모듈.
+// best-effort: 실패/후보없음이면 timingCandidates=[] → 섹션 자체 숨김. 상위 5만(momentum 패리티).
+const loadTimingCandidates = async () => {
+  timingLoading.value = true;
+  try {
+    const { data } = await recommendationAPI.getTrendPullbackTop10();
+    const items = data?.data || [];
+    timingCandidates.value = items.slice(0, MAX_CANDIDATES);
+  } catch (e) {
+    timingCandidates.value = [];
+  } finally {
+    timingLoading.value = false;
+  }
+};
+
 const loadTrust = async () => {
   try {
     const { data } = await apiClient.get('/signal-outcomes/accuracy', { params: { days: 30 } });
@@ -196,6 +242,7 @@ const signed = (v, grouping = false) => {
 
 onMounted(() => {
   loadCandidates();
+  loadTimingCandidates();
   loadTrust();
   loadPortfolio();
 });
@@ -231,6 +278,17 @@ onMounted(() => {
 .ts-pl { margin-left: auto; font-size: 13px; font-weight: 700; }
 .ts-state { padding: 18px 0; text-align: center; font-size: 13px; opacity: 0.6; }
 .ts-state.empty { opacity: 0.75; }
+
+/* 차트 타이밍(검증 전 베타) — 미검증 강조 */
+.ts-beta {
+  margin-left: auto; font-size: 11px; font-weight: 700; color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14); padding: 2px 8px; border-radius: 4px;
+}
+.beta-banner {
+  margin: 10px 0 4px; padding: 8px 12px; border-radius: 8px;
+  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24; font-size: 12px; line-height: 1.5;
+}
 
 /* ② 후보 카드 */
 .candidate-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }

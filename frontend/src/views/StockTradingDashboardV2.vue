@@ -67,6 +67,17 @@
         <!-- ② 종합 추천(모멘텀) TOP10 은 '오늘' 탭으로 일원화 — 발굴 탭은 저평가/소외주 전용 (P-IA: 오늘=모멘텀, 발굴=저평가).
              모멘텀 점수(getTop5)는 오늘 탭(TodayBriefingTab)이 단독 노출. 발굴에서 중복 제거(2026-06). -->
 
+        <!-- 섹터 상대강도 '덜 빠지는 섹터' 상시 배지 — 발굴 유니버스 필터(차트기법, 검증 전 베타).
+             타이밍 신호는 '오늘' 탭으로 이동, 발굴엔 섹터강도만 남김. -->
+        <div v-if="activeGnbTab === 'discover' && sectorStrength.length" class="sector-strength-row">
+          <span class="sector-strength-label">덜 빠지는 섹터 <small style="opacity:0.6">(베타)</small></span>
+          <span v-for="s in sectorStrength.slice(0, 5)" :key="'ss-' + s.sector"
+                class="sector-strength-badge"
+                :class="s.rel_strength >= 0 ? 'positive' : 'negative'">
+            {{ s.sector }} <b>{{ s.rel_strength >= 0 ? '+' : '' }}{{ s.rel_strength }}%p</b>
+          </span>
+        </div>
+
         <!-- 발굴 리스트 서브탭 (저평가 / 성장 / 낙폭과대) — 한 번에 하나만 표시해 정리 -->
         <div class="sub-tabs" v-if="activeGnbTab === 'discover'">
           <button v-for="st in discoverListTabs" :key="st.key"
@@ -284,49 +295,6 @@
             </div>
           </div>
           <div v-else class="empty-signal">수급 우위 종목 없음<br><small style="opacity:0.7">외국인·기관 연속/대량 순매수 (장중 갱신)</small></div>
-        </div>
-
-        <!-- ②-f 추세눌림(보조) — 차트기법 미검증 보조 시그널 (정배열+눌림목 타이밍 / 섹터 상대강도) -->
-        <div id="briefing-section-trendpullback" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'trendpullback'">
-          <div class="section-title-row">
-            <h2><span class="section-icon">🪝</span> 추세눌림 TOP {{ trendPullbackTop10.length > 0 ? trendPullbackTop10.length : 10 }}</h2>
-          </div>
-          <!-- ⚠ 미검증 배지: 백테스트(적중률/MDD) 전이라 실거래 신호 아님 -->
-          <div class="unverified-banner">
-            ⚠ <strong>미검증 보조 시그널</strong> — 차트기법(정배열·이격도·엔벨로프 눌림목) 기반. 적중률/MDD 검증 전이라 참고용입니다(실거래·봇 신호 아님).
-          </div>
-
-          <!-- 섹터 상대강도: '덜 빠지는 섹터' TOP (발굴 유니버스 필터 배지) -->
-          <div v-if="sectorStrength.length" class="sector-strength-row">
-            <span class="sector-strength-label">덜 빠지는 섹터</span>
-            <span v-for="s in sectorStrength.slice(0, 5)" :key="'ss-' + s.sector"
-                  class="sector-strength-badge"
-                  :class="s.rel_strength >= 0 ? 'positive' : 'negative'">
-              {{ s.sector }} <b>{{ s.rel_strength >= 0 ? '+' : '' }}{{ s.rel_strength }}%p</b>
-            </span>
-          </div>
-
-          <div v-if="trendPullbackLoading" class="signal-skeleton">
-            <div class="skel-row" v-for="i in 3" :key="'tp-sk-'+i"><div class="skel-bar"></div></div>
-          </div>
-          <div v-else-if="trendPullbackTop10.length" class="rec-list">
-            <div v-for="(rec, i) in trendPullbackTop10" :key="'tp-' + i" class="rec-card" @click="goToStock(rec.code)">
-              <span class="rec-rank">#{{ i + 1 }}</span>
-              <div class="rec-info">
-                <span class="rec-name">{{ rec.name }}</span>
-                <div class="rec-tags">
-                  <span v-for="(tag, ti) in (rec.signals || []).slice(0, 5)" :key="'tpt-' + i + '-' + ti" class="rec-tag">{{ tag }}</span>
-                </div>
-              </div>
-              <div class="rec-score-area">
-                <div class="rec-score-head">
-                  <span class="rec-score-num">{{ rec.timingScore }}</span>
-                  <span class="rec-score-basis">/10</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-signal">추세눌림 후보 없음<br><small style="opacity:0.7">정배열 + 엔벨로프 하단 눌림목 + 박스 돌파 (위험필터 통과 종목만)</small></div>
         </div>
 
         <!-- ②-b 수급 현황 패널 → 시장 탭 -->
@@ -718,8 +686,7 @@ export default {
         { key: 'growth', label: '🚀 성장' },
         { key: 'oversold', label: '📉 낙폭과대' },
         { key: 'earnings', label: '💰 실적' },
-        { key: 'smartmoney', label: '🏦 수급' },
-        { key: 'trendpullback', label: '🪝 추세눌림(보조·미검증)' }
+        { key: 'smartmoney', label: '🏦 수급' }
       ],
       marketSubTabs: [
         { key: 'investor', label: '수급' },
@@ -776,9 +743,8 @@ export default {
       smartMoneyTop10: [],
       smartMoneyTopLoading: false,
       smartMoneyTopDataTime: '',
-      // 추세눌림(보조) — 차트기법 미검증 보조 시그널. 섹터강도 배지도 함께.
-      trendPullbackTop10: [],
-      trendPullbackLoading: false,
+      // 섹터 상대강도('덜 빠지는 섹터') — 차트기법 발굴 필터(검증 전 베타). 발굴 탭 상단 배지.
+      // (타이밍 신호는 '오늘' 탭 TodayBriefingTab 으로 이동)
       sectorStrength: [],   // [{sector, rel_strength, rank, sector_ret}]
       // 섹터 카드 토글 — 장중 시간대 기본은 '거래대금', 그 외엔 '시장 지도(히트맵)'
       activeSectorView: 'map',
@@ -1178,7 +1144,6 @@ export default {
       else if (key === 'oversold' && !this.oversoldTop10.length) this.refreshOversoldTop10()
       else if (key === 'earnings' && !this.earningsTop10.length) this.refreshEarningsTop10()
       else if (key === 'smartmoney' && !this.smartMoneyTop10.length) this.refreshSmartMoneyTop10()
-      else if (key === 'trendpullback' && !this.trendPullbackTop10.length) this.refreshTrendPullback()
     },
     // 낙폭과대 반등 TOP 10 — RSI 과매도 + 낙폭 + 반등. 장중 변하므로 첫 진입 + 30분 캐시.
     async refreshOversoldTop10() {
@@ -1216,27 +1181,16 @@ export default {
       } catch { /* 갱신 실패 시 기존 값 유지 */ }
       finally { this.smartMoneyTopLoading = false }
     },
-    // 추세눌림(보조) TOP 10 + 섹터 상대강도 — 차트기법 미검증 보조 시그널.
-    // 섹터 유니버스 스캔이라 무거움 → 서브탭 진입 시에만 lazy 로드(30분 캐시는 백엔드/파이썬).
-    // ⚠ 산식 미검증: 실거래/봇 신호 아님. 검증(VERIFICATION_BACKLOG) 전엔 보조 표시만.
-    async refreshTrendPullback() {
-      if (this.trendPullbackLoading) return
-      this.trendPullbackLoading = true
+    // 섹터 상대강도('덜 빠지는 섹터') — 차트기법 발굴 필터(검증 전 베타). 발굴 탭 상단 배지.
+    // 1h 백엔드 캐시라 발굴 탭 진입 시 1회만 로드. ⚠ 산식 미검증: 참고용 배지만(실거래 신호 아님).
+    // (타이밍 신호는 '오늘' 탭 TodayBriefingTab 이 별도로 소비.)
+    async refreshSectorStrength() {
+      if (this.sectorStrength.length) return
       try {
-        const [tpRes, ssRes] = await Promise.allSettled([
-          recommendationAPI.getTrendPullbackTop10(),
-          recommendationAPI.getSectorStrength()
-        ])
-        if (tpRes.status === 'fulfilled') {
-          const body = tpRes.value?.data || tpRes.value
-          this.trendPullbackTop10 = (body?.data) || []
-        }
-        if (ssRes.status === 'fulfilled') {
-          const body = ssRes.value?.data || ssRes.value
-          this.sectorStrength = (body?.data?.ranked) || []
-        }
-      } catch { /* 갱신 실패 시 기존 값 유지 */ }
-      finally { this.trendPullbackLoading = false }
+        const res = await recommendationAPI.getSectorStrength()
+        const body = res?.data || res
+        this.sectorStrength = (body?.data?.ranked) || []
+      } catch { /* 갱신 실패 시 배지 생략 */ }
     },
     // 트래커 단기/중장기 점수 보강 — 추천 totalScore와 상세 페이지 단기/중장기 산식이 달라
     // 같은 종목인데 점수가 달라 보이는 인지 부조화를 해소하기 위해 같이 표시.
@@ -1269,6 +1223,7 @@ export default {
       // 모멘텀 TOP10 은 오늘 탭으로 일원화되어 발굴에선 미사용.
       if (tab === 'discover') {
         this.ensureDiscoverListLoaded(this.discoverListTab)
+        this.refreshSectorStrength()   // 상단 '덜 빠지는 섹터' 배지(1h 캐시, 1회)
       }
     },
 

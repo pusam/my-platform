@@ -5,7 +5,7 @@ import apiClient, { recommendationAPI, paperTradingAPI } from '../../utils/api'
 
 vi.mock('../../utils/api', () => ({
   default: { get: vi.fn() },
-  recommendationAPI: { getTop5: vi.fn() },
+  recommendationAPI: { getTop5: vi.fn(), getTrendPullbackTop10: vi.fn() },
   paperTradingAPI: { getPortfolio: vi.fn() }
 }))
 
@@ -33,6 +33,7 @@ const catalystResponse = {
 
 function stubAll({ catalyst = catalystResponse, portfolio = { data: { success: true, data: [] } } } = {}) {
   recommendationAPI.getTop5.mockResolvedValue(top5Response)
+  recommendationAPI.getTrendPullbackTop10.mockResolvedValue({ data: { success: true, data: [] } })
   paperTradingAPI.getPortfolio.mockResolvedValue(portfolio)
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/catalyst')) return Promise.resolve(catalyst)
@@ -70,6 +71,25 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     const w = await mountTab()
     expect(w.find('.cc-catalyst').exists()).toBe(true)
     expect(w.find('.cc-catalyst').text()).toContain('재료: 수주(호재)')
+  })
+
+  it('차트 타이밍 베타 섹션 — 후보 있으면 배너 + 카드(점수/10) 표시', async () => {
+    stubAll()
+    recommendationAPI.getTrendPullbackTop10.mockResolvedValue({ data: { success: true, data: [
+      { code: '207940', name: '삼성바이오로직스', signals: ['정배열', '엔벨로프눌림'], timingScore: 8 }
+    ] } })
+    const w = await mountTab()
+    expect(w.find('.beta-banner').exists()).toBe(true)
+    expect(w.find('.beta-banner').text()).toContain('검증 전 베타')
+    expect(w.text()).toContain('차트 타이밍 매수 후보')
+    expect(w.text()).toContain('삼성바이오로직스')
+    expect(w.text()).toContain('8/10')
+  })
+
+  it('차트 타이밍 후보 0건이면 베타 섹션 숨김', async () => {
+    stubAll()   // getTrendPullbackTop10 → 빈 배열(기본)
+    const w = await mountTab()
+    expect(w.find('.beta-banner').exists()).toBe(false)
   })
 
   it('재료 NONE 이면 배지 생략', async () => {

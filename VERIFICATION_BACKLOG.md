@@ -200,16 +200,17 @@
 
 ---
 
-## P2-12. 차트기법 스코어러 백테스트 (적중률/MDD 측정) — **검증 전 보조 시그널 한정** (2026-06-29 신규)
+## P2-12. 차트 타이밍 스코어러 백테스트 (적중률/MDD 측정) — **검증 전 베타 한정** (2026-06-29 신규)
 
 > **현황**: 펨코 차트 추세추종 기법(정배열·이격도·엔벨로프 눌림목·박스·섹터 상대강도)을 **별도 모듈**로 통합했다.
-> 산식/가중치는 전부 **사후확증 예시 기반이라 승률 미검증** → 현재 **발굴 탭 '추세눌림(보조·미검증)' 트랙 + 섹터강도 배지로만**
-> 노출하고, **봇/종합추천/매수후보 랭킹에는 편입하지 않는다**(코드 가드: 응답 `unverified=true`, momentum 스코어러와 분리).
+> 산식/가중치는 전부 **사후확증 예시 기반이라 승률 미검증** → 현재 노출은 **타이밍 = '오늘' 탭 매수후보 아래 '검증 전 베타'
+> 별도 섹션**(momentum 55컷 후보와 분리·대체 아님) + **섹터강도 = '발굴' 탭 상단 배지**로만. **봇/종합추천/매수후보 랭킹에는
+> 편입하지 않는다**(코드 가드: 응답 `unverified=true`, momentum 스코어러와 분리). **실거래 매수신호로 노출 금지**(베타 라벨 유지).
 
 - **출처/모듈**:
   - python: `app/indicators/*`(순수함수, pytest 有) + `services/chart_pattern_service.py`(타이밍)·`sector_strength_service.py`(섹터) + `routers/chart_patterns.py`(`POST /api/v2/chart/timing`·`/sector-strength`).
   - Java: `ChartPatternClient`(best-effort) + `ChartSignalRanker`(순수, 테스트 有) + `ChartSignalController`(`/api/recommendation/trend-pullback-top10`·`/sector-strength`).
-  - 프론트: `StockTradingDashboardV2.vue` 발굴 '추세눌림' 서브탭(미검증 배너).
+  - 프론트: 타이밍 = `TodayBriefingTab.vue`(오늘 탭 '차트 타이밍 매수 후보' 베타 섹션, `loadTimingCandidates`) / 섹터강도 = `StockTradingDashboardV2.vue`(발굴 탭 상단 배지, `refreshSectorStrength`).
 - **검증 과제**:
   1. **타이밍 신호 적중률**: '신호 발생일 종가 진입 → N거래일 후' 수익률 분포·승률·평균손익. 위험필터(엔벨로프 하단 2회+) 적용/미적용 비교.
   2. **MDD**: 신호 종목 보유 시 최대낙폭. 손절(-3%)·익절(+5%) 동기 가정(봇 상수)과 정합 측정.
@@ -219,4 +220,4 @@
   1. 충분한 표본(예: 최소 N개 신호, 복수 국면 BULL/BEAR/SIDEWAYS 포함)에서 **기준 대비 유의한 우위**(예: 동일기간 buy&hold·종합추천 대비 승률/손익비).
   2. 검증 통과 시에만 **매수후보 타이밍 스코어로 승격**(`unverified` 해제 + 별도 PR). 통과 전까지 보조 시그널 유지.
 - **테스트**: 백테스트 스크립트(표본/기간/국면 분리 집계) + 결과 요약. 산식 변경 시 기존 지표 pytest(`python-backend/tests/test_indicators.py`) 회귀 green.
-- **비고**: 산식은 미검증이나 **구조(발굴/매수후보 분리)는 확정** — CLAUDE.md §4d-2 불변식 참조.
+- **비고**: 산식은 미검증이나 **구조(타이밍↔섹터 분리, momentum 과 별도 모듈)는 확정** — CLAUDE.md §4 "차트 기법 통합 시 발굴/매수후보 스코어러는 항상 분리" 불변식 참조.
