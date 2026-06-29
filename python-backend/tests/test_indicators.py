@@ -4,6 +4,8 @@ python-backend 첫 테스트 인프라. Java RecommendationOversoldTest 스타�
 gate/경계/결측(None) 안전성 검증. 산식 자체의 승률은 별도 백테스트(VERIFICATION_BACKLOG).
 실행: cd python-backend && pytest
 """
+from pytest import approx
+
 from app.config import ChartPatternConfig
 from app.indicators import (
     moving_average as mavg,
@@ -37,7 +39,7 @@ def test_alignment_strength():
 
 # ── 2. 이격도 / 과열 ──────────────────────────────────────────────
 def test_disparity_and_overheat():
-    assert disp.ma60_ma240_disparity(110, 100) == 110.0
+    assert disp.ma60_ma240_disparity(110, 100) == approx(110.0)   # 부동소수 (110/100*100)
     assert disp.ma60_ma240_disparity(110, 0) is None   # 0분모
     assert disp.ma60_ma240_disparity(None, 100) is None
     assert disp.is_overheated(120, 115) is True
@@ -146,7 +148,7 @@ def test_timing_score_partial_alignment():
 
 # ── 7. 섹터 상대강도 ──────────────────────────────────────────────
 def test_pct_return_and_equal_weight():
-    assert ss.pct_return(100, 110) == 10.0
+    assert ss.pct_return(100, 110) == approx(10.0)   # 부동소수 ((110/100-1)*100)
     assert ss.pct_return(0, 110) is None
     assert ss.equal_weight_return([10, None, 20]) == 15.0   # 결측 제외
     assert ss.equal_weight_return([None, None]) is None
