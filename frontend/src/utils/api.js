@@ -1057,6 +1057,14 @@ export const recommendationAPI = {
   // 스마트머니(수급) TOP 10 — 외국인·기관 순매수.
   getSmartMoneyTop10() {
     return apiClient.get('/recommendation/smartmoney-top10', { timeout: 30000 });
+  },
+  // 추세눌림(보조) TOP 10 — 차트기법(정배열+눌림목). ⚠ 미검증 보조 시그널. 유니버스 스캔이라 timeout 여유.
+  getTrendPullbackTop10() {
+    return apiClient.get('/recommendation/trend-pullback-top10', { timeout: 60000 });
+  },
+  // 섹터 상대강도('덜 빠지는 섹터') — 차트기법 발굴 필터. ⚠ 미검증 보조 시그널.
+  getSectorStrength() {
+    return apiClient.get('/recommendation/sector-strength', { timeout: 60000 });
   }
 };
 
