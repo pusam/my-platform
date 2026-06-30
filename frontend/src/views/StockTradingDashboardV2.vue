@@ -534,6 +534,7 @@
           </div>
           <div class="embedded-content">
             <SectionTotalRecommendation v-if="discoverSubTab === 'total'" />
+            <SectionJudgmentBoard v-if="discoverSubTab === 'board'" @open-stock="goToStock" />
             <AiStrategyDashboardPage v-if="discoverSubTab === 'ai-strategy'" :embedded="true" />
             <SectionBacktest v-if="discoverSubTab === 'backtest'" />
             <EarningsScreenerPage v-if="discoverSubTab === 'screener'" :embedded="true" />
@@ -583,6 +584,7 @@ import SectionMarketMap from '../components/v2/SectionMarketMap.vue'
 import SectionQuantTa from '../components/v2/SectionQuantTa.vue'
 import SectionLiveSurge from '../components/v2/SectionLiveSurge.vue'
 import SectionBacktest from '../components/v2/SectionBacktest.vue'
+import SectionJudgmentBoard from '../components/v2/SectionJudgmentBoard.vue'
 import StockSearchModal from '../components/v2/StockSearchModal.vue'
 import SectionTotalRecommendation from '../components/v2/SectionTotalRecommendation.vue'
 import TodayBriefingTab from '../components/v2/TodayBriefingTab.vue'
@@ -651,6 +653,7 @@ export default {
     SectionQuantTa,
     SectionLiveSurge,
     SectionBacktest,
+    SectionJudgmentBoard,
     StockSearchModal,
     SectionTotalRecommendation,
     TodayBriefingTab,
@@ -678,6 +681,7 @@ export default {
       marketSubTab: this.resolveInitialMarketSub(),
       discoverSubTabs: [
         { key: 'total', label: '🎯 종합' },
+        { key: 'board', label: '🧭 종합판단' },
         { key: 'ai-strategy', label: 'AI전략' },
         { key: 'backtest', label: '백테스트' },
         { key: 'screener', label: '스크리너' },
