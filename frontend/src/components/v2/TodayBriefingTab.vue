@@ -58,35 +58,46 @@
       </div>
     </div>
 
-    <!-- ②-b 차트 타이밍 매수 후보 (검증 전 베타) — momentum 후보와 별도 모듈.
-         정배열 안에서 눌린 자리 진입(mean-reversion 타이밍). 후보 없으면 숨김, 단 분석서버 미가용은 명시. -->
-    <div class="today-section" v-if="timingCandidates.length || timingLoading || !timingAvailable">
+    <!-- ②-b 차트 신호 관찰 — momentum 후보와 별도 모듈. 백테스트(P2-12) 결과 적중률 31%·점수 역상관
+         (승격불가)이라 '매수 후보' 아님. 접기 기본(우선순위 낮춤) + 점수 미표시(역상관 오해 방지). -->
+    <div class="today-section today-observe" v-if="timingCandidates.length || timingLoading || !timingAvailable">
       <div class="ts-title-row">
-        <h2>🪝 차트 타이밍 매수 후보</h2>
-        <span class="ts-beta">검증 전 베타</span>
+        <h2>🪝 차트 신호 관찰</h2>
+        <span class="ts-beta ts-poor">예측력 미검증</span>
+        <button class="ts-toggle" @click="timingExpanded = !timingExpanded">
+          {{ timingExpanded ? '접기' : '펼치기' }}
+        </button>
       </div>
-      <div class="beta-banner">
-        ⚠ <strong>검증 전 베타</strong> — 차트기법(정배열·이격도·엔벨로프 눌림목) 기반 진입 타이밍.
-        적중률/MDD 검증 전이라 참고용이며 실거래·봇 신호가 아닙니다.
+      <!-- 접힘: 백테스트 실측 한 줄(매수 신호 아님) -->
+      <div v-if="!timingExpanded" class="observe-collapsed">
+        백테스트 과거 적중률 <strong>31%</strong> · 점수–수익 <strong>무관(역상관)</strong> —
+        매수 신호 아님, 패턴 관찰용.
       </div>
-      <div v-if="timingLoading" class="ts-state">타이밍 분석 중...</div>
-      <!-- 분석서버(python) 미가용 — '신호 없음'과 구분해 명시 -->
-      <div v-else-if="!timingAvailable" class="ts-state">⚠ 분석서버 일시 미가용 — 잠시 후 다시 확인해 주세요.</div>
-      <div v-else class="candidate-list">
-        <div v-for="(c, i) in timingCandidates" :key="c.code"
-             class="candidate-card" @click="$emit('open-stock', c.code)">
-          <span class="cc-rank">#{{ i + 1 }}</span>
-          <div class="cc-main">
-            <div class="cc-head">
-              <span class="cc-name">{{ c.name }}</span>
-              <span class="cc-score">{{ c.timingScore }}/10</span>
-            </div>
-            <div class="cc-tags">
-              <span v-for="(tag, ti) in (c.signals || []).slice(0, 4)" :key="ti" class="cc-tag">{{ tag }}</span>
+      <template v-else>
+        <div class="beta-banner beta-poor">
+          ⚠ <strong>매수 신호 아님 · 관찰용</strong> — 백테스트 결과 과거 적중률 <strong>31%</strong>,
+          점수와 수익이 <strong>무관(오히려 역상관)</strong>이라 점수가 높다고 좋은 자리가 아닙니다.
+          정배열·눌림목 <strong>패턴이 잡힌 종목 관찰용</strong>일 뿐, 실거래·봇 신호가 아닙니다.
+        </div>
+        <div v-if="timingLoading" class="ts-state">타이밍 분석 중...</div>
+        <!-- 분석서버(python) 미가용 — '신호 없음'과 구분해 명시 -->
+        <div v-else-if="!timingAvailable" class="ts-state">⚠ 분석서버 일시 미가용 — 잠시 후 다시 확인해 주세요.</div>
+        <div v-else class="candidate-list">
+          <div v-for="(c, i) in timingCandidates" :key="c.code"
+               class="candidate-card observe-card" @click="$emit('open-stock', c.code)">
+            <span class="cc-rank">#{{ i + 1 }}</span>
+            <div class="cc-main">
+              <div class="cc-head">
+                <span class="cc-name">{{ c.name }}</span>
+                <!-- 점수(timingScore)는 백테스트상 수익과 역상관이라 미표시 — '높을수록 좋음' 오해 방지 -->
+              </div>
+              <div class="cc-tags">
+                <span v-for="(tag, ti) in (c.signals || []).slice(0, 4)" :key="ti" class="cc-tag">{{ tag }}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <!-- ③ 신뢰도 스트립 — 이 추천을 얼마나 믿어도 되나 -->
@@ -148,8 +159,9 @@ const MAX_CANDIDATES = 5;
 const candidatesLoading = ref(false);
 const buyCandidates = ref([]);
 const timingLoading = ref(false);
-const timingCandidates = ref([]);    // 차트 타이밍(검증 전 베타) — momentum 과 별도
+const timingCandidates = ref([]);    // 차트 신호 관찰 — momentum 과 별도. 백테스트 부진(승격불가)이라 매수 신호 아님
 const timingAvailable = ref(true);   // dataAvailable=false → 분석서버 미가용(빈 결과와 구분)
+const timingExpanded = ref(false);   // 백테스트 부진이라 기본 접힘(우선순위 낮춤). 펼쳐야 종목 표시
 const catalysts = ref({});           // stockCode → catalyst dto
 const accuracyStats = ref([]);
 const backtestOverall = ref(null);
@@ -206,7 +218,8 @@ const loadCatalysts = async () => {
   }
 };
 
-// 차트 타이밍 매수 후보 — momentum 과 정반대 objective(추세 안 눌림목). 별도 미검증 모듈.
+// 차트 신호 관찰 — momentum 과 정반대 objective(추세 안 눌림목). 별도 모듈.
+// ⚠ 백테스트(P2-12) 결과 적중률 31%·점수 역상관(승격불가)이라 '매수 후보' 아닌 '관찰용'으로만 노출(접기 기본).
 // best-effort: 후보없음이면 숨김. dataAvailable=false(분석서버 다운)는 '신호 없음'과 구분해 표기.
 const loadTimingCandidates = async () => {
   timingLoading.value = true;
@@ -336,6 +349,21 @@ onMounted(() => {
   margin: 10px 0 4px; padding: 8px 12px; border-radius: 8px;
   background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4);
   color: #fbbf24; font-size: 12px; line-height: 1.5;
+}
+
+/* 차트 신호 관찰 — 백테스트 부진(승격불가) 톤다운(적색 계열 + 기본 접힘) */
+.today-observe { opacity: 0.82; }
+.ts-poor { color: #f87171; background: rgba(248, 113, 113, 0.13); }
+.ts-toggle {
+  font-size: 11px; font-weight: 600; color: #cbd5e1; cursor: pointer;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px; padding: 2px 9px;
+}
+.ts-toggle:hover { background: rgba(255, 255, 255, 0.12); }
+.observe-collapsed { margin-top: 8px; font-size: 12px; line-height: 1.5; opacity: 0.72; }
+.observe-collapsed strong { color: #f87171; }
+.beta-poor {
+  background: rgba(248, 113, 113, 0.10); border-color: rgba(248, 113, 113, 0.38); color: #fca5a5;
 }
 
 /* ② 후보 카드 */
