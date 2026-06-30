@@ -266,9 +266,9 @@
 > 단 시그널 **생성** `record()` 의 중복 INSERT 방지는 **앱레벨 dedup(`findExisting`)뿐**, DB unique 제약은 없다.
 > 단일 인스턴스에선 실위험 없으나, 멀티 인스턴스(P3-1)·경합 시 동시 통과로 중복 행 가능(드묾).
 
-- **과제**: `signal_outcome` 에 `(signal_type, stock_code, signal_date)` unique 제약(또는 INSERT ... ON DUP) 추가 검토. 기존 중복 행 정리 선행 필요.
-- **선결**: P3-1(멀티 인스턴스) 착수 시 함께. 현재는 보류(단일 인스턴스 실위험 없음).
-- **관련**: `SignalOutcomeService.record()`/`evaluatePendingSignals`(멱등성 주석), `SignalOutcomeRepository.findExisting`.
+- **✅ 해소(2026-06-30, 작업2, V36)**: `V36__add_signal_outcome_unique.sql` — 자기조인 DELETE(최소 id 보존, 원자적) → `ADD CONSTRAINT uq_so_type_code_date UNIQUE (signal_type, stock_code, signal_date)`. 엔티티 `@UniqueConstraint`(idx_so_type_date 는 컬럼순서 달라 중복 아님 → 유지). `record()` INSERT 를 `insertOutcomeIsolated`(`@Transactional REQUIRES_NEW`, selfProvider 프록시)로 격리 + `DataIntegrityViolationException` benign 처리(경합 패자가 호출부 tx 무오염). 검증: 컴파일 + `*SignalOutcome*` + `ApplicationContextSmokeTest` green. **배포 시 Flyway 자동 적용** — 사전 감사 SELECT 로 중복 규모 확인 권장, 사후 `SHOW CREATE TABLE signal_outcome` 로 제약 확인.
+- **(원과제)**: `signal_outcome` 에 `(signal_type, stock_code, signal_date)` unique 제약 추가 + 기존 중복 행 정리 선행. P3-1(멀티 인스턴스)과 독립적으로 단일 인스턴스에서도 방어로 선반영(REQUIRES_NEW 격리라 멀티 인스턴스 확장 시에도 유효).
+- **관련**: `SignalOutcomeService.record()`/`insertOutcomeIsolated`/`evaluatePendingSignals`(멱등성 주석), `SignalOutcomeRepository.findExisting`, `SignalOutcome`(@UniqueConstraint), `V36__add_signal_outcome_unique.sql`.
 
 ---
 
