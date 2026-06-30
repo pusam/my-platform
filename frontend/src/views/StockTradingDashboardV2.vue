@@ -82,17 +82,28 @@
           <span class="sector-strength-label" style="opacity:0.6">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
         </div>
 
-        <!-- 발굴 리스트 서브탭 (저평가 / 성장 / 낙폭과대) — 한 번에 하나만 표시해 정리 -->
-        <div class="sub-tabs" v-if="activeGnbTab === 'discover'">
-          <button v-for="st in discoverListTabs" :key="st.key"
-            :class="['sub-tab-btn', { active: discoverListTab === st.key }]"
-            @click="selectDiscoverList(st.key)">
-            {{ st.label }}
-          </button>
+        <!-- 발굴 2단 서브탭 (목록 5트랙 + 심화도구) — 둘 다 상단, 선택한 그룹의 콘텐츠 하나만 표시 -->
+        <div class="discover-nav" v-if="activeGnbTab === 'discover'">
+          <div class="sub-tabs">
+            <span class="sub-group-label">목록</span>
+            <button v-for="st in discoverListTabs" :key="st.key"
+              :class="['sub-tab-btn', { active: discoverGroup === 'list' && discoverListTab === st.key }]"
+              @click="selectDiscoverList(st.key)">
+              {{ st.label }}
+            </button>
+          </div>
+          <div class="sub-tabs">
+            <span class="sub-group-label">심화</span>
+            <button v-for="st in discoverSubTabs" :key="st.key"
+              :class="['sub-tab-btn', { active: discoverGroup === 'deep' && discoverSubTab === st.key }]"
+              @click="selectDiscoverDeep(st.key)">
+              {{ st.label }}
+            </button>
+          </div>
         </div>
 
         <!-- ②-a 저평가 TOP 10 (아직 안 오른 가치주) -->
-        <div id="briefing-section-value" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'value'">
+        <div id="briefing-section-value" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'value'">
           <div class="section-title-row">
             <h2><span class="section-icon">💎</span> 저평가 TOP {{ valueTop10.length > 0 ? valueTop10.length : 10 }}</h2>
             <span v-if="valueTopDataTime" class="rec-data-time">{{ valueTopDataTime }}</span>
@@ -138,7 +149,7 @@
         </div>
 
         <!-- ②-b 성장주 TOP 10 (발굴 탭 — 빠르게 크는 종목, 저평가와 짝) -->
-        <div id="briefing-section-growth" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'growth'">
+        <div id="briefing-section-growth" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'growth'">
           <div class="section-title-row">
             <h2><span class="section-icon">🚀</span> 성장주 TOP {{ growthTop10.length > 0 ? growthTop10.length : 10 }}</h2>
             <span v-if="growthTopDataTime" class="rec-data-time">{{ growthTopDataTime }}</span>
@@ -184,7 +195,7 @@
         </div>
 
         <!-- ②-c 낙폭과대 반등 TOP 10 (발굴 탭 — 많이 빠진 과매도 + 반등 조짐, 추격의 반대) -->
-        <div id="briefing-section-oversold" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'oversold'">
+        <div id="briefing-section-oversold" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'oversold'">
           <div class="section-title-row">
             <h2><span class="section-icon">📉</span> 낙폭과대 반등 TOP {{ oversoldTop10.length > 0 ? oversoldTop10.length : 10 }}</h2>
             <span v-if="oversoldTopDataTime" class="rec-data-time">{{ oversoldTopDataTime }}</span>
@@ -230,7 +241,7 @@
         </div>
 
         <!-- ②-d 실적 서프라이즈 TOP 10 (흑자전환·영업이익 급증) -->
-        <div id="briefing-section-earnings" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'earnings'">
+        <div id="briefing-section-earnings" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'earnings'">
           <div class="section-title-row">
             <h2><span class="section-icon">💰</span> 실적 서프라이즈 TOP {{ earningsTop10.length > 0 ? earningsTop10.length : 10 }}</h2>
             <span v-if="earningsTopDataTime" class="rec-data-time">{{ earningsTopDataTime }}</span>
@@ -266,7 +277,7 @@
         </div>
 
         <!-- ②-e 스마트머니(수급) TOP 10 (외국인·기관 순매수) -->
-        <div id="briefing-section-smartmoney" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverListTab === 'smartmoney'">
+        <div id="briefing-section-smartmoney" class="top-rec section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && discoverListTab === 'smartmoney'">
           <div class="section-title-row">
             <h2><span class="section-icon">🏦</span> 스마트머니 TOP {{ smartMoneyTop10.length > 0 ? smartMoneyTop10.length : 10 }}</h2>
             <span v-if="smartMoneyTopDataTime" class="rec-data-time">{{ smartMoneyTopDataTime }}</span>
@@ -341,7 +352,7 @@
         </div>
 
         <!-- ③ 시간대별 신호 (장전·장후 전용) → 발굴 탭 -->
-        <div class="today-signals section-card" v-if="activeGnbTab === 'discover' && currentPhaseKey !== 'during'">
+        <div class="today-signals section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && currentPhaseKey !== 'during'">
           <div class="section-title-row">
             <h2>
               <span class="section-icon">{{ marketPhase.icon }}</span>
@@ -381,12 +392,12 @@
 
         <!-- ③-b 실시간 수급 급증 (장중) → 발굴 탭 -->
         <SectionLiveSurge
-          v-if="activeGnbTab === 'discover' && currentPhaseKey === 'during'"
+          v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && currentPhaseKey === 'during'"
           :active="currentPhaseKey === 'during'"
         />
 
         <!-- ③ 관심종목 현황 (장전 시간대 전용) -->
-        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'discover' && currentPhaseKey === 'pre' && watchlistItems.length">
+        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && currentPhaseKey === 'pre' && watchlistItems.length">
           <div class="section-title-row">
             <h2><span class="section-icon">⭐</span> 관심종목</h2>
             <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'discover'">전체 보기 →</a>
@@ -449,7 +460,7 @@
         </div>
 
         <!-- 관심종목 차트 신호 → 발굴 탭 -->
-        <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="activeGnbTab === 'discover' && chartSignals.length">
+        <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && chartSignals.length">
           <div class="section-title-row">
             <h2><span class="section-icon">📊</span> 차트 신호 종목</h2>
             <div class="cs-controls">
@@ -523,18 +534,11 @@
           />
         </div>
 
-        <!-- 발굴 탭 — 심화 도구 서브탭 (종합/AI전략/백테스트/스크리너/퀀트TA) -->
-        <template v-if="activeGnbTab === 'discover'">
-          <div class="sub-tabs">
-            <button v-for="st in discoverSubTabs" :key="st.key"
-              :class="['sub-tab-btn', { active: discoverSubTab === st.key }]"
-              @click="discoverSubTab = st.key">
-              {{ st.label }}
-            </button>
-          </div>
+        <!-- 발굴 심화 콘텐츠 (서브탭 바는 상단으로 이동) — 그룹=deep 일 때만 표시 -->
+        <template v-if="activeGnbTab === 'discover' && discoverGroup === 'deep'">
           <div class="embedded-content">
             <SectionTotalRecommendation v-if="discoverSubTab === 'total'" />
-            <SectionJudgmentBoard v-if="discoverSubTab === 'board'" @open-stock="goToStock" />
+            <SectionJudgmentBoard v-if="discoverSubTab === 'board'" @open-stock="goToStock" @switch-to-list="goDiscoverListDefault" />
             <AiStrategyDashboardPage v-if="discoverSubTab === 'ai-strategy'" :embedded="true" />
             <SectionBacktest v-if="discoverSubTab === 'backtest'" />
             <EarningsScreenerPage v-if="discoverSubTab === 'screener'" :embedded="true" />
@@ -678,6 +682,8 @@ export default {
       activeGnbTab: this.resolveInitialTab(),
       // P-IA: 발굴 탭 deep-tool 서브탭 / 시장 탭 deep-tool 서브탭
       discoverSubTab: this.resolveInitialSubTab(),
+      // ★ 발굴 기본 진입 그룹 — 'deep'(심화: 종합판단 보드) / 'list'(목록 5트랙). 되돌리려면 이 한 줄만 'list'로.
+      discoverGroup: this.resolveInitialDiscoverGroup(),
       marketSubTab: this.resolveInitialMarketSub(),
       discoverSubTabs: [
         { key: 'total', label: '🎯 종합' },
@@ -1097,8 +1103,14 @@ export default {
     },
     resolveInitialSubTab() {
       const sub = this.$route?.query?.sub
-      const valid = ['total', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
-      return valid.includes(sub) ? sub : 'ai-strategy'
+      const valid = ['total', 'board', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
+      return valid.includes(sub) ? sub : 'board'   // 기본 = 종합판단 보드
+    },
+    // 발굴 기본 그룹 — 쿼리 sub 가 목록 트랙이면 'list', 아니면 'deep'(기본 종합판단).
+    resolveInitialDiscoverGroup() {
+      const sub = this.$route?.query?.sub
+      const listKeys = ['value', 'growth', 'oversold', 'earnings', 'smartmoney']
+      return listKeys.includes(sub) ? 'list' : 'deep'
     },
     resolveInitialMarketSub() {
       const sub = this.$route?.query?.sub
@@ -1143,8 +1155,18 @@ export default {
     },
     // 발굴 리스트 서브탭 전환 — 선택 + 해당 리스트 lazy 로드.
     selectDiscoverList(key) {
+      this.discoverGroup = 'list'
       this.discoverListTab = key
       this.ensureDiscoverListLoaded(key)
+    },
+    // 심화도구 탭 선택 — 그룹 전환 + 서브탭 지정(콘텐츠 하나만 표시).
+    selectDiscoverDeep(key) {
+      this.discoverGroup = 'deep'
+      this.discoverSubTab = key
+    },
+    // 빈 보드 폴백에서 '목록에서 발굴' — 목록 그룹 기본 트랙으로 전환.
+    goDiscoverListDefault() {
+      this.selectDiscoverList('value')
     },
     // 선택된 발굴 리스트가 비었으면 로드 (캐시되어 있으면 재호출 안 함).
     ensureDiscoverListLoaded(key) {
@@ -1232,7 +1254,8 @@ export default {
       // 발굴 탭 진입 — 현재 선택된 리스트 서브탭만 lazy 로드 (낙폭과대 스캔이 무거워 안 볼 땐 호출 안 함).
       // 모멘텀 TOP10 은 오늘 탭으로 일원화되어 발굴에선 미사용.
       if (tab === 'discover') {
-        this.ensureDiscoverListLoaded(this.discoverListTab)
+        // 목록 그룹일 때만 리스트 lazy 로드(심화=종합판단 기본 진입 시 불필요한 호출 방지).
+        if (this.discoverGroup === 'list') this.ensureDiscoverListLoaded(this.discoverListTab)
         this.refreshSectorStrength()   // 상단 '덜 빠지는 섹터' 배지(1h 캐시, 1회)
       }
     },
@@ -1278,9 +1301,9 @@ export default {
       // 오늘 강세 섹터
       this.loadStrongSectors()
 
-      // 발굴 리스트 — 현재 선택된 서브탭만 로드 (나머지는 서브탭 전환 시 lazy 로드).
+      // 발굴 리스트 — 목록 그룹 + 현재 선택된 서브탭만 로드 (나머지는 서브탭 전환 시 lazy 로드).
       // (모멘텀 종합추천은 오늘 탭으로 일원화 — 여기서 미로드)
-      this.ensureDiscoverListLoaded(this.discoverListTab)
+      if (this.discoverGroup === 'list') this.ensureDiscoverListLoaded(this.discoverListTab)
 
       // 수급 현황 패널
       this.loadSupplyPanel()
@@ -1681,6 +1704,13 @@ export default {
   border-radius: 12px;
   margin-bottom: 20px;
   overflow-x: auto;
+}
+/* 발굴 2단 네비 — 목록/심화 두 줄을 상단에 모음 */
+.discover-nav { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.discover-nav .sub-tabs { margin-bottom: 0; }
+.sub-group-label {
+  flex: 0 0 auto; align-self: center; white-space: nowrap;
+  font-size: 11px; font-weight: 700; opacity: 0.5; padding: 0 8px 0 4px;
 }
 .sub-tab-btn {
   padding: 8px 16px;
@@ -2168,6 +2198,8 @@ export default {
 
   /* 분석 sub-tabs — 화면 가득 채우지 말고 가로 스크롤 */
   .sub-tab-btn { padding: 7px 12px; font-size: 12px; }
+  /* 모바일: 그룹 라벨(목록/심화) 숨기고 아이콘 탭만 — 두 줄로 이미 구분됨 */
+  .sub-group-label { display: none; }
 }
 
 /* ───── 매우 작은 화면(아이폰 mini 등): 380px 이하 ───── */

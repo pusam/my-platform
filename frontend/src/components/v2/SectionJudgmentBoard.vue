@@ -24,7 +24,18 @@
 
     <div v-if="loading" class="jb-state">불러오는 중...</div>
     <div v-else-if="error" class="jb-state">보드 조회 실패 — 잠시 후 다시 시도</div>
-    <div v-else-if="!visibleRows.length" class="jb-state">표시할 후보가 없습니다.</div>
+    <div v-else-if="!visibleRows.length" class="jb-empty">
+      <template v-if="board && board.rows && board.rows.length">
+        <p class="jbe-title">필터에 맞는 종목이 없습니다</p>
+        <p class="jbe-desc">상단 필터(역상관 숨기기 / 기술 강세만)를 해제해 보세요.</p>
+      </template>
+      <template v-else>
+        <p class="jbe-title">오늘 비교할 BUY 후보가 적습니다</p>
+        <p class="jbe-desc">종합점수 컷(검증/게이트, validCount≥3 &amp; 55↑)을 통과한 종목이 부족합니다.
+          목록 탭(💎저평가·🚀성장·📉낙폭·💰실적·🏦수급)에서 다각도로 발굴해 보세요.</p>
+        <button class="jbe-btn" @click="$emit('switch-to-list')">📋 목록 탭에서 발굴</button>
+      </template>
+    </div>
 
     <div v-else class="jb-scroll">
       <table class="jb-table">
@@ -75,7 +86,7 @@
 import { ref, computed, onMounted } from 'vue';
 import apiClient from '../../utils/api';
 
-defineEmits(['open-stock']);
+defineEmits(['open-stock', 'switch-to-list']);
 
 const board = ref(null);
 const loading = ref(false);
@@ -144,6 +155,15 @@ onMounted(load);
 .jb-filters label { cursor: pointer; opacity: 0.85; }
 .jb-count { margin-left: auto; opacity: 0.6; }
 .jb-state { padding: 24px 0; text-align: center; font-size: 13px; opacity: 0.6; }
+.jb-empty { padding: 32px 16px; text-align: center; }
+.jbe-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.jbe-desc { margin: 0 auto 16px; max-width: 440px; font-size: 12.5px; line-height: 1.6; opacity: 0.7; }
+.jbe-btn {
+  font-size: 13px; font-weight: 600; color: #7dd3fc; cursor: pointer;
+  background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 8px; padding: 8px 16px;
+}
+.jbe-btn:hover { background: rgba(56, 189, 248, 0.2); }
 .jb-scroll { overflow-x: auto; }
 .jb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .jb-table th, .jb-table td { padding: 7px 9px; text-align: center; white-space: nowrap; }
