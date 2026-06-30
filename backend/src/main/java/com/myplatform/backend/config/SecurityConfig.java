@@ -127,7 +127,9 @@ public class SecurityConfig {
                                 "/api/signal-outcomes/compare",
                                 "/api/signal-outcomes/timeseries",
                                 "/api/recommendation/strong-value-frequency",
-                                "/api/diagnostics/**"
+                                "/api/diagnostics/**",
+                                // KOSPI 지수 일봉(공개 시장데이터) — python regime/sector 가 내부 소비.
+                                "/api/market/index/**"
                         ).permitAll()
 
                         // 테스트 API - public 엔드포인트

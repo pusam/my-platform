@@ -541,6 +541,103 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * 지수 일봉 OHLCV 조회 — regime/sector 의 KOSPI MA60 계산용.
+     * KIS TR FHPUP02120000 (inquire-index-daily-price). pykrx 지수 엔드포인트가 KRX 포맷 변경으로
+     * 전구간 빈값(2026-06-30)이라 KIS 일봉으로 전환. 진짜 종합지수(0001) — ETF 프록시 아님.
+     *
+     * @param indexCode 지수코드 (0001: 코스피, 1001: 코스닥)
+     * @param days 조회 <b>캘린더</b> 일수(거래일 아님 — 130 캘린더 ~ 90 거래일이라 MA60+5일슬로프 충분).
+     * @return 일봉 리스트(오름차순 과거→최신, pykrx 동형). 실패/미설정 시 빈 리스트(위장값 금지).
+     */
+    public java.util.List<IndexOhlcvData> getIndexDailyOhlcv(String indexCode, int days) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
+            String token = getAccessToken();
+            if (token == null) {
+                return java.util.List.<IndexOhlcvData>of();
+            }
+            try {
+                java.time.LocalDate end = java.time.LocalDate.now();
+                java.time.LocalDate start = end.minusDays(days);
+                java.time.format.DateTimeFormatter fmt =
+                        java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
+
+                // 국내주식업종기간별시세(일/주/월/년) — U: 업종(지수)
+                String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-index-daily-price"
+                        + "?FID_COND_MRKT_DIV_CODE=U"
+                        + "&FID_INPUT_ISCD=" + indexCode
+                        + "&FID_INPUT_DATE_1=" + start.format(fmt)
+                        + "&FID_INPUT_DATE_2=" + end.format(fmt)
+                        + "&FID_PERIOD_DIV_CODE=D";
+
+                HttpHeaders headers = createHeaders(token, "FHPUP02120000");
+                HttpEntity<String> request = new HttpEntity<>(headers);
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.GET, request, String.class);
+
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    java.util.List<IndexOhlcvData> rows =
+                            parseIndexDaily(objectMapper.readTree(response.getBody()));
+                    log.debug("지수 일봉 조회 [{}]: {} 건", indexCode, rows.size());
+                    return rows;
+                }
+            } catch (Exception e) {
+                rethrowIfRateLimit(e);
+                log.error("지수 일봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
+            }
+            return java.util.List.<IndexOhlcvData>of();
+        });
+    }
+
+    /**
+     * 지수 일봉 응답 파싱 — 순수 함수(테스트 대상). {@code output2[]} → 오름차순(과거→최신) 리스트.
+     * (주의) 필드명(bstp_nmix_oprc/hgpr/lwpr/prpr, stck_bsop_date)은 KIS 규격 기준 — 결측/이상 행은 graceful skip(보정 없이 위장값 금지).
+     * 종가(bstp_nmix_prpr) 결측 행은 제외; 시/고/저는 누락 시 null 허용(regime 은 종가만 필요).
+     */
+    static java.util.List<IndexOhlcvData> parseIndexDaily(JsonNode response) {
+        java.util.List<IndexOhlcvData> out = new java.util.ArrayList<>();
+        if (response == null || !response.has("output2") || !response.get("output2").isArray()) {
+            return out;
+        }
+        for (JsonNode item : response.get("output2")) {
+            String dateStr = nodeText(item, "stck_bsop_date");
+            java.math.BigDecimal close = nodeDecimal(item, "bstp_nmix_prpr");
+            if (dateStr == null || dateStr.length() != 8
+                    || close == null || close.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                continue;   // 영업일자/종가 결측/이상 → 제외
+            }
+            String iso = dateStr.substring(0, 4) + "-" + dateStr.substring(4, 6) + "-" + dateStr.substring(6, 8);
+            out.add(new IndexOhlcvData(iso,
+                    nodeDecimal(item, "bstp_nmix_oprc"), nodeDecimal(item, "bstp_nmix_hgpr"),
+                    nodeDecimal(item, "bstp_nmix_lwpr"), close));
+        }
+        out.sort(java.util.Comparator.comparing(IndexOhlcvData::date));   // 과거→최신 (pykrx 동형)
+        return out;
+    }
+
+    private static String nodeText(JsonNode item, String field) {
+        if (item != null && item.has(field)) {
+            String v = item.get(field).asText();
+            return (v == null || v.isEmpty()) ? null : v;
+        }
+        return null;
+    }
+
+    private static java.math.BigDecimal nodeDecimal(JsonNode item, String field) {
+        String v = nodeText(item, field);
+        if (v == null) return null;
+        try {
+            return new java.math.BigDecimal(v.replace(",", ""));
+        } catch (NumberFormatException e) {
+            return null;   // 파싱 불가 → null (보정 안 함)
+        }
+    }
+
+    /** 지수 일봉 한 점 — date(yyyy-MM-dd) + OHLC. JSON 직렬화되어 python regime/sector 가 소비. */
+    public record IndexOhlcvData(String date, java.math.BigDecimal open,
+                                 java.math.BigDecimal high, java.math.BigDecimal low,
+                                 java.math.BigDecimal close) {}
+
+    /**
      * 주식 분봉 데이터 조회 (당일 1분봉)
      * KIS API: FHKST03010200 - 주식당일분봉조회
      *

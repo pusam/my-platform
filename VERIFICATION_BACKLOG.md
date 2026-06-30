@@ -281,3 +281,21 @@
 - **과제**: `int growth`/`int valueStability` → `Integer`(nullable) 전환 + 컬럼 nullable + 사용처(`>= 0` 가드)를 `!= null` 로 정리. 또는 sentinel 유지하되 모든 사용처에 가드 강제.
 - **비용/보류 사유**: V29 마이그레이션 default(-1)로 기존 행 다수 → 컬럼 타입 변경 + 데이터 백필 비용 큼. 현재는 verdictFor 가드 + 경고 주석으로 1차 방어, 근본 전환은 보류.
 - **관련**: `RecommendationSnapshot.growth`/`valueStability`(경고 주석), `StockConclusionService.verdictFor`(score<0 가드), `RecommendationService.scoreGrowth`.
+
+---
+
+## P0-pykrx. pykrx 지수·종목리스트 엔드포인트 KRX 포맷 변경으로 전구간 빈값 (2026-06-30 발견)
+
+> **진단(2026-06-30, 서버 프로브 확정)**: pykrx 1.0.45 에서 `get_index_ohlcv('1001')`·`get_market_ticker_list()` 가
+> **날짜 무관 전구간 0건/빈값**(KRX 가 지수·리스트 엔드포인트 응답 포맷 변경, pykrx 미대응). 표면 증상은
+> `KeyError:'지수명'`(get_index_ticker_name)이나 shim 으로 막아도 rows=0 → fetch 자체가 빈 데이터. **개별 종목 OHLCV
+> (`get_market_ohlcv`)는 정상**(백테스트 646신호 정상)이라 "지수·리스트 계열" 엔드포인트만 깨짐.
+
+- **영향 범위(정밀)**:
+  - **regime(시장국면, V32)** ← `get_index_ohlcv` MA60 → `regime_at_signal` NULL 누적(backfill 불가). **라이브 추천 점수는 무영향**(RecommendationService 가 자체 sector-momentum regime 사용, python regime 소비자는 `SignalOutcomeService` 스냅샷뿐).
+  - **sector_strength 배지(발굴탭 베타)** ← `_market_return` KOSPI 결측.
+  - **차트 백테스트 alpha** ← `_fetch_index` 결측(작업1 결론 불변).
+  - **종목마스터(stock_master)는 무영향** — `KrxStockMasterSeeder` 가 pykrx 가 아니라 **KRX KIND HTML**(`kind.krx.co.kr/corpgeneral/corpList.do`, Jsoup) 소스라 신규상장/상폐 반영 정상. (당초 의심했으나 코드 확인으로 무관 확정.)
+- **✅ 지수 절반 해소(2026-06-30, P0-pykrx 작업)**: pykrx 지수 의존을 **KIS 일봉 지수로 전환**(Option B). Java `KoreaInvestmentService.getIndexDailyOhlcv(0001, days)`(TR `FHPUP02120000`, 진짜 종합지수 — ETF 프록시 아님) + 내부 엔드포인트 `GET /api/market/index/kospi-daily`(permitAll, `MarketIndexController`). python `regime_service`·`sector_strength_service` 가 pykrx 대신 이걸 소비(국면 규칙 v1·classify 로직·테스트 불변, §10·§4c 보존). 파서 순수함수 단위테스트 `KoreaInvestmentIndexParseTest`.
+- **잔여(후순위)**: `get_market_ticker_list`(reconstructed 백테스트 유니버스 복원) — **별개 엔드포인트, 운영 무관**(종목마스터는 위처럼 안전). reconstructed 교차검증은 작업1 결론(승격불가)이 확정이라 후순위. 차후 필요 시 KIS/KRX KIND 기반 시점복원으로 대체 검토.
+- **관련**: python `regime_service.py`·`sector_strength_service.py`·`chart_backtest_service.py`(pykrx 지수 호출 3곳), Java `KoreaInvestmentService.getIndexDailyOhlcv`/`parseIndexDaily`·`MarketIndexController`, `SecurityConfig`(permitAll `/api/market/index/**`).
