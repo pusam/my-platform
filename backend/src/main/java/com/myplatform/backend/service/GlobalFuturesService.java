@@ -53,6 +53,8 @@ public class GlobalFuturesService {
         FUTURES_MAP.put("NQ", new FuturesInfo("NQ", "NQ=F", "나스닥100 선물", "나스닥100", "index", "CME"));
         FUTURES_MAP.put("ES", new FuturesInfo("ES", "ES=F", "S&P500 E-mini", "S&P500", "index", "CME"));
         FUTURES_MAP.put("YM", new FuturesInfo("YM", "YM=F", "다우 E-mini", "다우존스", "index", "CBOT"));
+        // 작업3 — 필라델피아 반도체 지수(간밤 미국장 tilt 용, 한국 반도체 비중 커 별도 추적). Yahoo 지수라 marketState=None 가능.
+        FUTURES_MAP.put("SOX", new FuturesInfo("SOX", "^SOX", "필라델피아 반도체", "SOX", "index", "PHLX"));
         FUTURES_MAP.put("CL", new FuturesInfo("CL", "CL=F", "WTI 원유", "WTI", "commodity", "NYMEX"));
         FUTURES_MAP.put("BZ", new FuturesInfo("BZ", "BZ=F", "브렌트유", "Brent", "commodity", "ICE"));
         FUTURES_MAP.put("GC", new FuturesInfo("GC", "GC=F", "금 선물", "Gold", "commodity", "COMEX"));

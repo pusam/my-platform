@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.service.GlobalFuturesService;
 import com.myplatform.backend.service.GlobalFuturesService.FuturesQuote;
+import com.myplatform.backend.service.OvernightUsMarketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +16,7 @@ import java.util.Map;
 public class GlobalFuturesController {
 
     private final GlobalFuturesService globalFuturesService;
+    private final OvernightUsMarketService overnightUsMarketService;
 
     /**
      * 전체 해외선물 시세 조회
@@ -49,6 +51,19 @@ public class GlobalFuturesController {
         return ResponseEntity.ok(Map.of(
                 "success", true,
                 "data", analysis
+        ));
+    }
+
+    /**
+     * 간밤 미국장 국면 보조(tilt) — 작업3. '오늘' 탭 참고 컨텍스트(미검증, regime 산식 미편입).
+     * S&P500/나스닥100/SOX 등락률 + VIX 레벨 → BULL/NEUTRAL/BEAR.
+     */
+    @GetMapping("/overnight-us")
+    public ResponseEntity<Map<String, Object>> getOvernightUs() {
+        Map<String, Object> data = overnightUsMarketService.getOvernightView();
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", data
         ));
     }
 }
