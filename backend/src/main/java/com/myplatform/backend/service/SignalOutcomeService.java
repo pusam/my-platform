@@ -10,8 +10,10 @@ import com.myplatform.backend.entity.SignalOutcome;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -51,6 +53,9 @@ public class SignalOutcomeService {
     // phase 33: STRONG_BUY 평균 alpha 음수 지속 시 risk 채널 헬스 알림. ObjectProvider 로 받아
     // 텔레그램 미설정 환경(예: 로컬 테스트)에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider;
+    // 작업2(V36) — insertOutcomeIsolated(REQUIRES_NEW) 를 프록시 경유로 호출하기 위한 자기참조.
+    // 자기호출(this.method())은 트랜잭션 어드바이스를 우회하므로 ObjectProvider(lazy)로 프록시를 받는다.
+    private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> selfProvider;
     private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
@@ -98,8 +103,8 @@ public class SignalOutcomeService {
             return;
         }
         LocalDate today = LocalDate.now();
-        // 중복 INSERT 방지는 앱레벨 dedup 뿐 — (signalType, stockCode, today) DB unique 제약은 없다.
-        // 멀티 인스턴스/경합 시 동시 통과 가능(드묾). DB unique 제약 검토는 VERIFICATION_BACKLOG 참조(작업4).
+        // 1차 방어: 앱레벨 dedup(findExisting). 2차 방어: DB UNIQUE(uq_so_type_code_date, V36).
+        // 멀티 인스턴스/경합으로 findExisting 를 동시 통과해도 아래 INSERT(REQUIRES_NEW)가 UNIQUE 위반 → benign 처리.
         if (!repository.findExisting(signalType, stockCode, today).isEmpty()) {
             return;
         }
@@ -127,7 +132,7 @@ public class SignalOutcomeService {
                 }
             } catch (Exception ignore) { /* 국면 스냅샷은 best-effort */ }
 
-            repository.save(SignalOutcome.builder()
+            SignalOutcome outcome = SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
                     .stockName(stockName)
@@ -142,10 +147,29 @@ public class SignalOutcomeService {
                     .catalystTypeAtSignal(catalystType)
                     .catalystDirectionAtSignal(catalystDirection)
                     .regimeAtSignal(regime)
-                    .build());
+                    .build();
+            // INSERT 는 REQUIRES_NEW 로 격리 — UNIQUE(uq_so_type_code_date) 위반(경합 패자)이
+            // 호출부/이 메서드 tx 를 rollback-only 로 오염시키지 않게(새 tx 만 롤백).
+            selfProvider.getObject().insertOutcomeIsolated(outcome);
+        } catch (DataIntegrityViolationException dup) {
+            // 경합 패자 — 다른 스레드/인스턴스가 같은 (type, code, date)를 먼저 기록(UNIQUE 가 차단). 정상.
+            log.debug("[SignalOutcome] 중복 record 무시(경합 UNIQUE): {}/{}", signalType, stockCode);
         } catch (Exception e) {
             log.debug("[SignalOutcome] record 실패 ({}/{}): {}", signalType, stockCode, e.getMessage());
         }
+    }
+
+    /**
+     * 시그널 outcome INSERT — REQUIRES_NEW 로 격리(작업2, V36).
+     *
+     * <p>UNIQUE(uq_so_type_code_date) 위반 시 <b>이 새 트랜잭션만 롤백</b>되고, 호출부 {@link #record}
+     * 는 {@link DataIntegrityViolationException} 을 benign 처리한다(winner 가 이미 기록 = 결과 정합).
+     * 같은 클래스 자기호출은 트랜잭션 어드바이스를 우회하므로 record() 는 {@code selfProvider.getObject()}
+     * (프록시)로 이 메서드를 호출해야 REQUIRES_NEW 가 적용된다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void insertOutcomeIsolated(SignalOutcome outcome) {
+        repository.save(outcome);
     }
 
     /**

@@ -16,11 +16,18 @@ import java.time.LocalDateTime;
  * 시그널 발생 시 INSERT, 일일 배치가 3일 후 평가해 price_after_3d / pct_change_3d / hit / evaluated_at 채움.
  */
 @Entity
-@Table(name = "signal_outcome", indexes = {
-        @Index(name = "idx_so_type_date", columnList = "signal_type, signal_date"),
-        @Index(name = "idx_so_unevaluated", columnList = "signal_date, evaluated_at"),
-        @Index(name = "idx_so_stock_code", columnList = "stock_code")
-})
+@Table(name = "signal_outcome",
+        // V36 — (signal_type, stock_code, signal_date) 중복 INSERT 방어(P3-2). record() 앱레벨
+        // dedup 보완. idx_so_type_date 와는 컬럼 순서가 달라(stock_code 가 중간) 중복 인덱스 아님 → 둘 다 유지.
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uq_so_type_code_date",
+                        columnNames = {"signal_type", "stock_code", "signal_date"})
+        },
+        indexes = {
+                @Index(name = "idx_so_type_date", columnList = "signal_type, signal_date"),
+                @Index(name = "idx_so_unevaluated", columnList = "signal_date, evaluated_at"),
+                @Index(name = "idx_so_stock_code", columnList = "stock_code")
+        })
 @Data
 @Builder
 @NoArgsConstructor
