@@ -326,3 +326,20 @@
 - **합격 시**: 임계값 데이터 기반 보정. (단 regime 산식 편입은 별도 결정 — 현 설계는 표시 전용 유지가 기본.)
 - **데이터 소스**: `GET /api/global-futures/overnight-us`(tilt+drivers) 일자별 스냅 + KOSPI 일봉(KIS, P0-pykrx로 복구됨). 신호처럼 `signal_outcome` 패턴으로 스냅 누적 검토.
 - **관련**: `OvernightUsMarketService`(`classifyOvernight` 순수, `OvernightUsMarketServiceTest`), `GlobalFuturesController`(`/overnight-us`), 프론트 `TodayBriefingTab.vue`(`loadOvernight`). 참고: 기존 `getKospiImpactAnalysis`(0~100 개장 영향예측)는 별개 모델.
+
+---
+
+## P1-6. 종합점수 4카테고리 적중률 캘리브레이션 (★1순위 — 2026-06-30 신규, 실측 진단 기반)
+
+> **배경**: 차트타이밍 백테스트(31%·점수 역상관, P2-12)에서 "검증 안 된 지표를 합산하면 좋은 신호를 망친다"를 학습.
+> 이에 **현재 종합점수 4카테고리(earnings/supplyDemand/technical/sectorMomentum ×20)의 실제 적중률**을 prod
+> `signal_outcome`(평가완료 2996건, 단 카테고리 점수 보유 **88건**, regime 0건=pykrx 영향 P0-pykrx로 어제 복구)으로 진단.
+
+- **실측 결과(2026-06-30, n=88 — 표본 작음, 방향성 참고)**:
+  - **수급(supplyDemand) = 역상관 구조적 확정 ❌**: 점수구간 단조 감소(0-4=66.7% / 5-9=50% / 10-14=41.2% / **15+=34.8%**), 평균수익도 7.61→0.38 동반 하락. 메커니즘 = `scoreSupplyDemand`가 연속·대량 순매수를 가점 → **≥15는 "이미 많이 사들여진=혼잡=반락"**(차트타이밍 눌림목과 동일 계열). 코드가 5일+ 가점↓로 일부 인지하나 ≥15 누적 시 결국 오른 종목 쏠림.
+  - **기술(technical) = 예측력 有 ✅**: 강세(≥15) 57.1% > 약세 43.2%(+13.9%p). 4개 중 유일하게 일함.
+  - **실적(earnings)**: 진단 진행 중(88건 전부 ≥15 = 풀 내 변별력 0 의심 — gate이지 ranker 아님).
+  - **섹터(sectorMomentum)**: 진단 진행 중(강세 0건 = ≥15 못 넘음 의심 — 구조상 max ~8이라 임계 미스칼리브레이션).
+- **조치(현재)**: **당장 가중치 변경 보류**(n=88·15+ n=23, regime 분리 불가). 수급=역상관 의심지표로 확정 등록. regime 복구됐으니 **데이터 축적 → N주 후 국면별 분리 재측정**.
+- **로드맵**: 단기 **B안**(미국장·차트타이밍·섹터강도 + 4카테고리를 한 화면에 모아 보되 **점수 미편입**) → 표본 ≥수백 시 **A안**(차트백테스트처럼 단조·유의한 것만 종합점수 합류, 수급 가중↓/제외, 섹터 임계 재조정).
+- **관련**: `RecommendationService.scoreEarnings/scoreSupplyDemand/scoreTechnical/scoreSectorMomentum`, `SignalOutcomeService.aggregateCategories`(CATEGORY_STRONG_THRESHOLD=15), `signal_outcome`(V30 카테고리 스냅샷), [P2-12](차트 백테스트 — 같은 교훈).
