@@ -27,6 +27,7 @@ class BacktestRequest(BaseModel):
     holdDays: int = bt.DEFAULT_HOLD_DAYS
     minScore: int = bt.DEFAULT_MIN_SCORE
     slippagePct: float = bt.cost.DEFAULT_SLIPPAGE_PCT
+    kSlots: int = 10                             # 현실적 MDD용 동시보유 상한(균등배분)
 
 
 @router.post("/backtest")
@@ -45,7 +46,7 @@ async def backtest(req: BacktestRequest):
     if universe:
         result.update(await asyncio.to_thread(
             bt.backtest_timing, universe, req.start, req.end,
-            req.params, req.holdDays, req.minScore, req.slippagePct))
+            req.params, req.holdDays, req.minScore, req.slippagePct, req.kSlots))
     if req.sectors:
         result["sectorStrength"] = await asyncio.to_thread(
             bt.backtest_sector_strength, req.sectors, req.start, req.end, req.params, req.holdDays)

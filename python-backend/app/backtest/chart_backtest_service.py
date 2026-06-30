@@ -104,6 +104,7 @@ def _replay_one(ticker, df, kospi, start_dt, end_dt, cfg, hold_days, min_score,
         out.append({
             "ticker": ticker,
             "date": D.strftime("%Y-%m-%d"),
+            "exitDate": fwd.index[hold_days - 1].strftime("%Y-%m-%d"),
             "timingScore": score,
             "entryOpen": round(entry_open, 2),
             "exitClose": round(exit_close, 2),
@@ -167,17 +168,46 @@ def _assumptions(hold_days, slippage_pct):
     }
 
 
+def _score_breakdown(signals) -> dict:
+    """timingScore 구간별 hitRate/avgNet — 고점수 필터로 적중률 개선 여지 확인."""
+    buckets: dict = {}
+    for s in signals:
+        b = buckets.setdefault(s["timingScore"], {"net": [], "hits": []})
+        b["net"].append(s["netPct"])
+        b["hits"].append(s["hit"])
+    return {str(sc): {"n": len(b["net"]),
+                      "hitRate": round(metrics.hit_rate(b["hits"]), 2),
+                      "avgNet": round(sum(b["net"]) / len(b["net"]), 3)}
+            for sc, b in sorted(buckets.items())}
+
+
 def backtest_timing(universe, start, end, overrides=None, hold_days=DEFAULT_HOLD_DAYS,
-                    min_score=DEFAULT_MIN_SCORE, slippage_pct=cost.DEFAULT_SLIPPAGE_PCT) -> dict:
-    """타이밍 백테스트 집계 — 적중률/평균순손익/MDD/Sharpe + tie-break 겹침 + 가정 echo."""
+                    min_score=DEFAULT_MIN_SCORE, slippage_pct=cost.DEFAULT_SLIPPAGE_PCT,
+                    k_slots=10) -> dict:
+    """타이밍 백테스트 집계 — per-trade 성과 + 점수분해 + 현실적 K슬롯 MDD + tie-break + 가정 echo."""
     signals = sorted(replay_timing(universe, start, end, overrides, hold_days, min_score, slippage_pct),
-                     key=lambda s: s["date"])   # 날짜순(MDD 누적)
+                     key=lambda s: s["date"])
     net = [s["netPct"] for s in signals]
     agg = metrics.aggregate(net)
+    # hitRate: alpha 가용분만(진짜 정의) + 폴백 포함 전체 — 둘 다 노출
+    alpha_signals = [s for s in signals if s["alpha"] is not None]
     agg["hitRate"] = round(metrics.hit_rate([s["hit"] for s in signals]), 2)
+    agg["hitRateAlphaOnly"] = (round(metrics.hit_rate([s["hit"] for s in alpha_signals]), 2)
+                               if alpha_signals else None)
+    bm_available = len(alpha_signals) > 0
     return {
         "signalCount": len(signals),
+        "bmAvailable": bm_available,   # False면 alpha 미적용 → hitRate 는 pct>=3% 폴백(주의)
+        "alphaSignalCount": len(alpha_signals),
         "aggregate": agg,
+        "perTradeStats": metrics.per_trade_stats(net),
+        "scoreBreakdown": _score_breakdown(signals),
+        "portfolioMdd": {
+            "kSlots": k_slots,
+            "mddPct": round(metrics.portfolio_mdd(
+                [(s["exitDate"], s["netPct"]) for s in signals], k_slots), 3),
+            "note": f"K={k_slots}슬롯 균등배분 청산-실현 기준(매매당 풀베팅 아님). 장중 MTM 미반영=보수적 하한.",
+        },
         "tieBreakOverlap": _tie_break_overlap([s["signalDayChangeRate"] for s in signals]),
         "assumptions": _assumptions(hold_days, slippage_pct),
         "signals": signals[:MAX_SIGNALS_IN_RESPONSE],

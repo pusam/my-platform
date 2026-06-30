@@ -46,15 +46,54 @@ def sharpe(net_returns) -> float:
 
 
 def aggregate(net_returns) -> dict:
-    """성과 집계(net 수익률 기준)."""
+    """성과 집계(net 수익률, per-trade 기준 — 포지션 사이징 가정 없음)."""
     n = len(net_returns)
     avg = sum(net_returns) / n if n else 0.0
     return {
         "n": n,
         "avgNetReturn": round(avg, 3),
-        "mdd": round(mdd(net_returns), 3),
         "sharpe": round(sharpe(net_returns), 3),
     }
+
+
+def per_trade_stats(net_returns) -> dict:
+    """가정-free per-trade 분포 — 다운사이드 직관(MDD 가정 논란 회피)."""
+    n = len(net_returns)
+    if n == 0:
+        return {"n": 0}
+    wins = [r for r in net_returns if r > 0]
+    losses = [r for r in net_returns if r <= 0]
+    gross_win = sum(wins)
+    gross_loss = -sum(losses)
+    return {
+        "n": n,
+        "winRate": round(len(wins) / n * 100, 2),     # net>0 비율(hitRate 와 별개 — 비용반영)
+        "avgWin": round(sum(wins) / len(wins), 3) if wins else 0.0,
+        "avgLoss": round(sum(losses) / len(losses), 3) if losses else 0.0,
+        "profitFactor": round(gross_win / gross_loss, 3) if gross_loss > 0 else None,
+        "worstTrade": round(min(net_returns), 3),
+        "bestTrade": round(max(net_returns), 3),
+        "pctLossOver5": round(sum(1 for r in net_returns if r < -5) / n * 100, 1),
+    }
+
+
+def portfolio_mdd(exit_net_pairs, k_slots: int = 10) -> float:
+    """현실적 MDD(%) — K슬롯 균등배분(매매당 1/K), 청산일에 실현. 매매당 풀베팅(순차 복리) 아님.
+
+    ⚠ 실현 기준이라 보유 중 장중 낙폭(intra-trade MTM)은 과소반영 — 보수적 하한. k_slots=동시보유 상한.
+    exit_net_pairs: [(exit_date_str, net_pct), ...].
+    """
+    if not exit_net_pairs or k_slots <= 0:
+        return 0.0
+    equity = 1.0
+    peak = 1.0
+    max_dd = 0.0
+    for _exit, net in sorted(exit_net_pairs, key=lambda t: t[0]):
+        equity += (net / 100.0) / k_slots
+        peak = max(peak, equity)
+        if peak > 0:
+            max_dd = max(max_dd, (peak - equity) / peak * 100.0)
+    return max_dd
 
 
 def _ranks(vals):

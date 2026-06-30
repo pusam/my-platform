@@ -46,6 +46,22 @@ def test_hit_rate_and_aggregate():
     assert metrics.sharpe([1.0]) == 0.0           # n<2
 
 
+# ── per-trade 분포 + 현실적 K슬롯 MDD ─────────────────────────────
+def test_per_trade_and_portfolio_mdd():
+    pts = metrics.per_trade_stats([10.0, -5.0, 20.0, -8.0])
+    assert pts["winRate"] == approx(50.0)
+    assert pts["worstTrade"] == approx(-8.0)
+    assert pts["pctLossOver5"] == approx(25.0)   # -8 만 -5 초과(-5는 미포함) → 1/4
+    assert pts["profitFactor"] == approx(30.0 / 13.0, abs=0.01)
+
+    # K슬롯 MDD: 풀베팅(순차복리)보다 훨씬 작아야(1/K 비중). 동일 시퀀스 비교.
+    pairs = [("2026-01-05", 10.0), ("2026-01-06", -5.0), ("2026-01-07", 20.0)]
+    pmdd = metrics.portfolio_mdd(pairs, k_slots=10)
+    naive = metrics.mdd([10.0, -5.0, 20.0])       # 순차 풀베팅(아티팩트)
+    assert pmdd < naive                            # 현실적 MDD < 풀베팅 MDD
+    assert metrics.portfolio_mdd([], 10) == 0.0
+
+
 # ── Spearman 순위상관 ─────────────────────────────────────────────
 def test_spearman():
     assert metrics.spearman([1, 2, 3, 4], [10, 20, 30, 40]) == approx(1.0)   # 완전 양
