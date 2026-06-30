@@ -1,4 +1,4 @@
-"""시장 국면(레짐) 분류 — pykrx KOSPI 일봉 기반.
+"""시장 국면(레짐) 분류 — KOSPI 일봉 기반(KIS, Java 경유).
 
 python-backend 의 유일한 실제 역할 (2026-06-11 재편):
 Java/KIS 로는 비싼(레이트리밋·페이징) 지수 히스토리 조회를 pykrx 로 처리해
@@ -10,21 +10,20 @@ Java/KIS 로는 비싼(레이트리밋·페이징) 지수 히스토리 조회를
   BEAR:     종가 < MA60  AND  MA20 이 5거래일 전보다 하락
   SIDEWAYS: 그 외 (혼조)
 
-pykrx 는 KRX 일마감 데이터 — 장중 호출 시 전일 종가 기준 국면.
+KIS 일봉은 KRX 일마감 데이터 — 장중 호출 시 전일 종가 기준 국면.
 국면은 저속(수주 단위) 지표라 1시간 캐시 + 전일 기준으로 충분하다.
+(2026-06-11 재편 당시 pykrx 기반이었으나, pykrx 지수 엔드포인트가 KRX 포맷 변경으로
+ 사용 불가해져 2026-06-30 Java KIS 일봉으로 데이터 소스만 전환 — 분류 규칙 v1 은 불변.)
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
-
-from pykrx import stock
 
 from app.services.cache_service import redis_client
+from app.utils.index_source import fetch_kospi_daily
 
 logger = logging.getLogger(__name__)
 
-KOSPI_INDEX_TICKER = "1001"   # pykrx KOSPI 종합지수
-LOOKBACK_CALENDAR_DAYS = 130  # MA60 + 슬로프 5거래일 + 주말/공휴일 여유
+LOOKBACK_CALENDAR_DAYS = 130  # MA60 + 슬로프 5거래일 + 주말/공휴일 여유 (캘린더일)
 MA_LONG = 60
 MA_SHORT = 20
 SLOPE_TRADING_DAYS = 5
@@ -45,18 +44,13 @@ async def get_current_regime() -> dict:
 
 
 def _classify() -> dict:
-    try:
-        end = datetime.now()
-        start = end - timedelta(days=LOOKBACK_CALENDAR_DAYS)
-        df = stock.get_index_ohlcv(
-            start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), KOSPI_INDEX_TICKER)
-    except Exception as e:
-        logger.warning(f"[Regime] pykrx KOSPI 조회 실패: {e}")
-        return {}
+    # KOSPI 일봉 소스: pykrx 지수 엔드포인트가 KRX 포맷 변경으로 사용 불가(2026-06-30) →
+    # Java KIS 일봉(진짜 종합지수 0001) 경유. 분류 규칙(v1)·MA 계산은 그대로(§10·§4c).
+    df = fetch_kospi_daily(LOOKBACK_CALENDAR_DAYS)
 
     min_rows = MA_LONG + SLOPE_TRADING_DAYS
     if df is None or len(df) < min_rows:
-        logger.warning(f"[Regime] KOSPI 데이터 부족: {0 if df is None else len(df)}건 (필요 {min_rows})")
+        logger.warning(f"[Regime] KOSPI 일봉 부족/미수집: {0 if df is None else len(df)}건 (필요 {min_rows})")
         return {}
 
     close = df["종가"]
@@ -77,7 +71,7 @@ def _classify() -> dict:
         "ma60": round(ma_long, 2),
         "ma20Slope5d": round(ma_short_now - ma_short_prev, 2),
         "asOf": df.index[-1].strftime("%Y-%m-%d"),
-        "basis": "KOSPI 종가 vs MA60 + MA20 5거래일 슬로프 (pykrx 일마감)",
+        "basis": "KOSPI 종가 vs MA60 + MA20 5거래일 슬로프 (KIS 일봉, Java 경유)",
     }
 
 

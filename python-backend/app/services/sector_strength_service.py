@@ -1,7 +1,7 @@
 """섹터 상대강도 — '덜 빠지는 섹터' 랭킹 (발굴 유니버스 필터).
 
 섹터지수 = 기존 16섹터 구성원(Java SectorStockConfig 가 POST body 로 전달)의
-동일가중 합성지수. 시장(KOSPI)은 regime 과 동일하게 pykrx 지수 재사용.
+동일가중 합성지수. 시장(KOSPI)은 regime 과 동일하게 KIS 일봉(Java 경유) 재사용.
 산식 미검증 — 발굴 보조 시그널 전용.
 """
 import asyncio
@@ -11,17 +11,15 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from pykrx import stock
-
 from app.config import ChartPatternConfig
 from app.indicators import sector_strength as ss
 from app.services.cache_service import redis_client
 from app.services.chart_pattern_service import fetch_ohlcv
+from app.utils.index_source import fetch_kospi_daily
 from app.utils.korean_market import get_latest_trading_date, get_cache_ttl
 
 logger = logging.getLogger(__name__)
 
-KOSPI_INDEX_TICKER = "1001"
 CACHE_TTL_SEC = 1800
 
 
@@ -39,12 +37,9 @@ def _ticker_return(ticker: str, start: str, end: str, lookback: int) -> Optional
     return ss.pct_return(closes[-1 - lookback], closes[-1])
 
 
-def _market_return(start: str, end: str, lookback: int) -> Optional[float]:
-    try:
-        df = stock.get_index_ohlcv(start, end, KOSPI_INDEX_TICKER)
-    except Exception as e:
-        logger.warning(f"[SectorStrength] KOSPI 지수 조회 실패: {e}")
-        return None
+def _market_return(lookback: int) -> Optional[float]:
+    """KOSPI lookback 거래일 수익률(%) — Java KIS 일봉 경유(pykrx 지수 대체). 결측 None(§4c)."""
+    df = fetch_kospi_daily(_lookback_window_days(lookback))
     if df is None or len(df) < lookback + 1:
         return None
     closes = df["종가"].astype(float).tolist()
@@ -57,7 +52,7 @@ def _sectors_hash(sectors: dict[str, list[str]]) -> str:
 
 
 def _compute(sectors: dict[str, list[str]], lookback: int, start: str, end: str) -> dict:
-    market_ret = _market_return(start, end, lookback)
+    market_ret = _market_return(lookback)
     sector_rel: dict[str, Optional[float]] = {}
     sector_ret_map: dict[str, Optional[float]] = {}
     for sector, members in sectors.items():

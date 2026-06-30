@@ -138,6 +138,8 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # regime/sector 가 KOSPI 일봉을 Java(KIS 지수)에서 받아옴 — pykrx 지수 엔드포인트 대체(2026-06-30)
+      - JAVA_BACKEND_URL=http://backend:8080
       - TZ=Asia/Seoul
     depends_on:
       redis:
