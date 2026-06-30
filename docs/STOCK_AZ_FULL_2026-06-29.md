@@ -99,6 +99,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
   - `GET /earnings-top10` 실적(흑자전환·이익급증)
   - `GET /smartmoney-top10` 수급(외국인·기관 순매수)
   - `GET /strong-value-frequency` STRONG_BUY+강가치 빈도(phase35 검증)
+  - `GET /judgment-board` ⭐신규(2026-06-30, B안) 종합 판단 보드(매수후보 3계층 신호 비교, 산식 무변경 조립)
 - **`ChartSignalController`** `/api/recommendation` *(신규, 차트기법)*
   - `GET /trend-pullback-top10` 차트 타이밍(정배열+눌림목, **검증 전 베타**)
   - `GET /sector-strength` 섹터 상대강도('덜 빠지는 섹터')
@@ -312,7 +313,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 | **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |
 
 - **발굴 리스트 서브탭**(lazy, 택1): 💎저평가·🚀성장·📉낙폭과대·💰실적·🏦수급 (`ensureDiscoverListLoaded`).
-- **발굴 심화도구 서브탭**: 종합(`SectionTotalRecommendation`)·AI전략·백테스트(`SectionBacktest`)·스크리너·퀀트TA(`SectionQuantTa`).
+- **발굴 심화도구 서브탭**: 종합(`SectionTotalRecommendation`)·**🧭 종합판단(`SectionJudgmentBoard`, B안 2026-06-30)**·AI전략·백테스트(`SectionBacktest`)·스크리너·퀀트TA(`SectionQuantTa`).
 - **역할 분리**: 모멘텀 종합추천(`getTop5`)은 오늘 탭 전용 — 발굴에 재추가 금지.
 
 ### 11-3. 종목 상세 (`views/StockDetailDashboard.vue`, ~4,700줄)
@@ -467,10 +468,23 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
+### 세션 후반 — 4카테고리 진단(P1-6) + 종합 판단 보드(B안, P2-14)
+
+차트타이밍 31% 교훈("검증 안 된 지표 합산 = 좋은 신호 망침")을 **종합점수 자체 4카테고리에도 적용** — prod `signal_outcome`(n=88) 실측:
+- **기술 ✅ 예측력**(강세 57%>약세 43%, +13.9%p) / **섹터(AI테마 14점) ✅ 강예측**(65%·+6.86%, `≥15` 측정임계가 sweet spot 놓침 → `≥14` 재설정 필요) / **실적 = 게이트+20점 약변별** / **수급 ❌ 역상관 단조 확정**(0-4=67%→15+=35%, 평균수익 7.61→0.38).
+- 측정버그: `aggregateCategories` 단일 임계 15는 카테고리별 분포(실적8~20·섹터0~14) 무시 → 카테고리별 임계 분리 필요. **당장 가중치 변경 보류**(표본 작음, regime 분리 불가) → 데이터 축적 후 재측정([P1-6]).
+
+**B안 종합 판단 보드 Phase 1**(그 교훈을 구조로 — 검증된 것만 점수, 미검증은 표시만):
+- `GET /api/recommendation/judgment-board` + `JudgmentBoardService`(순수 `assembleRows`/`parseSectorRel`+테스트) + `JudgmentBoardDto`. 프론트 `SectionJudgmentBoard.vue`(발굴 심화 '🧭 종합판단').
+- 컬럼 3계층: **① 점수(검증/게이트** total/기술/실적/섹터테마) · **② 참고(미검증·점수 미편입** 차트타이밍/섹터강도/간밤미국장) · **③ 경고(수급 역상관 의심** ≥10, 표본작음 톤). 정렬·필터. **종합점수 산식 무변경(조립·표시 전용)**.
+- Phase1 = momentum 후보(getTop5)만 — 단 `getTop5`가 **validCount≥3(75% 커버리지) + 정규화≥55** 이중 게이트라 풀이 얇음(카테고리 sparse). **Phase 2(발굴 5트랙 union, 비-momentum 4카테고리 재점수)** = 비교 대상 확보용 필수 → 다음 세션 실데이터 보고 범위 결정([P2-14]).
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1 완료)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - `docs/STOCK_PLATFORM_GUIDE.md` — 화면→코드→DB 추적
 - `docs/STOCK_AZ_FULL.md` — 2026-06-08판(stale, 본 문서가 대체)
