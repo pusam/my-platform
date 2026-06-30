@@ -561,12 +561,16 @@ public class KoreaInvestmentService {
                 java.time.format.DateTimeFormatter fmt =
                         java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
 
-                // 국내주식업종기간별시세(일/주/월/년) — U: 업종(지수)
+                // 국내주식업종기간별시세(일/주/월/년) - U: 업종(지수).
+                // ⚠ KIS 지수 TR 은 FID_INPUT_DATE_1 을 '기준일(앵커)'로 그 직전 최대 100건을 반환한다
+                // (종목 TR(FHKST03010100)은 DATE_2 가 끝인 것과 반대). 그래서 DATE_1=오늘(end)로 둬야
+                // 최신이 last 에 온다. DATE_2(=start)는 하한(또는 미사용). 2026-06-30 운영 확인:
+                // DATE_1=start 로 두니 데이터가 start(4개월 전)에서 끝나 regime asOf 오판 -> DATE_1=end 로 교정.
                 String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-index-daily-price"
                         + "?FID_COND_MRKT_DIV_CODE=U"
                         + "&FID_INPUT_ISCD=" + indexCode
-                        + "&FID_INPUT_DATE_1=" + start.format(fmt)
-                        + "&FID_INPUT_DATE_2=" + end.format(fmt)
+                        + "&FID_INPUT_DATE_1=" + end.format(fmt)     // 앵커=조회 기준일(오늘) → 최신이 last
+                        + "&FID_INPUT_DATE_2=" + start.format(fmt)   // 하한(또는 미사용)
                         + "&FID_PERIOD_DIV_CODE=D";
 
                 HttpHeaders headers = createHeaders(token, "FHPUP02120000");
