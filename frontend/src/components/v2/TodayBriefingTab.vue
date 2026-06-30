@@ -58,6 +58,9 @@
       </div>
     </div>
 
+    <!-- ①-c 시간대 신호(장전 주목주/장후 마감) — 발굴에서 이동(2026-07-01). hub 슬롯 주입(데이터/CSS=hub scope). -->
+    <slot name="phase-signals" />
+
     <!-- ②-b 차트 신호 관찰 — momentum 후보와 별도 모듈. 백테스트(P2-12) 결과 적중률 31%·점수 역상관
          (승격불가)이라 '매수 후보' 아님. 접기 기본(우선순위 낮춤) + 점수 미표시(역상관 오해 방지). -->
     <div class="today-section today-observe" v-if="timingCandidates.length || timingLoading || !timingAvailable">
@@ -105,6 +108,9 @@
       <span class="tt-icon">📊</span>
       <span class="tt-text">{{ trustLine }}</span>
     </div>
+
+    <!-- ③-b 관심종목(접힘 기본) — 발굴에서 이동(2026-07-01). hub 슬롯 주입. -->
+    <slot name="watchlist" />
 
     <!-- ④ 내 포지션 요약 -->
     <div class="today-section" v-if="portfolio.length">

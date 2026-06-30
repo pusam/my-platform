@@ -25,7 +25,63 @@
           :marketData="marketData"
           @open-stock="goToStock"
           @navigate="activeGnbTab = $event"
-        />
+        >
+          <!-- 시간대 신호(장전/장후) + 실시간 수급(장중) — 발굴에서 이동(2026-07-01). 슬롯=hub scope라 데이터·CSS 그대로. -->
+          <template #phase-signals>
+            <div class="today-signals section-card" v-if="currentPhaseKey !== 'during'">
+              <div class="section-title-row">
+                <h2><span class="section-icon">{{ marketPhase.icon }}</span> {{ marketPhase.title }}</h2>
+                <span class="phase-badge" :class="marketPhase.class">{{ marketPhase.label }}</span>
+              </div>
+              <div v-if="phaseLoading" class="signal-skeleton">
+                <div class="skel-row" v-for="i in 4" :key="i"><div class="skel-bar"></div></div>
+              </div>
+              <div v-else-if="phaseSignals.length" class="signal-list">
+                <div v-for="(sig, i) in phaseSignals" :key="'sig-' + i" class="signal-card" :class="sig.type"
+                     @click="sig.stockCode && goToStock(sig.stockCode)">
+                  <div class="sig-badge">{{ sig.badge }}</div>
+                  <div class="sig-info">
+                    <span class="sig-name">{{ sig.stockName }}</span>
+                    <span class="sig-reason">{{ sig.reason }}</span>
+                  </div>
+                  <div class="sig-right" v-if="sig.changeRate != null">
+                    <span :class="Number(sig.changeRate) >= 0 ? 'positive' : 'negative'">
+                      {{ Number(sig.changeRate) >= 0 ? '+' : '' }}{{ Number(sig.changeRate).toFixed(2) }}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
+            </div>
+            <SectionLiveSurge v-if="currentPhaseKey === 'during'" :active="currentPhaseKey === 'during'" />
+          </template>
+          <!-- 관심종목(접힘 기본) -->
+          <template #watchlist>
+            <div class="watchlist-summary section-card" v-if="currentPhaseKey === 'pre' && watchlistItems.length">
+              <div class="section-title-row">
+                <h2><span class="section-icon">⭐</span> 관심종목 {{ watchlistItems.length }}</h2>
+                <button class="more-link" @click="watchlistExpanded = !watchlistExpanded">
+                  {{ watchlistExpanded ? '접기' : '펼치기' }}
+                </button>
+              </div>
+              <div class="wl-list" v-if="watchlistExpanded">
+                <div v-for="item in watchlistItems.slice(0, 5)" :key="'wl-' + item.id" class="wl-row"
+                     @click="goToStock(item.stockCode)">
+                  <span class="wl-risk" v-if="watchlistRisks[item.stockCode]"
+                        :class="watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
+                    {{ watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? '🔴' : '🟡' }}
+                  </span>
+                  <span class="wl-name">{{ item.stockName }}</span>
+                  <span class="wl-price" v-if="item.currentPrice">{{ Number(item.currentPrice).toLocaleString() }}</span>
+                  <span class="wl-change" v-if="item.changeRate != null"
+                        :class="item.changeRate >= 0 ? 'positive' : 'negative'">
+                    {{ item.changeRate >= 0 ? '+' : '' }}{{ Number(item.changeRate).toFixed(2) }}%
+                  </span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </TodayBriefingTab>
       </div>
 
       <!-- ═══ 라이브 패널: 시장 + 발굴 공유 (블록별 탭 게이팅, 소스 순서가 탭별 표시 순서) ═══ -->
@@ -351,77 +407,8 @@
           <div v-else class="empty-signal" style="padding:12px">수급 데이터 로딩 중...</div>
         </div>
 
-        <!-- ③ 시간대별 신호 (장전·장후 전용) → 발굴 탭 -->
-        <div class="today-signals section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && currentPhaseKey !== 'during'">
-          <div class="section-title-row">
-            <h2>
-              <span class="section-icon">{{ marketPhase.icon }}</span>
-              {{ marketPhase.title }}
-            </h2>
-            <span class="phase-badge" :class="marketPhase.class">{{ marketPhase.label }}</span>
-          </div>
-
-          <!-- 로딩 -->
-          <div v-if="phaseLoading" class="signal-skeleton">
-            <div class="skel-row" v-for="i in 4" :key="i"><div class="skel-bar"></div></div>
-          </div>
-
-          <!-- 신호 목록 -->
-          <div v-else-if="phaseSignals.length" class="signal-list">
-            <div
-              v-for="(sig, i) in phaseSignals"
-              :key="'sig-' + i"
-              class="signal-card"
-              :class="sig.type"
-              @click="sig.stockCode && goToStock(sig.stockCode)"
-            >
-              <div class="sig-badge">{{ sig.badge }}</div>
-              <div class="sig-info">
-                <span class="sig-name">{{ sig.stockName }}</span>
-                <span class="sig-reason">{{ sig.reason }}</span>
-              </div>
-              <div class="sig-right" v-if="sig.changeRate != null">
-                <span :class="Number(sig.changeRate) >= 0 ? 'positive' : 'negative'">
-                  {{ Number(sig.changeRate) >= 0 ? '+' : '' }}{{ Number(sig.changeRate).toFixed(2) }}%
-                </span>
-              </div>
-            </div>
-          </div>
-          <div v-else class="empty-signal">{{ marketPhase.empty }}</div>
-        </div>
-
-        <!-- ③-b 실시간 수급 급증 (장중) → 발굴 탭 -->
-        <SectionLiveSurge
-          v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && currentPhaseKey === 'during'"
-          :active="currentPhaseKey === 'during'"
-        />
-
-        <!-- ③ 관심종목 현황 (장전 시간대 전용) -->
-        <div id="briefing-section-watchlist" class="watchlist-summary section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && currentPhaseKey === 'pre' && watchlistItems.length">
-          <div class="section-title-row">
-            <h2><span class="section-icon">⭐</span> 관심종목</h2>
-            <a href="javascript:void(0)" class="more-link" @click="activeGnbTab = 'discover'">전체 보기 →</a>
-          </div>
-          <div class="wl-list">
-            <div
-              v-for="item in watchlistItems.slice(0, 5)"
-              :key="'wl-' + item.id"
-              class="wl-row"
-              @click="goToStock(item.stockCode)"
-            >
-              <span class="wl-risk" v-if="watchlistRisks[item.stockCode]"
-                    :class="watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
-                {{ watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? '🔴' : '🟡' }}
-              </span>
-              <span class="wl-name">{{ item.stockName }}</span>
-              <span class="wl-price" v-if="item.currentPrice">{{ Number(item.currentPrice).toLocaleString() }}</span>
-              <span class="wl-change" v-if="item.changeRate != null"
-                    :class="item.changeRate >= 0 ? 'positive' : 'negative'">
-                {{ item.changeRate >= 0 ? '+' : '' }}{{ Number(item.changeRate).toFixed(2) }}%
-              </span>
-            </div>
-          </div>
-        </div>
+        <!-- 시간대신호(장전/장후)·실시간 수급(장중)·관심종목 → '오늘' 탭으로 이동(2026-07-01, A 슬림화).
+             위 TodayBriefingTab 슬롯(#phase-signals/#watchlist)에서 렌더. 발굴 목록은 5트랙에 집중. -->
 
         <!-- 오늘 강세 섹터 → 시장 탭 -->
         <div id="briefing-section-strong-sectors" class="strong-sectors section-card" v-if="activeGnbTab === 'market' && strongSectors.length">
@@ -462,22 +449,25 @@
         <!-- 관심종목 차트 신호 → 발굴 탭 -->
         <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && chartSignals.length">
           <div class="section-title-row">
-            <h2><span class="section-icon">📊</span> 차트 신호 종목</h2>
-            <div class="cs-controls">
-              <div class="cs-filter">
-                <button :class="['cs-filter-btn', { active: chartSignalFilter === 'ALL' }]"
-                        @click="chartSignalFilter = 'ALL'">전체</button>
-                <button :class="['cs-filter-btn bull', { active: chartSignalFilter === 'BULLISH' }]"
-                        @click="chartSignalFilter = 'BULLISH'">↑상승</button>
-                <button :class="['cs-filter-btn high', { active: chartSignalFilter === 'HIGH' }]"
-                        @click="chartSignalFilter = 'HIGH'">신뢰도 강</button>
-              </div>
-              <span class="cs-disclaimer">
-                {{ chartSignalsSource === 'WATCHLIST' ? '관심종목' : '거래량 상위' }}
-              </span>
-            </div>
+            <h2><span class="section-icon">📊</span> 차트 신호 종목 {{ chartSignals.length }}</h2>
+            <button class="more-link" @click="chartSignalsExpanded = !chartSignalsExpanded">
+              {{ chartSignalsExpanded ? '접기' : '펼치기' }}
+            </button>
           </div>
-          <div class="cs-list">
+          <div class="cs-controls" v-if="chartSignalsExpanded">
+            <div class="cs-filter">
+              <button :class="['cs-filter-btn', { active: chartSignalFilter === 'ALL' }]"
+                      @click="chartSignalFilter = 'ALL'">전체</button>
+              <button :class="['cs-filter-btn bull', { active: chartSignalFilter === 'BULLISH' }]"
+                      @click="chartSignalFilter = 'BULLISH'">↑상승</button>
+              <button :class="['cs-filter-btn high', { active: chartSignalFilter === 'HIGH' }]"
+                      @click="chartSignalFilter = 'HIGH'">신뢰도 강</button>
+            </div>
+            <span class="cs-disclaimer">
+              {{ chartSignalsSource === 'WATCHLIST' ? '관심종목' : '거래량 상위' }}
+            </span>
+          </div>
+          <div class="cs-list" v-if="chartSignalsExpanded">
             <div
               v-for="(sig, idx) in filteredChartSignals"
               :key="'cs-' + idx"
@@ -724,10 +714,12 @@ export default {
       // 오늘의 핵심 요약
       watchlistItems: [],
       watchlistRisks: {},
+      watchlistExpanded: false,   // 오늘 탭 관심종목 — 기본 접힘(가끔 봄, 2026-07-01 이동)
       // 관심종목 차트 패턴 스캔 결과 (top 1 패턴/종목)
       chartSignals: [],
       chartSignalsSource: '', // 'WATCHLIST' or 'TOP_VOLUME'
       chartSignalFilter: 'ALL', // 'ALL' | 'BULLISH' | 'HIGH'
+      chartSignalsExpanded: false, // 발굴 목록 차트신호 — 기본 접힘(2026-07-01 슬림화)
       // 종합 신호 점수 (stockCode → matchedCount/totalCount)
       compositeMap: {},
       // 오늘 강세 섹터
