@@ -1,6 +1,6 @@
-# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29)
+# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-06-30 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준.
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-06-30(차트 백테스트·P0-pykrx KIS 지수전환·V36 unique·간밤 미국장 tilt 반영 — §20 세션 요약).
 > **위치**: `docs/STOCK_AZ_FULL_2026-06-29.md` — 기존 `docs/STOCK_AZ_FULL.md`(2026-06-08판, GNB 3탭·차트기법 누락)을 **대체**한다.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -21,8 +21,9 @@ Spring Boot(backend, 메인 API·스케줄러·매매봇) + FastAPI(python-backe
    [backend:8080]──┬──[mariadb:3306]  L3 영속
    Spring Boot 4.0 ├──[redis:6379]    L2 캐시+JWT+락
         │ 내부호출 └──외부: KIS/DART/Gemini/Naver/Telegram
-   [python-backend:8000]  pykrx (regime + chart)
+   [python-backend:8000]  pykrx(종목 OHLCV·chart) + regime/sector
         └──[redis] (py: 프리픽스)
+        └──지수(KOSPI)는 Java(KIS 일봉) 경유 — pykrx 지수 엔드포인트 깨짐(2026-06-30, §20)
 ```
 
 ---
@@ -125,6 +126,8 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 
 ### 3-7. 데이터·외부·알림·시스템
 - News·AiStrategy·Telegram·Sse·Admin·Kis·Diagnostics·Health, 그리고 ExchangeRate/Gold/Silver/Oil/GlobalFutures/GlobalMarket(상품·글로벌).
+- **`MarketIndexController`** `/api/market/index` ⭐신규(2026-06-30): `GET /kospi-daily?days=130` — KIS 일봉 KOSPI 종합지수(0001) 공급. **permitAll**(공개 시장데이터). python regime/sector 가 내부 소비(pykrx 지수 대체, §20). 응답 `{success, data:[{date,open,high,low,close}], count}`.
+- **`GlobalFuturesController`** `/api/global-futures`: `/quotes` `/quotes/{symbol}` `/kospi-impact`(0~100 개장 영향예측) + **`GET /overnight-us`** ⭐신규(2026-06-30): 간밤 미국장 보조 tilt(BULL/NEUTRAL/BEAR, 미검증, '오늘' 탭 참고).
 - 인증/콘텐츠: Auth·User·Board·File·PasswordReset·Webauthn·Notification.
 - 개인기능(주식 외): Asset·Finance·Car·Diet·Exercise·Export.
 
@@ -139,7 +142,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | `StockConclusionService` | 결론 4단계(STRONG_BUY/BUY/HOLD/WAIT) + 매매계획(`PLAN_*` 손절-3%/익절+5%) |
 | `BuyChecklistService` | 5-factor 하드룰 → 권고 |
 | `StockCatalystService` | 재료 태그(Gemini V31, 종목·일자 1회 캐시, 점수 미편입) |
-| `SignalOutcomeService` | 시그널 적중률(19:30 배치, 3거래일 후, V30~V32 스냅샷), `getAccuracyByBand` |
+| `SignalOutcomeService` | 시그널 적중률(19:30 배치, 3거래일 후, V30~V32 스냅샷), `getAccuracyByBand`. **V36(2026-06-30)**: `record()` INSERT 를 `insertOutcomeIsolated`(`@Transactional REQUIRES_NEW`, selfProvider 프록시)로 격리 + `DataIntegrityViolationException` benign 처리 — `(signal_type,stock_code,signal_date)` UNIQUE 경합 패자가 호출부 tx 무오염. bm(alpha)은 KIS 지수 현재가(`getIndexPrice 0001`)라 pykrx 무관 |
 
 ### 4-2. 시세·기술·체결
 | 서비스 | 책임 |
@@ -161,10 +164,10 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - **정규장 마감 강제청산(2026-06-29)**: `executeRegularSessionLiquidation`(15:20) — 봇이 포지션 들고 마감하는 오버나잇 노출 방지. `BotConfig.forceRegularSessionLiquidation`(기본 ON). 가드 = 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각≥15:20 → `sellAllPortfolio("REGULAR_SESSION_CLOSE")`. NXT 연장장/종가단일가 청산은 후속(P2-13).
 
 ### 4-4. 시장·섹터·수급
-`SectorTradingService`(거래대금 실측만, `resolveAccumulatedValue` 폴백, 가짜값 금지) · `MarketTimingService`(ADR 20일, condition은 ADR만) · `InvestorTradeService`/`InvestorSurgeService`.
+`SectorTradingService`(거래대금 실측만, `resolveAccumulatedValue` 폴백, 가짜값 금지) · `MarketTimingService`(ADR 20일, condition은 ADR만) · `InvestorTradeService`/`InvestorSurgeService` · **`GlobalFuturesService`**(Yahoo 선물·VIX·F&G, `getKospiImpactAnalysis` 0~100 개장 영향예측) · **`OvernightUsMarketService`** ⭐신규(2026-06-30): 간밤 미국장 보조 tilt — 순수 `classifyOvernight(es,nq,sox,vix)`(임계 임시값: 3지수 평균 ±0.6%, VIX 20/25/30, SOX −2%), GlobalFuturesService Yahoo 재사용(ES/NQ/**^SOX**/VIX). **regime 산식 미편입·`unverified=true`**(표시 전용, P3-5 캘리브레이션).
 
 ### 4-5. 외부연동 서비스
-`KoreaInvestmentService`(KIS REST·OAuth·rate limiter·@Retry/@CircuitBreaker) · `KisWebSocketService`(실시간 틱) · `KisInvestorDataCollector` · `DartService` · `GeminiService` · `NaverSearchService`/`NewsService` · `TelegramNotificationService`(3채널) · **`MarketRegimeClient`/`ChartPatternClient`**(python 소비, best-effort) · **`PythonBackendHealthTracker`** ⭐신규: python 호출 소스별(regime/chart-timing/chart-sector) 성공·실패·연속실패 집계, 연속 3회 실패→텔레그램 리스크 1회. `/api/diagnostics/python-health` 노출(조용히 죽는 best-effort 가시화).
+`KoreaInvestmentService`(KIS REST·OAuth·rate limiter·@Retry/@CircuitBreaker; 지수: 현재가 `getIndexPrice`(FHPUP02100000)·**일봉 `getIndexDailyOhlcv`(FHPUP02120000)** ⭐신규(2026-06-30, regime/sector용, 순수 파서 `parseIndexDaily` — ⚠ TR 은 `FID_INPUT_DATE_1`=앵커로 직전 100건 반환이라 DATE_1=오늘으로 둠)) · `KisWebSocketService`(실시간 틱) · `KisInvestorDataCollector` · `DartService` · `GeminiService` · `NaverSearchService`/`NewsService` · `TelegramNotificationService`(3채널) · **`MarketRegimeClient`/`ChartPatternClient`**(python 소비, best-effort) · **`PythonBackendHealthTracker`** ⭐신규: python 호출 소스별(regime/chart-timing/chart-sector) 성공·실패·연속실패 집계, 연속 3회 실패→텔레그램 리스크 1회. `/api/diagnostics/python-health` 노출(조용히 죽는 best-effort 가시화).
 
 ### 4-6. 캐시·스케줄·기타
 `CacheWarmupService`/`MarketCacheWarmerService`(워밍) · `RealTimeDataCache`(1분봉, synchronized 보호) · `SchedulerLockService`(fail-open) · `MorningBriefingService`(07:30) · `BacktestService` · `AiStrategySnapshotService` · `QuantScreenerService`/`QuantTaService` · `ChartPatternService`(자바 차트패턴 검출, python `ChartPatternClient`와 별개).
@@ -211,7 +214,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - **종목/시세**: `StockMaster` · `StockPrice` · `StockPriceHistory` · `StockFinancialData` · `StockCatalyst`(V31)
 - **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth -1=NA sentinel) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
 - **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog`
-- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷, NULL=미수집) · `WeeklyTradingReport`
+- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷, NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`
 - **시장/투자자**: `MarketDailyStatus`(ADR/condition) · `InvestorIntradaySnapshot` · `InvestorDailyTrade` · `EarningsDisclosure` · `ShortSellingBalance` · `AlertHistory`
 - **인증/유저**: `User` · `EmailVerificationToken` · `PasswordResetToken` · `WebauthnCredential`/`WebauthnChallenge`
 - **상품**: `GoldPrice`/`SilverPrice`/`OilPrice`, 배치추적 `BatchJobExecution`
@@ -264,18 +267,30 @@ app/routers/
   regime.py            GET /api/v2/regime/current
   chart_patterns.py    POST /api/v2/chart/timing · /sector-strength  (신규)
 app/services/
-  regime_service.py            KOSPI(1001) 종가 vs MA60 + MA20 5일슬로프 → BULL/BEAR/SIDEWAYS, 1h 캐시
-  chart_pattern_service.py     analyze_timing: 벌크 OHLCV(500cal일) → 6지표 결합 → 0~10, 30m 캐시
-  sector_strength_service.py   섹터 동일가중 합성지수 vs KOSPI 상대강도
+  regime_service.py            KOSPI 종가 vs MA60 + MA20 5일슬로프 → BULL/BEAR/SIDEWAYS, 1h 캐시.
+                               ⭐2026-06-30: 데이터 소스 pykrx get_index_ohlcv → **fetch_kospi_daily(Java KIS 일봉)**
+                               로 교체(pykrx 지수 깨짐, §20). classify_regime·국면 v1·테스트 불변.
+  chart_pattern_service.py     compute_timing(공용): 벌크 OHLCV(500cal일, get_market_ohlcv) → 6지표 결합 → 0~10, 30m 캐시
+  sector_strength_service.py   섹터 동일가중 합성지수 vs KOSPI 상대강도. ⭐2026-06-30: _market_return 도 fetch_kospi_daily 경유
   cache_service.py             Redis(py: 프리픽스, best-effort)
+app/utils/index_source.py  ⭐신규(2026-06-30)  fetch_kospi_daily(days)=Java GET /api/market/index/kospi-daily
+                               → pykrx 동형 DataFrame(오름차순, '종가' 등). to_dataframe 순수(+test_index_source.py). 실패 시 None.
+app/backtest/  ⭐신규(2026-06-30, P2-12 차트 백테스트)
+  cost.py             수수료0.03%+세금0.18% + 슬리피지0.15%(가격적용) net_return_pct
+  metrics.py          is_hit(SignalOutcome 미러)·aggregate·portfolio_mdd(K슬롯 현실MDD)·per_trade_stats·spearman
+  chart_backtest_service.py  point-in-time 재생(df.loc[:D] look-ahead 차단, 진입 D+1 시가/청산 +3거래일 종가),
+                             reconstruct_universe(pykrx ticker_list — 현재 깨짐 P3-4)
+app/routers/chart_backtest.py  POST /api/v2/chart/backtest (온디맨드, 승격판단 데이터만)
 app/indicators/  (순수함수 + pytest)
   moving_average(정배열) · disparity(60/240 이격도) · envelope(하단터치+위험필터)
   · support_rebound(중심선 반등) · box_breakout(A안 변동성박스) · sector_strength · timing_score
 app/config.py          Settings(Redis) + ChartPatternConfig(모든 임계값 파라미터화 + merge override)
 app/utils/korean_market.py     KST·장중판정·최근거래일·TTL
-app/tests/test_indicators.py   pytest(python-backend 첫 테스트 인프라)
+tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_index_source.py** ⭐2026-06-30
+환경변수: **JAVA_BACKEND_URL=http://backend:8080**(index_source가 Java 호출). requests(pykrx 전이의존, 명시 추가).
 ```
 국면 규칙 v1: BULL=종가>MA60 AND MA20상승 / BEAR=종가<MA60 AND MA20하락 / else SIDEWAYS. 검증 데이터 전 임의변경 금지.
+> ⚠ **pykrx 지수·ticker_list 엔드포인트는 2026-06-30 현재 KRX 포맷변경으로 전구간 빈값**(종목 OHLCV는 정상). 지수는 KIS로 우회 완료, ticker_list(reconstructed 백테스트 전용)는 P3-4 잔여. 종목마스터는 KRX KIND HTML이라 무관.
 
 ---
 
@@ -291,7 +306,7 @@ app/tests/test_indicators.py   pytest(python-backend 첫 테스트 인프라)
 
 | 탭(key) | 렌더 | 내용 |
 |---|---|---|
-| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · 매수후보(55컷 momentum) · **🪝 차트 타이밍 후보(검증 전 베타)** · 신뢰도 스트립 · 내 포지션 · 도구 바로가기 |
+| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(미검증 참고, 2026-06-30)** · 매수후보(55컷 momentum) · **🪝 차트 타이밍 후보(검증 전 베타)** · 신뢰도 스트립 · 내 포지션 · 도구 바로가기 |
 | **시장(market)** | 허브 인라인 + 서브탭 | 시장지도(`SectionMarketMap`)·섹터거래대금 / 서브: 수급·타이밍·뉴스·글로벌(embedded) |
 | **발굴(discover)** | 허브 인라인 + 2단 서브탭 | 상단 **'덜 빠지는 섹터' 배지(베타)** + 리스트 5트랙 + 심화도구 |
 | **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |
@@ -335,8 +350,9 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 | 발굴 5트랙 | 발굴 서브탭 | `/recommendation/{value…smartmoney}-top10` | RecommendationService | 재무/투자자/가격 |
 | 종목 상세 | StockDetail | `/stock/{code}/quick·heavy·conclusion·catalyst` | StockDetail/Conclusion/Catalyst | 단일시세경로+KIS+Gemini |
 | 매매 봇 | PaperTrading | `/paper-trading/bot/*`·`/real/*` | AutoTradingBot/RealTrade | KIS 실주문 |
+| **간밤 미국장 tilt(베타)** | TodayBriefingTab | `/global-futures/overnight-us` | OvernightUsMarketService | Yahoo(ES/NQ/^SOX/VIX) |
 | 시그널 검증 | (배치/조회) | `/signal-outcomes/accuracy-by-band` | SignalOutcomeService | signal_outcome |
-| 시장국면 | (스냅샷 내부) | — | MarketRegimeClient | python `/regime/current` |
+| 시장국면 | (스냅샷 내부) | — | MarketRegimeClient | python `/regime/current` → **KIS 일봉(`/api/market/index/kospi-daily`)** |
 
 ---
 
@@ -371,7 +387,8 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
   - **섹터 상대강도**('덜 빠지는 섹터') → **'발굴' 탭 상단 상시 배지**(유니버스 필터).
 - **박스 정량화 = A안(변동성 박스)**: box_len일 range_pct≤box_range_max → 돌파 → higher-low 눌림목 지지.
 - **섹터지수 = 합성지수**(기존 `SectorStockConfig` 16섹터×구성원 평균, Java→python 전달). 타이밍 유니버스 = `getAllStockCodes()` ~134종목.
-- **미검증**(`unverified=true`) → 봇/종합추천/매수후보 랭킹 편입 금지. 검증 = **VERIFICATION_BACKLOG P2-12**(적중률/MDD 백테스트) 통과 시 매수후보 타이밍으로 승격.
+- **미검증**(`unverified=true`) → 봇/종합추천/매수후보 랭킹 편입 금지. 검증 = **VERIFICATION_BACKLOG P2-12**(적중률/MDD 백테스트).
+- **⭐백테스트 결과(2026-06-30) = 승격불가**: deployed 16섹터/646신호 → hitRate **30.8%** · Sharpe **0.08** · 점수분해 **역상관**(score1 37.8% > score5 26.7% — 필터로 못 살림) · 현실 K=10 MDD 28.6%(순차풀베팅 99.4%는 아티팩트). alpha/reconstructed는 pykrx 깨짐으로 미산출이나 폴백조차 31%라 결론 불변. **베타 유지(`unverified` 그대로)** — 승격 보류.
 - 모듈: python `app/indicators/*`(+pytest) + Java `ChartPatternClient`(best-effort)/`ChartSignalRanker`(순수+테스트)/`ChartSignalController`. 프론트: `TodayBriefingTab`(타이밍)·`StockTradingDashboardV2`(섹터배지).
 - **가시성(2026-06-29)**: 차트 응답에 **`dataAvailable`** — 빈 결과가 '신호 없음'인지 'python 다운'인지 구분(프론트 "분석서버 일시 미가용" 표기). 호출 헬스는 `PythonBackendHealthTracker` + `/api/diagnostics/python-health` + 연속실패 텔레그램 알림.
 
@@ -394,10 +411,10 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 ## 17. 테스트 / CI 인프라
 
 - **백엔드**: `./gradlew test`. 단위(Mockito) 다수 + **`ApplicationContextSmokeTest`(`@SpringBootTest`, 2026-06-29 신규)** — 이 프로젝트 **첫 @SpringBootTest**. H2 인메모리 + Flyway off + 더미 시크릿(`application-test.yml`)으로 외부 인프라 없이 전체 컨텍스트를 eager 로드 → **"앱 부팅 깨짐"(빈 와이어링/설정 오류)을 CI 에서 잡는다.** (그간 맹점 — 단위테스트만으론 "기동 실패"를 못 잡음.)
-  - 순수함수 + 테스트 패턴: `recommendationComparator`·`computeOversoldScoreParts`·`resolveFill`·`computeReconciliation`·`BotLeaderElectionService.decideLeadership`·`shouldForceLiquidate`·`verdictFor`·`PythonBackendHealthTracker` 등.
+  - 순수함수 + 테스트 패턴: `recommendationComparator`·`computeOversoldScoreParts`·`resolveFill`·`computeReconciliation`·`BotLeaderElectionService.decideLeadership`·`shouldForceLiquidate`·`verdictFor`·`PythonBackendHealthTracker`·**`parseIndexDaily`(KIS 지수)**·**`classifyOvernight`(간밤 미국장)** 등.
   - ⚠ **다중 생성자 빈은 운영 생성자에 `@Autowired` 필수**(테스트용 생성자 추가 시) — 누락하면 컨텍스트 기동 불가. 스모크 테스트가 이 회귀를 가드.
 - **프론트**: `cd frontend && npm test`(vitest) + `npm run build`.
-- **python-backend**: `cd python-backend && pytest`(지표 순수함수). **로컬엔 Python 인터프리터 없음 → Docker 내 실행.**
+- **python-backend**: `cd python-backend && pytest`(지표 + **백테스트(test_backtest 27건) + 지수소스 어댑터(test_index_source)**). **로컬엔 Python 인터프리터 없음(Store 스텁) → Docker 내 실행**(`docker compose run --rm python-backend pytest`).
 - **CI/배포**(`.github/workflows/deploy.yml`): gradle 빌드 → 도커 이미지 → SSH 배포 → **post-deploy 헬스체크**(`curl /api/health` 80초 폴링, 실패 시 `docker compose logs backend` artifact). status=000 = 컨테이너 미기동(앱 500 아님). ⚠ 호스트 OOM/SSH 다운은 인프라 영역(컨테이너 死 ≠ 호스트 死) — docker-compose 메모리 합산 ~3.5GB, swap/RAM 여유 점검 권장.
 
 ---
@@ -418,13 +435,44 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
-## 19. 관련 문서 인덱스
+## 19. 2026-06-30 세션 변경 요약 (차트 백테스트 + P0-pykrx + V36 + 간밤 미국장)
+
+각 항목 독립 커밋. 불변식(단일 시세경로·점수산식·차트분리·regime 규칙 v1·SchedulerLockService fail-open·봇 리더 fail-CLOSED) 무변경. "검증 안 된 신호는 표시 전용·산식 미편입" 원칙 유지.
+
+### 작업0 — python pytest Docker 검증
+- Dockerfile `COPY tests/`+`pytest.ini` 누락 수정 → 차트 지표 18 green. (로컬 Python 없어 Docker 내 실행 확정.)
+
+### 작업1 — 차트 타이밍 백테스트(P2-12) → **승격불가 결론**
+- 신규 모듈 `app/backtest/*`(cost·metrics·chart_backtest_service) + `routers/chart_backtest.py`(`POST /api/v2/chart/backtest`, 온디맨드). `compute_timing` 추출해 **프로덕션과 동일 신호 재생**(단일 출처).
+- 3대 함정 방어: **look-ahead**(`df.loc[:D]` ≤D / 평가 `df.loc[>D]` disjoint + assert) · **진입 D+1 시가/청산 +3거래일 종가** · **비용**(수수료0.03%+세금0.18% + 슬리피지0.15% 가격적용) · **생존편향**(deployed + reconstructed). hit=SignalOutcome 미러.
+- **결과**: hitRate 30.8% · avgNet +0.53% · Sharpe 0.08 · winRate 51% · profitFactor 1.25, **점수분해 역상관**(고점수일수록 적중률↓), 현실 K=10 MDD 28.6%(순차풀베팅 99.4%=아티팩트 폐기). → **베타 유지, 매수후보 미승격**(P2-12 문서화).
+
+### P0-pykrx — pykrx 지수·ticker_list 깨짐 → **KIS 일봉 전환**(운영 regime 복구)
+- **진단**: pykrx 1.0.45 `get_index_ohlcv('1001')`·`get_market_ticker_list()` **날짜무관 전구간 0건**(KRX 포맷변경). 종목 OHLCV는 정상. 표면증상 `KeyError:'지수명'`은 shim으로 막아도 빈값 → fetch 자체 문제.
+- **영향**: regime(V32 `regime_at_signal` NULL 누적 — backfill 불가) · sector_strength 배지 · 백테스트 alpha. **라이브 추천 점수는 무영향**(RecommendationService 자체 sector-momentum regime). **종목마스터 무영향**(KRX KIND HTML).
+- **수정(Option B)**: Java `KoreaInvestmentService.getIndexDailyOhlcv(0001, days)`(TR FHPUP02120000, 진짜 종합지수) + `MarketIndexController GET /api/market/index/kospi-daily`(permitAll). python `regime_service`·`sector_strength_service`가 `app/utils/index_source.fetch_kospi_daily`(Java 호출, pykrx 동형 DataFrame)로 소비. classify_regime·국면 v1·테스트 불변(§10·§4c 보존).
+- **트랩 교정**: ① 컴파일 — 주석에 `*/`(필드명 `bstp_nmix_*/...`)가 javadoc 닫아 빌드깨짐(인코딩 오인했으나 실원인 `*/`). ② SecurityConfig permitAll에 `/api/market/index/**` 추가. ③ KIS 지수 TR 날짜앵커 — `DATE_1`=기준일로 직전 100건 반환(종목 TR과 반대)이라 `DATE_1=start`면 4개월 전에서 끝남 → **`DATE_1=end(오늘)`로 스왑**. **운영검증 OK**(regime asOf=당일·실값·BULL, 캐시 클리어 후).
+- **잔여**: ticker_list(reconstructed 백테스트 전용) = **P3-4**.
+
+### 작업2 — signal_outcome UNIQUE (V36, P3-2 해소)
+- **V36 마이그레이션**: 자기조인 DELETE(최소 id 보존, 원자적) → `ADD CONSTRAINT uq_so_type_code_date UNIQUE(signal_type,stock_code,signal_date)`. 엔티티 `@UniqueConstraint`(idx_so_type_date는 컬럼순서 달라 중복 아님→유지).
+- `record()` INSERT를 `insertOutcomeIsolated`(`@Transactional REQUIRES_NEW`, selfProvider 프록시)로 격리 + `DataIntegrityViolationException` benign → 경합 패자가 호출부 tx 무오염. 사전 감사 SELECT/사후 `SHOW CREATE TABLE` 권장.
+
+### 작업3 — 간밤 미국장 국면 보조 tilt (미검증, '오늘' 탭)
+- `GlobalFuturesService`에 **^SOX** 추가(Yahoo, marketState=None 가능 → 등락률+VIX만 사용). `OvernightUsMarketService.classifyOvernight(es,nq,sox,vix)` 순수(임계 임시값: 3지수 평균 ±0.6% / VIX 20·25·30 / SOX −2%) + `GET /api/global-futures/overnight-us`. 프론트 `TodayBriefingTab` "🌙 간밤 미국장" 독립 줄(regime과 분리).
+- **불변식**: tilt는 python regime/추천 산식 **입력 미편입**(별개 표시), `unverified=true`(봇/추천 미편입). 캘리브레이션 = **P3-5**.
+
+신규/해소 백로그: **P0-pykrx**(해소, 잔여 P3-4) · **P3-4**(ticker_list reconstructed) · **P3-5**(간밤 미국장 tilt 캘리브레이션) · **P3-2 해소**(V36) · **P2-12**(차트 백테스트 = 승격불가 기록).
+
+---
+
+## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓(P2-12 차트 백테스트·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·P3-2 signal unique·P3-3 growth nullable)
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - `docs/STOCK_PLATFORM_GUIDE.md` — 화면→코드→DB 추적
 - `docs/STOCK_AZ_FULL.md` — 2026-06-08판(stale, 본 문서가 대체)
 - `docs/SYSTEM_OVERVIEW.md` · `docs/STOCK_PLATFORM_ONEPAGER.md` — 요약
 
-> 본 문서는 2026-06-29 스냅샷(세션 변경 반영). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-06-30 갱신**(§19 세션 반영). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
