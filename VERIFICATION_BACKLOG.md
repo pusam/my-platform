@@ -219,6 +219,12 @@
 
 - **✅ 백테스트 구현 (2026-06-30, 작업1)**: `app/backtest/`(`cost`·`metrics`·`chart_backtest_service`) + `routers/chart_backtest.py`(`POST /api/v2/chart/backtest`). `chart_pattern_service.compute_timing` 추출해 **프로덕션과 동일 신호 재생**(단일 출처). 함정 방어 — look-ahead: `df.loc[:D]`(≤D)/평가 `df.loc[>D]` disjoint + `assert gen.index.max()<=D` / 진입 D+1 시가·청산 +3거래일 종가 / 비용: 수수료0.03%+세금0.18% flat + 슬리피지 0.15% 가격적용(보수) / hit=alpha≥0 AND pct>0(SignalOutcome 미러) / 생존편향: deployed 16섹터 메인 + `reconstruct_universe`(pykrx get_market_ticker_list) 시점복원 교차검증. 산출: 적중률/평균순손익/MDD/Sharpe + 섹터 spread·Spearman + tie-break 겹침. 순수함수 pytest `tests/test_backtest.py`.
   - **실행(서버 온디맨드)**: `docker compose run --rm python-backend pytest tests/test_backtest.py -v`(검증) → uvicorn 기동 후 `POST /api/v2/chart/backtest {start,end,mode,universe|sectors}` 1회 → 결과로 **승격 판정(사용자)**. **`unverified` 임의 변경 금지.**
+- **❌ 백테스트 결과 = 승격 불가 (2026-06-30, deployed 16섹터 대표, 2026-01-02~05-30, 646신호)**:
+  - **per-trade**: hitRate **30.8%** · avgNet **+0.53%** · Sharpe **0.08** · winRate(net>0) 51.2% · profitFactor 1.25 · avgWin +5.19%/avgLoss −4.38% · worstTrade −21.8% · 손실 −5%초과 16.6%.
+  - **점수분해 = 역상관(필터로 못 살림)**: score1 37.8%(n=333) > score2 24.5% > score3 21.2% > score4 21.1% > score5 26.7%(n=30). **고점수일수록 적중률↓** → min_score 상향 필터로 개선 불가.
+  - **MDD**: 순차 풀베팅 복리 99.4%는 **포지션사이징 없는 산식 아티팩트(폐기)**. 현실적 K=10슬롯 균등배분 청산-실현 기준 **28.6%**(장중 MTM 미반영=보수적 하한).
+  - **⚠ alpha 미산출**: `bmAvailable=false`(alphaSignalCount=0) — pykrx `get_index_ohlcv('1001')` 가 KRX 지수메타 포맷 변경으로 `KeyError:'지수명'` → KOSPI bm 전건 결측 → hit이 **pct≥3% 폴백**으로만 평가됨(alpha≥0 기준 적용 시 **더 엄격 = 결과 더 악화**). reconstructed 교차검증도 동일 버그(`get_market_ticker_list` 0개 반환)로 미실행. **단 이 둘은 결론을 바꾸지 않음**(폴백조차 31% + 점수 역상관 + Sharpe 0.08).
+  - **결론**: 차트 타이밍 **매수후보 미승격, 베타 유지(`unverified=true`)**. alpha/reconstructed 재평가는 결과를 개선할 수 없는 방향이라 결론 확정. (pykrx 지수 fetch 복구는 P0-pykrx 별건 — regime 운영 데이터 유실이 더 큰 사유.)
 - **출처/모듈**:
   - python: `app/indicators/*`(순수함수, pytest 有) + `services/chart_pattern_service.py`(타이밍, `compute_timing` 공용)·`sector_strength_service.py`(섹터) + `routers/chart_patterns.py`(`POST /api/v2/chart/timing`·`/sector-strength`) + `app/backtest/*`(백테스트).
   - Java: `ChartPatternClient`(best-effort) + `ChartSignalRanker`(순수, 테스트 有) + `ChartSignalController`(`/api/recommendation/trend-pullback-top10`·`/sector-strength`).
