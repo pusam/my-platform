@@ -307,7 +307,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 
 | 탭(key) | 렌더 | 내용 |
 |---|---|---|
-| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(미검증 참고, 2026-06-30)** · 매수후보(55컷 momentum) · **🪝 차트 신호 관찰(백테스트 부진·관찰용·접기 기본, 2026-06-30)** · 신뢰도 스트립 · 내 포지션 · 도구 바로가기 |
+| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(2026-06-30)** · 매수후보(55컷 momentum) · **시간대신호(장전/장후)·실시간수급(장중)**(슬롯 #phase-signals, 발굴서 이동 2026-07-01) · **🪝 차트 신호 관찰(접기, 2026-06-30)** · 신뢰도 · **관심종목(슬롯 #watchlist, 접힘)** · 내 포지션 · 도구 |
 | **시장(market)** | 허브 인라인 + 서브탭 | 시장지도(`SectionMarketMap`)·섹터거래대금 / 서브: 수급·타이밍·뉴스·글로벌(embedded) |
 | **발굴(discover)** | 허브 인라인 + 2단 서브탭 | 상단 **'덜 빠지는 섹터' 배지(베타)** + 리스트 5트랙 + 심화도구 |
 | **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |

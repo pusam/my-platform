@@ -357,3 +357,17 @@
 - **Phase 2(예정)**: 발굴 5트랙 union — 비-momentum 종목(value/growth/oversold 트랙은 자체 산식이라 4카테고리 비어있음)을 **momentum 4카테고리 스코어러로 일관 재점수** + 출처태그 확장(저평가/성장/…). dedup(union). 기본정렬 종합점수, 트랙별 필터. → momentum 필터(31% 적중·수급 역상관 포함)에 안 갇히고 "momentum 밖 강한 종목" 발견.
 - **불변식**: unverified 게이팅(미검증 점수 미편입) · 새 라우트 금지(서브탭 흡수) · 종합점수 산식 무변경(보드는 조립·표시 전용 — 산식 합류는 P1-6 데이터 후 별도 결정).
 - **관련**: `JudgmentBoardService`/`JudgmentBoardDto`/`RecommendationController`(`/judgment-board`), `SectionJudgmentBoard.vue`, `StockTradingDashboardV2.vue`(discoverSubTabs board), [P1-6](카테고리 진단).
+
+---
+
+## P2-15. 차트신호/종합 중복 통합 — 발굴 UI 정리 2단계 (2026-07-01 신규)
+
+> **배경**: 발굴 탭 UI 진단(2026-07-01)에서 "난잡함"의 한 축 = 중복. **1단계(A 슬림화) 완료**(시간대신호·관심종목 오늘 탭 이동, 차트신호 종목 접힘 — `525891e`). 2단계 = 중복 기능 통합(C). 종합판단이 Phase 2(P2-14)로 풍부해진 뒤 착수(지금은 흡수 시기 이름).
+
+- **중복 현황(진단 근거)**:
+  - **차트 신호 3군데**: ① 발굴목록 '차트 신호 종목'(Java `ChartPatternService` 패턴검출+composite 5/5) · ② 종합판단 '차트타이밍' 컬럼(python `ChartPatternClient` timing) · ③ 오늘탭 '차트 신호 관찰'(python timing, momentum 후보). 출처·대상 다른데 이름이 다 "차트 신호".
+  - **🎯종합 vs 🧭종합판단**: 같은 momentum 후보(목록 vs 3계층 비교표). 종합판단 상위호환.
+  - **composite 5/5**(`CompositeSignalService`) vs **종합판단 보드**(신호 3계층): 둘 다 "신호 종합".
+- **과제(2단계)**: ① 차트신호 3→1 정리(발굴목록 '차트 신호 종목' 삭제 or 종합판단 흡수) · ② 🎯종합 은퇴(종합판단 일원화) · ③ composite 5/5 → 종합판단 흡수 검토.
+- **선결**: **P2-14 Phase 2(발굴 union)** 로 종합판단이 비교 대상 충분해진 뒤. 그 전 삭제는 검증된 기능 손실 위험.
+- **관련**: `ChartPatternService`(Java 패턴검출)·`CompositeSignalService`(5/5)·`SectionJudgmentBoard.vue`·`SectionTotalRecommendation.vue`·발굴목록 차트신호 블록(`StockTradingDashboardV2.vue`), [P2-14].
