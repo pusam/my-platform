@@ -38,7 +38,7 @@ def test_hit_rate_and_aggregate():
     agg = metrics.aggregate([10.0, -5.0, 20.0])
     assert agg["n"] == 3
     assert agg["avgNetReturn"] == approx(8.333, abs=0.01)
-    assert agg["mdd"] == approx(5.0, abs=0.01)    # peak 1.1 → 1.045 = 5% 낙폭
+    assert "mdd" not in agg                         # mdd 는 aggregate 에서 제거(→ backtest_timing.portfolioMdd 로 이동)
     assert agg["sharpe"] > 0
     # 빈 시퀀스 안전
     assert metrics.aggregate([])["n"] == 0

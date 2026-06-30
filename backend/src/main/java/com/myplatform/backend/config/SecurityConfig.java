@@ -127,6 +127,9 @@ public class SecurityConfig {
                                 "/api/signal-outcomes/compare",
                                 "/api/signal-outcomes/timeseries",
                                 "/api/recommendation/strong-value-frequency",
+                                // 차트기법 보조 시그널(미검증 베타) — 분석 메타데이터, 운영자 curl 검증용.
+                                "/api/recommendation/sector-strength",
+                                "/api/recommendation/trend-pullback-top10",
                                 "/api/diagnostics/**",
                                 // KOSPI 지수 일봉(공개 시장데이터) — python regime/sector 가 내부 소비.
                                 "/api/market/index/**"
