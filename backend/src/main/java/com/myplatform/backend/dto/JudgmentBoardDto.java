@@ -1,0 +1,70 @@
+package com.myplatform.backend.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * 종합 판단 보드 (B안, 2026-06-30) — 매수후보를 신뢰도 3계층 신호로 나란히 비교.
+ *
+ * <p><b>원칙</b>: 종합점수 산식은 건드리지 않고 <b>조립·표시 전용</b>. 컬럼은 신뢰도 3계층으로 분리한다:
+ * <ul>
+ *   <li>① 점수(검증/게이트): totalScore·technical·earnings·sectorMomentum — 종합점수에 이미 반영된 것.
+ *   <li>② 참고(미검증): timingScore·sectorStrengthRel·(헤더)overnight — <b>점수 미편입</b>, unverified.
+ *   <li>③ 경고(역상관 의심): supplyDemand — P1-6 진단상 고점일수록 적중률↓(단 n=88, <b>의심·표본작음</b>이지 확정 아님).
+ * </ul>
+ */
+@Getter
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class JudgmentBoardDto {
+
+    private Market market;          // 전 행 공통 컨텍스트(헤더)
+    private List<Row> rows;
+    private boolean timingAvailable;          // 차트타이밍 python 가용(빈 결과가 '신호없음'인지 '다운'인지 구분)
+    private boolean sectorStrengthAvailable;
+    private String note;            // 미검증/역상관 의심 안내 문구
+
+    /** 시장 컨텍스트 — regime(KOSPI MA60) + 간밤 미국장 tilt. 둘 다 점수 미편입(맥락 표시). */
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class Market {
+        private String regime;                 // BULL/BEAR/SIDEWAYS 또는 null(미수집)
+        private String overnightTilt;          // BULL/NEUTRAL/BEAR 또는 null
+        private List<String> overnightDrivers; // S&P/나스닥/SOX/VIX 요약
+    }
+
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class Row {
+        private String stockCode, stockName;
+        private BigDecimal currentPrice, changeRate;
+        private List<String> sources;          // 출처 태그 — Phase1: ["momentum"]. Phase2: 발굴 트랙 추가.
+
+        // ① 점수(검증/게이트)
+        private int totalScore;
+        private int technical;                 // ✅ 예측력 검증(P1-6: 강세 57%>약세 43%)
+        private int earnings;                  // 게이트 + 약변별
+        private int sectorMomentum;            // 테마(AI) 주도 — 고점(14) 예측력
+
+        // ③ 경고(역상관 의심)
+        private int supplyDemand;
+        private boolean supplyInverseSuspect;  // 고점=혼잡 의심(표본 작음, 확정 아님)
+
+        // ② 참고(미검증 — 점수 미편입)
+        private Integer timingScore;           // null=신호없음/미산출
+        private String sector;                 // 섹터명
+        private BigDecimal sectorStrengthRel;  // 섹터 상대강도(null=미가용)
+
+        private List<String> tags;
+    }
+}

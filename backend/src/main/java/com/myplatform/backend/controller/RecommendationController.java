@@ -1,5 +1,6 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.service.JudgmentBoardService;
 import com.myplatform.backend.service.RecommendationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -13,6 +14,7 @@ import java.util.Map;
 public class RecommendationController {
 
     private final RecommendationService recommendationService;
+    private final JudgmentBoardService judgmentBoardService;
 
     @GetMapping("/top5")
     public ResponseEntity<?> getTop5() {
@@ -23,6 +25,18 @@ public class RecommendationController {
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime(),
                 "delta", response.getDelta()
+        ));
+    }
+
+    /**
+     * 종합 판단 보드(B안) — 매수후보를 신뢰도 3계층(검증/참고-미검증/역상관 의심) 신호로 비교.
+     * 종합점수 산식 무변경, 미검증 신호(차트타이밍·섹터강도·간밤 미국장)는 표시만(점수 미편입).
+     */
+    @GetMapping("/judgment-board")
+    public ResponseEntity<?> getJudgmentBoard() {
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", judgmentBoardService.getBoard()
         ));
     }
 
