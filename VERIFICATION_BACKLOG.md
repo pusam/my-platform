@@ -344,4 +344,15 @@
 - **측정 버그(별도)**: `aggregateCategories`의 단일 임계 `CATEGORY_STRONG_THRESHOLD=15`는 카테고리별 점수 분포 차이(실적 8~20·섹터 0~14·수급 0~20)를 무시 → **카테고리별 임계로 분리**해야 강세 표본이 잡힘(섹터 ≥14 등). 이건 산식 아닌 *측정* 수정이라 데이터 무관하게 선반영 가능.
 - **조치(가중치)**: **당장 가중치 변경 보류**(n=88·표본 작음, regime 분리 불가). 수급=역상관 의심지표로 확정. regime 복구됐으니 **데이터 축적 → N주 후 국면별 분리 재측정**.
 - **로드맵**: 단기 **B안**(미국장·차트타이밍·섹터강도 + 4카테고리를 한 화면에 모아 보되 **점수 미편입**) → 표본 ≥수백 시 **A안**(차트백테스트처럼 단조·유의한 것만 종합점수 합류, 수급 가중↓/제외, 섹터 임계 재조정).
-- **관련**: `RecommendationService.scoreEarnings/scoreSupplyDemand/scoreTechnical/scoreSectorMomentum`, `SignalOutcomeService.aggregateCategories`(CATEGORY_STRONG_THRESHOLD=15), `signal_outcome`(V30 카테고리 스냅샷), [P2-12](차트 백테스트 — 같은 교훈).
+- **관련**: `RecommendationService.scoreEarnings/scoreSupplyDemand/scoreTechnical/scoreSectorMomentum`, `SignalOutcomeService.aggregateCategories`(CATEGORY_STRONG_THRESHOLD=15), `signal_outcome`(V30 카테고리 스냅샷), [P2-12](차트 백테스트 — 같은 교훈), [P2-14](B안 보드).
+
+---
+
+## P2-14. 종합 판단 보드 (B안 — 신호 한 화면 비교, 점수 미편입) (2026-06-30 신규)
+
+> **목적**: "여러 종목 중 최적 찾기" — 매수후보를 신뢰도 3계층 신호로 **한 화면에서 비교**. P1-6 교훈("검증 안 된 지표 합산 = 독")을 구조로: 검증된 것만 종합점수, 미검증은 표시만.
+
+- **✅ Phase 1 완료(2026-06-30)**: momentum 후보(getTop5)만. `GET /api/recommendation/judgment-board` + `JudgmentBoardService`(순수 `assembleRows`/`parseSectorRel`, 테스트 有) + `JudgmentBoardDto`. 프론트 `SectionJudgmentBoard.vue`(발굴 심화 '🧭 종합판단' 서브탭). 컬럼 3계층 = ① 점수(검증/게이트: total/기술/실적/섹터테마) · ② 참고(미검증·점수 미편입: 차트타이밍/섹터강도/간밤미국장) · ③ 경고(수급 역상관 **의심**, ≥10, 표본작음 톤). 정렬·필터(역상관 숨기기/기술강세만). **종합점수 산식 무변경**.
+- **Phase 2(예정)**: 발굴 5트랙 union — 비-momentum 종목(value/growth/oversold 트랙은 자체 산식이라 4카테고리 비어있음)을 **momentum 4카테고리 스코어러로 일관 재점수** + 출처태그 확장(저평가/성장/…). dedup(union). 기본정렬 종합점수, 트랙별 필터. → momentum 필터(31% 적중·수급 역상관 포함)에 안 갇히고 "momentum 밖 강한 종목" 발견.
+- **불변식**: unverified 게이팅(미검증 점수 미편입) · 새 라우트 금지(서브탭 흡수) · 종합점수 산식 무변경(보드는 조립·표시 전용 — 산식 합류는 P1-6 데이터 후 별도 결정).
+- **관련**: `JudgmentBoardService`/`JudgmentBoardDto`/`RecommendationController`(`/judgment-board`), `SectionJudgmentBoard.vue`, `StockTradingDashboardV2.vue`(discoverSubTabs board), [P1-6](카테고리 진단).
