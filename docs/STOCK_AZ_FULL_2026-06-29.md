@@ -314,6 +314,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 
 - **발굴 리스트 서브탭**(lazy, 택1): 💎저평가·🚀성장·📉낙폭과대·💰실적·🏦수급 (`ensureDiscoverListLoaded`).
 - **발굴 심화도구 서브탭**: 종합(`SectionTotalRecommendation`)·**🧭 종합판단(`SectionJudgmentBoard`, B안 2026-06-30)**·AI전략·백테스트(`SectionBacktest`)·스크리너·퀀트TA(`SectionQuantTa`).
+- **발굴 2단 네비 통합(2026-07-01)**: 목록 5트랙 + 심화도구 두 서브탭 바를 **둘 다 상단**에, `discoverGroup`('list'/'deep')로 선택 그룹 콘텐츠만 표시(심화 바가 긴 리스트에 묻히던 문제 해소). **기본 진입 = 🧭종합판단 보드**(상수 한 줄 변경 가능). 빈 보드 폴백(목록 발굴 안내). 위젯 9섹션 group 게이팅 + deep 기본 시 리스트 eager 로드 가드. 모바일=그룹라벨 숨김(가로스크롤).
 - **역할 분리**: 모멘텀 종합추천(`getTop5`)은 오늘 탭 전용 — 발굴에 재추가 금지.
 
 ### 11-3. 종목 상세 (`views/StockDetailDashboard.vue`, ~4,700줄)

@@ -352,7 +352,8 @@
 
 > **목적**: "여러 종목 중 최적 찾기" — 매수후보를 신뢰도 3계층 신호로 **한 화면에서 비교**. P1-6 교훈("검증 안 된 지표 합산 = 독")을 구조로: 검증된 것만 종합점수, 미검증은 표시만.
 
-- **✅ Phase 1 완료(2026-06-30)**: momentum 후보(getTop5)만. `GET /api/recommendation/judgment-board` + `JudgmentBoardService`(순수 `assembleRows`/`parseSectorRel`, 테스트 有) + `JudgmentBoardDto`. 프론트 `SectionJudgmentBoard.vue`(발굴 심화 '🧭 종합판단' 서브탭). 컬럼 3계층 = ① 점수(검증/게이트: total/기술/실적/섹터테마) · ② 참고(미검증·점수 미편입: 차트타이밍/섹터강도/간밤미국장) · ③ 경고(수급 역상관 **의심**, ≥10, 표본작음 톤). 정렬·필터(역상관 숨기기/기술강세만). **종합점수 산식 무변경**.
+- **✅ Phase 1 완료(2026-06-30)**: momentum 후보(getTop5)만. `GET /api/recommendation/judgment-board` + `JudgmentBoardService`(순수 `assembleRows`/`parseSectorRel`, 테스트 有) + `JudgmentBoardDto`. 프론트 `SectionJudgmentBoard.vue`(발굴 심화 '🧭 종합판단' 서브탭).
+  - **✅ 발굴 네비 통합(2026-07-01)**: 발굴 2단 서브탭(목록/심화)을 둘 다 상단으로 모으고 `discoverGroup`로 콘텐츠 단일화(심화 바 버림 해소). **기본 진입 = 종합판단 보드**. 빈 보드 폴백('목록 탭에서 발굴' 버튼). 순수 레이아웃(산식 무관), 134 vitest green. 컬럼 3계층 = ① 점수(검증/게이트: total/기술/실적/섹터테마) · ② 참고(미검증·점수 미편입: 차트타이밍/섹터강도/간밤미국장) · ③ 경고(수급 역상관 **의심**, ≥10, 표본작음 톤). 정렬·필터(역상관 숨기기/기술강세만). **종합점수 산식 무변경**.
 - **Phase 2(예정)**: 발굴 5트랙 union — 비-momentum 종목(value/growth/oversold 트랙은 자체 산식이라 4카테고리 비어있음)을 **momentum 4카테고리 스코어러로 일관 재점수** + 출처태그 확장(저평가/성장/…). dedup(union). 기본정렬 종합점수, 트랙별 필터. → momentum 필터(31% 적중·수급 역상관 포함)에 안 갇히고 "momentum 밖 강한 종목" 발견.
 - **불변식**: unverified 게이팅(미검증 점수 미편입) · 새 라우트 금지(서브탭 흡수) · 종합점수 산식 무변경(보드는 조립·표시 전용 — 산식 합류는 P1-6 데이터 후 별도 결정).
 - **관련**: `JudgmentBoardService`/`JudgmentBoardDto`/`RecommendationController`(`/judgment-board`), `SectionJudgmentBoard.vue`, `StockTradingDashboardV2.vue`(discoverSubTabs board), [P1-6](카테고리 진단).
