@@ -299,5 +299,17 @@
 - **✅ 지수 경로 해소·운영검증 완료(2026-06-30, P0-pykrx)**: pykrx 지수 의존을 **KIS 일봉 지수로 전환**(Option B). Java `KoreaInvestmentService.getIndexDailyOhlcv(0001, days)`(TR `FHPUP02120000`, 진짜 종합지수 — ETF 프록시 아님) + 내부 엔드포인트 `GET /api/market/index/kospi-daily`(permitAll, `MarketIndexController`). python `regime_service`·`sector_strength_service` 가 pykrx 대신 이걸 소비(국면 규칙 v1·classify 로직·테스트 불변, §10·§4c 보존). 파서 순수함수 단위테스트 `KoreaInvestmentIndexParseTest` + 어댑터 `tests/test_index_source.py`.
   - **⚠ 날짜 앵커 교정(후속)**: KIS 지수 TR 은 `FID_INPUT_DATE_1`(기준일)을 앵커로 직전 100건 반환(종목 TR 은 DATE_2 가 끝인 것과 반대). 초기 `DATE_1=start` 로 둬서 데이터가 4개월 전(start)에서 끝나 regime asOf 오판(kospiClose=2월값) → **`DATE_1=end(오늘)` 로 스왑** 교정.
   - **운영 검증 OK**: regime `asOf=2026-06-30`, `kospiClose` 현재 실값, BULL 정상 분류(`market_regime_kospi` 캐시 클리어 후). `regime_at_signal`(V32) 정확 기록 재개. sector-strength 배지 동일 KIS 경로로 복구 + `/api/recommendation/sector-strength`·`trend-pullback-top10` permitAll 추가(401 해소).
-- **잔여(후순위, 운영 무관)**: `get_market_ticker_list`(reconstructed 백테스트 유니버스 복원)만 미해결 — **별개 엔드포인트**. **종목마스터(`stock_master`)는 pykrx 와 무관**(위 line: KRX KIND HTML 소스, 신규상장/상폐 반영 정상 — "KIS 종목마스터 전환" 불필요. 종목마스터 신선도는 `stock_master.last_seed_time_seconds` 메트릭/시드 로그로 별도 확인). reconstructed 교차검증은 작업1 결론(승격불가) 확정이라 후순위 — 차후 필요 시 KIS/KRX KIND 기반 시점복원으로 대체 검토.
+- **잔여(P0 종료 후로 분리)**: `get_market_ticker_list` 깨짐(reconstructed 백테스트 유니버스 복원 전용)만 미해결 → **별도 티켓 [P3-4]로 분리**(P0 닫혀도 추적 유지). **종목마스터는 pykrx 와 무관**(line 298). 
+- **상태**: 지수 경로(regime/sector) 해소·운영검증 완료 → **P0 종료**. ticker_list 잔여는 P3-4.
 - **관련**: python `regime_service.py`·`sector_strength_service.py`·`chart_backtest_service.py`(pykrx 지수 호출 3곳), Java `KoreaInvestmentService.getIndexDailyOhlcv`/`parseIndexDaily`·`MarketIndexController`, `SecurityConfig`(permitAll `/api/market/index/**`).
+
+---
+
+## P3-4. pykrx get_market_ticker_list 깨짐 — reconstructed 백테스트 유니버스 복원 (P0-pykrx 분리, 2026-06-30)
+
+> **배경**: P0-pykrx 에서 pykrx 1.0.45 `get_market_ticker_list()` 가 KRX 포맷 변경으로 **전구간 0건** 확인됨(지수 `get_index_ohlcv` 와 같은 뿌리, 다른 엔드포인트). 지수 경로는 KIS 일봉으로 해소했으나 ticker_list 는 미해결로 남겨 분리.
+
+- **영향 = 백테스트 reconstructed 모드 전용(운영 무관)**: `chart_backtest_service.reconstruct_universe`(시점별 상장종목 복원, 생존편향 교차검증용)만 빈 유니버스 반환. 작업1 결론(차트 타이밍 **승격불가**)이 이미 확정이라 reconstructed 교차검증의 실익 낮음 → **후순위**.
+- **종목마스터(`stock_master`)는 무영향(재확인)**: `KrxStockMasterSeeder` 는 pykrx 가 아니라 **KRX KIND HTML**(`kind.krx.co.kr/corpgeneral/corpList.do`, Jsoup) 소스 → 신규상장/상폐 반영 정상. "KIS 종목마스터 전환" 불필요. 신선도 점검은 `stock_master.last_seed_time_seconds` 메트릭/시드 로그로 독립 확인.
+- **과제(필요 시)**: reconstructed 유니버스 복원을 pykrx 대신 **KIS/KRX KIND 기반 시점복원**(또는 stock_master 상장일·상폐 이력)으로 대체 검토. 단 작업1 재개 결정 전엔 착수 불필요.
+- **관련**: `python-backend/app/backtest/chart_backtest_service.py`(`reconstruct_universe`, `get_market_ticker_list` 2곳), [P0-pykrx], [P2-12].
