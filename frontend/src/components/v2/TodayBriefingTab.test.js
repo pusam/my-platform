@@ -73,17 +73,23 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(w.find('.cc-catalyst').text()).toContain('재료: 수주(호재)')
   })
 
-  it('차트 타이밍 베타 섹션 — 후보 있으면 배너 + 카드(점수/10) 표시', async () => {
+  it('차트 신호 관찰 — 기본 접힘(매수신호 아님·31%) → 펼치면 카드(점수 미표시)', async () => {
     stubAll()
     recommendationAPI.getTrendPullbackTop10.mockResolvedValue({ data: { success: true, data: [
       { code: '207940', name: '삼성바이오로직스', signals: ['정배열', '엔벨로프눌림'], timingScore: 8 }
     ] } })
     const w = await mountTab()
+    // 기본 접힘 — 제목 '차트 신호 관찰' + 실측 한 줄(31%·매수신호 아님), 배너/카드 숨김
+    expect(w.text()).toContain('차트 신호 관찰')
+    expect(w.find('.observe-collapsed').exists()).toBe(true)
+    expect(w.find('.observe-collapsed').text()).toContain('31%')
+    expect(w.find('.beta-banner').exists()).toBe(false)
+    // 펼치기 → 배너(매수 신호 아님) + 종목, 단 점수(8/10)는 미표시(역상관 오해 방지)
+    await w.find('.ts-toggle').trigger('click')
     expect(w.find('.beta-banner').exists()).toBe(true)
-    expect(w.find('.beta-banner').text()).toContain('검증 전 베타')
-    expect(w.text()).toContain('차트 타이밍 매수 후보')
+    expect(w.find('.beta-banner').text()).toContain('매수 신호 아님')
     expect(w.text()).toContain('삼성바이오로직스')
-    expect(w.text()).toContain('8/10')
+    expect(w.text()).not.toContain('8/10')
   })
 
   it('차트 타이밍 후보 0건이면 베타 섹션 숨김', async () => {
