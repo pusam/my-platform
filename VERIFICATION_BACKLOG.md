@@ -217,8 +217,10 @@
 > 별도 섹션**(momentum 55컷 후보와 분리·대체 아님) + **섹터강도 = '발굴' 탭 상단 배지**로만. **봇/종합추천/매수후보 랭킹에는
 > 편입하지 않는다**(코드 가드: 응답 `unverified=true`, momentum 스코어러와 분리). **실거래 매수신호로 노출 금지**(베타 라벨 유지).
 
+- **✅ 백테스트 구현 (2026-06-30, 작업1)**: `app/backtest/`(`cost`·`metrics`·`chart_backtest_service`) + `routers/chart_backtest.py`(`POST /api/v2/chart/backtest`). `chart_pattern_service.compute_timing` 추출해 **프로덕션과 동일 신호 재생**(단일 출처). 함정 방어 — look-ahead: `df.loc[:D]`(≤D)/평가 `df.loc[>D]` disjoint + `assert gen.index.max()<=D` / 진입 D+1 시가·청산 +3거래일 종가 / 비용: 수수료0.03%+세금0.18% flat + 슬리피지 0.15% 가격적용(보수) / hit=alpha≥0 AND pct>0(SignalOutcome 미러) / 생존편향: deployed 16섹터 메인 + `reconstruct_universe`(pykrx get_market_ticker_list) 시점복원 교차검증. 산출: 적중률/평균순손익/MDD/Sharpe + 섹터 spread·Spearman + tie-break 겹침. 순수함수 pytest `tests/test_backtest.py`.
+  - **실행(서버 온디맨드)**: `docker compose run --rm python-backend pytest tests/test_backtest.py -v`(검증) → uvicorn 기동 후 `POST /api/v2/chart/backtest {start,end,mode,universe|sectors}` 1회 → 결과로 **승격 판정(사용자)**. **`unverified` 임의 변경 금지.**
 - **출처/모듈**:
-  - python: `app/indicators/*`(순수함수, pytest 有) + `services/chart_pattern_service.py`(타이밍)·`sector_strength_service.py`(섹터) + `routers/chart_patterns.py`(`POST /api/v2/chart/timing`·`/sector-strength`).
+  - python: `app/indicators/*`(순수함수, pytest 有) + `services/chart_pattern_service.py`(타이밍, `compute_timing` 공용)·`sector_strength_service.py`(섹터) + `routers/chart_patterns.py`(`POST /api/v2/chart/timing`·`/sector-strength`) + `app/backtest/*`(백테스트).
   - Java: `ChartPatternClient`(best-effort) + `ChartSignalRanker`(순수, 테스트 有) + `ChartSignalController`(`/api/recommendation/trend-pullback-top10`·`/sector-strength`).
   - 프론트: 타이밍 = `TodayBriefingTab.vue`(오늘 탭 '차트 타이밍 매수 후보' 베타 섹션, `loadTimingCandidates`) / 섹터강도 = `StockTradingDashboardV2.vue`(발굴 탭 상단 배지, `refreshSectorStrength`).
 - **✅ 가시성 확보 (2026-06-29, 작업3)**: `PythonBackendHealthTracker`(소스별 성공/실패/연속실패) — best-effort 클라이언트가 조용히 죽는 걸 가시화. `/api/diagnostics/python-health` 노출 + 연속 3회 실패 시 텔레그램 리스크 알림. 차트 응답에 **`dataAvailable`** 추가(빈 결과가 '신호 없음'인지 '분석서버 다운'인지 구분) → 프론트가 "분석서버 일시 미가용" 명시. **백테스트 표본의 '데이터 미가용 구간'을 식별 가능 → P2-12 신뢰성 보강.**

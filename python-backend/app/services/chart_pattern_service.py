@@ -49,20 +49,13 @@ def fetch_ohlcv(ticker: str, start: str, end: str) -> Optional[pd.DataFrame]:
     return df
 
 
-def _analyze_one(ticker: str, cfg: ChartPatternConfig, start: str, end: str) -> dict:
-    df = fetch_ohlcv(ticker, start, end)
-    if df is None:
-        return {"ticker": ticker, "available": False, "reason": "no_data"}
+def compute_timing(highs: list, lows: list, closes: list, ma20_series: list,
+                   cfg: ChartPatternConfig) -> dict:
+    """OHLCV 리스트(과거→현재 정렬)로 타이밍 신호 산출 — 마지막 봉 기준.
 
-    closes = df["종가"].astype(float).tolist()
-    highs = df["고가"].astype(float).tolist()
-    lows = df["저가"].astype(float).tolist()
-
-    longest = max(cfg.ma_periods)
-    if len(closes) < longest:
-        return {"ticker": ticker, "available": False,
-                "reason": f"insufficient_history({len(closes)}/{longest})"}
-
+    실시간(_analyze_one)·백테스트(chart_backtest_service) 공용 **단일 출처** — 백테스트가
+    프로덕션과 동일한 신호를 검증하도록. ma20_series 는 종가 20-rolling-mean 리스트(lows 와 동일 정렬).
+    """
     # 이동평균 (1)
     mas = [ma_mod.sma(closes, p) for p in cfg.ma_periods]
     aligned = ma_mod.is_aligned(mas)
@@ -81,7 +74,6 @@ def _analyze_one(ticker: str, cfg: ChartPatternConfig, start: str, end: str) -> 
     envelope_touch = env_mod.lower_touch(lows[-1], band)
 
     # 위험필터 — window 내 하단 터치 횟수 (5)
-    ma20_series = df["종가"].astype(float).rolling(20).mean().tolist()
     touches = env_mod.touch_count_in_window(lows, ma20_series, cfg.envelope_k, cfg.risk_window)
     risk_excluded = env_mod.is_risk_excluded(touches, cfg.risk_touch_max)
 
@@ -101,8 +93,6 @@ def _analyze_one(ticker: str, cfg: ChartPatternConfig, start: str, end: str) -> 
         risk_excluded=risk_excluded)
 
     return {
-        "ticker": ticker,
-        "available": True,
         "aligned": aligned,
         "alignmentStrength": strength,
         "alignmentMax": alignment_max,
@@ -116,6 +106,29 @@ def _analyze_one(ticker: str, cfg: ChartPatternConfig, start: str, end: str) -> 
         "timingScore": score.get("score"),
         "scoreMax": score.get("max"),
         "signals": score.get("signals", []),
+    }
+
+
+def _analyze_one(ticker: str, cfg: ChartPatternConfig, start: str, end: str) -> dict:
+    df = fetch_ohlcv(ticker, start, end)
+    if df is None:
+        return {"ticker": ticker, "available": False, "reason": "no_data"}
+
+    closes = df["종가"].astype(float).tolist()
+    highs = df["고가"].astype(float).tolist()
+    lows = df["저가"].astype(float).tolist()
+
+    longest = max(cfg.ma_periods)
+    if len(closes) < longest:
+        return {"ticker": ticker, "available": False,
+                "reason": f"insufficient_history({len(closes)}/{longest})"}
+
+    ma20_series = df["종가"].astype(float).rolling(20).mean().tolist()
+    result = compute_timing(highs, lows, closes, ma20_series, cfg)
+    return {
+        "ticker": ticker,
+        "available": True,
+        **result,
         "unverified": True,  # 미검증 보조 시그널 — 실거래 신호 아님
     }
 

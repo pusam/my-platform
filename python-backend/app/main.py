@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from app.config import get_settings
 from app.services.cache_service import redis_client, close_redis
-from app.routers import health, regime, chart_patterns
+from app.routers import health, regime, chart_patterns, chart_backtest
 
 
 @asynccontextmanager
@@ -39,3 +39,4 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(regime.router)
 app.include_router(chart_patterns.router)
+app.include_router(chart_backtest.router)
