@@ -12,6 +12,14 @@
       <span v-if="marketData.marketStatus" class="tm-status">{{ marketData.marketStatus }}</span>
     </div>
 
+    <!-- ①-b 간밤 미국장 (보조 tilt · 미검증 참고 · regime 산식 미편입, 독립 표시) -->
+    <div v-if="overnightAvailable && overnight" class="today-overnight">
+      <span class="ov-label">🌙 간밤 미국장</span>
+      <span class="ov-tilt" :class="overnightTiltClass(overnight.tilt)">{{ overnightTiltLabel(overnight.tilt) }}</span>
+      <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}</span>
+      <span class="ov-beta">미검증 참고</span>
+    </div>
+
     <!-- ② 오늘의 매수 후보 -->
     <div class="today-section">
       <div class="ts-title-row">
@@ -146,6 +154,8 @@ const catalysts = ref({});           // stockCode → catalyst dto
 const accuracyStats = ref([]);
 const backtestOverall = ref(null);
 const portfolio = ref([]);
+const overnight = ref(null);          // 간밤 미국장 tilt(미검증 참고 · regime 산식 미편입)
+const overnightAvailable = ref(true); // dataAvailable=false → Yahoo 미가용
 
 const hasMarketData = computed(() =>
   !!(props.marketData && props.marketData.kospiIndex));
@@ -234,9 +244,23 @@ const loadPortfolio = async () => {
   }
 };
 
+// 간밤 미국장 보조 tilt — regime 산식 미편입, 참고 표시 전용(미검증). best-effort.
+const loadOvernight = async () => {
+  try {
+    const { data } = await apiClient.get('/global-futures/overnight-us');
+    overnight.value = data?.data || null;
+    overnightAvailable.value = !!(overnight.value && overnight.value.dataAvailable !== false);
+  } catch (e) {
+    overnight.value = null;
+    overnightAvailable.value = false;
+  }
+};
+
 const gradeLabel = (score) => (Number(score) >= STRONG_BUY_CUT ? '강력 매수' : '매수');
 const gradeClass = (score) => (Number(score) >= STRONG_BUY_CUT ? 'grade-strong' : 'grade-buy');
 const directionLabel = (d) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[d] || d);
+const overnightTiltLabel = (t) => ({ BULL: '강세', NEUTRAL: '중립', BEAR: '약세' }[t] || t);
+const overnightTiltClass = (t) => (t === 'BULL' ? 'positive' : t === 'BEAR' ? 'negative' : '');
 const changeClass = (v) => (Number(v) > 0 ? 'positive' : Number(v) < 0 ? 'negative' : '');
 const signed = (v, grouping = false) => {
   if (v == null) return '—';
@@ -250,6 +274,7 @@ onMounted(() => {
   loadTimingCandidates();
   loadTrust();
   loadPortfolio();
+  loadOvernight();
 });
 </script>
 
@@ -270,6 +295,24 @@ onMounted(() => {
 .tm-item { font-weight: 600; }
 .tm-adr { opacity: 0.7; font-weight: 400; }
 .tm-status { margin-left: auto; font-size: 12px; opacity: 0.6; }
+
+/* ①-b 간밤 미국장 (보조 tilt · 미검증 참고) */
+.today-overnight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 16px;
+  font-size: 12px;
+  opacity: 0.92;
+}
+.ov-label { font-weight: 600; opacity: 0.8; }
+.ov-tilt { font-weight: 700; }
+.ov-drivers { opacity: 0.7; }
+.ov-beta {
+  margin-left: auto; font-size: 10px; font-weight: 700; color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14); padding: 1px 7px; border-radius: 4px;
+}
 
 /* 공통 섹션 */
 .today-section {
