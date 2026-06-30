@@ -313,3 +313,16 @@
 - **종목마스터(`stock_master`)는 무영향(재확인)**: `KrxStockMasterSeeder` 는 pykrx 가 아니라 **KRX KIND HTML**(`kind.krx.co.kr/corpgeneral/corpList.do`, Jsoup) 소스 → 신규상장/상폐 반영 정상. "KIS 종목마스터 전환" 불필요. 신선도 점검은 `stock_master.last_seed_time_seconds` 메트릭/시드 로그로 독립 확인.
 - **과제(필요 시)**: reconstructed 유니버스 복원을 pykrx 대신 **KIS/KRX KIND 기반 시점복원**(또는 stock_master 상장일·상폐 이력)으로 대체 검토. 단 작업1 재개 결정 전엔 착수 불필요.
 - **관련**: `python-backend/app/backtest/chart_backtest_service.py`(`reconstruct_universe`, `get_market_ticker_list` 2곳), [P0-pykrx], [P2-12].
+
+---
+
+## P3-5. 간밤 미국장 tilt 임계값 캘리브레이션 (작업3, 미검증 베타 — 2026-06-30 신규)
+
+> **배경**: 작업3에서 간밤 미국장 보조 tilt(`OvernightUsMarketService.classifyOvernight`)를 '오늘' 탭 참고용으로 추가했다.
+> 임계값(3지수 평균 ±0.6%, VIX 20/25/30, SOX -2%)은 전부 **임시값**(사후확증 아님, 직관 기반) — `unverified=true`로
+> regime/봇/추천 산식에 미편입, 표시 전용. 차트타이밍·섹터강도와 동일 게이팅.
+
+- **검증 과제**: tilt(BULL/NEUTRAL/BEAR) vs **KOSPI 익일 시초가(또는 당일 종가) 수익률** 적중률 측정. 구간별(BULL이 실제로 상승 출발 비율↑?) + SOX 단독 트리거(반도체 급락→한국 약세)의 실효성.
+- **합격 시**: 임계값 데이터 기반 보정. (단 regime 산식 편입은 별도 결정 — 현 설계는 표시 전용 유지가 기본.)
+- **데이터 소스**: `GET /api/global-futures/overnight-us`(tilt+drivers) 일자별 스냅 + KOSPI 일봉(KIS, P0-pykrx로 복구됨). 신호처럼 `signal_outcome` 패턴으로 스냅 누적 검토.
+- **관련**: `OvernightUsMarketService`(`classifyOvernight` 순수, `OvernightUsMarketServiceTest`), `GlobalFuturesController`(`/overnight-us`), 프론트 `TodayBriefingTab.vue`(`loadOvernight`). 참고: 기존 `getKospiImpactAnalysis`(0~100 개장 영향예측)는 별개 모델.
