@@ -306,7 +306,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 
 | 탭(key) | 렌더 | 내용 |
 |---|---|---|
-| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(미검증 참고, 2026-06-30)** · 매수후보(55컷 momentum) · **🪝 차트 타이밍 후보(검증 전 베타)** · 신뢰도 스트립 · 내 포지션 · 도구 바로가기 |
+| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(미검증 참고, 2026-06-30)** · 매수후보(55컷 momentum) · **🪝 차트 신호 관찰(백테스트 부진·관찰용·접기 기본, 2026-06-30)** · 신뢰도 스트립 · 내 포지션 · 도구 바로가기 |
 | **시장(market)** | 허브 인라인 + 서브탭 | 시장지도(`SectionMarketMap`)·섹터거래대금 / 서브: 수급·타이밍·뉴스·글로벌(embedded) |
 | **발굴(discover)** | 허브 인라인 + 2단 서브탭 | 상단 **'덜 빠지는 섹터' 배지(베타)** + 리스트 5트랙 + 심화도구 |
 | **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |
@@ -345,7 +345,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 | 기능 | 프론트 | → Java 엔드포인트 | → 서비스 | → 소스 |
 |---|---|---|---|---|
 | 매수후보(오늘) | TodayBriefingTab | `/recommendation/top5` | RecommendationService | KIS+DART+재무 |
-| **차트 타이밍(베타)** | TodayBriefingTab | `/recommendation/trend-pullback-top10` | ChartSignalController→ChartPatternClient | **python `/api/v2/chart/timing`**(pykrx) |
+| **차트 신호 관찰(부진·관찰용)** | TodayBriefingTab | `/recommendation/trend-pullback-top10` | ChartSignalController→ChartPatternClient | **python `/api/v2/chart/timing`**(pykrx 종목 OHLCV) |
 | **섹터강도(베타)** | 발굴 상단 배지 | `/recommendation/sector-strength` | ChartPatternClient | **python `/api/v2/chart/sector-strength`** |
 | 발굴 5트랙 | 발굴 서브탭 | `/recommendation/{value…smartmoney}-top10` | RecommendationService | 재무/투자자/가격 |
 | 종목 상세 | StockDetail | `/stock/{code}/quick·heavy·conclusion·catalyst` | StockDetail/Conclusion/Catalyst | 단일시세경로+KIS+Gemini |
@@ -446,6 +446,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - 신규 모듈 `app/backtest/*`(cost·metrics·chart_backtest_service) + `routers/chart_backtest.py`(`POST /api/v2/chart/backtest`, 온디맨드). `compute_timing` 추출해 **프로덕션과 동일 신호 재생**(단일 출처).
 - 3대 함정 방어: **look-ahead**(`df.loc[:D]` ≤D / 평가 `df.loc[>D]` disjoint + assert) · **진입 D+1 시가/청산 +3거래일 종가** · **비용**(수수료0.03%+세금0.18% + 슬리피지0.15% 가격적용) · **생존편향**(deployed + reconstructed). hit=SignalOutcome 미러.
 - **결과**: hitRate 30.8% · avgNet +0.53% · Sharpe 0.08 · winRate 51% · profitFactor 1.25, **점수분해 역상관**(고점수일수록 적중률↓), 현실 K=10 MDD 28.6%(순차풀베팅 99.4%=아티팩트 폐기). → **베타 유지, 매수후보 미승격**(P2-12 문서화).
+- **UI 후속(화면 정합)**: '오늘' 탭 섹션을 **'차트 타이밍 매수 후보' → '🪝 차트 신호 관찰'**로 중립화 — timingScore(N/10) **미표시**(수익과 역상관이라 오해 방지), 배너에 **실측("적중률 31%·점수–수익 무관·매수 신호 아님")**, **접기 기본**(우선순위↓). CLAUDE.md 불변식 문구도 '검증 전 베타'→'검증완료·부진·관찰용'으로 갱신(되돌림/승격 금지 명시).
 
 ### P0-pykrx — pykrx 지수·ticker_list 깨짐 → **KIS 일봉 전환**(운영 regime 복구)
 - **진단**: pykrx 1.0.45 `get_index_ohlcv('1001')`·`get_market_ticker_list()` **날짜무관 전구간 0건**(KRX 포맷변경). 종목 OHLCV는 정상. 표면증상 `KeyError:'지수명'`은 shim으로 막아도 빈값 → fetch 자체 문제.
