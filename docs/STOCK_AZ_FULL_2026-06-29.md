@@ -1,4 +1,4 @@
-# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-06-30 갱신**)
+# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
 
 > **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-06-30(차트 백테스트·P0-pykrx KIS 지수전환·V36 unique·간밤 미국장 tilt 반영 — §20 세션 요약).
 > **위치**: `docs/STOCK_AZ_FULL_2026-06-29.md` — 기존 `docs/STOCK_AZ_FULL.md`(2026-06-08판, GNB 3탭·차트기법 누락)을 **대체**한다.
@@ -409,6 +409,8 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 7. **인프라**: 스케줄러 락 fail-open(봇 제외), 캐시 L1→L2→L3(시세만 Redis 비경유), cron 시각 튜닝값.
 8. **인증**: 필터는 AccessToken만, 라우터가드 RT 보존, authAPI는 apiClient 경유.
 9. **프론트 IA**: 단일 허브 4탭, 새 주식 라우트 금지(탭/서브탭 흡수), 오늘=모멘텀/발굴=다각도 선별.
+10. **외부 HTTP URL 인코딩 — 이미 인코딩된 URL 은 `URI` 로 넘긴다(String 금지).** `RestTemplate.exchange/postForEntity`·`WebClient` 는 **String URL 을 URI 템플릿으로 보고 재인코딩**(% → %25)해 **이중 인코딩**한다. `UriComponentsBuilder...encode(UTF_8).build().toUri()`(URI 반환) → 인자로 URI. (2026-07-01 네이버 검색이 이 함정으로 한글 이중 인코딩 → 무관 뉴스 → 재료 100% NONE. **다른 외부 API 연동 시 동일 함정 주의**.)
+11. **결측을 그럴듯한 값으로 위장 금지(§4c)의 "조용한 죽음" 재확인** — 소스 다운 시 "빈 결과=정상 없음"으로 **캐시**하면 장애가 은폐된다(재료 7일 NONE). 소스 미가용(`isAvailable()==false`)이면 **캐시 말고 null 반환** → 복구 시 자동 재시도.
 
 ---
 
@@ -432,14 +434,14 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 3. **python 가시성** — `PythonBackendHealthTracker`+`/api/diagnostics/python-health`+텔레그램, 차트 응답 `dataAvailable`.
 4. **19:30 평가 멱등성** — 확인됨(pending 행 UPDATE, 중복 INSERT 없음). 코드변경 없음. record() DB unique 제약은 P3-2.
 5. **tie-break ↔ 차트 타이밍 충돌** — `recommendationComparator` 경고주석(승격 시 이중작용 점검, P2-12 #3).
-6. **growth/valueStability -1=NA 가드** — `verdictFor` `score<0→N/A`(NEGATIVE 오표시 버그 수정)+NA factor 숨김+경고주석. nullable 전환은 P3-3.
+6. **growth/valueStability -1=NA 가드** — `verdictFor` `score<0→N/A`(NEGATIVE 오표시 버그 수정)+NA factor 숨김+경고주석. nullable 전환은 P3-3. **(2026-07-02) 종합판단 보드도 4카테고리(실적/기술/섹터/수급) 0점→-1(NA)을 '—'로 렌더** — 특히 **수급 -1 은 "순매도"가 아니라 순매수 신호 미포착(0점)**(`scoreSupplyDemand`는 가점만·감점 없음), toDto 가 0→NA(-1) 변환. 음수 점수 오해 방지(표시 전용, 산식 무관).
 7. **(후속) `@SpringBootTest` 스모크 + 이중생성자 DI 버그 수정** — 스모크가 작업1·3의 `@Autowired` 누락(컨텍스트 기동 불가)을 즉시 검출 → `ChartPatternClient`/`BotLeaderElectionService` 운영 생성자에 `@Autowired` 추가.
 
 신규 백로그: P2-13(NXT 청산)·P3-2(signal_outcome unique)·P3-3(growth nullable).
 
 ---
 
-## 19. 2026-06-30 세션 변경 요약 (차트 백테스트 + P0-pykrx + V36 + 간밤 미국장)
+## 19. 2026-06-30 ~ 07-02 세션 변경 요약 (차트 백테스트 + P0-pykrx + V36 + 종합판단 보드 + 재료 파이프라인 + Gemini rate + 발굴 축소)
 
 각 항목 독립 커밋. 불변식(단일 시세경로·점수산식·차트분리·regime 규칙 v1·SchedulerLockService fail-open·봇 리더 fail-CLOSED) 무변경. "검증 안 된 신호는 표시 전용·산식 미편입" 원칙 유지.
 
@@ -486,20 +488,41 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ### 2026-07-01 세션 — 종합판단 Phase 2-A + 발굴 UI 정리 + 섹터강도 perf
 
-- **발굴 UI 정리(진단 기반)**: ① **2단 상단 네비 통합**(목록/심화 두 서브탭 바 상단에, `discoverGroup`로 콘텐츠 단일화, 심화 바 버림 해소, 기본=🧭종합판단 보드). ② **목록 슬림화(A)** — 시간대신호·실시간수급·관심종목을 **오늘 탭으로 이동**(Vue 슬롯 `#phase-signals`/`#watchlist`, hub scope라 데이터·CSS 유지), 관심종목·차트신호 종목 **기본 접힘**. 발굴 목록 적층 1,630→~880px. (2단계 중복 통합=P2-15.)
+- **발굴 UI 정리(진단 기반)**: ① **2단 상단 네비 통합**(목록/심화 두 서브탭 바 상단에, `discoverGroup`로 콘텐츠 단일화, 심화 바 버림 해소, 기본=🧭종합판단 보드). ② **목록 슬림화(A)** — 시간대신호·실시간수급·관심종목을 **오늘 탭으로 이동**(Vue 슬롯 `#phase-signals`/`#watchlist`, hub scope라 데이터·CSS 유지), 관심종목·차트신호 종목 **기본 접힘**. 발굴 목록 적층 1,630→~880px. (2단계 중복 통합=P2-15.) **⚠ 이 2단 네비/목록 5트랙은 2026-07-02 "종합판단 중심 축소"로 프론트 숨김됨 — 아래 07-02 블록 참조(코드 보존).**
 - **종합판단 보드 Phase 2-A(P2-14)**: 발굴 5트랙 union — **재점수 없이 momentum `scoreMap` lookup**(`RecommendationService.categoryScoreSnapshot()`). `getBoard(scope=union)` 수집+dedup+출처태그 병합+lookup(없으면 `scored=false`="—"). `GET /judgment-board?scope=union`. 프론트 "발굴 트랙 포함" 토글(lazy)+출처칩+"—" muted+union 통계. **⚠ scoreMap universe=AI/실적/수급 seed**라 순수 저평가/성장주는 "—"(정직). 필터 "기술 강" 임계 **≥13**(실데이터 max 14).
 - **섹터강도 perf(P2-16, at-risk 해소)**: t134≈7.8s(순차 134 fetch, Java 8s 타임아웃 헤드룸~0) → **(2) python `_compute` ThreadPool 8워커 병렬+dedup**(산식 불변, t134→~1.2s) + **(1) Java 워밍**(`MarketCacheWarmerService.warmSectorStrength` 20분, `ChartPatternClient.getSectorStrength(forceRefresh)`). unverified·§4c 무변경.
-- **차트신호 "중복" 재검토(P2-15, 종결)**: 코드 매핑 결과 **3 surface = 3 독립 엔진(중복 아님)** — ① 발굴 **'📐 차트 패턴'**(Java ChartPatternService, 기하학) · ②③ **'🪝 차트 타이밍'**(오늘+종합판단, python compute_timing) · 🎯종합(composite 5/5 랭킹, 종합판단과 다른 엔진). **삭제·은퇴 없이 네이밍만 구분**('패턴'=Java/'타이밍'=python). 검증된 고유 기능 보존. 🎯종합=상위호환 아님(어제 오판 정정).
+- **차트신호 "중복" 재검토(P2-15, 종결)**: 코드 매핑 결과 **3 surface = 3 독립 엔진(중복 아님)** — ① 발굴 **'📐 차트 패턴'**(Java ChartPatternService, 기하학) · ②③ **'🪝 차트 타이밍'**(오늘+종합판단, python compute_timing) · 🎯종합(composite 5/5 랭킹, 종합판단과 다른 엔진). **삭제·은퇴 없이 네이밍만 구분**('패턴'=Java/'타이밍'=python). 검증된 고유 기능 보존. 🎯종합=상위호환 아님(어제 오판 정정). **⚠ 🎯종합은 2026-07-02 발굴 축소로 프론트 nav 에서 숨김(코드·엔진 보존, 은퇴 아님) — 아래 07-02 블록.**
+
+---
+
+### 2026-07-01 오후 ~ 07-02 세션 — 재료 파이프라인 3중 장애(교훈) + Gemini 무료 rate + 보드 3축/축소
+
+**재료(catalyst) 7일 연속 100% NONE — 3중 장애가 겹쳐 있었다. 한 층 고치면 다음 층이 드러남.** "뭐 했다"보다 재발 방지 관점:
+
+1. **"조용한 죽음" 패턴 (§4c·§16-11)** — 뉴스 소스(네이버) 다운 시 "뉴스 0건"을 **NONE(재료 없음)으로 일캐시**하면 7일간 은폐된다(에러 안 뜸, 배지만 빔, 스케줄은 정상 도니 더 안 보임). **구조적 방지 = §4c 하드닝**: `naver.isAvailable()==false` → `getCatalyst` **null 반환(캐시 안 함)** → 소스 복구 시 즉시 재분류. 결측을 그럴듯한 값(NONE)으로 위장 금지의 재확인. 재현 테스트 `StockCatalystServiceTest`.
+2. **인코딩 2층 함정 (§16-10)** — `NaverSearchService.buildSearchUrl` 을 단일 인코딩으로 고쳐도 **`RestTemplate.exchange(String)` 이 URL 을 URI 템플릿으로 보고 재인코딩**(% → %25) → 한글 이중 인코딩 → 네이버가 무관 뉴스 반환 → 종목명 필터 전부 탈락 → NONE. **해결: `buildSearchUrl` 이 `URI` 반환**(String 금지, RestTemplate 이 URI 는 재인코딩 안 함). ⚠ **딴 외부 API 연동도 같은 함정** → 불변식화(§16-10). 회귀 테스트(query=%EC…, %25 없음). 진단: 컨테이너 curl 로 단일 vs 이중 인코딩 응답 비교.
+3. **env_file 단일 의존 위험** — backend 가 `NAVER_CLIENT_ID/SECRET`(및 GEMINI)을 `env_file:.env` 로만 받으면, env_file 주입은 **컨테이너 '생성' 시점 고정** → `.env` 에 키 추가 후 `restart` 만 하면 반영 안 됨(=키 미주입, isAvailable=false). **표준: compose `environment:` 에 `${..}` 로 명시 이중배선**(매 `up` 재평가). 진단은 **로그 → DB → 컨테이너 printenv/curl** 로 층층이(배선→인코딩→§4c).
+
+**Gemini 무료 티어 quota — 병목은 RPM(요청 수), 캐싱 아닌 배치가 정답.** 인코딩 수정 후 뉴스는 들어오나 429 로 분류 저장 실패(재료·AI전략 동시 저하). 완화(무료 유지):
+- 모델 **`gemini-2.0-flash`(종료) → `gemini-2.5-flash-lite`**(무료 ≈15 RPM, `${GEMINI_API_URL}` 오버라이드).
+- **전역 rate 직렬화** `GeminiService.RateLimiter`(synchronized `acquire()` + 슬롯 예약, 간격 4.5초 ≤~13 RPM) — 이전 `enforceRateLimit` 은 volatile check-then-act(비원자적)라 동시 호출자(재료·AI전략·StockDetail) 버스트가 통과 → 429. **503(구글 과부하)은 재시도 자동복구**, 429는 rate 제한 방어 → 재료+AI전략 둘 다 정상.
+- ⚠ **프롬프트 프리픽스 캐싱은 토큰 비용만↓(RPM 무관)** — 무료 병목엔 무효. RPM 실질 감축 = **배치 프롬프트(N종목 1콜)** 가 정답(후속 P2-CAT1). 우선순위(재료>AI전략)=P2-CAT2, 보드 워밍=P2-CAT3(rate 게이트 경유).
+
+**종합판단 보드 3축(매매 맥락, 표시 전용·산식/시세경로 무관)**: ① 재료 배지(호재🔥/악재⚠️/중립 회색·아이콘無 — 시세 초록/빨강과 색 구분), ② 현재가/등락률(캐시 as-of ≤30분·**라이브 아님** 경고), ③ 거래대금(§4c 실측→현재가×거래량 폴백→null). 보드는 재료 캐시 **read-only**(classify 금지). 4카테고리 -1(NA)→'—' 렌더(§13/435). "발굴 트랙 포함" 토글 상태 localStorage 유지, 차트타이밍 상시 안내(참고·역상관·순위 아님).
+
+**발굴 탭 종합판단 중심 축소** — **왜**: 종합판단 union 이 5트랙(저평가/성장/낙폭/실적/수급)을 이미 흡수(한 보드 비교) → 목록 5트랙 중복. **어떻게**: **삭제가 아니라 프론트 nav 숨김** — `discoverListVisible=false`(목록 5트랙) + `discoverSubTabs` 축소(🎯종합·AI전략·스크리너·퀀트TA 제거), `resolveInitialDiscoverGroup` 항상 'deep'. **렌더 블록/임포트/로더/딥링크(`?sub=`) 백엔드·컴포넌트 전부 보존**(복구: 플래그+resolver+subtabs 되살리기 한 줄들). 발굴 노출 = **🧭종합판단 + 백테스트뿐**. 빈-보드 폴백도 숨긴 '목록 탭'→'발굴 트랙 포함' 토글로 유도.
+
+백로그 신규: **P2-CAT1**(재료 배치 프롬프트 N종목 1콜=RPM 실질↓)·**P2-CAT2**(Gemini 소비자 우선순위 재료>AI전략)·**P2-CAT3**(보드 종목 일괄 워밍, rate 게이트). Gemini quota=**해소**(무료 유지, 유료 안 감).
 
 ---
 
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - `docs/STOCK_PLATFORM_GUIDE.md` — 화면→코드→DB 추적
 - `docs/STOCK_AZ_FULL.md` — 2026-06-08판(stale, 본 문서가 대체)
 - `docs/SYSTEM_OVERVIEW.md` · `docs/STOCK_PLATFORM_ONEPAGER.md` — 요약
 
-> 본 문서는 2026-06-29 생성 · **2026-06-30 갱신**(§19 세션 반영). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-02 갱신**(§19 = 06-30~07-02 세션 반영: 종합판단 보드·재료 파이프라인 3중 버그·Gemini 무료 rate·발굴 축소). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
