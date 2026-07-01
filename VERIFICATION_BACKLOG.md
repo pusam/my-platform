@@ -354,7 +354,10 @@
 
 - **✅ Phase 1 완료(2026-06-30)**: momentum 후보(getTop5)만. `GET /api/recommendation/judgment-board` + `JudgmentBoardService`(순수 `assembleRows`/`parseSectorRel`, 테스트 有) + `JudgmentBoardDto`. 프론트 `SectionJudgmentBoard.vue`(발굴 심화 '🧭 종합판단' 서브탭).
   - **✅ 발굴 네비 통합(2026-07-01)**: 발굴 2단 서브탭(목록/심화)을 둘 다 상단으로 모으고 `discoverGroup`로 콘텐츠 단일화(심화 바 버림 해소). **기본 진입 = 종합판단 보드**. 빈 보드 폴백('목록 탭에서 발굴' 버튼). 순수 레이아웃(산식 무관), 134 vitest green. 컬럼 3계층 = ① 점수(검증/게이트: total/기술/실적/섹터테마) · ② 참고(미검증·점수 미편입: 차트타이밍/섹터강도/간밤미국장) · ③ 경고(수급 역상관 **의심**, ≥10, 표본작음 톤). 정렬·필터(역상관 숨기기/기술강세만). **종합점수 산식 무변경**.
-- **Phase 2(예정)**: 발굴 5트랙 union — 비-momentum 종목(value/growth/oversold 트랙은 자체 산식이라 4카테고리 비어있음)을 **momentum 4카테고리 스코어러로 일관 재점수** + 출처태그 확장(저평가/성장/…). dedup(union). 기본정렬 종합점수, 트랙별 필터. → momentum 필터(31% 적중·수급 역상관 포함)에 안 갇히고 "momentum 밖 강한 종목" 발견.
+- **✅ Phase 2-A 완료(2026-07-01)**: 발굴 5트랙 union. **재점수 안 함(핵심 묘수) — momentum `scoreMap` lookup**. `RecommendationService`가 `calculate()` scoreMap 보존(`categoryScoreSnapshot()`), 보드가 union 종목 4-cat을 그 맵에서 lookup. `JudgmentBoardService.getBoard(scope=union)`: 5트랙 수집+dedup+출처태그 병합 + snapshot lookup(없으면 `scored=false`="—"). 정렬=채점 우선→종합점수. `GET /judgment-board?scope=union`. 프론트 "발굴 트랙 포함" 토글(켤 때만 호출, lazy 보존)+출처칩(💎🚀📉💰🏦🎯)+"—" muted+union 통계("—" 비율 가시화).
+  - **⚠ scoreMap universe 확인됨(코드)**: seed = AI전략 ∪ 실적서프라이즈 ∪ 수급신호 종목(기술/가치/섹터는 그 seed만 채점). → **순수 저평가/성장주는 "—"가 현실**(momentum 신호 0). 단 핵심 목표("기술/실적/수급 강한데 컷 못 든 종목")는 seed에 있어 발견됨. "—" 비율은 union 통계로 노출 → **배포 후 절반 이상 "—"면 2-B(기술 컬럼만 보강) 우선순위↑**.
+  - **2-B(후보, 백로그)**: "—" 너무 많아 불편하면 — 발굴주에도 **기술 점수만** 추가 계산(scoreTechnical universe에 union codes 포함, 가격히스토리 fetch=中비용). 기술이 유일 검증 지표(+13.9%p)라 "저평가+기술강 vs 약" 구분 가치. **단 (a)[현행] 써보고 필요할 때만**(무거운 재점수 회피 원칙).
+  - **2-B'(후보)**: 필터 프리셋 "momentum 밖 강세"(출처∌momentum AND 기술≥15) 원클릭 + 상위N·더보기.
 - **불변식**: unverified 게이팅(미검증 점수 미편입) · 새 라우트 금지(서브탭 흡수) · 종합점수 산식 무변경(보드는 조립·표시 전용 — 산식 합류는 P1-6 데이터 후 별도 결정).
 - **관련**: `JudgmentBoardService`/`JudgmentBoardDto`/`RecommendationController`(`/judgment-board`), `SectionJudgmentBoard.vue`, `StockTradingDashboardV2.vue`(discoverSubTabs board), [P1-6](카테고리 진단).
 

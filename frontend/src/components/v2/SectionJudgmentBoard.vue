@@ -17,9 +17,17 @@
     <div class="jb-note" v-if="board && board.note">{{ board.note }}</div>
 
     <div class="jb-filters" v-if="board && !loading">
+      <button class="jb-scope-btn" :class="{ active: scope === 'union' }" @click="toggleScope">
+        {{ scope === 'union' ? '✓ 발굴 트랙 포함' : '+ 발굴 트랙 포함' }}
+      </button>
       <label><input type="checkbox" v-model="hideSuspect"> 수급 역상관 의심 숨기기</label>
       <label><input type="checkbox" v-model="techStrongOnly"> 기술 강세(≥15)만</label>
       <span class="jb-count">{{ visibleRows.length }}종목</span>
+    </div>
+    <div class="jb-union-note" v-if="board && board.scope === 'union' && board.unionStats">
+      발굴 union {{ board.unionStats.totalRows }}종목 중
+      <strong>{{ board.unionStats.unscoredRows }}개 "—"</strong> = 순수 발굴주(momentum 신호 없어 4-cat 미계산 — 출처 태그로 구분).
+      "기술 강세(≥15)만" 필터로 momentum 밖 강종목만 좁힐 수 있음.
     </div>
 
     <div v-if="loading" class="jb-state">불러오는 중...</div>
@@ -58,20 +66,21 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in visibleRows" :key="r.stockCode" class="jb-row" @click="$emit('open-stock', r.stockCode)">
+          <tr v-for="r in visibleRows" :key="r.stockCode" class="jb-row"
+              :class="{ 'row-unscored': !r.scored }" @click="$emit('open-stock', r.stockCode)">
             <td class="td-name">
               <span class="rn">{{ r.stockName }}</span>
               <span class="rc">{{ r.stockCode }}</span>
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
             </td>
-            <td class="num td-total">{{ r.totalScore }}</td>
-            <td class="num" :class="strongClass(r.technical)">{{ r.technical }}</td>
-            <td class="num">{{ r.earnings }}</td>
-            <td class="num" :class="strongClass(r.sectorMomentum, 14)">{{ r.sectorMomentum }}</td>
+            <td class="num td-total">{{ r.scored ? r.totalScore : '—' }}</td>
+            <td class="num" :class="r.scored ? strongClass(r.technical) : ''">{{ r.scored ? r.technical : '—' }}</td>
+            <td class="num">{{ r.scored ? r.earnings : '—' }}</td>
+            <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? r.sectorMomentum : '—' }}</td>
             <td class="num td-unv">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
             <td class="num td-unv">{{ r.sectorStrengthRel != null ? signed(r.sectorStrengthRel) : '—' }}</td>
-            <td class="num td-supply" :class="{ suspect: r.supplyInverseSuspect }">
-              {{ r.supplyDemand }}<span v-if="r.supplyInverseSuspect" class="suspect-mark"
+            <td class="num td-supply" :class="{ suspect: r.scored && r.supplyInverseSuspect }">
+              {{ r.scored ? r.supplyDemand : '—' }}<span v-if="r.scored && r.supplyInverseSuspect" class="suspect-mark"
                 title="고점일수록 적중률↓ 의심 (표본 작음 n=88, 확정 아님)">⚠</span>
             </td>
           </tr>
@@ -95,11 +104,12 @@ const sortKey = ref('totalScore');
 const sortDir = ref('desc');
 const hideSuspect = ref(false);
 const techStrongOnly = ref(false);
+const scope = ref('momentum');   // 'momentum'(기본, 빠름) | 'union'(발굴 트랙 포함, 토글 시 1회 호출)
 
 const load = async () => {
   loading.value = true; error.value = false;
   try {
-    const { data } = await apiClient.get('/recommendation/judgment-board');
+    const { data } = await apiClient.get('/recommendation/judgment-board', { params: { scope: scope.value } });
     board.value = data?.data || null;
   } catch (e) {
     error.value = true;
@@ -108,12 +118,19 @@ const load = async () => {
   }
 };
 
+// 발굴 트랙 포함 토글 — union 은 5트랙 조립이라 무거움(백엔드 캐시). 켤 때만 호출.
+const toggleScope = () => {
+  scope.value = scope.value === 'union' ? 'momentum' : 'union';
+  load();
+};
+
 const visibleRows = computed(() => {
   let rows = board.value?.rows ? [...board.value.rows] : [];
   if (hideSuspect.value) rows = rows.filter(r => !r.supplyInverseSuspect);
   if (techStrongOnly.value) rows = rows.filter(r => Number(r.technical) >= 15);
   const k = sortKey.value;
   rows.sort((a, b) => {
+    if (a.scored !== b.scored) return a.scored ? -1 : 1;   // 채점 종목 우선, "—"(순수 발굴주)는 하단
     const av = a[k] == null ? -Infinity : Number(a[k]);
     const bv = b[k] == null ? -Infinity : Number(b[k]);
     return sortDir.value === 'desc' ? bv - av : av - bv;
@@ -131,7 +148,10 @@ const regimeLabel = (r) => ({ BULL: '상승장', BEAR: '하락장', SIDEWAYS: '�
 const regimeClass = (r) => (r === 'BULL' ? 'positive' : r === 'BEAR' ? 'negative' : '');
 const tiltLabel = (t) => ({ BULL: '강세', NEUTRAL: '중립', BEAR: '약세' }[t] || t);
 const tiltClass = (t) => (t === 'BULL' ? 'positive' : t === 'BEAR' ? 'negative' : '');
-const sourceLabel = (s) => ({ momentum: '모멘텀' }[s] || s);
+const sourceLabel = (s) => ({
+  momentum: '🎯모멘텀', value: '💎저평가', growth: '🚀성장',
+  oversold: '📉낙폭', earnings: '💰실적', smartmoney: '🏦수급'
+}[s] || s);
 const signed = (v) => { const n = Number(v); return `${n > 0 ? '+' : ''}${n}`; };
 
 onMounted(load);
@@ -151,9 +171,22 @@ onMounted(load);
   font-size: 11px; line-height: 1.5; opacity: 0.7; margin: 4px 0 10px;
   border-left: 2px solid rgba(251, 191, 36, 0.5); padding-left: 8px;
 }
-.jb-filters { display: flex; gap: 16px; align-items: center; font-size: 12px; margin-bottom: 8px; }
+.jb-filters { display: flex; gap: 16px; align-items: center; font-size: 12px; margin-bottom: 8px; flex-wrap: wrap; }
 .jb-filters label { cursor: pointer; opacity: 0.85; }
 .jb-count { margin-left: auto; opacity: 0.6; }
+.jb-scope-btn {
+  font-size: 12px; font-weight: 600; color: #7dd3fc; cursor: pointer;
+  background: rgba(56, 189, 248, 0.10); border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 6px; padding: 4px 12px;
+}
+.jb-scope-btn.active { background: rgba(56, 189, 248, 0.22); color: #e0f2fe; }
+.jb-union-note {
+  font-size: 11px; line-height: 1.5; opacity: 0.75; margin: 0 0 10px;
+  border-left: 2px solid rgba(56, 189, 248, 0.4); padding-left: 8px;
+}
+.jb-union-note strong { color: #fbbf24; }
+.row-unscored { opacity: 0.62; }
+.row-unscored .td-total, .row-unscored .num { color: #64748b; }
 .jb-state { padding: 24px 0; text-align: center; font-size: 13px; opacity: 0.6; }
 .jb-empty { padding: 32px 16px; text-align: center; }
 .jbe-title { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
