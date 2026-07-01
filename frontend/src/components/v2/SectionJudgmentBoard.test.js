@@ -94,4 +94,18 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(note.text()).toContain('최대 30분 지연')
     expect(note.text()).toContain('실시간 아님')
   })
+
+  it('카테고리 NA(-1) → "—" 렌더 (순매수 신호 미포착을 음수 점수로 오해 방지)', async () => {
+    const w = await mountBoard([row({ supplyDemand: -1 })])
+    const supply = w.find('.td-supply')
+    expect(supply.exists()).toBe(true)
+    expect(supply.text()).toBe('—')
+    // 보드에 "-1" 이 노출되지 않아야
+    expect(w.text()).not.toContain('-1')
+  })
+
+  it('카테고리 양수 점수는 그대로 표시(역상관 의심 ⚠ 포함)', async () => {
+    const w = await mountBoard([row({ supplyDemand: 12, supplyInverseSuspect: true })])
+    expect(w.find('.td-supply').text()).toContain('12')
+  })
 })

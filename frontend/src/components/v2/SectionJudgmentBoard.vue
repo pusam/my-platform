@@ -90,13 +90,13 @@
             </td>
             <td class="num td-tv">{{ fmtTradingValue(r.tradingValue) }}</td>
             <td class="num td-total">{{ r.scored ? r.totalScore : '—' }}</td>
-            <td class="num" :class="r.scored ? strongClass(r.technical, TECH_STRONG) : ''">{{ r.scored ? r.technical : '—' }}</td>
-            <td class="num">{{ r.scored ? r.earnings : '—' }}</td>
-            <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? r.sectorMomentum : '—' }}</td>
+            <td class="num" :class="r.scored ? strongClass(r.technical, TECH_STRONG) : ''">{{ r.scored ? cat(r.technical) : '—' }}</td>
+            <td class="num">{{ r.scored ? cat(r.earnings) : '—' }}</td>
+            <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? cat(r.sectorMomentum) : '—' }}</td>
             <td class="num td-poor" title="차트타이밍 — 백테스트 예측력 낮음(hitRate 31%, 점수–수익 역상관). 참고만.">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
             <td class="num td-unv">{{ r.sectorStrengthRel != null ? signed(r.sectorStrengthRel) : '—' }}</td>
             <td class="num td-supply" :class="{ suspect: r.scored && r.supplyInverseSuspect }">
-              {{ r.scored ? r.supplyDemand : '—' }}<span v-if="r.scored && r.supplyInverseSuspect" class="suspect-mark"
+              {{ r.scored ? cat(r.supplyDemand) : '—' }}<span v-if="r.scored && r.supplyInverseSuspect" class="suspect-mark"
                 title="고점일수록 적중률↓ 의심 (표본 작음 n=88, 확정 아님)">⚠</span>
             </td>
           </tr>
@@ -172,6 +172,8 @@ const sourceLabel = (s) => ({
   oversold: '📉낙폭', earnings: '💰실적', smartmoney: '🏦수급'
 }[s] || s);
 const signed = (v) => { const n = Number(v); return `${n > 0 ? '+' : ''}${n}`; };
+// 카테고리 점수 NA sentinel(-1: 신호 미포착=0점)은 '—'로 — 결론카드와 일관. 산식 무관 표시 전용.
+const cat = (v) => (v == null || Number(v) < 0 ? '—' : v);
 
 // 시세(캐시 스냅샷, ≤30분 지연) 표시 — 표시 전용, 산식 미편입
 const fmtPrice = (v) => (v == null ? '—' : Number(v).toLocaleString('ko-KR'));
