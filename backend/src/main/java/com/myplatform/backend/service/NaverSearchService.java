@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -140,14 +141,18 @@ public class NaverSearchService {
      * 네이버 API 호출 (sort=date 고정!)
      */
     /**
-     * 네이버 뉴스 검색 URL 빌드 — 순수 함수(테스트 대상).
+     * 네이버 뉴스 검색 URI 빌드 — 순수 함수(테스트 대상).
      *
-     * <p>⚠ UriComponentsBuilder 가 UTF-8 로 <b>1회만</b> 인코딩. 이전엔 {@code URLEncoder.encode()} 로
-     * 수동 인코딩한 값을 다시 {@code build(false)} 로 넘겨 <b>이중 인코딩</b>(% → %25)됐고, 네이버가
-     * 한글을 못 알아들어 종목과 무관한 최근 뉴스를 반환 → 종목명 필터가 전부 탈락 → 재료 100% NONE
-     * 이었다(2026-07-01). 한글 쿼리는 {@code query=%EC…} 형태(%25 없음)여야 정상.
+     * <p>⚠ 반드시 {@link URI} 를 반환한다(String 아님). RestTemplate.exchange 는 <b>String</b> 인자를
+     * URI 템플릿으로 보고 <b>한 번 더 인코딩</b>하므로, 이미 인코딩된 문자열을 넘기면 {@code %} → {@code %25}
+     * 이중 인코딩이 된다. 반면 {@code URI} 인자는 있는 그대로 전송(재인코딩 없음).
+     *
+     * <p>이력(2026-07-01): 원래 {@code URLEncoder.encode()} 수동 + {@code build(false)} 였고, 최종적으로
+     * RestTemplate 이 String 을 재인코딩 → 이중 인코딩. 네이버가 한글을 못 알아들어 <b>종목과 무관한</b>
+     * 최근 뉴스를 반환 → 종목명 필터가 전부 탈락 → 재료 100% NONE. 여기서 UTF-8 로 1회 인코딩한
+     * {@code URI} 를 그대로 넘겨 해결. 한글 쿼리는 {@code query=%EC…}(%25 없음)여야 정상.
      */
-    static String buildSearchUrl(String query) {
+    static URI buildSearchUrl(String query) {
         return UriComponentsBuilder.fromUriString(NAVER_SEARCH_URL)
                 .queryParam("query", query)          // 원문 — encode() 가 1회만 인코딩
                 .queryParam("display", DISPLAY_COUNT)
@@ -155,12 +160,12 @@ public class NaverSearchService {
                 .queryParam("sort", SORT_DATE)       // ★★★ 절대 date 고정! ★★★
                 .encode(StandardCharsets.UTF_8)
                 .build()
-                .toUriString();
+                .toUri();
     }
 
     private List<NewsItem> callNaverApi(String query) {
         try {
-            String url = buildSearchUrl(query);
+            URI url = buildSearchUrl(query);
 
             log.debug("[NaverSearch] API URL: {}", url);
 
