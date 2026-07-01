@@ -103,6 +103,10 @@
         </tbody>
       </table>
     </div>
+    <div class="jb-timing-note" v-if="visibleRows.length && !loading && !error">
+      🪝 <b>차트타이밍</b> 열은 <b>참고용</b> — 백테스트상 예측력 낮음(hitRate 31%, 점수와 수익 <b>역상관</b>).
+      값이 높다고 좋은 자리 아니고, 순위·매수신호도 아닙니다.
+    </div>
     <div class="jb-legend" v-if="board && !board.timingAvailable">⚠ 차트타이밍 분석서버 미가용 — 해당 열 '—'</div>
   </div>
 </template>
@@ -320,4 +324,11 @@ onMounted(load);
 .positive { color: #4ade80; }
 .negative { color: #f87171; }
 .jb-legend { margin-top: 8px; font-size: 11px; color: #fbbf24; opacity: 0.85; }
+/* 차트타이밍 상시 안내 — 툴팁(hover)만으론 오해라 항상 노출. 열/셀과 같은 역상관 적색-회색 톤. */
+.jb-timing-note {
+  margin-top: 8px; font-size: 11px; line-height: 1.5; color: #b08a8a;
+  background: rgba(248, 113, 113, 0.07); border-left: 2px solid rgba(248, 113, 113, 0.4);
+  padding: 5px 9px; border-radius: 4px;
+}
+.jb-timing-note b { color: #fca5a5; }
 </style>

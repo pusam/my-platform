@@ -117,6 +117,15 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(w.find('.td-supply').text()).toContain('12')
   })
 
+  it('차트타이밍 상시 안내 — 참고용·역상관·순위 아님을 hover 없이 노출', async () => {
+    const w = await mountBoard([row()])
+    const note = w.find('.jb-timing-note')
+    expect(note.exists()).toBe(true)
+    expect(note.text()).toContain('참고용')
+    expect(note.text()).toContain('역상관')
+    expect(note.text()).toContain('매수신호도 아')
+  })
+
   it('발굴 트랙 포함 토글 상태 유지 — 저장값(union)으로 초기 로드', async () => {
     localStorage.setItem('judgmentBoard.scope', 'union')
     await mountBoard([row()])
