@@ -79,8 +79,8 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
       { code: '207940', name: '삼성바이오로직스', signals: ['정배열', '엔벨로프눌림'], timingScore: 8 }
     ] } })
     const w = await mountTab()
-    // 기본 접힘 — 제목 '차트 신호 관찰' + 실측 한 줄(31%·매수신호 아님), 배너/카드 숨김
-    expect(w.text()).toContain('차트 신호 관찰')
+    // 기본 접힘 — 제목 '차트 타이밍 관찰' + 실측 한 줄(31%·매수신호 아님), 배너/카드 숨김
+    expect(w.text()).toContain('차트 타이밍 관찰')
     expect(w.find('.observe-collapsed').exists()).toBe(true)
     expect(w.find('.observe-collapsed').text()).toContain('31%')
     expect(w.find('.beta-banner').exists()).toBe(false)

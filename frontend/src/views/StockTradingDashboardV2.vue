@@ -446,10 +446,10 @@
           </div>
         </div>
 
-        <!-- 관심종목 차트 신호 → 발굴 탭 -->
+        <!-- 발굴 차트 패턴(Java ChartPatternService, 기하학 패턴 검출) — python 타이밍('차트 타이밍')과 별개 엔진(P2-15: 3 surface=3 엔진, 중복 아님) -->
         <div id="briefing-section-chart-signals" class="chart-signals section-card" v-if="activeGnbTab === 'discover' && discoverGroup === 'list' && chartSignals.length">
           <div class="section-title-row">
-            <h2><span class="section-icon">📊</span> 차트 신호 종목 {{ chartSignals.length }}</h2>
+            <h2><span class="section-icon">📐</span> 차트 패턴 {{ chartSignals.length }}</h2>
             <button class="more-link" @click="chartSignalsExpanded = !chartSignalsExpanded">
               {{ chartSignalsExpanded ? '접기' : '펼치기' }}
             </button>

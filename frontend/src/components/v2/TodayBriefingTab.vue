@@ -65,7 +65,7 @@
          (승격불가)이라 '매수 후보' 아님. 접기 기본(우선순위 낮춤) + 점수 미표시(역상관 오해 방지). -->
     <div class="today-section today-observe" v-if="timingCandidates.length || timingLoading || !timingAvailable">
       <div class="ts-title-row">
-        <h2>🪝 차트 신호 관찰</h2>
+        <h2>🪝 차트 타이밍 관찰</h2>
         <span class="ts-beta ts-poor">예측력 미검증</span>
         <button class="ts-toggle" @click="timingExpanded = !timingExpanded">
           {{ timingExpanded ? '접기' : '펼치기' }}
