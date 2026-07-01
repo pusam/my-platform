@@ -108,4 +108,17 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     const w = await mountBoard([row({ supplyDemand: 12, supplyInverseSuspect: true })])
     expect(w.find('.td-supply').text()).toContain('12')
   })
+
+  it('발굴 트랙 포함 토글 상태 유지 — 저장값(union)으로 초기 로드', async () => {
+    localStorage.setItem('judgmentBoard.scope', 'union')
+    await mountBoard([row()])
+    expect(apiClient.get).toHaveBeenCalledWith('/recommendation/judgment-board', { params: { scope: 'union' } })
+    localStorage.removeItem('judgmentBoard.scope')
+  })
+
+  it('저장값 없으면 momentum(빠름)으로 초기 로드', async () => {
+    localStorage.removeItem('judgmentBoard.scope')
+    await mountBoard([row()])
+    expect(apiClient.get).toHaveBeenCalledWith('/recommendation/judgment-board', { params: { scope: 'momentum' } })
+  })
 })

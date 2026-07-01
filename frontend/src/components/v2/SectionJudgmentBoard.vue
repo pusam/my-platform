@@ -120,7 +120,14 @@ const sortKey = ref('totalScore');
 const sortDir = ref('desc');
 const hideSuspect = ref(false);
 const techStrongOnly = ref(false);
-const scope = ref('momentum');   // 'momentum'(기본, 빠름) | 'union'(발굴 트랙 포함, 토글 시 1회 호출)
+// 발굴 트랙 포함 토글 상태 기억 — 마지막 선택을 localStorage 에 저장(프로젝트 표준 저장소).
+// 기본 강제 union(무거움) 대신 "기억" 방식: 저장값 있으면 그걸로, 없으면 momentum(빠름).
+const SCOPE_KEY = 'judgmentBoard.scope';
+const loadSavedScope = () => {
+  try { return localStorage.getItem(SCOPE_KEY) === 'union' ? 'union' : 'momentum'; }
+  catch { return 'momentum'; }
+};
+const scope = ref(loadSavedScope());   // 'momentum'(빠름) | 'union'(발굴 트랙 포함)
 
 const load = async () => {
   loading.value = true; error.value = false;
@@ -134,9 +141,10 @@ const load = async () => {
   }
 };
 
-// 발굴 트랙 포함 토글 — union 은 5트랙 조립이라 무거움(백엔드 캐시). 켤 때만 호출.
+// 발굴 트랙 포함 토글 — union 은 5트랙 조립이라 무거움(백엔드 캐시). 켤 때만 호출 + 상태 저장.
 const toggleScope = () => {
   scope.value = scope.value === 'union' ? 'momentum' : 'union';
+  try { localStorage.setItem(SCOPE_KEY, scope.value); } catch { /* 저장 실패 무시 */ }
   load();
 };
 
