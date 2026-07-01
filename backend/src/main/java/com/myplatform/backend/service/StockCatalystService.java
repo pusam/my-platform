@@ -60,11 +60,18 @@ public class StockCatalystService {
         NaverSearchService naver = naverProvider.getIfAvailable();
         GeminiService gemini = geminiProvider.getIfAvailable();
         if (naver == null || gemini == null) return null;
+        // 뉴스 소스(네이버) 미가용 = 입력 파이프라인 다운. 이때 "뉴스 0건"을 NONE(재료 없음)으로
+        // 캐시하면 데이터 없음을 그럴듯한 값으로 위장(§4c) + 소스 복구돼도 하루종일 재시도 못 함.
+        // → null 반환(캐시 안 함)으로 다음 기회에 재분류. (2026-07-01 배선/인코딩 장애로 7일 NONE 재발 방지)
+        if (!naver.isAvailable()) {
+            log.debug("[Catalyst] 뉴스 소스 미가용 → 분류 스킵(캐시 안 함) ({})", stockCode);
+            return null;
+        }
 
         try {
             List<NewsItem> news = naver.searchStockNews(stockName);
             if (news == null || news.isEmpty()) {
-                // 뉴스 0건 = 재료 없음 — NONE 캐시 (재호출 방지)
+                // 뉴스 0건 = 재료 없음 — NONE 캐시 (재호출 방지). 소스는 가용(위 가드 통과)이라 진짜 '뉴스 없음'.
                 return save(stockCode, stockName, today, CatalystType.NONE, Direction.NONE, null, null);
             }
 

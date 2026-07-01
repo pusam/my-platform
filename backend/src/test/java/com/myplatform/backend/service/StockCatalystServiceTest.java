@@ -124,6 +124,7 @@ class StockCatalystServiceTest {
                 .thenReturn(Optional.empty());
         when(naverProvider.getIfAvailable()).thenReturn(naver);
         when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);   // 소스 가용 — §4c 가드 통과
         when(naver.searchStockNews("삼성전자"))
                 .thenReturn(List.of(NewsItem.builder().title("삼성전자 대형 수주").build()));
         when(gemini.chat(anyString())).thenReturn(geminiJson);
@@ -165,6 +166,22 @@ class StockCatalystServiceTest {
         service().getCatalyst("005930", "삼성전자");
 
         verifyNoInteractions(telegram);
+    }
+
+    @Test
+    @DisplayName("§4c: 뉴스 소스 미가용 → null 반환 + NONE 캐시/뉴스조회 안 함 (7일 NONE 재발 방지)")
+    void sourceUnavailable_doesNotCacheNone() {
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class)))
+                .thenReturn(Optional.empty());
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(false);   // 뉴스 소스 다운(키 미주입/장애)
+
+        StockCatalyst result = service().getCatalyst("005930", "삼성전자");
+
+        assertThat(result).isNull();
+        verify(repository, never()).save(any(StockCatalyst.class));   // NONE 위장 캐시 금지(§4c)
+        verify(naver, never()).searchStockNews(anyString());          // 소스 다운이면 조회 자체 안 함
     }
 
     @Test
