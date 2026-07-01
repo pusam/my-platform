@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -21,6 +22,9 @@ from app.utils.korean_market import get_latest_trading_date, get_cache_ttl
 logger = logging.getLogger(__name__)
 
 CACHE_TTL_SEC = 1800
+# 멤버 종목 OHLCV 병렬 fetch 동시성 상한 — KRX 레이트리밋 대비 보수적(순차 134콜 t≈7.8s가 Java 8s 타임아웃
+# 근접이라 병렬로 헤드룸 확보). _ticker_return 은 무상태(스레드안전). 8~12 권장, KRX 부담 고려 8.
+MAX_FETCH_WORKERS = 8
 
 
 def _lookback_window_days(lookback_trading: int) -> int:
@@ -51,12 +55,25 @@ def _sectors_hash(sectors: dict[str, list[str]]) -> str:
     return hashlib.md5(raw.encode()).hexdigest()[:8]
 
 
+def _fetch_returns_parallel(tickers: list[str], start: str, end: str, lookback: int) -> dict[str, Optional[float]]:
+    """유니크 종목별 lookback 수익률 병렬 fetch(스레드풀). _ticker_return 은 무상태(스레드안전).
+    결과는 순차 fetch 와 동일(값 결정적, 순서무관 집계) — 속도만 향상. 결측은 None(§4c)."""
+    if not tickers:
+        return {}
+    with ThreadPoolExecutor(max_workers=MAX_FETCH_WORKERS) as ex:
+        results = ex.map(lambda t: _ticker_return(t, start, end, lookback), tickers)
+        return dict(zip(tickers, results))
+
+
 def _compute(sectors: dict[str, list[str]], lookback: int, start: str, end: str) -> dict:
     market_ret = _market_return(lookback)
+    # 유니크 종목 1회씩 병렬 fetch(중복 섹터 종목 재fetch 방지 + 동시성 상한). 섹터별 집계는 lookup 으로 복원.
+    unique = sorted({t for members in sectors.values() for t in members})
+    ret_map = _fetch_returns_parallel(unique, start, end, lookback)
     sector_rel: dict[str, Optional[float]] = {}
     sector_ret_map: dict[str, Optional[float]] = {}
     for sector, members in sectors.items():
-        member_returns = [_ticker_return(t, start, end, lookback) for t in members]
+        member_returns = [ret_map.get(t) for t in members]
         sec_ret = ss.equal_weight_return(member_returns)
         sector_ret_map[sector] = sec_ret
         sector_rel[sector] = ss.relative_strength(sec_ret, market_ret)
