@@ -87,10 +87,19 @@ public class ChartPatternClient {
      * 섹터 상대강도 랭킹 — python data 그대로 전달(ranked/marketReturn/asOf). 1시간 캐시.
      * 미가용 시 null(스냅샷 미수집 의미 — 발굴 배지 생략).
      */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> getSectorStrength(Map<String, List<String>> sectors) {
+        return getSectorStrength(sectors, false);
+    }
+
+    /**
+     * @param forceRefresh 캐시 무시하고 python 재계산(워머용). Java 1h 캐시 > python 30m 캐시라,
+     *                     워밍이 그냥 호출하면 Java 캐시에 막혀 python 이 안 돌아 python 캐시가 콜드로 만료됨.
+     *                     워머는 true 로 강제해 python 30m 캐시(+Java 1h)를 주기적으로 갱신한다.
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getSectorStrength(Map<String, List<String>> sectors, boolean forceRefresh) {
         Instant now = Instant.now();
-        if (cachedSectorStrength != null && sectorCachedAt != null
+        if (!forceRefresh && cachedSectorStrength != null && sectorCachedAt != null
                 && Duration.between(sectorCachedAt, now).compareTo(SECTOR_CACHE_TTL) < 0) {
             return cachedSectorStrength;
         }

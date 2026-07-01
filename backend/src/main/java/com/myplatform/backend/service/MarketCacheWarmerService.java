@@ -1,9 +1,11 @@
 package com.myplatform.backend.service;
 
+import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.dto.*;
 import com.myplatform.backend.dto.TradingIndicatorDto.LeadingSectorResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -43,6 +45,12 @@ public class MarketCacheWarmerService {
     private final SectorOpportunityService sectorOpportunityService;
     private final MarketIndicatorService marketIndicatorService;
     private final MarketTimingService marketTimingService;
+    // 섹터강도(발굴 배지·종합판단 보드) 프리페치용 — python 계산 무거워 콜드 요청이 Java 8s 타임아웃 근접(t134≈7.8s).
+    private final ChartPatternClient chartPatternClient;
+    private final SectorStockConfig sectorStockConfig;
+    // 롤백 스위치 — 문제 시 chart.sector-strength.warm.enabled=false 로 워밍만 끔(온디맨드는 유지).
+    @Value("${chart.sector-strength.warm.enabled:true}")
+    private boolean sectorStrengthWarmEnabled;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     // NXT/시간외 거래 시간까지 커버 (2025-03 NXT 도입, 2026-09 KRX 본 장 연장 예정)
@@ -258,6 +266,25 @@ public class MarketCacheWarmerService {
             log.debug("[Cache Warmer] 수급 급증 종목 워밍 완료");
         } catch (Exception e) {
             log.warn("[Cache Warmer] 수급 급증 종목 워밍 실패: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 섹터강도(발굴 '덜 빠지는 섹터' 배지 + 종합판단 보드) 프리페치 — 이전 호출 종료 후 20분, 장중만.
+     * python 계산이 무거워(~134종목 순차 fetch, t134≈7.8s) 콜드 요청이 Java 8s 타임아웃에 근접(헤드룸~0).
+     * forceRefresh 로 Java 1h 캐시를 우회해 python 을 주기적으로 돌려 <b>python 30m 캐시를 항상 warm</b> 유지
+     * → 사용자 콜드 요청 제거. best-effort(실패해도 python 서버사이드 계산·캐시 완료 → 다음 요청 히트). 롤백=플래그 off.
+     */
+    @Scheduled(scheduler = "cacheScheduler", fixedDelay = 1_200_000)
+    public void warmSectorStrength() {
+        if (!sectorStrengthWarmEnabled || !isMarketHours()) return;
+        try {
+            Map<String, List<String>> sectors = new java.util.LinkedHashMap<>();
+            sectorStockConfig.getAllSectors().forEach(s -> sectors.put(s.getName(), s.getStockCodes()));
+            chartPatternClient.getSectorStrength(sectors, true);   // forceRefresh — Java 1h 캐시 우회, python 재계산
+            log.debug("[Cache Warmer] 섹터강도 프리페치 완료");
+        } catch (Exception e) {
+            log.warn("[Cache Warmer] 섹터강도 프리페치 실패: {}", e.getMessage());
         }
     }
 
