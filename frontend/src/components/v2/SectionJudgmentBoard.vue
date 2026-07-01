@@ -40,8 +40,8 @@
       <template v-else>
         <p class="jbe-title">오늘 비교할 BUY 후보가 적습니다</p>
         <p class="jbe-desc">종합점수 컷(검증/게이트, validCount≥3 &amp; 55↑)을 통과한 종목이 부족합니다.
-          목록 탭(💎저평가·🚀성장·📉낙폭·💰실적·🏦수급)에서 다각도로 발굴해 보세요.</p>
-        <button class="jbe-btn" @click="$emit('switch-to-list')">📋 목록 탭에서 발굴</button>
+          <strong>발굴 트랙 포함</strong>을 켜면 저평가·성장·낙폭·실적·수급 트랙 종목까지 한 보드에서 비교할 수 있습니다.</p>
+        <button v-if="scope !== 'union'" class="jbe-btn" @click="toggleScope">＋ 발굴 트랙 포함</button>
       </template>
     </div>
 

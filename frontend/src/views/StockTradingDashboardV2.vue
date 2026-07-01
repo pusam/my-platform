@@ -138,9 +138,10 @@
           <span class="sector-strength-label" style="opacity:0.6">⚠ 섹터강도(베타) 분석서버 일시 미가용</span>
         </div>
 
-        <!-- 발굴 2단 서브탭 (목록 5트랙 + 심화도구) — 둘 다 상단, 선택한 그룹의 콘텐츠 하나만 표시 -->
+        <!-- 발굴 = 종합판단 중심 축소(2026-07-01): 종합판단 + 백테스트만. 목록 5트랙/기타 심화는 숨김(코드 보존). -->
         <div class="discover-nav" v-if="activeGnbTab === 'discover'">
-          <div class="sub-tabs">
+          <!-- 목록 5트랙 — 숨김(discoverListVisible=false). 종합판단 union 에 이미 포함. -->
+          <div class="sub-tabs" v-if="discoverListVisible">
             <span class="sub-group-label">목록</span>
             <button v-for="st in discoverListTabs" :key="st.key"
               :class="['sub-tab-btn', { active: discoverGroup === 'list' && discoverListTab === st.key }]"
@@ -149,7 +150,6 @@
             </button>
           </div>
           <div class="sub-tabs">
-            <span class="sub-group-label">심화</span>
             <button v-for="st in discoverSubTabs" :key="st.key"
               :class="['sub-tab-btn', { active: discoverGroup === 'deep' && discoverSubTab === st.key }]"
               @click="selectDiscoverDeep(st.key)">
@@ -675,14 +675,14 @@ export default {
       // ★ 발굴 기본 진입 그룹 — 'deep'(심화: 종합판단 보드) / 'list'(목록 5트랙). 되돌리려면 이 한 줄만 'list'로.
       discoverGroup: this.resolveInitialDiscoverGroup(),
       marketSubTab: this.resolveInitialMarketSub(),
+      // 발굴 종합판단 중심 축소(2026-07-01): board + backtest 만 노출.
+      // 숨김(🎯종합·AI전략·스크리너·퀀트TA)은 렌더 블록/임포트/딥링크(?sub=) 보존 — nav 에서만 제외.
       discoverSubTabs: [
-        { key: 'total', label: '🎯 종합' },
         { key: 'board', label: '🧭 종합판단' },
-        { key: 'ai-strategy', label: 'AI전략' },
-        { key: 'backtest', label: '백테스트' },
-        { key: 'screener', label: '스크리너' },
-        { key: 'quant-ta', label: '퀀트(TA)' }
+        { key: 'backtest', label: '백테스트' }
       ],
+      // 목록 5트랙 노출 여부 — 축소로 숨김(종합판단 union 에 이미 포함). true 로 복구 가능.
+      discoverListVisible: false,
       // 발굴 리스트 서브탭 — 저평가/성장/낙폭과대 중 하나만 표시 (기본 저평가)
       discoverListTab: 'value',
       discoverListTabs: [
@@ -1098,11 +1098,10 @@ export default {
       const valid = ['total', 'board', 'ai-strategy', 'backtest', 'screener', 'quant-ta']
       return valid.includes(sub) ? sub : 'board'   // 기본 = 종합판단 보드
     },
-    // 발굴 기본 그룹 — 쿼리 sub 가 목록 트랙이면 'list', 아니면 'deep'(기본 종합판단).
+    // 발굴 기본 그룹 — 목록 5트랙 숨김(종합판단 중심 축소)이라 항상 'deep'.
+    // (복구 시: discoverListVisible=true + 아래 listKeys 분기 되살리기.)
     resolveInitialDiscoverGroup() {
-      const sub = this.$route?.query?.sub
-      const listKeys = ['value', 'growth', 'oversold', 'earnings', 'smartmoney']
-      return listKeys.includes(sub) ? 'list' : 'deep'
+      return 'deep'
     },
     resolveInitialMarketSub() {
       const sub = this.$route?.query?.sub
