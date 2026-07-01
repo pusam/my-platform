@@ -60,7 +60,8 @@
             <th @click="setSort('technical')" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
             <th @click="setSort('earnings')" class="th-sort">실적{{ sortMark('earnings') }}</th>
             <th @click="setSort('sectorMomentum')" class="th-sort">섹터(테마){{ sortMark('sectorMomentum') }}</th>
-            <th @click="setSort('timingScore')" class="th-sort th-unv">차트타이밍<small>미검증</small>{{ sortMark('timingScore') }}</th>
+            <th @click="setSort('timingScore')" class="th-sort"
+                title="백테스트 hitRate 31% · 점수–수익 역상관 — 숫자 높다고 좋은 자리 아님(예측력 낮음 확인)">차트타이밍<small class="poor-badge">예측력↓</small>{{ sortMark('timingScore') }}</th>
             <th class="th-unv">섹터강도<small>미검증</small></th>
             <th @click="setSort('supplyDemand')" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
           </tr>
@@ -77,7 +78,7 @@
             <td class="num" :class="r.scored ? strongClass(r.technical, TECH_STRONG) : ''">{{ r.scored ? r.technical : '—' }}</td>
             <td class="num">{{ r.scored ? r.earnings : '—' }}</td>
             <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? r.sectorMomentum : '—' }}</td>
-            <td class="num td-unv">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
+            <td class="num td-poor" title="차트타이밍 — 백테스트 예측력 낮음(hitRate 31%, 점수–수익 역상관). 참고만.">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
             <td class="num td-unv">{{ r.sectorStrengthRel != null ? signed(r.sectorStrengthRel) : '—' }}</td>
             <td class="num td-supply" :class="{ suspect: r.scored && r.supplyInverseSuspect }">
               {{ r.scored ? r.supplyDemand : '—' }}<span v-if="r.scored && r.supplyInverseSuspect" class="suspect-mark"
@@ -217,6 +218,11 @@ onMounted(load);
   display: inline-block; margin-left: 3px; font-size: 9px; color: #fbbf24;
   background: rgba(245, 158, 11, 0.14); padding: 0 4px; border-radius: 3px;
 }
+/* 차트타이밍 — 백테스트 역상관 확인(31%). '미검증'(amber, 섹터강도)과 구분되는 역상관 톤(적색). */
+.poor-badge {
+  display: inline-block; margin-left: 3px; font-size: 9px; color: #fca5a5;
+  background: rgba(248, 113, 113, 0.16); padding: 0 4px; border-radius: 3px;
+}
 .jb-row { cursor: pointer; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
 .jb-row:hover { background: rgba(255, 255, 255, 0.05); }
 .td-name { text-align: left; }
@@ -230,6 +236,7 @@ onMounted(load);
 .td-total { font-weight: 700; }
 .num.strong { color: #4ade80; font-weight: 700; }
 .td-unv { color: #94a3b8; }
+.td-poor { color: #b08a8a; cursor: help; }   /* 차트타이밍 셀 — td-unv(청회색)와 구분되는 muted 적색-회색 */
 .td-supply.suspect { color: #fbbf24; }
 .suspect-mark { margin-left: 2px; cursor: help; }
 .positive { color: #4ade80; }
