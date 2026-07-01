@@ -66,15 +66,15 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(tv[2].text()).toBe('—')
   })
 
-  it('재료 배지 — 호재 🔥 + 라벨, 악재 ⚠️, 없으면 배지 없음(§4b 표시 전용)', async () => {
+  it('재료 배지 — 호재 🔥/cat-pos · 악재 ⚠️/cat-neg · 중립 아이콘無/cat-neu · 없으면 무배지', async () => {
     const w = await mountBoard([
       row({ stockCode: 'A', catalystType: 'ORDER_WIN', catalystLabel: '수주', catalystDirection: 'POSITIVE' }),
       row({ stockCode: 'B', catalystType: 'LITIGATION', catalystLabel: '소송', catalystDirection: 'NEGATIVE' }),
-      row({ stockCode: 'C' })  // 재료 없음
+      row({ stockCode: 'C', catalystType: 'NEW_BUSINESS', catalystLabel: '신사업', catalystDirection: 'NEUTRAL' }),
+      row({ stockCode: 'D' })  // 재료 없음
     ])
     const rows = w.findAll('.jb-row')
     const a = rows[0].find('.cat-badge')
-    expect(a.exists()).toBe(true)
     expect(a.text()).toContain('🔥')
     expect(a.text()).toContain('수주')
     expect(a.classes()).toContain('cat-pos')
@@ -84,7 +84,15 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(b.text()).toContain('소송')
     expect(b.classes()).toContain('cat-neg')
 
-    expect(rows[2].find('.cat-badge').exists()).toBe(false)
+    // 중립 — 방향 아이콘 없이 라벨만, cat-neu(회색). 🔥/⚠️ 오인 표시 안 함.
+    const c = rows[2].find('.cat-badge')
+    expect(c.exists()).toBe(true)
+    expect(c.text()).toContain('신사업')
+    expect(c.text()).not.toContain('🔥')
+    expect(c.text()).not.toContain('⚠️')
+    expect(c.classes()).toContain('cat-neu')
+
+    expect(rows[3].find('.cat-badge').exists()).toBe(false)
   })
 
   it('지연 경고 — 현재가/거래대금이 캐시 스냅샷(최대 30분·실시간 아님)임을 명시', async () => {

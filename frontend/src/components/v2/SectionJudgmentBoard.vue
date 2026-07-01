@@ -81,7 +81,7 @@
               <span class="rc">{{ r.stockCode }}</span>
               <span v-if="r.catalystLabel" class="cat-badge" :class="catClass(r.catalystDirection)"
                     :title="'재료: ' + r.catalystLabel + '(' + catDirLabel(r.catalystDirection) + ')'">
-                {{ catIcon(r.catalystDirection) }} {{ r.catalystLabel }}</span>
+                {{ catBadge(r.catalystDirection, r.catalystLabel) }}</span>
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
             </td>
             <td class="td-price">
@@ -198,8 +198,10 @@ const fmtTradingValue = (v) => {
   return n.toLocaleString('ko-KR');
 };
 // 재료 배지(§4b 표시 전용) — 호재/악재만 표시(중립/없음은 백엔드가 생략)
-const catIcon = (dir) => (dir === 'NEGATIVE' ? '⚠️' : '🔥');
-const catClass = (dir) => (dir === 'NEGATIVE' ? 'cat-neg' : 'cat-pos');
+// 재료 방향 3분할 — 호재 🔥 / 악재 ⚠️ / 중립 아이콘無(회색). NONE/null 은 백엔드가 생략.
+const catIcon = (dir) => (dir === 'POSITIVE' ? '🔥' : dir === 'NEGATIVE' ? '⚠️' : '');
+const catClass = (dir) => (dir === 'POSITIVE' ? 'cat-pos' : dir === 'NEGATIVE' ? 'cat-neg' : 'cat-neu');
+const catBadge = (dir, label) => { const i = catIcon(dir); return i ? `${i} ${label}` : label; };
 const catDirLabel = (dir) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[dir] || dir);
 
 onMounted(load);
@@ -290,8 +292,12 @@ onMounted(load);
 .cat-badge {
   font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; font-weight: 600; cursor: help;
 }
-.cat-badge.cat-pos { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
-.cat-badge.cat-neg { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+/* 호재 = 주황(🔥) — 시세 등락 초록(#4ade80)과 구분되게 일부러 초록 안 씀. */
+.cat-badge.cat-pos { background: rgba(251, 146, 60, 0.22); color: #fdba74; font-weight: 700; }
+/* 악재 = 적색(⚠️) — pill+아이콘 형태라 시세 하락 숫자(적색)와 혼동 낮음. */
+.cat-badge.cat-neg { background: rgba(248, 113, 113, 0.22); color: #fca5a5; font-weight: 700; }
+/* 중립 = 회색(아이콘無) — 방향 없음을 명확히(이전엔 🔥로 오인 표시). */
+.cat-badge.cat-neu { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
 /* 시세 셀 — 현재가 + 등락률(캐시 스냅샷) */
 .td-price { text-align: right; line-height: 1.25; }
 .td-price .pp { font-variant-numeric: tabular-nums; }
