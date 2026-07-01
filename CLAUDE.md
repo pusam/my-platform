@@ -57,12 +57,12 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 ### 4b. 재료(catalyst) 태그는 산식 미편입 (의도)
 - 네이버 뉴스 → Gemini 분류(`StockCatalystService`) → `stock_catalyst` **일캐시(종목·일자 1회)**. 용도는 **배지 표시 + 시그널 스냅샷(검증)뿐** — 재료별 적중률이 데이터로 검증되기 전엔 점수 산식에 넣지 말 것. 종합판단 보드도 이 캐시를 **read-only**(classify 호출 금지 — quota/스팸가드)로 소비.
 - 알림: **신규 분류 시에만** 호재→시그널 채널 / 악재→리스크 채널 (캐시 히트 무알림 = 스팸 방지). 분류 실패(Gemini circuit open 등)는 **캐시 안 함** → 다음 기회 재시도.
-- 모닝브리핑(07:30) 후행 워밍: BUY 컷(55) 이상 **상한 5종목** — Gemini quota 가드. 근거 없이 늘리지 말 것. 보드 종목 일괄 워밍은 **Gemini quota 병목(아래) 때문에 보류** — 도입 시 rate 제한 필수.
+- 모닝브리핑(07:30) 후행 워밍: BUY 컷(55) 이상 **상한 5종목** — Gemini quota 가드. 근거 없이 늘리지 말 것. 보드 종목 일괄 워밍은 **후속 백로그**(rate 제한 하에 도입 검토 — VERIFICATION_BACKLOG).
 - **⚠ 뉴스 fetch 파이프라인 함정 3종(2026-07-01, 7일 연속 100% NONE 장애 — 세 원인이 겹쳐 있었음)**:
   1. **네이버 키 배선**: backend 는 `NAVER_CLIENT_ID/SECRET` 을 compose `environment:` 에 **명시 이중배선**(env_file 단독 의존 금지 — env_file 주입은 컨테이너 '생성' 시점 고정이라 `.env` 수정 후 `restart` 만 하면 반영 안 됨, **recreate 필요**). GEMINI 도 동일(backend `environment:` 에 명시).
   2. **URL 인코딩**: `NaverSearchService.buildSearchUrl` 은 **`URI` 반환**(String 금지). `RestTemplate.exchange(String)` 은 URL 을 URI 템플릿으로 보고 **재인코딩**(% → %25) → 한글 이중 인코딩 → 네이버가 무관 뉴스 반환 → 종목명 필터 전부 탈락 → NONE. `URI` 인자는 재인코딩 안 함. 회귀 테스트 `NaverSearchServiceTest`(query=%EC…, %25 없음).
   3. **§4c 하드닝**: `naver.isAvailable()==false`(소스 다운)면 `getCatalyst` 는 **null 반환(캐시 안 함)** — "뉴스 0건"을 NONE 으로 캐시하면 일캐시라 하루종일 재분류 못 함. 소스 가용일 때의 진짜 '뉴스 없음'만 NONE.
-- **⚠ Gemini quota 병목(2026-07-01 발견, 미해소)**: 모델 `gemini-2.0-flash` **무료 티어 ≈ 15 RPM**. 호출자 10곳(재료·AI전략 스냅샷·StockDetail AI·뉴스·실적·일지 등)이 동시 호출 → 버스트. `GeminiService.enforceRateLimit`(MIN_REQUEST_INTERVAL 2초=30RPM)은 **전역 직렬화가 아니라**(volatile check-then-act 비원자적) 동시 스레드 버스트를 못 막음 → 429 → 3연속 시 1분 중단 → "쿼터 제한 중 스킵" 연쇄(AI전략도 'Gemini 코멘트 없음'으로 저하). **완화 미결(사용자 결정 대기)**: 전역 rate 직렬화+간격≥4.5초 / 소비자 우선순위 / 배치 프롬프트(N종목 1콜) / 유료 티어. 재료·워밍 확장 전 이 병목부터 해소.
+- **Gemini quota — 무료 티어 rate 제한(2026-07-01 해소)**: 모델 **`gemini-2.5-flash-lite`**(2.0-flash 종료, 무료 ≈15 RPM, URL 은 `${GEMINI_API_URL}` 로 오버라이드). `GeminiService.RateLimiter`(synchronized `acquire()` + 슬롯 예약)로 **전역 직렬화**, 간격 **4.5초**(≤~13 RPM, 15 미만). 이전 `enforceRateLimit` 은 volatile check-then-act(비원자적)라 동시 호출자(재료·AI전략·StockDetail 등) 버스트가 통과 → 429 였음 — **이 비원자 방식/2초 간격으로 되돌리지 말 것.** 503(구글 과부하)은 재시도 자동복구, 429는 rate 제한으로 방어 → 재료+AI전략 둘 다 정상. **후속(백로그)**: 배치 프롬프트(N종목 1콜=RPM 실질 감축, 무료 티어 최선책)·소비자 우선순위(재료>AI전략). ⚠ 프롬프트 프리픽스 캐싱은 **토큰 비용만↓**(RPM 무관)이라 429 완화엔 무효 — RPM 은 rate 제한/호출수 감축으로만.
 
 ### 4c. "데이터 없음"을 그럴듯한 값으로 위장하지 않는다 (2026-06-11 점검에서 3건 제거)
 - **체결강도**: 소스는 **체결 API(FHKST01010300, inquire-ccnl)의 `tday_rltv`** — 현재가 시세 API(FHKST01010100)엔 체결강도 필드가 없다(여기서 읽으려던 게 항상-100% 버그의 근원). 미수집이면 **null 유지** → 프론트 게이지가 '-' + 시간대별 안내 표시. **null→100(균형) 강제 변환 금지.** 봇 `isVolumeIncreasing` 도 이 값에 의존.
