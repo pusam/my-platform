@@ -48,6 +48,7 @@ class JudgmentBoardServiceTest {
         assertThat(a.getSector()).isEqualTo("반도체");
         assertThat(a.getSectorStrengthRel()).isEqualByComparingTo("1.56");
         assertThat(a.isSupplyInverseSuspect()).isTrue();             // 수급 15 ≥ 10
+        assertThat(a.isScored()).isTrue();                           // momentum 행은 4-cat 있음
 
         Row b = rows.get(1);
         assertThat(b.getTimingScore()).isNull();                     // 타이밍 신호 없음

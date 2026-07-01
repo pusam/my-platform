@@ -28,7 +28,20 @@ public class JudgmentBoardDto {
     private List<Row> rows;
     private boolean timingAvailable;          // 차트타이밍 python 가용(빈 결과가 '신호없음'인지 '다운'인지 구분)
     private boolean sectorStrengthAvailable;
+    private String scope;           // "momentum"(기본) | "union"(발굴 트랙 포함)
+    private UnionStats unionStats;  // union scope 일 때 "—"(미채점) 비율 가시화
     private String note;            // 미검증/역상관 의심 안내 문구
+
+    /** union 4-cat 채움 현황 — 순수 발굴주(momentum scoreMap 밖)가 얼마나 "—"로 뜨는지. */
+    @Getter
+    @Builder
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class UnionStats {
+        private int totalRows;
+        private int scoredRows;      // 4-cat 있음(momentum scoreMap 포함)
+        private int unscoredRows;    // "—"(순수 발굴주, momentum 신호 없음)
+    }
 
     /** 시장 컨텍스트 — regime(KOSPI MA60) + 간밤 미국장 tilt. 둘 다 점수 미편입(맥락 표시). */
     @Getter
@@ -48,7 +61,8 @@ public class JudgmentBoardDto {
     public static class Row {
         private String stockCode, stockName;
         private BigDecimal currentPrice, changeRate;
-        private List<String> sources;          // 출처 태그 — Phase1: ["momentum"]. Phase2: 발굴 트랙 추가.
+        private List<String> sources;          // 출처 태그 — momentum/value/growth/oversold/earnings/smartmoney(dedup 후 전부).
+        private boolean scored;                // true=4-cat 있음(momentum scoreMap). false="—"(순수 발굴주 — 출처 태그로 맥락).
 
         // ① 점수(검증/게이트)
         private int totalScore;

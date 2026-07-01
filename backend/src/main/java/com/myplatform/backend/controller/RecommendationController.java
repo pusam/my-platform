@@ -33,10 +33,10 @@ public class RecommendationController {
      * 종합점수 산식 무변경, 미검증 신호(차트타이밍·섹터강도·간밤 미국장)는 표시만(점수 미편입).
      */
     @GetMapping("/judgment-board")
-    public ResponseEntity<?> getJudgmentBoard() {
+    public ResponseEntity<?> getJudgmentBoard(@RequestParam(defaultValue = "momentum") String scope) {
         return ResponseEntity.ok(Map.of(
                 "success", true,
-                "data", judgmentBoardService.getBoard()
+                "data", judgmentBoardService.getBoard(scope)
         ));
     }
 

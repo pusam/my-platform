@@ -83,6 +83,9 @@ public class RecommendationService {
 
     private volatile List<RecommendationDto> cachedTop5 = null;
     private volatile LocalDateTime cacheTime = null;
+    // 종합 판단 보드 union(P2-14 Phase2) — 최근 calculate() scoreMap(seed=AI/실적/수급 종목의 4카테고리)
+    // 을 보존해 발굴 union 종목의 4-cat lookup 에 재사용(재점수 없이). calculate() 미실행(장외 DB 경로)이면 stale/null.
+    private volatile Map<String, StockScore> cachedScoreMap = null;
     private static final long CACHE_MINUTES = 30;
     private static final int NA = -1;
 
@@ -151,6 +154,16 @@ public class RecommendationService {
         }
 
         return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap());
+    }
+
+    /**
+     * 종합 판단 보드 union(P2-14) — 최근 calculate() scoreMap 의 4카테고리 스냅샷(코드→StockScore).
+     * seed=AI/실적/수급 종목이라 순수 저평가/성장주는 대부분 미포함(보드에서 "—"로 정직 표시).
+     * calculate() 미실행 시 빈 맵. <b>4-cat lookup 전용(산식 무변경, 재점수 없음).</b>
+     */
+    public Map<String, StockScore> categoryScoreSnapshot() {
+        Map<String, StockScore> m = this.cachedScoreMap;
+        return m != null ? m : Collections.emptyMap();
     }
 
     /**
@@ -1270,6 +1283,8 @@ public class RecommendationService {
                 .limit(10)
                 .map(this::toDto)
                 .toList();
+
+        this.cachedScoreMap = scoreMap;   // union 보드 4-cat lookup용 보존(재점수 방지)
 
         for (RecommendationDto r : results) {
             log.info("[종합추천] #{} {} — 총{}점 (AI:{} 실적:{} 수급:{} 기술:{} 섹터:{} 가치:{}) 유효{}개",
