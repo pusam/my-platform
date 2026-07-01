@@ -156,24 +156,33 @@ public class StockCatalystService {
         return sb.toString();
     }
 
-    /** Gemini 분류 프롬프트 — JSON 강제. 유형/방향 어휘는 CatalystType/Direction enum 과 동기. */
+    /**
+     * Gemini 분류 프롬프트 고정 프리픽스(지시/JSON형식/어휘) — 변동부(종목·뉴스) 앞에 둬 프롬프트
+     * 프리픽스 캐시 후보로 만든다(토큰 비용↓). ⚠ 무료 티어의 병목은 RPM(요청 수)이라 캐시는 비용만
+     * 줄이고 호출 수는 안 줄인다 — 429 완화는 전역 rate limiter/호출수 감축이 담당.
+     * 유형/방향 어휘는 CatalystType/Direction enum 과 동기.
+     */
+    private static final String PROMPT_PREFIX =
+            "한국 상장사의 최근 뉴스 제목들에서 주가에 영향을 줄 핵심 '재료' 하나를 골라 분류하라. "
+            + "유의미한 재료가 없으면 NONE.\n"
+            + "반드시 아래 JSON 형식으로만 답하라 (설명 금지):\n"
+            + "{\"type\":\"ORDER_WIN|EARNINGS|MNA|NEW_BUSINESS|REGULATION|LITIGATION|GOVERNANCE|OTHER|NONE\","
+            + "\"direction\":\"POSITIVE|NEGATIVE|NEUTRAL|NONE\","
+            + "\"headline\":\"근거 뉴스 제목 (NONE 이면 빈 문자열)\","
+            + "\"summary\":\"한 줄 요약 (한국어, 40자 이내)\"}\n"
+            + "type 의미: ORDER_WIN=수주/공급계약, EARNINGS=실적/가이던스, MNA=인수합병/지분, "
+            + "NEW_BUSINESS=신사업/신제품/기술, REGULATION=규제/정책, LITIGATION=소송/제재, "
+            + "GOVERNANCE=지배구조/자사주/배당, OTHER=기타 재료, NONE=재료 없음.\n";
+
+    /** Gemini 분류 프롬프트 — 고정 프리픽스 + 변동부(종목명 + 뉴스 제목 최대 5건). */
     static String buildPrompt(String stockName, List<NewsItem> news) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("다음은 한국 상장사 '").append(stockName).append("' 의 최근 뉴스 제목들이다.\n");
-        sb.append("이 중 주가에 영향을 줄 핵심 '재료' 하나를 골라 분류하라. 유의미한 재료가 없으면 NONE.\n\n");
+        StringBuilder sb = new StringBuilder(PROMPT_PREFIX);
+        sb.append("\n종목: '").append(stockName).append("'\n뉴스 제목:\n");
         int i = 1;
         for (NewsItem item : news) {
             if (i > MAX_NEWS_FOR_PROMPT) break;
             sb.append(i++).append(". ").append(item.getTitle()).append('\n');
         }
-        sb.append("\n반드시 아래 JSON 형식으로만 답하라 (설명 금지):\n");
-        sb.append("{\"type\":\"ORDER_WIN|EARNINGS|MNA|NEW_BUSINESS|REGULATION|LITIGATION|GOVERNANCE|OTHER|NONE\",");
-        sb.append("\"direction\":\"POSITIVE|NEGATIVE|NEUTRAL|NONE\",");
-        sb.append("\"headline\":\"근거 뉴스 제목 (NONE 이면 빈 문자열)\",");
-        sb.append("\"summary\":\"한 줄 요약 (한국어, 40자 이내)\"}\n");
-        sb.append("type 의미: ORDER_WIN=수주/공급계약, EARNINGS=실적/가이던스, MNA=인수합병/지분, ");
-        sb.append("NEW_BUSINESS=신사업/신제품/기술, REGULATION=규제/정책, LITIGATION=소송/제재, ");
-        sb.append("GOVERNANCE=지배구조/자사주/배당, OTHER=기타 재료, NONE=재료 없음.");
         return sb.toString();
     }
 

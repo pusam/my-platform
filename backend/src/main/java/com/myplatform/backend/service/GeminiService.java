@@ -37,7 +37,8 @@ public class GeminiService {
     @Value("${gemini.api.key:}")
     private String apiKey;
 
-    @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent}")
+    // gemini-2.0-flash 종료 → gemini-2.5-flash-lite (무료 티어 ≈ 15 RPM, generateContent 규격 동일).
+    @Value("${gemini.api.url:https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent}")
     private String apiUrl;
 
     private final RestTemplate restTemplate;
@@ -45,10 +46,13 @@ public class GeminiService {
     // Rate Limit 관리
     private static final int MAX_RETRIES = 3;
     private static final long DEFAULT_RETRY_DELAY_MS = 20000; // 20초
-    private static final long MIN_REQUEST_INTERVAL_MS = 2000; // 요청 간 최소 2초 간격
+    // 무료 티어 gemini-2.5-flash-lite ≈ 15 RPM. 4.5초 간격 = 최대 ~13 RPM(여유 확보).
+    private static final long MIN_REQUEST_INTERVAL_MS = 4500;
     private static final Pattern RETRY_DELAY_PATTERN = Pattern.compile("retry in ([\\d.]+)s");
 
-    private volatile LocalDateTime lastRequestTime = null;
+    // 전역 rate limiter — 모든 호출자(재료·AI전략·StockDetail 등)를 한 게이트로 직렬화해 동시 버스트를
+    // 물리적으로 차단. 이전 volatile check-then-act 는 비원자적이라 동시 스레드가 같이 통과 → 429 유발.
+    private final RateLimiter rateLimiter = new RateLimiter(MIN_REQUEST_INTERVAL_MS);
     private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
     private volatile LocalDateTime quotaResetTime = null;
 
@@ -1044,7 +1048,7 @@ public class GeminiService {
                 HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
                 log.info("[Gemini JSON] API 호출 시작 (시도 {}/{}, 프롬프트 {}자)", attempt + 1, MAX_RETRIES, prompt.length());
-                lastRequestTime = LocalDateTime.now();
+                // 슬롯 예약은 enforceRateLimit()/RateLimiter 가 담당(전역 직렬화).
 
                 ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
 
@@ -1276,7 +1280,7 @@ public class GeminiService {
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
 
         log.info("Gemini API 호출 시작");
-        lastRequestTime = LocalDateTime.now();
+        // 슬롯 예약은 enforceRateLimit()/RateLimiter 가 담당(전역 직렬화).
 
         ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
 
@@ -1303,20 +1307,40 @@ public class GeminiService {
 
 
     /**
-     * 요청 간 최소 간격 유지
+     * 요청 간 최소 간격 유지 — 전역 직렬화 게이트 경유(모든 호출자 공유).
      */
     private void enforceRateLimit() {
-        if (lastRequestTime != null) {
-            long elapsed = java.time.Duration.between(lastRequestTime, LocalDateTime.now()).toMillis();
-            if (elapsed < MIN_REQUEST_INTERVAL_MS) {
+        rateLimiter.acquire();
+    }
+
+    /**
+     * 전역 요청 간격 게이트 — 순수 계산({@link #computeWaitMs}) + synchronized 슬롯 예약.
+     * acquire() 가 synchronized 라 여러 스레드가 동시에 통과 못 하고 FIFO 로 직렬화되며 각자 최소 간격만큼
+     * 벌어진다(무료 티어 RPM 초과 버스트 방지). 락을 쥔 채 sleep 하는 게 곧 스로틀(의도된 동작).
+     */
+    static final class RateLimiter {
+        private final long minIntervalMs;
+        private long lastAcquiredMs = 0L;
+
+        RateLimiter(long minIntervalMs) { this.minIntervalMs = minIntervalMs; }
+
+        synchronized void acquire() {
+            long wait = computeWaitMs(lastAcquiredMs, System.currentTimeMillis(), minIntervalMs);
+            if (wait > 0) {
                 try {
-                    long waitTime = MIN_REQUEST_INTERVAL_MS - elapsed;
-                    log.debug("Rate limit 대기: {}ms", waitTime);
-                    Thread.sleep(waitTime);
+                    Thread.sleep(wait);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }
+            lastAcquiredMs = System.currentTimeMillis();
+        }
+
+        /** 마지막 획득 이후 경과와 최소 간격으로 대기 ms 계산(순수). 첫 호출(last=0)은 0. */
+        static long computeWaitMs(long lastAcquiredMs, long nowMs, long minIntervalMs) {
+            if (lastAcquiredMs <= 0L) return 0L;
+            long elapsed = nowMs - lastAcquiredMs;
+            return elapsed >= minIntervalMs ? 0L : minIntervalMs - elapsed;
         }
     }
 
@@ -1378,7 +1402,7 @@ public class GeminiService {
         status.put("available", isAvailable());
         status.put("consecutiveErrors", consecutiveErrors.get());
         status.put("quotaResetTime", quotaResetTime);
-        status.put("lastRequestTime", lastRequestTime);
+        status.put("minRequestIntervalMs", MIN_REQUEST_INTERVAL_MS);   // 전역 rate 게이트 간격
         return status;
     }
 }
