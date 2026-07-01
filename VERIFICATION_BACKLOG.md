@@ -364,17 +364,18 @@
 
 ---
 
-## P2-15. 차트신호/종합 중복 통합 — 발굴 UI 정리 2단계 (2026-07-01 신규)
+## P2-15. 차트신호/종합 "중복" — ✅ 네이밍으로 해소, 통합 근거 없음 (2026-07-01 종결)
 
-> **배경**: 발굴 탭 UI 진단(2026-07-01)에서 "난잡함"의 한 축 = 중복. **1단계(A 슬림화) 완료**(시간대신호·관심종목 오늘 탭 이동, 차트신호 종목 접힘 — `525891e`). 2단계 = 중복 기능 통합(C). 종합판단이 Phase 2(P2-14)로 풍부해진 뒤 착수(지금은 흡수 시기 이름).
+> **배경**: 발굴 UI 진단에서 "차트신호 3군데" 혼란 → 통합/삭제 검토. **코드 전수 매핑(Explore) 결과 "중복 아님" 확정** — 3 surface = **3 독립 엔진**. 삭제·은퇴는 고유 기능 손실이라 **안 함**. 대신 **네이밍만** 구분해 혼란 해소(`8080ef6`).
 
-- **중복 현황(진단 근거)**:
-  - **차트 신호 3군데**: ① 발굴목록 '차트 신호 종목'(Java `ChartPatternService` 패턴검출+composite 5/5) · ② 종합판단 '차트타이밍' 컬럼(python `ChartPatternClient` timing) · ③ 오늘탭 '차트 신호 관찰'(python timing, momentum 후보). 출처·대상 다른데 이름이 다 "차트 신호".
-  - **🎯종합 vs 🧭종합판단**: 같은 momentum 후보(목록 vs 3계층 비교표). 종합판단 상위호환.
-  - **composite 5/5**(`CompositeSignalService`) vs **종합판단 보드**(신호 3계층): 둘 다 "신호 종합".
-- **과제(2단계)**: ① 차트신호 3→1 정리(발굴목록 '차트 신호 종목' 삭제 or 종합판단 흡수) · ② 🎯종합 은퇴(종합판단 일원화) · ③ composite 5/5 → 종합판단 흡수 검토.
-- **선결**: **P2-14 Phase 2(발굴 union)** 로 종합판단이 비교 대상 충분해진 뒤. 그 전 삭제는 검증된 기능 손실 위험.
-- **관련**: `ChartPatternService`(Java 패턴검출)·`CompositeSignalService`(5/5)·`SectionJudgmentBoard.vue`·`SectionTotalRecommendation.vue`·발굴목록 차트신호 블록(`StockTradingDashboardV2.vue`), [P2-14].
+- **✅ 확정 매핑 (3 surface = 3 엔진, 중복 아님)**:
+  - **① 발굴목록 '📐 차트 패턴'** = Java `ChartPatternService`(기하학 패턴: 더블탑/컵앤핸들/H&S/삼각형, `topPattern` = ChartPatternDto). 90일 OHLCV(가벼움). **유일 출처 — 삭제 시 소실.**
+  - **② 오늘 '🪝 차트 타이밍 관찰' + ③ 종합판단 '차트타이밍' 컬럼** = python `compute_timing`(정배열·이격도·엔벨로프·박스, 500일). **같은 소스, 다른 용도**(관찰 vs 비교). 백테스트 31% 역상관(톤다운 완료).
+  - → ①(Java 패턴) vs ②③(python 타이밍) = **완전 별개 엔진**. 진짜 중복은 python timing이 2 surface뿐(용도 달라 둘 다 유지).
+- **✅ 🎯종합 ≠ 🧭종합판단 (어제 "상위호환" 판단이 코드상 틀렸음)**: 🎯종합=`SectionTotalRecommendation`→`quantTaAPI.compositeRanking(30)`=**composite 5/5 카운트**(유니버스 거래량+AI+수급 ~35개). 🧭종합판단=`/judgment-board`=**4카테고리 점수**(momentum+union). **다른 엔진** — 종합 은퇴 시 composite 랭킹 손실 → **은퇴 안 함**. composite 흡수도 유니버스 달라(35 vs momentum+union) clean 통합 불가 → 흡수 안 함.
+- **✅ 해소(`8080ef6`, 표시만)**: 발굴목록 "차트 신호 종목"→**"📐 차트 패턴"**, 오늘 "차트 신호 관찰"→**"🪝 차트 타이밍 관찰"** → '패턴'=Java/'타이밍'=python 엔진 이름 구분. **삭제·통합 0, 기능 0 손실.**
+- **결론**: 중복 아님 → 통합 근거 없음. 검증 안 됐어도 고유 기능(Java 패턴검출·composite 랭킹·python 타이밍)은 각자 보존. (오늘 세션 "함부로 지우지 마라" 원칙.)
+- **관련**: `ChartPatternService`(Java 패턴)·`CompositeSignalService`(composite 5/5, 🎯종합)·`compute_timing`(python 타이밍)·`SectionJudgmentBoard.vue`·`TodayBriefingTab.vue`·발굴목록 차트패턴 블록(`StockTradingDashboardV2.vue`).
 
 ---
 

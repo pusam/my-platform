@@ -309,7 +309,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 
 | 탭(key) | 렌더 | 내용 |
 |---|---|---|
-| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(2026-06-30)** · 매수후보(55컷 momentum) · **시간대신호(장전/장후)·실시간수급(장중)**(슬롯 #phase-signals, 발굴서 이동 2026-07-01) · **🪝 차트 신호 관찰(접기, 2026-06-30)** · 신뢰도 · **관심종목(슬롯 #watchlist, 접힘)** · 내 포지션 · 도구 |
+| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(2026-06-30)** · 매수후보(55컷 momentum) · **시간대신호(장전/장후)·실시간수급(장중)**(슬롯 #phase-signals, 발굴서 이동 2026-07-01) · **🪝 차트 타이밍 관찰(python timing, 접기)** · 신뢰도 · **관심종목(슬롯 #watchlist, 접힘)** · 내 포지션 · 도구 |
 | **시장(market)** | 허브 인라인 + 서브탭 | 시장지도(`SectionMarketMap`)·섹터거래대금 / 서브: 수급·타이밍·뉴스·글로벌(embedded) |
 | **발굴(discover)** | 허브 인라인 + 2단 서브탭 | 상단 **'덜 빠지는 섹터' 배지(베타)** + 리스트 5트랙 + 심화도구 |
 | **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |
@@ -349,7 +349,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 | 기능 | 프론트 | → Java 엔드포인트 | → 서비스 | → 소스 |
 |---|---|---|---|---|
 | 매수후보(오늘) | TodayBriefingTab | `/recommendation/top5` | RecommendationService | KIS+DART+재무 |
-| **차트 신호 관찰(부진·관찰용)** | TodayBriefingTab | `/recommendation/trend-pullback-top10` | ChartSignalController→ChartPatternClient | **python `/api/v2/chart/timing`**(pykrx 종목 OHLCV) |
+| **차트 타이밍 관찰(python, 부진·관찰용)** | TodayBriefingTab | `/recommendation/trend-pullback-top10` | ChartSignalController→ChartPatternClient | **python `/api/v2/chart/timing`**. ⚠ 발굴 '📐 차트 패턴'(Java ChartPatternService, 기하학 패턴)은 **별개 엔진**(P2-15) |
 | **섹터강도(베타)** | 발굴 상단 배지 | `/recommendation/sector-strength` | ChartPatternClient | **python `/api/v2/chart/sector-strength`** |
 | 발굴 5트랙 | 발굴 서브탭 | `/recommendation/{value…smartmoney}-top10` | RecommendationService | 재무/투자자/가격 |
 | 종목 상세 | StockDetail | `/stock/{code}/quick·heavy·conclusion·catalyst` | StockDetail/Conclusion/Catalyst | 단일시세경로+KIS+Gemini |
@@ -489,6 +489,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - **발굴 UI 정리(진단 기반)**: ① **2단 상단 네비 통합**(목록/심화 두 서브탭 바 상단에, `discoverGroup`로 콘텐츠 단일화, 심화 바 버림 해소, 기본=🧭종합판단 보드). ② **목록 슬림화(A)** — 시간대신호·실시간수급·관심종목을 **오늘 탭으로 이동**(Vue 슬롯 `#phase-signals`/`#watchlist`, hub scope라 데이터·CSS 유지), 관심종목·차트신호 종목 **기본 접힘**. 발굴 목록 적층 1,630→~880px. (2단계 중복 통합=P2-15.)
 - **종합판단 보드 Phase 2-A(P2-14)**: 발굴 5트랙 union — **재점수 없이 momentum `scoreMap` lookup**(`RecommendationService.categoryScoreSnapshot()`). `getBoard(scope=union)` 수집+dedup+출처태그 병합+lookup(없으면 `scored=false`="—"). `GET /judgment-board?scope=union`. 프론트 "발굴 트랙 포함" 토글(lazy)+출처칩+"—" muted+union 통계. **⚠ scoreMap universe=AI/실적/수급 seed**라 순수 저평가/성장주는 "—"(정직). 필터 "기술 강" 임계 **≥13**(실데이터 max 14).
 - **섹터강도 perf(P2-16, at-risk 해소)**: t134≈7.8s(순차 134 fetch, Java 8s 타임아웃 헤드룸~0) → **(2) python `_compute` ThreadPool 8워커 병렬+dedup**(산식 불변, t134→~1.2s) + **(1) Java 워밍**(`MarketCacheWarmerService.warmSectorStrength` 20분, `ChartPatternClient.getSectorStrength(forceRefresh)`). unverified·§4c 무변경.
+- **차트신호 "중복" 재검토(P2-15, 종결)**: 코드 매핑 결과 **3 surface = 3 독립 엔진(중복 아님)** — ① 발굴 **'📐 차트 패턴'**(Java ChartPatternService, 기하학) · ②③ **'🪝 차트 타이밍'**(오늘+종합판단, python compute_timing) · 🎯종합(composite 5/5 랭킹, 종합판단과 다른 엔진). **삭제·은퇴 없이 네이밍만 구분**('패턴'=Java/'타이밍'=python). 검증된 고유 기능 보존. 🎯종합=상위호환 아님(어제 오판 정정).
 
 ---
 
