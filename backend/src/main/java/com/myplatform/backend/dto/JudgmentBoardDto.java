@@ -4,6 +4,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -55,6 +56,7 @@ public class JudgmentBoardDto {
     }
 
     @Getter
+    @Setter
     @Builder
     @AllArgsConstructor
     @NoArgsConstructor
@@ -78,6 +80,14 @@ public class JudgmentBoardDto {
         private Integer timingScore;           // null=신호없음/미산출
         private String sector;                 // 섹터명
         private BigDecimal sectorStrengthRel;  // 섹터 상대강도(null=미가용)
+
+        // 매매 맥락(표시 전용 — 산식 미편입)
+        // 재료(§4b): 일캐시 read 만(신규 분류 안 함). null/NONE=생략.
+        private String catalystType;           // ORDER_WIN/EARNINGS/... 또는 null
+        private String catalystLabel;          // 수주/실적/M&A/... 또는 null
+        private String catalystDirection;      // POSITIVE/NEGATIVE/NEUTRAL 또는 null
+        // 거래대금(§4c): 실측 누적 or 현재가×거래량 폴백, 둘 다 없으면 null(임시값 생성 금지).
+        private BigDecimal tradingValue;
 
         private List<String> tags;
     }

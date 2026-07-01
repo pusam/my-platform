@@ -1,6 +1,10 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.JudgmentBoardDto.Row;
+import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.StockCatalyst;
+import com.myplatform.backend.entity.StockCatalyst.CatalystType;
+import com.myplatform.backend.entity.StockCatalyst.Direction;
 import com.myplatform.backend.service.RecommendationService.RecommendationDto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -79,5 +83,51 @@ class JudgmentBoardServiceTest {
         assertThat(rel.get("2차전지")).isEqualByComparingTo("-0.80");
 
         assertThat(JudgmentBoardService.parseSectorRel(null)).isEmpty();
+    }
+
+    private Row rowOf(String code) {
+        return Row.builder().stockCode(code).stockName(code + "명").build();
+    }
+
+    private StockCatalyst cat(String code, CatalystType type, Direction dir) {
+        return StockCatalyst.builder().stockCode(code).catalystType(type).direction(dir).build();
+    }
+
+    @Test
+    @DisplayName("재료 배지 매핑 — 호재/악재는 라벨+방향, NONE/방향NONE/미캐시는 생략(§4b 표시 전용)")
+    void applyCatalyst_mapsAndSkips() {
+        Row a = rowOf("005930");   // 호재
+        Row b = rowOf("000660");   // NONE → 생략
+        Row c = rowOf("035420");   // 캐시 없음 → 생략
+        Map<String, StockCatalyst> catMap = Map.of(
+                "005930", cat("005930", CatalystType.ORDER_WIN, Direction.POSITIVE),
+                "000660", cat("000660", CatalystType.NONE, Direction.NONE));
+
+        JudgmentBoardService.applyCatalyst(List.of(a, b, c), catMap);
+
+        assertThat(a.getCatalystLabel()).isEqualTo("수주");
+        assertThat(a.getCatalystType()).isEqualTo("ORDER_WIN");
+        assertThat(a.getCatalystDirection()).isEqualTo("POSITIVE");
+        assertThat(b.getCatalystLabel()).isNull();          // NONE 생략
+        assertThat(c.getCatalystLabel()).isNull();          // 미캐시 생략
+    }
+
+    @Test
+    @DisplayName("거래대금 — 실측 누적 우선, 없으면 현재가×거래량 폴백, 둘 다 없으면 null(§4c)")
+    void resolveTradingValue_fallback() {
+        StockPriceDto acc = new StockPriceDto();            // 실측 누적
+        acc.setAccumulatedTradingValue(new BigDecimal("50000000000"));
+        acc.setCurrentPrice(new BigDecimal("70000"));
+        acc.setVolume(new BigDecimal("1000"));
+        assertThat(JudgmentBoardService.resolveTradingValue(acc)).isEqualByComparingTo("50000000000");
+
+        StockPriceDto calc = new StockPriceDto();           // 폴백: 현재가×거래량
+        calc.setCurrentPrice(new BigDecimal("70000"));
+        calc.setVolume(new BigDecimal("1000"));
+        assertThat(JudgmentBoardService.resolveTradingValue(calc)).isEqualByComparingTo("70000000");
+
+        StockPriceDto empty = new StockPriceDto();          // 둘 다 없음 → null(임시값 금지)
+        assertThat(JudgmentBoardService.resolveTradingValue(empty)).isNull();
+        assertThat(JudgmentBoardService.resolveTradingValue(null)).isNull();
     }
 }

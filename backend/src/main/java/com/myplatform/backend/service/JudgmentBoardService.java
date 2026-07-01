@@ -3,6 +3,10 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.config.SectorStockConfig;
 import com.myplatform.backend.dto.JudgmentBoardDto;
 import com.myplatform.backend.dto.JudgmentBoardDto.Row;
+import com.myplatform.backend.dto.StockCatalystDto;
+import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.StockCatalyst;
+import com.myplatform.backend.repository.StockCatalystRepository;
 import com.myplatform.backend.service.RecommendationService.RecommendationDto;
 import com.myplatform.backend.service.RecommendationService.StockScore;
 import lombok.RequiredArgsConstructor;
@@ -11,12 +15,15 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -43,6 +50,8 @@ public class JudgmentBoardService {
     private final SectorStockConfig sectorStockConfig;
     private final OvernightUsMarketService overnightService;
     private final ObjectProvider<MarketRegimeClient> regimeProvider;
+    private final StockCatalystRepository catalystRepository;
+    private final StockPriceService stockPriceService;
 
     /** 종합 판단 보드. scope=momentum(기본)|union. */
     public JudgmentBoardDto getBoard(String scope) {
@@ -135,6 +144,9 @@ public class JudgmentBoardService {
                     .thenComparing(Comparator.comparingInt(Row::getTotalScore).reversed()));
         }
 
+        // 매매 맥락 enrich(표시 전용 — 산식 미편입): 재료 일캐시 read + 거래대금 시세 cache-only.
+        enrichContext(rows);
+
         return JudgmentBoardDto.builder()
                 .market(buildMarket())
                 .rows(rows)
@@ -204,6 +216,68 @@ public class JudgmentBoardService {
                     .build());
         }
         return rows;
+    }
+
+    /**
+     * 재료·거래대금 맥락을 행에 채운다(표시 전용 — 산식 미편입).
+     * <b>재료</b>: 오늘자 {@code stock_catalyst} <b>일캐시 read 만</b> — 신규 분류(Gemini) 호출 없음(§4b quota/스팸가드).
+     * <b>거래대금</b>: 시세 <b>cache-only</b>(KIS 신규 호출 0, 시세 단일경로). 실측 없으면 null(§4c 임시값 생성 금지).
+     * 둘 다 best-effort — 실패해도 보드는 나머지로 렌더.
+     */
+    private void enrichContext(List<Row> rows) {
+        List<String> codes = rows.stream().map(Row::getStockCode).filter(Objects::nonNull).toList();
+        if (codes.isEmpty()) return;
+
+        try {   // 재료: 일캐시 read(신규 분류 안 함)
+            Map<String, StockCatalyst> catByCode = new HashMap<>();
+            for (StockCatalyst c : catalystRepository.findByCatalystDateAndStockCodeIn(LocalDate.now(), codes)) {
+                if (c.getStockCode() != null) catByCode.putIfAbsent(c.getStockCode(), c);
+            }
+            applyCatalyst(rows, catByCode);
+        } catch (Exception e) {
+            log.warn("[JudgmentBoard] 재료 배지 조회 실패(생략): {}", e.getMessage());
+        }
+
+        try {   // 거래대금: 시세 cache-only(단일경로)
+            Map<String, StockPriceDto> priceByCode = stockPriceService.getStockPricesFromCacheOnly(codes);
+            applyTradingValue(rows, priceByCode);
+        } catch (Exception e) {
+            log.warn("[JudgmentBoard] 거래대금 조립 실패(생략): {}", e.getMessage());
+        }
+    }
+
+    /** 재료 태그 매핑(순수) — NONE/방향NONE 은 생략(배지 안 뜸). §4b 표시 전용. */
+    static void applyCatalyst(List<Row> rows, Map<String, StockCatalyst> catByCode) {
+        if (catByCode == null || catByCode.isEmpty()) return;
+        for (Row r : rows) {
+            StockCatalyst c = catByCode.get(r.getStockCode());
+            if (c == null || c.getCatalystType() == null || c.getDirection() == null) continue;
+            if (c.getCatalystType() == StockCatalyst.CatalystType.NONE) continue;
+            if (c.getDirection() == StockCatalyst.Direction.NONE) continue;
+            r.setCatalystType(c.getCatalystType().name());
+            r.setCatalystLabel(StockCatalystDto.labelOf(c.getCatalystType()));
+            r.setCatalystDirection(c.getDirection().name());
+        }
+    }
+
+    /** 거래대금 매핑(순수) — 실측 누적 우선, 없으면 현재가×거래량 폴백, 둘 다 없으면 미설정(null). §4c. */
+    static void applyTradingValue(List<Row> rows, Map<String, StockPriceDto> priceByCode) {
+        if (priceByCode == null || priceByCode.isEmpty()) return;
+        for (Row r : rows) {
+            BigDecimal tv = resolveTradingValue(priceByCode.get(r.getStockCode()));
+            if (tv != null) r.setTradingValue(tv);
+        }
+    }
+
+    /** 누적거래대금(실측) → 현재가×거래량 폴백 → null. 임시값 생성 금지(§4c). 순수. */
+    static BigDecimal resolveTradingValue(StockPriceDto p) {
+        if (p == null) return null;
+        BigDecimal acc = p.getAccumulatedTradingValue();
+        if (acc != null && acc.signum() > 0) return acc;
+        BigDecimal price = p.getCurrentPrice();
+        BigDecimal vol = p.getVolume();
+        if (price != null && vol != null && vol.signum() > 0) return price.multiply(vol);
+        return null;
     }
 
     private JudgmentBoardDto.Market buildMarket() {
