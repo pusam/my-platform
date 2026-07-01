@@ -98,6 +98,12 @@ services:
       - CACHE_REDIS_ENABLED=${CACHE_REDIS_ENABLED:-true}
       # python-backend (pykrx 시장 국면 V32) — 같은 도커 네트워크로 호출. 미기동 시 국면 미수집(NULL).
       - PYTHON_BACKEND_URL=http://python-backend:8000
+      # 외부 API 키 — env_file(.env) 단일 의존 금지. environment 에 명시 이중배선하여
+      # .env 수정 후 recreate 누락 시에도 ${..} 치환으로 확실히 주입(catalyst 뉴스=NAVER,
+      # AI전략·재료분류=GEMINI). 미설정 시 빈 문자열 → 해당 기능 best-effort 비활성.
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - NAVER_CLIENT_ID=${NAVER_CLIENT_ID:-}
+      - NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET:-}
     deploy:
       resources:
         limits:
