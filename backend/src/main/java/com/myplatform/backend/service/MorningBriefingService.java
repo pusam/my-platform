@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -100,21 +101,18 @@ public class MorningBriefingService {
                 log.debug("[모닝브리핑] 재료 워밍 — 추천 스냅샷 없음, 스킵");
                 return;
             }
+            // 상한 CATALYST_WARM_MAX 종목을 모아 배치 1콜로 분류(P2-CAT1) — RPM 실질 1/N.
             Set<String> seen = new HashSet<>();
-            int warmed = 0;
+            List<StockCatalystService.StockRef> refs = new ArrayList<>();
             for (RecommendationSnapshot s : latest) {
-                if (warmed >= CATALYST_WARM_MAX) break;
+                if (refs.size() >= CATALYST_WARM_MAX) break;
                 if (s.getTotalScore() < CATALYST_WARM_SCORE_CUT) continue;
                 if (!seen.add(s.getStockCode())) continue;
-                try {
-                    stockCatalystService.getCatalyst(s.getStockCode(), s.getStockName());
-                    warmed++;
-                } catch (Exception e) {
-                    log.debug("[모닝브리핑] 재료 워밍 실패 ({}): {}", s.getStockCode(), e.getMessage());
-                }
+                refs.add(new StockCatalystService.StockRef(s.getStockCode(), s.getStockName()));
             }
-            log.info("[모닝브리핑] 재료 워밍 완료 — {}건 (BUY 컷 {}점 이상, 상한 {})",
-                    warmed, CATALYST_WARM_SCORE_CUT, CATALYST_WARM_MAX);
+            int warmed = stockCatalystService.classifyBatch(refs);
+            log.info("[모닝브리핑] 재료 워밍 완료 — 요청 {}종목 → {}건 저장 (BUY 컷 {}점 이상, 상한 {}, Gemini 1콜/배치)",
+                    refs.size(), warmed, CATALYST_WARM_SCORE_CUT, CATALYST_WARM_MAX);
         } catch (Exception e) {
             log.warn("[모닝브리핑] 재료 워밍 실패: {}", e.getMessage());
         }

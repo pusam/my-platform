@@ -14,8 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 종목 재료(catalyst) 분류 — V31.
@@ -41,6 +44,8 @@ public class StockCatalystService {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_NEWS_FOR_PROMPT = 5;
+    /** 배치 1콜당 종목 수 — 너무 크면 프롬프트↑·종목 혼동 품질↓. 초과분은 5씩 청킹. */
+    private static final int BATCH_SIZE = 5;
 
     /**
      * 오늘 기준 재료 조회 — 캐시 우선, 없으면 뉴스 수집 + Gemini 분류.
@@ -93,6 +98,73 @@ public class StockCatalystService {
             log.debug("[Catalyst] 분류 실패 ({}): {}", stockCode, e.getMessage());
             return null;
         }
+    }
+
+    /** 배치 분류 참조 — 종목코드 + 종목명(뉴스 검색용). */
+    public record StockRef(String code, String name) {}
+    /** 배치 중간표현 — 종목명 + 수집된 뉴스. */
+    static record StockNews(String name, List<NewsItem> news) {}
+
+    /**
+     * 여러 종목 재료를 <b>1 Gemini 콜/배치</b>로 분류(워밍·일괄용, P2-CAT1). 단건 {@link #getCatalyst} 는
+     * on-demand 그대로. RPM 실질 1/N(무료 티어 병목 완화). 5종목 초과는 {@value #BATCH_SIZE}씩 청킹(각 1콜).
+     * @return 신규 저장(분류)된 종목 수.
+     */
+    public int classifyBatch(List<StockRef> refs) {
+        if (refs == null || refs.isEmpty()) return 0;
+        int total = 0;
+        for (int i = 0; i < refs.size(); i += BATCH_SIZE) {
+            total += classifyOneBatch(refs.subList(i, Math.min(i + BATCH_SIZE, refs.size())));
+        }
+        return total;
+    }
+
+    /** 한 배치(≤{@value #BATCH_SIZE}종목) 처리 — 캐시미스+뉴스수집 → 1 Gemini 콜 → 배열 파싱 → 개별 저장. */
+    private int classifyOneBatch(List<StockRef> refs) {
+        LocalDate today = LocalDate.now();
+        NaverSearchService naver = naverProvider.getIfAvailable();
+        GeminiService gemini = geminiProvider.getIfAvailable();
+        // §4c: 소스(네이버) 다운이면 NONE 위장 캐시 금지 — 스킵(다음 기회 재시도).
+        if (naver == null || gemini == null || !naver.isAvailable()) return 0;
+
+        // 1. 캐시 미스 + 뉴스 수집. 뉴스 있는 종목만 배치 프롬프트로. 뉴스 0건은 개별 NONE(소스 가용=진짜 없음).
+        LinkedHashMap<String, StockNews> pending = new LinkedHashMap<>();
+        for (StockRef ref : refs) {
+            if (ref == null || ref.code() == null || ref.code().isBlank()
+                    || ref.name() == null || ref.name().isBlank()) continue;
+            if (repository.findByStockCodeAndCatalystDate(ref.code(), today).isPresent()) continue;
+            List<NewsItem> news;
+            try { news = naver.searchStockNews(ref.name()); }
+            catch (Exception e) { continue; }   // 뉴스 조회 실패 → 미캐시(재시도)
+            if (news == null || news.isEmpty()) {
+                save(ref.code(), ref.name(), today, CatalystType.NONE, Direction.NONE, null, null);
+                continue;
+            }
+            pending.put(ref.code(), new StockNews(ref.name(), news));
+        }
+        if (pending.isEmpty()) return 0;
+
+        // 2. 1 Gemini 콜(rate limiter 1 슬롯)로 배치 분류
+        String response;
+        try { response = gemini.chat(buildBatchPrompt(pending)); }
+        catch (Exception e) { log.debug("[Catalyst] 배치 Gemini 실패: {}", e.getMessage()); return 0; }
+        if (response == null) return 0;   // circuit open → 미캐시(재시도)
+
+        // 3. 배열 파싱 → 유효 원소만 개별 저장(실패 원소는 미캐시=재시도)
+        Map<String, ParsedCatalyst> parsed = parseBatchResponse(response, pending.keySet());
+        int saved = 0;
+        for (Map.Entry<String, ParsedCatalyst> e : parsed.entrySet()) {
+            StockNews sn = pending.get(e.getKey());
+            if (sn == null) continue;
+            ParsedCatalyst p = e.getValue();
+            StockCatalyst rec = save(e.getKey(), sn.name(), today, p.type(), p.direction(),
+                    truncate(p.headline(), 300), truncate(p.summary(), 500));
+            notifyIfMeaningful(rec);
+            saved++;
+        }
+        log.info("[Catalyst] 배치 분류 — 요청 {}건, 뉴스有 {}건, 저장 {}건 (Gemini 1콜)",
+                refs.size(), pending.size(), saved);
+        return saved;
     }
 
     private StockCatalyst save(String stockCode, String stockName, LocalDate date,
@@ -186,6 +258,59 @@ public class StockCatalystService {
         return sb.toString();
     }
 
+    /** 배치 프롬프트 프리픽스 — N종목을 1콜로. code 키로 JSON 배열 반환 요구(RPM 실질↓, P2-CAT1). */
+    private static final String BATCH_PROMPT_PREFIX =
+            "여러 한국 상장사의 최근 뉴스 제목이다. 종목마다 주가에 영향을 줄 핵심 '재료' 하나를 분류하라(없으면 NONE).\n"
+            + "반드시 아래 JSON 배열로만 답하라 (설명 금지). 각 종목당 원소 하나, code 는 각 종목의 code= 값 그대로:\n"
+            + "[{\"code\":\"종목코드\",\"type\":\"ORDER_WIN|EARNINGS|MNA|NEW_BUSINESS|REGULATION|LITIGATION|GOVERNANCE|OTHER|NONE\","
+            + "\"direction\":\"POSITIVE|NEGATIVE|NEUTRAL|NONE\",\"headline\":\"근거 뉴스 제목 (NONE 이면 빈 문자열)\","
+            + "\"summary\":\"한 줄 요약 (한국어, 40자 이내)\"}]\n"
+            + "type 의미: ORDER_WIN=수주/공급계약, EARNINGS=실적/가이던스, MNA=인수합병/지분, "
+            + "NEW_BUSINESS=신사업/신제품/기술, REGULATION=규제/정책, LITIGATION=소송/제재, "
+            + "GOVERNANCE=지배구조/자사주/배당, OTHER=기타 재료, NONE=재료 없음.\n";
+
+    /** 배치 프롬프트 — 고정 프리픽스 + 종목별(code=…) 뉴스 블록. 순수 함수(테스트 대상). */
+    static String buildBatchPrompt(Map<String, StockNews> pending) {
+        StringBuilder sb = new StringBuilder(BATCH_PROMPT_PREFIX);
+        int idx = 1;
+        for (Map.Entry<String, StockNews> e : pending.entrySet()) {
+            sb.append("\n[").append(idx++).append("] ").append(e.getValue().name())
+              .append(" (code=").append(e.getKey()).append(")\n");
+            int n = 1;
+            for (NewsItem item : e.getValue().news()) {
+                if (n > MAX_NEWS_FOR_PROMPT) break;
+                sb.append("  ").append(n++).append(". ").append(item.getTitle()).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 배치 JSON 배열 응답 파싱 — code→ParsedCatalyst. 순수 함수(테스트 대상).
+     * <b>개별 폴백</b>: 유효 원소만 담고 실패/누락/미요청 code 는 스킵(호출측이 미캐시→재시도). 배열 자체가
+     * 깨지면 빈 맵(전원 재시도). 같은 code 중복은 첫 것만. requestedCodes 밖 code 는 무시(방어).
+     */
+    static Map<String, ParsedCatalyst> parseBatchResponse(String response, Set<String> requestedCodes) {
+        Map<String, ParsedCatalyst> out = new LinkedHashMap<>();
+        if (response == null || response.isBlank()) return out;
+        int start = response.indexOf('[');
+        int end = response.lastIndexOf(']');
+        if (start < 0 || end <= start) return out;
+        try {
+            JsonNode arr = MAPPER.readTree(response.substring(start, end + 1));
+            if (!arr.isArray()) return out;
+            for (JsonNode node : arr) {
+                String code = node.path("code").asText("").trim();
+                if (code.isEmpty() || !requestedCodes.contains(code) || out.containsKey(code)) continue;
+                ParsedCatalyst p = parseNode(node);
+                if (p != null) out.put(code, p);   // 실패 원소는 스킵 = 미캐시(재시도)
+            }
+        } catch (Exception e) {
+            return new LinkedHashMap<>();   // 배열 파싱 전체 실패 → 전원 재시도
+        }
+        return out;
+    }
+
     /**
      * Gemini JSON 응답 파싱 — 순수 함수 (테스트 대상).
      * ```json 펜스 허용, 본문 중 첫 { ... } 블록 추출. 유효하지 않은 type/direction 이면 null.
@@ -197,7 +322,19 @@ public class StockCatalystService {
         int end = response.lastIndexOf('}');
         if (start < 0 || end <= start) return null;
         try {
-            JsonNode node = MAPPER.readTree(response.substring(start, end + 1));
+            return parseNode(MAPPER.readTree(response.substring(start, end + 1)));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 단일 JSON 노드 → ParsedCatalyst (단건/배치 공유). 유효하지 않은 type/direction 이면 null.
+     * type=NONE 이면 direction 도 NONE 으로 강제 (집계 일관성). 빈 문자열 headline/summary 는 null 정규화.
+     */
+    private static ParsedCatalyst parseNode(JsonNode node) {
+        if (node == null) return null;
+        try {
             CatalystType type = CatalystType.valueOf(node.path("type").asText().trim());
             Direction direction = type == CatalystType.NONE
                     ? Direction.NONE

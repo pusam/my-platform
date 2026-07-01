@@ -6,6 +6,8 @@ import com.myplatform.backend.entity.StockCatalyst.CatalystType;
 import com.myplatform.backend.entity.StockCatalyst.Direction;
 import com.myplatform.backend.repository.StockCatalystRepository;
 import com.myplatform.backend.service.StockCatalystService.ParsedCatalyst;
+import com.myplatform.backend.service.StockCatalystService.StockNews;
+import com.myplatform.backend.service.StockCatalystService.StockRef;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,14 +16,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -232,5 +237,95 @@ class StockCatalystServiceTest {
         assertThat(msg).contains("유형: <b>수주</b>");
         assertThat(msg).contains("대형 공급계약 체결");
         assertThat(msg).contains("산식 미반영");
+    }
+
+    // ================================================================
+    // P2-CAT1 배치 분류 — N종목 1콜(RPM 실질↓) + 개별 폴백
+    // ================================================================
+
+    @Test
+    @DisplayName("배치 프롬프트 — code= 키·종목명·뉴스 제목·JSON 배열 지시 포함")
+    void buildBatchPrompt_containsCodesAndArrayFormat() {
+        var pending = new LinkedHashMap<String, StockNews>();
+        pending.put("005930", new StockNews("삼성전자", List.of(NewsItem.builder().title("삼성전자 수주").build())));
+        pending.put("000660", new StockNews("SK하이닉스", List.of(NewsItem.builder().title("하이닉스 실적").build())));
+
+        String p = StockCatalystService.buildBatchPrompt(pending);
+
+        assertThat(p).contains("code=005930").contains("code=000660");
+        assertThat(p).contains("삼성전자").contains("삼성전자 수주").contains("SK하이닉스");
+        assertThat(p).contains("JSON 배열").contains("\"code\"");
+    }
+
+    @Test
+    @DisplayName("배치 파싱 — 유효 원소만 저장, 실패 원소는 스킵(개별 폴백), NONE→direction NONE")
+    void parseBatchResponse_partialFallback() {
+        Set<String> req = Set.of("005930", "000660", "035420");
+        String resp = "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"수주\",\"summary\":\"계약\"},"
+                + "{\"code\":\"000660\",\"type\":\"BADTYPE\",\"direction\":\"POSITIVE\"},"   // 파싱 실패 → 스킵
+                + "{\"code\":\"035420\",\"type\":\"NONE\",\"direction\":\"NEUTRAL\",\"headline\":\"\",\"summary\":\"\"}]";
+
+        var m = StockCatalystService.parseBatchResponse(resp, req);
+
+        assertThat(m).containsOnlyKeys("005930", "035420");   // 000660 은 실패 → 미저장(재시도)
+        assertThat(m.get("005930").type()).isEqualTo(CatalystType.ORDER_WIN);
+        assertThat(m.get("035420").type()).isEqualTo(CatalystType.NONE);
+        assertThat(m.get("035420").direction()).isEqualTo(Direction.NONE);   // NONE → direction 강제 NONE
+    }
+
+    @Test
+    @DisplayName("배치 파싱 — 미요청 code 무시 / 중복 code 첫 것만 / 배열 아님·null → 빈 맵(전원 재시도)")
+    void parseBatchResponse_defensive() {
+        // 미요청 code
+        assertThat(StockCatalystService.parseBatchResponse(
+                "[{\"code\":\"999999\",\"type\":\"EARNINGS\",\"direction\":\"POSITIVE\"}]", Set.of("005930"))).isEmpty();
+        // 중복 code → 첫 것만
+        var dup = StockCatalystService.parseBatchResponse(
+                "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\"},"
+                + "{\"code\":\"005930\",\"type\":\"EARNINGS\",\"direction\":\"NEGATIVE\"}]", Set.of("005930"));
+        assertThat(dup).hasSize(1);
+        assertThat(dup.get("005930").type()).isEqualTo(CatalystType.ORDER_WIN);
+        // 배열 아님 / null
+        assertThat(StockCatalystService.parseBatchResponse("죄송합니다. JSON 아님.", Set.of("005930"))).isEmpty();
+        assertThat(StockCatalystService.parseBatchResponse(null, Set.of("005930"))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("classifyBatch — 2종목이 Gemini 1콜(RPM 1/N) + 종목별 저장, 뉴스 0건은 개별 NONE")
+    void classifyBatch_oneGeminiCallPerBatch() {
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().title("삼성전자 수주").build()));
+        when(naver.searchStockNews("SK하이닉스")).thenReturn(List.of(NewsItem.builder().title("하이닉스 실적").build()));
+        when(naver.searchStockNews("뉴스없는종목")).thenReturn(List.of());   // 뉴스 0건 → 개별 NONE
+        when(gemini.chat(anyString())).thenReturn(
+                "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"수주\",\"summary\":\"계약\"},"
+                + "{\"code\":\"000660\",\"type\":\"EARNINGS\",\"direction\":\"POSITIVE\",\"headline\":\"실적\",\"summary\":\"호실적\"}]");
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        int saved = service().classifyBatch(List.of(
+                new StockRef("005930", "삼성전자"),
+                new StockRef("000660", "SK하이닉스"),
+                new StockRef("999999", "뉴스없는종목")));
+
+        assertThat(saved).isEqualTo(2);                       // 뉴스 있는 2종목 분류 저장
+        verify(gemini, times(1)).chat(anyString());           // ★ 2종목 = Gemini 1콜 (RPM 1/N)
+        verify(repository, times(3)).save(any(StockCatalyst.class));   // 분류 2 + NONE 1
+    }
+
+    @Test
+    @DisplayName("classifyBatch — 뉴스 소스 미가용(§4c) → 0건 저장·Gemini 미호출")
+    void classifyBatch_sourceUnavailable() {
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(false);
+
+        int saved = service().classifyBatch(List.of(new StockRef("005930", "삼성전자")));
+
+        assertThat(saved).isZero();
+        verify(repository, never()).save(any(StockCatalyst.class));
+        verify(gemini, never()).chat(anyString());
     }
 }
