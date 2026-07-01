@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -140,17 +139,28 @@ public class NaverSearchService {
     /**
      * 네이버 API 호출 (sort=date 고정!)
      */
+    /**
+     * 네이버 뉴스 검색 URL 빌드 — 순수 함수(테스트 대상).
+     *
+     * <p>⚠ UriComponentsBuilder 가 UTF-8 로 <b>1회만</b> 인코딩. 이전엔 {@code URLEncoder.encode()} 로
+     * 수동 인코딩한 값을 다시 {@code build(false)} 로 넘겨 <b>이중 인코딩</b>(% → %25)됐고, 네이버가
+     * 한글을 못 알아들어 종목과 무관한 최근 뉴스를 반환 → 종목명 필터가 전부 탈락 → 재료 100% NONE
+     * 이었다(2026-07-01). 한글 쿼리는 {@code query=%EC…} 형태(%25 없음)여야 정상.
+     */
+    static String buildSearchUrl(String query) {
+        return UriComponentsBuilder.fromUriString(NAVER_SEARCH_URL)
+                .queryParam("query", query)          // 원문 — encode() 가 1회만 인코딩
+                .queryParam("display", DISPLAY_COUNT)
+                .queryParam("start", 1)
+                .queryParam("sort", SORT_DATE)       // ★★★ 절대 date 고정! ★★★
+                .encode(StandardCharsets.UTF_8)
+                .build()
+                .toUriString();
+    }
+
     private List<NewsItem> callNaverApi(String query) {
         try {
-            String encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8);
-
-            String url = UriComponentsBuilder.fromUriString(NAVER_SEARCH_URL)
-                    .queryParam("query", encodedQuery)
-                    .queryParam("display", DISPLAY_COUNT)
-                    .queryParam("start", 1)
-                    .queryParam("sort", SORT_DATE)  // ★★★ 절대 date 고정! ★★★
-                    .build(false)
-                    .toUriString();
+            String url = buildSearchUrl(query);
 
             log.debug("[NaverSearch] API URL: {}", url);
 
