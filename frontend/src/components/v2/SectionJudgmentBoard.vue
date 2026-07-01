@@ -45,17 +45,24 @@
       </template>
     </div>
 
-    <div v-else class="jb-scroll">
+    <div class="jb-delay-note" v-else-if="visibleRows.length">
+      ⏱ 현재가·거래대금은 캐시 스냅샷 — <strong>최대 30분 지연(실시간 아님)</strong>. 매매 전 실시간 시세를 반드시 확인하세요.
+    </div>
+
+    <div v-if="visibleRows.length && !loading && !error" class="jb-scroll">
       <table class="jb-table">
         <thead>
           <tr class="jb-group">
             <th class="th-name"></th>
+            <th colspan="2" class="g-price">시세 · 유동성 <small title="캐시 스냅샷 · 최대 30분 지연 · 실시간 아님">⏱지연</small></th>
             <th colspan="4" class="g-score">① 점수 (검증/게이트)</th>
             <th colspan="2" class="g-ref">② 참고 (미검증·점수 미편입)</th>
             <th colspan="1" class="g-caution">③ 경고</th>
           </tr>
           <tr>
             <th class="th-name">종목</th>
+            <th class="th-price">현재가 <small>/등락</small></th>
+            <th class="th-price">거래대금</th>
             <th @click="setSort('totalScore')" class="th-sort">종합{{ sortMark('totalScore') }}</th>
             <th @click="setSort('technical')" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
             <th @click="setSort('earnings')" class="th-sort">실적{{ sortMark('earnings') }}</th>
@@ -72,8 +79,16 @@
             <td class="td-name">
               <span class="rn">{{ r.stockName }}</span>
               <span class="rc">{{ r.stockCode }}</span>
+              <span v-if="r.catalystLabel" class="cat-badge" :class="catClass(r.catalystDirection)"
+                    :title="'재료: ' + r.catalystLabel + '(' + catDirLabel(r.catalystDirection) + ')'">
+                {{ catIcon(r.catalystDirection) }} {{ r.catalystLabel }}</span>
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
             </td>
+            <td class="td-price">
+              <span class="pp">{{ fmtPrice(r.currentPrice) }}</span>
+              <span v-if="r.changeRate != null" class="pr" :class="changeClass(r.changeRate)">{{ fmtRate(r.changeRate) }}</span>
+            </td>
+            <td class="num td-tv">{{ fmtTradingValue(r.tradingValue) }}</td>
             <td class="num td-total">{{ r.scored ? r.totalScore : '—' }}</td>
             <td class="num" :class="r.scored ? strongClass(r.technical, TECH_STRONG) : ''">{{ r.scored ? r.technical : '—' }}</td>
             <td class="num">{{ r.scored ? r.earnings : '—' }}</td>
@@ -158,6 +173,25 @@ const sourceLabel = (s) => ({
 }[s] || s);
 const signed = (v) => { const n = Number(v); return `${n > 0 ? '+' : ''}${n}`; };
 
+// 시세(캐시 스냅샷, ≤30분 지연) 표시 — 표시 전용, 산식 미편입
+const fmtPrice = (v) => (v == null ? '—' : Number(v).toLocaleString('ko-KR'));
+const fmtRate = (v) => { if (v == null) return ''; const n = Number(v); return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`; };
+const changeClass = (v) => { if (v == null) return ''; const n = Number(v); return n > 0 ? 'positive' : n < 0 ? 'negative' : ''; };
+// 거래대금 축약 — 조/억/만. null=미실측(§4c) '—'.
+const fmtTradingValue = (v) => {
+  if (v == null) return '—';
+  const n = Number(v);
+  if (!isFinite(n) || n <= 0) return '—';
+  if (n >= 1e12) return `${(n / 1e12).toFixed(1)}조`;
+  if (n >= 1e8) return `${Math.round(n / 1e8).toLocaleString('ko-KR')}억`;
+  if (n >= 1e4) return `${Math.round(n / 1e4).toLocaleString('ko-KR')}만`;
+  return n.toLocaleString('ko-KR');
+};
+// 재료 배지(§4b 표시 전용) — 호재/악재만 표시(중립/없음은 백엔드가 생략)
+const catIcon = (dir) => (dir === 'NEGATIVE' ? '⚠️' : '🔥');
+const catClass = (dir) => (dir === 'NEGATIVE' ? 'cat-neg' : 'cat-pos');
+const catDirLabel = (dir) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[dir] || dir);
+
 onMounted(load);
 </script>
 
@@ -201,13 +235,23 @@ onMounted(load);
   border-radius: 8px; padding: 8px 16px;
 }
 .jbe-btn:hover { background: rgba(56, 189, 248, 0.2); }
+.jb-delay-note {
+  font-size: 11px; line-height: 1.5; margin: 2px 0 8px; padding: 5px 10px;
+  border-radius: 6px; color: #fcd34d;
+  background: rgba(245, 158, 11, 0.10); border: 1px solid rgba(245, 158, 11, 0.28);
+}
+.jb-delay-note strong { color: #fbbf24; }
 .jb-scroll { overflow-x: auto; }
 .jb-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .jb-table th, .jb-table td { padding: 7px 9px; text-align: center; white-space: nowrap; }
 .jb-group th { font-size: 11px; font-weight: 700; padding: 4px 9px; }
+.g-price { color: #fcd34d; background: rgba(245, 158, 11, 0.07); }
+.g-price small { font-size: 9px; opacity: 0.8; cursor: help; }
 .g-score { color: #7dd3fc; background: rgba(56, 189, 248, 0.08); }
 .g-ref { color: #cbd5e1; background: rgba(148, 163, 184, 0.08); }
 .g-caution { color: #fca5a5; background: rgba(248, 113, 113, 0.08); }
+.th-price { color: #fcd34d; }
+.th-price small { font-size: 9px; opacity: 0.6; font-weight: 400; }
 .jb-table thead tr:nth-child(2) th { border-bottom: 1px solid rgba(255, 255, 255, 0.12); opacity: 0.85; }
 .th-sort { cursor: pointer; user-select: none; }
 .th-sort:hover { color: #fff; }
@@ -232,6 +276,24 @@ onMounted(load);
   font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px;
   background: rgba(56, 189, 248, 0.14); color: #7dd3fc;
 }
+/* 재료 배지(§4b 표시 전용) — 호재(주황)/악재(적색) */
+.cat-badge {
+  font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; font-weight: 600; cursor: help;
+}
+.cat-badge.cat-pos { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
+.cat-badge.cat-neg { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+/* 시세 셀 — 현재가 + 등락률(캐시 스냅샷) */
+.td-price { text-align: right; line-height: 1.25; }
+.td-price .pp { font-variant-numeric: tabular-nums; }
+.td-price .pr { display: block; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.td-tv { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+/* 종목 컬럼 가로스크롤 중 고정(모바일) */
+.jb-table th.th-name, .jb-table td.td-name {
+  position: sticky; left: 0; z-index: 1;
+  background: #141428; box-shadow: 2px 0 5px rgba(0, 0, 0, 0.35);
+}
+.jb-table thead th.th-name { z-index: 3; }
+.jb-row:hover .td-name { background: #1c1c38; }
 .num { font-variant-numeric: tabular-nums; }
 .td-total { font-weight: 700; }
 .num.strong { color: #4ade80; font-weight: 700; }
