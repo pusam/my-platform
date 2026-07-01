@@ -99,7 +99,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
   - `GET /earnings-top10` 실적(흑자전환·이익급증)
   - `GET /smartmoney-top10` 수급(외국인·기관 순매수)
   - `GET /strong-value-frequency` STRONG_BUY+강가치 빈도(phase35 검증)
-  - `GET /judgment-board` ⭐신규(2026-06-30, B안) 종합 판단 보드(매수후보 3계층 신호 비교, 산식 무변경 조립)
+  - `GET /judgment-board?scope=momentum|union` ⭐신규(2026-06-30 B안, 2026-07-01 union Phase2-A) 종합 판단 보드(매수후보 3계층 신호 비교; union=발굴 5트랙 합집합, 4-cat은 scoreMap lookup·없으면 "—"; 산식 무변경 조립)
 - **`ChartSignalController`** `/api/recommendation` *(신규, 차트기법)*
   - `GET /trend-pullback-top10` 차트 타이밍(정배열+눌림목, **검증 전 베타**)
   - `GET /sector-strength` 섹터 상대강도('덜 빠지는 섹터')
@@ -272,7 +272,9 @@ app/services/
                                ⭐2026-06-30: 데이터 소스 pykrx get_index_ohlcv → **fetch_kospi_daily(Java KIS 일봉)**
                                로 교체(pykrx 지수 깨짐, §20). classify_regime·국면 v1·테스트 불변.
   chart_pattern_service.py     compute_timing(공용): 벌크 OHLCV(500cal일, get_market_ohlcv) → 6지표 결합 → 0~10, 30m 캐시
-  sector_strength_service.py   섹터 동일가중 합성지수 vs KOSPI 상대강도. ⭐2026-06-30: _market_return 도 fetch_kospi_daily 경유
+  sector_strength_service.py   섹터 동일가중 합성지수 vs KOSPI 상대강도. ⭐2026-06-30: _market_return fetch_kospi_daily 경유.
+                               ⭐2026-07-01: 멤버 OHLCV fetch 순차→ThreadPool 8워커 병렬+dedup(_fetch_returns_parallel,
+                               t134 7.8→1.2s, 8s 타임아웃 해소). 산식 불변. Java 워밍=MarketCacheWarmerService.warmSectorStrength.
   cache_service.py             Redis(py: 프리픽스, best-effort)
 app/utils/index_source.py  ⭐신규(2026-06-30)  fetch_kospi_daily(days)=Java GET /api/market/index/kospi-daily
                                → pykrx 동형 DataFrame(오름차순, '종가' 등). to_dataframe 순수(+test_index_source.py). 실패 시 None.
@@ -482,10 +484,18 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
+### 2026-07-01 세션 — 종합판단 Phase 2-A + 발굴 UI 정리 + 섹터강도 perf
+
+- **발굴 UI 정리(진단 기반)**: ① **2단 상단 네비 통합**(목록/심화 두 서브탭 바 상단에, `discoverGroup`로 콘텐츠 단일화, 심화 바 버림 해소, 기본=🧭종합판단 보드). ② **목록 슬림화(A)** — 시간대신호·실시간수급·관심종목을 **오늘 탭으로 이동**(Vue 슬롯 `#phase-signals`/`#watchlist`, hub scope라 데이터·CSS 유지), 관심종목·차트신호 종목 **기본 접힘**. 발굴 목록 적층 1,630→~880px. (2단계 중복 통합=P2-15.)
+- **종합판단 보드 Phase 2-A(P2-14)**: 발굴 5트랙 union — **재점수 없이 momentum `scoreMap` lookup**(`RecommendationService.categoryScoreSnapshot()`). `getBoard(scope=union)` 수집+dedup+출처태그 병합+lookup(없으면 `scored=false`="—"). `GET /judgment-board?scope=union`. 프론트 "발굴 트랙 포함" 토글(lazy)+출처칩+"—" muted+union 통계. **⚠ scoreMap universe=AI/실적/수급 seed**라 순수 저평가/성장주는 "—"(정직). 필터 "기술 강" 임계 **≥13**(실데이터 max 14).
+- **섹터강도 perf(P2-16, at-risk 해소)**: t134≈7.8s(순차 134 fetch, Java 8s 타임아웃 헤드룸~0) → **(2) python `_compute` ThreadPool 8워커 병렬+dedup**(산식 불변, t134→~1.2s) + **(1) Java 워밍**(`MarketCacheWarmerService.warmSectorStrength` 20분, `ChartPatternClient.getSectorStrength(forceRefresh)`). unverified·§4c 무변경.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1 완료)**
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - `docs/STOCK_PLATFORM_GUIDE.md` — 화면→코드→DB 추적
 - `docs/STOCK_AZ_FULL.md` — 2026-06-08판(stale, 본 문서가 대체)

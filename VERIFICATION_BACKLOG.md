@@ -357,7 +357,8 @@
 - **✅ Phase 2-A 완료(2026-07-01)**: 발굴 5트랙 union. **재점수 안 함(핵심 묘수) — momentum `scoreMap` lookup**. `RecommendationService`가 `calculate()` scoreMap 보존(`categoryScoreSnapshot()`), 보드가 union 종목 4-cat을 그 맵에서 lookup. `JudgmentBoardService.getBoard(scope=union)`: 5트랙 수집+dedup+출처태그 병합 + snapshot lookup(없으면 `scored=false`="—"). 정렬=채점 우선→종합점수. `GET /judgment-board?scope=union`. 프론트 "발굴 트랙 포함" 토글(켤 때만 호출, lazy 보존)+출처칩(💎🚀📉💰🏦🎯)+"—" muted+union 통계("—" 비율 가시화).
   - **⚠ scoreMap universe 확인됨(코드)**: seed = AI전략 ∪ 실적서프라이즈 ∪ 수급신호 종목(기술/가치/섹터는 그 seed만 채점). → **순수 저평가/성장주는 "—"가 현실**(momentum 신호 0). 단 핵심 목표("기술/실적/수급 강한데 컷 못 든 종목")는 seed에 있어 발견됨. "—" 비율은 union 통계로 노출 → **배포 후 절반 이상 "—"면 2-B(기술 컬럼만 보강) 우선순위↑**.
   - **2-B(후보, 백로그)**: "—" 너무 많아 불편하면 — 발굴주에도 **기술 점수만** 추가 계산(scoreTechnical universe에 union codes 포함, 가격히스토리 fetch=中비용). 기술이 유일 검증 지표(+13.9%p)라 "저평가+기술강 vs 약" 구분 가치. **단 (a)[현행] 써보고 필요할 때만**(무거운 재점수 회피 원칙).
-  - **2-B'(후보)**: 필터 프리셋 "momentum 밖 강세"(출처∌momentum AND 기술≥15) 원클릭 + 상위N·더보기.
+  - **2-B'(후보)**: 필터 프리셋 "momentum 밖 강세"(출처∌momentum AND 기술강) 원클릭 + 상위N·더보기.
+  - **필터 임계 조정(2026-07-01, `42a809c`)**: "기술 강세(≥15)만"이 실데이터 기술 max 14(효성중공업·삼성전기)라 항상 0종목 → **UI 발견용 임계 `≥13`(TECH_STRONG)**로 실용화(초록강조 공용). 섹터 ≥15 미스칼리브레이션과 동형. **P1-6 측정 임계(≥15, signal_outcome)와 별개** — 필터 임계지 산식 아님.
 - **불변식**: unverified 게이팅(미검증 점수 미편입) · 새 라우트 금지(서브탭 흡수) · 종합점수 산식 무변경(보드는 조립·표시 전용 — 산식 합류는 P1-6 데이터 후 별도 결정).
 - **관련**: `JudgmentBoardService`/`JudgmentBoardDto`/`RecommendationController`(`/judgment-board`), `SectionJudgmentBoard.vue`, `StockTradingDashboardV2.vue`(discoverSubTabs board), [P1-6](카테고리 진단).
 
@@ -374,3 +375,15 @@
 - **과제(2단계)**: ① 차트신호 3→1 정리(발굴목록 '차트 신호 종목' 삭제 or 종합판단 흡수) · ② 🎯종합 은퇴(종합판단 일원화) · ③ composite 5/5 → 종합판단 흡수 검토.
 - **선결**: **P2-14 Phase 2(발굴 union)** 로 종합판단이 비교 대상 충분해진 뒤. 그 전 삭제는 검증된 기능 손실 위험.
 - **관련**: `ChartPatternService`(Java 패턴검출)·`CompositeSignalService`(5/5)·`SectionJudgmentBoard.vue`·`SectionTotalRecommendation.vue`·발굴목록 차트신호 블록(`StockTradingDashboardV2.vue`), [P2-14].
+
+---
+
+## P2-16. 섹터강도 성능 — 콜드 요청 8s 타임아웃 근접 (2026-07-01, ✅ 해소)
+
+> **배경**: python 섹터강도(`sector_strength_service._compute`)가 **~134 종목 OHLCV 순차 pykrx fetch**라 전체 계산 **t134≈7.8s**. Java `ChartPatternClient` 8s 타임아웃 헤드룸~0 → 장중 부하 시 간헐 초과 → "미가용" 배지. 측정: 10종목 0.64s·40종목 2.37s → per-ticker 0.058s → t134≈7.8s(python 직접값, 실제 콜드는 더 근접).
+
+- **✅ (2) 병렬(근본, `fdea17d`)**: `_compute` 순차 134콜 → **`ThreadPoolExecutor(MAX_FETCH_WORKERS=8)` 병렬 + 유니크 dedup**(`_fetch_returns_parallel`). `_ticker_return`/`fetch_ohlcv` 무상태(스레드안전). **산식 불변**(equal_weight_return 순서무관·rank_sectors 동일 → ranked 출력 동일). 검증: pytest 27 green + **t134 40종목 2.37→1.18s**(전체≈1.5~2s, 8s 헤드룸 충분). KRX 레이트리밋 대비 풀 8 상한.
+- **✅ (1) 워밍(보너스, `0dd39b5`)**: `MarketCacheWarmerService.warmSectorStrength`(cacheScheduler, isMarketHours, fixedDelay 20분) + `ChartPatternClient.getSectorStrength(sectors, forceRefresh)`(Java 1h 캐시>python 30m 캐시라 강제 우회로 python 30m 캐시 warm 유지). 롤백 플래그 `chart.sector-strength.warm.enabled`.
+- **⚠ 잔여(급하지 않음)**: 배포 후 python-health `chart-sector` 미변동 관측 → 워머 빈 조건은 `@ConditionalOnProperty(cache.redis.enabled=true)` 하나뿐(redis=true 확인됨)이라 **스테일 backend 이미지(0dd39b5 미포함) 의심** → CI 완료 후 `docker compose pull backend` 재확인. **단 (2) 병렬로 콜드 ~1.2s라 워밍 없어도 8s 안전** — 워밍은 즉시응답 최적화.
+- **불변식**: 섹터강도 산식·§4c(결측 None)·unverified 무변경. 시세 단일경로 무관.
+- **관련**: `sector_strength_service._compute`/`_fetch_returns_parallel`, `MarketCacheWarmerService.warmSectorStrength`, `ChartPatternClient.getSectorStrength`(forceRefresh), `PythonBackendHealthTracker`(SOURCE_SECTOR).
