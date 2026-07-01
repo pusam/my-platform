@@ -21,13 +21,13 @@
         {{ scope === 'union' ? '✓ 발굴 트랙 포함' : '+ 발굴 트랙 포함' }}
       </button>
       <label><input type="checkbox" v-model="hideSuspect"> 수급 역상관 의심 숨기기</label>
-      <label><input type="checkbox" v-model="techStrongOnly"> 기술 강세(≥15)만</label>
+      <label><input type="checkbox" v-model="techStrongOnly"> 기술 강(≥13)만</label>
       <span class="jb-count">{{ visibleRows.length }}종목</span>
     </div>
     <div class="jb-union-note" v-if="board && board.scope === 'union' && board.unionStats">
       발굴 union {{ board.unionStats.totalRows }}종목 중
       <strong>{{ board.unionStats.unscoredRows }}개 "—"</strong> = 순수 발굴주(momentum 신호 없어 4-cat 미계산 — 출처 태그로 구분).
-      "기술 강세(≥15)만" 필터로 momentum 밖 강종목만 좁힐 수 있음.
+      "기술 강(≥13)만" 필터로 momentum 밖 강종목만 좁힐 수 있음.
     </div>
 
     <div v-if="loading" class="jb-state">불러오는 중...</div>
@@ -74,7 +74,7 @@
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
             </td>
             <td class="num td-total">{{ r.scored ? r.totalScore : '—' }}</td>
-            <td class="num" :class="r.scored ? strongClass(r.technical) : ''">{{ r.scored ? r.technical : '—' }}</td>
+            <td class="num" :class="r.scored ? strongClass(r.technical, TECH_STRONG) : ''">{{ r.scored ? r.technical : '—' }}</td>
             <td class="num">{{ r.scored ? r.earnings : '—' }}</td>
             <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? r.sectorMomentum : '—' }}</td>
             <td class="num td-unv">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
@@ -127,7 +127,7 @@ const toggleScope = () => {
 const visibleRows = computed(() => {
   let rows = board.value?.rows ? [...board.value.rows] : [];
   if (hideSuspect.value) rows = rows.filter(r => !r.supplyInverseSuspect);
-  if (techStrongOnly.value) rows = rows.filter(r => Number(r.technical) >= 15);
+  if (techStrongOnly.value) rows = rows.filter(r => r.scored && Number(r.technical) >= TECH_STRONG);
   const k = sortKey.value;
   rows.sort((a, b) => {
     if (a.scored !== b.scored) return a.scored ? -1 : 1;   // 채점 종목 우선, "—"(순수 발굴주)는 하단
@@ -143,6 +143,9 @@ const setSort = (k) => {
   else { sortKey.value = k; sortDir.value = 'desc'; }
 };
 const sortMark = (k) => (sortKey.value === k ? (sortDir.value === 'desc' ? ' ▼' : ' ▲') : '');
+// 기술 '강' 실용 임계 — 실데이터 max 14(효성중공업·삼성전기)라 ≥15 필터는 항상 0. UI 발견용 임계이며
+// P1-6 측정 임계(≥15, signal_outcome 기준)와 별개. 필터·초록강조 공용.
+const TECH_STRONG = 13;
 const strongClass = (v, min = 15) => (Number(v) >= min ? 'strong' : '');
 const regimeLabel = (r) => ({ BULL: '상승장', BEAR: '하락장', SIDEWAYS: '횡보장' }[r] || '미수집');
 const regimeClass = (r) => (r === 'BULL' ? 'positive' : r === 'BEAR' ? 'negative' : '');
