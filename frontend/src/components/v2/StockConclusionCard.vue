@@ -53,7 +53,7 @@
       <span class="acc-label">📊 {{ accuracyStat.signalType }} 시그널 지난 30일 적중률</span>
       <span class="acc-rate" :class="accuracyClass">{{ accuracyStat.hitRate }}%</span>
       <span class="acc-detail">({{ accuracyStat.hitCount }}/{{ accuracyStat.totalSignals }}건, 평균 {{ accuracyStat.avgPctChange }}%)</span>
-      <span v-if="bandStat" class="acc-detail band">· 이 점수대({{ bandStat.band }}) {{ bandStat.hitRate }}% ({{ bandStat.totalSignals }}건/90일)</span>
+      <span v-if="bandStat" class="acc-detail band">· 이 점수대({{ bandStat.band }}) {{ bandStat.hitRate }}% ({{ bandStat.totalSignals }}건, 보드{{ bandSinceSuffix }})</span>
     </div>
     <div v-else-if="accuracyEmpty" class="accuracy-line empty">
       <span class="acc-label">📊 적중률 데이터 누적 중 — 3일 후 첫 평가 결과 확보</span>
@@ -86,7 +86,8 @@ const error = ref(false);
 const showChecklist = ref(false);
 const accuracyStats = ref([]);   // 전체 시그널 타입별 통계 (배열)
 const accuracyEmpty = ref(false); // 데이터 누적 중 표시 플래그
-const bandStats = ref([]);        // 점수 구간별 적중률 (V30, 90일 윈도우)
+const bandStats = ref([]);        // 점수 구간별 적중률 (V30) — 보드 종합점수(STRONG_BUY/BUY) 격리, phase-38 컷오프 이후
+const bandSince = ref(null);      // 실제 집계 시작일 (phase-38 컷오프 2026-06-25 or 요청창 중 늦은 쪽)
 const catalyst = ref(null);       // 재료 태그 (V31) — NONE/실패 시 null (배지 생략)
 
 const fetchConclusion = async (code) => {
@@ -133,7 +134,7 @@ const fetchAccuracy = async () => {
   }
   try {
     const { data } = await apiClient.get('/signal-outcomes/accuracy-by-band', { params: { days: 90 } });
-    if (data?.success) bandStats.value = data.data?.bands || [];
+    if (data?.success) { bandStats.value = data.data?.bands || []; bandSince.value = data.data?.since || null; }
   } catch (e) {
     // V30 집계 미가용 시 조용히 무시 (기존 적중률 라인은 그대로 표시)
   }
@@ -158,6 +159,12 @@ const bandStat = computed(() => {
   if (total == null) return null;
   const band = bandStats.value.find(b => total >= b.scoreFrom && total <= b.scoreTo);
   return band && band.totalSignals > 0 ? band : null;
+});
+
+// 적중률 집계 창 라벨 — "6/25~"(phase-38 컷오프 이후, 보드 종합점수 기준) 표기용.
+const bandSinceSuffix = computed(() => {
+  const m = String(bandSince.value || '').match(/^\d{4}-(\d{2})-(\d{2})/);
+  return m ? ` · ${Number(m[1])}/${Number(m[2])}~` : '';
 });
 
 // 타이트 계획 여부 — 백엔드가 -2%/+3% 로 내려준 경우 (단기 강 + 밸류 매우 약 충돌).
