@@ -95,6 +95,16 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(rows[3].find('.cat-badge').exists()).toBe(false)
   })
 
+  it('재료 경과 표기 — 어제 재료면 "어제" 표시, 오늘이면 표기 없음(§4c 낡음 방지)', async () => {
+    const w = await mountBoard([
+      row({ stockCode: 'A', catalystType: 'ORDER_WIN', catalystLabel: '수주', catalystDirection: 'POSITIVE', catalystAgeDays: 1 }),
+      row({ stockCode: 'B', catalystType: 'EARNINGS', catalystLabel: '실적', catalystDirection: 'POSITIVE', catalystAgeDays: 0 })
+    ])
+    const rows = w.findAll('.jb-row')
+    expect(rows[0].find('.cat-badge').text()).toContain('어제')       // 어제 재료 명시
+    expect(rows[1].find('.cat-badge').text()).not.toContain('어제')   // 오늘은 표기 없음
+  })
+
   it('지연 경고 — 현재가/거래대금이 캐시 스냅샷(최대 30분·실시간 아님)임을 명시', async () => {
     const w = await mountBoard([row()])
     const note = w.find('.jb-delay-note')

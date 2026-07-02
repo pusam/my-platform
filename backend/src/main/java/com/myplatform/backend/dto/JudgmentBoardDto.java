@@ -82,10 +82,11 @@ public class JudgmentBoardDto {
         private BigDecimal sectorStrengthRel;  // 섹터 상대강도(null=미가용)
 
         // 매매 맥락(표시 전용 — 산식 미편입)
-        // 재료(§4b): 일캐시 read 만(신규 분류 안 함). null/NONE=생략.
+        // 재료(§4b): 최근 N일 중 최신 read(신규 분류 안 함). null/NONE=생략.
         private String catalystType;           // ORDER_WIN/EARNINGS/... 또는 null
         private String catalystLabel;          // 수주/실적/M&A/... 또는 null
         private String catalystDirection;      // POSITIVE/NEGATIVE/NEUTRAL 또는 null
+        private Integer catalystAgeDays;       // 0=오늘 / 1=어제 (§4c: 낡음 위장 방지 — 프론트가 경과 표기)
         // 거래대금(§4c): 실측 누적 or 현재가×거래량 폴백, 둘 다 없으면 null(임시값 생성 금지).
         private BigDecimal tradingValue;
 

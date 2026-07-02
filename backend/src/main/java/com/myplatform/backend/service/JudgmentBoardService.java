@@ -40,6 +40,8 @@ public class JudgmentBoardService {
 
     /** 수급 역상관 '의심' 하한 — P1-6 gradient(10-14=41%/15+=35% < 약세 47%). 표본 작음(n=88), 확정 아님. */
     static final int SUPPLY_INVERSE_SUSPECT_MIN = 10;
+    /** 보드 재료 표시 날짜창(일) — 오늘 없으면 어제까지 최신 노출(2일↑은 제외, §4c 낡음 방지). §4b 분류 일캐시 불변. */
+    static final int CATALYST_DISPLAY_DAYS = 2;
     private static final String SOURCE_MOMENTUM = "momentum";
     private static final String NOTE_BASE =
             "② 차트타이밍·섹터강도·간밤 미국장 = 미검증 참고(점수 미편입). "
@@ -228,12 +230,16 @@ public class JudgmentBoardService {
         List<String> codes = rows.stream().map(Row::getStockCode).filter(Objects::nonNull).toList();
         if (codes.isEmpty()) return;
 
-        try {   // 재료: 일캐시 read(신규 분류 안 함)
-            Map<String, StockCatalyst> catByCode = new HashMap<>();
-            for (StockCatalyst c : catalystRepository.findByCatalystDateAndStockCodeIn(LocalDate.now(), codes)) {
-                if (c.getStockCode() != null) catByCode.putIfAbsent(c.getStockCode(), c);
+        try {   // 재료: 최근 N일 중 코드별 '최신' read(신규 분류 안 함). 오늘 없으면 어제까지, 2일↑ 제외(§4c).
+            LocalDate today = LocalDate.now();
+            LocalDate minDate = today.minusDays(CATALYST_DISPLAY_DAYS - 1);
+            Map<String, StockCatalyst> latest = new HashMap<>();
+            for (StockCatalyst c : catalystRepository.findByCatalystDateGreaterThanEqualAndStockCodeIn(minDate, codes)) {
+                if (c.getStockCode() == null || c.getCatalystDate() == null) continue;
+                StockCatalyst prev = latest.get(c.getStockCode());
+                if (prev == null || c.getCatalystDate().isAfter(prev.getCatalystDate())) latest.put(c.getStockCode(), c);
             }
-            applyCatalyst(rows, catByCode);
+            applyCatalyst(rows, latest, today);
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 재료 배지 조회 실패(생략): {}", e.getMessage());
         }
@@ -246,8 +252,11 @@ public class JudgmentBoardService {
         }
     }
 
-    /** 재료 태그 매핑(순수) — NONE/방향NONE 은 생략(배지 안 뜸). §4b 표시 전용. */
-    static void applyCatalyst(List<Row> rows, Map<String, StockCatalyst> catByCode) {
+    /**
+     * 재료 태그 매핑(순수) — NONE/방향NONE 은 생략(배지 안 뜸). §4b 표시 전용.
+     * catalystAgeDays(오늘=0/어제=1) 세팅 — §4c 낡음 위장 방지(프론트가 "어제" 표기). today=null 이면 age 미설정.
+     */
+    static void applyCatalyst(List<Row> rows, Map<String, StockCatalyst> catByCode, LocalDate today) {
         if (catByCode == null || catByCode.isEmpty()) return;
         for (Row r : rows) {
             StockCatalyst c = catByCode.get(r.getStockCode());
@@ -257,6 +266,9 @@ public class JudgmentBoardService {
             r.setCatalystType(c.getCatalystType().name());
             r.setCatalystLabel(StockCatalystDto.labelOf(c.getCatalystType()));
             r.setCatalystDirection(c.getDirection().name());
+            if (today != null && c.getCatalystDate() != null) {
+                r.setCatalystAgeDays((int) java.time.temporal.ChronoUnit.DAYS.between(c.getCatalystDate(), today));
+            }
         }
     }
 

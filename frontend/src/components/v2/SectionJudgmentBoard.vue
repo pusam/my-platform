@@ -80,8 +80,9 @@
               <span class="rn">{{ r.stockName }}</span>
               <span class="rc">{{ r.stockCode }}</span>
               <span v-if="r.catalystLabel" class="cat-badge" :class="catClass(r.catalystDirection)"
-                    :title="'재료: ' + r.catalystLabel + '(' + catDirLabel(r.catalystDirection) + ')'">
-                {{ catBadge(r.catalystDirection, r.catalystLabel) }}</span>
+                    :title="catTitle(r)">
+                {{ catBadge(r.catalystDirection, r.catalystLabel)
+                }}<small v-if="catAgeLabel(r.catalystAgeDays)" class="cat-age">{{ catAgeLabel(r.catalystAgeDays) }}</small></span>
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
             </td>
             <td class="td-price">
@@ -207,6 +208,12 @@ const catIcon = (dir) => (dir === 'POSITIVE' ? '🔥' : dir === 'NEGATIVE' ? '�
 const catClass = (dir) => (dir === 'POSITIVE' ? 'cat-pos' : dir === 'NEGATIVE' ? 'cat-neg' : 'cat-neu');
 const catBadge = (dir, label) => { const i = catIcon(dir); return i ? `${i} ${label}` : label; };
 const catDirLabel = (dir) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[dir] || dir);
+// 경과 표기(§4c 낡음 위장 방지) — 0=오늘(표기 없음) / 1=어제 / 그외 N일 전. 백엔드는 최근 2일만 보냄.
+const catAgeLabel = (days) => (days == null || days <= 0 ? '' : days === 1 ? '어제' : `${days}일 전`);
+const catTitle = (r) => {
+  const age = catAgeLabel(r.catalystAgeDays);
+  return `재료: ${r.catalystLabel}(${catDirLabel(r.catalystDirection)})${age ? ' · ' + age : ' · 오늘'}`;
+};
 
 onMounted(load);
 </script>
@@ -302,6 +309,8 @@ onMounted(load);
 .cat-badge.cat-neg { background: rgba(248, 113, 113, 0.22); color: #fca5a5; font-weight: 700; }
 /* 중립 = 회색(아이콘無) — 방향 없음을 명확히(이전엔 🔥로 오인 표시). */
 .cat-badge.cat-neu { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
+/* 경과 표기 — "어제" 등, 오늘 재료가 아님을 명확히(§4c). 배지 색보다 흐리게. */
+.cat-badge .cat-age { margin-left: 3px; font-size: 8.5px; font-weight: 400; opacity: 0.75; }
 /* 시세 셀 — 현재가 + 등락률(캐시 스냅샷) */
 .td-price { text-align: right; line-height: 1.25; }
 .td-price .pp { font-variant-numeric: tabular-nums; }

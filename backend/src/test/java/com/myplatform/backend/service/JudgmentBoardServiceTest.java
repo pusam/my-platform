@@ -89,27 +89,33 @@ class JudgmentBoardServiceTest {
         return Row.builder().stockCode(code).stockName(code + "명").build();
     }
 
-    private StockCatalyst cat(String code, CatalystType type, Direction dir) {
-        return StockCatalyst.builder().stockCode(code).catalystType(type).direction(dir).build();
+    private StockCatalyst cat(String code, CatalystType type, Direction dir, java.time.LocalDate date) {
+        return StockCatalyst.builder().stockCode(code).catalystType(type).direction(dir).catalystDate(date).build();
     }
 
     @Test
-    @DisplayName("재료 배지 매핑 — 호재/악재는 라벨+방향, NONE/방향NONE/미캐시는 생략(§4b 표시 전용)")
-    void applyCatalyst_mapsAndSkips() {
-        Row a = rowOf("005930");   // 호재
+    @DisplayName("재료 배지 매핑 — 호재/악재 라벨+방향+경과일(오늘=0/어제=1), NONE/미캐시 생략(§4b/§4c)")
+    void applyCatalyst_mapsAgeAndSkips() {
+        java.time.LocalDate today = java.time.LocalDate.of(2026, 7, 2);
+        Row a = rowOf("005930");   // 오늘 호재
         Row b = rowOf("000660");   // NONE → 생략
         Row c = rowOf("035420");   // 캐시 없음 → 생략
+        Row d = rowOf("298040");   // 어제 재료(경과 1)
         Map<String, StockCatalyst> catMap = Map.of(
-                "005930", cat("005930", CatalystType.ORDER_WIN, Direction.POSITIVE),
-                "000660", cat("000660", CatalystType.NONE, Direction.NONE));
+                "005930", cat("005930", CatalystType.ORDER_WIN, Direction.POSITIVE, today),
+                "000660", cat("000660", CatalystType.NONE, Direction.NONE, today),
+                "298040", cat("298040", CatalystType.OTHER, Direction.POSITIVE, today.minusDays(1)));
 
-        JudgmentBoardService.applyCatalyst(List.of(a, b, c), catMap);
+        JudgmentBoardService.applyCatalyst(List.of(a, b, c, d), catMap, today);
 
         assertThat(a.getCatalystLabel()).isEqualTo("수주");
         assertThat(a.getCatalystType()).isEqualTo("ORDER_WIN");
         assertThat(a.getCatalystDirection()).isEqualTo("POSITIVE");
+        assertThat(a.getCatalystAgeDays()).isEqualTo(0);    // 오늘
         assertThat(b.getCatalystLabel()).isNull();          // NONE 생략
         assertThat(c.getCatalystLabel()).isNull();          // 미캐시 생략
+        assertThat(d.getCatalystLabel()).isEqualTo("기타");
+        assertThat(d.getCatalystAgeDays()).isEqualTo(1);    // 어제
     }
 
     @Test
