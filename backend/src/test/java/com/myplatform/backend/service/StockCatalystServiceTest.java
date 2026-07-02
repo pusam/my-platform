@@ -316,6 +316,25 @@ class StockCatalystServiceTest {
     }
 
     @Test
+    @DisplayName("classifyBatch(워밍) — 유의미 재료여도 텔레그램 알림 억제 (온디맨드 단건만 알림)")
+    void classifyBatch_warmingSuppressesAlerts() {
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().title("삼성전자 수주").build()));
+        when(gemini.chat(anyString())).thenReturn(
+                "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"수주\",\"summary\":\"계약\"}]");
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        int saved = service().classifyBatch(List.of(new StockRef("005930", "삼성전자")));   // notify 기본 false(워밍)
+
+        assertThat(saved).isEqualTo(1);
+        verifyNoInteractions(telegram);              // 워밍은 알림 안 함
+        verify(telegramProvider, never()).getIfAvailable();
+    }
+
+    @Test
     @DisplayName("classifyBatch — 뉴스 소스 미가용(§4c) → 0건 저장·Gemini 미호출")
     void classifyBatch_sourceUnavailable() {
         when(naverProvider.getIfAvailable()).thenReturn(naver);

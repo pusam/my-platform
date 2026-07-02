@@ -110,11 +110,17 @@ public class StockCatalystService {
      * on-demand 그대로. RPM 실질 1/N(무료 티어 병목 완화). 5종목 초과는 {@value #BATCH_SIZE}씩 청킹(각 1콜).
      * @return 신규 저장(분류)된 종목 수.
      */
+    /** 배치 분류(워밍용) — <b>알림 억제</b>. 워밍은 선제 캐시 채움이라 일괄 알림(최대 25건)은 스팸 → 온디맨드 단건({@link #getCatalyst})만 알림. */
     public int classifyBatch(List<StockRef> refs) {
+        return classifyBatch(refs, false);
+    }
+
+    /** @param notify 신규 유의미 재료 텔레그램 알림 여부(워밍=false / 사용자 발견=true). */
+    public int classifyBatch(List<StockRef> refs, boolean notify) {
         if (refs == null || refs.isEmpty()) return 0;
         int classified = 0, geminiCalls = 0;
         for (int i = 0; i < refs.size(); i += BATCH_SIZE) {
-            Counts c = classifyOneBatch(refs.subList(i, Math.min(i + BATCH_SIZE, refs.size())));
+            Counts c = classifyOneBatch(refs.subList(i, Math.min(i + BATCH_SIZE, refs.size())), notify);
             classified += c.classified();
             geminiCalls += c.geminiCalls();
         }
@@ -127,7 +133,7 @@ public class StockCatalystService {
     private record Counts(int classified, int geminiCalls) {}
 
     /** 한 배치(≤{@value #BATCH_SIZE}종목) 처리 — 캐시미스+뉴스수집 → 1 Gemini 콜 → 배열 파싱 → 개별 저장. */
-    private Counts classifyOneBatch(List<StockRef> refs) {
+    private Counts classifyOneBatch(List<StockRef> refs, boolean notify) {
         LocalDate today = LocalDate.now();
         NaverSearchService naver = naverProvider.getIfAvailable();
         GeminiService gemini = geminiProvider.getIfAvailable();
@@ -166,7 +172,7 @@ public class StockCatalystService {
             ParsedCatalyst p = e.getValue();
             StockCatalyst rec = save(e.getKey(), sn.name(), today, p.type(), p.direction(),
                     truncate(p.headline(), 300), truncate(p.summary(), 500));
-            notifyIfMeaningful(rec);
+            if (notify) notifyIfMeaningful(rec);   // 워밍(false)은 알림 억제 — 온디맨드만 알림
             saved++;
         }
         log.info("[Catalyst] 배치 분류 — 요청 {}건, 뉴스有 {}건, 저장 {}건 (Gemini 1콜)",
