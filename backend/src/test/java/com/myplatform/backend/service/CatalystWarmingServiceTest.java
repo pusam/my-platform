@@ -90,6 +90,38 @@ class CatalystWarmingServiceTest {
     }
 
     @Test
+    @DisplayName("collectUnionRefs — 라운드로빈 균등: 뒤 트랙(수급) top이 앞 트랙(저평가) 2번째보다 앞 (급등주 포함)")
+    void collectUnionRefs_roundRobinInterleave() {
+        // 저평가 6종목 + 낙폭(급등) 2종목. 순차면 낙폭은 저평가 6개 뒤로 밀림 → 라운드로빈은 앞으로.
+        when(recommendationService.getValueTop10()).thenReturn(top5(
+                dto("V00001", "저평가1"), dto("V00002", "저평가2"), dto("V00003", "저평가3"),
+                dto("V00004", "저평가4"), dto("V00005", "저평가5"), dto("V00006", "저평가6")));
+        when(recommendationService.getOversoldTop10()).thenReturn(top5(dto("O00001", "낙폭1"), dto("O00002", "낙폭2")));
+
+        List<String> codes = codesOf(service.collectUnionRefs());
+
+        assertThat(codes).contains("O00001", "O00002");                 // 급등주 포함
+        assertThat(codes.indexOf("O00001")).isLessThan(codes.indexOf("V00002"));   // 낙폭#1 이 저평가#2 보다 앞
+        assertThat(codes.indexOf("O00002")).isLessThan(codes.indexOf("V00003"));   // 낙폭#2 이 저평가#3 보다 앞
+    }
+
+    @Test
+    @DisplayName("collectUnionRefs — 소진 트랙 롤오버: 짧은 트랙 소진 후 남은 칸은 긴 트랙이 채움")
+    void collectUnionRefs_rolloverWhenTrackExhausted() {
+        RecommendationDto[] ten = IntStream.rangeClosed(1, 10)
+                .mapToObj(i -> dto(String.format("V%05d", i), "저평가" + i))
+                .toArray(RecommendationDto[]::new);
+        when(recommendationService.getValueTop10()).thenReturn(top5(ten));
+        when(recommendationService.getSmartMoneyTop10()).thenReturn(top5(dto("S00001", "수급1"), dto("S00002", "수급2")));
+
+        List<String> codes = codesOf(service.collectUnionRefs());
+
+        assertThat(codes).hasSize(12);                          // 10 + 2, 상한 25 미만이라 전부
+        assertThat(codes).contains("S00001", "S00002");         // 짧은 트랙 top 포함
+        assertThat(codes).contains("V00001", "V00010");         // 소진 후 긴 트랙이 나머지 채움(롤오버)
+    }
+
+    @Test
     @DisplayName("warmUnionCatalysts — 수집한 union refs 로 classifyBatch 위임 + 저장수 반환")
     void warmUnionCatalysts_delegatesToClassifyBatch() {
         when(recommendationService.getValueTop10()).thenReturn(top5(dto("005930", "삼성전자"), dto("000660", "SK하이닉스")));

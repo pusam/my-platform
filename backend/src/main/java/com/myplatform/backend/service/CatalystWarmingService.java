@@ -70,18 +70,26 @@ public class CatalystWarmingService {
      * 순수 조립(테스트 대상). 트랙 조회 실패는 best-effort 무시(빈 리스트). null/blank 종목 스킵.
      */
     List<StockRef> collectUnionRefs() {
+        // ⚠ 라운드로빈 인터리브(round r = 각 트랙 r번째) — value-first 순차면 앞 트랙이 25칸 독식해
+        // 급등주(낙폭·수급 트랙)가 잘림. 트랙별 스코어 척도가 달라(PBR vs RSI vs 순매수액) 통합 정렬은
+        // 사과-오렌지라 안 함. 인터리브로 각 트랙 top5 균등 + 소진 트랙 롤오버.
         List<Supplier<Top5Response>> tracks = List.of(
                 recommendationService::getValueTop10,
                 recommendationService::getGrowthTop10,
                 recommendationService::getOversoldTop10,
                 recommendationService::getEarningsTop10,
                 recommendationService::getSmartMoneyTop10);
+        List<List<RecommendationDto>> trackItems = new ArrayList<>();
+        for (Supplier<Top5Response> track : tracks) trackItems.add(safeItems(track));
+        int maxLen = trackItems.stream().mapToInt(List::size).max().orElse(0);
 
         LinkedHashSet<String> seen = new LinkedHashSet<>();
         List<StockRef> refs = new ArrayList<>();
-        for (Supplier<Top5Response> track : tracks) {
-            for (RecommendationDto d : safeItems(track)) {
-                if (refs.size() >= UNION_WARM_MAX) return refs;
+        for (int round = 0; round < maxLen && refs.size() < UNION_WARM_MAX; round++) {
+            for (List<RecommendationDto> items : trackItems) {
+                if (refs.size() >= UNION_WARM_MAX) break;
+                if (round >= items.size()) continue;   // 이 트랙은 이번 라운드에 소진 → skip(롤오버)
+                RecommendationDto d = items.get(round);
                 if (d == null || d.getStockCode() == null || d.getStockCode().isBlank()
                         || d.getStockName() == null || d.getStockName().isBlank()) continue;
                 if (!seen.add(d.getStockCode())) continue;   // 트랙 간 중복 dedup
