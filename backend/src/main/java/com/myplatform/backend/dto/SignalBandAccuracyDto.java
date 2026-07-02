@@ -24,6 +24,11 @@ import java.util.List;
 public class SignalBandAccuracyDto {
 
     private int daysWindow;
+    /**
+     * 실제 집계 시작일 — 요청 창과 phase-38 컷오프(2026-06-25, anti-추격 튜닝 완료) 중 늦은 쪽.
+     * 보드 종합점수(STRONG_BUY/BUY)만 격리해 "현재 산식 점수" 예측력만 측정. UI 라벨용("6/25부터, 보드 기준").
+     */
+    private java.time.LocalDate since;
     private List<BandStat> bands;
     private List<CategoryStat> categories;
     /**

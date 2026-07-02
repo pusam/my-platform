@@ -26,6 +26,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 시그널 적중률 추적.
@@ -508,13 +509,42 @@ public class SignalOutcomeService {
     static final int TECHNICAL_STRONG_THRESHOLD = 13;    // 11~13 표본·변별 집중(13=+7.20 최고), board TECH_STRONG=13 정합
     static final int SECTOR_STRONG_THRESHOLD = 14;       // AI테마 sweet spot(14=65%·+6.86%, ≥15 표본 없음)
 
-    /** 조건부 적중률 — 최근 days 일 평가 완료분 기준. */
+    /**
+     * phase-38 anti-추격 튜닝(과열 페널티 단계화·tie-break changeRate asc·BULL 섹터 승수 1.0·신규진입 감점 복원)
+     * 완료일(25d4247, 2026-06-25). 이전 signalDate 는 "추격 점수"라 <b>현재 점수 예측력 측정에서 제외</b>
+     * — forward 측정 창의 시작. 이전 표본은 phase 36~38 혼재라 지금 산식 성적이 아님.
+     */
+    static final LocalDate PHASE38_CUTOFF = LocalDate.of(2026, 6, 25);
+
+    /** 보드 종합점수 시그널 타입 — 다른 소스(AI/Composite/Surge)와 점수 스케일이 달라 격리(혼합 집계 방지). */
+    static final Set<String> BOARD_SIGNAL_TYPES = Set.of("STRONG_BUY", "BUY");
+
+    /** 집계 시작일 — 요청 창(now-days)과 phase-38 컷오프 중 늦은 쪽(현재 점수만). 순수 함수(테스트 대상). */
+    static LocalDate resolveAccuracyFrom(int days, LocalDate now) {
+        int d = days < 1 ? 90 : days;
+        LocalDate from = now.minusDays(d);
+        return from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from;
+    }
+
+    /** 보드 종합점수 시그널만(STRONG_BUY/BUY) 격리 — 순수 함수(테스트 대상). 다른 소스는 점수 스케일이 달라 제외. */
+    static List<SignalOutcome> filterBoardSignals(List<SignalOutcome> rows) {
+        return rows.stream()
+                .filter(s -> BOARD_SIGNAL_TYPES.contains(s.getSignalType()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 조건부 적중률 — <b>보드 종합점수(STRONG_BUY/BUY) 격리 + phase-38 컷오프</b> 이후 평가 완료분 기준.
+     * 다른 시그널 소스(AI/Composite/수급급등)는 점수 스케일이 달라 제외하고, phase-38 이전 "추격 점수" 표본도 제외해
+     * "현재 산식의 종합점수가 실제 수익과 상관있나"만 측정한다.
+     */
     public com.myplatform.backend.dto.SignalBandAccuracyDto getAccuracyByBand(int days) {
         int d = days < 1 ? 90 : days;
-        LocalDate from = LocalDate.now().minusDays(d);
-        List<SignalOutcome> rows = repository.findEvaluatedSince(from);
+        LocalDate from = resolveAccuracyFrom(days, LocalDate.now());
+        List<SignalOutcome> rows = filterBoardSignals(repository.findEvaluatedSince(from));
         return com.myplatform.backend.dto.SignalBandAccuracyDto.builder()
                 .daysWindow(d)
+                .since(from)
                 .bands(aggregateBands(rows))
                 .categories(aggregateCategories(rows))
                 .catalysts(aggregateCatalysts(rows))

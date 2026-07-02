@@ -34,6 +34,33 @@ class SignalOutcomeBandAccuracyTest {
                 .build();
     }
 
+    private SignalOutcome typed(String signalType) {
+        return SignalOutcome.builder()
+                .signalType(signalType).stockCode("005930")
+                .signalDate(LocalDate.of(2026, 6, 26)).signalScore(60)
+                .priceAtSignal(new BigDecimal("10000")).hit(true).build();
+    }
+
+    @Test
+    @DisplayName("filterBoardSignals — 보드(STRONG_BUY/BUY)만, 다른 소스(AI_*/COMPOSITE/SURGE) 제외")
+    void filterBoardSignals_isolatesBoard() {
+        List<SignalOutcome> kept = SignalOutcomeService.filterBoardSignals(List.of(
+                typed("BUY"), typed("STRONG_BUY"),
+                typed("AI_BUY"), typed("COMPOSITE_5OF5"), typed("SURGE_HOT")));
+
+        assertThat(kept).hasSize(2);
+        assertThat(kept).allMatch(s -> s.getSignalType().equals("BUY") || s.getSignalType().equals("STRONG_BUY"));
+    }
+
+    @Test
+    @DisplayName("resolveAccuracyFrom — phase-38 컷오프(6/25) 이전이면 컷오프로 클램프, 이후면 그대로")
+    void resolveAccuracyFrom_clampsToPhase38() {
+        LocalDate now = LocalDate.of(2026, 7, 10);
+        assertThat(SignalOutcomeService.resolveAccuracyFrom(90, now)).isEqualTo(LocalDate.of(2026, 6, 25)); // 4/11 → 클램프
+        assertThat(SignalOutcomeService.resolveAccuracyFrom(5, now)).isEqualTo(LocalDate.of(2026, 7, 5));   // 컷오프 이후 그대로
+        assertThat(SignalOutcomeService.resolveAccuracyFrom(0, now)).isEqualTo(LocalDate.of(2026, 6, 25));  // days<1→90→클램프
+    }
+
     @Test
     @DisplayName("bands: 점수 78 hit / 점수 90 miss → 75~84 구간 100%, 85~100 구간 0%")
     void bands_separateByScore() {
