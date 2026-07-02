@@ -501,8 +501,12 @@ public class SignalOutcomeService {
 
     /** 점수 구간 정의 — BUY 컷(55)부터. [from, to] 닫힌 구간. */
     private static final int[][] SCORE_BANDS = {{55, 64}, {65, 74}, {75, 84}, {85, 100}};
-    /** 카테고리 "강세" 판정 임계 — 결론 카드 POSITIVE 기준(15)과 동일. */
-    static final int CATEGORY_STRONG_THRESHOLD = 15;
+    // 카테고리 "강세" 판정 임계 — 카테고리별(척도·분포 상이). 단일 15는 섹터(실측 max14→강세 0건)·실적
+    // (19/20만 존재해 뭉침) 오측정이라 분리. P1-6 n=88 실측 근거(측정 전용 — getAccuracyByBand, 라이브 산식 무관).
+    static final int EARNINGS_STRONG_THRESHOLD = 20;     // 20=53.8% > 19=42.7% (19/20 중 상위 격리)
+    static final int SUPPLY_STRONG_THRESHOLD = 15;       // 과다매수=혼잡 tier(역상관, 20=21.4%) — 강세 bucket이 낮은 hitRate=정상
+    static final int TECHNICAL_STRONG_THRESHOLD = 13;    // 11~13 표본·변별 집중(13=+7.20 최고), board TECH_STRONG=13 정합
+    static final int SECTOR_STRONG_THRESHOLD = 14;       // AI테마 sweet spot(14=65%·+6.86%, ≥15 표본 없음)
 
     /** 조건부 적중률 — 최근 days 일 평가 완료분 기준. */
     public com.myplatform.backend.dto.SignalBandAccuracyDto getAccuracyByBand(int days) {
@@ -617,31 +621,35 @@ public class SignalOutcomeService {
         return result;
     }
 
-    /** 카테고리 강세(≥15) 표본별 집계 — 순수 함수. V30 컬럼 NULL 행(과거 데이터)은 제외. */
+    /** 카테고리 강세 표본별 집계 — 순수 함수. <b>카테고리별 임계</b>(척도 상이, P1-6 실측). V30 NULL 행 제외. */
     static List<com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat> aggregateCategories(
             List<SignalOutcome> rows) {
-        String[][] defs = {
-                {"earnings", "실적"},
-                {"supplyDemand", "수급"},
-                {"technical", "기술"},
-                {"sectorMomentum", "섹터"},
+        // {key, label, strongThreshold} — 카테고리별 임계
+        Object[][] defs = {
+                {"earnings", "실적", EARNINGS_STRONG_THRESHOLD},
+                {"supplyDemand", "수급", SUPPLY_STRONG_THRESHOLD},
+                {"technical", "기술", TECHNICAL_STRONG_THRESHOLD},
+                {"sectorMomentum", "섹터", SECTOR_STRONG_THRESHOLD},
         };
         List<com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat> result = new ArrayList<>();
-        for (String[] def : defs) {
+        for (Object[] def : defs) {
+            String key = (String) def[0];
+            String label = (String) def[1];
+            int threshold = (int) def[2];
             long total = 0, hits = 0;
             BigDecimal pctSum = BigDecimal.ZERO;
             long pctCount = 0;
             for (SignalOutcome s : rows) {
-                Integer score = categoryScore(s, def[0]);
-                if (score == null || score < CATEGORY_STRONG_THRESHOLD) continue;
+                Integer score = categoryScore(s, key);
+                if (score == null || score < threshold) continue;   // 카테고리별 임계
                 total++;
                 if (Boolean.TRUE.equals(s.getHit())) hits++;
                 if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
             }
             result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat.builder()
-                    .key(def[0])
-                    .label(def[1])
-                    .strongThreshold(CATEGORY_STRONG_THRESHOLD)
+                    .key(key)
+                    .label(label)
+                    .strongThreshold(threshold)
                     .totalSignals(total)
                     .hitCount(hits)
                     .hitRate(rate(hits, total))

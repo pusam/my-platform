@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 조건부 적중률 집계 (V30) — 순수 함수 단위 테스트.
  *
  * aggregateBands: signalScore 구간(55~64/65~74/75~84/85~100)별 hit-rate.
- * aggregateCategories: 시그널 시점 카테고리 점수 강세(≥15) 표본별 hit-rate.
+ * aggregateCategories: 시그널 시점 카테고리 점수 강세 표본별 hit-rate — 카테고리별 임계(실적≥20/수급≥15/기술≥13/섹터≥14, P1-6 실측).
  */
 class SignalOutcomeBandAccuracyTest {
 
@@ -163,5 +163,36 @@ class SignalOutcomeBandAccuracyTest {
         assertThat(supply.getTotalSignals()).isEqualTo(2);
         assertThat(supply.getHitRate()).isEqualByComparingTo("50");
         assertThat(supply.getAvgPctChange()).isEqualByComparingTo("1.00");
+    }
+
+    @Test
+    @DisplayName("categories: 카테고리별 임계 경계 — 섹터≥14/실적≥20/기술≥13/수급≥15만 강세로 잡힘 (P1-6 측정 정합)")
+    void categories_perCategoryThreshold() {
+        // 경계 바로 위 = 강세(각 1건 잡혀야)
+        SignalOutcome strong = outcome(80, true, "4.00");
+        strong.setSectorMomentumAtSignal(14);   // ≥14
+        strong.setEarningsAtSignal(20);          // ≥20
+        strong.setTechnicalAtSignal(13);         // ≥13
+        strong.setSupplyDemandAtSignal(15);      // ≥15
+        // 경계 바로 아래 = 약세(하나도 안 잡혀야) — 단일 15였다면 실적19·기술14 등이 잘못 잡히거나 빠졌음
+        SignalOutcome weak = outcome(60, false, "-1.00");
+        weak.setSectorMomentumAtSignal(13);      // 14 미만
+        weak.setEarningsAtSignal(19);            // 20 미만 (단일15면 잘못 강세)
+        weak.setTechnicalAtSignal(12);           // 13 미만
+        weak.setSupplyDemandAtSignal(14);        // 15 미만
+
+        List<CategoryStat> cats = SignalOutcomeService.aggregateCategories(List.of(strong, weak));
+        java.util.Map<String, CategoryStat> byKey = cats.stream()
+                .collect(java.util.stream.Collectors.toMap(CategoryStat::getKey, c -> c));
+
+        // 각 카테고리: 경계 위 1건만(약세행 제외) + strongThreshold 카테고리별
+        assertThat(byKey.get("sectorMomentum").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("sectorMomentum").getStrongThreshold()).isEqualTo(14);
+        assertThat(byKey.get("earnings").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("earnings").getStrongThreshold()).isEqualTo(20);
+        assertThat(byKey.get("technical").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("technical").getStrongThreshold()).isEqualTo(13);
+        assertThat(byKey.get("supplyDemand").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("supplyDemand").getStrongThreshold()).isEqualTo(15);
     }
 }
