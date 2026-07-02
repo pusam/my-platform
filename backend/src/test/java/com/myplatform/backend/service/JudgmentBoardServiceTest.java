@@ -119,6 +119,28 @@ class JudgmentBoardServiceTest {
     }
 
     @Test
+    @DisplayName("pickLatestMeaningful: 오늘 NONE 이 어제 실재료 안 가림 / 오늘 real 최신 / 둘 다 NONE 무배지")
+    void pickLatestMeaningful_todayNoneKeepsYesterdayReal() {
+        java.time.LocalDate today = java.time.LocalDate.of(2026, 7, 2);
+        var m = JudgmentBoardService.pickLatestMeaningful(List.of(
+                cat("298040", CatalystType.ORDER_WIN, Direction.POSITIVE, today.minusDays(1)),  // 어제 실재료
+                cat("298040", CatalystType.NONE, Direction.NONE, today),                         // 오늘 NONE — 가리면 안 됨
+                cat("005930", CatalystType.ORDER_WIN, Direction.POSITIVE, today.minusDays(1)),   // 어제
+                cat("005930", CatalystType.EARNINGS, Direction.POSITIVE, today),                 // 오늘 real → 최신
+                cat("035420", CatalystType.NONE, Direction.NONE, today),                         // 둘 다 NONE
+                cat("035420", CatalystType.NONE, Direction.NONE, today.minusDays(1))));
+
+        // 298040: 오늘 NONE 무시 → 어제 ORDER_WIN 유지(2일 백업 취지)
+        assertThat(m.get("298040").getCatalystType()).isEqualTo(CatalystType.ORDER_WIN);
+        assertThat(m.get("298040").getCatalystDate()).isEqualTo(today.minusDays(1));
+        // 005930: 오늘 real 이 최신
+        assertThat(m.get("005930").getCatalystType()).isEqualTo(CatalystType.EARNINGS);
+        assertThat(m.get("005930").getCatalystDate()).isEqualTo(today);
+        // 035420: 둘 다 NONE → 없음
+        assertThat(m).doesNotContainKey("035420");
+    }
+
+    @Test
     @DisplayName("거래대금 — 실측 누적 우선, 없으면 현재가×거래량 폴백, 둘 다 없으면 null(§4c)")
     void resolveTradingValue_fallback() {
         StockPriceDto acc = new StockPriceDto();            // 실측 누적

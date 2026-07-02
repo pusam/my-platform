@@ -230,15 +230,11 @@ public class JudgmentBoardService {
         List<String> codes = rows.stream().map(Row::getStockCode).filter(Objects::nonNull).toList();
         if (codes.isEmpty()) return;
 
-        try {   // 재료: 최근 N일 중 코드별 '최신' read(신규 분류 안 함). 오늘 없으면 어제까지, 2일↑ 제외(§4c).
+        try {   // 재료: 최근 N일 중 코드별 '최신 유의미(비-NONE)' read(신규 분류 안 함). 2일↑ 제외(§4c).
             LocalDate today = LocalDate.now();
             LocalDate minDate = today.minusDays(CATALYST_DISPLAY_DAYS - 1);
-            Map<String, StockCatalyst> latest = new HashMap<>();
-            for (StockCatalyst c : catalystRepository.findByCatalystDateGreaterThanEqualAndStockCodeIn(minDate, codes)) {
-                if (c.getStockCode() == null || c.getCatalystDate() == null) continue;
-                StockCatalyst prev = latest.get(c.getStockCode());
-                if (prev == null || c.getCatalystDate().isAfter(prev.getCatalystDate())) latest.put(c.getStockCode(), c);
-            }
+            Map<String, StockCatalyst> latest = pickLatestMeaningful(
+                    catalystRepository.findByCatalystDateGreaterThanEqualAndStockCodeIn(minDate, codes));
             applyCatalyst(rows, latest, today);
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 재료 배지 조회 실패(생략): {}", e.getMessage());
@@ -250,6 +246,25 @@ public class JudgmentBoardService {
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 거래대금 조립 실패(생략): {}", e.getMessage());
         }
+    }
+
+    /**
+     * 최근 재료들 중 코드별 <b>최신 유의미(비-NONE)</b> 선택 — 순수 함수.
+     * ⚠ NONE 을 최신 선택에 넣으면 "오늘 NONE(오늘 뉴스 없음)"이 "어제 실재료"를 가려 배지가 다시 깜빡인다
+     * (2일 백업 취지 훼손). NONE/방향NONE 은 제외하고 남은 것 중 최신 → 오늘 NONE 이어도 어제 실재료 유지,
+     * 둘 다 NONE 이면 무배지.
+     */
+    static Map<String, StockCatalyst> pickLatestMeaningful(List<StockCatalyst> catalysts) {
+        Map<String, StockCatalyst> latest = new HashMap<>();
+        if (catalysts == null) return latest;
+        for (StockCatalyst c : catalysts) {
+            if (c == null || c.getStockCode() == null || c.getCatalystDate() == null) continue;
+            if (c.getCatalystType() == null || c.getCatalystType() == StockCatalyst.CatalystType.NONE) continue;
+            if (c.getDirection() == null || c.getDirection() == StockCatalyst.Direction.NONE) continue;
+            StockCatalyst prev = latest.get(c.getStockCode());
+            if (prev == null || c.getCatalystDate().isAfter(prev.getCatalystDate())) latest.put(c.getStockCode(), c);
+        }
+        return latest;
     }
 
     /**
