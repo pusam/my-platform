@@ -60,9 +60,8 @@ public class CatalystWarmingService {
             log.info("[재료워밍] union — 대상 없음");
             return 0;
         }
-        int warmed = stockCatalystService.classifyBatch(refs);
-        log.info("[재료워밍] union 완료 — 대상 {}종목 → {}건 저장 (배치 약 {}콜)",
-                refs.size(), warmed, (refs.size() + 4) / 5);
+        int warmed = stockCatalystService.classifyBatch(refs);   // 실제 Gemini 콜 수는 classifyBatch 총계 로그
+        log.info("[재료워밍] union 완료 — 대상 {}종목 → {}건 신규분류 (나머지 캐시히트/뉴스없음)", refs.size(), warmed);
         return warmed;
     }
 

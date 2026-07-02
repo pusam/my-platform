@@ -112,20 +112,27 @@ public class StockCatalystService {
      */
     public int classifyBatch(List<StockRef> refs) {
         if (refs == null || refs.isEmpty()) return 0;
-        int total = 0;
+        int classified = 0, geminiCalls = 0;
         for (int i = 0; i < refs.size(); i += BATCH_SIZE) {
-            total += classifyOneBatch(refs.subList(i, Math.min(i + BATCH_SIZE, refs.size())));
+            Counts c = classifyOneBatch(refs.subList(i, Math.min(i + BATCH_SIZE, refs.size())));
+            classified += c.classified();
+            geminiCalls += c.geminiCalls();
         }
-        return total;
+        // 실제 Gemini 콜 수 정직 표기 — 전원 캐시 히트면 0콜. (추정치 아님)
+        log.info("[Catalyst] 배치 분류 총계 — 요청 {}종목, Gemini {}콜, 신규분류 {}건", refs.size(), geminiCalls, classified);
+        return classified;
     }
 
+    /** 배치 처리 결과 — 신규분류 수 + 실제 Gemini 콜 수(로그 정직용). */
+    private record Counts(int classified, int geminiCalls) {}
+
     /** 한 배치(≤{@value #BATCH_SIZE}종목) 처리 — 캐시미스+뉴스수집 → 1 Gemini 콜 → 배열 파싱 → 개별 저장. */
-    private int classifyOneBatch(List<StockRef> refs) {
+    private Counts classifyOneBatch(List<StockRef> refs) {
         LocalDate today = LocalDate.now();
         NaverSearchService naver = naverProvider.getIfAvailable();
         GeminiService gemini = geminiProvider.getIfAvailable();
         // §4c: 소스(네이버) 다운이면 NONE 위장 캐시 금지 — 스킵(다음 기회 재시도).
-        if (naver == null || gemini == null || !naver.isAvailable()) return 0;
+        if (naver == null || gemini == null || !naver.isAvailable()) return new Counts(0, 0);
 
         // 1. 캐시 미스 + 뉴스 수집. 뉴스 있는 종목만 배치 프롬프트로. 뉴스 0건은 개별 NONE(소스 가용=진짜 없음).
         LinkedHashMap<String, StockNews> pending = new LinkedHashMap<>();
@@ -142,13 +149,13 @@ public class StockCatalystService {
             }
             pending.put(ref.code(), new StockNews(ref.name(), news));
         }
-        if (pending.isEmpty()) return 0;
+        if (pending.isEmpty()) return new Counts(0, 0);   // 전원 캐시히트/뉴스없음 → Gemini 콜 0
 
-        // 2. 1 Gemini 콜(rate limiter 1 슬롯)로 배치 분류
+        // 2. 1 Gemini 콜(rate limiter 1 슬롯)로 배치 분류 — 아래부터 실제 콜 1회 발생.
         String response;
         try { response = gemini.chat(buildBatchPrompt(pending)); }
-        catch (Exception e) { log.debug("[Catalyst] 배치 Gemini 실패: {}", e.getMessage()); return 0; }
-        if (response == null) return 0;   // circuit open → 미캐시(재시도)
+        catch (Exception e) { log.debug("[Catalyst] 배치 Gemini 실패: {}", e.getMessage()); return new Counts(0, 1); }
+        if (response == null) return new Counts(0, 1);   // circuit open → 미캐시(재시도)
 
         // 3. 배열 파싱 → 유효 원소만 개별 저장(실패 원소는 미캐시=재시도)
         Map<String, ParsedCatalyst> parsed = parseBatchResponse(response, pending.keySet());
@@ -164,7 +171,7 @@ public class StockCatalystService {
         }
         log.info("[Catalyst] 배치 분류 — 요청 {}건, 뉴스有 {}건, 저장 {}건 (Gemini 1콜)",
                 refs.size(), pending.size(), saved);
-        return saved;
+        return new Counts(saved, 1);
     }
 
     private StockCatalyst save(String stockCode, String stockName, LocalDate date,
