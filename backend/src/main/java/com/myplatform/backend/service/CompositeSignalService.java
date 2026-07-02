@@ -152,8 +152,10 @@ public class CompositeSignalService {
                 return typed;
             }
         }
-        // miss → 백그라운드 시작, 빈 결과 즉시 반환
-        triggerRankingComputation(safeLimit);
+        // miss → 백그라운드 시작, 빈 결과 즉시 반환.
+        // ⚠ self 경유 필수: bare 호출은 @Async 프록시를 우회(self-invocation)해 computeRanking(KIS 1~3분)이
+        //   요청 스레드에서 동기 실행 → "즉시 반환" 설계가 깨지고 nginx/cloudflare 타임아웃.
+        self.triggerRankingComputation(safeLimit);
         return Collections.emptyList();
     }
 
