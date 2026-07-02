@@ -984,7 +984,11 @@ class AutoTradingBotServiceTest {
             String code = "005930";
             PortfolioItemDto pos = PortfolioItemDto.builder()
                     .stockCode(code).stockName("종목").quantity(10).averagePrice(new BigDecimal("70000")).build();
-            // sellAllPortfolio 가 1번, 이후 완전청산 확인이 1번 → 매도 후 빈 포트폴리오
+            // 005930 을 봇 추적분(DB 영속 SWING)으로 등록 — 이제 청산은 봇 소유분만 매도한다.
+            when(positionRepository.findByTradingMode(anyString())).thenReturn(List.of(
+                    BotTradingPosition.builder().stockCode(code).strategy(BotTradingPosition.Strategy.SWING)
+                            .tradingMode("VIRTUAL").build()));
+            // sellPortfolioMatching getPortfolio 1번 + 완료판정 getPortfolio 1번 → 매도 후 빈 포트폴리오
             when(virtualTradeService.getPortfolio()).thenReturn(List.of(pos), Collections.emptyList());
             StockPriceDto price = new StockPriceDto();
             price.setStockCode(code); price.setCurrentPrice(new BigDecimal("71000"));
@@ -996,6 +1000,42 @@ class AutoTradingBotServiceTest {
 
             verify(virtualTradeService).sell(eq(code), any(), eq(10), eq("REGULAR_SESSION_CLOSE"));
             verify(botConfigRepository).save(any(BotConfig.class));   // markLiquidatedToday
+        }
+
+        @Test
+        @DisplayName("청산 — 봇 추적분만 매도, 수동/untracked 보유분은 보존(전체매도 아님)")
+        void liquidationOnlySellsBotTracked() throws Exception {
+            AutoTradingBotService bot = rebuildBotWithClock(clockAt(15, 22));
+            setBotActive(bot, true);
+            String botCode = "005930", manualCode = "000660";
+            PortfolioItemDto botPos = PortfolioItemDto.builder()
+                    .stockCode(botCode).stockName("봇종목").quantity(10).averagePrice(new BigDecimal("70000")).build();
+            PortfolioItemDto manualPos = PortfolioItemDto.builder()
+                    .stockCode(manualCode).stockName("수동종목").quantity(5).averagePrice(new BigDecimal("50000")).build();
+            // 봇 추적분 = 005930(SWING)만. 000660 은 KIS 잔고엔 있으나 봇 미추적(수동).
+            when(positionRepository.findByTradingMode(anyString())).thenReturn(List.of(
+                    BotTradingPosition.builder().stockCode(botCode).strategy(BotTradingPosition.Strategy.SWING)
+                            .tradingMode("VIRTUAL").build()));
+            // 매도 후에도 수동분(000660)은 잔고에 남음 → 봇 소유분(005930)만 빠지면 완료.
+            when(virtualTradeService.getPortfolio()).thenReturn(List.of(botPos, manualPos), List.of(manualPos));
+            StockPriceDto p1 = new StockPriceDto(); p1.setStockCode(botCode); p1.setCurrentPrice(new BigDecimal("71000"));
+            when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(botCode, p1));
+            when(virtualTradeService.sell(any(), any(), anyInt(), anyString()))
+                    .thenReturn(TradeHistoryDto.builder().profitLoss(BigDecimal.TEN).build());
+
+            bot.executeRegularSessionLiquidation();
+
+            verify(virtualTradeService).sell(eq(botCode), any(), eq(10), eq("REGULAR_SESSION_CLOSE"));  // 봇분 매도
+            verify(virtualTradeService, never()).sell(eq(manualCode), any(), anyInt(), anyString());     // 수동분 보존
+            verify(botConfigRepository).save(any(BotConfig.class));   // 봇분 청산 완료 → markLiquidatedToday
+        }
+
+        @Test
+        @DisplayName("liquidationTargets — KIS 보유 ∩ 봇 소유(수동=KIS만 보호, 유령=봇만·KIS없음 스킵)")
+        void liquidationTargets_intersect() {
+            java.util.Set<String> kis = java.util.Set.of("A", "B", "C");   // C = 수동
+            java.util.Set<String> bot = java.util.Set.of("A", "B", "D");   // D = 유령(봇 추적O, KIS X)
+            assertThat(AutoTradingBotService.liquidationTargets(kis, bot)).containsExactlyInAnyOrder("A", "B");
         }
 
         @Test

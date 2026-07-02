@@ -2135,14 +2135,11 @@ public class AutoTradingBotService {
             return;
         }
 
-        log.info("[스캘핑봇] ===== 15:10 스캘핑 청산 시작 (스윙/종가매수 유지) =====");
+        log.info("[스캘핑봇] ===== 15:10 스캘핑 청산 시작 (스윙/종가매수·수동 보유 유지) =====");
 
         try {
-            // 스윙 + 종가매수 포지션은 보유 유지
-            Set<String> keepCodes = new java.util.HashSet<>();
-            keepCodes.addAll(swingPositions.keySet());
-            keepCodes.addAll(closingPositions.keySet());
-            TimeCutResult result = sellPortfolioExcept(keepCodes);
+            // 봇 스캘핑 추적분만 청산 — 스윙/종가는 물론 수동/untracked 보유분도 건드리지 않음(reconcile 보존 철학).
+            TimeCutResult result = sellPortfolioMatching(botOwnedCodes(Set.of(Strategy.SCALPING)), "SCALPING_CLEARANCE");
 
             if (telegramService.isEnabled()) {
                 sendEndOfDayReport(result);
@@ -2151,8 +2148,8 @@ public class AutoTradingBotService {
             // 스캘핑 포지션만 정리
             scalpingPositions.clear();
 
-            log.info("[스캘핑봇] 15:10 스캘핑 청산 완료 - {}종목 매도(스윙 {}종목 유지), 총 손익: {}원",
-                    result.soldCount, keepCodes.size(), formatNumber(result.totalProfitLoss));
+            log.info("[스캘핑봇] 15:10 스캘핑 청산 완료 - {}종목 매도(스윙/종가·수동 유지), 총 손익: {}원",
+                    result.soldCount, formatNumber(result.totalProfitLoss));
 
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -2178,9 +2175,16 @@ public class AutoTradingBotService {
         }
         log.info("[봇] ===== 정규장 마감 강제청산 시도 (윈도우 15:20~15:28) =====");
         try {
-            TimeCutResult result = sellAllPortfolio("REGULAR_SESSION_CLOSE");
-            // 완전 청산 확인 후에만 완료 표기 → 부분 미체결은 다음 분 재시도(리더 페일오버 캐치업).
-            if (activeTradeService.getPortfolio().isEmpty()) {
+            // 봇 소유(스캘핑+스윙+종가) 추적분만 청산 — 수동/untracked 보유분은 건드리지 않음(reconcile 보존 철학).
+            Set<String> botOwned = botOwnedCodes(Set.of(Strategy.SCALPING, Strategy.SWING, Strategy.CLOSING));
+            TimeCutResult result = sellPortfolioMatching(botOwned, "REGULAR_SESSION_CLOSE");
+            // 완료 = 봇 소유분이 KIS 잔고에서 모두 빠짐(수동 보유분은 남아있어도 무방). 부분 미체결은 다음 분 재시도.
+            Set<String> stillHeld = new java.util.HashSet<>();
+            for (PortfolioItemDto p : activeTradeService.getPortfolio()) {
+                if (p.getStockCode() != null) stillHeld.add(p.getStockCode());
+            }
+            stillHeld.retainAll(botOwned);
+            if (stillHeld.isEmpty()) {
                 scalpingPositions.clear();
                 swingPositions.clear();
                 closingPositions.clear();
@@ -2191,8 +2195,7 @@ public class AutoTradingBotService {
                     sendEndOfDayReport(result);
                 }
             } else {
-                log.warn("[봇] 정규장 청산 일부 미체결 — 다음 분 재시도 (잔여 {}종목)",
-                        activeTradeService.getPortfolio().size());
+                log.warn("[봇] 정규장 청산 일부 미체결 — 다음 분 재시도 (봇 소유 잔여 {}종목)", stillHeld.size());
             }
         } catch (Exception e) {
             lastError = e.getMessage();
@@ -2339,18 +2342,47 @@ public class AutoTradingBotService {
     }
 
     /**
-     * 스윙 포지션 제외하고 포트폴리오 청산
+     * 봇이 소유한 종목코드 — in-memory 포지션 맵(전략별) + DB 영속(현 모드) 합집합. <b>수동/untracked 는 미포함(보호)</b>.
+     * DB 도 합치는 이유: 모드전환 in-flight 레이스 등으로 메모리에서 빠진 봇 포지션도 청산에서 놓치지 않기 위함
+     * (오버나잇 노출 방지 — "추적분인데 안 파는" 반대 사고 차단). reconcile 의 "수동/untracked 보존" 철학과 일관.
+     * DB 조회 실패 시 in-memory 맵만 사용(best-effort).
      */
-    private TimeCutResult sellPortfolioExcept(Set<String> excludeCodes) {
-        List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
-        List<PortfolioItemDto> toSell = portfolios.stream()
-                .filter(p -> !excludeCodes.contains(p.getStockCode()))
-                .collect(Collectors.toList());
+    private Set<String> botOwnedCodes(Set<Strategy> strategies) {
+        Set<String> codes = new java.util.HashSet<>();
+        if (strategies.contains(Strategy.SCALPING)) codes.addAll(scalpingPositions.keySet());
+        if (strategies.contains(Strategy.SWING)) codes.addAll(swingPositions.keySet());
+        if (strategies.contains(Strategy.CLOSING)) codes.addAll(closingPositions.keySet());
+        try {
+            for (BotTradingPosition p : positionRepository.findByTradingMode(currentMode.name())) {
+                if (p.getStockCode() != null && p.getStrategy() != null && strategies.contains(p.getStrategy())) {
+                    codes.add(p.getStockCode());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[봇] 청산 대상 DB 조회 실패 — in-memory 맵만 사용: {}", e.getMessage());
+        }
+        return codes;
+    }
 
+    /** 청산 대상 = KIS 실보유 ∩ 봇 소유 — 순수 함수(테스트 대상). 수동(KIS만 보유)은 보호, 유령(봇 추적O·KIS X)은 스킵. */
+    static Set<String> liquidationTargets(Set<String> kisHeldCodes, Set<String> botOwnedCodes) {
+        Set<String> t = new java.util.TreeSet<>(kisHeldCodes);
+        t.retainAll(botOwnedCodes);
+        return t;
+    }
+
+    /**
+     * 봇 소유(targetCodes)에 해당하는 KIS 보유분만 청산 — <b>수동/untracked 는 매도하지 않음</b>(reconcile 보존 철학).
+     * 기존 "전체 매도(sellAllPortfolio)"·"제외 매도(sellPortfolioExcept)"가 수동 보유분까지 팔던 것을 대체.
+     */
+    private TimeCutResult sellPortfolioMatching(Set<String> targetCodes, String reason) {
+        List<PortfolioItemDto> toSell = activeTradeService.getPortfolio().stream()
+                .filter(p -> p.getStockCode() != null && targetCodes.contains(p.getStockCode()))
+                .collect(Collectors.toList());
         if (toSell.isEmpty()) {
+            log.info("[봇] 청산 대상(봇 소유 ∩ 보유) 없음 - 스킵");
             return new TimeCutResult(0, BigDecimal.ZERO, List.of());
         }
-
         List<String> codes = toSell.stream().map(PortfolioItemDto::getStockCode).collect(Collectors.toList());
         Map<String, StockPriceDto> prices = stockPriceService.getStockPrices(codes);
 
@@ -2364,7 +2396,7 @@ public class AutoTradingBotService {
             BigDecimal currentPrice = priceDto.getCurrentPrice();
             try {
                 TradeHistoryDto result = activeTradeService.sell(
-                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), "END_OF_DAY");
+                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), reason);
                 lastTradeTime = LocalDateTime.now(clock);
                 todaySellCount.incrementAndGet();
                 soldCount++;
@@ -2377,9 +2409,11 @@ public class AutoTradingBotService {
                         : BigDecimal.ZERO;
                 soldItems.add(new TimeCutItem(portfolio.getStockName(), portfolio.getStockCode(),
                         portfolio.getQuantity(), currentPrice, profitLoss, profitRate));
+                log.info("[봇] 청산({}): {} x {} @ {}원, 손익: {}원", reason, portfolio.getStockName(),
+                        portfolio.getQuantity(), formatNumber(currentPrice), formatNumber(profitLoss));
                 Thread.sleep(300);
             } catch (Exception e) {
-                log.error("[스캘핑봇] 장마감 청산 실패: {} - {}", portfolio.getStockName(), e.getMessage());
+                log.error("[봇] 청산 실패: {} - {}", portfolio.getStockName(), e.getMessage());
             }
         }
         return new TimeCutResult(soldCount, totalProfitLoss, soldItems);
