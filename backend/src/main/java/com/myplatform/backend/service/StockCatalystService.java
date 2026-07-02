@@ -11,7 +11,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -50,10 +49,14 @@ public class StockCatalystService {
     /**
      * 오늘 기준 재료 조회 — 캐시 우선, 없으면 뉴스 수집 + Gemini 분류.
      *
+     * <p>⚠ <b>@Transactional 금지</b>: 이 메서드는 사용자 동기 엔드포인트(종목 상세 열 때마다)라, 트랜잭션을 걸면
+     * 느린 외부 I/O(네이버 HTTP + Gemini 전역 rate limiter 4.5초 대기 + HTTP)를 DB 커넥션 쥔 채 수행 → 동시
+     * 요청 시 HikariCP 풀 소진 → 광역 DB 장애 위험. read/save 원자성 불필요({@link #save}가 unique 충돌 자가복구,
+     * 각 repository 호출이 자체 짧은 트랜잭션). 배치({@link #classifyBatch})도 동일 이유로 non-transactional.
+     *
      * @param stockName 뉴스 검색용 종목명. blank 면 캐시 lookup 만 수행 (신규 분류 불가).
      * @return 분류 결과. 분류 불가(뉴스/Gemini 미가용)면 null — 호출측은 배지 생략.
      */
-    @Transactional
     public StockCatalyst getCatalyst(String stockCode, String stockName) {
         if (stockCode == null || stockCode.isBlank()) return null;
         LocalDate today = LocalDate.now();

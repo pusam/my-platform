@@ -316,6 +316,15 @@ class StockCatalystServiceTest {
     }
 
     @Test
+    @DisplayName("getCatalyst 는 @Transactional 없음 — 느린 외부 I/O(Gemini rate 대기)를 DB 커넥션 쥔 채 실행 방지(풀 소진)")
+    void getCatalyst_mustNotBeTransactional() throws Exception {
+        var method = StockCatalystService.class.getMethod("getCatalyst", String.class, String.class);
+        // 메서드/클래스 어디에도 @Transactional 없어야(있으면 외부 I/O 동안 커넥션 홀드 → 풀 소진 위험)
+        assertThat(method.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isFalse();
+        assertThat(StockCatalystService.class.isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isFalse();
+    }
+
+    @Test
     @DisplayName("classifyBatch(워밍) — 유의미 재료여도 텔레그램 알림 억제 (온디맨드 단건만 알림)")
     void classifyBatch_warmingSuppressesAlerts() {
         when(naverProvider.getIfAvailable()).thenReturn(naver);
