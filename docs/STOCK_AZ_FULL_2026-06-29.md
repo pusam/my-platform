@@ -516,6 +516,17 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
+### 2026-07-02 세션 — 재료 배치·보드 워밍 3종(P2-CAT1/CAT3) + P1-6 측정 버그
+
+무료 티어 quota 안정(전날) 위에 재료 커버리지를 넓히고, 재측정 전제를 고침. 전부 표시/측정·quota 관점, 라이브 산식 무변경.
+
+- **재료 배치 분류(P2-CAT1, `cf29fc3`)**: `StockCatalystService.classifyBatch` — N종목 뉴스를 1 프롬프트(code 키 JSON 배열)로 묶어 **Gemini 1콜/배치**(RPM 실질 1/N, 무료 병목의 정답=캐싱 아닌 호출수 감축). 5씩 청킹·캐시히트 스킵. **개별 폴백**(유효 원소만 저장, 실패=미캐시 재시도, N개 단건 폴백 안 함). 단건 getCatalyst=on-demand 유지, 워밍만 배치 전환. 로그 실제 콜 수 정직화(`9b9d1d4`).
+- **보드 union 일괄 워밍(P2-CAT3, `710ddd9`)**: `CatalystWarmingService` — 발굴 5트랙 상위 25종목 재료를 배치로 미리 분류(보드 "—" 채움). `@Scheduled` 08:00 주중 + 수동 트리거 `POST /api/admin/catalyst/warm-union`(ADMIN). classifyBatch 위라 25종목≈5콜(quota 안전). **라운드로빈 인터리브(`b5f2aad`)**: value-first 순차면 급등주(낙폭·수급)가 25칸 밖으로 컷 → round r=각 트랙 r번째로 5트랙 top5 균등+소진 롤오버(척도 상이라 통합정렬 안 함).
+- **보드 재료 최근 2일 표시(`4ffdf00`)**: 보드가 오늘자만 읽어 워밍 대상 밖 종목이 매일 "—"로 깜빡 → **최근 2일 중 최신** 표시 + `catalystAgeDays`("어제") 경과 표기(§4c 낡음 위장 방지, 2일↑ 제외). §4b Gemini 일캐시 분류는 불변, **표시 날짜창만** 확장. 선정 다양화(오늘자 확보)+최근2일(백업) 두 겹 방어.
+- **P1-6 측정 버그 해소(`c85f304`)**: `SignalOutcomeService.aggregateCategories` 단일 임계 15 → **카테고리별**(n=88 실측 근거: 실적≥20·수급≥15·기술≥13·섹터≥14). 섹터(max14→≥15 강세 0건)·실적(19/20 뭉침) 오측정 해소 → **2-4주 뒤 국면별 재측정의 전제 충족**(측정 전용, 라이브 산식 무관). 가중치 변경은 데이터 대기.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
