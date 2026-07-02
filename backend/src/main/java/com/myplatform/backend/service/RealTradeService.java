@@ -89,6 +89,34 @@ public class RealTradeService implements TradeService {
         return resolveFill(requestedQty, ccld);
     }
 
+    /**
+     * 부분/미체결 확정 후 매도 기록을 <b>실체결 수량</b>으로 정정 — 요청수량 기록의 이중집계(실현손익 과대) 방지.
+     * <p>봇이 {@link #confirmFill}(NOT_SUPPORTED, 외부 호출) 결과가 부분/미체결일 때만 호출. filledQty=0 이면 거래
+     * 없음 → 기록 삭제. 모든 금액이 수량에 선형이라 수량 비례로 축소(정확). <b>집계/기록만 — 주문·산식 무관.</b>
+     * confirmFill 은 봇이 호출(NOT_SUPPORTED 유지, 폴링 sleep 이 tx 미점유); 본 메서드는 빠른 DB 업데이트라 tx 무해.
+     */
+    public void reconcileSellFill(Long tradeId, int filledQty) {
+        if (tradeId == null || tradeId <= 0) return;
+        VirtualTradeHistory trade = tradeHistoryRepository.findById(tradeId).orElse(null);
+        if (trade == null || !"SELL".equals(trade.getTradeType())) return;
+        int recorded = trade.getQuantity() != null ? trade.getQuantity() : 0;
+        if (filledQty >= recorded) return;   // 정정 불필요(전량/UNKNOWN 은 봇이 애초에 호출 안 함)
+        if (filledQty <= 0) {
+            tradeHistoryRepository.delete(trade);   // 미체결 → 거래 없음
+            log.info("[실전매매] 매도 미체결(0주) 확정 — 기록 삭제 (id={}, {}주 요청)", tradeId, recorded);
+            return;
+        }
+        BigDecimal ratio = BigDecimal.valueOf(filledQty)
+                .divide(BigDecimal.valueOf(recorded), 10, RoundingMode.HALF_UP);
+        trade.setQuantity(filledQty);
+        if (trade.getTotalAmount() != null) trade.setTotalAmount(trade.getTotalAmount().multiply(ratio).setScale(0, RoundingMode.HALF_UP));
+        if (trade.getCommission() != null) trade.setCommission(trade.getCommission().multiply(ratio).setScale(0, RoundingMode.CEILING));
+        if (trade.getTax() != null) trade.setTax(trade.getTax().multiply(ratio).setScale(0, RoundingMode.CEILING));
+        if (trade.getProfitLoss() != null) trade.setProfitLoss(trade.getProfitLoss().multiply(ratio).setScale(0, RoundingMode.HALF_UP));
+        tradeHistoryRepository.save(trade);
+        log.info("[실전매매] 매도 부분체결 정정 — 기록 {}→{}주로 축소 (id={})", recorded, filledQty, tradeId);
+    }
+
     // 캐시된 잔고 정보 — 매수/매도 직전엔 force=true 로 항상 재조회.
     // 표시·통계 용도는 30초 캐시 (KIS rate limit 완화).
     private volatile BalanceInfo cachedBalance;

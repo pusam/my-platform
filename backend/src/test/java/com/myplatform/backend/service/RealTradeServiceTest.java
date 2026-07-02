@@ -552,4 +552,55 @@ class RealTradeServiceTest {
         when(kisService.getBalance()).thenReturn(null);
         assertThat(service.getPortfolio()).isEmpty();
     }
+
+    // ==================== reconcileSellFill — 부분체결 이중집계 방지 ====================
+
+    private VirtualTradeHistory sellTrade(long id, int qty) {
+        return VirtualTradeHistory.builder()
+                .id(id).tradeType("SELL").quantity(qty)
+                .price(new BigDecimal("1000")).totalAmount(new BigDecimal("1000").multiply(BigDecimal.valueOf(qty)))
+                .commission(new BigDecimal("15")).tax(new BigDecimal("200"))
+                .profitLoss(new BigDecimal("1000")).build();
+    }
+
+    @Test
+    @DisplayName("reconcileSellFill — 부분체결(60/100): 수량·금액·손익을 실체결로 비례 축소")
+    void reconcileSellFill_partialScalesDown() {
+        VirtualTradeHistory trade = sellTrade(7L, 100);
+        when(tradeHistoryRepository.findById(7L)).thenReturn(java.util.Optional.of(trade));
+
+        service.reconcileSellFill(7L, 60);
+
+        ArgumentCaptor<VirtualTradeHistory> cap = ArgumentCaptor.forClass(VirtualTradeHistory.class);
+        verify(tradeHistoryRepository).save(cap.capture());
+        VirtualTradeHistory saved = cap.getValue();
+        assertThat(saved.getQuantity()).isEqualTo(60);
+        assertThat(saved.getProfitLoss()).isEqualByComparingTo("600");      // 1000 × 0.6
+        assertThat(saved.getTotalAmount()).isEqualByComparingTo("60000");   // 100000 × 0.6
+        verify(tradeHistoryRepository, never()).delete(any());
+    }
+
+    @Test
+    @DisplayName("reconcileSellFill — 미체결(0주): 거래 없음 → 기록 삭제")
+    void reconcileSellFill_noneDeletes() {
+        VirtualTradeHistory trade = sellTrade(7L, 100);
+        when(tradeHistoryRepository.findById(7L)).thenReturn(java.util.Optional.of(trade));
+
+        service.reconcileSellFill(7L, 0);
+
+        verify(tradeHistoryRepository).delete(trade);
+        verify(tradeHistoryRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("reconcileSellFill — 전량체결(filled≥recorded)·SELL아님·id없음: 정정 안 함")
+    void reconcileSellFill_noOpCases() {
+        VirtualTradeHistory full = sellTrade(7L, 100);
+        when(tradeHistoryRepository.findById(7L)).thenReturn(java.util.Optional.of(full));
+        service.reconcileSellFill(7L, 100);   // filled == recorded → no-op
+        service.reconcileSellFill(null, 60);  // id 없음 → 조회조차 안 함
+
+        verify(tradeHistoryRepository, never()).save(any());
+        verify(tradeHistoryRepository, never()).delete(any());
+    }
 }

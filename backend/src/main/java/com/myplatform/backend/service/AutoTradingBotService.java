@@ -634,6 +634,9 @@ public class AutoTradingBotService {
         if (sellDto == null || sellDto.getOrderNo() == null) return false;
         RealTradeService.FillResult f = realTradeService.confirmFill(stockCode, sellDto.getOrderNo(), requestedQty);
         if (f.isConfirmedShort()) {
+            // 부분/미체결 확정 → DB 매도 기록을 실체결 수량으로 정정(요청수량 기록의 이중집계=실현손익 과대 방지). 집계/기록만.
+            try { realTradeService.reconcileSellFill(sellDto.getId(), f.filledQty()); }
+            catch (Exception e) { log.warn("[봇] 매도 기록 정정 실패(무시): {}", e.getMessage()); }
             log.warn("[봇] 매도 체결 미달 확인 — {} 체결 {}/{}주 → 포지션 유지", stockCode, f.filledQty(), requestedQty);
             return true;
         }
