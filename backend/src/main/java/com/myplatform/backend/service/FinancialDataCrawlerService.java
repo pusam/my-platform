@@ -9,7 +9,6 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -20,9 +19,14 @@ import java.util.*;
  * - 네이버 금융에서 영업이익률, 순이익률 등 재무 지표 크롤링
  * - 분기별 재무제표 크롤링 (PEG, 턴어라운드 스크리너용)
  * - KIS API로 수집할 수 없는 데이터 보완용
+ *
+ * <p>⚠ <b>클래스 @Transactional 금지</b>: 전종목 크롤(crawlAllOperatingMargin/collectQuarterlyFinancialStatements)은
+ * 종목마다 Thread.sleep(500~600) + Jsoup HTTP(15s timeout) 를 수천 회 반복 — 클래스 tx 로 감싸면 DB 커넥션
+ * 1개를 수십 분~시간 pin(+ 전체 save 가 배치 끝 일괄 커밋이라 도중 크래시 시 진행분 전부 유실).
+ * 원자성 요구 없음: 모든 쓰기는 독립 단건 upsert(save 명시, dirty-checking 의존 없음) + 종목별 try/catch 로
+ * 부분 성공이 정상 동작. 각 save 는 Spring Data 자체 짧은 tx 로 즉시 커밋(진행분 보존).
  */
 @Service
-@Transactional
 @RequiredArgsConstructor
 @Slf4j
 public class FinancialDataCrawlerService {
