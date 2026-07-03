@@ -25,7 +25,7 @@ public class BacktestService {
 
     // 거래 비용 상수
     private static final BigDecimal COMMISSION_RATE = new BigDecimal("0.00015");  // 매수·매도 각 0.015%
-    private static final BigDecimal TAX_RATE = new BigDecimal("0.0018");          // 매도 세금 0.18%
+    private static final BigDecimal TAX_RATE = TradeService.SELL_TAX_RATE;        // 매도 세금 — 단일 출처(2025~ 0.15%)
 
     // 전략별 슬리피지 (스냅샷 가격 vs 실제 체결가 괴리)
     private static final Map<StrategyType, BigDecimal> SLIPPAGE_RATE = Map.of(

@@ -13,6 +13,13 @@ import java.util.List;
 public interface TradeService {
 
     /**
+     * 증권거래세율(매도 시) — 2025년~ 코스피(농특세 0.15%)/코스닥 공히 0.15%. <b>단일 출처</b>:
+     * REAL(0.2%)·VIRTUAL(0.18%)이 서로 다른 낡은 세율을 하드코딩해 실현손익 기록이 어긋나던 것을 통일.
+     * 실제 현금은 KIS 가 실세율로 부과하므로 이 값은 기록/집계 정확도용. 세법 개정 시 여기 한 곳만 수정.
+     */
+    BigDecimal SELL_TAX_RATE = new BigDecimal("0.0015");
+
+    /**
      * 매수 처리
      * @param stockCode 종목코드
      * @param price 매수가격 (시장가일 경우 현재가)

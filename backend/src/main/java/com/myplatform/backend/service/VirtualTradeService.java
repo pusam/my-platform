@@ -49,7 +49,7 @@ public class VirtualTradeService implements TradeService {
 
     // 수수료율 및 세율
     private static final BigDecimal COMMISSION_RATE = new BigDecimal("0.00015"); // 0.015%
-    private static final BigDecimal TAX_RATE = new BigDecimal("0.0018"); // 0.18% (2023년~ 증권거래세)
+    private static final BigDecimal TAX_RATE = SELL_TAX_RATE; // 단일 출처 — TradeService.SELL_TAX_RATE(2025~ 0.15%), REAL 과 패리티
     private static final BigDecimal INITIAL_BALANCE = new BigDecimal("10000000"); // 1,000만원
 
     private static void validateTradeInput(BigDecimal price, Integer quantity) {

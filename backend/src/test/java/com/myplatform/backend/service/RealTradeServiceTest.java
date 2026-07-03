@@ -553,6 +553,14 @@ class RealTradeServiceTest {
         assertThat(service.getPortfolio()).isEmpty();
     }
 
+    // ==================== 증권거래세율 — 단일 출처 패리티 ====================
+
+    @Test
+    @DisplayName("SELL_TAX_RATE 단일 출처 = 0.15%(2025~) — REAL 0.2%/VIRTUAL 0.18% 하드코딩 회귀 방지")
+    void sellTaxRate_singleSource() {
+        assertThat(TradeService.SELL_TAX_RATE).isEqualByComparingTo("0.0015");
+    }
+
     // ==================== 주문 경로 tx 경계 — KIS 네트워크를 쓰기 tx 밖으로 ====================
 
     @Test

@@ -466,7 +466,7 @@ public class RealTradeService implements TradeService {
         BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
         BigDecimal commission = totalAmount.multiply(new BigDecimal("0.00015"))
                 .setScale(0, RoundingMode.CEILING);
-        BigDecimal tax = totalAmount.multiply(new BigDecimal("0.002"))
+        BigDecimal tax = totalAmount.multiply(SELL_TAX_RATE)   // 단일 출처 — TradeService.SELL_TAX_RATE(0.15%)
                 .setScale(0, RoundingMode.CEILING);
         BigDecimal netAmount = totalAmount.subtract(commission).subtract(tax);
         BigDecimal investedAmount = avgPrice.multiply(BigDecimal.valueOf(quantity));
