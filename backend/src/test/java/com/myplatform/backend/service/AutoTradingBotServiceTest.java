@@ -434,6 +434,20 @@ class AutoTradingBotServiceTest {
             assertThat(result).isFalse();
         }
 
+        /** 계좌조회 예외 → fail-open(false, 봇 유지)이되 RISK 알림으로 "차단기 꺼짐"을 노출 + 10분 스로틀. */
+        @Test
+        @DisplayName("checkKillSwitch — 계좌조회 예외 시 fail-open(false) + RISK 알림 1회(스로틀, 조용한 무력화 방지)")
+        void killSwitch_checkFailure_failOpenWithAlert() throws Exception {
+            when(virtualTradeService.getAccountSummary()).thenThrow(new RuntimeException("KIS 잔고 조회 실패"));
+            when(telegramService.isEnabled()).thenReturn(true);
+
+            assertThat(invokeCheckKillSwitch(botService)).isFalse();   // fail-open 유지(미차단)
+            assertThat(invokeCheckKillSwitch(botService)).isFalse();   // 같은 시각(fixedClock) 재호출
+
+            org.mockito.Mockito.verify(telegramService, org.mockito.Mockito.times(1))
+                    .sendRisk(org.mockito.ArgumentMatchers.contains("킬스위치 체크 실패"));  // 알림 1회(10분 스로틀)
+        }
+
         /** 이미 killSwitchTriggered=true 면 시각과 무관하게 true 반환. */
         @Test
         @DisplayName("checkKillSwitch — killSwitchTriggered=true 이면 true 즉시 반환")

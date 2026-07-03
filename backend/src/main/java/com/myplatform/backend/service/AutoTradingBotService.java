@@ -3112,9 +3112,27 @@ public class AutoTradingBotService {
 
         } catch (Exception e) {
             log.error("[매매봇] 킬 스위치 체크 오류: {}", e.getMessage());
+            // fail-open(미차단) 유지 — 일시 조회 실패로 봇 전체를 세우지 않는다. 단 손실 차단기(-3%/-1.5%)가
+            // "조용히" 꺼진 상태를 운영자가 모르면 안 됨 → RISK 알림(10분 스로틀 — 분 단위 크론 스팸 방지).
+            notifyKillSwitchCheckFailure(e);
         }
 
         return false;
+    }
+
+    /** 킬스위치 체크 실패 RISK 알림 스로틀 타임스탬프 — 10분당 1회만. */
+    private volatile LocalDateTime killSwitchCheckFailAlertAt = null;
+
+    /** 킬스위치 체크 실패를 운영자에게 알림(10분 스로틀) — 안전가드의 조용한 무력화 방지. */
+    private void notifyKillSwitchCheckFailure(Exception e) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        if (!telegramService.isEnabled()) return;
+        if (killSwitchCheckFailAlertAt != null && killSwitchCheckFailAlertAt.plusMinutes(10).isAfter(now)) return;
+        killSwitchCheckFailAlertAt = now;
+        try {
+            telegramService.sendRisk("⚠️ <b>[봇] 킬스위치 체크 실패</b>\n계좌 조회 오류로 일일 손실 차단(-3%/-1.5%)이 "
+                    + "일시 무력화 상태입니다(매매는 계속). 반복되면 수동 점검 필요.\n오류: " + e.getMessage());
+        } catch (Exception ignore) { /* 알림 실패는 무시 — 체크 흐름 유지 */ }
     }
 
     /** 스캘핑 전용 킬스위치 (스윙/종가는 허용) */
