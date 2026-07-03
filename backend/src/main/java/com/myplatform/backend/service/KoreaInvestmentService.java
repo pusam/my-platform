@@ -1375,12 +1375,14 @@ public class KoreaInvestmentService {
                 String rtCd = result.has("rt_cd") ? result.get("rt_cd").asText() : "";
                 if ("0".equals(rtCd)) {
                     log.debug("[실전매매] 잔고 조회 성공");
-                } else {
-                    String msg = result.has("msg1") ? result.get("msg1").asText() : "";
-                    log.error("[실전매매] 잔고 조회 실패: {}", msg);
+                    return result;
                 }
-
-                return result;
+                String msg = result.has("msg1") ? result.get("msg1").asText() : "";
+                log.error("[실전매매] 잔고 조회 실패: {}", msg);
+                // rt_cd≠0 에러 바디를 그대로 반환하면 parseBalance 가 "예수금 0·보유 없음"의 빈 정상잔고로
+                // 위장(+RealTradeService 30초 캐시) → 정상 매도(손절 포함)가 "보유 부족"으로 거부되고 킬스위치
+                // 자산 계산이 오염된다. null = 실패 신호(주문 경로 중단 / 표시 경로 직전 캐시 유지).
+                return null;
             }
         } catch (org.springframework.web.client.HttpServerErrorException e) {
             // rate limit 등은 rateLimiter 가 재시도할 수 있도록 예외를 그대로 던진다.
