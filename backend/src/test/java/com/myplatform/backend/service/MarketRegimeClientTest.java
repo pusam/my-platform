@@ -39,4 +39,35 @@ class MarketRegimeClientTest {
                 json("{\"success\":true,\"data\":{}}"))).isNull();
         assertThat(MarketRegimeClient.parseRegime(null)).isNull();
     }
+
+    // ==================== stale 폴백 금지 (§4c) — python 다운 시 만료 캐시 반환 금지 ====================
+
+    private MarketRegimeClient unreachableClient() {
+        // 127.0.0.1:1 — 즉시 connection refused (python 다운 시뮬레이션)
+        PythonBackendHealthTracker health = org.mockito.Mockito.mock(PythonBackendHealthTracker.class);
+        return new MarketRegimeClient("http://127.0.0.1:1", health);
+    }
+
+    private void seedCache(MarketRegimeClient client, String regime, java.time.Instant at) {
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "cachedRegime", regime);
+        org.springframework.test.util.ReflectionTestUtils.setField(client, "cachedAt", at);
+    }
+
+    @Test
+    @DisplayName("캐시 만료 + python 다운 → null (수일 전 국면을 무기한 반환하지 않음 — regime_at_signal 오염 방지)")
+    void expiredCacheAndDown_returnsNull() {
+        MarketRegimeClient client = unreachableClient();
+        seedCache(client, "BULL", java.time.Instant.now().minus(java.time.Duration.ofHours(2)));  // TTL(1h) 초과
+
+        assertThat(client.getCurrentRegimeQuiet()).isNull();   // 수정 전엔 "BULL"(stale) 반환이 버그
+    }
+
+    @Test
+    @DisplayName("캐시 TTL 내 → HTTP 없이 캐시 반환 (python 다운이어도 정상)")
+    void freshCache_returnsWithoutHttp() {
+        MarketRegimeClient client = unreachableClient();
+        seedCache(client, "SIDEWAYS", java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+
+        assertThat(client.getCurrentRegimeQuiet()).isEqualTo("SIDEWAYS");
+    }
 }

@@ -45,8 +45,12 @@ public class MarketRegimeClient {
     }
 
     /**
-     * 현재 시장 국면 — BULL / BEAR / SIDEWAYS. 미가용이면 null (위장값 금지).
-     * 실패도 TTL 동안 캐시하지 않음 — 다음 호출에서 재시도하되, 성공 캐시가 있으면 그것을 우선.
+     * 현재 시장 국면 — BULL / BEAR / SIDEWAYS. 미가용이면 null (위장값 금지, §4c).
+     *
+     * <p>⚠ <b>만료 캐시(stale) 폴백 금지</b>: 이 지점의 조기 반환(TTL 내)을 지나면 캐시는 이미 만료다 —
+     * cachedAt 은 성공 시에만 갱신되므로, 실패 시 cachedRegime 을 돌려주면 python 장기 다운 동안
+     * <b>수일 전 국면을 무기한 반환</b>해 regime_at_signal 스냅샷(V32 국면별 적중률 측정)을 오염시킨다
+     * (실제 2026-06 pykrx 장애로 발생 가능했던 패턴). 미가용=null(미수집)이 정직한 동작.
      */
     public String getCurrentRegimeQuiet() {
         Instant now = Instant.now();
@@ -54,6 +58,7 @@ public class MarketRegimeClient {
                 && Duration.between(cachedAt, now).compareTo(CACHE_TTL) < 0) {
             return cachedRegime;
         }
+        // 여기 도달 = 캐시 만료/부재. 실패 시 만료값 반환 금지.
         try {
             String body = restTemplate.getForObject(baseUrl + "/api/v2/regime/current", String.class);
             String regime = parseRegime(body == null ? null : objectMapper.readTree(body));
@@ -63,11 +68,11 @@ public class MarketRegimeClient {
                 health.recordSuccess(PythonBackendHealthTracker.SOURCE_REGIME);
             }
             // regime==null(응답은 왔으나 국면 산출 불가)은 python 다운이 아니므로 실패로 집계하지 않음.
-            return regime != null ? regime : cachedRegime; // 일시 실패 시 직전 성공값 폴백 (있으면)
+            return regime; // null = 미수집(스냅샷 NULL)
         } catch (Exception e) {
             log.debug("[Regime] python-backend 국면 조회 실패: {}", e.getMessage());
             health.recordFailure(PythonBackendHealthTracker.SOURCE_REGIME, e.getMessage());
-            return cachedRegime; // 미기동 시 null — 스냅샷 미수집 처리
+            return null; // 미기동/장애 = 미수집 — 만료 캐시로 위장하지 않음
         }
     }
 
