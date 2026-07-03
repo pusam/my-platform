@@ -191,8 +191,13 @@ public class RealTradeService implements TradeService {
 
     /**
      * 실전 매수 처리 (종목명 포함 버전)
+     *
+     * <p><b>NOT_SUPPORTED</b>(confirmFill 패턴): 클래스 @Transactional 이면 KIS 네트워크(잔고조회+주문, 백오프 시
+     * 수 초)를 쓰기 tx 로 감싼 채 실행 — DB 커넥션 롱홀드. 보호할 원자 단위도 없다: audit·멱등키는 REQUIRES_NEW
+     * (독립 커밋 — 바깥 tx 와 조합되면 오히려 커넥션 2개 동시 점유), trade save 는 단건(자체 짧은 tx, 실패=killswitch).
      */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TradeHistoryDto buy(String stockCode, String stockName, BigDecimal price, Integer quantity, String reason) {
         log.info("[실전매매] 매수 주문 시작: {} ({}) x {} @ {}원", stockName, stockCode, quantity, price);
 
@@ -210,9 +215,10 @@ public class RealTradeService implements TradeService {
     }
 
     /**
-     * 실전 매수 처리
+     * 실전 매수 처리 — NOT_SUPPORTED 사유는 위 buy(종목명 포함) javadoc 참조.
      */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public TradeHistoryDto buy(String stockCode, BigDecimal price, Integer quantity, String reason) {
         log.info("[실전매매] 매수 주문 시작: {} x {} @ {}원", stockCode, quantity, price);
 
@@ -373,6 +379,7 @@ public class RealTradeService implements TradeService {
      * 실전 매도 처리
      */
     @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)   // NOT_SUPPORTED 사유는 buy javadoc 참조 — KIS 네트워크 tx 밖
     public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason) {
         log.info("[실전매매] 매도 주문 시작: {} x {} @ {}원", stockCode, quantity, price);
 

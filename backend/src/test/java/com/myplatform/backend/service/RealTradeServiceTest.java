@@ -553,6 +553,24 @@ class RealTradeServiceTest {
         assertThat(service.getPortfolio()).isEmpty();
     }
 
+    // ==================== 주문 경로 tx 경계 — KIS 네트워크를 쓰기 tx 밖으로 ====================
+
+    @Test
+    @DisplayName("buy×2/sell 은 NOT_SUPPORTED — KIS 네트워크(잔고+주문)를 DB 커넥션 쥔 채 실행 금지(confirmFill 패턴)")
+    void orderMethods_mustNotHoldTransaction() throws Exception {
+        var expectations = java.util.List.of(
+                RealTradeService.class.getMethod("buy", String.class, String.class, BigDecimal.class, Integer.class, String.class),
+                RealTradeService.class.getMethod("buy", String.class, BigDecimal.class, Integer.class, String.class),
+                RealTradeService.class.getMethod("sell", String.class, BigDecimal.class, Integer.class, String.class));
+        for (var m : expectations) {
+            var tx = m.getAnnotation(org.springframework.transaction.annotation.Transactional.class);
+            assertThat(tx).as("%s 에 NOT_SUPPORTED @Transactional 필요(클래스 tx 오버라이드)", m.getName()).isNotNull();
+            assertThat(tx.propagation())
+                    .as("%s 는 NOT_SUPPORTED — 클래스 @Transactional 로 되돌리면 KIS 네트워크가 tx 를 잡음", m.getName())
+                    .isEqualTo(org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED);
+        }
+    }
+
     // ==================== reconcileSellFill — 부분체결 이중집계 방지 ====================
 
     private VirtualTradeHistory sellTrade(long id, int qty) {
