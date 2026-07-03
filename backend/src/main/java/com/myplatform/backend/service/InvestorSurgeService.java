@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -46,6 +47,8 @@ public class InvestorSurgeService {
     private final SchedulerLockService schedulerLockService;
     // 시그널 적중률 — phase 16 통합. ObjectProvider 로 안전 주입.
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
+    // 수집 경로 시간 결정성 — ClockConfig#kstClock 주입 (봇과 동일 컨벤션)
+    private final Clock clock;
 
     // 급증 기준값 (억원)
     private static final BigDecimal SURGE_THRESHOLD_HOT = new BigDecimal("100");   // 100억 이상
@@ -65,7 +68,7 @@ public class InvestorSurgeService {
      */
     @Scheduled(cron = "0 2/10 8-19 * * MON-FRI", zone = "Asia/Seoul")  // 트레이딩 입력 — 기본 taskScheduler 풀
     public void collectIntradaySnapshot() {
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(clock);
 
         // 08:00 이전, 20:00 이후는 수집하지 않음
         if (now.isBefore(LocalTime.of(8, 0)) || now.isAfter(LocalTime.of(20, 0))) {
@@ -95,6 +98,18 @@ public class InvestorSurgeService {
             }
 
             log.info("장중 스냅샷 수집 완료");
+
+            // 수집 직후 Redis L2(all_0) 즉시 갱신 — 워머 warmInvestorSurge(fixedDelay 10분)는
+            // 서버 시작 시각에 따라 위상이 표류해 수집 cron(:x2) 직전에 돌면 봇/프론트가
+            // 한 사이클 전 스냅샷을 최대 ~10분 더 보게 됨(2026-07-03 봇 16분 stale 매수 보류 원인).
+            // 워머는 백업으로 유지, 여기서는 best-effort(실패해도 알림/수집엔 영향 없음).
+            if (!foreignSnapshots.isEmpty() || !institutionSnapshots.isEmpty()) {
+                try {
+                    refreshAllSurgeStocksCache();
+                } catch (Exception e) {
+                    log.warn("수집 직후 surge 캐시 갱신 실패 — 워머 다음 주기가 백업: {}", e.getMessage());
+                }
+            }
 
             // HOT 등급 또는 쌍끌이 종목 알림 발송
             sendSurgeAlerts(foreignSnapshots, institutionSnapshots);
@@ -141,11 +156,11 @@ public class InvestorSurgeService {
     private List<InvestorIntradaySnapshot> collectAndSaveSnapshot(String investorType) {
         List<InvestorIntradaySnapshot> snapshots = new ArrayList<>();
         try {
-            LocalDate today = LocalDate.now();
+            LocalDate today = LocalDate.now(clock);
             // 10분 단위로 정규화
-            LocalTime snapshotTime = LocalTime.now()
+            LocalTime snapshotTime = LocalTime.now(clock)
                     .withSecond(0).withNano(0)
-                    .withMinute((LocalTime.now().getMinute() / 10) * 10);
+                    .withMinute((LocalTime.now(clock).getMinute() / 10) * 10);
 
             // 직전 스냅샷 시간 조회 — 단, 시간 갭이 너무 크면(15분 초과) prev 무시.
             // 시나리오: 스냅샷 수집 실패로 09:02 누락 시 09:12 호출에서 08:52 데이터를 prev 로 가져와
