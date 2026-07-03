@@ -406,6 +406,7 @@
 
 <script>
 import apiClient, { adminAPI, telegramAPI } from '../utils/api';
+import { UserManager } from '../utils/auth';
 import { toast } from '../utils/toast';
 
 export default {
@@ -631,9 +632,9 @@ export default {
       this.$router.push('/admin/batch')
     },
     logout() {
-      localStorage.removeItem('jwt_token')
-      localStorage.removeItem('username')
-      localStorage.removeItem('role')
+      // UserManager.logout() 로 통일 — 손수 removeItem 은 jwt_refresh_token 미삭제라
+      // 라우터 가드가 /login→/user(또는 /admin) 로 되돌려 로그아웃이 먹지 않던 버그.
+      UserManager.logout()   // AT+RT 삭제 + 서버 Redis 토큰 best-effort 삭제
       this.$router.push('/login')
     },
     async checkTelegramStatus() {

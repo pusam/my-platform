@@ -254,6 +254,7 @@
 
 <script>
 import { newsAPI, financeAPI, assetAPI } from '../utils/api';
+import { UserManager } from '../utils/auth';
 import MarketInfoWidget from '../components/MarketInfoWidget.vue';
 import AdminDashboard from './AdminDashboard.vue';
 
@@ -364,9 +365,9 @@ export default {
       this.$router.push('/stock-dashboard')
     },
     logout() {
-      localStorage.removeItem('jwt_token')
-      localStorage.removeItem('username')
-      localStorage.removeItem('role')
+      // UserManager.logout() 로 통일 — 손수 removeItem 은 jwt_refresh_token 을 안 지워
+      // 라우터 가드(canRefresh)가 세션 살아있다고 보고 /login→/user 로 되돌려 "로그아웃 반응 없음" 버그였음.
+      UserManager.logout()   // AT+RT 삭제 + 서버 Redis 토큰 best-effort 삭제
       this.$router.push('/login')
     }
   }
