@@ -527,6 +527,14 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
+### 2026-07-06 세션 — ×10 가격 버그 진단 종결 + 봇 진입 sanity 가드
+
+**진단(Phase 1, `PRICE_X10_DIAGNOSIS_P0-2.md` §8)**: 3-트랙 경로 전수 재매핑 — 파싱 전 경로(REST `getBigDecimalValue`/네이버 `parsePrice`/WS `parseDecimalSafe`)에 ×10 산술 **0건**, WS 틱은 in-memory만(DB 미저장), `RealTimeDataCache`는 orphan. **핵심 구조: 현재가=UN(통합) vs 일봉 히스토리=J(KRX 단독) 소스 분리** — 재발 시 UN 응답 규약 문제로 즉시 좁혀지는 판별 구조. 운영 실측 최신 증거는 §6(06-04, 90일 0건) — **재현 불가·원인 미확정으로 §4c대로 파싱 수정 없음**(위장 금지), 재스캔 SQL/grep은 §8(b)에 준비(운영 실행 대기).
+
+**방어선(Phase 3)**: `util/PriceSanityGuard.judge()`(순수함수+`PriceSanityGuardTest` 13케이스) + `AutoTradingBotService.passesPriceSanity()` — 스캘핑·스윙 진입 직전, **전일 종가 대비 ±50% 초과 시 해당 종목 진입 차단 + 리스크 채널 알림(종목별 10분 스로틀)**. 앵커=`StockPriceHistory` 최신 종가(**J 소스라 UN 통배수 오염과 독립** — KIS 역산 prdy_vrss는 같이 스케일돼 무력이라 금지). 앵커 결측/0/4일 초과=UNKNOWN=통과(§4c: 결측 근거 차단 금지). §16-3 비충돌(가격 미보정, 주문만 차단). VIRTUAL/REAL 공통.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
