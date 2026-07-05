@@ -91,6 +91,7 @@ class AutoTradingBotServiceTest {
     @Mock private InvestorTradeService investorTradeService;
     @Mock private GlobalMarketService globalMarketService;
     @Mock private BotTradingPositionRepository positionRepository;
+    @Mock private com.myplatform.backend.repository.StockPriceHistoryRepository stockPriceHistoryRepository;
     // RealtimePriceBus 는 @ConditionalOnProperty 로 등록되어 단위 테스트에서는 빈 자체가 없음.
     // ObjectProvider 모킹 → getIfAvailable() = null 반환하도록 BeforeEach 에서 설정.
     @Mock private org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider;
@@ -121,6 +122,7 @@ class AutoTradingBotServiceTest {
                 investorTradeService,
                 globalMarketService,
                 positionRepository,
+                stockPriceHistoryRepository,
                 realtimePriceBusProvider,
                 clock,
                 // 리더 선출 비활성(enabled=false) → isLeaderForBot()=true 항상 통과 → 기존 봇 동작 보존

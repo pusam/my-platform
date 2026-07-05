@@ -15,7 +15,9 @@ import com.myplatform.backend.entity.BotTradingPosition;
 import com.myplatform.backend.entity.BotTradingPosition.Strategy;
 import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.BotTradingPositionRepository;
+import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
+import com.myplatform.backend.util.PriceSanityGuard;
 import com.myplatform.core.util.DateTimeUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
@@ -111,6 +113,8 @@ public class AutoTradingBotService {
     private final InvestorTradeService investorTradeService;
     private final GlobalMarketService globalMarketService;
     private final BotTradingPositionRepository positionRepository;
+    // 가격 sanity 가드 앵커(전일 종가) — StockPriceHistory 는 J(KRX 단독) 소스라 UN 통합시세 오염과 독립.
+    private final StockPriceHistoryRepository stockPriceHistoryRepository;
     // KIS WebSocket 실시간 시세 — kis.websocket.enabled=true 일 때만 빈이 등록되므로
     // ObjectProvider 로 optional 주입. 비활성 환경에서도 봇이 정상 동작.
     private final org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider;
@@ -270,6 +274,10 @@ public class AutoTradingBotService {
     private final Map<String, LocalDateTime> sellFailLastAlert = new ConcurrentHashMap<>();
     private static final int SELL_FAIL_GIVE_UP = 5;          // 5회 실패 시 포기
     private static final long SELL_FAIL_ALERT_COOLDOWN_SEC = 300;  // 5분
+
+    // 종목별 가격 sanity 차단 알림 시간 — 리스크 채널 스팸 방지 (10분 cooldown)
+    private final Map<String, LocalDateTime> priceSanityAlertAt = new ConcurrentHashMap<>();
+    private static final long PRICE_SANITY_ALERT_COOLDOWN_MIN = 10;
     // 당일 시작 자산 (킬 스위치용)
     private volatile BigDecimal dailyStartAsset = BigDecimal.ZERO;
     // 킬 스위치 발동 여부
@@ -406,6 +414,7 @@ public class AutoTradingBotService {
             InvestorTradeService investorTradeService,
             GlobalMarketService globalMarketService,
             BotTradingPositionRepository positionRepository,
+            StockPriceHistoryRepository stockPriceHistoryRepository,
             org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider,
             Clock clock,
             BotLeaderElectionService botLeader) {
@@ -426,6 +435,7 @@ public class AutoTradingBotService {
         this.investorTradeService = investorTradeService;
         this.globalMarketService = globalMarketService;
         this.positionRepository = positionRepository;
+        this.stockPriceHistoryRepository = stockPriceHistoryRepository;
         this.realtimePriceBusProvider = realtimePriceBusProvider;
         this.clock = clock;
         this.botLeader = botLeader;
@@ -1337,6 +1347,12 @@ public class AutoTradingBotService {
                     continue;
                 }
 
+                // ★ 가격 sanity 가드 — 전일 종가(J 소스) 대비 ±50% 초과(×10 오염 의심)면 진입 차단 ★
+                if (!passesPriceSanity(surge.getStockCode(), surge.getStockName(),
+                        entryResult.currentPrice, "스캘핑")) {
+                    continue;
+                }
+
                 // 매수 수량 계산
                 BigDecimal investAmount = currentBalance.compareTo(maxPerStock) < 0 ? currentBalance : maxPerStock;
                 int quantity = investAmount.divide(entryResult.currentPrice, 0, RoundingMode.DOWN).intValue();
@@ -2113,6 +2129,58 @@ public class AutoTradingBotService {
         }
     }
 
+    /**
+     * ×10 가격 이상치 봇 방어선 (2026-07-06) — 진입가가 전일 종가 대비 ±50% 초과면 주문 차단.
+     *
+     * <p>앵커 = {@code StockPriceHistory}(J=KRX 단독 소스) 최신 종가. 현재가 경로(UN 통합시세)와
+     * 소스가 분리돼 있어 UN 응답 전체 ×10(BATCH_SCALED)에도 오염되지 않는 유일한 앵커다.
+     * KIS 응답 역산(prdy_vrss)은 통배수 오염 시 같이 스케일돼 무력 — 앵커로 쓰지 말 것.
+     *
+     * <p>§16-3(가격 이상치 로깅만·미보정)과 비충돌 — 가격은 건드리지 않고 <b>주문만 막는다</b>.
+     * 앵커 결측/오래됨/조회실패 = UNKNOWN = 통과(§4c: 결측을 근거로 차단하지 않음 —
+     * 1차 탐지망은 여전히 {@code warnIfPriceOutlier} 로깅).
+     */
+    private boolean passesPriceSanity(String stockCode, String stockName, BigDecimal entryPrice, String botLabel) {
+        PriceSanityGuard.Result r;
+        try {
+            var anchor = stockPriceHistoryRepository.findTopByStockCodeOrderByTradeDateDesc(stockCode).orElse(null);
+            r = PriceSanityGuard.judge(entryPrice,
+                    anchor != null ? anchor.getClosePrice() : null,
+                    anchor != null ? anchor.getTradeDate() : null,
+                    LocalDate.now(clock));
+        } catch (Exception e) {
+            log.debug("[{}봇] 가격 sanity 앵커 조회 실패 — 가드 skip: {}", botLabel, e.getMessage());
+            return true;
+        }
+        if (r.verdict() != PriceSanityGuard.Verdict.BLOCKED) {
+            return true;
+        }
+        log.error("[{}봇] ★ 가격 sanity 차단 ★ {} ({}) 진입가 {}원 — {}",
+                botLabel, stockName, stockCode, formatNumber(entryPrice), r.detail());
+        notifyPriceSanityBlock(stockCode, stockName, entryPrice, r, botLabel);
+        return false;
+    }
+
+    /** 가격 sanity 차단 리스크 알림 — 같은 종목은 10분에 한 번만 (킬스위치 체크 실패 알림과 동일 스로틀 패턴). */
+    private void notifyPriceSanityBlock(String stockCode, String stockName, BigDecimal entryPrice,
+                                        PriceSanityGuard.Result result, String botLabel) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime last = priceSanityAlertAt.get(stockCode);
+        if (last != null && java.time.Duration.between(last, now).toMinutes() < PRICE_SANITY_ALERT_COOLDOWN_MIN) {
+            return;
+        }
+        priceSanityAlertAt.put(stockCode, now);
+        try {
+            telegramService.sendRisk(String.format(
+                    "<b>🚨 [%s봇] 가격 이상치 진입 차단</b>\n\n종목: <b>%s</b> (%s)\n진입 시도가: %s원 (전일 종가 대비 ×%s)\n\n%s\n※ 가격은 보정하지 않음 — 주문만 차단. [가격이상] 로그 확인 요망.",
+                    botLabel, stockName, stockCode, formatNumber(entryPrice),
+                    result.ratio() != null ? result.ratio().toPlainString() : "?",
+                    result.detail()));
+        } catch (Exception e) {
+            log.warn("[{}봇] 가격 sanity 차단 알림 발송 실패: {}", botLabel, e.getMessage());
+        }
+    }
+
     /** 매도 실패 알림 dedup — 같은 종목은 5분에 한 번만. */
     private boolean shouldSendSellFailAlert(String stockCode) {
         LocalDateTime now = LocalDateTime.now(clock);
@@ -2518,6 +2586,13 @@ public class AutoTradingBotService {
                 if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
 
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
+
+                // ★ 가격 sanity 가드 — 전일 종가(J 소스) 대비 ±50% 초과(×10 오염 의심)면 진입 차단 ★
+                if (!passesPriceSanity(candidate.getStockCode(), candidate.getStockName(),
+                        currentPrice, "스윙")) {
+                    continue;
+                }
+
                 int quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
                 if (quantity <= 0) continue;
 
