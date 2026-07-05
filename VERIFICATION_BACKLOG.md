@@ -233,7 +233,7 @@
 
 - **비고**: 코드 충돌이 아니라 **확장 안전성** 이슈. 현 단일 인스턴스에선 동작 정상.
   관련 주석: `SchedulerLockService`·`AutoTradingBotService` 클래스 Javadoc(2026-06-08 추가),
-  `CLAUDE.md`/`STOCK_AZ_FULL.md`(§3.5)/`STOCK_PLATFORM_GUIDE.md`(§7)에 동일 가정 명시됨.
+  `CLAUDE.md`/`STOCK_AZ_FULL.md`에 동일 가정 명시됨.
 
 ---
 
