@@ -79,6 +79,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
   - Phase 2(미체결 잔여분 능동 취소 `order-rvsecncl`)는 미구현 — 주문변경 API라 모의계좌 검증 필수.
   - ⚠ `inquireDailyCcld` 응답 필드(`output1`/`odno`/`tot_ccld_qty`)·TR_ID 는 규격 기준 — 실전 첫 매도 로그로 1회 확인(틀려도 null→UNKNOWN→현행이라 안전).
 - **KIS 주문 성공 + 로컬 DB 저장 실패 = 즉시 killswitch**(`triggerKillSwitchOnUncertainty`). KIS 비멱등이라 의도된 보수 동작 — 자동 재시도/롤백으로 바꾸지 말 것. killswitch 는 DB 기반이라 재시작해도 유지(매매 차단).
+- **봇 진입 가격 sanity 가드**(`PriceSanityGuard.judge` + `passesPriceSanity`, 2026-07-06): 진입가가 전일 종가 대비 ±50% 초과면 주문 차단(가격은 미보정 — §3 불변식과 비충돌, 주문만 막음). **앵커는 반드시 StockPriceHistory(J=KRX 단독) 종가** — KIS 응답 역산(prdy_vrss)은 통배수(BATCH_SCALED) 오염 시 같이 스케일돼 무력이므로 앵커로 쓰지 말 것. 앵커 결측/노후(4일 초과)=UNKNOWN=통과 — 결측 근거 차단 금지(§4c). 임계 50%를 낮추면 상한가 추종 오탐, 앵커를 UN 소스로 바꾸면 가드 무력화. ⚠ 앵커 결측=UNKNOWN=통과는 fail-open이므로 신규 상장(히스토리 부재) 종목은 가드 사각 — 인지된 트레이드오프.
 
 ### 5. 인프라 관련
 - 스케줄러 락(`SchedulerLockService`)은 **fail-open** (Redis SET NX EX). TTL < cron 으로 누락 시 다음 cron 재시도. **단일 인스턴스 전제 — 매매봇(`AutoTradingBotService` 실주문)은 이 락 미사용(JVM 내 가드만). 멀티 인스턴스 확장 시 봇 크론에 fail-closed 락 필수**(fail-open으론 Redis 장애 시 중복 주문 못 막음).
