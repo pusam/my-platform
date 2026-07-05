@@ -110,3 +110,57 @@ DB앵커 그물이 의심 로깅을 해도 가격 미보정이라 무해.
 - `CURRENT_FIELD_OUTLIER` 우세 → **파싱/필드 매핑** → 매핑 수정.
 
 (현재는 미발생이므로 근본 보정 불필요 — 재발 시 별도 티켓.)
+
+## 8. 2026-07-06 재점검 — 경로 전수 재매핑 + 봇 방어선 추가
+
+### (a) 코드 경로 전수 재매핑 (3-트랙 병렬 조사) — ×10 산술 유입 지점 없음 재확인
+
+| 경로 | 소스 | 시장구분 | 목적지 | ×10 유입 가능성 |
+|---|---|---|---|---|
+| 현재가 REST | FHKST01010100 (`getStockPriceInternal`) | **UN 고정**(종목별 분기 없음) | `stock_price` + priceCache + UI | **응답 자체 ×N 만 가능** (파싱 무결) |
+| 현재가 네이버 폴백 | m.stock.naver `closePrice` | — | 동일 | 낮음 (`parsePrice` 콤마 제거만) |
+| 일봉 히스토리 | `getDailyOhlcv` | **J (KRX 단독)** | `stock_price_history` | 낮음 — **UN 오염과 격리된 독립 소스** |
+| WS 체결틱 | H0STCNT0 | KRX | `RealtimePriceBus`(in-memory) | **DB 미저장** — 영속 오염과 무관. 필드 인덱스 규약 일치 |
+| 전종목 크롤 | Jsoup 재무 | — | `stock_financial_data` | 무관(가격 테이블 아님) |
+
+- 파싱 전 경로(`getBigDecimalValue` L1173 / `parsePrice` L1018 / WS `parseDecimalSafe`)는 `new BigDecimal(콤마제거)` 뿐 —
+  `multiply/divide 10`, `movePointLeft/Right`, `scaleByPowerOfTen` 가격 적용 **0건** (서비스 패키지 전수 grep).
+- `RealTimeDataCache` 는 호출부 없는 orphan (×10 무관).
+- **핵심 구조 확인: 현재가=UN vs 히스토리=J 소스 분리.** 재발 시 ×10 이 현재가에만 나타나고 차트(히스토리)는
+  정상이라면 UN 응답 규약 문제로 즉시 좁혀진다. 역으로 이 분리 덕에 히스토리 종가는 봇 가드의 유효한 앵커가 된다(아래 (c)).
+
+### (b) 실측 증거 — §6(2026-06-04, 90일 0건)이 최신. 재스캔 SQL/grep 준비됨(운영 실행 대기)
+
+```sql
+-- 밴드 스캔(30일): stock_price 현재가가 자기 당일 밴드 밖 (§6 결정적 스캔과 동일)
+SELECT COUNT(*) FROM stock_price
+WHERE fetched_at >= NOW() - INTERVAL 30 DAY AND high_price>0 AND low_price>0
+  AND (current_price < low_price*0.9 OR current_price > high_price*1.1);
+
+-- 히스토리 전일 대비 5×/0.2× 점프(60일): J 소스 대조군 — 0건 + stock_price N건이면 UN 가설 확정
+SELECT h1.stock_code, h1.trade_date, h1.close_price, h2.close_price AS prev_close,
+       ROUND(h1.close_price/h2.close_price,2) AS ratio
+FROM stock_price_history h1
+JOIN stock_price_history h2 ON h2.stock_code=h1.stock_code
+ AND h2.trade_date=(SELECT MAX(trade_date) FROM stock_price_history
+                    WHERE stock_code=h1.stock_code AND trade_date<h1.trade_date)
+WHERE h1.trade_date >= CURDATE()-INTERVAL 60 DAY
+  AND (h1.close_price>=h2.close_price*5 OR h1.close_price<=h2.close_price*0.2);
+```
+```bash
+docker compose logs backend --since 720h | grep "\[가격이상\]"        # 3중 그물 발화
+docker compose logs backend --since 720h | grep "\[가격이상-진단\]"   # UN vs J raw 대조
+```
+(또는 기배포 `GET /api/diagnostics/price-scaling?hoursBack=720` — bySession 으로 NXT 군집 판정.)
+
+### (c) 판정 — 재현 불가(현 증거 기준), 원인 미확정. §4c 원칙대로 "고쳤다"고 위장하지 않음
+
+- 파싱 계층 수정 **없음** — 앱 코드에 결함 산술이 없고, 운영 실측 최신 증거(§6)가 0건이므로 고칠 대상이 없다.
+  재발 시 §7 분기(BATCH_SCALED → UN 규약 재매핑 / CURRENT_FIELD_OUTLIER → 필드 매핑 수정)를 그대로 따른다.
+- 대신 **방어선 추가(2026-07-06)**: 봇 진입 가격 sanity 가드 — `util/PriceSanityGuard.judge()`(순수함수,
+  `PriceSanityGuardTest`) + `AutoTradingBotService.passesPriceSanity()`(스캘핑·스윙 진입 직전).
+  - **전일 종가 대비 ±50% 초과 → 해당 종목 진입 차단 + 텔레그램 리스크 알림(종목별 10분 스로틀).**
+  - 앵커 = `StockPriceHistory` 최신 종가(**J 소스라 UN 오염과 독립** — KIS 응답 역산(prdy_vrss)은 통배수
+    오염 시 같이 스케일돼 무력이므로 금지). 앵커 결측/0/4일 초과 노후 = UNKNOWN = 통과(§4c).
+  - §16-3(이상치 로깅만·미보정)과 비충돌 — 가격은 안 고치고 **주문만 차단**. 1차 탐지망은 여전히
+    `warnIfPriceOutlier` ERROR 로그.
