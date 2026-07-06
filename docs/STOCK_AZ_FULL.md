@@ -594,12 +594,24 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 - **Option 2(마지막 재시도 공격적 호가/시장가 하드닝) = 검토 후 기각**: 저확률 잔여 갭 대비 주문 semantics 변경 + 슬리피지 도입이 과대. **15:29 잔여 알림 실발생 빈도가 축적돼 근거가 생기면 재개봉.**
 - **백로그 신규 2건(코드 미수정)**: **P2-13-a** — `AutoTradingBotService.java:216-223` 주석이 "매도 가드 08:00~20:00, cron binding"이라 서술하나 실제로는 두 매도 내부(line 1899·2780)의 `isMarketClosed()`(15:30)가 binding(08~20 윈도우는 15:30 이후 死코드) → NXT 배선 시 정정. **P2-13-b** — 지정가 청산 잔여 하드닝(Option 2, 위 기각 근거 하에 데이터 축적 시 재검토).
 
+### 2026-07-06 세션 — 매크로 tilt (P3-7, 표시 전용·unverified·산식 미편입) + V39 일일 스냅샷
+
+간밤 미국장 tilt(작업3)의 **패턴 복제** — 매크로 3축으로 RISK_ON/NEUTRAL/RISK_OFF 를 '오늘' 탭에 보조 표시(간밤 줄 아래 형제 줄 "🌐 매크로"). 차별점 = **판정값 일일 영속화**(간밤은 미영속): 주간 리포트에서 regime v1 대비 예측력 사후 측정이 승격 조건이라 기록 없으면 검증 불가.
+
+- **3축 소스**: ① **VKOSPI = KIS 업종코드 `0503`** — 지수 마스터(idxcode.mst) 실물 확인으로 확정(`00503VKOSPI`, KOSPI `00001종합`→`0001` 동일 구조) → **기존 `getIndexDailyOhlcv("0503")` 재사용**(신규 TR·KRX 폴백 불필요. 운영 첫 응답 1회 확인 — 빈 응답이면 축 null 강등, §4c). ② **국고3년 = ECOS**(`EcosClient` 신규 — 817Y002/010200000, 기준금리 722Y001은 스냅샷 참고용) 20거래일 추세(bp). ③ **SOX 추세 = 자체 스냅샷 축적**(기존 Yahoo ^SOX 단건 재사용, 신규 소스 0) — 최신 live vs ~5거래일 전 자체 기록. **콜드스타트 ~5거래일 soxTrend=null = 의도된 웜업**(§4c, 축 제외로 자연 강등).
+- **분류**(`MacroTiltService.classifyMacroRegime`, 순수+테스트 12케이스): VKOSPI≥30 → RISK_OFF 강제(간밤 VIX≥30 대칭) · 축별 투표(VKOSPI <18/≥25, 금리 ∓15bp, SOX ±3%) · null 축 투표 제외 · 합 ±2. **임계 전부 임시값.** 알려진 한계 2건 Javadoc 명시: **NEUTRAL 고착 비대칭**(ECOS 키 발급 전 금리 축 상시 null → RISK_ON 은 2축 동시 극단 필요. ±2를 가용 축 수로 스케일 금지 — 시계열 오염) · **금리 부호 양면성**(하락=완화 기대 vs 안전자산 쏠림 — 1순위 캘리브레이션 대상).
+- **V39 `macro_tilt_snapshot`**(일 1행 UPSERT, V37 선례): tilt + **판정 입력 3종 재현용**(vkospi/ktb3y·rate_trend_bp/sox_level·sox_trend_pct) + **관측일 3종**(vkospi_date/rate_date/sox_asof — 08:15 스냅 시 VKOSPI=T−1·ECOS=T−1~2, 사후검증 신선도 필터) + **regime_v1 동시 스냅**(`getCurrentRegimeQuiet`) + drivers(사용자가 본 그대로). `MacroTiltScheduler` 08:15 크론(락 `macro.tilt-snapshot`, `macro.tilt.snapshot-enabled` 기본 ON). **단일 compute 경로** — 표시 API(`GET /api/macro-tilt`, 30분 캐시)와 스냅샷이 같은 계산 사용(어긋나면 "본 tilt"≠"검증되는 tilt").
+- **ECOS 키 설정 절차(미발급 상태로 완성 — 키 없이 금리 축만 null)**: ① https://ecos.bok.or.kr 인증키 발급 → ② 서버 `.env` 에 `ECOS_API_KEY=<키>` → ③ compose backend `environment:` 이중배선은 커밋됨(`${ECOS_API_KEY:-}`) → ④ **backend recreate 필요**(`docker compose up -d --force-recreate --no-deps backend` — env_file 은 생성 시점 고정, §4b 함정 동일). 검증: `/api/macro-tilt` drivers 에 "국고3년" 등장.
+- **함정 방어**(EcosClient): 키가 **URL path 포함** → 실패 로그에 URI 미출력(유출 방지) · **INFO-200/100 = HTTP 200 + RESULT body** → 조용히 빈 리스트(키 발급 전 ERROR 스팸 방지) · **%→bp ×100 은 명명 순수 헬퍼**(`trendBp`)+테스트(단위 무음 버그 가드) · §16-10 URI.
+- **불변식**: python regime v1·추천 산식·봇 **절대 미편입**(표시+스냅샷만) · 어휘 RISK_ON/OFF ≠ BULL/BEAR(의도적 분리) · `unverified=true`. 승격 조건 = **P3-7**(주간 리포트 기준 v1 대비 유의한 추가 예측력 확인 시 regime 보조 입력 후보로 재검토).
+- **배포 후 확인**: 08:15 스냅샷 1행 생성 · VKOSPI 0503 첫 실응답 · 키 미발급 상태에서 ERROR 로그 0.
+
 ---
 
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**·**P3-7 매크로 tilt 캘리브레이션/승격(V39 스냅샷 축적 중)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 

@@ -20,6 +20,14 @@
       <span class="ov-beta">미검증 참고</span>
     </div>
 
+    <!-- ①-c 매크로 tilt (VKOSPI·국고3년·SOX 추세 · 미검증 참고 · regime 산식 미편입, 독립 표시 · P3-7) -->
+    <div v-if="macroAvailable && macroTilt" class="today-overnight">
+      <span class="ov-label">🌐 매크로</span>
+      <span class="ov-tilt" :class="macroTiltClass(macroTilt.tilt)">{{ macroTiltLabel(macroTilt.tilt) }}</span>
+      <span v-if="macroTilt.drivers && macroTilt.drivers.length" class="ov-drivers">{{ macroTilt.drivers.join(' · ') }}</span>
+      <span class="ov-beta">미검증 참고</span>
+    </div>
+
     <!-- ② 오늘의 매수 후보 -->
     <div class="today-section">
       <div class="ts-title-row">
@@ -174,6 +182,8 @@ const backtestOverall = ref(null);
 const portfolio = ref([]);
 const overnight = ref(null);          // 간밤 미국장 tilt(미검증 참고 · regime 산식 미편입)
 const overnightAvailable = ref(true); // dataAvailable=false → Yahoo 미가용
+const macroTilt = ref(null);          // 매크로 tilt(P3-7 · 미검증 참고 · regime 산식 미편입)
+const macroAvailable = ref(true);     // dataAvailable=false → 3축 전부 미수집
 
 const hasMarketData = computed(() =>
   !!(props.marketData && props.marketData.kospiIndex));
@@ -275,11 +285,25 @@ const loadOvernight = async () => {
   }
 };
 
+// 매크로 보조 tilt(P3-7) — VKOSPI·국고3년·SOX 추세. regime 산식 미편입, 참고 표시 전용(미검증). best-effort.
+const loadMacroTilt = async () => {
+  try {
+    const { data } = await apiClient.get('/macro-tilt');
+    macroTilt.value = data?.data || null;
+    macroAvailable.value = !!(macroTilt.value && macroTilt.value.dataAvailable !== false);
+  } catch (e) {
+    macroTilt.value = null;
+    macroAvailable.value = false;
+  }
+};
+
 const gradeLabel = (score) => (Number(score) >= STRONG_BUY_CUT ? '강력 매수' : '매수');
 const gradeClass = (score) => (Number(score) >= STRONG_BUY_CUT ? 'grade-strong' : 'grade-buy');
 const directionLabel = (d) => ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[d] || d);
 const overnightTiltLabel = (t) => ({ BULL: '강세', NEUTRAL: '중립', BEAR: '약세' }[t] || t);
 const overnightTiltClass = (t) => (t === 'BULL' ? 'positive' : t === 'BEAR' ? 'negative' : '');
+const macroTiltLabel = (t) => ({ RISK_ON: '위험선호', NEUTRAL: '중립', RISK_OFF: '위험회피' }[t] || t);
+const macroTiltClass = (t) => (t === 'RISK_ON' ? 'positive' : t === 'RISK_OFF' ? 'negative' : '');
 const changeClass = (v) => (Number(v) > 0 ? 'positive' : Number(v) < 0 ? 'negative' : '');
 const signed = (v, grouping = false) => {
   if (v == null) return '—';
@@ -294,6 +318,7 @@ onMounted(() => {
   loadTrust();
   loadPortfolio();
   loadOvernight();
+  loadMacroTilt();
 });
 </script>
 

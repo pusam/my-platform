@@ -126,6 +126,11 @@ gemini:
 python-backend:
   base-url: ${PYTHON_BACKEND_URL:http://localhost:8000}
 
+# 한국은행 ECOS OpenAPI (매크로 tilt 금리 축, P3-7). 키 미설정 시 금리 축 null(§4c) — 기능 자체는 동작.
+ecos:
+  api:
+    key: ${ECOS_API_KEY:}
+
 # 7. 한국투자증권 API 설정
 kis:
   api:

@@ -104,6 +104,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - NAVER_CLIENT_ID=${NAVER_CLIENT_ID:-}
       - NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET:-}
+      # 한국은행 ECOS (매크로 tilt 금리 축) — 미설정 시 금리 축 null 로 동작(§4c)
+      - ECOS_API_KEY=${ECOS_API_KEY:-}
     deploy:
       resources:
         limits:

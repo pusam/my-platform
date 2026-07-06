@@ -377,6 +377,22 @@
 
 ---
 
+## P3-7. 매크로 tilt 캘리브레이션/승격 (미검증 표시 전용 — 2026-07-06 신규, V39 스냅샷 축적 중)
+
+> **배경**: 간밤 미국장 tilt(P3-5) 패턴 복제로 매크로 3축 보조 tilt(`MacroTiltService.classifyMacroRegime`)를 '오늘' 탭에 추가했다.
+> 3축 = **VKOSPI 레벨**(KIS 업종코드 0503 — idxcode.mst 실물 확인으로 확정) · **국고3년 20거래일 추세 bp**(ECOS 817Y002, 키 발급 전 null)
+> · **SOX 5거래일 추세**(자체 스냅샷 축적 — 콜드스타트 ~5거래일 null = 의도된 웜업). 임계(VKOSPI 18/25/30, 금리 ±15bp, SOX ±3%, 합 ±2)는
+> 전부 **임시값** — `unverified=true`로 regime v1/봇/추천 산식 미편입, 표시 전용. **간밤 tilt와 달리 판정을 매일 영속**(`macro_tilt_snapshot` V39,
+> 판정 입력 3종+관측일 3종+regime_v1 동시 스냅) — 이 사후검증 데이터가 없으면 승격 판단 자체가 불가해서다.
+
+- **검증 과제**: 스냅샷 축적 후(최소 8~12주) tilt(RISK_ON/NEUTRAL/RISK_OFF) vs **KOSPI 익일/주간 방향** 적중률을 regime v1(BULL/BEAR/SIDEWAYS, 같은 행에 동시 스냅됨)과 비교 — **v1이 이미 아는 것 위에 추가 예측력이 있는가**(v1 오분류 구간을 매크로가 보정하는가). 관측일 컬럼(vkospi_date/rate_date/sox_asof)으로 스테일 입력 행 필터.
+- **승격 조건**: **주간 리포트 기준 v1 대비 유의한 추가 예측력 확인 시 regime 보조 입력 후보로 재검토.** (그 전엔 표시 전용 유지 — 차트타이밍 P2-12 교훈: 검증 안 된 지표 합산 금지.)
+- **알려진 한계(코드 Javadoc 동기)**: ① NEUTRAL 고착 비대칭 — ECOS 키 발급 전 금리 축 상시 null → RISK_ON은 2축 동시 극단 필요(±2를 가용 축 수로 스케일 금지 — 시계열 오염). ② 금리 부호 양면성(하락=완화 기대 vs 안전자산 쏠림) = 1순위 캘리브레이션 대상. ③ VKOSPI 0503 운영 첫 응답 미확인(빈 응답이면 축 null 강등, §4c — 배포 후 1회 확인).
+- **데이터 소스**: `macro_tilt_snapshot`(tilt+입력 3종+관측일+regime_v1+drivers, 08:15 일 1행) + KOSPI 방향 = `getIndexDailyOhlcv("0001")` 온디맨드(스냅샷에 저장 안 함 — 08:15 저장은 T−1이라 부정확). 비교 집계는 `SignalWeeklyReportService`/`WeeklyAccuracyAggregator` 확장 지점.
+- **관련**: `MacroTiltService`(classify·computeSoxTrend 순수, `MacroTiltServiceTest`), `EcosClient`(parse·trendBp 순수, `EcosClientTest` — INFO-200 무음·bp ×100·키 URI 미로깅), `MacroTiltScheduler`(08:15), `MacroTiltController`(`/api/macro-tilt`), V39, 프론트 `TodayBriefingTab.vue`(`loadMacroTilt`). ECOS 키 절차 = STOCK_AZ_FULL §19 2026-07-06.
+
+---
+
 ## P1-6. 종합점수 4카테고리 적중률 캘리브레이션 (★1순위 — 2026-06-30 신규, 실측 진단 기반)
 
 > **배경**: 차트타이밍 백테스트(31%·점수 역상관, P2-12)에서 "검증 안 된 지표를 합산하면 좋은 신호를 망친다"를 학습.
