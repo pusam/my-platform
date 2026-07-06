@@ -1,0 +1,81 @@
+{
+ "meta": {
+  "hypothesis": "포트폴리오 — 고정 -3/+5 vs ATR세트(x2.5 청산 + 리스크 균등 사이징)",
+  "coreQuestion": "세트가 일일 손실 브레이커 발동을 늘리지 않는가",
+  "period": {
+   "start": "20260102",
+   "end": "20260630"
+  },
+  "universeSize": 139,
+  "signalSet": "기술 미러 >=13 강세 신호(proxy) — 운영 STRONG_BUY/BUY 아님. 스냅샷 CSV 주입 시 total>=55 로 측정.",
+  "botMirror": "SWING_INVESTMENT_RATIO 50% / MAX_HOLDING 2 / MAX_HOLD_DAYS 5(타임컷) / 브레이커 = 당일 실현 <= -한도 -> 그날 진입 차단(다음날 자동 해제) / PositionSizer(축소 전용)·AtrExitRule(RR 5/3) Java 미러",
+  "caveats": [
+   "트레일링 스탑(+2% 후 -2%)은 일봉 근사 불가 — 두 변형 모두 미적용",
+   "신호셋 proxy(기술>=13) — 운영 스윙(수급 연속일) 모집단과 상이",
+   "생존편향(현 유니버스)·동시신호 슬롯 경합은 ticker 순 결정론 처리"
+  ]
+ },
+ "results": {
+  "fixed": {
+   "variant": "fixed",
+   "params": {
+    "capitalKrw": 500000,
+    "breakerLimitKrw": 300000,
+    "riskBudgetKrw": null,
+    "maxHolding": 2,
+    "maxHoldDays": 5,
+    "investmentRatio": 0.5,
+    "atrK": null
+   },
+   "totalReturnPct": -70.939,
+   "maxDrawdownPct": 72.677,
+   "maxDailyRealizedLossKrw": -193420.4,
+   "breakerTripDays": 0,
+   "breakerTripDates": [],
+   "blockedEntriesByBreaker": 0,
+   "trades": 377,
+   "winRate": 31.83,
+   "avgNetPct": -0.747,
+   "avgHoldDays": 1.51,
+   "atrFallbackEntries": null,
+   "exitBreakdown": {
+    "stop": 254,
+    "target": 115,
+    "time": 8,
+    "eod_final": 0
+   },
+   "insufficientSample": false
+  },
+  "atr_set": {
+   "variant": "atr_set",
+   "params": {
+    "capitalKrw": 500000,
+    "breakerLimitKrw": 300000,
+    "riskBudgetKrw": 50000,
+    "maxHolding": 2,
+    "maxHoldDays": 5,
+    "investmentRatio": 0.5,
+    "atrK": 2.5
+   },
+   "totalReturnPct": 96.334,
+   "maxDrawdownPct": 18.019,
+   "maxDailyRealizedLossKrw": -73984.0,
+   "breakerTripDays": 0,
+   "breakerTripDates": [],
+   "blockedEntriesByBreaker": 0,
+   "trades": 67,
+   "winRate": 59.7,
+   "avgNetPct": 1.844,
+   "avgHoldDays": 4.6,
+   "atrFallbackEntries": 0,
+   "exitBreakdown": {
+    "stop": 5,
+    "target": 9,
+    "time": 53,
+    "eod_final": 0
+   },
+   "insufficientSample": false
+  },
+  "verdict": "브레이커 발동 동수 이하 충족 · 총수익 우위(-70.939% → 96.334%) · 일일 최대 실현손실 -193420.4 → -73984.0원 — REAL 확장은 VIRTUAL 2주+ 실측 후 별도 결정"
+ }
+}
