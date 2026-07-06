@@ -4,6 +4,7 @@ import com.myplatform.backend.dto.SignalAccuracyDto;
 import com.myplatform.backend.dto.SignalCompareDto;
 import com.myplatform.backend.dto.SignalTimeseriesDto;
 import com.myplatform.backend.service.SignalOutcomeService;
+import com.myplatform.backend.service.SignalWeeklyReportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +29,7 @@ import java.util.Map;
 public class SignalOutcomeController {
 
     private final SignalOutcomeService signalOutcomeService;
+    private final SignalWeeklyReportService signalWeeklyReportService;
 
     @GetMapping("/accuracy")
     @Operation(
@@ -127,6 +129,49 @@ public class SignalOutcomeController {
             log.error("[SignalOutcome API] 비교 조회 실패: {}", e.getMessage(), e);
             response.put("success", false);
             response.put("message", "비교 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/weekly-report")
+    @Operation(
+        summary = "주간 시그널 예측력 측정 — 최신 스냅샷 (P1-6 상설화)",
+        description = "매주 일요일 배치가 저장한 최신 주간 측정 리포트. 카테고리 × regime(BULL/BEAR/SIDEWAYS/" +
+                     "UNKNOWN) × 밴드 적중률/평균 alpha/표본수 + 이번 주 vs 누적 추세 + 경고. " +
+                     "표본 n<10 셀은 insufficientSample=true 로 표기(숨기지 않음). 아직 생성 전이면 data=null."
+    )
+    public ResponseEntity<Map<String, Object>> weeklyReport() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", signalWeeklyReportService.getLatestReport().orElse(null));
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[SignalOutcome API] 주간 리포트 조회 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "주간 리포트 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/weekly-report/history")
+    @Operation(
+        summary = "주간 예측력 측정 — 최근 12주 히스토리 (추세)",
+        description = "주차별 헤드라인 스냅샷(week_start/weekly_n/cumulative_n/supply_inverted). " +
+                     "시간에 따른 예측력 변화·수급 역상관 지속 주차 추적용. 상세 크로스탭은 각 주 report_json."
+    )
+    public ResponseEntity<Map<String, Object>> weeklyReportHistory() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", signalWeeklyReportService.getHistory());
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[SignalOutcome API] 주간 히스토리 조회 실패: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "주간 히스토리 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }
