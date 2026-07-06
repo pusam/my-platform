@@ -103,5 +103,7 @@ public class SignalBandAccuracyDto {
         private long hitCount;
         private BigDecimal hitRate;
         private BigDecimal avgPctChange;
+        /** 강세 표본 평균 alpha_3d (vs KOSPI). 주간 측정(P1-6 상설화) 지표. alpha 미수집 행은 제외. */
+        private BigDecimal avgAlpha;
     }
 }

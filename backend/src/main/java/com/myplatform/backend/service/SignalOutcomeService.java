@@ -667,14 +667,15 @@ public class SignalOutcomeService {
             String label = (String) def[1];
             int threshold = (int) def[2];
             long total = 0, hits = 0;
-            BigDecimal pctSum = BigDecimal.ZERO;
-            long pctCount = 0;
+            BigDecimal pctSum = BigDecimal.ZERO, alphaSum = BigDecimal.ZERO;
+            long pctCount = 0, alphaCount = 0;
             for (SignalOutcome s : rows) {
                 Integer score = categoryScore(s, key);
                 if (score == null || score < threshold) continue;   // 카테고리별 임계
                 total++;
                 if (Boolean.TRUE.equals(s.getHit())) hits++;
                 if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+                if (s.getAlpha3d() != null) { alphaSum = alphaSum.add(s.getAlpha3d()); alphaCount++; }
             }
             result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.CategoryStat.builder()
                     .key(key)
@@ -684,6 +685,7 @@ public class SignalOutcomeService {
                     .hitCount(hits)
                     .hitRate(rate(hits, total))
                     .avgPctChange(avg(pctSum, pctCount))
+                    .avgAlpha(avg(alphaSum, alphaCount))
                     .build());
         }
         return result;
