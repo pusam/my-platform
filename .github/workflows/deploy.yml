@@ -65,6 +65,21 @@ jobs:
           path: backend/build/reports/tests/
           retention-days: 7
 
+      # 실제 MariaDB(Testcontainers) 상에서 Flyway 마이그레이션 전체 적용을 검증.
+      # 별도 step 으로 분리 — 실패 시 "어느 게이트에서 막혔는지" 로그에서 즉시 식별.
+      # ubuntu-latest 러너는 Docker 사전 설치 → DinD 불필요. 이 step 실패 시 build-backend 잡이
+      # 실패하고 deploy 잡(needs: build-backend)이 실행되지 않아 SSH 배포에 도달하지 못한다.
+      - name: Run Flyway migration test (Testcontainers MariaDB)
+        run: ./gradlew :backend:migrationTest -PskipFrontend
+
+      - name: Upload migration test reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-migration-test-reports
+          path: backend/build/reports/tests/
+          retention-days: 7
+
       - name: Build with Gradle
         run: ./gradlew bootJar -x test -PskipFrontend
 

@@ -72,6 +72,36 @@ dependencies {
     // ClassNotFoundException 로 컨텍스트 초기화 실패. SB 4.x 호환 버전 출시 후 재추가 예정.
     // implementation 'io.sentry:sentry-spring-boot-starter-jakarta:7.18.0'
     // implementation 'io.sentry:sentry-logback:7.18.0'
+
+    // Testcontainers — FlywayMigrationTest(@Tag("migration")) 전용. 실제 mariadb:11.2 상에서
+    // 마이그레이션 전체 적용을 검증(스모크의 H2+Flyway off 사각을 보완).
+    // Spring Boot 4.0 dependency-management 는 testcontainers 버전을 관리하지 않아 BOM 을 직접 import.
+    testImplementation platform('org.testcontainers:testcontainers-bom:1.20.4')
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:mariadb'
+}
+
+// ----------------------------------------------------------------------------
+// 마이그레이션 테스트 분리 (느린 Testcontainers 테스트 ↔ 빠른 스모크/단위 피드백)
+// ----------------------------------------------------------------------------
+// 기본 test 태스크는 'migration' 태그를 제외해 H2 스모크의 빠른 피드백을 보존한다.
+// (backend 에만 적용 — core/jwt-redis 무영향. 루트 build.gradle 은 무변경.)
+tasks.named('test') {
+    useJUnitPlatform {
+        excludeTags 'migration'
+    }
+}
+
+// migrationTest — Docker 필요. 로컬은 Docker Desktop, CI 는 build-backend 별도 step 에서 실행.
+tasks.register('migrationTest', Test) {
+    description = 'Testcontainers 기반 Flyway 마이그레이션 테스트 (실제 mariadb:11.2). Docker 필요.'
+    group = 'verification'
+    useJUnitPlatform {
+        includeTags 'migration'
+    }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    shouldRunAfter tasks.named('test')
 }
 
 // 프론트엔드 빌드 태스크 (CI에서는 -PskipFrontend로 건너뛰기)
