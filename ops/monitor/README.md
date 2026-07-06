@@ -6,6 +6,7 @@
 | 파일 | 역할 | 권장 cron |
 |---|---|---|
 | `host_check.sh` | 디스크 사용률 ≥85% · 가용 RAM+swap <512MB · `docker compose ps` 에 unhealthy/exited/restarting 존재 시 경고 | 매 30분 |
+| `cert_check.sh` | 도메인 SSL 인증서 만료 **14일 미만**이면 경고 (openssl 로 실서빙 인증서 직접 조회) | 매일 1회 |
 
 설계 원칙(ops/backup 과 동일): 시크릿 하드코딩 0 (텔레그램=`.env`) · `set -euo pipefail` ·
 **정상 시 무알림 / 이상 시에만 시끄럽게**(§4c) · 임계값은 환경변수로 오버라이드 가능.
@@ -42,7 +43,30 @@ DISK_MAX_PCT=1 bash ops/monitor/host_check.sh   # 디스크 경고가 텔레그�
 
 ---
 
-## 2. 설치 (서버, git pull 후 — 수동)
+## 2. cert_check.sh
+
+certbot 컨테이너가 12h 주기로 renew 를 돌지만, 컨테이너 사망·webroot 경로 깨짐·
+Let's Encrypt rate limit 등으로 갱신이 **조용히 실패**할 수 있다. 갱신 로그가 아니라
+**실제 서빙 중인 인증서**를 `openssl s_client` 로 밖에서 직접 조회한다.
+
+| 항목 | 기본값 | 오버라이드 |
+|---|---|---|
+| 감시 도메인 | `dhkim-lab.duckdns.org` (스크립트 상단 변수) | `DOMAINS="a.com b.com"` |
+| 경고 임계 | 만료 **14일** 미만 | `MIN_DAYS` |
+
+- 조회 실패(연결 불가/타임아웃)도 경고 — "감시 불능"을 조용히 넘기면 사각이 된다.
+- 만료 여유가 있으면 stdout 한 줄만(무알림).
+
+### 수동 실행 (검증)
+```bash
+bash ops/monitor/cert_check.sh
+# → "[cert_check] ✅ dhkim-lab.duckdns.org: NN일 남음 ..."
+MIN_DAYS=999 bash ops/monitor/cert_check.sh   # 알림 경로 검증(강제 경고)
+```
+
+---
+
+## 3. 설치 (서버, git pull 후 — 수동)
 
 ```bash
 cd /home/dev/my-platform
@@ -58,13 +82,15 @@ crontab -e
 ```cron
 # 호스트 리소스 감시 — 매 30분 (정상 무알림, 이상 시 텔레그램 리스크 채널)
 */30 * * * * cd /home/dev/my-platform && bash ops/monitor/host_check.sh >> /var/log/myplatform-host-check.log 2>&1
+# SSL 인증서 만료 감시 — 매일 09:20 (만료 14일 미만 시 경고)
+20 9 * * * cd /home/dev/my-platform && bash ops/monitor/cert_check.sh >> /var/log/myplatform-cert-check.log 2>&1
 ```
 
 로그 파일은 크지 않지만(30분당 1줄) 필요하면 logrotate 나 주기 truncate 로 관리.
 
 ---
 
-## 3. 운영 노트
+## 4. 운영 노트
 
 - **정상 무알림 원칙**: "알림이 안 옴 = 정상"이 아니라 "cron 이 죽어도 알림이 안 옴"일 수
   있다 — cron 등록 직후 수동 실행/임계 강제 위반으로 알림 경로를 1회 검증해 둘 것
