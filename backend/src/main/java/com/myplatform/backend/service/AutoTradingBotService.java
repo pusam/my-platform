@@ -213,13 +213,16 @@ public class AutoTradingBotService {
     // ║  킬스위치: 스캘핑 -1.5% / 전체(스윙 포함) -3%                ║
     // ║  나스닥 선물 ≤ -1% → 스캘핑 매수 보류                        ║
     // ╚══════════════════════════════════════════════════════════════╝
-    // [매도/청산 시간 윈도우 — 의도된 비대칭]
-    //   진입(매수)은 KRX 중심(스캘핑 09~11, 스윙 14:00)이지만, 매도/청산 가드는
-    //   PRE_MARKET_START~AFTER_MARKET_END = 08:00~20:00(NXT 프리+정규+애프터마켓)이다.
-    //   시장이 열려 있는 동안 언제든 손절/익절 가능하게 한 의도 — 과한 윈도우가 아님.
-    //   매도 cron 은 8-19시(애프터마켓 정식 도입 2026-09-14 전 방어), 가드는 20시까지(확장 대비) → cron 이 binding.
+    // [매도/청산 시간 윈도우 — ⚠ 실제 binding 은 isMarketClosed()(15:30), 08:00~20:00 아님]
+    //   진입(매수)은 KRX 중심(스캘핑 09~11, 스윙 14:00). 아래 매도/청산 상수 PRE_MARKET_START~
+    //   AFTER_MARKET_END(08:00~20:00)는 넓게 잡혀 있으나, 두 매도 내부(executeScalpingSellLogicInternal·
+    //   executeSwingSellLogicInternal)가 이 08~20 윈도우 체크보다 '먼저' isMarketClosed()(MARKET_CLOSE=15:30)를
+    //   호출해 return 한다 → 실제 매도 가능 상한은 15:30, 08~20 윈도우는 15:30 이후 사실상 死코드.
+    //   (당초 NXT 애프터마켓(2026-09-14) 확장 대비로 넓혀 둔 상수이나 isMarketClosed 15:30 이 그걸 선차단.
+    //    NXT 청산 배선 시 이 이중가드 정리 필요 — VERIFICATION_BACKLOG P2-13-a.)
     //   ※ REGULAR_END(15:25)는 봇 자체 상수로, MarketCalendarService.MARKET_CLOSE(15:40, 종가단일가 버퍼)와 다름 — 봇은 별도 판정.
-    //   ※ 15:10 스캘핑 청산(scalpingPositions.clear) 이후 매도 cron 이 19시까지 돌아도, 스캘핑 포지션이 비어
+    //   ※ FORCE_LIQUIDATION(15:20~15:28)만 isMarketClosed 를 안 거치는 별도 경로(정규장 마감 강제청산, P2-13 진단 참고).
+    //   ※ 15:10 스캘핑 청산(scalpingPositions.clear) 이후 매도 cron 이 (15:30까지) 돌아도, 스캘핑 포지션이 비어
     //     position==null 즉시 skip + 스윙/종가는 명시 제외라 무해.
     private static final LocalTime PRE_MARKET_START = LocalTime.of(8, 0);
     private static final LocalTime REGULAR_START = LocalTime.of(9, 0);
