@@ -383,6 +383,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 3. **KIS 주문성공 + 로컬 DB 저장 실패 = 즉시 killswitch**(KIS 비멱등, 재시도/롤백 금지). killswitch는 DB 기반(재시작 유지).
 4. **멀티 인스턴스 — 봇 크론 리더 게이트(fail-CLOSED, 2026-06-29 부분 해소)**: `BotLeaderElectionService`로 리더 1개만 주문, Redis 장애 시 주문 중단. killswitch와 독립(둘 다 통과해야 주문). 잔여(P3-1): RealTradeService 멱등키/부분청산 가드 미구현.
 5. **오버나잇 방어**: 정규장 마감 15:20 강제청산(`forceRegularSessionLiquidation` 기본 ON). 리더+killswitch 게이트 탑승.
+6. **일일 손실 서킷브레이커(V38, 2026-07-06)**: 당일 봇 **실현손익 합산**(VirtualTradeHistory SELL 확정 기록만) ≤ -한도(기본 30만원, `bot_config` 전용 행) → **신규 진입만 차단·손절/청산 계속**(비대칭 핵심). 기존 -3% 자산 킬스위치(botActive=false=매도 관리까지 중단·평가액=수동매매 오염)와 별개 — 실현손실 기준·DB 영속·날짜 비교 자동 해제·ADMIN 수동 해제(`/bot/daily-loss-breaker/*`). judge 순수함수 **BLOCKED-before-null**(발동 후 DB 블립에도 차단 유지), trip=조건부 UPDATE 멱등(알림/감사 1회). 게이트 = 스캘핑(골든타임 틱당 1회)·스윙(runMode 스냅샷 후)·종가(방어적). → CLAUDE.md §4d.
 
 ---
 
@@ -560,6 +561,19 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - **불변식**: 표시값(`dto.supplyDemand`)·validCount·정규화 분모(80)·임계(75/55) **전부 불변**. **composite 경로 한정**(`getNormalizedTotal`/`toDto`/`calculate()` 필터) — 5트랙 발굴(💰수급)·종합판단 보드 수급 표시(≥10 경고)는 무영향. **가역 flag** `recommendation.supply-demand-cap`(기본 10, 20↑/-1=비활성).
 - **실데이터 검증(prod snapshot 30일, read-only 재채점, SANITY 재계산==저장 0 mismatch)**: 21배치/122연인원, **STRONG_BUY 8행 중 7행 강등 — 전부 삼성전기(009150), sd=20·비수급base 40~45 = 수급의존 SB 원형**(75~81→62~68 BUY). 강한 베이스 SB는 불변. **수급 분포 이분법(≤10 or 20) → 캡10≡12, 캡15는 4행만 → 캡 10 확정**. SB 표본 8행/1종목으로 작아 **`SignalWeeklyReportService` 주간 리포트에서 캡 전/후 성과 비교로 사후검증**(단서).
 - 테스트 `RecommendationSupplyCapTest`(경계값·강등 75→62·강한베이스 유지·validCount 불변·가역). 기존 회귀(Score/Sort/Normalize) 무변경 green.
+
+---
+
+### 2026-07-06 세션 — 일일 손실 서킷브레이커 (V38, 봇 §4d-6)
+
+VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막는 **장중 누적 실현손실 서킷브레이커**(기존에 없던 마지막 조각). 4 독립 커밋:
+
+- **비대칭 차단**: 당일 봇 실현손익(확정 기록만, §4c) ≤ -한도(기본 300,000원, 사용자 확정) → **신규 진입만 차단**(스캘핑·스윙·종가 3경로 게이트), **손절/청산/모니터는 계속** — 기존 -3% 자산 킬스위치가 botActive=false 로 탈출까지 세우는 것과 대비, 브레이커가 먼저 걸려 -3% 전에 진입을 멈추는 설계.
+- **% 대신 절대금액**: 분모(계좌 자산)가 평가액 기반·in-memory 재앵커·수동매매 공유 오염이라 기각.
+- **Plan 검증에서 잡은 결함 3건 반영**: ① 'trading_bot' 행 load-modify-save(무 @Version) 병행 쓰기가 trippedDate 클로버 → **전용 행('daily_loss_breaker') + 조건부 UPDATE**(rowsAffected==1=최초 발동만 알림/감사, 멱등). ② **BLOCKED-before-null** judge 순서 — 발동 후 DB 블립에도 차단 유지(미발동만 fail-open+스로틀 알림). ③ VIRTUAL 계좌는 읽기 전용 조회(getOrCreate=쓰기 race 금지), 30초 캐시 기각(틱당 1회 직접 합산 — idx_vth_account_date 단일 집계).
+- 해제 = 날짜 비교 자동(다음 거래일) + ADMIN `POST /api/paper-trading/bot/daily-loss-breaker/release`(감사+텔레그램). 설정 GET/PUT. status 사다리 `DAILY_LOSS_BREAKER`.
+- 테스트: judge 경계값(등호 -limit·±1원·BLOCKED-before-null·자동 해제) + 서비스(TRIP 멱등·fail-open 예외·VIRTUAL 해석·release 멱등) 16케이스, 기존 `AutoTradingBotServiceTest` green(provider null=게이트 통과로 기존 동작 보존).
+- **배포 후 확인**: 임계 1원 설정 → VIRTUAL 손절 1회 → 다음 틱 차단 로그·텔레그램 1회·audit 행 → release 재개 → 익일 자동 해제.
 
 ---
 
