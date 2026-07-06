@@ -162,7 +162,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | `VirtualTradeService` / `BotPerformanceService` | 모의계좌 / 성과(MDD/Sharpe) |
 | `PositionDropMonitorService` | 포지션 낙폭 감시(2분) |
 
-- **정규장 마감 강제청산(2026-06-29)**: `executeRegularSessionLiquidation`(15:20) — 봇이 포지션 들고 마감하는 오버나잇 노출 방지. `BotConfig.forceRegularSessionLiquidation`(기본 ON). 가드 = 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각≥15:20 → `sellAllPortfolio("REGULAR_SESSION_CLOSE")`. NXT 연장장/종가단일가 청산은 후속(P2-13).
+- **정규장 마감 강제청산(2026-06-29)**: `executeRegularSessionLiquidation`(15:20) — 봇이 포지션 들고 마감하는 오버나잇 노출 방지. `BotConfig.forceRegularSessionLiquidation`(기본 ON). 가드 = 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각≥15:20 → `sellAllPortfolio("REGULAR_SESSION_CLOSE")`. NXT 연장장/종가단일가 청산은 후속(P2-13 → **진단 종결·§19 2026-07-06·2026-09-14 재개봉**).
 
 ### 4-4. 시장·섹터·수급
 `SectorTradingService`(거래대금 실측만, `resolveAccumulatedValue` 폴백, 가짜값 금지) · `MarketTimingService`(ADR 20일, condition은 ADR만) · `InvestorTradeService`/`InvestorSurgeService` · **`GlobalFuturesService`**(Yahoo 선물·VIX·F&G, `getKospiImpactAnalysis` 0~100 개장 영향예측) · **`OvernightUsMarketService`** ⭐신규(2026-06-30): 간밤 미국장 보조 tilt — 순수 `classifyOvernight(es,nq,sox,vix)`(임계 임시값: 3지수 평균 ±0.6%, VIX 20/25/30, SOX −2%), GlobalFuturesService Yahoo 재사용(ES/NQ/**^SOX**/VIX). **regime 산식 미편입·`unverified=true`**(표시 전용, P3-5 캘리브레이션).
@@ -207,7 +207,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | 23:00 | 재무 영속화 | `StockFinancialDataService` |
 | 03:00 | 배치 정리 | `BatchJobCleanupService` |
 
-> ⚠ 위 cron은 매핑 근사. **정확값은 각 서비스 `@Scheduled`가 출처.** 미적용(주석) 2건: 종가봇 매수/매도(`executeClosingBuyLogic`/`SellLogic`, 2026-09 연장장 대비 재설계 필요). ※ 오버나잇은 15:20 정규장 강제청산(2026-06-29)으로 1차 방어, 연장장 청산은 후속(P2-13).
+> ⚠ 위 cron은 매핑 근사. **정확값은 각 서비스 `@Scheduled`가 출처.** 미적용(주석) 2건: 종가봇 매수/매도(`executeClosingBuyLogic`/`SellLogic`, 2026-09 연장장 대비 재설계 필요). ※ 오버나잇은 15:20 정규장 강제청산(2026-06-29)으로 1차 방어, 연장장 청산은 후속(P2-13 → **진단 종결·§19 2026-07-06**).
 
 ---
 
@@ -382,7 +382,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 2. **매도 체결확인**: 지정가 부분/미체결 가능 → `resolveFill`로 확정 미달이면 포지션 유지(다음 사이클 재시도). 조회실패=UNKNOWN=현행 제거(안전 기본값). `confirmFill`은 `@Transactional(NOT_SUPPORTED)`(폴링이 DB 트랜잭션 미점유).
 3. **KIS 주문성공 + 로컬 DB 저장 실패 = 즉시 killswitch**(KIS 비멱등, 재시도/롤백 금지). killswitch는 DB 기반(재시작 유지).
 4. **멀티 인스턴스 — 봇 크론 리더 게이트(fail-CLOSED, 2026-06-29 부분 해소)**: `BotLeaderElectionService`로 리더 1개만 주문, Redis 장애 시 주문 중단. killswitch와 독립(둘 다 통과해야 주문). 잔여(P3-1): RealTradeService 멱등키/부분청산 가드 미구현.
-5. **오버나잇 방어**: 정규장 마감 15:20 강제청산(`forceRegularSessionLiquidation` 기본 ON). 리더+killswitch 게이트 탑승.
+5. **오버나잇 방어**: 정규장 마감 15:20 강제청산(`forceRegularSessionLiquidation` 기본 ON). 리더+killswitch 게이트 탑승. (NXT 잔여 갭 = P2-13 **진단 종결**, §19 2026-07-06 — 진입은 NXT 전면차단, 지정가 미체결 잔여만 수용 갭.)
 6. **일일 손실 서킷브레이커(V38, 2026-07-06)**: 당일 봇 **실현손익 합산**(VirtualTradeHistory SELL 확정 기록만) ≤ -한도(기본 30만원, `bot_config` 전용 행) → **신규 진입만 차단·손절/청산 계속**(비대칭 핵심). 기존 -3% 자산 킬스위치(botActive=false=매도 관리까지 중단·평가액=수동매매 오염)와 별개 — 실현손실 기준·DB 영속·날짜 비교 자동 해제·ADMIN 수동 해제(`/bot/daily-loss-breaker/*`). judge 순수함수 **BLOCKED-before-null**(발동 후 DB 블립에도 차단 유지), trip=조건부 UPDATE 멱등(알림/감사 1회). 게이트 = 스캘핑(골든타임 틱당 1회)·스윙(runMode 스냅샷 후)·종가(방어적). → CLAUDE.md §4d.
 
 ---
@@ -435,14 +435,14 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 각 항목 독립 커밋. 불변식(시세경로·산식·차트분리·SchedulerLockService fail-open) 무변경.
 
 1. **봇 리더 가드 fail-CLOSED** — `BotLeaderElectionService`(Redis 리스+하트비트). 봇 크론 6개 게이트. 멀티 인스턴스 중복 주문 차단. (P3-1 부분 해소)
-2. **정규장 15:20 강제청산** — `BotConfig.forceRegularSessionLiquidation`(기본 ON)+Flyway V33, `executeRegularSessionLiquidation`. NXT 청산은 P2-13 후속.
+2. **정규장 15:20 강제청산** — `BotConfig.forceRegularSessionLiquidation`(기본 ON)+Flyway V33, `executeRegularSessionLiquidation`. NXT 청산은 P2-13 후속 → **진단 종결·§19 2026-07-06**.
 3. **python 가시성** — `PythonBackendHealthTracker`+`/api/diagnostics/python-health`+텔레그램, 차트 응답 `dataAvailable`.
 4. **19:30 평가 멱등성** — 확인됨(pending 행 UPDATE, 중복 INSERT 없음). 코드변경 없음. record() DB unique 제약은 P3-2.
 5. **tie-break ↔ 차트 타이밍 충돌** — `recommendationComparator` 경고주석(승격 시 이중작용 점검, P2-12 #3).
 6. **growth/valueStability -1=NA 가드** — `verdictFor` `score<0→N/A`(NEGATIVE 오표시 버그 수정)+NA factor 숨김+경고주석. nullable 전환은 P3-3. **(2026-07-02) 종합판단 보드도 4카테고리(실적/기술/섹터/수급) 0점→-1(NA)을 '—'로 렌더** — 특히 **수급 -1 은 "순매도"가 아니라 순매수 신호 미포착(0점)**(`scoreSupplyDemand`는 가점만·감점 없음), toDto 가 0→NA(-1) 변환. 음수 점수 오해 방지(표시 전용, 산식 무관).
 7. **(후속) `@SpringBootTest` 스모크 + 이중생성자 DI 버그 수정** — 스모크가 작업1·3의 `@Autowired` 누락(컨텍스트 기동 불가)을 즉시 검출 → `ChartPatternClient`/`BotLeaderElectionService` 운영 생성자에 `@Autowired` 추가.
 
-신규 백로그: P2-13(NXT 청산)·P3-2(signal_outcome unique)·P3-3(growth nullable).
+신규 백로그: P2-13(NXT 청산 = **진단 종결·2026-09-14 재개봉**, §19 2026-07-06)·P3-2(signal_outcome unique)·P3-3(growth nullable).
 
 ---
 
@@ -577,12 +577,24 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 - 테스트: judge 경계값(등호 -limit·±1원·BLOCKED-before-null·자동 해제) + 서비스(TRIP 멱등·fail-open 예외·VIRTUAL 해석·release 멱등) 16케이스, 기존 `AutoTradingBotServiceTest` green(provider null=게이트 통과로 기존 동작 보존).
 - **배포 후 확인**: 임계 1원 설정 → VIRTUAL 손절 1회 → 다음 틱 차단 로그·텔레그램 1회·audit 행 → release 재개 → 익일 자동 해제.
 
+### 2026-07-06 세션 — P2-13(NXT 청산) 진단 종결 (구현 불가·수용 갭, 코드 무변경)
+
+2026-09-14 거래시간 연장(NXT ~20:00) 전, "봇이 NXT 시간대(15:30~20:00)에 포지션을 보유할 수 있는가"를 코드로 확정. **진단 우선·성급한 구현 금지** 원칙 하에 **Option 1(문서화 종결)** 확정. 코드/안전장치/시간대 불변식 전부 무변경.
+
+- **① 진입(HOLD 시작) = 전면 차단.** 15:20 이후·NXT에 신규 진입하는 스케줄 경로 없음: 스캘핑 매수 `executeScalpingBuyLogic`(cron `*/30 * 9-11` + 인코드 09:10~15:00 + `isMarketClosed()` 15:30 + REAL 즉시 return=VIRTUAL 전용) · 스윙 매수 `executeSwingBuyLogic`(cron `0 0 14` 단발) · 종가 매수 `executeClosingBuyLogic`(`@Scheduled` **주석 비활성**). → 봇은 NXT에서 절대 신규 보유를 만들지 않음.
+- **② 유일한 HOLD 구멍 = 15:20~15:28 청산 실패 잔여.** `executeRegularSessionLiquidation`(cron `0 20-28 15`, 매분 9틱, 리더+설정ON(fail-safe ON)+botActive+미killed 게이트)이 봇소유∩KIS잔고를 **fire-and-forget 지정가 매도**(`confirmFill` 미사용). 잔류 판정 = **KIS 잔고 재조회 all-or-nothing**(봇소유 코드가 하나라도 남으면 3맵·`bot_trading_position` 전부 유지·`markLiquidatedToday()` 미도달 → 다음 분 재시도). **15:28 이후 재시도 없음** — 스캘핑/스윙 매도 cron(`8-19`)은 내부 `isMarketClosed()`(15:30) 선차단이라 NXT 매도 불가, 15:29 `warnIfLiquidationMissed`는 **알림뿐**, 잔여는 익일 정규장까지 방치(익일 재적격).
+- **③ 진짜 NXT 청산 = 지금 구현·검증 불가.** 주문 계층에 **NXT/연장장 라우팅 없음**(`kisService.sellStock(code,qty,price)` 에 거래소/세션 파라미터 부재=기본 KRX 정규장). NXT 연장장 **2026-09-14 전 검증 불가** — 종가봇 재설계(`executeClosingBuyLogic/SellLogic`)와 **동일 전제**.
+- **결정**: 정상경로(15:20~15:28 매분 재시도 + 15:29 알림)가 오버나잇 1차 방어를 커버. **잔여 갭**(지정가 미체결로 완청산 실패 → 익일까지 보유)은 **인지·알림·익일 회복(재시작 reconcile 로그)되는 수용된 저확률 갭**(REAL 노출은 스윙 14:00뿐, 스캘핑 VIRTUAL 전용). **재개봉 조건 = NXT 주문 라우팅 구현 + 2026-09-14 연장장(종가봇 재설계와 동반)**.
+- **§16-2 시간대 분리 관계 정리**: 진입은 KRX 09:00~15:30 유지(불변). 방어적 **청산만** 향후 NXT로 확장 — "표시-NXT vs 봇-KRX 경계를 통일 금지"에 **위배 아님**(경계를 섞는 게 아니라 방어 청산 창을 넓히는 것).
+- **Option 2(마지막 재시도 공격적 호가/시장가 하드닝) = 검토 후 기각**: 저확률 잔여 갭 대비 주문 semantics 변경 + 슬리피지 도입이 과대. **15:29 잔여 알림 실발생 빈도가 축적돼 근거가 생기면 재개봉.**
+- **백로그 신규 2건(코드 미수정)**: **P2-13-a** — `AutoTradingBotService.java:216-223` 주석이 "매도 가드 08:00~20:00, cron binding"이라 서술하나 실제로는 두 매도 내부(line 1899·2780)의 `isMarketClosed()`(15:30)가 binding(08~20 윈도우는 15:30 이후 死코드) → NXT 배선 시 정정. **P2-13-b** — 지정가 청산 잔여 하드닝(Option 2, 위 기각 근거 하에 데이터 축적 시 재검토).
+
 ---
 
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 

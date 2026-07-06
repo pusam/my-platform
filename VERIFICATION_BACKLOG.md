@@ -278,12 +278,21 @@
 > 연장장 "마감" 정의 모호(2026-09-14 애프터마켓 정식 도입 전)가 보류 원인.
 > **✅ 견고화(2026-06-29 후속, 작업1)**: 단발 → **윈도우(15:20~15:28 매분 재시도) + 영속 일자 플래그(`BotConfig.lastForceLiquidationDate`, V34) + 리더 페일오버 캐치업 + 15:29 미완료 텔레그램 경고**. 리더가 15:19 死 후 승계 공백으로 단발 청산을 놓치던 엣지케이스 해소. 완전 청산(포트폴리오 empty) 확인 후에만 완료 표기(부분 미체결 재시도). NXT/종가단일가는 여전히 본 티켓 잔여.
 
-- **과제**:
+> **🔎 진단 종결(2026-07-06) — 구현 보류 확정, 재개봉 대기.** 코드 정독(2 에이전트 + 직접 확인) 결과:
+> - **진입(HOLD 시작) 경로 = NXT 전면 차단.** 15:20 이후·15:30~20:00 신규 진입 스케줄 없음(스캘핑 `*/30 * 9-11`+09:10~15:00 윈도우+REAL 즉시 return=VIRTUAL 전용 / 스윙 `0 0 14` 단발 / 종가 `executeClosingBuyLogic` @Scheduled 주석 비활성). → 봇은 NXT에서 신규 보유를 만들지 않음.
+> - **유일한 HOLD 구멍 = 15:20~15:28 청산 실패 잔여.** `executeRegularSessionLiquidation`은 **fire-and-forget 지정가 매도**(`confirmFill` 미사용) + KIS 잔고 재조회 all-or-nothing. 지정가 미체결 시 잔여 유지·다음 분 재시도. **15:28 이후 재시도 없음**(스캘핑/스윙 매도 cron `8-19`도 내부 `isMarketClosed()` 15:30 선차단 → NXT 매도 불가), 15:29는 알림뿐, 잔여는 익일 정규장까지 방치(익일 재적격 + 재시작 reconcile 로그).
+> - **NXT 청산 구현 불가(now)**: 주문 계층에 **NXT/연장장 라우팅 부재**(`kisService.sellStock(code,qty,price)`에 거래소/세션 파라미터 없음=기본 KRX). **2026-09-14 연장장 전 검증 불가** — 종가봇 재설계와 동일 전제.
+> - **결정**: 정상경로(매분 재시도+15:29 알림)가 오버나잇 1차 방어를 커버, 지정가 미체결 잔여는 **인지·알림·익일 회복되는 수용된 저확률 갭**(REAL 노출은 스윙만·스캘핑 VIRTUAL 전용). **Option(마지막 재시도 공격적 호가/시장가 하드닝)=기각**(저확률 갭 대비 주문 semantics 변경+슬리피지 과대 — 15:29 잔여 알림 실발생 빈도 축적 시 재개봉). **§16-2 시간대분리**: 진입은 KRX 09:00~15:30 유지, 방어 청산만 향후 NXT 확장(경계 통일 아님=불변식 위배 아님). 상세 = `docs/STOCK_AZ_FULL.md` §19 2026-07-06 세션.
+
+- **과제(2026-09-14 연장장 규격 확정 후 재개)**:
   1. NXT 연장장(애프터마켓) 보유 포지션의 청산 시점·경로 정의(연장장 호가/체결 규격, KIS 주문구분).
   2. 종가단일가 구간(15:20~15:30) 청산 옵션(원하면) — 현재는 연속세션 끝에서만.
   3. `FORCE_LIQUIDATION_TIME`(현 15:20)·청산 대상(정규/연장 분리) 파라미터화.
-- **선결**: 2026-09-14 애프터마켓 정식 도입 규격 확정 후 착수(현재는 정규장 청산으로 오버나잇 1차 방어).
-- **관련**: `AutoTradingBotService.executeRegularSessionLiquidation`/`FORCE_LIQUIDATION_TIME`, 봇 시간대 상수(REGULAR_END 15:25 / AFTER_MARKET_END 20:00).
+- **선결(재개봉 조건)**: ① NXT 주문 라우팅(`sellStock` 거래소/세션 파라미터) 구현 + ② 2026-09-14 애프터마켓 정식 도입 규격 확정(종가봇 재설계와 동반 착수). 현재는 정규장 청산으로 오버나잇 1차 방어.
+- **파생 백로그(진단 중 발견, 코드 미수정)**:
+  - **P2-13-a**: `AutoTradingBotService.java:216-223` 주석이 "매도 가드 08:00~20:00, cron binding"이라 서술하나 실제로는 두 매도 내부(line 1899·2780)의 `isMarketClosed()`(15:30)가 binding(08~20 윈도우는 15:30 이후 死코드). NXT 배선 시 정정(주석 or 가드 일원화).
+  - **P2-13-b**: 지정가 청산 잔여 하드닝(위 기각 Option) — 15:29 잔여 알림 실발생 데이터 축적 시 재검토.
+- **관련**: `AutoTradingBotService.executeRegularSessionLiquidation`/`sellPortfolioMatching`/`isMarketClosed`(15:30)/`FORCE_LIQUIDATION_TIME`/시간대 상수(REGULAR_END 15:25 / AFTER_MARKET_END 20:00), `RealTradeService.sell`(지정가), `kisService.sellStock`(세션 파라미터 부재), 종가봇 `executeClosingBuyLogic`/`executeClosingSellLogic`(주석 비활성).
 
 ---
 
