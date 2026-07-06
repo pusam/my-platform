@@ -65,6 +65,22 @@ public class BotTradingPosition {
     @Column(name = "buy_reason", length = 100)
     private String buyReason;
 
+    // ── ATR 세트 스냅샷 (V42, VIRTUAL 전용 · flag `bot.atr-trading.enabled`) ─────────
+    // 진입 시점 1회 계산 후 고정(사후 ATR 변동 반영 금지). NULL = 현행 고정 청산 포지션
+    // (flag OFF / REAL / ATR 결측 — §4c: 결측이면 수량·청산 모두 완전 현행 폴백).
+
+    /** 진입 시점 ATR14(원, Wilder). */
+    @Column(name = "entry_atr", precision = 15, scale = 4)
+    private BigDecimal entryAtr;
+
+    /** ATR 손절 레벨(음수 %) — SWING_STOP_LOSS 비교 규약과 동일 부호. */
+    @Column(name = "atr_stop_pct", precision = 8, scale = 4)
+    private BigDecimal atrStopPct;
+
+    /** ATR 익절 레벨(양수 %). */
+    @Column(name = "atr_target_pct", precision = 8, scale = 4)
+    private BigDecimal atrTargetPct;
+
     /**
      * 매수 시점의 거래 모드 — VIRTUAL(모의) 또는 REAL(실전).
      * 모드 전환 시 다른 모드 포지션이 잘못 활성화되어 자동 매도되는 사고 방지.

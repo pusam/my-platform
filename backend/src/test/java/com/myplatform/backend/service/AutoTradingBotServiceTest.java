@@ -97,6 +97,8 @@ class AutoTradingBotServiceTest {
     @Mock private org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider;
     // 일일 손실 브레이커(V38) — mock provider 는 getIfAvailable()=null → 게이트 통과(기존 봇 동작 보존)
     @Mock private org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider;
+    // ATR 세트(V42) 감사 스냅샷 — mock provider 는 getIfAvailable()=null → 로그만(주문 흐름 무영향)
+    @Mock private org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider;
 
     private AutoTradingBotService botService;
 
@@ -129,7 +131,8 @@ class AutoTradingBotServiceTest {
                 clock,
                 // 리더 선출 비활성(enabled=false) → isLeaderForBot()=true 항상 통과 → 기존 봇 동작 보존
                 new BotLeaderElectionService(null, false, 30L, "test"),
-                dailyLossBreakerProvider);
+                dailyLossBreakerProvider,
+                auditProvider);
     }
 
     @BeforeEach

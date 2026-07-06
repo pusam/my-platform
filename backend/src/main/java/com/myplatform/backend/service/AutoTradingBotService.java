@@ -17,6 +17,9 @@ import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.BotTradingPositionRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
+import com.myplatform.backend.util.AtrCalculator;
+import com.myplatform.backend.util.AtrExitRule;
+import com.myplatform.backend.util.PositionSizer;
 import com.myplatform.backend.util.PriceSanityGuard;
 import com.myplatform.core.util.DateTimeUtil;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -127,6 +130,16 @@ public class AutoTradingBotService {
     private final BotLeaderElectionService botLeader;
     // 일일 손실 서킷브레이커(V38) — 신규 진입 게이트 전용(매도 경로 미사용). 미가용=통과.
     private final org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider;
+    // ATR 세트(V42) 적용값 감사 스냅샷 — 미가용=로그만(주문 흐름 무영향).
+    private final org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider;
+
+    // ── ATR 세트 flag (V42, docs/ATR_TRADING_SET.md) ──────────────────────────────
+    // 기본 false — OFF 면 수량/청산 모두 바이트 단위 현행 동일. ON 이어도 REAL 은 무조건 현행(하드 가드,
+    // isAtrSetActive). 진입 여부 판단(수급/기술/안전 게이트)엔 관여하지 않는다 — 수량·청산폭만.
+    @org.springframework.beans.factory.annotation.Value("${bot.atr-trading.enabled:false}")
+    private volatile boolean atrTradingEnabled;
+    /** ATR 세트 riskBudget 설정 행 (bot_config 전용 행 — 'trading_bot'/'daily_loss_breaker' 행 분리 원칙). */
+    static final String ATR_CONFIG_KEY = "atr_trading";
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
@@ -360,6 +373,10 @@ public class AutoTradingBotService {
         volatile LocalDateTime buyTime;
         volatile BigDecimal highPrice;
         final String buyReason; // "외국인3일연속" 등
+        // ATR 세트(V42) 진입 스냅샷 — 셋 다 null 이면 현행 고정 -3/+5 청산(사후 변동 반영 금지).
+        volatile BigDecimal entryAtr;
+        volatile BigDecimal atrStopPct;    // 음수 %
+        volatile BigDecimal atrTargetPct;  // 양수 %
 
         SwingPosition(String stockCode, String stockName, BigDecimal buyPrice, String reason) {
             this.stockCode = stockCode;
@@ -424,7 +441,9 @@ public class AutoTradingBotService {
             Clock clock,
             BotLeaderElectionService botLeader,
             // 일일 손실 서킷브레이커(V38) — ObjectProvider: 미가용 시 게이트 통과(fail-open, 기존 동작 보존)
-            org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider) {
+            org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider,
+            // ATR 세트(V42) 감사 스냅샷 — 미가용=로그만
+            org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -447,7 +466,93 @@ public class AutoTradingBotService {
         this.clock = clock;
         this.botLeader = botLeader;
         this.dailyLossBreakerProvider = dailyLossBreakerProvider;
+        this.auditProvider = auditProvider;
         this.activeTradeService = virtualTradeService;
+    }
+
+    // ==================== ATR 세트 (V42 · flag 가역 · VIRTUAL 전용) ====================
+
+    /**
+     * ATR 세트 활성 판정 — <b>REAL 하드 가드</b>: flag 무관 REAL 모드는 무조건 현행(수량·청산).
+     * 진입 여부 판단엔 관여하지 않음 — 모든 안전 게이트 통과 후 수량/청산폭 결정에서만 참조.
+     */
+    boolean isAtrSetActive(TradingMode mode) {
+        return atrTradingEnabled && mode == TradingMode.VIRTUAL;
+    }
+
+    /** 테스트 전용 — @Value flag 를 결정론적으로 제어. */
+    void setAtrTradingEnabledForTest(boolean enabled) {
+        this.atrTradingEnabled = enabled;
+    }
+
+    /**
+     * 종목당 리스크 예산(원) — bot_config 'atr_trading' 행 오버라이드 → 없으면 일일 손실 브레이커
+     * 한도 ÷ 6 (기본 30만÷6=5만: 스윙 2 + 스캘핑 3 슬롯 + 재진입 여유 = 최악 동시 6포지션 전 손절이어도
+     * 브레이커 한도 내). 조회 실패 시 보수 기본값 5만.
+     */
+    BigDecimal resolveAtrRiskBudget() {
+        try {
+            BigDecimal configured = botConfigRepository.findByConfigKey(ATR_CONFIG_KEY)
+                    .map(BotConfig::getAtrRiskBudgetKrw).orElse(null);
+            if (configured != null && configured.signum() > 0) return configured;
+            BigDecimal limit = botConfigRepository.findByConfigKey(DailyLossBreakerService.BREAKER_CONFIG_KEY)
+                    .map(BotConfig::getDailyLossLimitKrw).orElse(null);
+            if (limit == null || limit.signum() <= 0) limit = DailyLossBreakerService.DEFAULT_LIMIT_KRW;
+            return limit.divide(BigDecimal.valueOf(6), 0, RoundingMode.DOWN);
+        } catch (Exception e) {
+            log.debug("[ATR세트] riskBudget 조회 실패 — 기본값 사용: {}", e.getMessage());
+            return DailyLossBreakerService.DEFAULT_LIMIT_KRW.divide(BigDecimal.valueOf(6), 0, RoundingMode.DOWN);
+        }
+    }
+
+    /** 스윙 청산 레벨. */
+    record SwingExitLevels(BigDecimal stop, BigDecimal target) {}
+
+    /**
+     * 스윙 청산 레벨 결정 — <b>순수 함수</b>(테스트 대상).
+     * ATR 스냅샷(진입 시점 고정)이 있고 <b>非REAL</b> 일 때만 동적 레벨, 그 외 현행 고정 -3/+5.
+     * REAL 은 이중 하드 가드 — 진입에서 스냅샷이 생기지 않지만(isAtrSetActive) 방어적으로 한 번 더 차단.
+     */
+    static SwingExitLevels resolveSwingExitLevels(TradingMode mode,
+                                                  BigDecimal atrStopPct, BigDecimal atrTargetPct) {
+        if (mode != TradingMode.REAL && atrStopPct != null && atrTargetPct != null) {
+            return new SwingExitLevels(atrStopPct, atrTargetPct);
+        }
+        return new SwingExitLevels(SWING_STOP_LOSS, SWING_TAKE_PROFIT);
+    }
+
+    /** 진입 시점 ATR14 — StockPriceHistory(J 소스, sanity 앵커와 동일). 실패/부족 = null(§4c → 현행 폴백). */
+    private BigDecimal computeEntryAtrQuiet(String stockCode) {
+        try {
+            return AtrCalculator.atr14(stockPriceHistoryRepository.findByStockCodeOrderByTradeDateDesc(
+                    stockCode, org.springframework.data.domain.PageRequest.of(0, 40)));
+        } catch (Exception e) {
+            log.debug("[ATR세트] ATR 산출 실패({}) — 현행 폴백: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /** ATR 세트 적용값 감사 스냅샷 — 주간 리포트 사후검증용(TradingAuditLog, triggeredBy=ATR_SIZING). best-effort. */
+    private void auditAtrApplied(String strategyTag, String stockCode, String stockName, int quantity,
+                                 BigDecimal price, BigDecimal atr, BigDecimal stopPct, BigDecimal targetPct,
+                                 BigDecimal riskBudget) {
+        String detail = String.format("strategy=%s atr=%s stopPct=%s targetPct=%s riskBudgetKrw=%s",
+                strategyTag, atr == null ? "-" : atr.toPlainString(),
+                stopPct == null ? "-" : stopPct.toPlainString(),
+                targetPct == null ? "-" : targetPct.toPlainString(),
+                riskBudget == null ? "-" : riskBudget.toPlainString());
+        log.info("[ATR세트] 적용 스냅샷 — {}({}) {}주 @ {}원 | {}", stockName, stockCode, quantity,
+                formatNumber(price), detail);
+        try {
+            TradingAuditService audit = auditProvider.getIfAvailable();
+            if (audit != null) {
+                audit.event(com.myplatform.backend.entity.TradingAuditLog.Action.BUY,
+                        com.myplatform.backend.entity.TradingAuditLog.Mode.VIRTUAL,
+                        stockCode, stockName, quantity, price, "ATR_SIZING", detail);
+            }
+        } catch (Exception e) {
+            log.debug("[ATR세트] 감사 스냅샷 기록 실패(무시): {}", e.getMessage());
+        }
     }
 
     /** 브레이커 오늘 발동 여부 — getBotStatus 표시용(trippedDate 경량 읽기, 합산 쿼리 없음). */
@@ -573,6 +678,10 @@ public class AutoTradingBotService {
                                 p.getBuyPrice(), p.getBuyReason());
                         sw.buyTime = p.getBuyTime();
                         sw.highPrice = p.getHighPrice();
+                        // ATR 세트(V42) 진입 스냅샷 복원 — 재시작 후에도 같은 레벨로 청산(재계산 금지)
+                        sw.entryAtr = p.getEntryAtr();
+                        sw.atrStopPct = p.getAtrStopPct();
+                        sw.atrTargetPct = p.getAtrTargetPct();
                         swingPositions.put(p.getStockCode(), sw);
                         swing++;
                     }
@@ -745,6 +854,10 @@ public class AutoTradingBotService {
             entity.setBuyTime(sw.buyTime);
             entity.setBuyReason(sw.buyReason);
             entity.setTradingMode(mode);
+            // ATR 세트(V42) 진입 스냅샷 — 재시작 복원용(없으면 null 유지 = 현행 청산)
+            entity.setEntryAtr(sw.entryAtr);
+            entity.setAtrStopPct(sw.atrStopPct);
+            entity.setAtrTargetPct(sw.atrTargetPct);
             return positionRepository.save(entity);
         });
     }
@@ -1398,9 +1511,19 @@ public class AutoTradingBotService {
                     continue;
                 }
 
-                // 매수 수량 계산
+                // 매수 수량 계산 — 현행: min(잔액, 종목상한) 전액 매수.
+                // ATR 세트(flag ON + VIRTUAL, V42): 리스크 균등 사이징(수량 축소 전용 — 항상 현행 이하).
+                // 스캘핑 손절폭 입력 = 현행 고정 -1.2%(청산 로직 무변경 — 일봉 ATR 척도는 분 단위 전략과 불일치).
                 BigDecimal investAmount = currentBalance.compareTo(maxPerStock) < 0 ? currentBalance : maxPerStock;
-                int quantity = investAmount.divide(entryResult.currentPrice, 0, RoundingMode.DOWN).intValue();
+                int quantity;
+                BigDecimal appliedRiskBudget = null;
+                if (isAtrSetActive(currentMode)) {
+                    appliedRiskBudget = resolveAtrRiskBudget();
+                    quantity = PositionSizer.judge(totalAsset, entryResult.currentPrice,
+                            STOP_LOSS_RATE.abs(), appliedRiskBudget, MAX_INVESTMENT_RATIO, investAmount);
+                } else {
+                    quantity = investAmount.divide(entryResult.currentPrice, 0, RoundingMode.DOWN).intValue();
+                }
 
                 if (quantity <= 0) {
                     continue;
@@ -1449,6 +1572,12 @@ public class AutoTradingBotService {
                     buyOk = true;
                     lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
+
+                    // ATR 세트 적용 시 적용값 감사 스냅샷(사후검증용) — 주문 흐름과 무관(best-effort)
+                    if (appliedRiskBudget != null) {
+                        auditAtrApplied("SCALPING", surge.getStockCode(), surge.getStockName(), quantity,
+                                entryResult.currentPrice, null, STOP_LOSS_RATE, null, appliedRiskBudget);
+                    }
 
                     // WebSocket 실시간 시세 구독 — 매도 평가 시 polling 대신 push 사용.
                     // 빈 미등록(disabled) 시 no-op.
@@ -2643,7 +2772,27 @@ public class AutoTradingBotService {
                     continue;
                 }
 
-                int quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
+                // 매수 수량 — 현행: maxPerStock 전액. ATR 세트(flag ON + VIRTUAL, V42):
+                // 진입 시점 ATR14 스냅샷 → 손절폭 = ATR×2.5/진입가 → 리스크 균등 수량(항상 현행 이하).
+                // ATR 결측(§4c) = 그 종목은 완전 현행(수량 폴백 + 고정 -3/+5 청산).
+                int quantity;
+                BigDecimal swingEntryAtr = null;
+                AtrExitRule.Levels atrLevels = null;
+                BigDecimal swingRiskBudget = null;
+                if (isAtrSetActive(runMode)) {
+                    swingEntryAtr = computeEntryAtrQuiet(candidate.getStockCode());
+                    atrLevels = AtrExitRule.judge(currentPrice, swingEntryAtr);
+                    if (atrLevels != null) {
+                        swingRiskBudget = resolveAtrRiskBudget();
+                        quantity = PositionSizer.judge(totalAsset, currentPrice, atrLevels.stopPct().abs(),
+                                swingRiskBudget, SWING_INVESTMENT_RATIO, maxPerStock);
+                    } else {
+                        swingEntryAtr = null;   // 결측 → 완전 현행
+                        quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
+                    }
+                } else {
+                    quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
+                }
                 if (quantity <= 0) continue;
 
                 // 매수 실행 — 모드 전환 race 방어
@@ -2657,6 +2806,11 @@ public class AutoTradingBotService {
                 // ★ 메모리 포지션 선등록 — KIS 호출 전. 동시 진입 race 차단 ★
                 SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
                         currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속");
+                if (atrLevels != null) {   // 진입 스냅샷 고정 — 보유 중 재계산 금지
+                    newSwing.entryAtr = swingEntryAtr;
+                    newSwing.atrStopPct = atrLevels.stopPct();
+                    newSwing.atrTargetPct = atrLevels.targetPct();
+                }
                 SwingPosition prevSwing = swingPositions.putIfAbsent(candidate.getStockCode(), newSwing);
                 if (prevSwing != null) {
                     log.warn("[스윙봇] 동시 진입 race - {} 이미 보유, skip", candidate.getStockName());
@@ -2678,20 +2832,31 @@ public class AutoTradingBotService {
                     lastTradeTime = LocalDateTime.now(clock);
                     todayBuyCount.incrementAndGet();
 
+                    // ATR 세트 적용 시 적용값 감사 스냅샷(사후검증용) — 주문 흐름과 무관(best-effort)
+                    if (atrLevels != null) {
+                        auditAtrApplied("SWING", candidate.getStockCode(), candidate.getStockName(), quantity,
+                                currentPrice, swingEntryAtr, atrLevels.stopPct(), atrLevels.targetPct(),
+                                swingRiskBudget);
+                    }
+
                     log.info("[스윙봇-{}] ★ 스윙 진입 ★ {} ({}) {}원 x {}주 | {}",
                             currentMode.name(), candidate.getStockName(), candidate.getStockCode(),
                             formatNumber(currentPrice), quantity, investorLabel + candidate.getConsecutiveDays() + "일연속");
 
-                    // 텔레그램 알림
+                    // 텔레그램 알림 — 손절/익절 표시는 실제 적용 레벨(ATR 세트면 스냅샷, 아니면 현행 -3/+5)
                     if (telegramService.isEnabled()) {
                         String modeTag = currentMode == TradingMode.REAL ? "실전" : "모의";
+                        BigDecimal displayStop = newSwing.atrStopPct != null
+                                ? newSwing.atrStopPct.setScale(2, RoundingMode.HALF_UP) : SWING_STOP_LOSS;
+                        BigDecimal displayTarget = newSwing.atrTargetPct != null
+                                ? newSwing.atrTargetPct.setScale(2, RoundingMode.HALF_UP) : SWING_TAKE_PROFIT;
                         telegramService.sendSignal(String.format(
                                 "<b>📈 [%s] 스윙 진입</b>\n\n🎯 <b>%s</b> (%s)\n💰 %s원 x %d주\n\n📊 %s %d일 연속매수 (일평균 %s억)\n🔴 손절: %s%% | 🟢 익절: +%s%%\n⏰ 최대 보유: %d일\n\n%s MyPlatform %s",
                                 modeTag, candidate.getStockName(), candidate.getStockCode(),
                                 formatNumber(currentPrice), quantity,
                                 investorLabel, candidate.getConsecutiveDays(),
                                 candidate.getAvgDailyAmount().setScale(0, RoundingMode.HALF_UP),
-                                SWING_STOP_LOSS, SWING_TAKE_PROFIT, SWING_MAX_HOLD_DAYS,
+                                displayStop, displayTarget, SWING_MAX_HOLD_DAYS,
                                 currentMode == TradingMode.REAL ? "🔴" : "🟡", modeTag));
                     }
 
@@ -2810,15 +2975,21 @@ public class AutoTradingBotService {
                 long holdDays = position.holdDays();
                 String sellReason = null;
 
-                // 1. 손절 -3%
-                if (profitRate.compareTo(SWING_STOP_LOSS) <= 0) {
+                // 손절/익절 레벨 — 현행 고정 -3/+5. ATR 세트 포지션(V42, 진입 스냅샷 有)만 동적 레벨.
+                SwingExitLevels levels = resolveSwingExitLevels(
+                        currentMode, position.atrStopPct, position.atrTargetPct);
+                BigDecimal stopLevel = levels.stop();
+                BigDecimal targetLevel = levels.target();
+
+                // 1. 손절 (현행 -3% / ATR 세트: -k×ATR)
+                if (profitRate.compareTo(stopLevel) <= 0) {
                     sellReason = "STOP_LOSS";
-                    log.info("[스윙봇] 손절: {} 손익률 {}%", position.stockName, profitRate);
+                    log.info("[스윙봇] 손절: {} 손익률 {}% (레벨 {}%)", position.stockName, profitRate, stopLevel);
                 }
-                // 2. 익절 +5%
-                else if (profitRate.compareTo(SWING_TAKE_PROFIT) >= 0) {
+                // 2. 익절 (현행 +5% / ATR 세트: 손절폭×5/3)
+                else if (profitRate.compareTo(targetLevel) >= 0) {
                     sellReason = "TAKE_PROFIT";
-                    log.info("[스윙봇] 익절: {} 손익률 {}%", position.stockName, profitRate);
+                    log.info("[스윙봇] 익절: {} 손익률 {}% (레벨 {}%)", position.stockName, profitRate, targetLevel);
                 }
                 // 3. 트레일링 (수익 +2% 이후, 고점 대비 -2%)
                 else if (profitRate.compareTo(SWING_TRAILING_MIN_PROFIT) > 0

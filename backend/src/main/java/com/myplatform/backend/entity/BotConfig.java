@@ -78,6 +78,12 @@ public class BotConfig {
     @Column(name = "daily_loss_breaker_tripped_date")
     private LocalDate dailyLossBreakerTrippedDate;
 
+    // ── ATR 세트 (V42) — config_key='atr_trading' 전용 행이 소유(행 분리 원칙, 브레이커와 동일 패턴) ──
+
+    /** ATR 세트 종목당 리스크 예산(원) 오버라이드. null = 일일 손실 브레이커 한도 ÷ 6 (기본 5만원). */
+    @Column(name = "atr_risk_budget_krw", precision = 15, scale = 2)
+    private java.math.BigDecimal atrRiskBudgetKrw;
+
     /**
      * 마지막 상태 변경 시간
      */

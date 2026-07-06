@@ -119,6 +119,36 @@ public class TradingAuditService {
         log.warn("[Audit] 차단됨 action={} stock={} reason={}", action, stockCode, reason);
     }
 
+    /**
+     * 정보성 스냅샷 기록(차단 아님, KIS 호출과 무관) — ATR 세트 적용값(수량·ATR·손절폭·riskBudget) 등
+     * 사후검증용. success=true + detail(response_msg) 에 적용값 문자열. triggeredBy 로 필터(예: ATR_SIZING).
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void event(TradingAuditLog.Action action,
+                      TradingAuditLog.Mode mode,
+                      String stockCode,
+                      String stockName,
+                      Integer quantity,
+                      BigDecimal price,
+                      String triggeredBy,
+                      String detail) {
+        TradingAuditLog e = new TradingAuditLog();
+        e.setRequestId(UUID.randomUUID().toString());
+        e.setAction(action);
+        e.setMode(mode);
+        e.setStockCode(stockCode);
+        e.setStockName(stockName);
+        e.setQuantity(quantity);
+        e.setPrice(price);
+        if (price != null && quantity != null) {
+            e.setTotalAmount(price.multiply(BigDecimal.valueOf(quantity)));
+        }
+        e.setTriggeredBy(triggeredBy);
+        e.setSuccess(true);
+        e.setResponseMsg(truncate(detail, 500));
+        repository.save(e);
+    }
+
     private int elapsedMs(Ctx ctx) {
         return (int) ((System.nanoTime() - ctx.startNanos) / 1_000_000);
     }

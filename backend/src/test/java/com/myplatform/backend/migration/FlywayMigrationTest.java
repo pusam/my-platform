@@ -92,6 +92,14 @@ class FlywayMigrationTest {
         assertThat(columnCount("signal_outcome", "rvol_at_signal"))
                 .as("V41 signal_outcome.rvol_at_signal 컬럼이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 6 (V42 도달 확인): ATR 세트 스냅샷/설정 컬럼 ---
+        assertThat(columnCount("bot_trading_position", "entry_atr"))
+                .as("V42 bot_trading_position.entry_atr 컬럼이 적용되어야 함")
+                .isEqualTo(1);
+        assertThat(columnCount("bot_config", "atr_risk_budget_krw"))
+                .as("V42 bot_config.atr_risk_budget_krw 컬럼이 적용되어야 함")
+                .isEqualTo(1);
     }
 
     /**
