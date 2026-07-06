@@ -41,7 +41,8 @@ public class RealTradeService implements TradeService {
     private final BotOrderIntentService orderIntentService;   // BUY 멱등키(리더 전환 중복 매수 방지)
 
     // 실전매매용 계좌 ID (가상 ID - 실제 계좌와 구분)
-    private static final Long REAL_ACCOUNT_ID = 999999L;
+    // package-private — DailyLossBreakerService(일일 손실 브레이커) 가 실전 실현손익 합산 계정으로 참조.
+    static final Long REAL_ACCOUNT_ID = 999999L;
 
     // ==================== 주문 체결 확인 (B2-A Phase 1) ====================
 
