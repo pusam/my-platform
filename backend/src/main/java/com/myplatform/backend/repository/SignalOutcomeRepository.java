@@ -119,6 +119,19 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
         """)
     List<SignalOutcome> findEvaluatedSince(@Param("from") LocalDate from);
 
+    /**
+     * 평가 완료된 시그널 — signalDate 가 [from, to] 닫힌 구간. 주간 측정(P1-6 상설화) 입력.
+     * 서비스에서 순수 함수(regime 파티션별 카테고리/밴드)로 집계.
+     */
+    @Query("""
+        SELECT s FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.signalDate >= :from
+           AND s.signalDate <= :to
+        """)
+    List<SignalOutcome> findEvaluatedBetween(@Param("from") LocalDate from,
+                                             @Param("to") LocalDate to);
+
     /** phase 35b 진단 — 마지막 signal_date. */
     @Query("SELECT MAX(s.signalDate) FROM SignalOutcome s")
     java.util.Optional<LocalDate> findMaxSignalDate();
