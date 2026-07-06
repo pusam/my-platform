@@ -33,6 +33,7 @@ public class PaperTradingController {
     private final RealTradeService realTradeService;
     private final AutoTradingBotService autoTradingBotService;
     private final BotPerformanceService botPerformanceService;
+    private final com.myplatform.backend.service.DailyLossBreakerService dailyLossBreakerService;
 
     /**
      * 계좌 요약 조회
@@ -221,6 +222,67 @@ public class PaperTradingController {
         response.put("success", true);
         response.put("message", "매수 로직이 수동으로 실행되었습니다. 로그를 확인해주세요.");
         response.put("botStatus", autoTradingBotService.getBotStatus());
+        return ResponseEntity.ok(response);
+    }
+
+    // ==================== 일일 손실 서킷브레이커 (V38) ====================
+
+    /**
+     * 브레이커 설정/상태 조회
+     * GET /api/paper-trading/bot/daily-loss-breaker
+     */
+    @GetMapping("/bot/daily-loss-breaker")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> getDailyLossBreaker() {
+        var config = dailyLossBreakerService.getBreakerConfig();
+        Map<String, Object> data = new HashMap<>();
+        data.put("enabled", config.getDailyLossBreakerEnabled());
+        data.put("limitKrw", config.getDailyLossLimitKrw());
+        data.put("trippedDate", config.getDailyLossBreakerTrippedDate());
+        data.put("trippedToday", dailyLossBreakerService.isTrippedToday());
+        return ResponseEntity.ok(buildSuccessResponse(data));
+    }
+
+    /**
+     * 브레이커 수동 해제 (ADMIN) — 당일 신규 진입 차단 즉시 해제. 감사 + 텔레그램 기록.
+     * POST /api/paper-trading/bot/daily-loss-breaker/release
+     */
+    @PostMapping("/bot/daily-loss-breaker/release")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> releaseDailyLossBreaker(
+            org.springframework.security.core.Authentication authentication) {
+        String operator = authentication != null ? authentication.getName() : "admin";
+        boolean released = dailyLossBreakerService.release(operator);
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("released", released);
+        response.put("message", released
+                ? "일일 손실 서킷브레이커가 수동 해제되었습니다. 신규 진입이 재개됩니다."
+                : "발동 상태가 아닙니다 (no-op).");
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * 브레이커 설정 변경 (ADMIN) — enabled / limitKrw. 발동 상태(trippedDate)는 release 로만 해제.
+     * PUT /api/paper-trading/bot/daily-loss-breaker/settings?enabled=true&limitKrw=300000
+     */
+    @PutMapping("/bot/daily-loss-breaker/settings")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Map<String, Object>> updateDailyLossBreakerSettings(
+            @RequestParam(required = false) Boolean enabled,
+            @RequestParam(required = false) java.math.BigDecimal limitKrw) {
+        if (limitKrw != null && limitKrw.signum() <= 0) {
+            Map<String, Object> bad = new HashMap<>();
+            bad.put("success", false);
+            bad.put("message", "limitKrw 는 양수여야 합니다 (0/음수 = 오설정 가드로 브레이커 비활성 동작).");
+            return ResponseEntity.badRequest().body(bad);
+        }
+        var saved = dailyLossBreakerService.updateSettings(enabled, limitKrw);
+        Map<String, Object> data = new HashMap<>();
+        data.put("enabled", saved.getDailyLossBreakerEnabled());
+        data.put("limitKrw", saved.getDailyLossLimitKrw());
+        Map<String, Object> response = buildSuccessResponse(data);
+        response.put("message", "일일 손실 서킷브레이커 설정이 변경되었습니다.");
         return ResponseEntity.ok(response);
     }
 

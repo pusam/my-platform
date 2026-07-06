@@ -125,6 +125,8 @@ public class AutoTradingBotService {
 
     // 멀티 인스턴스 중복 주문 방지 — 봇 크론은 리더일 때만 실주문(fail-CLOSED). SchedulerLockService(fail-open)와 별개.
     private final BotLeaderElectionService botLeader;
+    // 일일 손실 서킷브레이커(V38) — 신규 진입 게이트 전용(매도 경로 미사용). 미가용=통과.
+    private final org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider;
 
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
@@ -417,7 +419,9 @@ public class AutoTradingBotService {
             StockPriceHistoryRepository stockPriceHistoryRepository,
             org.springframework.beans.factory.ObjectProvider<RealtimePriceBus> realtimePriceBusProvider,
             Clock clock,
-            BotLeaderElectionService botLeader) {
+            BotLeaderElectionService botLeader,
+            // 일일 손실 서킷브레이커(V38) — ObjectProvider: 미가용 시 게이트 통과(fail-open, 기존 동작 보존)
+            org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -439,7 +443,37 @@ public class AutoTradingBotService {
         this.realtimePriceBusProvider = realtimePriceBusProvider;
         this.clock = clock;
         this.botLeader = botLeader;
+        this.dailyLossBreakerProvider = dailyLossBreakerProvider;
         this.activeTradeService = virtualTradeService;
+    }
+
+    /** 브레이커 오늘 발동 여부 — getBotStatus 표시용(trippedDate 경량 읽기, 합산 쿼리 없음). */
+    private boolean isDailyLossBreakerTripped() {
+        try {
+            DailyLossBreakerService breaker = dailyLossBreakerProvider.getIfAvailable();
+            return breaker != null && breaker.isTrippedToday();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 일일 손실 서킷브레이커 진입 게이트 (V38) — <b>신규 진입 경로에서만</b> 호출(비대칭:
+     * 매도/포지션 모니터/강제청산은 호출 금지). 브레이커 미가용/오류 = fail-open(진입 허용).
+     */
+    private boolean entryBlockedByDailyLossBreaker(boolean realMode, String botLabel) {
+        try {
+            DailyLossBreakerService breaker = dailyLossBreakerProvider.getIfAvailable();
+            if (breaker == null) return false;
+            if (!breaker.allowEntry(realMode)) {
+                log.info("[{}] SKIP: 일일 손실 서킷브레이커 발동 중 — 신규 진입 차단(기존 포지션 매도/청산은 계속)", botLabel);
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            log.error("[{}] 손실브레이커 게이트 오류 (fail-open, 진입 허용): {}", botLabel, e.getMessage());
+            return false;
+        }
     }
 
     // ==================== 봇 상태 관리 ====================
@@ -904,6 +938,8 @@ public class AutoTradingBotService {
             status = "KILL_SWITCH";
         } else if (scalpingKillSwitchTriggered.get()) {
             status = "SCALPING_KILL_SWITCH";
+        } else if (isDailyLossBreakerTripped()) {
+            status = "DAILY_LOSS_BREAKER";
         } else if (consecutiveStopLossPaused.get()) {
             status = "STOP_LOSS_PAUSED";
         } else if (!botActive.get()) {
@@ -1212,6 +1248,12 @@ public class AutoTradingBotService {
         LocalTime now = LocalTime.now(clock);
         if (now.isBefore(MORNING_ENTRY_START) || now.isAfter(MORNING_ENTRY_END)) {
             return; // 시간 밖은 정상 동작이므로 로그 불필요
+        }
+
+        // ★ 일일 손실 서킷브레이커(V38) — 당일 실현손실 한도 도달 시 신규 진입 차단(매도는 계속) ★
+        //   시간창 통과 후 평가 = 골든타임에만 합산 쿼리(틱당 1회). trigger-buy 수동 트리거도 이 경로.
+        if (entryBlockedByDailyLossBreaker(currentMode == TradingMode.REAL, "스캘핑봇")) {
+            return;
         }
 
         log.info("[스캘핑봇] ===== 골든타임 진입 ({}) =====", now);
@@ -2511,6 +2553,11 @@ public class AutoTradingBotService {
         final TradingMode runMode = currentMode;
         final TradeService runTrader = activeTradeService;
 
+        // ★ 일일 손실 서킷브레이커(V38) — runMode 스냅샷 이후 평가(모드 flip 시 잘못된 계좌 합산 방지) ★
+        if (entryBlockedByDailyLossBreaker(runMode == TradingMode.REAL, "스윙봇")) {
+            return;
+        }
+
         // 스윙 보유 한도 체크
         if (swingPositions.size() >= SWING_MAX_HOLDING) {
             log.debug("[스윙봇] 최대 보유 {}종목 도달 — 신규 진입 스킵", SWING_MAX_HOLDING);
@@ -2854,6 +2901,8 @@ public class AutoTradingBotService {
         if (isMarketClosed()) return;
         // 일일 손실률 평가 — 스윙과 동일하게 -3% 한도 검출 위해
         if (checkKillSwitch()) return;
+        // ★ 일일 손실 서킷브레이커(V38) — 비활성 전략이지만 재활성화 대비 방어적 게이트 ★
+        if (entryBlockedByDailyLossBreaker(currentMode == TradingMode.REAL, "종가매수")) return;
 
         if (closingPositions.size() >= CLOSING_MAX_HOLDING) {
             log.debug("[종가매수] 최대 보유 {}종목 도달 — 스킵", CLOSING_MAX_HOLDING);
