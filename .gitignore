@@ -66,3 +66,9 @@ deploy-config.bat
 deploy-config.sh
 
 .claude/
+
+### python-backend 로컬 개발 (Docker 밖 백테스트 실행용) ###
+python-backend/.venv/
+**/__pycache__/
+python-backend/.backtest_cache/
+.pytest_cache/

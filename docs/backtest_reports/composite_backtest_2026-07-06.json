@@ -1,0 +1,410 @@
+{
+ "meta": {
+  "period": {
+   "start": "20260102",
+   "end": "20260630"
+  },
+  "universeSize": 139,
+  "signalCount": 16680,
+  "kospiSource": "yahoo-ks11",
+  "supplySource": "naver-approx",
+  "flowsCoverage": {
+   "tickersWithFlows": 139,
+   "tickersWithPrice": 139
+  },
+  "holdDays": 3,
+  "hitDefinition": "alpha>=0 AND pct>0 (alpha 없으면 pct>=3%) — SignalOutcome 미러",
+  "thresholds": {
+   "earnings": 20,
+   "supplyDemand": 15,
+   "technical": 13,
+   "sectorMomentum": 14
+  },
+  "assumptions": {
+   "entry": "D+1 시가",
+   "exit": "+3거래일 종가",
+   "costModel": "수수료 0.03%+세금 0.18% flat + 슬리피지 0.15% 가격 적용",
+   "lookAheadGuard": "df.loc[:D] + assert(≤D)",
+   "populationNote": "운영 signal_outcome 은 top10 스냅샷 조건부 — 본 백테스트는 유니버스 전 종목·전 거래일 무조건부(랭킹 선택편향 없음, 모집단 상이)",
+   "survivorshipCaveat": "유니버스 = 현재 SectorStockConfig 스냅샷(생존편향 가능, P3-4)",
+   "supplyApproxCaveat": "수급 금액 = 네이버 순매매량×종가 근사, top10 = 유니버스-내 랭킹 근사",
+   "autocorrelationCaveat": "동일 종목 연속 거래일 신호는 독립 표본이 아님(중첩 보유창)"
+  }
+ },
+ "categories": {
+  "technical": {
+   "measured": true,
+   "n": 16680,
+   "threshold": 13,
+   "byBand": {
+    "0-4": {
+     "n": 4035,
+     "hitRate": 33.09,
+     "avgAlpha": -0.567,
+     "alphaN": 4035,
+     "avgNet": -0.167,
+     "insufficientSample": false
+    },
+    "10-14": {
+     "n": 5418,
+     "hitRate": 31.43,
+     "avgAlpha": -1.029,
+     "alphaN": 5418,
+     "avgNet": -0.129,
+     "insufficientSample": false
+    },
+    "15-20": {
+     "n": 1456,
+     "hitRate": 33.1,
+     "avgAlpha": -0.396,
+     "alphaN": 1456,
+     "avgNet": 0.592,
+     "insufficientSample": false
+    },
+    "5-9": {
+     "n": 5771,
+     "hitRate": 29.8,
+     "avgAlpha": -1.006,
+     "alphaN": 5771,
+     "avgNet": -0.143,
+     "insufficientSample": false
+    }
+   },
+   "byStrong": {
+    "strong": {
+     "n": 3640,
+     "hitRate": 33.52,
+     "avgAlpha": -0.628,
+     "alphaN": 3640,
+     "avgNet": 0.473,
+     "insufficientSample": false
+    },
+    "weak": {
+     "n": 13040,
+     "hitRate": 30.83,
+     "avgAlpha": -0.917,
+     "alphaN": 13040,
+     "avgNet": -0.234,
+     "insufficientSample": false
+    }
+   },
+   "byRegime": {
+    "BEAR": {
+     "n": 26,
+     "hitRate": 34.62,
+     "avgAlpha": 0.033,
+     "alphaN": 26,
+     "avgNet": 1.173,
+     "insufficientSample": false
+    },
+    "BULL": {
+     "n": 3386,
+     "hitRate": 33.46,
+     "avgAlpha": -0.711,
+     "alphaN": 3386,
+     "avgNet": 0.456,
+     "insufficientSample": false
+    },
+    "SIDEWAYS": {
+     "n": 228,
+     "hitRate": 34.21,
+     "avgAlpha": 0.52,
+     "alphaN": 228,
+     "avgNet": 0.634,
+     "insufficientSample": false
+    }
+   },
+   "byBandAndRegime": {
+    "0-4|BEAR": {
+     "n": 128,
+     "hitRate": 17.19,
+     "avgAlpha": -2.599,
+     "alphaN": 128,
+     "avgNet": -1.508,
+     "insufficientSample": false
+    },
+    "0-4|BULL": {
+     "n": 3631,
+     "hitRate": 33.65,
+     "avgAlpha": -0.461,
+     "alphaN": 3631,
+     "avgNet": -0.193,
+     "insufficientSample": false
+    },
+    "0-4|SIDEWAYS": {
+     "n": 276,
+     "hitRate": 32.97,
+     "avgAlpha": -1.02,
+     "alphaN": 276,
+     "avgNet": 0.795,
+     "insufficientSample": false
+    },
+    "10-14|BEAR": {
+     "n": 53,
+     "hitRate": 26.42,
+     "avgAlpha": -2.343,
+     "alphaN": 53,
+     "avgNet": -1.136,
+     "insufficientSample": false
+    },
+    "10-14|BULL": {
+     "n": 4978,
+     "hitRate": 31.16,
+     "avgAlpha": -1.121,
+     "alphaN": 4978,
+     "avgNet": -0.171,
+     "insufficientSample": false
+    },
+    "10-14|SIDEWAYS": {
+     "n": 387,
+     "hitRate": 35.66,
+     "avgAlpha": 0.337,
+     "alphaN": 387,
+     "avgNet": 0.552,
+     "insufficientSample": false
+    },
+    "15-20|BEAR": {
+     "n": 19,
+     "hitRate": 42.11,
+     "avgAlpha": 0.098,
+     "alphaN": 19,
+     "avgNet": 1.113,
+     "insufficientSample": false
+    },
+    "15-20|BULL": {
+     "n": 1305,
+     "hitRate": 33.41,
+     "avgAlpha": -0.485,
+     "alphaN": 1305,
+     "avgNet": 0.652,
+     "insufficientSample": false
+    },
+    "15-20|SIDEWAYS": {
+     "n": 132,
+     "hitRate": 28.79,
+     "avgAlpha": 0.413,
+     "alphaN": 132,
+     "avgNet": -0.069,
+     "insufficientSample": false
+    },
+    "5-9|BEAR": {
+     "n": 78,
+     "hitRate": 23.08,
+     "avgAlpha": -2.167,
+     "alphaN": 78,
+     "avgNet": -0.768,
+     "insufficientSample": false
+    },
+    "5-9|BULL": {
+     "n": 5237,
+     "hitRate": 30.0,
+     "avgAlpha": -1.032,
+     "alphaN": 5237,
+     "avgNet": -0.136,
+     "insufficientSample": false
+    },
+    "5-9|SIDEWAYS": {
+     "n": 456,
+     "hitRate": 28.73,
+     "avgAlpha": -0.51,
+     "alphaN": 456,
+     "avgNet": -0.115,
+     "insufficientSample": false
+    }
+   },
+   "spearmanScoreVsNet": 0.021,
+   "strongPortfolioMdd": 38.174
+  },
+  "supplyDemand": {
+   "measured": true,
+   "n": 16680,
+   "threshold": 15,
+   "byBand": {
+    "0-4": {
+     "n": 7943,
+     "hitRate": 30.18,
+     "avgAlpha": -1.052,
+     "alphaN": 7943,
+     "avgNet": -0.214,
+     "insufficientSample": false
+    },
+    "10-14": {
+     "n": 2758,
+     "hitRate": 31.33,
+     "avgAlpha": -0.976,
+     "alphaN": 2758,
+     "avgNet": -0.177,
+     "insufficientSample": false
+    },
+    "15-20": {
+     "n": 701,
+     "hitRate": 29.67,
+     "avgAlpha": -1.094,
+     "alphaN": 701,
+     "avgNet": -0.299,
+     "insufficientSample": false
+    },
+    "5-9": {
+     "n": 5278,
+     "hitRate": 33.55,
+     "avgAlpha": -0.461,
+     "alphaN": 5278,
+     "avgNet": 0.201,
+     "insufficientSample": false
+    }
+   },
+   "byStrong": {
+    "strong": {
+     "n": 701,
+     "hitRate": 29.67,
+     "avgAlpha": -1.094,
+     "alphaN": 701,
+     "avgNet": -0.299,
+     "insufficientSample": false
+    },
+    "weak": {
+     "n": 15979,
+     "hitRate": 31.49,
+     "avgAlpha": -0.843,
+     "alphaN": 15979,
+     "avgNet": -0.071,
+     "insufficientSample": false
+    }
+   },
+   "byRegime": {
+    "BEAR": {
+     "n": 7,
+     "hitRate": 42.86,
+     "avgAlpha": 1.595,
+     "alphaN": 7,
+     "avgNet": 2.878,
+     "insufficientSample": true
+    },
+    "BULL": {
+     "n": 626,
+     "hitRate": 29.07,
+     "avgAlpha": -1.38,
+     "alphaN": 626,
+     "avgNet": -0.345,
+     "insufficientSample": false
+    },
+    "SIDEWAYS": {
+     "n": 68,
+     "hitRate": 33.82,
+     "avgAlpha": 1.254,
+     "alphaN": 68,
+     "avgNet": -0.204,
+     "insufficientSample": false
+    }
+   },
+   "byBandAndRegime": {
+    "0-4|BEAR": {
+     "n": 158,
+     "hitRate": 16.46,
+     "avgAlpha": -2.807,
+     "alphaN": 158,
+     "avgNet": -1.478,
+     "insufficientSample": false
+    },
+    "0-4|BULL": {
+     "n": 7230,
+     "hitRate": 30.33,
+     "avgAlpha": -1.061,
+     "alphaN": 7230,
+     "avgNet": -0.251,
+     "insufficientSample": false
+    },
+    "0-4|SIDEWAYS": {
+     "n": 555,
+     "hitRate": 32.07,
+     "avgAlpha": -0.438,
+     "alphaN": 555,
+     "avgNet": 0.62,
+     "insufficientSample": false
+    },
+    "10-14|BEAR": {
+     "n": 31,
+     "hitRate": 29.03,
+     "avgAlpha": -1.942,
+     "alphaN": 31,
+     "avgNet": -0.942,
+     "insufficientSample": false
+    },
+    "10-14|BULL": {
+     "n": 2531,
+     "hitRate": 31.17,
+     "avgAlpha": -1.053,
+     "alphaN": 2531,
+     "avgNet": -0.242,
+     "insufficientSample": false
+    },
+    "10-14|SIDEWAYS": {
+     "n": 196,
+     "hitRate": 33.67,
+     "avgAlpha": 0.179,
+     "alphaN": 196,
+     "avgNet": 0.793,
+     "insufficientSample": false
+    },
+    "15-20|BEAR": {
+     "n": 7,
+     "hitRate": 42.86,
+     "avgAlpha": 1.595,
+     "alphaN": 7,
+     "avgNet": 2.878,
+     "insufficientSample": true
+    },
+    "15-20|BULL": {
+     "n": 626,
+     "hitRate": 29.07,
+     "avgAlpha": -1.38,
+     "alphaN": 626,
+     "avgNet": -0.345,
+     "insufficientSample": false
+    },
+    "15-20|SIDEWAYS": {
+     "n": 68,
+     "hitRate": 33.82,
+     "avgAlpha": 1.254,
+     "alphaN": 68,
+     "avgNet": -0.204,
+     "insufficientSample": false
+    },
+    "5-9|BEAR": {
+     "n": 82,
+     "hitRate": 29.27,
+     "avgAlpha": -1.603,
+     "alphaN": 82,
+     "avgNet": -0.604,
+     "insufficientSample": false
+    },
+    "5-9|BULL": {
+     "n": 4764,
+     "hitRate": 33.92,
+     "avgAlpha": -0.439,
+     "alphaN": 4764,
+     "avgNet": 0.257,
+     "insufficientSample": false
+    },
+    "5-9|SIDEWAYS": {
+     "n": 432,
+     "hitRate": 30.32,
+     "avgAlpha": -0.477,
+     "alphaN": 432,
+     "avgNet": -0.265,
+     "insufficientSample": false
+    }
+   },
+   "spearmanScoreVsNet": 0.0,
+   "strongPortfolioMdd": 46.323
+  },
+  "earnings": {
+   "measured": false,
+   "reason": "가격 데이터로 재현 불가(DART 재무/섹터 거래대금 필요) — 운영 RecommendationSnapshot CSV export 주입 시 측정(§4c)"
+  },
+  "sectorMomentum": {
+   "measured": false,
+   "reason": "가격 데이터로 재현 불가(DART 재무/섹터 거래대금 필요) — 운영 RecommendationSnapshot CSV export 주입 시 측정(§4c)"
+  }
+ }
+}

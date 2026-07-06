@@ -7,3 +7,4 @@ pandas==2.2.0
 requests>=2.28  # Java KIS 지수 엔드포인트 호출(index_source) — pykrx 통해 이미 존재하나 명시
 setuptools<81  # pykrx 가 pkg_resources 사용 — setuptools 81+ 에서 제거됨
 pytest==8.3.0  # 지표 순수함수 단위테스트(차트기법) — python-backend 첫 테스트 인프라
+lxml>=5.0  # 백테스트 investor_flows(네이버 frgn 테이블 파싱, pandas.read_html) 전용
