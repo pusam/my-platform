@@ -382,8 +382,11 @@
 - **4카테고리 진단 완료(2026-06-30)**: **기술=예측력 有(유지)** / **수급=역상관(가중↓ 후보)** / **실적=게이트+20점 약변별(유지)** / **섹터=14점 강예측·측정임계 오류(≥14로 재측정)**. → "기술·섹터(테마14)가 일하고, 수급은 해롭고, 실적은 게이트" 그림.
 - **✅ 측정 버그 해소 (2026-07-02, `c85f304`)**: `aggregateCategories` 단일 임계 15 → **카테고리별 임계**(n=88 실측 분포 근거): **실적 ≥20**(20=53.8%>19=42.7%, 상위격리)·**수급 ≥15**(20=21.4% 역상관)·**기술 ≥13**(11~13 집중, 13=+7.20)·**섹터 ≥14**(14=65% sweet spot, ≥15 표본0). 측정 전용(getAccuracyByBand)·라이브 산식 무관. 테스트 경계(섹터14/실적20/기술13/수급15만 강세). → 2-4주 뒤 국면별 재측정의 **전제 충족**(측정 정확화). 가중치 변경은 여전히 데이터 대기(아래).
 - **조치(가중치)**: **당장 가중치 변경 보류**(n=88·표본 작음, regime 분리 불가). 수급=역상관 의심지표로 확정. regime 복구됐으니 **데이터 축적 → N주 후 국면별 분리 재측정**.
-- **로드맵**: 단기 **B안**(미국장·차트타이밍·섹터강도 + 4카테고리를 한 화면에 모아 보되 **점수 미편입**) → 표본 ≥수백 시 **A안**(차트백테스트처럼 단조·유의한 것만 종합점수 합류, 수급 가중↓/제외, 섹터 임계 재조정).
-- **관련**: `RecommendationService.scoreEarnings/scoreSupplyDemand/scoreTechnical/scoreSectorMomentum`, `SignalOutcomeService.aggregateCategories`(CATEGORY_STRONG_THRESHOLD=15), `signal_outcome`(V30 카테고리 스냅샷), [P2-12](차트 백테스트 — 같은 교훈), [P2-14](B안 보드).
+- **✅ 측정 상설화 완료 (2026-07-06)**: "2-4주 뒤 수동 재측정"을 **주간 자동 배치로 상설화**(측정 전용, 산식/가중치 무변경). `WeeklyAccuracyAggregator`(순수+테스트)가 `aggregateCategories`/`aggregateBands`를 **regime 버킷(BULL/BEAR/SIDEWAYS/UNKNOWN)별 재호출 = 2D 파티션**으로 (카테고리×regime×밴드) 적중률/평균 alpha/n 산출 → `SignalWeeklyAccuracy`(V37, 주 1행) 스냅샷 + 일 18:00 크론(SchedulerLock fail-open) + 모닝브리핑 요약(전주 대비·"수급 역상관 지속 N주째" 누적 경고) + `GET /api/signal-outcomes/weekly-report`. **n<10 셀=표본부족 명시(§4c, 위장 금지)**. regime NULL=UNKNOWN 정직 분리. `CategoryStat.avgAlpha` additive.
+  - **⚠ 2D 결정 근거**: 완전 3중 크로스탭(≤64셀)은 n≈88에선 전셀 표본부족이라 무의미 → 2D 채택. **report_json에 전체가 담겨 표본 축적 후 3D 집계 추가는 스키마 무변경으로 가능**.
+  - **가중치 재조정은 여전히 데이터 대기** — 이 작업은 상설화까지. 국면별 표본 쌓이면 아래 로드맵 A안 재검토(주간 스냅샷 추세로 판단).
+- **로드맵**: 단기 **B안**(미국장·차트타이밍·섹터강도 + 4카테고리를 한 화면에 모아 보되 **점수 미편입**) → 표본 ≥수백 시 **A안**(차트백테스트처럼 단조·유의한 것만 종합점수 합류, 수급 가중↓/제외, 섹터 임계 재조정). **판단 근거 = 주간 예측력 스냅샷(SignalWeeklyAccuracy) 추세**.
+- **관련**: `RecommendationService.scoreEarnings/scoreSupplyDemand/scoreTechnical/scoreSectorMomentum`, `SignalOutcomeService.aggregateCategories`(카테고리별 임계 실적20/수급15/기술13/섹터14), `WeeklyAccuracyAggregator`/`SignalWeeklyReportService`/`SignalWeeklyAccuracy`(V37, 측정 상설화), `signal_outcome`(V30 카테고리 스냅샷), [P2-12](차트 백테스트 — 같은 교훈), [P2-14](B안 보드).
 
 ---
 

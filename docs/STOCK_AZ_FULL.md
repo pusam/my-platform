@@ -203,6 +203,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | 16:45 | 마감 후 알림 | `StockAlertScheduler` |
 | 19:30 | 시그널 평가(3거래일 후) | `SignalOutcomeService` |
 | 20:05 / 20:10 | 발굴 5트랙 야간 / 복합신호 | Recommendation/MultiConviction |
+| **일 18:00** | **시그널 주간 예측력 측정**(카테고리×regime×밴드, SchedulerLock fail-open) | `SignalWeeklyReportService` |
 | 23:00 | 재무 영속화 | `StockFinancialDataService` |
 | 03:00 | 배치 정리 | `BatchJobCleanupService` |
 
@@ -215,7 +216,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - **종목/시세**: `StockMaster` · `StockPrice` · `StockPriceHistory` · `StockFinancialData` · `StockCatalyst`(V31)
 - **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth -1=NA sentinel) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
 - **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog`
-- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷, NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`
+- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷, NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
 - **시장/투자자**: `MarketDailyStatus`(ADR/condition) · `InvestorIntradaySnapshot` · `InvestorDailyTrade` · `EarningsDisclosure` · `ShortSellingBalance` · `AlertHistory`
 - **인증/유저**: `User` · `EmailVerificationToken` · `PasswordResetToken` · `WebauthnCredential`/`WebauthnChallenge`
 - **상품**: `GoldPrice`/`SilverPrice`/`OilPrice`, 배치추적 `BatchJobExecution`
@@ -535,6 +536,21 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ---
 
+### 2026-07-06 세션 — P1-6 예측력 측정 상설화(주간 자동 배치)
+
+**"2-4주 뒤 수동 재측정"을 주간 자동 배치로 상설화** — 어떤 신호가 실제 수익을 내는지 측정하는 상시 피드백 루프. **종합점수 산식·가중치 무변경(측정 전용).** 4 독립 커밋:
+
+- **측정 축 = 카테고리(4) × regime(BULL/BEAR/SIDEWAYS/UNKNOWN) × 점수밴드**, 지표 = 적중률/평균 alpha_3d/표본수. `SignalOutcomeService.aggregateCategories`(카테고리별 임계 실적≥20·수급≥15·기술≥13·섹터≥14, c85f304) + `aggregateBands` **재사용** — regime 버킷별로 재호출하는 **2D 파티션**(`WeeklyAccuracyAggregator`, 순수함수+테스트 11케이스). **regime_at_signal NULL = UNKNOWN 버킷 정직 분리**(pykrx 깨졌던 구간). `CategoryStat.avgAlpha` additive(측정 지표, 기존 테스트 무영향).
+- **⚠ 2D 파티션 결정 근거**: 완전 3중 크로스탭(regime×카테고리×밴드, ≤64셀)은 현재 표본(n≈88)에선 **거의 전셀 표본부족이라 무의미**. `report_json`에 전체가 담기므로 **표본 축적 후 3D 집계 추가는 스키마 무변경으로 가능** — 그때 도입.
+- **표본부족(§4c)**: 셀 n<10 = `insufficientSample=true` 명시 + n 병기(숨기지 않고 위장 금지). hitRate/alpha는 계산하되 신뢰 낮음 표기.
+- **추세**: 이번 주 vs 누적 전체 델타(악화 감지, 양쪽 표본 충분할 때만). **누적 경고**: "수급 역상관 지속 N주째"(강세-수급 avg alpha<0 & n충분 = 주간 플래그 → 직전 스냅샷 연속 카운트).
+- **영속화**: **별도 엔티티 `SignalWeeklyAccuracy`(V37, table `signal_weekly_accuracy`)** — WeeklyTradingReport(봇 매매 실적)와 도메인·수명주기 상이해 통합 대신 분리. 주 1행(week_start UNIQUE) UPSERT, report_json에 전체 크로스탭.
+- **크론**: 일 18:00(batchScheduler) + `SchedulerLockService`(fail-open, 봇 크론 아님 — 더블런 시 같은 주 UPSERT 무해). 기존 §5 잡(19:30 MON-FRI 평가, 20:05 야간)과 무충돌. Clock 주입(주 경계 결정성). 텔레그램 모닝브리핑 채널 요약(카테고리별 적중률·전주 대비·경고).
+- **API**: `GET /api/signal-outcomes/weekly-report`(최신) · `/weekly-report/history`(12주 추세) · `POST /api/admin/signal-outcomes/weekly-report/run`(ADMIN 수동). 집계는 `WeeklyAccuracyAggregator` 순수함수 분리+테스트, 서비스 오케스트레이션은 `SignalWeeklyReportServiceTest`(주 경계·격리 위임·UPSERT·스트릭).
+- **가중치 재조정은 여전히 데이터 대기** — 이 작업은 측정 상설화까지. 국면별 표본 축적되면 P1-6 로드맵 A안(단조·유의한 것만 산식 합류) 재검토.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
@@ -542,4 +558,4 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-02 갱신**(§19 = 06-30~07-02 세션 반영: 종합판단 보드·재료 파이프라인 3중 버그·Gemini 무료 rate·발굴 축소). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-06 갱신**(§19 = ~07-06 세션 반영: ×10 가격 진단·봇 sanity 가드·**P1-6 예측력 측정 상설화(주간 배치)**). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
