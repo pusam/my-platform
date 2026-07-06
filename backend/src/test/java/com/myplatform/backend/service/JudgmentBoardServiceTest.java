@@ -158,4 +158,19 @@ class JudgmentBoardServiceTest {
         assertThat(JudgmentBoardService.resolveTradingValue(empty)).isNull();
         assertThat(JudgmentBoardService.resolveTradingValue(null)).isNull();
     }
+
+    @Test
+    @DisplayName("RVOL(V41 ② 참고) — 산출 종목만 세팅, 미산출은 null 유지(§4c)")
+    void applyRvol_setsOnlyComputed() {
+        Row a = Row.builder().stockCode("005930").build();
+        Row b = Row.builder().stockCode("035420").build();
+        JudgmentBoardService.applyRvol(List.of(a, b), Map.of("005930", new BigDecimal("3.20")));
+        assertThat(a.getRvol()).isEqualByComparingTo("3.20");
+        assertThat(b.getRvol()).isNull();
+
+        // 빈/누락 맵은 no-op
+        JudgmentBoardService.applyRvol(List.of(b), Map.of());
+        JudgmentBoardService.applyRvol(List.of(b), null);
+        assertThat(b.getRvol()).isNull();
+    }
 }

@@ -87,6 +87,11 @@ class FlywayMigrationTest {
         assertThat(uniqueConstraintCount("overnight_us_snapshot", "uk_ous_snapshot_date"))
                 .as("V40 overnight_us_snapshot 테이블과 UNIQUE 제약(uk_ous_snapshot_date)이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 5 (V41 도달 확인): signal_outcome.rvol_at_signal 컬럼 추가(NULL=미수집 스냅샷) ---
+        assertThat(columnCount("signal_outcome", "rvol_at_signal"))
+                .as("V41 signal_outcome.rvol_at_signal 컬럼이 적용되어야 함")
+                .isEqualTo(1);
     }
 
     /**
@@ -116,6 +121,23 @@ class FlywayMigrationTest {
                 if (!sql.isEmpty()) {
                     stmt.execute(sql);
                 }
+            }
+        }
+    }
+
+    /** information_schema 로 특정 테이블의 컬럼 존재 여부(개수)를 센다 — 컬럼 추가형 마이그레이션 가드용. */
+    private long columnCount(String table, String column) throws Exception {
+        String sql = "SELECT COUNT(*) FROM information_schema.COLUMNS "
+                + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, MARIADB.getDatabaseName());
+            ps.setString(2, table);
+            ps.setString(3, column);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getLong(1);
             }
         }
     }

@@ -44,7 +44,7 @@ public class JudgmentBoardService {
     static final int CATALYST_DISPLAY_DAYS = 2;
     private static final String SOURCE_MOMENTUM = "momentum";
     private static final String NOTE_BASE =
-            "② 차트타이밍·섹터강도·간밤 미국장 = 미검증 참고(점수 미편입). "
+            "② 차트타이밍·섹터강도·간밤 미국장·RVOL = 미검증 참고(점수 미편입). "
             + "③ 수급 고점 = 역상관 의심(표본 작음 n=88, 확정 아님). 종합점수는 ① 검증/게이트 기준.";
 
     private final RecommendationService recommendationService;
@@ -54,6 +54,7 @@ public class JudgmentBoardService {
     private final ObjectProvider<MarketRegimeClient> regimeProvider;
     private final StockCatalystRepository catalystRepository;
     private final StockPriceService stockPriceService;
+    private final RvolService rvolService;
 
     /** 종합 판단 보드. scope=momentum(기본)|union. */
     public JudgmentBoardDto getBoard(String scope) {
@@ -245,6 +246,27 @@ public class JudgmentBoardService {
             applyTradingValue(rows, priceByCode);
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 거래대금 조립 실패(생략): {}", e.getMessage());
+        }
+
+        try {   // RVOL(V41 ② 참고): 위에서 조립된 거래대금(같은 시세 스냅샷)을 분자로 재사용 — 이중 조회 없음.
+            Map<String, BigDecimal> todayValueByCode = new LinkedHashMap<>();
+            for (Row r : rows) {
+                if (r.getStockCode() != null && r.getTradingValue() != null) {
+                    todayValueByCode.put(r.getStockCode(), r.getTradingValue());
+                }
+            }
+            applyRvol(rows, rvolService.getRvolBulk(todayValueByCode));
+        } catch (Exception e) {
+            log.warn("[JudgmentBoard] RVOL 조립 실패(생략): {}", e.getMessage());
+        }
+    }
+
+    /** RVOL 매핑(순수) — 미산출 종목은 미설정(null=§4c). 표시 전용, 랭킹/산식 미편입. */
+    static void applyRvol(List<Row> rows, Map<String, BigDecimal> rvolByCode) {
+        if (rvolByCode == null || rvolByCode.isEmpty()) return;
+        for (Row r : rows) {
+            BigDecimal rvol = rvolByCode.get(r.getStockCode());
+            if (rvol != null) r.setRvol(rvol);
         }
     }
 

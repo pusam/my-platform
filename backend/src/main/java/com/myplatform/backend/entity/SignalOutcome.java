@@ -81,6 +81,10 @@ public class SignalOutcome {
     @Column(name = "regime_at_signal", length = 10)
     private String regimeAtSignal;
 
+    /** 시그널 시점 RVOL (V41) — 당일 거래대금 ÷ 직전 20거래일 평균. NULL=미수집(20일 미만·캐시 미스). */
+    @Column(name = "rvol_at_signal", precision = 8, scale = 2)
+    private BigDecimal rvolAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 

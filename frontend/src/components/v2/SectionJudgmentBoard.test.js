@@ -105,6 +105,19 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(rows[1].find('.cat-badge').text()).not.toContain('어제')   // 오늘은 표기 없음
   })
 
+  it('RVOL 배지(V41 ② 참고) — 값 있으면 "3.2x" 배지, null=미산출(§4c)이면 무배지', async () => {
+    const w = await mountBoard([
+      row({ stockCode: 'A', rvol: 3.2 }),
+      row({ stockCode: 'B', rvol: null })
+    ])
+    const rows = w.findAll('.jb-row')
+    const badge = rows[0].find('.rvol-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('RVOL 3.2x')
+    expect(badge.attributes('title')).toContain('미검증')
+    expect(rows[1].find('.rvol-badge').exists()).toBe(false)
+  })
+
   it('지연 경고 — 현재가/거래대금이 캐시 스냅샷(최대 30분·실시간 아님)임을 명시', async () => {
     const w = await mountBoard([row()])
     const note = w.find('.jb-delay-note')

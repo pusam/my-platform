@@ -48,6 +48,8 @@ public class SignalOutcomeService {
     private final com.myplatform.backend.repository.StockCatalystRepository catalystRepository;
     // V32 — 시장 국면 스냅샷 (python-backend pykrx, 1h 캐시·best-effort). ObjectProvider 로 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<MarketRegimeClient> regimeProvider;
+    // V41 — RVOL 스냅샷 (시세 cache-only + 가격히스토리, best-effort). ObjectProvider 로 null-safe.
+    private final org.springframework.beans.factory.ObjectProvider<RvolService> rvolProvider;
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
@@ -135,6 +137,15 @@ public class SignalOutcomeService {
                 }
             } catch (Exception ignore) { /* 국면 스냅샷은 best-effort */ }
 
+            // V41 — RVOL 스냅샷 (시세 cache-only + 히스토리 20거래일 — 미산출이면 NULL=미수집, §4c).
+            BigDecimal rvol = null;
+            try {
+                RvolService rvolService = rvolProvider.getIfAvailable();
+                if (rvolService != null) {
+                    rvol = rvolService.getRvolQuiet(stockCode);
+                }
+            } catch (Exception ignore) { /* RVOL 스냅샷은 best-effort */ }
+
             SignalOutcome outcome = SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -150,6 +161,7 @@ public class SignalOutcomeService {
                     .catalystTypeAtSignal(catalystType)
                     .catalystDirectionAtSignal(catalystDirection)
                     .regimeAtSignal(regime)
+                    .rvolAtSignal(rvol)
                     .build();
             // INSERT 는 REQUIRES_NEW 로 격리 — UNIQUE(uq_so_type_code_date) 위반(경합 패자)이
             // 호출부/이 메서드 tx 를 rollback-only 로 오염시키지 않게(새 tx 만 롤백).

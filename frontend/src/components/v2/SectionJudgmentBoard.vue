@@ -83,6 +83,8 @@
                     :title="catTitle(r)">
                 {{ catBadge(r.catalystDirection, r.catalystLabel)
                 }}<small v-if="catAgeLabel(r.catalystAgeDays)" class="cat-age">{{ catAgeLabel(r.catalystAgeDays) }}</small></span>
+              <span v-if="r.rvol != null" class="rvol-badge"
+                    title="RVOL = 당일 거래대금 ÷ 직전 20일 평균 — 미검증 참고(② 계층, 점수 미편입). 캐시 스냅샷이라 장중엔 낮게 잡힘.">RVOL {{ fmtRvol(r.rvol) }}</span>
               <span v-for="s in (r.sources || [])" :key="s" class="src-tag">{{ sourceLabel(s) }}</span>
             </td>
             <td class="td-price">
@@ -202,6 +204,8 @@ const fmtTradingValue = (v) => {
   if (n >= 1e4) return `${Math.round(n / 1e4).toLocaleString('ko-KR')}만`;
   return n.toLocaleString('ko-KR');
 };
+// RVOL 배지(V41 ② 참고, 미검증·점수 미편입) — null=미산출(§4c) 생략. "3.2x" 형태.
+const fmtRvol = (v) => `${Number(v).toFixed(1)}x`;
 // 재료 배지(§4b 표시 전용) — 호재/악재만 표시(중립/없음은 백엔드가 생략)
 // 재료 방향 3분할 — 호재 🔥 / 악재 ⚠️ / 중립 아이콘無(회색). NONE/null 은 백엔드가 생략.
 const catIcon = (dir) => (dir === 'POSITIVE' ? '🔥' : dir === 'NEGATIVE' ? '⚠️' : '');
@@ -311,6 +315,11 @@ onMounted(load);
 .cat-badge.cat-neu { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; }
 /* 경과 표기 — "어제" 등, 오늘 재료가 아님을 명확히(§4c). 배지 색보다 흐리게. */
 .cat-badge .cat-age { margin-left: 3px; font-size: 8.5px; font-weight: 400; opacity: 0.75; }
+/* RVOL 배지(② 참고 톤) — 미검증 청회색(td-unv 계열), 재료 배지(주황/적색)와 구분. */
+.rvol-badge {
+  font-size: 9px; margin-left: 5px; padding: 1px 5px; border-radius: 3px; cursor: help;
+  background: rgba(148, 163, 184, 0.16); color: #cbd5e1; font-variant-numeric: tabular-nums;
+}
 /* 시세 셀 — 현재가 + 등락률(캐시 스냅샷) */
 .td-price { text-align: right; line-height: 1.25; }
 .td-price .pp { font-variant-numeric: tabular-nums; }

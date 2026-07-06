@@ -89,6 +89,9 @@ public class JudgmentBoardDto {
         private Integer catalystAgeDays;       // 0=오늘 / 1=어제 (§4c: 낡음 위장 방지 — 프론트가 경과 표기)
         // 거래대금(§4c): 실측 누적 or 현재가×거래량 폴백, 둘 다 없으면 null(임시값 생성 금지).
         private BigDecimal tradingValue;
+        // RVOL(V41, ② 참고 계층): 당일 거래대금 ÷ 직전 20거래일 평균. null=미산출(20일 미만·캐시 미스, §4c).
+        // 미검증·랭킹/산식 미편입 — 배지 표시 전용.
+        private BigDecimal rvol;
 
         private List<String> tags;
     }
