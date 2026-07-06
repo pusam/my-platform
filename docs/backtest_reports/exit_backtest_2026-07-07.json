@@ -1,0 +1,116 @@
+{
+ "meta": {
+  "hypothesis": "B — ATR(14)×k 동적 손절/익절 vs 고정 -3%/+5%(PLAN_* 미러)",
+  "period": {
+   "start": "20260102",
+   "end": "20260630"
+  },
+  "universeSize": 139
+ },
+ "results": {
+  "signalCount": 3640,
+  "evaluated": 3640,
+  "atrMissing": 0,
+  "maxHoldDays": 10,
+  "assumptions": {
+   "entry": "D+1 시가",
+   "sameDayTie": "손절 우선(비관적)",
+   "atr": "ATR14(Wilder), 신호일 D 까지 point-in-time",
+   "riskReward": "ATR 익절 = k×ATR×1.667 — 현행 -3/+5 손익비 유지",
+   "timeExit": "10거래일 종가(두 규칙 공통)",
+   "costModel": "수수료 0.03%+세금 0.18% flat + 슬리피지 0.15% 가격 적용"
+  },
+  "rules": {
+   "fixed_-3/+5": {
+    "n": 3640,
+    "avgNet": -0.22,
+    "perTrade": {
+     "n": 3640,
+     "winRate": 39.34,
+     "avgWin": 4.591,
+     "avgLoss": -3.34,
+     "profitFactor": 0.892,
+     "worstTrade": -3.355,
+     "bestTrade": 4.633,
+     "pctLossOver5": 0.0
+    },
+    "portfolioMdd10": 90.553,
+    "avgHoldDays": 2.15,
+    "exitBreakdown": {
+     "stop": 60.3,
+     "target": 38.8,
+     "time": 0.9
+    },
+    "insufficientSample": false
+   },
+   "atr_x1.5": {
+    "n": 3640,
+    "avgNet": 1.472,
+    "perTrade": {
+     "n": 3640,
+     "winRate": 50.14,
+     "avgWin": 10.543,
+     "avgLoss": -7.648,
+     "profitFactor": 1.386,
+     "worstTrade": -22.436,
+     "bestTrade": 39.989,
+     "pctLossOver5": 40.2
+    },
+    "portfolioMdd10": 36.827,
+    "avgHoldDays": 5.75,
+    "exitBreakdown": {
+     "stop": 41.1,
+     "target": 38.7,
+     "time": 20.2
+    },
+    "insufficientSample": false
+   },
+   "atr_x2.0": {
+    "n": 3640,
+    "avgNet": 1.876,
+    "perTrade": {
+     "n": 3640,
+     "winRate": 51.29,
+     "avgWin": 11.994,
+     "avgLoss": -8.778,
+     "profitFactor": 1.439,
+     "worstTrade": -28.939,
+     "bestTrade": 53.438,
+     "pctLossOver5": 38.3
+    },
+    "portfolioMdd10": 34.309,
+    "avgHoldDays": 7.17,
+    "exitBreakdown": {
+     "stop": 32.2,
+     "target": 30.4,
+     "time": 37.5
+    },
+    "insufficientSample": false
+   },
+   "atr_x2.5": {
+    "n": 3640,
+    "avgNet": 2.096,
+    "perTrade": {
+     "n": 3640,
+     "winRate": 51.98,
+     "avgWin": 12.691,
+     "avgLoss": -9.371,
+     "profitFactor": 1.466,
+     "worstTrade": -30.676,
+     "bestTrade": 49.984,
+     "pctLossOver5": 35.1
+    },
+    "portfolioMdd10": 36.729,
+    "avgHoldDays": 8.05,
+    "exitBreakdown": {
+     "stop": 23.8,
+     "target": 23.6,
+     "time": 52.6
+    },
+    "insufficientSample": false
+   }
+  },
+  "signalSet": "기술 미러 >=13 강세 신호(proxy) — 운영 STRONG_BUY/BUY 아님. composite total 은 실적/섹터 없이는 계산 불가(validCount>=3)라 정직한 대용(§4c). 스냅샷 CSV 주입 시 total>=55 로 측정.",
+  "conclusion": "atr_x2.5 가 avgNet +2.316%p 우위 — 단 MDD(36.729 vs 90.553)·표본·regime 확인 후 별도 세션에서 판단(자동 편입 금지)"
+ }
+}
