@@ -371,7 +371,8 @@
 > (KRX 일일 변동제한 ±30% 상 불가능한 값). **×10 가격 오염과는 무관한 별개 이슈**(가격 필드는 정상, 등락률 필드만 손상).
 > 2026-07-06 ×10 재점검 종결 시 사용자 결정으로 **착수 안 함, 티켓만 기록**. (나머지 부수 발견 2종: 동결/스테일 피드=[P2-11] 기존 티켓, 저측 글리치=봇 sanity 가드(2026-07-06)가 하방 ×0.2도 차단해 봇 리스크는 방어됨.)
 
-- **현재 방어 상태**: `warnIfPriceOutlier` 그물2(|prdy_ctrt|>31%)가 발화 시 ERROR 로깅(미보정, §16-3). 봇 sanity 가드는 **가격 기반**이라 등락률 오염과 독립 — 등락률 손상이 주문으로 직결되는 경로는 현재 없음(표시/정렬/시그널 폴백 pct 소비처는 영향 가능, 미조사).
+- **✅ 표시 계층 부분 대응 (2026-07-06)**: 상세 화면 표시 DTO(`PriceInfo`)에서 `StockDetailService.displaySafeChangeRate`(|등락률|>40% → null, §4c '—' 렌더)를 두 빌드 사이트(`convertDtoToPriceInfo`·`parsePriceInfo`)에 적용 — 011930 900% 류가 화면에 노출되던 문제 차단. **표시 한정**(저장값·시세 단일경로·시그널/봇 무변경). 테스트 `StockDetailServiceTest.DisplayChangeRateSanitize`. **잔여 = 아래 발생 빈도·소스 조사 + 표시 외 소비처**(정렬 tie-break·시그널 폴백 pct)는 미조사.
+- **현재 방어 상태**: `warnIfPriceOutlier` 그물2(|prdy_ctrt|>31%)가 발화 시 ERROR 로깅(미보정, §16-3). 봇 sanity 가드는 **가격 기반**이라 등락률 오염과 독립 — 등락률 손상이 주문으로 직결되는 경로는 현재 없음(표시=위 부분 대응, 정렬/시그널 폴백 pct 소비처는 영향 가능, 미조사).
 - **과제(착수 시)**: ① 발생 빈도 — `stock_price`에서 `ABS(change_rate)>31` 행 스캔(기간·종목 군집). ② 소스 판별 — KIS `prdy_ctrt`(`getBigDecimalValue` 경유) vs 네이버 폴백 `fluctuationsRatio`(`parsePrice`) 어느 쪽 유입인지 `data_source` 컬럼으로 구분. ③ 조치 — §4c대로 **그럴듯한 값으로 보정 금지**, 검증 실패 시 null 처리(결측 정직) 검토 + 소비처(시그널 hit 폴백 pct≥3% 등) 영향 확인.
 - **관련**: `StockPriceService.fetchFromKoreaInvestment`(prdy_ctrt 파싱)·`parseNaverStockDetail`(fluctuationsRatio)·`warnIfPriceOutlier` 그물2, `docs/PRICE_X10_DIAGNOSIS_P0-2.md` §6·§8, [P2-11](동결/스테일 피드).
 
