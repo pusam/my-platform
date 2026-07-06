@@ -68,6 +68,11 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - backend 주요 의존: web·data-jpa·security·actuator·mail·cache·Caffeine·Redis·Batch·Springdoc·Flyway(mysql scheme)·POI·ta4j·jsoup·WebAuthn4j·Resilience4j(KIS/DART/Gemini circuit breaker).
 - Dockerfile: backend(temurin:17, MaxRAMPercentage=75%, 비루트 spring), python(python:3.12-slim, uvicorn 2 workers).
 
+### 1-3. DB 백업 체계 (`ops/backup/`, 2026-07-06)
+- **`backup.sh`(매일 02:00 cron)**: `docker compose exec -T mariadb` 경유 `mariadb-dump --single-transaction --routines --triggers --all-databases | gzip`. 인증은 **컨테이너 내부 env 폴백**(`${MARIADB_ROOT_PASSWORD:-$MYSQL_ROOT_PASSWORD}`, MYSQL_PWD 로 argv 노출 회피) — 스크립트에 시크릿 없음. **무결성 검증**(`gzip -t` + 최소 1MB, §4c: 빈 백업이 조용히 쌓이는 것 방지) 통과분만 **로컬 14일**(`/var/backups/myplatform-db`, repo 밖) 보존 → **rclone `b2backup` remote 로 B2 업로드 + 원격 30일**(`delete --min-age 30d`). **실패 시에만** 텔레그램 리스크 채널 알림(성공 무알림).
+- **`check_backup_age.sh`(주 1회, 일요일)**: B2 원격 최신 백업 mtime 이 48h 초과면 경고 — "실패 알림이 안 옴 ≠ 백업 성공"(backup cron 자체 사망 감지).
+- **설치**: 리포에 스크립트+`ops/backup/README.md`(rclone/B2 설정·crontab·복구 리허설 절차) 커밋, **서버는 `git pull` 후 수동 설치**(cron 등록). B2 키는 미발급 상태여도 스크립트 완성 — 키는 서버 rclone config 에만 주입(로컬 백업은 키 없이도 정상). 복구 리허설 = 임시 `mariadb:11.2` 컨테이너 복원 후 `signal_outcome` 건수·최신일자 운영 대조.
+
 ---
 
 ## 2. 백엔드 (Spring Boot) 패키지 구조
