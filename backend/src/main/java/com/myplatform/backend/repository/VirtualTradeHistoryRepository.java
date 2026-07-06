@@ -82,6 +82,26 @@ public interface VirtualTradeHistoryRepository extends JpaRepository<VirtualTrad
     java.math.BigDecimal sumRealizedProfitLoss(@Param("accountId") Long accountId);
 
     /**
+     * 구간 실현손익 합계 — 일일 손실 서킷브레이커(V38) 판정 입력.
+     *
+     * <p>[start, end) <b>반열린 구간</b>·SELL·profitLoss NOT NULL 만. 확정 기록만 합산(§4c —
+     * 미체결/부분체결 잔량의 미확정 손익은 resolveFill 재시도 후 기록 시점에 반영).
+     * 거래 0건이면 0 반환(COALESCE) — "손실 없음"과 동치라 정직.
+     */
+    @Query("""
+        SELECT COALESCE(SUM(t.profitLoss), 0)
+          FROM VirtualTradeHistory t
+         WHERE t.accountId = :accountId
+           AND t.tradeType = 'SELL'
+           AND t.profitLoss IS NOT NULL
+           AND t.tradeDate >= :start
+           AND t.tradeDate < :end
+        """)
+    java.math.BigDecimal sumRealizedPnlBetween(@Param("accountId") Long accountId,
+                                               @Param("start") LocalDateTime start,
+                                               @Param("end") LocalDateTime end);
+
+    /**
      * 오늘 거래 수 조회
      */
     @Query("SELECT COUNT(t) FROM VirtualTradeHistory t WHERE t.accountId = :accountId AND t.tradeDate >= :todayStart")

@@ -60,6 +60,24 @@ public class BotConfig {
     @Column(name = "last_force_liquidation_date")
     private LocalDate lastForceLiquidationDate;
 
+    // ── 일일 손실 한도 서킷브레이커 (V38, 2026-07-06) ─────────────────────────────
+    // ⚠ 브레이커는 config_key='daily_loss_breaker' 전용 행 사용 — 'trading_bot' 행은 saveBotState 등이
+    //   load-modify-save(무 @Version) 전체 UPDATE 라 병행 쓰기가 tripped_date 를 클로버할 수 있음(행 분리로 차단).
+
+    /** 일일 실현손실 한도(원, 절대금액). 당일 봇 실현손익 누적 ≤ -한도 시 신규 진입 차단. null(레거시)=기본 300,000. */
+    @Column(name = "daily_loss_limit_krw", nullable = false, precision = 15, scale = 2)
+    @Builder.Default
+    private java.math.BigDecimal dailyLossLimitKrw = new java.math.BigDecimal("300000");
+
+    /** 서킷브레이커 on/off — 기본 ON. null(레거시 행)은 ON 으로 해석(forceRegularSessionLiquidation 패턴). */
+    @Column(name = "daily_loss_breaker_enabled", nullable = false)
+    @Builder.Default
+    private Boolean dailyLossBreakerEnabled = true;
+
+    /** 브레이커 발동 일자 — =오늘이면 신규 진입 차단, ≠오늘이면 자동 해제(날짜 비교, 리셋 잡 불필요). null=미발동. */
+    @Column(name = "daily_loss_breaker_tripped_date")
+    private LocalDate dailyLossBreakerTrippedDate;
+
     /**
      * 마지막 상태 변경 시간
      */
