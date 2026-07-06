@@ -553,7 +553,7 @@ public class StockDetailService {
         return PriceInfo.builder()
                 .currentPrice(currentPrice)
                 .changePrice(changePrice)
-                .changeRate(changeRate)
+                .changeRate(displaySafeChangeRate(changeRate))   // 표시 계층 정제 — 손상 등락률(>40%)은 null(§4c)
                 .tradingVolume(parseLong(output.get("acml_vol")))
                 .tradingValue(parseBigDecimal(output.get("acml_tr_pbmn"))
                         .divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP))
@@ -1380,6 +1380,21 @@ public class StockDetailService {
     // ========== 네이버 폴백 변환 ==========
 
     /**
+     * 표시 계층 등락률 정제(P3-6/prdy_ctrt 손상 대응) — 순수 함수(테스트 대상).
+     *
+     * <p>KRX 일일 변동제한은 ±30%인데 손상된 {@code prdy_ctrt}(예: 011930 900.00%)가 그대로 표시되던
+     * 문제 대응. |등락률| &gt; 40%(변동제한 30% + 오탐 방지 여유)면 <b>손상 필드로 보고 null</b> — §4c(그럴듯한
+     * 값으로 위장 금지, 프론트가 '—' 렌더). <b>표시 DTO(PriceInfo) 한정</b>이라 저장값(stock_price)·시세 단일경로
+     * ·시그널/봇(모두 {@code StockPriceDto.changeRate} 직접 소비)에는 영향 없다.
+     */
+    static final BigDecimal DISPLAY_MAX_ABS_CHANGE_RATE = new BigDecimal("40");
+
+    static BigDecimal displaySafeChangeRate(BigDecimal rate) {
+        if (rate == null) return null;
+        return rate.abs().compareTo(DISPLAY_MAX_ABS_CHANGE_RATE) > 0 ? null : rate;
+    }
+
+    /**
      * StockPriceDto → PriceInfo 변환.
      *
      * <p>원래 네이버 폴백 전용이었으나, 화면 간 가격 불일치(목록 vs 상세) 해소를 위해
@@ -1388,6 +1403,8 @@ public class StockDetailService {
      * KIS/네이버 어느 소스의 DTO든 동일하게 변환한다.
      */
     private PriceInfo convertDtoToPriceInfo(StockPriceDto naverData) {
+        // 표시 계층 정제 — 손상 등락률(>40%)은 null. prevClose 역산·표시 모두 이 값을 쓴다(오염 전파 차단).
+        BigDecimal safeRate = displaySafeChangeRate(naverData.getChangeRate());
         BigDecimal tradingValue = null;
         if (naverData.getAccumulatedTradingValue() != null) {
             tradingValue = naverData.getAccumulatedTradingValue()
@@ -1402,10 +1419,10 @@ public class StockDetailService {
         BigDecimal prevClose = null;
         if (naverData.getCurrentPrice() != null && naverData.getChangePrice() != null) {
             prevClose = naverData.getCurrentPrice().subtract(naverData.getChangePrice());
-        } else if (naverData.getCurrentPrice() != null && naverData.getChangeRate() != null
-                && naverData.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
-            // changePrice 없으면 changeRate로 역산
-            BigDecimal rate = naverData.getChangeRate().divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
+        } else if (naverData.getCurrentPrice() != null && safeRate != null
+                && safeRate.compareTo(BigDecimal.ZERO) != 0) {
+            // changePrice 없으면 changeRate로 역산 (손상 등락률이면 safeRate=null → 역산 스킵, prevClose null 유지)
+            BigDecimal rate = safeRate.divide(new BigDecimal("100"), 6, RoundingMode.HALF_UP);
             prevClose = naverData.getCurrentPrice().divide(BigDecimal.ONE.add(rate), 0, RoundingMode.HALF_UP);
         }
 
@@ -1417,7 +1434,7 @@ public class StockDetailService {
         return PriceInfo.builder()
                 .currentPrice(naverData.getCurrentPrice())
                 .changePrice(changePrice)
-                .changeRate(naverData.getChangeRate())
+                .changeRate(safeRate)
                 .tradingVolume(volume)
                 .tradingValue(tradingValue)
                 .high(naverData.getHighPrice())

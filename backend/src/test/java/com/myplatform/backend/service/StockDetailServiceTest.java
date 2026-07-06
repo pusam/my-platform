@@ -417,4 +417,37 @@ class StockDetailServiceTest {
             verify(stockPriceService, atLeastOnce()).getStockPrice(TEST_STOCK_CODE);
         }
     }
+
+    // ========== P3-6: 손상 등락률 표시 계층 정제 ==========
+
+    @Nested
+    @DisplayName("P3-6 표시 등락률 정제 — 손상 prdy_ctrt(>40%)는 null(§4c), 저장/시그널 경로 무관")
+    class DisplayChangeRateSanitize {
+
+        @Test
+        @DisplayName("displaySafeChangeRate 경계: 40 유지 / 40.01·900 → null / 음수 대칭 / null → null")
+        void helperBoundaries() {
+            assertThat(StockDetailService.displaySafeChangeRate(new BigDecimal("40"))).isEqualByComparingTo("40");
+            assertThat(StockDetailService.displaySafeChangeRate(new BigDecimal("40.01"))).isNull();
+            assertThat(StockDetailService.displaySafeChangeRate(new BigDecimal("900.00"))).isNull();
+            assertThat(StockDetailService.displaySafeChangeRate(new BigDecimal("-900.00"))).isNull();
+            assertThat(StockDetailService.displaySafeChangeRate(new BigDecimal("29.99"))).isEqualByComparingTo("29.99");
+            assertThat(StockDetailService.displaySafeChangeRate(null)).isNull();
+        }
+
+        @Test
+        @DisplayName("getQuick: 손상 등락률(900%) 종목은 표시 changeRate 가 null 로 정제 — 현재가는 유지")
+        void quick_corruptRateNulled() {
+            when(stockPriceService.getStockPrice(TEST_STOCK_CODE))
+                    .thenReturn(buildPriceDto("71000", "900.00", TEST_STOCK_NAME));
+            when(cacheService.getCachedChartData(TEST_STOCK_CODE)).thenReturn(null);
+            when(cacheService.getCachedFinancialInfo(TEST_STOCK_CODE)).thenReturn(null);
+
+            StockDetailDto result = stockDetailService.getStockDetailQuick(TEST_STOCK_CODE);
+
+            assertThat(result.getPrice()).isNotNull();
+            assertThat(result.getPrice().getCurrentPrice()).isEqualByComparingTo("71000");   // 가격 무변경
+            assertThat(result.getPrice().getChangeRate()).isNull();                          // 손상 등락률만 null
+        }
+    }
 }
