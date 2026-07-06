@@ -71,6 +71,27 @@ public class RecommendationService {
     // + 강한 가치" 의 희소한 교집합만 추가 가산해 우대.
     private static final int STRONG_VALUE_THRESHOLD = 12;
     private static final int STRONG_VALUE_BONUS = 2;
+
+    // ── A안(P1-6, 2026-07-06) — 수급(supplyDemand) 카테고리 역상관 방어 ──────────────
+    // prod signal_outcome(n=88) 실측: 수급 점수 단조 역상관(0-4=67% → 15+=35%, 평균수익 7.61→0.38).
+    // 가중치 전면 재설계는 표본 작아 보류(P1-6/§4b) → 최소·가역 방어: composite 총점 산식에서만 수급을 캡.
+    //   · 표시값(dto.supplyDemand)·validCount·정규화 분모(80)·임계(75/55) 전부 불변 — raw 합산 기여 상한만.
+    //   · composite 경로 한정: getNormalizedTotal/toDto/필터만 적용. 5트랙 발굴(수급 등)은 getNormalizedTotal
+    //     미사용이라 무영향(의도적 수급 랭킹 보존). 종합판단 보드 수급 표시(≥10 경고)도 category 값 사용이라 무영향.
+    //   · 가역 flag: recommendation.supply-demand-cap (기본 10). 20 이상 또는 -1 = 비활성(무캡).
+    // SUPPLY_DEMAND_CAP 는 정적 미러 — StockScore(정적 내부클래스)에서 접근. @PostConstruct 로 config 반영.
+    @org.springframework.beans.factory.annotation.Value("${recommendation.supply-demand-cap:10}")
+    private int supplyDemandCapConfig;
+    static volatile int SUPPLY_DEMAND_CAP = 10;
+
+    @jakarta.annotation.PostConstruct
+    void initSupplyDemandCap() {
+        SUPPLY_DEMAND_CAP = supplyDemandCapConfig;
+        boolean active = !(supplyDemandCapConfig < 0 || supplyDemandCapConfig >= 20);
+        log.info("[종합추천] 수급 캡(A안, P1-6) = {} → {}", supplyDemandCapConfig,
+                active ? "활성(min 적용)" : "비활성(무캡)");
+    }
+
     private volatile java.time.LocalDate lastAlertDate = null;
 
     // 가격 도달 알림 — 임계점 (오를 때 / 내릴 때)
@@ -1277,7 +1298,8 @@ public class RecommendationService {
                         // phase31c 후속: 필터 raw 합산에서도 valueStability 제거 — 기존엔 필터에만
                         // 포함되고 toDto/getNormalizedTotal 에선 빠져서 "55점 컷 통과 후 표시 점수는
                         // 50점" 같은 일관성 깨짐 발생. v7 (5→4 카테고리) 전환 시 누락된 부분.
-                        s.earnings + s.supplyDemand + s.technical + s.sectorMomentum,
+                        // A안(P1-6): 수급 캡 적용값으로 합산 — toDto/getNormalizedTotal 과 동일 raw(일관성).
+                        s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP) + s.technical + s.sectorMomentum,
                         countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
                 .sorted(recommendationComparator(prevScoreMap))
                 .limit(10)
@@ -2146,6 +2168,18 @@ public class RecommendationService {
         return Math.max(0, Math.min(20, v));
     }
 
+    /**
+     * 수급 캡 적용값 — A안(P1-6, 역상관 방어). 순수 함수(경계값 테스트 대상).
+     *
+     * <p>{@code cap < 0 || cap >= 20} 이면 무캡(원값 반환) = 가역 비활성. 그 외엔 {@code min(supplyDemand, cap)}.
+     * validCount 는 캡 <b>이전</b> 값(&gt;0)으로 세므로 캡을 적용해도 validCount 는 불변(풀 게이트 무영향).
+     * 표시용 category 값에는 적용하지 않는다 — 오직 composite 총점 raw 합산에서만 호출.
+     */
+    static int cappedSupply(int supplyDemand, int cap) {
+        if (cap < 0 || cap >= 20) return supplyDemand;
+        return Math.min(supplyDemand, cap);
+    }
+
     // ==================== N/A & Util ====================
 
     private int countValidCategories(StockScore s) {
@@ -2354,8 +2388,8 @@ public class RecommendationService {
 
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
-        // 4 카테고리 합산 — 가치/AI전략 분리.
-        int raw = s.earnings + s.supplyDemand + s.technical + s.sectorMomentum;
+        // 4 카테고리 합산 — 가치/AI전략 분리. 수급은 캡 적용값(A안, P1-6). 표시값은 아래 .supplyDemand 에서 원값 유지.
+        int raw = s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP) + s.technical + s.sectorMomentum;
         int total = normalizeScore(raw, vc);
         // phase 34: STRONG_BUY + 강한 가치 교집합 가산 (정렬용 getNormalizedTotal 과 일관성 유지)
         if (total >= STRONG_BUY_THRESHOLD && s.valueStability >= STRONG_VALUE_THRESHOLD) {
@@ -2403,7 +2437,8 @@ public class RecommendationService {
             // 4 카테고리 합산 — AI전략 / 저평가 분리 (별도 트랙).
             int v = 0, sum = 0;
             if (earnings > 0) { v++; sum += earnings; }
-            if (supplyDemand > 0) { v++; sum += supplyDemand; }
+            // A안(P1-6): 수급은 캡 적용값으로 합산(역상관 방어). validCount(v)는 캡 전 >0 판정이라 불변.
+            if (supplyDemand > 0) { v++; sum += cappedSupply(supplyDemand, SUPPLY_DEMAND_CAP); }
             if (technical > 0) { v++; sum += technical; }
             if (sectorMomentum > 0) { v++; sum += sectorMomentum; }
             int total = normalizeScore(sum, v);

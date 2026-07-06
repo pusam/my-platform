@@ -177,6 +177,13 @@ alert:
   scheduler:
     enabled: ${ALERT_SCHEDULER_ENABLED:false}
 
+# 종합추천(composite) 산식 — A안(P1-6, 2026-07-06) 수급 역상관 방어 flag.
+# 수급(supplyDemand) 카테고리는 prod 실측(n=88)에서 단조 역상관 확정(0-4=67% → 15+=35%).
+# composite 총점 raw 합산에서만 수급을 min(sd, cap) 으로 상한(표시값·validCount·임계 불변, 가역).
+#   기본 10(활성). 20 이상 또는 -1 = 비활성(무캡) — 표본 축적 후 주간리포트 성과 비교로 캡값 재조정.
+recommendation:
+  supply-demand-cap: ${RECOMMENDATION_SUPPLY_DEMAND_CAP:10}
+
 # 봇 on/off 는 UI 에서 관리 (/paper-trading/bot/start|stop).
 # 상태는 bot_config 테이블에 저장되어 서버 재기동 시 자동 복원됨.
 
