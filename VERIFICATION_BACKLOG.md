@@ -457,3 +457,22 @@
 - **⚠ 잔여(급하지 않음)**: 배포 후 python-health `chart-sector` 미변동 관측 → 워머 빈 조건은 `@ConditionalOnProperty(cache.redis.enabled=true)` 하나뿐(redis=true 확인됨)이라 **스테일 backend 이미지(0dd39b5 미포함) 의심** → CI 완료 후 `docker compose pull backend` 재확인. **단 (2) 병렬로 콜드 ~1.2s라 워밍 없어도 8s 안전** — 워밍은 즉시응답 최적화.
 - **불변식**: 섹터강도 산식·§4c(결측 None)·unverified 무변경. 시세 단일경로 무관.
 - **관련**: `sector_strength_service._compute`/`_fetch_returns_parallel`, `MarketCacheWarmerService.warmSectorStrength`, `ChartPatternClient.getSectorStrength`(forceRefresh), `PythonBackendHealthTracker`(SOURCE_SECTOR).
+
+---
+
+## P2-17. ATR 세트(×2.5 청산 + 리스크 균등 사이징) REAL 확장 조건 (2026-07-07 신규, VIRTUAL 검증 중)
+
+> **배경**: exit 백테스트(가설 B)에서 ATR×2.5 가 고정 -3/+5 전면 우위(avgNet +2.10% vs -0.22%, n=3,640)
+> → V42 로 **VIRTUAL 전용·flag 가역** 세트 도입(`bot.atr-trading.enabled` 기본 OFF, REAL 2중 하드 가드).
+> 포트폴리오 재생(2026-07-07)에서 핵심 안전 질문("브레이커 발동을 늘리지 않는가") 충족 —
+> 가상 발동 0=0 동수, 총수익 -70.9%→+96.3%, MDD 72.7%→18.0%, 일일 최대 실현손실 -193k→-74k원.
+> 단 proxy 신호셋(기술≥13)·트레일링/재진입 쿨다운 미반영이라 **실측 없이 REAL 확장 금지**.
+
+- **REAL 확장 조건 (전부 충족 시에만, 사람이 별도 세션에서 결정)**:
+  1. **VIRTUAL 2주+ 실측**(flag ON)에서 고정 대비 **동수익 이상**(BotPerformanceService 기준),
+  2. **일일 손실 브레이커 발동 동수 이하**(TradingAuditLog DAILY_LOSS_BREAKER + bot_config trippedDate 이력),
+  3. 적용값 감사 스냅샷(TradingAuditLog triggeredBy=ATR_SIZING)으로 사이징이 설계 의도대로
+     동작했는지 확인(수량이 현행 초과한 사례 0건이어야 — PositionSizer 계약 위반 감지).
+- **켜는 법**: `bot.atr-trading.enabled=true`(환경변수/application.yml — compose 는 backend `environment:` 명시 배선 §4b 함정 참고) → VIRTUAL 스윙 청산이 ATR×2.5, 스캘핑·스윙 수량이 리스크 균등으로 전환. riskBudget 조정 = `bot_config` 'atr_trading' 행 `atr_risk_budget_krw`.
+- **불변식**: REAL 하드 가드 2중(`isAtrSetActive`/`resolveSwingExitLevels`) 제거 금지 · 진입 여부 판단 관여 금지(수량·청산폭만) · ATR 결측=완전 현행 폴백(§4c) · 진입 스냅샷 고정(사후 재계산 금지) · PLAN_* 표시(-3/+5)는 봇 기본값과 동기라 무변경.
+- **관련**: `AutoTradingBotService.isAtrSetActive`/`resolveSwingExitLevels`/`resolveAtrRiskBudget`, `util/AtrCalculator`/`PositionSizer`/`AtrExitRule`, V42, `docs/ATR_TRADING_SET.md`, `python-backend/app/backtest/portfolio_backtest_service.py`, [P1-6](주간 리포트 연계).
