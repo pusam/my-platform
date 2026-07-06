@@ -64,6 +64,8 @@ public class RecommendationService {
     private final MarketCalendarService marketCalendar;
     // 시그널 적중률 추적 — phase 12 통합. ObjectProvider 로 안전 주입 (순환/누락 방어).
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> signalOutcomeProvider;
+    // 크론 dead-man switch — 08:00 발굴 리셋 성공 심박 기록(best-effort). null-safe(단위테스트 미주입 보존).
+    private final org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider;
 
     private static final int STRONG_BUY_THRESHOLD = 75;
     // phase 34 — STRONG_BUY 종목 중 가치 점수 ≥ STRONG_VALUE_THRESHOLD 이면 정규화 점수 +
@@ -284,6 +286,15 @@ public class RecommendationService {
         log.info("[종합추천] 08:00 장전 캐시 무효화 — 다음 호출에서 fresh 계산");
         cachedTop5 = null;
         cacheTime = null;
+        // 크론 dead-man switch 심박(best-effort) — 08:00 발굴 리셋이 돌았다는 증거.
+        try {
+            if (heartbeatProvider != null) {
+                BatchHeartbeatService heartbeat = heartbeatProvider.getIfAvailable();
+                if (heartbeat != null) heartbeat.recordSuccess(BatchHeartbeatService.JOB_DISCOVERY_RESET);
+            }
+        } catch (Exception e) {
+            log.debug("[종합추천] 심박 기록 실패: {}", e.getMessage());
+        }
     }
 
     /**

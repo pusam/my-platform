@@ -50,19 +50,23 @@ public class SignalWeeklyReportService {
     private final ObjectProvider<TelegramNotificationService> telegramProvider;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    // 크론 dead-man switch — 일요일 18:00 리포트 성공 심박 기록(best-effort). null-safe(단위테스트 미주입 보존).
+    private final ObjectProvider<BatchHeartbeatService> heartbeatProvider;
 
     public SignalWeeklyReportService(SignalOutcomeRepository outcomeRepository,
                                      SignalWeeklyAccuracyRepository weeklyRepository,
                                      SchedulerLockService schedulerLockService,
                                      ObjectProvider<TelegramNotificationService> telegramProvider,
                                      ObjectMapper objectMapper,
-                                     Clock clock) {
+                                     Clock clock,
+                                     ObjectProvider<BatchHeartbeatService> heartbeatProvider) {
         this.outcomeRepository = outcomeRepository;
         this.weeklyRepository = weeklyRepository;
         this.schedulerLockService = schedulerLockService;
         this.telegramProvider = telegramProvider;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.heartbeatProvider = heartbeatProvider;
     }
 
     /**
@@ -79,6 +83,15 @@ public class SignalWeeklyReportService {
         }
         try {
             generateWeeklyReport("system");
+            // 크론 dead-man switch 심박(best-effort) — 성공 경로에서만 기록.
+            try {
+                if (heartbeatProvider != null) {
+                    BatchHeartbeatService heartbeat = heartbeatProvider.getIfAvailable();
+                    if (heartbeat != null) heartbeat.recordSuccess(BatchHeartbeatService.JOB_WEEKLY_REPORT);
+                }
+            } catch (Exception e) {
+                log.debug("[주간측정] 심박 기록 실패: {}", e.getMessage());
+            }
         } catch (Exception e) {
             log.error("[주간측정] 주간 예측력 리포트 생성 실패: {}", e.getMessage(), e);
         }
