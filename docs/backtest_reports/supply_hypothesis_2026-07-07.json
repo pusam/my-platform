@@ -1,0 +1,102 @@
+{
+ "meta": {
+  "hypothesis": "A — 수급 '연속 순매수일(합산 외인+기관)' vs '금액' 예측력",
+  "period": {
+   "start": "20260102",
+   "end": "20260630"
+  },
+  "universeSize": 139,
+  "kospiSource": "yahoo-ks11",
+  "supplySource": "naver-approx(수량×종가)",
+  "variants": {
+   "streak3/streak5": "합산 순매수 연속일이 정확히 3/5 도달(신규 트리거)",
+   "amount50": "당일 합산 순매수 >= 50억(연속성 무관)",
+   "current_formula_strong": "현행 scoreSupplyDemand 미러 >= 15"
+  },
+  "forwardEval": "D+1 시가 → +3거래일 종가, 비용 차감, hit=SignalOutcome 미러",
+  "caveat": "금액=네이버 수량×종가 근사(CSV 주입 시 정밀) · 산식 편입 없음(리포트만)"
+ },
+ "results": {
+  "streak3": {
+   "n": 1027,
+   "hitRate": 29.89,
+   "avgAlpha": -1.149,
+   "alphaN": 1027,
+   "avgNet": -0.305,
+   "perTrade": {
+    "n": 1027,
+    "winRate": 45.18,
+    "avgWin": 5.827,
+    "avgLoss": -5.359,
+    "profitFactor": 0.896,
+    "worstTrade": -30.763,
+    "bestTrade": 59.517,
+    "pctLossOver5": 22.1
+   },
+   "portfolioMdd10": 60.032,
+   "insufficientSample": false,
+   "byRegimeNote": null
+  },
+  "streak5": {
+   "n": 378,
+   "hitRate": 33.07,
+   "avgAlpha": -0.553,
+   "alphaN": 378,
+   "avgNet": 0.068,
+   "perTrade": {
+    "n": 378,
+    "winRate": 45.24,
+    "avgWin": 6.647,
+    "avgLoss": -5.366,
+    "profitFactor": 1.023,
+    "worstTrade": -28.064,
+    "bestTrade": 33.4,
+    "pctLossOver5": 22.8
+   },
+   "portfolioMdd10": 23.104,
+   "insufficientSample": false,
+   "byRegimeNote": null
+  },
+  "amount50": {
+   "n": 3677,
+   "hitRate": 31.96,
+   "avgAlpha": -0.883,
+   "alphaN": 3677,
+   "avgNet": -0.3,
+   "perTrade": {
+    "n": 3677,
+    "winRate": 43.6,
+    "avgWin": 6.592,
+    "avgLoss": -5.627,
+    "profitFactor": 0.905,
+    "worstTrade": -34.877,
+    "bestTrade": 58.666,
+    "pctLossOver5": 25.0
+   },
+   "portfolioMdd10": 105.324,
+   "insufficientSample": false,
+   "byRegimeNote": null
+  },
+  "current_formula_strong": {
+   "n": 701,
+   "hitRate": 29.67,
+   "avgAlpha": -1.094,
+   "alphaN": 701,
+   "avgNet": -0.299,
+   "perTrade": {
+    "n": 701,
+    "winRate": 42.37,
+    "avgWin": 6.19,
+    "avgLoss": -5.069,
+    "profitFactor": 0.898,
+    "worstTrade": -26.194,
+    "bestTrade": 59.517,
+    "pctLossOver5": 22.3
+   },
+   "portfolioMdd10": 46.323,
+   "insufficientSample": false,
+   "byRegimeNote": null
+  },
+  "comparison_note": "streak* 가 amount*/current 보다 hitRate·avgAlpha 에서 유의하게 높으면 '연속일이 금액보다 낫다' 가설 지지 — 단 산식 편입은 별도 결정(표본·regime 확인)"
+ }
+}
