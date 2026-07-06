@@ -364,6 +364,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 ## 13. 점수 / 시그널 산식 (CLAUDE.md §4 — 변경 시 회귀 확인)
 
 - **종합추천**: 핵심 4카테고리(earnings/supplyDemand/technical/sectorMomentum)×20 = raw80 → normalize 0~100, **validCount≥3**(75% 커버리지).
+- **수급 캡(A안, P1-6, 2026-07-06)**: composite 총점 raw 합산에서만 `supplyDemand`를 min(sd,**10**)로 상한(역상관 방어). 표시값·validCount·분모·임계 불변, composite 경로 한정(5트랙·보드 무관), 가역 flag `recommendation.supply-demand-cap`. 캡값 재조정은 주간리포트 사후검증 대기. → CLAUDE.md §4.
 - **임계**: STRONG_BUY≥75 / BUY 55~74 / HOLD 40~54 / <40 제외. total≥75 & valueStability≥12 → +2(정렬용, 등급변경 없음).
 - **시그널 hit** = alpha_3d≥0 AND pct_change_3d>0 (3거래일), alpha 없으면 pct≥3% 폴백.
 - **매매계획**(`StockConclusionService.PLAN_*`) = 봇 동기 손절-3%/익절+5%, "단기강+밸류<4" 충돌 시 -2%/+3% 타이트.
@@ -548,6 +549,17 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - **크론**: 일 18:00(batchScheduler) + `SchedulerLockService`(fail-open, 봇 크론 아님 — 더블런 시 같은 주 UPSERT 무해). 기존 §5 잡(19:30 MON-FRI 평가, 20:05 야간)과 무충돌. Clock 주입(주 경계 결정성). 텔레그램 모닝브리핑 채널 요약(카테고리별 적중률·전주 대비·경고).
 - **API**: `GET /api/signal-outcomes/weekly-report`(최신) · `/weekly-report/history`(12주 추세) · `POST /api/admin/signal-outcomes/weekly-report/run`(ADMIN 수동). 집계는 `WeeklyAccuracyAggregator` 순수함수 분리+테스트, 서비스 오케스트레이션은 `SignalWeeklyReportServiceTest`(주 경계·격리 위임·UPSERT·스트릭).
 - **가중치 재조정은 여전히 데이터 대기** — 이 작업은 측정 상설화까지. 국면별 표본 축적되면 P1-6 로드맵 A안(단조·유의한 것만 산식 합류) 재검토.
+
+---
+
+### 2026-07-06 세션 — P1-6 수급 역상관 방어(composite 수급 캡 10, A안)
+
+측정 상설화(위)에 이어, **확정된 수급 역상관이 종합점수를 매일 오염시키는 것**을 가중치 재설계 없이 최소·가역으로 막음:
+
+- **A안 = composite 총점 raw 합산에서만 `supplyDemand`를 min(sd,10) 캡**(`RecommendationService.cappedSupply` 순수함수). B안(수급 제외·3카테고리)은 validCount≥3이 100% 커버리지로 바뀌어 풀 게이트 붕괴 + 분모/임계 재유도 필요라 기각(구조 변경 = "가중치 보류" 취지 위배).
+- **불변식**: 표시값(`dto.supplyDemand`)·validCount·정규화 분모(80)·임계(75/55) **전부 불변**. **composite 경로 한정**(`getNormalizedTotal`/`toDto`/`calculate()` 필터) — 5트랙 발굴(💰수급)·종합판단 보드 수급 표시(≥10 경고)는 무영향. **가역 flag** `recommendation.supply-demand-cap`(기본 10, 20↑/-1=비활성).
+- **실데이터 검증(prod snapshot 30일, read-only 재채점, SANITY 재계산==저장 0 mismatch)**: 21배치/122연인원, **STRONG_BUY 8행 중 7행 강등 — 전부 삼성전기(009150), sd=20·비수급base 40~45 = 수급의존 SB 원형**(75~81→62~68 BUY). 강한 베이스 SB는 불변. **수급 분포 이분법(≤10 or 20) → 캡10≡12, 캡15는 4행만 → 캡 10 확정**. SB 표본 8행/1종목으로 작아 **`SignalWeeklyReportService` 주간 리포트에서 캡 전/후 성과 비교로 사후검증**(단서).
+- 테스트 `RecommendationSupplyCapTest`(경계값·강등 75→62·강한베이스 유지·validCount 불변·가역). 기존 회귀(Score/Sort/Normalize) 무변경 green.
 
 ---
 

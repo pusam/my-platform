@@ -45,6 +45,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 
 ### 4. 점수/시그널 산식 (기준값)
 - 종합추천: 핵심 4카테고리(earnings/supplyDemand/technical/sectorMomentum) ×20 = raw80 → normalize 0~100, **validCount≥3**(coverage 75%) 이어야 채택.
+- **수급 역상관 방어 — composite 총점 수급 캡(A안, P1-6, 2026-07-06, `RecommendationService.cappedSupply`)**: prod 실측(n=88)에서 수급 점수 단조 역상관 확정(0-4=67%→15+=35%). 가중치 재설계 대신 **최소·가역 방어** — composite 총점 raw 합산에서만 `supplyDemand`를 **min(sd, 10)** 로 상한. **불변식**: ① **표시값(`dto.supplyDemand`)·`validCount`·정규화 분모(80)·임계(75/55) 전부 불변** — 오직 raw 기여만 캡. ② **composite 경로 한정**(`getNormalizedTotal`/`toDto`/`calculate()` 필터) — 5트랙 발굴(💰수급 등)은 `getNormalizedTotal` 미사용이라 무영향(의도적 수급 랭킹 보존). ③ 종합판단 보드 수급 표시(≥10 경고)는 category 값 사용이라 무영향. ④ 가역 flag `recommendation.supply-demand-cap`(기본 10, 20↑/-1=비활성). 실측: 30일 SB 8행 중 7행(전부 삼성전기 009150·sd20·비수급base 40~45=수급의존 원형) 강등, 수급 분포 이분법(≤10 or 20)이라 캡10≡12. **캡값 재조정은 `SignalWeeklyReportService` 주간 리포트의 캡 전/후 성과 비교 대기**(SB 표본 8행/1종목으로 작음). 캡을 5트랙/보드 표시로 확대하거나 무캡 복귀 금지(근거는 주간 데이터).
 - 임계: **STRONG_BUY ≥75 / BUY 55~74 / HOLD 40~54 / <40 제외**. total≥75 & valueStability≥12 → +2 보너스.
 - 시그널 hit = **alpha_3d ≥ 0 AND pct_change_3d > 0** (3거래일), alpha 없으면 폴백 pct≥3%.
 - 매매계획(결론카드 tradePlan): 손절/익절 % 는 **스윙 봇과 동기(-3%/+5%)**, "단기 강+밸류<4" 충돌 시 -2%/+3% 타이트. 봇 상수 바꾸면 `StockConclusionService.PLAN_*` 도 같이.
