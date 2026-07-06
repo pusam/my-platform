@@ -53,7 +53,7 @@ class SignalWeeklyReportServiceTest {
     private SignalWeeklyReportService service(LocalDate today) {
         Clock clock = Clock.fixed(today.atStartOfDay(KST).toInstant(), KST);
         return new SignalWeeklyReportService(outcomeRepository, weeklyRepository,
-                schedulerLockService, telegramProvider, objectMapper, clock);
+                schedulerLockService, telegramProvider, objectMapper, clock, null);
     }
 
     @BeforeEach

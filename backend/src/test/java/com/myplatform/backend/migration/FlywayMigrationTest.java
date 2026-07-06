@@ -82,6 +82,11 @@ class FlywayMigrationTest {
         assertThat(uniqueConstraintCount("signal_outcome", "uq_so_type_code_date"))
                 .as("V36 signal_outcome UNIQUE 제약(uq_so_type_code_date)이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 4 (V40 도달 확인): overnight_us_snapshot 생성 + snapshot_date UNIQUE(일 1행 UPSERT 전제) ---
+        assertThat(uniqueConstraintCount("overnight_us_snapshot", "uk_ous_snapshot_date"))
+                .as("V40 overnight_us_snapshot 테이블과 UNIQUE 제약(uk_ous_snapshot_date)이 적용되어야 함")
+                .isEqualTo(1);
     }
 
     /**

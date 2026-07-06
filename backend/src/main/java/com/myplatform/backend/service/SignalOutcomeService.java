@@ -57,6 +57,8 @@ public class SignalOutcomeService {
     // 작업2(V36) — insertOutcomeIsolated(REQUIRES_NEW) 를 프록시 경유로 호출하기 위한 자기참조.
     // 자기호출(this.method())은 트랜잭션 어드바이스를 우회하므로 ObjectProvider(lazy)로 프록시를 받는다.
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> selfProvider;
+    // 크론 dead-man switch — 19:30 평가 성공 심박 기록(best-effort). null-safe(단위테스트 미주입 보존).
+    private final org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider;
     private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
@@ -251,6 +253,8 @@ public class SignalOutcomeService {
         if (pending.isEmpty()) {
             // 평가 대상 없어도 헬스 체크는 실행 — 누적 표본 기준이라 신규 평가 0건이어도 의미 있음.
             checkStrongBuyAlphaHealth();
+            // 평가 0건도 "크론이 정상 돌았다"는 심박 — dead-man switch 는 크론 사망을 감시(결과 아님).
+            beatEvaluationHeartbeat();
             return;
         }
 
@@ -304,6 +308,18 @@ public class SignalOutcomeService {
         log.info("[SignalOutcome] 평가 완료 {}/{} (BM alpha: {})",
                 evaluated, pending.size(), kospiNow != null ? "활성" : "비활성(폴백)");
         checkStrongBuyAlphaHealth();
+        beatEvaluationHeartbeat();
+    }
+
+    /** 19:30 평가 크론 성공 심박 — dead-man switch(BatchHeartbeatService). best-effort, 평가 본체 무영향. */
+    private void beatEvaluationHeartbeat() {
+        try {
+            if (heartbeatProvider == null) return;   // 단위테스트 미주입 보존
+            BatchHeartbeatService heartbeat = heartbeatProvider.getIfAvailable();
+            if (heartbeat != null) heartbeat.recordSuccess(BatchHeartbeatService.JOB_SIGNAL_EVALUATION);
+        } catch (Exception e) {
+            log.debug("[SignalOutcome] 심박 기록 실패: {}", e.getMessage());
+        }
     }
 
     /**

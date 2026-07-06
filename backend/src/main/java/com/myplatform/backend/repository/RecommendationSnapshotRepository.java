@@ -28,6 +28,10 @@ public interface RecommendationSnapshotRepository extends JpaRepository<Recommen
     @Query("DELETE FROM RecommendationSnapshot r WHERE r.snapshotAt < :cutoff")
     void deleteOlderThan(@Param("cutoff") LocalDateTime cutoff);
 
+    /** 백테스트 CSV export 구간 조회 (P1-6 측정 전용) — ⚠ 보존 7일이라 커버리지는 최근 1주뿐. */
+    List<RecommendationSnapshot> findBySnapshotAtBetweenOrderBySnapshotAtAsc(
+            LocalDateTime from, LocalDateTime to);
+
     /**
      * 종목코드로 가장 최근 스냅샷 1건 조회 — StockConclusionService 가 종목별 결론 산출 시 사용.
      * 종목이 어떤 스냅샷에도 포함된 적 없으면 empty.
