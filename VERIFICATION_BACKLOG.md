@@ -50,6 +50,7 @@
 ---
 
 ## P0-1. 가격 outlier 가드 맹점 (실제 버그)
+- **✅ 완료 확인 (2026-07-07(E) 감사 — 티켓만 미마감이었음)**: `StockPriceService.warnIfPriceOutlier` 에 3중 그물 구현 완료 — 그물1 당일 밴드(±10%, :1082-1090) + 그물2 전일대비율 ±31% 초과(:1094-1099) + **그물3 DB 앵커 배수 5×/0.2×(:1105-1114, 일괄 스케일링용 — 본 티켓의 합격 기준 충족)**. 가격 미보정(로깅만) 유지. 회귀 테스트 `StockPriceOutlierGuardTest` 존재. (P2-11 이 이미 이 그물들을 전제로 완료 처리돼 있었음.)
 - **문제**: `warnIfPriceOutlier`가 "현재가가 당일 [저가~고가]±10%"로만 보는데, 현재가·고가·저가가 **일괄 ×10**되면 현재가가 여전히 범위 안이라 가드가 발화하지 않는다. 당일 범위 조건은 일괄 스케일링에 무용지물.
 - **합격 기준**:
   1. 현재가·고저가가 일괄 ×10된 케이스 → 가드 발화(ERROR 로깅).
@@ -290,7 +291,7 @@
   3. `FORCE_LIQUIDATION_TIME`(현 15:20)·청산 대상(정규/연장 분리) 파라미터화.
 - **선결(재개봉 조건)**: ① NXT 주문 라우팅(`sellStock` 거래소/세션 파라미터) 구현 + ② 2026-09-14 애프터마켓 정식 도입 규격 확정(종가봇 재설계와 동반 착수). 현재는 정규장 청산으로 오버나잇 1차 방어.
 - **파생 백로그(진단 중 발견, 코드 미수정)**:
-  - **P2-13-a**: `AutoTradingBotService.java:216-223` 주석이 "매도 가드 08:00~20:00, cron binding"이라 서술하나 실제로는 두 매도 내부(line 1899·2780)의 `isMarketClosed()`(15:30)가 binding(08~20 윈도우는 15:30 이후 死코드). NXT 배선 시 정정(주석 or 가드 일원화).
+  - **P2-13-a**: ✅ **주석 정정 완료 확인(2026-07-07(E) 감사)** — 현행 주석(`AutoTradingBotService.java:229-239`)이 이미 "실제 binding 은 isMarketClosed()(15:30), 08~20 윈도우는 15:30 이후 死코드"를 명시(두 매도 내부 호출 지점 = :2031 스캘핑·:2948 스윙). **가드 일원화(이중가드 정리)는 NXT 배선 시 잔여**(주석에 P2-13-a 참조 유지).
   - **P2-13-b**: 지정가 청산 잔여 하드닝(위 기각 Option) — 15:29 잔여 알림 실발생 데이터 축적 시 재검토.
 - **관련**: `AutoTradingBotService.executeRegularSessionLiquidation`/`sellPortfolioMatching`/`isMarketClosed`(15:30)/`FORCE_LIQUIDATION_TIME`/시간대 상수(REGULAR_END 15:25 / AFTER_MARKET_END 20:00), `RealTradeService.sell`(지정가), `kisService.sellStock`(세션 파라미터 부재), 종가봇 `executeClosingBuyLogic`/`executeClosingSellLogic`(주석 비활성).
 

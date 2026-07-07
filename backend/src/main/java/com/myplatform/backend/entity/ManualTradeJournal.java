@@ -85,6 +85,9 @@ public class ManualTradeJournal {
     /** 매수 시점 5거래일 누적 등락률 % 또는 null. */
     @Column(name = "five_day_return", precision = 8, scale = 2)
     private BigDecimal fiveDayReturn;
+    /** 매수 시점 KOSPI(0001) 지수 — alpha_3d 계산용(V44, signal_outcome.bm_price_at_signal 동일 패턴). */
+    @Column(name = "bm_price_at_buy", precision = 15, scale = 2)
+    private BigDecimal bmPriceAtBuy;
 
     // ===== 매도 기록 (전량 가정) =====
     @Column(name = "sell_at")

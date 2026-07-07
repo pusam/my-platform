@@ -1008,6 +1008,30 @@ export const watchlistAPI = {
   }
 };
 
+// 수동 매매 저널 API (V43/V44) — 내 매수/매도 기록 + 매수 시점 신호 스냅샷 + 3거래일 적중률.
+// 봇/주문 경로와 완전 분리(기록 전용 — 실제 주문 아님).
+export const manualJournalAPI = {
+  list() {
+    return apiClient.get('/manual-journal');
+  },
+  listByStock(stockCode) {
+    return apiClient.get(`/manual-journal/by-stock/${stockCode}`);
+  },
+  stats() {
+    return apiClient.get('/manual-journal/stats');
+  },
+  recordBuy(data) {
+    return apiClient.post('/manual-journal', data);
+  },
+  close(id, sellPrice, sellAt = null) {
+    return apiClient.put(`/manual-journal/${id}/close`, { sellPrice, sellAt });
+  },
+  // 섹터 집중 경고(경고만, 차단 없음). mapped:false = 매핑 밖(§4c 미표시).
+  sectorExposure(stockCode) {
+    return apiClient.get('/manual-journal/sector-exposure', { params: { stockCode } });
+  }
+};
+
 // Oil Price API (원유 시세)
 export const oilAPI = {
   getPrice() {

@@ -1,6 +1,6 @@
 # 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(B)(**표시 전용 read-only 3작업**: 공매도 死진단(미구현)·종목상세 📰재료이력·외인/기관 연속순매수 배지 + **후속 버그픽스: 기관 수급 키 오타(instNet5Days→institutionNet5Days)** — §19 상단 세션 요약. 그 앞: ATR 세트 V42 §14-7 + 신호 이력/보드↔상세 네비 + 악재 조기경보).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(D)(**📔 수동 매매 저널 V43+V44 Phase 1~3**: 매수 신호 스냅샷·19:40 자동평가(signal_outcome 동일 잣대)·stats·섹터 집중 경고·프론트(모달/매매 탭/이력 마커) — §19 하단 세션 요약. 그 앞 (B): 표시 전용 3작업 + 기관 수급 키 오타 / ATR 세트 V42 §14-7 + 악재 조기경보).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -121,6 +121,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 
 ### 3-4. 매매(봇·페이퍼)
 - **`PaperTradingController`** `/api/paper-trading`: `account/*` `portfolio` `trades` `statistics` `bot/{status,config,toggle,performance}` `real/{account,position,trades,place-order}`(KIS)
+- **`ManualTradeJournalController`** `/api/manual-journal` ⭐신규(2026-07-07(D), V43/V44): `POST /` 매수 기록(신호 스냅샷 자동, 소스 실패=null §4c) · `PUT /{id}/close` 매도(전량, realizedPct 확정) · `GET /`·`/{id}`·`/by-stock/{code}`(신호 이력 마커) · `/stats`(적중률·평균α·실현승률+RSI/재료 breakdown, n<10=insufficientSample) · `/sector-exposure?stockCode=`(동일 섹터 보유 경고 — 열린 저널+봇 포지션 read-only, 매핑 밖=mapped:false). 소유 검증 = principal username. **봇/주문 경로와 완전 분리(기록 전용)**
 
 ### 3-5. 시장·섹터·수급
 - **`MarketTimingController`** `/api/market-timing`(ADR 과열/공포)
@@ -167,6 +168,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | `RealTradeService` | KIS 실주문, 체결확인 `confirmFill`/`resolveFill`(미체결→포지션유지), KIS성공+DB실패→`triggerKillSwitchOnUncertainty` |
 | `VirtualTradeService` / `BotPerformanceService` | 모의계좌 / 성과(MDD/Sharpe) |
 | `PositionDropMonitorService` | 포지션 낙폭 감시(2분) |
+| `ManualTradeJournalService` ⭐신규(2026-07-07(D)) | 수동 매매 저널(V43/V44) — recordBuy 시 신호 스냅샷 12필드+KOSPI bm 자동(best-effort, 실패=null §4c; 재료는 일캐시 read-only §4b, RSI는 diagnose 허용 결정), 19:40 평가 배치(hit=`SignalOutcomeService.isHit` 재사용 — signal_outcome 동일 잣대, 멱등 UPDATE), stats/섹터노출(봇 포지션 read-only §4d). 순수함수 assembleSnapshot/evaluate/computeStats/computeSectorExposure(테스트 有). **봇·주문 경로 무접촉** |
 
 - **정규장 마감 강제청산(2026-06-29)**: `executeRegularSessionLiquidation`(15:20) — 봇이 포지션 들고 마감하는 오버나잇 노출 방지. `BotConfig.forceRegularSessionLiquidation`(기본 ON). 가드 = 리더 AND 봇활성 AND 미killed AND 설정ON AND 시각≥15:20 → `sellAllPortfolio("REGULAR_SESSION_CLOSE")`. NXT 연장장/종가단일가 청산은 후속(P2-13 → **진단 종결·§19 2026-07-06·2026-09-14 재개봉**).
 
@@ -208,6 +210,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | 16:30 | ADR 수집·국면 갱신 / DART 마감 | MarketTiming/Earnings |
 | 16:45 | 마감 후 알림 | `StockAlertScheduler` |
 | 19:30 | 시그널 평가(3거래일 후) | `SignalOutcomeService` |
+| 19:40 ⭐ | 수동 저널 평가(매수 3거래일 후, 동일 잣대) | `ManualTradeJournalService` |
 | 20:05 / 20:10 | 발굴 5트랙 야간 / 복합신호 | Recommendation/MultiConviction |
 | **일 18:00** | **시그널 주간 예측력 측정**(카테고리×regime×밴드, SchedulerLock fail-open) | `SignalWeeklyReportService` |
 | 23:00 | 재무 영속화 | `StockFinancialDataService` |
@@ -221,7 +224,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 
 - **종목/시세**: `StockMaster` · `StockPrice` · `StockPriceHistory` · `StockFinancialData` · `StockCatalyst`(V31)
 - **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth -1=NA sentinel) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
-- **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog`
+- **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog` · **`ManualTradeJournal`(V43+V44, 2026-07-07(D))** — 수동 매수/매도 + 매수 시점 스냅샷 12필드(점수4종·RSI·재료·RVOL·국면·ATR손절·5일등락, null=미수집 §4c) + bm_price_at_buy(KOSPI, V44) + 3거래일 평가(pct/alpha/hit, evaluatedAt null=대기). v1 전량 매도 가정. 봇 테이블과 완전 분리
 - **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷 + **V41(2026-07 이전 merge) `rvol_at_signal`**(당일 거래대금÷직전 20거래일 평균, `record()`가 best-effort 스냅샷 — 관심 쏠림날 적중률 사후검증용), NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
 - **시장/투자자**: `MarketDailyStatus`(ADR/condition) · `InvestorIntradaySnapshot` · `InvestorDailyTrade` · `EarningsDisclosure` · `ShortSellingBalance` · `AlertHistory`
 - **인증/유저**: `User` · `EmailVerificationToken` · `PasswordResetToken` · `WebauthnCredential`/`WebauthnChallenge`
@@ -319,7 +322,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 | **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(2026-06-30)** · 매수후보(55컷 momentum) · **시간대신호(장전/장후)·실시간수급(장중)**(슬롯 #phase-signals, 발굴서 이동 2026-07-01) · **🪝 차트 타이밍 관찰(python timing, 접기)** · 신뢰도 · **관심종목(슬롯 #watchlist, 접힘 — ⭐2026-07-07(C) 행별 🎯목표 매수가 인라인 편집: `watchlistAPI.setAlert(id,price,'BELOW')` → 기존 `WatchlistService.checkWatchlistAlerts` 5분 크론이 도달 시 텔레그램. 백엔드·크론 기존재, 프론트 UI 만 보완 — 신규 알림 경로/Flyway 없음)** · 내 포지션 · 도구 |
 | **시장(market)** | 허브 인라인 + 서브탭 | 시장지도(`SectionMarketMap`)·섹터거래대금 / 서브: 수급·타이밍·뉴스·글로벌(embedded) |
 | **발굴(discover)** | 허브 인라인 + 2단 서브탭 | 상단 **'덜 빠지는 섹터' 배지(베타)** + 리스트 5트랙 + 심화도구 |
-| **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |
+| **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트·**📔 수동 매매(2026-07-07(D), `ManualJournalSection` 자립 컴포넌트 — stats 카드+breakdown 칩+리스트(스냅샷 칩)+전량 매도 기록)** |
 
 - **발굴 리스트 서브탭**(lazy, 택1): 💎저평가·🚀성장·📉낙폭과대·💰실적·🏦수급 (`ensureDiscoverListLoaded`).
 - **발굴 심화도구 서브탭**: 종합(`SectionTotalRecommendation`)·**🧭 종합판단(`SectionJudgmentBoard`, B안 2026-06-30)**·AI전략·백테스트(`SectionBacktest`)·스크리너·퀀트TA(`SectionQuantTa`).
@@ -330,17 +333,19 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 - 헤더: 복합신호 배지 + 단기/중장기 듀얼점수 + 현재가. ⭐2026-07-07 **보드↔상세 왕복 네비**: "◀ 이전 / 보드 N/M / 다음 ▶" — 종합판단 보드 행 클릭(새 탭)이 sessionStorage `judgmentBoard.nav` 로 종목 순서를 전달한 경우에만 표시(직접 진입 미표시, 새 라우트·쿼리 오염 없음. /stock/:code 컴포넌트 재사용이라 이동 시 명시적 재조회).
 - 상단 카드: `StockConclusionCard`(결론·손절/목표+MFE/MAE·점수대 적중률·재료배지 + ⭐2026-07-07(C) **진입 위치 한 줄**(`entryPosition` — overheatPenalty 신호 3종을 **스냅샷 태그 재사용**(RSI/5일/볼린저, 재계산 없음)으로 세고 + 지지선 거리(`ChartPatternService.detectSupportResistance` 캐시 재사용): 2개↑=🔴과열/1개=🟡주의/0개&지지선+3%이내=🟢눌림/중립·결측=미렌더 §4c. 순수함수 `parseOverheat`/`classifyEntryPosition` 테스트) + ⭐2026-07-07 **ATR 참고 줄** "변동성(ATR) 기준 -X.X%/+Y.Y% · 백테스트 참고치·검증 전" amber 톤, null=줄 미렌더) + `QuickSummaryBar`(RSI/20일/외인/기관/리스크/AI + ⭐2026-07-07 **외인/기관 "N일 연속" 순매수 배지** — 2일↑만, 참고 톤, `diagnosis` supplyDemand.foreign/institutionBuyStreak, null=미표시 §4c).
 - 본문: `StockBriefingHeadline`(행동권고) · `StockRiskCard`(DART+뉴스+AI).
-- 심화(접기 `DetailSection` v-show 마운트 유지): Peer·VolumeProfile·SupportResistance·RelatedStocks·ChartPattern + ⭐2026-07-07 **`SignalHistorySection`**("📜 신호 이력" — signal_outcome 90일 타임라인, 요약을 제목에 병기, 평가 대기 구분 §4c, n=0 미렌더, 자체 fetch=heavy 계열) + ⭐2026-07-07 **`CatalystHistorySection`**("📰 재료 이력" — stock_catalyst 30일 read-only 타임라인, 날짜별 등락률 병기, NONE 제외, classify 호출 없음 §4b, n=0 미렌더).
+- 심화(접기 `DetailSection` v-show 마운트 유지): Peer·VolumeProfile·SupportResistance·RelatedStocks·ChartPattern + ⭐2026-07-07 **`SignalHistorySection`**("📜 신호 이력" — signal_outcome 90일 타임라인, 요약을 제목에 병기, 평가 대기 구분 §4c, n=0 미렌더, 자체 fetch=heavy 계열; ⭐2026-07-07(D) **📔 내 매수/매도 마커 병기** — manual-journal by-stock, best-effort·0건 미표시, 저널만 있어도 섹션 렌더) + ⭐2026-07-07 **`CatalystHistorySection`**("📰 재료 이력" — stock_catalyst 30일 read-only 타임라인, 날짜별 등락률 병기, NONE 제외, classify 호출 없음 §4b, n=0 미렌더).
+- ⭐2026-07-07(D) **📔 매수 기록 진입점 2곳**(새 라우트 없음): 결론카드 '📔 매수 기록' 버튼 + BuyChecklistModal 하단 버튼 → `ManualJournalModal`(현재가 `/stock/{code}` 프리필·수량·메모, 섹터 집중 경고 표시 — 경고만·mapped:false 미표시 §4c, 실주문 아님 명시).
 - 듀얼스테이지: `quick`(3~5s) → `heavy`(risk/AI/peer, 캐시·lazy).
 
 ### 11-4. 컴포넌트 (`components/v2/*` 주식 도메인)
-DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar · StockBriefingHeadline · StockRiskCard · SignalHistorySection(⭐2026-07-07 신호 이력) · CatalystHistorySection(⭐2026-07-07 재료 이력) · StockSearchModal(Ctrl+K) · DetailSection · BuyChecklistModal · BacktestPerformancePanel · SectionBacktest · SectionTotalRecommendation · SectionQuantTa · SectionMarketMap · InvestorTrendTab · FundamentalDiagnosisPanel · PeerComparisonCard · VolumeProfileCard · SupportResistanceCard · RelatedStocksList · ChartPatternList · MagicFormulaSmartTable · BotPnlChart · TradingSafetyWidget(killswitch) · ForecastDetailModal.
+DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar · StockBriefingHeadline · StockRiskCard · SignalHistorySection(⭐2026-07-07 신호 이력) · CatalystHistorySection(⭐2026-07-07 재료 이력) · ManualJournalModal/ManualJournalSection(⭐2026-07-07(D) 수동 저널) · StockSearchModal(Ctrl+K) · DetailSection · BuyChecklistModal · BacktestPerformancePanel · SectionBacktest · SectionTotalRecommendation · SectionQuantTa · SectionMarketMap · InvestorTrendTab · FundamentalDiagnosisPanel · PeerComparisonCard · VolumeProfileCard · SupportResistanceCard · RelatedStocksList · ChartPatternList · MagicFormulaSmartTable · BotPnlChart · TradingSafetyWidget(killswitch) · ForecastDetailModal.
 공용: VolumePowerGauge(체결강도) · DataFreshness · NotificationBell · StockCodeInput 등.
 
 ### 11-5. API 레이어 (`utils/api.js`, axios `/api` + AT/RT 인터셉터)
 - `recommendationAPI`: top5 · value/growth/oversold/earnings/smartmoney-top10 · **getTrendPullbackTop10** · **getSectorStrength**
 - `stockDetailAPI`: getSummary/Quick/Heavy/Diagnosis/batchScores
 - `paperTradingAPI`: account·portfolio·trades·bot·real·performance
+- `manualJournalAPI` ⭐신규(2026-07-07(D)): list·listByStock·stats·recordBuy·close·sectorExposure
 - `sectorAPI`·`marketAPI`·`investorAPI`·`quantTaAPI`·`screenerAPI`·`tradingIndicatorAPI`·`watchlistAPI`·`riskAPI`·`newsAPI`·`aiStrategyAPI`·`tradingSafetyAPI`·`shortSellingAPI`·`telegramAPI` 외 30+.
 - 인터셉터: 요청 AT 주입 / 응답 401 → RT 갱신(큐로 중복 refresh 방지).
 
@@ -644,11 +649,25 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 
 ---
 
+### 2026-07-07(D) 세션 — 📔 수동 매매 저널(V43+V44, Phase 1~3 완료)
+
+봇/시그널은 추적되나 **사용자 본인 수동 매매는 기록이 없던** 갭 해소 — 매수 순간 신호 스냅샷 + 3거래일 자동 평가로 "내 매매 적중률"을 `signal_outcome` 과 **같은 잣대**(hit=α≥0 & 상승, `isHit` 재사용)로 측정. **봇·VirtualTradeHistory·주문 경로 완전 무접촉(기록 전용)**, 산식·임계 무변경. 인계 문서 `docs/HANDOFF_JOURNAL.md`. 커밋: Phase1 `58b968d`+`a2b0e23`(전 세션) → Phase2 `ba675a78` → Phase3 `a0217149`(백)+`90e688d9`(프론트).
+
+1. **Phase 1**: V43 `manual_trade_journal` + 엔티티/리포지토리 + `ManualTradeJournalService`(recordBuy 스냅샷 12필드 자동 — 각 소스 best-effort 실패=null §4c, 재료 read-only §4b) + `/api/manual-journal` CRUD(소유 검증). v1 = 전량 매도 가정.
+2. **Phase 2**: V44 `bm_price_at_buy`(매수 시점 KOSPI — alpha용) + **19:40 평가 배치**(멱등 UPDATE, 시세 미확보=skip 재시도) + `GET /stats`(적중률·평균α·실현승률 + RSI70/재료 breakdown, 표본0=null·n<10=insufficientSample §4c).
+3. **Phase 3**: 섹터 집중 경고 API(열린 저널+봇 포지션 read-only §4d, 매핑 밖=mapped:false, **경고만·차단 없음**) + 프론트 — `ManualJournalModal`(진입점 2곳: 결론카드·체크리스트 모달, 새 라우트 없음) · 매매 탭 '📔 수동 매매'(`ManualJournalSection`) · `SignalHistorySection` 내 매수/매도 마커 병기.
+
+검증: 백엔드 전체 test + 컨텍스트 스모크 green, 프론트 vitest 181 + build green. migrationTest(V43/V44)는 CI 게이트(로컬 Docker 미기동). 순수함수 테스트 = assembleSnapshot/fiveDayReturn/realizedPct/evaluate/computeStats/computeSectorExposure + ManualJournalModal.test.js.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
 - `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**·**P3-7 매크로 tilt 캘리브레이션/승격(V39 스냅샷 축적 중)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
+- **`AUDIT_2026-07-07.md`** — 2026-07-07(E) 불변식 전수 감사 리포트(7축: 시세경로·§4c·§4d 호출그래프 증명·이중 인코딩·중복 구현·죽은 코드·백로그 소진. P1 3건: 구글뉴스/검색폴백 이중 인코딩·공매도 ZERO 위장 — 수정은 후속 세션)
+- **`DESIGN_P3-1_IDEMPOTENT_ORDERS.md`** — P3-1 잔여(SELL 부분청산 가드) 설계(B안 in-flight 마커 권장, BUY 멱등키 V35 는 기구현 확인)
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-07(B) 갱신**(§19 상단 = 07-07(B) 세션 반영: **표시 전용 read-only 3작업** — 공매도 死진단(미구현)·종목상세 📰재료이력·외인/기관 연속순매수 배지 + **후속 버그픽스: 기관 수급 키 오타 정정**. 그 앞 07-07: ATR 세트 V42·신호 이력/보드↔상세 네비). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-07(D) 갱신**(§19 하단 = 07-07(D) 세션: **📔 수동 매매 저널 V43+V44 Phase 1~3** — 매수 스냅샷·19:40 자동평가·stats·섹터경고·프론트 3면. 그 앞 07-07(B): 표시 전용 3작업 + 기관 수급 키 오타 정정 / 07-07: ATR 세트 V42·신호 이력/보드↔상세 네비). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.

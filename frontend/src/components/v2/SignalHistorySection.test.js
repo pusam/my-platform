@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import SignalHistorySection from './SignalHistorySection.vue'
-import apiClient from '../../utils/api'
+import apiClient, { manualJournalAPI } from '../../utils/api'
 
-vi.mock('../../utils/api', () => ({ default: { get: vi.fn() } }))
+vi.mock('../../utils/api', () => ({
+  default: { get: vi.fn() },
+  manualJournalAPI: { listByStock: vi.fn() }
+}))
 
 function historyResp(data) {
   return { data: { success: true, data } }
@@ -20,8 +23,9 @@ const fullHistory = {
   ]
 }
 
-async function mountSection(data) {
+async function mountSection(data, myTrades = []) {
   apiClient.get.mockResolvedValue(historyResp(data))
+  manualJournalAPI.listByStock.mockResolvedValue({ data: { success: true, data: myTrades } })
   const w = mount(SignalHistorySection, { props: { stockCode: '005930' } })
   await flushPromises()
   return w
@@ -74,6 +78,31 @@ describe('SignalHistorySection — 📜 신호 이력 (signal_outcome 90일 read
     const w = mount(SignalHistorySection, { props: { stockCode: '005930' } })
     await flushPromises()
     expect(w.find('.detail-section').exists()).toBe(false)
+  })
+
+  it('📔 내 수동 매매 마커 병기 — 평가·매도 상태 표시, 저널만 있어도 섹션 렌더', async () => {
+    const myTrades = [
+      { id: 1, buyAt: '2026-07-01T10:00:00', buyPrice: 65000, evaluatedAt: '2026-07-04T19:40:00',
+        hit: true, pctChange3d: 3.1, alpha3d: 2.0, sellAt: '2026-07-05T10:00:00', sellPrice: 67000, realizedPct: 3.08 },
+      { id: 2, buyAt: '2026-07-06T09:30:00', buyPrice: 66000, evaluatedAt: null, hit: null, sellAt: null }
+    ]
+    const w = await mountSection(fullHistory, myTrades)
+    const myRows = w.findAll('.sh-my-row')
+    expect(myRows).toHaveLength(2)
+    expect(myRows[0].text()).toContain('내 매수')
+    expect(myRows[0].text()).toContain('적중')
+    expect(myRows[0].text()).toContain('매도')
+    expect(myRows[1].text()).toContain('평가 대기')
+    expect(myRows[1].text()).toContain('보유 중')
+    // 시그널 이력 행(3) + 내 매매 행(2) 공존
+    expect(w.findAll('.sh-row')).toHaveLength(5)
+
+    // 시그널 이력 0건이어도 내 기록이 있으면 섹션 렌더
+    const w2 = await mountSection(
+      { stockCode: '005930', windowDays: 90,
+        summary: { evaluatedCount: 0, hitCount: 0, avgAlpha: null, pendingCount: 0 }, items: [] },
+      myTrades)
+    expect(w2.findAll('.sh-my-row')).toHaveLength(2)
   })
 
   it('stockCode 변경 시 재조회', async () => {

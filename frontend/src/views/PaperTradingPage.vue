@@ -45,6 +45,12 @@
         >
           📝 주간 리포트
         </button>
+        <button
+          :class="['tab-btn', { active: activeTab === 'manualJournal' }]"
+          @click="activeTab = 'manualJournal'"
+        >
+          📔 수동 매매
+        </button>
       </div>
 
       <!-- 모의투자 탭 -->
@@ -803,6 +809,11 @@
         </div>
       </div>
 
+      <!-- 수동 매매 저널 탭 — 자립 컴포넌트(자체 로드), 봇/주문 경로와 무관한 기록 전용 -->
+      <div v-if="activeTab === 'manualJournal'" class="tab-content">
+        <ManualJournalSection />
+      </div>
+
       <!-- 수동 거래 모달 -->
       <div v-if="showTradeModal" class="modal-overlay" @click.self="showTradeModal = false">
         <div class="modal" :class="{ 'real-modal': tradeMode === 'real' }">
@@ -921,6 +932,7 @@ import TradingSafetyWidget from '../components/v2/TradingSafetyWidget.vue';
 import StockCodeInput from '../components/StockCodeInput.vue';
 import DataFreshness from '../components/DataFreshness.vue';
 import BotPnlChart from '../components/v2/BotPnlChart.vue';
+import ManualJournalSection from '../components/v2/ManualJournalSection.vue';
 
 const toast = inject('toast', { success(){}, error(){}, warning(){}, info(){} });
 

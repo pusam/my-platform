@@ -1,6 +1,10 @@
 # HANDOFF — 수동 매매 저널 (ManualTradeJournal)
 
 > 2026-07-07 세션. 토큰 소진으로 Phase 1 첫 커밋 후 인계. 이 문서 + `git log` 만으로 이어갈 것.
+>
+> **✅ 전체 완료(2026-07-07(D))** — Phase 1~3 + 문서 갱신 끝. 이 문서는 이력 보존용.
+> 정본은 `STOCK_AZ_FULL.md` §19 2026-07-07(D) 세션 요약. 잔여 후속(선택): 부분매도 지원(v1 은
+> 전량 가정), 매도 시점 pct 스냅샷 비교, stats breakdown 확장(점수 밴드별) — 필요 시 새 티켓으로.
 
 ## 목표
 봇 매매는 감사로그·주간리포트로 추적되나 **사용자 본인 수동 매매는 기록 없음**. 매수 순간 신호를
@@ -57,7 +61,16 @@
      (`WatchlistController.getUsername(auth)` 패턴 복사) + `findByIdAndUsername`.
 3. 커밋 단위: 서비스+조립테스트 → 컨트롤러. 각각 별도 커밋.
 
-## [미착수] Phase 2 — 자동 평가 + stats API
+## [완료] Phase 2 — 커밋 `ba675a78` (2026-07-07)
+- V44 `bm_price_at_buy`(매수 시점 KOSPI 스냅샷, recordBuy best-effort) — alpha 계산용.
+- 평가 배치 `evaluatePendingJournals` 19:40 MON-FRI batchScheduler(19:30 시그널 평가와 분리),
+  buyDate ≤ today-3 컷, hit=`SignalOutcomeService.isHit` 재사용(패키지 스태틱), 멱등 UPDATE.
+- `GET /api/manual-journal/stats` → `ManualJournalStatsDto`(총건수·적중률·평균 alpha·실현 승률
+  + RSI70/재료 breakdown, 표본0=null·n<10=insufficientSample). 순수함수 evaluate/computeStats+테스트.
+- 전체 백엔드 test green(컨텍스트 스모크 포함). migrationTest 는 CI 게이트(로컬 Docker 미기동).
+- **다음 시작점 = Phase 3 (프론트)**.
+
+## [참고·원계획] Phase 2 상세 (완료됨)
 - 매수 3거래일 후 pct/alpha: **`SignalOutcomeService` 의 bm/alpha 계산 재사용**(벤치마크=KIS 지수
   `getIndexPrice("0001")`, alpha=종목수익-지수수익). **hit = alpha_3d≥0 AND pct_change_3d>0**
   (signal_outcome 동일, 폴백 pct≥3%). pending/완료 구분(§4c, evaluatedAt null=대기).
@@ -67,7 +80,16 @@
 - `GET /api/manual-journal/stats` — 총건수·3일 적중률·평균 alpha·실현 승률(봇/신호와 나란히 비교 형태).
   스냅샷 조건 breakdown(RSI≥70 vs 미만, 재료 유무 등)은 **구조만** + **n<10 = insufficientSample:true(§4c)**.
 
-## [미착수] Phase 3 — 프론트 (새 라우트 금지)
+## [완료] Phase 3 — 커밋 `a0217149`(백) + `90e688d9`(프론트) (2026-07-07(D))
+- 섹터 집중 경고 API `GET /sector-exposure`(열린 저널+봇 포지션 read-only §4d, `computeSectorExposure`
+  순수함수, 매핑 밖=mapped:false) + `GET /by-stock/{code}`(마커용).
+- `ManualJournalModal`(현재가 `/stock/{code}` 프리필·수량·메모·섹터 경고, 실주문 아님 명시) —
+  진입점 = 결론카드 버튼 + BuyChecklistModal 하단 버튼(새 라우트 없음).
+- 매매 탭 '📔 수동 매매'(`ManualJournalSection` 자립 컴포넌트 — stats 카드+breakdown 칩+리스트+전량 매도).
+- `SignalHistorySection` 내 매수/매도 마커 병기(best-effort, 저널만 있어도 렌더).
+- 검증: 백엔드 전체 test+컨텍스트 스모크 green, vitest 181+build green. STOCK_AZ_FULL 갱신 완료.
+
+## [참고·원계획] Phase 3 상세 (완료됨)
 - 진입점: 종목상세 `BuyChecklistModal` 하단 "📔 매수 기록" 버튼 + 결론카드 근처 1개.
   폼 = 가격(현재가 프리필)·수량·메모만(스냅샷은 서버 자동, 폼 미노출).
 - 섹터 집중 경고: 폼에 "동일 섹터 보유 N종목"(열린 저널+봇 포지션, `SectorStockConfig` 매핑,

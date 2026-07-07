@@ -115,6 +115,58 @@ public class ManualTradeJournalController {
         }
     }
 
+    @GetMapping("/by-stock/{stockCode}")
+    @Operation(summary = "특정 종목의 내 기록", description = "종목상세 신호 이력에 내 매수/매도 마커 병기용.")
+    public ResponseEntity<Map<String, Object>> listByStock(Authentication auth, @PathVariable String stockCode) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            res.put("success", true);
+            res.put("data", journalService.listByStock(username(auth), stockCode));
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            log.error("[수동저널] 종목별 조회 실패 {}: {}", stockCode, e.getMessage(), e);
+            res.put("success", false);
+            res.put("message", "조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(res);
+        }
+    }
+
+    @GetMapping("/sector-exposure")
+    @Operation(summary = "섹터 집중 노출(경고용)",
+            description = "동일 섹터 보유 종목(열린 저널+봇 포지션 read-only). 매핑 밖=mapped:false(§4c 미표시). 경고만, 차단 없음.")
+    public ResponseEntity<Map<String, Object>> sectorExposure(Authentication auth,
+                                                              @RequestParam String stockCode) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            res.put("success", true);
+            res.put("data", journalService.sectorExposure(username(auth), stockCode.trim()));
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            log.error("[수동저널] 섹터 노출 조회 실패 {}: {}", stockCode, e.getMessage(), e);
+            res.put("success", false);
+            res.put("message", "조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(res);
+        }
+    }
+
+    @GetMapping("/stats")
+    @Operation(summary = "내 매매 통계",
+            description = "총건수·3거래일 적중률·평균 alpha·실현 승률 + RSI/재료 breakdown. "
+                    + "표본 0건 비율/평균은 null, 평가 표본 n<10 은 insufficientSample=true(§4c).")
+    public ResponseEntity<Map<String, Object>> stats(Authentication auth) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            res.put("success", true);
+            res.put("data", journalService.stats(username(auth)));
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            log.error("[수동저널] 통계 실패: {}", e.getMessage(), e);
+            res.put("success", false);
+            res.put("message", "통계 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(res);
+        }
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "내 저널 단건")
     public ResponseEntity<Map<String, Object>> get(Authentication auth, @PathVariable Long id) {
