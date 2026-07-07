@@ -80,16 +80,19 @@ import java.util.stream.Collectors;
  * ========================================
  * [트랙 정합 — 코드 기준 확정] (P2-6, 가드: AutoTradingBotTrackTest)
  * ========================================
- *   ▶ 한 줄 요약: <b>전략 2 / 활성 크론 5 / cron 메서드 7</b> (= 활성 5 + 청산봇 2 비활성)
- *   ★ 활성 @Scheduled 5개 (cron 은 메서드 위 어노테이션 참조 — 주석엔 시각만):
+ *   ▶ 한 줄 요약: <b>전략 2 / 활성 크론 7 / cron 메서드 9</b> (= 활성 7 + 청산봇 2 비활성)
+ *   ★ 활성 @Scheduled 7개 (cron 은 메서드 위 어노테이션 참조 — 주석엔 시각만.
+ *      개수 가드 = AutoTradingBotTrackTest.exactlySevenScheduled — 켜/끄면 테스트+이 표 동시 갱신):
  *     1) executeScalpingBuyLogic   30초/9-11시   스캘핑 매수(모의 전용)
  *     2) executeScalpingSellLogic  15초/8-19시   스캘핑 매도
  *     3) executeScalpingClearance  15:10        스캘핑 청산
  *     4) executeSwingBuyLogic      14:00        스윙 매수
  *     5) executeSwingSellLogic     30초/8-19시   스윙 매도
+ *     6) executeRegularSessionLiquidation 15:20~28 매분  정규장 마감 강제청산(윈도우 재시도)
+ *     7) warnIfLiquidationMissed   15:29        청산 미완료 텔레그램 경고
  *   ☓ 비활성(@Scheduled 주석처리) 2개:
- *     6) executeClosingBuyLogic / 7) executeClosingSellLogic — 종가 전략(재설계 대기)
- *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 5개 ≠ "cron 메서드" 7개(비활성 청산봇 2 포함).
+ *     8) executeClosingBuyLogic / 9) executeClosingSellLogic — 종가 전략(재설계 대기)
+ *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 7개 ≠ "cron 메서드" 9개(비활성 청산봇 2 포함).
  *      청산봇 재활성은 별도 판단 사항 — 15:10 스캘핑 청산은 청산봇 포지션을 보존(2021줄)하고,
  *      스캘핑/스윙 매도도 closingPositions 를 명시적으로 제외(1761줄 등)하므로 "중복 청산"은 아님.
  *      재활성의 실질 블로커는 15:15 수급 미확정 + 2026-09-14 거래시간 연장 재설계 대기(아래 [전략 C] 참조).
@@ -3068,6 +3071,11 @@ public class AutoTradingBotService {
     /**
      * 종가 매수 (비활성 — 포지션 충돌 + 수급 미확정)
      * 2026-09-14 거래시간 연장 후 재설계 필요. 재활성화 시 @Scheduled 주석 해제
+     *
+     * <p>⚠ <b>재활성 전 필수 보강(감사 2026-07-07(E), AUDIT_2026-07-07.md #4)</b>: 이 경로엔
+     * ① 리더 게이트(botLeader.isLeaderForBot — 없으면 멀티 인스턴스 전부 실행) ②
+     * passesPriceSanity(오염가 진입 차단)가 <b>없다</b>. @Scheduled 해제 전에 스윙 매수
+     * (executeSwingBuyLogic)와 동일하게 두 게이트를 추가할 것. (브레이커·킬스위치·BUY 멱등키는 있음.)
      */
     // @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeClosingBuyLogic() {
@@ -3233,6 +3241,10 @@ public class AutoTradingBotService {
 
     /**
      * 종가 매수 포지션 감시 (비활성)
+     *
+     * <p>⚠ <b>재활성 전 필수 보강(감사 2026-07-07(E), AUDIT_2026-07-07.md #4)</b>: 리더 게이트
+     * (botLeader.isLeaderForBot) 부재 — @Scheduled 해제 전에 다른 매도 크론과 동일하게 추가할 것.
+     * (SELL 멱등키는 미도입 상태 — DESIGN_P3-1_IDEMPOTENT_ORDERS.md 참조, 실잔고 체크+킬스위치가 반경 제한.)
      */
     // @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
     public void executeClosingSellLogic() {
