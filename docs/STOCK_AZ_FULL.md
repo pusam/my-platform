@@ -328,7 +328,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 
 ### 11-3. 종목 상세 (`views/StockDetailDashboard.vue`, ~4,700줄)
 - 헤더: 복합신호 배지 + 단기/중장기 듀얼점수 + 현재가. ⭐2026-07-07 **보드↔상세 왕복 네비**: "◀ 이전 / 보드 N/M / 다음 ▶" — 종합판단 보드 행 클릭(새 탭)이 sessionStorage `judgmentBoard.nav` 로 종목 순서를 전달한 경우에만 표시(직접 진입 미표시, 새 라우트·쿼리 오염 없음. /stock/:code 컴포넌트 재사용이라 이동 시 명시적 재조회).
-- 상단 카드: `StockConclusionCard`(결론·손절/목표+MFE/MAE·점수대 적중률·재료배지 + ⭐2026-07-07 **ATR 참고 줄** "변동성(ATR) 기준 -X.X%/+Y.Y% · 백테스트 참고치·검증 전" amber 톤, null=줄 미렌더) + `QuickSummaryBar`(RSI/20일/외인/기관/리스크/AI + ⭐2026-07-07 **외인/기관 "N일 연속" 순매수 배지** — 2일↑만, 참고 톤, `diagnosis` supplyDemand.foreign/institutionBuyStreak, null=미표시 §4c).
+- 상단 카드: `StockConclusionCard`(결론·손절/목표+MFE/MAE·점수대 적중률·재료배지 + ⭐2026-07-07(C) **진입 위치 한 줄**(`entryPosition` — overheatPenalty 신호 3종을 **스냅샷 태그 재사용**(RSI/5일/볼린저, 재계산 없음)으로 세고 + 지지선 거리(`ChartPatternService.detectSupportResistance` 캐시 재사용): 2개↑=🔴과열/1개=🟡주의/0개&지지선+3%이내=🟢눌림/중립·결측=미렌더 §4c. 순수함수 `parseOverheat`/`classifyEntryPosition` 테스트) + ⭐2026-07-07 **ATR 참고 줄** "변동성(ATR) 기준 -X.X%/+Y.Y% · 백테스트 참고치·검증 전" amber 톤, null=줄 미렌더) + `QuickSummaryBar`(RSI/20일/외인/기관/리스크/AI + ⭐2026-07-07 **외인/기관 "N일 연속" 순매수 배지** — 2일↑만, 참고 톤, `diagnosis` supplyDemand.foreign/institutionBuyStreak, null=미표시 §4c).
 - 본문: `StockBriefingHeadline`(행동권고) · `StockRiskCard`(DART+뉴스+AI).
 - 심화(접기 `DetailSection` v-show 마운트 유지): Peer·VolumeProfile·SupportResistance·RelatedStocks·ChartPattern + ⭐2026-07-07 **`SignalHistorySection`**("📜 신호 이력" — signal_outcome 90일 타임라인, 요약을 제목에 병기, 평가 대기 구분 §4c, n=0 미렌더, 자체 fetch=heavy 계열) + ⭐2026-07-07 **`CatalystHistorySection`**("📰 재료 이력" — stock_catalyst 30일 read-only 타임라인, 날짜별 등락률 병기, NONE 제외, classify 호출 없음 §4b, n=0 미렌더).
 - 듀얼스테이지: `quick`(3~5s) → `heavy`(risk/AI/peer, 캐시·lazy).

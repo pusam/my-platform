@@ -1,10 +1,12 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.StockConclusionDto;
+import com.myplatform.backend.dto.StockConclusionDto.EntryPosition;
 import com.myplatform.backend.dto.StockConclusionDto.Factor;
 import com.myplatform.backend.dto.StockConclusionDto.Level;
 import com.myplatform.backend.dto.StockConclusionDto.TradePlan;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.dto.SupportResistanceDto;
 import com.myplatform.backend.entity.RecommendationSnapshot;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
@@ -13,6 +15,7 @@ import com.myplatform.backend.util.AtrCalculator;
 import com.myplatform.backend.util.AtrExitRule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +25,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 종목별 룰 기반 결론 한 줄 산출.
@@ -49,6 +54,8 @@ public class StockConclusionService {
     private final SignalOutcomeRepository signalOutcomeRepository;
     private final StockPriceService stockPriceService;
     private final StockPriceHistoryRepository stockPriceHistoryRepository;
+    // 지지선 거리(진입 위치 눌림 판정)용 — 기존 캐시된 SR 카드 데이터 재사용. ObjectProvider 로 순환 회피·best-effort.
+    private final ObjectProvider<ChartPatternService> chartPatternProvider;
 
     // 결론 임계값 — RecommendationService 상수와 동기화 필요.
     private static final int STRONG_BUY_THRESHOLD = 75;
@@ -133,11 +140,101 @@ public class StockConclusionService {
                 .headline(headline)
                 .guidance(guidance)
                 .conflictNote(detectConflicts(s))
+                .entryPosition(buildEntryPosition(s))
                 .factors(factors)
                 .tradePlan(buildTradePlan(s, level))
                 .dataAt(s.getSnapshotAt())
                 .dataAvailable(true)
                 .build();
+    }
+
+    // ==================== 진입 위치 (표시 전용 — 산식/점수 무변경) ====================
+
+    /** 눌림 판정 지지선 근접 상한 % — 현재가가 지지선 위 이 값 이내면 "눌림 구간". */
+    static final double PULLBACK_SUPPORT_MAX_PCT = 3.0;
+    // overheatPenalty() 가 스냅샷에 남긴 과열 태그 파싱 — "⚠RSI78과열" / "⚠5일+18%과열" / "⚠볼린저상단돌파".
+    private static final Pattern RSI_OVERHEAT_TAG = Pattern.compile("RSI(\\d+)과열");
+    private static final Pattern FIVE_DAY_OVERHEAT_TAG = Pattern.compile("5일\\+(\\d+)%과열");
+
+    /**
+     * 진입 위치 한 줄 — overheatPenalty 구성 신호(스냅샷 태그 재사용, <b>재계산 없음</b>) + 지지선 거리 조립.
+     * 과열 신호 0개일 때만 지지선(캐시된 SR 카드) 조회 → 눌림 판정. null=중립/판단 불가(줄 미렌더, §4c).
+     */
+    private EntryPosition buildEntryPosition(RecommendationSnapshot s) {
+        OverheatSignals overheat = parseOverheat(s.getTags());
+        Double supportDist = overheat.count() == 0 ? nearestSupportDistanceQuiet(s.getStockCode()) : null;
+        return classifyEntryPosition(overheat, supportDist);
+    }
+
+    /** 과열 신호 3종(스냅샷 태그 재사용). */
+    record OverheatSignals(Integer rsi, boolean bollinger, Integer fiveDayPct) {
+        int count() { return (rsi != null ? 1 : 0) + (bollinger ? 1 : 0) + (fiveDayPct != null ? 1 : 0); }
+    }
+
+    /**
+     * 스냅샷 태그에서 과열 신호 추출 — <b>순수 함수(테스트 대상)</b>. overheatPenalty 가 임계(RSI≥70/5일≥15/
+     * 볼린저 상단) 초과 시 남긴 태그의 <b>존재</b>가 곧 신호(값은 표시용으로 함께 추출). 재계산 없음.
+     */
+    static OverheatSignals parseOverheat(String tagsCsv) {
+        if (tagsCsv == null || tagsCsv.isBlank()) return new OverheatSignals(null, false, null);
+        Integer rsi = null, five = null;
+        Matcher m1 = RSI_OVERHEAT_TAG.matcher(tagsCsv);
+        if (m1.find()) rsi = Integer.parseInt(m1.group(1));
+        Matcher m2 = FIVE_DAY_OVERHEAT_TAG.matcher(tagsCsv);
+        if (m2.find()) five = Integer.parseInt(m2.group(1));
+        boolean bollinger = tagsCsv.contains("볼린저상단돌파");
+        return new OverheatSignals(rsi, bollinger, five);
+    }
+
+    /**
+     * 진입 위치 판정 — <b>순수 함수(테스트 대상)</b>.
+     * 과열 2개↑ = OVERHEATED / 1개 = CAUTION / 0개 & 지지선 +{@value #PULLBACK_SUPPORT_MAX_PCT}% 이내 = PULLBACK /
+     * 그 외(중립·지지선 결측) = null(줄 미렌더, §4c).
+     * @param supportDistancePct 현재가가 최근접 지지선 위로 떨어진 거리 %(≥0). null=미상.
+     */
+    static EntryPosition classifyEntryPosition(OverheatSignals sig, Double supportDistancePct) {
+        if (sig == null) return null;
+        List<String> reasons = new ArrayList<>();
+        if (sig.rsi() != null) reasons.add("RSI " + sig.rsi());
+        if (sig.fiveDayPct() != null) reasons.add("5일 +" + sig.fiveDayPct() + "%");
+        if (sig.bollinger()) reasons.add("볼린저 상단");
+
+        int count = sig.count();
+        if (count >= 2) {
+            return EntryPosition.builder().zone("OVERHEATED")
+                    .text("과열 구간: " + String.join(" · ", reasons)).build();
+        }
+        if (count == 1) {
+            return EntryPosition.builder().zone("CAUTION")
+                    .text("과열 주의: " + reasons.get(0)).build();
+        }
+        // count == 0 — 지지선 근접이면 눌림, 아니면 미렌더(중립/결측)
+        if (supportDistancePct != null && supportDistancePct >= 0
+                && supportDistancePct <= PULLBACK_SUPPORT_MAX_PCT) {
+            return EntryPosition.builder().zone("PULLBACK")
+                    .text(String.format("눌림 구간: 지지선 +%.1f%%", supportDistancePct)).build();
+        }
+        return null;
+    }
+
+    /**
+     * 최근접 지지선까지 현재가 거리 %(양수 = 지지선 위) — 기존 캐시된 SR 카드 데이터 재사용(재계산 아님).
+     * SR 미가용·지지선 없음·결측이면 null(§4c). best-effort.
+     */
+    private Double nearestSupportDistanceQuiet(String stockCode) {
+        try {
+            ChartPatternService cps = chartPatternProvider.getIfAvailable();
+            if (cps == null) return null;
+            SupportResistanceDto sr = cps.detectSupportResistance(stockCode);
+            if (sr == null || sr.getSupport() == null || sr.getSupport().isEmpty()) return null;
+            // support = 현재가 아래(가까운 순). distancePct 음수(아래) → |값| = 현재가가 지지선 위로 떨어진 거리.
+            SupportResistanceDto.Level nearest = sr.getSupport().get(0);
+            if (nearest == null || nearest.getDistancePct() == null) return null;
+            return Math.abs(nearest.getDistancePct().doubleValue());
+        } catch (Exception e) {
+            log.debug("[Conclusion] 지지선 거리 조회 실패 {}: {}", stockCode, e.getMessage());
+            return null;
+        }
     }
 
     /**

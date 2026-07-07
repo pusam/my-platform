@@ -79,6 +79,31 @@ describe('StockConclusionCard — 매매 계획 / 조건부 적중률', () => {
     expect(plan.text()).toContain('73,500원 (+5%)')
   })
 
+  it('진입 위치: OVERHEATED → 🔴 과열 구간 라인(RSI·5일 병기)', async () => {
+    stubApi({ ...conclusionData, entryPosition: { zone: 'OVERHEATED', text: '과열 구간: RSI 78 · 5일 +18%' } })
+    const w = await mountCard()
+    const ep = w.find('.entry-position')
+    expect(ep.exists()).toBe(true)
+    expect(ep.classes()).toContain('ep-overheated')
+    expect(ep.text()).toContain('🔴')
+    expect(ep.text()).toContain('과열 구간: RSI 78')
+  })
+
+  it('진입 위치: PULLBACK → 🟢 눌림 구간(지지선 거리)', async () => {
+    stubApi({ ...conclusionData, entryPosition: { zone: 'PULLBACK', text: '눌림 구간: 지지선 +1.1%' } })
+    const w = await mountCard()
+    const ep = w.find('.entry-position')
+    expect(ep.classes()).toContain('ep-pullback')
+    expect(ep.text()).toContain('🟢')
+    expect(ep.text()).toContain('눌림 구간')
+  })
+
+  it('진입 위치: entryPosition null → 라인 미렌더(§4c)', async () => {
+    stubApi()   // 기본 conclusionData 엔 entryPosition 없음
+    const w = await mountCard()
+    expect(w.find('.entry-position').exists()).toBe(false)
+  })
+
   it('MFE/MAE 실측 라인 — 표본 수 + 평균 최고/최저 변동폭', async () => {
     stubApi()
     const w = await mountCard()

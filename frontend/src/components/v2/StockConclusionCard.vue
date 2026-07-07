@@ -6,6 +6,11 @@
         <span class="level-label">{{ levelLabel }}</span>
       </div>
       <div class="conclusion-text">
+        <!-- 진입 위치 (표시 전용 — overheatPenalty 신호 + 지지선 거리 조립, null=미렌더 §4c) -->
+        <p v-if="conclusion.entryPosition" class="entry-position"
+           :class="'ep-' + (conclusion.entryPosition.zone || '').toLowerCase()">
+          {{ entryPositionIcon }} {{ conclusion.entryPosition.text }}
+        </p>
         <p class="headline">{{ conclusion.headline }}</p>
         <p class="source-caption" title="이 결론은 종합추천 스냅샷(전 종목 비교 랭킹, 5카테고리)을 기준으로 합니다. 상단 헤더의 '단기 트레이딩'·'중장기 펀더멘털' 점수와는 산출 기준·시점이 달라 결론이 다를 수 있습니다.">
           ⓘ 종합추천 스냅샷 기준 — 상단 단기/중장기 점수와 산출 기준이 다릅니다
@@ -151,6 +156,12 @@ watch(() => props.stockCode, (code) => {
   fetchConclusion(code);
   fetchAccuracy();
 }, { immediate: true });
+
+// 진입 위치 아이콘 — 과열(🔴)/주의(🟡)/눌림(🟢). zone 없으면 빈 문자열.
+const entryPositionIcon = computed(() => {
+  const z = conclusion.value?.entryPosition?.zone;
+  return z === 'OVERHEATED' ? '🔴' : z === 'CAUTION' ? '🟡' : z === 'PULLBACK' ? '🟢' : '';
+});
 
 // 현재 결론 level 에 해당하는 시그널 타입의 적중률 통계 1건.
 // STRONG_BUY/BUY level 만 노출 (HOLD/WAIT 은 시그널이 발생하지 않으므로 통계 없음).
@@ -299,6 +310,13 @@ const openChecklist = () => { showChecklist.value = true; };
 .level-icon { font-size: 28px; }
 .level-label { font-size: 13px; font-weight: 700; margin-top: 4px; }
 .conclusion-text { flex: 1; }
+.entry-position {
+  margin: 0 0 6px; font-size: 13px; font-weight: 700;
+  display: inline-block; padding: 3px 10px; border-radius: 8px;
+}
+.entry-position.ep-overheated { background: rgba(239,68,68,0.14); color: #f87171; }
+.entry-position.ep-caution { background: rgba(245,158,11,0.14); color: #fbbf24; }
+.entry-position.ep-pullback { background: rgba(34,197,94,0.14); color: #4ade80; }
 .headline { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.4; }
 .source-caption {
   margin: 4px 0 0;

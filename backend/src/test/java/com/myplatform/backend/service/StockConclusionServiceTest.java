@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.StockConclusionDto;
+import com.myplatform.backend.dto.StockConclusionDto.EntryPosition;
 import com.myplatform.backend.dto.StockConclusionDto.Level;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.RecommendationSnapshot;
@@ -8,12 +9,14 @@ import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
+import com.myplatform.backend.service.StockConclusionService.OverheatSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -45,13 +48,16 @@ class StockConclusionServiceTest {
     @Mock private SignalOutcomeRepository signalOutcomeRepository;
     @Mock private StockPriceService stockPriceService;
     @Mock private StockPriceHistoryRepository stockPriceHistoryRepository;
+    @Mock private ObjectProvider<ChartPatternService> chartPatternProvider;
 
     private StockConclusionService service;
 
     @BeforeEach
     void setUp() {
         service = new StockConclusionService(snapshotRepository, signalOutcomeRepository,
-                stockPriceService, stockPriceHistoryRepository);
+                stockPriceService, stockPriceHistoryRepository, chartPatternProvider);
+        // 지지선 조회는 기본 미가용(SR provider null) — entryPosition 은 과열 태그로만 판정. 개별 테스트에서 덮어씀.
+        lenient().when(chartPatternProvider.getIfAvailable()).thenReturn(null);
         // 기본: 시세/MFE/일봉 데이터 없음 — tradePlan 은 % 만 채워짐, ATR 참고치 null. 개별 테스트에서 덮어씀.
         lenient().when(stockPriceService.getStockPrice(anyString())).thenReturn(null);
         lenient().when(signalOutcomeRepository.aggregateMfeMae(anyString(), any()))
@@ -449,5 +455,75 @@ class StockConclusionServiceTest {
 
         assertThat(result.getFactors()).hasSize(6);   // 성장성 빠짐(정상 7 → NA 숨김 6)
         assertThat(result.getFactors()).noneMatch(f -> "growth".equals(f.getKey()));
+    }
+
+    // ================================================================
+    // 진입 위치 (entryPosition) — 과열 태그 재사용 + 지지선 거리 (순수 함수 + 통합)
+    // ================================================================
+
+    @Test
+    @DisplayName("parseOverheat: 과열 태그에서 RSI·5일·볼린저 추출, 없으면 count 0")
+    void parseOverheat_extractsSignals() {
+        OverheatSignals sig = StockConclusionService.parseOverheat(
+                "외국인3일연속,⚠RSI78과열,⚠볼린저상단돌파,⚠5일+18%과열");
+        assertThat(sig.rsi()).isEqualTo(78);
+        assertThat(sig.fiveDayPct()).isEqualTo(18);
+        assertThat(sig.bollinger()).isTrue();
+        assertThat(sig.count()).isEqualTo(3);
+
+        assertThat(StockConclusionService.parseOverheat("외국인순매수,골든크로스").count()).isZero();
+        assertThat(StockConclusionService.parseOverheat(null).count()).isZero();
+    }
+
+    @Test
+    @DisplayName("classify: 과열 2개↑ → OVERHEATED(RSI·5일 병기) / 1개 → CAUTION")
+    void classify_overheatedAndCaution() {
+        EntryPosition over = StockConclusionService.classifyEntryPosition(
+                new OverheatSignals(78, false, 18), null);
+        assertThat(over.getZone()).isEqualTo("OVERHEATED");
+        assertThat(over.getText()).contains("과열 구간").contains("RSI 78").contains("5일 +18%");
+
+        EntryPosition caution = StockConclusionService.classifyEntryPosition(
+                new OverheatSignals(72, false, null), null);
+        assertThat(caution.getZone()).isEqualTo("CAUTION");
+        assertThat(caution.getText()).contains("과열 주의").contains("RSI 72");
+    }
+
+    @Test
+    @DisplayName("classify: 과열 0 + 지지선 근접 → PULLBACK, +3.0% 경계 포함 / +3.1%·음수·null → 미렌더")
+    void classify_pullbackBoundary() {
+        OverheatSignals calm = new OverheatSignals(null, false, null);
+        EntryPosition pull = StockConclusionService.classifyEntryPosition(calm, 1.1);
+        assertThat(pull.getZone()).isEqualTo("PULLBACK");
+        assertThat(pull.getText()).contains("눌림 구간").contains("지지선 +1.1%");
+        assertThat(StockConclusionService.classifyEntryPosition(calm, 3.0).getZone()).isEqualTo("PULLBACK");
+        assertThat(StockConclusionService.classifyEntryPosition(calm, 3.1)).isNull();   // 3% 초과
+        assertThat(StockConclusionService.classifyEntryPosition(calm, -0.5)).isNull();  // 지지 이탈
+        assertThat(StockConclusionService.classifyEntryPosition(calm, null)).isNull();  // 지지선 미상 = 미렌더
+    }
+
+    @Test
+    @DisplayName("통합: 스냅샷 과열 태그(RSI78+5일18) → entryPosition OVERHEATED")
+    void getConclusion_entryPositionFromTags() {
+        RecommendationSnapshot s = snapshot(80, 16, 16, 15, 14, 10);
+        s.setTags("⚠RSI78과열,⚠5일+18%과열,외국인순매수");
+        when(snapshotRepository.findLatestByStockCode(anyString())).thenReturn(Optional.of(s));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getEntryPosition()).isNotNull();
+        assertThat(result.getEntryPosition().getZone()).isEqualTo("OVERHEATED");
+        assertThat(result.getEntryPosition().getText()).contains("RSI 78");
+    }
+
+    @Test
+    @DisplayName("통합: 과열 태그 없음 + 지지선 미가용 → entryPosition null(미렌더, §4c)")
+    void getConclusion_entryPositionNullWhenNeutral() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));   // tags null, SR provider null
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getEntryPosition()).isNull();
     }
 }

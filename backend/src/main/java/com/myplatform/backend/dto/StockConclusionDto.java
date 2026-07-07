@@ -43,6 +43,12 @@ public class StockConclusionDto {
      */
     private String conflictNote;
 
+    /**
+     * 진입 위치 요약 (표시 전용 — 산식·점수 무변경). overheatPenalty 구성 신호(RSI·5일누적·볼린저 상단,
+     * 스냅샷 태그 재사용)와 지지선 거리를 조립한 한 줄. null = 판단 불가/중립(줄 미렌더, §4c).
+     */
+    private EntryPosition entryPosition;
+
     /** 결론 산출에 기여한 factor 목록. */
     private List<Factor> factors;
 
@@ -103,6 +109,20 @@ public class StockConclusionDto {
         private java.math.BigDecimal atrStopPct;
         /** ATR 기반 참고 목표 %(양수, 손절폭×5/3 — 현행 손익비 유지). null=미산출. */
         private java.math.BigDecimal atrTargetPct;
+    }
+
+    /**
+     * 진입 위치 — 과열/눌림 한 줄 (표시 전용). 프론트가 zone 으로 아이콘/색을 매핑.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class EntryPosition {
+        /** OVERHEATED(과열 2+) / CAUTION(과열 1) / PULLBACK(과열 0 & 지지선 근접). */
+        private String zone;
+        /** 표시 문구(아이콘 제외) — "과열 구간: RSI 78 · 5일 +18%" / "눌림 구간: 지지선 +1.1%". */
+        private String text;
     }
 
     @Data
