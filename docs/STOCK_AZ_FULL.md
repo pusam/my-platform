@@ -678,6 +678,8 @@ AUDIT_2026-07-07 리포트의 P1 2건 수정 + DESIGN_P3-1 B안 구현. 각 독�
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
 - `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**·**P3-7 매크로 tilt 캘리브레이션/승격(V39 스냅샷 축적 중)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
+- **`OPS_CHECKLIST_2026-07.md`** — 서버 배포 후 확인 일괄 체크리스트(§19 세션별 "배포 후 확인" 수집: V45 마이그레이션·ATR 세트 VIRTUAL ON·일일손실 브레이커 1원 테스트·매크로 V39/ECOS·[SellInflight]/공매도 미수집/구글뉴스·백업 B2/복구 리허설·악재경보/목표가/저널 실동작)
+- **`SCHEDULE_DECISIONS.md`** — 날짜 트리거 결정 대기표(2026-07-22경 ATR P2-17·수급 캡10·RVOL·tilt·저널 stats / 2026-08 NXT 스프린트 / 2026-09-14 NXT 개시·P2-13-a / 수시 공매도 소스 복구)
 - **`AUDIT_2026-07-07.md`** — 2026-07-07(E) 불변식 전수 감사 리포트(7축: 시세경로·§4c·§4d 호출그래프 증명·이중 인코딩·중복 구현·죽은 코드·백로그 소진. **P1 3건 전부 2026-07-08 수정 완료** — §19 07-08 세션)
 - **`DESIGN_P3-1_IDEMPOTENT_ORDERS.md`** — P3-1 잔여(SELL 부분청산 가드) 설계(B안 in-flight 마커 — **2026-07-08 V45 구현 완료**, 설계 이탈 2건은 §19 07-08 세션·커밋 `ea4a609` 메시지 참조)
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
