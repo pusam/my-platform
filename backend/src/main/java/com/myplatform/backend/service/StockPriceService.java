@@ -17,9 +17,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
-import java.net.URLEncoder;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -46,7 +47,7 @@ public class StockPriceService {
 
     // 네이버 증권 API (폴백용)
     private static final String NAVER_STOCK_API = "https://m.stock.naver.com/api/stock/%s/basic";
-    private static final String NAVER_SEARCH_API = "https://m.stock.naver.com/front-api/search/autoComplete?query=%s&target=stock";
+    private static final String NAVER_SEARCH_API_BASE = "https://m.stock.naver.com/front-api/search/autoComplete";
 
     // 네이버 API 요청 헤더 (409 차단 방지)
     private static final String NAVER_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -705,8 +706,7 @@ public class StockPriceService {
     /** Naver 검색 — DB 에서 0건일 때만 호출되는 fallback. */
     private void searchFromNaver(String keyword, List<StockPriceDto> results, java.util.Set<String> seen) {
         try {
-            String encodedKeyword = URLEncoder.encode(keyword, StandardCharsets.UTF_8);
-            String url = String.format(NAVER_SEARCH_API, encodedKeyword);
+            URI url = buildNaverSearchUrl(keyword);
             log.debug("종목 검색 폴백(Naver): {}", keyword);
 
             HttpHeaders headers = createNaverHeaders();
@@ -737,6 +737,20 @@ public class StockPriceService {
         } catch (Exception e) {
             log.warn("Naver 종목 검색 실패: {} - {}", e.getClass().getSimpleName(), e.getMessage());
         }
+    }
+
+    /**
+     * §16-10: 한글 키워드는 UTF-8 로 1회 인코딩한 {@code URI} 를 RestTemplate 에 넘긴다.
+     * String 을 넘기면 RestTemplate 이 재인코딩(% → %25)해 네이버가 키워드를 못 알아듣는다
+     * (2026-07-01 재료 100% NONE 사건과 동형 — NaverSearchService.buildSearchUrl 참조).
+     */
+    static URI buildNaverSearchUrl(String keyword) {
+        return UriComponentsBuilder.fromUriString(NAVER_SEARCH_API_BASE)
+                .queryParam("query", keyword)
+                .queryParam("target", "stock")
+                .encode(StandardCharsets.UTF_8)
+                .build()
+                .toUri();
     }
 
     private StockPriceDto buildBareDto(String stockCode, String stockName) {

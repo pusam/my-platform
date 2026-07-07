@@ -12,9 +12,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.StringReader;
-import java.net.URLEncoder;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -32,7 +33,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GoogleNewsService {
 
-    private static final String GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search?q=%s+주식&hl=ko&gl=KR&ceid=KR:ko";
+    private static final String GOOGLE_NEWS_RSS_BASE = "https://news.google.com/rss/search";
     private static final int MAX_NEWS_AGE_DAYS = 7;
     private static final int MAX_RESULT_COUNT = 10;
     private static final int TIMEOUT_MS = 10_000;
@@ -61,8 +62,7 @@ public class GoogleNewsService {
      */
     public List<NewsItem> searchNews(String stockName) {
         try {
-            String encodedName = URLEncoder.encode(stockName + " 주식", StandardCharsets.UTF_8);
-            String url = String.format("https://news.google.com/rss/search?q=%s&hl=ko&gl=KR&ceid=KR:ko", encodedName);
+            URI url = buildSearchUrl(stockName);
 
             log.info("[GoogleNews] RSS 조회: {}", stockName);
 
@@ -124,6 +124,22 @@ public class GoogleNewsService {
             log.warn("[GoogleNews] RSS 파싱 실패 (종목: {}): {}", stockName, e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * §16-10: 한글 쿼리는 UTF-8 로 1회 인코딩한 {@code URI} 를 RestTemplate 에 넘긴다.
+     * String 을 넘기면 RestTemplate 이 URI 템플릿으로 보고 재인코딩(% → %25) — 2026-07-01
+     * 네이버 재료 100% NONE 사건과 동형(NaverSearchService.buildSearchUrl 참조).
+     */
+    static URI buildSearchUrl(String stockName) {
+        return UriComponentsBuilder.fromUriString(GOOGLE_NEWS_RSS_BASE)
+                .queryParam("q", stockName + " 주식")
+                .queryParam("hl", "ko")
+                .queryParam("gl", "KR")
+                .queryParam("ceid", "KR:ko")
+                .encode(StandardCharsets.UTF_8)
+                .build()
+                .toUri();
     }
 
     /**
