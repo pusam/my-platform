@@ -30,4 +30,6 @@
 3. 산출물 체크리스트: AUDIT_2026-07-07.md / DESIGN_P3-1_IDEMPOTENT_ORDERS.md / P2-13-a 주석 정정 / P2 저위험 수정 / STOCK_AZ_FULL §20 인덱스 / `./gradlew test -PskipFrontend` green / push.
 
 ## 완료 상태 (세션 종료 시 갱신)
-- (미갱신 = 세션 중단됨. 위 스냅샷이 마지막 상태.)
+- **✅ 세션 정상 완료(2026-07-07(E)) — 7축 전부 감사 + Part B 설계 + P2 저위험 수정.**
+- 산출물: `docs/AUDIT_2026-07-07.md`(P1 3건: 구글뉴스·검색폴백 이중 인코딩 / 공매도 ZERO §4c — **수정은 후속 세션**, 리포트 참조) · `docs/DESIGN_P3-1_IDEMPOTENT_ORDERS.md`(B안 권장) · 봇 주석 정정(헤더 크론 수 5→7, 종가봇 재활성 경고) · 백로그 P0-1 마감/P2-13-a 확인 · 프론트 고아 2 제거 · STOCK_AZ_FULL §20 인덱스.
+- 다음 세션 후보(우선순위): ① P1 이중 인코딩 2건 URI 이관+회귀 테스트 ② 공매도 getShortSellingRatio null 화+체크리스트 "미수집" ③ P3-1 B안 구현(V45).
