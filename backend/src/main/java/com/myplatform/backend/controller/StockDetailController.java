@@ -1,10 +1,12 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.BuyChecklistDto;
+import com.myplatform.backend.dto.SignalHistoryDto;
 import com.myplatform.backend.dto.StockCatalystDto;
 import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockDetailDto;
 import com.myplatform.backend.service.BuyChecklistService;
+import com.myplatform.backend.service.SignalHistoryService;
 import com.myplatform.backend.service.StockCatalystService;
 import com.myplatform.backend.service.StockConclusionService;
 import com.myplatform.backend.service.StockDetailService;
@@ -41,6 +43,7 @@ public class StockDetailController {
     private final StockConclusionService stockConclusionService;
     private final BuyChecklistService buyChecklistService;
     private final StockCatalystService stockCatalystService;
+    private final SignalHistoryService signalHistoryService;
 
     @GetMapping("/{stockCode}/summary")
     @Operation(
@@ -192,6 +195,32 @@ public class StockDetailController {
             log.error("[Catalyst API] 종목 {} 재료 조회 실패: {}", stockCode, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "재료 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/signal-history")
+    @Operation(
+        summary = "종목 신호 이력 실적 (signal_outcome 최근 90일)",
+        description = "이 종목에 과거 시그널(STRONG_BUY/BUY 등)이 언제 떴고 3거래일 평가에서 맞았는지 " +
+                     "타임라인 + 요약(총/적중/평균 alpha). 평가 전 행은 pending=true(평가 대기) 로 구분 — " +
+                     "미평가를 미스로 위장하지 않음(§4c). 기존 signal_outcome 재사용, read-only(산식 미편입)."
+    )
+    public ResponseEntity<Map<String, Object>> getSignalHistory(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            SignalHistoryDto history = signalHistoryService.getHistory(stockCode);
+            response.put("success", true);
+            response.put("data", history);
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[SignalHistory API] 종목 {} 신호 이력 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "신호 이력 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }

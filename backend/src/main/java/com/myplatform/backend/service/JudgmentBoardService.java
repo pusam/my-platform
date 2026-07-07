@@ -6,6 +6,7 @@ import com.myplatform.backend.dto.JudgmentBoardDto.Row;
 import com.myplatform.backend.dto.StockCatalystDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockCatalyst;
+import com.myplatform.backend.repository.SignalOutcomeRepository;
 import com.myplatform.backend.repository.StockCatalystRepository;
 import com.myplatform.backend.service.RecommendationService.RecommendationDto;
 import com.myplatform.backend.service.RecommendationService.StockScore;
@@ -44,7 +45,7 @@ public class JudgmentBoardService {
     static final int CATALYST_DISPLAY_DAYS = 2;
     private static final String SOURCE_MOMENTUM = "momentum";
     private static final String NOTE_BASE =
-            "② 차트타이밍·섹터강도·간밤 미국장·RVOL = 미검증 참고(점수 미편입). "
+            "② 차트타이밍·섹터강도·간밤 미국장·RVOL·신호이력 = 미검증 참고(점수 미편입). "
             + "③ 수급 고점 = 역상관 의심(표본 작음 n=88, 확정 아님). 종합점수는 ① 검증/게이트 기준.";
 
     private final RecommendationService recommendationService;
@@ -55,6 +56,7 @@ public class JudgmentBoardService {
     private final StockCatalystRepository catalystRepository;
     private final StockPriceService stockPriceService;
     private final RvolService rvolService;
+    private final SignalOutcomeRepository signalOutcomeRepository;
 
     /** 종합 판단 보드. scope=momentum(기본)|union. */
     public JudgmentBoardDto getBoard(String scope) {
@@ -248,6 +250,13 @@ public class JudgmentBoardService {
             log.warn("[JudgmentBoard] 거래대금 조립 실패(생략): {}", e.getMessage());
         }
 
+        try {   // 신호 이력 실적(② 참고): signal_outcome 90일 일괄 집계 — IN 절 1쿼리(행별 조회 N+1 금지).
+            applyTrackRecord(rows, toTrackRecordMap(signalOutcomeRepository.aggregateTrackRecordByCodes(
+                    codes, LocalDate.now().minusDays(SignalHistoryService.WINDOW_DAYS))));
+        } catch (Exception e) {
+            log.warn("[JudgmentBoard] 신호 이력 집계 실패(생략): {}", e.getMessage());
+        }
+
         try {   // RVOL(V41 ② 참고): 위에서 조립된 거래대금(같은 시세 스냅샷)을 분자로 재사용 — 이중 조회 없음.
             Map<String, BigDecimal> todayValueByCode = new LinkedHashMap<>();
             for (Row r : rows) {
@@ -258,6 +267,40 @@ public class JudgmentBoardService {
             applyRvol(rows, rvolService.getRvolBulk(todayValueByCode));
         } catch (Exception e) {
             log.warn("[JudgmentBoard] RVOL 조립 실패(생략): {}", e.getMessage());
+        }
+    }
+
+    /** 신호 이력 실적 한 종목분 — [total, hitCount, avgAlpha]. */
+    record TrackRecord(int count, int hitCount, BigDecimal avgAlpha) {}
+
+    /**
+     * 집계 쿼리 결과([stockCode, total, hitCount, avgAlpha]) → 코드별 TrackRecord. 순수 함수.
+     * avgAlpha 는 scale 2 반올림(표시용), null 유지(§4c — alpha 미산출 위장 금지).
+     */
+    static Map<String, TrackRecord> toTrackRecordMap(List<Object[]> aggregates) {
+        Map<String, TrackRecord> out = new LinkedHashMap<>();
+        if (aggregates == null) return out;
+        for (Object[] row : aggregates) {
+            if (row == null || row.length < 4 || row[0] == null) continue;
+            int count = row[1] == null ? 0 : ((Number) row[1]).intValue();
+            if (count <= 0) continue;
+            int hits = row[2] == null ? 0 : ((Number) row[2]).intValue();
+            BigDecimal avgAlpha = row[3] == null ? null
+                    : new BigDecimal(row[3].toString()).setScale(2, java.math.RoundingMode.HALF_UP);
+            out.put(row[0].toString(), new TrackRecord(count, hits, avgAlpha));
+        }
+        return out;
+    }
+
+    /** 신호 이력 매핑(순수) — 이력 없는 종목은 미설정(null=§4c). 표시 전용, 랭킹/산식 미편입. */
+    static void applyTrackRecord(List<Row> rows, Map<String, TrackRecord> trackByCode) {
+        if (trackByCode == null || trackByCode.isEmpty()) return;
+        for (Row r : rows) {
+            TrackRecord t = trackByCode.get(r.getStockCode());
+            if (t == null) continue;
+            r.setTrackCount(t.count());
+            r.setTrackHitCount(t.hitCount());
+            r.setTrackAvgAlpha(t.avgAlpha());
         }
     }
 

@@ -92,6 +92,11 @@ public class JudgmentBoardDto {
         // RVOL(V41, ② 참고 계층): 당일 거래대금 ÷ 직전 20거래일 평균. null=미산출(20일 미만·캐시 미스, §4c).
         // 미검증·랭킹/산식 미편입 — 배지 표시 전용.
         private BigDecimal rvol;
+        // 신호 이력 실적(② 참고 계층): signal_outcome 최근 90일 평가 완료분 집계 — 표시 전용, 산식 미편입.
+        // null=이력 없음(§4c). n<3 은 프론트가 "—" muted(표본부족 톤) + 정렬 하단.
+        private Integer trackCount;        // 평가 완료 표본 수
+        private Integer trackHitCount;
+        private BigDecimal trackAvgAlpha;  // alpha 있는 행 평균. null=미산출
 
         private List<String> tags;
     }

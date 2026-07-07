@@ -132,6 +132,32 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     List<SignalOutcome> findEvaluatedBetween(@Param("from") LocalDate from,
                                              @Param("to") LocalDate to);
 
+    /**
+     * 종목별 신호 이력 (최근 N일) — 종목 상세 "📜 신호 이력" 입력. 평가 전(pending) 행 포함
+     * (§4c: 미평가를 미스로 위장하지 않고 "평가 대기"로 구분 표시). 최신순.
+     */
+    List<SignalOutcome> findByStockCodeAndSignalDateGreaterThanEqualOrderBySignalDateDesc(
+            String stockCode, LocalDate from);
+
+    /**
+     * 종목별 이력 실적 일괄 집계 — 종합 판단 보드 signalTrackRecord 컬럼용.
+     * <b>IN 절 1쿼리</b>(보드 행별 개별 조회 N+1 금지 — 보드 로딩 시간 보호). 평가 완료 행만.
+     * <p>리턴: [stockCode, total, hitCount, avgAlpha]
+     */
+    @Query("""
+        SELECT s.stockCode,
+               COUNT(s),
+               SUM(CASE WHEN s.hit = TRUE THEN 1 ELSE 0 END),
+               AVG(s.alpha3d)
+          FROM SignalOutcome s
+         WHERE s.evaluatedAt IS NOT NULL
+           AND s.stockCode IN :codes
+           AND s.signalDate >= :from
+         GROUP BY s.stockCode
+        """)
+    List<Object[]> aggregateTrackRecordByCodes(@Param("codes") java.util.Collection<String> codes,
+                                               @Param("from") LocalDate from);
+
     /** phase 35b 진단 — 마지막 signal_date. */
     @Query("SELECT MAX(s.signalDate) FROM SignalOutcome s")
     java.util.Optional<LocalDate> findMaxSignalDate();

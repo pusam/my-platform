@@ -160,6 +160,47 @@ class JudgmentBoardServiceTest {
     }
 
     @Test
+    @DisplayName("신호 이력 집계 매핑 — [code,total,hit,avgAlpha] → TrackRecord(scale2), 0건/결측 skip")
+    void toTrackRecordMap_mapsAndSkips() {
+        List<Object[]> agg = List.<Object[]>of(
+                new Object[]{"005930", 5L, 3L, new BigDecimal("1.2345")},
+                new Object[]{"000660", 2L, 0L, null},                       // alpha 미산출 → null 유지(§4c)
+                new Object[]{"035420", 0L, 0L, null},                       // 0건 → skip
+                new Object[]{null, 3L, 1L, null});                          // 코드 결측 → skip
+
+        var m = JudgmentBoardService.toTrackRecordMap(agg);
+
+        assertThat(m).hasSize(2);
+        assertThat(m.get("005930").count()).isEqualTo(5);
+        assertThat(m.get("005930").hitCount()).isEqualTo(3);
+        assertThat(m.get("005930").avgAlpha()).isEqualByComparingTo("1.23");
+        assertThat(m.get("000660").avgAlpha()).isNull();
+
+        assertThat(JudgmentBoardService.toTrackRecordMap(null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("신호 이력 매핑(② 참고) — 이력 있는 종목만 세팅, 없는 종목은 null 유지(§4c)")
+    void applyTrackRecord_setsOnlyMatched() {
+        Row a = rowOf("005930");
+        Row b = rowOf("035420");
+        JudgmentBoardService.applyTrackRecord(List.of(a, b), Map.of(
+                "005930", new JudgmentBoardService.TrackRecord(5, 3, new BigDecimal("1.20"))));
+
+        assertThat(a.getTrackCount()).isEqualTo(5);
+        assertThat(a.getTrackHitCount()).isEqualTo(3);
+        assertThat(a.getTrackAvgAlpha()).isEqualByComparingTo("1.20");
+        assertThat(b.getTrackCount()).isNull();
+        assertThat(b.getTrackHitCount()).isNull();
+        assertThat(b.getTrackAvgAlpha()).isNull();
+
+        // 빈/누락 맵은 no-op
+        JudgmentBoardService.applyTrackRecord(List.of(b), Map.of());
+        JudgmentBoardService.applyTrackRecord(List.of(b), null);
+        assertThat(b.getTrackCount()).isNull();
+    }
+
+    @Test
     @DisplayName("RVOL(V41 ② 참고) — 산출 종목만 세팅, 미산출은 null 유지(§4c)")
     void applyRvol_setsOnlyComputed() {
         Row a = Row.builder().stockCode("005930").build();

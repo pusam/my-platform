@@ -149,6 +149,42 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(note.text()).toContain('매수신호도 아')
   })
 
+  it('신호 이력 컬럼(② 참고) — n≥3 은 "3/5 · α+1.2%", n<3 은 표본부족 "—"(muted)', async () => {
+    const w = await mountBoard([
+      row({ stockCode: 'A', trackCount: 5, trackHitCount: 3, trackAvgAlpha: 1.2 }),
+      row({ stockCode: 'B', trackCount: 2, trackHitCount: 2, trackAvgAlpha: 5.0 }),  // 표본부족
+      row({ stockCode: 'C', trackCount: null, trackHitCount: null, trackAvgAlpha: null })
+    ])
+    const cells = w.findAll('.td-track')
+    expect(cells[0].text()).toContain('3/5')
+    expect(cells[0].text()).toContain('α+1.2%')
+    expect(cells[0].classes()).not.toContain('track-insufficient')
+    expect(cells[1].text()).toBe('—')
+    expect(cells[1].classes()).toContain('track-insufficient')
+    expect(cells[2].text()).toBe('—')
+  })
+
+  it('신호 이력 avgAlpha null(§4c) → 적중 비율만 표시(α 생략)', async () => {
+    const w = await mountBoard([row({ trackCount: 4, trackHitCount: 1, trackAvgAlpha: null })])
+    expect(w.find('.td-track').text()).toBe('1/4')
+  })
+
+  it('이력 정렬 — 적중률 desc, n<3(표본부족)은 항상 하단', async () => {
+    const w = await mountBoard([
+      row({ stockCode: 'LOW', stockName: '저적중', totalScore: 90, trackCount: 4, trackHitCount: 1 }),
+      row({ stockCode: 'NONE', stockName: '이력없음', totalScore: 95, trackCount: null }),
+      row({ stockCode: 'HIGH', stockName: '고적중', totalScore: 60, trackCount: 5, trackHitCount: 4 })
+    ])
+    // 이력 헤더 클릭 → trackRecord desc
+    const th = w.findAll('.th-sort').find(t => t.text().includes('이력'))
+    await th.trigger('click')
+    const names = w.findAll('.jb-row .rn').map(n => n.text())
+    expect(names).toEqual(['고적중', '저적중', '이력없음'])
+    // asc 로 뒤집어도 표본부족은 하단 유지
+    await th.trigger('click')
+    expect(w.findAll('.jb-row .rn').map(n => n.text())).toEqual(['저적중', '고적중', '이력없음'])
+  })
+
   it('발굴 트랙 포함 토글 상태 유지 — 저장값(union)으로 초기 로드', async () => {
     localStorage.setItem('judgmentBoard.scope', 'union')
     await mountBoard([row()])

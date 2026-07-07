@@ -145,6 +145,9 @@
       <ChartPatternList :patterns="chartPatterns" />
     </DetailSection>
 
+    <!-- 📜 신호 이력 (signal_outcome 90일 재사용) — 자체 fetch(heavy 계열, quick 지연 없음), n=0 미렌더 -->
+    <SignalHistorySection v-if="hasData && stockCode" :stock-code="stockCode" />
+
     <!-- 로딩 -->
     <div v-if="loading" class="loading-overlay">
       <div class="loading-spinner"></div>
@@ -537,6 +540,7 @@ import SupportResistanceCard from '../components/v2/SupportResistanceCard.vue';
 import QuickSummaryBar from '../components/v2/QuickSummaryBar.vue';
 import PeerComparisonCard from '../components/v2/PeerComparisonCard.vue';
 import DetailSection from '../components/v2/DetailSection.vue';
+import SignalHistorySection from '../components/v2/SignalHistorySection.vue';
 import InvestorTrendTab from '../components/v2/InvestorTrendTab.vue';
 import FundamentalDiagnosisPanel from '../components/v2/FundamentalDiagnosisPanel.vue';
 import AIStrategyCard from '../components/v2/AIStrategyCard.vue';

@@ -56,7 +56,7 @@
             <th class="th-name"></th>
             <th colspan="2" class="g-price">시세 · 유동성 <small title="캐시 스냅샷 · 최대 30분 지연 · 실시간 아님">⏱지연</small></th>
             <th colspan="4" class="g-score">① 점수 (검증/게이트)</th>
-            <th colspan="2" class="g-ref">② 참고 (미검증·점수 미편입)</th>
+            <th colspan="3" class="g-ref">② 참고 (미검증·점수 미편입)</th>
             <th colspan="1" class="g-caution">③ 경고</th>
           </tr>
           <tr>
@@ -70,6 +70,8 @@
             <th @click="setSort('timingScore')" class="th-sort"
                 title="백테스트 hitRate 31% · 점수–수익 역상관 — 숫자 높다고 좋은 자리 아님(예측력 낮음 확인)">차트타이밍<small class="poor-badge">예측력↓</small>{{ sortMark('timingScore') }}</th>
             <th class="th-unv">섹터강도<small>미검증</small></th>
+            <th @click="setSort('trackRecord')" class="th-sort"
+                title="signal_outcome 최근 90일 실측 — 적중/평가완료 · 평균 α. n<3 은 표본부족 '—'(정렬 항상 하단).">이력<small class="unv-badge">90일 실측</small>{{ sortMark('trackRecord') }}</th>
             <th @click="setSort('supplyDemand')" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
           </tr>
         </thead>
@@ -98,6 +100,9 @@
             <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? cat(r.sectorMomentum) : '—' }}</td>
             <td class="num td-poor" title="차트타이밍 — 백테스트 예측력 낮음(hitRate 31%, 점수–수익 역상관). 참고만.">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
             <td class="num td-unv">{{ r.sectorStrengthRel != null ? signed(r.sectorStrengthRel) : '—' }}</td>
+            <td class="num td-track" :class="{ 'track-insufficient': !hasTrack(r) }"
+                :title="hasTrack(r) ? '최근 90일 평가 완료 ' + r.trackCount + '회 중 ' + r.trackHitCount + '회 적중' : '표본부족(평가 완료 3회 미만) — 판단 근거로 쓰지 마세요'">
+              {{ trackLabel(r) }}</td>
             <td class="num td-supply" :class="{ suspect: r.scored && r.supplyInverseSuspect }">
               {{ r.scored ? cat(r.supplyDemand) : '—' }}<span v-if="r.scored && r.supplyInverseSuspect" class="suspect-mark"
                 title="고점일수록 적중률↓ 의심 (표본 작음 n=88, 확정 아님)">⚠</span>
@@ -162,6 +167,14 @@ const visibleRows = computed(() => {
   const k = sortKey.value;
   rows.sort((a, b) => {
     if (a.scored !== b.scored) return a.scored ? -1 : 1;   // 채점 종목 우선, "—"(순수 발굴주)는 하단
+    if (k === 'trackRecord') {
+      // 이력 적중률 정렬 — n<3(표본부족)은 방향 무관 항상 하단(§4c: 없는 근거를 순위에 안 태움)
+      const ar = trackRate(a), br = trackRate(b);
+      if (ar == null && br == null) return 0;
+      if (ar == null) return 1;
+      if (br == null) return -1;
+      return sortDir.value === 'desc' ? br - ar : ar - br;
+    }
     const av = a[k] == null ? -Infinity : Number(a[k]);
     const bv = b[k] == null ? -Infinity : Number(b[k]);
     return sortDir.value === 'desc' ? bv - av : av - bv;
@@ -187,6 +200,17 @@ const sourceLabel = (s) => ({
   oversold: '📉낙폭', earnings: '💰실적', smartmoney: '🏦수급'
 }[s] || s);
 const signed = (v) => { const n = Number(v); return `${n > 0 ? '+' : ''}${n}`; };
+// 신호 이력(② 참고, signal_outcome 90일 실측) — n<3 은 표본부족 "—"(muted). 정렬도 항상 하단.
+const TRACK_MIN_N = 3;
+const hasTrack = (r) => r.trackCount != null && Number(r.trackCount) >= TRACK_MIN_N;
+const trackRate = (r) => (hasTrack(r) ? Number(r.trackHitCount) / Number(r.trackCount) : null);
+const trackLabel = (r) => {
+  if (!hasTrack(r)) return '—';
+  const base = `${r.trackHitCount}/${r.trackCount}`;
+  return r.trackAvgAlpha != null
+    ? `${base} · α${Number(r.trackAvgAlpha) > 0 ? '+' : ''}${Number(r.trackAvgAlpha).toFixed(1)}%`
+    : base;
+};
 // 카테고리 점수 NA sentinel(-1: 신호 미포착=0점)은 '—'로 — 결론카드와 일관. 산식 무관 표시 전용.
 const cat = (v) => (v == null || Number(v) < 0 ? '—' : v);
 
@@ -336,6 +360,13 @@ onMounted(load);
 .td-total { font-weight: 700; }
 .num.strong { color: #4ade80; font-weight: 700; }
 .td-unv { color: #94a3b8; }
+/* 이력 컬럼(② 참고) — 실측이지만 표본 작음. n<3 은 muted(표본부족 톤). */
+.td-track { color: #94a3b8; cursor: help; }
+.td-track.track-insufficient { color: #64748b; opacity: 0.7; }
+.unv-badge {
+  display: inline-block; margin-left: 3px; font-size: 9px; color: #94a3b8;
+  background: rgba(148, 163, 184, 0.14); padding: 0 4px; border-radius: 3px;
+}
 .td-poor { color: #b08a8a; cursor: help; }   /* 차트타이밍 셀 — td-unv(청회색)와 구분되는 muted 적색-회색 */
 .td-supply.suspect { color: #fbbf24; }
 .suspect-mark { margin-left: 2px; cursor: help; }
