@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -31,9 +30,21 @@ class CatalystWarmingServiceTest {
     @Mock private RecommendationService recommendationService;
     @Mock private StockCatalystService stockCatalystService;
     @Mock private SchedulerLockService schedulerLockService;
+    @Mock private com.myplatform.backend.repository.StockWatchlistRepository watchlistRepository;
+    @Mock private com.myplatform.backend.repository.BotTradingPositionRepository botPositionRepository;
+    @Mock private org.springframework.beans.factory.ObjectProvider<RealTradeService> realTradeProvider;
+    @Mock private org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
 
-    @InjectMocks
+    // ⚠ @InjectMocks 금지 — ObjectProvider<X> 2개가 타입 소거로 같은 raw 타입이라 생성자 주입이
+    // 어긋날 수 있다(CatalystRiskAlertServiceTest 에서 실측). 수동 생성으로 파라미터 순서 명시.
     private CatalystWarmingService service;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        service = new CatalystWarmingService(recommendationService, stockCatalystService,
+                schedulerLockService, watchlistRepository, botPositionRepository,
+                realTradeProvider, kisProvider);
+    }
 
     @Captor private ArgumentCaptor<List<StockRef>> refsCaptor;
 
@@ -119,6 +130,69 @@ class CatalystWarmingServiceTest {
         assertThat(codes).hasSize(12);                          // 10 + 2, 상한 25 미만이라 전부
         assertThat(codes).contains("S00001", "S00002");         // 짧은 트랙 top 포함
         assertThat(codes).contains("V00001", "V00010");         // 소진 후 긴 트랙이 나머지 채움(롤오버)
+    }
+
+    // ================================================================
+    // 2026-07-07 — 관심/보유 트랙 확장: 우선순위 병합(관심>보유>발굴) + 전체 40 컷
+    // ================================================================
+
+    private StockRef ref(String code, String name) { return new StockRef(code, name); }
+
+    @Test
+    @DisplayName("mergeWarmTargets — 우선순위 관심>보유>발굴 + code 첫 등장 dedup")
+    void mergeWarmTargets_priorityAndDedup() {
+        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(
+                List.of(ref("W00001", "관심1"), ref("D00001", "관심겸발굴")),
+                List.of(ref("H00001", "보유1"), ref("W00001", "관심겸보유")),   // W00001 중복 → 관심 순서 유지
+                List.of(ref("D00001", "발굴1"), ref("D00002", "발굴2")),
+                40);
+
+        assertThat(codesOf(merged)).containsExactly("W00001", "D00001", "H00001", "D00002");
+    }
+
+    @Test
+    @DisplayName("mergeWarmTargets — 전체 상한 컷: 초과 시 뒤 그룹(발굴)부터 잘림")
+    void mergeWarmTargets_capCutsLowerPriorityFirst() {
+        List<StockRef> watch = IntStream.rangeClosed(1, 3).mapToObj(i -> ref("W" + i, "관심" + i)).toList();
+        List<StockRef> held = IntStream.rangeClosed(1, 2).mapToObj(i -> ref("H" + i, "보유" + i)).toList();
+        List<StockRef> discover = IntStream.rangeClosed(1, 5).mapToObj(i -> ref("D" + i, "발굴" + i)).toList();
+
+        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(watch, held, discover, 6);
+
+        assertThat(codesOf(merged)).containsExactly("W1", "W2", "W3", "H1", "H2", "D1");   // 발굴 4개 잘림
+    }
+
+    @Test
+    @DisplayName("mergeWarmTargets — null 그룹/blank 원소 안전, 관심 단독으로도 상한 컷")
+    void mergeWarmTargets_nullSafeAndWatchOnlyCap() {
+        List<StockRef> watch = IntStream.rangeClosed(1, 45).mapToObj(i -> ref("W" + i, "관심" + i)).toList();
+
+        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(watch, null, null,
+                CatalystWarmingService.TOTAL_WARM_MAX);
+
+        assertThat(merged).hasSize(CatalystWarmingService.TOTAL_WARM_MAX);   // 관심만으로 40 컷
+        assertThat(CatalystWarmingService.mergeWarmTargets(
+                List.of(ref(null, "노코드"), ref("W1", "  ")), null, null, 40)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("collectWarmRefs — 관심(watchlist)+봇 포지션이 발굴보다 앞 + dedup")
+    void collectWarmRefs_watchAndPositionsFirst() {
+        when(watchlistRepository.findByIsActiveTrue()).thenReturn(List.of(
+                com.myplatform.backend.entity.StockWatchlist.builder()
+                        .username("u").stockCode("111111").stockName("관심주").build()));
+        when(botPositionRepository.findAll()).thenReturn(List.of(
+                com.myplatform.backend.entity.BotTradingPosition.builder()
+                        .stockCode("222222").stockName("보유주")
+                        .strategy(com.myplatform.backend.entity.BotTradingPosition.Strategy.SWING)
+                        .buyPrice(java.math.BigDecimal.ONE).highPrice(java.math.BigDecimal.ONE)
+                        .buyTime(java.time.LocalDateTime.now()).build()));
+        when(kisProvider.getIfAvailable()).thenReturn(null);   // KIS 미설정 → 실잔고 생략(best-effort)
+        when(recommendationService.getValueTop10()).thenReturn(top5(dto("111111", "관심주"), dto("333333", "발굴주")));
+
+        List<StockRef> refs = service.collectWarmRefs();
+
+        assertThat(codesOf(refs)).containsExactly("111111", "222222", "333333");   // 관심>보유>발굴, 중복 제거
     }
 
     @Test
