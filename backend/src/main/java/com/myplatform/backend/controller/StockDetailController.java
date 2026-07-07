@@ -1,11 +1,13 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.BuyChecklistDto;
+import com.myplatform.backend.dto.CatalystHistoryDto;
 import com.myplatform.backend.dto.SignalHistoryDto;
 import com.myplatform.backend.dto.StockCatalystDto;
 import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockDetailDto;
 import com.myplatform.backend.service.BuyChecklistService;
+import com.myplatform.backend.service.CatalystHistoryService;
 import com.myplatform.backend.service.SignalHistoryService;
 import com.myplatform.backend.service.StockCatalystService;
 import com.myplatform.backend.service.StockConclusionService;
@@ -43,6 +45,7 @@ public class StockDetailController {
     private final StockConclusionService stockConclusionService;
     private final BuyChecklistService buyChecklistService;
     private final StockCatalystService stockCatalystService;
+    private final CatalystHistoryService catalystHistoryService;
     private final SignalHistoryService signalHistoryService;
 
     @GetMapping("/{stockCode}/summary")
@@ -195,6 +198,32 @@ public class StockDetailController {
             log.error("[Catalyst API] 종목 {} 재료 조회 실패: {}", stockCode, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "재료 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/catalyst-history")
+    @Operation(
+        summary = "종목 재료 이력 (stock_catalyst 최근 30일)",
+        description = "이 종목에 과거 어떤 재료(수주/실적/M&A/… + 호재/악재/중립)가 언제 포착됐는지 타임라인 + " +
+                     "각 날짜의 일봉 등락률(가격 없으면 null). 기존 일캐시 read-only 재사용 — 신규 Gemini 분류 안 함(§4b). " +
+                     "재료 없음(NONE)은 제외, 항목 0건이면 프론트 미렌더. 산식 미편입(표시·검증용)."
+    )
+    public ResponseEntity<Map<String, Object>> getCatalystHistory(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            CatalystHistoryDto history = catalystHistoryService.getHistory(stockCode);
+            response.put("success", true);
+            response.put("data", history);
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[CatalystHistory API] 종목 {} 재료 이력 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "재료 이력 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }

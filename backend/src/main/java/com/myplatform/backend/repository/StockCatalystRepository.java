@@ -21,4 +21,8 @@ public interface StockCatalystRepository extends JpaRepository<StockCatalyst, Lo
     /** 최근 N일(minDate 이상) 재료 배치 조회 — 보드가 코드별 '최신'을 골라 표시(오늘 없으면 어제까지).
      *  §4b 일캐시(분류)는 불변, 표시 날짜창만 확장. 낡음 방지는 minDate 필터 + 경과일 표기(호출측). */
     List<StockCatalyst> findByCatalystDateGreaterThanEqualAndStockCodeIn(LocalDate minDate, Collection<String> stockCodes);
+
+    /** 한 종목의 재료 이력(표시 전용) — 최근 N일(minDate 이상) 최신순. read-only, 신규 classify 없음(§4b). */
+    List<StockCatalyst> findByStockCodeAndCatalystDateGreaterThanEqualOrderByCatalystDateDesc(
+            String stockCode, LocalDate minDate);
 }
