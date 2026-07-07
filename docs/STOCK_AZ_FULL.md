@@ -1,6 +1,6 @@
 # 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(D)(**📔 수동 매매 저널 V43+V44 Phase 1~3**: 매수 신호 스냅샷·19:40 자동평가(signal_outcome 동일 잣대)·stats·섹터 집중 경고·프론트(모달/매매 탭/이력 마커) — §19 하단 세션 요약. 그 앞 (B): 표시 전용 3작업 + 기관 수급 키 오타 / ATR 세트 V42 §14-7 + 악재 조기경보).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-08(**감사 후속 3작업**: P1 이중 인코딩 2건 URI 이관 + P1 공매도 ZERO 위장 제거(§4c) + **P3-1 B안 SELL in-flight 마커 V45** — §19 하단 세션 요약. 그 앞 07-07(D): 📔 수동 매매 저널 V43+V44 Phase 1~3 / (B): 표시 전용 3작업 + 기관 수급 키 오타 / ATR 세트 V42 §14-7 + 악재 조기경보).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -661,13 +661,25 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 
 ---
 
+### 2026-07-08 세션 — 감사 후속 3작업: P1 이중 인코딩 2건 + P1 공매도 ZERO 위장 + P3-1 B안 구현
+
+AUDIT_2026-07-07 리포트의 P1 2건 수정 + DESIGN_P3-1 B안 구현. 각 독립 커밋, 백엔드 타겟 테스트 + vitest 181 green.
+
+1. **P1-1/P1-2 이중 인코딩 URI 이관**(`20cb176`): `GoogleNewsService.buildSearchUrl`(매 호출 " 주식" 상수라 **상시** 이중 인코딩이었음) + `StockPriceService.buildNaverSearchUrl`(종목검색 DB 0건 네이버 폴백)을 §16-10 패턴(UriComponentsBuilder→`encode(UTF_8)`→`toUri()`, **URI 반환**)으로 이관. 회귀 테스트 2건(단일 인코딩 %EC…, %25 부재). **실측 검증**: 구글뉴스 RSS 직접 호출 비교 — 단일 인코딩=101건 진짜 주식 뉴스("주가 폭락"·"뉴욕 증시"), 이중 인코딩=47건 삼성 홍보 보도자료(주식 무관) → "주식" 키워드가 통째로 유실되고 있었음(수정 효과 실질적).
+2. **P1-3 공매도 ZERO 위장 제거**(`f0d539a`): `getShortSellingRatio` 결측(데이터 전무·종목 미포함·조회 예외) = **null**(실측 0% 와 구분, §4c). 봇 `isHighShortSellingStock` = null→통과(결측 근거 차단 금지 — PriceSanityGuard 선례 극성, 현행 동작 유지). 체크리스트 = `ChecklistItem.dataMissing` 신설 + "미수집" 표기(passed 아님) + **필수 게이트에서 dataMissing 제외**(미제외 시 死피드 동안 전 종목 NOT_RECOMMENDED 강등 = 결측 근거 차단). 실측 5%↑는 여전히 필수 차단(회귀 고정). 프론트 모달 ➖ 표기. `ShortSellingServiceTest` 신규 5건 + 체크리스트 2건.
+3. **P3-1 잔여 ③ B안 — SELL in-flight 마커**(`ea4a609`, **V45** `bot_sell_inflight`): 종목별 TTL 60s 마커로 리더 전환/더블런 "동시 창" 부분청산 과청산 차단, 창 이후는 KIS 잔고 재조회가 진실 원장(S3 잔여분 재시도 보존). `BotSellInflightService`(순수 `decideSellGate`, 만료 행 조건부 UPDATE 재획득) → `RealTradeService.sell` 진입부 일괄 게이트(SKIP=audit blocked+throw=이번 사이클 양보, try/finally release, SKIP 시 남의 마커 release 금지). **비대칭 극성(§4d)**: DB 오류=fail-open(PROCEED_UNGUARDED)+RISK 알림(10분 스로틀) — BUY 멱등키(fail-closed)와 의도적 반대. **설계 이탈 2건(코드 현실 우선, 커밋 메시지 명시)**: ① 서비스 REQUIRES_NEW 대신 리포지토리 레벨 tx(fail-open 반환이 rollback-only 오염으로 깨지는 것 방지, sell 이 NOT_SUPPORTED 라 동등) ② 적용 지점 = 호출부 6곳 실측 후 "sell 진입부 일괄" 선택. VIRTUAL 무영향·killswitch 무간섭. 테스트 = 설계 §4.3 전항(S1/S3/동시경쟁/비대칭) + RealTradeServiceTest 게이트 3종.
+
+**배포 후 확인**: ① V45 마이그레이션 적용 ② 구글뉴스/재료 로그에서 뉴스 관련성 개선 확인 ③ 체크리스트 공매도 항목 "미수집" 표기(死피드 동안) ④ 실전 매도 로그 `[SellInflight]` 정상 acquire/release.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
 - `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**·**P3-7 매크로 tilt 캘리브레이션/승격(V39 스냅샷 축적 중)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
-- **`AUDIT_2026-07-07.md`** — 2026-07-07(E) 불변식 전수 감사 리포트(7축: 시세경로·§4c·§4d 호출그래프 증명·이중 인코딩·중복 구현·죽은 코드·백로그 소진. P1 3건: 구글뉴스/검색폴백 이중 인코딩·공매도 ZERO 위장 — 수정은 후속 세션)
-- **`DESIGN_P3-1_IDEMPOTENT_ORDERS.md`** — P3-1 잔여(SELL 부분청산 가드) 설계(B안 in-flight 마커 권장, BUY 멱등키 V35 는 기구현 확인)
+- **`AUDIT_2026-07-07.md`** — 2026-07-07(E) 불변식 전수 감사 리포트(7축: 시세경로·§4c·§4d 호출그래프 증명·이중 인코딩·중복 구현·죽은 코드·백로그 소진. **P1 3건 전부 2026-07-08 수정 완료** — §19 07-08 세션)
+- **`DESIGN_P3-1_IDEMPOTENT_ORDERS.md`** — P3-1 잔여(SELL 부분청산 가드) 설계(B안 in-flight 마커 — **2026-07-08 V45 구현 완료**, 설계 이탈 2건은 §19 07-08 세션·커밋 `ea4a609` 메시지 참조)
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-07(D) 갱신**(§19 하단 = 07-07(D) 세션: **📔 수동 매매 저널 V43+V44 Phase 1~3** — 매수 스냅샷·19:40 자동평가·stats·섹터경고·프론트 3면. 그 앞 07-07(B): 표시 전용 3작업 + 기관 수급 키 오타 정정 / 07-07: ATR 세트 V42·신호 이력/보드↔상세 네비). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-08 갱신**(§19 하단 = 07-08 세션: **감사 후속 3작업** — P1 이중 인코딩 URI 이관·P1 공매도 ZERO 위장 제거·P3-1 B안 SELL in-flight 마커 V45. 그 앞 07-07(D): 📔 수동 매매 저널 V43+V44 Phase 1~3 / (B): 표시 전용 3작업 / 07-07: ATR 세트 V42). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.

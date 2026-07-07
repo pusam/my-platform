@@ -177,7 +177,7 @@
 
 ---
 
-## P3-1. 멀티 인스턴스 확장 시 봇 fail-closed 락 (설계 — **부분 해소 2026-06-29**, 확장 결정 시 잔여 착수)
+## P3-1. 멀티 인스턴스 확장 시 봇 fail-closed 락 (설계 — **부분 해소 2026-06-29 · 잔여 ③ 해소 2026-07-08**, 확장 결정 시 잔여 착수)
 
 > **✅ 부분 해소 (2026-06-29)**: 봇 크론 리더 선출 **`BotLeaderElectionService`**(Redis 리스 SET NX EX + 10s 하트비트, fail-CLOSED)
 > 도입. **봇 크론 5개**(`executeScalpingBuyLogic`·`executeScalpingSellLogic`·`executeScalpingClearance`·`executeSwingBuyLogic`·`executeSwingSellLogic`)가
@@ -187,7 +187,11 @@
 > 리더 A가 KIS BUY 쏜 직후(응답 전, 포지션 저장 전) 死 → B 승계 시 같은 (종목,BUY,거래일,시그널) 재매수를 **KIS 호출 직전 선기록 멱등키**로 차단
 > (PENDING/DONE→SKIP, FAILED→재시도 허용). REQUIRES_NEW 라 주문 트랜잭션 롤백에도 키 생존. killswitch(KIS성공+DB실패)와 무충돌.
 > **BUY 전용**(SELL은 보유수량 체크로 자연 멱등 + 작업1 청산 재시도와 충돌 회피). 테스트 `BotOrderIntentServiceTest`(페일오버 차단/재시도/완료).
-> **잔여(미해소)**: ③ `RealTradeService` fencing 2차 방어의 **SELL 부분청산 과청산 가드**는 여전히 미구현 — 확장 결정 시 착수.
+> **✅ 잔여 ③ 해소 (2026-07-08, `ea4a609`)**: SELL 부분청산 과청산 가드 — **B안 in-flight 마커**(`docs/DESIGN_P3-1_IDEMPOTENT_ORDERS.md`) 구현.
+> `bot_sell_inflight`(V45, 종목별 TTL 60s, 만료 행 조건부 UPDATE 재획득) + `BotSellInflightService`(순수 `decideSellGate`) →
+> `RealTradeService.sell` 진입부 일괄 게이트(SKIP=이번 사이클 양보, try/finally release). **비대칭 극성**: DB 오류=fail-open(PROCEED_UNGUARDED)+RISK 알림
+> — BUY 멱등키(fail-closed)와 의도적 반대(매도 지연=손실 확대). S3(부분체결 잔여 재시도)는 마커 만료+잔고 재조회로 보존. 테스트 `BotSellInflightServiceTest`+`RealTradeServiceTest` 게이트 3종.
+> **남은 것**: 위 "합격 기준 1~4"(진입 크론 tryLockStrict 등)는 원래 계획대로 **멀티 인스턴스 확장 결정 시** 착수(현재 replicas 1 = 실위험 없음). C안(수량 원장)은 멀티 계좌/다중 전략 동시 부분청산 현실화 시 재검토.
 
 > **선결 조건**: 이 티켓은 **backend 멀티 인스턴스 배포를 결정하는 시점**에만 착수한다. 현재 `docker-compose.yml`
 > backend = replicas 1(단일 컨테이너)이라 **실위험 없음** → 지금 락을 붙이면 단일 인스턴스에서 손해만 본다(아래 ④).
