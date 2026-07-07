@@ -1,6 +1,6 @@
 # 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(ATR 세트 V42 봇 통합 §14-7 + 신호 이력/ATR 참고치/보드↔상세 네비 — §19 세션 요약).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(ATR 세트 V42 §14-7 + 신호 이력/ATR 참고치/보드↔상세 네비 + **악재 조기경보(워밍 확장·악재 즉시 알림·DART 필터)** — §19 세션 요약).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -147,7 +147,8 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | `RecommendationService` | 5트랙 선별, 점수정규화(raw80→0~100, validCount≥3), 스냅샷, tie-break 비교자, 과열/신규진입 감점 |
 | `StockConclusionService` | 결론 4단계(STRONG_BUY/BUY/HOLD/WAIT) + 매매계획(`PLAN_*` 손절-3%/익절+5%) |
 | `BuyChecklistService` | 5-factor 하드룰 → 권고 |
-| `StockCatalystService` | 재료 태그(Gemini V31, 종목·일자 1회 캐시, 점수 미편입) |
+| `StockCatalystService` | 재료 태그(Gemini V31, 종목·일자 1회 캐시, 점수 미편입). ⭐2026-07-07 악재 저장 시점 훅 → CatalystRiskAlertService |
+| `CatalystRiskAlertService` ⭐신규(2026-07-07) | 관심/보유(봇 포지션·KIS 실잔고) 악재 조기경보 — 관심=시그널 / 보유=시그널+리스크 병행, 종목×일자 1회 멱등(AlertHistory CATNEG_*), classify 추가 호출 0 |
 | `SignalOutcomeService` | 시그널 적중률(19:30 배치, 3거래일 후, V30~V32 스냅샷), `getAccuracyByBand`. **V36(2026-06-30)**: `record()` INSERT 를 `insertOutcomeIsolated`(`@Transactional REQUIRES_NEW`, selfProvider 프록시)로 격리 + `DataIntegrityViolationException` benign 처리 — `(signal_type,stock_code,signal_date)` UNIQUE 경합 패자가 호출부 tx 무오염. bm(alpha)은 KIS 지수 현재가(`getIndexPrice 0001`)라 pykrx 무관 |
 
 ### 4-2. 시세·기술·체결
@@ -248,7 +249,7 @@ L3 MariaDB (캐시 miss fallback)
 |---|---|---|
 | **KIS REST** | `KoreaInvestmentService` | 현재가 FHKST01010100, 체결강도 FHKST01010300(ccnl `tday_rltv`), 투자자 FHKST20061000, 체결조회 TTTC0081R, 주문 TTTC/TTTD. OAuth·rate limiter 3단계·circuit breaker |
 | **KIS WS** | `KisWebSocketService` | 실시간 틱(1초) |
-| **DART** | `DartService`/`DartDisclosureMonitorService` | 공시(06/08/16:30) |
+| **DART** | `DartService`/`DartDisclosureMonitorService` | 공시(06/08/16:30) + 5분 모니터. ⭐2026-07-07 대상 = 실잔고>봇 포지션>관심(상한 30, rate 156회/일×30≈4.7k<10k) + 주요 공시(소송·계약해지 등) **중립 톤** 필터(§4c 악재 단정 금지) |
 | **Gemini** | `GeminiService` | 재료분류 V31·AI분석(9/12/15시)·circuit open 시 캐시 안 함 |
 | **Naver** | `NaverSearchService`/`NewsService` | 뉴스·자동완성 |
 | **Telegram** | `TelegramNotificationService` | 3채널: 모닝브리핑 / 신호·매매 / 리스크 |
@@ -620,6 +621,18 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 3. **보드↔상세 왕복 네비**(`f1b4c06`, 순수 프론트): 보드 행 클릭 → 표시 순서 코드 리스트를 sessionStorage `judgmentBoard.nav` 저장 + `/stock/{code}` **새 탭**(복사본 상속 — 새 라우트·쿼리 오염 없음, 팝업 차단 시 같은 탭 폴백). 상세 헤더 "◀ 이전 / 보드 N/M / 다음 ▶" — **보드 진입 시에만** 표시(직접 진입 미표시). `/stock/:code` 는 컴포넌트 재사용 라우트라 이동 시 명시적 재조회(router.replace + searchStock).
 
 검증: 백엔드 전체 `./gradlew test -PskipFrontend` + 프론트 vitest 160 + build green. 신규 테스트 = `SignalHistoryServiceTest`·`JudgmentBoardServiceTest`(trackRecord)·`StockConclusionServiceTest`(ATR 3케이스)·`SignalHistorySection.test.js`·보드/결론카드 테스트 확장.
+
+---
+
+### 2026-07-07 세션(후반) — 악재 조기경보: 관심/보유 종목 갭 해소 (기존 파이프라인 조립, 산식 무변경)
+
+"관심종목·봇 포지션에 악재가 떠도 아무도 모르는" 갭을 기존 파이프라인(뉴스 크롤→Gemini 재료 분류→텔레그램 + DART 모니터) **조립**으로 해소. classify 추가 호출 0·분류 일캐시(§4b) 불변·Gemini RateLimiter(4.5s) 경유·보드 read-only 불변. 3 독립 커밋:
+
+1. **워밍 대상 확장**(`de5e9ef`): `CatalystWarmingService` 대상 = **관심(watchlist 활성 전체) > 보유(봇 포지션+KIS 실잔고) > 발굴 5트랙**(라운드로빈), 전체 **40컷**(`mergeWarmTargets` 순수함수, 컷 로그 가시화). ⚠ **장중 추가 워밍 미도입**(근거 코드 주석): §4b 일캐시라 08:00 분류 종목은 장중 전부 캐시 히트 = 재분류 불가 → 실익 없음(quota 는 가능: 40종목 ≤8콜 ≈ 직렬화 36초). 장중 커버는 DART 5분 모니터+온디맨드 담당 → **08:00 1회 유지**.
+2. **악재 즉시 알림**(`ddf6efa`): `CatalystRiskAlertService` — 재료가 **악재(NEGATIVE)로 저장되는 시점 훅**(단건·배치 공통, 워밍 notify=false 에서도 발동 = 08:00 워밍이 밤사이 악재 선제 포착). 대상(관심/봇 포지션/KIS 실잔고 10분 캐시)이면 **관심=시그널 채널 / 보유=시그널+리스크 병행**(긴급도↑), 종목명·요약·대표 뉴스 제목/링크 1건. **중복 방지 = AlertHistory(CATNEG_코드_일자) 종목×일자 1회 멱등**. 대상 악재는 기존 일반 악재 알림 억제(리스크 채널 이중 발송 방지), 비대상은 기존 동작 보존. 판정 `decide`/`alertKey`/메시지 순수함수+테스트. ⚠ 테스트 함정: ObjectProvider 다중 주입은 타입 소거로 `@InjectMocks` 오배선 → 수동 생성 필수.
+3. **DART 관심종목 필터**(`c6162c5`): `DartDisclosureMonitorService` 대상 = 기존 '실잔고만' → **실잔고>봇 포지션>관심 확장**(`mergeTargetNames` 순수함수, **상한 30** — rate 근거: 실행 156회/일×30종목 ≈ 4,700콜 < DART 한도 10,000). 기존 DANGER 분류(유상증자·거래정지 등) **재사용** + 보조 **주요 공시 키워드**(소송·계약해지·영업정지·손해배상 — '정정'은 기재정정 스팸이라 의도적 제외) = **'📌 주요 공시' 중립 톤**(§4c 키워드만으론 악재 단정 금지, 직접 확인 유도). 중복 방지 = 기존 dartSeen(rceptNo 3일 TTL) 공용.
+
+**Gemini quota 계산(작업1 결정 근거 요약)**: 무료 flash-lite ≈15 RPM, 전역 RateLimiter 4.5s 직렬화 ≈13 RPM. 워밍 40종목 = 최대 8콜(5청킹) ≈ 36초 점유(1×/day 08:00). 기존 소비자 = 모닝브리핑 워밍 07:30 ≤5콜 · AI전략 9/12/15시 · 상세 온디맨드 — 직렬화가 버스트를 큐잉하므로 RPM 은 안전. 장중 워밍을 안 하는 이유는 quota 가 아니라 **일캐시 구조상 무의미**(위 1).
 
 ---
 
