@@ -45,9 +45,11 @@ class StockCatalystServiceTest {
     @Mock private ObjectProvider<NaverSearchService> naverProvider;
     @Mock private ObjectProvider<GeminiService> geminiProvider;
     @Mock private ObjectProvider<TelegramNotificationService> telegramProvider;
+    @Mock private ObjectProvider<CatalystRiskAlertService> riskAlertProvider;
     @Mock private NaverSearchService naver;
     @Mock private GeminiService gemini;
     @Mock private TelegramNotificationService telegram;
+    @Mock private CatalystRiskAlertService riskAlert;
 
     @Test
     @DisplayName("정상 JSON → 유형/방향/제목/요약 파싱")
@@ -120,7 +122,8 @@ class StockCatalystServiceTest {
     // ================================================================
 
     private StockCatalystService service() {
-        return new StockCatalystService(repository, naverProvider, geminiProvider, telegramProvider);
+        return new StockCatalystService(repository, naverProvider, geminiProvider, telegramProvider,
+                riskAlertProvider);
     }
 
     /** 신규 분류 경로 공통 셋업 — 캐시 미스 + 뉴스 1건 + Gemini 응답 주입. */
@@ -237,6 +240,77 @@ class StockCatalystServiceTest {
         assertThat(msg).contains("유형: <b>수주</b>");
         assertThat(msg).contains("대형 공급계약 체결");
         assertThat(msg).contains("산식 미반영");
+    }
+
+    // ================================================================
+    // 관심/보유 악재 조기경보 훅 (2026-07-07) — 대상 악재는 전용 경보, 일반 악재 알림 이중 발송 방지
+    // ================================================================
+
+    @Test
+    @DisplayName("악재 훅: 대상(관심/보유) 악재 → 전용 경보 처리 + 일반 리스크 알림 억제(이중 발송 방지)")
+    void negativeHook_targetSuppressesGenericRiskAlert() {
+        setupFreshClassification(
+                "{\"type\":\"LITIGATION\",\"direction\":\"NEGATIVE\",\"headline\":\"소송 피소\",\"summary\":\"대규모 손배소\"}");
+        when(riskAlertProvider.getIfAvailable()).thenReturn(riskAlert);
+        when(riskAlert.onCatalystSaved(any(StockCatalyst.class), any())).thenReturn(true);   // 대상 악재 → 처리됨
+
+        service().getCatalyst("005930", "삼성전자");
+
+        verify(riskAlert).onCatalystSaved(any(StockCatalyst.class), any());
+        verifyNoInteractions(telegram);   // 일반 악재 알림(리스크 채널) 생략 — 전용 경보가 담당
+    }
+
+    @Test
+    @DisplayName("악재 훅: 비대상(false) → 기존 일반 악재 알림(리스크 채널) 그대로")
+    void negativeHook_nonTargetKeepsGenericAlert() {
+        setupFreshClassification(
+                "{\"type\":\"LITIGATION\",\"direction\":\"NEGATIVE\",\"headline\":\"소송 피소\",\"summary\":\"대규모 손배소\"}");
+        when(riskAlertProvider.getIfAvailable()).thenReturn(riskAlert);
+        when(riskAlert.onCatalystSaved(any(StockCatalyst.class), any())).thenReturn(false);   // 관심/보유 아님
+        when(telegramProvider.getIfAvailable()).thenReturn(telegram);
+
+        service().getCatalyst("005930", "삼성전자");
+
+        verify(telegram).sendRisk(contains("악재"));   // 기존 동작 보존
+    }
+
+    @Test
+    @DisplayName("악재 훅: 워밍 배치(notify=false)에서도 발동 — 08:00 워밍이 밤사이 악재 선제 포착")
+    void negativeHook_firesInWarmingBatch() {
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(NewsItem.builder().title("소송 피소").build()));
+        when(gemini.chat(anyString())).thenReturn(
+                "[{\"code\":\"005930\",\"type\":\"LITIGATION\",\"direction\":\"NEGATIVE\",\"headline\":\"소송 피소\",\"summary\":\"손배소\"}]");
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(riskAlertProvider.getIfAvailable()).thenReturn(riskAlert);
+        when(riskAlert.onCatalystSaved(any(StockCatalyst.class), any())).thenReturn(true);
+
+        service().classifyBatch(List.of(new StockRef("005930", "삼성전자")));   // notify=false(워밍)
+
+        verify(riskAlert).onCatalystSaved(any(StockCatalyst.class), any());   // 훅은 notify 무관 발동
+        verifyNoInteractions(telegram);                                        // 일반 알림은 여전히 억제
+    }
+
+    @Test
+    @DisplayName("resolveNewsLink — headline 일치 뉴스 링크 우선, 없으면 첫 뉴스, 전부 없으면 null(§4c)")
+    void resolveNewsLink_matchesHeadlineThenFirst() {
+        List<NewsItem> news = List.of(
+                NewsItem.builder().title("첫 뉴스").link("http://n/1").build(),
+                NewsItem.builder().title("소송 피소").link("http://n/2").build());
+
+        assertThat(StockCatalystService.resolveNewsLink("소송 피소", news)).isEqualTo("http://n/2");
+        assertThat(StockCatalystService.resolveNewsLink("매칭 안 됨", news)).isEqualTo("http://n/1");
+        assertThat(StockCatalystService.resolveNewsLink(null, news)).isEqualTo("http://n/1");
+        assertThat(StockCatalystService.resolveNewsLink("소송", List.of())).isNull();
+        assertThat(StockCatalystService.resolveNewsLink("소송", null)).isNull();
+        // link 없으면 originalLink 폴백, 둘 다 없으면 null
+        assertThat(StockCatalystService.resolveNewsLink(null,
+                List.of(NewsItem.builder().title("t").originalLink("http://orig").build()))).isEqualTo("http://orig");
+        assertThat(StockCatalystService.resolveNewsLink(null,
+                List.of(NewsItem.builder().title("t").build()))).isNull();
     }
 
     // ================================================================

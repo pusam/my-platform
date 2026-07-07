@@ -40,6 +40,8 @@ public class StockCatalystService {
     private final ObjectProvider<NaverSearchService> naverProvider;
     private final ObjectProvider<GeminiService> geminiProvider;
     private final ObjectProvider<TelegramNotificationService> telegramProvider;
+    // 관심/보유 악재 조기경보 훅(2026-07-07) — 악재 저장 시점에 대상 판정+알림. best-effort.
+    private final ObjectProvider<CatalystRiskAlertService> riskAlertProvider;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_NEWS_FOR_PROMPT = 5;
@@ -95,7 +97,8 @@ public class StockCatalystService {
             StockCatalyst saved = save(stockCode, stockName, today, parsed.type, parsed.direction,
                     truncate(parsed.headline, 300), truncate(parsed.summary, 500));
             // 신규 분류 시에만 알림 — 일캐시 덕에 종목당 하루 최대 1회 (캐시 히트 경로는 알림 없음).
-            notifyIfMeaningful(saved);
+            // 관심/보유 악재는 전용 경보(시그널+보유 시 리스크 병행)가 처리 → 일반 악재 알림 이중 발송 방지.
+            if (!fireTargetNegativeAlert(saved, news)) notifyIfMeaningful(saved);
             return saved;
         } catch (Exception e) {
             log.debug("[Catalyst] 분류 실패 ({}): {}", stockCode, e.getMessage());
@@ -175,7 +178,10 @@ public class StockCatalystService {
             ParsedCatalyst p = e.getValue();
             StockCatalyst rec = save(e.getKey(), sn.name(), today, p.type(), p.direction(),
                     truncate(p.headline(), 300), truncate(p.summary(), 500));
-            if (notify) notifyIfMeaningful(rec);   // 워밍(false)은 알림 억제 — 온디맨드만 알림
+            // 관심/보유 악재 경보는 notify 플래그와 무관하게 발동 — 워밍(08:00)이 밤사이 악재를
+            // 선제 포착하는 게 목적(종목×일자 1회 멱등이라 스팸 아님). 일반 알림은 기존대로 notify 게이트.
+            boolean targetAlerted = fireTargetNegativeAlert(rec, sn.news());
+            if (notify && !targetAlerted) notifyIfMeaningful(rec);   // 워밍(false)은 일반 알림 억제 — 온디맨드만
             saved++;
         }
         log.info("[Catalyst] 배치 분류 — 요청 {}건, 뉴스有 {}건, 저장 {}건 (Gemini 1콜)",
@@ -199,6 +205,45 @@ public class StockCatalystService {
             // 동시 요청 unique 충돌 등 — 기존 행 반환 시도
             return repository.findByStockCodeAndCatalystDate(stockCode, date).orElse(null);
         }
+    }
+
+    /**
+     * 관심/보유 악재 조기경보 훅(2026-07-07) — 악재(NEGATIVE) 저장 시점에 CatalystRiskAlertService 위임.
+     * @return true = 대상(관심/봇 포지션/실잔고) 악재라 전용 경보가 처리(발송 또는 당일 중복 억제)
+     *         → 호출측은 일반 악재 알림 생략(리스크 채널 이중 발송 방지). best-effort(실패=false).
+     */
+    private boolean fireTargetNegativeAlert(StockCatalyst saved, List<NewsItem> news) {
+        if (saved == null) return false;
+        try {
+            CatalystRiskAlertService riskAlert = riskAlertProvider.getIfAvailable();
+            if (riskAlert == null) return false;
+            return riskAlert.onCatalystSaved(saved, resolveNewsLink(saved.getHeadline(), news));
+        } catch (Exception e) {
+            log.debug("[Catalyst] 악재 경보 훅 실패 ({}): {}", saved.getStockCode(), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 대표 뉴스 링크 — 분류 근거 headline 과 제목이 일치하는 뉴스의 링크, 없으면 첫 뉴스 링크,
+     * 그것도 없으면 null(알림에서 링크 줄 생략, §4c). 순수 함수(테스트 대상).
+     */
+    static String resolveNewsLink(String headline, List<NewsItem> news) {
+        if (news == null || news.isEmpty()) return null;
+        if (headline != null && !headline.isBlank()) {
+            for (NewsItem item : news) {
+                if (item != null && headline.equals(item.getTitle())) {
+                    return firstNonBlank(item.getLink(), item.getOriginalLink());
+                }
+            }
+        }
+        NewsItem first = news.get(0);
+        return first == null ? null : firstNonBlank(first.getLink(), first.getOriginalLink());
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        if (a != null && !a.isBlank()) return a;
+        return b != null && !b.isBlank() ? b : null;
     }
 
     /**

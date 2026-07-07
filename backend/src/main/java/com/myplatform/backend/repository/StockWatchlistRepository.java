@@ -23,4 +23,7 @@ public interface StockWatchlistRepository extends JpaRepository<StockWatchlist, 
      * 활성 관심종목 전체 — findAll().filter(isActive) 전체 로드 회피.
      */
     List<StockWatchlist> findByIsActiveTrue();
+
+    /** 종목이 누군가의 활성 관심종목인지 — 악재 알림 대상 판정용(사용자 무관 존재 여부만). */
+    boolean existsByStockCodeAndIsActiveTrue(String stockCode);
 }

@@ -25,6 +25,9 @@ public interface BotTradingPositionRepository extends JpaRepository<BotTradingPo
     /** 시작 복구 시 현재 모드 포지션만 in-memory 로 가져오기 위함. */
     List<BotTradingPosition> findByTradingMode(String tradingMode);
 
+    /** 봇이 현재 보유 중인 종목인지(모드 무관, 행 존재 = 활성 포지션) — 악재 알림 대상 판정용. */
+    boolean existsByStockCode(String stockCode);
+
     @Modifying
     @Query("DELETE FROM BotTradingPosition p WHERE p.strategy = :strategy AND p.stockCode = :stockCode")
     int deleteByStrategyAndStockCode(@Param("strategy") Strategy strategy, @Param("stockCode") String stockCode);
