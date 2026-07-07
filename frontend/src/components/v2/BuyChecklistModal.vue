@@ -45,8 +45,14 @@
 
         <div class="modal-footer">
           <span class="hint">이 체크리스트는 자동매매 봇이 진입 전에 검증하는 룰을 노출한 것입니다.</span>
+          <button class="journal-btn" @click="showJournal = true"
+                  title="수동 매수 기록 (실주문 아님 — 신호 스냅샷 + 3거래일 평가)">
+            📔 매수 기록
+          </button>
         </div>
       </div>
+
+      <ManualJournalModal v-if="showJournal" :stock-code="stockCode" @close="showJournal = false" />
     </div>
   </div>
 </template>
@@ -54,6 +60,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import apiClient from '../../utils/api';
+import ManualJournalModal from './ManualJournalModal.vue';
 
 const props = defineProps({
   stockCode: { type: String, required: true }
@@ -63,6 +70,7 @@ defineEmits(['close']);
 const checklist = ref(null);
 const loading = ref(false);
 const error = ref(false);
+const showJournal = ref(false);   // 📔 수동 매수 기록 모달 (중첩 — z-index 상위)
 
 const fetchChecklist = async (code) => {
   if (!code) return;
@@ -187,8 +195,23 @@ const dimensionLabel = (dim) => {
 
 .modal-footer {
   margin-top: 14px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   font-size: 11px;
-  opacity: 0.55;
 }
+.modal-footer .hint { opacity: 0.55; text-align: left; }
+.journal-btn {
+  flex-shrink: 0;
+  background: rgba(234, 179, 8, 0.14);
+  color: #fde68a;
+  border: 1px solid rgba(253, 230, 138, 0.35);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.journal-btn:hover { background: rgba(234, 179, 8, 0.26); }
 </style>

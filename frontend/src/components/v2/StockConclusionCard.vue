@@ -21,9 +21,15 @@
         <p v-if="conclusion.guidance" class="guidance">{{ conclusion.guidance }}</p>
         <p v-if="conclusion.conflictNote" class="conflict-note">{{ conclusion.conflictNote }}</p>
       </div>
-      <button class="checklist-btn" @click="openChecklist" title="매수 체크리스트">
-        ✅ 매수 체크리스트
-      </button>
+      <div class="card-actions">
+        <button class="checklist-btn" @click="openChecklist" title="매수 체크리스트">
+          ✅ 매수 체크리스트
+        </button>
+        <button class="checklist-btn journal-btn" @click="showJournal = true"
+                title="수동 매수 기록 (실주문 아님 — 신호 스냅샷 + 3거래일 평가)">
+          📔 매수 기록
+        </button>
+      </div>
     </div>
 
     <div v-if="conclusion.factors && conclusion.factors.length" class="conclusion-factors">
@@ -78,6 +84,9 @@
     </div>
 
     <BuyChecklistModal v-if="showChecklist" :stock-code="stockCode" @close="showChecklist = false" />
+    <ManualJournalModal v-if="showJournal" :stock-code="stockCode"
+                        :current-price="conclusion.tradePlan?.basePrice"
+                        @close="showJournal = false" />
   </div>
   <div v-else-if="loading" class="conclusion-card loading">결론 분석 중...</div>
   <div v-else-if="error" class="conclusion-card error">결론을 불러오지 못했습니다.</div>
@@ -87,6 +96,7 @@
 import { ref, computed, watch } from 'vue';
 import apiClient from '../../utils/api';
 import BuyChecklistModal from './BuyChecklistModal.vue';
+import ManualJournalModal from './ManualJournalModal.vue';
 
 const props = defineProps({
   stockCode: { type: String, required: true }
@@ -96,6 +106,7 @@ const conclusion = ref(null);
 const loading = ref(false);
 const error = ref(false);
 const showChecklist = ref(false);
+const showJournal = ref(false);   // 📔 수동 매수 기록 모달
 const accuracyStats = ref([]);   // 전체 시그널 타입별 통계 (배열)
 const accuracyEmpty = ref(false); // 데이터 누적 중 표시 플래그
 const bandStats = ref([]);        // 점수 구간별 적중률 (V30) — 보드 종합점수(STRONG_BUY/BUY) 격리, phase-38 컷오프 이후
@@ -357,6 +368,13 @@ const openChecklist = () => { showChecklist.value = true; };
   white-space: nowrap;
 }
 .checklist-btn:hover { background: rgba(59, 130, 246, 0.30); }
+.card-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.journal-btn {
+  background: rgba(234, 179, 8, 0.14);
+  color: #fde68a;
+  border-color: rgba(253, 230, 138, 0.35);
+}
+.journal-btn:hover { background: rgba(234, 179, 8, 0.26); }
 
 .conclusion-factors {
   display: grid;
@@ -485,6 +503,7 @@ const openChecklist = () => { showChecklist.value = true; };
   .conclusion-card { padding: 14px 14px; margin: 12px 10px; }
   .conclusion-main { flex-wrap: wrap; gap: 12px; }
   .conclusion-level { min-width: 64px; }
-  .checklist-btn { flex-basis: 100%; text-align: center; }
+  .card-actions { flex-basis: 100%; }
+  .checklist-btn { width: 100%; text-align: center; }
 }
 </style>
