@@ -96,6 +96,11 @@ public class StockDiagnosisDto {
         // 점수
         private int score;                      // 수급 점수 (0~100)
         private String assessment;              // "매수 우위", "매도 우위", "혼조"
+
+        // 연속 순매수일(참고 — 산식 미편입, unverified). investor_daily_trade top-N 재사용.
+        // null=데이터 5거래일 미만(§4c 위장 금지) / 0=최신일 순매수 아님.
+        private Integer foreignBuyStreak;       // 외국인 연속 순매수일
+        private Integer institutionBuyStreak;   // 기관 연속 순매수일
     }
 
     /**

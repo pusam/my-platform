@@ -80,6 +80,10 @@ public class JudgmentBoardDto {
         private Integer timingScore;           // null=신호없음/미산출
         private String sector;                 // 섹터명
         private BigDecimal sectorStrengthRel;  // 섹터 상대강도(null=미가용)
+        // 연속 순매수일(② 참고): streak5 백테스트 약한 양(+) 신호 — 참고 톤, 산식 미편입 unverified.
+        // null=데이터 5거래일 미만(§4c) / 0=최신일 순매수 아님. investor_daily_trade top-N IN절 일괄.
+        private Integer foreignBuyStreak;
+        private Integer institutionBuyStreak;
 
         // 매매 맥락(표시 전용 — 산식 미편입)
         // 재료(§4b): 최근 N일 중 최신 read(신규 분류 안 함). null/NONE=생략.

@@ -1,6 +1,7 @@
 package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.StockDiagnosisDto;
+import com.myplatform.backend.service.InvestorBuyStreakService;
 import com.myplatform.backend.service.StockAnalysisService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -27,6 +28,7 @@ import java.util.Map;
 public class StockAnalysisController {
 
     private final StockAnalysisService stockAnalysisService;
+    private final InvestorBuyStreakService investorBuyStreakService;
 
     /**
      * 종목 상세 진단 (더블 체크)
@@ -63,6 +65,17 @@ public class StockAnalysisController {
         Map<String, Object> response = new HashMap<>();
         try {
             StockDiagnosisDto diagnosis = stockAnalysisService.diagnose(stockCode);
+            // 연속 순매수일 배지(참고 — 산식 미편입) 병기. best-effort — 실패해도 진단 본문 유지.
+            // 단일 진단 엔드포인트에서만 붙여 배치(batchScores) 경로엔 부담 안 줌.
+            try {
+                if (diagnosis.getSupplyDemand() != null) {
+                    InvestorBuyStreakService.Streaks s = investorBuyStreakService.getStreaks(stockCode);
+                    diagnosis.getSupplyDemand().setForeignBuyStreak(s.foreign());
+                    diagnosis.getSupplyDemand().setInstitutionBuyStreak(s.institution());
+                }
+            } catch (Exception ex) {
+                log.warn("[진단] 연속 순매수일 조회 실패(생략) {}: {}", stockCode, ex.getMessage());
+            }
 
             response.put("success", true);
             response.put("data", diagnosis);

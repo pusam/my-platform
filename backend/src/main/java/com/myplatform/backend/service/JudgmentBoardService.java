@@ -57,6 +57,7 @@ public class JudgmentBoardService {
     private final StockPriceService stockPriceService;
     private final RvolService rvolService;
     private final SignalOutcomeRepository signalOutcomeRepository;
+    private final InvestorBuyStreakService investorBuyStreakService;
 
     /** 종합 판단 보드. scope=momentum(기본)|union. */
     public JudgmentBoardDto getBoard(String scope) {
@@ -267,6 +268,23 @@ public class JudgmentBoardService {
             applyRvol(rows, rvolService.getRvolBulk(todayValueByCode));
         } catch (Exception e) {
             log.warn("[JudgmentBoard] RVOL 조립 실패(생략): {}", e.getMessage());
+        }
+
+        try {   // 연속 순매수일(② 참고): investor_daily_trade top-N IN 절 일괄(행별 조회 N+1 금지).
+            applyBuyStreak(rows, investorBuyStreakService.getStreaksForCodes(codes));
+        } catch (Exception e) {
+            log.warn("[JudgmentBoard] 연속 순매수일 조립 실패(생략): {}", e.getMessage());
+        }
+    }
+
+    /** 연속 순매수일 매핑(순수) — 미산출 종목은 미설정(null=§4c). 표시·참고 전용, 랭킹/산식 미편입. */
+    static void applyBuyStreak(List<Row> rows, Map<String, InvestorBuyStreakService.Streaks> streakByCode) {
+        if (streakByCode == null || streakByCode.isEmpty()) return;
+        for (Row r : rows) {
+            InvestorBuyStreakService.Streaks s = streakByCode.get(r.getStockCode());
+            if (s == null) continue;
+            r.setForeignBuyStreak(s.foreign());
+            r.setInstitutionBuyStreak(s.institution());
         }
     }
 

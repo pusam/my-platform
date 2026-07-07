@@ -23,6 +23,7 @@
         {{ getQsForeignLabel() }}
       </span>
       <span class="qs-sub">{{ getQsForeignAmount() }}</span>
+      <span v-if="getQsForeignStreak()" class="qs-streak">{{ getQsForeignStreak() }}</span>
     </div>
     <div class="qs-item">
       <span class="qs-label">기관</span>
@@ -30,6 +31,7 @@
         {{ getQsInstLabel() }}
       </span>
       <span class="qs-sub">{{ getQsInstAmount() }}</span>
+      <span v-if="getQsInstStreak()" class="qs-streak">{{ getQsInstStreak() }}</span>
     </div>
     <div class="qs-item">
       <span class="qs-label">리스크</span>
@@ -113,6 +115,10 @@ const getQsInstAmount = () => {
   if (v == null) return '';
   return (v >= 0 ? '+' : '') + Number(v).toFixed(0) + '억';
 };
+// 연속 순매수일 배지 — 2일 이상 연속일 때만 "N일 연속"(참고 톤, 산식 미편입). null/0/1 은 미표시.
+const streakLabel = (v) => (v != null && Number(v) >= 2 ? `${Number(v)}일 연속` : '');
+const getQsForeignStreak = () => streakLabel(props.diagnosisData?.supplyDemand?.foreignBuyStreak);
+const getQsInstStreak = () => streakLabel(props.diagnosisData?.supplyDemand?.institutionBuyStreak);
 const getQsRiskClass = () => {
   const score = props.diagnosisData?.overallScore;
   if (score == null) return 'qs-neutral';
@@ -152,6 +158,11 @@ const getQsRiskLabel = () => {
 .qs-label { font-size: 10px; color: rgba(255,255,255,0.6); font-weight: 600; }
 .qs-value { font-size: 16px; font-weight: 800; color: rgba(255,255,255,0.9); }
 .qs-sub { font-size: 10px; color: rgba(255,255,255,0.6); }
+.qs-streak {
+  font-size: 9.5px; font-weight: 700; margin-top: 1px;
+  padding: 0 5px; border-radius: 4px;
+  background: rgba(239,68,68,0.14); color: #f87171;
+}
 .qs-badge {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
   background: rgba(107,114,128,0.2); color: #9ca3af;

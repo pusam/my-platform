@@ -56,7 +56,7 @@
             <th class="th-name"></th>
             <th colspan="2" class="g-price">시세 · 유동성 <small title="캐시 스냅샷 · 최대 30분 지연 · 실시간 아님">⏱지연</small></th>
             <th colspan="4" class="g-score">① 점수 (검증/게이트)</th>
-            <th colspan="3" class="g-ref">② 참고 (미검증·점수 미편입)</th>
+            <th colspan="4" class="g-ref">② 참고 (미검증·점수 미편입)</th>
             <th colspan="1" class="g-caution">③ 경고</th>
           </tr>
           <tr>
@@ -72,6 +72,8 @@
             <th class="th-unv">섹터강도<small>미검증</small></th>
             <th @click="setSort('trackRecord')" class="th-sort"
                 title="signal_outcome 최근 90일 실측 — 적중/평가완료 · 평균 α. n<3 은 표본부족 '—'(정렬 항상 하단).">이력<small class="unv-badge">90일 실측</small>{{ sortMark('trackRecord') }}</th>
+            <th class="th-unv"
+                title="외인/기관 연속 순매수일(investor_daily_trade 상위 재사용) — streak5 백테스트 약한 양(+) 신호 · 참고만(점수 미편입). 2일 이상만 표기, 데이터 5일 미만 '—'.">수급연속<small>참고</small></th>
             <th @click="setSort('supplyDemand')" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
           </tr>
         </thead>
@@ -103,6 +105,7 @@
             <td class="num td-track" :class="{ 'track-insufficient': !hasTrack(r) }"
                 :title="hasTrack(r) ? '최근 90일 평가 완료 ' + r.trackCount + '회 중 ' + r.trackHitCount + '회 적중' : '표본부족(평가 완료 3회 미만) — 판단 근거로 쓰지 마세요'">
               {{ trackLabel(r) }}</td>
+            <td class="num td-streak" :class="{ 'streak-on': hasStreak(r) }" :title="streakTitle(r)">{{ streakLabel(r) }}</td>
             <td class="num td-supply" :class="{ suspect: r.scored && r.supplyInverseSuspect }">
               {{ r.scored ? cat(r.supplyDemand) : '—' }}<span v-if="r.scored && r.supplyInverseSuspect" class="suspect-mark"
                 title="고점일수록 적중률↓ 의심 (표본 작음 n=88, 확정 아님)">⚠</span>
@@ -228,6 +231,26 @@ const trackLabel = (r) => {
 };
 // 카테고리 점수 NA sentinel(-1: 신호 미포착=0점)은 '—'로 — 결론카드와 일관. 산식 무관 표시 전용.
 const cat = (v) => (v == null || Number(v) < 0 ? '—' : v);
+
+// 연속 순매수일(② 참고, unverified) — 2일 이상만 표기(1일/0/데이터부족 null 은 '—'). 외/기 각각.
+const STREAK_MIN = 2;
+const streakVal = (v) => (v != null && Number(v) >= STREAK_MIN ? Number(v) : null);
+const hasStreak = (r) => streakVal(r.foreignBuyStreak) != null || streakVal(r.institutionBuyStreak) != null;
+const streakLabel = (r) => {
+  const f = streakVal(r.foreignBuyStreak), i = streakVal(r.institutionBuyStreak);
+  const parts = [];
+  if (f) parts.push(`외${f}`);
+  if (i) parts.push(`기${i}`);
+  return parts.length ? parts.join('·') : '—';
+};
+const streakTitle = (r) => {
+  if (!hasStreak(r)) return '연속 순매수 2일 미만 또는 데이터 부족';
+  const f = streakVal(r.foreignBuyStreak), i = streakVal(r.institutionBuyStreak);
+  const parts = [];
+  if (f) parts.push(`외국인 ${f}일 연속 순매수`);
+  if (i) parts.push(`기관 ${i}일 연속 순매수`);
+  return parts.join(' · ') + ' (참고 — 산식 미편입)';
+};
 
 // 시세(캐시 스냅샷, ≤30분 지연) 표시 — 표시 전용, 산식 미편입
 const fmtPrice = (v) => (v == null ? '—' : Number(v).toLocaleString('ko-KR'));
@@ -383,6 +406,9 @@ onMounted(load);
   background: rgba(148, 163, 184, 0.14); padding: 0 4px; border-radius: 3px;
 }
 .td-poor { color: #b08a8a; cursor: help; }   /* 차트타이밍 셀 — td-unv(청회색)와 구분되는 muted 적색-회색 */
+/* 수급연속 셀(② 참고) — 기본 muted, 연속 있으면 옅은 초록(매수 지속 = 약한 양 신호, 참고 톤). */
+.td-streak { color: #94a3b8; cursor: help; font-variant-numeric: tabular-nums; }
+.td-streak.streak-on { color: #6ee7b7; }
 .td-supply.suspect { color: #fbbf24; }
 .suspect-mark { margin-left: 2px; cursor: help; }
 .positive { color: #4ade80; }

@@ -42,6 +42,23 @@ describe('QuickSummaryBar (P2-10 분리)', () => {
     expect(items[3].find('.qs-sub').text()).toBe('-45억')
   })
 
+  it('연속 순매수일 배지 — 2일↑만 "N일 연속" 병기(외국인/기관), 1일/null 은 미표시(참고 톤)', () => {
+    const items = mountBar({ diagnosisData: {
+      ...diagnosis,
+      supplyDemand: { foreignNet5Days: 120.6, instNet5Days: -45.2, foreignBuyStreak: 3, institutionBuyStreak: 1 }
+    } }).findAll('.qs-item')
+    // 외국인 3일 연속 → 배지, 기관 1일 → 미표시
+    expect(items[2].find('.qs-streak').exists()).toBe(true)
+    expect(items[2].find('.qs-streak').text()).toBe('3일 연속')
+    expect(items[3].find('.qs-streak').exists()).toBe(false)
+  })
+
+  it('연속 순매수일 null(데이터 부족) → 배지 미표시', () => {
+    const items = mountBar().findAll('.qs-item')  // 기본 diagnosis 엔 streak 없음
+    expect(items[2].find('.qs-streak').exists()).toBe(false)
+    expect(items[3].find('.qs-streak').exists()).toBe(false)
+  })
+
   it('리스크 score 75 → SAFE / AI 80 + Trading Buy', () => {
     const items = mountBar().findAll('.qs-item')
     expect(items[4].find('.qs-badge').text()).toBe('SAFE')

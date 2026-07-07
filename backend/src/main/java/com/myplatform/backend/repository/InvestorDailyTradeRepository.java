@@ -9,6 +9,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -126,6 +127,26 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
            "WHERE t.investorType = :investorType AND t.tradeType = 'BUY' " +
            "ORDER BY t.tradeDate DESC")
     List<LocalDate> findDistinctTradeDates(@Param("investorType") String investorType);
+
+    /**
+     * 특정 투자자의 BUY 거래일 목록(윈도우 내, 최신순) — 연속 순매수일 캘린더용(표시·참고 전용).
+     */
+    @Query("SELECT DISTINCT t.tradeDate FROM InvestorDailyTrade t " +
+           "WHERE t.investorType = :investorType AND t.tradeType = 'BUY' " +
+           "AND t.tradeDate >= :startDate ORDER BY t.tradeDate DESC")
+    List<LocalDate> findDistinctBuyTradeDatesSince(
+            @Param("investorType") String investorType, @Param("startDate") LocalDate startDate);
+
+    /**
+     * 여러 종목 × 투자자의 BUY 매매 일괄 조회(IN 절 — 보드 배지 N+1 방지). 연속 순매수일 배치 계산용.
+     */
+    @Query("SELECT t FROM InvestorDailyTrade t " +
+           "WHERE t.stockCode IN :codes AND t.investorType = :investorType AND t.tradeType = 'BUY' " +
+           "AND t.tradeDate >= :startDate")
+    List<InvestorDailyTrade> findBuyTradesByStockCodesAndInvestorSince(
+            @Param("codes") Collection<String> codes,
+            @Param("investorType") String investorType,
+            @Param("startDate") LocalDate startDate);
 
     /**
      * 가장 최근 거래일 조회

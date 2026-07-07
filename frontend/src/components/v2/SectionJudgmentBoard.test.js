@@ -164,6 +164,23 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(cells[2].text()).toBe('—')
   })
 
+  it('수급연속 컬럼(② 참고) — 2일↑만 "외N·기M", 1일/데이터부족(null) 은 "—"(muted)', async () => {
+    const w = await mountBoard([
+      row({ stockCode: 'A', foreignBuyStreak: 3, institutionBuyStreak: 2 }),
+      row({ stockCode: 'B', foreignBuyStreak: 4, institutionBuyStreak: 0 }),   // 기관 0 → 외만
+      row({ stockCode: 'C', foreignBuyStreak: 1, institutionBuyStreak: null }), // 둘 다 표기 안 됨
+      row({ stockCode: 'D', foreignBuyStreak: null, institutionBuyStreak: null })
+    ])
+    const cells = w.findAll('.td-streak')
+    expect(cells[0].text()).toBe('외3·기2')
+    expect(cells[0].classes()).toContain('streak-on')
+    expect(cells[0].attributes('title')).toContain('외국인 3일 연속')
+    expect(cells[1].text()).toBe('외4')
+    expect(cells[2].text()).toBe('—')
+    expect(cells[2].classes()).not.toContain('streak-on')
+    expect(cells[3].text()).toBe('—')
+  })
+
   it('신호 이력 avgAlpha null(§4c) → 적중 비율만 표시(α 생략)', async () => {
     const w = await mountBoard([row({ trackCount: 4, trackHitCount: 1, trackAvgAlpha: null })])
     expect(w.find('.td-track').text()).toBe('1/4')
