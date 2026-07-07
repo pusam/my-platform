@@ -105,6 +105,19 @@ public class BuyChecklistService {
     private ChecklistItem checkShortSelling(String stockCode) {
         try {
             BigDecimal ratio = shortSellingService.getShortSellingRatio(stockCode);
+            // §4c: 결측(null)은 "0.00% 충족"으로 위장하지 않는다(AUDIT 2026-07-07 P1-3).
+            if (ratio == null) {
+                return ChecklistItem.builder()
+                        .key("shortSelling")
+                        .label("공매도 비율")
+                        .passed(false)
+                        .dataMissing(true)
+                        .value("미수집")
+                        .threshold("< 5%")
+                        .note("공매도 데이터 미수집 — 충족/미충족 판정 불가. 이 항목은 권고 산출에서 제외.")
+                        .dimension("SHORT")
+                        .build();
+            }
             boolean passed = ratio.compareTo(SHORT_SELLING_LIMIT) < 0;
             return ChecklistItem.builder()
                     .key("shortSelling")
@@ -237,9 +250,12 @@ public class BuyChecklistService {
     private static final java.util.Set<String> REQUIRED_KEYS = java.util.Set.of("tradable", "shortSelling");
 
     private Recommendation decideRecommendation(List<ChecklistItem> items) {
-        // 필수 항목 검사 — 1개라도 fail 이면 즉시 NOT_RECOMMENDED
+        // 필수 항목 검사 — 1개라도 fail 이면 즉시 NOT_RECOMMENDED.
+        // 단 dataMissing(미수집)은 판정 불가이지 미충족이 아님 — 결측을 근거로 차단하지 않는다
+        // (§4c, 봇 isHighShortSellingStock 결측=통과와 동일 극성).
         boolean requiredAllPassed = items.stream()
                 .filter(i -> REQUIRED_KEYS.contains(i.getKey()))
+                .filter(i -> !i.isDataMissing())
                 .allMatch(ChecklistItem::isPassed);
         if (!requiredAllPassed) {
             return Recommendation.NOT_RECOMMENDED;

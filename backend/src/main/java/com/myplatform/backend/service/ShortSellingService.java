@@ -508,6 +508,9 @@ public class ShortSellingService {
 
     /**
      * 특정 종목의 공매도 비율 조회 (봇 연동용)
+     *
+     * <p>§4c: 결측(데이터 전무·종목 미포함·조회 실패)은 {@code null} — 실측 0% 와 구분한다.
+     * ZERO 로 위장하면 死피드 상태에서 전 종목이 "공매도 0% 충족"으로 보인다(AUDIT 2026-07-07 P1-3).
      */
     @Transactional(readOnly = true)
     public BigDecimal getShortSellingRatio(String stockCode) {
@@ -518,16 +521,16 @@ public class ShortSellingService {
         try {
             Optional<LocalDate> latestDateOpt = repository.findLatestTradeDate();
             if (latestDateOpt.isEmpty()) {
-                return BigDecimal.ZERO;
+                return null;
             }
 
             Optional<ShortSellingBalance> balance =
                     repository.findByStockCodeAndTradeDate(stockCode, latestDateOpt.get());
 
-            return balance.map(ShortSellingBalance::getShortSellingRatio).orElse(BigDecimal.ZERO);
+            return balance.map(ShortSellingBalance::getShortSellingRatio).orElse(null);
         } catch (Exception e) {
             log.warn("공매도 비율 조회 실패 - {}: {}", stockCode, e.getMessage());
-            return BigDecimal.ZERO;
+            return null;
         }
     }
 
@@ -583,11 +586,14 @@ public class ShortSellingService {
 
     /**
      * 고공매도 종목인지 확인 (봇 연동용)
+     *
+     * <p>결측(null)=미차단(통과) — 결측을 근거로 진입을 막지 않는다
+     * (PriceSanityGuard "결측=UNKNOWN=통과" 선례와 동일 극성, §4c/§4d).
      */
     @Transactional(readOnly = true)
     public boolean isHighShortSellingStock(String stockCode) {
         BigDecimal ratio = getShortSellingRatio(stockCode);
-        return ratio.compareTo(HIGH_SHORT_RATIO) >= 0;
+        return ratio != null && ratio.compareTo(HIGH_SHORT_RATIO) >= 0;
     }
 
     /**

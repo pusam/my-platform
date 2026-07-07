@@ -63,6 +63,49 @@ class BuyChecklistServiceTest {
     }
 
     @Test
+    @DisplayName("공매도 미수집(null) → '미수집' 표기(passed 아님) + 필수 게이트 미차단 (AUDIT P1-3, §4c)")
+    void shortSellingMissing_notFakePassed_notBlocking() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(null); // 死피드/결측
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
+                .thenReturn(List.of(consecutive("005930")));
+        when(compositeSignalService.evaluate(anyString())).thenReturn(composite(4));
+        when(stockConclusionService.getConclusion(anyString()))
+                .thenReturn(conclusion(StockConclusionDto.Level.STRONG_BUY));
+
+        BuyChecklistDto dto = service.evaluate("005930");
+
+        BuyChecklistDto.ChecklistItem item = dto.getItems().stream()
+                .filter(i -> "shortSelling".equals(i.getKey())).findFirst().orElseThrow();
+        // 가짜 "0.00% 충족" 금지 — passed 아님 + 미수집 명시
+        assertThat(item.isPassed()).isFalse();
+        assertThat(item.isDataMissing()).isTrue();
+        assertThat(item.getValue()).isEqualTo("미수집");
+        // 결측은 필수 게이트를 차단하지 않는다(봇 결측=통과와 동일 극성) — 가산 3/3 이면 STRONG
+        assertThat(dto.getRecommendation()).isEqualTo(Recommendation.STRONG);
+        assertThat(dto.getPassedCount()).isEqualTo(4); // 미수집은 충족 카운트에도 미포함
+    }
+
+    @Test
+    @DisplayName("공매도 실측 초과(6.5%)는 여전히 필수 차단 → NOT_RECOMMENDED (미수집과 구분)")
+    void shortSellingRealHighValue_stillBlocks() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("6.5"));
+        when(investorTradeService.getConsecutiveBuyStocks(anyString(), anyInt()))
+                .thenReturn(List.of(consecutive("005930")));
+        when(compositeSignalService.evaluate(anyString())).thenReturn(composite(4));
+        when(stockConclusionService.getConclusion(anyString()))
+                .thenReturn(conclusion(StockConclusionDto.Level.STRONG_BUY));
+
+        BuyChecklistDto dto = service.evaluate("005930");
+
+        BuyChecklistDto.ChecklistItem item = dto.getItems().stream()
+                .filter(i -> "shortSelling".equals(i.getKey())).findFirst().orElseThrow();
+        assertThat(item.isDataMissing()).isFalse();
+        assertThat(dto.getRecommendation()).isEqualTo(Recommendation.NOT_RECOMMENDED);
+    }
+
+    @Test
     @DisplayName("5/5 모두 충족 → STRONG")
     void allPassed_strong() {
         when(stockStatusService.isActive(anyString())).thenReturn(true);

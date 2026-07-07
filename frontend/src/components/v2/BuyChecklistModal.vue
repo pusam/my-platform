@@ -22,9 +22,10 @@
 
         <ul class="items">
           <li v-for="item in checklist.items" :key="item.key"
-              class="item" :class="{ passed: item.passed }">
+              class="item" :class="{ passed: item.passed, missing: item.dataMissing }">
             <div class="item-status">
-              <span class="check-icon">{{ item.passed ? '✅' : '❌' }}</span>
+              <!-- dataMissing = 판정 불가(미수집) — 미충족(❌)으로 위장하지 않는다 (§4c) -->
+              <span class="check-icon">{{ item.dataMissing ? '➖' : (item.passed ? '✅' : '❌') }}</span>
             </div>
             <div class="item-body">
               <div class="item-header">

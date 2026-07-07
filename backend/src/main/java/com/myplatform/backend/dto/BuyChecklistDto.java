@@ -55,5 +55,11 @@ public class BuyChecklistDto {
         private String note;
         /** 시간 척도 — SHORT / MID / LONG / META. UI 태그용. */
         private String dimension;
+        /**
+         * 데이터 미수집 여부(§4c). true 면 passed=false 라도 "미충족"이 아니라 "판정 불가" —
+         * 필수 항목 판정(decideRecommendation)에서 제외된다(결측 근거 차단 금지).
+         */
+        @Builder.Default
+        private boolean dataMissing = false;
     }
 }
