@@ -27,7 +27,7 @@
     </div>
     <div class="qs-item">
       <span class="qs-label">기관</span>
-      <span class="qs-value" :class="diagnosisData?.supplyDemand?.instNet5Days >= 0 ? 'qs-positive' : 'qs-negative'">
+      <span class="qs-value" :class="diagnosisData?.supplyDemand?.institutionNet5Days >= 0 ? 'qs-positive' : 'qs-negative'">
         {{ getQsInstLabel() }}
       </span>
       <span class="qs-sub">{{ getQsInstAmount() }}</span>
@@ -106,12 +106,12 @@ const getQsForeignAmount = () => {
   return (v >= 0 ? '+' : '') + Number(v).toFixed(0) + '억';
 };
 const getQsInstLabel = () => {
-  const v = props.diagnosisData?.supplyDemand?.instNet5Days;
+  const v = props.diagnosisData?.supplyDemand?.institutionNet5Days;
   if (v == null) return '-';
   return v >= 0 ? '순매수' : '순매도';
 };
 const getQsInstAmount = () => {
-  const v = props.diagnosisData?.supplyDemand?.instNet5Days;
+  const v = props.diagnosisData?.supplyDemand?.institutionNet5Days;
   if (v == null) return '';
   return (v >= 0 ? '+' : '') + Number(v).toFixed(0) + '억';
 };

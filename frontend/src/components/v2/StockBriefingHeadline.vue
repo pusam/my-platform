@@ -40,7 +40,7 @@ export default {
       return Number.isFinite(Number(v)) ? Number(v) : null
     },
     instNet() {
-      const v = this.diagnosisData?.supplyDemand?.instNet5Days
+      const v = this.diagnosisData?.supplyDemand?.institutionNet5Days
       return Number.isFinite(Number(v)) ? Number(v) : null
     },
     isFundBullish() { return this.fundScore != null && this.fundScore >= 65 },
