@@ -182,6 +182,42 @@ class ManualTradeJournalServiceTest {
     }
 
     @Test
+    @DisplayName("computeSectorExposure: 동일 섹터 보유 집계(저널 우선 dedup), 매핑 밖 → mapped=false")
+    void sectorExposure() {
+        var semis = new com.myplatform.backend.config.SectorStockConfig.SectorInfo(
+                "SEMI", "반도체", "#000", List.of("005930", "000660", "042700"));
+        var bio = new com.myplatform.backend.config.SectorStockConfig.SectorInfo(
+                "BIO", "바이오", "#000", List.of("068270"));
+
+        List<ManualTradeJournal> openJournals = List.of(
+                ManualTradeJournal.builder().stockCode("000660").stockName("SK하이닉스").build());
+        List<com.myplatform.backend.entity.BotTradingPosition> botPositions = List.of(
+                com.myplatform.backend.entity.BotTradingPosition.builder()
+                        .stockCode("000660").stockName("SK하이닉스").build(),   // 저널과 중복 → JOURNAL 우선
+                com.myplatform.backend.entity.BotTradingPosition.builder()
+                        .stockCode("042700").stockName("한미반도체").build(),
+                com.myplatform.backend.entity.BotTradingPosition.builder()
+                        .stockCode("068270").stockName("셀트리온").build());    // 다른 섹터 — 제외
+
+        var dto = ManualTradeJournalService.computeSectorExposure(
+                "005930", List.of(semis, bio), openJournals, botPositions);
+        assertThat(dto.isMapped()).isTrue();
+        assertThat(dto.getSectors()).hasSize(1);
+        var block = dto.getSectors().get(0);
+        assertThat(block.getSectorCode()).isEqualTo("SEMI");
+        assertThat(block.getCount()).isEqualTo(2);   // 000660(dedup) + 042700
+        assertThat(block.getHoldings()).extracting("stockCode", "source")
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("000660", "JOURNAL"),
+                        org.assertj.core.groups.Tuple.tuple("042700", "BOT"));
+
+        // 매핑 밖 종목 → mapped=false(§4c — 프론트 미표시)
+        var unmapped = ManualTradeJournalService.computeSectorExposure(
+                "999999", List.of(semis, bio), openJournals, botPositions);
+        assertThat(unmapped.isMapped()).isFalse();
+        assertThat(unmapped.getSectors()).isEmpty();
+    }
+
+    @Test
     @DisplayName("realizedPct: (매도-매수)/매수×100, 매수 0/null → null")
     void realized() {
         assertThat(ManualTradeJournalService.realizedPct(

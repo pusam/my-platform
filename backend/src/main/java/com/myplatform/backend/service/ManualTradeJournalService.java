@@ -1,12 +1,16 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.myplatform.backend.config.SectorStockConfig;
+import com.myplatform.backend.dto.ManualJournalSectorExposureDto;
 import com.myplatform.backend.dto.ManualJournalStatsDto;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.BotTradingPosition;
 import com.myplatform.backend.entity.ManualTradeJournal;
 import com.myplatform.backend.entity.RecommendationSnapshot;
 import com.myplatform.backend.entity.StockCatalyst;
 import com.myplatform.backend.entity.StockPriceHistory;
+import com.myplatform.backend.repository.BotTradingPositionRepository;
 import com.myplatform.backend.repository.ManualTradeJournalRepository;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.StockCatalystRepository;
@@ -53,6 +57,9 @@ public class ManualTradeJournalService {
     // Phase 2 — 평가용 시세(단일 경로) + KOSPI 벤치마크(KIS 미설정 환경 null-safe).
     private final StockPriceService stockPriceService;
     private final ObjectProvider<KoreaInvestmentService> kisProvider;
+    // Phase 3 — 섹터 집중 경고(경고만, 차단 없음). 봇 포지션은 §4d 준수 read-only.
+    private final SectorStockConfig sectorConfig;
+    private final BotTradingPositionRepository botPositionRepository;
 
     /** ATR14 일봉 로드 행 수 — StockConclusionService 와 동일. */
     private static final int ATR_HISTORY_ROWS = 40;
@@ -135,6 +142,25 @@ public class ManualTradeJournalService {
     @Transactional(readOnly = true)
     public ManualJournalStatsDto stats(String username) {
         return computeStats(journalRepository.findByUsernameOrderByBuyAtDesc(username));
+    }
+
+    /** 특정 종목의 내 기록(종목상세 신호 이력 마커용). */
+    @Transactional(readOnly = true)
+    public List<ManualTradeJournal> listByStock(String username, String stockCode) {
+        return journalRepository.findByUsernameAndStockCodeOrderByBuyAtDesc(username, stockCode);
+    }
+
+    /**
+     * 섹터 집중 노출 — 매수 폼 경고용(경고만, 차단 없음). 보유 = 열린 저널 + 봇 포지션(read-only).
+     * 봇 포지션 조회 실패는 저널만으로 계산(best-effort). 집계는 순수 함수 {@link #computeSectorExposure}.
+     */
+    @Transactional(readOnly = true)
+    public ManualJournalSectorExposureDto sectorExposure(String username, String stockCode) {
+        List<ManualTradeJournal> open = journalRepository.findByUsernameOrderByBuyAtDesc(username)
+                .stream().filter(j -> j.getSellAt() == null).toList();
+        List<BotTradingPosition> bot = quiet(botPositionRepository::findAll, "봇포지션", stockCode);
+        return computeSectorExposure(stockCode, sectorConfig.getAllSectors(),
+                open, bot == null ? List.of() : bot);
     }
 
     // ==================== Phase 2 — 자동 평가 배치 ====================
@@ -291,6 +317,47 @@ public class ManualTradeJournalService {
                 .hitRate(rate(hits, evaluated.size()))
                 .avgAlpha3d(avg(alphas))
                 .insufficientSample(evaluated.size() < MIN_SAMPLE)
+                .build();
+    }
+
+    /**
+     * 섹터 집중 노출 집계 — 순수. 대상 종목이 속한 섹터마다 이미 보유 중인 종목(열린 저널+봇,
+     * 코드 중복 제거·JOURNAL 우선)을 모은다. 매핑 밖 종목 = mapped:false(§4c — 프론트 미표시).
+     * 한 종목이 복수 섹터에 속할 수 있어(예: 삼성전자) 섹터별 블록으로 반환.
+     */
+    static ManualJournalSectorExposureDto computeSectorExposure(
+            String stockCode, List<SectorStockConfig.SectorInfo> allSectors,
+            List<ManualTradeJournal> openJournals, List<BotTradingPosition> botPositions) {
+        // 보유 종목: code → holding (저널 먼저 넣어 JOURNAL 우선, 이후 봇은 신규 코드만)
+        java.util.LinkedHashMap<String, ManualJournalSectorExposureDto.Holding> held =
+                new java.util.LinkedHashMap<>();
+        for (ManualTradeJournal j : openJournals) {
+            held.putIfAbsent(j.getStockCode(), ManualJournalSectorExposureDto.Holding.builder()
+                    .stockCode(j.getStockCode()).stockName(j.getStockName()).source("JOURNAL").build());
+        }
+        for (BotTradingPosition p : botPositions) {
+            held.putIfAbsent(p.getStockCode(), ManualJournalSectorExposureDto.Holding.builder()
+                    .stockCode(p.getStockCode()).stockName(p.getStockName()).source("BOT").build());
+        }
+
+        List<ManualJournalSectorExposureDto.SectorBlock> blocks = new ArrayList<>();
+        boolean mapped = false;
+        for (SectorStockConfig.SectorInfo sector : allSectors) {
+            if (sector.getStockCodes() == null || !sector.getStockCodes().contains(stockCode)) continue;
+            mapped = true;
+            List<ManualJournalSectorExposureDto.Holding> holdings = held.values().stream()
+                    .filter(h -> sector.getStockCodes().contains(h.getStockCode()))
+                    .toList();
+            blocks.add(ManualJournalSectorExposureDto.SectorBlock.builder()
+                    .sectorCode(sector.getCode())
+                    .sectorName(sector.getName())
+                    .count(holdings.size())
+                    .holdings(holdings)
+                    .build());
+        }
+        return ManualJournalSectorExposureDto.builder()
+                .mapped(mapped)
+                .sectors(blocks)
                 .build();
     }
 
