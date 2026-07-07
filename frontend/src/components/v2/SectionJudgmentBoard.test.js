@@ -185,6 +185,33 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     expect(w.findAll('.jb-row .rn').map(n => n.text())).toEqual(['저적중', '고적중', '이력없음'])
   })
 
+  it('행 클릭 — 보드 종목 순서를 sessionStorage 로 전달 + 새 탭(/stock/{code}) 오픈', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    sessionStorage.removeItem('judgmentBoard.nav')
+    const w = await mountBoard([
+      row({ stockCode: '005930', totalScore: 90 }),
+      row({ stockCode: '000660', stockName: 'SK하이닉스', totalScore: 70 })
+    ])
+    await w.findAll('.jb-row')[1].trigger('click')
+
+    expect(openSpy).toHaveBeenCalledWith('/stock/000660', '_blank')
+    const saved = JSON.parse(sessionStorage.getItem('judgmentBoard.nav'))
+    expect(saved.codes).toEqual(['005930', '000660'])   // 표시 순서 그대로
+    // 새 탭 성공 시 같은 탭 이동(emit) 없음
+    expect(w.emitted('open-stock')).toBeUndefined()
+    openSpy.mockRestore()
+    sessionStorage.removeItem('judgmentBoard.nav')
+  })
+
+  it('행 클릭 — 팝업 차단(window.open null) 시 open-stock emit 폴백(같은 탭)', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const w = await mountBoard([row({ stockCode: '005930' })])
+    await w.find('.jb-row').trigger('click')
+    expect(w.emitted('open-stock')[0]).toEqual(['005930'])
+    openSpy.mockRestore()
+    sessionStorage.removeItem('judgmentBoard.nav')
+  })
+
   it('발굴 트랙 포함 토글 상태 유지 — 저장값(union)으로 초기 로드', async () => {
     localStorage.setItem('judgmentBoard.scope', 'union')
     await mountBoard([row()])

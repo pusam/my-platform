@@ -29,6 +29,12 @@
             </span>
           </div>
         </div>
+        <!-- 보드 → 상세 왕복 네비 — 종합판단 보드에서 진입한 경우에만(sessionStorage), 직접 진입 시 미표시 -->
+        <div v-if="boardNavState" class="board-nav" title="종합 판단 보드 종목 순서로 이동">
+          <button class="bn-btn" :disabled="boardNavState.idx === 0" @click="goBoardNav(-1)">◀ 이전</button>
+          <span class="bn-pos">보드 {{ boardNavState.idx + 1 }}/{{ boardNavState.total }}</span>
+          <button class="bn-btn" :disabled="boardNavState.idx >= boardNavState.total - 1" @click="goBoardNav(1)">다음 ▶</button>
+        </div>
         <button class="search-btn" @click="showSearch = true" title="종목 검색 (Ctrl+K)">
           🔍
         </button>
@@ -610,6 +616,33 @@ let refreshInterval = null;
 let countdownTimer = null;
 
 const hasData = computed(() => priceInfo.value !== null);
+
+// ---- 보드 → 상세 왕복 네비 (SectionJudgmentBoard 가 sessionStorage 로 전달, 순수 프론트) ----
+// 보드 행 클릭이 새 탭을 열 때 sessionStorage 복사본으로 상속됨. 직접 진입(키 없음/목록 밖 종목)은 미표시.
+const BOARD_NAV_KEY = 'judgmentBoard.nav';
+const boardNavCodes = ref([]);
+const loadBoardNav = () => {
+  try {
+    const raw = sessionStorage.getItem(BOARD_NAV_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    boardNavCodes.value = Array.isArray(parsed?.codes) ? parsed.codes.filter(c => typeof c === 'string') : [];
+  } catch { boardNavCodes.value = []; }
+};
+const boardNavState = computed(() => {
+  if (!stockCode.value || boardNavCodes.value.length < 2) return null;
+  const idx = boardNavCodes.value.indexOf(stockCode.value);
+  return idx < 0 ? null : { idx, total: boardNavCodes.value.length };
+});
+const goBoardNav = (delta) => {
+  const st = boardNavState.value;
+  if (!st) return;
+  const next = boardNavCodes.value[st.idx + delta];
+  if (!next) return;
+  // 같은 컴포넌트 재사용 라우트(/stock/:code)라 URL 만 바꾸면 리로드 안 됨 — 명시적으로 재조회
+  router.replace(`/stock/${next}`);
+  searchQuery.value = next;
+  searchStock();
+};
 
 // 종목명 → 코드 매핑 (API 검색 실패 시 폴백)
 const STOCK_MAP = {
@@ -1197,6 +1230,7 @@ const getAdjustedVerdict = (data) => {
 // URL 파라미터 처리
 onMounted(() => {
   document.addEventListener('keydown', onSearchKeydown);
+  loadBoardNav();   // 보드 진입 여부 확인(sessionStorage) — 없으면 네비 미표시
   const code = route.query.code || route.params.stockCode;
   if (code) {
     searchQuery.value = code;
@@ -1224,6 +1258,21 @@ onUnmounted(() => {
   color: rgba(255,255,255,0.6); transition: all 0.15s; margin-left: 8px;
 }
 .search-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+
+/* 보드 → 상세 왕복 네비 (종합판단 보드 진입 시에만 표시) */
+.board-nav {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 8px; padding: 4px 8px; white-space: nowrap;
+}
+.bn-btn {
+  background: transparent; border: none; cursor: pointer;
+  color: #7dd3fc; font-size: 12px; font-weight: 600; padding: 2px 4px;
+}
+.bn-btn:hover:not(:disabled) { color: #e0f2fe; }
+.bn-btn:disabled { opacity: 0.35; cursor: default; }
+.bn-pos { font-size: 11px; color: rgba(255, 255, 255, 0.65); font-variant-numeric: tabular-nums; }
 
 /* Header */
 .dashboard-header {

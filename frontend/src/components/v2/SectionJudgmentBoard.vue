@@ -77,7 +77,7 @@
         </thead>
         <tbody>
           <tr v-for="r in visibleRows" :key="r.stockCode" class="jb-row"
-              :class="{ 'row-unscored': !r.scored }" @click="$emit('open-stock', r.stockCode)">
+              :class="{ 'row-unscored': !r.scored }" @click="openRow(r.stockCode)">
             <td class="td-name">
               <span class="rn">{{ r.stockName }}</span>
               <span class="rc">{{ r.stockCode }}</span>
@@ -123,7 +123,22 @@
 import { ref, computed, onMounted } from 'vue';
 import apiClient from '../../utils/api';
 
-defineEmits(['open-stock', 'switch-to-list']);
+const emit = defineEmits(['open-stock', 'switch-to-list']);
+
+// 보드 → 상세 왕복 네비(순수 프론트): 현재 표시 순서의 종목코드 리스트를 sessionStorage 로 전달
+// (새 라우트·쿼리 오염 금지 — window.open 새 탭은 sessionStorage 복사본을 상속).
+// 상세(StockDetailDashboard)가 같은 키를 읽어 "◀ 이전 / 다음 ▶ (보드 N/M)" 표시(직접 진입 시 키 없음 = 미표시).
+const BOARD_NAV_KEY = 'judgmentBoard.nav';
+
+const openRow = (code) => {
+  if (!code) return;
+  try {
+    sessionStorage.setItem(BOARD_NAV_KEY,
+      JSON.stringify({ codes: visibleRows.value.map(r => r.stockCode).filter(Boolean) }));
+  } catch { /* 저장 실패 시에도 이동은 진행(네비만 미표시) */ }
+  const win = window.open(`/stock/${code}`, '_blank');
+  if (!win) emit('open-stock', code);   // 팝업 차단 폴백 — 기존 같은 탭 이동
+};
 
 const board = ref(null);
 const loading = ref(false);
