@@ -115,6 +115,24 @@ public class ManualTradeJournalController {
         }
     }
 
+    @GetMapping("/stats")
+    @Operation(summary = "내 매매 통계",
+            description = "총건수·3거래일 적중률·평균 alpha·실현 승률 + RSI/재료 breakdown. "
+                    + "표본 0건 비율/평균은 null, 평가 표본 n<10 은 insufficientSample=true(§4c).")
+    public ResponseEntity<Map<String, Object>> stats(Authentication auth) {
+        Map<String, Object> res = new HashMap<>();
+        try {
+            res.put("success", true);
+            res.put("data", journalService.stats(username(auth)));
+            return ResponseEntity.ok(res);
+        } catch (Exception e) {
+            log.error("[수동저널] 통계 실패: {}", e.getMessage(), e);
+            res.put("success", false);
+            res.put("message", "통계 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(res);
+        }
+    }
+
     @GetMapping("/{id}")
     @Operation(summary = "내 저널 단건")
     public ResponseEntity<Map<String, Object>> get(Authentication auth, @PathVariable Long id) {
