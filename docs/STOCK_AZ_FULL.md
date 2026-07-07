@@ -111,7 +111,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - **`QuantScreenerController`** `/api/quant-screener` 마법공식·턴어라운드·PEG
 
 ### 3-2. 종목 상세·시세
-- **`StockDetailController`** `/api/stock`: `{code}/summary` `quick`(1단 3~5s) `heavy`(2단) `conclusion`(룰결론, ⭐2026-07-07 tradePlan 에 ATR14×2.5 참고 atrStopPct/atrTargetPct 병기 — util 재사용·PLAN_* 불변·null=미산출 §4c) `checklist`(5-factor) `catalyst`(V31 재료) `signal-history` ⭐신규(2026-07-07, `SignalHistoryService` — signal_outcome 90일 read-only 타임라인+요약, pending=평가 대기 구분 §4c)
+- **`StockDetailController`** `/api/stock`: `{code}/summary` `quick`(1단 3~5s) `heavy`(2단) `conclusion`(룰결론, ⭐2026-07-07 tradePlan 에 ATR14×2.5 참고 atrStopPct/atrTargetPct 병기 — util 재사용·PLAN_* 불변·null=미산출 §4c) `checklist`(5-factor) `catalyst`(V31 재료) `signal-history` ⭐신규(2026-07-07, `SignalHistoryService` — signal_outcome 90일 read-only 타임라인+요약, pending=평가 대기 구분 §4c). ⭐2026-07-07(C) `/api/analysis/diagnosis/{code}` 에 RVOL(V41, `RvolService.getRvolQuiet`, null=§4c)·연속순매수 병기(단일 경로·batchScores 무부담) → QuickSummaryBar 표시
 - **`StockPriceController`** `/api/stock-price`: 현재가·히스토리·배치
 - **`StockAnalysisController`** `/api/stock-analysis`: 기술지표·수급·투자자동향
 
@@ -222,7 +222,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - **종목/시세**: `StockMaster` · `StockPrice` · `StockPriceHistory` · `StockFinancialData` · `StockCatalyst`(V31)
 - **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth -1=NA sentinel) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
 - **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog`
-- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷, NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
+- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷 + **V41(2026-07 이전 merge) `rvol_at_signal`**(당일 거래대금÷직전 20거래일 평균, `record()`가 best-effort 스냅샷 — 관심 쏠림날 적중률 사후검증용), NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
 - **시장/투자자**: `MarketDailyStatus`(ADR/condition) · `InvestorIntradaySnapshot` · `InvestorDailyTrade` · `EarningsDisclosure` · `ShortSellingBalance` · `AlertHistory`
 - **인증/유저**: `User` · `EmailVerificationToken` · `PasswordResetToken` · `WebauthnCredential`/`WebauthnChallenge`
 - **상품**: `GoldPrice`/`SilverPrice`/`OilPrice`, 배치추적 `BatchJobExecution`
@@ -500,7 +500,8 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 **B안 종합 판단 보드 Phase 1**(그 교훈을 구조로 — 검증된 것만 점수, 미검증은 표시만):
 - `GET /api/recommendation/judgment-board` + `JudgmentBoardService`(순수 `assembleRows`/`parseSectorRel`+테스트) + `JudgmentBoardDto`. 프론트 `SectionJudgmentBoard.vue`(발굴 심화 '🧭 종합판단').
-- 컬럼 3계층: **① 점수(검증/게이트** total/기술/실적/섹터테마) · **② 참고(미검증·점수 미편입** 차트타이밍/섹터강도/간밤미국장) · **③ 경고(수급 역상관 의심** ≥10, 표본작음 톤). 정렬·필터. **종합점수 산식 무변경(조립·표시 전용)**.
+- 컬럼 3계층: **① 점수(검증/게이트** total/기술/실적/섹터테마) · **② 참고(미검증·점수 미편입** 차트타이밍/섹터강도/간밤미국장/**RVOL(V41)**/신호이력) · **③ 경고(수급 역상관 의심** ≥10, 표본작음 톤). 정렬·필터. **종합점수 산식 무변경(조립·표시 전용)**.
+  - **RVOL(V41, `RvolService`)** = 당일 거래대금 ÷ 직전 20거래일 평균(종가×거래량 근사). 시세 **cache-only**(단일 시세경로), 20거래일 미만/캐시미스=**null(§4c)**. `getRvolBulk`(보드, 보드 조립 거래대금 재사용)·`getRvolQuiet`(단건). 미검증·랭킹/산식 미편입 — 배지 표시 전용. ⭐2026-07-07 종목상세 QuickSummaryBar 에도 "RVOL 2.3x" 병기(`/diagnosis` 단일 경로, batchScores 무부담).
 - Phase1 = momentum 후보(getTop5)만 — 단 `getTop5`가 **validCount≥3(75% 커버리지) + 정규화≥55** 이중 게이트라 풀이 얇음(카테고리 sparse). **Phase 2(발굴 5트랙 union, 비-momentum 4카테고리 재점수)** = 비교 대상 확보용 필수 → 다음 세션 실데이터 보고 범위 결정([P2-14]).
 
 ---

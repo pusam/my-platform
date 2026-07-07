@@ -2,6 +2,7 @@ package com.myplatform.backend.controller;
 
 import com.myplatform.backend.dto.StockDiagnosisDto;
 import com.myplatform.backend.service.InvestorBuyStreakService;
+import com.myplatform.backend.service.RvolService;
 import com.myplatform.backend.service.StockAnalysisService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -29,6 +30,7 @@ public class StockAnalysisController {
 
     private final StockAnalysisService stockAnalysisService;
     private final InvestorBuyStreakService investorBuyStreakService;
+    private final RvolService rvolService;
 
     /**
      * 종목 상세 진단 (더블 체크)
@@ -75,6 +77,13 @@ public class StockAnalysisController {
                 }
             } catch (Exception ex) {
                 log.warn("[진단] 연속 순매수일 조회 실패(생략) {}: {}", stockCode, ex.getMessage());
+            }
+            // RVOL(V41, ② 참고) 병기 — 시세 cache-only(단일 시세경로), 20일 미만/미스는 null(§4c).
+            // 단일 진단 엔드포인트에서만 — batchScores 무부담(streak 과 동일 패턴).
+            try {
+                diagnosis.setRvol(rvolService.getRvolQuiet(stockCode));
+            } catch (Exception ex) {
+                log.warn("[진단] RVOL 조회 실패(생략) {}: {}", stockCode, ex.getMessage());
             }
 
             response.put("success", true);

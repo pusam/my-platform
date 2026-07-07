@@ -73,6 +73,16 @@ describe('QuickSummaryBar (P2-10 분리)', () => {
     expect(items[3].find('.qs-streak').exists()).toBe(false)
   })
 
+  it('RVOL(V41 ② 참고) 병기 — 값 있으면 "2.3x" 라인, null=미산출(§4c)이면 미표시', () => {
+    const withRvol = mountBar({ diagnosisData: { ...diagnosis, rvol: 2.34 } })
+    const line = withRvol.find('.qs-rvol-line')
+    expect(line.exists()).toBe(true)
+    expect(line.text()).toContain('RVOL')
+    expect(line.text()).toContain('2.3x')
+    // 기본 diagnosis 엔 rvol 없음 → 미표시(§4c)
+    expect(mountBar().find('.qs-rvol-line').exists()).toBe(false)
+  })
+
   it('리스크 score 75 → SAFE / AI 80 + Trading Buy', () => {
     const items = mountBar().findAll('.qs-item')
     expect(items[4].find('.qs-badge').text()).toBe('SAFE')

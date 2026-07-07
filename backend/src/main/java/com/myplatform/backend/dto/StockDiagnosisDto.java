@@ -42,6 +42,10 @@ public class StockDiagnosisDto {
     private List<String> warnings;    // 주의 사항 목록
     private List<String> positives;   // 긍정적 요소 목록
 
+    // RVOL(V41, ② 참고 계층): 당일 거래대금 ÷ 직전 20거래일 평균. null=미산출(20일 미만·캐시 미스, §4c).
+    // 미검증·랭킹/산식 미편입 — 표시 전용. /diagnosis 단일 경로에서만 병기(batchScores 무부담).
+    private BigDecimal rvol;
+
     /**
      * 재무 건전성 분석 결과
      */

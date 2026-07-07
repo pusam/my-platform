@@ -50,6 +50,11 @@
   <div v-else-if="loading" class="quick-summary-bar skeleton">
     <div class="qs-item qs-skeleton" v-for="i in 6" :key="i"><div class="qs-skeleton-bar"></div></div>
   </div>
+  <!-- RVOL(V41 ② 참고) — 거래량 상대강도. null=미산출(20일 미만·캐시 미스, §4c) 미표시. 참고 톤(검증 전). -->
+  <div v-if="hasData && !loading && getRvolDisplay()" class="qs-rvol-line">
+    📊 RVOL <b>{{ getRvolDisplay() }}</b>
+    <span class="qs-rvol-note">거래량 20일평균 대비 · 참고(검증 전)</span>
+  </div>
 </template>
 
 <script setup>
@@ -119,6 +124,11 @@ const getQsInstAmount = () => {
 const streakLabel = (v) => (v != null && Number(v) >= 2 ? `${Number(v)}일 연속` : '');
 const getQsForeignStreak = () => streakLabel(props.diagnosisData?.supplyDemand?.foreignBuyStreak);
 const getQsInstStreak = () => streakLabel(props.diagnosisData?.supplyDemand?.institutionBuyStreak);
+// RVOL(V41 ② 참고, unverified) — 당일 거래대금 ÷ 20일 평균. null=미산출(§4c) → 미표시. "2.3x" 형태.
+const getRvolDisplay = () => {
+  const v = props.diagnosisData?.rvol;
+  return v == null ? null : Number(v).toFixed(1) + 'x';
+};
 const getQsRiskClass = () => {
   const score = props.diagnosisData?.overallScore;
   if (score == null) return 'qs-neutral';
@@ -163,6 +173,13 @@ const getQsRiskLabel = () => {
   padding: 0 5px; border-radius: 4px;
   background: rgba(239,68,68,0.14); color: #f87171;
 }
+.qs-rvol-line {
+  margin-top: 8px; padding: 6px 12px; border-radius: 8px;
+  font-size: 11.5px; color: #cbd5e1;
+  background: rgba(148,163,184,0.10); border: 1px solid rgba(148,163,184,0.18);
+}
+.qs-rvol-line b { color: #e2e8f0; font-variant-numeric: tabular-nums; }
+.qs-rvol-note { font-size: 10px; opacity: 0.6; margin-left: 6px; }
 .qs-badge {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
   background: rgba(107,114,128,0.2); color: #9ca3af;
