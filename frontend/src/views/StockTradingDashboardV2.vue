@@ -77,6 +77,19 @@
                         :class="item.changeRate >= 0 ? 'positive' : 'negative'">
                     {{ item.changeRate >= 0 ? '+' : '' }}{{ Number(item.changeRate).toFixed(2) }}%
                   </span>
+                  <!-- 목표 매수가 알림(선택) — 현재가가 목표가 '이하' 도달 시 텔레그램(기존 checkWatchlistAlerts 파이프). @click.stop=행 이동 방지 -->
+                  <span class="wl-target" @click.stop>
+                    <template v-if="editingWatchId === item.id">
+                      <input class="wl-target-input" type="number" inputmode="numeric" v-model="editingTargetInput"
+                             placeholder="목표가" @keyup.enter="saveTarget(item)" @keyup.esc="cancelEditTarget" />
+                      <button class="wl-target-btn save" @click="saveTarget(item)">저장</button>
+                      <button class="wl-target-btn cancel" @click="cancelEditTarget">✕</button>
+                    </template>
+                    <button v-else class="wl-target-btn set" :class="{ 'has-target': item.targetPrice != null }"
+                            @click="startEditTarget(item)">
+                      🎯 {{ item.targetPrice != null ? Number(item.targetPrice).toLocaleString() + ' 이하' : '목표가' }}
+                    </button>
+                  </span>
                 </div>
               </div>
             </div>
@@ -715,6 +728,8 @@ export default {
       watchlistItems: [],
       watchlistRisks: {},
       watchlistExpanded: false,   // 오늘 탭 관심종목 — 기본 접힘(가끔 봄, 2026-07-01 이동)
+      editingWatchId: null,       // 목표가 인라인 편집 중인 관심종목 id (null=편집 안 함)
+      editingTargetInput: '',     // 목표가 입력 임시값
       // 관심종목 차트 패턴 스캔 결과 (top 1 패턴/종목)
       chartSignals: [],
       chartSignalsSource: '', // 'WATCHLIST' or 'TOP_VOLUME'
@@ -1334,6 +1349,34 @@ export default {
 
     goToStock(code) {
       if (code) this.$router.push(`/stock/${code}`)
+    },
+
+    // ---- 관심종목 목표 매수가 알림 설정 (기존 백엔드 checkWatchlistAlerts 파이프 재사용) ----
+    startEditTarget(item) {
+      this.editingWatchId = item.id
+      this.editingTargetInput = item.targetPrice != null ? String(item.targetPrice) : ''
+    },
+    cancelEditTarget() {
+      this.editingWatchId = null
+      this.editingTargetInput = ''
+    },
+    async saveTarget(item) {
+      const price = Number(String(this.editingTargetInput).trim())
+      if (!isFinite(price) || price <= 0) { this.cancelEditTarget(); return }
+      try {
+        // 목표 매수가 = 현재가가 목표가 '이하'로 내려오면 알림(BELOW). 백엔드 WatchlistService.updateAlert 저장 →
+        // 장중 5분 크론(checkWatchlistAlerts)이 도달 시 텔레그램 발송(신규 알림 경로 안 만듦 — 기존 재사용).
+        const res = await watchlistAPI.setAlert(item.id, price, 'BELOW')
+        const updated = this.extractData(res)
+        // 전체 reload 대신 해당 항목만 로컬 반영 (updated 없으면 입력값).
+        item.targetPrice = updated && updated.targetPrice != null ? updated.targetPrice : price
+        item.alertCondition = 'BELOW'
+        item.alertTriggered = false
+      } catch (e) {
+        // 실패 시 조용히 — 편집만 닫음 (토스트는 상위 인터셉터가 처리)
+      } finally {
+        this.cancelEditTarget()
+      }
     },
 
     // ---- 종목 선택 → 상세 페이지 이동 ----
@@ -2008,6 +2051,20 @@ export default {
 .wl-name { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.85); }
 .wl-price { font-size: 13px; color: rgba(255,255,255,0.6); font-family: monospace; }
 .wl-change { font-size: 12px; font-weight: 700; width: 55px; text-align: right; }
+/* 목표 매수가 알림 (선택) */
+.wl-target { display: inline-flex; align-items: center; gap: 4px; }
+.wl-target-btn {
+  font-size: 11px; padding: 2px 7px; border-radius: 6px; cursor: pointer;
+  background: rgba(148,163,184,0.14); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.2);
+  white-space: nowrap;
+}
+.wl-target-btn.has-target { background: rgba(56,189,248,0.16); color: #7dd3fc; border-color: rgba(56,189,248,0.35); }
+.wl-target-btn.save { background: rgba(56,189,248,0.2); color: #e0f2fe; border-color: rgba(56,189,248,0.4); }
+.wl-target-btn.cancel { padding: 2px 6px; }
+.wl-target-input {
+  width: 74px; font-size: 11px; padding: 2px 6px; border-radius: 6px;
+  background: rgba(0,0,0,0.25); color: #e2e8f0; border: 1px solid rgba(148,163,184,0.35);
+}
 
 /* ===== 오늘 강세 섹터 카드 ===== */
 .strong-sectors .ss-disclaimer {

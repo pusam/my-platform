@@ -316,7 +316,7 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 
 | 탭(key) | 렌더 | 내용 |
 |---|---|---|
-| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(2026-06-30)** · 매수후보(55컷 momentum) · **시간대신호(장전/장후)·실시간수급(장중)**(슬롯 #phase-signals, 발굴서 이동 2026-07-01) · **🪝 차트 타이밍 관찰(python timing, 접기)** · 신뢰도 · **관심종목(슬롯 #watchlist, 접힘)** · 내 포지션 · 도구 |
+| **오늘(today)** | `TodayBriefingTab.vue` | 시장 한줄 · **🌙 간밤 미국장 tilt(2026-06-30)** · 매수후보(55컷 momentum) · **시간대신호(장전/장후)·실시간수급(장중)**(슬롯 #phase-signals, 발굴서 이동 2026-07-01) · **🪝 차트 타이밍 관찰(python timing, 접기)** · 신뢰도 · **관심종목(슬롯 #watchlist, 접힘 — ⭐2026-07-07(C) 행별 🎯목표 매수가 인라인 편집: `watchlistAPI.setAlert(id,price,'BELOW')` → 기존 `WatchlistService.checkWatchlistAlerts` 5분 크론이 도달 시 텔레그램. 백엔드·크론 기존재, 프론트 UI 만 보완 — 신규 알림 경로/Flyway 없음)** · 내 포지션 · 도구 |
 | **시장(market)** | 허브 인라인 + 서브탭 | 시장지도(`SectionMarketMap`)·섹터거래대금 / 서브: 수급·타이밍·뉴스·글로벌(embedded) |
 | **발굴(discover)** | 허브 인라인 + 2단 서브탭 | 상단 **'덜 빠지는 섹터' 배지(베타)** + 리스트 5트랙 + 심화도구 |
 | **매매(trade)** | `PaperTradingPage.vue`(관리자) | 모의·실전·봇성과·주간리포트 |
