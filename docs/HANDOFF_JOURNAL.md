@@ -24,7 +24,15 @@
   `findPendingEvaluation(beforeAt)`(평가 대기). **compileJava green.**
 - v1 스코프: **매도 전량 가정**(부분매도 미지원 — 주석 명시).
 
-## [진행 중] Phase 1-2 — 스냅샷 조립 서비스 + 기록 API (다음 착수)
+## [완료] Phase 1-2 — 커밋 `a2b0e23` (Phase 1 전체 완료)
+- `ManualTradeJournalService`(recordBuy 스냅샷 자동·recordSell 전량·list/get 소유검증,
+  순수함수 assembleSnapshot/fiveDayReturn/realizedPct + 테스트 4) + `ManualTradeJournalController`
+  (/api/manual-journal POST·PUT /{id}/close·GET /·GET /{id}). 타겟 테스트 green.
+- RSI 는 diagnose() 사용으로 결정(heavy 하나 사용자 단발 액션 — 허용). ATR 은 AtrExitRule.judge 재사용.
+- 미실행: `:backend:migrationTest`(로컬 Docker 미기동 — **CI 가 V43 검증**), 전체 test 는 CI 게이트.
+- **다음 세션 시작점 = Phase 2** (아래 원문 요지 그대로). STOCK_AZ_FULL.md 갱신도 미완(Phase 3 후 일괄 권장).
+
+## [참고·원계획] Phase 1-2 상세 (완료됨 — 소스 위치 기록 보존용)
 1. **`ManualTradeJournalService`** 신규. 스냅샷 수집은 **순수 조립 함수 분리 + 테스트**, 각 소스
    best-effort(실패=해당 필드 null, 기록은 항상 성공). 소스별 재사용 위치(중복 구현 금지):
    - 종합점수·4카테고리: `RecommendationSnapshotRepository.findLatestByStockCode(code)` →
