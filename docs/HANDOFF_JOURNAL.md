@@ -57,7 +57,16 @@
      (`WatchlistController.getUsername(auth)` 패턴 복사) + `findByIdAndUsername`.
 3. 커밋 단위: 서비스+조립테스트 → 컨트롤러. 각각 별도 커밋.
 
-## [미착수] Phase 2 — 자동 평가 + stats API
+## [완료] Phase 2 — 커밋 `ba675a78` (2026-07-07)
+- V44 `bm_price_at_buy`(매수 시점 KOSPI 스냅샷, recordBuy best-effort) — alpha 계산용.
+- 평가 배치 `evaluatePendingJournals` 19:40 MON-FRI batchScheduler(19:30 시그널 평가와 분리),
+  buyDate ≤ today-3 컷, hit=`SignalOutcomeService.isHit` 재사용(패키지 스태틱), 멱등 UPDATE.
+- `GET /api/manual-journal/stats` → `ManualJournalStatsDto`(총건수·적중률·평균 alpha·실현 승률
+  + RSI70/재료 breakdown, 표본0=null·n<10=insufficientSample). 순수함수 evaluate/computeStats+테스트.
+- 전체 백엔드 test green(컨텍스트 스모크 포함). migrationTest 는 CI 게이트(로컬 Docker 미기동).
+- **다음 시작점 = Phase 3 (프론트)**.
+
+## [참고·원계획] Phase 2 상세 (완료됨)
 - 매수 3거래일 후 pct/alpha: **`SignalOutcomeService` 의 bm/alpha 계산 재사용**(벤치마크=KIS 지수
   `getIndexPrice("0001")`, alpha=종목수익-지수수익). **hit = alpha_3d≥0 AND pct_change_3d>0**
   (signal_outcome 동일, 폴백 pct≥3%). pending/완료 구분(§4c, evaluatedAt null=대기).
