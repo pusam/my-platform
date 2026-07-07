@@ -1,6 +1,6 @@
 # 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(B)(**표시 전용 read-only 3작업**: 공매도 死진단(미구현)·종목상세 📰재료이력·외인/기관 연속순매수 배지 — §19 상단 세션 요약. 그 앞: ATR 세트 V42 §14-7 + 신호 이력/보드↔상세 네비 + 악재 조기경보).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(B)(**표시 전용 read-only 3작업**: 공매도 死진단(미구현)·종목상세 📰재료이력·외인/기관 연속순매수 배지 + **후속 버그픽스: 기관 수급 키 오타(instNet5Days→institutionNet5Days)** — §19 상단 세션 요약. 그 앞: ATR 세트 V42 §14-7 + 신호 이력/보드↔상세 네비 + 악재 조기경보).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -461,7 +461,8 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 - **작업1 — 공매도 잔고 표시 = 死진단만(미구현)**: 정찰 결과 `short_selling_balance` 1·2차 소스 모두 死 — KRX(`data.krx.co.kr getJsonData MDCSTAT030100`)는 세션/OTP 미확립으로 본문 `"LOGOUT"`(날짜 무관), 네이버 fallback(`finance.naver.com/sise/sise_short_balance.naver`)은 **HTTP 404 페이지 폐지**. `collectShortSellingData()`는 매 실행 0건 → 신규 데이터 미유입. §4c(죽은 데이터 위장 표시 금지)에 따라 **표시 구현 안 함**, 진단 문서 `docs/SHORT_SELLING_DEAD_FEED_DIAGNOSIS.md`만 커밋(복구책: KRX OTP 2-스텝 or 정식 API + 네이버 URL 교체). ※ 로컬 mariadb 볼륨 empty(운영 DB 원격)라 마지막 적재일은 운영 확인 필요, 단 소스 死는 curl 실측 확정.
 - **작업2 — 종목상세 📰 재료 이력**: `GET /api/stock/{code}/catalyst-history`(`CatalystHistoryService.assemble` 순수·테스트 3) — stock_catalyst 30일 **read-only**(신규 classify 없음 §4b), 날짜별 등락률 병기(StockPriceHistory, 없으면 null §4c), NONE 제외. 프론트 `CatalystHistorySection.vue`(SignalHistorySection 옆, DetailSection 접기, n=0 미렌더, vitest 5).
 - **작업3 — 외인/기관 연속 순매수일 배지**: 순수함수 `InvestorBuyStreakCalculator`(거래일 캘린더 최신순 연속 BUY일, 5일 미만=null §4c, 테스트 6) + `InvestorBuyStreakService`(단일/배치, 보드는 IN절 4쿼리 N+1 없음). 종목상세 QuickSummaryBar "N일 연속"(2일↑, `/diagnosis` 컨트롤러 병기 — batchScores 무부담) + 종합판단 보드 ② 참고 "수급연속" 컬럼(외N·기M). streak5 = 백테스트 약한 양(+) 신호 → **참고 톤·unverified·산식 미편입**.
-- 검증: 백엔드 신규/변경 타겟 테스트 green + 전체 compile 성공(전체 :backend:test는 CI 게이트), 프론트 **168 vitest green + build 성공**. 새 주식 라우트 없음.
+- **작업4 — 기관 수급 표시 키 오타 수정(후속 버그픽스)**: 백엔드 `StockDiagnosisDto.SupplyDemandDto` 직렬화 키를 코드로 확정(필드 `institutionNet5Days`, `@JsonProperty`·전역 naming-strategy 없음 → JSON 키 = `institutionNet5Days`). 프론트가 **`instNet5Days`(오타)** 로 읽어 `undefined` → 기관 5일 수급이 화면에서 누락되던 표시 버그. `QuickSummaryBar.vue`(기관 라벨/금액/색상 3곳) + `StockBriefingHeadline.vue`(`instNet` computed — 항상 null이라 "외인·기관 동반 매도" 경고·supplyPos에서 기관 무시)를 정정. 이미 정합이던 `FundamentalDiagnosisPanel`·`EarningsScreenerPage`·외국인(`foreignNet5Days`)은 무변경. 회귀 테스트: 실제 키만 채운 mock 가드 2건(구 오타면 실패). **표시 버그만** — 산식·백엔드 무변경.
+- 검증: 백엔드 신규/변경 타겟 테스트 green + 전체 compile 성공(전체 :backend:test는 CI 게이트), 프론트 **171 vitest green + build 성공**. 새 주식 라우트 없음.
 
 ### 작업0 — python pytest Docker 검증
 - Dockerfile `COPY tests/`+`pytest.ini` 누락 수정 → 차트 지표 18 green. (로컬 Python 없어 Docker 내 실행 확정.)
@@ -649,4 +650,4 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-07(B) 갱신**(§19 상단 = 07-07(B) 세션 반영: **표시 전용 read-only 3작업** — 공매도 死진단(미구현)·종목상세 📰재료이력·외인/기관 연속순매수 배지. 그 앞 07-07: ATR 세트 V42·신호 이력/보드↔상세 네비). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-07(B) 갱신**(§19 상단 = 07-07(B) 세션 반영: **표시 전용 read-only 3작업** — 공매도 死진단(미구현)·종목상세 📰재료이력·외인/기관 연속순매수 배지 + **후속 버그픽스: 기관 수급 키 오타 정정**. 그 앞 07-07: ATR 세트 V42·신호 이력/보드↔상세 네비). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
