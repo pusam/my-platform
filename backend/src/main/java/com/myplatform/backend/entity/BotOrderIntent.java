@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
  *
  * <p><b>BUY 전용</b>: SELL 은 RealTradeService.sell 의 보유수량 체크가 이미 자연 멱등 + 정규장 청산 재시도와
  * 충돌하므로 미적용. 일자 포함 unique 라 일자별 자연 만료(별도 TTL 불필요).
+ * SELL 의 동시 부분청산 창은 별도 메커니즘 {@link BotSellInflight}(V45, TTL 60s 마커·fail-open)가 방어.
  */
 @Entity
 @Table(name = "bot_order_intent",

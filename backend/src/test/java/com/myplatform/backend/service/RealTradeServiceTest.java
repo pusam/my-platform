@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +59,7 @@ class RealTradeServiceTest {
     @Mock private TradingSafetyService safetyService;
     @Mock private TradingAuditService auditService;
     @Mock private BotOrderIntentService orderIntentService;
+    @Mock private BotSellInflightService sellInflightService;
 
     @InjectMocks
     private RealTradeService service;
@@ -81,6 +83,9 @@ class RealTradeServiceTest {
         // 멱등키: 기본 PROCEED(중복 아님) — 기존 buy 테스트가 게이트를 통과해 KIS 까지 가도록.
         lenient().when(orderIntentService.tryAcquire(anyString(), anyString(), any()))
                 .thenReturn(BotOrderIntentService.OrderGate.PROCEED);
+        // SELL in-flight 마커: 기본 PROCEED — 기존 sell 테스트가 게이트를 통과하도록.
+        lenient().when(sellInflightService.tryAcquire(anyString()))
+                .thenReturn(BotSellInflightService.SellGate.PROCEED);
         when(safetyService.enable(anyString(), anyString())).thenReturn(new TradingKillSwitch());
 
         // auditService.start 는 Ctx 반환 — 내부 필드만 들고 있어 mock 으로 충분
@@ -395,6 +400,64 @@ class RealTradeServiceTest {
 
             verify(safetyService).enable(contains("KIS 매도"), eq("system-auto"));
             verify(telegramService).sendRisk(anyString());
+        }
+
+        @Test
+        @DisplayName("in-flight 마커 SKIP → 이번 사이클 양보(KIS 미호출) + 남의 마커 release 금지 (P3-1 B안)")
+        void sell_inflightSkip_yieldsWithoutReleasingOthersMarker() {
+            BalanceInfo bal = balanceWith(BigDecimal.ZERO, List.of(holding(20, new BigDecimal("60000"))));
+            when(kisService.getBalance()).thenReturn(okBalanceJson());
+            when(kisService.parseBalance(any())).thenReturn(bal);
+            when(sellInflightService.tryAcquire(STOCK_CODE))
+                    .thenReturn(BotSellInflightService.SellGate.SKIP_CONCURRENT);
+
+            assertThatThrownBy(() ->
+                    service.sell(STOCK_CODE, new BigDecimal("70000"), 10, "TAKE_PROFIT"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("동시 매도");
+
+            verify(kisService, never()).sellStock(anyString(), anyInt(), any());
+            verify(tradeHistoryRepository, never()).save(any(VirtualTradeHistory.class));
+            // SKIP 은 다른 주체의 유효 마커 — 지우면 그쪽 보호가 풀림
+            verify(sellInflightService, never()).release(anyString());
+            // 킬스위치 아님(양보일 뿐 — 다음 사이클 정상 재평가)
+            verify(safetyService, never()).enable(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("in-flight 마커 DB 오류(PROCEED_UNGUARDED) → fail-open, 매도는 진행 (BUY fail-closed 와 극성 반대)")
+        void sell_inflightUnguarded_proceedsFailOpen() {
+            BalanceInfo bal = balanceWith(BigDecimal.ZERO, List.of(holding(20, new BigDecimal("60000"))));
+            when(kisService.getBalance()).thenReturn(okBalanceJson());
+            when(kisService.parseBalance(any())).thenReturn(bal);
+            when(kisService.sellStock(eq(STOCK_CODE), eq(10), any())).thenReturn(kisOkResponse("SELL-002"));
+            when(sellInflightService.tryAcquire(STOCK_CODE))
+                    .thenReturn(BotSellInflightService.SellGate.PROCEED_UNGUARDED);
+
+            TradeHistoryDto result = service.sell(STOCK_CODE, new BigDecimal("70000"), 10, "STOP_LOSS");
+
+            assertThat(result).isNotNull();
+            verify(kisService).sellStock(eq(STOCK_CODE), eq(10), any());
+        }
+
+        @Test
+        @DisplayName("매도 성공/KIS 예외 모두 마커 release 호출(finally) — TTL 잔존으로 다음 정당 매도 지연 방지")
+        void sell_releasesMarkerOnSuccessAndException() {
+            BalanceInfo bal = balanceWith(BigDecimal.ZERO, List.of(holding(20, new BigDecimal("60000"))));
+            when(kisService.getBalance()).thenReturn(okBalanceJson());
+            when(kisService.parseBalance(any())).thenReturn(bal);
+
+            // 성공 경로
+            when(kisService.sellStock(eq(STOCK_CODE), eq(10), any())).thenReturn(kisOkResponse("SELL-003"));
+            service.sell(STOCK_CODE, new BigDecimal("70000"), 10, "TAKE_PROFIT");
+            verify(sellInflightService, times(1)).release(STOCK_CODE);
+
+            // KIS 예외 경로(killswitch) — finally 로 release 는 여전히 호출
+            when(kisService.sellStock(eq(STOCK_CODE), eq(10), any())).thenThrow(new RuntimeException("timeout"));
+            assertThatThrownBy(() ->
+                    service.sell(STOCK_CODE, new BigDecimal("70000"), 10, "STOP_LOSS"))
+                    .isInstanceOf(RuntimeException.class);
+            verify(sellInflightService, times(2)).release(STOCK_CODE);
         }
 
         @Test

@@ -39,6 +39,7 @@ public class RealTradeService implements TradeService {
     private final TradingSafetyService safetyService;
     private final TradingAuditService auditService;
     private final BotOrderIntentService orderIntentService;   // BUY 멱등키(리더 전환 중복 매수 방지)
+    private final BotSellInflightService sellInflightService; // SELL in-flight 마커(동시 부분청산 과청산 방지, P3-1 B안)
 
     // 실전매매용 계좌 ID (가상 ID - 실제 계좌와 구분)
     // package-private — DailyLossBreakerService(일일 손실 브레이커) 가 실전 실현손익 합산 계정으로 참조.
@@ -426,89 +427,106 @@ public class RealTradeService implements TradeService {
             throw new IllegalStateException("매도 차단: " + decision.reason());
         }
 
-        // 2) 감사 로그 시작
-        TradingAuditService.Ctx audit = auditService.start(
-                TradingAuditLog.Action.SELL, TradingAuditLog.Mode.REAL,
-                stockCode, stockName, quantity, price, reason);
+        // 1.5) SELL in-flight 마커 게이트 (P3-1 B안, V45) — 리더 전환/더블런 "동시 창" 부분청산 과청산 방지.
+        //      SKIP=이번 사이클만 양보(다음 사이클엔 마커 만료 + 잔고 재조회가 진실 원장 → 잔여 재시도 정상 통과).
+        //      DB 오류=PROCEED_UNGUARDED(fail-open) — BUY 멱등키(fail-closed throw)와 의도적 극성 반대(매도 지연=손실 확대).
+        BotSellInflightService.SellGate sellGate = sellInflightService.tryAcquire(stockCode);
+        if (sellGate == BotSellInflightService.SellGate.SKIP_CONCURRENT) {
+            auditService.blocked(TradingAuditLog.Action.SELL, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason, "SELL in-flight 마커 — 동시 매도 시도 양보");
+            log.warn("[실전매매] 동시 매도 감지(in-flight 마커) — 이번 사이클 양보: {} ({})", stockName, stockCode);
+            throw new IllegalStateException("동시 매도 시도 감지 — 이번 사이클 양보(다음 사이클 재평가)");
+        }
 
-        // 3) KIS API 매도 주문 — 매수와 동일한 안전장치
-        JsonNode orderResult;
         try {
-            orderResult = kisService.sellStock(stockCode, quantity, price);
-        } catch (RuntimeException e) {
-            auditService.failure(audit, null, "EXCEPTION", e);
-            triggerKillSwitchOnUncertainty("매도", stockName, stockCode, e.getMessage());
-            throw e;
+            // 2) 감사 로그 시작
+            TradingAuditService.Ctx audit = auditService.start(
+                    TradingAuditLog.Action.SELL, TradingAuditLog.Mode.REAL,
+                    stockCode, stockName, quantity, price, reason);
+
+            // 3) KIS API 매도 주문 — 매수와 동일한 안전장치
+            JsonNode orderResult;
+            try {
+                orderResult = kisService.sellStock(stockCode, quantity, price);
+            } catch (RuntimeException e) {
+                auditService.failure(audit, null, "EXCEPTION", e);
+                triggerKillSwitchOnUncertainty("매도", stockName, stockCode, e.getMessage());
+                throw e;
+            }
+
+            if (orderResult == null) {
+                auditService.failure(audit, null, "API 응답 null", null);
+                triggerKillSwitchOnUncertainty("매도", stockName, stockCode, "API 응답 null");
+                throw new IllegalStateException("매도 주문 API 호출 실패");
+            }
+
+            String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
+            String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
+            if (!"0".equals(rtCd)) {
+                // KIS 명시적 거부 — 주문 안 들어감
+                auditService.failure(audit, rtCd, msg, null);
+                throw new IllegalStateException("매도 주문 실패: " + msg);
+            }
+
+            // 주문번호 추출
+            String orderNo = "";
+            if (orderResult.has("output") && orderResult.get("output").has("ODNO")) {
+                orderNo = orderResult.get("output").get("ODNO").asText();
+            }
+
+            auditService.success(audit, rtCd, msg, orderNo);
+
+            // 총 금액 및 손익 계산
+            BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal commission = totalAmount.multiply(new BigDecimal("0.00015"))
+                    .setScale(0, RoundingMode.CEILING);
+            BigDecimal tax = totalAmount.multiply(SELL_TAX_RATE)   // 단일 출처 — TradeService.SELL_TAX_RATE(0.15%)
+                    .setScale(0, RoundingMode.CEILING);
+            BigDecimal netAmount = totalAmount.subtract(commission).subtract(tax);
+            BigDecimal investedAmount = avgPrice.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal profitLoss = netAmount.subtract(investedAmount);
+
+            // 거래 내역 저장 (DB) — 매수와 동일한 정책: KIS 성공 + DB 실패 = 즉시 kill switch
+            VirtualTradeHistory trade = VirtualTradeHistory.builder()
+                    .accountId(REAL_ACCOUNT_ID)
+                    .stockCode(stockCode)
+                    .stockName(stockName)
+                    .tradeType("SELL")
+                    .quantity(quantity)
+                    .price(price)
+                    .totalAmount(totalAmount)
+                    .commission(commission)
+                    .tax(tax)
+                    .profitLoss(profitLoss)
+                    .tradeReason(reason != null ? reason : "MANUAL")
+                    .tradeDate(DateTimeUtil.kstNow())
+                    .build();
+            try {
+                tradeHistoryRepository.save(trade);
+            } catch (RuntimeException dbErr) {
+                alertDbInconsistency("매도", stockName, stockCode, quantity, price, orderNo, dbErr);
+                triggerKillSwitchOnUncertainty("매도-DB저장",
+                        stockName, stockCode, "DB save 실패: " + dbErr.getMessage());
+                throw dbErr;
+            }
+
+            log.info("[실전매매] 매도 주문 완료: {} ({}) x {} @ {}원, 손익: {}원, 주문번호: {}",
+                    stockName, stockCode, quantity, price, profitLoss, maskOrderNo(orderNo));
+
+            // 캐시 무효화
+            cachedBalance = null;
+
+            // 텔레그램 알림
+            sendRealSellAlert(stockName, stockCode, price, quantity, profitLoss, reason, orderNo);
+
+            TradeHistoryDto dto = toTradeHistoryDto(trade);
+            dto.setOrderNo(orderNo);  // B2-A: 봇이 체결조회(confirmFill)에 사용
+            return dto;
+        } finally {
+            // 마커 해제(best-effort) — 예외(killswitch 경로 포함)에도 해제, 실패 시 TTL(60s) 만료가 백스톱.
+            // SKIP_CONCURRENT 는 위에서 throw 라 여기 안 옴(남의 마커를 지우지 않음).
+            sellInflightService.release(stockCode);
         }
-
-        if (orderResult == null) {
-            auditService.failure(audit, null, "API 응답 null", null);
-            triggerKillSwitchOnUncertainty("매도", stockName, stockCode, "API 응답 null");
-            throw new IllegalStateException("매도 주문 API 호출 실패");
-        }
-
-        String rtCd = orderResult.has("rt_cd") ? orderResult.get("rt_cd").asText() : "";
-        String msg = orderResult.has("msg1") ? orderResult.get("msg1").asText() : "";
-        if (!"0".equals(rtCd)) {
-            // KIS 명시적 거부 — 주문 안 들어감
-            auditService.failure(audit, rtCd, msg, null);
-            throw new IllegalStateException("매도 주문 실패: " + msg);
-        }
-
-        // 주문번호 추출
-        String orderNo = "";
-        if (orderResult.has("output") && orderResult.get("output").has("ODNO")) {
-            orderNo = orderResult.get("output").get("ODNO").asText();
-        }
-
-        auditService.success(audit, rtCd, msg, orderNo);
-
-        // 총 금액 및 손익 계산
-        BigDecimal totalAmount = price.multiply(BigDecimal.valueOf(quantity));
-        BigDecimal commission = totalAmount.multiply(new BigDecimal("0.00015"))
-                .setScale(0, RoundingMode.CEILING);
-        BigDecimal tax = totalAmount.multiply(SELL_TAX_RATE)   // 단일 출처 — TradeService.SELL_TAX_RATE(0.15%)
-                .setScale(0, RoundingMode.CEILING);
-        BigDecimal netAmount = totalAmount.subtract(commission).subtract(tax);
-        BigDecimal investedAmount = avgPrice.multiply(BigDecimal.valueOf(quantity));
-        BigDecimal profitLoss = netAmount.subtract(investedAmount);
-
-        // 거래 내역 저장 (DB) — 매수와 동일한 정책: KIS 성공 + DB 실패 = 즉시 kill switch
-        VirtualTradeHistory trade = VirtualTradeHistory.builder()
-                .accountId(REAL_ACCOUNT_ID)
-                .stockCode(stockCode)
-                .stockName(stockName)
-                .tradeType("SELL")
-                .quantity(quantity)
-                .price(price)
-                .totalAmount(totalAmount)
-                .commission(commission)
-                .tax(tax)
-                .profitLoss(profitLoss)
-                .tradeReason(reason != null ? reason : "MANUAL")
-                .tradeDate(DateTimeUtil.kstNow())
-                .build();
-        try {
-            tradeHistoryRepository.save(trade);
-        } catch (RuntimeException dbErr) {
-            alertDbInconsistency("매도", stockName, stockCode, quantity, price, orderNo, dbErr);
-            triggerKillSwitchOnUncertainty("매도-DB저장",
-                    stockName, stockCode, "DB save 실패: " + dbErr.getMessage());
-            throw dbErr;
-        }
-
-        log.info("[실전매매] 매도 주문 완료: {} ({}) x {} @ {}원, 손익: {}원, 주문번호: {}",
-                stockName, stockCode, quantity, price, profitLoss, maskOrderNo(orderNo));
-
-        // 캐시 무효화
-        cachedBalance = null;
-
-        // 텔레그램 알림
-        sendRealSellAlert(stockName, stockCode, price, quantity, profitLoss, reason, orderNo);
-
-        TradeHistoryDto dto = toTradeHistoryDto(trade);
-        dto.setOrderNo(orderNo);  // B2-A: 봇이 체결조회(confirmFill)에 사용
-        return dto;
     }
 
     /**
