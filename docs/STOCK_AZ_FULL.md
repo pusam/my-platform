@@ -1,6 +1,6 @@
 # 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-06-30(차트 백테스트·P0-pykrx KIS 지수전환·V36 unique·간밤 미국장 tilt 반영 — §20 세션 요약).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-07(ATR 세트 V42 봇 통합 §14-7 + 신호 이력/ATR 참고치/보드↔상세 네비 — §19 세션 요약).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -609,6 +609,20 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 
 ---
 
+### 2026-07-07 세션 — ATR 세트 봇 통합(V42, Phase 0~3) + 표시 전용 3작업(신호 이력·ATR 참고치·보드↔상세 네비)
+
+**전반: ATR 세트(ATR×2.5 청산 + 리스크 균등 사이징) 봇 통합** — Phase 0(현행 매핑 문서화, 코드 무변경) → Phase 1(`AtrCalculator`/`PositionSizer`/`AtrExitRule` 순수함수, 미배선) → Phase 2(봇 배선, **VIRTUAL 전용·flag `bot.atr-trading.enabled` 기본 OFF·REAL 2중 하드 가드**, V42) → Phase 3(포트폴리오 레벨 재생 백테스트 — 브레이커 가상 발동 0=0 동수 확인). 상세 = **§14-7**·`docs/ATR_TRADING_SET.md`·`SIGNAL_VALIDATION_2026-07.md` Phase 3-b. REAL 확장 조건 = P2-17(VIRTUAL 2주+ 실측).
+
+**후반: 이미 쌓인 데이터의 화면 노출 3작업** — 전부 **표시 전용 read-only**(산식·임계·봇·시세경로·Flyway 무변경), 각 독립 커밋:
+
+1. **종목별 신호 이력**(`661f857`): `SignalHistoryService` 신규 — `signal_outcome` 최근 90일 read-only 타임라인+요약(평가 n·적중·평균 α), **평가 전 행 = pending(평가 대기) 구분**(§4c 미평가≠미스). 순수함수 `assemble` 분리+테스트. `GET /api/stock/{code}/signal-history`. 종목상세 심화 `SignalHistorySection`(요약을 접기 제목에 병기, n=0 미렌더, 자체 fetch=quick 무지연). 종합판단 보드 행에 trackCount/Hit/avgAlpha 병합 — **IN 절 1쿼리**(`aggregateTrackRecordByCodes`, N+1 금지), '이력' 컬럼(② 참고, "3/5 · α+1.2%") + 정렬(적중률 desc, **n<3 표본부족 "—" 항상 하단**).
+2. **ATR 참고 손절/목표**(`77bafb4`): `StockConclusionService.buildTradePlan` 이 기존 `AtrCalculator`/`AtrExitRule` **재사용**(신규 구현 없음, 봇과 동일 소스·40행) → `TradePlan.atrStopPct/atrTargetPct` **병기만**(PLAN_* 산식·기존 필드 불변, ATR 미산출=null). 결론카드 손절/목표 아래 amber '관찰' 톤 줄("백테스트 참고치 · 검증 전 — 기본 계획 아님", null=미렌더).
+3. **보드↔상세 왕복 네비**(`f1b4c06`, 순수 프론트): 보드 행 클릭 → 표시 순서 코드 리스트를 sessionStorage `judgmentBoard.nav` 저장 + `/stock/{code}` **새 탭**(복사본 상속 — 새 라우트·쿼리 오염 없음, 팝업 차단 시 같은 탭 폴백). 상세 헤더 "◀ 이전 / 보드 N/M / 다음 ▶" — **보드 진입 시에만** 표시(직접 진입 미표시). `/stock/:code` 는 컴포넌트 재사용 라우트라 이동 시 명시적 재조회(router.replace + searchStock).
+
+검증: 백엔드 전체 `./gradlew test -PskipFrontend` + 프론트 vitest 160 + build green. 신규 테스트 = `SignalHistoryServiceTest`·`JudgmentBoardServiceTest`(trackRecord)·`StockConclusionServiceTest`(ATR 3케이스)·`SignalHistorySection.test.js`·보드/결론카드 테스트 확장.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
@@ -616,4 +630,4 @@ VKOSPI 90대 고변동 국면 대비 — 연쇄 손절 시 출혈 확대를 막�
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-06 갱신**(§19 = ~07-06 세션 반영: ×10 가격 진단·봇 sanity 가드·**P1-6 예측력 측정 상설화(주간 배치)**). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-07 갱신**(§19 = ~07-07 세션 반영: ATR 세트 V42 봇 통합·**신호 이력/ATR 참고치/보드↔상세 네비(표시 전용 3작업)**). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
