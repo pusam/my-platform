@@ -104,14 +104,14 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
   - `GET /earnings-top10` 실적(흑자전환·이익급증)
   - `GET /smartmoney-top10` 수급(외국인·기관 순매수)
   - `GET /strong-value-frequency` STRONG_BUY+강가치 빈도(phase35 검증)
-  - `GET /judgment-board?scope=momentum|union` ⭐신규(2026-06-30 B안, 2026-07-01 union Phase2-A) 종합 판단 보드(매수후보 3계층 신호 비교; union=발굴 5트랙 합집합, 4-cat은 scoreMap lookup·없으면 "—"; 산식 무변경 조립)
+  - `GET /judgment-board?scope=momentum|union` ⭐신규(2026-06-30 B안, 2026-07-01 union Phase2-A) 종합 판단 보드(매수후보 3계층 신호 비교; union=발굴 5트랙 합집합, 4-cat은 scoreMap lookup·없으면 "—"; 산식 무변경 조립). ⭐2026-07-07: 행에 signalTrackRecord(② 참고 — signal_outcome 90일 track/hit/avgAlpha, IN 절 1쿼리 일괄 집계·N+1 금지, n<3="—" 표본부족·정렬 항상 하단)
 - **`ChartSignalController`** `/api/recommendation` *(신규, 차트기법)*
   - `GET /trend-pullback-top10` 차트 타이밍(정배열+눌림목, **검증 전 베타**)
   - `GET /sector-strength` 섹터 상대강도('덜 빠지는 섹터')
 - **`QuantScreenerController`** `/api/quant-screener` 마법공식·턴어라운드·PEG
 
 ### 3-2. 종목 상세·시세
-- **`StockDetailController`** `/api/stock`: `{code}/summary` `quick`(1단 3~5s) `heavy`(2단) `conclusion`(룰결론) `checklist`(5-factor) `catalyst`(V31 재료)
+- **`StockDetailController`** `/api/stock`: `{code}/summary` `quick`(1단 3~5s) `heavy`(2단) `conclusion`(룰결론, ⭐2026-07-07 tradePlan 에 ATR14×2.5 참고 atrStopPct/atrTargetPct 병기 — util 재사용·PLAN_* 불변·null=미산출 §4c) `checklist`(5-factor) `catalyst`(V31 재료) `signal-history` ⭐신규(2026-07-07, `SignalHistoryService` — signal_outcome 90일 read-only 타임라인+요약, pending=평가 대기 구분 §4c)
 - **`StockPriceController`** `/api/stock-price`: 현재가·히스토리·배치
 - **`StockAnalysisController`** `/api/stock-analysis`: 기술지표·수급·투자자동향
 
@@ -326,14 +326,14 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 - **역할 분리**: 모멘텀 종합추천(`getTop5`)은 오늘 탭 전용 — 발굴에 재추가 금지.
 
 ### 11-3. 종목 상세 (`views/StockDetailDashboard.vue`, ~4,700줄)
-- 헤더: 복합신호 배지 + 단기/중장기 듀얼점수 + 현재가.
-- 상단 카드: `StockConclusionCard`(결론·손절/목표+MFE/MAE·점수대 적중률·재료배지) + `QuickSummaryBar`(RSI/20일/외인/기관/리스크/AI).
+- 헤더: 복합신호 배지 + 단기/중장기 듀얼점수 + 현재가. ⭐2026-07-07 **보드↔상세 왕복 네비**: "◀ 이전 / 보드 N/M / 다음 ▶" — 종합판단 보드 행 클릭(새 탭)이 sessionStorage `judgmentBoard.nav` 로 종목 순서를 전달한 경우에만 표시(직접 진입 미표시, 새 라우트·쿼리 오염 없음. /stock/:code 컴포넌트 재사용이라 이동 시 명시적 재조회).
+- 상단 카드: `StockConclusionCard`(결론·손절/목표+MFE/MAE·점수대 적중률·재료배지 + ⭐2026-07-07 **ATR 참고 줄** "변동성(ATR) 기준 -X.X%/+Y.Y% · 백테스트 참고치·검증 전" amber 톤, null=줄 미렌더) + `QuickSummaryBar`(RSI/20일/외인/기관/리스크/AI).
 - 본문: `StockBriefingHeadline`(행동권고) · `StockRiskCard`(DART+뉴스+AI).
-- 심화(접기 `DetailSection` v-show 마운트 유지): Peer·VolumeProfile·SupportResistance·RelatedStocks·ChartPattern.
+- 심화(접기 `DetailSection` v-show 마운트 유지): Peer·VolumeProfile·SupportResistance·RelatedStocks·ChartPattern + ⭐2026-07-07 **`SignalHistorySection`**("📜 신호 이력" — signal_outcome 90일 타임라인, 요약을 제목에 병기, 평가 대기 구분 §4c, n=0 미렌더, 자체 fetch=heavy 계열).
 - 듀얼스테이지: `quick`(3~5s) → `heavy`(risk/AI/peer, 캐시·lazy).
 
 ### 11-4. 컴포넌트 (`components/v2/*` 주식 도메인)
-DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar · StockBriefingHeadline · StockRiskCard · StockSearchModal(Ctrl+K) · DetailSection · BuyChecklistModal · BacktestPerformancePanel · SectionBacktest · SectionTotalRecommendation · SectionQuantTa · SectionMarketMap · InvestorTrendTab · FundamentalDiagnosisPanel · PeerComparisonCard · VolumeProfileCard · SupportResistanceCard · RelatedStocksList · ChartPatternList · MagicFormulaSmartTable · BotPnlChart · TradingSafetyWidget(killswitch) · ForecastDetailModal.
+DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar · StockBriefingHeadline · StockRiskCard · SignalHistorySection(⭐2026-07-07 신호 이력) · StockSearchModal(Ctrl+K) · DetailSection · BuyChecklistModal · BacktestPerformancePanel · SectionBacktest · SectionTotalRecommendation · SectionQuantTa · SectionMarketMap · InvestorTrendTab · FundamentalDiagnosisPanel · PeerComparisonCard · VolumeProfileCard · SupportResistanceCard · RelatedStocksList · ChartPatternList · MagicFormulaSmartTable · BotPnlChart · TradingSafetyWidget(killswitch) · ForecastDetailModal.
 공용: VolumePowerGauge(체결강도) · DataFreshness · NotificationBell · StockCodeInput 등.
 
 ### 11-5. API 레이어 (`utils/api.js`, axios `/api` + AT/RT 인터셉터)
