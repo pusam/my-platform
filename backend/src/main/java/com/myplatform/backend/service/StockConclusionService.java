@@ -8,8 +8,12 @@ import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.RecommendationSnapshot;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
+import com.myplatform.backend.repository.StockPriceHistoryRepository;
+import com.myplatform.backend.util.AtrCalculator;
+import com.myplatform.backend.util.AtrExitRule;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -44,6 +48,7 @@ public class StockConclusionService {
     private final RecommendationSnapshotRepository snapshotRepository;
     private final SignalOutcomeRepository signalOutcomeRepository;
     private final StockPriceService stockPriceService;
+    private final StockPriceHistoryRepository stockPriceHistoryRepository;
 
     // 결론 임계값 — RecommendationService 상수와 동기화 필요.
     private static final int STRONG_BUY_THRESHOLD = 75;
@@ -60,6 +65,8 @@ public class StockConclusionService {
     private static final BigDecimal PLAN_TARGET_PCT_TIGHT = new BigDecimal("3");
     /** MFE/MAE 집계 윈도우 (일) — 표본 안정성 위해 적중률(30일)보다 길게. */
     private static final int MFE_MAE_WINDOW_DAYS = 90;
+    /** ATR14 계산용 일봉 로드 행 수 — 봇 computeEntryAtrQuiet(40)과 동일. */
+    private static final int ATR_HISTORY_ROWS = 40;
 
     public StockConclusionDto getConclusion(String stockCode) {
         Optional<RecommendationSnapshot> snapshotOpt = snapshotRepository.findLatestByStockCode(stockCode);
@@ -177,6 +184,10 @@ public class StockConclusionService {
             log.debug("[Conclusion] MFE/MAE 집계 실패: {}", e.getMessage());
         }
 
+        // ATR 참고 손절/목표 (unverified 병기) — 기존 util 재사용(AtrCalculator/AtrExitRule, 봇 ATR 세트와
+        // 동일 정의), PLAN_* 산식·기존 필드 무변경. 미산출(§4c)이면 null → 프론트 줄 미렌더.
+        AtrExitRule.Levels atrLevels = computeAtrLevelsQuiet(s.getStockCode(), basePrice);
+
         return TradePlan.builder()
                 .basePrice(basePrice)
                 .stopLossPct(stopPct)
@@ -186,7 +197,27 @@ public class StockConclusionService {
                 .avgMfePct(avgMfe)
                 .avgMaePct(avgMae)
                 .mfeMaeSampleCount(sampleCount)
+                .atrStopPct(atrLevels == null ? null
+                        : atrLevels.stopPct().setScale(1, RoundingMode.HALF_UP))
+                .atrTargetPct(atrLevels == null ? null
+                        : atrLevels.targetPct().setScale(1, RoundingMode.HALF_UP))
                 .build();
+    }
+
+    /**
+     * ATR14(Wilder, StockPriceHistory 일봉) × 2.5 참고 청산 레벨 — 신규 산식 없이 기존 util 재사용.
+     * ATR null(유효 일봉 15개 미만)·basePrice null·조회 실패 = null(§4c — 위장 금지, 프론트 줄 미렌더).
+     */
+    private AtrExitRule.Levels computeAtrLevelsQuiet(String stockCode, BigDecimal basePrice) {
+        if (basePrice == null) return null;
+        try {
+            BigDecimal atr = AtrCalculator.atr14(stockPriceHistoryRepository
+                    .findByStockCodeOrderByTradeDateDesc(stockCode, PageRequest.of(0, ATR_HISTORY_ROWS)));
+            return AtrExitRule.judge(basePrice, atr);
+        } catch (Exception e) {
+            log.debug("[Conclusion] ATR 참고치 산출 실패 {}: {}", stockCode, e.getMessage());
+            return null;
+        }
     }
 
     /** basePrice × (1 + pct/100), 원 단위 반올림. basePrice null 이면 null. */

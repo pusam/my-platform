@@ -107,6 +107,32 @@ describe('StockConclusionCard — 매매 계획 / 조건부 적중률', () => {
     expect(w.find('.trade-plan').exists()).toBe(false)
   })
 
+  it('ATR 참고 줄 — 손절/목표 아래 unverified 병기(검증 전 명시), 기본 계획과 별개', async () => {
+    stubApi({
+      ...conclusionData,
+      tradePlan: { ...conclusionData.tradePlan, atrStopPct: -7.5, atrTargetPct: 12.5 }
+    })
+    const w = await mountCard()
+    const atr = w.find('.tp-atr')
+    expect(atr.exists()).toBe(true)
+    expect(atr.text()).toContain('변동성(ATR) 기준')
+    expect(atr.text()).toContain('-7.5%')
+    expect(atr.text()).toContain('+12.5%')
+    expect(atr.text()).toContain('검증 전')
+    // 기본 계획 줄은 그대로
+    expect(w.find('.trade-plan').text()).toContain('67,900원 (-3%)')
+  })
+
+  it('ATR 미산출(null, §4c) 이면 ATR 참고 줄 미렌더', async () => {
+    stubApi({
+      ...conclusionData,
+      tradePlan: { ...conclusionData.tradePlan, atrStopPct: null, atrTargetPct: null }
+    })
+    const w = await mountCard()
+    expect(w.find('.tp-atr').exists()).toBe(false)
+    expect(w.find('.trade-plan').exists()).toBe(true)
+  })
+
   it('점수대(75~84) 구간 적중률을 적중률 라인에 병기', async () => {
     stubApi()
     const w = await mountCard()

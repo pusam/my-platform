@@ -42,6 +42,13 @@
         <span class="tp-item tp-stop">손절 <b>{{ planPriceLabel(conclusion.tradePlan.stopLossPrice, conclusion.tradePlan.stopLossPct) }}</b></span>
         <span class="tp-item tp-target">목표 <b>{{ planPriceLabel(conclusion.tradePlan.targetPrice, conclusion.tradePlan.targetPct) }}</b></span>
       </div>
+      <!-- ATR 참고치(검증 전) — 기본 계획(-3/+5)과 별개 병기. null=미산출(§4c) 줄 미렌더.
+           차트 타이밍 '관찰' 배너 톤(amber) 재사용 — 기본 계획과 시각적으로 구분. -->
+      <div v-if="conclusion.tradePlan.atrStopPct != null" class="tp-atr">
+        📏 변동성(ATR) 기준: <b>{{ signedPct(conclusion.tradePlan.atrStopPct) }}</b> /
+        <b>{{ signedPct(conclusion.tradePlan.atrTargetPct) }}</b>
+        <span class="tp-atr-badge">백테스트 참고치 · 검증 전 — 기본 계획 아님</span>
+      </div>
       <div v-if="conclusion.tradePlan.mfeMaeSampleCount > 0" class="tp-mfe">
         과거 {{ levelLabel }} 시그널 {{ conclusion.tradePlan.mfeMaeSampleCount }}건 실측 — 3거래일 내 평균 최고
         <b class="tp-pos">{{ signedPct(conclusion.tradePlan.avgMfePct) }}</b> / 최저
@@ -406,6 +413,25 @@ const openChecklist = () => { showChecklist.value = true; };
   margin-top: 6px;
   font-size: 11.5px;
   opacity: 0.75;
+}
+/* ATR 참고 줄 — 미검증 amber 톤(차트 '관찰' 배너와 동일 계열), 기본 계획(파란 박스)과 구분 */
+.tp-atr {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.08);
+  border-left: 2px solid rgba(245, 158, 11, 0.45);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+.tp-atr b { font-variant-numeric: tabular-nums; }
+.tp-atr-badge {
+  margin-left: 6px;
+  font-size: 10px;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.16);
+  padding: 1px 6px;
+  border-radius: 3px;
 }
 .tp-pos { color: #4ade80; }
 .tp-neg { color: #f87171; }

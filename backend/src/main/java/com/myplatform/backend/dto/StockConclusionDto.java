@@ -96,6 +96,13 @@ public class StockConclusionDto {
         private java.math.BigDecimal avgMaePct;
         /** MFE/MAE 표본 수. */
         private long mfeMaeSampleCount;
+        /**
+         * ATR14(Wilder)×2.5 기반 <b>참고</b> 손절 %(음수) — 백테스트 참고치(검증 전), 기본 계획(PLAN_*)과
+         * 별개 병기. null=미산출(일봉 15개 미만·현재가 실패 — §4c, 프론트는 줄 미렌더).
+         */
+        private java.math.BigDecimal atrStopPct;
+        /** ATR 기반 참고 목표 %(양수, 손절폭×5/3 — 현행 손익비 유지). null=미산출. */
+        private java.math.BigDecimal atrTargetPct;
     }
 
     @Data

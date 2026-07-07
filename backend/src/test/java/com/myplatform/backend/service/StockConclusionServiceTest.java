@@ -4,8 +4,10 @@ import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockConclusionDto.Level;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.RecommendationSnapshot;
+import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
+import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,15 +44,19 @@ class StockConclusionServiceTest {
     @Mock private RecommendationSnapshotRepository snapshotRepository;
     @Mock private SignalOutcomeRepository signalOutcomeRepository;
     @Mock private StockPriceService stockPriceService;
+    @Mock private StockPriceHistoryRepository stockPriceHistoryRepository;
 
     private StockConclusionService service;
 
     @BeforeEach
     void setUp() {
-        service = new StockConclusionService(snapshotRepository, signalOutcomeRepository, stockPriceService);
-        // 기본: 시세/MFE 데이터 없음 — tradePlan 은 % 만 채워짐. 개별 테스트에서 덮어씀.
+        service = new StockConclusionService(snapshotRepository, signalOutcomeRepository,
+                stockPriceService, stockPriceHistoryRepository);
+        // 기본: 시세/MFE/일봉 데이터 없음 — tradePlan 은 % 만 채워짐, ATR 참고치 null. 개별 테스트에서 덮어씀.
         lenient().when(stockPriceService.getStockPrice(anyString())).thenReturn(null);
         lenient().when(signalOutcomeRepository.aggregateMfeMae(anyString(), any()))
+                .thenReturn(List.of());
+        lenient().when(stockPriceHistoryRepository.findByStockCodeOrderByTradeDateDesc(anyString(), any()))
                 .thenReturn(List.of());
     }
 
@@ -303,6 +309,73 @@ class StockConclusionServiceTest {
         assertThat(result.getTradePlan().getMfeMaeSampleCount()).isEqualTo(12);
         assertThat(result.getTradePlan().getAvgMfePct()).isEqualByComparingTo("4.12");
         assertThat(result.getTradePlan().getAvgMaePct()).isEqualByComparingTo("-2.57");
+    }
+
+    // ================================================================
+    // ATR 참고 손절/목표 (unverified 병기) — AtrCalculator/AtrExitRule 재사용, PLAN_* 무변경
+    // ================================================================
+
+    /** n일치 동일 캔들(H105/L95/C100 → TR=10 상수 → ATR=10) — 최신순. */
+    private List<StockPriceHistory> flatCandles(int n) {
+        List<StockPriceHistory> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            rows.add(StockPriceHistory.builder()
+                    .stockCode("005930").tradeDate(java.time.LocalDate.of(2026, 7, 7).minusDays(i))
+                    .highPrice(new BigDecimal("105")).lowPrice(new BigDecimal("95"))
+                    .closePrice(new BigDecimal("100")).build());
+        }
+        return rows;
+    }
+
+    @Test
+    @DisplayName("ATR 참고치: 현재가 10,000 + ATR 10 → atrStop -0.3%/atrTarget +0.4%, 기본 PLAN 필드 불변")
+    void tradePlan_atrReferenceFields() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
+        StockPriceDto price = new StockPriceDto();
+        price.setCurrentPrice(new BigDecimal("10000"));
+        when(stockPriceService.getStockPrice("005930")).thenReturn(price);
+        when(stockPriceHistoryRepository.findByStockCodeOrderByTradeDateDesc(anyString(), any()))
+                .thenReturn(flatCandles(30));   // ATR=10
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        // ATR 10, 진입 10,000 → 손절폭 = 2.5×10/10000×100 = 0.25% → scale1 = -0.3 / 목표 = ×5/3 ≈ +0.4
+        assertThat(result.getTradePlan().getAtrStopPct()).isEqualByComparingTo("-0.3");
+        assertThat(result.getTradePlan().getAtrTargetPct()).isEqualByComparingTo("0.4");
+        // 기본 계획(PLAN_*)은 무변경 병기
+        assertThat(result.getTradePlan().getStopLossPct()).isEqualByComparingTo("-3");
+        assertThat(result.getTradePlan().getTargetPct()).isEqualByComparingTo("5");
+    }
+
+    @Test
+    @DisplayName("ATR 참고치: 일봉 15개 미만(ATR 미산출, §4c) → atr 필드 null")
+    void tradePlan_atrNullWhenInsufficientHistory() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
+        StockPriceDto price = new StockPriceDto();
+        price.setCurrentPrice(new BigDecimal("10000"));
+        when(stockPriceService.getStockPrice("005930")).thenReturn(price);
+        when(stockPriceHistoryRepository.findByStockCodeOrderByTradeDateDesc(anyString(), any()))
+                .thenReturn(flatCandles(10));   // 15개 미만 → ATR null
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan().getAtrStopPct()).isNull();
+        assertThat(result.getTradePlan().getAtrTargetPct()).isNull();
+        assertThat(result.getTradePlan().getStopLossPct()).isEqualByComparingTo("-3");
+    }
+
+    @Test
+    @DisplayName("ATR 참고치: 현재가 미조회면 산출 불가 → null (일봉 조회도 생략)")
+    void tradePlan_atrNullWhenNoBasePrice() {
+        when(snapshotRepository.findLatestByStockCode(anyString()))
+                .thenReturn(Optional.of(snapshot(60, 12, 10, 10, 10, 8)));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        assertThat(result.getTradePlan().getAtrStopPct()).isNull();
+        assertThat(result.getTradePlan().getAtrTargetPct()).isNull();
     }
 
     // ================================================================
