@@ -156,6 +156,14 @@ public class AutoTradingBotService {
     private static final LocalTime NXT_LIQUIDATION_START = LocalTime.of(15, 35);
     private static final LocalTime NXT_LIQUIDATION_END = LocalTime.of(19, 55);
 
+    // ── 종가 매수 진입 창 (재활성 대비, 설정 이동 가능 — 2026-09-14 종가단일가 시각 변경 대응) ──
+    // ⚠ §16-2: 진입은 KRX 정규장(09:00~15:30) 내로만. isMarketClosed()(15:30) 하드 상한이 NXT 진입을 구조적으로 차단.
+    // 잘못된 설정(파싱 실패)은 안전 폴백(15:15~15:20). @Scheduled 재활성 시 cron 도 이 창에 맞춰 조정.
+    @org.springframework.beans.factory.annotation.Value("${bot.closing.entry-start:15:15}")
+    private String closingEntryStartCfg;
+    @org.springframework.beans.factory.annotation.Value("${bot.closing.entry-end:15:20}")
+    private String closingEntryEndCfg;
+
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
     // ╠══════════════════════════════════════════════════════════════╣
@@ -3172,19 +3180,43 @@ public class AutoTradingBotService {
 
     // ==================== [전략 C] 종가 매수 — 비활성 ====================
 
+    /** 종가 진입 창 파싱(HH:mm) — 잘못된 설정이면 안전 폴백(현행 15:15~15:20). 순수(테스트 대상). */
+    static LocalTime parseTimeOr(String raw, LocalTime fallback) {
+        try {
+            return (raw == null || raw.isBlank()) ? fallback : LocalTime.parse(raw.trim());
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    /** 종가 진입 창 내부 여부 — 순수 함수(테스트 대상). start~end 포함 경계. */
+    static boolean withinClosingEntryWindow(LocalTime now, LocalTime start, LocalTime end) {
+        return now != null && !now.isBefore(start) && !now.isAfter(end);
+    }
+
+    private LocalTime closingEntryStart() { return parseTimeOr(closingEntryStartCfg, LocalTime.of(15, 15)); }
+    private LocalTime closingEntryEnd() { return parseTimeOr(closingEntryEndCfg, LocalTime.of(15, 20)); }
+
     /**
-     * 종가 매수 (비활성 — 포지션 충돌 + 수급 미확정)
-     * 2026-09-14 거래시간 연장 후 재설계 필요. 재활성화 시 @Scheduled 주석 해제
+     * 종가 매수 (비활성 — 재활성 대기). 2026-09-14 거래시간 연장 대비 <b>재설계 완료(2026-07-08)</b>.
+     * 재활성화 = @Scheduled 주석 해제 한 줄(종가단일가 시각에 맞춰 cron + bot.closing.entry-* 설정 조정).
      *
-     * <p>⚠ <b>재활성 전 필수 보강(감사 2026-07-07(E), AUDIT_2026-07-07.md #4)</b>: 이 경로엔
-     * ① 리더 게이트(botLeader.isLeaderForBot — 없으면 멀티 인스턴스 전부 실행) ②
-     * passesPriceSanity(오염가 진입 차단)가 <b>없다</b>. @Scheduled 해제 전에 스윙 매수
-     * (executeSwingBuyLogic)와 동일하게 두 게이트를 추가할 것. (브레이커·킬스위치·BUY 멱등키는 있음.)
+     * <p><b>게이트 전량 배선(재설계)</b>: ① 리더(botLeader.isLeaderForBot, fail-CLOSED) ② isMarketClosed(15:30)
+     * ③ 종가 진입 창(설정 이동 가능, 기본 15:15~15:20) ④ killswitch ⑤ 일일손실 브레이커(V38) ⑥ passesPriceSanity
+     * (오염가 진입 차단) ⑦ BUY 멱등키(RealTradeService, KIS 직전). 스윙 매수와 동일 게이트 셋.
+     *
+     * <p><b>§16-2 진입 불변</b>: 종가 매수 진입은 <b>KRX 정규장(09:00~15:30) 내로만</b> — isMarketClosed()가
+     * 하드 상한이라 NXT 진입은 구조적으로 불가. 매수는 {@code activeTradeService.buy}(세션 미지정=REGULAR 고정) —
+     * <b>NXT 세션 진입 경로 없음</b>(방어 청산만 NXT 확장, 진입은 절대 확장 안 함).
      */
-    // @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
+    // @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")   // 재활성 시 해제(종가단일가 시각 맞춰 조정)
     public void executeClosingBuyLogic() {
+        if (!botLeader.isLeaderForBot()) return;   // ★ 리더 게이트(fail-CLOSED) — 재설계 배선(감사 #4) ★
         if (!botActive.get() || killSwitchTriggered.get()) return;
+        // ★ §16-2: KRX 정규장(≤15:30) 하드 상한 — 진입은 KRX 만, NXT 진입 불가 ★
         if (isMarketClosed()) return;
+        // ★ 종가 진입 창(설정 이동 가능, 기본 15:15~15:20) — KRX 정규장 내로만 유효(9/14 종가단일가 시각 이동 대응) ★
+        if (!withinClosingEntryWindow(LocalTime.now(clock), closingEntryStart(), closingEntryEnd())) return;
         // 일일 손실률 평가 — 스윙과 동일하게 -3% 한도 검출 위해
         if (checkKillSwitch()) return;
         // ★ 일일 손실 서킷브레이커(V38) — 비활성 전략이지만 재활성화 대비 방어적 게이트 ★
@@ -3290,6 +3322,11 @@ public class AutoTradingBotService {
                 if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
 
+                // ★ 가격 sanity 가드 — 전일 종가(J 소스) 대비 ±50% 초과(×10 오염 의심)면 진입 차단(재설계 배선) ★
+                if (!passesPriceSanity(code, surge.getStockName(), currentPrice, "종가매수")) {
+                    continue;
+                }
+
                 int quantity = maxPerStock.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
                 if (quantity <= 0) continue;
 
@@ -3298,6 +3335,7 @@ public class AutoTradingBotService {
                     BigDecimal fAmt = foreignBuy.get(code);
                     BigDecimal iAmt = instBuy.get(code);
 
+                    // §16-2: 종가 진입은 REGULAR 고정(세션 미지정) — NXT 진입 경로 없음.
                     activeTradeService.buy(code, surge.getStockName(), currentPrice, quantity, "CLOSING_BUY");
 
                     SwingPosition newClosing = new SwingPosition(code, surge.getStockName(),
@@ -3344,14 +3382,18 @@ public class AutoTradingBotService {
     // ==================== [전략 C] 종가 매수 포지션 감시 (30초 간격) ====================
 
     /**
-     * 종가 매수 포지션 감시 (비활성)
+     * 종가 매수 포지션 감시 (비활성 — 재활성 대기). <b>재설계 완료(2026-07-08)</b>.
      *
-     * <p>⚠ <b>재활성 전 필수 보강(감사 2026-07-07(E), AUDIT_2026-07-07.md #4)</b>: 리더 게이트
-     * (botLeader.isLeaderForBot) 부재 — @Scheduled 해제 전에 다른 매도 크론과 동일하게 추가할 것.
-     * (SELL 멱등키는 미도입 상태 — DESIGN_P3-1_IDEMPOTENT_ORDERS.md 참조, 실잔고 체크+킬스위치가 반경 제한.)
+     * <p><b>게이트 배선(재설계)</b>: ① 리더(botLeader.isLeaderForBot, fail-CLOSED) ② isMarketClosed(15:30)
+     * ③ SELL in-flight 마커(V45)·killswitch — 이 둘은 {@code activeTradeService.sell} → RealTradeService.sell
+     * 내부에서 통과(구 주석의 "SELL 멱등키 미도입"은 V45 로 해소). ④ 매도 확정(isSellConfirmedShort) 재시도.
+     *
+     * <p>매도는 {@code activeTradeService.sell}(4-arg=REGULAR) — 종가 포지션 청산도 KRX 정규장(≤15:30) 내에서만
+     * (isMarketClosed 상한). NXT 창 잔여는 {@link #executeNxtLiquidationRetry()}(봇 소유 잔여 전량)가 별도로 커버.
      */
-    // @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")
+    // @Scheduled(cron = "*/30 * 8-19 * * MON-FRI", zone = "Asia/Seoul")   // 재활성 시 해제
     public void executeClosingSellLogic() {
+        if (!botLeader.isLeaderForBot()) return;   // ★ 리더 게이트(fail-CLOSED) — 재설계 배선(감사 #4) ★
         if (!botActive.get() || closingPositions.isEmpty()) return;
         if (isMarketClosed()) return;
 

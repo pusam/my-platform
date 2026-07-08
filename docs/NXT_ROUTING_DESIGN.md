@@ -102,13 +102,22 @@ P2-13 유일 오버나잇 갭 = **15:20~15:28 지정가 미체결 잔여**(익�
 
 ---
 
-## 3. 종가봇 재설계 (Phase 3, 주석 비활성 유지)
+## 3. 종가봇 재설계 (Phase 3, 주석 비활성 유지 — ✅ 구현 완료 2026-07-08)
 
-- `executeClosingBuyLogic`/`executeClosingSellLogic` 을 **연장장 전제로 재작성**:
-  - **진입(§16-2 불변)**: KRX 정규장 내에서만(NXT 진입 **하드코딩 금지**). 종가 단일가 매수 시각을 설정(`bot.closing.buy-time` 등)으로 이동 가능하게.
-  - **결여 게이트 배선**: 리더(`isLeaderForBot`)·`passesPriceSanity`·killswitch·일일손실 브레이커·(매도)SELL 멱등키(`sellInflightService`) 전부 추가.
-  - `@Scheduled` 은 **계속 주석**(9/14 활성화 시 한 줄 해제). 순수 판정 분리+테스트.
-- 활성화 절차는 §5.
+`executeClosingBuyLogic`/`executeClosingSellLogic` 를 **연장장 전제로 재작성**(코드 배선 완료, `@Scheduled` 은 계속 주석).
+
+- **결여 게이트 배선(감사 2026-07-07(E) #4 해소)**:
+  - 종가 매수: ① 리더(`botLeader.isLeaderForBot`, fail-CLOSED) ② `passesPriceSanity`(오염가 진입 차단) 추가.
+    기존 killswitch·일일손실 브레이커(V38)·BUY 멱등키(RealTradeService)는 유지 → 스윙 매수와 동일 게이트 셋.
+  - 종가 매도: ① 리더 게이트 추가. **SELL in-flight 마커(V45)·killswitch 는 이미 `activeTradeService.sell` →
+    RealTradeService.sell 내부에서 통과**(구 주석의 "SELL 멱등키 미도입"은 V45 도입으로 해소).
+- **진입 §16-2 불변(NXT 진입 하드코딩 금지)**: 종가 매수는 `activeTradeService.buy`(세션 미지정=REGULAR 고정) —
+  **NXT 세션 진입 경로 자체가 없다.** `isMarketClosed()`(15:30)가 하드 상한이라 KRX 정규장 밖 진입 구조적 불가.
+- **종가 단일가 시각 설정 이동**: `bot.closing.entry-start`/`entry-end`(기본 15:15~15:20, HH:mm) — 순수 `parseTimeOr`(파싱
+  실패=안전 폴백)·`withinClosingEntryWindow`(경계 포함) 로 창 판정. 9/14 종가단일가 시각 변경 시 이 설정 + cron 조정.
+- **비목표**: 종가 포지션의 NXT 시간대 청산은 별도 안 함 — 봇 소유 잔여는 `executeNxtLiquidationRetry`(Phase 2)가 커버.
+- `@Scheduled` 재활성 = 주석 한 줄 해제(종가단일가 시각에 맞춰 cron/설정 조정). 활성화 절차 §5.
+- 테스트: `withinClosingEntryWindow`·`parseTimeOr` 순수 경계 테스트.
 
 ---
 

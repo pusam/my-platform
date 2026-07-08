@@ -1058,6 +1058,34 @@ class AutoTradingBotServiceTest {
     }
 
     @Nested
+    @DisplayName("종가봇 재설계 순수 판정 (Phase 3, 재활성 대기)")
+    class ClosingBotRedesign {
+        @Test
+        @DisplayName("withinClosingEntryWindow — start~end 포함 경계만 true")
+        void entryWindowBoundary() {
+            LocalTime s = LocalTime.of(15, 15), e = LocalTime.of(15, 20);
+            assertThat(AutoTradingBotService.withinClosingEntryWindow(LocalTime.of(15, 17), s, e)).isTrue();
+            assertThat(AutoTradingBotService.withinClosingEntryWindow(s, s, e)).isTrue();   // 시작 경계
+            assertThat(AutoTradingBotService.withinClosingEntryWindow(e, s, e)).isTrue();   // 종료 경계
+            assertThat(AutoTradingBotService.withinClosingEntryWindow(LocalTime.of(15, 14, 59), s, e)).isFalse();
+            assertThat(AutoTradingBotService.withinClosingEntryWindow(LocalTime.of(15, 21), s, e)).isFalse();
+            assertThat(AutoTradingBotService.withinClosingEntryWindow(null, s, e)).isFalse();
+        }
+
+        @Test
+        @DisplayName("parseTimeOr — 정상 HH:mm 파싱, 결측/오류는 폴백")
+        void parseTime() {
+            LocalTime fb = LocalTime.of(15, 15);
+            assertThat(AutoTradingBotService.parseTimeOr("16:05", fb)).isEqualTo(LocalTime.of(16, 5));
+            assertThat(AutoTradingBotService.parseTimeOr("  15:20 ", fb)).isEqualTo(LocalTime.of(15, 20));
+            assertThat(AutoTradingBotService.parseTimeOr(null, fb)).isEqualTo(fb);
+            assertThat(AutoTradingBotService.parseTimeOr("", fb)).isEqualTo(fb);
+            assertThat(AutoTradingBotService.parseTimeOr("not-a-time", fb)).isEqualTo(fb);   // 파싱 실패 → 폴백
+            assertThat(AutoTradingBotService.parseTimeOr("25:99", fb)).isEqualTo(fb);        // 범위 밖 → 폴백
+        }
+    }
+
+    @Nested
     @DisplayName("정규장 마감 강제청산 (작업2)")
     class RegularSessionLiquidation {
         private final LocalTime START = LocalTime.of(15, 20);
