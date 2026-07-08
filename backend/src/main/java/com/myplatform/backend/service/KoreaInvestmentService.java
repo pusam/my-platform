@@ -2,6 +2,8 @@ package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.myplatform.backend.util.OrderSession;
+import com.myplatform.backend.util.OrderSessionRouter;
 import com.myplatform.core.util.DateTimeUtil;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
@@ -41,6 +43,18 @@ public class KoreaInvestmentService {
 
     @Value("${kis.api.account-suffix:01}")
     private String accountSuffix;  // ACNT_PRDT_CD (계좌번호 뒤 2자리)
+
+    // ── NXT/연장장 주문 라우팅 (2026-09-14 대비, 기본 OFF — docs/NXT_ROUTING_DESIGN.md) ──
+    // flag OFF 면 NXT 세션 요청도 REGULAR 로 강등(현행 바이트 동일). atr-trading.enabled 패턴 동일.
+    @Value("${bot.nxt-routing.enabled:false}")
+    private volatile boolean nxtRoutingEnabled;
+
+    // ⚠ KIS order-cash NXT 거래소구분 필드 — 이름·값 미확정(§0.4). 9/14 전 KIS 문서로 확정 후 주입.
+    // 공란이면 NXT 주문 경로는 예외로 거부(fail-CLOSED) — 추측 파라미터 금지(§4c).
+    @Value("${kis.order.nxt-exchange-param-name:}")
+    private String nxtExchangeParamName;
+    @Value("${kis.order.nxt-exchange-param-value:}")
+    private String nxtExchangeParamValue;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -1236,7 +1250,17 @@ public class KoreaInvestmentService {
     @CircuitBreaker(name = "kisApi", fallbackMethod = "buyStockFallback")
     public JsonNode buyStock(String stockCode, int quantity, java.math.BigDecimal price) {
         return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
-                () -> placeOrder(stockCode, quantity, price, "TTTC0802U", "buy"), 3);
+                () -> placeOrder(stockCode, quantity, price, "TTTC0802U", "buy", OrderSession.REGULAR), 3);
+    }
+
+    /**
+     * 세션 지정 매수 오버로드 (NXT 연장장 대비). 기본 3-arg 는 REGULAR 로 위임 — 기존 호출부 무영향.
+     * NXT 요청은 {@code bot.nxt-routing.enabled} OFF 시 REGULAR 로 강등(WARN), 미확정 파라미터면 거부(fail-CLOSED).
+     */
+    @CircuitBreaker(name = "kisApi", fallbackMethod = "buyStockSessionFallback")
+    public JsonNode buyStock(String stockCode, int quantity, java.math.BigDecimal price, OrderSession session) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
+                () -> placeOrder(stockCode, quantity, price, "TTTC0802U", "buy", session), 3);
     }
 
     /** CircuitBreaker OPEN — RealTradeService 가 null 받아 거래 중단 + 운영자 알림 발동 */
@@ -1244,6 +1268,14 @@ public class KoreaInvestmentService {
     private JsonNode buyStockFallback(String stockCode, int quantity, java.math.BigDecimal price, Throwable t) {
         log.error("[KIS CircuitBreaker] buyStock fallback — code: {}, qty: {}, cause: {}",
                 stockCode, quantity, t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
+    }
+
+    @SuppressWarnings("unused")
+    private JsonNode buyStockSessionFallback(String stockCode, int quantity, java.math.BigDecimal price,
+                                             OrderSession session, Throwable t) {
+        log.error("[KIS CircuitBreaker] buyStock({}) fallback — code: {}, qty: {}, cause: {}",
+                session, stockCode, quantity, t.getClass().getSimpleName() + ": " + t.getMessage());
         return null;
     }
 
@@ -1259,7 +1291,17 @@ public class KoreaInvestmentService {
     @CircuitBreaker(name = "kisApi", fallbackMethod = "sellStockFallback")
     public JsonNode sellStock(String stockCode, int quantity, java.math.BigDecimal price) {
         return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
-                () -> placeOrder(stockCode, quantity, price, "TTTC0801U", "sell"), 3);
+                () -> placeOrder(stockCode, quantity, price, "TTTC0801U", "sell", OrderSession.REGULAR), 3);
+    }
+
+    /**
+     * 세션 지정 매도 오버로드 (NXT 방어 청산 대비). 기본 3-arg 는 REGULAR 로 위임 — 기존 호출부 무영향.
+     * NXT 요청은 {@code bot.nxt-routing.enabled} OFF 시 REGULAR 로 강등(WARN), 미확정 파라미터면 거부(fail-CLOSED).
+     */
+    @CircuitBreaker(name = "kisApi", fallbackMethod = "sellStockSessionFallback")
+    public JsonNode sellStock(String stockCode, int quantity, java.math.BigDecimal price, OrderSession session) {
+        return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL,
+                () -> placeOrder(stockCode, quantity, price, "TTTC0801U", "sell", session), 3);
     }
 
     @SuppressWarnings("unused")
@@ -1269,12 +1311,60 @@ public class KoreaInvestmentService {
         return null;
     }
 
+    @SuppressWarnings("unused")
+    private JsonNode sellStockSessionFallback(String stockCode, int quantity, java.math.BigDecimal price,
+                                              OrderSession session, Throwable t) {
+        log.error("[KIS CircuitBreaker] sellStock({}) fallback — code: {}, qty: {}, cause: {}",
+                session, stockCode, quantity, t.getClass().getSimpleName() + ": " + t.getMessage());
+        return null;
+    }
+
     /**
      * 주식 주문 공통 처리 (지정가)
      * ORD_DVSN: 00=지정가, 01=시장가
      * 지정가 주문으로 슬리피지(체결 오차) 방지
      */
-    private JsonNode placeOrder(String stockCode, int quantity, java.math.BigDecimal price, String trId, String orderType) {
+    /**
+     * NXT/연장장 주문 라우팅을 주문 바디에 반영한다. 시각을 인자로 받아 결정성 있게 테스트 가능(package-private).
+     *
+     * <ul>
+     *   <li>요청 REGULAR(기본) 또는 flag OFF/창 밖으로 REGULAR 강등 → 바디 <b>무변경</b>(현행 바이트 동일), null 반환.</li>
+     *   <li>강등 시(NXT 요청 → REGULAR) WARN 로그(§4c: 조용한 다운그레이드 금지).</li>
+     *   <li>NXT 라우팅 확정 + 거래소구분 파라미터 설정됨 → 바디에 필드 추가, null 반환.</li>
+     *   <li>NXT 라우팅 확정 + 파라미터 <b>미설정</b> → <b>명시적 거부 노드(rt_cd≠0) 반환</b>(fail-CLOSED).
+     *       KIS 미호출이라 '불확실'(null)이 아니므로 killswitch 미발동 — RealTradeService 가 markFailed 처리.</li>
+     * </ul>
+     *
+     * @return null = 정상 진행(바디 확정), non-null = 명시적 거부 응답(호출부가 그대로 반환)
+     */
+    JsonNode applyNxtRouting(Map<String, String> body, String stockCode,
+                            OrderSession requestedSession, java.time.LocalTime now) {
+        OrderSession effective = OrderSessionRouter.resolveOrderSession(now, nxtRoutingEnabled, requestedSession);
+        if (requestedSession == OrderSession.NXT_EXTENDED && effective != OrderSession.NXT_EXTENDED) {
+            log.warn("[실전매매] NXT 세션 요청 → REGULAR 강등 (nxtRoutingEnabled={}, 시각={}): {} — flag OFF 또는 NXT 창(15:30~20:00) 밖",
+                    nxtRoutingEnabled, now, stockCode);
+        }
+        if (effective != OrderSession.NXT_EXTENDED) {
+            return null;   // REGULAR — 바디 현행 동일
+        }
+        // NXT 라우팅 확정. ⚠ 거래소구분 필드 이름·값 미확정(§0.4) — 미설정이면 fail-CLOSED.
+        if (nxtExchangeParamName == null || nxtExchangeParamName.isBlank()
+                || nxtExchangeParamValue == null || nxtExchangeParamValue.isBlank()) {
+            log.error("[실전매매] NXT 주문 거부(fail-CLOSED) — 거래소구분 파라미터 미설정"
+                    + "(kis.order.nxt-exchange-param-name/value). 9/14 전 KIS 문서로 확정 필요. code: {}", stockCode);
+            com.fasterxml.jackson.databind.node.ObjectNode reject = objectMapper.createObjectNode();
+            reject.put("rt_cd", "1");
+            reject.put("msg1", "NXT_PARAM_UNCONFIGURED");
+            return reject;
+        }
+        body.put(nxtExchangeParamName, nxtExchangeParamValue);
+        log.info("[실전매매] NXT 연장 세션 라우팅 적용 — code: {}, {}={}",
+                stockCode, nxtExchangeParamName, nxtExchangeParamValue);
+        return null;
+    }
+
+    private JsonNode placeOrder(String stockCode, int quantity, java.math.BigDecimal price,
+                               String trId, String orderType, OrderSession requestedSession) {
         String token = getAccessToken();
         if (token == null) {
             log.error("[실전매매] 토큰 발급 실패로 {} 불가", orderType);
@@ -1297,6 +1387,14 @@ public class KoreaInvestmentService {
             body.put("ORD_DVSN", "00");                   // 주문구분: 00=지정가 (슬리피지 방지)
             body.put("ORD_QTY", String.valueOf(quantity)); // 주문수량
             body.put("ORD_UNPR", price.setScale(0, java.math.RoundingMode.DOWN).toString()); // 주문단가
+
+            // NXT/연장장 라우팅: REGULAR 이면 바디 현행 동일(거래소구분 미추가). NXT 인데 파라미터 미확정이면
+            // 명시적 거부(rt_cd≠0)를 반환(fail-CLOSED). createHashKey 前에 바디 확정돼야 하므로 여기서 적용.
+            JsonNode routingReject = applyNxtRouting(body, stockCode, requestedSession,
+                    DateTimeUtil.kstNow().toLocalTime());
+            if (routingReject != null) {
+                return routingReject;   // 미확정 NXT = 접수 전 거부(불확실 null 아님 → killswitch 미발동)
+            }
 
             // KIS 주문 API 는 hashkey 헤더 필수 — 누락 시 게이트웨이가 EGW00202(GW라우팅 오류)로 거부.
             String hashKey = createHashKey(body);
