@@ -22,15 +22,16 @@ V38~V45(2026-07-06~08 배포)로 시작된 측정들이 2~3주치 표본을 확�
 
 ---
 
-## 2026-08 중 — NXT 스프린트 준비 (9/14 전 완료 목표)
+## 2026-08 중 — NXT 스프린트 준비 (9/14 전 완료 목표) — ✅ **구현 완료(flag OFF) 2026-07-08**
 
-| 안건 | 판정 기준 | 참조 |
+| 안건 | 상태 | 참조 |
 |---|---|---|
-| **NXT 주문 라우팅 구현** | `kisService.sellStock(code,qty,price)` 에 거래소/세션 파라미터 부재 = 현재 KRX 정규장 고정. NXT 연장장 청산을 위한 주문 계층 라우팅 설계·구현 착수. 모의계좌 검증 필수. | §19 2026-07-06 P2-13 ③, CLAUDE.md §4d |
-| **종가봇 재설계** | `executeClosingBuyLogic`/`executeClosingSellLogic`(현재 `@Scheduled` 주석 비활성) 재활성 전 **필수 게이트 보강** — 리더 게이트(+매수는 PriceSanityGuard) 부재. NXT 주문 라우팅과 동일 전제라 동반 진행. | AUDIT_2026-07-07 #4, `AutoTradingBotService:3073,3238` |
-| **P2-13 재개봉** | NXT 주문 라우팅 구현 완료 + 종가봇 재설계가 선결되면 P2-13(NXT 청산) 재개봉. 그 전엔 15:20~15:28 매분 재시도 + 15:29 알림이 오버나잇 1차 방어(수용된 저확률 잔여 갭). | §19 2026-07-06 P2-13 진단 종결, VERIFICATION_BACKLOG P2-13 |
+| **NXT 주문 라우팅 구현** | ✅ **구현(flag OFF)** — `OrderSession`+순수 `OrderSessionRouter`+`KoreaInvestmentService.buyStock/sellStock` 세션 오버로드(기존 3-arg=REGULAR 위임). `bot.nxt-routing.enabled` 기본 false. ⚠ NXT 거래소구분 파라미터는 **미확정**(§0.4) → externalize+fail-CLOSED, 9/14 전 KIS 문서로 확정 필요. | NXT_ROUTING_DESIGN §0.4/§1, VERIFICATION_BACKLOG P2-13 |
+| **종가봇 재설계** | ✅ **재설계(주석 유지)** — 리더+PriceSanityGuard 게이트 배선(감사 #4 해소), 진입 KRX 하드코딩(§16-2), 종가 시각 설정 이동(`bot.closing.entry-*`). `@Scheduled` 계속 주석. | AUDIT_2026-07-07 #4, NXT_ROUTING_DESIGN §3 |
+| **P2-13 재개봉** | ✅ **재개봉·구현(flag OFF)** — `executeNxtLiquidationRetry`(15:35~19:55, 정규장 미체결 봇 소유 잔여만 NXT 재청산). `bot.nxt-liquidation.enabled` 기본 false. 9/14 전엔 현행(15:20~28 재시도+15:29 알림)이 1차 방어. | NXT_ROUTING_DESIGN §2, VERIFICATION_BACKLOG P2-13 |
 
-> **선결 판단**: 9/14 전 위 3건이 완료 가능한지 8월 초에 스코프 확정. 불가하면 NXT 개시일에도 "진입 전면 차단 + 정규장 청산" 현행 유지(봇이 NXT 시간대 신규 보유를 안 만드므로 안전은 유지, 연장장 청산만 미지원).
+> **9/14 활성화 절차(사람이 확정)**: NXT_ROUTING_DESIGN §5 — ① KIS NXT order-cash 거래소구분 파라미터(이름·값) 확정 → ② `kis.order.nxt-exchange-param-name/value` 주입 + backend recreate → ③ `bot.nxt-routing.enabled`=true + `bot.nxt-liquidation.enabled`=true → ④ 종가봇 `@Scheduled` 해제(원하면, 종가단일가 시각 맞춰 cron/`bot.closing.entry-*` 조정) → ⑤ 소액 실검증(단일 종목·소량, NXT 주문 접수/체결 로그 1회 확인).
+> **미완료 시 폴백**: flag 2종 OFF 유지 = "진입 전면 차단 + 정규장 청산" 현행(봇이 NXT 신규 보유 안 만드므로 안전 유지, 연장장 청산만 미지원).
 
 ---
 
@@ -38,7 +39,7 @@ V38~V45(2026-07-06~08 배포)로 시작된 측정들이 2~3주치 표본을 확�
 
 | 안건 | 판정 기준 | 참조 |
 |---|---|---|
-| **P2-13-a 주석 정정 동반** | NXT 배선 시점에 `AutoTradingBotService` 매도 가드 주석(08:00~20:00 cron binding 서술 ≠ 실제 `isMarketClosed()` 15:30 binding) 정정. 클래스 헤더 활성 크론 수(5→실제 7)도 함께 점검(AutoTradingBotTrack 테스트가 7 단언). | §19 2026-07-06 P2-13-a, AUDIT_2026-07-07 #11 |
+| **P2-13-a 주석 정정 동반** | ✅ **해소(2026-07-08)** — 매도 가드 주석 NXT 배선 확장 완료(정규 경로 isMarketClosed 15:30 상한 유지, NXT 는 별도 경로). 활성 크론 수 **7→8**(executeNxtLiquidationRetry 추가) — `AutoTradingBotTrackTest` 8 단언·클래스 헤더 표 동시 갱신 완료. | §19 2026-07-08, VERIFICATION_BACKLOG P2-13-a |
 | **시간대 경계 재확인** | 진입은 KRX 09:00~15:30 유지(불변식2). 청산만 NXT 확장 — "표시-NXT vs 봇-KRX 경계 통일 금지"에 **위배 아님**(방어 청산 창 확대). 확장 후 08~09시·15:30~20:00 경계 동작이 명세대로인지 실동작 확인. | CLAUDE.md 불변식2, §16-2 |
 
 ---

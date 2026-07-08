@@ -276,7 +276,15 @@
 
 ---
 
-## P2-13. 봇 NXT 연장장/종가단일가 청산 — 정규장 강제청산의 후속 (2026-06-29 신규, 작업2 분리)
+## P2-13. 봇 NXT 연장장/종가단일가 청산 — 정규장 강제청산의 후속 (2026-06-29 신규 → **재개봉·구현 완료(flag OFF, 활성화 대기) 2026-07-08**)
+
+> **✅ 재개봉·구현(2026-07-08) — 9/14 활성화 대기.** P2-13 진단(2026-07-06)의 3확정 갭을 flag OFF 로 구현. **P2-13 "수용 갭" 결정은 유지**(9/14 전엔 현행 그대로) — 이 작업은 갭을 없애는 게 아니라 9/14 후 없앨 **수단을 준비**. 설계 = `docs/NXT_ROUTING_DESIGN.md`, 요약 = STOCK_AZ_FULL §19 2026-07-08.
+> - **Phase 1(주문 라우팅)**: `OrderSession`(REGULAR/NXT_EXTENDED) + 순수 `OrderSessionRouter.resolveOrderSession` + `KoreaInvestmentService.buyStock/sellStock` 세션 오버로드(기존 3-arg=REGULAR 위임·현행 동일). NXT 거래소구분 파라미터는 **미확정(§0.4) → externalize + fail-CLOSED**(명시적 거부 rt_cd≠0 반환, killswitch 미발동). flag `bot.nxt-routing.enabled`(기본 false).
+> - **Phase 2(방어 청산)**: `executeNxtLiquidationRetry`(cron 15:00~19:55 매5분, 창 15:35~19:55) — 정규장 미체결 봇 소유 잔여만 NXT 세션 재청산. 리더·killswitch·SELL in-flight(V45)·지정가 전 게이트 통과. flag `bot.nxt-liquidation.enabled`(기본 false). 순수 `shouldRunNxtLiquidation`.
+> - **Phase 3(종가봇 재설계)**: `executeClosingBuyLogic/SellLogic` 리더+sanity 게이트 배선(감사 #4 해소), 진입 KRX 하드코딩(§16-2), 종가 시각 설정 이동(`bot.closing.entry-*`). @Scheduled 계속 주석.
+> - **활성화 절차(사람)**: NXT_ROUTING_DESIGN §5 — ① KIS NXT order-cash 거래소구분 파라미터 확정 ② `kis.order.nxt-exchange-param-*` 주입 + recreate ③ flag 2종 ON ④ 종가봇 @Scheduled 해제(원하면) ⑤ 소액 실검증.
+
+> **배경**: 정규장 마감(15:20) 강제청산(`executeRegularSessionLiquidation`, BotConfig.forceRegularSessionLiquidation 기본 ON)을 먼저 도입했다.
 
 > **배경**: 정규장 마감(15:20) 강제청산(`executeRegularSessionLiquidation`, BotConfig.forceRegularSessionLiquidation 기본 ON)을 먼저 도입했다.
 > 15:20 을 고른 이유는 연속세션 끝이라 시장가/지정가 체결이 확실해서다. **종가단일가(15:20~15:30)·NXT 연장장(08~20) 청산은 미구현** —
@@ -295,7 +303,7 @@
   3. `FORCE_LIQUIDATION_TIME`(현 15:20)·청산 대상(정규/연장 분리) 파라미터화.
 - **선결(재개봉 조건)**: ① NXT 주문 라우팅(`sellStock` 거래소/세션 파라미터) 구현 + ② 2026-09-14 애프터마켓 정식 도입 규격 확정(종가봇 재설계와 동반 착수). 현재는 정규장 청산으로 오버나잇 1차 방어.
 - **파생 백로그(진단 중 발견, 코드 미수정)**:
-  - **P2-13-a**: ✅ **주석 정정 완료 확인(2026-07-07(E) 감사)** — 현행 주석(`AutoTradingBotService.java:229-239`)이 이미 "실제 binding 은 isMarketClosed()(15:30), 08~20 윈도우는 15:30 이후 死코드"를 명시(두 매도 내부 호출 지점 = :2031 스캘핑·:2948 스윙). **가드 일원화(이중가드 정리)는 NXT 배선 시 잔여**(주석에 P2-13-a 참조 유지).
+  - **P2-13-a**: ✅ **해소(2026-07-08)** — 주석은 이미 "실제 binding=isMarketClosed()(15:30)"로 정정돼 있었고, NXT 배선 주석 확장 완료: 정규 매도/청산 경로는 isMarketClosed(15:30) 상한 유지, NXT 연장세션 청산은 이 이중가드를 건드리지 않는 별도 경로(`executeNxtLiquidationRetry`, `OrderSession.NXT_EXTENDED`)로 분리 — "08~20 윈도우 상수를 되살리지 말 것" 명시. 이중가드 자체는 정규 경로 안전상 유지(제거 아님).
   - **P2-13-b**: 지정가 청산 잔여 하드닝(위 기각 Option) — 15:29 잔여 알림 실발생 데이터 축적 시 재검토.
 - **관련**: `AutoTradingBotService.executeRegularSessionLiquidation`/`sellPortfolioMatching`/`isMarketClosed`(15:30)/`FORCE_LIQUIDATION_TIME`/시간대 상수(REGULAR_END 15:25 / AFTER_MARKET_END 20:00), `RealTradeService.sell`(지정가), `kisService.sellStock`(세션 파라미터 부재), 종가봇 `executeClosingBuyLogic`/`executeClosingSellLogic`(주석 비활성).
 

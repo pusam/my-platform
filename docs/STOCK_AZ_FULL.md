@@ -393,7 +393,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 2. **매도 체결확인**: 지정가 부분/미체결 가능 → `resolveFill`로 확정 미달이면 포지션 유지(다음 사이클 재시도). 조회실패=UNKNOWN=현행 제거(안전 기본값). `confirmFill`은 `@Transactional(NOT_SUPPORTED)`(폴링이 DB 트랜잭션 미점유).
 3. **KIS 주문성공 + 로컬 DB 저장 실패 = 즉시 killswitch**(KIS 비멱등, 재시도/롤백 금지). killswitch는 DB 기반(재시작 유지).
 4. **멀티 인스턴스 — 봇 크론 리더 게이트(fail-CLOSED, 2026-06-29 부분 해소)**: `BotLeaderElectionService`로 리더 1개만 주문, Redis 장애 시 주문 중단. killswitch와 독립(둘 다 통과해야 주문). 잔여(P3-1): RealTradeService 멱등키/부분청산 가드 미구현.
-5. **오버나잇 방어**: 정규장 마감 15:20 강제청산(`forceRegularSessionLiquidation` 기본 ON). 리더+killswitch 게이트 탑승. (NXT 잔여 갭 = P2-13 **진단 종결**, §19 2026-07-06 — 진입은 NXT 전면차단, 지정가 미체결 잔여만 수용 갭.)
+5. **오버나잇 방어**: 정규장 마감 15:20 강제청산(`forceRegularSessionLiquidation` 기본 ON). 리더+killswitch 게이트 탑승. **NXT 방어 청산(2026-07-08, flag OFF)**: 15:20~28 미체결 봇 소유 잔여를 NXT 연장세션(`executeNxtLiquidationRetry`, 15:35~19:55)에서 재청산 — `bot.nxt-liquidation.enabled`+`bot.nxt-routing.enabled` 둘 다 ON+거래소구분 파라미터 확정 시(9/14 이후) 활성. 진입은 NXT 전면차단 유지(§16-2, 방어 청산 창만 확대). 설계 = `docs/NXT_ROUTING_DESIGN.md`, P2-13 재개봉·구현(활성화 대기).
 6. **일일 손실 서킷브레이커(V38, 2026-07-06)**: 당일 봇 **실현손익 합산**(VirtualTradeHistory SELL 확정 기록만) ≤ -한도(기본 30만원, `bot_config` 전용 행) → **신규 진입만 차단·손절/청산 계속**(비대칭 핵심). 기존 -3% 자산 킬스위치(botActive=false=매도 관리까지 중단·평가액=수동매매 오염)와 별개 — 실현손실 기준·DB 영속·날짜 비교 자동 해제·ADMIN 수동 해제(`/bot/daily-loss-breaker/*`). judge 순수함수 **BLOCKED-before-null**(발동 후 DB 블립에도 차단 유지), trip=조건부 UPDATE 멱등(알림/감사 1회). 게이트 = 스캘핑(골든타임 틱당 1회)·스윙(runMode 스냅샷 후)·종가(방어적). → CLAUDE.md §4d.
 7. **ATR 세트 — ATR×2.5 청산 + 리스크 균등 사이징(V42, 2026-07-07, VIRTUAL 전용·flag 가역)**: exit 백테스트(ATR×2.5 avgNet +2.10% vs 고정 -0.22%) 근거의 **실험 경로** — flag **`bot.atr-trading.enabled`(기본 OFF)**, **REAL 은 flag 무관 무조건 현행 2중 하드 가드**(`isAtrSetActive` 사이징 + `resolveSwingExitLevels` 청산). 공식: 수량 = riskBudget ÷ (진입가×손절폭%) — `PositionSizer.judge`(**수량 축소 전용, 항상 현행 이하 캡**), riskBudget = `bot_config` 'atr_trading' 행 오버라이드 → 브레이커 한도÷6(기본 5만); 스윙 청산 = 진입 시점 ATR14(Wilder, `AtrCalculator`) 스냅샷 고정(V42 영속·재시작 복원) × 2.5 손절 / ×5/3 익절(`AtrExitRule`), 스캘핑은 사이징만(청산 -1.2% 불변). **폴백 = ATR/입력 결측이면 그 종목 완전 현행**(§4c 확대 금지). 트레일링·타임컷·강제청산·모든 안전 게이트(리더/killswitch/브레이커/sanity) 불변 — 게이트 통과 후 마지막에 수량/청산폭만 결정. 적용값(수량·ATR·손절폭·riskBudget) = `TradingAuditLog`(triggeredBy=ATR_SIZING) 스냅샷. 검증: 포트폴리오 재생(2026-07-07) — **브레이커 가상 발동 0=0(동수)**, 총수익 -70.9%→+96.3%, MDD 72.7%→18.0%(proxy 신호셋·트레일링/쿨다운 미반영 한계). **REAL 확장 조건 = VERIFICATION_BACKLOG P2-17**(VIRTUAL 2주+ 실측). 설계: `docs/ATR_TRADING_SET.md`.
 
@@ -670,6 +670,21 @@ AUDIT_2026-07-07 리포트의 P1 2건 수정 + DESIGN_P3-1 B안 구현. 각 독�
 3. **P3-1 잔여 ③ B안 — SELL in-flight 마커**(`ea4a609`, **V45** `bot_sell_inflight`): 종목별 TTL 60s 마커로 리더 전환/더블런 "동시 창" 부분청산 과청산 차단, 창 이후는 KIS 잔고 재조회가 진실 원장(S3 잔여분 재시도 보존). `BotSellInflightService`(순수 `decideSellGate`, 만료 행 조건부 UPDATE 재획득) → `RealTradeService.sell` 진입부 일괄 게이트(SKIP=audit blocked+throw=이번 사이클 양보, try/finally release, SKIP 시 남의 마커 release 금지). **비대칭 극성(§4d)**: DB 오류=fail-open(PROCEED_UNGUARDED)+RISK 알림(10분 스로틀) — BUY 멱등키(fail-closed)와 의도적 반대. **설계 이탈 2건(코드 현실 우선, 커밋 메시지 명시)**: ① 서비스 REQUIRES_NEW 대신 리포지토리 레벨 tx(fail-open 반환이 rollback-only 오염으로 깨지는 것 방지, sell 이 NOT_SUPPORTED 라 동등) ② 적용 지점 = 호출부 6곳 실측 후 "sell 진입부 일괄" 선택. VIRTUAL 무영향·killswitch 무간섭. 테스트 = 설계 §4.3 전항(S1/S3/동시경쟁/비대칭) + RealTradeServiceTest 게이트 3종.
 
 **배포 후 확인**: ① V45 마이그레이션 적용 ② 구글뉴스/재료 로그에서 뉴스 관련성 개선 확인 ③ 체크리스트 공매도 항목 "미수집" 표기(死피드 동안) ④ 실전 매도 로그 `[SellInflight]` 정상 acquire/release.
+
+---
+
+### 2026-07-08 세션 — NXT 연장장(2026-09-14) 대응 준비 4Phase (전부 flag OFF, 활성화 9/14 이후)
+
+P2-13(NXT 청산) **재개봉·구현** — 진단 3확정 갭(주문 라우팅 부재·15:20~28 미체결 잔여·종가봇 미재설계)을 **전부 flag OFF 로 구현**. P2-13 "수용 갭" 결정은 유지(9/14 전엔 현행 그대로), 이 작업은 갭을 없앨 **수단 준비**. 설계 = `docs/NXT_ROUTING_DESIGN.md`. Phase별 독립 커밋, 백엔드 타겟 테스트 + 스모크 green.
+
+- **Phase 0**(`36ce8d8`): 주문 계층 실측 매핑 문서. KIS order-cash 바디엔 거래소구분 필드 부재 확정. ⚠ NXT 파라미터 = **KIS 문서 확인 필요**(웹검색으로도 공식 스펙 미확정, §4c 추측 금지) → externalize + fail-CLOSED 설계.
+- **Phase 1**(`8739633`): `OrderSession`(REGULAR/NXT_EXTENDED) + 순수 `OrderSessionRouter.resolveOrderSession`(경계 15:30/20:00) + `KoreaInvestmentService.buyStock/sellStock` 세션 오버로드(**기존 3-arg=REGULAR 위임=현행 바이트 동일**). `applyNxtRouting`(package-private, now 인자=결정성): REGULAR/강등=바디 무변경, NXT+파라미터 미확정=**명시적 거부(rt_cd≠0, killswitch 유발 null 아님)**. flag `bot.nxt-routing.enabled`(기본 false), `kis.order.nxt-exchange-param-*` placeholder.
+- **Phase 2**(`79b8ae6`): `executeNxtLiquidationRetry`(cron 15:00~19:55 매5분, 창 15:35~19:55) — 정규장 미체결 봇 소유 잔여만 NXT 세션 재청산. 리더·killswitch·SELL in-flight(V45)·지정가 전 게이트 통과(**게이트 우회 없음**). 순수 `shouldRunNxtLiquidation`. `TradeService.sell` 세션 default 오버로드(기본 REGULAR)+`RealTradeService` override+`sellPortfolioMatching` 세션 오버로드 — **REGULAR 경로는 기존 4-arg 그대로 호출**(현행 보존, 기존 테스트 무수정). flag `bot.nxt-liquidation.enabled`(기본 false). P2-13-a 주석 NXT 배선 확장.
+- **Phase 3**(`ee00653`): 종가봇 재설계 — `executeClosingBuyLogic/SellLogic` 리더+`passesPriceSanity` 게이트 배선(감사 #4 해소), 진입 KRX 하드코딩(§16-2·NXT 진입 경로 없음), 종가 시각 설정 이동(`bot.closing.entry-*`, 순수 `parseTimeOr`/`withinClosingEntryWindow`). `@Scheduled` 계속 주석.
+- **활성 크론 7→8**(executeNxtLiquidationRetry 추가) — `AutoTradingBotTrackTest` 8 단언·클래스 헤더 표 동시 갱신.
+- **불변식 준수**: flag OFF=현행 바이트 동일(REGULAR 위임·enabled 가드) · §4d 게이트 무손상(신규 경로 동일 관통) · KIS 비멱등(재시도/롤백·killswitch 규칙 동일) · §16-2 진입 KRX 유지(청산 창만 확대).
+
+**9/14 활성화 절차(사람 확정)** = `NXT_ROUTING_DESIGN.md §5` / `SCHEDULE_DECISIONS.md 2026-09-14`: ① KIS NXT order-cash 거래소구분 파라미터 확정 ② 설정 주입+recreate ③ flag 2종 ON ④ 종가봇 @Scheduled 해제(원하면) ⑤ 소액 실검증.
 
 ---
 

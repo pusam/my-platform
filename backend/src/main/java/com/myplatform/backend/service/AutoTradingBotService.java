@@ -81,9 +81,9 @@ import java.util.stream.Collectors;
  * ========================================
  * [트랙 정합 — 코드 기준 확정] (P2-6, 가드: AutoTradingBotTrackTest)
  * ========================================
- *   ▶ 한 줄 요약: <b>전략 2 / 활성 크론 7 / cron 메서드 9</b> (= 활성 7 + 청산봇 2 비활성)
- *   ★ 활성 @Scheduled 7개 (cron 은 메서드 위 어노테이션 참조 — 주석엔 시각만.
- *      개수 가드 = AutoTradingBotTrackTest.exactlySevenScheduled — 켜/끄면 테스트+이 표 동시 갱신):
+ *   ▶ 한 줄 요약: <b>전략 2 / 활성 크론 8 / cron 메서드 10</b> (= 활성 8 + 청산봇 2 비활성)
+ *   ★ 활성 @Scheduled 8개 (cron 은 메서드 위 어노테이션 참조 — 주석엔 시각만.
+ *      개수 가드 = AutoTradingBotTrackTest.exactlyEightScheduled — 켜/끄면 테스트+이 표 동시 갱신):
  *     1) executeScalpingBuyLogic   30초/9-11시   스캘핑 매수(모의 전용)
  *     2) executeScalpingSellLogic  15초/8-19시   스캘핑 매도
  *     3) executeScalpingClearance  15:10        스캘핑 청산
@@ -91,9 +91,10 @@ import java.util.stream.Collectors;
  *     5) executeSwingSellLogic     30초/8-19시   스윙 매도
  *     6) executeRegularSessionLiquidation 15:20~28 매분  정규장 마감 강제청산(윈도우 재시도)
  *     7) warnIfLiquidationMissed   15:29        청산 미완료 텔레그램 경고
+ *     8) executeNxtLiquidationRetry 15:35~19:55 매5분  NXT 방어 청산 재시도(flag OFF 기본=선차단, 2026-09-14 대비)
  *   ☓ 비활성(@Scheduled 주석처리) 2개:
- *     8) executeClosingBuyLogic / 9) executeClosingSellLogic — 종가 전략(재설계 대기)
- *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 7개 ≠ "cron 메서드" 9개(비활성 청산봇 2 포함).
+ *     9) executeClosingBuyLogic / 10) executeClosingSellLogic — 종가 전략(재설계 완료, 재활성 대기)
+ *   ※ "전략" 2개(스캘핑·스윙) ≠ "크론 트랙" 8개 ≠ "cron 메서드" 10개(비활성 청산봇 2 포함).
  *      청산봇 재활성은 별도 판단 사항 — 15:10 스캘핑 청산은 청산봇 포지션을 보존(2021줄)하고,
  *      스캘핑/스윙 매도도 closingPositions 를 명시적으로 제외(1761줄 등)하므로 "중복 청산"은 아님.
  *      재활성의 실질 블로커는 15:15 수급 미확정 + 2026-09-14 거래시간 연장 재설계 대기(아래 [전략 C] 참조).
