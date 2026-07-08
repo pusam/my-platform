@@ -184,8 +184,16 @@ public class KoreaInvestmentService {
 
                 if (root.has("access_token")) {
                     accessToken = root.get("access_token").asText();
-                    // 토큰 만료시간 설정 (24시간)
-                    tokenExpireTime = DateTimeUtil.kstNow().plusHours(24);
+                    // 토큰 만료시간 = 응답의 expires_in(초) 기준. 갱신 1시간 전 판정은
+                    // getAccessToken 상단의 tokenExpireTime.minusHours(1) 로 유지(불변).
+                    long expiresIn = parseExpiresInSeconds(root);
+                    if (expiresIn > 0) {
+                        tokenExpireTime = DateTimeUtil.kstNow().plusSeconds(expiresIn);
+                    } else {
+                        // §4c: 결측을 근거로 더 짧게 잡아 갱신을 폭주시키지 않는다 — 보수적 24h 폴백.
+                        tokenExpireTime = DateTimeUtil.kstNow().plusHours(24);
+                        log.warn("KIS 토큰 응답에 유효한 expires_in 없음 — 폴백 24h 적용");
+                    }
                     // 쿨다운 해제
                     tokenCooldownUntil = null;
                     log.info("KIS Access Token 발급 성공 (만료: {})", tokenExpireTime);
@@ -227,6 +235,26 @@ public class KoreaInvestmentService {
         }
 
         return null;
+    }
+
+    /**
+     * KIS 토큰 응답의 expires_in(초)을 추출한다. 순수 함수(테스트 대상).
+     * KisApiService/MarketIndicatorService 와 동일하게 응답값을 신뢰하되, 결측/비정상은
+     * 폴백 신호(-1)로 넘겨 호출부가 보수적 24h 를 쓰게 한다(§4c: 결측 위장 금지).
+     *
+     * @param root KIS {@code /oauth2/tokenP} 응답 JSON
+     * @return 유효한 만료초(&gt;0)이면 그 값, 결측/비숫자/0 이하이면 -1
+     */
+    static long parseExpiresInSeconds(JsonNode root) {
+        if (root == null) {
+            return -1L;
+        }
+        JsonNode node = root.get("expires_in");
+        if (node == null || node.isNull()) {
+            return -1L;
+        }
+        long secs = node.asLong(-1L);   // 숫자/숫자문자열은 파싱, 그 외는 -1
+        return secs > 0 ? secs : -1L;
     }
 
     /**
