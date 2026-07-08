@@ -481,3 +481,15 @@
 - **켜는 법**: `bot.atr-trading.enabled=true`(환경변수/application.yml — compose 는 backend `environment:` 명시 배선 §4b 함정 참고) → VIRTUAL 스윙 청산이 ATR×2.5, 스캘핑·스윙 수량이 리스크 균등으로 전환. riskBudget 조정 = `bot_config` 'atr_trading' 행 `atr_risk_budget_krw`.
 - **불변식**: REAL 하드 가드 2중(`isAtrSetActive`/`resolveSwingExitLevels`) 제거 금지 · 진입 여부 판단 관여 금지(수량·청산폭만) · ATR 결측=완전 현행 폴백(§4c) · 진입 스냅샷 고정(사후 재계산 금지) · PLAN_* 표시(-3/+5)는 봇 기본값과 동기라 무변경.
 - **관련**: `AutoTradingBotService.isAtrSetActive`/`resolveSwingExitLevels`/`resolveAtrRiskBudget`, `util/AtrCalculator`/`PositionSizer`/`AtrExitRule`, V42, `docs/ATR_TRADING_SET.md`, `python-backend/app/backtest/portfolio_backtest_service.py`, [P1-6](주간 리포트 연계).
+
+---
+
+## P3-8. KIS 토큰 3캐시 공유화 + 401 방어 잔여 2서비스 (구조 개선, 2026-07-08 신규 — 토큰 P1 2건 후속)
+> **배경**: KIS OAuth 토큰이 `KoreaInvestmentService`(시세·실매매)·`KisApiService`(투자자동향)·`MarketIndicatorService`(등락무버) **3개 인메모리 캐시로 독립 발급**(공유 없음, Redis/DB 미영속). 2026-07-08 세션에서 `KoreaInvestmentService` 만 ① expires_in 준수(`af0fdf4`) ② 401 시 토큰 1회 무효화(`2a57525`) 적용. 나머지 둘은 expires_in 은 이미 쓰나 401 방어 미적용, 3캐시 통합은 미착수.
+- **문제**:
+  1. **3중 발급** — 한 앱이 토큰을 3번 따로 발급. KIS 분당 1회 발급 제한과 무관하진 않으나(서로 다른 시점 발급이라 대개 통과), 재시작 직후 3서비스 동시 첫 호출이면 발급 경합 가능. 공유 토큰 스토어(1발급 → 3소비)면 발급 수·경합 최소화.
+  2. **401 방어 비대칭** — `KisApiService`/`MarketIndicatorService` 는 API 401 시 토큰 무효화 없음(둘 다 읽기 전용 랭킹/동향이라 상대적으로 저위험). `KoreaInvestmentService.invalidateTokenOnAuthFailure` 와 동일 패턴 이식 필요.
+- **합격 기준**: ① (선택 A, 저비용) 두 서비스에 `isAuthFailure` 기반 401 무효화만 이식(각 query catch 에서 accessToken=null·tokenExpireTime=0). ② (선택 B, 구조) 3서비스 공용 `KisTokenProvider`(단일 발급·공유 캐시, expires_in 준수, 401 무효화, 65초 쿨다운·synchronized) 추출 → 3서비스가 주입 소비. **주문 경로 불변식(§4d) 유지** — 토큰 갱신과 주문 재시도는 계속 별개.
+- **테스트**: 공용 provider 라면 순수 발급/만료/무효화 단위 + 3소비자 동일 토큰 참조 검증. 이식만이면 각 서비스 401→무효화 행동 테스트.
+- **주의**: 구조 변경(B)은 회귀면 넓음(3서비스 토큰 경로 전부) → 별도 세션. 우선 저비용 A(401 이식)만 먼저 처리해도 됨. 스코프 밖 리팩토링 금지 원칙상 이번 P1 2건에서는 의도적으로 제외했음.
+- **관련**: `KoreaInvestmentService.parseExpiresInSeconds`/`isAuthFailure`/`invalidateTokenOnAuthFailure`(참조 구현), `KisApiService.refreshAccessToken`, `MarketIndicatorService.refreshAccessToken`.
