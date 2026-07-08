@@ -105,6 +105,44 @@ public class KoreaInvestmentService {
     }
 
     /**
+     * KIS API 호출 예외가 인증 실패(HTTP 401)인지 판정. 순수 함수(테스트 대상).
+     * 401 = 토큰 만료/무효 신호 — 시계 기준 갱신(만료 1시간 전)만으로는 조기 만료를 못 잡으므로
+     * 토큰 캐시 무효화 트리거로 쓴다. 403(권한/IP)·429(rate)·5xx 는 여기서 false.
+     */
+    static boolean isAuthFailure(Exception e) {
+        return e instanceof org.springframework.web.client.HttpClientErrorException
+                && ((org.springframework.web.client.HttpClientErrorException) e).getStatusCode().value() == 401;
+    }
+
+    /**
+     * KIS API 호출이 401(인증 실패)이면 현재 토큰 캐시를 <b>1회</b> 무효화한다.
+     * → 다음 {@link #getAccessToken()} 호출이 재발급(65초 쿨다운 존중).
+     *
+     * <p>루프 방지: 이미 무효화(accessToken==null)면 no-op — 401 폭주가 토큰 발급 rate
+     * (KIS 분당 1회)를 태우지 않게 한다. 재발급이 실패하면 getAccessToken 의 기존 쿨다운이 방어.
+     *
+     * <p>⚠ §4d: 토큰 무효화까지만이다. 주문(TTTC/TTTD) 재시도는 절대 하지 않는다(KIS 비멱등).
+     * 401 은 인증 실패라 주문이 접수되지 않은 게 확실 — 호출부는 기존대로 null/거부바디를 반환한다.
+     */
+    private synchronized void invalidateTokenOnAuthFailure(Exception e) {
+        if (!isAuthFailure(e) || accessToken == null) {
+            return;
+        }
+        accessToken = null;
+        tokenExpireTime = null;
+        log.warn("KIS API 401 인증 실패 — 토큰 캐시 무효화(다음 호출 재발급, 쿨다운 존중). 주문 재시도 없음.");
+    }
+
+    /**
+     * KIS 조회 API 호출 예외 공통 처리: rate-limit(429/EGW00201)은 재시도 위해 rethrow,
+     * 401 인증 실패는 토큰 캐시를 1회 무효화한다. (주문 경로는 별도 catch 에서 무효화만 호출.)
+     */
+    private void handleKisApiException(Exception e) {
+        rethrowIfRateLimit(e);             // rate-limit → RuntimeException 재던짐(아래 미도달)
+        invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화
+    }
+
+    /**
      * API 설정이 유효한지 확인
      */
     public boolean isConfigured() {
@@ -328,7 +366,7 @@ public class KoreaInvestmentService {
                 return objectMapper.readTree(response.getBody());
             }
         } catch (Exception e) {
-            rethrowIfRateLimit(e);
+            handleKisApiException(e);
             log.error("주식 현재가 조회 실패 [{}/{}]: {}", stockCode, marketDiv, e.getMessage());
         }
 
@@ -364,7 +402,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("주식 체결 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
             return null;
@@ -399,7 +437,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("주식 기본정보 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -449,7 +487,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("투자자별 매매동향 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -487,7 +525,7 @@ public class KoreaInvestmentService {
             } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
                 log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -523,7 +561,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("지수 현재가 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
 
@@ -560,7 +598,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("지수 분봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
 
@@ -613,7 +651,7 @@ public class KoreaInvestmentService {
                     return rows;
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("지수 일봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
             return java.util.List.<IndexOhlcvData>of();
@@ -716,7 +754,7 @@ public class KoreaInvestmentService {
                     log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -768,7 +806,7 @@ public class KoreaInvestmentService {
                     log.warn("일봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.warn("일봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -836,7 +874,7 @@ public class KoreaInvestmentService {
                     log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
                         investorType, isBuy, e.getMessage(), e);
             }
@@ -926,7 +964,7 @@ public class KoreaInvestmentService {
                     return result;
                 }
             } catch (Exception e) {
-                rethrowIfRateLimit(e);
+                handleKisApiException(e);
                 log.error("[거래량급증] 조회 실패: {}", e.getMessage(), e);
             }
 
@@ -997,7 +1035,7 @@ public class KoreaInvestmentService {
                 return result;
             }
         } catch (Exception e) {
-            rethrowIfRateLimit(e);
+            handleKisApiException(e);
             log.error("일봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
@@ -1300,6 +1338,9 @@ public class KoreaInvestmentService {
             String errorBody = e.getResponseBodyAsString();
             log.error("[실전매매] {} 주문 실패 [{}]: {} - body: {}",
                     orderType.toUpperCase(), stockCode, e.getStatusCode(), errorBody);
+            // 401(인증 실패)이면 토큰 캐시만 1회 무효화 → 다음 호출 재발급. §4d: 주문 재시도는 절대 없음
+            // (401=미접수 확실, 아래 거부바디/null 반환 흐름 불변 → killswitch 로직 무접촉).
+            invalidateTokenOnAuthFailure(e);
             try {
                 JsonNode parsed = objectMapper.readTree(errorBody);
                 if (parsed.has("rt_cd")) {
@@ -1480,6 +1521,7 @@ public class KoreaInvestmentService {
             }
         } catch (Exception e) {
             log.warn("[실전매매] 체결조회 예외 [{}] ODNO {}: {}", stockCode, orderNo, e.getMessage());
+            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 1회 무효화(읽기 전용, resolveFill 은 기존대로 null=UNKNOWN)
         }
         return null;
     }
