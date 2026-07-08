@@ -241,6 +241,10 @@ bot:
   # 활성화 절차: docs/NXT_ROUTING_DESIGN.md §5 (거래소구분 파라미터 확정 → flag ON → 소액 실검증).
   nxt-routing:
     enabled: ${BOT_NXT_ROUTING_ENABLED:false}
+  # NXT 방어 청산 재시도 (executeNxtLiquidationRetry, 15:35~19:55). 기본 OFF.
+  # nxt-routing.enabled 와 둘 다 ON 이어야 동작 — 정규장 미체결 잔여만 연장세션에서 재청산.
+  nxt-liquidation:
+    enabled: ${BOT_NXT_LIQUIDATION_ENABLED:false}
 
 # 뉴스 요약 Gemini 일간 호출 상한 — 쿼터 보호
 # 초과 시 Gemini 호출 없이 본문 앞부분만 summary 로 저장 (다음날 자동 리셋)

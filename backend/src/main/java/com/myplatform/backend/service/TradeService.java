@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.myplatform.backend.dto.PaperTradingDto.*;
+import com.myplatform.backend.util.OrderSession;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -51,6 +52,16 @@ public interface TradeService {
      * @return 거래내역 DTO
      */
     TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason);
+
+    /**
+     * 매도 처리 (주문 세션 지정 — NXT/연장장 방어 청산용, 2026-09-14 대비).
+     * <b>기본 구현은 세션을 무시하고 REGULAR 로 위임</b> — VirtualTradeService(KIS 미경유) 및
+     * 세션 미구분 호출부의 현행 동작 보존. RealTradeService 만 override 해 KIS 주문에 세션을 전달한다.
+     * @param session {@link OrderSession#REGULAR}(현행) 또는 {@link OrderSession#NXT_EXTENDED}(NXT 방어청산)
+     */
+    default TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason, OrderSession session) {
+        return sell(stockCode, price, quantity, reason);
+    }
 
     /**
      * 계좌 요약 조회

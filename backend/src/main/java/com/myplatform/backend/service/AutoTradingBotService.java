@@ -19,6 +19,7 @@ import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.VirtualPortfolioRepository;
 import com.myplatform.backend.util.AtrCalculator;
 import com.myplatform.backend.util.AtrExitRule;
+import com.myplatform.backend.util.OrderSession;
 import com.myplatform.backend.util.PositionSizer;
 import com.myplatform.backend.util.PriceSanityGuard;
 import com.myplatform.core.util.DateTimeUtil;
@@ -144,6 +145,17 @@ public class AutoTradingBotService {
     /** ATR 세트 riskBudget 설정 행 (bot_config 전용 행 — 'trading_bot'/'daily_loss_breaker' 행 분리 원칙). */
     static final String ATR_CONFIG_KEY = "atr_trading";
 
+    // ── NXT 방어 청산 flag (2026-09-14 대비, docs/NXT_ROUTING_DESIGN.md §2) ────────────
+    // 기본 false — OFF 면 executeNxtLiquidationRetry 는 early-return(현행 동일). 활성화는 9/14 이후.
+    // nxt-liquidation.enabled(청산 재시도 스위치) AND nxt-routing.enabled(주문 라우팅, Phase 1) 둘 다 ON 이어야 동작.
+    @org.springframework.beans.factory.annotation.Value("${bot.nxt-liquidation.enabled:false}")
+    private volatile boolean nxtLiquidationEnabled;
+    @org.springframework.beans.factory.annotation.Value("${bot.nxt-routing.enabled:false}")
+    private volatile boolean nxtRoutingEnabled;
+    // NXT 방어 청산 창: 정규장 청산(15:20~15:28)·15:29 경고 종료 후 ~ NXT 종료(20:00) 직전.
+    private static final LocalTime NXT_LIQUIDATION_START = LocalTime.of(15, 35);
+    private static final LocalTime NXT_LIQUIDATION_END = LocalTime.of(19, 55);
+
     // ╔══════════════════════════════════════════════════════════════╗
     // ║  [A] 스캘핑 전략 (모의투자 전용, 09:45~10:30 골든타임)        ║
     // ╠══════════════════════════════════════════════════════════════╣
@@ -234,8 +246,11 @@ public class AutoTradingBotService {
     //   AFTER_MARKET_END(08:00~20:00)는 넓게 잡혀 있으나, 두 매도 내부(executeScalpingSellLogicInternal·
     //   executeSwingSellLogicInternal)가 이 08~20 윈도우 체크보다 '먼저' isMarketClosed()(MARKET_CLOSE=15:30)를
     //   호출해 return 한다 → 실제 매도 가능 상한은 15:30, 08~20 윈도우는 15:30 이후 사실상 死코드.
-    //   (당초 NXT 애프터마켓(2026-09-14) 확장 대비로 넓혀 둔 상수이나 isMarketClosed 15:30 이 그걸 선차단.
-    //    NXT 청산 배선 시 이 이중가드 정리 필요 — VERIFICATION_BACKLOG P2-13-a.)
+    //   (당초 NXT 애프터마켓(2026-09-14) 확장 대비로 넓혀 둔 상수이나 isMarketClosed 15:30 이 그걸 선차단.)
+    //   ※ NXT 방어 청산 배선(2026-07-08, flag OFF): 정규 매도/청산 경로는 여전히 isMarketClosed(15:30) 상한 유지.
+    //     NXT 연장세션(15:30~20:00) 청산은 이 이중가드를 건드리지 않는 별도 경로 executeNxtLiquidationRetry 가
+    //     담당한다(FORCE_LIQUIDATION 처럼 isMarketClosed 우회, OrderSession.NXT_EXTENDED 라우팅). 진입은 불변(§16-2).
+    //     즉 08~20 윈도우 상수를 여기서 되살리지 말 것 — NXT 는 별도 함수·flag 로만. VERIFICATION_BACKLOG P2-13.
     //   ※ REGULAR_END(15:25)는 봇 자체 상수로, MarketCalendarService.MARKET_CLOSE(15:40, 종가단일가 버퍼)와 다름 — 봇은 별도 판정.
     //   ※ FORCE_LIQUIDATION(15:20~15:28)만 isMarketClosed 를 안 거치는 별도 경로(정규장 마감 강제청산, P2-13 진단 참고).
     //   ※ 15:10 스캘핑 청산(scalpingPositions.clear) 이후 매도 cron 이 (15:30까지) 돌아도, 스캘핑 포지션이 비어
@@ -2411,7 +2426,11 @@ public class AutoTradingBotService {
      *
      * <p>가드: 리더(작업1, fail-CLOSED) AND 봇활성 AND 미killed AND 설정 ON AND 시각≥15:20 — 모두 통과해야 청산(둘 다 통과해야 주문 원칙).
      * DB killswitch(TradingSafetyService, KIS 불확실성)는 {@code activeTradeService.sell()} 내부에서 추가로 주문을 차단한다.
-     * VIRTUAL/REAL 공용({@code activeTradeService}). ⚠ NXT 연장장(08~20)·종가단일가(15:20~15:30) 청산은 후속 과제.
+     * VIRTUAL/REAL 공용({@code activeTradeService}).
+     *
+     * <p>이 경로는 <b>정규 연속세션(REGULAR)</b> 청산 그대로다(현행 무변경). 15:28 이후 지정가 미체결 잔여는
+     * {@link #executeNxtLiquidationRetry()}(NXT 연장세션 15:35~19:55, flag OFF·2026-09-14 대비)가 재청산한다 —
+     * 두 경로 모두 {@code isLiquidatedToday()}/{@code markLiquidatedToday()} 를 공유(NXT 에서 완청산 시 마킹).
      */
     @Scheduled(cron = "0 20-28 15 * * MON-FRI", zone = "Asia/Seoul")
     public void executeRegularSessionLiquidation() {
@@ -2469,12 +2488,87 @@ public class AutoTradingBotService {
         }
     }
 
+    /**
+     * NXT 방어 청산 재시도 (2026-09-14 대비, flag OFF — docs/NXT_ROUTING_DESIGN.md §2).
+     *
+     * <p>정규장 청산(15:20~15:28)에서 <b>지정가 미체결로 남은 봇 소유 잔여</b>를 NXT 연장세션(15:30~20:00)에서
+     * 재청산 — P2-13 유일 오버나잇 갭을 9/14 후 없앨 수단. <b>진입은 불건드림(§16-2)</b> — 방어적 청산 창 확대만.
+     *
+     * <p>가드(전부 AND): 리더(fail-CLOSED) AND {@code bot.nxt-liquidation.enabled} AND {@code bot.nxt-routing.enabled}
+     * AND 봇활성 AND 미killed AND 설정 ON AND 창[15:35~19:55] AND 당일 정규장 미완료. 청산 자체는
+     * {@code activeTradeService.sell(..., NXT_EXTENDED)} 로 <b>SELL 게이트 전부 통과</b>(killswitch·in-flight 마커·
+     * KIS성공+DB실패 killswitch) + <b>지정가</b>(시장가 금지, P2-13-b 기각 근거 유지). NXT 라우팅은 주문 리프가 적용.
+     *
+     * <p>cron 은 15:00~19:55 매 5분 발화하되 창 밖(≤15:30)은 {@code shouldRunNxtLiquidation} 이 선차단.
+     */
+    @Scheduled(cron = "0 0/5 15-19 * * MON-FRI", zone = "Asia/Seoul")
+    public void executeNxtLiquidationRetry() {
+        if (!botLeader.isLeaderForBot()) return;   // 리더 게이트(fail-CLOSED)
+        if (!shouldRunNxtLiquidation(botActive.get(), killSwitchTriggered.get(),
+                nxtLiquidationEnabled, nxtRoutingEnabled, isForceRegularLiquidationEnabled(),
+                isLiquidatedToday(), LocalTime.now(clock), NXT_LIQUIDATION_START, NXT_LIQUIDATION_END)) {
+            return;
+        }
+        // 봇 소유 ∩ KIS 잔고 잔여만 대상(수동/untracked 보호). 없으면 이번 사이클 조용히 종료.
+        Set<String> botOwned = botOwnedCodes(Set.of(Strategy.SCALPING, Strategy.SWING, Strategy.CLOSING));
+        Set<String> stillHeld = new java.util.HashSet<>();
+        for (PortfolioItemDto p : activeTradeService.getPortfolio()) {
+            if (p.getStockCode() != null) stillHeld.add(p.getStockCode());
+        }
+        stillHeld.retainAll(botOwned);
+        if (stillHeld.isEmpty()) return;   // 잔여 없음 — NXT 재청산 불필요
+
+        log.info("[봇] ===== NXT 방어 청산 재시도 (창 15:35~19:55, 봇 소유 잔여 {}종목) =====", stillHeld.size());
+        try {
+            TimeCutResult result = sellPortfolioMatching(botOwned, "NXT_SESSION_CLOSE", OrderSession.NXT_EXTENDED);
+            // 완청산 확인 = 봇 소유분이 KIS 잔고에서 모두 빠짐. 정규장과 동일 판정·표기 재사용.
+            Set<String> after = new java.util.HashSet<>();
+            for (PortfolioItemDto p : activeTradeService.getPortfolio()) {
+                if (p.getStockCode() != null) after.add(p.getStockCode());
+            }
+            after.retainAll(botOwned);
+            if (after.isEmpty()) {
+                scalpingPositions.clear();
+                swingPositions.clear();
+                closingPositions.clear();
+                markLiquidatedToday();
+                log.info("[봇] NXT 방어 청산 완료 - {}종목 매도, 총 손익: {}원",
+                        result.soldCount, formatNumber(result.totalProfitLoss));
+                if (telegramService.isEnabled()) {
+                    telegramService.sendRisk(String.format(
+                            "🌙 [봇] NXT 방어 청산 완료 — 정규장 미체결 잔여 %d종목 연장세션 청산(총 손익 %s원).",
+                            result.soldCount, formatNumber(result.totalProfitLoss)));
+                }
+            } else {
+                log.warn("[봇] NXT 방어 청산 일부 미체결 — 다음 5분 재시도 (봇 소유 잔여 {}종목)", after.size());
+            }
+        } catch (Exception e) {
+            lastError = e.getMessage();
+            lastErrorTime = LocalDateTime.now(clock);
+            log.error("[봇] NXT 방어 청산 오류", e);
+        }
+    }
+
     /** 청산 윈도우 실행 여부 — 순수 함수(테스트 대상). 리더는 호출부 별도 게이트. 당일 미완료 AND 자격 AND 윈도우 내. */
     static boolean shouldRunLiquidationWindow(boolean botActive, boolean killed, boolean configOn,
                                               boolean doneToday, LocalTime now,
                                               LocalTime windowStart, LocalTime windowEnd) {
         if (doneToday) return false;
         if (!configOn || !botActive || killed) return false;
+        return !now.isBefore(windowStart) && !now.isAfter(windowEnd);
+    }
+
+    /**
+     * NXT 방어 청산 실행 여부 — 순수 함수(테스트 대상). 리더는 호출부 별도 게이트.
+     * 정규장 청산 완료(doneToday) 시 불필요, nxt 두 flag·설정·자격·창 전부 충족해야 실행.
+     * flag OFF(nxtLiqEnabled/nxtRoutingEnabled 중 하나라도) 시 항상 false = 현행 보존.
+     */
+    static boolean shouldRunNxtLiquidation(boolean botActive, boolean killed,
+                                           boolean nxtLiqEnabled, boolean nxtRoutingEnabled, boolean configOn,
+                                           boolean doneToday, LocalTime now,
+                                           LocalTime windowStart, LocalTime windowEnd) {
+        if (doneToday) return false;
+        if (!nxtLiqEnabled || !nxtRoutingEnabled || !configOn || !botActive || killed) return false;
         return !now.isBefore(windowStart) && !now.isAfter(windowEnd);
     }
 
@@ -2624,6 +2718,14 @@ public class AutoTradingBotService {
      * 기존 "전체 매도(sellAllPortfolio)"·"제외 매도(sellPortfolioExcept)"가 수동 보유분까지 팔던 것을 대체.
      */
     private TimeCutResult sellPortfolioMatching(Set<String> targetCodes, String reason) {
+        return sellPortfolioMatching(targetCodes, reason, OrderSession.REGULAR);
+    }
+
+    /**
+     * 세션 지정 청산 (NXT 방어 청산용). REGULAR(기본)은 현행과 동일 — 정규장 청산이 그대로 위임.
+     * NXT_EXTENDED 는 매도 주문만 연장세션으로 라우팅(모든 SELL 게이트는 {@code activeTradeService.sell} 내부에서 동일 통과).
+     */
+    private TimeCutResult sellPortfolioMatching(Set<String> targetCodes, String reason, OrderSession session) {
         List<PortfolioItemDto> toSell = activeTradeService.getPortfolio().stream()
                 .filter(p -> p.getStockCode() != null && targetCodes.contains(p.getStockCode()))
                 .collect(Collectors.toList());
@@ -2643,8 +2745,10 @@ public class AutoTradingBotService {
             if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
             BigDecimal currentPrice = priceDto.getCurrentPrice();
             try {
-                TradeHistoryDto result = activeTradeService.sell(
-                        portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), reason);
+                // REGULAR 은 기존 4-arg 그대로 호출(현행 바이트 동일). NXT 만 세션 오버로드 경유.
+                TradeHistoryDto result = (session == OrderSession.REGULAR)
+                        ? activeTradeService.sell(portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), reason)
+                        : activeTradeService.sell(portfolio.getStockCode(), currentPrice, portfolio.getQuantity(), reason, session);
                 lastTradeTime = LocalDateTime.now(clock);
                 todaySellCount.incrementAndGet();
                 soldCount++;

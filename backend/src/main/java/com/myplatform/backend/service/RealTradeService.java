@@ -8,6 +8,7 @@ import com.myplatform.backend.entity.VirtualTradeHistory;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
 import com.myplatform.backend.service.KoreaInvestmentService.BalanceInfo;
 import com.myplatform.backend.service.KoreaInvestmentService.HoldingStock;
+import com.myplatform.backend.util.OrderSession;
 import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -383,7 +384,18 @@ public class RealTradeService implements TradeService {
     @Override
     @Transactional(propagation = Propagation.NOT_SUPPORTED)   // NOT_SUPPORTED 사유는 buy javadoc 참조 — KIS 네트워크 tx 밖
     public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason) {
-        log.info("[실전매매] 매도 주문 시작: {} x {} @ {}원", stockCode, quantity, price);
+        return sell(stockCode, price, quantity, reason, OrderSession.REGULAR);
+    }
+
+    /**
+     * 세션 지정 매도 (NXT 방어 청산, 2026-09-14 대비). 모든 SELL 게이트(killswitch·in-flight 마커·audit·
+     * KIS성공+DB실패 killswitch)를 4-arg 와 <b>동일하게 통과</b>하며, 마지막 KIS 주문만 세션 라우팅한다.
+     * 기존 4-arg 는 REGULAR 로 위임(현행 바이트 동일) — 게이트 우회 경로를 신설하지 않는다(§4d).
+     */
+    @Override
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public TradeHistoryDto sell(String stockCode, BigDecimal price, Integer quantity, String reason, OrderSession session) {
+        log.info("[실전매매] 매도 주문 시작: {} x {} @ {}원 (세션 {})", stockCode, quantity, price, session);
 
         // 입력값 방어 (음수 수량/가격 거부)
         validateTradeInput(price, quantity);
@@ -447,7 +459,10 @@ public class RealTradeService implements TradeService {
             // 3) KIS API 매도 주문 — 매수와 동일한 안전장치
             JsonNode orderResult;
             try {
-                orderResult = kisService.sellStock(stockCode, quantity, price);
+                // REGULAR 은 기존 4-arg 그대로(현행 바이트 동일). NXT 만 세션 오버로드 경유.
+                orderResult = (session == OrderSession.REGULAR)
+                        ? kisService.sellStock(stockCode, quantity, price)
+                        : kisService.sellStock(stockCode, quantity, price, session);
             } catch (RuntimeException e) {
                 auditService.failure(audit, null, "EXCEPTION", e);
                 triggerKillSwitchOnUncertainty("매도", stockName, stockCode, e.getMessage());

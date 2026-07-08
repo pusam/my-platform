@@ -10,6 +10,7 @@ import com.myplatform.backend.dto.PaperTradingDto.TradeHistoryDto;
 import com.myplatform.backend.dto.ScalpingAnalysisDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.dto.TechnicalIndicatorsDto;
+import com.myplatform.backend.util.OrderSession;
 import com.myplatform.backend.entity.BotConfig;
 import com.myplatform.backend.entity.BotTradingPosition;
 import com.myplatform.backend.repository.BotConfigRepository;
@@ -952,6 +953,107 @@ class AutoTradingBotServiceTest {
             Method m = AutoTradingBotService.class.getDeclaredMethod("isPriceStale", StockPriceDto.class);
             m.setAccessible(true);
             assertThat((boolean) m.invoke(botService, dto)).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("NXT 방어 청산 재시도 (2026-09-14 대비, flag OFF)")
+    class NxtLiquidation {
+        private final LocalTime START = LocalTime.of(15, 35);
+        private final LocalTime END = LocalTime.of(19, 55);
+
+        private java.time.Clock clockAt(int h, int m) {
+            return java.time.Clock.fixed(
+                    java.time.ZonedDateTime.of(2026, 5, 11, h, m, 0, 0, KST).toInstant(), KST);
+        }
+
+        private void setBotActive(AutoTradingBotService bot, boolean v) throws Exception {
+            Field f = AutoTradingBotService.class.getDeclaredField("botActive");
+            f.setAccessible(true);
+            ((java.util.concurrent.atomic.AtomicBoolean) f.get(bot)).set(v);
+        }
+
+        private void setBool(AutoTradingBotService bot, String field, boolean v) throws Exception {
+            Field f = AutoTradingBotService.class.getDeclaredField(field);
+            f.setAccessible(true);
+            f.setBoolean(bot, v);
+        }
+
+        @Test
+        @DisplayName("shouldRunNxtLiquidation — 두 flag ON + 자격 + 창(15:35~19:55)만 true")
+        void nxtTruthTable() {
+            LocalTime mid = LocalTime.of(16, 0);
+            // botActive, killed, nxtLiq, nxtRouting, configOn, doneToday, now, start, end
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, true, false, mid, START, END)).isTrue();
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, true, false, START, START, END)).isTrue();  // 시작 경계
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, true, false, END, START, END)).isTrue();    // 종료 경계
+            // flag OFF (현행 보존) — 둘 중 하나라도 OFF 면 false
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, false, true, true, false, mid, START, END)).isFalse();  // nxtLiq OFF
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, false, true, false, mid, START, END)).isFalse();  // nxtRouting OFF
+            // 자격/창
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, true, true, mid, START, END)).isFalse();    // 이미 완료(정규장)
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(false, false, true, true, true, false, mid, START, END)).isFalse();  // 봇 비활성
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, true, true, true, true, false, mid, START, END)).isFalse();    // killswitch
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, false, false, mid, START, END)).isFalse();  // 설정 OFF
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, true, false, LocalTime.of(15, 30), START, END)).isFalse(); // 창 전(정규장 상한)
+            assertThat(AutoTradingBotService.shouldRunNxtLiquidation(true, false, true, true, true, false, LocalTime.of(19, 56), START, END)).isFalse(); // 창 후
+        }
+
+        @Test
+        @DisplayName("flag OFF(기본) → 창 안(16:00)이라도 no-op (매도 안 함) — 현행 보존")
+        void flagsOff_noOp() throws Exception {
+            AutoTradingBotService bot = rebuildBotWithClock(clockAt(16, 0));
+            setBotActive(bot, true);
+            // nxtLiquidationEnabled/nxtRoutingEnabled 는 기본 false (미설정)
+
+            bot.executeNxtLiquidationRetry();
+
+            verify(virtualTradeService, never()).sell(any(), any(), anyInt(), anyString());
+            verify(virtualTradeService, never()).sell(any(), any(), anyInt(), anyString(), any(OrderSession.class));
+        }
+
+        @Test
+        @DisplayName("두 flag ON + 창 안 + 봇 소유 잔여 → NXT 세션 매도 + 완료표기")
+        void flagsOn_residual_sellsNxt() throws Exception {
+            AutoTradingBotService bot = rebuildBotWithClock(clockAt(16, 0));
+            setBotActive(bot, true);
+            setBool(bot, "nxtLiquidationEnabled", true);
+            setBool(bot, "nxtRoutingEnabled", true);
+            String code = "005930";
+            PortfolioItemDto pos = PortfolioItemDto.builder()
+                    .stockCode(code).stockName("종목").quantity(10).averagePrice(new BigDecimal("70000")).build();
+            when(positionRepository.findByTradingMode(anyString())).thenReturn(List.of(
+                    BotTradingPosition.builder().stockCode(code).strategy(BotTradingPosition.Strategy.SWING)
+                            .tradingMode("VIRTUAL").build()));
+            // getPortfolio 3회: ①잔여 pre-check ②sellPortfolioMatching ③완료 after-check(빈=완청산)
+            when(virtualTradeService.getPortfolio()).thenReturn(
+                    List.of(pos), List.of(pos), Collections.emptyList());
+            StockPriceDto price = new StockPriceDto();
+            price.setStockCode(code); price.setCurrentPrice(new BigDecimal("71000"));
+            when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(code, price));
+            when(virtualTradeService.sell(any(), any(), anyInt(), anyString(), any(OrderSession.class)))
+                    .thenReturn(TradeHistoryDto.builder().profitLoss(BigDecimal.TEN).build());
+
+            bot.executeNxtLiquidationRetry();
+
+            // NXT 세션(5-arg)으로 매도 + 완료표기(markLiquidatedToday → config save)
+            verify(virtualTradeService).sell(eq(code), any(), eq(10), eq("NXT_SESSION_CLOSE"), eq(OrderSession.NXT_EXTENDED));
+            verify(botConfigRepository).save(any(BotConfig.class));
+        }
+
+        @Test
+        @DisplayName("두 flag ON + 창 안 + 봇 소유 잔여 없음 → no-op(매도 안 함)")
+        void flagsOn_noResidual_noOp() throws Exception {
+            AutoTradingBotService bot = rebuildBotWithClock(clockAt(16, 0));
+            setBotActive(bot, true);
+            setBool(bot, "nxtLiquidationEnabled", true);
+            setBool(bot, "nxtRoutingEnabled", true);
+            // 봇 소유분 없음(positionRepository 기본 empty, 포트폴리오 기본 empty)
+
+            bot.executeNxtLiquidationRetry();
+
+            verify(virtualTradeService, never()).sell(any(), any(), anyInt(), anyString(), any(OrderSession.class));
+            verify(botConfigRepository, never()).save(any(BotConfig.class));   // 완료표기 안 함
         }
     }
 
