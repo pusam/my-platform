@@ -183,7 +183,9 @@ services:
       - ./nginx/jewelry.conf:/etc/nginx/conf.d/jewelry.conf:ro
       # jewelry 프론트 dist. my-platform 트리 안(dev 소유)이라 git clone 과 충돌 없음.
       # jewelry-leads 배포(deploy.yml)가 이 경로로 dist 를 전송한다.
-      - ./nginx/jewelry-dist:/usr/share/nginx/html/jewelry:ro
+      # ⚠️ 읽기전용 html(위) 안쪽에 중첩 마운트하면 도커가 mountpoint 를 못 만들어
+      #    (read-only file system) nginx 검증이 실패한다. 반드시 html 바깥 형제 경로에 마운트.
+      - ./nginx/jewelry-dist:/usr/share/nginx/jewelry:ro
     depends_on:
       - backend
       - python-backend
