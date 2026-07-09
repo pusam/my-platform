@@ -245,6 +245,16 @@ bot:
   # nxt-routing.enabled 와 둘 다 ON 이어야 동작 — 정규장 미체결 잔여만 연장세션에서 재청산.
   nxt-liquidation:
     enabled: ${BOT_NXT_LIQUIDATION_ENABLED:false}
+  # VKOSPI 변동성 국면 게이트 (V46) — 고변동 장세 봇 신규 진입 사전 회피(서킷브레이커 사후방어 보완).
+  # mode 기본 OFF = 게이트 무효(봇 매매 byte-identical). REDUCED=진입 사이즈 50% 축소 / BLOCK=진입 차단.
+  # 청산은 항상 허용(비대칭). VKOSPI 데이터 없으면 skip(§4c). VolatilityRegimeService.
+  vol-regime-gate:
+    mode: ${BOT_VOL_REGIME_GATE_MODE:OFF}          # OFF / REDUCED / BLOCK
+  vol-regime:
+    lookback-days: ${BOT_VOL_REGIME_LOOKBACK_DAYS:252}   # 백분위 창(거래일)
+    top-percent: ${BOT_VOL_REGIME_TOP_PERCENT:10.0}      # 상위 N% 이상이면 HIGH_VOL
+    min-samples: ${BOT_VOL_REGIME_MIN_SAMPLES:120}       # 이 미만이면 UNKNOWN(§4c skip)
+    reduced-factor: ${BOT_VOL_REGIME_REDUCED_FACTOR:0.5} # REDUCED 모드 사이즈 배수
 
 # 뉴스 요약 Gemini 일간 호출 상한 — 쿼터 보호
 # 초과 시 Gemini 호출 없이 본문 앞부분만 summary 로 저장 (다음날 자동 리셋)

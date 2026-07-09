@@ -630,13 +630,22 @@ public class KoreaInvestmentService {
      * @return 일봉 리스트(오름차순 과거→최신, pykrx 동형). 실패/미설정 시 빈 리스트(위장값 금지).
      */
     public java.util.List<IndexOhlcvData> getIndexDailyOhlcv(String indexCode, int days) {
+        return getIndexDailyOhlcv(indexCode, days, null);   // null = 오늘 앵커(현행 동작 — 바이트 동일)
+    }
+
+    /**
+     * 앵커 지정 오버로드 — {@code anchorEnd} 기준 그 직전 최대 ~100 거래일. KIS 지수 TR 이 한 번에 ~100건만
+     * 반환하므로, 252거래일 등 장기 창은 호출부가 anchorEnd 를 과거로 밀며 <b>페이지네이션</b>한다
+     * ({@code VolatilityRegimeService}). anchorEnd=null 이면 오늘 앵커 = 기존 호출부와 완전 동일.
+     */
+    public java.util.List<IndexOhlcvData> getIndexDailyOhlcv(String indexCode, int days, java.time.LocalDate anchorEnd) {
         return rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL, () -> {
             String token = getAccessToken();
             if (token == null) {
                 return java.util.List.<IndexOhlcvData>of();
             }
             try {
-                java.time.LocalDate end = java.time.LocalDate.now();
+                java.time.LocalDate end = (anchorEnd != null) ? anchorEnd : java.time.LocalDate.now();
                 java.time.LocalDate start = end.minusDays(days);
                 java.time.format.DateTimeFormatter fmt =
                         java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
