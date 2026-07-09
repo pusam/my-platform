@@ -671,9 +671,11 @@ class AutoTradingBotServiceTest {
         }
 
         /** 고변동(HIGH_VOL) 로 primed 된 VolatilityRegimeService — 지정 모드로 게이트 판정. */
+        @SuppressWarnings("unchecked")
         private VolatilityRegimeService primedVolRegime(String mode) {
             VolatilityRegimeService s = new VolatilityRegimeService(
-                    org.mockito.Mockito.mock(KoreaInvestmentService.class));
+                    org.mockito.Mockito.mock(KoreaInvestmentService.class),
+                    org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class));
             org.springframework.test.util.ReflectionTestUtils.setField(s, "gateModeRaw", mode);
             org.springframework.test.util.ReflectionTestUtils.setField(s, "topPercent", 10.0);
             org.springframework.test.util.ReflectionTestUtils.setField(s, "minSamples", 10);

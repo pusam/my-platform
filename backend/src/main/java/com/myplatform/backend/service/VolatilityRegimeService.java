@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.service.KoreaInvestmentService.IndexOhlcvData;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -58,11 +59,21 @@ public class VolatilityRegimeService {
     private volatile int minSamples;
     @Value("${bot.vol-regime.reduced-factor:0.5}")
     private volatile double reducedFactorRaw;
+    /** UNKNOWN(VKOSPI 미수집)이 연속 N일 지속되면 경보 1회 — 게이트가 조용히 보호 못 하는 걸 사람이 인지. */
+    @Value("${bot.vol-regime.unknown-alert-days:3}")
+    private volatile int unknownAlertDays;
 
     private final KoreaInvestmentService kis;
+    // 기존 알림 경로 재사용(risk 채널) — 미가용/미설정 환경 null-safe. best-effort(게이트 동작 무영향).
+    private final ObjectProvider<TelegramNotificationService> telegramProvider;
 
     private volatile Series cached;
     private volatile Instant cachedAt;
+
+    // UNKNOWN 연속일 경보 상태 — 게이트 판정(mode≠OFF)에서만 갱신. 게이트 동작은 그대로 fail-open.
+    private volatile int unknownStreak;
+    private volatile LocalDate lastUnknownEvalDate;
+    private volatile LocalDate lastUnknownAlertDate;
 
     record Series(List<Double> closes, Double current) {}
 
@@ -105,6 +116,24 @@ public class VolatilityRegimeService {
         return mode == GateMode.BLOCK ? Decision.BLOCK : Decision.REDUCE;
     }
 
+    /** UNKNOWN 연속일 스트릭·경보 결정 — 순수 함수(테스트 대상). 게이트 동작엔 무관(경보 판단만). */
+    record UnknownAlertDecision(int newStreak, LocalDate newEvalDate, boolean fireAlert) {}
+
+    /**
+     * @param unknown 이번 판정이 UNKNOWN 인가. false(NORMAL/HIGH_VOL 확인) 면 스트릭 리셋.
+     * @param today   오늘(KST). 스트릭은 <b>날짜 단위</b> — 같은 날 반복 호출은 증가 안 함(장중 틱마다 안 셈).
+     * @param threshold 연속 며칠이면 경보. 경보는 lastAlertDate 로 <b>하루 1회</b> 쿨다운.
+     */
+    static UnknownAlertDecision decideUnknownAlert(int prevStreak, LocalDate prevEvalDate, LocalDate prevAlertDate,
+                                                   boolean unknown, LocalDate today, int threshold) {
+        if (!unknown) {
+            return new UnknownAlertDecision(0, prevEvalDate, false);   // 국면 확인 → 스트릭 리셋
+        }
+        int streak = today.equals(prevEvalDate) ? prevStreak : prevStreak + 1;   // 새 날에만 증가
+        boolean fire = threshold > 0 && streak >= threshold && !today.equals(prevAlertDate);   // 하루 1회 쿨다운
+        return new UnknownAlertDecision(streak, today, fire);
+    }
+
     // ==================== 공개 API ====================
 
     public GateMode gateMode() {
@@ -135,9 +164,11 @@ public class VolatilityRegimeService {
         if (mode == GateMode.OFF) return Decision.PROCEED;   // flag OFF → 봇 동작 byte-identical
         VolRegime regime = currentVolRegime();
         if (regime == VolRegime.UNKNOWN) {
+            trackUnknownStreak(true);   // 연속 N일 지속 시 경보 1회(게이트는 그대로 skip=fail-open)
             log.warn("[{}] 변동성 게이트 skip — VKOSPI 데이터 미수집(§4c, 가짜 NORMAL 처리 안 함)", botLabel);
             return Decision.PROCEED;
         }
+        trackUnknownStreak(false);   // 국면 확인됨 → UNKNOWN 스트릭 리셋
         Decision d = decideGate(mode, regime);
         if (d == Decision.BLOCK) {
             log.info("[{}] SKIP: 고변동 국면(HIGH_VOL, VKOSPI 상위 {}% 이상) — 신규 진입 차단(mode=BLOCK)",
@@ -146,6 +177,38 @@ public class VolatilityRegimeService {
             log.info("[{}] 고변동 국면(HIGH_VOL) — 신규 진입 사이즈 {}배 축소(mode=REDUCED)", botLabel, reducedFactor());
         }
         return d;
+    }
+
+    /**
+     * UNKNOWN 연속일 추적 + 경보. 게이트 판정(mode≠OFF)에서만 호출 — 게이트가 켜졌는데 데이터가 없어
+     * 조용히 skip(fail-open) 하는 걸 사람이 인지하게. <b>게이트 동작(PROCEED)은 그대로</b> — 알림만 추가.
+     * synchronized: 스트릭 상태 복합 갱신을 틱 동시성으로부터 보호.
+     */
+    private synchronized void trackUnknownStreak(boolean unknown) {
+        LocalDate today = LocalDate.now();
+        UnknownAlertDecision d = decideUnknownAlert(
+                unknownStreak, lastUnknownEvalDate, lastUnknownAlertDate, unknown, today, unknownAlertDays);
+        unknownStreak = d.newStreak();
+        lastUnknownEvalDate = d.newEvalDate();
+        if (d.fireAlert()) {
+            lastUnknownAlertDate = today;   // 하루 1회 쿨다운
+            sendUnknownAlert(unknownStreak);
+        }
+    }
+
+    /** 기존 risk 알림 경로 재사용 — best-effort(미설정/실패 무시, 게이트 동작 무영향). */
+    private void sendUnknownAlert(int streak) {
+        try {
+            TelegramNotificationService tg = telegramProvider.getIfAvailable();
+            if (tg != null && tg.isEnabled()) {
+                tg.sendRisk(String.format(
+                        "⚠️ [봇] VKOSPI 변동성 게이트 데이터 미수집 %d일 연속 — 고변동 진입 보호가 작동하지 않습니다"
+                        + "(fail-open, 진입은 계속 허용). VKOSPI(KIS 업종 0503) 소스 점검 필요.", streak));
+            }
+        } catch (Exception e) {
+            log.warn("[VolRegime] UNKNOWN 연속 경보 전송 실패: {}", e.getMessage());
+        }
+        log.warn("[VolRegime] VKOSPI 미수집 {}일 연속 — 게이트 보호 미작동(fail-open) 경보", streak);
     }
 
     // ==================== 시리즈 수집 (페이지네이션 + 캐시) ====================
