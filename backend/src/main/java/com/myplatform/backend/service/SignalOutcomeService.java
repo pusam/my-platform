@@ -50,6 +50,8 @@ public class SignalOutcomeService {
     private final org.springframework.beans.factory.ObjectProvider<MarketRegimeClient> regimeProvider;
     // V41 — RVOL 스냅샷 (시세 cache-only + 가격히스토리, best-effort). ObjectProvider 로 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<RvolService> rvolProvider;
+    // V46 — 변동성 국면 스냅샷 (VKOSPI 백분위, best-effort·게이트 모드와 독립). ObjectProvider 로 null-safe.
+    private final org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider;
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
@@ -146,6 +148,18 @@ public class SignalOutcomeService {
                 }
             } catch (Exception ignore) { /* RVOL 스냅샷은 best-effort */ }
 
+            // V46 — 변동성 국면 스냅샷 (VKOSPI 백분위, 게이트 모드와 독립·6h 캐시). UNKNOWN=미수집→NULL(§4c).
+            String volRegime = null;
+            try {
+                VolatilityRegimeService vrs = volRegimeProvider.getIfAvailable();
+                if (vrs != null) {
+                    VolatilityRegimeService.VolRegime r = vrs.currentVolRegime();
+                    if (r != VolatilityRegimeService.VolRegime.UNKNOWN) {
+                        volRegime = r.name();   // NORMAL / HIGH_VOL 만 저장 — UNKNOWN 은 null(가짜값 금지)
+                    }
+                }
+            } catch (Exception ignore) { /* 변동성 국면 스냅샷은 best-effort */ }
+
             SignalOutcome outcome = SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -162,6 +176,7 @@ public class SignalOutcomeService {
                     .catalystDirectionAtSignal(catalystDirection)
                     .regimeAtSignal(regime)
                     .rvolAtSignal(rvol)
+                    .volRegimeAtSignal(volRegime)
                     .build();
             // INSERT 는 REQUIRES_NEW 로 격리 — UNIQUE(uq_so_type_code_date) 위반(경합 패자)이
             // 호출부/이 메서드 tx 를 rollback-only 로 오염시키지 않게(새 tx 만 롤백).

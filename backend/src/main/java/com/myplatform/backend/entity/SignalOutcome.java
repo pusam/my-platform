@@ -85,6 +85,10 @@ public class SignalOutcome {
     @Column(name = "rvol_at_signal", precision = 8, scale = 2)
     private BigDecimal rvolAtSignal;
 
+    /** 시그널 시점 변동성 국면 (V46) — NORMAL/HIGH_VOL. NULL=미수집(VKOSPI 조회 실패·표본 부족·UNKNOWN). */
+    @Column(name = "vol_regime_at_signal", length = 10)
+    private String volRegimeAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 
