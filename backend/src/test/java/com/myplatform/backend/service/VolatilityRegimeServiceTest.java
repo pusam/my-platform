@@ -17,7 +17,9 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -32,6 +34,7 @@ class VolatilityRegimeServiceTest {
 
     private VolatilityRegimeService svc;
     private TelegramNotificationService telegram;
+    private RedisCacheService redis;
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -40,7 +43,10 @@ class VolatilityRegimeServiceTest {
         when(telegram.isEnabled()).thenReturn(true);
         ObjectProvider<TelegramNotificationService> tgProvider = mock(ObjectProvider.class);
         when(tgProvider.getIfAvailable()).thenReturn(telegram);
-        svc = new VolatilityRegimeService(mock(KoreaInvestmentService.class), tgProvider);
+        redis = mock(RedisCacheService.class);   // get 기본 null → 인메모리(복원 없음)
+        ObjectProvider<RedisCacheService> redisProvider = mock(ObjectProvider.class);
+        when(redisProvider.getIfAvailable()).thenReturn(redis);
+        svc = new VolatilityRegimeService(mock(KoreaInvestmentService.class), tgProvider, redisProvider);
         ReflectionTestUtils.setField(svc, "topPercent", 10.0);
         ReflectionTestUtils.setField(svc, "minSamples", 10);
         ReflectionTestUtils.setField(svc, "lookbackDays", 252);
@@ -204,5 +210,31 @@ class VolatilityRegimeServiceTest {
         svc.evaluateEntry("테스트");
 
         verify(telegram, never()).sendRisk(anyString());
+    }
+
+    // ---------- 스트릭 영속(Redis) — 잦은 배포 리셋 갭 해소 ----------
+
+    @Test
+    @DisplayName("스트릭 변경 시 Redis 저장(상태 전이 때만)")
+    void streak_persistedOnChange() {
+        ReflectionTestUtils.setField(svc, "gateModeRaw", "BLOCK");
+        ReflectionTestUtils.setField(svc, "unknownAlertDays", 5);
+
+        svc.evaluateEntry("테스트");   // UNKNOWN → streak 0→1(전이) → persist
+
+        verify(redis, times(1)).put(anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
+    @DisplayName("재기동 복원 — Redis 의 과거 스트릭이 임계 넘기면 첫 평가에서 경보(인메모리 리셋 갭 해소)")
+    void streak_restoredFromRedisFiresAlert() {
+        ReflectionTestUtils.setField(svc, "gateModeRaw", "BLOCK");
+        ReflectionTestUtils.setField(svc, "unknownAlertDays", 3);
+        // 재기동 전 2일치 스트릭 잔존(evalDate 과거, alertDate 없음) → 복원 후 오늘 UNKNOWN 이면 3일째 = 경보
+        when(redis.get(anyString(), anyString(), eq(String.class))).thenReturn("2|2020-01-01|");
+
+        assertThat(svc.evaluateEntry("테스트")).isEqualTo(Decision.PROCEED);   // 게이트는 fail-open 유지
+
+        verify(telegram, times(1)).sendRisk(anyString());   // 복원 2 + 오늘 = 3 → 경보(재기동 없었으면 못 쳤을 것)
     }
 }

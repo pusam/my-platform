@@ -675,6 +675,7 @@ class AutoTradingBotServiceTest {
         private VolatilityRegimeService primedVolRegime(String mode) {
             VolatilityRegimeService s = new VolatilityRegimeService(
                     org.mockito.Mockito.mock(KoreaInvestmentService.class),
+                    org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class),
                     org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class));
             org.springframework.test.util.ReflectionTestUtils.setField(s, "gateModeRaw", mode);
             org.springframework.test.util.ReflectionTestUtils.setField(s, "topPercent", 10.0);

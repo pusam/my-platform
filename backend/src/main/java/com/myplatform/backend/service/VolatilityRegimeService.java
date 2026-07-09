@@ -66,6 +66,12 @@ public class VolatilityRegimeService {
     private final KoreaInvestmentService kis;
     // 기존 알림 경로 재사용(risk 채널) — 미가용/미설정 환경 null-safe. best-effort(게이트 동작 무영향).
     private final ObjectProvider<TelegramNotificationService> telegramProvider;
+    // UNKNOWN 스트릭 영속 — 잦은 배포로 인메모리 리셋 시 N일 임계 미도달 갭 방지. Redis(컨테이너 재기동 생존)에
+    // best-effort 저장/복원. 미가용/실패=인메모리 폴백(현행 동작). 시세 아닌 봇 상태라 §16 단일시세경로와 무관.
+    private final ObjectProvider<RedisCacheService> redisProvider;
+    private static final String STREAK_CACHE = "volRegimeGate";
+    private static final String STREAK_KEY = "unknownStreak";
+    private static final Duration STREAK_TTL = Duration.ofDays(45);   // 어떤 현실적 연속 결측보다 길게(변경 시 갱신)
 
     private volatile Series cached;
     private volatile Instant cachedAt;
@@ -74,6 +80,7 @@ public class VolatilityRegimeService {
     private volatile int unknownStreak;
     private volatile LocalDate lastUnknownEvalDate;
     private volatile LocalDate lastUnknownAlertDate;
+    private volatile boolean streakLoaded;   // 재기동 후 첫 접근 시 Redis 에서 1회 복원(lazy)
 
     record Series(List<Double> closes, Double current) {}
 
@@ -185,14 +192,55 @@ public class VolatilityRegimeService {
      * synchronized: 스트릭 상태 복합 갱신을 틱 동시성으로부터 보호.
      */
     private synchronized void trackUnknownStreak(boolean unknown) {
+        ensureStreakLoaded();   // 재기동 후 첫 호출 시 Redis 에서 스트릭 복원(잦은 배포 리셋 갭 방지)
         LocalDate today = LocalDate.now();
+        int prevStreak = unknownStreak;
+        LocalDate prevEval = lastUnknownEvalDate;
         UnknownAlertDecision d = decideUnknownAlert(
                 unknownStreak, lastUnknownEvalDate, lastUnknownAlertDate, unknown, today, unknownAlertDays);
         unknownStreak = d.newStreak();
         lastUnknownEvalDate = d.newEvalDate();
+        boolean changed = unknownStreak != prevStreak
+                || !java.util.Objects.equals(lastUnknownEvalDate, prevEval);
         if (d.fireAlert()) {
             lastUnknownAlertDate = today;   // 하루 1회 쿨다운
             sendUnknownAlert(unknownStreak);
+            changed = true;
+        }
+        if (changed) persistStreak();   // 상태 전이 때만 저장(틱마다 쓰지 않음)
+    }
+
+    /** 재기동 후 1회 Redis 에서 스트릭 복원 — best-effort. Redis 미가용/키 없음=인메모리(현행). */
+    private void ensureStreakLoaded() {
+        if (streakLoaded) return;
+        streakLoaded = true;   // 1회만 시도(실패해도 재시도 안 함 — 다음 변경 시 재저장으로 자연 복구)
+        try {
+            RedisCacheService redis = redisProvider.getIfAvailable();
+            if (redis == null) return;
+            String v = redis.get(STREAK_CACHE, STREAK_KEY, String.class);
+            if (v == null || v.isBlank()) return;
+            String[] p = v.split("\\|", -1);
+            unknownStreak = Integer.parseInt(p[0]);
+            lastUnknownEvalDate = p.length > 1 && !p[1].isEmpty() ? LocalDate.parse(p[1]) : null;
+            lastUnknownAlertDate = p.length > 2 && !p[2].isEmpty() ? LocalDate.parse(p[2]) : null;
+            log.info("[VolRegime] UNKNOWN 스트릭 복원: {}일(evalDate={}, alertDate={})",
+                    unknownStreak, lastUnknownEvalDate, lastUnknownAlertDate);
+        } catch (Exception e) {
+            log.warn("[VolRegime] UNKNOWN 스트릭 Redis 복원 실패(인메모리 진행): {}", e.getMessage());
+        }
+    }
+
+    /** 스트릭 상태(streak|evalDate|alertDate)를 Redis 에 저장 — best-effort(실패 무시). */
+    private void persistStreak() {
+        try {
+            RedisCacheService redis = redisProvider.getIfAvailable();
+            if (redis == null) return;
+            String v = unknownStreak + "|"
+                    + (lastUnknownEvalDate == null ? "" : lastUnknownEvalDate)
+                    + "|" + (lastUnknownAlertDate == null ? "" : lastUnknownAlertDate);
+            redis.put(STREAK_CACHE, STREAK_KEY, v, STREAK_TTL);
+        } catch (Exception e) {
+            log.debug("[VolRegime] UNKNOWN 스트릭 Redis 저장 실패(무시): {}", e.getMessage());
         }
     }
 
