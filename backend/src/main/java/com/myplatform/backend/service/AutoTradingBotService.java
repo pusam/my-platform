@@ -137,6 +137,8 @@ public class AutoTradingBotService {
     private final org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider;
     // ATR 세트(V42) 적용값 감사 스냅샷 — 미가용=로그만(주문 흐름 무영향).
     private final org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider;
+    // VKOSPI 변동성 국면 게이트(V46) — 신규 진입 게이트 전용(매도 미관여). 미가용/mode OFF=통과(fail-open).
+    private final org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider;
 
     // ── ATR 세트 flag (V42, docs/ATR_TRADING_SET.md) ──────────────────────────────
     // 기본 false — OFF 면 수량/청산 모두 바이트 단위 현행 동일. ON 이어도 REAL 은 무조건 현행(하드 가드,
@@ -470,7 +472,9 @@ public class AutoTradingBotService {
             // 일일 손실 서킷브레이커(V38) — ObjectProvider: 미가용 시 게이트 통과(fail-open, 기존 동작 보존)
             org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider,
             // ATR 세트(V42) 감사 스냅샷 — 미가용=로그만
-            org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider) {
+            org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider,
+            // 변동성 국면 게이트(V46) — 미가용 시 게이트 통과(fail-open, 기존 동작 보존)
+            org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider) {
         this.virtualTradeService = virtualTradeService;
         this.realTradeService = realTradeService;
         this.portfolioRepository = portfolioRepository;
@@ -494,6 +498,7 @@ public class AutoTradingBotService {
         this.botLeader = botLeader;
         this.dailyLossBreakerProvider = dailyLossBreakerProvider;
         this.auditProvider = auditProvider;
+        this.volRegimeProvider = volRegimeProvider;
         this.activeTradeService = virtualTradeService;
     }
 
@@ -609,6 +614,27 @@ public class AutoTradingBotService {
             log.error("[{}] 손실브레이커 게이트 오류 (fail-open, 진입 허용): {}", botLabel, e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * 변동성 국면 진입 게이트 (V46) — 브레이커 <b>형제 레이어</b>(신규 진입에서만, 매도/청산 미관여).
+     * 게이트 미가용/mode OFF/판정 오류 = fail-open(PROCEED, 기존 동작 보존). BLOCK=진입 취소, REDUCE=사이즈 축소.
+     */
+    private VolatilityRegimeService.Decision volRegimeEntryDecision(String botLabel) {
+        try {
+            VolatilityRegimeService svc = volRegimeProvider.getIfAvailable();
+            if (svc == null) return VolatilityRegimeService.Decision.PROCEED;   // 미가용 → 통과(fail-open)
+            return svc.evaluateEntry(botLabel);
+        } catch (Exception e) {
+            log.error("[{}] 변동성 게이트 오류 (fail-open, 진입 허용): {}", botLabel, e.getMessage());
+            return VolatilityRegimeService.Decision.PROCEED;
+        }
+    }
+
+    /** REDUCED 모드 사이즈 배수 — 게이트 미가용 시 폴백 0.5(호출부는 REDUCE 결정일 때만 사용). */
+    private double volRegimeReducedFactor() {
+        VolatilityRegimeService svc = volRegimeProvider.getIfAvailable();
+        return svc != null ? svc.reducedFactor() : 0.5;
     }
 
     // ==================== 봇 상태 관리 ====================
@@ -1399,6 +1425,12 @@ public class AutoTradingBotService {
             return;
         }
 
+        // ★ 변동성 국면 게이트(V46) — 브레이커 형제 레이어. BLOCK=진입 취소 / REDUCE=사이즈 축소 ★
+        final VolatilityRegimeService.Decision volGate = volRegimeEntryDecision("스캘핑봇");
+        if (volGate == VolatilityRegimeService.Decision.BLOCK) {
+            return;
+        }
+
         log.info("[스캘핑봇] ===== 골든타임 진입 ({}) =====", now);
 
         // ★ 하루 최대 스캘핑 매수 제한
@@ -1478,6 +1510,10 @@ public class AutoTradingBotService {
             // 가용현금 초과 방지
             if (maxPerStock.compareTo(currentBalance) > 0) {
                 maxPerStock = currentBalance;
+            }
+            // 변동성 REDUCED 모드 — 진입 캡 축소(investAmount=min(cash,maxPerStock)라 캡 축소가 그대로 반영)
+            if (volGate == VolatilityRegimeService.Decision.REDUCE) {
+                maxPerStock = maxPerStock.multiply(BigDecimal.valueOf(volRegimeReducedFactor()));
             }
 
             // 이미 보유 중인 종목 코드
@@ -2806,6 +2842,12 @@ public class AutoTradingBotService {
             return;
         }
 
+        // ★ 변동성 국면 게이트(V46) — 브레이커 형제 레이어. BLOCK=진입 취소 / REDUCE=사이즈 축소(청산 무관) ★
+        final VolatilityRegimeService.Decision volGate = volRegimeEntryDecision("스윙봇");
+        if (volGate == VolatilityRegimeService.Decision.BLOCK) {
+            return;
+        }
+
         // 스윙 보유 한도 체크
         if (swingPositions.size() >= SWING_MAX_HOLDING) {
             log.debug("[스윙봇] 최대 보유 {}종목 도달 — 신규 진입 스킵", SWING_MAX_HOLDING);
@@ -2858,6 +2900,10 @@ public class AutoTradingBotService {
             // 가용현금 초과 방지: 한 종목 매수액이 보유 현금을 넘지 않도록 캡
             if (maxPerStock.compareTo(currentBalance) > 0) {
                 maxPerStock = currentBalance;
+            }
+            // 변동성 REDUCED 모드 — 진입 캡 축소(PositionSizer 6번째 인자·plain-divide 공통 캡이라 두 경로 모두 반영)
+            if (volGate == VolatilityRegimeService.Decision.REDUCE) {
+                maxPerStock = maxPerStock.multiply(BigDecimal.valueOf(volRegimeReducedFactor()));
             }
 
             // 이미 보유 중인 종목 제외
@@ -3222,6 +3268,9 @@ public class AutoTradingBotService {
         if (checkKillSwitch()) return;
         // ★ 일일 손실 서킷브레이커(V38) — 비활성 전략이지만 재활성화 대비 방어적 게이트 ★
         if (entryBlockedByDailyLossBreaker(currentMode == TradingMode.REAL, "종가매수")) return;
+        // ★ 변동성 국면 게이트(V46) — 브레이커 형제 레이어. BLOCK=진입 취소 / REDUCE=사이즈 축소 ★
+        final VolatilityRegimeService.Decision volGate = volRegimeEntryDecision("종가매수");
+        if (volGate == VolatilityRegimeService.Decision.BLOCK) return;
 
         if (closingPositions.size() >= CLOSING_MAX_HOLDING) {
             log.debug("[종가매수] 최대 보유 {}종목 도달 — 스킵", CLOSING_MAX_HOLDING);
@@ -3282,6 +3331,10 @@ public class AutoTradingBotService {
             BigDecimal maxPerStock = totalAsset.multiply(CLOSING_INVESTMENT_RATIO);
             if (maxPerStock.compareTo(currentBalance) > 0) {
                 maxPerStock = currentBalance;
+            }
+            // 변동성 REDUCED 모드 — 진입 캡 축소
+            if (volGate == VolatilityRegimeService.Decision.REDUCE) {
+                maxPerStock = maxPerStock.multiply(BigDecimal.valueOf(volRegimeReducedFactor()));
             }
 
             // 이미 보유 중인 종목 제외

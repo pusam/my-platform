@@ -100,6 +100,8 @@ class AutoTradingBotServiceTest {
     @Mock private org.springframework.beans.factory.ObjectProvider<DailyLossBreakerService> dailyLossBreakerProvider;
     // ATR 세트(V42) 감사 스냅샷 — mock provider 는 getIfAvailable()=null → 로그만(주문 흐름 무영향)
     @Mock private org.springframework.beans.factory.ObjectProvider<TradingAuditService> auditProvider;
+    // 변동성 국면 게이트(V46) — mock provider 는 getIfAvailable()=null → 게이트 통과(PROCEED, 기존 봇 동작 보존)
+    @Mock private org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider;
 
     private AutoTradingBotService botService;
 
@@ -133,7 +135,8 @@ class AutoTradingBotServiceTest {
                 // 리더 선출 비활성(enabled=false) → isLeaderForBot()=true 항상 통과 → 기존 봇 동작 보존
                 new BotLeaderElectionService(null, false, 30L, "test"),
                 dailyLossBreakerProvider,
-                auditProvider);
+                auditProvider,
+                volRegimeProvider);
     }
 
     @BeforeEach
@@ -665,6 +668,60 @@ class AutoTradingBotServiceTest {
                     eq(STOCK_CODE), eq(STOCK_NAME), any(BigDecimal.class), anyInt(), eq("SCALPING_ENTRY"));
             // 실전 모드는 호출되지 않아야 함
             verify(realTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        /** 고변동(HIGH_VOL) 로 primed 된 VolatilityRegimeService — 지정 모드로 게이트 판정. */
+        private VolatilityRegimeService primedVolRegime(String mode) {
+            VolatilityRegimeService s = new VolatilityRegimeService(
+                    org.mockito.Mockito.mock(KoreaInvestmentService.class));
+            org.springframework.test.util.ReflectionTestUtils.setField(s, "gateModeRaw", mode);
+            org.springframework.test.util.ReflectionTestUtils.setField(s, "topPercent", 10.0);
+            org.springframework.test.util.ReflectionTestUtils.setField(s, "minSamples", 10);
+            org.springframework.test.util.ReflectionTestUtils.setField(s, "reducedFactorRaw", 0.5);
+            java.util.List<Double> hist = new java.util.ArrayList<>();
+            for (int i = 1; i <= 20; i++) hist.add((double) i);
+            s.primeCacheForTest(hist, 20.0);   // current 20 ≥ 18(90th 백분위) → HIGH_VOL
+            return s;
+        }
+
+        @Test
+        @DisplayName("변동성 게이트 BLOCK + 고변동 → buy 미호출 (진입 차단)")
+        void volGate_blockHighVol_skipsBuy() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            when(volRegimeProvider.getIfAvailable()).thenReturn(primedVolRegime("BLOCK"));
+
+            invokeBuyInternal(botService);
+
+            verify(virtualTradeService, never()).buy(anyString(), anyString(), any(), anyInt(), anyString());
+        }
+
+        @Test
+        @DisplayName("변동성 게이트 REDUCED + 고변동 → 축소 수량 buy (happy 2주 → 1주)")
+        void volGate_reduceHighVol_reducesQuantity() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            when(volRegimeProvider.getIfAvailable()).thenReturn(primedVolRegime("REDUCED"));
+
+            invokeBuyInternal(botService);
+
+            // maxPerStock 150,000 → 75,000(×0.5) → 75,000/70,000 = 1주 (happy path 는 2주)
+            verify(virtualTradeService, times(1)).buy(
+                    eq(STOCK_CODE), eq(STOCK_NAME), any(BigDecimal.class), eq(1), eq("SCALPING_ENTRY"));
+        }
+
+        @Test
+        @DisplayName("변동성 게이트 OFF + 고변동 → 정상 수량 buy (byte-identical, 2주)")
+        void volGate_offHighVol_normalQuantity() throws Exception {
+            botService.startBot(TradingMode.VIRTUAL);
+            setupHappyPathStubs();
+            when(volRegimeProvider.getIfAvailable()).thenReturn(primedVolRegime("OFF"));
+
+            invokeBuyInternal(botService);
+
+            // mode OFF → 국면 무관 PROCEED → 축소 없음 → 150,000/70,000 = 2주 (현행 동일)
+            verify(virtualTradeService, times(1)).buy(
+                    eq(STOCK_CODE), eq(STOCK_NAME), any(BigDecimal.class), eq(2), eq("SCALPING_ENTRY"));
         }
 
         @Test

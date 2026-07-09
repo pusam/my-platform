@@ -45,7 +45,7 @@ class AutoTradingBotAtrSetTest {
                 mock(com.myplatform.backend.repository.StockPriceHistoryRepository.class),
                 mockProvider(), fixed,
                 new BotLeaderElectionService(null, false, 30L, "test"),
-                mockProvider(), mockProvider());
+                mockProvider(), mockProvider(), mockProvider());
     }
 
     @SuppressWarnings("unchecked")
