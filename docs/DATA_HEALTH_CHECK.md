@@ -201,6 +201,21 @@ docker compose logs --since 72h backend | grep -iE "python-health|PythonBackendH
 
 ---
 
+## 12. AI 종목분석 카드 정합 (기준일=당일 · 가짜 재료 문구 부재)
+
+StockDetail Gemini 분석 카드가 ① 날짜를 발명(과거 연도)하거나 ② 하드코딩 가짜 호재를 섞거나 ③ 장전 0값을 관심저조로 오독하지 않는지(2026-07-10 수정 `28b6df6`). 캐시(Caffeine `stockDetailAi` 15분 · Redis `GEMINI_CHART_CACHE` 10분)라 **배포 재시작으로 Caffeine 즉시 클리어**되나, 재발 여부는 API 응답으로 확인.
+```bash
+# 종목상세 heavy 응답의 AI 분석 본문 + 리스크 뉴스 덤프(임의 종목)
+curl -s localhost:8080/api/stock/298040/heavy \
+ | python3 -c 'import sys,json;d=json.load(sys.stdin);a=d.get("aiAnalysis") or {};print("[strategy]",a.get("strategy"));print("[chart]",a.get("chartAnalysis"));print("[signal]",a.get("technicalSignal"));print("[news]",[n.get("title") for n in ((d.get("risk") or {}).get("news") or [])])'
+```
+- **기대 ① 기준일**: 분석 본문에 **당일이 아닌 과거 연도(예: "2024년")** 언급 없음. (프롬프트에 "분석 기준일" 주입 후 환각 제거.)
+- **기대 ② 가짜 재료 부재**: 본문·뉴스에 하드코딩 문구 **부재** — `"자사주 1조원 소각"`·`"역대 최대 실적"`·`"밸류업 지수 편입"`·`"코스피 5,500"`·`"지분율 70% 돌파"`. (grep 으로: `curl … | grep -E "자사주 1조원|역대 최대 실적|밸류업 지수 편입|코스피 5,500"` → **0건**이어야.)
+- **기대 ③ 장전 수급**: 장전(~08:50 전) 조회 시 `technicalSignal` 이 **"수급 강세" 미스노머 아님**, 본문 수급 해석이 "외국인 순매수 0억 = 관심 저조"로 오독하지 않고 **"최근 5거래일 누적"** 또는 "미수집" 기반. (프롬프트는 서버 로그 `[StockDetail] Gemini AI 분석 응답` 또는 `buildGeminiPrompt` 입력으로 확인.)
+- **이상 시**: 배포 누락(구 코드) 의심 → backend 이미지 재빌드/재배포. **DB 저장 경로 없음**(분석/리스크뉴스는 Caffeine/Redis 캐시만 — 삭제할 행 없음, 15분 내 자연만료 or 재시작 클리어). Redis 즉시 퍼지 원하면 `GEMINI_CHART_CACHE` 키만 flush(10분 자연만료라 통상 불필요).
+
+---
+
 ## 이상 발견 시 — 층층 진단 순서 (§19 2026-07-01 확립 패턴)
 
 "조용한 죽음"은 **한 층만 보면 오진**한다(재료 7일 NONE = 키·인코딩·캐시 3원인 동시). 반드시 **로그 → DB → 컨테이너** 순으로 좁힌다:
