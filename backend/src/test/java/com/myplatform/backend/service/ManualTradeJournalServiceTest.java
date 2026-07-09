@@ -102,6 +102,18 @@ class ManualTradeJournalServiceTest {
     }
 
     @Test
+    @DisplayName("evaluate: scale 4 정밀도 — 미세 경계(pct 0.004%)가 scale2 처럼 0 으로 뭉개지지 않음 (AUDIT #2 동일 잣대)")
+    void evaluate_scale4Boundary() {
+        // 종목 +0.004%(10000→10000.40), KOSPI 0% → scale2 면 pct=0.00(miss), scale4 면 pct=0.0040>0(hit)
+        var ev = ManualTradeJournalService.evaluate(
+                new BigDecimal("10000"), new BigDecimal("10000.40"),
+                new BigDecimal("2500.00"), new BigDecimal("2500.00"));
+        assertThat(ev.pctChange()).isEqualByComparingTo("0.0040");   // scale4 유지 — 0 으로 반올림 안 됨
+        assertThat(ev.alpha()).isEqualByComparingTo("0.0040");       // alpha = pct - 0
+        assertThat(ev.hit()).isTrue();   // alpha≥0 AND pct>0 — signal_outcome(scale4)와 동일 판정
+    }
+
+    @Test
     @DisplayName("evaluate: BM 결측 → alpha null + pct≥+3% 폴백, 가격 결측 → null(재시도)")
     void evaluate_fallbackAndMissing() {
         var fallbackHit = ManualTradeJournalService.evaluate(

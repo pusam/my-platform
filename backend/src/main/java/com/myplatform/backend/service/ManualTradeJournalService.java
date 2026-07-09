@@ -236,12 +236,14 @@ public class ManualTradeJournalService {
                                BigDecimal bmAtBuy, BigDecimal bmNow) {
         if (buyPrice == null || buyPrice.signum() <= 0
                 || priceNow == null || priceNow.signum() <= 0) return null;
+        // scale 4 — signal_outcome(SignalOutcomeService) 와 동일 정밀도로 통일(AUDIT_2026-07-08 #2).
+        // isHit 경계(pct 0/3.00·alpha 0)에서 "내 저널"과 "신호 이력"의 hit 판정이 갈리지 않게 한다(동일 잣대).
         BigDecimal pct = priceNow.subtract(buyPrice).multiply(BigDecimal.valueOf(100))
-                .divide(buyPrice, 2, RoundingMode.HALF_UP);
+                .divide(buyPrice, 4, RoundingMode.HALF_UP);
         BigDecimal alpha = null;
         if (bmNow != null && bmAtBuy != null && bmAtBuy.signum() > 0) {
             BigDecimal bmReturn = bmNow.subtract(bmAtBuy).multiply(BigDecimal.valueOf(100))
-                    .divide(bmAtBuy, 2, RoundingMode.HALF_UP);
+                    .divide(bmAtBuy, 4, RoundingMode.HALF_UP);
             alpha = pct.subtract(bmReturn);
         }
         return new Evaluation(pct, alpha, SignalOutcomeService.isHit(alpha, pct));
