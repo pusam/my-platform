@@ -508,6 +508,56 @@ public class StockAnalysisService {
                 .build();
     }
 
+    /** 최근 5거래일 외국인/기관 순매수 누적(원). null=데이터 없음. days=실제 집계 거래일 수. */
+    public record FiveDaySupply(BigDecimal foreignNetKrw, BigDecimal institutionNetKrw, int days) {}
+
+    /**
+     * 최근 5거래일 외국인/기관 순매수 누적 — <b>StockDetail AI 프롬프트 등 재사용</b>(장전 당일 0 대신 실수급 제공).
+     * {@link #analyzeSupplyDemand}(진단 산식)와 <b>동일 소스·정의</b>이나, 그 tested 메서드를 건드리지 않기 위해
+     * 합산 코어({@link #sumNet5Days})만 별도 노출한다(값은 동일). 데이터 없으면 null.
+     */
+    public FiveDaySupply getFiveDayNetBuy(String stockCode) {
+        LocalDate endDate = LocalDate.now();
+        LocalDate startDate = endDate.minusDays(SUPPLY_DEMAND_DAYS + 5L);
+        List<InvestorDailyTrade> trades = investorDailyTradeRepository
+                .findByStockCodeAndDateRange(stockCode, startDate, endDate);
+        if (trades.isEmpty()) return null;
+        List<LocalDate> recentDates = trades.stream()
+                .map(InvestorDailyTrade::getTradeDate)
+                .distinct()
+                .sorted((a, b) -> b.compareTo(a))
+                .limit(SUPPLY_DEMAND_DAYS)
+                .collect(Collectors.toList());
+        return new FiveDaySupply(
+                sumNet5Days(trades, recentDates, "FOREIGN"),
+                sumNet5Days(trades, recentDates, "INSTITUTION"),
+                recentDates.size());
+    }
+
+    /**
+     * 지정 일자들의 (BUY금액 − SELL금액) 순매수 합(원) — 순수 함수(테스트 대상).
+     * analyzeSupplyDemand 의 per-date 순매수 정의와 동일(중복이나 산식 무접촉 위해 코어만 병렬 유지).
+     */
+    static BigDecimal sumNet5Days(List<InvestorDailyTrade> trades, List<LocalDate> dates, String investorType) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (LocalDate date : dates) {
+            BigDecimal buy = trades.stream()
+                    .filter(t -> date.equals(t.getTradeDate()))
+                    .filter(t -> investorType.equals(t.getInvestorType()))
+                    .filter(t -> "BUY".equals(t.getTradeType()))
+                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal sell = trades.stream()
+                    .filter(t -> date.equals(t.getTradeDate()))
+                    .filter(t -> investorType.equals(t.getInvestorType()))
+                    .filter(t -> "SELL".equals(t.getTradeType()))
+                    .map(t -> t.getNetBuyAmount() != null ? t.getNetBuyAmount() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            sum = sum.add(buy.subtract(sell));
+        }
+        return sum;
+    }
+
     /**
      * 3. 기술적 분석
      * - TechnicalIndicatorService 활용

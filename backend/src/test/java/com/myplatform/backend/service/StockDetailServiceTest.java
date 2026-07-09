@@ -57,6 +57,7 @@ class StockDetailServiceTest {
     @Mock private InvestorDailyTradeRepository investorDailyTradeRepository;
     @Mock private StockFinancialDataRepository stockFinancialDataRepository;
     @Mock private GeminiService geminiService;
+    @Mock private org.springframework.beans.factory.ObjectProvider<StockAnalysisService> stockAnalysisProvider;
     @Mock private StockDetailCacheService cacheService;
     @Mock private ChartSignalService chartSignalService;
     @Mock private RedisCacheService redisCacheService;
@@ -81,6 +82,7 @@ class StockDetailServiceTest {
                 investorDailyTradeRepository,
                 stockFinancialDataRepository,
                 geminiService,
+                stockAnalysisProvider,
                 cacheService,
                 chartSignalService,
                 redisCacheService,
@@ -448,6 +450,91 @@ class StockDetailServiceTest {
             assertThat(result.getPrice()).isNotNull();
             assertThat(result.getPrice().getCurrentPrice()).isEqualByComparingTo("71000");   // 가격 무변경
             assertThat(result.getPrice().getChangeRate()).isNull();                          // 손상 등락률만 null
+        }
+    }
+
+    @org.junit.jupiter.api.Nested
+    @org.junit.jupiter.api.DisplayName("AI 프롬프트 정합 (2026-07-10)")
+    class AiPromptIntegrity {
+
+        private com.myplatform.backend.dto.StockDetailDto dtoWith(String dataSource, BigDecimal foreignNetBuy) {
+            var price = com.myplatform.backend.dto.StockDetailDto.PriceInfo.builder()
+                    .currentPrice(new BigDecimal("70000")).changeRate(BigDecimal.ZERO).build();
+            var supply = com.myplatform.backend.dto.StockDetailDto.SupplyDemand.builder()
+                    .foreignNetBuy(foreignNetBuy).instNetBuy(BigDecimal.ZERO).dataSource(dataSource).build();
+            return com.myplatform.backend.dto.StockDetailDto.builder()
+                    .stockCode("298040").stockName("효성중공업").price(price).supplyDemand(supply).build();
+        }
+
+        @Test
+        @DisplayName("Fix1: 프롬프트에 분석 기준일 주입(날짜 환각 방지)")
+        void promptHasReferenceDate() {
+            String prompt = stockDetailService.buildGeminiPrompt(dtoWith("실시간", new BigDecimal("100")));
+            assertThat(prompt).contains("분석 기준일:");
+            assertThat(prompt).contains(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul")).toString());
+        }
+
+        @Test
+        @DisplayName("Fix2: 장전(초기화) 수급 → 0억 raw 대신 5일 누적 대체 주입(§4c)")
+        void preMarketSupplyUses5Day() {
+            StockAnalysisService mockAnalysis = org.mockito.Mockito.mock(StockAnalysisService.class);
+            when(mockAnalysis.getFiveDayNetBuy("298040")).thenReturn(
+                    new StockAnalysisService.FiveDaySupply(
+                            new BigDecimal("93700000000"), new BigDecimal("-12000000000"), 5));
+            when(stockAnalysisProvider.getIfAvailable()).thenReturn(mockAnalysis);
+
+            String prompt = stockDetailService.buildGeminiPrompt(dtoWith("장전(초기화)", BigDecimal.ZERO));
+
+            assertThat(prompt).contains("최근 5거래일 누적 수급 — 외국인 +937억, 기관 -120억");
+            assertThat(prompt).doesNotContain("외국인 순매수: 0억");
+        }
+
+        @Test
+        @DisplayName("Fix2: 장전 + 5일 데이터 없음 → '미수집' 표기(가짜 0 금지)")
+        void preMarketNoDataShowsMissing() {
+            // stockAnalysisProvider.getIfAvailable() 기본 null → 5일 미가용
+            String prompt = stockDetailService.buildGeminiPrompt(dtoWith("장전(초기화)", BigDecimal.ZERO));
+            assertThat(prompt).contains("미수집");
+            assertThat(prompt).doesNotContain("외국인 순매수: 0억");
+        }
+
+        @Test
+        @DisplayName("Fix4: 가짜 뉴스 문구가 프롬프트에 주입되지 않음")
+        void noFabricatedNews() {
+            String prompt = stockDetailService.buildGeminiPrompt(dtoWith("실시간", new BigDecimal("100")));
+            assertThat(prompt).doesNotContain("자사주 1조원 소각");
+            assertThat(prompt).doesNotContain("역대 최대 실적");
+        }
+    }
+
+    @org.junit.jupiter.api.Nested
+    @org.junit.jupiter.api.DisplayName("라벨 정합 순수 함수 (Fix3)")
+    class LabelResolution {
+        @Test
+        @DisplayName("'수급 강세' 미스노머 제거 — 차트약세+매수rec → '매수 우위'(수급 단어 없음)")
+        void noSupplyStrengthMisnomer() {
+            assertThat(StockDetailService.resolveTechnicalSignal("이평선 하향 이탈", "BUY", null))
+                    .isEqualTo("매수 우위");
+            assertThat(StockDetailService.resolveTechnicalSignal("NEUTRAL", "BUY", null))
+                    .doesNotContain("수급");
+        }
+
+        @Test
+        @DisplayName("본문 종합판단 관망/매도인데 점수 매수 → 라벨 억제(본문 정합)")
+        void suppressWhenBodyConflicts() {
+            assertThat(StockDetailService.resolveTechnicalSignal("이평선 하향 이탈", "BUY", "관망"))
+                    .isEqualTo("관망");
+            assertThat(StockDetailService.resolveTechnicalSignal("NEUTRAL", "TRADING_BUY", "매도"))
+                    .isEqualTo("관망 (본문 매도 의견)");
+        }
+
+        @Test
+        @DisplayName("classifyVerdict — 최초 등장 판단어 추출")
+        void classifyVerdictFirstToken() {
+            assertThat(StockDetailService.classifyVerdict("관망 또는 조정 시 매수 기회")).isEqualTo("관망");
+            assertThat(StockDetailService.classifyVerdict("매수 우위")).isEqualTo("매수");
+            assertThat(StockDetailService.classifyVerdict("근거 없음")).isNull();
+            assertThat(StockDetailService.classifyVerdict(null)).isNull();
         }
     }
 }

@@ -55,6 +55,8 @@ public class StockDetailService {
     private final InvestorDailyTradeRepository investorDailyTradeRepository;
     private final StockFinancialDataRepository stockFinancialDataRepository;
     private final GeminiService geminiService;
+    // 최근 5거래일 수급 재사용 — 장전 당일 0 대신 실수급을 AI 프롬프트에 주입(§4c). ObjectProvider 로 순환/미가용 안전.
+    private final org.springframework.beans.factory.ObjectProvider<StockAnalysisService> stockAnalysisProvider;
     private final StockDetailCacheService cacheService;
     private final ChartSignalService chartSignalService;
     private final RedisCacheService redisCacheService;
@@ -198,9 +200,8 @@ public class StockDetailService {
             // 리스크 정보
             RiskAnalysisDto risk = riskFuture.get(60, TimeUnit.SECONDS);
             if (risk != null) {
-                // ★ 뉴스가 없거나 부정적 뉴스만 있을 때 긍정 시나리오 뉴스 보충
-                enrichNewsWithPositiveItems(risk, finalStockName);
-
+                // (2026-07-10) 가짜 긍정 뉴스 보충 제거 — 실뉴스 없으면 정직하게 없음(§4c).
+                //   기존 enrichNewsWithPositiveItems 는 하드코딩 호재를 AI 프롬프트에 주입해 판단을 오염시켰음.
                 log.info("[StockDetail] 리스크 분석 완료 - 뉴스: {}건, 점수: {}",
                         risk.getRelatedNews() != null ? risk.getRelatedNews().size() : 0,
                         risk.getRiskScore());
@@ -475,7 +476,7 @@ public class StockDetailService {
         try {
             RiskAnalysisDto risk = riskService.analyzeRisk(stockName, stockCode);
             if (risk != null) {
-                enrichNewsWithPositiveItems(risk, stockName);
+                // (2026-07-10) 가짜 긍정 뉴스 보충 제거(§4c) — 실뉴스만 사용.
                 return parseRiskInfo(risk);
             }
         } catch (Exception e) {
@@ -1084,31 +1085,9 @@ public class StockDetailService {
             strategy = "매수 보류 권장. 리스크가 높거나 수급이 불리합니다.";
         }
 
-        // ★ technicalSignal과 recommendation 동기화
-        // 모순 방지: 약세 시그널 + 매수 추천, 또는 강세 시그널 + 매도 추천일 때 보정
-        boolean isBearishSignal = "이평선 하향 이탈".equals(technicalSignal) || "NEUTRAL".equals(technicalSignal);
-        boolean isBullishRec = "BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation) || "WAIT_AND_BUY".equals(recommendation);
-        boolean isBullishSignal = technicalSignal.contains("강세") || technicalSignal.contains("돌파");
-        boolean isBearishRec = "SELL".equals(recommendation);
-
-        if (isBearishSignal && isBullishRec) {
-            // 약세 시그널인데 매수 추천 → recommendation 기준으로 보정
-            switch (recommendation) {
-                case "BUY": technicalSignal = "수급 강세 (적극 매수)"; break;
-                case "TRADING_BUY": technicalSignal = "단기 매수 구간"; break;
-                case "WAIT_AND_BUY": technicalSignal = "조정 대기 (눌림목 매수)"; break;
-            }
-        } else if (isBullishSignal && isBearishRec) {
-            technicalSignal = "기술적 반등이나 수급 악화";
-        } else if ("NEUTRAL".equals(technicalSignal) || "이평선 하향 이탈".equals(technicalSignal)) {
-            switch (recommendation) {
-                case "BUY": technicalSignal = "매수 신호"; break;
-                case "TRADING_BUY": technicalSignal = "단기 매수"; break;
-                case "WAIT_AND_BUY": technicalSignal = "조정 대기"; break;
-                case "SELL": technicalSignal = "매도 신호"; break;
-                case "HOLD": technicalSignal = "중립"; break;
-            }
-        }
+        // ★ technicalSignal과 recommendation 동기화 (규칙기반 폴백 — Gemini 본문 없음이라 bodyVerdict=null).
+        //   parseGeminiResponse 와 동일한 순수 로직 재사용("수급 강세" 미스노머 제거).
+        technicalSignal = resolveTechnicalSignal(technicalSignal, recommendation, null);
 
         // ★ 동적 가격 가이드 생성
         String priceGuide = generatePriceGuide(dto, recommendation, score);
@@ -2268,87 +2247,9 @@ public class StockDetailService {
         return null;
     }
 
-    // ========== 뉴스 긍정 시나리오 보충 ==========
-
-    /**
-     * 뉴스 목록에 2026 호황장 시나리오 뉴스 보충
-     * - 뉴스가 5건 미만이면 긍정 시나리오 뉴스 앞에 추가
-     * - 부정적 키워드 뉴스가 지배적이면 긍정 뉴스로 밸런싱
-     */
-    private void enrichNewsWithPositiveItems(RiskAnalysisDto risk, String stockName) {
-        List<RiskAnalysisDto.NewsItem> news = risk.getRelatedNews();
-        if (news == null) {
-            news = new ArrayList<>();
-            risk.setRelatedNews(news);
-        }
-
-        String today = java.time.LocalDate.now().toString();
-        List<RiskAnalysisDto.NewsItem> positiveNews = generatePositiveNews(stockName, today);
-
-        // 부정 뉴스 비율 체크
-        long negativeCount = news.stream()
-                .filter(n -> n.getTitle() != null && (
-                        n.getTitle().contains("빚") || n.getTitle().contains("대출")
-                        || n.getTitle().contains("금리 인상") || n.getTitle().contains("하락")
-                        || n.getTitle().contains("위기") || n.getTitle().contains("폭락")))
-                .count();
-
-        int needed;
-        if (news.isEmpty()) {
-            needed = 5; // 뉴스 없으면 5개 채움
-        } else if (negativeCount > news.size() / 2) {
-            needed = 3; // 부정 뉴스 과반이면 3개 보충
-        } else if (news.size() < 3) {
-            needed = 3 - news.size(); // 부족분 보충
-        } else {
-            return; // 충분
-        }
-
-        List<RiskAnalysisDto.NewsItem> toAdd = positiveNews.subList(0, Math.min(needed, positiveNews.size()));
-        news.addAll(0, toAdd);
-
-        log.info("[StockDetail] 긍정 시나리오 뉴스 {}건 보충 (부정뉴스: {}, 총: {}건)",
-                toAdd.size(), negativeCount, news.size());
-    }
-
-    /**
-     * 2026 호황장 시나리오 긍정 뉴스 생성 (주주환원 + 실적호재 중심)
-     */
-    private List<RiskAnalysisDto.NewsItem> generatePositiveNews(String stockName, String date) {
-        List<RiskAnalysisDto.NewsItem> items = new ArrayList<>();
-
-        items.add(RiskAnalysisDto.NewsItem.builder()
-                .title(stockName + ", 자사주 1조원 소각 결정... 주주환원율 50% 달성")
-                .description("이사회 결의로 자기주식 전량 소각, TSR 업종 최고 수준 달성. 밸류업 프로그램 모범 사례로 주목")
-                .pubDate(date).link("#").build());
-
-        items.add(RiskAnalysisDto.NewsItem.builder()
-                .title(stockName + ", 배당성향 50% 돌파... 역대 최대 배당금 확정")
-                .description("2025년 결산 배당 확정, 배당수익률 5%대 진입. 기관·외국인 배당투자 수요 급증")
-                .pubDate(date).link("#").build());
-
-        items.add(RiskAnalysisDto.NewsItem.builder()
-                .title("[속보] " + stockName + ", 2026년 1분기 역대 최대 실적 달성")
-                .description("영업이익 컨센서스 18% 상회, 매출액 전년 동기 대비 22% 성장. 연간 실적 상향 불가피")
-                .pubDate(date).link("#").build());
-
-        items.add(RiskAnalysisDto.NewsItem.builder()
-                .title("외국인 " + stockName + " 지분율 70% 돌파... 글로벌 자금 유입 가속")
-                .description("코리아 디스카운트 해소 기대감에 외국인 15거래일 연속 순매수, 역대 최고 지분율 경신")
-                .pubDate(date).link("#").build());
-
-        items.add(RiskAnalysisDto.NewsItem.builder()
-                .title("코스피 5,500 시대, " + stockName + " 밸류업 지수 편입 효과 본격화")
-                .description("밸류업 ETF 자금 유입에 따른 패시브 매수 확대, 목표가 상향 릴레이 진행 중")
-                .pubDate(date).link("#").build());
-
-        items.add(RiskAnalysisDto.NewsItem.builder()
-                .title("증권가 일제히 " + stockName + " 목표가 상향... \"저평가 매력 극대화\"")
-                .description("주요 5개 증권사 목표주가 평균 25% 상향 조정, Forward PER 기준 업종 내 최저 수준")
-                .pubDate(date).link("#").build());
-
-        return items;
-    }
+    // (2026-07-10) enrichNewsWithPositiveItems / generatePositiveNews 삭제 —
+    //   실뉴스 부족 시 하드코딩 가짜 호재("자사주 1조원 소각" 등)를 AI 프롬프트/리스크 뉴스에 주입해
+    //   판단을 오염시키던 §4c 위반. 실뉴스만 사용하고, 없으면 정직하게 "관련 뉴스 없음"으로 둔다.
 
     // ========== Gemini AI 분석 ==========
 
@@ -2363,7 +2264,9 @@ public class StockDetailService {
 
             // Redis L2 캐시 확인 — 매 종목 조회마다 Gemini 호출하지 않게.
             // 10분 TTL. 같은 종목을 짧은 간격으로 여러 명이 봐도 LLM 쿼터 1회만 소모.
-            String cacheKey = dto.getStockCode();
+            // §16-11: 캐시 키에 세션 phase 포함 — 장전(0/미거래) 분석이 개장 후까지 유지되지 않게(다른 키=miss=재분석).
+            String phase = isBeforeMarketHours() ? "PRE" : (isAfterMarketHours() ? "POST" : "OPEN");
+            String cacheKey = dto.getStockCode() + ":" + phase;
             AiAnalysis cached = redisCacheService.get(GEMINI_CHART_CACHE, cacheKey, AiAnalysis.class);
             if (cached != null) {
                 log.debug("[StockDetail] Gemini 분석 Redis HIT - {}", cacheKey);
@@ -2395,19 +2298,28 @@ public class StockDetailService {
     /**
      * Gemini 프롬프트 구성 (실제 데이터 요약)
      */
-    private String buildGeminiPrompt(StockDetailDto dto) {
+    String buildGeminiPrompt(StockDetailDto dto) {   // package-private: 프롬프트 정합 테스트용
         StringBuilder sb = new StringBuilder();
+        // ★ 분석 기준일 명시 주입 — LLM 이 날짜를 발명(예: 2년 전)하지 않게 서버 오늘/세션 앵커 제공(§4c).
+        boolean preMarket = isBeforeMarketHours();
+        String session = preMarket ? "장전(당일 미거래)" : (isAfterMarketHours() ? "장마감" : "장중");
+        sb.append(String.format("분석 기준일: %s (%s)\n", java.time.LocalDate.now(KST), session));
         sb.append(String.format("종목: %s (%s)\n", dto.getStockName(), dto.getStockCode()));
 
-        // 가격 정보
+        // 가격 정보 — 장전(미거래)이면 거래량/고저시가는 0이므로 "미거래" 로 정직 표기(0 을 실측처럼 넘기지 않음, §4c).
         if (dto.getPrice() != null) {
             PriceInfo p = dto.getPrice();
-            sb.append(String.format("현재가: %s원, 등락률: %s%%, 거래량: %s\n",
-                    p.getCurrentPrice(), p.getChangeRate(),
-                    p.getTradingVolume() != null ? p.getTradingVolume() : "N/A"));
-            if (p.getHigh() != null && p.getLow() != null) {
-                sb.append(String.format("고가: %s, 저가: %s, 시가: %s\n",
-                        p.getHigh(), p.getLow(), p.getOpen()));
+            if (preMarket) {
+                sb.append(String.format("현재가: %s원(전일종가 기준), 거래량/고저시가: 장전 미거래\n",
+                        p.getCurrentPrice()));
+            } else {
+                sb.append(String.format("현재가: %s원, 등락률: %s%%, 거래량: %s\n",
+                        p.getCurrentPrice(), p.getChangeRate(),
+                        p.getTradingVolume() != null ? p.getTradingVolume() : "N/A"));
+                if (p.getHigh() != null && p.getLow() != null) {
+                    sb.append(String.format("고가: %s, 저가: %s, 시가: %s\n",
+                            p.getHigh(), p.getLow(), p.getOpen()));
+                }
             }
         } else {
             return null; // 가격 없으면 분석 불가
@@ -2423,11 +2335,19 @@ public class StockDetailService {
                     f.getMarketCap() != null ? f.getMarketCap() : "N/A"));
         }
 
-        // 수급 정보
+        // 수급 정보 — 장전(초기화)이면 당일 값은 전부 0이므로 그 0을 주입하지 않는다(§4c).
+        //   대신 최근 5거래일 누적 수급(실데이터)을 제공 → QuickSummaryBar 와 같은 소스, AI 오독 방지.
         if (dto.getSupplyDemand() != null) {
             SupplyDemand s = dto.getSupplyDemand();
-            sb.append(String.format("외국인 순매수: %s억, 기관 순매수: %s억, 체결강도: %s%%\n",
-                    s.getForeignNetBuy(), s.getInstNetBuy(), s.getVolumePower()));
+            if ("장전(초기화)".equals(s.getDataSource())) {
+                String fiveDay = build5DaySupplyLine(dto.getStockCode());
+                sb.append(fiveDay != null ? fiveDay
+                        : "수급: 당일 장전 미거래 · 최근 수급 데이터 미수집\n");
+            } else {
+                sb.append(String.format("외국인 순매수: %s억, 기관 순매수: %s억, 체결강도: %s%% (%s)\n",
+                        s.getForeignNetBuy(), s.getInstNetBuy(), s.getVolumePower(),
+                        s.getDataSource() != null ? s.getDataSource() : "실시간"));
+            }
         }
 
         // 리스크 정보
@@ -2528,6 +2448,27 @@ public class StockDetailService {
     }
 
     /**
+     * 최근 5거래일 누적 수급 프롬프트 줄 — 장전 당일 0 대신 실수급 제공(§4c). StockAnalysisService(QuickSummaryBar
+     * 와 동일 소스) 재사용. 데이터 없음/미가용/오류 시 null(호출부가 "미수집" 표기).
+     */
+    private String build5DaySupplyLine(String stockCode) {
+        try {
+            StockAnalysisService svc = stockAnalysisProvider.getIfAvailable();
+            if (svc == null) return null;
+            StockAnalysisService.FiveDaySupply f = svc.getFiveDayNetBuy(stockCode);
+            if (f == null) return null;
+            BigDecimal oneEok = BigDecimal.valueOf(100_000_000L);
+            long foreignEok = f.foreignNetKrw().divide(oneEok, 0, RoundingMode.HALF_UP).longValue();
+            long instEok = f.institutionNetKrw().divide(oneEok, 0, RoundingMode.HALF_UP).longValue();
+            return String.format("최근 %d거래일 누적 수급 — 외국인 %+d억, 기관 %+d억 (당일은 장전 미거래)\n",
+                    f.days(), foreignEok, instEok);
+        } catch (Exception e) {
+            log.debug("[StockDetail] 5일 수급 조립 실패 [{}]: {}", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 종목별 계열사/자회사 관계 정보 반환
      * AI가 관련 종목 뉴스를 해석할 때 연관성을 설명하도록 도움
      */
@@ -2553,6 +2494,55 @@ public class StockDetailService {
             }
         }
         return null;
+    }
+
+    /**
+     * 기술적 신호 라벨 — 순수 함수(테스트 대상). 차트 신호 + 점수 recommendation + 본문 종합판단으로 정합.
+     * <p>① <b>"수급 강세" 미스노머 제거</b>(라벨은 수급 데이터와 무관 — 이전엔 매수 rec 을 "수급 강세"로 오표기).
+     * ② <b>본문 종합판단이 매도/관망인데 점수는 매수</b>면 라벨을 본문 쪽으로 억제(라벨/본문 모순 방지).
+     */
+    static String resolveTechnicalSignal(String chartSignal, String recommendation, String bodyVerdict) {
+        boolean chartBearish = "이평선 하향 이탈".equals(chartSignal) || "NEUTRAL".equals(chartSignal);
+        boolean chartBullishSig = chartSignal != null && (chartSignal.contains("강세") || chartSignal.contains("돌파"));
+        boolean recBullish = "BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation) || "WAIT_AND_BUY".equals(recommendation);
+        boolean recBearish = "SELL".equals(recommendation);
+
+        // ② 본문 매도/관망 ↔ 점수 매수 모순 → 본문 우선(라벨 억제)
+        if (recBullish && ("매도".equals(bodyVerdict) || "관망".equals(bodyVerdict))) {
+            return "매도".equals(bodyVerdict) ? "관망 (본문 매도 의견)" : "관망";
+        }
+        if (chartBullishSig && recBearish) {
+            return "기술적 반등이나 종합 약세";
+        }
+        if (chartBearish && recBullish) {
+            switch (recommendation) {
+                case "BUY": return "매수 우위";                       // ← 이전 "수급 강세 (적극 매수)" 대체(미스노머 제거)
+                case "TRADING_BUY": return "단기 매수 구간";
+                case "WAIT_AND_BUY": return "조정 대기 (눌림목 매수)";
+            }
+        }
+        if ("NEUTRAL".equals(chartSignal) || "이평선 하향 이탈".equals(chartSignal)) {
+            switch (recommendation) {
+                case "BUY": return "매수 신호";
+                case "TRADING_BUY": return "단기 매수";
+                case "WAIT_AND_BUY": return "조정 대기";
+                case "SELL": return "매도 신호";
+                case "HOLD": return "중립";
+            }
+        }
+        return chartSignal;   // 이평선 상회 등은 원 신호 유지
+    }
+
+    /** 본문 텍스트에서 종합판단 verdict 추출 — 최초 등장하는 매수/관망/매도. 없으면 null. 순수(테스트 대상). */
+    static String classifyVerdict(String text) {
+        if (text == null) return null;
+        int pBuy = text.indexOf("매수"), pHold = text.indexOf("관망"), pSell = text.indexOf("매도");
+        int best = Integer.MAX_VALUE;
+        String v = null;
+        if (pBuy >= 0 && pBuy < best) { best = pBuy; v = "매수"; }
+        if (pHold >= 0 && pHold < best) { best = pHold; v = "관망"; }
+        if (pSell >= 0 && pSell < best) { best = pSell; v = "매도"; }
+        return v;
     }
 
     /**
@@ -2651,37 +2641,20 @@ public class StockDetailService {
             }
         }
 
-        // 기술적 신호
-        String technicalSignal = "NEUTRAL";
+        // 기술적 신호(차트 기반) → recommendation·본문 종합판단과 정합.
+        //   ★ "수급 강세" 미스노머 제거(수급 데이터 무근거) + 본문 종합판단이 매도/관망인데 점수는 매수면 라벨 억제.
+        String chartSignal = "NEUTRAL";
         if (dto.getChartData() != null && dto.getPrice() != null && dto.getChartData().getMa20() != null) {
             BigDecimal cp = dto.getPrice().getCurrentPrice();
             BigDecimal ma20 = dto.getChartData().getMa20();
             if (cp != null && cp.compareTo(ma20) > 0) {
-                technicalSignal = "이평선 상회";
+                chartSignal = "이평선 상회";
             } else if (cp != null) {
-                technicalSignal = "이평선 하향 이탈";
+                chartSignal = "이평선 하향 이탈";
             }
         }
-
-        // ★ technicalSignal과 recommendation 모순 방지
-        boolean isBearishSignal2 = "이평선 하향 이탈".equals(technicalSignal) || "NEUTRAL".equals(technicalSignal);
-        boolean isBullishRec2 = "BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation) || "WAIT_AND_BUY".equals(recommendation);
-
-        if (isBearishSignal2 && isBullishRec2) {
-            switch (recommendation) {
-                case "BUY": technicalSignal = "수급 강세 (적극 매수)"; break;
-                case "TRADING_BUY": technicalSignal = "단기 매수 구간"; break;
-                case "WAIT_AND_BUY": technicalSignal = "조정 대기 (눌림목 매수)"; break;
-            }
-        } else if ("NEUTRAL".equals(technicalSignal) || "이평선 하향 이탈".equals(technicalSignal)) {
-            switch (recommendation) {
-                case "BUY": technicalSignal = "매수 신호"; break;
-                case "TRADING_BUY": technicalSignal = "단기 매수"; break;
-                case "WAIT_AND_BUY": technicalSignal = "조정 대기"; break;
-                case "SELL": technicalSignal = "매도 신호"; break;
-                case "HOLD": technicalSignal = "중립"; break;
-            }
-        }
+        String bodyVerdict = classifyVerdict(extractSection(response, "종합 판단"));
+        String technicalSignal = resolveTechnicalSignal(chartSignal, recommendation, bodyVerdict);
 
         // ★ 동적 가격 가이드
         String priceGuide = generatePriceGuide(dto, recommendation, score);
