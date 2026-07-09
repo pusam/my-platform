@@ -50,6 +50,13 @@ final class WeeklyAccuracyAggregator {
             {REGIME_UNKNOWN, "국면 미수집"},
     };
 
+    /** 변동성 국면(V46) 버킷 정의 — 표시 순서 고정. UNKNOWN = 미수집(NULL). */
+    private static final String[][] VOL_REGIME_BUCKETS = {
+            {"NORMAL", "정상 변동성"},
+            {"HIGH_VOL", "고변동"},
+            {REGIME_UNKNOWN, "변동성 미수집"},
+    };
+
     static boolean isInsufficient(long n) {
         return n < INSUFFICIENT_SAMPLE_THRESHOLD;
     }
@@ -64,28 +71,46 @@ final class WeeklyAccuracyAggregator {
         };
     }
 
-    /** rows 를 regime 버킷별로 분할 (정의된 4버킷 순서 보존, 빈 버킷도 키 존재). */
-    static Map<String, List<SignalOutcome>> partitionByRegime(List<SignalOutcome> rows) {
+    /** 변동성 국면(V46) → 버킷 키. NULL/blank/미정의 값은 UNKNOWN(§4c). */
+    static String volRegimeBucket(SignalOutcome s) {
+        String r = s.getVolRegimeAtSignal();
+        if (r == null || r.isBlank()) return REGIME_UNKNOWN;
+        return switch (r) {
+            case "NORMAL", "HIGH_VOL" -> r;
+            default -> REGIME_UNKNOWN;
+        };
+    }
+
+    /** rows 를 버킷별로 분할 — 버킷 정의 순서/키 보존(빈 버킷도 존재), classifier 로 배정. */
+    private static Map<String, List<SignalOutcome>> partitionBy(
+            List<SignalOutcome> rows, String[][] bucketDefs, java.util.function.Function<SignalOutcome, String> classifier) {
         Map<String, List<SignalOutcome>> map = new LinkedHashMap<>();
-        for (String[] def : REGIME_BUCKETS) map.put(def[0], new ArrayList<>());
+        for (String[] def : bucketDefs) map.put(def[0], new ArrayList<>());
         for (SignalOutcome s : rows) {
-            map.get(regimeBucket(s)).add(s);   // regimeBucket 는 항상 정의된 키 반환
+            map.get(classifier.apply(s)).add(s);   // classifier 는 항상 정의된 키 반환
         }
         return map;
     }
 
-    /** 이번 주 rows → regime 파티션별 카테고리/밴드 셀. 빈 버킷도 포함(표본부족·0건 정직 노출). */
-    static List<RegimeGroup> buildRegimeGroups(List<SignalOutcome> weeklyRows) {
-        Map<String, List<SignalOutcome>> byRegime = partitionByRegime(weeklyRows);
+    /** rows 를 regime 버킷별로 분할 (정의된 4버킷 순서 보존, 빈 버킷도 키 존재). */
+    static Map<String, List<SignalOutcome>> partitionByRegime(List<SignalOutcome> rows) {
+        return partitionBy(rows, REGIME_BUCKETS, WeeklyAccuracyAggregator::regimeBucket);
+    }
+
+    /** rows 를 변동성 국면(V46) 버킷별로 분할. */
+    static Map<String, List<SignalOutcome>> partitionByVolRegime(List<SignalOutcome> rows) {
+        return partitionBy(rows, VOL_REGIME_BUCKETS, WeeklyAccuracyAggregator::volRegimeBucket);
+    }
+
+    /** 버킷 파티션 → 카테고리/밴드 셀 그룹. 빈 버킷도 포함(표본부족·0건 정직 노출). RegimeGroup 형태 재사용. */
+    private static List<RegimeGroup> buildGroups(String[][] bucketDefs, Map<String, List<SignalOutcome>> byBucket) {
         List<RegimeGroup> groups = new ArrayList<>();
-        for (String[] def : REGIME_BUCKETS) {
-            String regime = def[0];
-            String label = def[1];
-            List<SignalOutcome> subset = byRegime.get(regime);
+        for (String[] def : bucketDefs) {
+            List<SignalOutcome> subset = byBucket.get(def[0]);
             long n = subset.size();
             groups.add(RegimeGroup.builder()
-                    .regime(regime)
-                    .label(label)
+                    .regime(def[0])
+                    .label(def[1])
                     .totalSignals(n)
                     .insufficientSample(isInsufficient(n))
                     .categories(toCategoryCells(SignalOutcomeService.aggregateCategories(subset)))
@@ -93,6 +118,16 @@ final class WeeklyAccuracyAggregator {
                     .build());
         }
         return groups;
+    }
+
+    /** 이번 주 rows → regime 파티션별 카테고리/밴드 셀. */
+    static List<RegimeGroup> buildRegimeGroups(List<SignalOutcome> weeklyRows) {
+        return buildGroups(REGIME_BUCKETS, partitionByRegime(weeklyRows));
+    }
+
+    /** 이번 주 rows → 변동성 국면(V46) 파티션별 카테고리/밴드 셀 (NORMAL vs HIGH_VOL 분리 집계). */
+    static List<RegimeGroup> buildVolRegimeGroups(List<SignalOutcome> weeklyRows) {
+        return buildGroups(VOL_REGIME_BUCKETS, partitionByVolRegime(weeklyRows));
     }
 
     private static List<CategoryCell> toCategoryCells(List<CategoryStat> stats) {
@@ -258,6 +293,7 @@ final class WeeklyAccuracyAggregator {
                                                   List<SignalOutcome> cumulativeRows,
                                                   List<Boolean> priorSupplyInverted) {
         List<RegimeGroup> groups = buildRegimeGroups(weeklyRows);
+        List<RegimeGroup> volGroups = buildVolRegimeGroups(weeklyRows);
         List<CategoryTrend> trends = buildCategoryTrends(weeklyRows, cumulativeRows);
         boolean supplyInverted = isSupplyInverted(cumulativeRows);
         List<String> warnings = detectWarnings(trends, supplyInverted, priorSupplyInverted, weeklyRows.size());
@@ -268,6 +304,7 @@ final class WeeklyAccuracyAggregator {
                 .weeklyN(weeklyRows.size())
                 .cumulativeN(cumulativeRows.size())
                 .regimeGroups(groups)
+                .volRegimeGroups(volGroups)
                 .categoryTrends(trends)
                 .warnings(warnings)
                 .build();

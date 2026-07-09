@@ -41,6 +41,9 @@ public class WeeklySignalAccuracyDto {
     /** 이번 주 grid — regime 파티션별 카테고리/밴드 stats. */
     private List<RegimeGroup> regimeGroups;
 
+    /** 이번 주 grid — 변동성 국면(V46 NORMAL/HIGH_VOL) 파티션별 카테고리/밴드 stats. */
+    private List<RegimeGroup> volRegimeGroups;
+
     /** 카테고리별 추세 — 이번 주 vs 누적 전체 (악화 감지). */
     private List<CategoryTrend> categoryTrends;
 

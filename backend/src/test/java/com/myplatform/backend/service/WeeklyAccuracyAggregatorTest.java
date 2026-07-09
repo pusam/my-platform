@@ -45,6 +45,24 @@ class WeeklyAccuracyAggregatorTest {
         return rows;
     }
 
+    /** 변동성 국면(V46) 지정 시그널 — NORMAL/HIGH_VOL 분리 집계 검증용. */
+    private SignalOutcome volSig(String volRegime, boolean hit, String alpha) {
+        return SignalOutcome.builder()
+                .signalType("BUY").stockCode("005930").signalDate(WEEK_START)
+                .signalScore(60).priceAtSignal(new BigDecimal("10000"))
+                .volRegimeAtSignal(volRegime)
+                .supplyDemandAtSignal(16)
+                .pctChange3d(new BigDecimal("1.00"))
+                .alpha3d(alpha == null ? null : new BigDecimal(alpha))
+                .hit(hit).build();
+    }
+
+    private List<SignalOutcome> nVol(String volRegime, int count, boolean hit, String alpha) {
+        List<SignalOutcome> rows = new ArrayList<>();
+        for (int i = 0; i < count; i++) rows.add(volSig(volRegime, hit, alpha));
+        return rows;
+    }
+
     private Map<String, RegimeGroup> groupsByRegime(List<RegimeGroup> groups) {
         return groups.stream().collect(Collectors.toMap(RegimeGroup::getRegime, g -> g));
     }
@@ -73,6 +91,57 @@ class WeeklyAccuracyAggregatorTest {
         assertThat(parts.get("UNKNOWN")).hasSize(3);
         assertThat(parts.get("BEAR")).isEmpty();
         assertThat(parts.get("SIDEWAYS")).isEmpty();
+    }
+
+    // ---------------------------------------------------------------
+    // 변동성 국면(V46) 파티션 — regime 과 별개 축
+    // ---------------------------------------------------------------
+
+    @Test
+    @DisplayName("partitionByVolRegime: NULL/미정의 → UNKNOWN, 항상 3버킷(NORMAL/HIGH_VOL/UNKNOWN)")
+    void partitionVol_unknownBucket() {
+        List<SignalOutcome> rows = new ArrayList<>();
+        rows.add(volSig("NORMAL", true, "1.0"));
+        rows.add(volSig("HIGH_VOL", true, "1.0"));
+        rows.add(volSig(null, true, "1.0"));         // NULL → UNKNOWN(§4c)
+        rows.add(volSig("GARBAGE", true, "1.0"));    // 미정의 → UNKNOWN
+
+        Map<String, List<SignalOutcome>> parts = WeeklyAccuracyAggregator.partitionByVolRegime(rows);
+
+        assertThat(parts.keySet()).containsExactlyInAnyOrder("NORMAL", "HIGH_VOL", "UNKNOWN");
+        assertThat(parts.get("NORMAL")).hasSize(1);
+        assertThat(parts.get("HIGH_VOL")).hasSize(1);
+        assertThat(parts.get("UNKNOWN")).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("buildVolRegimeGroups: 3버킷(빈 버킷 포함), NORMAL/HIGH_VOL 분리 집계")
+    void buildVol_threeBuckets() {
+        List<SignalOutcome> rows = new ArrayList<>();
+        rows.addAll(nVol("HIGH_VOL", 3, false, "-1.0"));
+        rows.addAll(nVol("NORMAL", 2, true, "1.0"));
+
+        Map<String, RegimeGroup> byV = groupsByRegime(WeeklyAccuracyAggregator.buildVolRegimeGroups(rows));
+
+        assertThat(byV.keySet()).containsExactlyInAnyOrder("NORMAL", "HIGH_VOL", "UNKNOWN");
+        assertThat(byV.get("HIGH_VOL").getTotalSignals()).isEqualTo(3);
+        assertThat(byV.get("NORMAL").getTotalSignals()).isEqualTo(2);
+        assertThat(byV.get("UNKNOWN").getTotalSignals()).isZero();
+        assertThat(byV.get("HIGH_VOL").getCategories()).isNotEmpty();   // regime 그룹과 동일 형태 재사용
+    }
+
+    @Test
+    @DisplayName("assembleReport: volRegimeGroups 포함(기존 regimeGroups 축과 병존)")
+    void assemble_includesVolRegimeGroups() {
+        List<SignalOutcome> weekly = nVol("HIGH_VOL", 2, false, "-1.0");
+
+        WeeklySignalAccuracyDto dto = WeeklyAccuracyAggregator.assembleReport(
+                WEEK_START, WEEK_END, weekly, weekly, List.of());
+
+        assertThat(dto.getVolRegimeGroups()).isNotNull();
+        assertThat(groupsByRegime(dto.getVolRegimeGroups()).keySet())
+                .containsExactlyInAnyOrder("NORMAL", "HIGH_VOL", "UNKNOWN");
+        assertThat(dto.getRegimeGroups()).isNotNull();   // 기존 regime 축 유지
     }
 
     @Test
