@@ -397,6 +397,8 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 6. **일일 손실 서킷브레이커(V38, 2026-07-06)**: 당일 봇 **실현손익 합산**(VirtualTradeHistory SELL 확정 기록만) ≤ -한도(기본 30만원, `bot_config` 전용 행) → **신규 진입만 차단·손절/청산 계속**(비대칭 핵심). 기존 -3% 자산 킬스위치(botActive=false=매도 관리까지 중단·평가액=수동매매 오염)와 별개 — 실현손실 기준·DB 영속·날짜 비교 자동 해제·ADMIN 수동 해제(`/bot/daily-loss-breaker/*`). judge 순수함수 **BLOCKED-before-null**(발동 후 DB 블립에도 차단 유지), trip=조건부 UPDATE 멱등(알림/감사 1회). 게이트 = 스캘핑(골든타임 틱당 1회)·스윙(runMode 스냅샷 후)·종가(방어적). → CLAUDE.md §4d.
 7. **ATR 세트 — ATR×2.5 청산 + 리스크 균등 사이징(V42, 2026-07-07, VIRTUAL 전용·flag 가역)**: exit 백테스트(ATR×2.5 avgNet +2.10% vs 고정 -0.22%) 근거의 **실험 경로** — flag **`bot.atr-trading.enabled`(기본 OFF)**, **REAL 은 flag 무관 무조건 현행 2중 하드 가드**(`isAtrSetActive` 사이징 + `resolveSwingExitLevels` 청산). 공식: 수량 = riskBudget ÷ (진입가×손절폭%) — `PositionSizer.judge`(**수량 축소 전용, 항상 현행 이하 캡**), riskBudget = `bot_config` 'atr_trading' 행 오버라이드 → 브레이커 한도÷6(기본 5만); 스윙 청산 = 진입 시점 ATR14(Wilder, `AtrCalculator`) 스냅샷 고정(V42 영속·재시작 복원) × 2.5 손절 / ×5/3 익절(`AtrExitRule`), 스캘핑은 사이징만(청산 -1.2% 불변). **폴백 = ATR/입력 결측이면 그 종목 완전 현행**(§4c 확대 금지). 트레일링·타임컷·강제청산·모든 안전 게이트(리더/killswitch/브레이커/sanity) 불변 — 게이트 통과 후 마지막에 수량/청산폭만 결정. 적용값(수량·ATR·손절폭·riskBudget) = `TradingAuditLog`(triggeredBy=ATR_SIZING) 스냅샷. 검증: 포트폴리오 재생(2026-07-07) — **브레이커 가상 발동 0=0(동수)**, 총수익 -70.9%→+96.3%, MDD 72.7%→18.0%(proxy 신호셋·트레일링/쿨다운 미반영 한계). **REAL 확장 조건 = VERIFICATION_BACKLOG P2-17**(VIRTUAL 2주+ 실측). 설계: `docs/ATR_TRADING_SET.md`.
 
+8. **VKOSPI 변동성 국면 게이트(V46, 2026-07-09, flag 기본 OFF)**: 서킷브레이커(사후 방어) 보완 — VKOSPI(KIS 업종 0503) 최신 종가가 최근 252거래일 분포 **상위 N%**(기본 10%) 이상이면 국면=HIGH_VOL, 봇 **신규 진입** 사전 회피. 게이트 모드 **OFF/REDUCED(사이즈 50%)/BLOCK(진입 차단)** — `bot.vol-regime-gate.mode`. **일일손실 브레이커 형제 레이어**(브레이커 직후 삽입, swing/scalping/closing 매수). **비대칭 — 청산 무관**(진입만, 브레이커 동일 원칙). **불변식**: mode OFF=봇 매매 byte-identical(판정 전 즉시 PROCEED, VKOSPI 조회조차 안 함) · §4d 체인 형제 레이어(우회 없음·기존 게이트 전부 통과 후) · 미가용/오류=fail-open(PROCEED) · **VKOSPI 미수집=UNKNOWN=skip+로그(§4c, 가짜 NORMAL 금지)** · §16 `getIndexDailyOhlcv` 재사용(앵커 페이지네이션 252일·6h 캐시). REDUCED=`maxPerStock` 캡 축소(PositionSizer/plain-divide 공통). **시그널 스냅샷(V46 `vol_regime_at_signal`)은 게이트 모드와 독립 항상 캡처**(주간 리포트가 NORMAL/HIGH_VOL 분리집계 → 승격 근거). **승격 조건 = VERIFICATION_BACKLOG P2-18**(HIGH_VOL 적중률이 NORMAL 대비 유의하게 낮은지 데이터 확인 후). 독립 감사(2026-07-09) 통과 — P0/P1/P2 0. `VolatilityRegimeService`.
+
 ---
 
 ## 15. 차트기법(신규, 2026-06-29) 배치
@@ -685,6 +687,20 @@ P2-13(NXT 청산) **재개봉·구현** — 진단 3확정 갭(주문 라우팅 
 - **불변식 준수**: flag OFF=현행 바이트 동일(REGULAR 위임·enabled 가드) · §4d 게이트 무손상(신규 경로 동일 관통) · KIS 비멱등(재시도/롤백·killswitch 규칙 동일) · §16-2 진입 KRX 유지(청산 창만 확대).
 
 **9/14 활성화 절차(사람 확정)** = `NXT_ROUTING_DESIGN.md §5` / `SCHEDULE_DECISIONS.md 2026-09-14`: ① KIS NXT order-cash 거래소구분 파라미터 확정 ② 설정 주입+recreate ③ flag 2종 ON ④ 종가봇 @Scheduled 해제(원하면) ⑤ 소액 실검증.
+
+---
+
+### 2026-07-09 세션 — VKOSPI 변동성 국면 진입 게이트 (V46, flag OFF) + 감사 + 이월 1건
+
+고변동 장세에서 정상장 임계값이 무력화되는 문제 → 서킷브레이커(사후) 보완용 **사전 회피 레이어**. 전부 **기본 OFF**(§14-8). Phase별 독립 커밋.
+
+- **Phase 1**(`845fbef`): `VolatilityRegimeService` — VKOSPI(0503) 최신 종가가 최근 252거래일 상위 N%(기본 10%) 이상=HIGH_VOL. 순수 `classifyVolRegime`(백분위·§4c UNKNOWN)·`decideGate`(OFF/REDUCED/BLOCK). §16 `getIndexDailyOhlcv` 앵커 오버로드(anchorEnd=null=현행 바이트동일)+252일 페이지네이션+6h 캐시.
+- **Phase 2**(`d5a8979`): 봇 진입 게이트 통합 — 일일손실 브레이커 **형제 레이어**(swing/scalping/closing 매수, 브레이커 직후). BLOCK=진입 취소, REDUCE=`maxPerStock` 캡 50% 축소(PositionSizer/plain-divide 공통). 청산 무관(비대칭). ObjectProvider fail-open. 테스트: BLOCK→미매수/REDUCED→1주/OFF→2주(현행).
+- **Phase 3**(`4fc8f4c`): V46 `signal_outcome.vol_regime_at_signal` — 게이트 모드와 독립 항상 best-effort 캡처(UNKNOWN→null §4c). SignalOutcomeService.record 미러링.
+- **Phase 4**(`bc12eee`): `WeeklyAccuracyAggregator` NORMAL/HIGH_VOL 분리 집계(`volRegimeGroups`, report_json 자동확장·V37 스키마 무변경) → 승격 근거.
+- **감사(독립 감사관, 2026-07-09)**: **P0/P1/P2 0** — flag OFF byte-identical(판정 전 즉시 PROCEED)·§4d 체인 형제 레이어(우회 0·entry-only)·fail-open 전수·§4c UNKNOWN null·§16 단일경로·백분위/페이지네이션/사이징 정확 전부 증명. P3(정보): VKOSPI 소스 死 지속 시 게이트 조용히 skip(fail-open, DATA_HEALTH_CHECK 보정 모니터) — 조치 불요.
+- **이월 처리**: `AUDIT_2026-07-08 #2`(저널 scale2 vs signal_outcome scale4) **수정**(`33d519f`, scale4 통일·경계 회귀 테스트). `AUDIT_2026-07-08 #1`(악재경보 dedup) **DEFER** — 순진한 alert_key UNIQUE 는 범용 쿨다운 테이블을 깨므로 조건부 insert 재설계 필요(P2-CAT4).
+- **승격 절차(사람 확정)** = `VERIFICATION_BACKLOG P2-18`: 주간 리포트 `volRegimeGroups` 에서 HIGH_VOL 적중률이 NORMAL 대비 유의 저조 확인 후 `bot.vol-regime-gate.mode=REDUCED`부터.
 
 ---
 

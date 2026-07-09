@@ -501,3 +501,20 @@
 - **테스트**: 공용 provider 라면 순수 발급/만료/무효화 단위 + 3소비자 동일 토큰 참조 검증. 이식만이면 각 서비스 401→무효화 행동 테스트.
 - **주의**: 구조 변경(B)은 회귀면 넓음(3서비스 토큰 경로 전부) → 별도 세션. 우선 저비용 A(401 이식)만 먼저 처리해도 됨. 스코프 밖 리팩토링 금지 원칙상 이번 P1 2건에서는 의도적으로 제외했음.
 - **관련**: `KoreaInvestmentService.parseExpiresInSeconds`/`isAuthFailure`/`invalidateTokenOnAuthFailure`(참조 구현), `KisApiService.refreshAccessToken`, `MarketIndicatorService.refreshAccessToken`.
+
+---
+
+## P2-CAT4. 악재경보 dedup 원자화 (AUDIT_2026-07-08 #1 이월 — DEFER, 2026-07-09)
+> **배경**: `CatalystRiskAlertService.onCatalystSaved` dedup 이 check-then-act(findLatestByAlertKey → send → save)이고 `alert_history.alert_key` 에 **UNIQUE 제약 부재** → 동일 종목·일자 재료 동시 최초분류 시 텔레그램 **중복 발송** 가능(금전 무관·저확률). AUDIT_2026-07-08 #1(P2).
+- **⚠ 순진한 UNIQUE 는 틀림**: `alert_history` 는 **범용 쿨다운 테이블**(같은 alert_key 를 쿨다운 만료 후 재삽입하는 알림 다수). `alert_key` 전역 UNIQUE 를 걸면 CATNEG 는 막히나 **다른 쿨다운 알림이 영구 1회로 깨진다**. → 2026-07-09 세션에서 이 뉘앙스 때문에 **의도적으로 DEFER**(vol-regime 세션에 번들 금지).
+- **올바른 방향(별도 세션)**: ① CATNEG 경로만 **조건부 insert**(§4d④ 일일손실 브레이커 패턴 — `INSERT ... rowsAffected==1 게이트`로 원자적 최초삽입 판정, 실패=이미 발송=send 스킵) — 범용 테이블 스키마 무변경 · 또는 ② CATNEG 전용 dedup 테이블 분리 + UNIQUE. **①이 최소침습**(마이그레이션 불요).
+- **주의**: prod `alert_history` 에 기존 중복 CATNEG 행이 있을 수 있어(과거 중복 발송분) UNIQUE 소급 부여는 위험 — 조건부 insert(①)가 소급 데이터 무관하게 안전.
+- **관련**: `CatalystRiskAlertService.java`(onCatalystSaved·recordSent), `AlertHistory`(쿨다운 범용), `DailyLossBreakerService.onTrip`(조건부 UPDATE 선례).
+
+## P2-18. VKOSPI 변동성 게이트 승격 (mode OFF → REDUCED/BLOCK) 판정 (2026-07-09 신규)
+> **배경**: VKOSPI 변동성 국면 게이트(V46, VolatilityRegimeService) 구현 완료·**기본 OFF**. 고변동(VKOSPI 최근 252거래일 상위 10%)에서 봇 신규 진입 차단/축소하는 사전 회피 레이어 — 서킷브레이커 사후 방어 보완. 켜기 전 **데이터로 유효성 확인** 필요(미검증 상태로 실매매 게이트 승격 금지).
+- **판정 기준(데이터 축적 후, 사람이 별도 세션)**: `signal_weekly_accuracy.report_json` 의 **`volRegimeGroups`**(V46, NORMAL vs HIGH_VOL 분리 집계)에서 **HIGH_VOL 버킷 적중률·평균 alpha 가 NORMAL 대비 유의하게 낮은지**(표본 n≥10). 낮으면 게이트 유효(고변동 진입이 실제로 부진) → REDUCED 부터 단계 승격 검토. 차이 없거나 HIGH_VOL 표본 부족이면 OFF 유지.
+- **켜는 법**: `bot.vol-regime-gate.mode=REDUCED`(또는 BLOCK)(env `BOT_VOL_REGIME_GATE_MODE` — compose backend `environment:` 명시 배선 §4b 함정). lookback/top-percent/min-samples/reduced-factor 도 env 조정 가능. 청산 무관(진입만).
+- **불변식**: mode OFF=봇 매매 byte-identical · 진입 게이트만(청산 미관여, 브레이커 비대칭 동일) · §4d 체인 형제 레이어(우회 없음) · VKOSPI 미수집=UNKNOWN=skip+로그(§4c, 가짜 NORMAL 금지) · §16 getIndexDailyOhlcv 재사용.
+- **⚠ 운영 인지(AUDIT_2026-07-09 P3)**: REDUCED/BLOCK ON 상태에서 VKOSPI 소스(KIS 0503) 死 지속 시 게이트가 **조용히 skip**(fail-open, 보호 0) — log.warn 만. `DATA_HEALTH_CHECK.md` §3 "vkospi 계속 null" 이 보정 모니터(priceSanity 앵커결측 fail-open 트레이드오프와 동일 성격).
+- **관련**: `VolatilityRegimeService`, `AutoTradingBotService`(swing/scalping/closing 게이트), V46 `vol_regime_at_signal`, `WeeklyAccuracyAggregator.buildVolRegimeGroups`, application.yml `bot.vol-regime*`.

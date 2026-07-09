@@ -17,6 +17,7 @@ V38~V45(2026-07-06~08 배포)로 시작된 측정들이 2~3주치 표본을 확�
 | **RVOL 첫 집계 (`rvol_at_signal`)** | signal_outcome 에 RVOL 스냅샷이 3거래일 평가와 함께 쌓였는지 확인 → 점수밴드/카테고리 교차로 RVOL 예측력 첫 관찰(표본 부족이면 다음 회차로). 미검증·산식 미편입 유지. | §19 RVOL(V41), 종합판단 보드 ② |
 | **매크로/간밤 tilt 축적 점검 (P3-5/P3-7)** | `macro_tilt_snapshot`(V39, 08:15 일 1행)·간밤 미국장 tilt 가 8~12주 목표 중 몇 주 쌓였는지 점검. **아직 판정 아님** — KOSPI 방향 대조는 8~12주 후. NEUTRAL 고착 비대칭(ECOS 키 없으면 금리축 상시 null)·금리 부호 양면성이 1순위 캘리브레이션 대상임을 재확인. | §19 2026-07-06 매크로 tilt, VERIFICATION_BACKLOG P3-5/P3-7 |
 | **수동 저널 stats 첫 확인** | `GET /api/manual-journal/stats` → **n≥10 인 셀이 있는지**. 있으면 "내 매매 적중률"(signal_outcome 동일 잣대) 첫 관찰, 없으면 insufficientSample 유지하고 다음 회차. | §19 2026-07-07(D), OPS_CHECKLIST §5-3 |
+| **VKOSPI 변동성 게이트 승격 (P2-18)** | 주간 리포트 `signal_weekly_accuracy.report_json.volRegimeGroups`(V46, 2026-07-09~) 에서 **HIGH_VOL 버킷 적중률·평균 alpha 가 NORMAL 대비 유의 저조**(n≥10)인지. 저조하면 게이트 유효 → `bot.vol-regime-gate.mode=REDUCED` 부터 단계 승격. 차이없음/표본부족이면 OFF 유지(미검증 게이트 실매매 승격 금지). | §14-8, §19 2026-07-09, VERIFICATION_BACKLOG P2-18 |
 
 > ⚠ **공통 주의**: 위 전부 표본이 작다. n<10 셀은 insufficientSample 로 두고 **가중치/산식 변경 금지** — 이번 판정은 "관찰 + 추세 확인"이지 산식 편입이 아니다. 편입은 국면별 표본이 충분해진 뒤 P1-6 로드맵 A안(단조·유의한 것만).
 
