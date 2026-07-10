@@ -2533,6 +2533,22 @@ public class StockDetailService {
         return chartSignal;   // 이평선 상회 등은 원 신호 유지
     }
 
+    /**
+     * 표시용 recommendation 을 본문 종합판단(bodyVerdict)과 정합 — 큰 판정 뱃지가 본문과 모순되지 않게(라벨-본문 소스 분리 방지, AUDIT 2026-07-10 #2).
+     * <p>점수 기반 rec 은 그대로 두되(산식·점수 불변), <b>본문이 매도/관망인데 rec 이 매수 계열</b>이면 HOLD 로 억제한다
+     * ({@link #resolveTechnicalSignal} ②의 칩 억제와 동일 철학을 큰 뱃지에 확장). bodyVerdict 가 없으면(근거 없음)
+     * 원본 유지(§4c fail-open — 결측 근거로 판정을 바꾸지 않음). 순수(테스트 대상).
+     */
+    static String reconcileRecommendationWithBody(String recommendation, String bodyVerdict) {
+        if (bodyVerdict == null) return recommendation;
+        boolean recBullish = "BUY".equals(recommendation) || "TRADING_BUY".equals(recommendation)
+                || "WAIT_AND_BUY".equals(recommendation);
+        boolean recBearish = "SELL".equals(recommendation);
+        if (recBullish && ("매도".equals(bodyVerdict) || "관망".equals(bodyVerdict))) return "HOLD";
+        if (recBearish && "매수".equals(bodyVerdict)) return "HOLD";
+        return recommendation;
+    }
+
     /** 본문 텍스트에서 종합판단 verdict 추출 — 최초 등장하는 매수/관망/매도. 없으면 null. 순수(테스트 대상). */
     static String classifyVerdict(String text) {
         if (text == null) return null;
@@ -2655,6 +2671,9 @@ public class StockDetailService {
         }
         String bodyVerdict = classifyVerdict(extractSection(response, "종합 판단"));
         String technicalSignal = resolveTechnicalSignal(chartSignal, recommendation, bodyVerdict);
+        // ★ 큰 판정 뱃지(recommendation)도 본문 종합판단과 정합 — 점수 매수 rec 이 본문 매도/관망과 모순이면 HOLD 억제(#2).
+        //   점수(overallScore)·technicalSignal·근거는 원본 그대로 두고 표시 라벨만 정합(산식 무접촉).
+        String displayRecommendation = reconcileRecommendationWithBody(recommendation, bodyVerdict);
 
         // ★ 동적 가격 가이드
         String priceGuide = generatePriceGuide(dto, recommendation, score);
@@ -2664,7 +2683,7 @@ public class StockDetailService {
 
         return AiAnalysis.builder()
                 .overallScore(score)
-                .recommendation(recommendation)
+                .recommendation(displayRecommendation)
                 .strategy(response) // Gemini 전체 응답을 전략 텍스트로 사용
                 .technicalSignal(technicalSignal)
                 .buyReasons(buyReasons)

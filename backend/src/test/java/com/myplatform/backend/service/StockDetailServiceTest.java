@@ -536,5 +536,23 @@ class StockDetailServiceTest {
             assertThat(StockDetailService.classifyVerdict("근거 없음")).isNull();
             assertThat(StockDetailService.classifyVerdict(null)).isNull();
         }
+
+        @Test
+        @DisplayName("reconcileRecommendationWithBody — 본문 매도/관망이면 매수 계열 뱃지 억제(HOLD) (#2)")
+        void reconcileSuppressesBullishAgainstBearishBody() {
+            assertThat(StockDetailService.reconcileRecommendationWithBody("BUY", "매도")).isEqualTo("HOLD");
+            assertThat(StockDetailService.reconcileRecommendationWithBody("TRADING_BUY", "관망")).isEqualTo("HOLD");
+            assertThat(StockDetailService.reconcileRecommendationWithBody("WAIT_AND_BUY", "매도")).isEqualTo("HOLD");
+            assertThat(StockDetailService.reconcileRecommendationWithBody("SELL", "매수")).isEqualTo("HOLD");
+        }
+
+        @Test
+        @DisplayName("reconcileRecommendationWithBody — 본문 일치·근거없음이면 원본 유지(§4c fail-open)")
+        void reconcileKeepsWhenConsistentOrNull() {
+            assertThat(StockDetailService.reconcileRecommendationWithBody("BUY", "매수")).isEqualTo("BUY");
+            assertThat(StockDetailService.reconcileRecommendationWithBody("SELL", "매도")).isEqualTo("SELL");
+            assertThat(StockDetailService.reconcileRecommendationWithBody("BUY", null)).isEqualTo("BUY");
+            assertThat(StockDetailService.reconcileRecommendationWithBody("HOLD", "관망")).isEqualTo("HOLD");
+        }
     }
 }
