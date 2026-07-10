@@ -213,7 +213,13 @@ jobs:
           $SCP_CMD /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
           $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/frontend/dist && rm -rf $TARGET/frontend/dist/* && tar -xzf /tmp/frontend-dist.tar.gz -C $TARGET/frontend/dist && rm /tmp/frontend-dist.tar.gz"
 
-          echo "✅ 파일 전송 완료"
+          # ★ nginx 바인드 마운트를 새 dist 에 무조건 재바인드 — inode 보존이 실패하거나(디렉토리 교체)
+          #   아래 Deploy 단계의 nginx 재생성이 인증서/nginx -t 게이트로 스킵돼도, 이 재시작이 항상 재바인드하므로
+          #   하드리로드 404 를 원천 차단한다. nginx 는 이미 떠 있고(인증서 有) resolver 배선(26ef314)이
+          #   backend IP 재해석을 담당하므로 안전. 실패해도 배포는 계속(|| true).
+          $SSH_CMD "$USER@$HOST" "docker restart myplatform-nginx || true"
+
+          echo "✅ 파일 전송 완료 + nginx 재바인드"
 
       - name: Deploy to Server
         run: |
