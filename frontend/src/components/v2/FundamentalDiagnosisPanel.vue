@@ -252,8 +252,14 @@
           <div class="tech-signal">
             <span class="signal-label">종합 신호:</span>
             <span class="signal-value">{{ diagnosisData.technicalAnalysis.signalDescription || diagnosisData.technicalAnalysis.overallSignal }}</span>
+            <!-- signalDescription(MFI·볼린저 반영) 없이 overallSignal(MA/RSI 추세)로 폴백된 경우, 근거 병기해 아래 종합평가와 모순처럼 안 보이게(AUDIT #3, 표시 정합만) -->
+            <span v-if="!diagnosisData.technicalAnalysis.signalDescription && diagnosisData.technicalAnalysis.overallSignal"
+                  class="signal-basis">(이동평균·RSI 추세 기준)</span>
           </div>
-          <div class="card-assessment">{{ diagnosisData.technicalAnalysis.assessment }}</div>
+          <div class="card-assessment">
+            {{ diagnosisData.technicalAnalysis.assessment }}
+            <span v-if="diagnosisData.technicalAnalysis.assessment" class="assessment-basis">· 종합점수(MFI·볼린저 반영)</span>
+          </div>
         </div>
       </div>
     </div>
@@ -671,6 +677,15 @@ const diagGetSupplyDemandLabel = (value) => {
   font-size: 0.85rem;
   color: #aaa;
   line-height: 1.5;
+}
+
+/* 계산 근거 병기(AUDIT #3) — MA/RSI 추세 vs 종합점수(MFI·볼린저) 소스 구분 표기. 은은한 톤. */
+.signal-basis,
+.assessment-basis {
+  font-size: 0.72rem;
+  color: #777;
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 /* Supply Row */

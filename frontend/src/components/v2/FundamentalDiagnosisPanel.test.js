@@ -87,4 +87,30 @@ describe('FundamentalDiagnosisPanel (P-IA ③-2차 분리)', () => {
     await w.findAll('.fund-tab-btn')[1].trigger('click')
     expect(w.find('.today-supply-mini').exists()).toBe(false)
   })
+
+  // AUDIT #3 — 종합 신호(MA/RSI 폴백) vs assessment(MFI·볼린저) 소스 분리 → 근거 병기로 표시 정합
+  it('기술 종합신호: signalDescription 있으면 그대로 + MA/RSI 폴백 근거표기 없음', async () => {
+    const w = mountPanel()
+    await w.findAll('.fund-tab-btn')[2].trigger('click')  // 기술적 분석 탭
+    expect(w.find('.tech-signal .signal-value').text()).toBe('상승 추세')
+    expect(w.find('.signal-basis').exists()).toBe(false)     // 폴백 아님 → 근거표기 없음
+    expect(w.find('.assessment-basis').exists()).toBe(true)  // 종합평가엔 항상 근거 병기
+    expect(w.find('.assessment-basis').text()).toContain('MFI·볼린저')
+  })
+
+  it('기술 종합신호: signalDescription 없으면 overallSignal + "MA/RSI 추세 기준" 병기(모순 방지)', async () => {
+    // signalDescription 없이 overallSignal(MA/RSI '강력 매수') 이 종합평가(MFI·볼린저 '매도 신호')와 모순되는 케이스
+    const w = mountPanel({
+      ...baseDiag,
+      technicalAnalysis: {
+        ...baseDiag.technicalAnalysis,
+        signalDescription: undefined, overallSignal: '강력 매수', assessment: '매도 신호'
+      }
+    })
+    await w.findAll('.fund-tab-btn')[2].trigger('click')
+    expect(w.find('.tech-signal .signal-value').text()).toBe('강력 매수')
+    expect(w.find('.signal-basis').exists()).toBe(true)
+    expect(w.find('.signal-basis').text()).toContain('이동평균·RSI')
+    expect(w.find('.assessment-basis').text()).toContain('MFI·볼린저')
+  })
 })
