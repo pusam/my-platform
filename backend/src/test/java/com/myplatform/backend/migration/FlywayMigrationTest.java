@@ -100,6 +100,11 @@ class FlywayMigrationTest {
         assertThat(columnCount("bot_config", "atr_risk_budget_krw"))
                 .as("V42 bot_config.atr_risk_budget_krw 컬럼이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 7 (V47 회귀 가드): catalyst_alert_dedup UNIQUE(alert_key) — 악재경보 dedup 선점의 전제 ---
+        assertThat(uniqueConstraintCount("catalyst_alert_dedup", "uq_cad_alert_key"))
+                .as("V47 catalyst_alert_dedup UNIQUE 제약(uq_cad_alert_key)이 적용되어야 함")
+                .isEqualTo(1);
     }
 
     /**

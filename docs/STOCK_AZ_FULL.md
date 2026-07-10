@@ -149,7 +149,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 | `StockConclusionService` | 결론 4단계(STRONG_BUY/BUY/HOLD/WAIT) + 매매계획(`PLAN_*` 손절-3%/익절+5%) |
 | `BuyChecklistService` | 5-factor 하드룰 → 권고 |
 | `StockCatalystService` | 재료 태그(Gemini V31, 종목·일자 1회 캐시, 점수 미편입). ⭐2026-07-07 악재 저장 시점 훅 → CatalystRiskAlertService |
-| `CatalystRiskAlertService` ⭐신규(2026-07-07) | 관심/보유(봇 포지션·KIS 실잔고) 악재 조기경보 — 관심=시그널 / 보유=시그널+리스크 병행, 종목×일자 1회 멱등(AlertHistory CATNEG_*), classify 추가 호출 0 |
+| `CatalystRiskAlertService` ⭐신규(2026-07-07) | 관심/보유(봇 포지션·KIS 실잔고) 악재 조기경보 — 관심=시그널 / 보유=시그널+리스크 병행, 종목×일자 1회 멱등 = **`catalyst_alert_dedup`(V47) UNIQUE 조건부 INSERT 선점**(P2-CAT4, 2026-07-10 — AlertHistory read-then-insert 레이스 대체, AlertHistory 기록은 관측용 유지), classify 추가 호출 0 |
 | `SignalOutcomeService` | 시그널 적중률(19:30 배치, 3거래일 후, V30~V32 스냅샷), `getAccuracyByBand`. **V36(2026-06-30)**: `record()` INSERT 를 `insertOutcomeIsolated`(`@Transactional REQUIRES_NEW`, selfProvider 프록시)로 격리 + `DataIntegrityViolationException` benign 처리 — `(signal_type,stock_code,signal_date)` UNIQUE 경합 패자가 호출부 tx 무오염. bm(alpha)은 KIS 지수 현재가(`getIndexPrice 0001`)라 pykrx 무관 |
 
 ### 4-2. 시세·기술·체결
