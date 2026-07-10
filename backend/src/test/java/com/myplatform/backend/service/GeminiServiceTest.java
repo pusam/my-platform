@@ -45,9 +45,13 @@ class GeminiServiceTest {
         org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider =
                 mock(org.springframework.beans.factory.ObjectProvider.class);
         when(telegramProvider.getIfAvailable()).thenReturn(null);
+        @SuppressWarnings("unchecked")
+        org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(kisProvider.getIfAvailable()).thenReturn(null);
         geminiService = new GeminiService(
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
-                telegramProvider);
+                telegramProvider, kisProvider);
         mockRestTemplate = mock(RestTemplate.class);
 
         ReflectionTestUtils.setField(geminiService, "restTemplate", mockRestTemplate);
@@ -63,6 +67,44 @@ class GeminiServiceTest {
                 )
         );
         return new ResponseEntity<>(body, HttpStatus.OK);
+    }
+
+    // ========== 시장 예측 프롬프트 정합 (AUDIT 2026-07-10 #1) ==========
+
+    @Nested
+    @DisplayName("시장 예측 프롬프트 §4c 정합 — 장전 0 미주입·기준일·실지수")
+    class ForecastPromptTests {
+
+        @Test
+        @DisplayName("기준일 줄에 오늘 날짜 주입(LLM 날짜 발명 방지)")
+        void dateLineInjectsToday() {
+            assertThat(GeminiService.forecastDateLine(java.time.LocalDate.of(2026, 7, 10)))
+                    .contains("분석 기준일").contains("2026-07-10");
+        }
+
+        @Test
+        @DisplayName("장전/결측 breadth·거래대금은 raw 0 대신 '미집계'로 표기(§4c)")
+        void zeroBreadthShownAsUncollected() {
+            String block = GeminiService.buildMarketStatusBlock(
+                    2750.0, null, null, "NORMAL", 0, 0, java.math.BigDecimal.ZERO);
+            assertThat(block).contains("미집계");
+            assertThat(block).doesNotContain("상승 종목: 0개");
+            assertThat(block).doesNotContain("거래대금: 0억원");
+            assertThat(block).contains("KOSPI 지수: 2750.00");   // 지수는 실측 표기
+            assertThat(block).contains("등락률: 미집계");
+        }
+
+        @Test
+        @DisplayName("실측 breadth·거래대금·등락률은 정상 표기")
+        void realValuesShownNormally() {
+            String block = GeminiService.buildMarketStatusBlock(
+                    2750.0, new java.math.BigDecimal("0.85"), new java.math.BigDecimal("110"),
+                    "NORMAL", 600, 250, new java.math.BigDecimal("8500000"));
+            assertThat(block).contains("상승 종목: 600개 / 하락 종목: 250개");
+            assertThat(block).contains("거래대금: 8500000억원");
+            assertThat(block).contains("등락률: +0.85%");
+            assertThat(block).doesNotContain("미집계");
+        }
     }
 
     // ========== 정상 동작 ==========

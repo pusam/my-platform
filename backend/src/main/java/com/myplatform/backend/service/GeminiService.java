@@ -1,6 +1,7 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.dto.InvestorSurgeDto;
 import com.myplatform.backend.dto.MarketTimingDto;
@@ -43,6 +44,8 @@ public class GeminiService {
 
     private final RestTemplate restTemplate;
 
+    private static final java.time.ZoneId KST = java.time.ZoneId.of("Asia/Seoul");
+
     // Rate Limit 관리
     private static final int MAX_RETRIES = 3;
     private static final long DEFAULT_RETRY_DELAY_MS = 20000; // 20초
@@ -80,11 +83,15 @@ public class GeminiService {
     private volatile boolean alerted90 = false;
     // 순환 의존성 회피용 — TelegramNotificationService 가 직접 Gemini 를 안 부르지만 안전 위해 ObjectProvider.
     private final org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider;
+    // 시장 예측 KOSPI 실지수 폴백용(§16 지수 단일경로 getIndexPrice("0001")) — 순환/미가용 안전 위해 ObjectProvider.
+    private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
 
     public GeminiService(io.micrometer.core.instrument.MeterRegistry meterRegistry,
-                         org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider) {
+                         org.springframework.beans.factory.ObjectProvider<TelegramNotificationService> telegramProvider,
+                         org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider) {
         this.meterRegistry = meterRegistry;
         this.telegramProvider = telegramProvider;
+        this.kisProvider = kisProvider;
         this.callOk = io.micrometer.core.instrument.Counter.builder("gemini.api.calls")
                 .description("Gemini API 호출 성공")
                 .tag("outcome", "success").register(meterRegistry);
@@ -513,8 +520,8 @@ public class GeminiService {
             throw new RuntimeException("시장 데이터 없음 - KOSPI 데이터를 먼저 수집해주세요");
         }
 
-        double currentIndex = marketStatus.getKospi().getIndexClose() != null
-                ? marketStatus.getKospi().getIndexClose().doubleValue() : 2700.0;
+        // 실지수 주입(§4c: 2700 하드코딩 제거) — indexClose 결측이면 KIS 실지수(0001, §16 지수 단일경로) 폴백, 그마저 없으면 예측 불가.
+        double currentIndex = resolveForecastIndex(marketStatus.getKospi().getIndexClose());
 
         log.info("[Market Forecast] 예측 시작 - KOSPI: {}, 외국인수급: {}건, 기관수급: {}건, 뉴스: {}건",
                 currentIndex,
@@ -572,19 +579,79 @@ public class GeminiService {
         return fallback;
     }
 
+    /**
+     * 시장 예측 기준 KOSPI 지수 해석 — indexClose 실측 우선, 결측이면 KIS 실지수(0001) 폴백.
+     * 둘 다 없으면 예외(2700 하드코딩 폴백 제거, §4c: 데이터 없음을 그럴듯한 값으로 위장 금지).
+     */
+    private double resolveForecastIndex(BigDecimal indexClose) {
+        if (indexClose != null) return indexClose.doubleValue();
+        BigDecimal kisIndex = fetchKospiIndexQuiet();
+        if (kisIndex != null) {
+            log.warn("[Market Forecast] indexClose 결측 → KIS 실지수(0001) 폴백: {}", kisIndex);
+            return kisIndex.doubleValue();
+        }
+        throw new RuntimeException("KOSPI 실지수 미수집 — 하드코딩 없이 예측 불가(§4c)");
+    }
+
+    /** KOSPI 종합지수(0001) 현재가 — §16 지수 단일경로 getIndexPrice 재사용. 미설정/오류 시 null(호출부가 판단). */
+    private BigDecimal fetchKospiIndexQuiet() {
+        KoreaInvestmentService kis = kisProvider.getIfAvailable();
+        if (kis == null || !kis.isConfigured()) return null;
+        try {
+            JsonNode resp = kis.getIndexPrice("0001");
+            if (resp == null || !resp.has("output")) return null;
+            JsonNode out = resp.get("output");
+            JsonNode p = out.has("bstp_nmix_prpr") ? out.get("bstp_nmix_prpr") : null;
+            if (p == null || p.asText().isEmpty()) return null;
+            return new BigDecimal(p.asText().replace(",", ""));
+        } catch (Exception e) {
+            log.debug("[Market Forecast] KOSPI 실지수 조회 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 시장 예측 기준일 줄 — LLM 날짜 발명 방지(§4c). 순수(테스트 대상). */
+    static String forecastDateLine(LocalDate today) {
+        return String.format("분석 기준일: %s (향후 5거래일 KOSPI 예측)\n", today);
+    }
+
+    /**
+     * [시장 현황] 블록 — 장전/결측 0값을 raw 로 주입하지 않고 "미집계"로 정직 표기(§4c).
+     * 지수는 실측만(호출부가 KIS 실지수 폴백 보장). 순수(테스트 대상).
+     */
+    static String buildMarketStatusBlock(double currentIndex, BigDecimal changeRate, BigDecimal adr,
+                                         String condition, Integer advCount, Integer decCount, BigDecimal tradingValue) {
+        String changeRateStr = changeRate != null ? String.format("%+.2f%%", changeRate.doubleValue()) : "미집계";
+        String adrStr = adr != null ? String.format("%.1f", adr.doubleValue()) : "미집계";
+        boolean breadthKnown = advCount != null && decCount != null && (advCount > 0 || decCount > 0);
+        String breadthStr = breadthKnown
+                ? String.format("상승 종목: %d개 / 하락 종목: %d개", advCount, decCount)
+                : "상승/하락 종목: 미집계(장전 미거래 또는 미수집)";
+        String tradingValueStr = (tradingValue != null && tradingValue.signum() > 0)
+                ? String.format("%.0f억원", tradingValue.doubleValue())
+                : "미집계(장전 미거래 또는 미수집)";
+        return String.format("""
+                - KOSPI 지수: %.2f
+                - 등락률: %s
+                - ADR (등락비율): %s
+                - 시장 상태: %s
+                - %s
+                - 거래대금: %s""",
+                currentIndex, changeRateStr, adrStr, condition, breadthStr, tradingValueStr);
+    }
+
     private String buildForecastPrompt(
             MarketTimingDto marketStatus, double currentIndex,
             List<InvestorSurgeDto> foreignBuys, List<InvestorSurgeDto> instBuys,
             List<NewsSummaryDto> recentNews) {
 
         MarketTimingDto.MarketStatusDto kospi = marketStatus.getKospi();
-        double changeRate = kospi.getIndexChangeRate() != null ? kospi.getIndexChangeRate().doubleValue() : 0;
-        double adr = marketStatus.getCombinedAdr() != null ? marketStatus.getCombinedAdr().doubleValue() : 100;
         String condition = marketStatus.getOverallCondition() != null
                 ? marketStatus.getOverallCondition().name() : "NORMAL";
-        double tradingValue = kospi.getTradingValue() != null ? kospi.getTradingValue().doubleValue() : 0;
-        int advCount = kospi.getAdvancingCount() != null ? kospi.getAdvancingCount() : 0;
-        int decCount = kospi.getDecliningCount() != null ? kospi.getDecliningCount() : 0;
+        // [시장 현황] — 장전 0/결측은 raw 0 대신 "미집계"로 정직 표기(§4c). 지수만 실측.
+        String marketStatusBlock = buildMarketStatusBlock(
+                currentIndex, kospi.getIndexChangeRate(), marketStatus.getCombinedAdr(),
+                condition, kospi.getAdvancingCount(), kospi.getDecliningCount(), kospi.getTradingValue());
 
         // 외국인 수급 텍스트
         String foreignText = "데이터 없음";
@@ -616,17 +683,12 @@ public class GeminiService {
                     .collect(Collectors.joining("\n"));
         }
 
-        return String.format("""
+        return forecastDateLine(LocalDate.now(KST)) + String.format("""
                 당신은 한국 주식시장 전문 애널리스트입니다.
                 현재 시장 데이터, 수급 동향, 뉴스 센티먼트를 종합하여 향후 5거래일간 KOSPI 지수 예측을 JSON으로 작성하세요.
 
                 [시장 현황]
-                - KOSPI 지수: %.2f
-                - 등락률: %+.2f%%
-                - ADR (등락비율): %.1f
-                - 시장 상태: %s
-                - 상승 종목: %d개 / 하락 종목: %d개
-                - 거래대금: %.0f억원
+                %s
 
                 [외국인 수급 - 순매수 상위]
                 %s
@@ -646,11 +708,12 @@ public class GeminiService {
                 6. summary는 핵심 판단과 근거를 한국어 100자 이내로 작성
                 7. forecasts의 bull/base/bear 값은 반드시 소수점 없는 정수(예: 2750)로 작성
                 8. baseIndex는 %.2f로 설정
+                9. "미집계"로 표시된 항목은 데이터 없음을 의미하므로 값을 추정/발명하지 말 것
 
                 반드시 JSON만 출력하세요. 설명이나 마크다운 없이 순수 JSON만 출력하세요.
                 예시:
                 {"baseIndex": 2750.00, "forecasts": [{"day": 1, "bull": 2770, "base": 2755, "bear": 2735}, {"day": 2, "bull": 2790, "base": 2758, "bear": 2720}, {"day": 3, "bull": 2810, "base": 2760, "bear": 2705}, {"day": 4, "bull": 2825, "base": 2762, "bear": 2690}, {"day": 5, "bull": 2840, "base": 2765, "bear": 2680}], "scenarios": {"bull": {"probability": 35, "reason": "외국인 순매수 지속 기대"}, "base": {"probability": 45, "reason": "박스권 등락 전망"}, "bear": {"probability": 20, "reason": "글로벌 리스크 확대 우려"}}, "summary": "외국인 수급 개선과 기관 매수세로 단기 상승 여력 존재하나 글로벌 변동성에 유의 필요"}
-                """, currentIndex, changeRate, adr, condition, advCount, decCount, tradingValue,
+                """, marketStatusBlock,
                 foreignText, instText, newsText,
                 currentIndex, currentIndex);
     }
