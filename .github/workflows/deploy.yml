@@ -205,10 +205,13 @@ jobs:
           $SCP_CMD scripts/*.sh "$USER@$HOST:$TARGET/scripts/"
           $SSH_CMD "$USER@$HOST" "chmod +x $TARGET/scripts/*.sh"
 
-          # frontend/dist (tar 압축 전송)
-          tar -czf /tmp/frontend-dist.tar.gz -C frontend dist
+          # frontend/dist — 내용물만 교체(디렉토리 inode 유지)해 nginx 바인드 마운트 stale 방지.
+          #   'rm -rf dist'(디렉토리 통째 교체=inode 변경)는 nginx 가 옛 inode 를 붙들어 하드리로드 404 유발
+          #   (인증서/nginx -t 게이트 early-exit 로 아래 --force-recreate nginx 가 스킵되면 특히).
+          #   jewelry-leads 배포(jewelry-dist)와 동일한 검증된 패턴: 'rm -rf dir/* && tar -xzf -C dir'.
+          tar -czf /tmp/frontend-dist.tar.gz -C frontend/dist .
           $SCP_CMD /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
-          $SSH_CMD "$USER@$HOST" "cd $TARGET/frontend && rm -rf dist && tar -xzf /tmp/frontend-dist.tar.gz && rm /tmp/frontend-dist.tar.gz"
+          $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/frontend/dist && rm -rf $TARGET/frontend/dist/* && tar -xzf /tmp/frontend-dist.tar.gz -C $TARGET/frontend/dist && rm /tmp/frontend-dist.tar.gz"
 
           echo "✅ 파일 전송 완료"
 
