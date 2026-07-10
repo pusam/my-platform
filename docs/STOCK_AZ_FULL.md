@@ -250,7 +250,7 @@ L3 MariaDB (캐시 miss fallback)
 
 | 대상 | 클래스 | 비고 |
 |---|---|---|
-| **KIS REST** | `KoreaInvestmentService` | 현재가 FHKST01010100, 체결강도 FHKST01010300(ccnl `tday_rltv`), 투자자 FHKST20061000, 체결조회 TTTC0081R, 주문 TTTC/TTTD. OAuth(만료=응답 `expires_in` 준수·결측 시 폴백 24h, 갱신 1h 전, 65초 쿨다운)·**401→토큰캐시 1회 무효화**(주문 재시도 없음·§4d, 2026-07-08)·rate limiter 3단계·circuit breaker. 토큰 3캐시(+`KisApiService`/`MarketIndicatorService`) 공유화·잔여 2서비스 401 이식은 [P3-8](../VERIFICATION_BACKLOG.md) |
+| **KIS REST** | `KoreaInvestmentService` | 현재가 FHKST01010100, 체결강도 FHKST01010300(ccnl `tday_rltv`), 투자자 FHKST20061000, 체결조회 TTTC0081R, 주문 TTTC/TTTD. OAuth(만료=응답 `expires_in` 준수·결측 시 폴백 24h, 갱신 1h 전, 65초 쿨다운)·**401→토큰캐시 1회 무효화**(주문 재시도 없음·§4d, 2026-07-08)·rate limiter 3단계·circuit breaker. 401 무효화는 3서비스 전부 적용(2026-07-10 P3-8 선택A — `KisApiService`/`MarketIndicatorService` 이식, `isAuthFailure` 재사용·재시도 없음), 토큰 3캐시 공유화(선택B)만 잔여 [P3-8](../VERIFICATION_BACKLOG.md) |
 | **KIS WS** | `KisWebSocketService` | 실시간 틱(1초) |
 | **DART** | `DartService`/`DartDisclosureMonitorService` | 공시(06/08/16:30) + 5분 모니터. ⭐2026-07-07 대상 = 실잔고>봇 포지션>관심(상한 30, rate 156회/일×30≈4.7k<10k) + 주요 공시(소송·계약해지 등) **중립 톤** 필터(§4c 악재 단정 금지) |
 | **Gemini** | `GeminiService` | 재료분류 V31·AI분석(9/12/15시)·circuit open 시 캐시 안 함 |

@@ -493,6 +493,8 @@
 ---
 
 ## P3-8. KIS 토큰 3캐시 공유화 + 401 방어 잔여 2서비스 (구조 개선, 2026-07-08 신규 — 토큰 P1 2건 후속)
+> **✅ 선택 A 완료(2026-07-10)**: `KisApiService`(조회 4메서드)·`MarketIndicatorService`(워머 fetch) 에 401→자기 토큰 캐시 1회 무효화 이식 — 판정은 `KoreaInvestmentService.isAuthFailure`(package-private static) **재사용**(중복 구현 없음), 실패 호출 재시도 없음(2연속 401=실패 전파, 발급 rate 보호). 테스트 `KisApiService401DefenseTest`/`MarketIndicatorService401DefenseTest`(401 무효화·403 유지·재발급 1회·무한루프 금지). **잔여 = 선택 B(3캐시 공유 `KisTokenProvider` 구조 통합)만** — 전제 재확인: 3서비스는 같은 앱키로 각자 발급/캐시(공유 없음) 유지 중.
+>
 > **배경**: KIS OAuth 토큰이 `KoreaInvestmentService`(시세·실매매)·`KisApiService`(투자자동향)·`MarketIndicatorService`(등락무버) **3개 인메모리 캐시로 독립 발급**(공유 없음, Redis/DB 미영속). 2026-07-08 세션에서 `KoreaInvestmentService` 만 ① expires_in 준수(`af0fdf4`) ② 401 시 토큰 1회 무효화(`2a57525`) 적용. 나머지 둘은 expires_in 은 이미 쓰나 401 방어 미적용, 3캐시 통합은 미착수.
 - **문제**:
   1. **3중 발급** — 한 앱이 토큰을 3번 따로 발급. KIS 분당 1회 발급 제한과 무관하진 않으나(서로 다른 시점 발급이라 대개 통과), 재시작 직후 3서비스 동시 첫 호출이면 발급 경합 가능. 공유 토큰 스토어(1발급 → 3소비)면 발급 수·경합 최소화.

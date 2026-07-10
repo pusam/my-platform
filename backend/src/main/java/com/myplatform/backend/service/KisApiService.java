@@ -91,6 +91,27 @@ public class KisApiService {
     }
 
     /**
+     * KIS API 호출이 401(인증 실패)이면 이 서비스의 토큰 캐시를 <b>1회</b> 무효화한다
+     * (P3-8 — {@link KoreaInvestmentService}의 401 방어 패턴 이식, 판정은 동일 기준
+     * {@code isAuthFailure} 재사용). → 다음 {@link #refreshAccessToken()}이 재발급한다.
+     *
+     * <p>루프 방지: 이미 무효화(accessToken==null)면 no-op. 실패한 호출 자체는 <b>재시도하지
+     * 않는다</b>(호출부는 기존대로 빈 결과/null 반환) — 2연속 401 이면 그대로 실패 전파,
+     * 발급 rate(KIS 분당 1회)를 태우지 않는다.
+     *
+     * <p>참고(P3-8 전제 확인): KIS 3서비스(KoreaInvestment/KisApi/MarketIndicator)는 같은 앱키로
+     * <b>각자</b> 토큰을 발급·캐시한다(공유 캐시 아님) — 무효화도 자기 캐시만 건드린다.
+     */
+    private synchronized void invalidateTokenOnAuthFailure(Exception e) {
+        if (!KoreaInvestmentService.isAuthFailure(e) || accessToken == null) {
+            return;
+        }
+        accessToken = null;
+        tokenExpireTime = 0;
+        log.warn("KIS API 401 인증 실패 — KisApiService 토큰 캐시 무효화(다음 호출 재발급). 호출 재시도 없음.");
+    }
+
+    /**
      * 투자자 매매동향 조회 (외국인, 기관 순매수 상위)
      */
     @Cacheable(value = "investorTrend", unless = "#result == null || #result.isEmpty()")
@@ -134,6 +155,7 @@ public class KisApiService {
 
             return parseInvestorTrendResponse(response.getBody());
         } catch (Exception e) {
+            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
             log.error("투자자 매매동향 조회 실패", e);
             return new ArrayList<>();
         }
@@ -180,6 +202,7 @@ public class KisApiService {
 
             return parseContinuousBuyResponse(response.getBody());
         } catch (Exception e) {
+            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
             log.error("연속 매수 종목 조회 실패", e);
             return new ArrayList<>();
         }
@@ -228,6 +251,7 @@ public class KisApiService {
 
             return parseSupplySurgeResponse(response.getBody());
         } catch (Exception e) {
+            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
             log.error("수급 급등 종목 조회 실패", e);
             return new ArrayList<>();
         }
@@ -348,6 +372,7 @@ public class KisApiService {
             return result;
 
         } catch (Exception e) {
+            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
             log.error("[KIS선물] {} 조회 실패: {}", contractCode, e.getMessage());
             return null;
         }
