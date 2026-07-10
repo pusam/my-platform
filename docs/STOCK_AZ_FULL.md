@@ -223,7 +223,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 ## 6. 엔티티 / 리포지토리 (도메인별 핵심)
 
 - **종목/시세**: `StockMaster` · `StockPrice` · `StockPriceHistory` · `StockFinancialData` · `StockCatalyst`(V31)
-- **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth -1=NA sentinel) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
+- **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth/value_stability **NULL=NA** — P3-3 V48 2026-07-10, DTO 표시 계약은 -1=NA 유지) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
 - **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog` · **`ManualTradeJournal`(V43+V44, 2026-07-07(D))** — 수동 매수/매도 + 매수 시점 스냅샷 12필드(점수4종·RSI·재료·RVOL·국면·ATR손절·5일등락, null=미수집 §4c) + bm_price_at_buy(KOSPI, V44) + 3거래일 평가(pct/alpha/hit, evaluatedAt null=대기). v1 전량 매도 가정. 봇 테이블과 완전 분리
 - **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷 + **V41(2026-07 이전 merge) `rvol_at_signal`**(당일 거래대금÷직전 20거래일 평균, `record()`가 best-effort 스냅샷 — 관심 쏠림날 적중률 사후검증용), NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
 - **시장/투자자**: `MarketDailyStatus`(ADR/condition) · `InvestorIntradaySnapshot` · `InvestorDailyTrade` · `EarningsDisclosure` · `ShortSellingBalance` · `AlertHistory`

@@ -105,6 +105,14 @@ class FlywayMigrationTest {
         assertThat(uniqueConstraintCount("catalyst_alert_dedup", "uq_cad_alert_key"))
                 .as("V47 catalyst_alert_dedup UNIQUE 제약(uq_cad_alert_key)이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 8 (V48 도달 확인): growth/value_stability nullable 전환(NULL=NA, P3-3) ---
+        assertThat(isColumnNullable("recommendation_snapshot", "growth"))
+                .as("V48 recommendation_snapshot.growth 가 NULL 허용이어야 함(NULL=NA)")
+                .isTrue();
+        assertThat(isColumnNullable("recommendation_snapshot", "value_stability"))
+                .as("V48 recommendation_snapshot.value_stability 가 NULL 허용이어야 함(NULL=NA)")
+                .isTrue();
     }
 
     /**
@@ -151,6 +159,22 @@ class FlywayMigrationTest {
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 return rs.getLong(1);
+            }
+        }
+    }
+
+    /** information_schema 로 특정 컬럼의 NULL 허용 여부를 확인한다 — nullable 전환형 마이그레이션 가드용. */
+    private boolean isColumnNullable(String table, String column) throws Exception {
+        String sql = "SELECT IS_NULLABLE FROM information_schema.COLUMNS "
+                + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?";
+        try (Connection conn = DriverManager.getConnection(
+                        MARIADB.getJdbcUrl(), MARIADB.getUsername(), MARIADB.getPassword());
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, MARIADB.getDatabaseName());
+            ps.setString(2, table);
+            ps.setString(3, column);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() && "YES".equalsIgnoreCase(rs.getString(1));
             }
         }
     }

@@ -546,8 +546,9 @@ public class RecommendationService {
                 entity.setSupplyDemand(dto.getSupplyDemand());
                 entity.setTechnical(dto.getTechnical());
                 entity.setSectorMomentum(dto.getSectorMomentum());
-                entity.setValueStability(dto.getValueStability());
-                entity.setGrowth(dto.getGrowth());
+                // P3-3: DTO 는 -1=NA sentinel(API 표시 계약 유지), 엔티티/DB 는 NULL=NA — 저장 경계 변환.
+                entity.setValueStability(dto.getValueStability() >= 0 ? dto.getValueStability() : null);
+                entity.setGrowth(dto.getGrowth() >= 0 ? dto.getGrowth() : null);
                 entity.setTags(dto.getTags() != null ? String.join(",", dto.getTags()) : "");
                 entity.setChangeRate(dto.getChangeRate());
                 entity.setRankOrder(i + 1);
@@ -2323,14 +2324,19 @@ public class RecommendationService {
                 if (s.getSupplyDemand() > 0) vc++;
                 if (s.getTechnical() > 0) vc++;
                 if (s.getSectorMomentum() > 0) vc++;
-                if (s.getValueStability() > 0) vc++;
+                // P3-3: 엔티티 NULL=NA — 구 -1 sentinel 과 동일하게 vc 미포함(validCount 불변).
+                if (s.getValueStability() != null && s.getValueStability() > 0) vc++;
                 return RecommendationDto.builder()
                     .stockCode(s.getStockCode()).stockName(s.getStockName())
                     .totalScore(s.getTotalScore())
                     .aiStrategy(s.getAiStrategy()).earnings(s.getEarnings())
                     .supplyDemand(s.getSupplyDemand()).technical(s.getTechnical())
                     .sectorMomentum(s.getSectorMomentum())
-                    .valueStability(s.getValueStability())
+                    // 복원 경계 변환: NULL=NA → DTO sentinel(-1) — UI "—" 표시 계약 불변.
+                    .valueStability(s.getValueStability() != null ? s.getValueStability() : NA)
+                    // growth 도 동일 변환 — 기존엔 복원 시 growth 를 아예 안 실어 int 기본값 0
+                    // ("0/20" 오표시)이 되던 누락을 NA 로 정정(§4c).
+                    .growth(s.getGrowth() != null ? s.getGrowth() : NA)
                     .validCount(vc)
                     .tags(s.getTags() != null && !s.getTags().isBlank()
                             ? Arrays.asList(s.getTags().split(",")) : Collections.emptyList())

@@ -323,6 +323,8 @@
 
 ## P3-3. RecommendationSnapshot growth/valueStability `-1=NA` → nullable 전환 검토 (방어, 2026-06-29 신규, 작업6)
 
+> **✅ 완료(2026-07-10)**: V48 — 컬럼 nullable 전환 + 기존 `< 0` 데이터 NULL 백필. 엔티티 `Integer` + 소비처 전수 정리(`>= 0` → `!= null`: StockConclusionService build/tradePlan/detectConflicts/buildFactors, RecommendationService loadFromDb, BacktestExport CSV=빈 칸). **DTO(RecommendationDto)/API 표시 계약은 -1=NA 유지**(저장/복원 경계 변환 — UI '—' 불변, python load_snapshot_csv 는 두 컬럼 미사용). 부수 정정: loadFromDb 가 growth 를 안 실어 DB 복원 시 0("0/20") 오표시되던 누락 → NA(-1) 매핑. verdictFor score<0 가드는 DTO 계층 보호용 방어로 유지. 회귀: NA 렌더(팩터 숨김·강가치 룰 미발동) + validCount 불변, FlywayMigrationTest V48 nullable 가드.
+
 > **배경**: `growth`/`valueStability`(int)는 `-1`을 NA(데이터 없음) sentinel 로 쓴다. 작업6에서 `StockConclusionService.verdictFor`가
 > `-1`을 실제 **NEGATIVE 로 오판**하던 버그를 `score<0→"N/A"` 가드 + NA factor 숨김으로 수정했고, 엔티티/사용처에 경고 주석을 달았다.
 > 그러나 **sentinel 자체는 위험 패턴** — 새 코드가 `growth > 0`/`>= 0` 필터를 짜면 음수로 오작동할 수 있다.

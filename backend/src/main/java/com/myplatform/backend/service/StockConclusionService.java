@@ -98,7 +98,8 @@ public class StockConclusionService {
 
     private StockConclusionDto build(RecommendationSnapshot s) {
         int total = s.getTotalScore();
-        int value = s.getValueStability();
+        // P3-3: valueStability NULL=NA — 강가치 판정은 산출된 값이 있을 때만 true(NA=미충족, 기존 -1 동작 동일).
+        boolean valueStrong = s.getValueStability() != null && s.getValueStability() >= VALUE_STRONG_THRESHOLD;
         int supplyDemand = s.getSupplyDemand();
         int technical = s.getTechnical();
 
@@ -112,10 +113,10 @@ public class StockConclusionService {
         if (total >= STRONG_BUY_THRESHOLD) {
             level = Level.STRONG_BUY;
             headline = "단기 모멘텀 + 다수 시그널 합의 — 매수 적기로 평가.";
-            guidance = value >= VALUE_STRONG_THRESHOLD
+            guidance = valueStrong
                     ? "밸류(저평가)도 양호 — 전량 진입 고려."
                     : "단기 추세 강하지만 밸류 매력도는 보통 — 익절 가까이 잡고 진입.";
-        } else if (value >= VALUE_STRONG_THRESHOLD && total < BUY_THRESHOLD) {
+        } else if (valueStrong && total < BUY_THRESHOLD) {
             level = Level.HOLD;
             headline = "장기 저평가 우량주이나 단기 추세 약함 — 분할 매수 후보.";
             guidance = "외국인/기관 순매수 전환 또는 20일선 지지 확인 후 진입 권장.";
@@ -246,8 +247,9 @@ public class StockConclusionService {
     private TradePlan buildTradePlan(RecommendationSnapshot s, Level level) {
         if (level != Level.STRONG_BUY && level != Level.BUY) return null;
 
+        // P3-3: valueStability NULL=NA(미산출) — 타이트 판정 제외(구 -1 sentinel 의 >= 0 가드와 동일 동작).
         boolean tight = s.getTotalScore() >= STRONG_BUY_THRESHOLD
-                && s.getValueStability() >= 0 && s.getValueStability() < 4;
+                && s.getValueStability() != null && s.getValueStability() < 4;
         BigDecimal stopPct = tight ? PLAN_STOP_PCT_TIGHT : PLAN_STOP_PCT;
         BigDecimal targetPct = tight ? PLAN_TARGET_PCT_TIGHT : PLAN_TARGET_PCT;
 
@@ -347,11 +349,12 @@ public class StockConclusionService {
         int supplyDemand = s.getSupplyDemand();
         int technical = s.getTechnical();
         int sector = s.getSectorMomentum();
-        int value = s.getValueStability();
+        // P3-3: NULL=NA(미산출) — 밸류 룰(1·3)은 산출된 값이 있을 때만 발동(구 -1 sentinel 동작 동일).
+        Integer value = s.getValueStability();
         String tags = s.getTags();
 
         // 1. 단기 강 + 장기 매우 약 — 펀더멘털 받쳐주지 않는 모멘텀 진입은 익절 짧게.
-        if (total >= STRONG_BUY_THRESHOLD && value >= 0 && value < 4) {
+        if (total >= STRONG_BUY_THRESHOLD && value != null && value < 4) {
             return "⚠️ 단기 모멘텀 강함 + 밸류 매력도 매우 낮음 — 익절 3% 내, 손절 타이트.";
         }
         // 2. 단기 강 + 기술 약 — 거래량/모멘텀은 좋은데 차트 기준이 안 받쳐줌 → 고점 추격 위험.
@@ -359,7 +362,7 @@ public class StockConclusionService {
             return "⚠️ 종합 점수 높으나 기술적 지표 약함 — 고점 추격 가능성, RSI 과열 확인 권장.";
         }
         // 3. 장기+수급 동조 + 단기 차트 약 — 매집 진행 중이나 기술적 진입 타이밍 미성숙.
-        if (value >= VALUE_STRONG_THRESHOLD && supplyDemand >= 12 && technical > 0 && technical < 8) {
+        if (value != null && value >= VALUE_STRONG_THRESHOLD && supplyDemand >= 12 && technical > 0 && technical < 8) {
             return "💡 장기 저평가 + 수급 강 + 단기 차트 약함 — 분할 매수 또는 20일선 지지 대기.";
         }
         // 4. 실적 강 + 시장 관심 없음 — 컨센서스 형성 전 매집 기회.
@@ -437,9 +440,9 @@ public class StockConclusionService {
                 .verdict(verdictFor(s.getSectorMomentum(), 8, 15))
                 .note(withEvidence("섹터 거래대금 INFLOW/OUTFLOW", tags, "sectorMomentum"))
                 .build());
-        // ⚠ valueStability/growth 는 -1=NA(데이터 없음) sentinel. NA 면 factor 자체를 숨긴다
+        // ⚠ valueStability/growth 는 NULL=NA(데이터 없음, P3-3 — 구 -1 sentinel). NA 면 factor 자체를 숨긴다
         //   (결론카드 "데이터 없으면 조용히 숨김" 규약 — NA 를 NEGATIVE 로 오표시하지 않기 위함).
-        if (s.getValueStability() >= 0) {
+        if (s.getValueStability() != null) {
             list.add(Factor.builder()
                     .key("valueStability")
                     .label("밸류 매력도")
@@ -451,7 +454,7 @@ public class StockConclusionService {
                     .note(withEvidence("저평가 정도 (PBR·ROE·부채비율·흑자) — 전망 아님", tags, "valueStability"))
                     .build());
         }
-        if (s.getGrowth() >= 0) {
+        if (s.getGrowth() != null) {
             list.add(Factor.builder()
                     .key("growth")
                     .label("성장성")
@@ -507,8 +510,9 @@ public class StockConclusionService {
 
     /**
      * 점수 → 판정. <b>테스트 대상(static)</b>.
-     * ⚠ score &lt; 0 = NA(데이터 없음) sentinel(growth/valueStability) → <b>"N/A"</b>. -1 을 실제 NEGATIVE 로
-     * 오판하지 않는다(기존 버그). 호출부는 보통 NA factor 자체를 숨기지만, 다른 호출부 보호용 방어 가드.
+     * ⚠ score &lt; 0 → <b>"N/A"</b> 방어 가드 유지 — 엔티티는 P3-3(V48)로 NULL=NA 라 이 함수에 음수가
+     * 오지 않지만, DTO(RecommendationDto)/표시 계층은 여전히 -1=NA sentinel 을 쓰므로 미래 호출부 보호용.
+     * (-1 을 실제 NEGATIVE 로 오판하던 기존 버그의 재발 방지.)
      */
     static String verdictFor(int score, int neutralMin, int positiveMin) {
         if (score < 0) return "N/A";

@@ -76,6 +76,9 @@ class StockConclusionServiceTest {
         s.setTechnical(technical);
         s.setSectorMomentum(sector);
         s.setValueStability(value);
+        // P3-3: growth NULL=NA(팩터 숨김) — 기본은 산출됨(0점)으로 두어 기존 7-factor 기대 유지.
+        // NA 시나리오는 개별 테스트에서 setGrowth(null) 로 지정.
+        s.setGrowth(0);
         s.setSnapshotAt(LocalDateTime.now());
         return s;
     }
@@ -445,16 +448,35 @@ class StockConclusionServiceTest {
     }
 
     @Test
-    @DisplayName("growth -1(NA) → 성장성 factor 숨김(6개), NEGATIVE 오표시 안 함")
+    @DisplayName("growth null(NA, P3-3) → 성장성 factor 숨김(6개), NEGATIVE 오표시 안 함")
     void growthNa_factorHidden() {
         RecommendationSnapshot s = snapshot(80, 16, 16, 15, 14, 10);
-        s.setGrowth(-1);   // NA(데이터 없음)
+        s.setGrowth(null);   // NA(데이터 없음) — P3-3(V48): 구 -1 sentinel → null
         when(snapshotRepository.findLatestByStockCode(anyString())).thenReturn(Optional.of(s));
 
         StockConclusionDto result = service.getConclusion("005930");
 
         assertThat(result.getFactors()).hasSize(6);   // 성장성 빠짐(정상 7 → NA 숨김 6)
         assertThat(result.getFactors()).noneMatch(f -> "growth".equals(f.getKey()));
+    }
+
+    @Test
+    @DisplayName("valueStability null(NA, P3-3) → 밸류 factor 숨김 + 강가치 룰 미발동(NA=미충족)")
+    void valueStabilityNa_factorHiddenAndRulesSafe() {
+        RecommendationSnapshot s = snapshot(80, 16, 16, 15, 14, 0);
+        s.setValueStability(null);   // NA — 구 -1 sentinel → null (P3-3, V48)
+        when(snapshotRepository.findLatestByStockCode(anyString())).thenReturn(Optional.of(s));
+
+        StockConclusionDto result = service.getConclusion("005930");
+
+        // NA 는 렌더에서 조용히 숨김('—' 규약) — NEGATIVE 오표시/NPE 없음
+        assertThat(result.getFactors()).noneMatch(f -> "valueStability".equals(f.getKey()));
+        // STRONG_BUY 가이던스는 강가치 분기(전량 진입) 대신 보수 분기 — NA=미충족(구 -1 동작 동일)
+        assertThat(result.getLevel()).isEqualTo(Level.STRONG_BUY);
+        assertThat(result.getGuidance()).contains("밸류 매력도는 보통");
+        // NA 는 "매우 약(value<4)" 충돌 룰도 발동시키지 않는다 — 타이트 익절 경고 없음
+        assertThat(result.getConflictNote() == null
+                || !result.getConflictNote().contains("밸류 매력도 매우 낮음")).isTrue();
     }
 
     // ================================================================

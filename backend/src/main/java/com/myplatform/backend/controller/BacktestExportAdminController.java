@@ -53,8 +53,9 @@ public class BacktestExportAdminController {
               .append(r.getSupplyDemand()).append(',')
               .append(r.getTechnical()).append(',')
               .append(r.getSectorMomentum()).append(',')
-              .append(r.getValueStability()).append(',')
-              .append(r.getGrowth()).append(',')
+              // P3-3: NULL=NA → 빈 칸(§4c 정직한 결측). python load_snapshot_csv 는 두 컬럼 미사용이라 무영향.
+              .append(r.getValueStability() != null ? r.getValueStability().toString() : "").append(',')
+              .append(r.getGrowth() != null ? r.getGrowth().toString() : "").append(',')
               .append(r.getRankOrder()).append(',')
               .append(r.getChangeRate() != null ? r.getChangeRate().toPlainString() : "").append('\n');
         }

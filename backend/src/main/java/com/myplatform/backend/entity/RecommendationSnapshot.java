@@ -36,17 +36,16 @@ public class RecommendationSnapshot {
     @Column(name = "sector_momentum", nullable = false)
     private int sectorMomentum;
 
-    // ⚠ -1 = NA(데이터 없음) sentinel, 0+ = 산출됨(0~20). valueStability/growth 공통.
-    //   주의: `score > 0` / `score >= 0` 식 필터를 짤 때 -1 을 "실제 음수 점수"로 오작동시키지 말 것
-    //   (예: verdictFor 가 -1 을 NEGATIVE 로 오판했던 버그 — 작업6에서 score<0 가드로 수정).
-    //   nullable(Integer) 전환은 마이그레이션 비용 커 보류 — VERIFICATION_BACKLOG 참조.
-    @Column(name = "value_stability", nullable = false)
-    private int valueStability;
+    // P3-3(V48): NULL = NA(데이터 없음), 0+ = 산출됨(0~20). valueStability/growth 공통.
+    //   구 -1 sentinel 은 `score > 0`/`>= 0` 필터가 음수를 오작동시키는 위험 패턴이라 nullable 전환
+    //   (verdictFor NEGATIVE 오판 버그 전례). DTO(RecommendationDto)/API 등 표시 계약은 여전히 -1=NA —
+    //   서비스 저장/복원 경계에서 변환한다(RecommendationService saveSnapshot/loadFromDb).
+    @Column(name = "value_stability")
+    private Integer valueStability;
 
-    // 성장성 점수 (매출/이익 성장률 + PEG). -1 = 데이터 없음(NA), 0+ = 산출됨(0~20). 위 valueStability 주의사항 동일.
-    // 기존 행은 V29 마이그레이션 default(-1)로 NA 처리 → UI 에서 "—" 노출.
-    @Column(name = "growth", nullable = false)
-    private int growth;
+    // 성장성 점수 (매출/이익 성장률 + PEG). NULL = NA, 0+ = 산출됨(0~20). 위 valueStability 주의사항 동일.
+    @Column(name = "growth")
+    private Integer growth;
 
     @Column(name = "tags", length = 500)
     private String tags;
@@ -95,11 +94,13 @@ public class RecommendationSnapshot {
 
     public int getSectorMomentum() { return sectorMomentum; }
     public void setSectorMomentum(int sectorMomentum) { this.sectorMomentum = sectorMomentum; }
-    public int getValueStability() { return valueStability; }
-    public void setValueStability(int valueStability) { this.valueStability = valueStability; }
+    /** NULL = NA(미산출) — 소비처는 {@code != null} 가드 후 사용(P3-3). */
+    public Integer getValueStability() { return valueStability; }
+    public void setValueStability(Integer valueStability) { this.valueStability = valueStability; }
 
-    public int getGrowth() { return growth; }
-    public void setGrowth(int growth) { this.growth = growth; }
+    /** NULL = NA(미산출) — 소비처는 {@code != null} 가드 후 사용(P3-3). */
+    public Integer getGrowth() { return growth; }
+    public void setGrowth(Integer growth) { this.growth = growth; }
 
     public String getTags() { return tags; }
     public void setTags(String tags) { this.tags = tags; }
