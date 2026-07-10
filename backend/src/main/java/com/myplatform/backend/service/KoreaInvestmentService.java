@@ -14,7 +14,6 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -59,20 +58,16 @@ public class KoreaInvestmentService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final KisApiRateLimiter rateLimiter;
-
-    // 토큰 캐시
-    private String accessToken;
-    private LocalDateTime tokenExpireTime;
-
-    // 토큰 발급 실패 시 쿨다운 (Rate Limit 방지)
-    private LocalDateTime tokenCooldownUntil;
-    private static final int TOKEN_COOLDOWN_SECONDS = 65;  // 1분 + 여유 5초
+    // 토큰 발급/캐시/갱신/쿨다운/401 무효화 = 공유 단일 출처 (P3-8 선택B). 3서비스가 같은 빈을 주입받아
+    // 앱 전체가 토큰 1개를 공유(발급 경합 최소화). appKey/appSecret 은 헤더용으로 이 서비스에 계속 유지.
+    private final KisTokenManager tokenManager;
 
     public KoreaInvestmentService(RestTemplate restTemplate, ObjectMapper objectMapper,
-                                  KisApiRateLimiter rateLimiter) {
+                                  KisApiRateLimiter rateLimiter, KisTokenManager tokenManager) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.rateLimiter = rateLimiter;
+        this.tokenManager = tokenManager;
     }
 
     /**
@@ -120,40 +115,21 @@ public class KoreaInvestmentService {
 
     /**
      * KIS API 호출 예외가 인증 실패(HTTP 401)인지 판정. 순수 함수(테스트 대상).
-     * 401 = 토큰 만료/무효 신호 — 시계 기준 갱신(만료 1시간 전)만으로는 조기 만료를 못 잡으므로
-     * 토큰 캐시 무효화 트리거로 쓴다. 403(권한/IP)·429(rate)·5xx 는 여기서 false.
+     * <p>판정 단일 출처는 {@link KisTokenManager#isAuthFailure} — 기존 호출부/테스트 호환용 정적 위임.
      */
     static boolean isAuthFailure(Exception e) {
-        return e instanceof org.springframework.web.client.HttpClientErrorException
-                && ((org.springframework.web.client.HttpClientErrorException) e).getStatusCode().value() == 401;
-    }
-
-    /**
-     * KIS API 호출이 401(인증 실패)이면 현재 토큰 캐시를 <b>1회</b> 무효화한다.
-     * → 다음 {@link #getAccessToken()} 호출이 재발급(65초 쿨다운 존중).
-     *
-     * <p>루프 방지: 이미 무효화(accessToken==null)면 no-op — 401 폭주가 토큰 발급 rate
-     * (KIS 분당 1회)를 태우지 않게 한다. 재발급이 실패하면 getAccessToken 의 기존 쿨다운이 방어.
-     *
-     * <p>⚠ §4d: 토큰 무효화까지만이다. 주문(TTTC/TTTD) 재시도는 절대 하지 않는다(KIS 비멱등).
-     * 401 은 인증 실패라 주문이 접수되지 않은 게 확실 — 호출부는 기존대로 null/거부바디를 반환한다.
-     */
-    private synchronized void invalidateTokenOnAuthFailure(Exception e) {
-        if (!isAuthFailure(e) || accessToken == null) {
-            return;
-        }
-        accessToken = null;
-        tokenExpireTime = null;
-        log.warn("KIS API 401 인증 실패 — 토큰 캐시 무효화(다음 호출 재발급, 쿨다운 존중). 주문 재시도 없음.");
+        return KisTokenManager.isAuthFailure(e);
     }
 
     /**
      * KIS 조회 API 호출 예외 공통 처리: rate-limit(429/EGW00201)은 재시도 위해 rethrow,
-     * 401 인증 실패는 토큰 캐시를 1회 무효화한다. (주문 경로는 별도 catch 에서 무효화만 호출.)
+     * 401 인증 실패는 <b>공유 토큰 캐시</b>를 1회 무효화한다(값 기반 CAS — {@code usedToken} 이 현재
+     * 캐시와 동일할 때만). {@code usedToken} = 실패한 호출이 헤더에 실었던 토큰(호출부 로컬).
+     * (주문 경로는 별도 catch 에서 {@code tokenManager.invalidateOnAuthFailure} 직접 호출.)
      */
-    private void handleKisApiException(Exception e) {
-        rethrowIfRateLimit(e);             // rate-limit → RuntimeException 재던짐(아래 미도달)
-        invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화
+    private void handleKisApiException(Exception e, String usedToken) {
+        rethrowIfRateLimit(e);                                  // rate-limit → RuntimeException 재던짐(아래 미도달)
+        tokenManager.invalidateOnAuthFailure(e, usedToken);     // 401 → 공유 토큰 캐시 1회 CAS 무효화
     }
 
     /**
@@ -165,148 +141,27 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * 토큰이 현재 사용 가능한지 확인 (쿨다운 포함)
-     * - 토큰 발급 시도 없이 빠르게 상태만 확인
+     * 토큰이 현재 사용 가능한지 확인 (쿨다운 포함) — 공유 매니저 위임.
+     * 발급 시도 없이 상태만 확인. 공개 시그니처 유지(외부 호출부 무변경).
      */
     public boolean isTokenAvailable() {
-        // 이미 유효한 토큰이 있으면 true
-        if (accessToken != null && tokenExpireTime != null
-            && DateTimeUtil.kstNow().isBefore(tokenExpireTime.minusHours(1))) {
-            return true;
-        }
-        // 쿨다운 중이면 false
-        if (tokenCooldownUntil != null && DateTimeUtil.kstNow().isBefore(tokenCooldownUntil)) {
-            return false;
-        }
-        // 설정이 안 되어 있으면 false
-        return isConfigured();
+        return tokenManager.isTokenAvailable();
     }
 
     /**
-     * Access Token 발급
-     * - 토큰 유효시간: 24시간
-     * - 만료 1시간 전에 갱신
-     * - Rate Limit 방지를 위한 쿨다운 적용
+     * 공유 Access Token — 발급/캐시/갱신/쿨다운은 {@link KisTokenManager} 가 전담(P3-8 선택B).
+     * 공개 시그니처 유지(외부 호출부 무변경). 발급은 매니저에서 {@code synchronized} 전역 직렬화.
      */
-    public synchronized String getAccessToken() {
-        // 토큰이 유효하면 재사용
-        if (accessToken != null && tokenExpireTime != null
-            && DateTimeUtil.kstNow().isBefore(tokenExpireTime.minusHours(1))) {
-            return accessToken;
-        }
-
-        // 쿨다운 중이면 null 반환 (Rate Limit 방지)
-        if (tokenCooldownUntil != null && DateTimeUtil.kstNow().isBefore(tokenCooldownUntil)) {
-            log.debug("토큰 발급 쿨다운 중 ({}까지 대기)", tokenCooldownUntil);
-            return null;
-        }
-
-        if (!isConfigured()) {
-            log.warn("한국투자증권 API 키가 설정되지 않았습니다. (appKey 길이: {}, appSecret 길이: {})",
-                    appKey != null ? appKey.length() : 0,
-                    appSecret != null ? appSecret.length() : 0);
-            return null;
-        }
-
-        // 마스킹된 키로 디버그 로깅
-        String maskedKey = appKey.length() > 4
-                ? appKey.substring(0, 4) + "****" : "****";
-
-        try {
-            String url = baseUrl + "/oauth2/tokenP";
-            log.info("KIS 토큰 발급 시도 - baseUrl: {}, appKey: {}", baseUrl, maskedKey);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            Map<String, String> body = new HashMap<>();
-            body.put("grant_type", "client_credentials");
-            body.put("appkey", appKey);
-            body.put("appsecret", appSecret);
-
-            HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
-
-            log.info("KIS 토큰 응답 - HTTP {}, body 길이: {}",
-                    response.getStatusCode(),
-                    response.getBody() != null ? response.getBody().length() : 0);
-
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                JsonNode root = objectMapper.readTree(response.getBody());
-
-                if (root.has("access_token")) {
-                    accessToken = root.get("access_token").asText();
-                    // 토큰 만료시간 = 응답의 expires_in(초) 기준. 갱신 1시간 전 판정은
-                    // getAccessToken 상단의 tokenExpireTime.minusHours(1) 로 유지(불변).
-                    long expiresIn = parseExpiresInSeconds(root);
-                    if (expiresIn > 0) {
-                        tokenExpireTime = DateTimeUtil.kstNow().plusSeconds(expiresIn);
-                    } else {
-                        // §4c: 결측을 근거로 더 짧게 잡아 갱신을 폭주시키지 않는다 — 보수적 24h 폴백.
-                        tokenExpireTime = DateTimeUtil.kstNow().plusHours(24);
-                        log.warn("KIS 토큰 응답에 유효한 expires_in 없음 — 폴백 24h 적용");
-                    }
-                    // 쿨다운 해제
-                    tokenCooldownUntil = null;
-                    log.info("KIS Access Token 발급 성공 (만료: {})", tokenExpireTime);
-                    return accessToken;
-                } else {
-                    // 에러 상세 로깅
-                    String errorCode = root.has("error_code") ? root.get("error_code").asText() : "";
-                    String errorMsg = root.has("msg") ? root.get("msg").asText() : "";
-                    String errorDesc = root.has("error_description") ? root.get("error_description").asText() : "";
-                    log.error("KIS 토큰 발급 실패 - code: {}, msg: {}, desc: {}, 전체 응답: {}",
-                            errorCode, errorMsg, errorDesc, response.getBody());
-                    tokenCooldownUntil = DateTimeUtil.kstNow().plusSeconds(TOKEN_COOLDOWN_SECONDS);
-                    log.info("KIS 토큰 쿨다운 설정: {}까지 대기", tokenCooldownUntil);
-                }
-            } else {
-                log.error("KIS 토큰 비정상 응답 - HTTP {}", response.getStatusCode());
-            }
-        } catch (org.springframework.web.client.HttpClientErrorException e) {
-            int statusCode = e.getStatusCode().value();
-            String responseBody = e.getResponseBodyAsString();
-            log.error("KIS 토큰 발급 HTTP {} - appKey: {}, baseUrl: {}, 응답: {}",
-                    statusCode, maskedKey, baseUrl, responseBody, e);
-            if (statusCode == 401) {
-                log.error("KIS 토큰 401 Unauthorized - appKey/appSecret 확인 필요");
-            } else if (statusCode == 403) {
-                log.error("KIS 토큰 403 Forbidden - API 권한 또는 IP 접근 제한 확인");
-            } else if (statusCode == 429) {
-                log.error("KIS 토큰 429 Too Many Requests - 분당 요청 한도 초과");
-            }
-            tokenCooldownUntil = DateTimeUtil.kstNow().plusSeconds(TOKEN_COOLDOWN_SECONDS);
-            log.info("KIS 토큰 쿨다운 설정: {}초 ({}까지)", TOKEN_COOLDOWN_SECONDS, tokenCooldownUntil);
-        } catch (Exception e) {
-            log.error("KIS 토큰 발급 예외 - appKey: {}, baseUrl: {}", maskedKey, baseUrl, e);
-            String msg = e.getMessage() != null ? e.getMessage() : "";
-            if (msg.contains("Connection refused") || msg.contains("Connect timed out")) {
-                tokenCooldownUntil = DateTimeUtil.kstNow().plusSeconds(TOKEN_COOLDOWN_SECONDS * 2);
-                log.error("KIS API 서버 연결 불가 - {}초 쿨다운", TOKEN_COOLDOWN_SECONDS * 2);
-            }
-        }
-
-        return null;
+    public String getAccessToken() {
+        return tokenManager.getAccessToken();
     }
 
     /**
      * KIS 토큰 응답의 expires_in(초)을 추출한다. 순수 함수(테스트 대상).
-     * KisApiService/MarketIndicatorService 와 동일하게 응답값을 신뢰하되, 결측/비정상은
-     * 폴백 신호(-1)로 넘겨 호출부가 보수적 24h 를 쓰게 한다(§4c: 결측 위장 금지).
-     *
-     * @param root KIS {@code /oauth2/tokenP} 응답 JSON
-     * @return 유효한 만료초(&gt;0)이면 그 값, 결측/비숫자/0 이하이면 -1
+     * <p>구현 단일 출처는 {@link KisTokenManager#parseExpiresInSeconds} — 기존 테스트 호환용 정적 위임.
      */
     static long parseExpiresInSeconds(JsonNode root) {
-        if (root == null) {
-            return -1L;
-        }
-        JsonNode node = root.get("expires_in");
-        if (node == null || node.isNull()) {
-            return -1L;
-        }
-        long secs = node.asLong(-1L);   // 숫자/숫자문자열은 파싱, 그 외는 -1
-        return secs > 0 ? secs : -1L;
+        return KisTokenManager.parseExpiresInSeconds(root);
     }
 
     /**
@@ -380,7 +235,7 @@ public class KoreaInvestmentService {
                 return objectMapper.readTree(response.getBody());
             }
         } catch (Exception e) {
-            handleKisApiException(e);
+            handleKisApiException(e, token);
             log.error("주식 현재가 조회 실패 [{}/{}]: {}", stockCode, marketDiv, e.getMessage());
         }
 
@@ -416,7 +271,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("주식 체결 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
             return null;
@@ -451,7 +306,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("주식 기본정보 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -501,7 +356,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("투자자별 매매동향 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -539,7 +394,7 @@ public class KoreaInvestmentService {
             } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
                 log.debug("프로그램 매매 API 미지원 (404) [{}] - 네이버 투자자 매매동향 폴백 사용", stockCode);
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.warn("프로그램 매매 조회 실패 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -575,7 +430,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("지수 현재가 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
 
@@ -612,7 +467,7 @@ public class KoreaInvestmentService {
                     return objectMapper.readTree(response.getBody());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("지수 분봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
 
@@ -674,7 +529,7 @@ public class KoreaInvestmentService {
                     return rows;
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("지수 일봉 조회 실패 [{}]: {}", indexCode, e.getMessage());
             }
             return java.util.List.<IndexOhlcvData>of();
@@ -777,7 +632,7 @@ public class KoreaInvestmentService {
                     log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -829,7 +684,7 @@ public class KoreaInvestmentService {
                     log.warn("일봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.warn("일봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
 
@@ -897,7 +752,7 @@ public class KoreaInvestmentService {
                     log.error("KIS API 응답 실패: status={}, body={}", response.getStatusCode(), response.getBody());
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("외국인/기관 매매종목 조회 실패 [투자자:{}, 매수:{}]: {}",
                         investorType, isBuy, e.getMessage(), e);
             }
@@ -987,7 +842,7 @@ public class KoreaInvestmentService {
                     return result;
                 }
             } catch (Exception e) {
-                handleKisApiException(e);
+                handleKisApiException(e, token);
                 log.error("[거래량급증] 조회 실패: {}", e.getMessage(), e);
             }
 
@@ -1058,7 +913,7 @@ public class KoreaInvestmentService {
                 return result;
             }
         } catch (Exception e) {
-            handleKisApiException(e);
+            handleKisApiException(e, token);
             log.error("일봉 조회 실패 [{}]: {}", stockCode, e.getMessage());
         }
 
@@ -1447,7 +1302,7 @@ public class KoreaInvestmentService {
                     orderType.toUpperCase(), stockCode, e.getStatusCode(), errorBody);
             // 401(인증 실패)이면 토큰 캐시만 1회 무효화 → 다음 호출 재발급. §4d: 주문 재시도는 절대 없음
             // (401=미접수 확실, 아래 거부바디/null 반환 흐름 불변 → killswitch 로직 무접촉).
-            invalidateTokenOnAuthFailure(e);
+            tokenManager.invalidateOnAuthFailure(e, token);
             try {
                 JsonNode parsed = objectMapper.readTree(errorBody);
                 if (parsed.has("rt_cd")) {
@@ -1628,7 +1483,7 @@ public class KoreaInvestmentService {
             }
         } catch (Exception e) {
             log.warn("[실전매매] 체결조회 예외 [{}] ODNO {}: {}", stockCode, orderNo, e.getMessage());
-            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 1회 무효화(읽기 전용, resolveFill 은 기존대로 null=UNKNOWN)
+            tokenManager.invalidateOnAuthFailure(e, token);   // 401 → 토큰 1회 무효화(읽기 전용, resolveFill 은 기존대로 null=UNKNOWN)
         }
         return null;
     }

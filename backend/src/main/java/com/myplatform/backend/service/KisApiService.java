@@ -37,78 +37,17 @@ public class KisApiService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final KisApiProperties kisApiProperties;
-    private String accessToken;
-    private long tokenExpireTime = 0;
+    // 토큰 발급/캐시/갱신/쿨다운/401 무효화 = 공유 단일 출처 (P3-8 선택B). 자체 토큰 캐시 없음.
+    private final KisTokenManager tokenManager;
 
     public KisApiService(RestTemplate restTemplate,
                         ObjectMapper objectMapper,
-                        KisApiProperties kisApiProperties) {
+                        KisApiProperties kisApiProperties,
+                        KisTokenManager tokenManager) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.kisApiProperties = kisApiProperties;
-    }
-
-    /**
-     * 액세스 토큰 발급 (24시간 유효)
-     * synchronized: KIS는 토큰 발급 분당 1회 제한 — 동시 요청 시 중복 호출 차단
-     */
-    private synchronized void refreshAccessToken() {
-        if (System.currentTimeMillis() < tokenExpireTime && accessToken != null) {
-            return;
-        }
-
-        try {
-            String url = kisApiProperties.getBaseUrl() + "/oauth2/tokenP";
-
-            Map<String, String> body = new HashMap<>();
-            body.put("grant_type", "client_credentials");
-            body.put("appkey", kisApiProperties.getAppKey());
-            body.put("appsecret", kisApiProperties.getAppSecret());
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-
-            JsonNode root = objectMapper.readTree(response.getBody());
-            JsonNode tokenNode = root != null ? root.get("access_token") : null;
-            JsonNode expiresNode = root != null ? root.get("expires_in") : null;
-            if (tokenNode == null || expiresNode == null) {
-                log.error("KIS API 토큰 응답에 필수 필드 누락 (access_token={}, expires_in={})", tokenNode != null, expiresNode != null);
-                return;
-            }
-            this.accessToken = tokenNode.asText();
-            int expiresIn = expiresNode.asInt();
-
-            // 토큰 만료 시간 설정 (여유있게 1시간 전에 갱신)
-            this.tokenExpireTime = System.currentTimeMillis() + ((expiresIn - 3600) * 1000L);
-
-            log.info("KIS API 액세스 토큰 발급 완료");
-        } catch (Exception e) {
-            log.error("KIS API 토큰 발급 실패", e);
-        }
-    }
-
-    /**
-     * KIS API 호출이 401(인증 실패)이면 이 서비스의 토큰 캐시를 <b>1회</b> 무효화한다
-     * (P3-8 — {@link KoreaInvestmentService}의 401 방어 패턴 이식, 판정은 동일 기준
-     * {@code isAuthFailure} 재사용). → 다음 {@link #refreshAccessToken()}이 재발급한다.
-     *
-     * <p>루프 방지: 이미 무효화(accessToken==null)면 no-op. 실패한 호출 자체는 <b>재시도하지
-     * 않는다</b>(호출부는 기존대로 빈 결과/null 반환) — 2연속 401 이면 그대로 실패 전파,
-     * 발급 rate(KIS 분당 1회)를 태우지 않는다.
-     *
-     * <p>참고(P3-8 전제 확인): KIS 3서비스(KoreaInvestment/KisApi/MarketIndicator)는 같은 앱키로
-     * <b>각자</b> 토큰을 발급·캐시한다(공유 캐시 아님) — 무효화도 자기 캐시만 건드린다.
-     */
-    private synchronized void invalidateTokenOnAuthFailure(Exception e) {
-        if (!KoreaInvestmentService.isAuthFailure(e) || accessToken == null) {
-            return;
-        }
-        accessToken = null;
-        tokenExpireTime = 0;
-        log.warn("KIS API 401 인증 실패 — KisApiService 토큰 캐시 무효화(다음 호출 재발급). 호출 재시도 없음.");
+        this.tokenManager = tokenManager;
     }
 
     /**
@@ -121,17 +60,17 @@ public class KisApiService {
             return new ArrayList<>();
         }
 
+        String token = tokenManager.getAccessToken();
+        if (token == null) {
+            return new ArrayList<>();
+        }
         try {
-            refreshAccessToken();
-            if (accessToken == null) {
-                return new ArrayList<>();
-            }
 
             // FHKST01010900: 투자자별 순매수 상위종목
             String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/ranking/investor-trend";
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("authorization", "Bearer " + token);
             headers.set("appkey", kisApiProperties.getAppKey());
             headers.set("appsecret", kisApiProperties.getAppSecret());
             headers.set("tr_id", "FHKST01010900");
@@ -155,7 +94,7 @@ public class KisApiService {
 
             return parseInvestorTrendResponse(response.getBody());
         } catch (Exception e) {
-            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
+            tokenManager.invalidateOnAuthFailure(e, token);   // 401 → 공유 토큰 CAS 무효화(P3-8), 재시도 없음
             log.error("투자자 매매동향 조회 실패", e);
             return new ArrayList<>();
         }
@@ -171,17 +110,17 @@ public class KisApiService {
             return new ArrayList<>();
         }
 
+        String token = tokenManager.getAccessToken();
+        if (token == null) {
+            return new ArrayList<>();
+        }
         try {
-            refreshAccessToken();
-            if (accessToken == null) {
-                return new ArrayList<>();
-            }
 
             // FHKST01010800: 연속 매수/매도 상위종목
             String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/ranking/continuous-buy";
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("authorization", "Bearer " + token);
             headers.set("appkey", kisApiProperties.getAppKey());
             headers.set("appsecret", kisApiProperties.getAppSecret());
             headers.set("tr_id", "FHKST01010800");
@@ -202,7 +141,7 @@ public class KisApiService {
 
             return parseContinuousBuyResponse(response.getBody());
         } catch (Exception e) {
-            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
+            tokenManager.invalidateOnAuthFailure(e, token);   // 401 → 공유 토큰 CAS 무효화(P3-8), 재시도 없음
             log.error("연속 매수 종목 조회 실패", e);
             return new ArrayList<>();
         }
@@ -218,17 +157,17 @@ public class KisApiService {
             return new ArrayList<>();
         }
 
+        String token = tokenManager.getAccessToken();
+        if (token == null) {
+            return new ArrayList<>();
+        }
         try {
-            refreshAccessToken();
-            if (accessToken == null) {
-                return new ArrayList<>();
-            }
 
             // FHKST01010600: 거래량 순위
             String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/ranking/volume";
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("authorization", "Bearer " + token);
             headers.set("appkey", kisApiProperties.getAppKey());
             headers.set("appsecret", kisApiProperties.getAppSecret());
             headers.set("tr_id", "FHKST01010600");
@@ -251,7 +190,7 @@ public class KisApiService {
 
             return parseSupplySurgeResponse(response.getBody());
         } catch (Exception e) {
-            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
+            tokenManager.invalidateOnAuthFailure(e, token);   // 401 → 공유 토큰 CAS 무효화(P3-8), 재시도 없음
             log.error("수급 급등 종목 조회 실패", e);
             return new ArrayList<>();
         }
@@ -320,16 +259,16 @@ public class KisApiService {
             return null;
         }
 
+        String token = tokenManager.getAccessToken();
+        if (token == null) {
+            return null;
+        }
         try {
-            refreshAccessToken();
-            if (accessToken == null) {
-                return null;
-            }
 
             String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-futureoption/v1/quotations/inquire-price";
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("authorization", "Bearer " + token);
             headers.set("appkey", kisApiProperties.getAppKey());
             headers.set("appsecret", kisApiProperties.getAppSecret());
             headers.set("tr_id", "FHMIF10000000");
@@ -372,7 +311,7 @@ public class KisApiService {
             return result;
 
         } catch (Exception e) {
-            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
+            tokenManager.invalidateOnAuthFailure(e, token);   // 401 → 공유 토큰 CAS 무효화(P3-8), 재시도 없음
             log.error("[KIS선물] {} 조회 실패: {}", contractCode, e.getMessage());
             return null;
         }

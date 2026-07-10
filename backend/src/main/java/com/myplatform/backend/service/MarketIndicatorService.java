@@ -50,20 +50,21 @@ public class MarketIndicatorService {
     private final KisApiProperties kisApiProperties;
     private final MarketIndicatorSnapshotRepository snapshotRepository;
     private final RedisCacheService redisCacheService;
-
-    private String accessToken;
-    private long tokenExpireTime = 0;
+    // 토큰 발급/캐시/갱신/쿨다운/401 무효화 = 공유 단일 출처 (P3-8 선택B). 자체 토큰 캐시 없음.
+    private final KisTokenManager tokenManager;
 
     public MarketIndicatorService(RestTemplate restTemplate,
                                  ObjectMapper objectMapper,
                                  KisApiProperties kisApiProperties,
                                  MarketIndicatorSnapshotRepository snapshotRepository,
-                                 RedisCacheService redisCacheService) {
+                                 RedisCacheService redisCacheService,
+                                 KisTokenManager tokenManager) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.kisApiProperties = kisApiProperties;
         this.snapshotRepository = snapshotRepository;
         this.redisCacheService = redisCacheService;
+        this.tokenManager = tokenManager;
     }
 
     /**
@@ -112,18 +113,18 @@ public class MarketIndicatorService {
         if (kisApiProperties.getAppKey() == null || kisApiProperties.getAppKey().isBlank()) {
             return;
         }
-        refreshAccessToken();
-        if (accessToken == null) {
+        String token = tokenManager.getAccessToken();
+        if (token == null) {
             log.warn("[PriceMovers] 액세스 토큰 발급 실패 - KIS 갱신 스킵");
             return;
         }
         try {
-            List<MarketIndicatorStockDto> rise = fetchPriceMoversFromApi(true, TYPE_PRICE_RISE, "등락률 상위");
+            List<MarketIndicatorStockDto> rise = fetchPriceMoversFromApi(token, true, TYPE_PRICE_RISE, "등락률 상위");
             if (rise != null && !rise.isEmpty()) {
                 redisCacheService.put(CACHE_PRICE_MOVERS, KEY_RISE, rise, TTL_PRICE_MOVERS);
             }
             Thread.sleep(300);
-            List<MarketIndicatorStockDto> fall = fetchPriceMoversFromApi(false, TYPE_PRICE_FALL, "등락률 하위");
+            List<MarketIndicatorStockDto> fall = fetchPriceMoversFromApi(token, false, TYPE_PRICE_FALL, "등락률 하위");
             if (fall != null && !fall.isEmpty()) {
                 redisCacheService.put(CACHE_PRICE_MOVERS, KEY_FALL, fall, TTL_PRICE_MOVERS);
             }
@@ -138,12 +139,12 @@ public class MarketIndicatorService {
      * KIS 등락률 순위 API 호출.
      * tr_id: <b>FHPST01700000</b> (상위/하위 공통, {@code FID_RANK_SORT_CLS_CODE} 로 정렬방향 구분).
      */
-    private List<MarketIndicatorStockDto> fetchPriceMoversFromApi(boolean isRise, String indicatorType, String description) {
+    private List<MarketIndicatorStockDto> fetchPriceMoversFromApi(String token, boolean isRise, String indicatorType, String description) {
         try {
             String url = kisApiProperties.getBaseUrl() + "/uapi/domestic-stock/v1/ranking/fluctuation";
 
             HttpHeaders headers = new HttpHeaders();
-            headers.set("authorization", "Bearer " + accessToken);
+            headers.set("authorization", "Bearer " + token);
             headers.set("appkey", kisApiProperties.getAppKey());
             headers.set("appsecret", kisApiProperties.getAppSecret());
             headers.set("tr_id", "FHPST01700000");
@@ -179,7 +180,7 @@ public class MarketIndicatorService {
             }
             return parsed;
         } catch (Exception e) {
-            invalidateTokenOnAuthFailure(e);   // 401 → 토큰 캐시 1회 무효화(P3-8), 재시도 없음
+            tokenManager.invalidateOnAuthFailure(e, token);   // 401 → 공유 토큰 CAS 무효화(P3-8), 재시도 없음
             log.error("{} API 조회 실패", description, e);
             return new ArrayList<>();
         }
@@ -210,60 +211,6 @@ public class MarketIndicatorService {
             log.error("{} 조회 실패", description, e);
             return new ArrayList<>();
         }
-    }
-
-    /**
-     * 액세스 토큰 갱신
-     */
-    private void refreshAccessToken() {
-        if (System.currentTimeMillis() < tokenExpireTime && accessToken != null) {
-            return;
-        }
-
-        try {
-            String url = kisApiProperties.getBaseUrl() + "/oauth2/tokenP";
-
-            Map<String, String> body = new HashMap<>();
-            body.put("grant_type", "client_credentials");
-            body.put("appkey", kisApiProperties.getAppKey());
-            body.put("appsecret", kisApiProperties.getAppSecret());
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-
-            HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, entity, String.class);
-
-            JsonNode root = objectMapper.readTree(response.getBody());
-            this.accessToken = root.get("access_token").asText();
-            int expiresIn = root.get("expires_in").asInt();
-            this.tokenExpireTime = System.currentTimeMillis() + ((expiresIn - 3600) * 1000L);
-
-            log.info("KIS API 액세스 토큰 발급 완료");
-        } catch (Exception e) {
-            log.error("KIS API 토큰 발급 실패", e);
-        }
-    }
-
-    /**
-     * KIS API 호출이 401(인증 실패)이면 이 서비스의 토큰 캐시를 <b>1회</b> 무효화한다
-     * (P3-8 — {@link KoreaInvestmentService}의 401 방어 패턴 이식, 판정은 동일 기준
-     * {@code isAuthFailure} 재사용). → 다음 {@link #refreshAccessToken()}이 재발급한다.
-     *
-     * <p>루프 방지: 이미 무효화(accessToken==null)면 no-op. 실패한 호출 자체는 <b>재시도하지
-     * 않는다</b>(호출부는 기존대로 빈 결과 반환, 워머는 다음 주기 재시도) — 2연속 401 이면 그대로
-     * 실패 전파, 발급 rate(KIS 분당 1회)를 태우지 않는다.
-     *
-     * <p>참고(P3-8 전제 확인): KIS 3서비스(KoreaInvestment/KisApi/MarketIndicator)는 같은 앱키로
-     * <b>각자</b> 토큰을 발급·캐시한다(공유 캐시 아님) — 무효화도 자기 캐시만 건드린다.
-     */
-    private synchronized void invalidateTokenOnAuthFailure(Exception e) {
-        if (!KoreaInvestmentService.isAuthFailure(e) || accessToken == null) {
-            return;
-        }
-        accessToken = null;
-        tokenExpireTime = 0;
-        log.warn("KIS API 401 인증 실패 — MarketIndicatorService 토큰 캐시 무효화(다음 호출 재발급). 호출 재시도 없음.");
     }
 
     /**

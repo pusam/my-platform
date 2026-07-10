@@ -39,18 +39,24 @@ class KoreaInvestmentBalanceTest {
 
     @BeforeEach
     void setUp() {
-        service = new KoreaInvestmentService(restTemplate, new ObjectMapper(), rateLimiter);
+        // P3-8: 토큰 캐시는 공유 KisTokenManager 로 이관 — 유효 캐시 토큰을 매니저에 심어 발급 HTTP 우회.
+        KisTokenManager tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        ReflectionTestUtils.setField(tokenManager, "appKey", "k");
+        ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
+        ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");
+        ReflectionTestUtils.setField(tokenManager, "accessToken", "cached-token");
+        ReflectionTestUtils.setField(tokenManager, "tokenExpireTime", LocalDateTime.now().plusHours(12));
+
+        service = new KoreaInvestmentService(restTemplate, new ObjectMapper(), rateLimiter, tokenManager);
         // rateLimiter 는 supplier 를 그대로 실행 (직렬화 로직 무관)
         when(rateLimiter.execute(any(), any(), anyInt()))
                 .thenAnswer(inv -> ((Supplier<?>) inv.getArgument(1)).get());
-        // 토큰/계좌 설정 세팅 — 토큰 발급 HTTP 우회(캐시 유효), isRealTradingConfigured=true
+        // 계좌 설정 — isRealTradingConfigured=true (appKey/appSecret 은 헤더용으로 서비스에도 유지)
         ReflectionTestUtils.setField(service, "appKey", "k");
         ReflectionTestUtils.setField(service, "appSecret", "s");
         ReflectionTestUtils.setField(service, "accountPrefix", "12345678");
         ReflectionTestUtils.setField(service, "accountSuffix", "01");
         ReflectionTestUtils.setField(service, "baseUrl", "https://mock.kis");
-        ReflectionTestUtils.setField(service, "accessToken", "cached-token");
-        ReflectionTestUtils.setField(service, "tokenExpireTime", LocalDateTime.now().plusHours(12));
     }
 
     private void stubKisResponse(String body) {

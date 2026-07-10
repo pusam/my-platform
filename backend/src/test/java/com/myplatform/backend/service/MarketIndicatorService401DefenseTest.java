@@ -20,6 +20,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,9 +32,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * MarketIndicatorService 401(인증 실패) 방어 — P3-8 이식({@code KoreaInvestment401DefenseTest} 패턴 미러).
- * 장중 워머(refreshPriceMoversFromKis) 경유 401 → 자기 토큰 캐시 1회 무효화, 실패한 호출 재시도 없음
- * (다음 워머 주기가 재발급 후 재시도). 판정은 KoreaInvestmentService.isAuthFailure 재사용(단일 출처).
+ * MarketIndicatorService 401(인증 실패) 방어 — 서비스가 <b>공유 {@link KisTokenManager}</b>에 위임(P3-8 선택B).
+ * 장중 워머(refreshPriceMoversFromKis) 경유 401 → 공유 토큰 캐시 1회 무효화, 실패한 호출 재시도 없음
+ * (다음 워머 주기가 재발급 후 재시도). 판정은 KisTokenManager.isAuthFailure(단일 출처).
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -43,6 +44,7 @@ class MarketIndicatorService401DefenseTest {
     @Mock private MarketIndicatorSnapshotRepository snapshotRepository;
     @Mock private RedisCacheService redisCacheService;
 
+    private KisTokenManager tokenManager;
     private MarketIndicatorService service;
 
     @BeforeEach
@@ -51,15 +53,21 @@ class MarketIndicatorService401DefenseTest {
         props.setAppKey("k");
         props.setAppSecret("s");
         props.setBaseUrl("https://mock.kis");
+
+        // 공유 매니저에 유효 캐시 토큰 — 발급 HTTP 없이 캐시 반환. 재발급은 매니저의 postForEntity 경유.
+        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        ReflectionTestUtils.setField(tokenManager, "appKey", "k");
+        ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
+        ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");
+        ReflectionTestUtils.setField(tokenManager, "accessToken", "cached-token");
+        ReflectionTestUtils.setField(tokenManager, "tokenExpireTime", LocalDateTime.now().plusHours(12));
+
         service = new MarketIndicatorService(restTemplate, new ObjectMapper(), props,
-                snapshotRepository, redisCacheService);
-        // 유효 캐시 토큰 — refreshAccessToken 이 HTTP 재발급 없이 캐시 유지
-        ReflectionTestUtils.setField(service, "accessToken", "cached-token");
-        ReflectionTestUtils.setField(service, "tokenExpireTime", System.currentTimeMillis() + 3_600_000L);
+                snapshotRepository, redisCacheService, tokenManager);
     }
 
     private Object token() {
-        return ReflectionTestUtils.getField(service, "accessToken");
+        return ReflectionTestUtils.getField(tokenManager, "accessToken");
     }
 
     private void stubRankingGet(HttpStatus errorStatus) {
@@ -68,13 +76,13 @@ class MarketIndicatorService401DefenseTest {
     }
 
     @Test
-    @DisplayName("워머 401 → 토큰 캐시 무효화 + Redis 미갱신(빈 결과는 put 안 함), 워머 예외 미전파")
+    @DisplayName("워머 401 → 공유 토큰 캐시 무효화 + Redis 미갱신(빈 결과는 put 안 함), 워머 예외 미전파")
     void warmer_401_invalidatesToken() {
         stubRankingGet(HttpStatus.UNAUTHORIZED);
 
         service.refreshPriceMoversFromKis();
 
-        assertThat(token()).isNull();   // 401 → 무효화 → 다음 주기 refreshAccessToken 재발급
+        assertThat(token()).isNull();   // 401 → 무효화 → 다음 주기 getAccessToken 재발급
         verify(redisCacheService, never()).put(anyString(), anyString(), any(), any(Duration.class));
         // 상승/하락 각 1회씩(설계된 2 fetch) — 401 이 fetch 재시도 루프를 만들지 않는다
         verify(restTemplate, times(2))
@@ -82,7 +90,7 @@ class MarketIndicatorService401DefenseTest {
     }
 
     @Test
-    @DisplayName("워머 403(권한/IP) → 토큰 캐시 유지 (401 아님)")
+    @DisplayName("워머 403(권한/IP) → 공유 토큰 캐시 유지 (401 아님)")
     void warmer_403_keepsToken() {
         stubRankingGet(HttpStatus.FORBIDDEN);
 
@@ -95,19 +103,19 @@ class MarketIndicatorService401DefenseTest {
     @DisplayName("401 후 다음 워머 주기는 재발급 1회, 2연속 401 은 실패 전파(무한루프 금지)")
     void consecutive401_reissuesOnceNoLoop() {
         stubRankingGet(HttpStatus.UNAUTHORIZED);
-        when(restTemplate.exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class)))
+        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
                 .thenReturn(ResponseEntity.ok("{\"access_token\":\"new-token\",\"expires_in\":86400}"));
 
         // 1주기: 캐시 토큰 → 401 → 무효화(재발급 없음)
         service.refreshPriceMoversFromKis();
         assertThat(token()).isNull();
         verify(restTemplate, times(0))
-                .exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class));
+                .postForEntity(anyString(), any(), eq(String.class));
 
         // 2주기: 재발급 1회 → 다시 401 → 재무효화(그대로 실패, 루프 없음)
         service.refreshPriceMoversFromKis();
         verify(restTemplate, times(1))
-                .exchange(anyString(), eq(HttpMethod.POST), any(HttpEntity.class), eq(String.class));
+                .postForEntity(anyString(), any(), eq(String.class));
         assertThat(token()).isNull();
         verify(redisCacheService, never()).put(anyString(), anyString(), any(), any(Duration.class));
     }

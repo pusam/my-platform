@@ -38,7 +38,9 @@ class KoreaInvestmentNxtRoutingTest {
 
     @BeforeEach
     void setUp() {
-        service = new KoreaInvestmentService(restTemplate, new ObjectMapper(), rateLimiter);
+        // P3-8: 토큰은 공유 KisTokenManager 로 이관 — applyNxtRouting 은 토큰 미사용이라 기본 매니저로 충분.
+        service = new KoreaInvestmentService(restTemplate, new ObjectMapper(), rateLimiter,
+                new KisTokenManager(restTemplate, new ObjectMapper()));
     }
 
     private Map<String, String> baseBody() {

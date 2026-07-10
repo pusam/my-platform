@@ -494,8 +494,10 @@
 
 ---
 
-## P3-8. KIS 토큰 3캐시 공유화 + 401 방어 잔여 2서비스 (구조 개선, 2026-07-08 신규 — 토큰 P1 2건 후속)
-> **✅ 선택 A 완료(2026-07-10)**: `KisApiService`(조회 4메서드)·`MarketIndicatorService`(워머 fetch) 에 401→자기 토큰 캐시 1회 무효화 이식 — 판정은 `KoreaInvestmentService.isAuthFailure`(package-private static) **재사용**(중복 구현 없음), 실패 호출 재시도 없음(2연속 401=실패 전파, 발급 rate 보호). 테스트 `KisApiService401DefenseTest`/`MarketIndicatorService401DefenseTest`(401 무효화·403 유지·재발급 1회·무한루프 금지). **잔여 = 선택 B(3캐시 공유 `KisTokenProvider` 구조 통합)만** — 전제 재확인: 3서비스는 같은 앱키로 각자 발급/캐시(공유 없음) 유지 중.
+## P3-8. KIS 토큰 3캐시 공유화 + 401 방어 잔여 2서비스 (구조 개선, 2026-07-08 신규 — 토큰 P1 2건 후속) — ✅ **완료(A+B)**
+> **✅ 선택 B 완료(2026-07-10)**: `KisTokenManager`(@Component) 추출 — 발급/캐시/갱신(expires_in·1h전·24h폴백)/65초 쿨다운/401 무효화를 **단일 진입점 + `synchronized` 전역 직렬화**로 통합. 3서비스(`KoreaInvestment`/`KisApi`/`MarketIndicator`)가 같은 빈을 주입받아 토큰 1개 공유(3중 발급 경합 제거). **401 무효화 = 값 기반 CAS**(`invalidateOnAuthFailure(e, usedToken)`): 실패한 호출이 쓴 토큰이 현재 캐시와 동일할 때만 무효화 → 한 서비스의 stale 401 이 방금 재발급된 새 토큰을 죽이는 레이스 방지(토큰 문자열 = 세대 식별자). 1회성(null=no-op)·§4d 주문 재시도 없음 유지. `isAuthFailure`/`parseExpiresInSeconds` 는 매니저 단일 출처(`KoreaInvestmentService` 는 기존 테스트 호환용 정적 위임 유지). **공개 시그니처·외부 호출부 무변경**(내부 위임만 교체). 테스트: `KisTokenManagerTest`(동시발급 8스레드 POST 1회·CAS stale no-op·1회성·쿨다운 준수·만료 재발급·비-401 무접촉) + 3서비스 401 테스트 매니저 배선 갱신 green + 스모크 통과.
+>
+> **✅ 선택 A 완료(2026-07-10, 선행)**: `KisApiService`·`MarketIndicatorService` 401→토큰 캐시 무효화 이식(자기 캐시). 선택 B 로 흡수됨(이제 공유 매니저 위임).
 >
 > **배경**: KIS OAuth 토큰이 `KoreaInvestmentService`(시세·실매매)·`KisApiService`(투자자동향)·`MarketIndicatorService`(등락무버) **3개 인메모리 캐시로 독립 발급**(공유 없음, Redis/DB 미영속). 2026-07-08 세션에서 `KoreaInvestmentService` 만 ① expires_in 준수(`af0fdf4`) ② 401 시 토큰 1회 무효화(`2a57525`) 적용. 나머지 둘은 expires_in 은 이미 쓰나 401 방어 미적용, 3캐시 통합은 미착수.
 - **문제**:
