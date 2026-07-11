@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 from app.config import ChartPatternConfig
@@ -17,7 +17,7 @@ from app.indicators import sector_strength as ss
 from app.services.cache_service import redis_client
 from app.services.chart_pattern_service import fetch_ohlcv
 from app.utils.index_source import fetch_kospi_daily
-from app.utils.korean_market import get_latest_trading_date, get_cache_ttl
+from app.utils.korean_market import get_latest_trading_date, get_cache_ttl, now_kst
 
 logger = logging.getLogger(__name__)
 
@@ -33,12 +33,21 @@ def _lookback_window_days(lookback_trading: int) -> int:
 
 
 def _ticker_return(ticker: str, start: str, end: str, lookback: int) -> Optional[float]:
-    """종목의 lookback 거래일 수익률(%). 결측이면 None(§4c)."""
-    df = fetch_ohlcv(ticker, start, end)
-    if df is None or len(df) < lookback + 1:
+    """종목의 lookback 거래일 수익률(%). 결측이면 None(§4c).
+
+    예외도 None — fetch 실패는 fetch_ohlcv 가 삼키지만, pykrx 가 예상 밖 포맷(컬럼명 변경 등)으로
+    응답하면 파싱(KeyError/ValueError)이 여기서 터진다. ex.map 소비 시점에 재발생해 종목 1개가
+    전체 섹터 랭킹을 500 으로 죽이던 것을 해당 종목만 결측 처리로 격리(2026-07-11 감사).
+    """
+    try:
+        df = fetch_ohlcv(ticker, start, end)
+        if df is None or len(df) < lookback + 1:
+            return None
+        closes = df["종가"].astype(float).tolist()
+        return ss.pct_return(closes[-1 - lookback], closes[-1])
+    except Exception as e:
+        logger.warning(f"[SectorStrength] 수익률 계산 실패 {ticker}: {e}")
         return None
-    closes = df["종가"].astype(float).tolist()
-    return ss.pct_return(closes[-1 - lookback], closes[-1])
 
 
 def _market_return(lookback: int) -> Optional[float]:
@@ -106,7 +115,8 @@ async def rank_sector_strength(sectors: dict[str, list[str]],
     if cached:
         return cached
 
-    end = datetime.now()
+    # KST 기준 — 캐시 키/asOf(get_latest_trading_date=KST)와 시간 기준 일치(컨테이너 TZ 미설정=UTC 대비).
+    end = now_kst()
     start = end - timedelta(days=_lookback_window_days(lookback))
     data = await asyncio.to_thread(
         _compute, sectors, lookback, start.strftime("%Y%m%d"), end.strftime("%Y%m%d"))

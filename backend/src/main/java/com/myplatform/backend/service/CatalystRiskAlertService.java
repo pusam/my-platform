@@ -88,6 +88,13 @@ public class CatalystRiskAlertService {
             return true;
         }
 
+        // 승자만 도달 — 7일 지난 dedup 행 기회적 청소(별도 트랜잭션 best-effort, 실패해도 발송 진행).
+        try {
+            dedupService.cleanupOldIsolated(date);
+        } catch (Exception e) {
+            log.debug("[악재경보] dedup 청소 실패(무시): {}", e.getMessage());
+        }
+
         boolean sentAny = false;
         try {
             String message = buildTargetAlertMessage(saved, newsLink, held);

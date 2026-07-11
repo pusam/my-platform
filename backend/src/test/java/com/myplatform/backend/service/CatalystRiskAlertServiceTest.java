@@ -145,9 +145,24 @@ class CatalystRiskAlertServiceTest {
         assertThat(handled).isTrue();
         verify(dedupService).claimIsolated(eq("CATNEG_005930_2026-07-07"), eq("005930"),
                 eq(LocalDate.of(2026, 7, 7)));
+        verify(dedupService).cleanupOldIsolated(LocalDate.of(2026, 7, 7));   // 승자만 청소(별도 tx)
         verify(telegram).sendSignal(contains("관심 종목 악재 경보"));
         verify(telegram, never()).sendRisk(anyString());
         verify(alertHistoryRepository).save(any(AlertHistory.class));
+        verify(dedupService, never()).releaseIsolated(anyString());
+    }
+
+    @Test
+    @DisplayName("dedup 청소 실패(별도 tx best-effort) → 선점·발송 무영향 (경보 정상 발송)")
+    void cleanupFailure_doesNotSuppressAlert() {
+        stubWatchedOnly("005930");
+        when(telegramProvider.getIfAvailable()).thenReturn(telegram);
+        doThrow(new RuntimeException("deadlock")).when(dedupService).cleanupOldIsolated(any());
+
+        boolean handled = service.onCatalystSaved(negative("005930"), null);
+
+        assertThat(handled).isTrue();
+        verify(telegram).sendSignal(contains("관심 종목 악재 경보"));   // 청소 실패해도 발송 진행
         verify(dedupService, never()).releaseIsolated(anyString());
     }
 

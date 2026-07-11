@@ -2202,6 +2202,16 @@ public class RecommendationService {
         return validCount(s.earnings, s.supplyDemand, s.technical, s.sectorMomentum);
     }
 
+    /**
+     * DB 복원(loadFromDb) 경로 validCount — compute 경로({@link #countValidCategories})와 동일하게
+     * 4 core 카테고리(실적·수급·기술·섹터)만 센다. valueStability/growth 는 별도 트랙(가치·성장)
+     * 점수라 분모(80=4×20)에 없다 — 여기서 세면 재시작 복원 시 같은 스냅샷의 validCount 표시가
+     * 갈라진다(compute 4개 vs 복원 5개). 테스트 대상.
+     */
+    static int restoredValidCount(RecommendationSnapshot s) {
+        return validCount(s.getEarnings(), s.getSupplyDemand(), s.getTechnical(), s.getSectorMomentum());
+    }
+
     /** 유효 카테고리 수(>0인 4개 중 몇 개). P1-5 테스트 대상 — validCount≥3 채택 컷의 분모. */
     static int validCount(int earnings, int supplyDemand, int technical, int sectorMomentum) {
         int c = 0;
@@ -2318,14 +2328,10 @@ public class RecommendationService {
             List<RecommendationSnapshot> snapshots = snapshotRepository.findLatestSnapshot();
             if (snapshots.isEmpty()) return Collections.emptyList();
             List<RecommendationDto> result = snapshots.stream().map(s -> {
-                // AI전략은 valid 카운트에서 제외 (산식에서 빠짐)
-                int vc = 0;
-                if (s.getEarnings() > 0) vc++;
-                if (s.getSupplyDemand() > 0) vc++;
-                if (s.getTechnical() > 0) vc++;
-                if (s.getSectorMomentum() > 0) vc++;
-                // P3-3: 엔티티 NULL=NA — 구 -1 sentinel 과 동일하게 vc 미포함(validCount 불변).
-                if (s.getValueStability() != null && s.getValueStability() > 0) vc++;
+                // validCount = compute 경로(countValidCategories)와 동일하게 4 core 카테고리만.
+                // 기존엔 여기서 valueStability(>0)를 추가로 세어, 같은 스냅샷이 장중엔 "유효 4개"
+                // → 재시작 복원 후 "유효 5개"로 갈라지는 표시 불일치가 있었다(2026-07-11 감사).
+                int vc = restoredValidCount(s);
                 return RecommendationDto.builder()
                     .stockCode(s.getStockCode()).stockName(s.getStockName())
                     .totalScore(s.getTotalScore())

@@ -28,12 +28,22 @@ public class CatalystAlertDedupService {
      * 선점 시도 — INSERT 성공하면 이 호출이 승자(당일 최초). 이미 선점됐으면(같은 alert_key)
      * {@link org.springframework.dao.DataIntegrityViolationException} 이 전파된다(호출부 benign 처리).
      *
-     * <p>선점 성공 시 7일 지난 행을 함께 청소 — 키에 일자가 포함돼 지난 행은 dedup 에 불필요
-     * (전용 정리 크론 없이 테이블 크기 유지).
+     * <p>7일 청소는 {@link #cleanupOldIsolated} 로 분리 — 이전엔 이 트랜잭션 안에서 같이 돌아
+     * 청소 DELETE 실패/락 경합이 선점 INSERT 까지 롤백시키고, 호출부가 그 예외를 DB 블립으로
+     * 오인해 경보를 억제하는 결합이 있었다(2026-07-11 감사). 선점은 선점만 한다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void claimIsolated(String alertKey, String stockCode, LocalDate alertDate) {
         repository.saveAndFlush(new CatalystAlertDedup(alertKey, stockCode, alertDate));
+    }
+
+    /**
+     * 7일 지난 행 기회적 청소 — 키에 일자가 포함돼 지난 행은 dedup 에 불필요(전용 정리 크론 없이
+     * 테이블 크기 유지). 선점과 <b>별도 트랜잭션</b>(REQUIRES_NEW) — 호출부(승자)가 선점 성공 후
+     * best-effort 로 호출하며, 실패해도 발송 흐름과 무관하다.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void cleanupOldIsolated(LocalDate alertDate) {
         repository.deleteByAlertDateBefore(alertDate.minusDays(7));
     }
 

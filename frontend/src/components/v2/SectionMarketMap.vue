@@ -224,7 +224,8 @@ export default {
       showForecastDetail: false,
       rotationData: [],
       rotationLoading: false,
-      rotationError: false
+      rotationError: false,
+      _forecastRetryTimer: null
     }
   },
   computed: {
@@ -335,6 +336,10 @@ export default {
       }
     }
   },
+  beforeUnmount() {
+    // forecast 자동 재시도 타이머 정리 — 언마운트 후 60s 타임아웃 AI 호출이 유령 실행되는 것 방지
+    if (this._forecastRetryTimer) clearTimeout(this._forecastRetryTimer)
+  },
   methods: {
     async loadForecast() {
       this.forecastLoading = true
@@ -345,10 +350,10 @@ export default {
           this.forecastData = res.data
         } else {
           this.forecastError = true
-          // 자동 재시도 1회 (5초 후)
+          // 자동 재시도 1회 (5초 후) — 타이머는 언마운트 시 정리(유령 AI 호출 방지)
           if (this.forecastRetryCount < 1) {
             this.forecastRetryCount++
-            setTimeout(() => this.loadForecast(), 5000)
+            this._forecastRetryTimer = setTimeout(() => this.loadForecast(), 5000)
           }
         }
       } catch (e) {
@@ -356,7 +361,7 @@ export default {
         this.forecastError = true
         if (this.forecastRetryCount < 1) {
           this.forecastRetryCount++
-          setTimeout(() => this.loadForecast(), 5000)
+          this._forecastRetryTimer = setTimeout(() => this.loadForecast(), 5000)
         }
       } finally {
         this.forecastLoading = false

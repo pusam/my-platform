@@ -510,7 +510,9 @@
 
 ---
 
-## P2-CAT4. 악재경보 dedup 원자화 (AUDIT_2026-07-08 #1 이월 — DEFER, 2026-07-09)
+## P2-CAT4. 악재경보 dedup 원자화 (AUDIT_2026-07-08 #1 이월) — ✅ 완료 (2026-07-10, `3631da63`)
+> **✅ 해소(2026-07-10, `3631da63`)**: 아래 "올바른 방향" 중 **② 전용 dedup 테이블** 채택 — `catalyst_alert_dedup`(V47, `UNIQUE(alert_key)`) + `CatalystAlertDedupService.claimIsolated`(REQUIRES_NEW 조건부 INSERT 선점, V36 패턴). 발송 전에 선점하고 **승자만 발송**, 경합 패자(DataIntegrityViolationException)=중복 억제, 발송 전부 실패 시에만 선점 반납. `alert_history` 는 관측용(비권위)으로 유지 — 범용 쿨다운 테이블에 UNIQUE 를 걸지 않아 아래 ⚠ 뉘앙스(다른 쿨다운 알림 영구 1회화) 그대로 회피. 테스트 `CatalystAlertDedupServiceTest`/`CatalystRiskAlertServiceTest`(동시 경쟁 정확히 1회 발송).
+> **후속(2026-07-11 감사)**: 7일 청소 DELETE 를 선점 트랜잭션에서 분리(`cleanupOldIsolated`, 승자만 별도 tx best-effort) — 청소 실패/락 경합이 선점 INSERT 롤백 → 호출부 DB 블립 오인 → 경보 억제로 번지던 결합 제거.
 > **배경**: `CatalystRiskAlertService.onCatalystSaved` dedup 이 check-then-act(findLatestByAlertKey → send → save)이고 `alert_history.alert_key` 에 **UNIQUE 제약 부재** → 동일 종목·일자 재료 동시 최초분류 시 텔레그램 **중복 발송** 가능(금전 무관·저확률). AUDIT_2026-07-08 #1(P2).
 - **⚠ 순진한 UNIQUE 는 틀림**: `alert_history` 는 **범용 쿨다운 테이블**(같은 alert_key 를 쿨다운 만료 후 재삽입하는 알림 다수). `alert_key` 전역 UNIQUE 를 걸면 CATNEG 는 막히나 **다른 쿨다운 알림이 영구 1회로 깨진다**. → 2026-07-09 세션에서 이 뉘앙스 때문에 **의도적으로 DEFER**(vol-regime 세션에 번들 금지).
 - **올바른 방향(별도 세션)**: ① CATNEG 경로만 **조건부 insert**(§4d④ 일일손실 브레이커 패턴 — `INSERT ... rowsAffected==1 게이트`로 원자적 최초삽입 판정, 실패=이미 발송=send 스킵) — 범용 테이블 스키마 무변경 · 또는 ② CATNEG 전용 dedup 테이블 분리 + UNIQUE. **①이 최소침습**(마이그레이션 불요).

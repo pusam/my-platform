@@ -346,6 +346,8 @@ export default {
   },
   beforeUnmount() {
     if (this._progressTimer) clearInterval(this._progressTimer)
+    // 종목명 해석 디바운스도 정리 — 언마운트 후 resolveNames() 유령 호출 방지
+    if (this._resolveDebounce) clearTimeout(this._resolveDebounce)
   },
   methods: {
     // ===== 종목명 해석 =====

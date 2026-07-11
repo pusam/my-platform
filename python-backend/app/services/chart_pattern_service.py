@@ -7,7 +7,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional
 
 import pandas as pd
@@ -23,7 +23,7 @@ from app.indicators import (
     timing_score as score_mod,
 )
 from app.services.cache_service import redis_client
-from app.utils.korean_market import get_latest_trading_date, get_cache_ttl
+from app.utils.korean_market import get_latest_trading_date, get_cache_ttl, now_kst
 
 logger = logging.getLogger(__name__)
 
@@ -114,17 +114,24 @@ def _analyze_one(ticker: str, cfg: ChartPatternConfig, start: str, end: str) -> 
     if df is None:
         return {"ticker": ticker, "available": False, "reason": "no_data"}
 
-    closes = df["종가"].astype(float).tolist()
-    highs = df["고가"].astype(float).tolist()
-    lows = df["저가"].astype(float).tolist()
+    # 파싱/연산 예외는 해당 종목만 결측 처리 — analyze_timing 의 asyncio.gather 가
+    # return_exceptions 없이 팬아웃이라, 종목 1개 예외가 전체 /timing 응답을 500 으로
+    # 죽이던 것을 격리(2026-07-11 감사). available=false 는 캐시 안 함(다음 기회 재시도).
+    try:
+        closes = df["종가"].astype(float).tolist()
+        highs = df["고가"].astype(float).tolist()
+        lows = df["저가"].astype(float).tolist()
 
-    longest = max(cfg.ma_periods)
-    if len(closes) < longest:
-        return {"ticker": ticker, "available": False,
-                "reason": f"insufficient_history({len(closes)}/{longest})"}
+        longest = max(cfg.ma_periods)
+        if len(closes) < longest:
+            return {"ticker": ticker, "available": False,
+                    "reason": f"insufficient_history({len(closes)}/{longest})"}
 
-    ma20_series = df["종가"].astype(float).rolling(20).mean().tolist()
-    result = compute_timing(highs, lows, closes, ma20_series, cfg)
+        ma20_series = df["종가"].astype(float).rolling(20).mean().tolist()
+        result = compute_timing(highs, lows, closes, ma20_series, cfg)
+    except Exception as e:
+        logger.warning(f"[ChartPattern] 타이밍 분석 실패 {ticker}: {e}")
+        return {"ticker": ticker, "available": False, "reason": "analysis_error"}
     return {
         "ticker": ticker,
         "available": True,
@@ -155,7 +162,8 @@ async def analyze_timing(tickers: list[str], overrides: Optional[dict] = None) -
         return {"asOf": get_latest_trading_date(), "unverified": True,
                 "params": cfg.model_dump(), "results": []}
 
-    end = datetime.now()
+    # KST 기준 — 캐시 키/asOf(get_latest_trading_date=KST)와 시간 기준 일치(컨테이너 TZ 미설정=UTC 대비).
+    end = now_kst()
     start = end - timedelta(days=LOOKBACK_CALENDAR_DAYS)
     start_s, end_s = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     trade_date = get_latest_trading_date()

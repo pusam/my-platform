@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -30,8 +31,8 @@ class CatalystAlertDedupServiceTest {
     @InjectMocks private CatalystAlertDedupService service;
 
     @Test
-    @DisplayName("claimIsolated — 선점 행 저장(키·종목·일자) + 7일 지난 행 기회적 청소")
-    void claim_savesRowAndCleansOld() {
+    @DisplayName("claimIsolated — 선점 행 저장(키·종목·일자)만, 청소 미포함(선점 트랜잭션 순수성)")
+    void claim_savesRowOnly() {
         LocalDate date = LocalDate.of(2026, 7, 10);
 
         service.claimIsolated("CATNEG_005930_2026-07-10", "005930", date);
@@ -41,7 +42,20 @@ class CatalystAlertDedupServiceTest {
         assertThat(captor.getValue().getAlertKey()).isEqualTo("CATNEG_005930_2026-07-10");
         assertThat(captor.getValue().getStockCode()).isEqualTo("005930");
         assertThat(captor.getValue().getAlertDate()).isEqualTo(date);
+        // 청소는 별도 트랜잭션(cleanupOldIsolated) — 같은 트랜잭션에 두면 청소 DELETE 실패가
+        // 선점 INSERT 를 롤백시켜 경보가 억제되는 결합이 있었다(2026-07-11 감사).
+        verify(repository, never()).deleteByAlertDateBefore(any());
+    }
+
+    @Test
+    @DisplayName("cleanupOldIsolated — 7일 지난 행 삭제(선점과 분리된 별도 트랜잭션)")
+    void cleanup_deletesOldRows() {
+        LocalDate date = LocalDate.of(2026, 7, 10);
+
+        service.cleanupOldIsolated(date);
+
         verify(repository).deleteByAlertDateBefore(date.minusDays(7));
+        verify(repository, never()).saveAndFlush(any());
     }
 
     @Test
