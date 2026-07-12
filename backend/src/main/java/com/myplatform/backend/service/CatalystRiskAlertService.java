@@ -101,7 +101,9 @@ public class CatalystRiskAlertService {
             } catch (Exception e) {
                 log.debug("[악재경보] dedup 청소 실패(무시): {}", e.getMessage());
             }
-            recordSent(saved, key);
+            // 실제 발송된 채널의 키로 기록 — 리스크만 재발송된 회차를 시그널 키로 위장하지 않는다(§4c).
+            if (signalSent) recordSent(saved, key);
+            if (riskSent) recordSent(saved, riskAlertKey(saved.getStockCode(), date));
         }
         return true;
     }

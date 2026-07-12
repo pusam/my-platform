@@ -54,6 +54,7 @@
 
 <script>
 import { tradingSafetyAPI } from '../../utils/api'
+import { toast } from '../../utils/toast'
 
 export default {
   name: 'TradingSafetyWidget',
@@ -124,7 +125,7 @@ export default {
         await tradingSafetyAPI.enableKillSwitch(reason || '수동 비상 정지')
         await this.loadStatus()
       } catch (e) {
-        alert('비상 정지 실패: ' + (e?.message || ''))
+        toast.error('비상 정지 실패: ' + (e?.message || ''))
       } finally {
         this.acting = false
       }
@@ -136,7 +137,7 @@ export default {
         await tradingSafetyAPI.disableKillSwitch('수동 해제')
         await this.loadStatus()
       } catch (e) {
-        alert('해제 실패: ' + (e?.message || ''))
+        toast.error('해제 실패: ' + (e?.message || ''))
       } finally {
         this.acting = false
       }

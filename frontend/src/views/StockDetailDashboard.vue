@@ -818,10 +818,11 @@ const fundVerdictBadgeClass = computed(() => {
   if (!d) return '';
   // getAdjustedVerdict 와 동일 규칙 — RSI 과열이면 매수 verdict 라도 '관망' 표시라 중립색
   if (isRsiOverbought(d) && (d.verdictLevel === 'STRONG_BUY' || d.verdictLevel === 'BUY')) return 'sb-neutral';
+  // StockDiagnosisDto.VerdictLevel 전체: STRONG_BUY/BUY/NEUTRAL/CAUTION/AVOID
   const map = {
     'STRONG_BUY': 'sb-strong-buy', 'BUY': 'sb-buy',
-    'HOLD': 'sb-neutral', 'NEUTRAL': 'sb-neutral',
-    'SELL': 'sb-sell', 'STRONG_SELL': 'sb-strong-sell'
+    'NEUTRAL': 'sb-neutral',
+    'CAUTION': 'sb-caution', 'AVOID': 'sb-sell'
   };
   return map[d.verdictLevel] || '';
 });
@@ -1400,8 +1401,8 @@ onUnmounted(() => {
 .score-badge.sb-strong-buy { color: #fff; background: var(--signal-strong-buy, #ef4444); }
 .score-badge.sb-buy { color: var(--signal-buy, #f87171); background: rgba(239, 68, 68, 0.15); }
 .score-badge.sb-neutral { color: var(--signal-neutral, #a3a3a3); background: rgba(255, 255, 255, 0.1); }
+.score-badge.sb-caution { color: var(--warning, #fbbf24); background: rgba(251, 191, 36, 0.14); }
 .score-badge.sb-sell { color: var(--signal-sell, #60a5fa); background: rgba(59, 130, 246, 0.15); }
-.score-badge.sb-strong-sell { color: #fff; background: var(--signal-strong-sell, #3b82f6); }
 
 /* Control Section */
 .control-section {

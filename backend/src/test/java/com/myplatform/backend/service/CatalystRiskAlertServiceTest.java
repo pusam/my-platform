@@ -278,6 +278,9 @@ class CatalystRiskAlertServiceTest {
         verify(telegram, never()).sendSignal(anyString());                    // 시그널 중복 없음
         verify(telegram).sendRisk(contains("보유 종목 악재 경보"));            // 리스크만 재발송
         verify(dedupService, never()).releaseIsolated(anyString());
+        // 이력도 실제 발송된 리스크 채널 키로 기록 — 시그널 키 위장 없음(§4c)
+        verify(alertHistoryRepository).save(org.mockito.ArgumentMatchers.argThat(
+                h -> "CATNEGR_005930_2026-07-07".equals(h.getAlertKey())));
     }
 
     @Test
