@@ -67,6 +67,10 @@
   --surface-solid: #1a1a2e;          /* 모달·드롭다운·툴팁 등 불투명 표면 */
   --surface-radius: 12px;
   --bg-hub-top: #0f0f1a;             /* 허브 페이지 그라데이션 상단 = sticky 헤더 배경 */
+  --surface-panel: #1a1a3a;          /* 레거시 패널/테이블 불투명 배경 */
+  --surface-panel-strong: #2a2a4a;   /* 패널 경계선 · 호버/강조 표면 */
+  --text-on-accent: #1a1a2e;         /* 골드/실버 등 밝은 액센트 배경 위 어두운 텍스트 */
+  --bg-gradient-auth: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%); /* 로그인/가입/복구 배경 */
 
   /* Gold & Silver */
   --gold-primary: #fbbf24;
@@ -210,7 +214,7 @@ img, video, canvas, svg {
   position: sticky;
   top: var(--gnb-height);
   z-index: 100;
-  background: #0f0f1a;
+  background: var(--bg-hub-top, #0f0f1a);
 }
 
 .page-header-unified .header-title {

@@ -172,7 +172,7 @@ const formatPrice = (price) => {
 .ai-strategy-section {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #2a2a4a;
+  border-top: 1px solid var(--surface-panel-strong, #2a2a4a);
 }
 
 .ai-strategy-section h2 { font-size: 1rem; margin-bottom: 12px; }

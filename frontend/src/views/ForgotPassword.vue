@@ -242,7 +242,7 @@ const goBackToStep1 = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
+  background: var(--bg-gradient-auth, linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%));
   padding: 20px;
 }
 

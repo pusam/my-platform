@@ -1912,7 +1912,7 @@ onUnmounted(() => {
   padding: 16px;
   border-radius: 12px;
   background: linear-gradient(135deg, #1a1a3a 0%, #0f0f23 100%);
-  border: 2px solid #2a2a4a;
+  border: 2px solid var(--surface-panel-strong, #2a2a4a);
   transition: all 0.3s ease;
 }
 

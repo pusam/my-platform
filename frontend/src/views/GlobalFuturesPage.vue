@@ -1562,7 +1562,7 @@ onUnmounted(() => {
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid #2a2a4a;
+  border: 3px solid var(--surface-panel-strong, #2a2a4a);
   border-top-color: var(--primary-start);
   border-radius: 50%;
   animation: spin 1s linear infinite;

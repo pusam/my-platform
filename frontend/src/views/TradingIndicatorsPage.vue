@@ -681,7 +681,7 @@ export default {
   flex: 1;
   font-size: 1.25rem;
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--text-on-accent, #1a1a2e);
   margin: 0;
 }
 

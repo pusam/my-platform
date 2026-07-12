@@ -1656,7 +1656,7 @@ onUnmounted(() => {
   border-radius: 20px;
   padding: 2rem;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  border: 1px solid #2a2a4a;
+  border: 1px solid var(--surface-panel-strong, #2a2a4a);
 }
 
 /* 탭 네비게이션 */
@@ -1664,7 +1664,7 @@ onUnmounted(() => {
   display: flex;
   gap: 1rem;
   margin-bottom: 2rem;
-  border-bottom: 2px solid #2a2a4a;
+  border-bottom: 2px solid var(--surface-panel-strong, #2a2a4a);
   padding-bottom: 0;
 }
 
@@ -1736,7 +1736,7 @@ onUnmounted(() => {
 }
 
 .summary-card {
-  background: #1a1a3a;
+  background: var(--surface-panel, #1a1a3a);
   border-radius: 15px;
   padding: 1.5rem;
   border: 1px solid rgba(255,255,255,0.1);
@@ -1829,7 +1829,7 @@ onUnmounted(() => {
 .profit-row {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
-  border-top: 1px solid #2a2a4a;
+  border-top: 1px solid var(--surface-panel-strong, #2a2a4a);
 }
 
 .reset-btn {
@@ -1979,7 +1979,7 @@ onUnmounted(() => {
 .portfolio-table, .trades-table {
   width: 100%;
   border-collapse: collapse;
-  background: #1a1a3a;
+  background: var(--surface-panel, #1a1a3a);
   border-radius: 10px;
   overflow: hidden;
 }
@@ -1988,11 +1988,11 @@ onUnmounted(() => {
 .portfolio-table td, .trades-table td {
   padding: 1rem;
   text-align: left;
-  border-bottom: 1px solid #2a2a4a;
+  border-bottom: 1px solid var(--surface-panel-strong, #2a2a4a);
 }
 
 .portfolio-table th, .trades-table th {
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   color: #aaa;
   font-weight: 600;
   font-size: 0.9rem;
@@ -2095,7 +2095,7 @@ onUnmounted(() => {
 }
 
 .modal {
-  background: #1a1a3a;
+  background: var(--surface-panel, #1a1a3a);
   border-radius: 15px;
   padding: 2rem;
   width: 90%;
@@ -2139,7 +2139,7 @@ onUnmounted(() => {
 .form-group input {
   width: 100%;
   padding: 0.75rem;
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   border: 1px solid #3a3a5a;
   border-radius: 8px;
   color: #fff;
@@ -2185,7 +2185,7 @@ onUnmounted(() => {
 }
 
 .sell-info {
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   padding: 1rem;
   border-radius: 8px;
   margin-bottom: 1rem;
@@ -2279,7 +2279,7 @@ onUnmounted(() => {
 .amount-input-group input {
   flex: 1;
   padding: 0.75rem;
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   border: 1px solid #3a3a5a;
   border-radius: 8px;
   color: #fff;
@@ -2305,7 +2305,7 @@ onUnmounted(() => {
 .amount-presets button {
   flex: 1;
   padding: 0.5rem;
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   border: 1px solid #3a3a5a;
   border-radius: 6px;
   color: #aaa;
@@ -2325,7 +2325,7 @@ onUnmounted(() => {
   text-align: center;
   padding: 3rem;
   color: #666;
-  background: #1a1a3a;
+  background: var(--surface-panel, #1a1a3a);
   border-radius: 10px;
 }
 
@@ -2345,7 +2345,7 @@ onUnmounted(() => {
 }
 .perf-mode-toggle .mode-btn {
   padding: 0.5rem 0.9rem;
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   color: #aaa;
   border: none;
   cursor: pointer;
@@ -2364,7 +2364,7 @@ onUnmounted(() => {
 
 .perf-select {
   padding: 0.5rem 1rem;
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   border: 1px solid #3a3a5a;
   border-radius: 8px;
   color: #fff;
@@ -2396,13 +2396,13 @@ onUnmounted(() => {
 .perf-table {
   width: 100%;
   border-collapse: collapse;
-  background: #1a1a3a;
+  background: var(--surface-panel, #1a1a3a);
   border-radius: 10px;
   overflow: hidden;
 }
 
 .perf-table th {
-  background: #2a2a4a;
+  background: var(--surface-panel-strong, #2a2a4a);
   color: #aaa;
   font-weight: 600;
   font-size: 0.85rem;
@@ -2417,7 +2417,7 @@ onUnmounted(() => {
 .perf-table td {
   padding: 0.65rem 1rem;
   color: #ddd;
-  border-bottom: 1px solid #2a2a4a;
+  border-bottom: 1px solid var(--surface-panel-strong, #2a2a4a);
   font-size: 0.9rem;
 }
 

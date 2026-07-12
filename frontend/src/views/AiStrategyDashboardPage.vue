@@ -764,7 +764,7 @@ onMounted(async () => {
 <style scoped>
 .ai-dashboard {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+  background: var(--bg-gradient, linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%));
   padding: 2rem;
 }
 
@@ -1099,7 +1099,7 @@ onMounted(async () => {
 /* 추천 카드 */
 .recommendation-card {
   background: linear-gradient(135deg, #1a1a3a 0%, #0f0f23 100%);
-  border: 2px solid #2a2a4a;
+  border: 2px solid var(--surface-panel-strong, #2a2a4a);
   border-radius: 20px;
   padding: 24px;
   position: relative;
@@ -1142,14 +1142,14 @@ onMounted(async () => {
 
 .rank-badge.gold {
   background: linear-gradient(135deg, #ffd700 0%, #ffaa00 100%);
-  color: #1a1a2e;
+  color: var(--text-on-accent, #1a1a2e);
   font-size: 1.2rem;
   box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
 }
 
 .rank-badge.silver {
   background: linear-gradient(135deg, #c0c0c0 0%, #a0a0a0 100%);
-  color: #1a1a2e;
+  color: var(--text-on-accent, #1a1a2e);
 }
 
 .rank-badge.bronze {

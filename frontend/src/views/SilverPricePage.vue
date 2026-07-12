@@ -644,7 +644,7 @@ onUnmounted(() => {
 
 .refresh-btn {
   background: linear-gradient(135deg, var(--silver-primary) 0%, var(--silver-secondary) 100%);
-  color: #1a1a2e;
+  color: var(--text-on-accent, #1a1a2e);
   border: none;
   padding: 12px 24px;
   border-radius: 10px;
@@ -687,7 +687,7 @@ onUnmounted(() => {
 .retry-btn {
   margin-top: 16px;
   background: linear-gradient(135deg, var(--silver-primary) 0%, var(--silver-secondary) 100%);
-  color: #1a1a2e;
+  color: var(--text-on-accent, #1a1a2e);
   border: none;
   padding: 12px 24px;
   border-radius: 10px;
