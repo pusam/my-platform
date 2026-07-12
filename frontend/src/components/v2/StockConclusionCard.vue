@@ -202,7 +202,7 @@ const isTightPlan = computed(() => Number(conclusion.value?.tradePlan?.targetPct
 const catalystDirectionLabel = computed(() =>
   ({ POSITIVE: '호재', NEGATIVE: '악재', NEUTRAL: '중립' }[catalyst.value?.direction] || ''));
 
-const formatPrice = (v) => Number(v).toLocaleString();
+const formatPrice = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number(v).toLocaleString('ko-KR'));
 
 // 가격 있으면 "67,900원 (-3%)", 없으면 "% 만" 표시.
 const planPriceLabel = (price, pct) => {

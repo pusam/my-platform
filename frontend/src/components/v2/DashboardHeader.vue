@@ -201,7 +201,7 @@ export default {
   .dashboard-header {
     flex-wrap: wrap;
     gap: 10px;
-    top: 77px;
+    /* top 은 기본 규칙의 var(--gnb-height) 그대로 — common.css 가 모바일에서 40px 로 override (77px 매직넘버 제거) */
   }
   .header-center {
     order: 3;

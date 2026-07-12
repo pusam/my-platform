@@ -41,7 +41,9 @@
       </div>
       <div v-else class="candidate-list">
         <div v-for="(c, i) in buyCandidates" :key="c.stockCode"
-             class="candidate-card" @click="$emit('open-stock', c.stockCode)">
+             class="candidate-card" role="button" tabindex="0"
+             @click="$emit('open-stock', c.stockCode)"
+             @keydown.enter="$emit('open-stock', c.stockCode)">
           <span class="cc-rank">#{{ i + 1 }}</span>
           <div class="cc-main">
             <div class="cc-head">
@@ -95,7 +97,9 @@
         <div v-else-if="!timingAvailable" class="ts-state">⚠ 분석서버 일시 미가용 — 잠시 후 다시 확인해 주세요.</div>
         <div v-else class="candidate-list">
           <div v-for="(c, i) in timingCandidates" :key="c.code"
-               class="candidate-card observe-card" @click="$emit('open-stock', c.code)">
+               class="candidate-card observe-card" role="button" tabindex="0"
+               @click="$emit('open-stock', c.code)"
+               @keydown.enter="$emit('open-stock', c.code)">
             <span class="cc-rank">#{{ i + 1 }}</span>
             <div class="cc-main">
               <div class="cc-head">
@@ -130,7 +134,9 @@
       </div>
       <div class="position-list">
         <div v-for="p in portfolio.slice(0, 3)" :key="p.stockCode"
-             class="position-row" @click="$emit('open-stock', p.stockCode)">
+             class="position-row" role="button" tabindex="0"
+             @click="$emit('open-stock', p.stockCode)"
+             @keydown.enter="$emit('open-stock', p.stockCode)">
           <span class="pr-name">{{ p.stockName }}</span>
           <span class="pr-qty">{{ p.quantity }}주</span>
           <span class="pr-rate" :class="Number(p.profitRate) >= 0 ? 'positive' : 'negative'">
@@ -510,8 +516,9 @@ onMounted(() => {
 }
 .tool-icon { font-size: 16px; }
 
-.positive { color: #4ade80; }
-.negative { color: #f87171; }
+/* 등락색은 한국 관례(상승=빨강/하락=파랑) — 허브(StockTradingDashboardV2)·디자인 토큰(--stock-up/down)과 통일 */
+.positive { color: var(--stock-up, #f87171); }
+.negative { color: var(--stock-down, #60a5fa); }
 
 @media (max-width: 600px) {
   .today-market { gap: 10px; font-size: 12px; }

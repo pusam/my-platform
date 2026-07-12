@@ -149,9 +149,16 @@ public class ExchangeRateService {
             log.warn("수출입은행 응답에 USD 데이터 없음");
             return null;
         } catch (Exception e) {
-            log.warn("수출입은행 환율 조회 실패: {}", e.getMessage());
+            // RestTemplate I/O 예외 메시지는 요청 URL 전체(authkey 쿼리 포함)를 담으므로 키 마스킹 후 로깅
+            log.warn("수출입은행 환율 조회 실패: {}", maskAuthKey(e.getMessage(), koreaeximApiKey));
             return null;
         }
+    }
+
+    // 예외 메시지에 섞인 authkey 를 로그 출력 전에 가린다 (EcosClient 의 URI 미출력과 같은 키 보호 원칙)
+    static String maskAuthKey(String message, String key) {
+        if (message == null || key == null || key.isBlank()) return message;
+        return message.replace(key, "***");
     }
 
     /**

@@ -45,7 +45,7 @@
           <span class="current-price">{{ formatPrice(priceInfo.currentPrice) }}원</span>
           <span class="change-info" :class="priceClass">
             {{ Number(priceInfo.changePrice) > 0 ? '+' : '' }}{{ formatPrice(priceInfo.changePrice) }}
-            ({{ Number(priceInfo.changeRate) > 0 ? '+' : '' }}{{ Number(priceInfo.changeRate)?.toFixed(2) }}%)
+            ({{ Number(priceInfo.changeRate) > 0 ? '+' : '' }}{{ formatChangeRate(priceInfo.changeRate) }}%)
           </span>
         </div>
       </div>
@@ -1130,6 +1130,12 @@ const stopAutoRefresh = () => {
 const formatPrice = (price) => {
   if (!price) return '-';
   return Number(price).toLocaleString('ko-KR');
+};
+
+// changeRate 미수신 시 "NaN%" 노출 방지 (Number(undefined)=NaN)
+const formatChangeRate = (rate) => {
+  const n = Number(rate);
+  return Number.isNaN(n) ? '-' : n.toFixed(2);
 };
 
 const formatMarketCap = (cap) => {

@@ -137,6 +137,7 @@ import {
   registerWebauthn,
   listCredentials,
 } from '../utils/webauthn'
+import { toast } from '../utils/toast'
 
 const router = useRouter()
 
@@ -278,12 +279,12 @@ async function maybePromptEnroll(username) {
   }
   try {
     await registerWebauthn('이 기기')
-    alert('✅ 등록 완료! 다음 로그인부터 지문/Face ID 로 로그인 가능합니다.')
+    toast.success('✅ 등록 완료! 다음 로그인부터 지문/Face ID 로 로그인 가능합니다.')
   } catch (e) {
     if (e?.name === 'NotAllowedError') {
-      alert('생체인증이 취소되었습니다. 나중에 마이페이지에서 등록할 수 있어요.')
+      toast.info('생체인증이 취소되었습니다. 나중에 마이페이지에서 등록할 수 있어요.')
     } else {
-      alert('등록 실패: ' + (e.message || e))
+      toast.error('등록 실패: ' + (e.message || e))
     }
     // 실패해도 로그인은 계속 진행 (try 밖에서 router.push)
   }
