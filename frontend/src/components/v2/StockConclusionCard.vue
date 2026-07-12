@@ -58,7 +58,7 @@
       <div v-if="conclusion.tradePlan.atrStopPct != null" class="tp-atr">
         📏 변동성(ATR) 기준: <b>{{ signedPct(conclusion.tradePlan.atrStopPct) }}</b> /
         <b>{{ signedPct(conclusion.tradePlan.atrTargetPct) }}</b>
-        <span class="tp-atr-badge">백테스트 참고치 · 검증 전 — 기본 계획 아님</span>
+        <span class="badge-unverified tp-atr-badge">백테스트 참고치 · 검증 전 — 기본 계획 아님</span>
       </div>
       <div v-if="conclusion.tradePlan.mfeMaeSampleCount > 0" class="tp-mfe">
         과거 {{ levelLabel }} 시그널 {{ conclusion.tradePlan.mfeMaeSampleCount }}건 실측 — 3거래일 내 평균 최고
@@ -465,10 +465,10 @@ const openChecklist = () => { showChecklist.value = true; };
   padding: 4px 8px;
 }
 .tp-atr b { font-variant-numeric: tabular-nums; }
+/* amber 룩은 공용 .badge-unverified — 기존 렌더 보존 차이값만 로컬 */
 .tp-atr-badge {
   margin-left: 6px;
-  font-size: 10px;
-  color: #fbbf24;
+  font-weight: 400;
   background: rgba(245, 158, 11, 0.16);
   padding: 1px 6px;
   border-radius: 3px;

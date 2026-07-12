@@ -1747,7 +1747,7 @@ public class AutoTradingBotService {
                         "InvestorSurgeService 수집 cron 또는 KIS 응답을 확인하세요.\n" +
                         "자동매수는 신선도 회복까지 보류됩니다."
                 );
-            } catch (Exception ignore) {}
+            } catch (Exception e) { log.debug("[봇] stale 경보 텔레그램 발송 실패(무시): {}", e.toString()); }
         }
     }
 
@@ -2256,7 +2256,7 @@ public class AutoTradingBotService {
                         telegramService.sendRisk(String.format(
                                 "⚠️ <b>[스캘핑봇] 매도 부분/미체결</b>\n\n종목: %s (%s)\n지정가 %s원 주문이 전량 체결되지 않아 포지션을 유지하고 다음 사이클에 재시도합니다.",
                                 portfolio.getStockName(), portfolio.getStockCode(), formatNumber(currentPrice)));
-                    } catch (Exception ignore) {}
+                    } catch (Exception e) { log.debug("[스캘핑봇] 부분/미체결 경보 텔레그램 발송 실패(무시): {}", e.toString()); }
                 }
             } else if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
@@ -3197,7 +3197,7 @@ public class AutoTradingBotService {
                                     telegramService.sendRisk(String.format(
                                             "⚠️ <b>[스윙봇] 매도 부분/미체결</b>\n\n종목: %s (%s)\n전량 체결되지 않아 포지션을 유지하고 재시도합니다.",
                                             position.stockName, position.stockCode));
-                                } catch (Exception ignore) {}
+                                } catch (Exception e) { log.debug("[스윙봇] 부분/미체결 경보 텔레그램 발송 실패(무시): {}", e.toString()); }
                             }
                         } else {
                             swingPositions.remove(position.stockCode);

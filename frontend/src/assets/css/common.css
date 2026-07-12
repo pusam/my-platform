@@ -451,6 +451,20 @@ input::placeholder {
 }
 
 /* ========================================
+   Badges
+   ======================================== */
+/* 미검증/베타 amber 배지 — ts-beta/ov-beta/tp-atr-badge 3벌 중복의 단일 소스.
+   컴포넌트 scoped CSS 는 배치·크기 차이(margin/font-size 등)만 오버라이드. */
+.badge-unverified {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.14);
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+
+/* ========================================
    Tables
    ======================================== */
 .table-container {

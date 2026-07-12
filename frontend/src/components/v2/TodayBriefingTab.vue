@@ -17,15 +17,15 @@
       <span class="ov-label">🌙 간밤 미국장</span>
       <span class="ov-tilt" :class="overnightTiltClass(overnight.tilt)">{{ overnightTiltLabel(overnight.tilt) }}</span>
       <span v-if="overnight.drivers && overnight.drivers.length" class="ov-drivers">{{ overnight.drivers.join(' · ') }}</span>
-      <span class="ov-beta">미검증 참고</span>
+      <span class="badge-unverified ov-beta">미검증 참고</span>
     </div>
 
     <!-- ①-c 매크로 tilt (VKOSPI·국고3년·SOX 추세 · 미검증 참고 · regime 산식 미편입, 독립 표시 · P3-7) -->
-    <div v-if="macroAvailable && macroTilt" class="today-overnight">
+    <div v-if="macroAvailable && macroTilt" class="today-macro">
       <span class="ov-label">🌐 매크로</span>
       <span class="ov-tilt" :class="macroTiltClass(macroTilt.tilt)">{{ macroTiltLabel(macroTilt.tilt) }}</span>
       <span v-if="macroTilt.drivers && macroTilt.drivers.length" class="ov-drivers">{{ macroTilt.drivers.join(' · ') }}</span>
-      <span class="ov-beta">미검증 참고</span>
+      <span class="badge-unverified ov-beta">미검증 참고</span>
     </div>
 
     <!-- ② 오늘의 매수 후보 -->
@@ -76,7 +76,7 @@
     <div class="today-section today-observe" v-if="timingCandidates.length || timingLoading || !timingAvailable">
       <div class="ts-title-row">
         <h2>🪝 차트 타이밍 관찰</h2>
-        <span class="ts-beta ts-poor">예측력 미검증</span>
+        <span class="badge-unverified ts-beta ts-poor">예측력 미검증</span>
         <button class="ts-toggle" @click="timingExpanded = !timingExpanded">
           {{ timingExpanded ? '접기' : '펼치기' }}
         </button>
@@ -356,13 +356,20 @@ onMounted(() => {
   font-size: 12px;
   opacity: 0.92;
 }
+/* ①-c 매크로 — 간밤 미국장과 스타일 동일하나 독립 진화 가능하게 분리 */
+.today-macro {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 16px;
+  font-size: 12px;
+  opacity: 0.92;
+}
 .ov-label { font-weight: 600; opacity: 0.8; }
 .ov-tilt { font-weight: 700; }
 .ov-drivers { opacity: 0.7; }
-.ov-beta {
-  margin-left: auto; font-size: 10px; font-weight: 700; color: #fbbf24;
-  background: rgba(245, 158, 11, 0.14); padding: 1px 7px; border-radius: 4px;
-}
+.ov-beta { margin-left: auto; } /* amber 룩은 공용 .badge-unverified */
 
 /* 공통 섹션 */
 .today-section {
@@ -377,11 +384,8 @@ onMounted(() => {
 .ts-state { padding: 18px 0; text-align: center; font-size: 13px; opacity: 0.6; }
 .ts-state.empty { opacity: 0.75; }
 
-/* 차트 타이밍(검증 전 베타) — 미검증 강조 */
-.ts-beta {
-  margin-left: auto; font-size: 11px; font-weight: 700; color: #fbbf24;
-  background: rgba(245, 158, 11, 0.14); padding: 2px 8px; border-radius: 4px;
-}
+/* 차트 타이밍(검증 전 베타) — amber 룩은 공용 .badge-unverified, 크기만 로컬 */
+.ts-beta { margin-left: auto; font-size: 11px; padding: 2px 8px; }
 .beta-banner {
   margin: 10px 0 4px; padding: 8px 12px; border-radius: 8px;
   background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4);

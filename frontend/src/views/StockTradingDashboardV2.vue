@@ -181,7 +181,8 @@
             <div class="skel-row" v-for="i in 3" :key="'val-sk-'+i"><div class="skel-bar"></div></div>
           </div>
           <div v-else-if="valueTop10.length" class="rec-list">
-            <div v-for="(rec, i) in valueTop10" :key="'val-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+            <div v-for="(rec, i) in valueTop10" :key="'val-' + i" class="rec-card" role="button" tabindex="0"
+                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -227,7 +228,8 @@
             <div class="skel-row" v-for="i in 3" :key="'grw-sk-'+i"><div class="skel-bar"></div></div>
           </div>
           <div v-else-if="growthTop10.length" class="rec-list">
-            <div v-for="(rec, i) in growthTop10" :key="'grw-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+            <div v-for="(rec, i) in growthTop10" :key="'grw-' + i" class="rec-card" role="button" tabindex="0"
+                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -273,7 +275,8 @@
             <div class="skel-row" v-for="i in 3" :key="'ovs-sk-'+i"><div class="skel-bar"></div></div>
           </div>
           <div v-else-if="oversoldTop10.length" class="rec-list">
-            <div v-for="(rec, i) in oversoldTop10" :key="'ovs-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+            <div v-for="(rec, i) in oversoldTop10" :key="'ovs-' + i" class="rec-card" role="button" tabindex="0"
+                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -319,7 +322,8 @@
             <div class="skel-row" v-for="i in 3" :key="'ern-sk-'+i"><div class="skel-bar"></div></div>
           </div>
           <div v-else-if="earningsTop10.length" class="rec-list">
-            <div v-for="(rec, i) in earningsTop10" :key="'ern-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+            <div v-for="(rec, i) in earningsTop10" :key="'ern-' + i" class="rec-card" role="button" tabindex="0"
+                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>
@@ -355,7 +359,8 @@
             <div class="skel-row" v-for="i in 3" :key="'smt-sk-'+i"><div class="skel-bar"></div></div>
           </div>
           <div v-else-if="smartMoneyTop10.length" class="rec-list">
-            <div v-for="(rec, i) in smartMoneyTop10" :key="'smt-' + i" class="rec-card" @click="goToStock(rec.stockCode)">
+            <div v-for="(rec, i) in smartMoneyTop10" :key="'smt-' + i" class="rec-card" role="button" tabindex="0"
+                 @click="goToStock(rec.stockCode)" @keydown.enter="goToStock(rec.stockCode)">
               <span class="rec-rank">#{{ i + 1 }}</span>
               <div class="rec-info">
                 <span class="rec-name">{{ rec.stockName }}</span>

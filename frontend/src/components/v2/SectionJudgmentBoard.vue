@@ -63,23 +63,24 @@
             <th class="th-name">종목</th>
             <th class="th-price">현재가 <small>/등락</small></th>
             <th class="th-price">거래대금</th>
-            <th @click="setSort('totalScore')" class="th-sort">종합{{ sortMark('totalScore') }}</th>
-            <th @click="setSort('technical')" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
-            <th @click="setSort('earnings')" class="th-sort">실적{{ sortMark('earnings') }}</th>
-            <th @click="setSort('sectorMomentum')" class="th-sort">섹터(테마){{ sortMark('sectorMomentum') }}</th>
-            <th @click="setSort('timingScore')" class="th-sort"
+            <th @click="setSort('totalScore')" @keydown.enter="setSort('totalScore')" tabindex="0" class="th-sort">종합{{ sortMark('totalScore') }}</th>
+            <th @click="setSort('technical')" @keydown.enter="setSort('technical')" tabindex="0" class="th-sort th-tech">기술{{ sortMark('technical') }}</th>
+            <th @click="setSort('earnings')" @keydown.enter="setSort('earnings')" tabindex="0" class="th-sort">실적{{ sortMark('earnings') }}</th>
+            <th @click="setSort('sectorMomentum')" @keydown.enter="setSort('sectorMomentum')" tabindex="0" class="th-sort">섹터(테마){{ sortMark('sectorMomentum') }}</th>
+            <th @click="setSort('timingScore')" @keydown.enter="setSort('timingScore')" tabindex="0" class="th-sort"
                 title="백테스트 hitRate 31% · 점수–수익 역상관 — 숫자 높다고 좋은 자리 아님(예측력 낮음 확인)">차트타이밍<small class="poor-badge">예측력↓</small>{{ sortMark('timingScore') }}</th>
             <th class="th-unv">섹터강도<small>미검증</small></th>
-            <th @click="setSort('trackRecord')" class="th-sort"
+            <th @click="setSort('trackRecord')" @keydown.enter="setSort('trackRecord')" tabindex="0" class="th-sort"
                 title="signal_outcome 최근 90일 실측 — 적중/평가완료 · 평균 α. n<3 은 표본부족 '—'(정렬 항상 하단).">이력<small class="unv-badge">90일 실측</small>{{ sortMark('trackRecord') }}</th>
             <th class="th-unv"
                 title="외인/기관 연속 순매수일(investor_daily_trade 상위 재사용) — streak5 백테스트 약한 양(+) 신호 · 참고만(점수 미편입). 2일 이상만 표기, 데이터 5일 미만 '—'.">수급연속<small>참고</small></th>
-            <th @click="setSort('supplyDemand')" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
+            <th @click="setSort('supplyDemand')" @keydown.enter="setSort('supplyDemand')" tabindex="0" class="th-sort th-caution">수급{{ sortMark('supplyDemand') }}</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in visibleRows" :key="r.stockCode" class="jb-row"
-              :class="{ 'row-unscored': !r.scored }" @click="openRow(r.stockCode)">
+          <tr v-for="r in visibleRows" :key="r.stockCode" class="jb-row" tabindex="0"
+              :class="{ 'row-unscored': !r.scored }" @click="openRow(r.stockCode)"
+              @keydown.enter="openRow(r.stockCode)">
             <td class="td-name">
               <span class="rn">{{ r.stockName }}</span>
               <span class="rc">{{ r.stockCode }}</span>

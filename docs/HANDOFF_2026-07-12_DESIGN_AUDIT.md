@@ -23,24 +23,25 @@
 
 ### A. 프론트 잔여 (감사에서 확인됐으나 미착수)
 
-1. **[중간] 클릭 div 접근성 잔여** — TodayBriefingTab 3종은 완료. 잔여:
-   `StockTradingDashboardV2.vue` rec-card ×5(숨김 발굴트랙, :184/230/276/322/358 부근)·pick-card,
-   `SectionJudgmentBoard.vue` 등 클릭 가능한 div. 패턴: `role="button" tabindex="0" @keydown.enter=클릭과 동일 핸들러`.
+1. ~~[중간] 클릭 div 접근성 잔여~~ ✅ **완료(2026-07-12 후속 세션)** — rec-card ×5 에 `role="button" tabindex="0" @keydown.enter`,
+   SectionJudgmentBoard 는 `<tr>`/`<th>` 라 role 덮어쓰기 없이 `tabindex="0" @keydown.enter` 만(테이블 시맨틱 보존).
+   pick-card 는 StockTradingDashboardV2 에 CSS 잔재만 있고 템플릿 없음(MagicFormulaSmartTable 의 pick-card 는 별개) — 대상 아님.
 2. **[중간·큼] 버튼/배지 스타일 파편화** — 공용 버튼 컴포넌트 부재로 각 scoped CSS 가 padding/radius 재정의
-   (checklist-btn, ts-toggle, tool-btn, gnb-btn, webauthn-btn 등). amber 배지 3벌 중복(ts-beta/ov-beta/tp-atr-badge).
-   → `BaseButton.vue`/`BaseBadge.vue` 도입은 **큰 작업**이라 별도 세션 권장. 최소안: amber 배지 3벌만 공용 클래스로.
-3. **[낮음] TodayBriefingTab `today-overnight` 클래스 공유** — 🌙간밤미국장(:16)과 🌐매크로(:24)가 같은 클래스.
-   `.today-macro` 분리만 하면 됨(스타일 동일 복사 후 독립 진화 가능하게).
+   (checklist-btn, ts-toggle, tool-btn, gnb-btn, webauthn-btn 등).
+   → `BaseButton.vue`/`BaseBadge.vue` 도입은 **큰 작업**이라 별도 세션 권장.
+   ~~최소안: amber 배지 3벌만 공용 클래스로~~ ✅ **최소안 완료** — `common.css` `.badge-unverified` 신설,
+   ts-beta/ov-beta/tp-atr-badge 는 배치·크기 차이값만 로컬 유지(렌더 동일).
+3. ~~[낮음] TodayBriefingTab `today-overnight` 클래스 공유~~ ✅ **완료** — 매크로 섹션 `.today-macro` 분리(스타일 동일 복사).
 4. **[낮음·선택] Login 생체등록 `confirm()`** — 차단형 선택이라 유지했음. 커스텀 모달로 바꾸려면 별도 컴포넌트 필요.
 5. **[검토] StockDetailDashboard 점수 게이지류 색** — ai-score-box.high/composite-badge.cb-strong 은
    '품질 스케일'로 분류해 초록 유지함. 사용자가 "매수 신호는 다 빨강" 원하면 재분류 — **사용자 확인 후에만**.
 
 ### B. 백엔드 잔여 (2026-07-12 감사 발견분)
 
-1. **[하] `e.getMessage()` null 로깅** — NPE 계열이면 "실패: null" 만 남음. 핵심 진단 경로만
-   `e.toString()` 또는 예외 객체 전달로 교체 (CatalystRiskAlertService:87,106 등). 일괄 치환은 과함.
-2. **[하] AutoTradingBotService 빈 catch 관측성** — :1750, :2259, :3200 (비-subscribe catch)에 `log.debug` 한 줄.
-   동작 무변경. 나머지 빈 catch(bus.subscribe/텔레그램 best-effort)는 정당 — 건드리지 말 것.
+1. ~~[하] `e.getMessage()` null 로깅~~ ✅ **완료** — CatalystRiskAlertService :87 `e.toString()`, :106 예외 객체 전달(스택 포함).
+   debug 레벨 best-effort 경로(:95,:118)는 유지.
+2. ~~[하] AutoTradingBotService 빈 catch 관측성~~ ✅ **완료** — :1750/:2259/:3200 텔레그램 발송 catch 에 `log.debug` 한 줄(동작 무변경).
+   나머지 빈 catch(bus.subscribe/unsubscribe)는 정당 — 그대로 둠.
 3. **[판단 필요 — 사용자에게 물을 것] 악재경보 부분 발송 실패** — `CatalystRiskAlertService:99-109`
    SIGNAL_AND_RISK 에서 signal 성공+risk 실패 시 dedup 선점 유지로 리스크 채널이 그날 재시도 안 됨.
    주석상 의도된 트레이드오프(스팸 방지)지만 보유종목 악재는 긴급도 높음. 채널별 dedup 분리가 해법 —

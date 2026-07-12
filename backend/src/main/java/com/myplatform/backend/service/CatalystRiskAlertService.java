@@ -84,7 +84,7 @@ public class CatalystRiskAlertService {
             return true;
         } catch (Exception e) {
             // 선점 실패(DB 블립) 시 발송 강행보다 억제 — 알림은 보조 기능, 스팸이 더 해롭다.
-            log.warn("[악재경보] dedup 선점 실패({}) — 이번 회차 억제: {}", key, e.getMessage());
+            log.warn("[악재경보] dedup 선점 실패({}) — 이번 회차 억제: {}", key, e.toString());
             return true;
         }
 
@@ -103,7 +103,7 @@ public class CatalystRiskAlertService {
             if (action == Action.SIGNAL_AND_RISK) telegram.sendRisk(message);
             recordSent(saved, key);
         } catch (Exception e) {
-            log.warn("[악재경보] 발송 실패({}): {}", saved.getStockCode(), e.getMessage());
+            log.warn("[악재경보] 발송 실패({})", saved.getStockCode(), e);
             // 전부 실패했을 때만 선점 반납(다음 분류 기회에 재시도). 일부 발송됐으면 유지 — 재시도 중복(스팸) 방지.
             if (!sentAny) releaseClaimQuiet(key);
         }
