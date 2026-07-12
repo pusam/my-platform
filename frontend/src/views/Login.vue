@@ -122,6 +122,21 @@
         <p>계정이 없으신가요? <router-link to="/signup" class="signup-link">회원가입</router-link></p>
       </div>
     </div>
+
+    <!-- 지문/Face ID 등록 제안 — confirm() 대체(A4). 명시적 양자택일만 허용(오버레이 클릭 닫기 없음) -->
+    <div v-if="enrollPromptVisible" class="enroll-overlay" role="dialog" aria-modal="true"
+         aria-labelledby="enroll-title">
+      <div class="enroll-modal">
+        <div class="enroll-icon">🔐</div>
+        <h3 id="enroll-title">지문 / Face ID 로 빠르게 로그인할까요?</h3>
+        <p>지금 이 기기를 등록하면 다음 로그인부터 비밀번호 없이 생체인증으로 들어올 수 있어요.</p>
+        <p class="enroll-hint">나중에 마이페이지에서 언제든 등록할 수 있습니다.</p>
+        <div class="enroll-actions">
+          <button type="button" class="btn-ghost enroll-later" @click="resolveEnrollPrompt(false)">나중에</button>
+          <button type="button" class="enroll-now" @click="resolveEnrollPrompt(true)">지금 등록</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -150,6 +165,25 @@ const loading = ref(false)
 const webauthnSupported = ref(false)
 const webauthnLoading = ref(false)
 const passkeyLoading = ref(false)
+
+// 지문 등록 제안 모달 — confirm() 과 동일한 차단형 선택(Promise 로 대기)
+const enrollPromptVisible = ref(false)
+let enrollPromptResolve = null
+
+function askEnroll() {
+  return new Promise((resolve) => {
+    enrollPromptResolve = resolve
+    enrollPromptVisible.value = true
+  })
+}
+
+function resolveEnrollPrompt(yes) {
+  enrollPromptVisible.value = false
+  if (enrollPromptResolve) {
+    enrollPromptResolve(yes)
+    enrollPromptResolve = null
+  }
+}
 
 const isMobile = computed(() => {
   if (typeof navigator === 'undefined') return false
@@ -268,11 +302,7 @@ async function maybePromptEnroll(username) {
   }
   if (existing.length > 0) return
 
-  const yes = confirm(
-    '다음부터 지문 / Face ID 로 빠르게 로그인하시겠습니까?\n\n' +
-    '지금 이 기기를 등록하면 다음 로그인부터 비밀번호 없이 생체인증으로 들어올 수 있어요.\n\n' +
-    '[확인] 지금 등록\n[취소] 나중에 (마이페이지에서 언제든 등록 가능)'
-  )
+  const yes = await askEnroll()
   if (!yes) {
     localStorage.setItem(dismissKey, '1')
     return
@@ -293,6 +323,45 @@ async function maybePromptEnroll(username) {
 
 <style scoped>
 @import '../assets/css/login.css';
+
+/* 지문 등록 제안 모달 — 로그인 카드 톤(어두운 표면 + primary 그라데이션 CTA) */
+.enroll-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.enroll-modal {
+  background: var(--surface-solid, #1a1a2e);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 24px 22px;
+  max-width: 360px;
+  width: 100%;
+  text-align: center;
+}
+.enroll-icon { font-size: 34px; margin-bottom: 8px; }
+.enroll-modal h3 { margin: 0 0 10px; font-size: 17px; color: #fff; }
+.enroll-modal p { margin: 0 0 8px; font-size: 14px; line-height: 1.55; color: rgba(255, 255, 255, 0.85); }
+.enroll-modal .enroll-hint { font-size: 12px; color: rgba(255, 255, 255, 0.55); }
+.enroll-actions { display: flex; gap: 10px; margin-top: 18px; }
+.enroll-actions button {
+  flex: 1;
+  padding: 11px 0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.enroll-now {
+  border: none;
+  color: #fff;
+  background: var(--primary-gradient, linear-gradient(135deg, #818cf8, #a78bfa));
+}
 
 /* 골격은 공용 .btn-ghost — 로그인 CTA 라 더 강한 표면·크기만 로컬 */
 .webauthn-btn {

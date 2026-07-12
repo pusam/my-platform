@@ -53,12 +53,12 @@
         <div class="ai-score-box" :class="aiScoreClass">
           <span class="score-label">단기 트레이딩</span>
           <span class="score-value">{{ aiAnalysis?.overallScore || '-' }}</span>
-          <span class="score-badge">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
+          <span class="score-badge" :class="recBadgeClass">{{ getRecommendationLabel(aiAnalysis?.recommendation) }}</span>
         </div>
         <div class="ai-score-box" :class="fundScoreClass" v-if="diagnosisData?.overallScore">
           <span class="score-label">중장기 펀더멘털</span>
           <span class="score-value">{{ diagnosisData.overallScore }}</span>
-          <span class="score-badge">{{ getAdjustedVerdict(diagnosisData) }}</span>
+          <span class="score-badge" :class="fundVerdictBadgeClass">{{ getAdjustedVerdict(diagnosisData) }}</span>
         </div>
       </div>
     </header>
@@ -802,6 +802,30 @@ const fundScoreClass = computed(() => {
   return 'low';
 });
 
+// 헤더 점수 뱃지(행동 라벨)만 매매 신호색(매수=빨강/매도=파랑, common.css 원칙) —
+// 점수 숫자·테두리(high/medium/low)는 품질 스케일이라 초록 계열 유지.
+const recBadgeClass = computed(() => {
+  const map = {
+    'BUY': 'sb-buy', 'TRADING_BUY': 'sb-buy',
+    'WAIT_AND_BUY': 'sb-neutral', 'HOLD': 'sb-neutral',
+    'SELL': 'sb-sell'
+  };
+  return map[aiAnalysis.value?.recommendation] || '';
+});
+
+const fundVerdictBadgeClass = computed(() => {
+  const d = diagnosisData.value;
+  if (!d) return '';
+  // getAdjustedVerdict 와 동일 규칙 — RSI 과열이면 매수 verdict 라도 '관망' 표시라 중립색
+  if (isRsiOverbought(d) && (d.verdictLevel === 'STRONG_BUY' || d.verdictLevel === 'BUY')) return 'sb-neutral';
+  const map = {
+    'STRONG_BUY': 'sb-strong-buy', 'BUY': 'sb-buy',
+    'HOLD': 'sb-neutral', 'NEUTRAL': 'sb-neutral',
+    'SELL': 'sb-sell', 'STRONG_SELL': 'sb-strong-sell'
+  };
+  return map[d.verdictLevel] || '';
+});
+
 // scoreDiffComment / consensusBarWidth / aiRecommendationClass → AIStrategyCard.vue 로 이동 (P-IA ③ 후속)
 
 // ★ 뉴스 중복제거 (제목 기준 Set 필터링)
@@ -1371,6 +1395,13 @@ onUnmounted(() => {
   font-weight: 600;
   background: rgba(255,255,255,0.1);
 }
+/* 행동 라벨(추천/verdict) 신호색 — 매수=빨강/매도=파랑(한국 관례, common.css --signal-*).
+   점수 숫자·박스 테두리는 품질 스케일이라 초록 계열 유지 — 이 구분을 깨지 말 것. */
+.score-badge.sb-strong-buy { color: #fff; background: var(--signal-strong-buy, #ef4444); }
+.score-badge.sb-buy { color: var(--signal-buy, #f87171); background: rgba(239, 68, 68, 0.15); }
+.score-badge.sb-neutral { color: var(--signal-neutral, #a3a3a3); background: rgba(255, 255, 255, 0.1); }
+.score-badge.sb-sell { color: var(--signal-sell, #60a5fa); background: rgba(59, 130, 246, 0.15); }
+.score-badge.sb-strong-sell { color: #fff; background: var(--signal-strong-sell, #3b82f6); }
 
 /* Control Section */
 .control-section {

@@ -35,9 +35,14 @@
    **gnb-btn(네비 탭)·checklist-btn(블루 액센트 CTA)은 각자 1곳뿐인 고유 패턴이라 공용화 제외**
    (중복 없음 — BaseButton.vue 컴포넌트 도입은 실익 없어 보류 판단, 새 버튼 추가로 중복이 다시 생기면 재검토).
 3. ~~[낮음] TodayBriefingTab `today-overnight` 클래스 공유~~ ✅ **완료** — 매크로 섹션 `.today-macro` 분리(스타일 동일 복사).
-4. **[낮음·선택] Login 생체등록 `confirm()`** — 차단형 선택이라 유지했음. 커스텀 모달로 바꾸려면 별도 컴포넌트 필요.
-5. **[검토] StockDetailDashboard 점수 게이지류 색** — ai-score-box.high/composite-badge.cb-strong 은
-   '품질 스케일'로 분류해 초록 유지함. 사용자가 "매수 신호는 다 빨강" 원하면 재분류 — **사용자 확인 후에만**.
+4. ~~[낮음·선택] Login 생체등록 `confirm()`~~ ✅ **완료(2026-07-12 후속, 사용자 위임)** —
+   페이지 내 enroll 모달로 교체(Promise 대기로 confirm 과 동일한 차단형 양자택일 유지,
+   오버레이 클릭 닫기 없음 — 명시적 선택만). '나중에'= dismissKey 저장(기존과 동일).
+5. ~~[검토] StockDetailDashboard 점수 게이지류 색~~ ✅ **판단 확정(2026-07-12 후속, 사용자 위임)** —
+   ai-score-box.high(점수 구간)·composite-badge.cb-strong(신호 매칭 개수)은 **품질 스케일 확정 → 초록 유지**
+   (common.css 원칙 부합, 재분류 아님). 대신 그 안의 **score-badge(BUY/HOLD/관망 등 행동 라벨)가
+   무채색이던 것을 신호색으로 정렬**(sb-strong-buy~sb-strong-sell, recBadgeClass/fundVerdictBadgeClass) —
+   원칙("행동 라벨만 관례색")을 헤더에도 구현. RSI 과열→'관망' 표시는 중립색(getAdjustedVerdict 와 동일 규칙).
 
 ### B. 백엔드 잔여 (2026-07-12 감사 발견분)
 
