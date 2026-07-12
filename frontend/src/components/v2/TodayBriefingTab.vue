@@ -366,8 +366,8 @@ onMounted(() => {
 
 /* 공통 섹션 */
 .today-section {
-  background: rgba(20, 24, 38, 0.85);
-  border-radius: 12px;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
+  border-radius: var(--surface-radius, 12px);
   padding: 16px 18px;
 }
 .ts-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -426,8 +426,9 @@ onMounted(() => {
   padding: 2px 8px;
   border-radius: 4px;
 }
-.grade-strong { color: #4ade80; background: rgba(34, 197, 94, 0.15); }
-.grade-buy { color: #60a5fa; background: rgba(59, 130, 246, 0.15); }
+/* 매수 등급 = 한국 관례 빨강 계열 — 파랑(=매도색) 오독 방지, 결론카드·게이지와 통일 */
+.grade-strong { color: var(--signal-strong-buy, #ef4444); background: rgba(239, 68, 68, 0.15); }
+.grade-buy { color: var(--signal-buy, #f87171); background: rgba(248, 113, 113, 0.15); }
 .cc-score { font-size: 12px; opacity: 0.7; }
 .cc-tags { display: flex; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
 .cc-tag {

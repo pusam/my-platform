@@ -411,7 +411,7 @@ export default {
   padding: 2px 8px;
   border-radius: 8px;
   font-size: 10.5px; font-weight: 700;
-  background: #1a1a2e;
+  background: var(--surface-solid, #1a1a2e);
 }
 .surge-badge-label.hot { color: #f87171; border: 1px solid rgba(239,68,68,0.5); }
 .surge-badge-label.warm { color: #fbbf24; border: 1px solid rgba(245,158,11,0.5); }
@@ -421,7 +421,7 @@ export default {
   padding: 2px 8px;
   border-radius: 8px;
   font-size: 10.5px; font-weight: 700;
-  background: #1a1a2e;
+  background: var(--surface-solid, #1a1a2e);
 }
 .trend-badge.trend-accumulating { color: #4ade80; border: 1px solid rgba(34,197,94,0.5); }
 .trend-badge.trend-profit-taking { color: #60a5fa; border: 1px solid rgba(59,130,246,0.5); }

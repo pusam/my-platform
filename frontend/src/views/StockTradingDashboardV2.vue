@@ -1710,7 +1710,7 @@ export default {
 <style scoped>
 .v2-dashboard {
   min-height: 100vh;
-  background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 40%, #16213e 100%);
+  background: linear-gradient(180deg, var(--bg-hub-top, #0f0f1a) 0%, #1a1a2e 40%, #16213e 100%);
   color: white;
 }
 

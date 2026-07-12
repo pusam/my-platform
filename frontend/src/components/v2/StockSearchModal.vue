@@ -131,7 +131,7 @@ export default {
 }
 
 .search-modal {
-  background: #1a1a2e;
+  background: var(--surface-solid, #1a1a2e);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 16px;
   width: 100%;

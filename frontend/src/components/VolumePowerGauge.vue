@@ -191,10 +191,11 @@ const signalClass = computed(() => {
 
 <style scoped>
 .volume-power-gauge {
-  background: #1a1a3a;
-  border-radius: 16px;
-  padding: 24px;
-  border: 1px solid #2a2a4a;
+  /* 허브 카드와 같은 표면 토큰 — 독자 색/모서리로 튀지 않게 */
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
+  border-radius: var(--surface-radius, 12px);
+  padding: 20px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .gauge-header {
@@ -312,32 +313,32 @@ const signalClass = computed(() => {
 
 .signal-badge.strong-buy {
   background: rgba(239, 68, 68, 0.2);
-  color: #ef4444;
-  border: 1px solid #ef4444;
+  color: var(--signal-strong-buy, #ef4444);
+  border: 1px solid var(--signal-strong-buy, #ef4444);
 }
 
 .signal-badge.buy {
   background: rgba(248, 113, 113, 0.2);
-  color: #f87171;
-  border: 1px solid #f87171;
+  color: var(--signal-buy, #f87171);
+  border: 1px solid var(--signal-buy, #f87171);
 }
 
 .signal-badge.neutral {
   background: rgba(163, 163, 163, 0.2);
-  color: #a3a3a3;
-  border: 1px solid #a3a3a3;
+  color: var(--signal-neutral, #a3a3a3);
+  border: 1px solid var(--signal-neutral, #a3a3a3);
 }
 
 .signal-badge.sell {
   background: rgba(96, 165, 250, 0.2);
-  color: #60a5fa;
-  border: 1px solid #60a5fa;
+  color: var(--signal-sell, #60a5fa);
+  border: 1px solid var(--signal-sell, #60a5fa);
 }
 
 .signal-badge.strong-sell {
   background: rgba(59, 130, 246, 0.2);
-  color: #3b82f6;
-  border: 1px solid #3b82f6;
+  color: var(--signal-strong-sell, #3b82f6);
+  border: 1px solid var(--signal-strong-sell, #3b82f6);
 }
 
 /* 장 시작 대기 상태 */
@@ -347,11 +348,11 @@ const signalClass = computed(() => {
   border: 1px solid #71717a;
 }
 
-.power-value.strong-buy { color: #ef4444; }
-.power-value.buy { color: #f87171; }
-.power-value.neutral { color: #a3a3a3; }
-.power-value.sell { color: #60a5fa; }
-.power-value.strong-sell { color: #3b82f6; }
+.power-value.strong-buy { color: var(--signal-strong-buy, #ef4444); }
+.power-value.buy { color: var(--signal-buy, #f87171); }
+.power-value.neutral { color: var(--signal-neutral, #a3a3a3); }
+.power-value.sell { color: var(--signal-sell, #60a5fa); }
+.power-value.strong-sell { color: var(--signal-strong-sell, #3b82f6); }
 .power-value.pre-market { color: #71717a; }
 
 .gauge-fill.pre-market {

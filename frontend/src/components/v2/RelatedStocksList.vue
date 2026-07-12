@@ -43,7 +43,7 @@ const getCorrClass = (c) => {
 .related-section {
   margin: 12px 16px;
   padding: 12px 14px;
-  background: rgba(20, 24, 38, 0.6);
+  background: var(--surface-card-soft, rgba(20, 24, 38, 0.6));
   border-radius: 10px;
 }
 .related-header {

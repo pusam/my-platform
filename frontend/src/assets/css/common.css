@@ -52,6 +52,22 @@
   --stock-down: #60a5fa;
   --stock-neutral: #9ca3af;
 
+  /* 매매 신호색 — 한국 관례(매수=빨강/매도=파랑) 단일 소스. 등락색(--stock-up/down)과 동계열.
+     매수/매도 '행동 라벨'(배지·등급·verdict)에만 사용 — 점수/적중률/신선도 같은
+     "높을수록 좋음" 품질 스케일은 --success(초록) 계열 유지. */
+  --signal-strong-buy: #ef4444;
+  --signal-buy: #f87171;
+  --signal-neutral: #a3a3a3;
+  --signal-sell: #60a5fa;
+  --signal-strong-sell: #3b82f6;
+
+  /* V2 주식허브 카드 표면 — 허브 계열 컴포넌트 배경/모서리의 단일 소스 */
+  --surface-card: rgba(20, 24, 38, 0.85);
+  --surface-card-soft: rgba(20, 24, 38, 0.6);
+  --surface-solid: #1a1a2e;          /* 모달·드롭다운·툴팁 등 불투명 표면 */
+  --surface-radius: 12px;
+  --bg-hub-top: #0f0f1a;             /* 허브 페이지 그라데이션 상단 = sticky 헤더 배경 */
+
   /* Gold & Silver */
   --gold-primary: #fbbf24;
   --gold-secondary: #f59e0b;

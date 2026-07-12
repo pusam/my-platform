@@ -1420,7 +1420,7 @@ onUnmounted(() => {
   border-radius: 10px;
   max-width: 600px;
   margin: 0 auto;
-  border: 1px solid #2a2a4a;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .realtime-status.active { border-color: #22c55e; }
@@ -1802,7 +1802,7 @@ onUnmounted(() => {
 .investor-section {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #2a2a4a;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
 .supply-header {

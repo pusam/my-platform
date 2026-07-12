@@ -229,10 +229,12 @@ const levelLabel = computed(() => {
   }
 });
 
+// 한국 관례(매수=빨강 계열)로 통일 — 🔴강력매수 > 🟠매수 > 🟡보유 > ⚪관망 열 스케일.
+// 진입 위치의 🔴(과열)/🟢(눌림)는 위험/안전 '상태' 표기라 별개 (라벨로 구분됨).
 const levelIcon = computed(() => {
   switch (conclusion.value?.level) {
-    case 'STRONG_BUY': return '🟢';
-    case 'BUY': return '🔵';
+    case 'STRONG_BUY': return '🔴';
+    case 'BUY': return '🟠';
     case 'HOLD': return '🟡';
     case 'WAIT': return '⚪';
     default: return '⚪';
@@ -289,8 +291,8 @@ const openChecklist = () => { showChecklist.value = true; };
 
 <style scoped>
 .conclusion-card {
-  background: rgba(20, 24, 38, 0.85);
-  border-radius: 12px;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
+  border-radius: var(--surface-radius, 12px);
   padding: 16px 20px;
   margin: 12px 16px;
   border-left: 4px solid #888;
@@ -302,8 +304,9 @@ const openChecklist = () => { showChecklist.value = true; };
   font-size: 13px;
   opacity: 0.7;
 }
-.level-strong-buy { border-left-color: #22c55e; background: rgba(34, 197, 94, 0.12); }
-.level-buy        { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.10); }
+/* 매수 verdict = 한국 관례 빨강 계열 (--signal-*) — VolumePowerGauge·허브 등락색과 통일 */
+.level-strong-buy { border-left-color: var(--signal-strong-buy, #ef4444); background: rgba(239, 68, 68, 0.12); }
+.level-buy        { border-left-color: var(--signal-buy, #f87171); background: rgba(248, 113, 113, 0.10); }
 .level-hold       { border-left-color: #eab308; background: rgba(234, 179, 8, 0.10); }
 .level-wait       { border-left-color: #888;    background: rgba(120, 120, 120, 0.10); }
 
@@ -443,8 +446,9 @@ const openChecklist = () => { showChecklist.value = true; };
 .tp-title { font-weight: 700; }
 .tp-basis { font-weight: 400; font-size: 11px; opacity: 0.6; }
 .tp-item b { font-weight: 700; }
-.tp-stop b { color: #f87171; }
-.tp-target b { color: #4ade80; }
+/* 가격 방향색 = 등락 관례 (목표(위)=빨강, 손절(아래)=파랑) */
+.tp-stop b { color: var(--stock-down, #60a5fa); }
+.tp-target b { color: var(--stock-up, #f87171); }
 .tp-mfe {
   margin-top: 6px;
   font-size: 11.5px;
@@ -469,8 +473,8 @@ const openChecklist = () => { showChecklist.value = true; };
   padding: 1px 6px;
   border-radius: 3px;
 }
-.tp-pos { color: #4ade80; }
-.tp-neg { color: #f87171; }
+.tp-pos { color: var(--stock-up, #f87171); }
+.tp-neg { color: var(--stock-down, #60a5fa); }
 
 .accuracy-line {
   margin-top: 12px;

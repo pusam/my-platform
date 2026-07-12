@@ -104,7 +104,7 @@ onBeforeUnmount(() => { if (chart) chart.destroy(); });
   height: 280px;
   margin-bottom: 16px;
   padding: 12px;
-  background: rgba(20, 24, 38, 0.6);
+  background: var(--surface-card-soft, rgba(20, 24, 38, 0.6));
   border-radius: 10px;
 }
 </style>

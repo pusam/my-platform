@@ -59,7 +59,7 @@ const getCpsSignalLabel = (s) => ({ BULLISH: '상승 신호', BEARISH: '하락 �
 .chart-patterns-section {
   margin: 16px;
   padding: 14px 16px;
-  background: rgba(20, 24, 38, 0.6);
+  background: var(--surface-card-soft, rgba(20, 24, 38, 0.6));
   border-radius: 10px;
 }
 .cps-header {

@@ -109,8 +109,8 @@ onMounted(fetchPerformance);
 
 <style scoped>
 .backtest-panel {
-  background: rgba(20, 24, 38, 0.85);
-  border-radius: 12px;
+  background: var(--surface-card, rgba(20, 24, 38, 0.85));
+  border-radius: var(--surface-radius, 12px);
   padding: 18px 20px;
   margin-top: 24px;
   color: #fff;

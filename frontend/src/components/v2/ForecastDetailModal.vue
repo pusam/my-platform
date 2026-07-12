@@ -252,7 +252,7 @@ export default {
 }
 
 .modal-container {
-  background: #1a1a2e;
+  background: var(--surface-solid, #1a1a2e);
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 20px;
   width: 100%;

@@ -66,7 +66,7 @@ export default {
   width: 280px;
   max-width: 80vw;
   padding: 12px 14px;
-  background: #1a1a2e;
+  background: var(--surface-solid, #1a1a2e);
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.5);

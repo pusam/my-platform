@@ -87,7 +87,7 @@ export default {
   position: sticky;
   top: var(--gnb-height);
   z-index: 100;
-  background: #0f0f1a;
+  background: var(--bg-hub-top, #0f0f1a); /* 허브 그라데이션 상단과 동일 — sticky 시 이음새 없게 */
 }
 
 .header-left {
