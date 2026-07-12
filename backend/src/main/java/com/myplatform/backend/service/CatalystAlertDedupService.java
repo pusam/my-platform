@@ -48,8 +48,8 @@ public class CatalystAlertDedupService {
     }
 
     /**
-     * 선점 반납 — 승자가 발송에 <b>전부 실패</b>했을 때만 호출(다음 분류 기회에 재시도 가능).
-     * 일부 채널이라도 발송됐으면 반납하지 않는다(재시도 시 그 채널 중복 = 스팸 방지 우선).
+     * 선점 반납 — 승자가 <b>해당 채널 발송에 실패</b>했을 때 그 채널 키만 반납(다음 분류 기회에 재시도).
+     * 채널별 키 분리(B3, 2026-07-12)로 성공한 채널의 선점은 유지된다(재시도 시 중복 = 스팸 방지).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void releaseIsolated(String alertKey) {

@@ -91,7 +91,7 @@
         <button
           v-if="webauthnSupported && isMobile"
           type="button"
-          class="webauthn-btn passkey-btn"
+          class="btn-ghost webauthn-btn passkey-btn"
           :disabled="passkeyLoading"
           @click="handlePasskeyLogin"
         >
@@ -106,7 +106,7 @@
         <button
           v-if="webauthnSupported && isMobile"
           type="button"
-          class="webauthn-btn"
+          class="btn-ghost webauthn-btn"
           :disabled="webauthnLoading || !username"
           @click="handleWebauthnLogin"
         >
@@ -294,30 +294,21 @@ async function maybePromptEnroll(username) {
 <style scoped>
 @import '../assets/css/login.css';
 
+/* 골격은 공용 .btn-ghost — 로그인 CTA 라 더 강한 표면·크기만 로컬 */
 .webauthn-btn {
   margin-top: 10px;
   width: 100%;
   padding: 12px 16px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
   font-size: 15px;
   font-weight: 500;
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.2);
   border-radius: 12px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
 }
 .webauthn-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
   border-color: rgba(255, 255, 255, 0.35);
-}
-.webauthn-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .webauthn-btn svg {
   width: 20px;

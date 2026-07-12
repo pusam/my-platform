@@ -77,7 +77,7 @@
       <div class="ts-title-row">
         <h2>🪝 차트 타이밍 관찰</h2>
         <span class="badge-unverified ts-beta ts-poor">예측력 미검증</span>
-        <button class="ts-toggle" @click="timingExpanded = !timingExpanded">
+        <button class="btn-ghost ts-toggle" @click="timingExpanded = !timingExpanded">
           {{ timingExpanded ? '접기' : '펼치기' }}
         </button>
       </div>
@@ -149,13 +149,13 @@
 
     <!-- ⑤ 도구 바로가기 -->
     <div class="today-tools">
-      <button class="tool-btn" @click="$emit('navigate', 'market')">
+      <button class="btn-ghost tool-btn" @click="$emit('navigate', 'market')">
         <span class="tool-icon">🌐</span><span>시장 · 수급 · 뉴스</span>
       </button>
-      <button class="tool-btn" @click="$emit('navigate', 'discover')">
+      <button class="btn-ghost tool-btn" @click="$emit('navigate', 'discover')">
         <span class="tool-icon">🔍</span><span>발굴 · 전략 · 스크리너</span>
       </button>
-      <button class="tool-btn" @click="$emit('navigate', 'trade')">
+      <button class="btn-ghost tool-btn" @click="$emit('navigate', 'trade')">
         <span class="tool-icon">⚡</span><span>매매 · 봇 · 성과</span>
       </button>
     </div>
@@ -395,12 +395,8 @@ onMounted(() => {
 /* 차트 신호 관찰 — 백테스트 부진(승격불가) 톤다운(적색 계열 + 기본 접힘) */
 .today-observe { opacity: 0.82; }
 .ts-poor { color: #f87171; background: rgba(248, 113, 113, 0.13); }
-.ts-toggle {
-  font-size: 11px; font-weight: 600; color: #cbd5e1; cursor: pointer;
-  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 5px; padding: 2px 9px;
-}
-.ts-toggle:hover { background: rgba(255, 255, 255, 0.12); }
+/* 표면·hover 는 공용 .btn-ghost — 크기만 로컬 */
+.ts-toggle { font-size: 11px; font-weight: 600; border-radius: 5px; padding: 2px 9px; }
 .observe-collapsed { margin-top: 8px; font-size: 12px; line-height: 1.5; opacity: 0.72; }
 .observe-collapsed strong { color: #f87171; }
 .beta-poor {
@@ -499,22 +495,14 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
 }
+/* 표면 골격은 공용 .btn-ghost — 크기 + 강조(퍼플) hover 만 로컬 */
 .tool-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
-  color: #cbd5e1;
   font-size: 13px;
   font-weight: 600;
   padding: 14px 10px;
-  cursor: pointer;
-  transition: all 0.15s;
 }
-.tool-btn:hover {
+.tool-btn:hover:not(:disabled) {
   background: rgba(102, 126, 234, 0.15);
   border-color: rgba(102, 126, 234, 0.4);
   color: #a5b4fc;

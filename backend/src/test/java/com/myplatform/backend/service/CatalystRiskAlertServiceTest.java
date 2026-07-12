@@ -106,11 +106,16 @@ class CatalystRiskAlertServiceTest {
     }
 
     @Test
-    @DisplayName("alertKey — 종목×일자 1회 키(50자 내)")
-    void alertKey_perStockPerDay() {
-        String key = CatalystRiskAlertService.alertKey("005930", LocalDate.of(2026, 7, 7));
-        assertThat(key).isEqualTo("CATNEG_005930_2026-07-07");
-        assertThat(key.length()).isLessThanOrEqualTo(50);   // catalyst_alert_dedup.alert_key 컬럼 제한
+    @DisplayName("alertKey — 채널×종목×일자 1회 키(50자 내), 시그널=레거시 무접미/리스크=CATNEGR_")
+    void alertKey_perChannelPerStockPerDay() {
+        String signal = CatalystRiskAlertService.alertKey("005930", LocalDate.of(2026, 7, 7));
+        assertThat(signal).isEqualTo("CATNEG_005930_2026-07-07");
+        assertThat(signal.length()).isLessThanOrEqualTo(50);   // catalyst_alert_dedup.alert_key 컬럼 제한
+
+        String risk = CatalystRiskAlertService.riskAlertKey("005930", LocalDate.of(2026, 7, 7));
+        assertThat(risk).isEqualTo("CATNEGR_005930_2026-07-07");
+        assertThat(risk.length()).isLessThanOrEqualTo(50);
+        assertThat(risk).isNotEqualTo(signal);   // 채널 독립 dedup 의 전제
     }
 
     @Test
@@ -227,8 +232,8 @@ class CatalystRiskAlertServiceTest {
     }
 
     @Test
-    @DisplayName("부분 실패(시그널 성공·리스크 실패) → 선점 유지(재시도 시 시그널 채널 중복 스팸 방지)")
-    void sendPartialFailure_keepsClaim() {
+    @DisplayName("부분 실패(시그널 성공·리스크 실패) → 리스크 선점만 반납(당일 재시도), 시그널 선점 유지(중복 스팸 방지)")
+    void sendPartialFailure_releasesOnlyRiskClaim() {
         when(watchlistRepository.existsByStockCodeAndIsActiveTrue("005930")).thenReturn(false);
         when(botPositionRepository.existsByStockCode("005930")).thenReturn(true);   // 보유 → 시그널+리스크
         when(telegramProvider.getIfAvailable()).thenReturn(telegram);
@@ -238,6 +243,40 @@ class CatalystRiskAlertServiceTest {
 
         assertThat(handled).isTrue();
         verify(telegram).sendSignal(anyString());
+        verify(dedupService).releaseIsolated("CATNEGR_005930_2026-07-07");           // 리스크 채널만 반납
+        verify(dedupService, never()).releaseIsolated("CATNEG_005930_2026-07-07");   // 시그널 선점 유지
+    }
+
+    @Test
+    @DisplayName("보유 악재 → 시그널·리스크 채널별 독립 선점(키 분리 — CATNEG_/CATNEGR_)")
+    void held_claimsPerChannel() {
+        when(watchlistRepository.existsByStockCodeAndIsActiveTrue("005930")).thenReturn(false);
+        when(botPositionRepository.existsByStockCode("005930")).thenReturn(true);
+        when(telegramProvider.getIfAvailable()).thenReturn(telegram);
+
+        service.onCatalystSaved(negative("005930"), null);
+
+        verify(dedupService).claimIsolated(eq("CATNEG_005930_2026-07-07"), eq("005930"),
+                eq(LocalDate.of(2026, 7, 7)));
+        verify(dedupService).claimIsolated(eq("CATNEGR_005930_2026-07-07"), eq("005930"),
+                eq(LocalDate.of(2026, 7, 7)));
+    }
+
+    @Test
+    @DisplayName("리스크 재시도 — 시그널 기발송(선점 패)이라도 리스크 선점 승자면 리스크만 발송(보유 악재 긴급성)")
+    void riskRetry_afterPartialFailure() {
+        when(watchlistRepository.existsByStockCodeAndIsActiveTrue("005930")).thenReturn(false);
+        when(botPositionRepository.existsByStockCode("005930")).thenReturn(true);
+        when(telegramProvider.getIfAvailable()).thenReturn(telegram);
+        // 이전 회차: 시그널 발송 성공(선점 유지) + 리스크 실패(선점 반납) 상태를 모사
+        doThrow(new DataIntegrityViolationException("uq_cad_alert_key"))
+                .when(dedupService).claimIsolated(eq("CATNEG_005930_2026-07-07"), anyString(), any());
+
+        boolean handled = service.onCatalystSaved(negative("005930"), null);
+
+        assertThat(handled).isTrue();
+        verify(telegram, never()).sendSignal(anyString());                    // 시그널 중복 없음
+        verify(telegram).sendRisk(contains("보유 종목 악재 경보"));            // 리스크만 재발송
         verify(dedupService, never()).releaseIsolated(anyString());
     }
 

@@ -26,11 +26,14 @@
 1. ~~[중간] 클릭 div 접근성 잔여~~ ✅ **완료(2026-07-12 후속 세션)** — rec-card ×5 에 `role="button" tabindex="0" @keydown.enter`,
    SectionJudgmentBoard 는 `<tr>`/`<th>` 라 role 덮어쓰기 없이 `tabindex="0" @keydown.enter` 만(테이블 시맨틱 보존).
    pick-card 는 StockTradingDashboardV2 에 CSS 잔재만 있고 템플릿 없음(MagicFormulaSmartTable 의 pick-card 는 별개) — 대상 아님.
-2. **[중간·큼] 버튼/배지 스타일 파편화** — 공용 버튼 컴포넌트 부재로 각 scoped CSS 가 padding/radius 재정의
-   (checklist-btn, ts-toggle, tool-btn, gnb-btn, webauthn-btn 등).
-   → `BaseButton.vue`/`BaseBadge.vue` 도입은 **큰 작업**이라 별도 세션 권장.
-   ~~최소안: amber 배지 3벌만 공용 클래스로~~ ✅ **최소안 완료** — `common.css` `.badge-unverified` 신설,
-   ts-beta/ov-beta/tp-atr-badge 는 배치·크기 차이값만 로컬 유지(렌더 동일).
+2. ~~[중간·큼] 버튼/배지 스타일 파편화~~ ✅ **완료(공용 클래스 방식, 2026-07-12 후속)** —
+   배지: `common.css` `.badge-unverified` 신설(ts-beta/ov-beta/tp-atr-badge, 렌더 동일).
+   버튼: 고스트 패턴(흰 반투명+테두리+호버 밝힘) 공유 3종(ts-toggle/tool-btn/webauthn-btn)을
+   `common.css` `.btn-ghost` 골격으로 통합 — 로컬은 크기·radius·강조 hover 만
+   (⚠ 로컬 hover 는 `:hover:not(:disabled)` 형태로 써야 골격 hover 를 이긴다).
+   tool-btn 표면 rgba 0.05/0.10 → 0.06/0.12 로 정규화(식별 불가 수준).
+   **gnb-btn(네비 탭)·checklist-btn(블루 액센트 CTA)은 각자 1곳뿐인 고유 패턴이라 공용화 제외**
+   (중복 없음 — BaseButton.vue 컴포넌트 도입은 실익 없어 보류 판단, 새 버튼 추가로 중복이 다시 생기면 재검토).
 3. ~~[낮음] TodayBriefingTab `today-overnight` 클래스 공유~~ ✅ **완료** — 매크로 섹션 `.today-macro` 분리(스타일 동일 복사).
 4. **[낮음·선택] Login 생체등록 `confirm()`** — 차단형 선택이라 유지했음. 커스텀 모달로 바꾸려면 별도 컴포넌트 필요.
 5. **[검토] StockDetailDashboard 점수 게이지류 색** — ai-score-box.high/composite-badge.cb-strong 은
@@ -42,10 +45,11 @@
    debug 레벨 best-effort 경로(:95,:118)는 유지.
 2. ~~[하] AutoTradingBotService 빈 catch 관측성~~ ✅ **완료** — :1750/:2259/:3200 텔레그램 발송 catch 에 `log.debug` 한 줄(동작 무변경).
    나머지 빈 catch(bus.subscribe/unsubscribe)는 정당 — 그대로 둠.
-3. **[판단 필요 — 사용자에게 물을 것] 악재경보 부분 발송 실패** — `CatalystRiskAlertService:99-109`
-   SIGNAL_AND_RISK 에서 signal 성공+risk 실패 시 dedup 선점 유지로 리스크 채널이 그날 재시도 안 됨.
-   주석상 의도된 트레이드오프(스팸 방지)지만 보유종목 악재는 긴급도 높음. 채널별 dedup 분리가 해법 —
-   **알림 로직 변경이므로 사용자 승인 후 진행** (재현 테스트 먼저, §CLAUDE.md 작업 완료 기준).
+3. ~~[판단 필요] 악재경보 부분 발송 실패~~ ✅ **완료(사용자 승인 후, 2026-07-12 후속)** —
+   채널별 dedup 키 분리: 시그널 = 레거시 `CATNEG_`(배포 전후 연속성) / 리스크 = `CATNEGR_` 신설.
+   `claimAndSend` 로 채널별 독립 선점→발송, 실패 채널 선점만 반납(당일 재시도), 성공 채널 유지(스팸 방지).
+   부수 개선: 시그널 발송 실패가 리스크 발송을 막지 않음(이전엔 예외로 sendRisk 미도달).
+   재현 테스트(수정 전 3건 실패 확인) 포함 `CatalystRiskAlertServiceTest` 16건 green.
 
 ### C. 검증 방법 (모든 변경 후)
 
