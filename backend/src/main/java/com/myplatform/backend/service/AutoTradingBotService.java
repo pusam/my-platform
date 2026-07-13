@@ -425,7 +425,10 @@ public class AutoTradingBotService {
 
         long holdDays() {
             // static nested class — outer instance clock 미접근. KST 명시.
-            return java.time.Duration.between(buyTime, LocalDateTime.now(DateTimeUtil.KST)).toDays();
+            // 달력일 차이로 계산 — Duration.toDays()(24h 블록)는 15:15 종가매수가 익일 09:05에 0일이라
+            // "익일 갭하락/조기청산(holdDays >= 1)" 게이트가 구조적으로 불발되던 원인.
+            return java.time.temporal.ChronoUnit.DAYS.between(
+                    buyTime.toLocalDate(), LocalDate.now(DateTimeUtil.KST));
         }
     }
 
@@ -931,12 +934,22 @@ public class AutoTradingBotService {
         }
     }
 
-    @Transactional
+    // 트랜잭션은 리포지토리 @Transactional 이 연다 — 여기의 self-invocation 은 프록시를 안 타서
+    // 메서드 레벨 @Transactional 이 무효였음(삭제가 TransactionRequiredException 으로 전부 무산되던 원인).
     protected void deletePersistedPosition(Strategy strategy, String stockCode) {
         try {
             positionRepository.deleteByStrategyAndStockCode(strategy, stockCode);
         } catch (Exception e) {
             log.warn("[봇 영속화] {} 포지션 삭제 실패 {}: {}", strategy, stockCode, e.getMessage());
+        }
+    }
+
+    /** 완청산 확인 후 현재 모드 포지션 행 전체 정리(고스트 포함) — 실패는 로그만(다음 재시작 reconcile 이 경고). */
+    private void clearPersistedPositionsForCurrentMode(String pathLabel) {
+        try {
+            positionRepository.deleteByTradingMode(currentMode.name());
+        } catch (Exception e) {
+            log.warn("[봇] {} 후 포지션 DB 정리 실패: {}", pathLabel, e.getMessage());
         }
     }
 
@@ -2298,6 +2311,20 @@ public class AutoTradingBotService {
         } catch (Exception e) {
             log.error("[스캘핑봇] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage(), e);
 
+            // 1차 익절(절반 매도)은 주문 전에 halfSold=true 를 선반영·영속화하므로, 주문 실패 시
+            // 되돌리지 않으면 절반익절이 영구 스킵되고 트레일링 스탑이 전량을 지배한다 — 매수 buyOk 롤백과 동일 원칙.
+            if (isPartialSell) {
+                ScalpingPosition failedPos = scalpingPositions.get(portfolio.getStockCode());
+                if (failedPos != null && failedPos.halfSold) {
+                    failedPos.halfSold = false;
+                    try {
+                        persistScalpingPosition(failedPos);
+                    } catch (Exception persistEx) {
+                        log.warn("[스캘핑봇] halfSold 롤백 영속화 실패(메모리는 롤백됨): {}", persistEx.getMessage());
+                    }
+                }
+            }
+
             // 종목별 실패 카운트 — 5회 누적 시 포기 (무한 재시도 / 알림 폭주 방지)
             String code = portfolio.getStockCode();
             int failCount = sellFailCount.computeIfAbsent(code, k -> new AtomicInteger(0))
@@ -2453,8 +2480,13 @@ public class AutoTradingBotService {
                 sendEndOfDayReport(result);
             }
 
-            // 스캘핑 포지션만 정리
+            // 스캘핑 포지션만 정리 — DB 행도 함께 삭제(안 지우면 재시작 복원 시 고스트 부활 + 당일 재진입 차단)
             scalpingPositions.clear();
+            try {
+                positionRepository.deleteByStrategyAndTradingMode(Strategy.SCALPING, currentMode.name());
+            } catch (Exception e) {
+                log.warn("[스캘핑봇] 15:10 청산 후 포지션 DB 정리 실패: {}", e.getMessage());
+            }
 
             log.info("[스캘핑봇] 15:10 스캘핑 청산 완료 - {}종목 매도(스윙/종가·수동 유지), 총 손익: {}원",
                     result.soldCount, formatNumber(result.totalProfitLoss));
@@ -2500,6 +2532,7 @@ public class AutoTradingBotService {
                 scalpingPositions.clear();
                 swingPositions.clear();
                 closingPositions.clear();
+                clearPersistedPositionsForCurrentMode("정규장 강제청산");
                 markLiquidatedToday();
                 log.info("[봇] 정규장 마감 강제청산 완료 - {}종목 매도, 총 손익: {}원",
                         result.soldCount, formatNumber(result.totalProfitLoss));
@@ -2576,6 +2609,7 @@ public class AutoTradingBotService {
                 scalpingPositions.clear();
                 swingPositions.clear();
                 closingPositions.clear();
+                clearPersistedPositionsForCurrentMode("NXT 방어 청산");
                 markLiquidatedToday();
                 log.info("[봇] NXT 방어 청산 완료 - {}종목 매도, 총 손익: {}원",
                         result.soldCount, formatNumber(result.totalProfitLoss));
@@ -3570,6 +3604,15 @@ public class AutoTradingBotService {
             AccountSummaryDto account = activeTradeService.getAccountSummary();
             BigDecimal currentAsset = account.getCurrentBalance().add(
                     account.getTotalEvaluation() != null ? account.getTotalEvaluation() : BigDecimal.ZERO);
+
+            // 자산 0원 = REAL 잔고 조회 실패 폴백(빈 요약 DTO) 가능성 — -100% 손실로 오판해
+            // 총 킬스위치를 쏘면 손절 모니터링·강제청산까지 전부 꺼진다(§4c: 결측을 실값으로 위장 금지).
+            // 예외 경로와 동일하게 fail-open + 스로틀 알림으로 처리.
+            if (currentAsset.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("[매매봇] 킬스위치 체크 보류 — 계좌 자산 0원(잔고 조회 실패 폴백 의심)");
+                notifyKillSwitchCheckFailure(new IllegalStateException("계좌 자산 조회값 0원 — 잔고 조회 실패 폴백 의심"));
+                return false;
+            }
 
             if (dailyStartAsset.compareTo(BigDecimal.ZERO) <= 0) {
                 dailyStartAsset = currentAsset;

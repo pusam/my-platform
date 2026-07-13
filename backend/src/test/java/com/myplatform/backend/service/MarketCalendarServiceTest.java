@@ -69,6 +69,36 @@ class MarketCalendarServiceTest {
     }
 
     @Nested
+    @DisplayName("minusTradingDays: 거래일 역산 (시그널 3거래일 평가 컷오프)")
+    class MinusTradingDays {
+        @Test @DisplayName("월요일 기준 3거래일 전 = 수요일 (주말 건너뜀) — 달력일이면 금요일이 되던 버그")
+        void mondayGoesBackToWednesday() {
+            // 2026-07-13 월 → 금(1), 목(2), 수(3)
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 7, 13), 3))
+                    .isEqualTo(LocalDate.of(2026, 7, 8));
+        }
+
+        @Test @DisplayName("목요일 기준 3거래일 전 = 월요일 (주중, 달력일과 동일)")
+        void thursdayGoesBackToMonday() {
+            // 2026-07-16 목 → 수(1), 화(2), 월(3)
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 7, 16), 3))
+                    .isEqualTo(LocalDate.of(2026, 7, 13));
+        }
+
+        @Test @DisplayName("설 연휴(2026-02-16~18) 걸치면 연휴만큼 더 역행")
+        void skipsLunarHolidays() {
+            // 2026-02-19 목 → 2/13 금(1), 2/12 목(2), 2/11 수(3) — 2/16~18 설 연휴 + 주말 건너뜀
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 2, 19), 3))
+                    .isEqualTo(LocalDate.of(2026, 2, 11));
+        }
+
+        @Test @DisplayName("0거래일 = 그대로 반환")
+        void zeroReturnsSame() {
+            assertThat(svc.minusTradingDays(WEEKDAY, 0)).isEqualTo(WEEKDAY);
+        }
+    }
+
+    @Nested
     @DisplayName("P2-9: NXT(08~20) vs KRX 정규장(09~15:40) 경계는 의도적으로 다름")
     class NxtVsKrxGap {
         // 표시/추천/캐시워밍 = NXT 08~20 / 봇·섹터·정규장 판정 = KRX 09~15:40 (불변식 2).

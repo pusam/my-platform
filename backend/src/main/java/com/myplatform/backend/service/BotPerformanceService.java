@@ -29,27 +29,38 @@ public class BotPerformanceService {
     private final VirtualTradeHistoryRepository tradeHistoryRepository;
     private final VirtualAccountRepository accountRepository;
 
-    // Bot trade reasons (매수 + 매도 사유)
+    // Bot trade reasons (매수 + 매도 사유) — AutoTradingBotService 가 기록하는 실값과 동기.
+    // 스윙/종가매수·청산 사유가 빠지면 승률/PnL/MDD 집계에서 해당 거래가 통째로 누락된다.
     private static final List<String> BOT_REASONS = List.of(
-            "SCALPING_ENTRY", "STOP_LOSS", "TAKE_PROFIT", "TAKE_PROFIT_HALF",
-            "TRAILING_STOP", "TIME_CUT", "END_OF_DAY", "AUTO_SELL"
+            "SCALPING_ENTRY", "SWING_FOREIGN", "SWING_INSTITUTION", "CLOSING_BUY",
+            "STOP_LOSS", "TAKE_PROFIT", "TAKE_PROFIT_HALF",
+            "TRAILING_STOP", "TIME_CUT", "END_OF_DAY", "AUTO_SELL",
+            "SCALPING_CLEARANCE", "REGULAR_SESSION_CLOSE", "NXT_SESSION_CLOSE",
+            "GAP_DOWN_EXIT", "EARLY_EXIT"
     );
 
     // 매도 사유만 (성과 분석 시)
     private static final List<String> BOT_SELL_REASONS = List.of(
             "STOP_LOSS", "TAKE_PROFIT", "TAKE_PROFIT_HALF",
-            "TRAILING_STOP", "TIME_CUT", "END_OF_DAY", "AUTO_SELL"
+            "TRAILING_STOP", "TIME_CUT", "END_OF_DAY", "AUTO_SELL",
+            "SCALPING_CLEARANCE", "REGULAR_SESSION_CLOSE", "NXT_SESSION_CLOSE",
+            "GAP_DOWN_EXIT", "EARLY_EXIT"
     );
 
     // 엑시트 사유 한글 라벨
-    private static final Map<String, String> EXIT_REASON_LABELS = Map.of(
-            "STOP_LOSS", "손절",
-            "TAKE_PROFIT", "익절",
-            "TAKE_PROFIT_HALF", "반익절",
-            "TRAILING_STOP", "트레일링 스탑",
-            "TIME_CUT", "시간 컷",
-            "END_OF_DAY", "장마감 청산",
-            "AUTO_SELL", "자동 매도"
+    private static final Map<String, String> EXIT_REASON_LABELS = Map.ofEntries(
+            Map.entry("STOP_LOSS", "손절"),
+            Map.entry("TAKE_PROFIT", "익절"),
+            Map.entry("TAKE_PROFIT_HALF", "반익절"),
+            Map.entry("TRAILING_STOP", "트레일링 스탑"),
+            Map.entry("TIME_CUT", "시간 컷"),
+            Map.entry("END_OF_DAY", "장마감 청산"),
+            Map.entry("AUTO_SELL", "자동 매도"),
+            Map.entry("SCALPING_CLEARANCE", "스캘핑 청산(15:10)"),
+            Map.entry("REGULAR_SESSION_CLOSE", "정규장 강제청산"),
+            Map.entry("NXT_SESSION_CLOSE", "NXT 방어 청산"),
+            Map.entry("GAP_DOWN_EXIT", "갭하락 청산"),
+            Map.entry("EARLY_EXIT", "갭업 미발생 조기청산")
     );
 
     private static final Long REAL_ACCOUNT_ID = 999999L;

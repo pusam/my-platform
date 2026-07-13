@@ -136,8 +136,9 @@ public class BuyChecklistService {
     private ChecklistItem checkConsecutiveBuy(String stockCode) {
         try {
             // 외국인 또는 기관 중 어느 한쪽이라도 3일 연속매수면 통과.
+            // 각자 독립 판정 — 단락평가(foreignMatch ||)로 묶으면 외국인만 매칭돼도 "외국인+기관"으로 표시됐다.
             boolean foreignMatch = matchesConsecutive(stockCode, "FOREIGN");
-            boolean institutionMatch = foreignMatch || matchesConsecutive(stockCode, "INSTITUTION");
+            boolean institutionMatch = matchesConsecutive(stockCode, "INSTITUTION");
             boolean passed = foreignMatch || institutionMatch;
             String who = foreignMatch && institutionMatch ? "외국인+기관"
                     : foreignMatch ? "외국인"

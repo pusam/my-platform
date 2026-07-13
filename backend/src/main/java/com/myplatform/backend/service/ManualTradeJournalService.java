@@ -60,6 +60,8 @@ public class ManualTradeJournalService {
     // Phase 3 — 섹터 집중 경고(경고만, 차단 없음). 봇 포지션은 §4d 준수 read-only.
     private final SectorStockConfig sectorConfig;
     private final BotTradingPositionRepository botPositionRepository;
+    // "3거래일 후" 컷오프 계산 — signal_outcome 과 같은 잣대(달력일 아님). null-safe(단위테스트 미주입 보존).
+    private final ObjectProvider<MarketCalendarService> calendarProvider;
 
     /** ATR14 일봉 로드 행 수 — StockConclusionService 와 동일. */
     private static final int ATR_HISTORY_ROWS = 40;
@@ -176,9 +178,13 @@ public class ManualTradeJournalService {
     @Scheduled(scheduler = "batchScheduler", cron = "0 40 19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void evaluatePendingJournals() {
-        // buyDate ≤ today-3 과 동치인 datetime 컷 (signal_outcome 의 signalDate ≤ cutoff 와 같은 잣대).
-        LocalDateTime cutoff = LocalDate.now()
-                .minusDays(EVALUATION_DELAY_DAYS).plusDays(1).atStartOfDay();
+        // buyDate ≤ (오늘-3거래일) 과 동치인 datetime 컷 (signal_outcome 의 signalDate ≤ cutoff 와 같은 잣대).
+        // 거래일 역산 — 달력일 minusDays(3)는 금요일 매수가 1거래일 만에 평가되는 왜곡. 캘린더 미가용 시 달력일 폴백.
+        MarketCalendarService calendar = calendarProvider != null ? calendarProvider.getIfAvailable() : null;
+        LocalDate cutoffDate = calendar != null
+                ? calendar.minusTradingDays(LocalDate.now(), EVALUATION_DELAY_DAYS)
+                : LocalDate.now().minusDays(EVALUATION_DELAY_DAYS);
+        LocalDateTime cutoff = cutoffDate.plusDays(1).atStartOfDay();
         List<ManualTradeJournal> pending = journalRepository.findPendingEvaluation(cutoff);
         if (pending.isEmpty()) return;
 

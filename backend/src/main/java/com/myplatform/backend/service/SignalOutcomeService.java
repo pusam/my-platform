@@ -63,6 +63,8 @@ public class SignalOutcomeService {
     private final org.springframework.beans.factory.ObjectProvider<SignalOutcomeService> selfProvider;
     // 크론 dead-man switch — 19:30 평가 성공 심박 기록(best-effort). null-safe(단위테스트 미주입 보존).
     private final org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider;
+    // "3거래일 후" 컷오프 계산용 — 달력일 minusDays(3)는 금요일 시그널이 1거래일 만에 평가되는 왜곡.
+    private final org.springframework.beans.factory.ObjectProvider<MarketCalendarService> calendarProvider;
     private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
@@ -275,7 +277,7 @@ public class SignalOutcomeService {
     @Scheduled(scheduler = "batchScheduler", cron = "0 30 19 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void evaluatePendingSignals() {
-        LocalDate cutoff = LocalDate.now().minusDays(EVALUATION_DELAY_DAYS);
+        LocalDate cutoff = resolveEvaluationCutoff(LocalDate.now());
         List<SignalOutcome> pending = repository.findPendingEvaluation(cutoff);
         if (pending.isEmpty()) {
             // 평가 대상 없어도 헬스 체크는 실행 — 누적 표본 기준이라 신규 평가 0건이어도 의미 있음.
@@ -336,6 +338,18 @@ public class SignalOutcomeService {
                 evaluated, pending.size(), kospiNow != null ? "활성" : "비활성(폴백)");
         checkStrongBuyAlphaHealth();
         beatEvaluationHeartbeat();
+    }
+
+    /**
+     * "3거래일 경과" 평가 컷오프 — 주말·공휴일 제외 역산(문서·집계가 전제하는 "3거래일 후"와 일치).
+     * 캘린더 미가용(단위테스트 미주입 등) 시 달력일 폴백 — 종전 동작 보존.
+     */
+    private LocalDate resolveEvaluationCutoff(LocalDate today) {
+        MarketCalendarService calendar = calendarProvider != null ? calendarProvider.getIfAvailable() : null;
+        if (calendar != null) {
+            return calendar.minusTradingDays(today, EVALUATION_DELAY_DAYS);
+        }
+        return today.minusDays(EVALUATION_DELAY_DAYS);
     }
 
     /** 19:30 평가 크론 성공 심박 — dead-man switch(BatchHeartbeatService). best-effort, 평가 본체 무영향. */

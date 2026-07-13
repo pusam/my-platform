@@ -1533,7 +1533,11 @@ public class RecommendationService {
             try {
                 // stockCode 우선 매핑 — DartService corpCode 캐시 hit 으로 정확한 공시 조회.
                 if (riskManagementService.quickDangerCheck(stock.stockCode, stock.stockName)) {
-                    stock.valueStability = Math.max(0, stock.valueStability - 5);
+                    // NA(-1) 는 감점하지 않음 — Math.max(0, -1-5)=0 이 "데이터 없음"을 "0점"으로
+                    // 위장해 스냅샷까지 실값으로 오염(§4c). 감점은 실측값이 있을 때만.
+                    if (stock.valueStability >= 0) {
+                        stock.valueStability = Math.max(0, stock.valueStability - 5);
+                    }
                     stock.tags.add("⚠리스크공시");
                     hit++;
                 }
@@ -1976,8 +1980,10 @@ public class RecommendationService {
         int ma20Penalty = 0, divergencePenalty = 0, tagFixed = 0;
 
         // 상위 후보 — TOP10 노출 + 후보군 11~20위까지 검증해 다음 회차 승격 시 정확도 ↑
+        // validCount 게이트는 최종 필터(≥3, coverage 75%)와 동일하게 — ≥4 잔재(구 필터 시절)를 두면
+        // vc=3 종목이 교차검증(MA20·낡은 태그 제거·수급 괴리) 없이 TOP10 에 노출된다.
         List<StockScore> topCandidates = scoreMap.values().stream()
-                .filter(s -> countValidCategories(s) >= 4)
+                .filter(s -> countValidCategories(s) >= 3)
                 .sorted(Comparator.comparingInt(StockScore::getNormalizedTotal).reversed())
                 .limit(20)
                 .collect(Collectors.toList());

@@ -88,6 +88,22 @@ public class MarketCalendarService {
         return !time.isBefore(MARKET_OPEN) && !time.isAfter(MARKET_CLOSE);
     }
 
+    /**
+     * {@code from} 기준 {@code tradingDays} 거래일 이전 날짜 — 주말·공휴일을 건너뛰며 역행.
+     *
+     * <p>"3거래일 후 평가" 컷오프용(SignalOutcome/ManualTradeJournal). 달력일 minusDays(3) 는
+     * 금요일 시그널이 월요일(1거래일 경과)에 평가되는 왜곡이 있었다.
+     */
+    public LocalDate minusTradingDays(LocalDate from, int tradingDays) {
+        LocalDate d = from;
+        int remaining = tradingDays;
+        while (remaining > 0) {
+            d = d.minusDays(1);
+            if (!isMarketClosed(d)) remaining--;
+        }
+        return d;
+    }
+
     /** 오늘이 평일이고, 컨테이너 시작 시점이 cron 시각 이후라 catch-up 이 의미있는지.
      *  - 평일 + 개장 1시간 전~정오 사이 시작이면 morning 작업 catch-up 가치 있음.
      *  - 너무 늦게(오후·저녁) 시작했으면 morning 작업 catch-up 은 노이즈. */

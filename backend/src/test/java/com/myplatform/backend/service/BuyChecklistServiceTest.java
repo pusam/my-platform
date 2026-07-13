@@ -223,6 +223,27 @@ class BuyChecklistServiceTest {
     }
 
     @Test
+    @DisplayName("외국인만 연속매수 매칭 → value '외국인' (단락평가로 '외국인+기관' 위장하던 버그)")
+    void consecutiveBuy_foreignOnly_showsForeignOnly() {
+        when(stockStatusService.isActive(anyString())).thenReturn(true);
+        when(shortSellingService.getShortSellingRatio(anyString())).thenReturn(new BigDecimal("2.0"));
+        when(investorTradeService.getConsecutiveBuyStocks(org.mockito.ArgumentMatchers.eq("FOREIGN"), anyInt()))
+                .thenReturn(List.of(consecutive("005930")));
+        when(investorTradeService.getConsecutiveBuyStocks(org.mockito.ArgumentMatchers.eq("INSTITUTION"), anyInt()))
+                .thenReturn(Collections.emptyList()); // 기관은 미매칭
+        when(compositeSignalService.evaluate(anyString())).thenReturn(composite(4));
+        when(stockConclusionService.getConclusion(anyString()))
+                .thenReturn(conclusion(StockConclusionDto.Level.BUY));
+
+        BuyChecklistDto dto = service.evaluate("005930");
+
+        BuyChecklistDto.ChecklistItem item = dto.getItems().stream()
+                .filter(i -> "consecutiveBuy".equals(i.getKey())).findFirst().orElseThrow();
+        assertThat(item.isPassed()).isTrue();          // 한쪽만 매칭돼도 통과는 유지
+        assertThat(item.getValue()).isEqualTo("외국인"); // 근거 표시는 실제 매칭 주체만
+    }
+
+    @Test
     @DisplayName("의존 서비스 예외 → 해당 항목만 체크 불가, 나머지 정상")
     void dependencyFailure_partialEvaluation() {
         when(stockStatusService.isActive(anyString())).thenThrow(new RuntimeException("DB down"));
