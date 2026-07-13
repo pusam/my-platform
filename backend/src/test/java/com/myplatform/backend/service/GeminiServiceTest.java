@@ -107,6 +107,53 @@ class GeminiServiceTest {
         }
     }
 
+    // ========== 저우선 양보 판정 (P2-CAT2) ==========
+
+    @Nested
+    @DisplayName("저우선(AI전략) quota 압박 양보 — 순수 판정 + scoreStockCandidates 게이트")
+    class LowPriorityYieldTests {
+
+        private final java.time.LocalDateTime now = java.time.LocalDateTime.of(2026, 7, 14, 10, 0);
+
+        @Test
+        @DisplayName("압박 없음(리셋 비활성 + 에러 0) → 양보 안 함")
+        void noPressure_proceeds() {
+            assertThat(GeminiService.shouldYieldLowPriority(null, 0, now)).isFalse();
+        }
+
+        @Test
+        @DisplayName("quotaResetTime 활성(리셋 전) → 양보")
+        void activeQuotaReset_yields() {
+            assertThat(GeminiService.shouldYieldLowPriority(now.plusSeconds(30), 0, now)).isTrue();
+        }
+
+        @Test
+        @DisplayName("quotaResetTime 경과(리셋 후) + 에러 0 → 양보 안 함 (영구 차단 아님)")
+        void expiredQuotaReset_proceeds() {
+            assertThat(GeminiService.shouldYieldLowPriority(now.minusSeconds(1), 0, now)).isFalse();
+        }
+
+        @Test
+        @DisplayName("연속 rate limit 에러 잔존(>0) → 양보 (리셋 시간 무관)")
+        void consecutiveErrors_yield() {
+            assertThat(GeminiService.shouldYieldLowPriority(null, 1, now)).isTrue();
+            assertThat(GeminiService.shouldYieldLowPriority(now.minusMinutes(5), 2, now)).isTrue();
+        }
+
+        @Test
+        @DisplayName("scoreStockCandidates — 압박 중이면 Gemini 호출 없이 빈 Map(기존 폴백과 동일 형태)")
+        void scoreStockCandidates_yieldsUnderPressure() {
+            ReflectionTestUtils.setField(geminiService, "quotaResetTime",
+                    java.time.LocalDateTime.now().plusMinutes(1));
+
+            Map<String, GeminiService.AiScoreResult> result = geminiService.scoreStockCandidates(
+                    List.of(new com.myplatform.backend.entity.AiStrategySnapshot()), "SCALPING");
+
+            assertThat(result).isEmpty();
+            verifyNoInteractions(mockRestTemplate);   // 저우선 양보 = API 호출 자체를 안 함
+        }
+    }
+
     // ========== 정상 동작 ==========
 
     @Nested

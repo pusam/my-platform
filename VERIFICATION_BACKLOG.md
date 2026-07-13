@@ -14,8 +14,9 @@
 - **테스트**: 배치 프롬프트 빌드(N종목·형식) 순수 + 배열 응답 파싱(정상/부분결손/깨진 항목) 순수. `parseCatalystResponse` 단건 규약 회귀 유지.
 - **주의**: 프롬프트 길어지면 품질 저하 가능 → 종목수 상한(예 5). 산식 미편입 불변(§4b).
 
-## P2-CAT2. Gemini 소비자 우선순위 (재료 > AI전략) — 후속 (2026-07-01)
-- **문제**: rate 게이트를 재료·AI전략·StockDetail 이 FIFO 공유. quota 압박 시 재료(사용자 배지)가 AI전략(배경 스냅샷) 뒤로 밀릴 수 있음. 현재 AI전략은 quota 소진 시 '코멘트 없음' 폴백이라 최악은 방어되나, 명시적 우선순위는 없음.
+## P2-CAT2. Gemini 소비자 우선순위 (재료 > AI전략) — ✅ 완료 (2026-07-14)
+- **✅ 해소**: 순수 판정 `GeminiService.shouldYieldLowPriority(quotaResetTime, consecutiveErrors, now)`(압박 = 리셋 활성 OR 연속 rate limit 에러 잔존) + `scoreStockCandidates`(AI전략 스냅샷의 유일한 저우선 진입점) 진입부 게이트 — 압박 시 Gemini 호출 없이 빈 Map(기존 '코멘트 없음' 폴백과 동일 형태, 점수는 알고리즘 기반이라 무영향). 고우선(재료 classifyBatch·StockDetail 사용자 트리거)은 무변경으로 rate 슬롯을 양보받음. 압박 해제(리셋 경과+에러 0) 시 저우선도 정상 진행(영구 차단 아님). 테스트: `GeminiServiceTest.LowPriorityYieldTests`(순수 4케이스 + 게이트 시 RestTemplate 무호출).
+- **문제(원기록)**: rate 게이트를 재료·AI전략·StockDetail 이 FIFO 공유. quota 압박 시 재료(사용자 배지)가 AI전략(배경 스냅샷) 뒤로 밀릴 수 있음. 현재 AI전략은 quota 소진 시 '코멘트 없음' 폴백이라 최악은 방어되나, 명시적 우선순위는 없음.
 - **합격 기준**: ① 저우선(AI전략 스냅샷) 호출은 quota 압박(quotaResetTime 활성/consecutiveErrors>0) 시 **자발적 양보**(스킵→폴백), 고우선(재료·StockDetail 사용자 트리거)은 진행. ② VIRTUAL/기존 폴백 동작 무변경. ③ 우선순위 플래그를 GeminiService 호출 경로에 주입(옵션 인자).
 - **테스트**: 우선순위 판정 순수 함수(압박 상태×우선순위 → 진행/양보) 단위.
 - **주의**: over-engineering 금지 — 플래그 1개(low-priority yields)로 최소 구현.

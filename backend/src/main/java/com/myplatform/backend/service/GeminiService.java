@@ -942,6 +942,14 @@ public class GeminiService {
             return Collections.emptyMap();
         }
 
+        // P2-CAT2: AI전략 스냅샷은 저우선(배경 작업) — quota 압박 시 자발적 양보(스킵→기존 폴백).
+        // 고우선(재료 분류·StockDetail 사용자 트리거)은 게이트 없이 진행해 rate 슬롯을 양보받는다.
+        if (shouldYieldLowPriority(quotaResetTime, consecutiveErrors.get(), LocalDateTime.now())) {
+            log.info("[AI Scoring] {} - quota 압박(리셋: {}, 연속에러: {}) → 저우선 양보 (코멘트 없이 진행)",
+                    strategyType, quotaResetTime, consecutiveErrors.get());
+            return Collections.emptyMap();
+        }
+
         // 전략별 평가 맥락
         String strategyContext = switch (strategyType) {
             case "SCALPING" -> "모멘텀/단기 급등 가능성 (거래량 급증, 체결강도, 단기 수급)";
@@ -1379,6 +1387,17 @@ public class GeminiService {
      */
     private void enforceRateLimit() {
         rateLimiter.acquire();
+    }
+
+    /**
+     * 저우선(배경 스냅샷) 호출의 quota 압박 시 양보 판정 — <b>순수 함수(테스트 대상)</b>.
+     * 압박 = quotaResetTime 활성(아직 리셋 전) OR 최근 rate limit 에러 잔존(consecutiveErrors &gt; 0).
+     * 저우선만 이 판정으로 스킵하고, 고우선(재료·사용자 트리거)은 기존 quotaResetTime 게이트만 탄다.
+     * 압박 해제(리셋 경과 + 에러 0)면 false — 저우선도 정상 진행(영구 차단 아님).
+     */
+    static boolean shouldYieldLowPriority(LocalDateTime quotaResetTime, int consecutiveErrors, LocalDateTime now) {
+        if (quotaResetTime != null && now.isBefore(quotaResetTime)) return true;
+        return consecutiveErrors > 0;
     }
 
     /**
