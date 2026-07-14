@@ -568,7 +568,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import GlobalNav from '../components/GlobalNav.vue';
 import BackButton from '../components/BackButton.vue';
@@ -637,6 +637,11 @@ const chartPeriod = ref(30);
 const chartPeriodOptions = computed(() => {
   const available = chartData.value?.candles?.length || 0;
   return available > 30 ? [30, 60] : [30];
+});
+// 종목 이동으로 캔들이 줄어 60일 옵션이 사라지면 선택도 30으로 클램프
+// (안 하면 60 잔존 → dense 봉폭·토글 활성 표시가 어긋난 유령 상태).
+watch(chartPeriodOptions, (opts) => {
+  if (!opts.includes(chartPeriod.value)) chartPeriod.value = 30;
 });
 
 const {

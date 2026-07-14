@@ -49,12 +49,14 @@ export function computeTrendChannel(candles) {
   const intercept = meanY - slope * meanX;
   const regAt = (i) => intercept + slope * i;
 
-  // 평행 이동 오프셋 — 모든 고가/저가를 감싸는 최대 이탈
+  // 평행 이동 오프셋 — 모든 고가/저가를 감싸는 최대 이탈.
+  // 고저가도 0/음수 거부(백엔드 TrendChannelCalculator 와 동일) — 거래정지일 봉(고저 0)이 섞이면
+  // 하단선이 0 근처로 붕괴해 position≈1(상단 100%) 오판을 만든다(§4c).
   let offsetUp = 0, offsetDown = 0;
   for (let i = 0; i < n; i++) {
     const high = Number(candles[i].high);
     const low = Number(candles[i].low);
-    if (!Number.isFinite(high) || !Number.isFinite(low)) return null;
+    if (!Number.isFinite(high) || high <= 0 || !Number.isFinite(low) || low <= 0) return null;
     offsetUp = Math.max(offsetUp, high - regAt(i));
     offsetDown = Math.max(offsetDown, regAt(i) - low);
   }

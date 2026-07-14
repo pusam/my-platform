@@ -62,6 +62,18 @@ describe('computeTrendChannel (회귀 채널, 표시 전용)', () => {
     expect(computeTrendChannel(bad)).toBeNull()
   })
 
+  it('고저가 0/음수(거래정지일 봉) → null — 백엔드 TrendChannelCalculator 와 동일 극성', () => {
+    // 종가는 정상인데 저가=0 인 봉(거래정지일 KIS 일봉 형태) → 채널 하단이 0 근처로 붕괴해
+    // position≈1(상단 100%) 오판을 만들므로 채널 미산출이 정직(§4c)
+    const haltLow = candles(15)
+    haltLow[7] = { close: 100, high: 100, low: 0, open: 100 }
+    expect(computeTrendChannel(haltLow)).toBeNull()
+
+    const haltHigh = candles(15)
+    haltHigh[7] = { close: 100, high: -1, low: 99, open: 100 }
+    expect(computeTrendChannel(haltHigh)).toBeNull()
+  })
+
   it('widthPct: 채널 폭 = (상단-하단)/중심 % — spread 클수록 넓다', () => {
     const narrow = computeTrendChannel(candles(30, { base: 100, step: 0.5, spread: 1 }))
     const wide = computeTrendChannel(candles(30, { base: 100, step: 0.5, spread: 5 }))
