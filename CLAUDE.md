@@ -116,6 +116,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
 - 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)
 - 최대 화면: `StockDetailDashboard.vue` (~4,707줄)
+- 종목상세 주가 차트: **lightweight-charts 렌더러 `components/v2/HtsChart.vue`**(십자선·축눈금·줌/팬 내장, 2026-07-15 DIV/SVG 수제 차트에서 교체). 시리즈 변환 순수함수 `utils/htsChartData.js`(일봉 date/분봉 KST epoch time 규약). 데이터/계산 계층은 `composables/useChartCalculations.js`(채널·꼬리는 `utils/trendChannel.js`·`utils/candleAnatomy.js`, 백엔드 `TrendChannelCalculator`·V49 스냅샷과 산식 동기 — 변경 시 화면↔보드↔검증 어긋남). 당일 분봉('1일' 탭)=`IntradayChartService`(`/api/stock/{code}/intraday-candles`). 마이그레이션 이력: `docs/GUIDE_HTS_CHART_MIGRATION.md`.
 
 ## 프론트 IA (P-IA 3단계, 2026-06-11)
 - 주식 허브 = `StockTradingDashboardV2` 단일 화면, **GNB 4탭: 오늘/시장/발굴/매매** (`DashboardHeader.vue`). 레거시 경로(/sector, /news, /ai-strategy 등)는 main.js 에서 탭 쿼리로 redirect — **새 주식 화면(라우트)을 만들지 말고 탭/서브탭에 흡수할 것.**

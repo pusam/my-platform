@@ -1684,88 +1684,6 @@ onUnmounted(() => {
 }
 .chart-section.fullscreen .channel-caption { font-size: 13px; }
 
-.ma-legend {
-  display: flex;
-  gap: 12px;
-  font-size: 0.75rem;
-}
-
-.ma5 { color: #f59e0b; }
-.ma20 { color: #3b82f6; }
-.vwap { color: #a855f7; }
-
-.candlestick-container {
-  height: 220px;
-  background: rgba(0,0,0,0.2);
-  border-radius: 8px;
-  padding: 10px;
-  overflow: hidden;
-}
-
-.candlestick-chart {
-  display: flex;
-  justify-content: space-around;
-  align-items: flex-end;
-  height: 100%;
-  position: relative;
-}
-
-/* 이동평균선 SVG 오버레이 */
-.chart-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  viewBox: 0 0 100 100;
-}
-
-/* 지지/저항 가격 라벨 (HTML 오버레이 — SVG 폰트 안 흔들리게) */
-.sr-line-labels {
-  position: absolute;
-  top: 0; right: 0; bottom: 0;
-  width: 60px;
-  pointer-events: none;
-}
-.sr-line-label {
-  position: absolute;
-  right: 2px;
-  transform: translateY(-50%);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 9px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  background: rgba(15, 15, 26, 0.85);
-  border: 1px solid;
-}
-.sr-line-label.type-resistance { color: #f87171; border-color: rgba(239,68,68,0.45); }
-.sr-line-label.type-support    { color: #60a5fa; border-color: rgba(59,130,246,0.45); }
-.sr-line-label.st-high { font-weight: 700; }
-.sr-line-label.st-low  { opacity: 0.7; }
-
-/* 추세 채널 상단/하단 가격 라벨 — S/R 라벨(우측 60px 스트립) 안쪽에 배치해 겹침 회피 */
-.channel-line-labels {
-  position: absolute;
-  top: 0; right: 64px; bottom: 0;
-  pointer-events: none;
-}
-.channel-line-label {
-  position: absolute;
-  right: 0;
-  transform: translateY(-50%);
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: 9px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  background: rgba(15, 15, 26, 0.85);
-  border: 1px solid;
-}
-
 /* SR / 패턴 토글 */
 .ind-toggle.sr-toggle.active { background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.4); color: #f87171; }
 .ind-toggle.pattern-toggle.active { background: rgba(168,85,247,0.18); border-color: rgba(168,85,247,0.4); color: #c084fc; }
@@ -1819,8 +1737,6 @@ onUnmounted(() => {
 .tail-note.up { border-left: 3px solid #f87171; }
 .tail-note.down { border-left: 3px solid #60a5fa; }
 .tail-note .tail-sub { opacity: 0.55; font-size: 10.5px; }
-.candlestick-chart.dense .candle { width: 4px; }
-.volume-chart.dense .volume-bar { width: 4px; }
 
 /* 차트 지표 토글 버튼 */
 .chart-toggles {
@@ -1854,50 +1770,6 @@ onUnmounted(() => {
 .ind-toggle.active[style*="--ind-color: #10b981"] { background: rgba(16,185,129,0.18); }
 .ind-toggle.active[style*="--ind-color: #a855f7"] { background: rgba(168,85,247,0.18); }
 .ind-toggle.active[style*="--ind-color: #6b7280"] { background: rgba(107,114,128,0.18); }
-
-.candle {
-  width: 8px;
-  position: relative;
-}
-
-.candle .wick {
-  position: absolute;
-  width: 1px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: currentColor;
-}
-
-.candle .body {
-  position: absolute;
-  width: 100%;
-  border-radius: 1px;
-}
-
-.candle.up { color: #ef4444; }
-.candle.up .body { background: #ef4444; }
-.candle.down { color: #3b82f6; }
-.candle.down .body { background: #3b82f6; }
-
-.volume-chart {
-  display: flex;
-  justify-content: space-around;
-  align-items: flex-end;
-  height: 50px;
-  margin-top: 8px;
-  background: rgba(0,0,0,0.2);
-  border-radius: 4px;
-  padding: 4px;
-}
-
-.volume-bar {
-  width: 8px;
-  background: #4a4a8a;
-  border-radius: 2px;
-  transition: height 0.2s;
-}
-
-.volume-bar.up { background: rgba(239, 68, 68, 0.5); }
 
 /* Program Chart Section */
 

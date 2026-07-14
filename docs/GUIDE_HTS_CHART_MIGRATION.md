@@ -1,5 +1,10 @@
 # 가이드: 종목상세 차트를 실제 HTS 차트로 교체 (lightweight-charts)
 
+> **✅ 완료 (2026-07-15).** lightweight-charts ^5.2.0 로 구현. 커밋: Phase 1 `61e0234`(HtsChart+htsChartData)
+> · Phase 2 `2f1b158`(대시보드 배선) · Phase 3(구 CSS 정리+어트리뷰션). 실제 코드 = `components/v2/HtsChart.vue`,
+> `utils/htsChartData.js`(+테스트), `StockDetailDashboard.vue`. 아래 원문은 설계 근거로 보존.
+> **잔여(선택)**: §6-6 60봉 한계 확장은 사용자 요청 시. §6-8 자동갱신 시 줌 유지는 운영 QA 후 필요 시 튜닝.
+
 > **이 문서는 다음 세션(다른 모델 포함)이 그대로 읽고 작업하도록 쓴 자족적 구현 가이드다.**
 > 작성: 2026-07-15. 대상 독자는 이 저장소를 처음 보는 구현자 — CLAUDE.md 를 먼저 읽을 것.
 > 사용자 요구: "차트를 실제 HTS 차트처럼" — 십자선+OHLCV 툴팁, 가격/시간 축 눈금, 마우스 줌/팬을
