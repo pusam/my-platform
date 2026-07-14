@@ -192,92 +192,20 @@
           <div v-else-if="isIntraday && !displayCandles.length" class="intraday-note">
             당일 분봉 없음 — 장전/휴장이거나 수집 실패입니다. 일봉 보기(7/30일)를 이용하세요.
           </div>
-          <div class="candlestick-container">
-            <div class="candlestick-chart" :class="{ dense: displayCandles.length > 30 }" ref="candleChartRef">
-              <div
-                v-for="(candle, index) in displayCandles"
-                :key="index"
-                class="candle"
-                :class="{ up: candle.close >= candle.open, down: candle.close < candle.open }"
-                :style="getCandleStyle(candle)"
-              >
-                <div class="wick" :style="getWickStyle(candle)"></div>
-                <div class="body" :style="getBodyStyle(candle)"></div>
-              </div>
-              <!-- 이동평균선 + 볼린저밴드 SVG 오버레이 -->
-              <svg v-if="displayCandles.length" class="chart-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
-                <polyline v-if="activeIndicators.ma5 && maLinePath('maLine5')"
-                  :points="maLinePath('maLine5')" fill="none" stroke="#f59e0b" stroke-width="1.5" opacity="0.8"/>
-                <polyline v-if="activeIndicators.ma20 && maLinePath('maLine20')"
-                  :points="maLinePath('maLine20')" fill="none" stroke="#3b82f6" stroke-width="1.5" opacity="0.8"/>
-                <polyline v-if="activeIndicators.ma60 && maLinePath('maLine60')"
-                  :points="maLinePath('maLine60')" fill="none" stroke="#10b981" stroke-width="1.5" opacity="0.8"/>
-                <polyline v-if="activeIndicators.ma120 && maLinePath('maLine120')"
-                  :points="maLinePath('maLine120')" fill="none" stroke="#a855f7" stroke-width="1.5" opacity="0.8"/>
-                <template v-if="activeIndicators.bb">
-                  <polyline v-if="maLinePath('bbUpper')"
-                    :points="maLinePath('bbUpper')" fill="none" stroke="#6b7280" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
-                  <polyline v-if="maLinePath('bbLower')"
-                    :points="maLinePath('bbLower')" fill="none" stroke="#6b7280" stroke-width="1" stroke-dasharray="4,3" opacity="0.6"/>
-                </template>
-                <!-- 지지/저항 가로선 (토글 가능) -->
-                <template v-if="showSrLines">
-                  <line v-for="(l, i) in chartSrLines" :key="'srL'+i"
-                    x1="0" x2="100" :y1="l.y" :y2="l.y"
-                    :stroke="l.type === 'resistance' ? '#ef4444' : '#3b82f6'"
-                    :stroke-width="l.strength === 'HIGH' ? 0.5 : 0.3"
-                    stroke-dasharray="1,0.6" :opacity="l.strength === 'HIGH' ? 0.85 : 0.55"
-                    vector-effect="non-scaling-stroke"/>
-                </template>
-                <!-- 차트 패턴 마커 (토글 가능) — 표시 30일 안에 있는 keyPoints 만 -->
-                <template v-if="showPatternMarkers">
-                  <circle v-for="(m, i) in chartPatternMarkers" :key="'mk'+i"
-                    :cx="m.x" :cy="m.y" r="1.2"
-                    :fill="m.signal === 'BULLISH' ? '#ef4444' : (m.signal === 'BEARISH' ? '#3b82f6' : '#9ca3af')"
-                    stroke="#fff" stroke-width="0.3" vector-effect="non-scaling-stroke"/>
-                </template>
-                <!-- 추세 채널 (회귀 채널, 표시 전용 — 산식 미편입) -->
-                <template v-if="showChannel && chartChannel">
-                  <line :x1="chartChannel.x1" :x2="chartChannel.x2"
-                    :y1="chartChannel.upperY1" :y2="chartChannel.upperY2"
-                    :stroke="channelColor" stroke-width="1.1" opacity="0.75"
-                    vector-effect="non-scaling-stroke"/>
-                  <line :x1="chartChannel.x1" :x2="chartChannel.x2"
-                    :y1="chartChannel.lowerY1" :y2="chartChannel.lowerY2"
-                    :stroke="channelColor" stroke-width="1.1" opacity="0.75"
-                    vector-effect="non-scaling-stroke"/>
-                  <line :x1="chartChannel.x1" :x2="chartChannel.x2"
-                    :y1="chartChannel.midY1" :y2="chartChannel.midY2"
-                    :stroke="channelColor" stroke-width="0.8" stroke-dasharray="4,4" opacity="0.4"
-                    vector-effect="non-scaling-stroke"/>
-                </template>
-              </svg>
-              <!-- 지지/저항 가격 라벨 (HTML 오버레이 — 폰트 크기 안정) -->
-              <div v-if="showSrLines && chartSrLines.length" class="sr-line-labels">
-                <span v-for="(l, i) in chartSrLines" :key="'srLab'+i"
-                      class="sr-line-label" :class="['type-' + l.type, 'st-' + l.strength?.toLowerCase()]"
-                      :style="{ top: l.y + '%' }">
-                  {{ Number(l.price).toLocaleString() }}
-                </span>
-              </div>
-              <!-- 추세 채널 상단/하단 현재 가격 라벨 — 채널 선 오른쪽 끝 높이(마지막 봉 기준가) -->
-              <div v-if="showChannel && channelPriceLabels.length" class="channel-line-labels">
-                <span v-for="lab in channelPriceLabels" :key="'chLab' + lab.kind"
-                      class="channel-line-label"
-                      :style="{ top: lab.y + '%', color: channelColor, borderColor: channelColor }">
-                  {{ lab.text }}
-                </span>
-              </div>
-            </div>
-          </div>
-          <div class="volume-chart" :class="{ dense: displayCandles.length > 30 }">
-            <div
-              v-for="(vol, index) in displayVolumes"
-              :key="index"
-              class="volume-bar"
-              :class="{ up: displayCandles[index]?.close >= displayCandles[index]?.open }"
-              :style="{ height: getVolumeHeight(vol.volume) + '%' }"
-            ></div>
+          <!-- HTS 차트 (lightweight-charts) — 십자선·축눈금·줌/팬 내장. 데이터/토글은 props 로만 전달. -->
+          <div v-else class="hts-chart-wrap">
+            <HtsChart
+              :display-candles="displayCandles"
+              :display-volumes="displayVolumes"
+              :ma-series="maSeriesForChart"
+              :bollinger="bollingerForChart"
+              :sr-levels="srLevelsForChart"
+              :channel="showChannel ? chartChannel : null"
+              :channel-color="channelColor"
+              :markers-input="markersForChart"
+              :is-intraday="isIntraday"
+              :today-ymd="todayYmd"
+            />
           </div>
           <!-- 추세 채널 해설 (표시 전용 관찰 — 매매 신호 아님) -->
           <div v-if="showChannel && channelCaption" class="channel-caption"
@@ -627,6 +555,7 @@ import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import DataFreshness from '../components/DataFreshness.vue';
+import HtsChart from '../components/v2/HtsChart.vue';
 import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
@@ -727,16 +656,42 @@ const channelColor = computed(() => {
   const dir = chartChannel.value?.direction;
   return dir === 'UP' ? '#ef4444' : dir === 'DOWN' ? '#3b82f6' : '#9ca3af';
 });
-// 채널 상단/하단 현재 가격 라벨(마지막 봉 기준) — 선 끝 y 에 표시, 화면 밖 이탈만 2~98% 클램프.
-const channelPriceLabels = computed(() => {
-  const ch = chartChannel.value;
-  if (!ch) return [];
-  const clamp = (v) => Math.min(98, Math.max(2, v));
-  return [
-    { kind: 'upper', y: clamp(ch.upperY2), text: '상단 ' + Math.round(ch.upperEnd).toLocaleString() },
-    { kind: 'lower', y: clamp(ch.lowerY2), text: '하단 ' + Math.round(ch.lowerEnd).toLocaleString() }
-  ];
+// ===== HtsChart(lightweight-charts) props — useChartCalculations 데이터 계층을 렌더러에 전달 =====
+// 오늘 날짜(KST yyyy-MM-dd) — 분봉 'HH:mm' → epoch 변환 기준(당일 분봉이라 오늘).
+const todayYmd = computed(() =>
+  new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(new Date()));
+// 이동평균 — 토글 ON 인 것만, 분봉 모드엔 없음(백엔드 maLine 미제공, §4c).
+const MA_KEY_MAP = { ma5: 'maLine5', ma20: 'maLine20', ma60: 'maLine60', ma120: 'maLine120' };
+const maSeriesForChart = computed(() => {
+  if (isIntraday.value || !chartData.value) return {};
+  const out = {};
+  for (const [tog, dataKey] of Object.entries(MA_KEY_MAP)) {
+    if (activeIndicators[tog] && chartData.value[dataKey]) out[tog] = chartData.value[dataKey];
+  }
+  return out;
 });
+const bollingerForChart = computed(() => {
+  if (isIntraday.value || !activeIndicators.bb || !chartData.value) return null;
+  const { bbUpper, bbLower } = chartData.value;
+  return (bbUpper && bbLower) ? { upper: bbUpper, lower: bbLower } : null;
+});
+// S/R 레벨 — 표시 봉 가격대 근처만(멀리 있는 레벨이 스케일 흐리지 않게). 원 chartSrLines 필터 계승.
+const srLevelsForChart = computed(() => {
+  if (!showSrLines.value || !supportResistance.value || !displayCandles.value.length) return [];
+  const lo = Math.min(...displayCandles.value.map(c => c.low)) * 0.9;
+  const hi = Math.max(...displayCandles.value.map(c => c.high)) * 1.1;
+  const inRange = (p) => Number(p) >= lo && Number(p) <= hi;
+  const out = [];
+  for (const l of (supportResistance.value.resistance || [])) {
+    if (inRange(l.price)) out.push({ price: l.price, type: 'resistance', strength: l.strength });
+  }
+  for (const l of (supportResistance.value.support || [])) {
+    if (inRange(l.price)) out.push({ price: l.price, type: 'support', strength: l.strength });
+  }
+  return out;
+});
+const markersForChart = computed(() =>
+  (showPatternMarkers.value && !isIntraday.value) ? chartPatterns.value : []);
 
 // 차트 전체화면 (⛶ 크게 보기) — 같은 DOM 에 CSS 오버레이만 전환, Esc 로 닫기.
 const chartFullscreen = ref(false);
@@ -1705,7 +1660,15 @@ onUnmounted(() => {
   border: 1px solid #2a2a5a;
 }
 
-/* 차트 전체화면(⛶ 크게 보기) — 같은 DOM 을 고정 오버레이로 확대(캔들/SVG 는 % 기반이라 자동 스케일) */
+/* HTS 차트(lightweight-charts) 래퍼 — autoSize 가 이 높이를 관찰해 캔버스를 맞춘다 */
+.hts-chart-wrap {
+  height: 300px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  padding: 6px;
+}
+
+/* 차트 전체화면(⛶ 크게 보기) — 같은 DOM 을 고정 오버레이로 확대(lightweight-charts autoSize 가 리사이즈) */
 .chart-section.fullscreen {
   position: fixed;
   inset: 0;
@@ -1715,15 +1678,10 @@ onUnmounted(() => {
   overflow-y: auto;
   padding: 24px 28px;
 }
-.chart-section.fullscreen .candlestick-container {
-  height: calc(100vh - 260px);
-  min-height: 320px;
+.chart-section.fullscreen .hts-chart-wrap {
+  height: calc(100vh - 200px);
+  min-height: 360px;
 }
-.chart-section.fullscreen .volume-chart { height: 90px; }
-.chart-section.fullscreen .candle { width: 12px; }
-.chart-section.fullscreen .volume-bar { width: 12px; }
-.chart-section.fullscreen .candlestick-chart.dense .candle { width: 7px; }
-.chart-section.fullscreen .volume-chart.dense .volume-bar { width: 7px; }
 .chart-section.fullscreen .channel-caption { font-size: 13px; }
 
 .ma-legend {
