@@ -142,8 +142,8 @@
     <div v-else-if="hasData" class="main-grid">
       <!-- ========== Left Column: 차트 영역 ========== -->
       <div class="left-column">
-        <!-- 주가 차트 -->
-        <div class="chart-section">
+        <!-- 주가 차트 — chartFullscreen 이면 화면 전체 오버레이(같은 DOM, CSS 만 전환 = 데이터/토글 상태 유지) -->
+        <div class="chart-section" :class="{ fullscreen: chartFullscreen }">
           <div class="section-header">
             <h2>주가 차트</h2>
             <div class="chart-toggles">
@@ -176,6 +176,11 @@
                 @click="showChannel = !showChannel"
                 title="추세 채널(회귀 채널) 토글">
                 채널
+              </button>
+              <button class="ind-toggle zoom-toggle"
+                @click="chartFullscreen = !chartFullscreen"
+                :title="chartFullscreen ? '전체화면 닫기 (Esc)' : '차트 크게 보기'">
+                {{ chartFullscreen ? '✕ 닫기' : '⛶ 크게' }}
               </button>
             </div>
           </div>
@@ -245,6 +250,14 @@
                       class="sr-line-label" :class="['type-' + l.type, 'st-' + l.strength?.toLowerCase()]"
                       :style="{ top: l.y + '%' }">
                   {{ Number(l.price).toLocaleString() }}
+                </span>
+              </div>
+              <!-- 추세 채널 상단/하단 현재 가격 라벨 — 채널 선 오른쪽 끝 높이(마지막 봉 기준가) -->
+              <div v-if="showChannel && channelPriceLabels.length" class="channel-line-labels">
+                <span v-for="lab in channelPriceLabels" :key="'chLab' + lab.kind"
+                      class="channel-line-label"
+                      :style="{ top: lab.y + '%', color: channelColor, borderColor: channelColor }">
+                  {{ lab.text }}
                 </span>
               </div>
             </div>
@@ -616,6 +629,10 @@ const onSearchKeydown = (e) => {
     e.preventDefault();
     showSearch.value = true;
   }
+  // 차트 전체화면은 Esc 로 닫기 (검색 모달이 떠 있으면 모달 자체 Esc 가 우선)
+  if (e.key === 'Escape' && chartFullscreen.value && !showSearch.value) {
+    chartFullscreen.value = false;
+  }
 };
 
 // 상태
@@ -665,6 +682,19 @@ const channelColor = computed(() => {
   const dir = chartChannel.value?.direction;
   return dir === 'UP' ? '#ef4444' : dir === 'DOWN' ? '#3b82f6' : '#9ca3af';
 });
+// 채널 상단/하단 현재 가격 라벨(마지막 봉 기준) — 선 끝 y 에 표시, 화면 밖 이탈만 2~98% 클램프.
+const channelPriceLabels = computed(() => {
+  const ch = chartChannel.value;
+  if (!ch) return [];
+  const clamp = (v) => Math.min(98, Math.max(2, v));
+  return [
+    { kind: 'upper', y: clamp(ch.upperY2), text: '상단 ' + Math.round(ch.upperEnd).toLocaleString() },
+    { kind: 'lower', y: clamp(ch.lowerY2), text: '하단 ' + Math.round(ch.lowerEnd).toLocaleString() }
+  ];
+});
+
+// 차트 전체화면 (⛶ 크게 보기) — 같은 DOM 에 CSS 오버레이만 전환, Esc 로 닫기.
+const chartFullscreen = ref(false);
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1627,6 +1657,27 @@ onUnmounted(() => {
   border: 1px solid #2a2a5a;
 }
 
+/* 차트 전체화면(⛶ 크게 보기) — 같은 DOM 을 고정 오버레이로 확대(캔들/SVG 는 % 기반이라 자동 스케일) */
+.chart-section.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  border-radius: 0;
+  background: #14142a;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+.chart-section.fullscreen .candlestick-container {
+  height: calc(100vh - 260px);
+  min-height: 320px;
+}
+.chart-section.fullscreen .volume-chart { height: 90px; }
+.chart-section.fullscreen .candle { width: 12px; }
+.chart-section.fullscreen .volume-bar { width: 12px; }
+.chart-section.fullscreen .candlestick-chart.dense .candle { width: 7px; }
+.chart-section.fullscreen .volume-chart.dense .volume-bar { width: 7px; }
+.chart-section.fullscreen .channel-caption { font-size: 13px; }
+
 .ma-legend {
   display: flex;
   gap: 12px;
@@ -1688,6 +1739,26 @@ onUnmounted(() => {
 .sr-line-label.type-support    { color: #60a5fa; border-color: rgba(59,130,246,0.45); }
 .sr-line-label.st-high { font-weight: 700; }
 .sr-line-label.st-low  { opacity: 0.7; }
+
+/* 추세 채널 상단/하단 가격 라벨 — S/R 라벨(우측 60px 스트립) 안쪽에 배치해 겹침 회피 */
+.channel-line-labels {
+  position: absolute;
+  top: 0; right: 64px; bottom: 0;
+  pointer-events: none;
+}
+.channel-line-label {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: rgba(15, 15, 26, 0.85);
+  border: 1px solid;
+}
 
 /* SR / 패턴 토글 */
 .ind-toggle.sr-toggle.active { background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.4); color: #f87171; }
