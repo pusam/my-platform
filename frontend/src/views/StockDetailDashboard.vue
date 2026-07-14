@@ -599,12 +599,14 @@ const compositeSignal = ref(null);  // 5개 신호 종합 평가
 const relatedStocks = ref([]);  // 관련 종목 (correlation 기반)
 
 // 차트 좌표·스타일 계산 → useChartCalculations.js 로 분리 (P-IA ③-3차). 토글 상태는 아래에 유지.
-// 차트 표시 기간 — HTS 스타일: 1일(당일 5분봉) / 7일 / 30일 / 60일(일봉, 데이터 있을 때만).
+// 차트 표시 기간 — HTS 스타일: 1일(당일 5분봉) / 7·30·60·120·200일(일봉, 가용 데이터 있을 때만 노출).
 const chartPeriod = ref(30);
 const chartPeriodOptions = computed(() => {
   const available = chartData.value?.candles?.length || 0;
   const opts = [1, 7, 30];
-  if (available > 30) opts.push(60);
+  for (const p of [60, 120, 200]) {
+    if (available >= p) opts.push(p);   // 히스토리 그만큼 있을 때만(백엔드 최대 200봉, §4c 위장 없음)
+  }
   return opts;
 });
 // 종목 이동으로 캔들이 줄어 60일 옵션이 사라지면 선택도 30으로 클램프

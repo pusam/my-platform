@@ -877,6 +877,91 @@ public class KoreaInvestmentService {
         return rateLimiter.execute(priority, () -> getDailyPricesInternal(stockCode, days));
     }
 
+    /** 일봉 페이지네이션 한 페이지가 커버하는 캘린더 일수(≈100 거래일/페이지). */
+    private static final int DAILY_PAGE_CALENDAR_SPAN = 140;
+    /** 페이지네이션 백스톱 — 최대 페이지 수(≈ 5×100 = 500 거래일). 무한루프 방지. */
+    private static final int MAX_DAILY_PAGES = 5;
+
+    /**
+     * 일봉 <b>페이지네이션</b> 조회 — FHKST03010100 은 호출당 ~100건 상한이라, 날짜창을 과거로 밀며
+     * {@code targetRows} 거래일까지 output2 rows 를 병합한다(차트 200봉+MA120 등 깊은 히스토리용).
+     * 반환은 newest→oldest 정렬 + 날짜 dedup. targetRows 이하 히스토리면 있는 만큼(§4c 위장 없음).
+     *
+     * <p>KIS 호출은 페이지당 1회(각 rate limiter 경유) — heavy 경로 전용(quick/봇 hot-path 아님).
+     */
+    public java.util.List<JsonNode> getDailyPriceRowsPaged(String stockCode, int targetRows,
+                                                           KisApiRateLimiter.Priority priority) {
+        java.util.List<JsonNode> collected = new java.util.ArrayList<>();
+        java.util.Set<String> seenDates = new java.util.HashSet<>();
+        java.time.LocalDate anchorEnd = java.time.LocalDate.now();
+        for (int page = 0; page < MAX_DAILY_PAGES && collected.size() < targetRows; page++) {
+            final java.time.LocalDate pageEnd = anchorEnd;                         // lambda 캡처용(재할당 회피)
+            final java.time.LocalDate start = pageEnd.minusDays(DAILY_PAGE_CALENDAR_SPAN);
+            JsonNode resp = rateLimiter.execute(priority,
+                    () -> getDailyPricesRangeInternal(stockCode, start, pageEnd));
+            JsonNode out2 = resp == null ? null : resp.get("output2");
+            if (out2 == null || !out2.isArray() || out2.isEmpty()) break;
+            int before = collected.size();
+            java.time.LocalDate earliest = null;
+            for (JsonNode row : out2) {
+                String d = row.path("stck_bsop_date").asText("");
+                if (d.length() != 8) continue;
+                if (seenDates.add(d)) collected.add(row);
+                try {
+                    java.time.LocalDate rd = java.time.LocalDate.parse(d, java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+                    if (earliest == null || rd.isBefore(earliest)) earliest = rd;
+                } catch (Exception ignore) { /* 날짜 파싱 실패 행은 앵커 계산 제외 */ }
+            }
+            if (earliest == null || collected.size() == before) break;   // 진전 없음 → 종료
+            anchorEnd = earliest.minusDays(1);
+        }
+        return dedupeSortRowsDesc(collected);
+    }
+
+    /** output2 rows 를 stck_bsop_date 기준 dedup + newest→oldest 정렬 — 순수 함수(테스트 대상). */
+    static java.util.List<JsonNode> dedupeSortRowsDesc(java.util.List<JsonNode> rows) {
+        java.util.LinkedHashMap<String, JsonNode> byDate = new java.util.LinkedHashMap<>();
+        if (rows != null) {
+            for (JsonNode row : rows) {
+                String d = row == null ? "" : row.path("stck_bsop_date").asText("");
+                if (d.length() == 8) byDate.putIfAbsent(d, row);
+            }
+        }
+        java.util.List<JsonNode> out = new java.util.ArrayList<>(byDate.values());
+        out.sort((a, b) -> b.path("stck_bsop_date").asText("").compareTo(a.path("stck_bsop_date").asText("")));
+        return out;
+    }
+
+    /** 앵커 지정 일봉 조회(HTTP) — {@code [startDate, endDate]} 창. 페이지네이션 호출부 전용. */
+    private JsonNode getDailyPricesRangeInternal(String stockCode, java.time.LocalDate startDate, java.time.LocalDate endDate) {
+        String token = getAccessToken();
+        if (token == null) return null;
+        try {
+            java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd");
+            String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice"
+                    + "?FID_COND_MRKT_DIV_CODE=J"
+                    + "&FID_INPUT_ISCD=" + stockCode
+                    + "&FID_INPUT_DATE_1=" + startDate.format(formatter)
+                    + "&FID_INPUT_DATE_2=" + endDate.format(formatter)
+                    + "&FID_PERIOD_DIV_CODE=D"
+                    + "&FID_ORG_ADJ_PRC=0";
+            HttpHeaders headers = createHeaders(token, "FHKST03010100");
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                JsonNode result = objectMapper.readTree(response.getBody());
+                if (!"0".equals(result.path("rt_cd").asText(""))) {
+                    log.warn("일봉(페이지) 조회 실패 [{}]: {}", stockCode, result.path("msg1").asText(""));
+                    return null;
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            handleKisApiException(e, token);
+            log.warn("일봉(페이지) 조회 예외 [{}]: {}", stockCode, e.getMessage());
+        }
+        return null;
+    }
+
     private JsonNode getDailyPricesInternal(String stockCode, int days) {
         String token = getAccessToken();
         if (token == null) {

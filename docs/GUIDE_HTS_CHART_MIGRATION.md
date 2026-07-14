@@ -154,9 +154,11 @@
 4. **휴장일 갭**: 일봉 time 이 날짜라 주말이 자동으로 건너뛰어 그려진다(HTS 와 동일). 억지로 채우지 말 것(§4c).
 5. **MA null 구간**: maLine60/120 은 앞쪽(과거)이 null — null 인 지점은 데이터에서 **빼고** 넣는다(넣으면 예외).
    기존 `maLinePath` 도 같은 정책이었다.
-6. **60봉 한계**: 줌아웃해도 최대 60일치뿐. 원하면 **후속(선택)**: `StockDetailService.getChartData` 의
-   `displayCount = Math.min(60, ...)` (:720 부근) 을 늘리기만 하면 됨 — 단 응답 크기·maLine 계산 길이 확인.
-   이번 마이그레이션 범위 아님(가이드 독자는 착수 전 사용자에게 물어볼 것).
+6. **60봉 한계 → ✅ 200봉으로 확장 (2026-07-15)**: KIS 일봉 API(FHKST03010100)는 호출당 ~100건 상한이라
+   단일 호출로는 60봉이 실질 한계였다. `KoreaInvestmentService.getDailyPriceRowsPaged`(앵커 되감기
+   페이지네이션, 분봉 서비스와 동형)로 200봉+MA120 헤드룸(320행) 수집 → `StockDetailService.CHART_DISPLAY_MAX=200`,
+   프론트 기간 옵션 60/120/200(가용 데이터 있을 때만). heavy 경로 전용(페이지당 KIS 1콜, ~4콜/로드).
+   더 늘리려면 CHART_DISPLAY_MAX + MAX_DAILY_PAGES(백스톱) 조정.
 7. **v4/v5 혼용 금지**: 설치 버전 확인 후 한쪽 API 만. v5 에서 `addCandlestickSeries` 는 없다(런타임 에러).
 8. **autoRefresh(10초)**: `chartData` 교체 → `displayCandles` 재계산 → watch 로 `setData` — 줌/스크롤 위치가
    리셋될 수 있다. `chart.timeScale().scrollPosition()` 저장 후 복원하거나, v5 `setData` 는 기본적으로

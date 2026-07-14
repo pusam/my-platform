@@ -680,23 +680,27 @@ public class StockDetailService {
         return tags.isEmpty() ? null : tags;
     }
 
+    /** 차트 최대 표시 봉 수(일봉) — '200일' 기간까지 지원(2026-07-15). */
+    static final int CHART_DISPLAY_MAX = 200;
+    /** 히스토리 수집 목표 = 표시 200봉 + MA120 헤드룸(창 전체 MA120 완결). */
+    static final int CHART_HISTORY_TARGET = CHART_DISPLAY_MAX + 120;
+
     /**
-     * 차트 데이터 조회
+     * 차트 데이터 조회 — KIS 일봉 페이지네이션(FHKST03010100 호출당 ~100건 상한)으로 깊은 히스토리 수집.
+     * 표시는 최근 {@link #CHART_DISPLAY_MAX}봉, MA/볼린저는 수집 히스토리 전체로 계산(오래된 구간 헤드룸).
      */
     private ChartData fetchChartData(String stockCode) {
         try {
-            // 120일 + 여유분으로 요청 (MA120 계산용)
-            JsonNode dailyData = kisService.getDailyPrices(stockCode, 150);
-            if (dailyData == null) return null;
-
-            JsonNode output2 = dailyData.get("output2");
-            if (output2 == null || !output2.isArray()) return null;
+            // 200봉 + MA120 헤드룸까지 페이지네이션 수집(newest→oldest). heavy 경로 전용.
+            List<JsonNode> rows = kisService.getDailyPriceRowsPaged(
+                    stockCode, CHART_HISTORY_TARGET, com.myplatform.backend.service.KisApiRateLimiter.Priority.NORMAL);
+            if (rows == null || rows.isEmpty()) return null;
 
             List<CandlePoint> allCandles = new ArrayList<>();
             List<VolumePoint> allVolumes = new ArrayList<>();
             List<BigDecimal> allCloses = new ArrayList<>();
 
-            for (JsonNode item : output2) {
+            for (JsonNode item : rows) {
                 String date = item.has("stck_bsop_date") ? item.get("stck_bsop_date").asText() : "";
                 BigDecimal close = parseBigDecimal(item.get("stck_clpr"));
 
@@ -716,8 +720,8 @@ public class StockDetailService {
                 allCloses.add(close);
             }
 
-            // 표시용 캔들 (최근 60개)
-            int displayCount = Math.min(60, allCandles.size());
+            // 표시용 캔들 (최근 CHART_DISPLAY_MAX개 — 프론트가 기간 토글로 30/60/120/200 슬라이스)
+            int displayCount = Math.min(CHART_DISPLAY_MAX, allCandles.size());
             List<CandlePoint> candles = allCandles.subList(0, displayCount);
             List<VolumePoint> volumes = allVolumes.subList(0, displayCount);
 
