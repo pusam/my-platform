@@ -2407,6 +2407,11 @@ public class StockDetailService {
                         up != null ? up : "N/A", lo != null ? lo : "N/A"));
             }
 
+            // 추세 채널(30봉 회귀) — 차트 오버레이/보드와 동일 산식(TrendChannelCalculator).
+            // 미성립(봉<10·결측)이면 라인 생략(§4c) — AI 는 있는 데이터로만 해석.
+            String channelLine = buildChannelLine(c.getCandles());
+            if (channelLine != null) sb.append(channelLine);
+
             // 코드가 확정한 차트 시그널 — AI 가 이를 참고해서 해석 생성
             List<ChartSignal> signals = chartSignalService.detect(dto);
             if (!signals.isEmpty()) {
@@ -2445,6 +2450,34 @@ public class StockDetailService {
         }
 
         return sb.toString();
+    }
+
+    /**
+     * 추세 채널 프롬프트 줄(최근 30봉 회귀 채널) — 순수 함수(테스트 대상). 차트 오버레이/종합판단 보드와
+     * 동일 산식({@link com.myplatform.backend.util.TrendChannelCalculator}). AI 는 이 위치를 차트 해석
+     * 맥락(지지/저항 레벨)으로만 사용 — 산식/점수 미편입. 채널 미성립(봉<10·결측)이면 null = 라인 생략(§4c).
+     *
+     * @param candles 최신→과거 순 캔들(ChartData.candles 그대로)
+     */
+    static String buildChannelLine(List<StockDetailDto.CandlePoint> candles) {
+        if (candles == null || candles.isEmpty()) return null;
+        List<com.myplatform.backend.util.TrendChannelCalculator.Bar> bars = new ArrayList<>();
+        int limit = Math.min(30, candles.size());
+        for (int i = limit - 1; i >= 0; i--) {   // 최신→과거 입력을 과거→최신으로
+            StockDetailDto.CandlePoint c = candles.get(i);
+            if (c == null || c.getHigh() == null || c.getLow() == null || c.getClose() == null) continue;
+            bars.add(new com.myplatform.backend.util.TrendChannelCalculator.Bar(
+                    c.getHigh().doubleValue(), c.getLow().doubleValue(), c.getClose().doubleValue()));
+        }
+        var ch = com.myplatform.backend.util.TrendChannelCalculator.compute(bars);
+        if (ch == null) return null;
+        String dir = switch (ch.direction()) {
+            case "UP" -> "상승 채널";
+            case "DOWN" -> "하락 채널";
+            default -> "박스권(횡보)";
+        };
+        return String.format("추세 채널(30일 회귀): %s (기울기 %+.2f%%/일), 채널 내 위치 %d%% (0=하단 지지/100=상단 저항)\n",
+                dir, ch.slopePctPerBar(), Math.round(ch.position() * 100));
     }
 
     /**

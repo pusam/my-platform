@@ -505,6 +505,26 @@ class StockDetailServiceTest {
             assertThat(prompt).doesNotContain("자사주 1조원 소각");
             assertThat(prompt).doesNotContain("역대 최대 실적");
         }
+
+        @Test
+        @DisplayName("추세 채널 줄 — 30봉 상승 추세 캔들(최신순) → '상승 채널'+위치, 봉 부족/캔들 없음 → null(§4c 생략)")
+        void channelLineFromCandles() {
+            // 최신→과거 순(ChartData.candles 규약) — 최신 130 → 과거 101 상승 추세
+            java.util.List<com.myplatform.backend.dto.StockDetailDto.CandlePoint> candles = new java.util.ArrayList<>();
+            for (int i = 0; i < 30; i++) {
+                java.math.BigDecimal close = java.math.BigDecimal.valueOf(130 - i);
+                candles.add(com.myplatform.backend.dto.StockDetailDto.CandlePoint.builder()
+                        .close(close).high(close.add(BigDecimal.ONE)).low(close.subtract(BigDecimal.ONE)).build());
+            }
+            String line = StockDetailService.buildChannelLine(candles);
+            assertThat(line).contains("추세 채널(30일 회귀)");
+            assertThat(line).contains("상승 채널");
+            assertThat(line).contains("채널 내 위치");
+
+            assertThat(StockDetailService.buildChannelLine(candles.subList(0, 5))).isNull();   // 봉 부족
+            assertThat(StockDetailService.buildChannelLine(null)).isNull();
+            assertThat(StockDetailService.buildChannelLine(java.util.List.of())).isNull();
+        }
     }
 
     @org.junit.jupiter.api.Nested
