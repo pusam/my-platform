@@ -1,4 +1,5 @@
 import { computed } from 'vue';
+import { computeTrendChannel, detectChannelBreakout } from '../utils/trendChannel';
 
 /**
  * 종목 상세 차트(캔들/거래량/MA·볼린저 오버레이/지지저항·패턴 마커)의 좌표·스타일 계산.
@@ -10,17 +11,20 @@ import { computed } from 'vue';
  * @param {import('vue').Ref} chartData         - { candles, volumes, maLine5/20/60/120, bbUpper, bbLower }
  * @param {import('vue').Ref} supportResistance  - { resistance: [], support: [] } | null
  * @param {import('vue').Ref} chartPatterns      - [{ keyPoints, signal, label }]
+ * @param {import('vue').Ref<number>} [displayCount] - 표시 봉 수 (기본 30, 백엔드 최대 60)
  */
-export function useChartCalculations(chartData, supportResistance, chartPatterns) {
-  // 차트 표시용 (최근 30개)
+export function useChartCalculations(chartData, supportResistance, chartPatterns, displayCount) {
+  const barCount = () => displayCount?.value || 30;
+
+  // 차트 표시용 (최근 barCount개)
   const displayCandles = computed(() => {
     if (!chartData.value?.candles) return [];
-    return chartData.value.candles.slice(0, 30).reverse();
+    return chartData.value.candles.slice(0, barCount()).reverse();
   });
 
   const displayVolumes = computed(() => {
     if (!chartData.value?.volumes) return [];
-    return chartData.value.volumes.slice(0, 30).reverse();
+    return chartData.value.volumes.slice(0, barCount()).reverse();
   });
 
   // 차트 가격 범위 (상하 2% 여백)
@@ -94,12 +98,40 @@ export function useChartCalculations(chartData, supportResistance, chartPatterns
     return markers;
   });
 
+  // 추세 채널(회귀 채널) — 표시 30봉 기준 계산 + SVG 좌표 매핑. 데이터 부족/퇴화 시 null(§4c).
+  // 표시 전용 보조선 — 점수/시그널 산식 미편입(차트기법 스코어러 분리 불변식).
+  const chartChannel = computed(() => {
+    const channel = computeTrendChannel(displayCandles.value);
+    if (!channel) return null;
+    const range = chartPriceRange.value;
+    const span = range.max - range.min;
+    if (span <= 0) return null;
+    const count = displayCandles.value.length;
+    const toY = (price) => ((range.max - price) / span) * 100;
+    const x1 = (0.5 / count) * 100;            // 첫 봉 중심
+    const x2 = ((count - 0.5) / count) * 100;  // 마지막 봉 중심
+    return {
+      ...channel,
+      x1,
+      x2,
+      upperY1: toY(channel.upperStart),
+      upperY2: toY(channel.upperEnd),
+      lowerY1: toY(channel.lowerStart),
+      lowerY2: toY(channel.lowerEnd),
+      midY1: toY(channel.midStart),
+      midY2: toY(channel.midEnd)
+    };
+  });
+
+  // 채널 이탈(직전 채널 대비 마지막 종가 돌파/붕괴) — 표시 전용 관찰 배지.
+  const chartBreakout = computed(() => detectChannelBreakout(displayCandles.value));
+
   // 이동평균선/볼린저밴드 SVG polyline points
   const maLinePath = (lineKey) => {
     const data = chartData.value?.[lineKey];
     if (!data || !displayCandles.value.length) return null;
     // data는 최신→과거 순 (캔들과 동일), 표시는 reverse
-    const lineData = data.slice(0, 30).reverse();
+    const lineData = data.slice(0, barCount()).reverse();
     const range = chartPriceRange.value;
     const count = displayCandles.value.length;
     if (range.max === range.min) return null;
@@ -144,6 +176,8 @@ export function useChartCalculations(chartData, supportResistance, chartPatterns
     maxVolume,
     chartSrLines,
     chartPatternMarkers,
+    chartChannel,
+    chartBreakout,
     maLinePath,
     getCandleStyle,
     getWickStyle,

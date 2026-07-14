@@ -84,6 +84,32 @@ describe('useChartCalculations (P-IA ③-3차 분리)', () => {
     expect(empty.maxVolume.value).toBe(1)
     expect(empty.chartSrLines.value).toEqual([])
     expect(empty.chartPatternMarkers.value).toEqual([])
+    expect(empty.chartChannel.value).toBeNull()
     expect(empty.maLinePath('maLine5')).toBeNull()
+  })
+
+  it('chartChannel: 봉 부족(<10)이면 null — 채널 미표시(§4c)', () => {
+    const { chartChannel } = setup()   // 캔들 2개
+    expect(chartChannel.value).toBeNull()
+  })
+
+  it('chartChannel: 30봉 상승 추세 → UP + SVG 좌표(0~100 x, 상단 y < 하단 y)', () => {
+    // 최신→과거 순 입력 (컴포저블이 reverse)
+    const candles = Array.from({ length: 30 }, (_, i) => {
+      const close = 100 + (29 - i)   // 과거 100 → 최신 129
+      return { date: `2026-06-${String(i + 1).padStart(2, '0')}`, open: close, close, high: close + 1, low: close - 1 }
+    })
+    const chartData = ref({ candles, volumes: candles.map(() => ({ volume: 1 })) })
+    const { chartChannel } = useChartCalculations(chartData, ref(null), ref([]))
+    const ch = chartChannel.value
+    expect(ch).not.toBeNull()
+    expect(ch.direction).toBe('UP')
+    // x: 첫/마지막 봉 중심
+    expect(ch.x1).toBeCloseTo((0.5 / 30) * 100, 5)
+    expect(ch.x2).toBeCloseTo((29.5 / 30) * 100, 5)
+    // SVG y축은 아래로 증가 — 상단선 y 가 하단선 y 보다 작다
+    expect(ch.upperY2).toBeLessThan(ch.lowerY2)
+    expect(ch.position).toBeGreaterThanOrEqual(0)
+    expect(ch.position).toBeLessThanOrEqual(1)
   })
 })

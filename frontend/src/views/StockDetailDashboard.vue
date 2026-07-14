@@ -182,6 +182,12 @@
           <div class="section-header">
             <h2>주가 차트</h2>
             <div class="chart-toggles">
+              <button v-for="p in chartPeriodOptions" :key="'period'+p"
+                :class="['ind-toggle period-toggle', { active: chartPeriod === p }]"
+                @click="chartPeriod = p"
+                :title="p + '거래일 표시'">
+                {{ p }}일
+              </button>
               <button v-for="ind in indicatorList" :key="ind.key"
                 :class="['ind-toggle', { active: activeIndicators[ind.key] }]"
                 :style="{ '--ind-color': ind.color }"
@@ -200,10 +206,16 @@
                 title="패턴 마커 토글">
                 패턴
               </button>
+              <button v-if="chartChannel"
+                :class="['ind-toggle channel-toggle', { active: showChannel }]"
+                @click="showChannel = !showChannel"
+                title="추세 채널(회귀 채널) 토글">
+                채널
+              </button>
             </div>
           </div>
           <div class="candlestick-container">
-            <div class="candlestick-chart" ref="candleChartRef">
+            <div class="candlestick-chart" :class="{ dense: chartPeriod > 30 }" ref="candleChartRef">
               <div
                 v-for="(candle, index) in displayCandles"
                 :key="index"
@@ -246,6 +258,21 @@
                     :fill="m.signal === 'BULLISH' ? '#ef4444' : (m.signal === 'BEARISH' ? '#3b82f6' : '#9ca3af')"
                     stroke="#fff" stroke-width="0.3" vector-effect="non-scaling-stroke"/>
                 </template>
+                <!-- 추세 채널 (회귀 채널, 표시 전용 — 산식 미편입) -->
+                <template v-if="showChannel && chartChannel">
+                  <line :x1="chartChannel.x1" :x2="chartChannel.x2"
+                    :y1="chartChannel.upperY1" :y2="chartChannel.upperY2"
+                    :stroke="channelColor" stroke-width="1.1" opacity="0.75"
+                    vector-effect="non-scaling-stroke"/>
+                  <line :x1="chartChannel.x1" :x2="chartChannel.x2"
+                    :y1="chartChannel.lowerY1" :y2="chartChannel.lowerY2"
+                    :stroke="channelColor" stroke-width="1.1" opacity="0.75"
+                    vector-effect="non-scaling-stroke"/>
+                  <line :x1="chartChannel.x1" :x2="chartChannel.x2"
+                    :y1="chartChannel.midY1" :y2="chartChannel.midY2"
+                    :stroke="channelColor" stroke-width="0.8" stroke-dasharray="4,4" opacity="0.4"
+                    vector-effect="non-scaling-stroke"/>
+                </template>
               </svg>
               <!-- 지지/저항 가격 라벨 (HTML 오버레이 — 폰트 크기 안정) -->
               <div v-if="showSrLines && chartSrLines.length" class="sr-line-labels">
@@ -257,7 +284,7 @@
               </div>
             </div>
           </div>
-          <div class="volume-chart">
+          <div class="volume-chart" :class="{ dense: chartPeriod > 30 }">
             <div
               v-for="(vol, index) in displayVolumes"
               :key="index"
@@ -265,6 +292,15 @@
               :class="{ up: displayCandles[index]?.close >= displayCandles[index]?.open }"
               :style="{ height: getVolumeHeight(vol.volume) + '%' }"
             ></div>
+          </div>
+          <!-- 추세 채널 해설 (표시 전용 관찰 — 매매 신호 아님) -->
+          <div v-if="showChannel && channelCaption" class="channel-caption"
+               :class="'dir-' + chartChannel.direction.toLowerCase()">
+            <strong v-if="breakoutText" class="breakout-badge"
+                    :class="chartBreakout.type === 'UP_BREAKOUT' ? 'up' : 'down'">
+              {{ breakoutText }}
+            </strong>
+            <span>{{ channelCaption }}</span>
           </div>
         </div>
 
@@ -561,6 +597,7 @@ import DataFreshness from '../components/DataFreshness.vue';
 import { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
+import { channelComment, breakoutLabel } from '../utils/trendChannel';
 
 const route = useRoute();
 const router = useRouter();
@@ -595,11 +632,27 @@ const compositeSignal = ref(null);  // 5개 신호 종합 평가
 const relatedStocks = ref([]);  // 관련 종목 (correlation 기반)
 
 // 차트 좌표·스타일 계산 → useChartCalculations.js 로 분리 (P-IA ③-3차). 토글 상태는 아래에 유지.
+// 차트 표시 기간 (봉 수) — 백엔드 최대 60봉. 60봉은 데이터 있을 때만 노출.
+const chartPeriod = ref(30);
+const chartPeriodOptions = computed(() => {
+  const available = chartData.value?.candles?.length || 0;
+  return available > 30 ? [30, 60] : [30];
+});
+
 const {
   displayCandles, displayVolumes, chartPriceRange, maxVolume,
-  chartSrLines, chartPatternMarkers, maLinePath,
+  chartSrLines, chartPatternMarkers, chartChannel, chartBreakout, maLinePath,
   getCandleStyle, getWickStyle, getBodyStyle, getVolumeHeight
-} = useChartCalculations(chartData, supportResistance, chartPatterns);
+} = useChartCalculations(chartData, supportResistance, chartPatterns, chartPeriod);
+
+// 추세 채널 표시 상태 + 해설 — 방향색은 매매 신호색 한국 관례(상승=적/하락=청/횡보=회) 동기.
+const showChannel = ref(true);
+const channelCaption = computed(() => channelComment(chartChannel.value));
+const breakoutText = computed(() => breakoutLabel(chartBreakout.value));
+const channelColor = computed(() => {
+  const dir = chartChannel.value?.direction;
+  return dir === 'UP' ? '#ef4444' : dir === 'DOWN' ? '#3b82f6' : '#9ca3af';
+});
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1627,6 +1680,34 @@ onUnmounted(() => {
 /* SR / 패턴 토글 */
 .ind-toggle.sr-toggle.active { background: rgba(239,68,68,0.18); border-color: rgba(239,68,68,0.4); color: #f87171; }
 .ind-toggle.pattern-toggle.active { background: rgba(168,85,247,0.18); border-color: rgba(168,85,247,0.4); color: #c084fc; }
+.ind-toggle.channel-toggle.active { background: rgba(20,184,166,0.18); border-color: rgba(20,184,166,0.4); color: #2dd4bf; }
+
+/* 추세 채널 해설 캡션 — 표시 전용 관찰 문구 */
+.channel-caption {
+  margin-top: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.55);
+}
+.channel-caption.dir-up { border-left: 3px solid #ef4444; }
+.channel-caption.dir-down { border-left: 3px solid #3b82f6; }
+.channel-caption.dir-flat { border-left: 3px solid #9ca3af; }
+.channel-caption .breakout-badge {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 700;
+}
+.channel-caption .breakout-badge.up { color: #f87171; }
+.channel-caption .breakout-badge.down { color: #60a5fa; }
+
+/* 기간 토글 + 60봉 dense 모드 (봉 폭 축소) */
+.ind-toggle.period-toggle.active { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: rgba(255,255,255,0.85); }
+.candlestick-chart.dense .candle { width: 4px; }
+.volume-chart.dense .volume-bar { width: 4px; }
 
 /* 차트 지표 토글 버튼 */
 .chart-toggles {
