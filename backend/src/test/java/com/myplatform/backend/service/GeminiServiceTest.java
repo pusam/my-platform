@@ -118,26 +118,34 @@ class GeminiServiceTest {
         @Test
         @DisplayName("압박 없음(리셋 비활성 + 에러 0) → 양보 안 함")
         void noPressure_proceeds() {
-            assertThat(GeminiService.shouldYieldLowPriority(null, 0, now)).isFalse();
+            assertThat(GeminiService.shouldYieldLowPriority(null, 0, null, now)).isFalse();
         }
 
         @Test
         @DisplayName("quotaResetTime 활성(리셋 전) → 양보")
         void activeQuotaReset_yields() {
-            assertThat(GeminiService.shouldYieldLowPriority(now.plusSeconds(30), 0, now)).isTrue();
+            assertThat(GeminiService.shouldYieldLowPriority(now.plusSeconds(30), 0, null, now)).isTrue();
         }
 
         @Test
         @DisplayName("quotaResetTime 경과(리셋 후) + 에러 0 → 양보 안 함 (영구 차단 아님)")
         void expiredQuotaReset_proceeds() {
-            assertThat(GeminiService.shouldYieldLowPriority(now.minusSeconds(1), 0, now)).isFalse();
+            assertThat(GeminiService.shouldYieldLowPriority(now.minusSeconds(1), 0, null, now)).isFalse();
         }
 
         @Test
-        @DisplayName("연속 rate limit 에러 잔존(>0) → 양보 (리셋 시간 무관)")
-        void consecutiveErrors_yield() {
-            assertThat(GeminiService.shouldYieldLowPriority(null, 1, now)).isTrue();
-            assertThat(GeminiService.shouldYieldLowPriority(now.minusMinutes(5), 2, now)).isTrue();
+        @DisplayName("연속 429 잔존 + 최근(10분 이내) → 양보")
+        void consecutiveErrors_recent_yield() {
+            assertThat(GeminiService.shouldYieldLowPriority(null, 1, now.minusMinutes(1), now)).isTrue();
+            assertThat(GeminiService.shouldYieldLowPriority(now.minusMinutes(5), 2, now.minusMinutes(9), now)).isTrue();
+        }
+
+        @Test
+        @DisplayName("연속 429 잔존이라도 스테일(10분 경과·시각 미기록) → 양보 안 함 (주말 무기한 차단 방지)")
+        void consecutiveErrors_stale_proceeds() {
+            assertThat(GeminiService.shouldYieldLowPriority(null, 2, now.minusMinutes(11), now)).isFalse();
+            assertThat(GeminiService.shouldYieldLowPriority(null, 2, now.minusDays(2), now)).isFalse();
+            assertThat(GeminiService.shouldYieldLowPriority(null, 2, null, now)).isFalse();   // 시각 미기록 = 판정 불가
         }
 
         @Test

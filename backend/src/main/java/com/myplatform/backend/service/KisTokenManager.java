@@ -49,10 +49,12 @@ public class KisTokenManager {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
-    // 공유 토큰 캐시 (전 서비스 단일 출처, synchronized 로 보호).
-    private String accessToken;
-    private LocalDateTime tokenExpireTime;
-    private LocalDateTime tokenCooldownUntil;
+    // 공유 토큰 캐시 (전 서비스 단일 출처). 쓰기는 synchronized(발급 직렬화·CAS 무효화)로 보호하고,
+    // volatile 로 두어 isTokenAvailable() 이 락 없이 읽는다 — 발급 POST(최악 ~8초)가 락을 쥔 동안
+    // 시세 단일 경로(StockPriceService→isTokenAvailable)가 블로킹되지 않게(2026-07-14 점검 P2).
+    private volatile String accessToken;
+    private volatile LocalDateTime tokenExpireTime;
+    private volatile LocalDateTime tokenCooldownUntil;
 
     public KisTokenManager(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
@@ -68,13 +70,21 @@ public class KisTokenManager {
     /**
      * 토큰 발급 시도 없이 상태만 빠르게 확인 (유효 토큰 or 발급 가능하면 true, 쿨다운 중이면 false).
      * {@code KoreaInvestmentService.isTokenAvailable()} 위임 대상.
+     *
+     * <p><b>의도적으로 비-synchronized</b>: {@link #getAccessToken()} 이 락을 쥔 채 발급 POST(최악 ~8초)를
+     * 수행하므로, 같은 락을 쓰면 발급 중 시세 단일 경로가 통째로 대기한다("발급 시도 없이 빠르게" 계약 위반).
+     * volatile 스냅샷 읽기라 필드 쌍이 찰나에 어긋날 수 있으나 advisory 판정(true/false 가 한 틱 이르거나
+     * 늦을 뿐)이라 무해 — 실제 토큰 사용은 getAccessToken() 이 락 안에서 정합 보장.
      */
-    public synchronized boolean isTokenAvailable() {
-        if (accessToken != null && tokenExpireTime != null
-                && DateTimeUtil.kstNow().isBefore(tokenExpireTime.minusHours(1))) {
+    public boolean isTokenAvailable() {
+        String token = accessToken;
+        LocalDateTime expire = tokenExpireTime;
+        if (token != null && expire != null
+                && DateTimeUtil.kstNow().isBefore(expire.minusHours(1))) {
             return true;
         }
-        if (tokenCooldownUntil != null && DateTimeUtil.kstNow().isBefore(tokenCooldownUntil)) {
+        LocalDateTime cooldown = tokenCooldownUntil;
+        if (cooldown != null && DateTimeUtil.kstNow().isBefore(cooldown)) {
             return false;
         }
         return isConfigured();

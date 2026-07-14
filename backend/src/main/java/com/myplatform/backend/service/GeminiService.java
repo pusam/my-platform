@@ -58,6 +58,9 @@ public class GeminiService {
     private final RateLimiter rateLimiter = new RateLimiter(MIN_REQUEST_INTERVAL_MS);
     private final AtomicInteger consecutiveErrors = new AtomicInteger(0);
     private volatile LocalDateTime quotaResetTime = null;
+    // 마지막 429 시각 — 저우선 양보 판정의 시간 감쇠용(P2-CAT2 후속). consecutiveErrors 는 성공 호출로만
+    // 리셋되는데, 고우선 트래픽이 오래 없으면(주말 등) 스테일 래치가 저우선을 무기한 차단하는 것을 막는다.
+    private volatile LocalDateTime lastRateLimitAt = null;
 
     // Forecast 캐시 (10분)
     private static final long FORECAST_CACHE_MINUTES = 10;
@@ -946,9 +949,9 @@ public class GeminiService {
 
         // P2-CAT2: AI전략 스냅샷은 저우선(배경 작업) — quota 압박 시 자발적 양보(스킵→기존 폴백).
         // 고우선(재료 분류·StockDetail 사용자 트리거)은 게이트 없이 진행해 rate 슬롯을 양보받는다.
-        if (shouldYieldLowPriority(quotaResetTime, consecutiveErrors.get(), LocalDateTime.now())) {
-            log.info("[AI Scoring] {} - quota 압박(리셋: {}, 연속에러: {}) → 저우선 양보 (코멘트 없이 진행)",
-                    strategyType, quotaResetTime, consecutiveErrors.get());
+        if (shouldYieldLowPriority(quotaResetTime, consecutiveErrors.get(), lastRateLimitAt, LocalDateTime.now())) {
+            log.info("[AI Scoring] {} - quota 압박(리셋: {}, 연속에러: {}, 마지막429: {}) → 저우선 양보 (코멘트 없이 진행)",
+                    strategyType, quotaResetTime, consecutiveErrors.get(), lastRateLimitAt);
             return Collections.emptyMap();
         }
 
@@ -1182,6 +1185,7 @@ public class GeminiService {
                 // 서버 hint 가 길면 어차피 같은 사이클에 재시도해도 fail 가능성 높아 cap 적용.
                 long retryDelay = Math.min(baseDelay * (1L << attempt), 60_000L);
                 consecutiveErrors.incrementAndGet();
+                lastRateLimitAt = LocalDateTime.now();   // 저우선 양보 판정의 시간 감쇠 앵커
                 log.warn("[Gemini JSON] Rate Limit (시도 {}/{}) - {}ms 후 재시도",
                         attempt + 1, MAX_RETRIES, retryDelay);
 
@@ -1300,6 +1304,7 @@ public class GeminiService {
                 // 지수 백오프: baseDelay * 2^attempt (1x, 2x, 4x). cap 60s 적용 — thread 점유 최소화.
                 long retryDelay = Math.min(baseDelay * (1L << attempt), 60_000L);
                 consecutiveErrors.incrementAndGet();
+                lastRateLimitAt = LocalDateTime.now();   // 저우선 양보 판정의 시간 감쇠 앵커
                 callRateLimit.increment();
 
                 log.warn("Gemini Rate Limit (시도 {}/{}) - {}ms 후 재시도 (지수 백오프)",
@@ -1391,15 +1396,23 @@ public class GeminiService {
         rateLimiter.acquire();
     }
 
+    /** 저우선 양보 판정의 429 잔존 창(분) — 이 시간 지난 429 래치는 스테일로 보고 저우선을 다시 허용. */
+    static final long LOW_PRIORITY_YIELD_WINDOW_MINUTES = 10;
+
     /**
      * 저우선(배경 스냅샷) 호출의 quota 압박 시 양보 판정 — <b>순수 함수(테스트 대상)</b>.
-     * 압박 = quotaResetTime 활성(아직 리셋 전) OR 최근 rate limit 에러 잔존(consecutiveErrors &gt; 0).
+     * 압박 = quotaResetTime 활성(아직 리셋 전) OR (consecutiveErrors &gt; 0 AND 마지막 429 가
+     * {@link #LOW_PRIORITY_YIELD_WINDOW_MINUTES}분 이내). 시간 창을 두는 이유: consecutiveErrors 는
+     * <b>성공 호출로만</b> 리셋되는데, 고우선 트래픽이 오래 없으면(주말 등) 금요일의 429 잔존이 quota 가
+     * 놀고 있는데도 저우선을 무기한 차단한다 — 스테일 래치는 창 경과로 자동 해제.
      * 저우선만 이 판정으로 스킵하고, 고우선(재료·사용자 트리거)은 기존 quotaResetTime 게이트만 탄다.
-     * 압박 해제(리셋 경과 + 에러 0)면 false — 저우선도 정상 진행(영구 차단 아님).
      */
-    static boolean shouldYieldLowPriority(LocalDateTime quotaResetTime, int consecutiveErrors, LocalDateTime now) {
+    static boolean shouldYieldLowPriority(LocalDateTime quotaResetTime, int consecutiveErrors,
+                                          LocalDateTime lastRateLimitAt, LocalDateTime now) {
         if (quotaResetTime != null && now.isBefore(quotaResetTime)) return true;
-        return consecutiveErrors > 0;
+        return consecutiveErrors > 0
+                && lastRateLimitAt != null
+                && lastRateLimitAt.plusMinutes(LOW_PRIORITY_YIELD_WINDOW_MINUTES).isAfter(now);
     }
 
     /**

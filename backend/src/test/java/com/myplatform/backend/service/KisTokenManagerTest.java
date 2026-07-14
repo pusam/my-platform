@@ -194,6 +194,37 @@ class KisTokenManagerTest {
     }
 
     @Test
+    @DisplayName("isTokenAvailable — 발급 POST 가 진행 중(락 점유)이어도 블로킹 없이 즉시 반환 (시세 경로 보호)")
+    void isTokenAvailable_nonBlockingDuringIssue() throws Exception {
+        // 발급 POST 를 latch 로 붙잡아 getAccessToken 이 synchronized 락을 쥔 채 대기하는 상황 재현
+        CountDownLatch issueEntered = new CountDownLatch(1);
+        CountDownLatch releaseIssue = new CountDownLatch(1);
+        when(restTemplate.postForEntity(anyString(), any(), eq(String.class)))
+                .thenAnswer(inv -> {
+                    issueEntered.countDown();
+                    releaseIssue.await(5, TimeUnit.SECONDS);
+                    return ResponseEntity.ok("{\"access_token\":\"issued\",\"expires_in\":86400}");
+                });
+
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            pool.submit(() -> manager.getAccessToken());   // 락 점유 + 발급 POST 블록
+            assertThat(issueEntered.await(2, TimeUnit.SECONDS)).isTrue();
+
+            // 발급이 진행 중인 동안 상태 조회는 락 대기 없이 즉시 반환해야 한다
+            long startNs = System.nanoTime();
+            boolean available = manager.isTokenAvailable();
+            long elapsedMs = (System.nanoTime() - startNs) / 1_000_000;
+
+            assertThat(available).isTrue();               // 키 설정됨 + 쿨다운 아님 → 발급 가능 상태
+            assertThat(elapsedMs).isLessThan(500L);       // synchronized 였다면 releaseIssue 까지 수 초 대기
+        } finally {
+            releaseIssue.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("isAuthFailure — 401만 true, 403/429/5xx/IO false (단일 출처)")
     void isAuthFailure_classification() {
         assertThat(KisTokenManager.isAuthFailure(new HttpClientErrorException(HttpStatus.UNAUTHORIZED))).isTrue();
