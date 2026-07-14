@@ -122,18 +122,19 @@ export function breakoutLabel(breakout) {
 /**
  * 채널 해설 한 줄 — 차트쟁이 스타일 코멘트(방향 + 위치 + 대응 관점). 순수 함수(테스트 대상).
  * 표시 전용 관찰 문구 — 매수/매도 지시가 아니라 "지금 채널 어디쯤인지"를 읽어준다.
+ * @param {string} [barUnit='일'] 봉 단위 라벨 — 일봉='일', 당일 분봉 차트는 '5분'(기울기 단위 정직 표기).
  */
-export function channelComment(channel) {
+export function channelComment(channel, barUnit = '일') {
   if (!channel) return null;
   const slope = channel.slopePctPerBar;
   const pos = Math.round(channel.position * 100);
   const width = channel.widthPct.toFixed(1);
 
   const head = channel.direction === 'UP'
-    ? `📈 상승 채널 (+${slope.toFixed(2)}%/일)`
+    ? `📈 상승 채널 (+${slope.toFixed(2)}%/${barUnit})`
     : channel.direction === 'DOWN'
-      ? `📉 하락 채널 (${slope.toFixed(2)}%/일)`
-      : `↔️ 박스권 (기울기 ${slope >= 0 ? '+' : ''}${slope.toFixed(2)}%/일)`;
+      ? `📉 하락 채널 (${slope.toFixed(2)}%/${barUnit})`
+      : `↔️ 박스권 (기울기 ${slope >= 0 ? '+' : ''}${slope.toFixed(2)}%/${barUnit})`;
 
   let posText;
   if (channel.position >= 0.8) {

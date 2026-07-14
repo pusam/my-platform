@@ -8,6 +8,7 @@ import com.myplatform.backend.dto.StockConclusionDto;
 import com.myplatform.backend.dto.StockDetailDto;
 import com.myplatform.backend.service.BuyChecklistService;
 import com.myplatform.backend.service.CatalystHistoryService;
+import com.myplatform.backend.service.IntradayChartService;
 import com.myplatform.backend.service.SignalHistoryService;
 import com.myplatform.backend.service.StockCatalystService;
 import com.myplatform.backend.service.StockConclusionService;
@@ -46,6 +47,7 @@ public class StockDetailController {
     private final BuyChecklistService buyChecklistService;
     private final StockCatalystService stockCatalystService;
     private final CatalystHistoryService catalystHistoryService;
+    private final IntradayChartService intradayChartService;
     private final SignalHistoryService signalHistoryService;
 
     @GetMapping("/{stockCode}/summary")
@@ -169,6 +171,31 @@ public class StockDetailController {
             log.error("[BuyChecklist API] 종목 {} 체크리스트 조회 실패: {}", stockCode, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "체크리스트 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/intraday-candles")
+    @Operation(
+        summary = "당일 분봉 차트 (5분봉 합성)",
+        description = "KIS 당일분봉(1분×페이지네이션)을 5분봉으로 합성해 반환 — 종목상세 '1일' 차트용. " +
+                     "candles 는 최신→과거(일봉 ChartData 규약 동형), date 는 HH:mm. " +
+                     "장전/휴장/수집 실패면 빈 배열 + dataAvailable=false(§4c — 프론트가 '분봉 없음' 안내)."
+    )
+    public ResponseEntity<Map<String, Object>> getIntradayCandles(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", intradayChartService.getIntradayCandles(stockCode));
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[Intraday API] 종목 {} 분봉 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "분봉 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }

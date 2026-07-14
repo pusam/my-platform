@@ -150,22 +150,25 @@
               <button v-for="p in chartPeriodOptions" :key="'period'+p"
                 :class="['ind-toggle period-toggle', { active: chartPeriod === p }]"
                 @click="chartPeriod = p"
-                :title="p + '거래일 표시'">
+                :title="p === 1 ? '당일 분봉 (5분봉 합성)' : p + '거래일 표시'">
                 {{ p }}일
               </button>
-              <button v-for="ind in indicatorList" :key="ind.key"
-                :class="['ind-toggle', { active: activeIndicators[ind.key] }]"
-                :style="{ '--ind-color': ind.color }"
-                @click="activeIndicators[ind.key] = !activeIndicators[ind.key]">
-                {{ ind.label }}
-              </button>
+              <!-- MA/볼린저/패턴은 일봉 데이터 기반 — 분봉(1일) 모드에선 숨김(데이터 없음, §4c) -->
+              <template v-if="!isIntraday">
+                <button v-for="ind in indicatorList" :key="ind.key"
+                  :class="['ind-toggle', { active: activeIndicators[ind.key] }]"
+                  :style="{ '--ind-color': ind.color }"
+                  @click="activeIndicators[ind.key] = !activeIndicators[ind.key]">
+                  {{ ind.label }}
+                </button>
+              </template>
               <button v-if="chartSrLines.length"
                 :class="['ind-toggle sr-toggle', { active: showSrLines }]"
                 @click="showSrLines = !showSrLines"
                 title="지지/저항 가로선 토글">
                 S/R
               </button>
-              <button v-if="chartPatternMarkers.length"
+              <button v-if="!isIntraday && chartPatternMarkers.length"
                 :class="['ind-toggle pattern-toggle', { active: showPatternMarkers }]"
                 @click="showPatternMarkers = !showPatternMarkers"
                 title="패턴 마커 토글">
@@ -184,8 +187,13 @@
               </button>
             </div>
           </div>
+          <!-- 분봉(1일) 로딩/빈 상태 안내 — 그럴듯한 차트로 위장하지 않음(§4c) -->
+          <div v-if="isIntraday && intradayLoading" class="intraday-note">⏳ 당일 분봉 불러오는 중…</div>
+          <div v-else-if="isIntraday && !displayCandles.length" class="intraday-note">
+            당일 분봉 없음 — 장전/휴장이거나 수집 실패입니다. 일봉 보기(7/30일)를 이용하세요.
+          </div>
           <div class="candlestick-container">
-            <div class="candlestick-chart" :class="{ dense: chartPeriod > 30 }" ref="candleChartRef">
+            <div class="candlestick-chart" :class="{ dense: displayCandles.length > 30 }" ref="candleChartRef">
               <div
                 v-for="(candle, index) in displayCandles"
                 :key="index"
@@ -262,7 +270,7 @@
               </div>
             </div>
           </div>
-          <div class="volume-chart" :class="{ dense: chartPeriod > 30 }">
+          <div class="volume-chart" :class="{ dense: displayCandles.length > 30 }">
             <div
               v-for="(vol, index) in displayVolumes"
               :key="index"
@@ -279,6 +287,11 @@
               {{ breakoutText }}
             </strong>
             <span>{{ channelCaption }}</span>
+          </div>
+          <!-- 마지막 봉 꼬리 관찰 (망치형/유성형) — 표시 전용, 매매 신호 아님 -->
+          <div v-if="tailSignal" class="tail-note" :class="tailSignal.type === 'HAMMER' ? 'up' : 'down'">
+            {{ tailSignal.label }}
+            <span class="tail-sub">· 마지막 {{ isIntraday ? '5분봉' : '일봉' }} 기준 — 관찰용</span>
           </div>
         </div>
 
@@ -614,10 +627,11 @@ import NotificationBell from '../components/NotificationBell.vue';
 import VolumePowerGauge from '../components/VolumePowerGauge.vue';
 import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import DataFreshness from '../components/DataFreshness.vue';
-import { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
+import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
+import { detectTailSignal } from '../utils/candleAnatomy';
 
 const route = useRoute();
 const router = useRouter();
@@ -656,11 +670,13 @@ const compositeSignal = ref(null);  // 5개 신호 종합 평가
 const relatedStocks = ref([]);  // 관련 종목 (correlation 기반)
 
 // 차트 좌표·스타일 계산 → useChartCalculations.js 로 분리 (P-IA ③-3차). 토글 상태는 아래에 유지.
-// 차트 표시 기간 (봉 수) — 백엔드 최대 60봉. 60봉은 데이터 있을 때만 노출.
+// 차트 표시 기간 — HTS 스타일: 1일(당일 5분봉) / 7일 / 30일 / 60일(일봉, 데이터 있을 때만).
 const chartPeriod = ref(30);
 const chartPeriodOptions = computed(() => {
   const available = chartData.value?.candles?.length || 0;
-  return available > 30 ? [30, 60] : [30];
+  const opts = [1, 7, 30];
+  if (available > 30) opts.push(60);
+  return opts;
 });
 // 종목 이동으로 캔들이 줄어 60일 옵션이 사라지면 선택도 30으로 클램프
 // (안 하면 60 잔존 → dense 봉폭·토글 활성 표시가 어긋난 유령 상태).
@@ -668,15 +684,44 @@ watch(chartPeriodOptions, (opts) => {
   if (!opts.includes(chartPeriod.value)) chartPeriod.value = 30;
 });
 
+// 1일 = 당일 분봉(백엔드가 5분봉 합성) — 선택/종목 변경 시 on-demand 조회(백엔드 2분 캐시).
+const isIntraday = computed(() => chartPeriod.value === 1);
+const intradayData = ref(null);
+const intradayLoading = ref(false);
+let intradayFetchedFor = '';
+const loadIntraday = async () => {
+  if (!stockCode.value) return;
+  intradayLoading.value = true;
+  try {
+    const res = await apiClient.get(`/stock/${stockCode.value}/intraday-candles`);
+    intradayData.value = res.data?.data || null;
+    intradayFetchedFor = stockCode.value;
+  } catch (e) {
+    intradayData.value = null;   // 실패 = 빈 상태 안내(§4c — 위장 없음)
+  } finally {
+    intradayLoading.value = false;
+  }
+};
+watch([chartPeriod, stockCode], () => {
+  if (isIntraday.value && (intradayFetchedFor !== stockCode.value || !intradayData.value)) {
+    loadIntraday();
+  }
+});
+
+// 차트 데이터 소스 전환 — 1일은 분봉 DTO(ChartData 동형, maLine 없음 → MA/BB 오버레이 자동 미표시),
+// 일봉 기간은 기존 chartData 슬라이스. 분봉은 전체 표시(999 = 슬라이스 무력화).
+const effectiveChartData = computed(() => (isIntraday.value ? intradayData.value : chartData.value));
+const chartDisplayCount = computed(() => (isIntraday.value ? 999 : chartPeriod.value));
+
 const {
   displayCandles, displayVolumes, chartPriceRange, maxVolume,
   chartSrLines, chartPatternMarkers, chartChannel, chartBreakout, maLinePath,
   getCandleStyle, getWickStyle, getBodyStyle, getVolumeHeight
-} = useChartCalculations(chartData, supportResistance, chartPatterns, chartPeriod);
+} = useChartCalculations(effectiveChartData, supportResistance, chartPatterns, chartDisplayCount);
 
 // 추세 채널 표시 상태 + 해설 — 방향색은 매매 신호색 한국 관례(상승=적/하락=청/횡보=회) 동기.
 const showChannel = ref(true);
-const channelCaption = computed(() => channelComment(chartChannel.value));
+const channelCaption = computed(() => channelComment(chartChannel.value, isIntraday.value ? '5분' : '일'));
 const breakoutText = computed(() => breakoutLabel(chartBreakout.value));
 const channelColor = computed(() => {
   const dir = chartChannel.value?.direction;
@@ -695,6 +740,9 @@ const channelPriceLabels = computed(() => {
 
 // 차트 전체화면 (⛶ 크게 보기) — 같은 DOM 에 CSS 오버레이만 전환, Esc 로 닫기.
 const chartFullscreen = ref(false);
+
+// 마지막 봉 꼬리 관찰 배지(망치형/유성형) — 표시 전용, 산식 미편입.
+const tailSignal = computed(() => detectTailSignal(displayCandles.value[displayCandles.value.length - 1]));
 
 // 2단계 로딩 상태
 const heavyLoading = ref(false);
@@ -1789,6 +1837,30 @@ onUnmounted(() => {
 
 /* 기간 토글 + 60봉 dense 모드 (봉 폭 축소) */
 .ind-toggle.period-toggle.active { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: rgba(255,255,255,0.85); }
+.intraday-note {
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+}
+
+/* 마지막 봉 꼬리 관찰 배지 — 채널 캡션과 같은 톤 */
+.tail-note {
+  margin-top: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.6);
+}
+.tail-note.up { border-left: 3px solid #f87171; }
+.tail-note.down { border-left: 3px solid #60a5fa; }
+.tail-note .tail-sub { opacity: 0.55; font-size: 10.5px; }
 .candlestick-chart.dense .candle { width: 4px; }
 .volume-chart.dense .volume-bar { width: 4px; }
 

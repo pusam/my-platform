@@ -597,9 +597,24 @@ public class KoreaInvestmentService {
     }
 
     /**
-     * 주식 분봉 데이터 조회 (우선순위 지정)
+     * 주식 분봉 데이터 조회 (우선순위 지정) — 현재 시각(장후엔 20:00) 앵커.
      */
     public JsonNode getStockMinuteChartWithPriority(String stockCode, KisApiRateLimiter.Priority priority) {
+        // 현재 시간 또는 NXT 거래종료 시간 (HHMMSS 형식)
+        // NXT 애프터마켓 20:00까지 분봉 수집 (이전엔 KRX 15:30 가드)
+        java.time.LocalTime now = java.time.LocalTime.now();
+        java.time.LocalTime marketClose = java.time.LocalTime.of(20, 0);
+        java.time.LocalTime queryTime = now.isAfter(marketClose) ? marketClose : now;
+        String timeStr = String.format("%02d%02d%02d", queryTime.getHour(), queryTime.getMinute(), 0);
+        return getStockMinuteChartAt(stockCode, timeStr, priority);
+    }
+
+    /**
+     * 주식 분봉 데이터 조회 — <b>시간 앵커(HHMMSS) 지정</b>. KIS 는 호출당 앵커 시각 이전 최근 30건(1분봉)만
+     * 반환하므로, 당일 전체 분봉이 필요한 호출부({@link IntradayChartService})가 앵커를 09:00 까지 되감으며
+     * 페이지네이션한다.
+     */
+    public JsonNode getStockMinuteChartAt(String stockCode, String timeHHMMSS, KisApiRateLimiter.Priority priority) {
         return rateLimiter.execute(priority, () -> {
             String token = getAccessToken();
             if (token == null) {
@@ -607,17 +622,10 @@ public class KoreaInvestmentService {
             }
 
             try {
-                // 현재 시간 또는 NXT 거래종료 시간 (HHMMSS 형식)
-                // NXT 애프터마켓 20:00까지 분봉 수집 (이전엔 KRX 15:30 가드)
-                java.time.LocalTime now = java.time.LocalTime.now();
-                java.time.LocalTime marketClose = java.time.LocalTime.of(20, 0);
-                java.time.LocalTime queryTime = now.isAfter(marketClose) ? marketClose : now;
-                String timeStr = String.format("%02d%02d%02d", queryTime.getHour(), queryTime.getMinute(), 0);
-
                 String url = baseUrl + "/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice"
                         + "?FID_COND_MRKT_DIV_CODE=UN"  // KRX+NXT 통합
                         + "&FID_INPUT_ISCD=" + stockCode
-                        + "&FID_INPUT_HOUR_1=" + timeStr
+                        + "&FID_INPUT_HOUR_1=" + timeHHMMSS
                         + "&FID_PW_DATA_INCU_YN=Y";
 
                 HttpHeaders headers = createHeaders(token, "FHKST03010200");
