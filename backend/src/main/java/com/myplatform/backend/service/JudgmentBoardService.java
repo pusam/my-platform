@@ -6,8 +6,10 @@ import com.myplatform.backend.dto.JudgmentBoardDto.Row;
 import com.myplatform.backend.dto.StockCatalystDto;
 import com.myplatform.backend.dto.StockPriceDto;
 import com.myplatform.backend.entity.StockCatalyst;
+import com.myplatform.backend.entity.StockPriceHistory;
 import com.myplatform.backend.repository.SignalOutcomeRepository;
 import com.myplatform.backend.repository.StockCatalystRepository;
+import com.myplatform.backend.util.TrendChannelCalculator;
 import com.myplatform.backend.service.RecommendationService.RecommendationDto;
 import com.myplatform.backend.service.RecommendationService.StockScore;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +47,7 @@ public class JudgmentBoardService {
     static final int CATALYST_DISPLAY_DAYS = 2;
     private static final String SOURCE_MOMENTUM = "momentum";
     private static final String NOTE_BASE =
-            "② 차트타이밍·섹터강도·간밤 미국장·RVOL·신호이력 = 미검증 참고(점수 미편입). "
+            "② 차트타이밍·섹터강도·간밤 미국장·RVOL·신호이력·추세채널 = 미검증 참고(점수 미편입). "
             + "③ 수급 고점 = 역상관 의심(표본 작음 n=88, 확정 아님). 종합점수는 ① 검증/게이트 기준.";
 
     private final RecommendationService recommendationService;
@@ -58,6 +60,12 @@ public class JudgmentBoardService {
     private final RvolService rvolService;
     private final SignalOutcomeRepository signalOutcomeRepository;
     private final InvestorBuyStreakService investorBuyStreakService;
+    private final com.myplatform.backend.repository.StockPriceHistoryRepository priceHistoryRepository;
+
+    /** 채널 계산 봉 수(거래일) — 종목상세 차트 기본 표시(30봉)와 동기. */
+    static final int CHANNEL_BARS = 30;
+    /** 30거래일 확보용 달력일 룩백(주말·공휴일 여유). */
+    static final int CHANNEL_LOOKBACK_CALENDAR_DAYS = 50;
 
     /** 종합 판단 보드. scope=momentum(기본)|union. */
     public JudgmentBoardDto getBoard(String scope) {
@@ -274,6 +282,51 @@ public class JudgmentBoardService {
             applyBuyStreak(rows, investorBuyStreakService.getStreaksForCodes(codes));
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 연속 순매수일 조립 실패(생략): {}", e.getMessage());
+        }
+
+        try {   // 추세채널(② 참고): 히스토리 IN 절 1쿼리 → 종목별 회귀 채널(종목상세 차트 동일 산식, 표시 전용).
+            applyTrendChannel(rows, computeChannels(priceHistoryRepository.findByStockCodesSince(
+                    codes, LocalDate.now().minusDays(CHANNEL_LOOKBACK_CALENDAR_DAYS))));
+        } catch (Exception e) {
+            log.warn("[JudgmentBoard] 추세채널 조립 실패(생략): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 벌크 히스토리(코드 ASC·일자 DESC 정렬) → 코드별 최근 {@link #CHANNEL_BARS}봉 회귀 채널. 순수 함수.
+     * 히스토리 <10거래일이거나 가격 결측이면 해당 코드 미포함(null 유지, §4c).
+     */
+    static Map<String, TrendChannelCalculator.Channel> computeChannels(List<StockPriceHistory> history) {
+        Map<String, TrendChannelCalculator.Channel> out = new LinkedHashMap<>();
+        if (history == null || history.isEmpty()) return out;
+        Map<String, List<TrendChannelCalculator.Bar>> barsByCode = new LinkedHashMap<>();
+        for (StockPriceHistory h : history) {
+            if (h == null || h.getStockCode() == null) continue;
+            if (h.getHighPrice() == null || h.getLowPrice() == null || h.getClosePrice() == null) continue;
+            List<TrendChannelCalculator.Bar> bars = barsByCode.computeIfAbsent(h.getStockCode(), k -> new ArrayList<>());
+            if (bars.size() >= CHANNEL_BARS) continue;   // 일자 DESC 정렬이라 앞쪽 = 최신
+            bars.add(new TrendChannelCalculator.Bar(
+                    h.getHighPrice().doubleValue(), h.getLowPrice().doubleValue(), h.getClosePrice().doubleValue()));
+        }
+        for (Map.Entry<String, List<TrendChannelCalculator.Bar>> e : barsByCode.entrySet()) {
+            List<TrendChannelCalculator.Bar> oldestFirst = new ArrayList<>(e.getValue());
+            java.util.Collections.reverse(oldestFirst);   // 최신→과거 수집분을 과거→최신으로
+            TrendChannelCalculator.Channel ch = TrendChannelCalculator.compute(oldestFirst);
+            if (ch != null) out.put(e.getKey(), ch);
+        }
+        return out;
+    }
+
+    /** 추세채널 매핑(순수) — 미산출 종목은 미설정(null=§4c). 표시 전용, 랭킹/산식 미편입. */
+    static void applyTrendChannel(List<Row> rows, Map<String, TrendChannelCalculator.Channel> channelByCode) {
+        if (channelByCode == null || channelByCode.isEmpty()) return;
+        for (Row r : rows) {
+            TrendChannelCalculator.Channel ch = channelByCode.get(r.getStockCode());
+            if (ch == null) continue;
+            r.setChannelDirection(ch.direction());
+            r.setChannelPositionPct((int) Math.round(ch.position() * 100));
+            r.setChannelSlopePctPerDay(BigDecimal.valueOf(ch.slopePctPerBar())
+                    .setScale(2, java.math.RoundingMode.HALF_UP));
         }
     }
 

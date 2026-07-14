@@ -102,6 +102,12 @@ public class JudgmentBoardDto {
         private Integer trackHitCount;
         private BigDecimal trackAvgAlpha;  // alpha 있는 행 평균. null=미산출
 
+        // 추세채널(② 참고 계층): 최근 30거래일 회귀 채널(종목상세 차트와 동일 산식) — 표시 전용, 산식 미편입.
+        // null=히스토리 부족(<10거래일, §4c 위장 금지). positionPct=채널 내 위치 0(하단)~100(상단).
+        private String channelDirection;          // UP / DOWN / FLAT
+        private Integer channelPositionPct;
+        private BigDecimal channelSlopePctPerDay; // 기울기 %/거래일
+
         private List<String> tags;
     }
 }

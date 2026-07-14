@@ -214,4 +214,44 @@ class JudgmentBoardServiceTest {
         JudgmentBoardService.applyRvol(List.of(b), null);
         assertThat(b.getRvol()).isNull();
     }
+
+    @Test
+    @DisplayName("추세채널(② 참고) — 히스토리(최신순)→코드별 채널, 10거래일 미만·가격 결측 코드는 null 유지(§4c)")
+    void computeChannels_andApply() {
+        java.time.LocalDate today = java.time.LocalDate.of(2026, 7, 14);
+        java.util.List<com.myplatform.backend.entity.StockPriceHistory> history = new java.util.ArrayList<>();
+        // A: 30거래일 상승 추세 (repo 정렬대로 최신→과거 순 적재)
+        for (int i = 0; i < 30; i++) {
+            double close = 130 - i;   // 최신 130 → 과거 101
+            history.add(com.myplatform.backend.entity.StockPriceHistory.builder()
+                    .stockCode("A").tradeDate(today.minusDays(i))
+                    .highPrice(BigDecimal.valueOf(close + 1)).lowPrice(BigDecimal.valueOf(close - 1))
+                    .closePrice(BigDecimal.valueOf(close)).build());
+        }
+        // B: 5거래일뿐 → 채널 미산출
+        for (int i = 0; i < 5; i++) {
+            history.add(com.myplatform.backend.entity.StockPriceHistory.builder()
+                    .stockCode("B").tradeDate(today.minusDays(i))
+                    .highPrice(BigDecimal.valueOf(101)).lowPrice(BigDecimal.valueOf(99))
+                    .closePrice(BigDecimal.valueOf(100)).build());
+        }
+
+        var channels = JudgmentBoardService.computeChannels(history);
+        assertThat(channels).containsKey("A").doesNotContainKey("B");
+        assertThat(channels.get("A").direction()).isEqualTo("UP");
+
+        Row a = Row.builder().stockCode("A").build();
+        Row b = Row.builder().stockCode("B").build();
+        JudgmentBoardService.applyTrendChannel(List.of(a, b), channels);
+        assertThat(a.getChannelDirection()).isEqualTo("UP");
+        assertThat(a.getChannelPositionPct()).isBetween(0, 100);
+        assertThat(a.getChannelSlopePctPerDay()).isNotNull();
+        assertThat(b.getChannelDirection()).isNull();   // 미산출 = null (§4c)
+        assertThat(b.getChannelPositionPct()).isNull();
+
+        // 빈/누락 맵은 no-op
+        JudgmentBoardService.applyTrendChannel(List.of(b), Map.of());
+        JudgmentBoardService.applyTrendChannel(List.of(b), null);
+        assertThat(b.getChannelDirection()).isNull();
+    }
 }

@@ -56,7 +56,7 @@
             <th class="th-name"></th>
             <th colspan="2" class="g-price">시세 · 유동성 <small title="캐시 스냅샷 · 최대 30분 지연 · 실시간 아님">⏱지연</small></th>
             <th colspan="4" class="g-score">① 점수 (검증/게이트)</th>
-            <th colspan="4" class="g-ref">② 참고 (미검증·점수 미편입)</th>
+            <th colspan="5" class="g-ref">② 참고 (미검증·점수 미편입)</th>
             <th colspan="1" class="g-caution">③ 경고</th>
           </tr>
           <tr>
@@ -70,6 +70,8 @@
             <th @click="setSort('timingScore')" @keydown.enter="setSort('timingScore')" tabindex="0" class="th-sort"
                 title="백테스트 hitRate 31% · 점수–수익 역상관 — 숫자 높다고 좋은 자리 아님(예측력 낮음 확인)">차트타이밍<small class="poor-badge">예측력↓</small>{{ sortMark('timingScore') }}</th>
             <th class="th-unv">섹터강도<small>미검증</small></th>
+            <th class="th-unv"
+                title="최근 30거래일 회귀 채널(종목상세 차트와 동일 산식) — 방향 + 채널 내 위치(0=하단/100=상단). 표시 전용 참고(점수 미편입).">채널<small>참고</small></th>
             <th @click="setSort('trackRecord')" @keydown.enter="setSort('trackRecord')" tabindex="0" class="th-sort"
                 title="signal_outcome 최근 90일 실측 — 적중/평가완료 · 평균 α. n<3 은 표본부족 '—'(정렬 항상 하단).">이력<small class="unv-badge">90일 실측</small>{{ sortMark('trackRecord') }}</th>
             <th class="th-unv"
@@ -103,6 +105,7 @@
             <td class="num" :class="r.scored ? strongClass(r.sectorMomentum, 14) : ''">{{ r.scored ? cat(r.sectorMomentum) : '—' }}</td>
             <td class="num td-poor" title="차트타이밍 — 백테스트 예측력 낮음(hitRate 31%, 점수–수익 역상관). 참고만.">{{ r.timingScore != null ? r.timingScore : '—' }}</td>
             <td class="num td-unv">{{ r.sectorStrengthRel != null ? signed(r.sectorStrengthRel) : '—' }}</td>
+            <td class="num td-chan" :class="channelClass(r)" :title="channelTitle(r)">{{ channelLabel(r) }}</td>
             <td class="num td-track" :class="{ 'track-insufficient': !hasTrack(r) }"
                 :title="hasTrack(r) ? '최근 90일 평가 완료 ' + r.trackCount + '회 중 ' + r.trackHitCount + '회 적중' : '표본부족(평가 완료 3회 미만) — 판단 근거로 쓰지 마세요'">
               {{ trackLabel(r) }}</td>
@@ -269,6 +272,20 @@ const fmtTradingValue = (v) => {
 };
 // RVOL 배지(V41 ② 참고, 미검증·점수 미편입) — null=미산출(§4c) 생략. "3.2x" 형태.
 const fmtRvol = (v) => `${Number(v).toFixed(1)}x`;
+// 추세채널(② 참고, 표시 전용) — 방향 아이콘 + 채널 내 위치 %. 미산출(히스토리 부족)은 '—'(§4c).
+const channelLabel = (r) => {
+  if (!r.channelDirection || r.channelPositionPct == null) return '—';
+  const icon = r.channelDirection === 'UP' ? '📈' : r.channelDirection === 'DOWN' ? '📉' : '↔';
+  return `${icon} ${r.channelPositionPct}%`;
+};
+const channelClass = (r) => (r.channelDirection ? 'chan-' + r.channelDirection.toLowerCase() : '');
+const channelTitle = (r) => {
+  if (!r.channelDirection) return '히스토리 부족(10거래일 미만) — 채널 미산출';
+  const dir = r.channelDirection === 'UP' ? '상승 채널' : r.channelDirection === 'DOWN' ? '하락 채널' : '박스권';
+  const s = r.channelSlopePctPerDay;
+  const slope = s != null ? ` (기울기 ${Number(s) > 0 ? '+' : ''}${s}%/일)` : '';
+  return `${dir}${slope} · 최근 30거래일 회귀 채널 내 위치 ${r.channelPositionPct}% (0=하단 지지/100=상단 저항) — 표시 전용 참고, 점수 미편입`;
+};
 // 재료 배지(§4b 표시 전용) — 호재/악재만 표시(중립/없음은 백엔드가 생략)
 // 재료 방향 3분할 — 호재 🔥 / 악재 ⚠️ / 중립 아이콘無(회색). NONE/null 은 백엔드가 생략.
 const catIcon = (dir) => (dir === 'POSITIVE' ? '🔥' : dir === 'NEGATIVE' ? '⚠️' : '');
@@ -410,6 +427,11 @@ onMounted(load);
 /* 수급연속 셀(② 참고) — 기본 muted, 연속 있으면 옅은 초록(매수 지속 = 약한 양 신호, 참고 톤). */
 .td-streak { color: #94a3b8; cursor: help; font-variant-numeric: tabular-nums; }
 .td-streak.streak-on { color: #6ee7b7; }
+/* 추세채널(② 참고) — 종목상세 차트 채널색 동기(상승=적/하락=청/박스=회) */
+.td-chan { color: #94a3b8; cursor: help; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.td-chan.chan-up { color: #f87171; }
+.td-chan.chan-down { color: #60a5fa; }
+.td-chan.chan-flat { color: #94a3b8; }
 .td-supply.suspect { color: #fbbf24; }
 .suspect-mark { margin-left: 2px; cursor: help; }
 .positive { color: #4ade80; }
