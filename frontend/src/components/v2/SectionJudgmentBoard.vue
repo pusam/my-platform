@@ -434,8 +434,10 @@ onMounted(load);
 .td-chan.chan-flat { color: #94a3b8; }
 .td-supply.suspect { color: #fbbf24; }
 .suspect-mark { margin-left: 2px; cursor: help; }
-.positive { color: #4ade80; }
-.negative { color: #f87171; }
+/* 등락색은 한국 관례(상승=빨강/하락=파랑) — TodayBriefingTab·디자인 토큰(--stock-up/down)과 통일.
+   regime/tilt 배지(강세=positive)도 같은 매핑이라 화면 간 색 의미가 일치한다. */
+.positive { color: var(--stock-up, #f87171); }
+.negative { color: var(--stock-down, #60a5fa); }
 .jb-legend { margin-top: 8px; font-size: 11px; color: #fbbf24; opacity: 0.85; }
 /* 차트타이밍 상시 안내 — 툴팁(hover)만으론 오해라 항상 노출. 열/셀과 같은 역상관 적색-회색 톤. */
 .jb-timing-note {

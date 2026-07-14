@@ -91,6 +91,7 @@ const fmtDate = (d) => {
 .ch-type { font-weight: 600; }
 .ch-pct { font-variant-numeric: tabular-nums; font-size: 12px; }
 .ch-summary { font-size: 12px; opacity: 0.72; flex: 1 1 100%; }
-.positive { color: #4ade80; }
-.negative { color: #f87171; }
+/* 등락색은 한국 관례(상승=빨강/하락=파랑) — 종목상세 나머지 등락 표시·디자인 토큰과 통일 */
+.positive { color: var(--stock-up, #f87171); }
+.negative { color: var(--stock-down, #60a5fa); }
 </style>
