@@ -76,9 +76,10 @@
       <DataFreshness :lastUpdated="lastUpdated" :isRefreshing="isRefreshing" :nextRefreshIn="nextRefreshIn" @refresh="manualRefresh" />
     </div>
 
-    <!-- 검색바 + 실시간 상태 -->
+    <!-- 검색바 + 실시간 상태 — 데이터 로드 후엔 큰 검색바 숨김(헤더 🔍/Ctrl+K 모달이 대체, 슬림화).
+         종목 미선택(빈 화면) 상태에서만 진입용으로 노출. -->
     <div class="control-section">
-      <div class="search-bar">
+      <div v-if="!hasData" class="search-bar">
         <StockCodeInput
           v-model="searchQuery"
           placeholder="종목명 또는 종목코드 입력 (예: 삼성전자, 005930)"
@@ -113,49 +114,13 @@
       </button>
     </div>
 
-    <!-- ===== [근거] 행동권고 + 리스크 (점수·수급·기술 근거는 아래 main-grid) ===== -->
+    <!-- ===== [근거] 행동권고 (점수·수급·기술 근거는 아래 main-grid) ===== -->
     <!-- 행동 권고 헤드라인 (펀더멘털+AI+수급 종합) -->
     <StockBriefingHeadline
       v-if="hasData && !loading"
       :diagnosisData="diagnosisData"
       :aiAnalysis="aiAnalysis"
     />
-
-    <!-- 리스크 체크 카드 (DART 공시 + 뉴스 + AI 분석) -->
-    <StockRiskCard
-      v-if="hasData && stockName"
-      :stockName="stockName"
-      :stockCode="stockCode"
-    />
-
-    <!-- ===== [심화] 볼륨·지지저항·패턴·관련종목 — 기본 접힘 (자식은 v-show 로 마운트 유지) ===== -->
-    <DetailSection v-if="hasData" title="🔬 심화 분석 (볼륨·지지/저항·패턴·관련종목·Peer)">
-      <!-- Peer Group 비교 — 분리: PeerComparisonCard.vue (P2-10), 심화존 이동(P-IA) -->
-      <PeerComparisonCard v-if="peerComparisons?.length"
-                          :peer-comparisons="peerComparisons"
-                          :sector-name="sectorName"
-                          :sector-avg-pbr="sectorAvgPbr" />
-
-      <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
-      <VolumeProfileCard v-if="volumeProfile && volumeProfile.bins?.length > 0"
-                         :volume-profile="volumeProfile" />
-
-      <!-- 지지/저항 레벨 (피벗 클러스터링) — 분리: SupportResistanceCard.vue (P2-10) -->
-      <SupportResistanceCard v-if="supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
-                             :support-resistance="supportResistance" />
-
-      <!-- 관련 종목 (phase 28 분리 — RelatedStocksList.vue) -->
-      <RelatedStocksList :stocks="relatedStocks" @select="goToRelatedStock" />
-
-      <!-- 차트 패턴 검출 (phase 27 분리 — ChartPatternList.vue) -->
-      <ChartPatternList :patterns="chartPatterns" />
-    </DetailSection>
-
-    <!-- 📜 신호 이력 (signal_outcome 90일 재사용) — 자체 fetch(heavy 계열, quick 지연 없음), n=0 미렌더 -->
-    <SignalHistorySection v-if="hasData && stockCode" :stock-code="stockCode" />
-
-    <!-- 📰 재료 이력 (stock_catalyst 30일 재사용, read-only) — 자체 fetch(heavy 계열, quick 지연 없음), n=0 미렌더 -->
-    <CatalystHistorySection v-if="hasData && stockCode" :stock-code="stockCode" />
 
     <!-- 로딩 -->
     <div v-if="loading" class="loading-overlay">
@@ -556,9 +521,51 @@
       </div>
     </div>
 
-    <!-- 펀더멘털 진단 섹션 (분리: FundamentalDiagnosisPanel.vue) -->
-    <FundamentalDiagnosisPanel v-if="hasData && diagnosisData"
-                               :diagnosis-data="diagnosisData" :supply-demand="supplyDemand" />
+    <!-- ===== [보조/심화] 아래는 전부 차트·수급(main-grid) 뒤 — 2026-07-14 상세 화면 슬림화.
+         이전엔 이 블록들이 차트보다 위에 쌓여 핵심이 밀렸다. 컴포넌트는 자체 fetch/접기(v-show 마운트
+         유지)라 위치 이동만으로 동작 무변. ===== -->
+
+    <!-- 리스크 체크 카드 (DART 공시 + 뉴스 + AI 분석) — 안전점수 게이지(그리드)의 상세 근거 -->
+    <StockRiskCard
+      v-if="hasData && stockName"
+      :stockName="stockName"
+      :stockCode="stockCode"
+    />
+
+    <!-- [심화] 볼륨·지지저항·패턴·관련종목 — 기본 접힘 (자식은 v-show 로 마운트 유지) -->
+    <DetailSection v-if="hasData" title="🔬 심화 분석 (볼륨·지지/저항·패턴·관련종목·Peer)">
+      <!-- Peer Group 비교 — 분리: PeerComparisonCard.vue (P2-10), 심화존 이동(P-IA) -->
+      <PeerComparisonCard v-if="peerComparisons?.length"
+                          :peer-comparisons="peerComparisons"
+                          :sector-name="sectorName"
+                          :sector-avg-pbr="sectorAvgPbr" />
+
+      <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
+      <VolumeProfileCard v-if="volumeProfile && volumeProfile.bins?.length > 0"
+                         :volume-profile="volumeProfile" />
+
+      <!-- 지지/저항 레벨 (피벗 클러스터링) — 분리: SupportResistanceCard.vue (P2-10) -->
+      <SupportResistanceCard v-if="supportResistance && (supportResistance.resistance?.length > 0 || supportResistance.support?.length > 0)"
+                             :support-resistance="supportResistance" />
+
+      <!-- 관련 종목 (phase 28 분리 — RelatedStocksList.vue) -->
+      <RelatedStocksList :stocks="relatedStocks" @select="goToRelatedStock" />
+
+      <!-- 차트 패턴 검출 (phase 27 분리 — ChartPatternList.vue) -->
+      <ChartPatternList :patterns="chartPatterns" />
+    </DetailSection>
+
+    <!-- 📜 신호 이력 (signal_outcome 90일 재사용) — 자체 fetch(heavy 계열, quick 지연 없음), n=0 미렌더 -->
+    <SignalHistorySection v-if="hasData && stockCode" :stock-code="stockCode" />
+
+    <!-- 📰 재료 이력 (stock_catalyst 30일 재사용, read-only) — 자체 fetch(heavy 계열, quick 지연 없음), n=0 미렌더 -->
+    <CatalystHistorySection v-if="hasData && stockCode" :stock-code="stockCode" />
+
+    <!-- 펀더멘털 진단 상세 — 점수·판정은 헤더(중장기 펀더멘털 박스)에 이미 노출, 근거는 접이식(슬림화).
+         DetailSection v-show 라 접혀도 마운트 유지(진단 로딩 타이밍 무변). -->
+    <DetailSection v-if="hasData && diagnosisData" title="🩺 중장기 펀더멘털 진단 (상세 근거)">
+      <FundamentalDiagnosisPanel :diagnosis-data="diagnosisData" :supply-demand="supplyDemand" />
+    </DetailSection>
 
     <!-- 면책조항 -->
     <footer class="disclaimer" v-if="hasData">
