@@ -89,6 +89,14 @@ public class SignalOutcome {
     @Column(name = "vol_regime_at_signal", length = 10)
     private String volRegimeAtSignal;
 
+    /** 시그널 시점 회귀채널 방향 (V49) — UP/DOWN/FLAT. NULL=미수집(히스토리 <10거래일). 측정 전용, 산식 미편입. */
+    @Column(name = "channel_direction_at_signal", length = 10)
+    private String channelDirectionAtSignal;
+
+    /** 시그널 시점 채널 내 위치 0~100 (V49) — 0=하단/100=상단. NULL=미수집. */
+    @Column(name = "channel_position_at_signal")
+    private Integer channelPositionAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 

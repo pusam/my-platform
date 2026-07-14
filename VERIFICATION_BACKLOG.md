@@ -394,6 +394,25 @@
 
 ---
 
+## P3-9. 추세 채널 예측력 검증 (표시 전용 — 2026-07-14 신규, V49 스냅샷 축적 중)
+
+> **배경**: 회귀 채널(2026-07-14 — 종목상세 차트 드로잉·보드 컬럼·AI 프롬프트 맥락)은 전부 **표시 전용**(P2-12 교훈:
+> 검증 전 산식 미편입). "상승 채널 하단(눌림목) 매수가 실제로 먹히나 / 상단(추격)이 실측으로 부진한가"를 감이 아니라
+> 데이터로 답하기 위해 **시그널 시점 채널 상태를 signal_outcome 에 스냅샷**(V49, V30~46 동일 패턴)한다.
+
+- **✅ 축적 구현(2026-07-14)**: V49 `channel_direction_at_signal`(UP/DOWN/FLAT) + `channel_position_at_signal`(0~100).
+  `SignalOutcomeService.record()` 가 30거래일 히스토리로 best-effort 계산(`computeChannelFromHistory` 순수 — 차트/보드와
+  동일 산식 `TrendChannelCalculator`), 히스토리 <10거래일이면 NULL=미수집(§4c). 조회 = `GET /api/signal-outcomes/accuracy-by-band`
+  응답 `channels[]`(방향 3 × 위치밴드 하단≤33/중단/상단≥67 = 9칸, `aggregateChannels` 순수+테스트).
+- **검증 과제(표본 축적 후, 사람이 판정)**: UP-LOW(상승채널 하단) hitRate·avgAlpha 가 UP-HIGH(상단 추격) 대비 유의하게
+  높은지(각 칸 n≥10). 채널 방향이 기술 점수(technical≥13)가 이미 아는 것 위에 **추가 예측력**이 있는지도 비교.
+- **승격 조건**: 유의 확인 시에만 별도 결정으로 산식/타이밍 참고 승격 — 그 전엔 표시 전용 유지. 역상관/무상관이면
+  현행(관찰 도구) 유지가 결론(P2-12 차트타이밍과 동일 처리).
+- **관련**: `SignalOutcomeService.computeChannelFromHistory`/`aggregateChannels`/`positionBand`(순수, `SignalOutcomeBandAccuracyTest`),
+  `TrendChannelCalculator`, V49, `SignalBandAccuracyDto.ChannelStat`, [P2-12](교훈)·[P1-6](측정 상설화 — 표본 쌓이면 주간 리포트 확장 후보).
+
+---
+
 ## P3-7. 매크로 tilt 캘리브레이션/승격 (미검증 표시 전용 — 2026-07-06 신규, V39 스냅샷 축적 중)
 
 > **배경**: 간밤 미국장 tilt(P3-5) 패턴 복제로 매크로 3축 보조 tilt(`MacroTiltService.classifyMacroRegime`)를 '오늘' 탭에 추가했다.

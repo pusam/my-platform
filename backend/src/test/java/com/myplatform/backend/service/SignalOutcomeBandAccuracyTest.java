@@ -222,4 +222,63 @@ class SignalOutcomeBandAccuracyTest {
         assertThat(byKey.get("supplyDemand").getTotalSignals()).isEqualTo(1);
         assertThat(byKey.get("supplyDemand").getStrongThreshold()).isEqualTo(15);
     }
+
+    // ================================================================
+    // V49 채널 스냅샷 — positionBand / aggregateChannels / computeChannelFromHistory
+    // ================================================================
+
+    @Test
+    @DisplayName("positionBand 경계 — 33 하단 / 34 중단 / 66 중단 / 67 상단")
+    void positionBand_boundaries() {
+        assertThat(SignalOutcomeService.positionBand(0)).isEqualTo("LOW");
+        assertThat(SignalOutcomeService.positionBand(33)).isEqualTo("LOW");
+        assertThat(SignalOutcomeService.positionBand(34)).isEqualTo("MID");
+        assertThat(SignalOutcomeService.positionBand(66)).isEqualTo("MID");
+        assertThat(SignalOutcomeService.positionBand(67)).isEqualTo("HIGH");
+        assertThat(SignalOutcomeService.positionBand(100)).isEqualTo("HIGH");
+    }
+
+    @Test
+    @DisplayName("channels: 방향×위치 9칸 분리 집계 — UP 하단 hit / UP 상단 miss 가 다른 칸, NULL(미수집) 제외")
+    void channels_bucketByDirectionAndPosition() {
+        SignalOutcome upLow = outcome(80, true, "4.00");
+        upLow.setChannelDirectionAtSignal("UP");
+        upLow.setChannelPositionAtSignal(15);    // 하단
+        SignalOutcome upHigh = outcome(80, false, "-2.00");
+        upHigh.setChannelDirectionAtSignal("UP");
+        upHigh.setChannelPositionAtSignal(90);   // 상단
+        SignalOutcome noChannel = outcome(80, true, "1.00");   // 미수집 → 어느 칸에도 안 잡힘
+
+        var channels = SignalOutcomeService.aggregateChannels(List.of(upLow, upHigh, noChannel));
+
+        assertThat(channels).hasSize(9);   // 3방향 × 3밴드
+        var byKey = channels.stream().collect(java.util.stream.Collectors.toMap(
+                c -> c.getDirection() + "-" + c.getPositionBand(), c -> c));
+        assertThat(byKey.get("UP-LOW").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("UP-LOW").getHitRate()).isEqualByComparingTo("100");
+        assertThat(byKey.get("UP-HIGH").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("UP-HIGH").getHitRate()).isEqualByComparingTo("0");
+        assertThat(byKey.get("DOWN-LOW").getTotalSignals()).isEqualTo(0);   // 표본 0 = n 으로 정직 노출
+    }
+
+    @Test
+    @DisplayName("computeChannelFromHistory: 최신순 30봉 상승 추세 → UP, 봉 부족(<10)/빈 입력 → null(§4c)")
+    void computeChannelFromHistory_basics() {
+        java.util.List<com.myplatform.backend.entity.StockPriceHistory> newestFirst = new java.util.ArrayList<>();
+        for (int i = 0; i < 30; i++) {
+            double close = 130 - i;   // 최신 130 → 과거 101
+            newestFirst.add(com.myplatform.backend.entity.StockPriceHistory.builder()
+                    .stockCode("005930").tradeDate(LocalDate.of(2026, 7, 14).minusDays(i))
+                    .highPrice(BigDecimal.valueOf(close + 1)).lowPrice(BigDecimal.valueOf(close - 1))
+                    .closePrice(BigDecimal.valueOf(close)).build());
+        }
+        var ch = SignalOutcomeService.computeChannelFromHistory(newestFirst);
+        assertThat(ch).isNotNull();
+        assertThat(ch.direction()).isEqualTo("UP");
+        assertThat(ch.position()).isBetween(0.0, 1.0);
+
+        assertThat(SignalOutcomeService.computeChannelFromHistory(newestFirst.subList(0, 5))).isNull();
+        assertThat(SignalOutcomeService.computeChannelFromHistory(java.util.List.of())).isNull();
+        assertThat(SignalOutcomeService.computeChannelFromHistory(null)).isNull();
+    }
 }

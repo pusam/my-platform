@@ -43,6 +43,13 @@ public class SignalBandAccuracyDto {
      */
     private List<RegimeStat> regimes;
 
+    /**
+     * 추세 채널 상태별 적중률 (V49) — 방향(UP/DOWN/FLAT) × 위치 밴드(하단/중단/상단) 9칸.
+     * "상승 채널 하단(눌림목) 매수가 실제로 먹히나 / 상단(추격)이 부진한가" 검증용.
+     * 미수집(NULL) 행은 제외. 표본 유의 전 산식 편입 금지(P2-12 교훈).
+     */
+    private List<ChannelStat> channels;
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -87,6 +94,24 @@ public class SignalBandAccuracyDto {
         private long hitCount;
         private BigDecimal hitRate;
         private BigDecimal avgPctChange;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ChannelStat {
+        /** UP / DOWN / FLAT. */
+        private String direction;
+        /** LOW(≤33) / MID(34~66) / HIGH(≥67). */
+        private String positionBand;
+        /** "상승채널 하단(≤33%)" 등 표시 라벨. */
+        private String label;
+        private long totalSignals;
+        private long hitCount;
+        private BigDecimal hitRate;
+        private BigDecimal avgPctChange;
+        private BigDecimal avgAlpha;
     }
 
     @Data

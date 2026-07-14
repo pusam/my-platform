@@ -52,6 +52,8 @@ public class SignalOutcomeService {
     private final org.springframework.beans.factory.ObjectProvider<RvolService> rvolProvider;
     // V46 — 변동성 국면 스냅샷 (VKOSPI 백분위, best-effort·게이트 모드와 독립). ObjectProvider 로 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider;
+    // V49 — 추세 채널 스냅샷 (30거래일 회귀 채널, best-effort). ObjectProvider 로 null-safe.
+    private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.repository.StockPriceHistoryRepository> priceHistoryProvider;
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
@@ -68,6 +70,8 @@ public class SignalOutcomeService {
     private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
+    /** V49 채널 스냅샷 봉 수 — 종목상세 차트 기본 표시(30봉)·보드(JudgmentBoardService.CHANNEL_BARS)와 동기. */
+    static final int CHANNEL_SNAPSHOT_BARS = 30;
     /** hit 기준 — phase 20 변경: 시장 대비 alpha 양수 + 절대 수익률 양수. */
     private static final BigDecimal HIT_ALPHA_THRESHOLD = BigDecimal.ZERO;
     /** BM(KOSPI) 데이터 없을 때 hit 폴백 임계 — 절대 수익률 +3%. */
@@ -162,6 +166,22 @@ public class SignalOutcomeService {
                 }
             } catch (Exception ignore) { /* 변동성 국면 스냅샷은 best-effort */ }
 
+            // V49 — 추세 채널 스냅샷 (30거래일 회귀 채널 — 표시 전용 채널의 예측력 사후검증용).
+            // 히스토리 <10거래일/가격 결측이면 NULL=미수집(§4c). 산식 미편입 — 데이터 축적만.
+            String channelDirection = null;
+            Integer channelPosition = null;
+            try {
+                var historyRepo = priceHistoryProvider.getIfAvailable();
+                if (historyRepo != null) {
+                    var ch = computeChannelFromHistory(historyRepo.findByStockCodeOrderByTradeDateDesc(
+                            stockCode, org.springframework.data.domain.PageRequest.of(0, CHANNEL_SNAPSHOT_BARS)));
+                    if (ch != null) {
+                        channelDirection = ch.direction();
+                        channelPosition = (int) Math.round(ch.position() * 100);
+                    }
+                }
+            } catch (Exception ignore) { /* 채널 스냅샷은 best-effort */ }
+
             SignalOutcome outcome = SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -179,6 +199,8 @@ public class SignalOutcomeService {
                     .regimeAtSignal(regime)
                     .rvolAtSignal(rvol)
                     .volRegimeAtSignal(volRegime)
+                    .channelDirectionAtSignal(channelDirection)
+                    .channelPositionAtSignal(channelPosition)
                     .build();
             // INSERT 는 REQUIRES_NEW 로 격리 — UNIQUE(uq_so_type_code_date) 위반(경합 패자)이
             // 호출부/이 메서드 tx 를 rollback-only 로 오염시키지 않게(새 tx 만 롤백).
@@ -606,6 +628,7 @@ public class SignalOutcomeService {
                 .categories(aggregateCategories(rows))
                 .catalysts(aggregateCatalysts(rows))
                 .regimes(aggregateRegimes(rows))
+                .channels(aggregateChannels(rows))
                 .build();
     }
 
@@ -746,6 +769,74 @@ public class SignalOutcomeService {
                     .build());
         }
         return result;
+    }
+
+    /**
+     * 히스토리(최신→과거 순) → 회귀 채널 — 순수 함수(테스트 대상). 차트/보드와 동일 산식
+     * ({@link com.myplatform.backend.util.TrendChannelCalculator}). 가격 결측 봉은 건너뛰고,
+     * 유효 봉 &lt;10 이면 null(§4c — 위장 금지).
+     */
+    static com.myplatform.backend.util.TrendChannelCalculator.Channel computeChannelFromHistory(
+            List<com.myplatform.backend.entity.StockPriceHistory> newestFirst) {
+        if (newestFirst == null || newestFirst.isEmpty()) return null;
+        List<com.myplatform.backend.util.TrendChannelCalculator.Bar> bars = new ArrayList<>();
+        for (int i = newestFirst.size() - 1; i >= 0; i--) {   // 최신→과거 입력을 과거→최신으로
+            var h = newestFirst.get(i);
+            if (h == null || h.getHighPrice() == null || h.getLowPrice() == null || h.getClosePrice() == null) continue;
+            bars.add(new com.myplatform.backend.util.TrendChannelCalculator.Bar(
+                    h.getHighPrice().doubleValue(), h.getLowPrice().doubleValue(), h.getClosePrice().doubleValue()));
+        }
+        return com.myplatform.backend.util.TrendChannelCalculator.compute(bars);
+    }
+
+    /** V49 채널 위치 밴드 경계 — ≤33 하단 / 34~66 중단 / ≥67 상단. */
+    static final int CHANNEL_LOW_BAND_MAX = 33;
+    static final int CHANNEL_HIGH_BAND_MIN = 67;
+
+    /**
+     * 채널 상태별 집계 (V49) — 순수 함수. "상승 채널 하단(눌림목) 매수가 실제로 먹히나 /
+     * 상단(추격)이 실제로 부진한가" 검증용. 방향(UP/DOWN/FLAT) × 위치 밴드(하단/중단/상단) 9칸.
+     * channel 컬럼 NULL(미수집) 행은 제외. 표본 적은 칸은 n 으로 노출(§4c — 표본부족 위장 금지).
+     */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.ChannelStat> aggregateChannels(
+            List<SignalOutcome> rows) {
+        String[][] dirDefs = {{"UP", "상승채널"}, {"DOWN", "하락채널"}, {"FLAT", "박스권"}};
+        String[][] posDefs = {{"LOW", "하단(≤33%)"}, {"MID", "중단(34~66%)"}, {"HIGH", "상단(≥67%)"}};
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.ChannelStat> result = new ArrayList<>();
+        for (String[] dir : dirDefs) {
+            for (String[] pos : posDefs) {
+                long total = 0, hits = 0;
+                BigDecimal pctSum = BigDecimal.ZERO, alphaSum = BigDecimal.ZERO;
+                long pctCount = 0, alphaCount = 0;
+                for (SignalOutcome s : rows) {
+                    if (!dir[0].equals(s.getChannelDirectionAtSignal())) continue;
+                    Integer p = s.getChannelPositionAtSignal();
+                    if (p == null || !pos[0].equals(positionBand(p))) continue;
+                    total++;
+                    if (Boolean.TRUE.equals(s.getHit())) hits++;
+                    if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+                    if (s.getAlpha3d() != null) { alphaSum = alphaSum.add(s.getAlpha3d()); alphaCount++; }
+                }
+                result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.ChannelStat.builder()
+                        .direction(dir[0])
+                        .positionBand(pos[0])
+                        .label(dir[1] + " " + pos[1])
+                        .totalSignals(total)
+                        .hitCount(hits)
+                        .hitRate(rate(hits, total))
+                        .avgPctChange(avg(pctSum, pctCount))
+                        .avgAlpha(avg(alphaSum, alphaCount))
+                        .build());
+            }
+        }
+        return result;
+    }
+
+    /** 채널 위치(0~100) → 밴드 키. 순수 함수(테스트 대상). */
+    static String positionBand(int position) {
+        if (position <= CHANNEL_LOW_BAND_MAX) return "LOW";
+        if (position >= CHANNEL_HIGH_BAND_MIN) return "HIGH";
+        return "MID";
     }
 
     private static Integer categoryScore(SignalOutcome s, String key) {
