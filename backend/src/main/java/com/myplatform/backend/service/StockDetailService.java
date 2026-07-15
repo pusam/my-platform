@@ -164,8 +164,9 @@ public class StockDetailService {
                     }
                 }, stockDetailExecutor);
 
+        // 차트 — quick 과 동일하게 캐시 경유(200봉 페이지네이션 반복 로딩 흡수, 단일 출처).
         CompletableFuture<ChartData> chartFuture =
-                CompletableFuture.supplyAsync(() -> fetchChartData(stockCode), stockDetailExecutor);
+                CompletableFuture.supplyAsync(() -> cacheService.getCachedChartData(stockCode), stockDetailExecutor);
 
         try {
             // 수급 정보 - 장 마감 여부에 따라 다른 소스 사용
@@ -680,111 +681,6 @@ public class StockDetailService {
         return tags.isEmpty() ? null : tags;
     }
 
-    /** 차트 최대 표시 봉 수(일봉) — '200일' 기간까지 지원(2026-07-15). */
-    static final int CHART_DISPLAY_MAX = 200;
-    /** 히스토리 수집 목표 = 표시 200봉 + MA120 헤드룸(창 전체 MA120 완결). */
-    static final int CHART_HISTORY_TARGET = CHART_DISPLAY_MAX + 120;
-
-    /**
-     * 차트 데이터 조회 — KIS 일봉 페이지네이션(FHKST03010100 호출당 ~100건 상한)으로 깊은 히스토리 수집.
-     * 표시는 최근 {@link #CHART_DISPLAY_MAX}봉, MA/볼린저는 수집 히스토리 전체로 계산(오래된 구간 헤드룸).
-     */
-    private ChartData fetchChartData(String stockCode) {
-        try {
-            // 200봉 + MA120 헤드룸까지 페이지네이션 수집(newest→oldest). heavy 경로 전용.
-            List<JsonNode> rows = kisService.getDailyPriceRowsPaged(
-                    stockCode, CHART_HISTORY_TARGET, com.myplatform.backend.service.KisApiRateLimiter.Priority.NORMAL);
-            if (rows == null || rows.isEmpty()) return null;
-
-            List<CandlePoint> allCandles = new ArrayList<>();
-            List<VolumePoint> allVolumes = new ArrayList<>();
-            List<BigDecimal> allCloses = new ArrayList<>();
-
-            for (JsonNode item : rows) {
-                String date = item.has("stck_bsop_date") ? item.get("stck_bsop_date").asText() : "";
-                BigDecimal close = parseBigDecimal(item.get("stck_clpr"));
-
-                allCandles.add(CandlePoint.builder()
-                        .date(date)
-                        .open(parseBigDecimal(item.get("stck_oprc")))
-                        .high(parseBigDecimal(item.get("stck_hgpr")))
-                        .low(parseBigDecimal(item.get("stck_lwpr")))
-                        .close(close)
-                        .build());
-
-                allVolumes.add(VolumePoint.builder()
-                        .date(date)
-                        .volume(parseLong(item.get("acml_vol")))
-                        .build());
-
-                allCloses.add(close);
-            }
-
-            // 표시용 캔들 (최근 CHART_DISPLAY_MAX개 — 프론트가 기간 토글로 30/60/120/200 슬라이스)
-            int displayCount = Math.min(CHART_DISPLAY_MAX, allCandles.size());
-            List<CandlePoint> candles = allCandles.subList(0, displayCount);
-            List<VolumePoint> volumes = allVolumes.subList(0, displayCount);
-
-            // 현재값 이동평균
-            BigDecimal ma5 = calculateMA(allCloses, 5);
-            BigDecimal ma20 = calculateMA(allCloses, 20);
-            BigDecimal ma60 = calculateMA(allCloses, 60);
-
-            // 이동평균선 배열 (각 캔들별 MA값, 차트 오버레이용)
-            List<BigDecimal> maLine5 = calculateMALine(allCloses, 5, displayCount);
-            List<BigDecimal> maLine20 = calculateMALine(allCloses, 20, displayCount);
-            List<BigDecimal> maLine60 = calculateMALine(allCloses, 60, displayCount);
-            List<BigDecimal> maLine120 = calculateMALine(allCloses, 120, displayCount);
-
-            // 볼린저밴드 (20일 기준)
-            List<BigDecimal> bbUpper = new ArrayList<>();
-            List<BigDecimal> bbLower = new ArrayList<>();
-            for (int i = 0; i < displayCount; i++) {
-                if (i + 20 <= allCloses.size()) {
-                    List<BigDecimal> window = allCloses.subList(i, i + 20);
-                    BigDecimal mean = window.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
-                            .divide(BigDecimal.valueOf(20), 2, RoundingMode.HALF_UP);
-                    double variance = window.stream()
-                            .mapToDouble(p -> Math.pow(p.subtract(mean).doubleValue(), 2))
-                            .average().orElse(0);
-                    BigDecimal stdDev = BigDecimal.valueOf(Math.sqrt(variance)).setScale(2, RoundingMode.HALF_UP);
-                    bbUpper.add(mean.add(stdDev.multiply(BigDecimal.valueOf(2))));
-                    bbLower.add(mean.subtract(stdDev.multiply(BigDecimal.valueOf(2))));
-                } else {
-                    bbUpper.add(null);
-                    bbLower.add(null);
-                }
-            }
-
-            // VWAP
-            BigDecimal vwap = null;
-            try {
-                var vwapResult = vwapService.calculateVwap(stockCode);
-                if (vwapResult != null) {
-                    vwap = vwapResult.getVwap();
-                }
-            } catch (Exception e) {
-                log.debug("[StockDetail] VWAP 조회 실패: {}", e.getMessage());
-            }
-
-            return ChartData.builder()
-                    .candles(candles)
-                    .volumes(volumes)
-                    .ma5(ma5).ma20(ma20).ma60(ma60)
-                    .vwap(vwap)
-                    .maLine5(maLine5).maLine20(maLine20).maLine60(maLine60).maLine120(maLine120)
-                    .bbUpper(bbUpper).bbLower(bbLower)
-                    .build();
-
-        } catch (Exception e) {
-            log.warn("[StockDetail] 차트 데이터 조회 실패: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * 재무 정보 조회
-     */
     /**
      * 재무 정보 조회 — TTM 연결 재무제표 기준으로 통일
      *
@@ -1173,36 +1069,6 @@ public class StockDetailService {
             default:
                 return null;
         }
-    }
-
-    /**
-     * 이동평균 계산
-     */
-    private BigDecimal calculateMA(List<BigDecimal> prices, int period) {
-        if (prices == null || prices.size() < period) return null;
-
-        BigDecimal sum = BigDecimal.ZERO;
-        for (int i = 0; i < period; i++) {
-            sum = sum.add(prices.get(i));
-        }
-        return sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP);
-    }
-
-    /** 각 캔들 위치별 이동평균값 배열 생성 (차트 오버레이용) */
-    private List<BigDecimal> calculateMALine(List<BigDecimal> allCloses, int period, int displayCount) {
-        List<BigDecimal> line = new ArrayList<>();
-        for (int i = 0; i < displayCount; i++) {
-            if (i + period <= allCloses.size()) {
-                BigDecimal sum = BigDecimal.ZERO;
-                for (int j = i; j < i + period; j++) {
-                    sum = sum.add(allCloses.get(j));
-                }
-                line.add(sum.divide(BigDecimal.valueOf(period), 2, RoundingMode.HALF_UP));
-            } else {
-                line.add(null);
-            }
-        }
-        return line;
     }
 
     // ========== 장 마감 후 일별 데이터 조회 ==========

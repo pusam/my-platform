@@ -23,6 +23,15 @@ public class StockDetailCacheService {
         this.vwapService = vwapService;
     }
 
+    /** 차트 최대 표시 봉 수(일봉) — '200일' 기간까지. 프론트 기간 토글이 30/60/120/200 슬라이스. */
+    static final int CHART_DISPLAY_MAX = 200;
+    /** 히스토리 수집 목표 = 표시 200봉 + MA120 헤드룸(창 전체 MA120 완결). */
+    static final int CHART_HISTORY_TARGET = CHART_DISPLAY_MAX + 120;
+
+    /**
+     * 차트 데이터 — <b>2분 캐시(stockDetailChart, Caffeine)</b>. quick·heavy 두 경로 공용 단일 출처.
+     * 200봉+MA120 은 KIS 일봉 페이지네이션(~4콜)이라 비싸므로 캐시로 반복 로딩을 흡수(첫 로딩만 실비용).
+     */
     @Cacheable(value = "stockDetailChart", key = "#stockCode")
     public ChartData getCachedChartData(String stockCode) {
         return fetchChartData(stockCode);
@@ -53,21 +62,21 @@ public class StockDetailCacheService {
     }
 
     /**
-     * 차트 데이터 조회 (KIS 일봉 + MA + BB + VWAP)
+     * 차트 데이터 조회 (KIS 일봉 페이지네이션 + MA + BB + VWAP).
+     * 표시는 최근 {@link #CHART_DISPLAY_MAX}봉, MA/볼린저는 수집 히스토리 전체로 계산(오래된 구간 헤드룸).
      */
     private ChartData fetchChartData(String stockCode) {
         try {
-            JsonNode dailyData = kisService.getDailyPrices(stockCode, 150);
-            if (dailyData == null) return null;
-
-            JsonNode output2 = dailyData.get("output2");
-            if (output2 == null || !output2.isArray()) return null;
+            // 200봉 + MA120 헤드룸까지 페이지네이션 수집(newest→oldest). FHKST03010100 호출당 ~100건 상한.
+            java.util.List<JsonNode> rows = kisService.getDailyPriceRowsPaged(
+                    stockCode, CHART_HISTORY_TARGET, KisApiRateLimiter.Priority.NORMAL);
+            if (rows == null || rows.isEmpty()) return null;
 
             java.util.List<CandlePoint> allCandles = new java.util.ArrayList<>();
             java.util.List<VolumePoint> allVolumes = new java.util.ArrayList<>();
             java.util.List<java.math.BigDecimal> allCloses = new java.util.ArrayList<>();
 
-            for (JsonNode item : output2) {
+            for (JsonNode item : rows) {
                 String date = item.has("stck_bsop_date") ? item.get("stck_bsop_date").asText() : "";
                 java.math.BigDecimal close = parseBigDecimal(item.get("stck_clpr"));
 
@@ -87,7 +96,7 @@ public class StockDetailCacheService {
                 allCloses.add(close);
             }
 
-            int displayCount = Math.min(60, allCandles.size());
+            int displayCount = Math.min(CHART_DISPLAY_MAX, allCandles.size());
             java.util.List<CandlePoint> candles = allCandles.subList(0, displayCount);
             java.util.List<VolumePoint> volumes = allVolumes.subList(0, displayCount);
 
