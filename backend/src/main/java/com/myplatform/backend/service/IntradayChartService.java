@@ -97,7 +97,11 @@ public class IntradayChartService {
      */
     static List<MinuteBar> parseMinuteBars(JsonNode resp) {
         List<MinuteBar> out = new ArrayList<>();
-        if (resp == null || !"0".equals(resp.path("rt_cd").asText(""))) return out;
+        if (resp == null) return out;
+        if (!"0".equals(resp.path("rt_cd").asText(""))) {
+            log.warn("[Intraday] KIS 분봉 응답 rt_cd≠0: {} / {}", resp.path("rt_cd").asText(""), resp.path("msg1").asText(""));
+            return out;
+        }
         JsonNode output2 = resp.get("output2");
         if (output2 == null || !output2.isArray()) return out;
         for (JsonNode row : output2) {
@@ -107,10 +111,12 @@ public class IntradayChartService {
             BigDecimal low = dec(row, "stck_lwpr");
             BigDecimal close = dec(row, "stck_prpr");
             BigDecimal vol = dec(row, "cntg_vol");
-            if (time == null || open == null || high == null || low == null || close == null
-                    || close.signum() <= 0) {
-                continue;
-            }
+            // 종가(체결가)·시각이 핵심 — 시가/고저 미제공 시 종가로 폴백(바 유효성 유지). KIS 분봉이 시가 미제공인
+            // 케이스가 있어(기존 VwapService 는 시가 미사용) 시가 필수는 전 봉 탈락→'수집 실패' 오탐의 원인.
+            if (time == null || close == null || close.signum() <= 0) continue;
+            if (open == null) open = close;
+            if (high == null) high = close.max(open);
+            if (low == null) low = close.min(open);
             out.add(new MinuteBar(time, open, high, low, close, vol != null ? vol : BigDecimal.ZERO));
         }
         return out;

@@ -187,10 +187,13 @@
               </button>
             </div>
           </div>
-          <!-- 분봉(1일) 로딩/빈 상태 안내 — 그럴듯한 차트로 위장하지 않음(§4c) -->
+          <!-- 분봉(1일) 로딩/빈 상태 안내 — 원인별 구분(§4c 위장 없음) -->
           <div v-if="isIntraday && intradayLoading" class="intraday-note">⏳ 당일 분봉 불러오는 중…</div>
+          <div v-else-if="isIntraday && intradayError" class="intraday-note">
+            ⚠️ 분봉 조회 실패 — 분석 서버/네트워크 문제일 수 있습니다. 잠시 후 다시 시도하거나 일봉 보기(7/30일)를 이용하세요.
+          </div>
           <div v-else-if="isIntraday && !displayCandles.length" class="intraday-note">
-            당일 분봉 없음 — 장전/휴장이거나 수집 실패입니다. 일봉 보기(7/30일)를 이용하세요.
+            당일 분봉 없음 — 장 시작 전(09:00 이전)이거나 휴장일입니다. 일봉 보기(7/30일)를 이용하세요.
           </div>
           <!-- HTS 차트 (lightweight-charts) — 십자선·축눈금·줌/팬 내장. 데이터/토글은 props 로만 전달. -->
           <div v-else class="hts-chart-wrap">
@@ -619,16 +622,19 @@ watch(chartPeriodOptions, (opts) => {
 const isIntraday = computed(() => chartPeriod.value === 1);
 const intradayData = ref(null);
 const intradayLoading = ref(false);
+const intradayError = ref(false);   // true=조회 자체 실패(엔드포인트/네트워크), false=정상 응답(빈 결과=장전/휴장)
 let intradayFetchedFor = '';
 const loadIntraday = async () => {
   if (!stockCode.value) return;
   intradayLoading.value = true;
+  intradayError.value = false;
   try {
     const res = await apiClient.get(`/stock/${stockCode.value}/intraday-candles`);
     intradayData.value = res.data?.data || null;
     intradayFetchedFor = stockCode.value;
   } catch (e) {
-    intradayData.value = null;   // 실패 = 빈 상태 안내(§4c — 위장 없음)
+    intradayData.value = null;
+    intradayError.value = true;   // 조회 실패 — 빈 결과(정상)와 구분해 안내
   } finally {
     intradayLoading.value = false;
   }

@@ -55,6 +55,20 @@ class IntradayChartServiceTest {
     }
 
     @Test
+    @DisplayName("parseMinuteBars — 시가/고저 미제공이어도 종가로 폴백(전 봉 탈락 '수집 실패' 오탐 방지)")
+    void parseMinuteBars_openOptionalFallback() throws Exception {
+        // stck_oprc/hgpr/lwpr 없이 종가(stck_prpr)·시각만 있는 행 — KIS 분봉이 시가 미제공인 케이스
+        JsonNode resp = MAPPER.readTree(
+                "{\"rt_cd\":\"0\",\"output2\":[" +
+                "{\"stck_cntg_hour\":\"093000\",\"stck_prpr\":\"70100\",\"cntg_vol\":\"500\"}]}");
+        List<MinuteBar> bars = IntradayChartService.parseMinuteBars(resp);
+        assertThat(bars).hasSize(1);   // 폴백으로 살아남음(이전엔 시가 null 로 전량 탈락)
+        assertThat(bars.get(0).open()).isEqualByComparingTo("70100");   // 종가로 폴백
+        assertThat(bars.get(0).high()).isEqualByComparingTo("70100");
+        assertThat(bars.get(0).low()).isEqualByComparingTo("70100");
+    }
+
+    @Test
     @DisplayName("aggregateToBuckets — 5분 버킷: open=첫봉/close=마지막봉/고저=극값/거래량=합, 버킷 라벨=구간 시작")
     void aggregate_ohlcvSemantics() {
         List<MinuteBar> oneMin = new ArrayList<>();
