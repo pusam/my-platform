@@ -5,6 +5,9 @@ import com.myplatform.backend.dto.StockDetailDto.*;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -15,13 +18,27 @@ import java.util.function.Supplier;
 @Service
 public class StockDetailCacheService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(StockDetailCacheService.class);
+
     private final KoreaInvestmentService kisService;
     private final VwapService vwapService;
+    private final RedisCacheService redisCacheService;
 
-    public StockDetailCacheService(KoreaInvestmentService kisService, VwapService vwapService) {
+    public StockDetailCacheService(KoreaInvestmentService kisService, VwapService vwapService,
+                                   RedisCacheService redisCacheService) {
         this.kisService = kisService;
         this.vwapService = vwapService;
+        this.redisCacheService = redisCacheService;
     }
+
+    // ===== 장 마감 후 차트 워밍(Redis L2) — 일봉 확정이라 장외엔 static, 페이지네이션(~4콜) 대신 즉시 =====
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+    static final String CACHE_CHART_WARM = "stockChartWarm";
+    /** 워밍 TTL — 다음 아침까지 넉넉히(장외 읽기 가드와 이중 안전). */
+    static final Duration CHART_WARM_TTL = Duration.ofHours(14);
+    /** 플랫폼 시장 시간(NXT 포함) 08:00~20:00 — 이 밖(장외)에서만 워밍 캐시를 신뢰(장중 forming bar 오염 방지). */
+    private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);
+    private static final LocalTime MARKET_CLOSE = LocalTime.of(20, 0);
 
     /** 차트 최대 표시 봉 수(일봉) — '200일' 기간까지. 프론트 기간 토글이 30/60/120/200 슬라이스. */
     static final int CHART_DISPLAY_MAX = 200;
@@ -31,10 +48,39 @@ public class StockDetailCacheService {
     /**
      * 차트 데이터 — <b>2분 캐시(stockDetailChart, Caffeine)</b>. quick·heavy 두 경로 공용 단일 출처.
      * 200봉+MA120 은 KIS 일봉 페이지네이션(~4콜)이라 비싸므로 캐시로 반복 로딩을 흡수(첫 로딩만 실비용).
+     *
+     * <p><b>장외 워밍 우선(장 마감 후 인기종목 프리워밍)</b>: 장외(08~20시 밖)엔 일봉이 확정이라 static —
+     * {@link StockChartWarmService} 가 미리 채운 Redis L2({@link #CACHE_CHART_WARM})가 있으면 페이지네이션
+     * 없이 즉시 반환. 장중엔 forming bar 신선도 위해 워밍 캐시 미사용(항상 live). Redis 없으면 no-op.
      */
     @Cacheable(value = "stockDetailChart", key = "#stockCode")
     public ChartData getCachedChartData(String stockCode) {
+        if (isOutsideMarket(LocalTime.now(KST))) {
+            ChartData warm = redisCacheService.get(CACHE_CHART_WARM, stockCode, ChartData.class);
+            if (warm != null) return warm;
+        }
         return fetchChartData(stockCode);
+    }
+
+    /**
+     * 장 마감 후 차트 워밍 — 페이지네이션으로 fresh 조회 후 Redis L2 에 장외 지속 저장. best-effort.
+     * {@link StockChartWarmService} 가 인기종목에 대해 호출. 데이터 없으면 저장 안 함(§4c).
+     */
+    public boolean refreshWarmChart(String stockCode) {
+        try {
+            ChartData data = fetchChartData(stockCode);
+            if (data == null || data.getCandles() == null || data.getCandles().isEmpty()) return false;
+            redisCacheService.put(CACHE_CHART_WARM, stockCode, data, CHART_WARM_TTL);
+            return true;
+        } catch (Exception e) {
+            log.warn("[Chart Warm] {} 워밍 실패: {}", stockCode, e.getMessage());
+            return false;
+        }
+    }
+
+    /** 장외(플랫폼 시장시간 08:00~20:00 밖) 판정 — 순수 함수(테스트 대상). */
+    static boolean isOutsideMarket(LocalTime now) {
+        return now.isBefore(MARKET_OPEN) || now.isAfter(MARKET_CLOSE);
     }
 
     @Cacheable(value = "stockDetailFinancial", key = "#stockCode")
