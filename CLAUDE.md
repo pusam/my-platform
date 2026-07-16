@@ -49,7 +49,9 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 임계: **STRONG_BUY ≥75 / BUY 55~74 / HOLD 40~54 / <40 제외**. total≥75 & valueStability≥12 → +2 보너스.
 - 시그널 hit = **alpha_3d ≥ 0 AND pct_change_3d > 0** (3거래일), alpha 없으면 폴백 pct≥3%.
 - 매매계획(결론카드 tradePlan): 손절/익절 % 는 **스윙 봇과 동기(-3%/+5%)**, "단기 강+밸류<4" 충돌 시 -2%/+3% 타이트. 봇 상수 바꾸면 `StockConclusionService.PLAN_*` 도 같이.
-- `signal_outcome` 에 record 시점 스냅샷 누적: **V30 카테고리 점수 4종 + V31 재료(catalyst) + V32 시장 국면(regime)**. 조건부 적중률(`/api/signal-outcomes/accuracy-by-band` — 점수구간/카테고리강세/재료방향/국면별) 검증용. NULL=미수집(집계 제외) 의미 유지할 것.
+- `signal_outcome` 에 record 시점 스냅샷 누적: **V30 카테고리 점수 4종 + V31 재료(catalyst) + V32 시장 국면(regime) + V41 RVOL + V46 변동성국면(vol_regime) + V49 종목 추세채널 + V50 KOSPI 지수(0001) 추세채널(방향/위치/폭)**. 조건부 적중률(`/api/signal-outcomes/accuracy-by-band`) 검증용. NULL=미수집(집계 제외) 의미 유지할 것. 전부 **측정 전용 — 산식/봇/추천/regime 미편입**(P2-12 교훈).
+  - **V50 지수 채널 소비자 제약(불변식)**: `KospiChannelService.currentKospiChannel()`(6h 캐시)는 **오직 `SignalOutcomeService.record()` 에서만 호출한다.** 보드/화면 등 **장중 실행 소비자를 붙이지 말 것** — 장중 호출이 미확정 당일봉(forming bar)으로 6h 캐시를 채우면 그 뒤 record 가 미확정 채널을 읽게 됨(캐시가 "시그널 기록 시점"의 일관된 상태만 담아야 함). 폭(width_pct)은 이상치 1봉이 폭을 좌우해(고저가 최대이탈 평행 채널) 사후 "폭 N% 이하 창" 필터 재집계용 — 지우지 말 것.
+  - **지수 축 유효표본 = distinctDays 불변식(P3-11)**: regime/vol_regime/지수채널은 **지수 축**(같은 날 전 시그널이 동일값=비독립)이라 표본충분 판정은 **고유 signal_date 수(distinctDays≥10)** 로 한다 — 행 수(totalSignals)로 되돌리지 말 것(§4c 위장). 카테고리/재료(V30/V31)는 종목 축이라 행 수 유지. **P2-18(VKOSPI 게이트 승격)이 `volRegimeGroups` distinctDays 에 의존**.
 - **과열(추격) 페널티 — `RecommendationService.overheatPenalty()` 단일 출처, 단계화(phase 38)**: RSI 70/75/80 → −3/−5/−8, 5일 누적 15/20/30% → −3/−5/−8, 볼린저 상단 돌파 −3. BULL 강세장에도 적용(섹터 가산과 별개). 임계 올리거나 단계 합치지 말 것 — "이미 많이 오른 종목" 추격 방지가 목적.
 - **발굴 TOP10 정렬 tie-break(`recommendationComparator`) = 점수 desc → delta(오늘−어제) desc → changeRate asc**. 마지막이 **asc(덜 오른 종목 우선)** — 추격 인상 완화(phase 38). desc로 되돌리지 말 것.
 - **BULL 섹터 가산은 하나만**: `scoreSectorMomentum` 의 +4 floor(추천 풀 안정)만 유지하고 `applyRegimeWeights` BULL 섹터 승수는 **1.0**(phase 38, 이중가산 제거). ×1.20 재도입 금지(오른 종목 섹터 점수 부풀림).
