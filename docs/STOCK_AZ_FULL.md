@@ -1,6 +1,6 @@
-# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-02 갱신**)
+# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-15 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-08(**감사 후속 3작업**: P1 이중 인코딩 2건 URI 이관 + P1 공매도 ZERO 위장 제거(§4c) + **P3-1 B안 SELL in-flight 마커 V45** — §19 하단 세션 요약. 그 앞 07-07(D): 📔 수동 매매 저널 V43+V44 Phase 1~3 / (B): 표시 전용 3작업 + 기관 수급 키 오타 / ATR 세트 V42 §14-7 + 악재 조기경보).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-15(**차트 대개편**: HtsChart(lightweight-charts) 렌더러 교체 + 일봉 200일 확장(KIS 페이지네이션) + 200봉 2분 캐시 일원화 + 마감후 프리워밍(Redis L2) + 추세 채널(회귀 채널) V49 스냅샷 + 캔들 꼬리 배지 — §19 하단 07-14/07-15 세션 요약. 그 앞 07-09: VKOSPI 변동성 국면 게이트 V46(flag OFF) / 07-08: 감사 후속 3작업 + P3-1 B안 V45).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -225,7 +225,7 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 - **종목/시세**: `StockMaster` · `StockPrice` · `StockPriceHistory` · `StockFinancialData` · `StockCatalyst`(V31)
 - **추천/분석**: `RecommendationSnapshot`(점수·카테고리세부, growth/value_stability **NULL=NA** — P3-3 V48 2026-07-10, DTO 표시 계약은 -1=NA 유지) · `AiStrategySnapshot` · `MarketIndicatorSnapshot`
 - **매매/포지션**: `BotTradingPosition` · `BotConfig`(손절/익절%) · `VirtualAccount`/`VirtualPortfolio`/`VirtualTradeHistory` · `TradingKillSwitch` · `TradingAuditLog` · **`ManualTradeJournal`(V43+V44, 2026-07-07(D))** — 수동 매수/매도 + 매수 시점 스냅샷 12필드(점수4종·RSI·재료·RVOL·국면·ATR손절·5일등락, null=미수집 §4c) + bm_price_at_buy(KOSPI, V44) + 3거래일 평가(pct/alpha/hit, evaluatedAt null=대기). v1 전량 매도 가정. 봇 테이블과 완전 분리
-- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷 + **V41(2026-07 이전 merge) `rvol_at_signal`**(당일 거래대금÷직전 20거래일 평균, `record()`가 best-effort 스냅샷 — 관심 쏠림날 적중률 사후검증용), NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
+- **시그널/성과**: `SignalOutcome`(3일후 return + V30~V32 스냅샷 + **V41(2026-07 이전 merge) `rvol_at_signal`**(당일 거래대금÷직전 20거래일 평균, `record()`가 best-effort 스냅샷 — 관심 쏠림날 적중률 사후검증용), NULL=미수집; **V36(2026-06-30) `uq_so_type_code_date` UNIQUE(signal_type,stock_code,signal_date)** — idx_so_type_date는 컬럼순서 달라 중복 아님, 유지; **V46(2026-07-09) `vol_regime_at_signal`(VKOSPI 국면) + V49(2026-07-14) `channel_direction/position_at_signal`(추세 채널, 히스토리<10=NULL)** — 축적·사후검증 전용) · `WeeklyTradingReport`(봇 매매 실적) · **`SignalWeeklyAccuracy`(V37, 2026-07-06 — 시그널 예측력 주간 스냅샷, week_start UNIQUE, report_json에 전체 크로스탭)**
 - **시장/투자자**: `MarketDailyStatus`(ADR/condition) · `InvestorIntradaySnapshot` · `InvestorDailyTrade` · `EarningsDisclosure` · `ShortSellingBalance` · `AlertHistory`
 - **인증/유저**: `User` · `EmailVerificationToken` · `PasswordResetToken` · `WebauthnCredential`/`WebauthnChallenge`
 - **상품**: `GoldPrice`/`SilverPrice`/`OilPrice`, 배치추적 `BatchJobExecution`
@@ -238,11 +238,12 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 L1 Caffeine (로컬, 20+ named, TTL 30s~1h)
   stockPrice 3m·sectorTrading 5m·stockSearch 1m·chartPatterns 30m(4prefix×200)
   stockDetail{Financial 10m, Risk 3m, Chart 2m, Ai 15m}·gold/silver·week52…
-L2 Redis (cache.redis.enabled=true; 섹터/수급/AI전략 도메인, JSON 직렬화)
+L2 Redis (cache.redis.enabled=true; 섹터/수급/AI전략 + stockChartWarm 도메인, JSON 직렬화)
 L3 MariaDB (캐시 miss fallback)
 ```
 - **⚠ 시세 예외(불변식)**: `StockPriceService.getStockPrice()`는 L1 로컬(ConcurrentHashMap)+DB만, **Redis 비경유**. 모든 화면의 유일한 시세 경로.
-- **워밍**: `CacheWarmupService`(08:50) + `MarketCacheWarmerService`(fixedDelay 30s/1m/2m/5m), `isMarketHours()`(NXT 08~20) 밖이면 early-return.
+- **차트 데이터 캐시(2026-07-15 일원화)**: `StockDetailCacheService.getCachedChartData`(Caffeine `stockDetailChart` 2분)가 **200봉 페이지네이션 단일 출처** — quick·heavy 두 경로가 이 캐시 공유(옛 heavy 전용 `fetchChartData` 드리프트 제거). 장중엔 forming bar 신선도 위해 항상 live, **장외(08~20 밖)엔 Redis L2 `stockChartWarm`(14h) 우선 읽기** → 페이지네이션 스킵(일봉은 장외 확정=static). Redis 없으면 no-op(graceful).
+- **워밍**: `CacheWarmupService`(08:50) + `MarketCacheWarmerService`(fixedDelay 30s/1m/2m/5m), `isMarketHours()`(NXT 08~20) 밖이면 early-return. **+ `StockChartWarmService`(평일 20:10, NXT 종료·일봉 확정 후)**: 관심종목∪봇보유 union cap20 200봉 차트를 Redis L2 워밍 → 저녁 첫 조회 즉시(선정=DB cheap, 워밍만 KIS 상한 bound, 롤백 `chart.warm.enabled=false`).
 
 ---
 
@@ -332,6 +333,9 @@ tests/  pytest: test_indicators.py · **test_backtest.py**(27건) · **test_inde
 ### 11-3. 종목 상세 (`views/StockDetailDashboard.vue`, ~4,700줄)
 - 헤더: 복합신호 배지 + 단기/중장기 듀얼점수 + 현재가. ⭐2026-07-07 **보드↔상세 왕복 네비**: "◀ 이전 / 보드 N/M / 다음 ▶" — 종합판단 보드 행 클릭(새 탭)이 sessionStorage `judgmentBoard.nav` 로 종목 순서를 전달한 경우에만 표시(직접 진입 미표시, 새 라우트·쿼리 오염 없음. /stock/:code 컴포넌트 재사용이라 이동 시 명시적 재조회).
 - 상단 카드: `StockConclusionCard`(결론·손절/목표+MFE/MAE·점수대 적중률·재료배지 + ⭐2026-07-07(C) **진입 위치 한 줄**(`entryPosition` — overheatPenalty 신호 3종을 **스냅샷 태그 재사용**(RSI/5일/볼린저, 재계산 없음)으로 세고 + 지지선 거리(`ChartPatternService.detectSupportResistance` 캐시 재사용): 2개↑=🔴과열/1개=🟡주의/0개&지지선+3%이내=🟢눌림/중립·결측=미렌더 §4c. 순수함수 `parseOverheat`/`classifyEntryPosition` 테스트) + ⭐2026-07-07 **ATR 참고 줄** "변동성(ATR) 기준 -X.X%/+Y.Y% · 백테스트 참고치·검증 전" amber 톤, null=줄 미렌더) + `QuickSummaryBar`(RSI/20일/외인/기관/리스크/AI + ⭐2026-07-07 **외인/기관 "N일 연속" 순매수 배지** — 2일↑만, 참고 톤, `diagnosis` supplyDemand.foreign/institutionBuyStreak, null=미표시 §4c).
+- **⭐2026-07-15 주가 차트 = `components/v2/HtsChart.vue`**(lightweight-charts 렌더러 — 십자선·축눈금·줌/팬·전체화면 내장, 구 DIV/SVG 수제 차트 교체). 시리즈 변환 순수함수 `utils/htsChartData.js`(일봉 date / 분봉 KST epoch time 규약). 기간 전환 **1일(당일 5분봉)/7일/30일/60일 + 일봉 60/120/200봉**(200봉은 KIS 일봉 페이지네이션 데이터 있을 때만 §4c). 마이그레이션 이력 `docs/GUIDE_HTS_CHART_MIGRATION.md`.
+  - **⭐2026-07-14 추세 채널(회귀 채널, 표시 전용)**: `utils/trendChannel.js`(순수 — 종가 선형회귀 + 고저가 최대이탈 평행 채널, 방향 ±0.15%/봉→UP/DOWN/FLAT, 채널 내 위치 0~1) 오버레이(상/하/중심선, 방향색 한국 관례) + 위치 기반 한 줄 해설 + 이탈 감지(`detectChannelBreakout`). 봉<10/가격 비정상은 미표시(§4c). 백엔드 `TrendChannelCalculator`·V49 스냅샷과 산식 동기.
+  - **⭐2026-07-14 캔들 꼬리 배지**: `detectTailSignal`(꼬리≥몸통×2 등) → 🔨망치형/💫유성형 마지막 봉 관찰 배지. **둘 다 산식 미편입·매매 신호 아님**(차트기법 스코어러 분리 불변식, P2-12 교훈).
 - 본문: `StockBriefingHeadline`(행동권고) · `StockRiskCard`(DART+뉴스+AI).
 - 심화(접기 `DetailSection` v-show 마운트 유지): Peer·VolumeProfile·SupportResistance·RelatedStocks·ChartPattern + ⭐2026-07-07 **`SignalHistorySection`**("📜 신호 이력" — signal_outcome 90일 타임라인, 요약을 제목에 병기, 평가 대기 구분 §4c, n=0 미렌더, 자체 fetch=heavy 계열; ⭐2026-07-07(D) **📔 내 매수/매도 마커 병기** — manual-journal by-stock, best-effort·0건 미표시, 저널만 있어도 섹션 렌더) + ⭐2026-07-07 **`CatalystHistorySection`**("📰 재료 이력" — stock_catalyst 30일 read-only 타임라인, 날짜별 등락률 병기, NONE 제외, classify 호출 없음 §4b, n=0 미렌더).
 - ⭐2026-07-07(D) **📔 매수 기록 진입점 2곳**(새 라우트 없음): 결론카드 '📔 매수 기록' 버튼 + BuyChecklistModal 하단 버튼 → `ManualJournalModal`(현재가 `/stock/{code}` 프리필·수량·메모, 섹터 집중 경고 표시 — 경고만·mapped:false 미표시 §4c, 실주문 아님 명시).
@@ -351,7 +355,7 @@ DashboardHeader · TodayBriefingTab · StockConclusionCard · QuickSummaryBar ·
 
 ### 11-6. 유틸·컴포저블·빌드
 - `auth.js`(TokenManager/UserManager) · `marketFormatters` · `toast`(싱글톤) · `nativeBridge`(Flutter WebView) · `webauthn` · `lazyObserver`.
-- `useAutoRefresh`(폴링+카운트다운+pauseWhenHidden) · `useMarketStatus`(crash/ADR/VIX) · `useChartCalculations`(RSI/MA/볼린저).
+- `useAutoRefresh`(폴링+카운트다운+pauseWhenHidden) · `useMarketStatus`(crash/ADR/VIX) · `useChartCalculations`(RSI/MA/볼린저 + 채널·꼬리 계산 계층, `utils/trendChannel.js`·`utils/candleAnatomy.js` 호출) · `utils/htsChartData.js`(HtsChart 시리즈 변환).
 - 빌드: Vite + PWA(autoUpdate, /api는 NetworkOnly), manualChunks(vendor-vue/chart/http/editor). 테스트: vitest+jsdom+@vue/test-utils (17 파일). dev proxy `/api→localhost:8080`.
 
 ---
@@ -704,6 +708,35 @@ P2-13(NXT 청산) **재개봉·구현** — 진단 3확정 갭(주문 라우팅 
 
 ---
 
+### 2026-07-10 세션 — KIS 토큰 단일화 + 감사 후속 표시/데이터 정합
+
+- **KIS 토큰 3캐시 → 공유 `KisTokenManager` 단일 출처(P3-8, `6932f39`/`8a0b255`)**: 3서비스(`KoreaInvestment`/`KisApi`/`MarketIndicator`)가 같은 빈 주입, 발급 `synchronized` 전역 직렬화 + 401→토큰 1회 무효화(값 기반 CAS — stale 참조가 방금 재발급 토큰 안 죽임). 상세 §8.
+- **악재경보 dedup 재설계(P2-CAT4, `3631da6`)**: `AUDIT_2026-07-08 #1` DEFER 해소 — 순진한 alert_key UNIQUE(범용 쿨다운 테이블 손상) 대신 **조건부 INSERT 선점**으로 동시 최초분류 중복 발송 차단.
+- **표시/프롬프트 레이어 감사(`AUDIT_2026-07-10`) P1 3건 수정**: 시장예측 프롬프트 §4c 정합(2700 하드코딩 제거·실지수 폴백, `0c6fd8c`) · AI 판정 뱃지 본문 정합(`1b15edb`) · 종합신호(MA/RSI) vs 종합평가(MFI·볼린저) 계산근거 병기(`3416000`). 데이터 감사 후속은 `AUDIT_2026-07-10_DATA`(진단만).
+- **V48 growth/valueStability -1=NA sentinel → nullable 전환(P3-3, `b0a2e92`)**: 엔티티 NULL=NA, DTO 표시 계약(-1=NA)은 저장/복원 경계 변환으로 유지. §6 참조.
+- CI: 프론트 배포 inode 보존 + nginx 무조건 재바인드(하드리로드 404 근절, `dfed766`/`baee12e`).
+
+### 2026-07-12~14 세션 — 디자인 감사 잔여 + 추세 채널(V49) + 종목상세 슬림화
+
+- **디자인/신호색 감사(07-12)**: 매매 신호색 한국 관례 통일(상승 적/하락 청) + V2 허브 표면 디자인 토큰화 + 레거시 화면 토큰 치환 + 생체등록 confirm→모달 + 악재경보 채널별 dedup 분리(`fdf1241`). 등락색 반전 잔재 2곳(보드·재료이력, `2857479`).
+- **추세 채널(회귀 채널) — 표시 전용 신규(`cba6957`)**: 종목상세 차트에 선형회귀 채널 드로잉 + 방향×위치별 한 줄 해설 + 이탈 감지. 순수 `utils/trendChannel.js`(vitest 26). §11-3.
+- **V49 추세 채널 스냅샷(P3-9, `abd0cdb`)**: `signal_outcome`에 방향(UP/DOWN/FLAT)+위치(0~100) best-effort 축적(히스토리<10=NULL §4c), 백엔드 `TrendChannelCalculator` = 차트/보드 동일 산식. accuracy-by-band에 방향3×위치밴드3=9칸 집계 추가. **산식/봇 미편입 — 측정만**(승격 별도, P2-12 교훈).
+- **종합판단 보드 추세채널 컬럼(`0478c17`) + AI 분석 프롬프트에 채널 맥락 주입(`02050e4`)** — 둘 다 ② 참고 계층·표시 전용.
+- **캔들 꼬리 배지(`a301b3f`)** 🔨망치형/💫유성형 + 종목상세 슬림화(차트 우선·보조 블록 하단 접이식, `b18f895`) + 차트 전체화면·채널 가격 라벨(`4b52c50`).
+- 저우선(AI전략 스냅샷) Gemini quota 압박 시 자발적 양보(P2-CAT2, `3cac439`) + 저우선 래치 시간감쇠(P3, `f67e791`).
+
+### 2026-07-15 세션 — HTS 차트 대개편 (렌더러 교체 + 200일 확장 + 캐시 일원화 + 프리워밍)
+
+구 DIV/SVG 수제 차트를 전문 렌더러로 교체하고, 일봉 히스토리를 200봉까지 확장하며 캐시/워밍을 정비. Phase별 독립 커밋.
+
+- **Phase 1~3 렌더러 교체(`61e0234`/`2f1b158`/`cf1f2fb`)**: `components/v2/HtsChart.vue`(lightweight-charts — 십자선·축눈금·줌/팬·전체화면 내장) 신설 → 종목상세 배선 → 구 DIV/SVG CSS 정리. 시리즈 변환 순수 `utils/htsChartData.js`(일봉 date / 분봉 KST epoch time). 이력 `docs/GUIDE_HTS_CHART_MIGRATION.md`. §11-3.
+- **일봉 200일 확장(`db21757`)**: KIS 일봉(FHKST03010100) 호출당 ~100건 상한 → `KoreaInvestmentService.getDailyPriceRowsPaged`(앵커 되감기 페이지네이션, targetRows 320=200봉+MA120 헤드룸, MAX_DAILY_PAGES=5 백스톱, `dedupeSortRowsDesc` 순수+테스트). 프론트 기간 60/120/200(가용 데이터 있을 때만 §4c). **heavy 경로 전용**(quick/봇 무영향).
+- **200봉 2분 캐시 일원화(`624a0c3`)**: `StockDetailCacheService.getCachedChartData`(Caffeine `stockDetailChart` 2분)를 200봉 페이지네이션 단일 출처로 통일 → quick·heavy 공유, 옛 heavy 전용 `fetchChartData`(+ 전용 calculateMA) 제거로 드리프트 재발 방지. 첫 로딩만 실비용(~4콜), 이후 2분 즉시.
+- **마감후 프리워밍(`b0816f0`)**: `StockChartWarmService`(평일 20:10, `@ConditionalOnProperty redis`) 관심∪봇보유 union cap20 → Redis L2 `stockChartWarm`(14h). 캐시 서비스가 **장외(08~20 밖)엔 워밍 L2 우선 읽기**(일봉 장외 확정=static, forming bar 신선도 무관) → 저녁 첫 조회 즉시. `isOutsideMarket`/`selectWarmTargets` 순수+테스트, Redis 없으면 no-op. 롤백 `chart.warm.enabled=false`. §7.
+- **'1일' 분봉 수집실패 오탐 수정(`55a8ebc`)**: `parseMinuteBars`가 시가(stck_oprc) 필수 요구 → KIS 분봉 시가 미제공 케이스 전 봉 탈락→'수집 실패' 오탐(같은 API 쓰는 VwapService는 시가 미사용). 종가·시각만 핵심, 시가/고저 결측 시 종가 폴백 + 프론트 안내를 원인별(조회 실패 vs 정상 빈결과)로 분리. 회귀 테스트.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
@@ -716,4 +749,4 @@ P2-13(NXT 청산) **재개봉·구현** — 진단 3확정 갭(주문 라우팅 
 - **`DESIGN_P3-1_IDEMPOTENT_ORDERS.md`** — P3-1 잔여(SELL 부분청산 가드) 설계(B안 in-flight 마커 — **2026-07-08 V45 구현 완료**, 설계 이탈 2건은 §19 07-08 세션·커밋 `ea4a609` 메시지 참조)
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-08 갱신**(§19 하단 = 07-08 세션: **감사 후속 3작업** — P1 이중 인코딩 URI 이관·P1 공매도 ZERO 위장 제거·P3-1 B안 SELL in-flight 마커 V45. 그 앞 07-07(D): 📔 수동 매매 저널 V43+V44 Phase 1~3 / (B): 표시 전용 3작업 / 07-07: ATR 세트 V42). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-15 갱신**(§19 하단 = 07-15 세션: **HTS 차트 대개편** — HtsChart(lightweight-charts) 렌더러 교체·일봉 200일 확장·200봉 2분 캐시 일원화·마감후 프리워밍(Redis L2)·분봉 오탐 수정. 그 앞 07-14: 추세 채널(회귀 채널) V49 스냅샷·캔들 꼬리 배지·상세 슬림화 / 07-10: KIS 토큰 단일화 P3-8·V48 nullable·악재경보 dedup P2-CAT4 / 07-09: VKOSPI 변동성 게이트 V46). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
