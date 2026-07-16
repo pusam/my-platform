@@ -50,6 +50,15 @@ public class SignalBandAccuracyDto {
      */
     private List<ChannelStat> channels;
 
+    /**
+     * KOSPI 지수(0001) 채널 상태별 적중률 (V50) — 방향 × 위치 밴드 9칸. "지수가 상승 채널 하단일 때(=조정 눌림)
+     * 매수가 실제로 먹히나 / 상단(과열)이 부진한가" = regime v1(BULL/BEAR 이분법)이 못 보는 지수 '위치' 검증.
+     * <b>⚠ 지수 축이라 같은 날 전 시그널이 동일값(서로 독립 아님)</b> — 유효 표본 판정은 {@code totalSignals}(행 수)
+     * 가 아니라 {@code distinctDays}(고유 signal_date 수) 기준이다({@link IndexChannelStat#insufficientSample}).
+     * 미수집(NULL) 행은 제외. 표본 유의 전 산식 편입 금지(P2-12 · P3-10).
+     */
+    private List<IndexChannelStat> indexChannels;
+
     @Data
     @Builder
     @NoArgsConstructor
@@ -112,6 +121,31 @@ public class SignalBandAccuracyDto {
         private BigDecimal hitRate;
         private BigDecimal avgPctChange;
         private BigDecimal avgAlpha;
+    }
+
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class IndexChannelStat {
+        /** UP / DOWN / FLAT (KOSPI 지수 채널 방향). */
+        private String direction;
+        /** LOW(≤33) / MID(34~66) / HIGH(≥67). */
+        private String positionBand;
+        /** "지수 상승채널 하단(≤33%)" 등 표시 라벨. */
+        private String label;
+        private long totalSignals;
+        private long hitCount;
+        private BigDecimal hitRate;
+        private BigDecimal avgPctChange;
+        private BigDecimal avgAlpha;
+        /**
+         * 고유 signal_date 수 — <b>진짜 독립 표본 수</b>. 지수 축은 같은 날 전 시그널이 동일값이라
+         * totalSignals(행 수)로 세면 표본을 과대평가한다(§4c). 유의 판정은 이 값으로 한다.
+         */
+        private long distinctDays;
+        /** 유효 표본 부족 = {@code distinctDays < MIN_DISTINCT_DAYS}(10). 행 수가 아무리 많아도 며칠 안이면 true. */
+        private boolean insufficientSample;
     }
 
     @Data

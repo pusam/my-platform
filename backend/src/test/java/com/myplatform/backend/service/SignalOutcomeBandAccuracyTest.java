@@ -281,4 +281,76 @@ class SignalOutcomeBandAccuracyTest {
         assertThat(SignalOutcomeService.computeChannelFromHistory(java.util.List.of())).isNull();
         assertThat(SignalOutcomeService.computeChannelFromHistory(null)).isNull();
     }
+
+    // ================================================================
+    // V50 KOSPI 지수 채널 스냅샷 — aggregateIndexChannels (유효표본 = distinctDays)
+    // ================================================================
+
+    /** 지수 채널 필드를 세팅한 행 — signalDate 로 고유일 제어. */
+    private SignalOutcome indexRow(LocalDate date, String dir, int pos, boolean hit) {
+        SignalOutcome s = SignalOutcome.builder()
+                .signalType("BUY").stockCode("005930").signalDate(date).signalScore(60)
+                .priceAtSignal(new BigDecimal("10000")).pctChange3d(new BigDecimal(hit ? "4.00" : "-1.00")).hit(hit)
+                .build();
+        s.setIndexChannelDirectionAtSignal(dir);
+        s.setIndexChannelPositionAtSignal(pos);
+        return s;
+    }
+
+    @Test
+    @DisplayName("indexChannels: 방향×위치 9칸 분리 + NULL(미수집) 제외")
+    void indexChannels_bucketByDirectionAndPosition() {
+        SignalOutcome uncollected = SignalOutcome.builder().signalType("BUY").stockCode("000660")
+                .signalDate(LocalDate.of(2026, 7, 3)).priceAtSignal(new BigDecimal("10000")).hit(true)
+                .build();   // index 채널 필드 미세팅 = NULL(미수집)
+        var rows = List.of(
+                indexRow(LocalDate.of(2026, 7, 1), "UP", 15, true),    // UP 하단
+                indexRow(LocalDate.of(2026, 7, 2), "UP", 90, false),   // UP 상단
+                uncollected);
+
+        var channels = SignalOutcomeService.aggregateIndexChannels(rows);
+
+        assertThat(channels).hasSize(9);   // 3방향 × 3밴드
+        var byKey = channels.stream().collect(java.util.stream.Collectors.toMap(
+                c -> c.getDirection() + "-" + c.getPositionBand(), c -> c));
+        assertThat(byKey.get("UP-LOW").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("UP-LOW").getHitRate()).isEqualByComparingTo("100");
+        assertThat(byKey.get("UP-HIGH").getTotalSignals()).isEqualTo(1);
+        assertThat(byKey.get("UP-HIGH").getHitRate()).isEqualByComparingTo("0");
+        assertThat(byKey.get("DOWN-LOW").getTotalSignals()).isZero();   // 미수집 행은 어느 칸에도 안 잡힘
+    }
+
+    @Test
+    @DisplayName("indexChannels 유효표본 = distinctDays: 같은 날 20행이라도 고유일 1 → insufficientSample=true(§4c 위장 금지)")
+    void indexChannels_sameDayManyRows_insufficientByDistinctDays() {
+        // 같은 날(동일 지수값) 20행 — 행 수로 재면 표본충분처럼 보이지만 진짜 독립 표본은 1일뿐.
+        java.util.List<SignalOutcome> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            rows.add(indexRow(LocalDate.of(2026, 7, 1), "UP", 15, i % 2 == 0));
+        }
+        var up = SignalOutcomeService.aggregateIndexChannels(rows).stream()
+                .filter(c -> c.getDirection().equals("UP") && c.getPositionBand().equals("LOW")).findFirst().orElseThrow();
+
+        assertThat(up.getTotalSignals()).isEqualTo(20);   // 행 수는 20
+        assertThat(up.getDistinctDays()).isEqualTo(1);     // 진짜 독립 표본은 1일
+        assertThat(up.isInsufficientSample()).isTrue();    // distinctDays<10 → 표본부족(행 수로 위장 안 함)
+    }
+
+    @Test
+    @DisplayName("indexChannels 유효표본 경계: 고유일 9 → 부족 / 10 → 충분")
+    void indexChannels_distinctDaysBoundary() {
+        java.util.List<SignalOutcome> nine = new java.util.ArrayList<>();
+        for (int d = 1; d <= 9; d++) nine.add(indexRow(LocalDate.of(2026, 7, d), "FLAT", 50, true));
+        var flat9 = SignalOutcomeService.aggregateIndexChannels(nine).stream()
+                .filter(c -> c.getDirection().equals("FLAT") && c.getPositionBand().equals("MID")).findFirst().orElseThrow();
+        assertThat(flat9.getDistinctDays()).isEqualTo(9);
+        assertThat(flat9.isInsufficientSample()).isTrue();
+
+        java.util.List<SignalOutcome> ten = new java.util.ArrayList<>();
+        for (int d = 1; d <= 10; d++) ten.add(indexRow(LocalDate.of(2026, 7, d), "FLAT", 50, true));
+        var flat10 = SignalOutcomeService.aggregateIndexChannels(ten).stream()
+                .filter(c -> c.getDirection().equals("FLAT") && c.getPositionBand().equals("MID")).findFirst().orElseThrow();
+        assertThat(flat10.getDistinctDays()).isEqualTo(10);
+        assertThat(flat10.isInsufficientSample()).isFalse();   // 경계 10 = 충분
+    }
 }

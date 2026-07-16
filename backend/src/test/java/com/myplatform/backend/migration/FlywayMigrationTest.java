@@ -113,6 +113,17 @@ class FlywayMigrationTest {
         assertThat(isColumnNullable("recommendation_snapshot", "value_stability"))
                 .as("V48 recommendation_snapshot.value_stability 가 NULL 허용이어야 함(NULL=NA)")
                 .isTrue();
+
+        // --- 검증 9 (V50 도달 확인): signal_outcome 에 KOSPI 지수 채널 스냅샷 3컬럼(NULL=미수집) ---
+        assertThat(columnCount("signal_outcome", "index_channel_direction_at_signal"))
+                .as("V50 signal_outcome.index_channel_direction_at_signal 컬럼이 적용되어야 함")
+                .isEqualTo(1);
+        assertThat(columnCount("signal_outcome", "index_channel_position_at_signal"))
+                .as("V50 signal_outcome.index_channel_position_at_signal 컬럼이 적용되어야 함")
+                .isEqualTo(1);
+        assertThat(columnCount("signal_outcome", "index_channel_width_pct_at_signal"))
+                .as("V50 signal_outcome.index_channel_width_pct_at_signal 컬럼이 적용되어야 함")
+                .isEqualTo(1);
     }
 
     /**

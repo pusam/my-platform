@@ -63,6 +63,25 @@ class TrendChannelCalculatorTest {
     }
 
     @Test
+    @DisplayName("widthPct = (상단−하단)/중심선×100 — 대칭 spread 2, 중심선 100 → 폭 4%")
+    void widthPct_symmetric() {
+        // close=100(평탄), high=102/low=98 → 상단오프셋 2 + 하단오프셋 2 = span 4, 중심선(midEnd) 100 → 4/100×100 = 4%
+        Channel ch = TrendChannelCalculator.compute(bars(30, 100, 0, 2));
+        assertThat(ch).isNotNull();
+        assertThat(ch.widthPct()).isCloseTo(4.0, org.assertj.core.api.Assertions.within(1e-9));
+    }
+
+    @Test
+    @DisplayName("widthPct: 중심선이 높을수록(같은 절대폭) 폭 % 는 작아진다 — 정규화 확인")
+    void widthPct_normalizedByCenter() {
+        // 같은 절대 spread(2)라도 가격대(중심선)가 높으면 폭 % 는 작아야 한다.
+        double low = TrendChannelCalculator.compute(bars(30, 100, 0, 2)).widthPct();   // 중심선 100
+        double high = TrendChannelCalculator.compute(bars(30, 1000, 0, 2)).widthPct(); // 중심선 1000
+        assertThat(high).isLessThan(low);
+        assertThat(high).isCloseTo(0.4, org.assertj.core.api.Assertions.within(1e-9)); // 4/1000×100
+    }
+
+    @Test
     @DisplayName("데이터 부족(<MIN_BARS)/null → null (§4c 위장 금지)")
     void insufficient_null() {
         assertThat(TrendChannelCalculator.compute(bars(TrendChannelCalculator.MIN_BARS - 1, 100, 1, 1))).isNull();

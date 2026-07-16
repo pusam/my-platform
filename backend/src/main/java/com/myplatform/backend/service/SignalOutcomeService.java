@@ -54,6 +54,9 @@ public class SignalOutcomeService {
     private final org.springframework.beans.factory.ObjectProvider<VolatilityRegimeService> volRegimeProvider;
     // V49 — 추세 채널 스냅샷 (30거래일 회귀 채널, best-effort). ObjectProvider 로 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.repository.StockPriceHistoryRepository> priceHistoryProvider;
+    // V50 — KOSPI 지수(0001) 채널 스냅샷 (6h 캐시·종목무관·best-effort). ObjectProvider 로 null-safe.
+    // ⚠ KospiChannelService 는 이 record() 경로 전용 소비자다(KospiChannelService javadoc 소비자 제약).
+    private final org.springframework.beans.factory.ObjectProvider<KospiChannelService> kospiChannelProvider;
     // KOSPI 지수 가격 조회용 — phase 20 alpha 계산.
     // ObjectProvider 로 받아 KIS 미설정 환경에서도 null-safe.
     private final org.springframework.beans.factory.ObjectProvider<KoreaInvestmentService> kisProvider;
@@ -182,6 +185,25 @@ public class SignalOutcomeService {
                 }
             } catch (Exception ignore) { /* 채널 스냅샷은 best-effort */ }
 
+            // V50 — KOSPI 지수(0001) 채널 스냅샷 (종목무관·6h 캐시 → 배치당 KIS 1콜, 전 시그널 재사용).
+            // V32 regime / V46 volRegime 처럼 지수 축(같은 날 전 시그널이 동일값)이라 캐시된 결과만 읽는다.
+            // 미확정/조회 실패 = NULL(§4c). 산식 미편입 — 데이터 축적만.
+            String indexChannelDirection = null;
+            Integer indexChannelPosition = null;
+            BigDecimal indexChannelWidthPct = null;
+            try {
+                KospiChannelService kospiChannel = kospiChannelProvider.getIfAvailable();
+                if (kospiChannel != null) {
+                    var ich = kospiChannel.currentKospiChannel();
+                    if (ich != null) {
+                        indexChannelDirection = ich.direction();
+                        indexChannelPosition = (int) Math.round(ich.position() * 100);
+                        indexChannelWidthPct = BigDecimal.valueOf(ich.widthPct())
+                                .setScale(2, RoundingMode.HALF_UP);
+                    }
+                }
+            } catch (Exception ignore) { /* 지수 채널 스냅샷은 best-effort */ }
+
             SignalOutcome outcome = SignalOutcome.builder()
                     .signalType(signalType)
                     .stockCode(stockCode)
@@ -201,6 +223,9 @@ public class SignalOutcomeService {
                     .volRegimeAtSignal(volRegime)
                     .channelDirectionAtSignal(channelDirection)
                     .channelPositionAtSignal(channelPosition)
+                    .indexChannelDirectionAtSignal(indexChannelDirection)
+                    .indexChannelPositionAtSignal(indexChannelPosition)
+                    .indexChannelWidthPctAtSignal(indexChannelWidthPct)
                     .build();
             // INSERT 는 REQUIRES_NEW 로 격리 — UNIQUE(uq_so_type_code_date) 위반(경합 패자)이
             // 호출부/이 메서드 tx 를 rollback-only 로 오염시키지 않게(새 tx 만 롤백).
@@ -629,6 +654,7 @@ public class SignalOutcomeService {
                 .catalysts(aggregateCatalysts(rows))
                 .regimes(aggregateRegimes(rows))
                 .channels(aggregateChannels(rows))
+                .indexChannels(aggregateIndexChannels(rows))
                 .build();
     }
 
@@ -826,6 +852,59 @@ public class SignalOutcomeService {
                         .hitRate(rate(hits, total))
                         .avgPctChange(avg(pctSum, pctCount))
                         .avgAlpha(avg(alphaSum, alphaCount))
+                        .build());
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 유효 표본 최소 고유일 수 (V50 지수 채널) — 지수 축은 같은 날 전 시그널이 동일값이라 <b>고유 signal_date</b>
+     * 로 센다. 행 수가 아무리 많아도 distinctDays 가 이 값 미만이면 insufficientSample(§4c 위장 금지).
+     */
+    static final int MIN_DISTINCT_DAYS = 10;
+
+    /**
+     * KOSPI 지수 채널 상태별 집계 (V50) — 순수 함수. 방향(UP/DOWN/FLAT) × 위치 밴드(하단/중단/상단) 9칸.
+     * index_channel 컬럼 NULL(미수집) 행은 제외.
+     *
+     * <p><b>⚠ 유효 표본 = distinct signal_date 수</b>(행 수 아님): 지수 축은 종목 무관이라 같은 날 전 시그널이
+     * 동일 채널값 = 서로 독립이 아니다. rows 기준으로 재면 표본부족을 표본충분으로 위장하는 셈(§4c). 각 셀에
+     * distinctDays 를 함께 반환하고 insufficientSample 판정은 distinctDays &lt; {@link #MIN_DISTINCT_DAYS} 기준.
+     */
+    static List<com.myplatform.backend.dto.SignalBandAccuracyDto.IndexChannelStat> aggregateIndexChannels(
+            List<SignalOutcome> rows) {
+        String[][] dirDefs = {{"UP", "지수 상승채널"}, {"DOWN", "지수 하락채널"}, {"FLAT", "지수 박스권"}};
+        String[][] posDefs = {{"LOW", "하단(≤33%)"}, {"MID", "중단(34~66%)"}, {"HIGH", "상단(≥67%)"}};
+        List<com.myplatform.backend.dto.SignalBandAccuracyDto.IndexChannelStat> result = new ArrayList<>();
+        for (String[] dir : dirDefs) {
+            for (String[] pos : posDefs) {
+                long total = 0, hits = 0;
+                BigDecimal pctSum = BigDecimal.ZERO, alphaSum = BigDecimal.ZERO;
+                long pctCount = 0, alphaCount = 0;
+                Set<LocalDate> days = new java.util.HashSet<>();   // 고유 signal_date = 진짜 독립 표본 수
+                for (SignalOutcome s : rows) {
+                    if (!dir[0].equals(s.getIndexChannelDirectionAtSignal())) continue;
+                    Integer p = s.getIndexChannelPositionAtSignal();
+                    if (p == null || !pos[0].equals(positionBand(p))) continue;
+                    total++;
+                    if (s.getSignalDate() != null) days.add(s.getSignalDate());
+                    if (Boolean.TRUE.equals(s.getHit())) hits++;
+                    if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
+                    if (s.getAlpha3d() != null) { alphaSum = alphaSum.add(s.getAlpha3d()); alphaCount++; }
+                }
+                long distinctDays = days.size();
+                result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.IndexChannelStat.builder()
+                        .direction(dir[0])
+                        .positionBand(pos[0])
+                        .label(dir[1] + " " + pos[1])
+                        .totalSignals(total)
+                        .hitCount(hits)
+                        .hitRate(rate(hits, total))
+                        .avgPctChange(avg(pctSum, pctCount))
+                        .avgAlpha(avg(alphaSum, alphaCount))
+                        .distinctDays(distinctDays)
+                        .insufficientSample(distinctDays < MIN_DISTINCT_DAYS)
                         .build());
             }
         }

@@ -413,6 +413,50 @@
 
 ---
 
+## P3-10. KOSPI 지수 채널 축 캘리브레이션/승격 (표시 전용 아님 — 측정 전용, 2026-07-16 신규, V50 스냅샷 축적 중)
+
+> **배경**: python regime v1(KOSPI 종가 vs MA60 + MA20 5일 슬로프 → BULL/BEAR/SIDEWAYS)은 **이분법**이라 지수의
+> **"위치"**(추세 채널 상단/하단)를 못 본다 — 2026-07-13 -8.95%(서킷브레이커) 급락일도 MA60 위면 BULL. 지수 채널
+> 위치가 regime 이 이미 아는 것 위에 **추가 예측력**이 있는지("지수가 상승 채널 하단=조정 눌림일 때 매수가 실제로
+> 먹히나 / 상단=과열이 부진한가")를 데이터로 답하기 위해 **시그널 시점 지수 채널을 signal_outcome 에 스냅샷**한다.
+
+- **✅ 축적 구현(2026-07-16, V50)**: `index_channel_direction_at_signal`(UP/DOWN/FLAT) + `index_channel_position_at_signal`(0~100)
+  + `index_channel_width_pct_at_signal`(DECIMAL). `SignalOutcomeService.record()` 가 `KospiChannelService.currentKospiChannel()`
+  (getIndexDailyOhlcv("0001",60) 단일 콜 → `TrendChannelCalculator` 동일 순수 산식, 6h 캐시로 배치당 1콜) 결과를 best-effort
+  스냅샷. 봉<10·지수 고저가 결측·조회 실패=NULL(§4c). 조회 = `GET /api/signal-outcomes/accuracy-by-band` 응답 `indexChannels[]`
+  (방향 3 × 위치밴드 9칸, `aggregateIndexChannels` 순수+테스트).
+- **⚠ 유효 표본 = distinctDays(고유 signal_date)**: 지수 축은 종목 무관이라 같은 날 전 시그널이 동일값 = 서로 독립이
+  아니다. `insufficientSample` 은 행 수가 아니라 `distinctDays < 10` 기준(§4c 위장 금지). 판정 시 이 값으로 볼 것.
+- **⚠ 폭(width_pct) 필터 필수**: `TrendChannelCalculator` 는 고저가 최대이탈 평행 채널이라 이상치 1봉이 폭 전체를 결정.
+  현재 30봉 창에 2026-07-13(-8.95%)이 포함돼 **향후 ~6주간 position 이 중앙으로 압축**된다. 승격 판정 전 **"폭 N% 이하
+  창만" 필터해 재집계**(폭을 저장한 이유 — V39 재현용 저장과 동일 원칙). 급락 이벤트가 창을 벗어난 뒤 재측정 권장.
+- **승격 조건**: on-demand 집계에서 지수 채널 위치가 regime v1 대비 **유의한 추가 예측력** 확인 시에만 별도 결정으로 승격
+  검토(distinctDays≥10 & 폭 정상 창). 역상관/무상관이면 현행(측정 도구) 유지가 결론. **[P3-5](간밤 tilt)·[P3-7](매크로 tilt)
+  와 동일 게이트** — 검증 전 산식/봇/추천/regime 편입 금지(P2-12 교훈).
+- **관련**: `KospiChannelService`(소비자 = record() 전용), `SignalOutcomeService.aggregateIndexChannels`/`MIN_DISTINCT_DAYS`(순수,
+  `SignalOutcomeBandAccuracyTest`), `KospiChannelService.toBars`(순수, `KospiChannelServiceTest`), V50,
+  `SignalBandAccuracyDto.IndexChannelStat`, [P3-9](종목 채널 — 대칭)·[P3-11](지수 축 유효표본 오계산).
+
+---
+
+## P3-11. 지수 축(regime/vol_regime) 유효표본 오계산 — distinctDays 미적용 (진단만, 2026-07-16 신규 — V50 작업 중 발견)
+
+> **발견 경위**: V50 지수 채널 집계를 만들며 "지수 축은 같은 날 전 시그널이 동일값이라 행 수로 n 을 세면 표본 과대평가"
+> 임을 반영(`distinctDays`). 그런데 **기존 `regime_at_signal`(V32)·`vol_regime_at_signal`(V46) 집계도 동일한 지수 축**인데
+> 현재 **행 수로 n 을 센다** — `aggregateRegimes`·`WeeklyAccuracyAggregator.buildVolRegimeGroups`(`volRegimeGroups`).
+
+- **문제**: 같은 국면(예 BULL)이 30일 지속되면 그 안의 수백 시그널이 전부 같은 regime 값이지만 서로 독립 표본이 아니다.
+  행 수 기준 "n≥10" 은 **며칠 안의 시그널만으로도 쉽게 충족** → 표본충분으로 **과대평가**될 수 있음(§4c 성격).
+- **⚠ 영향 — 승격 판단**: **[P2-18](VKOSPI 게이트 승격)이 이 n 에 의존**한다(`volRegimeGroups` HIGH_VOL vs NORMAL, "표본 n≥10").
+  HIGH_VOL 은 고변동 국면이라 **소수 며칠에 시그널이 몰릴 수 있어** 행 수 n 이 실제 독립일수를 크게 부풀릴 위험 큼.
+  **P2-18 승격 판단 전 `distinctDays` 기준 재집계 필요**(안 그러면 며칠 데이터로 게이트를 켜는 오판 가능).
+- **범위**: 이번 티켓은 **진단만**(V50 은 신규 지수 축이라 처음부터 distinctDays 적용). 수정은 별건 — `aggregateRegimes`·
+  `buildVolRegimeGroups` 에 distinctDays 병기 + 유의 판정을 distinctDays 로. 카테고리/재료 축(V30/V31)은 종목별이라 무관.
+- **관련**: `SignalOutcomeService.aggregateRegimes`, `WeeklyAccuracyAggregator.buildVolRegimeGroups`, V32/V46,
+  [P2-18](승격이 이 n 의존 — 재집계 선행)·[P3-10](distinctDays 선례).
+
+---
+
 ## P3-7. 매크로 tilt 캘리브레이션/승격 (미검증 표시 전용 — 2026-07-06 신규, V39 스냅샷 축적 중)
 
 > **배경**: 간밤 미국장 tilt(P3-5) 패턴 복제로 매크로 3축 보조 tilt(`MacroTiltService.classifyMacroRegime`)를 '오늘' 탭에 추가했다.

@@ -97,6 +97,18 @@ public class SignalOutcome {
     @Column(name = "channel_position_at_signal")
     private Integer channelPositionAtSignal;
 
+    /** 시그널 시점 KOSPI 지수(0001) 회귀채널 방향 (V50) — UP/DOWN/FLAT. NULL=미수집. 측정 전용, 산식 미편입. */
+    @Column(name = "index_channel_direction_at_signal", length = 10)
+    private String indexChannelDirectionAtSignal;
+
+    /** 시그널 시점 KOSPI 지수 채널 내 위치 0~100 (V50) — 0=하단/100=상단. NULL=미수집. */
+    @Column(name = "index_channel_position_at_signal")
+    private Integer indexChannelPositionAtSignal;
+
+    /** 시그널 시점 KOSPI 지수 채널 폭 % (V50) — (상단−하단)/중심선×100. 이상치 급락일 압축 재현/필터용. NULL=미수집. */
+    @Column(name = "index_channel_width_pct_at_signal", precision = 8, scale = 2)
+    private BigDecimal indexChannelWidthPctAtSignal;
+
     @Column(name = "price_at_signal", nullable = false, precision = 15, scale = 2)
     private BigDecimal priceAtSignal;
 

@@ -24,8 +24,12 @@ public final class TrendChannelCalculator {
     /** 일봉 1개 — 과거→최신 순으로 넘긴다. */
     public record Bar(double high, double low, double close) {}
 
-    /** 채널 결과 — direction=UP/DOWN/FLAT, slopePctPerBar=%/봉, position=0(하단)~1(상단). */
-    public record Channel(String direction, double slopePctPerBar, double position) {}
+    /**
+     * 채널 결과 — direction=UP/DOWN/FLAT, slopePctPerBar=%/봉, position=0(하단)~1(상단),
+     * widthPct=(상단−하단)/중심선×100 (채널 폭 %). 폭은 이상치 1봉이 좌우하므로(고저가 최대이탈
+     * 평행 채널) 사후 재집계 필터용으로 함께 노출한다 — position 만으론 급락일 압축을 걸러낼 수 없다.
+     */
+    public record Channel(String direction, double slopePctPerBar, double position, double widthPct) {}
 
     /**
      * @param barsOldestFirst 과거→최신 순 일봉
@@ -71,8 +75,10 @@ public final class TrendChannelCalculator {
         double lowerEnd = midEnd - offsetDown;
         double lastClose = barsOldestFirst.get(n - 1).close();
         double position = Math.min(1.0, Math.max(0.0, (lastClose - lowerEnd) / span));
+        // 폭 % = (상단−하단)/중심선 × 100 = span/midEnd × 100 (span=offsetUp+offsetDown=채널 높이, midEnd=중심선).
+        double widthPct = span / midEnd * 100.0;
 
-        return new Channel(direction, slopePctPerBar, position);
+        return new Channel(direction, slopePctPerBar, position, widthPct);
     }
 
     private static boolean isValid(double v) {
