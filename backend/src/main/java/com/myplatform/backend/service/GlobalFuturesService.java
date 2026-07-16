@@ -49,6 +49,7 @@ public class GlobalFuturesService {
     private static final Map<String, FuturesInfo> FUTURES_MAP = new LinkedHashMap<>();
 
     static {
+        // ⚠ ^KS200 은 KOSPI200 "현물 지수"(Yahoo) — KIS 선물 경로 실패 시의 근사 폴백이지 선물가가 아님(§4c 인지).
         FUTURES_MAP.put("KM", new FuturesInfo("KM", "^KS200", "코스피200 선물", "코스피200", "index", "KRX"));
         FUTURES_MAP.put("NQ", new FuturesInfo("NQ", "NQ=F", "나스닥100 선물", "나스닥100", "index", "CME"));
         FUTURES_MAP.put("ES", new FuturesInfo("ES", "ES=F", "S&P500 E-mini", "S&P500", "index", "CME"));
@@ -687,18 +688,24 @@ public class GlobalFuturesService {
     }
 
     /**
-     * KOSPI200 선물 근월물 코드 계산
-     * 분기 만기: 3월, 6월, 9월, 12월 두번째 목요일
-     * 코드 형식: 101 + 월코드(3/6/9/C) + 연도끝자리
+     * KOSPI200 선물 근월물 코드 계산.
+     * 분기 만기: 3월, 6월, 9월, 12월 두번째 목요일.
+     *
+     * <p><b>코드 형식(2026-07-16 KIS 선물 마스터 {@code fo_idx_code.mst} 실물 확정)</b>:
+     * {@code "1A01" + 연도끝자리 + 월2자리} — 예: 2026년 9월물 = {@code 1A01609}, 2027년 3월물 = {@code 1A01703}.
+     * 구형 {@code "101"+월코드(3/6/9/C)+연도끝자리}(예 10166)는 마스터에 존재하지 않는 코드였음(grep ^101 = 0건)
+     * — 이 버그로 KIS 선물 경로가 항상 빈 응답 → Yahoo 폴백이었다. ⚠ 단 마스터 코드로도 파생 시세
+     * 권한/계좌 요건 미충족이면 여전히 빈 응답(2026-07-16 프로브에서 확인) — 그 경우도 폴백은 동일하게 동작.
      */
     String calculateFrontMonthCode() {
-        LocalDate today = LocalDate.now();
+        return calculateFrontMonthCode(LocalDate.now());
+    }
 
-        int[][] quarters = {{3, '3'}, {6, '6'}, {9, '9'}, {12, 'C'}};
+    /** 순수 계산(테스트 대상) — {@code today} 기준 근월물. 만기일 당일까지는 해당 분기물 유지. */
+    static String calculateFrontMonthCode(LocalDate today) {
+        int[] quarterMonths = {3, 6, 9, 12};
 
-        for (int[] q : quarters) {
-            int month = q[0];
-            int monthCode = q[1];
+        for (int month : quarterMonths) {
             int year = today.getYear();
             if (month < today.getMonthValue()) {
                 continue; // 이미 지난 분기
@@ -711,13 +718,17 @@ public class GlobalFuturesService {
 
             if (today.isBefore(secondThursday) || today.isEqual(secondThursday)) {
                 // 만기일 이전이면 이 근월물 사용
-                return "101" + (char) monthCode + (year % 10);
+                return frontMonthCode(year, month);
             }
         }
 
         // 올해 모든 분기가 지났으면 내년 3월물
-        int nextYear = today.getYear() + 1;
-        return "101" + "3" + (nextYear % 10);
+        return frontMonthCode(today.getYear() + 1, 3);
+    }
+
+    /** 마스터 단축코드 조립 — "1A01" + 연도끝자리 + 월(2자리). fo_idx_code.mst 레이아웃과 동형. */
+    private static String frontMonthCode(int year, int month) {
+        return String.format("1A01%d%02d", year % 10, month);
     }
 
     private String getField(Map<String, Object> data, String... keys) {

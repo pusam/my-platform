@@ -464,6 +464,42 @@
 
 ---
 
+## P3-12. KOSPI200 선물 베이시스 축 스냅샷 — ⛔ 착수 불가 (파생 시세 권한 차단, 2026-07-16 Phase 0/0.5 정찰 종결)
+
+> **배경**: signal_outcome 에 "시그널 시점 KOSPI200 선물 베이시스(선물−현물)" 축을 추가하려던 탐사(V50 지수 채널 후속).
+> **선물 채널 단독은 기각 확정** — V50 지수 채널과 상관 ~0.99(측정 가치 없음) + 분기 롤 갭이 고저가 최대이탈 채널 폭을
+> 지배(7/13 급락 문제의 분기 반복판). 남은 축 = 베이시스뿐.
+
+- **⛔ 차단 사유(2026-07-16 실측, Phase 0.5)**: KIS 선물 시세가 **전부 빈 응답** — 일봉(FHKIF03020100)·현재가(FHMIF10000000)
+  둘 다 rt_cd=0/MCA00000 인데 output(선물 본체)만 빈 객체. **코드 포맷 전수 실호출**(마스터 단축 1A01609·표준
+  KR4A01690002·구형 101X09/101V09/101W09·repo형 10196 등 10종) 전멸, 같은 현재가 응답의 output2(KOSPI 종합)/output3
+  (KOSPI200 현물)는 정상 수신 → **appkey 의 파생상품 시세 권한/계좌 요건 미충족**으로 수렴(§4c: 추정 구현 금지, NXT
+  Phase 0 선례대로 externalize). **재개 조건 = KIS 계좌에서 선물옵션 시세 권한 확인/신청(사람 액션)** 후 프로브 재실행.
+- **✅ 정찰로 확정된 자산(재개 시 그대로 사용)**:
+  - **KOSPI200 현물 지수코드 = `2001`** — 3중 증거: ① idxcode.mst 실물 `22001KOSPI200`(끝4자리 규칙 = 00001종합→0001,
+    00503VKOSPI→0503 과 동형) ② 실호출 2026-07-16 close **1086.38**(0001 종합 6835.81 과 스케일 즉시 구분) ③ 선물
+    현재가 TR output3 `bstp_cls_code=2001, KOSPI200`. → **기존 `getIndexDailyOhlcv("2001", days)` 로 현물 다리 재사용 가능.**
+  - **선물 일봉 TR = FHKIF03020100**(`/uapi/domestic-futureoption/v1/quotations/inquire-daily-fuopchartprice`,
+    FID_COND_MRKT_DIV_CODE=F, **DATE_1=시작/DATE_2=끝**(지수 TR 과 반대 아님 — 공식예제 순서), PERIOD=D) — KIS 공식
+    open-trading-api 예제 실물. OHLC 필드명·건수 상한은 권한 확보 후 첫 실응답으로 확정(§4c).
+  - **근월물 단축코드 체계 = `1A01`+연끝자리+월2자리**(fo_idx_code.mst 실물, 예 1A01609=2026-09월물) — 분기(3/6/9/12) 둘째 목
+    만기. 마스터 다운로드 = `https://new.real.download.dws.co.kr/common/master/fo_idx_code.mst.zip`(EUC-KR).
+  - **선물 현재가 TR(FHMIF10000000) 응답 = output1(선물)/output2(0001)/output3(2001)** — "output" 키 없음(실측).
+    output3 에 KOSPI200 현물 내장 = 베이시스 스칼라는 이 TR 하나로도 가능(단 야간세션 오염 문제는 별도).
+  - **롤 실태**: 계약별 원시 시계열(연결선물 없음). 60거래일 창엔 분기 롤 0~1회(2026-07-16 현재 6/11 만기 포함).
+    재개 시 "창 내 롤 포함" 플래그 저장(V50 width_pct 재현 원칙).
+- **⚠ 재개 시 설계 주의(미확정 사항)**: ① 선물 야간세션 존재(GlobalFuturesService marketStatus NIGHT) — 19:30 record()
+  시점 베이시스가 "당일 정규장"인지 "그날 밤"인지 판정 필요(일봉 종가의 세션 경계 실측 전 스냅샷 설계 금지).
+  ② 유효표본 = distinctDays(P3-11, 지수 축 동일). ③ Flyway 다음 번호 확인 후 사용.
+- **부산물(프로덕션 수정, 2026-07-16 커밋)**: 이 정찰이 **KM(코스피200 선물) KIS 경로가 한 번도 동작한 적 없음**을 확정 —
+  ① `KisApiService.getFuturesCurrentPrice` 가 존재하지 않는 `output` 키를 읽음(실제 output1/2/3) → output1 로 수정.
+  ② `GlobalFuturesService.calculateFrontMonthCode` 가 마스터에 없는 구형 코드(10166형) 생성 → 마스터 실물 포맷
+  (1A01609형)으로 수정 + 만기 경계 테스트. 권한 미확보 상태에선 여전히 Yahoo 폴백(^KS200 — **현물 지수 근사임을 주석 명시**).
+- **관련**: [P3-10](V50 지수 채널 — 이 축의 형님)·[P3-11](distinctDays)·`GlobalFuturesService`/`KisApiService`(부산물 수정),
+  NXT Phase 0(externalize 선례).
+
+---
+
 ## P3-7. 매크로 tilt 캘리브레이션/승격 (미검증 표시 전용 — 2026-07-06 신규, V39 스냅샷 축적 중)
 
 > **배경**: 간밤 미국장 tilt(P3-5) 패턴 복제로 매크로 3축 보조 tilt(`MacroTiltService.classifyMacroRegime`)를 '오늘' 탭에 추가했다.

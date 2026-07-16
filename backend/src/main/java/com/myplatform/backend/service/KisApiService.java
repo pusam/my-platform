@@ -296,9 +296,15 @@ public class KisApiService {
                 return null;
             }
 
-            JsonNode output = root.path("output");
-            if (output.isMissingNode()) {
-                log.warn("[KIS선물] output 누락");
+            // ⚠ 실측(2026-07-16 프로브): FHMIF10000000 응답 root 는 output1/output2/output3 — "output" 키는
+            // 존재하지 않는다(기존 root.path("output") 은 항상 MissingNode → 이 메서드가 데이터를 반환한 적이
+            // 없었고 KM 은 상시 Yahoo 폴백이었음). output1=선물 본체, output2=KOSPI 종합(0001),
+            // output3=KOSPI200 현물(2001, 베이시스 다리 내장). 선물 본체만 맵으로 반환.
+            // output1 이 빈 객체({})로 오는 케이스 확인됨 — 파생 시세 권한/계좌 요건 미충족 추정(§4c: 빈 응답은
+            // null 반환으로 정직 강등, 소비자(GlobalFuturesService)가 Yahoo 폴백).
+            JsonNode output = root.path("output1");
+            if (output.isMissingNode() || output.isEmpty()) {
+                log.debug("[KIS선물] output1 없음/빈 응답 (파생 시세 권한 또는 종목코드 확인 필요) — 소비자 폴백");
                 return null;
             }
 
