@@ -1,6 +1,6 @@
-# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-15 갱신**)
+# 주식 플랫폼 A–Z 전수 배치도 (2026-06-29 생성 · **2026-07-16 갱신**)
 
-> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-15(**차트 대개편**: HtsChart(lightweight-charts) 렌더러 교체 + 일봉 200일 확장(KIS 페이지네이션) + 200봉 2분 캐시 일원화 + 마감후 프리워밍(Redis L2) + 추세 채널(회귀 채널) V49 스냅샷 + 캔들 꼬리 배지 — §19 하단 07-14/07-15 세션 요약. 그 앞 07-09: VKOSPI 변동성 국면 게이트 V46(flag OFF) / 07-08: 감사 후속 3작업 + P3-1 B안 V45).
+> **생성**: 2026-06-29, 코드 직접 전수(Explore 3-레이어 매핑) 기준. **최종 갱신**: 2026-07-16(**KOSPI 지수 추세 채널 스냅샷 V50**(측정 전용·`KospiChannelService` 6h 캐시·record() 전용 소비자) + **지수 축 유효표본 distinctDays 전환 P3-11**(regime/vol_regime, P2-18 승격 판정 선행) — §19 하단 07-16 세션. 그 앞 07-15: HTS 차트 대개편(렌더러 교체·200일·프리워밍) / 07-14: 추세 채널 V49·꼬리 배지 / 07-10: KIS 토큰 단일화 P3-8·V48).
 > **위치**: `docs/STOCK_AZ_FULL.md` — 주식 플랫폼 **유일 정본**. 구 문서(2026-06-08 GNB 3탭판 AZ_FULL·GUIDE·ONEPAGER·SYSTEM_OVERVIEW, 03-09 STALE DOCUMENTATION)는 2026-07-06 정리하며 이 문서로 통합·삭제.
 > **출처 원칙**: 불변식·산식은 `CLAUDE.md`가 1차 출처. **정밀 cron 시각/엔티티·컨트롤러 개수는 코드가 출처**(아래 수치는 매핑 시점 근사) — 변경 시 코드 우선.
 > 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
@@ -737,10 +737,25 @@ P2-13(NXT 청산) **재개봉·구현** — 진단 3확정 갭(주문 라우팅 
 
 ---
 
+### 2026-07-16 세션 — KOSPI 지수 추세 채널 스냅샷 (V50, 측정 전용) + 지수 축 유효표본 distinctDays (P3-11)
+
+지수 채널 축을 signal_outcome 에 추가(V49 종목 채널과 동형, 입력만 지수 0001)하고, 그 과정에서 발견한 기존 지수 축(regime/vol_regime) 유효표본 오계산을 함께 수정. 전부 **측정 전용·산식 미편입**(P2-12 교훈).
+
+- **V50 지수 채널 스냅샷(`5a068d6`)**: `signal_outcome` 에 `index_channel_direction/position/width_pct_at_signal`(전부 NULL 허용=미수집). python regime v1(BULL/BEAR 이분법)은 지수의 '위치'(추세 채널 상/하단)를 못 봄 — 2026-07-13 -8.95% 급락일도 MA60 위면 BULL. 지수 채널 위치가 regime 대비 추가 예측력 있는지 사후검증용.
+  - **`KospiChannelService`(신규, 얇음)**: `getIndexDailyOhlcv("0001",60)` 단일 콜(§16 재사용, 페이지네이션 불필요) → `TrendChannelCalculator` **동일 순수 산식**(V49·차트·보드 공용, 입력만 지수) → 6h 전용 필드 캐시(배치당 KIS 1콜). **⚠ 소비자 = `SignalOutcomeService.record()` 전용**(장중 forming bar 캐시 오염 방지, javadoc 명시 — 보드/화면에서 호출 금지).
+  - **폭(width_pct) 저장 이유**: 고저가 최대이탈 평행 채널이라 이상치 1봉이 폭 결정. 30봉 창에 2026-07-13 급락이 있어 향후 ~6주 position 중앙 압축 → 사후 "폭 N% 이하 창만" 필터 재집계용(V39 재현 저장과 동일 원칙). `TrendChannelCalculator.Channel` 에 `widthPct` 필드 추가(단일 순수함수, V49 무영향).
+  - **집계**: `getAccuracyByBand` 응답 `indexChannels[]`(방향3×위치밴드3=9칸, `aggregateIndexChannels` 순수). **⚠ 유효표본 = distinctDays(고유 signal_date)** — 지수 축은 같은 날 전 시그널이 동일값이라 행 수로 세면 §4c 위장.
+  - §4c: 봉<10·지수 고저가 결측(NaN→null)·조회 실패=NULL. 프론트 0. 테스트: 폭 계산·`toBars`·distinctDays 경계 + migrationTest V50 3컬럼.
+- **P3-11 지수 축 유효표본 distinctDays 전환(`8a465b4`)**: V50 이 처음부터 distinctDays 를 쓴 원칙을 기존 지수 축 두 곳에 소급 — `aggregateRegimes`(V32 on-demand)·`WeeklyAccuracyAggregator.buildGroups`(regimeGroups·volRegimeGroups 공통). `RegimeStat`/`RegimeGroup` 에 `distinctDays` 병기 + 버킷 유의 판정을 **행 수→distinctDays<10** 기준으로 전환(`distinctSignalDays` 헬퍼). 카테고리/밴드 셀은 종목 축이라 무변경. **⚠ P2-18(VKOSPI 게이트 승격)이 `volRegimeGroups` n 에 의존 → distinctDays≥10 로 판정해야**(HIGH_VOL 은 소수 며칠에 몰려 행 수가 독립일수 부풀림). 리포트 JSON 에 두 값 다 노출.
+- **배포 후 확인**: ① V50 적용 ② 0001 고저가 실채움 1회 로그(`[KospiChannel]`, null=NULL 스냅샷 fail-safe) ③ 19:30 배치 후 `index_channel_*` 실값 1행 ④ 배치당 KIS 콜 1회.
+- **백로그**: [P3-10] KOSPI 지수 채널 축 캘리브레이션(승격=regime 대비 추가 예측력·distinctDays≥10·폭 정상 창, P3-5/P3-7 동일 게이트) / [P3-11] ✅ 완료.
+
+---
+
 ## 20. 관련 문서 인덱스
 
 - `CLAUDE.md` — 작업 지침 + 불변식(1차 출처)
-- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**·**P3-7 매크로 tilt 캘리브레이션/승격(V39 스냅샷 축적 중)**
+- `VERIFICATION_BACKLOG.md` — 검증/개선 티켓: P2-12 차트 백테스트(**승격불가 기록**)·P2-13 NXT청산(**진단 종결·2026-09-14 재개봉**)·P3-1 멀티인스턴스 락(부분해소)·**P3-2 signal unique(V36 해소)**·P3-3 growth nullable·**P0-pykrx(KIS 지수전환 해소)**·**P3-4 ticker_list reconstructed**·**P3-5 간밤 미국장 tilt 캘리브레이션**·**P1-6 4카테고리 적중률 캘리브레이션(★수급 역상관 확정)**·**P2-14 종합 판단 보드(B안, Phase1+2-A 완료)**·**P2-15 차트신호/종합 중복 통합(2단계)**·**P2-16 섹터강도 perf(병렬+워밍, 해소)**·**P2-CAT1 재료 배치 프롬프트(N종목 1콜=RPM↓)**·**P2-CAT2 Gemini 소비자 우선순위(재료>AI전략)**·**P2-CAT3 보드 재료 일괄 워밍(rate 게이트)**·**P3-7 매크로 tilt 캘리브레이션/승격(V39 스냅샷 축적 중)**·**P3-9 추세 채널 예측력 검증(V49 종목 채널 축적 중)**·**P3-10 KOSPI 지수 채널 축 캘리브레이션(V50 축적 중, distinctDays≥10·폭 필터 게이트)**·**P3-11 지수 축 유효표본 distinctDays(✅ 해소 — P2-18 승격 판정 선행)**
 - `MARKET_INDICATORS_API.md` — 지표 API 레퍼런스
 - **`OPS_CHECKLIST_2026-07.md`** — 서버 배포 후 확인 일괄 체크리스트(§19 세션별 "배포 후 확인" 수집: V45 마이그레이션·ATR 세트 VIRTUAL ON·일일손실 브레이커 1원 테스트·매크로 V39/ECOS·[SellInflight]/공매도 미수집/구글뉴스·백업 B2/복구 리허설·악재경보/목표가/저널 실동작). **1회용**(배포 직후)
 - **`DATA_HEALTH_CHECK.md`** — **반복 실행용** 데이터 헬스 점검("스케줄 정상 ≠ 데이터 생존"). 테이블별 최신 유입일·건수 실측 SQL(signal_outcome·stock_catalyst NONE율·macro_tilt·저널 stuck·주간집계·투자자/가격 히스토리·alert_history·bot_sell_inflight·공매도 死피드·백업·로그) + "이상 시" 층층 진단(로그→DB→컨테이너, §19 07-01 패턴) + 코딩 세션 티켓 판단 기준. **월 1회(첫 주말) or 이상 징후 시**
@@ -749,4 +764,4 @@ P2-13(NXT 청산) **재개봉·구현** — 진단 3확정 갭(주문 라우팅 
 - **`DESIGN_P3-1_IDEMPOTENT_ORDERS.md`** — P3-1 잔여(SELL 부분청산 가드) 설계(B안 in-flight 마커 — **2026-07-08 V45 구현 완료**, 설계 이탈 2건은 §19 07-08 세션·커밋 `ea4a609` 메시지 참조)
 - (2026-07-06 정리) 구 주식 문서 5종(STOCK_PLATFORM_GUIDE·구 STOCK_AZ_FULL·SYSTEM_OVERVIEW·STOCK_PLATFORM_ONEPAGER·STOCK_SYSTEM_DOCUMENTATION)은 본 문서로 통합·삭제. 이제 주식 정본은 본 문서 단일.
 
-> 본 문서는 2026-06-29 생성 · **2026-07-15 갱신**(§19 하단 = 07-15 세션: **HTS 차트 대개편** — HtsChart(lightweight-charts) 렌더러 교체·일봉 200일 확장·200봉 2분 캐시 일원화·마감후 프리워밍(Redis L2)·분봉 오탐 수정. 그 앞 07-14: 추세 채널(회귀 채널) V49 스냅샷·캔들 꼬리 배지·상세 슬림화 / 07-10: KIS 토큰 단일화 P3-8·V48 nullable·악재경보 dedup P2-CAT4 / 07-09: VKOSPI 변동성 게이트 V46). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
+> 본 문서는 2026-06-29 생성 · **2026-07-16 갱신**(§19 하단 = 07-16 세션: **KOSPI 지수 추세 채널 스냅샷 V50**(측정 전용·`KospiChannelService` 6h 캐시·record() 전용·폭 저장) + **지수 축 유효표본 distinctDays P3-11**(regime/vol_regime 행 수→고유일, P2-18 승격 판정 선행). 그 앞 07-15: HTS 차트 대개편(HtsChart 렌더러·200일·프리워밍) / 07-14: 추세 채널 V49·꼬리 배지 / 07-10: KIS 토큰 단일화 P3-8·V48). 정밀 cron/개수/필드는 코드가 출처이며, 산식·불변식은 CLAUDE.md를 따른다.
