@@ -353,4 +353,41 @@ class SignalOutcomeBandAccuracyTest {
         assertThat(flat10.getDistinctDays()).isEqualTo(10);
         assertThat(flat10.isInsufficientSample()).isFalse();   // 경계 10 = 충분
     }
+
+    // ================================================================
+    // P3-11: regime(V32) 축도 지수 축 — aggregateRegimes 유효표본 = distinctDays
+    // ================================================================
+
+    private SignalOutcome regimeRow(LocalDate date, String regime, boolean hit) {
+        SignalOutcome s = SignalOutcome.builder()
+                .signalType("BUY").stockCode("005930").signalDate(date).signalScore(60)
+                .priceAtSignal(new BigDecimal("10000")).pctChange3d(new BigDecimal(hit ? "4.00" : "-1.00")).hit(hit)
+                .build();
+        s.setRegimeAtSignal(regime);
+        return s;
+    }
+
+    @Test
+    @DisplayName("aggregateRegimes 유효표본 = distinctDays: 같은 날 BULL 20행 → 고유일 1 → insufficientSample=true(P3-11)")
+    void regimes_sameDayManyRows_insufficientByDistinctDays() {
+        java.util.List<SignalOutcome> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) rows.add(regimeRow(LocalDate.of(2026, 7, 1), "BULL", i % 2 == 0));
+        var bull = SignalOutcomeService.aggregateRegimes(rows).stream()
+                .filter(r -> r.getRegime().equals("BULL")).findFirst().orElseThrow();
+
+        assertThat(bull.getTotalSignals()).isEqualTo(20);   // 행 수 20
+        assertThat(bull.getDistinctDays()).isEqualTo(1);     // 진짜 독립 표본 1일
+        assertThat(bull.isInsufficientSample()).isTrue();    // 행 수로 위장 안 함(§4c)
+    }
+
+    @Test
+    @DisplayName("aggregateRegimes distinctDays 경계: 고유일 10 → 충분")
+    void regimes_distinctDaysBoundarySufficient() {
+        java.util.List<SignalOutcome> rows = new java.util.ArrayList<>();
+        for (int d = 1; d <= 10; d++) rows.add(regimeRow(LocalDate.of(2026, 7, d), "BEAR", false));
+        var bear = SignalOutcomeService.aggregateRegimes(rows).stream()
+                .filter(r -> r.getRegime().equals("BEAR")).findFirst().orElseThrow();
+        assertThat(bear.getDistinctDays()).isEqualTo(10);
+        assertThat(bear.isInsufficientSample()).isFalse();
+    }
 }

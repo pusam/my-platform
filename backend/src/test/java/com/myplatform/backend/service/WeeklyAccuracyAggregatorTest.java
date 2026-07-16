@@ -144,6 +144,53 @@ class WeeklyAccuracyAggregatorTest {
         assertThat(dto.getRegimeGroups()).isNotNull();   // 기존 regime 축 유지
     }
 
+    // ---------------------------------------------------------------
+    // P3-11: 버킷 유효표본 = distinctDays (지수 축 — 같은 날 시그널 동일값)
+    // ---------------------------------------------------------------
+
+    private SignalOutcome volSigOn(LocalDate date, String volRegime, boolean hit) {
+        return SignalOutcome.builder()
+                .signalType("BUY").stockCode("005930").signalDate(date)
+                .signalScore(60).priceAtSignal(new BigDecimal("10000"))
+                .volRegimeAtSignal(volRegime).supplyDemandAtSignal(16)
+                .pctChange3d(new BigDecimal("1.00")).alpha3d(new BigDecimal(hit ? "1.0" : "-1.0"))
+                .hit(hit).build();
+    }
+
+    @Test
+    @DisplayName("buildVolRegimeGroups 유효표본 = distinctDays: 같은 날 HIGH_VOL 15행 → 고유일 1 → insufficientSample=true(P3-11)")
+    void buildVol_sameDayManyRows_insufficientByDistinctDays() {
+        List<SignalOutcome> rows = new ArrayList<>();
+        for (int i = 0; i < 15; i++) rows.add(volSigOn(WEEK_START, "HIGH_VOL", i % 2 == 0));
+
+        RegimeGroup high = groupsByRegime(WeeklyAccuracyAggregator.buildVolRegimeGroups(rows)).get("HIGH_VOL");
+        assertThat(high.getTotalSignals()).isEqualTo(15);   // 행 수 15
+        assertThat(high.getDistinctDays()).isEqualTo(1);     // 진짜 독립 표본 1일
+        assertThat(high.isInsufficientSample()).isTrue();    // P2-18 승격이 이 판정 의존 — 행 수 위장 차단(§4c)
+    }
+
+    @Test
+    @DisplayName("buildVolRegimeGroups distinctDays 경계: 10일에 걸친 HIGH_VOL → 고유일 10 → 충분")
+    void buildVol_distinctDaysBoundarySufficient() {
+        List<SignalOutcome> rows = new ArrayList<>();
+        for (int d = 0; d < 10; d++) rows.add(volSigOn(WEEK_START.plusDays(d), "HIGH_VOL", false));
+
+        RegimeGroup high = groupsByRegime(WeeklyAccuracyAggregator.buildVolRegimeGroups(rows)).get("HIGH_VOL");
+        assertThat(high.getDistinctDays()).isEqualTo(10);
+        assertThat(high.isInsufficientSample()).isFalse();
+    }
+
+    @Test
+    @DisplayName("distinctSignalDays: 고유 signal_date 카운트(null 제외)")
+    void distinctSignalDays_counts() {
+        List<SignalOutcome> rows = new ArrayList<>();
+        rows.add(volSigOn(WEEK_START, "NORMAL", true));
+        rows.add(volSigOn(WEEK_START, "NORMAL", false));        // 같은 날 중복
+        rows.add(volSigOn(WEEK_START.plusDays(1), "NORMAL", true));
+        assertThat(WeeklyAccuracyAggregator.distinctSignalDays(rows)).isEqualTo(2);
+        assertThat(WeeklyAccuracyAggregator.distinctSignalDays(List.of())).isZero();
+    }
+
     @Test
     @DisplayName("buildRegimeGroups: 항상 4버킷(빈 버킷 포함), 각 4카테고리+4밴드 셀")
     void groups_alwaysFourBuckets() {

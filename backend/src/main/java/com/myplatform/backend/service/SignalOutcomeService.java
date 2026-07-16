@@ -661,6 +661,10 @@ public class SignalOutcomeService {
     /**
      * 시장 국면별 집계 (V32) — 순수 함수. "하락장에서도 먹히나" 검증용.
      * regime 컬럼 NULL(미수집) 행은 제외.
+     *
+     * <p><b>⚠ 유효 표본 = distinctDays(고유 signal_date)</b>(P3-11): regime 은 지수 축이라 같은 날 전 시그널이
+     * 동일 국면값 = 서로 독립이 아니다. rows(행 수)로 재면 표본부족을 표본충분으로 위장(§4c). 지수 채널
+     * (aggregateIndexChannels)과 동일 원칙 — 유의 판정은 distinctDays &lt; {@link #MIN_DISTINCT_DAYS} 기준.
      */
     static List<com.myplatform.backend.dto.SignalBandAccuracyDto.RegimeStat> aggregateRegimes(
             List<SignalOutcome> rows) {
@@ -674,12 +678,15 @@ public class SignalOutcomeService {
             long total = 0, hits = 0;
             BigDecimal pctSum = BigDecimal.ZERO;
             long pctCount = 0;
+            Set<LocalDate> days = new java.util.HashSet<>();   // 고유 signal_date = 진짜 독립 표본 수
             for (SignalOutcome s : rows) {
                 if (!def[0].equals(s.getRegimeAtSignal())) continue;
                 total++;
+                if (s.getSignalDate() != null) days.add(s.getSignalDate());
                 if (Boolean.TRUE.equals(s.getHit())) hits++;
                 if (s.getPctChange3d() != null) { pctSum = pctSum.add(s.getPctChange3d()); pctCount++; }
             }
+            long distinctDays = days.size();
             result.add(com.myplatform.backend.dto.SignalBandAccuracyDto.RegimeStat.builder()
                     .regime(def[0])
                     .label(def[1])
@@ -687,6 +694,8 @@ public class SignalOutcomeService {
                     .hitCount(hits)
                     .hitRate(rate(hits, total))
                     .avgPctChange(avg(pctSum, pctCount))
+                    .distinctDays(distinctDays)
+                    .insufficientSample(distinctDays < MIN_DISTINCT_DAYS)
                     .build());
         }
         return result;

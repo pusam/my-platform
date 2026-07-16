@@ -88,6 +88,13 @@ public class SignalBandAccuracyDto {
         private long hitCount;
         private BigDecimal hitRate;
         private BigDecimal avgPctChange;
+        /**
+         * 고유 signal_date 수 (P3-11) — regime 은 <b>지수 축</b>이라 같은 날 전 시그널이 동일 국면값 =
+         * 서로 독립 아님. totalSignals(행 수)로 유효표본을 재면 과대평가(§4c). 유의 판정은 이 값 기준.
+         */
+        private long distinctDays;
+        /** 유효 표본 부족 = {@code distinctDays < 10}(P3-11 — 행 수 아무리 많아도 며칠 안이면 true). */
+        private boolean insufficientSample;
     }
 
     @Data

@@ -439,7 +439,7 @@
 
 ---
 
-## P3-11. 지수 축(regime/vol_regime) 유효표본 오계산 — distinctDays 미적용 (진단만, 2026-07-16 신규 — V50 작업 중 발견)
+## P3-11. 지수 축(regime/vol_regime) 유효표본 오계산 — distinctDays 미적용 — ✅ 완료 (2026-07-16)
 
 > **발견 경위**: V50 지수 채널 집계를 만들며 "지수 축은 같은 날 전 시그널이 동일값이라 행 수로 n 을 세면 표본 과대평가"
 > 임을 반영(`distinctDays`). 그런데 **기존 `regime_at_signal`(V32)·`vol_regime_at_signal`(V46) 집계도 동일한 지수 축**인데
@@ -450,10 +450,17 @@
 - **⚠ 영향 — 승격 판단**: **[P2-18](VKOSPI 게이트 승격)이 이 n 에 의존**한다(`volRegimeGroups` HIGH_VOL vs NORMAL, "표본 n≥10").
   HIGH_VOL 은 고변동 국면이라 **소수 며칠에 시그널이 몰릴 수 있어** 행 수 n 이 실제 독립일수를 크게 부풀릴 위험 큼.
   **P2-18 승격 판단 전 `distinctDays` 기준 재집계 필요**(안 그러면 며칠 데이터로 게이트를 켜는 오판 가능).
-- **범위**: 이번 티켓은 **진단만**(V50 은 신규 지수 축이라 처음부터 distinctDays 적용). 수정은 별건 — `aggregateRegimes`·
-  `buildVolRegimeGroups` 에 distinctDays 병기 + 유의 판정을 distinctDays 로. 카테고리/재료 축(V30/V31)은 종목별이라 무관.
-- **관련**: `SignalOutcomeService.aggregateRegimes`, `WeeklyAccuracyAggregator.buildVolRegimeGroups`, V32/V46,
-  [P2-18](승격이 이 n 의존 — 재집계 선행)·[P3-10](distinctDays 선례).
+- **✅ 수정(2026-07-16)**: 지수 축 두 곳에 distinctDays 적용(카테고리/재료 축 V30/V31 은 종목별이라 무변경 — 셀 내부는 행 수 유지):
+  - **on-demand**: `aggregateRegimes` → `RegimeStat` 에 `distinctDays` + `insufficientSample`(distinctDays<10) 병기.
+  - **주간**: `WeeklyAccuracyAggregator.buildGroups`(regimeGroups·volRegimeGroups 공통) → `RegimeGroup` 에 `distinctDays` 병기 +
+    **버킷 `insufficientSample` 을 행 수→distinctDays 기준으로 전환**. `distinctSignalDays` 순수 헬퍼 추가.
+  - 지수 채널(V50 `aggregateIndexChannels`)과 동일 원칙·임계(10)로 통일. 카테고리/밴드 셀은 종목 축이라 그대로.
+- **⚠ P2-18 승격 판단 시**: `volRegimeGroups` 의 HIGH_VOL/NORMAL **`distinctDays`(≥10)** 로 표본 충분 판정할 것(기존 `totalSignals`
+  는 행 수라 며칠 데이터를 표본충분으로 오판). 이제 리포트 JSON 에 두 값 다 노출됨.
+- **테스트**: 같은 날 N행→고유일 1→insufficientSample=true / 고유일 10 경계 충분 (on-demand `SignalOutcomeBandAccuracyTest`,
+  주간 `WeeklyAccuracyAggregatorTest` + `distinctSignalDays`).
+- **관련**: `SignalOutcomeService.aggregateRegimes`/`MIN_DISTINCT_DAYS`, `WeeklyAccuracyAggregator.buildGroups`/`distinctSignalDays`,
+  `SignalBandAccuracyDto.RegimeStat`, `WeeklySignalAccuracyDto.RegimeGroup`(distinctDays), V32/V46, [P2-18](이 값으로 승격 판정)·[P3-10](선례).
 
 ---
 
@@ -585,7 +592,7 @@
 
 ## P2-18. VKOSPI 변동성 게이트 승격 (mode OFF → REDUCED/BLOCK) 판정 (2026-07-09 신규)
 > **배경**: VKOSPI 변동성 국면 게이트(V46, VolatilityRegimeService) 구현 완료·**기본 OFF**. 고변동(VKOSPI 최근 252거래일 상위 10%)에서 봇 신규 진입 차단/축소하는 사전 회피 레이어 — 서킷브레이커 사후 방어 보완. 켜기 전 **데이터로 유효성 확인** 필요(미검증 상태로 실매매 게이트 승격 금지).
-- **판정 기준(데이터 축적 후, 사람이 별도 세션)**: `signal_weekly_accuracy.report_json` 의 **`volRegimeGroups`**(V46, NORMAL vs HIGH_VOL 분리 집계)에서 **HIGH_VOL 버킷 적중률·평균 alpha 가 NORMAL 대비 유의하게 낮은지**(표본 n≥10). 낮으면 게이트 유효(고변동 진입이 실제로 부진) → REDUCED 부터 단계 승격 검토. 차이 없거나 HIGH_VOL 표본 부족이면 OFF 유지.
+- **판정 기준(데이터 축적 후, 사람이 별도 세션)**: `signal_weekly_accuracy.report_json` 의 **`volRegimeGroups`**(V46, NORMAL vs HIGH_VOL 분리 집계)에서 **HIGH_VOL 버킷 적중률·평균 alpha 가 NORMAL 대비 유의하게 낮은지**. ⚠ **표본 충분 판정은 `distinctDays≥10`(고유 signal_date)로 — `totalSignals`(행 수) 아님**([P3-11] 수정 완료: HIGH_VOL 은 소수 며칠에 시그널이 몰려 행 수 n 이 독립일수를 크게 부풀림, 행 수로 판정 시 며칠 데이터로 게이트 켜는 오판). 낮으면 게이트 유효(고변동 진입이 실제로 부진) → REDUCED 부터 단계 승격 검토. 차이 없거나 HIGH_VOL distinctDays 부족이면 OFF 유지.
 - **켜는 법**: `bot.vol-regime-gate.mode=REDUCED`(또는 BLOCK)(env `BOT_VOL_REGIME_GATE_MODE` — compose backend `environment:` 명시 배선 §4b 함정). lookback/top-percent/min-samples/reduced-factor 도 env 조정 가능. 청산 무관(진입만).
 - **불변식**: mode OFF=봇 매매 byte-identical · 진입 게이트만(청산 미관여, 브레이커 비대칭 동일) · §4d 체인 형제 레이어(우회 없음) · VKOSPI 미수집=UNKNOWN=skip+로그(§4c, 가짜 NORMAL 금지) · §16 getIndexDailyOhlcv 재사용.
 - **⚠ 운영 인지(AUDIT_2026-07-09 P3 — 후속 경보 추가 `c4ba295`)**: REDUCED/BLOCK ON 상태에서 VKOSPI 소스(KIS 0503) 死 지속 시 게이트는 **fail-open 으로 skip**(보호 0, 진입 계속 허용) — 단 **UNKNOWN 연속 N일(기본 3, `bot.vol-regime.unknown-alert-days`) 시 risk 채널 경보 1회**(하루 1회 쿨다운)로 사람이 인지. 게이트 동작은 그대로 fail-open. `DATA_HEALTH_CHECK.md` §3 "vkospi 계속 null" 도 보정 모니터(priceSanity 앵커결측 fail-open 트레이드오프와 동일 성격).

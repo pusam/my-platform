@@ -102,22 +102,40 @@ final class WeeklyAccuracyAggregator {
         return partitionBy(rows, VOL_REGIME_BUCKETS, WeeklyAccuracyAggregator::volRegimeBucket);
     }
 
-    /** 버킷 파티션 → 카테고리/밴드 셀 그룹. 빈 버킷도 포함(표본부족·0건 정직 노출). RegimeGroup 형태 재사용. */
+    /**
+     * 버킷 파티션 → 카테고리/밴드 셀 그룹. 빈 버킷도 포함(표본부족·0건 정직 노출). RegimeGroup 형태 재사용.
+     *
+     * <p><b>⚠ 버킷 유의 판정 = distinctDays(고유 signal_date)</b>(P3-11): regime/vol_regime 은 지수 축이라
+     * 같은 날 전 시그널이 동일값 = 서로 독립 아님. 버킷 {@code insufficientSample} 을 행 수(n)로 재면
+     * 며칠 데이터만으로 표본충분 위장(§4c). <b>P2-18(VKOSPI 게이트 승격)이 이 판정에 의존</b>하므로
+     * distinctDays 로 판정한다. (카테고리/밴드 셀은 종목 축이라 셀 내부는 행 수 기준 유지 — 티켓 범위.)
+     */
     private static List<RegimeGroup> buildGroups(String[][] bucketDefs, Map<String, List<SignalOutcome>> byBucket) {
         List<RegimeGroup> groups = new ArrayList<>();
         for (String[] def : bucketDefs) {
             List<SignalOutcome> subset = byBucket.get(def[0]);
             long n = subset.size();
+            long distinctDays = distinctSignalDays(subset);
             groups.add(RegimeGroup.builder()
                     .regime(def[0])
                     .label(def[1])
                     .totalSignals(n)
-                    .insufficientSample(isInsufficient(n))
+                    .distinctDays(distinctDays)
+                    .insufficientSample(isInsufficient(distinctDays))   // P3-11: 행 수 아닌 고유일 기준
                     .categories(toCategoryCells(SignalOutcomeService.aggregateCategories(subset)))
                     .bands(toBandCells(SignalOutcomeService.aggregateBands(subset)))
                     .build());
         }
         return groups;
+    }
+
+    /** 고유 signal_date 수 — 지수 축(regime/vol_regime) 진짜 독립 표본 수(P3-11). null 날짜는 제외. */
+    static long distinctSignalDays(List<SignalOutcome> rows) {
+        java.util.Set<LocalDate> days = new java.util.HashSet<>();
+        for (SignalOutcome s : rows) {
+            if (s.getSignalDate() != null) days.add(s.getSignalDate());
+        }
+        return days.size();
     }
 
     /** 이번 주 rows → regime 파티션별 카테고리/밴드 셀. */

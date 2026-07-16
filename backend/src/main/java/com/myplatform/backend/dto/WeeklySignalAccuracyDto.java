@@ -59,9 +59,14 @@ public class WeeklySignalAccuracyDto {
         private String regime;
         /** 상승장 / 하락장 / 횡보장 / 국면 미수집. */
         private String label;
-        /** 이 regime 버킷의 board 시그널 수. */
+        /** 이 regime 버킷의 board 시그널 수(행 수). */
         private long totalSignals;
-        /** 버킷 전체 표본부족(n<10) 여부. */
+        /**
+         * 이 버킷의 고유 signal_date 수 = 진짜 독립 표본 (P3-11) — regime/vol_regime 은 <b>지수 축</b>이라
+         * 같은 날 전 시그널이 동일값. 행 수(totalSignals)와 별개로 병기하며, 버킷 유의 판정은 이 값 기준.
+         */
+        private long distinctDays;
+        /** 버킷 전체 표본부족 — <b>distinctDays &lt; 10</b> 기준(P3-11, 행 수 아님). 카테고리/밴드 셀은 별개(종목 축=행 수). */
         private boolean insufficientSample;
         private List<CategoryCell> categories;
         private List<BandCell> bands;
