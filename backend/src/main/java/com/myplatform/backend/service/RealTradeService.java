@@ -86,10 +86,19 @@ public class RealTradeService implements TradeService {
                 try { Thread.sleep(700L); }
                 catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
             }
-            ccld = kisService.inquireDailyCcld(stockCode, orderNo);
+            // 마지막 조회가 일시 실패(null)해도 앞서 관측한 부분체결을 지우지 않게 최대 관측값 유지 —
+            // 덮어쓰면 PARTIAL 이 UNKNOWN 으로 승격돼 잔량이 KIS orphan(B2-A 가 막으려던 상황).
+            ccld = maxObserved(ccld, kisService.inquireDailyCcld(stockCode, orderNo));
             if (ccld != null && ccld >= requestedQty) break;  // 전량 확인되면 즉시 종료
         }
         return resolveFill(requestedQty, ccld);
+    }
+
+    /** 폴링 관측값 누적 — KIS 총체결수량은 단조증가라 max 가 안전. null 조회는 기존 관측 유지. 순수 함수. */
+    static Integer maxObserved(Integer current, Integer polled) {
+        if (polled == null) return current;
+        if (current == null || polled > current) return polled;
+        return current;
     }
 
     /**

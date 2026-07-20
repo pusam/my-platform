@@ -59,4 +59,25 @@ class RealTradeFillTest {
         assertThat(r.isFull()).isFalse();
         assertThat(r.isConfirmedShort()).isFalse(); // 확정된 미달 아님 → 제거 차단도 안 함
     }
+
+    @Test
+    @DisplayName("maxObserved — 후속 null 조회가 앞선 부분체결 관측을 지우지 않음(PARTIAL→UNKNOWN 승격 방지)")
+    void maxObserved_keepsPartialAcrossNullPolls() {
+        // 폴링 시퀀스: 5주 관측 → null → null. 덮어쓰기였다면 최종 null → UNKNOWN → 포지션 제거(잔량 orphan).
+        Integer ccld = null;
+        ccld = RealTradeService.maxObserved(ccld, 5);
+        ccld = RealTradeService.maxObserved(ccld, null);
+        ccld = RealTradeService.maxObserved(ccld, null);
+        assertThat(ccld).isEqualTo(5);
+        assertThat(RealTradeService.resolveFill(10, ccld).status()).isEqualTo(FillStatus.PARTIAL);
+    }
+
+    @Test
+    @DisplayName("maxObserved — 관측값은 단조 누적(증가만 반영), 첫 관측 전 null 유지")
+    void maxObserved_monotonic() {
+        assertThat(RealTradeService.maxObserved(null, null)).isNull();      // 전 회차 실패 → UNKNOWN 경로 보존
+        assertThat(RealTradeService.maxObserved(null, 0)).isEqualTo(0);     // 미체결 관측은 유효 관측
+        assertThat(RealTradeService.maxObserved(5, 8)).isEqualTo(8);
+        assertThat(RealTradeService.maxObserved(8, 5)).isEqualTo(8);        // 역행 값 무시(방어)
+    }
 }

@@ -129,12 +129,14 @@ public class RealTimeDataCache {
 
         List<MinuteBar> bars = minuteBarStore.computeIfAbsent(stockCode, k -> Collections.synchronizedList(new ArrayList<>()));
 
-        // 현재 분봉 찾기 또는 생성.
+        // 현재 분봉 찾기/생성 + 갱신.
         // ⚠ synchronizedList 는 개별 메서드만 원자적 — get(size-1)/remove(0) 같은 check-then-act
         //   복합연산은 동시 틱(같은 종목)에서 IndexOutOfBounds/데이터 손실 가능. 명시적 락으로 묶는다.
-        MinuteBar currentBar;
+        //   update(volume += / high·low 비교갱신)도 read-modify-write 라 락 안에서 — 밖에 두면
+        //   같은 분봉을 잡은 동시 틱끼리 거래량 유실/고저 경합.
         synchronized (bars) {
             MinuteBar lastBar = bars.isEmpty() ? null : bars.get(bars.size() - 1);
+            MinuteBar currentBar;
             if (lastBar != null && lastBar.getTime().equals(minuteKey)) {
                 currentBar = lastBar;
             } else {
@@ -146,17 +148,17 @@ public class RealTimeDataCache {
                     bars.remove(0);
                 }
             }
-        }
 
-        currentBar.update(price, volume);
+            currentBar.update(price, volume);
 
-        // 시초가 대비 등락률 계산
-        BigDecimal openPrice = openPriceStore.get(stockCode);
-        if (openPrice != null && openPrice.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal changeRate = price.subtract(openPrice)
-                    .multiply(BigDecimal.valueOf(100))
-                    .divide(openPrice, 2, RoundingMode.HALF_UP);
-            currentBar.setChangeRate(changeRate);
+            // 시초가 대비 등락률 계산
+            BigDecimal openPrice = openPriceStore.get(stockCode);
+            if (openPrice != null && openPrice.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal changeRate = price.subtract(openPrice)
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(openPrice, 2, RoundingMode.HALF_UP);
+                currentBar.setChangeRate(changeRate);
+            }
         }
     }
 
