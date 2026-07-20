@@ -50,6 +50,11 @@ public class KisApiService {
         this.tokenManager = tokenManager;
     }
 
+    /** KIS 키 설정 여부 — 컨트롤러가 '미설정(503)'과 '정상 빈 결과(200)'를 구분하는 용도(§4c). */
+    public boolean isConfigured() {
+        return kisApiProperties.getAppKey() != null && !kisApiProperties.getAppKey().isBlank();
+    }
+
     /**
      * 투자자 매매동향 조회 (외국인, 기관 순매수 상위)
      */

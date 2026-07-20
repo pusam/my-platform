@@ -169,12 +169,21 @@ public class RiskController {
     public ResponseEntity<Map<String, Object>> batchCheck(
             @RequestBody Map<String, Object> request) {
 
-        @SuppressWarnings("unchecked")
-        java.util.List<String> stockNames = (java.util.List<String>) request.get("stockNames");
+        Object raw = request.get("stockNames");
+        if (!(raw instanceof java.util.List<?> rawList)) {   // 비리스트 입력이 500(ClassCastException)로 떨어지지 않게
+            return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "message", "stockNames 는 문자열 배열이어야 합니다."));
+        }
+        java.util.List<String> stockNames = rawList.stream().map(String::valueOf).toList();
 
-        if (stockNames == null || stockNames.isEmpty()) {
+        if (stockNames.isEmpty()) {
             return ResponseEntity.badRequest()
                     .body(Map.of("success", false, "message", "종목 목록을 입력해 주세요."));
+        }
+        // 종목당 동기 리스크분석(공시/뉴스 조회 유발) — 무제한 리스트는 레이트리밋 소진/응답 지연이라 상한
+        if (stockNames.size() > 30) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("success", false, "message", "한 번에 최대 30종목까지 조회할 수 있습니다."));
         }
 
         log.info("[RiskController] 일괄 리스크 체크: {}건", stockNames.size());

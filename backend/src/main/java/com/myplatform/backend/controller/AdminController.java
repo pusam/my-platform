@@ -348,7 +348,11 @@ public class AdminController {
             } else if (status.equals("REJECTED")) {
                 userManagementService.rejectUser(userId);
             } else if (status.equals("PENDING")) {
-                userManagementService.deactivateUser(userId);
+                userManagementService.resetToPending(userId);   // deactivateUser 는 REJECTED 설정 — PENDING 오매핑이었음
+            } else {
+                // 미지 상태를 조용히 200 성공으로 돌려주면 관리자가 변경됐다고 오인 — 명시 거부
+                return ResponseEntity.badRequest().body(
+                        ApiResponse.fail("지원하지 않는 상태입니다: " + status + " (PENDING/APPROVED/REJECTED)"));
             }
             return ResponseEntity.ok(ApiResponse.success("상태가 변경되었습니다.", null));
         } catch (Exception e) {

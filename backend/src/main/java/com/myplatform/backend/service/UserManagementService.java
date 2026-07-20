@@ -177,6 +177,16 @@ public class UserManagementService {
                 String.format("사용자 '%s' 비활성화됨", user.getUsername()));
     }
 
+    /** 승인 대기(PENDING)로 되돌리기 — 기존 deactivateUser(REJECTED 설정)와 구분되는 진짜 PENDING 전환. */
+    public void resetToPending(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        user.setStatus("PENDING");
+        userRepository.save(user);
+        activityLogService.log(currentActor(), "STATUS_CHANGE",
+                String.format("사용자 '%s' 승인 대기로 변경됨", user.getUsername()));
+    }
+
     public void activateUser(Long userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("User not found"));
