@@ -52,8 +52,12 @@ public class IntradayChartService {
     public record IntradayCandle(String date, BigDecimal open, BigDecimal high,
                                  BigDecimal low, BigDecimal close) {}
     public record IntradayVolume(BigDecimal volume) {}
+    /** fetchFailed = 빈결과의 원인이 수집 실패(KIS 미설정/에러응답)일 때만 true — 장전/휴장 정상 빈결과와 구분(§4c). */
     public record IntradayChartDto(List<IntradayCandle> candles, List<IntradayVolume> volumes,
-                                   boolean dataAvailable) {}
+                                   boolean dataAvailable, boolean fetchFailed) {}
+
+    /** 수집 결과 + 실패 여부 — 프론트가 '조회 실패'와 '장전/휴장 빈결과'를 구분해 안내하기 위함. */
+    record FetchResult(List<MinuteBar> bars, boolean failed) {}
 
     /** 당일 5분봉 차트 — 종목·2분 캐시. 미가용이면 빈 DTO(§4c). */
     public IntradayChartDto getIntradayCandles(String stockCode) {
@@ -62,23 +66,26 @@ public class IntradayChartService {
         if (entry != null && now - entry.fetchedAt() < CACHE_TTL_MS) {
             return entry.dto();
         }
-        IntradayChartDto dto = toDto(aggregateToBuckets(fetchDayMinuteBars(stockCode), AGG_MINUTES));
+        FetchResult result = fetchDayMinuteBars(stockCode);
+        IntradayChartDto dto = toDto(aggregateToBuckets(result.bars(), AGG_MINUTES), result.failed());
         cache.put(stockCode, new CacheEntry(now, dto));
         return dto;
     }
 
     /** 당일 1분봉 전체 수집 — 앵커를 09:00 까지 되감는 페이지네이션. 과거→최신 정렬 반환. */
-    private List<MinuteBar> fetchDayMinuteBars(String stockCode) {
-        if (!kisService.isConfigured()) return List.of();
+    private FetchResult fetchDayMinuteBars(String stockCode) {
+        if (!kisService.isConfigured()) return new FetchResult(List.of(), true);   // KIS 미설정 = 수집 불가
         TreeMap<LocalTime, MinuteBar> byTime = new TreeMap<>();
         LocalTime nowTime = LocalTime.now();
         LocalTime anchor = nowTime.isAfter(SESSION_END) ? SESSION_END : nowTime;
-        if (anchor.isBefore(SESSION_START)) return List.of();   // 장전 — 당일 분봉 없음
+        if (anchor.isBefore(SESSION_START)) return new FetchResult(List.of(), false);   // 장전 — 정상 빈결과
 
+        boolean failed = false;
         for (int page = 0; page < MAX_PAGES; page++) {
             JsonNode resp = kisService.getStockMinuteChartAt(stockCode,
                     String.format("%02d%02d%02d", anchor.getHour(), anchor.getMinute(), 0),
                     KisApiRateLimiter.Priority.NORMAL);
+            if (isKisError(resp)) { failed = true; break; }     // 에러 응답 = 수집 실패(빈결과와 구분)
             List<MinuteBar> pageBars = parseMinuteBars(resp);
             if (pageBars.isEmpty()) break;
             int before = byTime.size();
@@ -88,7 +95,12 @@ public class IntradayChartService {
             if (!earliest.isAfter(SESSION_START)) break;        // 09:00 도달
             anchor = earliest.minusMinutes(1);
         }
-        return new ArrayList<>(byTime.values());
+        return new FetchResult(new ArrayList<>(byTime.values()), failed);
+    }
+
+    /** KIS 응답이 에러(null/rt_cd≠0)인지 — '정상인데 빈 output2'(장전/휴장)와 구분. 순수 함수. */
+    static boolean isKisError(JsonNode resp) {
+        return resp == null || !"0".equals(resp.path("rt_cd").asText(""));
     }
 
     /**
@@ -117,6 +129,7 @@ public class IntradayChartService {
             if (open == null) open = close;
             if (high == null) high = close.max(open);
             if (low == null) low = close.min(open);
+            if (low.compareTo(high) > 0) continue;   // 폴백 합성 + 이상 고저 조합 → OHLC 불변식 위반 봉은 skip(§4c)
             out.add(new MinuteBar(time, open, high, low, close, vol != null ? vol : BigDecimal.ZERO));
         }
         return out;
@@ -143,8 +156,11 @@ public class IntradayChartService {
         return new ArrayList<>(buckets.values());
     }
 
-    /** 합성봉(과거→최신) → DTO(candles 최신→과거 — 프론트 ChartData 규약). 순수 함수. */
-    static IntradayChartDto toDto(List<MinuteBar> ascending) {
+    /**
+     * 합성봉(과거→최신) → DTO(candles 최신→과거 — 프론트 ChartData 규약). 순수 함수.
+     * fetchFailed 는 빈결과일 때만 노출 — 부분 수집 성공(후속 페이지 실패)이면 데이터가 있으므로 미표시.
+     */
+    static IntradayChartDto toDto(List<MinuteBar> ascending, boolean fetchFailed) {
         List<IntradayCandle> candles = new ArrayList<>();
         List<IntradayVolume> volumes = new ArrayList<>();
         for (int i = ascending.size() - 1; i >= 0; i--) {
@@ -154,7 +170,7 @@ public class IntradayChartService {
                     b.open(), b.high(), b.low(), b.close()));
             volumes.add(new IntradayVolume(b.volume()));
         }
-        return new IntradayChartDto(candles, volumes, !candles.isEmpty());
+        return new IntradayChartDto(candles, volumes, !candles.isEmpty(), fetchFailed && candles.isEmpty());
     }
 
     private static LocalTime parseHhmmss(String s) {

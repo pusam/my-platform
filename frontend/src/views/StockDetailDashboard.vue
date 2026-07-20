@@ -162,13 +162,13 @@
                   {{ ind.label }}
                 </button>
               </template>
-              <button v-if="chartSrLines.length"
+              <button v-if="srLevelsAvailable.length"
                 :class="['ind-toggle sr-toggle', { active: showSrLines }]"
                 @click="showSrLines = !showSrLines"
                 title="지지/저항 가로선 토글">
                 S/R
               </button>
-              <button v-if="!isIntraday && chartPatternMarkers.length"
+              <button v-if="!isIntraday && patternMarkersAvailable.length"
                 :class="['ind-toggle pattern-toggle', { active: showPatternMarkers }]"
                 @click="showPatternMarkers = !showPatternMarkers"
                 title="패턴 마커 토글">
@@ -190,7 +190,7 @@
           <!-- 분봉(1일) 로딩/빈 상태 안내 — 원인별 구분(§4c 위장 없음) -->
           <div v-if="isIntraday && intradayLoading" class="intraday-note">⏳ 당일 분봉 불러오는 중…</div>
           <div v-else-if="isIntraday && intradayError" class="intraday-note">
-            ⚠️ 분봉 조회 실패 — 분석 서버/네트워크 문제일 수 있습니다. 잠시 후 다시 시도하거나 일봉 보기(7/30일)를 이용하세요.
+            ⚠️ 분봉 조회 실패 — 시세 서버(KIS)/네트워크 문제일 수 있습니다. 잠시 후 다시 시도하거나 일봉 보기(7/30일)를 이용하세요.
           </div>
           <div v-else-if="isIntraday && !displayCandles.length" class="intraday-note">
             당일 분봉 없음 — 장 시작 전(09:00 이전)이거나 휴장일입니다. 일봉 보기(7/30일)를 이용하세요.
@@ -563,6 +563,7 @@ import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
+import { toMarkerData } from '../utils/htsChartData';
 import { detectTailSignal } from '../utils/candleAnatomy';
 
 const route = useRoute();
@@ -631,6 +632,8 @@ const loadIntraday = async () => {
   try {
     const res = await apiClient.get(`/stock/${stockCode.value}/intraday-candles`);
     intradayData.value = res.data?.data || null;
+    // 백엔드 fetchFailed = 장중 KIS 수집 실패(HTTP 200) — '장전/휴장 빈결과' 오안내 방지
+    intradayError.value = !!intradayData.value?.fetchFailed;
     intradayFetchedFor = stockCode.value;
   } catch (e) {
     intradayData.value = null;
@@ -684,8 +687,10 @@ const bollingerForChart = computed(() => {
   return (bbUpper && bbLower) ? { upper: bbUpper, lower: bbLower } : null;
 });
 // S/R 레벨 — 표시 봉 가격대 근처만(멀리 있는 레벨이 스케일 흐리지 않게). 원 chartSrLines 필터 계승.
-const srLevelsForChart = computed(() => {
-  if (!showSrLines.value || !supportResistance.value || !displayCandles.value.length) return [];
+// available(토글 무관)과 forChart(토글 반영)를 분리 — 토글 버튼 노출 게이팅이 실제 렌더와 같은
+// 필터를 봐야 "선은 그려지는데 끌 버튼이 없는" 상태가 안 생긴다.
+const srLevelsAvailable = computed(() => {
+  if (!supportResistance.value || !displayCandles.value.length) return [];
   const lo = Math.min(...displayCandles.value.map(c => c.low)) * 0.9;
   const hi = Math.max(...displayCandles.value.map(c => c.high)) * 1.1;
   const inRange = (p) => Number(p) >= lo && Number(p) <= hi;
@@ -698,6 +703,9 @@ const srLevelsForChart = computed(() => {
   }
   return out;
 });
+const srLevelsForChart = computed(() => (showSrLines.value ? srLevelsAvailable.value : []));
+const patternMarkersAvailable = computed(() =>
+  isIntraday.value ? [] : toMarkerData(chartPatterns.value || [], displayCandles.value));
 const markersForChart = computed(() =>
   (showPatternMarkers.value && !isIntraday.value) ? chartPatterns.value : []);
 

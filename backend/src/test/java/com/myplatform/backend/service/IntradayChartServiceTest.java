@@ -107,7 +107,7 @@ class IntradayChartServiceTest {
                 new MinuteBar(LocalTime.of(9, 0), BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ONE, BigDecimal.valueOf(2), BigDecimal.TEN),
                 new MinuteBar(LocalTime.of(9, 5), BigDecimal.valueOf(2), BigDecimal.TEN, BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ONE));
 
-        IntradayChartDto dto = IntradayChartService.toDto(ascending);
+        IntradayChartDto dto = IntradayChartService.toDto(ascending, false);
 
         assertThat(dto.dataAvailable()).isTrue();
         assertThat(dto.candles()).hasSize(2);
@@ -115,8 +115,48 @@ class IntradayChartServiceTest {
         assertThat(dto.candles().get(1).date()).isEqualTo("09:00");
         assertThat(dto.volumes()).hasSize(2);
 
-        IntradayChartDto empty = IntradayChartService.toDto(List.of());
+        IntradayChartDto empty = IntradayChartService.toDto(List.of(), false);
         assertThat(empty.dataAvailable()).isFalse();
         assertThat(empty.candles()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("toDto fetchFailed — 수집 실패는 빈결과일 때만 표시(장전/휴장 오안내 방지), 부분 수집 성공이면 미표시")
+    void toDto_fetchFailedPolarity() {
+        // 빈결과 + 수집 실패 → fetchFailed=true (프론트가 '조회 실패'로 안내해야 함 — '장전/휴장' 오진단 금지)
+        IntradayChartDto failedEmpty = IntradayChartService.toDto(List.of(), true);
+        assertThat(failedEmpty.dataAvailable()).isFalse();
+        assertThat(failedEmpty.fetchFailed()).isTrue();
+
+        // 빈결과 + 실패 아님(장전/휴장) → fetchFailed=false (정상 빈결과)
+        assertThat(IntradayChartService.toDto(List.of(), false).fetchFailed()).isFalse();
+
+        // 부분 수집 후 후속 페이지 실패 → 데이터는 있으므로 fetchFailed=false
+        List<MinuteBar> some = List.of(new MinuteBar(LocalTime.of(9, 0),
+                BigDecimal.ONE, BigDecimal.TEN, BigDecimal.ONE, BigDecimal.valueOf(2), BigDecimal.TEN));
+        IntradayChartDto partial = IntradayChartService.toDto(some, true);
+        assertThat(partial.dataAvailable()).isTrue();
+        assertThat(partial.fetchFailed()).isFalse();
+    }
+
+    @Test
+    @DisplayName("isKisError — null/rt_cd≠0 은 수집 실패(정상 빈결과와 구분)")
+    void isKisError_classification() throws Exception {
+        assertThat(IntradayChartService.isKisError(null)).isTrue();
+        assertThat(IntradayChartService.isKisError(kisResponse("1"))).isTrue();
+        assertThat(IntradayChartService.isKisError(kisResponse("0"))).isFalse();   // 빈 output2 라도 정상 응답
+    }
+
+    @Test
+    @DisplayName("parseMinuteBars — 고가 결측 폴백이 low>high 봉을 만들면 건너뜀(OHLC 불변식 방어, §4c)")
+    void parseMinuteBars_skipInvertedFallbackBar() throws Exception {
+        // 고가 결측 → high=close 폴백인데 실제 저가(70500)가 종가(70100)보다 큰 이상행 → 봉 자체를 skip
+        JsonNode resp = MAPPER.readTree(
+                "{\"rt_cd\":\"0\",\"output2\":[" +
+                "{\"stck_cntg_hour\":\"093000\",\"stck_prpr\":\"70100\",\"stck_lwpr\":\"70500\",\"cntg_vol\":\"1\"}," +
+                "{\"stck_cntg_hour\":\"092900\",\"stck_prpr\":\"70000\",\"cntg_vol\":\"1\"}]}");
+        List<MinuteBar> bars = IntradayChartService.parseMinuteBars(resp);
+        assertThat(bars).hasSize(1);   // 정상 폴백 봉만 생존
+        assertThat(bars.get(0).time()).isEqualTo(LocalTime.of(9, 29));
     }
 }

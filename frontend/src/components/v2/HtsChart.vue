@@ -51,6 +51,8 @@ let volumeSeries = null;
 let markerPrimitive = null;
 let overlaySeries = [];     // MA/BB/채널 라인 시리즈 — 재그리기 시 remove 대상
 let srPriceLines = [];      // S/R 수평선 — 재그리기 시 remove 대상
+let lastCandleData = [];    // 마지막 setData 캔들 — 오버레이만 재그릴 때 재사용
+let prevCloseByTime = new Map();   // time → 직전 봉 종가 — 범례 등락률(전봉 종가 대비, HTS 관례)
 
 const MA_META = {
   ma5: { color: '#f59e0b', width: 2 },
@@ -115,9 +117,13 @@ function redrawAll() {
   candleSeries.setData(candles);
   volumeSeries.setData(volumes);
 
+  lastCandleData = candles;
+  prevCloseByTime = new Map();
+  for (let i = 1; i < candles.length; i++) prevCloseByTime.set(candles[i].time, candles[i - 1].close);
+
   drawOverlays(candles);
 
-  // 전환(기간/종목) 시 전체 뷰 맞춤 — 자동갱신(같은 데이터셋)에선 fitContent 가 뷰를 리셋하지 않게 length 비교
+  // 전환(기간/종목) 시 전체 뷰 맞춤 — 오버레이 토글은 별도 watch 로 drawOverlays 만 호출해 사용자 줌/팬 보존
   chart.timeScale().fitContent();
 }
 
@@ -201,7 +207,10 @@ function onCrosshair(param) {
   const c = param.seriesData.get(candleSeries);
   const vNode = param.seriesData.get(volumeSeries);
   const up = c.close >= c.open;
-  const changePct = c.open > 0 ? (((c.close - c.open) / c.open) * 100).toFixed(2) : null;
+  // 등락률 = 직전 봉 종가 대비(HTS 관례) — 첫 봉은 기준 없음 → 미표시
+  const prevClose = prevCloseByTime.get(param.time);
+  const pct = prevClose > 0 ? ((c.close - prevClose) / prevClose) * 100 : null;
+  const changePct = pct == null ? null : (pct > 0 ? '+' : '') + pct.toFixed(2);
   legend.value = {
     time: formatTime(param.time),
     open: Math.round(c.open).toLocaleString(),
@@ -228,10 +237,17 @@ onUnmounted(() => {
 watch(() => props.isIntraday, (v) => {
   if (chart) chart.applyOptions({ timeScale: { timeVisible: v } });
 });
+// 데이터(캔들/거래량) 변경 = 기간/종목 전환 → 전체 재그리기 + fitContent.
 watch(
-  () => [props.displayCandles, props.displayVolumes, props.maSeries, props.bollinger,
-         props.srLevels, props.channel, props.channelColor, props.markersInput],
+  () => [props.displayCandles, props.displayVolumes],
   () => { if (chart) redrawAll(); },
+  { deep: true }
+);
+// 오버레이(MA/BB/S/R/채널/마커) 토글 → 오버레이만 재그리기 — fitContent 미호출로 사용자 줌/팬 보존.
+watch(
+  () => [props.maSeries, props.bollinger, props.srLevels, props.channel,
+         props.channelColor, props.markersInput],
+  () => { if (chart && candleSeries) drawOverlays(lastCandleData); },
   { deep: true }
 );
 </script>
