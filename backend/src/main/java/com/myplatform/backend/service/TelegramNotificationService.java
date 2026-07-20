@@ -157,7 +157,7 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 알림봇
             """,
-            stockName, stockCode, formatPrice(price), reason,
+            escapeHtml(stockName), stockCode, formatPrice(price), escapeHtml(reason),
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
@@ -192,7 +192,7 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 숏스퀴즈 알림
             """,
-            stockName, stockCode, formatPrice(price), squeezeScore,
+            escapeHtml(stockName), stockCode, formatPrice(price), squeezeScore,
             loanStatus, foreignStatus,
             LocalDateTime.now().format(TIME_FORMATTER)
         );
@@ -224,7 +224,7 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 퀀트 알림
             """,
-            rank, stockName, stockCode, formatPrice(price),
+            rank, escapeHtml(stockName), stockCode, formatPrice(price),
             per, roe, operatingMargin,
             LocalDateTime.now().format(TIME_FORMATTER)
         );
@@ -258,7 +258,7 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 실적 알림
             """,
-            typeEmoji, stockName, stockCode, formatPrice(price),
+            typeEmoji, escapeHtml(stockName), stockCode, formatPrice(price),
             typeText,
             LocalDateTime.now().format(TIME_FORMATTER)
         );
@@ -293,7 +293,7 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 시장 알림
             """,
-            conditionEmoji, adr, diagnosis,
+            conditionEmoji, adr, escapeHtml(diagnosis),
             LocalDateTime.now().format(TIME_FORMATTER)
         );
 
@@ -307,7 +307,7 @@ public class TelegramNotificationService {
         if (!isEnabled()) return;
 
         String conditionList = matchedConditions.stream()
-                .map(c -> "  • " + c)
+                .map(c -> "  • " + escapeHtml(c))
                 .collect(Collectors.joining("\n"));
 
         String message = String.format(
@@ -324,7 +324,7 @@ public class TelegramNotificationService {
             ━━━━━━━━━━━━━━━━
             🤖 MyPlatform 복합 알림
             """,
-            stockName, stockCode, formatPrice(price),
+            escapeHtml(stockName), stockCode, formatPrice(price),
             matchedConditions.size(), conditionList,
             LocalDateTime.now().format(TIME_FORMATTER)
         );
@@ -366,6 +366,25 @@ public class TelegramNotificationService {
     // ==================== 내부 메서드 ====================
 
     /**
+     * HTML 특수문자 이스케이프 — parse_mode=HTML 메시지에 외부 텍스트(종목명 "S&T모티브", 사유,
+     * 진단 등)를 그대로 넣으면 Telegram 이 400(can't parse entities)을 반환해 알림이 유실된다.
+     * 순수 함수(테스트 대상).
+     */
+    static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    /**
+     * HTML 태그 제거 + 엔티티 복원 — 400 폴백 시 평문(parse_mode 없음) 재발송용. 순수 함수.
+     */
+    static String stripHtml(String s) {
+        if (s == null) return "";
+        return s.replaceAll("<[^>]+>", "")
+                .replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
+    }
+
+    /**
      * Telegram 429 응답의 retry_after 추출.
      * 응답 body 예: {"ok":false,"error_code":429,"description":"...","parameters":{"retry_after":33}}
      */
@@ -396,6 +415,17 @@ public class TelegramNotificationService {
                     log.info("텔레그램 {} 채널 발송 성공 (재시도 {}/3)", channelName, attempt);
                 } else {
                     log.info("텔레그램 {} 채널 발송 완료", channelName);
+                }
+                return;
+            } catch (org.springframework.web.client.HttpClientErrorException.BadRequest e) {
+                // HTML 파싱 실패(미이스케이프 <,>,& — 외부 호출자가 만든 메시지 포함) — 재시도해도
+                // 같은 400 이므로, 알림 유실 대신 태그 제거 평문으로 1회 폴백 발송하고 종료.
+                log.warn("텔레그램 {} 채널 400 — HTML 파싱 실패 가능, 평문 폴백 발송: {}",
+                        channelName, e.getMessage());
+                try {
+                    doSendMessage(token, targetChatId, stripHtml(message), null);
+                } catch (Exception e2) {
+                    log.error("텔레그램 {} 평문 폴백도 실패: {}", channelName, e2.getMessage());
                 }
                 return;
             } catch (org.springframework.web.client.HttpClientErrorException.TooManyRequests e) {
@@ -445,7 +475,7 @@ public class TelegramNotificationService {
         Map<String, Object> body = new HashMap<>();
         body.put("chat_id", targetChatId);
         body.put("text", text);
-        body.put("parse_mode", parseMode);
+        if (parseMode != null) body.put("parse_mode", parseMode);   // null = 평문(폴백 발송용)
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 

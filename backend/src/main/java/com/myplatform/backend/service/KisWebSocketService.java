@@ -189,12 +189,17 @@ public class KisWebSocketService {
     private boolean subscribe(String stockCode, String trId) {
         Set<String> trIds = activeSubscriptions.computeIfAbsent(stockCode,
                 k -> ConcurrentHashMap.newKeySet());
-        if (activeSubscriptions.size() > MAX_SUBSCRIPTIONS) {
+        if (trIds.contains(trId)) {
+            return true;   // 이미 구독 중 — 한도 검사 불필요
+        }
+        // KIS 한도(41)는 종목 수가 아니라 '등록 프레임 수(종목×TR_ID)' 기준 — 체결+호가 양채널
+        // 구독이면 종목당 2건이라, 종목 수만 세면 ~21종목 양채널에서 실제 42건으로 초과된다.
+        if (totalFrameCount() >= MAX_SUBSCRIPTIONS) {
             if (trIds.isEmpty()) {
                 activeSubscriptions.remove(stockCode);
-                log.warn("[KIS-WS] 구독 한도({}) 도달 — {} 거절", MAX_SUBSCRIPTIONS, stockCode);
-                return false;
             }
+            log.warn("[KIS-WS] 구독 한도({}프레임) 도달 — {} tr={} 거절", MAX_SUBSCRIPTIONS, stockCode, trId);
+            return false;
         }
         if (!trIds.add(trId)) {
             return true;
@@ -204,6 +209,13 @@ public class KisWebSocketService {
             sendSubscribeFrame(ws, trId, stockCode, true);
         }
         return true;
+    }
+
+    /** 현재 KIS 에 등록된(될) 프레임 수 = Σ(종목별 trId 수). 한도 판정 기준. */
+    private int totalFrameCount() {
+        int n = 0;
+        for (Set<String> s : activeSubscriptions.values()) n += s.size();
+        return n;
     }
 
     private void sendSubscribeFrame(WebSocket ws, String trId, String stockCode, boolean subscribe) {
@@ -343,8 +355,11 @@ public class KisWebSocketService {
         return node.get("approval_key").asText();
     }
 
-    private void scheduleReconnect() {
+    private synchronized void scheduleReconnect() {
         if (shutdownRequested.get()) return;
+        // onClose/onError·connect 실패 등 복수 경로에서 호출될 수 있다 — 이미 재연결이 예약돼
+        // 있으면 스킵(중복 예약 시 attempt 만 부풀고 이전 task 참조가 덮여 취소 불가).
+        if (reconnectTask != null && !reconnectTask.isDone()) return;
         int attempt = reconnectAttempts.incrementAndGet();
         if (attempt > maxReconnectAttempts) {
             log.error("[KIS-WS] 재연결 최대 시도 초과 — 중단");
@@ -448,6 +463,7 @@ public class KisWebSocketService {
     private class Listener implements WebSocket.Listener {
         @Override
         public void onOpen(WebSocket webSocket) {
+            receiveBuffer.setLength(0);   // 이전 연결의 미완성 fragment 잔존 시 첫 메시지 파싱 오염 방지
             webSocket.request(1);
         }
 
