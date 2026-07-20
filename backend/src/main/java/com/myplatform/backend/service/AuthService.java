@@ -53,13 +53,15 @@ public class AuthService {
             return new LoginResponse(false, "계정이 잠겼습니다. 관리자에게 문의하세요.");
         }
 
-        // 승인되지 않은 사용자 체크
+        // 승인되지 않은 사용자 체크 — APPROVED 화이트리스트. PENDING/REJECTED 외의 상태
+        // (관리자 임의 정지 문자열, null 레거시 등)도 전부 거부해야 접근제어가 fail-closed.
         if (!"APPROVED".equals(user.getStatus())) {
             if ("PENDING".equals(user.getStatus())) {
                 return new LoginResponse(false, "관리자 승인 대기 중입니다.");
             } else if ("REJECTED".equals(user.getStatus())) {
                 return new LoginResponse(false, "가입이 거부되었습니다. 관리자에게 문의하세요.");
             }
+            return new LoginResponse(false, "로그인할 수 없는 계정 상태입니다. 관리자에게 문의하세요.");
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
@@ -108,16 +110,20 @@ public class AuthService {
         }
 
         String username = jwtTokenProvider.getUsernameFromToken(refreshToken);
-        String storedRt = redisTokenService.map(s -> s.getRefreshToken(username)).orElse(null);
 
-        // Redis 가 비어있을 수 있는 환경(개발/Redis 다운) — RT 자체 검증만 통과하면 허용.
-        // Redis 가 살아있고 저장된 값과 다르면 → 옛 RT 재사용·탈취 의심 → 모든 토큰 무효화.
-        if (storedRt != null && !storedRt.equals(refreshToken)) {
-            redisTokenService.ifPresent(service -> {
-                service.deleteToken(username);
-                service.deleteRefreshToken(username);
-            });
-            return new LoginResponse(false, "refresh token 이 갱신되었습니다. 다시 로그인 해주세요.");
+        // Redis 서비스가 있으면 저장된 RT 와 일치해야만 갱신 — storedRt=null(로그아웃 삭제·만료·Redis 블립)도
+        // 거부해야 logout() 의 revocation 이 실제로 동작한다(이전 "null=허용"은 로그아웃 후 옛 RT 재인증 구멍).
+        // Redis 장애 중엔 refresh 가 막혀 재로그인이 필요해지는 트레이드오프 — 보안 우선(개인 플랫폼, 드문 케이스).
+        // Redis 서비스 빈 자체가 없는 환경(개발)만 RT 자체 검증으로 통과.
+        if (redisTokenService.isPresent()) {
+            String storedRt = redisTokenService.get().getRefreshToken(username);
+            if (!refreshToken.equals(storedRt)) {
+                redisTokenService.ifPresent(service -> {
+                    service.deleteToken(username);
+                    service.deleteRefreshToken(username);
+                });
+                return new LoginResponse(false, "refresh token 이 갱신되었습니다. 다시 로그인 해주세요.");
+            }
         }
 
         User user = userRepository.findByUsername(username).orElse(null);

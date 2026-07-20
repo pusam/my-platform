@@ -181,6 +181,103 @@ class AuthServiceTest {
             assertThat(response.isSuccess()).isFalse();
             assertThat(response.getMessage()).contains("거부");
         }
+
+        @Test
+        @DisplayName("미정의 상태(SUSPENDED 등) 계정 → 로그인 거부 — APPROVED 화이트리스트(fall-through 금지)")
+        void unknownStatus_rejected() {
+            // PENDING/REJECTED 블랙리스트만 있으면 그 외 상태(관리자 임의 정지 등)가 통과해버린다
+            User user = buildUser("suspended", "pass", "SUSPENDED", 0);
+            when(userRepository.findByUsername("suspended")).thenReturn(Optional.of(user));
+
+            LoginResponse response = authService.login(new LoginRequest("suspended", "pass"));
+
+            assertThat(response.isSuccess()).isFalse();
+        }
+
+        @Test
+        @DisplayName("status=null 레거시 계정 → 로그인 거부 (APPROVED 아님)")
+        void nullStatus_rejected() {
+            User user = buildUser("legacy", "pass", null, 0);
+            when(userRepository.findByUsername("legacy")).thenReturn(Optional.of(user));
+
+            LoginResponse response = authService.login(new LoginRequest("legacy", "pass"));
+
+            assertThat(response.isSuccess()).isFalse();
+        }
+    }
+
+    // ========== 토큰 갱신 (refresh) ==========
+
+    @Nested
+    @DisplayName("refresh 시나리오 — RT revocation")
+    class RefreshTests {
+
+        @Mock private com.myplatform.jwtredis.service.RedisTokenService redisTokenService;
+
+        private AuthService serviceWithRedis() {
+            return new AuthService(userRepository, passwordEncoder, jwtTokenProvider,
+                    redisTokenService, emailVerificationService);
+        }
+
+        private void stubValidRt(String rt, String username) {
+            when(jwtTokenProvider.validateRefreshToken(rt)).thenReturn(true);
+            when(jwtTokenProvider.getUsernameFromToken(rt)).thenReturn(username);
+        }
+
+        @Test
+        @DisplayName("로그아웃으로 저장 RT 삭제됨(storedRt=null) → 옛 RT 거부 (revocation 유지)")
+        void deletedStoredRt_rejected() {
+            stubValidRt("old-rt", "admin");
+            when(redisTokenService.getRefreshToken("admin")).thenReturn(null);   // 로그아웃 후 상태
+
+            LoginResponse response = serviceWithRedis().refresh("old-rt");
+
+            assertThat(response.isSuccess()).isFalse();
+        }
+
+        @Test
+        @DisplayName("저장 RT 와 불일치(회전 후 옛 RT 재사용) → 거부 + 토큰 전부 무효화")
+        void mismatchedRt_rejectedAndInvalidated() {
+            stubValidRt("old-rt", "admin");
+            when(redisTokenService.getRefreshToken("admin")).thenReturn("new-rt");
+
+            LoginResponse response = serviceWithRedis().refresh("old-rt");
+
+            assertThat(response.isSuccess()).isFalse();
+            verify(redisTokenService).deleteToken("admin");
+            verify(redisTokenService).deleteRefreshToken("admin");
+        }
+
+        @Test
+        @DisplayName("저장 RT 와 일치 → 새 AT/RT 발급 (rotation)")
+        void matchedRt_rotates() {
+            User user = buildUser("admin", "pw", "APPROVED", 0);
+            stubValidRt("current-rt", "admin");
+            when(redisTokenService.getRefreshToken("admin")).thenReturn("current-rt");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("new-at");
+            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("new-rt");
+
+            LoginResponse response = serviceWithRedis().refresh("current-rt");
+
+            assertThat(response.isSuccess()).isTrue();
+            assertThat(response.getToken()).isEqualTo("new-at");
+        }
+
+        @Test
+        @DisplayName("Redis 서비스 자체가 없는 환경(개발) → RT 자체 검증만으로 허용 (기존 동작 보존)")
+        void noRedisService_allowed() {
+            User user = buildUser("admin", "pw", "APPROVED", 0);
+            when(jwtTokenProvider.validateRefreshToken("rt")).thenReturn(true);
+            when(jwtTokenProvider.getUsernameFromToken("rt")).thenReturn("admin");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("new-at");
+            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("new-rt");
+
+            LoginResponse response = authService.refresh("rt");   // setUp 의 redis=null 인스턴스
+
+            assertThat(response.isSuccess()).isTrue();
+        }
     }
 
     // ========== 회원가입 ==========
