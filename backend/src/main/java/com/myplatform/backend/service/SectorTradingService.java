@@ -187,27 +187,34 @@ public class SectorTradingService {
             return;
         }
 
-        // 진행 중이면 스킵 — 이전 사이클이 끝난 뒤 다음 cron 사이클부터 재개.
-        if (!snapshotInProgress.compareAndSet(false, true)) {
-            log.warn("[섹터거래대금] 이전 수집이 아직 진행 중 — 이번 사이클 스킵 (KIS 호출 부하·connection leak 방지)");
-            return;
-        }
-
+        // 진행 중 스킵은 collectSnapshot 내부 CAS 가드가 담당 — 온디맨드 경로(캐시 미스/forceRefresh/
+        // initializeCache)도 같은 가드를 타야 KIS 배치(사이클당 100~140초) 중복 기동을 막는다.
         CompletableFuture.runAsync(() -> {
             try {
                 collectSnapshot();
             } catch (Exception e) {
                 log.error("[섹터거래대금] 스냅샷 수집 실패: {}", e.getMessage(), e);
-            } finally {
-                snapshotInProgress.set(false);
             }
         }, sectorTradingExecutor);
     }
 
     /**
-     * 스냅샷 수집 실행
+     * 스냅샷 수집 실행 — 전 호출 경로(크론·캐시 미스·forceRefresh·initializeCache) 공통의
+     * 중복 실행 가드(CAS). 이전엔 크론만 가드를 세워 온디맨드 경로가 동시 기동 가능했다.
      */
     private void collectSnapshot() {
+        if (!snapshotInProgress.compareAndSet(false, true)) {
+            log.warn("[섹터거래대금] 수집이 이미 진행 중 — 중복 실행 스킵 (KIS 호출 부하·connection leak 방지)");
+            return;
+        }
+        try {
+            collectSnapshotInternal();
+        } finally {
+            snapshotInProgress.set(false);
+        }
+    }
+
+    private void collectSnapshotInternal() {
         long startTime = System.currentTimeMillis();
         LocalDateTime snapshotTime = DateTimeUtil.kstNow();
 

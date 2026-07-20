@@ -1214,11 +1214,14 @@ public class StockPriceService {
         dto.setStockCode(entity.getStockCode());
         dto.setStockName(entity.getStockName());
         dto.setCurrentPrice(entity.getCurrentPrice());
+        dto.setChangePrice(entity.getChangePrice());   // 누락 시 DB 경유 시세의 전일대비 폴백(SectorTrading 등) 무력화
         dto.setOpenPrice(entity.getOpenPrice());
         dto.setHighPrice(entity.getHighPrice());
         dto.setLowPrice(entity.getLowPrice());
         dto.setChangeRate(entity.getChangeRate());
         dto.setVolume(entity.getVolume());
+        dto.setMarketCap(entity.getMarketCap());
+        dto.setBaseDate(entity.getBaseDate());
         dto.setFetchedAt(entity.getFetchedAt());
         return dto;
     }
@@ -1231,14 +1234,19 @@ public class StockPriceService {
         entity.setStockCode(dto.getStockCode());
         entity.setStockName(dto.getStockName());
         entity.setCurrentPrice(dto.getCurrentPrice());
+        entity.setChangePrice(dto.getChangePrice());
         entity.setOpenPrice(dto.getOpenPrice());
         entity.setHighPrice(dto.getHighPrice());
         entity.setLowPrice(dto.getLowPrice());
         entity.setChangeRate(dto.getChangeRate());
         entity.setVolume(dto.getVolume());
+        entity.setMarketCap(dto.getMarketCap());
+        entity.setBaseDate(dto.getBaseDate());
         entity.setFetchedAt(dto.getFetchedAt());
         return entity;
     }
+    // 참고: DTO 의 accumulatedTradingValue/dataSource/per/pbr/bps 는 엔티티 컬럼이 없어 DB 왕복에서 소실 —
+    // 컬럼 추가는 스키마 변경이라 별도 작업(현재 소비자는 폴백으로 동작).
 
     /**
      * 현재 사용 중인 API 소스 확인

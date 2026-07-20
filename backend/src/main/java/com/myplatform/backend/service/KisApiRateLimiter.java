@@ -45,7 +45,9 @@ public class KisApiRateLimiter {
     }
 
     private final AtomicLong lastRequestTime = new AtomicLong(0);
-    private final Semaphore apiSemaphore = new Semaphore(1); // 단일 스레드 API 접근
+    // fair=true — 비공정이면 배치(NORMAL/LOW) 대기열이 찬 상태에서 봇 주문(CRITICAL)이
+    // barging 에 계속 밀려 타임아웃(=주문 무성립)될 수 있다. FIFO 로 최소한 기아는 차단.
+    private final Semaphore apiSemaphore = new Semaphore(1, true); // 단일 스레드 API 접근
     private final AtomicInteger pendingRequests = new AtomicInteger(0);
     private final AtomicInteger totalRequests = new AtomicInteger(0);
     private final AtomicInteger throttledRequests = new AtomicInteger(0);
