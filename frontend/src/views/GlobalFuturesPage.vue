@@ -379,12 +379,12 @@ defineProps({
 });
 
 const router = useRouter();
-// stock-dashboard 4탭 중 글로벌 외 클릭 시 라우팅
-const TAB_TO_QUERY = { premarket: undefined, live: 'trading', research: 'analysis' };
+// stock-dashboard GNB 클릭 시 라우팅 — DashboardHeader 는 today/market/discover/trade 를 emit 하고
+// stock-dashboard 의 resolveInitialTab/mapLegacyTab 이 그대로 소비한다.
+// (구 TAB_TO_QUERY{premarket/live/research} 매핑은 구 탭 키라 전부 undefined → 항상 '오늘' 폴백이었음)
 const onGnbTabChange = (tab) => {
   if (tab === 'global') return;
-  const query = TAB_TO_QUERY[tab];
-  router.push(query ? `/stock-dashboard?tab=${query}` : '/stock-dashboard');
+  router.push(tab ? `/stock-dashboard?tab=${tab}` : '/stock-dashboard');
 };
 
 const mainTab = ref('futures');

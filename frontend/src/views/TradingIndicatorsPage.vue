@@ -64,24 +64,8 @@
             <div v-else class="no-data">데이터 없음</div>
           </div>
 
-          <!-- 필라델피아 반도체 -->
-          <div class="market-card" :class="getSignalClass(philadelphiaSemi?.signal)">
-            <div class="market-header">
-              <h3>필라델피아 반도체</h3>
-              <span class="symbol">SOX</span>
-            </div>
-            <div v-if="philadelphiaSemi" class="market-content">
-              <div class="price">{{ formatNumber(philadelphiaSemi.price) }}</div>
-              <div class="change" :class="philadelphiaSemi.changeRate >= 0 ? 'positive' : 'negative'">
-                {{ philadelphiaSemi.changeRate >= 0 ? '+' : '' }}{{ philadelphiaSemi.changeRate?.toFixed(2) }}%
-              </div>
-              <div class="signal-badge" :class="getSignalClass(philadelphiaSemi.signal)">
-                {{ getSignalText(philadelphiaSemi.signal) }}
-              </div>
-              <p class="interpretation">{{ philadelphiaSemi.interpretation }}</p>
-            </div>
-            <div v-else class="no-data">데이터 없음</div>
-          </div>
+          <!-- 필라델피아 반도체(SOX) 카드 제거(2026-07-20): 공급 API 가 백엔드에 존재하지 않아
+               항상 "데이터 없음"만 표시되던 죽은 카드였음(§4c). SOX 소스 확보 시 카드 복원. -->
 
           <!-- 글로벌 악재 필터 -->
           <div class="market-card halt-check" :class="haltCheck?.shouldHaltBuying ? 'danger' : 'safe'">
@@ -203,6 +187,7 @@
                 <span class="legend-item vwap-legend">● VWAP</span>
               </div>
             </div>
+            <div class="chart-label" style="opacity:0.6; font-size:11px;">ⓘ 개념 예시 그림 — 조회 종목의 실데이터 차트가 아닙니다 (실측 수치는 아래 현재가/VWAP/괴리율)</div>
             <div class="mini-chart vwap-chart">
               <svg viewBox="0 0 400 120" class="chart-svg">
                 <!-- 배경 그리드 -->
@@ -298,8 +283,9 @@
             </div>
           </div>
 
-          <!-- RSI 다이버전스 차트 시각화 -->
-          <div class="divergence-chart-container">
+          <!-- RSI 다이버전스 개념 예시(고정 그림 — 실데이터 차트 아님). 신호 없으면 미표시(§4c) -->
+          <div v-if="divergenceResult.signal !== 'NONE'" class="divergence-chart-container">
+            <div class="chart-label" style="opacity:0.6; font-size:11px;">ⓘ 아래 그림은 다이버전스 개념 예시입니다 (조회 종목의 실데이터 차트 아님)</div>
             <!-- 주가 차트 -->
             <div class="chart-section">
               <div class="chart-label">주가 추이 <span class="trend-arrow up">↗️ 고점 상승</span></div>
@@ -340,12 +326,14 @@
             </div>
           </div>
 
-          <!-- 다이버전스 진단 뱃지 -->
-          <div class="divergence-diagnosis-badge" :class="getDivergenceClass(divergenceResult.signal)">
+          <!-- 다이버전스 진단 뱃지 — 신호 있을 때만(NONE 인데 "포착!" 렌더되던 버그).
+               확률 수치는 데이터 근거 없는 하드코딩이었어서 제거(§4c — 가짜 확률 위장 금지) -->
+          <div v-if="divergenceResult.signal === 'BEARISH' || divergenceResult.signal === 'BULLISH'"
+               class="divergence-diagnosis-badge" :class="getDivergenceClass(divergenceResult.signal)">
             <span class="badge-icon">⚠️</span>
             <div class="badge-content">
               <strong>{{ divergenceResult.signal === 'BEARISH' ? '하락 다이버전스 포착!' : '상승 다이버전스 포착!' }}</strong>
-              <span class="probability">단기 {{ divergenceResult.signal === 'BEARISH' ? '조정' : '반등' }} 확률 <strong>80%</strong></span>
+              <span class="probability">단기 {{ divergenceResult.signal === 'BEARISH' ? '조정' : '반등' }} 가능성 관찰 신호</span>
             </div>
           </div>
 
@@ -427,7 +415,6 @@ export default {
       },
       nasdaqFutures: null,
       sp500Futures: null,
-      philadelphiaSemi: null,
       haltCheck: null,
       leadingSectors: null,
       vwapStockCode: '',

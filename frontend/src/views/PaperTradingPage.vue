@@ -1397,6 +1397,12 @@ const executeTrade = async () => {
     toast.warning('모든 필드를 입력해주세요');
     return;
   }
+  // v-model.number 는 음수/소수를 막지 않는다 — falsy 체크(0만 걸림)로는 -5 가 통과
+  if (!Number.isInteger(tradeForm.value.quantity) || tradeForm.value.quantity < 1
+      || Number(tradeForm.value.price) <= 0) {
+    toast.warning('수량은 1 이상의 정수, 가격은 0보다 커야 합니다');
+    return;
+  }
 
   if (tradeMode.value === 'real') {
     const confirmed = confirm('실제 계좌에서 거래가 실행됩니다. 계속하시겠습니까?');
@@ -1454,6 +1460,12 @@ const openSellModal = (item, mode) => {
 const executeSell = async () => {
   if (!sellForm.value.quantity || !sellForm.value.price) {
     toast.warning('수량과 가격을 입력해주세요');
+    return;
+  }
+  // 음수/소수 수량 차단 — falsy·상한 검사만으로는 -5 같은 음수가 서버로 전송됨
+  if (!Number.isInteger(sellForm.value.quantity) || sellForm.value.quantity < 1
+      || Number(sellForm.value.price) <= 0) {
+    toast.warning('수량은 1 이상의 정수, 가격은 0보다 커야 합니다');
     return;
   }
 
@@ -1518,25 +1530,25 @@ const initializeAccount = async () => {
   }
 };
 
-// 포맷 함수들
+// 포맷 함수들 — 결측(null/undefined)은 '-' 로 정직 표시(§4c, 미로드를 0원/+0.00% 으로 위장 금지)
 const formatCurrency = (value) => {
-  if (value === null || value === undefined) return '0원';
+  if (value === null || value === undefined) return '-';
   return new Intl.NumberFormat('ko-KR').format(Math.round(value)) + '원';
 };
 
 const formatNumber = (value) => {
-  if (value === null || value === undefined) return '0';
+  if (value === null || value === undefined) return '-';
   return new Intl.NumberFormat('ko-KR').format(Math.round(value));
 };
 
 const formatProfitLoss = (value) => {
-  if (value === null || value === undefined) return '0원';
+  if (value === null || value === undefined) return '-';
   const sign = value >= 0 ? '+' : '';
   return sign + new Intl.NumberFormat('ko-KR').format(Math.round(value)) + '원';
 };
 
 const formatPercent = (value) => {
-  if (value === null || value === undefined) return '0.00%';
+  if (value === null || value === undefined) return '-';
   const sign = value >= 0 ? '+' : '';
   return sign + Number(value).toFixed(2) + '%';
 };

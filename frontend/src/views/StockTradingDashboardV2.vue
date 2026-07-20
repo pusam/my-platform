@@ -732,6 +732,8 @@ export default {
       // 오늘의 핵심 요약
       watchlistItems: [],
       watchlistRisks: {},
+      phaseNow: Date.now(),   // 시간대 국면(currentPhaseKey) 반응성용 1분 틱
+
       watchlistExpanded: false,   // 오늘 탭 관심종목 — 기본 접힘(가끔 봄, 2026-07-01 이동)
       editingWatchId: null,       // 목표가 인라인 편집 중인 관심종목 id (null=편집 안 함)
       editingTargetInput: '',     // 목표가 입력 임시값
@@ -822,6 +824,8 @@ export default {
         this.nextRefreshIn = 60
       }
     }, 1500)
+    // 시간대 국면 1분 틱 — currentPhaseKey 가 08:00/20:00 경계를 실시간 반영하게
+    this._phaseTimer = setInterval(() => { this.phaseNow = Date.now() }, 60_000)
     this._onVisibilityChange = () => {
       if (document.hidden) {
         this._stopPolling()
@@ -839,6 +843,7 @@ export default {
     this.removeKeyboardShortcut()
     this._stopPolling()
     this._stopCountdown()
+    if (this._phaseTimer) { clearInterval(this._phaseTimer); this._phaseTimer = null }
     if (this._onVisibilityChange) {
       document.removeEventListener('visibilitychange', this._onVisibilityChange)
       this._onVisibilityChange = null
@@ -863,13 +868,17 @@ export default {
       return this.activeGnbTab === 'market' || this.activeGnbTab === 'discover'
     },
     currentPhaseKey() {
-      const now = new Date()
-      const day = now.getDay()
-      const h = now.getHours()
-      const m = now.getMinutes()
-      const mins = h * 60 + m
+      // phaseNow(1분 틱)에 반응해야 한다 — new Date() 만 읽으면 반응형 의존성이 없어
+      // 마운트 시 1회 계산 후 영구 캐시돼 08:00/20:00 경계를 넘어도 배너/신호가 안 바뀐다.
+      // 시각은 KST 고정(해외/UTC 기기에서 국면 오판정 방지).
+      const d = new Date(this.phaseNow)
+      const wd = d.toLocaleDateString('en-US', { timeZone: 'Asia/Seoul', weekday: 'short' })
       // 주말 → 장 후
-      if (day === 0 || day === 6) return 'post'
+      if (wd === 'Sat' || wd === 'Sun') return 'post'
+      const [h, m] = d.toLocaleTimeString('en-GB', {
+        timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit'
+      }).split(':').map(Number)
+      const mins = h * 60 + m
       if (mins < 480) return 'pre'        // ~08:00
       if (mins < 1200) return 'during'   // 08:00~20:00 (프리+정규+애프터)
       return 'post'                       // 20:00~

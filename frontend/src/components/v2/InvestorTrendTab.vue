@@ -300,23 +300,25 @@ const invFormatTime = (timeStr) => {
   return `${parts[0]}:${parts[1]}`;
 };
 
+// 결측(null/undefined/비숫자)은 '-' — 미수집을 "순매수 0억"(균형)으로 위장하지 않는다(§4c). 실측 0 만 '0억'.
 const invFormatAmount = (value) => {
-  if (!value) return '0억';
   const num = Number(value);
+  if (value == null || Number.isNaN(num)) return '-';
   return `${num.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}억`;
 };
 
 const invFormatAmountWithSign = (value) => {
-  if (!value) return '0억';
   const num = Number(value);
+  if (value == null || Number.isNaN(num)) return '-';
   const sign = num > 0 ? '+' : '';
   return `${sign}${num.toLocaleString('ko-KR', { maximumFractionDigits: 2 })}억`;
 };
 
 const invFormatRate = (value) => {
-  if (!value) return '0.00%';
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${Number(value).toFixed(2)}%`;
+  const num = Number(value);
+  if (value == null || Number.isNaN(num)) return '-';
+  const sign = num > 0 ? '+' : '';
+  return `${sign}${num.toFixed(2)}%`;
 };
 
 const invFormatDate = (dateStr) => {
