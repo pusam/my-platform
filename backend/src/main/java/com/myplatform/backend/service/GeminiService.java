@@ -463,6 +463,9 @@ public class GeminiService {
         long totalWaited = 0L;
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             try {
+                // patient 도 전역 직렬화 게이트(4.5초 간격)를 탄다 — 우회하면 재료/AI전략 동시 호출과
+                // 버스트돼 429 유발(§4b). patient 가 건너뛰는 건 quotaResetTime/consecutiveErrors 뿐.
+                enforceRateLimit();
                 String result = callGeminiApi(prompt);
                 if (result != null) return result;
             } catch (HttpClientErrorException.TooManyRequests e) {
@@ -1098,6 +1101,8 @@ public class GeminiService {
         }
 
         enforceRateLimit();
+        // 일일 사용량 집계 — JSON 경로(AI전략 스코어링·시장예측)도 실제 Gemini 호출이므로 카운트.
+        trackDailyUsage();
 
         for (int attempt = 0; attempt < MAX_RETRIES; attempt++) {
             try {
@@ -1224,8 +1229,7 @@ public class GeminiService {
             return "AI 분석 서비스가 일시적으로 사용 불가능합니다. (Gemini Rate Limit)";
         }
 
-        // 1-1. 일일 호출 카운트 + 임계 알림 (호출 직전).
-        trackDailyUsage();
+        // (일일 호출 카운트는 실제 HTTP 지점인 callGeminiApi/callGeminiApiForJson 에서 — JSON/patient 누락 방지)
 
         // 2. Gemini API 호출 시도 (재시도 로직 포함)
         String result = callGeminiApiWithRetry(prompt);
@@ -1338,6 +1342,8 @@ public class GeminiService {
      * Gemini API 직접 호출
      */
     private String callGeminiApi(String prompt) {
+        // 일일 사용량은 실제 HTTP 시도마다 집계 — 텍스트 경로(withRetry/patient) 공통 지점.
+        trackDailyUsage();
         String url = apiUrl + "?key=" + apiKey;
 
         // Request body 구성
