@@ -55,9 +55,9 @@
             </div>
             <SectionLiveSurge v-if="currentPhaseKey === 'during'" :active="currentPhaseKey === 'during'" />
           </template>
-          <!-- 관심종목(접힘 기본) -->
+          <!-- 관심종목(접힘 기본) — 시간대 무관 상시 노출(목표가 편집은 장중에도 필요). 구 발굴 탭의 'pre' 게이트 잔재 제거 -->
           <template #watchlist>
-            <div class="watchlist-summary section-card" v-if="currentPhaseKey === 'pre' && watchlistItems.length">
+            <div class="watchlist-summary section-card" v-if="watchlistItems.length">
               <div class="section-title-row">
                 <h2><span class="section-icon">⭐</span> 관심종목 {{ watchlistItems.length }}</h2>
                 <button class="more-link" @click="watchlistExpanded = !watchlistExpanded">
