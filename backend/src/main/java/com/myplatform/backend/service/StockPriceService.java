@@ -1221,6 +1221,8 @@ public class StockPriceService {
         dto.setChangeRate(entity.getChangeRate());
         dto.setVolume(entity.getVolume());
         dto.setMarketCap(entity.getMarketCap());
+        dto.setAccumulatedTradingValue(entity.getAccumulatedTradingValue());
+        dto.setDataSource(entity.getDataSource());
         dto.setBaseDate(entity.getBaseDate());
         dto.setFetchedAt(entity.getFetchedAt());
         return dto;
@@ -1241,12 +1243,14 @@ public class StockPriceService {
         entity.setChangeRate(dto.getChangeRate());
         entity.setVolume(dto.getVolume());
         entity.setMarketCap(dto.getMarketCap());
+        entity.setAccumulatedTradingValue(dto.getAccumulatedTradingValue());
+        entity.setDataSource(dto.getDataSource());
         entity.setBaseDate(dto.getBaseDate());
         entity.setFetchedAt(dto.getFetchedAt());
         return entity;
     }
-    // 참고: DTO 의 accumulatedTradingValue/dataSource/per/pbr/bps 는 엔티티 컬럼이 없어 DB 왕복에서 소실 —
-    // 컬럼 추가는 스키마 변경이라 별도 작업(현재 소비자는 폴백으로 동작).
+    // 참고: DTO 의 per/pbr/bps 는 파생 재무지표라 시세 캐시 테이블에 저장하지 않는다(소비자 없음).
+    // accumulatedTradingValue/dataSource 는 V51 로 컬럼 추가돼 DB 왕복 보존.
 
     /**
      * 현재 사용 중인 API 소스 확인

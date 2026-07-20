@@ -42,6 +42,14 @@ public class StockPrice {
     @Column(name = "market_cap", precision = 20, scale = 0)
     private BigDecimal marketCap;
 
+    /** 누적 거래대금(원) — API 실측만, NULL=미수집(§4c). V51 */
+    @Column(name = "accumulated_trading_value", precision = 20, scale = 0)
+    private BigDecimal accumulatedTradingValue;
+
+    /** 시세 출처(KIS/NAVER 등) — DB 왕복 후 출처 추적. V51 */
+    @Column(name = "data_source", length = 20)
+    private String dataSource;
+
     @Column(name = "base_date", length = 8)
     private String baseDate;
 
@@ -140,6 +148,22 @@ public class StockPrice {
 
     public void setMarketCap(BigDecimal marketCap) {
         this.marketCap = marketCap;
+    }
+
+    public BigDecimal getAccumulatedTradingValue() {
+        return accumulatedTradingValue;
+    }
+
+    public void setAccumulatedTradingValue(BigDecimal accumulatedTradingValue) {
+        this.accumulatedTradingValue = accumulatedTradingValue;
+    }
+
+    public String getDataSource() {
+        return dataSource;
+    }
+
+    public void setDataSource(String dataSource) {
+        this.dataSource = dataSource;
     }
 
     public String getBaseDate() {
