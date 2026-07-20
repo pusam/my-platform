@@ -88,16 +88,15 @@ public class BacktestService {
         BigDecimal totalReturn = BigDecimal.ZERO;
 
         for (StrategyType type : StrategyType.values()) {
+            // allPicks 는 analyzeStrategy 내부에서 '절단 전 전체'가 채워진다 —
+            // perf.getPicks()(표시용 상위 10)를 모으면 손실 종목이 빠져 MDD/샤프가 낙관 편향.
             BacktestDto.StrategyPerformance perf = analyzeStrategy(
-                    type, allFirstRecommendations.get(type), priceMap);
+                    type, allFirstRecommendations.get(type), priceMap, allPicks);
             strategyResults.add(perf);
             totalPicks += perf.getTotalPicks();
             totalWins += perf.getWinCount();
             if (perf.getAvgReturn() != null) {
                 totalReturn = totalReturn.add(perf.getAvgReturn().multiply(BigDecimal.valueOf(perf.getTotalPicks())));
-            }
-            if (perf.getPicks() != null) {
-                allPicks.addAll(perf.getPicks());
             }
         }
 
@@ -131,10 +130,15 @@ public class BacktestService {
                 .build();
     }
 
+    /**
+     * @param allPicksSink 전체 종목(표시용 top10 절단 이전)을 담을 수집기 — 전체 MDD/샤프 입력.
+     *                     절단된 top10 으로 집계하면 손실 종목이 통째로 빠져 MDD 가 낙관 편향된다(생존편향).
+     */
     private BacktestDto.StrategyPerformance analyzeStrategy(
             StrategyType type,
             Map<String, AiStrategySnapshot> firstRecommendations,
-            Map<String, StockPriceDto> priceMap) {
+            Map<String, StockPriceDto> priceMap,
+            List<BacktestDto.PickDetail> allPicksSink) {
 
         List<BacktestDto.PickDetail> picks = new ArrayList<>();
         int winCount = 0;
@@ -217,6 +221,9 @@ public class BacktestService {
             recentAvgReturn = recentTotalReturn
                     .divide(BigDecimal.valueOf(recentPicks.size()), 2, RoundingMode.HALF_UP);
         }
+
+        // 전체 종목을 집계용으로 먼저 넘긴다(표시용 절단 전) — 전체 MDD/샤프의 입력.
+        if (allPicksSink != null) allPicksSink.addAll(picks);
 
         // 수익률 내림차순 정렬 (표시용)
         picks.sort((a, b) -> b.getReturnRate().compareTo(a.getReturnRate()));

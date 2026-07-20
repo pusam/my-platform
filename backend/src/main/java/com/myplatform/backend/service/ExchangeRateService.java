@@ -54,6 +54,12 @@ public class ExchangeRateService {
     private volatile LocalDateTime cacheTime;
     private static final long CACHE_MINUTES = 10;
 
+    // 전일 매매기준율 캐시(당일 내 불변) — 10분마다 되감기 재조회하지 않도록.
+    private volatile BigDecimal prevRateValue;
+    private volatile LocalDate prevRateDate;
+    /** 연휴 대비 되감기 상한(일). */
+    private static final int PREV_LOOKBACK_DAYS = 7;
+
     /**
      * 현재 USD/KRW 환율 정보 조회
      */
@@ -113,25 +119,20 @@ public class ExchangeRateService {
 
                 BigDecimal rate = new BigDecimal(dealBasR);
 
-                // 전일 대비 변동
-                BigDecimal change = null;
-                if (node.has("bkpr") && node.has("deal_bas_r")) {
-                    String bkpr = node.get("bkpr").asText().replace(",", "");
-                    if (!bkpr.isBlank()) {
-                        BigDecimal prevRate = new BigDecimal(bkpr);
-                        change = rate.subtract(prevRate);
-                    }
-                }
+                // 전일 대비 변동 — AP01 응답에는 '전일 환율' 필드가 없다.
+                // (과거엔 bkpr 을 전일가로 오인해 뺐는데, bkpr 은 '장부가격'(매매기준율의 정수부)이라
+                //  change 가 항상 소수부(0~0.99)=+0.0x% 로 고정 → 급등락일에도 신호 미발화였다.)
+                // 직전 영업일자로 같은 API 를 재조회해 실제 전일 매매기준율을 구한다. 못 구하면
+                // change/changeRate = null(미수집, §4c) — DTO 가 FLAT/NEUTRAL 로 정직 처리.
+                BigDecimal prevRate = resolvePreviousRate(LocalDate.now());
+                BigDecimal change = (prevRate != null) ? rate.subtract(prevRate) : null;
 
                 // 변동률 계산
                 BigDecimal changeRate = null;
-                if (change != null && rate.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal prevRate = rate.subtract(change);
-                    if (prevRate.compareTo(BigDecimal.ZERO) > 0) {
-                        changeRate = change.divide(prevRate, 4, RoundingMode.HALF_UP)
-                                .multiply(new BigDecimal("100"))
-                                .setScale(2, RoundingMode.HALF_UP);
-                    }
+                if (change != null && prevRate.compareTo(BigDecimal.ZERO) > 0) {
+                    changeRate = change.divide(prevRate, 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, RoundingMode.HALF_UP);
                 }
 
                 String trend = ExchangeRateDto.determineTrend(change);
@@ -151,6 +152,49 @@ public class ExchangeRateService {
         } catch (Exception e) {
             // RestTemplate I/O 예외 메시지는 요청 URL 전체(authkey 쿼리 포함)를 담으므로 키 마스킹 후 로깅
             log.warn("수출입은행 환율 조회 실패: {}", maskAuthKey(e.getMessage(), koreaeximApiKey));
+            return null;
+        }
+    }
+
+    /**
+     * 직전 영업일 USD 매매기준율 — 주말/공휴일은 AP01 이 빈 배열을 주므로 최대 {@link #PREV_LOOKBACK_DAYS}일
+     * 되감으며 탐색. 날짜별 결과는 하루 안에 안 바뀌므로 캐시(추가 호출 억제). 못 구하면 null(§4c).
+     */
+    private BigDecimal resolvePreviousRate(LocalDate today) {
+        LocalDate cachedFor = prevRateDate;
+        if (cachedFor != null && cachedFor.equals(today) && prevRateValue != null) {
+            return prevRateValue;
+        }
+        for (int back = 1; back <= PREV_LOOKBACK_DAYS; back++) {
+            BigDecimal r = fetchRateOn(today.minusDays(back));
+            if (r != null) {
+                prevRateValue = r;
+                prevRateDate = today;
+                return r;
+            }
+        }
+        log.warn("[환율] 직전 영업일({}일 내) 매매기준율 조회 실패 — 변동 미수집으로 처리", PREV_LOOKBACK_DAYS);
+        return null;
+    }
+
+    /** 특정 일자의 USD 매매기준율 조회. 휴장/미개시일이면 null(빈 배열). 실패도 null. */
+    private BigDecimal fetchRateOn(LocalDate date) {
+        try {
+            String url = String.format("%s?authkey=%s&searchdate=%s&data=AP01",
+                    koreaeximApiUrl, koreaeximApiKey, date.format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+            String response = restTemplate.getForObject(url, String.class);
+            if (response == null || response.isBlank()) return null;
+            JsonNode root = objectMapper.readTree(response);
+            if (!root.isArray()) return null;
+            for (JsonNode node : root) {
+                if (!"USD".equals(node.path("cur_unit").asText(""))) continue;
+                String v = node.path("deal_bas_r").asText("").replace(",", "");
+                if (v.isBlank()) return null;
+                return new BigDecimal(v);
+            }
+            return null;
+        } catch (Exception e) {
+            log.debug("[환율] {} 매매기준율 조회 실패: {}", date, maskAuthKey(e.getMessage(), koreaeximApiKey));
             return null;
         }
     }
