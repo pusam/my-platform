@@ -210,9 +210,10 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      // redirect 레코드의 meta 는 가드에서 평가되지 않는다(최종 목적지 meta 만 적용) —
+      // 죽은 adminOnly 를 남겨두면 "가드가 있다"고 오인하므로 제거. 실권한은 백엔드가 게이트.
       path: '/paper-trading',
-      redirect: '/stock-dashboard?tab=trade',
-      meta: { requiresAuth: true, adminOnly: true }
+      redirect: '/stock-dashboard?tab=trade'
     },
     {
       path: '/oil',

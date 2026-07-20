@@ -653,10 +653,10 @@ watch([chartPeriod, stockCode], () => {
 const effectiveChartData = computed(() => (isIntraday.value ? intradayData.value : chartData.value));
 const chartDisplayCount = computed(() => (isIntraday.value ? 999 : chartPeriod.value));
 
+// HtsChart(lightweight-charts) 마이그레이션(07-15) 후 이 화면은 데이터 계층만 소비 —
+// 구 DIV/SVG 렌더 헬퍼(getCandleStyle 등)·±2% 필터 계열(chartSrLines/chartPatternMarkers)은 미사용이라 구조분해 제외.
 const {
-  displayCandles, displayVolumes, chartPriceRange, maxVolume,
-  chartSrLines, chartPatternMarkers, chartChannel, chartBreakout, maLinePath,
-  getCandleStyle, getWickStyle, getBodyStyle, getVolumeHeight
+  displayCandles, displayVolumes, chartChannel, chartBreakout
 } = useChartCalculations(effectiveChartData, supportResistance, chartPatterns, chartDisplayCount);
 
 // 추세 채널 표시 상태 + 해설 — 방향색은 매매 신호색 한국 관례(상승=적/하락=청/횡보=회) 동기.
