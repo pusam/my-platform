@@ -45,11 +45,19 @@ const props = defineProps({
 });
 
 // ===== Volume Profile helpers (StockDetailDashboard 에서 이동, 로직 동일) =====
+// bin 하나라도 volumePct 가 결측이면 Math.max → NaN → 전 막대 width:NaN% → 프로파일이 통째로
+// 사라진다. 유한값만 사용하고, 개별 bin 결측은 0폭으로 축소(카드 전체 붕괴 방지).
 const vpMaxPct = computed(() => {
   if (!props.volumeProfile?.bins) return 1;
-  return Math.max(...props.volumeProfile.bins.map(b => b.volumePct), 1);
+  const pcts = props.volumeProfile.bins
+    .map(b => Number(b.volumePct))
+    .filter(Number.isFinite);
+  return Math.max(...pcts, 1);
 });
-const vpBarWidth = (bin) => (bin.volumePct / vpMaxPct.value) * 100;
+const vpBarWidth = (bin) => {
+  const v = Number(bin.volumePct);
+  return Number.isFinite(v) ? (v / vpMaxPct.value) * 100 : 0;
+};
 const isVpPoc = (bin) => {
   if (!props.volumeProfile) return false;
   const poc = Number(props.volumeProfile.poc);

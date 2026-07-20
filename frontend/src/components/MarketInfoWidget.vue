@@ -124,7 +124,11 @@ const fetchData = async () => {
       exchangeData.value = exchangeRes.data;
     }
 
-    lastUpdated.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    // 갱신 시각은 '실제로 새 데이터를 받았을 때만' 갱신 — 조회 실패(catch 로 삼켜짐) 시에도
+    // 무조건 찍으면 30분 전 stale 지수/환율이 "방금 갱신"으로 보인다(§4c).
+    if (marketRes.data?.success || exchangeRes.data) {
+      lastUpdated.value = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    }
   } catch (error) {
     console.error('시장 정보 조회 실패:', error);
   } finally {

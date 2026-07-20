@@ -31,12 +31,17 @@ const props = defineProps({
 
 const history = ref(null);
 
+// 요청 시퀀스 토큰 — 종목 전환 시 늦게 온 이전 종목 응답이 현재 종목 이력을 덮어쓰는 경합 방지
+let reqSeq = 0;
+
 // heavy(2단) 계열 — quick 경로와 독립 fetch(지연 없음), 실패 시 조용히 미렌더
 const load = async (code) => {
   history.value = null;
   if (!code) return;
+  const seq = ++reqSeq;
   try {
     const { data } = await apiClient.get(`/stock/${code}/catalyst-history`);
+    if (seq !== reqSeq) return;   // 종목 전환됨 — 폐기
     if (data?.success) history.value = data.data;
   } catch (e) { /* 섹션 미렌더 */ }
 };

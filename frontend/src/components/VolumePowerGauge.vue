@@ -40,7 +40,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 
 const props = defineProps({
   // 0 또는 null = 데이터 없음 (백엔드가 미수집을 100 으로 위장하지 않음 — "데이터 없음" 상태로 표시)
@@ -58,9 +58,15 @@ const props = defineProps({
   }
 });
 
-// 현재 시간 정보
+// 현재 시간 정보 — new Date() 만 읽는 computed 는 반응형 의존성이 없어 마운트 시점 값으로
+// 영구 고정된다(탭을 열어두면 09:00 이 지나도 "거래 시작 대기" 유지). 1분 틱 ref 로 갱신.
+const nowTick = ref(Date.now());
+let tickTimer = null;
+onMounted(() => { tickTimer = setInterval(() => { nowTick.value = Date.now() }, 60_000); });
+onUnmounted(() => { if (tickTimer) { clearInterval(tickTimer); tickTimer = null; } });
+
 const currentTimeMinutes = computed(() => {
-  const now = new Date();
+  const now = new Date(nowTick.value);
   return now.getHours() * 60 + now.getMinutes();
 });
 

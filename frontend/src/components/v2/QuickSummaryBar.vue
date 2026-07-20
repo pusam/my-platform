@@ -19,7 +19,7 @@
     </div>
     <div class="qs-item">
       <span class="qs-label">외국인</span>
-      <span class="qs-value" :class="diagnosisData?.supplyDemand?.foreignNet5Days >= 0 ? 'qs-positive' : 'qs-negative'">
+      <span class="qs-value" :class="getQsForeignClass()">
         {{ getQsForeignLabel() }}
       </span>
       <span class="qs-sub">{{ getQsForeignAmount() }}</span>
@@ -27,7 +27,7 @@
     </div>
     <div class="qs-item">
       <span class="qs-label">기관</span>
-      <span class="qs-value" :class="diagnosisData?.supplyDemand?.institutionNet5Days >= 0 ? 'qs-positive' : 'qs-negative'">
+      <span class="qs-value" :class="getQsInstClass()">
         {{ getQsInstLabel() }}
       </span>
       <span class="qs-sub">{{ getQsInstAmount() }}</span>
@@ -41,7 +41,7 @@
     </div>
     <div class="qs-item">
       <span class="qs-label">AI 점수</span>
-      <span class="qs-value">{{ aiAnalysis?.overallScore || '-' }}</span>
+      <span class="qs-value">{{ aiAnalysis?.overallScore != null ? aiAnalysis.overallScore : '-' }}</span>
       <span class="qs-badge" :class="'qs-rec-' + (aiAnalysis?.recommendation || 'hold').toLowerCase()">
         {{ getRecommendationLabel(aiAnalysis?.recommendation) }}
       </span>
@@ -100,6 +100,11 @@ const getQsMaDisparity = () => {
   if (d == null) return '';
   return (d >= 0 ? '+' : '') + Number(d).toFixed(1) + '%';
 };
+// 수급 색 클래스 — null(미산출)은 무색. `null >= 0` 이 true 라 결측이 '순매수(빨강)'로 채색되던 것 방지(§4c).
+const netClass = (v) => (v == null ? '' : (v >= 0 ? 'qs-positive' : 'qs-negative'));
+const getQsForeignClass = () => netClass(props.diagnosisData?.supplyDemand?.foreignNet5Days);
+const getQsInstClass = () => netClass(props.diagnosisData?.supplyDemand?.institutionNet5Days);
+
 const getQsForeignLabel = () => {
   const v = props.diagnosisData?.supplyDemand?.foreignNet5Days;
   if (v == null) return '-';

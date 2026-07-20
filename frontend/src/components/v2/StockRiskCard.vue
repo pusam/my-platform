@@ -84,7 +84,10 @@ export default {
       quickLoading: false,
       hasDangerousQuick: null,   // null=미체크, true=위험, false=안전
       deepLoading: false,
-      detail: null               // 상세 분석 결과 RiskAnalysisDto
+      detail: null,              // 상세 분석 결과 RiskAnalysisDto
+      // 요청 시퀀스 토큰 — 종목 전환 시 늦게 도착한 이전 종목 응답이 현재 종목 결과를 덮어쓰는 것 방지
+      // (A(느림/위험) → B 전환 시 A 응답이 나중에 와서 B 화면에 "위험 공시 발견"이 뜨던 경합)
+      reqSeq: 0
     }
   },
   computed: {
@@ -149,9 +152,12 @@ export default {
   methods: {
     async runQuickCheck() {
       if (!this.stockName) return
+      const seq = ++this.reqSeq
+      const forStock = this.stockName
       this.quickLoading = true
       try {
-        const res = await riskAPI.quickCheck(this.stockName)
+        const res = await riskAPI.quickCheck(forStock)
+        if (seq !== this.reqSeq || forStock !== this.stockName) return   // 종목 전환됨 — 폐기
         const body = res?.data || res
         if (body?.success) {
           this.hasDangerousQuick = !!body.hasDangerousDisclosure
@@ -160,14 +166,17 @@ export default {
         // 실패 시 사용자에게 부담 안 주기 — 에러 무시, UI는 unknown
         console.warn('[Risk] quick check 실패', e?.message)
       } finally {
-        this.quickLoading = false
+        if (seq === this.reqSeq) this.quickLoading = false
       }
     },
     async loadDeepAnalysis() {
       if (!this.stockName) return
+      const seq = ++this.reqSeq
+      const forStock = this.stockName
       this.deepLoading = true
       try {
-        const res = await riskAPI.checkRisk(this.stockName)
+        const res = await riskAPI.checkRisk(forStock)
+        if (seq !== this.reqSeq || forStock !== this.stockName) return   // 종목 전환됨 — 폐기
         const body = res?.data || res
         if (body?.success && body?.data) {
           this.detail = body.data
@@ -175,7 +184,7 @@ export default {
       } catch (e) {
         console.error('[Risk] 상세 분석 실패', e)
       } finally {
-        this.deepLoading = false
+        if (seq === this.reqSeq) this.deepLoading = false
       }
     },
     formatAi(text) {
