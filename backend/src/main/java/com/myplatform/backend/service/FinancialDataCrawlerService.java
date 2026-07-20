@@ -375,21 +375,18 @@ public class FinancialDataCrawlerService {
     /**
      * 영업이익률이 없는 종목 수 조회
      */
+    // 아래 3개는 예전에 findAll() 로 전 테이블(종목×분기 ≈ 2만 행)을 힙에 올린 뒤 세었다 —
+    // 진행률 UI 폴링과 겹치면 1536M 컨테이너에서 GC 압박/커넥션 점유. COUNT 쿼리로 대체
+    // (fixAllStockNames 가 이미 같은 이유로 findAll 을 걷어낸 것과 동일 원칙).
     public long countMissingOperatingMargin() {
-        List<StockFinancialData> allData = stockFinancialDataRepository.findAll();
-        return allData.stream()
-                .filter(d -> d.getOperatingMargin() == null || d.getOperatingMargin().compareTo(BigDecimal.ZERO) == 0)
-                .count();
+        return stockFinancialDataRepository.countMissingOperatingMargin();
     }
 
     /**
      * 영업이익률이 있는 종목 수 조회
      */
     public long countWithOperatingMargin() {
-        List<StockFinancialData> allData = stockFinancialDataRepository.findAll();
-        return allData.stream()
-                .filter(d -> d.getOperatingMargin() != null && d.getOperatingMargin().compareTo(BigDecimal.ZERO) != 0)
-                .count();
+        return stockFinancialDataRepository.countWithOperatingMargin();
     }
 
     /**
@@ -397,11 +394,7 @@ public class FinancialDataCrawlerService {
      * - epsGrowth 또는 profitGrowth가 있는 종목
      */
     public long countWithGrowthData() {
-        List<StockFinancialData> allData = stockFinancialDataRepository.findAll();
-        return allData.stream()
-                .filter(d -> (d.getEpsGrowth() != null && d.getEpsGrowth().compareTo(BigDecimal.ZERO) > 0) ||
-                             (d.getProfitGrowth() != null && d.getProfitGrowth().compareTo(BigDecimal.ZERO) > 0))
-                .count();
+        return stockFinancialDataRepository.countWithGrowthData();
     }
 
     /**
