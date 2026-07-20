@@ -48,8 +48,8 @@
             <td>{{ s.totalPicks }}건</td>
             <td :class="rateClass(s.hitRate)">{{ s.hitRate }}%</td>
             <td :class="signClass(s.avgReturn)">{{ signed(s.avgReturn) }}%</td>
-            <td class="bt-best" :title="s.bestStock || ''">{{ s.bestReturn != null ? signed(s.bestReturn) + '%' : '—' }}</td>
-            <td class="bt-worst" :title="s.worstStock || ''">{{ s.worstReturn != null ? signed(s.worstReturn) + '%' : '—' }}</td>
+            <td class="bt-hint" :class="signClass(s.bestReturn)" :title="s.bestStock || ''">{{ s.bestReturn != null ? signed(s.bestReturn) + '%' : '—' }}</td>
+            <td class="bt-hint" :class="signClass(s.worstReturn)" :title="s.worstStock || ''">{{ s.worstReturn != null ? signed(s.worstReturn) + '%' : '—' }}</td>
             <td>-{{ s.mdd }}%</td>
           </tr>
         </tbody>
@@ -96,7 +96,8 @@ const changeDays = (d) => {
 };
 
 const signed = (v) => (v == null ? '—' : `${Number(v) > 0 ? '+' : ''}${v}`);
-const signClass = (v) => (Number(v) > 0 ? 'bt-pos' : Number(v) < 0 ? 'bt-neg' : '');
+// ±수익률은 한국 관례색(+빨강/−파랑) — 적중률 신호등(rateClass, 초록=좋음)과 극성이 다르다.
+const signClass = (v) => (Number(v) > 0 ? 'bt-up' : Number(v) < 0 ? 'bt-down' : '');
 const rateClass = (v) => {
   const r = Number(v || 0);
   if (r >= 60) return 'bt-pos';
@@ -178,10 +179,13 @@ onMounted(fetchPerformance);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 .bt-strategy { font-weight: 600; }
+/* 적중률 신호등 (good/bad) */
 .bt-pos { color: #4ade80; }
 .bt-mid { color: #eab308; }
 .bt-neg { color: #f87171; }
-.bt-best { color: #4ade80; cursor: help; }
-.bt-worst { color: #f87171; cursor: help; }
+/* ±수익률 — 앱 공통 한국 관례(상승=빨강/하락=파랑, --stock-up/--stock-down 동기) */
+.bt-up { color: #f87171; }
+.bt-down { color: #60a5fa; }
+.bt-hint { cursor: help; }
 .bt-caption { margin: 10px 0 0; font-size: 11px; opacity: 0.55; }
 </style>

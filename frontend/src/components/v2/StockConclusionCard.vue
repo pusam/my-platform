@@ -204,10 +204,11 @@ const catalystDirectionLabel = computed(() =>
 
 const formatPrice = (v) => (v == null || Number.isNaN(Number(v)) ? '-' : Number(v).toLocaleString('ko-KR'));
 
-// 가격 있으면 "67,900원 (-3%)", 없으면 "% 만" 표시.
+// 가격 있으면 "67,900원 (-3%)", 없으면 "% 만" 표시. pct 결측이면 % 블록 생략(§4c — "null%" 방지).
 const planPriceLabel = (price, pct) => {
-  const pctLabel = `${Number(pct) > 0 ? '+' : ''}${pct}%`;
-  return price != null ? `${formatPrice(price)}원 (${pctLabel})` : pctLabel;
+  const pctLabel = pct == null ? null : `${Number(pct) > 0 ? '+' : ''}${pct}%`;
+  if (price != null) return pctLabel ? `${formatPrice(price)}원 (${pctLabel})` : `${formatPrice(price)}원`;
+  return pctLabel ?? '—';
 };
 
 const signedPct = (v) => (v == null ? '—' : `${Number(v) > 0 ? '+' : ''}${v}%`);
