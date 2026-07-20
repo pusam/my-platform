@@ -73,6 +73,8 @@ public class SignalOutcomeService {
     private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
+    /** 1회 배치 평가 상한 — 종목당 KIS 2콜이 트랜잭션 안에서 돌아 백로그가 크면 커넥션 장기 점유. */
+    private static final int MAX_EVAL_PER_RUN = 300;
     /** V49 채널 스냅샷 봉 수 — 종목상세 차트 기본 표시(30봉)·보드(JudgmentBoardService.CHANNEL_BARS)와 동기. */
     static final int CHANNEL_SNAPSHOT_BARS = 30;
     /** hit 기준 — phase 20 변경: 시장 대비 alpha 양수 + 절대 수익률 양수. */
@@ -325,7 +327,9 @@ public class SignalOutcomeService {
     @Transactional
     public void evaluatePendingSignals() {
         LocalDate cutoff = resolveEvaluationCutoff(LocalDate.now());
-        List<SignalOutcome> pending = repository.findPendingEvaluation(cutoff);
+        // 상한 — KIS 장애로 백로그가 쌓여도 한 배치가 커넥션을 장시간 물지 않게(초과분은 다음 실행에서 이어서).
+        List<SignalOutcome> pending = repository.findPendingEvaluation(
+                cutoff, org.springframework.data.domain.PageRequest.of(0, MAX_EVAL_PER_RUN));
         if (pending.isEmpty()) {
             // 평가 대상 없어도 헬스 체크는 실행 — 누적 표본 기준이라 신규 평가 0건이어도 의미 있음.
             checkStrongBuyAlphaHealth();
@@ -377,9 +381,17 @@ public class SignalOutcomeService {
                 outcome.setEvaluatedAt(LocalDateTime.now());
                 repository.save(outcome);
                 evaluated++;
+            } catch (org.springframework.dao.DataAccessException e) {
+                // 저장 실패는 트랜잭션을 rollback-only 로 마킹해 커밋 시 전체 평가분이 소실된다 —
+                // debug 로 삼키면 원인 없이 "평가 완료" 로그만 남으므로 ERROR 로 노출.
+                log.error("[SignalOutcome] 저장 실패 id={} — 이번 배치 전체 롤백 가능: {}",
+                        outcome.getId(), e.getMessage(), e);
             } catch (Exception e) {
                 log.debug("[SignalOutcome] 평가 실패 id={}: {}", outcome.getId(), e.getMessage());
             }
+        }
+        if (pending.size() >= MAX_EVAL_PER_RUN) {
+            log.warn("[SignalOutcome] 평가 상한({}) 도달 — 잔여 백로그는 다음 실행에서 처리", MAX_EVAL_PER_RUN);
         }
         log.info("[SignalOutcome] 평가 완료 {}/{} (BM alpha: {})",
                 evaluated, pending.size(), kospiNow != null ? "활성" : "비활성(폴백)");

@@ -155,12 +155,14 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
     LocalDate findLatestTradeDate();
 
     /**
-     * 중복 데이터 삭제 (같은 날짜, 시장, 투자자, 거래유형, 순위의 중복 제거)
-     * 가장 최신 id만 남기고 삭제
+     * 중복 데이터 삭제 (같은 날짜, 시장, 투자자, 거래유형, 순위의 중복 제거) — <b>가장 최신 id만 보존</b>.
+     * <p>MAX 인 이유: 같은 키에 KIS 1차 수집(값 누락/0원)과 KRX 보충 수집(정상값)이 겹치면 나중 행이
+     * 보정된 값이다. 이전엔 주석은 "최신"인데 쿼리는 MIN 이라 <b>보정 전 행을 남기고 보정된 행을 지웠다</b>.
+     * (엔티티에 동일 5컬럼 UNIQUE(uk_investor_daily_trade)가 있어 정상 스키마에선 사실상 no-op 정리다.)
      */
     @Modifying
     @Query(value = "DELETE FROM investor_daily_trade WHERE id NOT IN (" +
-           "SELECT * FROM (SELECT MIN(id) FROM investor_daily_trade " +
+           "SELECT * FROM (SELECT MAX(id) FROM investor_daily_trade " +
            "GROUP BY trade_date, market_type, investor_type, trade_type, rank_num) AS subquery)",
            nativeQuery = true)
     int deleteDuplicates();

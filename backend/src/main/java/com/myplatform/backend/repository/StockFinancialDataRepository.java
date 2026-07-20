@@ -208,5 +208,15 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     @Query("SELECT s FROM StockFinancialData s WHERE " +
            "s.stockName IS NULL OR s.stockName = '' OR s.stockName = s.stockCode")
     List<StockFinancialData> findByInvalidStockName();
+
+    // 진행률 표시용 카운트 — findAll() 전건 로딩 대신 COUNT 집계(메모리/커넥션 보호).
+    @Query("SELECT COUNT(s) FROM StockFinancialData s WHERE s.operatingMargin IS NULL OR s.operatingMargin = 0")
+    long countMissingOperatingMargin();
+
+    @Query("SELECT COUNT(s) FROM StockFinancialData s WHERE s.operatingMargin IS NOT NULL AND s.operatingMargin <> 0")
+    long countWithOperatingMargin();
+
+    @Query("SELECT COUNT(s) FROM StockFinancialData s WHERE s.epsGrowth > 0 OR s.profitGrowth > 0")
+    long countWithGrowthData();
 }
 

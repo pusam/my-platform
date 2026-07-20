@@ -39,6 +39,9 @@ public class InvestorTradeService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final RedisCacheService redisCacheService;
     private final InvestorDailyTradeService investorDailyTradeService;
+    /** 자기 자신(프록시) — @Transactional/@CacheEvict 가 붙은 메서드를 내부에서 호출할 때 사용.
+     *  같은 클래스 내부 직접 호출은 프록시를 안 거쳐 어노테이션이 통째로 무시된다. */
+    private final org.springframework.beans.factory.ObjectProvider<InvestorTradeService> selfProvider;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private static final LocalTime MARKET_OPEN = LocalTime.of(8, 0);   // 프리마켓 포함
@@ -429,9 +432,13 @@ public class InvestorTradeService {
      */
     public Map<String, Object> deleteAllAndRecollect() {
         Map<String, Object> result = new HashMap<>();
+        // 내부 직접 호출은 프록시 미경유라 deleteAllData 의 @Transactional 과
+        // collectInvestorTradeData 의 @CacheEvict(consecutiveBuys) 가 모두 무시됐다
+        // (전량 삭제 후에도 연속매수 캐시가 옛 데이터를 계속 서빙). self 프록시 경유로 교정.
+        InvestorTradeService self = selfProvider.getObject();
 
         // 1. 기존 데이터 전체 삭제
-        long deletedCount = deleteAllData();
+        long deletedCount = self.deleteAllData();
         log.info("기존 데이터 삭제 완료: {}건", deletedCount);
         result.put("deletedCount", deletedCount);
 
@@ -443,7 +450,7 @@ public class InvestorTradeService {
             return result;
         }
 
-        Map<String, Integer> collectResult = collectInvestorTradeData(today);
+        Map<String, Integer> collectResult = self.collectInvestorTradeData(today);
         int collectedCount = collectResult.values().stream().mapToInt(Integer::intValue).sum();
         result.put("collectResult", collectResult);
         result.put("collectedCount", collectedCount);
@@ -458,7 +465,9 @@ public class InvestorTradeService {
     @Transactional
     public long deleteAllData() {
         long count = investorTradeRepository.count();
-        investorTradeRepository.deleteAll();
+        // deleteAll() 은 전 엔티티를 영속성 컨텍스트에 로드한 뒤 행마다 DELETE 를 발행한다 —
+        // investor_daily_trade 는 (거래일×시장×투자자×매매구분×순위) 누적이라 수십만 행 규모라 OOM 위험.
+        investorTradeRepository.deleteAllInBatch();
         return count;
     }
 

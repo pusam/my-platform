@@ -50,11 +50,14 @@ public interface MarketDailyStatusRepository extends JpaRepository<MarketDailySt
     List<MarketDailyStatus> findLatestAll();
 
     /**
-     * 특정 시장의 ADR 계산을 위한 20일 합계
+     * 특정 시장의 ADR 계산용 합계 — startDate 이후 <b>존재하는 거래일 전부</b>의 합.
+     * (거래일 수 자체는 호출측이 startDate 로 정한다 — 휴장일 때문에 달력일≠거래일인 점 유의.)
+     * GROUP BY 없는 단일행 집계라 ORDER BY 를 붙이지 않는다 — MariaDB 는 무시하지만
+     * ONLY_FULL_GROUP_BY(MySQL8 기본)에선 문법 오류로 실패한다.
      */
     @Query("SELECT SUM(m.advancingCount) as advSum, SUM(m.decliningCount) as decSum " +
            "FROM MarketDailyStatus m WHERE m.marketType = :marketType " +
-           "AND m.tradeDate >= :startDate ORDER BY m.tradeDate DESC")
+           "AND m.tradeDate >= :startDate")
     Object[] calculateAdrSums(@Param("marketType") String marketType,
                                @Param("startDate") LocalDate startDate);
 }

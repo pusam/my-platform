@@ -1,6 +1,7 @@
 package com.myplatform.backend.repository;
 
 import com.myplatform.backend.entity.SignalOutcome;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,9 +19,15 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
                                      @Param("code") String stockCode,
                                      @Param("date") LocalDate signalDate);
 
-    /** 평가 대상 — signalDate 가 cutoff 이하이고 아직 평가 안 된 항목. */
-    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate <= :cutoff AND s.evaluatedAt IS NULL")
-    List<SignalOutcome> findPendingEvaluation(@Param("cutoff") LocalDate cutoff);
+    /**
+     * 평가 대상 — signalDate 가 cutoff 이하이고 아직 평가 안 된 항목. 오래된 것부터(백로그 순차 소진).
+     * <p>Pageable 로 <b>상한</b>을 받는다: 평가 루프가 종목당 KIS 2콜을 트랜잭션 안에서 돌기 때문에,
+     * KIS 장애로 미평가분이 수백 건 쌓이면 한 번의 배치가 DB 커넥션을 장시간 점유한다(풀 고갈).
+     * 초과분은 다음 실행에서 이어서 처리된다(evaluatedAt 이 채워진 건 pending 에서 빠짐).
+     */
+    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate <= :cutoff AND s.evaluatedAt IS NULL "
+            + "ORDER BY s.signalDate ASC, s.id ASC")
+    List<SignalOutcome> findPendingEvaluation(@Param("cutoff") LocalDate cutoff, Pageable pageable);
 
     /** 시그널별 통계 — 지정 기간 내. [signalType, total, hitCount, avgPctChange] */
     @Query("""
