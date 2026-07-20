@@ -138,12 +138,14 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(w.text()).not.toContain('내 포지션')
   })
 
-  it('후보 클릭 → open-stock emit, 도구 버튼 → navigate emit', async () => {
-    stubAll()
+  it('후보 클릭 → open-stock emit, "매매 탭 전체 보기" → navigate emit', async () => {
+    stubAll({ portfolio: { data: { success: true, data: [
+      { stockCode: '005930', stockName: '삼성전자', quantity: 10, profitRate: 2.1 }
+    ] } } })
     const w = await mountTab()
     await w.find('.candidate-card').trigger('click')
     expect(w.emitted('open-stock')[0]).toEqual(['005930'])
-    await w.findAll('.tool-btn')[2].trigger('click')
+    await w.find('.ts-more').trigger('click')
     expect(w.emitted('navigate')[0]).toEqual(['trade'])
   })
 
@@ -156,12 +158,11 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(market.text()).toContain('ADR 95')
   })
 
-  it('API 전부 실패해도 도구 바로가기는 렌더 (빈 화면 방지)', async () => {
+  it('API 전부 실패해도 매수 후보 빈 상태는 렌더 (빈 화면 방지)', async () => {
     recommendationAPI.getTop5.mockRejectedValue(new Error('500'))
     paperTradingAPI.getPortfolio.mockRejectedValue(new Error('401'))
     apiClient.get.mockRejectedValue(new Error('500'))
     const w = await mountTab()
-    expect(w.findAll('.tool-btn')).toHaveLength(3)
     expect(w.find('.ts-state.empty').exists()).toBe(true)
   })
 })

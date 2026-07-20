@@ -146,19 +146,6 @@
       </div>
       <button class="ts-more" @click="$emit('navigate', 'trade')">매매 탭에서 전체 보기 →</button>
     </div>
-
-    <!-- ⑤ 도구 바로가기 -->
-    <div class="today-tools">
-      <button class="btn-ghost tool-btn" @click="$emit('navigate', 'market')">
-        <span class="tool-icon">🌐</span><span>시장 · 수급 · 뉴스</span>
-      </button>
-      <button class="btn-ghost tool-btn" @click="$emit('navigate', 'discover')">
-        <span class="tool-icon">🔍</span><span>발굴 · 전략 · 스크리너</span>
-      </button>
-      <button class="btn-ghost tool-btn" @click="$emit('navigate', 'trade')">
-        <span class="tool-icon">⚡</span><span>매매 · 봇 · 성과</span>
-      </button>
-    </div>
   </div>
 </template>
 
@@ -488,26 +475,6 @@ onMounted(() => {
   cursor: pointer;
   padding: 0;
 }
-
-/* ⑤ 도구 바로가기 */
-.today-tools {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 10px;
-}
-/* 표면 골격은 공용 .btn-ghost — 크기 + 강조(퍼플) hover 만 로컬 */
-.tool-btn {
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 14px 10px;
-}
-.tool-btn:hover:not(:disabled) {
-  background: rgba(102, 126, 234, 0.15);
-  border-color: rgba(102, 126, 234, 0.4);
-  color: #a5b4fc;
-}
-.tool-icon { font-size: 16px; }
 
 /* 등락색은 한국 관례(상승=빨강/하락=파랑) — 허브(StockTradingDashboardV2)·디자인 토큰(--stock-up/down)과 통일 */
 .positive { color: var(--stock-up, #f87171); }
