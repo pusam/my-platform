@@ -188,7 +188,8 @@ public class VwapService {
      * 장 시작 후 10분 경과 여부 (09:10 이후)
      */
     private boolean isMarketReliableTime() {
-        LocalTime now = LocalTime.now();
+        // KST 명시 — 코드베이스 관례(DateTimeUtil.kstNow 계열)와 통일. JVM 기본 TZ 가 KST 아니면 오판정.
+        LocalTime now = LocalTime.now(java.time.ZoneId.of("Asia/Seoul"));
         LocalTime reliableStart = LocalTime.of(9, 10);
         LocalTime marketClose = LocalTime.of(15, 30);
 

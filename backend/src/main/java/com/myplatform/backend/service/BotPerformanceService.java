@@ -207,11 +207,11 @@ public class BotPerformanceService {
         // 일별 손익
         List<DailyPnlDto> dailyPnl = getDailyPnl(accountId, days);
 
-        // 종목별 손익
-        List<StockPnlDto> stockPnl = getStockPnl(accountId);
-
-        // 엑시트 사유별 통계
-        Map<String, ExitReasonStatDto> exitReasonStats = getExitReasonStats(accountId);
+        // 종목별 손익 / 엑시트 사유별 통계 — 상단 요약과 같은 days 윈도우의 sellTrades 로 집계.
+        // (이전엔 전 기간 별도 조회라 "최근 7일" 화면에서 종목/사유 통계만 누적 전체가 나와
+        //  타일 합계와 불일치했다 — count 합 ≠ totalTrades.)
+        List<StockPnlDto> stockPnl = buildStockPnl(sellTrades);
+        Map<String, ExitReasonStatDto> exitReasonStats = buildExitReasonStats(sellTrades);
 
         return BotPerformanceDto.builder()
                 .totalTrades(totalTrades)
@@ -275,23 +275,24 @@ public class BotPerformanceService {
     }
 
     /**
-     * 봇 종목별 성과
+     * 봇 종목별 성과 — getPerformance 의 days 윈도우 sellTrades 로 집계(요약 타일과 동일 표본).
+     * (구 getStockPnl(accountId) 는 전 기간 별도 쿼리라 기간 필터와 불일치 — 외부 호출자 없어 대체.)
      */
-    public List<StockPnlDto> getStockPnl(Long accountId) {
-        if (accountId == null) {
-            accountId = getActiveAccountId();
-        }
-        if (accountId == null) return Collections.emptyList();
-
-        List<Object[]> rawData = tradeHistoryRepository.findBotPnlByStock(accountId, BOT_SELL_REASONS);
+    private List<StockPnlDto> buildStockPnl(List<VirtualTradeHistory> sellTrades) {
+        Map<String, List<VirtualTradeHistory>> byStock = sellTrades.stream()
+                .collect(Collectors.groupingBy(VirtualTradeHistory::getStockCode,
+                        LinkedHashMap::new, Collectors.toList()));
 
         List<StockPnlDto> result = new ArrayList<>();
-        for (Object[] row : rawData) {
-            String stockCode = (String) row[0];
-            String stockName = (String) row[1];
-            BigDecimal totalPnl = row[2] != null ? new BigDecimal(row[2].toString()) : BigDecimal.ZERO;
-            int tradeCount = row[3] != null ? ((Number) row[3]).intValue() : 0;
-            int winCount = row[4] != null ? ((Number) row[4]).intValue() : 0;
+        for (Map.Entry<String, List<VirtualTradeHistory>> entry : byStock.entrySet()) {
+            List<VirtualTradeHistory> trades = entry.getValue();
+            BigDecimal totalPnl = trades.stream()
+                    .map(t -> t.getProfitLoss() != null ? t.getProfitLoss() : BigDecimal.ZERO)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            int tradeCount = trades.size();
+            int winCount = (int) trades.stream()
+                    .filter(t -> t.getProfitLoss() != null && t.getProfitLoss().compareTo(BigDecimal.ZERO) > 0)
+                    .count();
 
             BigDecimal winRate = BigDecimal.ZERO;
             if (tradeCount > 0) {
@@ -301,33 +302,23 @@ public class BotPerformanceService {
             }
 
             result.add(StockPnlDto.builder()
-                    .stockCode(stockCode)
-                    .stockName(stockName)
+                    .stockCode(entry.getKey())
+                    .stockName(trades.get(0).getStockName())
                     .totalPnl(totalPnl)
                     .tradeCount(tradeCount)
                     .winCount(winCount)
                     .winRate(winRate)
                     .build());
         }
-
+        // 손익 큰 순 정렬 (구 쿼리의 ORDER BY 계승)
+        result.sort((a, b) -> b.getTotalPnl().compareTo(a.getTotalPnl()));
         return result;
     }
 
     /**
-     * 봇 엑시트 사유별 통계
+     * 봇 엑시트 사유별 통계 — getPerformance 의 days 윈도우 sellTrades 로 집계.
      */
-    public Map<String, ExitReasonStatDto> getExitReasonStats(Long accountId) {
-        if (accountId == null) {
-            accountId = getActiveAccountId();
-        }
-        if (accountId == null) return Collections.emptyMap();
-
-        List<VirtualTradeHistory> sellTrades = tradeHistoryRepository.findBotTrades(accountId, BOT_SELL_REASONS);
-        // 매도 거래만 필터
-        sellTrades = sellTrades.stream()
-                .filter(t -> "SELL".equals(t.getTradeType()))
-                .collect(Collectors.toList());
-
+    private Map<String, ExitReasonStatDto> buildExitReasonStats(List<VirtualTradeHistory> sellTrades) {
         Map<String, List<VirtualTradeHistory>> groupedByReason = sellTrades.stream()
                 .collect(Collectors.groupingBy(t -> t.getTradeReason() != null ? t.getTradeReason() : "UNKNOWN"));
 

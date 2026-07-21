@@ -71,7 +71,9 @@ public class EarningsDisclosureService {
         STOCK_TO_CORP.put("055550", "00382199");  // 신한지주
         STOCK_TO_CORP.put("086790", "00547583");  // 하나금융지주
         STOCK_TO_CORP.put("003550", "00155856");  // LG
-        STOCK_TO_CORP.put("034730", "00401731");  // SK
+        // SK(034730) 는 매핑 제거(2026-07-21): 00401731 은 LG전자의 corp_code 인데 SK 에 중복 매핑돼
+        // findStockCode(00401731) 역조회가 항상 SK 를 반환 → LG전자 공시가 SK 종목으로 오귀속됐다.
+        // SK 의 정확한 corp_code 는 DART corpCode.xml 실측 확인 후 재등록(잘못된 값보다 미매핑이 정직 — §4c).
         STOCK_TO_CORP.put("066570", "00401731");  // LG전자
         STOCK_TO_CORP.put("033780", "00401335");  // KT&G
         STOCK_TO_CORP.put("018260", "00126571");  // 삼성에스디에스
@@ -451,11 +453,14 @@ public class EarningsDisclosureService {
     /**
      * DART 재무 수치 조회 + Gemini AI 요약.
      * 6시간 캐시 — 분기 실적은 발표 후 며칠간 동일.
+     * unless: 재무 수치가 비면(공시 전 or DART 일시 장애) 캐시하지 않는다 — 실패를 6h 캐시하면
+     * DART 복구 후에도 "조회 불가"가 계속 서빙된다(§4c 실패 캐시 금지 극성, StockCatalyst 와 동일 원칙).
      */
     @org.springframework.cache.annotation.Cacheable(
             value = "earningsSummary",
             key = "#corpCode + ':' + #reportType",
-            condition = "#corpCode != null && !#corpCode.isEmpty()")
+            condition = "#corpCode != null && !#corpCode.isEmpty()",
+            unless = "#result == null || #result['financials'] == null || #result['financials'].isEmpty()")
     public Map<String, Object> getEarningsSummary(String corpCode, String corpName, String reportType) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("corpName", corpName);
@@ -656,7 +661,7 @@ public class EarningsDisclosureService {
         nameToCorpCode.put("신한지주", "00382199");
         nameToCorpCode.put("하나금융지주", "00547583");
         nameToCorpCode.put("LG", "00155856");
-        nameToCorpCode.put("SK", "00401731");
+        // "SK" 항목 제거(2026-07-21) — 00401731 은 LG전자 코드(중복 오매핑). §4c: 확인 전 미매핑.
         nameToCorpCode.put("LG전자", "00401731");
         nameToCorpCode.put("KT&G", "00401335");
         nameToCorpCode.put("삼성에스디에스", "00126571");

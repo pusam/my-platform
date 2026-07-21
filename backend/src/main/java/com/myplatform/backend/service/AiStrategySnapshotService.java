@@ -196,7 +196,10 @@ public class AiStrategySnapshotService {
             return;
         }
 
-        // 10시 이후: 시간별 로테이션 (1개씩)
+        // 10시 이후: 시간별 로테이션 (1개씩).
+        // 08시 슬롯(크론 8-19)은 로테이션 대상 아님 — 이전엔 (8-10)%3=-2(자바 음수 나머지)로
+        // rotation[-2] AIOOBE 가 try 밖에서 매 거래일 발생했다.
+        if (hour < 10) return;
         StrategyType[] rotation = {StrategyType.SWING, StrategyType.TURNAROUND, StrategyType.VALUE};
         StrategyType target = rotation[(hour - 10) % 3];
 
