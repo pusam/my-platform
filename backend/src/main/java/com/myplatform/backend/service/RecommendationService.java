@@ -2149,12 +2149,13 @@ public class RecommendationService {
      * BEAR/SIDEWAYS 는 데이터 없어 그대로 유지.
      *
      * <p><b>phase 37</b>: phase 36 후에도 max 67/STRONG_BUY 0건. LG디스플레이 sector=4 가 병목.
-     * BULL sectorMomentum 1.00 → 1.20 으로 추가 우대 (scoreSectorMomentum 의 BULL +4 boost 와 시너지).
+     * BULL sectorMomentum 1.00 → 1.20 으로 추가 우대했다가, <b>phase 38 에서 1.00 으로 원복</b>
+     * (scoreSectorMomentum 의 BULL +4 floor 와 이중가산 — CLAUDE.md §4 "BULL 섹터 가산은 하나만").
      *
-     * <p>multiplier 표 (phase 37):
+     * <p>multiplier 표 (phase 38 현행 — 코드가 진실의 원천):
      * <pre>
      *   regime       earnings   supplyDemand  technical   sectorMomentum
-     *   BULL         × 0.95     × 1.10        × 1.05      × 1.20      ← phase 37 sector 강화
+     *   BULL         × 0.95     × 1.10        × 1.05      × 1.00      ← phase 38: 이중가산 제거(×1.20 재도입 금지)
      *   BEAR         × 1.20     × 0.85        × 0.90      × 0.80
      *   SIDEWAYS     × 1.00     × 1.00        × 1.00      × 0.90      ← 섹터만 시간 척도 보정
      * </pre>
