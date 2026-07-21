@@ -189,8 +189,9 @@ const getQsRiskLabel = () => {
   font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
   background: rgba(107,114,128,0.2); color: #9ca3af;
 }
-.qs-positive { color: #ef4444; }
-.qs-negative { color: #3b82f6; }
+/* 수급/이격도 등락 표시 — 행동 라벨(#ef4444 전용)이 아니라 등락 토큰을 쓴다(common.css 규약) */
+.qs-positive { color: var(--stock-up, #f87171); }
+.qs-negative { color: var(--stock-down, #60a5fa); }
 .qs-neutral { color: rgba(255,255,255,0.7); }
 .qs-danger { color: #ef4444; }
 .qs-danger.qs-badge { background: rgba(239,68,68,0.15); color: #ef4444; }

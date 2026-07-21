@@ -38,7 +38,9 @@
               </div>
               <div v-else-if="phaseSignals.length" class="signal-list">
                 <div v-for="(sig, i) in phaseSignals" :key="'sig-' + i" class="signal-card" :class="sig.type"
-                     @click="sig.stockCode && goToStock(sig.stockCode)">
+                     :role="sig.stockCode ? 'button' : null" :tabindex="sig.stockCode ? 0 : null"
+                     @click="sig.stockCode && goToStock(sig.stockCode)"
+                     @keydown.enter="sig.stockCode && goToStock(sig.stockCode)">
                   <div class="sig-badge">{{ sig.badge }}</div>
                   <div class="sig-info">
                     <span class="sig-name">{{ sig.stockName }}</span>
@@ -66,7 +68,8 @@
               </div>
               <div class="wl-list" v-if="watchlistExpanded">
                 <div v-for="item in watchlistItems.slice(0, 5)" :key="'wl-' + item.id" class="wl-row"
-                     @click="goToStock(item.stockCode)">
+                     role="button" tabindex="0"
+                     @click="goToStock(item.stockCode)" @keydown.enter="goToStock(item.stockCode)">
                   <span class="wl-risk" v-if="watchlistRisks[item.stockCode]"
                         :class="watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? 'danger' : 'warning'">
                     {{ watchlistRisks[item.stockCode].riskLevel === 'DANGER' ? '🔴' : '🟡' }}
@@ -411,7 +414,8 @@
           <div v-if="supplyPanelData.consecutive.length" class="supply-consecutive">
             <div class="supply-sub-title">연속 순매수 종목</div>
             <div v-for="item in supplyPanelData.consecutive.slice(0, 5)" :key="item.stockCode + item.investorType"
-                 class="supply-stock-row" @click="goToStock(item.stockCode)">
+                 class="supply-stock-row" role="button" tabindex="0"
+                 @click="goToStock(item.stockCode)" @keydown.enter="goToStock(item.stockCode)">
               <span class="supply-investor-badge" :class="item.investorType === 'FOREIGN' ? 'foreign' : 'inst'">
                 {{ item.investorType === 'FOREIGN' ? '외' : '기' }}
               </span>
@@ -446,7 +450,8 @@
               </div>
               <div class="ss-stocks">
                 <span v-for="t in sec.topStocks" :key="t.stockCode"
-                      class="ss-stock" @click="goToStock(t.stockCode)">
+                      class="ss-stock" role="button" tabindex="0"
+                      @click="goToStock(t.stockCode)" @keydown.enter="goToStock(t.stockCode)">
                   {{ t.stockName }}
                   <span :class="Number(t.changeRate) >= 0 ? 'positive' : 'negative'">
                     {{ Number(t.changeRate) >= 0 ? '+' : '' }}{{ Number(t.changeRate).toFixed(1) }}%
@@ -490,7 +495,8 @@
               v-for="(sig, idx) in filteredChartSignals"
               :key="'cs-' + idx"
               class="cs-row" :class="'sig-' + (sig.topPattern?.signal || 'NEUTRAL').toLowerCase()"
-              @click="goToStock(sig.stockCode)"
+              role="button" tabindex="0"
+              @click="goToStock(sig.stockCode)" @keydown.enter="goToStock(sig.stockCode)"
             >
               <span class="cs-name-block">
                 <span class="cs-name">{{ getCsStockName(sig) }}</span>
@@ -2196,9 +2202,10 @@ export default {
 .pick-tags { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; }
 .pick-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(102,126,234,0.12); color: #8b9cf7; }
 
-.positive { color: #ef4444 !important; }
+/* 등락색 — 디자인 토큰 단일 출처(common.css --stock-up/--stock-down). 화면별 hex 하드코딩 금지 */
+.positive { color: var(--stock-up, #f87171) !important; }
 .positive::before { content: '▲ '; font-size: 0.75em; }
-.negative { color: #3b82f6 !important; }
+.negative { color: var(--stock-down, #60a5fa) !important; }
 .negative::before { content: '▼ '; font-size: 0.75em; }
 
 @media (max-width: 768px) {

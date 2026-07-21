@@ -98,6 +98,7 @@ import { ref, onMounted, onUnmounted, computed, defineProps } from 'vue';
 import { useRouter } from 'vue-router';
 import { notificationAPI } from '../utils/api';
 import { TokenManager } from '../utils/auth';
+import { categories, classifyCategory } from '../utils/notificationClassify';
 
 defineProps({
   dark: { type: Boolean, default: false }   // V2 다크 테마 페이지에서 true
@@ -114,20 +115,10 @@ let pollInterval = null;
 
 const isLoggedIn = computed(() => !!TokenManager.getToken());
 
-// ===== 카테고리 분류 =====
-const categories = [
-  { key: 'BUY_SIGNAL', label: '매수 신호', icon: '🚀',
-    keywords: ['강력매수', '매수후보', '매수신호', 'AI', '도달', '수익', '손실'] },
-  { key: 'SUPPLY', label: '수급/외인기관', icon: '💰',
-    keywords: ['외국인', '기관', '수급', '복합', '연속', '레이더'] },
-  { key: 'FUNDAMENTAL', label: '펀더멘털', icon: '📊',
-    keywords: ['마법공식', '턴어라운드', '어닝', '실적', 'PEG', '서프라이즈'] },
-  { key: 'MARKET', label: '시장 분위기', icon: '🌅',
-    keywords: ['모닝브리핑', '브리핑', '시장', '장 마감', '장마감'] },
-  { key: 'RISK', label: '리스크', icon: '⚠️',
-    keywords: ['공매도', '리스크', '위험', '경보', '주의'] },
-  { key: 'ETC', label: '기타', icon: '📌', keywords: [] }
-];
+// ===== 카테고리 분류 — utils/notificationClassify (순수, 테스트 有) =====
+// 분류 우선순위는 RISK 최우선 — 이전 인라인 구현은 배열 순서대로 매칭해 BUY_SIGNAL 의
+// 광범위 키워드('AI'/'수익'/'손실')가 "AI 매수 리스크 경보"를 매수신호로 오분류,
+// 리스크만 켜둔 필터에서 경보가 소실됐다.
 
 const STORAGE_KEY = 'notif_disabled_categories';
 const disabledCategories = ref(loadDisabled());
@@ -141,15 +132,6 @@ function loadDisabled() {
 function saveDisabled() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(disabledCategories.value)); } catch {}
 }
-
-const classifyCategory = (notif) => {
-  const text = (notif.title || '') + ' ' + (notif.message || '');
-  for (const cat of categories) {
-    if (cat.key === 'ETC') continue;
-    if (cat.keywords.some(k => text.includes(k))) return cat.key;
-  }
-  return 'ETC';
-};
 
 const filteredNotifications = computed(() => {
   if (disabledCategories.value.length === 0) return notifications.value;

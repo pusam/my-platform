@@ -1926,9 +1926,11 @@ onUnmounted(() => {
 }
 
 /* 상태 클래스 */
-.positive { color: #e53e3e !important; }
+/* 등락/손익색 — 디자인 토큰 단일 출처(common.css). 구 #e53e3e/#3182ce 는 허브(#ef4444)·토큰(#f87171)과
+   또 다른 제3의 빨강/파랑이라 화면 간 톤이 어긋났다 */
+.positive { color: var(--stock-up, #f87171) !important; }
 .positive::before { content: '▲ '; font-size: 0.75em; }
-.negative { color: #3182ce !important; }
+.negative { color: var(--stock-down, #60a5fa) !important; }
 .negative::before { content: '▼ '; font-size: 0.75em; }
 .running { color: #48bb78 !important; }
 .stopped { color: #888 !important; }

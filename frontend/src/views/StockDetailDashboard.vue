@@ -1477,9 +1477,10 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 
-.change-info.positive { color: #ef4444; }
+/* 등락색 토큰 통일 — 같은 화면의 돌파배지/꼬리/패턴(#f87171 계열)과 톤 일치 */
+.change-info.positive { color: var(--stock-up, #f87171); }
 .change-info.positive::before { content: '▲ '; font-size: 0.85em; }
-.change-info.negative { color: #3b82f6; }
+.change-info.negative { color: var(--stock-down, #60a5fa); }
 .change-info.negative::before { content: '▼ '; font-size: 0.85em; }
 .change-info.neutral { color: #9ca3af; }
 
@@ -1815,8 +1816,8 @@ onUnmounted(() => {
 .fin-card.wide { grid-column: span 2; }
 .fin-label { color: #888; font-size: 0.85rem; }
 .fin-value { font-weight: 600; font-family: 'Monaco', monospace; }
-.fin-value.positive { color: #ef4444; }
-.fin-value.negative { color: #3b82f6; }
+.fin-value.positive { color: var(--stock-up, #f87171); }
+.fin-value.negative { color: var(--stock-down, #60a5fa); }
 
 /* Forward 지표 배지 */
 .forward-badge {
@@ -2018,8 +2019,8 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.bar-value.positive { color: #ef4444; }
-.bar-value.negative { color: #3b82f6; }
+.bar-value.positive { color: var(--stock-up, #f87171); }
+.bar-value.negative { color: var(--stock-down, #60a5fa); }
 
 /* Zone B - Risk & AI */
 .risk-gauge-section {
