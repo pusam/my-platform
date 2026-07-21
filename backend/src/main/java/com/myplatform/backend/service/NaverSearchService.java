@@ -473,14 +473,9 @@ public class NaverSearchService {
     }
 
     // ========== 외부 인터페이스 ==========
-
-    /**
-     * 뉴스 검색 (외부 호출용 - 날짜순 고정!)
-     */
-    public List<NewsItem> searchNews(String query, int display) {
-        // display 무시하고 DISPLAY_COUNT 사용
-        return callNaverApi(query);
-    }
+    // (구 searchNews(query, display) 는 제거 — display 인자를 무시하고 종목명/7일 필터도 우회한
+    //  원시 30건을 반환하는 오용 유도 인터페이스였고 프로덕션 호출자가 없었다.
+    //  뉴스가 필요하면 필터링된 searchStockNews/searchStockNewsByCode 를 쓸 것.)
 
     /**
      * 위험 뉴스 개수

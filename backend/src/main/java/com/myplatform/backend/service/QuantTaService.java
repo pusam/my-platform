@@ -784,7 +784,9 @@ public class QuantTaService {
         int topN = Math.min(Math.max(requestedTopN, 10), BULK_COLLECT_MAX);
         List<String> codes;
         try {
-            codes = stockPriceRepository.findTopVolumeStockCodes(PageRequest.of(0, topN));
+            codes = stockPriceRepository.findTopVolumeStockCodes(
+                    java.time.LocalDateTime.now().minusDays(7),   // 최근 7일 시세만 — 전 이력 풀스캔/휴면종목 방지
+                    PageRequest.of(0, topN));
         } catch (Exception e) {
             bulkRunning.set(false);
             log.error("[일괄수집] universe 조회 실패", e);

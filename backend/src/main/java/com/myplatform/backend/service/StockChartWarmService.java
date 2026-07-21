@@ -44,7 +44,9 @@ public class StockChartWarmService {
      * 장 마감 후 프리워밍 — 평일 20:10(NXT 애프터마켓 20:00 종료 직후, 일봉 확정).
      * 관심종목 ∪ 봇 보유 종목을 상한까지 워밍. best-effort, KIS 페이지네이션은 rate limiter 로 직렬화.
      */
-    @Scheduled(cron = "0 10 20 * * MON-FRI", zone = "Asia/Seoul")
+    // 풀 명시 — 미지정이면 @Primary taskScheduler(트레이딩 전용 슬롯)로 떨어져 설계 의도 위반(SchedulingConfig 주석).
+    // 차트 프리워밍은 캐시 워밍 성격이라 cacheScheduler.
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 10 20 * * MON-FRI", zone = "Asia/Seoul")
     public void warmPopularCharts() {
         if (!warmEnabled) return;
         List<String> targets = collectTargets();

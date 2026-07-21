@@ -33,6 +33,11 @@ public class RiskManagementService {
     private final DartService dartService;
     private final NaverSearchService naverSearchService;
     private final GoogleNewsService googleNewsService;
+    // 블로킹 IO(DART/뉴스) 전용 풀 — executor 미지정 supplyAsync 는 ForkJoin commonPool(병렬도 코어-1)에서
+    // 돌아, 코어 2 컨테이너에선 워커 1개가 외부 IO 에 막히면 commonPool 소비자 전체가 굶는다.
+    // StockDetailService 와 같은 상세화면 경로라 같은 풀 공유.
+    @org.springframework.beans.factory.annotation.Qualifier("stockDetailExecutor")
+    private final java.util.concurrent.Executor stockDetailExecutor;
 
     // DANGER 임계값 (이 점수 이상이면 매수 금지)
     private static final int DANGER_THRESHOLD = 80;
@@ -56,23 +61,28 @@ public class RiskManagementService {
         log.info("[RiskManagement] 리스크 분석 시작: {} (코드: {})", stockName, stockCode);
         long startTime = System.currentTimeMillis();
 
-        // 1. DART 공시 + 네이버 뉴스 병렬 조회
+        // 1. DART 공시 + 네이버 뉴스 병렬 조회 — 전용 executor + 실패는 빈 리스트로 흡수
+        //    (.exceptionally 가 없으면 실패한 future 의 getNow 가 예외를 다시 던진다)
         CompletableFuture<List<DartDisclosure>> disclosuresFuture =
-                CompletableFuture.supplyAsync(() -> fetchDisclosures(stockName));
+                CompletableFuture.supplyAsync(() -> fetchDisclosures(stockName), stockDetailExecutor)
+                        .exceptionally(ex -> List.of());
         CompletableFuture<List<NewsItem>> newsFuture =
-                CompletableFuture.supplyAsync(() -> fetchNews(stockName, stockCode));
+                CompletableFuture.supplyAsync(() -> fetchNews(stockName, stockCode), stockDetailExecutor)
+                        .exceptionally(ex -> List.of());
 
-        List<DartDisclosure> disclosures;
-        List<NewsItem> news;
+        List<DartDisclosure> disclosures = List.of();
+        List<NewsItem> news = List.of();
 
         try {
-            // 20초 타임아웃으로 병렬 조회 대기
-            disclosures = disclosuresFuture.get(20, TimeUnit.SECONDS);
-            news = newsFuture.get(20, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            log.warn("[RiskManagement] 데이터 조회 타임아웃/오류: {}", e.getMessage());
+            // 두 조회 합산 20초 상한 — 이전엔 get(20s) 2회 직렬이라 최악 40초 대기였다
+            CompletableFuture.allOf(disclosuresFuture, newsFuture).get(20, TimeUnit.SECONDS);
             disclosures = disclosuresFuture.getNow(List.of());
             news = newsFuture.getNow(List.of());
+        } catch (Exception e) {
+            log.warn("[RiskManagement] 데이터 조회 타임아웃/오류: {}", e.getMessage());
+            // 완료된 쪽 결과만 회수, 미완료는 빈 리스트로 진행(부분 데이터 분석)
+            if (disclosuresFuture.isDone()) disclosures = disclosuresFuture.getNow(List.of());
+            if (newsFuture.isDone()) news = newsFuture.getNow(List.of());
         }
 
         log.info("[RiskManagement] 데이터 조회 완료: 공시 {}건, 뉴스 {}건, {}ms",

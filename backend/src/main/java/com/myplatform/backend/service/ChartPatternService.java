@@ -527,6 +527,7 @@ public class ChartPatternService {
     public List<ScanResult> scanTopVolumeStocks(int limit) {
         int safeLimit = Math.min(Math.max(limit, 5), 50);
         List<String> codes = stockPriceRepository.findTopVolumeStockCodes(
+                java.time.LocalDateTime.now().minusDays(7),   // 최근 7일 시세만 — 전 이력 풀스캔/휴면종목 방지
                 org.springframework.data.domain.PageRequest.of(0, safeLimit));
         return scanForPatterns(codes);
     }

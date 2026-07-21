@@ -43,9 +43,14 @@ public interface StockPriceRepository extends JpaRepository<StockPrice, Long> {
     /**
      * 최근에 거래량이 많았던 종목 코드 (중복 제거, 최대 거래량 기준 내림차순).
      * 일봉 일괄 수집 universe 추출용.
+     * <p>fetchedAt 윈도우 필수 — 시세 캐시 테이블은 무한 증가라, 필터 없이 GROUP BY 하면
+     * 전 이력 filesort 풀스캔이 된다(LIMIT 은 집계 후 적용이라 무력). "최근" 의미상으로도
+     * 상장폐지/휴면 종목이 옛 거래량으로 universe 에 남는 것을 막는다.
      */
-    @Query("SELECT s.stockCode FROM StockPrice s GROUP BY s.stockCode ORDER BY MAX(s.volume) DESC")
-    List<String> findTopVolumeStockCodes(Pageable pageable);
+    @Query("SELECT s.stockCode FROM StockPrice s WHERE s.fetchedAt >= :since "
+            + "GROUP BY s.stockCode ORDER BY MAX(s.volume) DESC")
+    List<String> findTopVolumeStockCodes(@org.springframework.data.repository.query.Param("since") java.time.LocalDateTime since,
+                                         Pageable pageable);
 
     /**
      * P0-2 진단: 일정 기간 시세 이력을 종목코드·시각 순으로 조회 (×10 스케일 이상치 스캔용).

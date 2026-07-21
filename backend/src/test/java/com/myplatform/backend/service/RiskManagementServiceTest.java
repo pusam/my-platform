@@ -6,7 +6,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -14,7 +13,6 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
@@ -36,8 +34,13 @@ class RiskManagementServiceTest {
     @Mock private NaverSearchService naverSearchService;
     @Mock private GoogleNewsService googleNewsService;
 
-    @InjectMocks
     private RiskManagementService riskService;
+
+    @org.junit.jupiter.api.BeforeEach
+    void setUp() {
+        // executor 는 동기 직실행(Runnable::run) — 테스트 결정성 + supplyAsync 경로 그대로 통과
+        riskService = new RiskManagementService(dartService, naverSearchService, googleNewsService, Runnable::run);
+    }
 
     private static final String STOCK_NAME = "삼성전자";
     private static final String STOCK_CODE = "005930";
@@ -128,8 +131,8 @@ class RiskManagementServiceTest {
             when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
             when(googleNewsService.searchNews(anyString()))
                     .thenThrow(new RuntimeException("Google News timeout"));
-            // 네이버 폴백도 빈 리스트 반환
-            when(naverSearchService.searchNews(anyString(), anyInt())).thenReturn(Collections.emptyList());
+            // 네이버 폴백도 빈 리스트 반환 (실경로는 searchStockNews — 구 searchNews(q,n) 인터페이스는 제거됨)
+            when(naverSearchService.searchStockNews(anyString())).thenReturn(Collections.emptyList());
 
             // when
             RiskAnalysisDto result = riskService.analyzeRisk(STOCK_NAME, STOCK_CODE);
@@ -148,7 +151,7 @@ class RiskManagementServiceTest {
                     .thenThrow(new RuntimeException("DART timeout"));
             when(googleNewsService.searchNews(anyString()))
                     .thenThrow(new RuntimeException("Google timeout"));
-            when(naverSearchService.searchNews(anyString(), anyInt()))
+            when(naverSearchService.searchStockNews(anyString()))
                     .thenThrow(new RuntimeException("Naver timeout"));
 
             // when
