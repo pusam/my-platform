@@ -819,12 +819,31 @@ public class FinancialDataCrawlerService {
             List<LocalDate> quarterDates = new ArrayList<>();
 
             for (Element table : tables) {
-                // thead에서 분기 정보 추출
+                // thead에서 분기 정보 추출.
+                // 실물 구조(2026-07-21 실측, 삼성전자): 기간 컬럼 = 연간 4개(과거→미래, 마지막은 "yyyy.12(E)"
+                // 컨센서스 추정) + 분기 6개(과거→미래, 마지막은 추정). 따라서
+                //  ① (E) 추정치 컬럼은 제외 — 애널리스트 추정을 확정 실적으로 저장하면 PEG/턴어라운드가 오염(§4c).
+                //  ② 연간 컬럼도 제외 — 이 메서드는 '분기' 수집이 목적인데 연간을 섞으면 같은 reportDate
+                //     (연간 2025.12 vs 분기 2025.12)가 upsert 로 서로 덮어쓰고 성장률 인덱스 의미가 깨진다.
+                // 연간 컬럼 수는 "최근 연간 실적" 그룹 th 의 colspan 으로 판별(구조 변경 시 0 → 추정만 제외).
+                int annualCols = 0;
+                Element annualGroupTh = table.selectFirst("thead th:contains(연간)");
+                if (annualGroupTh != null) {
+                    try { annualCols = Integer.parseInt(annualGroupTh.attr("colspan")); }
+                    catch (NumberFormatException ignore) { /* 판별 불가 → 0 (추정치만 제외) */ }
+                }
+
+                List<Integer> usableCols = new ArrayList<>();   // 데이터 행(td) 기준 컬럼 인덱스
+                int periodCol = 0;
                 Elements thElements = table.select("thead th");
                 for (Element th : thElements) {
                     String text = th.text().trim();
                     // "2024.12(E)" 또는 "2024.09" 형태
                     if (text.matches("\\d{4}\\.\\d{2}.*")) {
+                        int thisCol = periodCol++;
+                        boolean estimate = text.contains("(E)");
+                        boolean annual = thisCol < annualCols;
+                        if (estimate || annual) continue;
                         String dateStr = text.replaceAll("\\(.*\\)", "").trim();
                         try {
                             String[] parts = dateStr.split("\\.");
@@ -833,6 +852,7 @@ public class FinancialDataCrawlerService {
                             // 분기 마지막 날로 설정
                             LocalDate qDate = LocalDate.of(year, month, 1).plusMonths(1).minusDays(1);
                             quarterDates.add(qDate);
+                            usableCols.add(thisCol);
                         } catch (Exception e) {
                             log.warn("분기 날짜 파싱 실패: {}", e.getMessage());
                         }
@@ -860,28 +880,30 @@ public class FinancialDataCrawlerService {
                         }
                     }
 
-                    // 분기별 데이터 객체 생성 (최대 8분기 - YoY 비교를 위해 5분기 이상 필요)
+                    // 분기별 데이터 객체 생성 (최대 8분기 - YoY 비교를 위해 5분기 이상 필요).
+                    // 데이터 셀 인덱스는 usableCols(추정치/연간 제외 후의 원본 td 위치)로 매핑.
                     for (int i = 0; i < quarterDates.size() && i < 8; i++) {
+                        int c = usableCols.get(i);
                         QuarterlyFinancialData qData = new QuarterlyFinancialData();
                         qData.setReportDate(quarterDates.get(i));
 
                         // 매출액
-                        if (dataMap.containsKey("매출액") && dataMap.get("매출액").size() > i) {
-                            qData.setRevenue(dataMap.get("매출액").get(i));
+                        if (dataMap.containsKey("매출액") && dataMap.get("매출액").size() > c) {
+                            qData.setRevenue(dataMap.get("매출액").get(c));
                         }
                         // 영업이익
-                        if (dataMap.containsKey("영업이익") && dataMap.get("영업이익").size() > i) {
-                            qData.setOperatingProfit(dataMap.get("영업이익").get(i));
+                        if (dataMap.containsKey("영업이익") && dataMap.get("영업이익").size() > c) {
+                            qData.setOperatingProfit(dataMap.get("영업이익").get(c));
                         }
                         // 당기순이익
-                        if (dataMap.containsKey("당기순이익") && dataMap.get("당기순이익").size() > i) {
-                            qData.setNetIncome(dataMap.get("당기순이익").get(i));
+                        if (dataMap.containsKey("당기순이익") && dataMap.get("당기순이익").size() > c) {
+                            qData.setNetIncome(dataMap.get("당기순이익").get(c));
                         }
                         // EPS (주당순이익)
-                        if (dataMap.containsKey("EPS(원)") && dataMap.get("EPS(원)").size() > i) {
-                            qData.setEps(dataMap.get("EPS(원)").get(i));
-                        } else if (dataMap.containsKey("EPS") && dataMap.get("EPS").size() > i) {
-                            qData.setEps(dataMap.get("EPS").get(i));
+                        if (dataMap.containsKey("EPS(원)") && dataMap.get("EPS(원)").size() > c) {
+                            qData.setEps(dataMap.get("EPS(원)").get(c));
+                        } else if (dataMap.containsKey("EPS") && dataMap.get("EPS").size() > c) {
+                            qData.setEps(dataMap.get("EPS").get(c));
                         }
 
                         // 데이터가 하나라도 있으면 추가
@@ -901,6 +923,12 @@ public class FinancialDataCrawlerService {
                 result = crawlFromFnGuide(stockCode);
             }
 
+            // 최신순(내림차순) 정렬 — calculateGrowthFromField(get(0)=최신 분기, get(4)=전년 동기)와
+            // 저장측 "index 0 = 최신" 가정의 전제. 페이지 원본은 과거→미래 오름차순이라 정렬 없인
+            // get(0)이 가장 오래된 값이 되어 성장률 부호/크기가 왜곡됐다.
+            if (result != null) {
+                result.sort(java.util.Comparator.comparing(QuarterlyFinancialData::getReportDate).reversed());
+            }
             return result;
 
         } catch (Exception e) {
@@ -928,14 +956,18 @@ public class FinancialDataCrawlerService {
             Elements tables = doc.select("table.gHead01");
 
             for (Element table : tables) {
-                // 테이블 컬럼 헤더에서 분기 정보 추출
+                // 테이블 컬럼 헤더에서 분기 정보 추출 — (E) 추정치 컬럼은 제외(§4c), 데이터 매핑은 usableCols 로.
                 Elements headers = table.select("thead th");
                 List<LocalDate> quarterDates = new ArrayList<>();
+                List<Integer> usableCols = new ArrayList<>();
+                int periodCol = 0;
 
                 for (Element th : headers) {
                     String text = th.text().trim();
                     // "2024/12" 또는 "24/12" 형태
                     if (text.matches("\\d{2,4}/\\d{2}.*")) {
+                        int thisCol = periodCol++;
+                        if (text.contains("(E)")) continue;   // 컨센서스 추정 — 확정 실적으로 저장 금지
                         try {
                             String[] parts = text.replaceAll("\\(.*\\)", "").split("/");
                             int year = Integer.parseInt(parts[0]);
@@ -943,6 +975,7 @@ public class FinancialDataCrawlerService {
                             int month = Integer.parseInt(parts[1].substring(0, 2));
                             LocalDate qDate = LocalDate.of(year, month, 1).plusMonths(1).minusDays(1);
                             quarterDates.add(qDate);
+                            usableCols.add(thisCol);
                         } catch (Exception e) {
                             log.warn("분기 날짜 파싱 실패: {}", e.getMessage());
                         }
@@ -969,36 +1002,37 @@ public class FinancialDataCrawlerService {
                     }
                 }
 
-                // 분기별 데이터 객체 생성
+                // 분기별 데이터 객체 생성 — 데이터 셀은 usableCols(추정치 제외 후 원본 위치)로 매핑
                 for (int i = 0; i < quarterDates.size() && i < 4; i++) {
+                    int c = usableCols.get(i);
                     QuarterlyFinancialData qData = new QuarterlyFinancialData();
                     qData.setReportDate(quarterDates.get(i));
 
                     // 매출액
                     for (String key : Arrays.asList("매출액", "영업수익", "순영업수익")) {
-                        if (dataMap.containsKey(key) && dataMap.get(key).size() > i) {
-                            qData.setRevenue(dataMap.get(key).get(i));
+                        if (dataMap.containsKey(key) && dataMap.get(key).size() > c) {
+                            qData.setRevenue(dataMap.get(key).get(c));
                             break;
                         }
                     }
                     // 영업이익
                     for (String key : Arrays.asList("영업이익", "영업손익")) {
-                        if (dataMap.containsKey(key) && dataMap.get(key).size() > i) {
-                            qData.setOperatingProfit(dataMap.get(key).get(i));
+                        if (dataMap.containsKey(key) && dataMap.get(key).size() > c) {
+                            qData.setOperatingProfit(dataMap.get(key).get(c));
                             break;
                         }
                     }
                     // 당기순이익
                     for (String key : Arrays.asList("당기순이익", "지배주주순이익", "순이익")) {
-                        if (dataMap.containsKey(key) && dataMap.get(key).size() > i) {
-                            qData.setNetIncome(dataMap.get(key).get(i));
+                        if (dataMap.containsKey(key) && dataMap.get(key).size() > c) {
+                            qData.setNetIncome(dataMap.get(key).get(c));
                             break;
                         }
                     }
                     // EPS
                     for (String key : Arrays.asList("EPS(원)", "EPS", "주당순이익")) {
-                        if (dataMap.containsKey(key) && dataMap.get(key).size() > i) {
-                            qData.setEps(dataMap.get(key).get(i));
+                        if (dataMap.containsKey(key) && dataMap.get(key).size() > c) {
+                            qData.setEps(dataMap.get(key).get(c));
                             break;
                         }
                     }
@@ -1063,8 +1097,9 @@ public class FinancialDataCrawlerService {
             previousValue = fieldGetter.apply(quarterlyData.get(4));
         }
 
-        // 2순위: 직전 분기 비교
-        if (previousValue == null || previousValue.compareTo(BigDecimal.ZERO) == 0) {
+        // 2순위: 직전 분기 비교 (표본 1개뿐이면 비교 불가)
+        if ((previousValue == null || previousValue.compareTo(BigDecimal.ZERO) == 0)
+                && quarterlyData.size() >= 2) {
             previousValue = fieldGetter.apply(quarterlyData.get(1));
         }
 

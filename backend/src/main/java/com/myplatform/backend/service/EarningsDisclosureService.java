@@ -71,9 +71,9 @@ public class EarningsDisclosureService {
         STOCK_TO_CORP.put("055550", "00382199");  // 신한지주
         STOCK_TO_CORP.put("086790", "00547583");  // 하나금융지주
         STOCK_TO_CORP.put("003550", "00155856");  // LG
-        // SK(034730) 는 매핑 제거(2026-07-21): 00401731 은 LG전자의 corp_code 인데 SK 에 중복 매핑돼
-        // findStockCode(00401731) 역조회가 항상 SK 를 반환 → LG전자 공시가 SK 종목으로 오귀속됐다.
-        // SK 의 정확한 corp_code 는 DART corpCode.xml 실측 확인 후 재등록(잘못된 값보다 미매핑이 정직 — §4c).
+        // SK corp_code = 00181712 (2026-07-21 DART 회사검색 실측 확정). 이전엔 LG전자 코드(00401731)가
+        // 중복 매핑돼 findStockCode 역조회가 LG전자 공시를 SK 로 오귀속했다.
+        STOCK_TO_CORP.put("034730", "00181712");  // SK
         STOCK_TO_CORP.put("066570", "00401731");  // LG전자
         STOCK_TO_CORP.put("033780", "00401335");  // KT&G
         STOCK_TO_CORP.put("018260", "00126571");  // 삼성에스디에스
@@ -661,7 +661,7 @@ public class EarningsDisclosureService {
         nameToCorpCode.put("신한지주", "00382199");
         nameToCorpCode.put("하나금융지주", "00547583");
         nameToCorpCode.put("LG", "00155856");
-        // "SK" 항목 제거(2026-07-21) — 00401731 은 LG전자 코드(중복 오매핑). §4c: 확인 전 미매핑.
+        nameToCorpCode.put("SK", "00181712");   // 2026-07-21 DART 실측 확정 (구 00401731 은 LG전자 코드 오매핑)
         nameToCorpCode.put("LG전자", "00401731");
         nameToCorpCode.put("KT&G", "00401335");
         nameToCorpCode.put("삼성에스디에스", "00126571");
