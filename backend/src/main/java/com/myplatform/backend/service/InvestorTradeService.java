@@ -462,6 +462,40 @@ public class InvestorTradeService {
     /**
      * 전체 데이터 삭제 (별도 트랜잭션)
      */
+    // ==================== 백테스트 정밀 수급 CSV export (P-백로그: 수량×종가 근사 → 실금액 대체) ====================
+
+    /**
+     * InvestorDailyTrade → 백테스트 flows CSV.
+     * 스키마: date,stock_code,frgn_net_eok,inst_net_eok (억원) — python-backend
+     * app/backtest/investor_flows.load_flows_csv 가 소비하는 정확한 형식.
+     */
+    @Transactional(readOnly = true)
+    public String exportFlowsCsv(LocalDate from, LocalDate to) {
+        return buildFlowsCsv(investorTradeRepository.aggregateNetByDateStockInvestor(from, to));
+    }
+
+    /**
+     * (일자,종목,투자자,순매수합) 집계 행 → CSV 피벗. 순수 함수(테스트 대상).
+     * 한쪽 투자자만 랭킹에 있는 (일자,종목)은 없는 쪽을 빈칸으로 — 0(균형)으로 위장하지 않는다(§4c,
+     * pandas read_csv 는 빈칸을 NaN 으로 읽어 미수집으로 처리).
+     */
+    static String buildFlowsCsv(List<Object[]> rows) {
+        StringBuilder sb = new StringBuilder("date,stock_code,frgn_net_eok,inst_net_eok\n");
+        java.util.LinkedHashMap<String, BigDecimal[]> pivot = new java.util.LinkedHashMap<>();
+        for (Object[] r : rows) {
+            String key = r[0] + "," + r[1];   // date,stockCode
+            BigDecimal[] cell = pivot.computeIfAbsent(key, k -> new BigDecimal[2]);
+            if ("FOREIGN".equals(r[2])) cell[0] = (BigDecimal) r[3];
+            else if ("INSTITUTION".equals(r[2])) cell[1] = (BigDecimal) r[3];
+        }
+        for (Map.Entry<String, BigDecimal[]> e : pivot.entrySet()) {
+            sb.append(e.getKey()).append(',')
+              .append(e.getValue()[0] != null ? e.getValue()[0].stripTrailingZeros().toPlainString() : "").append(',')
+              .append(e.getValue()[1] != null ? e.getValue()[1].stripTrailingZeros().toPlainString() : "").append('\n');
+        }
+        return sb.toString();
+    }
+
     @Transactional
     public long deleteAllData() {
         long count = investorTradeRepository.count();

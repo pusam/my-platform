@@ -153,7 +153,8 @@ public class SecurityConfig {
                         // 수집/재수집 계열 전부 ADMIN — 특히 recollect 는 investor 테이블 전량 삭제 후
                         // 재수집(파괴적)이라 정확매칭 "collect" 하나만 막던 구멍을 봉합.
                         .requestMatchers("/api/investor/collect", "/api/investor/collect/**",
-                                "/api/investor/recollect", "/api/investor/surge/collect").hasRole("ADMIN")
+                                "/api/investor/recollect", "/api/investor/surge/collect",
+                                "/api/investor/export/**").hasRole("ADMIN")
                         // 공유 모의계좌 리셋(잔액 초기화) — 파괴적 쓰기라 ADMIN 한정
                         .requestMatchers("/api/paper-trading/account/initialize").hasRole("ADMIN")
 

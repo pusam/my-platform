@@ -111,6 +111,23 @@ public class InvestorTradeController {
     }
 
     @Operation(summary = "전체 데이터 삭제 후 재수집", description = "기존 데이터를 모두 삭제하고 새로 수집합니다.")
+    /**
+     * 백테스트 정밀 수급 CSV export — python-backend run_supply_hypothesis/--flows-csv 소비용.
+     * ADMIN 전용(SecurityConfig /api/investor/export/**). 범위 상한 400일(전 종목 집계 부하 가드).
+     */
+    @GetMapping(value = "/export/flows.csv", produces = "text/csv;charset=UTF-8")
+    public ResponseEntity<String> exportFlowsCsv(
+            @RequestParam String from, @RequestParam String to) {
+        java.time.LocalDate f = java.time.LocalDate.parse(from);
+        java.time.LocalDate t = java.time.LocalDate.parse(to);
+        if (f.isAfter(t) || f.plusDays(400).isBefore(t)) {
+            return ResponseEntity.badRequest().body("date range invalid (max 400 days)");
+        }
+        return ResponseEntity.ok()
+                .header("Content-Disposition", "attachment; filename=investor_flows_" + from + "_" + to + ".csv")
+                .body(investorTradeService.exportFlowsCsv(f, t));
+    }
+
     @PostMapping("/recollect")
     public ResponseEntity<ApiResponse<Map<String, Object>>> deleteAndRecollect() {
 

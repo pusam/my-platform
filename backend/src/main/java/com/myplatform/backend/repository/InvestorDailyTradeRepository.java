@@ -155,6 +155,17 @@ public interface InvestorDailyTradeRepository extends JpaRepository<InvestorDail
     LocalDate findLatestTradeDate();
 
     /**
+     * 백테스트 정밀 수급 CSV export 용 집계 — (일자, 종목, 투자자)별 순매수 합(억원).
+     * BUY/SELL 랭킹 행이 분리 저장되므로 SUM 으로 병합. [tradeDate, stockCode, investorType, sum]
+     */
+    @Query("SELECT t.tradeDate, t.stockCode, t.investorType, SUM(t.netBuyAmount) " +
+           "FROM InvestorDailyTrade t WHERE t.tradeDate BETWEEN :from AND :to " +
+           "AND t.investorType IN ('FOREIGN', 'INSTITUTION') " +
+           "GROUP BY t.tradeDate, t.stockCode, t.investorType " +
+           "ORDER BY t.tradeDate, t.stockCode")
+    List<Object[]> aggregateNetByDateStockInvestor(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /**
      * 중복 데이터 삭제 (같은 날짜, 시장, 투자자, 거래유형, 순위의 중복 제거) — <b>가장 최신 id만 보존</b>.
      * <p>MAX 인 이유: 같은 키에 KIS 1차 수집(값 누락/0원)과 KRX 보충 수집(정상값)이 겹치면 나중 행이
      * 보정된 값이다. 이전엔 주석은 "최신"인데 쿼리는 MIN 이라 <b>보정 전 행을 남기고 보정된 행을 지웠다</b>.
