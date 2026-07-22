@@ -16,7 +16,7 @@
 - **감사 7축 중 ①~⑥을 병렬 Explore 에이전트 6개로 fan-out 완료(결과 대기 중)** — 각 축 지시엔 파일:라인+인용 요구.
   결과가 없으면 다음 세션에서 같은 지시로 재탐색해야 함(에이전트 지시 원문은 이 세션 한정 — 아래 "재실행 지침" 참조).
 - Part B 사전 조사: `RealTradeService`(838줄) 메서드 아웃라인 확인 — buy 2 오버로드(L202/223, NOT_SUPPORTED) → `executeBuy`(L240) / `sell`(L383) / `confirmFill`(L80)+`reconcileSellFill`(L99) / `triggerKillSwitchOnUncertainty`(L132) / `getBalanceInfo(force)`(L674). `BotOrderIntentService`(V35, BUY 선기록 멱등키)는 아직 미정독.
-- 발견사항(문서 정독 단계): **VERIFICATION_BACKLOG P0-1 티켓에 완료(✅) 표기 없음** — 그러나 P2-11(166행 부근)이 "P0-1 그물 2/DB앵커 그물 기존재"를 전제로 완료 처리됨 → P0-1 은 구현돼 있으나 티켓 미마감으로 추정(코드 확인 후 티켓 정정 = P2 저위험 문서 수정 후보). 다음 세션에서 `warnIfPriceOutlier` + `StockPriceOutlierGuardTest` 확인으로 확정할 것.
+- 발견사항(문서 정독 단계): **VERIFICATION_BACKLOG P0-1 티켓에 완료(✅) 표기 없음** — 그러나 P2-11(166행 부근)이 "P0-1 그물 2/DB앵커 그물 기존재"를 전제로 완료 처리됨 → P0-1 은 구현돼 있으나 티켓 미마감으로 추정(코드 확인 후 티켓 정정 = P2 저위험 문서 수정 후보). 다음 세션에서 `warnIfPriceOutlier` + `StockPriceOutlierGuardTest` 확인으로 확정할 것. → **[2026-07-22 확정] VERIFICATION_BACKLOG P0-1 은 이미 ✅ 마감돼 있음(3중 그물 + StockPriceOutlierGuardTest) — 본 항목 소진.**
 
 ## 재실행 지침 (에이전트 결과 유실 시)
 각 축 탐색 요지 — ③: KIS buyStock/sellStock 전 호출부→상향 호출그래프, 게이트(리더 fail-closed/killswitch/브레이커 BUY한정/PriceSanityGuard/BotOrderIntent) 체크리스트 + 게이트 내부 예외 삼킴이 ALLOW 로 떨어지는지 + ATR V42 REAL 2중 가드(`isAtrSetActive`/`resolveSwingExitLevels`) 인용 검증.
