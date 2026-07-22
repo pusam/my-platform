@@ -129,11 +129,17 @@ public class WebauthnController {
         if (!"APPROVED".equals(user.getStatus())) {
             return ResponseEntity.ok(new LoginResponse(false, "승인되지 않은 계정입니다."));
         }
-        String token = jwtTokenProvider.generateToken(user.getUsername());
-        redisTokenService.ifPresent(s ->
-                s.saveToken(user.getUsername(), token, jwtTokenProvider.getExpirationTime()));
+        // 비밀번호 로그인(AuthService.login)과 동일한 AT+RT 발급 — 이전엔 legacy generateToken(24h TTL 저장)
+        // 만 발급해 ① RT 부재로 패스키 사용자는 15분(AT 만료)마다 재인증 강제, ② JWT exp(15분)와
+        // Redis TTL(24h) 불일치로 만료 토큰 엔트리가 잔존했다.
+        String accessToken = jwtTokenProvider.generateAccessToken(user.getUsername());
+        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUsername());
+        redisTokenService.ifPresent(s -> {
+            s.saveToken(user.getUsername(), accessToken, jwtTokenProvider.getAccessExpiration());
+            s.saveRefreshToken(user.getUsername(), refreshToken, jwtTokenProvider.getRefreshExpiration());
+        });
         return ResponseEntity.ok(new LoginResponse(true, "로그인 성공",
-                token, user.getUsername(), user.getName(), user.getRole()));
+                accessToken, refreshToken, user.getUsername(), user.getName(), user.getRole()));
     }
 
     // ---- 등록된 credential 관리 (인증 필요) ----

@@ -200,6 +200,8 @@ const handlePasskeyLogin = async () => {
   try {
     const result = await loginPasskey()
     TokenManager.setToken(result.token)
+    // RT 저장 — 없으면 AT(15분) 만료 시 자동갱신 경로가 없어 패스키 사용자만 매 15분 재인증됐다
+    if (result.refreshToken) TokenManager.setRefreshToken(result.refreshToken)
     UserManager.setUser({
       username: result.username,
       name: result.name,
@@ -227,6 +229,7 @@ const handleWebauthnLogin = async () => {
   try {
     const result = await loginWebauthn(username.value.trim())
     TokenManager.setToken(result.token)
+    if (result.refreshToken) TokenManager.setRefreshToken(result.refreshToken)
     UserManager.setUser({
       username: result.username,
       name: result.name,
