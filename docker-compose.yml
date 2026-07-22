@@ -111,6 +111,9 @@ services:
       - DART_API_KEY=${DART_API_KEY:-}
       # 한국수출입은행 환율 — 미설정 시 네이버 스크래핑 폴백으로 조용히 강등
       - KOREAEXIM_API_KEY=${KOREAEXIM_API_KEY:-}
+      # ATR 세트(P2-17 실측) 플래그 — VIRTUAL 전용(REAL 2중 하드가드). 이중배선으로
+      # .env 수정 후 recreate 누락 시에도 ${} 치환 주입(OPS_CHECKLIST §2-1 권장사항).
+      - BOT_ATR_TRADING_ENABLED=${BOT_ATR_TRADING_ENABLED:-false}
     deploy:
       resources:
         limits:
