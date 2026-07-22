@@ -50,9 +50,12 @@ CREATE TABLE virtual_trade_history (
 );
 
 -- V20: 인덱스 idx_stock_price_code_fetched(stock_code,fetched_at)
+-- V51: ADD COLUMN ... AFTER market_cap — 운영 실테이블(레거시 ddl-auto 산물)에 있는 market_cap 이
+--      스텁에도 있어야 V51 이 적용된다(스텁 최소주의 예외: AFTER 앵커 컬럼은 포함 필수).
 CREATE TABLE stock_price (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     stock_code VARCHAR(20) NULL,
+    market_cap DECIMAL(20,0) NULL,
     fetched_at DATETIME NULL
 );
 
