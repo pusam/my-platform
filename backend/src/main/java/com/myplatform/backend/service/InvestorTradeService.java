@@ -39,6 +39,7 @@ public class InvestorTradeService {
     private final KoreaInvestmentService koreaInvestmentService;
     private final RedisCacheService redisCacheService;
     private final InvestorDailyTradeService investorDailyTradeService;
+    private final MarketCalendarService marketCalendarService;
     /** 자기 자신(프록시) — @Transactional/@CacheEvict 가 붙은 메서드를 내부에서 호출할 때 사용.
      *  같은 클래스 내부 직접 호출은 프록시를 안 거쳐 어노테이션이 통째로 무시된다. */
     private final org.springframework.beans.factory.ObjectProvider<InvestorTradeService> selfProvider;
@@ -58,6 +59,11 @@ public class InvestorTradeService {
      * @param tradeType BUY(매수), SELL(매도)
      * @param limit 조회할 종목 수 (기본 50)
      */
+    /** 수급 테이블 최신 거래일(없으면 null) — 소비자 측 노후(staleness) 가드용. */
+    public LocalDate getLatestTradeDate() {
+        return investorTradeRepository.findLatestTradeDate();
+    }
+
     public List<InvestorTradeDto> getTopTradesByInvestor(String investorType, String tradeType, Integer limit) {
         if (limit == null || limit <= 0) {
             limit = 50;
@@ -606,34 +612,24 @@ public class InvestorTradeService {
         // 연속 매수 종목 찾기
         List<ConsecutiveBuyDto> result = new ArrayList<>();
 
-        // 정렬된 거래일 리스트 (최신순)
-        List<LocalDate> sortedDates = new ArrayList<>(dailyStocks.keySet());
-        sortedDates.sort(Collections.reverseOrder());
-
         // ========== [개선 1] 후보군만 순회 (성능 최적화) ==========
         for (String stockCode : candidateStocks) {
-            // 해당 종목의 연속 매수 일수 계산
-            int consecutiveDays = 0;
-            LocalDate consecutiveStartDate = null;
-            LocalDate consecutiveEndDate = null;
+            // 거래일 달력 기준 연속 매수일 — 수집 결측일은 연속을 끊는다(§4c, resolveConsecutiveBuyDates)
+            List<LocalDate> streak = resolveConsecutiveBuyDates(
+                    stockCode, latestDate, startDate, dailyStocks, marketCalendarService::isMarketClosed);
+
+            int consecutiveDays = streak.size();
+            LocalDate consecutiveEndDate = streak.isEmpty() ? null : streak.get(0);
+            LocalDate consecutiveStartDate = streak.isEmpty() ? null : streak.get(streak.size() - 1);
             BigDecimal totalAmount = BigDecimal.ZERO;
 
-            for (LocalDate date : sortedDates) {
-                Set<String> stocksOnDate = dailyStocks.get(date);
-                if (stocksOnDate != null && stocksOnDate.contains(stockCode)) {
-                    if (consecutiveDays == 0) {
-                        consecutiveEndDate = date;
+            Map<LocalDate, BigDecimal> amounts = stockDailyAmounts.get(stockCode);
+            if (amounts != null) {
+                for (LocalDate date : streak) {
+                    BigDecimal amt = amounts.get(date);
+                    if (amt != null) {
+                        totalAmount = totalAmount.add(amt);
                     }
-                    consecutiveDays++;
-                    consecutiveStartDate = date;
-
-                    Map<LocalDate, BigDecimal> amounts = stockDailyAmounts.get(stockCode);
-                    if (amounts != null && amounts.get(date) != null) {
-                        totalAmount = totalAmount.add(amounts.get(date));
-                    }
-                } else {
-                    // 연속 끊김
-                    break;
                 }
             }
 
@@ -673,6 +669,37 @@ public class InvestorTradeService {
                 investorType, result.size(), candidateStocks.size(), minDays);
 
         return result;
+    }
+
+    /**
+     * 거래일 달력 기준 연속 매수일 계산 — streak 에 속한 날짜를 최신→과거 순으로 반환하는 순수 함수.
+     *
+     * <p>latestDate 부터 역행하며 주말·공휴일은 건너뛴다. 단 <b>거래일인데 dailyStocks 에
+     * 그 날짜 행이 통째로 없으면 수집 결측</b>(그날 매수 여부를 알 수 없음)이므로 연속을 끊는다 —
+     * 이전 구현은 "데이터가 있는 날짜"만 이어 세어 결측일을 인접일처럼 붙여 consecutiveDays 를
+     * 부풀렸다(§4c 위반). 임시공휴일 등 달력 미수록 휴일은 결측으로 보여 끊길 수 있으나
+     * 과소 판정 방향이라 안전한 열화다.
+     */
+    static List<LocalDate> resolveConsecutiveBuyDates(String stockCode,
+                                                      LocalDate latestDate,
+                                                      LocalDate earliestDate,
+                                                      Map<LocalDate, Set<String>> dailyStocks,
+                                                      java.util.function.Predicate<LocalDate> isMarketClosed) {
+        List<LocalDate> streak = new ArrayList<>();
+        LocalDate d = latestDate;
+        while (!d.isBefore(earliestDate)) {
+            if (isMarketClosed.test(d)) {
+                d = d.minusDays(1);
+                continue;
+            }
+            Set<String> stocksOnDate = dailyStocks.get(d);
+            if (stocksOnDate == null || !stocksOnDate.contains(stockCode)) {
+                break;
+            }
+            streak.add(d);
+            d = d.minusDays(1);
+        }
+        return streak;
     }
 
     /**

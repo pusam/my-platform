@@ -59,4 +59,15 @@ class RecommendationSortTest {
         list.sort(RecommendationService.recommendationComparator(prev));
         assertThat(list.get(0).stockCode).isEqualTo("ACCEL");
     }
+
+    @Test
+    @DisplayName("신규 진입(prev 부재)은 delta 0 — 최대 delta 로 tie 를 이기던 신규 편향 제거 (2026-07-28)")
+    void newEntrantDeltaIsZero() {
+        StockScore accel = score("ACCEL", 20, 20, 20, 20, 1.0);   // 어제 40 → delta 60
+        StockScore newbie = score("NEWBIE", 20, 20, 20, 20, 1.0); // 어제 풀 밖 → delta 0 (기존 버그: 100)
+        Map<String, Integer> prev = Map.of("ACCEL", 40, "FLAT", 90);
+        List<StockScore> list = new ArrayList<>(List.of(newbie, accel));
+        list.sort(RecommendationService.recommendationComparator(prev));
+        assertThat(list.get(0).stockCode).isEqualTo("ACCEL"); // 풀 안 가속이 신규보다 우선
+    }
 }

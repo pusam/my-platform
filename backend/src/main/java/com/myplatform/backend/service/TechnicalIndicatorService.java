@@ -107,6 +107,20 @@ public class TechnicalIndicatorService {
         builder.rsi14(rsi14);
         builder.rsiStatus(determineRsiStatus(rsi14));
 
+        // ========== 3b. 볼린저 밴드 ==========
+        // 기존엔 calculate() 가 볼린저 필드를 아예 안 채워 isBreakout 이 항상 null —
+        // overheatPenalty 의 상단 돌파 −3 과 ⚠볼린저상단돌파 태그(+ StockConclusionService 소비)가
+        // 전부 dead code 였다(2026-07-28 배선). 데이터 부족(<20봉)이면 null 유지(§4c).
+        BollingerBandsResult bb = calculateBollingerBands(prices);
+        if (bb != null) {
+            builder.upperBand(bb.getUpperBand());
+            builder.middleBand(bb.getMiddleBand());
+            builder.lowerBand(bb.getLowerBand());
+            builder.bandWidth(bb.getBandWidth());
+            builder.isSqueeze(bb.getIsSqueeze());
+            builder.isBreakout(bb.getIsBreakout());
+        }
+
         // ========== 4. 이동평균 시그널 ==========
         builder.isAboveMa5(isAbove(currentPrice, ma5));
         builder.isAboveMa20(isAbove(currentPrice, ma20));

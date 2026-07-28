@@ -33,6 +33,22 @@
       <div class="ts-title-row">
         <h2>📌 오늘의 매수 후보</h2>
         <span class="ts-hint">종합추천 중 BUY 컷(55점) 이상만</span>
+        <span v-if="recDataTime" class="ts-asof">{{ recDataTime }}</span>
+        <span v-if="!recRealtime" class="ts-stale">실시간 아님 · 마지막 계산 스냅샷</span>
+      </div>
+
+      <!-- 신뢰도(실측) — 후보 바로 위에서 "이 점수를 얼마나 믿어도 되나"를 먼저 보여준다.
+           소스: accuracy-by-band(보드 신호 격리 + phase-38 컷오프 이후 forward 실측). -->
+      <div v-if="trustBands.length" class="today-trust">
+        <div class="tt-row">
+          <span class="tt-icon">📊</span>
+          <span class="tt-title">실측 적중률 <template v-if="trustSince">({{ trustSince }}~ · 3거래일)</template></span>
+          <span v-for="b in trustBands" :key="b.band" class="tt-chip" :class="{ 'tt-weak': b.totalSignals < 30 }">
+            {{ b.band }}점 {{ b.hitRate }}%
+            <em>({{ b.totalSignals }}건{{ b.totalSignals < 30 ? '·표본부족' : '' }})</em>
+          </span>
+        </div>
+        <div v-if="trustCaution" class="tt-caution">⚠ {{ trustCaution }}</div>
       </div>
 
       <div v-if="candidatesLoading" class="ts-state">후보 분석 중...</div>
@@ -53,9 +69,9 @@
             </div>
             <div class="cc-tags">
               <span v-if="catalysts[c.stockCode]" class="cc-catalyst" :class="'cat-' + catalysts[c.stockCode].direction.toLowerCase()">
-                🔥 재료: {{ catalysts[c.stockCode].typeLabel }}({{ directionLabel(catalysts[c.stockCode].direction) }})
+                🔥 재료: {{ catalysts[c.stockCode].typeLabel }}({{ directionLabel(catalysts[c.stockCode].direction) }}){{ catalystAgeLabel(catalysts[c.stockCode]) }}
               </span>
-              <span v-for="(tag, ti) in (c.tags || []).slice(0, 2)" :key="ti" class="cc-tag">{{ tag }}</span>
+              <span v-for="(tag, ti) in displayTags(c)" :key="ti" class="cc-tag" :class="{ 'cc-tag-warn': tag.startsWith('⚠') }">{{ tag }}</span>
             </div>
           </div>
           <div class="cc-price">
@@ -68,11 +84,37 @@
       </div>
     </div>
 
-    <!-- ①-c 시간대 신호(장전 주목주/장후 마감) — 발굴에서 이동(2026-07-01). hub 슬롯 주입(데이터/CSS=hub scope). -->
+    <!-- ③ 내 포지션 요약 — 내 돈이 걸린 정보라 후보 바로 다음(위) -->
+    <div class="today-section" v-if="portfolio.length">
+      <div class="ts-title-row">
+        <h2>💼 내 포지션 {{ portfolio.length }}종목</h2>
+        <span class="ts-pl" :class="totalProfitLoss >= 0 ? 'positive' : 'negative'">
+          평가손익 {{ signed(totalProfitLoss, true) }}원
+        </span>
+      </div>
+      <div class="position-list">
+        <div v-for="p in portfolio.slice(0, 3)" :key="p.stockCode"
+             class="position-row" role="button" tabindex="0"
+             @click="$emit('open-stock', p.stockCode)"
+             @keydown.enter="$emit('open-stock', p.stockCode)">
+          <span class="pr-name">{{ p.stockName }}</span>
+          <span class="pr-qty">{{ p.quantity }}주</span>
+          <span class="pr-rate" :class="Number(p.profitRate) >= 0 ? 'positive' : 'negative'">
+            {{ signed(p.profitRate) }}%
+          </span>
+        </div>
+      </div>
+      <button class="ts-more" @click="$emit('navigate', 'trade')">매매 탭에서 전체 보기 →</button>
+    </div>
+
+    <!-- ④ 시간대 신호(장전 주목주/장후 마감) — 발굴에서 이동(2026-07-01). hub 슬롯 주입(데이터/CSS=hub scope). -->
     <slot name="phase-signals" />
 
-    <!-- ②-b 차트 신호 관찰 — momentum 후보와 별도 모듈. 백테스트(P2-12) 결과 적중률 31%·점수 역상관
-         (승격불가)이라 '매수 후보' 아님. 접기 기본(우선순위 낮춤) + 점수 미표시(역상관 오해 방지). -->
+    <!-- ⑤ 관심종목(접힘 기본) — 발굴에서 이동(2026-07-01). hub 슬롯 주입. -->
+    <slot name="watchlist" />
+
+    <!-- ⑥ 차트 신호 관찰 — momentum 후보와 별도 모듈. 백테스트(P2-12) 결과 적중률 31%·점수 역상관
+         (승격불가)이라 '매수 후보' 아님. 맨 아래 + 접기 기본(우선순위 최하) + 점수 미표시(역상관 오해 방지). -->
     <div class="today-section today-observe" v-if="timingCandidates.length || timingLoading || !timingAvailable">
       <div class="ts-title-row">
         <h2>🪝 차트 타이밍 관찰</h2>
@@ -115,37 +157,6 @@
       </template>
     </div>
 
-    <!-- ③ 신뢰도 스트립 — 이 추천을 얼마나 믿어도 되나 -->
-    <div v-if="trustLine" class="today-trust">
-      <span class="tt-icon">📊</span>
-      <span class="tt-text">{{ trustLine }}</span>
-    </div>
-
-    <!-- ③-b 관심종목(접힘 기본) — 발굴에서 이동(2026-07-01). hub 슬롯 주입. -->
-    <slot name="watchlist" />
-
-    <!-- ④ 내 포지션 요약 -->
-    <div class="today-section" v-if="portfolio.length">
-      <div class="ts-title-row">
-        <h2>💼 내 포지션 {{ portfolio.length }}종목</h2>
-        <span class="ts-pl" :class="totalProfitLoss >= 0 ? 'positive' : 'negative'">
-          평가손익 {{ signed(totalProfitLoss, true) }}원
-        </span>
-      </div>
-      <div class="position-list">
-        <div v-for="p in portfolio.slice(0, 3)" :key="p.stockCode"
-             class="position-row" role="button" tabindex="0"
-             @click="$emit('open-stock', p.stockCode)"
-             @keydown.enter="$emit('open-stock', p.stockCode)">
-          <span class="pr-name">{{ p.stockName }}</span>
-          <span class="pr-qty">{{ p.quantity }}주</span>
-          <span class="pr-rate" :class="Number(p.profitRate) >= 0 ? 'positive' : 'negative'">
-            {{ signed(p.profitRate) }}%
-          </span>
-        </div>
-      </div>
-      <button class="ts-more" @click="$emit('navigate', 'trade')">매매 탭에서 전체 보기 →</button>
-    </div>
   </div>
 </template>
 
@@ -170,8 +181,9 @@ const timingCandidates = ref([]);    // 차트 신호 관찰 — momentum 과 �
 const timingAvailable = ref(true);   // dataAvailable=false → 분석서버 미가용(빈 결과와 구분)
 const timingExpanded = ref(false);   // 백테스트 부진이라 기본 접힘(우선순위 낮춤). 펼쳐야 종목 표시
 const catalysts = ref({});           // stockCode → catalyst dto
-const accuracyStats = ref([]);
-const backtestOverall = ref(null);
+const bandAccuracy = ref(null);      // accuracy-by-band(보드 격리 + phase-38 컷오프 forward 실측)
+const recDataTime = ref(null);       // 후보 계산 기준 시각(백엔드 dataTime) — as-of 정직 표시
+const recRealtime = ref(true);       // false = 마지막 계산 스냅샷(전일 마감 등)
 const portfolio = ref([]);
 const overnight = ref(null);          // 간밤 미국장 tilt(미검증 참고 · regime 산식 미편입)
 const overnightAvailable = ref(true); // dataAvailable=false → Yahoo 미가용
@@ -184,16 +196,20 @@ const hasMarketData = computed(() =>
 const totalProfitLoss = computed(() =>
   portfolio.value.reduce((sum, p) => sum + Number(p.profitLoss || 0), 0));
 
-// "이 추천을 얼마나 믿어도 되나" 한 줄 — 적중률(30일) + 트랙레코드(30일) 합성.
-const trustLine = computed(() => {
-  const parts = [];
-  const sb = accuracyStats.value.find(s => s.signalType === 'STRONG_BUY');
-  const buy = accuracyStats.value.find(s => s.signalType === 'BUY');
-  if (sb) parts.push(`STRONG_BUY 30일 적중률 ${sb.hitRate}% (${sb.hitCount}/${sb.totalSignals}건)`);
-  if (buy) parts.push(`BUY ${buy.hitRate}%`);
-  const bt = backtestOverall.value;
-  if (bt && bt.totalPicks > 0) parts.push(`트랙레코드 30일 평균 ${signed(bt.avgReturn)}% (비용 차감)`);
-  return parts.length ? parts.join(' · ') : null;
+// "이 점수를 얼마나 믿어도 되나" — accuracy-by-band 실측(보드 신호 격리 + phase-38 컷오프 이후).
+// 이전엔 /signal-outcomes/accuracy(전 시그널 혼합·컷오프 없음) + /backtest/performance(mark-to-market,
+// 백테스트 아님)를 합성해 보여줬다 — 현재 산식 성적이 아닌 숫자라 교체(2026-07-28).
+const trustBands = computed(() =>
+  (bandAccuracy.value?.bands || []).filter(b => Number(b.totalSignals) > 0));
+const trustSince = computed(() => bandAccuracy.value?.since || null);
+const trustCaution = computed(() => {
+  if (!trustBands.value.length) return null;
+  const solid = trustBands.value.filter(b => Number(b.totalSignals) >= 30);
+  const pool = solid.length ? solid : trustBands.value;
+  const best = Math.max(...pool.map(b => Number(b.hitRate) || 0));
+  return best < 50
+    ? '현재까지 실측 적중률이 50% 미만입니다 — 점수는 참고용으로만 쓰고, 손절 계획 없는 매수는 하지 마세요.'
+    : null;
 });
 
 const loadCandidates = async () => {
@@ -201,6 +217,8 @@ const loadCandidates = async () => {
   try {
     const { data } = await recommendationAPI.getTop5();
     const items = data?.data || [];
+    recDataTime.value = data?.dataTime || null;
+    recRealtime.value = data?.realtime !== false;
     buyCandidates.value = items
       .filter(r => Number(r.totalScore) >= BUY_CUT)
       .slice(0, MAX_CANDIDATES);
@@ -212,19 +230,42 @@ const loadCandidates = async () => {
   }
 };
 
-// 후보별 재료 배지 — best-effort (실패/재료없음(NONE)이면 배지 생략)
+/** 재료 경과일 — catalystDate 없으면 null(미상). */
+const catalystAgeDays = (cat) => {
+  if (!cat?.catalystDate) return null;
+  const d = new Date(cat.catalystDate);
+  if (Number.isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+};
+const catalystAgeLabel = (cat) => {
+  const age = catalystAgeDays(cat);
+  if (age == null || age <= 0) return '';
+  return ` · ${age}일 전`;
+};
+
+// 후보별 재료 배지 — 일캐시 read-only lookup(stockName 미전달 = 신규 Gemini 분류 트리거 안 함,
+// 종합판단 보드와 동일 규약). 2일 초과 경과 재료는 배지 생략(보드 표시창과 동기), 1일+ 는 경과일 표기 —
+// 옛 뉴스가 "오늘 재료"처럼 보이지 않게(§4c). 실패/재료없음(NONE)이면 배지 생략.
 const loadCatalysts = async () => {
   for (const c of buyCandidates.value) {
     try {
-      const { data } = await apiClient.get(`/stock/${c.stockCode}/catalyst`, {
-        params: { stockName: c.stockName }
-      });
+      const { data } = await apiClient.get(`/stock/${c.stockCode}/catalyst`);
       const cat = data?.data;
       if (cat && cat.catalystType !== 'NONE') {
+        const age = catalystAgeDays(cat);
+        if (age != null && age > 2) continue;
         catalysts.value = { ...catalysts.value, [c.stockCode]: cat };
       }
     } catch (e) { /* 배지 생략 */ }
   }
+};
+
+/** 태그 표시 — ⚠ 경고 태그 우선(잘림 방지), 최대 3개. */
+const displayTags = (c) => {
+  const tags = c.tags || [];
+  const warn = tags.filter(t => typeof t === 'string' && t.startsWith('⚠'));
+  const rest = tags.filter(t => !warn.includes(t));
+  return [...warn, ...rest].slice(0, 3);
 };
 
 // 차트 신호 관찰 — momentum 과 정반대 objective(추세 안 눌림목). 별도 모듈.
@@ -247,13 +288,9 @@ const loadTimingCandidates = async () => {
 
 const loadTrust = async () => {
   try {
-    const { data } = await apiClient.get('/signal-outcomes/accuracy', { params: { days: 30 } });
-    if (data?.success) accuracyStats.value = data.data?.stats || [];
-  } catch (e) { /* 생략 */ }
-  try {
-    const { data } = await apiClient.get('/backtest/performance', { params: { days: 30 } });
-    if (data?.success) backtestOverall.value = data.data?.overall || null;
-  } catch (e) { /* 생략 */ }
+    const { data } = await apiClient.get('/signal-outcomes/accuracy-by-band', { params: { days: 90 } });
+    if (data?.success !== false && data?.data) bandAccuracy.value = data.data;
+  } catch (e) { /* 생략 — 스트립 자체를 숨김(§4c: 미측정을 좋게 위장하지 않음) */ }
 };
 
 const loadPortfolio = async () => {
@@ -367,6 +404,11 @@ onMounted(() => {
 .ts-title-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .ts-title-row h2 { margin: 0; font-size: 16px; }
 .ts-hint { font-size: 11px; opacity: 0.5; }
+.ts-asof { margin-left: auto; font-size: 11px; opacity: 0.55; }
+.ts-stale {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px;
+  color: #fbbf24; background: rgba(245, 158, 11, 0.14); border: 1px solid rgba(245, 158, 11, 0.35);
+}
 .ts-pl { margin-left: auto; font-size: 13px; font-weight: 700; }
 .ts-state { padding: 18px 0; text-align: center; font-size: 13px; opacity: 0.6; }
 .ts-state.empty { opacity: 0.75; }
@@ -425,6 +467,13 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.07);
   opacity: 0.8;
 }
+/* ⚠ 경고 태그(리스크공시·신규급등 등) — 일반 태그와 구분되는 적색 톤 */
+.cc-tag-warn {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.14);
+  opacity: 1;
+  font-weight: 600;
+}
 .cc-catalyst {
   font-size: 11px;
   font-weight: 600;
@@ -438,17 +487,26 @@ onMounted(() => {
 .cc-price-num { display: block; font-size: 13px; font-weight: 600; }
 .cc-change { font-size: 12px; }
 
-/* ③ 신뢰도 스트립 */
+/* 신뢰도(실측) — 매수 후보 섹션 상단, 후보를 보기 전에 "얼마나 믿을 수 있나"부터 */
 .today-trust {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  margin-top: 10px;
   background: rgba(255, 255, 255, 0.04);
   border-radius: 10px;
-  padding: 10px 16px;
-  font-size: 12.5px;
+  padding: 9px 12px;
+  font-size: 12px;
 }
-.tt-text { opacity: 0.8; }
+.tt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tt-title { font-weight: 600; opacity: 0.75; }
+.tt-chip {
+  padding: 1px 8px; border-radius: 4px; font-weight: 600;
+  background: rgba(255, 255, 255, 0.07);
+}
+.tt-chip em { font-style: normal; font-weight: 400; opacity: 0.65; font-size: 11px; }
+.tt-weak { opacity: 0.6; }
+.tt-caution {
+  margin-top: 6px; font-size: 11.5px; line-height: 1.45;
+  color: #fbbf24;
+}
 
 /* ④ 포지션 */
 .position-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }

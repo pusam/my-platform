@@ -58,6 +58,7 @@ public class RecommendationService {
     private final RecommendationSnapshotRepository snapshotRepository;
     private final StockFinancialDataRepository financialDataRepository;
     private final RiskManagementService riskManagementService;
+    private final StockStatusService stockStatusService;
     private final TelegramNotificationService telegramService;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
@@ -132,7 +133,9 @@ public class RecommendationService {
 
     // phase 34 — 시장 국면 enum. scoreSectorMomentum 의 전체 섹터 평균 등락률로 판정.
     // 가중치 multiplier 표는 applyMarketRegimeWeighting 참고.
-    enum MarketRegime { BULL, BEAR, SIDEWAYS } // package-private: P1-5 regime 가중 테스트
+    // UNKNOWN(2026-07-28): 섹터 로테이션 조회 실패/빈 캐시 시 "횡보장으로 측정됨"(SIDEWAYS, 섹터 ×0.90)
+    // 으로 위장되던 것을 분리 — UNKNOWN 은 가중 미적용(전부 ×1.0), 신규진입 임계는 보수(15%) 유지(§4c).
+    enum MarketRegime { BULL, BEAR, SIDEWAYS, UNKNOWN } // package-private: P1-5 regime 가중 테스트
 
     // phase 35 — hysteresis. 직전 calculate() 사이클의 regime 기억.
     // dead band 0.5 적용으로 임계 근처 흔들림(예: avg=-1.1 한 번 찍었다고 BULL→BEAR 즉시 전환)
@@ -757,7 +760,11 @@ public class RecommendationService {
             }
         } catch (Exception e) {
             log.error("[저평가TOP10] 계산 실패: {}", e.getMessage(), e);
-            result = cachedValueTop10 != null ? cachedValueTop10 : Collections.emptyList();
+            // 폴백은 캐시 시각으로 라벨 — 옛 데이터에 현재 시각을 붙이지 않는다(§4c)
+            if (cachedValueTop10 != null && valueCacheTime != null) {
+                return buildValueResponse(cachedValueTop10, valueCacheTime.format(TIME_FMT) + " 기준", trading);
+            }
+            result = Collections.emptyList();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -776,6 +783,7 @@ public class RecommendationService {
         List<ValueScoredStock> scored = new ArrayList<>();
         for (StockFinancialData fin : all) {
             if (fin.getStockCode() == null || fin.getStockName() == null) continue;
+            if (!stockStatusService.isActive(fin.getStockCode())) continue;  // 거래정지/상폐 제외
             int[] parts = computeValueScoreParts(fin);
             int score = Math.min(20, parts[0] + parts[1] + parts[2] + parts[3]);
             if (score <= 0) continue;
@@ -926,7 +934,10 @@ public class RecommendationService {
             }
         } catch (Exception e) {
             log.error("[성장주TOP10] 계산 실패: {}", e.getMessage(), e);
-            result = cachedGrowthTop10 != null ? cachedGrowthTop10 : Collections.emptyList();
+            if (cachedGrowthTop10 != null && growthCacheTime != null) {
+                return buildValueResponse(cachedGrowthTop10, growthCacheTime.format(TIME_FMT) + " 기준", trading);
+            }
+            result = Collections.emptyList();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -938,6 +949,7 @@ public class RecommendationService {
         List<GrowthScoredStock> scored = new ArrayList<>();
         for (StockFinancialData fin : all) {
             if (fin.getStockCode() == null || fin.getStockName() == null) continue;
+            if (!stockStatusService.isActive(fin.getStockCode())) continue;  // 거래정지/상폐 제외
             int[] parts = computeGrowthScoreParts(fin.getRevenueGrowth(), fin.getProfitGrowth(), fin.getPeg());
             int score = Math.min(20, parts[0] + parts[1] + parts[2]);
             if (score <= 0) continue;
@@ -1068,7 +1080,10 @@ public class RecommendationService {
             }
         } catch (Exception e) {
             log.error("[낙폭과대TOP10] 계산 실패: {}", e.getMessage(), e);
-            result = cachedOversoldTop10 != null ? cachedOversoldTop10 : Collections.emptyList();
+            if (cachedOversoldTop10 != null && oversoldCacheTime != null) {
+                return buildValueResponse(cachedOversoldTop10, oversoldCacheTime.format(TIME_FMT) + " 기준", trading);
+            }
+            result = Collections.emptyList();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -1084,6 +1099,8 @@ public class RecommendationService {
 
         List<OversoldScoredStock> scored = new ArrayList<>();
         for (Map.Entry<String, List<StockPriceHistory>> e : byCode.entrySet()) {
+            // 거래정지/상폐 제외 — 정지 종목은 히스토리가 동결돼 "낙폭과대"로 영구 노출되는 사각(§4c)
+            if (!stockStatusService.isActive(e.getKey())) continue;
             List<StockPriceHistory> rows = e.getValue();   // tradeDate DESC (findByStockCodesSince 보장)
             if (rows.size() < OVERSOLD_MIN_HISTORY) continue;
             List<BigDecimal> prices = rows.stream().map(StockPriceHistory::getClosePrice)
@@ -1173,7 +1190,10 @@ public class RecommendationService {
             if (!result.isEmpty()) { cachedEarningsTop10 = result; earningsCacheTime = now; }
         } catch (Exception e) {
             log.error("[실적TOP10] 계산 실패: {}", e.getMessage(), e);
-            result = cachedEarningsTop10 != null ? cachedEarningsTop10 : Collections.emptyList();
+            if (cachedEarningsTop10 != null && earningsCacheTime != null) {
+                return buildValueResponse(cachedEarningsTop10, earningsCacheTime.format(TIME_FMT) + " 기준", trading);
+            }
+            result = Collections.emptyList();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -1192,7 +1212,10 @@ public class RecommendationService {
             if (!result.isEmpty()) { cachedSmartMoneyTop10 = result; smartMoneyCacheTime = now; }
         } catch (Exception e) {
             log.error("[스마트머니TOP10] 계산 실패: {}", e.getMessage(), e);
-            result = cachedSmartMoneyTop10 != null ? cachedSmartMoneyTop10 : Collections.emptyList();
+            if (cachedSmartMoneyTop10 != null && smartMoneyCacheTime != null) {
+                return buildValueResponse(cachedSmartMoneyTop10, smartMoneyCacheTime.format(TIME_FMT) + " 기준", trading);
+            }
+            result = Collections.emptyList();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -1207,6 +1230,7 @@ public class RecommendationService {
 
         java.util.function.ToIntFunction<StockScore> pick = earnings ? (s -> s.earnings) : (s -> s.supplyDemand);
         List<StockScore> scored = map.values().stream()
+                .filter(s -> stockStatusService.isActive(s.stockCode))  // 거래정지/상폐 제외
                 .filter(s -> pick.applyAsInt(s) > 0)
                 .sorted((a, b) -> Integer.compare(pick.applyAsInt(b), pick.applyAsInt(a)))
                 .collect(Collectors.toList());
@@ -1304,6 +1328,9 @@ public class RecommendationService {
         log.info("[종합추천] scoreMap {}종목 (AI시드 {}개)", scoreMap.size(), aiCount);
 
         List<RecommendationDto> results = scoreMap.values().stream()
+                // 거래정지/상폐 종목 제외 — 봇(isActive)과 동일 게이트를 추천에도 적용(2026-07-28).
+                // KRX 동기화 전(빈 셋)에는 통과(fail-open) — 기존 semantics 유지.
+                .filter(s -> stockStatusService.isActive(s.stockCode))
                 .filter(s -> countValidCategories(s) >= 3)  // 4카테고리 중 최소 3개 valid (75% 커버리지)
                 .filter(s -> normalizeScore(
                         // AI전략·가치는 totalScore 산식에서 제외 — 후보 발굴/태그 용도.
@@ -1311,7 +1338,9 @@ public class RecommendationService {
                         // 포함되고 toDto/getNormalizedTotal 에선 빠져서 "55점 컷 통과 후 표시 점수는
                         // 50점" 같은 일관성 깨짐 발생. v7 (5→4 카테고리) 전환 시 누락된 부분.
                         // A안(P1-6): 수급 캡 적용값으로 합산 — toDto/getNormalizedTotal 과 동일 raw(일관성).
-                        s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP) + s.technical + s.sectorMomentum,
+                        // 리스크 공시 −5 도 동일 3지점 차감(toDto/getNormalizedTotal 과 일관).
+                        Math.max(0, s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP)
+                                + s.technical + s.sectorMomentum - s.riskPenalty),
                         countValidCategories(s)) >= 55) // 관망 컷 — 60→55 완화 (TOP10 자리 채우기, 데이터 부족시 5건만 노출되던 문제)
                 .sorted(recommendationComparator(prevScoreMap))
                 .limit(10)
@@ -1538,6 +1567,10 @@ public class RecommendationService {
                     if (stock.valueStability >= 0) {
                         stock.valueStability = Math.max(0, stock.valueStability - 5);
                     }
+                    // composite 총점 raw 합산에서 −5 (수급 캡과 동일하게 3개 지점에서만 차감,
+                    // 카테고리 표시값 불변). 기존엔 valueStability 만 깎아 composite 랭킹엔
+                    // 실효 0 이던 no-op 버그(2026-07-28) — 5트랙은 이미 score−5 로 실감점.
+                    stock.riskPenalty = 5;
                     stock.tags.add("⚠리스크공시");
                     hit++;
                 }
@@ -1643,6 +1676,18 @@ public class RecommendationService {
     private void scoreSupplyDemand(Map<String, StockScore> scoreMap) {
         int fc = 0, ic = 0, topBuy = 0;
         try {
+            // 0. 노후 가드 — 수급 테이블 최신일이 직전 거래일보다 오래됐으면(수집 N일 실패) 미채점.
+            //    기존엔 MAX(tradeDate) 를 무조건 "당일 수급"처럼 채점해 3일 전 순매수가
+            //    당일 순매수 상위(+8)로 들어갔다(§4c — 오래된 데이터를 당일로 위장 금지, 2026-07-28).
+            //    수집 정상 시(15:50/18:00 + 기동 catch-up) 최신일은 항상 오늘 또는 직전 거래일이라 무영향.
+            java.time.LocalDate latestSupplyDate = investorTradeService.getLatestTradeDate();
+            java.time.LocalDate minAcceptable = marketCalendar.minusTradingDays(java.time.LocalDate.now(), 1);
+            if (latestSupplyDate == null || latestSupplyDate.isBefore(minAcceptable)) {
+                log.warn("[종합추천] 수급 데이터 노후(최신 {} < 허용 {}) — 수급 미채점(§4c)",
+                        latestSupplyDate, minAcceptable);
+                return;
+            }
+
             // 1. 연속매수 (2일+)
             List<ConsecutiveBuyDto> foreign = investorTradeService.getConsecutiveBuyStocks("FOREIGN", 2);
             if (foreign != null) {
@@ -1731,14 +1776,19 @@ public class RecommendationService {
     private MarketRegime scoreSectorMomentum(Map<String, StockScore> scoreMap) {
         // 1. 섹터 로테이션 — 시장 분위기 메타 (점수엔 부여 안 함, 로그용) + phase 34 regime 판정.
         int marketMoodBonus = 0;
-        MarketRegime regime = MarketRegime.SIDEWAYS;
+        // 기본 UNKNOWN — 섹터 데이터 확보 시에만 실측 regime 으로 바뀐다. 실패 시 SIDEWAYS 로
+        // 위장하면 섹터 ×0.90 이 "측정된 횡보장"처럼 적용됨(§4c, 2026-07-28).
+        MarketRegime regime = MarketRegime.UNKNOWN;
         try {
             List<SectorRotationDto> rotations = sectorTradingService.getSectorRotation();
             if (rotations != null && !rotations.isEmpty()) {
                 // phase 34: 전체 섹터 평균 등락률로 시장 국면 판정. 양봉/INFLOW 필터링 없는 raw 평균
                 // 이라야 약세장도 음수로 잡힘.
+                // 2026-07-28: avgChangeRate 는 실제로 섹터 내 "상위 5개" 평균이라 하락장에서도 양수
+                // (BULL 상방편향 → 전 종목 +4 floor·신규진입 임계 25% 완화 연쇄) — 판정 입력을
+                // rawAvgChangeRate(전 종목 평균)로 교체. 표시용 avgChangeRate 는 그대로.
                 double overallAvg = rotations.stream()
-                        .mapToDouble(r -> safeDouble(r.getAvgChangeRate()))
+                        .mapToDouble(r -> safeDouble(r.getRawAvgChangeRate()))
                         .average().orElse(0.0);
                 MarketRegime fresh;
                 if (overallAvg > 1.0) fresh = MarketRegime.BULL;
@@ -1773,7 +1823,7 @@ public class RecommendationService {
                 }
             }
         } catch (Exception e) {
-            log.debug("[종합추천] 섹터 로테이션 실패: {}", e.getMessage());
+            log.warn("[종합추천] 섹터 로테이션 실패 — regime UNKNOWN(가중 미적용): {}", e.getMessage());
         }
 
         // 2. AI 스냅샷에서 테마 보너스 (있으면)
@@ -1786,17 +1836,13 @@ public class RecommendationService {
                     if (stocks == null) continue;
                     for (AiStrategySnapshotDto snap : stocks) {
                         if (snap.getStockCode() == null) continue;
+                        // 테마 점수만 — 등락률 보너스는 아래 3단계 per-stock 루프에서 1회만 부여.
+                        // (기존엔 여기서도 같은 changeRate 로 최대 +4 를 더해 이중가산 — AI 스냅샷
+                        //  종목이 한 등락률로 최대 +8 을 받아 phase 38 anti-추격 취지 위반, 2026-07-28 제거)
                         int ts = 0;
                         String themes = snap.getAiThemes();
                         if (themes != null && !themes.isBlank()) {
                             ts = Math.min(10, 4 + themes.split(",").length * 2);
-                        }
-                        if (snap.getChangeRate() != null) {
-                            double cr = snap.getChangeRate().doubleValue();
-                            if (cr > 3.0) ts += 4;
-                            else if (cr > 1.5) ts += 3;
-                            else if (cr > 0.5) ts += 2;
-                            else if (cr > 0) ts += 1;
                         }
                         themeScores.merge(snap.getStockCode(), ts, Math::max);
                         if (snap.getChangeRate() != null) {
@@ -2297,8 +2343,11 @@ public class RecommendationService {
     static Comparator<StockScore> recommendationComparator(Map<String, Integer> prevScoreMap) {
         return Comparator.comparingInt(StockScore::getNormalizedTotal).reversed()
                 .thenComparing((StockScore s) -> {
+                    // prev 부재(어제 풀 밖 신규 진입) = delta 0 — 기존엔 prev=0 취급이라 신규가
+                    // 항상 최대 delta 로 tie 를 이기는 신규 편향(추격 방향)이 있었다(2026-07-28).
+                    // delta 는 "추천 풀 안에서의 가속"만 우대한다는 P0-3 의도대로.
                     Integer prev = prevScoreMap.get(s.stockCode);
-                    return s.getNormalizedTotal() - (prev != null ? prev : 0);
+                    return prev != null ? s.getNormalizedTotal() - prev : 0;
                 }, Comparator.reverseOrder())
                 // changeRate asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
                 .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0);
@@ -2320,7 +2369,10 @@ public class RecommendationService {
         switch (regime) {
             case BULL -> { wE = 0.95; wSD = 1.10; wTC = 1.05; wSC = 1.00; }
             case BEAR -> { wE = 1.20; wSD = 0.85; wTC = 0.90; wSC = 0.80; }
-            default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
+            case SIDEWAYS -> { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 0.90; }
+            // UNKNOWN(측정 실패) — 가중 미적용. SIDEWAYS 의 섹터 0.90 은 "측정된 횡보장" 보정이라
+            // 미측정에 적용하면 §4c 위반(결측을 판정값으로 위장).
+            default ->   { wE = 1.00; wSD = 1.00; wTC = 1.00; wSC = 1.00; }
         }
         return new int[] {
                 clampCategory((int) Math.round(earnings * wE)),
@@ -2419,7 +2471,9 @@ public class RecommendationService {
     private RecommendationDto toDto(StockScore s) {
         int vc = countValidCategories(s);
         // 4 카테고리 합산 — 가치/AI전략 분리. 수급은 캡 적용값(A안, P1-6). 표시값은 아래 .supplyDemand 에서 원값 유지.
-        int raw = s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP) + s.technical + s.sectorMomentum;
+        // 리스크 공시 페널티(-5)도 raw 에서만 차감 — 필터/getNormalizedTotal 과 동일 3지점.
+        int raw = Math.max(0, s.earnings + cappedSupply(s.supplyDemand, SUPPLY_DEMAND_CAP)
+                + s.technical + s.sectorMomentum - s.riskPenalty);
         int total = normalizeScore(raw, vc);
         // phase 34: STRONG_BUY + 강한 가치 교집합 가산 (정렬용 getNormalizedTotal 과 일관성 유지)
         if (total >= STRONG_BUY_THRESHOLD && s.valueStability >= STRONG_VALUE_THRESHOLD) {
@@ -2461,6 +2515,9 @@ public class RecommendationService {
         BigDecimal changeRate;
         // phase31 P2 — 5거래일 누적 등락률 (%). scoreTechnical 에서 채움. 신규 진입 감점에 사용.
         double fiveDayReturn = 0.0;
+        // 리스크 공시 페널티(0 또는 5) — applyRiskPenalty 에서 설정. composite raw 합산
+        // 3지점(필터/toDto/getNormalizedTotal)에서만 차감, 카테고리 표시값은 불변(수급 캡 A안과 동일 패턴).
+        int riskPenalty = 0;
         StockScore(String code, String name) { stockCode = code; stockName = name; }
 
         int getNormalizedTotal() {
@@ -2471,7 +2528,8 @@ public class RecommendationService {
             if (supplyDemand > 0) { v++; sum += cappedSupply(supplyDemand, SUPPLY_DEMAND_CAP); }
             if (technical > 0) { v++; sum += technical; }
             if (sectorMomentum > 0) { v++; sum += sectorMomentum; }
-            int total = normalizeScore(sum, v);
+            // 리스크 공시 페널티 — toDto/필터와 동일 3지점 차감(랭킹·표시 일관)
+            int total = normalizeScore(Math.max(0, sum - riskPenalty), v);
             // phase 34: STRONG_BUY + 강한 가치 교집합 가산 (toDto 와 일관성)
             if (total >= STRONG_BUY_THRESHOLD && valueStability >= STRONG_VALUE_THRESHOLD) {
                 total = Math.min(100, total + STRONG_VALUE_BONUS);

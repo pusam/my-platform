@@ -633,3 +633,29 @@
 - **불변식**: mode OFF=봇 매매 byte-identical · 진입 게이트만(청산 미관여, 브레이커 비대칭 동일) · §4d 체인 형제 레이어(우회 없음) · VKOSPI 미수집=UNKNOWN=skip+로그(§4c, 가짜 NORMAL 금지) · §16 getIndexDailyOhlcv 재사용.
 - **⚠ 운영 인지(AUDIT_2026-07-09 P3 — 후속 경보 추가 `c4ba295`)**: REDUCED/BLOCK ON 상태에서 VKOSPI 소스(KIS 0503) 死 지속 시 게이트는 **fail-open 으로 skip**(보호 0, 진입 계속 허용) — 단 **UNKNOWN 연속 N일(기본 3, `bot.vol-regime.unknown-alert-days`) 시 risk 채널 경보 1회**(하루 1회 쿨다운)로 사람이 인지. 게이트 동작은 그대로 fail-open. `DATA_HEALTH_CHECK.md` §3 "vkospi 계속 null" 도 보정 모니터(priceSanity 앵커결측 fail-open 트레이드오프와 동일 성격).
 - **관련**: `VolatilityRegimeService`, `AutoTradingBotService`(swing/scalping/closing 게이트), V46 `vol_regime_at_signal`, `WeeklyAccuracyAggregator.buildVolRegimeGroups`, application.yml `bot.vol-regime*`.
+
+## P2-19. 추천 신뢰성 감사 잔여 — 구조적 항목 4건 (2026-07-28 전면 감사에서 의도적 보류)
+> **배경**: 2026-07-28 "추천을 믿고 살 수 있나" 전면 감사(코드 3축 병렬 감사 + prod accuracy-by-band 실측 조회).
+> 즉시 수정 12건은 같은 날 처리(수급 연속일 달력화·DART fail-open 미캐시+키워드 보강·거래정지 게이트·
+> 적자축소=POSITIVE·섹터 등락률 이중가산·regime top-5 상방편향+UNKNOWN·composite 리스크 페널티 실효화·
+> tie-break 신규편향·평가 큐 고사·볼린저 배선·히스토리 changeRate·오늘 탭 정직화). 아래는 **회귀면이 넓어
+> 별도 세션**으로 보류한 구조 항목 — "고치면 좋음"이 아니라 **고칠 때 검증 설계가 먼저 필요**한 것들.
+- **① stock_price_history 장중 수집 봉 동결 + 일일 갱신 배치 부재**: `StockAnalysisService.saveDailyPrices` 가
+  `existsByStockCodeAndTradeDate` 스킵이라 장중 수집된 당일 미확정 봉(고저·거래량 부분)이 **영구 확정**됨 +
+  히스토리 갱신은 상세화면 방문/추천 트리거(<5행)뿐이라 일일 배치가 없음. RSI/MA/5일누적/낙폭과대 전부 오염 가능.
+  방향: 당일 봉 upsert(마감 후 재수집 덮어쓰기) + 마감 후 일봉 배치(19시 이전, KIS rate 예산 설계 필요).
+- **② validCount 위장 floor 2종(§4c 위반)**: `scoreTechnical` 히스토리 0행 폴백 `technical=3`("기술(간편)") +
+  `scoreSectorMomentum` 장중 `ss=0→2` floor 가 **validCount≥3 게이트에 유효 카테고리로 카운트**됨 — 진짜
+  카테고리 1개짜리 종목이 커버리지 게이트 통과 가능. 제거 시 추천 풀이 줄어드는 산식 변경이라 **풀 크기 실측
+  후** 결정(무근거 변경 금지 원칙). 후보: floor 는 점수엔 남기되 validCount 카운트에서 제외.
+- **③ 저평가/성장 트랙 재무 신선도 무제한 + 단일행 재구성**: `findLatestPerStock`(MAX(report_date) 1행)은
+  0/NULL placeholder 를 그대로 쓰고(composite 경로는 10행 first-non-null 합성으로 이미 우회) reportDate
+  나이 상한이 없음 — 수년 전 재무로도 오늘 저평가 TOP10 진입. 방향: 나이 상한(예: 400일) + 트랙도 합성 재사용
+  + 화면에 재무 기준일 노출.
+- **④ 시그널 평가 방법론 편향(측정 인프라)**: hit 에 거래비용 0.36% 미반영 · 진입가=기록 시점 장중가(체결
+  불가능가) · KIS 지수 실패 시 hit 정의가 pct≥3% 폴백으로 **코호트 단위 조용히 전환**(폴백 비중 미기록) ·
+  평가가격이 배치 시점 시가(지연 평가 시 horizon drift 미기록) · 무작위 대조군(base rate) 부재. 적중률
+  절대값 해석 시 항상 인지 — 개선은 측정 스키마 확장(폴백 플래그·평가시각 기록·BM 대조군) 별도 세션.
+- **관련 실측(2026-07-28, prod accuracy-by-band, since=2026-06-25)**: 55~64점 n=115 적중 35.65%·평균 3d
+  -2.83% / 65~74 n=8 25% / 75~84 n=4 0%·-6.07%. 창의 대부분이 BEAR(지수 하락채널). **밴드 단조 양의 상관
+  미확인** — 컷 상향·가중 재설계 등 산식 변경은 여전히 데이터 대기.

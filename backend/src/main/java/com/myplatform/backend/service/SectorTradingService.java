@@ -675,6 +675,8 @@ public class SectorTradingService {
         // 1. 오늘 섹터별 거래대금 계산 (억 단위)
         Map<String, BigDecimal> todayValues = new HashMap<>();
         Map<String, BigDecimal> sectorChangeRates = new HashMap<>();
+        // regime 판정용 — 상위 5개가 아닌 섹터 전 종목 raw 평균 (하락 종목 포함)
+        Map<String, BigDecimal> sectorRawAvgRates = new HashMap<>();
 
         for (SectorInfo sector : sectorConfig.getAllSectors()) {
             BigDecimal sectorTotal = BigDecimal.ZERO;
@@ -702,8 +704,14 @@ public class SectorTradingService {
             BigDecimal todayInBillion = sectorTotal.divide(new BigDecimal("100000000"), 2, RoundingMode.HALF_UP);
             todayValues.put(sector.getCode(), todayInBillion);
 
-            // 섹터 평균 등락률 (상위 5개 종목 평균)
+            // 섹터 평균 등락률 (상위 5개 종목 평균 — 주도주 표시용)
             if (!changeRates.isEmpty()) {
+                // regime 판정용 raw 평균 먼저 (정렬 전, 하락 종목 포함 전체 평균)
+                BigDecimal rawSum = BigDecimal.ZERO;
+                for (BigDecimal r : changeRates) rawSum = rawSum.add(r);
+                sectorRawAvgRates.put(sector.getCode(),
+                        rawSum.divide(BigDecimal.valueOf(changeRates.size()), 2, RoundingMode.HALF_UP));
+
                 changeRates.sort(Comparator.reverseOrder());
                 BigDecimal sum = BigDecimal.ZERO;
                 int count = Math.min(5, changeRates.size());
@@ -768,6 +776,7 @@ public class SectorTradingService {
                     .changeAmount(changeAmount)
                     .flowDirection(direction)
                     .avgChangeRate(sectorChangeRates.getOrDefault(code, BigDecimal.ZERO))
+                    .rawAvgChangeRate(sectorRawAvgRates.getOrDefault(code, BigDecimal.ZERO))
                     .build());
         }
 

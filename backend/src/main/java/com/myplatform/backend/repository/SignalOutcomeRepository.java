@@ -20,14 +20,24 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
                                      @Param("date") LocalDate signalDate);
 
     /**
-     * 평가 대상 — signalDate 가 cutoff 이하이고 아직 평가 안 된 항목. 오래된 것부터(백로그 순차 소진).
+     * 평가 대상 — signalDate 가 [oldestAllowed, cutoff] 이고 아직 평가 안 된 항목. 오래된 것부터(백로그 순차 소진).
      * <p>Pageable 로 <b>상한</b>을 받는다: 평가 루프가 종목당 KIS 2콜을 트랜잭션 안에서 돌기 때문에,
      * KIS 장애로 미평가분이 수백 건 쌓이면 한 번의 배치가 DB 커넥션을 장시간 점유한다(풀 고갈).
      * 초과분은 다음 실행에서 이어서 처리된다(evaluatedAt 이 채워진 건 pending 에서 빠짐).
+     * <p><b>oldestAllowed(2026-07-28)</b>: 영구 평가 불가 행(상폐·정지로 시세 없음)이 ASC 정렬 + 상한의
+     * 머리를 차지하면, 죽은 행 300개가 상한을 다 먹어 <b>신규 시그널이 영영 평가 안 되는 고사(starvation)</b>가
+     * 생긴다. give-up 창(서비스 EVAL_GIVE_UP_DAYS)보다 오래된 행은 큐에서 제외 — evaluatedAt=NULL 로 남아
+     * 집계에선 원래대로 빠지고(§4c: 미평가=제외 의미 유지), 잔량은 {@link #countAbandonedPending} 으로 가시화.
      */
-    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate <= :cutoff AND s.evaluatedAt IS NULL "
-            + "ORDER BY s.signalDate ASC, s.id ASC")
-    List<SignalOutcome> findPendingEvaluation(@Param("cutoff") LocalDate cutoff, Pageable pageable);
+    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate <= :cutoff AND s.signalDate >= :oldestAllowed "
+            + "AND s.evaluatedAt IS NULL ORDER BY s.signalDate ASC, s.id ASC")
+    List<SignalOutcome> findPendingEvaluation(@Param("cutoff") LocalDate cutoff,
+                                              @Param("oldestAllowed") LocalDate oldestAllowed,
+                                              Pageable pageable);
+
+    /** give-up 창을 넘겨 평가를 포기한 미평가 행 수 — 배치 로그 가시화용(§4c: 조용한 소실 금지). */
+    @Query("SELECT COUNT(s) FROM SignalOutcome s WHERE s.signalDate < :oldestAllowed AND s.evaluatedAt IS NULL")
+    long countAbandonedPending(@Param("oldestAllowed") LocalDate oldestAllowed);
 
     /** 시그널별 통계 — 지정 기간 내. [signalType, total, hitCount, avgPctChange] */
     @Query("""

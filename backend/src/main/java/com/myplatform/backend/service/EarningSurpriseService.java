@@ -115,10 +115,20 @@ public class EarningSurpriseService {
         return surprises;
     }
 
+    /** "전분기 대비" 비교로 인정하는 최대 reportDate 간격(일). 인접 분기 ≈ 90~92일. */
+    private static final long MAX_QUARTER_GAP_DAYS = 120;
+
     /**
-     * 두 분기 데이터 비교 분석
+     * 두 분기 데이터 비교 분석 — package-private (EarningSurpriseClassifyTest).
      */
-    private EarningSurpriseDto analyzeQuarters(StockFinancialData latest, StockFinancialData previous) {
+    EarningSurpriseDto analyzeQuarters(StockFinancialData latest, StockFinancialData previous) {
+        // 인접 분기 가드(2026-07-28): 간격이 분기(≤120일)를 넘으면 연간 행(레거시 365일)이나
+        // 결측 분기 건너뛴 비교 — "전분기 대비" 가 아니고 변화율이 뻥튀기되므로 스킵(§4c).
+        if (latest.getReportDate() == null || previous.getReportDate() == null) return null;
+        long gapDays = java.time.temporal.ChronoUnit.DAYS.between(
+                previous.getReportDate(), latest.getReportDate());
+        if (gapDays <= 0 || gapDays > MAX_QUARTER_GAP_DAYS) return null;
+
         BigDecimal latestOp = latest.getOperatingProfit();
         BigDecimal prevOp = previous.getOperatingProfit();
         BigDecimal latestNet = latest.getNetIncome();
@@ -148,7 +158,10 @@ public class EarningSurpriseService {
                 && prevOp.compareTo(BigDecimal.ZERO) != 0) {
             opChangeRate = calculateChangeRate(latestOp, prevOp);
 
-            if (opChangeRate.compareTo(SURPRISE_THRESHOLD) >= 0) {
+            // POSITIVE 는 흑자(latest>0) 필수(2026-07-28): 분모가 |prev| 라 적자 축소
+            // (-1000억→-100억)도 +90% 로 나와 "실적개선"으로 오분류되던 버그 — 여전히 적자다.
+            if (opChangeRate.compareTo(SURPRISE_THRESHOLD) >= 0
+                    && latestOp.compareTo(BigDecimal.ZERO) > 0) {
                 surpriseType = SurpriseType.POSITIVE;
                 summary = String.format("영업이익 %.1f%% 증가 (%.0f억 → %.0f억)",
                         opChangeRate, prevOp, latestOp);
@@ -157,7 +170,7 @@ public class EarningSurpriseService {
                 summary = String.format("영업이익 %.1f%% 감소 (%.0f억 → %.0f억)",
                         opChangeRate, prevOp, latestOp);
             } else {
-                return null; // 임계값 미달
+                return null; // 임계값 미달 또는 적자 지속(서프라이즈 아님)
             }
         }
         // 3. 영업이익 없으면 순이익으로 대체
@@ -170,7 +183,9 @@ public class EarningSurpriseService {
                 summary = String.format("순이익 적자→흑자 전환! (%.0f억 → %.0f억)", prevNet, latestNet);
             } else if (prevNet.compareTo(BigDecimal.ZERO) != 0) {
                 netChangeRate = calculateChangeRate(latestNet, prevNet);
-                if (netChangeRate.compareTo(SURPRISE_THRESHOLD) >= 0) {
+                // 영업이익 경로와 동일 — POSITIVE 는 흑자(latest>0) 필수(적자 축소 오분류 방지)
+                if (netChangeRate.compareTo(SURPRISE_THRESHOLD) >= 0
+                        && latestNet.compareTo(BigDecimal.ZERO) > 0) {
                     surpriseType = SurpriseType.POSITIVE;
                     summary = String.format("순이익 %.1f%% 증가 (%.0f억 → %.0f억)",
                             netChangeRate, prevNet, latestNet);

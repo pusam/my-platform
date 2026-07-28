@@ -1016,7 +1016,8 @@ public class StockAnalysisService {
                     .filter(n -> n != null && !n.isBlank())
                     .orElseGet(() -> StockNameResolver.getName(stockCode));
 
-            for (KoreaInvestmentService.OhlcvData data : ohlcvData) {
+            for (int i = 0; i < ohlcvData.size(); i++) {
+                KoreaInvestmentService.OhlcvData data = ohlcvData.get(i);
                 // API에서 제공한 거래일자 사용, 없으면 인덱스로 추정
                 LocalDate tradeDate = data.getTradeDate();
                 if (tradeDate == null) {
@@ -1039,6 +1040,19 @@ public class StockAnalysisService {
                     continue;
                 }
 
+                // 전일 대비 등락률 — 리스트는 최신순이라 다음 원소가 직전 거래일. 직전 종가가 없으면
+                // null 유지(§4c). 기존엔 changeRate 를 아예 안 실어 낙폭과대 트랙의 "당일 양봉(+3)"
+                // 판정이 영구 null 로 죽어 있었다(2026-07-28).
+                BigDecimal changeRate = null;
+                if (i + 1 < ohlcvData.size()) {
+                    BigDecimal prevClose = ohlcvData.get(i + 1).getClose();
+                    if (prevClose != null && prevClose.signum() > 0) {
+                        changeRate = data.getClose().subtract(prevClose)
+                                .multiply(BigDecimal.valueOf(100))
+                                .divide(prevClose, 2, RoundingMode.HALF_UP);
+                    }
+                }
+
                 StockPriceHistory history = StockPriceHistory.builder()
                         .stockCode(stockCode)
                         .stockName(stockName)
@@ -1048,6 +1062,7 @@ public class StockAnalysisService {
                         .lowPrice(data.getLow())
                         .closePrice(data.getClose())
                         .volume(data.getVolume())
+                        .changeRate(changeRate)
                         .dataSource("KIS")
                         .build();
 

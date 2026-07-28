@@ -75,6 +75,13 @@ public class SignalOutcomeService {
     private static final int EVALUATION_DELAY_DAYS = 3;
     /** 1회 배치 평가 상한 — 종목당 KIS 2콜이 트랜잭션 안에서 돌아 백로그가 크면 커넥션 장기 점유. */
     private static final int MAX_EVAL_PER_RUN = 300;
+    /**
+     * 평가 give-up 창(달력일) — signalDate 가 이보다 오래된 미평가 행은 큐에서 제외(2026-07-28).
+     * 상폐·거래정지로 시세를 영영 못 얻는 행이 ASC 정렬 머리에서 상한(300)을 다 먹으면 신규 시그널이
+     * 평가되지 않는 고사(starvation) 방지. 3거래일 평가 예정 + ~8회 재시도 여유. 포기 행은
+     * evaluatedAt=NULL 로 남아 집계에서 원래대로 빠지고(§4c), 잔량은 배치 로그로 가시화.
+     */
+    private static final int EVAL_GIVE_UP_DAYS = 15;
     /** V49 채널 스냅샷 봉 수 — 종목상세 차트 기본 표시(30봉)·보드(JudgmentBoardService.CHANNEL_BARS)와 동기. */
     static final int CHANNEL_SNAPSHOT_BARS = 30;
     /** hit 기준 — phase 20 변경: 시장 대비 alpha 양수 + 절대 수익률 양수. */
@@ -327,9 +334,21 @@ public class SignalOutcomeService {
     @Transactional
     public void evaluatePendingSignals() {
         LocalDate cutoff = resolveEvaluationCutoff(LocalDate.now());
+        LocalDate oldestAllowed = LocalDate.now().minusDays(EVAL_GIVE_UP_DAYS);
         // 상한 — KIS 장애로 백로그가 쌓여도 한 배치가 커넥션을 장시간 물지 않게(초과분은 다음 실행에서 이어서).
         List<SignalOutcome> pending = repository.findPendingEvaluation(
-                cutoff, org.springframework.data.domain.PageRequest.of(0, MAX_EVAL_PER_RUN));
+                cutoff, oldestAllowed, org.springframework.data.domain.PageRequest.of(0, MAX_EVAL_PER_RUN));
+        // give-up 잔량 가시화 — 상폐·정지 등으로 영구 미평가된 행이 조용히 사라지지 않게(§4c).
+        // 이 수가 크면 적중률이 "평가 가능했던 종목"으로 편향(생존편향)됐다는 신호다.
+        try {
+            long abandoned = repository.countAbandonedPending(oldestAllowed);
+            if (abandoned > 0) {
+                log.warn("[SignalOutcome] 평가 포기(미평가 {}일 초과) 잔량 {}건 — 상폐/정지 의심, "
+                        + "적중률 집계엔 미포함(생존편향 참고)", EVAL_GIVE_UP_DAYS, abandoned);
+            }
+        } catch (Exception e) {
+            log.debug("[SignalOutcome] 포기 잔량 집계 실패: {}", e.getMessage());
+        }
         if (pending.isEmpty()) {
             // 평가 대상 없어도 헬스 체크는 실행 — 누적 표본 기준이라 신규 평가 0건이어도 의미 있음.
             checkStrongBuyAlphaHealth();

@@ -10,21 +10,23 @@ vi.mock('../../utils/api', () => ({
 }))
 
 const top5Response = {
-  data: { success: true, data: [
+  data: { success: true, dataTime: '10:30 기준', realtime: true, data: [
     { stockCode: '005930', stockName: '삼성전자', totalScore: 82, tags: ['외국인3일연속', '골든크로스'], currentPrice: 70000, changeRate: 1.2 },
     { stockCode: '000660', stockName: 'SK하이닉스', totalScore: 61, tags: ['기관순매수'], currentPrice: 210000, changeRate: -0.5 },
     { stockCode: '035420', stockName: 'NAVER', totalScore: 48, tags: [], currentPrice: 180000, changeRate: 0.1 }
   ] }
 }
 
-const accuracyResponse = {
-  data: { success: true, data: { stats: [
-    { signalType: 'STRONG_BUY', totalSignals: 20, hitCount: 13, hitRate: 65, avgPctChange: 1.8 }
-  ] } }
-}
-
-const backtestResponse = {
-  data: { success: true, data: { overall: { totalPicks: 24, winCount: 14, hitRate: 58.3, avgReturn: 1.42 } } }
+// accuracy-by-band(보드 격리 + phase-38 컷오프) — 신뢰도 스트립 입력
+const bandAccuracyResponse = {
+  data: { success: true, data: {
+    since: '2026-06-25',
+    bands: [
+      { band: '55~64', scoreFrom: 55, scoreTo: 64, totalSignals: 115, hitCount: 41, hitRate: 35.65, avgPctChange: -2.83 },
+      { band: '65~74', scoreFrom: 65, scoreTo: 74, totalSignals: 8, hitCount: 2, hitRate: 25.0, avgPctChange: -3.15 },
+      { band: '75~84', scoreFrom: 75, scoreTo: 84, totalSignals: 0, hitCount: 0, hitRate: 0 }
+    ]
+  } }
 }
 
 const catalystResponse = {
@@ -37,8 +39,7 @@ function stubAll({ catalyst = catalystResponse, portfolio = { data: { success: t
   paperTradingAPI.getPortfolio.mockResolvedValue(portfolio)
   apiClient.get.mockImplementation((url) => {
     if (url.includes('/catalyst')) return Promise.resolve(catalyst)
-    if (url.includes('accuracy')) return Promise.resolve(accuracyResponse)
-    if (url.includes('backtest')) return Promise.resolve(backtestResponse)
+    if (url.includes('accuracy-by-band')) return Promise.resolve(bandAccuracyResponse)
     return Promise.resolve({ data: { success: false } })
   })
 }
@@ -113,13 +114,78 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(w.find('.ts-state.empty').text()).toContain('관망')
   })
 
-  it('신뢰도 스트립 — 적중률 + 트랙레코드 합성', async () => {
+  it('신뢰도 스트립 — 실측 밴드(보드 격리·컷오프) 표시 + 표본부족 구분', async () => {
     stubAll()
     const w = await mountTab()
     const trust = w.find('.today-trust')
     expect(trust.exists()).toBe(true)
-    expect(trust.text()).toContain('STRONG_BUY 30일 적중률 65%')
-    expect(trust.text()).toContain('트랙레코드 30일 평균 +1.42%')
+    expect(trust.text()).toContain('2026-06-25')
+    expect(trust.text()).toContain('55~64점 35.65%')
+    expect(trust.text()).toContain('115건')
+    expect(trust.text()).toContain('표본부족')      // 65~74 (n=8)
+    expect(trust.text()).not.toContain('75~84')     // n=0 밴드 미표시
+  })
+
+  it('신뢰도 — 적중률 50% 미만이면 경고 문구 표시(성적 미화 금지)', async () => {
+    stubAll()
+    const w = await mountTab()
+    expect(w.find('.tt-caution').exists()).toBe(true)
+    expect(w.find('.tt-caution').text()).toContain('50% 미만')
+  })
+
+  it('as-of — dataTime 표시, realtime=false 면 스냅샷 배지', async () => {
+    stubAll()
+    let w = await mountTab()
+    expect(w.find('.ts-asof').text()).toContain('10:30 기준')
+    expect(w.find('.ts-stale').exists()).toBe(false)
+
+    recommendationAPI.getTop5.mockResolvedValue({
+      data: { ...top5Response.data, dataTime: '07/25 20:05 기준 (종가)', realtime: false }
+    })
+    w = await mountTab()
+    expect(w.find('.ts-stale').exists()).toBe(true)
+    expect(w.find('.ts-asof').text()).toContain('07/25 20:05')
+  })
+
+  it('재료 배지 — read-only 조회(stockName 미전달 = Gemini 신규 분류 트리거 금지)', async () => {
+    stubAll()
+    await mountTab()
+    const catalystCalls = apiClient.get.mock.calls.filter(([url]) => url.includes('/catalyst'))
+    expect(catalystCalls.length).toBeGreaterThan(0)
+    for (const call of catalystCalls) {
+      expect(call[1]?.params?.stockName).toBeUndefined()
+    }
+  })
+
+  it('재료 배지 — 2일 초과 경과 재료는 생략, 1일 전은 경과일 표기', async () => {
+    const oldDate = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10)
+    stubAll({ catalyst: { data: { success: true, data: {
+      catalystType: 'ORDER_WIN', typeLabel: '수주', direction: 'POSITIVE', catalystDate: oldDate
+    } } } })
+    let w = await mountTab()
+    expect(w.find('.cc-catalyst').exists()).toBe(false)
+
+    const yesterday = new Date(Date.now() - 1 * 86400000).toISOString().slice(0, 10)
+    stubAll({ catalyst: { data: { success: true, data: {
+      catalystType: 'ORDER_WIN', typeLabel: '수주', direction: 'POSITIVE', catalystDate: yesterday
+    } } } })
+    w = await mountTab()
+    expect(w.find('.cc-catalyst').exists()).toBe(true)
+    expect(w.find('.cc-catalyst').text()).toContain('1일 전')
+  })
+
+  it('⚠ 경고 태그는 잘리지 않고 우선 표시', async () => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({
+      data: { ...top5Response.data, data: [
+        { stockCode: '005930', stockName: '삼성전자', totalScore: 82,
+          tags: ['외국인3일연속', '골든크로스', '⚠리스크공시', 'regime:BEAR'] }
+      ] }
+    })
+    const w = await mountTab()
+    const warn = w.find('.cc-tag-warn')
+    expect(warn.exists()).toBe(true)
+    expect(warn.text()).toContain('⚠리스크공시')
   })
 
   it('포지션 있으면 요약 표시 + 평가손익 합산', async () => {

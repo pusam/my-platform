@@ -48,9 +48,12 @@ public class DartService {
     private static final String DART_BASE_URL = "https://opendart.fss.or.kr/api";
 
     // 위험 키워드 목록
+    // 2026-07-28 보강: 관리종목·상장적격성(실질심사)·감사의견 비적정 계열(의견거절/의견한정/부적정)이
+    // 빠져 있어 해당 공시가 무페널티 통과하던 구멍을 막음. "의견거절"은 기존 "감사의견거절"의 상위집합.
     private static final List<String> DANGER_KEYWORDS = Arrays.asList(
             "유상증자", "무상감자", "배임", "횡령", "거래정지",
-            "불성실공시", "최대주주변경", "상장폐지", "감사의견거절",
+            "불성실공시", "최대주주변경", "상장폐지", "의견거절",
+            "의견한정", "부적정", "관리종목", "상장적격성",
             "자본잠식", "부도", "파산", "회생절차", "워크아웃"
     );
 
@@ -193,9 +196,19 @@ public class DartService {
      */
     @CircuitBreaker(name = "dartApi", fallbackMethod = "disclosuresFallback")
     public List<DartDisclosure> getRecentDisclosures(String corpCode) {
+        List<DartDisclosure> raw = fetchRecentDisclosuresRaw(corpCode);
+        return raw == null ? Collections.emptyList() : raw;
+    }
+
+    /**
+     * 공시 조회 원형 — <b>실패(키 미설정·HTTP 실패·예외)는 null</b>, 성공인데 공시가 없으면 빈 리스트.
+     * 기존 공개 API 는 실패도 빈 리스트로 뭉개 "조회 실패"가 "공시 없음(안전)"으로 위장됐다.
+     * quickDangerCheck 가 실패를 1시간 '안전' 캐시하지 않도록 구분이 필요(§4c).
+     */
+    private List<DartDisclosure> fetchRecentDisclosuresRaw(String corpCode) {
         if (dartApiKey == null || dartApiKey.isEmpty()) {
             log.warn("[DART] API Key가 설정되지 않았습니다.");
-            return Collections.emptyList();
+            return null;
         }
 
         try {
@@ -225,7 +238,27 @@ public class DartService {
             log.error("[DART] 공시 조회 실패: {}", e.getMessage(), e);
         }
 
-        return Collections.emptyList();
+        return null;
+    }
+
+    /**
+     * 위험 체크 전용 공시 조회 — <b>확인 불가는 null</b> 로 구분한다(빈 리스트 = "조회 성공, 공시 없음").
+     *
+     * <p>null 이 되는 경우: DART 미가용, corpCode 미해결(캐시 미로드·신규 상장), 조회 실패.
+     * corpCode 미해결 시 이름 폴백 전체검색은 KOSPI(corp_cls=Y) 한정이라 KOSDAQ 종목의
+     * "못 찾음"이 "공시 없음(안전)"으로 위장되던 구멍 — 여기서는 정직하게 '미확인'으로 돌려준다.
+     */
+    public List<DartDisclosure> searchDisclosuresOrNull(String stockCode, String stockName) {
+        if (!isAvailable()) return null;
+        String corpCode = getCorpCodeByStockCode(stockCode);
+        if (corpCode == null && stockName != null) {
+            corpCode = getCorpCodeByName(stockName);
+        }
+        if (corpCode == null) return null;
+        List<DartDisclosure> disclosures = fetchRecentDisclosuresRaw(corpCode);
+        if (disclosures == null) return null;
+        for (DartDisclosure d : disclosures) checkDangerKeywords(d);
+        return disclosures;
     }
 
     /**
@@ -412,23 +445,30 @@ public class DartService {
     );
 
     private void checkDangerKeywords(DartDisclosure disclosure) {
-        String reportNm = disclosure.getReportNm();
-        if (reportNm == null) return;
+        String matched = matchDangerKeyword(disclosure.getReportNm());
+        if (matched != null) {
+            disclosure.setDangerous(true);
+            disclosure.setMatchedKeyword(matched);
+            log.warn("[DART] 위험 공시 발견: {} - {} (키워드: {})",
+                    disclosure.getCorpName(), disclosure.getReportNm(), matched);
+        }
+    }
+
+    /** 공시 제목 → 매칭된 위험 키워드(없으면 null) — 순수 함수(테스트: DartDangerKeywordTest). */
+    static String matchDangerKeyword(String reportNm) {
+        if (reportNm == null) return null;
 
         // 종속회사/자회사 공시는 위험 제외
         for (String exclude : EXCLUDE_PATTERNS) {
-            if (reportNm.contains(exclude)) return;
+            if (reportNm.contains(exclude)) return null;
         }
 
         for (String keyword : DANGER_KEYWORDS) {
             if (reportNm.contains(keyword)) {
-                disclosure.setDangerous(true);
-                disclosure.setMatchedKeyword(keyword);
-                log.warn("[DART] 위험 공시 발견: {} - {} (키워드: {})",
-                        disclosure.getCorpName(), reportNm, keyword);
-                return;
+                return keyword;
             }
         }
+        return null;
     }
 
     /**

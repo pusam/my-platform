@@ -113,6 +113,13 @@ class RecommendationScoreTest {
             int[] w = RecommendationService.applyRegimeWeights(20, 10, 10, 15, MarketRegime.SIDEWAYS);
             assertThat(w).containsExactly(20, 10, 10, 14); // 15*0.9=13.5 → 14
         }
+
+        @Test
+        @DisplayName("UNKNOWN(측정 실패): 가중 미적용 — 결측을 SIDEWAYS 판정으로 위장하지 않음(§4c, 2026-07-28)")
+        void unknown() {
+            int[] w = RecommendationService.applyRegimeWeights(20, 10, 10, 15, MarketRegime.UNKNOWN);
+            assertThat(w).containsExactly(20, 10, 10, 15); // 전부 ×1.0
+        }
     }
 
     @Nested

@@ -326,7 +326,18 @@ public class RiskManagementService {
         if (cached != null && cached.isValid()) {
             return cached.result;
         }
-        List<DartDisclosure> disclosures = fetchDisclosures(stockCode, stockName);
+        List<DartDisclosure> disclosures;
+        try {
+            disclosures = dartService.searchDisclosuresOrNull(stockCode, stockName);
+        } catch (Exception e) {
+            log.warn("[RiskManagement] quickDangerCheck 공시 조회 예외 — 미확인 처리: {}", e.getMessage());
+            disclosures = null;
+        }
+        if (disclosures == null) {
+            // DART 미가용·corpCode 미해결·조회 실패 = '미확인'. 페널티는 못 주지만(§4c — 결측 근거 차단 금지)
+            // '안전'으로 1시간 캐시하면 장애 동안 위험 종목이 무페널티 고정되므로 캐시하지 않는다.
+            return false;
+        }
         boolean result = dartService.hasDangerousDisclosure(disclosures);
         dangerCheckCache.put(cacheKey, new DangerCheckCacheEntry(result));
         return result;
