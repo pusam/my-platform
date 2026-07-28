@@ -123,6 +123,22 @@ class RecommendationScoreTest {
     }
 
     @Nested
+    @DisplayName("빈 결과 발행 판정 — 컷 통과 0건(관망) vs 데이터 몰락 구분 (2026-07-28)")
+    class PublishEmptyResult {
+        @Test @DisplayName("scoreMap ≥10 종목이면 발행 (정상 계산·관망 결론)")
+        void healthyScoreMapPublishes() {
+            org.assertj.core.api.Assertions.assertThat(RecommendationService.shouldPublishEmptyResult(10)).isTrue();
+            org.assertj.core.api.Assertions.assertThat(RecommendationService.shouldPublishEmptyResult(200)).isTrue();
+        }
+
+        @Test @DisplayName("scoreMap 빈약(<10)이면 미발행 (데이터 소스 몰락 의심 — 기존 스냅샷 유지)")
+        void starvedScoreMapDoesNot() {
+            org.assertj.core.api.Assertions.assertThat(RecommendationService.shouldPublishEmptyResult(0)).isFalse();
+            org.assertj.core.api.Assertions.assertThat(RecommendationService.shouldPublishEmptyResult(9)).isFalse();
+        }
+    }
+
+    @Nested
     @DisplayName("신규 진입 감점 임계 (phase 38 — BULL 은 극단만)")
     class NewEntryThreshold {
         @Test @DisplayName("BULL → 25% (극단 급등만 감점, 정상 추세 풀 보존)")

@@ -206,6 +206,16 @@ public class RecommendationService {
                     cachedTop5 = result;
                     cacheTime = LocalDateTime.now();
                     log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
+                } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
+                    // 정상 계산인데 55컷 통과 0건 = 유효한 '관망' 결론(급락일 등) — 어제 스냅샷을
+                    // 계속 노출하는 대신 빈 결과를 발행해 UI 가 "관망" 을 말하게 한다(§4c, 2026-07-28).
+                    // scoreMap 이 빈약하면(입력 데이터 몰락 의심) 발행하지 않고 기존 스냅샷 유지(안전).
+                    cachedTop5 = Collections.emptyList();
+                    cacheTime = LocalDateTime.now();
+                    log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
+                            cachedScoreMap.size());
+                } else {
+                    log.warn("[종합추천] 계산 결과 0건 + scoreMap 빈약 — 입력 데이터 이상 의심, 기존 스냅샷 유지");
                 }
             } catch (Exception e) {
                 log.error("[종합추천] 백그라운드 계산 실패: {}", e.getMessage(), e);
@@ -213,6 +223,14 @@ public class RecommendationService {
                 calculating.set(false);
             }
         }, "rec-calc").start();
+    }
+
+    /**
+     * 빈 계산 결과를 캐시에 발행할지 — scoreMap 이 실질 규모(≥10종목 점수화)면 "정상 계산·컷 통과
+     * 0건(관망)"으로 보고 발행, 그 미만이면 데이터 소스 몰락 의심이라 기존 스냅샷 유지. 테스트 대상.
+     */
+    static boolean shouldPublishEmptyResult(int scoredStockCount) {
+        return scoredStockCount >= 10;
     }
 
     /**
