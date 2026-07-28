@@ -113,7 +113,9 @@ services:
       - KOREAEXIM_API_KEY=${KOREAEXIM_API_KEY:-}
       # ATR 세트(P2-17 실측) 플래그 — VIRTUAL 전용(REAL 2중 하드가드). 이중배선으로
       # .env 수정 후 recreate 누락 시에도 ${} 치환 주입(OPS_CHECKLIST §2-1 권장사항).
-      - BOT_ATR_TRADING_ENABLED=${BOT_ATR_TRADING_ENABLED:-false}
+      # 2026-07-28 기본 ON — P2-17 VIRTUAL 실측 시작(서버 SSH 부재로 .env 대신 compose 기본값으로 점화).
+      # VIRTUAL 전용 + REAL 이중 하드 가드(isAtrSetActive)라 실주문 무영향. 끄려면 .env 에 =false.
+      - BOT_ATR_TRADING_ENABLED=${BOT_ATR_TRADING_ENABLED:-true}
     deploy:
       resources:
         limits:
