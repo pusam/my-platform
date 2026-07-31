@@ -51,6 +51,11 @@ public final class PullbackEntryCalculator {
 
     /** [잠정] 매물벽 최소 두께(전체 거래 대비 %) — 이보다 얇으면 '벽'으로 보지 않는다. */
     public static final double WALL_MIN_PCT = 5.0;
+    /**
+     * [잠정] 매물벽 최소 거리(%) — 이보다 가까운 구간은 현재가가 속한 가격대로 보고 제외한다.
+     * Volume Profile bin 폭이 좁아 '바로 위 칸'이 자동으로 잡히는데, 그건 머리 위 저항이 아니다.
+     */
+    public static final double WALL_MIN_DISTANCE_PCT = 1.0;
 
     /** [잠정] 반등 회차 — 직전 저점 대비 이만큼 오르면 반등 1회 성립. */
     public static final double BOUNCE_RISE_PCT = 5.0;
@@ -244,7 +249,8 @@ public final class PullbackEntryCalculator {
             if (b == null || !isValid(b.priceLow()) || !isValid(b.priceHigh())) continue;
             if (b.volumePct() < WALL_MIN_PCT) continue;        // 얇은 구간은 벽이 아니다
             double mid = (b.priceLow() + b.priceHigh()) / 2.0;
-            if (mid <= currentPrice) continue;                 // 머리 위 구간만
+            // 현재가와 사실상 같은 가격대(바로 위 칸)는 머리 위 저항이 아니다
+            if (mid <= currentPrice * (1 + WALL_MIN_DISTANCE_PCT / 100.0)) continue;
             if (wall == null || mid < wallMid) {               // 가장 가까운 벽
                 wall = b;
                 wallMid = mid;

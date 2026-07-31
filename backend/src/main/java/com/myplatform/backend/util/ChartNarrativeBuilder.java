@@ -161,10 +161,13 @@ public final class ChartNarrativeBuilder {
                 "%+.1f%% 지점에 매물벽이 있습니다(전체 거래의 %.0f%%).",
                 os.distancePct(), os.wallPct()));
 
-        if (os.distancePct() <= NEAR_WALL_PCT && os.wallPct() >= THICK_WALL_PCT) {
-            lines.add("가깝고 두꺼워 한 번에 통과하기 어려운 구간입니다.");
-        } else if (os.distancePct() > NEAR_WALL_PCT) {
+        // 거리·두께 조합을 빠짐없이 설명한다 — 사실만 던지고 해석을 비워두지 않는다
+        if (os.distancePct() > NEAR_WALL_PCT) {
             lines.add("당장 부딪히는 거리는 아닙니다.");
+        } else if (os.wallPct() >= THICK_WALL_PCT) {
+            lines.add("가깝고 두꺼워 한 번에 통과하기 어려운 구간입니다.");
+        } else {
+            lines.add("가깝지만 두께가 크지 않아 결정적인 저항으로 보기는 어렵습니다.");
         }
 
         sections.add(new Section("위쪽 저항", lines));
@@ -182,6 +185,10 @@ public final class ChartNarrativeBuilder {
         if (PullbackEntryCalculator.isWithinBigBearCooldown(ago)) {
             lines.add("이 음봉의 매물이 소화되기까지 통상 "
                     + PullbackEntryCalculator.BIG_BEAR_COOLDOWN_BARS + "거래일 정도는 지켜봅니다.");
+        } else {
+            // 쿨다운이 끝났다는 사실도 말해준다 — "나왔습니다"만 던지면 그래서 어쩌라는 건지가 없다
+            lines.add("통상 지켜보는 " + PullbackEntryCalculator.BIG_BEAR_COOLDOWN_BARS
+                    + "거래일은 지난 시점입니다.");
         }
 
         sections.add(new Section("최근 캔들", lines));

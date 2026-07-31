@@ -204,6 +204,20 @@ class PullbackEntryCalculatorTest {
     }
 
     @Test
+    @DisplayName("현재가 바로 위 칸(+0.5%)은 같은 가격대로 보고 벽으로 세지 않는다")
+    void overheadSupply_tooClose_skipped() {
+        // 실제 화면 케이스: bin 폭이 좁아 '바로 위 칸'이 자동으로 잡히던 것
+        List<SupplyBin> bins = List.of(
+                new SupplyBin(100, 101, 5),        // 중앙 100.5 → +0.5% = 사실상 현재가
+                new SupplyBin(107, 109, 8));       // 이게 진짜 머리 위 벽
+        OverheadSupply os = PullbackEntryCalculator.overheadSupply(100, bins);
+
+        assertThat(os).isNotNull();
+        assertThat(os.wallPct()).isEqualTo(8);
+        assertThat(os.distancePct()).isEqualTo(8.0);
+    }
+
+    @Test
     @DisplayName("위쪽에 유의미한 두께의 벽이 없으면 null — 얇은 구간을 '벽'이라 하지 않는다")
     void overheadSupply_allThin_null() {
         List<SupplyBin> bins = List.of(

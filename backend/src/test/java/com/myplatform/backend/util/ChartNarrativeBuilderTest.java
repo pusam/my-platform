@@ -119,6 +119,24 @@ class ChartNarrativeBuilderTest {
     }
 
     @Test
+    @DisplayName("가깝지만 얇은 벽도 해석 문장을 붙인다 — 사실만 던지고 비워두지 않는다")
+    void nearThinWall_stillExplained() {
+        // 실제 화면 케이스: +0.5% 거리 · 두께 5% → 어느 분기에도 안 걸려 설명이 비어 있었음
+        Narrative n = ChartNarrativeBuilder.build(
+                new Metrics(0.51, 1, 1, 3), new OverheadSupply(2.0, 5), 0.3);
+        String text = allText(n);
+
+        assertThat(text).contains("가깝지만 두께가 크지 않아");
+    }
+
+    @Test
+    @DisplayName("장대음봉 쿨다운이 끝났으면 '지난 시점'이라고 말해준다")
+    void bigBearCooldownPassed_stated() {
+        Narrative n = ChartNarrativeBuilder.build(new Metrics(0.51, 1, 1, 3), null, 0.3);
+        assertThat(allText(n)).contains("거래일은 지난 시점입니다");
+    }
+
+    @Test
     @DisplayName("한참 위(+55%)의 벽은 지금 자리의 저항이 아니므로 언급하지 않는다")
     void veryFarWall_sectionOmitted() {
         // 실제 삼성전기 케이스 — 20일선 -16.8% 로 빠져 가까운 구간이 전부 얇을 때
