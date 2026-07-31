@@ -1,9 +1,12 @@
 package com.myplatform.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.myplatform.backend.dto.ChartNarrativeDto;
 import com.myplatform.backend.dto.ChartPatternDto;
 import com.myplatform.backend.dto.SupportResistanceDto;
 import com.myplatform.backend.dto.VolumeProfileDto;
+import com.myplatform.backend.util.ChartNarrativeBuilder;
+import com.myplatform.backend.util.PullbackEntryCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -737,6 +740,93 @@ public class ChartPatternService {
                 .totalVolume(total)
                 .periodDays(candles.size())
                 .build();
+    }
+
+    // ==================== 차트 해설 ====================
+
+    /** MA20 이격도 계산에 필요한 최소 일봉 수. */
+    private static final int NARRATIVE_MA_PERIOD = 20;
+
+    /**
+     * 차트 해설 — 눌림목 진입 지표를 문장으로 엮어 반환. 30분 캐시.
+     *
+     * <p>사실 수집은 {@link PullbackEntryCalculator}, 문장 생성은 {@link ChartNarrativeBuilder}
+     * (둘 다 순수 함수). 이 메서드는 데이터 배선만 한다.
+     *
+     * <p>⚠ <b>관찰용 — 매수 신호 아님.</b> 점수/추천/봇 미편입(차트기법 스코어러 분리 불변식).
+     * 일봉이 부족하면 판단보류를 그대로 반환한다 — 그럴듯한 결론을 만들지 않는다(§4c).
+     */
+    @org.springframework.cache.annotation.Cacheable(
+            value = "chartPatterns",
+            key = "'narrative:' + #stockCode",
+            condition = "#stockCode != null && !#stockCode.isEmpty()")
+    public ChartNarrativeDto computeNarrative(String stockCode) {
+        List<Candle> candles = fetchCandles(stockCode);
+
+        List<PullbackEntryCalculator.Bar> bars = new ArrayList<>();
+        for (Candle c : candles) {
+            if (c.open == null || c.high == null || c.low == null || c.close == null) continue;
+            bars.add(new PullbackEntryCalculator.Bar(
+                    c.open.doubleValue(), c.high.doubleValue(),
+                    c.low.doubleValue(), c.close.doubleValue()));
+        }
+
+        PullbackEntryCalculator.Metrics metrics = PullbackEntryCalculator.compute(bars);
+        ChartNarrativeBuilder.Narrative narrative = ChartNarrativeBuilder.build(
+                metrics, resolveOverheadSupply(stockCode, candles), resolveDisparityPct(candles));
+
+        List<ChartNarrativeDto.Section> sections = new ArrayList<>();
+        for (ChartNarrativeBuilder.Section s : narrative.sections()) {
+            sections.add(new ChartNarrativeDto.Section(s.title(), s.lines()));
+        }
+
+        return ChartNarrativeDto.builder()
+                .stockCode(stockCode)
+                .sections(sections)
+                .verdict(narrative.verdict().name())
+                .verdictLabel(narrative.verdict().label())
+                .verdictReason(narrative.verdictReason())
+                .unverified(true)
+                .build();
+    }
+
+    /** 머리 위 매물벽 — Volume Profile(캐시) 재사용. 데이터 없으면 null(섹션 생략). */
+    private PullbackEntryCalculator.OverheadSupply resolveOverheadSupply(String stockCode,
+                                                                        List<Candle> candles) {
+        if (candles.isEmpty()) return null;
+        BigDecimal lastClose = candles.get(candles.size() - 1).close;
+        if (lastClose == null || lastClose.signum() <= 0) return null;
+
+        VolumeProfileDto vp = self.computeVolumeProfile(stockCode);
+        if (vp == null || vp.getBins() == null || vp.getBins().isEmpty()) return null;
+
+        List<PullbackEntryCalculator.SupplyBin> supplyBins = new ArrayList<>();
+        for (VolumeProfileDto.Bin b : vp.getBins()) {
+            if (b.getPriceLow() == null || b.getPriceHigh() == null) continue;
+            supplyBins.add(new PullbackEntryCalculator.SupplyBin(
+                    b.getPriceLow().doubleValue(), b.getPriceHigh().doubleValue(), b.getVolumePct()));
+        }
+        return PullbackEntryCalculator.overheadSupply(lastClose.doubleValue(), supplyBins);
+    }
+
+    /** 20일선 이격도(%). 일봉 부족이면 null — 해당 문장만 빠진다. */
+    private Double resolveDisparityPct(List<Candle> candles) {
+        if (candles.size() < NARRATIVE_MA_PERIOD) return null;
+
+        BigDecimal sum = BigDecimal.ZERO;
+        for (int i = candles.size() - NARRATIVE_MA_PERIOD; i < candles.size(); i++) {
+            BigDecimal close = candles.get(i).close;
+            if (close == null || close.signum() <= 0) return null;
+            sum = sum.add(close);
+        }
+        BigDecimal ma = sum.divide(BigDecimal.valueOf(NARRATIVE_MA_PERIOD), 4, RoundingMode.HALF_UP);
+        if (ma.signum() <= 0) return null;
+
+        BigDecimal last = candles.get(candles.size() - 1).close;
+        return last.divide(ma, 6, RoundingMode.HALF_UP)
+                .subtract(BigDecimal.ONE)
+                .multiply(BigDecimal.valueOf(100))
+                .doubleValue();
     }
 
     // ==================== 내부 데이터 클래스 ====================

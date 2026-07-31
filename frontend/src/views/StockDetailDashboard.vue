@@ -67,6 +67,9 @@
     <!-- 종합 결론 카드 — 룰 기반 한 줄 결론 + 체크리스트 트리거 (phase 13) -->
     <StockConclusionCard v-if="stockCode" :stock-code="stockCode" />
 
+    <!-- 차트 해설 — 지표를 문장으로 엮은 관찰용 해설 (매수 신호 아님, 점수/봇 미편입) -->
+    <ChartNarrativeCard v-if="stockCode" :stock-code="stockCode" />
+
     <!-- 핵심 요약 카드 (RSI/20일선/외인/기관/리스크/AI) — 요약존으로 이동 -->
     <QuickSummaryBar :has-data="hasData" :loading="loading"
                      :diagnosis-data="diagnosisData" :ai-analysis="aiAnalysis" />
@@ -542,6 +545,7 @@ import StockSearchModal from '../components/v2/StockSearchModal.vue';
 import StockBriefingHeadline from '../components/v2/StockBriefingHeadline.vue';
 import StockRiskCard from '../components/v2/StockRiskCard.vue';
 import StockConclusionCard from '../components/v2/StockConclusionCard.vue';
+import ChartNarrativeCard from '../components/v2/ChartNarrativeCard.vue';
 import ChartPatternList from '../components/v2/ChartPatternList.vue';
 import RelatedStocksList from '../components/v2/RelatedStocksList.vue';
 import VolumeProfileCard from '../components/v2/VolumeProfileCard.vue';

@@ -1,5 +1,6 @@
 package com.myplatform.backend.controller;
 
+import com.myplatform.backend.dto.ChartNarrativeDto;
 import com.myplatform.backend.dto.ChartPatternDto;
 import com.myplatform.backend.dto.CompositeSignalDto;
 import com.myplatform.backend.dto.SupportResistanceDto;
@@ -220,6 +221,25 @@ public class QuantTaController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Volume Profile 오류 [{}]", stockCode, e);
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/narrative")
+    @Operation(summary = "차트 해설 (관찰용)",
+            description = "볼린저 위치·하단 터치 이력·반등 회차·장대음봉·머리 위 매물벽을 문장으로 엮어 반환. " +
+                    "결론은 관망/과열 경계/조건부 관심/판단보류 — 매수 신호가 아니며 점수·추천·봇에 미편입(unverified=true).")
+    public ResponseEntity<Map<String, Object>> narrative(@PathVariable String stockCode) {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            ChartNarrativeDto data = chartPatternService.computeNarrative(stockCode);
+            response.put("success", true);
+            response.put("data", data);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("차트 해설 오류 [{}]", stockCode, e);
             response.put("success", false);
             response.put("message", e.getMessage());
             return ResponseEntity.internalServerError().body(response);
