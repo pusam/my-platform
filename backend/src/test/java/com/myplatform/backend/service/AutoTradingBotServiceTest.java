@@ -251,7 +251,7 @@ class AutoTradingBotServiceTest {
     class ModeSwitchTests {
 
         @Test
-        @DisplayName("VIRTUAL → REAL 전환 시 DB 포지션 deleteAll 호출 (정지 후 재시작 경로)")
+        @DisplayName("VIRTUAL → REAL 전환 시 in-memory 만 정리하고 DB 행은 보존 (모드별 격리)")
         void modeSwitch_virtualToReal_clearsPositions() {
             // 1) VIRTUAL 시작 후 stop — startBot() 재진입 가능하게.
             //    (이미 실행 중이면 startBot() 가 early return 으로 모드 전환 로직 미실행)
@@ -265,8 +265,10 @@ class AutoTradingBotServiceTest {
             BotStatusDto status = botService.startBot(TradingMode.REAL);
             assertThat(status).isNotNull();
 
-            // ★ 포지션 in-memory cleared + DB deleteAll 호출 확인
-            verify(positionRepository, atLeastOnce()).deleteAll();
+            // ★ DB 행은 지우지 않는다(2026-08-05 감사) — 예전엔 deleteAll() 로 전 모드 행을 지워
+            //   REAL 실보유의 DB 행까지 날아가 영구 untracked(손절 미작동)가 됐다. 복원·청산대상
+            //   모두 이미 findByTradingMode 로 모드별이라 삭제할 이유가 없다.
+            verify(positionRepository, never()).deleteAll();
             assertThat(botService.getCurrentMode()).isEqualTo(TradingMode.REAL);
         }
 

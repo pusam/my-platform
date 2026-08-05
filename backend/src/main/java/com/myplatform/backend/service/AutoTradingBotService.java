@@ -330,6 +330,8 @@ public class AutoTradingBotService {
     private volatile BigDecimal dailyStartAsset = BigDecimal.ZERO;
     // 킬 스위치 발동 여부
     private final AtomicBoolean killSwitchTriggered = new AtomicBoolean(false);       // 전체 킬스위치 (-3%)
+    /** 킬스위치 발동일 — startBot 이 <b>같은 날</b> 손실 한도를 리셋하지 못하게(2026-08-05 감사). */
+    private volatile LocalDate killSwitchDate;
     private final AtomicBoolean scalpingKillSwitchTriggered = new AtomicBoolean(false); // 스캘핑 킬스위치 (-1.5%)
     // VIX 기반 일시정지
     private final AtomicBoolean vixPaused = new AtomicBoolean(false);
@@ -939,7 +941,11 @@ public class AutoTradingBotService {
     // 메서드 레벨 @Transactional 이 무효였음(삭제가 TransactionRequiredException 으로 전부 무산되던 원인).
     protected void deletePersistedPosition(Strategy strategy, String stockCode) {
         try {
-            positionRepository.deleteByStrategyAndStockCode(strategy, stockCode);
+            // 모드 한정 삭제(2026-08-05 감사) — 저장은 (strategy, stockCode, tradingMode) 3키인데
+            // 삭제만 2키라 VIRTUAL 매도 1건이 같은 종목의 REAL 행까지 지웠다. 그러면 REAL 포지션이
+            // 영구 untracked 가 되어 손절이 안 걸린다. 모드 한정 메서드는 이미 있었는데 호출부가 없었다.
+            positionRepository.deleteByStrategyAndStockCodeAndTradingMode(
+                    strategy, stockCode, currentMode.name());
         } catch (Exception e) {
             log.warn("[봇 영속화] {} 포지션 삭제 실패 {}: {}", strategy, stockCode, e.getMessage());
         }
@@ -1006,9 +1012,14 @@ public class AutoTradingBotService {
 
         TradingMode newMode = mode != null ? mode : TradingMode.VIRTUAL;
 
-        // 모드 전환 시 in-memory + DB 포지션 모두 정리.
-        // 이유: BotTradingPosition은 mode 컬럼이 없어 REAL↔VIRTUAL 포지션 구분 불가.
-        //      전환 후 이전 모드 포지션을 새 모드 계좌로 매도 시도하면 "보유 없음" 오류.
+        // 모드 전환 시 in-memory 포지션만 정리한다. DB 행은 <b>모드별로 보존</b>.
+        //
+        // ⚠ 2026-08-05 감사: 예전 주석은 "BotTradingPosition 은 mode 컬럼이 없어 구분 불가"라며
+        // positionRepository.deleteAll() 로 <b>전 모드 행을 지웠다</b>. 그 전제는 사실이 아니다 —
+        // V23 에 trading_mode 컬럼이 있고 복원(findByTradingMode)·청산대상(botOwnedCodes) 모두
+        // 이미 모드별로 동작한다. 전 모드 삭제는 REAL 실보유의 DB 행까지 지워 영구 untracked 로
+        // 만들었고(손절 영영 미작동), 얻는 것은 없었다. in-memory 만 비우면 목적은 달성된다
+        // ("이전 모드 포지션을 새 모드 계좌로 매도 시도" 방지).
         if (currentMode != newMode) {
             // 1) 진행 중인 trade 가 끝날 때까지 대기 (최대 10초).
             //    옛 sleep(2000) 은 in-flight 보장 못 함 — 카운터로 정확히 대기.
@@ -1029,11 +1040,8 @@ public class AutoTradingBotService {
                 scalpingPositions.clear();
                 swingPositions.clear();
                 closingPositions.clear();
-                try {
-                    positionRepository.deleteAll();
-                } catch (Exception e) {
-                    log.error("[스캘핑봇] 모드 전환 시 포지션 DB 삭제 실패: {}", e.getMessage());
-                }
+                // DB 행은 지우지 않는다 — 모드별로 보존해야 전환 후 복귀 시 복원되고,
+                // REAL 실보유가 untracked 로 새지 않는다(위 주석 참조).
             }
         }
 
@@ -1041,11 +1049,19 @@ public class AutoTradingBotService {
         activeTradeService = (currentMode == TradingMode.REAL) ? realTradeService : virtualTradeService;
 
         botActive.set(true);
-        killSwitchTriggered.set(false);
-        scalpingKillSwitchTriggered.set(false);
+        // ⚠ 당일 킬스위치는 재개로 풀리지 않는다(2026-08-05 감사). 예전엔 무조건 해제 + 손실 후
+        // 자산으로 dailyStartAsset 을 재설정해, 같은 날 -3% 사이클을 무한 반복할 수 있었다
+        // (일일 손실 상한이 사실상 무제한). 다음 거래일에 자동 해제된다.
+        boolean sameDayKill = !canClearKillSwitch(killSwitchTriggered.get(), killSwitchDate, LocalDate.now(clock));
+        if (sameDayKill) {
+            log.warn("[봇] 당일 킬스위치 발동 이력({}) — 재개하되 손실 한도는 유지합니다", killSwitchDate);
+        } else {
+            killSwitchTriggered.set(false);
+            scalpingKillSwitchTriggered.set(false);
+        }
         scalpingPositions.clear();
         resetDailyCounters();
-        initializeDailyAsset();
+        if (!sameDayKill) initializeDailyAsset();   // 손실 후 자산으로 기준을 낮추지 않는다
         saveBotState(STATUS_RUNNING, currentMode);
 
         log.info("[스캘핑봇] 시작됨 - 모드: {}", currentMode.getDisplayName());
@@ -2184,7 +2200,12 @@ public class AutoTradingBotService {
                     log.info("[스캘핑봇] 손절 조건: {} - 손익률 {}%", portfolio.getStockName(), profitRate);
                 }
                 // 2. 익절 1차 체크 (+1.2% 절반 매도)
-                else if (!position.halfSold && profitRate.compareTo(TAKE_PROFIT_FIRST) >= 0) {
+                //    ⚠ 1주 포지션은 절반이 0주라 매도가 안 나가는데 halfSold 도 안 서서, else-if 체인
+                //    아래의 트레일링·타임컷이 <b>영영 평가되지 않았다</b>(2026-08-05 감사). 익절 구간에
+                //    머무는 한 +8%까지 갔다 되밀려도 매도가 없었다. 나눌 수 없으면 이 분기를 건너뛰어
+                //    트레일링/타임컷이 정상 평가되게 한다(1주는 전량 매도가 그 둘의 몫).
+                else if (!position.halfSold && portfolio.getQuantity() >= 2
+                        && profitRate.compareTo(TAKE_PROFIT_FIRST) >= 0) {
                     sellReason = "TAKE_PROFIT_HALF";
                     sellQuantity = portfolio.getQuantity() / 2;
                     if (sellQuantity > 0) {
@@ -2200,7 +2221,10 @@ public class AutoTradingBotService {
                     }
                 }
                 // 3. 트레일링 스탑 체크 (고점 대비 -1.0%)
-                else if (position.halfSold && highDropRate.compareTo(TRAILING_STOP_RATE) <= 0) {
+                //    1주 포지션은 절반익절이 구조적으로 불가능하므로 halfSold 를 요구하지 않는다
+                //    (요구하면 트레일링이 영영 안 걸린다 — 2026-08-05 감사).
+                else if ((position.halfSold || portfolio.getQuantity() == 1)
+                        && highDropRate.compareTo(TRAILING_STOP_RATE) <= 0) {
                     sellReason = "TRAILING_STOP";
                     log.info("[스캘핑봇] 트레일링 스탑: {} - 고점대비 {}%", portfolio.getStockName(), highDropRate);
                 }
@@ -2696,6 +2720,20 @@ public class AutoTradingBotService {
 
     /** 수급 시그널 최대 허용 나이(달력일) — 주말(2)+연휴 마진. 이보다 오래면 진입 안 함. */
     static final int SWING_SIGNAL_MAX_AGE_DAYS = 5;
+
+    /**
+     * 킬스위치를 해제해도 되는가 — 순수 함수(2026-08-05 감사).
+     *
+     * <p>{@code startBot} 이 무조건 킬스위치를 풀고 {@code dailyStartAsset} 을 <b>손실 후 자산</b>으로
+     * 재설정해, 운영자가 재시작만 하면 같은 날 -3% 사이클을 반복할 수 있었다(일일 손실 상한 무력화).
+     * 발동 <b>당일</b>에는 재개해도 한도를 유지하고, 다음 거래일에 자동 해제한다
+     * (§4d 일일 손실 브레이커의 trippedDate 날짜 비교와 같은 방식).
+     */
+    static boolean canClearKillSwitch(boolean killed, LocalDate killedOn, LocalDate today) {
+        if (!killed) return true;                       // 애초에 발동 안 함
+        if (killedOn == null || today == null) return true;  // 이력 불명 — 종전대로(fail-open)
+        return !killedOn.equals(today);                 // 다른 날이면 해제 가능
+    }
 
     /**
      * 매수 체결 확인 — 미체결/부분체결이면 <b>경고만</b>(2026-08-05 감사). REAL 모드 한정.
@@ -3800,6 +3838,7 @@ public class AutoTradingBotService {
             // 전체 킬스위치: -3% → 봇 완전 종료
             if (dailyProfitRate.compareTo(KILL_SWITCH_TOTAL_RATE) <= 0) {
                 killSwitchTriggered.set(true);
+                killSwitchDate = LocalDate.now(clock);   // 당일 재개 차단용(2026-08-05 감사)
                 botActive.set(false);
                 saveBotState(STATUS_STOPPED, currentMode);
 

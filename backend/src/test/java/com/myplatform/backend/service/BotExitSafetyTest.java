@@ -113,6 +113,47 @@ class BotExitSafetyTest {
         assertThat(AutoTradingBotService.isSwingSignalFresh(TODAY, null)).isTrue();
     }
 
+    // ==================== 킬스위치 당일 재개 차단 (감사 잔여 #4) ====================
+
+    @Test
+    void 당일_킬스위치는_재시작으로_풀리지_않는다() {
+        // 예전엔 startBot 이 무조건 해제 + 손실 후 자산으로 기준을 낮춰, 재시작만 하면
+        // 같은 날 -3% 사이클을 반복할 수 있었다(일일 손실 상한 무력화).
+        assertThat(AutoTradingBotService.canClearKillSwitch(true, TODAY, TODAY)).isFalse();
+    }
+
+    @Test
+    void 다음_거래일에는_킬스위치가_자동_해제된다() {
+        assertThat(AutoTradingBotService.canClearKillSwitch(true, TODAY.minusDays(1), TODAY)).isTrue();
+    }
+
+    @Test
+    void 발동한_적이_없으면_당연히_해제_가능() {
+        assertThat(AutoTradingBotService.canClearKillSwitch(false, null, TODAY)).isTrue();
+        assertThat(AutoTradingBotService.canClearKillSwitch(false, TODAY, TODAY)).isTrue();
+    }
+
+    @Test
+    void 발동일_이력이_없으면_종전대로_해제한다() {
+        // 재시작으로 발동일을 잃은 경우 — 영구 차단보다 종전 동작(fail-open)이 안전
+        assertThat(AutoTradingBotService.canClearKillSwitch(true, null, TODAY)).isTrue();
+    }
+
+    // ==================== 수동 주문은 멱등키 대상이 아니다 (감사 잔여 #3) ====================
+
+    @Test
+    void 수동_주문은_멱등키_게이트를_받지_않는다() {
+        // §4d⑥ 수동 엔드포인트는 의도적 미게이트인데 멱등키만 예외라 분할매수가 막혔다
+        assertThat(RealTradeService.isManualOrder("MANUAL")).isTrue();
+    }
+
+    @Test
+    void 봇_주문은_멱등키_대상이다() {
+        assertThat(RealTradeService.isManualOrder("SWING_FOREIGN")).isFalse();
+        assertThat(RealTradeService.isManualOrder("SCALPING_ENTRY")).isFalse();
+        assertThat(RealTradeService.isManualOrder(null)).isFalse();
+    }
+
     @Test
     void 운영자가_봇을_끄고_킬스위치도_아니면_매도도_멈춘다() {
         // 명시적 stopBot() 은 운영자가 수동 통제를 가져간 것 — 존중한다.

@@ -95,6 +95,17 @@ public class RealTradeService implements TradeService {
         return resolveFill(requestedQty, ccld);
     }
 
+    /**
+     * 운영자 수동 주문인가 — 순수 함수(2026-08-05 감사).
+     *
+     * <p>BUY 멱등키는 <b>봇의 리더 전환 중 중복 주문</b>을 막으려는 장치라 수동 주문엔 해당이 없다.
+     * §4d⑥ 이 수동 엔드포인트를 "의도적 미게이트(운영자 판단 존중)"로 규정했는데 멱등키만 예외였고,
+     * 그 결과 같은 종목 당일 2번째 수동 매수(분할매수·물타기)가 차단됐다.
+     */
+    static boolean isManualOrder(String reason) {
+        return "MANUAL".equals(reason);
+    }
+
     /** 폴링 관측값 누적 — KIS 총체결수량은 단조증가라 max 가 안전. null 조회는 기존 관측 유지. 순수 함수. */
     static Integer maxObserved(Integer current, Integer polled) {
         if (polled == null) return current;
@@ -283,7 +294,12 @@ public class RealTradeService implements TradeService {
         // 2.5) 멱등키 선기록 (KIS 호출 직전) — 리더 전환 순간 같은 (종목,BUY,거래일,시그널) 중복 매수 차단.
         //      A가 주문 쏜 직후 응답 전 死 → PENDING 키 잔존 → B 승계 시 재매수 SKIP.
         //      DB 오류 시 tryAcquire 가 던짐 → 가드 없이 주문 금지(여기서 abort).
-        if (orderIntentService.tryAcquire(stockCode, "BUY", reason) == BotOrderIntentService.OrderGate.SKIP_DUPLICATE) {
+        //      ⚠ 수동 주문(reason=MANUAL)은 게이트 대상이 아니다(2026-08-05 감사) — §4d⑥ 이 수동
+        //      엔드포인트를 "의도적 미게이트(봇 아님·운영자 판단)"로 규정했는데, 멱등키가 그 취지를
+        //      어기고 같은 종목 당일 2번째 수동 매수(분할매수·물타기)를 막고 있었다. 멱등키의 목적은
+        //      '리더 전환 중 봇의 중복 주문' 차단이라 수동 주문엔 해당 사항이 없다.
+        if (!isManualOrder(reason)
+                && orderIntentService.tryAcquire(stockCode, "BUY", reason) == BotOrderIntentService.OrderGate.SKIP_DUPLICATE) {
             auditService.blocked(TradingAuditLog.Action.BUY, TradingAuditLog.Mode.REAL,
                     stockCode, stockName, quantity, price, reason, "중복 주문 멱등키 차단");
             log.warn("[실전매매] 중복 매수 차단(멱등키): {} ({}) reason={}", stockName, stockCode, reason);
