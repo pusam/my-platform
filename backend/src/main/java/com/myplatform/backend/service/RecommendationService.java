@@ -234,6 +234,25 @@ public class RecommendationService {
     }
 
     /**
+     * 스냅샷 저장을 건너뛸지 — 순수 함수(2026-08-05 감사).
+     *
+     * <p><b>고치는 문제</b>: {@code saveSnapshotInternal} 이 컷 통과 0건일 때 {@code cachedTop5}
+     * (어제 목록)로 폴백해 <b>오늘 타임스탬프로 저장 + signal_outcome 에 오늘자 STRONG_BUY/BUY 기록</b>
+     * 을 했다. 존재하지 않은 시그널이 적중률 측정 테이블에 들어가고, 컷 0건은 보통 하락일이라
+     * <b>가짜 시그널이 나쁜 날에 집중되는 계통 편향</b>이 된다. 무작위 대조군까지 그 짝을 만든다.
+     *
+     * <p>커밋 16a1589 가 넣은 {@link #shouldPublishEmptyResult} 가드는 <b>조회 경로에만</b> 적용됐다.
+     * 두 경로가 같은 임계를 쓰지 않으면 "화면은 관망인데 스냅샷엔 어제 목록" 불일치가 생기므로
+     * 여기서 그 판정을 그대로 재사용한다.
+     *
+     * @param resultEmpty      calculate() 결과가 비었는가
+     * @param scoredStockCount 채점된 종목 수(빈약하면 계산 실패 의심 → 기존 스냅샷 유지가 안전)
+     */
+    static boolean shouldSkipSnapshotOnEmpty(boolean resultEmpty, int scoredStockCount) {
+        return resultEmpty && shouldPublishEmptyResult(scoredStockCount);
+    }
+
+    /**
      * TOP5 종목의 changeRate/currentPrice를 캐시된 시세로 갱신.
      * <p>buildResponse 가 매 호출마다 부르는 hot path 라 KIS 직접 호출은 위험 — 메모리(5분)/DB(15분)
      * 캐시만 사용해 응답 시간 영향 0. 신선도는 stockPriceService 의 cleanup·캐시 정책에 위임.
@@ -545,6 +564,15 @@ public class RecommendationService {
     private void saveSnapshotInternal() {
         try {
             List<RecommendationDto> result = calculate();
+            // 측정 오염 차단(2026-08-05 감사) — 정상 계산인데 컷 통과 0건이면 어제 목록으로
+            // 폴백하지 않는다. 폴백하면 아래에서 오늘 타임스탬프로 저장되고 signal_outcome 에
+            // 오늘자 STRONG_BUY/BUY 로 record 돼, 존재하지 않은 시그널이 적중률 표본을 오염시킨다.
+            int scoredCount = cachedScoreMap != null ? cachedScoreMap.size() : 0;
+            if (shouldSkipSnapshotOnEmpty(result.isEmpty(), scoredCount)) {
+                log.info("[종합추천] 스냅샷 — 컷 통과 0건(관망), 저장·record 생략(scoreMap {}종목)", scoredCount);
+                return;
+            }
+            // scoreMap 이 빈약하면 계산 실패 의심 → 기존 동작(직전 목록 유지)으로 안전하게 폴백
             if (result.isEmpty() && cachedTop5 != null && !cachedTop5.isEmpty()) result = cachedTop5;
             if (result.isEmpty()) { log.warn("[종합추천] 스냅샷 — 데이터 없음"); return; }
 
@@ -1571,6 +1599,14 @@ public class RecommendationService {
         return rows != null && rows.size() >= ARRANGEMENT_MIN_BARS;
     }
 
+    /**
+     * 리스크 공시 페널티가 valueStability(표시값 겸 STRONG+VALUE 보너스 게이트)를 건드리는가 — 회귀 가드.
+     * <b>반드시 false</b>: true 로 되돌리면 공시 1건이 raw −5 와 보너스 상실로 이중 계상된다(2026-08-05 감사).
+     */
+    static boolean riskPenaltyTouchesValueStability() {
+        return false;
+    }
+
     /** 이익이 0 이하로 <b>확인된</b> 경우만 true — null(미수집)은 false(판단 보류). */
     static boolean isLossMaking(BigDecimal latestProfit) {
         return latestProfit != null && latestProfit.signum() <= 0;
@@ -1680,14 +1716,13 @@ public class RecommendationService {
             try {
                 // stockCode 우선 매핑 — DartService corpCode 캐시 hit 으로 정확한 공시 조회.
                 if (riskManagementService.quickDangerCheck(stock.stockCode, stock.stockName)) {
-                    // NA(-1) 는 감점하지 않음 — Math.max(0, -1-5)=0 이 "데이터 없음"을 "0점"으로
-                    // 위장해 스냅샷까지 실값으로 오염(§4c). 감점은 실측값이 있을 때만.
-                    if (stock.valueStability >= 0) {
-                        stock.valueStability = Math.max(0, stock.valueStability - 5);
-                    }
                     // composite 총점 raw 합산에서 −5 (수급 캡과 동일하게 3개 지점에서만 차감,
-                    // 카테고리 표시값 불변). 기존엔 valueStability 만 깎아 composite 랭킹엔
-                    // 실효 0 이던 no-op 버그(2026-07-28) — 5트랙은 이미 score−5 로 실감점.
+                    // 카테고리 표시값 불변). 5트랙은 이미 score−5 로 실감점.
+                    //
+                    // ⚠ 예전엔 여기서 valueStability 도 −5 를 함께 걸었는데(2026-08-05 감사에서 제거),
+                    // valueStability 는 STRONG+VALUE 보너스 게이트(≥12)라 no-op 이 아니었다. 결과적으로
+                    // 공시 1건이 raw −5(≈ −6점)와 보너스 상실(−2)로 이중 계상됐고, "카테고리 표시값
+                    // 불변" 규약도 어겼다(valueStability 는 화면에 노출되는 값). riskPenalty 단일 경로로 통일.
                     stock.riskPenalty = 5;
                     stock.tags.add("⚠리스크공시");
                     hit++;
@@ -2497,7 +2532,11 @@ public class RecommendationService {
                     return prev != null ? s.getNormalizedTotal() - prev : 0;
                 }, Comparator.reverseOrder())
                 // changeRate asc — 점수·delta 동률이면 덜 오른 종목 우선(추격 인상 완화, phase 38).
-                .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : 0.0);
+                // 결측은 MAX_VALUE 로 두어 <b>맨 뒤</b>로 보낸다(2026-08-05 감사). 예전엔 0.0 으로
+                // 대체해 "등락률을 모르는 종목"이 "0% 상승"으로 최상위에 놓였는데, changeRate 는 일부
+                // 진입 경로에서만 채워지므로 실제 +12% 급등주가 +0.8% 종목을 이기는 의도 정반대
+                // 결과가 났다. 모르는 것을 '덜 올랐다'고 우대하지 않는다(§4c).
+                .thenComparing(s -> s.changeRate != null ? s.changeRate.doubleValue() : Double.MAX_VALUE);
     }
 
     /**

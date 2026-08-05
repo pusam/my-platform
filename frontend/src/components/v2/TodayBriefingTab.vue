@@ -202,11 +202,17 @@ const totalProfitLoss = computed(() =>
 const trustBands = computed(() =>
   (bandAccuracy.value?.bands || []).filter(b => Number(b.totalSignals) > 0));
 const trustSince = computed(() => bandAccuracy.value?.since || null);
+// 표본 충분 밴드가 하나도 없으면 경고를 '유지'한다(2026-08-05 감사 — 폴백 극성 수정).
+// 예전엔 전체 밴드로 폴백해 최대 hitRate 로 판정했는데, n=1 짜리 밴드의 우연한 100% 가
+// "50% 미만" 경고를 지웠다. 표본 부족은 '안심해도 된다'가 아니라 '아직 모른다'다(§4c).
+const TRUST_MIN_SAMPLE = 30;
 const trustCaution = computed(() => {
   if (!trustBands.value.length) return null;
-  const solid = trustBands.value.filter(b => Number(b.totalSignals) >= 30);
-  const pool = solid.length ? solid : trustBands.value;
-  const best = Math.max(...pool.map(b => Number(b.hitRate) || 0));
+  const solid = trustBands.value.filter(b => Number(b.totalSignals) >= TRUST_MIN_SAMPLE);
+  if (!solid.length) {
+    return `아직 판단할 표본이 없습니다(밴드별 ${TRUST_MIN_SAMPLE}건 미만) — 점수는 참고용으로만 쓰고, 손절 계획 없는 매수는 하지 마세요.`;
+  }
+  const best = Math.max(...solid.map(b => Number(b.hitRate) || 0));
   return best < 50
     ? '현재까지 실측 적중률이 50% 미만입니다 — 점수는 참고용으로만 쓰고, 손절 계획 없는 매수는 하지 마세요.'
     : null;
