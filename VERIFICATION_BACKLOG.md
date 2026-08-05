@@ -640,10 +640,23 @@
 > 적자축소=POSITIVE·섹터 등락률 이중가산·regime top-5 상방편향+UNKNOWN·composite 리스크 페널티 실효화·
 > tie-break 신규편향·평가 큐 고사·볼린저 배선·히스토리 changeRate·오늘 탭 정직화). 아래는 **회귀면이 넓어
 > 별도 세션**으로 보류한 구조 항목 — "고치면 좋음"이 아니라 **고칠 때 검증 설계가 먼저 필요**한 것들.
-- **① stock_price_history 장중 수집 봉 동결 + 일일 갱신 배치 부재**: `StockAnalysisService.saveDailyPrices` 가
-  `existsByStockCodeAndTradeDate` 스킵이라 장중 수집된 당일 미확정 봉(고저·거래량 부분)이 **영구 확정**됨 +
-  히스토리 갱신은 상세화면 방문/추천 트리거(<5행)뿐이라 일일 배치가 없음. RSI/MA/5일누적/낙폭과대 전부 오염 가능.
-  방향: 당일 봉 upsert(마감 후 재수집 덮어쓰기) + 마감 후 일봉 배치(19시 이전, KIS rate 예산 설계 필요).
+- **① stock_price_history 장중 수집 봉 동결 + 일일 갱신 배치 부재** — **✅ 완료 (2026-08-05)**
+  - **원문**: `savePriceHistoryToDb` 가 `existsByStockCodeAndTradeDate` 스킵이라 장중 수집된 당일 미확정 봉
+    (고저·거래량 부분)이 **영구 확정**됨 + 히스토리 갱신은 상세화면 방문/추천 트리거뿐이라 일일 배치가 없음.
+    RSI/MA/5일누적/낙폭과대 전부 오염 가능.
+  - **✅ upsert 전환**: 판정을 순수함수 `util/DailyBarUpsertRule.shouldWrite` 로 분리 —
+    ① 신규 저장 ② **거래일 ≥ 오늘(미확정) → 항상 덮어쓰기** ③ 과거 봉은 **값이 다를 때만** 덮어쓰기.
+    ③ 덕분에 과거에 얼어붙은 봉도 재수집 시 확정값으로 **복구**되고, 정상 상태(값 동일)에선 쓰기가 0이라
+    조용하다. 결측 필드는 비교 제외(§4c — 결측으로 정상 값을 덮지 않는다). 기존 행은 id·createdAt 을
+    물려 UPDATE(UNIQUE 충돌 방지, 최초 수집 시각 보존). 테스트 `DailyBarUpsertRuleTest`(11건).
+  - **✅ 마감 후 배치**: `DailyBarRefreshService` — 평일 **18:30 KST**(KRX 15:30/종가단일가 15:40 이후 =
+    일봉 확정, 시그널 평가 19:30 이전). 대상은 **오늘 봉이 있는 종목만**(`findStockCodesByTradeDate`) —
+    장중 수집된 종목만 당일 행을 가지므로 KIS 호출이 장중 활동량에 비례해 bound. 호출 간격 450ms
+    (QuantTa 일괄수집과 동일 예산), 상한 400종목이되 **초과분은 warn 로그로 노출**(조용한 절단 금지).
+    SchedulerLockService + 휴장일 가드. 롤백 = `daily-bar.refresh.enabled=false`.
+  - **⚠ 남은 것**: 이 배치 도입 <b>이전</b>에 얼어붙은 과거 봉은 해당 종목이 다시 수집될 때 복구된다
+    (배치가 60봉을 재수집하므로 오늘 봉이 있는 종목은 자동 복구). 한 번도 재수집되지 않는 종목의 옛 오염은
+    남는다 — 필요 시 `refreshBarsFor(과거일)` 수동 트리거로 복구 가능.
 - **② validCount 위장 floor 2종(§4c 위반)**: `scoreTechnical` 히스토리 0행 폴백 `technical=3`("기술(간편)") +
   `scoreSectorMomentum` 장중 `ss=0→2` floor 가 **validCount≥3 게이트에 유효 카테고리로 카운트**됨 — 진짜
   카테고리 1개짜리 종목이 커버리지 게이트 통과 가능. 제거 시 추천 풀이 줄어드는 산식 변경이라 **풀 크기 실측

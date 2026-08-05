@@ -10,6 +10,7 @@ import com.myplatform.backend.repository.InvestorDailyTradeRepository;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import com.myplatform.backend.repository.StockPriceRepository;
+import com.myplatform.backend.util.DailyBarUpsertRule;
 import com.myplatform.backend.util.StockNameResolver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -1007,6 +1008,7 @@ public class StockAnalysisService {
         try {
             LocalDate today = LocalDate.now();
             int savedCount = 0;
+            int updatedCount = 0;
             int skippedCount = 0;
             int fallbackIndex = 0;
 
@@ -1029,14 +1031,19 @@ public class StockAnalysisService {
                     fallbackIndex++;
                 }
 
-                // 이미 존재하면 스킵
-                if (stockPriceHistoryRepository.existsByStockCodeAndTradeDate(stockCode, tradeDate)) {
-                    skippedCount++;
+                // 유효한 데이터만 저장
+                if (data.getClose() == null || data.getClose().compareTo(BigDecimal.ZERO) <= 0) {
                     continue;
                 }
 
-                // 유효한 데이터만 저장
-                if (data.getClose() == null || data.getClose().compareTo(BigDecimal.ZERO) <= 0) {
+                // 기존 행 조회 후 upsert 판정 (P2-19 ①) — "존재하면 스킵"이면 장중 수집된 당일 미확정 봉이
+                // 영구 확정돼 RSI/MA/5일누적이 오염된다. 당일 봉은 항상 최신화, 과거 봉은 값이 다를 때만.
+                StockPriceHistory existing = stockPriceHistoryRepository
+                        .findByStockCodeAndTradeDate(stockCode, tradeDate).orElse(null);
+                DailyBarUpsertRule.Bar fresh = new DailyBarUpsertRule.Bar(
+                        data.getOpen(), data.getHigh(), data.getLow(), data.getClose(), data.getVolume());
+                if (!DailyBarUpsertRule.shouldWrite(existing, fresh, tradeDate, today)) {
+                    skippedCount++;
                     continue;
                 }
 
@@ -1053,7 +1060,9 @@ public class StockAnalysisService {
                     }
                 }
 
+                // 기존 행이 있으면 id 를 물려 UPDATE (UNIQUE(stockCode, tradeDate) 충돌 방지).
                 StockPriceHistory history = StockPriceHistory.builder()
+                        .id(existing != null ? existing.getId() : null)
                         .stockCode(stockCode)
                         .stockName(stockName)
                         .tradeDate(tradeDate)
@@ -1065,13 +1074,17 @@ public class StockAnalysisService {
                         .changeRate(changeRate)
                         .dataSource("KIS")
                         .build();
-
+                if (existing != null) {
+                    history.setCreatedAt(existing.getCreatedAt());   // 최초 수집 시각 보존
+                    updatedCount++;
+                } else {
+                    savedCount++;
+                }
                 stockPriceHistoryRepository.save(history);
-                savedCount++;
             }
 
-            log.info("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 스킵(중복): {}",
-                    stockCode, savedCount, skippedCount);
+            log.info("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}",
+                    stockCode, savedCount, updatedCount, skippedCount);
 
         } catch (Exception e) {
             log.error("종목 {} 일봉 데이터 저장 실패: {}", stockCode, e.getMessage());

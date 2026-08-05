@@ -79,6 +79,14 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
             @Param("startDate") LocalDate startDate);
 
     /**
+     * 특정 거래일 봉을 가진 종목 코드 목록 — 마감 후 일봉 갱신 배치의 대상(P2-19 ①).
+     * <p>장중에 수집된 종목만 당일 행이 있으므로, 이 목록이 곧 "미확정 봉을 가진 종목"이다.
+     * 전체 유니버스를 훑지 않아 KIS 호출 예산이 장중 활동량에 비례해 bound 된다.
+     */
+    @Query("SELECT DISTINCT h.stockCode FROM StockPriceHistory h WHERE h.tradeDate = :tradeDate")
+    List<String> findStockCodesByTradeDate(@Param("tradeDate") LocalDate tradeDate);
+
+    /**
      * stockName 이 비어있는(NULL/빈문자열) 종목 코드 목록
      */
     @Query("SELECT DISTINCT h.stockCode FROM StockPriceHistory h " +
