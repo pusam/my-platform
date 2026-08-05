@@ -43,6 +43,7 @@ import java.time.LocalTime;
 import java.time.MonthDay;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -2100,7 +2101,8 @@ public class AutoTradingBotService {
     }
 
     private void executeScalpingSellLogicInternal() {
-        if (!botActive.get()) {
+        // 킬스위치가 손절을 막지 않게(2026-08-05 감사 P0) — §4d 매도 fail-open.
+        if (!shouldRunSellCycle(botActive.get(), killSwitchTriggered.get(), !scalpingPositions.isEmpty())) {
             return;
         }
 
@@ -2523,8 +2525,17 @@ public class AutoTradingBotService {
             Set<String> botOwned = botOwnedCodes(Set.of(Strategy.SCALPING, Strategy.SWING, Strategy.CLOSING));
             TimeCutResult result = sellPortfolioMatching(botOwned, "REGULAR_SESSION_CLOSE");
             // 완료 = 봇 소유분이 KIS 잔고에서 모두 빠짐(수동 보유분은 남아있어도 무방). 부분 미체결은 다음 분 재시도.
+            //
+            // ⚠ 잔고 조회 실패를 "잔량 없음"으로 읽으면 미체결인데 완청산을 선언하고, markLiquidatedToday() 가
+            // 15:21~15:28 재시도·15:29 미완료 경고·NXT 재청산을 <b>한꺼번에</b> 꺼버린다(2026-08-05 감사 P0).
+            // 매도 주문 직후는 잔고 캐시가 무효화돼 실호출이라 실패 확률이 가장 높은 시점이다.
+            Optional<List<PortfolioItemDto>> afterSell = activeTradeService.tryGetPortfolio();
+            if (afterSell.isEmpty()) {
+                log.warn("[봇] 정규장 강제청산 — 잔고 조회 실패로 완료 판정 보류(다음 분 재시도, 경고 유지)");
+                return;
+            }
             Set<String> stillHeld = new java.util.HashSet<>();
-            for (PortfolioItemDto p : activeTradeService.getPortfolio()) {
+            for (PortfolioItemDto p : afterSell.get()) {
                 if (p.getStockCode() != null) stillHeld.add(p.getStockCode());
             }
             stillHeld.retainAll(botOwned);
@@ -2600,8 +2611,14 @@ public class AutoTradingBotService {
         try {
             TimeCutResult result = sellPortfolioMatching(botOwned, "NXT_SESSION_CLOSE", OrderSession.NXT_EXTENDED);
             // 완청산 확인 = 봇 소유분이 KIS 잔고에서 모두 빠짐. 정규장과 동일 판정·표기 재사용.
+            // 조회 실패 시 완료 선언 금지(정규장과 동일 이유 — markLiquidatedToday 가 감시망을 끈다).
+            Optional<List<PortfolioItemDto>> afterFetch = activeTradeService.tryGetPortfolio();
+            if (afterFetch.isEmpty()) {
+                log.warn("[봇] NXT 방어 청산 — 잔고 조회 실패로 완료 판정 보류(다음 사이클 재시도)");
+                return;
+            }
             Set<String> after = new java.util.HashSet<>();
-            for (PortfolioItemDto p : activeTradeService.getPortfolio()) {
+            for (PortfolioItemDto p : afterFetch.get()) {
                 if (p.getStockCode() != null) after.add(p.getStockCode());
             }
             after.retainAll(botOwned);
@@ -2633,7 +2650,12 @@ public class AutoTradingBotService {
                                               boolean doneToday, LocalTime now,
                                               LocalTime windowStart, LocalTime windowEnd) {
         if (doneToday) return false;
-        if (!configOn || !botActive || killed) return false;
+        if (!configOn) return false;
+        // 킬스위치는 청산을 막지 않는다(2026-08-05 감사 P0) — §4d 의 매도 fail-open 원칙.
+        // 킬스위치는 '손실 중'에 발동하므로 그때야말로 청산이 가장 필요하다. 예전엔 !botActive || killed 로
+        // 막아, -3% 에서 손실을 멈추라고 만든 장치가 손절·강제청산을 전부 꺼버렸다.
+        // 운영자의 명시적 stopBot()(killed=false && !botActive)만 존중한다.
+        if (!botActive && !killed) return false;
         return !now.isBefore(windowStart) && !now.isAfter(windowEnd);
     }
 
@@ -2653,7 +2675,23 @@ public class AutoTradingBotService {
 
     /** 윈도우 종료 후 미완료 경고 여부 — 순수 함수(테스트 대상). 자격 있는데 당일 미완료면 경고. */
     static boolean shouldWarnLiquidationMissed(boolean botActive, boolean killed, boolean configOn, boolean doneToday) {
-        return configOn && botActive && !killed && !doneToday;
+        // 킬스위치 상태에서도 경고는 떠야 한다(2026-08-05 감사) — 예전엔 !killed 조건 때문에
+        // 킬스위치가 발동하면 청산도 안 되고 경고도 안 떠서, 운영자가 방치를 인지할 단서가 로그뿐이었다.
+        return configOn && !doneToday && (botActive || killed);
+    }
+
+    /**
+     * 매도(청산) 사이클을 돌려야 하는가 — 순수 함수(2026-08-05 감사 P0).
+     *
+     * <p>§4d 의 <b>매도 fail-open</b> 원칙: 매도를 막으면 손절을 놓쳐 손실이 커진다. 그래서
+     * <b>킬스위치는 매도를 막지 않는다</b>. 킬스위치는 손실 중에 발동하므로 그때야말로 손절이 필요하다.
+     *
+     * <p>운영자의 명시적 {@code stopBot()}(killed 아님 + botActive=false)만 매도를 멈춘다 —
+     * 수동 통제를 가져간 것이므로 존중한다.
+     */
+    static boolean shouldRunSellCycle(boolean botActive, boolean killed, boolean hasPositions) {
+        if (!hasPositions) return false;
+        return botActive || killed;
     }
 
     /** 오늘 정규장 강제청산 완료 여부 — BotConfig.lastForceLiquidationDate == 오늘. 조회 실패 시 미완료(청산 시도 우선). */
@@ -3140,14 +3178,22 @@ public class AutoTradingBotService {
     }
 
     private void executeSwingSellLogicInternal() {
-        if (!botActive.get() || swingPositions.isEmpty()) return;
+        // 킬스위치가 손절을 막지 않게(2026-08-05 감사 P0) — §4d 매도 fail-open.
+        if (!shouldRunSellCycle(botActive.get(), killSwitchTriggered.get(), !swingPositions.isEmpty())) return;
         if (isMarketClosed()) return;
 
         LocalTime now = LocalTime.now(clock);
         if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) return;
 
         try {
-            List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+            // 조회 실패를 "보유 없음"으로 오인하면 아래에서 포지션을 삭제해 손절이 영영 안 나간다
+            // (2026-08-05 감사 P0). 실패면 이번 사이클 보류 — 포지션은 그대로 둔다(§4c).
+            Optional<List<PortfolioItemDto>> fetched = activeTradeService.tryGetPortfolio();
+            if (fetched.isEmpty()) {
+                log.warn("[매매봇] 잔고 조회 실패 — 이번 사이클 매도 판정 보류(포지션 유지)");
+                return;
+            }
+            List<PortfolioItemDto> portfolios = fetched.get();
             Map<String, PortfolioItemDto> portfolioMap = portfolios.stream()
                     .collect(Collectors.toMap(PortfolioItemDto::getStockCode, p -> p, (a, b) -> a));
 
@@ -3489,7 +3535,14 @@ public class AutoTradingBotService {
         if (now.isBefore(PRE_MARKET_START) || now.isAfter(AFTER_MARKET_END)) return;
 
         try {
-            List<PortfolioItemDto> portfolios = activeTradeService.getPortfolio();
+            // 조회 실패를 "보유 없음"으로 오인하면 아래에서 포지션을 삭제해 손절이 영영 안 나간다
+            // (2026-08-05 감사 P0). 실패면 이번 사이클 보류 — 포지션은 그대로 둔다(§4c).
+            Optional<List<PortfolioItemDto>> fetched = activeTradeService.tryGetPortfolio();
+            if (fetched.isEmpty()) {
+                log.warn("[매매봇] 잔고 조회 실패 — 이번 사이클 매도 판정 보류(포지션 유지)");
+                return;
+            }
+            List<PortfolioItemDto> portfolios = fetched.get();
             Map<String, PortfolioItemDto> portfolioMap = portfolios.stream()
                     .collect(Collectors.toMap(PortfolioItemDto::getStockCode, p -> p, (a, b) -> a));
 

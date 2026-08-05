@@ -1085,9 +1085,10 @@ class AutoTradingBotServiceTest {
             when(positionRepository.findByTradingMode(anyString())).thenReturn(List.of(
                     BotTradingPosition.builder().stockCode(code).strategy(BotTradingPosition.Strategy.SWING)
                             .tradingMode("VIRTUAL").build()));
-            // getPortfolio 3회: ①잔여 pre-check ②sellPortfolioMatching ③완료 after-check(빈=완청산)
-            when(virtualTradeService.getPortfolio()).thenReturn(
-                    List.of(pos), List.of(pos), Collections.emptyList());
+            // ①잔여 pre-check ②sellPortfolioMatching 은 getPortfolio,
+            // ③완료 after-check 는 tryGetPortfolio(조회 실패를 완청산으로 오판하지 않도록, 2026-08-05)
+            when(virtualTradeService.getPortfolio()).thenReturn(List.of(pos), List.of(pos));
+            when(virtualTradeService.tryGetPortfolio()).thenReturn(Optional.of(Collections.emptyList()));
             StockPriceDto price = new StockPriceDto();
             price.setStockCode(code); price.setCurrentPrice(new BigDecimal("71000"));
             when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(code, price));
@@ -1170,8 +1171,11 @@ class AutoTradingBotServiceTest {
             assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, START, START, END)).isTrue();  // 시작 경계
             assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, END, START, END)).isTrue();    // 종료 경계
             assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, true, mid, START, END)).isFalse();    // 이미 완료
-            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(false, false, true, false, mid, START, END)).isFalse();  // 봇 비활성
-            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, true, true, false, mid, START, END)).isFalse();    // killswitch
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(false, false, true, false, mid, START, END)).isFalse();  // 운영자 stopBot — 존중
+            // killswitch 는 청산을 막지 않는다(2026-08-05 감사 P0) — §4d 매도 fail-open.
+            // 킬스위치는 '손실 중'에 발동하므로 그때야말로 청산이 필요하다. 예전 단정(false)이 버그를 고정하고 있었다.
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, true, true, false, mid, START, END)).isTrue();
+            assertThat(AutoTradingBotService.shouldRunLiquidationWindow(false, true, true, false, mid, START, END)).isTrue();   // 킬스위치로 botActive 꺼진 실제 상태
             assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, false, false, mid, START, END)).isFalse();  // 설정 OFF
             assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, LocalTime.of(15, 19), START, END)).isFalse(); // 윈도우 전
             assertThat(AutoTradingBotService.shouldRunLiquidationWindow(true, false, true, false, LocalTime.of(15, 29), START, END)).isFalse(); // 윈도우 후
@@ -1182,8 +1186,10 @@ class AutoTradingBotServiceTest {
         void warnTruthTable() {
             assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, false, true, false)).isTrue();   // 미완료 → 경고
             assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, false, true, true)).isFalse();   // 완료
-            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(false, false, true, false)).isFalse(); // 비활성
-            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, true, true, false)).isFalse();   // killswitch
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(false, false, true, false)).isFalse(); // 운영자 stopBot — 존중
+            // 킬스위치 상태에서도 경고는 떠야 한다(2026-08-05 감사) — 경고까지 꺼지면 방치를 인지할 단서가 없다.
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, true, true, false)).isTrue();
+            assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(false, true, true, false)).isTrue();   // 킬스위치로 botActive 꺼진 실제 상태
             assertThat(AutoTradingBotService.shouldWarnLiquidationMissed(true, false, false, false)).isFalse(); // 설정 OFF
         }
 
@@ -1200,8 +1206,9 @@ class AutoTradingBotServiceTest {
             when(positionRepository.findByTradingMode(anyString())).thenReturn(List.of(
                     BotTradingPosition.builder().stockCode(code).strategy(BotTradingPosition.Strategy.SWING)
                             .tradingMode("VIRTUAL").build()));
-            // sellPortfolioMatching getPortfolio 1번 + 완료판정 getPortfolio 1번 → 매도 후 빈 포트폴리오
+            // sellPortfolioMatching 은 getPortfolio, 완료판정은 tryGetPortfolio(조회 실패 구분, 2026-08-05).
             when(virtualTradeService.getPortfolio()).thenReturn(List.of(pos), Collections.emptyList());
+            when(virtualTradeService.tryGetPortfolio()).thenReturn(Optional.of(Collections.emptyList()));
             StockPriceDto price = new StockPriceDto();
             price.setStockCode(code); price.setCurrentPrice(new BigDecimal("71000"));
             when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(code, price));
@@ -1230,6 +1237,7 @@ class AutoTradingBotServiceTest {
                             .tradingMode("VIRTUAL").build()));
             // 매도 후에도 수동분(000660)은 잔고에 남음 → 봇 소유분(005930)만 빠지면 완료.
             when(virtualTradeService.getPortfolio()).thenReturn(List.of(botPos, manualPos), List.of(manualPos));
+            when(virtualTradeService.tryGetPortfolio()).thenReturn(Optional.of(List.of(manualPos)));
             StockPriceDto p1 = new StockPriceDto(); p1.setStockCode(botCode); p1.setCurrentPrice(new BigDecimal("71000"));
             when(stockPriceService.getStockPrices(any())).thenReturn(Map.of(botCode, p1));
             when(virtualTradeService.sell(any(), any(), anyInt(), anyString()))

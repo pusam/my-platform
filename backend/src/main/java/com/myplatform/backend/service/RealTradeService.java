@@ -21,6 +21,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 실전 매매 서비스
@@ -644,13 +645,32 @@ public class RealTradeService implements TradeService {
     /**
      * 포트폴리오 조회 (KIS API 잔고 기반)
      */
+    /**
+     * 조회 실패와 "보유 없음"을 구분하는 포트폴리오 조회 — 봇 매도·청산 경로 전용(2026-08-05 감사).
+     *
+     * <p>{@link #getPortfolio()} 는 하위호환을 위해 실패 시에도 빈 목록을 주지만, 그 값으로 포지션을
+     * 삭제하면 보유 중인 종목이 손절 없이 방치된다. 매매 판단 코드는 이 메서드를 써야 한다.
+     */
+    @Override
+    public Optional<List<PortfolioItemDto>> tryGetPortfolio() {
+        BalanceInfo balance = getBalanceInfo();
+        if (balance == null || balance.getHoldings() == null) {
+            return Optional.empty();   // 조회 실패 — 호출부가 판정을 보류해야 한다
+        }
+        return Optional.of(toPortfolioItems(balance));
+    }
+
     @Override
     public List<PortfolioItemDto> getPortfolio() {
         BalanceInfo balance = getBalanceInfo();
         if (balance == null || balance.getHoldings() == null) {
             return new ArrayList<>();
         }
+        return toPortfolioItems(balance);
+    }
 
+    /** 잔고 → 포트폴리오 DTO 변환. getPortfolio/tryGetPortfolio 공용(두 경로가 갈리지 않게 단일 출처). */
+    private List<PortfolioItemDto> toPortfolioItems(BalanceInfo balance) {
         List<PortfolioItemDto> portfolio = new ArrayList<>();
         for (HoldingStock holding : balance.getHoldings()) {
             BigDecimal avgPrice = holding.getAveragePrice() != null ? holding.getAveragePrice() : BigDecimal.ZERO;

@@ -5,6 +5,7 @@ import com.myplatform.backend.util.OrderSession;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 매매 서비스 공통 인터페이스
@@ -74,6 +75,23 @@ public interface TradeService {
      * @return 보유종목 목록
      */
     List<PortfolioItemDto> getPortfolio();
+
+    /**
+     * 포트폴리오 조회 — <b>조회 실패와 "보유 없음"을 구분</b>한다(2026-08-05 봇 감사).
+     *
+     * <p><b>왜 필요한가</b>: {@link #getPortfolio()} 는 KIS 잔고 조회가 실패해도 <b>빈 목록</b>을 준다.
+     * 봇 매도·청산 경로가 이를 "보유 없음"으로 해석해 <b>실제로 보유 중인 포지션을 메모리·DB에서 삭제</b>했고,
+     * 그 포지션은 손절·익절·타임컷·강제청산 대상에서 전부 빠져 무기한 방치됐다(§4c 결측을 실값으로 위장).
+     *
+     * <p>매매 판단(특히 <b>포지션 삭제</b>)을 하는 코드는 반드시 이 메서드를 쓸 것.
+     * 단순 조회·표시는 {@link #getPortfolio()} 로 충분하다.
+     *
+     * @return 조회 성공 시 보유목록(빈 목록 = 진짜 보유 없음), <b>조회 실패 시 {@link Optional#empty()}</b>
+     */
+    default Optional<List<PortfolioItemDto>> tryGetPortfolio() {
+        // 기본 구현(VIRTUAL 등 로컬 DB 기반) — 실패 개념이 없으므로 항상 성공으로 본다.
+        return Optional.of(getPortfolio());
+    }
 
     /**
      * 포트폴리오 현재가 업데이트
