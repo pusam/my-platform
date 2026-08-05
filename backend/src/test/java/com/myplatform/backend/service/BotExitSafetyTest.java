@@ -113,6 +113,38 @@ class BotExitSafetyTest {
         assertThat(AutoTradingBotService.isSwingSignalFresh(TODAY, null)).isTrue();
     }
 
+    // ==================== 매도 수량 = 봇 보유분 (감사 잔여 #1) ====================
+
+    @Test
+    void 수동_보유분은_봇_손절선에_청산되지_않는다() {
+        // 봇 10주 + 수동 100주 = 계좌 110주. 봇 손절 시 110주를 팔면 운영자 물량이 강제 청산된다.
+        assertThat(AutoTradingBotService.resolveSellQuantity(10, 110)).isEqualTo(10);
+    }
+
+    @Test
+    void 계좌_보유가_봇_수량보다_적으면_계좌분만_판다() {
+        // 일부가 이미 다른 경로로 팔린 경우 — 없는 수량을 요청하면 KIS 가 거부한다
+        assertThat(AutoTradingBotService.resolveSellQuantity(10, 4)).isEqualTo(4);
+    }
+
+    @Test
+    void 봇_수량이_미상이면_종전대로_계좌_수량을_쓴다() {
+        // 구버전 복원분(original_quantity NULL) — 0으로 읽어 매도를 막으면 손절이 안 나가 더 위험
+        assertThat(AutoTradingBotService.resolveSellQuantity(null, 50)).isEqualTo(50);
+        assertThat(AutoTradingBotService.resolveSellQuantity(0, 50)).isEqualTo(50);
+    }
+
+    @Test
+    void 계좌_보유가_없으면_0() {
+        assertThat(AutoTradingBotService.resolveSellQuantity(10, 0)).isZero();
+        assertThat(AutoTradingBotService.resolveSellQuantity(null, 0)).isZero();
+    }
+
+    @Test
+    void 봇_수량과_계좌가_같으면_전량() {
+        assertThat(AutoTradingBotService.resolveSellQuantity(7, 7)).isEqualTo(7);
+    }
+
     // ==================== 킬스위치 당일 재개 차단 (감사 잔여 #4) ====================
 
     @Test

@@ -409,6 +409,11 @@ public class AutoTradingBotService {
         volatile BigDecimal entryAtr;
         volatile BigDecimal atrStopPct;    // 음수 %
         volatile BigDecimal atrTargetPct;  // 양수 %
+        /**
+         * 봇이 진입한 수량 — 매도 시 <b>계좌 전량이 아니라 이 수량만</b> 판다(2026-08-05 감사).
+         * 0/null 이면 미상(구버전 복원분) → 종전대로 계좌 수량 사용.
+         */
+        volatile Integer botQuantity;
 
         SwingPosition(String stockCode, String stockName, BigDecimal buyPrice, String reason) {
             this.stockCode = stockCode;
@@ -741,6 +746,7 @@ public class AutoTradingBotService {
                         sw.entryAtr = p.getEntryAtr();
                         sw.atrStopPct = p.getAtrStopPct();
                         sw.atrTargetPct = p.getAtrTargetPct();
+                        sw.botQuantity = p.getOriginalQuantity();   // 없으면 null → 종전(계좌 수량)
                         swingPositions.put(p.getStockCode(), sw);
                         swing++;
                     }
@@ -749,6 +755,7 @@ public class AutoTradingBotService {
                                 p.getBuyPrice(), p.getBuyReason());
                         cp.buyTime = p.getBuyTime();
                         cp.highPrice = p.getHighPrice();
+                        cp.botQuantity = p.getOriginalQuantity();
                         closingPositions.put(p.getStockCode(), cp);
                         closing++;
                     }
@@ -913,6 +920,9 @@ public class AutoTradingBotService {
             entity.setBuyTime(sw.buyTime);
             entity.setBuyReason(sw.buyReason);
             entity.setTradingMode(mode);
+            // 봇 보유수량(2026-08-05 감사) — 재시작 후에도 계좌 전량이 아닌 봇 수량만 매도하도록.
+            // 스캘핑과 같은 original_quantity 컬럼 재사용(SWING 은 그동안 NULL 이었다).
+            if (sw.botQuantity != null && sw.botQuantity > 0) entity.setOriginalQuantity(sw.botQuantity);
             // ATR 세트(V42) 진입 스냅샷 — 재시작 복원용(없으면 null 유지 = 현행 청산)
             entity.setEntryAtr(sw.entryAtr);
             entity.setAtrStopPct(sw.atrStopPct);
@@ -2563,6 +2573,15 @@ public class AutoTradingBotService {
                 if (p.getStockCode() != null) stillHeld.add(p.getStockCode());
             }
             stillHeld.retainAll(botOwned);
+            // 거래 불가(정지·상폐) 종목은 완료 판정에서 제외(2026-08-05 감사) — 애초에 매도가 불가능한데
+            // stillHeld 에 남아 markLiquidatedToday() 가 영영 안 찍혔고, 그 결과 매일 15:29 미완료 경고만
+            // 반복되며 그 한 종목이 당일 청산 완료 플래그 전체를 막았다. 제외분은 로그로 가시화(§4c).
+            Set<String> untradable = filterUntradable(stillHeld);
+            if (!untradable.isEmpty()) {
+                log.warn("[봇] 정규장 강제청산 — 거래불가 종목 {}건은 완료 판정에서 제외(수동 확인 필요): {}",
+                        untradable.size(), untradable);
+                stillHeld.removeAll(untradable);
+            }
             if (stillHeld.isEmpty()) {
                 scalpingPositions.clear();
                 swingPositions.clear();
@@ -2720,6 +2739,25 @@ public class AutoTradingBotService {
 
     /** 수급 시그널 최대 허용 나이(달력일) — 주말(2)+연휴 마진. 이보다 오래면 진입 안 함. */
     static final int SWING_SIGNAL_MAX_AGE_DAYS = 5;
+
+    /**
+     * 매도 수량 결정 — 순수 함수(2026-08-05 감사). <b>봇이 산 만큼만 판다.</b>
+     *
+     * <p><b>고치는 문제</b>: 매도 수량이 {@code portfolio.getQuantity()}(=KIS 계좌 전체 보유수량)라,
+     * 같은 종목을 수동으로도 들고 있으면 <b>봇 손절선에 수동 물량까지 청산</b>됐다. §4d 는 "KIS 계좌는
+     * 수동매매와 공유 가능"을 명시적 전제로 두고 청산 대상을 <b>종목 단위</b>로 보호하는데, 수량 단위로는
+     * 무방비였다.
+     *
+     * <p>봇 수량이 미상(null/0 — 구버전 복원분)이면 종전대로 계좌 수량을 쓴다. 결측을 0으로 읽어
+     * 매도를 아예 못 하게 만들면 손절이 막혀 더 위험하다(§4c 는 결측을 불리하게도 위장하지 않는다).
+     *
+     * @return 실제 주문할 수량(계좌 보유분을 넘지 않는다)
+     */
+    static int resolveSellQuantity(Integer botQuantity, int accountQuantity) {
+        if (accountQuantity <= 0) return 0;
+        if (botQuantity == null || botQuantity <= 0) return accountQuantity;   // 미상 → 종전 동작
+        return Math.min(botQuantity, accountQuantity);
+    }
 
     /**
      * 킬스위치를 해제해도 되는가 — 순수 함수(2026-08-05 감사).
@@ -2898,6 +2936,28 @@ public class AutoTradingBotService {
      * (오버나잇 노출 방지 — "추적분인데 안 파는" 반대 사고 차단). reconcile 의 "수동/untracked 보존" 철학과 일관.
      * DB 조회 실패 시 in-memory 맵만 사용(best-effort).
      */
+    /**
+     * 거래 불가(정지·상폐) 종목만 골라낸다 — 청산 완료 판정에서 제외용(2026-08-05 감사).
+     *
+     * <p>매도가 구조적으로 불가능한 종목이 {@code stillHeld} 에 남아 {@code markLiquidatedToday()} 를
+     * 영영 막았고, 그 한 종목 때문에 매일 15:29 미완료 경고만 반복됐다. 제외하되 <b>조용히 지우지 않고</b>
+     * 호출부가 로그로 노출한다(§4c — 수동 확인이 필요한 잔여다).
+     *
+     * <p>{@code isActive} 는 KRX 동기화 전 fail-open 이라, 판정 불가 시 "거래 가능"으로 보아
+     * 종전대로 청산 대상에 남긴다(안전 방향).
+     */
+    private Set<String> filterUntradable(Set<String> codes) {
+        Set<String> out = new java.util.HashSet<>();
+        for (String code : codes) {
+            try {
+                if (!stockStatusService.isActive(code)) out.add(code);
+            } catch (Exception e) {
+                log.debug("[봇] 거래가능 판정 실패({}) — 청산 대상 유지: {}", code, e.getMessage());
+            }
+        }
+        return out;
+    }
+
     private Set<String> botOwnedCodes(Set<Strategy> strategies) {
         Set<String> codes = new java.util.HashSet<>();
         if (strategies.contains(Strategy.SCALPING)) codes.addAll(scalpingPositions.keySet());
@@ -3151,6 +3211,7 @@ public class AutoTradingBotService {
                 // ★ 메모리 포지션 선등록 — KIS 호출 전. 동시 진입 race 차단 ★
                 SwingPosition newSwing = new SwingPosition(candidate.getStockCode(), candidate.getStockName(),
                         currentPrice, investorLabel + candidate.getConsecutiveDays() + "일연속");
+                newSwing.botQuantity = quantity;   // 매도 시 계좌 전량이 아니라 이 수량만(2026-08-05 감사)
                 if (atrLevels != null) {   // 진입 스냅샷 고정 — 보유 중 재계산 금지
                     newSwing.entryAtr = swingEntryAtr;
                     newSwing.atrStopPct = atrLevels.stopPct();
@@ -3381,14 +3442,21 @@ public class AutoTradingBotService {
                     // (startBot)이 in-flight 대기 없이 activeTradeService 를 갈아치우면 진행 중이던
                     // 매도가 반대 계좌로 나갈 수 있었다(REAL↔VIRTUAL 교차 주문).
                     inFlightTrades.incrementAndGet();
+                    // 봇이 산 만큼만 매도 — 수동 보유분이 봇 손절선에 청산되지 않게(2026-08-05 감사).
+                    // 봇 수량 미상(구버전 복원분)이면 종전대로 계좌 수량.
+                    int botSellQty = resolveSellQuantity(position.botQuantity, portfolio.getQuantity());
                     try {
+                        if (botSellQty <= 0) {
+                            log.warn("[매매봇] 매도 수량 0 — 스킵: {}", position.stockCode);
+                            continue;
+                        }
                         TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice,
-                                portfolio.getQuantity(), sellReason);
+                                botSellQty, sellReason);
                         lastTradeTime = LocalDateTime.now(clock);
                         todaySellCount.incrementAndGet();
 
                         BigDecimal profitLoss = currentPrice.subtract(position.buyPrice)
-                                .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
+                                .multiply(BigDecimal.valueOf(botSellQty));
 
                         log.info("[스윙봇-{}] {} 완료: {} x {} @ {}원, 손익: {}원 ({}일 보유)",
                                 currentMode.name(), sellReason, position.stockName,
@@ -3612,6 +3680,7 @@ public class AutoTradingBotService {
 
                     SwingPosition newClosing = new SwingPosition(code, surge.getStockName(),
                             currentPrice, String.format("외국인%.0f억+기관%.0f억", fAmt, iAmt));
+                    newClosing.botQuantity = quantity;   // 계좌 전량이 아닌 봇 수량만 매도(2026-08-05 감사)
                     closingPositions.put(code, newClosing);
                     try {
                         persistSwingPosition(newClosing, Strategy.CLOSING);
@@ -3758,14 +3827,21 @@ public class AutoTradingBotService {
                     // (startBot)이 in-flight 대기 없이 activeTradeService 를 갈아치우면 진행 중이던
                     // 매도가 반대 계좌로 나갈 수 있었다(REAL↔VIRTUAL 교차 주문).
                     inFlightTrades.incrementAndGet();
+                    // 봇이 산 만큼만 매도 — 수동 보유분이 봇 손절선에 청산되지 않게(2026-08-05 감사).
+                    // 봇 수량 미상(구버전 복원분)이면 종전대로 계좌 수량.
+                    int botSellQty = resolveSellQuantity(position.botQuantity, portfolio.getQuantity());
                     try {
+                        if (botSellQty <= 0) {
+                            log.warn("[매매봇] 매도 수량 0 — 스킵: {}", position.stockCode);
+                            continue;
+                        }
                         TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice,
-                                portfolio.getQuantity(), sellReason);
+                                botSellQty, sellReason);
                         lastTradeTime = LocalDateTime.now(clock);
                         todaySellCount.incrementAndGet();
 
                         BigDecimal profitLoss = currentPrice.subtract(position.buyPrice)
-                                .multiply(BigDecimal.valueOf(portfolio.getQuantity()));
+                                .multiply(BigDecimal.valueOf(botSellQty));
 
                         log.info("[종가매수-{}] {} 완료: {} 손익: {}원 ({}%, {}일 보유)",
                                 currentMode.name(), sellReason, position.stockName,

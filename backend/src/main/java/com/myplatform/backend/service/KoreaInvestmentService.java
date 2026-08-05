@@ -1138,6 +1138,26 @@ public class KoreaInvestmentService {
         return ohlcvList;
     }
 
+    /**
+     * 현금 관련 3개 필드 동시 로깅 — <b>진단 전용</b>(2026-08-05 봇 감사 미해결 항목).
+     *
+     * <p>봇의 가용현금이 {@code nxdy_excc_amt}(D+1 익일정산)인데, T+2 결제 특성상 <b>당일 매수가
+     * 반영되지 않으면</b> 같은 현금으로 두 번 주문이 나가 미수가 생기고 총자산이 부풀려져 킬스위치가
+     * 무력화된다. 코드만으로는 확정할 수 없어(계좌 실측 필요) 우선 세 값을 함께 남긴다.
+     *
+     * <p><b>확인 방법</b>: 실전 매수 1건 전후 로그를 비교해 어느 값이 즉시 감소하는지 본다.
+     * {@code dnca_tot_amt}=예수금총액 / {@code nxdy_excc_amt}=D+1 / {@code prvs_rcdl_excc_amt}=D+2.
+     * 즉시 감소하는 필드를 가드·사이징 기준으로 교체할 것 — 추측으로 바꾸면 주문이 통째로 막힌다.
+     */
+    private void logCashFieldsForAudit(JsonNode account) {
+        try {
+            log.info("[KIS 잔고·현금필드 진단] dnca_tot_amt={} nxdy_excc_amt={}(사용중) prvs_rcdl_excc_amt={}",
+                    extractBigDecimal(account, "dnca_tot_amt"),
+                    extractBigDecimal(account, "nxdy_excc_amt"),
+                    extractBigDecimal(account, "prvs_rcdl_excc_amt"));
+        } catch (Exception ignore) { /* 진단 로그 — 주문 흐름에 영향 없음 */ }
+    }
+
     private java.math.BigDecimal extractBigDecimal(JsonNode item, String fieldName) {
         if (item.has(fieldName)) {
             String value = item.get(fieldName).asText();
@@ -1648,7 +1668,15 @@ public class KoreaInvestmentService {
                 if (output2.size() > 0) {
                     JsonNode account = output2.get(0);
                     info.setDepositBalance(extractBigDecimal(account, "dnca_tot_amt"));      // 예수금총액
+                    // ⚠ 2026-08-05 감사(미해결, 실계좌 확인 필요): 이 필드는 <b>D+1 익일정산금액</b>이다.
+                    // 국내주식은 T+2 결제라 <b>당일 매수가 반영되지 않을 가능성</b>이 있고, 그렇다면
+                    //   ① 주문 직전 현금 가드가 같은 현금에 두 번 통과 → 미수 발생
+                    //   ② 총자산 = 현금(불변) + 평가(매수분 증가) 로 부풀려져 -3% 킬스위치가 늦게 발동
+                    // 주문가능현금(ord_psbl_cash, 매수가능조회)·D+2 예수금(prvs_rcdl_excc_amt)은 코드 전체에 없다.
+                    // 아래 3개 값을 함께 로깅해 <b>실전 매수 1건 전후로 어느 값이 즉시 감소하는지</b> 확인할 것.
+                    // 확인 후 감소하는 필드를 가드·사이징 기준으로 교체한다(추측으로 바꾸면 주문이 막힌다).
                     info.setAvailableBalance(extractBigDecimal(account, "nxdy_excc_amt"));   // 익일정산금액
+                    logCashFieldsForAudit(account);
                     info.setTotalEvaluation(extractBigDecimal(account, "tot_evlu_amt"));     // 총평가금액
                     info.setTotalProfitLoss(extractBigDecimal(account, "evlu_pfls_smtl_amt")); // 평가손익합계
                 }
