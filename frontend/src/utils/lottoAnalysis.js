@@ -317,6 +317,73 @@ export function weeklyRecommendation(draws, today = new Date()) {
   return pick ? { ...pick, ...info } : null
 }
 
+/* ────────────────────────── 성적 추적 ────────────────────────── */
+
+/** 등수 이름 — 0 은 낙첨. */
+export const RANK_LABELS = { 1: '1등 (6개)', 2: '2등 (5개+보너스)', 3: '3등 (5개)', 4: '4등 (4개)', 5: '5등 (3개)', 0: '낙첨' }
+
+/** 조합 하나를 실제 추첨 결과와 대조 — 일치 개수·보너스·등수. */
+export function evaluateAgainstDraw(numbers, drawRow) {
+  if (!numbers || !drawRow) return null
+  const matched = numbers.filter((n) => (drawRow.b || []).includes(n)).length
+  const bonusMatched = numbers.includes(drawRow.bn)
+  const rank = matched === 6 ? 1 : matched === 5 && bonusMatched ? 2 : matched === 5 ? 3 : matched === 4 ? 4 : matched === 3 ? 5 : 0
+  return { matched, bonusMatched, rank, round: drawRow.n, date: drawRow.d, winning: drawRow.b, bonus: drawRow.bn }
+}
+
+/** 등수별 이론 확률 — 실적이 우연 수준인지 비교하는 기준선. */
+export function theoreticalRankProbabilities() {
+  const C = (n, k) => { let r = 1; for (let i = 0; i < k; i++) r = (r * (n - i)) / (i + 1); return r }
+  const total = C(45, 6)
+  const p = {
+    1: 1 / total,
+    2: 6 / total,
+    3: (6 * 38) / total,
+    4: (C(6, 4) * C(39, 2)) / total,
+    5: (C(6, 3) * C(39, 3)) / total
+  }
+  p[0] = 1 - Object.values(p).reduce((a, b) => a + b, 0)
+  return p
+}
+
+/**
+ * 소급 성적표 — <b>과거 전 회차에 이 방식으로 샀다면 어땠는지</b>.
+ *
+ * 추천이 회차 번호 시드로 결정적이라 과거 회차의 추천을 그대로 재현할 수 있고,
+ * 추첨 결과를 전혀 참조하지 않으므로(시드는 회차 번호뿐) 사후 끼워맞추기가 아니다.
+ * 결과는 이론 확률과 나란히 놓는다 — <b>우연 수준을 넘는지 스스로 확인하라는 뜻</b>이며,
+ * 실제로 넘지 않는다(넘는다면 그건 추첨이 균등하지 않다는 뜻이라 균등성 검정과 모순된다).
+ */
+export function trackRecord(draws, limit = 0) {
+  const list = draws || []
+  const tally = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 0: 0 }
+  const history = []
+  let totalMatched = 0
+
+  for (const d of list) {
+    const rng = seededRng(d.n * 2654435761)
+    const pick = generateRecommendations(1, { rng })[0]
+    if (!pick) continue
+    const ev = evaluateAgainstDraw(pick.numbers, d)
+    tally[ev.rank]++
+    totalMatched += ev.matched
+    history.push({ ...ev, recommended: pick.numbers })
+  }
+  if (!history.length) return null
+
+  const p = theoreticalRankProbabilities()
+  const n = history.length
+  return {
+    rounds: n,
+    tally,
+    expected: Object.fromEntries(Object.entries(p).map(([k, v]) => [k, v * n])),
+    avgMatched: totalMatched / n,
+    avgMatchedTheory: (PICK * PICK) / (MAX_NUM - MIN_NUM + 1),
+    /** 최신순 — 화면은 최근 몇 회만 보여준다 */
+    recent: history.slice(-Math.max(limit, 1)).reverse()
+  }
+}
+
 /** 균등 랜덤 6개 — 편향 없는 기본 추출(Fisher–Yates 부분 셔플). */
 export function randomCombination(rng = Math.random) {
   const pool = []

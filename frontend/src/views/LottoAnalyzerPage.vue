@@ -29,25 +29,6 @@
         새로고침해도 같은 번호가 나옵니다 — 회차 번호로 고정해두었습니다.
       </p>
 
-      <details class="more-games">
-        <summary>같은 등급 다른 조합 보기</summary>
-        <p class="more-desc">
-          아래 {{ extra.length }}개도 전부 위와 <strong>동일한 등급</strong>입니다.
-          조건을 만족하는 조합이 {{ OPTIMAL_SET_SIZE.toLocaleString() }}개(전체의 18.2%)라
-          <strong>"최선의 번호" 하나는 존재하지 않습니다.</strong> 여러 게임 사실 때 쓰세요.
-        </p>
-        <div class="tickets">
-          <div v-for="(g, i) in extra" :key="i" class="ticket">
-            <span class="ticket-no">{{ String.fromCharCode(66 + i) }}</span>
-            <div class="balls">
-              <span v-for="n in g.numbers" :key="n" class="ball" :class="ballClass(n)">{{ n }}</span>
-            </div>
-            <span class="meta">합 {{ g.features.sum }} · {{ g.features.maxRun }}연속</span>
-          </div>
-        </div>
-        <button class="btn-ghost" @click="rollExtra">다시 뽑기</button>
-      </details>
-
       <p class="rec-note">
         당첨 확률은 어떤 조합이든 1/{{ TOTAL_COMBINATIONS.toLocaleString() }}로 같습니다.
         "분배 {{ OPTIMAL_INDEX }}%"는 확률이 아니라, 당첨됐을 때 상금을 나눌 사람이
@@ -55,7 +36,59 @@
       </p>
     </section>
 
-    <!-- ② 왜 이 번호인가 -->
+    <!-- ② 성적표 — 맞았나 안 맞았나 -->
+    <section v-if="record" class="card">
+      <h2>성적표</h2>
+      <p class="explain">
+        추천이 회차 번호로 고정돼 있어 <strong>과거 회차의 추천도 그대로 재현됩니다.</strong>
+        추첨 결과를 전혀 참조하지 않으므로(시드는 회차 번호뿐) 사후 끼워맞추기가 아닙니다.
+        1회차부터 {{ record.rounds.toLocaleString() }}회 전부 이 방식으로 샀다면 이런 성적입니다.
+      </p>
+
+      <table class="record">
+        <thead>
+          <tr><th>등수</th><th class="r">실제</th><th class="r">우연히 나올 기대치</th><th /></tr>
+        </thead>
+        <tbody>
+          <tr v-for="k in [1, 2, 3, 4, 5, 0]" :key="k" :class="{ dim: !record.tally[k] }">
+            <td>{{ RANK_LABELS[k] }}</td>
+            <td class="r mono strong">{{ record.tally[k].toLocaleString() }}회</td>
+            <td class="r mono">{{ record.expected[k].toFixed(1) }}회</td>
+            <td class="verdict">{{ verdict(record.tally[k], record.expected[k]) }}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="explain verdict-line">
+        평균 일치 개수 <strong>{{ record.avgMatched.toFixed(3) }}개</strong>,
+        이론값 <strong>{{ record.avgMatchedTheory.toFixed(3) }}개</strong>.
+        <strong>성적은 정확히 우연 수준입니다</strong> — 그게 정상입니다.
+        추첨이 균등하다는 아래 검정과 앞뒤가 맞으려면 이래야 하고,
+        만약 우연을 넘었다면 오히려 검정 쪽이 틀렸다는 뜻이 됩니다.
+        이 추천이 바꾸는 건 당첨 확률이 아니라 당첨됐을 때의 분배 인원뿐입니다.
+      </p>
+
+      <h3>최근 {{ record.recent.length }}회</h3>
+      <div class="recent-list">
+        <div v-for="r in record.recent" :key="r.round" class="recent-row">
+          <span class="rr-round">{{ r.round }}회</span>
+          <span class="rr-nums">
+            <span
+              v-for="n in r.recommended"
+              :key="n"
+              class="mini-ball"
+              :class="{ hit: r.winning.includes(n) }"
+            >{{ n }}</span>
+          </span>
+          <span class="rr-result" :class="r.rank ? 'win' : ''">
+            {{ r.matched }}개 일치<template v-if="r.rank"> · {{ RANK_LABELS[r.rank] }}</template>
+          </span>
+        </div>
+      </div>
+      <p class="axis-note">색이 들어온 공이 실제 당첨번호와 맞은 번호입니다.</p>
+    </section>
+
+    <!-- ③ 왜 이 번호인가 -->
     <section class="card">
       <h2>왜 이렇게 뽑았나</h2>
       <p class="explain">
@@ -135,7 +168,7 @@
       </p>
     </section>
 
-    <!-- ③ 예측이 안 되는 이유 -->
+    <!-- ④ 예측이 안 되는 이유 -->
     <section class="card">
       <h2>번호 자체는 예측할 수 없습니다</h2>
       <p class="explain">
@@ -178,20 +211,20 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import BackButton from '../components/BackButton.vue'
 import draws from '../data/lottoDraws.json'
 import {
   chiSquareUniformity,
   purchaseMethodStats,
   sumBandAnalysis,
-  generateRecommendations,
   weeklyRecommendation,
+  trackRecord,
+  RANK_LABELS,
   CROWD_RULES,
   REJECTED_RULES,
   TOTAL_COMBINATIONS,
   OPTIMAL,
-  OPTIMAL_SET_SIZE,
   OPTIMAL_INDEX
 } from '../utils/lottoAnalysis'
 
@@ -206,13 +239,16 @@ const lastDate = computed(() => draws[draws.length - 1]?.d ?? '-')
 /** 이번 회차 고정 추천 — 회차 번호가 시드라 새로고침해도 동일, 추첨 후 자동 갱신. */
 const weekly = computed(() => weeklyRecommendation(draws))
 
-/** 여러 게임 살 때를 위한 추가 조합 — 등급은 같고 구성만 다르다. */
-const extra = ref([])
-function rollExtra() {
-  const picked = weekly.value?.numbers.join(',')
-  extra.value = generateRecommendations(6).filter((g) => g.numbers.join(',') !== picked).slice(0, 4)
+/** 소급 성적표 — 과거 전 회차를 같은 방식으로 재현해 실제 결과와 대조. */
+const record = computed(() => trackRecord(draws, 10))
+
+/** 실적이 기대치를 의미 있게 벗어났는지 — 표본이 작으면 판단을 유보한다. */
+function verdict(actual, expected) {
+  if (expected < 1) return actual === 0 ? '기대대로' : '표본 부족'
+  const sd = Math.sqrt(expected)              // 희귀 사건이라 포아송 근사
+  const z = (actual - expected) / sd
+  return Math.abs(z) < 2 ? '기대 범위' : z > 0 ? '기대 초과' : '기대 미달'
 }
-rollExtra()
 
 function freqHeight(count) {
   const max = stats.value?.most.count ?? 1
@@ -268,15 +304,32 @@ function ballClass(n) {
 }
 code { background: rgba(15,15,28,.8); padding: 1px 5px; border-radius: 4px; font-size: 12px; color: #fbbf24; }
 
-.more-games { margin-top: 16px; text-align: left; }
-.more-games summary { cursor: pointer; color: #a5b4fc; font-size: 13px; text-align: center; }
-.more-desc { font-size: 12.5px; line-height: 1.7; color: #9ca3af; margin: 12px 0; }
-.btn-ghost {
-  margin-top: 10px; background: transparent; color: #a5b4fc;
-  border: 1px solid rgba(99,102,241,.35); border-radius: 8px;
-  padding: 7px 16px; font-size: 12.5px; cursor: pointer;
+/* 성적표 */
+.record { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.record th, .record td { padding: 9px 10px; text-align: left; border-bottom: 1px solid rgba(148,163,184,.12); }
+.record th { color: #9ca3af; font-weight: 500; font-size: 12px; }
+.record tr.dim td { color: #6b7280; }
+.record .strong { font-weight: 700; color: #e5e7eb; }
+.record tr.dim .strong { color: #6b7280; }
+.verdict { font-size: 11.5px; color: #6b7280; }
+.verdict-line { padding: 12px 14px; background: rgba(99,102,241,.07); border-radius: 8px; font-size: 13px; }
+
+.recent-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.recent-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 12px; background: rgba(15,15,28,.5);
+  border: 1px solid rgba(148,163,184,.1); border-radius: 8px;
 }
-.btn-ghost:hover { background: rgba(99,102,241,.12); }
+.rr-round { font-size: 12px; color: #9ca3af; width: 52px; font-variant-numeric: tabular-nums; }
+.rr-nums { display: flex; gap: 4px; }
+.mini-ball {
+  width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  background: rgba(55,65,81,.5); color: #6b7280;
+}
+.mini-ball.hit { background: #6366f1; color: #fff; font-weight: 700; }
+.rr-result { margin-left: auto; font-size: 11.5px; color: #6b7280; }
+.rr-result.win { color: #4ade80; font-weight: 600; }
 
 .tickets { display: flex; flex-direction: column; gap: 10px; }
 .ticket {

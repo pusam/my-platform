@@ -12,6 +12,9 @@ import {
   nextDrawInfo,
   weeklyRecommendation,
   seededRng,
+  evaluateAgainstDraw,
+  trackRecord,
+  theoreticalRankProbabilities,
   CHI2_CRITICAL_DF44,
   CROWD_RULES,
   OPTIMAL,
@@ -257,6 +260,72 @@ describe('seededRng', () => {
 
   it('다른 시드는 다른 수열을 낸다', () => {
     expect(seededRng(1)()).not.toBe(seededRng(2)())
+  })
+})
+
+describe('evaluateAgainstDraw', () => {
+  const row = { n: 100, d: '2020-01-01', b: [1, 2, 3, 4, 5, 6], bn: 7 }
+
+  it('등수를 규칙대로 매긴다', () => {
+    expect(evaluateAgainstDraw([1, 2, 3, 4, 5, 6], row).rank).toBe(1)
+    expect(evaluateAgainstDraw([1, 2, 3, 4, 5, 7], row).rank).toBe(2)   // 5개+보너스
+    expect(evaluateAgainstDraw([1, 2, 3, 4, 5, 8], row).rank).toBe(3)   // 5개
+    expect(evaluateAgainstDraw([1, 2, 3, 4, 8, 9], row).rank).toBe(4)
+    expect(evaluateAgainstDraw([1, 2, 3, 8, 9, 10], row).rank).toBe(5)
+    expect(evaluateAgainstDraw([8, 9, 10, 11, 12, 13], row).rank).toBe(0)
+  })
+
+  it('보너스 일치를 별도로 표시한다', () => {
+    const e = evaluateAgainstDraw([1, 2, 3, 4, 5, 7], row)
+    expect(e.matched).toBe(5)
+    expect(e.bonusMatched).toBe(true)
+  })
+
+  it('입력이 없으면 null', () => {
+    expect(evaluateAgainstDraw(null, row)).toBeNull()
+    expect(evaluateAgainstDraw([1, 2, 3], null)).toBeNull()
+  })
+})
+
+describe('trackRecord', () => {
+  const record = trackRecord(draws, 5)
+
+  it('전 회차를 소급 평가한다', () => {
+    expect(record.rounds).toBe(draws.length)
+    const summed = Object.values(record.tally).reduce((a, b) => a + b, 0)
+    expect(summed).toBe(record.rounds)
+  })
+
+  it('성적이 이론 확률과 같은 수준이다 (우연을 못 넘는다)', () => {
+    // 평균 일치 개수는 이론값 0.8 근처여야 한다 — 벗어나면 추첨이 균등하지 않다는 뜻
+    expect(record.avgMatchedTheory).toBeCloseTo(0.8, 5)
+    expect(Math.abs(record.avgMatched - record.avgMatchedTheory)).toBeLessThan(0.1)
+    // 1등은 기대값 자체가 0.0002 회 수준이라 나오지 않는다
+    expect(record.tally[1]).toBe(0)
+  })
+
+  it('같은 회차는 항상 같은 추천으로 재현된다 (사후 조정 아님)', () => {
+    const again = trackRecord(draws, 5)
+    expect(again.tally).toEqual(record.tally)
+    expect(again.recent[0].recommended).toEqual(record.recent[0].recommended)
+  })
+
+  it('recent 는 최신순으로 limit 만큼 준다', () => {
+    expect(record.recent).toHaveLength(5)
+    expect(record.recent[0].round).toBeGreaterThan(record.recent[1].round)
+    expect(record.recent[0].round).toBe(draws[draws.length - 1].n)
+  })
+
+  it('데이터가 없으면 null', () => {
+    expect(trackRecord([])).toBeNull()
+  })
+})
+
+describe('theoreticalRankProbabilities', () => {
+  it('전체 합이 1 이고 1등 확률이 1/8,145,060 이다', () => {
+    const p = theoreticalRankProbabilities()
+    expect(Object.values(p).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 10)
+    expect(1 / p[1]).toBeCloseTo(8145060, 0)
   })
 })
 
