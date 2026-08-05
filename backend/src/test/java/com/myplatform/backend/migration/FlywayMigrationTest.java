@@ -124,6 +124,12 @@ class FlywayMigrationTest {
         assertThat(columnCount("signal_outcome", "index_channel_width_pct_at_signal"))
                 .as("V50 signal_outcome.index_channel_width_pct_at_signal 컬럼이 적용되어야 함")
                 .isEqualTo(1);
+
+        // --- 검증 10 (V52 도달 확인): pattern_detection 생성 + (stock_code, pattern_type, detected_date)
+        //     UNIQUE — 배치 재실행/late-data 재스캔 dedup 의 전제 ---
+        assertThat(uniqueConstraintCount("pattern_detection", "uq_pd_code_type_date"))
+                .as("V52 pattern_detection UNIQUE 제약(uq_pd_code_type_date)이 적용되어야 함")
+                .isEqualTo(1);
     }
 
     /**
