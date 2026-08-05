@@ -2,19 +2,20 @@ import { describe, it, expect } from 'vitest'
 import {
   numberFrequency,
   chiSquareUniformity,
-  birthdayBiasAnalysis,
   purchaseMethodStats,
-  popularityScore,
+  sumBandAnalysis,
+  combinationFeatures,
+  crowdIndex,
   randomCombination,
-  generateCombinations,
-  describeCombination,
-  CHI2_CRITICAL_DF44
+  generateRecommendations,
+  CHI2_CRITICAL_DF44,
+  CROWD_RULES
 } from './lottoAnalysis'
 import draws from '../data/lottoDraws.json'
 
 const draw = (n, b, extra = {}) => ({ n, d: '2020-01-01', b, bn: 1, w1: null, p1: null, s: null, ...extra })
 
-/** 결정적 rng — 테스트에서 생성기 동작을 재현 가능하게. */
+/** 결정적 rng — 생성기 동작을 재현 가능하게. */
 const seededRng = (seed) => () => {
   seed = (seed * 1103515245 + 12345) % 2147483648
   return seed / 2147483648
@@ -46,22 +47,7 @@ describe('chiSquareUniformity', () => {
     const r = chiSquareUniformity(draws)
     expect(r.draws).toBeGreaterThan(1000)
     expect(r.uniform).toBe(true)
-    // 관측 산포가 이론 표준편차 근처 → 편차는 노이즈
     expect(r.stdev).toBeLessThan(r.theoreticalStdev * 1.5)
-  })
-})
-
-describe('birthdayBiasAnalysis', () => {
-  it('당첨자수·판매액 결측 회차는 집계에서 제외한다', () => {
-    const r = birthdayBiasAnalysis([draw(1, [1, 2, 3, 4, 5, 6])], 1)
-    expect(r.buckets).toHaveLength(0)
-    expect(r.ratio).toBeNull()
-  })
-
-  it('실제 데이터에서 저번호 편중 조합이 당첨자를 더 많이 만든다', () => {
-    const r = birthdayBiasAnalysis(draws)
-    expect(r.buckets.length).toBeGreaterThan(0)
-    expect(r.ratio).toBeGreaterThan(1)   // 생일 범위 편중 → 분배 인원 증가
   })
 })
 
@@ -74,32 +60,70 @@ describe('purchaseMethodStats', () => {
   })
 })
 
-describe('popularityScore', () => {
-  it('아무 패턴 없는 분산 조합은 0 점이다', () => {
-    const { score } = popularityScore([3, 14, 22, 33, 39, 44])
-    expect(score).toBe(0)
+describe('sumBandAnalysis', () => {
+  it('당첨자수·판매액 결측 회차는 집계에서 제외한다', () => {
+    const r = sumBandAnalysis([draw(1, [1, 2, 3, 4, 5, 6])])
+    expect(r.buckets).toHaveLength(0)
+    expect(r.average).toBeNull()
   })
 
-  it('1-2-3-4-5-6 은 연속·등차·생일이 모두 걸린다', () => {
-    const { score, reasons } = popularityScore([1, 2, 3, 4, 5, 6])
-    expect(score).toBeGreaterThanOrEqual(6)
-    expect(reasons.join()).toMatch(/연속/)
-    expect(reasons.join()).toMatch(/등차/)
+  it('실제 데이터에서 번호합이 높을수록 1등 당첨자가 적다', () => {
+    const r = sumBandAnalysis(draws)
+    expect(r.buckets).toHaveLength(3)
+    const low = r.buckets[0]
+    const high = r.buckets[r.buckets.length - 1]
+    expect(low.vsAverage).toBeGreaterThan(0)     // 합 낮음 → 분배 인원 많음
+    expect(high.vsAverage).toBeLessThan(0)       // 합 높음 → 분배 인원 적음
+    expect(low.avgWinners).toBeGreaterThan(high.avgWinners)
+  })
+})
+
+describe('combinationFeatures', () => {
+  it('합·홀짝·저고·최대연속을 계산한다', () => {
+    const f = combinationFeatures([40, 10, 33, 23, 37, 29])
+    expect(f.numbers).toEqual([10, 23, 29, 33, 37, 40])
+    expect(f.sum).toBe(172)
+    expect(f.odd).toBe(4)
+    expect(f.even).toBe(2)
+    expect(f.low).toBe(3)
+    expect(f.high).toBe(3)
+    expect(f.maxRun).toBe(1)
   })
 
-  it('전부 1~31 이면 생일 조합으로 감점된다', () => {
-    const { reasons } = popularityScore([2, 9, 14, 20, 26, 31])
-    expect(reasons.join()).toMatch(/생일/)
+  it('연속 구간 길이를 잡아낸다', () => {
+    expect(combinationFeatures([1, 2, 3, 10, 20, 30]).maxRun).toBe(3)
+    expect(combinationFeatures([5, 6, 20, 21, 40, 44]).maxRun).toBe(2)
+  })
+})
+
+describe('crowdIndex', () => {
+  it('검증된 규칙만 사용한다 (등차수열·용지패턴 등은 제외)', () => {
+    expect(CROWD_RULES.map((r) => r.key).sort()).toEqual(['consecutive', 'sumHigh', 'sumLow'])
+    for (const r of CROWD_RULES) expect(r.p).toBeLessThan(0.05)
   })
 
-  it('과거 당첨 조합과 동일하면 사유에 표시된다', () => {
-    const past = [draw(1, [10, 23, 29, 33, 37, 40])]
-    const { reasons } = popularityScore([40, 10, 33, 23, 37, 29], past)
-    expect(reasons.join()).toMatch(/과거 당첨/)
+  it('합이 낮은 조합은 양수 지수 (분배 인원 많음 = 피할 대상)', () => {
+    const r = crowdIndex([1, 3, 5, 7, 9, 11])    // 합 36
+    expect(r.index).toBeGreaterThan(0)
+    expect(r.factors.map((f) => f.key)).toContain('sumLow')
   })
 
-  it('번호가 6개가 아니면 점수를 매기지 않는다', () => {
-    expect(popularityScore([1, 2, 3]).score).toBe(0)
+  it('합이 높으면 음수 지수', () => {
+    const r = crowdIndex([30, 33, 36, 39, 42, 45])  // 합 225
+    expect(r.index).toBeLessThan(0)
+    expect(r.factors.map((f) => f.key)).toContain('sumHigh')
+  })
+
+  it('연속수는 감점이 아니라 가점이다 (실측 방향 — 통념과 반대)', () => {
+    const rule = CROWD_RULES.find((r) => r.key === 'consecutive')
+    expect(rule.effect).toBeLessThan(0)
+    const withRun = crowdIndex([20, 21, 33, 37, 41, 44])
+    expect(withRun.factors.map((f) => f.key)).toContain('consecutive')
+  })
+
+  it('번호가 6개가 아니면 지수를 매기지 않는다', () => {
+    expect(crowdIndex([1, 2, 3]).index).toBe(0)
+    expect(crowdIndex([]).factors).toEqual([])
   })
 })
 
@@ -116,37 +140,29 @@ describe('randomCombination', () => {
   })
 })
 
-describe('generateCombinations', () => {
-  it('요청한 개수만큼, 서로 다른 조합을 만든다', () => {
-    const out = generateCombinations(5, { rng: seededRng(42) })
+describe('generateRecommendations', () => {
+  it('요청한 개수만큼 서로 다른 조합을 낸다', () => {
+    const out = generateRecommendations(5, { rng: seededRng(42) })
     expect(out).toHaveLength(5)
     expect(new Set(out.map((o) => o.numbers.join()))).toHaveLength(5)
   })
 
-  it('기본 설정에서 인기 패턴이 걸리지 않은 조합만 낸다', () => {
-    const out = generateCombinations(10, { rng: seededRng(7) })
-    for (const o of out) {
-      expect(o.score).toBe(0)
-      expect(o.exhausted).toBe(false)
+  it('혼잡도 오름차순으로 정렬되어 있다', () => {
+    const out = generateRecommendations(5, { rng: seededRng(7) })
+    for (let i = 1; i < out.length; i++) {
+      expect(out[i].index).toBeGreaterThanOrEqual(out[i - 1].index)
     }
   })
 
-  it('시도 상한에 걸리면 exhausted 로 알린다 (실패를 숨기지 않음)', () => {
-    // 달성 불가능한 조건(-1 이하)이라 반드시 소진된다
-    const out = generateCombinations(1, { maxScore: -1, attempts: 5, rng: seededRng(1) })
-    expect(out[0].exhausted).toBe(true)
+  it('후보를 늘리면 순수 무작위보다 혼잡도가 낮아진다', () => {
+    const avg = (list) => list.reduce((a, o) => a + o.index, 0) / list.length
+    const plain = avg(generateRecommendations(20, { pool: 1, rng: seededRng(3) }))
+    const picked = avg(generateRecommendations(20, { pool: 80, rng: seededRng(3) }))
+    expect(picked).toBeLessThan(plain)
   })
-})
 
-describe('describeCombination', () => {
-  it('합계·홀짝·저고를 요약한다', () => {
-    const d = describeCombination([40, 10, 33, 23, 37, 29])
-    expect(d.numbers).toEqual([10, 23, 29, 33, 37, 40])
-    expect(d.sum).toBe(172)
-    expect(d.odd).toBe(4)    // 23,29,33,37
-    expect(d.even).toBe(2)   // 10,40
-    expect(d.low).toBe(3)
-    expect(d.high).toBe(3)
+  it('결과는 항상 나온다 (실패 상태 없음)', () => {
+    expect(generateRecommendations(3, { pool: 1, rng: seededRng(9) })).toHaveLength(3)
   })
 })
 

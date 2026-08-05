@@ -5,14 +5,13 @@
  * 과거 출현 빈도는 다음 회차 예측에 아무 정보도 주지 않는다. 어떤 조합이든 1등 확률은
  * 1/8,145,060 으로 동일하다. 따라서 이 모듈은 "잘 나올 번호"를 뽑지 않는다.
  *
- * 대신 두 가지만 한다.
- *  1) {@link chiSquareUniformity} — 추첨이 실제로 균등한지 검정(핫/콜드 번호가 착시임을 데이터로 확인)
- *  2) {@link popularityScore} / {@link generateCombinations} — 로또는 1등 상금을 당첨자 수로
- *     나누는 pari-mutuel 이라, **남들이 많이 고르는 조합을 피하면 당첨 시 분배금이 올라간다.**
- *     확률이 아니라 기대 수령액을 다루는 것이며, 그래도 기댓값은 여전히 마이너스다(환급률 ~50%).
+ * 대신 로또가 1등 상금을 당첨자 수로 나누는 **pari-mutuel** 이라는 점을 이용한다.
+ * 남들이 덜 고르는 조합을 고르면 확률은 그대로지만 **당첨 시 분배 인원이 줄어든다.**
  *
- * 결측 처리: 초기 회차는 1등 당첨자수/구매방식이 미집계다. 이 값들은 null 로 두고 집계에서
- * 제외한다 — 0 으로 치환하지 않는다.
+ * <b>규칙은 전부 실측으로 검증된 것만 쓴다</b>({@link CROWD_RULES}). 1,221회차(1등 당첨자수·
+ * 판매액이 집계된 회차)를 대상으로 순열검정(20,000회)을 돌려 p<0.05 인 특성만 남겼다.
+ * "연속수는 인기 조합"처럼 그럴듯하지만 데이터와 반대인 가정이 실제로 있었기 때문에,
+ * 검증 없이 규칙을 추가하지 말 것.
  */
 
 /** 로또 번호 범위. */
@@ -20,17 +19,65 @@ export const MIN_NUM = 1
 export const MAX_NUM = 45
 export const PICK = 6
 
-/** 생일로 고를 수 있는 최대 번호 — 1~31 편중이 인기 조합의 최대 원인. */
+/** 생일로 고를 수 있는 최대 번호. */
 export const BIRTHDAY_MAX = 31
-
-/** 용지 한 줄에 놓인 번호 개수(1~45 를 7열로 배열) — 세로/대각 패턴 판정용. */
-const SLIP_COLS = 7
 
 /** 자유도 44(=45-1), 유의수준 5% 카이제곱 임계값. 균등성 검정 전용이라 상수로 둔다. */
 export const CHI2_CRITICAL_DF44 = 60.4809
 
 /** 1등 조합 수 C(45,6). */
 export const TOTAL_COMBINATIONS = 8145060
+
+/**
+ * 실측 검증된 혼잡도 규칙.
+ *
+ * effect = 해당 특성을 가진 회차의 1등 당첨자 수가 그렇지 않은 회차 대비 몇 % 많았는지
+ * (판매액 정규화). **양수 = 사람이 많이 고름 = 분배 인원 증가 = 피할 대상.**
+ * p 는 순열검정 p-value, n 은 해당 특성 회차 수.
+ *
+ * 번호합과 저번호 개수는 서로 강하게 상관(합이 낮으면 저번호가 많음)이라 <b>중복 계상을 피해
+ * 번호합만 점수에 쓴다</b>. 저번호 개수는 표시용으로만 둔다.
+ */
+export const CROWD_RULES = [
+  {
+    key: 'sumLow',
+    label: '번호합 110 이하',
+    detail: '합이 작으면 낮은 번호 위주 — 생일 범위와 겹쳐 선택이 몰린다',
+    effect: 8.4,
+    p: 0.017,
+    n: 226,
+    test: (f) => f.sum <= 110
+  },
+  {
+    key: 'sumHigh',
+    label: '번호합 151 이상',
+    detail: '32~45 를 써야 나오는 구간이라 상대적으로 덜 고른다',
+    effect: -8.8,
+    p: 0.001,
+    n: 419,
+    test: (f) => f.sum >= 151
+  },
+  {
+    key: 'consecutive',
+    label: '연속수 포함',
+    detail: '사람들이 "우연 같지 않다"며 기피 — 통념과 반대로 당첨자가 적다',
+    effect: -7.6,
+    p: 0.003,
+    n: 630,
+    test: (f) => f.maxRun >= 2
+  }
+]
+
+/**
+ * 검증에 실패해 점수에서 제외한 가정들 — 되살리지 말라는 기록.
+ * 재검증 없이 다시 넣으면 추천 방향이 거꾸로 갈 수 있다(연속수가 실제 그랬다).
+ */
+export const REJECTED_RULES = [
+  { label: '1~31 이 5개 이상', reason: '효과 -1.2%, p=0.652 — 무의미(4개 이상만 유의해 단조성 없음)' },
+  { label: '등차수열', reason: '1,221회차 중 0회 — 검증 자체가 불가능' },
+  { label: '용지 같은 세로줄 4개 이상', reason: '표본 18회차 — 판정 보류' },
+  { label: '10단위 한 구간 쏠림', reason: '방향이 뒤집혀 노이즈로 판단' }
+]
 
 /* ────────────────────────── 기술통계 ────────────────────────── */
 
@@ -50,7 +97,7 @@ export function numberFrequency(draws) {
  * 균등성 카이제곱 검정. chi2 = Σ(관측-기대)²/기대, 자유도 44.
  *
  * 임계값 미만이면 "편향이라는 근거가 없다"는 뜻이지 "완벽히 균등하다"는 증명이 아니다.
- * 표본이 없으면 null(§ 결측을 그럴듯한 값으로 위장하지 않음).
+ * 표본이 없으면 null(결측을 그럴듯한 값으로 위장하지 않음).
  */
 export function chiSquareUniformity(draws) {
   const list = draws || []
@@ -91,50 +138,6 @@ export function chiSquareUniformity(draws) {
   }
 }
 
-/**
- * 생일 편향 실측 — 당첨 조합의 1~31 번호 개수별 "1등 당첨자 수"를 비교한다.
- *
- * 판매액이 20년간 크게 늘어 당첨자 수도 함께 늘었으므로, 판매액으로 정규화해야 비교가 성립한다
- * (winnersPer100B = 1등 당첨자수 ÷ 판매액 × 1e11). 당첨자수·판매액 결측 회차는 제외.
- *
- * @returns {{buckets: Array, lowHeavy: number|null, highHeavy: number|null, ratio: number|null}}
- */
-export function birthdayBiasAnalysis(draws, minSample = 5) {
-  const byLowCount = new Map()
-
-  for (const d of draws || []) {
-    if (d.w1 == null || !d.s) continue          // 결측 회차 제외
-    const low = (d.b || []).filter((n) => n <= BIRTHDAY_MAX).length
-    if (!byLowCount.has(low)) byLowCount.set(low, [])
-    byLowCount.get(low).push((d.w1 / d.s) * 1e11)
-  }
-
-  const buckets = [...byLowCount.entries()]
-    .map(([lowCount, values]) => ({
-      lowCount,
-      samples: values.length,
-      avgWinners: values.reduce((a, b) => a + b, 0) / values.length
-    }))
-    .filter((b) => b.samples >= minSample)
-    .sort((a, b) => a.lowCount - b.lowCount)
-
-  // 저번호 편중(4개 이상) vs 고번호 분산(3개 이하) 가중평균 비교
-  const weighted = (pred) => {
-    const sel = buckets.filter((b) => pred(b.lowCount))
-    const n = sel.reduce((a, b) => a + b.samples, 0)
-    return n ? sel.reduce((a, b) => a + b.avgWinners * b.samples, 0) / n : null
-  }
-  const highHeavy = weighted((c) => c <= 3)     // 32~45 를 많이 쓴 조합
-  const lowHeavy = weighted((c) => c >= 4)      // 생일 범위에 몰린 조합
-
-  return {
-    buckets,
-    lowHeavy,
-    highHeavy,
-    ratio: lowHeavy && highHeavy ? lowHeavy / highHeavy : null
-  }
-}
-
 /** 1등 구매방식(자동/수동/반자동) 누적 — 미집계 회차는 자동 제외. */
 export function purchaseMethodStats(draws) {
   let auto = 0, manual = 0, semiAuto = 0, covered = 0
@@ -146,72 +149,85 @@ export function purchaseMethodStats(draws) {
     covered++
   }
   const total = auto + manual + semiAuto
+  return { auto, manual, semiAuto, total, covered, autoPct: total ? (auto / total) * 100 : null }
+}
+
+/**
+ * 번호합 구간별 실측 1등 당첨자 수 — 화면에 근거를 보여주기 위한 집계.
+ * 판매액이 20년간 크게 늘어 당첨자도 함께 늘었으므로 판매액으로 정규화한다
+ * (winnersPer100B = 1등 당첨자수 ÷ 판매액 × 1e11). 당첨자수·판매액 결측 회차는 제외.
+ */
+export function sumBandAnalysis(draws, bands = [110, 150]) {
+  const buckets = new Map()
+  let all = []
+
+  for (const d of draws || []) {
+    if (d.w1 == null || !d.s) continue
+    const sum = (d.b || []).reduce((a, b) => a + b, 0)
+    const bi = bands.findIndex((b) => sum <= b)
+    const key = bi === -1 ? bands.length : bi
+    if (!buckets.has(key)) buckets.set(key, [])
+    const v = (d.w1 / d.s) * 1e11
+    buckets.get(key).push(v)
+    all.push(v)
+  }
+  if (!all.length) return { buckets: [], average: null }
+
+  const average = all.reduce((a, b) => a + b, 0) / all.length
+  const label = (k) =>
+    k === 0 ? `~${bands[0]}` : k === bands.length ? `${bands[bands.length - 1] + 1}~` : `${bands[k - 1] + 1}~${bands[k]}`
+
   return {
-    auto, manual, semiAuto, total, covered,
-    autoPct: total ? (auto / total) * 100 : null
+    average,
+    buckets: [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([k, values]) => {
+        const avg = values.reduce((a, b) => a + b, 0) / values.length
+        return { label: label(k), samples: values.length, avgWinners: avg, vsAverage: (avg / average - 1) * 100 }
+      })
   }
 }
 
-/* ────────────────────── 인기 조합 판정 ────────────────────── */
+/* ────────────────────── 조합 특성 / 혼잡도 ────────────────────── */
 
-/**
- * 조합의 "인기도" 점수 — 높을수록 많은 사람이 고를 법한 조합이다.
- *
- * 당첨 확률과는 <b>무관</b>하다. 오직 당첨됐을 때 상금을 몇 명과 나누게 되는지에만 영향을 준다.
- * 각 규칙은 사람의 선택 편향에서 나온 것이며, 생일 편중(lowHeavy)은 실제 데이터로 확인된 항목이다.
- *
- * @returns {{score:number, reasons:string[]}} score 0 이면 회피 대상 패턴이 하나도 없음
- */
-export function popularityScore(numbers, pastDraws = []) {
+/** 조합 특성 추출 — 규칙 판정과 화면 표시가 공용으로 쓴다. */
+export function combinationFeatures(numbers) {
   const nums = [...(numbers || [])].sort((a, b) => a - b)
-  const reasons = []
-  let score = 0
-
-  if (nums.length !== PICK) return { score: 0, reasons: [] }
-
-  // 1) 생일 편중 — 실측으로 확인된 유일한 항목
-  const lowCount = nums.filter((n) => n <= BIRTHDAY_MAX).length
-  if (lowCount === PICK) { score += 3; reasons.push('전부 1~31 (생일 조합)') }
-  else if (lowCount >= 5) { score += 2; reasons.push('1~31 에 5개 편중') }
-
-  // 2) 연속수 — 3연속 이상이면 눈에 띄는 패턴이라 선택률이 높다
-  let run = 1, maxRun = 1
+  let run = 1, maxRun = nums.length ? 1 : 0
   for (let i = 1; i < nums.length; i++) {
     run = nums[i] === nums[i - 1] + 1 ? run + 1 : 1
     maxRun = Math.max(maxRun, run)
   }
-  if (maxRun >= 4) { score += 3; reasons.push(`${maxRun}연속 번호`) }
-  else if (maxRun === 3) { score += 1; reasons.push('3연속 번호') }
-
-  // 3) 등차수열 — 1-8-15-22-29-36 류
-  const diffs = nums.slice(1).map((n, i) => n - nums[i])
-  if (diffs.every((d) => d === diffs[0])) { score += 3; reasons.push('등차수열') }
-
-  // 4) 용지 세로줄 — 같은 열(7 로 나눈 나머지 동일)에 몰림
-  const colCount = {}
-  for (const n of nums) {
-    const col = n % SLIP_COLS
-    colCount[col] = (colCount[col] || 0) + 1
+  return {
+    numbers: nums,
+    sum: nums.reduce((a, b) => a + b, 0),
+    maxRun,
+    odd: nums.filter((n) => n % 2 === 1).length,
+    even: nums.filter((n) => n % 2 === 0).length,
+    low: nums.filter((n) => n <= BIRTHDAY_MAX).length,
+    high: nums.filter((n) => n > BIRTHDAY_MAX).length
   }
-  const maxCol = Math.max(...Object.values(colCount))
-  if (maxCol >= 4) { score += 2; reasons.push('용지 같은 세로줄에 4개 이상') }
+}
 
-  // 5) 과거 1등 조합 그대로 — 매회 수천 명이 고른다
-  const key = nums.join(',')
-  if ((pastDraws || []).some((d) => [...(d.b || [])].sort((a, b) => a - b).join(',') === key)) {
-    score += 3
-    reasons.push('과거 당첨 조합과 동일')
+/**
+ * 혼잡도 지수 — 검증된 규칙의 실측 효과를 합산한 값(단위: %).
+ *
+ * **음수일수록 좋다**(당첨 시 분배 인원이 평균보다 적을 것으로 추정). 당첨 확률과는 무관하다.
+ * 효과가 서로 완전히 독립이라는 보장은 없어 합산은 근사치이며, 개별 효과가 ±10% 수준으로
+ * 작다는 점(번호합의 설명력 r²≈1.2%)을 화면에서 함께 밝힌다.
+ */
+export function crowdIndex(numbers) {
+  const f = combinationFeatures(numbers)
+  if (f.numbers.length !== PICK) return { index: 0, factors: [], features: f }
+
+  const factors = CROWD_RULES.filter((r) => r.test(f)).map((r) => ({
+    key: r.key, label: r.label, effect: r.effect, detail: r.detail
+  }))
+  return {
+    index: factors.reduce((a, r) => a + r.effect, 0),
+    factors,
+    features: f
   }
-
-  // 6) 한 구간 쏠림 — 10 단위 한 구간에 4개 이상
-  const decade = {}
-  for (const n of nums) {
-    const k = Math.floor((n - 1) / 10)
-    decade[k] = (decade[k] || 0) + 1
-  }
-  if (Math.max(...Object.values(decade)) >= 4) { score += 1; reasons.push('10 단위 한 구간에 4개 이상') }
-
-  return { score, reasons }
 }
 
 /* ────────────────────────── 생성기 ────────────────────────── */
@@ -228,46 +244,31 @@ export function randomCombination(rng = Math.random) {
 }
 
 /**
- * 인기 패턴을 피한 조합 생성.
+ * 추천 조합 생성 — 후보를 여러 개 뽑아 혼잡도 지수가 가장 낮은 것을 고른다.
  *
- * 확률적으로는 아무 조합이나 같지만, 당첨 시 분배 인원이 적을 가능성이 높은 쪽을 고른다.
- * maxScore 이하가 나올 때까지 재추첨하되, 시도 상한에 걸리면 그때까지 가장 점수가 낮은 것을
- * 반환한다(무한 루프 방지 — 실패를 숨기지 않도록 exhausted 플래그로 알린다).
+ * 조건을 만족할 때까지 재시도하는 대신 **정해진 수의 후보 중 최선을 고르는** 방식이라
+ * 항상 결과가 나오고 실패 상태가 없다. 확률은 어떤 조합이든 같으므로 후보를 늘려도
+ * 당첨 가능성은 변하지 않는다 — 분배 인원 기대치만 낮아진다.
+ *
+ * pool 을 1 로 두면 순수 무작위(비교용)가 된다.
  */
-export function generateCombinations(count = 5, { maxScore = 0, pastDraws = [], attempts = 200, rng = Math.random } = {}) {
+export function generateRecommendations(count = 5, { pool = 60, rng = Math.random } = {}) {
   const out = []
   const seen = new Set()
+  const candidates = Math.max(1, pool)
 
   for (let i = 0; i < count; i++) {
     let best = null
-    let exhausted = true
-
-    for (let a = 0; a < attempts; a++) {
-      const nums = randomCombination(rng)
-      const key = nums.join(',')
+    for (let a = 0; a < candidates; a++) {
+      const numbers = randomCombination(rng)
+      const key = numbers.join(',')
       if (seen.has(key)) continue
-
-      const { score, reasons } = popularityScore(nums, pastDraws)
-      if (!best || score < best.score) best = { numbers: nums, score, reasons }
-      if (score <= maxScore) { exhausted = false; break }
+      const scored = crowdIndex(numbers)
+      if (!best || scored.index < best.index) best = { numbers, ...scored }
     }
-
     if (!best) break
     seen.add(best.numbers.join(','))
-    out.push({ ...best, exhausted })
+    out.push(best)
   }
-  return out
-}
-
-/** 조합 특성 요약 — 화면 표시용(합계·홀짝·저고 분포). */
-export function describeCombination(numbers) {
-  const nums = [...(numbers || [])].sort((a, b) => a - b)
-  return {
-    numbers: nums,
-    sum: nums.reduce((a, b) => a + b, 0),
-    odd: nums.filter((n) => n % 2 === 1).length,
-    even: nums.filter((n) => n % 2 === 0).length,
-    low: nums.filter((n) => n <= BIRTHDAY_MAX).length,
-    high: nums.filter((n) => n > BIRTHDAY_MAX).length
-  }
+  return out.sort((a, b) => a.index - b.index)
 }
