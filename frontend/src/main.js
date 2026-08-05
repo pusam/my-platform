@@ -22,6 +22,7 @@ const FinanceManagement = () => import('./views/FinanceManagement.vue')
 const CarManagement = () => import('./views/CarManagement.vue')
 const DietManagement = () => import('./views/DietManagement.vue')
 const ExerciseManagement = () => import('./views/ExerciseManagement.vue')
+const LottoAnalyzerPage = () => import('./views/LottoAnalyzerPage.vue')
 const UserManagement = () => import('./views/UserManagement.vue')
 const ActivityLogs = () => import('./views/ActivityLogs.vue')
 // /research, /paper-trading 등 레거시 경로는 StockTradingDashboardV2 sub-tab으로 redirect
@@ -139,6 +140,12 @@ const router = createRouter({
       path: '/exercise',
       name: 'ExerciseManagement',
       component: ExerciseManagement,
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/lotto',
+      name: 'LottoAnalyzerPage',
+      component: LottoAnalyzerPage,
       meta: { requiresAuth: true }
     },
     {

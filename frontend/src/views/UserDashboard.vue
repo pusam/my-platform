@@ -181,6 +181,21 @@
             </span>
           </article>
 
+          <article class="menu-card lotto" @click="$router.push('/lotto')">
+            <div class="card-icon lotto-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="8" cy="9" r="4"/><circle cx="16" cy="15" r="4"/><path d="M12 3v2"/><path d="M20 8l-1.5 1.5"/>
+              </svg>
+            </div>
+            <h3>로또 분석</h3>
+            <p>균등성 검정과 인기 조합 회피 생성기입니다.</p>
+            <span class="card-arrow">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="9,6 15,12 9,18"/>
+              </svg>
+            </span>
+          </article>
+
           <article class="menu-card asset" @click="goToAsset">
             <div class="card-icon asset-icon">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -565,6 +580,11 @@ export default {
 }
 
 /* 식단 카드 */
+.card-icon.lotto-icon { background: linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(168,85,247,0.15) 100%); color: #a5b4fc; }
+.menu-card.lotto { background: linear-gradient(135deg, rgba(25, 22, 45, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%); border: 2px solid rgba(99,102,241,0.2); }
+.menu-card.lotto:hover { border-color: #6366f1; box-shadow: 0 20px 40px rgba(99,102,241,0.25); }
+.menu-card.lotto h3 { color: #a5b4fc; }
+
 .card-icon.diet-icon { background: linear-gradient(135deg, rgba(251,191,36,0.15) 0%, rgba(245,158,11,0.15) 100%); color: #f59e0b; }
 .menu-card.diet { background: linear-gradient(135deg, rgba(30, 25, 15, 0.9) 0%, rgba(30, 30, 50, 0.9) 100%); border: 2px solid rgba(245,158,11,0.2); }
 .menu-card.diet:hover { border-color: #f59e0b; box-shadow: 0 20px 40px rgba(245,158,11,0.25); }
