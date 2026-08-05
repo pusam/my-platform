@@ -44,6 +44,13 @@ public class SignalBandAccuracyDto {
     private List<RegimeStat> regimes;
 
     /**
+     * 무작위 대조군 대비 (P2-19 ④ 해소) — <b>적중률 해석의 기준선</b>.
+     * 같은 날·같은 유니버스에서 무작위로 뽑은 종목(CONTROL_RANDOM)의 성적과 비교한다.
+     * 이 값 없이는 "적중률 35%"가 잘한 건지 알 수 없다.
+     */
+    private ControlComparison controlComparison;
+
+    /**
      * 추세 채널 상태별 적중률 (V49) — 방향(UP/DOWN/FLAT) × 위치 밴드(하단/중단/상단) 9칸.
      * "상승 채널 하단(눌림목) 매수가 실제로 먹히나 / 상단(추격)이 부진한가" 검증용.
      * 미수집(NULL) 행은 제외. 표본 유의 전 산식 편입 금지(P2-12 교훈).
@@ -58,6 +65,40 @@ public class SignalBandAccuracyDto {
      * 미수집(NULL) 행은 제외. 표본 유의 전 산식 편입 금지(P2-12 · P3-10).
      */
     private List<IndexChannelStat> indexChannels;
+
+    /**
+     * 시그널 vs 무작위 대조군 비교.
+     *
+     * <p>{@code edge*} 는 시그널이 대조군을 얼마나 앞섰는지(양수=우위). {@code significant} 는
+     * 2비율 z검정(양측 5%) 결과로, <b>false 면 "차이가 우연과 구분되지 않는다"</b>는 뜻이다.
+     * 표본이 적으면 실제 우위가 있어도 false 가 나오므로 n 을 함께 봐야 한다.
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ControlComparison {
+        /** 평가 완료된 보드 시그널 수. */
+        private long signalCount;
+        private BigDecimal signalHitRate;
+        private BigDecimal signalAvgPctChange;
+        /** 평가 완료된 대조군 수. */
+        private long controlCount;
+        private BigDecimal controlHitRate;
+        private BigDecimal controlAvgPctChange;
+        /** 적중률 우위 (시그널 - 대조군, %p). 음수면 무작위보다 못했다는 뜻. */
+        private BigDecimal edgeHitRate;
+        /** 평균 수익률 우위 (시그널 - 대조군, %p). */
+        private BigDecimal edgePctChange;
+        /** 2비율 z검정 통계량 — 적중률 차이. */
+        private BigDecimal zScore;
+        /** 양측 5% 유의 여부. false = 우연과 구분 불가. */
+        private boolean significant;
+        /** 양쪽 표본이 최소 기준에 못 미쳐 판정 자체를 보류하는 경우 true. */
+        private boolean insufficientSample;
+        /** 사람이 읽는 한 줄 결론. */
+        private String verdict;
+    }
 
     @Data
     @Builder

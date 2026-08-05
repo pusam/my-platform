@@ -70,6 +70,8 @@ public class SignalOutcomeService {
     private final org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider;
     // "3거래일 후" 컷오프 계산용 — 달력일 minusDays(3)는 금요일 시그널이 1거래일 만에 평가되는 왜곡.
     private final org.springframework.beans.factory.ObjectProvider<MarketCalendarService> calendarProvider;
+    // 무작위 대조군(base rate) — 보드 시그널 기록 시 같은 날 짝을 하나 남긴다(P2-19 ④ 해소).
+    private final org.springframework.beans.factory.ObjectProvider<ControlGroupService> controlGroupProvider;
     private volatile LocalDate lastAlphaAlertDate = null;
 
     private static final int EVALUATION_DELAY_DAYS = 3;
@@ -239,6 +241,19 @@ public class SignalOutcomeService {
             // INSERT 는 REQUIRES_NEW 로 격리 — UNIQUE(uq_so_type_code_date) 위반(경합 패자)이
             // 호출부/이 메서드 tx 를 rollback-only 로 오염시키지 않게(새 tx 만 롤백).
             selfProvider.getObject().insertOutcomeIsolated(outcome);
+
+            // 무작위 대조군 — 보드 시그널(STRONG_BUY/BUY)에만 짝을 만든다. 적중률의 기준선이 없으면
+            // "35%가 잘한 건가"에 영원히 답할 수 없다(P2-19 ④). 이미 조회한 bmPrice·regime 을 넘겨
+            // 추가 조회를 줄이고, 벤치마크를 시그널과 동일하게 맞춘다.
+            // best-effort — 대조군 실패가 실제 시그널 기록을 절대 방해하지 않게 여기서 삼킨다.
+            if (BOARD_SIGNAL_TYPES.contains(signalType)) {
+                try {
+                    ControlGroupService controlGroup = controlGroupProvider.getIfAvailable();
+                    if (controlGroup != null) {
+                        controlGroup.recordControlFor(stockCode, today, bmPrice, regime);
+                    }
+                } catch (Exception ignore) { /* 대조군은 best-effort */ }
+            }
         } catch (DataIntegrityViolationException dup) {
             // 경합 패자 — 다른 스레드/인스턴스가 같은 (type, code, date)를 먼저 기록(UNIQUE 가 차단). 정상.
             log.debug("[SignalOutcome] 중복 record 무시(경합 UNIQUE): {}/{}", signalType, stockCode);
@@ -669,6 +684,16 @@ public class SignalOutcomeService {
     }
 
     /**
+     * 무작위 대조군만 격리 — 순수 함수. {@link #filterBoardSignals} 와 <b>교집합이 없어야 한다</b>
+     * (CONTROL_RANDOM ∉ BOARD_SIGNAL_TYPES). 이 불변식이 깨지면 대조군이 밴드 집계를 오염시킨다.
+     */
+    static List<SignalOutcome> filterControlSignals(List<SignalOutcome> rows) {
+        return rows.stream()
+                .filter(s -> ControlGroupService.isControl(s.getSignalType()))
+                .collect(Collectors.toList());
+    }
+
+    /**
      * 조건부 적중률 — <b>보드 종합점수(STRONG_BUY/BUY) 격리 + phase-38 컷오프</b> 이후 평가 완료분 기준.
      * 다른 시그널 소스(AI/Composite/수급급등)는 점수 스케일이 달라 제외하고, phase-38 이전 "추격 점수" 표본도 제외해
      * "현재 산식의 종합점수가 실제 수익과 상관있나"만 측정한다.
@@ -676,10 +701,15 @@ public class SignalOutcomeService {
     public com.myplatform.backend.dto.SignalBandAccuracyDto getAccuracyByBand(int days) {
         int d = days < 1 ? 90 : days;
         LocalDate from = resolveAccuracyFrom(days, LocalDate.now());
-        List<SignalOutcome> rows = filterBoardSignals(repository.findEvaluatedSince(from));
+        List<SignalOutcome> all = repository.findEvaluatedSince(from);
+        List<SignalOutcome> rows = filterBoardSignals(all);
+        // 대조군은 filterBoardSignals 에서 이미 빠져 있다(CONTROL_RANDOM ∉ BOARD_SIGNAL_TYPES).
+        // 비교용으로만 별도 추출 — 아래 bands/categories/regimes 집계에는 절대 넘기지 않는다.
+        List<SignalOutcome> controls = filterControlSignals(all);
         return com.myplatform.backend.dto.SignalBandAccuracyDto.builder()
                 .daysWindow(d)
                 .since(from)
+                .controlComparison(aggregateControlComparison(rows, controls))
                 .bands(aggregateBands(rows))
                 .categories(aggregateCategories(rows))
                 .catalysts(aggregateCatalysts(rows))
@@ -765,6 +795,94 @@ public class SignalOutcomeService {
                     .build());
         }
         return result;
+    }
+
+    /** 대조군 비교 판정 최소 표본 — 양쪽 각각 이 수 미만이면 판정 보류(§4c: 표본부족을 결론으로 위장 금지). */
+    static final int MIN_CONTROL_SAMPLE = 30;
+
+    /** 양측 5% 유의 임계 z. */
+    private static final double Z_CRITICAL_95 = 1.96;
+
+    /**
+     * 무작위 대조군 대비 집계 — 순수 함수(테스트 대상). <b>적중률 해석의 기준선</b>(P2-19 ④).
+     *
+     * <p>같은 창(from 이후)의 보드 시그널과 {@code CONTROL_RANDOM} 행을 각각 집계해 우위와 유의성을 낸다.
+     * 대조군은 시그널과 <b>같은 날·같은 유니버스·같은 가격기준·같은 벤치마크</b>로 기록되므로,
+     * 두 적중률의 차이가 곧 "점수가 더한 값"이다.
+     *
+     * <p>주의: 유의하지 않다({@code significant=false})는 것은 "우위가 없다"가 아니라 <b>"있다고 말할 근거가
+     * 없다"</b>이다. 표본이 작으면 실제 우위가 있어도 검출되지 않는다 — 그래서 n 을 함께 노출한다.
+     */
+    static com.myplatform.backend.dto.SignalBandAccuracyDto.ControlComparison aggregateControlComparison(
+            List<SignalOutcome> boardRows, List<SignalOutcome> controlRows) {
+        long sN = 0, sHits = 0, cN = 0, cHits = 0;
+        BigDecimal sPct = BigDecimal.ZERO, cPct = BigDecimal.ZERO;
+        long sPctN = 0, cPctN = 0;
+
+        for (SignalOutcome s : boardRows == null ? List.<SignalOutcome>of() : boardRows) {
+            if (s.getEvaluatedAt() == null) continue;
+            sN++;
+            if (Boolean.TRUE.equals(s.getHit())) sHits++;
+            if (s.getPctChange3d() != null) { sPct = sPct.add(s.getPctChange3d()); sPctN++; }
+        }
+        for (SignalOutcome c : controlRows == null ? List.<SignalOutcome>of() : controlRows) {
+            if (c.getEvaluatedAt() == null) continue;
+            cN++;
+            if (Boolean.TRUE.equals(c.getHit())) cHits++;
+            if (c.getPctChange3d() != null) { cPct = cPct.add(c.getPctChange3d()); cPctN++; }
+        }
+
+        BigDecimal sRate = rate(sHits, sN), cRate = rate(cHits, cN);
+        BigDecimal sAvg = avg(sPct, sPctN), cAvg = avg(cPct, cPctN);
+        boolean insufficient = sN < MIN_CONTROL_SAMPLE || cN < MIN_CONTROL_SAMPLE;
+
+        BigDecimal edgeRate = (sRate != null && cRate != null) ? sRate.subtract(cRate) : null;
+        BigDecimal edgePct = (sAvg != null && cAvg != null) ? sAvg.subtract(cAvg) : null;
+
+        Double z = twoProportionZ(sHits, sN, cHits, cN);
+        boolean significant = !insufficient && z != null && Math.abs(z) >= Z_CRITICAL_95;
+
+        return com.myplatform.backend.dto.SignalBandAccuracyDto.ControlComparison.builder()
+                .signalCount(sN).signalHitRate(sRate).signalAvgPctChange(sAvg)
+                .controlCount(cN).controlHitRate(cRate).controlAvgPctChange(cAvg)
+                .edgeHitRate(edgeRate).edgePctChange(edgePct)
+                .zScore(z == null ? null : BigDecimal.valueOf(z).setScale(2, RoundingMode.HALF_UP))
+                .significant(significant)
+                .insufficientSample(insufficient)
+                .verdict(controlVerdict(insufficient, significant, edgeRate, sN, cN))
+                .build();
+    }
+
+    /**
+     * 2비율 z검정 통계량 — 순수 함수. 합동비율 사용.
+     * 표본이 0이거나 합동비율이 0/1(전부 적중 또는 전무)이면 계산 불가 → null(§4c).
+     */
+    static Double twoProportionZ(long hits1, long n1, long hits2, long n2) {
+        if (n1 <= 0 || n2 <= 0) return null;
+        double p1 = (double) hits1 / n1;
+        double p2 = (double) hits2 / n2;
+        double pooled = (double) (hits1 + hits2) / (n1 + n2);
+        if (pooled <= 0 || pooled >= 1) return null;
+        double se = Math.sqrt(pooled * (1 - pooled) * (1.0 / n1 + 1.0 / n2));
+        if (se <= 0) return null;
+        return (p1 - p2) / se;
+    }
+
+    /** 사람이 읽는 한 줄 결론 — 표본부족/무의미/우위/열위를 구분해 과장 없이 말한다. */
+    static String controlVerdict(boolean insufficient, boolean significant, BigDecimal edgeRate,
+                                 long signalCount, long controlCount) {
+        if (insufficient) {
+            return String.format("표본 부족(시그널 %d / 대조군 %d, 각 %d건 필요) — 아직 판정할 수 없음",
+                    signalCount, controlCount, MIN_CONTROL_SAMPLE);
+        }
+        if (edgeRate == null) return "적중률 산출 불가 — 판정 보류";
+        if (!significant) {
+            return String.format("무작위와 구분되지 않음(차이 %+.1f%%p, 통계적으로 유의하지 않음) "
+                    + "— 점수를 매수 근거로 쓸 근거 없음", edgeRate.doubleValue());
+        }
+        return edgeRate.signum() > 0
+                ? String.format("무작위 대비 유의한 우위 (+%.1f%%p)", edgeRate.doubleValue())
+                : String.format("무작위보다 유의하게 나쁨 (%.1f%%p) — 산식 점검 필요", edgeRate.doubleValue());
     }
 
     /** 점수 구간별 집계 — 순수 함수 (테스트 대상). signalScore 없는 행은 제외. */
