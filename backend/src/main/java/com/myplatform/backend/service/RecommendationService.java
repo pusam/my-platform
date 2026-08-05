@@ -968,7 +968,10 @@ public class RecommendationService {
         for (StockFinancialData fin : all) {
             if (fin.getStockCode() == null || fin.getStockName() == null) continue;
             if (!stockStatusService.isActive(fin.getStockCode())) continue;  // 거래정지/상폐 제외
-            int[] parts = computeGrowthScoreParts(fin.getRevenueGrowth(), fin.getProfitGrowth(), fin.getPeg());
+            // 적자 가드(2026-08-05) — 순이익 우선, 없으면 영업이익으로 흑자 여부 판단
+            BigDecimal latestProfit = fin.getNetIncome() != null ? fin.getNetIncome() : fin.getOperatingProfit();
+            int[] parts = computeGrowthScoreParts(
+                    fin.getRevenueGrowth(), fin.getProfitGrowth(), fin.getPeg(), latestProfit);
             int score = Math.min(20, parts[0] + parts[1] + parts[2]);
             if (score <= 0) continue;
             GrowthScoredStock gs = new GrowthScoredStock();
@@ -1474,7 +1477,29 @@ public class RecommendationService {
      * 성장 점수 분해 — {매출(0~7), 이익(0~8), PEG(0~5)}. scoreGrowth(종합추천 성장factor)와
      * 성장주 TOP10 의 <b>단일 산식 출처</b> — 둘 중 한 곳만 바꾸지 말 것. 순수 함수(테스트 대상).
      */
+    /**
+     * 기존 시그니처 유지 오버로드 — 이익 정보를 모를 때(결측)는 종전 동작.
+     * @deprecated 흑자 여부를 넘기는 4-인자 버전을 쓸 것. 결측이 아닌데 이걸 쓰면 적자 축소가 성장으로 잡힌다.
+     */
+    @Deprecated
     static int[] computeGrowthScoreParts(BigDecimal revGrowth, BigDecimal profitGrowth, BigDecimal peg) {
+        return computeGrowthScoreParts(revGrowth, profitGrowth, peg, null);
+    }
+
+    /**
+     * 성장 점수 3요소 — 순수 함수.
+     *
+     * <p><b>적자 가드(2026-08-05 감사)</b>: 성장률은 분모가 {@code |직전값|} 이라 <b>적자 축소가 큰 +성장률로
+     * 뒤집힌다</b>(−100억 → −10억 = +90%). 흑자 확인 없이 채점하면 적자 기업이 "이익급증 8점"을 받는다.
+     * 같은 함정을 실적 트랙은 {@code EarningSurpriseService}(latest&gt;0 필수)에서 이미 막았는데
+     * 성장 트랙만 무방비였다.
+     *
+     * @param latestProfit 최근 이익(억원). <b>null=미수집이면 종전대로 채점</b> — 결측을 '적자로 확정'하면
+     *                     정상 종목까지 성장 점수를 잃는다(§4c 는 결측을 유리하게도 <b>불리하게도</b> 위장하지 않는다).
+     */
+    static int[] computeGrowthScoreParts(BigDecimal revGrowth, BigDecimal profitGrowth, BigDecimal peg,
+                                         BigDecimal latestProfit) {
+        if (isLossMaking(latestProfit)) profitGrowth = null;   // 적자 지속 → 이익 성장 미채점
         int rev = 0, profit = 0, pegScore = 0;
         if (revGrowth != null) {
             double v = revGrowth.doubleValue();   // 음수(역성장) → 0
@@ -1491,8 +1516,79 @@ public class RecommendationService {
         return new int[]{rev, profit, pegScore};
     }
 
-    /** 성장 태그 — computeGrowthScoreParts 와 동일 임계 기반. 단일 출처. */
+    /**
+     * 실적 재무 최대 허용 나이(일) — 분기 공시 주기(≈90일)의 2배 + 지연 마진.
+     * 이보다 오래된 재무는 "오늘의 실적 서프라이즈"로 채점하지 않는다.
+     */
+    static final int EARNINGS_MAX_AGE_DAYS = 200;
+
+    /**
+     * 정배열(MA5&gt;MA20&gt;MA60) 재검증에 필요한 최소 봉 수.
+     * 이보다 적으면 MA60 이 산출되지 않아 <b>판정 자체가 불가능</b>하다.
+     */
+    static final int ARRANGEMENT_MIN_BARS = 60;
+
+    /**
+     * 가격 히스토리 신선도 — 순수 함수(2026-08-05 감사).
+     *
+     * <p>수급 채점에는 노후 가드가 있는데 기술 채점엔 없어서, 수집이 끊긴 종목의 두 달 전 봉으로
+     * RSI·MA·5일누적·과열 페널티가 전부 과거 시점 기준으로 계산됐다.
+     *
+     * @param minAcceptable 허용 최소 거래일(보통 직전 거래일). <b>null 이면 통과</b> —
+     *                      거래일 달력 조회 실패로 전 종목이 미채점되는 게 더 위험하다(fail-open).
+     */
+    static boolean isPriceHistoryFresh(List<StockPriceHistory> rowsLatestFirst,
+                                       java.time.LocalDate minAcceptable) {
+        if (minAcceptable == null) return true;                        // 판정 불가 — 종전 동작
+        if (rowsLatestFirst == null || rowsLatestFirst.isEmpty()) return false;
+        java.time.LocalDate latest = rowsLatestFirst.get(0).getTradeDate();
+        return latest != null && !latest.isBefore(minAcceptable);
+    }
+
+    /**
+     * 실적 재무 신선도 — 순수 함수(2026-08-05 감사).
+     *
+     * <p>{@code findLatestTwoQuartersPerStock} 는 최신 2건을 뽑을 뿐 <b>기준일 하한이 없어</b>,
+     * 수집이 멈춘 종목의 수년 전 재무가 매일 "흑자전환 20점"으로 붙었다. 인접분기 120일 가드는
+     * 두 행 <b>사이 간격</b>만 보므로 절대 시점은 잡지 못한다.
+     *
+     * <p>기준일 결측(null)은 통과 — 결측을 '오래됨'으로 단정하면 정상 종목까지 탈락한다.
+     */
+    static boolean isEarningsReportFresh(java.time.LocalDate reportDate, java.time.LocalDate today) {
+        if (reportDate == null || today == null) return true;
+        return !reportDate.isBefore(today.minusDays(EARNINGS_MAX_AGE_DAYS));
+    }
+
+    /**
+     * 정배열 재검증이 가능한 봉 수인지 — 순수 함수(2026-08-05 감사).
+     *
+     * <p>재검증 블록이 히스토리를 25봉으로 자르는데 정배열은 MA60 이 필요해 <b>항상 null → false</b> 였다.
+     * 그래서 "정배열" 태그를 가진 상위 종목이 <b>실제로 정배열이 유지 중이어도 예외 없이</b>
+     * 태그가 제거되고 technical −2 를 맞았다(데이터 무관 100% 오발화).
+     * 봉이 부족하면 판정을 <b>보류</b>해야지 false 로 단정하면 안 된다(§4c).
+     */
+    static boolean canVerifyArrangement(List<StockPriceHistory> rows) {
+        return rows != null && rows.size() >= ARRANGEMENT_MIN_BARS;
+    }
+
+    /** 이익이 0 이하로 <b>확인된</b> 경우만 true — null(미수집)은 false(판단 보류). */
+    static boolean isLossMaking(BigDecimal latestProfit) {
+        return latestProfit != null && latestProfit.signum() <= 0;
+    }
+
+    /** @deprecated 흑자 여부를 넘기는 4-인자 버전을 쓸 것. */
+    @Deprecated
     static List<String> growthTags(BigDecimal revGrowth, BigDecimal profitGrowth, BigDecimal peg) {
+        return growthTags(revGrowth, profitGrowth, peg, null);
+    }
+
+    /**
+     * 성장 태그 — {@link #computeGrowthScoreParts} 와 동일 임계 기반. 단일 출처.
+     * 적자 지속이면 "이익급증" 배지를 붙이지 않는다(점수 가드와 같은 이유).
+     */
+    static List<String> growthTags(BigDecimal revGrowth, BigDecimal profitGrowth, BigDecimal peg,
+                                   BigDecimal latestProfit) {
+        if (isLossMaking(latestProfit)) profitGrowth = null;
         List<String> tags = new ArrayList<>();
         if (revGrowth != null && revGrowth.doubleValue() >= 30) tags.add("매출고성장");
         if (profitGrowth != null && profitGrowth.doubleValue() >= 50) tags.add("이익급증");
@@ -1519,11 +1615,15 @@ public class RecommendationService {
                 // 셋 다 데이터 없으면 NA(-1) 로 두고 표시에서 제외 (valueStability 와 동일).
                 if (revGrowth == null && profitGrowth == null && peg == null) { miss++; continue; }
 
+                // 적자 가드(2026-08-05) — 이익 성장률과 같은 합성 규약(firstNonZero)으로 최근 이익을 뽑는다.
+                BigDecimal latestProfit = firstNonZero(recent, StockFinancialData::getNetIncome);
+                if (latestProfit == null) latestProfit = firstNonZero(recent, StockFinancialData::getOperatingProfit);
+
                 // 산식은 computeGrowthScoreParts/growthTags 단일 출처 (성장주 TOP10 과 공용).
-                int[] parts = computeGrowthScoreParts(revGrowth, profitGrowth, peg);
+                int[] parts = computeGrowthScoreParts(revGrowth, profitGrowth, peg, latestProfit);
                 stock.growth = Math.min(20, parts[0] + parts[1] + parts[2]);
                 if (stock.growth > 0) {
-                    stock.tags.addAll(growthTags(revGrowth, profitGrowth, peg));
+                    stock.tags.addAll(growthTags(revGrowth, profitGrowth, peg, latestProfit));
                     calc++;
                 }
             } catch (Exception e) {
@@ -1667,10 +1767,15 @@ public class RecommendationService {
         try {
             var surprises = earningSurpriseService.detectEarningSurprises();
             if (surprises == null) return;
+            java.time.LocalDate today = java.time.LocalDate.now();
+            int stale = 0;
             for (EarningSurpriseDto s : surprises) {
                 if (s.getStockCode() == null) continue;
                 String type = s.getSurpriseType() != null ? s.getSurpriseType().toString() : "";
                 if (!"POSITIVE".equals(type) && !"TURNAROUND".equals(type)) continue;
+                // 노후 가드(2026-08-05 감사) — 인접분기 120일 가드는 두 행 '사이 간격'만 본다.
+                // 수집이 멈춘 종목의 수년 전 재무가 매일 "오늘의 흑자전환 20점"으로 붙던 문제.
+                if (!isEarningsReportFresh(s.getLatestReportDate(), today)) { stale++; continue; }
                 StockScore score = scoreMap.computeIfAbsent(s.getStockCode(),
                         k -> new StockScore(k, s.getStockName()));
                 if ("TURNAROUND".equals(type)) {
@@ -1683,6 +1788,9 @@ public class RecommendationService {
                     else if (cr >= 30) { score.earnings = 12; score.tags.add("실적개선+" + (int)cr + "%"); }
                     else { score.earnings = 8; score.tags.add("실적소폭↑"); }
                 }
+            }
+            if (stale > 0) {
+                log.info("[종합추천] 실적: 재무 노후({}일 초과)로 미채점 {}종목", EARNINGS_MAX_AGE_DAYS, stale);
             }
         } catch (Exception e) {
             log.debug("[종합추천] 실적 실패: {}", e.getMessage());
@@ -1934,11 +2042,28 @@ public class RecommendationService {
             historyMap = java.util.Collections.emptyMap();
         }
 
+        // 허용 최소 거래일 — 직전 거래일보다 오래된 히스토리는 미채점. 달력 조회 실패 시 null(fail-open).
+        java.time.LocalDate staleCutoff = null;
+        try {
+            staleCutoff = marketCalendar.minusTradingDays(java.time.LocalDate.now(), 1);
+        } catch (Exception e) {
+            log.warn("[종합추천] 거래일 달력 조회 실패 — 기술 노후 가드 미적용: {}", e.getMessage());
+        }
+
         for (StockScore stock : new ArrayList<>(scoreMap.values())) {
             try {
                 List<StockPriceHistory> history = historyMap.getOrDefault(stock.stockCode, java.util.Collections.emptyList());
                 // 60건 초과는 컷 — 기존 PageRequest.of(0, 60) 동등 의미 (이미 tradeDate DESC 정렬됨)
                 if (history.size() > 60) history = history.subList(0, 60);
+
+                // 노후 가드(2026-08-05 감사) — 수급 채점엔 있던 가드가 기술엔 없어서, 수집이 끊긴
+                // 종목의 두 달 전 봉으로 RSI·MA·5일누적·과열 페널티가 전부 과거 시점 기준으로
+                // 계산됐다. 오래된 히스토리는 미채점(§4c) + 재수집 예약.
+                if (!isPriceHistoryFresh(history, staleCutoff)) {
+                    needsCollection.add(stock.stockCode);
+                    skip++;
+                    continue;
+                }
 
                 if (history == null || history.size() < 5) {
                     needsCollection.add(stock.stockCode);
@@ -2082,7 +2207,9 @@ public class RecommendationService {
 
                 // 1. MA20 하회 체크 — 실시간 현재가 vs priceHistory MA20
                 List<StockPriceHistory> history = historyByCode.getOrDefault(stock.stockCode, java.util.Collections.emptyList());
-                if (history.size() > 25) history = history.subList(0, 25);
+                // 60봉까지 사용(2026-08-05 감사) — 25봉이면 MA60 이 산출되지 않아 정배열 재검증이
+                // 구조적으로 100% 실패했다. 상위 쿼리가 이미 120일치를 로드해 뒀으므로 추가 조회는 없다.
+                if (history.size() > ARRANGEMENT_MIN_BARS) history = history.subList(0, ARRANGEMENT_MIN_BARS);
                 if (history != null && history.size() >= 20) {
                     List<BigDecimal> prices = history.stream()
                             .sorted(Comparator.comparing(StockPriceHistory::getTradeDate))
@@ -2128,7 +2255,9 @@ public class RecommendationService {
                                 tagFixed++;
                                 log.debug("[종합추천] 골든크로스 태그 제거: {} (실제 GC=false)", stock.stockName);
                             }
-                            if (stock.tags.contains("정배열") && !auNow) {
+                            // 봉이 60개 미만이면 MA60 산출 불가 = 판정 보류(§4c). 예전엔 이 조건 없이
+                            // null→false 로 단정해 정배열 종목이 무조건 강등됐다(2026-08-05 감사).
+                            if (canVerifyArrangement(history) && stock.tags.contains("정배열") && !auNow) {
                                 stock.tags.remove("정배열");
                                 stock.technical = Math.max(0, stock.technical - 2);
                                 tagFixed++;
