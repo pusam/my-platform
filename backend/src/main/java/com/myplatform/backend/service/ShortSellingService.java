@@ -208,7 +208,11 @@ public class ShortSellingService {
                     BigDecimal balanceRatio = parseCommaNumber(getJsonText(item, "BAL_RTO"));
                     BigDecimal listedShares = parseCommaNumber(getJsonText(item, "LIST_SHRS"));
 
-                    if (balanceRatio == null || balanceRatio.compareTo(BigDecimal.ZERO) == 0) {
+                    // 0% 는 저장한다(2026-08-05 감사) — 공매도 잔고 0 은 <b>가장 안전한 상태</b>인데,
+                    // 예전엔 0 행을 버려서 조회 시 null 이 되고 화면엔 "미수집 · 판정 불가(➖)"로 떴다.
+                    // 실제 값을 결측으로 위장한 셈이라 체크리스트 통과 개수까지 깎였다(§4c).
+                    // 진짜 결측(null)만 건너뛴다.
+                    if (balanceRatio == null) {
                         continue;
                     }
 

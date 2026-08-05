@@ -505,7 +505,9 @@ public class SignalOutcomeService {
             String type = (String) row[0];
             long total = ((Number) row[1]).longValue();
             long hits = row[2] == null ? 0L : ((Number) row[2]).longValue();
-            BigDecimal avg = row[3] == null ? BigDecimal.ZERO : new BigDecimal(row[3].toString());
+            // 평균 등락률 미산출은 null 유지(2026-08-05 감사) — 0 으로 대체하면 화면에
+            // "평균 0%"로 떠서 '변동 없음'처럼 읽힌다(§4c: 결측을 값으로 위장 금지).
+            BigDecimal avg = row[3] == null ? null : new BigDecimal(row[3].toString());
             BigDecimal hitRate = total == 0 ? BigDecimal.ZERO
                     : BigDecimal.valueOf(hits)
                             .multiply(BigDecimal.valueOf(100))

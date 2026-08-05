@@ -67,17 +67,21 @@ public class BuyChecklistService {
         }
         items.add(checkConclusion(conclusion));
 
+        // 판정 불가(미수집) 항목은 분모에서 제외한다(2026-08-05 감사) — 예전엔 미수집을 분모에
+        // 남긴 채 "필수+가산 전부 통과"라고 써서 "4/5 충족 — 전부 통과" 같은 자기모순이 났다.
+        // decideRecommendation 은 이미 dataMissing 을 판정에서 빼고 있어(§4c) 문구만 어긋나 있었다.
         int passed = (int) items.stream().filter(ChecklistItem::isPassed).count();
-        int total = items.size();
+        int decidable = (int) items.stream().filter(i -> !i.isDataMissing()).count();
+        int missing = items.size() - decidable;
         Recommendation recommendation = decideRecommendation(items);
-        String summary = summary(recommendation, passed, total);
+        String summary = summary(recommendation, passed, decidable, missing);
 
         return BuyChecklistDto.builder()
                 .stockCode(stockCode)
                 .stockName(stockName)
                 .items(items)
                 .passedCount(passed)
-                .totalCount(total)
+                .totalCount(decidable)
                 .recommendation(recommendation)
                 .summary(summary)
                 .build();
@@ -272,12 +276,21 @@ public class BuyChecklistService {
         return Recommendation.NOT_RECOMMENDED;
     }
 
-    private String summary(Recommendation r, int passed, int total) {
+    /**
+     * 요약 문구 — <b>판정 가능한 항목</b>만 분모로 쓰고, 미수집이 있으면 그 사실을 함께 밝힌다.
+     *
+     * <p>예전엔 미수집 항목을 분모에 남긴 채 "필수+가산 전부 통과"라고 써서, 공매도 미수집 시
+     * <b>"4/5 충족 — 필수+가산 전부 통과"</b> 같은 자기모순이 화면에 떴다(2026-08-05 감사).
+     * 판정 자체는 이미 미수집을 제외하고 있었으므로(§4c) 문구·분모만 사실에 맞춘다.
+     */
+    private String summary(Recommendation r, int passed, int decidable, int missing) {
+        String base = passed + "/" + decidable + " 충족";
+        String tail = missing > 0 ? " (판정 불가 " + missing + "개 제외)" : "";
         return switch (r) {
-            case STRONG -> passed + "/" + total + " 충족 — 필수+가산 전부 통과. 진입 권장.";
-            case MODERATE -> passed + "/" + total + " 충족 — 가산 2/3. 포지션 분할 권장.";
-            case CAUTION -> passed + "/" + total + " 충족 — 가산 1/3. 미충족 항목 확인 후 신중 진입.";
-            case NOT_RECOMMENDED -> passed + "/" + total + " 충족 — 필수 미통과 또는 가산 0/3. 진입 비권장.";
+            case STRONG -> base + tail + " — 판정 가능한 필수+가산 전부 통과. 진입 권장.";
+            case MODERATE -> base + tail + " — 가산 2/3. 포지션 분할 권장.";
+            case CAUTION -> base + tail + " — 가산 1/3. 미충족 항목 확인 후 신중 진입.";
+            case NOT_RECOMMENDED -> base + tail + " — 필수 미통과 또는 가산 0/3. 진입 비권장.";
         };
     }
 }

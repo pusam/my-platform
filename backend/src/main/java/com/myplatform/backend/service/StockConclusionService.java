@@ -406,7 +406,10 @@ public class StockConclusionService {
                 .dimension("MID")
                 .score(s.getTotalScore())
                 .verdict(verdictFor(s.getTotalScore(), BUY_THRESHOLD, STRONG_BUY_THRESHOLD))
-                .note("실적·수급·기술·섹터·가치 5카테고리 합산 (100 만점)")
+                // 실제 산식과 일치시킴(2026-08-05 감사) — 예전 문구 "5카테고리 합산"은 틀렸다.
+                // 총점은 4카테고리 raw 를 80으로 정규화한 값이고 가치(밸류)는 합산에 안 들어간다.
+                // 사용자가 화면의 5개 숫자를 더해도 총점과 안 맞아 "밸류가 총점을 깎았다"고 오독했다.
+                .note("실적·수급·기술·섹터 4카테고리 정규화 (가치는 미포함 — 75점↑·가치 12↑일 때만 +2)")
                 .build());
         list.add(Factor.builder()
                 .key("earnings")

@@ -52,6 +52,10 @@
       </div>
 
       <div v-if="candidatesLoading" class="ts-state">후보 분석 중...</div>
+      <div v-else-if="candidatesFailed" class="ts-state failed">
+        후보 데이터를 불러오지 못했습니다 — 오늘 판단을 내릴 수 없습니다.
+        <button class="retry-btn" @click="loadCandidates">다시 시도</button>
+      </div>
       <div v-else-if="buyCandidates.length === 0" class="ts-state empty">
         오늘은 매수 컷(55점)을 넘은 후보가 없습니다 — 관망이 결론입니다.
       </div>
@@ -175,6 +179,8 @@ const STRONG_BUY_CUT = 75;
 const MAX_CANDIDATES = 5;
 
 const candidatesLoading = ref(false);
+// 조회 실패 여부 — '컷 통과 0건(관망)'과 구분해 표시하기 위함(§4c)
+const candidatesFailed = ref(false);
 const buyCandidates = ref([]);
 const timingLoading = ref(false);
 const timingCandidates = ref([]);    // 차트 신호 관찰 — momentum 과 별도. 백테스트 부진(승격불가)이라 매수 신호 아님
@@ -220,6 +226,7 @@ const trustCaution = computed(() => {
 
 const loadCandidates = async () => {
   candidatesLoading.value = true;
+  candidatesFailed.value = false;
   try {
     const { data } = await recommendationAPI.getTop5();
     const items = data?.data || [];
@@ -230,7 +237,10 @@ const loadCandidates = async () => {
       .slice(0, MAX_CANDIDATES);
     loadCatalysts();
   } catch (e) {
+    // 조회 실패를 '관망'으로 말하면 안 된다(2026-08-05 감사) — '컷 통과 0건'은 시장 판단이고
+    // 조회 실패는 판단 불가다. 둘을 같은 문구로 덮으면 장애 중에도 화면이 결론을 단정한다(§4c).
     buyCandidates.value = [];
+    candidatesFailed.value = true;
   } finally {
     candidatesLoading.value = false;
   }
@@ -418,6 +428,13 @@ onMounted(() => {
 .ts-pl { margin-left: auto; font-size: 13px; font-weight: 700; }
 .ts-state { padding: 18px 0; text-align: center; font-size: 13px; opacity: 0.6; }
 .ts-state.empty { opacity: 0.75; }
+.ts-state.failed { opacity: 1; color: #fbbf24; }
+.retry-btn {
+  display: block; margin: 10px auto 0; padding: 5px 14px; font-size: 12px; cursor: pointer;
+  background: transparent; color: #fbbf24;
+  border: 1px solid rgba(251,191,36,.4); border-radius: 6px;
+}
+.retry-btn:hover { background: rgba(251,191,36,.12); }
 
 /* 차트 타이밍(검증 전 베타) — amber 룩은 공용 .badge-unverified, 크기만 로컬 */
 .ts-beta { margin-left: auto; font-size: 11px; padding: 2px 8px; }

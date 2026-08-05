@@ -224,11 +224,27 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(market.text()).toContain('ADR 95')
   })
 
-  it('API 전부 실패해도 매수 후보 빈 상태는 렌더 (빈 화면 방지)', async () => {
+  it('API 전부 실패해도 빈 화면이 되지 않고, 조회 실패임을 밝힌다', async () => {
+    // 2026-08-05 감사: 예전엔 조회 실패도 '관망이 결론입니다'(.ts-state.empty)로 렌더했다.
+    // 컷 통과 0건은 시장 판단이고 조회 실패는 판단 불가라 같은 문구로 덮으면 안 된다(§4c).
     recommendationAPI.getTop5.mockRejectedValue(new Error('500'))
     paperTradingAPI.getPortfolio.mockRejectedValue(new Error('401'))
     apiClient.get.mockRejectedValue(new Error('500'))
     const w = await mountTab()
+
+    const failed = w.find('.ts-state.failed')
+    expect(failed.exists()).toBe(true)                       // 빈 화면 방지(원 의도 유지)
+    expect(failed.text()).toContain('불러오지 못했습니다')
+    expect(w.find('.ts-state.empty').exists()).toBe(false)   // '관망' 결론으로 위장 금지
+    expect(w.text()).not.toContain('관망이 결론입니다')
+  })
+
+  it('컷 통과 0건은 조회 실패와 구분해 관망으로 표시한다', async () => {
+    recommendationAPI.getTop5.mockResolvedValue({ data: { data: [] } })
+    const w = await mountTab()
+
     expect(w.find('.ts-state.empty').exists()).toBe(true)
+    expect(w.find('.ts-state.failed').exists()).toBe(false)
+    expect(w.text()).toContain('관망이 결론입니다')
   })
 })
