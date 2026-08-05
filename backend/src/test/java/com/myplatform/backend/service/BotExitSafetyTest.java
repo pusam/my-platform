@@ -85,6 +85,34 @@ class BotExitSafetyTest {
         assertThat(AutoTradingBotService.shouldRunSellCycle(true, false, true)).isTrue();
     }
 
+    // ==================== 스윙 시그널 신선도 (2026-08-05 감사 4번) ====================
+
+    private static final java.time.LocalDate TODAY = java.time.LocalDate.of(2026, 8, 5);
+
+    @Test
+    void 수급_시그널이_너무_오래되면_진입하지_않는다() {
+        // 수집이 며칠 실패하면 이미 소멸한 시그널로 실주문이 나간다
+        assertThat(AutoTradingBotService.isSwingSignalFresh(TODAY.minusDays(10), TODAY)).isFalse();
+        assertThat(AutoTradingBotService.isSwingSignalFresh(
+                TODAY.minusDays(AutoTradingBotService.SWING_SIGNAL_MAX_AGE_DAYS + 1), TODAY)).isFalse();
+    }
+
+    @Test
+    void 최근_시그널은_진입_가능() {
+        assertThat(AutoTradingBotService.isSwingSignalFresh(TODAY, TODAY)).isTrue();
+        assertThat(AutoTradingBotService.isSwingSignalFresh(TODAY.minusDays(1), TODAY)).isTrue();
+        // 주말+연휴를 덮는 마진 — 경계 포함
+        assertThat(AutoTradingBotService.isSwingSignalFresh(
+                TODAY.minusDays(AutoTradingBotService.SWING_SIGNAL_MAX_AGE_DAYS), TODAY)).isTrue();
+    }
+
+    @Test
+    void 시그널_날짜나_오늘을_모르면_기존대로_통과시킨다() {
+        // 결측으로 전 종목을 차단하면 진입이 통째로 멈춘다 — fail-open
+        assertThat(AutoTradingBotService.isSwingSignalFresh(null, TODAY)).isTrue();
+        assertThat(AutoTradingBotService.isSwingSignalFresh(TODAY, null)).isTrue();
+    }
+
     @Test
     void 운영자가_봇을_끄고_킬스위치도_아니면_매도도_멈춘다() {
         // 명시적 stopBot() 은 운영자가 수동 통제를 가져간 것 — 존중한다.

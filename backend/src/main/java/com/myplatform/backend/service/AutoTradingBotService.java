@@ -2694,6 +2694,60 @@ public class AutoTradingBotService {
         return botActive || killed;
     }
 
+    /** 수급 시그널 최대 허용 나이(달력일) — 주말(2)+연휴 마진. 이보다 오래면 진입 안 함. */
+    static final int SWING_SIGNAL_MAX_AGE_DAYS = 5;
+
+    /**
+     * 매수 체결 확인 — 미체결/부분체결이면 <b>경고만</b>(2026-08-05 감사). REAL 모드 한정.
+     *
+     * <p><b>왜 포지션을 지우지 않는가</b>: 미체결 지정가 주문은 장 마감까지 호가창에 살아 있어 나중에
+     * 체결될 수 있다. 여기서 포지션을 지우면 그 체결분이 <b>봇 추적 밖 REAL 포지션</b>이 되어 손절이
+     * 영영 안 걸린다(§4d reconcile 이 경고만 하는 이유와 같은 상황). 포지션을 유지해야 매도 루프가
+     * 계속 감시하고, 실제로 미체결이면 매도 시 "보유 수량 부족"으로 자연히 걸러진다.
+     *
+     * <p><b>⚠ 잔여</b>: 완전한 해결은 미체결 잔량 <b>취소</b>(order-rvsecncl)가 필요한데, 이는 주문변경
+     * API 라 모의계좌 검증이 선행돼야 하는 §4d Phase 2 미구현 항목이다. 그때까지는 운영자 통지가 최선.
+     */
+    private void warnIfBuyNotFilled(String stockCode, String stockName, TradeHistoryDto buyDto,
+                                    int requestedQty, TradingMode runMode) {
+        if (runMode != TradingMode.REAL) return;                    // VIRTUAL 은 즉시 체결(시뮬레이션)
+        if (buyDto == null || buyDto.getOrderNo() == null) return;  // 주문번호 없으면 확인 불가(§4c)
+        try {
+            RealTradeService.FillResult fill = realTradeService.confirmFill(
+                    stockCode, buyDto.getOrderNo(), requestedQty);
+            if (fill == null || fill.isFull()) return;              // 전량 체결 또는 조회불가(UNKNOWN=현행)
+            String msg = String.format(
+                    "매수 미체결/부분체결 — %s(%s) 요청 %d주 중 %d주 체결. 주문번호 %s 가 호가창에 남아 있습니다. "
+                    + "나중에 체결되면 봇 추적과 어긋날 수 있으니 확인하세요.",
+                    stockName, stockCode, requestedQty, fill.filledQty(), buyDto.getOrderNo());
+            log.warn("[스윙봇] {}", msg);
+            if (telegramService.isEnabled()) {
+                telegramService.sendRisk("⚠️ " + msg);
+            }
+        } catch (Exception e) {
+            log.debug("[스윙봇] 매수 체결확인 실패({}): {}", stockCode, e.getMessage());
+        }
+    }
+
+    /**
+     * 수급 시그널 신선도 — 순수 함수(2026-08-05 감사).
+     *
+     * <p>스윙 진입은 "외국인 N일 연속 순매수"로 후보를 잡는데, 그 시그널의 <b>종료일</b>을 보지 않았다.
+     * 수집이 며칠 실패하면 <b>이미 소멸한 시그널</b>로 실주문이 나간다(스캘핑엔 {@code isSurgeDataFresh}
+     * 가 있고, §4c 의 {@code scoreSupplyDemand} 노후 가드도 같은 취지인데 봇 진입 경로에만 빠져 있었다).
+     *
+     * <p>거래일 달력 대신 <b>달력일 상한</b>({@value #SWING_SIGNAL_MAX_AGE_DAYS}일)을 쓴다 — 주말+연휴를
+     * 넉넉히 덮으면서 "며칠 묵은 시그널"은 확실히 잡는다. 봇에 달력 서비스를 새로 주입하지 않으려는
+     * 의도적 단순화(생성자 변경은 회귀면이 넓다).
+     *
+     * @param signalEndDate 연속매수 종료일(최근일). null=미상이면 통과(fail-open — 전 종목 차단이 더 위험)
+     * @param today         오늘(KST). null 이면 통과
+     */
+    static boolean isSwingSignalFresh(java.time.LocalDate signalEndDate, java.time.LocalDate today) {
+        if (signalEndDate == null || today == null) return true;
+        return !signalEndDate.isBefore(today.minusDays(SWING_SIGNAL_MAX_AGE_DAYS));
+    }
+
     /** 오늘 정규장 강제청산 완료 여부 — BotConfig.lastForceLiquidationDate == 오늘. 조회 실패 시 미완료(청산 시도 우선). */
     private boolean isLiquidatedToday() {
         try {
@@ -2982,6 +3036,8 @@ public class AutoTradingBotService {
             Set<String> holdingCodes = activeTradeService.getPortfolio().stream()
                     .map(PortfolioItemDto::getStockCode).collect(Collectors.toSet());
 
+            java.time.LocalDate signalToday = java.time.LocalDate.now(clock);
+
             for (ConsecutiveBuyDto candidate : candidates.values()) {
                 if (swingPositions.size() >= SWING_MAX_HOLDING) break;
                 if (holdingCodes.contains(candidate.getStockCode())) continue;
@@ -2990,6 +3046,23 @@ public class AutoTradingBotService {
                 if (scalpingPositions.containsKey(candidate.getStockCode())) continue;
                 if (closingPositions.containsKey(candidate.getStockCode())) continue;
                 if (sellCooldownMap.containsKey(candidate.getStockCode())) continue;
+
+                // ★ 시그널 신선도(2026-08-05 감사) — 수집이 며칠 실패하면 이미 소멸한 연속매수
+                //   시그널로 실주문이 나간다. 스캘핑엔 isSurgeDataFresh 가 있는데 스윙에만 없었다.
+                if (!isSwingSignalFresh(candidate.getEndDate(), signalToday)) {
+                    log.info("[스윙봇] Skip [{}({})] 수급 시그널 노후(종료일 {}, 허용 {}일)",
+                            candidate.getStockName(), candidate.getStockCode(),
+                            candidate.getEndDate(), SWING_SIGNAL_MAX_AGE_DAYS);
+                    continue;
+                }
+
+                // ★ 거래정지/상폐 종목 진입 차단(2026-08-05 감사) — 스캘핑엔 있던 게이트가
+                //   실주문 경로인 스윙에만 빠져 있었다.
+                if (!stockStatusService.isActive(candidate.getStockCode())) {
+                    log.info("[스윙봇] Skip [{}({})] 거래정지/상폐 종목",
+                            candidate.getStockName(), candidate.getStockCode());
+                    continue;
+                }
 
                 // 기술적 조건 체크
                 if (!checkSwingTechnical(candidate.getStockCode())) continue;
@@ -3053,9 +3126,15 @@ public class AutoTradingBotService {
 
                 boolean swingBuyOk = false;
                 try {
-                    runTrader.buy(candidate.getStockCode(), candidate.getStockName(),
+                    TradeHistoryDto buyDto = runTrader.buy(candidate.getStockCode(), candidate.getStockName(),
                             currentPrice, quantity, reason);
                     swingBuyOk = true;
+
+                    // ★ 매수 체결 확인(2026-08-05 감사) — 지정가 매수는 즉시 체결되지 않는 게 흔한데
+                    //   "주문 접수 = 체결"로 간주해왔다. 미체결이면 30초 뒤 매도 틱이 잔고에 없다고
+                    //   포지션을 지웠고, 그 주문이 나중에 체결되면 봇 추적 밖 REAL 포지션이 됐다.
+                    //   포지션은 유지한다(지워야 나중 체결이 orphan 된다) — 운영자에게 알리는 게 목적.
+                    warnIfBuyNotFilled(candidate.getStockCode(), candidate.getStockName(), buyDto, quantity, runMode);
 
                     try {
                         persistSwingPosition(newSwing, Strategy.SWING);
@@ -3209,6 +3288,20 @@ public class AutoTradingBotService {
                 if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
 
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
+                // ★ 손절 평가 가격 신선도 검증(2026-08-05 감사) — 스캘핑엔 있던 가드가 여기엔 없어서
+                //   최대 15분 묵은 캐시가로 손절을 판정했다(실제 -4% 인데 캐시가 -1% 면 손절 미발동).
+                //   게다가 그 낡은 가격이 그대로 지정가가 되어 체결이 안 되고 미체결만 쌓인다.
+                //   재조회 실패 시 보류 — 다음 사이클 재시도.
+                if (isPriceStale(priceDto)) {
+                    BigDecimal fresh = fetchLatestPriceQuiet(position.stockCode);
+                    if (fresh != null && fresh.signum() > 0) {
+                        currentPrice = fresh;
+                    } else {
+                        log.warn("[매매봇] 매도 평가 가격 stale + 재조회 실패 — 보류: {} (fetchedAt={})",
+                                position.stockCode, priceDto.getFetchedAt());
+                        continue;
+                    }
+                }
                 position.updateHighPrice(currentPrice);
 
                 BigDecimal profitRate = calcProfitRate(currentPrice, position.buyPrice);
@@ -3246,6 +3339,10 @@ public class AutoTradingBotService {
                 }
 
                 if (sellReason != null) {
+                    // in-flight 등록(2026-08-05 감사) — 스캘핑엔 있고 스윙/종가에만 없어서, 모드 전환
+                    // (startBot)이 in-flight 대기 없이 activeTradeService 를 갈아치우면 진행 중이던
+                    // 매도가 반대 계좌로 나갈 수 있었다(REAL↔VIRTUAL 교차 주문).
+                    inFlightTrades.incrementAndGet();
                     try {
                         TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice,
                                 portfolio.getQuantity(), sellReason);
@@ -3297,6 +3394,9 @@ public class AutoTradingBotService {
                     log.warn("[봇] 텔레그램 RISK 알람 전송 실패: {}", telegramErr.getMessage());
                 }
                         }
+
+                    } finally {
+                        inFlightTrades.decrementAndGet();
                     }
                 }
             }
@@ -3558,6 +3658,20 @@ public class AutoTradingBotService {
                 if (priceDto == null || priceDto.getCurrentPrice() == null) continue;
 
                 BigDecimal currentPrice = priceDto.getCurrentPrice();
+                // ★ 손절 평가 가격 신선도 검증(2026-08-05 감사) — 스캘핑엔 있던 가드가 여기엔 없어서
+                //   최대 15분 묵은 캐시가로 손절을 판정했다(실제 -4% 인데 캐시가 -1% 면 손절 미발동).
+                //   게다가 그 낡은 가격이 그대로 지정가가 되어 체결이 안 되고 미체결만 쌓인다.
+                //   재조회 실패 시 보류 — 다음 사이클 재시도.
+                if (isPriceStale(priceDto)) {
+                    BigDecimal fresh = fetchLatestPriceQuiet(position.stockCode);
+                    if (fresh != null && fresh.signum() > 0) {
+                        currentPrice = fresh;
+                    } else {
+                        log.warn("[매매봇] 매도 평가 가격 stale + 재조회 실패 — 보류: {} (fetchedAt={})",
+                                position.stockCode, priceDto.getFetchedAt());
+                        continue;
+                    }
+                }
                 position.updateHighPrice(currentPrice);
 
                 BigDecimal profitRate = calcProfitRate(currentPrice, position.buyPrice);
@@ -3602,6 +3716,10 @@ public class AutoTradingBotService {
                 }
 
                 if (sellReason != null) {
+                    // in-flight 등록(2026-08-05 감사) — 스캘핑엔 있고 스윙/종가에만 없어서, 모드 전환
+                    // (startBot)이 in-flight 대기 없이 activeTradeService 를 갈아치우면 진행 중이던
+                    // 매도가 반대 계좌로 나갈 수 있었다(REAL↔VIRTUAL 교차 주문).
+                    inFlightTrades.incrementAndGet();
                     try {
                         TradeHistoryDto sellDto = activeTradeService.sell(portfolio.getStockCode(), currentPrice,
                                 portfolio.getQuantity(), sellReason);
@@ -3633,6 +3751,9 @@ public class AutoTradingBotService {
                         }
                     } catch (Exception e) {
                         log.error("[종가매수] 매도 실패: {} - {}", position.stockName, e.getMessage());
+
+                    } finally {
+                        inFlightTrades.decrementAndGet();
                     }
                 }
             }
