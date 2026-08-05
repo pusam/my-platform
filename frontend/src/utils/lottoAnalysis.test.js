@@ -9,6 +9,9 @@ import {
   randomCombination,
   generateRecommendations,
   isOptimal,
+  nextDrawInfo,
+  weeklyRecommendation,
+  seededRng,
   CHI2_CRITICAL_DF44,
   CROWD_RULES,
   OPTIMAL,
@@ -17,12 +20,6 @@ import {
 import draws from '../data/lottoDraws.json'
 
 const draw = (n, b, extra = {}) => ({ n, d: '2020-01-01', b, bn: 1, w1: null, p1: null, s: null, ...extra })
-
-/** 결정적 rng — 생성기 동작을 재현 가능하게. */
-const seededRng = (seed) => () => {
-  seed = (seed * 1103515245 + 12345) % 2147483648
-  return seed / 2147483648
-}
 
 describe('numberFrequency', () => {
   it('1~45 를 전부 키로 노출하고 미출현은 0 이다', () => {
@@ -194,6 +191,72 @@ describe('generateRecommendations', () => {
 
   it('결과는 항상 나온다 (실패 상태 없음)', () => {
     expect(generateRecommendations(3, { attempts: 1, rng: seededRng(9) })).toHaveLength(3)
+  })
+})
+
+describe('nextDrawInfo', () => {
+  const sample = [draw(1234, [1, 2, 3, 4, 5, 6], { d: '2026-07-25' }), draw(1235, [7, 8, 9, 10, 11, 12], { d: '2026-08-01' })]
+
+  it('추첨일 사이(주중)에는 다음 회차를 가리킨다', () => {
+    const r = nextDrawInfo(sample, new Date(2026, 7, 5))   // 2026-08-05 수요일
+    expect(r.round).toBe(1236)
+    expect(r.dateText).toBe('2026-08-08')
+  })
+
+  it('추첨 당일은 아직 그 회차로 본다', () => {
+    expect(nextDrawInfo(sample, new Date(2026, 7, 8)).round).toBe(1236)
+  })
+
+  it('추첨 다음날엔 그 다음 회차로 넘어간다', () => {
+    expect(nextDrawInfo(sample, new Date(2026, 7, 9)).round).toBe(1237)
+  })
+
+  it('스냅샷이 오래돼도 회차를 계속 외삽한다', () => {
+    const r = nextDrawInfo(sample, new Date(2026, 9, 3))   // 약 9주 뒤
+    expect(r.round).toBeGreaterThan(1240)
+    expect(r.roundsAhead).toBeGreaterThan(8)
+  })
+
+  it('데이터가 없으면 null', () => {
+    expect(nextDrawInfo([])).toBeNull()
+  })
+})
+
+describe('weeklyRecommendation', () => {
+  it('같은 주에는 항상 같은 번호가 나온다 (고정)', () => {
+    const mon = weeklyRecommendation(draws, new Date(2026, 7, 3))
+    const wed = weeklyRecommendation(draws, new Date(2026, 7, 5))
+    const sat = weeklyRecommendation(draws, new Date(2026, 7, 8))
+    expect(wed.numbers).toEqual(mon.numbers)
+    expect(sat.numbers).toEqual(mon.numbers)
+    expect(wed.round).toBe(mon.round)
+  })
+
+  it('추첨이 지나면 다른 번호로 갱신된다', () => {
+    const thisWeek = weeklyRecommendation(draws, new Date(2026, 7, 5))
+    const nextWeek = weeklyRecommendation(draws, new Date(2026, 7, 12))
+    expect(nextWeek.round).toBe(thisWeek.round + 1)
+    expect(nextWeek.numbers).not.toEqual(thisWeek.numbers)
+  })
+
+  it('주간 추천도 최적 집합 안에 있다', () => {
+    for (const day of [3, 5, 12, 19, 26]) {
+      const w = weeklyRecommendation(draws, new Date(2026, 7, day))
+      expect(w.optimal).toBe(true)
+      expect(w.index).toBe(OPTIMAL_INDEX)
+      expect(isOptimal(w.numbers)).toBe(true)
+    }
+  })
+})
+
+describe('seededRng', () => {
+  it('같은 시드는 같은 수열을 낸다', () => {
+    const a = seededRng(123), b = seededRng(123)
+    expect([a(), a(), a()]).toEqual([b(), b(), b()])
+  })
+
+  it('다른 시드는 다른 수열을 낸다', () => {
+    expect(seededRng(1)()).not.toBe(seededRng(2)())
   })
 })
 

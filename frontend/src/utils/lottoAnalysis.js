@@ -262,6 +262,61 @@ export function isOptimal(features) {
 
 /* ────────────────────────── 생성기 ────────────────────────── */
 
+/**
+ * 결정적 난수 생성기(mulberry32) — 같은 시드는 항상 같은 수열을 낸다.
+ * 주간 고정 추천이 서버 저장 없이도 한 주 내내 동일하게 재현되도록 하는 데 쓴다.
+ */
+export function seededRng(seed) {
+  let a = seed >>> 0
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/**
+ * 다음 추첨 회차 정보 — 마지막 수록 회차에서 7일씩 더해 오늘 이후 첫 토요일 추첨을 찾는다.
+ * 데이터가 오래돼도(스냅샷이라 갱신이 늦을 수 있음) 회차 번호가 계속 진행하도록 외삽한다.
+ */
+export function nextDrawInfo(draws, today = new Date()) {
+  const last = (draws || [])[draws.length - 1]
+  if (!last) return null
+
+  const lastDate = new Date(`${last.d}T00:00:00`)
+  let round = last.n
+  let date = lastDate
+  // 오늘(자정 기준) 이후 첫 추첨일까지 진행 — 추첨 당일은 아직 '이번 주'로 본다
+  const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  while (date < cutoff) {
+    round += 1
+    date = new Date(date.getTime() + 7 * 86400000)
+  }
+  return {
+    round,
+    date,
+    dateText: `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`,
+    /** 스냅샷 이후 실제로 추첨이 지난 회차 수 — 데이터 노후 표시용 */
+    roundsAhead: round - last.n
+  }
+}
+
+/**
+ * 이번 주 고정 추천 — 회차 번호를 시드로 써서 <b>한 주 내내 같은 번호</b>가 나온다.
+ *
+ * 저장소 없이 재현되며(같은 회차 = 같은 결과), 추첨이 지나면 회차가 올라가 자동으로 갱신된다.
+ * 뽑는 방식은 {@link generateRecommendations} 와 동일해 결과는 항상 최적 집합 안에 있다.
+ */
+export function weeklyRecommendation(draws, today = new Date()) {
+  const info = nextDrawInfo(draws, today)
+  if (!info) return null
+  // 회차에 큰 소수를 곱해 인접 회차끼리 시드가 붙지 않게 흩는다
+  const rng = seededRng(info.round * 2654435761)
+  const pick = generateRecommendations(1, { rng })[0]
+  return pick ? { ...pick, ...info } : null
+}
+
 /** 균등 랜덤 6개 — 편향 없는 기본 추출(Fisher–Yates 부분 셔플). */
 export function randomCombination(rng = Math.random) {
   const pool = []

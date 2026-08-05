@@ -8,52 +8,50 @@
       </div>
     </header>
 
-    <!-- ① 추천 번호 — 화면의 주인공 -->
-    <section class="card recommend">
-      <div class="rec-head">
-        <div>
-          <h2>추천 번호</h2>
-          <p class="rec-sub">
-            혼잡도 최저({{ OPTIMAL_INDEX }}%) 조합만 생성 —
-            조건을 만족하는 {{ OPTIMAL_SET_SIZE.toLocaleString() }}개 중에서
-          </p>
-        </div>
-        <div class="gen-controls">
-          <select v-model.number="genCount" aria-label="게임 수">
-            <option v-for="c in [1, 5, 10]" :key="c" :value="c">{{ c }}게임</option>
-          </select>
-          <button class="btn-primary" @click="generate">다른 조합 보기</button>
-        </div>
-      </div>
-
-      <div class="tickets">
-        <div v-for="(g, i) in recommended" :key="i" class="ticket">
-          <span class="ticket-no">{{ String.fromCharCode(65 + i) }}</span>
-          <div class="balls">
-            <span v-for="n in g.numbers" :key="n" class="ball" :class="ballClass(n)">{{ n }}</span>
-          </div>
-          <div class="ticket-side">
-            <span class="crowd" :class="g.optimal ? 'good' : 'bad'">
-              분배 {{ g.index > 0 ? '+' : '' }}{{ g.index.toFixed(1) }}%
-            </span>
-            <span class="meta">합 {{ g.features.sum }} · {{ g.features.maxRun }}연속 · 저{{ g.features.low }}고{{ g.features.high }}</span>
-          </div>
-        </div>
-      </div>
-
-      <p class="rec-note">
-        <strong>여기 나온 조합은 전부 동점입니다.</strong> 검증된 규칙을 모두 유리하게 만족하는
-        지점이 {{ OPTIMAL_INDEX }}%이고, 거기 해당하는 조합이
-        {{ OPTIMAL_SET_SIZE.toLocaleString() }}개(전체의 18.2%)나 됩니다.
-        <strong>"최선의 번호" 하나는 존재하지 않습니다</strong> — 그래서 그 안에서 무작위로 고릅니다.
-        버튼을 다시 눌러도 품질은 그대로이고, 같은 등급의 다른 조합이 나올 뿐입니다.
+    <!-- ① 이번 주 번호 — 화면의 주인공 -->
+    <section v-if="weekly" class="card recommend">
+      <p class="week-label">
+        제 <strong>{{ weekly.round }}</strong>회 · {{ weekly.dateText }} 추첨
       </p>
 
-      <p class="rec-note self-defeat">
-        오히려 <strong>고정하면 안 됩니다.</strong> 이 전략의 이점은 "남들과 다르다"에서만 나옵니다.
-        모두가 같은 '최선의 번호'를 쓰는 순간 그게 가장 인기 있는 조합이 되어 이점이 사라집니다.
-        무작위성은 타협이 아니라 전략의 필수 조건입니다.
-        당첨 확률은 여전히 어떤 조합이든 1/{{ TOTAL_COMBINATIONS.toLocaleString() }}로 같습니다.
+      <div class="hero-balls">
+        <span v-for="n in weekly.numbers" :key="n" class="ball hero" :class="ballClass(n)">{{ n }}</span>
+      </div>
+
+      <p class="hero-meta">
+        합 {{ weekly.features.sum }} · {{ weekly.features.maxRun }}연속 ·
+        저{{ weekly.features.low }}고{{ weekly.features.high }} ·
+        <span class="good">분배 {{ weekly.index.toFixed(1) }}%</span>
+      </p>
+
+      <p class="week-note">
+        이번 회차 번호입니다. <strong>추첨이 끝나면 다음 회차 번호로 자동으로 바뀝니다.</strong>
+        새로고침해도 같은 번호가 나옵니다 — 회차 번호로 고정해두었습니다.
+      </p>
+
+      <details class="more-games">
+        <summary>같은 등급 다른 조합 보기</summary>
+        <p class="more-desc">
+          아래 {{ extra.length }}개도 전부 위와 <strong>동일한 등급</strong>입니다.
+          조건을 만족하는 조합이 {{ OPTIMAL_SET_SIZE.toLocaleString() }}개(전체의 18.2%)라
+          <strong>"최선의 번호" 하나는 존재하지 않습니다.</strong> 여러 게임 사실 때 쓰세요.
+        </p>
+        <div class="tickets">
+          <div v-for="(g, i) in extra" :key="i" class="ticket">
+            <span class="ticket-no">{{ String.fromCharCode(66 + i) }}</span>
+            <div class="balls">
+              <span v-for="n in g.numbers" :key="n" class="ball" :class="ballClass(n)">{{ n }}</span>
+            </div>
+            <span class="meta">합 {{ g.features.sum }} · {{ g.features.maxRun }}연속</span>
+          </div>
+        </div>
+        <button class="btn-ghost" @click="rollExtra">다시 뽑기</button>
+      </details>
+
+      <p class="rec-note">
+        당첨 확률은 어떤 조합이든 1/{{ TOTAL_COMBINATIONS.toLocaleString() }}로 같습니다.
+        "분배 {{ OPTIMAL_INDEX }}%"는 확률이 아니라, 당첨됐을 때 상금을 나눌 사람이
+        평균보다 그만큼 적을 것으로 추정된다는 뜻입니다.
       </p>
     </section>
 
@@ -188,6 +186,7 @@ import {
   purchaseMethodStats,
   sumBandAnalysis,
   generateRecommendations,
+  weeklyRecommendation,
   CROWD_RULES,
   REJECTED_RULES,
   TOTAL_COMBINATIONS,
@@ -204,13 +203,16 @@ const analyzedDraws = computed(() => sumBands.value.buckets.reduce((a, b) => a +
 const firstDate = computed(() => draws[0]?.d ?? '-')
 const lastDate = computed(() => draws[draws.length - 1]?.d ?? '-')
 
-const genCount = ref(5)
-const recommended = ref([])
+/** 이번 회차 고정 추천 — 회차 번호가 시드라 새로고침해도 동일, 추첨 후 자동 갱신. */
+const weekly = computed(() => weeklyRecommendation(draws))
 
-function generate() {
-  recommended.value = generateRecommendations(genCount.value)
+/** 여러 게임 살 때를 위한 추가 조합 — 등급은 같고 구성만 다르다. */
+const extra = ref([])
+function rollExtra() {
+  const picked = weekly.value?.numbers.join(',')
+  extra.value = generateRecommendations(6).filter((g) => g.numbers.join(',') !== picked).slice(0, 4)
 }
-generate()
+rollExtra()
 
 function freqHeight(count) {
   const max = stats.value?.most.count ?? 1
@@ -247,23 +249,34 @@ function ballClass(n) {
 .card h2 { margin: 0 0 12px; font-size: 16px; color: #e5e7eb; }
 .card h3 { margin: 22px 0 8px; font-size: 14px; color: #cbd5e1; }
 
-.recommend { border-color: rgba(99,102,241,.35); background: linear-gradient(135deg, rgba(28,28,48,.95), rgba(20,22,40,.95)); }
-.rec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.rec-head h2 { margin: 0; font-size: 18px; color: #a5b4fc; }
-.rec-sub { margin: 4px 0 0; font-size: 12px; color: #818cf8; }
-.self-defeat { margin-top: 8px; background: rgba(168,85,247,.07); border-color: rgba(168,85,247,.22); color: #ddd6fe; }
+.recommend {
+  border-color: rgba(99,102,241,.35);
+  background: linear-gradient(135deg, rgba(28,28,48,.95), rgba(20,22,40,.95));
+  text-align: center; padding: 26px 20px;
+}
+.week-label { margin: 0 0 18px; font-size: 13px; color: #818cf8; letter-spacing: .02em; }
+.week-label strong { font-size: 16px; color: #a5b4fc; }
+
+.hero-balls { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.ball.hero { width: 54px; height: 54px; font-size: 21px; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+.hero-meta { margin: 16px 0 0; font-size: 12.5px; color: #9ca3af; }
+
+.week-note {
+  margin: 18px auto 0; max-width: 560px; font-size: 12.5px; line-height: 1.7; color: #c7d2fe;
+  background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.22);
+  border-radius: 8px; padding: 11px 14px;
+}
 code { background: rgba(15,15,28,.8); padding: 1px 5px; border-radius: 4px; font-size: 12px; color: #fbbf24; }
 
-.gen-controls { display: flex; align-items: center; gap: 8px; }
-.gen-controls select {
-  background: rgba(15,15,28,.9); color: #e5e7eb;
-  border: 1px solid rgba(148,163,184,.25); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+.more-games { margin-top: 16px; text-align: left; }
+.more-games summary { cursor: pointer; color: #a5b4fc; font-size: 13px; text-align: center; }
+.more-desc { font-size: 12.5px; line-height: 1.7; color: #9ca3af; margin: 12px 0; }
+.btn-ghost {
+  margin-top: 10px; background: transparent; color: #a5b4fc;
+  border: 1px solid rgba(99,102,241,.35); border-radius: 8px;
+  padding: 7px 16px; font-size: 12.5px; cursor: pointer;
 }
-.btn-primary {
-  background: linear-gradient(135deg, #6366f1, #4338ca); color: #fff; border: 0;
-  border-radius: 8px; padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
-}
-.btn-primary:hover { filter: brightness(1.12); }
+.btn-ghost:hover { background: rgba(99,102,241,.12); }
 
 .tickets { display: flex; flex-direction: column; gap: 10px; }
 .ticket {
@@ -279,15 +292,11 @@ code { background: rgba(15,15,28,.8); padding: 1px 5px; border-radius: 4px; font
 }
 .ball.y { background: #fbbf24; } .ball.b { background: #60a5fa; } .ball.r { background: #f87171; }
 .ball.g { background: #9ca3af; } .ball.e { background: #4ade80; }
-.ticket-side { margin-left: auto; text-align: right; display: flex; flex-direction: column; gap: 2px; }
-.crowd { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.crowd.good { color: #4ade80; } .crowd.bad { color: #fbbf24; }
-.ticket-side .meta { font-size: 11px; color: #6b7280; }
+.ticket .meta { margin-left: auto; font-size: 11px; color: #6b7280; }
 
 .rec-note {
-  margin: 14px 0 0; padding: 11px 13px; font-size: 12.5px; line-height: 1.7;
-  background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.22);
-  border-radius: 8px; color: #c7d2fe;
+  margin: 16px auto 0; max-width: 560px; padding: 11px 13px;
+  font-size: 12px; line-height: 1.7; color: #9ca3af;
 }
 
 .explain { font-size: 14px; line-height: 1.75; color: #cbd5e1; margin: 12px 0; }
@@ -335,6 +344,8 @@ code { background: rgba(15,15,28,.8); padding: 1px 5px; border-radius: 4px; font
 
 @media (max-width: 640px) {
   .ball { width: 30px; height: 30px; font-size: 12.5px; }
-  .ticket-side { margin-left: 0; width: 100%; text-align: left; flex-direction: row; gap: 10px; align-items: baseline; }
+  .ball.hero { width: 44px; height: 44px; font-size: 17px; }
+  .hero-balls { gap: 7px; }
+  .ticket .meta { margin-left: 0; width: 100%; }
 }
 </style>
