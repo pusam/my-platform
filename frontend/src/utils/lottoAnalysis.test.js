@@ -8,8 +8,11 @@ import {
   crowdIndex,
   randomCombination,
   generateRecommendations,
+  isOptimal,
   CHI2_CRITICAL_DF44,
-  CROWD_RULES
+  CROWD_RULES,
+  OPTIMAL,
+  OPTIMAL_INDEX
 } from './lottoAnalysis'
 import draws from '../data/lottoDraws.json'
 
@@ -125,6 +128,23 @@ describe('crowdIndex', () => {
     expect(crowdIndex([1, 2, 3]).index).toBe(0)
     expect(crowdIndex([]).factors).toEqual([])
   })
+
+  it('측정 범위 밖 조합은 extrapolated 로 표시하고 최적에서 제외한다', () => {
+    // 합 255·6연속 — 점수만 보면 최적이지만 규칙이 검증된 구간 밖이다
+    const extreme = crowdIndex([40, 41, 42, 43, 44, 45])
+    expect(extreme.index).toBe(OPTIMAL_INDEX)      // 지수 자체는 최적처럼 보이지만
+    expect(extreme.extrapolated).toBe(true)        // 믿을 수 없다고 표시하고
+    expect(extreme.optimal).toBe(false)            // 최적 집합에서는 뺀다
+  })
+})
+
+describe('isOptimal', () => {
+  it('합 범위와 연속수 조건을 모두 만족해야 한다', () => {
+    expect(isOptimal([20, 21, 33, 37, 41, 44])).toBe(true)   // 합 196, 2연속
+    expect(isOptimal([1, 2, 3, 4, 5, 6])).toBe(false)        // 합 21 — 너무 낮음
+    expect(isOptimal([5, 12, 23, 31, 39, 45])).toBe(false)   // 연속수 없음
+    expect(isOptimal([40, 41, 42, 43, 44, 45])).toBe(false)  // 측정 범위 밖
+  })
 })
 
 describe('randomCombination', () => {
@@ -147,22 +167,33 @@ describe('generateRecommendations', () => {
     expect(new Set(out.map((o) => o.numbers.join()))).toHaveLength(5)
   })
 
-  it('혼잡도 오름차순으로 정렬되어 있다', () => {
-    const out = generateRecommendations(5, { rng: seededRng(7) })
-    for (let i = 1; i < out.length; i++) {
-      expect(out[i].index).toBeGreaterThanOrEqual(out[i - 1].index)
+  it('모든 결과가 최적 집합에 속하고 혼잡도가 동일하다', () => {
+    const out = generateRecommendations(20, { rng: seededRng(7) })
+    for (const o of out) {
+      expect(o.optimal).toBe(true)
+      expect(o.index).toBe(OPTIMAL_INDEX)
+      expect(o.extrapolated).toBe(false)
+      expect(isOptimal(o.numbers)).toBe(true)
     }
   })
 
-  it('후보를 늘리면 순수 무작위보다 혼잡도가 낮아진다', () => {
+  it('최적 조건을 실제로 지킨다 (합 범위 + 연속수 길이)', () => {
+    for (const o of generateRecommendations(30, { rng: seededRng(11) })) {
+      expect(o.features.sum).toBeGreaterThanOrEqual(OPTIMAL.sumMin)
+      expect(o.features.sum).toBeLessThanOrEqual(OPTIMAL.sumMax)
+      expect(o.features.maxRun).toBeGreaterThanOrEqual(OPTIMAL.runMin)
+      expect(o.features.maxRun).toBeLessThanOrEqual(OPTIMAL.runMax)
+    }
+  })
+
+  it('순수 무작위보다 혼잡도가 낮다', () => {
     const avg = (list) => list.reduce((a, o) => a + o.index, 0) / list.length
-    const plain = avg(generateRecommendations(20, { pool: 1, rng: seededRng(3) }))
-    const picked = avg(generateRecommendations(20, { pool: 80, rng: seededRng(3) }))
-    expect(picked).toBeLessThan(plain)
+    const plain = avg(generateRecommendations(30, { optimalOnly: false, rng: seededRng(3) }))
+    expect(avg(generateRecommendations(30, { rng: seededRng(3) }))).toBeLessThan(plain)
   })
 
   it('결과는 항상 나온다 (실패 상태 없음)', () => {
-    expect(generateRecommendations(3, { pool: 1, rng: seededRng(9) })).toHaveLength(3)
+    expect(generateRecommendations(3, { attempts: 1, rng: seededRng(9) })).toHaveLength(3)
   })
 })
 

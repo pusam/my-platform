@@ -69,6 +69,25 @@ export const CROWD_RULES = [
 ]
 
 /**
+ * 최적 조합의 조건.
+ *
+ * {@link CROWD_RULES} 를 모두 유리하게 만족시키는 지점(혼잡도 {@link OPTIMAL_INDEX})이며,
+ * <b>측정 범위 밖으로 나가지 않도록 상한을 둔다.</b> 상한이 없으면 [40,41,42,43,44,45](합 255,
+ * 6연속) 같은 조합이 "최적"으로 계산되는데, 이건 규칙이 검증된 구간을 한참 벗어난 외삽이고
+ * 실제로는 누가 봐도 눈에 띄어 오히려 많이 고를 조합이다. 모델이 못 보는 영역이라 아예 뺀다.
+ *
+ * 상한 근거는 실제 당첨 조합의 관측 분포다 — 번호합 p99 = 208, 최대연속 길이는 4가 6회뿐이라
+ * 표본이 있는 3까지만 인정한다.
+ */
+export const OPTIMAL = { sumMin: 151, sumMax: 208, runMin: 2, runMax: 3 }
+
+/** 최적 조건을 만족하는 조합 수 — C(45,6) 전수 탐색 결과(전체 8,145,060 중 18.2%). */
+export const OPTIMAL_SET_SIZE = 1483940
+
+/** 최적 조합의 혼잡도 지수 = 번호합 상단(-8.8) + 연속수 포함(-7.6). */
+export const OPTIMAL_INDEX = -16.4
+
+/**
  * 검증에 실패해 점수에서 제외한 가정들 — 되살리지 말라는 기록.
  * 재검증 없이 다시 넣으면 추천 방향이 거꾸로 갈 수 있다(연속수가 실제 그랬다).
  */
@@ -218,7 +237,7 @@ export function combinationFeatures(numbers) {
  */
 export function crowdIndex(numbers) {
   const f = combinationFeatures(numbers)
-  if (f.numbers.length !== PICK) return { index: 0, factors: [], features: f }
+  if (f.numbers.length !== PICK) return { index: 0, factors: [], features: f, extrapolated: false, optimal: false }
 
   const factors = CROWD_RULES.filter((r) => r.test(f)).map((r) => ({
     key: r.key, label: r.label, effect: r.effect, detail: r.detail
@@ -226,8 +245,19 @@ export function crowdIndex(numbers) {
   return {
     index: factors.reduce((a, r) => a + r.effect, 0),
     factors,
-    features: f
+    features: f,
+    // 측정 범위 밖이면 지수를 믿을 수 없다 — 숨기지 않고 플래그로 알린다
+    extrapolated: f.sum > OPTIMAL.sumMax || f.maxRun > OPTIMAL.runMax,
+    optimal: isOptimal(f)
   }
+}
+
+/** 최적 집합 소속 여부 — {@link OPTIMAL} 조건 전부 충족. */
+export function isOptimal(features) {
+  const f = features && features.numbers ? features : combinationFeatures(features)
+  if (f.numbers.length !== PICK) return false
+  return f.sum >= OPTIMAL.sumMin && f.sum <= OPTIMAL.sumMax
+    && f.maxRun >= OPTIMAL.runMin && f.maxRun <= OPTIMAL.runMax
 }
 
 /* ────────────────────────── 생성기 ────────────────────────── */
@@ -244,31 +274,37 @@ export function randomCombination(rng = Math.random) {
 }
 
 /**
- * 추천 조합 생성 — 후보를 여러 개 뽑아 혼잡도 지수가 가장 낮은 것을 고른다.
+ * 최적 조합 생성 — <b>반드시 최적 집합 안에서만</b> 뽑는다.
  *
- * 조건을 만족할 때까지 재시도하는 대신 **정해진 수의 후보 중 최선을 고르는** 방식이라
- * 항상 결과가 나오고 실패 상태가 없다. 확률은 어떤 조합이든 같으므로 후보를 늘려도
- * 당첨 가능성은 변하지 않는다 — 분배 인원 기대치만 낮아진다.
+ * 이전 구현은 후보 N개 중 최선을 골랐는데, 그러면 운에 따라 최적에 못 닿는 결과가 섞였다.
+ * 지금은 최적 조건을 만족할 때까지 재추첨하므로 <b>모든 결과가 혼잡도 {@link OPTIMAL_INDEX}
+ * 로 동일</b>하다. 최적 집합이 전체의 18.2%(≈{@link OPTIMAL_SET_SIZE}개)라 평균 5~6회면 맞는다.
  *
- * pool 을 1 로 두면 순수 무작위(비교용)가 된다.
+ * <b>왜 매번 다른 번호가 나오는가</b>: 최적 조합은 유일하지 않다. {@link OPTIMAL_SET_SIZE}개가
+ * 전부 같은 점수로 동점이라 그 안에서 고를 수밖에 없고, 애초에 <b>하나로 고정하면 안 된다</b> —
+ * 이 전략의 이점은 "남들과 다르다"에서 나오므로, 모두가 같은 '최선의 번호'를 쓰면 그게 가장
+ * 인기 있는 조합이 되어 이점이 사라진다. 무작위성은 결함이 아니라 전략의 필수 조건이다.
+ *
+ * @param optimalOnly false 면 순수 무작위(비교용)
  */
-export function generateRecommendations(count = 5, { pool = 60, rng = Math.random } = {}) {
+export function generateRecommendations(count = 5, { optimalOnly = true, attempts = 200, rng = Math.random } = {}) {
   const out = []
   const seen = new Set()
-  const candidates = Math.max(1, pool)
 
   for (let i = 0; i < count; i++) {
-    let best = null
-    for (let a = 0; a < candidates; a++) {
+    let picked = null
+    for (let a = 0; a < attempts; a++) {
       const numbers = randomCombination(rng)
       const key = numbers.join(',')
       if (seen.has(key)) continue
       const scored = crowdIndex(numbers)
-      if (!best || scored.index < best.index) best = { numbers, ...scored }
+      if (!optimalOnly || scored.optimal) { picked = { numbers, ...scored }; break }
+      // 최적을 못 찾은 경우의 폴백 — 그때까지 본 것 중 최선을 남겨둔다
+      if (!picked || scored.index < picked.index) picked = { numbers, ...scored }
     }
-    if (!best) break
-    seen.add(best.numbers.join(','))
-    out.push(best)
+    if (!picked) break
+    seen.add(picked.numbers.join(','))
+    out.push(picked)
   }
-  return out.sort((a, b) => a.index - b.index)
+  return out
 }

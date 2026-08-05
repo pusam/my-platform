@@ -11,12 +11,18 @@
     <!-- ① 추천 번호 — 화면의 주인공 -->
     <section class="card recommend">
       <div class="rec-head">
-        <h2>추천 번호</h2>
+        <div>
+          <h2>추천 번호</h2>
+          <p class="rec-sub">
+            혼잡도 최저({{ OPTIMAL_INDEX }}%) 조합만 생성 —
+            조건을 만족하는 {{ OPTIMAL_SET_SIZE.toLocaleString() }}개 중에서
+          </p>
+        </div>
         <div class="gen-controls">
           <select v-model.number="genCount" aria-label="게임 수">
             <option v-for="c in [1, 5, 10]" :key="c" :value="c">{{ c }}게임</option>
           </select>
-          <button class="btn-primary" @click="generate">다시 뽑기</button>
+          <button class="btn-primary" @click="generate">다른 조합 보기</button>
         </div>
       </div>
 
@@ -27,18 +33,27 @@
             <span v-for="n in g.numbers" :key="n" class="ball" :class="ballClass(n)">{{ n }}</span>
           </div>
           <div class="ticket-side">
-            <span class="crowd" :class="g.index <= 0 ? 'good' : 'bad'">
+            <span class="crowd" :class="g.optimal ? 'good' : 'bad'">
               분배 {{ g.index > 0 ? '+' : '' }}{{ g.index.toFixed(1) }}%
             </span>
-            <span class="meta">합 {{ g.features.sum }} · 저{{ g.features.low }}고{{ g.features.high }}</span>
+            <span class="meta">합 {{ g.features.sum }} · {{ g.features.maxRun }}연속 · 저{{ g.features.low }}고{{ g.features.high }}</span>
           </div>
         </div>
       </div>
 
       <p class="rec-note">
-        <strong>당첨 확률은 어떤 조합이든 1/{{ TOTAL_COMBINATIONS.toLocaleString() }}로 같습니다.</strong>
-        위 "분배" 수치는 확률이 아니라, 당첨됐을 때 상금을 나눌 사람이 평균 대비 몇 % 많거나
-        적을 것으로 추정되는지입니다. 음수일수록 덜 쪼개집니다.
+        <strong>여기 나온 조합은 전부 동점입니다.</strong> 검증된 규칙을 모두 유리하게 만족하는
+        지점이 {{ OPTIMAL_INDEX }}%이고, 거기 해당하는 조합이
+        {{ OPTIMAL_SET_SIZE.toLocaleString() }}개(전체의 18.2%)나 됩니다.
+        <strong>"최선의 번호" 하나는 존재하지 않습니다</strong> — 그래서 그 안에서 무작위로 고릅니다.
+        버튼을 다시 눌러도 품질은 그대로이고, 같은 등급의 다른 조합이 나올 뿐입니다.
+      </p>
+
+      <p class="rec-note self-defeat">
+        오히려 <strong>고정하면 안 됩니다.</strong> 이 전략의 이점은 "남들과 다르다"에서만 나옵니다.
+        모두가 같은 '최선의 번호'를 쓰는 순간 그게 가장 인기 있는 조합이 되어 이점이 사라집니다.
+        무작위성은 타협이 아니라 전략의 필수 조건입니다.
+        당첨 확률은 여전히 어떤 조합이든 1/{{ TOTAL_COMBINATIONS.toLocaleString() }}로 같습니다.
       </p>
     </section>
 
@@ -104,6 +119,17 @@
           </tr>
         </tbody>
       </table>
+      <h3>최적 조건과 그 상한</h3>
+      <p class="explain">
+        위 규칙을 모두 유리하게 만족시키는 조건은
+        <strong>번호합 {{ OPTIMAL.sumMin }}~{{ OPTIMAL.sumMax }} + 연속수 {{ OPTIMAL.runMin }}~{{ OPTIMAL.runMax }}개</strong>입니다.
+        상한이 붙은 이유가 있습니다. 상한 없이 점수만 따르면
+        <code>[40,41,42,43,44,45]</code>(합 255, 6연속)가 최적으로 계산되는데, 이건 규칙을 검증한
+        구간을 한참 벗어난 외삽이고 실제로는 누가 봐도 눈에 띄어 오히려 많이 고를 조합입니다.
+        모델이 못 보는 영역이라 아예 제외했습니다. 상한 근거는 실제 당첨 조합의 관측 분포입니다
+        (번호합 p99 = 208, 연속 4개는 1,235회 중 6회뿐이라 표본이 있는 3까지만 인정).
+      </p>
+
       <p class="caveat">
         효과 크기는 ±10% 수준으로 작습니다. 번호합이 당첨자 수 변동에서 설명하는 비율은
         1.2%에 불과합니다 — 나머지는 그 주의 판매량과 우연입니다. 유의하다는 건
@@ -164,7 +190,10 @@ import {
   generateRecommendations,
   CROWD_RULES,
   REJECTED_RULES,
-  TOTAL_COMBINATIONS
+  TOTAL_COMBINATIONS,
+  OPTIMAL,
+  OPTIMAL_SET_SIZE,
+  OPTIMAL_INDEX
 } from '../utils/lottoAnalysis'
 
 const stats = computed(() => chiSquareUniformity(draws))
@@ -221,6 +250,9 @@ function ballClass(n) {
 .recommend { border-color: rgba(99,102,241,.35); background: linear-gradient(135deg, rgba(28,28,48,.95), rgba(20,22,40,.95)); }
 .rec-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .rec-head h2 { margin: 0; font-size: 18px; color: #a5b4fc; }
+.rec-sub { margin: 4px 0 0; font-size: 12px; color: #818cf8; }
+.self-defeat { margin-top: 8px; background: rgba(168,85,247,.07); border-color: rgba(168,85,247,.22); color: #ddd6fe; }
+code { background: rgba(15,15,28,.8); padding: 1px 5px; border-radius: 4px; font-size: 12px; color: #fbbf24; }
 
 .gen-controls { display: flex; align-items: center; gap: 8px; }
 .gen-controls select {
