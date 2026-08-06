@@ -77,16 +77,16 @@ class AuthServiceTest {
         void approvedUser_correctPassword_returnsToken() {
             User user = buildUser("admin", "password123", "APPROVED", 0);
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
-            // 현재 AuthService 는 generateAccessToken + generateRefreshToken 두 토큰 발급
-            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("jwt-token-xxx");
-            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("refresh-xxx");
+            // AuthService 는 기기 바인딩된 AT+RT 발급 (deviceId 는 로그인마다 생성되는 UUID)
+            when(jwtTokenProvider.generateAccessToken(eq("admin"), anyString())).thenReturn("jwt-token-xxx");
+            when(jwtTokenProvider.generateRefreshToken(eq("admin"), anyString())).thenReturn("refresh-xxx");
 
             LoginResponse response = authService.login(new LoginRequest("admin", "password123"));
 
             assertThat(response.isSuccess()).isTrue();
             assertThat(response.getToken()).isEqualTo("jwt-token-xxx");
             assertThat(response.getUsername()).isEqualTo("admin");
-            verify(jwtTokenProvider).generateAccessToken("admin");
+            verify(jwtTokenProvider).generateAccessToken(eq("admin"), anyString());
         }
 
         @Test
@@ -94,8 +94,8 @@ class AuthServiceTest {
         void loginSuccess_resetsFailedAttempts() {
             User user = buildUser("admin", "password123", "APPROVED", 5);
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
-            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("token");
-            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("refresh");
+            when(jwtTokenProvider.generateAccessToken(eq("admin"), anyString())).thenReturn("token");
+            when(jwtTokenProvider.generateRefreshToken(eq("admin"), anyString())).thenReturn("refresh");
 
             authService.login(new LoginRequest("admin", "password123"));
 
@@ -209,7 +209,7 @@ class AuthServiceTest {
     // ========== 토큰 갱신 (refresh) ==========
 
     @Nested
-    @DisplayName("refresh 시나리오 — RT revocation")
+    @DisplayName("refresh 시나리오 — 기기별 RT + 회전 유예")
     class RefreshTests {
 
         @Mock private com.myplatform.jwtredis.service.RedisTokenService redisTokenService;
@@ -219,16 +219,18 @@ class AuthServiceTest {
                     redisTokenService, emailVerificationService);
         }
 
-        private void stubValidRt(String rt, String username) {
+        private void stubValidRt(String rt, String username, String deviceId) {
             when(jwtTokenProvider.validateRefreshToken(rt)).thenReturn(true);
             when(jwtTokenProvider.getUsernameFromToken(rt)).thenReturn(username);
+            when(jwtTokenProvider.getDeviceIdFromToken(rt)).thenReturn(deviceId);
         }
 
         @Test
-        @DisplayName("로그아웃으로 저장 RT 삭제됨(storedRt=null) → 옛 RT 거부 (revocation 유지)")
+        @DisplayName("로그아웃으로 저장 RT 삭제됨(storedRt=null, 유예도 없음) → 옛 RT 거부 (revocation 유지)")
         void deletedStoredRt_rejected() {
-            stubValidRt("old-rt", "admin");
-            when(redisTokenService.getRefreshToken("admin")).thenReturn(null);   // 로그아웃 후 상태
+            stubValidRt("old-rt", "admin", "dev-A");
+            when(redisTokenService.getRefreshToken("admin", "dev-A")).thenReturn(null);   // 로그아웃 후 상태
+            when(redisTokenService.getPreviousRefreshToken("admin", "dev-A")).thenReturn(null);
 
             LoginResponse response = serviceWithRedis().refresh("old-rt");
 
@@ -236,32 +238,99 @@ class AuthServiceTest {
         }
 
         @Test
-        @DisplayName("저장 RT 와 불일치(회전 후 옛 RT 재사용) → 거부 + 토큰 전부 무효화")
-        void mismatchedRt_rejectedAndInvalidated() {
-            stubValidRt("old-rt", "admin");
-            when(redisTokenService.getRefreshToken("admin")).thenReturn("new-rt");
+        @DisplayName("불일치(유예 초과 옛 RT 재사용) → 거부 + 해당 기기 체인만 무효화 (다른 기기 세션 보존)")
+        void mismatchedRt_invalidatesOnlyThatDevice() {
+            stubValidRt("old-rt", "admin", "dev-A");
+            when(redisTokenService.getRefreshToken("admin", "dev-A")).thenReturn("new-rt");
+            when(redisTokenService.getPreviousRefreshToken("admin", "dev-A")).thenReturn(null);
 
             LoginResponse response = serviceWithRedis().refresh("old-rt");
 
             assertThat(response.isSuccess()).isFalse();
-            verify(redisTokenService).deleteToken("admin");
-            verify(redisTokenService).deleteRefreshToken("admin");
+            verify(redisTokenService).deleteRefreshToken("admin", "dev-A");
+            verify(redisTokenService).deletePreviousRefreshToken("admin", "dev-A");
+            // 핵심: 계정 전체 무효화 금지 — 다른 기기(dev-B 등)의 세션은 살아있어야 한다
+            verify(redisTokenService, never()).deleteAllRefreshTokens(anyString());
         }
 
         @Test
-        @DisplayName("저장 RT 와 일치 → 새 AT/RT 발급 (rotation)")
-        void matchedRt_rotates() {
+        @DisplayName("저장 RT 와 일치 → 회전 + 직전 RT 를 유예 저장 (멀티탭 경합 대비)")
+        void matchedRt_rotatesAndKeepsGrace() {
             User user = buildUser("admin", "pw", "APPROVED", 0);
-            stubValidRt("current-rt", "admin");
-            when(redisTokenService.getRefreshToken("admin")).thenReturn("current-rt");
+            stubValidRt("current-rt", "admin", "dev-A");
+            when(redisTokenService.getRefreshToken("admin", "dev-A")).thenReturn("current-rt");
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
-            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("new-at");
-            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("new-rt");
+            when(jwtTokenProvider.generateAccessToken("admin", "dev-A")).thenReturn("new-at");
+            when(jwtTokenProvider.generateRefreshToken("admin", "dev-A")).thenReturn("new-rt");
 
             LoginResponse response = serviceWithRedis().refresh("current-rt");
 
             assertThat(response.isSuccess()).isTrue();
             assertThat(response.getToken()).isEqualTo("new-at");
+            assertThat(response.getRefreshToken()).isEqualTo("new-rt");
+            // 같은 기기 키에 회전 저장 + 직전 RT 는 유예 키에 짧게 보존
+            verify(redisTokenService).saveRefreshToken(eq("admin"), eq("dev-A"), eq("new-rt"), anyLong());
+            verify(redisTokenService).savePreviousRefreshToken(eq("admin"), eq("dev-A"), eq("current-rt"), anyLong());
+        }
+
+        @Test
+        @DisplayName("멀티탭 경합: 다른 탭이 먼저 회전한 직후 옛 RT 로 갱신 → 유예 허용, AT 만 재발급 (재현: 수정 전엔 로그아웃)")
+        void multiTabRace_withinGrace_issuesAccessTokenWithoutRotation() {
+            User user = buildUser("admin", "pw", "APPROVED", 0);
+            stubValidRt("old-rt", "admin", "dev-A");
+            // 이긴 탭이 이미 회전을 끝냄: 저장 RT 는 새것, 직전 RT 가 유예 키에 남아있음
+            when(redisTokenService.getRefreshToken("admin", "dev-A")).thenReturn("rotated-rt");
+            when(redisTokenService.getPreviousRefreshToken("admin", "dev-A")).thenReturn("old-rt");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(jwtTokenProvider.generateAccessToken("admin", "dev-A")).thenReturn("fresh-at");
+
+            LoginResponse response = serviceWithRedis().refresh("old-rt");
+
+            assertThat(response.isSuccess()).isTrue();
+            assertThat(response.getToken()).isEqualTo("fresh-at");
+            // RT 는 회전하지 않는다(이중 회전 방지) — 프론트는 refreshToken=null 이면 기존 저장분 유지
+            assertThat(response.getRefreshToken()).isNull();
+            verify(jwtTokenProvider, never()).generateRefreshToken(anyString(), anyString());
+            // 세션 무효화도 없어야 한다
+            verify(redisTokenService, never()).deleteRefreshToken(anyString(), anyString());
+        }
+
+        @Test
+        @DisplayName("legacy RT(deviceId 없음) → 갱신 성공 시 기기 바인딩으로 마이그레이션 + legacy 키 삭제")
+        void legacyRt_migratesToDeviceBinding() {
+            User user = buildUser("admin", "pw", "APPROVED", 0);
+            stubValidRt("legacy-rt", "admin", null);
+            when(redisTokenService.getRefreshToken("admin", null)).thenReturn("legacy-rt");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(jwtTokenProvider.generateAccessToken(eq("admin"), anyString())).thenReturn("new-at");
+            when(jwtTokenProvider.generateRefreshToken(eq("admin"), anyString())).thenReturn("new-rt");
+
+            LoginResponse response = serviceWithRedis().refresh("legacy-rt");
+
+            assertThat(response.isSuccess()).isTrue();
+            // AT/RT 가 같은 새 deviceId 로 바인딩되는지 확인
+            org.mockito.ArgumentCaptor<String> atDid = org.mockito.ArgumentCaptor.forClass(String.class);
+            org.mockito.ArgumentCaptor<String> rtDid = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(jwtTokenProvider).generateAccessToken(eq("admin"), atDid.capture());
+            verify(jwtTokenProvider).generateRefreshToken(eq("admin"), rtDid.capture());
+            assertThat(atDid.getValue()).isNotBlank().isEqualTo(rtDid.getValue());
+            // legacy 단일 키는 삭제되고 새 기기 키로 저장
+            verify(redisTokenService).deleteRefreshToken("admin", null);
+            verify(redisTokenService).saveRefreshToken(eq("admin"), eq(rtDid.getValue()), eq("new-rt"), anyLong());
+        }
+
+        @Test
+        @DisplayName("계정 상태 변경(잠금 등) → 기기 단위가 아니라 계정 전체 RT 무효화")
+        void accountStateChanged_revokesAllDevices() {
+            User locked = buildUser("admin", "pw", "LOCKED", 0);
+            stubValidRt("current-rt", "admin", "dev-A");
+            when(redisTokenService.getRefreshToken("admin", "dev-A")).thenReturn("current-rt");
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(locked));
+
+            LoginResponse response = serviceWithRedis().refresh("current-rt");
+
+            assertThat(response.isSuccess()).isFalse();
+            verify(redisTokenService).deleteAllRefreshTokens("admin");
         }
 
         @Test
@@ -270,13 +339,65 @@ class AuthServiceTest {
             User user = buildUser("admin", "pw", "APPROVED", 0);
             when(jwtTokenProvider.validateRefreshToken("rt")).thenReturn(true);
             when(jwtTokenProvider.getUsernameFromToken("rt")).thenReturn("admin");
+            when(jwtTokenProvider.getDeviceIdFromToken("rt")).thenReturn(null);
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
-            when(jwtTokenProvider.generateAccessToken("admin")).thenReturn("new-at");
-            when(jwtTokenProvider.generateRefreshToken("admin")).thenReturn("new-rt");
+            when(jwtTokenProvider.generateAccessToken(eq("admin"), anyString())).thenReturn("new-at");
+            when(jwtTokenProvider.generateRefreshToken(eq("admin"), anyString())).thenReturn("new-rt");
 
             LoginResponse response = authService.refresh("rt");   // setUp 의 redis=null 인스턴스
 
             assertThat(response.isSuccess()).isTrue();
+        }
+    }
+
+    // ========== 기기별 세션 분리 (로그인/로그아웃) ==========
+
+    @Nested
+    @DisplayName("기기별 세션 — 로그인 바인딩·로그아웃 스코프")
+    class DeviceSessionTests {
+
+        @Mock private com.myplatform.jwtredis.service.RedisTokenService redisTokenService;
+
+        private AuthService serviceWithRedis() {
+            return new AuthService(userRepository, passwordEncoder, jwtTokenProvider,
+                    redisTokenService, emailVerificationService);
+        }
+
+        @Test
+        @DisplayName("로그인 → AT/RT 를 같은 deviceId 로 발급하고 RT 는 기기 키에 저장 (계정 단일 키 덮어쓰기 금지)")
+        void login_issuesDeviceBoundTokens() {
+            User user = buildUser("admin", "password123", "APPROVED", 0);
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(jwtTokenProvider.generateAccessToken(eq("admin"), anyString())).thenReturn("at");
+            when(jwtTokenProvider.generateRefreshToken(eq("admin"), anyString())).thenReturn("rt");
+
+            LoginResponse response = serviceWithRedis().login(new LoginRequest("admin", "password123"));
+
+            assertThat(response.isSuccess()).isTrue();
+            org.mockito.ArgumentCaptor<String> atDid = org.mockito.ArgumentCaptor.forClass(String.class);
+            org.mockito.ArgumentCaptor<String> rtDid = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(jwtTokenProvider).generateAccessToken(eq("admin"), atDid.capture());
+            verify(jwtTokenProvider).generateRefreshToken(eq("admin"), rtDid.capture());
+            assertThat(atDid.getValue()).isNotBlank().isEqualTo(rtDid.getValue());
+            verify(redisTokenService).saveRefreshToken(eq("admin"), eq(rtDid.getValue()), eq("rt"), anyLong());
+        }
+
+        @Test
+        @DisplayName("deviceId 있는 로그아웃 → 해당 기기 RT 만 삭제 (다른 기기 세션 유지)")
+        void logout_withDeviceId_deletesOnlyThatDevice() {
+            serviceWithRedis().logout("admin", "dev-A");
+
+            verify(redisTokenService).deleteRefreshToken("admin", "dev-A");
+            verify(redisTokenService).deletePreviousRefreshToken("admin", "dev-A");
+            verify(redisTokenService, never()).deleteAllRefreshTokens(anyString());
+        }
+
+        @Test
+        @DisplayName("deviceId 모르는 로그아웃(legacy AT) → 안전하게 전 기기 RT 삭제")
+        void logout_withoutDeviceId_deletesAllDevices() {
+            serviceWithRedis().logout("admin", null);
+
+            verify(redisTokenService).deleteAllRefreshTokens("admin");
         }
     }
 

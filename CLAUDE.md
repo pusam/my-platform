@@ -102,6 +102,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **라우터 가드는 RT 보존**(`frontend/src/main.js` beforeEach): AT(15분) 만료라도 RT(7일) 있으면 세션 유지(API 401 인터셉터가 자동 갱신). AT `exp` 만 보고 `UserManager.logout()`(=RT까지 삭제)으로 `/login` 튕기지 말 것 — "로그인 15분 뒤 풀림" 버그의 원인이었음.
 - **authAPI 는 `apiClient` 경유**(raw axios 금지 — baseURL `/api`·인터셉터 일관). 로그인 실패는 200+success:false(401 아님)라 자동갱신 인터셉터 영향 없음.
 - **로그아웃은 서버 토큰도 삭제**: `UserManager.logout()` 가 best-effort `POST /api/auth/logout`(raw fetch — api.js 순환참조 회피) 호출 → Redis AT/RT 삭제. 백엔드 `AuthController.logout`(SecurityContext username, 멱등).
+- **RT 는 기기별 분리 + 회전 유예 60초**(2026-08-06, `AuthServiceTest`): 로그인마다 UUID `deviceId`(JWT `did` claim)를 AT/RT 에 심고 Redis 키 `jwt:refresh:{username}:{deviceId}` 로 분리 — 계정당 RT 1개(멀티 디바이스가 서로 RT 를 덮어써 상호 로그아웃)로 되돌리지 말 것. 회전 직후 직전 RT 는 `jwt:refresh-prev:*`(60s TTL)로 유예 허용(멀티탭 동시 갱신 경합 흡수) — 유예 hit 은 **AT 만 재발급, RT 재회전 없음, 응답 refreshToken=null**(프론트는 null 이면 기존 저장 RT 유지). RT 불일치 무효화는 **해당 기기 한정**(계정 전체 삭제로 되돌리면 기기 간 킥 연쇄 재발), 계정 상태 변경(잠금 등)만 전 기기 무효화(`deleteAllRefreshTokens`). `did` 없는 legacy RT 는 첫 refresh 에서 기기 바인딩으로 자동 마이그레이션. 로그아웃은 AT 의 `did` 로 해당 기기만 종료(legacy AT 는 전 기기).
 - **`RealTimeDataCache.updateMinuteBar`**: `synchronizedList` 복합연산(get(size-1)/remove(0))은 `synchronized(bars)` 블록으로 보호 — 풀지 말 것(동시 틱 IndexOutOfBounds).
 
 ---

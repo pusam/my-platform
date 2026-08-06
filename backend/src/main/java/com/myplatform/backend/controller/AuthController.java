@@ -8,8 +8,10 @@ import com.myplatform.backend.service.AuthService;
 import com.myplatform.backend.service.EmailVerificationService;
 import com.myplatform.core.dto.ApiResponse;
 import com.myplatform.core.util.ApiResponses;
+import com.myplatform.jwtredis.provider.JwtTokenProvider;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -29,10 +31,13 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final JwtTokenProvider jwtTokenProvider;
 
-    public AuthController(AuthService authService, EmailVerificationService emailVerificationService) {
+    public AuthController(AuthService authService, EmailVerificationService emailVerificationService,
+                          JwtTokenProvider jwtTokenProvider) {
         this.authService = authService;
         this.emailVerificationService = emailVerificationService;
+        this.jwtTokenProvider = jwtTokenProvider;
     }
 
     @Operation(summary = "로그인", description = "사용자 로그인을 수행하고 access + refresh JWT 토큰을 발급합니다.")
@@ -54,14 +59,20 @@ public class AuthController {
     }
 
     @Operation(summary = "로그아웃",
-            description = "서버의 Access/Refresh 토큰(Redis)을 삭제해 로그아웃 후 옛 RT 로 재인증되는 것을 차단합니다.")
+            description = "서버의 Access/Refresh 토큰(Redis)을 삭제해 로그아웃 후 옛 RT 로 재인증되는 것을 차단합니다. "
+                    + "AT 의 deviceId(did)로 해당 기기 세션만 종료하며, legacy AT(did 없음)는 전 기기 로그아웃.")
     @PostMapping("/logout")
-    public ResponseEntity<ApiResponse<Void>> logout() {
+    public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
         // 인증 필터가 Access Token 으로 채운 SecurityContext 에서 username 추출.
         // 토큰이 없거나 익명이면 서버에 지울 게 없으므로 조용히 성공 처리(멱등).
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth != null && auth.isAuthenticated() && !"anonymousUser".equals(auth.getName())) {
-            authService.logout(auth.getName());
+            String deviceId = null;
+            String bearer = request.getHeader("Authorization");
+            if (bearer != null && bearer.startsWith("Bearer ")) {
+                deviceId = jwtTokenProvider.getDeviceIdFromToken(bearer.substring(7));
+            }
+            authService.logout(auth.getName(), deviceId);
         }
         return ResponseEntity.ok(ApiResponse.success("로그아웃 되었습니다.", null));
     }

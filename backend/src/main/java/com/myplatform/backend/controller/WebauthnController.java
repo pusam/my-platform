@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Tag(name = "WebAuthn", description = "지문/Face ID/패스키 인증")
 @RestController
@@ -132,11 +133,13 @@ public class WebauthnController {
         // 비밀번호 로그인(AuthService.login)과 동일한 AT+RT 발급 — 이전엔 legacy generateToken(24h TTL 저장)
         // 만 발급해 ① RT 부재로 패스키 사용자는 15분(AT 만료)마다 재인증 강제, ② JWT exp(15분)와
         // Redis TTL(24h) 불일치로 만료 토큰 엔트리가 잔존했다.
-        String accessToken = jwtTokenProvider.generateAccessToken(user.getUsername());
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUsername());
+        // AuthService.login 과 동일하게 기기 바인딩(deviceId) — RT 를 기기별 키에 저장해 세션 상호 킥 방지.
+        String deviceId = UUID.randomUUID().toString();
+        String accessToken = jwtTokenProvider.generateAccessToken(user.getUsername(), deviceId);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUsername(), deviceId);
         redisTokenService.ifPresent(s -> {
             s.saveToken(user.getUsername(), accessToken, jwtTokenProvider.getAccessExpiration());
-            s.saveRefreshToken(user.getUsername(), refreshToken, jwtTokenProvider.getRefreshExpiration());
+            s.saveRefreshToken(user.getUsername(), deviceId, refreshToken, jwtTokenProvider.getRefreshExpiration());
         });
         return ResponseEntity.ok(new LoginResponse(true, "로그인 성공",
                 accessToken, refreshToken, user.getUsername(), user.getName(), user.getRole()));

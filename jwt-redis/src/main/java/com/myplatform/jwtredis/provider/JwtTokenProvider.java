@@ -1,6 +1,7 @@
 package com.myplatform.jwtredis.provider;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -17,6 +18,12 @@ public class JwtTokenProvider {
     public static final String CLAIM_TOKEN_TYPE = "type";
     public static final String TYPE_ACCESS = "ACCESS";
     public static final String TYPE_REFRESH = "REFRESH";
+    /**
+     * JWT claim 이름 — 로그인(기기/브라우저)마다 발급되는 세션 식별자.
+     * RT 를 기기별 Redis 키로 분리해 멀티 디바이스 로그인이 서로의 RT 를 덮어쓰지 않게 한다.
+     * 이 claim 이 없는 토큰은 기기 바인딩 전 legacy 토큰으로 취급.
+     */
+    public static final String CLAIM_DEVICE_ID = "did";
 
     private final String jwtSecret;
     /** Legacy 단일 만료시간 — backward compat 위해 유지. */
@@ -67,29 +74,53 @@ public class JwtTokenProvider {
                 .compact();
     }
 
+    /** Legacy — 기기 바인딩 없는 access token. 세션 발급 경로는 (username, deviceId) 버전 사용. */
     public String generateAccessToken(String username) {
-        return buildToken(username, accessExpiration, TYPE_ACCESS);
+        return generateAccessToken(username, null);
     }
 
+    public String generateAccessToken(String username, String deviceId) {
+        return buildToken(username, accessExpiration, TYPE_ACCESS, deviceId);
+    }
+
+    /** Legacy — 기기 바인딩 없는 refresh token. 세션 발급 경로는 (username, deviceId) 버전 사용. */
     public String generateRefreshToken(String username) {
-        return buildToken(username, refreshExpiration, TYPE_REFRESH);
+        return generateRefreshToken(username, null);
     }
 
-    private String buildToken(String username, long ttlMs, String type) {
+    public String generateRefreshToken(String username, String deviceId) {
+        return buildToken(username, refreshExpiration, TYPE_REFRESH, deviceId);
+    }
+
+    private String buildToken(String username, long ttlMs, String type, String deviceId) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + ttlMs);
 
-        return Jwts.builder()
+        JwtBuilder builder = Jwts.builder()
                 .setSubject(username)
                 .setIssuedAt(now)
                 .setExpiration(expiryDate)
-                .claim(CLAIM_TOKEN_TYPE, type)
+                .claim(CLAIM_TOKEN_TYPE, type);
+        if (deviceId != null) {
+            builder.claim(CLAIM_DEVICE_ID, deviceId);
+        }
+        return builder
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
     public String getUsernameFromToken(String token) {
         return parseClaims(token).getSubject();
+    }
+
+    /** 토큰의 deviceId(did) claim 추출. 기기 바인딩 전 legacy 토큰·파싱 실패는 null 반환. */
+    public String getDeviceIdFromToken(String token) {
+        try {
+            Object d = parseClaims(token).get(CLAIM_DEVICE_ID);
+            return d == null ? null : d.toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 토큰 type claim 추출. type 없는 legacy 토큰은 null 반환. */
