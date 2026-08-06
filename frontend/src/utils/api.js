@@ -53,7 +53,11 @@ const handleAuthFailure = (originalError) => {
   UserManager.logout();
   clearTimeout(redirectTimer);
   redirectTimer = setTimeout(() => { isRedirecting = false; }, 3000);
-  window.location.href = '/login';
+  // 이미 로그인 화면이면 하드 리다이렉트(전체 새로고침) 생략 — 로그인 시도 중 잔여 401 이
+  // 페이지를 리로드해 입력 중인 폼/에러 메시지를 날리던 것 방지. 토큰 정리는 위에서 이미 끝남.
+  if (window.location.pathname !== '/login') {
+    window.location.href = '/login';
+  }
   return Promise.reject(originalError);
 };
 
