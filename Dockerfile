@@ -1,6 +1,6 @@
 # GitHub Actions 워크플로우에서 빌드된 결과물을 이미지화하는 설정
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 WORKDIR /app
 
