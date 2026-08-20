@@ -243,56 +243,60 @@ jobs:
             # 백엔드/파이썬은 안전하게 재기동
             docker compose up -d --force-recreate --no-deps backend python-backend
 
-            # nginx 재기동 전 SSL 인증서 존재 확인.
-            # 없으면 nginx 가 부팅 실패 → 사이트 다운. 미리 차단하고 안내.
+            # ── nginx 재기동 게이트 ───────────────────────────────────────
+            # 인증서 누락/문법오류면 재기동을 "건너뛴다"(기존 nginx 유지 = 사이트 보존).
+            # ⚠️ 건너뛰기를 `exit 0` 으로 하면 안 된다 — 원격 셸이 heredoc stdin 을 다 읽기 전에
+            #    끝나면 로컬 ssh 가 쓰기 실패로 비정상 종료해 워크플로가 빨갛게 뜬다(스킵인데 실패).
+            #    2026-08-20 seah 가드 첫 발화에서 실측(백엔드는 이미 재기동 완료 상태였다).
+            #    → 플래그만 세우고 스크립트를 끝까지 흘려보낸다. 스킵 = 성공.
+            NGINX_SKIP=""
+
+            # 메인 인증서 — 없으면 nginx 부팅 실패 → 사이트 다운.
             CERT="./nginx/ssl/live/dhkim-lab.duckdns.org/fullchain.pem"
             if [ ! -f "$CERT" ]; then
               echo "❌ SSL 인증서가 없습니다: $CERT"
               echo "   서버에서 다음을 먼저 실행하세요:"
               echo "     sudo bash /home/dev/my-platform/scripts/init-https.sh"
-              echo "   인증서 발급 전이므로 nginx 재기동을 건너뜁니다 (기존 컨테이너 유지)."
-              exit 0
+              NGINX_SKIP="메인 인증서 없음"
             fi
 
             # jewelry(vorj-map) 동거 — jewelry.conf 가 있으면 vorj-map 인증서도 필수.
             # 없으면 nginx 가 jewelry.conf 로드 중 부팅 실패 → my-platform 까지 다운.
-            if [ -f "./nginx/jewelry.conf" ]; then
-              VORJ_CERT="./nginx/ssl/live/vorj-map.duckdns.org/fullchain.pem"
-              if [ ! -f "$VORJ_CERT" ]; then
-                echo "❌ jewelry.conf 는 있으나 vorj-map 인증서가 없습니다: $VORJ_CERT"
-                echo "   먼저 발급하세요(webroot):"
-                echo "     docker run --rm -v \$PWD/nginx/ssl:/etc/letsencrypt -v \$PWD/nginx/certbot-webroot:/var/www/certbot \\"
-                echo "       certbot/certbot certonly --webroot -w /var/www/certbot -d vorj-map.duckdns.org --agree-tos -n --email <이메일>"
-                echo "   인증서 발급 전이므로 nginx 재기동을 건너뜁니다 (기존 컨테이너 유지)."
-                exit 0
-              fi
+            if [ -z "$NGINX_SKIP" ] && [ -f "./nginx/jewelry.conf" ] \
+               && [ ! -f "./nginx/ssl/live/vorj-map.duckdns.org/fullchain.pem" ]; then
+              echo "❌ jewelry.conf 는 있으나 vorj-map 인증서가 없습니다."
+              echo "   먼저 발급하세요(webroot):"
+              echo "     docker run --rm -v \$PWD/nginx/ssl:/etc/letsencrypt -v \$PWD/nginx/certbot-webroot:/var/www/certbot \\"
+              echo "       certbot/certbot certonly --webroot -w /var/www/certbot -d vorj-map.duckdns.org --agree-tos -n --email <이메일>"
+              NGINX_SKIP="vorj-map 인증서 없음"
             fi
 
             # seah 동거 — seah.conf 가 있으면 seah 도메인 인증서도 필수 (jewelry 와 동일 가드).
             # ⚠️ seah 도메인을 seah.duckdns.org 가 아닌 다른 이름으로 잡았다면 아래 경로도 같이 바꿀 것
             #    (nginx/seah.conf 의 server_name·인증서 경로와 반드시 일치해야 한다).
-            if [ -f "./nginx/seah.conf" ]; then
-              SEAH_CERT="./nginx/ssl/live/seah.duckdns.org/fullchain.pem"
-              if [ ! -f "$SEAH_CERT" ]; then
-                echo "❌ seah.conf 는 있으나 seah 인증서가 없습니다: $SEAH_CERT"
-                echo "   먼저 발급하세요(webroot):"
-                echo "     docker run --rm -v \$PWD/nginx/ssl:/etc/letsencrypt -v \$PWD/nginx/certbot-webroot:/var/www/certbot \\"
-                echo "       certbot/certbot certonly --webroot -w /var/www/certbot -d seah.duckdns.org --agree-tos -n --email <이메일>"
-                echo "   인증서 발급 전이므로 nginx 재기동을 건너뜁니다 (기존 컨테이너 유지)."
-                exit 0
-              fi
+            if [ -z "$NGINX_SKIP" ] && [ -f "./nginx/seah.conf" ] \
+               && [ ! -f "./nginx/ssl/live/seah.duckdns.org/fullchain.pem" ]; then
+              echo "❌ seah.conf 는 있으나 seah 인증서가 없습니다."
+              echo "   먼저 발급하세요(webroot):"
+              echo "     docker run --rm -v \$PWD/nginx/ssl:/etc/letsencrypt -v \$PWD/nginx/certbot-webroot:/var/www/certbot \\"
+              echo "       certbot/certbot certonly --webroot -w /var/www/certbot -d seah.duckdns.org --agree-tos -n --email <이메일>"
+              NGINX_SKIP="seah 인증서 없음"
             fi
 
             # 최종 안전망 — 실제 마운트된 설정으로 nginx -t 검증. 실패(인증서 누락/문법오류) 시 재기동 스킵.
-            if ! docker compose run --rm --no-deps --entrypoint nginx nginx -t; then
-              echo "❌ nginx 설정 검증(nginx -t) 실패 — 재기동 건너뜀(기존 nginx 유지)."
-              echo "   위 로그의 [emerg] 메시지를 확인하세요(인증서 경로/문법)."
-              exit 0
+            if [ -z "$NGINX_SKIP" ] && ! docker compose run --rm --no-deps --entrypoint nginx nginx -t; then
+              echo "❌ nginx 설정 검증(nginx -t) 실패 — 위 로그의 [emerg] 확인(인증서 경로/문법)."
+              NGINX_SKIP="nginx -t 실패"
             fi
 
-            docker compose up -d --force-recreate --no-deps nginx
-            # certbot 자동 갱신 컨테이너 (없으면 기동)
-            docker compose up -d --no-deps certbot || true
+            if [ -n "$NGINX_SKIP" ]; then
+              # 백엔드/파이썬 배포는 위에서 이미 완료 — nginx 만 기존 컨테이너 유지한다.
+              echo "⚠️ nginx 재기동 건너뜀 — $NGINX_SKIP (기존 nginx 유지, 배포는 성공 처리)"
+            else
+              docker compose up -d --force-recreate --no-deps nginx
+              # certbot 자동 갱신 컨테이너 (없으면 기동)
+              docker compose up -d --no-deps certbot || true
+            fi
             docker image prune -f
           DEPLOY_EOF
 
