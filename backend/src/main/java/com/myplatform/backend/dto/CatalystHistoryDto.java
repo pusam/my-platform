@@ -45,6 +45,8 @@ public class CatalystHistoryDto {
         private String direction;
         private String headline;
         private String summary;
+        /** 분류 근거 대표 뉴스 URL (V53) — null=미확보(프론트는 링크 생략, §4c). */
+        private String newsLink;
         /** 그 날짜의 일봉 등락률(%) — 가격 히스토리 없으면 null(§4c). */
         private BigDecimal changeRate;
     }

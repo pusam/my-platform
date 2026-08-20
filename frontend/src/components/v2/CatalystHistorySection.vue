@@ -13,6 +13,9 @@
           <span class="ch-badge" :class="dirClass(it.direction)">{{ dirBadge(it.direction) }}</span>
           <span class="ch-type">{{ it.typeLabel }}</span>
           <span class="ch-pct" v-if="it.changeRate != null" :class="pctClass(it.changeRate)">{{ signedPct(it.changeRate) }}</span>
+          <!-- 근거 기사 링크 (V53) — newsLink 없으면 생략(§4c). headline 은 툴팁으로 -->
+          <a v-if="it.newsLink" class="ch-link" :href="it.newsLink" target="_blank"
+             rel="noopener noreferrer" :title="it.headline || '근거 기사 보기'">📰 기사</a>
           <span class="ch-summary" v-if="it.summary">{{ it.summary }}</span>
         </div>
       </div>
@@ -95,6 +98,14 @@ const fmtDate = (d) => {
 .ch-badge.neu { color: #cbd5e1; }
 .ch-type { font-weight: 600; }
 .ch-pct { font-variant-numeric: tabular-nums; font-size: 12px; }
+.ch-link {
+  font-size: 11.5px;
+  color: #93c5fd;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.9;
+}
+.ch-link:hover { opacity: 1; }
 .ch-summary { font-size: 12px; opacity: 0.72; flex: 1 1 100%; }
 /* 등락색은 한국 관례(상승=빨강/하락=파랑) — 종목상세 나머지 등락 표시·디자인 토큰과 통일 */
 .positive { color: var(--stock-up, #f87171); }

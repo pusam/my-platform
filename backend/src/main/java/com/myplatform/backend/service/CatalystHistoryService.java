@@ -73,6 +73,7 @@ public class CatalystHistoryService {
                         .direction(c.getDirection() == null ? null : c.getDirection().name())
                         .headline(c.getHeadline())
                         .summary(c.getSummary())
+                        .newsLink(c.getNewsLink())
                         .changeRate(changeRate)
                         .build());
             }

@@ -9,6 +9,7 @@ import com.myplatform.backend.dto.StockDetailDto;
 import com.myplatform.backend.service.BuyChecklistService;
 import com.myplatform.backend.service.CatalystHistoryService;
 import com.myplatform.backend.service.IntradayChartService;
+import com.myplatform.backend.service.RecentDisclosureService;
 import com.myplatform.backend.service.SignalHistoryService;
 import com.myplatform.backend.service.StockCatalystService;
 import com.myplatform.backend.service.StockConclusionService;
@@ -49,6 +50,7 @@ public class StockDetailController {
     private final CatalystHistoryService catalystHistoryService;
     private final IntradayChartService intradayChartService;
     private final SignalHistoryService signalHistoryService;
+    private final RecentDisclosureService recentDisclosureService;
 
     @GetMapping("/{stockCode}/summary")
     @Operation(
@@ -251,6 +253,33 @@ public class StockDetailController {
             log.error("[CatalystHistory API] 종목 {} 재료 이력 조회 실패: {}", stockCode, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "재료 이력 조회에 실패했습니다.");
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @GetMapping("/{stockCode}/disclosures")
+    @Operation(
+        summary = "종목 최근 공시 목록 (DART 3개월)",
+        description = "위험 키워드 매칭뿐 아니라 일반 공시(수주/계약/실적발표 등)까지 최신순 목록 + DART 원문 " +
+                     "뷰어 링크. 조회 실패/corpCode 미해결은 dataAvailable=false(§4c — '공시 없음'과 구분). " +
+                     "표시 전용, 산식 미편입."
+    )
+    public ResponseEntity<Map<String, Object>> getRecentDisclosures(
+            @Parameter(description = "종목코드 (6자리)", example = "005930")
+            @PathVariable String stockCode,
+            @Parameter(description = "종목명 (corpCode 매핑 폴백용)", example = "삼성전자")
+            @RequestParam(required = false) String stockName) {
+
+        Map<String, Object> response = new HashMap<>();
+        try {
+            response.put("success", true);
+            response.put("data", recentDisclosureService.getRecentDisclosures(stockCode, stockName));
+            response.put("timestamp", LocalDateTime.now());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("[Disclosures API] 종목 {} 공시 목록 조회 실패: {}", stockCode, e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "공시 목록 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
     }

@@ -117,6 +117,42 @@ class RiskManagementServiceTest {
         }
     }
 
+    // ========== 공시 조회 경로 (2026-08-20 KOSDAQ 무음 실패 수정) ==========
+
+    @Nested
+    @DisplayName("공시 조회 경로 — stockCode 우선")
+    class DisclosureRoutingTests {
+
+        @Test
+        @DisplayName("stockCode 가 있으면 코드 기반 공시 조회를 탄다 — 이름 매칭 실패 시 KOSPI 한정 폴백으로 " +
+                "KOSDAQ 공시가 조용히 빈 결과가 되던 경로 차단")
+        void analyzeRisk_withStockCode_usesCodePath() {
+            when(dartService.isAvailable()).thenReturn(true);
+            when(dartService.searchDisclosuresByStockCode(anyString(), anyString()))
+                    .thenReturn(Collections.emptyList());
+            when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
+            when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
+
+            riskService.analyzeRisk(STOCK_NAME, STOCK_CODE);
+
+            verify(dartService).searchDisclosuresByStockCode(STOCK_CODE, STOCK_NAME);
+            verify(dartService, never()).searchDisclosuresByName(anyString());
+        }
+
+        @Test
+        @DisplayName("stockCode 없으면 기존 이름 기반 경로 유지 (회귀 방지)")
+        void analyzeRisk_withoutStockCode_keepsNamePath() {
+            when(dartService.isAvailable()).thenReturn(true);
+            when(dartService.searchDisclosuresByName(anyString())).thenReturn(Collections.emptyList());
+            when(dartService.filterDangerousDisclosures(any())).thenReturn(Collections.emptyList());
+            when(googleNewsService.searchNews(anyString())).thenReturn(Collections.emptyList());
+
+            riskService.analyzeRisk(STOCK_NAME);
+
+            verify(dartService).searchDisclosuresByName(STOCK_NAME);
+        }
+    }
+
     // ========== 폴백 체인 ==========
 
     @Nested

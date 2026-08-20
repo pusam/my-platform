@@ -82,7 +82,7 @@ public class StockCatalystService {
             List<NewsItem> news = naver.searchStockNews(stockName);
             if (news == null || news.isEmpty()) {
                 // 뉴스 0건 = 재료 없음 — NONE 캐시 (재호출 방지). 소스는 가용(위 가드 통과)이라 진짜 '뉴스 없음'.
-                return save(stockCode, stockName, today, CatalystType.NONE, Direction.NONE, null, null);
+                return save(stockCode, stockName, today, CatalystType.NONE, Direction.NONE, null, null, null);
             }
 
             String response = gemini.chat(buildPrompt(stockName, news));
@@ -95,7 +95,8 @@ public class StockCatalystService {
                 return null;
             }
             StockCatalyst saved = save(stockCode, stockName, today, parsed.type, parsed.direction,
-                    truncate(parsed.headline, 300), truncate(parsed.summary, 500));
+                    truncate(parsed.headline, 300), truncate(parsed.summary, 500),
+                    truncate(resolveNewsLink(parsed.headline, news), 500));
             // 신규 분류 시에만 알림 — 일캐시 덕에 종목당 하루 최대 1회 (캐시 히트 경로는 알림 없음).
             // 관심/보유 악재는 전용 경보(시그널+보유 시 리스크 병행)가 처리 → 일반 악재 알림 이중 발송 방지.
             if (!fireTargetNegativeAlert(saved, news)) notifyIfMeaningful(saved);
@@ -156,7 +157,7 @@ public class StockCatalystService {
             try { news = naver.searchStockNews(ref.name()); }
             catch (Exception e) { continue; }   // 뉴스 조회 실패 → 미캐시(재시도)
             if (news == null || news.isEmpty()) {
-                save(ref.code(), ref.name(), today, CatalystType.NONE, Direction.NONE, null, null);
+                save(ref.code(), ref.name(), today, CatalystType.NONE, Direction.NONE, null, null, null);
                 continue;
             }
             pending.put(ref.code(), new StockNews(ref.name(), news));
@@ -177,7 +178,8 @@ public class StockCatalystService {
             if (sn == null) continue;
             ParsedCatalyst p = e.getValue();
             StockCatalyst rec = save(e.getKey(), sn.name(), today, p.type(), p.direction(),
-                    truncate(p.headline(), 300), truncate(p.summary(), 500));
+                    truncate(p.headline(), 300), truncate(p.summary(), 500),
+                    truncate(resolveNewsLink(p.headline(), sn.news()), 500));
             // 관심/보유 악재 경보는 notify 플래그와 무관하게 발동 — 워밍(08:00)이 밤사이 악재를
             // 선제 포착하는 게 목적(종목×일자 1회 멱등이라 스팸 아님). 일반 알림은 기존대로 notify 게이트.
             boolean targetAlerted = fireTargetNegativeAlert(rec, sn.news());
@@ -190,7 +192,8 @@ public class StockCatalystService {
     }
 
     private StockCatalyst save(String stockCode, String stockName, LocalDate date,
-                               CatalystType type, Direction direction, String headline, String summary) {
+                               CatalystType type, Direction direction, String headline, String summary,
+                               String newsLink) {
         try {
             return repository.save(StockCatalyst.builder()
                     .stockCode(stockCode)
@@ -200,6 +203,7 @@ public class StockCatalystService {
                     .direction(direction)
                     .headline(headline)
                     .summary(summary)
+                    .newsLink(newsLink)
                     .build());
         } catch (Exception e) {
             // 동시 요청 unique 충돌 등 — 기존 행 반환 시도

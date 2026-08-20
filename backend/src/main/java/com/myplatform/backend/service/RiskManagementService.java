@@ -63,8 +63,10 @@ public class RiskManagementService {
 
         // 1. DART 공시 + 네이버 뉴스 병렬 조회 — 전용 executor + 실패는 빈 리스트로 흡수
         //    (.exceptionally 가 없으면 실패한 future 의 getNow 가 예외를 다시 던진다)
+        // stockCode 를 받고도 이름 단독 경로를 타면 corpCode 이름 매칭 실패 시 KOSPI 한정(corp_cls=Y)
+        // 전체검색 폴백으로 흘러 KOSDAQ 종목 공시가 조용히 빈 결과("위험 없음" 위장)가 된다 — 코드 우선.
         CompletableFuture<List<DartDisclosure>> disclosuresFuture =
-                CompletableFuture.supplyAsync(() -> fetchDisclosures(stockName), stockDetailExecutor)
+                CompletableFuture.supplyAsync(() -> fetchDisclosures(stockCode, stockName), stockDetailExecutor)
                         .exceptionally(ex -> List.of());
         CompletableFuture<List<NewsItem>> newsFuture =
                 CompletableFuture.supplyAsync(() -> fetchNews(stockName, stockCode), stockDetailExecutor)
@@ -103,14 +105,6 @@ public class RiskManagementService {
                 stockName, result.getRiskScore(), result.getStatus(), elapsed);
 
         return result;
-    }
-
-    /**
-     * DART 공시 조회 — 종목명만 받는 기존 버전.
-     * 가능하면 stockCode 같이 받는 fetchDisclosures(stockCode, stockName) 사용 권장.
-     */
-    private List<DartDisclosure> fetchDisclosures(String stockName) {
-        return fetchDisclosures(null, stockName);
     }
 
     /**

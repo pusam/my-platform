@@ -13,7 +13,7 @@ const fullHistory = {
   stockCode: '005930',
   windowDays: 30,
   items: [
-    { catalystDate: '2026-07-06', catalystType: 'ORDER_WIN', typeLabel: '수주', direction: 'POSITIVE', headline: '대규모 수주', summary: '5000억 공급계약', changeRate: 4.2 },
+    { catalystDate: '2026-07-06', catalystType: 'ORDER_WIN', typeLabel: '수주', direction: 'POSITIVE', headline: '대규모 수주', summary: '5000억 공급계약', changeRate: 4.2, newsLink: 'https://news.example/1' },
     { catalystDate: '2026-07-02', catalystType: 'LITIGATION', typeLabel: '소송', direction: 'NEGATIVE', headline: '특허 소송', summary: '피소', changeRate: null },
     { catalystDate: '2026-06-28', catalystType: 'GOVERNANCE', typeLabel: '지배구조', direction: 'NEUTRAL', headline: '자사주', summary: '자사주 매입', changeRate: -1.1 }
   ]
@@ -60,6 +60,16 @@ describe('CatalystHistorySection — 📰 재료 이력 (stock_catalyst 30일 re
     expect(rows[2].text()).toContain('중립')
     expect(rows[2].find('.ch-badge').classes()).toContain('neu')
     expect(rows[2].find('.ch-pct').classes()).toContain('negative')
+  })
+
+  it('근거 기사 링크(V53) — newsLink 있으면 📰 링크, 없으면 생략(§4c)', async () => {
+    const w = await mountSection(fullHistory)
+    const rows = w.findAll('.ch-row')
+    const link = rows[0].find('a.ch-link')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('href')).toBe('https://news.example/1')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(rows[1].find('a.ch-link').exists()).toBe(false)   // newsLink 없음 → 생략
   })
 
   it('이력 0건이면 섹션 자체 미렌더', async () => {

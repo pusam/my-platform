@@ -314,6 +314,55 @@ class StockCatalystServiceTest {
     }
 
     // ================================================================
+    // V53 newsLink 영속화 (2026-08-20) — 근거 기사 링크를 배지/이력에서 확인 가능하게 저장
+    // ================================================================
+
+    @Test
+    @DisplayName("newsLink 영속화 — 단건: headline 일치 뉴스의 링크가 엔티티에 저장된다")
+    void getCatalyst_persistsNewsLink() {
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class)))
+                .thenReturn(Optional.empty());
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(
+                NewsItem.builder().title("다른 뉴스").link("http://n/1").build(),
+                NewsItem.builder().title("대형 수주").link("http://n/2").build()));
+        when(gemini.chat(anyString())).thenReturn(
+                "{\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"대형 수주\",\"summary\":\"2조원 계약\"}");
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        StockCatalyst saved = service().getCatalyst("005930", "삼성전자");
+
+        assertThat(saved.getNewsLink()).isEqualTo("http://n/2");   // headline 일치 뉴스 우선
+    }
+
+    @Test
+    @DisplayName("newsLink 영속화 — 배치: 종목별 뉴스 링크 저장, 뉴스 0건(NONE)은 null(§4c)")
+    void classifyBatch_persistsNewsLink() {
+        when(naverProvider.getIfAvailable()).thenReturn(naver);
+        when(geminiProvider.getIfAvailable()).thenReturn(gemini);
+        when(naver.isAvailable()).thenReturn(true);
+        when(repository.findByStockCodeAndCatalystDate(anyString(), any(LocalDate.class))).thenReturn(Optional.empty());
+        when(naver.searchStockNews("삼성전자")).thenReturn(List.of(
+                NewsItem.builder().title("삼성전자 수주").link("http://n/samsung").build()));
+        when(naver.searchStockNews("뉴스없는종목")).thenReturn(List.of());
+        when(gemini.chat(anyString())).thenReturn(
+                "[{\"code\":\"005930\",\"type\":\"ORDER_WIN\",\"direction\":\"POSITIVE\",\"headline\":\"삼성전자 수주\",\"summary\":\"계약\"}]");
+        when(repository.save(any(StockCatalyst.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service().classifyBatch(List.of(
+                new StockRef("005930", "삼성전자"), new StockRef("999999", "뉴스없는종목")));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(StockCatalyst.class);
+        verify(repository, times(2)).save(captor.capture());
+        var byCode = captor.getAllValues().stream()
+                .collect(java.util.stream.Collectors.toMap(StockCatalyst::getStockCode, c -> c));
+        assertThat(byCode.get("005930").getNewsLink()).isEqualTo("http://n/samsung");
+        assertThat(byCode.get("999999").getNewsLink()).isNull();   // NONE 행은 링크 없음
+    }
+
+    // ================================================================
     // P2-CAT1 배치 분류 — N종목 1콜(RPM 실질↓) + 개별 폴백
     // ================================================================
 

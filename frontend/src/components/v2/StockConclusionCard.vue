@@ -17,6 +17,9 @@
         </p>
         <p v-if="catalyst" class="catalyst-line" :class="'cat-' + catalyst.direction.toLowerCase()">
           🔥 재료: {{ catalyst.typeLabel }}({{ catalystDirectionLabel }})<template v-if="catalyst.summary"> — {{ catalyst.summary }}</template>
+          <!-- 근거 기사 링크 (V53) — newsLink 없으면 생략(§4c) -->
+          <a v-if="catalyst.newsLink" class="catalyst-link" :href="catalyst.newsLink"
+             target="_blank" rel="noopener noreferrer" :title="catalyst.headline || '근거 기사 보기'">📰 기사</a>
         </p>
         <p v-if="conclusion.guidance" class="guidance">{{ conclusion.guidance }}</p>
         <p v-if="conclusion.conflictNote" class="conflict-note">{{ conclusion.conflictNote }}</p>
@@ -348,6 +351,16 @@ const openChecklist = () => { showChecklist.value = true; };
   border-radius: 4px;
   display: inline-block;
 }
+.catalyst-link {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: inherit;
+  opacity: 0.85;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.catalyst-link:hover { opacity: 1; }
 .cat-positive { color: #fbbf24; background: rgba(251, 191, 36, 0.12); border-left: 3px solid #fbbf24; }
 .cat-negative { color: #f87171; background: rgba(239, 68, 68, 0.12); border-left: 3px solid #f87171; }
 .cat-neutral  { color: #cbd5e1; background: rgba(203, 213, 225, 0.10); border-left: 3px solid #94a3b8; }

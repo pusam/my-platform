@@ -521,6 +521,10 @@
     <!-- 📰 재료 이력 (stock_catalyst 30일 재사용, read-only) — 자체 fetch(heavy 계열, quick 지연 없음), n=0 미렌더 -->
     <CatalystHistorySection v-if="hasData && stockCode" :stock-code="stockCode" />
 
+    <!-- 📄 최근 공시 (DART 3개월, 표시 전용) — 위험 키워드 외 일반 공시까지 원문 링크로 확인.
+         조회 실패는 '확인 불가'로 명시(§4c — '공시 없음'과 구분). 자체 fetch(heavy 계열). -->
+    <RecentDisclosuresSection v-if="hasData && stockCode" :stock-code="stockCode" :stock-name="stockName" />
+
     <!-- 펀더멘털 진단 상세 — 점수·판정은 헤더(중장기 펀더멘털 박스)에 이미 노출, 근거는 접이식(슬림화).
          DetailSection v-show 라 접혀도 마운트 유지(진단 로딩 타이밍 무변). -->
     <DetailSection v-if="hasData && diagnosisData" title="🩺 중장기 펀더멘털 진단 (상세 근거)">
@@ -555,6 +559,7 @@ import PeerComparisonCard from '../components/v2/PeerComparisonCard.vue';
 import DetailSection from '../components/v2/DetailSection.vue';
 import SignalHistorySection from '../components/v2/SignalHistorySection.vue';
 import CatalystHistorySection from '../components/v2/CatalystHistorySection.vue';
+import RecentDisclosuresSection from '../components/v2/RecentDisclosuresSection.vue';
 import InvestorTrendTab from '../components/v2/InvestorTrendTab.vue';
 import FundamentalDiagnosisPanel from '../components/v2/FundamentalDiagnosisPanel.vue';
 import AIStrategyCard from '../components/v2/AIStrategyCard.vue';

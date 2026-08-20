@@ -74,6 +74,10 @@
             <div class="cc-tags">
               <span v-if="catalysts[c.stockCode]" class="cc-catalyst" :class="'cat-' + catalysts[c.stockCode].direction.toLowerCase()">
                 🔥 재료: {{ catalysts[c.stockCode].typeLabel }}({{ directionLabel(catalysts[c.stockCode].direction) }}){{ catalystAgeLabel(catalysts[c.stockCode]) }}
+                <!-- 근거 기사 링크 (V53) — 카드 클릭(종목 열기)과 분리(@click.stop). newsLink 없으면 생략(§4c) -->
+                <a v-if="catalysts[c.stockCode].newsLink" class="cc-cat-link"
+                   :href="catalysts[c.stockCode].newsLink" target="_blank" rel="noopener noreferrer"
+                   :title="catalysts[c.stockCode].headline || '근거 기사 보기'" @click.stop>📰</a>
               </span>
               <span v-for="(tag, ti) in displayTags(c)" :key="ti" class="cc-tag" :class="{ 'cc-tag-warn': tag.startsWith('⚠') }">{{ tag }}</span>
             </div>
@@ -503,6 +507,13 @@ onMounted(() => {
   padding: 1px 8px;
   border-radius: 4px;
 }
+.cc-cat-link {
+  margin-left: 4px;
+  color: inherit;
+  text-decoration: none;
+  opacity: 0.85;
+}
+.cc-cat-link:hover { opacity: 1; text-decoration: underline; }
 .cat-positive { color: #fbbf24; background: rgba(251, 191, 36, 0.14); }
 .cat-negative { color: #f87171; background: rgba(239, 68, 68, 0.14); }
 .cat-neutral  { color: #cbd5e1; background: rgba(203, 213, 225, 0.12); }

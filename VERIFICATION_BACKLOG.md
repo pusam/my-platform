@@ -25,6 +25,7 @@
 - **✅ 해소**: `CatalystWarmingService` — `collectUnionRefs`(발굴 5트랙 상위 → dedup·상한 25·null스킵) + `warmUnionCatalysts`(→ classifyBatch). `@Scheduled` 08:00 주중(momentum 07:30 뒤·KRX 개장 전), SchedulerLockService fail-open + `catalyst.union-warm.enabled`. 수동 트리거 `POST /api/admin/catalyst/warm-union`(ADMIN). rate 게이트 경유·캐시히트 스킵이라 25종목 ≈ 5콜(quota 안전).
   - **선정 = 라운드로빈 인터리브(`b5f2aad`)**: value-first 순차면 앞 트랙이 25칸 독식 → 급등주(낙폭·수급) 컷. round r=각 트랙 r번째로 5트랙 top5 균등+소진 롤오버. 트랙별 스코어 척도 상이(PBR vs RSI vs 순매수액)라 통합정렬 안 함.
   - **보드 표시 백업(`4ffdf00`)**: 보드가 오늘자만 읽어 워밍 대상 밖 종목이 "—"로 깜빡 → 최근 2일 중 최신 표시 + catalystAgeDays("어제") 경과 표기(§4c 낡음 방지, 2일↑ 제외). §4b 일캐시 분류 불변, 표시 날짜창만.
+  - **오늘 매수후보 그룹 추가(2026-08-20)**: 워밍 우선순위 = 관심 > 보유 > **오늘후보(getTop5 BUY컷55 상위5)** > 발굴. 오늘 탭은 read-only 일캐시 소비(stockName 미전달=의도)라 워밍 밖 후보는 배지가 영영 안 떴고, 07:30 momentum 워밍은 전일 스냅샷 기준이라 08:00 재계산 후 신규 후보 미커버 → 이 그룹이 공백 담당(추가 ≤5종목 ≈ 배치 1콜). 같은 날: 재료 근거 기사 링크 V53 영속(`stock_catalyst.news_link` → 배지/이력 📰) + 최근 공시 목록 API(`/api/stock/{code}/disclosures`, `RecentDisclosureService`) + `analyzeRisk` KOSDAQ 공시 무음 실패 수정(stockCode 우선).
 - **배경**: 보드는 §4b 대로 재료 캐시 **read-only**(classify 금지). 그래서 보드 종목 다수는 오늘 캐시에 없어 배지 안 뜸(정상). 모닝브리핑 워밍은 BUY컷 상한 5종목뿐.
 - **문제**: 보드 상위 N종목 재료를 미리 채우고 싶으나, 워밍이 Gemini RPM 을 태움.
 - **합격 기준**: ① 보드/오늘탭 상위 **상한 N**(작게, 예 5~10) 종목만, ② **rate 게이트 경유**(전역 직렬화라 자동 스로틀)로 순차 워밍, ③ 이미 캐시된 종목 스킵, ④ P2-CAT1(배치) 도입 후엔 1~2콜로. 크론/트리거 시각은 quota 여유대(장전) 우선.

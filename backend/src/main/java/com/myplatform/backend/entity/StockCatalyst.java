@@ -62,6 +62,10 @@ public class StockCatalyst {
     @Column(name = "summary", length = 500)
     private String summary;
 
+    /** 분류 근거 대표 뉴스 URL (V53) — null=미확보(§4c, 프론트는 링크 생략). 표시 전용. */
+    @Column(name = "news_link", length = 500)
+    private String newsLink;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

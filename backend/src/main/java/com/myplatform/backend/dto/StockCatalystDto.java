@@ -26,6 +26,8 @@ public class StockCatalystDto {
     private String direction;
     private String headline;
     private String summary;
+    /** 분류 근거 대표 뉴스 URL (V53) — null=미확보(프론트는 링크 생략, §4c). */
+    private String newsLink;
     private LocalDate catalystDate;
 
     public static StockCatalystDto from(StockCatalyst c) {
@@ -37,6 +39,7 @@ public class StockCatalystDto {
                 .direction(c.getDirection().name())
                 .headline(c.getHeadline())
                 .summary(c.getSummary())
+                .newsLink(c.getNewsLink())
                 .catalystDate(c.getCatalystDate())
                 .build();
     }
