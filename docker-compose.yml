@@ -196,6 +196,12 @@ services:
       # ⚠️ 읽기전용 html(위) 안쪽에 중첩 마운트하면 도커가 mountpoint 를 못 만들어
       #    (read-only file system) nginx 검증이 실패한다. 반드시 html 바깥 형제 경로에 마운트.
       - ./nginx/jewelry-dist:/usr/share/nginx/jewelry:ro
+      # ── seah(세아 생산관리) 동거 — 서버블록 + 정적 마운트 (jewelry 와 동일 패턴) ──
+      # ⚠️ seah.conf 는 seah 도메인 인증서가 있어야 nginx 가 뜬다(2단계 배포).
+      #    deploy.yml 의 인증서 가드가 발급 전에는 nginx 재기동을 건너뛴다.
+      - ./nginx/seah.conf:/etc/nginx/conf.d/seah.conf:ro
+      # seah 프론트 dist — seah 저장소의 배포(deploy.yml)가 이 경로로 전송한다.
+      - ./nginx/seah-dist:/usr/share/nginx/seah:ro
     depends_on:
       - backend
       - python-backend
