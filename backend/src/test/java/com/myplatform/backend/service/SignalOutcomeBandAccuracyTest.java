@@ -53,8 +53,8 @@ class SignalOutcomeBandAccuracyTest {
     }
 
     @Test
-    @DisplayName("dedupPerStockDay — 같은 종목·같은 날 BUY→STRONG_BUY 승격은 마지막 기록 1건만 (P2-F)")
-    void dedupPerStockDay_keepsLatestPerStockDay() {
+    @DisplayName("dedupPerStockDay — 같은 종목·같은 날 BUY→STRONG_BUY 승격은 최초 기록 1건만 (P2-F/A-1)")
+    void dedupPerStockDay_keepsEarliestPerStockDay() {
         SignalOutcome buy = typed("BUY");
         buy.setCreatedAt(java.time.LocalDateTime.of(2026, 6, 26, 11, 30));
         SignalOutcome upgraded = typed("STRONG_BUY");   // 같은 종목(005930)·같은 날(6/26)
@@ -68,16 +68,17 @@ class SignalOutcomeBandAccuracyTest {
                 List.of(buy, upgraded, otherDay, otherStock));
 
         assertThat(deduped).hasSize(3);
-        // 같은 종목·같은 날 쌍은 마지막 기록(STRONG_BUY, 20:05)이 대표
+        // 최초 기록(BUY, 11:30) = 사용자가 실제로 행동 가능했던 시점의 등급·가격. "마지막 기록"으로
+        // 되돌리면 장중 STRONG_BUY→BUY 강등 행이 상위 밴드에서 체계적으로 제거되는 생존편향(A-1).
         assertThat(deduped).filteredOn(s -> s.getStockCode().equals("005930")
                         && s.getSignalDate().equals(LocalDate.of(2026, 6, 26)))
                 .singleElement()
-                .satisfies(s -> assertThat(s.getSignalType()).isEqualTo("STRONG_BUY"));
+                .satisfies(s -> assertThat(s.getSignalType()).isEqualTo("BUY"));
     }
 
     @Test
-    @DisplayName("dedupPerStockDay — createdAt null 은 오래된 것으로 취급(비교 불가 시 기존 유지), null 입력 안전")
-    void dedupPerStockDay_nullSafety() {
+    @DisplayName("dedupPerStockDay — createdAt null 은 이기지 못함 + 동시각 동률은 id 작은 쪽(결정성)")
+    void dedupPerStockDay_nullAndTieSafety() {
         SignalOutcome withTime = typed("BUY");
         withTime.setCreatedAt(java.time.LocalDateTime.of(2026, 6, 26, 11, 30));
         SignalOutcome noTime = typed("STRONG_BUY");   // createdAt null — withTime 을 못 이김
@@ -86,6 +87,17 @@ class SignalOutcomeBandAccuracyTest {
                 .singleElement()
                 .satisfies(s -> assertThat(s.getSignalType()).isEqualTo("BUY"));
         assertThat(SignalOutcomeService.dedupPerStockDay(null)).isEmpty();
+
+        // 같은 초에 기록된 2행(크론 더블런) — DB 반환 순서와 무관하게 id 작은 쪽이 대표(결정성)
+        java.time.LocalDateTime sameSecond = java.time.LocalDateTime.of(2026, 6, 26, 11, 30, 0);
+        SignalOutcome first = typed("BUY");
+        first.setCreatedAt(sameSecond); first.setId(10L);
+        SignalOutcome second = typed("STRONG_BUY");
+        second.setCreatedAt(sameSecond); second.setId(11L);
+
+        assertThat(SignalOutcomeService.dedupPerStockDay(List.of(second, first)))
+                .singleElement()
+                .satisfies(s -> assertThat(s.getId()).isEqualTo(10L));
     }
 
     @Test

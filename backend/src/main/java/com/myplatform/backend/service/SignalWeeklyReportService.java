@@ -100,19 +100,19 @@ public class SignalWeeklyReportService {
     /**
      * <b>평가가 끝난 직전 완료 주</b>(월~일) 예측력 측정 → 스냅샷 UPSERT + 텔레그램. 수동 트리거도 이 경로.
      *
-     * <p><b>주 선택(2026-08-21 수정)</b>: 이전엔 일요일 크론이 "오늘 끝나는 주"를 집계했는데, 3거래일 평가
-     * 지연 때문에 그 시점에 평가 완료된 건 <b>월·화 시그널뿐</b>이었다(수~금은 다음 주 월~수 평가) —
-     * 전 주차 스냅샷이 주 5일 중 2일 표본으로 영구 고정되고, 요일 구성 차이가 "예측력 악화" 경고로
-     * 오독됐다(감사 P1-C). 이제 항상 <b>오늘 이전에 끝난 마지막 일요일</b>을 weekEnd 로 잡는다 —
-     * 그 주 금요일 시그널까지 늦어도 수요일에 평가 완료되므로 일요일 크론 시점엔 온전한 주다.
-     * 이 수정 이전에 저장된 주차 행은 월·화 표본으로 확정돼 있다(해석 시 인지). 같은 주를 다음
-     * 일요일에 다시 집계하지는 않으나, 수동 트리거가 같은 주를 재실행하면 UPSERT 로 자가 보정된다.
+     * <p><b>주 선택(2026-08-21 수정, 같은 날 리뷰 A-9 로 재보강)</b>: 이전엔 일요일 크론이 "오늘 끝나는
+     * 주"를 집계했는데, 3거래일 평가 지연 때문에 그 시점에 평가 완료된 건 <b>월·화 시그널뿐</b>이었다
+     * (수~금은 다음 주 월~수 평가) — 전 주차 스냅샷이 주 5일 중 2일 표본으로 영구 고정되고, 요일 구성
+     * 차이가 "예측력 악화" 경고로 오독됐다(감사 P1-C). 이제 {@link #resolveTargetWeekEnd} 가
+     * <b>실행 요일과 무관하게</b> "오늘 기준 마지막으로 온전히 평가 가능한 주"를 고른다 — 처음엔 크론
+     * (일요일) 경로만 고쳤더니 수동 트리거(평일, AdminController)가 같은 버그를 그대로 밟고 그 결과를
+     * UPSERT 로 영속화할 수 있었다(리뷰 A-9). 이 수정 이전에 저장된 주차 행은 월·화 표본으로 확정돼
+     * 있다(해석 시 인지). 수동 트리거가 같은 주를 재실행하면 UPSERT 로 자가 보정된다.
      */
     @Transactional
     public WeeklySignalAccuracyDto generateWeeklyReport(String triggeredBy) {
         LocalDate today = LocalDate.now(clock);
-        // with(SUNDAY)=이번 ISO 주의 일요일(오늘이 일요일이면 오늘) → minusWeeks(1)=직전 완료 주의 일요일.
-        LocalDate weekEnd = today.with(DayOfWeek.SUNDAY).minusWeeks(1);
+        LocalDate weekEnd = resolveTargetWeekEnd(today);
         LocalDate weekStart = weekEnd.minusDays(6);
 
         // 대상 주 = signalDate 가 [weekStart, weekEnd] & 평가완료 & board(STRONG_BUY/BUY) 격리.
@@ -127,9 +127,12 @@ public class SignalWeeklyReportService {
                 SignalOutcomeService.filterBoardSignals(
                         outcomeRepository.findEvaluatedSince(cumulativeFrom)));
 
-        // 직전 스냅샷들의 supplyInverted 플래그 (이번 주 자신 제외, 최신 먼저) — 스트릭 계산 입력.
+        // 직전 스냅샷들의 supplyInverted 플래그 (대상 주 이전만, 최신 먼저) — 스트릭 계산 입력.
+        // ⚠ "자기 자신 제외"(!equals)가 아니라 isBefore 여야 한다(리뷰 A-10): 주 선택이 요일별로
+        // 달라질 수 있게 되면서, 수동 트리거가 만든 대상 주보다 나중 주 스냅샷이 존재할 수 있고
+        // equals 필터로는 그 미래 주가 스트릭 선두에 섞인다.
         List<Boolean> priorSupplyInverted = weeklyRepository.findTop12ByOrderByWeekStartDesc().stream()
-                .filter(s -> !s.getWeekStart().equals(weekStart))
+                .filter(s -> s.getWeekStart().isBefore(weekStart))
                 .map(SignalWeeklyAccuracy::isSupplyInverted)
                 .collect(Collectors.toList());
 
@@ -144,6 +147,21 @@ public class SignalWeeklyReportService {
         log.info("[주간측정] {} ~ {} 완료 (주간 n={}, 누적 n={}, 경고 {}건)",
                 weekStart, weekEnd, dto.getWeeklyN(), dto.getCumulativeN(), dto.getWarnings().size());
         return dto;
+    }
+
+    /**
+     * 오늘 기준 "마지막으로 온전히 평가 가능한 주"의 일요일. <b>순수 함수(테스트 대상)</b>.
+     *
+     * <p>후보 = 오늘 이전 마지막 일요일. 그 주 금요일 시그널의 3거래일 평가는 다음 주 수요일 19:30 —
+     * 오늘이 그 수요일 이후(목요일~)가 아니면 아직 미평가 행이 남은 주이므로 한 주 더 물러난다.
+     * 일요일 크론(후보+7일)은 항상 통과 → 크론 동작은 종전과 동일하고, 평일 수동 트리거만
+     * "부분 평가 주를 영속화"하지 않게 된다. 휴장일로 평가가 하루 이틀 밀리는 주는 남은 한계
+     * (그 주는 pending 행이 소수 빠진 채 집계 — UPSERT 재실행으로 보정 가능).
+     */
+    static LocalDate resolveTargetWeekEnd(LocalDate today) {
+        LocalDate candidate = today.with(DayOfWeek.SUNDAY).minusWeeks(1);
+        if (!today.isAfter(candidate.plusDays(3))) candidate = candidate.minusWeeks(1);
+        return candidate;
     }
 
     private void persistSnapshot(LocalDate weekStart, LocalDate weekEnd,

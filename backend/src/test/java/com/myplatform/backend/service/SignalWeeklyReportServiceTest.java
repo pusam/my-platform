@@ -81,16 +81,45 @@ class SignalWeeklyReportServiceTest {
     }
 
     @Test
-    @DisplayName("수요일 실행(수동) → weekEnd=직전 일요일, weekStart=그 월요일 (평일 동작 불변)")
-    void weekBoundary_midweek() {
-        // 2026-07-08 = 수요일 → 직전 일요일 = 07-05
+    @DisplayName("수요일 수동 실행 → 직전 일요일 종료 주는 아직 미평가(금요일 시그널이 수요일 저녁 평가) → 한 주 더 뒤로 (A-9)")
+    void weekBoundary_midweekGoesBackOneMore() {
+        // 2026-07-08 = 수요일. 6/29~7/5 주의 금요일(7/3) 시그널은 7/8(수) 19:30 평가 — 아직 미완이므로
+        // 그 주를 집계하면 "월·화 표본만 담긴 스냅샷"이 UPSERT 로 영속화된다(P1-C 의 수동 경로 재현).
         LocalDate wed = LocalDate.of(2026, 7, 8);
         assertThat(wed.getDayOfWeek().getValue()).isEqualTo(3);
 
         WeeklySignalAccuracyDto dto = service(wed).generateWeeklyReport("manual");
 
+        assertThat(dto.getWeekEnd()).isEqualTo(LocalDate.of(2026, 6, 28));
+        assertThat(dto.getWeekStart()).isEqualTo(LocalDate.of(2026, 6, 22));
+    }
+
+    @Test
+    @DisplayName("목요일 수동 실행 → 직전 일요일 종료 주가 온전(수요일 저녁 평가 완료) → 그 주 유지")
+    void weekBoundary_thursdayKeepsLastWeek() {
+        LocalDate thu = LocalDate.of(2026, 7, 9);
+        assertThat(thu.getDayOfWeek().getValue()).isEqualTo(4);
+
+        WeeklySignalAccuracyDto dto = service(thu).generateWeeklyReport("manual");
+
         assertThat(dto.getWeekEnd()).isEqualTo(LocalDate.of(2026, 7, 5));
         assertThat(dto.getWeekStart()).isEqualTo(LocalDate.of(2026, 6, 29));
+    }
+
+    @Test
+    @DisplayName("prior 스트릭 — 대상 주보다 나중(미래) 주 스냅샷은 제외 (A-10)")
+    void priorFlags_excludeFutureWeeks() {
+        // 일요일 크론(대상 주 6/22)보다 나중 주(6/29) 스냅샷이 수동 트리거로 이미 존재하는 상황
+        LocalDate sunday = LocalDate.of(2026, 7, 5);
+        SignalWeeklyAccuracy future = snap(LocalDate.of(2026, 6, 29), true);   // 미래 주 — 제외돼야
+        SignalWeeklyAccuracy past = snap(LocalDate.of(2026, 6, 15), false);    // 과거 주 — 포함
+        when(weeklyRepository.findTop12ByOrderByWeekStartDesc()).thenReturn(List.of(future, past));
+        when(outcomeRepository.findEvaluatedSince(any())).thenReturn(strongSupply(10, false, "-2.0"));
+
+        WeeklySignalAccuracyDto dto = service(sunday).generateWeeklyReport("system");
+
+        // prior 가 [past=false]뿐이면 스트릭은 이번 주 1주째 — future(true)가 섞이면 2주째 경고가 떠버린다
+        assertThat(dto.getWarnings()).noneSatisfy(w -> assertThat(w).contains("2주째"));
     }
 
     @Test

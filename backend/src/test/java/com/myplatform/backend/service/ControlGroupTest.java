@@ -202,6 +202,7 @@ class ControlGroupTest {
         assertThat(cmp.getComparisonFrom()).isEqualTo(LocalDate.of(2026, 8, 5));
         assertThat(cmp.getComparisonTo()).isEqualTo(LocalDate.of(2026, 8, 19));
         assertThat(cmp.getComparisonDays()).isEqualTo(15);
+        assertThat(cmp.getExcludedSignalDays()).isEqualTo(45);   // 시그널 60일 중 짝 없는 45일 — 관측 노출(A-4)
         assertThat(cmp.getSignalCount()).isEqualTo(15);   // 60건 전부가 아니라 공통 15일치만
         assertThat(cmp.getControlCount()).isEqualTo(15);
     }

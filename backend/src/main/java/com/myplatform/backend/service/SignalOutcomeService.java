@@ -688,14 +688,21 @@ public class SignalOutcomeService {
     }
 
     /**
-     * 같은 종목·같은 날 중복 시그널 dedup — 순수 함수(테스트 대상). <b>마지막 기록(createdAt 최신)</b>만 남긴다.
+     * 같은 종목·같은 날 중복 시그널 dedup — 순수 함수(테스트 대상). <b>최초 기록(createdAt 최소)</b>만 남긴다.
      *
      * <p>V36 UNIQUE 는 (signal_type, stock_code, signal_date) 라, 장중 점수가 73→76 으로 오르면
      * 같은 종목·같은 날이 BUY 와 STRONG_BUY <b>두 행</b>으로 남는다(2026-08-21 감사 P2-F).
-     * 두 행은 같은 3일 수익률 창을 공유해 독립 관측이 아니고, 65~74 와 75~84 밴드에 동시 계상돼
-     * 하필 75 경계(수급의존 종목군)가 이중 가중된다. 하루의 최종 기록 = 그날의 최종 등급
-     * (마감 스냅샷 20:05 가 마지막이라 대체로 STRONG_BUY 승격분)으로 대표시킨다.
-     * createdAt null 은 더 오래된 것으로 취급(비교 불가 시 기존 행 유지).
+     * 두 행은 같은 3일 수익률 창을 공유해 독립 관측이 아니고, 65~74 와 75~84 밴드에 동시 계상된다.
+     *
+     * <p><b>왜 "최초"인가(2026-08-21 적대적 리뷰 A-1로 "마지막"에서 전환)</b>: 마지막 기록을 대표로
+     * 삼으면 장중 STRONG_BUY 였다가 오후에 BUY 로 강등된 종목(= 이후 수익률이 나쁠 부류)이
+     * STRONG_BUY 밴드에서 <b>체계적으로 제거</b>되는 생존편향이 생긴다. 최초 기록은 "사용자가 실제로
+     * 그 시그널을 보고 행동할 수 있었던 시점"의 점수·가격이라 look-ahead 가 없다 — 측정 질문
+     * ("점수 X 시그널을 보고 사면 어떻게 되나")의 정의와 일치한다. 승격분이 BUY 밴드에 남는 것은
+     * 그 시점 실제 등급이 BUY 였으므로 편향이 아니라 사실이다. <b>"마지막 기록"으로 되돌리지 말 것.</b>
+     *
+     * <p>createdAt 은 V26 스키마상 NOT NULL 이지만 방어적으로: null 은 이기지 못함(기존 유지).
+     * 동시각(초 단위 동률, 크론 더블런)은 id 작은 쪽(먼저 삽입) — DB 반환 순서 비의존 결정성.
      */
     static List<SignalOutcome> dedupPerStockDay(List<SignalOutcome> rows) {
         if (rows == null) return List.of();
@@ -704,11 +711,21 @@ public class SignalOutcomeService {
             if (s == null) continue;
             String key = s.getStockCode() + "|" + s.getSignalDate();
             SignalOutcome existing = byKey.get(key);
-            if (existing == null) { byKey.put(key, s); continue; }
-            LocalDateTime a = existing.getCreatedAt(), b = s.getCreatedAt();
-            if (b != null && (a == null || b.isAfter(a))) byKey.put(key, s);
+            if (existing == null || isEarlierRecord(s, existing)) byKey.put(key, s);
         }
         return new ArrayList<>(byKey.values());
+    }
+
+    /** candidate 가 existing 보다 이른 기록인가 — createdAt 오름차순, 동률이면 id 작은 쪽. 순수. */
+    private static boolean isEarlierRecord(SignalOutcome candidate, SignalOutcome existing) {
+        LocalDateTime a = existing.getCreatedAt(), b = candidate.getCreatedAt();
+        if (b == null) return false;              // 미상은 이기지 못함
+        if (a == null) return true;
+        if (b.isBefore(a)) return true;
+        if (!b.equals(a)) return false;
+        long idA = existing.getId() == null ? Long.MAX_VALUE : existing.getId();
+        long idB = candidate.getId() == null ? Long.MAX_VALUE : candidate.getId();
+        return idB < idA;
     }
 
     /**
@@ -730,8 +747,9 @@ public class SignalOutcomeService {
         int d = days < 1 ? 90 : days;
         LocalDate from = resolveAccuracyFrom(days, LocalDate.now());
         List<SignalOutcome> all = repository.findEvaluatedSince(from);
-        // 같은 종목·같은 날 BUY→STRONG_BUY 승격 2행은 마지막 기록으로 dedup(P2-F) — 밴드·카테고리·
-        // 대조군 비교 전부 이 목록 기준. 대조군 행은 무작위 독립 추출이라 dedup 대상 아님.
+        // 같은 종목·같은 날 BUY→STRONG_BUY 승격 2행은 최초 기록으로 dedup(P2-F/A-1) — 밴드·카테고리·
+        // 대조군 비교 전부 이 목록 기준. 대조군 행은 무작위 독립 추출이라 dedup 대상 아님(단 승격일엔
+        // 대조군이 시그널보다 1행 많아지는 잔여 비대칭 있음 — AUDIT 2026-08-21 R9).
         List<SignalOutcome> rows = dedupPerStockDay(filterBoardSignals(all));
         // 대조군은 filterBoardSignals 에서 이미 빠져 있다(CONTROL_RANDOM ∉ BOARD_SIGNAL_TYPES).
         // 비교용으로만 별도 추출 — 아래 bands/categories/regimes 집계에는 절대 넘기지 않는다.
@@ -868,8 +886,13 @@ public class SignalOutcomeService {
         // 있는 날짜만 비교 대상으로 삼는다. (밴드/카테고리 집계는 전체 창 그대로 — 여기서만 좁힌다)
         List<SignalOutcome> sRows = comparableRows(boardRows);
         List<SignalOutcome> cRows = comparableRows(controlRows);
-        java.util.TreeSet<LocalDate> common = signalDatesOf(sRows);
+        java.util.TreeSet<LocalDate> sDates = signalDatesOf(sRows);
+        java.util.TreeSet<LocalDate> common = new java.util.TreeSet<>(sDates);
         common.retainAll(signalDatesOf(cRows));
+        // 짝(대조군) 없는 날의 시그널은 비교에서 빠진다 — 대조군 기록 실패(유니버스 캐시 공백·시세 미확보)는
+        // 변동성 큰 날에 몰릴 수 있어 이 제외 자체가 편향일 수 있다(리뷰 A-4). 빠진 날 수를 노출해
+        // 관측 가능하게 한다(§4c: 조용한 제외 금지) — 이 값이 크면 비교창이 평온한 날로 치우친 것.
+        int excludedSignalDays = sDates.size() - common.size();
 
         long sN = 0, sHits = 0, cN = 0, cHits = 0;
         BigDecimal sPct = BigDecimal.ZERO, cPct = BigDecimal.ZERO;
@@ -907,6 +930,7 @@ public class SignalOutcomeService {
                 .comparisonFrom(common.isEmpty() ? null : common.first())
                 .comparisonTo(common.isEmpty() ? null : common.last())
                 .comparisonDays(comparisonDays)
+                .excludedSignalDays(excludedSignalDays)
                 .signalCount(sN).signalHitRate(sRate).signalAvgPctChange(sAvg)
                 .controlCount(cN).controlHitRate(cRate).controlAvgPctChange(cAvg)
                 .edgeHitRate(edgeRate).edgePctChange(edgePct)

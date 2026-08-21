@@ -92,6 +92,12 @@ public class SignalBandAccuracyDto {
          * 공유). P3-11 이 지수 축에 적용한 distinctDays 원리와 동일.
          */
         private int comparisonDays;
+        /**
+         * 시그널은 있었으나 그날 대조군 짝이 없어 비교에서 <b>빠진</b> 고유 일수 — 대조군 기록 실패
+         * (유니버스 캐시 공백·시세 미확보 등)는 변동성 큰 날에 몰릴 수 있어, 이 제외 자체가 비교창을
+         * 평온한 날로 치우치게 할 수 있다(§4c: 조용한 제외 금지 → 노출). 크면 edge 해석에 주의.
+         */
+        private int excludedSignalDays;
         /** 평가 완료된 보드 시그널 수(공통 창 한정). */
         private long signalCount;
         private BigDecimal signalHitRate;
