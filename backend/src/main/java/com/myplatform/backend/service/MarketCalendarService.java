@@ -27,16 +27,45 @@ public class MarketCalendarService {
      */
     public static final LocalTime MARKET_CLOSE = LocalTime.of(15, 40);
 
-    /** 한국 고정(양력) 공휴일 */
+    /** 한국 고정(양력) 공휴일 + KRX 고정 휴장일 */
     private static final Set<MonthDay> KOREA_FIXED_HOLIDAYS = Set.of(
             MonthDay.of(1, 1),   // 신정
             MonthDay.of(3, 1),   // 삼일절
+            MonthDay.of(5, 1),   // 근로자의날 — 법정공휴일은 아니지만 KRX 휴장(2026-08-21 보강)
             MonthDay.of(5, 5),   // 어린이날
             MonthDay.of(6, 6),   // 현충일
             MonthDay.of(8, 15),  // 광복절
             MonthDay.of(10, 3),  // 개천절
             MonthDay.of(10, 9),  // 한글날
-            MonthDay.of(12, 25)  // 크리스마스
+            MonthDay.of(12, 25), // 크리스마스
+            // 연말 폐장일 — KRX 는 연말 마지막 영업일 휴장. 12/31 이 주말인 해는 직전 평일이 폐장일이라
+            // 이 고정 규칙이 못 잡는다(2025~2027 은 12/31 이 전부 평일이라 안전). 해당 해엔 아래
+            // KOREA_SUBSTITUTE_HOLIDAYS 에 폐장일을 명시할 것.
+            MonthDay.of(12, 31)
+    );
+
+    /**
+     * 대체공휴일 테이블 (2026-08-21 보강). 공휴일이 주말(설·추석은 다른 공휴일 겹침 포함)과 겹치면
+     * 다음 첫 평일이 휴장 — 규칙은 결정적이라 미리 산출해 박아 둔다.
+     *
+     * <p><b>⚠ 매년 갱신 필요</b>(음력 테이블과 동일 주기로 함께 볼 것). <b>임시공휴일</b>(선거일 등
+     * 정부 수시 지정)은 예측 불가라 이 테이블로 못 막는다 — 발표 시 수동 추가.
+     *
+     * <p>미수록의 대가는 "다음 거래일 오전 수급·기술 동시 미채점"(노후 가드의 minAcceptable 이
+     * 유령 거래일을 물고 있어 정상 데이터를 노후로 오판) + 휴장일 배치가 KIS 를 헛두드리며
+     * 유령 일자 행 적재 가능 — 2026-08-17 이 실제로 이렇게 지나갔다.
+     */
+    private static final Set<LocalDate> KOREA_SUBSTITUTE_HOLIDAYS = Set.of(
+            // 2025: 삼일절(3/1 토)→3/3, 어린이날·석탄일 겹침(5/5)→5/6, 추석 연휴 일요일 겹침→10/8
+            LocalDate.of(2025, 3, 3), LocalDate.of(2025, 5, 6), LocalDate.of(2025, 10, 8),
+            // 2026: 삼일절(3/1 일)→3/2, 석탄일(5/24 일)→5/25, 광복절(8/15 토)→8/17,
+            //       추석 연휴 토요일 겹침(9/26)→9/28, 개천절(10/3 토)→10/5
+            LocalDate.of(2026, 3, 2), LocalDate.of(2026, 5, 25), LocalDate.of(2026, 8, 17),
+            LocalDate.of(2026, 9, 28), LocalDate.of(2026, 10, 5),
+            // 2027: 설 연휴 토요일 겹침(2/6)→2/9, 광복절(8/15 일)→8/16, 개천절(10/3 일)→10/4,
+            //       한글날(10/9 토)→10/11, 성탄절(12/25 토)→12/27
+            LocalDate.of(2027, 2, 9), LocalDate.of(2027, 8, 16), LocalDate.of(2027, 10, 4),
+            LocalDate.of(2027, 10, 11), LocalDate.of(2027, 12, 27)
     );
 
     /**
@@ -44,7 +73,8 @@ public class MarketCalendarService {
      *
      * <p>Java 표준엔 한국 음력 달력이 없어 매년 발표되는 공식 휴장일을 양력으로 박아 둔다.
      * <b>⚠ 매년 갱신 필요</b> — 미수록 연도는 이 휴일들이 "정상 거래일"로 처리됨(false negative, 안전한 열화).
-     * 임시공휴일·대체공휴일·근로자의날(5/1)·연말폐장(12/31) 은 본 테이블 범위 밖(별도 보강 대상).
+     * 대체공휴일은 {@link #KOREA_SUBSTITUTE_HOLIDAYS}, 근로자의날(5/1)·연말폐장(12/31)은 고정 테이블에
+     * 있다(2026-08-21 보강). <b>임시공휴일</b>(정부 수시 지정)만 여전히 수동 추가 대상.
      */
     private static final Set<LocalDate> KOREA_LUNAR_DERIVED_HOLIDAYS = Set.of(
             // 설날 연휴
@@ -68,7 +98,8 @@ public class MarketCalendarService {
         DayOfWeek dow = date.getDayOfWeek();
         if (dow == DayOfWeek.SATURDAY || dow == DayOfWeek.SUNDAY) return true;
         return KOREA_FIXED_HOLIDAYS.contains(MonthDay.from(date))
-                || KOREA_LUNAR_DERIVED_HOLIDAYS.contains(date);
+                || KOREA_LUNAR_DERIVED_HOLIDAYS.contains(date)
+                || KOREA_SUBSTITUTE_HOLIDAYS.contains(date);
     }
 
     /**

@@ -69,6 +69,44 @@ class MarketCalendarServiceTest {
     }
 
     @Nested
+    @DisplayName("대체공휴일·근로자의날·연말폐장 (2026-08-21 보강) — 미수록 시 다음 거래일 오전 수급·기술 동시 미채점")
+    class SubstituteHolidays {
+        @Test @DisplayName("2026-05-01 근로자의날(금) → 휴장 (법정공휴일 아님·KRX 휴장)")
+        void laborDay2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 5, 1))).isTrue();
+        }
+
+        @Test @DisplayName("2026-08-17 광복절 대체휴일(월) → 휴장 — 실제로 미수록 상태로 지나간 날")
+        void liberationSubstitute2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 8, 17))).isTrue();
+            assertThat(svc.isRegularSession(LocalDate.of(2026, 8, 17), LocalTime.of(10, 0))).isFalse();
+        }
+
+        @Test @DisplayName("2026-09-28 추석 대체휴일(월) / 2026-10-05 개천절 대체휴일(월) → 휴장")
+        void chuseokAndFoundationSubstitute2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 9, 28))).isTrue();
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 10, 5))).isTrue();
+        }
+
+        @Test @DisplayName("2026-12-31 연말 폐장일(목) → 휴장")
+        void yearEndClosure2026() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 12, 31))).isTrue();
+        }
+
+        @Test @DisplayName("대체휴일 다음 평일(2026-08-18 화)은 정상 개장")
+        void dayAfterSubstituteOpen() {
+            assertThat(svc.isMarketClosed(LocalDate.of(2026, 8, 18))).isFalse();
+        }
+
+        @Test @DisplayName("minusTradingDays 가 8/17 대체휴일을 건너뛴다 — 3거래일 평가 컷오프 정합")
+        void minusTradingDaysSkipsSubstitute() {
+            // 2026-08-19 수 → 8/18 화(1), [8/17 월 휴장 + 주말 skip], 8/14 금(2), 8/13 목(3)
+            assertThat(svc.minusTradingDays(LocalDate.of(2026, 8, 19), 3))
+                    .isEqualTo(LocalDate.of(2026, 8, 13));
+        }
+    }
+
+    @Nested
     @DisplayName("minusTradingDays: 거래일 역산 (시그널 3거래일 평가 컷오프)")
     class MinusTradingDays {
         @Test @DisplayName("월요일 기준 3거래일 전 = 수요일 (주말 건너뜀) — 달력일이면 금요일이 되던 버그")
