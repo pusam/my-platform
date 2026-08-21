@@ -78,11 +78,25 @@ public class SignalBandAccuracyDto {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class ControlComparison {
-        /** 평가 완료된 보드 시그널 수. */
+        /**
+         * 비교가 실제로 이뤄진 <b>공통 창</b> 시작일 — 대조군은 2026-08-05 도입이라 그 이전 시그널에는
+         * 짝이 없다. 창을 맞추지 않으면 edge 가 "점수의 기여"가 아니라 "기간(시장) 차이"를 담는다.
+         * null = 겹치는 날짜가 없어 비교 불가.
+         */
+        private java.time.LocalDate comparisonFrom;
+        /** 공통 창 종료일. null = 비교 불가. */
+        private java.time.LocalDate comparisonTo;
+        /**
+         * 공통 창의 <b>고유 일수</b> — 양쪽 모두 평가 완료 행이 있는 날의 수.
+         * 행 수(signalCount)가 아니라 이 값이 독립 표본 수에 가깝다(같은 날 행들은 같은 시장 충격을
+         * 공유). P3-11 이 지수 축에 적용한 distinctDays 원리와 동일.
+         */
+        private int comparisonDays;
+        /** 평가 완료된 보드 시그널 수(공통 창 한정). */
         private long signalCount;
         private BigDecimal signalHitRate;
         private BigDecimal signalAvgPctChange;
-        /** 평가 완료된 대조군 수. */
+        /** 평가 완료된 대조군 수(공통 창 한정). */
         private long controlCount;
         private BigDecimal controlHitRate;
         private BigDecimal controlAvgPctChange;

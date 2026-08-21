@@ -34,11 +34,42 @@ class ControlGroupTest {
                 .build();
     }
 
+    /**
+     * n 행 생성 — <b>최근 20일에 분산</b>한다(하루 뭉치기 방지).
+     * 같은 날 행들은 같은 시장 충격을 공유해 독립 표본이 아니므로(P3-11 과 동일 원리),
+     * 기본 픽스처를 현실적인 분산 형태로 둔다.
+     */
     private static List<SignalOutcome> many(String type, Integer score, int n, int hits, double pct) {
         List<SignalOutcome> out = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             SignalOutcome s = signal(type, score, i < hits, pct);
             s.setStockCode(String.format("%s%04d", type.charAt(0), i));
+            s.setSignalDate(D.minusDays(i % 20));
+            out.add(s);
+        }
+        return out;
+    }
+
+    /** 하루 1행씩 {@code days} 일 연속 — 고유일수를 정확히 통제하고 싶을 때. */
+    private static List<SignalOutcome> daily(String type, Integer score, LocalDate start,
+                                             int days, int hits, double pct) {
+        List<SignalOutcome> out = new ArrayList<>();
+        for (int i = 0; i < days; i++) {
+            SignalOutcome s = signal(type, score, i < hits, pct);
+            s.setStockCode(String.format("%s%04d", type.charAt(0), i));
+            s.setSignalDate(start.plusDays(i));
+            out.add(s);
+        }
+        return out;
+    }
+
+    /** 전부 같은 날 — 행 수는 많지만 고유일수 1(독립 표본 아님) 재현용. */
+    private static List<SignalOutcome> sameDay(String type, Integer score, int n, int hits, double pct) {
+        List<SignalOutcome> out = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            SignalOutcome s = signal(type, score, i < hits, pct);
+            s.setStockCode(String.format("%s%04d", type.charAt(0), i));
+            s.setSignalDate(D);
             out.add(s);
         }
         return out;
@@ -154,6 +185,53 @@ class ControlGroupTest {
 
         assertThat(cmp.getSignalCount()).isZero();
         assertThat(cmp.isInsufficientSample()).isTrue();
+    }
+
+    // ==================== 비교 창 정렬 (2026-08-21) ====================
+
+    @Test
+    void 대조군이_없는_기간의_시그널은_비교에서_제외된다() {
+        // 대조군은 2026-08-05 도입이라 그 이전 시그널에는 짝이 없다. 창을 맞추지 않으면
+        // 두 비율이 서로 다른 기간에서 계산돼 edge 가 '점수의 기여'가 아니라 '시장 차이'를 담는다.
+        List<SignalOutcome> board = daily("STRONG_BUY", 80, LocalDate.of(2026, 6, 25), 60, 12, -1.0);
+        List<SignalOutcome> control = daily(ControlGroupService.CONTROL_SIGNAL_TYPE, null,
+                LocalDate.of(2026, 8, 5), 15, 5, 0.5);
+
+        var cmp = SignalOutcomeService.aggregateControlComparison(board, control);
+
+        assertThat(cmp.getComparisonFrom()).isEqualTo(LocalDate.of(2026, 8, 5));
+        assertThat(cmp.getComparisonTo()).isEqualTo(LocalDate.of(2026, 8, 19));
+        assertThat(cmp.getComparisonDays()).isEqualTo(15);
+        assertThat(cmp.getSignalCount()).isEqualTo(15);   // 60건 전부가 아니라 공통 15일치만
+        assertThat(cmp.getControlCount()).isEqualTo(15);
+    }
+
+    @Test
+    void 겹치는_날짜가_없으면_비교_자체가_불가하다() {
+        var cmp = SignalOutcomeService.aggregateControlComparison(
+                daily("STRONG_BUY", 80, LocalDate.of(2026, 6, 25), 20, 10, 1.0),
+                daily(ControlGroupService.CONTROL_SIGNAL_TYPE, null, LocalDate.of(2026, 8, 5), 20, 10, 1.0));
+
+        assertThat(cmp.getComparisonDays()).isZero();
+        assertThat(cmp.getComparisonFrom()).isNull();
+        assertThat(cmp.getComparisonTo()).isNull();
+        assertThat(cmp.getSignalCount()).isZero();
+        assertThat(cmp.getControlCount()).isZero();
+        assertThat(cmp.isInsufficientSample()).isTrue();
+    }
+
+    @Test
+    void 같은_날_뭉친_표본은_고유일수_부족으로_판정을_보류한다() {
+        // 행 수만 보면 각 100건이라 z≈4.3(유의)이지만, 고유일수 1일이면 독립 표본이 아니다.
+        // P3-11 이 지수 축에 적용한 distinctDays 원리를 대조군 비교에도 적용한다.
+        var cmp = SignalOutcomeService.aggregateControlComparison(
+                sameDay("STRONG_BUY", 80, 100, 60, 3.0),
+                sameDay(ControlGroupService.CONTROL_SIGNAL_TYPE, null, 100, 30, 0.5));
+
+        assertThat(cmp.getComparisonDays()).isEqualTo(1);
+        assertThat(cmp.isInsufficientSample()).isTrue();
+        assertThat(cmp.isSignificant()).isFalse();
+        assertThat(cmp.getVerdict()).contains("표본 부족");
     }
 
     // ==================== z검정 순수함수 ====================

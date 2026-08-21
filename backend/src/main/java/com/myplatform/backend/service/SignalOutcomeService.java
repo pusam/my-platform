@@ -802,33 +802,59 @@ public class SignalOutcomeService {
     /** 대조군 비교 판정 최소 표본 — 양쪽 각각 이 수 미만이면 판정 보류(§4c: 표본부족을 결론으로 위장 금지). */
     static final int MIN_CONTROL_SAMPLE = 30;
 
+    /**
+     * 대조군 비교 최소 <b>고유일수</b> — 행 수(MIN_CONTROL_SAMPLE)만으로는 부족하다.
+     * 보드 시그널은 하루 최대 10건이 같은 날 기록되고 대조군도 1:1로 붙으므로, 행 수 30건은
+     * 최소 3거래일치일 수 있다. 같은 날 행들은 같은 시장 충격을 공유해 독립 표본이 아니며
+     * 유효 자유도가 과대평가되면 SE 과소 → |z| 과대 → 우연을 "유의"로 선언한다.
+     * P3-11 이 regime/vol_regime/지수채널(지수 축)에 적용한 distinctDays 원리와 동일한 이유다.
+     */
+    static final int MIN_CONTROL_DISTINCT_DAYS = 10;
+
     /** 양측 5% 유의 임계 z. */
     private static final double Z_CRITICAL_95 = 1.96;
 
     /**
      * 무작위 대조군 대비 집계 — 순수 함수(테스트 대상). <b>적중률 해석의 기준선</b>(P2-19 ④).
      *
-     * <p>같은 창(from 이후)의 보드 시그널과 {@code CONTROL_RANDOM} 행을 각각 집계해 우위와 유의성을 낸다.
-     * 대조군은 시그널과 <b>같은 날·같은 유니버스·같은 가격기준·같은 벤치마크</b>로 기록되므로,
+     * <p>대조군은 시그널과 <b>같은 날·같은 유니버스·같은 가격기준·같은 벤치마크</b>로 기록되므로,
      * 두 적중률의 차이가 곧 "점수가 더한 값"이다.
+     *
+     * <p><b>비교 창 정렬(2026-08-21)</b>: 호출자가 넘기는 두 목록은 창이 다를 수 있다 — 대조군은
+     * 2026-08-05 도입이라 그 이전 시그널에는 짝이 없고, 그대로 빼면 edge 가 "점수의 기여"가 아니라
+     * <b>기간(시장) 차이</b>를 담는다. 그래서 여기서 <b>양쪽 모두 평가 완료 행이 있는 날짜</b>로 교집합을
+     * 잡아 두 집합을 함께 좁힌다(설계 5조건 중 "같은 날"을 집계 단위에서도 지킴). 좁힌 결과는
+     * {@code comparisonFrom/To/Days} 로 응답에 노출한다. <b>이 정렬을 제거하지 말 것</b> —
+     * 제거하면 대조군을 만든 목적 자체가 무효가 된다. 밴드/카테고리 집계는 전체 창을 그대로 쓴다.
      *
      * <p>주의: 유의하지 않다({@code significant=false})는 것은 "우위가 없다"가 아니라 <b>"있다고 말할 근거가
      * 없다"</b>이다. 표본이 작으면 실제 우위가 있어도 검출되지 않는다 — 그래서 n 을 함께 노출한다.
      */
     static com.myplatform.backend.dto.SignalBandAccuracyDto.ControlComparison aggregateControlComparison(
             List<SignalOutcome> boardRows, List<SignalOutcome> controlRows) {
+        // ── 비교 창 정렬(2026-08-21) ────────────────────────────────────────────────
+        // 대조군(CONTROL_RANDOM)은 2026-08-05 도입이라 그 이전 시그널에는 짝이 없다. 정렬하지 않으면
+        // 시그널은 컷오프(6/25)부터, 대조군은 8/5부터 집계돼 두 비율이 서로 다른 기간에서 나온다
+        // → edge 가 "점수의 기여"가 아니라 "기간(시장) 차이"를 포함해 해석 불가가 된다.
+        // 대조군 설계의 5조건 중 "같은 날"을 집계 단위에서도 지키기 위해, 양쪽 모두 평가 완료 행이
+        // 있는 날짜만 비교 대상으로 삼는다. (밴드/카테고리 집계는 전체 창 그대로 — 여기서만 좁힌다)
+        List<SignalOutcome> sRows = comparableRows(boardRows);
+        List<SignalOutcome> cRows = comparableRows(controlRows);
+        java.util.TreeSet<LocalDate> common = signalDatesOf(sRows);
+        common.retainAll(signalDatesOf(cRows));
+
         long sN = 0, sHits = 0, cN = 0, cHits = 0;
         BigDecimal sPct = BigDecimal.ZERO, cPct = BigDecimal.ZERO;
         long sPctN = 0, cPctN = 0;
 
-        for (SignalOutcome s : boardRows == null ? List.<SignalOutcome>of() : boardRows) {
-            if (s.getEvaluatedAt() == null) continue;
+        for (SignalOutcome s : sRows) {
+            if (!common.contains(s.getSignalDate())) continue;
             sN++;
             if (Boolean.TRUE.equals(s.getHit())) sHits++;
             if (s.getPctChange3d() != null) { sPct = sPct.add(s.getPctChange3d()); sPctN++; }
         }
-        for (SignalOutcome c : controlRows == null ? List.<SignalOutcome>of() : controlRows) {
-            if (c.getEvaluatedAt() == null) continue;
+        for (SignalOutcome c : cRows) {
+            if (!common.contains(c.getSignalDate())) continue;
             cN++;
             if (Boolean.TRUE.equals(c.getHit())) cHits++;
             if (c.getPctChange3d() != null) { cPct = cPct.add(c.getPctChange3d()); cPctN++; }
@@ -836,7 +862,12 @@ public class SignalOutcomeService {
 
         BigDecimal sRate = rate(sHits, sN), cRate = rate(cHits, cN);
         BigDecimal sAvg = avg(sPct, sPctN), cAvg = avg(cPct, cPctN);
-        boolean insufficient = sN < MIN_CONTROL_SAMPLE || cN < MIN_CONTROL_SAMPLE;
+        // 행 수 + 고유일수 이중 게이트 — 하루 최대 10건이 뭉쳐 들어오므로 행 수만 보면 3거래일치로도
+        // MIN_CONTROL_SAMPLE(30)을 넘겨 "유의" 판정이 나온다. 같은 날 행들은 같은 시장 충격을 공유해
+        // 독립 표본이 아니다(P3-11 이 지수 축에 적용한 distinctDays 원리를 여기에도 적용).
+        int comparisonDays = common.size();
+        boolean insufficient = sN < MIN_CONTROL_SAMPLE || cN < MIN_CONTROL_SAMPLE
+                || comparisonDays < MIN_CONTROL_DISTINCT_DAYS;
 
         BigDecimal edgeRate = (sRate != null && cRate != null) ? sRate.subtract(cRate) : null;
         BigDecimal edgePct = (sAvg != null && cAvg != null) ? sAvg.subtract(cAvg) : null;
@@ -845,14 +876,34 @@ public class SignalOutcomeService {
         boolean significant = !insufficient && z != null && Math.abs(z) >= Z_CRITICAL_95;
 
         return com.myplatform.backend.dto.SignalBandAccuracyDto.ControlComparison.builder()
+                .comparisonFrom(common.isEmpty() ? null : common.first())
+                .comparisonTo(common.isEmpty() ? null : common.last())
+                .comparisonDays(comparisonDays)
                 .signalCount(sN).signalHitRate(sRate).signalAvgPctChange(sAvg)
                 .controlCount(cN).controlHitRate(cRate).controlAvgPctChange(cAvg)
                 .edgeHitRate(edgeRate).edgePctChange(edgePct)
                 .zScore(z == null ? null : BigDecimal.valueOf(z).setScale(2, RoundingMode.HALF_UP))
                 .significant(significant)
                 .insufficientSample(insufficient)
-                .verdict(controlVerdict(insufficient, significant, edgeRate, sN, cN))
+                .verdict(controlVerdict(insufficient, significant, edgeRate, sN, cN, comparisonDays))
                 .build();
+    }
+
+    /** 비교 대상 정규화 — 평가 완료 + 일자 있는 행만. 순수 함수. */
+    private static List<SignalOutcome> comparableRows(List<SignalOutcome> rows) {
+        if (rows == null) return List.of();
+        List<SignalOutcome> out = new ArrayList<>();
+        for (SignalOutcome s : rows) {
+            if (s != null && s.getEvaluatedAt() != null && s.getSignalDate() != null) out.add(s);
+        }
+        return out;
+    }
+
+    /** 행 목록의 고유 시그널 일자(정렬 집합). 순수 함수. */
+    private static java.util.TreeSet<LocalDate> signalDatesOf(List<SignalOutcome> rows) {
+        java.util.TreeSet<LocalDate> dates = new java.util.TreeSet<>();
+        for (SignalOutcome s : rows) dates.add(s.getSignalDate());
+        return dates;
     }
 
     /**
@@ -872,10 +923,11 @@ public class SignalOutcomeService {
 
     /** 사람이 읽는 한 줄 결론 — 표본부족/무의미/우위/열위를 구분해 과장 없이 말한다. */
     static String controlVerdict(boolean insufficient, boolean significant, BigDecimal edgeRate,
-                                 long signalCount, long controlCount) {
+                                 long signalCount, long controlCount, int comparisonDays) {
         if (insufficient) {
-            return String.format("표본 부족(시그널 %d / 대조군 %d, 각 %d건 필요) — 아직 판정할 수 없음",
-                    signalCount, controlCount, MIN_CONTROL_SAMPLE);
+            return String.format("표본 부족(시그널 %d / 대조군 %d — 각 %d건 필요 · 공통 관측 %d일 — %d일 필요) "
+                            + "— 아직 판정할 수 없음",
+                    signalCount, controlCount, MIN_CONTROL_SAMPLE, comparisonDays, MIN_CONTROL_DISTINCT_DAYS);
         }
         if (edgeRate == null) return "적중률 산출 불가 — 판정 보류";
         if (!significant) {
