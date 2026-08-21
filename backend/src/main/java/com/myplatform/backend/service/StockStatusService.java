@@ -30,18 +30,23 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class StockStatusService {
 
+    // ⚠ OTP 2단계 필수(2026-08-21 전환): getJsonData 단발 POST(Referer 만)는 KRX 가 세션 거부로
+    // 본문 "LOGOUT" 을 돌려주는 死패턴이다 — SHORT_SELLING_DEAD_FEED_DIAGNOSIS §2 에서 실측 확정
+    // (날짜·bld 무관 구조적 거부). 이 서비스가 그 패턴이라 activeStockCodes 가 영구 빈 집합
+    // = isActive/filterActiveStocks 전면 fail-open(거래정지·상폐 제외 게이트 무력) 상태였다.
+    // MarketTimingService.getKrxOtp 의 살아있는 2단계 패턴(getOtp → code=otp)으로 전환.
+    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
     private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
-    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiIO/MDIO0101";
+    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201";
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-    // KOSPI: MDCSTAT01901, KOSDAQ: MDCSTAT01902 (전종목 시세)
-    private static final String BLD_KOSPI = "dbms/MDC/STAT/standard/MDCSTAT01501";
-    private static final String BLD_KOSDAQ = "dbms/MDC/STAT/standard/MDCSTAT01501";
+    /** 전종목 시세(시장구분 mktId 파라미터로 KOSPI/KOSDAQ 선택) — bld 는 시장 공통. */
+    private static final String BLD_STOCK_LIST = "dbms/MDC/STAT/standard/MDCSTAT01501";
 
     private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
     private final TelegramNotificationService telegramService;
     private final com.myplatform.backend.config.SectorStockConfig sectorStockConfig;
+    private final MarketCalendarService marketCalendar;
 
     // 정상 거래 가능 종목 코드 셋 (KRX 기준)
     private final Set<String> activeStockCodes = ConcurrentHashMap.newKeySet();
@@ -100,6 +105,17 @@ public class StockStatusService {
         syncFromKrx();
         if (!activeStockCodes.isEmpty()) {
             detectSuspendedInSectors(new ArrayList<>(sectorStockConfig.getAllStockCodes()));
+        } else {
+            // 동기화가 한 번도 성공 못 한 상태 = isActive/filterActiveStocks 전면 fail-open
+            // (거래정지·상폐 종목이 추천/발굴/봇 유니버스에 무필터 유입). 이전엔 log.error 한 줄뿐이라
+            // 死피드 위에서 몇 주를 조용히 지나갔다(2026-08-21 감사) — 일 1회 리스크 채널로 가시화.
+            log.error("[종목상태] KRX 동기화 실패 상태 지속 — 거래정지/상폐 제외 게이트가 fail-open 입니다");
+            try {
+                telegramService.sendRisk("<b>⚠️ 종목상태 동기화 실패</b>\n\n"
+                        + "KRX 상장종목 목록 동기화가 실패 상태입니다.\n"
+                        + "거래정지/상폐 제외 게이트(추천·발굴·봇)가 전면 무필터(fail-open)로 동작 중.\n\n"
+                        + "━━━━━━━━━━━━━━━━\n🤖 MyPlatform 종목 상태 알림");
+            } catch (Exception ignore) { /* 알림은 best-effort */ }
         }
     }
 
@@ -179,40 +195,98 @@ public class StockStatusService {
     }
 
     /**
-     * KRX 전종목 시세 API 호출 (시장 구분별)
+     * KRX 전종목 시세 조회 — <b>OTP 2단계</b>(getOtp → code=otp 로 getJsonData).
+     * 단발 getJsonData 는 세션 거부("LOGOUT")로 死 — 클래스 상단 상수 주석 참조.
+     *
+     * <p>trdDd 는 <b>직전 거래일</b>: 08:30 크론 시점엔 당일 시세가 아직 없고, 상장 목록 동기화
+     * 목적엔 전일 목록으로 충분하다(상폐·정지는 전일 목록에서도 이미 빠져 있음). 트레이드오프:
+     * 신규 상장 종목은 상장 첫날 하루 isActive=false 로 게이트에 안 잡힘 — 인지된 사각
+     * (PriceSanityGuard 의 신규 상장 사각과 동일 계열).
+     *
      * @param mktId STK(KOSPI) or KSQ(KOSDAQ)
      */
     private Set<String> fetchKrxStockList(String mktId) {
-        Set<String> codes = new HashSet<>();
+        try {
+            String trdDd = marketCalendar.minusTradingDays(LocalDate.now(), 1)
+                    .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+            String otp = fetchOtp(mktId, trdDd);
+            if (otp == null) {
+                log.error("[종목상태] KRX {} OTP 획득 실패 — 동기화 스킵", mktId);
+                return Collections.emptySet();
+            }
+            String body = fetchDataWithOtp(otp);
+            Set<String> codes = parseStockCodes(body);
+            if (codes.isEmpty()) {
+                // "LOGOUT"/HTML/OutBlock 부재 전부 여기로 — 원인 구분은 로그 본문 앞부분으로.
+                log.error("[종목상태] KRX {} 응답 파싱 0건 — 본문: {}", mktId,
+                        body == null ? "null" : body.substring(0, Math.min(80, body.length())));
+            }
+            return codes;
+        } catch (Exception e) {
+            log.error("[종목상태] KRX {} 종목 조회 실패: {}", mktId, e.getMessage());
+            return Collections.emptySet();
+        }
+    }
 
+    /** 1단계 — OTP 발급. MarketTimingService.getKrxOtp 와 동일 패턴(살아있는 유일한 KRX 경로). */
+    private String fetchOtp(String mktId, String trdDd) {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("User-Agent", USER_AGENT);
             headers.set("Referer", KRX_REFERER);
+            headers.set("Origin", "http://data.krx.co.kr");
 
             MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-            params.add("bld", BLD_KOSPI);
+            params.add("bld", BLD_STOCK_LIST);
             params.add("locale", "ko_KR");
             params.add("mktId", mktId);
-            params.add("trdDd", LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd")));
+            params.add("trdDd", trdDd);
             params.add("share", "1");
             params.add("money", "1");
-            params.add("csvxls_is498No", "");
+            params.add("csvxls_isNo", "false");
 
-            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(params, headers);
             ResponseEntity<String> response = restTemplate.exchange(
-                    KRX_DATA_URL, HttpMethod.POST, request, String.class);
-
-            if (response.getBody() == null) return codes;
-
-            JsonNode root = objectMapper.readTree(response.getBody());
-            JsonNode dataArray = root.get("OutBlock_1");
-            if (dataArray == null || !dataArray.isArray()) {
-                log.warn("[종목상태] KRX {} 응답에 OutBlock_1 없음", mktId);
-                return codes;
+                    KRX_OTP_URL, HttpMethod.POST, new HttpEntity<>(params, headers), String.class);
+            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                String otp = response.getBody().trim();
+                if (!otp.isEmpty() && !otp.contains("<html>")) return otp;
             }
+        } catch (Exception e) {
+            log.debug("[종목상태] KRX OTP 획득 실패: {}", e.getMessage());
+        }
+        return null;
+    }
 
+    /** 2단계 — OTP 로 데이터 요청. */
+    private String fetchDataWithOtp(String otp) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        headers.set("User-Agent", USER_AGENT);
+        headers.set("Referer", KRX_REFERER);
+
+        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
+        params.add("code", otp);
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                KRX_DATA_URL, HttpMethod.POST, new HttpEntity<>(params, headers), String.class);
+        return response.getBody();
+    }
+
+    private static final ObjectMapper PARSE_MAPPER = new ObjectMapper();
+
+    /**
+     * KRX 응답 → 6자리 종목코드 집합. <b>순수 함수(테스트 대상)</b>.
+     * "LOGOUT"(세션 거부)·HTML·OutBlock_1 부재·null 은 전부 빈 집합 — 호출측이 실패로 처리
+     * (§4c: 거부 응답을 "종목 0건"으로 위장하지 않도록 <100 게이트가 뒤에서 이중 방어).
+     */
+    static Set<String> parseStockCodes(String body) {
+        Set<String> codes = new HashSet<>();
+        if (body == null || body.isBlank()) return codes;
+        try {
+            JsonNode root = PARSE_MAPPER.readTree(body);
+            JsonNode dataArray = root.get("OutBlock_1");
+            if (dataArray == null || !dataArray.isArray()) return codes;
             for (JsonNode item : dataArray) {
                 String code = item.path("ISU_SRT_CD").asText("");
                 if (code.length() == 6 && code.matches("\\d{6}")) {
@@ -220,9 +294,8 @@ public class StockStatusService {
                 }
             }
         } catch (Exception e) {
-            log.error("[종목상태] KRX {} 종목 조회 실패: {}", mktId, e.getMessage());
+            return codes;   // "LOGOUT"/HTML 등 JSON 아님 → 빈 집합(실패)
         }
-
         return codes;
     }
 }
