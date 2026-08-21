@@ -46,20 +46,30 @@ const disclosures = ref(null);
 let reqSeq = 0;
 
 // heavy 계열 — 자체 fetch(quick 지연 없음). HTTP 실패 시 미렌더(백엔드 dataAvailable=false 와 별개).
-const load = async (code) => {
+const load = async (code, name) => {
   disclosures.value = null;
   if (!code) return;
   const seq = ++reqSeq;
   try {
     const { data } = await apiClient.get(`/stock/${code}/disclosures`, {
-      params: props.stockName ? { stockName: props.stockName } : {}
+      params: name ? { stockName: name } : {}
     });
     if (seq !== reqSeq) return;   // 종목 전환됨 — 폐기
     if (data?.success) disclosures.value = data.data;
   } catch (e) { /* 섹션 미렌더 */ }
 };
 
-watch(() => props.stockCode, load, { immediate: true });
+// ⚠ 종목 전환 직후엔 부모의 stockName 이 아직 "이전 종목" 값이다(부모는 fetch 완료 후에야 이름을
+// 갱신). 그 상태로 이름을 넘기면 백엔드가 코드 매핑 실패 시 이름 폴백을 타서 B 종목 화면에
+// A 회사 공시가 정상 데이터처럼 뜬다(2026-08-21 리뷰 C-1). → 코드 변경 시엔 이름 없이 조회하고,
+// 새 이름이 도착한 시점에 "확인 불가(dataAvailable=false)"였던 경우만 이름 폴백으로 재조회.
+watch(() => props.stockCode, (code) => load(code, null), { immediate: true });
+watch(() => props.stockName, (name) => {
+  if (!name || name === props.stockCode) return;   // 부모 폴백이 코드 문자열을 이름으로 넣는 경우 제외
+  if (disclosures.value && disclosures.value.dataAvailable === false) {
+    load(props.stockCode, name);
+  }
+});
 
 const sectionTitle = computed(() => {
   const d = disclosures.value;

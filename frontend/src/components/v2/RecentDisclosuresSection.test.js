@@ -68,11 +68,44 @@ describe('RecentDisclosuresSection — 📄 최근 공시 (DART 3개월, 표시 
     expect(w.find('.rd-more').text()).toContain('외 18건')
   })
 
-  it('HTTP 실패 시 섹션 미렌더 + stockName 파라미터 전달', async () => {
+  it('HTTP 실패 시 섹션 미렌더 + 초기 조회는 stockName 없이(코드만)', async () => {
     apiClient.get.mockRejectedValue(new Error('down'))
     const w = mount(RecentDisclosuresSection, { props: { stockCode: '005930', stockName: '삼성전자' } })
     await flushPromises()
     expect(w.find('.detail-section').exists()).toBe(false)
-    expect(apiClient.get).toHaveBeenCalledWith('/stock/005930/disclosures', { params: { stockName: '삼성전자' } })
+    // 종목 전환 직후 부모 stockName 은 이전 종목 값일 수 있어(C-1) 코드 변경 시엔 이름을 안 넘긴다
+    expect(apiClient.get).toHaveBeenCalledWith('/stock/005930/disclosures', { params: {} })
+  })
+
+  it('C-1 가드 — 코드 전환 시 이전 종목 이름을 넘기지 않고, 새 이름 도착 시 "확인 불가"만 재조회', async () => {
+    // 종목 A: 정상 조회
+    apiClient.get.mockResolvedValueOnce(resp(fullList))
+    const w = mount(RecentDisclosuresSection, { props: { stockCode: '005930', stockName: '삼성전자' } })
+    await flushPromises()
+
+    // 종목 B 로 전환 — 부모의 stockName 은 아직 '삼성전자'(이전 종목). 코드 매핑도 실패해 확인 불가.
+    apiClient.get.mockResolvedValueOnce(resp({ stockCode: '999999', dataAvailable: false, totalCount: 0, items: [] }))
+    await w.setProps({ stockCode: '999999' })   // stockName 은 아직 옛값
+    await flushPromises()
+    // 전환 조회에 이전 종목 이름이 섞이지 않아야 한다(남의 회사 공시 방지)
+    expect(apiClient.get).toHaveBeenLastCalledWith('/stock/999999/disclosures', { params: {} })
+    expect(w.find('.rd-unavailable').exists()).toBe(true)
+
+    // 새 종목 이름이 도착 → 확인 불가였으므로 이름 폴백으로 재조회
+    apiClient.get.mockResolvedValueOnce(resp({ ...fullList, stockCode: '999999' }))
+    await w.setProps({ stockName: '신규상장사' })
+    await flushPromises()
+    expect(apiClient.get).toHaveBeenLastCalledWith('/stock/999999/disclosures', { params: { stockName: '신규상장사' } })
+    expect(w.findAll('.rd-row')).toHaveLength(2)
+  })
+
+  it('C-1 가드 — 정상 조회된 상태면 이름 도착에도 재조회하지 않는다(불필요 호출 방지)', async () => {
+    apiClient.get.mockResolvedValue(resp(fullList))
+    const w = mount(RecentDisclosuresSection, { props: { stockCode: '005930', stockName: null } })
+    await flushPromises()
+    const calls = apiClient.get.mock.calls.length
+    await w.setProps({ stockName: '삼성전자' })
+    await flushPromises()
+    expect(apiClient.get.mock.calls.length).toBe(calls)   // dataAvailable=true 라 재조회 없음
   })
 })
