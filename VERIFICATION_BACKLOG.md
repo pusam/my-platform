@@ -683,3 +683,49 @@
 - **관련 실측(2026-07-28, prod accuracy-by-band, since=2026-06-25)**: 55~64점 n=115 적중 35.65%·평균 3d
   -2.83% / 65~74 n=8 25% / 75~84 n=4 0%·-6.07%. 창의 대부분이 BEAR(지수 하락채널). **밴드 단조 양의 상관
   미확인** — 컷 상향·가중 재설계 등 산식 변경은 여전히 데이터 대기.
+
+---
+
+## P2-20. 캔들 패턴 shadow 승격 판정 (V52 — 2026-08-05 구현, 티켓은 2026-08-21 소급 등록)
+> **왜 소급 등록인가**: `26b5a41`(V52) 이 문서를 하나도 손대지 않아 `V52`/`CandlePattern`/`BULL_CONTINUATION`
+> 전수 grep 이 CLAUDE.md·백로그·docs 전부 0건이었다. 같은 날 커밋된 대조군(`411b621`)은 P2-19 ④ 를 갱신한 것과
+> 대조적이다. **판정 일정이 코드 주석과 SQL 헤더에만 존재해 추적 밖이었다**(2026-08-21 점검에서 발견).
+
+- **현황**: `pattern_detection` 테이블(V52) + 순수 감지기 `CandlePatternDetector` + `PatternDetectionService`
+  일일 배치(평일 **20:20 KST**, `batchScheduler`, 락 30분, 휴장일 가드). 감지 2종 —
+  **`BULL_CONTINUATION`**(장대양봉 → 도지 1~3 → 저거래량 음봉 → 장대양봉 확정),
+  **`CONVERGENCE_BOX`**(수렴 15~40봉 → 돌파 → 박스 3~7봉, 돌파만으론 시그널 아님).
+  공통 위치필터(MA20 위 + MA20 기울기≥0 + 20봉 신고가), 결측은 fail-closed. 데이터 소스는
+  `stock_price_history` 일봉만(KIS 신규 호출 0). **기록 전용 — 봇/점수/게이트/화면 전부 미연결.**
+  배치 2단계가 10거래일 확보 시 `return_1/3/5/10d` 를 **일괄** 기록(부분 기록 없음), 45일 give-up + 잔량 warn.
+  롤백 = `pattern-detection.enabled=false` (**2026-08-21 `PATTERN_DETECTION_ENABLED` 로 compose 배선 완료** —
+  그 전엔 선언이 없어 코드 수정 없이는 못 껐다).
+- **잘 돼 있는 것(오탐 방지)**: ① `close_at_detection` NOT NULL(0 이하면 저장 거부) ② 수익률 채우는 배치가
+  실재 ③ 중간 종가 결측은 null 유지(0% 위장 없음) ④ `params_snapshot.thresholds` 에 **감지 시점 임계 10개**를
+  함께 저장 — 임계 튜닝 후에도 과거 행의 판정 기준을 재현할 수 있다(`signal_outcome` 에도 없는 축).
+- **판정 시점 = 2026-09-16 이후** (9/2 아님). 감지 시작 8/5 + 10거래일 평가 지연이라 **9/2 엔 10일 지평
+  표본이 절반뿐**(8/20 이후 감지분 전량 미평가). 10일 지평으로 판정하려면 최소 9/16.
+- **합격 기준**: `scripts/pattern-detection-sanity.sql` 블록 2(패턴별 3/5/10일 승률)를 **그대로 쓰지 말 것** —
+  절대 승률이라 P2-12(차트 타이밍 31%·점수 역상관) 를 그대로 재현한다. 승격 판정에는 네 가지를 붙인다:
+  ① **기준선(base rate)** — 같은 기간 임의 종목 승률(`stock_price_history` 자체 조인 또는 `CONTROL_RANDOM` 교차)
+  ② **비용 0.36%**(수수료 0.03 + 세금 0.18 + 슬리피지 0.15, 저장소 표준) — 현재 `return_*` 는 전부 gross
+  ③ **D+1 시가 진입가로 재계산** — 현재 기준가는 확정봉 **종가**라 실행 불가능한 가격(봉이 끝나야 패턴이
+  성립하는데 그 종가로 산다는 전제 = 실질 look-ahead). `stock_price_history.open_price` 조인으로 복원 가능
+  ④ **국면 층화** — `macro_tilt_snapshot`(V39) 을 `detected_date` 로 조인.
+  기준선 대비 유의한 우위가 없으면 **관찰 유지**(승격 아님). 통과해도 1차는 관찰 확대까지이고 봇/점수 편입은 별건.
+- **⚠ 구조적 결함 1건 — 기각 후보가 DB 에 없다(대조군 부재)**: `RejectionStats` 가 후보별 기각 사유 18종을
+  집계하지만 결과가 **로그 한 줄로만** 나가고 테이블엔 통과분만 들어간다. json-file 로깅 + 배포마다
+  `--force-recreate backend` 라 **컨테이너 재생성 시 이전 로그가 삭제**된다 → 8/5 이후 백엔드 배포 최소 3회
+  (8/6·8/7·8/20)이므로 **그 이전 기각 집계는 이미 복구 불가**. "패턴 통과 55% vs 기각 54%" 비교를 구성할 수
+  없다는 뜻이고, 이 저장소가 정확히 같은 함정 때문에 `ControlGroupService` 를 만든 것과 대조적이다.
+  **우회**: 감지기가 순수 함수 + 일봉만 사용하므로 **오프라인 재실행으로 기각 집합 재구성 가능**. 영속화를
+  도입하면(일별 집계 1행 = `macro_tilt_snapshot` 패턴) 앞으로의 손실은 멈춘다.
+- **`signal_outcome` 대비 누락 축**: 벤치마크(`bm_price_at_signal`)·`bm_return_3d`·**`alpha`**·`hit` 판정·
+  MFE/MAE·regime·vol_regime·채널·지수채널·재료가 전부 없다(V26~V50 24개 마이그레이션의 맥락 축을 하나도
+  이식 안 함). **다만 대부분 일자·종목 조인으로 사후 복원 가능** — 영구 소실은 위 기각 후보 하나뿐이다.
+- **테스트**: `CandlePatternDetectorTest`(감지 로직), `PatternDetectionServiceTest`(`forwardReturns` 순수 5케이스).
+  집계/승률 쪽 테스트는 없음(집계 코드 자체가 없고 수동 SQL 뿐 — API·리포지토리 집계 쿼리 0개).
+- **주의**: 승격 전까지 `unverified` 취급 유지. 봇·종합추천·매수후보 랭킹 편입 금지(P2-12 교훈).
+  임계 상수 15개는 `CandlePatternDetector` 내 `static final` 이라 튜닝하면 과거 행과 기준이 달라진다 —
+  `params_snapshot.thresholds` 로 구분할 것.
+- **참조**: `docs/SCHEDULE_DECISIONS.md` "2026-09 이후" 표, `scripts/pattern-detection-sanity.sql`
