@@ -100,23 +100,31 @@ public class StockStatusService {
      * 매일 08:30 KRX 상장종목 동기화 (장 시작 전)
      * + 섹터 종목 중 거래정지/상폐 감지 → 텔레그램 알림
      */
+    /** 동기화 노후 경보 임계 — 이보다 오래면 게이트 데이터가 죽은 것으로 보고 경보. */
+    private static final java.time.Duration SYNC_STALE_ALERT = java.time.Duration.ofHours(48);
+
     @Scheduled(scheduler = "batchScheduler", cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSync() {
         syncFromKrx();
-        if (!activeStockCodes.isEmpty()) {
+        // 경보 조건은 isEmpty 가 아니라 lastSyncTime 노후(2026-08-21 리뷰 B-6) — syncFromKrx 는 실패 시
+        // 기존 목록을 유지하므로, 한 번이라도 성공한 뒤 피드가 죽으면 목록은 영원히 비지 않는다.
+        // isEmpty 로만 경보하면 그 가장 흔한 시나리오(운영 중 사망)에서 경보가 영영 안 울리고,
+        // 신규 상장은 전부 fail-closed·신규 거래정지는 전부 통과인 채 몇 주가 조용히 지나간다.
+        boolean stale = lastSyncTime == null
+                || lastSyncTime.isBefore(DateTimeUtil.kstNow().minus(SYNC_STALE_ALERT));
+        if (!stale) {
             detectSuspendedInSectors(new ArrayList<>(sectorStockConfig.getAllStockCodes()));
-        } else {
-            // 동기화가 한 번도 성공 못 한 상태 = isActive/filterActiveStocks 전면 fail-open
-            // (거래정지·상폐 종목이 추천/발굴/봇 유니버스에 무필터 유입). 이전엔 log.error 한 줄뿐이라
-            // 死피드 위에서 몇 주를 조용히 지나갔다(2026-08-21 감사) — 일 1회 리스크 채널로 가시화.
-            log.error("[종목상태] KRX 동기화 실패 상태 지속 — 거래정지/상폐 제외 게이트가 fail-open 입니다");
-            try {
-                telegramService.sendRisk("<b>⚠️ 종목상태 동기화 실패</b>\n\n"
-                        + "KRX 상장종목 목록 동기화가 실패 상태입니다.\n"
-                        + "거래정지/상폐 제외 게이트(추천·발굴·봇)가 전면 무필터(fail-open)로 동작 중.\n\n"
-                        + "━━━━━━━━━━━━━━━━\n🤖 MyPlatform 종목 상태 알림");
-            } catch (Exception ignore) { /* 알림은 best-effort */ }
+            return;
         }
+        String since = lastSyncTime == null ? "부팅 후 성공 0회"
+                : "마지막 성공 " + lastSyncTime.format(DateTimeFormatter.ofPattern("MM-dd HH:mm"));
+        log.error("[종목상태] KRX 동기화 노후({}) — 거래정지/상폐 제외 게이트가 옛 목록/무필터로 동작 중", since);
+        try {
+            telegramService.sendRisk("<b>⚠️ 종목상태 동기화 노후</b>\n\n"
+                    + "KRX 상장종목 목록 동기화: " + since + "\n"
+                    + "거래정지/상폐 제외 게이트(추천·발굴·봇)가 옛 목록 또는 무필터(fail-open)로 동작 중.\n\n"
+                    + "━━━━━━━━━━━━━━━━\n🤖 MyPlatform 종목 상태 알림");
+        } catch (Exception ignore) { /* 알림은 best-effort */ }
     }
 
     /**
@@ -129,7 +137,6 @@ public class StockStatusService {
         try {
             // KOSPI 종목 수집
             Set<String> kospiCodes = fetchKrxStockList("STK");
-            newActiveCodes.addAll(kospiCodes);
             log.info("[종목상태] KOSPI 종목 {}건 수집", kospiCodes.size());
 
             // 1초 딜레이 (KRX 차단 방지)
@@ -137,8 +144,20 @@ public class StockStatusService {
 
             // KOSDAQ 종목 수집
             Set<String> kosdaqCodes = fetchKrxStockList("KSQ");
-            newActiveCodes.addAll(kosdaqCodes);
             log.info("[종목상태] KOSDAQ 종목 {}건 수집", kosdaqCodes.size());
+
+            // ⚠ 시장별 게이트(2026-08-21 리뷰 B-5) — 아래 합산 <100 게이트는 "한 시장만 실패"를 원리적으로
+            // 못 잡는다: KOSPI ~950건 성공 + KOSDAQ 0건이어도 950>100 으로 통과 → activeStockCodes 가
+            // KOSPI 전용이 되어 KOSDAQ ~1,700종목 전체가 무음 fail-CLOSED(발굴·봇·대조군 유니버스에서 소멸)
+            // + detectSuspendedInSectors 가 KOSDAQ 섹터 종목을 전부 "상폐 의심"으로 오탐. 한쪽이라도
+            // 비면 전체 취소(기존 목록 유지)가 안전.
+            if (kospiCodes.isEmpty() || kosdaqCodes.isEmpty()) {
+                log.error("[종목상태] 시장 단위 수집 실패(KOSPI {}건 / KOSDAQ {}건) — 동기화 취소(기존 목록 유지)",
+                        kospiCodes.size(), kosdaqCodes.size());
+                return;
+            }
+            newActiveCodes.addAll(kospiCodes);
+            newActiveCodes.addAll(kosdaqCodes);
 
         } catch (Exception e) {
             log.error("[종목상태] KRX 동기화 실패: {}", e.getMessage());
