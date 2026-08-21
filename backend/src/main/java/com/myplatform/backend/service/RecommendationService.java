@@ -302,6 +302,9 @@ public class RecommendationService {
     @Scheduled(scheduler = "batchScheduler", cron = "0 0 17 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveIntradaySnapshot() {
+        // 휴장일 가드(2026-08-21, cron 시각 불변) — 없으면 평일 공휴일에 스냅샷+signal_outcome 유령
+        // 기록이 쌓인다(8/17 광복절 대체휴일에 실발생, 시세는 멎어 있는데 시그널·대조군 행이 생겼다).
+        if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 스냅샷 스킵"); return; }
         log.info("[종합추천] 장중 스냅샷 저장");
         saveSnapshotInternal();
     }
@@ -310,6 +313,7 @@ public class RecommendationService {
     @Scheduled(scheduler = "batchScheduler", cron = "0 5 20 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void saveClosingSnapshot() {
+        if (marketCalendar.isMarketClosed()) { log.debug("[종합추천] 휴장일 — 마감 스냅샷 스킵"); return; }
         log.info("[종합추천] 마감 스냅샷 저장 시작");
         saveSnapshotInternal();
         snapshotRepository.deleteOlderThan(LocalDateTime.now().minusDays(7));

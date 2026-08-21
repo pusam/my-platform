@@ -39,7 +39,12 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     @Query("SELECT COUNT(s) FROM SignalOutcome s WHERE s.signalDate < :oldestAllowed AND s.evaluatedAt IS NULL")
     long countAbandonedPending(@Param("oldestAllowed") LocalDate oldestAllowed);
 
-    /** 시그널별 통계 — 지정 기간 내. [signalType, total, hitCount, avgPctChange] */
+    /**
+     * 시그널별 통계 — 지정 기간 내. [signalType, total, hitCount, avgPctChange]
+     * <p>CONTROL_RANDOM(무작위 대조군, {@code ControlGroupService.CONTROL_SIGNAL_TYPE}) 제외 —
+     * 대조군은 controlComparison 전용 비교축이지 "시그널 타입"이 아니다. 무필터면 화면 타입 목록에
+     * 무작위 표본이 하나의 시그널처럼 섞여 나온다(2026-08-21 리뷰 P3-K).
+     */
     @Query("""
         SELECT s.signalType,
                COUNT(s),
@@ -48,6 +53,7 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
           FROM SignalOutcome s
          WHERE s.evaluatedAt IS NOT NULL
            AND s.signalDate >= :from
+           AND s.signalType <> 'CONTROL_RANDOM'
          GROUP BY s.signalType
          ORDER BY s.signalType
         """)
@@ -70,6 +76,7 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
          WHERE s.evaluatedAt IS NOT NULL
            AND s.signalDate >= :from
            AND s.signalDate < :to
+           AND s.signalType <> 'CONTROL_RANDOM'
          GROUP BY s.signalType
          ORDER BY s.signalType
         """)
@@ -90,6 +97,7 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
           FROM SignalOutcome s
          WHERE s.evaluatedAt IS NOT NULL
            AND s.signalDate >= :from
+           AND s.signalType <> 'CONTROL_RANDOM'
          GROUP BY s.signalDate, s.signalType
          ORDER BY s.signalDate ASC, s.signalType ASC
         """)
@@ -159,6 +167,12 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     /**
      * 종목별 이력 실적 일괄 집계 — 종합 판단 보드 signalTrackRecord 컬럼용.
      * <b>IN 절 1쿼리</b>(보드 행별 개별 조회 N+1 금지 — 보드 로딩 시간 보호). 평가 완료 행만.
+     *
+     * <p><b>types 필터 필수(2026-08-21 리뷰 F15)</b>: 이전엔 타입 무필터라 그 종목이 <b>무작위로
+     * 뽑힌 대조군(CONTROL_RANDOM) 행</b>·타 엔진(AI/COMPOSITE/SURGE) 시그널까지 "이력 N회 중 M회
+     * 적중"에 합산됐다 — 대조군은 성능 없음이 설계 목적인 데이터인데 종목 실적으로 표시·정렬됐다.
+     * 호출부는 {@code SignalOutcomeService.BOARD_SIGNAL_TYPES} 를 넘길 것.
+     * (승격일 BUY+STRONG_BUY 2행이 2회로 계상되는 잔여는 SQL 집계 한계 — AUDIT R10)
      * <p>리턴: [stockCode, total, hitCount, avgAlpha]
      */
     @Query("""
@@ -170,10 +184,12 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
          WHERE s.evaluatedAt IS NOT NULL
            AND s.stockCode IN :codes
            AND s.signalDate >= :from
+           AND s.signalType IN :types
          GROUP BY s.stockCode
         """)
     List<Object[]> aggregateTrackRecordByCodes(@Param("codes") java.util.Collection<String> codes,
-                                               @Param("from") LocalDate from);
+                                               @Param("from") LocalDate from,
+                                               @Param("types") java.util.Collection<String> types);
 
     /** phase 35b 진단 — 마지막 signal_date. */
     @Query("SELECT MAX(s.signalDate) FROM SignalOutcome s")

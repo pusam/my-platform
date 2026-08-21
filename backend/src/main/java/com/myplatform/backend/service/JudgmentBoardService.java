@@ -260,8 +260,10 @@ public class JudgmentBoardService {
         }
 
         try {   // 신호 이력 실적(② 참고): signal_outcome 90일 일괄 집계 — IN 절 1쿼리(행별 조회 N+1 금지).
+            // 보드 시그널(STRONG_BUY/BUY)만 — 무필터면 대조군(CONTROL_RANDOM)·타 엔진 행까지 실적으로 합산(F15).
             applyTrackRecord(rows, toTrackRecordMap(signalOutcomeRepository.aggregateTrackRecordByCodes(
-                    codes, LocalDate.now().minusDays(SignalHistoryService.WINDOW_DAYS))));
+                    codes, LocalDate.now().minusDays(SignalHistoryService.WINDOW_DAYS),
+                    SignalOutcomeService.BOARD_SIGNAL_TYPES)));
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 신호 이력 집계 실패(생략): {}", e.getMessage());
         }
