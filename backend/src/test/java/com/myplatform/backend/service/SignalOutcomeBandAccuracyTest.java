@@ -53,6 +53,42 @@ class SignalOutcomeBandAccuracyTest {
     }
 
     @Test
+    @DisplayName("dedupPerStockDay — 같은 종목·같은 날 BUY→STRONG_BUY 승격은 마지막 기록 1건만 (P2-F)")
+    void dedupPerStockDay_keepsLatestPerStockDay() {
+        SignalOutcome buy = typed("BUY");
+        buy.setCreatedAt(java.time.LocalDateTime.of(2026, 6, 26, 11, 30));
+        SignalOutcome upgraded = typed("STRONG_BUY");   // 같은 종목(005930)·같은 날(6/26)
+        upgraded.setCreatedAt(java.time.LocalDateTime.of(2026, 6, 26, 20, 5));
+        SignalOutcome otherDay = typed("BUY");
+        otherDay.setSignalDate(LocalDate.of(2026, 6, 29));   // 다른 날 — 유지
+        SignalOutcome otherStock = typed("BUY");
+        otherStock.setStockCode("000660");                    // 다른 종목 — 유지
+
+        List<SignalOutcome> deduped = SignalOutcomeService.dedupPerStockDay(
+                List.of(buy, upgraded, otherDay, otherStock));
+
+        assertThat(deduped).hasSize(3);
+        // 같은 종목·같은 날 쌍은 마지막 기록(STRONG_BUY, 20:05)이 대표
+        assertThat(deduped).filteredOn(s -> s.getStockCode().equals("005930")
+                        && s.getSignalDate().equals(LocalDate.of(2026, 6, 26)))
+                .singleElement()
+                .satisfies(s -> assertThat(s.getSignalType()).isEqualTo("STRONG_BUY"));
+    }
+
+    @Test
+    @DisplayName("dedupPerStockDay — createdAt null 은 오래된 것으로 취급(비교 불가 시 기존 유지), null 입력 안전")
+    void dedupPerStockDay_nullSafety() {
+        SignalOutcome withTime = typed("BUY");
+        withTime.setCreatedAt(java.time.LocalDateTime.of(2026, 6, 26, 11, 30));
+        SignalOutcome noTime = typed("STRONG_BUY");   // createdAt null — withTime 을 못 이김
+
+        assertThat(SignalOutcomeService.dedupPerStockDay(List.of(withTime, noTime)))
+                .singleElement()
+                .satisfies(s -> assertThat(s.getSignalType()).isEqualTo("BUY"));
+        assertThat(SignalOutcomeService.dedupPerStockDay(null)).isEmpty();
+    }
+
+    @Test
     @DisplayName("resolveAccuracyFrom — phase-38 컷오프(6/25) 이전이면 컷오프로 클램프, 이후면 그대로")
     void resolveAccuracyFrom_clampsToPhase38() {
         LocalDate now = LocalDate.of(2026, 7, 10);

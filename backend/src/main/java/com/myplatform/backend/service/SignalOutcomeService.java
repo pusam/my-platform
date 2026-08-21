@@ -517,7 +517,9 @@ public class SignalOutcomeService {
                     .totalSignals(total)
                     .hitCount(hits)
                     .hitRate(hitRate)
-                    .avgPctChange(avg.setScale(2, RoundingMode.HALF_UP))
+                    // avg null(미산출) 유지 — 위 주석의 §4c 선언대로. null.setScale 이던 잠재 NPE 도 제거
+                    // (터지면 해당 타입 1건 때문에 엔드포인트 전체가 500 이었다 — 2026-08-21 감사 P3-I).
+                    .avgPctChange(avg == null ? null : avg.setScale(2, RoundingMode.HALF_UP))
                     .build());
         }
         return SignalAccuracyDto.builder()
@@ -686,6 +688,30 @@ public class SignalOutcomeService {
     }
 
     /**
+     * 같은 종목·같은 날 중복 시그널 dedup — 순수 함수(테스트 대상). <b>마지막 기록(createdAt 최신)</b>만 남긴다.
+     *
+     * <p>V36 UNIQUE 는 (signal_type, stock_code, signal_date) 라, 장중 점수가 73→76 으로 오르면
+     * 같은 종목·같은 날이 BUY 와 STRONG_BUY <b>두 행</b>으로 남는다(2026-08-21 감사 P2-F).
+     * 두 행은 같은 3일 수익률 창을 공유해 독립 관측이 아니고, 65~74 와 75~84 밴드에 동시 계상돼
+     * 하필 75 경계(수급의존 종목군)가 이중 가중된다. 하루의 최종 기록 = 그날의 최종 등급
+     * (마감 스냅샷 20:05 가 마지막이라 대체로 STRONG_BUY 승격분)으로 대표시킨다.
+     * createdAt null 은 더 오래된 것으로 취급(비교 불가 시 기존 행 유지).
+     */
+    static List<SignalOutcome> dedupPerStockDay(List<SignalOutcome> rows) {
+        if (rows == null) return List.of();
+        java.util.LinkedHashMap<String, SignalOutcome> byKey = new java.util.LinkedHashMap<>();
+        for (SignalOutcome s : rows) {
+            if (s == null) continue;
+            String key = s.getStockCode() + "|" + s.getSignalDate();
+            SignalOutcome existing = byKey.get(key);
+            if (existing == null) { byKey.put(key, s); continue; }
+            LocalDateTime a = existing.getCreatedAt(), b = s.getCreatedAt();
+            if (b != null && (a == null || b.isAfter(a))) byKey.put(key, s);
+        }
+        return new ArrayList<>(byKey.values());
+    }
+
+    /**
      * 무작위 대조군만 격리 — 순수 함수. {@link #filterBoardSignals} 와 <b>교집합이 없어야 한다</b>
      * (CONTROL_RANDOM ∉ BOARD_SIGNAL_TYPES). 이 불변식이 깨지면 대조군이 밴드 집계를 오염시킨다.
      */
@@ -704,7 +730,9 @@ public class SignalOutcomeService {
         int d = days < 1 ? 90 : days;
         LocalDate from = resolveAccuracyFrom(days, LocalDate.now());
         List<SignalOutcome> all = repository.findEvaluatedSince(from);
-        List<SignalOutcome> rows = filterBoardSignals(all);
+        // 같은 종목·같은 날 BUY→STRONG_BUY 승격 2행은 마지막 기록으로 dedup(P2-F) — 밴드·카테고리·
+        // 대조군 비교 전부 이 목록 기준. 대조군 행은 무작위 독립 추출이라 dedup 대상 아님.
+        List<SignalOutcome> rows = dedupPerStockDay(filterBoardSignals(all));
         // 대조군은 filterBoardSignals 에서 이미 빠져 있다(CONTROL_RANDOM ∉ BOARD_SIGNAL_TYPES).
         // 비교용으로만 별도 추출 — 아래 bands/categories/regimes 집계에는 절대 넘기지 않는다.
         List<SignalOutcome> controls = filterControlSignals(all);

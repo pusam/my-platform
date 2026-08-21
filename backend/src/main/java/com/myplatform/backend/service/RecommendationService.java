@@ -612,8 +612,12 @@ public class RecommendationService {
             // 3일 후 batch 가 평가. record() 실패해도 스냅샷 저장은 영향 없음 (try/catch 격리).
             SignalOutcomeService outcomeService = signalOutcomeProvider.getIfAvailable();
             if (outcomeService != null) {
+                int priceSkipped = 0;   // 컷 통과 종목이 시세 캐시 콜드로 record 안 된 수 — 아래 warn 로 가시화
                 for (RecommendationDto dto : result) {
-                    if (dto.getCurrentPrice() == null || dto.getCurrentPrice().signum() <= 0) continue;
+                    if (dto.getCurrentPrice() == null || dto.getCurrentPrice().signum() <= 0) {
+                        if (dto.getTotalScore() >= 55) priceSkipped++;
+                        continue;
+                    }
                     String signalType;
                     if (dto.getTotalScore() >= STRONG_BUY_THRESHOLD) {
                         signalType = "STRONG_BUY";
@@ -629,6 +633,13 @@ public class RecommendationService {
                                 dto.getEarnings(), dto.getSupplyDemand(),
                                 dto.getTechnical(), dto.getSectorMomentum());
                     } catch (Exception ignore) { /* 적중률 추적은 best-effort */ }
+                }
+                // 시세 캐시(cache-only 5분)가 콜드한 크론에서 시그널이 조용히 미기록되면 표본이
+                // "캐시가 따뜻했던 평온한 날"로 편향된다(좋아 보이는 방향) — 침묵 대신 warn 으로
+                // 관측 가능하게(§4c. countAbandonedPending 이 생존편향을 가시화한 것과 같은 원칙).
+                if (priceSkipped > 0) {
+                    log.warn("[종합추천] 시그널 record 스킵 {}건 — 컷(55) 통과했으나 시세 캐시 미스"
+                            + "(currentPrice 없음). 이 크론의 signal_outcome 표본이 불완전합니다", priceSkipped);
                 }
             }
 

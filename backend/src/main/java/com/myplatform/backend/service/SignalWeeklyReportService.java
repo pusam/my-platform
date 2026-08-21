@@ -98,24 +98,34 @@ public class SignalWeeklyReportService {
     }
 
     /**
-     * 직전 완료 주(월~일, 일요일이면 오늘 포함) 예측력 측정 → 스냅샷 UPSERT + 텔레그램. 수동 트리거도 이 경로.
+     * <b>평가가 끝난 직전 완료 주</b>(월~일) 예측력 측정 → 스냅샷 UPSERT + 텔레그램. 수동 트리거도 이 경로.
+     *
+     * <p><b>주 선택(2026-08-21 수정)</b>: 이전엔 일요일 크론이 "오늘 끝나는 주"를 집계했는데, 3거래일 평가
+     * 지연 때문에 그 시점에 평가 완료된 건 <b>월·화 시그널뿐</b>이었다(수~금은 다음 주 월~수 평가) —
+     * 전 주차 스냅샷이 주 5일 중 2일 표본으로 영구 고정되고, 요일 구성 차이가 "예측력 악화" 경고로
+     * 오독됐다(감사 P1-C). 이제 항상 <b>오늘 이전에 끝난 마지막 일요일</b>을 weekEnd 로 잡는다 —
+     * 그 주 금요일 시그널까지 늦어도 수요일에 평가 완료되므로 일요일 크론 시점엔 온전한 주다.
+     * 이 수정 이전에 저장된 주차 행은 월·화 표본으로 확정돼 있다(해석 시 인지). 같은 주를 다음
+     * 일요일에 다시 집계하지는 않으나, 수동 트리거가 같은 주를 재실행하면 UPSERT 로 자가 보정된다.
      */
     @Transactional
     public WeeklySignalAccuracyDto generateWeeklyReport(String triggeredBy) {
         LocalDate today = LocalDate.now(clock);
-        LocalDate weekEnd = today.getDayOfWeek() == DayOfWeek.SUNDAY
-                ? today
-                : today.with(DayOfWeek.SUNDAY).minusWeeks(1);
+        // with(SUNDAY)=이번 ISO 주의 일요일(오늘이 일요일이면 오늘) → minusWeeks(1)=직전 완료 주의 일요일.
+        LocalDate weekEnd = today.with(DayOfWeek.SUNDAY).minusWeeks(1);
         LocalDate weekStart = weekEnd.minusDays(6);
 
-        // 이번 주 = signalDate 가 [weekStart, weekEnd] & 평가완료 & board(STRONG_BUY/BUY) 격리.
-        List<SignalOutcome> weeklyRows = SignalOutcomeService.filterBoardSignals(
-                outcomeRepository.findEvaluatedBetween(weekStart, weekEnd));
+        // 대상 주 = signalDate 가 [weekStart, weekEnd] & 평가완료 & board(STRONG_BUY/BUY) 격리.
+        // 같은 종목·같은 날 BUY→STRONG_BUY 승격 2행은 마지막 기록으로 dedup(P2-F, getAccuracyByBand 동일 기준).
+        List<SignalOutcome> weeklyRows = SignalOutcomeService.dedupPerStockDay(
+                SignalOutcomeService.filterBoardSignals(
+                        outcomeRepository.findEvaluatedBetween(weekStart, weekEnd)));
 
         // 누적 = phase-38 컷오프 이후 board 시그널 전체(현재 산식 점수만). getAccuracyByBand 와 동일 기준.
         LocalDate cumulativeFrom = SignalOutcomeService.resolveAccuracyFrom(CUMULATIVE_LOOKBACK_DAYS, today);
-        List<SignalOutcome> cumulativeRows = SignalOutcomeService.filterBoardSignals(
-                outcomeRepository.findEvaluatedSince(cumulativeFrom));
+        List<SignalOutcome> cumulativeRows = SignalOutcomeService.dedupPerStockDay(
+                SignalOutcomeService.filterBoardSignals(
+                        outcomeRepository.findEvaluatedSince(cumulativeFrom)));
 
         // 직전 스냅샷들의 supplyInverted 플래그 (이번 주 자신 제외, 최신 먼저) — 스트릭 계산 입력.
         List<Boolean> priorSupplyInverted = weeklyRepository.findTop12ByOrderByWeekStartDesc().stream()
