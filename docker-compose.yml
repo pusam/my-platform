@@ -116,6 +116,10 @@ services:
       # 2026-07-28 기본 ON — P2-17 VIRTUAL 실측 시작(서버 SSH 부재로 .env 대신 compose 기본값으로 점화).
       # VIRTUAL 전용 + REAL 이중 하드 가드(isAtrSetActive)라 실주문 무영향. 끄려면 .env 에 =false.
       - BOT_ATR_TRADING_ENABLED=${BOT_ATR_TRADING_ENABLED:-true}
+      # 캔들 패턴 shadow 감지(V52, 20:20 배치) — 기록 전용(봇/점수/게이트 미연결).
+      # 기본 true = 현재 동작 그대로. 코드 기본값도 true 라 동작 변경 없이 '끌 수단'만 확보한다
+      # (이전엔 어디에도 선언이 없어 코드 수정 없이는 정지 불가였다). 끄려면 .env 에 =false.
+      - PATTERN_DETECTION_ENABLED=${PATTERN_DETECTION_ENABLED:-true}
     deploy:
       resources:
         limits:
@@ -196,12 +200,14 @@ services:
       # ⚠️ 읽기전용 html(위) 안쪽에 중첩 마운트하면 도커가 mountpoint 를 못 만들어
       #    (read-only file system) nginx 검증이 실패한다. 반드시 html 바깥 형제 경로에 마운트.
       - ./nginx/jewelry-dist:/usr/share/nginx/jewelry:ro
-      # ── seah(세아 생산관리) 동거 — 서버블록 + 정적 마운트 (jewelry 와 동일 패턴) ──
-      # ⚠️ seah.conf 는 seah 도메인 인증서가 있어야 nginx 가 뜬다(2단계 배포).
-      #    deploy.yml 의 인증서 가드가 발급 전에는 nginx 재기동을 건너뛴다.
-      - ./nginx/seah.conf:/etc/nginx/conf.d/seah.conf:ro
-      # seah 프론트 dist — seah 저장소의 배포(deploy.yml)가 이 경로로 전송한다.
-      - ./nginx/seah-dist:/usr/share/nginx/seah:ro
+      # ── seah(세아 생산관리) 동거 — 마운트 보류(2026-08-21) ────────────────
+      # nginx/seah.conf 와 deploy.yml 의 인증서 가드는 그대로 두고 마운트만 뺀다.
+      # 이유: seah 도메인 인증서가 없어 마운트 상태로 nginx 가 recreate 되면 부팅
+      # 실패 → my-platform·jewelry 까지 동반 다운. 게다가 seah.duckdns.org 가 우리
+      # 서버를 가리키지 않아(다른 IP) 인증서 발급 자체가 현재 불가라 해소 시점이 열려 있다.
+      # 되살리는 순서: ① 도메인 확정(선점 시 새 이름) → ② 인증서 발급 → ③ 아래 2줄 복원.
+      #   - ./nginx/seah.conf:/etc/nginx/conf.d/seah.conf:ro
+      #   - ./nginx/seah-dist:/usr/share/nginx/seah:ro
     depends_on:
       - backend
       - python-backend
