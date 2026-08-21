@@ -56,10 +56,6 @@ class CatalystWarmingServiceTest {
         return RecommendationDto.builder().stockCode(code).stockName(name).build();
     }
 
-    private RecommendationDto scored(String code, String name, int totalScore) {
-        return RecommendationDto.builder().stockCode(code).stockName(name).totalScore(totalScore).build();
-    }
-
     private List<String> codesOf(List<StockRef> refs) {
         return refs.stream().map(StockRef::code).toList();
     }
@@ -143,16 +139,15 @@ class CatalystWarmingServiceTest {
     private StockRef ref(String code, String name) { return new StockRef(code, name); }
 
     @Test
-    @DisplayName("mergeWarmTargets — 우선순위 관심>보유>오늘후보>발굴 + code 첫 등장 dedup")
+    @DisplayName("mergeWarmTargets — 우선순위 관심>보유>발굴 + code 첫 등장 dedup")
     void mergeWarmTargets_priorityAndDedup() {
         List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(
                 List.of(ref("W00001", "관심1"), ref("D00001", "관심겸발굴")),
                 List.of(ref("H00001", "보유1"), ref("W00001", "관심겸보유")),   // W00001 중복 → 관심 순서 유지
-                List.of(ref("T00001", "오늘후보1"), ref("H00001", "보유겸오늘")),   // H00001 중복 → 보유 순서 유지
                 List.of(ref("D00001", "발굴1"), ref("D00002", "발굴2")),
                 40);
 
-        assertThat(codesOf(merged)).containsExactly("W00001", "D00001", "H00001", "T00001", "D00002");
+        assertThat(codesOf(merged)).containsExactly("W00001", "D00001", "H00001", "D00002");
     }
 
     @Test
@@ -160,12 +155,11 @@ class CatalystWarmingServiceTest {
     void mergeWarmTargets_capCutsLowerPriorityFirst() {
         List<StockRef> watch = IntStream.rangeClosed(1, 3).mapToObj(i -> ref("W" + i, "관심" + i)).toList();
         List<StockRef> held = IntStream.rangeClosed(1, 2).mapToObj(i -> ref("H" + i, "보유" + i)).toList();
-        List<StockRef> today = IntStream.rangeClosed(1, 2).mapToObj(i -> ref("T" + i, "오늘" + i)).toList();
         List<StockRef> discover = IntStream.rangeClosed(1, 5).mapToObj(i -> ref("D" + i, "발굴" + i)).toList();
 
-        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(watch, held, today, discover, 6);
+        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(watch, held, discover, 6);
 
-        assertThat(codesOf(merged)).containsExactly("W1", "W2", "W3", "H1", "H2", "T1");   // 오늘1+발굴5 잘림
+        assertThat(codesOf(merged)).containsExactly("W1", "W2", "W3", "H1", "H2", "D1");   // 발굴 4개 잘림
     }
 
     @Test
@@ -173,12 +167,12 @@ class CatalystWarmingServiceTest {
     void mergeWarmTargets_nullSafeAndWatchOnlyCap() {
         List<StockRef> watch = IntStream.rangeClosed(1, 45).mapToObj(i -> ref("W" + i, "관심" + i)).toList();
 
-        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(watch, null, null, null,
+        List<StockRef> merged = CatalystWarmingService.mergeWarmTargets(watch, null, null,
                 CatalystWarmingService.TOTAL_WARM_MAX);
 
         assertThat(merged).hasSize(CatalystWarmingService.TOTAL_WARM_MAX);   // 관심만으로 40 컷
         assertThat(CatalystWarmingService.mergeWarmTargets(
-                List.of(ref(null, "노코드"), ref("W1", "  ")), null, null, null, 40)).isEmpty();
+                List.of(ref(null, "노코드"), ref("W1", "  ")), null, null, 40)).isEmpty();
     }
 
     @Test
@@ -199,39 +193,6 @@ class CatalystWarmingServiceTest {
         List<StockRef> refs = service.collectWarmRefs();
 
         assertThat(codesOf(refs)).containsExactly("111111", "222222", "333333");   // 관심>보유>발굴, 중복 제거
-    }
-
-    @Test
-    @DisplayName("collectWarmRefs — 오늘 매수후보(getTop5) 포함: BUY컷(55) 미달 제외 + 상한 5 + 발굴보다 앞 (2026-08-20)")
-    void collectWarmRefs_includesTodayCandidates() {
-        when(watchlistRepository.findByIsActiveTrue()).thenReturn(List.of());
-        when(botPositionRepository.findAll()).thenReturn(List.of());
-        when(kisProvider.getIfAvailable()).thenReturn(null);
-        // 오늘 후보: 60/55(포함) + 54(컷 미달 제외). 오늘 탭 표시 규약(BUY컷 55)과 동기.
-        when(recommendationService.getTop5()).thenReturn(top5(
-                scored("T00001", "오늘1", 60), scored("T00002", "오늘컷미달", 54), scored("T00003", "오늘2", 55)));
-        when(recommendationService.getValueTop10()).thenReturn(top5(dto("D00001", "발굴1")));
-
-        List<String> codes = codesOf(service.collectWarmRefs());
-
-        assertThat(codes).containsExactly("T00001", "T00003", "D00001");   // 컷 미달 제외, 오늘후보 > 발굴
-    }
-
-    @Test
-    @DisplayName("collectWarmRefs — 오늘 후보 상한 5: 6번째 이후는 잘림(발굴 몫 보존)")
-    void collectWarmRefs_todayCandidatesCappedAtFive() {
-        when(watchlistRepository.findByIsActiveTrue()).thenReturn(List.of());
-        when(botPositionRepository.findAll()).thenReturn(List.of());
-        when(kisProvider.getIfAvailable()).thenReturn(null);
-        RecommendationDto[] seven = IntStream.rangeClosed(1, 7)
-                .mapToObj(i -> scored("T0000" + i, "오늘" + i, 60))
-                .toArray(RecommendationDto[]::new);
-        when(recommendationService.getTop5()).thenReturn(top5(seven));
-
-        List<String> codes = codesOf(service.collectWarmRefs());
-
-        assertThat(codes).hasSize(CatalystWarmingService.TODAY_CANDIDATE_MAX);
-        assertThat(codes).containsExactly("T00001", "T00002", "T00003", "T00004", "T00005");
     }
 
     @Test

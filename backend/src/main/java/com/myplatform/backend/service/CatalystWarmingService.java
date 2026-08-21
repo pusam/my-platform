@@ -26,16 +26,17 @@ import java.util.function.Supplier;
  * 보드의 "—"(재료 미포착)를 채우고, <b>관심/보유 종목의 악재를 아침에 선제 포착</b>한다
  * (악재 조기경보 — 분류 저장 훅이 CatalystRiskAlertService 로 알림).
  *
- * <p>대상 = <b>관심종목(watchlist 전체 활성) &gt; 보유(봇 포지션 + KIS 실잔고) &gt; 오늘 매수후보(momentum
- * BUY컷) &gt; 발굴 5트랙</b> 우선순위 병합·dedup, 전체 {@value #TOTAL_WARM_MAX}종목 컷.
- * {@link StockCatalystService#classifyBatch}(5씩 청킹·캐시히트 스킵·전역 rate 게이트) 위에 얹어
- * quota 안전(40종목 ≈ 최대 8 Gemini 콜).
+ * <p>대상 = <b>관심종목(watchlist 전체 활성) &gt; 보유(봇 포지션 + KIS 실잔고) &gt; 발굴 5트랙</b>
+ * 우선순위 병합·dedup, 전체 {@value #TOTAL_WARM_MAX}종목 컷. {@link StockCatalystService#classifyBatch}
+ * (5씩 청킹·캐시히트 스킵·전역 rate 게이트) 위에 얹어 quota 안전(40종목 ≈ 최대 8 Gemini 콜).
  *
- * <p><b>오늘 매수후보 포함 근거(2026-08-20)</b>: 오늘 탭·보드는 재료를 일캐시 read-only 로만 소비(§4b —
- * 리스트 화면에서 신규 Gemini 분류 트리거 금지)라, 워밍 대상 밖 후보는 배지가 영영 안 뜬다. 07:30
- * momentum 워밍(MorningBriefingService, <b>별개 유지</b>)은 전일 마감 스냅샷 기준이라 08:00 장전
- * 재계산 후 새로 올라온 후보를 못 덮는다 → 여기(08:00)서 getTop5 현재 후보를 포함해 공백을 닫는다.
- * 추가 비용 ≤{@value #TODAY_CANDIDATE_MAX}종목 ≈ 배치 1콜. §4b 상한·rate 게이트 준수, 재료 산식 미편입.
+ * <p><b>"오늘 매수후보(getTop5)" 그룹은 넣었다가 뺐다(2026-08-20 추가 → 08-21 원복, 리뷰 C-3)</b>:
+ * 08:00 에 장전 재계산은 일어나지 않는다 — 08:00 배치는 캐시 무효화뿐이고, 장전이라 백그라운드 계산도
+ * 미트리거라 이 시각의 getTop5() 는 <b>전일 20:05 스냅샷</b>을 돌려준다. 즉 07:30 모닝브리핑 워밍과
+ * 동일 집합(동일 소스·컷55·상한5)이라 실익이 0이고, merge 상한 40 에서 발굴 몫만 최대 5칸 잠식했다.
+ * 오늘 후보 배지 공백의 진짜 해법은 <b>11:30 첫 스냅샷 이후 시점의 워밍</b>(신규 크론 필요 — quota·시각
+ * 판단 선행, AUDIT R11)이다. 같은 이유로 <b>이 그룹을 08:00 워밍에 다시 넣지 말 것.</b>
+ * §4b 상한·rate 게이트 준수, 재료 산식 미편입.
  */
 @Service
 @Slf4j
@@ -44,11 +45,8 @@ public class CatalystWarmingService {
 
     /** 발굴(union) 몫 상한 — 상위 25(≈5 Gemini 콜). 관심/보유가 커도 발굴 커버 유지용 서브캡. */
     static final int UNION_WARM_MAX = 25;
-    /** 전체 워밍 상한 — 초과 시 관심 > 보유 > 오늘후보 > 발굴 우선(뒤가 잘림). 40종목 ≈ 최대 8 Gemini 콜. */
+    /** 전체 워밍 상한 — 초과 시 관심 > 보유 > 발굴 우선(뒤가 잘림). 40종목 ≈ 최대 8 Gemini 콜. */
     static final int TOTAL_WARM_MAX = 40;
-    /** 오늘 매수후보 몫 — 오늘 탭 표시 규약(BUY컷 55 이상 상위 5, TodayBriefingTab)과 동기. */
-    static final int TODAY_CANDIDATE_MAX = 5;
-    static final int TODAY_CANDIDATE_SCORE_CUT = 55;
 
     private final RecommendationService recommendationService;
     private final StockCatalystService stockCatalystService;
@@ -102,29 +100,27 @@ public class CatalystWarmingService {
         return warmed;
     }
 
-    /** 관심(전체 활성) > 보유(봇 포지션+KIS 실잔고) > 오늘 매수후보 > 발굴 병합, 전체 {@value #TOTAL_WARM_MAX} 컷. */
+    /** 관심(전체 활성) > 보유(봇 포지션+KIS 실잔고) > 발굴 병합, 전체 {@value #TOTAL_WARM_MAX} 컷. */
     List<StockRef> collectWarmRefs() {
         List<StockRef> watch = watchlistRefs();
         List<StockRef> held = heldRefs();
-        List<StockRef> today = todayCandidateRefs();
         List<StockRef> discover = collectUnionRefs();
-        List<StockRef> merged = mergeWarmTargets(watch, held, today, discover, TOTAL_WARM_MAX);
+        List<StockRef> merged = mergeWarmTargets(watch, held, discover, TOTAL_WARM_MAX);
         // 상한 컷 가시화(§ no silent caps) — 뭐가 잘렸는지 로그로 남긴다.
-        log.info("[재료워밍] 대상 병합 — 관심 {} + 보유 {} + 오늘후보 {} + 발굴 {} → {}종목 (상한 {})",
-                watch.size(), held.size(), today.size(), discover.size(), merged.size(), TOTAL_WARM_MAX);
+        log.info("[재료워밍] 대상 병합 — 관심 {} + 보유 {} + 발굴 {} → {}종목 (상한 {})",
+                watch.size(), held.size(), discover.size(), merged.size(), TOTAL_WARM_MAX);
         return merged;
     }
 
     /**
-     * 우선순위 병합 — <b>순수 함수(테스트 대상)</b>. 관심 &gt; 보유 &gt; 오늘후보 &gt; 발굴 순서로 채우고
+     * 우선순위 병합 — <b>순수 함수(테스트 대상)</b>. 관심 &gt; 보유 &gt; 발굴 순서로 채우고
      * code 첫 등장 dedup, {@code totalMax} 도달 시 컷(뒤 그룹부터 잘림 = 우선순위).
      */
     static List<StockRef> mergeWarmTargets(List<StockRef> watch, List<StockRef> held,
-                                           List<StockRef> today, List<StockRef> discover, int totalMax) {
+                                           List<StockRef> discover, int totalMax) {
         List<List<StockRef>> groups = new ArrayList<>();
         groups.add(watch == null ? List.of() : watch);
         groups.add(held == null ? List.of() : held);
-        groups.add(today == null ? List.of() : today);
         groups.add(discover == null ? List.of() : discover);
 
         LinkedHashSet<String> seen = new LinkedHashSet<>();
@@ -186,30 +182,6 @@ public class CatalystWarmingService {
             log.debug("[재료워밍] KIS 실잔고 조회 실패(생략): {}", e.getMessage());
         }
         return out;
-    }
-
-    /**
-     * 오늘 탭 매수후보(momentum getTop5, BUY컷 {@value #TODAY_CANDIDATE_SCORE_CUT} 이상 상위
-     * {@value #TODAY_CANDIDATE_MAX}) — 오늘 탭이 read-only 일캐시로만 배지를 읽으므로(§4b) 여기서 미리 채운다.
-     * 조회 실패는 best-effort 빈 리스트(다른 그룹 워밍은 계속).
-     */
-    private List<StockRef> todayCandidateRefs() {
-        try {
-            Top5Response r = recommendationService.getTop5();
-            if (r == null || r.getItems() == null) return List.of();
-            List<StockRef> out = new ArrayList<>();
-            for (RecommendationDto d : r.getItems()) {
-                if (out.size() >= TODAY_CANDIDATE_MAX) break;
-                if (d == null || d.getStockCode() == null || d.getStockCode().isBlank()
-                        || d.getStockName() == null || d.getStockName().isBlank()) continue;
-                if (d.getTotalScore() < TODAY_CANDIDATE_SCORE_CUT) continue;
-                out.add(new StockRef(d.getStockCode(), d.getStockName()));
-            }
-            return out;
-        } catch (Exception e) {
-            log.debug("[재료워밍] 오늘 매수후보 조회 실패(생략): {}", e.getMessage());
-            return List.of();
-        }
     }
 
     /**
