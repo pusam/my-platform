@@ -100,8 +100,20 @@ public class DartService {
         loadCorpCodes();
     }
 
-    /** 매일 06:00 — 신규 상장/상호 변경 반영. */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    /**
+     * 월~토 06:00 — 신규 상장/상호 변경 반영.
+     *
+     * 부하 분산(2026-08-24): 이전엔 06:00 정각에 이 잡 + KRX 마스터 갱신 + 정리 잡 2개가
+     * 한꺼번에 발화했다. batchScheduler 풀이 16이라 큐잉으로 자연 직렬화되는 일 없이 전부
+     * 병렬로 떠서, corpCode DOM 파싱(10만 노드 CPU/GC 스파이크)과 KRX 전 종목 upsert 의
+     * 피크가 그대로 합산됐다(호스트 팬 소음으로 발현). 가장 무거운 이 잡이 06:00 을 지키고
+     * 나머지를 06:20/06:40/06:50 으로 밀어 겹침을 없앤다. 시각 자체에 도메인 근거는 없고
+     * 간격 확보가 목적이다(CLAUDE.md 5. 인프라 - "cron 시각들은 튜닝된 값").
+     *
+     * 일요일 제외: 주말엔 신규 상장/상호 변경 공시가 없어 일요일 실행분은 토요일분과 동일하다.
+     * 월요일 최신성은 월요일 06:00 자체 실행분과 부팅 시 loadCorpCodesOnStartup 이 담당.
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * MON-SAT", zone = "Asia/Seoul")
     public void refreshCorpCodesScheduled() {
         loadCorpCodes();
     }

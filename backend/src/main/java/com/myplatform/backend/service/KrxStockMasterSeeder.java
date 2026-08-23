@@ -110,8 +110,18 @@ public class KrxStockMasterSeeder {
         }
     }
 
-    /** 매일 06:00 한국시간에 KRX 마스터 갱신. */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    /**
+     * 월~토 06:20 한국시간에 KRX 마스터 갱신.
+     *
+     * 부하 분산(2026-08-24): 이전 06:00 정각 — DART corpCode 갱신과 같은 초에 시작해
+     * KIND corpList HTML 2회 수집(KOSPI+KOSDAQ, Jsoup 파싱) + 전 종목(~2,800) upsert 가
+     * DART 파싱 피크와 그대로 겹쳤다.
+     * DART 를 06:00 에 두고 이 잡을 20분 뒤로 옮긴다(상세 근거는 DartService 쪽 동일 주석).
+     *
+     * 일요일 제외: 주말엔 상장/폐지가 없어 일요일 실행분은 토요일분과 동일.
+     * 아래 retryIfEmpty 워처(매시간, 임계 미만일 때만)가 자가 치유를 계속 담당한다.
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "0 20 6 * * MON-SAT", zone = "Asia/Seoul")
     public void refreshDaily() {
         try {
             log.info("KRX 마스터 일일 갱신 시작");

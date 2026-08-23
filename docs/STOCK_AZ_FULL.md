@@ -189,7 +189,10 @@ HTTPS 443  (TLS 1.2+, HSTS, CSP, X-Frame DENY)
 
 | 시각(Seoul) | 잡 | 출처 |
 |---|---|---|
-| 06:00 | 종목마스터 갱신 | `KrxStockMasterSeeder` |
+| 06:00 (월~토) | DART corpCode 갱신(신규상장·상호변경) | `DartService` |
+| 06:20 (월~토) | 종목마스터 갱신 | `KrxStockMasterSeeder` |
+| 06:40 | 투자자 급증 알림 정리(24h 경과분) | `InvestorSurgeService` |
+| 06:50 | AI전략 스냅샷 정리(7일 이전) | `AiStrategySnapshotService` |
 | 07:30 | 모닝브리핑(텔레그램)+재료워밍(상한5) | `MorningBriefingService` |
 | 08:00 | 발굴 일일·섹터 리셋·DART 개장 | Recommendation/Sector/Earnings |
 | 08:30 | 마법공식·턴어라운드 알림·재무 프리페치 | QuantScreener/Financial |

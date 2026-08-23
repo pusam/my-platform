@@ -328,10 +328,13 @@ public class AiStrategySnapshotService {
     }
 
     /**
-     * 오래된 스냅샷 정리 (매일 06:00)
+     * 오래된 스냅샷 정리 (매일 06:50)
      * - 7일 이상 된 데이터 삭제
+     *
+     * 부하 분산(2026-08-24): 06:00 -> 06:50. 풀이 cacheScheduler 라 스레드 경합은 없었지만
+     * 같은 순간 디스크/CPU 를 더하던 것을 뒤로 뺐다. 요일 제한 없음 — 정리는 매일.
      */
-    @Scheduled(scheduler = "cacheScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "cacheScheduler", cron = "0 50 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
         // 안전장치: 최근 24시간 내 스냅샷이 있을 때만 정리 실행
         LocalDateTime recentCheck = DateTimeUtil.kstNow().minusHours(24);

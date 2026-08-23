@@ -689,8 +689,11 @@ public class InvestorSurgeService {
     /**
      * 오래된 알림 기록(24시간 이상) 정리.
      * 스냅샷 정리는 BatchJobCleanupService.cleanOldSnapshots(30일)가 master — 여기서는 alert 만 담당.
+     *
+     * 부하 분산(2026-08-24): 06:00 -> 06:40. DART/KRX 갱신과 같은 초에 뜨던 것을 뒤로 뺐다.
+     * 요일 제한은 두지 않는다 — 24시간 경과분 정리는 매일 돌아야 주말치가 쌓이지 않고, 작업 자체가 가볍다.
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 6 * * *", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 40 6 * * *", zone = "Asia/Seoul")
     public void cleanupExpiredSurgeAlerts() {
         if (!schedulerLockService.tryLock("investor-surge.alert-cleanup", java.time.Duration.ofMinutes(30))) {
             log.debug("알림 기록 정리 다른 인스턴스에서 진행 중 — 스킵");
