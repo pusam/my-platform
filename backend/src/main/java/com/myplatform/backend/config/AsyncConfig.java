@@ -73,13 +73,20 @@ public class AsyncConfig {
 
     /**
      * 범용 비동기 작업 Executor
-     * - 기본 @Async 어노테이션에서 사용
+     * - 한정자 없는 @Async 의 기본 풀 (AsyncExecutorSelection 이 명시적으로 지정)
+     *
+     * 크기(2026-08-24): core 3→4, max 6→12. 이 풀은 그동안 실제로 쓰인 적이 없다 —
+     * @Primary taskScheduler 가 TaskExecutor 타입 해석을 가로채 한정자 없는 @Async 가
+     * 전부 트레이딩 풀(16스레드)에서 돌았기 때문이다. 이제 이쪽으로 오게 되므로 6 으로 두면
+     * 기동 시 동시에 뜨는 워밍업들(캐시·시세·corpCode·KRX 시드)이 예전보다 좁은 목을 지난다.
+     * 트레이딩과 분리하는 게 목적이지 조이는 게 아니라서 기존 가용폭(16)에 가깝게 잡는다.
+     * 실측으로 검증된 수치는 아니다 — 기동이 느려지면 조정할 것.
      */
     @Bean(name = "taskExecutor")
     public Executor taskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(3);
-        executor.setMaxPoolSize(6);
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(12);
         executor.setQueueCapacity(100);
         executor.setThreadNamePrefix("Async-");
         executor.setWaitForTasksToCompleteOnShutdown(true);
