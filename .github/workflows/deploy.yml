@@ -215,6 +215,16 @@ jobs:
           $SCP_CMD /tmp/frontend-dist.tar.gz "$USER@$HOST:/tmp/"
           $SSH_CMD "$USER@$HOST" "mkdir -p $TARGET/frontend/dist && rm -rf $TARGET/frontend/dist/* && tar -xzf /tmp/frontend-dist.tar.gz -C $TARGET/frontend/dist && rm /tmp/frontend-dist.tar.gz"
 
+          # ★ 재바인드 재시작 '전에' 설정을 검증한다.
+          #   방금 올린 nginx 설정에 문법 오류가 있으면 아래 restart 에서 nginx 가 뜨지 못하고,
+          #   `|| true` 가 그 실패를 삼켜 두 사이트(dhkim-lab / vorj-map)가 함께 죽는다.
+          #   Deploy 단계의 nginx -t 게이트는 이 restart 보다 뒤라 여기서는 늦다.
+          #   검증 실패면 설정이 잘못된 것이므로 배포를 여기서 멈춘다(기존 nginx 는 그대로 산다).
+          $SSH_CMD "$USER@$HOST" "cd $TARGET && docker compose run --rm --no-deps --entrypoint nginx nginx -t" || {
+            echo "❌ nginx 설정 검증 실패 — 방금 올린 설정에 문법/인증서 문제가 있다."
+            echo "   nginx 는 재시작하지 않았으므로 현재 사이트는 기존 설정으로 살아 있다."
+            exit 1
+          }
           # ★ nginx 바인드 마운트를 새 dist 에 무조건 재바인드 — inode 보존이 실패하거나(디렉토리 교체)
           #   아래 Deploy 단계의 nginx 재생성이 인증서/nginx -t 게이트로 스킵돼도, 이 재시작이 항상 재바인드하므로
           #   하드리로드 404 를 원천 차단한다. nginx 는 이미 떠 있고(인증서 有) resolver 배선(26ef314)이
