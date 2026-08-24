@@ -8,7 +8,8 @@
 # - 의심 SSH/HTTP 시도 카운트
 #
 # 권장: cron 매일 09:00
-#   0 9 * * * cd /home/dev/my-platform && set -a && source .env && set +a && bash scripts/server-health-check.sh
+#   0 9 * * * cd /home/dev/my-platform && set -a && source .env && set +a && bash scripts/server-health-check.sh >> /var/log/myplatform-health-check.log 2>&1
+#   (리다이렉트 필수 — 텔레그램 전송이 실패하면 그 사실이 이 로그에만 남는다)
 # =============================================================================
 
 set -u
@@ -98,6 +99,8 @@ if [ -z "$TOKEN" ] || [ -z "$CHAT" ]; then
     echo "===== 경고 ====="
     printf '%s\n' "${ALERTS[@]}"
   fi
+  # 전달 경로가 없는데 경고가 있으면 그건 정상이 아니다 — 실패로 끝내 cron 로그에 남긴다.
+  [ ${#ALERTS[@]} -gt 0 ] && { echo "텔레그램 미설정 — 위 경고가 전달되지 않았다"; exit 1; }
   exit 0
 fi
 
@@ -118,6 +121,29 @@ else
   MSG=$(build_message "✅ 서버 일일 점검 — 정상" "")
 fi
 
-curl -sS -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-  --data-urlencode "chat_id=${CHAT}" \
-  --data-urlencode "text=${MSG}" >/dev/null
+send_telegram() {
+  # curl 종료코드와 텔레그램 API 응답을 모두 확인한다.
+  # 이전엔 `curl -sS ... >/dev/null` 이라 토큰·chat_id 가 틀려도, 네트워크가 죽어도
+  # 조용히 성공처럼 끝났다 — "경고 없음" 과 "경고를 못 보냄" 이 구분되지 않았다.
+  # (2026-08-24: 백업이 3일 끊겼는데 알림이 없던 사고에서 드러난 경로)
+  local msg="$1" resp rc
+  resp=$(curl -sS --max-time 20 -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${CHAT}" \
+    --data-urlencode "text=${msg}" 2>&1)
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "⚠️ 텔레그램 전송 실패 (curl exit ${rc}): ${resp}" >&2
+    return 1
+  fi
+  case "$resp" in
+    *'"ok":true'*) return 0 ;;
+    *) echo "⚠️ 텔레그램 API 거부: ${resp}" >&2; return 1 ;;
+  esac
+}
+
+if ! send_telegram "$MSG"; then
+  # 전송이 죽으면 점검 결과가 통째로 사라진다 — stdout 에 남기고 실패로 끝낸다
+  # (헤더의 권장 cron 처럼 로그로 리다이렉트해 두면 거기 남는다).
+  printf '%s\n' "$MSG"
+  exit 1
+fi
