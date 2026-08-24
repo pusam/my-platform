@@ -99,3 +99,78 @@ V38~V45(2026-07-06~08 배포)로 시작된 측정들이 2~3주치 표본을 확�
 - n<10 셀은 수치가 무엇이든 **판정 근거로 쓰지 않는다**. 대조군은 양쪽 각 n≥30.
 - "차이 없음"과 "표본 부족"을 같은 칸에 적지 않는다 — 전자는 결론, 후자는 미측정.
 - 판정 결과가 `유지`여도 **한 줄 남긴다**. 기록이 없으면 다음 사람이 또 처음부터 본다.
+
+---
+
+## 관제실 기계 판독 블록 (Control Room)
+
+> 아래 YAML 은 **관제실 판정 캘린더가 유일하게 파싱하는 소스**다(`## 헤딩`은 파싱하지 않는다).
+> 위 표들과 **사람이 손으로 동기화**한다 — 표를 고치면 여기도 고칠 것.
+> 블록에 없는데 "판정 기록" 표에 있는 안건은 캘린더에 뜨지 않고 FLAGGED **"미등록 판정 N건"** 으로 잡힌다.
+> 파싱에 실패한 항목은 조용히 건너뛰지 않고 FLAGGED **"파싱 오류: <id>"** 로 노출된다(§4c).
+>
+> **스키마**
+> | 필드 | 필수 | 값 |
+> |---|---|---|
+> | `id` | ✅ | kebab-case 고유 식별자. 판정 기록 표의 안건과 1:1 |
+> | `title` | ✅ | 화면 표기명 |
+> | `due` | ✅ | `YYYY-MM-DD` **확정 날짜만**. `경`/`중`/`수시` 같은 근사 표현 금지 |
+> | `status` | ✅ | `pending` \| `decided` \| `deferred` — `deferred` 면 **새 `due` 필수** |
+> | `decided_on` | | 실제 판정한 날 (`YYYY-MM-DD`) |
+> | `result` | | 판정 결과 한 줄 |
+> | `trigger` | | **조건 트리거**. 있으면 `due` 는 판정일이 아니라 **확인일**이며, 캘린더에 `확인(조건: …)` 으로 판정일과 구분 표기 + "조건 대기" 줄에 별도 집계 |
+> | `kind` | | `decision`(기본) \| `milestone`. `milestone` 은 **로스터·미판정 집계에서 제외**되고 캘린더 핀으로만 표시 |
+>
+> **OVERDUE 정의**: `due < 오늘 AND status ∈ {pending, deferred}`.
+
+```yaml
+calendar:
+  - id: atr-real-expansion
+    title: ATR 세트 REAL 확장 (P2-17)
+    due: 2026-08-11
+    status: deferred
+    decided_on: 2026-07-22
+    result: 2026-07-22 판정 시도 — scripts/p2-17-judgment.sh 결과 ATR_SIZING 0건(플래그가 켜진 적 없음)이라 연기. 2026-07-28 compose 기본값으로 ON → "ON 실행일 +14일" 규칙에 따라 2026-08-11 로 재설정.
+
+  - id: supply-cap-10
+    title: 수급 캡10 사후검증 (P1-6)
+    due: 2026-07-22
+    status: pending
+
+  - id: rvol-first-aggregation
+    title: RVOL 첫 집계 (rvol_at_signal)
+    due: 2026-07-22
+    status: pending
+
+  - id: manual-journal-stats
+    title: 수동 저널 stats 첫 확인
+    due: 2026-07-22
+    status: pending
+
+  - id: vkospi-gate-promotion
+    title: VKOSPI 게이트 승격 (P2-18)
+    due: 2026-07-22
+    status: pending
+
+  - id: macro-tilt-accumulation
+    title: 매크로/간밤 tilt 축적 점검 (P3-5/P3-7)
+    due: 2026-09-28
+    status: pending
+
+  - id: control-group-first
+    title: 무작위 대조군 첫 판정 (P2-19 ④)
+    due: 2026-09-07
+    status: pending
+    trigger: 시그널·대조군 양쪽 각 n≥30 (MIN_CONTROL_SAMPLE)
+
+  - id: pattern-shadow-promotion
+    title: 캔들 패턴 shadow 승격 (V52 / P2-20)
+    due: 2026-09-16
+    status: pending
+
+  - id: nxt-session-open
+    title: NXT 연장장 개시 — 활성화 절차 5단계 확정
+    due: 2026-09-14
+    status: pending
+    kind: milestone
+```

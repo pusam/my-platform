@@ -106,6 +106,11 @@ services:
       - NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET:-}
       # 한국은행 ECOS (매크로 tilt 금리 축) — 미설정 시 금리 축 null 로 동작(§4c)
       - ECOS_API_KEY=${ECOS_API_KEY:-}
+      # Anthropic (판정 관제실 AI 크루) — 위 키들과 같은 이중배선 원칙.
+      # 미설정 시 크루 기능만 DISABLED 되고 사유가 화면에 표시된다(앱 전체는 정상 기동).
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CONTROL_ROOM_CREW_MODEL=${CONTROL_ROOM_CREW_MODEL:-claude-opus-5}
+      - CONTROL_ROOM_CREW_DAILY_LIMIT=${CONTROL_ROOM_CREW_DAILY_LIMIT:-30}
       # DART 공시 — 미설정 시 DartService.isAvailable()=false 로 공시 모니터가 조용히 전면 정지
       # ("알림 없음 = 공시 없음" 오인의 원인). 위 키들과 같은 이중배선 원칙 적용.
       - DART_API_KEY=${DART_API_KEY:-}

@@ -59,6 +59,11 @@ dependencies {
     // Web Scraping (Jsoup)
     implementation 'org.jsoup:jsoup:1.17.2'
 
+    // Anthropic Java SDK — 관제실 AI 크루 전용(읽기 전용 레이어).
+    // Gemini 와 분리한 이유: GeminiService 는 전역 4.5초 rate 직렬화 + 일 500회 상한을 재료 분류와
+    // 공유한다. 크루 1세션은 5콜이라 그 쿼터를 직접 잠식하고, 5턴이 22.5초 대기로 재료 분류를 밀어낸다.
+    implementation 'com.anthropic:anthropic-java:2.34.0'
+
     // WebAuthn (지문/Face ID/패스키 로그인)
     implementation 'com.webauthn4j:webauthn4j-core:0.28.4.RELEASE'
 
@@ -130,5 +135,18 @@ if (!project.hasProperty('skipFrontend')) {
     processResources {
         dependsOn copyFrontend
     }
+}
+
+// 관제실이 읽는 레포 문서를 jar 안으로 복사 (classpath:control-room/*.md)
+//
+// ⚠ 운영 이미지엔 app.jar 하나만 들어간다(Dockerfile 참조) — 레포 체크아웃이 없다.
+//   따라서 판정 캘린더·FLAGGED·불변식 문서는 여기서 jar 에 넣지 않으면 런타임에 존재하지 않고,
+//   관제실이 통째로 "데이터 없음"이 된다.
+// 결과적으로 이 문서들은 **이미지와 함께 버전이 고정**된다 — 내용을 고치려면 커밋 후 재배포다.
+//   급하게 서버에서 고쳐야 하면 control-room.docs-dir 로 외부 디렉터리를 마운트해 덮어쓴다.
+processResources {
+    from(rootProject.file('docs/SCHEDULE_DECISIONS.md')) { into 'control-room' }
+    from(rootProject.file('docs/CONTROL_ROOM_FLAGS.md')) { into 'control-room' }
+    from(rootProject.file('CLAUDE.md')) { into 'control-room' }
 }
 

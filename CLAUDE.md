@@ -109,6 +109,15 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - **RT 는 기기별 분리 + 회전 유예 60초**(2026-08-06, `AuthServiceTest`): 로그인마다 UUID `deviceId`(JWT `did` claim)를 AT/RT 에 심고 Redis 키 `jwt:refresh:{username}:{deviceId}` 로 분리 — 계정당 RT 1개(멀티 디바이스가 서로 RT 를 덮어써 상호 로그아웃)로 되돌리지 말 것. 회전 직후 직전 RT 는 `jwt:refresh-prev:*`(60s TTL)로 유예 허용(멀티탭 동시 갱신 경합 흡수) — 유예 hit 은 **AT 만 재발급, RT 재회전 없음, 응답 refreshToken=null**(프론트는 null 이면 기존 저장 RT 유지). RT 불일치 무효화는 **해당 기기 한정**(계정 전체 삭제로 되돌리면 기기 간 킥 연쇄 재발), 계정 상태 변경(잠금 등)만 전 기기 무효화(`deleteAllRefreshTokens`). `did` 없는 legacy RT 는 첫 refresh 에서 기기 바인딩으로 자동 마이그레이션. 로그아웃은 AT 의 `did` 로 해당 기기만 종료(legacy AT 는 전 기기).
 - **`RealTimeDataCache.updateMinuteBar`**: `synchronizedList` 복합연산(get(size-1)/remove(0))은 `synchronized(bars)` 블록으로 보호 — 풀지 말 것(동시 틱 IndexOutOfBounds).
 
+### 7. 판정 관제실(Control Room)은 읽기 전용 레이어 (2026-08-24)
+- `/control-room` + `/api/control-room/**`(ADMIN) — 판정 캘린더·KPI·FLAGGED 조회 + AI 크루(에렌/SCOUT/FIREWALL) 5턴 대화. **봇·게이트·가격 경로·신호 합산 코드와 무관하며 그 쪽을 호출만 한다.** 크루에게 **툴을 하나도 주지 않는다**(`CrewLlmClient` 가 `tools` 미전달) — DB·파일·주문에 닿을 경로 자체가 없고, 이 기능의 DB 쓰기는 `crew_session`/`crew_message` 대화 기록뿐이다. 결론은 "액션 제안" 텍스트이고 실행은 사람이 한다. **크루에게 쓰기 툴을 붙이거나 결론을 산식/봇/추천에 편입하지 말 것** — "틀려도 아무 일이 안 일어난다"가 이 화면의 존재 이유다.
+- 데이터는 **문서에서 읽는다**: 캘린더 = `docs/SCHEDULE_DECISIONS.md` 끝의 YAML 블록만(헤딩은 '경/중/수시' 근사 표현이라 미파싱) · FLAGGED = `docs/CONTROL_ROOM_FLAGS.md`(사람 관리, **해소 항목은 지울 것**) · 불변식 = 이 파일의 `###` 소제목. 미판정 건수는 SCHEDULE_DECISIONS "판정 기록" 표의 판정일 미기입 행 수이고, 표에만 있고 YAML 에 없으면 FLAGGED "미등록 판정"으로 뜬다(표↔블록 `title` 일치 필요).
+- §4c 적용: 문서/조회 실패는 0 이 아니라 `dataAvailable=false`("데이터 없음") · 파싱 실패는 건너뛰지 않고 FLAGGED 승격 · 주간 피드백은 MISSED(안 돌았다)와 UNKNOWN(모른다)을 분리 · 일일손실 서킷은 **원 단위**(자산 % 킬스위치와 별개) · VKOSPI "streak" 은 소스 없어 미표시.
+- 비용 가드 4겹(되돌리지 말 것): **5턴 고정**(자동 루프·재시도 금지, 실패=FAILED+사유) · **동시 1건** · **일일 상한**(초과 시 429, 조용한 스킵 금지) · **컨텍스트 8KB**(초과 시 FLAGGED 를 중요도 낮은 순으로 자르고 "N건 생략" 명시 — 생략을 숨기면 FIREWALL 이 "플래그에 없으니 문제없다"고 판단). 모델 ID 하드코딩 금지(`control-room.crew.model`), 기동 시 `GET /v1/models` 로 실재 확인 후 미존재/키 없음이면 **크루만 DISABLED + 사유 표시**(앱 전체는 정상 기동).
+- ⚠ **권한은 `SecurityConfig` URL 규칙이 담당**한다 — 이 코드베이스엔 `@EnableMethodSecurity` 가 없어 `@PreAuthorize` 가 전부 무효다(기존 컨트롤러 포함). 메서드 보안 활성화는 전역 영향이라 별도 티켓.
+- ⚠ **프론트 IA 규칙("새 주식 화면 금지 → 탭에 흡수")의 명시적 예외**다. 관제실은 종목을 보는 주식 허브가 아니라 운영 콘솔이라 GNB 4탭에 자리가 없다. **예외는 관제실 하나로 끝** — 종목/시세/추천 화면은 여전히 탭에 흡수할 것. 팔레트는 `.control-room` 스코프(`--cr-*`)에만 두고 `:root` 로 올리지 말 것(전역 `common.css` 토큰 파괴).
+- 상세: `docs/CONTROL_ROOM.md`
+
 ---
 
 ## 코드 위치 힌트 (탐색 시작점)
@@ -127,6 +136,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 봇 실주문: `RealTradeService`(체결확인 `confirmFill`/`resolveFill`, KIS주문성공+DB실패→killswitch), 재시작 정합성 `AutoTradingBotService.reconcilePositionsWithKis`/`computeReconciliation`, KIS 체결조회 `KoreaInvestmentService.inquireDailyCcld`(TTTC0081R)
 - 인증: `JwtAuthenticationFilter`·`JwtTokenProvider`(jwt-redis 모듈, 테스트 인프라 없음), `AuthController`/`AuthService`, 프론트 `utils/auth.js`·`utils/api.js`·`main.js`(라우터 가드)
 - 스케줄: `SchedulingConfig`, 락: `SchedulerLockService`
+- 판정 관제실: `controlroom/` 패키지(`ControlRoomSnapshotService`·`CrewOrchestrationService`·`CrewPrompts`, 파서 3종은 순수함수), 프론트 `views/ControlRoomView.vue`+`components/controlroom/`, 문서 `docs/CONTROL_ROOM.md`
 - 프론트 시간대 판정: `frontend/src/.../StockTradingDashboardV2.vue` (663~673줄 부근)
 - 최대 화면: `StockDetailDashboard.vue` (~4,707줄)
 - 종목상세 주가 차트: **lightweight-charts 렌더러 `components/v2/HtsChart.vue`**(십자선·축눈금·줌/팬 내장, 2026-07-15 DIV/SVG 수제 차트에서 교체). 시리즈 변환 순수함수 `utils/htsChartData.js`(일봉 date/분봉 KST epoch time 규약). 데이터/계산 계층은 `composables/useChartCalculations.js`(채널·꼬리는 `utils/trendChannel.js`·`utils/candleAnatomy.js`, 백엔드 `TrendChannelCalculator`·V49 스냅샷과 산식 동기 — 변경 시 화면↔보드↔검증 어긋남). 당일 분봉('1일' 탭)=`IntradayChartService`(`/api/stock/{code}/intraday-candles`). 마이그레이션 이력: `docs/GUIDE_HTS_CHART_MIGRATION.md`.

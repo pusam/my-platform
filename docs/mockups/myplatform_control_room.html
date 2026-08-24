@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>myplatform 관제실</title>
+<style>
+:root{
+  --bg:#0a0614; --bg2:#120b22; --panel:#160e2b; --panel2:#1c1236; --line:#2c1d52;
+  --mag:#ff2fa6; --vio:#9b4dff; --grn:#3dff8a; --cyn:#38dcff; --amb:#ffb43a; --red:#ff4d6d;
+  --tx:#ebe4ff; --mut:#7e71ad; --dim:#4a3f73;
+  --mono:"JetBrains Mono","Cascadia Code",Consolas,"D2Coding",monospace;
+  --sans:"Pretendard","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--tx);font-family:var(--sans);font-size:13px}
+body{display:grid;grid-template-columns:200px 1fr 360px;height:100vh;overflow:hidden}
+.mono{font-family:var(--mono);letter-spacing:.06em}
+.eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+
+/* ---------- sidebar ---------- */
+aside{background:var(--bg2);border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:22px}
+.brand{display:flex;gap:10px;align-items:center}
+.brand .logo{width:34px;height:34px;border:1.5px solid var(--vio);display:grid;place-items:center;font-family:var(--mono);color:var(--vio);box-shadow:0 0 12px rgba(155,77,255,.35)}
+.brand b{display:block;font-size:14px}.brand small{font-family:var(--mono);font-size:9px;color:var(--mut);letter-spacing:.14em}
+nav .grp{margin-bottom:16px}
+nav a{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;color:var(--tx);text-decoration:none;font-size:12.5px;border-left:2px solid transparent;margin-top:2px}
+nav a i{width:6px;height:6px;transform:rotate(45deg);background:var(--vio);display:inline-block;margin-right:8px}
+nav a.on{background:linear-gradient(90deg,rgba(155,77,255,.22),transparent);border-left-color:var(--mag)}
+nav a .n{font-family:var(--mono);font-size:10px;color:var(--mut)}
+nav a .n.hot{color:var(--red)}
+.side-foot{margin-top:auto;display:grid;gap:8px}
+.side-foot .badge{border:1px dashed var(--amb);color:var(--amb);font-family:var(--mono);font-size:10px;padding:8px;text-align:center;letter-spacing:.12em}
+
+/* ---------- main ---------- */
+main{overflow:auto;padding:22px 26px;background:
+  radial-gradient(1200px 400px at 70% -10%,rgba(155,77,255,.18),transparent 60%),
+  linear-gradient(var(--bg),var(--bg));position:relative}
+main::before{content:"";position:absolute;inset:0;pointer-events:none;background:
+  repeating-linear-gradient(0deg,transparent 0 39px,rgba(155,77,255,.05) 39px 40px),
+  repeating-linear-gradient(90deg,transparent 0 39px,rgba(155,77,255,.05) 39px 40px)}
+.head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:18px;position:relative}
+.head h1{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.cycle{color:var(--grn);font-family:var(--mono);font-size:11px;letter-spacing:.2em;margin-bottom:6px}
+.cycle::before{content:"— ";color:var(--mag)}
+.head .r{display:flex;gap:10px;align-items:center}
+.sel{background:var(--panel);border:1px solid var(--line);color:var(--tx);padding:8px 12px;font-family:var(--mono);font-size:12px}
+.dday{border:1px solid var(--red);color:var(--red);padding:8px 14px;font-family:var(--mono);box-shadow:0 0 14px rgba(255,77,109,.3)}
+.dday b{font-size:16px;margin-right:8px}.dday span{font-size:11px;color:#ff9db0}
+
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;position:relative}
+.kpi{background:var(--panel);border:1px solid var(--line);padding:14px 16px;position:relative;min-height:96px}
+.kpi::before,.kpi::after{content:"";position:absolute;width:10px;height:10px;border-color:var(--vio);border-style:solid}
+.kpi::before{top:-1px;left:-1px;border-width:2px 0 0 2px}.kpi::after{bottom:-1px;right:-1px;border-width:0 2px 2px 0}
+.kpi.alert{border-color:var(--red)}.kpi.alert::before,.kpi.alert::after{border-color:var(--red)}
+.kpi.ok::before,.kpi.ok::after{border-color:var(--grn)}
+.kpi .v{font-family:var(--mono);font-size:26px;margin:6px 0 4px;color:#fff}
+.kpi .v small{font-size:12px;color:var(--mut);margin-left:4px}
+.kpi .s{font-size:11px;color:var(--mut)}
+.kpi.alert .v{color:var(--red)}
+.bar{display:flex;gap:2px;margin-top:8px}.bar i{flex:1;height:5px;background:var(--dim)}
+.bar i.f{background:var(--vio)}.bar i.g{background:var(--grn)}.bar i.r{background:var(--red)}
+
+.row{display:grid;grid-template-columns:1fr 340px;gap:14px;position:relative}
+.panel{background:var(--panel);border:1px solid var(--line);padding:16px}
+.ph{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+.ph b{font-family:var(--mono);font-size:12px;letter-spacing:.2em}
+.ph span{font-size:11px;color:var(--mut)}
+
+/* calendar */
+.overdue{display:flex;gap:8px;align-items:center;background:rgba(255,77,109,.08);border:1px solid rgba(255,77,109,.4);padding:8px 12px;margin-bottom:10px;font-size:12px}
+.overdue b{font-family:var(--mono);color:var(--red)}
+.overdue .chips{margin-left:auto;display:flex;gap:6px}
+.overdue .chips span{font-family:var(--mono);font-size:10px;border:1px solid var(--red);color:var(--red);padding:2px 6px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal .dow{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--mut);text-align:center;padding:6px 0}
+.cal .dow:first-child{color:var(--mag)}
+.d{aspect-ratio:1.35;background:var(--panel2);border:1px solid transparent;position:relative;padding:6px;font-family:var(--mono);font-size:11px;color:var(--dim);cursor:pointer}
+.d.pad{background:transparent}
+.d.ev{color:var(--vio);border-color:var(--vio);background:rgba(155,77,255,.12);box-shadow:inset 0 0 12px rgba(155,77,255,.15)}
+.d.ev.blk{color:var(--red);border-color:var(--red);background:rgba(255,77,109,.1)}
+.d.ev.grn{color:var(--grn);border-color:var(--grn);background:rgba(61,255,138,.08)}
+.d.today{border-color:var(--mag);box-shadow:0 0 0 1px var(--mag)}
+.d .t{position:absolute;left:6px;bottom:5px;right:6px;font-size:9px;letter-spacing:.04em;line-height:1.3;color:inherit;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d:hover{filter:brightness(1.25)}
+.legend{display:flex;gap:14px;margin-top:10px;font-family:var(--mono);font-size:10px;color:var(--mut)}
+.legend i{display:inline-block;width:7px;height:7px;transform:rotate(45deg);margin-right:5px}
+
+/* flagged */
+.flag{border-left:3px solid var(--red);padding:8px 10px;margin-bottom:10px;background:rgba(255,255,255,.02)}
+.flag.a{border-left-color:var(--amb)}.flag.c{border-left-color:var(--cyn)}
+.flag b{display:block;font-size:12.5px;margin-bottom:3px}
+.flag p{font-size:11px;color:var(--mut);line-height:1.5}
+.flag .k{font-family:var(--mono);font-size:10px;color:var(--vio);margin-left:6px}
+
+/* ---------- crew ---------- */
+.crew{background:linear-gradient(180deg,#130b25,#0d0818);border-left:1px solid var(--line);display:grid;grid-template-rows:auto auto 1fr auto;height:100vh}
+.crew-h{display:flex;justify-content:space-between;padding:16px 16px 10px;align-items:center}
+.crew-h b{font-family:var(--mono);letter-spacing:.24em;font-size:12px}
+.crew-h .on{font-family:var(--mono);font-size:9px;color:var(--grn);letter-spacing:.16em}
+.crew-h .on::before{content:"● ";animation:blink 1.6s infinite}
+@keyframes blink{50%{opacity:.3}}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 16px 12px}
+.card{border:1px solid var(--line);padding:12px 6px 8px;text-align:center;position:relative;min-height:112px;background:rgba(0,0,0,.25);transition:border-color .25s,box-shadow .25s}
+.card svg{width:44px;height:44px;display:block;margin:0 auto 6px}
+.card b{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.14em}
+.card small{font-size:10px;color:var(--mut)}
+.card.lucy b{color:var(--vio)}.card.scout b{color:var(--cyn)}.card.firewall b{color:var(--grn)}
+.card.busy{border-color:currentColor}
+.card.lucy.busy{color:var(--vio);box-shadow:0 0 16px rgba(155,77,255,.4)}
+.card.scout.busy{color:var(--cyn);box-shadow:0 0 16px rgba(56,220,255,.35)}
+.card.firewall.busy{color:var(--grn);box-shadow:0 0 16px rgba(61,255,138,.35)}
+.card .st{position:absolute;top:6px;right:6px;font-family:var(--mono);font-size:8px;color:var(--mut);letter-spacing:.1em}
+.card.busy .st{color:inherit}
+
+.thread{overflow:auto;padding:4px 16px 12px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.msg{display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:start;animation:in .3s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msg .av{width:34px;height:34px;border:1px solid var(--line);display:grid;place-items:center;background:rgba(0,0,0,.3)}
+.msg .av svg{width:24px;height:24px}
+.msg .bd{border-left:2px solid var(--vio);padding:6px 10px 8px;background:rgba(255,255,255,.025)}
+.msg.scout .bd{border-left-color:var(--cyn)}.msg.firewall .bd{border-left-color:var(--grn)}.msg.user .bd{border-left-color:var(--mag);background:rgba(255,47,166,.06)}
+.msg .nm{font-family:var(--mono);font-size:10px;letter-spacing:.18em;margin-bottom:4px;display:flex;gap:8px;align-items:center}
+.msg.lucy .nm{color:var(--vio)}.msg.scout .nm{color:var(--cyn)}.msg.firewall .nm{color:var(--grn)}.msg.user .nm{color:var(--mag)}
+.msg .nm .to{color:var(--mut);letter-spacing:.06em;font-size:9px}
+.msg .nm .to::before{content:"→ "}
+.msg .tx{font-size:12px;line-height:1.55;white-space:pre-wrap}
+.msg .tx b{color:#fff}
+.msg .tag{display:inline-block;font-family:var(--mono);font-size:9px;letter-spacing:.12em;padding:1px 6px;border:1px solid;margin-right:4px}
+.tag.ok{color:var(--grn);border-color:var(--grn)}.tag.no{color:var(--red);border-color:var(--red)}.tag.cond{color:var(--amb);border-color:var(--amb)}
+.msg.user{grid-template-columns:1fr;}
+.msg.user .bd{margin-left:42px}
+.acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.acts button{background:transparent;border:1px solid var(--vio);color:var(--tx);font-size:11px;padding:5px 9px;cursor:pointer;font-family:var(--sans)}
+.acts button:hover{background:rgba(155,77,255,.2)}
+.typing{font-family:var(--mono);font-size:10px;color:var(--mut);letter-spacing:.14em;padding:2px 0 0 42px}
+.typing::after{content:"…";animation:dots 1.2s steps(3,end) infinite}
+@keyframes dots{0%{content:""}33%{content:"."}66%{content:".."}100%{content:"..."}}
+
+.crew-f{padding:10px 16px 16px;border-top:1px solid var(--line);display:grid;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{background:transparent;border:1px solid var(--line);color:var(--tx);font-size:11px;padding:5px 9px;cursor:pointer;font-family:var(--sans)}
+.chips button:hover{border-color:var(--vio)}
+.in{display:grid;grid-template-columns:1fr 64px;gap:8px}
+.in input{background:var(--panel);border:1px solid var(--line);color:var(--tx);padding:10px 12px;font-family:var(--sans);font-size:12.5px}
+.in input:focus{outline:1px solid var(--vio)}
+.in button{background:var(--grn);border:0;color:#05130a;font-family:var(--mono);font-weight:700;letter-spacing:.14em;cursor:pointer}
+.in button:disabled{opacity:.4;cursor:wait}
+.mode{font-family:var(--mono);font-size:9px;letter-spacing:.14em;color:var(--mut);text-align:right}
+.mode.live{color:var(--grn)}.mode.demo{color:var(--amb)}
+:focus-visible{outline:2px solid var(--mag);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:1100px){body{grid-template-columns:1fr;height:auto;overflow:auto}aside{display:none}.crew{height:auto}.kpis{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand"><div class="logo">M</div><div><b>myplatform 관제실</b><small>OPERATOR // 동희</small></div></div>
+  <nav>
+    <div class="grp"><div class="eyebrow" style="padding:0 10px 6px">Monitor</div>
+      <a class="on" href="#"><span><i></i>대시보드</span></a>
+      <a href="#"><span><i></i>종합판단</span><span class="n">3</span></a>
+      <a href="#"><span><i></i>봇 게이트</span><span class="n">4/5</span></a>
+    </div>
+    <div class="grp"><div class="eyebrow" style="padding:0 10px 6px">Decide</div>
+      <a href="#"><span><i></i>판정 세션</span><span class="n hot">7 밀림</span></a>
+      <a href="#"><span><i></i>백테스트</span><span class="n">V52</span></a>
+      <a href="#"><span><i></i>마이그레이션</span><span class="n">V53</span></a>
+    </div>
+    <div class="grp"><div class="eyebrow" style="padding:0 10px 6px">Database</div>
+      <a href="#"><span><i></i>신호 로그</span><span class="n">1,204</span></a>
+      <a href="#"><span><i></i>수동 매매 저널</span><span class="n">18</span></a>
+    </div>
+  </nav>
+  <div class="side-foot">
+    <div class="badge">MOCKUP // 가상 데이터</div>
+  </div>
+</aside>
+
+<main>
+  <div class="head">
+    <div><div class="cycle">CYCLE 2026.09 // 판정 사이클</div><h1>판정 대시보드</h1></div>
+    <div class="r">
+      <select class="sel"><option>2026.09 판정분</option><option>2026.08 판정분</option></select>
+      <div class="dday"><b>D-9</b><span>09/02 V52 1차 판정 · 밀린 판정 7건</span></div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="eyebrow">종합판단 후보</div><div class="v">3<small>종목</small></div><div class="s">BUY 1 · WATCH 2 · 캔들 패턴 shadow</div></div>
+    <div class="kpi ok"><div class="eyebrow">봇 게이트</div><div class="v">4<small>/5</small></div><div class="bar"><i class="g"></i><i class="g"></i><i class="g"></i><i class="g"></i><i class="r"></i></div><div class="s" style="margin-top:6px">NXT 게이트 CLOSED · fail-closed</div></div>
+    <div class="kpi"><div class="eyebrow">일일손실 서킷</div><div class="v">-0.6<small>%</small></div><div class="bar"><i class="f"></i><i></i><i></i><i></i><i></i></div><div class="s" style="margin-top:6px">한도 -3.0% · 여유 2.4%p</div></div>
+    <div class="kpi"><div class="eyebrow">VKOSPI 레짐</div><div class="v" style="font-size:20px;padding-top:5px">NORMAL</div><div class="s">streak 3d · REDUCED 전환 임계 미도달</div></div>
+    <div class="kpi alert"><div class="eyebrow">미판정</div><div class="v">7<small>건</small></div><div class="s">7/22 예정 6건 + 8/11 ATR · 기록 0건</div></div>
+  </div>
+
+  <div class="row">
+    <section class="panel">
+      <div class="ph"><b>DECISION MAP · 09</b><span>날짜 클릭 시 에렌에게 그 판정 요약 요청</span></div>
+      <div class="overdue"><b>OVERDUE 7</b> 판정 루프 미가동 — 예정일 지난 건
+        <div class="chips"><span>ATR P2-17</span><span>공급 cap</span><span>RVOL</span><span>저널 stats</span><span>+3</span></div>
+      </div>
+      <div class="cal" id="cal"></div>
+      <div class="legend"><span><i style="background:var(--vio)"></i>판정일</span><span><i style="background:var(--red)"></i>차단 상태</span><span><i style="background:var(--grn)"></i>정기 피드백</span><span><i style="background:var(--mag)"></i>TODAY 08/24</span><span style="margin-left:auto">NEXT · 09/02 · 09/14 · 09/16</span></div>
+    </section>
+
+    <section class="panel">
+      <div class="ph"><b>⚠ FLAGGED</b><span>8/21 감사 기준</span></div>
+      <div class="flag"><b>판정 루프 미가동<span class="k">SCHEDULE_DECISIONS.md</span></b><p>7/22 예정 6건, 8/11 ATR 판정 전부 미기록. 판정 기록 파일 비어 있음.</p></div>
+      <div class="flag"><b>REAL 전환 블로커<span class="k">nxdy_excc_amt</span></b><p>가용현금 필드 D+1 정산 의심. 실계좌 매수 1건 전후 로그 비교 필요.</p></div>
+      <div class="flag a"><b>V52 기각 후보 미저장<span class="k">V52</span></b><p>로그로만 남고 테이블 없음 — 컨테이너 재생성마다 소실. 감지기가 순수함수라 재구성은 가능.</p></div>
+      <div class="flag a"><b>롤백 플래그 미배선<span class="k">pattern-detection.enabled</span></b><p>yml/compose에 없음. 코드 수정 없이 못 끔.</p></div>
+      <div class="flag c"><b>CLAUDE.md 자기모순 3쌍<span class="k">docs</span></b><p>차트 타이밍 섹션이 '매수 후보'로 오기 — 불변식과 충돌.</p></div>
+    </section>
+  </div>
+</main>
+
+<section class="crew">
+  <div class="crew-h"><b>CREW</b><span class="on">ONLINE</span></div>
+  <div class="cards">
+    <div class="card lucy" id="c-lucy"><span class="st">IDLE</span>
+      <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="24" cy="18" r="9" stroke="#9b4dff"/><path d="M8 42c2-9 8-13 16-13s14 4 16 13" stroke="#9b4dff"/><path d="M18 16h12M20 20h8" stroke="#ff2fa6"/></svg>
+      <b>에렌</b><small>총괄 · 분배/결론</small></div>
+    <div class="card scout" id="c-scout"><span class="st">IDLE</span>
+      <svg viewBox="0 0 48 48" fill="none" stroke="#38dcff" stroke-width="1.6"><circle cx="21" cy="21" r="11"/><path d="M29 29l10 10"/><path d="M15 21h12M21 15v12" stroke="#ff2fa6"/></svg>
+      <b>SCOUT</b><small>분석 · 초안</small></div>
+    <div class="card firewall" id="c-fw"><span class="st">IDLE</span>
+      <svg viewBox="0 0 48 48" fill="none" stroke="#3dff8a" stroke-width="1.6"><path d="M24 6l14 5v12c0 9-6 15-14 19-8-4-14-10-14-19V11z"/><path d="M17 24l5 5 9-10"/></svg>
+      <b>FIREWALL</b><small>검증 · 불변식</small></div>
+  </div>
+  <div class="thread" id="thread"></div>
+  <div class="crew-f">
+    <div class="chips" id="chips">
+      <button>밀린 판정 7건 정리해</button>
+      <button>V52 9/2 판정 갈지 말지</button>
+      <button>NXT 9/14 준비 상태</button>
+      <button>REAL 전환 블로커 뭐야</button>
+    </div>
+    <div class="in"><input id="inp" placeholder="에렌에게 지시" autocomplete="off"><button id="send">SEND</button></div>
+    <div class="mode" id="mode">MODE · —</div>
+  </div>
+</section>
+
+<script>
+/* ---------- 데이터(목업) ---------- */
+const CTX = {
+  today: "2026-08-24",
+  kpi: { candidates:"BUY 1 / WATCH 2", gates:"4/5 통과, NXT 게이트 CLOSED(fail-closed)", dailyLoss:"-0.6% (한도 -3.0%)", regime:"VKOSPI NORMAL streak 3d", undecided:"7건 (7/22 예정 6건 + 8/11 ATR), 기록 0건" },
+  calendar: [
+    {d:"09-02", t:"V52 백테스트 1차", note:"표본 2주치뿐 — 10일 지평이면 9/16 이후가 맞음"},
+    {d:"09-07", t:"주간 신호 정확도 피드백"},
+    {d:"09-14", t:"NXT 개시", note:"코드 7/8 완성, KIS 거래소구분 파라미터 미확정 → fail-CLOSED", blocked:true},
+    {d:"09-16", t:"V52 패턴 판정 (10일 지평 충족)"},
+    {d:"09-21", t:"주간 신호 정확도 피드백"},
+    {d:"09-28", t:"주간 신호 정확도 피드백"}
+  ],
+  flagged: [
+    "판정 루프 미가동: 7/22 예정 6건(ATR P2-17, 공급 cap, RVOL, 저널 stats 등) + 8/11 ATR 판정 전부 미기록",
+    "REAL 전환 블로커: nxdy_excc_amt 가용현금 D+1 정산 의심, 실계좌 매수 1건 전후 로그 비교 필요",
+    "V52 기각 후보가 로그로만 남고 테이블 미저장 — 컨테이너 재생성 시 소실 (감지기 순수함수라 오프라인 재구성 가능)",
+    "pattern-detection.enabled 롤백 플래그가 yml/compose에 미배선",
+    "CLAUDE.md 자기모순 3쌍 — 차트 타이밍 섹션이 '매수 후보'로 오기, 불변식과 충돌",
+    "V52는 CLAUDE.md·VERIFICATION_BACKLOG·docs 어디에도 기록 없음"
+  ],
+  invariants: [
+    "단일 가격 경로 (§16)",
+    "백테스트 없이 공식/임계값 변경 금지",
+    "봇 게이트는 fail-closed",
+    "검증 안 된 지표를 합산하면 좋은 신호까지 망친다",
+    "'조용한 죽음' 패턴 금지 — null 데이터는 명시적으로 실패해야 함 (§4c)",
+    "RestTemplate에 String 말고 URI 전달 (§16-10)"
+  ]
+};
+
+const AGENTS = {
+  lucy:{ name:"에렌", cls:"lucy", role:"총괄 비서. 오퍼레이터의 지시를 받아 SCOUT과 FIREWALL에게 일을 나눠주고, 둘의 대화가 끝나면 결론을 낸다." },
+  scout:{ name:"SCOUT", cls:"scout", role:"분석 조수. 데이터와 플래그를 근거로 구체적인 초안(순서, 날짜, 조치)을 만든다. 숫자와 파일명을 인용한다." },
+  fw:{ name:"FIREWALL", cls:"firewall", role:"검증 조수. SCOUT의 초안을 불변식과 플래그에 대조해 보완사항을 낸다. 숫자는 새로 계산하지 않고 컨텍스트에 있는 값만 교차확인한다. 판정은 승인/조건부/반려 중 하나." }
+};
+
+const COMMON = `당신은 개인 주식 트레이딩 플랫폼(Spring Boot + FastAPI + Vue3, KIS API, 자동매매 봇) 관제실의 AI 크루다. 한국어, 반말 섞인 간결한 업무체, 마크다운 금지, 최대 5문장. 컨텍스트에 없는 사실은 지어내지 말고 "확인 필요"라고 말해라.
+오늘: ${CTX.today}
+KPI: ${JSON.stringify(CTX.kpi)}
+판정 캘린더: ${JSON.stringify(CTX.calendar)}
+FLAGGED: ${CTX.flagged.map((f,i)=>`(${i+1}) ${f}`).join(" / ")}
+불변식: ${CTX.invariants.join(" / ")}`;
+
+const PROMPTS = {
+  lucy_open: a=>`${COMMON}\n역할: ${a.role}\n지금 할 일: 오퍼레이터 지시를 한 줄로 재정리하고, SCOUT에게 무엇을 초안 잡을지, FIREWALL에게 무엇을 특히 검증할지 지정해라. 결론은 아직 내지 마라. 형식: "SCOUT: ..." 줄과 "FIREWALL: ..." 줄을 포함.`,
+  scout: a=>`${COMMON}\n역할: ${a.role}\n지금 할 일: 에렌의 분배에 따라 초안을 써라. 순서·날짜·파일명을 구체적으로. 마지막 줄은 "초안 끝, FIREWALL 검토 바람."`,
+  fw: a=>`${COMMON}\n역할: ${a.role}\n지금 할 일: SCOUT 초안을 불변식과 플래그에 대조해라. 첫 줄은 반드시 [승인] [조건부] [반려] 중 하나. 이어서 보완사항을 번호로 최대 3개. 초안이 불변식을 깨면 반려.`,
+  scout_fix: a=>`${COMMON}\n역할: ${a.role}\n지금 할 일: FIREWALL 보완사항을 반영해 초안을 고쳐라. 바뀐 부분만 짧게. 마지막 줄 "반영 완료."`,
+  lucy_close: a=>`${COMMON}\n역할: ${a.role}\n지금 할 일: SCOUT과 FIREWALL의 논의를 3문장 이내로 결론 내라. 첫 줄은 "결론:"으로 시작. 마지막에 오퍼레이터가 지금 누를 수 있는 액션 2개를 "액션: A | B" 형식으로.`
+};
+
+/* ---------- 데모 시나리오 (API 없을 때) ---------- */
+const DEMO = [
+  {a:"lucy", to:"SCOUT · FIREWALL", t:"지시 정리: 밀린 판정 7건을 처리 가능한 순서로 묶는다.\nSCOUT: 7건을 '지금 결정 가능 / 데이터 더 필요 / 9월 판정일에 합침' 3묶음으로 초안.\nFIREWALL: 백테스트 없이 임계값 건드리는 항목 있는지, V52 미기록 상태에서 판정 진행해도 되는지 검증."},
+  {a:"scout", t:"초안.\n① 지금 결정 가능: 저널 stats(수동매매 저널 18건 기준 통계 표시만, 봇 로직 무관), 공급 cap(현재 값 유지 여부만 확정).\n② 데이터 더 필요: ATR P2-17, RVOL — 둘 다 임계값 변경이라 백테스트 결과 붙여야 함. 9/2 V52 1차 백테스트 세션에 같이 태움.\n③ 9/16 V52 판정일에 합침: 나머지 3건은 패턴 판정과 의존성 있어서 같은 날.\n먼저 SCHEDULE_DECISIONS.md에 7건 다 '보류·사유·재판정일' 한 줄씩 기록.\n초안 끝, FIREWALL 검토 바람."},
+  {a:"fw", t:"[조건부]\n1. ②를 9/2에 태우는 건 반대 — 캘린더 메모대로 9/2는 표본 2주치뿐이라 그 결과로 ATR·RVOL 임계값 판정하면 '검증 안 된 지표 합산' 불변식 위반. 9/16으로 옮겨라.\n2. ①의 공급 cap '현재 값 유지'는 판정으로 인정 가능하나, '변경'으로 흐르면 백테스트 필요. 기록에 '유지 확정'이라고 명시.\n3. FLAGGED (6): V52가 문서에 없는데 V52 의존 판정을 잡는 건 순서 역전. 기록 첫 줄에 V52 등록부터 넣어라."},
+  {a:"scout", t:"반영.\n② ATR P2-17·RVOL → 9/16 V52 판정일로 이동, 9/2는 백테스트 '관찰'만.\n① 공급 cap → '현재 값 유지 확정'으로 표기.\n기록 순서: V52를 CLAUDE.md·VERIFICATION_BACKLOG에 등록 → 그 다음 7건 보류 기록.\n반영 완료."},
+  {a:"lucy", t:"결론: 지금 확정 2건(저널 stats, 공급 cap 유지), 나머지 5건은 9/16 한 세션으로 몰고 9/2는 관찰만. 선행 작업은 V52 문서 등록이고 이게 안 되면 나머지가 다 근거 없는 판정이 됨.\n액션: SCHEDULE_DECISIONS.md 초안 만들어 | V52 등록 프롬프트 뽑아줘", acts:["SCHEDULE_DECISIONS.md 초안 만들어","V52 등록 프롬프트 뽑아줘"]}
+];
+
+/* ---------- 캘린더 ---------- */
+(function(){
+  const cal=document.getElementById("cal");
+  ["SUN","MON","TUE","WED","THU","FRI","SAT"].forEach(d=>{const e=document.createElement("div");e.className="dow";e.textContent=d;cal.appendChild(e)});
+  const first=new Date(2026,8,1).getDay(); // 9월 1일 = 화
+  for(let i=0;i<first;i++){const e=document.createElement("div");e.className="d pad";cal.appendChild(e)}
+  for(let day=1;day<=30;day++){
+    const key="09-"+String(day).padStart(2,"0");
+    const ev=CTX.calendar.find(c=>c.d===key);
+    const e=document.createElement("div");e.className="d";e.textContent=String(day).padStart(2,"0");
+    if(ev){e.classList.add("ev");if(ev.blocked)e.classList.add("blk");if(ev.t.includes("주간"))e.classList.add("grn");
+      const t=document.createElement("div");t.className="t";t.textContent=ev.t;e.appendChild(t);
+      e.title=ev.note||ev.t;
+      e.onclick=()=>run(`9/${day} ${ev.t} 판정, 지금 상태로 갈 수 있는지 요약해`);}
+    cal.appendChild(e);
+  }
+})();
+
+/* ---------- 크루 엔진 ---------- */
+const thread=document.getElementById("thread"), inp=document.getElementById("inp"), sendBtn=document.getElementById("send"), modeEl=document.getElementById("mode");
+let busy=false, apiOK=null;
+const AV={lucy:document.querySelector("#c-lucy svg").outerHTML,scout:document.querySelector("#c-scout svg").outerHTML,fw:document.querySelector("#c-fw svg").outerHTML};
+
+function setCard(id,state){const map={lucy:"c-lucy",scout:"c-scout",fw:"c-fw"};document.querySelectorAll(".card").forEach(c=>{c.classList.remove("busy");c.querySelector(".st").textContent="IDLE"});
+  if(id){const c=document.getElementById(map[id]);c.classList.add("busy");c.querySelector(".st").textContent=state||"WORKING"}}
+
+function fmt(t){return t.replace(/^\[(승인|조건부|반려)\]/m,(m,k)=>`<span class="tag ${k==="승인"?"ok":k==="반려"?"no":"cond"}">${k}</span>`).replace(/^(결론:|초안\.|반영\.)/gm,"<b>$1</b>")}
+
+function add(who,text,opt={}){
+  const m=document.createElement("div");m.className="msg "+(who==="user"?"user":AGENTS[who].cls);
+  const av=who==="user"?"":`<div class="av">${AV[who]}</div>`;
+  const nm=who==="user"?"OPERATOR":AGENTS[who].name;
+  const to=opt.to?`<span class="to">${opt.to}</span>`:"";
+  let acts="";
+  if(opt.acts){acts=`<div class="acts">${opt.acts.map(a=>`<button onclick="run(${JSON.stringify(a)})">${a}</button>`).join("")}</div>`}
+  m.innerHTML=`${av}<div class="bd"><div class="nm">${nm}${to}</div><div class="tx">${who==="user"?text:fmt(text)}</div>${acts}</div>`;
+  thread.appendChild(m);thread.scrollTop=thread.scrollHeight;return m;
+}
+function typing(who){const t=document.createElement("div");t.className="typing";t.textContent=AGENTS[who].name+" 작성 중";thread.appendChild(t);thread.scrollTop=thread.scrollHeight;return t}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function callAgent(who,sysBuilder,transcript){
+  const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:sysBuilder(AGENTS[who]),messages:[{role:"user",content:transcript}]})});
+  if(!res.ok)throw new Error("HTTP "+res.status);
+  const data=await res.json();
+  return data.content.filter(c=>c.type==="text").map(c=>c.text).join("\n").trim();
+}
+
+function extractActs(t){const m=t.match(/액션:\s*(.+)$/m);return m?m[1].split("|").map(s=>s.trim()).filter(Boolean).slice(0,2):null}
+
+async function run(order){
+  if(busy)return; busy=true; sendBtn.disabled=true; inp.value="";
+  add("user",order);
+  const log=[`오퍼레이터 지시: ${order}`];
+  const steps=[["lucy",PROMPTS.lucy_open,"ROUTING"],["scout",PROMPTS.scout,"DRAFT"],["fw",PROMPTS.fw,"REVIEW"],["scout",PROMPTS.scout_fix,"REVISE"],["lucy",PROMPTS.lucy_close,"CLOSING"]];
+  if(apiOK!==false){
+    try{
+      for(const [who,p,st] of steps){
+        setCard(who,st);const ty=typing(who);
+        const out=await callAgent(who,p,log.join("\n\n"));
+        ty.remove();
+        const acts=who==="lucy"&&st==="CLOSING"?extractActs(out):null;
+        add(who,out.replace(/^액션:.*$/m,"").trim(),{to:st==="ROUTING"?"SCOUT · FIREWALL":st==="DRAFT"?"FIREWALL":st==="REVIEW"?"SCOUT":st==="REVISE"?"에렌":"",acts});
+        log.push(`${AGENTS[who].name}: ${out}`);
+      }
+      apiOK=true;modeEl.textContent="MODE · LIVE (claude-sonnet-4-6 × 5턴)";modeEl.className="mode live";
+      setCard(null);busy=false;sendBtn.disabled=false;return;
+    }catch(e){ apiOK=false; document.querySelectorAll(".typing").forEach(t=>t.remove()); }
+  }
+  modeEl.textContent="MODE · DEMO (API 연결 안 됨 · 시나리오 재생)";modeEl.className="mode demo";
+  for(const s of DEMO){setCard(s.a,"WORKING");const ty=typing(s.a);await sleep(900+Math.random()*700);ty.remove();add(s.a,s.t,{to:s.to,acts:s.acts});}
+  setCard(null);busy=false;sendBtn.disabled=false;
+}
+
+sendBtn.onclick=()=>{const v=inp.value.trim();if(v)run(v)};
+inp.addEventListener("keydown",e=>{if(e.key==="Enter"){const v=inp.value.trim();if(v)run(v)}});
+document.querySelectorAll("#chips button").forEach(b=>b.onclick=()=>run(b.textContent));
+
+/* 초기 화면: 밀린 판정 시나리오를 즉시 재생 (데모, 로딩 없이) */
+(function(){add("user","밀린 판정 7건 정리해");DEMO.forEach(s=>add(s.a,s.t,{to:s.to,acts:s.acts}));modeEl.textContent="MODE · 초기 시나리오 · SEND 하면 LIVE 시도";})();
+</script>
+</body>
+</html>

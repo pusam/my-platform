@@ -439,6 +439,28 @@ export const newsAPI = {
 };
 
 // Admin API
+// 판정 관제실 — 읽기 전용 조회 + AI 크루. 전 엔드포인트 ADMIN 전용(SecurityConfig URL 규칙).
+export const controlRoomAPI = {
+  // KPI + 판정 캘린더 + FLAGGED + 불변식. 계산은 전부 백엔드가 끝낸 상태로 온다.
+  getSnapshot(month) {
+    return apiClient.get('/control-room/snapshot', { params: month ? { month } : {} });
+  },
+
+  // 지시 1건 → 5턴 백그라운드 실행. 즉시 세션을 돌려주므로 이후는 폴링.
+  // 409=동시 실행 중 / 429=일일 상한 도달 — 둘 다 조용히 넘기지 말고 화면에 사유를 표시할 것.
+  startCrewSession(instruction) {
+    return apiClient.post('/control-room/crew/sessions', { instruction });
+  },
+
+  getCrewSession(id) {
+    return apiClient.get(`/control-room/crew/sessions/${id}`);
+  },
+
+  getCrewSessions() {
+    return apiClient.get('/control-room/crew/sessions');
+  }
+};
+
 export const adminAPI = {
   // 서버 상태 조회
   getServerStatus() {

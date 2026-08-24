@@ -161,6 +161,12 @@ public class SecurityConfig {
                         // Telegram 메시지 발송 — 운영자 전용. 일반 인증만이면 임의 사용자가 봇 알림 폭주 가능.
                         .requestMatchers("/api/telegram/**").hasRole("ADMIN")
 
+                        // 판정 관제실 — 운영자 전용 콘솔. 감사 플래그·불변식 같은 내부 상태를 노출하고
+                        // 크루 세션은 유료 LLM 호출이라 일반 인증만으로는 부족하다.
+                        // ⚠ 이 URL 규칙이 실제 게이트다 — ControlRoomController 의 @PreAuthorize 는
+                        //    @EnableMethodSecurity 가 없어 현재 동작하지 않는다(코드베이스 전체 동일).
+                        .requestMatchers("/api/control-room/**").hasRole("ADMIN")
+
                         // Admin API는 ADMIN 권한 필요
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/test/admin").hasRole("ADMIN")

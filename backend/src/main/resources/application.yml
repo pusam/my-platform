@@ -257,6 +257,30 @@ bot:
     reduced-factor: ${BOT_VOL_REGIME_REDUCED_FACTOR:0.5} # REDUCED 모드 사이즈 배수
     unknown-alert-days: ${BOT_VOL_REGIME_UNKNOWN_ALERT_DAYS:3}  # UNKNOWN 연속 N일 → risk 경보 1회(게이트는 fail-open 유지)
 
+# 판정 관제실 (Control Room) — 읽기 전용 조회 + AI 크루 레이어.
+# 봇/게이트/가격 경로/신호 합산 코드와 무관하며, 크루에겐 어떤 툴도 주지 않는다.
+control-room:
+  # 판정 캘린더·FLAGGED·불변식 문서를 읽을 외부 디렉터리(선택).
+  # 비우면 jar 안 classpath:control-room/ 을 쓴다 — 운영 기본값(재배포로만 갱신).
+  # 서버에서 재배포 없이 문서를 고쳐야 할 때만 볼륨을 마운트하고 이 값을 지정한다.
+  docs-dir: ${CONTROL_ROOM_DOCS_DIR:}
+  crew:
+    # 모델 ID — 하드코딩 금지. 기동 시 GET /v1/models 로 실재 확인하고, 없으면 크루만 DISABLED.
+    model: ${CONTROL_ROOM_CREW_MODEL:claude-opus-5}
+    # 하루 세션 상한(0 이하=무제한). 초과는 조용히 스킵하지 않고 429 로 거부 → 화면에 "일일 상한 도달".
+    daily-limit: ${CONTROL_ROOM_CREW_DAILY_LIMIT:30}
+    # 스냅샷 컨텍스트 UTF-8 바이트 상한. 초과 시 FLAGGED 를 중요도 낮은 순으로 잘라내고 "N건 생략" 표기.
+    context-limit-bytes: ${CONTROL_ROOM_CREW_CONTEXT_LIMIT_BYTES:8192}
+    # 턴당 출력 상한. Opus 5 는 adaptive thinking 이 기본 ON 이라 사고 토큰이 이 예산을 함께 쓴다 —
+    # 그래서 effort 를 low 로 낮춘다(안 그러면 사고에 먹혀 본문이 잘린다).
+    max-tokens: ${CONTROL_ROOM_CREW_MAX_TOKENS:1000}
+    effort: ${CONTROL_ROOM_CREW_EFFORT:low}
+    # FIREWALL 검토 턴만 예산·effort 상향 — 불변식 대조가 유일하게 판단 품질이 필요한 턴.
+    review-max-tokens: ${CONTROL_ROOM_CREW_REVIEW_MAX_TOKENS:2000}
+    review-effort: ${CONTROL_ROOM_CREW_REVIEW_EFFORT:medium}
+    # 미설정이면 크루만 비활성(앱 전체는 정상 기동).
+    api-key: ${ANTHROPIC_API_KEY:}
+
 # 뉴스 요약 Gemini 일간 호출 상한 — 쿼터 보호
 # 초과 시 Gemini 호출 없이 본문 앞부분만 summary 로 저장 (다음날 자동 리셋)
 news:
