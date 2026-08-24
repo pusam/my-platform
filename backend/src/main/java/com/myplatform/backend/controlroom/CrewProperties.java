@@ -33,17 +33,29 @@ public class CrewProperties {
     @Value("${control-room.crew.context-limit-bytes:8192}")
     private int contextLimitBytes;
 
-    /** 일반 턴(에렌 분배·SCOUT 초안·SCOUT 반영·에렌 결론) max_tokens. */
-    @Value("${control-room.crew.max-tokens:1000}")
+    /**
+     * 일반 턴(에렌 분배·SCOUT 초안·SCOUT 반영·에렌 결론) max_tokens.
+     *
+     * <p><b>4000 인 이유</b>: Opus 5 는 adaptive thinking 이 기본 ON 이고 <b>사고 토큰이 이 예산을
+     * 함께 쓴다</b>. 초기값 1000 으로 운영해보니 사고에 예산이 먹혀 본문이 <b>상시</b> 잘렸다
+     * (stop_reason=max_tokens). effort=low 로도 부족했다 — 실측 기반 상향(2026-08-24).
+     */
+    @Value("${control-room.crew.max-tokens:4000}")
     private int maxTokens;
 
-    /** FIREWALL 검토 턴 max_tokens — 불변식 대조라 여유를 더 준다. */
-    @Value("${control-room.crew.review-max-tokens:2000}")
+    /**
+     * FIREWALL 검토 턴 max_tokens — 불변식 대조라 사고량이 가장 많다.
+     *
+     * <p>초기값 2000 도 상시 잘려 8000 으로 올렸다. 일반 턴의 2배를 유지하는 건 이 턴만
+     * effort=medium 이라 사고 토큰 소비가 더 크기 때문이다.
+     */
+    @Value("${control-room.crew.review-max-tokens:8000}")
     private int reviewMaxTokens;
 
     /**
      * 일반 턴 effort. Claude Opus 5 는 adaptive thinking 이 기본 ON 이고 사고 토큰이 max_tokens 예산을
-     * 함께 쓴다 — effort 를 낮추지 않으면 1000 토큰이 사고에 먹혀 본문이 잘린다.
+     * 함께 쓴다 — effort 를 낮춰 사고 깊이를 제한한다. 다만 effort 만으로는 잘림을 못 막아
+     * max_tokens 도 함께 올렸다(2026-08-24 실측).
      */
     @Value("${control-room.crew.effort:low}")
     private String effort;

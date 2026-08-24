@@ -271,12 +271,14 @@ control-room:
     daily-limit: ${CONTROL_ROOM_CREW_DAILY_LIMIT:30}
     # 스냅샷 컨텍스트 UTF-8 바이트 상한. 초과 시 FLAGGED 를 중요도 낮은 순으로 잘라내고 "N건 생략" 표기.
     context-limit-bytes: ${CONTROL_ROOM_CREW_CONTEXT_LIMIT_BYTES:8192}
-    # 턴당 출력 상한. Opus 5 는 adaptive thinking 이 기본 ON 이라 사고 토큰이 이 예산을 함께 쓴다 —
-    # 그래서 effort 를 low 로 낮춘다(안 그러면 사고에 먹혀 본문이 잘린다).
-    max-tokens: ${CONTROL_ROOM_CREW_MAX_TOKENS:1000}
+    # 턴당 출력 상한. Opus 5 는 adaptive thinking 이 기본 ON 이라 **사고 토큰이 이 예산을 함께 쓴다**.
+    # 초기값 1000/2000 으로 운영해보니 사고에 먹혀 본문이 상시 잘렸다(stop_reason=max_tokens) —
+    # effort 를 낮춰도 부족해 2026-08-24 실측 기반으로 4000/8000 상향. effort 는 그대로 유지.
+    max-tokens: ${CONTROL_ROOM_CREW_MAX_TOKENS:4000}
     effort: ${CONTROL_ROOM_CREW_EFFORT:low}
-    # FIREWALL 검토 턴만 예산·effort 상향 — 불변식 대조가 유일하게 판단 품질이 필요한 턴.
-    review-max-tokens: ${CONTROL_ROOM_CREW_REVIEW_MAX_TOKENS:2000}
+    # FIREWALL 검토 턴만 예산·effort 상향 — 불변식 대조가 유일하게 판단 품질이 필요한 턴이라
+    # 사고 토큰 소비도 가장 크다.
+    review-max-tokens: ${CONTROL_ROOM_CREW_REVIEW_MAX_TOKENS:8000}
     review-effort: ${CONTROL_ROOM_CREW_REVIEW_EFFORT:medium}
     # 미설정이면 크루만 비활성(앱 전체는 정상 기동).
     api-key: ${ANTHROPIC_API_KEY:}
