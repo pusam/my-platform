@@ -19,7 +19,6 @@ import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -64,8 +63,9 @@ public class DartService {
     // ========== corpCode 캐시 ==========
     // DART 의 모든 기업 매핑 (corpCode.xml). 시작 시 다운로드 + 매일 06:00 갱신.
     // 기존엔 19개 종목만 하드코딩 매핑이라 매핑 실패 폭발 → 캐시로 정상화.
-    private final ConcurrentHashMap<String, String> corpCodeByStockCode = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, String> corpCodeByName = new ConcurrentHashMap<>();
+    // 읽는 쪽은 항상 완성된 스냅샷 하나만 본다 — 교체는 applyCorpCodeCaches 의 참조 갈아끼우기.
+    private volatile Map<String, String> corpCodeByStockCode = Map.of();
+    private volatile Map<String, String> corpCodeByName = Map.of();
     private volatile LocalDate corpCodeLoadedDate = null;
 
     public DartService() {
@@ -173,16 +173,32 @@ public class DartService {
                 }
             }
 
-            corpCodeByStockCode.clear();
-            corpCodeByStockCode.putAll(stockMap);
-            corpCodeByName.clear();
-            corpCodeByName.putAll(nameMap);
+            applyCorpCodeCaches(stockMap, nameMap);
             corpCodeLoadedDate = LocalDate.now();
             log.info("[DART] corpCode 캐시 로드 완료 — 상장코드 {}개, 회사명 {}개 ({}ms)",
                     stockMap.size(), nameMap.size(), System.currentTimeMillis() - startMs);
         } catch (Exception e) {
             log.error("[DART] corpCode 캐시 로드 실패: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * corpCode 캐시 원자 교체 — 불변 스냅샷을 만들어 참조만 갈아끼운다.
+     *
+     * <p>이전 구현은 살아있는 맵에 clear() 후 putAll() 이었다. 그 사이에 읽는 스레드는 빈 맵을
+     * 보고 corpCode 미해결(null) 로 떨어졌고, {@link #getCorpCodeByName} 의 2차 폴백은 하드코딩
+     * 20종목뿐이라 그 외 종목은 searchAllDisclosures(corp_cls=Y, KOSPI 한정) 로 흘러 KOSDAQ
+     * 공시가 "공시 없음"으로 조용히 위장됐다(CLAUDE.md 4c — 데이터 없음을 그럴듯한 값으로 위장 금지).
+     *
+     * <p>겹침은 우연이 아니다: 갱신은 06:00(batchScheduler), 읽는 쪽
+     * DartDisclosureMonitorService.checkAfterHoursDawn 은 cron "0 0 0-7 * * TUE-SAT"(cacheScheduler)
+     * 라 매 평일 새벽 같은 초에 병렬로 뜬다.
+     *
+     * <p>회귀: DartCorpCodeCacheSwapTest (수정 전 300회 교체 중 null 관측 1,153,932회).
+     */
+    void applyCorpCodeCaches(Map<String, String> stockMap, Map<String, String> nameMap) {
+        corpCodeByStockCode = Map.copyOf(stockMap);
+        corpCodeByName = Map.copyOf(nameMap);
     }
 
     private static String textOf(Element parent, String tag) {

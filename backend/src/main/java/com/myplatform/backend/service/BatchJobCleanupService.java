@@ -33,7 +33,16 @@ public class BatchJobCleanupService {
         this.recommendationSnapshotRepo = recommendationSnapshotRepo;
     }
 
-    @Scheduled(scheduler = "batchScheduler", cron = "0 0 3 * * MON-FRI", zone = "Asia/Seoul")
+    /**
+     * 배치 실행 이력 retention — 04:30 KST 평일.
+     *
+     * 부하 분산(2026-08-24): 03:00 -> 04:30. 같은 호스트의 jewelry-leads 백업 컨테이너가
+     * 03:00 정각에 pg_dump + 사진 수백MB tar + B2 업로드를 돌린다(디스크가 가장 바쁜 창).
+     * 04:30 은 그 창과 jewelry 발굴 배치(03:20~) 를 모두 지나고, 정각(매시 StockPriceService
+     * 캐시 정리·DART 새벽 모니터) 과도 겹치지 않는다. 매월 1일 04:00 jewelry CSV 임포트와는
+     * 겹칠 수 있으나 이쪽은 가벼운 DELETE 라 무해.
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "0 30 4 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void cleanOldExecutions() {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
@@ -42,14 +51,14 @@ public class BatchJobCleanupService {
     }
 
     /**
-     * 스냅샷 테이블 retention — 03:30 KST 평일.
+     * 스냅샷 테이블 retention — 04:40 KST 평일(2026-08-24, 03:30 에서 이동 — 위 주석 참조).
      * 무한 누적 → 쿼리 성능 저하 방지.
      * 기간 정책:
      * - 투자자 분단위 스냅샷: 30일 (장중 분석은 당일/주간만 사용)
      * - 시장 지표 스냅샷: 90일 (월간 트렌드 비교)
      * - 추천 스냅샷: 30일 (전일/전주 delta 비교)
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 30 3 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(scheduler = "batchScheduler", cron = "0 40 4 * * MON-FRI", zone = "Asia/Seoul")
     @Transactional
     public void cleanOldSnapshots() {
         LocalDate today = LocalDate.now();
