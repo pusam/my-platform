@@ -30,6 +30,8 @@ const StockDetailDashboard = () => import('./views/StockDetailDashboard.vue')
 const StockTradingDashboardV2 = () => import('./views/StockTradingDashboardV2.vue')
 const GlobalFuturesPage = () => import('./views/GlobalFuturesPage.vue')
 const BatchJobMonitor = () => import('./components/admin/BatchJobMonitor.vue')
+// 판정 관제실 — 운영자 전용 콘솔(주식 허브 탭이 아니라 별도 라우트).
+const ControlRoomView = () => import('./views/ControlRoomView.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -248,6 +250,16 @@ const router = createRouter({
       path: '/admin/batch',
       name: 'BatchJobMonitor',
       component: BatchJobMonitor,
+      meta: { requiresAuth: true, adminOnly: true }
+    },
+    {
+      // 판정 관제실 — 읽기 전용 운영 콘솔.
+      // ⚠ "새 주식 화면(라우트) 금지 → 탭/서브탭에 흡수" 규칙의 명시적 예외다. 관제실은 종목을
+      //   보는 주식 허브 화면이 아니라 판정/게이트/플래그를 보는 운영 콘솔이라 GNB 4탭에
+      //   들어갈 자리가 없다. 상세는 docs/CONTROL_ROOM.md.
+      path: '/control-room',
+      name: 'ControlRoom',
+      component: ControlRoomView,
       meta: { requiresAuth: true, adminOnly: true }
     }
   ]
