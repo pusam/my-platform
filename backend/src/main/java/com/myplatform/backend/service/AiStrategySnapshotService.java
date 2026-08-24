@@ -64,6 +64,7 @@ import java.util.stream.Collectors;
 public class AiStrategySnapshotService {
 
     private final AiStrategySnapshotRepository snapshotRepository;
+    private final MarketCalendarService marketCalendarService;
     private final QuantScreenerService quantScreenerService;
     private final StockPriceService stockPriceService;
     private final GeminiService geminiService;
@@ -336,17 +337,39 @@ public class AiStrategySnapshotService {
      */
     @Scheduled(scheduler = "cacheScheduler", cron = "0 50 6 * * *", zone = "Asia/Seoul")
     public void cleanupOldSnapshots() {
-        // 안전장치: 최근 24시간 내 스냅샷이 있을 때만 정리 실행
-        LocalDateTime recentCheck = DateTimeUtil.kstNow().minusHours(24);
+        // 안전장치: 스냅샷 생성이 살아있을 때만 정리한다 — 생성이 죽은 채로 정리만 계속 돌면
+        // 남아있는 데이터까지 7일 컷에 차례로 쓸려나간다.
+        LocalDateTime now = DateTimeUtil.kstNow();
         List<AiStrategySnapshot> recent = snapshotRepository.findLatestByStrategyType(StrategyType.SCALPING);
-        if (recent.isEmpty() || recent.get(0).getCreatedAt().isBefore(recentCheck)) {
-            log.error("[스냅샷 정리] 최근 24시간 내 스냅샷 없음 → 정리 중단 (데이터 보호)");
+        LocalDateTime latestAt = recent.isEmpty() ? null : recent.get(0).getCreatedAt();
+        LocalDate prevTradingDay = marketCalendarService.minusTradingDays(now.toLocalDate(), 1);
+        if (!snapshotPipelineAlive(latestAt, prevTradingDay)) {
+            log.error("[스냅샷 정리] 스냅샷 생성이 멈춘 것으로 보임 (최신 {} / 직전 거래일 {}) → 정리 중단 (데이터 보호)",
+                    latestAt, prevTradingDay);
             return;
         }
 
-        LocalDateTime cutoffTime = DateTimeUtil.kstNow().minusDays(7);
+        LocalDateTime cutoffTime = now.minusDays(7);
         int deleted = snapshotRepository.deleteOldSnapshots(cutoffTime);
         log.info("[스냅샷 정리] {}일 이전 데이터 {}건 삭제", 7, deleted);
+    }
+
+    /**
+     * 스냅샷 생성 파이프라인이 살아있는지 — 기준은 시계 24시간이 아니라 <b>직전 거래일</b>.
+     *
+     * <p>생성은 평일 장중만 돈다(cron "0 0,30 8-19 * * MON-FRI") — 한 주의 마지막 스냅샷은
+     * 금요일 19:30 이다. 반면 정리는 매일 06:50 이라, "최근 24시간" 기준이면 일요일·월요일
+     * 아침과 연휴 다음날엔 정상 상태인데도 걸려 정리가 중단되고 log.error 만 쌓였다(주 2회 고정).
+     * 직전 거래일치 스냅샷이 있으면 살아있는 것으로 본다 — 수급 노후 가드와 같은 잣대.
+     *
+     * <p>보호 목적은 그대로다: 직전 거래일치가 통째로 비었으면 생성이 멈춘 것이므로 정리를
+     * 중단한다(생성이 죽은 채 정리만 돌면 남은 데이터가 7일 컷에 차례로 쓸려나간다).
+     *
+     * <p>회귀: AiStrategySnapshotGuardTest.
+     */
+    static boolean snapshotPipelineAlive(LocalDateTime latestSnapshotAt, LocalDate previousTradingDay) {
+        if (latestSnapshotAt == null) return false;
+        return !latestSnapshotAt.toLocalDate().isBefore(previousTradingDay);
     }
 
     /**
