@@ -7,11 +7,13 @@ import com.myplatform.backend.entity.SignalWeeklyAccuracy;
 import com.myplatform.backend.entity.VirtualAccount;
 import com.myplatform.backend.repository.BotConfigRepository;
 import com.myplatform.backend.repository.CrewSessionRepository;
+import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalWeeklyAccuracyRepository;
 import com.myplatform.backend.repository.VirtualAccountRepository;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
 import com.myplatform.backend.service.DailyLossBreakerService;
 import com.myplatform.backend.service.JudgmentBoardService;
+import com.myplatform.backend.service.MarketCalendarService;
 import com.myplatform.backend.service.TradingSafetyService;
 import com.myplatform.backend.service.VolatilityRegimeService;
 import lombok.extern.slf4j.Slf4j;
@@ -78,6 +80,8 @@ public class ControlRoomSnapshotService {
     private final VirtualAccountRepository virtualAccountRepository;
     private final SignalWeeklyAccuracyRepository weeklyRepository;
     private final CrewSessionRepository crewSessionRepository;
+    private final RecommendationSnapshotRepository recommendationSnapshotRepository;
+    private final MarketCalendarService marketCalendar;
     private final CrewProperties crewProperties;
     private final CrewModelAvailability modelAvailability;
     private final Clock clock;
@@ -102,6 +106,8 @@ public class ControlRoomSnapshotService {
                                       VirtualAccountRepository virtualAccountRepository,
                                       SignalWeeklyAccuracyRepository weeklyRepository,
                                       CrewSessionRepository crewSessionRepository,
+                                      RecommendationSnapshotRepository recommendationSnapshotRepository,
+                                      MarketCalendarService marketCalendar,
                                       CrewProperties crewProperties,
                                       CrewModelAvailability modelAvailability,
                                       Clock clock) {
@@ -115,6 +121,8 @@ public class ControlRoomSnapshotService {
         this.virtualAccountRepository = virtualAccountRepository;
         this.weeklyRepository = weeklyRepository;
         this.crewSessionRepository = crewSessionRepository;
+        this.recommendationSnapshotRepository = recommendationSnapshotRepository;
+        this.marketCalendar = marketCalendar;
         this.crewProperties = crewProperties;
         this.modelAvailability = modelAvailability;
         this.clock = clock;
@@ -177,7 +185,16 @@ public class ControlRoomSnapshotService {
 
     // ==================== KPI ====================
 
-    /** 종합판단 보드(momentum) 후보를 등급별로 센다. 보드 조회 실패는 0 이 아니라 데이터 없음이다. */
+    /**
+     * 종합판단 보드(momentum) 후보를 등급별로 센다. 보드 조회 실패는 0 이 아니라 데이터 없음이다.
+     *
+     * <p><b>0 건일 때 이유를 함께 싣는다.</b> {@code JudgmentBoardService.getBoard} 는 후보 조회가
+     * 실패해도 예외를 삼키고 빈 목록을 돌려주기 때문에, 여기서 보면 "진짜 0건"·"조회 실패"·"입력 노후로
+     * 미채점"이 전부 같은 0 이다. 2026-08-24 에 실제로 그 상황이 났다 — 서버가 4일 다운돼 수급·가격이
+     * 8/20 에 멈췄고, 노후 가드가 §4c 대로 채점을 거부해 후보가 0 이 됐는데 화면엔 그냥 "0종목"만 떴다.
+     * 근본 해결(보드가 실패와 0건을 구분해 내려주기)은 그 서비스를 고쳐야 하므로 범위 밖이고,
+     * 여기서는 <b>추천 스냅샷 신선도를 곁들여 "왜 0인지"를 읽을 수 있게</b> 한다.
+     */
     private ControlRoomSnapshotDto.Candidates candidates() {
         try {
             JudgmentBoardDto board = judgmentBoardService.getBoard("momentum");
@@ -197,11 +214,49 @@ public class ControlRoomSnapshotService {
                     watch++;
                 }
             }
-            String note = rows.isEmpty() ? "보드 후보 없음" : null;
-            return new ControlRoomSnapshotDto.Candidates(true, rows.size(), strongBuy, buy, watch, note);
+
+            LocalDateTime latestSnapshotAt = latestSnapshotAt();
+            Boolean stale = snapshotStale(latestSnapshotAt);
+            return new ControlRoomSnapshotDto.Candidates(true, rows.size(), strongBuy, buy, watch,
+                    latestSnapshotAt, stale, emptyReason(rows.isEmpty(), latestSnapshotAt, stale));
         } catch (Exception e) {
             log.warn("[관제실] 종합판단 보드 조회 실패: {}", e.getMessage());
-            return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, "보드 조회 실패");
+            return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null, "보드 조회 실패");
+        }
+    }
+
+    /** 후보가 0 건일 때 화면·크루가 읽을 사유. 0 건이 아니면 null(불필요한 경고 문구 안 붙임). */
+    static String emptyReason(boolean empty, LocalDateTime latestSnapshotAt, Boolean stale) {
+        if (!empty) return null;
+        if (Boolean.TRUE.equals(stale)) {
+            return "후보 0건 — 추천 스냅샷이 " + latestSnapshotAt.toLocalDate()
+                    + " 로 노후. 입력이 노후하면 노후 가드가 채점을 거부하므로 0 으로 보인다(§4c 정상 동작).";
+        }
+        if (latestSnapshotAt == null) {
+            return "후보 0건 — 추천 스냅샷이 아예 없다. '후보 없음'과 '아직 계산 안 됨'을 구분할 수 없다.";
+        }
+        return "후보 0건 — 보드가 빈 결과를 반환했다. 보드는 조회 실패도 빈 목록으로 돌려주므로 "
+                + "'진짜 0건'과 '조회 실패'가 구분되지 않는다.";
+    }
+
+    private LocalDateTime latestSnapshotAt() {
+        try {
+            return recommendationSnapshotRepository.findMaxSnapshotAt().orElse(null);
+        } catch (Exception e) {
+            log.warn("[관제실] 추천 스냅샷 최신 시각 조회 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 최신 스냅샷이 직전 거래일보다 오래됐는가. 판정 불가면 null(false 로 위장하지 않는다). */
+    private Boolean snapshotStale(LocalDateTime latestSnapshotAt) {
+        if (latestSnapshotAt == null) return null;
+        try {
+            LocalDate previousTradingDay = marketCalendar.minusTradingDays(LocalDate.now(clock), 1);
+            return latestSnapshotAt.toLocalDate().isBefore(previousTradingDay);
+        } catch (Exception e) {
+            log.warn("[관제실] 직전 거래일 계산 실패: {}", e.getMessage());
+            return null;
         }
     }
 

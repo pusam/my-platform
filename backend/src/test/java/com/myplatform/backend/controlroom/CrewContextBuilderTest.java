@@ -96,7 +96,7 @@ class CrewContextBuilderTest {
         ControlRoomSnapshotDto s = new ControlRoomSnapshotDto(
                 TODAY, LocalDateTime.of(2026, 8, 24, 10, 0), "2026-08",
                 new ControlRoomSnapshotDto.Kpis(
-                        new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, "보드 조회 실패"),
+                        new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null, "보드 조회 실패"),
                         new ControlRoomSnapshotDto.Gates(false, 0, 0, List.of()),
                         new ControlRoomSnapshotDto.LossBreaker(false, null, null, null, null, null, null),
                         new ControlRoomSnapshotDto.VolRegime(false, null, null, "VKOSPI 미수집"),
@@ -129,7 +129,8 @@ class CrewContextBuilderTest {
 
     private static ControlRoomSnapshotDto.Kpis kpis() {
         return new ControlRoomSnapshotDto.Kpis(
-                new ControlRoomSnapshotDto.Candidates(true, 3, 1, 0, 2, null),
+                new ControlRoomSnapshotDto.Candidates(true, 3, 1, 0, 2,
+                        LocalDateTime.of(2026, 8, 24, 11, 30), false, null),
                 new ControlRoomSnapshotDto.Gates(true, 3, 5, List.of(
                         new ControlRoomSnapshotDto.Gate("kill-switch", "킬스위치", "OPEN", "정상"),
                         new ControlRoomSnapshotDto.Gate("nxt-routing", "NXT 주문 라우팅", "CLOSED", "flag OFF"))),

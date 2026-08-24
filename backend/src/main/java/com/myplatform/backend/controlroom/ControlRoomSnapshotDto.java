@@ -36,6 +36,14 @@ public record ControlRoomSnapshotDto(
      * 종합판단 보드 후보 등급 분포.
      *
      * <p>등급 컷은 CLAUDE.md §4 기준(STRONG_BUY 75 / BUY 55). 표시 전용이며 산식에 관여하지 않는다.
+     *
+     * <p><b>total=0 은 그 자체로 정보가 부족하다</b>(2026-08-24 실측에서 드러남): "정말 후보가 없다" ·
+     * "보드 조회가 실패했다"({@code JudgmentBoardService} 가 예외를 삼키고 빈 목록을 돌려준다) ·
+     * "입력이 노후라 노후 가드가 채점을 거부했다" 가 화면에서 전부 같은 0 으로 보인다.
+     * 그래서 추천 스냅샷 신선도를 함께 실어 보내고 {@code note} 로 그 사실을 명시한다.
+     *
+     * @param latestSnapshotAt 추천 스냅샷 최신 시각. null = 스냅샷 자체가 없음
+     * @param snapshotStale    최신 스냅샷이 직전 거래일보다 오래됐는지. null = 판정 불가(스냅샷 없음/조회 실패)
      */
     public record Candidates(
             boolean dataAvailable,
@@ -43,6 +51,8 @@ public record ControlRoomSnapshotDto(
             int strongBuy,
             int buy,
             int watch,
+            LocalDateTime latestSnapshotAt,
+            Boolean snapshotStale,
             String note
     ) {}
 
