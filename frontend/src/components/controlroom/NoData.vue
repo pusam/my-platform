@@ -26,8 +26,7 @@ defineProps({
 }
 
 .nd-title {
-  font-family: var(--cr-mono);
-  font-size: 12px;
+    font-size: 12px;
   letter-spacing: 0.12em;
 }
 

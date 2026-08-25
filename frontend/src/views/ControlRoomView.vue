@@ -257,17 +257,27 @@ onBeforeUnmount(stopPolling)
   --cr-amb: #ffb43a;
   --cr-red: #ff4d6d;
   --cr-tx: #ebe4ff;
-  --cr-mut: #7e71ad;
-  --cr-dim: #4a3f73;
-  --cr-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'D2Coding', monospace;
+  --cr-mut: #8f81be;   /* 목업 #7e71ad 에서 올림 — 가독 */
+  --cr-dim: #5b4f88;
 
   display: grid;
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: 1fr 400px;
   height: 100vh;
   overflow: hidden;
   background: var(--cr-bg);
   color: var(--cr-tx);
-  font-size: 13px;
+  font-size: 14px;
+}
+
+/*
+ * 폰트는 앱 기본을 그대로 상속한다. 목업은 JetBrains Mono 를 쓰지만 설치돼 있지 않은 기기에선
+ * 폴백 폰트마다 자간이 달라져 오히려 들쭉날쭉해진다. "계기판" 인상은 폰트가 아니라
+ * 대문자 + 자간(.eyebrow) 과 tabular-nums 로 낸다.
+ *
+ * 숫자는 자리폭 고정 — 폴링으로 값이 바뀌어도 칸이 밀리지 않는다.
+ */
+.control-room :is(.v, .s, .dday, .cal, .legend, .mode, .meta, .snap) {
+  font-variant-numeric: tabular-nums;
 }
 
 main {
@@ -290,7 +300,6 @@ main {
 .head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .cycle {
   color: var(--cr-grn);
-  font-family: var(--cr-mono);
   font-size: 11px;
   letter-spacing: 0.2em;
   margin-bottom: 6px;
@@ -314,7 +323,6 @@ main {
   border: 1px solid var(--cr-line);
   color: var(--cr-tx);
   padding: 8px 12px;
-  font-family: var(--cr-mono);
   font-size: 12px;
 }
 .refresh {
@@ -332,7 +340,6 @@ main {
   border: 1px solid var(--cr-red);
   color: var(--cr-red);
   padding: 8px 14px;
-  font-family: var(--cr-mono);
 }
 .dday b { font-size: 16px; margin-right: 8px; }
 .dday span { font-size: 11px; color: #ff9db0; }
@@ -354,10 +361,37 @@ main {
   line-height: 1.6;
 }
 .foot-note b { color: var(--cr-mut); }
-.foot-note .gen { margin-left: 10px; font-family: var(--cr-mono); }
+.foot-note .gen { margin-left: 10px; }
+
+/*
+ * 반응형 4단계 — 1400 크루 폭↓ · 1100 크루 아래로 · 900 캘린더/FLAGGED 세로 · 720 모바일.
+ * 단계를 촘촘히 두는 이유는 중간 폭에서 크루 패널이 먼저 찌그러지며 스레드가 못 읽게 되기 때문이다.
+ */
+@media (max-width: 1400px) {
+  .control-room { grid-template-columns: 1fr 350px; }
+  .row { grid-template-columns: 1fr 300px; }
+}
 
 @media (max-width: 1100px) {
   .control-room { grid-template-columns: 1fr; height: auto; overflow: auto; }
   .row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 720px) {
+  .control-room { font-size: 13px; }
+  main { padding: 14px 14px 18px; }
+  .head h1 { font-size: 20px; }
+  .head-l { flex-wrap: wrap; gap: 10px; }
+  .head-r { width: 100%; }
+}
+
+/* 움직임 최소화 설정 존중 — 깜빡이는 상태 표시가 접근성 문제가 되지 않게 */
+@media (prefers-reduced-motion: reduce) {
+  .control-room *,
+  .control-room *::before,
+  .control-room *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 </style>

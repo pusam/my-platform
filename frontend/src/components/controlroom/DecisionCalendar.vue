@@ -140,7 +140,8 @@ function cellTitle(cell) {
 .panel {
   background: var(--cr-panel);
   border: 1px solid var(--cr-line);
-  padding: 16px;
+  padding: 17px;
+  min-width: 0;
 }
 
 .ph {
@@ -150,7 +151,7 @@ function cellTitle(cell) {
   margin-bottom: 12px;
   gap: 10px;
 }
-.ph b { font-family: var(--cr-mono); font-size: 12px; letter-spacing: 0.2em; }
+.ph b { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; }
 .ph span { font-size: 11px; color: var(--cr-mut); }
 
 .overdue {
@@ -164,11 +165,10 @@ function cellTitle(cell) {
   margin-bottom: 10px;
   font-size: 12px;
 }
-.overdue b { font-family: var(--cr-mono); color: var(--cr-red); }
+.overdue b { color: var(--cr-red); }
 .overdue .chips { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
 .overdue .chips button {
-  font-family: var(--cr-mono);
-  font-size: 10px;
+    font-size: 10px;
   border: 1px solid var(--cr-red);
   color: var(--cr-red);
   background: transparent;
@@ -176,7 +176,7 @@ function cellTitle(cell) {
   cursor: pointer;
 }
 .overdue .chips button:hover { background: rgba(255, 77, 109, 0.18); }
-.overdue .more { font-family: var(--cr-mono); font-size: 10px; color: var(--cr-red); }
+.overdue .more { font-size: 10px; color: var(--cr-red); }
 
 .cond-row {
   display: flex;
@@ -189,14 +189,13 @@ function cellTitle(cell) {
   margin-bottom: 10px;
   font-size: 11.5px;
 }
-.cond-row b { font-family: var(--cr-mono); color: var(--cr-amb); }
+.cond-row b { color: var(--cr-amb); }
 .cond-item { color: var(--cr-tx); }
 .cond-item em { color: var(--cr-mut); font-style: normal; }
 
 .cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
 .dow {
-  font-family: var(--cr-mono);
-  font-size: 10px;
+    font-size: 10px;
   letter-spacing: 0.14em;
   color: var(--cr-mut);
   text-align: center;
@@ -205,13 +204,12 @@ function cellTitle(cell) {
 .dow:first-child { color: var(--cr-mag); }
 
 .d {
-  aspect-ratio: 1.35;
+  aspect-ratio: 1.25;
   background: var(--cr-panel2);
   border: 1px solid transparent;
   position: relative;
   padding: 6px;
-  font-family: var(--cr-mono);
-  font-size: 11px;
+    font-size: 11px;
   color: var(--cr-dim);
   cursor: pointer;
   text-align: left;
@@ -232,9 +230,9 @@ function cellTitle(cell) {
 .d .t {
   position: absolute;
   left: 6px;
-  bottom: 5px;
+  bottom: 4px;
   right: 6px;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.3;
   color: inherit;
   opacity: 0.9;
@@ -248,8 +246,7 @@ function cellTitle(cell) {
   gap: 14px;
   flex-wrap: wrap;
   margin-top: 10px;
-  font-family: var(--cr-mono);
-  font-size: 10px;
+    font-size: 10px;
   color: var(--cr-mut);
 }
 .legend i {
@@ -268,7 +265,7 @@ function cellTitle(cell) {
 
 .foot {
   margin-top: 10px;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.55;
   color: var(--cr-dim);
 }

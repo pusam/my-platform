@@ -67,7 +67,8 @@ function askText(flag) {
 .panel {
   background: var(--cr-panel);
   border: 1px solid var(--cr-line);
-  padding: 16px;
+  padding: 17px;
+  min-width: 0;
 }
 
 .ph {
@@ -76,12 +77,19 @@ function askText(flag) {
   align-items: baseline;
   margin-bottom: 12px;
 }
-.ph b { font-family: var(--cr-mono); font-size: 12px; letter-spacing: 0.2em; }
+.ph b { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; }
 .ph span { font-size: 11px; color: var(--cr-mut); }
 
-.empty { font-size: 11.5px; color: var(--cr-mut); }
+.empty { font-size: 12px; color: var(--cr-mut); }
 
-.flag-list { display: flex; flex-direction: column; gap: 10px; }
+/* 항목이 늘어도 패널이 무한히 길어지지 않게 — 좁은 화면에선 페이지 스크롤 하나로 합친다 */
+.flag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(560px, 58dvh);
+  overflow-y: auto;
+}
 
 .flag {
   border-left: 3px solid var(--cr-red);
@@ -93,14 +101,12 @@ function askText(flag) {
 
 .flag b { display: block; font-size: 12.5px; margin-bottom: 3px; line-height: 1.4; }
 .flag .k {
-  font-family: var(--cr-mono);
-  font-size: 10px;
+    font-size: 10px;
   color: var(--cr-vio);
   margin-left: 6px;
 }
 .flag .derived {
-  font-family: var(--cr-mono);
-  font-size: 9px;
+    font-size: 9px;
   letter-spacing: 0.1em;
   color: var(--cr-cyn);
   border: 1px solid var(--cr-cyn);
@@ -108,15 +114,14 @@ function askText(flag) {
   margin-left: 6px;
 }
 
-.flag p { font-size: 11px; color: var(--cr-mut); line-height: 1.55; }
+.flag p { font-size: 11.5px; color: var(--cr-mut); line-height: 1.55; margin: 0; }
 
 .meta {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 5px;
-  font-family: var(--cr-mono);
-  font-size: 9.5px;
+    font-size: 9.5px;
   color: var(--cr-dim);
 }
 .meta .stale { color: var(--cr-amb); }
@@ -132,4 +137,9 @@ function askText(flag) {
   cursor: pointer;
 }
 .ask:hover { border-color: var(--cr-vio); }
+
+@media (max-width: 900px) {
+  /* 중첩 스크롤 방지 — 페이지 스크롤 하나로 */
+  .flag-list { max-height: none; }
+}
 </style>

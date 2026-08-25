@@ -66,7 +66,7 @@ describe('CrewPanel — 비활성 사유 노출', () => {
       }
     })
 
-    const btn = w.find('.crew-disabled .verify')
+    const btn = w.find('.verify')
     expect(btn.exists()).toBe(true)
     expect(btn.text()).toContain('모델 재확인')
 
@@ -83,7 +83,7 @@ describe('CrewPanel — 비활성 사유 노출', () => {
       }
     })
 
-    const btn = w.find('.crew-disabled .verify')
+    const btn = w.find('.verify')
     expect(btn.attributes('disabled')).toBeDefined()
     expect(btn.text()).toContain('확인 중')
   })
@@ -91,8 +91,9 @@ describe('CrewPanel — 비활성 사유 노출', () => {
   it('크루가 정상이면 비활성 박스도 재확인 버튼도 없다', () => {
     const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null } })
 
-    expect(w.find('.crew-disabled').exists()).toBe(false)
     expect(w.find('.verify').exists()).toBe(false)
+    expect(w.find('.state').classes()).not.toContain('warn')
+    expect(w.find('.live').text()).toBe('ONLINE')
   })
 
   it('비활성이면 퀵칩도 눌리지 않는다', () => {
@@ -118,7 +119,8 @@ describe('CrewPanel — 실패/잘림 상태', () => {
       }
     })
 
-    expect(w.find('.failed').exists()).toBe(true)
+    expect(w.find('.state').classes()).toContain('err')
+    expect(w.find('.live').text()).toBe('FAILED')
     expect(w.text()).toContain('턴 3 실패')
     expect(w.text()).toContain('자동 재시도하지 않는다')
   })
@@ -194,8 +196,13 @@ describe('CrewPanel — 진행 표시', () => {
 
     // 에렌(ROUTING) 이 끝났으니 다음은 SCOUT(DRAFT)
     expect(w.find('.card.scout').classes()).toContain('busy')
-    expect(w.find('.typing').text()).toContain('SCOUT')
-    expect(w.find('.typing').text()).toContain('1/5')
+    expect(w.find('.state').text()).toContain('SCOUT')
+    expect(w.find('.state').text()).toContain('1/5')
+    // 5턴 막대: 1칸 완료, 2번째가 진행 중
+    const steps = w.findAll('.steps i')
+    expect(steps).toHaveLength(5)
+    expect(steps[0].classes()).toContain('done')
+    expect(steps[1].classes()).toContain('now')
   })
 
   it('RUNNING 중에는 새 지시를 보낼 수 없다 (동시 1건)', () => {
@@ -203,6 +210,42 @@ describe('CrewPanel — 진행 표시', () => {
       props: { crew: ENABLED_CREW, session: completedSession({ status: 'RUNNING', actions: [] }) }
     })
     expect(w.find('.in button').attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('CrewPanel — 상태 줄은 어떤 상황에서도 한 줄 찍힌다', () => {
+  it('세션이 없어도 대기 상태를 설명한다 (빈 화면 금지)', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null } })
+
+    expect(w.find('.state').exists()).toBe(true)
+    expect(w.find('.state').text()).toContain('대기')
+    expect(w.find('.state').text()).toContain('5턴')
+  })
+
+  it('완료 세션도 상태 줄을 남긴다', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: completedSession() } })
+
+    expect(w.find('.state').classes()).toContain('done')
+    expect(w.find('.state').text()).toContain('완료')
+  })
+
+  it('일일 사용량이 상한에 가까우면 배지 색이 올라간다', () => {
+    const near = mount(CrewPanel, {
+      props: { crew: { ...ENABLED_CREW, usedToday: 25, dailyLimit: 30 }, session: null }
+    })
+    expect(near.find('.daily').classes()).toContain('near')
+
+    const hot = mount(CrewPanel, {
+      props: { crew: { ...ENABLED_CREW, usedToday: 30, dailyLimit: 30 }, session: null }
+    })
+    expect(hot.find('.daily').classes()).toContain('hot')
+  })
+
+  it('상한이 0 이하면 무제한이라 배지를 숨긴다', () => {
+    const w = mount(CrewPanel, {
+      props: { crew: { ...ENABLED_CREW, dailyLimit: 0 }, session: null }
+    })
+    expect(w.find('.daily').exists()).toBe(false)
   })
 })
 

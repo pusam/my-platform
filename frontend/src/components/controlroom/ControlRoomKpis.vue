@@ -3,6 +3,7 @@
     <!-- ① 종합판단 후보 -->
     <div class="kpi" :class="{ alert: candidatesSuspect }">
       <div class="eyebrow">종합판단 후보</div>
+      <span class="basis">momentum 보드 · 컷 75/55</span>
       <template v-if="candidates && candidates.dataAvailable">
         <div class="v">{{ candidates.total }}<small>종목</small></div>
         <div class="s">
@@ -23,6 +24,7 @@
     <!-- ② 봇 게이트 -->
     <div class="kpi" :class="{ alert: gatesHasClosed, ok: gatesAllOpen }">
       <div class="eyebrow">봇 게이트</div>
+      <span class="basis">설정·DB 읽기 · KIS 미호출</span>
       <template v-if="gates && gates.dataAvailable">
         <div class="v">{{ gates.open }}<small>/{{ gates.total }}</small></div>
         <div class="bar">
@@ -46,8 +48,9 @@
     <!-- ③ 일일손실 서킷 (원 단위 — 자산 % 킬스위치와 별개 장치) -->
     <div class="kpi" :class="{ alert: breaker && breaker.trippedToday }">
       <div class="eyebrow">일일손실 서킷</div>
+      <span class="basis">당일 확정 매도만 · 원 단위</span>
       <template v-if="breaker && breaker.dataAvailable">
-        <div class="v" :class="{ small: pnlText === null }">
+        <div class="v" :class="{ none: pnlText === null }">
           <template v-if="pnlText !== null">{{ pnlText }}</template>
           <template v-else>조회 실패</template>
         </div>
@@ -68,8 +71,9 @@
     <!-- ④ VKOSPI 레짐 -->
     <div class="kpi">
       <div class="eyebrow">VKOSPI 레짐</div>
+      <span class="basis">252일 백분위 상위 10%</span>
       <template v-if="volRegime && volRegime.dataAvailable">
-        <div class="v small">{{ volRegime.regime }}</div>
+        <div class="v word">{{ volRegime.regime }}</div>
         <div class="s">게이트 mode={{ volRegime.gateMode }}</div>
       </template>
       <NoData v-else :reason="volRegime && volRegime.note" />
@@ -78,6 +82,7 @@
     <!-- ⑤ 미판정 -->
     <div class="kpi" :class="{ alert: undecided && undecided.dataAvailable && undecided.count > 0 }">
       <div class="eyebrow">미판정</div>
+      <span class="basis">SCHEDULE_DECISIONS 판정 기록 표</span>
       <template v-if="undecided && undecided.dataAvailable">
         <div class="v">{{ undecided.count }}<small>건</small></div>
         <div class="s">전체 안건 {{ undecided.rosterSize }}건 중 판정 기록 없음</div>
@@ -157,9 +162,9 @@ const headroomText = computed(() => {
 .kpi {
   background: var(--cr-panel);
   border: 1px solid var(--cr-line);
-  padding: 14px 16px;
+  padding: 15px 17px;
   position: relative;
-  min-height: 108px;
+  min-height: 124px;
 }
 
 /* 목업의 코너 마커 — 장식이지만 패널 경계를 읽기 쉽게 만든다 */
@@ -178,35 +183,51 @@ const headroomText = computed(() => {
 .kpi.alert { border-color: var(--cr-red); }
 .kpi.alert::before,
 .kpi.alert::after { border-color: var(--cr-red); }
+.kpi.warn { border-color: var(--cr-amb); }
+.kpi.warn::before,
+.kpi.warn::after { border-color: var(--cr-amb); }
 .kpi.ok::before,
 .kpi.ok::after { border-color: var(--cr-grn); }
 
 .eyebrow {
-  font-family: var(--cr-mono);
-  font-size: 10px;
+    font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--cr-mut);
 }
 
 .v {
-  font-family: var(--cr-mono);
-  font-size: 26px;
-  margin: 6px 0 4px;
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 7px 0 4px;
   color: #fff;
+  letter-spacing: -0.01em;
   word-break: keep-all;
 }
-.v.small { font-size: 17px; padding-top: 5px; }
-.v small { font-size: 12px; color: var(--cr-mut); margin-left: 4px; }
+/* 숫자가 아닌 값(국면명 등) */
+.v.word { font-size: 20px; padding-top: 6px; letter-spacing: 0; }
+/* 값을 못 읽은 자리 — 숫자처럼 크게 두면 0 과 혼동된다 */
+.v.none { font-size: 19px; padding-top: 6px; color: var(--cr-mut); letter-spacing: 0; }
+.v small { font-size: 13px; color: var(--cr-mut); margin-left: 4px; letter-spacing: 0; }
 .kpi.alert .v { color: var(--cr-red); }
+.kpi.warn .v { color: var(--cr-amb); }
+
+/* 라벨 밑 기준 표기 — "무엇을 센 숫자인지"를 숫자 옆에 붙여둔다 */
+.basis {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--cr-dim);
+}
 
 .s {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--cr-mut);
-  line-height: 1.5;
+  line-height: 1.45;
 }
 .s.note { color: var(--cr-amb); margin-top: 3px; line-height: 1.5; }
-.s.snap { margin-top: 2px; font-family: var(--cr-mono); font-size: 10px; }
+.s.snap { margin-top: 2px; font-size: 10px; }
 .s.snap.stale { color: var(--cr-amb); }
 
 .bar { display: flex; gap: 2px; margin-top: 8px; }
@@ -218,7 +239,23 @@ const headroomText = computed(() => {
 .gate-list { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .gate-closed { color: var(--cr-red); }
 
+@media (max-width: 1400px) {
+  .v { font-size: 27px; }
+}
+
 @media (max-width: 1100px) {
-  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 720px) {
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpi { padding: 12px 13px; min-height: 108px; }
+  .v { font-size: 24px; }
+}
+
+@media (max-width: 420px) {
+  .kpi { padding: 11px; min-height: 98px; }
+  .v { font-size: 21px; }
+  .basis { font-size: 9px; }
 }
 </style>

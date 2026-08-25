@@ -2,68 +2,53 @@
   <section class="crew">
     <div class="crew-h">
       <b>CREW</b>
-      <span v-if="crew && crew.enabled" class="on">ONLINE</span>
-      <span v-else class="off">OFFLINE</span>
-    </div>
-
-    <!-- 크루를 못 쓰는 상태는 버튼만 죽이지 않고 이유를 반드시 보여준다 -->
-    <div v-if="crew && !crew.enabled" class="crew-disabled">
-      <b>크루 비활성</b>
-      <p>{{ crew.disabledReason || '사유 미상' }}</p>
       <!--
-        키/모델을 고친 뒤 컨테이너 재시작 없이 재검증한다. 기동 시 1회만 확인하던 구조에선
-        키 오타 한 번에 재시작 왕복이 필요했다.
+        상태 점은 좌측(제목 옆)에 둔다. App.vue 가 NotificationBell 을 전역 fixed 로 우상단에
+        띄우기 때문에 오른쪽 끝에 두면 벨이 덮어 ONLINE/OFFLINE 을 못 읽는다.
       -->
-      <button type="button" class="verify" :disabled="verifying" @click="$emit('verify')">
-        {{ verifying ? '확인 중…' : '모델 재확인' }}
-      </button>
+      <span class="live" :class="liveClass">{{ liveText }}</span>
+      <span v-if="dailyText" class="daily" :class="dailyClass">{{ dailyText }}</span>
     </div>
 
     <div class="cards">
-      <div v-for="agent in AGENTS" :key="agent.key" class="card" :class="[agent.key, { busy: busyAgent === agent.key }]">
+      <div
+        v-for="agent in AGENTS"
+        :key="agent.key"
+        class="card"
+        :class="[agent.key, { busy: busyAgent === agent.key, off: !crewEnabled }]"
+      >
         <span class="st">{{ busyAgent === agent.key ? busyPhase : 'IDLE' }}</span>
-        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
-          <template v-if="agent.key === 'eren'">
-            <circle cx="24" cy="18" r="9" />
-            <path d="M8 42c2-9 8-13 16-13s14 4 16 13" />
-            <path d="M18 16h12M20 20h8" class="accent" />
-          </template>
-          <template v-else-if="agent.key === 'scout'">
-            <circle cx="21" cy="21" r="11" />
-            <path d="M29 29l10 10" />
-            <path d="M15 21h12M21 15v12" class="accent" />
-          </template>
-          <template v-else>
-            <path d="M24 6l14 5v12c0 9-6 15-14 19-8-4-14-10-14-19V11z" />
-            <path d="M17 24l5 5 9-10" />
-          </template>
-        </svg>
         <b>{{ agent.name }}</b>
         <small>{{ agent.role }}</small>
       </div>
     </div>
 
+    <!-- 5턴 진행 막대 — 지금 몇 번째 턴인지 항상 보인다 -->
+    <div class="steps" :title="`5턴 중 ${doneTurns}턴 완료`">
+      <i v-for="(step, i) in STEPS" :key="step.phase" :class="stepClass(i)"></i>
+    </div>
+
+    <!--
+      상태 줄 — 어떤 상황에서도 반드시 한 줄이 찍힌다(빈 화면 금지).
+      비활성 사유·실행 중 턴·실패 사유가 전부 여기로 모인다.
+    -->
+    <div class="state" :class="stateClass">
+      <b>{{ stateText }}</b>
+      <span v-if="stateSub" class="sub">{{ stateSub }}</span>
+      <button v-if="!crewEnabled" type="button" class="verify" :disabled="verifying" @click="$emit('verify')">
+        {{ verifying ? '확인 중…' : '모델 재확인' }}
+      </button>
+    </div>
+
     <div ref="threadEl" class="thread">
       <p v-if="!session" class="thread-empty">
-        아래에 지시를 적거나 캘린더 날짜를 누르면 크루가 5턴으로 검토한다.<br />
+        지시를 적거나 캘린더 날짜를 누르면 크루가 5턴으로 검토한다.<br />
         결론은 <b>제안</b>이고 실행은 사람이 한다 — 크루는 아무것도 바꾸지 못한다.
       </p>
 
       <template v-else>
         <div v-for="msg in session.messages" :key="msg.turnNo" class="msg" :class="agentClass(msg.agent)">
-          <div v-if="msg.agent !== 'OPERATOR'" class="av" aria-hidden="true">
-            <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2">
-              <template v-if="msg.agent === 'EREN'">
-                <circle cx="24" cy="18" r="9" /><path d="M8 42c2-9 8-13 16-13s14 4 16 13" />
-              </template>
-              <template v-else-if="msg.agent === 'SCOUT'">
-                <circle cx="21" cy="21" r="11" /><path d="M29 29l10 10" />
-              </template>
-              <template v-else>
-                <path d="M24 6l14 5v12c0 9-6 15-14 19-8-4-14-10-14-19V11z" />
-              </template>
-            </svg>
-          </div>
+          <div v-if="msg.agent !== 'OPERATOR'" class="av" aria-hidden="true">{{ initial(msg.agent) }}</div>
           <div class="bd">
             <div class="nm">
               {{ msg.displayName }}
@@ -73,6 +58,10 @@
               </span>
             </div>
             <div class="tx" v-html="renderContent(msg.content, msg.phase)"></div>
+
+            <div v-if="msg.outputTokens != null" class="meta">
+              {{ msg.model }} · effort {{ msg.effort }} · out {{ msg.outputTokens }}/{{ msg.maxTokens }}
+            </div>
 
             <!-- 액션 버튼 = 새 지시를 보내는 것뿐. 아무것도 실행하지 않는다. -->
             <div v-if="isClosing(msg) && session.actions.length" class="acts">
@@ -88,17 +77,6 @@
               <span class="acts-note">버튼은 새 지시를 보낼 뿐 실행하지 않는다</span>
             </div>
           </div>
-        </div>
-
-        <div v-if="session.status === 'RUNNING'" class="typing">
-          {{ busyName }} 작성 중 ({{ doneTurns }}/{{ session.totalTurns }})
-        </div>
-
-        <!-- 실패는 조용히 멈추지 않고 사유를 그대로 노출한다. 자동 재시도 없음. -->
-        <div v-if="session.status === 'FAILED'" class="failed">
-          <b>크루 세션 실패</b>
-          <p>{{ session.failureReason || '사유 미상' }}</p>
-          <p class="hint">자동 재시도하지 않는다 — 필요하면 지시를 다시 보내라.</p>
         </div>
 
         <div v-if="session.omittedFlags > 0" class="omitted">
@@ -135,7 +113,7 @@
         <button type="button" :disabled="!canSend || !draft.trim()" @click="submit">SEND</button>
       </div>
 
-      <div class="mode" :class="modeClass">{{ modeText }}</div>
+      <div class="mode">{{ modeText }}</div>
     </div>
   </section>
 </template>
@@ -144,10 +122,11 @@
 /**
  * CREW 패널 — 에렌 / SCOUT / FIREWALL 이 5턴으로 초안→검토→반영→결론을 만든다.
  *
- * 화면이 지켜야 할 것 3가지:
+ * 화면이 지켜야 할 것:
  *  ① 크루가 비활성이면 버튼만 죽이지 말고 **사유를 보여준다**(키 없음/모델 없음/상한 도달).
  *  ② 세션 실패는 조용히 끝내지 않고 failureReason 을 그대로 노출한다. 자동 재시도는 없다.
  *  ③ 액션 버튼은 **새 지시를 보내는 것뿐**이고 무엇도 실행하지 않는다 — 문구로도 못박는다.
+ *  ④ **어떤 상태에서도 상태 줄 한 줄은 반드시 찍힌다** — 빈 화면은 "고장"으로 읽힌다.
  */
 import { computed, nextTick, ref, watch } from 'vue'
 
@@ -165,18 +144,18 @@ const draft = ref('')
 const threadEl = ref(null)
 
 const AGENTS = [
-  { key: 'eren', name: '에렌', role: '총괄 · 분배/결론', agent: 'EREN' },
-  { key: 'scout', name: 'SCOUT', role: '분석 · 초안', agent: 'SCOUT' },
-  { key: 'firewall', name: 'FIREWALL', role: '검증 · 불변식', agent: 'FIREWALL' }
+  { key: 'eren', name: '에렌', role: '총괄 · 분배/결론' },
+  { key: 'scout', name: 'SCOUT', role: '분석 · 초안' },
+  { key: 'firewall', name: 'FIREWALL', role: '검증 · 불변식' }
 ]
 
 /** 백엔드 CrewPrompts.Step 과 같은 순서 — 진행 표시에만 쓴다. */
 const STEPS = [
-  { agent: 'EREN', key: 'eren', name: '에렌', phase: 'ROUTING' },
-  { agent: 'SCOUT', key: 'scout', name: 'SCOUT', phase: 'DRAFT' },
-  { agent: 'FIREWALL', key: 'firewall', name: 'FIREWALL', phase: 'REVIEW' },
-  { agent: 'SCOUT', key: 'scout', name: 'SCOUT', phase: 'REVISE' },
-  { agent: 'EREN', key: 'eren', name: '에렌', phase: 'CLOSING' }
+  { key: 'eren', name: '에렌', phase: 'ROUTING' },
+  { key: 'scout', name: 'SCOUT', phase: 'DRAFT' },
+  { key: 'firewall', name: 'FIREWALL', phase: 'REVIEW' },
+  { key: 'scout', name: 'SCOUT', phase: 'REVISE' },
+  { key: 'eren', name: '에렌', phase: 'CLOSING' }
 ]
 
 const QUICK_CHIPS = [
@@ -186,34 +165,90 @@ const QUICK_CHIPS = [
   '지금 봇 게이트 상태 해석해줘'
 ]
 
+const crewEnabled = computed(() => !!props.crew?.enabled)
+const isRunning = computed(() => props.session?.status === 'RUNNING')
+const isFailed = computed(() => props.session?.status === 'FAILED')
+
 const doneTurns = computed(
   () => (props.session?.messages ?? []).filter((m) => m.agent !== 'OPERATOR').length
 )
 
-const currentStep = computed(() => {
-  if (props.session?.status !== 'RUNNING') return null
-  return STEPS[doneTurns.value] ?? null
-})
-
+const currentStep = computed(() => (isRunning.value ? STEPS[doneTurns.value] ?? null : null))
 const busyAgent = computed(() => currentStep.value?.key ?? null)
 const busyPhase = computed(() => currentStep.value?.phase ?? 'IDLE')
-const busyName = computed(() => currentStep.value?.name ?? '크루')
 
-const canSend = computed(
-  () => !!props.crew?.enabled && !props.sending && props.session?.status !== 'RUNNING'
-)
+function stepClass(index) {
+  if (index < doneTurns.value) return 'done'
+  if (index === doneTurns.value && isRunning.value) return 'now'
+  if (index === doneTurns.value && isFailed.value) return 'fail'
+  return ''
+}
 
-const modeClass = computed(() => {
-  if (!props.crew?.enabled) return 'off'
-  return props.session?.status === 'RUNNING' ? 'busy' : 'live'
+const liveClass = computed(() => {
+  if (!crewEnabled.value) return 'off'
+  if (isRunning.value) return 'run'
+  if (isFailed.value) return 'err'
+  return ''
 })
+
+const liveText = computed(() => {
+  if (!crewEnabled.value) return 'OFFLINE'
+  if (isRunning.value) return 'RUNNING'
+  if (isFailed.value) return 'FAILED'
+  return 'ONLINE'
+})
+
+/** 오늘 사용량 — 상한에 가까워지면 색이 올라간다. 상한 0 이하면 무제한이라 표시하지 않는다. */
+const dailyText = computed(() => {
+  const c = props.crew
+  if (!c || !c.dailyLimit || c.dailyLimit <= 0) return null
+  return `오늘 ${c.usedToday}/${c.dailyLimit}`
+})
+
+const dailyClass = computed(() => {
+  const c = props.crew
+  if (!c || !c.dailyLimit || c.dailyLimit <= 0) return ''
+  const ratio = c.usedToday / c.dailyLimit
+  if (ratio >= 1) return 'hot'
+  if (ratio >= 0.8) return 'near'
+  return ''
+})
+
+const stateClass = computed(() => {
+  if (!crewEnabled.value) return 'warn'
+  if (isRunning.value) return 'run'
+  if (isFailed.value) return 'err'
+  if (props.session) return 'done'
+  return ''
+})
+
+const stateText = computed(() => {
+  if (!crewEnabled.value) return '크루 비활성'
+  if (isRunning.value) {
+    const step = currentStep.value
+    return step ? `${step.name} ${step.phase} 작성 중` : '실행 중'
+  }
+  if (isFailed.value) return '세션 실패'
+  if (props.session) return '완료'
+  return '대기'
+})
+
+const stateSub = computed(() => {
+  if (!crewEnabled.value) return props.crew?.disabledReason || '사유 미상'
+  if (isRunning.value) return `${doneTurns.value}/${props.session?.totalTurns ?? 5}턴`
+  if (isFailed.value) {
+    return `${props.session?.failureReason || '사유 미상'} — 자동 재시도하지 않는다. 필요하면 지시를 다시 보내라.`
+  }
+  if (props.session) return `5턴 완료 · 발언 ${props.session.messages.length - 1}개`
+  return '지시를 입력하면 5턴(분배→초안→검토→반영→결론)이 돈다'
+})
+
+const canSend = computed(() => crewEnabled.value && !props.sending && !isRunning.value)
 
 const modeText = computed(() => {
   if (!props.crew) return 'MODE · —'
-  if (!props.crew.enabled) return 'MODE · DISABLED'
-  const used = `${props.crew.usedToday}/${props.crew.dailyLimit || '∞'}`
-  if (props.session?.status === 'RUNNING') return `MODE · RUNNING · 오늘 ${used}`
-  return `MODE · ${props.crew.model} · 5턴 · 오늘 ${used}`
+  if (!crewEnabled.value) return 'MODE · DISABLED'
+  return `MODE · ${props.crew.model} · 5턴 고정`
 })
 
 function agentClass(agent) {
@@ -221,6 +256,13 @@ function agentClass(agent) {
   if (agent === 'EREN') return 'eren'
   if (agent === 'SCOUT') return 'scout'
   return 'firewall'
+}
+
+/** 아바타는 이니셜 한 글자 — SVG 3종을 들고 있을 이유가 없다. */
+function initial(agent) {
+  if (agent === 'EREN') return '에'
+  if (agent === 'SCOUT') return 'S'
+  return 'F'
 }
 
 function isClosing(msg) {
@@ -238,7 +280,7 @@ function isClosing(msg) {
  * 오탐 방지를 위해 **REVIEW 턴의 맨 앞**에서만 매칭한다 — 다른 턴 본문에 "승인" 같은 단어가
  * 줄머리에 오더라도 배지로 바뀌지 않는다.
  */
-const VERDICT_PATTERN = /^[ 	]*\[?(승인|조건부|반려)\]?[ 	]*(?:[—–:-][ 	]*)?/
+const VERDICT_PATTERN = /^[ \t]*\[?(승인|조건부|반려)\]?[ \t]*(?:[—–:-][ \t]*)?/
 
 function renderContent(text, phase) {
   const escaped = escapeHtml(text || '')
@@ -286,128 +328,153 @@ watch(
   background: linear-gradient(180deg, #130b25, #0d0818);
   border-left: 1px solid var(--cr-line);
   display: grid;
-  grid-template-rows: auto auto auto 1fr auto;
+  grid-template-rows: auto auto auto auto 1fr auto;
   height: 100%;
   min-height: 0;
 }
 
-/*
- * 상태 배지를 좌측(CREW 제목 옆)에 둔다.
- * App.vue 가 NotificationBell 을 전역 fixed 로 우상단에 띄우기 때문에, 배지를 오른쪽 끝에 두면
- * 벨/알림 패널이 정확히 그 자리를 덮어 ONLINE/OFFLINE 을 못 읽는다. 전역 벨을 옮기면 다른 화면에
- * 영향이 가므로 여기서 비켜 앉는다. 우측 여백은 벨 자리를 비워두기 위한 것.
- */
+/* 우측 여백 56px = 전역 NotificationBell 자리를 비워두는 것 */
 .crew-h {
   display: flex;
   justify-content: flex-start;
   gap: 10px;
-  padding: 16px 56px 10px 16px;
   align-items: center;
+  padding: 16px 56px 10px 16px;
 }
-.crew-h b { font-family: var(--cr-mono); letter-spacing: 0.24em; font-size: 12px; }
-.crew-h .on { font-family: var(--cr-mono); font-size: 9px; color: var(--cr-grn); letter-spacing: 0.16em; }
-.crew-h .on::before { content: '● '; }
-.crew-h .off { font-family: var(--cr-mono); font-size: 9px; color: var(--cr-amb); letter-spacing: 0.16em; }
-.crew-h .off::before { content: '○ '; }
+.crew-h b { font-size: 12px; letter-spacing: 0.24em; }
 
-.crew-disabled {
-  margin: 0 16px 10px;
-  border: 1px dashed var(--cr-amb);
-  color: var(--cr-amb);
-  padding: 8px 10px;
+/* 상태 점 — 색이 곧 상태다. 회색 대기 / 초록 실행 / 빨강 실패 / 흐린 비활성 */
+.live {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--cr-mut);
 }
-.crew-disabled b { font-family: var(--cr-mono); font-size: 11px; letter-spacing: 0.12em; }
-.crew-disabled p { font-size: 10.5px; line-height: 1.5; margin-top: 3px; }
-.crew-disabled .verify {
+.live::before { content: '● '; }
+.live.run { color: var(--cr-grn); }
+.live.run::before { animation: cr-blink 1.6s infinite; }
+.live.err { color: var(--cr-red); }
+.live.off { color: var(--cr-dim); }
+@keyframes cr-blink { 50% { opacity: 0.25; } }
+
+.daily {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border: 1px solid var(--cr-line);
+  color: var(--cr-mut);
+}
+.daily.near { border-color: var(--cr-amb); color: var(--cr-amb); }
+.daily.hot { border-color: var(--cr-red); color: var(--cr-red); }
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 16px 10px; }
+.card {
+  border: 1px solid var(--cr-line);
+  padding: 11px 6px 9px;
+  text-align: center;
+  position: relative;
+  min-height: 74px;
+  background: rgba(0, 0, 0, 0.25);
+  transition: border-color 0.25s, box-shadow 0.25s, opacity 0.25s;
+}
+.card b { display: block; font-size: 11px; letter-spacing: 0.14em; margin-bottom: 3px; }
+.card small { font-size: 10px; color: var(--cr-mut); line-height: 1.35; display: block; }
+.card.eren b { color: var(--cr-vio); }
+.card.scout b { color: var(--cr-cyn); }
+.card.firewall b { color: var(--cr-grn); }
+.card .st {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  color: var(--cr-dim);
+}
+.card.busy { border-color: currentColor; }
+.card.busy .st { color: inherit; }
+.card.eren.busy { color: var(--cr-vio); box-shadow: 0 0 16px rgba(155, 77, 255, 0.4); }
+.card.scout.busy { color: var(--cr-cyn); box-shadow: 0 0 16px rgba(56, 220, 255, 0.35); }
+.card.firewall.busy { color: var(--cr-grn); box-shadow: 0 0 16px rgba(61, 255, 138, 0.35); }
+.card.off { opacity: 0.4; }
+
+/* 5턴 진행 막대 */
+.steps { display: flex; gap: 3px; padding: 0 16px 8px; }
+.steps i { flex: 1; height: 4px; background: var(--cr-line); }
+.steps i.done { background: var(--cr-vio); }
+.steps i.now { background: var(--cr-grn); animation: cr-blink 1.2s infinite; }
+.steps i.fail { background: var(--cr-red); }
+
+/* 상태 줄 — 어떤 상태에서도 반드시 한 줄 */
+.state {
+  margin: 0 16px 10px;
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  border: 1px solid var(--cr-line);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--cr-mut);
+}
+.state b { color: inherit; font-size: 11.5px; letter-spacing: 0.06em; }
+.state .sub { display: block; margin-top: 3px; color: var(--cr-mut); font-size: 10.5px; }
+.state.run { border-color: rgba(61, 255, 138, 0.45); color: var(--cr-grn); }
+.state.err { border-color: rgba(255, 77, 109, 0.5); color: var(--cr-red); background: rgba(255, 77, 109, 0.07); }
+.state.warn { border-color: rgba(255, 180, 58, 0.5); color: var(--cr-amb); background: rgba(255, 180, 58, 0.07); }
+.state.done { border-color: rgba(155, 77, 255, 0.45); color: var(--cr-tx); }
+
+.verify {
   margin-top: 7px;
   background: transparent;
-  border: 1px solid var(--cr-amb);
-  color: var(--cr-amb);
+  border: 1px solid currentColor;
+  color: inherit;
   font-size: 11px;
   padding: 4px 9px;
   cursor: pointer;
 }
-.crew-disabled .verify:hover:not(:disabled) { background: rgba(255, 180, 58, 0.15); }
-.crew-disabled .verify:disabled { opacity: 0.5; cursor: wait; }
-
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 16px 12px; }
-.card {
-  border: 1px solid var(--cr-line);
-  padding: 12px 6px 8px;
-  text-align: center;
-  position: relative;
-  min-height: 112px;
-  background: rgba(0, 0, 0, 0.25);
-  transition: border-color 0.25s, box-shadow 0.25s;
-}
-.card svg { width: 44px; height: 44px; display: block; margin: 0 auto 6px; }
-.card b { display: block; font-family: var(--cr-mono); font-size: 11px; letter-spacing: 0.14em; }
-.card small { font-size: 10px; color: var(--cr-mut); }
-.card.eren { color: var(--cr-vio); }
-.card.scout { color: var(--cr-cyn); }
-.card.firewall { color: var(--cr-grn); }
-.card.eren b { color: var(--cr-vio); }
-.card.scout b { color: var(--cr-cyn); }
-.card.firewall b { color: var(--cr-grn); }
-.card .accent { stroke: var(--cr-mag); }
-.card.busy { border-color: currentColor; }
-.card.eren.busy { box-shadow: 0 0 16px rgba(155, 77, 255, 0.4); }
-.card.scout.busy { box-shadow: 0 0 16px rgba(56, 220, 255, 0.35); }
-.card.firewall.busy { box-shadow: 0 0 16px rgba(61, 255, 138, 0.35); }
-.card .st {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  font-family: var(--cr-mono);
-  font-size: 8px;
-  color: var(--cr-mut);
-  letter-spacing: 0.1em;
-}
-.card.busy .st { color: inherit; }
+.verify:hover:not(:disabled) { background: rgba(255, 180, 58, 0.15); }
+.verify:disabled { opacity: 0.5; cursor: wait; }
 
 .thread {
   overflow: auto;
-  padding: 4px 16px 12px;
+  padding: 2px 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-height: 0;
 }
-.thread-empty { font-size: 11.5px; color: var(--cr-mut); line-height: 1.7; }
+.thread-empty { font-size: 12px; color: var(--cr-mut); line-height: 1.7; }
 .thread-empty b { color: var(--cr-tx); }
 
-.msg { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: start; }
+.msg { display: grid; grid-template-columns: 30px 1fr; gap: 8px; align-items: start; }
 .msg.user { grid-template-columns: 1fr; }
 .msg .av {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border: 1px solid var(--cr-line);
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.3);
+  font-size: 11px;
+  font-weight: 700;
 }
-.msg .av svg { width: 22px; height: 22px; }
 .msg.eren .av { color: var(--cr-vio); }
 .msg.scout .av { color: var(--cr-cyn); }
 .msg.firewall .av { color: var(--cr-grn); }
 
 .msg .bd {
   border-left: 2px solid var(--cr-vio);
-  padding: 6px 10px 8px;
+  padding: 5px 10px 7px;
   background: rgba(255, 255, 255, 0.025);
   min-width: 0;
 }
 .msg.scout .bd { border-left-color: var(--cr-cyn); }
 .msg.firewall .bd { border-left-color: var(--cr-grn); }
-.msg.user .bd { border-left-color: var(--cr-mag); background: rgba(255, 47, 166, 0.06); }
+.msg.user .bd { border-left-color: var(--cr-mag); background: rgba(255, 47, 166, 0.06); margin-left: 38px; }
 
 .msg .nm {
-  font-family: var(--cr-mono);
   font-size: 10px;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   margin-bottom: 4px;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-wrap: wrap;
 }
@@ -418,17 +485,18 @@ watch(
 .msg .nm .to { color: var(--cr-mut); letter-spacing: 0.06em; font-size: 9px; }
 .msg .nm .to::before { content: '→ '; }
 .msg .nm .trunc {
-  color: var(--cr-amb);
-  border: 1px solid var(--cr-amb);
+  color: var(--cr-red);
+  border: 1px solid var(--cr-red);
   padding: 0 4px;
   letter-spacing: 0.06em;
   font-size: 9px;
 }
 
-.msg .tx { font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg .tx { font-size: 12.5px; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+.msg .meta { margin-top: 5px; font-size: 9px; color: var(--cr-dim); letter-spacing: 0.04em; }
+
 .msg .tx :deep(.tag) {
   display: inline-block;
-  font-family: var(--cr-mono);
   font-size: 9px;
   letter-spacing: 0.12em;
   padding: 1px 6px;
@@ -445,29 +513,12 @@ watch(
   border: 1px solid var(--cr-vio);
   color: var(--cr-tx);
   font-size: 11px;
-  padding: 5px 9px;
+  padding: 4px 9px;
   cursor: pointer;
 }
 .acts button:hover:not(:disabled) { background: rgba(155, 77, 255, 0.2); }
 .acts button:disabled { opacity: 0.4; cursor: not-allowed; }
 .acts-note { font-size: 9.5px; color: var(--cr-dim); }
-
-.typing {
-  font-family: var(--cr-mono);
-  font-size: 10px;
-  color: var(--cr-mut);
-  letter-spacing: 0.14em;
-  padding: 2px 0 0 42px;
-}
-
-.failed {
-  border: 1px solid var(--cr-red);
-  background: rgba(255, 77, 109, 0.08);
-  padding: 8px 10px;
-}
-.failed b { font-family: var(--cr-mono); font-size: 11px; color: var(--cr-red); letter-spacing: 0.1em; }
-.failed p { font-size: 11px; color: var(--cr-tx); line-height: 1.5; margin-top: 3px; }
-.failed .hint { color: var(--cr-mut); }
 
 .omitted {
   border: 1px dashed var(--cr-amb);
@@ -494,19 +545,19 @@ watch(
   border: 1px solid var(--cr-line);
   color: var(--cr-tx);
   font-size: 11px;
-  padding: 5px 9px;
+  padding: 4px 9px;
   cursor: pointer;
 }
 .chips button:hover:not(:disabled) { border-color: var(--cr-vio); }
 .chips button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.in { display: grid; grid-template-columns: 1fr 64px; gap: 8px; }
+.in { display: grid; grid-template-columns: 1fr 62px; gap: 8px; }
 .in input {
   background: var(--cr-panel);
   border: 1px solid var(--cr-line);
   color: var(--cr-tx);
-  padding: 10px 12px;
-  font-size: 12.5px;
+  padding: 9px 11px;
+  font-size: 16px;   /* iOS 자동 줌 방지 */
   min-width: 0;
 }
 .in input:focus { outline: 1px solid var(--cr-vio); }
@@ -515,15 +566,34 @@ watch(
   background: var(--cr-grn);
   border: 0;
   color: #05130a;
-  font-family: var(--cr-mono);
   font-weight: 700;
   letter-spacing: 0.14em;
+  font-size: 12px;
   cursor: pointer;
 }
-.in button:disabled { opacity: 0.4; cursor: not-allowed; }
+.in button:disabled { background: var(--cr-dim); color: rgba(255, 255, 255, 0.6); cursor: not-allowed; }
 
-.mode { font-family: var(--cr-mono); font-size: 9px; letter-spacing: 0.14em; color: var(--cr-mut); text-align: right; }
-.mode.live { color: var(--cr-grn); }
-.mode.busy { color: var(--cr-cyn); }
-.mode.off { color: var(--cr-amb); }
+.mode { font-size: 9px; letter-spacing: 0.14em; color: var(--cr-dim); text-align: right; }
+
+@media (max-width: 1100px) {
+  .crew { border-left: 0; border-top: 1px solid var(--cr-line); height: auto; }
+  .thread { max-height: min(560px, 55dvh); }
+}
+
+@media (max-width: 720px) {
+  /* 카드를 가로 줄로 — 세로로 쌓으면 스크롤만 길어진다 */
+  .cards { grid-template-columns: 1fr; gap: 6px; }
+  .card {
+    min-height: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-align: left;
+    padding: 9px 34px 9px 10px;
+  }
+  .card b { margin-bottom: 0; flex: none; }
+  .card small { flex: 1; }
+  .card .st { top: 50%; transform: translateY(-50%); }
+  .thread { max-height: none; }
+}
 </style>
