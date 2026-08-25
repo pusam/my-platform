@@ -166,6 +166,13 @@ public getter 를 추가하지 않았다.
 | POST | `/api/control-room/crew/sessions` | 지시 1건 → 5턴 백그라운드 실행. 즉시 세션 id 반환 |
 | GET | `/api/control-room/crew/sessions/{id}` | 폴링(1.5초). status + 저장된 턴 |
 | GET | `/api/control-room/crew/sessions` | 최근 20건 |
+| POST | `/api/control-room/crew/verify` | 모델 재확인 — `GET /v1/models` 재호출 후 크루 가용 상태 갱신 |
+
+**재확인 엔드포인트가 왜 있나**: 모델 확인이 기동 시 1회뿐이라, 키를 고칠 때마다 컨테이너를
+재시작해야 상태가 갱신됐다. 실제로 2026-08-24 첫 키 투입 때 마스킹된 값(23자)을 붙여넣어
+`401 API key is invalid` 가 났는데, 고칠 때마다 recreate 왕복이 필요했다. 이제 화면의
+**"모델 재확인"** 버튼(비활성 박스 안)으로 끝난다. 클라이언트 타임아웃 20초 — SDK 기본 10분을
+그대로 두면 이 엔드포인트가 요청 스레드를 10분간 붙잡는다.
 
 **거부 응답을 일반 오류와 섞지 말 것** — `409`=동시 실행 중, `429`=일일 상한 도달. 운영자가 대응을
 달리해야 하므로 화면도 문구를 분리한다.

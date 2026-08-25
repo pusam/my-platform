@@ -52,7 +52,9 @@
       :session="session"
       :error-message="crewError"
       :sending="sending"
+      :verifying="verifying"
       @ask="ask"
+      @verify="verifyCrew"
     />
   </div>
 </template>
@@ -87,6 +89,7 @@ const loading = ref(false)
 const session = ref(null)
 const crewError = ref(null)
 const sending = ref(false)
+const verifying = ref(false)
 let pollTimer = null
 
 const month = ref(currentMonth())
@@ -155,6 +158,29 @@ async function ask(instruction) {
     crewError.value = crewErrorText(e)
   } finally {
     sending.value = false
+  }
+}
+
+/**
+ * 모델 재확인 — 키/모델 설정을 고친 뒤 컨테이너 재시작 없이 크루 가용 상태를 갱신한다.
+ * 실패해도 200 + disabledReason 으로 사유가 오므로, 그 사유를 스냅샷에 반영해 화면에 그대로 띄운다.
+ */
+async function verifyCrew() {
+  if (verifying.value) return
+  verifying.value = true
+  crewError.value = null
+  try {
+    const res = await controlRoomAPI.verifyCrew()
+    const data = res.data?.data
+    if (data && !data.enabled) {
+      // 여전히 비활성 — 사유가 바뀌었을 수 있으니 그대로 보여준다.
+      crewError.value = `재확인 결과 여전히 비활성 — ${data.disabledReason || '사유 미상'}`
+    }
+    await loadSnapshot()
+  } catch (e) {
+    crewError.value = `재확인 실패 — ${errorText(e)}`
+  } finally {
+    verifying.value = false
   }
 }
 

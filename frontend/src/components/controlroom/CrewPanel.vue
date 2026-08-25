@@ -10,6 +10,13 @@
     <div v-if="crew && !crew.enabled" class="crew-disabled">
       <b>크루 비활성</b>
       <p>{{ crew.disabledReason || '사유 미상' }}</p>
+      <!--
+        키/모델을 고친 뒤 컨테이너 재시작 없이 재검증한다. 기동 시 1회만 확인하던 구조에선
+        키 오타 한 번에 재시작 왕복이 필요했다.
+      -->
+      <button type="button" class="verify" :disabled="verifying" @click="$emit('verify')">
+        {{ verifying ? '확인 중…' : '모델 재확인' }}
+      </button>
     </div>
 
     <div class="cards">
@@ -148,10 +155,11 @@ const props = defineProps({
   crew: { type: Object, default: null },
   session: { type: Object, default: null },
   errorMessage: { type: String, default: null },
-  sending: { type: Boolean, default: false }
+  sending: { type: Boolean, default: false },
+  verifying: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['ask'])
+const emit = defineEmits(['ask', 'verify'])
 
 const draft = ref('')
 const threadEl = ref(null)
@@ -293,6 +301,17 @@ watch(
 }
 .crew-disabled b { font-family: var(--cr-mono); font-size: 11px; letter-spacing: 0.12em; }
 .crew-disabled p { font-size: 10.5px; line-height: 1.5; margin-top: 3px; }
+.crew-disabled .verify {
+  margin-top: 7px;
+  background: transparent;
+  border: 1px solid var(--cr-amb);
+  color: var(--cr-amb);
+  font-size: 11px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.crew-disabled .verify:hover:not(:disabled) { background: rgba(255, 180, 58, 0.15); }
+.crew-disabled .verify:disabled { opacity: 0.5; cursor: wait; }
 
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 16px 12px; }
 .card {

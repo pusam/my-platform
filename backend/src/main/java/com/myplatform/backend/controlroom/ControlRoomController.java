@@ -45,11 +45,17 @@ public class ControlRoomController {
 
     private final ControlRoomSnapshotService snapshotService;
     private final CrewOrchestrationService crewService;
+    private final CrewModelAvailability modelAvailability;
+    private final CrewProperties crewProperties;
 
     public ControlRoomController(ControlRoomSnapshotService snapshotService,
-                                 CrewOrchestrationService crewService) {
+                                 CrewOrchestrationService crewService,
+                                 CrewModelAvailability modelAvailability,
+                                 CrewProperties crewProperties) {
         this.snapshotService = snapshotService;
         this.crewService = crewService;
+        this.modelAvailability = modelAvailability;
+        this.crewProperties = crewProperties;
     }
 
     /** 크루 지시 요청. */
@@ -98,6 +104,23 @@ public class ControlRoomController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(fail("세션을 찾을 수 없다", false));
         }
         return ResponseEntity.ok(ok(CrewSessionView.of(session, crewService.messages(id))));
+    }
+
+    @PostMapping("/crew/verify")
+    @Operation(summary = "크루 모델 재확인",
+            description = "GET /v1/models 를 다시 호출해 설정된 모델 ID 의 실재를 확인하고 크루 가용 상태를 갱신한다. "
+                    + "키를 고친 뒤 컨테이너 재시작 없이 재검증하려고 만든 엔드포인트다 — 기동 시 1회만 "
+                    + "확인하던 구조에선 키 오타 한 번에 재시작 왕복이 필요했다. "
+                    + "실패해도 사유를 그대로 돌려주며(숨기지 않는다), 크루만 비활성으로 남는다.")
+    public ResponseEntity<Map<String, Object>> verifyCrew() {
+        modelAvailability.verify();
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("enabled", modelAvailability.enabled());
+        data.put("disabledReason", modelAvailability.disabledReason().orElse(null));
+        data.put("model", crewProperties.getModel());
+        log.info("[관제실] 크루 모델 재확인 요청 — enabled={}", modelAvailability.enabled());
+        return ResponseEntity.ok(ok(data));
     }
 
     @GetMapping("/crew/sessions")

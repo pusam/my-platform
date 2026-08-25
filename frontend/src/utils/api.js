@@ -458,6 +458,12 @@ export const controlRoomAPI = {
 
   getCrewSessions() {
     return apiClient.get('/control-room/crew/sessions');
+  },
+
+  // 모델 재확인 — 키/모델 설정을 고친 뒤 컨테이너 재시작 없이 크루 가용 상태를 갱신한다.
+  // 실패해도 200 + disabledReason 으로 사유가 온다(숨기지 않는다).
+  verifyCrew() {
+    return apiClient.post('/control-room/crew/verify');
   }
 };
 

@@ -8,6 +8,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -50,7 +51,21 @@ public class CrewModelAvailability {
         verify();
     }
 
-    /** 모델 목록 확인. 관리자가 설정을 고친 뒤 재기동 없이 다시 확인하고 싶을 때도 호출 가능. */
+    /**
+     * 모델 확인에 쓰는 클라이언트 타임아웃.
+     *
+     * <p>SDK 기본이 10분이라 그대로 두면 <b>재확인 엔드포인트가 요청 스레드를 10분간 붙잡을 수 있다.</b>
+     * 이 호출은 모델 목록 조회 한 번이라 20초면 충분하고, 넘어가면 그 자체가 "확인 실패"로 처리되는 게 맞다.
+     */
+    private static final Duration VERIFY_TIMEOUT = Duration.ofSeconds(20);
+
+    /**
+     * 모델 목록 확인. 기동 시 1회 + 관리자가 키/모델 설정을 고친 뒤 재기동 없이 다시 부를 때 호출된다
+     * ({@code POST /api/control-room/crew/verify}).
+     *
+     * <p>결과는 이 객체의 상태에만 반영된다 — 크루 가용 상태는 스냅샷이 매번 새로 읽으므로
+     * 다음 폴링에서 화면에 그대로 나타난다.
+     */
     public void verify() {
         if (!properties.hasApiKey()) {
             disable("ANTHROPIC_API_KEY 미설정 — 크루 비활성 (앱 나머지는 정상)");
@@ -66,6 +81,7 @@ public class CrewModelAvailability {
         try {
             AnthropicClient client = AnthropicOkHttpClient.builder()
                     .apiKey(properties.getApiKey())
+                    .timeout(VERIFY_TIMEOUT)
                     .build();
 
             List<String> available = new ArrayList<>();

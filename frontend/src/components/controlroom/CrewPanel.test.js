@@ -58,6 +58,43 @@ describe('CrewPanel — 비활성 사유 노출', () => {
     expect(w.find('.in button').attributes('disabled')).toBeDefined()
   })
 
+  it('비활성 박스에 "모델 재확인" 버튼이 있고 누르면 verify 를 emit 한다', async () => {
+    const w = mount(CrewPanel, {
+      props: {
+        crew: { enabled: false, disabledReason: 'API key is invalid', dailyLimit: 30, usedToday: 0 },
+        session: null
+      }
+    })
+
+    const btn = w.find('.crew-disabled .verify')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toContain('모델 재확인')
+
+    await btn.trigger('click')
+    expect(w.emitted('verify')).toBeTruthy()
+  })
+
+  it('재확인 중에는 버튼이 잠기고 진행 표시로 바뀐다', () => {
+    const w = mount(CrewPanel, {
+      props: {
+        crew: { enabled: false, disabledReason: 'API key is invalid', dailyLimit: 30, usedToday: 0 },
+        session: null,
+        verifying: true
+      }
+    })
+
+    const btn = w.find('.crew-disabled .verify')
+    expect(btn.attributes('disabled')).toBeDefined()
+    expect(btn.text()).toContain('확인 중')
+  })
+
+  it('크루가 정상이면 비활성 박스도 재확인 버튼도 없다', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null } })
+
+    expect(w.find('.crew-disabled').exists()).toBe(false)
+    expect(w.find('.verify').exists()).toBe(false)
+  })
+
   it('비활성이면 퀵칩도 눌리지 않는다', () => {
     const w = mount(CrewPanel, {
       props: { crew: { enabled: false, disabledReason: '모델 확인 실패', dailyLimit: 30, usedToday: 0 }, session: null }
