@@ -217,15 +217,32 @@ public class ControlRoomSnapshotService {
 
             LocalDateTime latestSnapshotAt = latestSnapshotAt();
             Boolean stale = snapshotStale(latestSnapshotAt);
+            boolean empty = rows.isEmpty();
             return new ControlRoomSnapshotDto.Candidates(true, rows.size(), strongBuy, buy, watch,
-                    latestSnapshotAt, stale, emptyReason(rows.isEmpty(), latestSnapshotAt, stale));
+                    latestSnapshotAt, stale,
+                    emptyReasonShort(empty, stale, latestSnapshotAt),
+                    emptyReason(empty, latestSnapshotAt, stale));
         } catch (Exception e) {
             log.warn("[관제실] 종합판단 보드 조회 실패: {}", e.getMessage());
-            return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null, "보드 조회 실패");
+            return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null,
+                    "보드 조회 실패", "종합판단 보드 조회가 예외로 실패했다. 0건이 아니라 측정 불가다.");
         }
     }
 
-    /** 후보가 0 건일 때 화면·크루가 읽을 사유. 0 건이 아니면 null(불필요한 경고 문구 안 붙임). */
+    /**
+     * 카드 표면용 <b>한 줄</b> 사유. 전체 설명은 {@link #emptyReason}(툴팁·크루 컨텍스트)에 있다.
+     *
+     * <p>1/5 폭 KPI 카드에 §4c 설명 문단을 그대로 넣었더니 텍스트 벽돌이 됐다(2026-08-25 실측).
+     * 표면은 "무슨 일이 일어났는지"만, 근거는 툴팁으로 미룬다 — 짧게 줄이되 근거를 없애지는 않는다.
+     */
+    static String emptyReasonShort(boolean empty, Boolean stale, LocalDateTime latestSnapshotAt) {
+        if (!empty) return null;
+        if (Boolean.TRUE.equals(stale)) return "입력 노후 — 가드가 채점 거부";
+        if (latestSnapshotAt == null) return "스냅샷 없음 — 미계산과 구분 불가";
+        return "빈 결과 — 조회 실패와 구분 불가";
+    }
+
+    /** 후보가 0 건일 때의 전체 설명(툴팁·크루 컨텍스트). 0 건이 아니면 null. */
     static String emptyReason(boolean empty, LocalDateTime latestSnapshotAt, Boolean stale) {
         if (!empty) return null;
         if (Boolean.TRUE.equals(stale)) {

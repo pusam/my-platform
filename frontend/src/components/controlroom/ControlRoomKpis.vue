@@ -3,20 +3,19 @@
     <!-- ① 종합판단 후보 -->
     <div class="kpi" :class="{ alert: candidatesSuspect }">
       <div class="eyebrow">종합판단 후보</div>
-      <span class="basis">momentum 보드 · 컷 75/55</span>
       <template v-if="candidates && candidates.dataAvailable">
         <div class="v">{{ candidates.total }}<small>종목</small></div>
         <div class="s">
-          STRONG_BUY {{ candidates.strongBuy }} · BUY {{ candidates.buy }} · 관망·미채점 {{ candidates.watch }}
+          SB {{ candidates.strongBuy }} · BUY {{ candidates.buy }} · 관망 {{ candidates.watch }}
         </div>
         <!--
           0 건은 그 자체로 정보가 부족하다 — "진짜 없음"·"조회 실패"·"입력 노후로 미채점"이 전부 0 이다.
           백엔드가 만든 사유를 반드시 띄운다(예전엔 note 를 만들어놓고 화면에서 버렸다).
         -->
-        <div v-if="candidates.note" class="s note">{{ candidates.note }}</div>
-        <div v-if="snapshotText" class="s snap" :class="{ stale: candidates.snapshotStale }">
-          {{ snapshotText }}
+        <div v-if="candidates.note" class="s note" :title="candidates.noteDetail || candidates.note">
+          {{ candidates.note }}
         </div>
+        <span class="basis" :class="{ stale: candidates.snapshotStale }">{{ candidatesBasis }}</span>
       </template>
       <NoData v-else :reason="candidates && candidates.note" />
     </div>
@@ -24,7 +23,6 @@
     <!-- ② 봇 게이트 -->
     <div class="kpi" :class="{ alert: gatesHasClosed, ok: gatesAllOpen }">
       <div class="eyebrow">봇 게이트</div>
-      <span class="basis">설정·DB 읽기 · KIS 미호출</span>
       <template v-if="gates && gates.dataAvailable">
         <div class="v">{{ gates.open }}<small>/{{ gates.total }}</small></div>
         <div class="bar">
@@ -36,11 +34,12 @@
           ></i>
         </div>
         <div class="s gate-list">
-          <span v-for="item in closedGates" :key="item.key" class="gate-closed">
-            {{ item.label }} {{ item.state }}
+          <span v-for="item in closedGates" :key="item.key" class="gate-closed" :title="item.detail">
+            {{ item.label }}
           </span>
           <span v-if="closedGates.length === 0">전부 열림</span>
         </div>
+        <span class="basis">설정·DB 읽기 · KIS 미호출</span>
       </template>
       <NoData v-else />
     </div>
@@ -48,22 +47,19 @@
     <!-- ③ 일일손실 서킷 (원 단위 — 자산 % 킬스위치와 별개 장치) -->
     <div class="kpi" :class="{ alert: breaker && breaker.trippedToday }">
       <div class="eyebrow">일일손실 서킷</div>
-      <span class="basis">당일 확정 매도만 · 원 단위</span>
       <template v-if="breaker && breaker.dataAvailable">
         <div class="v" :class="{ none: pnlText === null }">
           <template v-if="pnlText !== null">{{ pnlText }}</template>
           <template v-else>조회 실패</template>
         </div>
         <div class="s">
-          <template v-if="breaker.limitKrw !== null && breaker.limitKrw !== undefined">
-            한도 -{{ breaker.limitKrw.toLocaleString('ko-KR') }}원
-            <template v-if="headroomText"> · 여유 {{ headroomText }}</template>
-          </template>
+          <template v-if="headroomText">여유 {{ headroomText }}</template>
+          <template v-else-if="breaker.limitKrw != null">한도 -{{ breaker.limitKrw.toLocaleString('ko-KR') }}원</template>
           <template v-else>한도 미설정</template>
-          · {{ breaker.trippedToday ? '오늘 발동' : '미발동' }}
-          <template v-if="breaker.mode"> · {{ breaker.mode }}</template>
+          · {{ breaker.trippedToday ? '발동' : '미발동' }}
         </div>
         <div v-if="breaker.note" class="s note">{{ breaker.note }}</div>
+        <span class="basis" :title="breakerBasisDetail">{{ breakerBasis }}</span>
       </template>
       <NoData v-else :reason="breaker && breaker.note" />
     </div>
@@ -71,10 +67,10 @@
     <!-- ④ VKOSPI 레짐 -->
     <div class="kpi">
       <div class="eyebrow">VKOSPI 레짐</div>
-      <span class="basis">252일 백분위 상위 10%</span>
       <template v-if="volRegime && volRegime.dataAvailable">
         <div class="v word">{{ volRegime.regime }}</div>
-        <div class="s">게이트 mode={{ volRegime.gateMode }}</div>
+        <div class="s">게이트 {{ volRegime.gateMode }}</div>
+        <span class="basis">252일 백분위 상위 10%</span>
       </template>
       <NoData v-else :reason="volRegime && volRegime.note" />
     </div>
@@ -82,10 +78,10 @@
     <!-- ⑤ 미판정 -->
     <div class="kpi" :class="{ alert: undecided && undecided.dataAvailable && undecided.count > 0 }">
       <div class="eyebrow">미판정</div>
-      <span class="basis">SCHEDULE_DECISIONS 판정 기록 표</span>
       <template v-if="undecided && undecided.dataAvailable">
         <div class="v">{{ undecided.count }}<small>건</small></div>
-        <div class="s">전체 안건 {{ undecided.rosterSize }}건 중 판정 기록 없음</div>
+        <div class="s">전체 {{ undecided.rosterSize }}건 중</div>
+        <span class="basis">SCHEDULE_DECISIONS 판정 기록 표</span>
       </template>
       <NoData v-else reason="판정 기록 표를 읽지 못함" />
     </div>
@@ -135,14 +131,23 @@ const candidatesSuspect = computed(() => {
   return c.total === 0 && (c.snapshotStale === true || c.latestSnapshotAt == null)
 })
 
-/** 추천 스냅샷 최신 시각 — 0 건의 원인이 '입력 노후'인지 읽을 수 있게 함께 보여준다. */
-const snapshotText = computed(() => {
+/**
+ * 후보 카드 하단 기준 줄 — 스냅샷 시각을 겸한다.
+ * 별도 줄을 하나 더 쓰면 1/5 폭 카드가 글자 벽이 된다.
+ */
+const candidatesBasis = computed(() => {
   const c = candidates.value
-  if (!c || !c.dataAvailable) return null
-  if (!c.latestSnapshotAt) return '추천 스냅샷 없음'
-  const at = String(c.latestSnapshotAt).replace('T', ' ').slice(0, 16)
-  return c.snapshotStale ? `추천 스냅샷 ${at} — 노후` : `추천 스냅샷 ${at}`
+  if (!c) return ''
+  if (!c.latestSnapshotAt) return 'momentum 보드 · 스냅샷 없음'
+  const at = String(c.latestSnapshotAt).replace('T', ' ').slice(5, 16)
+  return c.snapshotStale ? `스냅샷 ${at} · 노후` : `스냅샷 ${at}`
 })
+
+const breakerBasis = computed(() =>
+  breaker.value?.mode ? `${breaker.value.mode} · 확정 매도만` : '확정 매도만'
+)
+const breakerBasisDetail =
+  '당일 확정된 봇 매도만 합산(원 단위). 자산 대비 -3% 킬스위치는 별개 장치다.'
 
 const pnlText = computed(() => formatKrw(breaker.value?.realizedPnlKrw))
 const headroomText = computed(() => {
@@ -214,11 +219,14 @@ const headroomText = computed(() => {
 .kpi.alert .v { color: var(--cr-red); }
 .kpi.warn .v { color: var(--cr-amb); }
 
-/* 라벨 밑 기준 표기 — "무엇을 센 숫자인지"를 숫자 옆에 붙여둔다 */
+/*
+ * 기준 표기 — 카드 **하단 각주**다(jewelry-leads 배치와 동일).
+ * 라벨 바로 밑에 두면 숫자가 아래로 밀려 카드가 글자 벽처럼 보인다.
+ */
 .basis {
   font-family: var(--cr-mono);
   display: block;
-  margin-top: 3px;
+  margin-top: 5px;
   font-size: 10px;
   letter-spacing: 0.02em;
   color: var(--cr-dim);
@@ -229,10 +237,15 @@ const headroomText = computed(() => {
   color: var(--cr-mut);
   line-height: 1.45;
 }
-.s.note { color: var(--cr-amb); margin-top: 3px; line-height: 1.5; }
-.s.snap {
-  font-family: var(--cr-mono); margin-top: 2px; font-size: 10px; }
-.s.snap.stale { color: var(--cr-amb); }
+/* 사유는 한 줄만 — 전체 근거는 title 툴팁에 있다 */
+.s.note {
+  color: var(--cr-amb);
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: help;
+}
+.basis.stale { color: var(--cr-amb); }
 
 .bar { display: flex; gap: 2px; margin-top: 8px; }
 .bar i { flex: 1; height: 5px; background: var(--cr-dim); }

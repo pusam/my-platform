@@ -19,7 +19,8 @@ function kpis(overrides = {}) {
       watch: 2,
       latestSnapshotAt: '2026-08-24T11:30:00',
       snapshotStale: false,
-      note: null
+      note: null,
+      noteDetail: null
     },
     gates: {
       dataAvailable: true,
@@ -58,16 +59,19 @@ describe('ControlRoomKpis — 후보 0건의 사유를 반드시 보여준다', 
             watch: 0,
             latestSnapshotAt: '2026-08-20T11:30:00',
             snapshotStale: true,
-            note: '후보 0건 — 추천 스냅샷이 2026-08-20 로 노후. 입력이 노후하면 노후 가드가 채점을 거부하므로 0 으로 보인다(§4c 정상 동작).'
+            note: '입력 노후 — 가드가 채점 거부',
+            noteDetail: '후보 0건 — 추천 스냅샷이 2026-08-20 로 노후. 입력이 노후하면 노후 가드가 채점을 거부하므로 0 으로 보인다(§4c 정상 동작).'
           }
         })
       }
     })
 
     const card = w.findAll('.kpi')[0]
-    expect(card.text()).toContain('노후 가드가 채점을 거부')
-    expect(card.text()).toContain('추천 스냅샷 2026-08-20 11:30')
-    expect(card.text()).toContain('노후')
+    // 표면은 한 줄, 전체 근거는 툴팁(title) — 카드가 글자 벽이 되지 않게
+    expect(card.find('.note').text()).toBe('입력 노후 — 가드가 채점 거부')
+    expect(card.find('.note').attributes('title')).toContain('노후 가드가 채점을 거부')
+    expect(card.find('.basis').text()).toContain('08-20 11:30')
+    expect(card.find('.basis').text()).toContain('노후')
     expect(card.classes()).toContain('alert')
   })
 
@@ -83,14 +87,15 @@ describe('ControlRoomKpis — 후보 0건의 사유를 반드시 보여준다', 
             watch: 0,
             latestSnapshotAt: null,
             snapshotStale: null,
-            note: '후보 0건 — 추천 스냅샷이 아예 없다.'
+            note: '스냅샷 없음 — 미계산과 구분 불가',
+            noteDetail: '후보 0건 — 추천 스냅샷이 아예 없다.'
           }
         })
       }
     })
 
     const card = w.findAll('.kpi')[0]
-    expect(card.text()).toContain('추천 스냅샷 없음')
+    expect(card.text()).toContain('스냅샷 없음')
     expect(card.classes()).toContain('alert')
   })
 
@@ -101,7 +106,7 @@ describe('ControlRoomKpis — 후보 0건의 사유를 반드시 보여준다', 
     expect(card.text()).toContain('3')
     expect(card.classes()).not.toContain('alert')
     expect(card.find('.note').exists()).toBe(false)
-    expect(card.text()).toContain('추천 스냅샷 2026-08-24 11:30')
+    expect(card.find('.basis').text()).toContain('08-24 11:30')
   })
 
   it('보드 조회 실패는 0 이 아니라 "데이터 없음" 으로 렌더된다', () => {
@@ -116,7 +121,8 @@ describe('ControlRoomKpis — 후보 0건의 사유를 반드시 보여준다', 
             watch: 0,
             latestSnapshotAt: null,
             snapshotStale: null,
-            note: '보드 조회 실패'
+            note: '보드 조회 실패',
+            noteDetail: '보드 조회가 예외로 실패했다'
           }
         })
       }
@@ -134,7 +140,7 @@ describe('ControlRoomKpis — 나머지 카드', () => {
     const card = w.findAll('.kpi')[1]
 
     expect(card.text()).toContain('3')
-    expect(card.text()).toContain('NXT 주문 라우팅 CLOSED')
+    expect(card.text()).toContain('NXT 주문 라우팅')
     expect(card.classes()).toContain('alert')   // CLOSED 가 있으면 경고
   })
 
@@ -142,8 +148,7 @@ describe('ControlRoomKpis — 나머지 카드', () => {
     const w = mount(ControlRoomKpis, { props: { kpis: kpis() } })
     const card = w.findAll('.kpi')[2]
 
-    expect(card.text()).toContain('0원')
-    expect(card.text()).toContain('한도 -300,000원')
+    expect(card.find('.v').text()).toBe('0원')
     expect(card.text()).toContain('여유 300,000원')
     expect(card.text()).not.toContain('%')   // % 는 별개의 자산 킬스위치다
   })

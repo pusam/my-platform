@@ -16,27 +16,27 @@
     <p v-else-if="flags.length === 0" class="empty">열려 있는 플래그 없음.</p>
 
     <div v-else class="flag-list">
+      <!--
+        항목 전체가 클릭 대상 — 항목마다 버튼을 달았더니 6개가 흩어져 패널이 어수선했다.
+        제목 클릭 = 에렌에게 질문, 본문 클릭 = 펼치기.
+      -->
       <article v-for="flag in flags" :key="flag.id + flag.title" class="flag" :class="severityClass(flag.severity)">
-        <b>
+        <b class="head" title="에렌에게 이 플래그 처리 방법 묻기" @click="$emit('ask', askText(flag))">
           {{ flag.title }}
           <span v-if="flag.key" class="k">{{ flag.key }}</span>
           <!-- 사람이 적은 항목과 시스템이 유도한 항목(파싱 오류·미등록 판정)을 구분한다 -->
-          <span v-if="flag.derived" class="derived">자동 감지</span>
+          <span v-if="flag.derived" class="derived">자동</span>
+          <span v-if="ageLabel(flag.ageDays)" class="age" :class="{ stale: flag.ageDays >= 30 }">
+            {{ ageLabel(flag.ageDays) }}
+          </span>
         </b>
         <!-- 본문은 2줄 클램프 — 6건 전체 본문을 펼쳐두면 텍스트 벽이 된다. 클릭으로 펼침 -->
         <p
           class="body"
           :class="{ open: isOpen(flag) }"
-          :title="isOpen(flag) ? '접기' : '펼쳐서 전체 보기'"
+          :title="`${flag.recordedOn} 기록${flag.ref ? ' · ' + flag.ref : ''}`"
           @click="toggle(flag)"
         >{{ flag.body }}</p>
-        <div class="meta">
-          <span v-if="ageLabel(flag.ageDays)" :class="{ stale: flag.ageDays >= 30 }">
-            {{ flag.recordedOn }} 기록 · {{ ageLabel(flag.ageDays) }}
-          </span>
-          <span v-if="flag.ref" class="ref">{{ flag.ref }}</span>
-        </div>
-        <button type="button" class="ask" @click="$emit('ask', askText(flag))">에렌에게 물어보기</button>
       </article>
     </div>
   </section>
@@ -153,29 +153,20 @@ function askText(flag) {
 .flag p.body.open { display: block; overflow: visible; }
 .flag p.body:hover { color: var(--cr-tx); }
 
-.meta {
-  font-family: var(--cr-mono);
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 5px;
-    font-size: 9.5px;
-  color: var(--cr-dim);
-}
-.meta .stale { color: var(--cr-amb); }
-.meta .ref { opacity: 0.8; }
+.flag b.head { cursor: pointer; }
+.flag b.head:hover { color: var(--cr-vio); }
 
-.ask {
+/* 방치 경과일 — 오래된 플래그가 눈에 띄어야 한다(해소됐는데 안 지운 항목이 최대 실패 모드) */
+.flag .age {
+  float: right;
   font-family: var(--cr-mono);
-  margin-top: 6px;
-  background: transparent;
-  border: 1px solid var(--cr-line);
-  color: var(--cr-mut);
-  font-size: 10px;
-  padding: 2px 7px;
-  cursor: pointer;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--cr-dim);
+  font-weight: 400;
 }
-.ask:hover { border-color: var(--cr-vio); color: var(--cr-tx); }
+.flag .age.stale { color: var(--cr-amb); }
+
 
 @media (max-width: 900px) {
   /* 중첩 스크롤 방지 — 페이지 스크롤 하나로 */

@@ -103,7 +103,9 @@ public final class CrewContextBuilder {
                 .append("종목 (STRONG_BUY ").append(c.strongBuy())
                 .append(" / BUY ").append(c.buy())
                 .append(" / 관망·미채점 ").append(c.watch()).append(')');
-        if (c.note() != null) sb.append(" — ").append(c.note());
+        // 크루에겐 카드 표면용 축약이 아니라 상세를 준다 — 근거가 잘리면 판단이 얕아진다.
+        String reason = c.noteDetail() != null ? c.noteDetail() : c.note();
+        if (reason != null) sb.append(" — ").append(reason);
         sb.append('\n');
     }
 

@@ -44,6 +44,8 @@ public record ControlRoomSnapshotDto(
      *
      * @param latestSnapshotAt 추천 스냅샷 최신 시각. null = 스냅샷 자체가 없음
      * @param snapshotStale    최신 스냅샷이 직전 거래일보다 오래됐는지. null = 판정 불가(스냅샷 없음/조회 실패)
+     * @param note             <b>카드 표면용 짧은 사유</b>(한 줄). 1/5 폭 카드에 문단을 넣으면 벽돌이 된다
+     * @param noteDetail       전체 설명 — 화면은 툴팁으로만 보여준다. 짧게 줄이느라 근거를 잃지 않기 위함
      */
     public record Candidates(
             boolean dataAvailable,
@@ -53,7 +55,8 @@ public record ControlRoomSnapshotDto(
             int watch,
             LocalDateTime latestSnapshotAt,
             Boolean snapshotStale,
-            String note
+            String note,
+            String noteDetail
     ) {}
 
     /** 게이트 1개. state = OPEN(진입 허용) / CLOSED(진입 차단) / UNKNOWN(판정 불가). */

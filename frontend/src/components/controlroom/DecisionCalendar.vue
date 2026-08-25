@@ -14,7 +14,7 @@
         판정 기한이 지난 안건
         <div class="chips">
           <button
-            v-for="e in overdue.slice(0, 4)"
+            v-for="e in overdue.slice(0, 3)"
             :key="e.id"
             type="button"
             :title="dueLabel(e)"
@@ -22,7 +22,7 @@
           >
             {{ e.title }}
           </button>
-          <span v-if="overdue.length > 4" class="more">+{{ overdue.length - 4 }}</span>
+          <span v-if="overdue.length > 3" class="more">+{{ overdue.length - 3 }}</span>
         </div>
       </div>
 
@@ -33,9 +33,9 @@
           v-for="e in conditionWaiting"
           :key="e.id"
           class="cond-item"
-          :title="`확인일 ${e.due} — 실제 트리거는 조건`"
+          :title="`확인일 ${e.due} — 날짜가 아니라 조건이 트리거: ${e.trigger}`"
         >
-          {{ e.title }} <em>({{ e.trigger }})</em>
+          {{ e.title }}
         </span>
       </div>
 
@@ -61,15 +61,12 @@
         <span><i class="lg-vio"></i>판정일</span>
         <span><i class="lg-red"></i>기한 초과 · 마일스톤</span>
         <span><i class="lg-amb"></i>조건 대기</span>
-        <span><i class="lg-grn"></i>주간 피드백</span>
+        <span><i class="lg-grn"></i>주간 ✓실행 ✗미실행 ?불명</span>
         <span><i class="lg-mag"></i>오늘 {{ today }}</span>
         <span v-if="nextLabel" class="next">NEXT · {{ nextLabel }}</span>
       </div>
 
-      <p class="foot">
-        주간 피드백(녹색)은 크론(일 18:00) 유도 — ✓ 실행됨 · <em>✗ 미실행</em> · ? 실행 여부 불명
-        (조회 창 밖 — 미실행으로 단정하지 않음). 자세한 상태는 칸에 마우스를 올리면 보인다.
-      </p>
+
     </template>
   </section>
 </template>
@@ -270,11 +267,4 @@ function cellTitle(cell) {
 .lg-mag { background: var(--cr-mag); }
 .legend .next { margin-left: auto; }
 
-.foot {
-  margin-top: 10px;
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--cr-dim);
-}
-.foot em { color: var(--cr-amb); font-style: normal; }
 </style>
