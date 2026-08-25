@@ -162,6 +162,66 @@ export function instructionForDate(cell) {
   return `${cell.date} 기준으로 지금 챙겨야 할 게 있는지 봐줘`
 }
 
+/**
+ * 판정 기록 표의 "결정" 5종 — `docs/SCHEDULE_DECISIONS.md` 판정 규칙 그대로.
+ * 이 목록을 늘리려면 문서를 먼저 고칠 것(화면이 문서보다 앞서가면 안 된다).
+ */
+export const DECISIONS = ['유지', '조정', '승격', '판정보류(표본부족)', '판정불가(데이터없음)']
+
+/** 재판정일을 반드시 채워야 하는 결정 — 비워두면 또 잊힌다(문서 규칙). */
+const NEEDS_NEXT_DATE = ['판정보류(표본부족)', '판정불가(데이터없음)']
+
+/** 근거에 표본 수가 적혔는지 — n=12 / n≥30 / 12건 / 34% 같은 형태를 인정한다. */
+function hasSampleCount(evidence) {
+  if (!evidence) return false
+  return /n\s*[=≥>]|[0-9]+\s*(건|개|일|%)/i.test(evidence)
+}
+
+/**
+ * 판정 기록 표에 붙여넣을 마크다운 행 생성 — 순수 함수.
+ *
+ * ⚠ **파일을 고치지 않는다.** 텍스트만 만들고 붙여넣기는 사람이 한다 — 관제실 읽기 전용
+ * 원칙(CLAUDE.md §7)을 지키면서도 "판정 기록 0건" 을 깨는 마지막 한 걸음이다.
+ *
+ * 문서에 적힌 규칙 3개를 여기서 강제한다:
+ *  ① 결정은 5종 중 하나
+ *  ② 근거에 표본 수(n) 필수 — n 없는 결론은 표본 부족을 결론으로 위장하는 것(§4c)
+ *  ③ 판정보류·판정불가면 재판정일 필수
+ *
+ * @returns {{row: string, warnings: string[], valid: boolean}}
+ *          warnings 는 막지 않고 알려준다 — 규칙을 알면서 넘길 상황도 있다.
+ *          valid=false 는 행을 만들 수 없는 경우(안건·결정 누락)뿐이다.
+ */
+export function buildDecisionRow({ decidedOn, title, decision, evidence, nextAction } = {}) {
+  const warnings = []
+  const cleanTitle = (title || '').trim()
+  const cleanDecision = (decision || '').trim()
+  const cleanEvidence = (evidence || '').trim()
+  const cleanNext = (nextAction || '').trim()
+
+  if (!cleanTitle) warnings.push('안건을 고르지 않았다')
+  if (!cleanDecision) warnings.push('결정을 고르지 않았다')
+
+  if (cleanDecision && !DECISIONS.includes(cleanDecision)) {
+    warnings.push(`결정은 ${DECISIONS.join(' / ')} 중 하나여야 한다`)
+  }
+  if (!cleanEvidence) {
+    warnings.push('근거가 비었다 — 표본 수(n)를 포함해 적을 것')
+  } else if (!hasSampleCount(cleanEvidence)) {
+    warnings.push('근거에 표본 수(n)가 안 보인다 — n 없는 결론은 §4c 위반')
+  }
+  if (NEEDS_NEXT_DATE.includes(cleanDecision) && !cleanNext) {
+    warnings.push('보류·불가는 다음 재판정일을 반드시 채운다 — 비워두면 또 잊힌다')
+  }
+
+  // 파이프는 표를 깨므로 치환한다(문서가 마크다운 표라서).
+  const cell = (v) => (v || '').replace(/\|/g, '/').replace(/\s+/g, ' ').trim()
+  const row = `| ${cell(decidedOn)} | ${cell(cleanTitle)} | ${cell(cleanDecision)} | `
+    + `${cell(cleanEvidence)} | ${cell(cleanNext)} |`
+
+  return { row, warnings, valid: !!cleanTitle && !!cleanDecision }
+}
+
 /** FLAGGED 심각도 → CSS 클래스. 알 수 없는 값은 info 취급(색만 결정하므로 안전). */
 export function severityClass(severity) {
   if (severity === 'critical') return 'crit'
@@ -208,6 +268,8 @@ export function ageLabel(ageDays) {
 
 export default {
   DOW_LABELS,
+  DECISIONS,
+  buildDecisionRow,
   WEEKLY_LABELS,
   WEEKLY_SHORT,
   parseMonth,

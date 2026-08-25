@@ -13,7 +13,9 @@ import {
   severityClass,
   gateStateClass,
   WEEKLY_LABELS,
-  WEEKLY_SHORT
+  WEEKLY_SHORT,
+  DECISIONS,
+  buildDecisionRow
 } from './controlRoomFormat'
 
 /**
@@ -189,5 +191,74 @@ describe('controlRoomFormat — 배지 문구', () => {
     expect(gateStateClass('OPEN')).toBe('g-open')
     expect(gateStateClass('CLOSED')).toBe('g-closed')
     expect(gateStateClass('UNKNOWN')).toBe('g-unknown')
+  })
+})
+
+describe('controlRoomFormat — 판정 기록 행 생성', () => {
+  const base = {
+    decidedOn: '2026-08-25',
+    title: 'VKOSPI 게이트 승격 (P2-18)',
+    decision: '유지',
+    evidence: 'HIGH_VOL 41%(distinctDays=12) vs NORMAL 44%(distinctDays=31)',
+    nextAction: '다음 주간 리포트에서 재확인'
+  }
+
+  it('문서 표 형식대로 5칸 행을 만든다', () => {
+    const { row, valid, warnings } = buildDecisionRow(base)
+
+    expect(valid).toBe(true)
+    expect(warnings).toEqual([])
+    expect(row).toBe(
+      '| 2026-08-25 | VKOSPI 게이트 승격 (P2-18) | 유지 | '
+      + 'HIGH_VOL 41%(distinctDays=12) vs NORMAL 44%(distinctDays=31) | 다음 주간 리포트에서 재확인 |'
+    )
+  })
+
+  it('결정 목록은 문서의 5종과 같다', () => {
+    expect(DECISIONS).toEqual([
+      '유지', '조정', '승격', '판정보류(표본부족)', '판정불가(데이터없음)'
+    ])
+  })
+
+  it('근거에 표본 수가 없으면 경고한다 (§4c — n 없는 결론 금지)', () => {
+    const { warnings } = buildDecisionRow({ ...base, evidence: '괜찮아 보임' })
+    expect(warnings.join(' ')).toContain('표본 수')
+  })
+
+  it('n=12 · n≥30 · 12건 · 34% 는 표본 수로 인정한다', () => {
+    for (const evidence of ['n=12 로 충분', 'n≥30 도달', '평가 12건', '적중률 34%']) {
+      expect(buildDecisionRow({ ...base, evidence }).warnings).toEqual([])
+    }
+  })
+
+  it('보류·불가인데 재판정일이 비면 경고한다 (비워두면 또 잊힌다)', () => {
+    for (const decision of ['판정보류(표본부족)', '판정불가(데이터없음)']) {
+      const { warnings } = buildDecisionRow({ ...base, decision, nextAction: '' })
+      expect(warnings.join(' ')).toContain('재판정일')
+    }
+  })
+
+  it('유지·조정·승격은 재판정일이 비어도 경고하지 않는다', () => {
+    const { warnings } = buildDecisionRow({ ...base, decision: '유지', nextAction: '' })
+    expect(warnings.join(' ')).not.toContain('재판정일')
+  })
+
+  it('안건이나 결정이 없으면 valid=false — 행을 만들 수 없다', () => {
+    expect(buildDecisionRow({ ...base, title: '' }).valid).toBe(false)
+    expect(buildDecisionRow({ ...base, decision: '' }).valid).toBe(false)
+    expect(buildDecisionRow().valid).toBe(false)
+  })
+
+  it('근거에 파이프가 들어가도 표를 깨지 않는다', () => {
+    const { row } = buildDecisionRow({ ...base, evidence: 'A | B 비교 n=30' })
+    expect(row.split('|')).toHaveLength(7)   // 앞뒤 빈칸 + 5칸
+    expect(row).toContain('A / B 비교')
+  })
+
+  it('경고가 있어도 행 자체는 만들어진다 — 막지 않고 알려준다', () => {
+    const { row, warnings, valid } = buildDecisionRow({ ...base, evidence: '느낌상 괜찮음' })
+    expect(valid).toBe(true)
+    expect(warnings.length).toBeGreaterThan(0)
+    expect(row).toContain('느낌상 괜찮음')
   })
 })

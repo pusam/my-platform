@@ -17,8 +17,8 @@
             v-for="e in overdue.slice(0, 3)"
             :key="e.id"
             type="button"
-            :title="dueLabel(e)"
-            @click="$emit('ask', `${e.title} 판정이 ${e.due} 기한을 넘겼다. 지금 상태로 갈 수 있는지 정리해`)"
+            :title="`${dueLabel(e)} — 누르면 판정 기록 행 작성기가 이 안건으로 열린다`"
+            @click="presetTitle = e.title"
           >
             {{ e.title }}
           </button>
@@ -57,6 +57,12 @@
         </template>
       </div>
 
+      <DecisionRecordComposer
+        :entries="calendar.entries"
+        :today="today"
+        :preset-title="presetTitle"
+      />
+
       <div class="legend">
         <span><i class="lg-vio"></i>판정일</span>
         <span><i class="lg-red"></i>기한 초과 · 마일스톤</span>
@@ -80,8 +86,9 @@
  *  ② milestone 은 판정이 아니므로 라벨에 명시한다(미판정 집계에도 안 들어간다).
  *  ③ 주간 피드백의 MISSED 와 UNKNOWN 을 같은 말로 쓰지 않는다.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import NoData from './NoData.vue'
+import DecisionRecordComposer from './DecisionRecordComposer.vue'
 import {
   DOW_LABELS,
   buildCalendarGrid,
@@ -100,6 +107,9 @@ const props = defineProps({
 })
 
 defineEmits(['ask'])
+
+/** OVERDUE 칩·캘린더에서 고른 안건 — 작성기를 그 안건으로 연다. */
+const presetTitle = ref('')
 
 const monthLabel = computed(() => (props.month || '').replace('-', '.'))
 const overdue = computed(() => props.calendar?.overdue ?? [])

@@ -114,6 +114,33 @@
       </div>
 
       <div class="mode">{{ modeText }}</div>
+
+      <!--
+        세션 이력 — API 는 처음부터 있었는데 화면이 없어 지난 결론을 되찾을 수 없었다.
+        비용 확인도 겸한다(일 상한 30세션이면 무시 못 할 금액이 된다).
+      -->
+      <div v-if="sessions.length" class="hist">
+        <button type="button" class="hist-h" @click="histOpen = !histOpen">
+          <span>{{ histOpen ? '▾' : '▸' }} 지난 세션 {{ sessions.length }}건</span>
+          <em v-if="totalOutputTokens">누적 출력 {{ totalOutputTokens.toLocaleString('ko-KR') }} 토큰</em>
+        </button>
+
+        <div v-if="histOpen" class="hist-list">
+          <button
+            v-for="s in sessions"
+            :key="s.id"
+            type="button"
+            class="hist-item"
+            :class="{ on: session && session.id === s.id }"
+            :title="s.instruction"
+            @click="$emit('select', s.id)"
+          >
+            <span class="id">#{{ s.id }}</span>
+            <span class="ins">{{ s.instruction }}</span>
+            <span class="st" :class="s.status">{{ statusLabel(s.status) }}</span>
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 </template>
@@ -133,15 +160,17 @@ import { computed, nextTick, ref, watch } from 'vue'
 const props = defineProps({
   crew: { type: Object, default: null },
   session: { type: Object, default: null },
+  sessions: { type: Array, default: () => [] },
   errorMessage: { type: String, default: null },
   sending: { type: Boolean, default: false },
   verifying: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['ask', 'verify'])
+const emit = defineEmits(['ask', 'verify', 'select'])
 
 const draft = ref('')
 const threadEl = ref(null)
+const histOpen = ref(false)
 
 const AGENTS = [
   { key: 'eren', name: '에렌', role: '총괄 · 분배/결론' },
@@ -250,6 +279,17 @@ const modeText = computed(() => {
   if (!crewEnabled.value) return 'MODE · DISABLED'
   return `MODE · ${props.crew.model} · 5턴 고정`
 })
+
+/** 누적 출력 토큰 — 비용 감각용. usage 없는 턴은 더하지 않는다(§4c, 0 으로 메우지 않음). */
+const totalOutputTokens = computed(() =>
+  props.sessions.reduce((sum, s) => sum + (s.usage?.outputTokens || 0), 0)
+)
+
+function statusLabel(status) {
+  if (status === 'RUNNING') return '진행'
+  if (status === 'COMPLETED') return '완료'
+  return '실패'
+}
 
 function agentClass(agent) {
   if (agent === 'OPERATOR') return 'user'

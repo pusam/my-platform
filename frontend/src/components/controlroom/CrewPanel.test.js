@@ -342,3 +342,51 @@ describe('CrewPanel — 모델 출력을 HTML 로 신뢰하지 않는다', () =>
     expect(w.find('.tag.cond').text()).toBe('조건부')
   })
 })
+
+describe('CrewPanel — 세션 이력', () => {
+  const history = [
+    { id: 12, status: 'COMPLETED', instruction: '밀린 판정 정리해', usage: { outputTokens: 4200, complete: true } },
+    { id: 11, status: 'FAILED', instruction: 'NXT 준비 상태', usage: { outputTokens: 900, complete: false } }
+  ]
+
+  it('이력이 없으면 섹션 자체가 안 뜬다', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null, sessions: [] } })
+    expect(w.find('.hist').exists()).toBe(false)
+  })
+
+  it('건수와 누적 출력 토큰을 보여준다 (비용 감각용)', () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null, sessions: history } })
+
+    expect(w.find('.hist-h').text()).toContain('2건')
+    expect(w.find('.hist-h').text()).toContain('5,100')   // 4200 + 900
+  })
+
+  it('펼치면 세션 목록이 나오고 클릭하면 select 를 emit 한다', async () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null, sessions: history } })
+
+    await w.find('.hist-h').trigger('click')
+    const items = w.findAll('.hist-item')
+    expect(items).toHaveLength(2)
+    expect(items[0].text()).toContain('밀린 판정 정리해')
+
+    await items[1].trigger('click')
+    expect(w.emitted('select')[0]).toEqual([11])
+  })
+
+  it('상태별로 다른 색 클래스를 쓴다 — 실패한 세션이 눈에 띄어야 한다', async () => {
+    const w = mount(CrewPanel, { props: { crew: ENABLED_CREW, session: null, sessions: history } })
+    await w.find('.hist-h').trigger('click')
+
+    expect(w.findAll('.hist-item .st')[0].classes()).toContain('COMPLETED')
+    expect(w.findAll('.hist-item .st')[1].classes()).toContain('FAILED')
+  })
+
+  it('현재 보고 있는 세션이 표시된다', async () => {
+    const w = mount(CrewPanel, {
+      props: { crew: ENABLED_CREW, session: { ...completedSession(), id: 11 }, sessions: history }
+    })
+    await w.find('.hist-h').trigger('click')
+
+    expect(w.findAll('.hist-item')[1].classes()).toContain('on')
+  })
+})

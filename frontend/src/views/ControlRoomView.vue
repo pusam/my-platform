@@ -52,9 +52,11 @@
       :session="session"
       :error-message="crewError"
       :sending="sending"
+      :sessions="sessions"
       :verifying="verifying"
       @ask="ask"
       @verify="verifyCrew"
+      @select="selectSession"
     />
   </div>
 </template>
@@ -87,6 +89,7 @@ const snapshotError = ref(null)
 const loading = ref(false)
 
 const session = ref(null)
+const sessions = ref([])
 const crewError = ref(null)
 const sending = ref(false)
 const verifying = ref(false)
@@ -130,17 +133,27 @@ async function loadSnapshot() {
   }
 }
 
-/** 새로고침 후에도 진행 중이던 세션을 이어 보여준다. */
-async function restoreLatestSession() {
+/** 새로고침 후에도 진행 중이던 세션을 이어 보여준다. 이력 목록도 같은 응답에서 채운다. */
+async function loadSessions({ selectLatest = false } = {}) {
   try {
     const res = await controlRoomAPI.getCrewSessions()
     const list = res.data?.data ?? []
-    if (!list.length) return
+    sessions.value = list
+    if (!selectLatest || !list.length) return
     session.value = list[0]
     if (list[0].status === 'RUNNING') startPolling(list[0].id)
   } catch {
-    // 이력 복원 실패는 치명적이지 않다 — 새 지시는 그대로 보낼 수 있다.
+    // 이력 조회 실패는 치명적이지 않다 — 새 지시는 그대로 보낼 수 있다.
   }
+}
+
+/** 지난 세션 선택 — 이미 받아둔 목록에서 꺼낸다(추가 호출 없음). */
+function selectSession(id) {
+  const found = sessions.value.find((s) => s.id === id)
+  if (!found) return
+  stopPolling()
+  session.value = found
+  if (found.status === 'RUNNING') startPolling(found.id)
 }
 
 async function ask(instruction) {
@@ -198,8 +211,9 @@ function startPolling(id) {
       if (next) session.value = next
       if (!next || next.status !== 'RUNNING') {
         stopPolling()
-        // 완료 시 스냅샷을 다시 읽어 오늘 사용량·상태를 갱신한다.
+        // 완료 시 스냅샷(오늘 사용량)과 이력 목록을 함께 갱신한다.
         loadSnapshot()
+        loadSessions()
       }
     } catch (e) {
       // 일시 오류는 다음 주기에 재시도 — 연속 한계 도달 때만 멈추고 사유를 남긴다.
@@ -242,7 +256,7 @@ watch(month, loadSnapshot)
 
 onMounted(async () => {
   await loadSnapshot()
-  await restoreLatestSession()
+  await loadSessions({ selectLatest: true })
 })
 
 onBeforeUnmount(stopPolling)
