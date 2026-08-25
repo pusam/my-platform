@@ -72,7 +72,7 @@
                 응답 잘림
               </span>
             </div>
-            <div class="tx" v-html="renderContent(msg.content)"></div>
+            <div class="tx" v-html="renderContent(msg.content, msg.phase)"></div>
 
             <!-- 액션 버튼 = 새 지시를 보내는 것뿐. 아무것도 실행하지 않는다. -->
             <div v-if="isClosing(msg) && session.actions.length" class="acts">
@@ -228,13 +228,23 @@ function isClosing(msg) {
 }
 
 /**
- * FIREWALL 의 [승인]/[조건부]/[반려] 첫 줄만 배지로 바꾼다.
+ * FIREWALL 검토 턴의 판정(승인/조건부/반려)만 배지로 바꾼다.
  * 그 외 텍스트는 이스케이프해서 그대로 둔다 — 모델 출력을 HTML 로 신뢰하지 않는다.
+ *
+ * ⚠ 대괄호는 **선택**이다. 프롬프트는 "[조건부]" 형식을 요구하지만 모델이 실제로는
+ * "조건부 — ..." 처럼 대괄호를 빼고 쓰는 일이 잦다(2026-08-25 실측). 프롬프트를 조여도
+ * 또 흘리므로 파서를 너그럽게 만드는 쪽이 맞다.
+ *
+ * 오탐 방지를 위해 **REVIEW 턴의 맨 앞**에서만 매칭한다 — 다른 턴 본문에 "승인" 같은 단어가
+ * 줄머리에 오더라도 배지로 바뀌지 않는다.
  */
-function renderContent(text) {
+const VERDICT_PATTERN = /^[ 	]*\[?(승인|조건부|반려)\]?[ 	]*(?:[—–:-][ 	]*)?/
+
+function renderContent(text, phase) {
   const escaped = escapeHtml(text || '')
+  if (phase !== 'REVIEW') return escaped
   return escaped.replace(
-    /^\[(승인|조건부|반려)\]/m,
+    VERDICT_PATTERN,
     (_, verdict) => `<span class="tag ${verdictClass(verdict)}">${verdict}</span>`
   )
 }

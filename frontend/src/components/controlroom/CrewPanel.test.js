@@ -206,6 +206,75 @@ describe('CrewPanel — 진행 표시', () => {
   })
 })
 
+describe('CrewPanel — FIREWALL 판정 배지', () => {
+  function reviewSession(content) {
+    return completedSession({
+      actions: [],
+      messages: [
+        { turnNo: 3, agent: 'FIREWALL', displayName: 'FIREWALL', phase: 'REVIEW', content, truncated: false }
+      ]
+    })
+  }
+
+  it('대괄호 형식 [조건부] 를 배지로 바꾼다', () => {
+    const w = mount(CrewPanel, {
+      props: { crew: ENABLED_CREW, session: reviewSession(`[조건부]
+1. 보완사항`) }
+    })
+    expect(w.find('.tag.cond').text()).toBe('조건부')
+  })
+
+  it('대괄호 없는 "조건부 — ..." 도 배지로 바꾼다 (모델이 자주 흘린다)', () => {
+    const w = mount(CrewPanel, {
+      props: { crew: ENABLED_CREW, session: reviewSession('조건부 — 초안은 불변식 경계를 지켰고') }
+    })
+    expect(w.find('.tag.cond').text()).toBe('조건부')
+    expect(w.find('.tx').text()).toContain('초안은 불변식 경계를 지켰고')
+  })
+
+  it('승인/반려도 각각 다른 색 배지가 된다', () => {
+    const ok = mount(CrewPanel, {
+      props: { crew: ENABLED_CREW, session: reviewSession('승인. 문제 없음') }
+    })
+    expect(ok.find('.tag.ok').text()).toBe('승인')
+
+    const no = mount(CrewPanel, {
+      props: { crew: ENABLED_CREW, session: reviewSession(`[반려]
+불변식 위반`) }
+    })
+    expect(no.find('.tag.no').text()).toBe('반려')
+  })
+
+  it('REVIEW 가 아닌 턴에서는 줄머리 "승인" 이 배지로 바뀌지 않는다 (오탐 방지)', () => {
+    const w = mount(CrewPanel, {
+      props: {
+        crew: ENABLED_CREW,
+        session: completedSession({
+          actions: [],
+          messages: [
+            { turnNo: 2, agent: 'SCOUT', displayName: 'SCOUT', phase: 'DRAFT',
+              content: '승인 절차를 초안에 넣는다', truncated: false }
+          ]
+        })
+      }
+    })
+    expect(w.find('.tag').exists()).toBe(false)
+    expect(w.find('.tx').text()).toContain('승인 절차를 초안에 넣는다')
+  })
+
+  it('판정 뒤 본문이 통째로 삼켜지지 않는다', () => {
+    const w = mount(CrewPanel, {
+      props: { crew: ENABLED_CREW, session: reviewSession(`[승인]
+1. 첫째
+2. 둘째`) }
+    })
+    // .html() 은 vue-test-utils 가 예쁘게 포매팅하므로 원문 개행으로 단언하지 않는다.
+    expect(w.find('.tag.ok').text()).toBe('승인')
+    expect(w.find('.tx').text()).toContain('1. 첫째')
+    expect(w.find('.tx').text()).toContain('2. 둘째')
+  })
+})
+
 describe('CrewPanel — 모델 출력을 HTML 로 신뢰하지 않는다', () => {
   it('본문의 태그는 이스케이프되고 판정 배지만 마크업이 된다', () => {
     const session = completedSession({

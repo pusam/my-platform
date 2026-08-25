@@ -37,18 +37,6 @@ flags:
     recorded_on: 2026-08-21
     ref: VERIFICATION_BACKLOG "AUDIT 2026-08-21" R1
 
-  - id: deploy-pending-server-down
-    severity: critical
-    title: 감사 수정 10건 push 완료 · 서버 다운으로 미배포
-    key: 배포
-    body: >
-      2026-08-21 감사 수정분(대조군 창 정렬·휴장일 달력·거래정지 게이트 OTP·주간 주 선택·dedup 등)이
-      커밋/push 만 된 상태다. 서버가 2026-08-20 오후부터 443/80/22 전부 응답 없음(GitHub 러너도 실패 =
-      IP 차단이 아니라 호스트 문제). 복구 시 [종목상태] KRX 동기화 완료 로그로 게이트 생사부터 확정할 것.
-      ※ 복구·배포되면 이 항목을 지울 것.
-    recorded_on: 2026-08-21
-    ref: memory/audit-2026-08-21.md
-
   - id: real-cash-field-unverified
     severity: warning
     title: REAL 가용현금 필드가 D+1 정산값 — 당일 매수 미반영 의심
@@ -80,6 +68,19 @@ flags:
       R15 체크리스트가 노후 연속매수·공매도·fail-open 상태를 ✅ 로 표시. 셋 다 화면이 실제보다 확신을 준다.
     recorded_on: 2026-08-21
     ref: VERIFICATION_BACKLOG "AUDIT 2026-08-21" R13~R15
+
+  - id: outage-2026-08-20-measurement-gap
+    severity: warning
+    title: 2026-08-20~24 서버 다운으로 수집·측정에 5일 공백
+    key: 표본공백
+    body: >
+      호스트 다운(8/20 오후~8/24 12:04) 동안 수집 배치가 전혀 돌지 않아 수급·가격·시그널·대조군 표본에
+      5일 구멍이 있다. 복구 후 자동으로 메워지지 않는 축(그날그날 스냅샷을 쌓는 것들)은 영구 결손이다.
+      대조군 첫 판정(확인일 2026-09-07, 트리거 n>=30) 전에 그 구간을 제외할지 포함할지 먼저 정할 것 —
+      "쌓였다"고도 "0"이라고도 단정하지 말고 실제 행 수를 확인해야 한다.
+      복구 당일(8/24) 08:30 종목상태(KRX 동기화)도 건너뛰어 그날 하루는 거래정지 게이트가 fail-open 이었다.
+    recorded_on: 2026-08-25
+    ref: memory/audit-2026-08-21.md, DiagnosticsController /api/diagnostics/data
 
   - id: control-group-universe-asymmetry
     severity: info
