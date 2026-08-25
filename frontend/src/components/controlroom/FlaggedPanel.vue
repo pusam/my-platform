@@ -23,7 +23,13 @@
           <!-- 사람이 적은 항목과 시스템이 유도한 항목(파싱 오류·미등록 판정)을 구분한다 -->
           <span v-if="flag.derived" class="derived">자동 감지</span>
         </b>
-        <p>{{ flag.body }}</p>
+        <!-- 본문은 2줄 클램프 — 6건 전체 본문을 펼쳐두면 텍스트 벽이 된다. 클릭으로 펼침 -->
+        <p
+          class="body"
+          :class="{ open: isOpen(flag) }"
+          :title="isOpen(flag) ? '접기' : '펼쳐서 전체 보기'"
+          @click="toggle(flag)"
+        >{{ flag.body }}</p>
         <div class="meta">
           <span v-if="ageLabel(flag.ageDays)" :class="{ stale: flag.ageDays >= 30 }">
             {{ flag.recordedOn }} 기록 · {{ ageLabel(flag.ageDays) }}
@@ -46,7 +52,7 @@
  * 오래된 플래그(30일+)는 흐리게 강조한다. 해소됐는데 안 지운 항목이 관제실을 거짓말로 만드는 것이
  * 이 화면의 가장 큰 실패 모드라, 신선도를 눈에 띄게 둔다.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import NoData from './NoData.vue'
 import { severityClass, ageLabel } from '../../utils/controlRoomFormat'
 
@@ -57,6 +63,25 @@ const props = defineProps({
 defineEmits(['ask'])
 
 const flags = computed(() => props.flagged?.flags ?? [])
+
+/** 펼쳐진 플래그 — Set 재할당으로 반응성 트리거(제자리 add/delete 는 감지 안 됨). */
+const openIds = ref(new Set())
+
+function flagKey(flag) {
+  return `${flag.id}|${flag.title}`
+}
+
+function isOpen(flag) {
+  return openIds.value.has(flagKey(flag))
+}
+
+function toggle(flag) {
+  const next = new Set(openIds.value)
+  const key = flagKey(flag)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  openIds.value = next
+}
 
 function askText(flag) {
   return `FLAGGED "${flag.title}" 지금 어떻게 처리해야 하는지 정리해`
@@ -115,6 +140,15 @@ function askText(flag) {
 }
 
 .flag p { font-size: 11.5px; color: var(--cr-mut); line-height: 1.55; margin: 0; }
+.flag p.body {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  cursor: pointer;
+}
+.flag p.body.open { display: block; overflow: visible; }
+.flag p.body:hover { color: var(--cr-tx); }
 
 .meta {
   display: flex;
@@ -128,15 +162,15 @@ function askText(flag) {
 .meta .ref { opacity: 0.8; }
 
 .ask {
-  margin-top: 7px;
+  margin-top: 6px;
   background: transparent;
   border: 1px solid var(--cr-line);
-  color: var(--cr-tx);
-  font-size: 10.5px;
-  padding: 3px 8px;
+  color: var(--cr-mut);
+  font-size: 10px;
+  padding: 2px 7px;
   cursor: pointer;
 }
-.ask:hover { border-color: var(--cr-vio); }
+.ask:hover { border-color: var(--cr-vio); color: var(--cr-tx); }
 
 @media (max-width: 900px) {
   /* 중첩 스크롤 방지 — 페이지 스크롤 하나로 */

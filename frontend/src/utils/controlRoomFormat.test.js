@@ -12,7 +12,8 @@ import {
   ageLabel,
   severityClass,
   gateStateClass,
-  WEEKLY_LABELS
+  WEEKLY_LABELS,
+  WEEKLY_SHORT
 } from './controlRoomFormat'
 
 /**
@@ -92,14 +93,17 @@ describe('controlRoomFormat — 달력 격자', () => {
     expect(cellClass(grid.find((c) => c.date === '2026-09-02'))).toContain('today')
   })
 
-  it('칸 라벨은 판정 제목, 없으면 주간 피드백 상태 문구', () => {
+  it('칸 라벨은 판정 제목, 주간 피드백은 짧은 표기(긴 문구는 툴팁용)', () => {
     expect(cellLabel(grid.find((c) => c.date === '2026-09-02'))).toBe('수급 캡10 사후검증')
-    expect(cellLabel(grid.find((c) => c.date === '2026-09-13'))).toBe(WEEKLY_LABELS.MISSED)
+    // 좁은 칸엔 짧은 표기 — 긴 WEEKLY_LABELS 는 툴팁·지시문에서 쓴다
+    expect(cellLabel(grid.find((c) => c.date === '2026-09-13'))).toBe(WEEKLY_SHORT.MISSED)
+    expect(WEEKLY_SHORT.MISSED.length).toBeLessThanOrEqual(6)
   })
 
-  it('MISSED 와 UNKNOWN 문구가 서로 다르다 (안 돌았다 ≠ 모른다)', () => {
+  it('MISSED 와 UNKNOWN 문구가 서로 다르다 (안 돌았다 ≠ 모른다) — 짧은 표기도 마찬가지', () => {
     expect(WEEKLY_LABELS.MISSED).not.toBe(WEEKLY_LABELS.UNKNOWN)
     expect(WEEKLY_LABELS.UNKNOWN).toContain('불명')
+    expect(WEEKLY_SHORT.MISSED).not.toBe(WEEKLY_SHORT.UNKNOWN)
   })
 })
 

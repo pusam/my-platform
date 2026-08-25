@@ -108,7 +108,7 @@ export function cellLabel(cell) {
     const suffix = cell.entries.length > 1 ? ` 외 ${cell.entries.length - 1}` : ''
     return `${first.title}${suffix}`
   }
-  return cell.weekly ? WEEKLY_LABELS[cell.weekly] || cell.weekly : ''
+  return cell.weekly ? WEEKLY_SHORT[cell.weekly] || cell.weekly : ''
 }
 
 /**
@@ -122,6 +122,18 @@ export const WEEKLY_LABELS = {
   RAN: '주간 피드백 실행됨',
   MISSED: '주간 피드백 미실행',
   UNKNOWN: '주간 피드백 실행 여부 불명'
+}
+
+/**
+ * 달력 칸 안에 쓰는 짧은 표기 — 좁은 칸에 긴 문구를 넣으면 뭉개진다(2026-08-25 실측).
+ * 전체 문구(WEEKLY_LABELS)는 툴팁과 지시문에서 계속 쓴다. ✗/? 구분은 유지 —
+ * 짧아져도 "안 돌았다"와 "모른다"를 같은 기호로 합치지 않는다(§4c).
+ */
+export const WEEKLY_SHORT = {
+  SCHEDULED: '주간 예정',
+  RAN: '주간 ✓',
+  MISSED: '주간 ✗',
+  UNKNOWN: '주간 ?'
 }
 
 /**
@@ -197,6 +209,7 @@ export function ageLabel(ageDays) {
 export default {
   DOW_LABELS,
   WEEKLY_LABELS,
+  WEEKLY_SHORT,
   parseMonth,
   buildCalendarGrid,
   cellClass,
