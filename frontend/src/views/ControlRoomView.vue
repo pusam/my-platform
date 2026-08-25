@@ -270,6 +270,14 @@ onBeforeUnmount(stopPolling)
   --cr-mut: #8f81be;   /* 목업 #7e71ad 에서 올림 — 가독 */
   --cr-dim: #5b4f88;
 
+  /*
+   * 라벨·숫자용 모노. 앱 전역 폰트 스택(-apple-system, Segoe UI …)엔 한글 폰트가 없어
+   * 윈도우에선 라틴(Segoe UI)과 한글(맑은 고딕)이 글자마다 갈라진다. 거기에 계기판용
+   * 자간(0.14~0.24em)을 얹으면 글자가 벌어져 깨져 보인다(2026-08-25 실측).
+   * 그래서 **라벨·숫자·배지에는 모노를 쓰고, 본문(대화·설명)만 앱 폰트를 상속**한다.
+   */
+  --cr-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'D2Coding', 'Malgun Gothic', monospace;
+
   display: grid;
   grid-template-columns: 1fr 400px;
   height: 100vh;
@@ -309,6 +317,7 @@ main {
 .head-l { display: flex; align-items: flex-end; gap: 14px; }
 .head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
 .cycle {
+  font-family: var(--cr-mono);
   color: var(--cr-grn);
   font-size: 11px;
   letter-spacing: 0.2em;
@@ -317,6 +326,7 @@ main {
 .cycle::before { content: '— '; color: var(--cr-mag); }
 
 .back {
+  font-family: var(--cr-mono);
   background: transparent;
   border: 1px solid var(--cr-line);
   color: var(--cr-tx);
@@ -329,6 +339,7 @@ main {
 
 .head-r { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .sel {
+  font-family: var(--cr-mono);
   background: var(--cr-panel);
   border: 1px solid var(--cr-line);
   color: var(--cr-tx);
@@ -336,6 +347,7 @@ main {
   font-size: 12px;
 }
 .refresh {
+  font-family: var(--cr-mono);
   background: transparent;
   border: 1px solid var(--cr-line);
   color: var(--cr-tx);
@@ -347,6 +359,7 @@ main {
 .refresh:disabled { opacity: 0.5; cursor: wait; }
 
 .dday {
+  font-family: var(--cr-mono);
   border: 1px solid var(--cr-red);
   color: var(--cr-red);
   padding: 8px 14px;
@@ -371,7 +384,8 @@ main {
   line-height: 1.6;
 }
 .foot-note b { color: var(--cr-mut); }
-.foot-note .gen { margin-left: 10px; }
+.foot-note .gen {
+  font-family: var(--cr-mono); margin-left: 10px; }
 
 /*
  * 반응형 4단계 — 1400 크루 폭↓ · 1100 크루 아래로 · 900 캘린더/FLAGGED 세로 · 720 모바일.

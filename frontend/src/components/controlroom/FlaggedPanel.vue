@@ -102,7 +102,8 @@ function askText(flag) {
   align-items: baseline;
   margin-bottom: 12px;
 }
-.ph b { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; }
+.ph b {
+  font-family: var(--cr-mono); font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; }
 .ph span { font-size: 11px; color: var(--cr-mut); }
 
 .empty { font-size: 12px; color: var(--cr-mut); }
@@ -126,11 +127,13 @@ function askText(flag) {
 
 .flag b { display: block; font-size: 12.5px; margin-bottom: 3px; line-height: 1.4; }
 .flag .k {
+  font-family: var(--cr-mono);
     font-size: 10px;
   color: var(--cr-vio);
   margin-left: 6px;
 }
 .flag .derived {
+  font-family: var(--cr-mono);
     font-size: 9px;
   letter-spacing: 0.1em;
   color: var(--cr-cyn);
@@ -151,6 +154,7 @@ function askText(flag) {
 .flag p.body:hover { color: var(--cr-tx); }
 
 .meta {
+  font-family: var(--cr-mono);
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
@@ -162,6 +166,7 @@ function askText(flag) {
 .meta .ref { opacity: 0.8; }
 
 .ask {
+  font-family: var(--cr-mono);
   margin-top: 6px;
   background: transparent;
   border: 1px solid var(--cr-line);

@@ -190,6 +190,7 @@ const headroomText = computed(() => {
 .kpi.ok::after { border-color: var(--cr-grn); }
 
 .eyebrow {
+  font-family: var(--cr-mono);
     font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -197,6 +198,7 @@ const headroomText = computed(() => {
 }
 
 .v {
+  font-family: var(--cr-mono);
   font-size: 30px;
   line-height: 1.15;
   margin: 7px 0 4px;
@@ -214,6 +216,7 @@ const headroomText = computed(() => {
 
 /* 라벨 밑 기준 표기 — "무엇을 센 숫자인지"를 숫자 옆에 붙여둔다 */
 .basis {
+  font-family: var(--cr-mono);
   display: block;
   margin-top: 3px;
   font-size: 10px;
@@ -227,7 +230,8 @@ const headroomText = computed(() => {
   line-height: 1.45;
 }
 .s.note { color: var(--cr-amb); margin-top: 3px; line-height: 1.5; }
-.s.snap { margin-top: 2px; font-size: 10px; }
+.s.snap {
+  font-family: var(--cr-mono); margin-top: 2px; font-size: 10px; }
 .s.snap.stale { color: var(--cr-amb); }
 
 .bar { display: flex; gap: 2px; margin-top: 8px; }
