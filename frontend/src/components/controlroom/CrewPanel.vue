@@ -281,10 +281,17 @@ watch(
   min-height: 0;
 }
 
+/*
+ * 상태 배지를 좌측(CREW 제목 옆)에 둔다.
+ * App.vue 가 NotificationBell 을 전역 fixed 로 우상단에 띄우기 때문에, 배지를 오른쪽 끝에 두면
+ * 벨/알림 패널이 정확히 그 자리를 덮어 ONLINE/OFFLINE 을 못 읽는다. 전역 벨을 옮기면 다른 화면에
+ * 영향이 가므로 여기서 비켜 앉는다. 우측 여백은 벨 자리를 비워두기 위한 것.
+ */
 .crew-h {
   display: flex;
-  justify-content: space-between;
-  padding: 16px 16px 10px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 16px 56px 10px 16px;
   align-items: center;
 }
 .crew-h b { font-family: var(--cr-mono); letter-spacing: 0.24em; font-size: 12px; }
