@@ -165,8 +165,8 @@ class DecisionCalendarParserTest {
     }
 
     @Test
-    @DisplayName("실제 docs/SCHEDULE_DECISIONS.md — 미판정 8건 / OVERDUE 5건 / 미등록 0건")
-    void realDocumentMatchesExpectedCounts() throws IOException {
+    @DisplayName("실제 docs/SCHEDULE_DECISIONS.md — 파싱 무결성과 로스터 정합")
+    void realDocumentParsesCleanly() throws IOException {
         Path path = Path.of("..", "docs", "SCHEDULE_DECISIONS.md");
         assumeTrue(Files.exists(path), "레포 루트 기준 실행이 아닐 때는 건너뛴다");
 
@@ -181,19 +181,23 @@ class DecisionCalendarParserTest {
         assertThat(r.rosterSize()).isEqualTo(8);
         assertThat(r.undecidedCount()).isEqualTo(8);
 
-        // 표의 8건이 모두 YAML 에 등록돼 있어야 한다
+        // 표의 8건이 모두 YAML 에 등록돼 있어야 한다 (표↔블록 title 드리프트 감지)
         assertThat(r.unregisteredTitles()).isEmpty();
 
-        // OVERDUE = 07-22 4건 + atr-real-expansion(08-11) = 5건
-        List<String> overdue = r.overdue(TODAY).stream()
-                .map(DecisionCalendarParser.Entry::id).toList();
-        assertThat(overdue).containsExactlyInAnyOrder(
-                "supply-cap-10", "rvol-first-aggregation", "manual-journal-stats",
-                "vkospi-gate-promotion", "atr-real-expansion");
-
-        // 조건 트리거 1건(대조군)만 '확인일'로 구분 표기된다
+        // 조건 트리거 항목은 due 가 '확인일'이라 화면에서 판정일과 구분돼야 한다.
+        // ⚠ 기한(due)은 재판정 때마다 바뀌므로 특정 날짜·OVERDUE 건수를 단언하지 않는다 —
+        //    날짜를 박으면 판정을 내릴 때마다 이 테스트가 깨진다(2026-08-26 실제로 깨졌다).
+        //    OVERDUE 판정 로직 자체는 위의 합성 데이터 테스트가 검증한다.
         assertThat(r.conditionWaiting())
                 .extracting(DecisionCalendarParser.Entry::id)
-                .containsExactly("control-group-first");
+                .contains("control-group-first");
+
+        // 모든 항목이 스키마를 지킨다
+        assertThat(r.entries()).allSatisfy(e -> {
+            assertThat(e.id()).isNotBlank();
+            assertThat(e.title()).isNotBlank();
+            assertThat(e.due()).isNotNull();
+            assertThat(e.status()).isIn("pending", "decided", "deferred");
+        });
     }
 }

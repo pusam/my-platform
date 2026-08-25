@@ -82,6 +82,20 @@ flags:
     recorded_on: 2026-08-25
     ref: memory/audit-2026-08-21.md, DiagnosticsController /api/diagnostics/data
 
+  - id: sample-influx-baseline-shift
+    severity: warning
+    title: 표본 유입 기준선이 2026-07-28 부로 바뀌었다 (붕괴 아님, 부풀림 제거)
+    key: 기준선
+    body: >
+      시그널 유입이 7월 일 4~10건에서 8월 일 1~2건으로 떨어졌다. 원인은 2026-07-28 배포다 —
+      추천 신뢰성 감사 12건(8523ed1, 후보를 깎는 방향) + 어제 스냅샷 무한 노출 수정(16a1589).
+      후자 때문에 7/28 이전에는 컷 통과 0건일 때 어제 후보가 종일 재노출돼 같은 후보가 반복
+      기록됐다. 즉 7월 수치가 부풀려진 것이고 지금이 정상이다.
+      → 7/28 이전 유입을 기준선으로 쓰지 말 것. "유입이 회복되면 판정한다"는 전제는 성립하지 않는다.
+      표본 기반 판정(대조군 n>=30 / RVOL / 캡10)은 전부 이 속도에 종속되므로 기한도 이 기준으로 잡는다.
+    recorded_on: 2026-08-26
+    ref: git 8523ed1 · 16a1589, docs/SCHEDULE_DECISIONS.md 표본 유입 기준선
+
   - id: control-group-universe-asymmetry
     severity: info
     title: 대조군 유니버스가 시그널 유니버스와 비대칭 (edge 과대 방향)
