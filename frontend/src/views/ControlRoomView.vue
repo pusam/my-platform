@@ -184,11 +184,16 @@ async function verifyCrew() {
   }
 }
 
+/** 폴링 연속 실패 허용치 — 블립 1번에 화면만 멈추는 것 방지(세션은 서버에서 계속 돈다). */
+const POLL_MAX_FAILURES = 3
+
 function startPolling(id) {
   stopPolling()
+  let failures = 0
   pollTimer = setInterval(async () => {
     try {
       const res = await controlRoomAPI.getCrewSession(id)
+      failures = 0
       const next = res.data?.data ?? null
       if (next) session.value = next
       if (!next || next.status !== 'RUNNING') {
@@ -197,8 +202,13 @@ function startPolling(id) {
         loadSnapshot()
       }
     } catch (e) {
-      stopPolling()
-      crewError.value = `진행 상황을 읽지 못했다 — ${errorText(e)}`
+      // 일시 오류는 다음 주기에 재시도 — 연속 한계 도달 때만 멈추고 사유를 남긴다.
+      failures += 1
+      if (failures >= POLL_MAX_FAILURES) {
+        stopPolling()
+        crewError.value = `진행 상황을 ${POLL_MAX_FAILURES}회 연속 읽지 못했다 — ${errorText(e)}. `
+          + '세션은 서버에서 계속 진행 중일 수 있다. 새로고침하면 이어서 보인다.'
+      }
     }
   }, POLL_INTERVAL_MS)
 }

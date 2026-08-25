@@ -64,6 +64,27 @@ public class CrewProperties {
     @Value("${control-room.crew.review-effort:medium}")
     private String reviewEffort;
 
+    /**
+     * 턴당 LLM 호출 타임아웃(초).
+     *
+     * <p>SDK 기본이 10분이라 한 턴이 매달리면 <b>단일 스레드 실행기가 최대 50분(5턴) 잠긴다</b> —
+     * 그동안 동시 1건 가드에 막혀 새 세션도 못 연다. FIREWALL 턴(8000 토큰, effort=medium)의
+     * 정상 소요를 감안해 기본 300초. 초과는 예외 → 세션 FAILED(재시도는 사람이).
+     */
+    @Value("${control-room.crew.turn-timeout-seconds:300}")
+    private int turnTimeoutSeconds;
+
+    /**
+     * RUNNING 세션이 이 시간(분)을 넘기면 죽은 것으로 보고 새 세션 시작이 밀어낸다(FAILED 처리).
+     *
+     * <p>기동 시 고아 정리는 재시작해야만 돌지만, 파이프라인 스레드가 Error 로 죽는 등 프로세스는
+     * 살아 있는데 세션만 RUNNING 으로 남는 경우가 있다 — 그때 이 임계가 유일한 런타임 탈출구다.
+     * 실제 적용값은 5턴 최악 소요(5×턴 타임아웃)보다 항상 크게 보정된다
+     * ({@code CrewOrchestrationService.effectiveStaleMinutes}).
+     */
+    @Value("${control-room.crew.stale-session-minutes:30}")
+    private int staleSessionMinutes;
+
     /** API 키. 비어 있으면 크루 기능만 DISABLED(앱 전체는 정상 기동). */
     @Value("${control-room.crew.api-key:${ANTHROPIC_API_KEY:}}")
     private String apiKey;

@@ -280,6 +280,12 @@ control-room:
     # 사고 토큰 소비도 가장 크다.
     review-max-tokens: ${CONTROL_ROOM_CREW_REVIEW_MAX_TOKENS:8000}
     review-effort: ${CONTROL_ROOM_CREW_REVIEW_EFFORT:medium}
+    # 턴당 LLM 호출 타임아웃(초). SDK 기본 10분이면 한 턴이 매달릴 때 단일 스레드 실행기가
+    # 최대 50분 잠긴다(그동안 동시 1건 가드가 새 세션도 차단). 초과=예외=세션 FAILED.
+    turn-timeout-seconds: ${CONTROL_ROOM_CREW_TURN_TIMEOUT_SECONDS:300}
+    # RUNNING 세션이 이 시간(분) 넘게 안 끝나면 죽은 것으로 보고 새 세션 시작이 FAILED 로 밀어낸다.
+    # 실제 적용값은 항상 5턴 최악 소요(5×턴 타임아웃 +5분)보다 크게 보정된다 — 정상 세션 오살 방지.
+    stale-session-minutes: ${CONTROL_ROOM_CREW_STALE_SESSION_MINUTES:30}
     # 미설정이면 크루만 비활성(앱 전체는 정상 기동).
     api-key: ${ANTHROPIC_API_KEY:}
 

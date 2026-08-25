@@ -124,8 +124,29 @@ public class CrewOrchestrationService {
             throw new CrewUnavailableException("크루 비활성: " + reason, false);
         });
 
-        if (sessionRepository.countByStatus(CrewSession.Status.RUNNING) > 0) {
-            throw new CrewUnavailableException("이미 실행 중인 크루 세션이 있다 (동시 1건)", false);
+        // 동시 1건 가드 — 단, RUNNING 이 죽은 세션(파이프라인 스레드가 Error 로 죽는 등 프로세스는
+        // 살아 있는데 상태만 남은 경우)이면 여기서 FAILED 로 밀어내고 진행한다. 기동 시 고아 정리는
+        // 재시작해야만 돌기 때문에, 이 밀어내기가 재시작 없는 유일한 탈출구다.
+        List<CrewSession> running = sessionRepository.findTop20ByOrderByStartedAtDesc().stream()
+                .filter(s -> s.getStatus() == CrewSession.Status.RUNNING)
+                .toList();
+        if (!running.isEmpty()) {
+            LocalDateTime now = LocalDateTime.now(clock);
+            int staleMinutes = effectiveStaleMinutes(
+                    properties.getTurnTimeoutSeconds(), properties.getStaleSessionMinutes());
+            boolean allStale = running.stream().allMatch(s -> isStale(s, now, staleMinutes));
+            if (!allStale) {
+                throw new CrewUnavailableException("이미 실행 중인 크루 세션이 있다 (동시 1건)", false);
+            }
+            for (CrewSession stale : running) {
+                stale.setStatus(CrewSession.Status.FAILED);
+                stale.setFailureReason("응답 지연 " + staleMinutes + "분 초과로 중단 처리 — 새 세션이 밀어냄"
+                        + " (자동 재시도 아님, 이 지시의 결과는 없다)");
+                stale.setFinishedAt(now);
+                sessionRepository.save(stale);
+                log.warn("[관제실 크루] stale RUNNING 세션 밀어냄 — id={} (시작 {})",
+                        stale.getId(), stale.getStartedAt());
+            }
         }
 
         LocalDate today = LocalDate.now(clock);
@@ -203,8 +224,10 @@ public class CrewOrchestrationService {
             }
             finish(sessionId, CrewSession.Status.COMPLETED, null);
             log.info("[관제실 크루] 세션 완료 — id={}", sessionId);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             // 자동 재시도 없음 — 사유를 남기고 끝낸다. 재시도는 사람의 판단.
+            // Throwable 까지 잡는 이유: Error(NoClassDef 등)로 스레드가 죽으면 세션이 RUNNING 으로
+            // 박제돼 동시 1건 가드를 stale 임계까지 잠근다. 기록이 먼저다.
             String reason = "턴 " + turnNo + " 실패 — " + e.getClass().getSimpleName() + ": " + e.getMessage();
             log.error("[관제실 크루] 세션 실패 — id={} {}", sessionId, reason);
             finish(sessionId, CrewSession.Status.FAILED, reason);
@@ -214,6 +237,12 @@ public class CrewOrchestrationService {
     private void finish(Long sessionId, CrewSession.Status status, String failureReason) {
         try {
             sessionRepository.findById(sessionId).ifPresent(s -> {
+                // stale 밀어내기가 이미 FAILED 로 닫은 세션을 뒤늦게 깨어난 스레드가
+                // COMPLETED 로 덮어쓰지 못하게 — 종료 상태는 RUNNING 에서만 전이한다.
+                if (s.getStatus() != CrewSession.Status.RUNNING) {
+                    log.warn("[관제실 크루] 종료 상태 전이 무시 — id={} 이미 {}", sessionId, s.getStatus());
+                    return;
+                }
                 s.setStatus(status);
                 s.setFailureReason(failureReason);
                 s.setFinishedAt(LocalDateTime.now(clock));
@@ -222,6 +251,21 @@ public class CrewOrchestrationService {
         } catch (Exception e) {
             log.error("[관제실 크루] 세션 종료 상태 저장 실패 — id={}: {}", sessionId, e.getMessage());
         }
+    }
+
+    /**
+     * RUNNING 세션이 죽었다고 볼 임계(분) — <b>항상 5턴 최악 소요(5×턴 타임아웃)보다 크게</b> 보정한다.
+     * 설정값이 최악 소요보다 작으면 정상 진행 중인 세션을 밀어내 이중 실행이 되기 때문이다.
+     */
+    static int effectiveStaleMinutes(int turnTimeoutSeconds, int configuredMinutes) {
+        int worstCaseFloor = (int) Math.ceil(turnTimeoutSeconds * 5 / 60.0) + 5;   // +5분 여유
+        return Math.max(configuredMinutes, worstCaseFloor);
+    }
+
+    /** startedAt 이 없으면(비정상 행) 즉시 stale 취급 — 판정 불가로 영구 잠금되는 것보다 낫다. */
+    static boolean isStale(CrewSession session, LocalDateTime now, int staleMinutes) {
+        if (session.getStartedAt() == null) return true;
+        return session.getStartedAt().plusMinutes(Math.max(1, staleMinutes)).isBefore(now);
     }
 
     // ==================== 조회 ====================

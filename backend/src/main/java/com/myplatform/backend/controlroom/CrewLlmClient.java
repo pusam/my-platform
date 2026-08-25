@@ -5,6 +5,8 @@ import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.OutputConfig;
+
+import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -93,7 +95,17 @@ public class CrewLlmClient {
                 if (!properties.hasApiKey()) {
                     throw new IllegalStateException("ANTHROPIC_API_KEY 미설정 — 크루 호출 불가");
                 }
-                client = AnthropicOkHttpClient.builder().apiKey(properties.getApiKey()).build();
+                client = AnthropicOkHttpClient.builder()
+                        .apiKey(properties.getApiKey())
+                        // SDK 기본 타임아웃은 10분 — 한 턴이 매달리면 단일 스레드 실행기가
+                        // 최대 50분 잠기고 그동안 동시 1건 가드가 새 세션까지 막는다.
+                        // 초과는 예외로 올라가 세션이 FAILED 로 끝난다(재시도는 사람이).
+                        .timeout(Duration.ofSeconds(Math.max(30, properties.getTurnTimeoutSeconds())))
+                        // 전송 계층 재시도도 끈다. SDK 기본(2회)은 타임아웃·429 를 자동 재전송하는데,
+                        // 타임아웃 재전송은 이미 과금됐을 수 있는 생성을 한 번 더 사는 것이고
+                        // 턴 벽시계도 3배가 된다 — "자동 재시도 금지" 비용 가드를 전송 계층까지 일관 적용.
+                        .maxRetries(0)
+                        .build();
             }
             return client;
         }
