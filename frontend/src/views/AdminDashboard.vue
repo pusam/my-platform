@@ -303,6 +303,16 @@
             </div>
           </div>
 
+          <div class="section">
+            <div class="section-header">
+              <h2>🛰 판정 관제실</h2>
+            </div>
+            <p>판정 캘린더 · 봇 게이트 · FLAGGED · AI 크루 (읽기 전용 — 여기서 봇/주문을 바꾸지 않는다)</p>
+            <div class="action-group">
+              <button @click="goToControlRoom" class="action-btn">관제실 이동</button>
+            </div>
+          </div>
+
           <div class="section paper-trading-section">
             <div class="section-header">
               <h2>🤖 투자 자동매매</h2>
@@ -540,6 +550,9 @@ export default {
     },
     goToBoard() {
       this.$router.push('/board')
+    },
+    goToControlRoom() {
+      this.$router.push('/control-room')
     },
     goToVirtualTrading() {
       this.$router.push('/stock-dashboard?tab=trading')

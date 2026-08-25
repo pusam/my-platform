@@ -77,7 +77,18 @@
           </div>
         </article>
 
-        <!-- GNB에서 시장/분석/글로벌 직접 접근 가능 → 서브 카드 제거 -->
+        <!--
+          판정 관제실 — ADMIN 전용 운영 콘솔. 주식 허브 탭이 아니라 별도 라우트라
+          (IA 규칙의 명시적 예외, CLAUDE.md §7) 여기서 직접 들어갈 입구를 둔다.
+        -->
+        <article v-if="isAdmin" class="control-room-card" @click="goToControlRoom">
+          <div class="cr-icon">🛰</div>
+          <div class="cr-text">
+            <h3>판정 관제실</h3>
+            <p>판정 캘린더 · 봇 게이트 · FLAGGED · AI 크루 <span class="cr-tag">읽기 전용</span></p>
+          </div>
+          <span class="cr-arrow">→</span>
+        </article>
       </section>
 
       <!-- 관리 섹션 -->
@@ -376,6 +387,9 @@ export default {
     goToCar() {
       this.$router.push('/car')
     },
+    goToControlRoom() {
+      this.$router.push('/control-room')
+    },
     goToStockDashboard() {
       this.$router.push('/stock-dashboard')
     },
@@ -390,6 +404,35 @@ export default {
 </script>
 
 <style scoped>
+/* 판정 관제실 진입 카드 — ADMIN 전용. 운영 콘솔이라 투자 카드와 톤을 구분한다. */
+.control-room-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 14px 18px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-left: 3px solid #9b4dff;
+  border-radius: var(--card-radius);
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.control-room-card:hover { border-color: #9b4dff; transform: translateY(-1px); }
+.control-room-card .cr-icon { font-size: 26px; line-height: 1; }
+.control-room-card .cr-text { flex: 1; min-width: 0; }
+.control-room-card h3 { margin: 0 0 3px; font-size: 15px; color: var(--text-primary); }
+.control-room-card p { margin: 0; font-size: 12px; color: var(--text-muted); }
+.control-room-card .cr-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid #9b4dff;
+  border-radius: 4px;
+  color: #b98cff;
+  font-size: 10px;
+}
+.control-room-card .cr-arrow { color: var(--text-muted); font-size: 18px; }
+
 /* 환영 카드 */
 .welcome-card {
   background: rgba(30, 30, 50, 0.85);
