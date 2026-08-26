@@ -204,7 +204,7 @@ function cellTitle(cell) {
 .cond-item { color: var(--cr-tx); }
 .cond-item em { color: var(--cr-mut); font-style: normal; }
 
-.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
 .dow {
   font-family: var(--cr-mono);
     font-size: 10px;

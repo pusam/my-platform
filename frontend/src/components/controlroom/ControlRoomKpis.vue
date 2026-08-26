@@ -159,7 +159,8 @@ const headroomText = computed(() => {
 <style scoped>
 .kpis {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* minmax(0,…) 필수 — 맨 1fr 이면 안 끊기는 토큰이 칸을 밀어내 나머지가 쪼개진다 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -170,6 +171,8 @@ const headroomText = computed(() => {
   padding: 15px 17px;
   position: relative;
   min-height: 124px;
+  min-width: 0;          /* 그리드 항목 기본 min-width:auto 해제 */
+  overflow-wrap: anywhere; /* SCHEDULE_DECISIONS 같은 긴 토큰이 칸을 넘기지 않게 */
 }
 
 /* 목업의 코너 마커 — 장식이지만 패널 경계를 읽기 쉽게 만든다 */
@@ -261,11 +264,11 @@ const headroomText = computed(() => {
 }
 
 @media (max-width: 1100px) {
-  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (max-width: 720px) {
-  .kpis { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .kpi { padding: 12px 13px; min-height: 108px; }
   .v { font-size: 24px; }
 }

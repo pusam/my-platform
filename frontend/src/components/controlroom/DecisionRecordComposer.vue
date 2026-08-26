@@ -151,7 +151,7 @@ async function copy() {
 
 .body { margin-top: 10px; display: grid; gap: 8px; }
 
-.row { display: grid; grid-template-columns: 1fr 200px; gap: 8px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: 8px; }
 label { display: grid; gap: 3px; min-width: 0; }
 label.full { display: grid; }
 label span {
@@ -182,7 +182,7 @@ input:focus { outline: 1px solid var(--cr-vio); }
   line-height: 1.5;
 }
 
-.out { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; }
+.out { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
 .out code {
   font-family: var(--cr-mono);
   font-size: 11px;

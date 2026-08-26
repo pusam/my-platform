@@ -409,13 +409,15 @@ watch(
 .daily.near { border-color: var(--cr-amb); color: var(--cr-amb); }
 .daily.hot { border-color: var(--cr-red); color: var(--cr-red); }
 
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 0 16px 10px; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 16px 10px; }
 .card {
   border: 1px solid var(--cr-line);
   padding: 11px 6px 9px;
   text-align: center;
   position: relative;
   min-height: 74px;
+  min-width: 0;
+  overflow-wrap: anywhere;
   background: rgba(0, 0, 0, 0.25);
   transition: border-color 0.25s, box-shadow 0.25s, opacity 0.25s;
 }
@@ -489,7 +491,7 @@ watch(
 .thread-empty { font-size: 12px; color: var(--cr-mut); line-height: 1.7; }
 .thread-empty b { color: var(--cr-tx); }
 
-.msg { display: grid; grid-template-columns: 30px 1fr; gap: 8px; align-items: start; }
+.msg { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 8px; align-items: start; }
 .msg.user { grid-template-columns: 1fr; }
 .msg .av {
   width: 30px;
@@ -601,7 +603,7 @@ watch(
 .chips button:hover:not(:disabled) { border-color: var(--cr-vio); }
 .chips button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.in { display: grid; grid-template-columns: 1fr 62px; gap: 8px; }
+.in { display: grid; grid-template-columns: minmax(0, 1fr) 62px; gap: 8px; }
 .in input {
   background: var(--cr-panel);
   border: 1px solid var(--cr-line);

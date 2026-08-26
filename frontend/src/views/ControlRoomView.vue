@@ -293,7 +293,12 @@ onBeforeUnmount(stopPolling)
   --cr-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, 'D2Coding', 'Malgun Gothic', monospace;
 
   display: grid;
-  grid-template-columns: 1fr 400px;
+  /*
+   * ⚠ minmax(0, 1fr) 이어야 한다. 맨 1fr 은 minmax(auto, 1fr) 이라 그리드 항목이
+   * min-content 아래로 줄지 않는다 — SCHEDULE_DECISIONS 같은 안 끊기는 토큰이 한 칸을
+   * 밀어내면 다른 칸이 글자 단위로 쪼개지고 내용이 밖으로 넘친다(2026-08-26 실측).
+   */
+  grid-template-columns: minmax(0, 1fr) 400px;
   height: 100vh;
   overflow: hidden;
   background: var(--cr-bg);
@@ -389,7 +394,7 @@ main {
   font-size: 12px;
 }
 
-.row { display: grid; grid-template-columns: 1fr 340px; gap: 14px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; }
 
 .foot-note {
   margin-top: 16px;
@@ -406,13 +411,13 @@ main {
  * 단계를 촘촘히 두는 이유는 중간 폭에서 크루 패널이 먼저 찌그러지며 스레드가 못 읽게 되기 때문이다.
  */
 @media (max-width: 1400px) {
-  .control-room { grid-template-columns: 1fr 350px; }
-  .row { grid-template-columns: 1fr 300px; }
+  .control-room { grid-template-columns: minmax(0, 1fr) 350px; }
+  .row { grid-template-columns: minmax(0, 1fr) 300px; }
 }
 
 @media (max-width: 1100px) {
-  .control-room { grid-template-columns: 1fr; height: auto; overflow: auto; }
-  .row { grid-template-columns: 1fr; }
+  .control-room { grid-template-columns: minmax(0, 1fr); height: auto; overflow: auto; }
+  .row { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 720px) {
