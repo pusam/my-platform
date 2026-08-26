@@ -221,9 +221,9 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
      *
      * <p>세 묶음은 <b>서로 다른 KIS 호출</b>에서 온다 — 어느 호출이 죽었는지 바로 갈라진다:
      * <ul>
-     *   <li>{@code with_ratios}    ← 재무비율 FHKST66430200 (per/pbr/roe)</li>
-     *   <li>{@code with_statement} ← 손익계산서 FHKST66430300 (revenue/영업이익/순이익)</li>
-     *   <li>{@code with_balance}   ← 재무상태표 FHKST66430400 (자본총계)</li>
+     *   <li>{@code with_ratios}    ← 재무비율 FHKST66430300 (per/pbr/roe)</li>
+     *   <li>{@code with_statement} ← 손익계산서 FHKST66430200 (revenue/영업이익/순이익)</li>
+     *   <li>{@code with_balance}   ← 대차대조표 FHKST66430100 (자본총계)</li>
      * </ul>
      *
      * <p>분기 행(네이버 크롤)이 섞이지 않도록 <b>오늘 이하의 최신 날짜</b> 하나만 본다 —

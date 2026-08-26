@@ -46,9 +46,9 @@ public record ControlRoomSnapshotDto(
      * @param dataAvailable  false = 조회 실패(§4c — "0건"과 구분. 0 으로 위장 금지)
      * @param asOf           집계한 스냅샷 날짜(오늘 이하 최신). 미래 날짜 annual 행은 제외한다.
      * @param total          그 날짜의 행 수
-     * @param withRatios     per·pbr·roe 가 모두 있는 행 수 (재무비율 FHKST66430200)
-     * @param withStatement  매출·영업이익·순이익 중 하나라도 있는 행 수 (손익계산서 FHKST66430300)
-     * @param withBalance    자본총계가 있는 행 수 (재무상태표 FHKST66430400)
+     * @param withRatios     per·pbr·roe 가 모두 있는 행 수 (재무비율 FHKST66430300)
+     * @param withStatement  매출·영업이익·순이익 중 하나라도 있는 행 수 (손익계산서 FHKST66430200)
+     * @param withBalance    자본총계가 있는 행 수 (대차대조표 FHKST66430100)
      * @param note           카드 표면용 짧은 진단. 정상이면 null(카드가 조용하다)
      * @param noteDetail     툴팁·크루용 긴 진단(무엇을 해야 하는지까지). 정상이면 null
      */

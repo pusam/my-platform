@@ -39,6 +39,27 @@ import java.util.Map;
 @Slf4j
 public class StockFinancialDataCollector {
 
+    // ==================== KIS 재무 API TR_ID (2026-08-27 정정) ====================
+    //
+    // ⚠ KIS 는 **URL 경로가 아니라 tr_id 로 디스패치한다.** 경로를 income-statement 로 두고
+    //    tr_id 만 다른 걸 넣으면 그 tr_id 의 리포트가 조용히 돌아온다 — 에러가 안 난다.
+    //
+    // 그래서 실제로 이런 일이 있었다(2026-08-27 발견, 그 전까지 몇 달):
+    //    financial-ratio 경로 + FHKST66430200  → 실제로는 손익계산서가 돌아옴
+    //    income-statement 경로 + FHKST66430300 → 실제로는 재무비율이 돌아옴
+    //    balance-sheet   경로 + FHKST66430400 → 실제로는 수익성비율이 돌아옴
+    // 각 파서는 자기가 기대한 필드를 못 찾아 전부 빈 문자열 → parseBigDecimal("")=0 →
+    // 434종목 전 기간의 매출·영업이익·순이익·자본총계·재무비율이 통째로 결측이었다.
+    //
+    // 값 출처: KIS 공식 샘플 코드(koreainvestment/open-trading-api,
+    //          examples_user/domestic_stock/domestic_stock_functions.py) — 기억이 아니라 문서 기준.
+    //          실측 응답(수익성비율/재무비율 필드 조합)과도 교차 확인했다.
+    // ⚠ 바꾸기 전에 반드시 위 출처를 다시 확인할 것. 숫자가 연속이라 눈으로는 안 틀린 것처럼 보인다.
+    private static final String TR_INCOME_STATEMENT = "FHKST66430200";  // 손익계산서
+    private static final String TR_BALANCE_SHEET    = "FHKST66430100";  // 대차대조표
+    private static final String TR_FINANCIAL_RATIO  = "FHKST66430300";  // 재무비율
+    // (참고) FHKST66430400 수익성비율 · 66430500 기타주요비율 · 66430600 안정성비율 · 66430800 성장성비율
+
     private static final int MAX_RETRY_COUNT = 3;
     private static final long RETRY_DELAY_MS = 500;
 
@@ -462,7 +483,7 @@ public class StockFinancialDataCollector {
             headers.set("authorization", "Bearer " + token);
             headers.set("appkey", appKey);
             headers.set("appsecret", appSecret);
-            headers.set("tr_id", "FHKST66430200");
+            headers.set("tr_id", TR_FINANCIAL_RATIO);
             headers.set("custtype", "P");
 
             HttpEntity<String> request = new HttpEntity<>(headers);
@@ -495,7 +516,7 @@ public class StockFinancialDataCollector {
                     + "&fid_cond_mrkt_div_code=J"
                     + "&fid_input_iscd=" + stockCode;
 
-            headers.set("tr_id", "FHKST66430300");
+            headers.set("tr_id", TR_INCOME_STATEMENT);
             request = new HttpEntity<>(headers);
             // 재시도 로직 적용
             response = executeWithRetry(incomeUrl, request);
@@ -681,7 +702,7 @@ public class StockFinancialDataCollector {
                             + "&fid_cond_mrkt_div_code=J"
                             + "&fid_input_iscd=" + stockCode;
 
-                    headers.set("tr_id", "FHKST66430400");
+                    headers.set("tr_id", TR_BALANCE_SHEET);
                     request = new HttpEntity<>(headers);
                     response = executeWithRetry(balanceUrl, request);
 

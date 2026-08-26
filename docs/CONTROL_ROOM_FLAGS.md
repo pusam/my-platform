@@ -26,23 +26,24 @@
 
 ```yaml
 flags:
-  - id: kis-income-statement-dead
-    severity: critical
-    title: KIS 손익계산서·재무상태표 호출이 조용히 죽어 있다 — 매출/영업이익/순이익/자본총계 전멸
-    key: FHKST66430300
+  - id: kis-finance-trid-fixed-verify
+    severity: warning
+    title: KIS 재무 TR_ID 3종 정정 배포 — 다음 배치에서 실제 복구 확인 필요
+    key: FHKST664
     body: >
-      2026-08-26 prod 실측(일별 행 434건, report_date=2026-08-25):
-      per/pbr/roe 는 434/434 채워지는데(재무비율 FHKST66430200 정상)
-      revenue/operating_profit/net_income/total_equity 는 0/434 다
-      (손익계산서 FHKST66430300 · 재무상태표 FHKST66430400 전멸).
-      파급 ① earnings 가 네이버 크롤 분기 행에만 의존 → 431종목 중 채점 가능 ~90
-      ② composite scoreValueStability 가 영업이익·자본총계를 최근 10행에서 못 찾아 가치 축 일부가 조용히 결손
-      ③ V55 분기 원본 적재가 이 응답에 물려 있어 빈 테이블 — 전환 플래그를 켤 수 없다.
-      원인 미확정. 실패 경로는 이미 WARN 으로 찍힌다 —
-      docker compose logs backend | grep 손익계산서 로 msg1 을 읽고 고칠 것. 추측 수정 금지.
-      ⚠ 컨테이너 재시작 후엔 다음 배치(08:30/15:38)까지 로그가 비어 있다(그게 '정상'이라는 뜻 아님).
-    recorded_on: 2026-08-26
-    ref: VERIFICATION_BACKLOG "R1 진단 정정 (2026-08-26 오후)"
+      2026-08-27 원인 확정: KIS 는 URL 경로가 아니라 tr_id 로 디스패치하는데 tr_id 3개가 서로
+      어긋나 있었다. financial-ratio 경로가 손익계산서 tr_id 를, income-statement 가 재무비율 tr_id 를,
+      balance-sheet 가 수익성비율 tr_id 를 쓰고 있었다. 각 파서가 기대한 필드를 못 찾아
+      전부 빈 문자열 → parseBigDecimal("")=0 → 434종목 전 기간 매출·영업이익·순이익·자본총계와
+      재무비율(roe/영업이익률/순이익률/부채비율/성장률)이 통째로 결측이었다. 에러는 한 번도 안 났다.
+      정정값은 KIS 공식 샘플(koreainvestment/open-trading-api) 기준이며 실측 응답과 교차 확인했다:
+      손익계산서 FHKST66430200 · 대차대조표 FHKST66430100 · 재무비율 FHKST66430300.
+      ⚠ 아직 확인 안 된 것 = **응답 필드명**(sale_account/bsop_prti/thtr_ntin, total_cptl/total_aset/total_lblt).
+      공식 샘플에 출력 컬럼 목록이 없어 실측으로만 확인 가능하다. tr_id 를 고쳤는데도
+      [손익계산서 스키마] WARN 이 또 찍히면 그건 필드명 문제이고, 그때 로그의 실제 키로 고친다.
+      확인 방법: 다음 배치 후 관제실 '재무 입력층' 카드가 434/434 로 바뀌었는지 + grep 스키마 가 비었는지.
+    recorded_on: 2026-08-27
+    ref: StockFinancialDataCollector TR_INCOME_STATEMENT/TR_BALANCE_SHEET/TR_FINANCIAL_RATIO
 
   - id: financial-universe-434
     severity: warning
