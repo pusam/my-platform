@@ -663,6 +663,10 @@ public class RecommendationService {
      *
      * <p>스냅샷 DB 와 다른 점: cron 마다만 INSERT 되는 DB 와 달리 메모리 캐시는 calculate() 호출
      * 후 즉시 갱신됨. {@link #warmCache} 로 강제 트리거 가능.
+     *
+     * <p><b>regime 두 개의 차이</b>(2026-08-26 추가) — {@code regime} 은 후보 DTO 태그에서 유도한
+     * 값이라 <b>후보가 0건이면 구조적으로 null</b> 이다. 그걸 "국면 미수집"으로 읽으면 오진한다.
+     * 실제 판정 국면은 {@code lastJudgedRegime} 이며 후보 유무와 무관하게 항상 실린다.
      */
     public Map<String, Object> getCacheDiagnostics() {
         Map<String, Object> result = new java.util.LinkedHashMap<>();
@@ -671,11 +675,18 @@ public class RecommendationService {
         result.put("cacheTime", cTime);
         result.put("cacheSize", cache == null ? 0 : cache.size());
 
+        // 판정된 국면은 후보 유무와 무관하게 항상 싣는다. regime 은 후보 DTO 태그에서 유도하므로
+        // 후보 0건이면 구조적으로 null 이 되는데, 그걸 "regime 미수집"으로 오독하기 쉽다(§4c).
+        // 2026-08-26 실제로 그 오독으로 섹터 결손을 세 번 의심했다 — 실제로는 SIDEWAYS 정상 판정.
+        result.put("lastJudgedRegime", this.lastRegime);
+
         if (cache == null || cache.isEmpty()) {
             result.put("scoreDistribution", null);
             result.put("strongBuyCount", 0);
             result.put("buyPlusCount", 0);
             result.put("regime", null);
+            result.put("regimeNote", "후보 0건이라 태그를 실을 DTO 가 없음 — regime 미수집이 아니다. "
+                    + "판정된 국면은 lastJudgedRegime 참조");
             result.put("top3", java.util.Collections.emptyList());
             return result;
         }
@@ -707,8 +718,10 @@ public class RecommendationService {
         result.put("scoreDistribution", dist);
         result.put("strongBuyCount", strongBuyCount);
         result.put("buyPlusCount", buyPlusCount);
-        // SIDEWAYS 는 태그 X — null 이면 SIDEWAYS 또는 cache 비어있음
+        // 후보 DTO 의 "regime:" 태그에서 유도한 값. SIDEWAYS 는 태그를 안 달아서 구분이 안 되므로
+        // 실제 판정 국면은 위의 lastJudgedRegime 을 볼 것.
         result.put("regime", regimeTag != null ? regimeTag : "SIDEWAYS_OR_UNKNOWN");
+        result.put("regimeNote", "후보 태그 유도값 — 정확한 판정 국면은 lastJudgedRegime");
 
         List<Map<String, Object>> top3 = new ArrayList<>();
         for (int i = 0; i < Math.min(3, cache.size()); i++) {
