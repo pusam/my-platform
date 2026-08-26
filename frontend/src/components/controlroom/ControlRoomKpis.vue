@@ -276,7 +276,14 @@ const headroomText = computed(() => {
 .bar i.g-unknown { background: var(--cr-amb); }
 
 .gate-list { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
-.gate-closed { color: var(--cr-red); }
+/* 막힌 게이트가 둘 이상이면 공백만으론 한 문장처럼 붙어 읽힌다 —
+   'NXT 주문 라우팅 NXT 연장장 청산'. 칩 테두리로 경계를 준다. */
+.gate-closed {
+  color: var(--cr-red);
+  border: 1px solid rgba(255, 77, 109, 0.35);
+  padding: 1px 6px;
+  line-height: 1.5;
+}
 
 @media (max-width: 1400px) {
   .v { font-size: 27px; }
