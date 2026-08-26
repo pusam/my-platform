@@ -206,7 +206,7 @@ calendar:
     title: 실적 분기소스 전환 (R1)
     due: 2026-09-02
     status: pending
-    trigger: "배치 1회 이상 실행 후 GET /api/diagnostics/earnings-source 의 coverage.distinctStocks ≥ 2000. 0 이면 켜지 말 것(earnings 전멸)"
-    result: 2026-08-26 파이프라인 배포(분기 원본 V55 + 두 경로 분리). 플래그 recommendation.earnings.quarterly-source 는 OFF 로 나갔다. 켜면 composite 총점·validCount·후보 수가 동시에 움직이므로 켠 날짜가 곧 측정 표본 경계다 — 반드시 이 표에 기록할 것.
+    trigger: "선행: KIS 손익계산서(FHKST66430300) 부활 — 현재 죽어 있어 V55 적재가 구조적으로 0건이다. 부활 후 배치 1회 → coverage.distinctStocks ≥ 2000 확인. 0 이면 켜지 말 것(earnings 전멸)"
+    result: 2026-08-26 파이프라인 배포(V55 + 두 경로 분리), 플래그 OFF. 같은 날 오후 prod 실측으로 R1 진단이 틀렸음이 확인됐다 — earnings 는 死가 아니라 커버리지 부족(431종목 중 채점가능 ~90)이었고, 진짜 원인은 KIS 손익계산서·재무상태표 호출이 죽어 revenue/op/net/equity 가 0/434 인 것이다. V55 도 그 응답에 물려 있어 부활 전엔 빈 테이블이다. 9/2 에 볼 것은 '켤까'가 아니라 '손익계산서가 살아났나'다.
 ```
 

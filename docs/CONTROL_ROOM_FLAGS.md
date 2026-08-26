@@ -26,20 +26,47 @@
 
 ```yaml
 flags:
-  - id: earnings-quarterly-switch-off
-    severity: warning
-    title: 실적 분기소스가 아직 OFF — earnings 는 여전히 死 상태로 돌고 있다
-    key: R1
+  - id: kis-income-statement-dead
+    severity: critical
+    title: KIS 손익계산서·재무상태표 호출이 조용히 죽어 있다 — 매출/영업이익/순이익/자본총계 전멸
+    key: FHKST66430300
     body: >
-      2026-08-26 배포로 분기 원본(V55 stock_quarterly_financial)과 분기 비교 경로는 들어갔지만
-      recommendation.earnings.quarterly-source 는 false 로 나갔다. 즉 지금 돌고 있는 산식은
-      여전히 "오늘 스냅샷 vs 어제 스냅샷"이고 earnings 카테고리는 거의 항상 0 이다(사실상 3카테고리 운영).
-      켜기 전에 ① 배치 1회 실행 후 [분기재무] 적재 로그 확인 ② GET /api/diagnostics/earnings-source 의
-      coverage.distinctStocks 가 2000+ 인지(0 이면 켜면 earnings 전멸) ③ ?compare=true 로 두 경로 건수 비교.
-      켜면 composite 총점·validCount·후보 수가 동시에 움직이므로 켠 날짜를 SCHEDULE_DECISIONS 에 기록할 것 —
-      그 날이 측정 표본의 경계다. 확인일 2026-09-02.
+      2026-08-26 prod 실측(일별 행 434건, report_date=2026-08-25):
+      per/pbr/roe 는 434/434 채워지는데(재무비율 FHKST66430200 정상)
+      revenue/operating_profit/net_income/total_equity 는 0/434 다
+      (손익계산서 FHKST66430300 · 재무상태표 FHKST66430400 전멸).
+      파급 ① earnings 가 네이버 크롤 분기 행에만 의존 → 431종목 중 채점 가능 ~90
+      ② composite scoreValueStability 가 영업이익·자본총계를 최근 10행에서 못 찾아 가치 축 일부가 조용히 결손
+      ③ V55 분기 원본 적재가 이 응답에 물려 있어 빈 테이블 — 전환 플래그를 켤 수 없다.
+      원인 미확정. 실패 경로는 이미 WARN 으로 찍힌다 —
+      docker compose logs backend | grep 손익계산서 로 msg1 을 읽고 고칠 것. 추측 수정 금지.
+      ⚠ 컨테이너 재시작 후엔 다음 배치(08:30/15:38)까지 로그가 비어 있다(그게 '정상'이라는 뜻 아님).
     recorded_on: 2026-08-26
-    ref: VERIFICATION_BACKLOG "R1 처리 (2026-08-26)", docs/SCHEDULE_DECISIONS.md earnings-quarterly-switch
+    ref: VERIFICATION_BACKLOG "R1 진단 정정 (2026-08-26 오후)"
+
+  - id: financial-universe-434
+    severity: warning
+    title: 재무 수집 유니버스가 434종목뿐 — 다음 배치부터 확장되며 소요시간 6배
+    key: R5
+    body: >
+      stock_financial_data 에 434종목만 있다(KOSPI+KOSDAQ ~2,700). 유니버스 자기참조가 원인이고
+      2026-08-26 합집합 수정으로 다음 배치부터 stock_master 활성 종목이 들어온다.
+      ⚠ collectAllStocksFinancialData 는 종목당 300ms sleep 이라 434 → ~2,700 이면 sleep 만 13분+,
+      전체 소요가 6배로 늘어난다. 08:30 배치가 다른 일정과 겹치지 않는지 첫 실행 소요시간을 확인할 것.
+      늘어난 유니버스가 KIS rate limit 을 건드리는지도 같이 볼 것.
+    recorded_on: 2026-08-26
+    ref: StockFinancialDataService.resolveCollectionUniverse
+
+  - id: future-dated-annual-rows
+    severity: info
+    title: 재무 테이블에 미래 날짜(2026-12-31) 행이 342건
+    key: 데이터위생
+    body: >
+      report_date 최댓값이 미래인 2026-12-31 이고 342행 있다(코드 주석의 "미래 일자 12-31 annual row").
+      어닝 서프라이즈는 120일 인접분기 가드가 막아 무해하지만, "최신 행"을 집는 다른 소비자가
+      생기면 미래 연간 행을 오늘 값으로 쓰게 된다. 새 소비자를 붙일 때 report_date <= 오늘 조건을 확인할 것.
+    recorded_on: 2026-08-26
+    ref: stock_financial_data report_date 분포 실측
 
   - id: real-cash-field-unverified
     severity: warning
