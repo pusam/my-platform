@@ -23,6 +23,7 @@ import java.util.*;
 public class StockFinancialDataService {
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final com.myplatform.backend.repository.StockMasterRepository stockMasterRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final StockFinancialDataCollector collector;
     private final SseEmitterService sseEmitterService;
@@ -174,6 +175,44 @@ public class StockFinancialDataService {
     }
 
     /**
+     * 재무 수집 유니버스 — 기존 수집분 ∪ stock_master 활성 KOSPI/KOSDAQ (AUDIT 2026-08-21 R5).
+     *
+     * <p><b>왜 합집합인가</b>: 기존은 {@code findAllStockCodes()}(= 이미 재무가 있는 종목)만 돌아
+     * <b>자기참조</b>였다. 신규 상장은 영원히 안 들어오고, 테이블이 비면 부트스트랩도 불가능했다.
+     * 그렇다고 stock_master 로 <b>교체</b>하면 KRX 동기화가 실패 중일 때(실제로 그런 기간이 있었다)
+     * 유니버스가 통째로 쪼그라들어 기존 수집분까지 갱신이 끊긴다.
+     *
+     * <p>합집합은 그 두 실패 모드를 다 피한다 — 마스터가 비어도 종전과 동일하게 돌고,
+     * 마스터가 살아 있으면 신규 상장이 자동으로 들어온다. 어느 쪽도 <b>줄어들지 않는다</b>.
+     *
+     * <p>마스터 조회 실패는 삼키고 기존 목록으로 진행한다(§4c — 조회 실패를 '종목 없음'으로
+     * 만들지 않는다). 대신 어느 쪽에서 몇 건이 왔는지 로그로 남겨 유니버스 축소를 관측 가능하게 한다.
+     */
+    List<String> resolveCollectionUniverse() {
+        List<String> existing = stockFinancialDataRepository.findAllStockCodes();
+        java.util.LinkedHashSet<String> union = new java.util.LinkedHashSet<>(
+                existing == null ? List.of() : existing);
+        int existingCount = union.size();
+
+        int added = 0;
+        try {
+            List<String> masterCodes = stockMasterRepository.findActiveEquityCodes();
+            if (masterCodes != null) {
+                for (String code : masterCodes) {
+                    if (code != null && union.add(code)) added++;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[재무수집] stock_master 유니버스 조회 실패 — 기존 {}종목으로만 진행: {}",
+                    existingCount, e.getMessage());
+        }
+
+        log.info("[재무수집] 유니버스 {}종목 (기존 {} + 마스터 신규 {})",
+                union.size(), existingCount, added);
+        return new java.util.ArrayList<>(union);
+    }
+
+    /**
      * 전 종목 재무 데이터 수집
      */
     public Map<String, Object> collectAllStocksFinancialData() {
@@ -182,7 +221,7 @@ public class StockFinancialDataService {
 
         log.info("========== 전 종목 재무 데이터 수집 시작 ==========");
 
-        List<String> allStockCodes = stockFinancialDataRepository.findAllStockCodes();
+        List<String> allStockCodes = resolveCollectionUniverse();
         int totalCount = allStockCodes.size();
         log.info("수집 대상 종목 수: {}", totalCount);
 

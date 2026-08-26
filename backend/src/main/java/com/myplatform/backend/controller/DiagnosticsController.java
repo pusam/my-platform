@@ -36,6 +36,7 @@ public class DiagnosticsController {
     private final RecommendationService recommendationService;
     private final PriceScalingDiagnosticService priceScalingDiagnosticService;
     private final com.myplatform.backend.service.PythonBackendHealthTracker pythonBackendHealthTracker;
+    private final com.myplatform.backend.service.EarningSurpriseService earningSurpriseService;
 
     @GetMapping("/python-health")
     @Operation(
@@ -127,6 +128,18 @@ public class DiagnosticsController {
         response.put("success", true);
         response.put("data", data);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/earnings-source")
+    @Operation(
+        summary = "실적(earnings) 입력 소스 진단 — R1 전환 판단용",
+        description = "분기 원본 테이블 수집 커버리지 + (compare=true 면) 레거시/분기 두 경로의 " +
+                     "서프라이즈 건수 비교. 종목 코드는 노출하지 않는다(집계값만). " +
+                     "recommendation.earnings.quarterly-source 플래그를 켤지 판단하는 근거."
+    )
+    public ResponseEntity<Map<String, Object>> earningsSource(
+            @RequestParam(defaultValue = "false") boolean compare) {
+        return ResponseEntity.ok(earningSurpriseService.diagnostics(compare));
     }
 
     @GetMapping("/price-scaling")

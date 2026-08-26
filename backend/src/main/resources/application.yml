@@ -195,6 +195,17 @@ alert:
 recommendation:
   supply-demand-cap: ${RECOMMENDATION_SUPPLY_DEMAND_CAP:10}
 
+  # [AUDIT 2026-08-21 R1] 실적(earnings) 입력 소스.
+  #   false(기본) = 레거시 stock_financial_data — 이름과 달리 '일별 스냅샷'이라 "최신 2행"이
+  #                 사실 오늘 vs 어제다. TTM 은 하루 사이 안 변하니 변화율 ≈ 0 → earnings 사실상 死.
+  #   true        = stock_quarterly_financial (KIS stac_yymm 분기 원본). 진짜 전분기 대비 비교.
+  #
+  # ⚠ 켜면 earnings 가 살아나 composite 총점 · validCount · 후보 수가 동시에 움직인다.
+  #    켜기 전에 GET /api/diagnostics/earnings-source?compare=true 로 두 경로 건수를 보고,
+  #    켠 날짜를 docs/SCHEDULE_DECISIONS.md 에 기록할 것 — 그 날이 측정 표본의 경계가 된다.
+  earnings:
+    quarterly-source: ${RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE:false}
+
 # 봇 on/off 는 UI 에서 관리 (/paper-trading/bot/start|stop).
 # 상태는 bot_config 테이블에 저장되어 서버 재기동 시 자동 복원됨.
 

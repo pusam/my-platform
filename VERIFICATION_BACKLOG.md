@@ -735,13 +735,72 @@
 ### ⚠ 잔여 (미수정 — 착수 조건 명시)
 | # | 항목 | 심각도 | 왜 지금 안 고쳤나 |
 |---|---|---|---|
-| R1 | **실적 채점 입력이 분기 비교가 아님** — 수집기가 매일 `reportDate=today` 로 TTM 스냅샷 행을 쌓고, `findLatestTwoQuartersPerStock` 이 "오늘 행 vs 어제 행"을 비교(인접분기 가드 gap=1일이라 통과). 평상시 변화율 0 → 서프라이즈 미발생 → earnings 카테고리 사실상 사망 + `isEarningsReportFresh(200일)` no-op | **P1** | `stock_financial_data` 에 행 종류(일별 스냅샷 vs 분기) 구분 컬럼이 없어 **스키마 변경(마이그레이션) 필요** — 설계 결정 선행 |
+| R1 | ~~실적 채점 입력이 분기 비교가 아님~~ → **2026-08-26 파이프라인 수정 완료. 전환 플래그 OFF 대기** (아래 "R1 처리" 참조) | **P1** | 데이터 경로는 고침. **켜는 시점만 사람 판단**(켜면 점수·후보 수가 움직여 측정 표본 경계가 됨) |
 | R2 | 대조군 유니버스 유동성·신선도 비대칭 — 시그널은 5분 신선 캐시 없으면 record 스킵, 대조군은 KIS 신규 호출까지 감행 + `findStockCodesWithMinHistory` 에 최근성 조건 없음 → 저유동·수집중단 종목이 대조군에만 유입 → base rate 하락 → **edge 과대(좋아 보이는 방향)** | P1 | 유니버스 쿼리 + 가격 게이트 대칭화 — 대조군 기록 경로 수정이라 신중히(오염 방지 불변식 재검증 동반) |
 | R3 | 연속매수일 계산 3벌 중 화면용(`InvestorBuyStreakCalculator`)만 결측일 가드 없음 — 수집 실패일을 건너뛰고 이어 세어 "N일 연속" 배지 부풀림(2026-07-28 에 점수용만 고침) | P2 | 화면용을 `resolveConsecutiveBuyDates` 로 통일 — 별도 소세션 |
 | R4 | 저평가/성장 5트랙 `findLatestPerStock` 단일 행 + placeholder 스킵 없음(P2-19 ③ 잔존) — composite 는 `firstPositive` 합성으로 우회 완료, 트랙만 잔존 | P2 | R1(재무 행 구분)과 같은 테이블이라 **함께 설계** |
-| R5 | 재무 수집 유니버스 자기참조(`findAllStockCodes` = 이미 있는 종목만) — 신규 상장 영구 배제 + 빈 테이블 부트스트랩 불가 | P2 | `stock_master` 기준으로 교체 — R1 세션에 번들 |
+| R5 | ~~재무 수집 유니버스 자기참조~~ → **2026-08-26 수정 완료** (`resolveCollectionUniverse` = 기존 수집분 ∪ stock_master 활성 KOSPI/KOSDAQ, `FinancialCollectionUniverseTest`) | P2 | — |
 | R6 | 일봉 400 상한 절단이 결정적(`findStockCodesByTradeDate` ORDER BY 없음 → 매번 같은 꼬리 절단) + 잘린 종목은 배치로 영영 미복구 | P2 | ORDER BY 명시 + 재시도 큐 — 서버에서 400 초과 실발생 로그 확인 후 |
 | R7 | V30 카테고리 스냅샷 원시 int(미수집=0 저장, §4 NULL 불변식 위반) — 약세 버킷 집계 오염("기술이 유일하게 일한다" 결론의 근거 재검 필요) | P2 | record 호출부에서 valid 여부로 0→null 변환 — validCount 산정과 정합 설계 필요 |
+
+### R1 처리 (2026-08-26) — 데이터 경로 수정 + 전환 플래그 대기
+
+**원인은 스키마가 아니라 버려진 필드였다.** 백로그엔 "`stock_financial_data` 에 행 종류 구분
+컬럼이 없어 스키마 변경 필요"라고 적혀 있었는데, 실제로는 **분기 데이터를 매일 받고 있으면서
+버리고 있었다**. KIS 손익계산서(FHKST66430300, `FID_DIV_CLS_CODE=1`)는 분기별 행을 주고 각 행에
+`stac_yymm`(결산년월)이 들어 있다. 수집기는 그걸 TTM 합산에만 쓰고 분기 정체성은 안 남겼다.
+
+그래서 **일별 스냅샷 테이블을 고치는 대신 역할을 나눴다**:
+
+| 테이블 | 담는 것 | 소비자 |
+|---|---|---|
+| `stock_financial_data` (기존) | 일별 스냅샷 — TTM 합 + **당일 주가 기반** PER/PBR/ROE | 밸류에이션·스크리너·5트랙 |
+| `stock_quarterly_financial` (V55, 신규) | 분기 원본 — `stac_yymm` 단위, 주가 무관 | 실적 변화 판정 |
+
+기존 테이블에 판별 컬럼을 넣어 두 종류를 섞는 것보다 이쪽이 낫다 — 기존 소비자 15곳을 건드리지
+않고, "일별 PER"과 "분기 영업이익"이 한 테이블에서 다시 헷갈릴 여지가 없다.
+
+**수정 내역**
+- `V55__create_stock_quarterly_financial.sql` — 분기 원본 테이블 (`UNIQUE(stock_code, fiscal_period)`)
+- `StockFinancialDataCollector.persistQuarterlyRows` — **새 API 호출 없음.** 이미 받던 배열을 적재만.
+  TTM 합산 경로는 한 줄도 안 건드려 PER/PBR 무영향. 4분기 상한 없이 응답이 주는 만큼 다 담는다.
+- `parseBigDecimalOrNull` 신설 — 기존 `parseBigDecimal` 은 결측을 `ZERO` 로 바꾼다(TTM 합산에선
+  의도된 동작). 분기 원본에 0 을 넣으면 "영업이익 0억"이라는 **거짓 사실**이 남아 다음 분기와
+  비교할 때 유령 변화율이 나온다 — 두 의미가 달라 함수를 나눴다(§4c).
+- `QuarterlyFinancials` (순수함수 + `QuarterlyFinancialsTest` 20건) — `stac_yymm` 파싱 ·
+  누적(YTD) 판정 · **개별 분기 환산** · 인접 분기(정확히 3개월) 판정 · 비교쌍 선택
+- `EarningSurpriseService` — 경로 2개(`detectFromQuarterly` / `detectFromDailySnapshots`)로 분리,
+  분류 산식은 `classify(Period, Period)` **단일 출처**로 공유(임계 ±20%, POSITIVE 는 흑자 필수 불변)
+- `GET /api/diagnostics/earnings-source[?compare=true]` — 커버리지 + 두 경로 건수 비교.
+  **집계값만**(종목 코드 미노출 — `/api/diagnostics/**` 는 permitAll 이고 그 계약이 "시스템 메타데이터만")
+
+**고치다 만들 뻔한 더 나쁜 결함 (테스트로 고정)**
+- **누적(YTD) 원본을 개별 분기로 오인** → "매출 3배 급증" 유령 서프라이즈.
+  → 누적은 직전 누적을 빼서 환산하고, **직전 행이 없으면 회계연도 첫 분기인지 판별 불가라 제외**.
+- **회계연도 경계** → 새 회계연도 1분기 누적(1,100)에서 전년 연간 누적(4,800)을 빼면 −3,700 =
+  "적자 전환". → 누적 매출이 줄면 FY 리셋으로 보고 그 행 자체를 개별값으로.
+- **분기 건너뜀** → 1분기·3분기만 있을 때 차감하면 6개월치가 한 분기로 부풀려진다. → 제외.
+- **결측을 0 으로** → `subtract(a, null) = null` (0 아님).
+
+**⚠ 아직 안 켰다 — `recommendation.earnings.quarterly-source: false` (기본값)**
+
+켜면 earnings 가 살아나 **composite 총점 · validCount · 후보 수가 동시에 움직인다**
+(현재 earnings 는 거의 항상 0 이라 사실상 3카테고리로 굴러가고 있다 — validCount≥3 컷이
+그만큼 빡빡하게 걸려 있다는 뜻이기도 하다). 수급 캡(P1-6)과 같은 방식으로 가역 플래그를 뒀다.
+
+**켜기 전 순서**
+1. 배포 후 08:30 또는 15:38 배치 1회 → `[분기재무] {종목} - N개 분기 적재` 로그 확인
+2. `GET /api/diagnostics/earnings-source` — `coverage.distinctStocks` 가 2,000+ 인지
+   (0 이면 켜면 안 된다. earnings 전멸)
+3. `?compare=true` — `legacyScoring` vs `quarterlyScoring` 건수 비교.
+   레거시가 0 에 가까우면 그게 "earnings 死"의 실측 증거다.
+4. 켠 **날짜를 기록**한다 — 그 날이 측정 표본의 경계다(`docs/SCHEDULE_DECISIONS.md`)
+
+**남은 한계 (의도적 미해결)**
+- 비교는 **전분기 대비(QoQ)** 다. 한국 주식은 계절성 때문에 **전년동기(YoY)** 가 표준이지만,
+  ① 기존 임계(±20%)가 QoQ 기준으로 잡혀 있고 ② YoY 는 5분기 이력이 필요하다.
+  분기 원본이 쌓이면 YoY 로 바꿀 수 있다 — **별도 판정 안건**이지 이번 수정에 끼워 넣을 게 아니다.
+- 누적(YTD) 보고 종목은 첫 분기가 구조적으로 빠진다(직전 누적 행이 없어서). 인지된 트레이드오프.
 
 > **측정 재시작 기준**: R1(실적 입력)을 고치고 거래정지 게이트 정상 동기화를 확인한 시점부터의
 > 표본만 "현재 산식의 성적"이다. 그 이전 표본(2026-08-05 재시작분 포함)은 실적 축 오염 + 게이트

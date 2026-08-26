@@ -3,9 +3,12 @@ package com.myplatform.backend.service;
 import com.myplatform.backend.dto.EarningSurpriseDto;
 import com.myplatform.backend.dto.EarningSurpriseDto.SurpriseType;
 import com.myplatform.backend.entity.StockFinancialData;
+import com.myplatform.backend.entity.StockQuarterlyFinancial;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.repository.StockQuarterlyFinancialRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -14,14 +17,29 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.LinkedHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 어닝 서프라이즈 감지 서비스
- * - 최근 2분기 재무 데이터 비교
- * - 영업이익 전분기 대비 20%+ 증가 = 포지티브 서프라이즈
- * - 영업이익 전분기 대비 20%+ 감소 = 네거티브 서프라이즈
- * - 적자→흑자 전환도 서프라이즈로 감지
+ * 어닝 서프라이즈 감지 서비스 — 영업이익(없으면 순이익) 전분기 대비 ±20% / 적자→흑자 전환.
+ *
+ * <h3>입력 경로가 둘이다 (AUDIT 2026-08-21 R1)</h3>
+ * <ul>
+ *   <li><b>레거시</b> {@code stock_financial_data} — 이름과 달리 <b>일별 스냅샷</b>이다.
+ *       매일 {@code reportDate=오늘} 로 TTM 합이 한 행씩 쌓이므로 "최신 2행"은 사실
+ *       <b>오늘 vs 어제</b>이고, TTM 은 하루 사이 거의 안 변해 변화율 ≈ 0 →
+ *       서프라이즈가 사실상 발생하지 않는다(= earnings 카테고리 死). 인접분기 가드(≤120일)는
+ *       gap=1 이라 그대로 통과하고, {@code isEarningsReportFresh(200일)} 도
+ *       reportDate 가 항상 오늘이라 no-op 이었다.</li>
+ *   <li><b>분기</b> {@code stock_quarterly_financial} — KIS 손익계산서의 {@code stac_yymm}
+ *       단위 원본. 비교가 진짜 "전분기 대비"가 되고 신선도 가드도 의미를 갖는다.</li>
+ * </ul>
+ *
+ * <p><b>전환은 설정 한 줄</b>({@code recommendation.earnings.quarterly-source}, 기본 false).
+ * 켜면 composite 의 earnings 입력이 실제로 살아나 <b>점수·후보 수가 움직인다</b> — 그래서
+ * 수급 캡(P1-6)과 같은 방식으로 가역 플래그를 두고, 켜는 시점을 사람이 정해 기록한다
+ * (측정 표본의 경계가 되기 때문). 판정 산식(임계 ±20%, POSITIVE 는 흑자 필수)은 두 경로가
+ * <b>같은 함수</b>({@code classify})를 쓴다.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,7 +47,19 @@ import java.util.stream.Collectors;
 public class EarningSurpriseService {
 
     private final StockFinancialDataRepository financialDataRepository;
+    private final StockQuarterlyFinancialRepository quarterlyRepository;
+    private final StockMasterService stockMasterService;
     private final TelegramNotificationService telegramService;
+
+    /**
+     * true 면 분기 원본 테이블을 입력으로 쓴다(R1 의 실제 수정). 기본 false = 레거시 경로 유지.
+     *
+     * <p>가역 플래그인 이유: 켜는 순간 earnings 가 살아나 composite 총점·validCount·후보 수가
+     * 동시에 움직인다. 되돌릴 수 없는 변경으로 배포하면 "언제부터의 표본이 현재 산식인가"를
+     * 나중에 특정할 수 없다.
+     */
+    @Value("${recommendation.earnings.quarterly-source:false}")
+    private boolean useQuarterlySource;
 
     // 서프라이즈 임계값: 영업이익 변화율 ±20%
     private static final BigDecimal SURPRISE_THRESHOLD = new BigDecimal("20");
@@ -42,11 +72,10 @@ public class EarningSurpriseService {
     private volatile LocalDate cacheDate = null;
 
     /**
-     * 어닝 서프라이즈 감지 (분기 비교)
-     * - 최근 2분기 데이터 비교
-     * - 영업이익 전분기 대비 20%+ 증가 = 포지티브 서프라이즈
-     * - 영업이익 전분기 대비 20%- 감소 = 네거티브 서프라이즈
-     * - 적자→흑자 전환도 서프라이즈로 감지
+     * 어닝 서프라이즈 감지 — 소스는 {@code useQuarterlySource} 가 고른다(클래스 주석 참조).
+     *
+     * <p>당일 캐시. 단 <b>빈 결과는 캐시로 서빙하지 않는다</b>(위 조건의 {@code !isEmpty()}) —
+     * "감지 실패"와 "서프라이즈 없음"이 하루 종일 구분 안 되는 상태로 굳는 것을 막는다(§4c).
      */
     public List<EarningSurpriseDto> detectEarningSurprises() {
         // 당일 캐시 사용
@@ -55,9 +84,88 @@ public class EarningSurpriseService {
             return cachedSurprises;
         }
 
-        log.info("[어닝서프라이즈] 감지 시작");
-        List<EarningSurpriseDto> surprises = new ArrayList<>();
+        log.info("[어닝서프라이즈] 감지 시작 (소스: {})", useQuarterlySource ? "분기원본" : "일별스냅샷(레거시)");
+        List<EarningSurpriseDto> surprises =
+                useQuarterlySource ? detectFromQuarterly() : detectFromDailySnapshots();
 
+        // 영업이익 변화율 절대값 기준 내림차순 정렬
+        surprises.sort((a, b) -> {
+            BigDecimal absA = a.getOperatingProfitChangeRate() != null
+                    ? a.getOperatingProfitChangeRate().abs() : BigDecimal.ZERO;
+            BigDecimal absB = b.getOperatingProfitChangeRate() != null
+                    ? b.getOperatingProfitChangeRate().abs() : BigDecimal.ZERO;
+            return absB.compareTo(absA);
+        });
+
+        cachedSurprises = surprises;
+        cacheDate = LocalDate.now();
+
+        log.info("[어닝서프라이즈] 감지 완료 - 총 {}건 (포지티브: {}, 네거티브: {}, 턴어라운드: {})",
+                surprises.size(),
+                surprises.stream().filter(x -> x.getSurpriseType() == SurpriseType.POSITIVE).count(),
+                surprises.stream().filter(x -> x.getSurpriseType() == SurpriseType.NEGATIVE).count(),
+                surprises.stream().filter(x -> x.getSurpriseType() == SurpriseType.TURNAROUND).count());
+        return surprises;
+    }
+
+    /**
+     * 분기 원본 경로 (R1 수정본) — {@code stock_quarterly_financial} 기준.
+     *
+     * <p>레거시와 다른 점: ① 비교 대상이 <b>정확히 3개월 차이</b>인 인접 분기(≤120일 근사 아님)
+     * ② 누적(YTD) 원본은 개별 분기로 환산하되 <b>환산 불가면 제외</b>
+     * ③ 최신 분기가 {@link #QUARTER_MAX_AGE_DAYS} 보다 오래면 제외(수집 중단 종목의 옛 실적이
+     * 매일 "오늘의 흑자전환"으로 붙는 것 차단 — 레거시에선 reportDate 가 항상 오늘이라 불가능했다).
+     */
+    List<EarningSurpriseDto> detectFromQuarterly() {
+        List<EarningSurpriseDto> surprises = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+
+        List<StockQuarterlyFinancial> rows = quarterlyRepository.findAllSince(today.minusMonths(QUARTER_LOOKBACK_MONTHS));
+        if (rows == null || rows.isEmpty()) {
+            log.warn("[어닝서프라이즈] 분기 재무 데이터 없음 — 수집 배치 확인 필요(§4c: '서프라이즈 0건'과 다름)");
+            return surprises;
+        }
+
+        Map<String, List<StockQuarterlyFinancial>> byStock = rows.stream()
+                .collect(Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
+
+        int stale = 0, notEnough = 0;
+        for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
+            List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
+                    .map(q -> new QuarterlyFinancials.Figures(
+                            q.getFiscalPeriod(), q.getPeriodEnd(),
+                            q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
+                    .collect(Collectors.toList());
+
+            QuarterlyFinancials.Figures[] pair =
+                    QuarterlyFinancials.latestAdjacentPair(QuarterlyFinancials.toIndividualQuarters(raw));
+            if (pair == null) { notEnough++; continue; }
+
+            if (pair[0].periodEnd().isBefore(today.minusDays(QUARTER_MAX_AGE_DAYS))) { stale++; continue; }
+
+            String code = e.getKey();
+            String name = stockMasterService.getNameOrDefault(code, code);
+            String market = stockMasterService.getMarket(code);
+            EarningSurpriseDto dto = classify(
+                    toPeriod(code, name, market, pair[0]),
+                    toPeriod(code, name, market, pair[1]));
+            if (dto != null) surprises.add(dto);
+        }
+
+        log.info("[어닝서프라이즈] 분기원본 - 종목 {}개 중 판정 {}건 (인접2분기 미확보 {}, 노후 {})",
+                byStock.size(), surprises.size(), notEnough, stale);
+        return surprises;
+    }
+
+    private static Period toPeriod(String code, String name, String market,
+                                   QuarterlyFinancials.Figures f) {
+        return new Period(code, name, market, f.periodEnd(),
+                f.revenue(), f.operatingProfit(), f.netIncome());
+    }
+
+    /** 레거시 경로 — 일별 스냅샷 테이블(위 클래스 주석 참조. R1 로 사실상 死). */
+    private List<EarningSurpriseDto> detectFromDailySnapshots() {
+        List<EarningSurpriseDto> surprises = new ArrayList<>();
         try {
             // 최근 2개 분기 데이터 조회
             List<StockFinancialData> allData = financialDataRepository.findLatestTwoQuartersPerStock();
@@ -89,31 +197,31 @@ public class EarningSurpriseService {
                 }
             }
 
-            // 영업이익 변화율 절대값 기준 내림차순 정렬
-            surprises.sort((a, b) -> {
-                BigDecimal absA = a.getOperatingProfitChangeRate() != null
-                        ? a.getOperatingProfitChangeRate().abs() : BigDecimal.ZERO;
-                BigDecimal absB = b.getOperatingProfitChangeRate() != null
-                        ? b.getOperatingProfitChangeRate().abs() : BigDecimal.ZERO;
-                return absB.compareTo(absA);
-            });
-
-            // 캐시 갱신
-            cachedSurprises = surprises;
-            cacheDate = LocalDate.now();
-
-            log.info("[어닝서프라이즈] 감지 완료 - 총 {}건 (포지티브: {}, 네거티브: {}, 턴어라운드: {})",
-                    surprises.size(),
-                    surprises.stream().filter(s -> s.getSurpriseType() == SurpriseType.POSITIVE).count(),
-                    surprises.stream().filter(s -> s.getSurpriseType() == SurpriseType.NEGATIVE).count(),
-                    surprises.stream().filter(s -> s.getSurpriseType() == SurpriseType.TURNAROUND).count());
-
         } catch (Exception e) {
             log.error("[어닝서프라이즈] 감지 실패: {}", e.getMessage(), e);
         }
 
         return surprises;
     }
+
+    /** 분기 원본을 거슬러 올릴 개월 수 — 누적 환산엔 직전 분기가 필요해 넉넉히 잡는다. */
+    private static final int QUARTER_LOOKBACK_MONTHS = 18;
+
+    /**
+     * 최신 분기가 이보다 오래면 판정 제외.
+     *
+     * <p>{@code RecommendationService.EARNINGS_MAX_AGE_DAYS} 와 같은 값(200)으로 맞춰 뒀다 —
+     * 한국 분기 공시 주기(분기말 + 45일 내외) 상 200일이면 정상 종목은 절대 안 걸리고,
+     * 수집이 끊긴 종목만 걸린다. 이 서비스에도 두는 이유는 텔레그램 알림·
+     * {@code getPositiveSurpriseStockCodes()} 처럼 <b>추천 경로를 안 거치는 소비자</b>가 있기 때문.
+     */
+    static final int QUARTER_MAX_AGE_DAYS = 200;
+
+    /**
+     * 두 경로가 공유하는 비교 단위 — 어느 테이블에서 왔는지와 무관한 "한 시점의 실적 3종".
+     */
+    record Period(String stockCode, String stockName, String market, LocalDate periodEnd,
+                  BigDecimal revenue, BigDecimal operatingProfit, BigDecimal netIncome) {}
 
     /** "전분기 대비" 비교로 인정하는 최대 reportDate 간격(일). 인접 분기 ≈ 90~92일. */
     private static final long MAX_QUARTER_GAP_DAYS = 120;
@@ -129,13 +237,32 @@ public class EarningSurpriseService {
                 previous.getReportDate(), latest.getReportDate());
         if (gapDays <= 0 || gapDays > MAX_QUARTER_GAP_DAYS) return null;
 
-        BigDecimal latestOp = latest.getOperatingProfit();
-        BigDecimal prevOp = previous.getOperatingProfit();
-        BigDecimal latestNet = latest.getNetIncome();
-        BigDecimal prevNet = previous.getNetIncome();
-        BigDecimal latestRev = latest.getRevenue();
-        BigDecimal prevRev = previous.getRevenue();
+        return classify(
+                new Period(latest.getStockCode(), latest.getStockName(), latest.getMarket(),
+                        latest.getReportDate(), latest.getRevenue(),
+                        latest.getOperatingProfit(), latest.getNetIncome()),
+                new Period(previous.getStockCode(), previous.getStockName(), previous.getMarket(),
+                        previous.getReportDate(), previous.getRevenue(),
+                        previous.getOperatingProfit(), previous.getNetIncome()));
+    }
 
+    /**
+     * 서프라이즈 분류 — <b>두 입력 경로(일별 스냅샷 / 분기 원본)가 공유하는 단일 산식</b>.
+     *
+     * <p>여기엔 "비교해도 되는 두 시점인가" 판단이 없다. 그건 호출부의 책임이다
+     * (레거시는 ≤120일 근사, 분기 경로는 정확히 3개월). 산식만 한 곳에 두어야
+     * 소스를 바꿔도 임계·부호 규칙이 갈라지지 않는다.
+     *
+     * <p>임계 ±20%, POSITIVE 는 흑자(latest&gt;0) 필수 — 2026-07-28 회귀
+     * ({@code EarningSurpriseClassifyTest}) 그대로다.
+     */
+    EarningSurpriseDto classify(Period latest, Period previous) {
+        BigDecimal latestOp = latest.operatingProfit();
+        BigDecimal prevOp = previous.operatingProfit();
+        BigDecimal latestNet = latest.netIncome();
+        BigDecimal prevNet = previous.netIncome();
+        BigDecimal latestRev = latest.revenue();
+        BigDecimal prevRev = previous.revenue();
         // 영업이익이 둘 다 없으면 비교 불가
         if (latestOp == null && latestNet == null) return null;
 
@@ -215,9 +342,9 @@ public class EarningSurpriseService {
         }
 
         return EarningSurpriseDto.builder()
-                .stockCode(latest.getStockCode())
-                .stockName(latest.getStockName())
-                .market(latest.getMarket())
+                .stockCode(latest.stockCode())
+                .stockName(latest.stockName())
+                .market(latest.market())
                 .latestOperatingProfit(latestOp)
                 .previousOperatingProfit(prevOp)
                 .operatingProfitChangeRate(opChangeRate)
@@ -226,8 +353,8 @@ public class EarningSurpriseService {
                 .netIncomeChangeRate(netChangeRate)
                 .latestRevenue(latestRev)
                 .revenueChangeRate(revChangeRate)
-                .latestReportDate(latest.getReportDate())
-                .previousReportDate(previous.getReportDate())
+                .latestReportDate(latest.periodEnd())
+                .previousReportDate(previous.periodEnd())
                 .surpriseType(surpriseType)
                 .summary(summary)
                 .build();
@@ -313,6 +440,74 @@ public class EarningSurpriseService {
                         EarningSurpriseDto::getSurpriseType,
                         (a, b) -> a // 중복 시 첫 번째 유지
                 ));
+    }
+
+    /**
+     * 분기 소스 전환 판단용 진단 — <b>집계값만</b> 낸다(종목 코드·이름 미노출).
+     *
+     * <p>{@code /api/diagnostics/**} 는 permitAll 이고 그 계약이 "시스템 상태 메타데이터만"이다.
+     * 서프라이즈 종목 목록은 매매 정보라 여기 실으면 그 계약이 깨진다 — 건수만 낸다.
+     *
+     * <p>이 진단이 필요한 이유: 플래그를 켜면 composite 의 earnings 입력이 살아나 총점·validCount·
+     * 후보 수가 동시에 움직인다. "얼마나 움직이는지"를 <b>켜기 전에</b> 숫자로 보고 결정하려는 것이다.
+     *
+     * @param compare true 면 두 경로를 실제로 돌려 건수를 비교한다(전 종목 스캔이라 무겁다).
+     *                false 면 수집 커버리지만 본다.
+     */
+    public Map<String, Object> diagnostics(boolean compare) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("quarterlySourceEnabled", useQuarterlySource);
+        out.put("activeSource", useQuarterlySource ? "QUARTERLY" : "DAILY_SNAPSHOT_LEGACY");
+        out.put("flagKey", "recommendation.earnings.quarterly-source");
+
+        Map<String, Object> coverage = new LinkedHashMap<>();
+        try {
+            LocalDate since = LocalDate.now().minusMonths(QUARTER_LOOKBACK_MONTHS);
+            long stocks = quarterlyRepository.countDistinctStocksSince(since);
+            coverage.put("dataAvailable", true);
+            coverage.put("distinctStocks", stocks);
+            coverage.put("lookbackMonths", QUARTER_LOOKBACK_MONTHS);
+            coverage.put("maxPeriodEnd", quarterlyRepository.findMaxPeriodEnd().orElse(null));
+            coverage.put("lastCollectedAt", quarterlyRepository.findMaxCollectedAt().orElse(null));
+            if (stocks == 0) {
+                coverage.put("note", "분기 행 0건 — 수집 배치(08:30/15:38)가 한 번도 안 돌았거나 적재 실패. "
+                        + "'서프라이즈 없음'이 아니라 '데이터 없음'이다(§4c). 이 상태로 플래그를 켜면 earnings 는 전멸한다.");
+            }
+        } catch (Exception e) {
+            // §4c — 조회 실패를 0 으로 위장하지 않는다
+            coverage.put("dataAvailable", false);
+            coverage.put("error", String.valueOf(e.getMessage()));
+        }
+        out.put("coverage", coverage);
+
+        if (!compare) {
+            out.put("comparison", Map.of("skipped", true,
+                    "hint", "?compare=true 로 두 경로 건수 비교 (전 종목 스캔이라 수 초 걸린다)"));
+            return out;
+        }
+
+        Map<String, Object> cmp = new LinkedHashMap<>();
+        try {
+            List<EarningSurpriseDto> legacy = detectFromDailySnapshots();
+            List<EarningSurpriseDto> quarterly = detectFromQuarterly();
+            cmp.put("legacyTotal", legacy.size());
+            cmp.put("legacyScoring", countScoring(legacy));
+            cmp.put("quarterlyTotal", quarterly.size());
+            cmp.put("quarterlyScoring", countScoring(quarterly));
+            cmp.put("note", "scoring = POSITIVE+TURNAROUND (composite earnings 8~20점이 붙는 부류). "
+                    + "레거시가 0 에 가깝다면 그것이 R1 이 말한 'earnings 死'의 실측이다.");
+        } catch (Exception e) {
+            cmp.put("error", String.valueOf(e.getMessage()));
+        }
+        out.put("comparison", cmp);
+        return out;
+    }
+
+    private static long countScoring(List<EarningSurpriseDto> list) {
+        return list.stream()
+                .filter(d -> d.getSurpriseType() == SurpriseType.POSITIVE
+                        || d.getSurpriseType() == SurpriseType.TURNAROUND)
+                .count();
     }
 
     /**

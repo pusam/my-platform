@@ -26,16 +26,20 @@
 
 ```yaml
 flags:
-  - id: earnings-axis-dead
-    severity: critical
-    title: 실적 채점이 분기 비교가 아니라 "오늘 스냅샷 vs 어제 스냅샷"
+  - id: earnings-quarterly-switch-off
+    severity: warning
+    title: 실적 분기소스가 아직 OFF — earnings 는 여전히 死 상태로 돌고 있다
     key: R1
     body: >
-      수집기가 매일 reportDate=today 행을 적재하고 findLatestTwoQuartersPerStock 이 최신 2행(=오늘/어제)을
-      집어 인접분기 가드(gap=1일)를 통과시킨다. earnings 카테고리가 사실상 死이고 신선도 가드도 no-op.
-      스키마 변경(행 종류 구분 컬럼)이 필요해 R4·R5 와 한 세션에 묶어야 한다. 측정 재시작의 선행 조건.
-    recorded_on: 2026-08-21
-    ref: VERIFICATION_BACKLOG "AUDIT 2026-08-21" R1
+      2026-08-26 배포로 분기 원본(V55 stock_quarterly_financial)과 분기 비교 경로는 들어갔지만
+      recommendation.earnings.quarterly-source 는 false 로 나갔다. 즉 지금 돌고 있는 산식은
+      여전히 "오늘 스냅샷 vs 어제 스냅샷"이고 earnings 카테고리는 거의 항상 0 이다(사실상 3카테고리 운영).
+      켜기 전에 ① 배치 1회 실행 후 [분기재무] 적재 로그 확인 ② GET /api/diagnostics/earnings-source 의
+      coverage.distinctStocks 가 2000+ 인지(0 이면 켜면 earnings 전멸) ③ ?compare=true 로 두 경로 건수 비교.
+      켜면 composite 총점·validCount·후보 수가 동시에 움직이므로 켠 날짜를 SCHEDULE_DECISIONS 에 기록할 것 —
+      그 날이 측정 표본의 경계다. 확인일 2026-09-02.
+    recorded_on: 2026-08-26
+    ref: VERIFICATION_BACKLOG "R1 처리 (2026-08-26)", docs/SCHEDULE_DECISIONS.md earnings-quarterly-switch
 
   - id: real-cash-field-unverified
     severity: warning

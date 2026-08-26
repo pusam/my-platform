@@ -94,6 +94,7 @@ V38~V45(2026-07-06~08 배포)로 시작된 측정들이 2~3주치 표본을 확�
 | 2026-__-__ | 매크로/간밤 tilt 축적 점검 (P3-5/P3-7) | | V39 축적 `__`주 / 목표 8~12주 · 금리축 결측률 `__`% | |
 | 2026-__-__ | 무작위 대조군 첫 판정 (P2-19 ④) | | 시그널 `__`%(n=`__`) vs 대조군 `__`%(n=`__`) · edge `__`p · 유의 `Y/N` · 오염가드 `__`건 | |
 | 2026-__-__ | 캔들 패턴 shadow 승격 (V52 / P2-20) | | BULL n=`__` 승률 `__`% / BOX n=`__` `__`% · 기준선 `__`% · 비용반영 `Y/N` · 진입가 `종가/D+1시가` | |
+| 2026-__-__ | 실적 분기소스 전환 (R1) | | 커버리지 종목 `__`개 · 레거시 scoring `__`건 vs 분기 scoring `__`건 (`/api/diagnostics/earnings-source?compare=true`) | |
 
 ### 판정 규칙 (모든 안건 공통)
 - n<10 셀은 수치가 무엇이든 **판정 근거로 쓰지 않는다**. 대조군은 양쪽 각 n≥30.
@@ -200,4 +201,12 @@ calendar:
     due: 2026-09-14
     status: pending
     kind: milestone
+
+  - id: earnings-quarterly-switch
+    title: 실적 분기소스 전환 (R1)
+    due: 2026-09-02
+    status: pending
+    trigger: "배치 1회 이상 실행 후 GET /api/diagnostics/earnings-source 의 coverage.distinctStocks ≥ 2000. 0 이면 켜지 말 것(earnings 전멸)"
+    result: 2026-08-26 파이프라인 배포(분기 원본 V55 + 두 경로 분리). 플래그 recommendation.earnings.quarterly-source 는 OFF 로 나갔다. 켜면 composite 총점·validCount·후보 수가 동시에 움직이므로 켠 날짜가 곧 측정 표본 경계다 — 반드시 이 표에 기록할 것.
 ```
+

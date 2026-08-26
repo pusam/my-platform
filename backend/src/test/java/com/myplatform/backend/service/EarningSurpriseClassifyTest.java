@@ -26,6 +26,8 @@ class EarningSurpriseClassifyTest {
 
     private final EarningSurpriseService service = new EarningSurpriseService(
             mock(com.myplatform.backend.repository.StockFinancialDataRepository.class),
+            mock(com.myplatform.backend.repository.StockQuarterlyFinancialRepository.class),
+            mock(StockMasterService.class),
             mock(TelegramNotificationService.class));
 
     private static StockFinancialData quarter(LocalDate date, Integer op, Integer net) {

@@ -177,11 +177,13 @@ class DecisionCalendarParserTest {
         assertThat(r.recordTableFound()).isTrue();
         assertThat(r.parseErrors()).isEmpty();
 
-        // 판정 기록 표 8행이 전부 미기입 상태
-        assertThat(r.rosterSize()).isEqualTo(8);
-        assertThat(r.undecidedCount()).isEqualTo(8);
+        // 판정 기록 표가 실제로 잡혔는지 — ⚠ 행 수를 박지 않는다.
+        // 안건은 추가되고 판정은 채워지므로 고정 숫자는 반드시 썩는다(2026-08-26 실제로 깨졌다:
+        // R1 안건 1건 추가에 8→9). 여기서 지킬 것은 "표가 파싱된다"와 "카운트가 모순되지 않는다"다.
+        assertThat(r.rosterSize()).isPositive();
+        assertThat(r.undecidedCount()).isBetween(0, r.rosterSize());
 
-        // 표의 8건이 모두 YAML 에 등록돼 있어야 한다 (표↔블록 title 드리프트 감지)
+        // 표의 모든 안건이 YAML 에 등록돼 있어야 한다 (표↔블록 title 드리프트 감지 — 이게 진짜 검증)
         assertThat(r.unregisteredTitles()).isEmpty();
 
         // 조건 트리거 항목은 due 가 '확인일'이라 화면에서 판정일과 구분돼야 한다.

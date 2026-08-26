@@ -17,6 +17,23 @@ public interface StockMasterRepository extends JpaRepository<StockMaster, String
     List<StockMaster> findByIsActive(Boolean isActive);
 
     /**
+     * 재무 수집 유니버스 후보 — 활성 KOSPI/KOSDAQ 종목코드 (AUDIT 2026-08-21 R5).
+     *
+     * <p>기존 유니버스는 {@code stock_financial_data} 자기참조("이미 재무가 있는 종목")라
+     * <b>신규 상장이 영구 배제</b>되고, 테이블이 비면 부트스트랩 자체가 불가능했다
+     * ("수집할 종목이 없습니다. 먼저 기본 재무 데이터를 수집하세요.").
+     *
+     * <p>ETF·KONEX 는 뺀다 — 재무제표 비교 대상이 아니고 수집 시간만 먹는다.
+     * 6자리 숫자 코드만 통과시켜 크롤 잔재 같은 비정형 코드를 거른다.
+     */
+    @Query(value = "SELECT stock_code FROM stock_master "
+            + "WHERE is_active = 1 "
+            + "  AND market IN ('KOSPI', 'KOSDAQ') "
+            + "  AND stock_code REGEXP '^[0-9]{6}$' "
+            + "ORDER BY stock_code", nativeQuery = true)
+    List<String> findActiveEquityCodes();
+
+    /**
      * 종목명/코드로 검색 — 자동완성용.
      * 우선순위:
      *   1) 종목코드 prefix 매치 (정확)

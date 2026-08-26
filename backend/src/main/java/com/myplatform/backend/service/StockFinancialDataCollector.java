@@ -3,7 +3,9 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.backend.entity.StockFinancialData;
+import com.myplatform.backend.entity.StockQuarterlyFinancial;
 import com.myplatform.backend.repository.StockFinancialDataRepository;
+import com.myplatform.backend.repository.StockQuarterlyFinancialRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,6 +21,9 @@ import org.springframework.web.client.RestTemplate;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +43,7 @@ public class StockFinancialDataCollector {
     private static final long RETRY_DELAY_MS = 500;
 
     private final StockFinancialDataRepository stockFinancialDataRepository;
+    private final StockQuarterlyFinancialRepository quarterlyRepository;
     private final KoreaInvestmentService koreaInvestmentService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
@@ -535,6 +541,12 @@ public class StockFinancialDataCollector {
                             }
                         }
 
+                        // ★ 분기 원본 보존 (R1, 2026-08-26) — 여기서 stac_yymm 을 버리고 있었다.
+                        //   TTM 합산에만 쓰고 분기 정체성을 안 남기니, 어닝 서프라이즈가
+                        //   "오늘 스냅샷 vs 어제 스냅샷"을 비교하게 돼 earnings 카테고리가 死였다.
+                        //   합산 경로(아래)는 손대지 않는다 — 여기선 받은 행을 그대로 적재만 한다.
+                        persistQuarterlyRows(stockCode, output, isCumulative);
+
                         BigDecimal ttmNetIncomeRaw = BigDecimal.ZERO;
                         BigDecimal ttmRevenueRaw = BigDecimal.ZERO;
                         BigDecimal ttmOperatingProfitRaw = BigDecimal.ZERO;
@@ -744,6 +756,97 @@ public class StockFinancialDataCollector {
         }
 
         return ratios;
+    }
+
+    /**
+     * KIS 손익계산서 응답의 분기 행을 {@code stock_quarterly_financial} 에 그대로 적재한다(R1).
+     *
+     * <p><b>새 API 호출 없음</b> — 이미 받아서 TTM 합산에만 쓰고 버리던 배열이다.
+     * TTM 합산 경로는 건드리지 않으므로 PER/PBR 등 밸류에이션 값은 무영향이다.
+     *
+     * <p><b>4분기 상한을 두지 않는다</b>: TTM 은 최근 4분기만 필요하지만 실적 비교는 이력이
+     * 많을수록 좋다(전년동기 비교로 넓힐 여지). 응답이 주는 만큼 다 담는다.
+     *
+     * <p><b>결측은 null 로</b>: {@link #parseBigDecimal} 은 결측을 {@code ZERO} 로 바꾸는데
+     * (TTM 합산에선 의도된 동작), 분기 원본에 0 을 넣으면 "영업이익 0억"이라는 <b>거짓 사실</b>이
+     * 남아 다음 분기와 비교할 때 유령 변화율이 나온다. 그래서 여기선
+     * {@link #parseBigDecimalOrNull} 로 결측을 null 로 보존한다(§4c).
+     *
+     * <p>수집 실패는 삼키고 로그만 남긴다 — 이 적재가 실패해도 기존 재무 수집은 계속돼야 한다.
+     *
+     * @param isCumulative 호출부가 이미 판정한 누적 여부 — 같은 응답에 대해 판정이 갈리지 않도록
+     *                     새로 계산하지 않고 전달받는다.
+     */
+    void persistQuarterlyRows(String stockCode, JsonNode output, boolean isCumulative) {
+        if (output == null || !output.isArray() || output.size() == 0) return;
+        int saved = 0, skipped = 0;
+        LocalDateTime now = LocalDateTime.now();
+        List<String> savedPeriods = new ArrayList<>();
+
+        for (JsonNode q : output) {
+            String stacYymm = q.path("stac_yymm").asText(null);
+            YearMonth ym = QuarterlyFinancials.parseFiscalPeriod(stacYymm);
+            if (ym == null) { skipped++; continue; }   // 분기 정체성 불명 → 저장 안 함
+
+            BigDecimal revenue = toEokWon(parseBigDecimalOrNull(q.path("sale_account").asText(null)));
+            BigDecimal operatingProfit = toEokWon(parseBigDecimalOrNull(q.path("bsop_prti").asText(null)));
+            BigDecimal netIncome = toEokWon(parseBigDecimalOrNull(q.path("thtr_ntin").asText(null)));
+            if (revenue == null && operatingProfit == null && netIncome == null) { skipped++; continue; }
+
+            String period = String.format("%04d%02d", ym.getYear(), ym.getMonthValue());
+            try {
+                StockQuarterlyFinancial row = quarterlyRepository
+                        .findByStockCodeAndFiscalPeriod(stockCode, period)
+                        .orElseGet(() -> StockQuarterlyFinancial.builder()
+                                .stockCode(stockCode)
+                                .fiscalPeriod(period)
+                                .build());
+                row.setPeriodEnd(QuarterlyFinancials.periodEnd(ym));
+                row.setCumulative(isCumulative);
+                row.setRevenue(revenue);
+                row.setOperatingProfit(operatingProfit);
+                row.setNetIncome(netIncome);
+                row.setSource("KIS_INCOME_STMT");
+                row.setCollectedAt(now);
+                quarterlyRepository.save(row);
+                saved++;
+                savedPeriods.add(period);
+            } catch (Exception e) {
+                skipped++;
+                log.debug("[분기재무] {} {} 적재 실패: {}", stockCode, period, e.getMessage());
+            }
+        }
+
+        if (saved > 0) {
+            log.info("[분기재무] {} - {}개 분기 적재(누적:{}) {} (스킵 {})",
+                    stockCode, saved, isCumulative, savedPeriods, skipped);
+        } else if (skipped > 0) {
+            log.debug("[분기재무] {} - 적재 0건 (스킵 {})", stockCode, skipped);
+        }
+    }
+
+    /** 백만원 → 억원. null 은 null 유지(결측 보존). */
+    private static BigDecimal toEokWon(BigDecimal millionWon) {
+        return millionWon == null ? null
+                : millionWon.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * {@link #parseBigDecimal} 의 <b>결측 보존</b> 판. 값이 없거나 파싱 불가면 null 을 돌려준다.
+     *
+     * <p>기존 {@code parseBigDecimal} 은 결측을 {@code ZERO} 로 바꾼다 — TTM 합산에선
+     * "없는 분기는 안 더한다"는 뜻이라 말이 되지만, 분기 원본 저장에선 "그 분기 영업이익이 0억"이라는
+     * 거짓 사실이 된다. 두 의미가 다르므로 함수를 나눈다(§4c).
+     */
+    static BigDecimal parseBigDecimalOrNull(String value) {
+        if (value == null) return null;
+        String v = value.trim();
+        if (v.isEmpty() || "-".equals(v)) return null;
+        try {
+            return new BigDecimal(v.replace(",", ""));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private BigDecimal parseBigDecimal(String value) {
