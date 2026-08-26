@@ -541,6 +541,13 @@ public class StockFinancialDataCollector {
                             }
                         }
 
+                        // ★ 응답 스키마 진단(2026-08-26) — 금액 3필드가 전부 비면 필드명이 틀린 것이다.
+                        //   실측: stac_yymm 은 정상(202606/202603/…)인데 sale_account·bsop_prti·thtr_ntin
+                        //   만 빈 문자열 → 434종목 전 기간 revenue/영업이익/순이익이 NULL 이었다.
+                        //   Jackson 의 path("없는키").asText() 가 "" 를 주기 때문에 조용히 0 으로 흘렀다.
+                        //   필드명을 추측으로 고치지 않기 위해, 실제 응답 1건을 그대로 남긴다(JVM 당 1회).
+                        logIncomeSchemaOnce(stockCode, output.get(0));
+
                         // ★ 분기 원본 보존 (R1, 2026-08-26) — 여기서 stac_yymm 을 버리고 있었다.
                         //   TTM 합산에만 쓰고 분기 정체성을 안 남기니, 어닝 서프라이즈가
                         //   "오늘 스냅샷 vs 어제 스냅샷"을 비교하게 돼 earnings 카테고리가 死였다.
@@ -685,6 +692,7 @@ public class StockFinancialDataCollector {
                             if (bsOutput != null && bsOutput.isArray() && bsOutput.size() > 0) {
                                 // 가장 최근 데이터 사용
                                 JsonNode latestBs = bsOutput.get(0);
+                                logBalanceSchemaOnce(stockCode, divClsCode, latestBs);
                                 BigDecimal totalAset = parseBigDecimal(latestBs.path("total_aset").asText());
                                 BigDecimal totalCptl = parseBigDecimal(latestBs.path("total_cptl").asText());
                                 BigDecimal totalLblt = parseBigDecimal(latestBs.path("total_lblt").asText());
@@ -823,6 +831,39 @@ public class StockFinancialDataCollector {
         } else if (skipped > 0) {
             log.debug("[분기재무] {} - 적재 0건 (스킵 {})", stockCode, skipped);
         }
+    }
+
+    /** 응답 스키마를 남기는 것은 JVM 당 1회 — 종목마다 찍으면 배치 로그가 묻힌다. */
+    private static final java.util.concurrent.atomic.AtomicBoolean INCOME_SCHEMA_LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private static final java.util.concurrent.atomic.AtomicBoolean BALANCE_SCHEMA_LOGGED =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /**
+     * 손익계산서 응답의 금액 필드가 전부 비어 있으면 <b>실제 응답 원문</b>을 WARN 으로 남긴다.
+     *
+     * <p>필드명을 기억이나 추측으로 고치면 또 조용히 0 이 된다 — 응답 키를 눈으로 보고 고치기 위한 것.
+     * 정상(금액이 하나라도 있음)이면 아무것도 안 찍는다.
+     */
+    private void logIncomeSchemaOnce(String stockCode, JsonNode first) {
+        if (first == null || INCOME_SCHEMA_LOGGED.get()) return;
+        boolean allEmpty = parseBigDecimalOrNull(first.path("sale_account").asText(null)) == null
+                && parseBigDecimalOrNull(first.path("bsop_prti").asText(null)) == null
+                && parseBigDecimalOrNull(first.path("thtr_ntin").asText(null)) == null;
+        if (!allEmpty || !INCOME_SCHEMA_LOGGED.compareAndSet(false, true)) return;
+        log.warn("[손익계산서 스키마] {} — 금액 3필드(sale_account/bsop_prti/thtr_ntin)가 모두 비었다. "
+                + "실제 응답 첫 항목: {}", stockCode, first);
+    }
+
+    /** 재무상태표도 동일 — 자본총계가 비면 실제 응답 1건을 남긴다. */
+    private void logBalanceSchemaOnce(String stockCode, String divClsCode, JsonNode first) {
+        if (first == null || BALANCE_SCHEMA_LOGGED.get()) return;
+        boolean allEmpty = parseBigDecimalOrNull(first.path("total_cptl").asText(null)) == null
+                && parseBigDecimalOrNull(first.path("total_aset").asText(null)) == null
+                && parseBigDecimalOrNull(first.path("total_lblt").asText(null)) == null;
+        if (!allEmpty || !BALANCE_SCHEMA_LOGGED.compareAndSet(false, true)) return;
+        log.warn("[재무상태표 스키마] {} (DIV_CLS={}) — 금액 3필드(total_cptl/total_aset/total_lblt)가 "
+                + "모두 비었다. 실제 응답 첫 항목: {}", stockCode, divClsCode, first);
     }
 
     /** 백만원 → 억원. null 은 null 유지(결측 보존). */
