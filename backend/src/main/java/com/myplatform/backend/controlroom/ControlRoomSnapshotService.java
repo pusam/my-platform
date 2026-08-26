@@ -82,6 +82,7 @@ public class ControlRoomSnapshotService {
     private final SignalWeeklyAccuracyRepository weeklyRepository;
     private final CrewSessionRepository crewSessionRepository;
     private final RecommendationSnapshotRepository recommendationSnapshotRepository;
+    private final com.myplatform.backend.repository.StockFinancialDataRepository financialDataRepository;
     private final MarketCalendarService marketCalendar;
     private final RecommendationService recommendationService;
     private final CrewProperties crewProperties;
@@ -109,6 +110,7 @@ public class ControlRoomSnapshotService {
                                       SignalWeeklyAccuracyRepository weeklyRepository,
                                       CrewSessionRepository crewSessionRepository,
                                       RecommendationSnapshotRepository recommendationSnapshotRepository,
+                                      com.myplatform.backend.repository.StockFinancialDataRepository financialDataRepository,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -125,6 +127,7 @@ public class ControlRoomSnapshotService {
         this.weeklyRepository = weeklyRepository;
         this.crewSessionRepository = crewSessionRepository;
         this.recommendationSnapshotRepository = recommendationSnapshotRepository;
+        this.financialDataRepository = financialDataRepository;
         this.marketCalendar = marketCalendar;
         this.recommendationService = recommendationService;
         this.crewProperties = crewProperties;
@@ -180,7 +183,8 @@ public class ControlRoomSnapshotService {
                         gates(),
                         lossBreaker(),
                         volRegime(),
-                        undecided(decisions)),
+                        undecided(decisions),
+                        financialInput()),
                 calendar(decisions, targetMonth, today),
                 flagged(flags, decisions, today),
                 new ControlRoomSnapshotDto.Invariants(invariants.dataAvailable(), invariants.invariants()),
@@ -188,6 +192,120 @@ public class ControlRoomSnapshotService {
     }
 
     // ==================== KPI ====================
+
+    /**
+     * 재무 입력층 건강 — 최신 일별 스냅샷의 필드 충전율.
+     *
+     * <p>세 묶음이 서로 다른 KIS 호출에서 오므로 어느 쪽이 죽었는지 갈린다.
+     * 2026-08-26 실측이 이 카드의 존재 이유다 — 비율 434/434, 손익계산서 0/434,
+     * 재무상태표 0/434 였는데 몇 달 동안 어느 화면에도 안 보였다.
+     *
+     * <p>조회 실패는 {@code dataAvailable=false} 로 정직하게(§4c) — "0건"으로 위장하면
+     * 이 카드가 잡으려던 바로 그 실패를 자기가 저지르는 셈이다.
+     */
+    private ControlRoomSnapshotDto.FinancialInput financialInput() {
+        try {
+            List<Object[]> rows = financialDataRepository.findLatestSnapshotFieldCoverage();
+            if (rows == null || rows.isEmpty()) {
+                return new ControlRoomSnapshotDto.FinancialInput(true, null, 0, 0, 0, 0,
+                        "행 없음", financialInputNoteDetail(0, 0, 0, 0));
+            }
+            Object[] r = rows.get(0);
+            LocalDate asOf = toLocalDate(r[0]);
+            long total = toLong(r[1]);
+            long withRatios = toLong(r[2]);
+            long withStatement = toLong(r[3]);
+            long withBalance = toLong(r[4]);
+            return new ControlRoomSnapshotDto.FinancialInput(true, asOf, total,
+                    withRatios, withStatement, withBalance,
+                    financialInputNote(total, withRatios, withStatement, withBalance),
+                    financialInputNoteDetail(total, withRatios, withStatement, withBalance));
+        } catch (Exception e) {
+            log.warn("[관제실] 재무 입력층 조회 실패: {}", e.getMessage());
+            return new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0,
+                    "조회 실패", "재무 입력층 조회가 예외로 실패했다 — '결측 0건'이 아니라 '모름'이다(§4c).");
+        }
+    }
+
+    /**
+     * 카드 표면용 <b>짧은</b> 진단 — 정상이면 null(카드가 조용하다).
+     *
+     * <p>정상일 때 시끄러우면 사람이 경고를 무시하게 되고, 그러면 다음 사망도 똑같이 지나간다.
+     * 긴 설명은 {@link #financialInputNoteDetail} 이 맡고 화면에선 툴팁으로 간다
+     * (후보 카드의 note/noteDetail 과 같은 규약).
+     */
+    static String financialInputNote(long total, long withRatios, long withStatement, long withBalance) {
+        if (total <= 0) return "행 없음";
+        boolean ratiosDead = withRatios == 0;
+        boolean statementDead = withStatement == 0;
+        boolean balanceDead = withBalance == 0;
+
+        if (ratiosDead && statementDead && balanceDead) return "KIS 재무 3종 전멸 — 토큰·키 장애 의심";
+        if (statementDead && balanceDead) return "손익·재무상태표 0/" + total + " — 응답 필드 불일치 의심";
+        if (statementDead) return "손익계산서 0/" + total;
+        if (balanceDead) return "재무상태표 0/" + total;
+        if (ratiosDead) return "재무비율 0/" + total;
+
+        // 부분 결손도 절반을 넘으면 알린다 — 조용한 퇴화를 놓치지 않기 위해.
+        long worst = Math.min(withRatios, Math.min(withStatement, withBalance));
+        if (worst * 2 < total) return "충전율 절반 미만 (최저 " + worst + "/" + total + ")";
+        return null;
+    }
+
+    /**
+     * 툴팁·크루 컨텍스트용 <b>긴</b> 진단 — 무엇을 해야 하는지까지 적는다.
+     *
+     * <p>크루에게는 이 쪽을 준다. 근거가 잘리면 판단이 얕아진다(후보 카드와 같은 이유).
+     */
+    static String financialInputNoteDetail(long total, long withRatios, long withStatement, long withBalance) {
+        if (total <= 0) {
+            return "재무 스냅샷 행이 없다 — 수집 배치(08:30/15:38)가 한 번도 안 돌았거나 전면 실패.";
+        }
+        boolean ratiosDead = withRatios == 0;
+        boolean statementDead = withStatement == 0;
+        boolean balanceDead = withBalance == 0;
+
+        if (ratiosDead && statementDead && balanceDead) {
+            return "KIS 재무 호출 3종(비율·손익계산서·재무상태표)이 전부 값을 못 채웠다 — "
+                    + "개별 필드가 아니라 토큰·앱키 수준 장애를 먼저 의심할 것.";
+        }
+        if (statementDead && balanceDead) {
+            return "손익계산서·재무상태표가 0/" + total + " — 매출·영업이익·순이익·자본총계 전멸. "
+                    + "비율(per/pbr/roe)은 " + withRatios + "/" + total + " 로 살아 있으므로 "
+                    + "API 사망이 아니라 응답 필드명 불일치를 의심할 것(2026-08-26 실제 사례: "
+                    + "sale_account/bsop_prti/thtr_ntin 이 응답에 없어 빈 문자열→0 으로 조용히 흘렀다). "
+                    + "배치 로그의 [손익계산서 스키마] 줄에 실제 응답 키가 찍힌다.";
+        }
+        if (statementDead) {
+            return "손익계산서가 0/" + total + " — 매출·영업이익·순이익 전멸. "
+                    + "earnings 채점과 분기 원본(V55) 적재가 함께 멈춘다.";
+        }
+        if (balanceDead) {
+            return "재무상태표가 0/" + total + " — 자본총계 전멸. ROE 직접계산과 "
+                    + "composite 가치 축(scoreValueStability)이 영향을 받는다.";
+        }
+        if (ratiosDead) {
+            return "재무비율이 0/" + total + " — per/pbr/roe 전멸. 저평가 트랙이 통째로 멈춘다.";
+        }
+        long worst = Math.min(withRatios, Math.min(withStatement, withBalance));
+        if (worst * 2 < total) {
+            return "세 호출 중 하나가 절반 미만만 채웠다(최저 " + worst + "/" + total + "). "
+                    + "전멸이 아니라 조용한 퇴화라 로그로는 잘 안 보인다 — 며칠 추세를 볼 것.";
+        }
+        return null;
+    }
+
+    private static LocalDate toLocalDate(Object v) {
+        if (v == null) return null;
+        if (v instanceof java.sql.Date d) return d.toLocalDate();
+        if (v instanceof LocalDate d) return d;
+        return LocalDate.parse(String.valueOf(v));
+    }
+
+    private static long toLong(Object v) {
+        return v == null ? 0L : ((Number) v).longValue();
+    }
+
 
     /**
      * 종합판단 보드(momentum) 후보를 등급별로 센다. 보드 조회 실패는 0 이 아니라 데이터 없음이다.

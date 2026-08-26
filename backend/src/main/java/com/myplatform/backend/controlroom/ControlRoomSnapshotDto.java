@@ -29,8 +29,40 @@ public record ControlRoomSnapshotDto(
             Gates gates,
             LossBreaker lossBreaker,
             VolRegime volRegime,
-            Undecided undecided
+            Undecided undecided,
+            FinancialInput financialInput
     ) {}
+
+    /**
+     * 재무 입력층 건강 — 최신 일별 스냅샷에서 <b>어느 KIS 호출이 값을 채웠나</b>.
+     *
+     * <p>2026-08-26 에 이 카드가 없어서 겪은 일: 손익계산서 응답의 금액 필드명이 틀려
+     * 434종목 전 기간의 매출·영업이익·순이익·자본총계가 <b>몇 달 동안 NULL</b> 이었는데
+     * 어느 화면에도 안 보였다. 종목별 WARN 로그는 있었지만 434줄을 세는 사람은 없다.
+     *
+     * <p>세 값이 <b>서로 다른 호출</b>이라 어느 쪽이 죽었는지 한눈에 갈린다.
+     * 비율만 높고 나머지가 0 이면 "손익계산서·재무상태표만 죽음"이다.
+     *
+     * @param dataAvailable  false = 조회 실패(§4c — "0건"과 구분. 0 으로 위장 금지)
+     * @param asOf           집계한 스냅샷 날짜(오늘 이하 최신). 미래 날짜 annual 행은 제외한다.
+     * @param total          그 날짜의 행 수
+     * @param withRatios     per·pbr·roe 가 모두 있는 행 수 (재무비율 FHKST66430200)
+     * @param withStatement  매출·영업이익·순이익 중 하나라도 있는 행 수 (손익계산서 FHKST66430300)
+     * @param withBalance    자본총계가 있는 행 수 (재무상태표 FHKST66430400)
+     * @param note           카드 표면용 짧은 진단. 정상이면 null(카드가 조용하다)
+     * @param noteDetail     툴팁·크루용 긴 진단(무엇을 해야 하는지까지). 정상이면 null
+     */
+    public record FinancialInput(
+            boolean dataAvailable,
+            LocalDate asOf,
+            long total,
+            long withRatios,
+            long withStatement,
+            long withBalance,
+            String note,
+            String noteDetail
+    ) {}
+
 
     /**
      * 종합판단 보드 후보 등급 분포.

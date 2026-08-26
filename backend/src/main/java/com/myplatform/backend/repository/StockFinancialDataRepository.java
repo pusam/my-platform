@@ -212,6 +212,35 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     List<StockFinancialData> findLatestPerStock();
 
     /**
+     * 최신 일별 스냅샷 날짜의 <b>필드 충전율</b> — 입력층 건강 진단 (2026-08-26).
+     *
+     * <p><b>왜 필요한가</b>: KIS 손익계산서 응답의 금액 필드명이 틀려 434종목 전 기간의
+     * revenue/operating_profit/net_income/total_equity 가 <b>몇 달 동안 통째로 NULL</b> 이었는데
+     * 어느 화면에도 안 보였다. 종목별 WARN 로그는 있었지만 아무도 434줄을 세지 않는다.
+     * "몇 개 중 몇 개가 채워졌나"는 집계로 봐야 보인다.
+     *
+     * <p>세 묶음은 <b>서로 다른 KIS 호출</b>에서 온다 — 어느 호출이 죽었는지 바로 갈라진다:
+     * <ul>
+     *   <li>{@code with_ratios}    ← 재무비율 FHKST66430200 (per/pbr/roe)</li>
+     *   <li>{@code with_statement} ← 손익계산서 FHKST66430300 (revenue/영업이익/순이익)</li>
+     *   <li>{@code with_balance}   ← 재무상태표 FHKST66430400 (자본총계)</li>
+     * </ul>
+     *
+     * <p>분기 행(네이버 크롤)이 섞이지 않도록 <b>오늘 이하의 최신 날짜</b> 하나만 본다 —
+     * report_date 최댓값은 미래(12-31 annual row)일 수 있다.
+     */
+    @Query(value = "SELECT s.report_date AS asOf, COUNT(*) AS total, "
+            + " SUM(s.per IS NOT NULL AND s.pbr IS NOT NULL AND s.roe IS NOT NULL) AS withRatios, "
+            + " SUM(s.revenue IS NOT NULL OR s.operating_profit IS NOT NULL OR s.net_income IS NOT NULL) AS withStatement, "
+            + " SUM(s.total_equity IS NOT NULL) AS withBalance "
+            + "FROM stock_financial_data s "
+            + "WHERE s.report_date = ("
+            + "  SELECT MAX(x.report_date) FROM stock_financial_data x WHERE x.report_date <= CURRENT_DATE"
+            + ") GROUP BY s.report_date",
+            nativeQuery = true)
+    List<Object[]> findLatestSnapshotFieldCoverage();
+
+    /**
      * 마지막 업데이트 시간 조회
      */
     @Query("SELECT MAX(s.updatedAt) FROM StockFinancialData s")

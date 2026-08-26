@@ -87,12 +87,41 @@
       </template>
       <NoData v-else reason="판정 기록 표를 읽지 못함" />
     </div>
+
+    <!--
+      ⑥ 재무 입력층 — 이 카드가 없어서 겪은 일:
+      KIS 손익계산서 응답의 금액 필드명이 틀려 434종목 전 기간의 매출·영업이익·순이익이
+      몇 달 동안 NULL 이었는데 어느 화면에도 안 보였다(2026-08-26). 종목별 WARN 로그는
+      있었지만 434줄을 세는 사람은 없다. "몇 개 중 몇 개"는 집계로 봐야 보인다.
+      세 값이 서로 다른 KIS 호출이라 어느 쪽이 죽었는지 한눈에 갈린다.
+    -->
+    <div class="kpi" :class="{ alert: financialSuspect }">
+      <div class="eyebrow">재무 입력층</div>
+      <template v-if="financial && financial.dataAvailable">
+        <div class="v" :class="{ none: financial.total === 0 }">
+          <template v-if="financial.total > 0">
+            {{ financial.withStatement }}<small>/{{ financial.total }}</small>
+          </template>
+          <template v-else>행 없음</template>
+        </div>
+        <div class="s field-rows">
+          <span :class="{ dead: financial.withRatios === 0 }">비율 {{ financial.withRatios }}</span>
+          <span :class="{ dead: financial.withStatement === 0 }">손익 {{ financial.withStatement }}</span>
+          <span :class="{ dead: financial.withBalance === 0 }">재무상태 {{ financial.withBalance }}</span>
+        </div>
+        <div v-if="financial.note" class="s note" :title="financial.noteDetail || financial.note">
+          {{ financial.note }}
+        </div>
+        <span class="basis">{{ financial.asOf || '기준일 미상' }} · 큰 숫자 = 손익계산서 충전</span>
+      </template>
+      <NoData v-else :reason="financial && financial.note" :title="financial && financial.noteDetail" />
+    </div>
   </div>
 </template>
 
 <script setup>
 /**
- * 관제실 KPI 5종.
+ * 관제실 KPI 6종.
  *
  * ⚠ 여기서 수치를 다시 계산하지 않는다 — 전부 백엔드 스냅샷이 확정한 값이다.
  * dataAvailable=false 는 "0"이 아니라 NoData 로 렌더된다(§4c). 특히 일일손실 서킷은
@@ -111,6 +140,17 @@ const gates = computed(() => props.kpis?.gates ?? null)
 const breaker = computed(() => props.kpis?.lossBreaker ?? null)
 const volRegime = computed(() => props.kpis?.volRegime ?? null)
 const undecided = computed(() => props.kpis?.undecided ?? null)
+const financial = computed(() => props.kpis?.financialInput ?? null)
+
+/**
+ * 경고를 켤 조건 — 백엔드가 note 를 달았을 때만.
+ *
+ * 임계 판단을 화면에서 다시 하지 않는다(§ 스냅샷이 확정한 값을 재계산하지 않는다).
+ * note 가 null 이면 정상이고, 정상일 때 조용한 것이 이 카드의 계약이다.
+ */
+const financialSuspect = computed(
+  () => !!financial.value && (!financial.value.dataAvailable || !!financial.value.note)
+)
 
 const closedGates = computed(() =>
   (gates.value?.items ?? []).filter((i) => i.state !== 'OPEN')
@@ -179,7 +219,7 @@ const headroomText = computed(() => {
 .kpis {
   display: grid;
   /* minmax(0,…) 필수 — 맨 1fr 이면 안 끊기는 토큰이 칸을 밀어내 나머지가 쪼개진다 */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }
@@ -276,6 +316,10 @@ const headroomText = computed(() => {
 .bar i.g-unknown { background: var(--cr-amb); }
 
 .gate-list { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* 세 호출의 충전 상태 — 0 인 것만 붉게 튀어야 눈이 거기로 간다. */
+.field-rows { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; }
+.field-rows .dead { color: var(--cr-red); }
 /* 막힌 게이트가 둘 이상이면 공백만으론 한 문장처럼 붙어 읽힌다 —
    'NXT 주문 라우팅 NXT 연장장 청산'. 칩 테두리로 경계를 준다. */
 .gate-closed {
@@ -285,7 +329,10 @@ const headroomText = computed(() => {
   line-height: 1.5;
 }
 
+/* 6칸은 1400px 아래에서 칸당 200px 을 밑돌아 라벨이 눌린다 —
+   폰트만 줄이지 말고 3칸 2줄로 접는다(6이 3의 배수라 줄이 깔끔하게 찬다). */
 @media (max-width: 1400px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .v { font-size: 27px; }
 }
 

@@ -78,6 +78,7 @@ public final class CrewContextBuilder {
             appendLossBreaker(sb, k.lossBreaker());
             appendVolRegime(sb, k.volRegime());
             appendUndecided(sb, k.undecided());
+            appendFinancialInput(sb, k.financialInput());
         }
 
         sb.append("\n[판정 캘린더]\n");
@@ -160,6 +161,31 @@ public final class CrewContextBuilder {
         }
         sb.append("- VKOSPI 국면: ").append(v.regime())
                 .append(" · 게이트 mode=").append(v.gateMode()).append('\n');
+    }
+
+    /**
+     * 재무 입력층 — 크루가 <b>반드시</b> 봐야 하는 줄이다.
+     *
+     * <p>2026-08-26 이전에는 이 정보가 컨텍스트에 없어서, 크루가 "후보가 왜 적은가"를 논할 때
+     * 입력이 반쯤 죽어 있다는 사실을 모른 채 산식 이야기만 했다. 결손을 안 알리면
+     * FIREWALL 이 "데이터 문제 언급 없음 = 데이터 정상"으로 판단한다(§4c 의 프롬프트 판).
+     */
+    private static void appendFinancialInput(StringBuilder sb, ControlRoomSnapshotDto.FinancialInput f) {
+        if (f == null || !f.dataAvailable()) {
+            sb.append("- 재무 입력층: 데이터 없음 (조회 실패 — '결측 0건'이 아니라 '모름')");
+            if (f != null && f.note() != null) sb.append(" — ").append(f.note());
+            sb.append('\n');
+            return;
+        }
+        sb.append("- 재무 입력층");
+        if (f.asOf() != null) sb.append('(').append(f.asOf()).append(')');
+        sb.append(": 총 ").append(f.total()).append("행 · ")
+                .append("비율(per/pbr/roe) ").append(f.withRatios()).append(" · ")
+                .append("손익계산서(매출/영업이익/순이익) ").append(f.withStatement()).append(" · ")
+                .append("재무상태표(자본총계) ").append(f.withBalance());
+        String reason = f.noteDetail() != null ? f.noteDetail() : f.note();
+        if (reason != null) sb.append(" — ⚠ ").append(reason);
+        sb.append('\n');
     }
 
     private static void appendUndecided(StringBuilder sb, ControlRoomSnapshotDto.Undecided u) {

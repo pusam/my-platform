@@ -101,7 +101,8 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.Gates(false, 0, 0, List.of()),
                         new ControlRoomSnapshotDto.LossBreaker(false, null, null, null, null, null, null),
                         new ControlRoomSnapshotDto.VolRegime(false, null, null, "VKOSPI 미수집"),
-                        new ControlRoomSnapshotDto.Undecided(false, 0, 0)),
+                        new ControlRoomSnapshotDto.Undecided(false, 0, 0),
+                        new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0, null, null)),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
 
@@ -137,7 +138,8 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.Gate("nxt-routing", "NXT 주문 라우팅", "CLOSED", "flag OFF"))),
                 new ControlRoomSnapshotDto.LossBreaker(true, -60000L, 300000L, true, false, "VIRTUAL", null),
                 new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
-                new ControlRoomSnapshotDto.Undecided(true, 8, 8));
+                new ControlRoomSnapshotDto.Undecided(true, 8, 8),
+                new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null));
     }
 
     private static ControlRoomSnapshotDto.Calendar calendar() {
@@ -174,7 +176,8 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.Gates(true, 3, 5, List.of()),
                         new ControlRoomSnapshotDto.LossBreaker(true, 0L, 300000L, true, false, "VIRTUAL", null),
                         new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
-                        new ControlRoomSnapshotDto.Undecided(true, 8, 8)),
+                        new ControlRoomSnapshotDto.Undecided(true, 8, 8),
+                        new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null)),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
 

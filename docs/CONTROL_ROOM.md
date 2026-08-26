@@ -45,7 +45,7 @@ CLAUDE.md (불변식 소제목)   ─┘                   │
                                                  ├─→ ControlRoomSnapshotService ─→ GET /snapshot ─→ Vue
 JudgmentBoardService        ─┐                   │        (30초 메모리 캐시)
 TradingSafetyService        ─┤                   │
-DailyLossBreakerService     ─┼─→ KPI 5종 ────────┘
+DailyLossBreakerService     ─┼─→ KPI 6종 ────────┘
 VolatilityRegimeService     ─┤                   │
 bot.nxt-* 설정 플래그        ─┘                   │
 SignalWeeklyAccuracyRepo    ──→ 주간 피드백 실행 여부
@@ -133,7 +133,7 @@ FIREWALL 이 초안을 대조할 기준. 하드코딩하면 CLAUDE.md 가 바뀔
 파싱한다(본문은 컨텍스트 예산을 잡아먹어 제외). 섹션을 못 찾으면 빈 목록이 아니라 `dataAvailable=false` —
 크루에게 "불변식 없음"을 주면 FIREWALL 이 아무 제약 없이 승인한다.
 
-### 4-4. KPI 5종
+### 4-4. KPI 6종
 
 | KPI | 소스 | 주의 |
 |---|---|---|
@@ -142,6 +142,22 @@ FIREWALL 이 초안을 대조할 기준. 하드코딩하면 CLAUDE.md 가 바뀔
 | 일일손실 서킷 | `bot_config` + `sumRealizedPnlBetween` | **원(KRW) 단위.** 자산 대비 -3%/-1.5% 킬스위치는 **별개 장치**라 섞지 말 것 |
 | VKOSPI 레짐 | `VolatilityRegimeService` | 목업의 "streak Nd" 는 소스가 없어 **표시하지 않는다**(§4c) |
 | 미판정 | `SCHEDULE_DECISIONS.md` 판정 기록 표 | 표를 못 찾으면 0 이 아니라 "데이터 없음" |
+| **재무 입력층** | `stock_financial_data` 최신 일별 스냅샷 필드 충전율 | 세 값이 **서로 다른 KIS 호출**이라 어느 쪽이 죽었는지 갈린다 — 비율(FHKST66430200) / 손익계산서(66430300) / 재무상태표(66430400). **정상이면 note 가 null 이라 카드가 조용하다** |
+
+#### 재무 입력층 카드가 생긴 이유 (2026-08-26)
+
+KIS 손익계산서 응답의 금액 필드명이 틀려 **434종목 전 기간의 매출·영업이익·순이익·자본총계가
+몇 달 동안 NULL** 이었는데 **어느 화면에도 안 보였다.** 종목별 WARN 로그(`손익계산서 데이터 없음`)는
+있었지만 434줄을 세는 사람은 없다. Jackson 의 `path("없는키").asText()` 가 `""` 를 주고
+`parseBigDecimal("")` 이 `0` 을 주기 때문에 **어디서도 예외가 안 났다.**
+
+그래서 이 카드의 계약은 두 가지다:
+- **"몇 개 중 몇 개"를 집계로 보여준다** — 종목별 로그로는 안 보이는 것이 집계로는 보인다.
+- **정상이면 조용하다** — 정상일 때 시끄러우면 사람이 경고를 무시하게 되고, 그러면 다음 사망도
+  똑같이 지나간다. `financialInputNote` 가 정상에서 null 을 돌려주는 게 그 뜻이다.
+
+표면(짧은 `note`)과 툴팁·크루용(긴 `noteDetail`)을 나눈 것은 후보 카드와 같은 규약이다 —
+6칸 그리드에서 4줄짜리 문장은 카드 하나만 늘려 놓는다.
 
 **당일 실현손익**은 브레이커가 쓰는 것과 **같은 리포지토리 메서드·같은 인자**로 읽는다(계산 중복이
 아니라 동일 쿼리 재사용). 봇 코드는 건드리지 않는다는 원칙 때문에 `DailyLossBreakerService` 에
