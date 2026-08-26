@@ -184,6 +184,24 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     List<StockFinancialData> findLatestTwoQuartersPerStock();
 
     /**
+     * 종목별 최근 N행 일괄 조회 — 필드별 합성용 (AUDIT 2026-08-21 R4).
+     *
+     * <p>{@link #findLatestPerStock()} 는 종목당 <b>1행</b>이라, 그 행이 0 placeholder 투성이면
+     * 그대로 채점된다(실측: 005930 debt_ratio=0.00 → 18점이어야 할 종목이 5점).
+     * 여기서 여러 행을 가져와 {@code FinancialRowSynthesizer} 가 필드별로 메운다.
+     *
+     * <p>종목당 per-stock 쿼리(N+1)를 피하려고 윈도우 함수로 한 방에 뽑는다 —
+     * 트랙은 전 종목을 훑기 때문에 N+1 이면 수천 쿼리가 된다.
+     * 힙: 약 3,000종목 × 10행 ≈ 30k 행. 트랙은 lazy 로드 + 30분 캐시라 상시 부하가 아니다.
+     */
+    @Query(value = "SELECT * FROM ("
+            + "  SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.stock_code ORDER BY s.report_date DESC) as rn"
+            + "  FROM stock_financial_data s"
+            + ") ranked WHERE rn <= :limitPerStock",
+            nativeQuery = true)
+    List<StockFinancialData> findRecentPerStock(@Param("limitPerStock") int limitPerStock);
+
+    /**
      * 종목별 최신 재무 데이터 1건씩 조회 (N+1 방지)
      */
     @Query(value = "SELECT s.* FROM stock_financial_data s " +

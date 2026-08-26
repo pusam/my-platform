@@ -738,7 +738,7 @@
 | R1 | ~~실적 채점 입력이 분기 비교가 아님~~ → **2026-08-26 파이프라인 수정 완료. 전환 플래그 OFF 대기** (아래 "R1 처리" 참조) | **P1** | 데이터 경로는 고침. **켜는 시점만 사람 판단**(켜면 점수·후보 수가 움직여 측정 표본 경계가 됨) |
 | R2 | 대조군 유니버스 유동성·신선도 비대칭 — 시그널은 5분 신선 캐시 없으면 record 스킵, 대조군은 KIS 신규 호출까지 감행 + `findStockCodesWithMinHistory` 에 최근성 조건 없음 → 저유동·수집중단 종목이 대조군에만 유입 → base rate 하락 → **edge 과대(좋아 보이는 방향)** | P1 | 유니버스 쿼리 + 가격 게이트 대칭화 — 대조군 기록 경로 수정이라 신중히(오염 방지 불변식 재검증 동반) |
 | R3 | 연속매수일 계산 3벌 중 화면용(`InvestorBuyStreakCalculator`)만 결측일 가드 없음 — 수집 실패일을 건너뛰고 이어 세어 "N일 연속" 배지 부풀림(2026-07-28 에 점수용만 고침) | P2 | 화면용을 `resolveConsecutiveBuyDates` 로 통일 — 별도 소세션 |
-| R4 | 저평가/성장 5트랙 `findLatestPerStock` 단일 행 + placeholder 스킵 없음(P2-19 ③ 잔존) — composite 는 `firstPositive` 합성으로 우회 완료, 트랙만 잔존 | P2 | R1(재무 행 구분)과 같은 테이블이라 **함께 설계** |
+| R4 | ~~저평가/성장 5트랙 `findLatestPerStock` 단일 행 + placeholder 스킵 없음~~ → **2026-08-26 수정 완료** (`FinancialRowSynthesizer` + `findRecentPerStock(10)`, composite 와 규칙·행수 동일) | P2 | — |
 | R5 | ~~재무 수집 유니버스 자기참조~~ → **2026-08-26 수정 완료** (`resolveCollectionUniverse` = 기존 수집분 ∪ stock_master 활성 KOSPI/KOSDAQ, `FinancialCollectionUniverseTest`) | P2 | — |
 | R6 | 일봉 400 상한 절단이 결정적(`findStockCodesByTradeDate` ORDER BY 없음 → 매번 같은 꼬리 절단) + 잘린 종목은 배치로 영영 미복구 | P2 | ORDER BY 명시 + 재시도 큐 — 서버에서 400 초과 실발생 로그 확인 후 |
 | R7 | V30 카테고리 스냅샷 원시 int(미수집=0 저장, §4 NULL 불변식 위반) — 약세 버킷 집계 오염("기술이 유일하게 일한다" 결론의 근거 재검 필요) | P2 | record 호출부에서 valid 여부로 0→null 변환 — validCount 산정과 정합 설계 필요 |
@@ -801,6 +801,35 @@
   ① 기존 임계(±20%)가 QoQ 기준으로 잡혀 있고 ② YoY 는 5분기 이력이 필요하다.
   분기 원본이 쌓이면 YoY 로 바꿀 수 있다 — **별도 판정 안건**이지 이번 수정에 끼워 넣을 게 아니다.
 - 누적(YTD) 보고 종목은 첫 분기가 구조적으로 빠진다(직전 누적 행이 없어서). 인지된 트레이드오프.
+
+### R4 처리 (2026-08-26) — 트랙도 필드별 합성으로
+
+**증상**: 저평가/성장 트랙이 `findLatestPerStock()`(종목당 1행)을 그대로 채점했다. 일별 스냅샷
+테이블은 **같은 종목인데 행마다 일부 컬럼만 채워진다** — 수집기가 API 결측을 `ZERO` 로 저장하고
+(그 자리에선 의도된 동작), 성장률은 배치 4단계가 나중에 최신 행에만 덧쓰기 때문이다.
+그래서 최신 행이 0 placeholder 투성이면 종목이 트랙에서 **통째로 사라진다**
+(실측 005930: `debt_ratio=0.00` → 18점이어야 할 종목이 5점).
+
+composite 는 2026-07 에 같은 문제를 `firstPositive` 합성으로 이미 우회했고 **트랙만 남아 있었다.**
+
+**수정**
+- `FinancialRowSynthesizer`(순수 + 테스트 8건) — 종목의 최근 행들을 **필드별로** 합성.
+  - `firstPositive`: 0·음수가 비현실적인 필드(PBR·부채비율·자본총계·PEG…)
+  - `firstNonZero`: **음수가 의미를 갖는** 필드(ROE·영업이익·순이익·성장률) —
+    0 만 건너뛰고 **적자·역성장은 살린다**. 여기를 잘못 만들면 적자 기업이 흑자로 보인다.
+- `findRecentPerStock(n)` — 윈도우 함수 1회로 종목별 최근 n행. per-stock 쿼리(N+1)는 트랙이
+  전 종목을 훑기 때문에 수천 쿼리가 된다.
+- 행 수 **10 = composite 와 동일**. 5로 줄이면 "7행 전에 값이 있는 종목"에서 트랙과 composite 의
+  결론이 갈린다 — 같은 종목을 두 화면이 다르게 채점하는 것이 이 저장소의 반복 결함이다.
+
+**성장률에 firstNonZero 를 쓰는 근거**는 코드 안에 이미 있었다 —
+`calculateAndUpdateGrowthRates` 자체가 `(growth == null || growth == 0)` 을 "아직 계산 안 됨"으로
+보고 재계산한다. 즉 이 저장소에서 성장률 0 은 이미 placeholder 의미다.
+
+**영향 범위**: 저평가·성장 **트랙만**. composite/봇/종합판단 무영향(composite 의
+`scoreValueStability` 인라인 합성은 그대로 뒀다 — 건드리면 점수가 움직인다).
+두 트랙은 현재 UI 에서 숨김 상태(발굴 = 종합판단 중심 축소)라 화면 변화도 없다.
+⚠ **규칙을 바꿀 일이 생기면 `FinancialRowSynthesizer` 와 `scoreValueStability` 두 곳을 같이** 바꿔야 한다.
 
 > **측정 재시작 기준**: R1(실적 입력)을 고치고 거래정지 게이트 정상 동기화를 확인한 시점부터의
 > 표본만 "현재 산식의 성적"이다. 그 이전 표본(2026-08-05 재시작분 포함)은 실적 축 오염 + 게이트

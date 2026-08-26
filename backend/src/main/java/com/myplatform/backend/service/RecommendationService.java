@@ -848,10 +848,37 @@ public class RecommendationService {
         return new Top5Response(items, dataTime, realtime, Collections.emptyMap());
     }
 
+    /**
+     * 트랙용 재무 스냅샷 — 종목별 최근 행을 <b>필드별로 합성</b>해 돌려준다 (AUDIT 2026-08-21 R4).
+     *
+     * <p>기존엔 {@code findLatestPerStock()}(종목당 1행)을 그대로 채점해, 그 행이 0 placeholder
+     * 투성이면 종목이 통째로 저평가·성장 트랙에서 사라졌다. composite 는 2026-07 에 같은 문제를
+     * {@code firstPositive} 합성으로 이미 우회했고, 트랙만 남아 있었다.
+     *
+     * <p>합성 규칙과 행 수(10)는 composite 와 <b>같게</b> 맞췄다 — 같은 종목을 두 화면이 다르게
+     * 채점하는 것이 이 저장소의 반복 결함이다.
+     */
+    private List<StockFinancialData> loadSynthesizedFinancials(String logTag) {
+        List<StockFinancialData> rows =
+                financialDataRepository.findRecentPerStock(FinancialRowSynthesizer.SYNTHESIS_ROWS);
+        if (rows == null || rows.isEmpty()) {
+            log.warn("[{}] 재무 행 0건 — 수집 배치 확인 필요(§4c: '조건 미달 0건'과 다름)", logTag);
+            return List.of();
+        }
+        List<StockFinancialData> synthesized = rows.stream()
+                .filter(r -> r != null && r.getStockCode() != null)
+                .collect(Collectors.groupingBy(StockFinancialData::getStockCode))
+                .values().stream()
+                .map(FinancialRowSynthesizer::synthesize)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+        log.info("[{}] 재무 {}행 → {}종목 합성", logTag, rows.size(), synthesized.size());
+        return synthesized;
+    }
+
     private List<RecommendationDto> calculateValueTop10() {
         long t0 = System.currentTimeMillis();
-        List<StockFinancialData> all = financialDataRepository.findLatestPerStock();
-        log.info("[저평가TOP10] financial_data {}종목 평가", all.size());
+        List<StockFinancialData> all = loadSynthesizedFinancials("저평가TOP10");
 
         // 점수 산정 + 0점 초과만 필터
         List<ValueScoredStock> scored = new ArrayList<>();
@@ -1018,7 +1045,7 @@ public class RecommendationService {
 
     private List<RecommendationDto> calculateGrowthTop10() {
         long t0 = System.currentTimeMillis();
-        List<StockFinancialData> all = financialDataRepository.findLatestPerStock();
+        List<StockFinancialData> all = loadSynthesizedFinancials("성장주TOP10");
 
         List<GrowthScoredStock> scored = new ArrayList<>();
         for (StockFinancialData fin : all) {
