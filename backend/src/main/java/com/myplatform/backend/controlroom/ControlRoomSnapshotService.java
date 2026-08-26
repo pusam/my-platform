@@ -14,6 +14,7 @@ import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
 import com.myplatform.backend.service.DailyLossBreakerService;
 import com.myplatform.backend.service.JudgmentBoardService;
 import com.myplatform.backend.service.MarketCalendarService;
+import com.myplatform.backend.service.RecommendationService;
 import com.myplatform.backend.service.TradingSafetyService;
 import com.myplatform.backend.service.VolatilityRegimeService;
 import lombok.extern.slf4j.Slf4j;
@@ -82,6 +83,7 @@ public class ControlRoomSnapshotService {
     private final CrewSessionRepository crewSessionRepository;
     private final RecommendationSnapshotRepository recommendationSnapshotRepository;
     private final MarketCalendarService marketCalendar;
+    private final RecommendationService recommendationService;
     private final CrewProperties crewProperties;
     private final CrewModelAvailability modelAvailability;
     private final Clock clock;
@@ -108,6 +110,7 @@ public class ControlRoomSnapshotService {
                                       CrewSessionRepository crewSessionRepository,
                                       RecommendationSnapshotRepository recommendationSnapshotRepository,
                                       MarketCalendarService marketCalendar,
+                                      RecommendationService recommendationService,
                                       CrewProperties crewProperties,
                                       CrewModelAvailability modelAvailability,
                                       Clock clock) {
@@ -123,6 +126,7 @@ public class ControlRoomSnapshotService {
         this.crewSessionRepository = crewSessionRepository;
         this.recommendationSnapshotRepository = recommendationSnapshotRepository;
         this.marketCalendar = marketCalendar;
+        this.recommendationService = recommendationService;
         this.crewProperties = crewProperties;
         this.modelAvailability = modelAvailability;
         this.clock = clock;
@@ -218,13 +222,14 @@ public class ControlRoomSnapshotService {
             LocalDateTime latestSnapshotAt = latestSnapshotAt();
             Boolean stale = snapshotStale(latestSnapshotAt);
             boolean empty = rows.isEmpty();
+            Origin origin = candidatesOrigin();
             return new ControlRoomSnapshotDto.Candidates(true, rows.size(), strongBuy, buy, watch,
-                    latestSnapshotAt, stale,
+                    latestSnapshotAt, stale, origin.asOf(), origin.realtime(),
                     emptyReasonShort(empty, stale, latestSnapshotAt),
                     emptyReason(empty, latestSnapshotAt, stale));
         } catch (Exception e) {
             log.warn("[관제실] 종합판단 보드 조회 실패: {}", e.getMessage());
-            return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null,
+            return new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null, null, null,
                     "보드 조회 실패", "종합판단 보드 조회가 예외로 실패했다. 0건이 아니라 측정 불가다.");
         }
     }
@@ -240,6 +245,28 @@ public class ControlRoomSnapshotService {
         if (Boolean.TRUE.equals(stale)) return "입력 노후 — 가드가 채점 거부";
         if (latestSnapshotAt == null) return "스냅샷 없음 — 미계산과 구분 불가";
         return "빈 결과 — 조회 실패와 구분 불가";
+    }
+
+    /** 후보 수의 출처 — 실시간 계산인지 어제 스냅샷 폴백인지. */
+    private record Origin(String asOf, Boolean realtime) {}
+
+    /**
+     * 보드 숫자의 출처를 읽는다.
+     *
+     * <p>{@code getTop5()} 는 캐시가 비었거나 장외면 <b>DB 스냅샷으로 폴백</b>하고 그 사실을
+     * {@code realtime=false} 로 알려준다. 화면이 그걸 안 보여주면 "어제 1건"을 "오늘 1건"으로 읽는다 —
+     * 2026-08-26 에 실제로 그랬다(09:00 화면 1종목 / 09:30 재계산 0건).
+     *
+     * <p>보드가 이미 같은 호출을 했으므로 메모리 캐시 hit 이라 비용은 사실상 0이다.
+     */
+    private Origin candidatesOrigin() {
+        try {
+            RecommendationService.Top5Response top5 = recommendationService.getTop5();
+            return new Origin(top5.getDataTime(), top5.isRealtime());
+        } catch (Exception e) {
+            log.warn("[관제실] 후보 출처 조회 실패: {}", e.getMessage());
+            return new Origin(null, null);
+        }
     }
 
     /** 후보가 0 건일 때의 전체 설명(툴팁·크루 컨텍스트). 0 건이 아니면 null. */

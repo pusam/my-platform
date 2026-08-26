@@ -103,6 +103,14 @@ public final class CrewContextBuilder {
                 .append("종목 (STRONG_BUY ").append(c.strongBuy())
                 .append(" / BUY ").append(c.buy())
                 .append(" / 관망·미채점 ").append(c.watch()).append(')');
+        // 출처를 반드시 알린다 — realtime=false 면 어제 스냅샷이라 "오늘 후보"로 읽으면 안 된다.
+        if (Boolean.FALSE.equals(c.realtime())) {
+            sb.append(" [어제 스냅샷 폴백 — 오늘 실시간 계산값이 아님");
+            if (c.asOf() != null) sb.append(", 기준 ").append(c.asOf());
+            sb.append(']');
+        } else if (c.asOf() != null) {
+            sb.append(" [").append(c.asOf()).append(']');
+        }
         // 크루에겐 카드 표면용 축약이 아니라 상세를 준다 — 근거가 잘리면 판단이 얕아진다.
         String reason = c.noteDetail() != null ? c.noteDetail() : c.note();
         if (reason != null) sb.append(" — ").append(reason);

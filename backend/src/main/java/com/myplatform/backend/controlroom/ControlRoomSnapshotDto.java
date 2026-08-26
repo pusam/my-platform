@@ -44,6 +44,10 @@ public record ControlRoomSnapshotDto(
      *
      * @param latestSnapshotAt 추천 스냅샷 최신 시각. null = 스냅샷 자체가 없음
      * @param snapshotStale    최신 스냅샷이 직전 거래일보다 오래됐는지. null = 판정 불가(스냅샷 없음/조회 실패)
+     * @param asOf             이 숫자의 기준 시각 라벨({@code Top5Response.dataTime})
+     * @param realtime         <b>false = 어제 스냅샷 폴백</b>. 캐시가 비었거나 장외면 getTop5 가 DB 스냅샷을
+     *                         돌려주는데, 화면이 그걸 실시간처럼 보여주면 "어제 1건"을 "오늘 1건"으로 읽는다
+     *                         (2026-08-26 실제로 발생 — 09:00 화면 1종목 / 09:30 재계산 0건)
      * @param note             <b>카드 표면용 짧은 사유</b>(한 줄). 1/5 폭 카드에 문단을 넣으면 벽돌이 된다
      * @param noteDetail       전체 설명 — 화면은 툴팁으로만 보여준다. 짧게 줄이느라 근거를 잃지 않기 위함
      */
@@ -55,6 +59,8 @@ public record ControlRoomSnapshotDto(
             int watch,
             LocalDateTime latestSnapshotAt,
             Boolean snapshotStale,
+            String asOf,
+            Boolean realtime,
             String note,
             String noteDetail
     ) {}

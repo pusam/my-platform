@@ -15,7 +15,9 @@
         <div v-if="candidates.note" class="s note" :title="candidates.noteDetail || candidates.note">
           {{ candidates.note }}
         </div>
-        <span class="basis" :class="{ stale: candidates.snapshotStale }">{{ candidatesBasis }}</span>
+        <span class="basis" :class="{ stale: candidates.snapshotStale || isFallback }" :title="basisDetail">
+          {{ candidatesBasis }}
+        </span>
       </template>
       <NoData v-else :reason="candidates && candidates.note" />
     </div>
@@ -132,15 +134,32 @@ const candidatesSuspect = computed(() => {
 })
 
 /**
- * 후보 카드 하단 기준 줄 — 스냅샷 시각을 겸한다.
- * 별도 줄을 하나 더 쓰면 1/5 폭 카드가 글자 벽이 된다.
+ * 이 숫자가 어제 스냅샷 폴백인가.
+ *
+ * getTop5 는 캐시가 비었거나 장외면 DB 스냅샷을 돌려주고 realtime=false 로 알린다.
+ * 그걸 화면이 안 보여주면 "어제 1건"을 "오늘 1건"으로 읽는다 — 2026-08-26 실제 발생
+ * (09:00 화면 1종목 / 09:30 재계산 0건).
+ */
+const isFallback = computed(() => candidates.value?.realtime === false)
+
+/**
+ * 후보 카드 하단 기준 줄 — 숫자의 **출처**를 밝힌다.
+ * 별도 줄을 더 쓰면 1/5 폭 카드가 글자 벽이 되므로 이 한 줄에 담는다.
  */
 const candidatesBasis = computed(() => {
   const c = candidates.value
   if (!c) return ''
+  if (isFallback.value) return `${c.asOf || '이전 스냅샷'} · 실시간 아님`
+  if (c.asOf) return `${c.asOf} · 실시간`
   if (!c.latestSnapshotAt) return 'momentum 보드 · 스냅샷 없음'
   const at = String(c.latestSnapshotAt).replace('T', ' ').slice(5, 16)
   return c.snapshotStale ? `스냅샷 ${at} · 노후` : `스냅샷 ${at}`
+})
+
+const basisDetail = computed(() => {
+  if (!isFallback.value) return '이번 계산으로 나온 실시간 값이다'
+  return '캐시가 비었거나 장외라 이전 스냅샷을 그대로 보여주는 중이다 — 오늘 계산 결과가 아니다. '
+    + '다음 계산에서 값이 달라질 수 있다.'
 })
 
 const breakerBasis = computed(() =>

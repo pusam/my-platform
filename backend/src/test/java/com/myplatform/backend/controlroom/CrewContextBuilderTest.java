@@ -96,7 +96,7 @@ class CrewContextBuilderTest {
         ControlRoomSnapshotDto s = new ControlRoomSnapshotDto(
                 TODAY, LocalDateTime.of(2026, 8, 24, 10, 0), "2026-08",
                 new ControlRoomSnapshotDto.Kpis(
-                        new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null,
+                        new ControlRoomSnapshotDto.Candidates(false, 0, 0, 0, 0, null, null, null, null,
                                 "보드 조회 실패", "보드 조회가 예외로 실패했다"),
                         new ControlRoomSnapshotDto.Gates(false, 0, 0, List.of()),
                         new ControlRoomSnapshotDto.LossBreaker(false, null, null, null, null, null, null),
@@ -131,7 +131,7 @@ class CrewContextBuilderTest {
     private static ControlRoomSnapshotDto.Kpis kpis() {
         return new ControlRoomSnapshotDto.Kpis(
                 new ControlRoomSnapshotDto.Candidates(true, 3, 1, 0, 2,
-                        LocalDateTime.of(2026, 8, 24, 11, 30), false, null, null),
+                        LocalDateTime.of(2026, 8, 24, 11, 30), false, "11:30 기준", true, null, null),
                 new ControlRoomSnapshotDto.Gates(true, 3, 5, List.of(
                         new ControlRoomSnapshotDto.Gate("kill-switch", "킬스위치", "OPEN", "정상"),
                         new ControlRoomSnapshotDto.Gate("nxt-routing", "NXT 주문 라우팅", "CLOSED", "flag OFF"))),
@@ -160,5 +160,28 @@ class CrewContextBuilderTest {
     @SuppressWarnings("unused")
     private static int utf8(String s) {
         return s.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    @Test
+    @DisplayName("어제 스냅샷 폴백이면 크루 컨텍스트에 그 사실을 박는다")
+    void snapshotFallbackIsDeclaredToCrew() {
+        ControlRoomSnapshotDto s = new ControlRoomSnapshotDto(
+                TODAY, LocalDateTime.of(2026, 8, 26, 9, 0), "2026-08",
+                new ControlRoomSnapshotDto.Kpis(
+                        new ControlRoomSnapshotDto.Candidates(true, 1, 0, 1, 0,
+                                LocalDateTime.of(2026, 8, 25, 17, 0), false,
+                                "08-25 17:00 스냅샷", false, null, null),
+                        new ControlRoomSnapshotDto.Gates(true, 3, 5, List.of()),
+                        new ControlRoomSnapshotDto.LossBreaker(true, 0L, 300000L, true, false, "VIRTUAL", null),
+                        new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
+                        new ControlRoomSnapshotDto.Undecided(true, 8, 8)),
+                calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
+                new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
+
+        String text = CrewContextBuilder.build(s, 8192).text();
+
+        assertThat(text)
+                .contains("어제 스냅샷 폴백")
+                .contains("오늘 실시간 계산값이 아님");
     }
 }

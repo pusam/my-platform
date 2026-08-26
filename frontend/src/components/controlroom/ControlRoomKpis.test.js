@@ -19,6 +19,8 @@ function kpis(overrides = {}) {
       watch: 2,
       latestSnapshotAt: '2026-08-24T11:30:00',
       snapshotStale: false,
+      asOf: '11:30 기준',
+      realtime: true,
       note: null,
       noteDetail: null
     },
@@ -106,7 +108,9 @@ describe('ControlRoomKpis — 후보 0건의 사유를 반드시 보여준다', 
     expect(card.text()).toContain('3')
     expect(card.classes()).not.toContain('alert')
     expect(card.find('.note').exists()).toBe(false)
-    expect(card.find('.basis').text()).toContain('08-24 11:30')
+    // basis 는 이제 스냅샷 시각이 아니라 **숫자의 출처**를 밝힌다(실시간 vs 폴백)
+    expect(card.find('.basis').text()).toContain('11:30 기준')
+    expect(card.find('.basis').text()).toContain('실시간')
   })
 
   it('보드 조회 실패는 0 이 아니라 "데이터 없음" 으로 렌더된다', () => {
@@ -188,5 +192,43 @@ describe('ControlRoomKpis — 나머지 카드', () => {
     const card = w.findAll('.kpi')[3]
     expect(card.text()).toContain('데이터 없음')
     expect(card.text()).not.toContain('NORMAL')
+  })
+})
+
+describe('ControlRoomKpis — 어제 스냅샷 폴백을 실시간으로 위장하지 않는다', () => {
+  it('realtime=false 면 "실시간 아님"을 표시하고 경고색을 준다', () => {
+    const w = mount(ControlRoomKpis, {
+      props: {
+        kpis: kpis({
+          candidates: {
+            dataAvailable: true,
+            total: 1,
+            strongBuy: 0,
+            buy: 1,
+            watch: 0,
+            latestSnapshotAt: '2026-08-25T17:00:00',
+            snapshotStale: false,
+            asOf: '08-25 17:00 스냅샷',
+            realtime: false,
+            note: null,
+            noteDetail: null
+          }
+        })
+      }
+    })
+
+    const basis = w.findAll('.kpi')[0].find('.basis')
+    expect(basis.text()).toContain('실시간 아님')
+    expect(basis.classes()).toContain('stale')
+    expect(basis.attributes('title')).toContain('오늘 계산 결과가 아니다')
+  })
+
+  it('realtime=true 면 실시간으로 표기한다', () => {
+    const w = mount(ControlRoomKpis, { props: { kpis: kpis() } })
+    const basis = w.findAll('.kpi')[0].find('.basis')
+
+    expect(basis.text()).toContain('실시간')
+    expect(basis.text()).not.toContain('실시간 아님')
+    expect(basis.classes()).not.toContain('stale')
   })
 })
