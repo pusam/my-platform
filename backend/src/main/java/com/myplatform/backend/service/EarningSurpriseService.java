@@ -494,12 +494,62 @@ public class EarningSurpriseService {
             cmp.put("legacyScoring", countScoring(legacy));
             cmp.put("quarterlyTotal", quarterly.size());
             cmp.put("quarterlyScoring", countScoring(quarterly));
+            long covered = quarterlyRepository.countDistinctStocksSince(
+                    LocalDate.now().minusMonths(QUARTER_LOOKBACK_MONTHS));
+            cmp.put("quarterlyThreshold", thresholdSweep(quarterly, covered));
             cmp.put("note", "scoring = POSITIVE+TURNAROUND (composite earnings 8~20점이 붙는 부류). "
                     + "레거시가 0 에 가깝다면 그것이 R1 이 말한 'earnings 死'의 실측이다.");
         } catch (Exception e) {
             cmp.put("error", String.valueOf(e.getMessage()));
         }
         out.put("comparison", cmp);
+        return out;
+    }
+
+    /**
+     * 임계 스윕 — "임계를 X% 로 올리면 몇 종목이 남나".
+     *
+     * <p><b>왜 필요한가</b>(2026-08-27): 입력이 복구되자 quarterlyScoring 이 916/2,289 = <b>40%</b> 로
+     * 나왔다. 40% 에 붙는 신호는 변별력이 없다. ±20% 임계는 <b>거의 안 터지던 입력</b>(~90종목) 위에서
+     * 정해진 값이고 제대로 도는 상태로는 튜닝된 적이 없다 — 한국 주식 분기 영업이익은 계절성 때문에
+     * QoQ ±20% 를 일상적으로 넘나든다.
+     *
+     * <p>임계를 추측으로 올리지 않기 위해 분포를 낸다. <b>올리는 방향만</b> 계산 가능하다 —
+     * 현재 임계 미달 건은 {@code classify} 가 이미 null 로 버려서 표본에 없다.
+     *
+     * <p>TURNAROUND(적자→흑자)는 임계와 무관하므로 따로 센다. 이 값이 크면 임계를 올려도
+     * 안 줄어든다는 뜻이고, 그때는 TURNAROUND 규칙 자체를 봐야 한다.
+     */
+    private static Map<String, Object> thresholdSweep(List<EarningSurpriseDto> list, long coveredStocks) {
+        Map<String, Object> out = new LinkedHashMap<>();
+
+        long positive = list.stream().filter(d -> d.getSurpriseType() == SurpriseType.POSITIVE).count();
+        long negative = list.stream().filter(d -> d.getSurpriseType() == SurpriseType.NEGATIVE).count();
+        long turnaround = list.stream().filter(d -> d.getSurpriseType() == SurpriseType.TURNAROUND).count();
+        out.put("byType", Map.of("POSITIVE", positive, "NEGATIVE", negative, "TURNAROUND", turnaround));
+
+        List<Map<String, Object>> sweep = new ArrayList<>();
+        for (int t : new int[]{20, 30, 50, 100, 200}) {
+            long pos = list.stream()
+                    .filter(d -> d.getSurpriseType() == SurpriseType.POSITIVE)
+                    .filter(d -> d.getOperatingProfitChangeRate() != null
+                            && d.getOperatingProfitChangeRate().doubleValue() >= t)
+                    .count();
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("threshold", t);
+            row.put("positive", pos);
+            row.put("turnaround", turnaround);              // 임계 무관
+            row.put("scoring", pos + turnaround);
+            row.put("shareOfCoveredPct", coveredStocks > 0
+                    ? Math.round((pos + turnaround) * 1000.0 / coveredStocks) / 10.0 : null);
+            sweep.add(row);
+        }
+        out.put("sweep", sweep);
+        out.put("coveredStocks", coveredStocks);
+        out.put("note", "shareOfCoveredPct = 분기 데이터가 있는 종목 중 earnings 점수를 받는 비율. "
+                + "너무 높으면(예: 30%+) 신호가 아니라 상수에 가깝다 — 변별력이 없다. "
+                + "turnaround 는 임계와 무관하므로, 임계를 올려도 안 줄면 TURNAROUND 규칙을 봐야 한다. "
+                + "현재 임계(20) 미달 건은 표본에 없어 임계를 낮추는 방향은 계산할 수 없다.");
         return out;
     }
 
