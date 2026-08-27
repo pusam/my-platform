@@ -26,37 +26,23 @@
 
 ```yaml
 flags:
-  - id: kis-finance-trid-fixed-verify
+  - id: earnings-quarterly-switch-pending
     severity: warning
-    title: KIS 재무 TR_ID 3종 정정 배포 — 다음 배치에서 실제 복구 확인 필요
-    key: FHKST664
+    title: 분기 원본 수집 정상화 완료 — earnings 전환 플래그만 OFF 로 남아 있다
+    key: R1
     body: >
-      2026-08-27 원인 확정: KIS 는 URL 경로가 아니라 tr_id 로 디스패치하는데 tr_id 3개가 서로
-      어긋나 있었다. financial-ratio 경로가 손익계산서 tr_id 를, income-statement 가 재무비율 tr_id 를,
-      balance-sheet 가 수익성비율 tr_id 를 쓰고 있었다. 각 파서가 기대한 필드를 못 찾아
-      전부 빈 문자열 → parseBigDecimal("")=0 → 434종목 전 기간 매출·영업이익·순이익·자본총계와
-      재무비율(roe/영업이익률/순이익률/부채비율/성장률)이 통째로 결측이었다. 에러는 한 번도 안 났다.
-      정정값은 KIS 공식 샘플(koreainvestment/open-trading-api) 기준이며 실측 응답과 교차 확인했다:
-      손익계산서 FHKST66430200 · 대차대조표 FHKST66430100 · 재무비율 FHKST66430300.
-      ⚠ 아직 확인 안 된 것 = **응답 필드명**(sale_account/bsop_prti/thtr_ntin, total_cptl/total_aset/total_lblt).
-      공식 샘플에 출력 컬럼 목록이 없어 실측으로만 확인 가능하다. tr_id 를 고쳤는데도
-      [손익계산서 스키마] WARN 이 또 찍히면 그건 필드명 문제이고, 그때 로그의 실제 키로 고친다.
-      확인 방법: 다음 배치 후 관제실 '재무 입력층' 카드가 434/434 로 바뀌었는지 + grep 스키마 가 비었는지.
+      2026-08-27 08:30 배치에서 KIS 재무 3종이 정상 복구됐다(tr_id 정정 배포 08:01).
+      실측: 유니버스 2,656종목 · 스키마 경고 0건 · 손익계산서 TTM 에 실제 금액 유입 ·
+      stock_quarterly_financial 2,618종목 적재 · coverage.distinctStocks 2,289 ·
+      maxPeriodEnd 2026-06-30. 즉 켤 조건(≥2000)은 충족됐다.
+      남은 것은 사람 판단 하나 — recommendation.earnings.quarterly-source 를 true 로 켜는 것.
+      켜기 전 GET /api/diagnostics/earnings-source?compare=true 로 레거시/분기 건수를 비교하고,
+      켠 날짜를 SCHEDULE_DECISIONS 의 earnings-quarterly-switch 행에 기록할 것 —
+      composite 총점·validCount·후보 수가 동시에 움직이므로 그 날이 측정 표본의 경계가 된다.
+      켜는 법: .env 에 RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE=true 후 docker compose up -d backend
+      (restart 아님 — recreate 필요).
     recorded_on: 2026-08-27
-    ref: StockFinancialDataCollector TR_INCOME_STATEMENT/TR_BALANCE_SHEET/TR_FINANCIAL_RATIO
-
-  - id: financial-universe-434
-    severity: warning
-    title: 재무 수집 유니버스가 434종목뿐 — 다음 배치부터 확장되며 소요시간 6배
-    key: R5
-    body: >
-      stock_financial_data 에 434종목만 있다(KOSPI+KOSDAQ ~2,700). 유니버스 자기참조가 원인이고
-      2026-08-26 합집합 수정으로 다음 배치부터 stock_master 활성 종목이 들어온다.
-      ⚠ collectAllStocksFinancialData 는 종목당 300ms sleep 이라 434 → ~2,700 이면 sleep 만 13분+,
-      전체 소요가 6배로 늘어난다. 08:30 배치가 다른 일정과 겹치지 않는지 첫 실행 소요시간을 확인할 것.
-      늘어난 유니버스가 KIS rate limit 을 건드리는지도 같이 볼 것.
-    recorded_on: 2026-08-26
-    ref: StockFinancialDataService.resolveCollectionUniverse
+    ref: docker-compose.yml backend environment, docs/SCHEDULE_DECISIONS.md
 
   - id: future-dated-annual-rows
     severity: info
