@@ -285,3 +285,21 @@ export default {
   ddayLabel,
   ageLabel
 }
+
+/**
+ * 관제실에서 나갈 목적지 — 관제실은 GNB 없는 단독 라우트라 화면이 직접 출구를 줘야 한다(§7).
+ *
+ * **목적지는 KPI 가 가리키는 원본 화면으로 고른다.** 관제실은 "무엇이 이상한가"를 보는 곳이고,
+ * 이 링크들은 "그럼 그건 어디서 보나"에 대한 답이다. 그 관계가 없는 화면은 넣지 않는다 —
+ * 여기에 화면을 늘려 **제2의 GNB 를 만들지 말 것**.
+ *
+ * ⚠ `tab` 값은 허브의 `mapLegacyTab` 이 아는 키여야 한다. 모르는 키는 예외가 아니라
+ * **조용히 'discover' 로 흘러간다** — '오늘'을 눌렀는데 발굴이 열리고 아무도 모른다.
+ * `ControlRoomNav.test.js` 가 허브 매핑과 실제로 대조해 그걸 막는다.
+ */
+export const CONTROL_ROOM_NAV = [
+  { key: 'today', label: '오늘', tab: 'today', why: '종합판단 후보 KPI 의 원본 — 매수 후보 목록' },
+  { key: 'discover', label: '발굴', tab: 'discover', why: '종합판단 보드 · 백테스트' },
+  { key: 'trade', label: '매매', tab: 'trade', why: '봇 게이트 · 일일손실 서킷의 원본 화면' },
+  { key: 'screener', label: '재무수집', path: '/earnings-screener', why: '재무 입력층 KPI 의 원본 — 수집 실행/상태' }
+]

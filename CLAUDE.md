@@ -120,6 +120,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - §4c 적용: 문서/조회 실패는 0 이 아니라 `dataAvailable=false`("데이터 없음") · 파싱 실패는 건너뛰지 않고 FLAGGED 승격 · 주간 피드백은 MISSED(안 돌았다)와 UNKNOWN(모른다)을 분리 · 일일손실 서킷은 **원 단위**(자산 % 킬스위치와 별개) · VKOSPI "streak" 은 소스 없어 미표시.
 - 비용 가드 4겹(되돌리지 말 것): **5턴 고정**(자동 루프·재시도 금지, 실패=FAILED+사유) · **동시 1건** · **일일 상한**(초과 시 429, 조용한 스킵 금지) · **컨텍스트 8KB**(초과 시 FLAGGED 를 중요도 낮은 순으로 자르고 "N건 생략" 명시 — 생략을 숨기면 FIREWALL 이 "플래그에 없으니 문제없다"고 판단). 모델 ID 하드코딩 금지(`control-room.crew.model`), 기동 시 `GET /v1/models` 로 실재 확인 후 미존재/키 없음이면 **크루만 DISABLED + 사유 표시**(앱 전체는 정상 기동).
 - ⚠ **권한은 `SecurityConfig` URL 규칙이 담당**한다 — 이 코드베이스엔 `@EnableMethodSecurity` 가 없어 `@PreAuthorize` 가 전부 무효다(기존 컨트롤러 포함). 메서드 보안 활성화는 전역 영향이라 별도 티켓.
+- **관제실 화면 이동 바(2026-08-27)**: 관제실은 GNB 없는 단독 라우트라 출구를 화면이 직접 준다(`.topnav`). **목적지는 KPI 가 가리키는 원본 화면만** — 후보→오늘, 보드→발굴, 게이트·서킷→매매, 재무 입력층→`/earnings-screener`. **제2의 GNB 로 키우지 말 것**(테스트가 5개로 상한). ⚠ 탭 키 오타는 에러가 아니라 **오작동**이다 — 허브 `mapLegacyTab` 이 모르는 키를 `'discover'` 로 흘려보내(`map[tab] || 'discover'`) '오늘'을 눌렀는데 발굴이 열린다. 목록은 순수 모듈 `CONTROL_ROOM_NAV`, `ControlRoomNav.test.js` 가 허브 매핑과 직접 대조해 왕복 검증한다.
 - ⚠ **프론트 IA 규칙("새 주식 화면 금지 → 탭에 흡수")의 명시적 예외**다. 관제실은 종목을 보는 주식 허브가 아니라 운영 콘솔이라 GNB 4탭에 자리가 없다. **예외는 관제실 하나로 끝** — 종목/시세/추천 화면은 여전히 탭에 흡수할 것. 팔레트는 `.control-room` 스코프(`--cr-*`)에만 두고 `:root` 로 올리지 말 것(전역 `common.css` 토큰 파괴).
 - 상세: `docs/CONTROL_ROOM.md`
 

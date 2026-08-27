@@ -1,10 +1,27 @@
 <template>
   <div class="control-room">
     <main>
+      <!--
+        관제실은 GNB 없는 단독 라우트다(§7 — 종목 화면이 아니라 운영 콘솔이라 4탭에 자리가 없다).
+        그래서 나가는 길을 화면이 직접 줘야 한다. 예전엔 '주식 허브' 버튼 하나뿐이라
+        관제실에서 뭔가 이상한 걸 봤을 때 그 근거 화면으로 바로 못 갔다.
+        목적지는 KPI 가 가리키는 곳으로 고른다 — 후보/게이트/재무입력층의 원본 화면.
+      -->
+      <nav class="topnav" aria-label="화면 이동">
+        <button type="button" class="back" @click="goHub()">← 주식 허브</button>
+        <span class="topnav-sep" aria-hidden="true"></span>
+        <button
+          v-for="l in navLinks"
+          :key="l.key"
+          type="button"
+          class="navlink"
+          :title="l.why"
+          @click="l.path ? goPath(l.path) : goHub(l.tab)"
+        >{{ l.label }}</button>
+      </nav>
+
       <div class="head">
         <div class="head-l">
-          <!-- 목업의 좌측 사이드바는 대응 화면이 없어 제외했다. GNB 복귀 링크만 둔다. -->
-          <button type="button" class="back" @click="goHub">← 주식 허브</button>
           <div>
             <div class="cycle">CYCLE {{ (snapshot?.month || '').replace('-', '.') }} // 판정 사이클</div>
             <h1>판정 대시보드</h1>
@@ -78,7 +95,7 @@ import DecisionCalendar from '../components/controlroom/DecisionCalendar.vue'
 import FlaggedPanel from '../components/controlroom/FlaggedPanel.vue'
 import CrewPanel from '../components/controlroom/CrewPanel.vue'
 import { controlRoomAPI } from '../utils/api'
-import { ddayLabel } from '../utils/controlRoomFormat'
+import { ddayLabel, CONTROL_ROOM_NAV } from '../utils/controlRoomFormat'
 
 const POLL_INTERVAL_MS = 1500
 
@@ -248,8 +265,16 @@ function errorText(e) {
   return e?.response?.data?.message || e?.message || '알 수 없는 오류'
 }
 
-function goHub() {
-  router.push('/stock-dashboard')
+/** 목적지 목록은 순수 모듈(CONTROL_ROOM_NAV)에 있다 — 허브 매핑과 대조하는 테스트 대상. */
+const navLinks = CONTROL_ROOM_NAV
+
+/** 탭 키는 허브의 mapLegacyTab 기준(today/market/discover/trade). 없으면 '오늘'로 간다. */
+function goHub(tab) {
+  router.push(tab ? { path: '/stock-dashboard', query: { tab } } : '/stock-dashboard')
+}
+
+function goPath(path) {
+  router.push(path)
 }
 
 watch(month, loadSnapshot)
@@ -344,6 +369,35 @@ main {
 }
 .cycle::before { content: '— '; color: var(--cr-mag); }
 
+/* 화면 이동 바 — 관제실은 GNB 가 없어 여기가 유일한 출구다.
+   본문보다 앞서 읽히면 안 되므로 톤을 낮추되, 못 찾을 만큼 죽이지는 않는다. */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.topnav-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--cr-line);
+  margin: 0 4px;
+}
+.navlink {
+  font-family: var(--cr-mono);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--cr-mut);
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  padding: 7px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.navlink:hover { color: var(--cr-tx); border-color: var(--cr-line); }
+.navlink:focus-visible { outline: 1px solid var(--cr-vio); outline-offset: 1px; }
+
 .back {
   font-family: var(--cr-mono);
   background: transparent;
@@ -355,6 +409,7 @@ main {
   white-space: nowrap;
 }
 .back:hover { border-color: var(--cr-vio); }
+.back:focus-visible { outline: 1px solid var(--cr-vio); outline-offset: 1px; }
 
 .head-r { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .sel {
