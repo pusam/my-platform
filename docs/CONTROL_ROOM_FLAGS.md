@@ -26,28 +26,21 @@
 
 ```yaml
 flags:
-  - id: quarterly-cumulative-misdetect-fixed
-    severity: critical
-    title: 누적(YTD) 오판 96% — TTM 2배 부풀림. 수정 배포됨, 재수집 후 검증 필요
-    key: detectCumulative
+  - id: turnaround-rule-too-loose
+    severity: warning
+    title: TURNAROUND 규칙이 느슨해 earnings 변별력의 바닥을 만든다
+    key: R1-후속
     body: >
-      2026-08-27 실측 — stock_quarterly_financial 의 2,523/2,618종목(96%)이 cumulative=0 으로
-      저장됐는데 실제로는 전부 누적(YTD)이었다. 삼성전자 202503=7,914 / 202506=15,370 /
-      202509=23,976 / 202512=33,360 / 202603=13,387(FY 리셋) 로 명백한 누적이다.
-      원인은 판정 휴리스틱이 최신 3개만 보고 단조증가를 확인한 것 — 회계연도 경계가 그 안에
-      들어오면 반드시 깨진다. 8월은 FY 리셋 직후라 구조적으로 실패하는 시기다.
-      파급이 두 갈래다. ① 서프라이즈 변화율 오염 — Q1 vs 반기누적을 비교해 임계를 5배로 올려도
-      건수가 안 줄었다(20%→782건, 100%→559건). ② TTM 합산 오염 — 누적 4개를 그냥 더해
-      삼성전자 101,262 vs 진짜 48,527, 즉 2.09배 부풀었다. TTM 은 composite 의
-      scoreValueStability(영업이익·자본총계)와 저평가/성장 트랙이 소비한다.
-      ⚠ 이 오염은 2026-08-27 tr_id 정정 이후 처음 DB 에 들어갔다(그 전엔 전부 NULL).
-      즉 오늘 08:30 배치가 적재한 값이 오염돼 있다 — 다음 배치(15:38)에서 덮어써진다.
-      수정 = 판정을 이력 전체의 인접쌍으로 하고(증가비율 + 배율 중앙값 두 판별자),
-      TTM 은 개별 분기 환산 후 최근 4분기 합. 삼성전자 실측으로 회귀 테스트 고정.
-      확인 방법 — 15:38 배치 후 stock_quarterly_financial 의 cumulative=1 비율이 다수가 되는지,
-      [손익계산서 TTM] 로그의 매출액이 절반 수준으로 내려오는지.
+      2026-08-27 입력 복구 후 실측 — 분기경로 scoring 817/2,289(35.7%) 중 TURNAROUND 가 226건(9.9%)이고
+      임계와 무관하다. 임계를 200%까지 올려도 379건 중 226건이 turnaround 라 10%대로 못 내린다.
+      현재 규칙은 prevOp<0 && latestOp>0 을 QoQ 로 판정해 최고점 20점을 준다 —
+      변동성 큰 중소형주가 분기마다 적자·흑자를 오가는 것을 "턴어라운드"로 잡는다.
+      시장의 10%에 최고점을 주는 규칙은 신호가 아니다.
+      후보안 (가) 연간/YoY 기준 (나) 흑자 규모·연속성 하한 (다) 점수 하향.
+      전부 composite 점수를 바꾸므로 실측 분포를 보고 정할 것 — SCHEDULE_DECISIONS turnaround-rule-redesign.
+      ⚠ 이게 정리되기 전엔 recommendation.earnings.quarterly-source 를 켜지 말 것.
     recorded_on: 2026-08-27
-    ref: QuarterlyFinancials.detectCumulative/ttmSum, QuarterlyFinancialsTest RealSamsungData
+    ref: EarningSurpriseService.classify, GET /api/diagnostics/earnings-source?compare=true
 
   - id: financial-unit-100x
     severity: warning
@@ -63,26 +56,6 @@ flags:
       확인 방법 — [손익계산서 RAW] 로그의 원본 문자열과 실제 공시 금액을 종목 2~3개로 대조.
     recorded_on: 2026-08-27
     ref: StockFinancialDataCollector.toEokWon, 단위변환 주석
-
-  - id: earnings-quarterly-switch-pending
-    severity: warning
-    title: 분기 원본 수집 정상화 완료 — earnings 전환 플래그만 OFF 로 남아 있다
-    key: R1
-    body: >
-      2026-08-27 08:30 배치에서 KIS 재무 3종이 정상 복구됐다(tr_id 정정 배포 08:01).
-      실측: 유니버스 2,656종목 · 스키마 경고 0건 · 손익계산서 TTM 에 실제 금액 유입 ·
-      stock_quarterly_financial 2,618종목 적재 · coverage.distinctStocks 2,289 ·
-      maxPeriodEnd 2026-06-30. 즉 켤 조건(≥2000)은 충족됐다.
-      ⚠ 다만 2026-08-27 오후 누적 오판이 드러나 켜는 조건이 하나 늘었다 — 커버리지뿐 아니라
-      '변별력'도 봐야 한다. 실측 quarterlyScoring 916/2,289 = 40% 였고 임계를 5배로 올려도
-      안 줄었는데(누적 오판이 변화율을 오염시켰기 때문), 재수집 후 스윕을 다시 봐야 한다.
-      켜기 전 GET /api/diagnostics/earnings-source?compare=true 로 레거시/분기 건수를 비교하고,
-      켠 날짜를 SCHEDULE_DECISIONS 의 earnings-quarterly-switch 행에 기록할 것 —
-      composite 총점·validCount·후보 수가 동시에 움직이므로 그 날이 측정 표본의 경계가 된다.
-      켜는 법: .env 에 RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE=true 후 docker compose up -d backend
-      (restart 아님 — recreate 필요).
-    recorded_on: 2026-08-27
-    ref: docker-compose.yml backend environment, docs/SCHEDULE_DECISIONS.md
 
   - id: future-dated-annual-rows
     severity: info
