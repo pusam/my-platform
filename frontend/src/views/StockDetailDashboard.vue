@@ -344,13 +344,13 @@
                   <div class="bar-track">
                     <div
                       class="bar-fill"
-                      :class="supplyDemand?.foreignNetBuy >= 0 ? 'positive' : 'negative'"
+                      :class="netBuyClass(supplyDemand?.foreignNetBuy)"
                       :style="{ width: getBarWidth(supplyDemand?.foreignNetBuy) + '%' }"
                     ></div>
                   </div>
                 </div>
-                <span class="bar-value" :class="supplyDemand?.foreignNetBuy >= 0 ? 'positive' : 'negative'">
-                  {{ supplyDemand?.foreignNetBuy >= 0 ? '+' : '' }}{{ supplyDemand?.foreignNetBuy?.toFixed(0) || 0 }}억
+                <span class="bar-value" :class="netBuyClass(supplyDemand?.foreignNetBuy)">
+                  {{ netBuyText(supplyDemand?.foreignNetBuy) }}
                 </span>
               </div>
               <!-- 기관 -->
@@ -360,13 +360,13 @@
                   <div class="bar-track">
                     <div
                       class="bar-fill"
-                      :class="supplyDemand?.instNetBuy >= 0 ? 'positive' : 'negative'"
+                      :class="netBuyClass(supplyDemand?.instNetBuy)"
                       :style="{ width: getBarWidth(supplyDemand?.instNetBuy) + '%' }"
                     ></div>
                   </div>
                 </div>
-                <span class="bar-value" :class="supplyDemand?.instNetBuy >= 0 ? 'positive' : 'negative'">
-                  {{ supplyDemand?.instNetBuy >= 0 ? '+' : '' }}{{ supplyDemand?.instNetBuy?.toFixed(0) || 0 }}억
+                <span class="bar-value" :class="netBuyClass(supplyDemand?.instNetBuy)">
+                  {{ netBuyText(supplyDemand?.instNetBuy) }}
                 </span>
               </div>
               <!-- 프로그램 -->
@@ -376,13 +376,13 @@
                   <div class="bar-track">
                     <div
                       class="bar-fill"
-                      :class="supplyDemand?.programNetBuy >= 0 ? 'positive' : 'negative'"
+                      :class="netBuyClass(supplyDemand?.programNetBuy)"
                       :style="{ width: getBarWidth(supplyDemand?.programNetBuy) + '%' }"
                     ></div>
                   </div>
                 </div>
-                <span class="bar-value" :class="supplyDemand?.programNetBuy >= 0 ? 'positive' : 'negative'">
-                  {{ supplyDemand?.programNetBuy >= 0 ? '+' : '' }}{{ supplyDemand?.programNetBuy?.toFixed(0) || 0 }}억
+                <span class="bar-value" :class="netBuyClass(supplyDemand?.programNetBuy)">
+                  {{ netBuyText(supplyDemand?.programNetBuy) }}
                 </span>
               </div>
             </div>
@@ -500,6 +500,15 @@
                           :sector-name="sectorName"
                           :sector-avg-pbr="sectorAvgPbr" />
 
+      <!--
+        조회 실패 안내 — 2026-08-27 표시층 감사 D.
+        이 패널들은 실패해도 화면이 안 바뀌어 "신호 없음"과 "조회 실패"가 구분되지 않았다.
+        빈 화면이 곧 "패턴 없음"으로 읽히던 것을 막는다(§4c). 분봉이 쓰던 패턴과 동일.
+      -->
+      <p v-if="failedPanels.length" class="panel-fail">
+        ⚠ {{ failedPanels.join(' · ') }} 조회 실패 — <b>신호가 없는 것이 아니라 못 불러온 것</b>이다.
+      </p>
+
       <!-- Volume Profile (가격대별 누적 거래량) — 분리: VolumeProfileCard.vue (P2-10) -->
       <VolumeProfileCard v-if="volumeProfile && volumeProfile.bins?.length > 0"
                          :volume-profile="volumeProfile" />
@@ -569,6 +578,7 @@ import TradingIndicatorsPage from './TradingIndicatorsPage.vue';
 import DataFreshness from '../components/DataFreshness.vue';
 import HtsChart from '../components/v2/HtsChart.vue';
 import apiClient, { stockDetailAPI, stockAPI, quantTaAPI } from '../utils/api';
+import { netBuyClass, netBuyText } from '../utils/stockFormat';
 import { toast } from '../utils/toast';
 import { useChartCalculations } from '../composables/useChartCalculations';
 import { channelComment, breakoutLabel } from '../utils/trendChannel';
@@ -633,6 +643,29 @@ const isIntraday = computed(() => chartPeriod.value === 1);
 const intradayData = ref(null);
 const intradayLoading = ref(false);
 const intradayError = ref(false);   // true=조회 자체 실패(엔드포인트/네트워크), false=정상 응답(빈 결과=장전/휴장)
+
+/**
+ * best-effort 패널의 조회 실패 — 2026-08-27 표시층 감사 D.
+ *
+ * 이 패널들은 실패해도 화면이 안 바뀌어 "신호 없음"과 "조회 실패"가 구분되지 않았다.
+ * .catch 가 console.warn 만 하고, res.data.success 가 false 여도 아무 일이 없었다.
+ * 분봉(intradayError)이 쓰던 패턴을 그대로 확대한다 — 실패는 화면이 말해야 한다(§4c).
+ *
+ * 키는 패널 이름. true = 조회 실패(네트워크/예외/success:false). 빈 결과(정상)와 다르다.
+ */
+const panelError = ref({});
+
+/** 실패한 패널의 사람이 읽을 이름 — 화면 한 줄 안내에 쓴다. */
+const PANEL_LABELS = {
+  chartPatterns: '차트 패턴',
+  supportResistance: '지지/저항',
+  volumeProfile: 'Volume Profile',
+  compositeSignal: '종합 신호',
+  relatedStocks: '관련 종목'
+};
+const failedPanels = computed(() =>
+  Object.entries(panelError.value).filter(([, failed]) => failed).map(([k]) => PANEL_LABELS[k] || k)
+);
 let intradayFetchedFor = '';
 const loadIntraday = async () => {
   if (!stockCode.value) return;
@@ -1153,36 +1186,43 @@ const fetchAllData = async (code, searchedName) => {
     }
 
     // 차트 패턴 + 지지/저항 + Volume Profile (병렬 fire-and-forget)
+    // ⚠ 실패 상태는 아래 로더들을 띄우기 '전에' 비운다 — 로더 사이에 두면 먼저 끝난 결과를 지운다.
+    panelError.value = {};
     chartPatterns.value = [];
     supportResistance.value = null;
     volumeProfile.value = null;
     quantTaAPI.patterns(code)
       .then(res => {
-        if (res.data?.success) chartPatterns.value = res.data.data || [];
+        if (res.data?.success) { chartPatterns.value = res.data.data || []; panelError.value = { ...panelError.value, chartPatterns: false }; }
+        else panelError.value = { ...panelError.value, chartPatterns: true };
       })
-      .catch(err => console.warn('차트 패턴 검출 실패:', err.message));
+      .catch(err => { console.warn('차트 패턴 실패:', err.message); panelError.value = { ...panelError.value, chartPatterns: true }; });
     quantTaAPI.supportResistance(code)
       .then(res => {
-        if (res.data?.success) supportResistance.value = res.data.data;
+        if (res.data?.success) { supportResistance.value = res.data.data; panelError.value = { ...panelError.value, supportResistance: false }; }
+        else panelError.value = { ...panelError.value, supportResistance: true };
       })
-      .catch(err => console.warn('지지/저항 검출 실패:', err.message));
+      .catch(err => { console.warn('지지/저항 실패:', err.message); panelError.value = { ...panelError.value, supportResistance: true }; });
     quantTaAPI.volumeProfile(code)
       .then(res => {
-        if (res.data?.success) volumeProfile.value = res.data.data;
+        if (res.data?.success) { volumeProfile.value = res.data.data; panelError.value = { ...panelError.value, volumeProfile: false }; }
+        else panelError.value = { ...panelError.value, volumeProfile: true };
       })
-      .catch(err => console.warn('Volume Profile 실패:', err.message));
+      .catch(err => { console.warn('Volume Profile 실패:', err.message); panelError.value = { ...panelError.value, volumeProfile: true }; });
     compositeSignal.value = null;
     relatedStocks.value = [];
     quantTaAPI.compositeSignal(code)
       .then(res => {
-        if (res.data?.success) compositeSignal.value = res.data.data;
+        if (res.data?.success) { compositeSignal.value = res.data.data; panelError.value = { ...panelError.value, compositeSignal: false }; }
+        else panelError.value = { ...panelError.value, compositeSignal: true };
       })
-      .catch(err => console.warn('종합 신호 실패:', err.message));
+      .catch(err => { console.warn('종합 신호 실패:', err.message); panelError.value = { ...panelError.value, compositeSignal: true }; });
     quantTaAPI.relatedStocks(code, 5)
       .then(res => {
-        if (res.data?.success) relatedStocks.value = res.data.data || [];
+        if (res.data?.success) { relatedStocks.value = res.data.data || []; panelError.value = { ...panelError.value, relatedStocks: false }; }
+        else panelError.value = { ...panelError.value, relatedStocks: true };
       })
-      .catch(err => console.warn('관련 종목 실패:', err.message));
+      .catch(err => { console.warn('관련 종목 실패:', err.message); panelError.value = { ...panelError.value, relatedStocks: true }; });
 
     // ★ 2단계: Heavy (리스크/AI/피어) + Diagnosis 병렬 — 백그라운드 로딩
     heavyLoading.value = true;
@@ -1739,6 +1779,18 @@ onUnmounted(() => {
 
 /* 기간 토글 + 60봉 dense 모드 (봉 폭 축소) */
 .ind-toggle.period-toggle.active { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: rgba(255,255,255,0.85); }
+.panel-fail {
+  margin: 0 0 10px;
+  padding: 7px 11px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+}
+.panel-fail b { color: #fcd34d; }
+
 .intraday-note {
   margin-bottom: 8px;
   padding: 6px 10px;

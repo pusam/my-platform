@@ -382,6 +382,10 @@ public class StockAnalysisService {
         BigDecimal foreignNet5Days = BigDecimal.ZERO;
         int foreignBuyDays = 0;
         int foreignSellDays = 0;
+        // 표시층 감사 A-2(2026-08-27) — "행이 하나도 없었다"와 "합이 0이다"를 구분하기 위한 카운터.
+        // 이 값이 0 이면 DTO 에 null 을 실어 화면이 '-' 로 그리게 한다(0억 = 균형으로 위장 금지, §4c).
+        int foreignDataDays = 0;
+        int institutionDataDays = 0;
 
         // 기관 수급
         BigDecimal institutionNet5Days = BigDecimal.ZERO;
@@ -415,6 +419,10 @@ public class StockAnalysisService {
             // 순매수 = 매수금액 - 매도금액
             BigDecimal foreignDayNet = foreignBuy.subtract(foreignSell);
 
+            boolean foreignHasRow = trades.stream()
+                    .anyMatch(t -> t.getTradeDate().equals(date) && "FOREIGN".equals(t.getInvestorType()));
+            if (foreignHasRow) foreignDataDays++;
+
             foreignNet5Days = foreignNet5Days.add(foreignDayNet);
             if (foreignDayNet.compareTo(BigDecimal.ZERO) > 0) {
                 foreignBuyDays++;
@@ -439,6 +447,10 @@ public class StockAnalysisService {
 
             // 순매수 = 매수금액 - 매도금액
             BigDecimal institutionDayNet = institutionBuy.subtract(institutionSell);
+
+            boolean institutionHasRow = trades.stream()
+                    .anyMatch(t -> t.getTradeDate().equals(date) && "INSTITUTION".equals(t.getInvestorType()));
+            if (institutionHasRow) institutionDataDays++;
 
             institutionNet5Days = institutionNet5Days.add(institutionDayNet);
             if (institutionDayNet.compareTo(BigDecimal.ZERO) > 0) {
@@ -495,11 +507,14 @@ public class StockAnalysisService {
                 institutionBuyDays, institutionSellDays,
                 assessment);
 
+        // 표시층 감사 A-2 — 행이 하나도 없었으면 표시값은 null.
+        // 내부 계산(score·isForeignBuying 등)은 위에서 ZERO 로 이미 끝났으므로 영향 없다.
+        // 이 종목이 최근 창에서 순매수 상위 20위에 한 번도 못 들면 이 경로를 탄다.
         return SupplyDemandDto.builder()
-                .foreignNet5Days(foreignNet5Days)
+                .foreignNet5Days(displayNet(foreignNet5Days, foreignDataDays))
                 .foreignBuyDays(foreignBuyDays)
                 .isForeignBuying(isForeignBuying)
-                .institutionNet5Days(institutionNet5Days)
+                .institutionNet5Days(displayNet(institutionNet5Days, institutionDataDays))
                 .institutionBuyDays(institutionBuyDays)
                 .isInstitutionBuying(isInstitutionBuying)
                 .isBothBuying(isBothBuying)
@@ -507,6 +522,24 @@ public class StockAnalysisService {
                 .score(score)
                 .assessment(assessment)
                 .build();
+    }
+
+
+    /**
+     * 수급 표시값 — 행이 하나도 없었으면 <b>null</b>(2026-08-27 표시층 감사 A-2). 순수 함수.
+     *
+     * <p>원천이 KIS <b>순매수 상위 20위</b> API 라, 그 종목이 최근 창에서 한 번도 상위권에 못 들면
+     * 합계가 구조적으로 0 이 된다. 그걸 그대로 내보내면 화면이 "순매수 +0억"으로 그리고
+     * (0 은 {@code v >= 0} 이라 <b>'순매수'로 분류</b>된다) 사용자는 균형 상태로 읽는다.
+     * 실제로는 데이터가 없다.
+     *
+     * <p><b>실측 0 과 구분된다</b> — 상위권에 들었는데 매수·매도가 정확히 같으면
+     * {@code dataDays > 0} 이라 0 이 그대로 나간다.
+     *
+     * <p>내부 계산(score·isForeignBuying)은 이 함수를 거치지 않는다 — 그쪽은 ZERO 로 계속 돈다.
+     */
+    static BigDecimal displayNet(BigDecimal total, int dataDays) {
+        return dataDays > 0 ? total : null;
     }
 
     /** 최근 5거래일 외국인/기관 순매수 누적(원). null=데이터 없음. days=실제 집계 거래일 수. */

@@ -99,11 +99,12 @@
           <!-- 금일 수급 미니바 -->
           <div v-if="supplyDemand && supplyDemand.dataSource !== '장전(초기화)'" class="today-supply-mini">
             <span class="today-label">금일 수급</span>
-            <span class="today-item" :class="supplyDemand.foreignNetBuy >= 0 ? 'positive' : 'negative'">
-              외국인 {{ supplyDemand.foreignNetBuy >= 0 ? '+' : '' }}{{ supplyDemand.foreignNetBuy?.toFixed(0) || 0 }}억
+            <!-- 결측은 방향 없이 '-' — `undefined >= 0` 이 false 라 순매도 색이 칠해지던 것 수정(감사 A-6) -->
+            <span class="today-item" :class="netBuyClass(supplyDemand.foreignNetBuy)">
+              외국인 {{ netBuyText(supplyDemand.foreignNetBuy) }}
             </span>
-            <span class="today-item" :class="supplyDemand.instNetBuy >= 0 ? 'positive' : 'negative'">
-              기관 {{ supplyDemand.instNetBuy >= 0 ? '+' : '' }}{{ supplyDemand.instNetBuy?.toFixed(0) || 0 }}억
+            <span class="today-item" :class="netBuyClass(supplyDemand.instNetBuy)">
+              기관 {{ netBuyText(supplyDemand.instNetBuy) }}
             </span>
           </div>
           <div v-if="diagIsBeforeMarketOpen()" class="before-market-notice">
@@ -169,8 +170,13 @@
               </div>
               <div class="indicator-item">
                 <span class="indicator-label">20일선 위치</span>
-                <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 }">
-                  {{ diagnosisData.technicalAnalysis.isAboveMa20 ? '20일선 위' : '20일선 아래' }}
+                <!--
+                  ⚠ 삼항으로 쓰면 null(미산출)이 false 분기로 떨어져 "20일선 아래"라는
+                  약세 신호로 뒤집힌다. 결측은 '없음'이지 '아래'가 아니다(§4c, 2026-08-27 감사 C-2).
+                  같은 값을 QuickSummaryBar 는 '-' 로 그린다 — 두 화면이 어긋나지 않게 맞춘다.
+                -->
+                <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 === true }">
+                  {{ ma20PositionLabel(diagnosisData.technicalAnalysis.isAboveMa20) }}
                 </span>
               </div>
               <div class="indicator-item">
@@ -267,6 +273,7 @@
 </template>
 
 <script setup>
+import { ma20PositionLabel, netBuyClass, netBuyText } from '../../utils/stockFormat'
 import { ref } from 'vue';
 
 defineProps({

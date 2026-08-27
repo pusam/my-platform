@@ -269,15 +269,25 @@ public class InvestorTradeService {
     }
 
     /**
-     * 투자자별 매매 요약 정보 생성
+     * 투자자별 매매 요약 — <b>행이 없으면 null</b>(2026-08-27 표시층 감사 A-1).
+     *
+     * <p><b>왜 0 이 아니라 null 인가</b>: 이 데이터의 원천은 KIS <b>순매수 상위 20위</b> API 라
+     * ({@code InvestorDailyTradeService:226} 의 {@code rank > 20 break}) 그 종목이 그날 상위권에
+     * 못 들면 <b>행 자체가 없다</b>. 그걸 {@code ZERO} 로 채우면 화면이 "순매수 0억"으로 그리고
+     * 사용자는 <b>"그날 외국인이 사지도 팔지도 않았다"</b>로 읽는다 — 사실은 "데이터가 없다"이다.
+     * 투자 판단에서 둘은 정반대 의미다.
+     *
+     * <p>프론트는 이미 §4c 를 지키게 돼 있었다({@code InvestorTrendTab.vue:303-319} 의
+     * {@code value == null → '-'}). 그 가드가 <b>여기서 0 을 만들어 보내는 바람에</b>
+     * 한 번도 발동하지 못했다. null 을 돌려주면 그쪽이 저절로 작동한다.
+     *
+     * <p>실측 0(그날 상위권에 들었고 순매수가 정확히 0)은 그대로 0 으로 나간다 — 구분되는 상태다.
+     *
+     * <p>package-private = 테스트 가시성({@code InvestorSummaryNullTest}).
      */
-    private StockInvestorDetailDto.InvestorTradeSummary buildInvestorSummary(List<InvestorDailyTrade> trades) {
+    StockInvestorDetailDto.InvestorTradeSummary buildInvestorSummary(List<InvestorDailyTrade> trades) {
         if (trades == null || trades.isEmpty()) {
-            return StockInvestorDetailDto.InvestorTradeSummary.builder()
-                    .buyAmount(BigDecimal.ZERO)
-                    .sellAmount(BigDecimal.ZERO)
-                    .netBuyAmount(BigDecimal.ZERO)
-                    .build();
+            return null;   // 미수집 — "순매수 0억"으로 위장하지 않는다(§4c)
         }
 
         BigDecimal totalBuy = BigDecimal.ZERO;

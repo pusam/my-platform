@@ -604,8 +604,9 @@
                     </div>
                     <div class="indicator-item">
                       <span class="indicator-label">20일선 위치</span>
-                      <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 }">
-                        {{ diagnosisData.technicalAnalysis.isAboveMa20 ? '✅ 20일선 위' : '❌ 20일선 아래' }}
+                      <!-- 결측이 ❌ 아이콘까지 달고 부정 신호가 되던 것 수정(§4c, 감사 C-3) -->
+                      <span class="indicator-status" :class="{ active: diagnosisData.technicalAnalysis.isAboveMa20 === true }">
+                        {{ ma20PositionLabel(diagnosisData.technicalAnalysis.isAboveMa20, true) }}
                       </span>
                     </div>
                     <div class="indicator-item">
@@ -703,6 +704,7 @@
 </template>
 
 <script setup>
+import { ma20PositionLabel } from '../utils/stockFormat'
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../utils/api';
