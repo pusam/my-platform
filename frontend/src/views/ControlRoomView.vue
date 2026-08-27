@@ -57,6 +57,14 @@
         <FlaggedPanel :flagged="snapshot?.flagged" @ask="ask" />
       </div>
 
+      <!--
+        데이터 이상 점검 — FLAGGED 아래에 둔다. 둘 다 "문제 목록"이지만 출처가 다르다:
+        FLAGGED 는 사람이 적고 사람이 지우고, 이쪽은 코드가 매 스냅샷마다 다시 판정한다.
+        섞으면 "왜 안 지워지지 / 왜 사라졌지"가 헷갈려 따로 둔다.
+        정상이면 '이상 없음' 한 줄이라 자리를 거의 안 먹는다.
+      -->
+      <AnomalyPanel :anomalies="snapshot?.anomalies" @ask="ask" />
+
       <p class="foot-note">
         관제실은 <b>읽기 전용</b> 레이어다. 여기서 봇·게이트·주문·설정을 바꾸는 경로는 없고,
         크루의 결론도 액션 <b>제안</b>일 뿐이다.
@@ -93,6 +101,7 @@ import { useRouter } from 'vue-router'
 import ControlRoomKpis from '../components/controlroom/ControlRoomKpis.vue'
 import DecisionCalendar from '../components/controlroom/DecisionCalendar.vue'
 import FlaggedPanel from '../components/controlroom/FlaggedPanel.vue'
+import AnomalyPanel from '../components/controlroom/AnomalyPanel.vue'
 import CrewPanel from '../components/controlroom/CrewPanel.vue'
 import { controlRoomAPI } from '../utils/api'
 import { ddayLabel, CONTROL_ROOM_NAV } from '../utils/controlRoomFormat'
