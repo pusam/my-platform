@@ -240,6 +240,11 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
             nativeQuery = true)
     List<Object[]> findLatestSnapshotFieldCoverage();
 
+    /** 이상 점검용 — 기준일이 오늘 이후인 행 수(미래 날짜 행). */
+    @Query(value = "SELECT COUNT(*) FROM stock_financial_data WHERE report_date > CURRENT_DATE",
+            nativeQuery = true)
+    long countFutureDatedRows();
+
     /**
      * 마지막 업데이트 시간 조회
      */

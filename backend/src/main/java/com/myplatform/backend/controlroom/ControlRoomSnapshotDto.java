@@ -20,6 +20,7 @@ public record ControlRoomSnapshotDto(
         Kpis kpis,
         Calendar calendar,
         Flagged flagged,
+        Anomalies anomalies,
         Invariants invariants,
         CrewStatus crew
 ) {
@@ -193,6 +194,21 @@ public record ControlRoomSnapshotDto(
     public record Flagged(boolean dataAvailable, List<FlagItem> flags, long criticalCount) {}
 
     /** 크루가 초안을 대조할 기준. dataAvailable=false 면 크루에게 넘기지 않는다(무제약 승인 방지). */
+    /**
+     * 데이터 이상 점검 결과 — <b>결정적 규칙</b>이 찾은 것들({@link DataAnomalyRules}).
+     *
+     * <p>크루는 툴이 없어 스스로 데이터를 뒤질 수 없다(§7, 의도된 설계). 그래서 <b>탐지는 규칙이
+     * 하고 크루는 결과를 읽고 우선순위를 논한다.</b> 이 목록이 그 입력이다.
+     *
+     * @param dataAvailable false = 점검 자체가 실패(§4c — "이상 없음"과 구분. 0건으로 위장 금지)
+     * @param items         심각도 순. <b>비어 있으면 정상</b>이고 화면은 조용하다
+     * @param checkedAt     점검 시각 — 언제 기준인지 모르면 "이상 없음"을 믿을 수 없다
+     */
+    public record Anomalies(boolean dataAvailable,
+                            List<DataAnomalyRules.Anomaly> items,
+                            LocalDateTime checkedAt,
+                            String note) {}
+
     public record Invariants(boolean dataAvailable, List<String> items) {}
 
     /**

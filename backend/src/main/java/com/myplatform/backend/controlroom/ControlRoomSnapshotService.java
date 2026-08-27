@@ -83,6 +83,7 @@ public class ControlRoomSnapshotService {
     private final CrewSessionRepository crewSessionRepository;
     private final RecommendationSnapshotRepository recommendationSnapshotRepository;
     private final com.myplatform.backend.repository.StockFinancialDataRepository financialDataRepository;
+    private final com.myplatform.backend.repository.StockQuarterlyFinancialRepository quarterlyRepository;
     private final MarketCalendarService marketCalendar;
     private final RecommendationService recommendationService;
     private final CrewProperties crewProperties;
@@ -111,6 +112,7 @@ public class ControlRoomSnapshotService {
                                       CrewSessionRepository crewSessionRepository,
                                       RecommendationSnapshotRepository recommendationSnapshotRepository,
                                       com.myplatform.backend.repository.StockFinancialDataRepository financialDataRepository,
+                                      com.myplatform.backend.repository.StockQuarterlyFinancialRepository quarterlyRepository,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -128,6 +130,7 @@ public class ControlRoomSnapshotService {
         this.crewSessionRepository = crewSessionRepository;
         this.recommendationSnapshotRepository = recommendationSnapshotRepository;
         this.financialDataRepository = financialDataRepository;
+        this.quarterlyRepository = quarterlyRepository;
         this.marketCalendar = marketCalendar;
         this.recommendationService = recommendationService;
         this.crewProperties = crewProperties;
@@ -156,7 +159,8 @@ public class ControlRoomSnapshotService {
 
         // 크루 상태만 항상 새로 — 동시 1건 가드/일일 상한 표시가 캐시로 밀리면 안 된다.
         return new ControlRoomSnapshotDto(core.today(), core.generatedAt(), core.month(),
-                core.kpis(), core.calendar(), core.flagged(), core.invariants(), crewStatus(today));
+                core.kpis(), core.calendar(), core.flagged(), core.anomalies(),
+                core.invariants(), crewStatus(today));
     }
 
     /** 크루 프롬프트 주입용 — 캐시된 스냅샷을 그대로 재사용한다(세션 시작 시 새로 계산하지 않음). */
@@ -187,11 +191,47 @@ public class ControlRoomSnapshotService {
                         financialInput()),
                 calendar(decisions, targetMonth, today),
                 flagged(flags, decisions, today),
+                anomalies(today),
                 new ControlRoomSnapshotDto.Invariants(invariants.dataAvailable(), invariants.invariants()),
                 null);   // 크루 상태는 snapshot() 이 붙인다
     }
 
     // ==================== KPI ====================
+
+    /**
+     * 데이터 이상 점검 — 결정적 규칙({@link DataAnomalyRules})을 돌린다.
+     *
+     * <p>크루는 툴이 없어 스스로 데이터를 뒤질 수 없다(§7). 탐지는 여기서 하고 크루는 결과를 읽는다.
+     * 규칙은 전부 <b>실제로 겪은 사고</b>에서 나왔다 — 2026-08-27 누적 오판(96%)처럼
+     * "어느 화면에도 안 보였던" 부류를 다음엔 자동으로 잡기 위한 것이다.
+     *
+     * <p>조회 실패는 {@code dataAvailable=false} — "이상 없음"으로 위장하면 이 점검이
+     * 잡으려던 바로 그 실패를 자기가 저지르는 셈이다(§4c).
+     */
+    private ControlRoomSnapshotDto.Anomalies anomalies(LocalDate today) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        try {
+            List<DataAnomalyRules.Anomaly> found = new ArrayList<>();
+            found.add(DataAnomalyRules.cumulativeSkew(
+                    quarterlyRepository.countDistinctCumulativeStocks(),
+                    quarterlyRepository.countDistinctStocks()));
+            found.add(DataAnomalyRules.futureDatedRows(
+                    financialDataRepository.countFutureDatedRows()));
+            found.add(DataAnomalyRules.staleQuarterlyData(
+                    quarterlyRepository.findMaxPeriodEnd().orElse(null), today));
+            found.add(DataAnomalyRules.staleCollection(
+                    quarterlyRepository.findMaxCollectedAt().orElse(null), now));
+
+            List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
+            return new ControlRoomSnapshotDto.Anomalies(true, items, now,
+                    items.isEmpty() ? null : items.size() + "건 — 규칙별 detail 에 확인 방법이 있다");
+        } catch (Exception e) {
+            log.warn("[관제실] 데이터 이상 점검 실패: {}", e.getMessage());
+            return new ControlRoomSnapshotDto.Anomalies(false, List.of(), now,
+                    "점검이 예외로 실패했다 — '이상 없음'이 아니라 '모름'이다(§4c)");
+        }
+    }
+
 
     /**
      * 재무 입력층 건강 — 최신 일별 스냅샷의 필드 충전율.

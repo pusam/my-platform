@@ -63,6 +63,7 @@ class CrewContextBuilderTest {
         ControlRoomSnapshotDto s = new ControlRoomSnapshotDto(
                 TODAY, LocalDateTime.of(2026, 8, 24, 10, 0), "2026-08",
                 kpis(), calendar(), new ControlRoomSnapshotDto.Flagged(false, List.of(), 0),
+                new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
 
         String text = CrewContextBuilder.build(s, 8192).text();
@@ -76,6 +77,7 @@ class CrewContextBuilderTest {
         ControlRoomSnapshotDto s = new ControlRoomSnapshotDto(
                 TODAY, LocalDateTime.of(2026, 8, 24, 10, 0), "2026-08",
                 kpis(), calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
+                new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(false, List.of()), null);
 
         assertThat(CrewContextBuilder.build(s, 8192).text())
@@ -104,6 +106,7 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.Undecided(false, 0, 0),
                         new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0, null, null)),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
+                new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
 
         String text = CrewContextBuilder.build(s, 8192).text();
@@ -125,6 +128,7 @@ class CrewContextBuilderTest {
                 TODAY, LocalDateTime.of(2026, 8, 24, 10, 0), "2026-08",
                 kpis(), calendar(),
                 new ControlRoomSnapshotDto.Flagged(true, flags, critical),
+                new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")),
                 null);
     }
@@ -179,6 +183,7 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.Undecided(true, 8, 8),
                         new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null)),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
+                new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
 
         String text = CrewContextBuilder.build(s, 8192).text();

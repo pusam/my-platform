@@ -84,6 +84,8 @@ public final class CrewContextBuilder {
         sb.append("\n[판정 캘린더]\n");
         appendCalendar(sb, s.calendar());
 
+        appendAnomalies(sb, s.anomalies());
+
         sb.append("\n[불변식 — 초안이 이걸 깨면 반려]\n");
         if (s.invariants() == null || !s.invariants().dataAvailable()) {
             sb.append("- 데이터 없음 (불변식 문서를 읽지 못함. 제약이 없다는 뜻이 아니므로 승인에 신중할 것)\n");
@@ -93,6 +95,37 @@ public final class CrewContextBuilder {
             }
         }
         return sb.toString();
+    }
+
+    /**
+     * 데이터 이상 점검 결과 — <b>크루가 스스로 못 찾는 것을 대신 찾아 준 목록</b>.
+     *
+     * <p>크루는 툴이 없어 DB·파일·API 어디에도 못 닿는다(§7, 의도된 설계). 그래서
+     * "이상한 데이터를 찾아와라"는 시킬 수 없고, 결정적 규칙이 찾은 결과를 여기 실어 준다.
+     * 크루의 역할은 탐지가 아니라 <b>우선순위와 해석</b>이다.
+     *
+     * <p>KPI·캘린더와 함께 head 에 들어가므로 상한 초과 시에도 잘리지 않는다 —
+     * 잘리는 것은 FLAGGED 뿐이다(중요한 것이 남아야 한다).
+     */
+    private static void appendAnomalies(StringBuilder sb, ControlRoomSnapshotDto.Anomalies a) {
+        sb.append("\n[데이터 이상 점검 — 결정적 규칙이 찾은 것]\n");
+        if (a == null || !a.dataAvailable()) {
+            sb.append("- 데이터 없음 (점검이 실패했다. '이상 없음'이 아니라 '모름'이다)");
+            if (a != null && a.note() != null) sb.append(" — ").append(a.note());
+            sb.append('\n');
+            return;
+        }
+        if (a.items() == null || a.items().isEmpty()) {
+            sb.append("- 규칙에 걸린 항목 없음 (규칙이 보는 범위 안에서만 그렇다 — ")
+                    .append("점검하지 않는 축의 이상까지 없다는 뜻이 아니다)\n");
+            return;
+        }
+        for (DataAnomalyRules.Anomaly item : a.items()) {
+            sb.append("- [").append(item.severity()).append("] ").append(item.title());
+            if (item.evidence() != null) sb.append(" (근거: ").append(item.evidence()).append(')');
+            if (item.detail() != null) sb.append("\n  → ").append(item.detail());
+            sb.append('\n');
+        }
     }
 
     private static void appendCandidates(StringBuilder sb, ControlRoomSnapshotDto.Candidates c) {

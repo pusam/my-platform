@@ -37,6 +37,14 @@ public interface StockQuarterlyFinancialRepository extends JpaRepository<StockQu
     @Query("SELECT COUNT(DISTINCT q.stockCode) FROM StockQuarterlyFinancial q WHERE q.periodEnd >= :minPeriodEnd")
     long countDistinctStocksSince(@Param("minPeriodEnd") LocalDate minPeriodEnd);
 
+    /** 이상 점검용 — 누적(YTD)으로 판정된 고유 종목 수. */
+    @Query("SELECT COUNT(DISTINCT q.stockCode) FROM StockQuarterlyFinancial q WHERE q.cumulative = true")
+    long countDistinctCumulativeStocks();
+
+    /** 이상 점검용 — 전체 고유 종목 수. */
+    @Query("SELECT COUNT(DISTINCT q.stockCode) FROM StockQuarterlyFinancial q")
+    long countDistinctStocks();
+
     /** 커버리지 진단용 — 가장 최근 회계기간 말일(수집 자체가 안 됐으면 null). */
     @Query("SELECT MAX(q.periodEnd) FROM StockQuarterlyFinancial q")
     Optional<LocalDate> findMaxPeriodEnd();
