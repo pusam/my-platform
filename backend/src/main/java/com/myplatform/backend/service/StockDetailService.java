@@ -597,9 +597,11 @@ public class StockDetailService {
         return SupplyDemand.builder()
                 .volumePower(volumePower)
                 .volumeSignal(volumeSignal)
-                .foreignNetBuy(scalping.getForeignNetBuy() != null ? scalping.getForeignNetBuy() : BigDecimal.ZERO)
-                .instNetBuy(scalping.getInstNetBuy() != null ? scalping.getInstNetBuy() : BigDecimal.ZERO)
-                .programNetBuy(scalping.getProgramNetBuy() != null ? scalping.getProgramNetBuy() : BigDecimal.ZERO)
+                // 결측을 ZERO 로 채우면 화면이 "순매수 0억"(균형)으로 그린다 —
+                // 미수집을 실측 0 으로 위장하지 않는다(§4c, 2026-08-28). null 은 프론트가 '-' 로 그린다.
+                .foreignNetBuy(scalping.getForeignNetBuy())
+                .instNetBuy(scalping.getInstNetBuy())
+                .programNetBuy(scalping.getProgramNetBuy())
                 .programTrend(scalping.getProgramTrend() != null ? scalping.getProgramTrend() : "FLAT")
                 .programSeries(scalping.getProgramTradingSeries())
                 .build();
@@ -1138,9 +1140,15 @@ public class StockDetailService {
         }
 
         // 투자자별 순매수 합산
+        // ⚠ 원천이 KIS '순매수 상위 20위' 라 그 종목이 상위권에 못 들면 행이 아예 없다.
+        //    합계 0 을 그대로 내보내면 화면이 "순매수 0억"으로 그려 균형 상태로 읽힌다 —
+        //    체결강도가 이미 지키는 원칙(아래 "100 위장 금지")을 순매수에도 적용한다(§4c, 2026-08-28).
         BigDecimal foreignNetBuy = BigDecimal.ZERO;
         BigDecimal instNetBuy = BigDecimal.ZERO;
         BigDecimal programNetBuy = BigDecimal.ZERO;
+        boolean foreignHasRow = false;
+        boolean instHasRow = false;
+        boolean programHasValue = false;
         BigDecimal volumePower = null;
         List<ScalpingAnalysisDto.ProgramTradingPoint> programSeries = null;
 
@@ -1152,13 +1160,16 @@ public class StockDetailService {
             switch (investorType) {
                 case "FOREIGN":
                     foreignNetBuy = foreignNetBuy.add(netBuy);
+                    foreignHasRow = true;
                     break;
                 case "INSTITUTION":
                     instNetBuy = instNetBuy.add(netBuy);
+                    instHasRow = true;
                     break;
                 case "PENSION":
                     // 연기금은 기관에 포함
                     instNetBuy = instNetBuy.add(netBuy);
+                    instHasRow = true;
                     break;
             }
         }
@@ -1176,6 +1187,7 @@ public class StockDetailService {
                 // ★ 프로그램 순매수 금액
                 if (scalping.getProgramNetBuy() != null) {
                     programNetBuy = scalping.getProgramNetBuy();
+                    programHasValue = true;
                     log.info("[StockDetail] 프로그램 순매수 API 조회: {}억", programNetBuy);
                 }
 
@@ -1194,6 +1206,13 @@ public class StockDetailService {
             volumePower = null;
         }
 
+        // 순매수도 같은 원칙 — 기여한 행이 하나도 없으면 "0억"이 아니라 "데이터 없음"이다(2026-08-28).
+        // 실측 0(상위20에 들었고 매수·매도가 같음)은 hasRow=true 라 0 이 그대로 나간다.
+        BigDecimal foreignDisplay = foreignHasRow ? foreignNetBuy : null;
+        BigDecimal instDisplay = instHasRow ? instNetBuy : null;
+        // 프로그램은 위 try 에서 값을 받았을 때만 채워진다 — 못 받았으면 초기 ZERO 가 아니라 null.
+        BigDecimal programDisplay = programHasValue ? programNetBuy : null;
+
         String volumeSignal = ScalpingAnalysisDto.calculateVolumeSignal(volumePower);
         String programTrend = ScalpingAnalysisDto.calculateProgramTrend(programNetBuy);
 
@@ -1204,9 +1223,9 @@ public class StockDetailService {
         return SupplyDemand.builder()
                 .volumePower(volumePower)
                 .volumeSignal(volumeSignal)
-                .foreignNetBuy(foreignNetBuy)
-                .instNetBuy(instNetBuy)
-                .programNetBuy(programNetBuy)
+                .foreignNetBuy(foreignDisplay)
+                .instNetBuy(instDisplay)
+                .programNetBuy(programDisplay)
                 .programTrend(programTrend)
                 .programSeries(programSeries)  // ★ 시계열 데이터 추가
                 .build();

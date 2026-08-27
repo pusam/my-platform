@@ -748,6 +748,8 @@ public class StockAnalysisService {
                 .isAboveMa60(indicators.getIsAboveMa60())
                 .isGoldenCross(indicators.getIsGoldenCross())
                 .isDeadCross(indicators.getIsDeadCross())
+                // 지표 바의 "20일선" 칸이 읽는 값 — 이 줄이 없어 어느 종목에서나 '-' 였다(2026-08-28)
+                .disparity20(indicators.getDisparity20())
                 .rsi14(indicators.getRsi14())
                 .rsiStatus(rsiStatus)
                 .isRsiOversold(isRsiOversold)

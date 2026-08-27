@@ -122,6 +122,20 @@ public class StockDiagnosisDto {
         private Boolean isGoldenCross;          // 골든크로스 발생
         private Boolean isDeadCross;            // 데드크로스 발생
 
+        /**
+         * 20일선 이격도 (%) — (현재가 − MA20) / MA20 × 100.
+         *
+         * <p>2026-08-28 추가. 화면(QuickSummaryBar)이 이 필드를 읽고 있었는데
+         * <b>DTO 에 필드 자체가 없어 항상 undefined → 지표 바의 "20일선"이 어느 종목에서나 '-'</b>
+         * 였다. 데이터가 없어서가 아니라 <b>채울 수 없는 칸</b>이었다.
+         * 같은 화면의 차트 해설은 별도 경로로 "20일선 대비 +2.7% 이격"을 말하고 있어
+         * 한 페이지가 "모른다"와 "+2.7%"를 동시에 말했다.
+         *
+         * <p>값은 {@code TechnicalIndicatorsDto.disparity20} 을 그대로 옮긴다 —
+         * 여기서 다시 계산하면 두 소스가 갈린다. null = MA20 미산출(20봉 미만).
+         */
+        private BigDecimal disparity20;
+
         // RSI
         private BigDecimal rsi14;               // RSI (14일)
         private String rsiStatus;               // "과열", "침체", "중립"
