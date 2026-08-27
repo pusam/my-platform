@@ -70,29 +70,61 @@ public final class QuarterlyFinancials {
 
     // ==================== 누적(YTD) 판정 ====================
 
-    /** 누적 판정 임계 — 최신/최고(最古) 매출 비율이 이 값을 넘고 단조 증가면 누적으로 본다. */
-    static final BigDecimal CUMULATIVE_RATIO_THRESHOLD = new BigDecimal("1.8");
+    /** 누적 판정에 필요한 최소 인접쌍 수. 이보다 적으면 판정 불가(false, 종전 동작). */
+    static final int CUMULATIVE_MIN_PAIRS = 3;
+
+    /** 인접쌍 중 "증가" 비율이 이 값 미만이면 누적 아님. */
+    static final double CUMULATIVE_RISING_SHARE = 0.5;
+
+    /** 증가 구간의 <b>배율 중앙값</b>이 이 값 이상이어야 누적. 실측 누적 ≈1.75 / 개별 ≈1.10. */
+    static final BigDecimal CUMULATIVE_MEDIAN_RATIO = new BigDecimal("1.25");
 
     /**
-     * 원본 분기 행들이 <b>누적(YTD)</b> 인지 판정 — 수집기에 인라인돼 있던 휴리스틱을 순수함수로 뺀 것.
+     * 원본 분기 행들이 <b>누적(YTD)</b> 인지 판정 — 이력 전체의 인접쌍을 <b>두 가지로</b> 본다.
      *
-     * <p>판정 근거: 개별 분기라면 매출이 시기순으로 단조 증가할 이유가 없다. 누적이면
-     * Q1 &lt; 반기 &lt; 3분기 순으로 반드시 커진다. 최신이 가장 크고 가장 오래된 것이 가장 작으면서
-     * 비율이 1.8배를 넘으면 누적으로 본다.
+     * <p><b>왜 이렇게 바뀌었나(2026-08-27)</b>: 이전 판정은 <b>최신 3개</b>만 보고 단조증가를
+     * 확인했는데, 회계연도 경계가 그 안에 들어오면 반드시 깨진다. 실측 삼성전자 최신 3분기가
+     * {@code 202606(30,537) → 202603(13,387) → 202512(33,360)} 이라 202603 리셋에 걸려
+     * "누적 아님"으로 판정됐다. 8월은 FY 리셋 직후라 <b>구조적으로 실패하는 시기</b>다.
+     * 그 결과 2,523/2,618종목(96%)이 오판됐고 TTM 이 2배 넘게 부풀었다.
      *
-     * @param recentFirst 최신이 앞에 오는 행 목록 (KIS 응답 순서 그대로)
-     * @return 3개 이상이고 위 조건을 만족할 때만 true. 판정 불가면 false(=개별로 취급, 종전 동작)
+     * <h4>판별자 두 개를 함께 쓰는 이유</h4>
+     * "증가 비율"만으로는 <b>성장하는 개별 분기</b>와 안 갈린다 — 둘 다 60% 근처가 나온다.
+     * 결정적인 차이는 <b>증가 배율</b>이다. 누적이면 분기가 더해지므로
+     * Q1→Q2 ≈ 2.0배, Q2→Q3 ≈ 1.5배, Q3→Q4 ≈ 1.33배로 <b>크게</b> 뛴다.
+     * 개별이면 연속 분기가 비슷한 규모라 ≈1.1배다. 실측 중앙값 — 누적 1.75 / 개별 1.10.
+     *
+     * <p>이력 전체를 쓰므로 <b>어느 시점에 조회해도 판정이 흔들리지 않는다</b>.
+     *
+     * @param rows 순서 무관 — 내부에서 periodEnd 오름차순 정렬. 매출 결측·비양수 행은 제외
+     * @return 인접쌍이 {@link #CUMULATIVE_MIN_PAIRS} 미만이면 false(판정 불가 = 종전 동작)
      */
-    public static boolean detectCumulative(List<Figures> recentFirst) {
-        if (recentFirst == null || recentFirst.size() < 3) return false;
-        BigDecimal r0 = recentFirst.get(0).revenue();
-        BigDecimal r1 = recentFirst.get(1).revenue();
-        BigDecimal r2 = recentFirst.get(2).revenue();
-        if (r0 == null || r1 == null || r2 == null) return false;
-        if (r0.signum() <= 0 || r2.signum() <= 0) return false;
-        if (r0.compareTo(r1) <= 0 || r1.compareTo(r2) <= 0) return false;
-        BigDecimal ratio = r0.divide(r2, 2, java.math.RoundingMode.HALF_UP);
-        return ratio.compareTo(CUMULATIVE_RATIO_THRESHOLD) > 0;
+    public static boolean detectCumulative(List<Figures> rows) {
+        if (rows == null) return false;
+
+        List<Figures> asc = new ArrayList<>(rows);
+        asc.removeIf(f -> f == null || f.periodEnd() == null || f.revenue() == null
+                || f.revenue().signum() <= 0);
+        asc.sort(Comparator.comparing(Figures::periodEnd));
+
+        int pairs = 0;
+        List<BigDecimal> risingRatios = new ArrayList<>();
+        for (int i = 1; i < asc.size(); i++) {
+            if (!isAdjacentQuarter(asc.get(i - 1).periodEnd(), asc.get(i).periodEnd())) continue;
+            pairs++;
+            BigDecimal prev = asc.get(i - 1).revenue();
+            BigDecimal cur = asc.get(i).revenue();
+            if (cur.compareTo(prev) > 0) {
+                risingRatios.add(cur.divide(prev, 4, java.math.RoundingMode.HALF_UP));
+            }
+        }
+        if (pairs < CUMULATIVE_MIN_PAIRS) return false;
+        if (risingRatios.isEmpty()) return false;
+        if ((double) risingRatios.size() / pairs < CUMULATIVE_RISING_SHARE) return false;
+
+        risingRatios.sort(Comparator.naturalOrder());
+        BigDecimal median = risingRatios.get(risingRatios.size() / 2);
+        return median.compareTo(CUMULATIVE_MEDIAN_RATIO) >= 0;
     }
 
     // ==================== 개별 분기 환산 ====================
@@ -179,6 +211,75 @@ public final class QuarterlyFinancials {
         if (earlier == null || later == null) return false;
         if (!earlier.isBefore(later)) return false;
         return ChronoUnit.MONTHS.between(YearMonth.from(earlier), YearMonth.from(later)) == QUARTER_MONTHS;
+    }
+
+    /** TTM 합산에 필요한 분기 수. */
+    public static final int TTM_QUARTERS = 4;
+
+    /**
+     * TTM(최근 4분기 합) — <b>개별 분기로 환산한 뒤</b> 더한다.
+     *
+     * <p><b>왜 이 형태인가(2026-08-27)</b>: 이전 코드는 누적 판정이 true 일 때
+     * {@code output.get(3)} 을 "연간 행"으로 가정해 그 값을 TTM 으로 썼다. 그런데 응답은
+     * 최신순이라 4번째 항목이 연간이라는 보장이 없다 — 2026-08 기준 삼성전자는
+     * {@code [202606, 202603, 202512, 202509]} 이라 4번째가 <b>3분기 누적</b>이었다.
+     * 그리고 누적 판정이 실패하면(당시 96%) 누적값 4개를 그냥 더해 <b>2배 넘게</b> 부풀었다
+     * (실측: 30,537+13,387+33,360+23,976 = 101,260 vs 진짜 48,527).
+     *
+     * <p>개별 분기로 환산한 뒤 최근 4개를 더하면 두 경우 모두 옳다. 삼성전자 실측으로 검산하면
+     * 17,150+13,387+9,384+8,606 = 48,527 로 정공법(FY2025 + H1-2026 − H1-2025)과 일치한다.
+     *
+     * @param individuals {@link #toIndividualQuarters} 결과(개별 분기, 오름차순 가정 아님)
+     * @return {@code [revenue, operatingProfit, netIncome]}. 4분기 미만이면 null.
+     *         각 항목은 그 항목이 한 분기라도 결측이면 null(§4c — 결측을 0 으로 더하지 않는다)
+     */
+    public static BigDecimal[] ttmSum(List<Figures> individuals) {
+        if (individuals == null || individuals.size() < TTM_QUARTERS) return null;
+        List<Figures> asc = new ArrayList<>(individuals);
+        asc.removeIf(f -> f == null || f.periodEnd() == null);
+        if (asc.size() < TTM_QUARTERS) return null;
+        asc.sort(Comparator.comparing(Figures::periodEnd));
+        List<Figures> last = asc.subList(asc.size() - TTM_QUARTERS, asc.size());
+
+        // 연속한 4분기여야 TTM 이다 — 중간이 비면 12개월치가 아니다.
+        for (int i = 1; i < last.size(); i++) {
+            if (!isAdjacentQuarter(last.get(i - 1).periodEnd(), last.get(i).periodEnd())) return null;
+        }
+        return new BigDecimal[]{
+                sumOrNull(last, Figures::revenue),
+                sumOrNull(last, Figures::operatingProfit),
+                sumOrNull(last, Figures::netIncome)
+        };
+    }
+
+    /** 한 분기라도 결측이면 null — 결측을 0 으로 더하면 TTM 이 조용히 축소된다(§4c). */
+    private static BigDecimal sumOrNull(List<Figures> rows,
+                                        java.util.function.Function<Figures, BigDecimal> getter) {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Figures f : rows) {
+            BigDecimal v = getter.apply(f);
+            if (v == null) return null;
+            sum = sum.add(v);
+        }
+        return sum;
+    }
+
+    /**
+     * 원본 행 목록에 누적 판정 결과를 입혀 돌려준다 — 판정과 환산을 한 흐름으로 묶는 편의 함수.
+     *
+     * <p>수집기와 서프라이즈 판정이 <b>같은 경로</b>를 타게 해서 "저장할 때의 해석"과
+     * "읽을 때의 해석"이 갈라지지 않게 한다.
+     */
+    public static List<Figures> withDetectedCumulative(List<Figures> rows) {
+        boolean cumulative = detectCumulative(rows);
+        List<Figures> out = new ArrayList<>();
+        if (rows == null) return out;
+        for (Figures f : rows) {
+            if (f == null) continue;
+            out.add(new Figures(f.fiscalPeriod(), f.periodEnd(), f.revenue(),
+                    f.operatingProfit(), f.netIncome(), cumulative));
+        }
+        return out;
     }
 
     /**

@@ -542,85 +542,47 @@ public class StockFinancialDataCollector {
                                     q.path("thtr_ntin").asText());
                         }
 
-                        // ★ 누적(cumulative) vs 개별(individual) 분기 데이터 감지
-                        // 매출액이 Q1 < Q2 < Q3 순서로 증가하면 누적 데이터일 가능성 높음
-                        boolean isCumulative = false;
-                        if (quarterCount >= 3) {
-                            BigDecimal rev0 = parseBigDecimal(output.get(0).path("sale_account").asText());
-                            BigDecimal rev1 = parseBigDecimal(output.get(1).path("sale_account").asText());
-                            BigDecimal rev2 = parseBigDecimal(output.get(2).path("sale_account").asText());
-                            // 최신(0)이 가장 크고 이전(2)이 가장 작으면 누적 의심
-                            // 단, 모두 양수이고 비율이 2배 이상 차이나면 누적으로 판단
-                            if (rev0.compareTo(BigDecimal.ZERO) > 0 && rev2.compareTo(BigDecimal.ZERO) > 0) {
-                                BigDecimal ratio02 = rev0.divide(rev2, 2, RoundingMode.HALF_UP);
-                                if (ratio02.compareTo(new BigDecimal("1.8")) > 0
-                                        && rev0.compareTo(rev1) > 0 && rev1.compareTo(rev2) > 0) {
-                                    isCumulative = true;
-                                    log.warn("[손익계산서] {} 누적 데이터 감지! 매출액: Q최신={}, Q-1={}, Q-2={} (비율: {})",
-                                            stockCode, rev0, rev1, rev2, ratio02);
-                                }
-                            }
-                        }
-
                         // ★ 응답 스키마 진단(2026-08-26) — 금액 3필드가 전부 비면 필드명이 틀린 것이다.
-                        //   실측: stac_yymm 은 정상(202606/202603/…)인데 sale_account·bsop_prti·thtr_ntin
-                        //   만 빈 문자열 → 434종목 전 기간 revenue/영업이익/순이익이 NULL 이었다.
-                        //   Jackson 의 path("없는키").asText() 가 "" 를 주기 때문에 조용히 0 으로 흘렀다.
-                        //   필드명을 추측으로 고치지 않기 위해, 실제 응답 1건을 그대로 남긴다(JVM 당 1회).
+                        //   Jackson 의 path("없는키").asText() 가 "" 를 주기 때문에 조용히 0 으로 흐른다.
+                        //   필드명을 추측으로 고치지 않기 위해 실제 응답 1건을 그대로 남긴다(JVM 당 1회).
                         logIncomeSchemaOnce(stockCode, output.get(0));
 
-                        // ★ 분기 원본 보존 (R1, 2026-08-26) — 여기서 stac_yymm 을 버리고 있었다.
-                        //   TTM 합산에만 쓰고 분기 정체성을 안 남기니, 어닝 서프라이즈가
-                        //   "오늘 스냅샷 vs 어제 스냅샷"을 비교하게 돼 earnings 카테고리가 死였다.
-                        //   합산 경로(아래)는 손대지 않는다 — 여기선 받은 행을 그대로 적재만 한다.
+                        // ★ 누적(YTD) 판정 + TTM — 순수함수 단일 출처 (2026-08-27 전면 교체)
+                        //
+                        // 이전 인라인 휴리스틱은 **최신 3개**만 보고 단조증가를 확인했는데,
+                        // 회계연도 경계가 그 안에 들어오면 반드시 깨진다. 8월은 FY 리셋 직후라
+                        // 구조적으로 실패하는 시기다 — 실측 2,523/2,618종목(96%)이 "누적 아님"으로
+                        // 오판됐고, 누적값 4개를 그냥 더해 TTM 이 2배 넘게 부풀었다
+                        // (삼성전자: 101,260 vs 진짜 48,527).
+                        //
+                        // 새 경로는 ① 이력 전체의 인접쌍 증가비율로 누적을 판정하고
+                        //          ② 개별 분기로 환산한 뒤 최근 4분기를 더한다.
+                        // 삼성전자 실측으로 검산됨(QuarterlyFinancialsTest).
+                        List<QuarterlyFinancials.Figures> rawFigures = parseIncomeFigures(output);
+                        List<QuarterlyFinancials.Figures> figures =
+                                QuarterlyFinancials.withDetectedCumulative(rawFigures);
+                        boolean isCumulative = !figures.isEmpty() && figures.get(0).cumulative();
+
+                        List<QuarterlyFinancials.Figures> individuals =
+                                QuarterlyFinancials.toIndividualQuarters(figures);
+                        BigDecimal[] ttm = QuarterlyFinancials.ttmSum(individuals);
+
+                        // ★ 분기 원본 보존 (R1) — 이미 받아서 버리던 배열을 적재만 한다. 새 API 호출 없음.
                         persistQuarterlyRows(stockCode, output, isCumulative);
 
-                        BigDecimal ttmNetIncomeRaw = BigDecimal.ZERO;
-                        BigDecimal ttmRevenueRaw = BigDecimal.ZERO;
-                        BigDecimal ttmOperatingProfitRaw = BigDecimal.ZERO;
+                        BigDecimal ttmRevenueRaw = (ttm != null && ttm[0] != null) ? ttm[0] : BigDecimal.ZERO;
+                        BigDecimal ttmOperatingProfitRaw = (ttm != null && ttm[1] != null) ? ttm[1] : BigDecimal.ZERO;
+                        BigDecimal ttmNetIncomeRaw = (ttm != null && ttm[2] != null) ? ttm[2] : BigDecimal.ZERO;
 
-                        if (isCumulative) {
-                            // 누적 데이터: 개별 분기 = 현재 누적 - 이전 누적, TTM = 연간 + 최신누적 - 전년동기누적
-                            // 안전한 방식: 가장 최근 누적이 3분기(9개월)면, 연간(entry 3) + 3분기누적 - 전년3분기
-                            // 전년 동기 데이터 없으면: 연간 데이터(entry 마지막)만 사용
-                            if (quarterCount >= 4) {
-                                // entry[3]을 연간 데이터로 가정
-                                JsonNode annual = output.get(3);
-                                ttmNetIncomeRaw = parseBigDecimal(annual.path("thtr_ntin").asText());
-                                ttmRevenueRaw = parseBigDecimal(annual.path("sale_account").asText());
-                                ttmOperatingProfitRaw = parseBigDecimal(annual.path("bsop_prti").asText());
-                                log.info("[손익계산서 TTM] {} 누적→연간 데이터 사용: 매출={}, 영업이익={}, 순이익={}",
-                                        stockCode, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
-                            } else {
-                                // 연간 데이터 없으면 최신 누적값을 12개월로 비례 추정
-                                JsonNode latestQ = output.get(0);
-                                ttmNetIncomeRaw = parseBigDecimal(latestQ.path("thtr_ntin").asText());
-                                ttmRevenueRaw = parseBigDecimal(latestQ.path("sale_account").asText());
-                                ttmOperatingProfitRaw = parseBigDecimal(latestQ.path("bsop_prti").asText());
-                                // quarterCount개 분기 누적이면 12/quarterCount 배로 추정
-                                BigDecimal annualizer = new BigDecimal("4").divide(
-                                        new BigDecimal(String.valueOf(quarterCount)), 4, RoundingMode.HALF_UP);
-                                ttmNetIncomeRaw = ttmNetIncomeRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
-                                ttmRevenueRaw = ttmRevenueRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
-                                ttmOperatingProfitRaw = ttmOperatingProfitRaw.multiply(annualizer).setScale(0, RoundingMode.HALF_UP);
-                                log.info("[손익계산서 TTM] {} 누적→비례추정: 매출={}, 영업이익={}, 순이익={} (x{})",
-                                        stockCode, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw, annualizer);
-                            }
-                        } else {
-                            // 개별 분기 데이터: 기존 방식대로 합산
-                            for (int i = 0; i < quarterCount; i++) {
-                                JsonNode q = output.get(i);
-                                ttmNetIncomeRaw = ttmNetIncomeRaw.add(parseBigDecimal(q.path("thtr_ntin").asText()));
-                                ttmRevenueRaw = ttmRevenueRaw.add(parseBigDecimal(q.path("sale_account").asText()));
-                                ttmOperatingProfitRaw = ttmOperatingProfitRaw.add(parseBigDecimal(q.path("bsop_prti").asText()));
-                            }
-                        }
+                        log.info("[손익계산서 TTM] {} - 원본 {}분기 → 개별 {}분기 (누적:{}): 매출액: {}, 영업이익: {}, 당기순이익: {}",
+                                stockCode, rawFigures.size(), individuals.size(), isCumulative,
+                                ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
 
-                        log.info("[손익계산서 TTM] {} - {}분기 (누적:{}): 매출액: {}, 영업이익: {}, 당기순이익: {}",
-                                stockCode, quarterCount, isCumulative, ttmRevenueRaw, ttmOperatingProfitRaw, ttmNetIncomeRaw);
-
-                        if (quarterCount < 4 && !isCumulative) {
-                            log.warn("[손익계산서 TTM] {} - 4분기 미만 데이터 ({}분기)", stockCode, quarterCount);
+                        if (ttm == null) {
+                            // §4c — 12개월치를 못 만든 것이지 "실적 0" 이 아니다. 0 으로 흘러가면
+                            // 아래 !=0 가드가 걸러 ratios 에 안 담기고, 그게 의도된 동작이다.
+                            log.warn("[손익계산서 TTM] {} - 연속 4분기 확보 실패(원본 {} / 개별 {}) — TTM 미산출",
+                                    stockCode, rawFigures.size(), individuals.size());
                         }
 
                         // 단위변환: 합산 후 1회만 /100 (백만원 → 억원)
@@ -852,6 +814,33 @@ public class StockFinancialDataCollector {
         } else if (skipped > 0) {
             log.debug("[분기재무] {} - 적재 0건 (스킵 {})", stockCode, skipped);
         }
+    }
+
+    /**
+     * KIS 손익계산서 응답 → {@link QuarterlyFinancials.Figures} 목록.
+     *
+     * <p><b>전량 파싱한다</b>(4분기 상한 없음) — 누적 판정이 이력 전체의 인접쌍을 보기 때문이다.
+     * 최신 몇 개만 보면 회계연도 경계에 걸려 판정이 흔들린다(2026-08-27 사고의 원인).
+     *
+     * <p>결측은 {@link #parseBigDecimalOrNull} 로 null 보존 — {@code parseBigDecimal} 은 결측을
+     * 0 으로 바꿔서 "매출 0인 분기"라는 거짓을 만들고 증감 판정을 오염시킨다(§4c).
+     * {@code stac_yymm} 을 못 읽는 행은 분기 정체성이 없으므로 제외한다.
+     */
+    private List<QuarterlyFinancials.Figures> parseIncomeFigures(JsonNode output) {
+        List<QuarterlyFinancials.Figures> out = new ArrayList<>();
+        if (output == null || !output.isArray()) return out;
+        for (JsonNode q : output) {
+            YearMonth ym = QuarterlyFinancials.parseFiscalPeriod(q.path("stac_yymm").asText(null));
+            if (ym == null) continue;
+            out.add(new QuarterlyFinancials.Figures(
+                    String.format("%04d%02d", ym.getYear(), ym.getMonthValue()),
+                    QuarterlyFinancials.periodEnd(ym),
+                    parseBigDecimalOrNull(q.path("sale_account").asText(null)),
+                    parseBigDecimalOrNull(q.path("bsop_prti").asText(null)),
+                    parseBigDecimalOrNull(q.path("thtr_ntin").asText(null)),
+                    false));
+        }
+        return out;
     }
 
     /** 응답 스키마를 남기는 것은 JVM 당 1회 — 종목마다 찍으면 배치 로그가 묻힌다. */

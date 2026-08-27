@@ -113,37 +113,52 @@ class QuarterlyFinancialsTest {
     class CumulativeDetection {
 
         @Test
-        @DisplayName("매출이 시기 역순으로 단조 증가 + 1.8배 초과면 누적")
+        @DisplayName("분기가 더해지며 크게 뛰면 누적 — 입력 순서와 무관하다")
         void detectsCumulative() {
-            List<Figures> recentFirst = List.of(
+            // 일부러 뒤섞어 넣는다. 이전 구현은 '최신 3개'를 순서대로 봐서 순서에 의존했다.
+            List<Figures> shuffled = List.of(
+                    ind("202512", "4000", "400", "330"),   // 연간 누적
+                    ind("202503", "1000", "100", "80"),    // 1분기
                     ind("202509", "3000", "300", "250"),   // 3분기 누적
-                    ind("202506", "2000", "200", "160"),   // 반기 누적
-                    ind("202503", "1000", "100", "80"));   // 1분기
-            assertThat(QuarterlyFinancials.detectCumulative(recentFirst)).isTrue();
+                    ind("202506", "2000", "200", "160"));  // 반기 누적
+            assertThat(QuarterlyFinancials.detectCumulative(shuffled)).isTrue();
         }
 
         @Test
-        @DisplayName("개별 분기(들쭉날쭉)면 누적 아님")
+        @DisplayName("성장하는 개별 분기는 누적 아님 — 증가 '비율'만 보면 여기서 오판한다")
+        void risingIndividualIsNotCumulative() {
+            // 5쌍 중 4쌍이 증가(80%)라 비율만 보면 누적으로 오판된다.
+            // 배율 중앙값이 약 1.09 라 누적(약 1.75)과 갈린다.
+            List<Figures> rows = List.of(
+                    ind("202503", "1000", "100", "80"), ind("202506", "1090", "110", "88"),
+                    ind("202509", "1190", "120", "96"), ind("202512", "1300", "130", "104"),
+                    ind("202603", "1250", "125", "100"), ind("202606", "1360", "136", "109"));
+            assertThat(QuarterlyFinancials.detectCumulative(rows)).isFalse();
+        }
+
+        @Test
+        @DisplayName("들쭉날쭉한 개별 분기도 누적 아님")
         void individualIsNotCumulative() {
-            List<Figures> recentFirst = List.of(
-                    ind("202509", "1100", "100", "80"),
-                    ind("202506", "1050", "95", "75"),
-                    ind("202503", "1000", "90", "70"));
-            assertThat(QuarterlyFinancials.detectCumulative(recentFirst)).isFalse();
+            List<Figures> rows = List.of(
+                    ind("202503", "1000", "90", "70"), ind("202506", "1050", "95", "75"),
+                    ind("202509", "980", "88", "68"), ind("202512", "1100", "100", "80"));
+            assertThat(QuarterlyFinancials.detectCumulative(rows)).isFalse();
         }
 
         @Test
-        @DisplayName("3개 미만·매출 결측이면 판정 불가 → false(개별 취급, 종전 동작)")
+        @DisplayName("인접쌍 3개 미만·매출 결측이면 판정 불가 → false(개별 취급, 종전 동작)")
         void undecidableIsFalse() {
             assertThat(QuarterlyFinancials.detectCumulative(null)).isFalse();
             assertThat(QuarterlyFinancials.detectCumulative(List.of())).isFalse();
+            // 3행 = 인접쌍 2개 → 판정 불가. 이전 구현은 3행으로 단정했고 그게 결함이었다.
             assertThat(QuarterlyFinancials.detectCumulative(List.of(
-                    ind("202509", "3000", "300", "250"),
-                    ind("202506", "2000", "200", "160")))).isFalse();
-            assertThat(QuarterlyFinancials.detectCumulative(List.of(
-                    ind("202509", null, "300", "250"),
+                    ind("202503", "1000", "100", "80"),
                     ind("202506", "2000", "200", "160"),
-                    ind("202503", "1000", "100", "80")))).isFalse();
+                    ind("202509", "3000", "300", "250")))).isFalse();
+            // 매출 결측 행은 비교에서 빠져 인접쌍이 모자라게 된다
+            assertThat(QuarterlyFinancials.detectCumulative(List.of(
+                    ind("202503", "1000", "100", "80"), ind("202506", null, "200", "160"),
+                    ind("202509", "3000", "300", "250"), ind("202512", "4000", "400", "330")))).isFalse();
         }
     }
 
@@ -258,6 +273,83 @@ class QuarterlyFinancialsTest {
             assertThat(QuarterlyFinancials.latestAdjacentPair(List.of())).isNull();
             assertThat(QuarterlyFinancials.latestAdjacentPair(
                     List.of(ind("202509", "1400", "160", "120")))).isNull();
+        }
+    }
+    @Nested
+    @DisplayName("prod 실측 회귀 (2026-08-27) — 삼성전자 누적 데이터")
+    class RealSamsungData {
+
+        /**
+         * 2026-08-27 운영 DB 에서 그대로 가져온 삼성전자 매출(stock_quarterly_financial).
+         * 매 회계연도 3월에 리셋되고 12월까지 단조 증가한다 = 명백한 누적(YTD).
+         */
+        private List<Figures> samsungRevenue() {
+            String[][] raw = {
+                {"202503", "7914.05"}, {"202506", "15370.68"}, {"202509", "23976.86"},
+                {"202512", "33360.59"}, {"202603", "13387.34"}, {"202606", "30537.29"}
+            };
+            List<Figures> out = new java.util.ArrayList<>();
+            for (String[] r : raw) out.add(cum(r[0], r[1], r[1], r[1]));
+            return out;
+        }
+
+        @Test
+        @DisplayName("누적으로 판정한다 — 옛 휴리스틱은 최신 3개만 봐서 FY 리셋에 걸려 실패했다")
+        void detectsCumulativeAcrossFiscalYearBoundary() {
+            // 최신 3개(202606, 202603, 202512)는 202603 리셋 때문에 단조증가가 깨진다.
+            // 이력 전체를 보면 인접쌍 5개 중 4개가 증가 → 누적.
+            assertThat(QuarterlyFinancials.detectCumulative(samsungRevenue())).isTrue();
+        }
+
+        @Test
+        @DisplayName("TTM 은 48,527 — 누적 4개를 그냥 더한 101,260(2.09배)이 아니다")
+        void ttmMatchesHandCalculation() {
+            List<Figures> flagged = QuarterlyFinancials.withDetectedCumulative(samsungRevenue());
+            BigDecimal[] ttm = QuarterlyFinancials.ttmSum(
+                    QuarterlyFinancials.toIndividualQuarters(flagged));
+
+            assertThat(ttm).isNotNull();
+            // 정공법 검산: FY2025(33,360.59) + H1-2026(30,537.29) − H1-2025(15,370.68) = 48,527.20
+            assertThat(ttm[0]).isEqualByComparingTo("48527.20");
+
+            // 옛 방식(누적 4개 단순합)이었다면 이 값이었다 — 2.09배
+            BigDecimal naive = bd("30537.29").add(bd("13387.34")).add(bd("33360.59")).add(bd("23976.86"));
+            assertThat(naive).isEqualByComparingTo("101262.08");
+            assertThat(ttm[0]).isLessThan(naive);
+        }
+
+        @Test
+        @DisplayName("개별 분기 환산값도 상식에 맞는다 — 분기 매출이 서로 비슷한 규모")
+        void individualQuartersAreSane() {
+            List<Figures> ind = QuarterlyFinancials.toIndividualQuarters(
+                    QuarterlyFinancials.withDetectedCumulative(samsungRevenue()));
+
+            // 202503 은 직전 누적이 없어 제외 → 202506 부터
+            assertThat(ind).extracting(Figures::fiscalPeriod)
+                    .containsExactly("202506", "202509", "202512", "202603", "202606");
+            assertThat(ind.get(0).revenue()).isEqualByComparingTo("7456.63");   // 15370.68-7914.05
+            assertThat(ind.get(3).revenue()).isEqualByComparingTo("13387.34");  // FY 리셋 → 그대로
+            assertThat(ind.get(4).revenue()).isEqualByComparingTo("17149.95");  // 30537.29-13387.34
+        }
+
+        @Test
+        @DisplayName("개별 분기 시계열은 누적으로 오판되지 않는다 — 반대 방향 오판 방지")
+        void individualSeriesIsNotFlaggedCumulative() {
+            // 실제 개별 분기라면 오르내림이 반반에 가깝다
+            List<Figures> ind = List.of(
+                    ind("202503", "7900", "600", "500"), ind("202506", "7450", "550", "480"),
+                    ind("202509", "8600", "700", "600"), ind("202512", "9380", "800", "700"),
+                    ind("202603", "8100", "620", "520"), ind("202606", "8900", "750", "640"));
+            assertThat(QuarterlyFinancials.detectCumulative(ind)).isFalse();
+        }
+
+        @Test
+        @DisplayName("연속 4분기가 아니면 TTM 을 만들지 않는다 — 12개월치가 아니므로")
+        void ttmRefusesGaps() {
+            List<Figures> ind = List.of(
+                    ind("202503", "100", "10", "8"), ind("202506", "110", "11", "9"),
+                    ind("202512", "120", "12", "10"), ind("202603", "130", "13", "11"));
+            assertThat(QuarterlyFinancials.ttmSum(ind)).isNull();
         }
     }
 }
