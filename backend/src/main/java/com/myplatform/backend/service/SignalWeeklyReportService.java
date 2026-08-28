@@ -81,9 +81,54 @@ public class SignalWeeklyReportService {
             log.debug("[주간측정] 다른 인스턴스에서 실행 중 — 스킵");
             return;
         }
+        runReportAndBeat("system");
+    }
+
+    /**
+     * 놓친 주간 리포트 따라잡기 — 매일 18:30(월~토).
+     *
+     * <p><b>왜 필요한가(2026-08-28)</b>: 본 크론은 주 1회(일 18:00)뿐이라 그 한 시각에 서버가
+     * 죽어 있으면 <b>그 주는 영영 못 돈다.</b> 실제로 8/20~24 서버 다운으로 8/23 일요일 실행이
+     * 통째로 빠졌고, dead-man switch 임계가 9일(주기 7일 + 여유 2일)이라
+     * <b>다음 일요일까지 6일 내내 매일 경보가 울렸다.</b> 경보는 사실이었지만 손쓸 방법이 없었다.
+     *
+     * <p><b>평일 실행이 안전한 이유</b>: {@link #resolveTargetWeekEnd} 가 실행 요일과 무관하게
+     * "온전히 평가 가능한 마지막 주"를 고른다(2026-08-21 리뷰 A-9 에서 그렇게 고쳤다).
+     * 그래서 금요일에 돌려도 일요일에 돌린 것과 같은 주를 같은 값으로 집계한다.
+     * 저장은 UPSERT 라 중복 실행도 무해하다.
+     *
+     * <p><b>판단 기준은 심박이 아니라 DB</b>: 심박은 Redis best-effort 라 소실될 수 있다.
+     * "직전 완료 주 스냅샷이 있는가"가 유일하게 확실한 질문이고, 그게 없을 때만 돈다.
+     * 정상이면 아무것도 하지 않는다 — 매일 도는 잡이 매일 시끄러우면 안 된다.
+     */
+    @Scheduled(scheduler = "batchScheduler", cron = "0 30 18 * * MON-SAT", zone = "Asia/Seoul")
+    public void weeklyReportCatchUp() {
+        LocalDate today = LocalDate.now(clock);
+        LocalDate weekEnd = resolveTargetWeekEnd(today);
+        LocalDate weekStart = weekEnd.minusDays(6);
+
+        if (weeklyRepository.findByWeekStart(weekStart).isPresent()) {
+            log.debug("[주간측정] 따라잡기 불필요 — {} 주 스냅샷 존재", weekStart);
+            return;
+        }
+        if (!schedulerLockService.tryLock(WEEKLY_LOCK, Duration.ofMinutes(20))) {
+            log.debug("[주간측정] 다른 인스턴스에서 실행 중 — 따라잡기 스킵");
+            return;
+        }
+
+        log.warn("[주간측정] 놓친 주 따라잡기 — {}~{} 스냅샷이 없다(일요일 크론 미실행 추정)",
+                weekStart, weekEnd);
+        runReportAndBeat("catch-up");
+    }
+
+    /**
+     * 리포트 생성 + 심박 기록 — 본 크론과 따라잡기가 <b>같은 경로</b>를 쓴다.
+     *
+     * <p>따라잡기가 심박을 안 남기면 리포트는 채워졌는데 dead-man switch 경보는 계속 울린다.
+     */
+    private void runReportAndBeat(String triggeredBy) {
         try {
-            generateWeeklyReport("system");
-            // 크론 dead-man switch 심박(best-effort) — 성공 경로에서만 기록.
+            generateWeeklyReport(triggeredBy);
             try {
                 if (heartbeatProvider != null) {
                     BatchHeartbeatService heartbeat = heartbeatProvider.getIfAvailable();
@@ -93,9 +138,10 @@ public class SignalWeeklyReportService {
                 log.debug("[주간측정] 심박 기록 실패: {}", e.getMessage());
             }
         } catch (Exception e) {
-            log.error("[주간측정] 주간 예측력 리포트 생성 실패: {}", e.getMessage(), e);
+            log.error("[주간측정] 주간 예측력 리포트 생성 실패({}): {}", triggeredBy, e.getMessage(), e);
         }
     }
+
 
     /**
      * <b>평가가 끝난 직전 완료 주</b>(월~일) 예측력 측정 → 스냅샷 UPSERT + 텔레그램. 수동 트리거도 이 경로.

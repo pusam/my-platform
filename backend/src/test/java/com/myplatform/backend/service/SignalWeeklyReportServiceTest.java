@@ -221,4 +221,72 @@ class SignalWeeklyReportServiceTest {
                 .weeklyN(20).cumulativeN(50).supplyInverted(supplyInverted)
                 .generatedBy("system").build();
     }
+    // ==================== 놓친 주 따라잡기 (2026-08-28) ====================
+
+    @Test
+    @DisplayName("직전 완료 주 스냅샷이 없으면 따라잡아 생성한다 — 일요일 크론을 놓친 경우")
+    void catchUpRunsWhenSnapshotMissing() {
+        // 실사고 재현: 8/20~24 서버 다운으로 8/23(일) 크론이 통째로 빠졌다.
+        // 금요일(8/28)에 따라잡으면 resolveTargetWeekEnd 가 같은 주(8/17~8/23)를 고른다.
+        LocalDate friday = LocalDate.of(2026, 8, 28);
+        assertThat(friday.getDayOfWeek().getValue()).isEqualTo(5);
+        when(schedulerLockService.tryLock(any(), any())).thenReturn(true);
+        when(weeklyRepository.findByWeekStart(any())).thenReturn(java.util.Optional.empty());
+
+        service(friday).weeklyReportCatchUp();
+
+        ArgumentCaptor<SignalWeeklyAccuracy> saved = ArgumentCaptor.forClass(SignalWeeklyAccuracy.class);
+        verify(weeklyRepository).save(saved.capture());
+        assertThat(saved.getValue().getWeekStart()).isEqualTo(LocalDate.of(2026, 8, 17));
+        assertThat(saved.getValue().getWeekEnd()).isEqualTo(LocalDate.of(2026, 8, 23));
+    }
+
+    @Test
+    @DisplayName("스냅샷이 이미 있으면 아무것도 안 한다 — 매일 도는 잡이 매일 시끄러우면 안 된다")
+    void catchUpIsSilentWhenSnapshotExists() {
+        LocalDate friday = LocalDate.of(2026, 8, 28);
+        when(weeklyRepository.findByWeekStart(LocalDate.of(2026, 8, 17)))
+                .thenReturn(java.util.Optional.of(new SignalWeeklyAccuracy()));
+
+        service(friday).weeklyReportCatchUp();
+
+        verify(weeklyRepository, org.mockito.Mockito.never()).save(any());
+        // 락도 잡지 않는다 — 필요 없는데 잡으면 본 크론과 경합한다
+        verify(schedulerLockService, org.mockito.Mockito.never()).tryLock(any(), any());
+    }
+
+    @Test
+    @DisplayName("⚠ 따라잡기는 '놓친 주'가 아니라 '지금 기준 직전 완료 주'를 채운다 — 과거 구멍은 안 메운다")
+    void catchUpFillsCurrentTargetNotTheMissedWeek() {
+        // resolveTargetWeekEnd 는 today 기준이라 시간이 지나면 대상 주가 앞으로 이동한다.
+        //   8/23(일) 크론이 돌았다면 → 8/16 주를 만들었을 것
+        //   8/28(금) 따라잡기는     → 8/23 주를 만든다
+        // 즉 8/23 크론을 놓치면 8/16 주는 따라잡기로 복구되지 않는다.
+        // 이 테스트는 그 한계를 '고정'한다 — 나중에 gap-fill 을 넣을 때 여기가 바뀌어야 한다.
+        assertThat(SignalWeeklyReportService.resolveTargetWeekEnd(LocalDate.of(2026, 8, 23)))
+                .isEqualTo(LocalDate.of(2026, 8, 16));
+        assertThat(SignalWeeklyReportService.resolveTargetWeekEnd(LocalDate.of(2026, 8, 28)))
+                .isEqualTo(LocalDate.of(2026, 8, 23));
+    }
+
+    @Test
+    @DisplayName("따라잡기와 다음 일요일 크론은 같은 주 — 2일 일찍 돌 뿐이고 UPSERT 라 무해")
+    void catchUpMatchesNextSundayCron() {
+        // 8/28(금) 따라잡기가 만드는 주 == 8/30(일) 본 크론이 만들 주.
+        // 그래서 따라잡기가 '미리 당겨 만든' 값이 일요일에 덮어써져도 같은 값이다.
+        assertThat(SignalWeeklyReportService.resolveTargetWeekEnd(LocalDate.of(2026, 8, 28)))
+                .isEqualTo(SignalWeeklyReportService.resolveTargetWeekEnd(LocalDate.of(2026, 8, 30)));
+    }
+
+    @Test
+    @DisplayName("락을 못 잡으면 조용히 물러난다 — 본 크론이 이미 돌고 있는 경우")
+    void catchUpBacksOffWhenLocked() {
+        LocalDate friday = LocalDate.of(2026, 8, 28);
+        when(weeklyRepository.findByWeekStart(any())).thenReturn(java.util.Optional.empty());
+        when(schedulerLockService.tryLock(any(), any())).thenReturn(false);
+
+        service(friday).weeklyReportCatchUp();
+
+        verify(weeklyRepository, org.mockito.Mockito.never()).save(any());
+    }
 }

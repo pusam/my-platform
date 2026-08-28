@@ -26,6 +26,23 @@
 
 ```yaml
 flags:
+  - id: weekly-report-week-hole-2026-08-16
+    severity: warning
+    title: 주간 리포트에 8/16 주 구멍 — 따라잡기로는 안 메워진다
+    key: 주간측정
+    body: >
+      2026-08-28 dead-man switch 경보(11.6일 경과)의 실체. 원인은 8/20~24 서버 다운으로
+      8/23(일) 18:00 크론이 통째로 빠진 것이다. 같은 날 따라잡기 크론(월~토 18:30)을 넣었으나
+      **그것으로 8/16 주가 복구되지는 않는다** — resolveTargetWeekEnd 는 today 기준이라
+      8/23 크론이 만들었을 주(8/10~8/16)와 8/28 따라잡기가 만드는 주(8/17~8/23)가 다르다.
+      즉 weekly 스냅샷 시계열에 8/16 주 한 칸이 비어 있고, 12주 추세(findTop12)를 볼 때
+      그 구멍이 그대로 보인다.
+      메우려면 generateWeeklyReport 에 대상 주를 파라미터로 넘길 수 있어야 하는데,
+      그때 cumulative 를 '그 주 시점'으로 계산할지 '오늘 시점'으로 할지가 측정 의미를 바꾼다 —
+      산식 판단이라 사람이 정할 일이다. 그때까지 12주 추세 해석 시 8/16 결측을 인지할 것.
+    recorded_on: 2026-08-28
+    ref: SignalWeeklyReportService.weeklyReportCatchUp, SignalWeeklyReportServiceTest catchUpFillsCurrentTargetNotTheMissedWeek
+
   - id: turnaround-rule-too-loose
     severity: warning
     title: TURNAROUND 규칙이 느슨해 earnings 변별력의 바닥을 만든다
