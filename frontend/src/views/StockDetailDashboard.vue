@@ -331,7 +331,11 @@
           <!-- 투자자별 수급 막대 차트 -->
           <div class="investor-section">
             <div class="supply-header">
-              <h3>투자자별 수급</h3>
+              <!--
+                '당일'을 제목에 박는다(2026-08-28). 상단 지표 바의 "외국인"은 5일 누적이라
+                같은 화면에 이름이 같고 값이 다른 두 숫자가 있었다(실측 018260 — 211억 vs 20억).
+              -->
+              <h3>투자자별 수급 <small class="scope-tag">당일</small></h3>
               <span class="data-source-badge" :class="supplySourceClass">
                 {{ supplyDemand?.dataSource || '대기' }}
               </span>
@@ -1779,6 +1783,13 @@ onUnmounted(() => {
 
 /* 기간 토글 + 60봉 dense 모드 (봉 폭 축소) */
 .ind-toggle.period-toggle.active { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.35); color: rgba(255,255,255,0.85); }
+.scope-tag {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.45);
+}
+
 .panel-fail {
   margin: 0 0 10px;
   padding: 7px 11px;

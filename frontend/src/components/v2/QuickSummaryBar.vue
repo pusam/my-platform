@@ -18,7 +18,12 @@
       <span class="qs-sub">{{ getQsMaDisparity() }}</span>
     </div>
     <div class="qs-item">
-      <span class="qs-label">외국인</span>
+      <!--
+        기간을 라벨에 박는다(2026-08-28). 이 값은 "최근 10일 창에서 이 종목이 순매수 상위20에
+        진입한 날 최대 5일의 합"인데 라벨이 그냥 "외국인"이라, 같은 페이지 본문의 '당일' 수급 바와
+        11배 차이가 나면서도 이름이 같았다(실측 018260 — 여기 +211억 / 본문 +20억).
+      -->
+      <span class="qs-label" :title="SUPPLY_SCOPE_HINT">외국인 5일</span>
       <span class="qs-value" :class="getQsForeignClass()">
         {{ getQsForeignLabel() }}
       </span>
@@ -26,7 +31,7 @@
       <span v-if="getQsForeignStreak()" class="qs-streak">{{ getQsForeignStreak() }}</span>
     </div>
     <div class="qs-item">
-      <span class="qs-label">기관</span>
+      <span class="qs-label" :title="SUPPLY_SCOPE_HINT">기관 5일</span>
       <span class="qs-value" :class="getQsInstClass()">
         {{ getQsInstLabel() }}
       </span>
@@ -58,6 +63,15 @@
 </template>
 
 <script setup>
+/**
+ * 수급 값의 표본 제약 — 툴팁으로만 노출한다(라벨에 다 쓰면 칸이 넘친다).
+ *
+ * 원천이 KIS "순매수 상위 20위" API 라, 이 종목이 그날 상위권에 못 들면 그날은 표본에서 빠진다.
+ * 즉 "5일"은 거래일 5일이 아니라 **진입일 최대 5일**이다.
+ */
+const SUPPLY_SCOPE_HINT =
+  '최근 10일 창에서 순매수 상위20에 진입한 날 최대 5일의 합 — 거래일 5일이 아니다';
+
 const props = defineProps({
   hasData: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
