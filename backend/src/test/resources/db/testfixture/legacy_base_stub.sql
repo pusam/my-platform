@@ -88,8 +88,11 @@ CREATE TABLE bot_config (
 --   → 이 테이블은 레거시 ddl-auto 소유라 어떤 마이그레이션도 CREATE 하지 않는다.
 --     V56 이 처음으로 이 테이블을 건드리면서 스텁 부재가 드러났다(2026-08-28).
 --     V56 이 실제로 갱신하는 6개 금액 컬럼만 넣는다.
+-- V57 은 writer 구분에 report_date·market_cap 을 쓴다(네이버 크롤 행만 되돌리기).
 CREATE TABLE stock_financial_data (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    report_date DATE,
+    market_cap DECIMAL(15,2),
     revenue DECIMAL(15,2),
     operating_profit DECIMAL(15,2),
     net_income DECIMAL(15,2),
