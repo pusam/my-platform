@@ -170,4 +170,57 @@ class EarningSurpriseQuarterlySourceTest {
         org.mockito.Mockito.verify(legacy).findLatestTwoQuartersPerStock();
         org.mockito.Mockito.verify(quarterlyRepo, org.mockito.Mockito.never()).findAllSince(any());
     }
+    @Test
+    @DisplayName("2분기 연속 적자 후 흑자 = 진짜 TURNAROUND")
+    void consecutiveLossThenProfitIsTurnaround() {
+        List<EarningSurpriseDto> out = runWith(
+                q(2, "10000", "-50", "-40", false),    // prev2 적자
+                q(1, "11000", "-20", "-15", false),    // prev 적자
+                q(0, "12000", "80", "60", false));     // latest 흑자
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.TURNAROUND);
+    }
+
+    @Test
+    @DisplayName("한 분기만 적자면 서프라이즈가 아니다 — 실측 209건 중 111건이 이 부류였다")
+    void singleQuarterBlipIsNotASurprise() {
+        List<EarningSurpriseDto> out = runWith(
+                q(2, "10000", "70", "55", false),      // prev2 흑자 ← 여기가 차이
+                q(1, "11000", "-20", "-15", false),    // prev 적자(한 분기 삐끗)
+                q(0, "12000", "80", "60", false));     // latest 흑자
+
+        assertThat(out).isEmpty();
+    }
+
+    @Test
+    @DisplayName("연속성 미달이면 변화율 경로로도 안 샌다 — 적자 분모는 성장률이 아니다")
+    void blipDoesNotLeakIntoPositivePath() {
+        // 100억 적자 → 1억 흑자면 (1-(-100))/100 = +101% 라 POSITIVE cr>=100 으로 20점을 받는다.
+        // TURNAROUND 만 막고 변화율 경로를 열어두면 효과가 없다.
+        List<EarningSurpriseDto> out = runWith(
+                q(2, "10000", "70", "55", false),      // prev2 흑자 → 삐끗
+                q(1, "11000", "-100", "-80", false),
+                q(0, "12000", "1", "1", false));
+
+        assertThat(out).isEmpty();
+    }
+
+    @Test
+    @DisplayName("적자와 무관한 POSITIVE 는 그대로 — 연속성 조건이 정상 경로를 건드리지 않는다")
+    void normalPositiveIsUntouched() {
+        List<EarningSurpriseDto> out = runWith(
+                q(2, "10000", "60", "50", false),
+                q(1, "11000", "100", "80", false),
+                q(0, "12000", "150", "120", false));   // +50%
+
+        assertThat(out).hasSize(1);
+        assertThat(out.get(0).getSurpriseType()).isEqualTo(SurpriseType.POSITIVE);
+    }
+
+    /** 분기 행을 넣고 detectFromQuarterly 를 돌린다. */
+    private List<EarningSurpriseDto> runWith(StockQuarterlyFinancial... rows) {
+        when(quarterlyRepo.findAllSince(any())).thenReturn(List.of(rows));
+        return service.detectFromQuarterly();
+    }
 }

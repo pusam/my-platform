@@ -43,21 +43,22 @@ flags:
     recorded_on: 2026-08-28
     ref: SignalWeeklyReportService.weeklyReportCatchUp, SignalWeeklyReportServiceTest catchUpFillsCurrentTargetNotTheMissedWeek
 
-  - id: turnaround-rule-too-loose
+  - id: earnings-flag-still-off
     severity: warning
-    title: TURNAROUND 규칙이 느슨해 earnings 변별력의 바닥을 만든다
-    key: R1-후속
+    title: earnings 분기소스 플래그는 여전히 OFF — 켜는 판단만 남았다
+    key: R1
     body: >
-      2026-08-27 입력 복구 후 실측 — 분기경로 scoring 817/2,289(35.7%) 중 TURNAROUND 가 226건(9.9%)이고
-      임계와 무관하다. 임계를 200%까지 올려도 379건 중 226건이 turnaround 라 10%대로 못 내린다.
-      현재 규칙은 prevOp<0 && latestOp>0 을 QoQ 로 판정해 최고점 20점을 준다 —
-      변동성 큰 중소형주가 분기마다 적자·흑자를 오가는 것을 "턴어라운드"로 잡는다.
-      시장의 10%에 최고점을 주는 규칙은 신호가 아니다.
-      후보안 (가) 연간/YoY 기준 (나) 흑자 규모·연속성 하한 (다) 점수 하향.
-      전부 composite 점수를 바꾸므로 실측 분포를 보고 정할 것 — SCHEDULE_DECISIONS turnaround-rule-redesign.
-      ⚠ 이게 정리되기 전엔 recommendation.earnings.quarterly-source 를 켜지 말 것.
-    recorded_on: 2026-08-27
-    ref: EarningSurpriseService.classify, GET /api/diagnostics/earnings-source?compare=true
+      2026-08-28 TURNAROUND 규칙 재설계 완료(후보안 (나) 연속 적자 조건). 실측 209건 중
+      한 분기 삐끗 111건이 최고점 20점을 받던 것을 제거했다. 남은 것은 사람 판단 하나 —
+      recommendation.earnings.quarterly-source 를 true 로 켜는 것.
+      켜면 composite 총점·validCount·후보 수가 동시에 움직이므로 켠 날짜가 측정 표본의 경계다.
+      ⚠ 임계(±20%)는 일부러 안 건드렸다. 어느 값이 옳은지는 forward 성과 측정이 필요하고,
+      근거 없이 올리면 ±20% 처럼 출처 없는 상수가 하나 더 생긴다. 켠 뒤 표본이 쌓이면 그때 잰다.
+      켜는 법 — .env 에 RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE=true 후 docker compose up -d backend
+      (restart 아님, recreate). 켜기 전 GET /api/diagnostics/earnings-source?compare=true 로
+      turnaroundBreakdown 과 sweep 을 다시 확인할 것.
+    recorded_on: 2026-08-28
+    ref: EarningSurpriseService.classifyQuarterly, docs/SCHEDULE_DECISIONS.md turnaround-rule-redesign
 
   - id: financial-unit-100x
     severity: warning

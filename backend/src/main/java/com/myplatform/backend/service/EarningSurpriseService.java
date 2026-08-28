@@ -137,18 +137,23 @@ public class EarningSurpriseService {
                             q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
                     .collect(Collectors.toList());
 
-            QuarterlyFinancials.Figures[] pair =
-                    QuarterlyFinancials.latestAdjacentPair(QuarterlyFinancials.toIndividualQuarters(raw));
+            List<QuarterlyFinancials.Figures> individuals = QuarterlyFinancials.toIndividualQuarters(raw);
+            QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(individuals);
             if (pair == null) { notEnough++; continue; }
 
             if (pair[0].periodEnd().isBefore(today.minusDays(QUARTER_MAX_AGE_DAYS))) { stale++; continue; }
 
+            // 연속 적자 판정용 — 3분기 연속을 못 구하면 null(실측 0건)
+            QuarterlyFinancials.Figures[] triple = QuarterlyFinancials.latestAdjacentTriple(individuals);
+            BigDecimal prev2Op = (triple == null) ? null : triple[2].operatingProfit();
+
             String code = e.getKey();
             String name = stockMasterService.getNameOrDefault(code, code);
             String market = stockMasterService.getMarket(code);
-            EarningSurpriseDto dto = classify(
+            EarningSurpriseDto dto = classifyQuarterly(
                     toPeriod(code, name, market, pair[0]),
-                    toPeriod(code, name, market, pair[1]));
+                    toPeriod(code, name, market, pair[1]),
+                    prev2Op);
             if (dto != null) surprises.add(dto);
         }
 
@@ -244,6 +249,40 @@ public class EarningSurpriseService {
                 new Period(previous.getStockCode(), previous.getStockName(), previous.getMarket(),
                         previous.getReportDate(), previous.getRevenue(),
                         previous.getOperatingProfit(), previous.getNetIncome()));
+    }
+
+    /**
+     * 분기 경로 전용 분류 — <b>TURNAROUND 에 연속 적자 조건</b>을 건다(2026-08-28, 후보안 (나)).
+     *
+     * <h4>왜</h4>
+     * 실측: TURNAROUND 209건 중 <b>111건(53%)이 "한 분기만 적자"</b>였다. 그건 턴어라운드가 아니라
+     * 실적이 들쭉날쭉한 회사고, 그런데도 <b>최고점 20점</b>을 받고 있었다
+     * (임계 20%를 겨우 넘긴 POSITIVE 는 8점인데 그 2.5배).
+     *
+     * <h4>왜 "조건 추가"가 아니라 "제외"인가</h4>
+     * TURNAROUND 만 막으면 효과가 없다. {@code prevOp < 0} 이면 변화율이
+     * {@code (latest − prev) / |prev|} 라 <b>적자 규모가 분모</b>가 되어,
+     * 100억 적자 → 1억 흑자가 +101% 로 나오고 POSITIVE 경로에서 똑같이 20점을 받는다.
+     * <b>적자를 기준으로 한 변화율은 성장률이 아니다</b> — 얼마나 깊이 잃었는지의 함수일 뿐이다.
+     * 그래서 연속성 미달이면 변화율로 재분류하지 않고 <b>서프라이즈에서 뺀다.</b>
+     *
+     * <h4>레거시 경로는 무변경</h4>
+     * 일별 스냅샷 경로는 3분기를 못 구하므로 {@link #classify} 를 그대로 쓴다.
+     * 지금 살아 있는 건 레거시라, 이 변경은 <b>플래그를 켤 때만</b> 효과가 생긴다.
+     *
+     * @param prev2Op 직전의 직전 분기 영업이익. null = 3분기 연속 미확보(실측 0건)
+     */
+    EarningSurpriseDto classifyQuarterly(Period latest, Period previous, BigDecimal prev2Op) {
+        BigDecimal latestOp = latest.operatingProfit();
+        BigDecimal prevOp = previous.operatingProfit();
+
+        boolean lossToProfit = latestOp != null && prevOp != null
+                && prevOp.signum() < 0 && latestOp.signum() > 0;
+        if (lossToProfit && (prev2Op == null || prev2Op.signum() >= 0)) {
+            // 한 분기 삐끗이거나 연속성 확인 불가 — 근거 없이 최고점을 주지 않는다(§4c).
+            return null;
+        }
+        return classify(latest, previous);
     }
 
     /**
