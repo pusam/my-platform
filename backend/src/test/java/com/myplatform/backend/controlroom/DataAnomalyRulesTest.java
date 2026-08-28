@@ -177,4 +177,90 @@ class DataAnomalyRulesTest {
             assertThat(DataAnomalyRules.sortBySeverity(null)).isEmpty();
         }
     }
+    @Nested
+    @DisplayName("배치 심박")
+    class StaleBatch {
+
+        private static final java.time.Instant NOW = java.time.Instant.parse("2026-08-28T00:05:00Z");
+        private static final java.time.Instant LAST = java.time.Instant.parse("2026-08-16T09:00:00Z");
+
+        @Test
+        @DisplayName("2026-08-28 실측 재현 — 주간 리포트 11.6일 경과면 울린다")
+        void reproducesTheRealIncident() {
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.staleBatch(
+                    "weekly-report", "시그널 주간 리포트(일 18:00)", "STALE", LAST, 9, NOW);
+
+            assertThat(a).isNotNull();
+            assertThat(a.severity()).isEqualTo(DataAnomalyRules.CRITICAL);
+            assertThat(a.title()).contains("11.6일 경과");
+            // 주 1회 잡이 왜 매일 울리는지까지 설명해야 다음 사람이 안 헤맨다
+            assertThat(a.detail()).contains("주 1회");
+        }
+
+        @Test
+        @DisplayName("OK 면 조용하다")
+        void okIsSilent() {
+            assertThat(DataAnomalyRules.staleBatch("k", "L", "OK", NOW, 9, NOW)).isNull();
+        }
+
+        @Test
+        @DisplayName("MISSING(콜드스타트)·UNKNOWN(감시 시스템 장애)은 이상이 아니다 — 배치 사망으로 위장 금지")
+        void missingAndUnknownAreNotAnomalies() {
+            assertThat(DataAnomalyRules.staleBatch("k", "L", "MISSING", null, 9, NOW)).isNull();
+            assertThat(DataAnomalyRules.staleBatch("k", "L", "UNKNOWN", null, 9, NOW)).isNull();
+        }
+
+        @Test
+        @DisplayName("키가 잡별로 갈린다 — 두 배치가 동시에 죽으면 두 건으로 보여야 한다")
+        void keyIsPerJob() {
+            assertThat(DataAnomalyRules.staleBatch("a", "A", "STALE", LAST, 9, NOW).key())
+                    .isNotEqualTo(DataAnomalyRules.staleBatch("b", "B", "STALE", LAST, 9, NOW).key());
+        }
+    }
+
+    @Nested
+    @DisplayName("주간 스냅샷 구멍")
+    class WeeklyGap {
+
+        private java.time.LocalDate d(String s) { return java.time.LocalDate.parse(s); }
+
+        @Test
+        @DisplayName("2026-08-28 실사고 재현 — 8/10 주가 빠진 것을 잡는다")
+        void reproducesTheRealIncident() {
+            // 8/16(일) 크론이 8/03 주를 만들고, 8/23(일) 크론이 서버 다운으로 빠졌다.
+            // 그래서 8/10 주 시작일이 시계열에서 통째로 없다.
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.weeklySnapshotGap(
+                    List.of(d("2026-08-17"), d("2026-08-03"), d("2026-07-27")));
+
+            assertThat(a).isNotNull();
+            assertThat(a.severity()).isEqualTo(DataAnomalyRules.WARNING);
+            assertThat(a.title()).contains("1주 구멍");
+            assertThat(a.evidence()).contains("2026-08-10");
+        }
+
+        @Test
+        @DisplayName("7일 간격이 이어지면 조용하다")
+        void continuousIsSilent() {
+            assertThat(DataAnomalyRules.weeklySnapshotGap(
+                    List.of(d("2026-08-17"), d("2026-08-10"), d("2026-08-03")))).isNull();
+        }
+
+        @Test
+        @DisplayName("여러 주가 빠지면 전부 센다")
+        void countsMultipleGaps() {
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.weeklySnapshotGap(
+                    List.of(d("2026-08-24"), d("2026-08-03")));   // 08-10, 08-17 두 주 결측
+
+            assertThat(a.title()).contains("2주 구멍");
+            assertThat(a.evidence()).contains("2026-08-10").contains("2026-08-17");
+        }
+
+        @Test
+        @DisplayName("스냅샷이 0~1개면 판정 불가 — 간격을 만들 수 없다")
+        void tooFewIsSilent() {
+            assertThat(DataAnomalyRules.weeklySnapshotGap(null)).isNull();
+            assertThat(DataAnomalyRules.weeklySnapshotGap(List.of())).isNull();
+            assertThat(DataAnomalyRules.weeklySnapshotGap(List.of(d("2026-08-17")))).isNull();
+        }
+    }
 }

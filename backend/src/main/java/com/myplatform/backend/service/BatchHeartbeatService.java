@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -116,6 +117,41 @@ public class BatchHeartbeatService {
             }
         }
     }
+
+    /**
+     * 잡별 심박 현황 — <b>읽기 전용</b>. 관제실이 화면에 띄우려고 쓴다(2026-08-28).
+     *
+     * <p><b>왜 필요한가</b>: dead-man switch 결과가 <b>텔레그램으로만</b> 가고 화면엔 없었다.
+     * 2026-08-28 주간 리포트 경보가 4일 연속 왔는데, 원인(8/23 일요일 크론 미실행)을 알아내려면
+     * 코드·로그·DB 를 뒤져야 했다. 관제실에 있었으면 한눈에 끝났을 일이다.
+     *
+     * <p>Redis 조회 실패는 <b>UNKNOWN 으로 남긴다</b> — 감시 시스템 자신의 장애를
+     * "배치 사망"으로 위장하지 않는다(§4c). 경보 로직과 같은 원칙.
+     */
+    public List<HeartbeatView> currentHeartbeats() {
+        List<HeartbeatView> out = new ArrayList<>();
+        Instant now = Instant.now(clock);
+        for (JobSpec job : JOBS) {
+            if (redis == null) {
+                out.add(new HeartbeatView(job.key(), job.label(), null, "UNKNOWN", job.maxAge().toDays()));
+                continue;
+            }
+            try {
+                Instant last = parseInstant(job.key(), redis.opsForValue().get(KEY_PREFIX + job.key()));
+                out.add(new HeartbeatView(job.key(), job.label(), last,
+                        judge(last, now, job.maxAge()).name(), job.maxAge().toDays()));
+            } catch (Exception e) {
+                out.add(new HeartbeatView(job.key(), job.label(), null, "UNKNOWN", job.maxAge().toDays()));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * @param verdict {@code OK} | {@code STALE} | {@code MISSING}(콜드스타트) | {@code UNKNOWN}(조회 실패)
+     */
+    public record HeartbeatView(String key, String label, Instant lastSuccess,
+                                String verdict, long maxAgeDays) {}
 
     enum Verdict { OK, MISSING, STALE }
 

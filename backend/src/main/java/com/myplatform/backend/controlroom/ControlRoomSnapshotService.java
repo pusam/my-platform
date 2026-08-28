@@ -11,6 +11,7 @@ import com.myplatform.backend.repository.RecommendationSnapshotRepository;
 import com.myplatform.backend.repository.SignalWeeklyAccuracyRepository;
 import com.myplatform.backend.repository.VirtualAccountRepository;
 import com.myplatform.backend.repository.VirtualTradeHistoryRepository;
+import com.myplatform.backend.service.BatchHeartbeatService;
 import com.myplatform.backend.service.DailyLossBreakerService;
 import com.myplatform.backend.service.JudgmentBoardService;
 import com.myplatform.backend.service.MarketCalendarService;
@@ -84,6 +85,7 @@ public class ControlRoomSnapshotService {
     private final RecommendationSnapshotRepository recommendationSnapshotRepository;
     private final com.myplatform.backend.repository.StockFinancialDataRepository financialDataRepository;
     private final com.myplatform.backend.repository.StockQuarterlyFinancialRepository quarterlyRepository;
+    private final org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider;
     private final MarketCalendarService marketCalendar;
     private final RecommendationService recommendationService;
     private final CrewProperties crewProperties;
@@ -113,6 +115,7 @@ public class ControlRoomSnapshotService {
                                       RecommendationSnapshotRepository recommendationSnapshotRepository,
                                       com.myplatform.backend.repository.StockFinancialDataRepository financialDataRepository,
                                       com.myplatform.backend.repository.StockQuarterlyFinancialRepository quarterlyRepository,
+                                      org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -131,6 +134,7 @@ public class ControlRoomSnapshotService {
         this.recommendationSnapshotRepository = recommendationSnapshotRepository;
         this.financialDataRepository = financialDataRepository;
         this.quarterlyRepository = quarterlyRepository;
+        this.heartbeatProvider = heartbeatProvider;
         this.marketCalendar = marketCalendar;
         this.recommendationService = recommendationService;
         this.crewProperties = crewProperties;
@@ -221,6 +225,22 @@ public class ControlRoomSnapshotService {
                     quarterlyRepository.findMaxPeriodEnd().orElse(null), today));
             found.add(DataAnomalyRules.staleCollection(
                     quarterlyRepository.findMaxCollectedAt().orElse(null), now));
+
+            // 배치 심박 — dead-man switch 결과를 화면으로(2026-08-28). 텔레그램에만 가던 것.
+            BatchHeartbeatService heartbeat = heartbeatProvider == null ? null : heartbeatProvider.getIfAvailable();
+            if (heartbeat != null) {
+                java.time.Instant instantNow = java.time.Instant.now(clock);
+                for (BatchHeartbeatService.HeartbeatView hb : heartbeat.currentHeartbeats()) {
+                    found.add(DataAnomalyRules.staleBatch(hb.key(), hb.label(), hb.verdict(),
+                            hb.lastSuccess(), hb.maxAgeDays(), instantNow));
+                }
+            }
+
+            // 주간 예측력 스냅샷 시계열 구멍 — 주 1회 크론을 놓치면 그 주가 통째로 빠진다.
+            found.add(DataAnomalyRules.weeklySnapshotGap(
+                    weeklyRepository.findTop12ByOrderByWeekStartDesc().stream()
+                            .map(com.myplatform.backend.entity.SignalWeeklyAccuracy::getWeekStart)
+                            .toList()));
 
             List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
             return new ControlRoomSnapshotDto.Anomalies(true, items, now,

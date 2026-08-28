@@ -141,6 +141,80 @@ public final class DataAnomalyRules {
                 lastCollectedAt + " (" + hours + "시간 경과)");
     }
 
+    // ==================== ⑤ 배치 심박 ====================
+
+    /**
+     * 크론이 죽었는지 — dead-man switch 결과를 <b>화면으로</b> 옮긴다(2026-08-28).
+     *
+     * <p><b>왜 필요한가</b>: 심박 판정은 이미 있었지만 <b>텔레그램으로만</b> 갔다.
+     * 2026-08-28 주간 리포트 경보가 4일 연속 왔는데 원인(8/23 일요일 크론 미실행)을 알아내려면
+     * 코드·로그·DB 를 뒤져야 했다 — 관제실에 있었으면 한눈에 끝났을 일이다.
+     * "알림은 오는데 화면엔 없다"가 이 규칙이 없앤 상태다.
+     *
+     * <p>{@code MISSING}(콜드스타트)과 {@code UNKNOWN}(Redis 조회 실패)은 <b>이상이 아니다</b> —
+     * 전자는 아직 한 번도 안 돈 것이고 후자는 감시 시스템 자신의 장애다. 배치 사망으로 위장하지 않는다(§4c).
+     *
+     * @param verdict     {@code OK} | {@code STALE} | {@code MISSING} | {@code UNKNOWN}
+     * @param lastSuccess null 가능(MISSING/UNKNOWN)
+     */
+    public static Anomaly staleBatch(String jobKey, String label, String verdict,
+                                     java.time.Instant lastSuccess, long maxAgeDays,
+                                     java.time.Instant now) {
+        if (!"STALE".equals(verdict)) return null;
+
+        String elapsed = (lastSuccess != null && now != null)
+                ? String.format("%.1f일 경과", java.time.Duration.between(lastSuccess, now).toHours() / 24.0)
+                : "경과 불명";
+        return new Anomaly(CRITICAL, "batch-stale-" + jobKey,
+                label + " 심박이 끊겼다 (" + elapsed + ")",
+                "마지막 성공 이후 임계(" + maxAgeDays + "일)를 넘겼다. 에러 알림이 없었다는 것은 성공의 근거가 아니다"
+                        + "(크론 스레드가 죽으면 실패 알림조차 안 난다). "
+                        + "⚠ 주 1회 잡은 한 번만 놓쳐도 임계를 넘고 다음 주기까지 매일 경보가 반복된다 — "
+                        + "2026-08-28 주간 리포트가 그랬다(8/20~24 서버 다운으로 8/23 일요일 실행 소실). "
+                        + "확인 — docker compose logs backend | grep 해당 배치명.",
+                (lastSuccess != null ? "마지막 성공 " + lastSuccess + " · " : "") + elapsed
+                        + " (임계 " + maxAgeDays + "일)");
+    }
+
+    // ==================== ⑥ 주간 스냅샷 구멍 ====================
+
+    /**
+     * 주간 예측력 스냅샷 시계열에 <b>빠진 주</b>가 있는지 — 2026-08-28 실사고.
+     *
+     * <p>주간 리포트는 주 1회 크론이라 그 시각에 서버가 죽으면 그 주가 통째로 빠진다.
+     * 따라잡기({@code weeklyReportCatchUp})는 <b>"지금 기준 직전 완료 주"</b>만 채우므로
+     * 이미 생긴 과거 구멍은 메우지 못한다 — 그래서 <b>보이게 만든다.</b>
+     *
+     * <p>구멍이 있으면 12주 추세(findTop12)가 실제보다 짧은 기간을 보게 되고,
+     * 주차 비교가 인접 주가 아닌 것을 인접으로 읽는다.
+     *
+     * @param weekStartsDesc 스냅샷 weekStart 목록(최신순). 7일 간격이 아니면 구멍이다
+     */
+    public static Anomaly weeklySnapshotGap(List<java.time.LocalDate> weekStartsDesc) {
+        if (weekStartsDesc == null || weekStartsDesc.size() < 2) return null;
+
+        List<java.time.LocalDate> missing = new ArrayList<>();
+        for (int i = 0; i < weekStartsDesc.size() - 1; i++) {
+            java.time.LocalDate newer = weekStartsDesc.get(i);
+            java.time.LocalDate older = weekStartsDesc.get(i + 1);
+            if (newer == null || older == null) continue;
+            long days = java.time.temporal.ChronoUnit.DAYS.between(older, newer);
+            // 7일이 정상. 14·21일이면 그 사이 주가 빠진 것이다.
+            for (long d = 7; d < days; d += 7) missing.add(older.plusDays(d));
+        }
+        if (missing.isEmpty()) return null;
+
+        return new Anomaly(WARNING, "weekly-snapshot-gap",
+                "주간 예측력 스냅샷에 " + missing.size() + "주 구멍",
+                "주 1회 크론이 그 시각에 못 돌면 그 주가 통째로 빠진다. 따라잡기는 '지금 기준 직전 완료 주'만 "
+                        + "채우므로 이미 생긴 과거 구멍은 안 메워진다. 12주 추세를 볼 때 실제보다 짧은 기간을 "
+                        + "보게 되고, 주차 비교가 인접하지 않은 주를 인접으로 읽는다. "
+                        + "메우려면 generateWeeklyReport 에 대상 주를 넘길 수 있어야 하는데 그때 cumulative 를 "
+                        + "'그 주 시점'으로 할지 '오늘 시점'으로 할지가 측정 의미를 바꾼다 — 산식 판단이다.",
+                "빠진 주 시작일: " + missing.stream().map(String::valueOf)
+                        .collect(java.util.stream.Collectors.joining(", ")));
+    }
+
     /**
      * 규칙 전부를 한 번에 — null(정상)은 빼고 <b>심각도 순</b>으로 돌려준다.
      *
