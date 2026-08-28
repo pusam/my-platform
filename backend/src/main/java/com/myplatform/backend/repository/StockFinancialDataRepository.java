@@ -246,6 +246,35 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     long countFutureDatedRows();
 
     /**
+     * 단위 점검용 — 최신 스냅샷의 <b>매출/시총 비율 중앙값</b>.
+     *
+     * <p>시총은 다른 API 에서 와 단위가 확실하므로, 이 비율이 비정상적으로 작으면
+     * 재무 금액이 배수만큼 작게 저장된 것이다(2026-08-28 100배 사고). 업종 분산에 흔들리지
+     * 않게 평균이 아니라 <b>중앙값</b>을 쓴다.
+     *
+     * <p>둘 다 양수인 행만 본다 — 적자/결측 행이 비율을 오염시키지 않게.
+     */
+    @Query(value = "SELECT AVG(r) FROM ("
+            + "  SELECT s.revenue / s.market_cap AS r,"
+            + "         ROW_NUMBER() OVER (ORDER BY s.revenue / s.market_cap) AS rn,"
+            + "         COUNT(*) OVER () AS cnt"
+            + "  FROM stock_financial_data s"
+            + "  WHERE s.report_date = (SELECT MAX(x.report_date) FROM stock_financial_data x"
+            + "                         WHERE x.report_date <= CURRENT_DATE)"
+            + "    AND s.revenue > 0 AND s.market_cap > 0"
+            + ") t WHERE t.rn IN (FLOOR((t.cnt + 1) / 2), FLOOR((t.cnt + 2) / 2))",
+            nativeQuery = true)
+    Double findMedianRevenueToMarketCap();
+
+    /** 위 중앙값의 표본 수 — 적으면 판정하지 않는다. */
+    @Query(value = "SELECT COUNT(*) FROM stock_financial_data s "
+            + "WHERE s.report_date = (SELECT MAX(x.report_date) FROM stock_financial_data x "
+            + "                       WHERE x.report_date <= CURRENT_DATE) "
+            + "  AND s.revenue > 0 AND s.market_cap > 0",
+            nativeQuery = true)
+    long countUnitSamples();
+
+    /**
      * 마지막 업데이트 시간 조회
      */
     @Query("SELECT MAX(s.updatedAt) FROM StockFinancialData s")

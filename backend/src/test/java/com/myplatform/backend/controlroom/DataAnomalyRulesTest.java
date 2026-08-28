@@ -263,4 +263,41 @@ class DataAnomalyRulesTest {
             assertThat(DataAnomalyRules.weeklySnapshotGap(List.of(d("2026-08-17")))).isNull();
         }
     }
+    @Nested
+    @DisplayName("재무 금액 단위")
+    class UnitMismatch {
+
+        @Test
+        @DisplayName("2026-08-28 실사고 재현 — 100배 작으면 중앙값이 0.005 대로 내려간다")
+        void reproducesTheRealIncident() {
+            // 정상이면 매출/시총 ≈ 0.5. 매출이 100배 작으면 ≈ 0.005.
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.financialUnitMismatch(0.005, 2100);
+
+            assertThat(a).isNotNull();
+            assertThat(a.severity()).isEqualTo(DataAnomalyRules.WARNING);
+            // 한쪽만 고치면 ROE 가 틀어진다는 함정을 문장이 말해야 한다
+            assertThat(a.detail()).contains("ROE");
+            assertThat(a.evidence()).contains("2100");
+        }
+
+        @Test
+        @DisplayName("정상 비율이면 조용하다 — 업종 분산(0.1~5)에 오탐이 없어야 한다")
+        void normalRatioIsSilent() {
+            assertThat(DataAnomalyRules.financialUnitMismatch(0.5, 2100)).isNull();
+            assertThat(DataAnomalyRules.financialUnitMismatch(0.08, 2100)).isNull();
+            assertThat(DataAnomalyRules.financialUnitMismatch(3.2, 2100)).isNull();
+        }
+
+        @Test
+        @DisplayName("표본이 적으면 판정하지 않는다 — 중앙값이 요동친다")
+        void tooFewSamplesIsSilent() {
+            assertThat(DataAnomalyRules.financialUnitMismatch(0.005, 50)).isNull();
+        }
+
+        @Test
+        @DisplayName("중앙값이 null 이면 판정 불가 — 0 으로 세지 않는다(§4c)")
+        void nullMedianIsSilent() {
+            assertThat(DataAnomalyRules.financialUnitMismatch(null, 2100)).isNull();
+        }
+    }
 }

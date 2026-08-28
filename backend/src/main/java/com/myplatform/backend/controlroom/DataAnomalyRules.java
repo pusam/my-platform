@@ -215,6 +215,50 @@ public final class DataAnomalyRules {
                         .collect(java.util.stream.Collectors.joining(", ")));
     }
 
+    // ==================== ⑦ 재무 금액 단위 ====================
+
+    /** 매출/시총 비율 중앙값이 이 값보다 작으면 단위가 어긋난 것으로 본다. */
+    static final double UNIT_RATIO_MIN = 0.02;
+
+    /** 판정에 필요한 최소 표본 — 적으면 중앙값이 요동친다. */
+    static final int UNIT_MIN_SAMPLES = 100;
+
+    /**
+     * 재무 금액 단위가 어긋났는지 — <b>매출/시총 비율의 중앙값</b>으로 본다(2026-08-28).
+     *
+     * <p><b>왜 이 방법인가</b>: 시가총액은 <b>다른 API</b>에서 오고 원 단위가 확실하다.
+     * 매출과 시총의 비율은 업종마다 0.1~5 로 흩어지지만, <b>100배 어긋나면 중앙값이
+     * 0.001 대로 내려간다</b> — 업종 분산으로는 절대 나올 수 없는 값이라 오탐이 없다.
+     * 종목 하나로는 못 잡지만 2,000종목 중앙값이면 확실하다.
+     *
+     * <p><b>실제 사고</b>: 2026-08-28 실측에서 SK하이닉스 2019 매출이 DB 에 2,699 인데
+     * 실제는 26.99조(269,907억)였다. 수집기가 "백만원 → 억원"이라며 /100 을 하는데
+     * KIS 손익계산서 원본이 이미 억원이었다.
+     *
+     * <p>⚠ <b>고칠 때 한쪽만 고치면 안 된다</b> — ROE 는 {@code netIncome / totalEquity} 라
+     * 둘 다 100배 작으면 <b>비율은 우연히 맞다</b>. 손익계산서만 고치면 ROE 가 100배 틀어진다.
+     * 이 규칙은 "어긋났다"까지만 말하고 어느 쪽을 고칠지는 사람이 정한다.
+     *
+     * @param medianRevenueToMarketCap 매출 TTM ÷ 시가총액 의 중앙값(같은 단위 가정)
+     * @param samples                  집계에 쓴 종목 수
+     */
+    public static Anomaly financialUnitMismatch(Double medianRevenueToMarketCap, int samples) {
+        if (medianRevenueToMarketCap == null || samples < UNIT_MIN_SAMPLES) return null;
+        if (medianRevenueToMarketCap >= UNIT_RATIO_MIN) return null;
+
+        return new Anomaly(WARNING, "financial-unit-mismatch",
+                String.format("매출/시총 중앙값 %.4f — 재무 금액 단위 어긋남 의심", medianRevenueToMarketCap),
+                "시가총액은 다른 API 에서 오고 단위가 확실하다. 매출/시총 비율은 업종마다 0.1~5 로 "
+                        + "흩어지지만 중앙값이 " + UNIT_RATIO_MIN + " 아래로 내려가는 것은 업종 분산으로 "
+                        + "설명되지 않는다 — 재무 금액이 배수만큼 작게 저장된 것이다. "
+                        + "2026-08-28 실측: SK하이닉스 2019 매출이 DB 2,699 vs 실제 269,907억(100배). "
+                        + "원인 후보는 수집기의 '백만원 → 억원' /100 인데 KIS 원본이 이미 억원인 경우다. "
+                        + "⚠ 고칠 때 손익계산서만 고치면 ROE(=순이익/자본총계)가 100배 틀어진다 — "
+                        + "두 API 의 단위를 [손익계산서 RAW]·[재무상태표] 로그로 각각 확인한 뒤 함께 고칠 것.",
+                String.format("중앙값 %.4f (표본 %d종목, 임계 %.2f)",
+                        medianRevenueToMarketCap, samples, UNIT_RATIO_MIN));
+    }
+
     /**
      * 규칙 전부를 한 번에 — null(정상)은 빼고 <b>심각도 순</b>으로 돌려준다.
      *

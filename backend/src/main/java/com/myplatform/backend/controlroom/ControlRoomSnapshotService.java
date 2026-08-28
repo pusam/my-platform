@@ -236,6 +236,11 @@ public class ControlRoomSnapshotService {
                 }
             }
 
+            // 재무 금액 단위 — 시총(다른 API, 단위 확실)과의 비율 중앙값으로 배수 어긋남을 잡는다.
+            found.add(DataAnomalyRules.financialUnitMismatch(
+                    financialDataRepository.findMedianRevenueToMarketCap(),
+                    (int) financialDataRepository.countUnitSamples()));
+
             // 주간 예측력 스냅샷 시계열 구멍 — 주 1회 크론을 놓치면 그 주가 통째로 빠진다.
             found.add(DataAnomalyRules.weeklySnapshotGap(
                     weeklyRepository.findTop12ByOrderByWeekStartDesc().stream()
