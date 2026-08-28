@@ -497,6 +497,7 @@ public class EarningSurpriseService {
             long covered = quarterlyRepository.countDistinctStocksSince(
                     LocalDate.now().minusMonths(QUARTER_LOOKBACK_MONTHS));
             cmp.put("quarterlyThreshold", thresholdSweep(quarterly, covered));
+            cmp.put("turnaroundBreakdown", turnaroundBreakdown());
             cmp.put("note", "scoring = POSITIVE+TURNAROUND (composite earnings 8~20점이 붙는 부류). "
                     + "레거시가 0 에 가깝다면 그것이 R1 이 말한 'earnings 死'의 실측이다.");
         } catch (Exception e) {
@@ -520,6 +521,73 @@ public class EarningSurpriseService {
      * <p>TURNAROUND(적자→흑자)는 임계와 무관하므로 따로 센다. 이 값이 크면 임계를 올려도
      * 안 줄어든다는 뜻이고, 그때는 TURNAROUND 규칙 자체를 봐야 한다.
      */
+    /**
+     * TURNAROUND 연속성 분해 — <b>"직전 2분기 연속 적자 조건을 걸면 몇 건 남나"</b>(2026-08-28).
+     *
+     * <p><b>왜</b>: 현재 규칙은 {@code prevOp < 0 && latestOp > 0}(직전 1분기만)이라
+     * 실측 226건(커버리지 2,289의 9.9%)이 나왔고, 임계와 무관해 earnings 변별력의 바닥을 만든다.
+     * 변동성 큰 중소형주가 분기마다 적자·흑자를 오가는 것을 턴어라운드로 잡는 게 원인 후보다.
+     *
+     * <p>규칙을 추측으로 바꾸지 않기 위해 <b>먼저 잰다</b> — 임계 스윕을 만들었을 때와 같은 순서다.
+     * 그때 임계 20%가 근거 없는 상수였던 것을 스윕이 드러냈다.
+     *
+     * <p><b>절대액 하한은 여기서 재지 않는다</b> — 재무 금액 단위가 100배 어긋나 있는 것이
+     * 미해결이라(FLAGGED financial-unit-100x) 절대액 기준은 지금 의미가 없다. 연속성만 본다.
+     */
+    private Map<String, Object> turnaroundBreakdown() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        LocalDate today = LocalDate.now();
+        long consecutive = 0;   // 직전 2분기 연속 적자 → 진짜 턴어라운드 후보
+        long blip = 0;          // 직전 1분기만 적자 → 한 분기 삐끗(변동성)
+        long undecidable = 0;   // 3분기 연속 확보 실패 → 판정 불가(§4c)
+
+        try {
+            List<StockQuarterlyFinancial> rows =
+                    quarterlyRepository.findAllSince(today.minusMonths(QUARTER_LOOKBACK_MONTHS));
+            Map<String, List<StockQuarterlyFinancial>> byStock = rows.stream()
+                    .collect(Collectors.groupingBy(StockQuarterlyFinancial::getStockCode));
+
+            for (Map.Entry<String, List<StockQuarterlyFinancial>> e : byStock.entrySet()) {
+                List<QuarterlyFinancials.Figures> raw = e.getValue().stream()
+                        .map(q -> new QuarterlyFinancials.Figures(
+                                q.getFiscalPeriod(), q.getPeriodEnd(),
+                                q.getRevenue(), q.getOperatingProfit(), q.getNetIncome(), q.isCumulative()))
+                        .collect(Collectors.toList());
+                List<QuarterlyFinancials.Figures> ind = QuarterlyFinancials.toIndividualQuarters(raw);
+
+                QuarterlyFinancials.Figures[] pair = QuarterlyFinancials.latestAdjacentPair(ind);
+                if (pair == null) continue;
+                if (pair[0].periodEnd().isBefore(today.minusDays(QUARTER_MAX_AGE_DAYS))) continue;
+
+                // 현재 규칙이 TURNAROUND 로 잡는 조건과 동일하게 필터
+                BigDecimal latestOp = pair[0].operatingProfit();
+                BigDecimal prevOp = pair[1].operatingProfit();
+                if (latestOp == null || prevOp == null) continue;
+                if (!(prevOp.signum() < 0 && latestOp.signum() > 0)) continue;
+
+                QuarterlyFinancials.Figures[] triple = QuarterlyFinancials.latestAdjacentTriple(ind);
+                BigDecimal prev2Op = (triple == null) ? null : triple[2].operatingProfit();
+                if (prev2Op == null) undecidable++;
+                else if (prev2Op.signum() < 0) consecutive++;
+                else blip++;
+            }
+        } catch (Exception e) {
+            out.put("error", String.valueOf(e.getMessage()));
+            return out;
+        }
+
+        out.put("current", consecutive + blip + undecidable);
+        out.put("consecutiveLoss", consecutive);
+        out.put("singleQuarterBlip", blip);
+        out.put("undecidable", undecidable);
+        out.put("note", "current = 현재 규칙(직전 1분기 적자)이 잡는 건수. "
+                + "consecutiveLoss = 직전 2분기 연속 적자였던 건 — '(나) 연속성 하한' 안을 적용하면 이만큼 남는다. "
+                + "singleQuarterBlip = 한 분기만 적자였던 건(변동성으로 의심되는 부류). "
+                + "undecidable = 3분기 연속을 확보 못해 판정 불가 — 0 으로 세지 말 것(§4c). "
+                + "절대액 하한은 재무 금액 단위 100배 문제가 미해결이라 여기서 재지 않는다.");
+        return out;
+    }
+
     private static Map<String, Object> thresholdSweep(List<EarningSurpriseDto> list, long coveredStocks) {
         Map<String, Object> out = new LinkedHashMap<>();
 

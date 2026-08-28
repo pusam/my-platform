@@ -352,4 +352,59 @@ class QuarterlyFinancialsTest {
             assertThat(QuarterlyFinancials.ttmSum(ind)).isNull();
         }
     }
+    @Nested
+    @DisplayName("연속 3분기 선택 (TURNAROUND 재설계 측정용)")
+    class TripleSelection {
+
+        @Test
+        @DisplayName("연속 3분기면 최신순으로 [latest, prev, prev2]")
+        void picksConsecutiveTriple() {
+            Figures[] t = QuarterlyFinancials.latestAdjacentTriple(List.of(
+                    ind("202412", "900", "-50", "-40"),
+                    ind("202503", "1000", "-30", "-25"),
+                    ind("202506", "1200", "130", "100"),
+                    ind("202509", "1400", "160", "120")));
+
+            assertThat(t).isNotNull();
+            assertThat(t[0].fiscalPeriod()).isEqualTo("202509");
+            assertThat(t[1].fiscalPeriod()).isEqualTo("202506");
+            assertThat(t[2].fiscalPeriod()).isEqualTo("202503");
+        }
+
+        @Test
+        @DisplayName("중간이 비면 null — 건너뛴 비교는 연속성을 증명하지 못한다")
+        void refusesGap() {
+            assertThat(QuarterlyFinancials.latestAdjacentTriple(List.of(
+                    ind("202503", "1000", "-30", "-25"),
+                    ind("202509", "1200", "130", "100"),
+                    ind("202512", "1400", "160", "120")))).isNull();
+        }
+
+        @Test
+        @DisplayName("3분기 미만이면 null — 2분기만으론 '연속 적자'를 못 본다")
+        void needsThree() {
+            assertThat(QuarterlyFinancials.latestAdjacentTriple(List.of(
+                    ind("202506", "1200", "-30", "-25"),
+                    ind("202509", "1400", "160", "120")))).isNull();
+            assertThat(QuarterlyFinancials.latestAdjacentTriple(null)).isNull();
+        }
+
+        @Test
+        @DisplayName("연속 적자 후 흑자와 한 분기 삐끗을 구분할 수 있다 — 재설계의 핵심 구분")
+        void distinguishesConsecutiveLossFromBlip() {
+            // 진짜 턴어라운드: 2분기 연속 적자 → 흑자
+            Figures[] real = QuarterlyFinancials.latestAdjacentTriple(List.of(
+                    ind("202503", "1000", "-40", "-30"),
+                    ind("202506", "1100", "-20", "-15"),
+                    ind("202509", "1300", "90", "70")));
+            assertThat(real[2].operatingProfit().signum()).isNegative();   // prev2 도 적자
+
+            // 변동성: 한 분기만 적자
+            Figures[] blip = QuarterlyFinancials.latestAdjacentTriple(List.of(
+                    ind("202503", "1000", "80", "60"),
+                    ind("202506", "1100", "-20", "-15"),
+                    ind("202509", "1300", "90", "70")));
+            assertThat(blip[2].operatingProfit().signum()).isPositive();   // prev2 는 흑자
+        }
+    }
 }

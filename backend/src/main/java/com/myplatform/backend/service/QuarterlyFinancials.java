@@ -283,6 +283,32 @@ public final class QuarterlyFinancials {
     }
 
     /**
+     * 개별 분기 목록에서 <b>연속된 최신 3분기</b> — TURNAROUND 규칙 재설계 측정용(2026-08-28).
+     *
+     * <p>현재 규칙은 {@code prevOp < 0 && latestOp > 0}(직전 1분기만)이라
+     * <b>한 분기 삐끗한 회사</b>도 턴어라운드로 잡는다. 실측 226건(커버리지의 9.9%)이 그 결과다.
+     * "직전 2분기 연속 적자였나"를 보려면 한 분기 더 필요하다.
+     *
+     * <p>2분기 쌍과 같은 원칙 — <b>중간이 비면 null</b>. 건너뛴 비교는 연속성을 증명하지 못한다.
+     *
+     * @return {@code [latest, prev, prev2]} 또는 조건 미달 시 null
+     */
+    public static Figures[] latestAdjacentTriple(List<Figures> individuals) {
+        if (individuals == null || individuals.size() < 3) return null;
+        List<Figures> asc = new ArrayList<>(individuals);
+        asc.removeIf(f -> f == null || f.periodEnd() == null);
+        if (asc.size() < 3) return null;
+        asc.sort(Comparator.comparing(Figures::periodEnd));
+
+        Figures latest = asc.get(asc.size() - 1);
+        Figures prev = asc.get(asc.size() - 2);
+        Figures prev2 = asc.get(asc.size() - 3);
+        if (!isAdjacentQuarter(prev.periodEnd(), latest.periodEnd())) return null;
+        if (!isAdjacentQuarter(prev2.periodEnd(), prev.periodEnd())) return null;
+        return new Figures[]{latest, prev, prev2};
+    }
+
+    /**
      * 개별 분기 목록에서 <b>비교 가능한 최신 인접 2분기</b>를 고른다.
      *
      * <p>가장 최근 것과 그 3개월 전 것이 모두 있어야 한다. 중간 분기가 결측이면
