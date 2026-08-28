@@ -43,22 +43,21 @@ flags:
     recorded_on: 2026-08-28
     ref: SignalWeeklyReportService.weeklyReportCatchUp, SignalWeeklyReportServiceTest catchUpFillsCurrentTargetNotTheMissedWeek
 
-  - id: earnings-flag-still-off
-    severity: warning
-    title: earnings 분기소스 플래그는 여전히 OFF — 켜는 판단만 남았다
+  - id: earnings-source-switched-2026-08-28
+    severity: info
+    title: 실적 분기소스 켬 (2026-08-28) — 이 날짜가 측정 표본의 경계다
     key: R1
     body: >
-      2026-08-28 TURNAROUND 규칙 재설계 완료(후보안 (나) 연속 적자 조건). 실측 209건 중
-      한 분기 삐끗 111건이 최고점 20점을 받던 것을 제거했다. 남은 것은 사람 판단 하나 —
-      recommendation.earnings.quarterly-source 를 true 로 켜는 것.
-      켜면 composite 총점·validCount·후보 수가 동시에 움직이므로 켠 날짜가 측정 표본의 경계다.
-      ⚠ 임계(±20%)는 일부러 안 건드렸다. 어느 값이 옳은지는 forward 성과 측정이 필요하고,
-      근거 없이 올리면 ±20% 처럼 출처 없는 상수가 하나 더 생긴다. 켠 뒤 표본이 쌓이면 그때 잰다.
-      켜는 법 — .env 에 RECOMMENDATION_EARNINGS_QUARTERLY_SOURCE=true 후 docker compose up -d backend
-      (restart 아님, recreate). 켜기 전 GET /api/diagnostics/earnings-source?compare=true 로
-      turnaroundBreakdown 과 sweep 을 다시 확인할 것.
+      recommendation.earnings.quarterly-source 를 true 로 전환했다. 전환 시점 실측 —
+      커버리지 2,289종목 · TURNAROUND 209→103(연속 적자 조건으로 한 분기 삐끗 106건 제거) ·
+      POSITIVE 625 · NEGATIVE 610 · 임계 ±20% 미변경.
+      **2026-08-28 이후 시그널만 "현재 산식의 성적"이다.** 이전 표본은 earnings 가
+      ~90종목으로만 돌던 시기라 섞으면 안 된다 — 밴드 적중률·대조군 비교·주간 리포트 해석 시 인지할 것.
+      임계(±20%)는 일부러 안 건드렸다. 어느 값이 옳은지는 forward 성과가 필요하고,
+      근거 없이 올리면 출처 없는 상수가 하나 더 생긴다. 재판정일 2026-10-05.
+      되돌리려면 .env 에서 그 줄을 지우고 docker compose up -d backend (restart 아님).
     recorded_on: 2026-08-28
-    ref: EarningSurpriseService.classifyQuarterly, docs/SCHEDULE_DECISIONS.md turnaround-rule-redesign
+    ref: docs/SCHEDULE_DECISIONS.md 판정 기록 2026-08-28
 
   - id: financial-unit-fix-verify
     severity: warning
