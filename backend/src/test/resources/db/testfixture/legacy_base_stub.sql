@@ -83,3 +83,17 @@ CREATE TABLE board (
 CREATE TABLE bot_config (
     id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY
 );
+
+-- V56: `UPDATE stock_financial_data SET revenue = revenue * 100, ...` (재무 금액 100배 보정)
+--   → 이 테이블은 레거시 ddl-auto 소유라 어떤 마이그레이션도 CREATE 하지 않는다.
+--     V56 이 처음으로 이 테이블을 건드리면서 스텁 부재가 드러났다(2026-08-28).
+--     V56 이 실제로 갱신하는 6개 금액 컬럼만 넣는다.
+CREATE TABLE stock_financial_data (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    revenue DECIMAL(15,2),
+    operating_profit DECIMAL(15,2),
+    net_income DECIMAL(15,2),
+    total_assets DECIMAL(15,2),
+    total_equity DECIMAL(15,2),
+    total_debt DECIMAL(15,2)
+);
