@@ -585,15 +585,21 @@ public class StockFinancialDataCollector {
                                     stockCode, rawFigures.size(), individuals.size());
                         }
 
-                        // 단위변환: 합산 후 1회만 /100 (백만원 → 억원)
+                        // ★ 단위: KIS 원본이 이미 **억원**이다 — /100 하지 않는다(2026-08-28 실측 정정).
+                        //   기존엔 "백만원 → 억원"이라며 /100 을 해 모든 금액이 100배 작게 저장됐다.
+                        //   실측 근거: 005930 자본총계/시총 = 0.00377 → PBR 265, 000660 은 477.
+                        //   어떤 회사에도 불가능한 값이고, 시총 단위와 무관하게 확인된다
+                        //   (삼성전자 TTM 매출이 4.85조일 수 없다).
+                        //   ⚠ PBR 일관성 가드(PER×ROE/100)가 그 말도 안 되는 PBR 을 덮어써서
+                        //      화면엔 정상으로 보였다 — 가드가 단위 버그를 가리고 있었다.
                         if (ttmNetIncomeRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("netIncome", ttmNetIncomeRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                            ratios.put("netIncome", ttmNetIncomeRaw);
                         }
                         if (ttmRevenueRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("revenue", ttmRevenueRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                            ratios.put("revenue", ttmRevenueRaw);
                         }
                         if (ttmOperatingProfitRaw.compareTo(BigDecimal.ZERO) != 0) {
-                            ratios.put("operatingProfit", ttmOperatingProfitRaw.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                            ratios.put("operatingProfit", ttmOperatingProfitRaw);
                         }
 
                         // ★ TTM 기준 영업이익률/순이익률 덮어쓰기 (연간 ratio API 값 대체)
@@ -691,13 +697,15 @@ public class StockFinancialDataCollector {
                                 bsDataFound = true;
                                 log.info("[재무상태표] {} - FID_DIV_CLS_CODE={} 데이터 사용 (raw 자본총계: {})", stockCode, divClsCode, totalCptl);
 
-                                // 단위변환: 백만원 → 억원 (손익계산서와 동일)
+                                // ★ 단위: 손익계산서와 동일하게 원본이 이미 억원 — /100 하지 않는다(2026-08-28).
+                                //   ⚠ 둘을 반드시 함께 고쳐야 한다. ROE = 순이익 / 자본총계 라
+                                //      둘 다 100배 작을 땐 비율이 우연히 맞았다. 한쪽만 고치면 ROE 가 100배 틀어진다.
                                 if (totalAset.compareTo(BigDecimal.ZERO) > 0) {
-                                    ratios.put("totalAssets", totalAset.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                                    ratios.put("totalAssets", totalAset);
                                 }
-                                ratios.put("totalEquity", totalCptl.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                                ratios.put("totalEquity", totalCptl);
                                 if (totalLblt.compareTo(BigDecimal.ZERO) > 0) {
-                                    ratios.put("totalDebt", totalLblt.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP));
+                                    ratios.put("totalDebt", totalLblt);
                                 }
 
                                 // ★ totalEquity 기반 ROE 직접 계산 (ratio 추정 대체)
@@ -876,10 +884,15 @@ public class StockFinancialDataCollector {
                 + "모두 비었다. 실제 응답 첫 항목: {}", stockCode, divClsCode, first);
     }
 
-    /** 백만원 → 억원. null 은 null 유지(결측 보존). */
-    private static BigDecimal toEokWon(BigDecimal millionWon) {
-        return millionWon == null ? null
-                : millionWon.divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+    /**
+     * KIS 손익계산서 금액 → 억원. <b>원본이 이미 억원이라 변환하지 않는다</b>(2026-08-28 실측 정정).
+     *
+     * <p>기존엔 "백만원 → 억원"이라며 /100 을 해 모든 금액이 100배 작게 저장됐다.
+     * 이름을 남겨두는 이유는 <b>단위가 어디서 정해지는지</b>를 한 곳에 두기 위함이다 —
+     * KIS 가 단위를 바꾸면 여기만 고친다.
+     */
+    private static BigDecimal toEokWon(BigDecimal raw) {
+        return raw;
     }
 
     /**

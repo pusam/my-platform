@@ -60,25 +60,24 @@ flags:
     recorded_on: 2026-08-28
     ref: EarningSurpriseService.classifyQuarterly, docs/SCHEDULE_DECISIONS.md turnaround-rule-redesign
 
-  - id: financial-unit-100x
+  - id: financial-unit-fix-verify
     severity: warning
-    title: 재무 금액이 100배 작게 저장된다 — 한쪽만 고치면 ROE 가 100배 틀어진다
-    key: toEokWon
+    title: 재무 금액 100배 보정 배포됨 — 다음 배치에서 PBR·BPS 정상화 확인 필요
+    key: V56
     body: >
-      실측 대조(2026-08-27) — SK하이닉스 201912 연간 매출이 DB 에 2,699.07 인데 실제는
-      26조 9,907억이다. 저장값은 raw/100 이므로 raw = 269,907 = 정확히 억원 단위다.
-      즉 수집기가 "백만원 → 억원"이라며 하는 /100 이 손익계산서에는 틀렸다.
-      삼성전자 202512 누적 33,360.59(raw 3,336,059 = 333.6조)도 같은 결론이다.
-      ⚠ 그런데 손익계산서만 고치면 안 된다. ROE = 순이익 / 자본총계 인데 둘 다 100배 작아
-      **비율은 우연히 맞다**. 손익계산서만 100배 키우면 ROE 가 100배 틀어진다.
-      재무상태표(FHKST66430100)의 원본 단위를 따로 확인해야 한다 —
-      삼성에스디에스 BPS(128,198원, 화면 실측)를 역산하면 자본총계 쪽 /100 은 맞아 보이지만
-      BPS 가 현재가 API 에서 왔을 가능성이 남아 확정이 아니다.
-      확인 방법 — docker compose logs backend | grep -E "손익계산서 RAW\] 005930|재무상태표\] 005930"
-      로 두 원본 문자열을 각각 보고, 둘의 단위를 확정한 뒤 함께 고칠 것.
-      2026-08-28 부터 이상 점검이 매출/시총 중앙값으로 이 상태를 자동 감지한다(financial-unit-mismatch).
-    recorded_on: 2026-08-27
-    ref: StockFinancialDataCollector.toEokWon, DataAnomalyRules.financialUnitMismatch
+      2026-08-28 확정 — KIS 손익계산서·재무상태표 원본이 이미 억원인데 수집기가 "백만원 → 억원"이라며
+      /100 을 해서 모든 금액이 100배 작게 저장됐다. 실측: 005930 자본총계/시총 = 0.00377(PBR 265),
+      000660 은 0.0021(PBR 477) — 어떤 회사에도 불가능한 값이다.
+      ⚠ PBR 일관성 가드(PBR ≈ PER × ROE / 100)가 그 PBR 을 덮어써서 화면엔 정상으로 보였다.
+      **가드가 단위 버그를 가리고 있었다** — 그래서 몇 달간 안 드러났다.
+      손익계산서·재무상태표를 **함께** 고쳤다(ROE = 순이익/자본총계 라 둘 다 100배 작을 땐 비율이
+      우연히 맞았고, 한쪽만 고치면 ROE 가 100배 틀어진다). V56 이 기존 행도 ×100 보정한다 —
+      안 하면 최근 10행 합성이 옛 행과 새 행을 섞어 더 나빠진다.
+      확인 방법 — 다음 배치 후 ① 종목상세 BPS·PBR 이 상식 범위인지(삼성전자 PBR 2~3 대)
+      ② [PBR 보정] 경고 로그가 사라졌는지(가드가 더는 발동하지 않아야 한다)
+      ③ 관제실 이상 점검의 financial-unit-mismatch 가 사라졌는지.
+    recorded_on: 2026-08-28
+    ref: V56__fix_financial_amount_unit_100x.sql, StockFinancialDataCollector 단위 주석
 
   - id: future-dated-annual-rows
     severity: info
