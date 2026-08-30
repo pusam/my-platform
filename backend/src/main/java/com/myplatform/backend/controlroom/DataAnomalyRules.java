@@ -259,6 +259,57 @@ public final class DataAnomalyRules {
                         medianRevenueToMarketCap, samples, UNIT_RATIO_MIN));
     }
 
+    // ==================== ⑧ KRX 종목상태 동기화 ====================
+
+    /** 마지막 동기화가 이보다 오래면 게이트가 옛 목록으로 도는 것으로 본다(StockStatusService 와 동일). */
+    static final long STOCK_STATUS_STALE_HOURS = 48;
+
+    /**
+     * 거래정지/상폐 제외 게이트의 원천이 노후인지 — <b>2026-08-31 실사고</b>.
+     *
+     * <p>KRX OTP 획득이 양쪽 시장 다 실패해 종목 목록이 0건이었다. 설계상 기존 목록은
+     * 유지되지만(전면 fail-open 방지), <b>거래정지·상폐 종목이 추천·발굴·봇 유니버스에
+     * 옛 목록 기준으로 남는다.</b>
+     *
+     * <p><b>왜 화면에 필요한가</b>: 이 판정은 이미 있었지만 <b>텔레그램으로만</b> 갔다.
+     * 주간 리포트(8/28)와 완전히 같은 구조다 — "알림은 오는데 화면엔 없다".
+     *
+     * <p>⚠ {@code lastSyncTime} 은 <b>메모리(volatile)</b> 라 재기동마다 리셋된다.
+     * 배포가 잦으면 "부팅 후 성공 0회"가 계속 나와 <b>언제부터 깨졌는지 알 수 없다</b> —
+     * 그래서 detail 에 "재기동 이력을 같이 볼 것"을 적는다.
+     *
+     * @param lastSyncTime null = 이 프로세스에서 한 번도 성공 못 함(고장일 수도, 아직 크론 전일 수도)
+     * @param bootedAt     프로세스 기동 시각 — null 이면 "한 번도 성공"의 의미를 판정하지 않는다
+     */
+    public static Anomaly stockStatusStale(java.time.LocalDateTime lastSyncTime,
+                                           java.time.LocalDateTime bootedAt,
+                                           java.time.LocalDateTime now) {
+        if (now == null) return null;
+
+        if (lastSyncTime == null) {
+            // 기동 직후면 아직 08:30 크론을 못 만난 것일 수 있다 — 고장으로 단정하지 않는다(§4c).
+            if (bootedAt == null || java.time.Duration.between(bootedAt, now).toHours() < 24) return null;
+            return new Anomaly(CRITICAL, "stock-status-never-synced",
+                    "KRX 종목 목록 동기화가 기동 후 한 번도 성공하지 못했다",
+                    "거래정지·상폐 제외 게이트(추천·발굴·봇)가 옛 목록으로 돌고 있다. "
+                            + "동기화는 평일 08:30 이며 OTP 2단계다 — 단발 호출로 되돌리면 세션 거부(LOGOUT)로 죽는다. "
+                            + "확인 — docker compose logs backend | grep 종목상태 에서 OTP 실패 사유를 볼 것"
+                            + "(2026-08-31 부터 status/본문/예외를 WARN 으로 남긴다). "
+                            + "⚠ lastSyncTime 은 메모리라 재기동마다 리셋된다 — 배포가 잦았으면 "
+                            + "'한 번도'가 실제 고장 기간을 뜻하지 않을 수 있다.",
+                    "기동 " + bootedAt + " 이후 성공 0회");
+        }
+
+        long hours = java.time.Duration.between(lastSyncTime, now).toHours();
+        if (hours <= STOCK_STATUS_STALE_HOURS) return null;
+        return new Anomaly(CRITICAL, "stock-status-stale",
+                "KRX 종목 목록이 " + hours + "시간째 갱신되지 않았다",
+                "거래정지·상폐 제외 게이트가 " + hours + "시간 전 목록으로 돌고 있다. "
+                        + "그 사이 정지·상폐된 종목이 추천·발굴·봇 유니버스에 그대로 남는다. "
+                        + "확인 — docker compose logs backend | grep 종목상태 의 OTP 실패 사유.",
+                "마지막 성공 " + lastSyncTime + " (" + hours + "시간 경과)");
+    }
+
     /**
      * 규칙 전부를 한 번에 — null(정상)은 빼고 <b>심각도 순</b>으로 돌려준다.
      *

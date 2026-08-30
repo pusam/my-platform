@@ -26,6 +26,24 @@
 
 ```yaml
 flags:
+  - id: krx-stock-status-sync-down
+    severity: critical
+    title: KRX 종목 목록 동기화 실패 — 거래정지·상폐 게이트가 옛 목록으로 돈다
+    key: OTP
+    body: >
+      2026-08-31 08:30 배치에서 KOSPI·KOSDAQ 양쪽 다 OTP 획득 실패로 0건 수집.
+      설계대로 기존 목록은 유지됐고(전면 fail-open 방지) 시장별 부분 실패 게이트도 작동했으나,
+      **그 사이 정지·상폐된 종목이 추천·발굴·봇 유니버스에 옛 목록 기준으로 남는다.**
+      원인 미확정 — 기존 코드가 OTP 실패 사유를 log.debug 로 삼키고 비정상 응답(200 인데 HTML·빈 본문)은
+      로그조차 없었다. 2026-08-31 수정으로 status/본문 앞부분/예외를 WARN 으로 남긴다.
+      확인 — 다음 08:30 배치 후 docker compose logs backend | grep 종목상태.
+      HTML 이 왔으면 KRX 차단, 4xx/5xx 면 파라미터·엔드포인트 변경, 예외면 네트워크다.
+      ⚠ lastSyncTime 이 메모리(volatile)라 재기동마다 리셋된다 — 8/28~8/31 배포가 잦아
+      "부팅 후 성공 0회"가 실제 고장 기간을 뜻하지 않는다. 언제부터 깨졌는지는 모른다.
+      ⚠ OTP 2단계 패턴을 단발 호출로 되돌리지 말 것(LOGOUT 死패턴, CLAUDE.md).
+    recorded_on: 2026-08-31
+    ref: StockStatusService.fetchOtp, DataAnomalyRules.stockStatusStale
+
   - id: weekly-report-week-hole-2026-08-16
     severity: warning
     title: 주간 리포트에 8/16 주 구멍 — 따라잡기로는 안 메워진다

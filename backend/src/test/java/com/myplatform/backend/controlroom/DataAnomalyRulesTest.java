@@ -300,4 +300,51 @@ class DataAnomalyRulesTest {
             assertThat(DataAnomalyRules.financialUnitMismatch(null, 2100)).isNull();
         }
     }
+    @Nested
+    @DisplayName("KRX 종목상태 동기화")
+    class StockStatusStale {
+
+        private static final java.time.LocalDateTime NOW = java.time.LocalDateTime.of(2026, 8, 31, 9, 0);
+
+        @Test
+        @DisplayName("2026-08-31 실사고 재현 — 기동 후 한 번도 성공 못 하면 울린다")
+        void reproducesTheRealIncident() {
+            // 금요일 15:50 재기동 → 월요일 08:30 OTP 실패 → 여전히 0회
+            java.time.LocalDateTime booted = java.time.LocalDateTime.of(2026, 8, 28, 15, 50);
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.stockStatusStale(null, booted, NOW);
+
+            assertThat(a).isNotNull();
+            assertThat(a.severity()).isEqualTo(DataAnomalyRules.CRITICAL);
+            // 무엇을 확인해야 하는지 + 메모리라 기간을 못 믿는다는 한계까지 담아야 한다
+            assertThat(a.detail()).contains("OTP").contains("재기동");
+        }
+
+        @Test
+        @DisplayName("기동 직후 24시간 안이면 판정하지 않는다 — 아직 08:30 크론을 못 만났을 수 있다")
+        void freshBootIsSilent() {
+            java.time.LocalDateTime booted = NOW.minusHours(3);
+            assertThat(DataAnomalyRules.stockStatusStale(null, booted, NOW)).isNull();
+        }
+
+        @Test
+        @DisplayName("최근 동기화 성공이면 조용하다")
+        void recentSyncIsSilent() {
+            assertThat(DataAnomalyRules.stockStatusStale(NOW.minusHours(1), NOW.minusDays(5), NOW)).isNull();
+        }
+
+        @Test
+        @DisplayName("48시간을 넘으면 울린다 — 그 사이 정지·상폐된 종목이 유니버스에 남는다")
+        void staleSyncFires() {
+            DataAnomalyRules.Anomaly a =
+                    DataAnomalyRules.stockStatusStale(NOW.minusHours(60), NOW.minusDays(10), NOW);
+            assertThat(a).isNotNull();
+            assertThat(a.title()).contains("60시간");
+        }
+
+        @Test
+        @DisplayName("기동 시각을 모르면 '한 번도 성공'을 고장으로 단정하지 않는다(§4c)")
+        void unknownBootIsSilent() {
+            assertThat(DataAnomalyRules.stockStatusStale(null, null, NOW)).isNull();
+        }
+    }
 }

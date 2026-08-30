@@ -267,12 +267,32 @@ public class StockStatusService {
 
             ResponseEntity<String> response = restTemplate.exchange(
                     KRX_OTP_URL, HttpMethod.POST, new HttpEntity<>(params, headers), String.class);
-            if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                String otp = response.getBody().trim();
-                if (!otp.isEmpty() && !otp.contains("<html>")) return otp;
+            // ★ 실패 이유를 남긴다(2026-08-31). 이전엔 예외를 log.debug 로 삼키고
+            //   비정상 응답(200인데 HTML·빈 문자열)은 아무 로그도 없이 null 을 돌려줬다.
+            //   호출부는 "OTP 획득 실패"만 찍어서 **왜 실패했는지 알 방법이 없었다** —
+            //   KRX 차단인지·파라미터 변경인지·네트워크인지 구분이 안 됐다.
+            //   손익계산서 tr_id 사고(2026-08-27)와 같은 부류다.
+            String body = response.getBody();
+            if (response.getStatusCode() != HttpStatus.OK || body == null) {
+                log.warn("[종목상태] KRX {} OTP 응답 비정상 — status={}, body={}",
+                        mktId, response.getStatusCode(), body == null ? "null" : "empty");
+                return null;
             }
+            String otp = body.trim();
+            if (otp.isEmpty()) {
+                log.warn("[종목상태] KRX {} OTP 본문이 비어 있다 — 차단/파라미터 변경 의심", mktId);
+                return null;
+            }
+            if (otp.contains("<html>")) {
+                // 차단 페이지가 200 으로 오는 것이 KRX 의 전형적 거부 방식이다.
+                log.warn("[종목상태] KRX {} OTP 대신 HTML 이 왔다(차단 의심) — 앞부분: {}",
+                        mktId, otp.substring(0, Math.min(160, otp.length())).replaceAll("\s+", " "));
+                return null;
+            }
+            return otp;
         } catch (Exception e) {
-            log.debug("[종목상태] KRX OTP 획득 실패: {}", e.getMessage());
+            log.warn("[종목상태] KRX {} OTP 요청 예외 — {}: {}",
+                    mktId, e.getClass().getSimpleName(), e.getMessage());
         }
         return null;
     }
