@@ -26,26 +26,6 @@
 
 ```yaml
 flags:
-  - id: backend-log-noise-verify
-    severity: warning
-    title: 로그 잡음 정리 — 배포 후 실제 감소량 확인
-    key: 로그잡음
-    body: >
-      ⚠ 먼저 정정 — 앞서 "로그가 밀려 나갔다"고 적은 것은 틀렸다. 보존은 50MB x 5 로 넉넉했고,
-      1,050줄은 그 컨테이너가 산 41분치 전부였다. 내 조회 창(--since 30m / --tail 400)이
-      41분 전 부팅을 벗어났을 뿐이다. 잡음 문제는 실재하지만 원인은 보존이 아니라 발생량이다.
-      실측 기준선 — 1,050줄 / 41분 = 약 25줄/분(하루 3만 줄대). 대부분이 "정상"의 반복이다.
-      조치(2026-08-31) — 분당/30초 주기 경로의 정상 로그를 DEBUG 로 내리고,
-      반복되는 경고는 상태가 바뀔 때만 남기도록 했다(경보를 끈 것이 아니다).
-      시장 타이밍 6줄/분, 스캘핑봇 SKIP 2줄/분, 섹터 랭킹 1줄/분이 대상.
-      검증 — 배포 30분 뒤 아래로 분당 줄 수와 상위 발생원을 다시 잰다.
-      docker compose logs backend --since 30m | wc -l
-      docker compose logs backend --since 30m | sed 's/.*--- \[[^]]*\] //' | awk '{print $1}' | sort | uniq -c | sort -rn | head
-      기대 — 분당 25줄 → 한 자리수. 여전히 크면 남은 상위 발생원을 보고 판단할 것.
-      ⚠ 확인되면 이 항목을 지울 것.
-    recorded_on: 2026-08-31
-    ref: MarketTimingService.changedSinceLast, AutoTradingBotService.logScalpingSkip
-
   - id: krx-feeds-dead-remaining
     severity: warning
     title: 남은 KRX 소비자 2곳도 같은 이유로 죽어 있다 (영향은 제한적)
