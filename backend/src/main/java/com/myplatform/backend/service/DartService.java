@@ -474,13 +474,31 @@ public class DartService {
             "종속회사", "자회사", "타법인", "주식담보제공"
     );
 
+    /**
+     * 같은 위험 공시의 반복 WARN 억제 — (회사|제목) 키로 <b>하루 첫 발견만</b> WARN.
+     *
+     * <p>이 메서드는 공시 조회 응답을 파싱할 때마다 불리므로, 보드·발굴·상세가 같은 종목을
+     * 반복 조회하면 같은 공시가 하루 수백 번 경고됐다(2026-08-31 실측: SK하이닉스 유상증자
+     * 392회). 같은 경고의 반복은 신호가 아니라 잡음이고 다른 로그를 밀어낸다(§5 로그 규칙).
+     * dangerous 플래그·키워드 세팅(판정)은 매번 그대로다 — 로그만 억제.
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, java.time.LocalDate> dangerWarnedOn =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private void checkDangerKeywords(DartDisclosure disclosure) {
         String matched = matchDangerKeyword(disclosure.getReportNm());
         if (matched != null) {
             disclosure.setDangerous(true);
             disclosure.setMatchedKeyword(matched);
-            log.warn("[DART] 위험 공시 발견: {} - {} (키워드: {})",
-                    disclosure.getCorpName(), disclosure.getReportNm(), matched);
+            String key = disclosure.getCorpName() + "|" + disclosure.getReportNm();
+            java.time.LocalDate today = java.time.LocalDate.now();
+            if (today.equals(dangerWarnedOn.put(key, today))) {
+                log.debug("[DART] 위험 공시(기발견): {} - {} (키워드: {})",
+                        disclosure.getCorpName(), disclosure.getReportNm(), matched);
+            } else {
+                log.warn("[DART] 위험 공시 발견: {} - {} (키워드: {})",
+                        disclosure.getCorpName(), disclosure.getReportNm(), matched);
+            }
         }
     }
 
