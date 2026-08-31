@@ -25,4 +25,22 @@ public interface StockCatalystRepository extends JpaRepository<StockCatalyst, Lo
     /** 한 종목의 재료 이력(표시 전용) — 최근 N일(minDate 이상) 최신순. read-only, 신규 classify 없음(§4b). */
     List<StockCatalyst> findByStockCodeAndCatalystDateGreaterThanEqualOrderByCatalystDateDesc(
             String stockCode, LocalDate minDate);
+
+    /** 일별 분류 집계 프로젝션 — 관제실 재료 파이프라인 정지 규칙(⑨) 전용. */
+    interface DailyClassificationStat {
+        LocalDate getDate();
+        long getTotal();
+        long getNoneCount();
+    }
+
+    /** 최근 일별 총 분류 수·NONE 수 (날짜 내림차순) — 전-NONE 정지/유입 정지 감지용(read-only). */
+    @org.springframework.data.jpa.repository.Query(
+            """
+            SELECT c.catalystDate AS date, COUNT(c) AS total,
+                   SUM(CASE WHEN c.catalystType = com.myplatform.backend.entity.StockCatalyst.CatalystType.NONE
+                            THEN 1 ELSE 0 END) AS noneCount
+            FROM StockCatalyst c WHERE c.catalystDate >= :minDate
+            GROUP BY c.catalystDate ORDER BY c.catalystDate DESC
+            """)
+    List<DailyClassificationStat> findDailyStatsSince(LocalDate minDate);
 }

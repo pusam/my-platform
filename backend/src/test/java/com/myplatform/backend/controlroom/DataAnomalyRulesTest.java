@@ -316,7 +316,7 @@ class DataAnomalyRulesTest {
             assertThat(a).isNotNull();
             assertThat(a.severity()).isEqualTo(DataAnomalyRules.CRITICAL);
             // 무엇을 확인해야 하는지 + 메모리라 기간을 못 믿는다는 한계까지 담아야 한다
-            assertThat(a.detail()).contains("OTP").contains("재기동");
+            assertThat(a.detail()).contains("KIS 종목마스터").contains("재기동");
         }
 
         @Test
@@ -345,6 +345,87 @@ class DataAnomalyRulesTest {
         @DisplayName("기동 시각을 모르면 '한 번도 성공'을 고장으로 단정하지 않는다(§4c)")
         void unknownBootIsSilent() {
             assertThat(DataAnomalyRules.stockStatusStale(null, null, NOW)).isNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("⑨ 재료 파이프라인 정지")
+    class CatalystStall {
+
+        private static final LocalDate TODAY = LocalDate.of(2026, 8, 31);
+
+        private DataAnomalyRules.CatalystDayStat day(int daysAgo, long total, long none) {
+            return new DataAnomalyRules.CatalystDayStat(TODAY.minusDays(daysAgo), total, none);
+        }
+
+        @Test
+        @DisplayName("건강 기준선(2026-08-31 prod 실측: NONE 19~50%)은 조용하다")
+        void healthyBaselineIsSilent() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(
+                    day(0, 27, 6), day(3, 13, 5), day(4, 7, 2), day(5, 12, 6));
+            assertThat(DataAnomalyRules.catalystStall(days, TODAY)).isNull();
+        }
+
+        @Test
+        @DisplayName("2026-07-01 실사고 재현 — 연속 전-NONE 이면 울린다")
+        void reproducesTheAllNoneIncident() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(
+                    day(0, 27, 27), day(1, 25, 25), day(2, 28, 28));
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.catalystStall(days, TODAY);
+
+            assertThat(a).isNotNull();
+            assertThat(a.key()).isEqualTo("catalyst-all-none");
+            // 확인 순서(2026-07-01 세 원인)까지 안내해야 한다
+            assertThat(a.detail()).contains("키 배선").contains("인코딩");
+        }
+
+        @Test
+        @DisplayName("90% NONE 이틀이면 충분히 울린다 — 건강 최대치(50%)와 겹칠 수 없다")
+        void ninetyPercentTwoDaysFires() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(
+                    day(0, 20, 19), day(1, 10, 9));
+            assertThat(DataAnomalyRules.catalystStall(days, TODAY)).isNotNull();
+        }
+
+        @Test
+        @DisplayName("하루만 전-NONE 이면 조용하다 — 진짜 뉴스 없는 날일 수 있다")
+        void singleAllNoneDayIsSilent() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(
+                    day(0, 20, 20), day(1, 25, 6), day(2, 27, 8));
+            assertThat(DataAnomalyRules.catalystStall(days, TODAY)).isNull();
+        }
+
+        @Test
+        @DisplayName("표본이 얇은 날(5건 미만)은 판정에 안 끼운다 — 소표본으로 사망 단정 금지")
+        void thinDaysAreExcluded() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(
+                    day(0, 3, 3), day(1, 4, 4), day(2, 2, 2));
+            assertThat(DataAnomalyRules.catalystStall(days, TODAY)).isNull();
+        }
+
+        @Test
+        @DisplayName("유입 정지 — 최신 분류가 4일보다 오래면 울린다(행 자체가 안 쌓이는 죽음)")
+        void inflowStaleFires() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(day(5, 27, 6));
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.catalystStall(days, TODAY);
+
+            assertThat(a).isNotNull();
+            assertThat(a.key()).isEqualTo("catalyst-inflow-stale");
+        }
+
+        @Test
+        @DisplayName("주말+공휴일 연휴(3일 공백)는 정상이다")
+        void holidayGapIsSilent() {
+            List<DataAnomalyRules.CatalystDayStat> days = List.of(
+                    day(3, 27, 6), day(4, 25, 7));
+            assertThat(DataAnomalyRules.catalystStall(days, TODAY)).isNull();
+        }
+
+        @Test
+        @DisplayName("데이터가 아예 없으면 조용하다 — 콜드스타트를 사망으로 위장하지 않는다(§4c)")
+        void emptyIsSilent() {
+            assertThat(DataAnomalyRules.catalystStall(List.of(), TODAY)).isNull();
+            assertThat(DataAnomalyRules.catalystStall(null, TODAY)).isNull();
         }
     }
 }

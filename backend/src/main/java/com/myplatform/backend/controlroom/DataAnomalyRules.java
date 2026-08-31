@@ -290,10 +290,10 @@ public final class DataAnomalyRules {
             // 기동 직후면 아직 08:30 크론을 못 만난 것일 수 있다 — 고장으로 단정하지 않는다(§4c).
             if (bootedAt == null || java.time.Duration.between(bootedAt, now).toHours() < 24) return null;
             return new Anomaly(CRITICAL, "stock-status-never-synced",
-                    "KRX 종목 목록 동기화가 기동 후 한 번도 성공하지 못했다",
+                    "상장종목 목록 동기화가 기동 후 한 번도 성공하지 못했다",
                     "거래정지·상폐 제외 게이트(추천·발굴·봇)가 옛 목록으로 돌고 있다. "
-                            + "동기화는 평일 08:30 이며 OTP 2단계다 — 단발 호출로 되돌리면 세션 거부(LOGOUT)로 죽는다. "
-                            + "확인 — docker compose logs backend | grep 종목상태 에서 OTP 실패 사유를 볼 것"
+                            + "동기화는 부팅 직후 1회 + 평일 08:30 이며 소스는 KIS 종목마스터 파일(2026-08-31 교체 — KRX 경로는 死). "
+                            + "확인 — docker compose logs backend | grep 종목상태 에서 실패 사유를 볼 것(기대 수집량 KOSPI 2,110/KOSDAQ 1,824)"
                             + "(2026-08-31 부터 status/본문/예외를 WARN 으로 남긴다). "
                             + "⚠ lastSyncTime 은 메모리라 재기동마다 리셋된다 — 배포가 잦았으면 "
                             + "'한 번도'가 실제 고장 기간을 뜻하지 않을 수 있다.",
@@ -303,10 +303,10 @@ public final class DataAnomalyRules {
         long hours = java.time.Duration.between(lastSyncTime, now).toHours();
         if (hours <= STOCK_STATUS_STALE_HOURS) return null;
         return new Anomaly(CRITICAL, "stock-status-stale",
-                "KRX 종목 목록이 " + hours + "시간째 갱신되지 않았다",
+                "상장종목 목록이 " + hours + "시간째 갱신되지 않았다",
                 "거래정지·상폐 제외 게이트가 " + hours + "시간 전 목록으로 돌고 있다. "
                         + "그 사이 정지·상폐된 종목이 추천·발굴·봇 유니버스에 그대로 남는다. "
-                        + "확인 — docker compose logs backend | grep 종목상태 의 OTP 실패 사유.",
+                        + "확인 — docker compose logs backend | grep 종목상태 의 실패 사유.",
                 "마지막 성공 " + lastSyncTime + " (" + hours + "시간 경과)");
     }
 
@@ -316,6 +316,75 @@ public final class DataAnomalyRules {
      * <p>화면과 크루 컨텍스트가 같은 순서를 보게 하려는 것이다. 컨텍스트 상한에 걸려 잘릴 때
      * 중요한 것이 남아야 한다(FLAGGED 와 같은 원칙).
      */
+    // ==================== ⑨ 재료(catalyst) 파이프라인 정지 ====================
+
+    /** 유입 정지 판정 임계(달력일) — 주말+공휴일 연휴(3일)를 정상으로 흡수하는 여유값. */
+    static final long CATALYST_STALE_DAYS = 4;
+    /** 전-NONE 판정에 참여하려면 그날 최소 이만큼 분류가 있어야 한다(소표본 잡음 제거). */
+    static final long CATALYST_MIN_ROWS = 5;
+    /** 이 비율 이상이 연속되면 분류가 죽은 것으로 본다. 건강 실측(2026-08-31) 최대 50% — 여유 큼. */
+    static final double CATALYST_NONE_RATIO = 0.9;
+
+    /** 하루치 재료 분류 집계 — date 는 catalyst_date, noneCount 는 type=NONE 행 수. */
+    public record CatalystDayStat(LocalDate date, long total, long noneCount) {}
+
+    /**
+     * 재료 분류 파이프라인이 죽었는지 — 실사고 2026-07-01(7일 연속 100% NONE) 재발 감지.
+     *
+     * <p>그 사고는 세 원인(네이버 키 배선·URL 이중 인코딩·소스다운을 NONE 으로 캐시)이 겹쳐
+     * <b>모든 분류가 NONE</b> 이 됐는데, 행은 매일 쌓여서 "데이터 있음"처럼 보였다 — 커버리지
+     * 숫자로는 안 드러나는 부류다. 두 가지 죽음의 모양을 본다:
+     *
+     * <ul>
+     *   <li><b>전-NONE 정지</b>: 최근 유효일({@code total ≥ 5}) 2일 이상이 전부 NONE ≥ 90% —
+     *       건강 기준선(prod 실측 19~50%)과 겹칠 수 없는 값이다. 하루만으로는 안 울린다
+     *       (진짜 뉴스 없는 날이 있을 수 있다).</li>
+     *   <li><b>유입 정지</b>: 최신 catalyst_date 가 4일보다 오래 — 분류 실패는 캐시하지 않는
+     *       설계(§4b)라 Gemini/네이버가 죽으면 행 자체가 안 쌓인다. 주말+공휴일 3일은 정상.</li>
+     * </ul>
+     *
+     * <p>목록이 비어 있으면 null — 콜드스타트(부트스트랩)를 사망으로 위장하지 않는다(§4c).
+     *
+     * @param recentDesc 최근 일별 집계, 날짜 내림차순
+     */
+    public static Anomaly catalystStall(List<CatalystDayStat> recentDesc, LocalDate today) {
+        if (recentDesc == null || recentDesc.isEmpty() || today == null) return null;
+
+        LocalDate latest = recentDesc.get(0).date();
+        long silentDays = java.time.temporal.ChronoUnit.DAYS.between(latest, today);
+        if (silentDays > CATALYST_STALE_DAYS) {
+            return new Anomaly(WARNING, "catalyst-inflow-stale",
+                    "재료 분류 유입이 " + silentDays + "일째 없음 (최신 " + latest + ")",
+                    "분류 실패는 캐시하지 않는 설계(§4b)라 네이버/Gemini 가 죽으면 행 자체가 안 쌓인다. "
+                            + "주말+공휴일 연휴는 " + CATALYST_STALE_DAYS + "일까지 정상. "
+                            + "확인 — docker compose logs backend | grep -E \"재료|Gemini|Naver\" 로 "
+                            + "429/circuit open/키 미배선 여부를 볼 것(2026-07-01 장애의 세 원인 참조).",
+                    "최신 catalyst_date=" + latest + " (" + silentDays + "일 경과)");
+        }
+
+        List<CatalystDayStat> valid = recentDesc.stream()
+                .filter(d -> d.total() >= CATALYST_MIN_ROWS)
+                .limit(3)
+                .toList();
+        if (valid.size() < 2) return null;   // 유효일 부족 — 판단 보류(침묵), 사망 단정 금지
+
+        boolean allNone = valid.stream()
+                .allMatch(d -> (double) d.noneCount() / d.total() >= CATALYST_NONE_RATIO);
+        if (!allNone) return null;
+
+        String days = valid.stream()
+                .map(d -> d.date() + " " + d.noneCount() + "/" + d.total())
+                .reduce((a, b) -> a + ", " + b).orElse("");
+        return new Anomaly(WARNING, "catalyst-all-none",
+                "재료 분류가 " + valid.size() + "일 연속 사실상 전부 NONE",
+                "건강 기준선은 NONE 19~50%(2026-08-31 실측) — 90% 이상이 이틀 넘게 이어지는 건 "
+                        + "분류가 죽고 껍데기 행만 쌓이는 상태다(2026-07-01 7일 장애의 모양). "
+                        + "행이 매일 쌓여서 커버리지로는 안 드러난다. "
+                        + "확인 — 네이버 키 배선(recreate 필요 여부)·URL 인코딩(%25 이중 인코딩)·"
+                        + "소스다운 시 NONE 캐시 여부(§4b 함정 3종)를 순서대로 볼 것.",
+                days);
+    }
+
     public static List<Anomaly> sortBySeverity(List<Anomaly> found) {
         List<Anomaly> out = new ArrayList<>();
         if (found == null) return out;

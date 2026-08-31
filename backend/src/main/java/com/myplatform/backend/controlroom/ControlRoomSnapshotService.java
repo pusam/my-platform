@@ -87,6 +87,7 @@ public class ControlRoomSnapshotService {
     private final com.myplatform.backend.repository.StockQuarterlyFinancialRepository quarterlyRepository;
     private final org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider;
     private final com.myplatform.backend.service.StockStatusService stockStatusService;
+    private final com.myplatform.backend.repository.StockCatalystRepository catalystRepository;
     /** 프로세스 기동 시각 — "기동 후 한 번도 성공 못 함"을 고장으로 볼지 판단하는 기준. */
     private final java.time.LocalDateTime bootedAt;
     private final MarketCalendarService marketCalendar;
@@ -120,6 +121,7 @@ public class ControlRoomSnapshotService {
                                       com.myplatform.backend.repository.StockQuarterlyFinancialRepository quarterlyRepository,
                                       org.springframework.beans.factory.ObjectProvider<BatchHeartbeatService> heartbeatProvider,
                                       com.myplatform.backend.service.StockStatusService stockStatusService,
+                                      com.myplatform.backend.repository.StockCatalystRepository catalystRepository,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -140,6 +142,7 @@ public class ControlRoomSnapshotService {
         this.quarterlyRepository = quarterlyRepository;
         this.heartbeatProvider = heartbeatProvider;
         this.stockStatusService = stockStatusService;
+        this.catalystRepository = catalystRepository;
         this.bootedAt = LocalDateTime.now(clock);
         this.marketCalendar = marketCalendar;
         this.recommendationService = recommendationService;
@@ -250,6 +253,14 @@ public class ControlRoomSnapshotService {
             // KRX 종목 목록 노후 — 거래정지·상폐 제외 게이트의 원천(2026-08-31 실사고).
             found.add(DataAnomalyRules.stockStatusStale(
                     stockStatusService.getLastSyncTime(), bootedAt, now));
+
+            // 재료 분류 파이프라인 정지 — 2026-07-01 "7일 연속 100% NONE" 재발 감지.
+            found.add(DataAnomalyRules.catalystStall(
+                    catalystRepository.findDailyStatsSince(today.minusDays(10)).stream()
+                            .map(d -> new DataAnomalyRules.CatalystDayStat(
+                                    d.getDate(), d.getTotal(), d.getNoneCount()))
+                            .toList(),
+                    today));
 
             // 주간 예측력 스냅샷 시계열 구멍 — 주 1회 크론을 놓치면 그 주가 통째로 빠진다.
             found.add(DataAnomalyRules.weeklySnapshotGap(

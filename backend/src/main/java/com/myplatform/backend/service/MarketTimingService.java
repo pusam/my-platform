@@ -1083,6 +1083,11 @@ public class MarketTimingService {
         try {
             // 1차: KRX API로 상승/하락 종목 수 수집 시도
             int[] krxResult = collectFromKrxApi(marketType, targetDate);
+            if (krxResult == null) {
+                // §4c(2026-08-31): 실패 시 0/0/0 을 저장하던 것을 중단으로 교체 — 외곽 루프가
+                // 이 날짜를 '실패'로 집계하고 건너뛴다. 가짜 행보다 구멍이 낫다.
+                throw new RuntimeException("KRX 등락 수 미확보 — " + marketType + " " + targetDate);
+            }
             int advancingCount = krxResult[0];
             int decliningCount = krxResult[1];
             int unchangedCount = krxResult[2];
@@ -1177,8 +1182,11 @@ public class MarketTimingService {
      * @return [상승, 하락, 보합] 배열
      */
     private int[] collectFromKrxApi(String marketType, LocalDate targetDate) {
-        int[] result = {0, 0, 0};  // [상승, 하락, 보합]
-
+        // ⚠ 이 경로는 현재 死다(2026-08-31 실측) — getKrxOtp 가 쓰는 /comm/bldAttendant/getOtp.cmd 는
+        //   존재하지 않는 엔드포인트다(없는 경로와 응답이 200/2952바이트 에러페이지로 바이트까지 동일).
+        //   상세·대체 소스 판단은 StockStatusService 상수 주석 참조. 일일 ADR 경로(네이버 크롤)와는
+        //   무관하고, 이 메서드는 수동 백필(collectHistoricalMarketData)만 쓴다.
+        //   백필을 되살리려면 KRX 가 아니라 다른 등락 수 소스가 필요하다.
         try {
             String dateStr = targetDate.format(DateTimeFormatter.BASIC_ISO_DATE);
             String mktId = "KOSPI".equals(marketType) ? "STK" : "KSQ";
@@ -1186,16 +1194,19 @@ public class MarketTimingService {
             // OTP 획득
             String otp = getKrxOtp(mktId, dateStr);
             if (otp == null) {
-                log.debug("KRX OTP 획득 실패 - 기본값 사용");
-                return result;
+                // §4c: 실패를 {0,0,0} 으로 돌려주면 호출측이 "상승 0/하락 0/보합 0"을 **저장**한다 —
+                // 그 행은 ADR 20일 평균에 섞여 지표를 오염시킨다. null = 미수집으로 정직하게.
+                log.warn("KRX 등락 수 미확보({} {}) — 이 날짜 백필 중단(0/0/0 위장 저장 금지)", marketType, targetDate);
+                return null;
             }
 
             // 데이터 요청
             String jsonData = requestKrxData(otp);
             if (jsonData == null) {
-                log.debug("KRX 데이터 요청 실패 - 기본값 사용");
-                return result;
+                log.warn("KRX 데이터 응답 없음({} {}) — 이 날짜 백필 중단", marketType, targetDate);
+                return null;
             }
+            int[] result = {0, 0, 0};  // [상승, 하락, 보합]
 
             // JSON 파싱
             JsonNode root = objectMapper.readTree(jsonData);
@@ -1213,11 +1224,11 @@ public class MarketTimingService {
                         marketType, targetDate, result[0], result[1], result[2]);
             }
 
+            return result;
         } catch (Exception e) {
-            log.debug("KRX API 호출 실패 [{}]: {}", marketType, e.getMessage());
+            log.warn("KRX API 호출 실패 [{}]: {}", marketType, e.getMessage());
+            return null;
         }
-
-        return result;
     }
 
     /**
