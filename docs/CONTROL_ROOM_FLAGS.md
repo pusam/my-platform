@@ -26,23 +26,22 @@
 
 ```yaml
 flags:
-  - id: krx-stock-status-sync-down
+  - id: backend-log-retention-too-short
     severity: warning
-    title: 상장목록 동기화 — 원인 확정(KRX 死), KIS 마스터로 교체, 배포 검증 대기
-    key: 상장목록
+    title: 백엔드 stdout 로그가 ~1,000줄만 남아 부팅 로그를 못 본다
+    key: 로그보존
     body: >
-      원인 확정(2026-08-31 실측). KRX 가 막은 게 아니라 **주소가 없는 곳이었다** —
-      2026-08-21 에 넣은 /comm/bldAttendant/getOtp.cmd 는 존재하지 않는 경로이고,
-      아무 엉터리 경로나 POST 했을 때와 응답이 200/2952바이트 에러페이지로 바이트까지 같다.
-      즉 그 전환 이후 이 동기화는 **한 번도 성공한 적이 없고** 게이트는 계속 fail-open 이었다.
-      진짜 OTP 엔드포인트(/comm/fileDn/GenerateOTP/generate.cmd)도 지금은 LOGOUT 이고
-      세션 쿠키(JSESSIONID·__smVisitorID)를 붙여도 같아서, KRX 쪽엔 되살릴 경로가 없다.
-      조치 — 소스를 KIS 종목마스터 파일로 교체 + 부팅 시 1회 동기화 추가.
-      검증 — 배포 후 로그에 "[종목상태] KOSPI 종목 2110건 / KOSDAQ 1824건 수집"(±소폭)이 뜨면 해소.
-      숫자가 크게 다르면 마스터 레코드 포맷이 바뀐 것이니 파싱을 먼저 볼 것.
-      ⚠ 확인되면 이 항목을 지울 것.
+      2026-08-31 상장목록 건을 확인하려는데 40분 전 부팅 로그가 이미 밀려 나가 있었다
+      (docker compose logs --tail 5000 이 1,050줄만 반환). 결국 재시작해서야 확인했다.
+      원인은 상시 INFO 스팸 — [스캘핑봇] SKIP: botActive=false 가 30초마다,
+      시장 타이밍 분석이 분당 여러 줄. 봇이 꺼져 있는 동안에도 계속 찍힌다.
+      영향은 진단 능력이다. 사고가 나면 "부팅 이후 무슨 일이 있었나"를 못 본다 —
+      이번 달에 두 번 그랬다(8/28 배치 심박, 8/31 종목상태).
+      제안 — ① 봇 비활성 시 SKIP 로그를 DEBUG 로 내리거나 상태 전이에서만 찍기
+      ② docker json-file max-size/max-file 를 명시해 보존량을 정하기.
+      ⚠ 코드 변경은 사람 승인 대기 중(요청 범위 밖이라 제안만 함).
     recorded_on: 2026-08-31
-    ref: StockStatusService.parseMasterCodes, StockStatusServiceTest
+    ref: AutoTradingBotService, docker-compose.yml logging
 
   - id: krx-feeds-dead-remaining
     severity: warning
