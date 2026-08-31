@@ -26,6 +26,22 @@
 
 ```yaml
 flags:
+  - id: external-feed-sweep-2026-08-31
+    severity: info
+    title: 외부 소스 생존 스위프 결과 — 죽은 곳 2, 산식 영향 없음
+    key: 외부소스
+    body: >
+      KRX 건(죽은 엔드포인트가 몇 달 조용히 썩음)을 계기로 코드 안 외부 HTTP 엔드포인트를
+      전수 시험했다(2026-08-31, 키 필요한 DART·네이버검색·KIS 는 로그로 생존 확인).
+      죽은 곳 — ① CNN 공포탐욕(418 "You're a bot" 봇차단): GlobalFuturesPage 표시 전용,
+      실패 처리 정직(success:false, 카드 숨김), 산식 무관. 살리려면 대체 소스가 필요하다.
+      ② 한경 RSS(403 Cloudflare): NewsService 3개 피드 중 하나 — 매경·etnews 는 정상이라
+      뉴스 흐름 유지. 살아있는 곳 — wisereport(분기재무 크롤 92KB)·m.stock API·
+      야후차트(간밤미국장)·네이버 시세크롤(ADR)·구글뉴스RSS·매경·etnews·KIS마스터·KIND.
+      조치 불요 — 둘 다 §4c 준수 확인됨. 대체 소스를 찾으면 그때 별건으로.
+    recorded_on: 2026-08-31
+    ref: GlobalFuturesService.getFearGreedIndex, NewsService RSS_FEEDS
+
   - id: krx-feeds-dead-remaining
     severity: warning
     title: 남은 KRX 소비자 2곳도 같은 이유로 죽어 있다 (영향은 제한적)
