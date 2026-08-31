@@ -427,8 +427,12 @@ public class AiStockAnalysisService {
                 builder.valuationScore(40);
             }
 
-            // PBR
-            if (financial.getPbr() != null) {
+            // PBR — 0 은 "저평가"가 아니라 **결측**이다(§4c).
+            // stock_financial_data 는 파싱 실패를 0 으로 적는다(parseBigDecimal("")=0) — prod 실측
+            // 2026-08-31 기준 당일 1,943행 중 pbr=0 이 128건. 이걸 그대로 넘기면 Gemini 프롬프트에
+            // "PBR: 0.00배"가 실려 LLM 이 극도의 저평가로 읽는다. 바로 위 PER 과 같은 가드를 건다.
+            // 결측은 null 로 두면 아래 프롬프트 조립이 해당 줄을 통째로 생략한다.
+            if (financial.getPbr() != null && financial.getPbr().signum() > 0) {
                 builder.pbr(financial.getPbr().doubleValue());
             }
 
