@@ -76,25 +76,6 @@ flags:
     recorded_on: 2026-08-28
     ref: docs/SCHEDULE_DECISIONS.md 판정 기록 2026-08-28
 
-  - id: financial-unit-fix-verify
-    severity: warning
-    title: 재무 금액 100배 보정 배포됨 — 다음 배치에서 PBR·BPS 정상화 확인 필요
-    key: V56
-    body: >
-      2026-08-28 확정 — KIS 손익계산서·재무상태표 원본이 이미 억원인데 수집기가 "백만원 → 억원"이라며
-      /100 을 해서 모든 금액이 100배 작게 저장됐다. 실측: 005930 자본총계/시총 = 0.00377(PBR 265),
-      000660 은 0.0021(PBR 477) — 어떤 회사에도 불가능한 값이다.
-      ⚠ PBR 일관성 가드(PBR ≈ PER × ROE / 100)가 그 PBR 을 덮어써서 화면엔 정상으로 보였다.
-      **가드가 단위 버그를 가리고 있었다** — 그래서 몇 달간 안 드러났다.
-      손익계산서·재무상태표를 **함께** 고쳤다(ROE = 순이익/자본총계 라 둘 다 100배 작을 땐 비율이
-      우연히 맞았고, 한쪽만 고치면 ROE 가 100배 틀어진다). V56 이 기존 행도 ×100 보정한다 —
-      안 하면 최근 10행 합성이 옛 행과 새 행을 섞어 더 나빠진다.
-      확인 방법 — 다음 배치 후 ① 종목상세 BPS·PBR 이 상식 범위인지(삼성전자 PBR 2~3 대)
-      ② [PBR 보정] 경고 로그가 사라졌는지(가드가 더는 발동하지 않아야 한다)
-      ③ 관제실 이상 점검의 financial-unit-mismatch 가 사라졌는지.
-    recorded_on: 2026-08-28
-    ref: V56__fix_financial_amount_unit_100x.sql, StockFinancialDataCollector 단위 주석
-
   - id: future-dated-annual-rows
     severity: info
     title: 재무 테이블에 미래 날짜(2026-12-31) 행이 342건
