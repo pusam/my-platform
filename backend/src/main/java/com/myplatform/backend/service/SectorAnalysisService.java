@@ -138,7 +138,8 @@ public class SectorAnalysisService {
             cacheTime = LocalDateTime.now();
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("섹터 랭킹 계산 완료: 소요 {}ms, 주도섹터: {}, 상위 {}개, 하위 {}개",
+            // 캐시 워머가 분당 1회 호출한다 — 정상 완료는 DEBUG (2026-08-31 로그 잡음 정리).
+            log.debug("섹터 랭킹 계산 완료: 소요 {}ms, 주도섹터: {}, 상위 {}개, 하위 {}개",
                     elapsed, marketLeader, topSectors.size(), bottomSectors.size());
 
             return result;

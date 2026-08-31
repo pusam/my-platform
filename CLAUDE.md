@@ -109,6 +109,7 @@ Docker Compose: nginx · backend(8080) · python-backend(8000) · mariadb(3306) 
 - 봇은 **Clock 주입**으로 테스트 결정성 확보 — 시간 의존 로직에 `Clock`을 그대로 사용할 것.
 - 캐시 계층 L1 Caffeine → L2 Redis(CacheWarmer 워밍) → L3 MariaDB. 워밍 잡은 `isMarketHours()` 밖이면 early-return. **단 시세(`StockPriceService.getStockPrice`)는 예외 — L1 로컬(ConcurrentHashMap) → DB(MariaDB)만, Redis 비경유**(시세 단일 경로 불변식). 전역 L2=Redis는 섹터/수급/AI전략 등 다른 도메인 캐시.
 - cron 시각들은 튜닝된 값이다. 근거 없이 바꾸지 말 것.
+- **주기 잡의 "정상" 로그는 반복하지 않는다(2026-08-31)**: 분당·30초 주기로 도는 경로(캐시 워머 → `MarketTimingService`, 스캘핑봇 크론, 섹터 랭킹)의 성공 로그는 **DEBUG**, 반복되는 경고는 **상태가 바뀐 순간만 INFO/WARN**(`MarketTimingService.changedSinceLast`, `AutoTradingBotService.logScalpingSkip` — 날짜를 키에 넣어 하루 1회는 보장). **경보를 끄는 게 아니라 중복만 없앤다** — 판정·흐름은 불변이고 메시지 내용도 그대로다. 이유는 진단 능력이다: 정상 로그가 분당 25줄이면 사고 때 "부팅 이후 무슨 일이 있었나"를 스크롤로 못 찾고, 같은 경고가 하루 1,400줄이면 사람이 읽지 않게 된다. ⚠ 실패·이상 로그를 DEBUG 로 내리는 것은 이 규칙이 아니다(§4c 침묵 금지와 충돌).
 
 ### 6. 인증/세션·실시간 동시성 (2026-06-22 점검)
 - **인증 필터는 Access Token 만 통과**: `JwtAuthenticationFilter` 는 `validateAccessToken`(type 검사) 사용 — `validateToken`(서명·만료만)으로 되돌리면 REFRESH 토큰을 Authorization 헤더로 보내 API 통과(보안 결함). 레거시 type=null 토큰은 여전히 허용.

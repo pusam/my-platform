@@ -10,6 +10,7 @@ import com.myplatform.backend.repository.MarketDailyStatusRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -159,8 +160,24 @@ public class MarketTimingService {
         }
     }
 
+    /**
+     * 분당 1회 도는 경로에서 <b>같은 경고를 반복해 찍지 않기 위한</b> 직전 상태.
+     *
+     * <p>반복 로그는 정보가 아니라 잡음이다 — 사람이 읽지 않게 되고, 사고 조사 때
+     * 다른 로그를 뒤로 밀어낸다(2026-08-31 종목상태 진단에서 실제로 겪음).
+     * <b>경보를 끄는 게 아니라 상태가 바뀐 순간만 남긴다.</b>
+     */
+    private final AtomicReference<String> lastOverrideKey = new AtomicReference<>("");
+    private final AtomicReference<String> lastStaleWarnKey = new AtomicReference<>("");
+
+    /** 직전 값과 다르면 true(그리고 현재 값을 기억). 판정이 아니라 로그 억제 전용. */
+    private static boolean changedSinceLast(AtomicReference<String> holder, String current) {
+        return !current.equals(holder.getAndSet(current));
+    }
+
     private MarketTimingDto computeCurrentMarketTiming() {
-        log.info("시장 타이밍 분석 시작");
+        // 캐시 워머가 분당 1회 호출한다 — 정상 동작 로그는 DEBUG (2026-08-31 로그 잡음 정리).
+        log.debug("시장 타이밍 분석 시작");
 
         // 최신 데이터 조회
         List<MarketDailyStatus> latestData = marketDailyStatusRepository.findLatestAll();
@@ -176,11 +193,15 @@ public class MarketTimingService {
         long dataAgeDays = java.time.temporal.ChronoUnit.DAYS.between(analysisDate, LocalDate.now());
         Integer dataAge = null;
         if (dataAgeDays > 0) {
-            log.info("DB 최신 데이터가 과거임 ({}), {}일 전 데이터, 실시간 지수로 보충 예정", analysisDate, dataAgeDays);
+            log.debug("DB 최신 데이터가 과거임 ({}), {}일 전 데이터, 실시간 지수로 보충 예정", analysisDate, dataAgeDays);
             dataAge = (int) dataAgeDays;
-            if (dataAgeDays >= 2) {
+            // 경보 자체는 유지하되 분당 반복은 없앤다 — 같은 경고가 하루 1,400줄 쌓이면
+            // 사람이 읽지 않게 되고, 정작 다른 로그를 뒤로 밀어낸다(2026-08-31).
+            if (dataAgeDays >= 2 && changedSinceLast(lastStaleWarnKey, analysisDate + "/" + dataAgeDays)) {
                 log.warn("[MarketTiming] ⚠ 시장 데이터 오래됨! 최신 거래일: {} ({}일 전) - ADR 분석 신뢰도 저하", analysisDate, dataAgeDays);
             }
+        } else {
+            lastStaleWarnKey.set("");   // 데이터가 최신으로 돌아오면 다음 노후는 다시 알린다
         }
 
         // 코스피/코스닥 데이터 분리
@@ -274,7 +295,9 @@ public class MarketTimingService {
             overallCondition = MarketCondition.CRASH;
             diagnosis = String.format("폭락/패닉 — %s. 관망 및 하방 리스크 관리 필수.", overrideReasons);
             strategy = MarketCondition.CRASH.getSuggestion();
-            log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", overrideReasons);
+            if (changedSinceLast(lastOverrideKey, "CRASH|" + overrideReasons)) {
+                log.warn("[시장 타이밍] 폭락 오버라이드 발동: {}", overrideReasons);
+            }
         } else if (dropOverride) {
             // ADR이 정상이더라도 당일 급락 시 최소 OVERSOLD로 보정
             if (overallCondition == MarketCondition.NORMAL || overallCondition == MarketCondition.OVERHEATED) {
@@ -282,7 +305,11 @@ public class MarketTimingService {
             }
             diagnosis = String.format("당일 급락 — %s. %s", overrideReasons, overallCondition.getSuggestion());
             strategy = overallCondition.getSuggestion();
-            log.warn("[시장 타이밍] 급락 보정 발동: {} → {}", overrideReasons, overallCondition);
+            if (changedSinceLast(lastOverrideKey, "DROP|" + overrideReasons + "|" + overallCondition)) {
+                log.warn("[시장 타이밍] 급락 보정 발동: {} → {}", overrideReasons, overallCondition);
+            }
+        } else {
+            lastOverrideKey.set("");    // 오버라이드 해제 — 다음 발동은 다시 알린다
         }
 
         return MarketTimingDto.builder()
@@ -712,7 +739,8 @@ public class MarketTimingService {
                 if (indexInfo[2] != null) {
                     status.setTradingValue(indexInfo[2]);
                 }
-                log.info("{} 지수 실시간 보충 완료: 종가={}, 등락률={}%", marketType, indexInfo[0], indexInfo[1]);
+                // 분당 갱신되는 값이라 DEBUG. 결과는 화면·DB 에 그대로 남는다.
+                log.debug("{} 지수 실시간 보충 완료: 종가={}, 등락률={}%", marketType, indexInfo[0], indexInfo[1]);
             } catch (Exception e) {
                 log.debug("{} 지수 실시간 보충 실패: {}", marketType, e.getMessage());
             }
@@ -739,7 +767,7 @@ public class MarketTimingService {
             int dec = crawlStockCount(marketType, "fall");
             BigDecimal dailyRatio = applyDailyRatio(status, adv, dec);
             if (dailyRatio != null) {
-                log.info("{} 당일 등락비 실시간 보충: {} (상승={}, 하락={})", marketType, dailyRatio, adv, dec);
+                log.debug("{} 당일 등락비 실시간 보충: {} (상승={}, 하락={})", marketType, dailyRatio, adv, dec);
             }
         } catch (Exception e) {
             log.debug("{} 당일 등락비 실시간 보충 실패: {}", marketType, e.getMessage());

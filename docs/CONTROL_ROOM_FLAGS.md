@@ -26,22 +26,25 @@
 
 ```yaml
 flags:
-  - id: backend-log-retention-too-short
+  - id: backend-log-noise-verify
     severity: warning
-    title: 백엔드 stdout 로그가 ~1,000줄만 남아 부팅 로그를 못 본다
-    key: 로그보존
+    title: 로그 잡음 정리 — 배포 후 실제 감소량 확인
+    key: 로그잡음
     body: >
-      2026-08-31 상장목록 건을 확인하려는데 40분 전 부팅 로그가 이미 밀려 나가 있었다
-      (docker compose logs --tail 5000 이 1,050줄만 반환). 결국 재시작해서야 확인했다.
-      원인은 상시 INFO 스팸 — [스캘핑봇] SKIP: botActive=false 가 30초마다,
-      시장 타이밍 분석이 분당 여러 줄. 봇이 꺼져 있는 동안에도 계속 찍힌다.
-      영향은 진단 능력이다. 사고가 나면 "부팅 이후 무슨 일이 있었나"를 못 본다 —
-      이번 달에 두 번 그랬다(8/28 배치 심박, 8/31 종목상태).
-      제안 — ① 봇 비활성 시 SKIP 로그를 DEBUG 로 내리거나 상태 전이에서만 찍기
-      ② docker json-file max-size/max-file 를 명시해 보존량을 정하기.
-      ⚠ 코드 변경은 사람 승인 대기 중(요청 범위 밖이라 제안만 함).
+      ⚠ 먼저 정정 — 앞서 "로그가 밀려 나갔다"고 적은 것은 틀렸다. 보존은 50MB x 5 로 넉넉했고,
+      1,050줄은 그 컨테이너가 산 41분치 전부였다. 내 조회 창(--since 30m / --tail 400)이
+      41분 전 부팅을 벗어났을 뿐이다. 잡음 문제는 실재하지만 원인은 보존이 아니라 발생량이다.
+      실측 기준선 — 1,050줄 / 41분 = 약 25줄/분(하루 3만 줄대). 대부분이 "정상"의 반복이다.
+      조치(2026-08-31) — 분당/30초 주기 경로의 정상 로그를 DEBUG 로 내리고,
+      반복되는 경고는 상태가 바뀔 때만 남기도록 했다(경보를 끈 것이 아니다).
+      시장 타이밍 6줄/분, 스캘핑봇 SKIP 2줄/분, 섹터 랭킹 1줄/분이 대상.
+      검증 — 배포 30분 뒤 아래로 분당 줄 수와 상위 발생원을 다시 잰다.
+      docker compose logs backend --since 30m | wc -l
+      docker compose logs backend --since 30m | sed 's/.*--- \[[^]]*\] //' | awk '{print $1}' | sort | uniq -c | sort -rn | head
+      기대 — 분당 25줄 → 한 자리수. 여전히 크면 남은 상위 발생원을 보고 판단할 것.
+      ⚠ 확인되면 이 항목을 지울 것.
     recorded_on: 2026-08-31
-    ref: AutoTradingBotService, docker-compose.yml logging
+    ref: MarketTimingService.changedSinceLast, AutoTradingBotService.logScalpingSkip
 
   - id: krx-feeds-dead-remaining
     severity: warning

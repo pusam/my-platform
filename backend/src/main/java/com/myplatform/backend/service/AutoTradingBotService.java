@@ -297,6 +297,17 @@ public class AutoTradingBotService {
     private volatile TradeService activeTradeService;
     private volatile TradingMode currentMode = TradingMode.VIRTUAL;
     private final AtomicBoolean botActive = new AtomicBoolean(false);
+
+    /**
+     * 스캘핑 SKIP 사유 — <b>바뀔 때만</b> INFO 로 남기기 위한 직전 값(사유+날짜).
+     *
+     * <p>이 크론은 09~11시에 30초마다 돈다. 봇을 꺼둔 날엔 "SKIP: botActive=false" 한 줄이
+     * 하루 <b>수백 줄</b> 쌓이고, 그만큼 다른 로그가 뒤로 밀려 사고 조사 때 부팅 이후 흐름을
+     * 찾기 어려워진다(2026-08-31 종목상태 진단에서 실제로 겪음). 상태가 바뀐 순간만 INFO 로
+     * 남기고 나머지 틱은 DEBUG 로 내린다 — <b>정보량은 그대로고 반복만 사라진다.</b>
+     * 날짜를 키에 넣어 하루 1회는 반드시 남긴다(꺼짐→켜짐→꺼짐이 무음이 되지 않게).
+     */
+    private final AtomicReference<String> lastScalpingSkipKey = new AtomicReference<>("");
     private volatile LocalDateTime lastTradeTime;
     private volatile String lastError;
     private volatile LocalDateTime lastErrorTime;
@@ -1431,14 +1442,29 @@ public class AutoTradingBotService {
         }
     }
 
+    /**
+     * SKIP 사유를 남긴다 — 직전과 같은 사유면 DEBUG, 바뀌었으면 INFO.
+     *
+     * <p>판정 로직이 아니라 <b>로그 레벨만</b> 정한다. 호출부의 흐름(return)은 그대로다.
+     * 사유별 상세 값(킬스위치 플래그 등)은 메시지에 그대로 담기므로 정보 손실이 없다.
+     */
+    private void logScalpingSkip(String reason) {
+        String key = LocalDate.now(clock) + "|" + reason;
+        if (key.equals(lastScalpingSkipKey.getAndSet(key))) {
+            log.debug("[스캘핑봇] SKIP: {}", reason);
+        } else {
+            log.info("[스캘핑봇] SKIP: {}", reason);
+        }
+    }
+
     private void executeScalpingBuyLogicInternal() {
         if (!botActive.get()) {
-            log.info("[스캘핑봇] SKIP: botActive=false");
+            logScalpingSkip("botActive=false");
             return;
         }
         if (isScalpingBlocked()) {
-            log.info("[스캘핑봇] SKIP: 스캘핑 킬스위치 발동 중 (scalping={}, total={})",
-                    scalpingKillSwitchTriggered.get(), killSwitchTriggered.get());
+            logScalpingSkip(String.format("스캘핑 킬스위치 발동 중 (scalping=%s, total=%s)",
+                    scalpingKillSwitchTriggered.get(), killSwitchTriggered.get()));
             return;
         }
 
@@ -1449,7 +1475,7 @@ public class AutoTradingBotService {
 
         // 연속 손절 3회 시 당일 정지
         if (consecutiveStopLossPaused.get()) {
-            log.info("[스캘핑봇] SKIP: 연속 손절 3회 당일 정지");
+            logScalpingSkip("연속 손절 3회 당일 정지");
             return;
         }
 
@@ -1475,7 +1501,7 @@ public class AutoTradingBotService {
 
         // ★ 하루 최대 스캘핑 매수 제한
         if (todayBuyCount.get() >= MAX_SCALPING_TRADES_PER_DAY) {
-            log.info("[스캘핑봇] SKIP: 하루 매수 {}회 달성", todayBuyCount.get());
+            logScalpingSkip("하루 매수 " + todayBuyCount.get() + "회 달성");
             return;
         }
 
