@@ -8,8 +8,15 @@
 # - 의심 SSH/HTTP 시도 카운트
 #
 # 권장: cron 매일 09:00
-#   0 9 * * * cd /home/dev/my-platform && set -a && source .env && set +a && bash scripts/server-health-check.sh >> /var/log/myplatform-health-check.log 2>&1
+#   0 9 * * * cd /home/dev/my-platform && set -a && . ./.env && set +a && bash scripts/server-health-check.sh >> /var/log/myplatform-health-check.log 2>&1
 #   (리다이렉트 필수 — 텔레그램 전송이 실패하면 그 사실이 이 로그에만 남는다)
+#
+# ⚠⚠ `.env` 소싱은 반드시 POSIX 형(`. ./.env`)으로 — `source` 를 쓰지 말 것 (2026-08-31 사고).
+#   크론은 명령 라인을 /bin/sh(=우분투에선 dash)로 실행하는데 `source` 는 bash 전용이라
+#   `source: not found` 로 체인이 첫 단계에서 죽는다. 리다이렉트는 마지막 명령에만 걸려 있어
+#   로그조차 안 남는다. 실제로 이 헤더의 옛 주석(`source .env`)이 크론탭에 복사돼
+#   **이 헬스체크와 03:00 DB 백업이 4개월간(4/23~8/31) 무음으로 한 번도 안 돌았다** —
+#   이 스크립트 안의 "백업 신선도 감시"가 감시 대상과 같은 버그로 같이 죽어 있었다.
 # =============================================================================
 
 set -u
