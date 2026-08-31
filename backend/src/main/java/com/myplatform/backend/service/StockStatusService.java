@@ -1,54 +1,77 @@
 package com.myplatform.backend.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.core.util.DateTimeUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.*;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
-import jakarta.annotation.PostConstruct;
-import java.time.LocalDate;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
- * KRX 상장종목 상태 관리 서비스
- * - 매일 08:30 KRX에서 KOSPI+KOSDAQ 상장종목 목록 동기화
+ * 상장종목 상태 관리 서비스
+ * - 부팅 직후 + 매일 08:30 KIS 종목마스터에서 KOSPI+KOSDAQ 상장종목 목록 동기화
  * - 거래정지/상장폐지 종목 자동 감지
  * - SectorStockConfig의 종목 필터링에 사용
+ *
+ * <p>소스는 2026-08-31 에 KRX → KIS 종목마스터로 교체했다. 사유·실측은 아래 상수 주석.
  */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class StockStatusService {
 
-    // ⚠ OTP 2단계 필수(2026-08-21 전환): getJsonData 단발 POST(Referer 만)는 KRX 가 세션 거부로
-    // 본문 "LOGOUT" 을 돌려주는 死패턴이다 — SHORT_SELLING_DEAD_FEED_DIAGNOSIS §2 에서 실측 확정
-    // (날짜·bld 무관 구조적 거부). 이 서비스가 그 패턴이라 activeStockCodes 가 영구 빈 집합
-    // = isActive/filterActiveStocks 전면 fail-open(거래정지·상폐 제외 게이트 무력) 상태였다.
-    // MarketTimingService.getKrxOtp 의 살아있는 2단계 패턴(getOtp → code=otp)으로 전환.
-    private static final String KRX_OTP_URL = "http://data.krx.co.kr/comm/bldAttendant/getOtp.cmd";
-    private static final String KRX_DATA_URL = "http://data.krx.co.kr/comm/bldAttendant/getJsonData.cmd";
-    private static final String KRX_REFERER = "http://data.krx.co.kr/contents/MDC/MDI/mdiLoader/index.cmd?menuId=MDC0201";
+    // ⚠⚠ KRX data.krx.co.kr 은 이 용도로 死다 — 되돌리지 말 것 (2026-08-31 실측 확정).
+    //
+    //  ① 단발 getJsonData(Referer 만) → 본문 "LOGOUT"(세션 거부)
+    //     — SHORT_SELLING_DEAD_FEED_DIAGNOSIS §2(2026-07-07)에서 이미 확정된 死패턴.
+    //  ② 그 문서의 권고대로 2026-08-21 에 "OTP 2단계"로 전환했는데, 주소를
+    //     /comm/bldAttendant/getOtp.cmd 로 적었다. **그런 엔드포인트는 없다.**
+    //     존재하지 않는 경로와 이 경로의 응답이 200 / 2952 바이트 에러페이지로 **완전히 동일**하다
+    //     (대조군 POST /comm/bldAttendant/thisDoesNotExist.cmd 와 바이트 일치).
+    //     즉 이 서비스는 전환 이후 단 한 번도 동기화에 성공한 적이 없다.
+    //  ③ 진짜 OTP 엔드포인트(/comm/fileDn/GenerateOTP/generate.cmd)도 이제 "LOGOUT" 이다.
+    //     홈+로더 페이지로 JSESSIONID·__smVisitorID 를 확보한 세션으로 재요청해도 동일.
+    //     → KRX 쪽엔 되살릴 경로가 남아 있지 않다. 여기서 KRX 를 다시 시도하지 말 것.
+    //
+    // 대체 소스 = KIS 종목마스터 파일(아래). 고른 이유:
+    //  - **전 종목이 들어 있다.** KIND corpList(=KrxStockMasterSeeder 소스)는 회사 단위라
+    //    우선주가 빠진다(KOSPI 848행). 축소된 집합을 이 게이트에 넣으면 우선주 전체가
+    //    무음 fail-CLOSED 로 사라진다 — 아래 시장별 게이트 주석이 경고하는 바로 그 사고.
+    //    KIS 마스터는 6자리 코드 3,934개(005935 삼성전자우 포함)로 **상위집합**이라
+    //    잘못돼도 fail-open 방향이다.
+    //  - 이 플랫폼이 이미 KIS 에 전면 의존한다(시세·주문). 새 벤더가 늘지 않는다.
+    //  - 매일 갱신된다(실측: 당일 07:35 타임스탬프).
+    // 검증(2026-08-31): SectorStockConfig 139종목 전부 마스터에 존재 — 누락 0건.
+    private static final String KIS_MASTER_URL =
+            "https://new.real.download.dws.co.kr/common/master/%s_code.mst.zip";
     private static final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-    /** 전종목 시세(시장구분 mktId 파라미터로 KOSPI/KOSDAQ 선택) — bld 는 시장 공통. */
-    private static final String BLD_STOCK_LIST = "dbms/MDC/STAT/standard/MDCSTAT01501";
+    /** 마스터 파일 이름 조각 — KRX 의 mktId(STK/KSQ) 자리를 대신한다. */
+    private static final String MARKET_KOSPI = "kospi";
+    private static final String MARKET_KOSDAQ = "kosdaq";
 
     private final RestTemplate restTemplate;
     private final TelegramNotificationService telegramService;
     private final com.myplatform.backend.config.SectorStockConfig sectorStockConfig;
-    private final MarketCalendarService marketCalendar;
 
-    // 정상 거래 가능 종목 코드 셋 (KRX 기준)
+    // 정상 거래 가능 종목 코드 셋 (KIS 종목마스터 기준)
     private final Set<String> activeStockCodes = ConcurrentHashMap.newKeySet();
 
     // 거래정지/상폐 감지된 종목 (코드 → 사유)
@@ -58,8 +81,8 @@ public class StockStatusService {
 
     /**
      * 종목이 정상 거래 가능한지 확인
-     * - KRX 동기화 전이면 true 반환 (안전 모드)
-     * - 동기화 후에는 KRX 목록에 있는 종목만 true
+     * - 동기화 전이면 true 반환 (안전 모드)
+     * - 동기화 후에는 상장 목록에 있는 종목만 true
      */
     public boolean isActive(String stockCode) {
         if (activeStockCodes.isEmpty()) return true; // 동기화 전 안전 모드
@@ -88,16 +111,27 @@ public class StockStatusService {
     }
 
     /**
-     * 서버 시작 시 초기 동기화 (비동기)
+     * 부팅 직후 1회 동기화(비동기 — 부팅을 막지 않는다).
+     *
+     * <p><b>왜 필요한가</b>: 목록은 메모리에만 있고 재시작하면 사라진다. 예전엔 여기서 로그만 찍고
+     * 실제 동기화는 08:30 크론뿐이었다 — 즉 <b>08:30 이후에 재시작하면 그날 하루 종일</b>
+     * {@code activeStockCodes} 가 비어 게이트가 전면 fail-open(거래정지·상폐 종목이 추천·발굴·봇에
+     * 그대로 통과) 이었고, 아무 로그도 남지 않았다. 부팅 시 채우면 그 창이 사라진다.
+     *
+     * <p>실패해도 앱은 정상 기동한다(빈 목록 = 종전과 같은 fail-open, 08:30 크론이 재시도).
      */
-    @PostConstruct
-    public void init() {
-        // PostConstruct에서는 간단 로그만, 실제 동기화는 스케줄러 or 수동 호출
-        log.info("[종목상태] StockStatusService 초기화 완료 - 08:30 자동 동기화 예정");
+    @EventListener(ApplicationReadyEvent.class)
+    @Async
+    public void syncOnStartup() {
+        try {
+            syncListedStocks();
+        } catch (Exception e) {
+            log.warn("[종목상태] 부팅 시 동기화 실패 — 08:30 크론이 재시도한다: {}", e.getMessage());
+        }
     }
 
     /**
-     * 매일 08:30 KRX 상장종목 동기화 (장 시작 전)
+     * 매일 08:30 상장종목 동기화 (장 시작 전)
      * + 섹터 종목 중 거래정지/상폐 감지 → 텔레그램 알림
      */
     /** 동기화 노후 경보 임계 — 이보다 오래면 게이트 데이터가 죽은 것으로 보고 경보. */
@@ -105,8 +139,8 @@ public class StockStatusService {
 
     @Scheduled(scheduler = "batchScheduler", cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledSync() {
-        syncFromKrx();
-        // 경보 조건은 isEmpty 가 아니라 lastSyncTime 노후(2026-08-21 리뷰 B-6) — syncFromKrx 는 실패 시
+        syncListedStocks();
+        // 경보 조건은 isEmpty 가 아니라 lastSyncTime 노후(2026-08-21 리뷰 B-6) — syncListedStocks 는 실패 시
         // 기존 목록을 유지하므로, 한 번이라도 성공한 뒤 피드가 죽으면 목록은 영원히 비지 않는다.
         // isEmpty 로만 경보하면 그 가장 흔한 시나리오(운영 중 사망)에서 경보가 영영 안 울리고,
         // 신규 상장은 전부 fail-closed·신규 거래정지는 전부 통과인 채 몇 주가 조용히 지나간다.
@@ -118,32 +152,35 @@ public class StockStatusService {
         }
         String since = lastSyncTime == null ? "부팅 후 성공 0회"
                 : "마지막 성공 " + lastSyncTime.format(DateTimeFormatter.ofPattern("MM-dd HH:mm"));
-        log.error("[종목상태] KRX 동기화 노후({}) — 거래정지/상폐 제외 게이트가 옛 목록/무필터로 동작 중", since);
+        log.error("[종목상태] 상장종목 동기화 노후({}) — 거래정지/상폐 제외 게이트가 옛 목록/무필터로 동작 중", since);
         try {
             telegramService.sendRisk("<b>⚠️ 종목상태 동기화 노후</b>\n\n"
-                    + "KRX 상장종목 목록 동기화: " + since + "\n"
+                    + "상장종목 목록 동기화(KIS 종목마스터): " + since + "\n"
                     + "거래정지/상폐 제외 게이트(추천·발굴·봇)가 옛 목록 또는 무필터(fail-open)로 동작 중.\n\n"
                     + "━━━━━━━━━━━━━━━━\n🤖 MyPlatform 종목 상태 알림");
         } catch (Exception ignore) { /* 알림은 best-effort */ }
     }
 
     /**
-     * KRX에서 상장종목 목록 동기화
+     * KIS 종목마스터에서 상장종목 목록 동기화.
+     *
+     * <p>이름이 {@code syncFromKrx} 였다가 소스 교체(2026-08-31)와 함께 바뀌었다 —
+     * 죽은 소스 이름을 남겨두면 다음 사람이 KRX 를 되살리려 든다.
      */
-    public void syncFromKrx() {
-        log.info("[종목상태] KRX 상장종목 동기화 시작...");
+    public void syncListedStocks() {
+        log.info("[종목상태] 상장종목 동기화 시작(KIS 종목마스터)...");
         Set<String> newActiveCodes = ConcurrentHashMap.newKeySet();
 
         try {
             // KOSPI 종목 수집
-            Set<String> kospiCodes = fetchKrxStockList("STK");
+            Set<String> kospiCodes = fetchMarketStockList(MARKET_KOSPI);
             log.info("[종목상태] KOSPI 종목 {}건 수집", kospiCodes.size());
 
-            // 1초 딜레이 (KRX 차단 방지)
+            // 1초 딜레이 (연속 다운로드 부하 완화)
             Thread.sleep(1000);
 
             // KOSDAQ 종목 수집
-            Set<String> kosdaqCodes = fetchKrxStockList("KSQ");
+            Set<String> kosdaqCodes = fetchMarketStockList(MARKET_KOSDAQ);
             log.info("[종목상태] KOSDAQ 종목 {}건 수집", kosdaqCodes.size());
 
             // ⚠ 시장별 게이트(2026-08-21 리뷰 B-5) — 아래 합산 <100 게이트는 "한 시장만 실패"를 원리적으로
@@ -160,24 +197,24 @@ public class StockStatusService {
             newActiveCodes.addAll(kosdaqCodes);
 
         } catch (Exception e) {
-            log.error("[종목상태] KRX 동기화 실패: {}", e.getMessage());
+            log.error("[종목상태] 동기화 실패: {}", e.getMessage());
             return; // 실패 시 기존 데이터 유지
         }
 
         if (newActiveCodes.size() < 100) {
-            log.warn("[종목상태] KRX 응답 종목 수 {}건 — 비정상적으로 적어 동기화 취소", newActiveCodes.size());
+            log.warn("[종목상태] 수집 종목 수 {}건 — 비정상적으로 적어 동기화 취소", newActiveCodes.size());
             return;
         }
 
         activeStockCodes.clear();
         activeStockCodes.addAll(newActiveCodes);
         lastSyncTime = DateTimeUtil.kstNow();
-        log.info("[종목상태] KRX 동기화 완료 — 총 {}건 ({})", activeStockCodes.size(), lastSyncTime);
+        log.info("[종목상태] 동기화 완료 — 총 {}건 ({})", activeStockCodes.size(), lastSyncTime);
     }
 
     /**
-     * SectorStockConfig의 종목 중 KRX에 없는 종목 감지
-     * syncFromKrx() 이후 호출
+     * SectorStockConfig의 종목 중 상장 목록에 없는 종목 감지
+     * syncListedStocks() 이후 호출
      */
     public List<String> detectSuspendedInSectors(List<String> sectorStockCodes) {
         if (activeStockCodes.isEmpty()) return Collections.emptyList();
@@ -188,14 +225,14 @@ public class StockStatusService {
         for (String code : sectorStockCodes) {
             if (!activeStockCodes.contains(code)) {
                 suspended.add(code);
-                suspendedStocks.put(code, "KRX 상장 목록에 없음");
+                suspendedStocks.put(code, "상장 목록에 없음");
             }
         }
 
         if (!suspended.isEmpty()) {
             String msg = String.format(
                     "<b>⚠️ 거래정지/상폐 종목 감지</b>\n\n" +
-                    "섹터 설정 종목 중 KRX 상장 목록에 없는 종목 %d건:\n%s\n\n" +
+                    "섹터 설정 종목 중 상장 목록에 없는 종목 %d건:\n%s\n\n" +
                     "⏰ %s\n━━━━━━━━━━━━━━━━\n🤖 MyPlatform 종목 상태 알림",
                     suspended.size(),
                     suspended.stream()
@@ -207,134 +244,97 @@ public class StockStatusService {
             telegramService.sendRisk(msg);
             log.warn("[종목상태] 거래정지/상폐 감지 {}건: {}", suspended.size(), suspended);
         } else {
-            log.info("[종목상태] 모든 섹터 종목이 KRX 상장 목록에 존재 — 정상");
+            log.info("[종목상태] 모든 섹터 종목이 상장 목록에 존재 — 정상");
         }
 
         return suspended;
     }
 
     /**
-     * KRX 전종목 시세 조회 — <b>OTP 2단계</b>(getOtp → code=otp 로 getJsonData).
-     * 단발 getJsonData 는 세션 거부("LOGOUT")로 死 — 클래스 상단 상수 주석 참조.
+     * 시장별 상장종목 코드 수집 — KIS 종목마스터 파일(zip) 다운로드 → 파싱.
      *
-     * <p>trdDd 는 <b>직전 거래일</b>: 08:30 크론 시점엔 당일 시세가 아직 없고, 상장 목록 동기화
-     * 목적엔 전일 목록으로 충분하다(상폐·정지는 전일 목록에서도 이미 빠져 있음). 트레이드오프:
-     * 신규 상장 종목은 상장 첫날 하루 isActive=false 로 게이트에 안 잡힘 — 인지된 사각
-     * (PriceSanityGuard 의 신규 상장 사각과 동일 계열).
+     * <p>KRX 경로가 왜 사라졌는지는 클래스 상단 상수 주석에 실측과 함께 적혀 있다(되돌리지 말 것).
      *
-     * @param mktId STK(KOSPI) or KSQ(KOSDAQ)
+     * <p>실패는 전부 <b>빈 집합</b>으로 수렴하고, 호출측 시장별 게이트가 그걸 보고 동기화를
+     * 취소하고 기존 목록을 유지한다. "수집 0건"을 정상 결과로 흘려보내지 않는다(§4c).
+     *
+     * @param market {@link #MARKET_KOSPI} 또는 {@link #MARKET_KOSDAQ}
      */
-    private Set<String> fetchKrxStockList(String mktId) {
+    private Set<String> fetchMarketStockList(String market) {
+        String url = String.format(KIS_MASTER_URL, market);
         try {
-            String trdDd = marketCalendar.minusTradingDays(LocalDate.now(), 1)
-                    .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-            String otp = fetchOtp(mktId, trdDd);
-            if (otp == null) {
-                log.error("[종목상태] KRX {} OTP 획득 실패 — 동기화 스킵", mktId);
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", USER_AGENT);
+            ResponseEntity<byte[]> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), byte[].class);
+
+            byte[] zip = response.getBody();
+            if (response.getStatusCode() != HttpStatus.OK || zip == null || zip.length == 0) {
+                log.warn("[종목상태] KIS 마스터 {} 응답 비정상 — status={}, bytes={}",
+                        market, response.getStatusCode(), zip == null ? "null" : zip.length);
                 return Collections.emptySet();
             }
-            String body = fetchDataWithOtp(otp);
-            Set<String> codes = parseStockCodes(body);
+            Set<String> codes = readZippedMaster(zip);
             if (codes.isEmpty()) {
-                // "LOGOUT"/HTML/OutBlock 부재 전부 여기로 — 원인 구분은 로그 본문 앞부분으로.
-                log.error("[종목상태] KRX {} 응답 파싱 0건 — 본문: {}", mktId,
-                        body == null ? "null" : body.substring(0, Math.min(80, body.length())));
+                // 내려받긴 했는데 코드가 0건 = 레코드 포맷 변경. 조용히 넘어가면 게이트가 다시 죽는다.
+                log.warn("[종목상태] KIS 마스터 {} 파싱 0건 — 레코드 포맷 변경 의심(zip {}바이트)",
+                        market, zip.length);
             }
             return codes;
         } catch (Exception e) {
-            log.error("[종목상태] KRX {} 종목 조회 실패: {}", mktId, e.getMessage());
+            log.warn("[종목상태] KIS 마스터 {} 조회 실패 — {}: {}",
+                    market, e.getClass().getSimpleName(), e.getMessage());
             return Collections.emptySet();
         }
     }
 
-    /** 1단계 — OTP 발급. MarketTimingService.getKrxOtp 와 동일 패턴(살아있는 유일한 KRX 경로). */
-    private String fetchOtp(String mktId, String trdDd) {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("User-Agent", USER_AGENT);
-            headers.set("Referer", KRX_REFERER);
-            headers.set("Origin", "http://data.krx.co.kr");
-
-            MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-            params.add("bld", BLD_STOCK_LIST);
-            params.add("locale", "ko_KR");
-            params.add("mktId", mktId);
-            params.add("trdDd", trdDd);
-            params.add("share", "1");
-            params.add("money", "1");
-            params.add("csvxls_isNo", "false");
-
-            ResponseEntity<String> response = restTemplate.exchange(
-                    KRX_OTP_URL, HttpMethod.POST, new HttpEntity<>(params, headers), String.class);
-            // ★ 실패 이유를 남긴다(2026-08-31). 이전엔 예외를 log.debug 로 삼키고
-            //   비정상 응답(200인데 HTML·빈 문자열)은 아무 로그도 없이 null 을 돌려줬다.
-            //   호출부는 "OTP 획득 실패"만 찍어서 **왜 실패했는지 알 방법이 없었다** —
-            //   KRX 차단인지·파라미터 변경인지·네트워크인지 구분이 안 됐다.
-            //   손익계산서 tr_id 사고(2026-08-27)와 같은 부류다.
-            String body = response.getBody();
-            if (response.getStatusCode() != HttpStatus.OK || body == null) {
-                log.warn("[종목상태] KRX {} OTP 응답 비정상 — status={}, body={}",
-                        mktId, response.getStatusCode(), body == null ? "null" : "empty");
-                return null;
+    /** zip 안 첫 파일 엔트리를 종목코드 집합으로. <b>순수 함수(테스트 대상)</b>. */
+    static Set<String> readZippedMaster(byte[] zipBytes) throws IOException {
+        try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if (entry.isDirectory()) continue;
+                return parseMasterCodes(zis);
             }
-            String otp = body.trim();
-            if (otp.isEmpty()) {
-                log.warn("[종목상태] KRX {} OTP 본문이 비어 있다 — 차단/파라미터 변경 의심", mktId);
-                return null;
-            }
-            if (otp.contains("<html>")) {
-                // 차단 페이지가 200 으로 오는 것이 KRX 의 전형적 거부 방식이다.
-                log.warn("[종목상태] KRX {} OTP 대신 HTML 이 왔다(차단 의심) — 앞부분: {}",
-                        mktId, otp.substring(0, Math.min(160, otp.length())).replaceAll("\s+", " "));
-                return null;
-            }
-            return otp;
-        } catch (Exception e) {
-            log.warn("[종목상태] KRX {} OTP 요청 예외 — {}: {}",
-                    mktId, e.getClass().getSimpleName(), e.getMessage());
         }
-        return null;
+        return Collections.emptySet();
     }
-
-    /** 2단계 — OTP 로 데이터 요청. */
-    private String fetchDataWithOtp(String otp) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-        headers.set("User-Agent", USER_AGENT);
-        headers.set("Referer", KRX_REFERER);
-
-        MultiValueMap<String, String> params = new LinkedMultiValueMap<>();
-        params.add("code", otp);
-
-        ResponseEntity<String> response = restTemplate.exchange(
-                KRX_DATA_URL, HttpMethod.POST, new HttpEntity<>(params, headers), String.class);
-        return response.getBody();
-    }
-
-    private static final ObjectMapper PARSE_MAPPER = new ObjectMapper();
 
     /**
-     * KRX 응답 → 6자리 종목코드 집합. <b>순수 함수(테스트 대상)</b>.
-     * "LOGOUT"(세션 거부)·HTML·OutBlock_1 부재·null 은 전부 빈 집합 — 호출측이 실패로 처리
-     * (§4c: 거부 응답을 "종목 0건"으로 위장하지 않도록 <100 게이트가 뒤에서 이중 방어).
+     * KIS 종목마스터(.mst) → 6자리 종목코드 집합. <b>순수 함수(테스트 대상)</b>.
+     *
+     * <p>레코드는 고정폭이고 <b>앞 9바이트가 단축코드</b>(좌측정렬·공백패딩)다. 뒤쪽 필드는
+     * 한글 종목명이 EUC-KR 가변 바이트라 바이트 오프셋으로 셀 수 없지만, 여기서 쓰는 앞 9바이트는
+     * 전부 ASCII 라 <b>인코딩과 무관하게</b> 읽힌다 — 그래서 ISO-8859-1(바이트 1:1 매핑)로 읽는다.
+     * 나중에 종목명을 쓰게 되면 그때는 EUC-KR 디코딩이 필요하다.
+     *
+     * <p><b>6자리 영숫자를 전부 받는다</b>(숫자만이 아니다). 실측(2026-08-31) 4,390개 단축코드 중
+     * 순수 숫자 3,553 · <b>영문 섞인 6자리 381</b>(0000D0 같은 종류주식·신주인수권) · ELW 등 456.
+     * 옛 KRX 파서는 {@code \d{6}} 만 받았는데, 이 게이트는 "목록에 없으면 제외"라 그 381개가
+     * 조용히 fail-CLOSED 된다. 반대로 넉넉히 받으면 틀려도 통과(fail-open) 방향이라
+     * <b>상위집합이 안전</b>하다 — ETF/ETN 이 섞여 들어오는 것도 같은 이유로 무해하다.
+     * 9자리 ELW(F…)는 길이에서 걸러진다.
+     *
+     * <p>스트림을 닫지 않는다 — zip 스트림 수명은 호출측 try-with-resources 가 관리한다.
      */
-    static Set<String> parseStockCodes(String body) {
+    static Set<String> parseMasterCodes(InputStream mstStream) throws IOException {
         Set<String> codes = new HashSet<>();
-        if (body == null || body.isBlank()) return codes;
-        try {
-            JsonNode root = PARSE_MAPPER.readTree(body);
-            JsonNode dataArray = root.get("OutBlock_1");
-            if (dataArray == null || !dataArray.isArray()) return codes;
-            for (JsonNode item : dataArray) {
-                String code = item.path("ISU_SRT_CD").asText("");
-                if (code.length() == 6 && code.matches("\\d{6}")) {
-                    codes.add(code);
-                }
+        BufferedReader reader = new BufferedReader(
+                new InputStreamReader(mstStream, StandardCharsets.ISO_8859_1));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            if (line.length() < 9) continue;
+            String code = line.substring(0, 9).trim();
+            if (isShortCode(code)) {
+                codes.add(code);
             }
-        } catch (Exception e) {
-            return codes;   // "LOGOUT"/HTML 등 JSON 아님 → 빈 집합(실패)
         }
         return codes;
+    }
+
+    /** 상장 단축코드 모양 = 6자리 영숫자(대문자). 종류주식(0000D0)까지 포함하려는 의도. */
+    private static boolean isShortCode(String code) {
+        if (code.length() != 6) return false;
+        return code.chars().allMatch(c -> (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z'));
     }
 }

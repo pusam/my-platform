@@ -56,11 +56,12 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 1. **실제 상태 확인** — KRX/증권사에서 해당 종목이 거래정지·상폐·정리매매인지 확인.
 2. **동기화 상태 확인** — `StockStatusService` 가 그 종목을 활성으로 들고 있는지:
-   - 진단 데이터: `GET /api/diagnostics/data` 의 메타(또는 로그 `[종목상태] KRX 동기화 완료`)로 마지막 동기화 시각 확인.
+   - 진단 데이터: `GET /api/diagnostics/data` 의 메타(또는 로그 `[종목상태] 동기화 완료`)로 마지막 동기화 시각 확인.
 3. **분기**:
    - **실제 정지/상폐인데 활성으로 남아있음** → 동기화 누락. 수동 재동기화 트리거:
      `StockStatusService.scheduledSync()` 는 매일 08:30 cron. 즉시 반영이 필요하면 운영 재기동 또는
-     관리자 트리거(있으면)로 `syncFromKrx()` 재실행. (KRX BLD `MDCSTAT01501` 재조회)
+     관리자 트리거(있으면)로 `syncListedStocks()` 재실행. 소스는 KIS 종목마스터 파일(2026-08-31 교체 — KRX 경로는 死).
+     ⚠ 재기동만 해도 부팅 동기화(`syncOnStartup`)가 돌아 즉시 반영된다.
    - **실제로는 정상 거래 종목인데 동결** → **피드 스테일**. KIS 시세 경로/`StockPriceService` 캐시
      (L1 Caffeine→L2 Redis) 신선도, `CacheWarmer`/스케줄러 동작 점검. (가격 보정 금지 — 원인 제거가 우선)
 

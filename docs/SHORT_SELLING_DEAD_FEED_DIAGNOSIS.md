@@ -49,9 +49,26 @@ GET  referer 페이지로 JSESSIONID 취득 후 재요청   → 여전히 "LOGOU
 
 ## 5. 복구 권고 (별도 티켓 — 이번 작업 범위 밖)
 
-1. **KRX OTP 2-스텝 전환**: `otp/generate.cmd`(`name=fileDown`/`csvDownload` 등)로 `code` 발급 →
-   `getJsonData.cmd` 에 `code` 동봉 + 쿠키잼 유지. `RestTemplate` 대신 세션 보존 클라이언트 필요.
-2. **또는** KRX 정보데이터시스템 정식 오픈API / KIS 제공 공매도 API 로 소스 교체(안정성↑).
+1. ~~**KRX OTP 2-스텝 전환**~~ — **이 권고는 폐기한다(2026-08-31 실측).**
+
+   > ⚠ **이 항목이 실제로 사고를 만들었다.** 2026-08-21 에 `StockStatusService` 가 이 권고를 따라
+   > "OTP 2단계"로 전환했는데 주소를 `/comm/bldAttendant/getOtp.cmd` 로 적었다 — **그런 경로는 없다.**
+   > 아무 엉터리 경로나 POST 했을 때와 응답이 `200` / 2,952바이트 에러페이지로 **바이트까지 동일**하다.
+   > 그래서 전환 이후 그 동기화는 한 번도 성공하지 못했고, 거래정지·상폐 게이트가 계속 fail-open 이었다.
+   > 실패 이유를 `log.debug` 로 삼키고 있어서 아무도 몰랐다.
+   >
+   > 그리고 **진짜** OTP 엔드포인트(`/comm/fileDn/GenerateOTP/generate.cmd`)도 지금은 `LOGOUT` 이다.
+   > 홈+로더 페이지로 `JSESSIONID`·`__smVisitorID` 를 확보한 세션으로 재요청해도 같다.
+   > → **`data.krx.co.kr` 에는 되살릴 경로가 남아 있지 않다. 다시 시도하지 말 것.**
+   >
+   > 교훈 두 가지: (a) 외부 API 는 **고치기 전에** 그 호출을 그대로 재현해 볼 것 —
+   > 이번엔 curl 세 번으로 끝났다. (b) 살아있는 엔드포인트와 없는 엔드포인트를 구분하려면
+   > **존재하지 않는 경로를 대조군으로 한 번 때려보는 것**이 가장 빠르다.
+2. **KIS 등 다른 벤더로 소스 교체** — 상장종목 목록은 2026-08-31 에 **KIS 종목마스터 파일**
+   (`new.real.download.dws.co.kr/common/master/{kospi,kosdaq}_code.mst.zip`)로 옮겨 해결했다.
+   공매도 잔고도 같은 방향(KIS 또는 KRX 정식 오픈API + 인증키)으로 찾는 것이 맞다.
+   ⚠ 소스를 바꿀 땐 **집합이 좁아지지 않는지** 먼저 볼 것 — KIND corpList 는 회사 단위라
+   우선주가 빠져서, 그대로 게이트에 넣으면 우선주가 통째로 무음 fail-CLOSED 된다.
 3. 네이버 fallback 은 **폐지된 URL 이므로 제거하거나** 현행 네이버 금융 구조로 재작성.
 4. `trade_date = LocalDate.now()` 태깅은 **소스 응답의 기준일(KRX `trdDd`)로 교체** 권장(휴장일/지연 반영 오류 방지).
 5. 복구·검증(신규 행 유입 확인) 후에야 종목상세 `StockRiskCard` "공매도 비중 X% · 5일 Δ" + 보드 ③ 급증 배지를 구현한다.

@@ -27,22 +27,39 @@
 ```yaml
 flags:
   - id: krx-stock-status-sync-down
-    severity: critical
-    title: KRX 종목 목록 동기화 실패 — 거래정지·상폐 게이트가 옛 목록으로 돈다
-    key: OTP
+    severity: warning
+    title: 상장목록 동기화 — 원인 확정(KRX 死), KIS 마스터로 교체, 배포 검증 대기
+    key: 상장목록
     body: >
-      2026-08-31 08:30 배치에서 KOSPI·KOSDAQ 양쪽 다 OTP 획득 실패로 0건 수집.
-      설계대로 기존 목록은 유지됐고(전면 fail-open 방지) 시장별 부분 실패 게이트도 작동했으나,
-      **그 사이 정지·상폐된 종목이 추천·발굴·봇 유니버스에 옛 목록 기준으로 남는다.**
-      원인 미확정 — 기존 코드가 OTP 실패 사유를 log.debug 로 삼키고 비정상 응답(200 인데 HTML·빈 본문)은
-      로그조차 없었다. 2026-08-31 수정으로 status/본문 앞부분/예외를 WARN 으로 남긴다.
-      확인 — 다음 08:30 배치 후 docker compose logs backend | grep 종목상태.
-      HTML 이 왔으면 KRX 차단, 4xx/5xx 면 파라미터·엔드포인트 변경, 예외면 네트워크다.
-      ⚠ lastSyncTime 이 메모리(volatile)라 재기동마다 리셋된다 — 8/28~8/31 배포가 잦아
-      "부팅 후 성공 0회"가 실제 고장 기간을 뜻하지 않는다. 언제부터 깨졌는지는 모른다.
-      ⚠ OTP 2단계 패턴을 단발 호출로 되돌리지 말 것(LOGOUT 死패턴, CLAUDE.md).
+      원인 확정(2026-08-31 실측). KRX 가 막은 게 아니라 **주소가 없는 곳이었다** —
+      2026-08-21 에 넣은 /comm/bldAttendant/getOtp.cmd 는 존재하지 않는 경로이고,
+      아무 엉터리 경로나 POST 했을 때와 응답이 200/2952바이트 에러페이지로 바이트까지 같다.
+      즉 그 전환 이후 이 동기화는 **한 번도 성공한 적이 없고** 게이트는 계속 fail-open 이었다.
+      진짜 OTP 엔드포인트(/comm/fileDn/GenerateOTP/generate.cmd)도 지금은 LOGOUT 이고
+      세션 쿠키(JSESSIONID·__smVisitorID)를 붙여도 같아서, KRX 쪽엔 되살릴 경로가 없다.
+      조치 — 소스를 KIS 종목마스터 파일로 교체 + 부팅 시 1회 동기화 추가.
+      검증 — 배포 후 로그에 "[종목상태] KOSPI 종목 2110건 / KOSDAQ 1824건 수집"(±소폭)이 뜨면 해소.
+      숫자가 크게 다르면 마스터 레코드 포맷이 바뀐 것이니 파싱을 먼저 볼 것.
+      ⚠ 확인되면 이 항목을 지울 것.
     recorded_on: 2026-08-31
-    ref: StockStatusService.fetchOtp, DataAnomalyRules.stockStatusStale
+    ref: StockStatusService.parseMasterCodes, StockStatusServiceTest
+
+  - id: krx-feeds-dead-remaining
+    severity: warning
+    title: 남은 KRX 소비자 2곳도 같은 이유로 죽어 있다 (영향은 제한적)
+    key: KRX잔여
+    body: >
+      상장목록을 고치며 같이 확인한 것. 둘 다 급하지 않지만 "살아있다"고 착각하면 안 된다.
+      ① MarketTimingService.getKrxOtp — 같은 없는 주소를 쓴다. 소비처는 수동 백필
+      (collectHistoricalMarketData)뿐이고, 일일 ADR 은 네이버 크롤 경로라 무관하다.
+      다만 실패 시 상승/하락/보합을 0/0/0 으로 **저장**한다 — 백필을 돌리면 §4c 위반 행이 생긴다.
+      백필을 쓸 일이 있으면 그 전에 고칠 것(현재는 호출 안 함).
+      ② InvestorDailyTradeService.collectPensionFromKrx — 단발 getJsonData(LOGOUT)라 死.
+      수급 주 소스는 KIS(KisInvestorDataCollector)라 외국인·기관은 정상이고, 이건 연기금 보충망이다.
+      결과: KIS 가 연기금 빈 응답을 줄 때의 안전망이 없고, **KOSDAQ 연기금은 구조적으로 0건**
+      (KIS 는 KOSPI 만 준다). 수급 점수는 외국인·기관 위주라 즉시 영향은 작다.
+    recorded_on: 2026-08-31
+    ref: MarketTimingService.getKrxOtp, InvestorDailyTradeService.collectPensionFromKrx
 
   - id: weekly-report-week-hole-2026-08-16
     severity: warning
