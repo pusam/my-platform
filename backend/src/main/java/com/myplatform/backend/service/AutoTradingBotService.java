@@ -308,6 +308,27 @@ public class AutoTradingBotService {
      * 날짜를 키에 넣어 하루 1회는 반드시 남긴다(꺼짐→켜짐→꺼짐이 무음이 되지 않게).
      */
     private final AtomicReference<String> lastScalpingSkipKey = new AtomicReference<>("");
+
+    /**
+     * fail-open 가드의 실패 가시화 — <b>행동 불변, 로그만</b> (봇 감사 2026-08-31).
+     *
+     * <p>나스닥·VIX·KOSPI·섹터OUTFLOW·공매도·sanity앵커 가드는 실패 시 <b>의도적으로</b>
+     * 통과(fail-open)다 — 결측을 근거로 차단하지 않는다(§4c, PriceSanityGuard 트레이드오프와 동일).
+     * 문제는 그 실패가 전부 log.debug 라 <b>소스가 영구 사망해도 가드가 꺼진 채 비가시</b>였다는 것
+     * — KRX 상장목록이 4개월 죽어 있던 것과 정확히 같은 모양이다. 가드는 30초 틱마다 도니
+     * 무제한 WARN 은 로그 잡음(§5 규칙)이라, <b>가드별 하루 첫 실패만 WARN</b> 하고 이후는 DEBUG.
+     */
+    private final ConcurrentHashMap<String, LocalDate> guardWarnedOn = new ConcurrentHashMap<>();
+
+    private void warnGuardFailureDaily(String guard, String failOpenNote, Exception e) {
+        LocalDate today = LocalDate.now(clock);
+        if (today.equals(guardWarnedOn.put(guard, today))) {
+            log.debug("[봇가드] {} 체크 실패 — {}: {}", guard, failOpenNote, e.getMessage());
+        } else {
+            log.warn("[봇가드] {} 체크 실패 — {} (계속 실패해도 오늘은 이 한 줄뿐, 지속되면 소스 사망 의심): {}",
+                    guard, failOpenNote, e.getMessage());
+        }
+    }
     private volatile LocalDateTime lastTradeTime;
     private volatile String lastError;
     private volatile LocalDateTime lastErrorTime;
@@ -605,7 +626,8 @@ public class AutoTradingBotService {
                         stockCode, stockName, quantity, price, "ATR_SIZING", detail);
             }
         } catch (Exception e) {
-            log.debug("[ATR세트] 감사 스냅샷 기록 실패(무시): {}", e.getMessage());
+            // 매수 이벤트당 1회뿐이라 스팸 없음. 이게 조용히 죽으면 P2-17(ATR 세트 판정) 표본이 사라진다.
+            log.warn("[ATR세트] 감사 스냅샷 기록 실패 — P2-17 판정 표본 소실: {}", e.getMessage());
         }
     }
 
@@ -1206,7 +1228,7 @@ public class AutoTradingBotService {
             }
             return shouldHalt;
         } catch (Exception e) {
-            log.debug("[스캘핑봇] 나스닥 체크 실패 (매수 허용): {}", e.getMessage());
+            warnGuardFailureDaily("나스닥 급락", "fail-open(매수 허용)으로 진행", e);
             return false;
         }
     }
@@ -1248,7 +1270,7 @@ public class AutoTradingBotService {
                 }
             }
         } catch (Exception e) {
-            log.debug("[스캘핑봇] VIX 조회 실패 (무시): {}", e.getMessage());
+            warnGuardFailureDaily("VIX 급등", "fail-open(매수 허용)으로 진행", e);
         }
         return false;
     }
@@ -1317,7 +1339,7 @@ public class AutoTradingBotService {
                 }
             }
         } catch (Exception e) {
-            log.debug("[스캘핑봇] KOSPI 조회 실패 (무시): {}", e.getMessage());
+            warnGuardFailureDaily("KOSPI 급락", "직전 상태 유지로 진행", e);
         }
         return kospiDropPaused.get();
     }
@@ -1354,7 +1376,7 @@ public class AutoTradingBotService {
                 }
             }
         } catch (Exception e) {
-            log.debug("[스캘핑봇] KOSPI 실시간 조회 실패: {}", e.getMessage());
+            warnGuardFailureDaily("KOSPI 실시간 등락률", "null 반환(가드가 판정 보류)", e);
         }
         return null;
     }
@@ -1397,7 +1419,7 @@ public class AutoTradingBotService {
 
             return newOutflowStocks.contains(stockCode);
         } catch (Exception e) {
-            log.debug("[스캘핑봇] 섹터 OUTFLOW 체크 실패 (무시): {}", e.getMessage());
+            warnGuardFailureDaily("섹터 OUTFLOW", "fail-open(차단 안 함)으로 진행", e);
             return false;
         }
     }
@@ -1412,7 +1434,10 @@ public class AutoTradingBotService {
         try {
             return shortSellingService.isHighShortSellingStock(stockCode);
         } catch (Exception e) {
-            log.debug("[스캘핑봇] 공매도 비율 체크 실패 (무시): {}", e.getMessage());
+            // ⚠ 이 가드는 예외 이전의 문제가 있다 — 소스(short_selling_balance)가 死라 테이블이
+            //   비어 있고, 그 경우 예외 없이 false 가 나와 여기조차 안 온다(장식 가드 상태).
+            //   복구/종결 판정은 SCHEDULE_DECISIONS "공매도 死피드" 안건.
+            warnGuardFailureDaily("공매도 비율", "fail-open(차단 안 함)으로 진행", e);
             return false;
         }
     }
@@ -1813,7 +1838,7 @@ public class AutoTradingBotService {
                         "InvestorSurgeService 수집 cron 또는 KIS 응답을 확인하세요.\n" +
                         "자동매수는 신선도 회복까지 보류됩니다."
                 );
-            } catch (Exception e) { log.debug("[봇] stale 경보 텔레그램 발송 실패(무시): {}", e.toString()); }
+            } catch (Exception e) { log.warn("[봇] stale 경보 텔레그램 발송 실패 — 사람이 이 보류를 모른다: {}", e.toString()); }
         }
     }
 
@@ -2331,7 +2356,7 @@ public class AutoTradingBotService {
                         telegramService.sendRisk(String.format(
                                 "⚠️ <b>[스캘핑봇] 매도 부분/미체결</b>\n\n종목: %s (%s)\n지정가 %s원 주문이 전량 체결되지 않아 포지션을 유지하고 다음 사이클에 재시도합니다.",
                                 portfolio.getStockName(), portfolio.getStockCode(), formatNumber(currentPrice)));
-                    } catch (Exception e) { log.debug("[스캘핑봇] 부분/미체결 경보 텔레그램 발송 실패(무시): {}", e.toString()); }
+                    } catch (Exception e) { log.warn("[스캘핑봇] 부분/미체결 경보 발송 실패 — 사람 개입 알림이 안 갔다: {}", e.toString()); }
                 }
             } else if (!isPartialSell) {
                 scalpingPositions.remove(portfolio.getStockCode());
@@ -2475,7 +2500,7 @@ public class AutoTradingBotService {
                     anchor != null ? anchor.getTradeDate() : null,
                     LocalDate.now(clock));
         } catch (Exception e) {
-            log.debug("[{}봇] 가격 sanity 앵커 조회 실패 — 가드 skip: {}", botLabel, e.getMessage());
+            warnGuardFailureDaily(botLabel + " sanity앵커", "가드 skip(§4d 인지된 트레이드오프)", e);
             return true;
         }
         if (r.verdict() != PriceSanityGuard.Verdict.BLOCKED) {
@@ -2827,7 +2852,8 @@ public class AutoTradingBotService {
                 telegramService.sendRisk("⚠️ " + msg);
             }
         } catch (Exception e) {
-            log.debug("[스윙봇] 매수 체결확인 실패({}): {}", stockCode, e.getMessage());
+            // 실패 = 미체결 여부를 모른 채 넘어감 — 경보 경로 자체가 침묵하는 실패라 보여야 한다(매수당 1회).
+            log.warn("[스윙봇] 매수 체결확인 실패({}) — 미체결이어도 경보가 안 나간 상태: {}", stockCode, e.getMessage());
         }
     }
 
@@ -3506,7 +3532,7 @@ public class AutoTradingBotService {
                                     telegramService.sendRisk(String.format(
                                             "⚠️ <b>[스윙봇] 매도 부분/미체결</b>\n\n종목: %s (%s)\n전량 체결되지 않아 포지션을 유지하고 재시도합니다.",
                                             position.stockName, position.stockCode));
-                                } catch (Exception e) { log.debug("[스윙봇] 부분/미체결 경보 텔레그램 발송 실패(무시): {}", e.toString()); }
+                                } catch (Exception e) { log.warn("[스윙봇] 부분/미체결 경보 발송 실패 — 사람 개입 알림이 안 갔다: {}", e.toString()); }
                             }
                         } else {
                             swingPositions.remove(position.stockCode);
