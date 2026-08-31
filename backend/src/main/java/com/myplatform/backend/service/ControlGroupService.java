@@ -32,8 +32,12 @@ import java.util.Set;
  *   <li><b>같은 가격 기준</b> — {@link StockPriceService#getStockPrice}(시세 단일 경로 §16)로 기록 시점
  *       장중가를 쓴다. 시그널은 장중가인데 대조군만 종가를 쓰면 체결가 편향이 한쪽에만 걸린다.</li>
  *   <li><b>같은 벤치마크</b> — 시그널이 쓴 KOSPI 가격을 그대로 넘겨받아 alpha 를 동일 정의로 계산.</li>
- *   <li><b>같은 유니버스</b> — 추천이 스캔하는 풀(일봉 {@value #UNIVERSE_MIN_HISTORY}일 이상 + 거래정지·상폐 제외)에서만
- *       뽑는다. 추천이 볼 수 없던 종목을 대조군에 넣으면 "점수의 기여"가 아니라 "유니버스 차이"를 재게 된다.</li>
+ *   <li><b>같은 유니버스</b> — 추천이 스캔하는 풀(일봉 {@value #UNIVERSE_MIN_HISTORY}일 이상 + 마지막 봉
+ *       {@value #UNIVERSE_RECENT_DAYS}일 이내 + 거래정지·상폐 제외)에서만 뽑고, 시세도 시그널과 같은
+ *       <b>5분 신선 캐시</b>만 쓴다(신규 KIS 호출 금지 — AUDIT R2 대칭화, 2026-08-31). 추천이 볼 수 없던
+ *       종목을 대조군에 넣으면 "점수의 기여"가 아니라 "유니버스 차이"를 재게 된다.
+ *       <b>⚠ 측정 표본 경계 = 2026-09-01</b>: 그 전 대조군엔 저유동·수집중단 종목이 섞여 base rate 가
+ *       낮다(edge 과대 방향) — 비교창을 섞지 말 것.</li>
  *   <li><b>같은 평가 경로</b> — signal_outcome 에 저장하므로 기존 평가 배치가 동일한 hit 정의로 채운다.</li>
  * </ul>
  *
@@ -56,8 +60,19 @@ public class ControlGroupService {
     /** 유니버스 최소 일봉 수 — 추천 트랙(낙폭과대 등)이 요구하는 수준과 맞춘다. */
     static final int UNIVERSE_MIN_HISTORY = 60;
 
-    /** 같은 날 이미 대조군으로 쓰인 종목을 피하기 위한 재시도 횟수. */
-    static final int PICK_ATTEMPTS = 8;
+    /**
+     * 유니버스 최근성(달력일) — 마지막 봉이 이 안에 있어야 한다(AUDIT R2, 2026-08-31).
+     * 수집이 끊긴 종목은 시그널이 나올 수 없는데 대조군에는 뽑혔다 — base rate 를 끌어내려
+     * edge 가 좋아 보이는 방향의 편향. 7일 = 주말+연휴를 정상으로 흡수하는 여유값.
+     */
+    static final int UNIVERSE_RECENT_DAYS = 7;
+
+    /**
+     * 같은 날 이미 대조군으로 쓰인 종목을 피하기 위한 재시도 횟수.
+     * <p>8→12 상향(2026-08-31): 시세 게이트가 캐시 전용으로 엄격해져 미스가 늘 수 있다 —
+     * 시도를 늘려 표본 손실을 완화한다(시드 결정성은 attempt 별로 유지되므로 재현성 불변).
+     */
+    static final int PICK_ATTEMPTS = 12;
 
     /** 시드 흩뜨림용 큰 소수 — 인접 날짜/종목이 비슷한 시드를 갖지 않게. */
     private static final long SEED_MIX = 2654435761L;
@@ -103,10 +118,15 @@ public class ControlGroupService {
                 if (!repository.findExisting(CONTROL_SIGNAL_TYPE, code, signalDate).isEmpty()) {
                     continue;   // 오늘 이미 대조군으로 사용됨 — 다른 종목으로
                 }
-                StockPriceDto price = priceService.getStockPrice(code);
+                // ★ 캐시 전용(AUDIT R2, 2026-08-31): getStockPrice 는 미스 시 KIS 신규 호출까지
+                //   가는데, 시그널 종목은 기록 시점에 반드시 살아있는 가격(파이프라인이 방금 쓴 값)을
+                //   갖고 있었다. 대조군만 죽은/저유동 종목의 가격을 새로 떠오면 "지금 시장에 보이지
+                //   않는 종목"이 대조군에만 들어가 base rate 가 내려간다(edge 과대 편향).
+                //   같은 5분 신선 창의 캐시/DB 만 보고, 미스면 그 종목은 못 뽑은 것으로 처리한다.
+                StockPriceDto price = priceService.getStockPricesFromCacheOnly(List.of(code)).get(code);
                 if (price == null || price.getCurrentPrice() == null
                         || price.getCurrentPrice().signum() <= 0) {
-                    continue;   // 시세 미확보 — §4c: 임의값 생성 금지, 다른 종목으로
+                    continue;   // 신선 시세 없음 — 시그널이라면 기록되지 못했을 종목, 다른 종목으로
                 }
                 SignalOutcome control = SignalOutcome.builder()
                         .signalType(CONTROL_SIGNAL_TYPE)
@@ -144,7 +164,9 @@ public class ControlGroupService {
         List<String> cached = universeCache;
         if (cached != null && date.equals(universeDate)) return cached;
 
-        List<String> codes = priceHistoryRepository.findStockCodesWithMinHistory(UNIVERSE_MIN_HISTORY);
+        // 최근성 조건(R2): 마지막 봉이 7일 이내 — 수집 끊긴 종목은 시그널 유니버스에 없다.
+        List<String> codes = priceHistoryRepository.findActiveStockCodesWithMinHistory(
+                UNIVERSE_MIN_HISTORY, date.minusDays(UNIVERSE_RECENT_DAYS));
         StockStatusService status = statusProvider.getIfAvailable();
         if (status != null) {
             try {

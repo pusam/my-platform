@@ -163,12 +163,19 @@ flags:
     ref: git 8523ed1 · 16a1589, docs/SCHEDULE_DECISIONS.md 표본 유입 기준선
 
   - id: control-group-universe-asymmetry
-    severity: info
-    title: 대조군 유니버스가 시그널 유니버스와 비대칭 (edge 과대 방향)
-    key: R2
+    severity: warning
+    title: 대조군 비대칭 수정됨(8/31) — 표본 경계 9/1, 첫 판정 연기
+    key: 대조군
     body: >
-      대조군 추출 모집단이 시그널 후보 모집단과 달라 edge 가 과대 추정되는 방향으로 치우칠 수 있다.
-      n≥30 도달 후 첫 판정 전에 유니버스 정의를 맞추거나, 못 맞추면 판정문에 비대칭을 명시할 것.
-    recorded_on: 2026-08-21
-    ref: VERIFICATION_BACKLOG "AUDIT 2026-08-21" R2
+      2026-08-31 해소(사용자 결정 ① — 편향된 기준선으로 낼 첫 판정은 어차피 다시 해야 한다).
+      비대칭 두 가지를 대칭화 — ① 유니버스에 최근성 조건(마지막 봉 7일 이내): 수집 끊긴 종목은
+      시그널이 나올 수 없는데 대조군에는 뽑혔다 ② 시세를 시그널과 같은 5분 신선 캐시 전용으로
+      (이전엔 대조군만 신규 KIS 호출까지 감행해 죽은/저유동 종목 가격을 떠왔다).
+      **측정 표본 경계 = 2026-09-01** — 그 전 대조군은 base rate 가 낮은 쪽으로 편향(edge 과대 방향)이라
+      비교창을 섞으면 안 된다. 첫 판정은 9/1 이후 표본으로 양쪽 n>=30 재충족 시(9월 하순 예상).
+      확인 — 배포 후 CONTROL_RANDOM 유입이 계속되는지(엄격해진 게이트로 표본 유입이 다소 줄 수 있음,
+      8회→12회 재시도로 완화), 오염가드(signal_score IS NOT NULL = 0건)는 불변인지.
+      ⚠ 9월 하순 첫 판정 후 이 항목을 지울 것.
+    recorded_on: 2026-08-31
+    ref: ControlGroupService, StockPriceHistoryRepository.findActiveStockCodesWithMinHistory
 ```

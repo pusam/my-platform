@@ -736,7 +736,7 @@
 | # | 항목 | 심각도 | 왜 지금 안 고쳤나 |
 |---|---|---|---|
 | R1 | ~~실적 채점 입력이 분기 비교가 아님~~ → **2026-08-26 파이프라인 수정 완료. 전환 플래그 OFF 대기** (아래 "R1 처리" 참조) | **P1** | 데이터 경로는 고침. **켜는 시점만 사람 판단**(켜면 점수·후보 수가 움직여 측정 표본 경계가 됨) |
-| R2 | 대조군 유니버스 유동성·신선도 비대칭 — 시그널은 5분 신선 캐시 없으면 record 스킵, 대조군은 KIS 신규 호출까지 감행 + `findStockCodesWithMinHistory` 에 최근성 조건 없음 → 저유동·수집중단 종목이 대조군에만 유입 → base rate 하락 → **edge 과대(좋아 보이는 방향)** | P1 | 유니버스 쿼리 + 가격 게이트 대칭화 — 대조군 기록 경로 수정이라 신중히(오염 방지 불변식 재검증 동반) |
+| R2 | ~~대조군 유니버스 유동성·신선도 비대칭~~ → ✅ **해소(2026-08-31, 사용자 결정 ①=지금 고치고 첫 판정 연기)**: 유니버스에 최근성 조건(마지막 봉 7일 이내, `findActiveStockCodesWithMinHistory`) + 시세를 시그널과 같은 **5분 신선 캐시 전용**(`getStockPricesFromCacheOnly`, 신규 KIS 호출 제거). PICK_ATTEMPTS 8→12(표본 손실 완화). **측정 표본 경계 = 2026-09-01** — 그 전 대조군은 base rate 하향 편향(edge 과대), 비교창 섞지 말 것. 오염 방지 불변식(점수 null·보드 필터 제외)은 불변 — `ControlGroupTest` green | P1 | 완료 — 첫 판정은 9/1 이후 표본으로 n≥30 재충족 시 |
 | R3 | ~~연속매수일 화면용 결측일 가드 없음~~ → ✅ **해소(2026-08-31)**: `InvestorBuyStreakCalculator` 에 휴장 판정 주입 — 휴장일은 건너뛰고 **거래일 결측은 연속을 끊는다**(점수용 `resolveConsecutiveBuyDates` 와 의미론 통일). 회귀 `streak_missingTradingDayBreaks` | P2 | 완료 |
 | R4 | ~~저평가/성장 5트랙 `findLatestPerStock` 단일 행 + placeholder 스킵 없음~~ → **2026-08-26 수정 완료** (`FinancialRowSynthesizer` + `findRecentPerStock(10)`, composite 와 규칙·행수 동일) | P2 | — |
 | R5 | ~~재무 수집 유니버스 자기참조~~ → **2026-08-26 수정 완료** (`resolveCollectionUniverse` = 기존 수집분 ∪ stock_master 활성 KOSPI/KOSDAQ, `FinancialCollectionUniverseTest`) | P2 | — |

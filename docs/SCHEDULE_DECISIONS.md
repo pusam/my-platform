@@ -52,7 +52,7 @@ V38~V45(2026-07-06~08 배포)로 시작된 측정들이 2~3주치 표본을 확�
 
 | 안건 | 판정 기준 | 참조 |
 |---|---|---|
-| **무작위 대조군 첫 판정 (P2-19 ④)** | 날짜가 아니라 **조건 트리거** — `GET /api/signal-outcomes/accuracy-by-band` 의 `controlComparison` 에서 **시그널·대조군 양쪽 각 n≥30**(`MIN_CONTROL_SAMPLE`) 도달 시. 미만이면 `insufficientSample=true` 유지하고 판정 보류. ⚠ 유효 비교창은 **2026-08-05 이후** — 그 이전 표본엔 스냅샷 폴백 가짜 시그널이 섞여 있다(`3597e06` 이전). `significant=false` 는 "우위 없음"이 아니라 "있다고 말할 근거 없음"(표본 부족일 수도). **판정 전 오염가드 필수**: `signal_type='CONTROL_RANDOM' AND signal_score IS NOT NULL` 이 0건이어야 하며, 아니면 비교 자체가 무효다. | VERIFICATION_BACKLOG P2-19 ④, `ControlGroupService`, `SignalOutcomeService.aggregateControlComparison` |
+| **무작위 대조군 첫 판정 (P2-19 ④)** | 날짜가 아니라 **조건 트리거** — `GET /api/signal-outcomes/accuracy-by-band` 의 `controlComparison` 에서 **시그널·대조군 양쪽 각 n≥30**(`MIN_CONTROL_SAMPLE`) 도달 시. 미만이면 `insufficientSample=true` 유지하고 판정 보류. ⚠ 유효 비교창은 **2026-09-01 이후**(R2 대칭화 경계, 2026-08-31 배포 — 그 전 대조군은 저유동·수집중단 종목이 섞여 base rate 하향=edge 과대 편향. 8-05~8-31 표본으로 판정 금지). 8-05 이전은 스냅샷 폴백 가짜 시그널까지 섞여 이중 무효. `significant=false` 는 "우위 없음"이 아니라 "있다고 말할 근거 없음"(표본 부족일 수도). **판정 전 오염가드 필수**: `signal_type='CONTROL_RANDOM' AND signal_score IS NOT NULL` 이 0건이어야 하며, 아니면 비교 자체가 무효다. | VERIFICATION_BACKLOG P2-19 ④, `ControlGroupService`, `SignalOutcomeService.aggregateControlComparison` |
 | **캔들 패턴 shadow 승격 (V52)** | **2026-09-16 이후**(9/2 아님) — 감지 시작 2026-08-05 + 10거래일 평가 지연이라 9/2 시점엔 10일 지평 표본이 절반뿐이다(8/20 이후 감지분은 전량 미평가). `scripts/pattern-detection-sanity.sql` 블록 2(패턴별 승률)에 **① 기준선(base rate) ② 비용 0.36% ③ D+1 시가 진입가 재계산 ④ 국면 층화**를 붙여야 판정 가능 — **절대 승률만으로 승격 금지**(P2-12 재발 방지). 통과해도 1차는 관찰 확대까지이고 봇/점수 편입은 별건. | VERIFICATION_BACKLOG P2-20, `PatternDetectionService`, `scripts/pattern-detection-sanity.sql` |
 
 > ⚠ **패턴 shadow 의 기각 후보(대조군)는 DB 에 없다** — `RejectionStats` 결과가 로그로만 나가고 배포마다 컨테이너 로그가 소실된다. 판정 시 기각군 비교가 필요하면 **감지기 오프라인 재실행**(순수 함수 + 일봉만 사용)으로 재구성해야 한다. 상세는 VERIFICATION_BACKLOG P2-20.
@@ -189,7 +189,7 @@ calendar:
     due: 2026-09-07
     status: pending
     trigger: "[9/7 은 판정일 아님 — 표본 축적 속도 점검일] 판정 트리거는 무변경: 시그널·대조군 양쪽 각 n≥30 (MIN_CONTROL_SAMPLE)"
-    result: 2026-08-26 실측 대조군 9행 — 9/7 도달 불가 확정. 그날 볼 것은 판정이 아니라 ① 시그널·대조군 DB 원시 행 수 ② 최근 7일 일평균 유입 ③ 부족분을 그 속도로 나눈 도달 예상일 재추정(느린 쪽 채택). R2 유니버스 비대칭 미해소라 대조군 행 수는 속도 추정 전용, edge 추정에 쓰지 말 것.
+    result: 2026-08-26 실측 대조군 9행 — 9/7 도달 불가 확정. 그날 볼 것은 판정이 아니라 ① 시그널·대조군 DB 원시 행 수 ② 최근 7일 일평균 유입 ③ 부족분을 그 속도로 나눈 도달 예상일 재추정(느린 쪽 채택). R2 유니버스 비대칭은 2026-08-31 해소(사용자 결정 ①) — 유효 비교창 2026-09-01 이후로 리셋, 그 전 대조군 행은 속도 추정 전용(edge 추정 금지). 9/7 점검 시 9/1 이후 유입 속도로 도달일을 다시 추정할 것.
 
   - id: pattern-shadow-promotion
     title: 캔들 패턴 shadow 승격 (V52 / P2-20)

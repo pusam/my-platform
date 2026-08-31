@@ -69,6 +69,16 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     List<String> findStockCodesWithMinHistory(@Param("minDays") long minDays);
 
     /**
+     * 위 쿼리 + <b>최근성 조건</b> — 마지막 봉이 {@code recentSince} 이후인 종목만 (AUDIT R2, 2026-08-31).
+     * <p>대조군 유니버스 전용. 최근성 없는 버전은 수집이 끊긴 종목(사실상 죽은 축)까지 포함해
+     * 대조군 base rate 를 끌어내렸다 — 시그널은 살아있는 종목에서만 나오므로 비대칭(edge 과대).
+     */
+    @Query("SELECT h.stockCode FROM StockPriceHistory h " +
+           "GROUP BY h.stockCode HAVING COUNT(h) >= :minDays AND MAX(h.tradeDate) >= :recentSince")
+    List<String> findActiveStockCodesWithMinHistory(@Param("minDays") long minDays,
+                                                    @Param("recentSince") LocalDate recentSince);
+
+    /**
      * 여러 종목의 최근 일봉 일괄 조회 (스크리너/상관관계 벌크 로딩용)
      */
     @Query("SELECT h FROM StockPriceHistory h " +
