@@ -50,8 +50,8 @@ flags:
       상장목록을 고치며 같이 확인한 것. 둘 다 급하지 않지만 "살아있다"고 착각하면 안 된다.
       ① MarketTimingService.getKrxOtp — 같은 없는 주소를 쓴다. 소비처는 수동 백필
       (collectHistoricalMarketData)뿐이고, 일일 ADR 은 네이버 크롤 경로라 무관하다.
-      다만 실패 시 상승/하락/보합을 0/0/0 으로 **저장**한다 — 백필을 돌리면 §4c 위반 행이 생긴다.
-      백필을 쓸 일이 있으면 그 전에 고칠 것(현재는 호출 안 함).
+      0/0/0 위장 저장은 2026-08-31 수정 — 실패 시 그 날짜를 '실패'로 집계하고 건너뛴다(§4c).
+      백필 기능 자체는 여전히 死(살리려면 KRX 아닌 등락 수 소스 필요) — 쓸 일이 생기면 그때 별건.
       ② InvestorDailyTradeService.collectPensionFromKrx — 단발 getJsonData(LOGOUT)라 死.
       수급 주 소스는 KIS(KisInvestorDataCollector)라 외국인·기관은 정상이고, 이건 연기금 보충망이다.
       결과: KIS 가 연기금 빈 응답을 줄 때의 안전망이 없고, **KOSDAQ 연기금은 구조적으로 0건**
