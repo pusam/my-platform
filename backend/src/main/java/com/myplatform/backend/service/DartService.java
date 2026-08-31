@@ -254,7 +254,9 @@ public class DartService {
                     .build()
                     .toUriString();
 
-            log.info("[DART] 공시 조회: corpCode={}, period={} ~ {}", corpCode, startDate, endDate);
+            // 종목 단위 호출이다 — 발굴 5트랙의 위험 체크가 상위 30종목씩 돌리면
+            // 이 두 줄만으로 배치 한 번에 100줄이 넘는다. 건별은 DEBUG (2026-08-31).
+            log.debug("[DART] 공시 조회: corpCode={}, period={} ~ {}", corpCode, startDate, endDate);
 
             ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
 
@@ -453,7 +455,7 @@ public class DartService {
                 }
             }
 
-            log.info("[DART] 공시 {}건 조회됨", disclosures.size());
+            log.debug("[DART] 공시 {}건 조회됨", disclosures.size());
 
         } catch (Exception e) {
             log.error("[DART] 응답 파싱 실패: {}", e.getMessage());

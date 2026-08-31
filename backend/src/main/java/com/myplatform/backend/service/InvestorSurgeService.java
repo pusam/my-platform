@@ -230,7 +230,7 @@ public class InvestorSurgeService {
         try {
             String investorCode = "FOREIGN".equals(investorType) ? "1" : "2";
 
-            log.info("스냅샷 수집 API 호출: investorType={}, investorCode={}", investorType, investorCode);
+            log.debug("스냅샷 수집 API 호출: investorType={}, investorCode={}", investorType, investorCode);
 
             // KoreaInvestmentService를 통해 API 호출
             JsonNode response = koreaInvestmentService.getForeignInstitutionTotal(investorCode, true, true);
@@ -248,7 +248,7 @@ public class InvestorSurgeService {
 
             JsonNode output = response.get("output");
             if (output != null && output.isArray()) {
-                log.info("스냅샷 파싱할 데이터 개수: {}", output.size());
+                log.debug("스냅샷 파싱할 데이터 개수: {}", output.size());
                 int rank = 1;
 
                 for (JsonNode item : output) {
@@ -368,13 +368,15 @@ public class InvestorSurgeService {
                     today, latestTime, staleMinutes, investorType);
         }
 
-        log.info("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
+        // 화면이 부를 때마다 도는 조회 경로다 — 요청당 로그는 DEBUG (2026-08-31).
+        // 수집(장중 스냅샷 시작/완료, 저장 N건)은 INFO 그대로 둔다.
+        log.debug("최신 스냅샷 조회: date={}, time={}, investorType={}", today, latestTime, investorType);
 
         // 전체 스냅샷을 가져와서 금액 기준 정렬
         List<InvestorIntradaySnapshot> surgeSnapshots = snapshotRepository.findLatestSnapshots(
                 today, latestTime, investorType);
 
-        log.info("스냅샷 조회 결과: {} 건, date={}, time={}, investorType={}",
+        log.debug("스냅샷 조회 결과: {} 건, date={}, time={}, investorType={}",
                 surgeSnapshots.size(), today, latestTime, investorType);
 
         // minChange 필터 적용 — netBuyAmount(누적 순매수금액) 기준으로 필터링
@@ -644,13 +646,13 @@ public class InvestorSurgeService {
                         .findByStockCodeAndSnapshotDateAndInvestorTypeOrderBySnapshotTimeAsc(
                                 stockCode, prevDate, investorType);
                 if (!snapshots.isEmpty()) {
-                    log.info("종목 수급 추이 조회: stockCode={}, investorType={}, date={} ({}건)",
+                    log.debug("종목 수급 추이 조회: stockCode={}, investorType={}, date={} ({}건)",
                             stockCode, investorType, prevDate, snapshots.size());
                     break;
                 }
             }
         } else {
-            log.info("종목 수급 추이 조회: stockCode={}, investorType={}, date={} ({}건)",
+            log.debug("종목 수급 추이 조회: stockCode={}, investorType={}, date={} ({}건)",
                     stockCode, investorType, today, snapshots.size());
         }
 
