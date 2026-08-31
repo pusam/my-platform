@@ -428,4 +428,33 @@ class DataAnomalyRulesTest {
             assertThat(DataAnomalyRules.catalystStall(null, TODAY)).isNull();
         }
     }
+
+    @Nested
+    @DisplayName("⑩ 대조군 유입 정지")
+    class ControlInflow {
+
+        @Test
+        @DisplayName("시그널은 흐르는데 대조군 0건 — R2 게이트 강화 직후 가장 경계해야 할 죽음")
+        void signalsWithoutControlFires() {
+            DataAnomalyRules.Anomaly a = DataAnomalyRules.controlInflowStall(20, 0, 5);
+            assertThat(a).isNotNull();
+            assertThat(a.key()).isEqualTo("control-inflow-stall");
+            // 확인 경로(enabled 플래그·시도 소진 로그)까지 안내해야 한다
+            assertThat(a.detail()).contains("enabled").contains("캐시 미스");
+        }
+
+        @Test
+        @DisplayName("대조군이 한 건이라도 있으면 조용하다 — 유입 감소는 예상된 정상")
+        void anyControlIsSilent() {
+            assertThat(DataAnomalyRules.controlInflowStall(20, 1, 5)).isNull();
+            assertThat(DataAnomalyRules.controlInflowStall(20, 15, 5)).isNull();
+        }
+
+        @Test
+        @DisplayName("시그널 자체가 적으면 판단 보류 — 조용한 장을 사망으로 위장하지 않는다(§4c)")
+        void fewSignalsIsSilent() {
+            assertThat(DataAnomalyRules.controlInflowStall(0, 0, 5)).isNull();
+            assertThat(DataAnomalyRules.controlInflowStall(4, 0, 5)).isNull();
+        }
+    }
 }

@@ -741,7 +741,7 @@
 | R4 | ~~저평가/성장 5트랙 `findLatestPerStock` 단일 행 + placeholder 스킵 없음~~ → **2026-08-26 수정 완료** (`FinancialRowSynthesizer` + `findRecentPerStock(10)`, composite 와 규칙·행수 동일) | P2 | — |
 | R5 | ~~재무 수집 유니버스 자기참조~~ → **2026-08-26 수정 완료** (`resolveCollectionUniverse` = 기존 수집분 ∪ stock_master 활성 KOSPI/KOSDAQ, `FinancialCollectionUniverseTest`) | P2 | — |
 | R6 | ~~일봉 400 상한 결정적 절단~~ → ✅ **조치(2026-08-31)**: prod 실측으로 실발생 확정(하루 대상 879~1,123종목 = 상한 2.8배 초과, 매일 ~700종목 미확정). `selectFairly` 셔플로 공정 선정 — 종목당 채택률 ~36%/일, 뽑힐 때 60봉 소급 확정이라 며칠 내 순환. **상한 400(KIS 예산)은 불변** — 올리기(400→전수, 배치 3분→8분)는 별도 판단 | P2 | 완료(상한 조정만 잔여 판단) |
-| R7 | V30 카테고리 스냅샷 원시 int(미수집=0 저장, §4 NULL 불변식 위반) — 약세 버킷 집계 오염("기술이 유일하게 일한다" 결론의 근거 재검 필요) | P2 | record 호출부에서 valid 여부로 0→null 변환 — validCount 산정과 정합 설계 필요 |
+| R7 | ~~V30 카테고리 스냅샷 NA 위장~~ → ✅ **해소(2026-08-31)**: 실측으로 정체 확정 — 미수집은 0 이 아니라 **-1(RecommendationDto NA sentinel)로 저장**되고 있었다(prod 수급 36행·기술 16행). 실점수가 0~20 이라 음수=NA 구분이 무결 → ① record 경계 `sanitizeCategorySnapshot`(음수→null, 0 은 진짜 약세라 보존) ② V58 로 과거 행 소급 NULL. "설계 필요"였던 0-vs-미수집 모호성은 애초에 없었다 — 0 저장이 아니라 -1 저장이었기 때문 | P2 | 완료 |
 
 ### R1 처리 (2026-08-26) — 데이터 경로 수정 + 전환 플래그 대기
 

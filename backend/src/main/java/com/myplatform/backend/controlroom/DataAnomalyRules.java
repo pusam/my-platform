@@ -385,6 +385,41 @@ public final class DataAnomalyRules {
                 days);
     }
 
+    // ==================== ⑩ 대조군 유입 정지 ====================
+
+    /** 이 창 안에 보드 시그널이 이만큼 있는데 대조군이 0이면 짝 생성이 죽은 것이다. */
+    static final long CONTROL_MIN_SIGNALS = 5;
+
+    /**
+     * 대조군(CONTROL_RANDOM) 유입이 죽었는지 — 시그널은 흐르는데 짝이 안 생기는 상태.
+     *
+     * <p><b>왜 지금 필요한가(2026-08-31)</b>: R2 대칭화로 대조군 시세 게이트가 캐시 전용으로
+     * 엄격해졌다 — 유입이 <b>줄어드는 것</b>은 예상된 정상이지만, <b>0</b> 은 짝 생성 자체가
+     * 죽은 것이다(전 시도 캐시 미스·enabled=false·경합 등). 대조군이 죽은 채 시그널만 쌓이면
+     * 비교 가능 창이 영영 안 열리고 첫 판정(9월 하순 예정)이 조용히 미뤄진다 — base rate 없는
+     * 적중률은 해석 불가라는 것이 대조군의 존재 이유였다.
+     *
+     * <p>보드 시그널이 {@value #CONTROL_MIN_SIGNALS}건 미만이면 판단 보류(연휴·조용한 장 =
+     * 시그널이 없으면 대조군도 없는 게 정상 — §4c 사망 위장 금지).
+     *
+     * @param boardSignals 최근 창의 STRONG_BUY/BUY 행 수
+     * @param controlRows  같은 창의 CONTROL_RANDOM 행 수
+     * @param windowDays   창 크기(달력일) — 메시지 표기용
+     */
+    public static Anomaly controlInflowStall(long boardSignals, long controlRows, int windowDays) {
+        if (boardSignals < CONTROL_MIN_SIGNALS) return null;
+        if (controlRows > 0) return null;
+        return new Anomaly(WARNING, "control-inflow-stall",
+                "대조군 유입 정지 — 최근 " + windowDays + "일 보드 시그널 " + boardSignals
+                        + "건인데 CONTROL_RANDOM 0건",
+                "시그널마다 대조군 짝을 만드는 경로가 죽었다. R2 대칭화(2026-08-31)로 시세 게이트가 "
+                        + "캐시 전용이라 유입 감소는 정상이지만 0 은 다르다. "
+                        + "확인 — ① signal-outcome.control-group.enabled ② 로그 grep 대조군 "
+                        + "(전 시도 캐시 미스면 \"N회 시도에도 사용 가능한 종목 없음\") ③ 유니버스 갱신 로그. "
+                        + "대조군 없이는 첫 판정(9월 하순 예정)이 조용히 밀린다.",
+                windowDays + "일 창: 시그널 " + boardSignals + " vs 대조군 0");
+    }
+
     public static List<Anomaly> sortBySeverity(List<Anomaly> found) {
         List<Anomaly> out = new ArrayList<>();
         if (found == null) return out;

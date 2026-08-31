@@ -223,10 +223,13 @@ public class SignalOutcomeService {
                     .signalScore(signalScore)
                     .priceAtSignal(priceAtSignal)
                     .bmPriceAtSignal(bmPrice)
-                    .earningsAtSignal(earnings)
-                    .supplyDemandAtSignal(supplyDemand)
-                    .technicalAtSignal(technical)
-                    .sectorMomentumAtSignal(sectorMomentum)
+                    // V30 계약: 각 0~20, NULL=미수집(집계 제외). 호출자(RecommendationDto)는
+                    // 표시 계약상 NA 를 -1 로 넘기는데, 그대로 저장하면 IS NOT NULL 필터를 통과해
+                    // 실점수 행세를 한다(AUDIT R7 — prod 실측 수급 36행·기술 16행). 경계에서 변환.
+                    .earningsAtSignal(sanitizeCategorySnapshot(earnings))
+                    .supplyDemandAtSignal(sanitizeCategorySnapshot(supplyDemand))
+                    .technicalAtSignal(sanitizeCategorySnapshot(technical))
+                    .sectorMomentumAtSignal(sanitizeCategorySnapshot(sectorMomentum))
                     .catalystTypeAtSignal(catalystType)
                     .catalystDirectionAtSignal(catalystDirection)
                     .regimeAtSignal(regime)
@@ -989,6 +992,14 @@ public class SignalOutcomeService {
         return edgeRate.signum() > 0
                 ? String.format("무작위 대비 유의한 우위 (+%.1f%%p)", edgeRate.doubleValue())
                 : String.format("무작위보다 유의하게 나쁨 (%.1f%%p) — 산식 점검 필요", edgeRate.doubleValue());
+    }
+
+    /**
+     * V30 카테고리 스냅샷 위생 — <b>순수 함수(테스트 대상)</b>. 음수는 표시 계약의 NA sentinel(-1)이지
+     * 점수가 아니다(실점수는 0~20) → NULL(미수집)로 변환. 0 은 진짜 약세라 보존한다(AUDIT R7).
+     */
+    static Integer sanitizeCategorySnapshot(Integer score) {
+        return (score == null || score < 0) ? null : score;
     }
 
     /** 점수 구간별 집계 — 순수 함수 (테스트 대상). signalScore 없는 행은 제외. */

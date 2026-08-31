@@ -161,6 +161,9 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
      * 종목별 신호 이력 (최근 N일) — 종목 상세 "📜 신호 이력" 입력. 평가 전(pending) 행 포함
      * (§4c: 미평가를 미스로 위장하지 않고 "평가 대기"로 구분 표시). 최신순.
      */
+    /** 타입 집합의 최근 행 수 — 관제실 대조군 유입 정지 규칙(⑩) 전용(read-only). */
+    long countBySignalTypeInAndSignalDateGreaterThanEqual(java.util.Collection<String> types, LocalDate since);
+
     List<SignalOutcome> findByStockCodeAndSignalDateGreaterThanEqualOrderBySignalDateDesc(
             String stockCode, LocalDate from);
 
