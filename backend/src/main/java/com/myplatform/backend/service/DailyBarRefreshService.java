@@ -84,17 +84,23 @@ public class DailyBarRefreshService {
             return 0;
         }
 
-        int limit = Math.min(codes.size(), MAX_STOCKS_PER_RUN);
+        // ★ 공정 선정(AUDIT R6, 2026-08-31): prod 실측 하루 대상 879~1,123종목 — 상한 400 을
+        //   매일 2.8배 초과한다. 이전엔 DISTINCT 쿼리의 자연 순서(ORDER BY 없음) 그대로 앞 400개만
+        //   갱신해 **매일 같은 꼬리 ~700종목이 영구 미확정**으로 굶주릴 수 있었다. 셔플이면 종목당
+        //   하루 채택률 ~36%, 5일 연속 탈락 확률 11% — 그리고 뽑힐 때 60봉을 소급 재수집하므로
+        //   놓친 날도 결국 확정된다. 상한 자체(KIS 호출 예산)는 불변 — 올리려면 별도 판단.
+        List<String> picked = selectFairly(codes, MAX_STOCKS_PER_RUN, new java.util.Random());
+        int limit = picked.size();
         if (codes.size() > MAX_STOCKS_PER_RUN) {
             // 조용한 절단 금지 — 남은 종목은 오늘 확정 갱신을 못 받는다는 뜻이라 반드시 보인다.
-            log.warn("[일봉갱신] 대상 {}종목이 상한 {}을 초과 — {}종목만 갱신하고 나머지 {}종목은 "
-                            + "미확정 봉이 남는다(상한 조정 또는 분할 실행 검토)",
+            log.warn("[일봉갱신] 대상 {}종목이 상한 {}을 초과 — 무작위 {}종목만 갱신, 나머지 {}종목은 "
+                            + "다음 실행 후보로 남는다(상한 조정은 별도 판단)",
                     codes.size(), MAX_STOCKS_PER_RUN, limit, codes.size() - limit);
         }
 
         int done = 0;
         for (int i = 0; i < limit; i++) {
-            String code = codes.get(i);
+            String code = picked.get(i);
             try {
                 // collectPriceHistory 가 60봉을 재수집 → DailyBarUpsertRule 이 당일 봉을 확정값으로 덮어쓴다.
                 stockAnalysisService.collectPriceHistory(code);
@@ -113,5 +119,19 @@ public class DailyBarRefreshService {
             }
         }
         return done;
+    }
+
+    /**
+     * 상한 내 공정 선정 — <b>순수 함수(테스트 대상)</b>.
+     *
+     * <p>상한 이하면 그대로(전수 갱신), 초과면 셔플 후 앞 {@code cap}개. 결정적 절단
+     * (항상 같은 순서의 앞부분)은 같은 종목만 반복 갱신하고 나머지를 영구 굶주리게 한다 —
+     * 무작위는 며칠에 걸쳐 전 종목이 돌아가며 확정을 받게 한다.
+     */
+    static List<String> selectFairly(List<String> codes, int cap, java.util.Random random) {
+        if (codes.size() <= cap) return List.copyOf(codes);
+        List<String> shuffled = new java.util.ArrayList<>(codes);
+        java.util.Collections.shuffle(shuffled, random);
+        return List.copyOf(shuffled.subList(0, cap));
     }
 }

@@ -33,6 +33,7 @@ public class InvestorBuyStreakService {
     private static final String INSTITUTION = "INSTITUTION";
 
     private final InvestorDailyTradeRepository repository;
+    private final MarketCalendarService marketCalendar;
 
     /** 외인/기관 연속 순매수일. null=데이터 부족(§4c) / 0=최신일 순매수 아님. */
     public record Streaks(Integer foreign, Integer institution) {
@@ -53,8 +54,8 @@ public class InvestorBuyStreakService {
         List<LocalDate> instCal = repository.findDistinctBuyTradeDatesSince(INSTITUTION, start);
 
         return new Streaks(
-                InvestorBuyStreakCalculator.consecutiveNetBuyDays(foreignCal, foreignBuy),
-                InvestorBuyStreakCalculator.consecutiveNetBuyDays(instCal, instBuy));
+                InvestorBuyStreakCalculator.consecutiveNetBuyDays(foreignCal, foreignBuy, marketCalendar::isMarketClosed),
+                InvestorBuyStreakCalculator.consecutiveNetBuyDays(instCal, instBuy, marketCalendar::isMarketClosed));
     }
 
     /** 보드용 배치 — 코드 집합 전체를 IN 절 일괄 조회(N+1 금지). 코드별 Streaks(외인/기관). */
@@ -76,9 +77,9 @@ public class InvestorBuyStreakService {
         for (String code : codes) {
             if (code == null) continue;
             Integer f = InvestorBuyStreakCalculator.consecutiveNetBuyDays(
-                    foreignCal, foreignBuyByCode.getOrDefault(code, Set.of()));
+                    foreignCal, foreignBuyByCode.getOrDefault(code, Set.of()), marketCalendar::isMarketClosed);
             Integer i = InvestorBuyStreakCalculator.consecutiveNetBuyDays(
-                    instCal, instBuyByCode.getOrDefault(code, Set.of()));
+                    instCal, instBuyByCode.getOrDefault(code, Set.of()), marketCalendar::isMarketClosed);
             out.put(code, new Streaks(f, i));
         }
         return out;

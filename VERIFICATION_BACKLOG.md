@@ -737,10 +737,10 @@
 |---|---|---|---|
 | R1 | ~~실적 채점 입력이 분기 비교가 아님~~ → **2026-08-26 파이프라인 수정 완료. 전환 플래그 OFF 대기** (아래 "R1 처리" 참조) | **P1** | 데이터 경로는 고침. **켜는 시점만 사람 판단**(켜면 점수·후보 수가 움직여 측정 표본 경계가 됨) |
 | R2 | 대조군 유니버스 유동성·신선도 비대칭 — 시그널은 5분 신선 캐시 없으면 record 스킵, 대조군은 KIS 신규 호출까지 감행 + `findStockCodesWithMinHistory` 에 최근성 조건 없음 → 저유동·수집중단 종목이 대조군에만 유입 → base rate 하락 → **edge 과대(좋아 보이는 방향)** | P1 | 유니버스 쿼리 + 가격 게이트 대칭화 — 대조군 기록 경로 수정이라 신중히(오염 방지 불변식 재검증 동반) |
-| R3 | 연속매수일 계산 3벌 중 화면용(`InvestorBuyStreakCalculator`)만 결측일 가드 없음 — 수집 실패일을 건너뛰고 이어 세어 "N일 연속" 배지 부풀림(2026-07-28 에 점수용만 고침) | P2 | 화면용을 `resolveConsecutiveBuyDates` 로 통일 — 별도 소세션 |
+| R3 | ~~연속매수일 화면용 결측일 가드 없음~~ → ✅ **해소(2026-08-31)**: `InvestorBuyStreakCalculator` 에 휴장 판정 주입 — 휴장일은 건너뛰고 **거래일 결측은 연속을 끊는다**(점수용 `resolveConsecutiveBuyDates` 와 의미론 통일). 회귀 `streak_missingTradingDayBreaks` | P2 | 완료 |
 | R4 | ~~저평가/성장 5트랙 `findLatestPerStock` 단일 행 + placeholder 스킵 없음~~ → **2026-08-26 수정 완료** (`FinancialRowSynthesizer` + `findRecentPerStock(10)`, composite 와 규칙·행수 동일) | P2 | — |
 | R5 | ~~재무 수집 유니버스 자기참조~~ → **2026-08-26 수정 완료** (`resolveCollectionUniverse` = 기존 수집분 ∪ stock_master 활성 KOSPI/KOSDAQ, `FinancialCollectionUniverseTest`) | P2 | — |
-| R6 | 일봉 400 상한 절단이 결정적(`findStockCodesByTradeDate` ORDER BY 없음 → 매번 같은 꼬리 절단) + 잘린 종목은 배치로 영영 미복구 | P2 | ORDER BY 명시 + 재시도 큐 — 서버에서 400 초과 실발생 로그 확인 후 |
+| R6 | ~~일봉 400 상한 결정적 절단~~ → ✅ **조치(2026-08-31)**: prod 실측으로 실발생 확정(하루 대상 879~1,123종목 = 상한 2.8배 초과, 매일 ~700종목 미확정). `selectFairly` 셔플로 공정 선정 — 종목당 채택률 ~36%/일, 뽑힐 때 60봉 소급 확정이라 며칠 내 순환. **상한 400(KIS 예산)은 불변** — 올리기(400→전수, 배치 3분→8분)는 별도 판단 | P2 | 완료(상한 조정만 잔여 판단) |
 | R7 | V30 카테고리 스냅샷 원시 int(미수집=0 저장, §4 NULL 불변식 위반) — 약세 버킷 집계 오염("기술이 유일하게 일한다" 결론의 근거 재검 필요) | P2 | record 호출부에서 valid 여부로 0→null 변환 — validCount 산정과 정합 설계 필요 |
 
 ### R1 처리 (2026-08-26) — 데이터 경로 수정 + 전환 플래그 대기
