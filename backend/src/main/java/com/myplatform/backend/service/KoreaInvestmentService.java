@@ -624,6 +624,22 @@ public class KoreaInvestmentService {
                 + "&FID_ETC_CLS_CODE=";         // 필수·빈값(공식 샘플) — 없으면 200 + "INPUT FIELD NOT FOUND"
     }
 
+    /** 투자자 매매종목가집계 빈 응답 로그 게이트 상태 — scope("{투자자구분}/{buy|sell}") → "{날짜}|{EMPTY|OK}". */
+    private final Map<String, String> investorEmptyState = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * 직전 관측 상태를 돌려주고 현재 상태를 기억한다 — 로그 억제 전용(판정 아님), 순수 함수
+     * ({@code KoreaInvestmentInvestorEmptyLogGateTest}). 하루 첫 관측이거나 날짜가 바뀌면 null.
+     * 호출부 규약: EMPTY 인데 직전이 EMPTY 가 아니면 WARN 1회 · OK 인데 직전이 EMPTY 면 INFO 복구 1회 · 그 외 무로그.
+     * (§5 "경보를 끄는 게 아니라 상태가 바뀐 순간만" — 같은 WARN 이 하루 402줄이던 것, 2026-09-02)
+     */
+    static String previousInvestorState(Map<String, String> holder, String scope, java.time.LocalDate day, String state) {
+        String prefix = day + "|";
+        String prev = holder.put(scope, prefix + state);
+        if (prev == null || !prev.startsWith(prefix)) return null;
+        return prev.substring(prefix.length());
+    }
+
     /**
      * 주식 분봉 데이터 조회 — <b>시간 앵커(HHMMSS) 지정</b>. KIS 는 호출당 앵커 시각 이전 최근 30건(1분봉)만
      * 반환하므로, 당일 전체 분봉이 필요한 호출부({@link IntradayChartService})가 앵커를 09:00 까지 되감으며
@@ -745,7 +761,8 @@ public class KoreaInvestmentService {
                         + "&FID_RANK_SORT_CLS_CODE=" + (isBuy ? "0" : "1")
                         + "&FID_ETC_CLS_CODE=" + investorType;
 
-                log.info("KIS API 호출: {}", url);
+                // 요청·응답 상태는 요청별 로그 → DEBUG (§5 "루프·요청 안은 DEBUG", 2026-09-02)
+                log.debug("KIS API 호출: {}", url);
 
                 HttpHeaders headers = createHeaders(token, "FHPTJ04400000");
                 HttpEntity<String> request = new HttpEntity<>(headers);
@@ -753,18 +770,28 @@ public class KoreaInvestmentService {
                 ResponseEntity<String> response = restTemplate.exchange(
                         url, HttpMethod.GET, request, String.class);
 
-                log.info("KIS API 응답 상태: {}", response.getStatusCode());
+                log.debug("KIS API 응답 상태: {}", response.getStatusCode());
 
                 if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
                     JsonNode result = objectMapper.readTree(response.getBody());
                     int outputSize = result.has("output") && result.get("output").isArray() ? result.get("output").size() : 0;
-                    log.info("KIS API 응답: rt_cd={}, output 크기={}",
+                    log.debug("KIS API 응답: rt_cd={}, output 크기={}",
                             result.has("rt_cd") ? result.get("rt_cd").asText() : "없음", outputSize);
+                    // 빈 응답(rt_cd=0, output=[])은 매일 08:00~10:00 집계 전 구간에 정상적으로 나온다 — 캐시 워머가
+                    // 그 창에서 계속 호출하니 같은 WARN 이 하루 402줄(2026-09-01 실측). 상태가 바뀐 순간만 남긴다:
+                    // 하루 첫 빈 응답 WARN 1회 → 데이터 유입 시 INFO 복구 1회 → 장중 다시 비면(진짜 이상) 다시 WARN.
+                    String scope = investorType + "/" + (isBuy ? "buy" : "sell");
+                    java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+                    String prev = previousInvestorState(investorEmptyState, scope, today, outputSize == 0 ? "EMPTY" : "OK");
                     if (outputSize == 0) {
-                        log.warn("KIS API 빈 응답 [투자자:{}] msg1={}, raw={}",
-                                investorType,
-                                result.has("msg1") ? result.get("msg1").asText() : "없음",
-                                response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
+                        if (!"EMPTY".equals(prev)) {
+                            log.warn("KIS API 빈 응답 [투자자:{}] msg1={}, raw={} (같은 상태가 이어지는 동안은 생략)",
+                                    investorType,
+                                    result.has("msg1") ? result.get("msg1").asText() : "없음",
+                                    response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
+                        }
+                    } else if ("EMPTY".equals(prev)) {
+                        log.info("KIS API 응답 복구 [투자자:{}] output 크기={}", investorType, outputSize);
                     }
                     return result;
                 } else {
