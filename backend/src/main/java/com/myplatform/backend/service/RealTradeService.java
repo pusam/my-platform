@@ -746,30 +746,47 @@ public class RealTradeService implements TradeService {
         return getBalanceInfo(false);
     }
 
+    /** 잔고 갱신 단일 비행 잠금 — KIS 잔고 호출은 한 번에 하나만 나간다. */
+    private final Object balanceRefreshLock = new Object();
+
+    private boolean isBalanceCacheFresh() {
+        if (cachedBalance == null || lastBalanceUpdate == null) return false;
+        long elapsed = java.time.Duration.between(lastBalanceUpdate, DateTimeUtil.kstNow()).getSeconds();
+        return elapsed < BALANCE_CACHE_SECONDS;
+    }
+
     /**
      * 매매 직전엔 반드시 force=true 로 호출. 캐시 무시 + 실패 시 캐시 반환 안 함 (null).
+     *
+     * <p><b>단일 비행(2026-09-02, {@code RealTradeBalanceSingleFlightTest})</b>: 공시 모니터(5분)·급락 감시(2분)·
+     * 워머가 같은 초(스케줄러 tick)에 각자 KIS 잔고를 때려 서로를 EGW00215(초당 거래건수 초과)로 실패시켰다 —
+     * prod 실측 하루 24건, 전부 tick 초. 30초 캐시는 tick 마다 이미 만료돼 있어 막지 못했다. 잠금 안에서 한 번만
+     * KIS 에 가고, 기다린 호출자는 방금 갱신된 캐시를 쓴다(비매매 경로). force(매매 직전)는 잠금만 같이 써서
+     * 모니터 호출과 겹치지 않게 하고 캐시는 여전히 무시한다 — 매매 직전 잔고가 남의 호출에 밀려 실패하는 것도 막는다.
      */
     private BalanceInfo getBalanceInfo(boolean force) {
-        if (!force && cachedBalance != null && lastBalanceUpdate != null) {
-            long elapsed = java.time.Duration.between(lastBalanceUpdate, DateTimeUtil.kstNow()).getSeconds();
-            if (elapsed < BALANCE_CACHE_SECONDS) {
-                return cachedBalance;
+        if (!force && isBalanceCacheFresh()) {
+            return cachedBalance;
+        }
+        synchronized (balanceRefreshLock) {
+            if (!force && isBalanceCacheFresh()) {
+                return cachedBalance;   // 잠금을 기다리는 사이 다른 호출자가 갱신함
             }
-        }
 
-        JsonNode balanceResponse = kisService.getBalance();
-        if (balanceResponse == null) {
-            // 매매 직전에는 stale 캐시로 결정 내리지 않도록 null 반환 → 호출자가 거래 중단.
-            return force ? null : cachedBalance;
-        }
+            JsonNode balanceResponse = kisService.getBalance();
+            if (balanceResponse == null) {
+                // 매매 직전에는 stale 캐시로 결정 내리지 않도록 null 반환 → 호출자가 거래 중단.
+                return force ? null : cachedBalance;
+            }
 
-        BalanceInfo balance = kisService.parseBalance(balanceResponse);
-        if (balance != null) {
-            cachedBalance = balance;
-            lastBalanceUpdate = DateTimeUtil.kstNow();
-        }
+            BalanceInfo balance = kisService.parseBalance(balanceResponse);
+            if (balance != null) {
+                cachedBalance = balance;
+                lastBalanceUpdate = DateTimeUtil.kstNow();
+            }
 
-        return balance;
+            return balance;
+        }
     }
 
     /**

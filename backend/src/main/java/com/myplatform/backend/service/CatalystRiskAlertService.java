@@ -232,8 +232,12 @@ public class CatalystRiskAlertService {
             KoreaInvestmentService kis = kisProvider.getIfAvailable();
             RealTradeService rts = realTradeProvider.getIfAvailable();
             if (kis != null && rts != null && kis.isRealTradingConfigured()) {
-                List<com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto> portfolio = rts.getPortfolio();
-                if (portfolio != null) {
+                // tryGetPortfolio: 조회 실패(empty)와 "보유 없음"(빈 목록)을 구분 — getPortfolio 는 실패도 빈 목록이라
+                // KIS 가 EGW00215 로 튕긴 회차에 실계좌 보유 종목이 조용히 빠졌다(2026-09-02, §4c).
+                List<com.myplatform.backend.dto.PaperTradingDto.PortfolioItemDto> portfolio = rts.tryGetPortfolio().orElse(null);
+                if (portfolio == null) {
+                    log.warn("[악재경보] KIS 실잔고 조회 실패 — 이번 회차는 실계좌 보유 종목 없이 진행(보유 0 아님)");
+                } else {
                     for (var p : portfolio) {
                         if (p != null && p.getStockCode() != null && !p.getStockCode().isBlank()) {
                             codes.add(p.getStockCode());

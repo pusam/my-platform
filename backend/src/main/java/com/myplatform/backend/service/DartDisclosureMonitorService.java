@@ -120,8 +120,11 @@ public class DartDisclosureMonitorService {
         List<String> kisNames = new ArrayList<>();
         try {
             if (kisService.isRealTradingConfigured()) {
-                List<PortfolioItemDto> portfolio = realTradeService.getPortfolio();
-                if (portfolio != null) {
+                // tryGetPortfolio: 조회 실패(empty)와 "보유 없음"(빈 목록)을 구분(2026-09-02, §4c)
+                List<PortfolioItemDto> portfolio = realTradeService.tryGetPortfolio().orElse(null);
+                if (portfolio == null) {
+                    log.warn("[DART monitor] KIS 실잔고 조회 실패 — 이번 회차는 실계좌 보유 종목 없이 진행(보유 0 아님)");
+                } else {
                     for (PortfolioItemDto p : portfolio) {
                         if (p.getStockName() != null && !p.getStockName().isBlank()) {
                             kisNames.add(p.getStockName());

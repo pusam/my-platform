@@ -169,8 +169,12 @@ public class CatalystWarmingService {
             KoreaInvestmentService kis = kisProvider.getIfAvailable();
             RealTradeService rts = realTradeProvider.getIfAvailable();
             if (kis != null && rts != null && kis.isRealTradingConfigured()) {
-                List<PortfolioItemDto> portfolio = rts.getPortfolio();
-                if (portfolio != null) {
+                // tryGetPortfolio: 조회 실패(empty)와 "보유 없음"(빈 목록)을 구분(2026-09-02, §4c) — 08:00 한 번뿐인 워밍이라
+                // 실패를 빈 목록으로 읽으면 그날 '보유' 그룹이 통째로 빠진다.
+                List<PortfolioItemDto> portfolio = rts.tryGetPortfolio().orElse(null);
+                if (portfolio == null) {
+                    log.warn("[재료워밍] KIS 실잔고 조회 실패 — 오늘 워밍에서 실계좌 '보유' 그룹 제외(보유 0 아님)");
+                } else {
                     for (PortfolioItemDto p : portfolio) {
                         if (p == null || p.getStockCode() == null || p.getStockCode().isBlank()
                                 || p.getStockName() == null || p.getStockName().isBlank()) continue;

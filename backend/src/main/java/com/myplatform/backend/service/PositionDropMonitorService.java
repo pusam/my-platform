@@ -63,8 +63,13 @@ public class PositionDropMonitorService {
         }
 
         try {
-            List<PortfolioItemDto> portfolio = realTradeService.getPortfolio();
-            if (portfolio == null || portfolio.isEmpty()) return;
+            // tryGetPortfolio: 조회 실패와 "보유 없음"을 구분(2026-09-02, §4c) — 실패는 WARN 으로 남기고 이번 회차만 건너뛴다.
+            List<PortfolioItemDto> portfolio = realTradeService.tryGetPortfolio().orElse(null);
+            if (portfolio == null) {
+                log.warn("[PositionDrop] KIS 실잔고 조회 실패 — 이번 회차 급락 감시 건너뜀(다음 회차 재시도)");
+                return;
+            }
+            if (portfolio.isEmpty()) return;
 
             for (PortfolioItemDto item : portfolio) {
                 evaluateAndAlert(item);
