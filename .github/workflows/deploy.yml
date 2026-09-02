@@ -299,7 +299,12 @@ jobs:
             fi
 
             # 최종 안전망 — 실제 마운트된 설정으로 nginx -t 검증. 실패(인증서 누락/문법오류) 시 재기동 스킵.
-            if [ -z "$NGINX_SKIP" ] && ! docker compose run --rm --no-deps --entrypoint nginx nginx -t; then
+            # ⚠️ 이 스크립트는 ssh 의 stdin(heredoc)으로 흘러 들어온다. `docker compose run` 은 stdin 을 컨테이너에
+            #    붙이므로 `</dev/null` 없이 두면 **남은 스크립트 전부를 stdin 으로 삼켜** 아래 재생성·certbot·prune 이
+            #    한 줄도 실행되지 않은 채 "성공"으로 끝난다(2026-08-20~09-02 실측 — nginx 컨테이너가 7/8 생성 그대로,
+            #    배포 스텝 종료 시각 = nginx -t 컨테이너 실행 시각). Copy 단계의 nginx -t 는 ssh 인자로 넘겨 무관.
+            #    heredoc 안에서 stdin 을 읽을 수 있는 명령(compose run/exec)은 반드시 -T + </dev/null.
+            if [ -z "$NGINX_SKIP" ] && ! docker compose run -T --rm --no-deps --entrypoint nginx nginx -t </dev/null; then
               echo "❌ nginx 설정 검증(nginx -t) 실패 — 위 로그의 [emerg] 확인(인증서 경로/문법)."
               NGINX_SKIP="nginx -t 실패"
             fi
