@@ -52,6 +52,26 @@ EXITED=$(docker ps -a --filter status=exited --format '{{.Names}}' 2>/dev/null |
 [ -n "$UNHEALTHY" ]   && ALERTS+=("⚠️ unhealthy 컨테이너: $UNHEALTHY")
 [ -n "$RESTARTING" ]  && ALERTS+=("⚠️ restarting 컨테이너: $RESTARTING")
 
+# ---- nginx 재생성 누락 (2026-09-02 사고) ----
+# 배포는 backend 를 항상 recreate 하고, 같은 스크립트가 nginx 도 recreate 한다. nginx 의 Created 가 backend 보다
+# 하루 넘게 오래됐다면 배포의 nginx 재생성 줄이 안 도는 것이다 — 8/20~9/2 에 ssh heredoc 안 `docker compose run` 이
+# 남은 스크립트를 stdin 으로 삼켜 그랬고(nginx 는 7/8 생성 그대로), 설정 재로드는 `docker restart` 가 대신해
+# 어느 화면에도 안 보였다. 백엔드는 도커를 못 보므로 이 크론이 잡는다.
+NGINX_CREATED=$(docker inspect -f '{{.Created}}' myplatform-nginx 2>/dev/null)
+BACKEND_CREATED=$(docker inspect -f '{{.Created}}' myplatform-backend 2>/dev/null)
+if [ -n "$NGINX_CREATED" ] && [ -n "$BACKEND_CREATED" ]; then
+  # 소수점 이하 나노초를 떼고 파싱 (2026-09-02T06:13:55.462284065Z → 2026-09-02T06:13:55Z)
+  NGINX_TS=$(date -d "${NGINX_CREATED%%.*}Z" +%s 2>/dev/null || echo 0)
+  BACKEND_TS=$(date -d "${BACKEND_CREATED%%.*}Z" +%s 2>/dev/null || echo 0)
+  LAG_H=$(( (BACKEND_TS - NGINX_TS) / 3600 ))
+  INFO+=("🔁 nginx 생성: backend 보다 ${LAG_H}시간 이전 (같은 배포면 0)")
+  if [ "$LAG_H" -gt 24 ]; then
+    ALERTS+=("⚠️ nginx 가 backend 보다 ${LAG_H}시간 전에 생성됨 — 배포의 nginx 재생성이 건너뛰어지고 있다 (deploy.yml NGINX_SKIP 사유 / heredoc stdin 삼킴 확인)")
+  fi
+else
+  ALERTS+=("⚠️ nginx/backend 컨테이너 생성 시각을 못 읽음 (docker inspect 실패) — '정상'이 아니라 '모름'")
+fi
+
 # ---- fail2ban ----
 if command -v fail2ban-client >/dev/null 2>&1; then
   BANNED=$(sudo fail2ban-client status sshd 2>/dev/null | grep "Currently banned" | awk -F: '{print $2}' | tr -d ' \t')
