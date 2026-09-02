@@ -283,6 +283,17 @@ public class ControlRoomSnapshotService {
                             .map(com.myplatform.backend.entity.SignalWeeklyAccuracy::getWeekStart)
                             .toList()));
 
+            // KIS 호출 실패 — 2026-09-02 실사고 둘(분봉 파라미터 누락·잔고 초당 한도 충돌). 예외 없이 200 으로
+            // 실패하는 부류라 rt_cd 집계(KisCallTally, 프로세스 메모리·부팅 이후 오늘분)로만 보인다.
+            {
+                com.myplatform.backend.service.KisCallTally.Counts mc =
+                        com.myplatform.backend.service.KisCallTally.of(com.myplatform.backend.service.KisCallTally.MINUTE_CHART, today);
+                found.add(DataAnomalyRules.minuteChartFailureRate(mc.attempts(), mc.failures()));
+                com.myplatform.backend.service.KisCallTally.Counts bal =
+                        com.myplatform.backend.service.KisCallTally.of(com.myplatform.backend.service.KisCallTally.BALANCE, today);
+                found.add(DataAnomalyRules.balanceLookupFailures(bal.attempts(), bal.failures()));
+            }
+
             List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
             return new ControlRoomSnapshotDto.Anomalies(true, items, now,
                     items.isEmpty() ? null : items.size() + "건 — 규칙별 detail 에 확인 방법이 있다");

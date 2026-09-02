@@ -645,6 +645,11 @@ public class KoreaInvestmentService {
      * 반환하므로, 당일 전체 분봉이 필요한 호출부({@link IntradayChartService})가 앵커를 09:00 까지 되감으며
      * 페이지네이션한다.
      */
+    /** KST 기준 오늘 — KIS 호출 집계({@link KisCallTally}) 키. */
+    private static java.time.LocalDate kstToday() {
+        return java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+    }
+
     public JsonNode getStockMinuteChartAt(String stockCode, String timeHHMMSS, KisApiRateLimiter.Priority priority) {
         return rateLimiter.execute(priority, () -> {
             String token = getAccessToken();
@@ -652,6 +657,8 @@ public class KoreaInvestmentService {
                 return null;
             }
 
+            java.time.LocalDate tallyDay = kstToday();
+            KisCallTally.attempt(KisCallTally.MINUTE_CHART, tallyDay);   // 관제실 규칙 ⑫ 입력(2026-09-02)
             try {
                 String url = buildMinuteChartUrl(baseUrl, stockCode, timeHHMMSS);
 
@@ -662,11 +669,21 @@ public class KoreaInvestmentService {
                         url, HttpMethod.GET, request, String.class);
 
                 if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-                    return objectMapper.readTree(response.getBody());
+                    JsonNode node = objectMapper.readTree(response.getBody());
+                    // KIS 는 틀린 요청에도 200 을 준다 — rt_cd 로 세어야 실패가 보인다(FID_ETC_CLS_CODE 누락 사고).
+                    // IntradayChartService 는 이 응답을 로그 없이 실패 처리하므로 여기서 한 줄은 남긴다.
+                    if (!"0".equals(node.path("rt_cd").asText(""))) {
+                        KisCallTally.failure(KisCallTally.MINUTE_CHART, tallyDay);
+                        log.warn("분봉 API 응답 실패 [{}]: rt_cd={} msg1={}", stockCode,
+                                node.path("rt_cd").asText(""), node.path("msg1").asText(""));
+                    }
+                    return node;
                 } else {
+                    KisCallTally.failure(KisCallTally.MINUTE_CHART, tallyDay);
                     log.warn("분봉 API HTTP 에러 [{}]: status={}", stockCode, response.getStatusCode());
                 }
             } catch (Exception e) {
+                KisCallTally.failure(KisCallTally.MINUTE_CHART, tallyDay);
                 handleKisApiException(e, token);
                 log.warn("분봉 API 예외 [{}]: {}", stockCode, e.getMessage());
             }
@@ -1547,6 +1564,7 @@ public class KoreaInvestmentService {
             HttpEntity<String> request = new HttpEntity<>(headers);
 
             log.debug("[실전매매] 잔고 조회 요청");
+            KisCallTally.attempt(KisCallTally.BALANCE, kstToday());   // 관제실 규칙 ⑬ 입력(2026-09-02) — 재시도도 각각 센다
 
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.GET, request, String.class);
@@ -1561,18 +1579,22 @@ public class KoreaInvestmentService {
                 }
                 String msg = result.has("msg1") ? result.get("msg1").asText() : "";
                 log.error("[실전매매] 잔고 조회 실패: {}", msg);
+                KisCallTally.failure(KisCallTally.BALANCE, kstToday());
                 // rt_cd≠0 에러 바디를 그대로 반환하면 parseBalance 가 "예수금 0·보유 없음"의 빈 정상잔고로
                 // 위장(+RealTradeService 30초 캐시) → 정상 매도(손절 포함)가 "보유 부족"으로 거부되고 킬스위치
                 // 자산 계산이 오염된다. null = 실패 신호(주문 경로 중단 / 표시 경로 직전 캐시 유지).
                 return null;
             }
+            KisCallTally.failure(KisCallTally.BALANCE, kstToday());   // HTTP 비정상 / 빈 바디
         } catch (org.springframework.web.client.HttpServerErrorException e) {
             // rate limit 등은 rateLimiter 가 재시도할 수 있도록 예외를 그대로 던진다.
             String body = e.getResponseBodyAsString();
             log.error("[실전매매] 잔고 조회 실패: {} {}", e.getStatusCode(), body);
+            KisCallTally.failure(KisCallTally.BALANCE, kstToday());
             throw new RuntimeException("잔고 조회 실패: " + body, e);
         } catch (Exception e) {
             log.error("[실전매매] 잔고 조회 실패: {}", e.getMessage());
+            KisCallTally.failure(KisCallTally.BALANCE, kstToday());
         }
 
         return null;

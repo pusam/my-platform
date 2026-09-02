@@ -420,6 +420,54 @@ public final class DataAnomalyRules {
                 windowDays + "일 창: 시그널 " + boardSignals + " vs 대조군 0");
     }
 
+    // ==================== ⑫ KIS 분봉 API 실패율 ====================
+    /** 판정에 필요한 최소 시도 수 — 그 아래는 비율이 요동쳐 오탐이 된다. */
+    static final long MINUTE_CHART_MIN_ATTEMPTS = 5;
+    static final int MINUTE_CHART_FAIL_PCT = 50;
+
+    /**
+     * KIS 당일분봉조회(FHKST03010200) 실패율 — 2026-09-02 실사고: 필수 파라미터 FID_ETC_CLS_CODE 가 빠져 KIS 가
+     * HTTP 200 + rt_cd≠0 "INPUT FIELD NOT FOUND" 로 답했고, VWAP 는 WARN 5줄/일로만 새고 종목상세 '1일' 탭은
+     * 로그 없이 빈 차트였다. 언제부터였는지 아무도 모른다(컨테이너 재생성으로 로그 소실). 예외가 안 나는 실패라
+     * rt_cd 를 세어야만 보인다({@code KisCallTally}).
+     *
+     * <p>집계는 프로세스 메모리(부팅 이후 오늘분) — 재시작하면 0 부터다. 시도가 {@value #MINUTE_CHART_MIN_ATTEMPTS}건
+     * 미만이면 판정 보류(장전·휴장·아무도 안 열었음 = 정상 0, §4c 위장 금지).
+     */
+    public static Anomaly minuteChartFailureRate(long attempts, long failures) {
+        if (attempts < MINUTE_CHART_MIN_ATTEMPTS) return null;
+        long pct = failures * 100 / attempts;
+        if (pct < MINUTE_CHART_FAIL_PCT) return null;
+        return new Anomaly(WARNING, "kis-minute-chart-failing",
+                "KIS 분봉 API 실패율 " + pct + "% — 오늘 " + attempts + "회 중 " + failures + "회 rt_cd≠0",
+                "VWAP·종목상세 '1일' 탭이 빈 차트가 된다. KIS 는 틀린 요청에도 200 을 주므로 예외가 없다. "
+                        + "확인 — ① 로그 grep \"분봉 API\" 로 msg1 확인(INPUT FIELD NOT FOUND 면 파라미터 누락) "
+                        + "② KoreaInvestmentService.buildMinuteChartUrl 을 공식 샘플(open-trading-api "
+                        + "inquire_time_itemchartprice) 파라미터 5개와 대조 ③ 토큰/앱키 상태.",
+                "부팅 이후 오늘: 시도 " + attempts + " / 실패 " + failures);
+    }
+
+    // ==================== ⑬ KIS 잔고 조회 실패 ====================
+    /** 하루 이만큼부터 울린다 — 단일 비행 전 24건, 후 0건. 그 사이 어디든 이상이다. */
+    static final long BALANCE_FAIL_MIN = 5;
+
+    /**
+     * KIS 잔고 조회(TTTC8434R) 실패 건수 — 2026-09-02 실사고: 공시 5분·급락 2분 모니터가 같은 초에 각자 잔고를
+     * 호출해 서로를 EGW00215(초당 거래건수 초과)로 실패시켰다(하루 24건, ERROR 로그 속에 묻혀 있었다). 실패한
+     * 회차는 알림 모니터가 보유 종목을 건너뛰었고 매매 직전 잔고 조회도 같은 충돌에 노출돼 있었다. 단일 비행으로
+     * 해소했지만 재발(새 호출자·토큰 만료·계좌 설정)은 이 규칙이 잡는다. 집계는 프로세스 메모리(부팅 이후 오늘분).
+     */
+    public static Anomaly balanceLookupFailures(long attempts, long failures) {
+        if (failures < BALANCE_FAIL_MIN) return null;
+        return new Anomaly(WARNING, "kis-balance-failing",
+                "KIS 잔고 조회 실패 " + failures + "건 — 오늘 시도 " + attempts + "회",
+                "실패 회차마다 공시·급락·악재 알림이 실계좌 보유 종목을 건너뛰고, 매매 직전 잔고 조회(force)도 같은 원인에 "
+                        + "노출된다. 확인 — ① 로그 grep \"잔고 조회 실패\" 의 msg: EGW00215 면 초당 한도 충돌(같은 초에 "
+                        + "여러 호출자 — RealTradeService 단일 비행 잠금이 풀렸는지, 새 호출자가 getBalance 를 직접 부르는지) "
+                        + "② 토큰 만료/앱키 ③ 계좌번호 설정. 실패 시각이 :00/:02/:05 tick 이면 충돌이다.",
+                "부팅 이후 오늘: 시도 " + attempts + " / 실패 " + failures);
+    }
+
     public static List<Anomaly> sortBySeverity(List<Anomaly> found) {
         List<Anomaly> out = new ArrayList<>();
         if (found == null) return out;
