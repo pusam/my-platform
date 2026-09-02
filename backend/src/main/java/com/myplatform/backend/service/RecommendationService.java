@@ -865,6 +865,8 @@ public class RecommendationService {
             log.warn("[{}] 재무 행 0건 — 수집 배치 확인 필요(§4c: '조건 미달 0건'과 다름)", logTag);
             return List.of();
         }
+        // 미래 날짜(추정치 잔여) 행 제외 — 쿼리(findRecentPerStock)도 거르지만 같은 규칙을 두 겹으로(2026-09-02).
+        rows = FinancialRowSynthesizer.excludeFutureDated(rows, java.time.LocalDate.now());
         List<StockFinancialData> synthesized = rows.stream()
                 .filter(r -> r != null && r.getStockCode() != null)
                 .collect(Collectors.groupingBy(StockFinancialData::getStockCode))
@@ -1476,8 +1478,9 @@ public class RecommendationService {
         int calc = 0, miss = 0;
         for (StockScore stock : scoreMap.values()) {
             try {
-                List<StockFinancialData> recent = financialDataRepository
-                        .findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode);
+                List<StockFinancialData> recent = FinancialRowSynthesizer.excludeFutureDated(
+                        financialDataRepository.findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode),
+                        java.time.LocalDate.now());   // 미래 날짜(추정치 잔여) 행 제외 — 트랙 합성과 같은 규칙(2026-09-02)
                 if (recent.isEmpty()) { miss++; continue; }
 
                 // 각 필드별 합성 — 단일 row 의 결손 컬럼을 다른 최근 row 로 보완.
@@ -1695,8 +1698,9 @@ public class RecommendationService {
         int calc = 0, miss = 0;
         for (StockScore stock : scoreMap.values()) {
             try {
-                List<StockFinancialData> recent = financialDataRepository
-                        .findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode);
+                List<StockFinancialData> recent = FinancialRowSynthesizer.excludeFutureDated(
+                        financialDataRepository.findTop10ByStockCodeOrderByReportDateDesc(stock.stockCode),
+                        java.time.LocalDate.now());   // 미래 날짜(추정치 잔여) 행 제외 — 트랙 합성과 같은 규칙(2026-09-02)
                 if (recent.isEmpty()) { miss++; continue; }
 
                 BigDecimal revGrowth = firstNonZero(recent, StockFinancialData::getRevenueGrowth);

@@ -50,6 +50,22 @@ public final class FinancialRowSynthesizer {
     public static final int SYNTHESIS_ROWS = 10;
 
     /**
+     * 기준일이 {@code today} 보다 뒤인 행을 뺀다 — 순수 함수({@code FinancialRowFutureDateTest}).
+     *
+     * <p>네이버 크롤이 2026-07-21 전까지 "yyyy.12(E)" 추정치 컬럼을 확정 실적처럼 저장해 342종목에
+     * 미래 날짜(12-31) 행이 남아 있다(2026-09-02 실측 005930: 매출 7,324,732억·영업이익 3,832,404억 —
+     * 실적일 수 없는 값). 합성은 최신 행부터 채우므로 이 행이 있으면 매출·이익 축이 통째로 추정치를 읽는다.
+     * 크롤러는 이미 (E) 를 제외하니, 읽는 쪽(합성·composite·상세·AI)이 같은 규칙으로 잔여를 무력화한다.
+     * 기준일 결측(null) 행은 그대로 둔다 — 결측을 '미래'로 단정하지 않는다(§4c).
+     */
+    public static List<StockFinancialData> excludeFutureDated(List<StockFinancialData> rows, java.time.LocalDate today) {
+        if (rows == null || today == null) return rows;
+        return rows.stream()
+                .filter(r -> r == null || r.getReportDate() == null || !r.getReportDate().isAfter(today))
+                .toList();
+    }
+
+    /**
      * 최근 행들을 합성해 새 {@link StockFinancialData} 를 만든다. <b>입력 엔티티는 변경하지 않는다</b>
      * (JPA 영속 객체를 건드리면 의도치 않은 UPDATE 가 나간다).
      *

@@ -178,7 +178,7 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     @Query(value = "SELECT * FROM (" +
            "  SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.stock_code ORDER BY s.report_date DESC) as rn " +
            "  FROM stock_financial_data s " +
-           "  WHERE s.net_income IS NOT NULL " +
+           "  WHERE s.net_income IS NOT NULL AND s.report_date <= CURDATE() " +   // 미래 날짜(추정치 잔여) 행 제외(2026-09-02)
            ") ranked WHERE rn <= 2",
            nativeQuery = true)
     List<StockFinancialData> findLatestTwoQuartersPerStock();
@@ -197,6 +197,9 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
     @Query(value = "SELECT * FROM ("
             + "  SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.stock_code ORDER BY s.report_date DESC) as rn"
             + "  FROM stock_financial_data s"
+            // 미래 날짜(추정치 잔여 — 2026-07-21 이전 크롤의 "yyyy.12(E)") 행 제외: N행 창을 실적 행으로 채운다(2026-09-02).
+            // 소비처는 FinancialRowSynthesizer.excludeFutureDated 로 한 번 더 거른다(같은 규칙, 두 겹).
+            + "  WHERE s.report_date <= CURDATE()"
             + ") ranked WHERE rn <= :limitPerStock",
             nativeQuery = true)
     List<StockFinancialData> findRecentPerStock(@Param("limitPerStock") int limitPerStock);

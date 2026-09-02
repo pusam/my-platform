@@ -112,8 +112,11 @@ public class StockAnalysisService {
         log.info("종목 상세 진단 시작: {}", stockCode);
 
         // 기본 정보 조회
-        Optional<StockFinancialData> financialDataOpt = stockFinancialDataRepository
-                .findTopByStockCodeOrderByReportDateDesc(stockCode);
+        // 미래 날짜(추정치 잔여) 행을 걸러낸 최신 1건 — FinancialRowSynthesizer.excludeFutureDated (2026-09-02)
+        Optional<StockFinancialData> financialDataOpt = FinancialRowSynthesizer.excludeFutureDated(
+                        stockFinancialDataRepository.findTop10ByStockCodeOrderByReportDateDesc(stockCode),
+                        java.time.LocalDate.now())
+                .stream().findFirst();
 
         if (financialDataOpt.isEmpty()) {
             log.warn("종목 {} 의 재무 데이터가 없습니다.", stockCode);
@@ -253,8 +256,9 @@ public class StockAnalysisService {
 
         // operatingProfit/netIncome/totalEquity 중 하나라도 없으면 가장 최근 분기 데이터에서 조회
         if ((operatingProfit == null || netIncome == null || totalEquity == null || roe == null) && data.getStockCode() != null) {
-            List<StockFinancialData> historicalData = stockFinancialDataRepository
-                    .findByStockCodeOrderByReportDateDesc(data.getStockCode());
+            List<StockFinancialData> historicalData = FinancialRowSynthesizer.excludeFutureDated(
+                    stockFinancialDataRepository.findByStockCodeOrderByReportDateDesc(data.getStockCode()),
+                    java.time.LocalDate.now());   // 미래 날짜(추정치 잔여) 행 제외(2026-09-02)
             for (StockFinancialData hist : historicalData) {
                 if (operatingProfit == null && hist.getOperatingProfit() != null) {
                     operatingProfit = hist.getOperatingProfit();

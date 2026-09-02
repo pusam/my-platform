@@ -287,8 +287,11 @@ public class AiStockAnalysisService {
         }
 
         // 재무 데이터 조회
-        Optional<StockFinancialData> financialOpt = stockFinancialDataRepository
-                .findTopByStockCodeOrderByReportDateDesc(stockCode);
+        // 미래 날짜(추정치 잔여) 행을 걸러낸 최신 1건 — FinancialRowSynthesizer.excludeFutureDated (2026-09-02)
+        Optional<StockFinancialData> financialOpt = FinancialRowSynthesizer.excludeFutureDated(
+                        stockFinancialDataRepository.findTop10ByStockCodeOrderByReportDateDesc(stockCode),
+                        java.time.LocalDate.now())
+                .stream().findFirst();
 
         // 점수 계산
         AiStockRecommendationDto.ScoreDetails scoreDetails = calculateScoreDetails(

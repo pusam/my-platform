@@ -750,8 +750,9 @@ public class StockDetailService {
             // ROE/마진 폴백: FnGuide 실패 시 DB 데이터 사용
             if (roe == null || operatingMargin == null || debtRatio == null) {
                 try {
-                    List<StockFinancialData> dbDataList = stockFinancialDataRepository
-                            .findByStockCodeOrderByReportDateDesc(stockCode);
+                    List<StockFinancialData> dbDataList = FinancialRowSynthesizer.excludeFutureDated(
+                            stockFinancialDataRepository.findByStockCodeOrderByReportDateDesc(stockCode),
+                            java.time.LocalDate.now());   // 미래 날짜(추정치 잔여) 행 제외(2026-09-02)
                     if (!dbDataList.isEmpty()) {
                         for (StockFinancialData hist : dbDataList) {
                             if (roe == null && hist.getRoe() != null) roe = hist.getRoe();
