@@ -630,7 +630,7 @@ public class KoreaInvestmentService {
     /**
      * 직전 관측 상태를 돌려주고 현재 상태를 기억한다 — 로그 억제 전용(판정 아님), 순수 함수
      * ({@code KoreaInvestmentInvestorEmptyLogGateTest}). 하루 첫 관측이거나 날짜가 바뀌면 null.
-     * 호출부 규약: EMPTY 인데 직전이 EMPTY 가 아니면 WARN 1회 · OK 인데 직전이 EMPTY 면 INFO 복구 1회 · 그 외 무로그.
+     * 호출부 규약: EMPTY 인데 직전이 EMPTY 가 아니면 WARN 1회 · OK 인데 직전이 EMPTY 면 복구 알림 1회(WARN — logback 이 이 클래스 로거를 WARN 으로 묶어 INFO 는 안 보임) · 그 외 무로그.
      * (§5 "경보를 끄는 게 아니라 상태가 바뀐 순간만" — 같은 WARN 이 하루 402줄이던 것, 2026-09-02)
      */
     static String previousInvestorState(Map<String, String> holder, String scope, java.time.LocalDate day, String state) {
@@ -779,7 +779,7 @@ public class KoreaInvestmentService {
                             result.has("rt_cd") ? result.get("rt_cd").asText() : "없음", outputSize);
                     // 빈 응답(rt_cd=0, output=[])은 매일 08:00~10:00 집계 전 구간에 정상적으로 나온다 — 캐시 워머가
                     // 그 창에서 계속 호출하니 같은 WARN 이 하루 402줄(2026-09-01 실측). 상태가 바뀐 순간만 남긴다:
-                    // 하루 첫 빈 응답 WARN 1회 → 데이터 유입 시 INFO 복구 1회 → 장중 다시 비면(진짜 이상) 다시 WARN.
+                    // 하루 첫 빈 응답 WARN 1회 → 데이터 유입 시 복구 알림 1회(WARN — logback 이 이 클래스 로거를 WARN 으로 묶어 INFO 는 안 보임) → 장중 다시 비면(진짜 이상) 다시 WARN.
                     String scope = investorType + "/" + (isBuy ? "buy" : "sell");
                     java.time.LocalDate today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
                     String prev = previousInvestorState(investorEmptyState, scope, today, outputSize == 0 ? "EMPTY" : "OK");
@@ -791,7 +791,7 @@ public class KoreaInvestmentService {
                                     response.getBody().length() > 500 ? response.getBody().substring(0, 500) : response.getBody());
                         }
                     } else if ("EMPTY".equals(prev)) {
-                        log.info("KIS API 응답 복구 [투자자:{}] output 크기={}", investorType, outputSize);
+                        log.warn("KIS API 응답 복구 [투자자:{}] output 크기={}", investorType, outputSize);
                     }
                     return result;
                 } else {

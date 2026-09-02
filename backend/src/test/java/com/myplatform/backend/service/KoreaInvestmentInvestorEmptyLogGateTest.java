@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * KIS 는 매일 08:00~10:00 사이 이 API 를 정상(rt_cd=0)인데 output=[] 로 돌려준다(집계 전). 캐시 워머가
  * 그 창에서 계속 호출하니 같은 WARN 이 하루 400줄(2026-09-01 실측 402)이었다. §5 규칙대로 "경보를 끄는
  * 게 아니라 상태가 바뀐 순간만" 남긴다: 하루 첫 빈 응답 1회 WARN, 이어지는 빈 응답은 생략, 데이터가
- * 들어오면 INFO 복구 1회, 그 뒤 다시 비면 다시 WARN(장중 재발 = 진짜 이상, 침묵 금지 §4c).
+ * 들어오면 복구 알림 1회(WARN — logback 이 이 클래스 로거를 WARN 으로 묶어 INFO 는 안 보임), 그 뒤 다시 비면 다시 WARN(장중 재발 = 진짜 이상, 침묵 금지 §4c).
  */
 class KoreaInvestmentInvestorEmptyLogGateTest {
 
