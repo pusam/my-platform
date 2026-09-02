@@ -952,9 +952,12 @@ public class StockFinancialDataCollector {
 
         for (Map.Entry<String, List<StockFinancialData>> entry : stockDataMap.entrySet()) {
             String stockCode = entry.getKey();
-            List<StockFinancialData> dataList = entry.getValue();
+            // 미래 날짜(추정치 잔여) 행 제외 — 안 하면 342종목의 "최신 행"이 2026-12-31 (E) 행이라 성장률을 거기에
+            // 쓰고, 읽는 쪽(트랙·composite)은 그 행을 거르므로 성장률이 갇힌다(2026-09-03 실측: 성장 후보 2,350→2,020).
+            // 쓰기와 읽기가 같은 규칙(FinancialRowSynthesizer.excludeFutureDated)을 써야 한다. 쿼리도 거르지만 두 겹.
+            List<StockFinancialData> dataList = FinancialRowSynthesizer.excludeFutureDated(entry.getValue(), today);
 
-            if (dataList.isEmpty()) continue;
+            if (dataList == null || dataList.isEmpty()) continue;
 
             // 최신 데이터
             StockFinancialData latest = dataList.get(0);

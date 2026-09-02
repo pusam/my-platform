@@ -167,6 +167,7 @@ public interface StockFinancialDataRepository extends JpaRepository<StockFinanci
      */
     @Query("SELECT s FROM StockFinancialData s " +
            "WHERE s.reportDate >= :minDate " +
+           "AND s.reportDate <= CURRENT_DATE " +   // 미래 날짜(추정치 잔여) 행 제외 — 성장률 배치가 이 결과의 첫 행에 쓴다(2026-09-03)
            "AND s.netIncome IS NOT NULL " +
            "ORDER BY s.stockCode ASC, s.reportDate DESC")
     List<StockFinancialData> findAllRecentData(@Param("minDate") LocalDate minDate);
