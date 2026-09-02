@@ -214,11 +214,14 @@ services:
       #    (read-only file system) nginx 검증이 실패한다. 반드시 html 바깥 형제 경로에 마운트.
       - ./nginx/jewelry-dist:/usr/share/nginx/jewelry:ro
       # ── seah(세아 생산관리) 동거 — 마운트 보류(2026-08-21) ────────────────
-      # nginx/seah.conf 와 deploy.yml 의 인증서 가드는 그대로 두고 마운트만 뺀다.
+      # nginx/seah.conf 는 그대로 두고 마운트만 뺀다.
       # 이유: seah 도메인 인증서가 없어 마운트 상태로 nginx 가 recreate 되면 부팅
       # 실패 → my-platform·jewelry 까지 동반 다운. 게다가 seah.duckdns.org 가 우리
       # 서버를 가리키지 않아(다른 IP) 인증서 발급 자체가 현재 불가라 해소 시점이 열려 있다.
-      # 되살리는 순서: ① 도메인 확정(선점 시 새 이름) → ② 인증서 발급 → ③ 아래 2줄 복원.
+      # deploy.yml 의 seah 인증서 가드는 아래 seah.conf volume 라인이 "활성"일 때만 발화한다(2026-09-02).
+      # 파일 존재만 보던 동안엔 보류 상태에서도 매 배포 nginx 재생성이 조용히 스킵됐다.
+      # 되살리는 순서: ① 도메인 확정(선점 시 새 이름) → ② 인증서 발급 → ③ 아래 2줄 복원
+      #   (복원하는 순간 가드가 다시 켜져, 인증서 없이는 nginx 재생성을 건너뛴다 — 순서 지킬 것).
       #   - ./nginx/seah.conf:/etc/nginx/conf.d/seah.conf:ro
       #   - ./nginx/seah-dist:/usr/share/nginx/seah:ro
     depends_on:

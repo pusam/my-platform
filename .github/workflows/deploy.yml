@@ -281,10 +281,15 @@ jobs:
               NGINX_SKIP="vorj-map 인증서 없음"
             fi
 
-            # seah 동거 — seah.conf 가 있으면 seah 도메인 인증서도 필수 (jewelry 와 동일 가드).
+            # seah 동거 — seah.conf 가 nginx 에 "마운트돼 있을 때만" seah 인증서 필수 (jewelry 와 동일 가드).
             # ⚠️ seah 도메인을 seah.duckdns.org 가 아닌 다른 이름으로 잡았다면 아래 경로도 같이 바꿀 것
             #    (nginx/seah.conf 의 server_name·인증서 경로와 반드시 일치해야 한다).
+            # 마운트 보류(docker-compose.yml 의 volume 라인이 주석) 중엔 파일이 서버에 있어도 nginx 가 읽지 않으므로
+            # 가드를 발화시키지 않는다. 파일 존재만 보던 2026-08-20~09-01 사이엔 매 배포 NGINX_SKIP 이 조용히
+            # 켜져 nginx 재생성이 한 번도 안 됐다(설정 재로드는 위 docker restart 가 대신했지만, compose 의
+            # nginx 서비스 변경은 영영 미반영). 마운트 여부 = compose 의 활성(비주석) volume 라인.
             if [ -z "$NGINX_SKIP" ] && [ -f "./nginx/seah.conf" ] \
+               && grep -qE '^[[:space:]]*-[[:space:]]*\./nginx/seah\.conf:' ./docker-compose.yml \
                && [ ! -f "./nginx/ssl/live/seah.duckdns.org/fullchain.pem" ]; then
               echo "❌ seah.conf 는 있으나 seah 인증서가 없습니다."
               echo "   먼저 발급하세요(webroot):"
