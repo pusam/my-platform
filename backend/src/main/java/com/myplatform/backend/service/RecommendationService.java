@@ -125,9 +125,14 @@ public class RecommendationService {
     private volatile List<RecommendationDto> cachedSmartMoneyTop10 = null;
     private volatile LocalDateTime smartMoneyCacheTime = null;
 
-    // 백그라운드 calculate 중복 방지
-    private final java.util.concurrent.atomic.AtomicBoolean calculating
-            = new java.util.concurrent.atomic.AtomicBoolean(false);
+    // 계산 단일 비행 — 백그라운드(getTop5 stale)와 09:00 크론(detectAndAlertNewStrongBuys)이 같은 실행을
+    // 공유한다. 이전 AtomicBoolean 가드는 백그라운드끼리만 막아 크론이 우회했고, 09:00 에 둘이 나란히 돌아
+    // 가격히스토리 수집기가 두 번 예약됐다(2026-09-03 실측: 652종목 KIS 2회, 1,310건/8분).
+    private final com.myplatform.backend.util.SingleFlight<List<RecommendationDto>> calcFlight
+            = new com.myplatform.backend.util.SingleFlight<>();
+
+    /** 크론이 진행 중 계산을 기다리는 상한 — calculate() 자체는 보통 수 초(수집기는 비동기라 미포함). */
+    static final java.time.Duration CALC_JOIN_TIMEOUT = java.time.Duration.ofMinutes(5);
 
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("MM/dd HH:mm");
 
@@ -198,31 +203,41 @@ public class RecommendationService {
      * - 결과는 다음 getTop5() 호출에서 캐시 hit
      */
     private void triggerBackgroundCalculate() {
-        if (!calculating.compareAndSet(false, true)) return;
-        new Thread(() -> {
-            try {
-                List<RecommendationDto> result = calculate();
-                if (!result.isEmpty()) {
-                    cachedTop5 = result;
-                    cacheTime = LocalDateTime.now();
-                    log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
-                } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
-                    // 정상 계산인데 55컷 통과 0건 = 유효한 '관망' 결론(급락일 등) — 어제 스냅샷을
-                    // 계속 노출하는 대신 빈 결과를 발행해 UI 가 "관망" 을 말하게 한다(§4c, 2026-07-28).
-                    // scoreMap 이 빈약하면(입력 데이터 몰락 의심) 발행하지 않고 기존 스냅샷 유지(안전).
-                    cachedTop5 = Collections.emptyList();
-                    cacheTime = LocalDateTime.now();
-                    log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
-                            cachedScoreMap.size());
-                } else {
-                    log.warn("[종합추천] 계산 결과 0건 + scoreMap 빈약 — 입력 데이터 이상 의심, 기존 스냅샷 유지");
-                }
-            } catch (Exception e) {
-                log.error("[종합추천] 백그라운드 계산 실패: {}", e.getMessage(), e);
-            } finally {
-                calculating.set(false);
+        startOrJoinCalculation();
+    }
+
+    /**
+     * 계산을 시작하거나 진행 중인 계산에 합류한다. 캐시 발행은 계산 스레드가 한 번만 한다 —
+     * 누가 시작했든(백그라운드/크론) 결과와 부수효과가 같다. 결과가 필요한 호출자는 Future 를 기다린다.
+     */
+    java.util.concurrent.CompletableFuture<List<RecommendationDto>> startOrJoinCalculation() {
+        return calcFlight.startOrJoin(this::calculateAndPublish, task -> new Thread(task, "rec-calc").start());
+    }
+
+    /** {@code calculate()} + 캐시 발행. 실패는 로그 후 전파 — 합류자가 실패를 '빈 결과'로 읽지 않게(§4c). */
+    private List<RecommendationDto> calculateAndPublish() {
+        try {
+            List<RecommendationDto> result = calculate();
+            if (!result.isEmpty()) {
+                cachedTop5 = result;
+                cacheTime = LocalDateTime.now();
+                log.info("[종합추천] 백그라운드 계산 완료 - {}건", result.size());
+            } else if (shouldPublishEmptyResult(cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
+                // 정상 계산인데 55컷 통과 0건 = 유효한 '관망' 결론(급락일 등) — 어제 스냅샷을
+                // 계속 노출하는 대신 빈 결과를 발행해 UI 가 "관망" 을 말하게 한다(§4c, 2026-07-28).
+                // scoreMap 이 빈약하면(입력 데이터 몰락 의심) 발행하지 않고 기존 스냅샷 유지(안전).
+                cachedTop5 = Collections.emptyList();
+                cacheTime = LocalDateTime.now();
+                log.info("[종합추천] 백그라운드 계산 완료 - 컷 통과 0건(관망) → 빈 결과 발행(scoreMap {}종목)",
+                        cachedScoreMap.size());
+            } else {
+                log.warn("[종합추천] 계산 결과 0건 + scoreMap 빈약 — 입력 데이터 이상 의심, 기존 스냅샷 유지");
             }
-        }, "rec-calc").start();
+            return result;
+        } catch (Exception e) {
+            log.error("[종합추천] 백그라운드 계산 실패: {}", e.getMessage(), e);
+            throw new IllegalStateException("[종합추천] 계산 실패: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -477,8 +492,18 @@ public class RecommendationService {
         }
 
         try {
-            // 오늘 신규 계산
-            List<RecommendationDto> todayList = calculate();
+            // 오늘 신규 계산 — 백그라운드와 같은 단일 비행. 같은 초에 getTop5 가 stale 캐시로 이미 계산을
+            // 시작했으면 그 결과를 기다려 쓴다(각자 돌면 수집기가 두 번 예약돼 KIS 2회, 2026-09-03).
+            // 실패(ExecutionException)는 바깥 catch 로 — '데이터 없음'과 구분(§4c).
+            List<RecommendationDto> todayList;
+            try {
+                todayList = startOrJoinCalculation()
+                        .get(CALC_JOIN_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+            } catch (java.util.concurrent.TimeoutException e) {
+                log.warn("[상승가속알림] 계산이 {}분 안에 안 끝남 — 오늘 알림 스킵(다음 거래일 재시도)",
+                        CALC_JOIN_TIMEOUT.toMinutes());
+                return;
+            }
             if (todayList.isEmpty()) {
                 log.info("[상승가속알림] 오늘 추천 데이터 없음 — 스킵");
                 return;
