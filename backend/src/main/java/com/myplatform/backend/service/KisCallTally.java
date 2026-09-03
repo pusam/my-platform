@@ -19,6 +19,10 @@ import java.util.concurrent.atomic.LongAdder;
  * 생성자를 바꾸면 테스트 6개가 같이 바뀌어야 해서, 카운터는 주입 대상이 아니라 유틸로 둔다.
  *
  * <p>오늘·어제 두 날짜만 유지한다(그 밖은 기록 시점에 정리) — 무한 증식 방지.
+ *
+ * <p><b>단위는 호출자가 정한다</b>: 잔고는 {@code getBalance()} 가 호출 1건 = 시도 1, 실패 = 재시도 소진으로 센다
+ * (재시도 안쪽에서 세면 복구된 블립이 실패로 남는다 — 2026-09-03, {@code KoreaInvestmentBalanceTallyTest}).
+ * 분봉은 페이지네이션 호출마다 센다(각 호출이 독립 응답이라 그게 맞다).
  */
 public final class KisCallTally {
     private KisCallTally() {}

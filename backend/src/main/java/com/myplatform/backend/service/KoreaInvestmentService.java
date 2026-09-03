@@ -1522,8 +1522,16 @@ public class KoreaInvestmentService {
      */
     @CircuitBreaker(name = "kisApi", fallbackMethod = "getBalanceFallback")
     public JsonNode getBalance() {
+        // 관제실 규칙 ⑬ 입력(KisCallTally)은 여기서 호출 단위로 센다 — 시도 1 = getBalance() 1회, 실패 = 재시도 소진.
+        // 재시도 안쪽(getBalanceInternal)에서 세면 EGW00215 블립 한 번이 실패로 남고 소진 1건이 4건으로 부풀어
+        // 실제 1건에 규칙 ⑬(≥5)이 울렸다(2026-09-03 실측 ERROR 7줄 = 소진 1 + 복구 4). 실계좌 미설정은 부재라 안 센다(§4c).
+        boolean counted = isRealTradingConfigured();
+        java.time.LocalDate day = kstToday();
+        if (counted) KisCallTally.attempt(KisCallTally.BALANCE, day);
         // 매매 전 필수 조회 — CRITICAL 로 승격 (다른 호출에 밀리지 않게) + 재시도 3회
-        return rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL, () -> getBalanceInternal(), 3);
+        JsonNode result = rateLimiter.execute(KisApiRateLimiter.Priority.CRITICAL, () -> getBalanceInternal(), 3);
+        if (counted && result == null) KisCallTally.failure(KisCallTally.BALANCE, day);
+        return result;
     }
 
     /** CircuitBreaker OPEN — RealTradeService.getBalanceInfo(force=true) 가 null 받아 매매 abort */
@@ -1563,8 +1571,7 @@ public class KoreaInvestmentService {
             HttpHeaders headers = createHeaders(token, "TTTC8434R");
             HttpEntity<String> request = new HttpEntity<>(headers);
 
-            log.debug("[실전매매] 잔고 조회 요청");
-            KisCallTally.attempt(KisCallTally.BALANCE, kstToday());   // 관제실 규칙 ⑬ 입력(2026-09-02) — 재시도도 각각 센다
+            log.debug("[실전매매] 잔고 조회 요청");   // 집계는 getBalance() 가 호출 단위로 — 여기(재시도 안쪽)선 세지 않는다
 
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.GET, request, String.class);
@@ -1579,22 +1586,19 @@ public class KoreaInvestmentService {
                 }
                 String msg = result.has("msg1") ? result.get("msg1").asText() : "";
                 log.error("[실전매매] 잔고 조회 실패: {}", msg);
-                KisCallTally.failure(KisCallTally.BALANCE, kstToday());
                 // rt_cd≠0 에러 바디를 그대로 반환하면 parseBalance 가 "예수금 0·보유 없음"의 빈 정상잔고로
                 // 위장(+RealTradeService 30초 캐시) → 정상 매도(손절 포함)가 "보유 부족"으로 거부되고 킬스위치
                 // 자산 계산이 오염된다. null = 실패 신호(주문 경로 중단 / 표시 경로 직전 캐시 유지).
                 return null;
             }
-            KisCallTally.failure(KisCallTally.BALANCE, kstToday());   // HTTP 비정상 / 빈 바디
+            // HTTP 비정상 / 빈 바디 — null 로 떨어져 getBalance() 가 실패로 센다
         } catch (org.springframework.web.client.HttpServerErrorException e) {
             // rate limit 등은 rateLimiter 가 재시도할 수 있도록 예외를 그대로 던진다.
             String body = e.getResponseBodyAsString();
             log.error("[실전매매] 잔고 조회 실패: {} {}", e.getStatusCode(), body);
-            KisCallTally.failure(KisCallTally.BALANCE, kstToday());
             throw new RuntimeException("잔고 조회 실패: " + body, e);
         } catch (Exception e) {
             log.error("[실전매매] 잔고 조회 실패: {}", e.getMessage());
-            KisCallTally.failure(KisCallTally.BALANCE, kstToday());
         }
 
         return null;
