@@ -255,8 +255,9 @@ public class SignalWeeklyReportService {
     }
 
     /** 텔레그램 본문 — 카테고리별 적중률/전주 대비/경고. 표본부족 셀은 "(표본부족)" 명시. */
-    private String buildTelegramSummary(WeeklySignalAccuracyDto dto, List<Boolean> priorSupplyInverted,
-                                        boolean supplyInverted) {
+    /** 패키지 가시성 — {@code SignalWeeklyReportTelegramEscapeTest}. parse_mode=HTML 이라 자유 텍스트는 이스케이프. */
+    String buildTelegramSummary(WeeklySignalAccuracyDto dto, List<Boolean> priorSupplyInverted,
+                                boolean supplyInverted) {
         StringBuilder sb = new StringBuilder();
         sb.append("📊 <b>주간 시그널 예측력 측정</b> (").append(dto.getWeekStart())
                 .append(" ~ ").append(dto.getWeekEnd()).append(")\n");
@@ -280,7 +281,10 @@ public class SignalWeeklyReportService {
 
         if (!dto.getWarnings().isEmpty()) {
             sb.append("\n⚠️ <b>경고</b>\n");
-            for (String w : dto.getWarnings()) sb.append("• ").append(w).append('\n');
+            // 경고는 자유 텍스트 — "표본부족(n=3<10)" 의 '<' 를 텔레그램이 태그로 읽어 400(평문 폴백)이 났다(2026-09-03).
+            for (String w : dto.getWarnings()) {
+                sb.append("• ").append(TelegramNotificationService.escapeHtml(w)).append('\n');
+            }
         }
 
         sb.append("\n<i>측정 전용 — 종합점수 산식 무변경. /api/signal-outcomes/weekly-report</i>");

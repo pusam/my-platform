@@ -54,6 +54,19 @@ public class StockAlertScheduler {
     private boolean schedulerEnabled;
 
     /**
+     * 꺼져 있으면 부팅 때 한 번 WARN — 이 클래스의 8개 크론이 전부 {@code return} 하는데 스킵 로그가 DEBUG 라
+     * prod 에선 아무 흔적이 없다. 그래서 2026-01-29 게이트 도입 후 2026-09-04 까지 모닝브리핑 등이 한 번도
+     * 안 돌았는데 아무도 몰랐다(§4c 침묵 금지). 켜져 있으면 조용하다.
+     */
+    @jakarta.annotation.PostConstruct
+    void warnIfDisabled() {
+        if (!schedulerEnabled) {
+            log.warn("[알림스케줄러] alert.scheduler.enabled=false — 모닝브리핑(07:30)·장전/장마감 알림·관심종목/종합 알림·"
+                    + "어닝서프라이즈·공매도 크론 8개가 전부 스킵된다. 의도가 아니면 ALERT_SCHEDULER_ENABLED=true (compose)");
+        }
+    }
+
+    /**
      * 모닝 브리핑 (평일 07:30)
      * - 장 시작 전 전일 시장 요약 텔레그램 발송
      * - 시장 상태, 외국인/기관 연속매수, 관심종목, 마법의 공식 정보

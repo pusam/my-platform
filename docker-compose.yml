@@ -133,6 +133,10 @@ services:
       # 기본 true = 현재 동작 그대로. 코드 기본값도 true 라 동작 변경 없이 '끌 수단'만 확보한다
       # (이전엔 어디에도 선언이 없어 코드 수정 없이는 정지 불가였다). 끄려면 .env 에 =false.
       - PATTERN_DETECTION_ENABLED=${PATTERN_DETECTION_ENABLED:-true}
+      # 알림 스케줄러(StockAlertScheduler 8개 크론 — 07:30 모닝브리핑·08:30·16:45 알림·관심종목/종합 알림·공매도 등).
+      # application.yml 기본값이 false 라 배선이 없으면 통째로 안 돈다 — 2026-01-29 게이트 도입 이후 2026-09-04 까지
+      # 한 번도 안 돌았다(스킵 로그가 DEBUG 라 무음). 끄려면 .env 에 ALERT_SCHEDULER_ENABLED=false.
+      - ALERT_SCHEDULER_ENABLED=${ALERT_SCHEDULER_ENABLED:-true}
     deploy:
       resources:
         limits:
