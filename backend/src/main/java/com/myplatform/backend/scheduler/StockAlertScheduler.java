@@ -54,6 +54,14 @@ public class StockAlertScheduler {
     private boolean schedulerEnabled;
 
     /**
+     * 복합 조건 알림(10분)만 따로 — 기본 <b>false</b>. 2026-09-04 마스터를 처음 켠 날 첫 tick 에 36건, 다음 tick 12건이
+     * 시그널 채널로 나갔다(16분 65통). 한 번도 돈 적이 없어 임계가 보정된 적이 없고, 60분 쿨다운은 같은 종목의 반복만
+     * 막는다. 임계를 실측으로 다시 잡기 전엔 끈다({@code StockAlertSchedulerCompositeGateTest}).
+     */
+    @Value("${alert.composite.enabled:false}")
+    private boolean compositeAlertEnabled;
+
+    /**
      * 꺼져 있으면 부팅 때 한 번 WARN — 이 클래스의 8개 크론이 전부 {@code return} 하는데 스킵 로그가 DEBUG 라
      * prod 에선 아무 흔적이 없다. 그래서 2026-01-29 게이트 도입 후 2026-09-04 까지 모닝브리핑 등이 한 번도
      * 안 돌았는데 아무도 몰랐다(§4c 침묵 금지). 켜져 있으면 조용하다.
@@ -63,6 +71,9 @@ public class StockAlertScheduler {
         if (!schedulerEnabled) {
             log.warn("[알림스케줄러] alert.scheduler.enabled=false — 모닝브리핑(07:30)·장전/장마감 알림·관심종목/종합 알림·"
                     + "어닝서프라이즈·공매도 크론 8개가 전부 스킵된다. 의도가 아니면 ALERT_SCHEDULER_ENABLED=true (compose)");
+        } else if (!compositeAlertEnabled) {
+            log.info("[알림스케줄러] 복합 조건 알림(10분)은 비활성(의도) — 2026-09-04 첫 tick 36건 스팸, 임계 재보정 전. "
+                    + "켜려면 ALERT_COMPOSITE_ENABLED=true");
         }
     }
 
@@ -181,6 +192,7 @@ public class StockAlertScheduler {
     @Scheduled(scheduler = "batchScheduler", cron = "0 */10 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkCompositeAlerts() {
         if (!schedulerEnabled) return;
+        if (!compositeAlertEnabled) return;   // 의도된 OFF — 부팅 INFO 1회로 알린다(warnIfDisabled)
         if (marketCalendar.isMarketClosed()) { log.debug("[복합알림] 휴장일 — 스킵"); return; }
         if (!schedulerLockService.tryLock("alert.composite", Duration.ofMinutes(8))) {
             log.debug("복합 조건 알림 다른 인스턴스에서 진행 중 — 스킵");

@@ -137,6 +137,9 @@ services:
       # application.yml 기본값이 false 라 배선이 없으면 통째로 안 돈다 — 2026-01-29 게이트 도입 이후 2026-09-04 까지
       # 한 번도 안 돌았다(스킵 로그가 DEBUG 라 무음). 끄려면 .env 에 ALERT_SCHEDULER_ENABLED=false.
       - ALERT_SCHEDULER_ENABLED=${ALERT_SCHEDULER_ENABLED:-true}
+      # 복합 조건 알림(10분)만 따로 — 2026-09-04 처음 켠 날 첫 tick 36건·다음 12건이 시그널 채널로 나감(임계 미보정).
+      # 임계를 실측으로 다시 잡기 전엔 기본 false. 켜려면 .env 에 ALERT_COMPOSITE_ENABLED=true.
+      - ALERT_COMPOSITE_ENABLED=${ALERT_COMPOSITE_ENABLED:-false}
     deploy:
       resources:
         limits:
