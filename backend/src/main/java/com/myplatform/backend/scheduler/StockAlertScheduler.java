@@ -164,7 +164,10 @@ public class StockAlertScheduler {
      * 관심종목 목표가 알림 (장중 5분 간격)
      * - 09:00~15:30 사이 5분마다 실행
      */
-    @Scheduled(scheduler = "batchScheduler", cron = "0 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
+    // 초 필드 30 — :00 엔 잔고 모니터(급락 2분·공시 5분)와 워머가 같은 초에 KIS 를 부른다. 2026-09-04 이 크론이 처음
+    // 살아난 날 10:30:00 에 관심종목 시세 1건이 잔고 조회(CRITICAL)를 EGW00215 로 밀어냈다(전날 하루 0건).
+    // KIS 를 부르는 크론은 :00 을 피한다(CLAUDE.md §4b). 5분 주기·행동은 불변, 30초 늦게 돌 뿐.
+    @Scheduled(scheduler = "batchScheduler", cron = "30 */5 9-15 * * MON-FRI", zone = "Asia/Seoul")
     public void checkWatchlistAlerts() {
         if (!schedulerEnabled) {
             log.debug("스케줄러 비활성화 상태");

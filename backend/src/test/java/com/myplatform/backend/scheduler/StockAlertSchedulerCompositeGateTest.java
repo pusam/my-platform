@@ -89,6 +89,22 @@ class StockAlertSchedulerCompositeGateTest {
         verify(compositeAlertService, never()).checkCompositeSignals();
     }
 
+    /**
+     * 관심종목 크론은 :00 초를 피한다 — 잔고 모니터(급락 2분·공시 5분)와 워머가 :00 에 KIS 를 부르고, KIS 는 계좌당
+     * 초당 건수를 자른다(EGW00215). 2026-09-04 이 크론이 처음 돈 날 10:30:00 에 시세 1건이 잔고 조회(CRITICAL)를
+     * 밀어냈다. 초 필드를 0 으로 되돌리면 그 충돌이 tick 마다 돌아온다.
+     */
+    @Test
+    @DisplayName("관심종목 5분 크론의 초 필드는 0 이 아니다 — :00 잔고 모니터와 같은 초 KIS 충돌 회피")
+    void watchlistCronAvoidsTopOfMinute() throws Exception {
+        org.springframework.scheduling.annotation.Scheduled s = StockAlertScheduler.class
+                .getMethod("checkWatchlistAlerts")
+                .getAnnotation(org.springframework.scheduling.annotation.Scheduled.class);
+
+        org.assertj.core.api.Assertions.assertThat(s.cron()).as("초 필드").doesNotStartWith("0 ");
+        org.assertj.core.api.Assertions.assertThat(s.cron()).as("5분 주기는 유지").contains("*/5 9-15");
+    }
+
     @Test
     @DisplayName("다른 크론(관심종목 5분)은 복합 플래그와 무관 — 마스터만 본다")
     void watchlistIgnoresCompositeFlag() {
