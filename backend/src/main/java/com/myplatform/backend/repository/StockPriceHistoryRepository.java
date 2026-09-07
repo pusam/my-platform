@@ -93,6 +93,17 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
      * <p>장중에 수집된 종목만 당일 행이 있으므로, 이 목록이 곧 "미확정 봉을 가진 종목"이다.
      * 전체 유니버스를 훑지 않아 KIS 호출 예산이 장중 활동량에 비례해 bound 된다.
      */
+    /**
+     * 최근 창에서 봉이 {@code minBars}개 이상인데 거래량이 전부 0 인 종목 — 거래정지 감지(2026-09-07, 이오플로우).
+     * 거래정지 종목은 KIS 마스터에 남고(상장 유지) KIS 가 동결가를 계속 줘서 volume=0 봉이 매일 쌓인다 —
+     * 이 패턴이 "며칠째 체결 0건"의 실측 신호다. volume NULL 은 미수집이라 판정에서 뺀다(§4c).
+     */
+    @Query("SELECT h.stockCode FROM StockPriceHistory h " +
+           "WHERE h.tradeDate >= :from AND h.volume IS NOT NULL " +
+           "GROUP BY h.stockCode " +
+           "HAVING COUNT(h) >= :minBars AND MAX(h.volume) = 0")
+    List<String> findCodesWithAllZeroVolumeSince(@Param("from") LocalDate from, @Param("minBars") long minBars);
+
     @Query("SELECT DISTINCT h.stockCode FROM StockPriceHistory h WHERE h.tradeDate = :tradeDate")
     List<String> findStockCodesByTradeDate(@Param("tradeDate") LocalDate tradeDate);
 

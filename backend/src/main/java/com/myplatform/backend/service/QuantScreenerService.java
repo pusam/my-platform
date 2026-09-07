@@ -36,8 +36,24 @@ public class QuantScreenerService {
     private final TelegramNotificationService telegramNotificationService;
     private final KoreaInvestmentService koreaInvestmentService;
     private final StockPriceService stockPriceService;
+    private final StockStatusService stockStatusService;
 
     private static final BigDecimal MAX_DEBT_RATIO = new BigDecimal("200"); // 부채비율 상한 200%
+
+    /**
+     * 거래정지/상폐 제외(2026-09-07) — 재무 필터로는 못 거른다: 거래정지 종목도 KIS 가 동결가를 계속 줘서
+     * 재무 스냅샷이 매일 쌓인다(이오플로우 294090 — 동결가 PER 1.0·ROE 40.5 로 마법의공식 #1, 08:30 텔레그램 발송).
+     * 스크리너 4곳(마법의공식·PEG·성장·턴어라운드)의 유니버스가 전부 이 헬퍼를 거친다 — 새 스크리너도 마찬가지.
+     */
+    private List<StockFinancialData> excludeInactive(List<StockFinancialData> rows) {
+        List<StockFinancialData> active = rows.stream()
+                .filter(s -> stockStatusService.isActive(s.getStockCode()))
+                .collect(Collectors.toList());
+        if (active.size() != rows.size()) {
+            log.info("퀀트 스크리너: 거래정지/상폐 {}건 제외", rows.size() - active.size());
+        }
+        return active;
+    }
     private static final BigDecimal MIN_NET_INCOME = new BigDecimal("30");  // 최소 순이익 30억원
 
     // 데이터 클렌징 상수 (PEG 스크리너용)
@@ -63,7 +79,7 @@ public class QuantScreenerService {
         log.info("마법의 공식 스크리닝 시작 - limit: {}, minMarketCap: {}", limit, minMarketCap);
 
         // 1. 조건에 맞는 종목 조회 (Repository에서 이미 PER > 0 필터 적용됨)
-        List<StockFinancialData> allStocks = stockFinancialDataRepository.findForMagicFormula(minMarketCap);
+        List<StockFinancialData> allStocks = excludeInactive(stockFinancialDataRepository.findForMagicFormula(minMarketCap));
 
         // 2. 기본 필터: PER > 0, ROE > 0, 부채비율 <= 200%
         List<StockFinancialData> stocks = allStocks.stream()
@@ -217,7 +233,7 @@ public class QuantScreenerService {
         final BigDecimal finalMinGrowth = minEpsGrowth;
 
         // 1차: PEG가 이미 계산된 종목 조회
-        List<StockFinancialData> stocks = stockFinancialDataRepository.findLowPegStocks(maxPeg, minEpsGrowth);
+        List<StockFinancialData> stocks = excludeInactive(stockFinancialDataRepository.findLowPegStocks(maxPeg, minEpsGrowth));
         log.info("DB에서 PEG 있는 종목: {}건", stocks.size());
 
         // 2차: 성장률 데이터가 있는 종목으로 PEG 계산
@@ -302,7 +318,7 @@ public class QuantScreenerService {
      */
     private List<ScreenerResultDto> calculatePegFromQuarterlyData(BigDecimal maxPeg, BigDecimal minGrowth, Integer limit) {
         // profitGrowth가 있는 종목들 조회
-        List<StockFinancialData> allStocks = stockFinancialDataRepository.findStocksWithGrowthData();
+        List<StockFinancialData> allStocks = excludeInactive(stockFinancialDataRepository.findStocksWithGrowthData());
         log.info("성장률 데이터 있는 종목 (fallback): {}건", allStocks.size());
 
         // ⭐ 데이터 품질 개선
@@ -396,7 +412,7 @@ public class QuantScreenerService {
         log.info("턴어라운드 스크리닝 시작 - limit: {}", limit);
 
         LocalDate minDate = LocalDate.now().minusMonths(12);
-        List<StockFinancialData> allRecentData = stockFinancialDataRepository.findAllRecentData(minDate);
+        List<StockFinancialData> allRecentData = excludeInactive(stockFinancialDataRepository.findAllRecentData(minDate));
         log.info("최근 12개월 데이터: {}건 (minDate: {})", allRecentData.size(), minDate);
 
         List<ScreenerResultDto> results = new ArrayList<>();
@@ -553,7 +569,7 @@ public class QuantScreenerService {
      */
     private List<ScreenerResultDto> findTurnaroundByProfitGrowth(Integer limit) {
         // 성장률 데이터가 있는 최신 데이터 조회
-        List<StockFinancialData> allStocks = stockFinancialDataRepository.findStocksWithGrowthData();
+        List<StockFinancialData> allStocks = excludeInactive(stockFinancialDataRepository.findStocksWithGrowthData());
         log.info("성장률 데이터 있는 종목: {}건", allStocks.size());
 
         // ⭐ 데이터 품질 개선

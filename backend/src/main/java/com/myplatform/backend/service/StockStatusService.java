@@ -70,12 +70,20 @@ public class StockStatusService {
     private final RestTemplate restTemplate;
     private final TelegramNotificationService telegramService;
     private final com.myplatform.backend.config.SectorStockConfig sectorStockConfig;
+    private final com.myplatform.backend.repository.StockPriceHistoryRepository priceHistoryRepository;
 
     // 정상 거래 가능 종목 코드 셋 (KIS 종목마스터 기준)
     private final Set<String> activeStockCodes = ConcurrentHashMap.newKeySet();
 
     // 거래정지/상폐 감지된 종목 (코드 → 사유)
     private final ConcurrentHashMap<String, String> suspendedStocks = new ConcurrentHashMap<>();
+
+    // 거래량 기반 거래정지 감지(2026-09-07): 마스터는 상폐(목록 제거)만 잡는다 — 거래정지 종목은 상장이 유지돼
+    // 마스터에 남는다(이오플로우 294090 이 is_active=1 로 마법의공식 #1). 최근 봉 전부 volume=0 이 실측 신호.
+    private final Set<String> volumeHaltedCodes = ConcurrentHashMap.newKeySet();
+    static final int HALT_WINDOW_DAYS = 7;
+    static final long HALT_MIN_BARS = 3;
+    static final String HALT_REASON = "최근 " + HALT_WINDOW_DAYS + "일 봉 " + HALT_MIN_BARS + "개 이상 전부 거래량 0";
 
     private volatile LocalDateTime lastSyncTime = null;
 
@@ -85,18 +93,42 @@ public class StockStatusService {
      * - 동기화 후에는 상장 목록에 있는 종목만 true
      */
     public boolean isActive(String stockCode) {
+        if (volumeHaltedCodes.contains(stockCode)) return false; // 거래정지(마스터엔 남음) — 실측 volume=0 감지
         if (activeStockCodes.isEmpty()) return true; // 동기화 전 안전 모드
         return activeStockCodes.contains(stockCode);
     }
 
     /**
-     * 종목 목록에서 거래정지/상폐 종목 필터링
+     * 종목 목록에서 거래정지/상폐 종목 필터링 — 마스터 fail-open(빈 목록=통과) semantics 는 그대로,
+     * 거래량 기반 정지 감지만 그 앞에서 항상 적용된다.
      */
     public List<String> filterActiveStocks(List<String> stockCodes) {
-        if (activeStockCodes.isEmpty()) return stockCodes; // 동기화 전 안전 모드
         return stockCodes.stream()
-                .filter(activeStockCodes::contains)
+                .filter(this::isActive)
                 .toList();
+    }
+
+    /**
+     * 거래량 기반 거래정지 감지 갱신 — {@link #syncListedStocks()} 끝에서 호출(부팅 1회 + 08:30).
+     * 조회 실패는 이전 감지 목록 유지(fail-open, §4c) — 빈 결과로 위장하지 않는다.
+     */
+    public void refreshVolumeHalts() {
+        try {
+            List<String> halted = priceHistoryRepository.findCodesWithAllZeroVolumeSince(
+                    DateTimeUtil.kstNow().toLocalDate().minusDays(HALT_WINDOW_DAYS), HALT_MIN_BARS);
+            Set<String> next = new HashSet<>(halted);
+            if (!next.equals(volumeHaltedCodes)) {
+                log.info("[종목상태] 거래량 기반 거래정지 {}건 (이전 {}건): {}",
+                        next.size(), volumeHaltedCodes.size(), next.stream().sorted().limit(20).toList());
+            }
+            volumeHaltedCodes.retainAll(next);
+            volumeHaltedCodes.addAll(next);
+            suspendedStocks.entrySet().removeIf(e -> HALT_REASON.equals(e.getValue()) && !next.contains(e.getKey()));
+            next.forEach(c -> suspendedStocks.putIfAbsent(c, HALT_REASON));
+        } catch (Exception e) {
+            log.warn("[종목상태] 거래량 기반 정지 감지 실패 — 이전 감지 목록({}건) 유지: {}",
+                    volumeHaltedCodes.size(), e.getMessage());
+        }
     }
 
     /**
@@ -210,6 +242,8 @@ public class StockStatusService {
         activeStockCodes.addAll(newActiveCodes);
         lastSyncTime = DateTimeUtil.kstNow();
         log.info("[종목상태] 동기화 완료 — 총 {}건 ({})", activeStockCodes.size(), lastSyncTime);
+
+        refreshVolumeHalts();
     }
 
     /**
@@ -219,7 +253,8 @@ public class StockStatusService {
     public List<String> detectSuspendedInSectors(List<String> sectorStockCodes) {
         if (activeStockCodes.isEmpty()) return Collections.emptyList();
 
-        suspendedStocks.clear();
+        // 마스터 사유만 지운다 — 거래량 기반 정지 항목(HALT_REASON)은 refreshVolumeHalts 가 관리
+        suspendedStocks.entrySet().removeIf(e -> !HALT_REASON.equals(e.getValue()));
         List<String> suspended = new ArrayList<>();
 
         for (String code : sectorStockCodes) {
