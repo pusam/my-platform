@@ -222,12 +222,24 @@ public class KisTokenManager {
     }
 
     /**
-     * KIS API 호출 예외가 인증 실패(HTTP 401)인지 판정 — <b>단일 출처</b>(순수 함수, 테스트 대상).
-     * 401 = 토큰 만료/무효 신호. 403(권한/IP)·429(rate)·5xx·IO 는 false.
+     * KIS API 호출 예외가 인증 실패인지 판정 — <b>단일 출처</b>(순수 함수, 테스트 대상).
+     * 401 = 토큰 만료/무효 신호. 403(권한/IP)·429(rate)·바디 없는 5xx·IO 는 false.
+     *
+     * <p><b>HTTP 500 + EGW00123 도 인증 실패다(2026-09-08 실측)</b>: KIS 는 만료 토큰에 401 이 아니라
+     * 500 + {@code "msg_cd":"EGW00123"}("기간이 만료된 token") 을 준다. 이걸 안 잡으면 로컬 만료
+     * 1시간 전 갱신창이 열릴 때까지(그날 08:00~08:20, 20분) 죽은 토큰으로 전 KIS 호출이 실패한다 —
+     * 잔고 모니터·공시 모니터가 그 창 동안 전멸했다. "틀린 요청에도 200/500" 부류(§4b)라 바디로 판정.
      */
     static boolean isAuthFailure(Exception e) {
-        return e instanceof org.springframework.web.client.HttpClientErrorException
-                && ((org.springframework.web.client.HttpClientErrorException) e).getStatusCode().value() == 401;
+        if (e instanceof org.springframework.web.client.HttpClientErrorException
+                && ((org.springframework.web.client.HttpClientErrorException) e).getStatusCode().value() == 401) {
+            return true;
+        }
+        if (e instanceof org.springframework.web.client.HttpStatusCodeException) {
+            String body = ((org.springframework.web.client.HttpStatusCodeException) e).getResponseBodyAsString();
+            return body != null && body.contains("EGW00123");
+        }
+        return false;
     }
 
     /**

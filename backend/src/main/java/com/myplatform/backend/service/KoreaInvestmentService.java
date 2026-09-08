@@ -1596,6 +1596,8 @@ public class KoreaInvestmentService {
             // rate limit 등은 rateLimiter 가 재시도할 수 있도록 예외를 그대로 던진다.
             String body = e.getResponseBodyAsString();
             log.error("[실전매매] 잔고 조회 실패: {} {}", e.getStatusCode(), body);
+            // 만료 토큰(500+EGW00123)이면 캐시 1회 무효화 — 다음 tick 이 재발급 토큰으로 성공(2026-09-08 20분 전멸)
+            tokenManager.invalidateOnAuthFailure(e, token);
             throw new RuntimeException("잔고 조회 실패: " + body, e);
         } catch (Exception e) {
             log.error("[실전매매] 잔고 조회 실패: {}", e.getMessage());
