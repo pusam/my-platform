@@ -52,6 +52,7 @@ watch(
 
 <style>
 @import './assets/css/common.css';
+@import './assets/css/workstation.css';
 
 .app-wrapper {
   position: relative;
