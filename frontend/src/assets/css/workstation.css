@@ -451,6 +451,50 @@ textarea {
   box-shadow: none !important;
 }
 
+.page-container .market-info-widget {
+  padding: 18px 20px !important;
+  background: #11161d !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 10px !important;
+}
+
+.page-container .market-info-widget .widget-header {
+  margin-bottom: 12px !important;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.page-container .market-info-widget .widget-header h3 {
+  font-size: 15px !important;
+}
+
+.page-container .market-info-widget .update-time {
+  background: #171d26 !important;
+  border-radius: 4px !important;
+}
+
+.page-container .market-info-widget .info-cards {
+  gap: 8px !important;
+}
+
+.page-container .market-info-widget .info-card,
+.page-container .market-info-widget .status-card {
+  background: #0f141b !important;
+  border-color: #28313d !important;
+  border-radius: 7px !important;
+  box-shadow: none !important;
+}
+
+.page-container .market-info-widget .index-item {
+  background: #151b24 !important;
+  border-radius: 5px !important;
+}
+
+.page-container .market-info-widget .status-card.crash,
+.page-container .market-info-widget .badge-crash {
+  animation: none !important;
+}
+
 /* Stock workspace */
 .v2-dashboard {
   background: #0b0e13 !important;
