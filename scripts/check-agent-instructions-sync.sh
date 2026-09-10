@@ -22,7 +22,9 @@ for f in CLAUDE.md AGENTS.md; do
     fi
 done
 
-if diff -u --label "CLAUDE.md" --label "AGENTS.md" \
+# --strip-trailing-cr: 두 파일은 지금 CRLF 로 일관 저장돼 있지만, 한쪽을 다른 OS/에디터에서
+# 다시 쓰면 줄바꿈만 갈려 "전 줄이 다르다"는 오탐이 난다 — 내용 차이만 잡는다.
+if diff -u --strip-trailing-cr --label "CLAUDE.md" --label "AGENTS.md" \
         <(tail -n +2 CLAUDE.md) <(tail -n +2 AGENTS.md); then
     echo "✅ CLAUDE.md ↔ AGENTS.md 동기화 정상 (제목 줄 제외 동일)"
     exit 0
