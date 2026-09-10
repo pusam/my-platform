@@ -44,7 +44,7 @@ class KisTokenManagerTest {
 
     @BeforeEach
     void setUp() {
-        manager = new KisTokenManager(restTemplate, new ObjectMapper());
+        manager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(manager, "appKey", "k");
         ReflectionTestUtils.setField(manager, "appSecret", "s");
         ReflectionTestUtils.setField(manager, "baseUrl", "https://mock.kis");

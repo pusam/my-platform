@@ -59,7 +59,7 @@ class KoreaInvestmentBalanceTallyTest {
         KisCallTally.reset();
         today = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
-        KisTokenManager tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        KisTokenManager tokenManager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(tokenManager, "appKey", "k");
         ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
         ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");

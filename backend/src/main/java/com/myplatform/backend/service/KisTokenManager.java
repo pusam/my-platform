@@ -5,11 +5,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.myplatform.core.util.DateTimeUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -56,9 +60,97 @@ public class KisTokenManager {
     private volatile LocalDateTime tokenExpireTime;
     private volatile LocalDateTime tokenCooldownUntil;
 
-    public KisTokenManager(RestTemplate restTemplate, ObjectMapper objectMapper) {
+    /**
+     * L2 공유(Redis) — <b>프로세스 재시작을 넘겨 토큰을 잇는다</b>. KIS 는 접근토큰 발급을 <b>분당 1회</b>로
+     * 자르는데(초과 시 HTTP 403 `EGW00133`), 토큰이 프로세스 메모리에만 있으면 새 컨테이너는 직전 발급을
+     * 몰라 다시 요청한다 — 2026-09-11 커밋 2개를 연달아 밀어 컨테이너가 8분 간격으로 두 번 재생성되자
+     * 두 번째가 403 을 맞고 <b>90초간 전 KIS 호출 불가</b>(ERROR 11줄)였다. 여기서 읽으면 아예 요청하지 않는다.
+     *
+     * <p>{@code null}(Redis 미구성/비활성)이면 <b>정확히 종전 동작</b>(메모리 전용)이다. 모든 Redis 접근은
+     * best-effort try/catch — Redis 장애가 매매 인증을 죽이면 안 된다(SchedulerLockService 와 같은 fail-open).
+     */
+    private final StringRedisTemplate tokenRedisTemplate;
+
+    /** 공유 토큰 키. 값은 {@code {"token":..,"expireAt":..}} JSON + 남은 유효기간만큼 Redis TTL. */
+    private static final String REDIS_KEY = "kis:access-token";
+
+    public KisTokenManager(RestTemplate restTemplate, ObjectMapper objectMapper,
+                           @Autowired(required = false) @Qualifier("cacheRedisTemplate")
+                           StringRedisTemplate tokenRedisTemplate) {
         this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
+        this.tokenRedisTemplate = tokenRedisTemplate;
+    }
+
+    /**
+     * 토큰을 지금 쓸 수 있는지 — <b>만료 1시간 전까지</b>가 유효 창(로컬·Redis 공통 판정, 단일 출처).
+     * Redis 에서 채택할 때도 같은 규칙을 써야 곧 만료될 토큰을 물고 오지 않는다.
+     */
+    private static boolean isUsable(LocalDateTime expireAt) {
+        return expireAt != null && DateTimeUtil.kstNow().isBefore(expireAt.minusHours(1));
+    }
+
+    /**
+     * Redis 에 유효 토큰이 있으면 로컬 캐시로 채택하고 반환 — 없거나 만료 임박/장애면 null.
+     * 호출자는 {@code synchronized} 안이다(로컬 필드 쓰기 보호).
+     */
+    private String adoptFromRedis() {
+        if (tokenRedisTemplate == null) return null;
+        try {
+            String raw = tokenRedisTemplate.opsForValue().get(REDIS_KEY);
+            if (raw == null || raw.isBlank()) return null;
+
+            JsonNode node = objectMapper.readTree(raw);
+            String token = node.path("token").asText(null);
+            String expireText = node.path("expireAt").asText(null);
+            if (token == null || token.isBlank() || expireText == null) return null;
+
+            LocalDateTime expireAt = LocalDateTime.parse(expireText);
+            if (!isUsable(expireAt)) {
+                log.debug("[KIS토큰] Redis 토큰이 만료 임박/만료({}) — 채택하지 않음", expireAt);
+                return null;
+            }
+
+            accessToken = token;
+            tokenExpireTime = expireAt;
+            tokenCooldownUntil = null;   // 유효 토큰을 얻었으니 발급 쿨다운은 의미 없다
+            log.info("[KIS토큰] Redis 공유 토큰 채택 (만료: {}) — 발급 생략(분당 1회 한도 회피)", expireAt);
+            return accessToken;
+        } catch (Exception e) {
+            log.debug("[KIS토큰] Redis 조회 실패 — 메모리 전용으로 진행: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 발급 성공분을 Redis 에 공유 — 남은 유효기간을 TTL 로 둬 죽은 값이 영원히 남지 않게. */
+    private void publishToRedis(String token, LocalDateTime expireAt) {
+        if (tokenRedisTemplate == null || token == null || expireAt == null) return;
+        try {
+            Duration ttl = Duration.between(DateTimeUtil.kstNow(), expireAt);
+            if (ttl.isZero() || ttl.isNegative()) return;
+            String payload = objectMapper.writeValueAsString(
+                    Map.of("token", token, "expireAt", expireAt.toString()));
+            tokenRedisTemplate.opsForValue().set(REDIS_KEY, payload, ttl);
+        } catch (Exception e) {
+            log.debug("[KIS토큰] Redis 게시 실패(무해 — 메모리 캐시는 정상): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 무효화된 토큰을 Redis 에서도 지운다 — <b>이게 빠지면 이 기능이 사고가 된다</b>: 죽은 토큰이 재시작을
+     * 넘어 되살아나 무효화가 영구히 무의미해진다(9/8 의 20분 전멸이 영구화되는 모양).
+     *
+     * <p>단일 인스턴스 전제(§5)라 무조건 삭제한다. 멀티 인스턴스로 가면 "값이 같을 때만 삭제"(Lua CAS)가
+     * 필요하다 — 지금 무조건 삭제의 최악은 방금 재발급된 토큰을 지워 한 번 더 발급하는 것(회복 가능)이고,
+     * 반대 방향(죽은 토큰 잔존)은 회복 불가라 안전한 쪽을 택했다.
+     */
+    private void evictFromRedis() {
+        if (tokenRedisTemplate == null) return;
+        try {
+            tokenRedisTemplate.delete(REDIS_KEY);
+        } catch (Exception e) {
+            log.warn("[KIS토큰] Redis 삭제 실패 — 다른 프로세스가 죽은 토큰을 채택할 수 있다: {}", e.getMessage());
+        }
     }
 
     /** API 키 설정 여부 — 발급/가용 판정 공통 게이트. */
@@ -96,9 +188,16 @@ public class KisTokenManager {
      */
     public synchronized String getAccessToken() {
         // 토큰이 유효하면 재사용 (만료 1시간 전까지)
-        if (accessToken != null && tokenExpireTime != null
-                && DateTimeUtil.kstNow().isBefore(tokenExpireTime.minusHours(1))) {
+        if (accessToken != null && isUsable(tokenExpireTime)) {
             return accessToken;
+        }
+
+        // L2 공유 토큰(Redis) — 재시작/컨테이너 재생성 직후 여기서 얻으면 발급을 아예 하지 않는다.
+        // ⚠ 쿨다운 판정보다 먼저다: 403(EGW00133)으로 쿨다운에 걸린 프로세스도 유효 공유 토큰이 있으면
+        // 65초를 기다릴 이유가 없다(2026-09-11 의 90초 전멸이 여기서 0 초가 된다).
+        String shared = adoptFromRedis();
+        if (shared != null) {
+            return shared;
         }
 
         // 쿨다운 중이면 null 반환 (Rate Limit 방지)
@@ -153,6 +252,7 @@ public class KisTokenManager {
                     }
                     tokenCooldownUntil = null;
                     log.info("KIS Access Token 발급 성공 (만료: {})", tokenExpireTime);
+                    publishToRedis(accessToken, tokenExpireTime);   // 다음 프로세스가 재발급 없이 잇도록
                     return accessToken;
                 } else {
                     String errorCode = root.has("error_code") ? root.get("error_code").asText() : "";
@@ -218,7 +318,8 @@ public class KisTokenManager {
         }
         accessToken = null;
         tokenExpireTime = null;
-        log.warn("KIS API 401 인증 실패 — 공유 토큰 캐시 무효화(다음 호출 재발급, 쿨다운 존중). 주문 재시도 없음.");
+        evictFromRedis();   // 필수 — 안 지우면 죽은 토큰이 재시작을 넘어 되살아난다
+        log.warn("KIS API 401 인증 실패 — 공유 토큰 캐시 무효화(로컬+Redis, 다음 호출 재발급, 쿨다운 존중). 주문 재시도 없음.");
     }
 
     /**

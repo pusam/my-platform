@@ -55,7 +55,7 @@ class KisTokenExpiredBodyDefenseTest {
 
     @BeforeEach
     void setUp() {
-        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(tokenManager, "appKey", "k");
         ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
         ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");

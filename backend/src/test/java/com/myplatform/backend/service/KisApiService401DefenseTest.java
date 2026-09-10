@@ -51,7 +51,7 @@ class KisApiService401DefenseTest {
         props.setBaseUrl("https://mock.kis");
 
         // 공유 매니저에 유효 캐시 토큰 — refreshAccessToken 없이 캐시 반환. 발급 POST 는 매니저의 restTemplate 사용.
-        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(tokenManager, "appKey", "k");
         ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
         ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");

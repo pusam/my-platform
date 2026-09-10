@@ -55,7 +55,7 @@ class MarketIndicatorService401DefenseTest {
         props.setBaseUrl("https://mock.kis");
 
         // 공유 매니저에 유효 캐시 토큰 — 발급 HTTP 없이 캐시 반환. 재발급은 매니저의 postForEntity 경유.
-        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(tokenManager, "appKey", "k");
         ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
         ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");

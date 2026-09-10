@@ -40,7 +40,7 @@ class KoreaInvestmentBalanceTest {
     @BeforeEach
     void setUp() {
         // P3-8: 토큰 캐시는 공유 KisTokenManager 로 이관 — 유효 캐시 토큰을 매니저에 심어 발급 HTTP 우회.
-        KisTokenManager tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        KisTokenManager tokenManager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(tokenManager, "appKey", "k");
         ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
         ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");

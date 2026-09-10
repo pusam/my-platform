@@ -44,7 +44,7 @@ class KoreaInvestment401DefenseTest {
     @BeforeEach
     void setUp() {
         // 공유 매니저에 유효 캐시 토큰 — getAccessToken 이 HTTP 재발급 없이 캐시 반환.
-        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper());
+        tokenManager = new KisTokenManager(restTemplate, new ObjectMapper(), null);
         ReflectionTestUtils.setField(tokenManager, "appKey", "k");
         ReflectionTestUtils.setField(tokenManager, "appSecret", "s");
         ReflectionTestUtils.setField(tokenManager, "baseUrl", "https://mock.kis");
