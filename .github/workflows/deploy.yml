@@ -6,6 +6,21 @@ on:
 
 jobs:
   # ================================================================
+  # 에이전트 지침 동기화 가드 (CLAUDE.md ↔ AGENTS.md)
+  # ⚠ 배포를 막지 않는다(deploy 의 needs 에 넣지 말 것) — 문서 어긋남으로 핫픽스 배포가
+  # 막히면 안 된다. 대신 run 이 빨개져서 보인다. run 이 실패면 어느 job 인지 볼 것:
+  # 이 job 만 빨간 것은 "지침 사본이 어긋났다"이고 배포는 정상 완료다.
+  # ================================================================
+  check-agent-instructions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Check CLAUDE.md ↔ AGENTS.md sync
+        run: bash scripts/check-agent-instructions-sync.sh
+
+  # ================================================================
   # Frontend Build (병렬 실행)
   # ================================================================
   build-frontend:

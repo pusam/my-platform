@@ -1,4 +1,4 @@
-# 주식 플랫폼 — Claude Code 작업 지침
+# 주식 플랫폼 — Codex 작업 지침
 
 한국 주식(KRX 정규장 + NXT 대체거래) 발굴/분석/모의·실전 자동매매 통합 개인 플랫폼.
 Spring Boot(backend, 메인 API·스케줄러·매매봇) + FastAPI(python-backend, **pykrx 보조분석 전용** — 2026-06-11 재편)
