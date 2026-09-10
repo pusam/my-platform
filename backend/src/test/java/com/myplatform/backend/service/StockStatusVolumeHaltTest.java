@@ -36,12 +36,28 @@ class StockStatusVolumeHaltTest {
     @Mock private TelegramNotificationService telegramService;
     @Mock private SectorStockConfig sectorStockConfig;
     @Mock private StockPriceHistoryRepository priceHistoryRepository;
+    @Mock private com.myplatform.backend.repository.StockPriceRepository stockPriceRepository;
 
     private StockStatusService service;
 
     @BeforeEach
     void setUp() {
-        service = new StockStatusService(restTemplate, telegramService, sectorStockConfig, priceHistoryRepository);
+        service = new StockStatusService(restTemplate, telegramService, sectorStockConfig,
+                priceHistoryRepository, stockPriceRepository);
+    }
+
+    /** 굳은 저장 종가와 그 봉 수 — {@code findFrozenClosesForCodes} 반환 모양. */
+    private void stubFrozenClose(String code, String close, long bars) {
+        when(priceHistoryRepository.findFrozenClosesForCodes(org.mockito.ArgumentMatchers.anyList(), any(LocalDate.class)))
+                .thenReturn(List.<Object[]>of(new Object[]{code, new java.math.BigDecimal(close), bars}));
+    }
+
+    private void stubCurrentPrice(String code, String price) {
+        com.myplatform.backend.entity.StockPrice row =
+                org.mockito.Mockito.mock(com.myplatform.backend.entity.StockPrice.class);
+        when(row.getCurrentPrice()).thenReturn(price == null ? null : new java.math.BigDecimal(price));
+        when(stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code))
+                .thenReturn(java.util.Optional.of(row));
     }
 
     private void stubHalted(List<String> codes) {
@@ -73,6 +89,77 @@ class StockStatusVolumeHaltTest {
         service.refreshVolumeHalts();
 
         assertThat(service.isActive("294090")).isFalse();
+    }
+
+    // ==================== 액면변경 의심 (2026-09-11 조일알미늄) ====================
+
+    @Test
+    @DisplayName("018470 실측: 정지 6봉 뒤 973 → 4,865(5.00배) = 액면변경 의심으로 표시")
+    void detectsCorporateActionOnHaltedStock() {
+        stubHalted(List.of("018470"));
+        stubFrozenClose("018470", "973.00", 6);
+        stubCurrentPrice("018470", "4865");
+
+        service.refreshVolumeHalts();
+
+        assertThat(service.getSuspectedCorporateActions())
+                .containsKey("018470")
+                .extractingByKey("018470").asString().contains("액면병합").contains("비교 불가");
+    }
+
+    @Test
+    @DisplayName("액면변경 표시는 게이트가 아니다 — 정지 사유를 덮어쓰지 않는다")
+    void corporateActionDoesNotReplaceHaltReason() {
+        stubHalted(List.of("018470"));
+        stubFrozenClose("018470", "973.00", 6);
+        stubCurrentPrice("018470", "4865");
+
+        service.refreshVolumeHalts();
+
+        assertThat(service.getSuspendedStocks()).containsKey("018470");
+        assertThat(service.getSuspendedStocks().get("018470"))
+                .as("정지 사유는 그대로 — 액면변경은 별개 신호다").contains("거래량 0");
+    }
+
+    @Test
+    @DisplayName("정수배가 아니면 표시하지 않는다 — 그냥 정지 종목")
+    void nonIntegerRatioIsNotFlagged() {
+        stubHalted(List.of("018470"));
+        stubFrozenClose("018470", "973.00", 6);
+        stubCurrentPrice("018470", "3600");
+
+        service.refreshVolumeHalts();
+
+        assertThat(service.getSuspectedCorporateActions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("현재가를 못 구하면 표시하지 않는다 — 결측을 근거로 단정하지 않는다(§4c)")
+    void missingCurrentPriceIsNotFlagged() {
+        stubHalted(List.of("018470"));
+        stubFrozenClose("018470", "973.00", 6);
+        when(stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc("018470"))
+                .thenReturn(java.util.Optional.empty());
+
+        service.refreshVolumeHalts();
+
+        assertThat(service.getSuspectedCorporateActions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("액면변경 조회 실패는 이전 표시 유지 — 빈 결과로 '없음' 위장 금지")
+    void corporateActionQueryFailureKeepsPrevious() {
+        stubHalted(List.of("018470"));
+        stubFrozenClose("018470", "973.00", 6);
+        stubCurrentPrice("018470", "4865");
+        service.refreshVolumeHalts();
+        assertThat(service.getSuspectedCorporateActions()).containsKey("018470");
+
+        when(priceHistoryRepository.findFrozenClosesForCodes(org.mockito.ArgumentMatchers.anyList(), any(LocalDate.class)))
+                .thenThrow(new IllegalStateException("DB down"));
+        service.refreshVolumeHalts();
+
+        assertThat(service.getSuspectedCorporateActions()).containsKey("018470");
     }
 
     @Test

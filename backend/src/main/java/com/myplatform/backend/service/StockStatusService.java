@@ -71,6 +71,7 @@ public class StockStatusService {
     private final TelegramNotificationService telegramService;
     private final com.myplatform.backend.config.SectorStockConfig sectorStockConfig;
     private final com.myplatform.backend.repository.StockPriceHistoryRepository priceHistoryRepository;
+    private final com.myplatform.backend.repository.StockPriceRepository stockPriceRepository;
 
     // 정상 거래 가능 종목 코드 셋 (KIS 종목마스터 기준)
     private final Set<String> activeStockCodes = ConcurrentHashMap.newKeySet();
@@ -84,6 +85,13 @@ public class StockStatusService {
     static final int HALT_WINDOW_DAYS = 7;
     static final long HALT_MIN_BARS = 3;
     static final String HALT_REASON = "최근 " + HALT_WINDOW_DAYS + "일 봉 " + HALT_MIN_BARS + "개 이상 전부 거래량 0";
+
+    /**
+     * 액면변경(병합/분할) 의심 — 코드 → 근거. <b>게이트가 아니다</b>: 종목은 멀쩡하고 저장 이력만 못 쓴다.
+     * {@link #isActive} 에 영향을 주지 않으며(제외 대상 아님), 가격도 보정하지 않는다(§3).
+     * 용도는 가시성뿐 — 관제실 규칙 ⑭ 가 읽는다.
+     */
+    private final ConcurrentHashMap<String, String> suspectedCorporateActions = new ConcurrentHashMap<>();
 
     private volatile LocalDateTime lastSyncTime = null;
 
@@ -125,6 +133,7 @@ public class StockStatusService {
             volumeHaltedCodes.addAll(next);
             suspendedStocks.entrySet().removeIf(e -> HALT_REASON.equals(e.getValue()) && !next.contains(e.getKey()));
             next.forEach(c -> suspendedStocks.putIfAbsent(c, HALT_REASON));
+            detectCorporateActions(next);
         } catch (Exception e) {
             log.warn("[종목상태] 거래량 기반 정지 감지 실패 — 이전 감지 목록({}건) 유지: {}",
                     volumeHaltedCodes.size(), e.getMessage());
@@ -136,6 +145,61 @@ public class StockStatusService {
      */
     public Map<String, String> getSuspendedStocks() {
         return Collections.unmodifiableMap(suspendedStocks);
+    }
+
+    /** 액면변경 의심 종목 맵(코드 → 근거) — 관제실 규칙 ⑭ 입력. 게이트 아님. */
+    public Map<String, String> getSuspectedCorporateActions() {
+        return Collections.unmodifiableMap(suspectedCorporateActions);
+    }
+
+    /**
+     * 정지 종목 중 <b>현재가가 굳은 저장가의 정수배</b>인 것을 액면변경 의심으로 표시한다.
+     *
+     * <p>2026-09-11 조일알미늄(018470): 저장가 973·현재가 4,865(정확히 5.00배)를 가격 이상치 그물이
+     * "응답 일괄 배수 오염"으로 오진했다 — 실제는 거래정지 중 액면병합 5:1. 오진이 위험한 이유는 사람을
+     * KIS 응답 버그 추적으로 보내기 때문이다. 판정은 순수함수 {@code CorporateActionDetector} 단일 출처.
+     *
+     * <p>조회 실패는 이전 표시 유지(fail-open, §4c) — 빈 결과로 "액면변경 없음"을 위장하지 않는다.
+     */
+    private void detectCorporateActions(java.util.Set<String> haltedCodes) {
+        if (haltedCodes.isEmpty()) {
+            suspectedCorporateActions.clear();
+            return;
+        }
+        try {
+            java.time.LocalDate from = DateTimeUtil.kstNow().toLocalDate().minusDays(HALT_WINDOW_DAYS);
+            Map<String, String> found = new java.util.HashMap<>();
+
+            for (Object[] row : priceHistoryRepository.findFrozenClosesForCodes(
+                    new ArrayList<>(haltedCodes), from)) {
+                String code = (String) row[0];
+                java.math.BigDecimal frozenClose = (java.math.BigDecimal) row[1];
+                long bars = ((Number) row[2]).longValue();
+
+                java.math.BigDecimal current = stockPriceRepository
+                        .findTopByStockCodeOrderByFetchedAtDesc(code)
+                        .map(com.myplatform.backend.entity.StockPrice::getCurrentPrice)
+                        .orElse(null);
+
+                var verdict = com.myplatform.backend.util.CorporateActionDetector
+                        .judge(frozenClose, current, bars);
+                if (verdict.suspected()) {
+                    found.put(code, verdict.detail());
+                }
+            }
+
+            for (Map.Entry<String, String> e : found.entrySet()) {
+                if (!suspectedCorporateActions.containsKey(e.getKey())) {
+                    log.warn("[종목상태] 액면변경 의심 {} — {} (이력 비교 불가; 게이트·가격 무보정)",
+                            e.getKey(), e.getValue());
+                }
+            }
+            suspectedCorporateActions.keySet().retainAll(found.keySet());
+            suspectedCorporateActions.putAll(found);
+        } catch (Exception e) {
+            log.warn("[종목상태] 액면변경 감지 실패 — 이전 표시({}건) 유지: {}",
+                    suspectedCorporateActions.size(), e.getMessage());
+        }
     }
 
     public LocalDateTime getLastSyncTime() {

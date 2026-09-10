@@ -294,6 +294,11 @@ public class ControlRoomSnapshotService {
                 found.add(DataAnomalyRules.balanceLookupFailures(bal.attempts(), bal.failures()));
             }
 
+            // 액면변경으로 저장 이력이 현재가와 비교 불가해진 종목(2026-09-11 조일알미늄 5:1 병합).
+            // 고장이 아니라 상태 — 봇 진입이 sanity 앵커에서 막히는 이유를 여기서 알 수 있다.
+            found.add(DataAnomalyRules.corporateActionHistoryStale(
+                    stockStatusService.getSuspectedCorporateActions()));
+
             List<DataAnomalyRules.Anomaly> items = DataAnomalyRules.sortBySeverity(found);
             return new ControlRoomSnapshotDto.Anomalies(true, items, now,
                     items.isEmpty() ? null : items.size() + "건 — 규칙별 detail 에 확인 방법이 있다");

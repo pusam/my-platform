@@ -472,6 +472,44 @@ public final class DataAnomalyRules {
                 "부팅 이후 오늘: 시도 " + attempts + " / 실패 " + failures);
     }
 
+    // ==================== ⑭ 액면변경으로 저장 이력 비교 불가 ====================
+
+    /** 메시지에 코드를 몇 개까지 나열할지 — 나머지는 "외 N건". */
+    static final int CORPORATE_ACTION_SAMPLE = 5;
+
+    /**
+     * 액면변경(병합/분할) 의심 — 2026-09-11 실사고: 조일알미늄(018470) 현재가 4,865 가 저장가 973 의 <b>정확히
+     * 5.00배</b>로 튀어 가격 이상치 그물에 걸렸는데 로그는 "응답 일괄 배수 오염 강력 의심"이라고 말했다.
+     * 실제로는 거래정지 중 액면병합 5:1 이었다(저장 봉이 973원·거래량 0 으로 굳어 있었다). 오진이 위험한 이유는
+     * 사람을 KIS 응답 버그 추적으로 보내기 때문이다 — 그쪽엔 아무것도 없다.
+     *
+     * <p><b>이건 고장이 아니라 상태다</b>: 종목은 멀쩡하고 저장 이력만 못 쓴다. 게이트({@code isActive})와
+     * 무관하고 가격도 보정하지 않는다(§3). 실질 영향은 <b>봇 진입 차단</b> — {@code PriceSanityGuard} 앵커가
+     * 저장 이력 종가라 배수만큼 어긋나 ±50% 임계에 걸린다(안전한 방향이지만 이유를 모르면 오래 헤맨다).
+     * 저녁 {@code DailyBarRefreshService}(400종목/일)가 봉을 갱신하면 스스로 풀린다.
+     *
+     * @param suspected 코드 → 근거({@code StockStatusService.getSuspectedCorporateActions()})
+     */
+    public static Anomaly corporateActionHistoryStale(java.util.Map<String, String> suspected) {
+        if (suspected == null || suspected.isEmpty()) return null;
+
+        List<String> codes = new ArrayList<>(suspected.keySet());
+        java.util.Collections.sort(codes);
+        String sample = String.join(", ", codes.subList(0, Math.min(CORPORATE_ACTION_SAMPLE, codes.size())));
+        if (codes.size() > CORPORATE_ACTION_SAMPLE) {
+            sample += " 외 " + (codes.size() - CORPORATE_ACTION_SAMPLE) + "건";
+        }
+
+        return new Anomaly(WARNING, "corporate-action-history-stale",
+                "액면변경 의심 " + codes.size() + "종목 — 저장 이력과 현재가 비교 불가",
+                "거래정지(거래량 0) 뒤 현재가가 저장가의 정수배로 바뀐 종목이다. 배수 오염이 아니라 액면병합/분할이며 "
+                        + "종목 자체는 정상 — 고칠 것은 없고 알고 있어야 하는 상태다. 영향 — ① 봇 진입이 "
+                        + "PriceSanityGuard(앵커=저장 이력 종가, ±50%)에서 차단된다 ② 차트·낙폭과대 트랙이 옛 가격을 본다. "
+                        + "저녁 일봉 갱신(400종목/일)이 봉을 채우면 자동 해소되니, 며칠 지나도 남아 있으면 그 종목의 "
+                        + "일봉 갱신이 도는지 확인할 것. ⚠ 가격을 손으로 보정하지 말 것(§3 미보정 불변식).",
+                codes.size() + "종목: " + sample);
+    }
+
     public static List<Anomaly> sortBySeverity(List<Anomaly> found) {
         List<Anomaly> out = new ArrayList<>();
         if (found == null) return out;

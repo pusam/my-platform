@@ -104,6 +104,17 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
            "HAVING COUNT(h) >= :minBars AND MAX(h.volume) = 0")
     List<String> findCodesWithAllZeroVolumeSince(@Param("from") LocalDate from, @Param("minBars") long minBars);
 
+    /**
+     * 거래정지(거래량 0)로 굳은 종가와 그 봉 수 — 액면변경 판정 입력({@code CorporateActionDetector}).
+     * 창 안의 봉이 전부 거래량 0 이라 종가가 한 값으로 고정돼 있고, MAX 로 그 값을 집는다.
+     * 반환 행: {@code [stockCode, 굳은 종가, 봉 수]}.
+     */
+    @Query("SELECT h.stockCode, MAX(h.closePrice), COUNT(h) FROM StockPriceHistory h " +
+           "WHERE h.stockCode IN :codes AND h.tradeDate >= :from " +
+           "AND h.volume IS NOT NULL AND h.volume = 0 " +
+           "GROUP BY h.stockCode")
+    List<Object[]> findFrozenClosesForCodes(@Param("codes") List<String> codes, @Param("from") LocalDate from);
+
     @Query("SELECT DISTINCT h.stockCode FROM StockPriceHistory h WHERE h.tradeDate = :tradeDate")
     List<String> findStockCodesByTradeDate(@Param("tradeDate") LocalDate tradeDate);
 
