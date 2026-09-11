@@ -105,15 +105,26 @@ public interface StockPriceHistoryRepository extends JpaRepository<StockPriceHis
     List<String> findCodesWithAllZeroVolumeSince(@Param("from") LocalDate from, @Param("minBars") long minBars);
 
     /**
-     * 거래정지(거래량 0)로 굳은 종가와 그 봉 수 — 액면변경 판정 입력({@code CorporateActionDetector}).
-     * 창 안의 봉이 전부 거래량 0 이라 종가가 한 값으로 고정돼 있고, MAX 로 그 값을 집는다.
-     * 반환 행: {@code [stockCode, 굳은 종가, 봉 수]}.
+     * <b>마지막 봉이 거래량 0 인 종목</b> — 액면변경 판정 모집단({@code CorporateActionDetector}).
+     * 반환 행: {@code [stockCode, 마지막 봉 날짜, 그 종가]}.
+     *
+     * <p>"최근 N일 내 정지"가 아니라 <b>"시리즈가 정지로 끝남"</b> 을 본다(2026-09-11): 018470 은 8/21 정지 뒤
+     * <b>봉 자체가 8/28 에서 끊겨</b> 7일 창 기준 정지 목록에서 빠졌는데, 정작 그 종목이 판정 대상이다
+     * (봉 973 이 보정 전이고 현재가 4,865 는 신선 = 앵커가 5배 어긋난 상태). 창으로 자르면 오래된 정지가
+     * 조용히 빠진다. ⚠ 이 목록은 <b>게이트가 아니다</b> — 거래를 재개한 종목도 여기 들어온다
+     * ({@code volumeHaltedCodes} 와 섞지 말 것).
      */
-    @Query("SELECT h.stockCode, MAX(h.closePrice), COUNT(h) FROM StockPriceHistory h " +
+    @Query("SELECT h.stockCode, h.tradeDate, h.closePrice FROM StockPriceHistory h " +
+           "WHERE h.volume IS NOT NULL AND h.volume = 0 " +
+           "AND h.tradeDate = (SELECT MAX(h2.tradeDate) FROM StockPriceHistory h2 WHERE h2.stockCode = h.stockCode)")
+    List<Object[]> findCodesWhoseLatestBarIsZeroVolume();
+
+    /** 종목별 거래량 0 봉 수(창 안) — 정지 증거 강도. 반환 행: {@code [stockCode, 봉 수]}. */
+    @Query("SELECT h.stockCode, COUNT(h) FROM StockPriceHistory h " +
            "WHERE h.stockCode IN :codes AND h.tradeDate >= :from " +
            "AND h.volume IS NOT NULL AND h.volume = 0 " +
            "GROUP BY h.stockCode")
-    List<Object[]> findFrozenClosesForCodes(@Param("codes") List<String> codes, @Param("from") LocalDate from);
+    List<Object[]> countZeroVolumeBars(@Param("codes") List<String> codes, @Param("from") LocalDate from);
 
     @Query("SELECT DISTINCT h.stockCode FROM StockPriceHistory h WHERE h.tradeDate = :tradeDate")
     List<String> findStockCodesByTradeDate(@Param("tradeDate") LocalDate tradeDate);

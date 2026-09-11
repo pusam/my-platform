@@ -18,19 +18,28 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class CorporateActionDetectorTest {
 
+    /** 현재가는 신선(오늘 받아옴)한 기본 케이스. */
     private static Verdict judge(String stored, String current, long zeroBars) {
+        return judge(stored, current, 0L, zeroBars);
+    }
+
+    private static Verdict judge(String stored, String current, long priceAgeDays, long zeroBars) {
         return CorporateActionDetector.judge(
                 stored == null ? null : new BigDecimal(stored),
                 current == null ? null : new BigDecimal(current),
-                zeroBars);
+                priceAgeDays, zeroBars);
     }
 
     @Nested
     @DisplayName("실측 사례")
     class RealCase {
 
+        /**
+         * 018470 은 8/20 까지 정상 거래(973) → 8/21~8/28 정지 → <b>봉이 거기서 끊겼다</b>(수정주가 보정 전).
+         * 현재가 4,865 는 오늘 받아온 신선한 값이라, 봉이 낡고 현재가가 신선한 <b>진짜 감지 대상</b>이다.
+         */
         @Test
-        @DisplayName("018470: 973 → 4,865 (정지 6봉) = 액면병합 5:1 의심")
+        @DisplayName("018470: 봉 973(보정 전) → 신선한 현재가 4,865, 정지 6봉 = 액면병합 5:1 의심")
         void joilAluminium() {
             Verdict v = judge("973.00", "4865", 6);
 
@@ -39,6 +48,30 @@ class CorporateActionDetectorTest {
             assertThat(v.ratio()).isEqualByComparingTo("5.00");
             assertThat(v.suspected()).isTrue();
             assertThat(v.detail()).contains("액면병합").contains("비교 불가");
+        }
+    }
+
+    @Nested
+    @DisplayName("낡은 현재가로는 판정하지 않는다 — 2026-09-11 오탐 재현")
+    class StalePrice {
+
+        /**
+         * 285800 실측: 봉 3,665(수정주가로 이미 보정) vs 캐시 733(9/4 에 멈춤, 7일 묵음).
+         * 낡은 캐시를 "현재가"로 쓰면 733/3665 = 0.2 라 <b>방향이 뒤집힌 "액면분할 1:5"</b> 로 오탐한다.
+         */
+        @Test
+        @DisplayName("285800: 7일 묵은 현재가면 INSUFFICIENT — 뒤집힌 분할로 오탐하지 않는다")
+        void stalePriceIsNotJudged() {
+            assertThat(judge("3665", "733", 7, 6).kind())
+                    .as("고치기 전엔 SPLIT_SUSPECTED 오탐").isEqualTo(Kind.INSUFFICIENT);
+            assertThat(judge("3665", "733", 7, 6).detail()).contains("묵음");
+        }
+
+        @Test
+        @DisplayName("경계: 2일까지는 판정하고 3일부터 보류")
+        void freshnessBoundary() {
+            assertThat(judge("973", "4865", 2, 6).kind()).isEqualTo(Kind.MERGE_SUSPECTED);
+            assertThat(judge("973", "4865", 3, 6).kind()).isEqualTo(Kind.INSUFFICIENT);
         }
     }
 

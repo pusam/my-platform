@@ -84,6 +84,12 @@ public class StockStatusService {
     private final Set<String> volumeHaltedCodes = ConcurrentHashMap.newKeySet();
     static final int HALT_WINDOW_DAYS = 7;
     static final long HALT_MIN_BARS = 3;
+
+    /**
+     * 액면변경 판정의 정지 증거를 세는 창 — 게이트의 7일보다 <b>훨씬 길다</b>. 018470 은 8/21 정지 뒤 봉이
+     * 8/28 에서 끊겨 7일 창으로는 증거가 0 인데, 정작 그 종목이 판정 대상이다(2026-09-11).
+     */
+    static final int HALT_EVIDENCE_WINDOW_DAYS = 90;
     static final String HALT_REASON = "최근 " + HALT_WINDOW_DAYS + "일 봉 " + HALT_MIN_BARS + "개 이상 전부 거래량 0";
 
     /**
@@ -133,7 +139,7 @@ public class StockStatusService {
             volumeHaltedCodes.addAll(next);
             suspendedStocks.entrySet().removeIf(e -> HALT_REASON.equals(e.getValue()) && !next.contains(e.getKey()));
             next.forEach(c -> suspendedStocks.putIfAbsent(c, HALT_REASON));
-            detectCorporateActions(next);
+            detectCorporateActions();
         } catch (Exception e) {
             log.warn("[종목상태] 거래량 기반 정지 감지 실패 — 이전 감지 목록({}건) 유지: {}",
                     volumeHaltedCodes.size(), e.getMessage());
@@ -161,28 +167,39 @@ public class StockStatusService {
      *
      * <p>조회 실패는 이전 표시 유지(fail-open, §4c) — 빈 결과로 "액면변경 없음"을 위장하지 않는다.
      */
-    private void detectCorporateActions(java.util.Set<String> haltedCodes) {
-        if (haltedCodes.isEmpty()) {
-            suspectedCorporateActions.clear();
-            return;
-        }
+    private void detectCorporateActions() {
         try {
-            java.time.LocalDate from = DateTimeUtil.kstNow().toLocalDate().minusDays(HALT_WINDOW_DAYS);
+            List<Object[]> candidates = priceHistoryRepository.findCodesWhoseLatestBarIsZeroVolume();
+            if (candidates.isEmpty()) {
+                suspectedCorporateActions.clear();
+                return;
+            }
+
+            java.time.LocalDate today = DateTimeUtil.kstNow().toLocalDate();
+            List<String> codes = candidates.stream().map(r -> (String) r[0]).toList();
+            Map<String, Long> zeroBars = new java.util.HashMap<>();
+            for (Object[] row : priceHistoryRepository.countZeroVolumeBars(
+                    codes, today.minusDays(HALT_EVIDENCE_WINDOW_DAYS))) {
+                zeroBars.put((String) row[0], ((Number) row[1]).longValue());
+            }
+
             Map<String, String> found = new java.util.HashMap<>();
-
-            for (Object[] row : priceHistoryRepository.findFrozenClosesForCodes(
-                    new ArrayList<>(haltedCodes), from)) {
+            for (Object[] row : candidates) {
                 String code = (String) row[0];
-                java.math.BigDecimal frozenClose = (java.math.BigDecimal) row[1];
-                long bars = ((Number) row[2]).longValue();
+                java.math.BigDecimal lastBarClose = (java.math.BigDecimal) row[2];
 
-                java.math.BigDecimal current = stockPriceRepository
+                com.myplatform.backend.entity.StockPrice priceRow = stockPriceRepository
                         .findTopByStockCodeOrderByFetchedAtDesc(code)
-                        .map(com.myplatform.backend.entity.StockPrice::getCurrentPrice)
                         .orElse(null);
+                if (priceRow == null || priceRow.getFetchedAt() == null) {
+                    continue;   // 현재가를 모른다 = 판정 불가(§4c)
+                }
+                long priceAgeDays = java.time.temporal.ChronoUnit.DAYS
+                        .between(priceRow.getFetchedAt().toLocalDate(), today);
 
-                var verdict = com.myplatform.backend.util.CorporateActionDetector
-                        .judge(frozenClose, current, bars);
+                var verdict = com.myplatform.backend.util.CorporateActionDetector.judge(
+                        lastBarClose, priceRow.getCurrentPrice(),
+                        priceAgeDays, zeroBars.getOrDefault(code, 0L));
                 if (verdict.suspected()) {
                     found.put(code, verdict.detail());
                 }

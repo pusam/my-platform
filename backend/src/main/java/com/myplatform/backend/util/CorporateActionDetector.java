@@ -16,6 +16,13 @@ import java.math.RoundingMode;
  * 저장 이력이 낡은</b> 것이다. 그래서 정지 증거가 없으면 여기서는 판정하지 않는다({@link Kind#INSUFFICIENT}) —
  * "정수배니까 액면변경"이라고 단정하면 진짜 오염을 액면변경으로 덮어 §4c 를 반대 방향으로 어긴다.
  *
+ * <p><b>⚠ 어느 쪽이 낡았는지를 데이터로 확인할 것(2026-09-11 오탐에서 배움)</b>: 처음엔 "봉이 낡고 현재가가
+ * 신선하다"고 가정했다가 285800 을 방향이 뒤집힌 채 오탐했다. 실제로는 <b>KIS 일봉이 수정주가라 액면변경 뒤
+ * 소급 보정</b>되고(002880·285800 의 봉은 이미 보정됨), 정지 종목은 아무도 시세를 안 불러 <b>{@code stock_price}
+ * 캐시가 멈춘다</b>. 그래서 진짜 감지 대상은 <b>봉이 아직 보정 전인데 현재가는 신선한</b> 종목이다 —
+ * 018470 이 그 모양이다(8/20 까지 정상 거래 → 8/21~8/28 정지 → 봉이 973 에서 끊김, 현재가 4,865).
+ * {@link #MAX_PRICE_AGE_DAYS} 가 낡은 현재가를 걸러낸다.
+ *
  * <p><b>행동은 하지 않는다</b>: 액면변경은 "제외 대상"이 아니다. 종목은 멀쩡하고 <b>이력만</b> 못 쓴다 —
  * {@code isActive} 게이트와 무관하고, 가격을 보정하지도 않는다(§3 미보정 불변식). 용도는 가시성뿐이다.
  */
@@ -35,6 +42,16 @@ public final class CorporateActionDetector {
 
     /** 이력이 굳었다고 보는 최소 거래량 0 봉 수 — 정지 감지({@code StockStatusService})와 같은 기준. */
     static final long MIN_ZERO_VOLUME_BARS = 3;
+
+    /**
+     * 현재가가 이보다 오래됐으면 판정하지 않는다 — <b>2026-09-11 오탐의 원인</b>.
+     *
+     * <p>처음엔 "봉이 낡고 현재가가 신선하다"고 가정했는데 <b>정확히 반대인 경우가 있다</b>: KIS 일봉은
+     * <b>수정주가</b>라 액면변경 뒤 소급 보정되는 반면, 정지 종목은 아무도 시세를 조회하지 않아
+     * {@code stock_price} 캐시가 그 자리에 멈춘다. 285800 은 봉 3,665(보정됨)·캐시 733(9/4 에 멈춤)이라
+     * 방향이 뒤집힌 채 "액면분할 1:5"로 오탐했다. 낡은 값을 "현재가"로 쓰면 어느 쪽으로든 틀린다.
+     */
+    static final long MAX_PRICE_AGE_DAYS = 2;
 
     public enum Kind {
         /** 액면병합 의심 — 현재가 ≈ 저장가 × N. */
@@ -60,15 +77,23 @@ public final class CorporateActionDetector {
     }
 
     /**
-     * @param storedClose    저장 이력의 (굳은) 종가
+     * @param storedClose    저장 이력의 (굳은) 종가 — 보정 안 된 낡은 봉이어야 의미가 있다
      * @param currentPrice   현재가
-     * @param zeroVolumeBars 최근 창에서 연속 거래량 0 봉 수 — 정지 증거. 이게 부족하면 판정하지 않는다.
+     * @param priceAgeDays   현재가를 마지막으로 받아온 지 며칠 됐는지 — 낡으면 판정하지 않는다
+     * @param zeroVolumeBars 최근 창에서 거래량 0 봉 수 — 정지 증거. 부족하면 판정하지 않는다.
      */
-    public static Verdict judge(BigDecimal storedClose, BigDecimal currentPrice, long zeroVolumeBars) {
+    public static Verdict judge(BigDecimal storedClose, BigDecimal currentPrice,
+                                long priceAgeDays, long zeroVolumeBars) {
         if (storedClose == null || currentPrice == null
                 || storedClose.compareTo(BigDecimal.ZERO) <= 0
                 || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
             return new Verdict(Kind.INSUFFICIENT, null, null, "가격 결측 — 판정 skip");
+        }
+        if (priceAgeDays > MAX_PRICE_AGE_DAYS) {
+            return new Verdict(Kind.INSUFFICIENT, null, null,
+                    "현재가가 " + priceAgeDays + "일 묵음(> " + MAX_PRICE_AGE_DAYS
+                            + ") — 정지 종목은 시세 조회가 멈춰 캐시가 낡고 봉은 수정주가로 보정된다. "
+                            + "낡은 값을 현재가로 쓰면 방향이 뒤집힌다(2026-09-11 285800 오탐)");
         }
         if (zeroVolumeBars < MIN_ZERO_VOLUME_BARS) {
             return new Verdict(Kind.INSUFFICIENT, null, null,

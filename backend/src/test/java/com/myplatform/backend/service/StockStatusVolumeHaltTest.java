@@ -46,16 +46,23 @@ class StockStatusVolumeHaltTest {
                 priceHistoryRepository, stockPriceRepository);
     }
 
-    /** 굳은 저장 종가와 그 봉 수 — {@code findFrozenClosesForCodes} 반환 모양. */
-    private void stubFrozenClose(String code, String close, long bars) {
-        when(priceHistoryRepository.findFrozenClosesForCodes(org.mockito.ArgumentMatchers.anyList(), any(LocalDate.class)))
-                .thenReturn(List.<Object[]>of(new Object[]{code, new java.math.BigDecimal(close), bars}));
+    /** 마지막 봉이 거래량 0 인 종목 + 정지 증거 봉 수 — 액면변경 판정 모집단. */
+    private void stubLastBarZeroVolume(String code, String close, long zeroBars) {
+        when(priceHistoryRepository.findCodesWhoseLatestBarIsZeroVolume())
+                .thenReturn(List.<Object[]>of(new Object[]{
+                        code, LocalDate.of(2026, 8, 28), new java.math.BigDecimal(close)}));
+        when(priceHistoryRepository.countZeroVolumeBars(
+                org.mockito.ArgumentMatchers.anyList(), any(LocalDate.class)))
+                .thenReturn(List.<Object[]>of(new Object[]{code, zeroBars}));
     }
 
-    private void stubCurrentPrice(String code, String price) {
+    /** @param ageDays 현재가를 받아온 지 며칠 됐는지(0=오늘). */
+    private void stubCurrentPrice(String code, String price, long ageDays) {
         com.myplatform.backend.entity.StockPrice row =
                 org.mockito.Mockito.mock(com.myplatform.backend.entity.StockPrice.class);
         when(row.getCurrentPrice()).thenReturn(price == null ? null : new java.math.BigDecimal(price));
+        when(row.getFetchedAt())
+                .thenReturn(com.myplatform.core.util.DateTimeUtil.kstNow().minusDays(ageDays));
         when(stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(code))
                 .thenReturn(java.util.Optional.of(row));
     }
@@ -94,11 +101,11 @@ class StockStatusVolumeHaltTest {
     // ==================== 액면변경 의심 (2026-09-11 조일알미늄) ====================
 
     @Test
-    @DisplayName("018470 실측: 정지 6봉 뒤 973 → 4,865(5.00배) = 액면변경 의심으로 표시")
-    void detectsCorporateActionOnHaltedStock() {
-        stubHalted(List.of("018470"));
-        stubFrozenClose("018470", "973.00", 6);
-        stubCurrentPrice("018470", "4865");
+    @DisplayName("018470 실측: 봉이 8/28 에서 끊겨 정지 목록 밖인데도 잡는다 — 창으로 자르면 놓친다")
+    void detectsCorporateActionEvenWhenBarsAgedOutOfHaltWindow() {
+        stubHalted(List.of());                            // 7일 창 기준 정지 목록엔 없다(봉이 끊겨서)
+        stubLastBarZeroVolume("018470", "973.00", 6);
+        stubCurrentPrice("018470", "4865", 0);
 
         service.refreshVolumeHalts();
 
@@ -108,25 +115,43 @@ class StockStatusVolumeHaltTest {
     }
 
     @Test
-    @DisplayName("액면변경 표시는 게이트가 아니다 — 정지 사유를 덮어쓰지 않는다")
-    void corporateActionDoesNotReplaceHaltReason() {
-        stubHalted(List.of("018470"));
-        stubFrozenClose("018470", "973.00", 6);
-        stubCurrentPrice("018470", "4865");
+    @DisplayName("액면변경 표시는 게이트가 아니다 — 재개한 종목은 isActive 가 그대로 true")
+    void corporateActionIsNotAGate() {
+        stubHalted(List.of());
+        stubLastBarZeroVolume("018470", "973.00", 6);
+        stubCurrentPrice("018470", "4865", 0);
 
         service.refreshVolumeHalts();
 
-        assertThat(service.getSuspendedStocks()).containsKey("018470");
-        assertThat(service.getSuspendedStocks().get("018470"))
-                .as("정지 사유는 그대로 — 액면변경은 별개 신호다").contains("거래량 0");
+        assertThat(service.getSuspectedCorporateActions()).containsKey("018470");
+        assertThat(service.isActive("018470"))
+                .as("이력만 못 쓰는 것 — 종목은 멀쩡하다").isTrue();
+        assertThat(service.getSuspendedStocks()).doesNotContainKey("018470");
+    }
+
+    /**
+     * 285800 실측 오탐: 봉 3,665 는 수정주가로 이미 보정됐고 캐시 733 이 9/4 에 멈춘 낡은 값이었다.
+     * 낡은 값을 현재가로 쓰면 방향이 뒤집힌 "액면분할 1:5" 가 나온다.
+     */
+    @Test
+    @DisplayName("285800 회귀: 현재가가 7일 묵었으면 표시하지 않는다 — 뒤집힌 분할 오탐 방지")
+    void stalePriceProducesNoFalsePositive() {
+        stubHalted(List.of("285800"));
+        stubLastBarZeroVolume("285800", "3665.00", 6);
+        stubCurrentPrice("285800", "733", 7);
+
+        service.refreshVolumeHalts();
+
+        assertThat(service.getSuspectedCorporateActions())
+                .as("고치기 전엔 '액면분할 1:5' 로 오탐했다").isEmpty();
     }
 
     @Test
-    @DisplayName("정수배가 아니면 표시하지 않는다 — 그냥 정지 종목")
+    @DisplayName("정수배가 아니면 표시하지 않는다")
     void nonIntegerRatioIsNotFlagged() {
-        stubHalted(List.of("018470"));
-        stubFrozenClose("018470", "973.00", 6);
-        stubCurrentPrice("018470", "3600");
+        stubHalted(List.of());
+        stubLastBarZeroVolume("018470", "973.00", 6);
+        stubCurrentPrice("018470", "3600", 0);
 
         service.refreshVolumeHalts();
 
@@ -136,8 +161,8 @@ class StockStatusVolumeHaltTest {
     @Test
     @DisplayName("현재가를 못 구하면 표시하지 않는다 — 결측을 근거로 단정하지 않는다(§4c)")
     void missingCurrentPriceIsNotFlagged() {
-        stubHalted(List.of("018470"));
-        stubFrozenClose("018470", "973.00", 6);
+        stubHalted(List.of());
+        stubLastBarZeroVolume("018470", "973.00", 6);
         when(stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc("018470"))
                 .thenReturn(java.util.Optional.empty());
 
@@ -149,13 +174,13 @@ class StockStatusVolumeHaltTest {
     @Test
     @DisplayName("액면변경 조회 실패는 이전 표시 유지 — 빈 결과로 '없음' 위장 금지")
     void corporateActionQueryFailureKeepsPrevious() {
-        stubHalted(List.of("018470"));
-        stubFrozenClose("018470", "973.00", 6);
-        stubCurrentPrice("018470", "4865");
+        stubHalted(List.of());
+        stubLastBarZeroVolume("018470", "973.00", 6);
+        stubCurrentPrice("018470", "4865", 0);
         service.refreshVolumeHalts();
         assertThat(service.getSuspectedCorporateActions()).containsKey("018470");
 
-        when(priceHistoryRepository.findFrozenClosesForCodes(org.mockito.ArgumentMatchers.anyList(), any(LocalDate.class)))
+        when(priceHistoryRepository.findCodesWhoseLatestBarIsZeroVolume())
                 .thenThrow(new IllegalStateException("DB down"));
         service.refreshVolumeHalts();
 
