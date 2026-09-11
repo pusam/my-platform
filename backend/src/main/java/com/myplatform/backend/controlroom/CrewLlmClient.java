@@ -97,6 +97,8 @@ public class CrewLlmClient {
                 }
                 client = AnthropicOkHttpClient.builder()
                         .apiKey(properties.getApiKey())
+                        // 기본은 Anthropic. 구독 게이트웨이로 돌릴 때만 이 값이 바뀐다.
+                        .baseUrl(properties.getApiBase())
                         // SDK 기본 타임아웃은 10분 — 한 턴이 매달리면 단일 스레드 실행기가
                         // 최대 50분 잠기고 그동안 동시 1건 가드가 새 세션까지 막는다.
                         // 초과는 예외로 올라가 세션이 FAILED 로 끝난다(재시도는 사람이).

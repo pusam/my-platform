@@ -293,6 +293,45 @@ docker compose up -d --force-recreate backend
 키를 넣기 전까지 화면은 크루 카드가 `OFFLINE` 이고 **비활성 사유가 그대로 표시**된다
 ("ANTHROPIC_API_KEY 미설정 — 크루 비활성"). 버튼만 죽어 있고 이유를 모르는 상태를 만들지 않는다.
 
+### 7-1-1. 구독으로 돌리기
+
+관제실은 Java 라 구독 자격증명을 직접 못 쓴다 — 그건 Claude Agent SDK(Node) 전용이다.
+jewelry-leads 스택의 **`claude-gateway`** 가 Messages API 모양으로 받아 안에서 SDK 로 부른다.
+두 관제실이 같은 게이트웨이를 쓴다(같은 docker 네트워크).
+
+```bash
+# 서버 .env — 비워 두면 지금까지처럼 api.anthropic.com 으로 나간다(종량제)
+CONTROL_ROOM_CREW_API_BASE=http://claude-gateway:8792
+CONTROL_ROOM_CREW_API_KEY=<게이트웨이 공유 토큰>
+```
+
+전환은 손으로 하지 말고 스크립트로 한다(순서가 있다 — 게이트웨이를 먼저 띄우고 나서 돌려야
+관제실이 DISABLED 로 내려가지 않는다):
+
+```bash
+~/jewelry-leads/scripts/use-subscription-gateway.sh            # 켜기
+~/jewelry-leads/scripts/use-subscription-gateway.sh --revert   # 종량제로 되돌리기
+```
+
+**바뀌는 동작 — 숨기지 않는다.**
+
+| | 종량제(API 키) | 구독(게이트웨이) |
+|---|---|---|
+| `max-tokens` / `review-max-tokens` | 걸린다 | **안 걸린다**(Agent SDK 에 출력 상한이 없다) |
+| "응답 잘림" 배지 | 뜬다 | **안 뜬다** — 잘림이 일어나지 않으므로 |
+| 한 턴 입력 토큰 | 프롬프트 크기 그대로 | **4만~5만**(하네스가 매 호출에 얹힌다) |
+| 요금 | 토큰당 과금 | 과금 없음. 대신 **주간 한도에서 깎임** |
+| 한도 공유 | 없음 | claude.ai · Claude Code 와 **같은 주머니** |
+
+`effort` 는 그대로 전달된다. 무시된 `max_tokens` 는 응답 `_gateway.unsupported` 에 실려 온다.
+
+**빈 값 함정**: 이중배선(`- CONTROL_ROOM_CREW_API_BASE=${CONTROL_ROOM_CREW_API_BASE:-...}`)은
+값이 없어도 이름을 주입한다. 빈 문자열이면 Spring 기본값이 적용되지 않아 baseUrl 이 `""` 가 되고
+크루가 통째로 죽는다 — compose 기본값을 진짜 주소로 두고 `CrewProperties.getApiBase()` 에서도
+공백을 거른다(`CrewApiBaseTest`).
+
+상세: `jewelry-leads/gateway/README.md`.
+
 ### 7-2. 문서는 이미지에 박힌다
 
 운영 이미지엔 `app.jar` 하나만 들어간다(레포 체크아웃 없음). 그래서 `processResources` 가

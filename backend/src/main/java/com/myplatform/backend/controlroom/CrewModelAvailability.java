@@ -81,6 +81,8 @@ public class CrewModelAvailability {
         try {
             AnthropicClient client = AnthropicOkHttpClient.builder()
                     .apiKey(properties.getApiKey())
+                    // 기본은 Anthropic. 구독 게이트웨이로 돌릴 때만 이 값이 바뀐다.
+                    .baseUrl(properties.getApiBase())
                     .timeout(VERIFY_TIMEOUT)
                     .build();
 

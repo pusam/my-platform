@@ -89,6 +89,36 @@ public class CrewProperties {
     @Value("${control-room.crew.api-key:${ANTHROPIC_API_KEY:}}")
     private String apiKey;
 
+    /**
+     * API 기본 주소. 기본값은 Anthropic 이라 설정하지 않으면 지금까지와 똑같이 돈다.
+     *
+     * <p>구독으로 돌릴 때만 사내 게이트웨이를 가리킨다(예: {@code http://claude-gateway:8792}).
+     * 구독 자격증명은 Claude Agent SDK(Node)만 쓸 수 있어서 Java 에서 직접 못 쓴다 —
+     * 게이트웨이가 Messages API 모양으로 받아 안에서 SDK 로 부른다. 그때 위의 API 키 자리에는
+     * 게이트웨이 공유 토큰을 넣는다.
+     *
+     * <p>게이트웨이로 돌리면 <b>{@code max_tokens} 가 걸리지 않는다</b>(Agent SDK 에 출력 상한이
+     * 없다). 따라서 "응답 잘림" 배지도 뜨지 않는다. 입력 토큰은 하네스 때문에 수만 단위로 잡히며,
+     * 그 값이 실제로 구독 한도에서 깎이는 양이다.
+     */
+    @Value("${control-room.crew.api-base:https://api.anthropic.com}")
+    private String apiBase;
+
+    /** 아무것도 설정하지 않았을 때 나가는 곳. 지금까지의 동작이다. */
+    public static final String DEFAULT_API_BASE = "https://api.anthropic.com";
+
+    /**
+     * 빈 값은 "설정 안 함"으로 본다 — Lombok 이 만드는 getter 를 일부러 가린다.
+     *
+     * <p>compose 의 이중배선(`- CONTROL_ROOM_CREW_API_BASE=${CONTROL_ROOM_CREW_API_BASE:-}`)은
+     * 값이 없어도 <b>이름을 주입</b>한다. 그러면 프로퍼티가 "존재"하므로 Spring 기본값이 적용되지
+     * 않고 baseUrl 이 빈 문자열이 되어 크루가 통째로 죽는다. 키 쪽에서 이미 겪은 함정이라
+     * 같은 가드를 건다.
+     */
+    public String getApiBase() {
+        return apiBase == null || apiBase.isBlank() ? DEFAULT_API_BASE : apiBase.trim();
+    }
+
     public boolean hasApiKey() {
         return apiKey != null && !apiKey.isBlank();
     }

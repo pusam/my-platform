@@ -298,7 +298,13 @@ control-room:
     # 실제 적용값은 항상 5턴 최악 소요(5×턴 타임아웃 +5분)보다 크게 보정된다 — 정상 세션 오살 방지.
     stale-session-minutes: ${CONTROL_ROOM_CREW_STALE_SESSION_MINUTES:30}
     # 미설정이면 크루만 비활성(앱 전체는 정상 기동).
-    api-key: ${ANTHROPIC_API_KEY:}
+    # 구독 게이트웨이를 쓸 때는 이 자리에 게이트웨이 공유 토큰을 넣는다(CONTROL_ROOM_CREW_API_KEY).
+    api-key: ${CONTROL_ROOM_CREW_API_KEY:${ANTHROPIC_API_KEY:}}
+    # 모델을 부르는 주소. 기본은 Anthropic(종량제).
+    # 구독으로 돌릴 때만 사내 중계를 가리킨다: http://claude-gateway:8792
+    # 그때는 max-tokens 가 걸리지 않고(Agent SDK 한계) 입력 토큰이 한 턴 4만~5만으로 잡힌다.
+    # 자세한 것은 jewelry-leads/gateway/README.md.
+    api-base: ${CONTROL_ROOM_CREW_API_BASE:https://api.anthropic.com}
 
 # 뉴스 요약 Gemini 일간 호출 상한 — 쿼터 보호
 # 초과 시 Gemini 호출 없이 본문 앞부분만 summary 로 저장 (다음날 자동 리셋)

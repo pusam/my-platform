@@ -119,6 +119,12 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - CONTROL_ROOM_CREW_MODEL=${CONTROL_ROOM_CREW_MODEL:-claude-opus-5}
       - CONTROL_ROOM_CREW_DAILY_LIMIT=${CONTROL_ROOM_CREW_DAILY_LIMIT:-30}
+      # 구독으로 돌릴 때만 채운다 — jewelry-leads 스택의 claude-gateway 를 가리킨다.
+      # 비어 있으면 지금까지처럼 api.anthropic.com 으로 나간다(종량제). 같은 이중배선 원칙.
+      # 기본값을 빈 값이 아니라 진짜 주소로 둔다 — 이중배선은 값이 없어도 이름을 주입하므로
+      # 빈 값이면 Spring 기본값이 적용되지 않고 baseUrl 이 "" 가 된다(Java 쪽에도 가드 있음).
+      - CONTROL_ROOM_CREW_API_BASE=${CONTROL_ROOM_CREW_API_BASE:-https://api.anthropic.com}
+      - CONTROL_ROOM_CREW_API_KEY=${CONTROL_ROOM_CREW_API_KEY:-}
       # DART 공시 — 미설정 시 DartService.isAvailable()=false 로 공시 모니터가 조용히 전면 정지
       # ("알림 없음 = 공시 없음" 오인의 원인). 위 키들과 같은 이중배선 원칙 적용.
       - DART_API_KEY=${DART_API_KEY:-}
