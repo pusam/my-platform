@@ -146,12 +146,26 @@ services:
       # 복합 조건 알림(10분)만 따로 — 2026-09-04 처음 켠 날 첫 tick 36건·다음 12건이 시그널 채널로 나감(임계 미보정).
       # 임계를 실측으로 다시 잡기 전엔 기본 false. 켜려면 .env 에 ALERT_COMPOSITE_ENABLED=true.
       - ALERT_COMPOSITE_ENABLED=${ALERT_COMPOSITE_ENABLED:-false}
+      # OOM 때 힙 덤프를 남긴다(2026-09-15). 9/11 16:37 OOM 이 Tomcat Acceptor 스레드만 죽이고 JVM 은
+      # 살아남아 배치·텔레그램은 정상으로 보인 채 API 가 3.5일간 죽어 있었는데, 이미지에 jmap/jcmd 가
+      # 없어 원인을 특정할 증거가 재시작과 함께 사라졌다. 다음 OOM 은 덤프로 잡는다.
+      # ⚠ HeapDumpPath 는 반드시 마운트된 경로여야 한다 — 컨테이너 내부에 쓰면 재생성 때 같이 사라진다.
+      # 덤프 크기는 힙과 비슷하다(수 GB). 디스크 여유 확인하고, 분석 뒤 지울 것.
+      - JAVA_TOOL_OPTIONS=-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/dumps
     deploy:
       resources:
         limits:
-          memory: 1536M
+          # 1536M → 3072M (2026-09-15). 1536M 에서는 JVM 이 이 컨테이너를 '서버급'으로 보지 않아
+          # (임계 1792MB) SerialGC 를 고르고 구형세대가 768MiB 로 잘린다. 실측에서 GC 후 살아남는
+          # live set 이 정확히 768MiB 에 붙어 OOM 이 났다 — 용량이 앱의 정상 작업집합보다 작다.
+          # 올리면 힙이 ~2.3GB 가 되고 임계를 넘어 G1GC 로 자동 전환된다(호스트 15.4GB 중 11GB 여유).
+          # ⚠ 증설은 시간을 벌 뿐이다. live set 이 8분 만에 564→768MiB 로 오른 게 용량 부족인지
+          # 누수인지는 위 힙 덤프로 가려야 한다.
+          memory: 3072M
     volumes:
       - uploads_data:/app/uploads
+      # 힙 덤프 보존 — 컨테이너 재생성을 넘겨 남아야 분석할 수 있다.
+      - heapdumps:/dumps
     depends_on:
       mariadb:
         condition: service_healthy
@@ -266,6 +280,9 @@ volumes:
   redis_data:
     driver: local
   uploads_data:
+    driver: local
+  # OOM 힙 덤프(2026-09-15) — 컨테이너 재생성을 넘겨 보존한다.
+  heapdumps:
     driver: local
   nginx_logs:
     driver: local
