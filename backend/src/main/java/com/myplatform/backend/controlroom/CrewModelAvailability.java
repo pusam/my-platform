@@ -60,6 +60,45 @@ public class CrewModelAvailability {
     private static final Duration VERIFY_TIMEOUT = Duration.ofSeconds(20);
 
     /**
+     * 페이지네이션 소비 상한. 모델 목록은 수십 종이라 이걸 넘으면 목록이 긴 게 아니라 <b>커서가 안 도는 것</b>이다.
+     *
+     * <p><b>왜 상한이 필요한가(2026-09-15 실사고)</b>: 이전 코드는
+     * {@code client.models().list().autoPager().forEach(m -> available.add(m.id()))} 였다.
+     * 2026-09-11 에 구독 게이트웨이({@code control-room.crew.api-base})로 돌리자 그 게이트웨이의
+     * {@code /v1/models} 가 커서를 진전시키지 않아 <b>autoPager 가 같은 페이지를 무한히 따라갔고</b>,
+     * {@code available} 에 모델 ID 문자열이 끝없이 쌓였다 — 힙 덤프에서 {@code "claude-opus-5"}·
+     * {@code "claude-sonnet-5"} 문자열 <b>3,800만 개(힙의 83%)</b>와 원소 4,672만 개짜리 배열이 나왔다.
+     * ⚠ {@link #VERIFY_TIMEOUT} 은 <b>요청당</b> 타임아웃이라 각 페이지가 빨리 오면 전체 루프를 못 막는다.
+     * ⚠ 게다가 {@code verifyOnStartup} 은 {@code @Async} 라 이 루프가 조용히 돈다.
+     */
+    static final int MAX_MODEL_ITEMS = 500;
+
+    /** 모델 목록 스캔 결과. {@code truncated}=상한에 걸림(= 페이지네이션 이상 신호). */
+    record ModelScan(List<String> ids, boolean truncated) {}
+
+    /**
+     * 페이지네이션을 <b>유한하게</b> 소비한다 — 순수 함수({@code CrewModelPaginationTest}).
+     *
+     * <p>중복은 합치되 <b>상한은 반복 횟수로</b> 건다: 게이트웨이가 같은 페이지를 반복하면 distinct 개수는
+     * 안 늘어나므로 "수집된 개수"로 끊으면 영원히 안 끝난다.
+     */
+    static ModelScan scanBounded(java.util.Iterator<String> ids, int maxItems) {
+        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+        int seen = 0;
+        while (ids.hasNext()) {
+            if (seen >= maxItems) {
+                return new ModelScan(List.copyOf(out), true);
+            }
+            seen++;
+            String id = ids.next();
+            if (id != null && !id.isBlank()) {
+                out.add(id);
+            }
+        }
+        return new ModelScan(List.copyOf(out), false);
+    }
+
+    /**
      * 모델 목록 확인. 기동 시 1회 + 관리자가 키/모델 설정을 고친 뒤 재기동 없이 다시 부를 때 호출된다
      * ({@code POST /api/control-room/crew/verify}).
      *
@@ -86,8 +125,18 @@ public class CrewModelAvailability {
                     .timeout(VERIFY_TIMEOUT)
                     .build();
 
-            List<String> available = new ArrayList<>();
-            client.models().list().autoPager().forEach(model -> available.add(model.id()));
+            var pager = client.models().list().autoPager();
+            ModelScan scan = scanBounded(
+                    java.util.stream.StreamSupport.stream(pager.spliterator(), false)
+                            .map(m -> m.id()).iterator(),
+                    MAX_MODEL_ITEMS);
+            List<String> available = scan.ids();
+            if (scan.truncated()) {
+                // 침묵 금지(§4c) — 여기서 조용히 끊으면 게이트웨이가 깨진 걸 아무도 모른다.
+                log.warn("[관제실] /v1/models 가 {}건을 넘겨도 끝나지 않음 — 게이트웨이 페이지네이션 이상"
+                        + "(커서 미진전) 의심. 상한에서 끊고 진행한다. api-base={}",
+                        MAX_MODEL_ITEMS, properties.getApiBase());
+            }
 
             if (available.isEmpty()) {
                 disable("GET /v1/models 응답이 비어 있음 — 모델 실재를 확인하지 못해 크루 비활성");
