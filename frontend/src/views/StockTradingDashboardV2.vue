@@ -22,6 +22,7 @@
       <!-- ═══ 오늘 탭 (P-IA 3단계): 아침에 이 한 장만 보면 되는 '오늘의 결론' 홈 ═══ -->
       <div v-if="activeGnbTab === 'today'" class="tab-panel">
         <TodayBriefingTab
+          ref="todayBriefing"
           :marketData="marketData"
           @open-stock="goToStock"
           @navigate="activeGnbTab = $event"
@@ -552,7 +553,7 @@
         <template v-if="activeGnbTab === 'discover' && discoverGroup === 'deep'">
           <div class="embedded-content">
             <SectionTotalRecommendation v-if="discoverSubTab === 'total'" />
-            <SectionJudgmentBoard v-if="discoverSubTab === 'board'" @open-stock="goToStock" @switch-to-list="goDiscoverListDefault" />
+            <SectionJudgmentBoard ref="judgmentBoard" v-if="discoverSubTab === 'board'" @open-stock="goToStock" @switch-to-list="goDiscoverListDefault" />
             <AiStrategyDashboardPage v-if="discoverSubTab === 'ai-strategy'" :embedded="true" />
             <SectionBacktest v-if="discoverSubTab === 'backtest'" />
             <EarningsScreenerPage v-if="discoverSubTab === 'screener'" :embedded="true" />
@@ -838,7 +839,7 @@ export default {
       } else {
         this._startPolling()
         // 다시 보이는 순간 한 번 즉시 갱신 (탭 복귀 시 stale 화면 방지)
-        if (this.isLiveTab) {
+        if (this.isLiveTab || this.activeGnbTab === 'today') {
           this._refreshAll()
         }
       }
@@ -1068,7 +1069,7 @@ export default {
     _startPolling() {
       if (this._refreshTimer) return
       this._refreshTimer = setInterval(() => {
-        if (!this.isLiveTab) return
+        if (!this.isLiveTab && this.activeGnbTab !== 'today') return
         this._refreshAll()
       }, 60000)
     },
@@ -1084,8 +1085,9 @@ export default {
       this.isRefreshing = true
       try {
         await Promise.allSettled([
-          this.loadMarketMap(),
-          this.loadSupplyPanel()
+          ...(this.activeGnbTab === 'today' ? [] : [this.loadMarketMap(), this.loadSupplyPanel()]),
+          this.$refs.todayBriefing?.refresh(),
+          this.$refs.judgmentBoard?.refresh()
         ])
         this.lastUpdated = new Date()
         this.nextRefreshIn = 60

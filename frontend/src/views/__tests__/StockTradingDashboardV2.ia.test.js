@@ -1,8 +1,34 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import Comp from '../StockTradingDashboardV2.vue'
 
 // 마운트 없이 매핑 메서드만 검증 (무거운 자식/ API 회피).
 const M = Comp.methods
+
+describe('후보·발굴 갱신 연결', () => {
+  it.each(['today', 'discover'])('%s 갱신은 표시 중인 추천 자식까지 기다린다', async (tab) => {
+    const refresh = vi.fn().mockResolvedValue()
+    const ctx = {
+      activeGnbTab: tab, isRefreshing: false,
+      $refs: tab === 'today' ? { todayBriefing: { refresh } } : { judgmentBoard: { refresh } },
+      loadMarketMap: vi.fn().mockResolvedValue(), loadSupplyPanel: vi.fn().mockResolvedValue()
+    }
+    await M._refreshAll.call(ctx)
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('오늘 탭도 기존 60초 폴링으로 후보를 다시 읽는다', () => {
+    vi.useFakeTimers()
+    const ctx = { activeGnbTab: 'today', isLiveTab: false, _refreshAll: vi.fn() }
+    M._startPolling.call(ctx)
+    try {
+      vi.advanceTimersByTime(60000)
+      expect(ctx._refreshAll).toHaveBeenCalledOnce()
+    } finally {
+      M._stopPolling.call(ctx)
+      vi.useRealTimers()
+    }
+  })
+})
 
 function call(name, thisArg, ...args) {
   return M[name].call(thisArg, ...args)

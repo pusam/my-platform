@@ -32,8 +32,8 @@ class RecommendationAuditFix2Test {
 
     @Test
     void 입력데이터가_몰락했으면_기존_스냅샷을_유지한다() {
-        // scoreMap 자체가 빈약하면 계산 실패 의심 — 빈 결과 발행이 아니라 기존 유지가 안전
-        assertThat(RecommendationService.shouldSkipSnapshotOnEmpty(true, 3)).isFalse();
+        // 기존 행을 그대로 보존해야 한다. 과거 목록을 오늘 날짜로 재저장하면 새 시그널이 된다.
+        assertThat(RecommendationService.shouldSkipSnapshotOnEmpty(true, 3)).isTrue();
     }
 
     @Test
@@ -43,12 +43,10 @@ class RecommendationAuditFix2Test {
     }
 
     @Test
-    void 스냅샷_판정은_조회경로와_같은_임계를_쓴다() {
-        // 두 경로가 다른 임계를 쓰면 "화면은 관망인데 스냅샷엔 어제 목록" 같은 불일치가 생긴다
-        assertThat(RecommendationService.shouldSkipSnapshotOnEmpty(true, 10))
-                .isEqualTo(RecommendationService.shouldPublishEmptyResult(10));
-        assertThat(RecommendationService.shouldSkipSnapshotOnEmpty(true, 9))
-                .isEqualTo(RecommendationService.shouldPublishEmptyResult(9));
+    void 빈_결과는_데이터_충분성에_관계없이_재발행하지_않는다() {
+        for (int count : new int[] {0, 3, 9, 10, 120}) {
+            assertThat(RecommendationService.shouldSkipSnapshotOnEmpty(true, count)).isTrue();
+        }
     }
 
     // ==================== ② tie-break: changeRate 결측을 "0% 상승"으로 보지 않는다 ====================

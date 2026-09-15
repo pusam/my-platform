@@ -51,6 +51,27 @@ async function mountTab(props = {}) {
 }
 
 describe('TodayBriefingTab — 오늘의 결론 홈', () => {
+  it('부모 갱신을 받으면 새 후보를 읽어 이전 후보를 교체한다', async () => {
+    stubAll()
+    const w = await mountTab()
+    recommendationAPI.getTop5.mockResolvedValue({ data: { success: true, data: [] } })
+    await w.vm.refresh()
+    await flushPromises()
+    expect(w.findAll('.candidate-card')).toHaveLength(0)
+    expect(w.text()).toContain('관망이 결론입니다')
+  })
+  it.each([
+    { success: false, data: [] },
+    { success: true, dataAvailable: false, data: [] },
+    { success: true, data: null }
+  ])('판단 불가 응답은 관망으로 표시하지 않는다: %j', async (payload) => {
+    stubAll()
+    recommendationAPI.getTop5.mockResolvedValue({ data: payload })
+    const w = await mountTab()
+    expect(w.find('.ts-state.failed').exists()).toBe(true)
+    expect(w.text()).not.toContain('관망이 결론입니다')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
   })

@@ -20,7 +20,8 @@ public class RecommendationController {
     public ResponseEntity<?> getTop5() {
         var response = recommendationService.getTop5();
         return ResponseEntity.ok(Map.of(
-                "success", true,
+                "success", response.isDataAvailable(),
+                "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime(),
@@ -48,7 +49,8 @@ public class RecommendationController {
     public ResponseEntity<?> getValueTop10() {
         var response = recommendationService.getValueTop10();
         return ResponseEntity.ok(Map.of(
-                "success", true,
+                "success", response.isDataAvailable(),
+                "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime()
@@ -62,7 +64,8 @@ public class RecommendationController {
     public ResponseEntity<?> getGrowthTop10() {
         var response = recommendationService.getGrowthTop10();
         return ResponseEntity.ok(Map.of(
-                "success", true,
+                "success", response.isDataAvailable(),
+                "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime()
@@ -76,7 +79,8 @@ public class RecommendationController {
     public ResponseEntity<?> getOversoldTop10() {
         var response = recommendationService.getOversoldTop10();
         return ResponseEntity.ok(Map.of(
-                "success", true,
+                "success", response.isDataAvailable(),
+                "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime()
@@ -90,7 +94,8 @@ public class RecommendationController {
     public ResponseEntity<?> getEarningsTop10() {
         var response = recommendationService.getEarningsTop10();
         return ResponseEntity.ok(Map.of(
-                "success", true,
+                "success", response.isDataAvailable(),
+                "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime()
@@ -104,7 +109,8 @@ public class RecommendationController {
     public ResponseEntity<?> getSmartMoneyTop10() {
         var response = recommendationService.getSmartMoneyTop10();
         return ResponseEntity.ok(Map.of(
-                "success", true,
+                "success", response.isDataAvailable(),
+                "dataAvailable", response.isDataAvailable(),
                 "data", response.getItems(),
                 "dataTime", response.getDataTime(),
                 "realtime", response.isRealtime()

@@ -167,8 +167,12 @@ const load = async () => {
   loading.value = true; error.value = false;
   try {
     const { data } = await apiClient.get('/recommendation/judgment-board', { params: { scope: scope.value } });
+    if (data?.success === false || !Array.isArray(data?.data?.rows)) {
+      throw new Error('보드 데이터 미가용');
+    }
     board.value = data?.data || null;
   } catch (e) {
+    board.value = null;
     error.value = true;
   } finally {
     loading.value = false;
@@ -299,6 +303,7 @@ const catTitle = (r) => {
   return `재료: ${r.catalystLabel}(${catDirLabel(r.catalystDirection)})${age ? ' · ' + age : ' · 오늘'}`;
 };
 
+defineExpose({ refresh: () => loading.value ? Promise.resolve() : load() });
 onMounted(load);
 </script>
 

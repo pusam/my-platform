@@ -32,6 +32,24 @@ async function mountBoard(rows) {
 }
 
 describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금)', () => {
+  it('부모 갱신 후 새 목록으로 교체한다', async () => {
+    const w = await mountBoard([row()])
+    apiClient.get.mockResolvedValue(boardResp([]))
+    await w.vm.refresh()
+    await flushPromises()
+    expect(w.findAll('tbody tr')).toHaveLength(0)
+  })
+  it.each([
+    { success: false, data: { rows: [] } },
+    { success: true, data: null }
+  ])('실패 응답을 BUY 후보 부족으로 표시하지 않는다: %j', async (payload) => {
+    apiClient.get.mockResolvedValue({ data: payload })
+    const w = mount(SectionJudgmentBoard)
+    await flushPromises()
+    expect(w.text()).toContain('보드 조회 실패')
+    expect(w.text()).not.toContain('오늘 비교할 BUY 후보가 적습니다')
+  })
+
   beforeEach(() => vi.clearAllMocks())
 
   it('현재가 + 등락률 셀 — 천단위 콤마 + 부호/색상', async () => {

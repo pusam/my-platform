@@ -73,10 +73,14 @@ public class JudgmentBoardService {
 
         List<RecommendationDto> momentum;
         try {
-            momentum = recommendationService.getTop5().getItems();
+            var response = recommendationService.getTop5();
+            if (response == null || !response.isDataAvailable() || response.getItems() == null) {
+                throw new IllegalStateException("추천 데이터 미가용");
+            }
+            momentum = response.getItems();
         } catch (Exception e) {
             log.warn("[JudgmentBoard] 후보 조회 실패: {}", e.getMessage());
-            momentum = List.of();
+            throw new IllegalStateException("추천 데이터 조회 실패", e);
         }
         if (momentum == null) momentum = List.of();
 
@@ -182,9 +186,12 @@ public class JudgmentBoardService {
     private static List<RecommendationDto> safeItems(ItemsSupplier s) {
         try {
             var resp = s.get();
-            return resp != null && resp.getItems() != null ? resp.getItems() : List.of();
+            if (resp == null || !resp.isDataAvailable() || resp.getItems() == null) {
+                throw new IllegalStateException("발굴 트랙 데이터 미가용");
+            }
+            return resp.getItems();
         } catch (Exception e) {
-            return List.of();
+            throw new IllegalStateException("발굴 트랙 조회 실패", e);
         }
     }
 

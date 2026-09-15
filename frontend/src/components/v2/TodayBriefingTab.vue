@@ -233,7 +233,10 @@ const loadCandidates = async () => {
   candidatesFailed.value = false;
   try {
     const { data } = await recommendationAPI.getTop5();
-    const items = data?.data || [];
+    if (data?.success === false || data?.dataAvailable === false || !Array.isArray(data?.data)) {
+      throw new Error('후보 데이터 미가용');
+    }
+    const items = data.data;
     recDataTime.value = data?.dataTime || null;
     recRealtime.value = data?.realtime !== false;
     buyCandidates.value = items
@@ -244,6 +247,8 @@ const loadCandidates = async () => {
     // 조회 실패를 '관망'으로 말하면 안 된다(2026-08-05 감사) — '컷 통과 0건'은 시장 판단이고
     // 조회 실패는 판단 불가다. 둘을 같은 문구로 덮으면 장애 중에도 화면이 결론을 단정한다(§4c).
     buyCandidates.value = [];
+    recDataTime.value = null;
+    recRealtime.value = false;
     candidatesFailed.value = true;
   } finally {
     candidatesLoading.value = false;
@@ -361,6 +366,9 @@ const signed = (v, grouping = false) => {
   const text = grouping ? Math.abs(n).toLocaleString('ko-KR') : Math.abs(n);
   return `${n > 0 ? '+' : n < 0 ? '-' : ''}${text}`;
 };
+
+// 부모의 60초 폴링·탭 복귀 갱신을 공유한다. 진행 중 요청은 중복 실행하지 않는다.
+defineExpose({ refresh: () => candidatesLoading.value ? Promise.resolve() : loadCandidates() });
 
 onMounted(() => {
   loadCandidates();

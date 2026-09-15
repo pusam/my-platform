@@ -174,7 +174,8 @@ public class RecommendationService {
         if (trading) {
             try {
                 List<RecommendationDto> result = calculate();
-                if (!result.isEmpty()) {
+                if (!result.isEmpty() || shouldPublishEmptyResult(
+                        cachedScoreMap != null ? cachedScoreMap.size() : 0)) {
                     cachedTop5 = result;
                     cacheTime = now;
                     return buildResponse(result, now.format(TIME_FMT) + " 기준", true);
@@ -184,7 +185,7 @@ public class RecommendationService {
             }
         }
 
-        return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap());
+        return Top5Response.unavailable();
     }
 
     /**
@@ -256,15 +257,14 @@ public class RecommendationService {
      * 을 했다. 존재하지 않은 시그널이 적중률 측정 테이블에 들어가고, 컷 0건은 보통 하락일이라
      * <b>가짜 시그널이 나쁜 날에 집중되는 계통 편향</b>이 된다. 무작위 대조군까지 그 짝을 만든다.
      *
-     * <p>커밋 16a1589 가 넣은 {@link #shouldPublishEmptyResult} 가드는 <b>조회 경로에만</b> 적용됐다.
-     * 두 경로가 같은 임계를 쓰지 않으면 "화면은 관망인데 스냅샷엔 어제 목록" 불일치가 생기므로
-     * 여기서 그 판정을 그대로 재사용한다.
+     * <p>조회는 입력 부족 시 과거 목록을 보여줄 수 있지만, 기록은 이를 새 시그널로 발행하면 안 된다.
+     * 정상 관망과 입력 부족 모두 새 기록을 생략하고 기존 DB 행의 시각을 보존한다.
      *
      * @param resultEmpty      calculate() 결과가 비었는가
      * @param scoredStockCount 채점된 종목 수(빈약하면 계산 실패 의심 → 기존 스냅샷 유지가 안전)
      */
     static boolean shouldSkipSnapshotOnEmpty(boolean resultEmpty, int scoredStockCount) {
-        return resultEmpty && shouldPublishEmptyResult(scoredStockCount);
+        return resultEmpty;
     }
 
     /**
@@ -290,6 +290,7 @@ public class RecommendationService {
     }
 
     private Top5Response buildResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
+        items = activeRecommendations(items);
         // 실시간 시세로 changeRate/currentPrice 갱신
         refreshPrices(items);
 
@@ -593,17 +594,16 @@ public class RecommendationService {
     private void saveSnapshotInternal() {
         try {
             List<RecommendationDto> result = calculate();
-            // 측정 오염 차단(2026-08-05 감사) — 정상 계산인데 컷 통과 0건이면 어제 목록으로
-            // 폴백하지 않는다. 폴백하면 아래에서 오늘 타임스탬프로 저장되고 signal_outcome 에
-            // 오늘자 STRONG_BUY/BUY 로 record 돼, 존재하지 않은 시그널이 적중률 표본을 오염시킨다.
+            // 입력 부족도 과거 추천을 오늘 시그널로 재발행할 근거가 아니다.
             int scoredCount = cachedScoreMap != null ? cachedScoreMap.size() : 0;
             if (shouldSkipSnapshotOnEmpty(result.isEmpty(), scoredCount)) {
-                log.info("[종합추천] 스냅샷 — 컷 통과 0건(관망), 저장·record 생략(scoreMap {}종목)", scoredCount);
+                if (shouldPublishEmptyResult(scoredCount)) {
+                    log.info("[종합추천] 스냅샷 — 컷 통과 0건(관망), 저장·record 생략(scoreMap {}종목)", scoredCount);
+                } else {
+                    log.warn("[종합추천] 스냅샷 — 입력 부족, 저장·record 생략. 과거 추천 재발행 금지(scoreMap {}종목)", scoredCount);
+                }
                 return;
             }
-            // scoreMap 이 빈약하면 계산 실패 의심 → 기존 동작(직전 목록 유지)으로 안전하게 폴백
-            if (result.isEmpty() && cachedTop5 != null && !cachedTop5.isEmpty()) result = cachedTop5;
-            if (result.isEmpty()) { log.warn("[종합추천] 스냅샷 — 데이터 없음"); return; }
 
             // phase 38 fix — 가격 채우기. saveSnapshotInternal 경로는 buildResponse 안 거치므로
             // dto.currentPrice 가 null 인 상태. line 506 의 record() 진입 조건이 항상 fail 해
@@ -863,14 +863,20 @@ public class RecommendationService {
             if (cachedValueTop10 != null && valueCacheTime != null) {
                 return buildValueResponse(cachedValueTop10, valueCacheTime.format(TIME_FMT) + " 기준", trading);
             }
-            result = Collections.emptyList();
+            return Top5Response.unavailable();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
 
     private Top5Response buildValueResponse(List<RecommendationDto> items, String dataTime, boolean realtime) {
+        items = activeRecommendations(items);
         refreshPrices(items);  // 가격은 실시간 — 가치 점수는 캐시
         return new Top5Response(items, dataTime, realtime, Collections.emptyMap());
+    }
+
+    /** 캐시·DB 복원 뒤에도 현재 거래정지/상폐 게이트를 적용한다. 공유 캐시 자체는 변경하지 않는다. */
+    private List<RecommendationDto> activeRecommendations(List<RecommendationDto> items) {
+        return items.stream().filter(item -> stockStatusService.isActive(item.getStockCode())).toList();
     }
 
     /**
@@ -1065,7 +1071,7 @@ public class RecommendationService {
             if (cachedGrowthTop10 != null && growthCacheTime != null) {
                 return buildValueResponse(cachedGrowthTop10, growthCacheTime.format(TIME_FMT) + " 기준", trading);
             }
-            result = Collections.emptyList();
+            return Top5Response.unavailable();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -1214,7 +1220,7 @@ public class RecommendationService {
             if (cachedOversoldTop10 != null && oversoldCacheTime != null) {
                 return buildValueResponse(cachedOversoldTop10, oversoldCacheTime.format(TIME_FMT) + " 기준", trading);
             }
-            result = Collections.emptyList();
+            return Top5Response.unavailable();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -1324,7 +1330,7 @@ public class RecommendationService {
             if (cachedEarningsTop10 != null && earningsCacheTime != null) {
                 return buildValueResponse(cachedEarningsTop10, earningsCacheTime.format(TIME_FMT) + " 기준", trading);
             }
-            result = Collections.emptyList();
+            return Top5Response.unavailable();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -1346,7 +1352,7 @@ public class RecommendationService {
             if (cachedSmartMoneyTop10 != null && smartMoneyCacheTime != null) {
                 return buildValueResponse(cachedSmartMoneyTop10, smartMoneyCacheTime.format(TIME_FMT) + " 기준", trading);
             }
-            result = Collections.emptyList();
+            return Top5Response.unavailable();
         }
         return buildValueResponse(result, now.format(TIME_FMT) + " 기준", trading);
     }
@@ -2836,5 +2842,15 @@ public class RecommendationService {
         private final String dataTime;
         private final boolean realtime;
         private final Map<String, Integer> delta;
+        private final boolean dataAvailable;
+
+        public Top5Response(List<RecommendationDto> items, String dataTime, boolean realtime,
+                            Map<String, Integer> delta) {
+            this(items, dataTime, realtime, delta, true);
+        }
+
+        static Top5Response unavailable() {
+            return new Top5Response(Collections.emptyList(), "", false, Collections.emptyMap(), false);
+        }
     }
 }
