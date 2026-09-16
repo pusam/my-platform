@@ -104,7 +104,8 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.LossBreaker(false, null, null, null, null, null, null),
                         new ControlRoomSnapshotDto.VolRegime(false, null, null, "VKOSPI 미수집"),
                         new ControlRoomSnapshotDto.Undecided(false, 0, 0),
-                        new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0, null, null)),
+                        new ControlRoomSnapshotDto.FinancialInput(false, null, 0, 0, 0, 0, null, null),
+                        trustGate(false)),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
                 new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
@@ -133,6 +134,69 @@ class CrewContextBuilderTest {
                 null);
     }
 
+    /**
+     * ⑦ 믿고 사도 되나 게이트 — 이 테스트의 관심사는 아니지만 Kpis 레코드의 구성요소라 채워 둔다.
+     * {@code available=false} 는 집계 실패("근거 없음"과 다름, §4c)를 뜻한다.
+     */
+    private static ControlRoomSnapshotDto.TrustGate trustGate(boolean available) {
+        return available
+                ? new ControlRoomSnapshotDto.TrustGate(true, "COLLECTING", 20, 4, 8,
+                        new java.math.BigDecimal("-2.03"), new java.math.BigDecimal("-2.64"),
+                        new java.math.BigDecimal("1.90"), false,
+                        new java.math.BigDecimal("5.12"), new java.math.BigDecimal("-6.50"),
+                        new java.math.BigDecimal("-12.41"), new java.math.BigDecimal("-5.42"),
+                        0, List.of("고유 거래일 4/10일"),
+                        "표본 수집 중 — 고유 거래일 4/10일", "유효 표본은 고유 거래일 수다")
+                : new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
+                        null, null, null, false, null, null, null, null,
+                        0, List.of(), "집계 실패", "측정 자체가 실패했다");
+    }
+
+    @Test
+    @DisplayName("믿고 사도 되나 게이트가 크루 컨텍스트에 들어간다 — 상태는 뜻까지 적어 등급 오해를 막는다")
+    void trustGateReachesCrewWithMeaningNotJustAState() {
+        ControlRoomSnapshotDto s = snapshot(kpis());
+
+        String text = CrewContextBuilder.build(s, 8192).text();
+
+        assertThat(text).contains("믿고 사도 되나");
+        // state 만 적으면 크루가 등급으로 읽는다 — 뜻을 같이 박아 둔다
+        assertThat(text).contains("표본 수집 중(읽을 숫자 없음)");
+        assertThat(text).contains("고유 4일");
+        assertThat(text).contains("비용차감 -2.03%");
+        // 우위 하나만 주면 확실해 보인다 — 불확실성과 그 해석을 같이
+        assertThat(text).contains("불확실성 이내 — 0 과 구분 안 됨");
+        assertThat(text).contains("평균낙폭 -5.42%");
+    }
+
+    @Test
+    @DisplayName("게이트 집계 실패는 '근거 없음'이 아니라 측정 불가로 크루에 전달된다(§4c)")
+    void trustGateFailureIsNotSilentlyNoEvidence() {
+        ControlRoomSnapshotDto s = snapshot(new ControlRoomSnapshotDto.Kpis(
+                new ControlRoomSnapshotDto.Candidates(true, 3, 1, 0, 2,
+                        LocalDateTime.of(2026, 8, 24, 11, 30), false, "11:30 기준", true, null, null),
+                new ControlRoomSnapshotDto.Gates(true, 3, 5, List.of()),
+                new ControlRoomSnapshotDto.LossBreaker(true, 0L, 300000L, true, false, "VIRTUAL", null),
+                new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
+                new ControlRoomSnapshotDto.Undecided(true, 8, 8),
+                new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null),
+                trustGate(false)));
+
+        String text = CrewContextBuilder.build(s, 8192).text();
+
+        assertThat(text).contains("측정 불가(집계 실패)");
+        assertThat(text).doesNotContain("표본 수집 중(읽을 숫자 없음)");
+    }
+
+    /** 위 두 테스트용 스냅샷 껍데기 — 관심사는 kpis 뿐이다. */
+    private static ControlRoomSnapshotDto snapshot(ControlRoomSnapshotDto.Kpis k) {
+        return new ControlRoomSnapshotDto(
+                TODAY, LocalDateTime.of(2026, 8, 24, 10, 0), "2026-08", k,
+                calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
+                new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
+                new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);
+    }
+
     private static ControlRoomSnapshotDto.Kpis kpis() {
         return new ControlRoomSnapshotDto.Kpis(
                 new ControlRoomSnapshotDto.Candidates(true, 3, 1, 0, 2,
@@ -143,7 +207,8 @@ class CrewContextBuilderTest {
                 new ControlRoomSnapshotDto.LossBreaker(true, -60000L, 300000L, true, false, "VIRTUAL", null),
                 new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
                 new ControlRoomSnapshotDto.Undecided(true, 8, 8),
-                new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null));
+                new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null),
+                trustGate(true));
     }
 
     private static ControlRoomSnapshotDto.Calendar calendar() {
@@ -181,7 +246,8 @@ class CrewContextBuilderTest {
                         new ControlRoomSnapshotDto.LossBreaker(true, 0L, 300000L, true, false, "VIRTUAL", null),
                         new ControlRoomSnapshotDto.VolRegime(true, "NORMAL", "OFF", null),
                         new ControlRoomSnapshotDto.Undecided(true, 8, 8),
-                        new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null)),
+                        new ControlRoomSnapshotDto.FinancialInput(true, LocalDate.of(2026, 8, 24), 434, 434, 434, 434, null, null),
+                        trustGate(true)),
                 calendar(), new ControlRoomSnapshotDto.Flagged(true, List.of(), 0),
                 new ControlRoomSnapshotDto.Anomalies(true, List.of(), null, null),
                 new ControlRoomSnapshotDto.Invariants(true, List.of("1. 시세는 단일 경로")), null);

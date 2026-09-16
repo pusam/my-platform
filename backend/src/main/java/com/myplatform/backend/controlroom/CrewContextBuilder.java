@@ -79,6 +79,7 @@ public final class CrewContextBuilder {
             appendVolRegime(sb, k.volRegime());
             appendUndecided(sb, k.undecided());
             appendFinancialInput(sb, k.financialInput());
+            appendTrustGate(sb, k.trustGate());
         }
 
         sb.append("\n[판정 캘린더]\n");
@@ -194,6 +195,59 @@ public final class CrewContextBuilder {
         }
         sb.append("- VKOSPI 국면: ").append(v.regime())
                 .append(" · 게이트 mode=").append(v.gateMode()).append('\n');
+    }
+
+    /**
+     * "믿고 사도 되나" 게이트 — 크루가 <b>가장 자주 묻는 질문</b>이라 컨텍스트에 넣는다.
+     *
+     * <p>이게 없으면 크루는 적중률 숫자만 보고 "쓸 만하다/아니다"를 말하게 된다. 적중률만으론
+     * 손익을 모른다 — 그래서 비용 차감 수익·우위·불확실성·낙폭을 같이 싣는다.
+     *
+     * <p>⚠ <b>state 를 승인 등급으로 읽지 않도록 뜻을 함께 적는다</b> — 크루는 이 줄만 보고
+     * 결론을 쓴다. EVALUABLE 을 "통과"로 읽으면 그대로 사람에게 전달된다.
+     */
+    private static void appendTrustGate(StringBuilder sb, ControlRoomSnapshotDto.TrustGate t) {
+        if (t == null || !t.dataAvailable()) {
+            // 집계 실패를 "근거 없음"으로 흘리면 크루가 "아직 데이터가 안 쌓였다"고 단정한다(§4c).
+            sb.append("- 믿고 사도 되나: 측정 불가(집계 실패)");
+            if (t != null && t.note() != null) sb.append(" — ").append(t.note());
+            sb.append('\n');
+            return;
+        }
+        sb.append("- 믿고 사도 되나: ").append(stateLabel(t.state()))
+          .append(" · 표본 ").append(t.rows()).append("건/고유 ").append(t.distinctDays()).append("일")
+          .append(" · 대조군 ").append(t.controlRows()).append("건\n");
+        sb.append("  비용차감 ").append(pct(t.costAdjustedReturn()))
+          .append(" · 대조군比 ").append(pct(t.edgeVsControl()))
+          .append(t.edgeMarginOfError() == null ? " ±미상(비교일 부족)"
+                  : " ±" + t.edgeMarginOfError().toPlainString())
+          .append(t.edgeExceedsUncertainty() ? "(불확실성 초과)" : "(불확실성 이내 — 0 과 구분 안 됨)")
+          .append('\n');
+        sb.append("  이익시 ").append(pct(t.avgWin())).append(" / 손실시 ").append(pct(t.avgLoss()))
+          .append(" · 최악 ").append(pct(t.worst()))
+          .append(" · 평균낙폭 ").append(pct(t.avgMaePct())).append('\n');
+        if (t.excludedDays() > 0) {
+            sb.append("  ⚠ 대조군 짝 없어 제외된 날 ").append(t.excludedDays()).append("일\n");
+        }
+        if (t.blockers() != null && !t.blockers().isEmpty()) {
+            sb.append("  막는 것: ").append(String.join(", ", t.blockers())).append('\n');
+        }
+    }
+
+    /** state 를 뜻과 함께 — 크루가 등급으로 오해하지 않게. */
+    private static String stateLabel(String state) {
+        if (state == null) return "판정 불가";
+        return switch (state) {
+            case "COLLECTING" -> "표본 수집 중(읽을 숫자 없음)";
+            case "EVALUABLE" -> "평가 가능(숫자를 읽을 수 있다는 뜻일 뿐, 유리하다는 뜻 아님)";
+            case "CONSIDER_EXPANDING" -> "모의운용 확대 검토 가능(실매수 승인 아님)";
+            default -> state;
+        };
+    }
+
+    /** 결측은 '미상' — 0 으로 위장하지 않는다(§4c). */
+    private static String pct(java.math.BigDecimal v) {
+        return v == null ? "미상" : (v.signum() > 0 ? "+" : "") + v.toPlainString() + "%";
     }
 
     /**
