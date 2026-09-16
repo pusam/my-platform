@@ -36,16 +36,22 @@ public final class SignalD3Evaluator {
     /**
      * 단위 어긋남 판정 — <b>D0 종가 ÷ 기록시점 가격</b>이 이 범위를 벗어나면 의심.
      *
-     * <p>같은 날 안에서 가격은 상하한가(±30%) 안에서만 움직이므로 0.65~1.35 밖은 시장 움직임으로
-     * 불가능하다. 그 밖이면 KIS 일봉이 <b>수정주가</b>라 액면분할·병합 뒤 소급 보정된 것이고
-     * (D+3 이후에 분할이 나도 과거 봉이 재조정된다 — 그래서 감지기 목록만으론 못 잡는다),
-     * 기록시점 가격(원시)과 단위가 다르다. 그 행은 수익률을 계산하면 안 된다.
+     * <p><b>수학적 전제(2026-09-17 코덱스 리뷰로 교정)</b>: 상하한가 ±30% 는 <i>전일 종가</i> 기준이다.
+     * 기록시점 가격과 D0 종가는 <b>둘 다</b> 전일 종가의 0.7~1.3 배 안에 있으므로, 둘의 비율은
+     * 0.7/1.3 = 0.538 ~ 1.3/0.7 = 1.857 까지 정상이다(전일 100·기록가 80·종가 115 → 1.4375 는 정상).
+     * 처음엔 "같은 날 두 가격도 ±30%"로 잘못 잡아 0.65~1.35 를 썼다 — 정상 변동을 액면변경으로 제외했다.
+     *
+     * <p>⚠ <b>이 검사는 거친 안전망이다 — 소급 보정을 "잡는다"고 보장하지 않는다.</b> 5:1·10:1 처럼
+     * 비율이 정상 범위 밖으로 확실히 나가는 재조정만 걸린다. 2:1(0.5)은 하한 0.538 을 아슬하게 밑돌아
+     * 걸리지만 경계값이고, 3:2(0.667)·5:4 처럼 <b>비율이 1 에 가까운 재조정은 못 잡는다</b>
+     * ({@code SignalD3EvaluatorTest} 가 그 한계를 그대로 고정한다). 작은 비율의 재조정은 별도 이벤트
+     * 소스(분할 공시) 없이는 확인할 수 없다 — 그 행은 수익률이 왜곡된 채 OK 로 남을 수 있다.
      */
-    static final BigDecimal UNIT_RATIO_MIN = new BigDecimal("0.65");
-    static final BigDecimal UNIT_RATIO_MAX = new BigDecimal("1.35");
-    /** D0 봉이 없을 때의 폴백 — D+1 종가는 두 세션이라 폭을 넓힌다(0.7×0.7 / 1.3×1.3 에 여유). */
-    static final BigDecimal UNIT_RATIO_MIN_D1 = new BigDecimal("0.45");
-    static final BigDecimal UNIT_RATIO_MAX_D1 = new BigDecimal("1.75");
+    static final BigDecimal UNIT_RATIO_MIN = new BigDecimal("0.53");
+    static final BigDecimal UNIT_RATIO_MAX = new BigDecimal("1.90");
+    /** D0 봉이 없을 때의 폴백 — D+1 종가는 두 세션(0.7²/1.3 ~ 1.3²/0.7 = 0.377~2.414)이라 더 넓다. */
+    static final BigDecimal UNIT_RATIO_MIN_D1 = new BigDecimal("0.37");
+    static final BigDecimal UNIT_RATIO_MAX_D1 = new BigDecimal("2.45");
 
     public enum Status {
         /** 평가 완료. */
@@ -62,7 +68,7 @@ public final class SignalD3Evaluator {
         UNIT_MISMATCH_SUSPECT,
         /** 액면변경 감지기가 표시한 종목. */
         CORPORATE_ACTION_SUSPECT,
-        /** D+3 지수 종가가 없다 — 재시도 가능. 절대수익은 계산하되 hit 은 폴백 규칙. */
+        /** D+3 지수 종가가 없다 — <b>미평가</b>(재시도 가능). 절대수익도 남기지 않는다. */
         NO_INDEX
     }
 
@@ -70,8 +76,9 @@ public final class SignalD3Evaluator {
     public record Bar(LocalDate date, BigDecimal high, BigDecimal low, BigDecimal close, BigDecimal volume) {}
 
     /**
-     * 평가 결과. 상태가 OK 가 아니면 수익 필드는 전부 null 이다 — 부분 값을 남겨 "일부는 맞다"로
-     * 읽히지 않게 한다. NO_INDEX 만 예외: 절대수익·mfe·mae 는 채우고 지수 축만 null.
+     * 평가 결과. 상태가 OK 가 아니면 수익 필드는 <b>전부</b> null 이다 — 부분 값을 남겨 "일부는 맞다"로
+     * 읽히지 않게 한다. 지수가 없으면(NO_INDEX) 절대수익도 남기지 않는다: 시작·종료 시점을 맞춘
+     * 초과수익이 이 교정의 목적이라, 지수 없는 행은 비교표·적중률에서 빠져야 한다(2026-09-17 합의).
      */
     public record Result(
             Status status,
@@ -172,21 +179,17 @@ public final class SignalD3Evaluator {
         BigDecimal mfe = maxHigh == null ? null : pctOf(maxHigh, priceAtSignal);
         BigDecimal mae = minLow == null ? null : pctOf(minLow, priceAtSignal);
 
-        BigDecimal bmReturn = null, alpha = null;
-        Status status = Status.OK;
-        String note = null;
-        if (indexCloseD3 != null && indexCloseD3.signum() > 0 && bmAtSignal != null && bmAtSignal.signum() > 0) {
-            bmReturn = pctOf(indexCloseD3, bmAtSignal);
-            alpha = pct.subtract(bmReturn);
-        } else {
-            status = Status.NO_INDEX;
-            note = "D+3 지수 종가 없음 — 절대수익만, hit 은 폴백 규칙(pct≥3%)";
+        if (indexCloseD3 == null || indexCloseD3.signum() <= 0 || bmAtSignal == null || bmAtSignal.signum() <= 0) {
+            // 지수 없으면 미평가 — 절대수익만 남기면 비교표에 "지수 없는 행"이 섞여 초과수익 해석이 깨진다.
+            return Result.of(Status.NO_INDEX, end, bmAtSignal == null || bmAtSignal.signum() <= 0
+                    ? "기록 시점 지수 없음 — 복원 불가" : "D+3 지수 종가 없음 — 재시도");
         }
+        BigDecimal bmReturn = pctOf(indexCloseD3, bmAtSignal);
+        BigDecimal alpha = pct.subtract(bmReturn);
         // hit 규칙은 기존 평가와 같은 단일 출처 — 정의를 두 벌 두지 않는다.
         boolean hit = SignalOutcomeService.isHit(alpha, pct);
 
-        return new Result(status, end, last.close(), pct,
-                status == Status.OK ? indexCloseD3 : null, bmReturn, alpha, mfe, mae, hit, note);
+        return new Result(Status.OK, end, last.close(), pct, indexCloseD3, bmReturn, alpha, mfe, mae, hit, null);
     }
 
     static BigDecimal pctOf(BigDecimal now, BigDecimal base) {

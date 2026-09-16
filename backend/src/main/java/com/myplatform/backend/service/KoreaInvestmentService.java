@@ -1148,9 +1148,24 @@ public class KoreaInvestmentService {
      * @return OHLCV 데이터 리스트 (최신순) - 조회 실패시 빈 리스트
      */
     public java.util.List<OhlcvData> getDailyOhlcv(String stockCode, int days) {
-        java.util.List<OhlcvData> ohlcvList = new java.util.ArrayList<>();
+        return parseDailyOhlcv(stockCode, getDailyPrices(stockCode, days));
+    }
 
-        JsonNode response = getDailyPrices(stockCode, days);
+    /**
+     * 일봉 OHLCV — <b>날짜 범위 지정</b>(2026-09-17, 시그널 D+3 교정 평가 백필용).
+     *
+     * <p>{@link #getDailyOhlcv(String, int)} 는 오늘을 앵커로 최근 N일만 본다 — 오래된 시그널의 창은
+     * 영영 못 받는다. 이 메서드는 필요한 과거 구간을 직접 지정한다. 실패·빈 응답은 빈 목록(예외 삼킴 없음
+     * — 호출부가 "받았다/못 받았다"를 크기로 판단한다).
+     */
+    public java.util.List<OhlcvData> getDailyOhlcvRange(String stockCode, java.time.LocalDate start, java.time.LocalDate end) {
+        JsonNode response = rateLimiter.execute(KisApiRateLimiter.Priority.NORMAL,
+                () -> getDailyPricesRangeInternal(stockCode, start, end));
+        return parseDailyOhlcv(stockCode, response);
+    }
+
+    private java.util.List<OhlcvData> parseDailyOhlcv(String stockCode, JsonNode response) {
+        java.util.List<OhlcvData> ohlcvList = new java.util.ArrayList<>();
         if (response == null || !response.has("output2")) {
             return ohlcvList;
         }

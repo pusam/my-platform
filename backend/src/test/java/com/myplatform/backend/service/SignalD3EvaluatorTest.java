@@ -16,7 +16,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * "기록시점 → D+3 KRX 종가" 교정 평가 — {@link SignalD3Evaluator}.
  *
  * <p>고정하는 성질: ① 실행 시각과 무관(지연 평가 = 정상 평가) ② 창은 달력이 정하고 봉이 없어도
- * 밀리지 않는다 ③ 모르는 것은 사유로 남기고 0 이나 위장값을 쓰지 않는다(§4c).
+ * 밀리지 않는다 ③ 모르는 것은 사유로 남기고 0 이나 위장값을 쓰지 않는다(§4c) ④ 단위 검사의
+ * 수학적 전제와 한계(2026-09-17 코덱스 리뷰).
  */
 class SignalD3EvaluatorTest {
 
@@ -26,6 +27,7 @@ class SignalD3EvaluatorTest {
             LocalDate.of(2026, 9, 8), LocalDate.of(2026, 9, 9), LocalDate.of(2026, 9, 10));
     private static final BigDecimal P0 = new BigDecimal("10000");
     private static final BigDecimal BM0 = new BigDecimal("3000.00");
+    private static final BigDecimal IDX3 = new BigDecimal("3030");
 
     private static SignalD3Evaluator.Bar bar(LocalDate d, String high, String low, String close, String vol) {
         return new SignalD3Evaluator.Bar(d, new BigDecimal(high), new BigDecimal(low), new BigDecimal(close),
@@ -42,13 +44,25 @@ class SignalD3EvaluatorTest {
         return m;
     }
 
+    /** 정상 봉을 비율 k 로 소급 보정한 것처럼 만든다(수정주가). */
+    private static Map<LocalDate, SignalD3Evaluator.Bar> scaledBars(String k) {
+        BigDecimal f = new BigDecimal(k);
+        Map<LocalDate, SignalD3Evaluator.Bar> out = new HashMap<>();
+        for (var e : normalBars().entrySet()) {
+            var b = e.getValue();
+            out.put(e.getKey(), new SignalD3Evaluator.Bar(b.date(), b.high().multiply(f), b.low().multiply(f),
+                    b.close().multiply(f), b.volume()));
+        }
+        return out;
+    }
+
     // ==================== ① 실행 시각과 무관 ====================
 
     @Test
     @DisplayName("정상 평가(D+3 당일)와 열흘 늦은 평가가 같은 값을 낸다 — 배치가 밀려도 수익률이 안 바뀐다")
     void delayedEvaluationEqualsOnTimeEvaluation() {
-        var onTime = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), new BigDecimal("3030"), null);
-        var late = SignalD3Evaluator.evaluate(WINDOW.get(2).plusDays(10), WINDOW, P0, BM0, normalBars(), new BigDecimal("3030"), null);
+        var onTime = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), IDX3, null);
+        var late = SignalD3Evaluator.evaluate(WINDOW.get(2).plusDays(10), WINDOW, P0, BM0, normalBars(), IDX3, null);
 
         assertThat(onTime.status()).isEqualTo(SignalD3Evaluator.Status.OK);
         assertThat(late).isEqualTo(onTime);
@@ -57,7 +71,7 @@ class SignalD3EvaluatorTest {
     @Test
     @DisplayName("D+3 이 아직 안 지났으면 NOT_DUE — 저장하지 않는다")
     void notDueBeforeD3() {
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(1), WINDOW, P0, BM0, normalBars(), null, null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(1), WINDOW, P0, BM0, normalBars(), IDX3, null);
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.NOT_DUE);
         assertThat(r.pctChange()).isNull();
     }
@@ -71,7 +85,7 @@ class SignalD3EvaluatorTest {
         bars.remove(WINDOW.get(1));
         bars.put(WINDOW.get(2).plusDays(1), bar(WINDOW.get(2).plusDays(1), "12000", "11000", "11500", "1000"));
 
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2).plusDays(5), WINDOW, P0, BM0, bars, new BigDecimal("3030"), null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2).plusDays(5), WINDOW, P0, BM0, bars, IDX3, null);
 
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.MISSING_BARS);
         assertThat(r.endDate()).isEqualTo(WINDOW.get(2));   // 종료일은 그대로
@@ -85,7 +99,7 @@ class SignalD3EvaluatorTest {
         Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
         bars.put(WINDOW.get(2).plusDays(1), bar(WINDOW.get(2).plusDays(1), "20000", "5000", "9000", "1000"));
 
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2).plusDays(5), WINDOW, P0, BM0, bars, new BigDecimal("3030"), null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2).plusDays(5), WINDOW, P0, BM0, bars, IDX3, null);
 
         assertThat(r.mfePct()).isEqualByComparingTo("6.0000");
         assertThat(r.maePct()).isEqualByComparingTo("-3.0000");
@@ -106,7 +120,7 @@ class SignalD3EvaluatorTest {
         Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
         bars.put(WINDOW.get(1), bar(WINDOW.get(1), "10100", "10100", "10100", "0"));
 
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, new BigDecimal("3030"), null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, IDX3, null);
 
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.HALTED_IN_WINDOW);
         assertThat(r.pctChange()).isNull();
@@ -118,36 +132,7 @@ class SignalD3EvaluatorTest {
         Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
         bars.put(WINDOW.get(1), bar(WINDOW.get(1), "10600", "10000", "10500", null));
 
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, new BigDecimal("3030"), null);
-
-        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
-    }
-
-    @Test
-    @DisplayName("수정주가 소급 보정(5:1 병합 뒤 봉이 1/5) → UNIT_MISMATCH_SUSPECT, -80% 손실로 위장하지 않는다")
-    void adjustedBarsAfterSplitAreFlaggedNotCountedAsLoss() {
-        Map<LocalDate, SignalD3Evaluator.Bar> bars = new HashMap<>();
-        // 시그널 뒤 액면분할 1:5 → KIS 가 과거 봉을 1/5 로 소급 — D0 종가 2,010 vs 기록가 10,000
-        bars.put(D0, bar(D0, "2020", "1980", "2010", "1000"));
-        bars.put(WINDOW.get(0), bar(WINDOW.get(0), "2040", "1940", "2020", "1000"));
-        bars.put(WINDOW.get(1), bar(WINDOW.get(1), "2120", "2000", "2100", "1000"));
-        bars.put(WINDOW.get(2), bar(WINDOW.get(2), "2080", "2020", "2060", "1000"));
-
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, new BigDecimal("3030"), null);
-
-        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.UNIT_MISMATCH_SUSPECT);
-        assertThat(r.note()).contains("0.201");
-        assertThat(r.pctChange()).isNull();
-    }
-
-    @Test
-    @DisplayName("D0 봉이 없으면 D+1 종가로 판정하되 두 세션 폭(0.45~1.75)을 쓴다 — 정상 +25% 는 통과")
-    void unitCheckFallsBackToD1WithWiderBand() {
-        Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
-        bars.remove(D0);
-        bars.put(WINDOW.get(0), bar(WINDOW.get(0), "12600", "11000", "12500", "1000"));
-
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, new BigDecimal("3030"), null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, IDX3, null);
 
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
     }
@@ -155,7 +140,7 @@ class SignalD3EvaluatorTest {
     @Test
     @DisplayName("액면변경 감지기가 표시한 종목은 봉이 멀쩡해 보여도 CORPORATE_ACTION_SUSPECT")
     void corporateActionLabelWins() {
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), new BigDecimal("3030"), "액면병합 5:1 의심");
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), IDX3, "액면병합 5:1 의심");
 
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.CORPORATE_ACTION_SUSPECT);
         assertThat(r.note()).contains("액면병합");
@@ -164,16 +149,70 @@ class SignalD3EvaluatorTest {
     @Test
     @DisplayName("기록 시점 가격이 없으면 NO_START_PRICE — 복원하지 않는다")
     void noStartPrice() {
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, null, BM0, normalBars(), new BigDecimal("3030"), null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, null, BM0, normalBars(), IDX3, null);
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.NO_START_PRICE);
     }
 
-    // ==================== ④ 값과 지수 ====================
+    // ==================== ④ 단위 검사 — 수학적 전제와 한계 ====================
+
+    @Test
+    @DisplayName("수정주가 소급 보정(5:1 → 봉이 1/5) → UNIT_MISMATCH_SUSPECT, -80% 손실로 위장하지 않는다")
+    void adjustedBarsAfterSplitAreFlaggedNotCountedAsLoss() {
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, scaledBars("0.2"), IDX3, null);
+
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.UNIT_MISMATCH_SUSPECT);
+        assertThat(r.note()).contains("0.201");
+        assertThat(r.pctChange()).isNull();
+    }
+
+    @Test
+    @DisplayName("코덱스 반례: 전일 100·기록가 80·당일 종가 115(비율 1.4375)는 정상 변동 — 액면변경으로 제외하면 안 된다")
+    void legitimateIntradayMoveIsNotFlagged() {
+        Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
+        // 기록가 8,000(전일 10,000 의 -20%), D0 종가 11,500(+15%) — 둘 다 상하한 안, 비율 1.4375
+        bars.put(D0, bar(D0, "11600", "7900", "11500", "1000"));
+
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, new BigDecimal("8000"), BM0, bars, IDX3, null);
+
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
+    }
+
+    @Test
+    @DisplayName("2:1 분할 소급(비율 0.5)은 정상 하한 0.538 을 아슬하게 밑돌아 걸린다 — 경계값이지 설계 보장이 아니다")
+    void twoForOneSplitIsCaughtOnlyAtTheEdge() {
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, scaledBars("0.5"), IDX3, null);
+
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.UNIT_MISMATCH_SUSPECT);
+    }
+
+    @Test
+    @DisplayName("한계 고정: 3:2 병합 소급(비율 0.667)은 정상 범위 안이라 못 잡는다 — 검사는 거친 안전망이다")
+    void smallRatioAdjustmentIsNotCaughtKnownLimitation() {
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, scaledBars("0.6667"), IDX3, null);
+
+        // 이 테스트가 깨지면 검사가 정교해진 것이다 — 그때 문서의 "못 잡는다"도 같이 고칠 것.
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
+        assertThat(r.pctChange()).isNegative();   // 왜곡된 손실이 OK 로 남는다
+    }
+
+    @Test
+    @DisplayName("D0 봉이 없으면 D+1 종가로 판정하되 두 세션 폭(0.37~2.45)을 쓴다 — 정상 +60% 는 통과")
+    void unitCheckFallsBackToD1WithWiderBand() {
+        Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
+        bars.remove(D0);
+        bars.put(WINDOW.get(0), bar(WINDOW.get(0), "16100", "11000", "16000", "1000"));
+
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, IDX3, null);
+
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
+    }
+
+    // ==================== ⑤ 값과 지수 ====================
 
     @Test
     @DisplayName("정상: pct/mfe/mae/지수수익/알파/hit 이 정의대로 계산된다")
     void okNumbers() {
-        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), new BigDecimal("3030"), null);
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), IDX3, null);
 
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
         assertThat(r.endDate()).isEqualTo(WINDOW.get(2));
@@ -185,23 +224,28 @@ class SignalD3EvaluatorTest {
         assertThat(r.bmReturn()).isEqualByComparingTo("1.0000");
         assertThat(r.alpha()).isEqualByComparingTo("2.0000");
         assertThat(r.hit()).isTrue();
+        assertThat(r.note()).isNull();
     }
 
     @Test
-    @DisplayName("지수 종가가 없으면 NO_INDEX — 절대수익은 남기고 hit 은 기존 폴백 규칙(pct≥3%)")
-    void noIndexUsesFallbackHitRule() {
+    @DisplayName("지수 종가가 없으면 NO_INDEX = 미평가 — 절대수익도 hit 도 남기지 않는다(비교표에서 빠진다)")
+    void noIndexIsUnevaluatedNotPartial() {
         var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, normalBars(), null, null);
 
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.NO_INDEX);
-        assertThat(r.pctChange()).isEqualByComparingTo("3.0000");
-        assertThat(r.alpha()).isNull();
-        assertThat(r.bmClose()).isNull();
-        assertThat(r.hit()).isTrue();   // 3.0 ≥ 3 폴백
+        assertThat(r.pctChange()).isNull();
+        assertThat(r.mfePct()).isNull();
+        assertThat(r.hit()).isNull();
+        assertThat(r.note()).contains("재시도");
+    }
 
-        Map<LocalDate, SignalD3Evaluator.Bar> bars = normalBars();
-        bars.put(WINDOW.get(2), bar(WINDOW.get(2), "10400", "10100", "10200", "1000"));   // +2%
-        var r2 = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, null, null);
-        assertThat(r2.hit()).isFalse();
+    @Test
+    @DisplayName("기록 시점 지수가 없으면 NO_INDEX 인데 사유는 '복원 불가' — 재시도해도 안 풀린다")
+    void noStartIndexIsUnrecoverable() {
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, null, normalBars(), IDX3, null);
+
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.NO_INDEX);
+        assertThat(r.note()).contains("복원 불가");
     }
 
     @Test

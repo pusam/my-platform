@@ -1043,6 +1043,27 @@ public class StockAnalysisService {
         }
     }
 
+    /**
+     * 날짜 범위 일봉 수집 — <b>결과를 돌려준다</b>(2026-09-17, 시그널 D+3 교정 평가용).
+     *
+     * <p>{@link #collectPriceHistory} 는 실패를 삼키고 빈 응답·수집 중에도 그냥 반환해서, 호출부가
+     * "봉을 새로 받은 뒤 평가한다"를 보장할 수 없었다. 이 메서드는 받은 봉 수를 돌려주고
+     * (0 = 빈 응답/실패, -1 = 이미 수집 중), KIS 예외는 삼키지 않고 올린다.
+     */
+    public int collectPriceHistoryRange(String stockCode, LocalDate start, LocalDate end) {
+        if (!collectingStocks.add(stockCode)) {
+            return -1;
+        }
+        try {
+            List<KoreaInvestmentService.OhlcvData> ohlcv = koreaInvestmentService.getDailyOhlcvRange(stockCode, start, end);
+            if (ohlcv == null || ohlcv.isEmpty()) return 0;
+            savePriceHistoryToDb(stockCode, ohlcv);
+            return ohlcv.size();
+        } finally {
+            collectingStocks.remove(stockCode);
+        }
+    }
+
     private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         try {
             LocalDate today = LocalDate.now();
