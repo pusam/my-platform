@@ -44,6 +44,31 @@ function kpis(overrides = {}) {
     },
     volRegime: { dataAvailable: true, regime: 'NORMAL', gateMode: 'OFF', note: null },
     undecided: { dataAvailable: true, count: 8, rosterSize: 8 },
+    trustGate: trustGate(),
+    ...overrides
+  }
+}
+
+/** ⑦ 믿고 사도 되나 — 기본은 운영 실측(2026-09-16)에 가까운 '표본 수집 중'. */
+function trustGate(overrides = {}) {
+  return {
+    dataAvailable: true,
+    state: 'COLLECTING',
+    rows: 20,
+    distinctDays: 4,
+    controlRows: 8,
+    costAdjustedReturn: -2.03,
+    edgeVsControl: -2.64,
+    edgeMarginOfError: 1.9,
+    edgeExceedsUncertainty: false,
+    avgWin: 5.12,
+    avgLoss: -6.5,
+    worst: -12.41,
+    avgMaePct: -5.42,
+    excludedDays: 0,
+    blockers: ['시그널 표본 20/30건', '대조군 표본 8/30건', '고유 거래일 4/10일'],
+    note: '표본 수집 중 — 시그널 표본 20/30건, 대조군 표본 8/30건, 고유 거래일 4/10일',
+    noteDetail: '유효 표본은 행 수가 아니라 고유 거래일 수다.',
     ...overrides
   }
 }
@@ -230,5 +255,69 @@ describe('ControlRoomKpis — 어제 스냅샷 폴백을 실시간으로 위장�
     expect(basis.text()).toContain('실시간')
     expect(basis.text()).not.toContain('실시간 아님')
     expect(basis.classes()).not.toContain('stale')
+  })
+})
+
+describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
+  const trustCard = (over) =>
+    mount(ControlRoomKpis, { props: { kpis: kpis({ trustGate: trustGate(over) }) } }).find('.kpi.trust')
+
+  it('표본 수집 중이면 상태·표본·비용차감 수익을 함께 보여준다 — 고유 거래일을 강조', () => {
+    const c = trustCard()
+    expect(c.find('.trust-state').text()).toBe('표본 수집 중')
+    expect(c.text()).toContain('고유 4일')
+    expect(c.text()).toContain('비용차감 -2.03%')
+    // 통과가 아니므로 ok 가 아니다. 그렇다고 경고(alert)도 아니다 — 고장이 아니기 때문.
+    expect(c.classes()).not.toContain('ok')
+    expect(c.classes()).not.toContain('alert')
+    expect(c.classes()).toContain('collecting')
+  })
+
+  it('적중률만으로 판단하지 않는다 — 이익·손실·최악·낙폭이 전부 보인다', () => {
+    const t = trustCard().text()
+    expect(t).toContain('이익 +5.12%')
+    expect(t).toContain('손실 -6.50%')
+    expect(t).toContain('최악 -12.41%')
+    expect(t).toContain('낙폭 -5.42%')
+  })
+
+  it('대조군 대비 우위는 불확실성 폭과 같이 나온다 — 숫자 하나만 두면 확실해 보인다', () => {
+    const c = trustCard()
+    expect(c.text()).toContain('대조군比 -2.64%')
+    expect(c.text()).toContain('±1.90')
+  })
+
+  it('불확실성을 모르면 ± 물음표 — 0 으로 두면 어떤 미세한 우위도 확실해진다(§4c)', () => {
+    const c = trustCard({ edgeMarginOfError: null })
+    expect(c.text()).toContain('±?')
+    expect(c.find('[title]').exists()).toBe(true)
+  })
+
+  it('통과해도 실매수 승인이 아니라고 적는다', () => {
+    const c = trustCard({
+      state: 'CONSIDER_EXPANDING', rows: 40, distinctDays: 12, controlRows: 40,
+      costAdjustedReturn: 2.82, edgeVsControl: 3.0, edgeMarginOfError: 0.4,
+      edgeExceedsUncertainty: true, blockers: [],
+      note: '모의운용 확대 검토 가능 — 실매수 승인 아님'
+    })
+    expect(c.find('.trust-state').text()).toBe('모의운용 확대 검토')
+    expect(c.classes()).toContain('ok')
+    expect(c.text()).toContain('실매수 승인 아님')
+  })
+
+  it('표본이 차도 근거가 없으면 평가 가능에서 멈추고 막는 사유를 보여준다', () => {
+    const c = trustCard({
+      state: 'EVALUABLE', rows: 40, distinctDays: 12, controlRows: 40,
+      note: '평가 가능 — 아직 확대 근거 없음: 비용 차감 수익 -2.03%'
+    })
+    expect(c.find('.trust-state').text()).toBe('평가 가능')
+    expect(c.classes()).not.toContain('ok')
+    expect(c.text()).toContain('아직 확대 근거 없음')
+  })
+
+  it('집계 실패는 "근거 없음"이 아니라 측정 불가로 표시한다(§4c)', () => {
+    const c = trustCard({ dataAvailable: false, note: '집계 실패 (DataAccessException)' })
+    expect(c.find('.trust-state').exists()).toBe(false)
+    expect(c.text()).toContain('집계 실패')
   })
 })

@@ -116,6 +116,43 @@
       </template>
       <NoData v-else :reason="financial && financial.note" :title="financial && financial.noteDetail" />
     </div>
+
+    <!--
+      ⑦ 믿고 사도 되나 — 표본·비용·불확실성 3단계(2026-09-16).
+      이 카드가 없을 때 이 질문의 답은 사람이 적중률 숫자를 눈으로 보고 내렸다. 적중률만으론
+      손익을 모르고(맞을 때 얼마 벌고 틀릴 때 얼마 잃는지가 빠진다) 거래비용도 빠져 있었다.
+      ⚠ state 는 승인 등급이 아니다 — EVALUABLE 은 "이제 숫자를 읽을 수 있다"이고,
+      CONSIDER_EXPANDING 도 모의운용 확대 검토까지다. 임계는 백엔드 TrustGateRules 단일 출처라
+      여기서 다시 계산하지 않는다(재무 입력층 카드와 같은 규약).
+    -->
+    <div class="kpi trust" :class="trustClass">
+      <div class="eyebrow">믿고 사도 되나</div>
+      <template v-if="trust && trust.dataAvailable">
+        <div class="v trust-state">{{ trustLabel }}</div>
+        <div class="s">
+          표본 {{ trust.rows }}건 · <b>고유 {{ trust.distinctDays }}일</b> · 대조군 {{ trust.controlRows }}건
+        </div>
+        <div class="s trust-nums">
+          <span :class="signClass(trust.costAdjustedReturn)">
+            비용차감 {{ pct(trust.costAdjustedReturn) }}
+          </span>
+          <span :class="{ dead: !trust.edgeExceedsUncertainty }" :title="edgeTitle">
+            대조군比 {{ pct(trust.edgeVsControl) }}
+            <em v-if="trust.edgeMarginOfError != null">±{{ num(trust.edgeMarginOfError) }}</em>
+            <em v-else>±?</em>
+          </span>
+        </div>
+        <div class="s trust-shape">
+          이익 {{ pct(trust.avgWin) }} / 손실 {{ pct(trust.avgLoss) }}
+          · 최악 {{ pct(trust.worst) }} · 낙폭 {{ pct(trust.avgMaePct) }}
+        </div>
+        <div v-if="trust.note" class="s note" :title="trust.noteDetail || trust.note">
+          {{ trust.note }}
+        </div>
+        <span class="basis">평가 완료 시그널 집계 · 실매수 승인 아님</span>
+      </template>
+      <NoData v-else :reason="trust && trust.note" :title="trust && trust.noteDetail" />
+    </div>
   </div>
 </template>
 
@@ -141,6 +178,40 @@ const breaker = computed(() => props.kpis?.lossBreaker ?? null)
 const volRegime = computed(() => props.kpis?.volRegime ?? null)
 const undecided = computed(() => props.kpis?.undecided ?? null)
 const financial = computed(() => props.kpis?.financialInput ?? null)
+
+// ── ⑦ 믿고 사도 되나 ────────────────────────────────────────────────────────
+// 판정(상태·임계)은 전부 백엔드 TrustGateRules 가 확정한다. 여기서는 라벨과 색만 붙인다 —
+// 화면이 임계를 다시 계산하면 두 곳이 언젠가 갈린다(재무 입력층 카드와 같은 규약).
+const trust = computed(() => props.kpis?.trustGate ?? null)
+
+const TRUST_LABELS = {
+  COLLECTING: '표본 수집 중',
+  EVALUABLE: '평가 가능',
+  CONSIDER_EXPANDING: '모의운용 확대 검토'
+}
+const trustLabel = computed(() => TRUST_LABELS[trust.value?.state] || '판정 불가')
+
+// 통과(CONSIDER_EXPANDING)만 ok. 나머지는 경고도 정상도 아닌 중립 — 표본 수집 중을 빨갛게 칠하면
+// 사람이 "고장"으로 읽고, 초록으로 칠하면 "괜찮다"로 읽는다. 둘 다 사실이 아니다.
+const trustClass = computed(() => ({
+  ok: trust.value?.state === 'CONSIDER_EXPANDING',
+  collecting: trust.value?.state === 'COLLECTING'
+}))
+
+const edgeTitle = computed(() => {
+  const t = trust.value
+  if (!t) return ''
+  if (t.edgeMarginOfError == null) return '불확실성 폭을 아직 계산할 수 없다(비교 가능한 날이 2일 미만). 0 이 아니라 "모름"이다.'
+  return t.edgeExceedsUncertainty
+    ? '우위가 95% 불확실성 폭을 넘었다 — 0 과 구분된다.'
+    : '우위가 불확실성 폭 안에 있다 — 0 과 구분되지 않는다(우연일 수 있다).'
+})
+
+/** %는 결측이면 '-' — 0 으로 위장하지 않는다(§4c). */
+const pct = (v) => (v == null ? '-' : `${Number(v) > 0 ? '+' : ''}${Number(v).toFixed(2)}%`)
+const num = (v) => (v == null ? '?' : Number(v).toFixed(2))
+const signClass = (v) => (v == null ? { none: true } : { up: Number(v) > 0, down: Number(v) < 0 })
+
 
 /**
  * 경고를 켤 조건 — 백엔드가 note 를 달았을 때만.
@@ -255,6 +326,20 @@ const headroomText = computed(() => {
 .kpi.warn::after { border-color: var(--cr-amb); }
 .kpi.ok::before,
 .kpi.ok::after { border-color: var(--cr-grn); }
+
+/* ⑦ 믿고 사도 되나 — 6칸 그리드에 7번째를 끼우면 한 칸짜리 고아 행이 생긴다.
+   숫자가 네 줄(표본/수익/분포/사유)이라 좁은 칸에서 제일 먼저 눌리는 카드이기도 해서,
+   아예 한 줄을 통째로 쓴다. 경고색은 쓰지 않는다 — '표본 수집 중'은 고장이 아니다. */
+.kpi.trust { grid-column: 1 / -1; min-height: 0; }
+.kpi.trust.collecting { border-style: dashed; }
+.trust-state { font-size: 21px; letter-spacing: 0; }
+.trust-nums { display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: var(--cr-mono); }
+.trust-nums em { font-style: normal; color: var(--cr-mut); }
+.trust-nums .dead { color: var(--cr-mut); }
+.trust-shape { color: var(--cr-mut); font-family: var(--cr-mono); }
+.trust-nums .up { color: var(--cr-grn); }
+.trust-nums .down { color: var(--cr-red); }
+.trust-nums .none { color: var(--cr-mut); }
 
 .eyebrow {
   font-family: var(--cr-mono);

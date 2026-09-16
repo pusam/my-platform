@@ -93,6 +93,8 @@ public class ControlRoomSnapshotService {
     private final java.time.LocalDateTime bootedAt;
     private final MarketCalendarService marketCalendar;
     private final RecommendationService recommendationService;
+    /** 시그널 측정 위생(dedup·공통창)이 이미 그 클래스에 있어 재계산하지 않는다. 미가용=카드 dataAvailable=false. */
+    private final org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.SignalOutcomeService> signalOutcomeServiceProvider;
     private final CrewProperties crewProperties;
     private final CrewModelAvailability modelAvailability;
     private final Clock clock;
@@ -124,6 +126,7 @@ public class ControlRoomSnapshotService {
                                       com.myplatform.backend.service.StockStatusService stockStatusService,
                                       com.myplatform.backend.repository.StockCatalystRepository catalystRepository,
                                       com.myplatform.backend.repository.SignalOutcomeRepository signalOutcomeRepository,
+                                      org.springframework.beans.factory.ObjectProvider<com.myplatform.backend.service.SignalOutcomeService> signalOutcomeServiceProvider,
                                       MarketCalendarService marketCalendar,
                                       RecommendationService recommendationService,
                                       CrewProperties crewProperties,
@@ -142,6 +145,7 @@ public class ControlRoomSnapshotService {
         this.recommendationSnapshotRepository = recommendationSnapshotRepository;
         this.financialDataRepository = financialDataRepository;
         this.quarterlyRepository = quarterlyRepository;
+        this.signalOutcomeServiceProvider = signalOutcomeServiceProvider;
         this.heartbeatProvider = heartbeatProvider;
         this.stockStatusService = stockStatusService;
         this.catalystRepository = catalystRepository;
@@ -204,7 +208,8 @@ public class ControlRoomSnapshotService {
                         lossBreaker(),
                         volRegime(),
                         undecided(decisions),
-                        financialInput()),
+                        financialInput(),
+                        trustGate()),
                 calendar(decisions, targetMonth, today),
                 flagged(flags, decisions, today),
                 anomalies(today),
@@ -423,6 +428,50 @@ public class ControlRoomSnapshotService {
         return v == null ? 0L : ((Number) v).longValue();
     }
 
+
+    /**
+     * "추천을 믿고 사도 되나" 게이트 — 표본·비용·불확실성으로 3단계 판정한다(2026-09-16).
+     *
+     * <p><b>판정은 {@link TrustGateRules} 단일 출처, 집계는 {@code SignalOutcomeService.trustGate}</b>.
+     * 여기서는 부르고 DTO 로 옮기기만 한다 — 화면도 백엔드도 이 숫자를 다시 계산하지 않는다
+     * (재무 입력층 카드와 같은 규약: 임계를 두 곳에 두면 언젠가 갈린다).
+     *
+     * <p>조회 실패는 {@code dataAvailable=false} — "근거 없음"과 구분한다(§4c). 둘을 같은 화면
+     * 문구로 덮으면 집계가 죽은 동안에도 카드가 "아직 근거 없음"이라고 <b>단정</b>하게 된다.
+     */
+    private ControlRoomSnapshotDto.TrustGate trustGate() {
+        try {
+            var svc = signalOutcomeServiceProvider.getIfAvailable();
+            if (svc == null) {
+                return unavailableTrustGate("시그널 집계 서비스 미가용");
+            }
+            // 집계 시작일은 phase-38 컷오프로 클램프된다(그 이전 표본은 산식이 달라 섞으면 안 된다).
+            var v = svc.trustGate(LocalDate.now(clock).minusDays(TRUST_GATE_WINDOW_DAYS));
+            var shape = v.shape();
+            return new ControlRoomSnapshotDto.TrustGate(
+                    true, v.state().name(), v.rows(), v.distinctDays(), v.controlRows(),
+                    v.costAdjustedReturn(), v.edgeVsControl(), v.edgeMarginOfError(),
+                    v.edgeExceedsUncertainty(),
+                    shape.avgWin(), shape.avgLoss(), shape.worst(), shape.avgMaePct(),
+                    v.excludedDays(), v.blockers(), v.headline(), v.detail());
+        } catch (Exception e) {
+            log.warn("[관제실] 신뢰 게이트 집계 실패: {}", e.getMessage());
+            return unavailableTrustGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /** 집계 실패 — 0 이 아니라 "측정 불가"다(§4c). */
+    private static ControlRoomSnapshotDto.TrustGate unavailableTrustGate(String why) {
+        return new ControlRoomSnapshotDto.TrustGate(false, null, 0, 0, 0,
+                null, null, null, false, null, null, null, null, 0, List.of(), why,
+                "신뢰 게이트를 집계하지 못했다. 표본이 없다는 뜻이 아니라 측정 자체가 실패했다는 뜻이다.");
+    }
+
+    /**
+     * 신뢰 게이트 집계 창(일). 넉넉히 잡아도 {@code SignalOutcomeService} 가 phase-38 컷오프로
+     * 잘라내므로, 이 값은 "컷오프 이후 전부"를 뜻한다.
+     */
+    private static final int TRUST_GATE_WINDOW_DAYS = 365;
 
     /**
      * 종합판단 보드(momentum) 후보를 등급별로 센다. 보드 조회 실패는 0 이 아니라 데이터 없음이다.

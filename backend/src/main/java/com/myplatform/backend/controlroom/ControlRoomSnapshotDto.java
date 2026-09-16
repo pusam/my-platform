@@ -31,7 +31,51 @@ public record ControlRoomSnapshotDto(
             LossBreaker lossBreaker,
             VolRegime volRegime,
             Undecided undecided,
-            FinancialInput financialInput
+            FinancialInput financialInput,
+            TrustGate trustGate
+    ) {}
+
+    /**
+     * "추천을 믿고 사도 되나" — 표본·비용·불확실성으로 판정한 <b>3단계</b> 카드(2026-09-16).
+     *
+     * <p>이 카드가 없을 때 이 질문의 답은 사람이 적중률 숫자를 눈으로 보고 내렸다. 적중률만으론
+     * 손익을 모르고(맞을 때 얼마 벌고 틀릴 때 얼마 잃는지가 빠진다), 거래비용도 빠져 있었다.
+     *
+     * <p><b>state 는 승인 등급이 아니다.</b> {@code EVALUABLE} 은 "이제 숫자를 읽을 수 있다"는
+     * 뜻이고 {@code CONSIDER_EXPANDING} 도 <b>모의운용 확대 검토</b>까지다 — 실매수 승인이 아니다.
+     * 판정 임계는 {@link TrustGateRules} 단일 출처 — 화면에서 다시 계산하지 말 것(§7 재무 입력층과 같은 규약).
+     *
+     * @param dataAvailable false = 집계 실패(§4c — "근거 없음"과 구분. 0 으로 위장 금지)
+     * @param state         COLLECTING | EVALUABLE | CONSIDER_EXPANDING
+     * @param rows          비교창 안 시그널 행 수
+     * @param distinctDays  비교창 고유 거래일 수 — <b>유효 표본은 이쪽</b>
+     * @param controlRows   비교창 안 대조군 행 수
+     * @param costAdjustedReturn 왕복 비용 차감 평균 수익(%). 슬리피지 미포함이라 낙관 쪽 하한
+     * @param edgeVsControl      대조군 대비 우위(%p, 같은 날끼리 짝지은 차이의 평균)
+     * @param edgeMarginOfError  그 우위의 95% 불확실성 폭(±%p). null = 아직 모름(0 아님)
+     * @param edgeExceedsUncertainty 우위가 불확실성 폭을 넘었는가
+     * @param avgWin/avgLoss/worst/avgMaePct 손익 분포 — 평균 하나로 못 보는 비대칭·낙폭
+     * @param excludedDays  대조군 짝이 없어 비교에서 빠진 날 수(§4c 조용한 제외 금지)
+     * @param blockers      통과를 막는 사유들. 비면 막는 것 없음
+     */
+    public record TrustGate(
+            boolean dataAvailable,
+            String state,
+            int rows,
+            int distinctDays,
+            int controlRows,
+            java.math.BigDecimal costAdjustedReturn,
+            java.math.BigDecimal edgeVsControl,
+            java.math.BigDecimal edgeMarginOfError,
+            boolean edgeExceedsUncertainty,
+            java.math.BigDecimal avgWin,
+            java.math.BigDecimal avgLoss,
+            java.math.BigDecimal worst,
+            java.math.BigDecimal avgMaePct,
+            int excludedDays,
+            List<String> blockers,
+            String note,
+            String noteDetail
     ) {}
 
     /**

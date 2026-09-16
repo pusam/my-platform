@@ -691,6 +691,90 @@ public class SignalOutcomeService {
     }
 
     /**
+     * "믿고 사도 되나" 게이트 입력을 만들어 판정까지 돌린다 — 관제실 카드({@link com.myplatform.backend.controlroom.TrustGateRules}).
+     *
+     * <p><b>여기서 만드는 이유</b>: 측정 위생(최초 기록 dedup·공통 날짜 교집합·평가 완료 행만)이
+     * 이미 이 클래스에 있다. 관제실이 원시 행을 다시 긁어 자기 방식으로 접으면 그 규칙이 두 벌이 되고,
+     * 이 저장소가 반복해 겪은 "같은 계산이 몇 벌인가" 결함이 하나 더 생긴다.
+     *
+     * <p><b>일 단위로 접는다</b> — 하루에 10건 몰린 날이 그날 시장 등락을 10배로 반영하지 않도록
+     * 시그널·대조군을 각각 그날 평균으로 만든 뒤 짝지어 넘긴다. 손익 분포(이익시/손실시/최악/평균낙폭)는
+     * 짝이 성립한 날의 시그널 행에서만 뽑는다 — 비교창 밖 행이 분포에만 섞이면 두 숫자가 다른 표본이 된다.
+     *
+     * @param from 집계 시작일(phase-38 컷오프 이전은 컷오프로 당겨진다)
+     */
+    public com.myplatform.backend.controlroom.TrustGateRules.Verdict trustGate(LocalDate from) {
+        List<SignalOutcome> all = repository.findEvaluatedSince(
+                from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from));
+        List<SignalOutcome> signals = dedupPerStockDay(filterBoardSignals(all));
+        List<SignalOutcome> controls = all.stream()
+                .filter(s -> ControlGroupService.CONTROL_SIGNAL_TYPE.equals(s.getSignalType()))
+                .collect(Collectors.toList());
+
+        Map<LocalDate, List<BigDecimal>> sByDay = pctByDay(signals);
+        Map<LocalDate, List<BigDecimal>> cByDay = pctByDay(controls);
+        java.util.TreeSet<LocalDate> common = new java.util.TreeSet<>(sByDay.keySet());
+        common.retainAll(cByDay.keySet());
+        // 시그널은 있었는데 대조군 짝이 없어 빠진 날 — 조용히 빼지 않고 노출한다(§4c).
+        int excludedDays = sByDay.size() - common.size();
+
+        List<com.myplatform.backend.controlroom.TrustGateRules.DayPair> pairs = new ArrayList<>();
+        for (LocalDate d : common) {
+            pairs.add(new com.myplatform.backend.controlroom.TrustGateRules.DayPair(
+                    d,
+                    com.myplatform.backend.controlroom.TrustGateRules.meanOf(sByDay.get(d)),
+                    com.myplatform.backend.controlroom.TrustGateRules.meanOf(cByDay.get(d))));
+        }
+
+        List<SignalOutcome> inWindow = signals.stream()
+                .filter(s -> common.contains(s.getSignalDate()))
+                .collect(Collectors.toList());
+        int controlRows = (int) controls.stream()
+                .filter(s -> common.contains(s.getSignalDate())).count();
+
+        return com.myplatform.backend.controlroom.TrustGateRules.judge(
+                pairs, inWindow.size(), controlRows, shapeOf(inWindow), excludedDays);
+    }
+
+    /** 평가 완료 행의 일자별 수익률 목록. pctChange3d 결측 행은 제외(§4c — 0 으로 세지 않는다). */
+    private static Map<LocalDate, List<BigDecimal>> pctByDay(List<SignalOutcome> rows) {
+        Map<LocalDate, List<BigDecimal>> out = new java.util.TreeMap<>();
+        for (SignalOutcome s : rows) {
+            if (s == null || s.getSignalDate() == null || s.getEvaluatedAt() == null) continue;
+            if (s.getPctChange3d() == null) continue;
+            out.computeIfAbsent(s.getSignalDate(), k -> new ArrayList<>()).add(s.getPctChange3d());
+        }
+        return out;
+    }
+
+    /**
+     * 손익의 모양 — 평균만으론 "큰 손실 한 번에 무너지는" 분포를 못 본다.
+     * 각 축은 표본이 없으면 null 이다(0 으로 위장 금지 §4c).
+     */
+    private static com.myplatform.backend.controlroom.TrustGateRules.Shape shapeOf(List<SignalOutcome> rows) {
+        List<BigDecimal> wins = new ArrayList<>(), losses = new ArrayList<>(), maes = new ArrayList<>();
+        BigDecimal worst = null;
+        for (SignalOutcome s : rows) {
+            BigDecimal pct = s.getPctChange3d();
+            if (pct != null) {
+                if (pct.signum() > 0) wins.add(pct); else losses.add(pct);
+                if (worst == null || pct.compareTo(worst) < 0) worst = pct;
+            }
+            if (s.getMaePct3d() != null) maes.add(s.getMaePct3d());
+        }
+        return new com.myplatform.backend.controlroom.TrustGateRules.Shape(
+                scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(wins)),
+                scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(losses)),
+                scale2(worst),
+                scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(maes)));
+    }
+
+    private static BigDecimal scale2(BigDecimal v) {
+        return v == null ? null : v.setScale(2, RoundingMode.HALF_UP);
+    }
+
+
+    /**
      * 같은 종목·같은 날 중복 시그널 dedup — 순수 함수(테스트 대상). <b>최초 기록(createdAt 최소)</b>만 남긴다.
      *
      * <p>V36 UNIQUE 는 (signal_type, stock_code, signal_date) 라, 장중 점수가 73→76 으로 오르면
