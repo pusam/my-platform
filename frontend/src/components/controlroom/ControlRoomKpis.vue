@@ -149,7 +149,7 @@
         <div v-if="trust.note" class="s note" :title="trust.noteDetail || trust.note">
           {{ trust.note }}
         </div>
-        <span class="basis">평가 완료 시그널 집계 · 실매수 승인 아님</span>
+        <span class="basis">기존 평가 기준 · 교정 중(V59) · 실매수 승인 아님</span>
       </template>
       <NoData v-else :reason="trust && trust.note" :title="trust && trust.noteDetail" />
     </div>

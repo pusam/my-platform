@@ -149,6 +149,34 @@ public class SignalOutcome {
     @Column(name = "hit")
     private Boolean hit;
 
+    // ── V59 교정 평가: "기록시점 → D+3 KRX 종가" (2026-09-17) ─────────────────────────
+    // 구값(price_after_3d 등)은 그대로 둔다. 교정값이 없을 때 구값으로 대체하지 않는다.
+    // 판정은 순수함수 SignalD3Evaluator 단일 출처. status NULL = 아직 시도 안 함.
+    @Column(name = "d3_end_date")
+    private LocalDate d3EndDate;
+    @Column(name = "d3_close", precision = 15, scale = 2)
+    private BigDecimal d3Close;
+    @Column(name = "d3_pct_change", precision = 10, scale = 4)
+    private BigDecimal d3PctChange;
+    @Column(name = "d3_bm_close", precision = 15, scale = 2)
+    private BigDecimal d3BmClose;
+    @Column(name = "d3_bm_return", precision = 10, scale = 4)
+    private BigDecimal d3BmReturn;
+    @Column(name = "d3_alpha", precision = 10, scale = 4)
+    private BigDecimal d3Alpha;
+    @Column(name = "d3_mfe_pct", precision = 10, scale = 4)
+    private BigDecimal d3MfePct;
+    @Column(name = "d3_mae_pct", precision = 10, scale = 4)
+    private BigDecimal d3MaePct;
+    @Column(name = "d3_hit")
+    private Boolean d3Hit;
+    @Column(name = "d3_status", length = 32)
+    private String d3Status;
+    @Column(name = "d3_note", length = 255)
+    private String d3Note;
+    @Column(name = "d3_evaluated_at")
+    private LocalDateTime d3EvaluatedAt;
+
     @Column(name = "evaluated_at")
     private LocalDateTime evaluatedAt;
 

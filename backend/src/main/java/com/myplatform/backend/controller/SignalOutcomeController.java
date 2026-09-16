@@ -3,6 +3,7 @@ package com.myplatform.backend.controller;
 import com.myplatform.backend.dto.SignalAccuracyDto;
 import com.myplatform.backend.dto.SignalCompareDto;
 import com.myplatform.backend.dto.SignalTimeseriesDto;
+import com.myplatform.backend.service.SignalD3EvaluationService;
 import com.myplatform.backend.service.SignalOutcomeService;
 import com.myplatform.backend.service.SignalWeeklyReportService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,6 +31,7 @@ import java.util.Map;
 public class SignalOutcomeController {
 
     private final SignalOutcomeService signalOutcomeService;
+    private final SignalD3EvaluationService d3Service;
     private final SignalWeeklyReportService signalWeeklyReportService;
 
     @GetMapping("/accuracy")
@@ -174,5 +177,26 @@ public class SignalOutcomeController {
             response.put("message", "주간 히스토리 조회에 실패했습니다.");
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    /**
+     * V59 교정 평가 실행/사전점검 — ADMIN. {@code dryRun=true} 면 달력이 정한 D+1·D+2·D+3 봉의
+     * 완전성만 보고한다(KIS 호출·저장 없음). 실행이면 종목 상한만큼 봉을 받아 평가한다.
+     * 야간 크론(19:45)이 같은 일을 하므로 수동 호출은 백필·재점검용이다.
+     */
+    @PostMapping("/d3/backfill")
+    @Operation(summary = "D+3 종가 교정 평가 실행/사전점검 (ADMIN)")
+    public ResponseEntity<?> d3Backfill(@RequestParam(defaultValue = "true") boolean dryRun,
+                                        @RequestParam(defaultValue = "120") int maxStocks,
+                                        @RequestParam(defaultValue = "false") boolean force) {
+        var report = d3Service.run(dryRun, Math.max(0, Math.min(maxStocks, 500)), force);
+        return ResponseEntity.ok(Map.of("success", true, "data", report));
+    }
+
+    /** 구값·교정값 비교표 — 게이트 전환 판단 근거. ADMIN. */
+    @GetMapping("/d3/compare")
+    @Operation(summary = "기존 3일 평가 vs D+3 종가 교정 평가 비교표 (ADMIN)")
+    public ResponseEntity<?> d3Compare() {
+        return ResponseEntity.ok(Map.of("success", true, "data", d3Service.compare()));
     }
 }

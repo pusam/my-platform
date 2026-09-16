@@ -146,6 +146,8 @@ public class SecurityConfig {
                         .requestMatchers("/api/sse/**").authenticated()
 
                         // 자동매매 봇 + 실전투자 API - ADMIN만 허용
+                        // V59 교정 평가 실행·비교표 — KIS 호출·DB 쓰기라 ADMIN 한정(2026-09-17)
+                        .requestMatchers("/api/signal-outcomes/d3/**").hasRole("ADMIN")
                         .requestMatchers("/api/paper-trading/bot/**").hasRole("ADMIN")
                         .requestMatchers("/api/paper-trading/bot-performance").hasRole("ADMIN")
                         .requestMatchers("/api/paper-trading/real/**").hasRole("ADMIN")

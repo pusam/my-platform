@@ -135,6 +135,22 @@ public class MarketCalendarService {
         return d;
     }
 
+    /**
+     * {@code from} 에서 거래일로 {@code tradingDays} 만큼 뒤 — 휴장일·주말을 건너뛴다.
+     *
+     * <p>시그널 D+3 종료일 계산용(2026-09-17). "봉이 있는 다음 3개"가 아니라 <b>달력이 먼저 날짜를
+     * 정하고</b> 그 날짜의 봉을 찾는다 — 거래 없는 날을 건너뛰어 다음 봉을 쓰면 평가 기간이 늘어난다.
+     */
+    public LocalDate plusTradingDays(LocalDate from, int tradingDays) {
+        LocalDate d = from;
+        int remaining = tradingDays;
+        while (remaining > 0) {
+            d = d.plusDays(1);
+            if (!isMarketClosed(d)) remaining--;
+        }
+        return d;
+    }
+
     /** 오늘이 평일이고, 컨테이너 시작 시점이 cron 시각 이후라 catch-up 이 의미있는지.
      *  - 평일 + 개장 1시간 전~정오 사이 시작이면 morning 작업 catch-up 가치 있음.
      *  - 너무 늦게(오후·저녁) 시작했으면 morning 작업 catch-up 은 노이즈. */

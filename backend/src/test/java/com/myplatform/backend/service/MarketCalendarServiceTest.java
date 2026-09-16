@@ -164,4 +164,23 @@ class MarketCalendarServiceTest {
                     .isEqualTo("KRX_REGULAR");
         }
     }
+
+    @Nested @DisplayName("plusTradingDays — 시그널 D+3 종료일(2026-09-17)")
+    class PlusTradingDays {
+        @Test @DisplayName("금요일 +3 → 다음 주 수요일(주말 건너뜀)")
+        void skipsWeekend() {
+            assertThat(svc.plusTradingDays(LocalDate.of(2026, 9, 11), 3)).isEqualTo(LocalDate.of(2026, 9, 16));
+        }
+
+        @Test @DisplayName("한글날(10/9 금) 앞 목요일 +1 → 월요일 — 휴장일도 건너뛴다")
+        void skipsHoliday() {
+            assertThat(svc.plusTradingDays(LocalDate.of(2026, 10, 8), 1)).isEqualTo(LocalDate.of(2026, 10, 12));
+        }
+
+        @Test @DisplayName("minusTradingDays 와 왕복이 맞는다")
+        void roundTripsWithMinus() {
+            LocalDate d = LocalDate.of(2026, 9, 7);
+            assertThat(svc.minusTradingDays(svc.plusTradingDays(d, 3), 3)).isEqualTo(d);
+        }
+    }
 }

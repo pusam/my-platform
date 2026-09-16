@@ -35,6 +35,20 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
                                               @Param("oldestAllowed") LocalDate oldestAllowed,
                                               Pageable pageable);
 
+    /**
+     * V59 교정 평가 대기 행 — 아직 시도 안 함(NULL) 또는 재시도 가능 상태. 종료일(D+3) 도래 여부는
+     * 달력이 필요해 서비스가 거른다. OK 는 제외 — 백필 재실행이 확정값을 다시 쓰지 않게(멱등).
+     */
+    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate >= :from "
+            + "AND (s.d3Status IS NULL OR s.d3Status IN :retryable) ORDER BY s.signalDate ASC, s.id ASC")
+    List<SignalOutcome> findD3Pending(@Param("from") LocalDate from,
+                                      @Param("retryable") java.util.Collection<String> retryable,
+                                      Pageable pageable);
+
+    /** 구값·교정값 비교표용 — 컷오프 이후 전 행(타입 무관, 미평가 포함). */
+    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate >= :from ORDER BY s.signalDate ASC, s.id ASC")
+    List<SignalOutcome> findAllSince(@Param("from") LocalDate from);
+
     /** give-up 창을 넘겨 평가를 포기한 미평가 행 수 — 배치 로그 가시화용(§4c: 조용한 소실 금지). */
     @Query("SELECT COUNT(s) FROM SignalOutcome s WHERE s.signalDate < :oldestAllowed AND s.evaluatedAt IS NULL")
     long countAbandonedPending(@Param("oldestAllowed") LocalDate oldestAllowed);

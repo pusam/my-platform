@@ -453,7 +453,8 @@ public class ControlRoomSnapshotService {
                     v.costAdjustedReturn(), v.edgeVsControl(), v.edgeMarginOfError(),
                     v.edgeExceedsUncertainty(),
                     shape.avgWin(), shape.avgLoss(), shape.worst(), shape.avgMaePct(),
-                    v.excludedDays(), v.blockers(), v.headline(), v.detail());
+                    v.excludedDays(), v.blockers(), v.headline(),
+                    TRUST_GATE_MEASUREMENT_CAVEAT + v.detail());
         } catch (Exception e) {
             log.warn("[관제실] 신뢰 게이트 집계 실패: {}", e.getMessage());
             return unavailableTrustGate("집계 실패 (" + e.getClass().getSimpleName() + ")");
@@ -472,6 +473,15 @@ public class ControlRoomSnapshotService {
      * 잘라내므로, 이 값은 "컷오프 이후 전부"를 뜻한다.
      */
     private static final int TRUST_GATE_WINDOW_DAYS = 365;
+
+    /**
+     * 수익 수치의 출처 경고(2026-09-17) — 게이트는 아직 <b>기존 3일 평가</b>(배치 실행 시점 현재가,
+     * 창 상한 없음)를 읽는다. V59 교정값(D+3 KRX 종가)으로의 전환은 구값·교정값 비교표를 본 뒤
+     * 별도로 결정한다. 그 전까지 수익·낙폭 수치는 참고치다 — 표본 판정은 영향 없지만 교정 후
+     * 봉 결측으로 빠지는 행이 있으면 표본 수도 바뀔 수 있다.
+     */
+    static final String TRUST_GATE_MEASUREMENT_CAVEAT =
+            "⚠ 수익·낙폭 수치는 기존 평가 기준(교정 중, V59) — 참고치로만 읽을 것. ";
 
     /**
      * 종합판단 보드(momentum) 후보를 등급별로 센다. 보드 조회 실패는 0 이 아니라 데이터 없음이다.
