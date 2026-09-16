@@ -39,6 +39,21 @@ describe('SectionJudgmentBoard — 매매 맥락(재료·현재가·거래대금
     await flushPromises()
     expect(w.findAll('tbody tr')).toHaveLength(0)
   })
+  it('60초 갱신 중에는 기존 보드를 비우지 않는다 — 자리표시는 첫 로드에만', async () => {
+    const w = await mountBoard([row()])
+    let resolveNext
+    apiClient.get.mockImplementation(() => new Promise(r => { resolveNext = r }))
+    const pending = w.vm.refresh()
+    w.vm.refresh()                       // 진행 중 중복 호출은 무시
+    await flushPromises()
+    expect(w.findAll('tbody tr')).toHaveLength(1)
+    expect(w.text()).not.toContain('불러오는 중')
+    expect(apiClient.get).toHaveBeenCalledTimes(2)   // mount 1 + refresh 1
+    resolveNext(boardResp([]))
+    await pending
+    await flushPromises()
+    expect(w.findAll('tbody tr')).toHaveLength(0)
+  })
   it.each([
     { success: false, data: { rows: [] } },
     { success: true, data: null }

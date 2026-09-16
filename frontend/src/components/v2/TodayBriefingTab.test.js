@@ -60,6 +60,23 @@ describe('TodayBriefingTab — 오늘의 결론 홈', () => {
     expect(w.findAll('.candidate-card')).toHaveLength(0)
     expect(w.text()).toContain('관망이 결론입니다')
   })
+  it('60초 갱신 중에는 기존 후보를 비우지 않는다 — 자리표시는 첫 로드에만', async () => {
+    stubAll()
+    const w = await mountTab()
+    expect(w.findAll('.candidate-card')).toHaveLength(2)
+    let resolveNext
+    recommendationAPI.getTop5.mockImplementation(() => new Promise(r => { resolveNext = r }))
+    const pending = w.vm.refresh()
+    w.vm.refresh()                       // 진행 중 중복 호출은 무시
+    await flushPromises()
+    expect(w.findAll('.candidate-card')).toHaveLength(2)
+    expect(w.text()).not.toContain('후보 분석 중')
+    expect(recommendationAPI.getTop5).toHaveBeenCalledTimes(2)   // mount 1 + refresh 1
+    resolveNext({ data: { success: true, data: [] } })
+    await pending
+    await flushPromises()
+    expect(w.findAll('.candidate-card')).toHaveLength(0)
+  })
   it.each([
     { success: false, data: [] },
     { success: true, dataAvailable: false, data: [] },

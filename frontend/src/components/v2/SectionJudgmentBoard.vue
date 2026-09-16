@@ -163,8 +163,15 @@ const loadSavedScope = () => {
 };
 const scope = ref(loadSavedScope());   // 'momentum'(빠름) | 'union'(발굴 트랙 포함)
 
+// 진행 중 요청 — 60초 폴링·탭 복귀·토글이 겹쳐도 한 번만 부른다.
+let inFlight = false;
 const load = async () => {
-  loading.value = true; error.value = false;
+  if (inFlight) return;
+  inFlight = true;
+  // '불러오는 중' 자리표시는 보여줄 보드가 없을 때만 — 60초 갱신마다 보드를 지우고 자리표시로
+  // 바꾸면 화면이 분마다 깜빡인다. 새 결과(실패 포함)는 도착한 뒤에 교체한다.
+  if (!board.value) loading.value = true;
+  error.value = false;
   try {
     const { data } = await apiClient.get('/recommendation/judgment-board', { params: { scope: scope.value } });
     if (data?.success === false || !Array.isArray(data?.data?.rows)) {
@@ -176,6 +183,7 @@ const load = async () => {
     error.value = true;
   } finally {
     loading.value = false;
+    inFlight = false;
   }
 };
 
@@ -303,7 +311,7 @@ const catTitle = (r) => {
   return `재료: ${r.catalystLabel}(${catDirLabel(r.catalystDirection)})${age ? ' · ' + age : ' · 오늘'}`;
 };
 
-defineExpose({ refresh: () => loading.value ? Promise.resolve() : load() });
+defineExpose({ refresh: load });   // 진행 중이면 load 가 스스로 무시한다
 onMounted(load);
 </script>
 

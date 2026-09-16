@@ -14,9 +14,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 다운돼 수급·가격이 8/20 에 멈춰 있었고, 노후 가드가 §4c 대로 채점을 거부해 후보가 0 이 된 것이었다.
  * 시스템은 정상이었지만 <b>화면이 이유를 말하지 않아</b> 운영자가 진단 API 를 직접 쳐야 원인을 알 수 있었다.
  *
- * <p>0 은 세 가지가 겹쳐 보인다 — ① 진짜 0건 ② {@code JudgmentBoardService} 가 조회 실패를 삼키고
- * 빈 목록 반환 ③ 입력 노후로 미채점. ②는 그 서비스를 고쳐야 구분되므로 범위 밖이고, 여기서는
- * <b>구분되지 않는다는 사실 자체를 문구로 남긴다.</b>
+ * <p>0 은 두 가지가 겹쳐 보인다 — ① 진짜 0건(컷 통과 0건) ② 입력 노후로 미채점. 조회 실패는
+ * 2026-09-16 부터 {@code JudgmentBoardService} 가 예외로 올려 {@code dataAvailable=false} 로 갈라지므로
+ * 이 문구가 다루지 않는다. ①②는 <b>스냅샷 신선도</b>로 가른다.
  */
 class CandidatesEmptyReasonTest {
 
@@ -50,14 +50,14 @@ class CandidatesEmptyReasonTest {
     }
 
     @Test
-    @DisplayName("스냅샷이 최신인데 0건이면 '조회 실패와 구분되지 않는다'를 명시한다")
-    void freshSnapshotStillAmbiguousAgainstFailure() {
+    @DisplayName("스냅샷이 최신인데 0건이면 '컷 통과 0건'이다 — 조회 실패는 보드가 예외로 올린다(2026-09-16)")
+    void freshSnapshotEmptyMeansNoCandidatePassedTheCut() {
         String reason = ControlRoomSnapshotService.emptyReason(true, FRESH, false);
 
         assertThat(reason)
                 .contains("후보 0건")
-                .contains("조회 실패")
-                .contains("구분되지 않는다");
+                .contains("컷 통과 0건")
+                .doesNotContain("구분되지 않는다");
     }
 
     @Test

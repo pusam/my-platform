@@ -228,8 +228,14 @@ const trustCaution = computed(() => {
     : null;
 });
 
+// 진행 중 요청 — 60초 폴링·탭 복귀·수동 재시도가 겹쳐도 한 번만 부른다.
+let candidatesInFlight = false;
 const loadCandidates = async () => {
-  candidatesLoading.value = true;
+  if (candidatesInFlight) return;
+  candidatesInFlight = true;
+  // '후보 분석 중' 자리표시는 보여줄 목록이 없을 때만 — 60초 갱신마다 기존 후보를 지우고
+  // 자리표시로 바꾸면 화면이 분마다 깜빡인다. 새 결과(실패 포함)는 도착한 뒤에 교체한다.
+  if (buyCandidates.value.length === 0) candidatesLoading.value = true;
   candidatesFailed.value = false;
   try {
     const { data } = await recommendationAPI.getTop5();
@@ -252,6 +258,7 @@ const loadCandidates = async () => {
     candidatesFailed.value = true;
   } finally {
     candidatesLoading.value = false;
+    candidatesInFlight = false;
   }
 };
 
@@ -367,8 +374,8 @@ const signed = (v, grouping = false) => {
   return `${n > 0 ? '+' : n < 0 ? '-' : ''}${text}`;
 };
 
-// 부모의 60초 폴링·탭 복귀 갱신을 공유한다. 진행 중 요청은 중복 실행하지 않는다.
-defineExpose({ refresh: () => candidatesLoading.value ? Promise.resolve() : loadCandidates() });
+// 부모의 60초 폴링·탭 복귀 갱신을 공유한다. 진행 중이면 loadCandidates 가 스스로 무시한다.
+defineExpose({ refresh: loadCandidates });
 
 onMounted(() => {
   loadCandidates();
