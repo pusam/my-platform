@@ -178,11 +178,23 @@ class SignalD3EvaluatorTest {
     }
 
     @Test
-    @DisplayName("2:1 분할 소급(비율 0.5)은 정상 하한 0.538 을 아슬하게 밑돌아 걸린다 — 경계값이지 설계 보장이 아니다")
-    void twoForOneSplitIsCaughtOnlyAtTheEdge() {
+    @DisplayName("2:1 분할 소급(비율 0.5)은 가격이 안 움직였을 때만 하한 0.53 아래로 걸린다 — 경계값")
+    void twoForOneSplitIsCaughtOnlyWhenPriceDidNotMove() {
         var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, scaledBars("0.5"), IDX3, null);
-
         assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.UNIT_MISMATCH_SUSPECT);
+    }
+
+    @Test
+    @DisplayName("한계 고정(사용자 반례): 정상 변동 1.2 × 2:1 조정 0.5 = 0.6 은 통과한다 — 2:1 도 놓칠 수 있다")
+    void twoForOneSplitIsMissedWhenPriceMovedUp() {
+        // D0 에 +20% 오른 뒤 2:1 분할이 소급 보정됨 → D0 종가 10,050×1.2×0.5 = 6,030, 비율 0.603
+        Map<LocalDate, SignalD3Evaluator.Bar> bars = scaledBars("0.6");
+
+        var r = SignalD3Evaluator.evaluate(WINDOW.get(2), WINDOW, P0, BM0, bars, IDX3, null);
+
+        // 이 테스트가 깨지면 검사가 정교해진 것이다 — 그때 문서의 "놓칠 수 있다"도 같이 고칠 것.
+        assertThat(r.status()).isEqualTo(SignalD3Evaluator.Status.OK);
+        assertThat(r.pctChange()).isNegative();   // 왜곡된 손실이 OK 로 남는다
     }
 
     @Test

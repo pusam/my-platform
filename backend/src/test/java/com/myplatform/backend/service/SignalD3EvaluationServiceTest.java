@@ -6,7 +6,9 @@ import com.myplatform.backend.repository.SignalOutcomeRepository;
 import com.myplatform.backend.repository.StockPriceHistoryRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -18,6 +20,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -25,12 +28,17 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 교정 평가 배치 — 멱등(저장 필드 전부 비교)·재시도 간격/순환·봉을 못 받으면 평가하지 않음·비교표.
- * 2026-09-17 코덱스 리뷰 ①④⑤의 재현 테스트가 여기 있다.
+ * 교정 평가 배치 — 멱등(저장 필드 전부 비교)·응답 봉으로만 평가·수집 실패 기록·비교표.
+ * 2026-09-17 코덱스 리뷰 1차 ①⑤·2차 ①② 의 재현 테스트가 여기 있다(재시도 조건·순서는 DB 쿼리
+ * 테스트 {@code SignalOutcomeRepositoryD3Test} 로 옮겼다).
  */
 class SignalD3EvaluationServiceTest {
 
-    private static final LocalDate END = LocalDate.of(2026, 9, 10);
+    private static final LocalDate SIGNAL = LocalDate.of(2026, 9, 7);            // 월
+    private static final List<LocalDate> WINDOW = List.of(
+            LocalDate.of(2026, 9, 8), LocalDate.of(2026, 9, 9), LocalDate.of(2026, 9, 10));
+    private static final LocalDate END = WINDOW.get(2);
+    private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-09-17T10:45:00Z"), ZoneId.of("Asia/Seoul"));
 
     private static SignalD3Evaluator.Result ok(String close, String pct, String alpha, boolean hit) {
         return new SignalD3Evaluator.Result(SignalD3Evaluator.Status.OK, END, new BigDecimal(close),
@@ -40,11 +48,18 @@ class SignalD3EvaluationServiceTest {
 
     private static SignalOutcome row(String type, LocalDate date, String code) {
         return SignalOutcome.builder().signalType(type).signalDate(date).stockCode(code)
-                .priceAtSignal(new BigDecimal("10000")).build();
+                .priceAtSignal(new BigDecimal("10000")).bmPriceAtSignal(new BigDecimal("3000")).build();
     }
 
     private static SignalD3Evaluator.Result missing() {
         return SignalD3Evaluator.Result.of(SignalD3Evaluator.Status.MISSING_BARS, END, "봉 없음");
+    }
+
+    private static KoreaInvestmentService.OhlcvData ohlcv(LocalDate d, String close) {
+        var o = new KoreaInvestmentService.OhlcvData(new BigDecimal(close), new BigDecimal(close).add(BigDecimal.TEN),
+                new BigDecimal(close).subtract(BigDecimal.TEN), new BigDecimal(close), new BigDecimal("1000"));
+        o.setTradeDate(d);
+        return o;
     }
 
     // ==================== 멱등 ====================
@@ -61,12 +76,11 @@ class SignalD3EvaluationServiceTest {
         SignalOutcome r = row("BUY", END, "005930");
         SignalD3EvaluationService.apply(r, ok("10300", "3.0000", "2.0000", true), LocalDateTime.now());
 
-        // scale 이 달라도 같은 수면 같다(10300 vs 10300.00)
         assertThat(SignalD3EvaluationService.needsWrite(r, ok("10300.00", "3.00", "2.00", true))).isFalse();
     }
 
     @Test
-    @DisplayName("종가는 같고 고가·저가만 교정되면 쓴다 — 저장 필드 전부를 비교한다(코덱스 리뷰 ⑤)")
+    @DisplayName("종가는 같고 고가·저가만 교정되면 쓴다 — 저장 필드 전부를 비교한다(1차 ⑤)")
     void mfeMaeOnlyChangeIsWritten() {
         SignalOutcome r = row("BUY", END, "005930");
         SignalD3EvaluationService.apply(r, ok("10300", "3.0000", "2.0000", true), LocalDateTime.now());
@@ -87,7 +101,6 @@ class SignalD3EvaluationServiceTest {
     void statusChangeIsWritten() {
         SignalOutcome r = row("BUY", END, "005930");
         SignalD3EvaluationService.apply(r, missing(), LocalDateTime.now());
-
         assertThat(SignalD3EvaluationService.needsWrite(r, ok("10300", "3.0000", "2.0000", true))).isTrue();
     }
 
@@ -97,7 +110,6 @@ class SignalD3EvaluationServiceTest {
         SignalOutcome r = row("BUY", END, "005930");
         SignalD3EvaluationService.apply(r, SignalD3Evaluator.Result.of(
                 SignalD3Evaluator.Status.MISSING_BARS, END, "봉 없음: [2026-09-09]"), LocalDateTime.now());
-
         assertThat(SignalD3EvaluationService.needsWrite(r, SignalD3Evaluator.Result.of(
                 SignalD3Evaluator.Status.MISSING_BARS, END, "봉 없음: [2026-09-09] (재시도)"))).isFalse();
     }
@@ -121,131 +133,208 @@ class SignalD3EvaluationServiceTest {
         assertThat(r.getD3Status()).isEqualTo("OK");
     }
 
-    // ==================== 재시도 간격·순환(코덱스 리뷰 ④) ====================
-
     @Test
-    @DisplayName("한 번 시도한 재시도 행은 7일 동안 미룬다 — 영구 결측 종목이 매 실행 상한을 먹지 않게")
-    void retryIsDeferredForInterval() {
-        LocalDateTime now = LocalDateTime.of(2026, 9, 17, 19, 45);
-        SignalOutcome never = row("BUY", END, "A");
-        SignalOutcome recent = row("BUY", END, "B");
-        SignalD3EvaluationService.apply(recent, missing(), now.minusDays(2));
-        SignalOutcome stale = row("BUY", END, "C");
-        SignalD3EvaluationService.apply(stale, missing(), now.minusDays(8));
-
-        assertThat(SignalD3EvaluationService.eligibleForRetry(never, now)).isTrue();
-        assertThat(SignalD3EvaluationService.eligibleForRetry(recent, now)).isFalse();
-        assertThat(SignalD3EvaluationService.eligibleForRetry(stale, now)).isTrue();
-    }
-
-    @Test
-    @DisplayName("백필 순서: 시도 안 한 행 → 가장 오래전 시도 → 오래된 시그널 — 오래된 결측이 앞줄을 독점하지 않는다")
-    void backfillOrderRotates() {
-        var w = List.of(END.minusDays(2), END.minusDays(1), END);
-        LocalDateTime now = LocalDateTime.of(2026, 9, 17, 19, 45);
-        SignalOutcome oldStuck = row("BUY", LocalDate.of(2026, 7, 1), "OLD");      // 오래됐고 8일 전 시도
-        SignalD3EvaluationService.apply(oldStuck, missing(), now.minusDays(8));
-        SignalOutcome older = row("BUY", LocalDate.of(2026, 7, 2), "OLDER");       // 더 오래전 시도
-        SignalD3EvaluationService.apply(older, missing(), now.minusDays(20));
-        SignalOutcome fresh = row("BUY", LocalDate.of(2026, 9, 10), "NEW");        // 시도한 적 없음
-
-        var ordered = SignalD3EvaluationService.orderForBackfill(List.of(
-                new SignalD3EvaluationService.Due(oldStuck, w),
-                new SignalD3EvaluationService.Due(older, w),
-                new SignalD3EvaluationService.Due(fresh, w)));
-
-        assertThat(ordered).extracting(d -> d.row().getStockCode()).containsExactly("NEW", "OLDER", "OLD");
-    }
-
-    @Test
-    @DisplayName("같은 종목의 여러 창은 한 번의 봉 수집으로 묶이고, 정렬 순서를 보존한다")
+    @DisplayName("같은 종목의 여러 창은 한 번의 봉 수집으로 묶이고, DB 가 준 순서를 보존한다")
     void groupsByStockPreservingOrder() {
-        var w = List.of(END.minusDays(2), END.minusDays(1), END);
-        var a1 = new SignalD3EvaluationService.Due(row("BUY", LocalDate.of(2026, 9, 3), "005930"), w);
+        var w = WINDOW;
         var b = new SignalD3EvaluationService.Due(row("BUY", LocalDate.of(2026, 9, 1), "000660"), w);
+        var a1 = new SignalD3EvaluationService.Due(row("BUY", LocalDate.of(2026, 9, 3), "005930"), w);
         var a2 = new SignalD3EvaluationService.Due(row("CONTROL_RANDOM", LocalDate.of(2026, 9, 2), "005930"), w);
 
-        var grouped = SignalD3EvaluationService.groupByStock(
-                SignalD3EvaluationService.orderForBackfill(List.of(a1, b, a2)));
+        var grouped = SignalD3EvaluationService.groupByStock(List.of(b, a1, a2));
 
-        assertThat(grouped.keySet()).containsExactly("000660", "005930");   // 9/1 이 먼저
+        assertThat(grouped.keySet()).containsExactly("000660", "005930");
         assertThat(grouped.get("005930")).hasSize(2);
     }
 
-    // ==================== 봉을 못 받으면 평가하지 않는다(코덱스 리뷰 ①) ====================
+    // ==================== 배치 흐름(Mockito) ====================
 
-    @Test
-    @DisplayName("봉 수집이 빈 응답(0건)이면 그 종목은 평가하지 않고 fetchFailed 로 센다 — 기존 DB 봉으로 이어가지 않는다")
+    /** 공통 조립 — 한 종목·한 대기 행, DB 엔 옛 봉이 창 전체에 있다(섞이면 안 되는 미끼). */
+    private record Rig(SignalOutcomeRepository repo, StockPriceHistoryRepository hist,
+                       StockAnalysisService analysis, KoreaInvestmentService kis,
+                       SignalOutcome pending, SignalD3EvaluationService svc) {}
+
     @SuppressWarnings("unchecked")
-    void emptyFetchMeansNoEvaluation() {
+    private static Rig rig() {
         var repo = mock(SignalOutcomeRepository.class);
         var hist = mock(StockPriceHistoryRepository.class);
         var analysis = mock(StockAnalysisService.class);
+        var kis = mock(KoreaInvestmentService.class);
         ObjectProvider<StockAnalysisService> analysisP = mock(ObjectProvider.class);
         ObjectProvider<KoreaInvestmentService> kisP = mock(ObjectProvider.class);
         ObjectProvider<StockStatusService> statusP = mock(ObjectProvider.class);
         when(analysisP.getIfAvailable()).thenReturn(analysis);
-        when(kisP.getIfAvailable()).thenReturn(null);
+        when(kisP.getIfAvailable()).thenReturn(kis);
         when(statusP.getIfAvailable()).thenReturn(null);
+        when(kis.isConfigured()).thenReturn(true);
+        when(kis.getIndexDailyOhlcv(any(), anyInt(), any())).thenReturn(List.of(
+                new KoreaInvestmentService.IndexOhlcvData("20260910", null, null, null, new BigDecimal("3030"))));
 
-        SignalOutcome pending = row("BUY", LocalDate.of(2026, 9, 7), "005930");
-        when(repo.findD3Pending(any(), any(), any())).thenReturn(List.of(pending));
-        // DB 엔 옛 봉이 있다 — 그래도 새로 못 받았으면 쓰면 안 된다
-        StockPriceHistory stale = new StockPriceHistory();
-        stale.setTradeDate(LocalDate.of(2026, 9, 8));
-        stale.setClosePrice(new BigDecimal("10000"));
-        when(hist.findByStockCodeAndDateRange(any(), any(), any())).thenReturn(List.of(stale));
-        when(analysis.collectPriceHistoryRange(any(), any(), any())).thenReturn(0);
+        SignalOutcome pending = row("BUY", SIGNAL, "005930");
+        when(repo.findD3Pending(any(), any(), any(), any(), any(), any(), any())).thenReturn(List.of(pending));
 
-        Clock clock = Clock.fixed(Instant.parse("2026-09-17T10:45:00Z"), ZoneId.of("Asia/Seoul"));
-        var svc = new SignalD3EvaluationService(repo, hist, new MarketCalendarService(), analysisP, kisP, statusP, clock);
+        // DB 미끼 — 창 전체에 옛 봉이 있다. 응답이 부족할 때 이걸로 채우면 실패다.
+        var bait = WINDOW.stream().map(d -> {
+            StockPriceHistory h = new StockPriceHistory();
+            h.setTradeDate(d); h.setClosePrice(new BigDecimal("9000")); h.setHighPrice(new BigDecimal("9100"));
+            h.setLowPrice(new BigDecimal("8900")); h.setVolume(new BigDecimal("1000"));
+            return h;
+        }).toList();
+        when(hist.findByStockCodeAndDateRange(any(), any(), any())).thenReturn(bait);
 
-        var report = svc.run(false, 120, false);
-
-        assertThat(report.fetchFailed()).isEqualTo(1);
-        assertThat(report.fetched()).isZero();
-        assertThat(report.evaluatedByStatus()).isEmpty();
-        verify(repo, never()).save(any());
-        // 수집 범위는 오늘 기준 60봉이 아니라 그 창을 덮는 과거 구간이다(D+1 9/8 − 10일 ~ D+3 9/10)
-        verify(analysis).collectPriceHistoryRange(eq("005930"),
-                eq(LocalDate.of(2026, 9, 8).minusDays(SignalD3EvaluationService.FETCH_LEAD_DAYS)),
-                eq(LocalDate.of(2026, 9, 10)));
+        var svc = new SignalD3EvaluationService(repo, hist, new MarketCalendarService(), analysisP, kisP, statusP, CLOCK);
+        return new Rig(repo, hist, analysis, kis, pending, svc);
     }
 
     @Test
-    @DisplayName("사전 점검(dryRun)은 달력이 정한 D+1·D+2·D+3 봉 존재로 완전성을 세고 KIS 를 부르지 않는다")
-    @SuppressWarnings("unchecked")
+    @DisplayName("빈 응답이면 FETCH_FAILED + 사유 + 시각을 기록하고 평가하지 않는다 — DB 옛 봉으로 이어가지 않는다(2차 ①)")
+    void emptyResponseIsRecordedAsFetchFailed() {
+        Rig g = rig();
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, List.of(), 0));
+
+        var report = g.svc().run(false, 120, false);
+
+        assertThat(report.fetchFailed()).isEqualTo(1);
+        assertThat(report.fetchFailedRows()).isEqualTo(1);
+        assertThat(report.evaluatedByStatus()).isEmpty();
+        assertThat(g.pending().getD3Status()).isEqualTo("FETCH_FAILED");
+        assertThat(g.pending().getD3Note()).contains("빈 응답");
+        assertThat(g.pending().getD3EvaluatedAt()).isEqualTo(LocalDateTime.now(CLOCK));
+        assertThat(g.pending().getD3PctChange()).isNull();
+        verify(g.repo()).save(g.pending());
+        // 수집 범위는 오늘 기준 60봉이 아니라 그 창을 덮는 과거 구간이다
+        verify(g.analysis()).collectPriceHistoryRange(eq("005930"),
+                eq(WINDOW.get(0).minusDays(SignalD3EvaluationService.FETCH_LEAD_DAYS)), eq(END));
+    }
+
+    @Test
+    @DisplayName("저장 실패(DataAccessException)는 호출부로 올라와 FETCH_FAILED 로 기록된다 — 삼키지 않는다(2차 ②)")
+    void persistFailurePropagatesAndIsRecorded() {
+        Rig g = rig();
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenThrow(new DataAccessResourceFailureException("connection lost"));
+
+        var report = g.svc().run(false, 120, false);
+
+        assertThat(report.fetchFailed()).isEqualTo(1);
+        assertThat(g.pending().getD3Status()).isEqualTo("FETCH_FAILED");
+        assertThat(g.pending().getD3Note()).contains("DataAccessResourceFailureException").contains("connection lost");
+        assertThat(report.evaluatedByStatus()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("동시 수집 중이면 받은 것이 없으므로 FETCH_FAILED — 다음 날 다시")
+    void busyIsRecordedAsFetchFailed() {
+        Rig g = rig();
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(StockAnalysisService.CollectResult.busy());
+
+        g.svc().run(false, 120, false);
+
+        assertThat(g.pending().getD3Status()).isEqualTo("FETCH_FAILED");
+        assertThat(g.pending().getD3Note()).contains("수집 중");
+    }
+
+    @Test
+    @DisplayName("일부 응답(D+3 없음)은 개수가 많아도 MISSING_BARS — DB 의 D+3 봉으로 채워 성공 처리하지 않는다(2차 ②)")
+    void partialResponseIsMissingBarsNotMixedWithDb() {
+        Rig g = rig();
+        // 창 앞쪽 여유까지 10봉이 왔지만 정작 D+3(9/10)은 없다
+        var bars = new java.util.ArrayList<KoreaInvestmentService.OhlcvData>();
+        for (int i = 1; i <= 10; i++) bars.add(ohlcv(WINDOW.get(0).minusDays(i), "10000"));
+        bars.add(ohlcv(WINDOW.get(0), "10100"));
+        bars.add(ohlcv(WINDOW.get(1), "10200"));
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, bars, bars.size()));
+
+        var report = g.svc().run(false, 120, false);
+
+        assertThat(report.fetched()).isEqualTo(1);
+        assertThat(report.evaluatedByStatus()).containsEntry("MISSING_BARS", 1);
+        assertThat(g.pending().getD3Status()).isEqualTo("MISSING_BARS");
+        assertThat(g.pending().getD3Note()).contains("2026-09-10");
+        assertThat(g.pending().getD3PctChange()).isNull();
+    }
+
+    @Test
+    @DisplayName("응답에 창 세 봉이 다 있으면 응답 값으로 평가한다 — DB 미끼(종가 9,000)가 아니라 응답(10,300)")
+    void fullResponseIsEvaluatedFromResponseBars() {
+        Rig g = rig();
+        var bars = List.of(
+                ohlcv(SIGNAL, "10050"),            // D0 — 단위 판정 앵커
+                ohlcv(WINDOW.get(0), "10100"),
+                ohlcv(WINDOW.get(1), "10500"),
+                ohlcv(WINDOW.get(2), "10300"));
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, bars, 4));
+
+        var report = g.svc().run(false, 120, false);
+
+        assertThat(report.evaluatedByStatus()).containsEntry("OK", 1);
+        assertThat(g.pending().getD3Status()).isEqualTo("OK");
+        assertThat(g.pending().getD3Close()).isEqualByComparingTo("10300");
+        assertThat(g.pending().getD3PctChange()).isEqualByComparingTo("3.0000");
+        assertThat(g.pending().getD3BmClose()).isEqualByComparingTo("3030");
+        assertThat(g.pending().getD3Alpha()).isEqualByComparingTo("2.0000");
+        assertThat(g.pending().getD3Hit()).isTrue();
+    }
+
+    @Test
+    @DisplayName("force 재평가 중 수집이 실패해도 이미 OK 인 행은 덮지 않는다")
+    void fetchFailureDoesNotClobberOkRowsUnderForce() {
+        Rig g = rig();
+        SignalD3EvaluationService.apply(g.pending(), ok("10300", "3.0000", "2.0000", true), LocalDateTime.of(2026, 9, 16, 19, 45));
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, List.of(), 0));
+
+        var report = g.svc().run(false, 120, true);
+
+        assertThat(report.fetchFailed()).isEqualTo(1);
+        assertThat(report.fetchFailedRows()).isZero();
+        assertThat(g.pending().getD3Status()).isEqualTo("OK");
+        verify(g.repo(), never()).save(any());
+    }
+
+    @Test
+    @DisplayName("사전 점검(dryRun)은 달력이 정한 D+1·D+2·D+3 봉의 DB 존재로 완전성을 세고 KIS 를 부르지 않는다")
     void dryRunCountsExactTradingDayCoverageWithoutFetching() {
-        var repo = mock(SignalOutcomeRepository.class);
-        var hist = mock(StockPriceHistoryRepository.class);
-        var analysis = mock(StockAnalysisService.class);
-        ObjectProvider<StockAnalysisService> analysisP = mock(ObjectProvider.class);
-        ObjectProvider<KoreaInvestmentService> kisP = mock(ObjectProvider.class);
-        ObjectProvider<StockStatusService> statusP = mock(ObjectProvider.class);
-        when(analysisP.getIfAvailable()).thenReturn(analysis);
+        Rig g = rig();
+        // DB 엔 9/8·9/9 만 있다 → missingBars
+        StockPriceHistory b1 = new StockPriceHistory(); b1.setTradeDate(WINDOW.get(0)); b1.setClosePrice(BigDecimal.TEN);
+        StockPriceHistory b2 = new StockPriceHistory(); b2.setTradeDate(WINDOW.get(1)); b2.setClosePrice(BigDecimal.TEN);
+        when(g.hist().findByStockCodeAndDateRange(any(), any(), any())).thenReturn(List.of(b1, b2));
 
-        // 9/7(월) 시그널 → 창 9/8·9/9·9/10. DB 엔 9/8·9/9 만 있다 → missingBars
-        SignalOutcome pending = row("BUY", LocalDate.of(2026, 9, 7), "005930");
-        when(repo.findD3Pending(any(), any(), any())).thenReturn(List.of(pending));
-        StockPriceHistory b1 = new StockPriceHistory(); b1.setTradeDate(LocalDate.of(2026, 9, 8)); b1.setClosePrice(BigDecimal.TEN);
-        StockPriceHistory b2 = new StockPriceHistory(); b2.setTradeDate(LocalDate.of(2026, 9, 9)); b2.setClosePrice(BigDecimal.TEN);
-        when(hist.findByStockCodeAndDateRange(any(), any(), any())).thenReturn(List.of(b1, b2));
-
-        Clock clock = Clock.fixed(Instant.parse("2026-09-17T10:45:00Z"), ZoneId.of("Asia/Seoul"));
-        var svc = new SignalD3EvaluationService(repo, hist, new MarketCalendarService(), analysisP, kisP, statusP, clock);
-
-        var report = svc.run(true, 120, false);
+        var report = g.svc().run(true, 120, false);
 
         assertThat(report.dryRun()).isTrue();
         assertThat(report.coverageByType().get("BUY")).containsEntry("missingBars", 1);
-        verify(analysis, never()).collectPriceHistoryRange(any(), any(), any());
-        verify(repo, never()).save(any());
+        verify(g.analysis(), never()).collectPriceHistoryRange(any(), any(), any());
+        verify(g.repo(), never()).save(any());
+    }
+
+    @Test
+    @DisplayName("대기 조회는 재시도 조건·정렬을 DB 에 맡긴다 — 서비스는 상한·간격 파라미터를 넘길 뿐")
+    void pendingQueryReceivesRetryParameters() {
+        Rig g = rig();
+        when(g.analysis().collectPriceHistoryRange(any(), any(), any()))
+                .thenReturn(new StockAnalysisService.CollectResult(false, List.of(), 0));
+
+        g.svc().run(false, 120, false);
+
+        var retryBefore = ArgumentCaptor.forClass(LocalDateTime.class);
+        var fetchRetryBefore = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(g.repo()).findD3Pending(eq(SignalOutcomeService.PHASE38_CUTOFF),
+                eq(LocalDate.now(CLOCK).minusDays(SignalD3EvaluationService.MIN_CALENDAR_DAYS_TO_DUE)),
+                eq(SignalD3EvaluationService.RETRYABLE), retryBefore.capture(), eq("FETCH_FAILED"), fetchRetryBefore.capture(), any());
+        assertThat(retryBefore.getValue()).isEqualTo(LocalDateTime.now(CLOCK).minusDays(7));
+        assertThat(fetchRetryBefore.getValue()).isEqualTo(LocalDateTime.now(CLOCK).minusDays(1));
     }
 
     // ==================== 비교표 ====================
 
     @Test
-    @DisplayName("비교표: 교정 OK 인 행만 비교하고(NO_INDEX 제외), hit 일치·불일치와 평균 차이를 분해한다")
+    @DisplayName("비교표: 교정 OK 인 행만 비교하고(NO_INDEX·FETCH_FAILED 제외), hit 일치·불일치와 평균 차이를 분해한다")
     void compareDecomposesAgreementAndExcludesUnevaluated() {
         SignalOutcome both1 = row("BUY", END, "A");   // 구 hit, 교정 miss
         both1.setEvaluatedAt(LocalDateTime.now()); both1.setPctChange3d(new BigDecimal("4.0")); both1.setHit(true);
@@ -259,24 +348,30 @@ class SignalD3EvaluationServiceTest {
         oldOnly.setEvaluatedAt(LocalDateTime.now()); oldOnly.setPctChange3d(new BigDecimal("-2.0")); oldOnly.setHit(false);
         SignalD3EvaluationService.apply(oldOnly, missing(), LocalDateTime.now());
 
-        SignalOutcome noIndex = row("BUY", END, "E");   // 지수 없음 = 미평가 → 비교에서 빠진다
+        SignalOutcome noIndex = row("BUY", END, "E");   // 지수 없음 = 미평가
         noIndex.setEvaluatedAt(LocalDateTime.now()); noIndex.setPctChange3d(new BigDecimal("9.0")); noIndex.setHit(true);
         SignalD3EvaluationService.apply(noIndex, SignalD3Evaluator.Result.of(
                 SignalD3Evaluator.Status.NO_INDEX, END, "지수 없음"), LocalDateTime.now());
 
+        SignalOutcome fetchFailed = row("BUY", END, "F");
+        fetchFailed.setEvaluatedAt(LocalDateTime.now()); fetchFailed.setPctChange3d(new BigDecimal("1.0")); fetchFailed.setHit(false);
+        SignalD3EvaluationService.apply(fetchFailed, SignalD3Evaluator.Result.of(
+                SignalD3Evaluator.Status.FETCH_FAILED, END, "봉 수집 실패: 빈 응답"), LocalDateTime.now());
+
         SignalOutcome untouched = row("CONTROL_RANDOM", END, "D");   // 아무것도 없음
 
         var report = SignalD3EvaluationService.compare(
-                List.of(both1, both2, oldOnly, noIndex, untouched), LocalDate.of(2026, 6, 25));
+                List.of(both1, both2, oldOnly, noIndex, fetchFailed, untouched), LocalDate.of(2026, 6, 25));
 
         var buy = report.byType().get("BUY");
-        assertThat(buy.rows()).isEqualTo(4);
-        assertThat(buy.oldEvaluated()).isEqualTo(4);
-        assertThat(buy.bothEvaluated()).isEqualTo(2);           // NO_INDEX·MISSING_BARS 는 비교 표본이 아니다
+        assertThat(buy.rows()).isEqualTo(5);
+        assertThat(buy.oldEvaluated()).isEqualTo(5);
+        assertThat(buy.bothEvaluated()).isEqualTo(2);
         assertThat(buy.hitAgree()).isEqualTo(1);
         assertThat(buy.hitOldOnly()).isEqualTo(1);
         assertThat(buy.hitNewOnly()).isZero();
-        assertThat(buy.d3ByStatus()).containsEntry("OK", 2).containsEntry("MISSING_BARS", 1).containsEntry("NO_INDEX", 1);
+        assertThat(buy.d3ByStatus()).containsEntry("OK", 2).containsEntry("MISSING_BARS", 1)
+                .containsEntry("NO_INDEX", 1).containsEntry("FETCH_FAILED", 1);
         assertThat(buy.oldAvgPct()).isEqualByComparingTo("3.50");
         assertThat(buy.newAvgPct()).isEqualByComparingTo("2.00");
         assertThat(buy.avgAbsPctDiff()).isEqualByComparingTo("1.50");
@@ -284,7 +379,7 @@ class SignalD3EvaluationServiceTest {
         var ctl = report.byType().get("CONTROL_RANDOM");
         assertThat(ctl.d3NotAttempted()).isEqualTo(1);
         assertThat(ctl.bothEvaluated()).isZero();
-        assertThat(ctl.oldAvgPct()).isNull();   // 비교 표본 없음 = null(0 아님)
+        assertThat(ctl.oldAvgPct()).isNull();
         assertThat(report.caveat()).contains("게이트 전환");
     }
 }

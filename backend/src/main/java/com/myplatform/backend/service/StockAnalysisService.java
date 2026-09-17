@@ -1044,28 +1044,51 @@ public class StockAnalysisService {
     }
 
     /**
-     * 날짜 범위 일봉 수집 — <b>결과를 돌려준다</b>(2026-09-17, 시그널 D+3 교정 평가용).
+     * 날짜 범위 일봉 수집 결과(2026-09-17). {@code bars} 는 KIS 가 <b>실제로 돌려준</b> 봉 — 호출부는
+     * "필요한 날짜가 응답에 있는가"를 이걸로 판단하고, DB 의 옛 봉과 섞지 않는다.
+     *
+     * @param alreadyCollecting 다른 스레드가 같은 종목을 수집 중이라 건너뜀(받은 것 없음)
+     * @param bars              응답 봉(빈 목록 = 빈 응답/실패)
+     * @param persisted         저장(신규+갱신)된 행 수
+     */
+    public record CollectResult(boolean alreadyCollecting, List<KoreaInvestmentService.OhlcvData> bars, int persisted) {
+        public static CollectResult busy() { return new CollectResult(true, List.of(), 0); }
+    }
+
+    /**
+     * 날짜 범위 일봉 수집 — <b>응답 봉을 그대로 돌려주고, 저장 실패는 호출부로 올린다</b>(2026-09-17).
      *
      * <p>{@link #collectPriceHistory} 는 실패를 삼키고 빈 응답·수집 중에도 그냥 반환해서, 호출부가
-     * "봉을 새로 받은 뒤 평가한다"를 보장할 수 없었다. 이 메서드는 받은 봉 수를 돌려주고
-     * (0 = 빈 응답/실패, -1 = 이미 수집 중), KIS 예외는 삼키지 않고 올린다.
+     * "봉을 새로 받은 뒤 평가한다"를 보장할 수 없었다. 저장 실패도 삼켰다(savePriceHistoryToDb 의
+     * catch). 이 메서드는 ① 받은 봉 목록을 돌려주고(개수가 아니라 <b>어느 날짜가 왔는지</b>를 호출부가
+     * 본다) ② 저장 예외를 그대로 던진다(DataAccessException 등) ③ KIS 예외도 삼키지 않는다.
      */
-    public int collectPriceHistoryRange(String stockCode, LocalDate start, LocalDate end) {
+    public CollectResult collectPriceHistoryRange(String stockCode, LocalDate start, LocalDate end) {
         if (!collectingStocks.add(stockCode)) {
-            return -1;
+            return CollectResult.busy();
         }
         try {
             List<KoreaInvestmentService.OhlcvData> ohlcv = koreaInvestmentService.getDailyOhlcvRange(stockCode, start, end);
-            if (ohlcv == null || ohlcv.isEmpty()) return 0;
-            savePriceHistoryToDb(stockCode, ohlcv);
-            return ohlcv.size();
+            if (ohlcv == null || ohlcv.isEmpty()) return new CollectResult(false, List.of(), 0);
+            int persisted = persistBarsStrict(stockCode, ohlcv);
+            return new CollectResult(false, List.copyOf(ohlcv), persisted);
         } finally {
             collectingStocks.remove(stockCode);
         }
     }
 
+    /** 기존 호출부용 — 실패를 삼킨다(동작 불변). 새 코드는 {@link #collectPriceHistoryRange} 를 쓸 것. */
     private void savePriceHistoryToDb(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
         try {
+            persistBarsStrict(stockCode, ohlcvData);
+        } catch (Exception e) {
+            log.error("종목 {} 일봉 데이터 저장 실패: {}", stockCode, e.getMessage());
+        }
+    }
+
+    /** 일봉 업서트 — 예외를 던진다. 반환 = 신규+갱신 행 수. */
+    private int persistBarsStrict(String stockCode, List<KoreaInvestmentService.OhlcvData> ohlcvData) {
+        {
             LocalDate today = LocalDate.now();
             int savedCount = 0;
             int updatedCount = 0;
@@ -1145,9 +1168,7 @@ public class StockAnalysisService {
 
             log.info("종목 {} 일봉 데이터 저장 완료 - 신규: {}, 갱신: {}, 스킵(동일): {}",
                     stockCode, savedCount, updatedCount, skippedCount);
-
-        } catch (Exception e) {
-            log.error("종목 {} 일봉 데이터 저장 실패: {}", stockCode, e.getMessage());
+            return savedCount + updatedCount;
         }
     }
 

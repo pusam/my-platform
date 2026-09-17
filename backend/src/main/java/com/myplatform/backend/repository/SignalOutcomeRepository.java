@@ -36,13 +36,27 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
                                               Pageable pageable);
 
     /**
-     * V59 교정 평가 대기 행 — 아직 시도 안 함(NULL) 또는 재시도 가능 상태. 종료일(D+3) 도래 여부는
-     * 달력이 필요해 서비스가 거른다. OK 는 제외 — 백필 재실행이 확정값을 다시 쓰지 않게(멱등).
+     * V59 교정 평가 대기 행 — <b>재시도 가능 여부와 순서를 DB 에서 정한 뒤</b> 상한을 건다(2026-09-17).
+     *
+     * <p>자바에서 2,000행을 먼저 자르고 정렬하면 앞쪽의 영구 결측 종목이 상한을 다 먹어 뒤쪽 신규
+     * 종목이 계속 밀린다(코덱스 리뷰). 조건: 아직 시도 안 함(NULL) / 재시도 가능 상태이고 마지막 시도가
+     * {@code retryBefore} 이전 / 수집 실패이고 마지막 시도가 {@code fetchRetryBefore} 이전(일시 장애라
+     * 더 짧게). 순서: <i>시도 안 한 행 → 가장 오래전 시도 → 오래된 시그널</i>. OK 는 제외(멱등).
+     * 종료일(D+3) 도래 여부는 달력이 필요해 서비스가 거르되, {@code latestDue}(오늘−3일) 로 상한을
+     * 미도래 행이 소모하지 않게 한다.
      */
-    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate >= :from "
-            + "AND (s.d3Status IS NULL OR s.d3Status IN :retryable) ORDER BY s.signalDate ASC, s.id ASC")
+    @Query("SELECT s FROM SignalOutcome s WHERE s.signalDate >= :from AND s.signalDate <= :latestDue "
+            + "AND (s.d3Status IS NULL "
+            + "  OR (s.d3Status IN :retryable AND (s.d3EvaluatedAt IS NULL OR s.d3EvaluatedAt <= :retryBefore)) "
+            + "  OR (s.d3Status = :fetchFailed AND (s.d3EvaluatedAt IS NULL OR s.d3EvaluatedAt <= :fetchRetryBefore))) "
+            + "ORDER BY CASE WHEN s.d3EvaluatedAt IS NULL THEN 0 ELSE 1 END ASC, s.d3EvaluatedAt ASC, "
+            + "s.signalDate ASC, s.id ASC")
     List<SignalOutcome> findD3Pending(@Param("from") LocalDate from,
+                                      @Param("latestDue") LocalDate latestDue,
                                       @Param("retryable") java.util.Collection<String> retryable,
+                                      @Param("retryBefore") java.time.LocalDateTime retryBefore,
+                                      @Param("fetchFailed") String fetchFailed,
+                                      @Param("fetchRetryBefore") java.time.LocalDateTime fetchRetryBefore,
                                       Pageable pageable);
 
     /** 구값·교정값 비교표용 — 컷오프 이후 전 행(타입 무관, 미평가 포함). */
