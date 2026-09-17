@@ -38,6 +38,8 @@
               <div class="item-meta">
                 <span class="item-value">{{ item.value }}</span>
                 <span v-if="item.threshold" class="item-threshold">기준 {{ item.threshold }}</span>
+                <!-- F5(2026-09-17): 값만 두고 "언제 기준인지"를 숨기지 않는다 — 노후를 정상으로 읽지 않게 -->
+                <span v-if="item.asOf" class="item-asof">{{ item.asOf }}</span>
               </div>
               <div v-if="item.note" class="item-note">{{ item.note }}</div>
             </div>
@@ -176,6 +178,7 @@ const dimensionLabel = (dim) => {
 .item:last-child { border-bottom: none; }
 .item-status { width: 32px; flex-shrink: 0; }
 .check-icon { font-size: 18px; }
+.item-asof { font-size: 11px; opacity: 0.7; margin-left: 6px; }
 .item-body { flex: 1; }
 .item-header { display: flex; justify-content: space-between; align-items: center; }
 .item-label { font-weight: 600; font-size: 14px; }

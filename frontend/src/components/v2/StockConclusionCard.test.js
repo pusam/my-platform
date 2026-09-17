@@ -29,7 +29,8 @@ const conclusionData = {
     mfeMaeSampleCount: 12
   },
   dataAt: new Date().toISOString(),
-  dataAvailable: true
+  dataAvailable: true,
+  currentlyValid: true
 }
 
 const accuracyResponse = {
@@ -199,5 +200,85 @@ describe('StockConclusionCard — 매매 계획 / 조건부 적중률', () => {
     stubApi(conclusionData, { catalystType: 'NONE', direction: 'NONE' })
     const w = await mountCard()
     expect(w.find('.catalyst-line').exists()).toBe(false)
+  })
+})
+
+describe('StockConclusionCard — F4 과거 스냅샷 표시(2026-09-17 감사)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/conclusion')) return Promise.resolve({ data: { success: true, data: staleConclusion } })
+      if (url.includes('accuracy-by-band')) return Promise.resolve(bandResponse)
+      if (url.includes('/signal-outcomes/accuracy')) return Promise.resolve(accuracyResponse)
+      return Promise.resolve({ data: { success: true, data: null } })
+    })
+  })
+
+  const staleConclusion = {
+    ...conclusionData,
+    level: 'WAIT',
+    headline: '과거 스냅샷(2026-09-11 기준)의 판단은 STRONG_BUY 였습니다 — 현재 매수 권고가 아닙니다.',
+    guidance: '최신 추천 스냅샷이 생기면 다시 판단합니다.',
+    tradePlan: null,
+    entryPosition: null,
+    currentlyValid: false,
+    staleReason: '2026-09-11 기준 스냅샷 — 이후 추천에 포함되지 않아 현재 판단에 쓸 수 없습니다.',
+    dataSessionDate: '2026-09-11'
+  }
+
+  it('과거 스냅샷이면 기준일과 사유를 먼저 보여준다', async () => {
+    const w = mount(StockConclusionCard, { props: { stockCode: '005930' } })
+    await flushPromises()
+
+    const banner = w.find('.stale-banner')
+    expect(banner.exists()).toBe(true)
+    expect(banner.text()).toContain('2026-09-11')
+    expect(banner.text()).toContain('현재 매수 권고가 아닙니다')
+  })
+
+  it('과거 스냅샷이면 매매계획을 렌더하지 않는다 — 오늘 목표가를 만들지 않는다', async () => {
+    const w = mount(StockConclusionCard, { props: { stockCode: '005930' } })
+    await flushPromises()
+
+    expect(w.text()).not.toContain('목표가')
+    expect(w.find('.entry-position').exists()).toBe(false)
+  })
+
+  it('신선도 신호등은 경과 분이 아니라 백엔드 판정을 따른다 — 주말에도 유효하면 빨간불이 아니다', async () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/conclusion')) {
+        // 사흘 전(주말 낀) 스냅샷이지만 백엔드가 "현재 유효"로 판정한 경우
+        const old = { ...conclusionData, currentlyValid: true,
+          dataAt: new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString() }
+        return Promise.resolve({ data: { success: true, data: old } })
+      }
+      if (url.includes('accuracy-by-band')) return Promise.resolve(bandResponse)
+      if (url.includes('/signal-outcomes/accuracy')) return Promise.resolve(accuracyResponse)
+      return Promise.resolve({ data: { success: true, data: null } })
+    })
+
+    const w = mount(StockConclusionCard, { props: { stockCode: '005930' } })
+    await flushPromises()
+
+    expect(w.find('.freshness-dot').classes()).toContain('fresh-good')
+    expect(w.find('.stale-banner').exists()).toBe(false)
+  })
+
+  it('currentlyValid 필드가 없는 옛 응답은 과거로 표시하지 않는다 — 하위호환', async () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes('/conclusion')) {
+        const legacy = { ...conclusionData }
+        delete legacy.currentlyValid
+        return Promise.resolve({ data: { success: true, data: legacy } })
+      }
+      if (url.includes('accuracy-by-band')) return Promise.resolve(bandResponse)
+      if (url.includes('/signal-outcomes/accuracy')) return Promise.resolve(accuracyResponse)
+      return Promise.resolve({ data: { success: true, data: null } })
+    })
+
+    const w = mount(StockConclusionCard, { props: { stockCode: '005930' } })
+    await flushPromises()
+
+    expect(w.find('.stale-banner').exists()).toBe(false)
   })
 })

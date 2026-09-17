@@ -516,6 +516,23 @@ public class ShortSellingService {
      * <p>§4c: 결측(데이터 전무·종목 미포함·조회 실패)은 {@code null} — 실측 0% 와 구분한다.
      * ZERO 로 위장하면 死피드 상태에서 전 종목이 "공매도 0% 충족"으로 보인다(AUDIT 2026-07-07 P1-3).
      */
+    /**
+     * 공매도 잔고 데이터의 <b>기준일</b> — 조회 실패·데이터 없음이면 null(2026-09-17 감사 F5).
+     *
+     * <p>비율만 주면 소비처가 "언제 기준인지" 모른 채 낮은 값을 통과로 표시한다. 공매도 잔고는
+     * <b>공시 지연이 있는 데이터</b>라 수급(당일 기준)과 같은 신선도 기준을 그대로 적용할 수 없다 —
+     * 노후 판정은 소비처가 이 기준일을 보고 한다.
+     */
+    @Transactional(readOnly = true)
+    public LocalDate getShortSellingAsOf() {
+        try {
+            return repository.findLatestTradeDate().orElse(null);
+        } catch (Exception e) {
+            log.warn("공매도 기준일 조회 실패: {}", e.getMessage());
+            return null;
+        }
+    }
+
     @Transactional(readOnly = true)
     public BigDecimal getShortSellingRatio(String stockCode) {
         if (cacheDate != null && cacheDate.equals(LocalDate.now()) && shortSellingRatioCache.containsKey(stockCode)) {

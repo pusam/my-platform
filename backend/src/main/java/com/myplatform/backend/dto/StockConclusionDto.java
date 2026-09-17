@@ -67,6 +67,18 @@ public class StockConclusionDto {
      */
     private boolean dataAvailable;
 
+    /**
+     * 이 스냅샷이 <b>현재 판단에 쓸 수 있는가</b> — false 면 과거 이력일 뿐이다(2026-09-17 감사 F4).
+     * true 여도 {@link #dataAvailable} 이 false 면 스냅샷 자체가 없는 것이다.
+     */
+    private boolean currentlyValid;
+
+    /** 현재 판단에 못 쓰는 사유(노후·거래정지). 쓸 수 있으면 null — 정상이면 화면이 조용하다. */
+    private String staleReason;
+
+    /** 스냅샷이 만들어진 거래일 — "언제 기준인가"를 화면이 말할 수 있게. */
+    private java.time.LocalDate dataSessionDate;
+
     public enum Level {
         STRONG_BUY,   // 다수 시그널 합의 + 단기 추세 강함
         BUY,          // 신호는 양호하나 일부 조건 미충족

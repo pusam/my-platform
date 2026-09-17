@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +57,10 @@ public class StockConclusionService {
     private final StockPriceHistoryRepository stockPriceHistoryRepository;
     // 지지선 거리(진입 위치 눌림 판정)용 — 기존 캐시된 SR 카드 데이터 재사용. ObjectProvider 로 순환 회피·best-effort.
     private final ObjectProvider<ChartPatternService> chartPatternProvider;
+    // 표시 전용 — 거래정지 여부를 "확인됨/미확인"까지 구분해 읽는다(F4). 게이트 극성은 건드리지 않는다.
+    private final StockStatusService stockStatusService;
+    private final MarketCalendarService marketCalendar;
+    private final java.time.Clock clock;
 
     // 결론 임계값 — RecommendationService 상수와 동기화 필요.
     private static final int STRONG_BUY_THRESHOLD = 75;
@@ -75,6 +80,12 @@ public class StockConclusionService {
     /** ATR14 계산용 일봉 로드 행 수 — 봇 computeEntryAtrQuiet(40)과 동일. */
     private static final int ATR_HISTORY_ROWS = 40;
 
+    /**
+     * 그날의 <b>첫 추천 스냅샷</b> 시각 — {@code RecommendationService} 크론(11:30·14:00·17:00)의 첫 타임과
+     * 동기화해야 한다. 이 시각이 지나야 "오늘자 스냅샷이 있어야 정상"이라고 말할 수 있다.
+     */
+    static final java.time.LocalTime FIRST_SNAPSHOT_TIME = java.time.LocalTime.of(11, 30);
+
     public StockConclusionDto getConclusion(String stockCode) {
         Optional<RecommendationSnapshot> snapshotOpt = snapshotRepository.findLatestByStockCode(stockCode);
         if (snapshotOpt.isEmpty()) {
@@ -93,7 +104,46 @@ public class StockConclusionService {
                 .factors(List.of())
                 .dataAt(null)
                 .dataAvailable(false)
+                .currentlyValid(false)
                 .build();
+    }
+
+    /**
+     * 지금 판단에 쓸 수 있는 스냅샷의 <b>최소 거래일</b> — 순수 함수(테스트 대상, F4).
+     *
+     * <p>스냅샷은 거래일에만 만들어진다(11:30·14:00·17:00). 그래서 신선도는 <b>경과 분이 아니라 거래일</b>로
+     * 본다 — 금요일 스냅샷은 주말·월요일 장전에도 "가장 최근 장"의 결론으로 유효하고, 단순 TTL 로
+     * 무효화하면 주말 내내 결론이 사라진다. 오늘이 거래일이고 첫 스냅샷 시각이 지났으면 오늘자가
+     * 있어야 하고, 그 전이면 직전 거래일 것이 최신이다.
+     */
+    static java.time.LocalDate lastSnapshotSessionDate(LocalDateTime now, MarketCalendarService calendar) {
+        java.time.LocalDate d = now.toLocalDate();
+        if (!calendar.isMarketClosed(d) && !now.toLocalTime().isBefore(FIRST_SNAPSHOT_TIME)) {
+            return d;
+        }
+        return calendar.lastClosedTradingDay(now);
+    }
+
+    /**
+     * 이 스냅샷을 <b>현재 판단</b>에 쓸 수 없는 사유 — 쓸 수 있으면 null. 순수 함수(테스트 대상, F4).
+     *
+     * <p>거래정지가 먼저다(최신 스냅샷이어도 못 산다). 그 다음이 노후다. ⚠ {@code UNVERIFIED}(마스터
+     * 동기화 전)는 <b>차단하지 않는다</b> — 게이트의 fail-open 의미를 표시층이 뒤집으면 동기화가 늦은 날
+     * 전 종목의 결론이 사라진다.
+     */
+    static String currentValidityReason(java.time.LocalDate sessionDate,
+                                        StockStatusService.ActiveStatus status,
+                                        java.time.LocalDate minSessionDate) {
+        if (status == StockStatusService.ActiveStatus.HALTED) {
+            return "거래정지/상폐 상태 — 현재 매수 판단 대상이 아닙니다.";
+        }
+        if (sessionDate == null) {
+            return "스냅샷 기준 시각을 알 수 없어 현재 판단에 쓸 수 없습니다.";
+        }
+        if (sessionDate.isBefore(minSessionDate)) {
+            return sessionDate + " 기준 스냅샷 — 이후 추천에 포함되지 않아 현재 판단에 쓸 수 없습니다.";
+        }
+        return null;
     }
 
     private StockConclusionDto build(RecommendationSnapshot s) {
@@ -120,7 +170,10 @@ public class StockConclusionService {
             level = Level.HOLD;
             headline = "장기 저평가 우량주이나 단기 추세 약함 — 분할 매수 후보.";
             guidance = "외국인/기관 순매수 전환 또는 20일선 지지 확인 후 진입 권장.";
-        } else if (supplyDemand >= SUPPLY_DEMAND_STRONG && technical < TECHNICAL_WEAK) {
+        } else if (supplyDemand >= SUPPLY_DEMAND_STRONG && technical < TECHNICAL_WEAK
+                && total >= BUY_THRESHOLD) {
+            // ★ F6(2026-09-17): 예전엔 총점 조건이 없어 총점 50 도 BUY 가 됐다 — 결론의 매수 등급이
+            //   추천의 55 컷과 어긋났다. 수급 강세는 아래 WAIT 의 관찰 문구로 남기고 등급은 55 를 따른다.
             level = Level.BUY;
             headline = "수급은 강하나 기술적 신호 부족 — 추격 매수 신중.";
             guidance = "단기 눌림목 또는 RSI 조정 시 분할 진입.";
@@ -128,10 +181,38 @@ public class StockConclusionService {
             level = Level.BUY;
             headline = "매수 신호 양호 — 다수 카테고리 점수 충족.";
             guidance = "리스크 카드(공시/공매도) 확인 후 진입.";
+        } else if (supplyDemand >= SUPPLY_DEMAND_STRONG) {
+            // 수급 강세는 관찰 항목 — 매수 등급으로 올리지 않는다(F6).
+            level = Level.WAIT;
+            headline = "수급은 강하나 종합점수가 매수 컷(" + BUY_THRESHOLD + ") 미만 — 관망.";
+            guidance = "수급 강세는 관찰 항목입니다. 기술·실적 점수 회복 시 재평가.";
         } else {
             level = Level.WAIT;
             headline = "현재 진입 신호 약함 — 관망 권장.";
             guidance = "수급/기술 신호 회복 또는 가치 점수 상승 대기.";
+        }
+
+        // ★ F4(2026-09-17): 노후·거래정지면 현재형 매수 권고와 신규 매매계획을 내지 않는다.
+        //   과거 등급은 지우지 않고 "과거"로 명시해 이력으로만 남긴다.
+        LocalDateTime now = LocalDateTime.now(clock);
+        java.time.LocalDate sessionDate = s.getSnapshotAt() == null ? null : s.getSnapshotAt().toLocalDate();
+        StockStatusService.ActiveStatus status;
+        try {
+            status = stockStatusService.activeStatus(s.getStockCode());
+        } catch (Exception e) {
+            // 상태 조회 실패로 결론을 막지 않는다 — 게이트가 아니라 표시 판단이다(§4c: 실패를 차단으로 바꾸지 않음).
+            log.debug("[결론] {} 거래 상태 조회 실패: {}", s.getStockCode(), e.getMessage());
+            status = StockStatusService.ActiveStatus.UNVERIFIED;
+        }
+        String staleReason = currentValidityReason(
+                sessionDate, status, lastSnapshotSessionDate(now, marketCalendar));
+        boolean currentlyValid = staleReason == null;
+        if (!currentlyValid) {
+            String pastGrade = level.name();
+            level = Level.WAIT;
+            headline = "과거 스냅샷(" + (sessionDate == null ? "시각 불명" : sessionDate + " 기준")
+                    + ")의 판단은 " + pastGrade + " 였습니다 — 현재 매수 권고가 아닙니다.";
+            guidance = "최신 추천 스냅샷이 생기면 다시 판단합니다. " + staleReason;
         }
 
         return StockConclusionDto.builder()
@@ -141,11 +222,15 @@ public class StockConclusionService {
                 .headline(headline)
                 .guidance(guidance)
                 .conflictNote(detectConflicts(s))
-                .entryPosition(buildEntryPosition(s))
+                // 진입 위치·매매계획은 오늘 시세로 계산된다 — 과거 판단과 섞이지 않게 유효할 때만 만든다(F4).
+                .entryPosition(currentlyValid ? buildEntryPosition(s) : null)
                 .factors(factors)
-                .tradePlan(buildTradePlan(s, level))
+                .tradePlan(currentlyValid ? buildTradePlan(s, level) : null)
                 .dataAt(s.getSnapshotAt())
                 .dataAvailable(true)
+                .currentlyValid(currentlyValid)
+                .staleReason(staleReason)
+                .dataSessionDate(sessionDate)
                 .build();
     }
 

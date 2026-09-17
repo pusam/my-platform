@@ -37,11 +37,27 @@ public class BuyChecklistService {
     private final InvestorTradeService investorTradeService;
     private final CompositeSignalService compositeSignalService;
     private final StockConclusionService stockConclusionService;
+    // 노후 판정 — "언제 기준인가"를 거래일로 본다(F5). 표시 계약용이며 게이트 극성은 바꾸지 않는다.
+    private final MarketCalendarService marketCalendar;
+    private final java.time.Clock clock;
 
     // 임계값 — 봇 룰과 동기화 필요.
     private static final BigDecimal SHORT_SELLING_LIMIT = new BigDecimal("5.0");
     private static final int CONSECUTIVE_BUY_MIN_DAYS = 3;
     private static final int COMPOSITE_SIGNAL_MIN_MATCHES = 3;
+
+    /**
+     * 연속매수 데이터 허용 지연(거래일) — 투자자 매매 집계는 장 마감 후 그날치가 들어온다.
+     * 1 은 "수집이 하루 늦어도 통과"라는 뜻이고, 그보다 오래면 수집 정체로 본다(§4c 노후 가드와 같은 정신).
+     */
+    static final int CONSECUTIVE_BUY_MAX_LAG_TRADING_DAYS = 1;
+    /**
+     * 공매도 잔고 허용 지연(거래일) — <b>공시 지연이 있는 데이터</b>다. 잔고는 발생일로부터 며칠 뒤
+     * 공표되므로 수급(당일 기준)과 같은 신선도를 적용하면 상시 "노후"가 된다. 공시 지연 + 수집 여유를
+     * 합쳐 3 거래일로 둔다. ⚠ 이 값은 실측으로 다시 잡을 대상이다 — 운영에서 최신 기준일 분포를
+     * 확인한 뒤 조정할 것(지금은 "당일 기준을 무작정 적용하지 않는다"가 목적).
+     */
+    static final int SHORT_SELLING_MAX_LAG_TRADING_DAYS = 3;
 
     public BuyChecklistDto evaluate(String stockCode) {
         List<ChecklistItem> items = new ArrayList<>();
@@ -89,9 +105,30 @@ public class BuyChecklistService {
 
     // ============================== 개별 체크 ==============================
 
+    /**
+     * 거래 가능 상태 — <b>확인됨·정지·확인 전</b>을 구분한다(F5, 2026-09-17 감사).
+     *
+     * <p>예전엔 {@code isActive()} 의 true 를 그대로 "정상"으로 적었다. 그 true 에는 <b>마스터 동기화 전
+     * fail-open</b>이 섞여 있어, 동기화가 안 된 상태에서 전 종목이 "거래 가능 확인"으로 보였다.
+     * 게이트로는 통과가 맞지만(막을 근거가 없음) <b>표시로는 미확인</b>이다 — 판정에서 뺀다.
+     */
     private ChecklistItem checkTradable(String stockCode) {
         try {
-            boolean active = stockStatusService.isActive(stockCode);
+            StockStatusService.ActiveStatus status = stockStatusService.activeStatus(stockCode);
+            if (status == StockStatusService.ActiveStatus.UNVERIFIED) {
+                return ChecklistItem.builder()
+                        .key("tradable")
+                        .label("거래 가능 상태")
+                        .passed(false)
+                        .dataMissing(true)
+                        .value("확인 전")
+                        .threshold("정상 거래")
+                        .note("종목 마스터 동기화 전 — 거래 가능 여부 미확인. 판정에서 제외.")
+                        .asOf(asOfText(stockStatusService.lastSyncAt()))
+                        .dimension("META")
+                        .build();
+            }
+            boolean active = status == StockStatusService.ActiveStatus.ACTIVE;
             return ChecklistItem.builder()
                     .key("tradable")
                     .label("거래 가능 상태")
@@ -99,11 +136,16 @@ public class BuyChecklistService {
                     .value(active ? "정상" : "거래정지/상폐")
                     .threshold("정상 거래")
                     .note(active ? "" : "거래정지 또는 상폐 종목 — 매수 불가.")
+                    .asOf(asOfText(stockStatusService.lastSyncAt()))
                     .dimension("META")
                     .build();
         } catch (Exception e) {
             return errorItem("tradable", "거래 가능 상태", e);
         }
+    }
+
+    private static String asOfText(java.time.LocalDateTime at) {
+        return at == null ? null : at.toLocalDate().toString() + " 동기화";
     }
 
     private ChecklistItem checkShortSelling(String stockCode) {
@@ -122,6 +164,26 @@ public class BuyChecklistService {
                         .dimension("SHORT")
                         .build();
             }
+            // ★ F5: 기준일을 함께 본다. 死피드의 낮은 비율이 "공매도 낮음 충족"으로 보이면 안 된다.
+            //    ⚠ 공매도 잔고는 공시 지연이 있어 수급(당일 기준)과 같은 신선도를 적용하지 않는다.
+            java.time.LocalDate asOf = shortSellingService.getShortSellingAsOf();
+            boolean fresh = marketCalendar.isFreshWithin(
+                    asOf, java.time.LocalDateTime.now(clock), SHORT_SELLING_MAX_LAG_TRADING_DAYS);
+            if (!fresh) {
+                return ChecklistItem.builder()
+                        .key("shortSelling")
+                        .label("공매도 비율")
+                        .passed(false)
+                        .dataMissing(true)
+                        .value(ratio.setScale(2, java.math.RoundingMode.HALF_UP) + "%")
+                        .threshold("< 5%")
+                        .note(asOf == null
+                                ? "공매도 기준일 미상 — 노후 여부를 알 수 없어 판정에서 제외."
+                                : "공매도 데이터 노후(" + asOf + " 기준) — 판정에서 제외.")
+                        .asOf(asOf == null ? null : asOf + " 기준")
+                        .dimension("SHORT")
+                        .build();
+            }
             boolean passed = ratio.compareTo(SHORT_SELLING_LIMIT) < 0;
             return ChecklistItem.builder()
                     .key("shortSelling")
@@ -130,6 +192,7 @@ public class BuyChecklistService {
                     .value(ratio.setScale(2, java.math.RoundingMode.HALF_UP) + "%")
                     .threshold("< 5%")
                     .note(passed ? "" : "공매도 압력 높음 — 진입 시 손절선 짧게.")
+                    .asOf(asOf + " 기준")
                     .dimension("SHORT")
                     .build();
         } catch (Exception e) {
@@ -141,20 +204,41 @@ public class BuyChecklistService {
         try {
             // 외국인 또는 기관 중 어느 한쪽이라도 3일 연속매수면 통과.
             // 각자 독립 판정 — 단락평가(foreignMatch ||)로 묶으면 외국인만 매칭돼도 "외국인+기관"으로 표시됐다.
-            boolean foreignMatch = matchesConsecutive(stockCode, "FOREIGN");
-            boolean institutionMatch = matchesConsecutive(stockCode, "INSTITUTION");
-            boolean passed = foreignMatch || institutionMatch;
-            String who = foreignMatch && institutionMatch ? "외국인+기관"
-                    : foreignMatch ? "외국인"
-                    : institutionMatch ? "기관"
+            ConsecutiveBuyDto foreign = findConsecutive(stockCode, "FOREIGN");
+            ConsecutiveBuyDto institution = findConsecutive(stockCode, "INSTITUTION");
+            boolean matched = foreign != null || institution != null;
+            String who = foreign != null && institution != null ? "외국인+기관"
+                    : foreign != null ? "외국인"
+                    : institution != null ? "기관"
                     : "없음";
+            // ★ F5: 목록에 있는지만 보면 안 된다. 목록은 DB 최신일 기준이라 수집이 멈추면 며칠 전
+            //    연속매수가 계속 통과한다 — endDate 가 최근 거래일인지 확인한다.
+            java.time.LocalDate endDate = latestEndDate(foreign, institution);
+            boolean fresh = !matched || marketCalendar.isFreshWithin(
+                    endDate, java.time.LocalDateTime.now(clock), CONSECUTIVE_BUY_MAX_LAG_TRADING_DAYS);
+            if (matched && !fresh) {
+                return ChecklistItem.builder()
+                        .key("consecutiveBuy")
+                        .label("외국인/기관 연속매수")
+                        .passed(false)
+                        .dataMissing(true)
+                        .value(who)
+                        .threshold("≥ 3일")
+                        .note(endDate == null
+                                ? "연속매수 종료일 미상 — 노후 여부를 알 수 없어 판정에서 제외."
+                                : "연속매수 데이터 노후(" + endDate + " 종료) — 수집 정체 의심, 판정에서 제외.")
+                        .asOf(endDate == null ? null : endDate + " 기준")
+                        .dimension("SHORT")
+                        .build();
+            }
             return ChecklistItem.builder()
                     .key("consecutiveBuy")
                     .label("외국인/기관 연속매수")
-                    .passed(passed)
+                    .passed(matched)
                     .value(who)
                     .threshold("≥ 3일")
-                    .note(passed ? "" : "수급 주체 진입 신호 없음 — 추세 형성 전.")
+                    .note(matched ? "" : "수급 주체 진입 신호 없음 — 추세 형성 전.")
+                    .asOf(endDate == null ? null : endDate + " 기준")
                     .dimension("SHORT")
                     .build();
         } catch (Exception e) {
@@ -162,10 +246,20 @@ public class BuyChecklistService {
         }
     }
 
-    private boolean matchesConsecutive(String stockCode, String investorType) {
+    /** 해당 투자자 유형의 연속매수 행 — 없으면 null. endDate 신선도를 보려면 행 자체가 필요하다(F5). */
+    private ConsecutiveBuyDto findConsecutive(String stockCode, String investorType) {
         List<ConsecutiveBuyDto> list = investorTradeService.getConsecutiveBuyStocks(investorType, CONSECUTIVE_BUY_MIN_DAYS);
-        if (list == null) return false;
-        return list.stream().anyMatch(dto -> stockCode.equals(dto.getStockCode()));
+        if (list == null) return null;
+        return list.stream().filter(dto -> stockCode.equals(dto.getStockCode())).findFirst().orElse(null);
+    }
+
+    /** 둘 중 더 최근 종료일 — 순수. 둘 다 없거나 날짜가 없으면 null. */
+    static java.time.LocalDate latestEndDate(ConsecutiveBuyDto a, ConsecutiveBuyDto b) {
+        java.time.LocalDate da = a == null ? null : a.getEndDate();
+        java.time.LocalDate db = b == null ? null : b.getEndDate();
+        if (da == null) return db;
+        if (db == null) return da;
+        return da.isAfter(db) ? da : db;
     }
 
     private ChecklistItem checkCompositeSignal(String stockCode) {
@@ -203,9 +297,28 @@ public class BuyChecklistService {
                     .key("conclusion")
                     .label("종합 결론")
                     .passed(false)
+                    .dataMissing(true)
                     .value("데이터 부족")
                     .threshold("BUY 이상")
-                    .note("종합 추천 스냅샷에 포함되지 않은 종목 — 다음 스냅샷까지 대기.")
+                    .note("종합 추천 스냅샷에 포함되지 않은 종목 — 판정 불가(다음 스냅샷까지 대기).")
+                    .dimension("MID")
+                    .build();
+        }
+        // ★ F5/F4: 노후·거래정지로 현재 판단에 못 쓰는 결론은 '미충족'이 아니라 '판정 불가'다.
+        //    WAIT 로 내려온 값을 미충족으로 세면 "오래된 데이터라 모른다"가 "매수 단계 미달"로 둔갑한다.
+        if (!conclusion.isCurrentlyValid()) {
+            return ChecklistItem.builder()
+                    .key("conclusion")
+                    .label("종합 결론")
+                    .passed(false)
+                    .dataMissing(true)
+                    .value("판정 불가")
+                    .threshold("BUY 이상")
+                    .note(conclusion.getStaleReason() == null
+                            ? "현재 판단에 쓸 수 있는 추천 스냅샷이 아님 — 판정에서 제외."
+                            : conclusion.getStaleReason())
+                    .asOf(conclusion.getDataSessionDate() == null ? null
+                            : conclusion.getDataSessionDate() + " 기준")
                     .dimension("MID")
                     .build();
         }
@@ -222,15 +335,23 @@ public class BuyChecklistService {
                 .build();
     }
 
+    /**
+     * 조회 실패 항목 — <b>판정 불가</b>다(F5, 2026-09-17 감사).
+     *
+     * <p>예전엔 {@code dataMissing} 없이 {@code passed=false} 라, 분모에서 "실제 미충족"과 같이 세어
+     * "N/5 충족"이 실패 개수만큼 낮아 보였다. 실패는 못 센 것이지 미달이 아니다(§4c).
+     * ⚠ 결측을 <b>매수 차단</b>으로 바꾸지는 않는다 — {@code decideRecommendation} 은 이미 결측을 판정에서 뺀다.
+     */
     private ChecklistItem errorItem(String key, String label, Exception e) {
         log.warn("[BuyChecklist] {} 체크 실패: {}", label, e.getMessage());
         return ChecklistItem.builder()
                 .key(key)
                 .label(label)
                 .passed(false)
+                .dataMissing(true)
                 .value("체크 불가")
                 .threshold("")
-                .note("일시적 데이터 조회 실패 — 잠시 후 재시도.")
+                .note("일시적 데이터 조회 실패 — 판정 불가(잠시 후 재시도).")
                 .build();
     }
 

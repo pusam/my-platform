@@ -61,5 +61,11 @@ public class BuyChecklistDto {
          */
         @Builder.Default
         private boolean dataMissing = false;
+
+        /**
+         * 이 항목이 참조한 데이터의 기준일/시각(사람이 읽는 문자열). 모르면 null(2026-09-17 감사 F5).
+         * 노후·미확인을 "정상"으로 보이지 않게 하려면 값과 함께 언제 기준인지가 있어야 한다.
+         */
+        private String asOf;
     }
 }

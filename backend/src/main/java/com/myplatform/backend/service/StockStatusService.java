@@ -107,9 +107,36 @@ public class StockStatusService {
      * - 동기화 후에는 상장 목록에 있는 종목만 true
      */
     public boolean isActive(String stockCode) {
-        if (volumeHaltedCodes.contains(stockCode)) return false; // 거래정지(마스터엔 남음) — 실측 volume=0 감지
-        if (activeStockCodes.isEmpty()) return true; // 동기화 전 안전 모드
-        return activeStockCodes.contains(stockCode);
+        // 게이트 극성 불변 — UNVERIFIED(동기화 전 fail-open)는 종전대로 true 다.
+        return activeStatus(stockCode) != ActiveStatus.HALTED;
+    }
+
+    /**
+     * 거래 가능 여부의 <b>세 상태</b> — 읽기 전용(2026-09-17 감사 F5).
+     *
+     * <p>{@link #isActive} 의 {@code true} 는 "거래 가능을 확인했다"와 "아직 확인 못 했지만 차단할 근거가
+     * 없다(동기화 전 fail-open)"를 <b>한 값으로 뭉갠다</b>. 게이트로는 그게 맞지만(막을 근거가 없으면
+     * 통과), 체크리스트가 그 true 를 "정상"으로 <b>표시</b>하면 미확인을 확인으로 위장하게 된다(§4c).
+     * 그래서 표시층이 구분할 수 있게 상태를 따로 준다 — <b>게이트 동작은 바꾸지 않는다</b>.
+     */
+    public ActiveStatus activeStatus(String stockCode) {
+        if (volumeHaltedCodes.contains(stockCode)) return ActiveStatus.HALTED;
+        if (activeStockCodes.isEmpty()) return ActiveStatus.UNVERIFIED;   // 마스터 동기화 전
+        return activeStockCodes.contains(stockCode) ? ActiveStatus.ACTIVE : ActiveStatus.HALTED;
+    }
+
+    /** 마스터 동기화 시각 — 표시층의 "언제 기준인가"용. 아직 없으면 null. */
+    public LocalDateTime lastSyncAt() {
+        return lastSyncTime;
+    }
+
+    public enum ActiveStatus {
+        /** 상장 목록에서 확인됨. */
+        ACTIVE,
+        /** 거래정지·상폐(마스터 부재 또는 거래량 0 감지). */
+        HALTED,
+        /** 마스터 동기화 전 — 차단할 근거가 없을 뿐 "거래 가능 확인"은 아니다. */
+        UNVERIFIED
     }
 
     /**

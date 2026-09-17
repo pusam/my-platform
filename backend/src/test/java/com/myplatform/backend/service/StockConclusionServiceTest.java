@@ -50,12 +50,24 @@ class StockConclusionServiceTest {
     @Mock private StockPriceHistoryRepository stockPriceHistoryRepository;
     @Mock private ObjectProvider<ChartPatternService> chartPatternProvider;
 
+    /**
+     * 2026-09-17(목) 14:00 KST 고정 — 이 테스트의 스냅샷은 같은 날 것이라 F4 신선도 게이트를 통과한다.
+     * (노후·거래정지 분기는 {@code StockConclusionStalenessTest} 가 따로 고정한다)
+     */
+    private static final java.time.Clock FIXED_CLOCK = java.time.Clock.fixed(
+            java.time.ZonedDateTime.of(2026, 9, 17, 14, 0, 0, 0, java.time.ZoneId.of("Asia/Seoul")).toInstant(),
+            java.time.ZoneId.of("Asia/Seoul"));
+
     private StockConclusionService service;
 
     @BeforeEach
     void setUp() {
+        StockStatusService statusService = org.mockito.Mockito.mock(StockStatusService.class);
+        lenient().when(statusService.activeStatus(anyString()))
+                .thenReturn(StockStatusService.ActiveStatus.ACTIVE);
         service = new StockConclusionService(snapshotRepository, signalOutcomeRepository,
-                stockPriceService, stockPriceHistoryRepository, chartPatternProvider);
+                stockPriceService, stockPriceHistoryRepository, chartPatternProvider,
+                statusService, new MarketCalendarService(), FIXED_CLOCK);
         // 지지선 조회는 기본 미가용(SR provider null) — entryPosition 은 과열 태그로만 판정. 개별 테스트에서 덮어씀.
         lenient().when(chartPatternProvider.getIfAvailable()).thenReturn(null);
         // 기본: 시세/MFE/일봉 데이터 없음 — tradePlan 은 % 만 채워짐, ATR 참고치 null. 개별 테스트에서 덮어씀.
@@ -113,16 +125,22 @@ class StockConclusionServiceTest {
     }
 
     @Test
-    @DisplayName("supplyDemand 18 + technical 5 + total 50 → BUY (수급 추격 신중)")
+    @DisplayName("supplyDemand 18 + technical 5 + total 50 → WAIT (수급 강세는 관찰 문구로)")
     void supplyStrongButTechnicalWeak() {
-        // total 50 — BUY_THRESHOLD(55) 미만이지만 value 도 약해 HOLD 분기 회피
+        // ⚠ 기대값 변경 이유(F6, 2026-09-17 감사): 이 테스트는 원래 **총점 50 → BUY** 를 정상으로
+        //   고정하고 있었다. 결론의 매수 등급이 추천의 55 컷과 어긋나 있었다는 뜻이다
+        //   (수급≥15·기술<8 이면 총점과 무관하게 BUY). 현재 writer(RecommendationService.calculate)가
+        //   55 점 이상만 저장하므로 운영에서 대량 유입되지는 않았지만, 입력이 넓어지거나 과거 행이
+        //   들어오면 잘못 분류하는 잠재 결함이다. 등급은 55 를 따르고, 수급 강세는 관찰 문구로 남긴다.
+        //   (총점 55 이상 + 수급 강 + 기술 약 = BUY 는 그대로 — StockConclusionStalenessTest 가 고정)
         when(snapshotRepository.findLatestByStockCode(anyString()))
                 .thenReturn(Optional.of(snapshot(50, 8, 18, 5, 10, 5)));
 
         StockConclusionDto result = service.getConclusion("005930");
 
-        assertThat(result.getLevel()).isEqualTo(Level.BUY);
+        assertThat(result.getLevel()).isEqualTo(Level.WAIT);
         assertThat(result.getHeadline()).contains("수급");
+        assertThat(result.getHeadline()).contains("55");
     }
 
     @Test

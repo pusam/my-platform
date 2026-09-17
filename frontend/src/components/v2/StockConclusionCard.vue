@@ -11,6 +11,16 @@
            :class="'ep-' + (conclusion.entryPosition.zone || '').toLowerCase()">
           {{ entryPositionIcon }} {{ conclusion.entryPosition.text }}
         </p>
+        <!--
+          F4(2026-09-17 감사): 노후·거래정지 스냅샷은 "현재 매수 권고"가 아니다.
+          백엔드가 currentlyValid=false 로 내려보내면 기준일과 사유를 먼저 보여준다.
+          ⚠ 판정은 백엔드 단일 출처 — 화면에서 경과 분으로 다시 계산하지 않는다.
+        -->
+        <p v-if="isStale" class="stale-banner">
+          ⏳ 과거 스냅샷<template v-if="conclusion.dataSessionDate"> ({{ conclusion.dataSessionDate }} 기준)</template>
+          — 현재 매수 권고가 아닙니다.
+          <span v-if="conclusion.staleReason" class="stale-reason">{{ conclusion.staleReason }}</span>
+        </p>
         <p class="headline">{{ conclusion.headline }}</p>
         <p class="source-caption" title="이 결론은 종합추천 스냅샷(전 종목 비교 랭킹, 5카테고리)을 기준으로 합니다. 상단 헤더의 '단기 트레이딩'·'중장기 펀더멘털' 점수와는 산출 기준·시점이 달라 결론이 다를 수 있습니다.">
           ⓘ 종합추천 스냅샷 기준 — 상단 단기/중장기 점수와 산출 기준이 다릅니다
@@ -81,8 +91,7 @@
     </div>
 
     <div v-if="conclusion.dataAt" class="conclusion-meta">
-      <span class="freshness-dot" :class="freshnessClass"
-            :title="`데이터 ${minutesAgo}분 경과 — ${freshnessLabel}`"></span>
+      <span class="freshness-dot" :class="freshnessClass" :title="freshnessLabel"></span>
       <span>스냅샷: {{ formatDataAt(conclusion.dataAt) }} · {{ minutesAgo }}분 전</span>
     </div>
 
@@ -275,20 +284,24 @@ const minutesAgo = computed(() => {
     return Math.max(0, Math.floor(ms / 60000));
   } catch { return 0; }
 });
-const freshnessClass = computed(() => {
-  const m = minutesAgo.value;
-  if (m <= 5) return 'fresh-good';   // 녹: 5분 이내
-  if (m <= 15) return 'fresh-mid';   // 노: 5~15분
-  return 'fresh-stale';              // 빨: 15분 초과
-});
-const freshnessLabel = computed(() => {
-  switch (freshnessClass.value) {
-    case 'fresh-good': return '신선';
-    case 'fresh-mid': return '주의 — 곧 갱신';
-    case 'fresh-stale': return 'stale — 다음 스냅샷 대기 권장';
-    default: return '';
-  }
-});
+/**
+ * 현재 판단에 쓸 수 있는가 — 백엔드 단일 출처(F4, 2026-09-17 감사).
+ * 필드가 없는 옛 응답은 "유효"로 본다(하위호환 — 카드가 갑자기 전부 과거로 보이지 않게).
+ */
+const isStale = computed(() => conclusion.value?.currentlyValid === false);
+
+/**
+ * 신선도 신호등 — <b>경과 분으로 다시 판정하지 않는다</b>(F4).
+ *
+ * 예전엔 15분 TTL 로 빨간불을 켰다. 스냅샷은 거래일에만(11:30·14:00·17:00) 만들어지므로 주말·장전엔
+ * 정상 상태에서도 항상 빨간불이었다. 유효/무효는 거래일 기준으로 백엔드가 정하고, 화면은 그 결과와
+ * 경과 시간을 보여주기만 한다.
+ */
+const freshnessClass = computed(() => (isStale.value ? 'fresh-stale' : 'fresh-good'));
+const freshnessLabel = computed(() =>
+  isStale.value
+    ? (conclusion.value?.staleReason || '과거 스냅샷 — 현재 판단에 사용하지 않음')
+    : `현재 판단에 유효 — ${minutesAgo.value}분 전 스냅샷`);
 
 const openChecklist = () => { showChecklist.value = true; };
 </script>
@@ -523,5 +536,23 @@ const openChecklist = () => { showChecklist.value = true; };
   .conclusion-level { min-width: 64px; }
   .card-actions { flex-basis: 100%; }
   .checklist-btn { width: 100%; text-align: center; }
+}
+
+/* F4 — 과거 스냅샷 배너: 결론을 지우지 않고 "과거"라는 사실을 먼저 알린다 */
+.stale-banner {
+  margin: 0 0 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(255, 176, 32, 0.12);
+  border: 1px solid rgba(255, 176, 32, 0.45);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.stale-banner .stale-reason {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  opacity: 0.85;
 }
 </style>
