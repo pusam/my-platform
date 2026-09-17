@@ -124,7 +124,29 @@ public class RealTradeService implements TradeService {
         VirtualTradeHistory trade = tradeHistoryRepository.findById(tradeId).orElse(null);
         if (trade == null || !"SELL".equals(trade.getTradeType())) return;
         int recorded = trade.getQuantity() != null ? trade.getQuantity() : 0;
-        if (filledQty >= recorded) return;   // 정정 불필요(전량/UNKNOWN 은 봇이 애초에 호출 안 함)
+        if (filledQty == recorded) return;   // 변화 없음 — 반복 호출 멱등
+        if (filledQty > recorded) {
+            // ★ 늦은 추가 체결(F1, 2026-09-17): 앞서 부분체결로 축소한 기록에 잔량이 뒤늦게 체결된 경우.
+            //   예전엔 `filledQty >= recorded` 로 조기 반환해 추가 체결이 <b>영영 기록되지 않았다</b>.
+            //   금액은 수량에 선형이라 비례 확대가 정확하고, 수수료·세금은 확대된 금액에서 다시 계산해
+            //   CEILING 반올림이 누적되지 않게 한다.
+            if (recorded <= 0) return;       // 0 에서는 비례 확대가 불가능(기록이 삭제된 경우)
+            BigDecimal up = BigDecimal.valueOf(filledQty)
+                    .divide(BigDecimal.valueOf(recorded), 10, RoundingMode.HALF_UP);
+            trade.setQuantity(filledQty);
+            if (trade.getTotalAmount() != null) {
+                trade.setTotalAmount(trade.getTotalAmount().multiply(up).setScale(0, RoundingMode.HALF_UP));
+                trade.setCommission(trade.getTotalAmount().multiply(new BigDecimal("0.00015"))
+                        .setScale(0, RoundingMode.CEILING));
+                trade.setTax(trade.getTotalAmount().multiply(SELL_TAX_RATE).setScale(0, RoundingMode.CEILING));
+            }
+            if (trade.getProfitLoss() != null) {
+                trade.setProfitLoss(trade.getProfitLoss().multiply(up).setScale(0, RoundingMode.HALF_UP));
+            }
+            tradeHistoryRepository.save(trade);
+            log.info("[실전매매] 매도 추가체결 반영 — 기록 {}→{}주로 확대 (id={})", recorded, filledQty, tradeId);
+            return;
+        }
         if (filledQty <= 0) {
             tradeHistoryRepository.delete(trade);   // 미체결 → 거래 없음
             log.info("[실전매매] 매도 미체결(0주) 확정 — 기록 삭제 (id={}, {}주 요청)", tradeId, recorded);

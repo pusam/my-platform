@@ -404,9 +404,16 @@ public class AutoTradingBotService {
         volatile BigDecimal buyPrice;           // 매수가
         volatile LocalDateTime buyTime;         // 매수 시간
         volatile BigDecimal highPrice;          // 최고가 (트레일링용)
-        volatile boolean halfSold;              // 절반 익절 완료 여부
+        volatile boolean halfSold;              // 1차 분할익절 "목표 완료" 여부 (F1: 주문 접수 ≠ 완료)
         volatile boolean timeExtended;          // 타임컷 동적 연장 사용 여부
         volatile int originalQuantity;          // 원래 수량
+        // ── F1(2026-09-17 감사): 분할익절 주문 추적 ──────────────────────────────
+        // 예전엔 halfSold 하나로 "주문 접수"와 "목표 완료"가 뭉개져 있었다. 0주 체결이어도 완료로
+        // 남아 다음 평가가 이 분기를 건너뛰었고, 요청 수량 매도 이력이 그대로 실현손익에 들어갔다.
+        volatile String partialOrderNo;         // 접수된 분할익절 주문번호 (null = 진행 중 주문 없음)
+        volatile int partialTargetQty;          // 목표 분할 수량
+        volatile int partialFilledQty;          // 관측된 체결 누계 (단조 증가)
+        volatile Long partialTradeId;           // 매도 이력 행 id (부분체결 정정용)
 
         ScalpingPosition(String stockCode, String stockName, BigDecimal buyPrice, int quantity) {
             this.stockCode = stockCode;
@@ -418,6 +425,10 @@ public class AutoTradingBotService {
             this.halfSold = false;
             this.timeExtended = false;
             this.originalQuantity = quantity;
+            this.partialOrderNo = null;
+            this.partialTargetQty = 0;
+            this.partialFilledQty = 0;
+            this.partialTradeId = null;
         }
 
         void updateHighPrice(BigDecimal currentPrice) {
@@ -766,6 +777,11 @@ public class AutoTradingBotService {
                         sp.buyTime = p.getBuyTime();
                         sp.highPrice = p.getHighPrice();
                         sp.halfSold = Boolean.TRUE.equals(p.getHalfSold());
+                        // F1: 주문 추적 복원. 옛 행은 전부 null/0 이고 partialStateOf 가 halfSold 로 해석한다.
+                        sp.partialOrderNo = p.getPartialOrderNo();
+                        sp.partialTargetQty = p.getPartialTargetQty() == null ? 0 : p.getPartialTargetQty();
+                        sp.partialFilledQty = p.getPartialFilledQty() == null ? 0 : p.getPartialFilledQty();
+                        sp.partialTradeId = p.getPartialTradeId();
                         sp.timeExtended = Boolean.TRUE.equals(p.getTimeExtended());
                         scalpingPositions.put(p.getStockCode(), sp);
                         scalping++;
@@ -884,6 +900,94 @@ public class AutoTradingBotService {
      * 호출측이 현행대로 포지션을 제거(조회 실패해도 최악이 현행과 동일). 확정 미달(부분/미체결)이면 true
      * → 호출측이 포지션을 유지해 다음 사이클에 재시도(잔량 KIS orphan 방지).
      */
+    /**
+     * 포지션의 분할익절 추적 상태 — 옛 행 호환(F1).
+     *
+     * <p>마이그레이션 전 행은 주문 추적 컬럼이 비어 있고 {@code halfSold} 만 있다. 그 경우
+     * {@code halfSold=true} 는 "목표 완료"로 본다(예전 의미 그대로) — 새로 주문을 내지 않는다.
+     */
+    static PartialSellTracker.State partialStateOf(ScalpingPosition p) {
+        if (p.partialOrderNo == null && p.partialTargetQty <= 0) {
+            return p.halfSold ? new PartialSellTracker.State(null, 1, 1, null)
+                              : PartialSellTracker.State.none();
+        }
+        return new PartialSellTracker.State(p.partialOrderNo, p.partialTargetQty,
+                p.partialFilledQty, p.partialTradeId);
+    }
+
+    /** 추적 상태를 포지션에 반영 — halfSold 는 "목표 완료"의 별칭으로 유지한다(영속 스키마 하위호환). */
+    static void applyPartialState(ScalpingPosition p, PartialSellTracker.State st) {
+        p.partialOrderNo = st.orderNo();
+        p.partialTargetQty = st.targetQty();
+        p.partialFilledQty = st.filledQty();
+        p.partialTradeId = st.tradeId();
+        p.halfSold = st.isComplete();
+    }
+
+    /**
+     * 살아 있는 분할익절 주문을 다시 확인한다 — 새 주문은 내지 않는다(F1).
+     *
+     * @return 이번 틱에 이 종목의 매도 평가를 <b>보류</b>해야 하면 true(주문이 아직 미체결로 살아 있음)
+     */
+    private boolean resolveOutstandingPartial(ScalpingPosition position) {
+        PartialSellTracker.State st = partialStateOf(position);
+        if (!st.isOutstanding()) return false;
+
+        RealTradeService.FillStatus status;
+        int observed;
+        if (currentMode != TradingMode.REAL) {
+            status = RealTradeService.FillStatus.FULL;       // 모의는 전량체결 가정(기존 정책)
+            observed = st.targetQty();
+        } else {
+            RealTradeService.FillResult f =
+                    realTradeService.confirmFill(position.stockCode, st.orderNo(), st.targetQty());
+            status = f.status();
+            observed = f.filledQty();
+        }
+        PartialSellTracker.Outcome o = PartialSellTracker.apply(st, status, observed);
+        if (o.shouldReconcileHistory() && st.tradeId() != null) {
+            // 확정 부분/미체결 → 요청수량 기록을 실체결로 정정(0주면 기록 삭제). 집계/기록만.
+            try { realTradeService.reconcileSellFill(st.tradeId(), o.state().filledQty()); }
+            catch (Exception e) { log.warn("[스캘핑봇] 분할익절 기록 정정 실패(무시): {}", e.getMessage()); }
+        }
+        applyPartialState(position, o.state());
+        try { persistScalpingPosition(position); }
+        catch (Exception e) { alertPersistFailure("스캘핑(분할익절 추적)", position.stockCode, position.stockName, e); }
+
+        if (o.state().isOutstanding()) {
+            // ⚠ 취소·정정 API 를 쓰지 않으므로 이 주문은 스스로 사라지지 않는다 — 한계를 드러낸다.
+            warnPartialOutstanding(position, o.alert());
+            return true;
+        }
+        if (o.alert() != null) {
+            log.warn("[스캘핑봇] {} 분할익절 — {}", position.stockName, o.alert());
+        }
+        return false;
+    }
+
+    /** 미체결 분할익절 주문 경보 — 종목당 하루 1회(알림 폭주 방지, 기존 guardWarnedOn 규약). */
+    private void warnPartialOutstanding(ScalpingPosition position, String alert) {
+        String key = "partial-outstanding:" + position.stockCode;
+        LocalDate today = LocalDate.now(clock);
+        if (today.equals(guardWarnedOn.get(key))) {
+            log.debug("[스캘핑봇] {} 분할익절 미체결 유지 — {}", position.stockName, alert);
+            return;
+        }
+        guardWarnedOn.put(key, today);
+        log.warn("[스캘핑봇] {} 분할익절 미체결 주문 유지 — {}", position.stockName, alert);
+        if (telegramService.isEnabled()) {
+            try {
+                telegramService.sendRisk(String.format(
+                        "⚠️ <b>[스캘핑봇] 분할익절 미체결 주문</b>\n\n종목: %s (%s)\n%s\n\n"
+                                + "이 종목의 신규 매도는 주문이 정리될 때까지 보류됩니다. "
+                                + "취소·정정은 자동으로 하지 않으니 KIS 에서 직접 확인하세요.",
+                        position.stockName, position.stockCode, alert));
+            } catch (Exception e) {
+                log.warn("[스캘핑봇] 분할익절 미체결 경보 발송 실패 — 사람 개입 알림이 안 갔다: {}", e.toString());
+            }
+        }
+    }
+
     private boolean isSellConfirmedShort(String stockCode, TradeHistoryDto sellDto, int requestedQty) {
         if (currentMode != TradingMode.REAL) return false;          // 모의는 전량체결 가정
         if (sellDto == null || sellDto.getOrderNo() == null) return false;
@@ -932,6 +1036,11 @@ public class AutoTradingBotService {
             entity.setHalfSold(sp.halfSold);
             entity.setTimeExtended(sp.timeExtended);
             entity.setOriginalQuantity(sp.originalQuantity);
+            // F1: 분할익절 주문 추적 — 재시작해도 기존 주문을 이어서 확인하고 새 주문을 내지 않게.
+            entity.setPartialOrderNo(sp.partialOrderNo);
+            entity.setPartialTargetQty(sp.partialTargetQty);
+            entity.setPartialFilledQty(sp.partialFilledQty);
+            entity.setPartialTradeId(sp.partialTradeId);
             entity.setTradingMode(mode);
             return positionRepository.save(entity);
         });
@@ -2242,6 +2351,12 @@ public class AutoTradingBotService {
                     continue;
                 }
 
+                // ★ F1: 살아 있는 분할익절 주문이 있으면 먼저 체결을 확인한다. 아직 미체결이면
+                //    이 종목의 매도 평가를 보류한다 — 잔량이 뒤늦게 체결되는데 새 매도를 내면 중복 청산이다.
+                if (resolveOutstandingPartial(position)) {
+                    continue;
+                }
+
                 // 고점 갱신
                 position.updateHighPrice(currentPrice);
 
@@ -2265,26 +2380,23 @@ public class AutoTradingBotService {
                 //    아래의 트레일링·타임컷이 <b>영영 평가되지 않았다</b>(2026-08-05 감사). 익절 구간에
                 //    머무는 한 +8%까지 갔다 되밀려도 매도가 없었다. 나눌 수 없으면 이 분기를 건너뛰어
                 //    트레일링/타임컷이 정상 평가되게 한다(1주는 전량 매도가 그 둘의 몫).
-                else if (!position.halfSold && portfolio.getQuantity() >= 2
-                        && profitRate.compareTo(TAKE_PROFIT_FIRST) >= 0) {
+                else if (PartialSellTracker.decide(partialStateOf(position),
+                                profitRate.compareTo(TAKE_PROFIT_FIRST) >= 0,
+                                portfolio.getQuantity() >= 2) == PartialSellTracker.Action.PLACE_NEW) {
                     sellReason = "TAKE_PROFIT_HALF";
                     sellQuantity = portfolio.getQuantity() / 2;
                     if (sellQuantity > 0) {
                         isPartialSell = true;
-                        position.halfSold = true;
-                        try {
-                            persistScalpingPosition(position);  // 재시작 대비: halfSold 플래그 영속화
-                        } catch (Exception persistEx) {
-                            alertPersistFailure("스캘핑(halfSold)", position.stockCode, position.stockName, persistEx);
-                        }
-                        log.info("[스캘핑봇] 1차 익절: {} - 손익률 {}%, 절반({}) 매도",
+                        // ★ F1: 주문 전에 halfSold 를 세우지 않는다 — 접수는 완료가 아니다.
+                        //    주문이 돌아온 뒤 주문번호·목표수량을 기록하고 체결을 확인한다.
+                        log.info("[스캘핑봇] 1차 익절 주문: {} - 손익률 {}%, 절반({}) 매도",
                                 portfolio.getStockName(), profitRate, sellQuantity);
                     }
                 }
                 // 3. 트레일링 스탑 체크 (고점 대비 -1.0%)
                 //    1주 포지션은 절반익절이 구조적으로 불가능하므로 halfSold 를 요구하지 않는다
                 //    (요구하면 트레일링이 영영 안 걸린다 — 2026-08-05 감사).
-                else if ((position.halfSold || portfolio.getQuantity() == 1)
+                else if ((partialStateOf(position).isComplete() || portfolio.getQuantity() == 1)
                         && highDropRate.compareTo(TRAILING_STOP_RATE) <= 0) {
                     sellReason = "TRAILING_STOP";
                     log.info("[스캘핑봇] 트레일링 스탑: {} - 고점대비 {}%", portfolio.getStockName(), highDropRate);
@@ -2349,7 +2461,28 @@ public class AutoTradingBotService {
             // 전량 매도 시 포지션 정리 + 쿨다운 기록.
             // B2-A: 실전 지정가가 부분/미체결로 확정되면 포지션을 제거하지 않고 유지 → 잔량 KIS orphan 방지.
             //       (전량체결/조회불가는 현행대로 제거 — 조회 실패해도 최악이 현행과 동일)
-            if (!isPartialSell && isSellConfirmedShort(portfolio.getStockCode(), sellDto, quantity)) {
+            if (isPartialSell) {
+                // ★ F1: 분할익절도 체결을 확인한다. 먼저 "접수" 사실을 남겨 재시작·다음 틱이 중복 주문을
+                //    내지 않게 하고, 그 다음 확인 결과를 반영한다(확인은 최대 ~1.4초 폴링).
+                ScalpingPosition pos = scalpingPositions.get(portfolio.getStockCode());
+                if (pos != null) {
+                    applyPartialState(pos, new PartialSellTracker.State(
+                            sellDto == null ? null : sellDto.getOrderNo(), quantity, 0,
+                            sellDto == null ? null : sellDto.getId()));
+                    try { persistScalpingPosition(pos); }
+                    catch (Exception persistEx) {
+                        alertPersistFailure("스캘핑(분할익절 접수)", pos.stockCode, pos.stockName, persistEx);
+                    }
+                    if (pos.partialOrderNo == null) {
+                        // 주문번호가 없으면 체결을 추적할 수 없다 — 기존 정책(전량체결 가정)으로 닫는다.
+                        applyPartialState(pos, new PartialSellTracker.State(null, quantity, quantity,
+                                sellDto == null ? null : sellDto.getId()));
+                        try { persistScalpingPosition(pos); } catch (Exception ignore) { /* 위에서 경보 */ }
+                    } else {
+                        resolveOutstandingPartial(pos);
+                    }
+                }
+            } else if (isSellConfirmedShort(portfolio.getStockCode(), sellDto, quantity)) {
                 log.warn("[스캘핑봇] 매도 부분/미체결 확정 — 포지션 유지, 다음 사이클 재시도: {}", portfolio.getStockName());
                 if (telegramService.isEnabled()) {
                     try {
@@ -2398,19 +2531,10 @@ public class AutoTradingBotService {
         } catch (Exception e) {
             log.error("[스캘핑봇] 매도 실패: {} - {}", portfolio.getStockName(), e.getMessage(), e);
 
-            // 1차 익절(절반 매도)은 주문 전에 halfSold=true 를 선반영·영속화하므로, 주문 실패 시
-            // 되돌리지 않으면 절반익절이 영구 스킵되고 트레일링 스탑이 전량을 지배한다 — 매수 buyOk 롤백과 동일 원칙.
-            if (isPartialSell) {
-                ScalpingPosition failedPos = scalpingPositions.get(portfolio.getStockCode());
-                if (failedPos != null && failedPos.halfSold) {
-                    failedPos.halfSold = false;
-                    try {
-                        persistScalpingPosition(failedPos);
-                    } catch (Exception persistEx) {
-                        log.warn("[스캘핑봇] halfSold 롤백 영속화 실패(메모리는 롤백됨): {}", persistEx.getMessage());
-                    }
-                }
-            }
+            // ★ F1: 주문 전에 halfSold 를 세우지 않으므로 롤백할 상태가 없다. 주문이 접수되지 않았으면
+            //    추적 상태도 비어 있어 다음 틱이 정상적으로 다시 시도한다.
+            //    ⚠ 주문이 접수됐는데 그 뒤에 예외가 났다면 추적 상태가 이미 기록돼 있어(위 접수 기록)
+            //    다음 틱은 새 주문 대신 기존 주문 확인으로 들어간다 — 중복 주문 방지.
 
             // 종목별 실패 카운트 — 5회 누적 시 포기 (무한 재시도 / 알림 폭주 방지)
             String code = portfolio.getStockCode();

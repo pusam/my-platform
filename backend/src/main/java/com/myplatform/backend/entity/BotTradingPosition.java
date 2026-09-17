@@ -62,6 +62,24 @@ public class BotTradingPosition {
     @Column(name = "original_quantity")
     private Integer originalQuantity;
 
+    // ── F1(2026-09-17 감사): 분할익절 주문 추적 ────────────────────────────────
+    // half_sold 하나로 "주문 접수"와 "목표 완료"가 뭉개져 있었다. 접수만 하고 0주 체결이어도
+    // 완료로 남아 다음 평가가 건너뛰었고, 요청 수량 매도 이력이 실현손익에 그대로 들어갔다.
+    // 옛 행은 전부 NULL/0 이고 코드가 half_sold=true 를 "완료"로 해석한다(하위호환).
+    @Column(name = "partial_order_no", length = 40)
+    private String partialOrderNo;
+
+    @Column(name = "partial_target_qty")
+    @lombok.Builder.Default
+    private Integer partialTargetQty = 0;
+
+    @Column(name = "partial_filled_qty")
+    @lombok.Builder.Default
+    private Integer partialFilledQty = 0;
+
+    @Column(name = "partial_trade_id")
+    private Long partialTradeId;
+
     @Column(name = "buy_reason", length = 100)
     private String buyReason;
 

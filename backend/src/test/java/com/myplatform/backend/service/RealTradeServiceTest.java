@@ -670,6 +670,34 @@ class RealTradeServiceTest {
     }
 
     @Test
+    @DisplayName("reconcileSellFill — 늦은 추가 체결(2→4주): 기록을 확대 반영 (F1, 2026-09-17)")
+    void reconcileSellFill_lateAdditionalFillScalesUp() {
+        // 앞서 부분체결(2주)로 축소된 기록에 잔량이 뒤늦게 체결된 상황.
+        // 예전엔 filledQty >= recorded 조기 반환이라 추가 체결이 영영 기록되지 않았다.
+        VirtualTradeHistory trade = sellTrade(7L, 2);   // 1,000원 × 2주, 손익 1,000원
+        when(tradeHistoryRepository.findById(7L)).thenReturn(java.util.Optional.of(trade));
+
+        service.reconcileSellFill(7L, 4);
+
+        assertThat(trade.getQuantity()).isEqualTo(4);
+        assertThat(trade.getTotalAmount()).isEqualByComparingTo("4000");    // 2,000 × 2
+        assertThat(trade.getProfitLoss()).isEqualByComparingTo("2000");     // 1,000 × 2
+        verify(tradeHistoryRepository).save(trade);
+    }
+
+    @Test
+    @DisplayName("reconcileSellFill — 같은 수량 재호출은 아무것도 하지 않는다 (멱등)")
+    void reconcileSellFill_sameQuantityIsNoop() {
+        VirtualTradeHistory trade = sellTrade(7L, 4);
+        when(tradeHistoryRepository.findById(7L)).thenReturn(java.util.Optional.of(trade));
+
+        service.reconcileSellFill(7L, 4);
+
+        verify(tradeHistoryRepository, never()).save(trade);
+        verify(tradeHistoryRepository, never()).delete(trade);
+    }
+
+    @Test
     @DisplayName("reconcileSellFill — 미체결(0주): 거래 없음 → 기록 삭제")
     void reconcileSellFill_noneDeletes() {
         VirtualTradeHistory trade = sellTrade(7L, 100);
