@@ -50,6 +50,12 @@ import java.util.TreeMap;
  * 먹어 뒤쪽 신규 종목이 계속 밀린다. 수집 실패는 일시 장애일 수 있어 다음 날 다시({@link
  * #FETCH_RETRY_INTERVAL_DAYS}), 봉/지수 없음은 {@link #RETRY_INTERVAL_DAYS} 뒤에 다시.
  *
+ * <p><b>마감된 거래일까지만 확정한다(F2, 2026-09-17 감사).</b> {@link #lastSettledTradingDay} 가 시계와
+ * 거래일 달력으로 "지금까지 마감이 확정된 마지막 거래일"을 정하고, 크론·기동 따라잡기·수동·force·dryRun 이
+ * <b>모두 같은 경계</b>를 쓴다. D+3 이 아직 마감 전이면 <b>아무 상태도 쓰지 않고</b> 미도래로 둔다 —
+ * 장중 잠정 봉으로 OK 를 굳히지도, 장전에 MISSING_BARS 를 박아 재시도를 7일 밀지도 않는다.
+ * 반대로 D+3 이 과거 확정일이면 <b>장중에도 평가한다</b>(장중이라는 이유로 전체 백필을 막지 않는다).
+ *
  * <p><b>멱등.</b> OK 행은 대상에서 빠지고, 결과의 <b>모든 저장 필드</b>가 같으면 쓰지 않는다
  * ({@link #needsWrite}). {@code force} 는 관리자가 비교표를 다시 만들 때만 — 그때 수집이 실패해도 OK 행은
  * 덮지 않는다.
@@ -70,6 +76,8 @@ public class SignalD3EvaluationService {
     static final int FETCH_LEAD_DAYS = 10;
     /** D+3 이 오늘 이전이려면 시그널일은 최소 3달력일 전이다 — 미도래 행이 상한을 먹지 않게 하는 상한. */
     static final int MIN_CALENDAR_DAYS_TO_DUE = 3;
+    /** 일봉 확정 여유(분) — KRX 종가 단일가 종료(15:40) 후 KIS 일봉에 반영되기까지. */
+    static final int BAR_SETTLE_MARGIN_MINUTES = 30;
     /** 기동 따라잡기 지연(ms) — 토큰·마스터 동기화가 끝난 뒤. */
     static final long STARTUP_DELAY_MS = 120_000L;
     static final Set<String> RETRYABLE = Set.of(
@@ -123,7 +131,8 @@ public class SignalD3EvaluationService {
      * @param skippedByCap      종목 상한에 걸려 다음 실행으로 넘긴 행 수(조용히 빠지지 않는다 §4c)
      * @param evaluatedByStatus 이번 실행에서 쓴 행의 상태별 건수
      */
-    public record Report(boolean dryRun, LocalDate today, int candidateRows, int notDue, int dueRows,
+    public record Report(boolean dryRun, LocalDate today, LocalDate settledTradingDay,
+                         int candidateRows, int notDue, int dueRows,
                          int distinctStocks, Map<String, Map<String, Integer>> coverageByType,
                          int fetched, int fetchFailed, int fetchFailedRows, int skippedByCap, int unchanged,
                          Map<String, Integer> evaluatedByStatus, List<String> notes) {}
@@ -136,17 +145,16 @@ public class SignalD3EvaluationService {
 
     /**
      * 기동 따라잡기 — 배포로 19:45 를 지나 재시작한 날, 다음 날 저녁까지 기다리지 않는다.
-     * 장중(KRX 정규장)에는 KIS 호출을 더 얹지 않고 19:45 로 미룬다. 대기 행이 없으면 KIS 를 부르지 않는다.
+     *
+     * <p>⚠ <b>장중이라는 이유로 막지 않는다</b>(F2): 확정 경계({@link #lastSettledTradingDay})가 미도래 행을
+     * 걸러내므로 장중 실행도 안전하고, 오히려 막으면 <b>과거 확정일 행의 백필이 저녁까지 밀린다</b>.
+     * 대기 행이 없으면 KIS 를 부르지 않는다.
      */
     @EventListener(ApplicationReadyEvent.class)
     @Async
     public void catchUpOnStartup() {
         if (!catchUpOnStartup) return;
         sleepQuietly(STARTUP_DELAY_MS);
-        if (calendar.isRegularSession()) {
-            log.info("[D3평가] 기동 따라잡기 — 장중이라 19:45 로 미룬다");
-            return;
-        }
         runAndLog("기동 따라잡기");
     }
 
@@ -167,21 +175,25 @@ public class SignalD3EvaluationService {
     public Report run(boolean dryRun, int maxFetchStocks, boolean force) {
         LocalDate today = LocalDate.now(clock);
         LocalDateTime now = LocalDateTime.now(clock);
+        // 확정 경계 — 크론·기동·수동·force·dryRun 이 모두 이 한 값을 쓴다(F2).
+        LocalDate settled = lastSettledTradingDay(now, calendar);
         List<String> notes = new ArrayList<>();
+        // 시그널일 상한도 확정일 기준 — 미도래 행이 2,000행 상한을 먹지 않게.
+        LocalDate latestDue = settled.minusDays(MIN_CALENDAR_DAYS_TO_DUE);
         List<SignalOutcome> candidates = force
-                ? repository.findD3Pending(SignalOutcomeService.PHASE38_CUTOFF, today.minusDays(MIN_CALENDAR_DAYS_TO_DUE),
+                ? repository.findD3Pending(SignalOutcomeService.PHASE38_CUTOFF, latestDue,
                         ALL_STATUSES, now.plusYears(100), FETCH_FAILED, now.plusYears(100),
                         PageRequest.of(0, MAX_ROWS_PER_RUN))
-                : repository.findD3Pending(SignalOutcomeService.PHASE38_CUTOFF, today.minusDays(MIN_CALENDAR_DAYS_TO_DUE),
+                : repository.findD3Pending(SignalOutcomeService.PHASE38_CUTOFF, latestDue,
                         RETRYABLE, now.minusDays(RETRY_INTERVAL_DAYS), FETCH_FAILED, now.minusDays(FETCH_RETRY_INTERVAL_DAYS),
                         PageRequest.of(0, MAX_ROWS_PER_RUN));
 
-        // ① 창 계산 + 도래 필터(달력) — DB 순서를 보존한다.
+        // ① 창 계산 + 도래 필터 — D+3 이 확정일 뒤면 저장하지 않고 미도래로 둔다(실패 이력도 쓰지 않는다).
         List<Due> due = new ArrayList<>();
         int notDue = 0;
         for (SignalOutcome row : candidates) {
             List<LocalDate> window = windowFor(row.getSignalDate());
-            if (window.get(2).isAfter(today)) { notDue++; continue; }
+            if (window.get(2).isAfter(settled)) { notDue++; continue; }
             due.add(new Due(row, window));
         }
         Map<String, List<Due>> byStock = groupByStock(due);
@@ -197,7 +209,7 @@ public class SignalD3EvaluationService {
             }
         }
         if (dryRun) {
-            return new Report(true, today, candidates.size(), notDue, due.size(), byStock.size(),
+            return new Report(true, today, settled, candidates.size(), notDue, due.size(), byStock.size(),
                     coverage, 0, 0, 0, 0, 0, Map.of(), notes);
         }
 
@@ -246,7 +258,7 @@ public class SignalD3EvaluationService {
             for (Due d : dues) {
                 SignalOutcome row = d.row();
                 SignalD3Evaluator.Result r = SignalD3Evaluator.evaluate(
-                        today, d.window(), row.getPriceAtSignal(), row.getBmPriceAtSignal(),
+                        settled, d.window(), row.getPriceAtSignal(), row.getBmPriceAtSignal(),
                         bars, indexClose.get(d.window().get(2)), caLabel);
                 if (r.status() == SignalD3Evaluator.Status.NOT_DUE) continue;
                 if (!needsWrite(row, r)) {
@@ -260,7 +272,7 @@ public class SignalD3EvaluationService {
                 byStatus.merge(r.status().name(), 1, Integer::sum);
             }
         }
-        Report report = new Report(false, today, candidates.size(), notDue, due.size(), byStock.size(),
+        Report report = new Report(false, today, settled, candidates.size(), notDue, due.size(), byStock.size(),
                 coverage, fetched, fetchFailed, fetchFailedRows, skippedByCap, unchanged, byStatus, notes);
         if (skippedByCap > 0) {
             log.warn("[D3평가] 종목 상한 {}에 걸려 {}행은 다음 실행으로 — 조용히 빠지지 않는다",
@@ -286,6 +298,25 @@ public class SignalD3EvaluationService {
 
     static boolean isRetryStatus(SignalD3Evaluator.Status s) {
         return RETRYABLE.contains(s.name()) || s == SignalD3Evaluator.Status.FETCH_FAILED;
+    }
+
+    /**
+     * 지금까지 <b>마감이 확정된 마지막 거래일</b> — 시계 판정은 서비스 계층에 두고 평가 순수함수는
+     * 날짜만 받는다(결정성 보존). 순수 함수(테스트 대상).
+     *
+     * <p><b>왜 필요한가(F2, 2026-09-17 감사)</b>: 날짜만 비교하면 {@code D+3 == 오늘}인 행이 시각과
+     * 무관하게 평가된다. 장중이면 KIS 응답의 <b>미확정 장중 봉</b>으로 {@code OK} 가 저장되고 OK 는
+     * 재평가 대상이 아니라 잠정 종가가 영구 고정된다. 장전이면 오늘 봉이 없어 {@code MISSING_BARS} 가
+     * 기록되고 재시도 간격 7일에 걸려 정상 장마감 평가가 일주일 밀린다.
+     *
+     * <p><b>경계</b> = KRX 정규장 종료({@link MarketCalendarService#MARKET_CLOSE} 15:40) +
+     * {@link #BAR_SETTLE_MARGIN_MINUTES}. 종가 단일가가 15:40 에 끝나도 KIS 일봉에 반영되기까지 여유가
+     * 필요하다 — 여유 없이 15:40 을 쓰면 봉이 아직 없는 순간에 {@code MISSING_BARS} 가 박힌다.
+     * ⚠ NXT 표시 시간(20:00)과 합치지 말 것 — 일봉 확정은 KRX 종가 기준이다(§2 시간대 경계 분리).
+     */
+    static LocalDate lastSettledTradingDay(LocalDateTime now, MarketCalendarService calendar) {
+        // 마지막 마감 거래일 판정은 달력 한 곳에 있다 — 여기서는 일봉 확정 여유만 얹는다.
+        return calendar.lastClosedTradingDay(now.minusMinutes(BAR_SETTLE_MARGIN_MINUTES));
     }
 
     /** 달력이 정한 [D+1, D+2, D+3]. */
@@ -405,8 +436,9 @@ public class SignalD3EvaluationService {
     }
 
     static String summarize(Report r) {
-        return String.format("%s 대상 %d행(미도래 %d, 도래 %d, 종목 %d) 수집 %d/실패 %d(행 %d)/상한이월 %d · 동일 %d · 결과 %s · 완전성 %s%s",
-                r.dryRun() ? "사전점검" : "실행", r.candidateRows(), r.notDue(), r.dueRows(), r.distinctStocks(),
+        return String.format("%s 확정일 %s · 대상 %d행(미도래 %d, 도래 %d, 종목 %d) 수집 %d/실패 %d(행 %d)/상한이월 %d · 동일 %d · 결과 %s · 완전성 %s%s",
+                r.dryRun() ? "사전점검" : "실행", r.settledTradingDay(),
+                r.candidateRows(), r.notDue(), r.dueRows(), r.distinctStocks(),
                 r.fetched(), r.fetchFailed(), r.fetchFailedRows(), r.skippedByCap(), r.unchanged(),
                 r.evaluatedByStatus(), r.coverageByType(),
                 r.notes().isEmpty() ? "" : " · 비고 " + r.notes());

@@ -136,6 +136,43 @@ public class MarketCalendarService {
     }
 
     /**
+     * {@code now} 기준 <b>마지막으로 정규장이 끝난 거래일</b> — 공용 단일 출처(2026-09-17 감사 F2/F4/F5).
+     *
+     * <p>오늘이 거래일이고 아직 {@link #MARKET_CLOSE}(15:40) 전이면 <b>직전 거래일</b>, 휴장일이면 직전
+     * 거래일, 거래일이고 마감 뒤면 오늘이다. "지금 판단에 쓸 수 있는 데이터의 최신 기준일"을 묻는 곳이
+     * 여럿이라(시그널 D+3 확정, 결론 스냅샷 신선도, 체크리스트 노후) 여기 한 벌만 둔다.
+     *
+     * <p>⚠ KRX 종가 기준이다 — NXT 표시 시간(20:00)과 합치지 말 것(§2 시간대 경계 분리).
+     */
+    public LocalDate lastClosedTradingDay(java.time.LocalDateTime now) {
+        LocalDate d = now.toLocalDate();
+        if (!isMarketClosed(d) && now.toLocalTime().isBefore(MARKET_CLOSE)) {
+            return minusTradingDays(d, 1);
+        }
+        if (isMarketClosed(d)) {
+            return minusTradingDays(d, 1);
+        }
+        return d;
+    }
+
+    /**
+     * {@code asOf} 가 {@code now} 기준 허용 거래일 수 안에 있는가 — 노후 판정 단일 출처.
+     * {@code asOf} 가 null 이면 false(모르는 것을 신선하다고 하지 않는다 §4c).
+     *
+     * @param maxLagTradingDays 마지막 마감 거래일로부터 허용하는 거래일 지연(0 = 당일치여야 함)
+     */
+    public boolean isFreshWithin(LocalDate asOf, java.time.LocalDateTime now, int maxLagTradingDays) {
+        if (asOf == null) return false;
+        LocalDate oldestAllowed = minusTradingDaysInclusive(lastClosedTradingDay(now), maxLagTradingDays);
+        return !asOf.isBefore(oldestAllowed);
+    }
+
+    /** {@code from} 자신을 0 으로 세어 {@code tradingDays} 만큼 거래일 역행. 0 이면 {@code from}. */
+    public LocalDate minusTradingDaysInclusive(LocalDate from, int tradingDays) {
+        return tradingDays <= 0 ? from : minusTradingDays(from, tradingDays);
+    }
+
+    /**
      * {@code from} 에서 거래일로 {@code tradingDays} 만큼 뒤 — 휴장일·주말을 건너뛴다.
      *
      * <p>시그널 D+3 종료일 계산용(2026-09-17). "봉이 있는 다음 3개"가 아니라 <b>달력이 먼저 날짜를
