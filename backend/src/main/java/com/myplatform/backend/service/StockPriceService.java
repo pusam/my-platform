@@ -416,13 +416,7 @@ public class StockPriceService {
             if (kisService.isTokenAvailable()) {
                 StockPriceDto kisPrice = fetchFromKoreaInvestment(stockCode);
                 if (kisPrice != null) {
-                    // ★ KIS가 등락률 0%를 반환하면 네이버에서 등락률만 보충
-                    boolean changeRateMissing = kisPrice.getChangeRate() == null
-                            || kisPrice.getChangeRate().compareTo(BigDecimal.ZERO) == 0;
-                    boolean changePriceMissing = kisPrice.getChangePrice() == null
-                            || kisPrice.getChangePrice().compareTo(BigDecimal.ZERO) == 0;
-
-                    if (changeRateMissing && changePriceMissing && kisPrice.getCurrentPrice() != null) {
+                    if (needsExternalChangeRate(kisPrice)) {
                         supplementFromNaver(kisPrice, stockCode);
                     }
                     return kisPrice;
@@ -444,18 +438,39 @@ public class StockPriceService {
         try {
             StockPriceDto naverDto = fetchFromNaver(stockCode);
             if (naverDto == null) return;
-
-            if (naverDto.getChangeRate() != null && naverDto.getChangeRate().compareTo(BigDecimal.ZERO) != 0) {
-                kisDto.setChangeRate(naverDto.getChangeRate());
-                log.debug("[시세보충] {} 등락률 네이버 보충: {}%", stockCode, naverDto.getChangeRate());
-            }
-            if (kisDto.getChangePrice() == null || kisDto.getChangePrice().compareTo(BigDecimal.ZERO) == 0) {
-                if (naverDto.getChangePrice() != null) {
-                    kisDto.setChangePrice(naverDto.getChangePrice());
-                }
-            }
+            applyNaverSupplement(kisDto, naverDto);
         } catch (Exception e) {
             log.debug("[시세보충] {} 네이버 보충 실패: {}", stockCode, e.getMessage());
+        }
+    }
+
+    /**
+     * 외부(네이버) 등락률 보충이 필요한가 — 순수 함수(테스트 대상).
+     *
+     * <p><b>null 만 결측이다</b>(F3): 정상 보합(0/0)을 결측으로 보면 외부 값으로 덮어 가격과 등락률의
+     * 시점이 어긋난다. 현재가가 없으면 기준가격을 대조할 수 없으므로 보충하지 않는다.
+     */
+    static boolean needsExternalChangeRate(StockPriceDto dto) {
+        if (dto == null || dto.getCurrentPrice() == null) return false;
+        return dto.getChangeRate() == null && dto.getChangePrice() == null;
+    }
+
+    /**
+     * 네이버 값을 KIS DTO 에 반영 — 순수 함수(테스트 대상).
+     *
+     * <p><b>같은 기준가격일 때만</b>(F3): 네이버 현재가가 KIS 현재가와 같아야 그 등락률이 이 가격의
+     * 등락률이다. 다르면 다른 시점·다른 거래소의 값이므로 쓰지 않는다. 일치하면 <b>0% 도 유효값</b>으로
+     * 그대로 반영한다.
+     */
+    static void applyNaverSupplement(StockPriceDto kisDto, StockPriceDto naverDto) {
+        if (kisDto == null || naverDto == null) return;
+        if (kisDto.getCurrentPrice() == null || naverDto.getCurrentPrice() == null) return;
+        if (kisDto.getCurrentPrice().compareTo(naverDto.getCurrentPrice()) != 0) return;
+        if (kisDto.getChangeRate() == null && naverDto.getChangeRate() != null) {
+            kisDto.setChangeRate(naverDto.getChangeRate());
+        }
+        if (kisDto.getChangePrice() == null && naverDto.getChangePrice() != null) {
+            kisDto.setChangePrice(naverDto.getChangePrice());
         }
     }
 
@@ -491,8 +506,12 @@ public class StockPriceService {
             dto.setOpenPrice(getBigDecimalValue(output, "stck_oprc")); // 시가
             dto.setHighPrice(getBigDecimalValue(output, "stck_hgpr")); // 고가
             dto.setLowPrice(getBigDecimalValue(output, "stck_lwpr")); // 저가
-            dto.setChangePrice(getBigDecimalValue(output, "prdy_vrss")); // 전일대비
-            dto.setChangeRate(getBigDecimalValue(output, "prdy_ctrt")); // 전일대비율
+            // ★ 등락률·전일대비만 <b>null 반환 파서</b>를 쓴다(F3, 2026-09-17 감사).
+            //   getBigDecimalValue 는 필드 부재·숫자아님을 BigDecimal.ZERO 로 돌려줘 0 과 결측이 구분되지
+            //   않는다 — 그래서 "0 = 결측"이라는 잘못된 판단이 생겼고 정상 보합이 다른 시점 값으로 덮였다.
+            //   다른 필드(현재가·거래량 등)는 소비처가 non-null 을 전제하므로 종전 파서를 유지한다.
+            dto.setChangePrice(getBigDecimalFromNode(output, "prdy_vrss")); // 전일대비 (결측=null)
+            dto.setChangeRate(getBigDecimalFromNode(output, "prdy_ctrt"));  // 전일대비율 (결측=null)
             dto.setVolume(getBigDecimalValue(output, "acml_vol")); // 누적거래량
             dto.setPreviousDayVolume(getBigDecimalValue(output, "prdy_vol")); // 전일 거래량
             // 누적 거래대금 계산 (KIS API는 직접 제공 안 함 → 현재가 × 거래량)
@@ -511,36 +530,35 @@ public class StockPriceService {
             //    정상: 저가 ≤ 현재가 ≤ 고가. 현재가만 ×10이면 이 범위를 크게 벗어남.
             warnIfPriceOutlier(stockCode, output, dto);
 
-            // 등락률이 없거나 0인지 확인
-            boolean changeRateIsZeroOrNull = dto.getChangeRate() == null
-                    || dto.getChangeRate().compareTo(BigDecimal.ZERO) == 0;
+            // ★ 등락률 결측 판정 — <b>null 만</b> 결측이다(F3, 2026-09-17 감사).
+            //   예전엔 0 도 결측으로 봐서 정상 보합(전일과 같은 가격)을 다른 시점 값으로 덮었다.
+            //   현재가는 그대로라 같은 DTO 안에서 가격과 등락률의 시점이 어긋났다.
+            //   파싱(getBigDecimalValue)은 부재·빈값·숫자아님을 null 로 주므로 0 과 결측은 이미 구분된다.
+            boolean changeRateMissing = dto.getChangeRate() == null;
 
-            // 1. 먼저 전일대비(prdy_vrss)로 계산 시도
-            if (changeRateIsZeroOrNull) {
-                boolean hasValidChangePrice = dto.getChangePrice() != null
-                        && dto.getChangePrice().compareTo(BigDecimal.ZERO) != 0;
-
-                if (hasValidChangePrice && dto.getCurrentPrice() != null) {
-                    BigDecimal previousClose = dto.getCurrentPrice().subtract(dto.getChangePrice());
-                    if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal calculatedRate = dto.getChangePrice()
-                                .divide(previousClose, 4, java.math.RoundingMode.HALF_UP)
-                                .multiply(new BigDecimal("100"))
-                                .setScale(2, java.math.RoundingMode.HALF_UP);
-                        dto.setChangeRate(calculatedRate);
-                        changeRateIsZeroOrNull = false;
-                        log.debug("등락률 계산 (prdy_vrss): {} = {}%", stockCode, calculatedRate);
-                    }
+            // 1. 같은 응답의 전일대비(prdy_vrss)로 계산 — 근거가 같은 응답 안에 있어 안전하다.
+            //    ⚠ 전일대비 0 도 유효값이다(보합) — 0 을 "없음"으로 보면 여기서 또 결측이 된다.
+            if (changeRateMissing && dto.getChangePrice() != null && dto.getCurrentPrice() != null) {
+                BigDecimal previousClose = dto.getCurrentPrice().subtract(dto.getChangePrice());
+                if (previousClose.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal calculatedRate = dto.getChangePrice()
+                            .divide(previousClose, 4, java.math.RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"))
+                            .setScale(2, java.math.RoundingMode.HALF_UP);
+                    dto.setChangeRate(calculatedRate);
+                    changeRateMissing = false;
+                    log.debug("등락률 계산 (prdy_vrss): {} = {}%", stockCode, calculatedRate);
                 }
             }
 
-            // 2. 여전히 등락률이 0이면 → 일봉 API에서 직전 등락률 조회 (장전뿐 아니라 장중에도)
-            if (changeRateIsZeroOrNull) {
-                BigDecimal dailyChangeRate = fetchYesterdayChangeRateFromDaily(stockCode);
+            // 2. 그래도 결측이면 일봉에서 보충 — <b>같은 기준가격임을 확인할 때만</b>.
+            //    일봉 종가가 현재가와 같아야 그 등락률이 "이 가격"의 등락률이다. 근거가 없으면 null 유지(§4c).
+            if (changeRateMissing) {
+                BigDecimal dailyChangeRate = fetchChangeRateForPrice(stockCode, dto.getCurrentPrice());
                 if (dailyChangeRate != null) {
                     dto.setChangeRate(dailyChangeRate);
                     dto.setDataSource("KIS_DAILY");
-                    log.debug("[등락률 폴백] 일봉 API에서 등락률 적용: {} = {}%", stockCode, dailyChangeRate);
+                    log.debug("[등락률 보충] 일봉 종가가 현재가와 일치 — 적용: {} = {}%", stockCode, dailyChangeRate);
                 }
             }
 
@@ -573,59 +591,40 @@ public class StockPriceService {
     }
 
     /**
-     * 일봉 API에서 어제(가장 최근 거래일) 등락률 조회
-     * @param stockCode 종목코드
-     * @return 어제 등락률 (%) 또는 null
+     * 일봉에서 <b>이 현재가에 해당하는</b> 등락률을 찾는다 — 없으면 null(F3, 2026-09-17 감사).
+     *
+     * <p><b>바뀐 점</b>: 예전 {@code fetchYesterdayChangeRateFromDaily} 는 {@code output2[0]} 을 날짜 검증
+     * 없이 "어제"로 가정하고 그 등락률을 <b>현재 등락률로 복사</b>했다. 통합시세(NXT 포함) 현재가와 KRX
+     * 일봉은 거래소·시점이 달라 같은 DTO 안의 값이 어긋난다.
+     *
+     * <p><b>허용 근거는 하나</b>: 일봉 봉의 <b>종가가 현재가와 같을 때</b>만 그 봉의 등락률이 이 가격의
+     * 등락률이다(장전에 전일 종가가 현재가로 오는 경우, 장후 확정 종가가 현재가인 경우 모두 여기 해당).
+     * 날짜가 없는 봉은 어느 시점인지 모르므로 쓰지 않는다. 근거가 없으면 null 을 유지한다 — 현재가를
+     * 역산 보정하지 않고(§3), 다른 시점 값을 복사하지도 않는다.
      */
-    private BigDecimal fetchYesterdayChangeRateFromDaily(String stockCode) {
+    private BigDecimal fetchChangeRateForPrice(String stockCode, BigDecimal currentPrice) {
+        if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) return null;
         try {
-            // 일봉 데이터 조회 (최근 5일)
             JsonNode response = kisService.getDailyPrices(stockCode, 5);
-            if (response == null) {
-                return null;
-            }
-
+            if (response == null) return null;
             JsonNode output2 = response.get("output2");
             if (output2 == null || !output2.isArray() || output2.size() == 0) {
-                log.warn("[일봉] {} - output2 데이터 없음", stockCode);
+                log.debug("[등락률 보충] {} - output2 없음", stockCode);
                 return null;
             }
-
-            // output2[0] = 가장 최근 거래일 (어제)
-            JsonNode yesterday = output2.get(0);
-
-            // prdy_ctrt (전일대비율) 추출
-            if (yesterday.has("prdy_ctrt")) {
-                String rateStr = yesterday.get("prdy_ctrt").asText();
-                if (rateStr != null && !rateStr.isEmpty()) {
-                    BigDecimal rate = new BigDecimal(rateStr);
-                    log.debug("[일봉] {} - 어제 등락률: {}%", stockCode, rate);
-                    return rate;
-                }
+            for (JsonNode barNode : output2) {
+                // 날짜 없는 봉은 시점을 확인할 수 없어 사용하지 않는다.
+                if (!barNode.hasNonNull("stck_bsop_date")
+                        || barNode.get("stck_bsop_date").asText().isEmpty()) continue;
+                BigDecimal close = getBigDecimalFromNode(barNode, "stck_clpr");
+                if (close == null || close.compareTo(currentPrice) != 0) continue;   // 기준가격 불일치
+                BigDecimal rate = getBigDecimalFromNode(barNode, "prdy_ctrt");
+                if (rate != null) return rate;
             }
-
-            // prdy_ctrt가 없으면 종가로 직접 계산
-            if (output2.size() >= 2) {
-                JsonNode day1 = output2.get(0); // 어제
-                JsonNode day2 = output2.get(1); // 그저께
-
-                BigDecimal close1 = getBigDecimalFromNode(day1, "stck_clpr");
-                BigDecimal close2 = getBigDecimalFromNode(day2, "stck_clpr");
-
-                if (close1 != null && close2 != null && close2.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal rate = close1.subtract(close2)
-                            .divide(close2, 4, java.math.RoundingMode.HALF_UP)
-                            .multiply(new BigDecimal("100"))
-                            .setScale(2, java.math.RoundingMode.HALF_UP);
-                    log.debug("[일봉] {} - 종가 기반 등락률 계산: {}%", stockCode, rate);
-                    return rate;
-                }
-            }
-
+            log.debug("[등락률 보충] {} - 현재가 {}와 종가가 일치하는 봉 없음, null 유지", stockCode, currentPrice);
         } catch (Exception e) {
-            log.warn("[일봉] {} - 어제 등락률 조회 실패: {}", stockCode, e.getMessage());
+            log.warn("[등락률 보충] {} - 일봉 조회 실패: {}", stockCode, e.getMessage());
         }
-
         return null;
     }
 
