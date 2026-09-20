@@ -704,8 +704,19 @@ public class SignalOutcomeService {
      * @param from 집계 시작일(phase-38 컷오프 이전은 컷오프로 당겨진다)
      */
     public com.myplatform.backend.controlroom.TrustGateRules.Verdict trustGate(LocalDate from) {
-        List<SignalOutcome> all = repository.findEvaluatedSince(
-                from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from));
+        // 2026-09-21 전환 — 교정 평가(V59, d3_*) OK 행만. 구값(pct_change_3d)은 컬럼에 남아 있지만 여기서 읽지 않는다.
+        List<SignalOutcome> all = repository.findD3OkSince(
+                from == null ? PHASE38_CUTOFF : (from.isBefore(PHASE38_CUTOFF) ? PHASE38_CUTOFF : from),
+                SignalD3Evaluator.Status.OK.name());
+        return aggregateTrustGate(all);
+    }
+
+    /**
+     * 게이트 집계 — 순수 함수(테스트 대상, {@code SignalOutcomeTrustGateTest}). 행 선택은 호출부(리포지토리)가 하지만
+     * 여기서도 교정 OK 행만 센다 — 구값이 있어도 교정이 OK 가 아니면 표본이 아니다(봉 결측을 구값으로 메우지 않는다).
+     */
+    static com.myplatform.backend.controlroom.TrustGateRules.Verdict aggregateTrustGate(List<SignalOutcome> rowsIn) {
+        List<SignalOutcome> all = rowsIn == null ? List.of() : rowsIn;
         List<SignalOutcome> signals = dedupPerStockDay(filterBoardSignals(all));
         List<SignalOutcome> controls = all.stream()
                 .filter(s -> ControlGroupService.CONTROL_SIGNAL_TYPE.equals(s.getSignalType()))
@@ -727,22 +738,28 @@ public class SignalOutcomeService {
         }
 
         List<SignalOutcome> inWindow = signals.stream()
-                .filter(s -> common.contains(s.getSignalDate()))
+                .filter(s -> d3Ok(s) && common.contains(s.getSignalDate()))
                 .collect(Collectors.toList());
         int controlRows = (int) controls.stream()
-                .filter(s -> common.contains(s.getSignalDate())).count();
+                .filter(s -> d3Ok(s) && common.contains(s.getSignalDate())).count();
 
         return com.myplatform.backend.controlroom.TrustGateRules.judge(
                 pairs, inWindow.size(), controlRows, shapeOf(inWindow), excludedDays);
     }
 
-    /** 평가 완료 행의 일자별 수익률 목록. pctChange3d 결측 행은 제외(§4c — 0 으로 세지 않는다). */
+    /** 교정 평가(V59)가 OK 인 행인가 — 게이트가 읽는 유일한 조건. 레거시 evaluatedAt 은 보지 않는다. */
+    private static boolean d3Ok(SignalOutcome s) {
+        return s != null && s.getSignalDate() != null
+                && SignalD3Evaluator.Status.OK.name().equals(s.getD3Status())
+                && s.getD3PctChange() != null;
+    }
+
+    /** 교정 평가 OK 행의 일자별 수익률(d3PctChange) 목록. 그 외 행은 제외(§4c — 0 으로 세지 않는다). */
     private static Map<LocalDate, List<BigDecimal>> pctByDay(List<SignalOutcome> rows) {
         Map<LocalDate, List<BigDecimal>> out = new java.util.TreeMap<>();
         for (SignalOutcome s : rows) {
-            if (s == null || s.getSignalDate() == null || s.getEvaluatedAt() == null) continue;
-            if (s.getPctChange3d() == null) continue;
-            out.computeIfAbsent(s.getSignalDate(), k -> new ArrayList<>()).add(s.getPctChange3d());
+            if (!d3Ok(s)) continue;
+            out.computeIfAbsent(s.getSignalDate(), k -> new ArrayList<>()).add(s.getD3PctChange());
         }
         return out;
     }
@@ -755,12 +772,11 @@ public class SignalOutcomeService {
         List<BigDecimal> wins = new ArrayList<>(), losses = new ArrayList<>(), maes = new ArrayList<>();
         BigDecimal worst = null;
         for (SignalOutcome s : rows) {
-            BigDecimal pct = s.getPctChange3d();
-            if (pct != null) {
-                if (pct.signum() > 0) wins.add(pct); else losses.add(pct);
-                if (worst == null || pct.compareTo(worst) < 0) worst = pct;
-            }
-            if (s.getMaePct3d() != null) maes.add(s.getMaePct3d());
+            if (!d3Ok(s)) continue;
+            BigDecimal pct = s.getD3PctChange();
+            if (pct.signum() > 0) wins.add(pct); else losses.add(pct);
+            if (worst == null || pct.compareTo(worst) < 0) worst = pct;
+            if (s.getD3MaePct() != null) maes.add(s.getD3MaePct());
         }
         return new com.myplatform.backend.controlroom.TrustGateRules.Shape(
                 scale2(com.myplatform.backend.controlroom.TrustGateRules.meanOf(wins)),

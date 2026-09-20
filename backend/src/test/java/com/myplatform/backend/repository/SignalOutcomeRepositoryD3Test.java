@@ -148,4 +148,38 @@ class SignalOutcomeRepositoryD3Test {
 
         assertThat(pending(1)).extracting(SignalOutcome::getStockCode).containsExactly("DUE");
     }
+
+    // ==================== findD3OkSince — 게이트(⑦) 입력, 2026-09-21 전환 ====================
+
+    private SignalOutcome insertGateRow(String code, LocalDate date, String d3Status, String d3Pct,
+                                        boolean legacyEvaluated) {
+        SignalOutcome s = SignalOutcome.builder()
+                .signalType("BUY").stockCode(code).stockName(code).signalDate(date)
+                .priceAtSignal(new BigDecimal("10000"))
+                .pctChange3d(legacyEvaluated ? new BigDecimal("5.0000") : null)
+                .evaluatedAt(legacyEvaluated ? date.plusDays(3).atTime(19, 30) : null)
+                .d3Status(d3Status)
+                .d3PctChange(d3Pct == null ? null : new BigDecimal(d3Pct))
+                .d3EvaluatedAt(d3Status == null ? null : date.plusDays(3).atTime(19, 45))
+                .build();
+        return repo.saveAndFlush(s);
+    }
+
+    @Test
+    @DisplayName("findD3OkSince — 교정 OK 행만: 구 평가 없는 OK 행은 포함, 구 평가 있는 비-OK/미평가 행은 제외, from 미만 제외")
+    void findD3OkSince_selectsByCorrectedStatusOnly() {
+        LocalDate d = LocalDate.of(2026, 9, 1);
+        SignalOutcome okNoLegacy   = insertGateRow("A1", d, "OK", "-2.0000", false);   // 15일 give-up 뒤 백필된 행
+        SignalOutcome okWithLegacy = insertGateRow("A2", d, "OK", "-1.0000", true);
+        insertGateRow("B1", d, "MISSING_BARS", null, true);       // 구값은 있지만 교정 봉 결측 — 제외
+        insertGateRow("B2", d, "NO_INDEX", null, true);           // 미평가 — 제외
+        insertGateRow("B3", d, null, null, true);                 // 교정 시도 전 — 제외
+        insertGateRow("B4", d, "OK", null, true);                 // OK 인데 값 없음(저장 결함) — 방어적 제외
+        insertGateRow("B5", FROM.minusDays(1), "OK", "-3.0000", true);   // 시작일 이전 — 제외
+
+        List<SignalOutcome> rows = repo.findD3OkSince(FROM, "OK");
+
+        assertThat(rows).extracting(SignalOutcome::getStockCode)
+                .containsExactlyInAnyOrder(okNoLegacy.getStockCode(), okWithLegacy.getStockCode());
+    }
 }

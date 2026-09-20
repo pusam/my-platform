@@ -273,6 +273,13 @@ describe('ControlRoomKpis ⑦ — "믿고 사도 되나" 게이트', () => {
     expect(c.classes()).toContain('collecting')
   })
 
+  it('수익 수치의 출처를 밝힌다 — V59 교정 평가 기준(2026-09-21 전환), 실매수 승인 아님', () => {
+    const basis = trustCard().find('.basis').text()
+    expect(basis).toContain('교정 평가')
+    expect(basis).toContain('실매수 승인 아님')
+    expect(basis).not.toContain('교정 중')   // 전환 전 문구 — 되돌아오면 안 된다
+  })
+
   it('적중률만으로 판단하지 않는다 — 이익·손실·최악·낙폭이 전부 보인다', () => {
     const t = trustCard().text()
     expect(t).toContain('이익 +5.12%')

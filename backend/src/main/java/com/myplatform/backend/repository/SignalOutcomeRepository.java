@@ -173,6 +173,22 @@ public interface SignalOutcomeRepository extends JpaRepository<SignalOutcome, Lo
     List<SignalOutcome> findEvaluatedSince(@Param("from") LocalDate from);
 
     /**
+     * V59 교정 평가가 OK 로 끝난 행 — 신뢰 게이트(⑦) 입력(2026-09-21 전환).
+     *
+     * <p>선택 기준은 <b>교정 평가 상태</b>뿐이다. 레거시 {@code evaluatedAt} 은 보지 않는다 — 15일 give-up 뒤
+     * 교정 배치가 봉으로 채운 행(구 평가 없음)도 표본이고, 반대로 구 평가는 있는데 교정이 봉 결측·지수 없음으로
+     * 끝난 행은 구값으로 메우지 않는다(§4c). {@code d3PctChange IS NOT NULL} 은 OK 인데 값이 없는 행이 있으면
+     * 그건 저장 결함이라 집계에서 빼는 방어다.
+     */
+    @Query("""
+        SELECT s FROM SignalOutcome s
+         WHERE s.d3Status = :ok
+           AND s.d3PctChange IS NOT NULL
+           AND s.signalDate >= :from
+        """)
+    List<SignalOutcome> findD3OkSince(@Param("from") LocalDate from, @Param("ok") String ok);
+
+    /**
      * 평가 완료된 시그널 — signalDate 가 [from, to] 닫힌 구간. 주간 측정(P1-6 상설화) 입력.
      * 서비스에서 순수 함수(regime 파티션별 카테고리/밴드)로 집계.
      */
