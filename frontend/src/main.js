@@ -6,6 +6,7 @@ import { consumeInjectedAuthToken } from './utils/nativeBridge'
 
 // 초기 로딩에 필요한 페이지만 정적 import
 import Login from './views/Login.vue'
+import NotFound from './views/NotFound.vue'
 import Signup from './views/Signup.vue'
 import ForgotPassword from './views/ForgotPassword.vue'
 
@@ -261,6 +262,15 @@ const router = createRouter({
       name: 'ControlRoom',
       component: ControlRoomView,
       meta: { requiresAuth: true, adminOnly: true }
+    },
+    {
+      // 없는 경로는 빈 화면이 아니라 "없다"고 말한다(2026-09-21 디자인 점검).
+      // 이전엔 catch-all 이 없어 오타 주소가 콘솔 에러도 없이 완전히 빈 화면으로 떨어졌다 —
+      // 사용자가 "사이트가 죽었다"와 구분할 수 없었다. requiresAuth 는 걸지 않는다:
+      // 비로그인 상태의 오타까지 /login 으로 튕기면 원래 주소를 잃는다.
+      path: '/:pathMatch(.*)*',
+      name: 'NotFound',
+      component: NotFound
     }
   ]
 })
