@@ -1944,24 +1944,16 @@ public class StockDetailService {
         // 복구하려면: 진짜 forward 컨센서스(증권사 추정치 등) 소스를 붙이고 그 값으로만 계산할 것.
         // forwardEps()/resolveEpsGrowthRate() 순수 함수와 회귀 테스트는 그때를 위해 남겨 둔다.
 
-        // Forward BPS = BPS × (1 + ROE/2)  (자본 축적 반영)
-        if (financial.getBps() != null && financial.getBps().compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal roeAdjust = financial.getRoe() != null
-                    ? financial.getRoe().divide(new BigDecimal("200"), 4, RoundingMode.HALF_UP)
-                    : new BigDecimal("0.05");
-            BigDecimal forwardBps = financial.getBps().multiply(BigDecimal.ONE.add(roeAdjust))
-                    .setScale(0, RoundingMode.HALF_UP);
-            financial.setForwardBps(forwardBps);
-
-            // ★ Forward PBR = 현재가 / Forward BPS
-            if (priceInfo != null && priceInfo.getCurrentPrice() != null
-                    && forwardBps.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal forwardPbr = priceInfo.getCurrentPrice()
-                        .divide(forwardBps, 2, RoundingMode.HALF_UP);
-                financial.setForwardPbr(forwardPbr);
-                log.info("[StockDetail] Forward PBR: {} (FwdBPS: {})", forwardPbr, forwardBps);
-            }
-        }
+        // ⚠ Forward BPS·PBR 도 만들지 않는다 — Forward PER 과 같은 이유다(2026-09-21).
+        //
+        //   옛 식: forwardBps = BPS × (1 + ROE/2),  ROE 가 없으면 **0.05 하드코딩**
+        //   ① 0.05 는 근거 없는 발명이다(§4c).
+        //   ② `/2` 는 "이익의 절반을 유보한다"는 가정인데 전 종목 공통으로 둘 근거가 없다.
+        //   ③ 입력 ROE 도 노이즈가 크다 — 당일 수집분 최소 -5,766% · 최대 232% · 0 이 186행
+        //      (0 은 파싱 실패, §4c 비율 컬럼 항목). ROE 232% 면 Forward PBR 이 절반으로 접힌다.
+        //
+        // 하나는 지우고 하나는 남기면 화면이 더 헷갈린다 — "Forward" 라는 이름을 붙이려면
+        // 진짜 예측 소스가 있어야 한다. 그때 두 지표를 함께 되살릴 것.
 
         // ★ 외국인 지분율 추정 (KIS API에서 직접 못 가져올 때 업종 기반 추정)
         if (financial.getForeignOwnership() == null) {
