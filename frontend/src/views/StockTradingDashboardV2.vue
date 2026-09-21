@@ -1876,7 +1876,7 @@ export default {
 /* ===== 섹터 기회 발굴 (수급 주도 섹터 × 유망 종목) ===== */
 .so-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 12px;
 }
 .so-sector-card {

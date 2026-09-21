@@ -347,7 +347,7 @@ textarea {
 }
 
 .page-container .menu-grid {
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)) !important;
   gap: 1px !important;
   overflow: hidden;
   background: var(--border-light);
@@ -627,7 +627,7 @@ textarea {
 }
 
 .v2-dashboard .stocks-grid {
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)) !important;
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)) !important;
   gap: 8px !important;
 }
 

@@ -1016,7 +1016,7 @@ onMounted(() => {
 .diary-meta { font-size: 14px; margin-bottom: 8px; }
 .diary-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: 6px 14px;
   font-size: 14px;
   margin: 10px 0;

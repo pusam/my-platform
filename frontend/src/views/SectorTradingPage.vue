@@ -361,7 +361,7 @@ onUnmounted(() => {
 }
 
 .period-tab.active {
-  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
   color: white;
   box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3);
 }
@@ -446,7 +446,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  /* 섹터 색은 카테고리 팔레트(하늘·라임·주황 등)라 밝은 쪽이 섞여 있다 —
+     흰 글씨는 #84cc16 위에서 대비 1.98 까지 떨어졌다(2026-09-21 실측).
+     팔레트를 건드리는 대신 글씨를 어둡게 둔다(밝은 액센트 위 어두운 글씨 규약). */
+  color: var(--text-on-accent, #0b0e13);
   font-weight: 700;
   font-size: 20px;
 }
@@ -646,7 +649,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
   color: white;
   border: none;
   border-radius: 10px;

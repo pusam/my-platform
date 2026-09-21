@@ -408,7 +408,7 @@ const openChecklist = () => { showChecklist.value = true; };
 
 .conclusion-factors {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: 10px;
   margin-top: 14px;
 }

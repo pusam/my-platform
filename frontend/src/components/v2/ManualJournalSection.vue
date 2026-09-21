@@ -225,7 +225,7 @@ const regimeLabel = (r) => ({ BULL: '상승장', BEAR: '하락장', SIDEWAYS: '�
 
 .mj-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: 10px;
 }
 .mj-stat {

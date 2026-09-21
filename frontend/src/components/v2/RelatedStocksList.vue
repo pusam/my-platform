@@ -56,7 +56,7 @@ const getCorrClass = (c) => {
 .related-title { margin: 0; font-size: 14px; }
 .related-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 6px;
 }
 .related-row {

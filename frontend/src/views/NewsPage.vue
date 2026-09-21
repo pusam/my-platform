@@ -406,7 +406,7 @@ onMounted(() => {
 
 .btn-fetch {
   padding: 12px 24px;
-  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
   color: white;
   border: none;
   border-radius: 10px;
@@ -430,7 +430,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+  background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
   color: white;
   border: none;
   border-radius: 10px;

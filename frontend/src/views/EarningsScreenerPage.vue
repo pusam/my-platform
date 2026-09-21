@@ -2164,7 +2164,7 @@ onUnmounted(() => {
 /* 턴어라운드 카드 그리드 */
 .stocks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
   gap: 1.5rem;
 }
 
@@ -2612,7 +2612,7 @@ onUnmounted(() => {
 
 .collect-actions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 1.5rem;
   margin-bottom: 2rem;
 }
@@ -3337,7 +3337,7 @@ onUnmounted(() => {
 /* 경고/긍정 요소 */
 .alerts-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 1rem;
   margin-bottom: 1.5rem;
   width: 100%;
@@ -3379,7 +3379,7 @@ onUnmounted(() => {
 /* 분석 그리드 */
 .analysis-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 1.25rem;
   width: 100%;
   box-sizing: border-box;

@@ -848,7 +848,7 @@ td {
 /* ===== 카드 그리드 (연속 매수 / 수급 급증) ===== */
 .stocks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
 

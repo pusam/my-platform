@@ -390,7 +390,7 @@ export default {
 
 .stocks-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
   gap: 12px;
 }
 .stock-card {
@@ -486,7 +486,9 @@ export default {
 @media (max-width: 600px) {
   .section-card { padding: 14px 16px; }
   .section-title-row h2 { font-size: 15px; }
-  .stocks-grid { grid-template-columns: 1fr; }
+  /* 1fr 의 자동 최소값은 min-content 라 카드가 셀보다 넓어져 화면을 넘는다
+     (2026-09-21 실측 315px 에서 셀 234px · 카드 290px). minmax(0,1fr) 로 최소값을 0 으로 내린다. */
+  .stocks-grid { grid-template-columns: minmax(0, 1fr); }
   .card-stock-name { font-size: 13px; }
   .detail-row { font-size: 11.5px; }
 }

@@ -982,7 +982,7 @@ onUnmounted(() => {
 
 .factor-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(140px, 100%), 1fr));
   gap: 10px;
 }
 
@@ -1444,7 +1444,7 @@ onUnmounted(() => {
 
 .futures-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
   gap: 14px;
 }
 
