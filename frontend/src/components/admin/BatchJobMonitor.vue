@@ -374,8 +374,10 @@ export default {
 }
 
 .refresh-btn:disabled {
-  background: #90CAF9;
-  color: var(--text-on-accent, #12171f);   /* 밝은 하늘색 — 흰 글씨면 대비 1.75 (2026-09-21) */
+  /* 비활성을 밝은 하늘색으로 두면 다크 화면에서 그 버튼만 떠 보인다 —
+     흐려 보이는 게 비활성의 의미에 맞다(2026-09-21). */
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--text-muted, #8a95a3);
   cursor: not-allowed;
 }
 
