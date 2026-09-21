@@ -234,7 +234,7 @@ public class SectorStockConfig {
         sectors.put("SEMICONDUCTOR", new SectorInfo(
             "SEMICONDUCTOR",
             "반도체",
-            "#4F46E5",
+            "#818CF8",
             Arrays.asList(
                 "005930", // 삼성전자
                 "000660", // SK하이닉스
@@ -329,7 +329,7 @@ public class SectorStockConfig {
         sectors.put("DEFENSE", new SectorInfo(
             "DEFENSE",
             "방산",
-            "#8B5CF6",
+            "#A78BFA",
             Arrays.asList(
                 "012450", // 한화에어로스페이스
                 "047810", // 한국항공우주
@@ -424,7 +424,7 @@ public class SectorStockConfig {
         sectors.put("CONSTRUCTION", new SectorInfo(
             "CONSTRUCTION",
             "건설/인프라",
-            "#78716C",
+            "#A8A29E",
             Arrays.asList(
                 "028260", // 삼성물산
                 "000720", // 현대건설
@@ -500,7 +500,7 @@ public class SectorStockConfig {
         sectors.put("STEEL", new SectorInfo(
             "STEEL",
             "철강/금속",
-            "#64748B",
+            "#94A3B8",
             Arrays.asList(
                 "005490", // POSCO홀딩스
                 "004020", // 현대제철

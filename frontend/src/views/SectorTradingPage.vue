@@ -338,6 +338,14 @@ onUnmounted(() => {
   background: rgba(255, 255, 255, 0.06);
   border-radius: 16px;
   justify-content: center;
+  /* 탭 3개 × (28px 좌우 패딩 + 라벨)이 좁은 화면을 넘겼다(2026-09-21 실측 315px 에서 3px 초과).
+     줄바꿈을 허용하고 패딩을 줄여 어떤 폭에서도 담기게 한다. */
+  flex-wrap: wrap;
+}
+
+@media (max-width: 480px) {
+  .period-tabs { gap: 6px; padding: 6px; }
+  .period-tab { padding: 10px 14px; }
 }
 
 .period-tab {
