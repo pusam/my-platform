@@ -740,10 +740,12 @@ onMounted(() => {
 
 .summary-card.gold .card-header {
   background: linear-gradient(135deg, #f7b733 0%, #fc4a1a 100%);
+  color: var(--text-on-accent, #0b0e13);   /* 밝은 금색 위 흰 글씨는 대비 1.9 */
 }
 
 .summary-card.silver .card-header {
   background: linear-gradient(135deg, #c0c0c0 0%, #808080 100%);
+  color: var(--text-on-accent, #0b0e13);   /* 밝은 은색 위 흰 글씨는 대비 1.9 */
 }
 
 .summary-card.stock .card-header {
@@ -755,6 +757,7 @@ onMounted(() => {
 
 .summary-card.other .card-header {
   background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+  color: #ffffff;   /* 여긴 어두운 회색 배경이라 흰 글씨가 맞다(대비 6.2) */
 }
 
 .summary-card .card-header .card-icon {
@@ -771,7 +774,9 @@ onMounted(() => {
 .summary-card .card-header h2 {
   margin: 0;
   font-size: 20px;
-  color: white;
+  /* 카드 종류마다 헤더 배경 밝기가 다르다(금·은·주식=밝음, 기타=어두움) —
+     흰색을 박지 말고 헤더가 정한 색을 물려받는다(2026-09-21). */
+  color: inherit;
   font-weight: 600;
 }
 

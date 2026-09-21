@@ -255,7 +255,9 @@ export default {
 /* 요약 카드 */
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* 4열 고정이라 좁은 화면에서 카드가 화면을 넘겼다(2026-09-21 실측 315px 에서 51px 초과).
+     폭이 모자라면 줄이 접히게 한다. */
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -373,6 +375,7 @@ export default {
 
 .refresh-btn:disabled {
   background: #90CAF9;
+  color: var(--text-on-accent, #12171f);   /* 밝은 하늘색 — 흰 글씨면 대비 1.75 (2026-09-21) */
   cursor: not-allowed;
 }
 
