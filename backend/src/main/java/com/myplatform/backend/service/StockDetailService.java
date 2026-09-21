@@ -1929,25 +1929,20 @@ public class StockDetailService {
     private void enrichWithForwardMetrics(String stockCode, FinancialInfo financial, PriceInfo priceInfo) {
         if (financial == null) return;
 
-        // EPS 성장률 — 실측만 쓴다(§4c). 없으면 null 이고 Forward 지표도 만들지 않는다.
-        BigDecimal realEpsGrowth = lookupEpsGrowth(stockCode);
-        BigDecimal epsGrowthRate = resolveEpsGrowthRate(realEpsGrowth, financial.getPer());
-        financial.setEpsGrowthRate(epsGrowthRate);
-
-        BigDecimal forwardEps = forwardEps(financial.getEps(), epsGrowthRate);
-        if (forwardEps != null) {
-            financial.setForwardEps(forwardEps);
-
-            // Forward PER = 현재가 / Forward EPS
-            if (priceInfo != null && priceInfo.getCurrentPrice() != null
-                    && priceInfo.getCurrentPrice().compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal forwardPer = priceInfo.getCurrentPrice()
-                        .divide(forwardEps, 1, RoundingMode.HALF_UP);
-                financial.setForwardPer(forwardPer);
-                log.debug("[StockDetail] Forward PER: {} (실측 EPS성장률 {}%, FwdEPS {})",
-                        forwardPer, epsGrowthRate, forwardEps);
-            }
-        }
+        // ⚠ Forward EPS·PER 은 만들지 않는다 — 쓸 수 있는 성장률 데이터가 없다(2026-09-21 실측).
+        //
+        //   `stock_financial_data.eps_growth` 분포(과거 행, 0 제외 47,036행):
+        //     최소 -286,725%  최대 240,600%  ·  100% 초과 21,103행  ·  1,000% 초과 3,450행
+        //   적자·소액 분모에서 나온 값이라 성장률이 아니다(§4c "적자를 분모로 한 변화율은 성장률이 아니다").
+        //   당일 수집분 2,587행은 아예 전부 0 이었다.
+        //
+        // 이 자리에 있던 코드는 세 번 틀렸다: ① PER 구간으로 발명(8% / 없으면 15%)
+        // ② 실측으로 바꿨더니 미래 날짜 추정치 행을 집어 삼성전자 315% → Forward PER 10
+        // ③ 미래 행을 걸렀더니 과거 행의 1,345% 를 집어 Forward PER 2.9.
+        // 입력이 쓰레기면 어떤 필터를 얹어도 파생값은 쓰레기다. 예측 소스가 생기기 전엔 비워 둔다.
+        //
+        // 복구하려면: 진짜 forward 컨센서스(증권사 추정치 등) 소스를 붙이고 그 값으로만 계산할 것.
+        // forwardEps()/resolveEpsGrowthRate() 순수 함수와 회귀 테스트는 그때를 위해 남겨 둔다.
 
         // Forward BPS = BPS × (1 + ROE/2)  (자본 축적 반영)
         if (financial.getBps() != null && financial.getBps().compareTo(BigDecimal.ZERO) > 0) {
