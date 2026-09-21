@@ -726,8 +726,11 @@ textarea {
   transform: none !important;
 }
 
+/* 밝은 배지 위 흰 글씨는 3.72 로 미달이었다. 배경색을 어둡게 하기 전에 글씨를 뒤집는 쪽을
+   먼저 본다는 저장소 규약대로 --text-on-accent 로 뒤집어 4.84 (2026-09-22 실측). */
 .notification-badge {
   background: #d45f6b !important;
+  color: var(--text-on-accent) !important;
   border-radius: 4px !important;
 }
 

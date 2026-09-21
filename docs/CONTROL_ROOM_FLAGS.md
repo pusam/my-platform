@@ -178,4 +178,61 @@ flags:
       ⚠ 9월 하순 첫 판정 후 이 항목을 지울 것.
     recorded_on: 2026-08-31
     ref: ControlGroupService, StockPriceHistoryRepository.findActiveStockCodesWithMinHistory
+  - id: vkospi-index-0503-not-volatility
+    severity: critical
+    title: VKOSPI(업종 0503)가 변동성 지수가 아니다 — 매크로 tilt 가 도입 이래 100% RISK_OFF
+    key: MacroTiltService
+    body: >
+      2026-09-22 실측. macro_tilt_snapshot 54행(2026-07-07~09-21) 전부 vkospi>=30 이라
+      classifyMacroRegime 의 "VKOSPI>=30 -> RISK_OFF 공포 강제" 1축 오버라이드가 매번 걸려
+      tilt 가 54/54 RISK_OFF 다. 상수는 데이터가 아니다.
+      근거 — 값 범위 39.33~87.90(평균 65.76)로 변동성 지수 수준이 아니고, 같은 날 KOSPI 종가와
+      일간 변화율 상관이 -0.037(레벨 -0.140)이다. 진짜 변동성 지수면 -0.5~-0.8 이어야 한다.
+      같은 기간 KOSPI 는 5594~7656 으로 37% 출렁였는데 이 계열은 49->47->46->45->44->43 으로
+      매끈하게 흐르고 52일간 10% 이상 일간 점프가 2회뿐이다.
+      기준일 자체는 정상(vkospi_date = snapshot_date, 당일).
+      확인할 것 — 업종코드 0503 이 KIS 지수시세 TR(FHPUP02120000)에서 무엇으로 해석되는지.
+      코드 주석은 지수 마스터(idxcode.mst)의 "00503VKOSPI" 를 근거로 들지만, KIS 는 틀린 요청에도
+      200 을 주는 API 다(§4c 재무 tr_id / 분봉 파라미터 건과 같은 부류) — 마스터 코드 공간과
+      시세 TR 코드 공간이 다를 수 있다. 임의의 지수코드를 조회할 수 있는 경로가 없어 미확정.
+      ⚠ 임계(30) 를 성적에 맞춰 조정하지 말 것 — 입력이 무엇인지 먼저 확정해야 한다.
+    recorded_on: 2026-09-22
+    ref: MacroTiltService.VKOSPI_INDEX_CODE, classifyMacroRegime, macro_tilt_snapshot
+
+  - id: growth-batch-step4-silent-skip
+    severity: warning
+    title: 성장률 배치(올인원 4단계)가 수집일의 27% 에서 조용히 빠진다
+    key: AsyncCrawlerService
+    body: >
+      2026-09-22 실측. stock_financial_data 일별 스냅샷에서 eps_growth / revenue_growth /
+      profit_growth / peg 네 컬럼이 같은 날 통째로 0 이 되는 날이 있다 — 최근 11 수집일 중
+      2026-09-21, 09-17, 09-11 세 날(27%). 같은 날 영업이익률 2,295행 · 매출 2,192행은 정상이라
+      1~3단계는 완주했고 4단계(calculateAndUpdateGrowthRates)만 빠진 것이다.
+      ⚠ 이 실패는 로그에 흔적이 없다 — 08:30/15:38 스케줄러는 시작 줄만 남기고,
+      비동기 본체(collectAllInOneAsync)는 진행상황을 sseEmitterService 로만 보낸다.
+      즉 화면을 보고 있지 않으면 어느 단계에서 죽었는지 아무도 모른다(§4c 침묵 금지).
+      확인할 것 — ① 비동기 경로 단계별 성공/실패를 애플리케이션 로그에도 남길 것
+      ② 4단계 실패 시 batchMonitor.alertFailure 로 올릴 것.
+      ⚠ 별개 사안 — 성장률 값 자체가 채워진 날에도 쓸 수 없다. 과거 행 분포가
+      -286,725% ~ 240,600% 이고(적자·소액 분모) 이 때문에 2026-09-21 에 Forward 지표를
+      껐다. 배치를 고쳐도 그 분포 문제는 그대로다.
+    recorded_on: 2026-09-22
+    ref: AsyncCrawlerService.collectAllInOneAsync 4단계, FinancialDataScheduler 08:30/15:38
+
+  - id: forecast-fallback-fixed-probabilities
+    severity: info
+    title: AI 예측 fallback 의 시나리오 확률·근거 문구가 상수다
+    key: GeminiService
+    body: >
+      2026-09-22 예측상세 모달 검증에서 확인. AI 분석 실패 시 fallback 이 Bull 30% / Base 50% /
+      Bear 20% 와 "외국인 매수 유입 시 상승 가능" 같은 근거 문구를 고정값으로 돌려준다.
+      D+5 목표가는 지수 기반이 맞다(currentIndex x (1 +- 0.005 x day)) — 확률과 근거만 상수다.
+      화면에 "AI 분석 일시 불가 — 현재 지수 기반 기계적 예측입니다" 와 "AI 분석 데이터 부족으로
+      기본 예측을 제공합니다" 두 줄이 붙고 응답에 fallback:true 가 있어 **위장은 아니다**.
+      다만 "지수 기반"이라는 표현은 목표가에만 해당하고 확률에는 해당하지 않는다.
+      판단 사안 — fallback 에서 확률·근거를 빼고 기계적 가격 밴드만 보여줄지.
+      severity 를 info 로 둔 것은 공시가 이미 붙어 있기 때문이다.
+    recorded_on: 2026-09-22
+    ref: GeminiService 예측 fallback, ForecastDetailModal.vue, SectionMarketMap.vue
+
 ```

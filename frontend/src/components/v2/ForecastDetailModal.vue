@@ -372,8 +372,11 @@ export default {
   font-weight: 700;
   color: rgba(255,255,255,0.8);
 }
-.target-value.up { color: #ef4444; }
-.target-value.down { color: #3b82f6; }
+/* 상승/하락 색은 도메인 단일 출처(--signal-*)를 쓴다 — 하드코딩 #ef4444/#3b82f6 은
+   같은 관례를 복제한 값이고 모달 배경 rgb(40,48,58) 위에서 3.51/3.60 으로 미달이었다.
+   토큰값은 4.78/5.20 으로 통과한다(2026-09-22 실측). 빨강=상승 관례는 그대로. */
+.target-value.up { color: var(--signal-buy); }
+.target-value.down { color: var(--signal-sell); }
 
 /* Summary */
 .detail-summary {

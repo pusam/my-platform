@@ -309,14 +309,19 @@ onBeforeUnmount(stopPolling)
   --cr-panel2: #1c1236;
   --cr-line: #2c1d52;
   --cr-mag: #ff2fa6;
-  --cr-vio: #9b4dff;
+  /* 11px 라벨(.k 등)에도 쓰여 접근성 하한을 탄다 — #9b4dff 는 패널 #1b132f 위 4.15 로 미달.
+     액센트 정체성(바이올렛)은 두고 명도만 올렸다: 5.18 (2026-09-22 데스크톱 실측). */
+  --cr-vio: #a968ff;
   --cr-grn: #3dff8a;
   --cr-cyn: #38dcff;
   --cr-amb: #ffb43a;
   --cr-red: #ff4d6d;
   --cr-tx: #ebe4ff;
   --cr-mut: #8f81be;   /* 목업 #7e71ad 에서 올림 — 가독 */
-  --cr-dim: #5b4f88;
+  /* 가장 흐린 계층. #5b4f88 은 패널 #160e2b/#1c1236 위 2.45~2.58 로 15곳이 미달이었다
+     (달력 날짜·기준시각·각주 등 11px 보조 텍스트, 데스크톱 폭에서만 드러남).
+     dim < mut < tx 위계를 유지하면서 하한만 통과: 4.79~5.43 (2026-09-22 실측). */
+  --cr-dim: #8a7cbd;
 
   /*
    * 라벨·숫자용 모노. 앱 전역 폰트 스택(-apple-system, Segoe UI …)엔 한글 폰트가 없어
