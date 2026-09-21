@@ -378,9 +378,13 @@ public class StockPriceService {
         //   ※ 시세는 Redis(L2) 비경유다. 전역 "L1 Caffeine → L2 Redis → L3 MariaDB"는 섹터·수급·
         //     AI전략 등 '다른 도메인' 캐시 얘기이고, 시세는 단일 경로 불변식 유지를 위해 메모리+DB만 쓴다.
         // 캐시 확인 (한투 API는 1분, 네이버는 10분)
+        // ⚠ 캐시된 0원도 시세가 아니다 — 저장 시점에 걸러도 <b>이미 쌓인 행</b>이 계속 나간다.
+        //    실측(2026-09-22): 저장 가드를 배포한 뒤에도 /api/stock/999999 가 08:16 에 적재된
+        //    0원 행을 15분 창 안이라며 200 으로 돌려줬다. 읽는 쪽도 같은 기준으로 거른다.
+        //    거르면 아래 신규 조회로 떨어지고, 없는 종목은 거기서 null → 컨트롤러 404 가 된다.
         StockPriceDto cached = priceCache.get(stockCode);
         int cacheMinutes = kisService.isConfigured() ? 1 : 10;
-        if (cached != null && isValidCache(cached, cacheMinutes)) {
+        if (cached != null && hasUsablePrice(cached) && isValidCache(cached, cacheMinutes)) {
             return cached;
         }
 
@@ -390,7 +394,7 @@ public class StockPriceService {
         Optional<StockPrice> dbPrice = stockPriceRepository.findTopByStockCodeOrderByFetchedAtDesc(stockCode);
         if (dbPrice.isPresent()) {
             StockPriceDto dto = entityToDto(dbPrice.get());
-            if (isValidCache(dto, dbRecentMinutes)) {
+            if (hasUsablePrice(dto) && isValidCache(dto, dbRecentMinutes)) {
                 priceCache.put(stockCode, dto);
                 return dto;
             }

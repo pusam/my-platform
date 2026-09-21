@@ -3,6 +3,7 @@ package com.myplatform.backend.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.myplatform.backend.dto.StockPriceDto;
+import com.myplatform.backend.entity.StockPrice;
 import com.myplatform.backend.repository.StockPriceRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,10 +13,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -50,13 +55,14 @@ class StockPriceMissingQuoteTest {
 
     private StockPriceService service;
     private KoreaInvestmentService kisService;
+    private StockPriceRepository priceRepository;
     private ObjectMapper om;
 
     @BeforeEach
     void setUp() {
         om = new ObjectMapper();
         kisService = mock(KoreaInvestmentService.class);
-        StockPriceRepository priceRepository = mock(StockPriceRepository.class);
+        priceRepository = mock(StockPriceRepository.class);
         service = new StockPriceService(mock(RestTemplate.class), priceRepository, om,
                 kisService, mock(StockMasterService.class), new SimpleMeterRegistry());
         when(priceRepository.findTopByStockCodeOrderByFetchedAtDesc(CODE)).thenReturn(Optional.empty());
@@ -194,6 +200,54 @@ class StockPriceMissingQuoteTest {
             when(kisService.getStockPrice(CODE)).thenReturn(resp);
 
             assertThat(fetchKis()).isNull();
+        }
+    }
+
+    // ==================== 저장된 0원도 시세가 아니다 ====================
+
+    /**
+     * ⚠ <b>배포 후 실측으로 드러난 누락</b>(2026-09-22). 저장 시점 가드만으로는 부족하다 —
+     * <b>이미 쌓인 0원 행</b>이 15분 캐시 창 안이면 그대로 200 으로 나갔다.
+     * prod {@code /api/stock/999999} 가 08:16 적재분을 돌려줬다(888888 은 캐시가 없어 404 였다).
+     * 읽는 쪽도 같은 기준으로 걸러야 컨트롤러가 404 를 낼 수 있다.
+     */
+    @Nested
+    @DisplayName("캐시에 남은 0원 행")
+    class CachedZeroPrice {
+
+        private StockPrice row(String price) {
+            StockPrice e = new StockPrice();
+            e.setStockCode(CODE);
+            e.setCurrentPrice(new BigDecimal(price));
+            e.setFetchedAt(LocalDateTime.now());   // 캐시 창 안
+            e.setDataSource("KIS");
+            return e;
+        }
+
+        @Test
+        @DisplayName("저장된 0원 행은 쓰지 않는다 — 신규 조회로 떨어지고 없는 종목이면 null")
+        void storedZeroIsNotServed() {
+            when(priceRepository.findTopByStockCodeOrderByFetchedAtDesc(CODE))
+                    .thenReturn(Optional.of(row("0")));
+            when(kisService.isConfigured()).thenReturn(true);
+            when(kisService.isTokenAvailable()).thenReturn(true);
+            when(kisService.getStockPrice(CODE)).thenReturn(quote("0", "0", "0", "0", ""));
+
+            assertThat(service.getStockPrice(CODE)).isNull();
+        }
+
+        @Test
+        @DisplayName("저장된 정상 가격은 종전대로 캐시에서 바로 나간다 — KIS 를 부르지 않는다")
+        void storedRealPriceStillServed() {
+            when(priceRepository.findTopByStockCodeOrderByFetchedAtDesc(CODE))
+                    .thenReturn(Optional.of(row("72000")));
+            when(kisService.isConfigured()).thenReturn(true);
+
+            StockPriceDto dto = service.getStockPrice(CODE);
+
+            assertThat(dto).isNotNull();
+            assertThat(dto.getCurrentPrice()).isEqualByComparingTo("72000");
+            verify(kisService, never()).getStockPrice(CODE);
         }
     }
 }
