@@ -231,7 +231,7 @@ public class MacroTiltService {
     }
 
     /** drivers — 가용 축만 표시, 각 축에 관측일 병기(월요일 08:15 = 전부 금요일 값 — 신선도 오해 방지). */
-    private static List<String> buildDrivers(MacroInputs in) {
+    static List<String> buildDrivers(MacroInputs in) {
         List<String> d = new ArrayList<>();
         if (in.vkospi() != null) {
             String zone = in.vkospi() >= 30 ? "공포" : in.vkospi() >= 25 ? "경계" : in.vkospi() < 18 ? "안정" : "보통";
@@ -242,7 +242,12 @@ public class MacroTiltService {
             d.add(String.format("국고3년 %.2f%%%s%s", in.ktb3y(), trend, dateSuffix(in.rateDate())));
         }
         if (in.soxTrendPct() != null) {
-            d.add(String.format("SOX 5d %+.1f%%", in.soxTrendPct()));
+            // ⚠ 창 길이를 문구로 박지 않는다 — 기준점은 "최근 8행 중 최고령 유효 스냅샷"이라
+            // 실제로는 7~8거래일이고 크론이 빠지면 더 늘어난다(2026-09-21 실측 기준일 9/9 = 8거래일 전).
+            // VKOSPI·국고3년과 같은 규약으로 관측일을 함께 찍는다. 기준일 미상이면 창을 생략(§4c).
+            d.add(String.format("SOX %+.1f%%%s", in.soxTrendPct(),
+                    in.soxAsof() == null ? "" : String.format("(%d/%d 대비)",
+                            in.soxAsof().getMonthValue(), in.soxAsof().getDayOfMonth())));
         }
         return d;
     }

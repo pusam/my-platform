@@ -126,4 +126,40 @@ class MacroTiltServiceTest {
         assertThat(MacroTiltService.computeSoxTrend(null,
                 List.of(snap("2026-07-03", 5200.0)), LocalDate.parse("2026-07-06")).pct()).isNull();
     }
+
+    // ==================== buildDrivers — 표기가 실제 기준일과 맞는가 ====================
+
+    /**
+     * SOX 추세는 "최근 8행 중 가장 오래된 유효 스냅샷" 대비인데 라벨은 "5d" 로 박혀 있었다
+     * (2026-09-21 데이터 점검). 스냅샷은 거래일에만 쌓이므로 실제 창은 7~8거래일이고,
+     * 크론이 며칠 빠지면 더 길어진다 — prod 실측 2026-09-21 의 기준일은 <b>9/9(8거래일 전)</b> 였다.
+     * VKOSPI·국고3년은 이미 관측일을 함께 찍는데 SOX 만 고정 문구였다.
+     */
+    @Test
+    @DisplayName("SOX 표기는 고정 '5d' 가 아니라 실제 기준일을 밝힌다 — 창이 늘어나도 거짓말하지 않게")
+    void soxDriverShowsRealBaselineDate() {
+        MacroTiltService.MacroInputs in = new MacroTiltService.MacroInputs(
+                null, null, null, null, null,
+                11921.69, 0.28, LocalDate.of(2026, 9, 9));
+
+        String sox = MacroTiltService.buildDrivers(in).stream()
+                .filter(d -> d.startsWith("SOX")).findFirst().orElseThrow();
+
+        assertThat(sox).contains("9/9");
+        assertThat(sox).contains("+0.3%");
+        assertThat(sox).doesNotContain("5d");
+    }
+
+    @Test
+    @DisplayName("기준일을 모르면 창 길이를 지어내지 않는다(§4c)")
+    void soxDriverWithoutBaselineDateOmitsWindow() {
+        MacroTiltService.MacroInputs in = new MacroTiltService.MacroInputs(
+                null, null, null, null, null, 11921.69, 0.28, null);
+
+        String sox = MacroTiltService.buildDrivers(in).stream()
+                .filter(d -> d.startsWith("SOX")).findFirst().orElseThrow();
+
+        assertThat(sox).doesNotContain("5d");
+        assertThat(sox).contains("+0.3%");
+    }
 }
