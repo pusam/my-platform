@@ -856,7 +856,7 @@ export default {
 .action-btn {
   padding: 10px 20px;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 10px;
   cursor: pointer;
@@ -988,7 +988,7 @@ export default {
   gap: 6px;
   padding: 8px 16px;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 10px;
   font-size: 14px;

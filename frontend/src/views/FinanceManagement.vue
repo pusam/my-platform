@@ -1920,7 +1920,7 @@ onMounted(() => {
 .btn-edit {
   padding: 6px 12px;
   background: var(--primary-start);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 6px;
   font-size: 12px;

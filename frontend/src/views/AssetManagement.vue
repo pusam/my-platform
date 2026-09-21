@@ -954,7 +954,7 @@ th {
   padding: 16px;
   text-align: left;
   font-weight: 600;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-size: 13px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1033,7 +1033,7 @@ td.amount {
 .input-hint {
   margin-top: 6px;
   font-size: 12px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-style: italic;
 }
 
@@ -1081,7 +1081,7 @@ td.amount {
 }
 
 .stock-item .stock-code {
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-size: 12px;
 }
 
@@ -1114,7 +1114,7 @@ td.amount {
 
 .selected-stock .stock-info span {
   font-size: 13px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 .btn-clear {

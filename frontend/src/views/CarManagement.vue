@@ -653,7 +653,7 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 600;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
 }
 
 .record-date {
@@ -707,7 +707,7 @@ onMounted(() => {
   padding: 8px;
   background: transparent;
   border: none;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   cursor: pointer;
   border-radius: 8px;
   transition: all 0.2s;

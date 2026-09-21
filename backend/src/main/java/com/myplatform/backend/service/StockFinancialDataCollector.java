@@ -70,6 +70,38 @@ public class StockFinancialDataCollector {
     private final ObjectMapper objectMapper;
     private final StockMasterService stockMasterService;
 
+    /**
+     * 수집 시점의 표시용 종목명 — 순수 함수(회귀 {@code FinancialCollectorNameFallbackTest}).
+     *
+     * <p>KIS 현재가 응답의 {@code hts_kor_isnm} 이 <b>자주 비어 온다</b> — prod 실측 2026-09-21
+     * 당일 수집분 2,660행 중 <b>1,869행(70%)</b>이 이름 없이 저장됐고, 예전 코드는 그걸 조용히
+     * 종목코드로 채웠다. 그 값을 읽는 발굴 저평가·성장 트랙이 "금호석유화학" 대신 "011780" 을 보여줬다.
+     *
+     * <p>순서: <b>KIS 응답 → 종목마스터 → 코드</b>. 마스터에는 전 종목 이름이 있으므로 대부분 여기서 끝난다.
+     * 마스터에도 없으면 <b>코드를 남긴다</b> — 빈칸으로 두면 어떤 종목인지조차 잃는다(§4c).
+     * 마스터 조회 실패는 코드로 진행한다(fail-open) — 이름 때문에 재무 수집이 멈추면 안 된다.
+     *
+     * @param lookup 코드 → 마스터 이름(없으면 null). 예외를 던져도 수집은 계속된다.
+     */
+    static String resolveCollectedName(String stockCode, String fromKis,
+                                       java.util.function.Function<String, String> lookup) {
+        if (fromKis != null && !fromKis.isBlank()) {
+            return fromKis;
+        }
+        if (lookup != null && stockCode != null) {
+            try {
+                String fromMaster = lookup.apply(stockCode);
+                if (fromMaster != null && !fromMaster.isBlank() && !fromMaster.trim().equals(stockCode)) {
+                    return fromMaster;
+                }
+            } catch (Exception e) {
+                log.debug("[재무수집] 마스터 이름 조회 실패 {} — 코드로 진행: {}", stockCode, e.getMessage());
+            }
+        }
+        return stockCode;
+    }
+
+
     @Value("${kis.api.base-url:https://openapi.koreainvestment.com:9443}")
     private String baseUrl;
 
@@ -105,10 +137,9 @@ public class StockFinancialDataCollector {
                 return false;
             }
 
-            String stockName = output.path("hts_kor_isnm").asText("");
-            if (stockName.isEmpty()) {
-                stockName = stockCode;
-            }
+            String stockName = resolveCollectedName(stockCode,
+                    output.path("hts_kor_isnm").asText(""),
+                    code -> stockMasterService.getNameOrDefault(code, null));
 
             String market = "KOSPI";
 
@@ -275,11 +306,11 @@ public class StockFinancialDataCollector {
                 return false;
             }
 
-            String stockName = output.path("hts_kor_isnm").asText("");
-            if (stockName.isEmpty()) {
-                stockName = stockCode;
-            } else {
-                stockMasterService.cacheName(stockCode, stockName, "KIS");
+            String rawName = output.path("hts_kor_isnm").asText("");
+            String stockName = resolveCollectedName(stockCode, rawName,
+                    code -> stockMasterService.getNameOrDefault(code, null));
+            if (!rawName.isBlank()) {
+                stockMasterService.cacheName(stockCode, rawName, "KIS");
             }
 
             String market = "KOSPI";

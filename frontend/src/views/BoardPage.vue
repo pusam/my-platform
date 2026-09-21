@@ -628,7 +628,7 @@ export default {
 .btn-search:hover {
   background: var(--primary-gradient);
   border-color: transparent;
-  color: white;
+  color: var(--text-on-accent, #12171f);
 }
 
 .action-right {
@@ -745,7 +745,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--text-on-accent, #12171f);
   font-weight: 600;
   font-size: 14px;
 }
@@ -1170,7 +1170,7 @@ export default {
 }
 
 .content-editor :deep(.ql-editor.ql-blank::before) {
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 /* 반응형 */

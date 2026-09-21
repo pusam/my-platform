@@ -362,7 +362,7 @@ async function maybePromptEnroll(username) {
 }
 .enroll-now {
   border: none;
-  color: #fff;
+  color: var(--text-on-accent, #12171f);
   background: var(--primary-gradient, linear-gradient(135deg, #818cf8, #a78bfa));
 }
 

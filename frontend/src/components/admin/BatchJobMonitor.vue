@@ -358,7 +358,7 @@ export default {
 .refresh-btn {
   padding: 8px 16px;
   background: #2196F3;
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -485,7 +485,7 @@ export default {
 .page-btn {
   padding: 8px 16px;
   background: #2196F3;
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -498,7 +498,7 @@ export default {
 }
 
 .page-btn:disabled {
-  background: #e0e0e0;
+  background: rgba(255, 255, 255, 0.12);
   color: var(--text-muted, #9494bd);
   cursor: not-allowed;
 }

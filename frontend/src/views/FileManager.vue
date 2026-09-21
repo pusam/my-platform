@@ -796,7 +796,7 @@ onUnmounted(() => {
 
 .breadcrumb-item .separator {
   margin: 0 10px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 .breadcrumb-item.active,
@@ -859,7 +859,7 @@ onUnmounted(() => {
 }
 
 .sort-dropdown select:hover {
-  border-color: #7878a0;
+  border-color: var(--text-muted, #9494bd);
 }
 
 
@@ -932,7 +932,7 @@ onUnmounted(() => {
 }
 
 .thumbnail-loading {
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-size: 12px;
 }
 
@@ -945,14 +945,14 @@ onUnmounted(() => {
 
 .file-item .meta {
   font-size: 12px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 .empty-message {
   grid-column: 1 / -1;
   text-align: center;
   padding: 60px 20px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   background: #252540;
   border-radius: 8px;
 }
@@ -1222,7 +1222,7 @@ onUnmounted(() => {
 
 .file-total-count {
   font-size: 13px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-weight: 500;
 }
 
@@ -1235,7 +1235,7 @@ onUnmounted(() => {
 
 .file-count-info {
   font-size: 12px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 /* 반응형 */

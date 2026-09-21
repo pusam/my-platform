@@ -1999,7 +1999,7 @@ onUnmounted(() => {
 .refresh-btn {
   padding: 0.5rem 1rem;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -2274,7 +2274,7 @@ onUnmounted(() => {
 
 .rank-badge {
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   padding: 0.3rem 0.8rem;
   border-radius: 15px;
   font-weight: 700;
@@ -2320,7 +2320,7 @@ onUnmounted(() => {
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 10px;
   cursor: pointer;
@@ -2754,7 +2754,7 @@ onUnmounted(() => {
   padding: 0.5rem 1rem;
   font-size: 0.9rem;
   background: var(--primary-gradient);
-  color: #fff;
+  color: var(--text-on-accent, #12171f);
 }
 
 .action-btn:disabled {
@@ -2806,7 +2806,7 @@ onUnmounted(() => {
 .preview-header {
   background: var(--primary-gradient);
   padding: 0.75rem 1rem;
-  color: #fff;
+  color: var(--text-on-accent, #12171f);
   font-weight: 600;
   font-size: 0.9rem;
 }

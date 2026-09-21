@@ -248,7 +248,7 @@ onMounted(() => {
 
 .delete-btn {
   padding: 8px 16px;
-  background: #f44336;
+  background: #c62828;   /* 흰 글씨 대비 3.68 → 5.62 (위험 의미상 흰 글씨 유지) */
   color: white;
   border: none;
   border-radius: 5px;
@@ -273,7 +273,7 @@ onMounted(() => {
 .action-btn {
   padding: 12px 24px;
   background: var(--primary-start);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 5px;
   cursor: pointer;
@@ -294,7 +294,7 @@ onMounted(() => {
 .page-btn {
   padding: 8px 16px;
   background: var(--primary-start);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 5px;
   cursor: pointer;
@@ -358,7 +358,7 @@ onMounted(() => {
 
 .confirm-btn {
   padding: 10px 20px;
-  background: #f44336;
+  background: #c62828;   /* 흰 글씨 대비 3.68 → 5.62 (위험 의미상 흰 글씨 유지) */
   color: white;
   border: none;
   border-radius: 5px;

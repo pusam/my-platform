@@ -321,7 +321,7 @@ img, video, canvas, svg {
 
 .btn-primary {
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
 }
 
@@ -688,7 +688,7 @@ tbody tr:hover {
 
 .page-btn:hover:not(:disabled) {
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border-color: transparent;
 }
 

@@ -60,7 +60,7 @@ export default {
 .back-button:hover {
   background: var(--primary-start, var(--primary-start));
   border-color: var(--primary-start, var(--primary-start));
-  color: #fff;
+  color: var(--text-on-accent, #12171f);
   transform: translateX(-2px);
 }
 

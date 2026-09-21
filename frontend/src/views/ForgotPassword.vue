@@ -296,7 +296,7 @@ const goBackToStep1 = () => {
 }
 
 .form-group input::placeholder {
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 .info-message {

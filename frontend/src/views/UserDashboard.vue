@@ -491,7 +491,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--text-on-accent, #12171f);
   font-weight: 700;
   font-size: 16px;
 }
@@ -825,7 +825,7 @@ export default {
 .invest-sub-text p {
   margin: 0;
   font-size: 12px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 @media (max-width: 768px) {
@@ -1220,7 +1220,7 @@ export default {
   border-radius: 10px;
   font-size: 15px;
   font-weight: 700;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   cursor: pointer;
   transition: all 0.2s;
 }

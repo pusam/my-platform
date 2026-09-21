@@ -784,7 +784,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--text-on-accent, #12171f);
 }
 
 .settings-card .card-header h2 {
@@ -828,7 +828,7 @@ onMounted(() => {
 
 .disabled-input {
   background: linear-gradient(135deg, #252540 0%, #2a2a45 100%);
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   cursor: not-allowed;
 }
 
@@ -897,7 +897,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 .profile-image-actions {

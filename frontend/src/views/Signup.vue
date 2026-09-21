@@ -321,7 +321,7 @@ const handleSignup = async () => {
   display: block;
   margin-top: 5px;
   font-size: 12px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-style: italic;
 }
 
@@ -337,7 +337,7 @@ const handleSignup = async () => {
 .btn-verify {
   padding: 12px 20px;
   background: var(--primary-start);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 6px;
   font-size: 14px;
@@ -354,7 +354,7 @@ const handleSignup = async () => {
 
 .btn-verify:disabled {
   background: #3a3a5c;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   cursor: not-allowed;
   transform: none;
 }
@@ -366,7 +366,7 @@ const handleSignup = async () => {
 }
 
 .form-group input::placeholder {
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
 }
 
 .error-message {
@@ -422,7 +422,7 @@ const handleSignup = async () => {
 .login-link {
   text-align: center;
   margin-top: 20px;
-  color: #7878a0;
+  color: var(--text-muted, #9494bd);
   font-size: 14px;
 }
 

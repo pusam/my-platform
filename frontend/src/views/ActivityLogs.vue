@@ -249,7 +249,7 @@ export default {
 .btn-search {
   padding: 10px 20px;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 10px;
   font-size: 14px;
@@ -435,7 +435,7 @@ export default {
 .page-btn {
   padding: 8px 16px;
   background: var(--primary-gradient);
-  color: white;
+  color: var(--text-on-accent, #12171f);
   border: none;
   border-radius: 8px;
   cursor: pointer;

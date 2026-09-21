@@ -146,7 +146,7 @@
 
 .subtitle {
     font-size: 15px;
-    color: #7878a0;
+    color: var(--text-muted, #9494bd);
     margin: 0;
 }
 
@@ -222,7 +222,7 @@
 }
 
 .form-group input::placeholder {
-    color: #7878a0;
+    color: var(--text-muted, #9494bd);
 }
 
 /* Form Options */
@@ -367,7 +367,7 @@
 
 .card-footer p {
     font-size: 14px;
-    color: #7878a0;
+    color: var(--text-muted, #9494bd);
     margin: 0;
 }
 
